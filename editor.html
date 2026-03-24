@@ -124,7 +124,6 @@
 <body>
 	<div id="toolbar">
 		<button id="btn-road" class="active">Road</button>
-		<button id="btn-finish">Start/Finish</button>
 		<button id="btn-erase">Erase</button>
 		<div class="separator"></div>
 		<button id="btn-play" class="action">Play</button>
@@ -169,7 +168,7 @@
 	// ─── State ────────────────────────────────────────────────
 
 	const grid = new Map(); // "gx,gz" → { type, orient, isFinish, mesh }
-	let tool = 'road'; // 'road', 'finish', 'erase'
+	let tool = 'road'; // 'road', 'erase'
 
 	function cellKey( gx, gz ) { return gx + ',' + gz; }
 
@@ -576,40 +575,17 @@
 
 	// ─── Cell operations ──────────────────────────────────────
 
-	function placeRoad( gx, gz, isFinish ) {
+	function placeRoad( gx, gz ) {
 
 		const key = cellKey( gx, gz );
-
-		// If placing a finish, remove finish flag from the old finish cell
-		if ( isFinish ) {
-
-			for ( const [ k, c ] of grid ) {
-
-				if ( c.isFinish && k !== key ) {
-
-					c.isFinish = false;
-					const [ ox, oz ] = k.split( ',' ).map( Number );
-					resolveCell( ox, oz );
-
-				}
-
-			}
-
-		}
 
 		if ( grid.has( key ) ) {
 
 			const cell = grid.get( key );
 
-			if ( isFinish && ! cell.isFinish ) {
+			// Click on finish tile → flip direction (rotate 180°)
+			if ( cell.isFinish ) {
 
-				cell.isFinish = true;
-				resolveCellAndNeighbors( gx, gz );
-				save();
-
-			} else if ( cell.isFinish ) {
-
-				// Click on finish tile → flip direction (rotate 180°)
 				cell.orient = ORIENT_FLIP[ cell.orient ] ?? cell.orient;
 				placeMesh( gx, gz, cell );
 				save();
@@ -620,9 +596,17 @@
 
 		}
 
-		grid.set( key, { type: 'track-straight', orient: 0, isFinish: !! isFinish, mesh: null } );
+		grid.set( key, { type: 'track-straight', orient: 0, isFinish: false, mesh: null } );
 		resolveCellAndNeighbors( gx, gz );
 		save();
+
+	}
+
+	function placeFinish() {
+
+		const cell = { type: 'track-finish', orient: 0, isFinish: true, mesh: null };
+		grid.set( cellKey( 0, 0 ), cell );
+		placeMesh( 0, 0, cell );
 
 	}
 
@@ -631,7 +615,10 @@
 		const key = cellKey( gx, gz );
 		if ( ! grid.has( key ) ) return;
 
+		// Don't allow erasing the finish tile
 		const cell = grid.get( key );
+		if ( cell.isFinish ) return;
+
 		if ( cell.mesh ) trackGroup.remove( cell.mesh );
 		grid.delete( key );
 
@@ -654,7 +641,7 @@
 		}
 
 		grid.clear();
-		placeRoad( 0, 0, true );
+		placeFinish();
 		save();
 
 	}
@@ -701,13 +688,11 @@
 		if ( grid.has( key ) ) return; // already occupied
 
 		// Temporarily insert ghost cell into grid
-		const isFinish = ( tool === 'finish' );
-		const ghostCell = { type: 'track-straight', orient: 0, isFinish, mesh: null };
+		const ghostCell = { type: 'track-straight', orient: 0, isFinish: false, mesh: null };
 		grid.set( key, ghostCell );
 
 		// Resolve ghost: connect to neighbors, pick best pair if 3+
-		const [ baseType, orient ] = resolveNewTile( gx, gz );
-		const type = ( isFinish && baseType === 'track-straight' ) ? 'track-finish' : baseType;
+		const [ type, orient ] = resolveNewTile( gx, gz );
 
 		// Update ghost cell in grid so neighbors see its correct exits
 		ghostCell.type = type;
@@ -867,20 +852,17 @@
 	// ─── Toolbar ──────────────────────────────────────────────
 
 	const btnRoad = document.getElementById( 'btn-road' );
-	const btnFinish = document.getElementById( 'btn-finish' );
 	const btnErase = document.getElementById( 'btn-erase' );
 
 	function selectTool( t ) {
 
 		tool = t;
 		btnRoad.classList.toggle( 'active', t === 'road' );
-		btnFinish.classList.toggle( 'active', t === 'finish' );
 		btnErase.classList.toggle( 'active', t === 'erase' );
 
 	}
 
 	btnRoad.addEventListener( 'click', () => selectTool( 'road' ) );
-	btnFinish.addEventListener( 'click', () => selectTool( 'finish' ) );
 	btnErase.addEventListener( 'click', () => selectTool( 'erase' ) );
 
 	function getCellsArray() {
@@ -976,7 +958,7 @@
 
 		} else if ( isDrawing ) {
 
-			placeRoad( cell.gx, cell.gz, tool === 'finish' );
+			placeRoad( cell.gx, cell.gz );
 
 		}
 
@@ -1195,10 +1177,6 @@
 
 		} else if ( e.key === '2' ) {
 
-			selectTool( 'finish' );
-
-		} else if ( e.key === '3' ) {
-
 			selectTool( 'erase' );
 
 		}
@@ -1224,7 +1202,7 @@
 	// Start with a finish cell if the grid is empty
 	if ( grid.size === 0 ) {
 
-		placeRoad( 0, 0, true );
+		placeFinish();
 
 	}
 
