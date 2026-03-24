@@ -9,6 +9,7 @@ import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds } fro
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
+import { Multiplayer } from './Multiplayer.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType } );
@@ -168,22 +169,43 @@ async function init() {
 		restitution: 0.0,
 	} );
 
-	const sphereBody = createSphereBody( world, spawn ? spawn.position : null );
+	// Connect to multiplayer server
+	let multiplayer = null;
+	let modelKey = 'vehicle-truck-yellow';
+	let spawnX = spawn ? spawn.position[ 0 ] : 3.5;
+	let spawnY = spawn ? spawn.position[ 1 ] : 0.5;
+	let spawnZ = spawn ? spawn.position[ 2 ] : 5;
+	let spawnAngle = spawn ? spawn.angle : 0;
+
+	try {
+
+		multiplayer = new Multiplayer( scene, models, world );
+		await multiplayer.connect( mapParam );
+		modelKey = multiplayer.localModelKey;
+
+		// Server provides grid spawn position
+		const lp = multiplayer.localPlayer;
+		spawnX = lp.x;
+		spawnY = lp.y;
+		spawnZ = lp.z;
+		spawnAngle = lp.spawnAngle;
+
+	} catch ( e ) {
+
+		console.warn( 'Multiplayer unavailable, playing offline:', e.message );
+
+	}
+
+	const sphereBody = createSphereBody( world, [ spawnX, spawnY, spawnZ ] );
 
 	const vehicle = new Vehicle();
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
+	vehicle.spherePos.set( spawnX, spawnY, spawnZ );
+	vehicle.prevModelPos.set( spawnX, 0, spawnZ );
+	vehicle.container.rotation.y = spawnAngle;
 
-	if ( spawn ) {
-
-		const [ sx, sy, sz ] = spawn.position;
-		vehicle.spherePos.set( sx, sy, sz );
-		vehicle.prevModelPos.set( sx, 0, sz );
-		vehicle.container.rotation.y = spawn.angle;
-
-	}
-
-	const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
+	const vehicleGroup = vehicle.init( models[ modelKey ] );
 	scene.add( vehicleGroup );
 
 	dirLight.target = vehicleGroup;
@@ -236,8 +258,10 @@ async function init() {
 			vehicle.spherePos.z - 5.3
 		);
 
+		if ( multiplayer ) multiplayer.tick( dt, vehicle );
+
 		cam.update( dt, vehicle.spherePos );
-		particles.update( dt, vehicle );
+		particles.update( dt, vehicle, multiplayer ? multiplayer.remotePlayers : null );
 		audio.update( dt, vehicle.linearSpeed, input.z, vehicle.driftIntensity );
 
 		renderer.render( scene, cam.camera );

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-const POOL_SIZE = 64;
+const POOL_SIZE = 128;
 
 export class SmokeTrails {
 
@@ -38,7 +38,7 @@ export class SmokeTrails {
 
 	}
 
-	update( dt, vehicle ) {
+	update( dt, vehicle, remoteVehicles ) {
 
 		const shouldEmit = vehicle.driftIntensity > 0.25 && vehicle.colliding;
 
@@ -47,6 +47,22 @@ export class SmokeTrails {
 
 			if ( vehicle.wheelBL ) this.emitAtWheel( vehicle.wheelBL, vehicle );
 			if ( vehicle.wheelBR ) this.emitAtWheel( vehicle.wheelBR, vehicle );
+
+		}
+
+		// Emit for remote vehicles
+		if ( remoteVehicles ) {
+
+			for ( const [ , remote ] of remoteVehicles ) {
+
+				if ( remote.driftIntensity > 0.25 ) {
+
+					if ( remote.wheelBL ) this.emitAtWheel( remote.wheelBL, remote );
+					if ( remote.wheelBR ) this.emitAtWheel( remote.wheelBR, remote );
+
+				}
+
+			}
 
 		}
 
