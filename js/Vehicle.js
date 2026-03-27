@@ -127,11 +127,11 @@ export class Vehicle {
 
 		} else if ( targetSpeed < 0 ) {
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed / 1, dt * 2 );
+			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed / 2, dt * 2 );
 
 		} else {
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed, dt * 12 );
+			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed, dt * 6 );
 
 		}
 
