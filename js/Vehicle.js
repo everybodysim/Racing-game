@@ -51,10 +51,55 @@ export class Vehicle {
 		this.inputZ = 0;
 
 		this.driftIntensity = 0;
+		this.spawnPosition = new THREE.Vector3( 3.5, 0.5, 5 );
+		this.spawnAngle = 0;
 
 	}
 
-	init( model ) {
+	setSpawn( position, angle = 0 ) {
+
+		this.spawnPosition.fromArray( position );
+		this.spawnAngle = angle;
+
+	}
+
+	resetToSpawn() {
+
+		if ( this.rigidBody ) {
+
+			rigidBody.setPosition( this.physicsWorld, this.rigidBody, this.spawnPosition.toArray(), false );
+			rigidBody.setLinearVelocity( this.physicsWorld, this.rigidBody, [ 0, 0, 0 ] );
+			rigidBody.setAngularVelocity( this.physicsWorld, this.rigidBody, [ 0, 0, 0 ] );
+
+		}
+
+		this.spherePos.copy( this.spawnPosition );
+		this.sphereVel.set( 0, 0, 0 );
+		this.linearSpeed = 0;
+		this.angularSpeed = 0;
+		this.acceleration = 0;
+		this.modelVelocity.set( 0, 0, 0 );
+		this.container.position.set( this.spherePos.x, this.spherePos.y - 0.5, this.spherePos.z );
+		this.container.rotation.set( 0, this.spawnAngle, 0 );
+		this.container.quaternion.setFromEuler( this.container.rotation );
+		this.prevModelPos.copy( this.container.position );
+
+	}
+
+	attachModel( model ) {
+
+		this.wheels = [];
+		this.wheelFL = null;
+		this.wheelFR = null;
+		this.wheelBL = null;
+		this.wheelBR = null;
+		this.bodyNode = null;
+
+		for ( let i = this.container.children.length - 1; i >= 0; i -- ) {
+
+			this.container.remove( this.container.children[ i ] );
+
+		}
 
 		const vehicleModel = model.clone();
 
@@ -90,6 +135,19 @@ export class Vehicle {
 			}
 
 		} );
+
+	}
+
+	init( model ) {
+
+		this.attachModel( model );
+		return this.container;
+
+	}
+
+	setModel( model ) {
+
+		this.attachModel( model );
 
 		return this.container;
 
@@ -172,21 +230,7 @@ export class Vehicle {
 
 		if ( this.spherePos.y < - 10 ) {
 
-			if ( this.rigidBody ) {
-
-				rigidBody.setPosition( this.physicsWorld, this.rigidBody, [ 3.5, 0.5, 5 ], false );
-				rigidBody.setLinearVelocity( this.physicsWorld, this.rigidBody, [ 0, 0, 0 ] );
-				rigidBody.setAngularVelocity( this.physicsWorld, this.rigidBody, [ 0, 0, 0 ] );
-
-			}
-
-			this.spherePos.set( 3.5, 0.5, 5 );
-			this.sphereVel.set( 0, 0, 0 );
-			this.linearSpeed = 0;
-			this.angularSpeed = 0;
-			this.acceleration = 0;
-			this.container.rotation.set( 0, 0, 0 );
-			this.container.quaternion.identity();
+			this.resetToSpawn();
 
 		}
 

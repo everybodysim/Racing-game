@@ -14,7 +14,16 @@ function addDebugBox( group, halfExtents, position, quaternion ) {
 
 }
 
-export function buildWallColliders( world, debugGroup, customCells ) {
+function addDebugSphere( group, radius, position ) {
+
+	const geo = new THREE.SphereGeometry( radius, 16, 12 );
+	const mesh = new THREE.Mesh( geo, _debugMat );
+	mesh.position.set( position[ 0 ], position[ 1 ], position[ 2 ] );
+	group.add( mesh );
+
+}
+
+export function buildWallColliders( world, debugGroup, customCells, extras = null ) {
 
 	const S = GRID_SCALE;
 	const CELL_HALF = CELL_RAW / 2;
@@ -27,6 +36,12 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 	const hThick = WALL_HALF_THICK * S;
 	const hHeight = WALL_HALF_H * S;
 	const hLen = CELL_HALF * S;
+	const groundY = - 0.125;
+
+	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
+	const BUMP_RADIUS = 7.5 * S;
+	const BUMP_RISE = 0.42 * S;
+	const bumpY = groundY + BUMP_RISE - BUMP_RADIUS;
 
 	const ARC_SPAN = - Math.PI / 2;
 	const ARC_CENTER_X = - CELL_HALF;
@@ -68,10 +83,14 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 	}
 
 	const cells = customCells || TRACK_CELLS;
+	const bumpSet = new Set();
+	if ( extras && Array.isArray( extras.bumps ) ) {
+
+		for ( const [ gx, gz ] of extras.bumps ) bumpSet.add( gx + ',' + gz );
+
+	}
 
 	for ( const [ gx, gz, key, orient ] of cells ) {
-
-		if ( key === 'track-bump' ) continue;
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
@@ -80,7 +99,27 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 		const rad = deg * Math.PI / 180;
 		const cr = Math.cos( rad ), sr = Math.sin( rad );
 
-		if ( key === 'track-straight' || key === 'track-finish' ) {
+		const hasBump = key === 'track-bump' || bumpSet.has( gx + ',' + gz );
+		const baseKey = key === 'track-bump' ? 'track-straight' : key;
+
+		if ( hasBump ) {
+
+			const position = [ cx, bumpY, cz ];
+
+			rigidBody.create( world, {
+				shape: sphere.create( { radius: BUMP_RADIUS } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				friction: 3.0,
+				restitution: 0.0,
+			} );
+
+			if ( debugGroup ) addDebugSphere( debugGroup, BUMP_RADIUS, position );
+
+		}
+
+		if ( baseKey === 'track-straight' || baseKey === 'track-finish' ) {
 
 			for ( const side of [ - 1, 1 ] ) {
 
@@ -105,7 +144,7 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 
 			}
 
-		} else if ( key === 'track-corner' ) {
+		} else if ( baseKey === 'track-corner' ) {
 
 			const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S;
 			const wcz = cz + ( - ARC_CENTER_X * sr + ARC_CENTER_Z * cr ) * S;
