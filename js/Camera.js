@@ -16,7 +16,7 @@ export class Camera {
 		this.camera = new THREE.PerspectiveCamera( 42, window.innerWidth / window.innerHeight, 0.1, 60 );
 
 		this.offset = new THREE.Vector3( 7.0, 7.1, 7.0 );
-		this.chaseOffset = new THREE.Vector3( 0, 2.3, - 4.6 );
+		this.chaseOffset = new THREE.Vector3( 0, 2.3, - 6.6 );
 		this.targetPosition = new THREE.Vector3();
 		this.lookTarget = new THREE.Vector3();
 		this.mode = 'overview';
