@@ -16,7 +16,7 @@ export class Camera {
 		this.camera = new THREE.PerspectiveCamera( 42, window.innerWidth / window.innerHeight, 0.1, 60 );
 
 		this.offset = new THREE.Vector3( 7.0, 7.1, 7.0 );
-		this.chaseOffset = new THREE.Vector3( 0, 2.3, - 4.6 );
+		this.chaseOffset = new THREE.Vector3( 0, 2.5, - 5.2 );
 		this.targetPosition = new THREE.Vector3();
 		this.lookTarget = new THREE.Vector3();
 		this.mode = 'overview';
@@ -55,8 +55,7 @@ export class Camera {
 
 	update( dt, target, targetQuaternion ) {
 
-		const targetLerp = this.mode === 'chase' ? 10 : 6;
-		this.targetPosition.lerp( target, dt * targetLerp );
+		this.targetPosition.lerp( target, dt * 6 );
 
 		if ( this.mode === 'chase' && targetQuaternion ) {
 
@@ -73,14 +72,14 @@ export class Camera {
 
 			} else {
 
-				this.chaseYaw = lerpAngle( this.chaseYaw, targetYaw, Math.min( 1, dt * 8 ) );
+				this.chaseYaw = lerpAngle( this.chaseYaw, targetYaw, Math.min( 1, dt * 5 ) );
 
 			}
 
 			this._rotatedOffset.copy( this.chaseOffset ).applyAxisAngle( this._upAxis, this.chaseYaw );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
-			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, 4.8 );
+			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, 5.5 );
 			this._desiredLook.y += 1.0;
 
 			this.camera.position.lerp( this._desiredPos, dt * 10 );

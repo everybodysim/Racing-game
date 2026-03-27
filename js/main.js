@@ -238,8 +238,6 @@ async function init() {
 	let lapSeconds = 0;
 	let lastLapSeconds = null;
 	let bestLapSeconds = null;
-	let hasPrevFinishSample = false;
-	let lastLocalX = 0;
 	let lastLocalZ = 0;
 	let hasLeftStartZone = false;
 
@@ -303,8 +301,6 @@ async function init() {
 		lapStartSeconds = timer.getElapsed();
 		lapSeconds = 0;
 		hasLeftStartZone = false;
-		hasPrevFinishSample = false;
-		lastLocalX = 0;
 		lastLocalZ = 0;
 		updateLapHud();
 
@@ -374,25 +370,12 @@ async function init() {
 
 			}
 
-			let crossedFinish = false;
+			const crossedFinish =
+				Math.abs( lastLocalZ ) > 0.02 &&
+				Math.abs( localZ ) > 0.02 &&
+				Math.sign( lastLocalZ ) !== Math.sign( localZ );
 
-			if ( hasPrevFinishSample ) {
-
-				const z0 = lastLocalZ;
-				const z1 = localZ;
-				const crossedPlane = ( z0 < 0 && z1 > 0 ) || ( z0 > 0 && z1 < 0 );
-
-				if ( crossedPlane ) {
-
-					const t = z0 / ( z0 - z1 );
-					const xCross = THREE.MathUtils.lerp( lastLocalX, localX, t );
-					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent;
-
-				}
-
-			}
-
-			if ( hasLeftStartZone && crossedFinish ) {
+			if ( hasLeftStartZone && inFinishCell && crossedFinish ) {
 
 				const completedLap = timer.getElapsed() - lapStartSeconds;
 				lastLapSeconds = completedLap;
@@ -404,9 +387,7 @@ async function init() {
 
 			}
 
-			lastLocalX = localX;
 			lastLocalZ = localZ;
-			hasPrevFinishSample = true;
 
 		}
 
