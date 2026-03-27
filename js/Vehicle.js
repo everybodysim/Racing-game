@@ -51,6 +51,38 @@ export class Vehicle {
 		this.inputZ = 0;
 
 		this.driftIntensity = 0;
+		this.spawnPosition = new THREE.Vector3( 3.5, 0.5, 5 );
+		this.spawnAngle = 0;
+
+	}
+
+	setSpawn( position, angle = 0 ) {
+
+		this.spawnPosition.fromArray( position );
+		this.spawnAngle = angle;
+
+	}
+
+	resetToSpawn() {
+
+		if ( this.rigidBody ) {
+
+			rigidBody.setPosition( this.physicsWorld, this.rigidBody, this.spawnPosition.toArray(), false );
+			rigidBody.setLinearVelocity( this.physicsWorld, this.rigidBody, [ 0, 0, 0 ] );
+			rigidBody.setAngularVelocity( this.physicsWorld, this.rigidBody, [ 0, 0, 0 ] );
+
+		}
+
+		this.spherePos.copy( this.spawnPosition );
+		this.sphereVel.set( 0, 0, 0 );
+		this.linearSpeed = 0;
+		this.angularSpeed = 0;
+		this.acceleration = 0;
+		this.modelVelocity.set( 0, 0, 0 );
+		this.container.position.set( this.spherePos.x, this.spherePos.y - 0.5, this.spherePos.z );
+		this.container.rotation.set( 0, this.spawnAngle, 0 );
+		this.container.quaternion.setFromEuler( this.container.rotation );
+		this.prevModelPos.copy( this.container.position );
 
 	}
 
@@ -172,21 +204,7 @@ export class Vehicle {
 
 		if ( this.spherePos.y < - 10 ) {
 
-			if ( this.rigidBody ) {
-
-				rigidBody.setPosition( this.physicsWorld, this.rigidBody, [ 3.5, 0.5, 5 ], false );
-				rigidBody.setLinearVelocity( this.physicsWorld, this.rigidBody, [ 0, 0, 0 ] );
-				rigidBody.setAngularVelocity( this.physicsWorld, this.rigidBody, [ 0, 0, 0 ] );
-
-			}
-
-			this.spherePos.set( 3.5, 0.5, 5 );
-			this.sphereVel.set( 0, 0, 0 );
-			this.linearSpeed = 0;
-			this.angularSpeed = 0;
-			this.acceleration = 0;
-			this.container.rotation.set( 0, 0, 0 );
-			this.container.quaternion.identity();
+			this.resetToSpawn();
 
 		}
 

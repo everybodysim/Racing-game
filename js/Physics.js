@@ -14,6 +14,15 @@ function addDebugBox( group, halfExtents, position, quaternion ) {
 
 }
 
+function addDebugSphere( group, radius, position ) {
+
+	const geo = new THREE.SphereGeometry( radius, 16, 12 );
+	const mesh = new THREE.Mesh( geo, _debugMat );
+	mesh.position.set( position[ 0 ], position[ 1 ], position[ 2 ] );
+	group.add( mesh );
+
+}
+
 export function buildWallColliders( world, debugGroup, customCells ) {
 
 	const S = GRID_SCALE;
@@ -27,6 +36,12 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 	const hThick = WALL_HALF_THICK * S;
 	const hHeight = WALL_HALF_H * S;
 	const hLen = CELL_HALF * S;
+	const groundY = - 0.125;
+
+	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
+	const BUMP_RADIUS = 2.25 * S;
+	const BUMP_RISE = 0.42 * S;
+	const bumpY = groundY + BUMP_RISE - BUMP_RADIUS;
 
 	const ARC_SPAN = - Math.PI / 2;
 	const ARC_CENTER_X = - CELL_HALF;
@@ -71,8 +86,6 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 
 	for ( const [ gx, gz, key, orient ] of cells ) {
 
-		if ( key === 'track-bump' ) continue;
-
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
 
@@ -80,7 +93,22 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 		const rad = deg * Math.PI / 180;
 		const cr = Math.cos( rad ), sr = Math.sin( rad );
 
-		if ( key === 'track-straight' || key === 'track-finish' ) {
+		if ( key === 'track-bump' ) {
+
+			const position = [ cx, bumpY, cz ];
+
+			rigidBody.create( world, {
+				shape: sphere.create( { radius: BUMP_RADIUS } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				friction: 3.0,
+				restitution: 0.0,
+			} );
+
+			if ( debugGroup ) addDebugSphere( debugGroup, BUMP_RADIUS, position );
+
+		} else if ( key === 'track-straight' || key === 'track-finish' ) {
 
 			for ( const side of [ - 1, 1 ] ) {
 
