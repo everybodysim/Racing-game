@@ -105,7 +105,16 @@
 </head>
 <body>
 	<div id="toolbar">
-		<button id="btn-road" class="active">Road</button>
+		<button id="btn-straight" class="active">Straight</button>
+		<button id="btn-corner">Corner</button>
+		<button id="btn-bump">Bump +</button>
+		<button id="btn-finish">Finish</button>
+		<button id="btn-deco-forest">Tree</button>
+		<button id="btn-deco-tents">Tent</button>
+		<button id="btn-deco-empty">Prop</button>
+		<button id="btn-rotate">Rotate: 0°</button>
+		<div class="separator"></div>
+		<button id="btn-paint" class="active">Paint</button>
 		<button id="btn-erase">Erase</button>
 		<div class="separator"></div>
 		<button id="btn-play" class="action">Play</button>
@@ -121,37 +130,35 @@
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells } from './js/Track.js';
 
-	// ─── Auto-tile lookup ─────────────────────────────────────
-	// Bitmask: N=8 S=4 E=2 W=1
-	// Corner connectivity: 0°=S+W, 90°=S+E, 180°=N+E, 270°=N+W
-
-	const ORIENT_FLIP = { 0: 10, 10: 0, 16: 22, 22: 16 };
-
-	const AUTOTILE = [
-		[ 'track-straight', 0 ],    //  0: isolated
-		[ 'track-straight', 16 ],   //  1: W
-		[ 'track-straight', 16 ],   //  2: E
-		[ 'track-straight', 16 ],   //  3: E+W
-		[ 'track-straight', 0 ],    //  4: S
-		[ 'track-corner',   0 ],    //  5: S+W
-		[ 'track-corner',   16 ],   //  6: S+E
-		[ 'track-straight', 16 ],   //  7: S+E+W
-		[ 'track-straight', 0 ],    //  8: N
-		[ 'track-corner',   22 ],   //  9: N+W
-		[ 'track-corner',   10 ],   // 10: N+E
-		[ 'track-straight', 16 ],   // 11: N+E+W
-		[ 'track-straight', 0 ],    // 12: N+S
-		[ 'track-straight', 0 ],    // 13: N+S+W
-		[ 'track-straight', 0 ],    // 14: N+S+E
-		[ 'track-straight', 0 ],    // 15: N+S+E+W
-	];
-
 	// ─── State ────────────────────────────────────────────────
 
 	const grid = new Map(); // "gx,gz" → { type, orient, isFinish, mesh }
-	let tool = 'road'; // 'road', 'erase'
+	const ORIENTATIONS = [ 0, 16, 10, 22 ];
+	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish' ];
+	const BUMP_TOOL = 'overlay-bump';
+	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
+	let tool = 'paint'; // 'paint', 'erase'
+	let selectedType = 'track-straight';
+	let selectedOrient = 0;
 
 	function cellKey( gx, gz ) { return gx + ',' + gz; }
+
+	function makeEmptyCell() {
+
+		return {
+			type: null,
+			orient: 0,
+			isFinish: false,
+			mesh: null,
+			bump: false,
+			bumpOrient: 0,
+			bumpMesh: null,
+			decoType: null,
+			decoOrient: 0,
+			decoMesh: null
+		};
+
+	}
 
 	// ─── Renderer ─────────────────────────────────────────────
 
@@ -212,7 +219,6 @@
 	ghostGroup.position.y = - 0.5;
 	ghostGroup.scale.setScalar( GRID_SCALE );
 	scene.add( ghostGroup );
-	let ghostMesh = null;
 
 	// ─── Camera (orthographic, top-down) ──────────────────────
 
@@ -242,7 +248,7 @@
 	// ─── Load models ──────────────────────────────────────────
 
 	const loader = new GLTFLoader();
-	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish' ];
+	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
 	const models = {};
 
 	async function loadModels() {
@@ -270,211 +276,14 @@
 
 	}
 
-	// ─── Auto-tile resolve ────────────────────────────────────
-
-	// Exit bitmask for each piece type/orient
-	// Bits: N=8 S=4 E=2 W=1
-	function getCellExits( cell ) {
-
-		const t = cell.type;
-		const o = cell.orient;
-
-		if ( t === 'track-corner' ) {
-
-			if ( o === 0 ) return 5;    // S+W
-			if ( o === 16 ) return 6;   // S+E
-			if ( o === 10 ) return 10;  // N+E
-			if ( o === 22 ) return 9;   // N+W
-
-		}
-
-		// Straight, finish, bump — all symmetric
-		if ( o === 0 || o === 10 ) return 12; // N+S
-		return 3; // E+W
-
-	}
-
-	// Check which neighbors have a road exit facing toward this cell
-	function getConnectivityMask( gx, gz ) {
-
-		let mask = 0;
-
-		// N neighbor has S exit?
-		const n = grid.get( cellKey( gx, gz - 1 ) );
-		if ( n && ( getCellExits( n ) & 4 ) ) mask |= 8;
-
-		// S neighbor has N exit?
-		const s = grid.get( cellKey( gx, gz + 1 ) );
-		if ( s && ( getCellExits( s ) & 8 ) ) mask |= 4;
-
-		// E neighbor has W exit?
-		const e = grid.get( cellKey( gx + 1, gz ) );
-		if ( e && ( getCellExits( e ) & 1 ) ) mask |= 2;
-
-		// W neighbor has E exit?
-		const w = grid.get( cellKey( gx - 1, gz ) );
-		if ( w && ( getCellExits( w ) & 2 ) ) mask |= 1;
-
-		return mask;
-
-	}
-
-	// Raw presence mask (any road in adjacent cell)
-	function getPresenceMask( gx, gz ) {
-
-		let mask = 0;
-		if ( grid.has( cellKey( gx, gz - 1 ) ) ) mask |= 8;
-		if ( grid.has( cellKey( gx, gz + 1 ) ) ) mask |= 4;
-		if ( grid.has( cellKey( gx + 1, gz ) ) ) mask |= 2;
-		if ( grid.has( cellKey( gx - 1, gz ) ) ) mask |= 1;
-		return mask;
-
-	}
-
-	// Count bits in a 4-bit mask
-	function bitCount( mask ) {
-
-		return ( mask >> 3 & 1 ) + ( mask >> 2 & 1 ) + ( mask >> 1 & 1 ) + ( mask & 1 );
-
-	}
-
-	// Count how many of a cell's exits are connected to neighbors
-	function connectedExitCount( gx, gz ) {
-
-		const cell = grid.get( cellKey( gx, gz ) );
-		if ( ! cell ) return 0;
-		return bitCount( getCellExits( cell ) & getConnectivityMask( gx, gz ) );
-
-	}
-
-	// When a new cell has 3+ neighbors, pick the best pair to connect.
-	// Prefer corners over straights, then prefer neighbors with more existing connections.
-	const DIR_INFO = [
-		{ bit: 8, dx: 0, dz: - 1 }, // N
-		{ bit: 4, dx: 0, dz: 1 },   // S
-		{ bit: 2, dx: 1, dz: 0 },   // E
-		{ bit: 1, dx: - 1, dz: 0 }, // W
-	];
-
-	function pickBestPair( mask, gx, gz ) {
-
-		const active = DIR_INFO.filter( d => mask & d.bit );
-		if ( active.length <= 2 ) return mask;
-
-		let bestMask = active[ 0 ].bit | active[ 1 ].bit;
-		let bestScore = - 1;
-		let bestIsCorner = false;
-
-		for ( let i = 0; i < active.length; i ++ ) {
-
-			for ( let j = i + 1; j < active.length; j ++ ) {
-
-				const pairMask = active[ i ].bit | active[ j ].bit;
-				const isCorner = ( pairMask !== 3 && pairMask !== 12 ); // not E+W or N+S
-
-				const s1 = connectedExitCount( gx + active[ i ].dx, gz + active[ i ].dz );
-				const s2 = connectedExitCount( gx + active[ j ].dx, gz + active[ j ].dz );
-				const score = s1 + s2;
-
-				if ( ( isCorner && ! bestIsCorner ) ||
-					( isCorner === bestIsCorner && score > bestScore ) ) {
-
-					bestMask = pairMask;
-					bestScore = score;
-					bestIsCorner = isCorner;
-
-				}
-
-			}
-
-		}
-
-		return bestMask;
-
-	}
-
-	// Only count neighbors that can actually connect:
-	// either they already exit toward us, or they have a free (unconnected) exit
-	function getAvailableMask( gx, gz ) {
-
-		let mask = 0;
-		const dirs = [
-			[ 0, - 1, 8, 4 ], // N neighbor, sets N bit, check if neighbor has S exit
-			[ 0, 1, 4, 8 ],   // S neighbor, sets S bit, check if neighbor has N exit
-			[ 1, 0, 2, 1 ],   // E neighbor, sets E bit, check if neighbor has W exit
-			[ - 1, 0, 1, 2 ], // W neighbor, sets W bit, check if neighbor has E exit
-		];
-
-		for ( const [ dx, dz, bit, oppBit ] of dirs ) {
-
-			const neighbor = grid.get( cellKey( gx + dx, gz + dz ) );
-			if ( ! neighbor ) continue;
-
-			const exits = getCellExits( neighbor );
-
-			// Already has an exit facing us
-			if ( exits & oppBit ) { mask |= bit; continue; }
-
-			// Has a free (unconnected) exit — could change to face us
-			const conn = getConnectivityMask( gx + dx, gz + dz );
-			if ( bitCount( exits & conn ) < 2 ) mask |= bit;
-
-		}
-
-		return mask;
-
-	}
-
-	// Resolve tile for new cells: use available neighbors, pick best pair if 3+
-	function resolveNewTile( gx, gz ) {
-
-		const pMask = getAvailableMask( gx, gz );
-
-		if ( bitCount( pMask ) >= 3 ) {
-
-			return AUTOTILE[ pickBestPair( pMask, gx, gz ) ];
-
-		}
-
-		return AUTOTILE[ pMask ];
-
-	}
-
-	function resolveTile( gx, gz ) {
-
-		const cMask = getConnectivityMask( gx, gz );
-
-		// If any neighbor connects toward us, use connectivity-based auto-tile
-		if ( cMask !== 0 ) return AUTOTILE[ cMask ];
-
-		// No neighbor connects toward us — orient parallel to nearest road
-		const pMask = getPresenceMask( gx, gz );
-		if ( pMask !== 0 ) {
-
-			// Find any adjacent road cell and match its direction
-			const dirs = [ [ 0, - 1, 8 ], [ 0, 1, 4 ], [ 1, 0, 2 ], [ - 1, 0, 1 ] ];
-			for ( const [ dx, dz, bit ] of dirs ) {
-
-				if ( ! ( pMask & bit ) ) continue;
-				const neighbor = grid.get( cellKey( gx + dx, gz + dz ) );
-				if ( ! neighbor ) continue;
-
-				const exits = getCellExits( neighbor );
-				// Match the neighbor's running direction
-				if ( exits & 12 ) return [ 'track-straight', 0 ];  // neighbor runs N-S
-				if ( exits & 3 ) return [ 'track-straight', 16 ];  // neighbor runs E-W
-
-			}
-
-		}
-
-		return AUTOTILE[ 0 ]; // isolated default
-
-	}
+	// ─── Tile placement ───────────────────────────────────────
 
 	function placeMesh( gx, gz, cell ) {
 
 		if ( cell.mesh ) trackGroup.remove( cell.mesh );
+		cell.mesh = null;
+
+		if ( ! cell.type ) return;
 
 		const src = models[ cell.type ];
 		if ( ! src ) return;
@@ -498,94 +307,125 @@
 
 	}
 
-	function resolveCell( gx, gz ) {
+	function placeOverlayMesh( gx, gz, cell ) {
 
-		const key = cellKey( gx, gz );
-		const cell = grid.get( key );
-		if ( ! cell ) return;
+		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+		cell.bumpMesh = null;
+		cell.decoMesh = null;
 
-		let baseType, orient;
+		if ( cell.bump ) {
 
-		if ( ! cell.mesh ) {
+			const bumpSrc = models[ 'track-bump' ];
+			if ( bumpSrc ) {
 
-			// New cell: connect to neighbors, pick best pair if 3+
-			[ baseType, orient ] = resolveNewTile( gx, gz );
+				const bump = bumpSrc.clone();
+				bump.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5, ( gz + 0.5 ) * CELL_RAW );
+				bump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.bumpOrient || 0 ] || 0 );
+				bump.traverse( ( c ) => {
 
-		} else {
+					if ( c.isMesh ) {
 
-			// Existing cell: re-resolve, but don't break existing connections
-			const cMask = getConnectivityMask( gx, gz );
-			const currentExits = getCellExits( cell );
-			const currentConnected = currentExits & cMask;
+						c.castShadow = true;
+						c.receiveShadow = true;
 
-			[ baseType, orient ] = resolveTile( gx, gz );
+					}
 
-			// Check if the proposed shape keeps all current connections
-			const proposedExits = getCellExits( { type: baseType, orient } );
-			if ( ( proposedExits & currentConnected ) !== currentConnected ) {
-
-				// Would disconnect something — keep current shape
-				return;
+				} );
+				trackGroup.add( bump );
+				cell.bumpMesh = bump;
 
 			}
 
 		}
 
-		// Finish cells use track-finish but only when resolved as straight
-		const type = ( cell.isFinish && baseType === 'track-straight' ) ? 'track-finish' : baseType;
+		if ( cell.decoType ) {
 
-		// Skip if nothing changed and mesh already exists
-		if ( cell.type === type && cell.orient === orient && cell.mesh ) return;
+			const decoSrc = models[ cell.decoType ];
+			if ( decoSrc ) {
 
-		cell.type = type;
-		cell.orient = orient;
+				const deco = decoSrc.clone();
+				deco.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5, ( gz + 0.5 ) * CELL_RAW );
+				deco.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.decoOrient || 0 ] || 0 );
+				deco.traverse( ( c ) => {
 
-		placeMesh( gx, gz, cell );
+					if ( c.isMesh ) {
+
+						c.castShadow = true;
+						c.receiveShadow = true;
+
+					}
+
+				} );
+				trackGroup.add( deco );
+				cell.decoMesh = deco;
+
+			}
+
+		}
 
 	}
 
-	function resolveCellAndNeighbors( gx, gz ) {
+	function setCell( gx, gz, type, orient ) {
 
-		resolveCell( gx, gz );
-		resolveCell( gx, gz - 1 );
-		resolveCell( gx, gz + 1 );
-		resolveCell( gx + 1, gz );
-		resolveCell( gx - 1, gz );
+		const key = cellKey( gx, gz );
+		const cell = grid.get( key ) || makeEmptyCell();
+		cell.type = type;
+		cell.orient = orient;
+		cell.isFinish = type === 'track-finish';
+		grid.set( key, cell );
+		placeMesh( gx, gz, cell );
+		placeOverlayMesh( gx, gz, cell );
 
 	}
 
 	// ─── Cell operations ──────────────────────────────────────
 
-	function placeRoad( gx, gz ) {
+	function placeSelectedBlock( gx, gz ) {
 
-		const key = cellKey( gx, gz );
+		if ( selectedType === BUMP_TOOL ) {
 
-		if ( grid.has( key ) ) {
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			grid.set( key, cell );
+			cell.bump = ! cell.bump;
+			cell.bumpOrient = selectedOrient;
+			if ( ! cell.bump && ! cell.type && ! cell.decoType ) {
 
-			const cell = grid.get( key );
+				grid.delete( key );
 
-			// Click on finish tile → flip direction (rotate 180°)
-			if ( cell.isFinish ) {
+			} else {
 
-				cell.orient = ORIENT_FLIP[ cell.orient ] ?? cell.orient;
-				placeMesh( gx, gz, cell );
-				save();
+				placeOverlayMesh( gx, gz, cell );
 
 			}
 
-			return;
+		} else if ( DECO_TYPES.includes( selectedType ) ) {
+
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			grid.set( key, cell );
+
+			cell.decoType = selectedType;
+			cell.decoOrient = selectedOrient;
+			placeOverlayMesh( gx, gz, cell );
+
+		} else {
+
+			setCell( gx, gz, selectedType, selectedOrient );
 
 		}
 
-		grid.set( key, { type: 'track-straight', orient: 0, isFinish: false, mesh: null } );
-		resolveCellAndNeighbors( gx, gz );
 		save();
 
 	}
 
 	function placeFinish() {
 
-		const cell = { type: 'track-finish', orient: 0, isFinish: true, mesh: null };
+		const cell = makeEmptyCell();
+		cell.type = 'track-finish';
+		cell.orient = 0;
+		cell.isFinish = true;
 		grid.set( cellKey( 0, 0 ), cell );
 		placeMesh( 0, 0, cell );
 
@@ -596,19 +436,11 @@
 		const key = cellKey( gx, gz );
 		if ( ! grid.has( key ) ) return;
 
-		// Don't allow erasing the finish tile
 		const cell = grid.get( key );
-		if ( cell.isFinish ) return;
-
 		if ( cell.mesh ) trackGroup.remove( cell.mesh );
+		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		grid.delete( key );
-
-		// Re-resolve neighbors
-		resolveCell( gx, gz - 1 );
-		resolveCell( gx, gz + 1 );
-		resolveCell( gx + 1, gz );
-		resolveCell( gx - 1, gz );
-
 		save();
 
 	}
@@ -617,20 +449,18 @@
 
 		for ( const [ , cell ] of grid ) {
 
-			if ( cell.mesh ) trackGroup.remove( cell.mesh );
+				if ( cell.mesh ) trackGroup.remove( cell.mesh );
+				if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 
 		}
 
 		grid.clear();
-		placeFinish();
 		save();
 
 	}
 
 	// ─── Ghost preview ────────────────────────────────────────
-
-	// Neighbor cells whose meshes are temporarily swapped during ghost preview
-	const ghostNeighborBackups = []; // { cell, originalMesh }
 
 	function addGhostPiece( type, orient, gx, gz, opacity ) {
 
@@ -664,76 +494,12 @@
 		clearGhost();
 
 		if ( tool === 'erase' ) return;
-
-		const key = cellKey( gx, gz );
-		if ( grid.has( key ) ) return; // already occupied
-
-		// Temporarily insert ghost cell into grid
-		const ghostCell = { type: 'track-straight', orient: 0, isFinish: false, mesh: null };
-		grid.set( key, ghostCell );
-
-		// Resolve ghost: connect to neighbors, pick best pair if 3+
-		const [ type, orient ] = resolveNewTile( gx, gz );
-
-		// Update ghost cell in grid so neighbors see its correct exits
-		ghostCell.type = type;
-		ghostCell.orient = orient;
-
-		// Show ghost piece
-		addGhostPiece( type, orient, gx, gz, 0.4 );
-
-		// Check how neighbors would change and preview those changes
-		const neighbors = [ [ gx, gz - 1 ], [ gx, gz + 1 ], [ gx + 1, gz ], [ gx - 1, gz ] ];
-
-		for ( const [ nx, nz ] of neighbors ) {
-
-			const nKey = cellKey( nx, nz );
-			const nCell = grid.get( nKey );
-			if ( ! nCell ) continue;
-
-			// Re-resolve neighbor, but skip if it would break existing connections
-			const nExits = getCellExits( nCell );
-			const nConn = getConnectivityMask( nx, nz );
-			const nConnected = nExits & nConn;
-
-			const [ newType, newOrient ] = resolveTile( nx, nz );
-			const proposedExits = getCellExits( { type: newType, orient: newOrient } );
-			if ( ( proposedExits & nConnected ) !== nConnected ) continue;
-
-			const finalType = ( nCell.isFinish && newType === 'track-straight' ) ? 'track-finish' : newType;
-
-			if ( finalType !== nCell.type || newOrient !== nCell.orient ) {
-
-				// Hide the real mesh temporarily
-				if ( nCell.mesh ) {
-
-					nCell.mesh.visible = false;
-					ghostNeighborBackups.push( { cell: nCell } );
-
-				}
-
-				// Show preview of what the neighbor would become
-				addGhostPiece( finalType, newOrient, nx, nz, 0.7 );
-
-			}
-
-		}
-
-		// Remove the temporary ghost cell from the grid
-		grid.delete( key );
+		const ghostType = selectedType === BUMP_TOOL ? 'track-bump' : selectedType;
+		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
 
 	}
 
 	function clearGhost() {
-
-		// Restore hidden neighbor meshes
-		for ( const { cell } of ghostNeighborBackups ) {
-
-			if ( cell.mesh ) cell.mesh.visible = true;
-
-		}
-
-		ghostNeighborBackups.length = 0;
 
 		// Remove all ghost preview meshes
 		while ( ghostGroup.children.length > 0 ) {
@@ -778,12 +544,53 @@
 		for ( const [ key, cell ] of grid ) {
 
 			const [ gx, gz ] = key.split( ',' ).map( Number );
-			arr.push( [ gx, gz, cell.type, cell.orient ] );
+				if ( cell.type ) arr.push( [ gx, gz, cell.type, cell.orient ] );
 
 		}
 
 		const encoded = encodeCells( arr );
 		localStorage.setItem( 'racing-editor-cells', encoded );
+		localStorage.setItem( 'racing-editor-mods', encodeMods() );
+
+	}
+
+	function encodeMods() {
+
+		const bumps = [];
+		const deco = [];
+
+		for ( const [ key, cell ] of grid ) {
+
+				const [ gx, gz ] = key.split( ',' ).map( Number );
+				if ( cell.bump ) bumps.push( [ gx, gz ] );
+			if ( cell.decoType ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
+
+		}
+
+		const payload = JSON.stringify( { b: bumps, d: deco } );
+		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
+
+	}
+
+	function decodeMods( modsStr ) {
+
+		if ( ! modsStr ) return { b: [], d: [] };
+
+		try {
+
+			const payload = decodeURIComponent( escape( atob( modsStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
+			const parsed = JSON.parse( payload );
+			return {
+				b: Array.isArray( parsed.b ) ? parsed.b : [],
+				d: Array.isArray( parsed.d ) ? parsed.d : [],
+			};
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to decode mods', e );
+			return { b: [], d: [] };
+
+		}
 
 	}
 
@@ -791,7 +598,9 @@
 
 		const params = new URLSearchParams( window.location.search );
 		const mapParam = params.get( 'map' );
+		const modsParam = params.get( 'mods' );
 		const encoded = mapParam || localStorage.getItem( 'racing-editor-cells' );
+		const modsEncoded = modsParam || localStorage.getItem( 'racing-editor-mods' );
 
 		if ( ! encoded ) return;
 
@@ -802,9 +611,35 @@
 			for ( const [ gx, gz, type, orient ] of arr ) {
 
 				const isFinish = ( type === 'track-finish' );
-				const cell = { type, orient, isFinish, mesh: null };
+				const cell = makeEmptyCell();
+				cell.type = type;
+				cell.orient = orient;
+				cell.isFinish = isFinish;
 				grid.set( cellKey( gx, gz ), cell );
 				placeMesh( gx, gz, cell );
+
+			}
+
+			const mods = decodeMods( modsEncoded );
+			for ( const [ gx, gz ] of mods.b ) {
+
+				const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					cell.bump = true;
+					cell.bumpOrient = 0;
+					placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz, decoType, decoOrient ] of mods.d ) {
+
+				const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					cell.decoType = decoType;
+					cell.decoOrient = decoOrient || 0;
+					placeOverlayMesh( gx, gz, cell );
 
 			}
 
@@ -832,27 +667,75 @@
 
 	// ─── Toolbar ──────────────────────────────────────────────
 
-	const btnRoad = document.getElementById( 'btn-road' );
+	const tileButtons = {
+		'track-straight': document.getElementById( 'btn-straight' ),
+		'track-corner': document.getElementById( 'btn-corner' ),
+		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
+		'track-finish': document.getElementById( 'btn-finish' ),
+		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
+		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
+		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
+	};
+	const btnRotate = document.getElementById( 'btn-rotate' );
+	const btnPaint = document.getElementById( 'btn-paint' );
 	const btnErase = document.getElementById( 'btn-erase' );
 
 	function selectTool( t ) {
 
 		tool = t;
-		btnRoad.classList.toggle( 'active', t === 'road' );
+		btnPaint.classList.toggle( 'active', t === 'paint' );
 		btnErase.classList.toggle( 'active', t === 'erase' );
 
 	}
 
-	btnRoad.addEventListener( 'click', () => selectTool( 'road' ) );
+	function updateTileToolbar() {
+
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES ] ) {
+
+			tileButtons[ type ].classList.toggle( 'active', selectedType === type );
+
+		}
+
+		const rotIndex = ORIENTATIONS.indexOf( selectedOrient );
+		btnRotate.textContent = `Rotate: ${ Math.max( 0, rotIndex ) * 90 }°`;
+
+	}
+
+	function selectTileType( type ) {
+
+		selectedType = type;
+		selectTool( 'paint' );
+		updateTileToolbar();
+
+	}
+
+	function rotateSelection() {
+
+		const idx = ORIENTATIONS.indexOf( selectedOrient );
+		const nextIdx = idx >= 0 ? ( idx + 1 ) % ORIENTATIONS.length : 0;
+		selectedOrient = ORIENTATIONS[ nextIdx ];
+		updateTileToolbar();
+
+	}
+
+	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES ] ) {
+
+		tileButtons[ type ].addEventListener( 'click', () => selectTileType( type ) );
+
+	}
+
+	btnRotate.addEventListener( 'click', rotateSelection );
+	btnPaint.addEventListener( 'click', () => selectTool( 'paint' ) );
 	btnErase.addEventListener( 'click', () => selectTool( 'erase' ) );
+	updateTileToolbar();
 
 	function getCellsArray() {
 
-		const arr = [];
-		for ( const [ key, cell ] of grid ) {
+			const arr = [];
+			for ( const [ key, cell ] of grid ) {
 
-			const [ gx, gz ] = key.split( ',' ).map( Number );
-			arr.push( [ gx, gz, cell.type, cell.orient ] );
+				const [ gx, gz ] = key.split( ',' ).map( Number );
+				if ( cell.type ) arr.push( [ gx, gz, cell.type, cell.orient ] );
 
 		}
 
@@ -862,7 +745,7 @@
 
 	document.getElementById( 'btn-play' ).addEventListener( 'click', () => {
 
-		if ( grid.size === 0 ) {
+		if ( getCellsArray().length === 0 ) {
 
 			showToast( 'Draw some road first!' );
 			return;
@@ -870,13 +753,14 @@
 		}
 
 		const encoded = encodeCells( getCellsArray() );
-		window.open( 'index.html?map=' + encoded, '_blank' );
+		const mods = encodeMods();
+		window.open( 'index.html?map=' + encoded + '&mods=' + mods, '_blank' );
 
 	} );
 
 	document.getElementById( 'btn-share' ).addEventListener( 'click', () => {
 
-		if ( grid.size === 0 ) {
+		if ( getCellsArray().length === 0 ) {
 
 			showToast( 'Draw some road first!' );
 			return;
@@ -884,8 +768,9 @@
 		}
 
 		const encoded = encodeCells( getCellsArray() );
+		const mods = encodeMods();
 		const base = window.location.href.replace( /editor\.html.*/, '' );
-		const url = base + 'index.html?map=' + encoded;
+		const url = base + 'index.html?map=' + encoded + '&mods=' + mods;
 
 		navigator.clipboard.writeText( url ).then( () => {
 
@@ -939,7 +824,7 @@
 
 		} else if ( isDrawing ) {
 
-			placeRoad( cell.gx, cell.gz );
+			placeSelectedBlock( cell.gx, cell.gz );
 
 		}
 
@@ -1163,11 +1048,15 @@
 
 		} else if ( e.key === '1' ) {
 
-			selectTool( 'road' );
+			selectTool( 'paint' );
 
 		} else if ( e.key === '2' ) {
 
 			selectTool( 'erase' );
+
+		} else if ( e.key.toLowerCase() === 'r' ) {
+
+			rotateSelection();
 
 		}
 

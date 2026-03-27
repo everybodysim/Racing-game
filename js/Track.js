@@ -115,7 +115,7 @@ const NPC_TRUCKS = [
 	[ 'vehicle-truck-red',    -1.36, -0.15, -23.80, 155.9 ],
 ];
 
-export function buildTrack( scene, models, customCells ) {
+export function buildTrack( scene, models, customCells, extras = null ) {
 
 	const trackGroup = new THREE.Group();
 	trackGroup.position.y = -0.5;
@@ -129,6 +129,27 @@ export function buildTrack( scene, models, customCells ) {
 
 		const piece = placePiece( models, key, gx, gz, orient );
 		if ( piece ) trackPieceGroup.add( piece );
+
+	}
+
+	if ( extras ) {
+
+		const bumpCells = Array.isArray( extras.bumps ) ? extras.bumps : [];
+		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
+
+		for ( const [ gx, gz ] of bumpCells ) {
+
+			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
+			if ( piece ) trackPieceGroup.add( piece );
+
+		}
+
+		for ( const [ gx, gz, key, orient ] of decorations ) {
+
+			const piece = placePiece( models, key, gx, gz, orient || 0 );
+			if ( piece ) decoGroup.add( piece );
+
+		}
 
 	}
 
