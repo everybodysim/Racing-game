@@ -115,7 +115,7 @@ const NPC_TRUCKS = [
 	[ 'vehicle-truck-red',    -1.36, -0.15, -23.80, 155.9 ],
 ];
 
-export function buildTrack( scene, models, customCells ) {
+export function buildTrack( scene, models, customCells, extras = null ) {
 
 	const trackGroup = new THREE.Group();
 	trackGroup.position.y = -0.5;
@@ -129,6 +129,27 @@ export function buildTrack( scene, models, customCells ) {
 
 		const piece = placePiece( models, key, gx, gz, orient );
 		if ( piece ) trackPieceGroup.add( piece );
+
+	}
+
+	if ( extras ) {
+
+		const bumpCells = Array.isArray( extras.bumps ) ? extras.bumps : [];
+		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
+
+		for ( const [ gx, gz ] of bumpCells ) {
+
+			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
+			if ( piece ) trackPieceGroup.add( piece );
+
+		}
+
+		for ( const [ gx, gz, key, orient ] of decorations ) {
+
+			const piece = placePiece( models, key, gx, gz, orient || 0 );
+			if ( piece ) decoGroup.add( piece );
+
+		}
 
 	}
 
@@ -179,7 +200,6 @@ export function buildTrack( scene, models, customCells ) {
 		const pad = 3;
 		const emptyPositions = [];
 		const forestPositions = [];
-		const tentPositions = [];
 
 		// Simple hash for deterministic pseudo-random placement
 		function hash( gx, gz ) {
@@ -205,16 +225,7 @@ export function buildTrack( scene, models, customCells ) {
 
 				if ( dist <= 1 ) {
 
-					// ~15% chance of tents in the empty ring
-					if ( hash( gx, gz ) % 7 === 0 ) {
-
-						tentPositions.push( x, z, hash( gx, gz ) % 4 );
-
-					} else {
-
-						emptyPositions.push( x, z );
-
-					}
+					emptyPositions.push( x, z );
 
 				} else {
 
@@ -256,36 +267,6 @@ export function buildTrack( scene, models, customCells ) {
 
 		createInstances( models[ 'decoration-empty' ], emptyPositions );
 		createInstances( models[ 'decoration-forest' ], forestPositions );
-
-		// Place tents with random rotations
-		const tentSrc = models[ 'decoration-tents' ];
-
-		if ( tentSrc && tentPositions.length > 0 ) {
-
-			const tentCount = tentPositions.length / 3;
-
-			tentSrc.traverse( ( child ) => {
-
-				if ( ! child.isMesh ) return;
-
-				const inst = new THREE.InstancedMesh( child.geometry, child.material, tentCount );
-				inst.castShadow = true;
-				inst.receiveShadow = true;
-
-				for ( let i = 0; i < tentCount; i ++ ) {
-
-					_dummy.position.set( tentPositions[ i * 3 ], 0.5, tentPositions[ i * 3 + 1 ] );
-					_dummy.rotation.y = tentPositions[ i * 3 + 2 ] * Math.PI / 2;
-					_dummy.updateMatrix();
-					inst.setMatrixAt( i, _dummy.matrix );
-
-				}
-
-				decoGroup.add( inst );
-
-			} );
-
-		}
 
 	}
 

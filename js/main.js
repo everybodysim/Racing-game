@@ -5,7 +5,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds } from './Track.js';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
@@ -57,6 +57,36 @@ const modelNames = [
 ];
 
 const models = {};
+const CAR_STATS = {
+	'vehicle-truck-yellow': { name: 'Yellow', speed: 7, accel: 7, perf: { topSpeed: 1.0, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-truck-green': { name: 'Green', speed: 6, accel: 9, perf: { topSpeed: 0.92, accelRate: 7.8, driveForce: 108.0 } },
+	'vehicle-truck-purple': { name: 'Purple', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-red': { name: 'Red', speed: 8, accel: 6, perf: { topSpeed: 1.05, accelRate: 5.5, driveForce: 102.0 } },
+};
+const ENGINE_MULTS = [ 1.2, 1.4, 1.6, 1.8, 2.0 ];
+const ENGINE_UPGRADE_COST = 100;
+
+function decodeExtrasParam( str ) {
+
+	if ( ! str ) return null;
+
+	try {
+
+		const json = decodeURIComponent( escape( atob( str.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
+		const parsed = JSON.parse( json );
+		return {
+			bumps: Array.isArray( parsed.b ) ? parsed.b : [],
+			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
+		};
+
+	} catch ( e ) {
+
+		console.warn( 'Invalid mods parameter, ignoring extras' );
+		return null;
+
+	}
+
+}
 
 async function loadModels() {
 
@@ -100,8 +130,10 @@ async function init() {
 	await loadModels();
 
 	const mapParam = new URLSearchParams( window.location.search ).get( 'map' );
+	const extrasParam = new URLSearchParams( window.location.search ).get( 'mods' );
 	let customCells = null;
 	let spawn = null;
+	const extras = decodeExtrasParam( extrasParam );
 
 	if ( mapParam ) {
 
@@ -134,7 +166,7 @@ async function init() {
 	scene.fog.near = groundSize * 0.4;
 	scene.fog.far = groundSize * 0.8;
 
-	buildTrack( scene, models, customCells );
+	buildTrack( scene, models, customCells, extras );
 
 
 	const worldSettings = createWorldSettings();
@@ -152,7 +184,7 @@ async function init() {
 	world._OL_MOVING = OL_MOVING;
 	world._OL_STATIC = OL_STATIC;
 
-	buildWallColliders( world, null, customCells );
+	buildWallColliders( world, null, customCells, extras );
 
 	const roadHalf = groundSize / 2;
 	rigidBody.create( world, {
@@ -169,6 +201,8 @@ async function init() {
 	const vehicle = new Vehicle();
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
+	vehicle.setSpawn( spawn ? spawn.position : [ 3.5, 0.5, 5 ], spawn ? spawn.angle : 0 );
+	vehicle.setPerformance( CAR_STATS[ 'vehicle-truck-yellow' ].perf );
 
 	if ( spawn ) {
 
@@ -190,6 +224,105 @@ async function init() {
 	const controls = new Controls();
 
 	const particles = new SmokeTrails( scene );
+	const lapHud = document.getElementById( 'lap-hud' );
+	const respawnBtn = document.getElementById( 'respawnBtn' );
+	const carSelect = document.getElementById( 'car-select' );
+	const coinsLabel = document.getElementById( 'coins-label' );
+	const upgradeLabel = document.getElementById( 'upgrade-label' );
+	const buyUpgradeBtn = document.getElementById( 'buy-upgrade' );
+	const economyStoreKey = 'racing-economy-v1';
+	let coins = 0;
+	let engineTier = 0;
+
+	function getEngineMult() {
+
+		return ENGINE_MULTS[ Math.min( engineTier, ENGINE_MULTS.length - 1 ) ];
+
+	}
+
+	function currentCarKey() {
+
+		return carSelect?.value || 'vehicle-truck-yellow';
+
+	}
+
+	function applyVehiclePerformance() {
+
+		const carKey = currentCarKey();
+		const stats = CAR_STATS[ carKey ];
+		if ( ! stats ) return;
+		const mult = getEngineMult();
+		const perf = {
+			...stats.perf,
+			topSpeed: stats.perf.topSpeed * mult,
+			driveForce: stats.perf.driveForce * mult,
+		};
+		vehicle.setPerformance( perf );
+
+	}
+
+	function saveEconomy() {
+
+		localStorage.setItem( economyStoreKey, JSON.stringify( { coins, engineTier } ) );
+
+	}
+
+	function loadEconomy() {
+
+		try {
+
+			const raw = localStorage.getItem( economyStoreKey );
+			if ( ! raw ) return;
+			const parsed = JSON.parse( raw );
+			coins = Number.isFinite( parsed.coins ) ? parsed.coins : 0;
+			engineTier = Number.isFinite( parsed.engineTier ) ? parsed.engineTier : 0;
+			engineTier = Math.max( 0, Math.min( ENGINE_MULTS.length - 1, engineTier ) );
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to load economy', e );
+
+		}
+
+	}
+
+	function updateEconomyHud() {
+
+		if ( coinsLabel ) coinsLabel.textContent = `Coins: ${ coins }`;
+		if ( upgradeLabel ) {
+
+			const mult = getEngineMult();
+			upgradeLabel.textContent = `Engine: x${ mult.toFixed( 2 ) }`;
+
+		}
+
+		if ( buyUpgradeBtn ) {
+
+			const atMax = engineTier >= ENGINE_MULTS.length - 1;
+			buyUpgradeBtn.disabled = atMax || coins < ENGINE_UPGRADE_COST;
+			if ( atMax ) buyUpgradeBtn.textContent = 'Max Upgrade';
+			else buyUpgradeBtn.textContent = `Buy Upgrade (${ ENGINE_UPGRADE_COST })`;
+
+		}
+
+	}
+
+	function rewardCoinsForLap( lapSecondsCompleted ) {
+
+		const reward = Math.max( 20, Math.min( 50, Math.round( 50 - lapSecondsCompleted * 0.75 ) ) );
+		coins += reward;
+		saveEconomy();
+		updateEconomyHud();
+
+	}
+
+	carSelect?.querySelectorAll( 'option' ).forEach( ( option ) => {
+
+		const stats = CAR_STATS[ option.value ];
+		if ( ! stats ) return;
+		option.textContent = `${ stats.name } (SPD ${ stats.speed } / ACC ${ stats.accel })`;
+
+	} );
 
 	const audio = new GameAudio();
 	audio.init( cam.camera );
@@ -212,6 +345,153 @@ async function init() {
 	};
 
 	const timer = new THREE.Timer();
+	const activeCells = customCells || TRACK_CELLS;
+	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells[ 0 ];
+	const lapStoreKey = `racing-lap-stats:${ mapParam || 'default' }`;
+	const finishData = (() => {
+
+		if ( ! finishCell ) return null;
+
+		const [ gx, gz, , orient ] = finishCell;
+		const centerX = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
+		const centerZ = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
+		const halfExtent = ( CELL_RAW * GRID_SCALE ) * 0.5;
+		const angle = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
+		const cosA = Math.cos( angle );
+		const sinA = Math.sin( angle );
+		return { centerX, centerZ, halfExtent, angle, cosA, sinA };
+
+	})();
+
+	let lapNumber = 1;
+	let lapStartSeconds = 0;
+	let lapSeconds = 0;
+	let lastLapSeconds = null;
+	let bestLapSeconds = null;
+	let hasPrevFinishSample = false;
+	let lastLocalX = 0;
+	let lastLocalZ = 0;
+	let hasLeftStartZone = false;
+
+	function formatLapTime( totalSeconds ) {
+
+		if ( totalSeconds === null || ! Number.isFinite( totalSeconds ) ) return '--:--.---';
+
+		const minutes = Math.floor( totalSeconds / 60 );
+		const seconds = Math.floor( totalSeconds % 60 );
+		const millis = Math.floor( ( totalSeconds % 1 ) * 1000 );
+		return `${ String( minutes ).padStart( 2, '0' ) }:${ String( seconds ).padStart( 2, '0' ) }.${ String( millis ).padStart( 3, '0' ) }`;
+
+	}
+
+	function updateLapHud() {
+
+		if ( ! lapHud ) return;
+		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>`;
+
+	}
+
+	function saveLapStats() {
+
+		localStorage.setItem( lapStoreKey, JSON.stringify( {
+			lapNumber,
+			lastLapSeconds,
+			bestLapSeconds,
+		} ) );
+
+	}
+
+	function loadLapStats() {
+
+		try {
+
+			const raw = localStorage.getItem( lapStoreKey );
+			if ( ! raw ) return;
+			const parsed = JSON.parse( raw );
+			lapNumber = Math.max( 1, parsed.lapNumber || 1 );
+			lastLapSeconds = Number.isFinite( parsed.lastLapSeconds ) ? parsed.lastLapSeconds : null;
+			bestLapSeconds = Number.isFinite( parsed.bestLapSeconds ) ? parsed.bestLapSeconds : null;
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to load lap stats', e );
+
+		}
+
+	}
+
+	function resetLapState( keepRecords = false ) {
+
+		if ( ! keepRecords ) {
+
+			lapNumber = 1;
+			lastLapSeconds = null;
+			bestLapSeconds = null;
+
+		}
+
+		lapStartSeconds = timer.getElapsed();
+		lapSeconds = 0;
+		hasLeftStartZone = false;
+		hasPrevFinishSample = false;
+		lastLocalX = 0;
+		lastLocalZ = 0;
+		updateLapHud();
+
+	}
+
+	function respawnVehicle() {
+
+		vehicle.resetToSpawn();
+		cam.targetPosition.copy( vehicle.spherePos );
+		cam.camera.position.addVectors( cam.targetPosition, cam.offset );
+
+		resetLapState( true );
+
+	}
+
+	respawnBtn?.addEventListener( 'click', ( e ) => {
+
+		e.preventDefault();
+		respawnVehicle();
+
+	} );
+
+	carSelect?.addEventListener( 'change', () => {
+
+		const selectedKey = carSelect.value;
+		if ( models[ selectedKey ] ) vehicle.setModel( models[ selectedKey ] );
+		applyVehiclePerformance();
+
+	} );
+
+	buyUpgradeBtn?.addEventListener( 'click', () => {
+
+		if ( engineTier >= ENGINE_MULTS.length - 1 ) return;
+		if ( coins < ENGINE_UPGRADE_COST ) return;
+		coins -= ENGINE_UPGRADE_COST;
+		engineTier ++;
+		applyVehiclePerformance();
+		saveEconomy();
+		updateEconomyHud();
+
+	} );
+
+	loadEconomy();
+	applyVehiclePerformance();
+	updateEconomyHud();
+	loadLapStats();
+	resetLapState( true );
+
+	window.addEventListener( 'keydown', ( e ) => {
+
+		if ( e.code === 'KeyC' ) {
+
+			cam.toggleMode();
+
+		}
+
+	} );
 
 	function animate() {
 
@@ -232,9 +512,61 @@ async function init() {
 			vehicle.spherePos.z - 5.3
 		);
 
-		cam.update( dt, vehicle.spherePos );
+		cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
 		particles.update( dt, vehicle );
 		audio.update( dt, vehicle.linearSpeed, input.z, vehicle.driftIntensity );
+
+		if ( finishData ) {
+
+			const localX = ( ( vehicle.spherePos.x - finishData.centerX ) * finishData.cosA ) + ( ( vehicle.spherePos.z - finishData.centerZ ) * finishData.sinA );
+			const localZ = ( - ( vehicle.spherePos.x - finishData.centerX ) * finishData.sinA ) + ( ( vehicle.spherePos.z - finishData.centerZ ) * finishData.cosA );
+			const inFinishCell = Math.abs( localX ) < finishData.halfExtent && Math.abs( localZ ) < finishData.halfExtent;
+
+			if ( ! hasLeftStartZone && ! inFinishCell ) {
+
+				hasLeftStartZone = true;
+
+			}
+
+			let crossedFinish = false;
+
+			if ( hasPrevFinishSample ) {
+
+				const z0 = lastLocalZ;
+				const z1 = localZ;
+				const crossedPlane = ( z0 < 0 && z1 > 0 ) || ( z0 > 0 && z1 < 0 );
+
+				if ( crossedPlane ) {
+
+					const t = z0 / ( z0 - z1 );
+					const xCross = THREE.MathUtils.lerp( lastLocalX, localX, t );
+					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent;
+
+				}
+
+			}
+
+			if ( hasLeftStartZone && crossedFinish ) {
+
+				const completedLap = timer.getElapsed() - lapStartSeconds;
+				lastLapSeconds = completedLap;
+				bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
+				lapNumber ++;
+				lapStartSeconds = timer.getElapsed();
+				hasLeftStartZone = false;
+				saveLapStats();
+				rewardCoinsForLap( completedLap );
+
+			}
+
+			lastLocalX = localX;
+			lastLocalZ = localZ;
+			hasPrevFinishSample = true;
+
+		}
+
+		lapSeconds = timer.getElapsed() - lapStartSeconds;
+		updateLapHud();
 
 		renderer.render( scene, cam.camera );
 
