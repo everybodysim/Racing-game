@@ -217,6 +217,7 @@ async function init() {
 	const timer = new THREE.Timer();
 	const activeCells = customCells || TRACK_CELLS;
 	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells[ 0 ];
+	const lapStoreKey = `racing-lap-stats:${ mapParam || 'default' }`;
 	const finishData = (() => {
 
 		if ( ! finishCell ) return null;
@@ -228,7 +229,6 @@ async function init() {
 		const angle = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
 		const cosA = Math.cos( angle );
 		const sinA = Math.sin( angle );
-
 		return { centerX, centerZ, halfExtent, angle, cosA, sinA };
 
 	})();
@@ -259,13 +259,47 @@ async function init() {
 
 	}
 
-	function resetLapState() {
+	function saveLapStats() {
 
-		lapNumber = 1;
+		localStorage.setItem( lapStoreKey, JSON.stringify( {
+			lapNumber,
+			lastLapSeconds,
+			bestLapSeconds,
+		} ) );
+
+	}
+
+	function loadLapStats() {
+
+		try {
+
+			const raw = localStorage.getItem( lapStoreKey );
+			if ( ! raw ) return;
+			const parsed = JSON.parse( raw );
+			lapNumber = Math.max( 1, parsed.lapNumber || 1 );
+			lastLapSeconds = Number.isFinite( parsed.lastLapSeconds ) ? parsed.lastLapSeconds : null;
+			bestLapSeconds = Number.isFinite( parsed.bestLapSeconds ) ? parsed.bestLapSeconds : null;
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to load lap stats', e );
+
+		}
+
+	}
+
+	function resetLapState( keepRecords = false ) {
+
+		if ( ! keepRecords ) {
+
+			lapNumber = 1;
+			lastLapSeconds = null;
+			bestLapSeconds = null;
+
+		}
+
 		lapStartSeconds = timer.getElapsed();
 		lapSeconds = 0;
-		lastLapSeconds = null;
-		bestLapSeconds = null;
 		hasLeftStartZone = false;
 		lastLocalZ = 0;
 		updateLapHud();
@@ -278,7 +312,7 @@ async function init() {
 		cam.targetPosition.copy( vehicle.spherePos );
 		cam.camera.position.addVectors( cam.targetPosition, cam.offset );
 
-		resetLapState();
+		resetLapState( true );
 
 	}
 
@@ -288,7 +322,18 @@ async function init() {
 		respawnVehicle();
 
 	} );
-	resetLapState();
+	loadLapStats();
+	resetLapState( true );
+
+	window.addEventListener( 'keydown', ( e ) => {
+
+		if ( e.code === 'KeyC' ) {
+
+			cam.toggleMode();
+
+		}
+
+	} );
 
 	function animate() {
 
@@ -309,7 +354,7 @@ async function init() {
 			vehicle.spherePos.z - 5.3
 		);
 
-		cam.update( dt, vehicle.spherePos );
+		cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
 		particles.update( dt, vehicle );
 		audio.update( dt, vehicle.linearSpeed, input.z, vehicle.driftIntensity );
 
@@ -325,13 +370,20 @@ async function init() {
 
 			}
 
-			if ( hasLeftStartZone && inFinishCell && lastLocalZ <= 0 && localZ > 0.02 ) {
+			const crossedFinish =
+				Math.abs( lastLocalZ ) > 0.02 &&
+				Math.abs( localZ ) > 0.02 &&
+				Math.sign( lastLocalZ ) !== Math.sign( localZ );
+
+			if ( hasLeftStartZone && inFinishCell && crossedFinish ) {
 
 				const completedLap = timer.getElapsed() - lapStartSeconds;
 				lastLapSeconds = completedLap;
 				bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
 				lapNumber ++;
 				lapStartSeconds = timer.getElapsed();
+				hasLeftStartZone = false;
+				saveLapStats();
 
 			}
 
