@@ -7,35 +7,41 @@
 	<style>
 		body { margin: 0; overflow: hidden; background: #000; }
 		canvas { display: block; touch-action: none; }
-		#editor-link {
+		#editor-link, #respawnBtn, #car-select {
 			position: absolute;
 			bottom: 12px;
-			right: 16px;
 			color: #fff;
 			font: 14px sans-serif;
-			text-decoration: none;
 			background: rgba(0,0,0,0.5);
 			padding: 8px 14px;
 			border-radius: 6px;
+			z-index: 10;
+			border: none;
+		}
+		#editor-link, #respawnBtn { text-decoration: none; }
+		#editor-link { right: 16px; }
+		#respawnBtn { left: 16px; top: 54px; bottom: auto; }
+		#car-select { left: 16px; top: 12px; bottom: auto; }
+		#editor-link:hover, #respawnBtn:hover, #car-select:hover { background: rgba(0,0,0,0.7); }
+		#lap-hud {
+			position: absolute;
+			top: 12px;
+			left: 50%;
+			transform: translateX(-50%);
+			color: #fff;
+			font: 600 14px/1.4 sans-serif;
+			text-align: center;
+			text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+			background: rgba(0,0,0,0.4);
+			border-radius: 8px;
+			padding: 8px 12px;
 			z-index: 10;
 		}
-		#editor-link-left {
-			position: absolute;
-			bottom: 12px;
-			left: 16px;
-			color: #fff;
-			font: 14px sans-serif;
-			text-decoration: none;
-			background: rgba(0,0,0,0.5);
-			padding: 8px 14px;
-			border-radius: 6px;
-			z-index: 10;
-		#editor-link:hover { background: rgba(0,0,0,0.7); }
 		@media (pointer: coarse) {
 			#editor-link { bottom: auto; top: 12px; right: 12px; }
-	    #editor-link-left:hover { background: rgba(0,0,0,0.7); }
-		@media (pointer: coarse) {
-			#editor-link-left { bottom: auto; top: 12px; left: 12px; }
+			#car-select { top: 12px; left: 12px; }
+			#respawnBtn { top: 54px; left: 12px; }
+			#lap-hud { top: 56px; }
 		}
 	</style>
 	<script type="importmap">
@@ -50,6 +56,14 @@
 </head>
 <body>
 	<a id="editor-link" href="editor.html">Create your own track</a>
+	<select id="car-select" aria-label="Select car">
+		<option value="vehicle-truck-yellow">Yellow</option>
+		<option value="vehicle-truck-green">Green</option>
+		<option value="vehicle-truck-purple">Purple</option>
+		<option value="vehicle-truck-red">Red</option>
+	</select>
+	<div id="lap-hud">Lap 1 • 00:00.000<br><small>Last: --:--.--- • Best: --:--.---</small></div>
+	<a id="respawnBtn" href="#" role="button">Respawn</a>
 	<script>
 		const map = new URLSearchParams( location.search ).get( 'map' );
 		if ( map ) {
@@ -58,7 +72,6 @@
 			link.textContent = 'Edit this track';
 		}
 	</script>
-	<a id="editor-link-left" id="respawnBtn">Respawn</a>
 	<script type="module" src="js/main.js"></script>
 </body>
 </html>
