@@ -5,7 +5,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds } from './Track.js';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
@@ -169,6 +169,7 @@ async function init() {
 	const vehicle = new Vehicle();
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
+	vehicle.setSpawn( spawn ? spawn.position : [ 3.5, 0.5, 5 ], spawn ? spawn.angle : 0 );
 
 	if ( spawn ) {
 
@@ -190,6 +191,8 @@ async function init() {
 	const controls = new Controls();
 
 	const particles = new SmokeTrails( scene );
+	const lapHud = document.getElementById( 'lap-hud' );
+	const respawnBtn = document.getElementById( 'respawnBtn' );
 
 	const audio = new GameAudio();
 	audio.init( cam.camera );
@@ -212,6 +215,80 @@ async function init() {
 	};
 
 	const timer = new THREE.Timer();
+	const activeCells = customCells || TRACK_CELLS;
+	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells[ 0 ];
+	const finishData = (() => {
+
+		if ( ! finishCell ) return null;
+
+		const [ gx, gz, , orient ] = finishCell;
+		const centerX = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
+		const centerZ = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
+		const halfExtent = ( CELL_RAW * GRID_SCALE ) * 0.5;
+		const angle = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
+		const cosA = Math.cos( angle );
+		const sinA = Math.sin( angle );
+
+		return { centerX, centerZ, halfExtent, angle, cosA, sinA };
+
+	})();
+
+	let lapNumber = 1;
+	let lapStartSeconds = 0;
+	let lapSeconds = 0;
+	let lastLapSeconds = null;
+	let bestLapSeconds = null;
+	let lastLocalZ = 0;
+	let hasLeftStartZone = false;
+
+	function formatLapTime( totalSeconds ) {
+
+		if ( totalSeconds === null || ! Number.isFinite( totalSeconds ) ) return '--:--.---';
+
+		const minutes = Math.floor( totalSeconds / 60 );
+		const seconds = Math.floor( totalSeconds % 60 );
+		const millis = Math.floor( ( totalSeconds % 1 ) * 1000 );
+		return `${ String( minutes ).padStart( 2, '0' ) }:${ String( seconds ).padStart( 2, '0' ) }.${ String( millis ).padStart( 3, '0' ) }`;
+
+	}
+
+	function updateLapHud() {
+
+		if ( ! lapHud ) return;
+		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>`;
+
+	}
+
+	function resetLapState() {
+
+		lapNumber = 1;
+		lapStartSeconds = timer.getElapsed();
+		lapSeconds = 0;
+		lastLapSeconds = null;
+		bestLapSeconds = null;
+		hasLeftStartZone = false;
+		lastLocalZ = 0;
+		updateLapHud();
+
+	}
+
+	function respawnVehicle() {
+
+		vehicle.resetToSpawn();
+		cam.targetPosition.copy( vehicle.spherePos );
+		cam.camera.position.addVectors( cam.targetPosition, cam.offset );
+
+		resetLapState();
+
+	}
+
+	respawnBtn?.addEventListener( 'click', ( e ) => {
+
+		e.preventDefault();
+		respawnVehicle();
+
+	} );
+	resetLapState();
 
 	function animate() {
 
@@ -235,6 +312,35 @@ async function init() {
 		cam.update( dt, vehicle.spherePos );
 		particles.update( dt, vehicle );
 		audio.update( dt, vehicle.linearSpeed, input.z, vehicle.driftIntensity );
+
+		if ( finishData ) {
+
+			const localX = ( ( vehicle.spherePos.x - finishData.centerX ) * finishData.cosA ) + ( ( vehicle.spherePos.z - finishData.centerZ ) * finishData.sinA );
+			const localZ = ( - ( vehicle.spherePos.x - finishData.centerX ) * finishData.sinA ) + ( ( vehicle.spherePos.z - finishData.centerZ ) * finishData.cosA );
+			const inFinishCell = Math.abs( localX ) < finishData.halfExtent && Math.abs( localZ ) < finishData.halfExtent;
+
+			if ( ! hasLeftStartZone && ! inFinishCell ) {
+
+				hasLeftStartZone = true;
+
+			}
+
+			if ( hasLeftStartZone && inFinishCell && lastLocalZ <= 0 && localZ > 0.02 ) {
+
+				const completedLap = timer.getElapsed() - lapStartSeconds;
+				lastLapSeconds = completedLap;
+				bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
+				lapNumber ++;
+				lapStartSeconds = timer.getElapsed();
+
+			}
+
+			lastLocalZ = localZ;
+
+		}
+
+		lapSeconds = timer.getElapsed() - lapStartSeconds;
+		updateLapHud();
 
 		renderer.render( scene, cam.camera );
 
