@@ -39,7 +39,7 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 	const groundY = - 0.125;
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
-	const BUMP_RADIUS = 2.25 * S;
+	const BUMP_RADIUS = 3.25 * S;
 	const BUMP_RISE = 0.42 * S;
 	const bumpY = groundY + BUMP_RISE - BUMP_RADIUS;
 
