@@ -19,9 +19,23 @@
 			border-radius: 6px;
 			z-index: 10;
 		}
+		#editor-link-left {
+			position: absolute;
+			bottom: 12px;
+			left: 16px;
+			color: #fff;
+			font: 14px sans-serif;
+			text-decoration: none;
+			background: rgba(0,0,0,0.5);
+			padding: 8px 14px;
+			border-radius: 6px;
+			z-index: 10;
 		#editor-link:hover { background: rgba(0,0,0,0.7); }
 		@media (pointer: coarse) {
 			#editor-link { bottom: auto; top: 12px; right: 12px; }
+	    #editor-link-left:hover { background: rgba(0,0,0,0.7); }
+		@media (pointer: coarse) {
+			#editor-link-left { bottom: auto; top: 12px; left: 12px; }
 		}
 	</style>
 	<script type="importmap">
@@ -44,6 +58,7 @@
 			link.textContent = 'Edit this track';
 		}
 	</script>
+	<a id="editor-link-left" id="respawnBtn">Respawn</a>
 	<script type="module" src="js/main.js"></script>
 </body>
 </html>
