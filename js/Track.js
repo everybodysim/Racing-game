@@ -137,6 +137,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const bumpCells = Array.isArray( extras.bumps ) ? extras.bumps : [];
 		const boostCells = Array.isArray( extras.boosts ) ? extras.boosts : [];
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
+		const roadCellSet = new Set( cells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 
 		for ( const [ gx, gz ] of bumpCells ) {
 
@@ -147,17 +148,20 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		for ( const [ gx, gz ] of boostCells ) {
 
-			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
+			if ( ! roadCellSet.has( `${ gx },${ gz }` ) ) continue;
+			const piece = placePiece( models, 'track-straight', gx, gz, 0 );
 			if ( piece ) {
+
+				piece.position.y += 0.01;
 
 				piece.traverse( ( c ) => {
 
 					if ( c.isMesh ) {
 
 						c.material = c.material.clone();
-						c.material.color = new THREE.Color( 0xff8a00 );
-						c.material.emissive = new THREE.Color( 0xff4d00 );
-						c.material.emissiveIntensity = 0.6;
+						c.material.color = new THREE.Color( 0xd8472d );
+						c.material.emissive = new THREE.Color( 0x6e1308 );
+						c.material.emissiveIntensity = 0.55;
 
 					}
 
