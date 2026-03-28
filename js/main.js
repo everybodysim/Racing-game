@@ -488,7 +488,12 @@ async function init() {
 	let boostActiveUntil = 0;
 	let boostContactCell = null;
 	const boostCells = Array.isArray( extras?.boosts ) ? extras.boosts : [];
-	const boostCellSet = new Set( boostCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+	const roadCellSet = new Set( activeCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+	const boostCellSet = new Set(
+		boostCells
+			.map( ( [ gx, gz ] ) => `${ gx },${ gz }` )
+			.filter( ( key ) => roadCellSet.has( key ) )
+	);
 
 	function formatLapTime( totalSeconds ) {
 
