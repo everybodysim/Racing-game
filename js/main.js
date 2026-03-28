@@ -348,12 +348,13 @@ async function init() {
 	const timer = new THREE.Timer();
 	const activeCells = customCells || TRACK_CELLS;
 	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells[ 0 ];
+	const checkpointCells = activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' );
 	const lapStoreKey = `racing-lap-stats:${ mapParam || 'default' }`;
-	const finishData = (() => {
+	function makeGateData( cell ) {
 
-		if ( ! finishCell ) return null;
+		if ( ! cell ) return null;
 
-		const [ gx, gz, , orient ] = finishCell;
+		const [ gx, gz, , orient ] = cell;
 		const centerX = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
 		const centerZ = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
 		const halfExtent = ( CELL_RAW * GRID_SCALE ) * 0.5;
@@ -362,7 +363,16 @@ async function init() {
 		const sinA = Math.sin( angle );
 		return { centerX, centerZ, halfExtent, angle, cosA, sinA };
 
-	})();
+	}
+
+	const finishData = makeGateData( finishCell );
+	const checkpointStates = checkpointCells.map( ( cell ) => ( {
+		...makeGateData( cell ),
+		lastLocalX: 0,
+		lastLocalZ: 0,
+		hasPrevSample: false,
+		passedThisLap: false,
+	} ) );
 
 	let lapNumber = 1;
 	let lapStartSeconds = 0;
@@ -437,6 +447,14 @@ async function init() {
 		hasPrevFinishSample = false;
 		lastLocalX = 0;
 		lastLocalZ = 0;
+		for ( const checkpoint of checkpointStates ) {
+
+			checkpoint.lastLocalX = 0;
+			checkpoint.lastLocalZ = 0;
+			checkpoint.hasPrevSample = false;
+			checkpoint.passedThisLap = false;
+
+		}
 		updateLapHud();
 
 	}
@@ -517,6 +535,35 @@ async function init() {
 		particles.update( dt, vehicle );
 		audio.update( dt, vehicle.linearSpeed, input.z, vehicle.driftIntensity );
 
+		for ( const checkpoint of checkpointStates ) {
+
+			const localX = ( ( vehicle.spherePos.x - checkpoint.centerX ) * checkpoint.cosA ) + ( ( vehicle.spherePos.z - checkpoint.centerZ ) * checkpoint.sinA );
+			const localZ = ( - ( vehicle.spherePos.x - checkpoint.centerX ) * checkpoint.sinA ) + ( ( vehicle.spherePos.z - checkpoint.centerZ ) * checkpoint.cosA );
+
+			let crossedCheckpoint = false;
+			if ( checkpoint.hasPrevSample ) {
+
+				const z0 = checkpoint.lastLocalZ;
+				const z1 = localZ;
+				const crossedPlane = ( z0 < 0 && z1 > 0 ) || ( z0 > 0 && z1 < 0 );
+
+				if ( crossedPlane ) {
+
+					const t = z0 / ( z0 - z1 );
+					const xCross = THREE.MathUtils.lerp( checkpoint.lastLocalX, localX, t );
+					crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent;
+
+				}
+
+			}
+
+			if ( crossedCheckpoint ) checkpoint.passedThisLap = true;
+			checkpoint.lastLocalX = localX;
+			checkpoint.lastLocalZ = localZ;
+			checkpoint.hasPrevSample = true;
+
+		}
+
 		if ( finishData ) {
 
 			const localX = ( ( vehicle.spherePos.x - finishData.centerX ) * finishData.cosA ) + ( ( vehicle.spherePos.z - finishData.centerZ ) * finishData.sinA );
@@ -547,7 +594,8 @@ async function init() {
 
 			}
 
-			if ( hasLeftStartZone && crossedFinish ) {
+			const allCheckpointsPassed = checkpointStates.every( ( checkpoint ) => checkpoint.passedThisLap );
+			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
 
 				const completedLap = timer.getElapsed() - lapStartSeconds;
 				lastLapSeconds = completedLap;
@@ -555,6 +603,11 @@ async function init() {
 				lapNumber ++;
 				lapStartSeconds = timer.getElapsed();
 				hasLeftStartZone = false;
+				for ( const checkpoint of checkpointStates ) {
+
+					checkpoint.passedThisLap = false;
+
+				}
 				saveLapStats();
 				rewardCoinsForLap( completedLap );
 
