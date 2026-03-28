@@ -108,6 +108,7 @@
 		<button id="btn-straight" class="active">Straight</button>
 		<button id="btn-corner">Corner</button>
 		<button id="btn-bump">Bump +</button>
+		<button id="btn-boost">Boost Pad</button>
 		<button id="btn-finish">Finish</button>
 		<button id="btn-checkpoint">Checkpoint</button>
 		<button id="btn-deco-forest">Tree</button>
@@ -137,6 +138,7 @@
 	const ORIENTATIONS = [ 0, 16, 10, 22 ];
 	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint' ];
 	const BUMP_TOOL = 'overlay-bump';
+	const BOOST_TOOL = 'overlay-boost';
 	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
 	let tool = 'paint'; // 'paint', 'erase'
 	let selectedType = 'track-straight';
@@ -154,6 +156,9 @@
 			bump: false,
 			bumpOrient: 0,
 			bumpMesh: null,
+			boost: false,
+			boostOrient: 0,
+			boostMesh: null,
 			decoType: null,
 			decoOrient: 0,
 			decoMesh: null
@@ -312,8 +317,10 @@
 	function placeOverlayMesh( gx, gz, cell ) {
 
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+		if ( cell.boostMesh ) trackGroup.remove( cell.boostMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		cell.bumpMesh = null;
+		cell.boostMesh = null;
 		cell.decoMesh = null;
 
 		if ( cell.bump ) {
@@ -336,6 +343,35 @@
 				} );
 				trackGroup.add( bump );
 				cell.bumpMesh = bump;
+
+			}
+
+		}
+
+		if ( cell.boost ) {
+
+			const boostSrc = models[ 'track-bump' ];
+			if ( boostSrc ) {
+
+				const boost = boostSrc.clone();
+				boost.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5, ( gz + 0.5 ) * CELL_RAW );
+				boost.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.boostOrient || 0 ] || 0 );
+				boost.traverse( ( c ) => {
+
+					if ( c.isMesh ) {
+
+						c.castShadow = true;
+						c.receiveShadow = true;
+						c.material = c.material.clone();
+						c.material.color = new THREE.Color( 0xff8a00 );
+						c.material.emissive = new THREE.Color( 0xff4d00 );
+						c.material.emissiveIntensity = 0.6;
+
+					}
+
+				} );
+				trackGroup.add( boost );
+				cell.boostMesh = boost;
 
 			}
 
@@ -392,7 +428,26 @@
 			grid.set( key, cell );
 			cell.bump = ! cell.bump;
 			cell.bumpOrient = selectedOrient;
+			if ( cell.bump ) cell.boost = false;
 			if ( ! cell.bump && ! cell.type && ! cell.decoType ) {
+
+				grid.delete( key );
+
+			} else {
+
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+		} else if ( selectedType === BOOST_TOOL ) {
+
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			grid.set( key, cell );
+			cell.boost = ! cell.boost;
+			cell.boostOrient = selectedOrient;
+			if ( cell.boost ) cell.bump = false;
+			if ( ! cell.boost && ! cell.type && ! cell.decoType ) {
 
 				grid.delete( key );
 
@@ -441,6 +496,7 @@
 		const cell = grid.get( key );
 		if ( cell.mesh ) trackGroup.remove( cell.mesh );
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+		if ( cell.boostMesh ) trackGroup.remove( cell.boostMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		grid.delete( key );
 		save();
@@ -449,11 +505,12 @@
 
 	function clearAll() {
 
-		for ( const [ , cell ] of grid ) {
+			for ( const [ , cell ] of grid ) {
 
-				if ( cell.mesh ) trackGroup.remove( cell.mesh );
-				if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
-				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+					if ( cell.mesh ) trackGroup.remove( cell.mesh );
+					if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+					if ( cell.boostMesh ) trackGroup.remove( cell.boostMesh );
+					if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 
 		}
 
@@ -466,7 +523,7 @@
 
 	function addGhostPiece( type, orient, gx, gz, opacity ) {
 
-		const modelType = type === 'track-checkpoint' ? 'track-finish' : type;
+		const modelType = type === 'track-checkpoint' ? 'track-finish' : type === BOOST_TOOL ? 'track-bump' : type;
 		const src = models[ modelType ];
 		if ( ! src ) return;
 
@@ -478,11 +535,18 @@
 
 		mesh.traverse( ( c ) => {
 
-			if ( c.isMesh ) {
+				if ( c.isMesh ) {
 
-				c.material = c.material.clone();
-				c.material.transparent = true;
-				c.material.opacity = opacity;
+					c.material = c.material.clone();
+					if ( type === BOOST_TOOL ) {
+
+						c.material.color = new THREE.Color( 0xff8a00 );
+						c.material.emissive = new THREE.Color( 0xff4d00 );
+						c.material.emissiveIntensity = 0.6;
+
+					}
+					c.material.transparent = true;
+					c.material.opacity = opacity;
 
 			}
 
@@ -497,7 +561,7 @@
 		clearGhost();
 
 		if ( tool === 'erase' ) return;
-		const ghostType = selectedType === BUMP_TOOL ? 'track-bump' : selectedType;
+		const ghostType = selectedType === BUMP_TOOL ? 'track-bump' : selectedType === BOOST_TOOL ? BOOST_TOOL : selectedType;
 		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
 
 	}
@@ -560,24 +624,26 @@
 	function encodeMods() {
 
 		const bumps = [];
+		const boosts = [];
 		const deco = [];
 
 		for ( const [ key, cell ] of grid ) {
 
 				const [ gx, gz ] = key.split( ',' ).map( Number );
 				if ( cell.bump ) bumps.push( [ gx, gz ] );
-			if ( cell.decoType ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
+				if ( cell.boost ) boosts.push( [ gx, gz ] );
+				if ( cell.decoType ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
 
 		}
 
-		const payload = JSON.stringify( { b: bumps, d: deco } );
+		const payload = JSON.stringify( { b: bumps, s: boosts, d: deco } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], d: [] };
+		if ( ! modsStr ) return { b: [], s: [], d: [] };
 
 		try {
 
@@ -585,13 +651,14 @@
 			const parsed = JSON.parse( payload );
 			return {
 				b: Array.isArray( parsed.b ) ? parsed.b : [],
+				s: Array.isArray( parsed.s ) ? parsed.s : [],
 				d: Array.isArray( parsed.d ) ? parsed.d : [],
 			};
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-			return { b: [], d: [] };
+			return { b: [], s: [], d: [] };
 
 		}
 
@@ -635,6 +702,17 @@
 
 			}
 
+			for ( const [ gx, gz ] of mods.s ) {
+
+				const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					cell.boost = true;
+					cell.boostOrient = 0;
+					placeOverlayMesh( gx, gz, cell );
+
+			}
+
 			for ( const [ gx, gz, decoType, decoOrient ] of mods.d ) {
 
 				const key = cellKey( gx, gz );
@@ -674,6 +752,7 @@
 		'track-straight': document.getElementById( 'btn-straight' ),
 		'track-corner': document.getElementById( 'btn-corner' ),
 		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
+		[ BOOST_TOOL ]: document.getElementById( 'btn-boost' ),
 		'track-finish': document.getElementById( 'btn-finish' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
@@ -694,7 +773,7 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, BOOST_TOOL, ...DECO_TYPES ] ) {
 
 			tileButtons[ type ].classList.toggle( 'active', selectedType === type );
 
@@ -722,7 +801,7 @@
 
 	}
 
-	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES ] ) {
+	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, BOOST_TOOL, ...DECO_TYPES ] ) {
 
 		tileButtons[ type ].addEventListener( 'click', () => selectTileType( type ) );
 
