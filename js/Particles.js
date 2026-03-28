@@ -2,6 +2,11 @@ import * as THREE from 'three';
 
 const POOL_SIZE = 64;
 const _worldPos = new THREE.Vector3();
+const DEFAULT_PARTICLE_COLOR = new THREE.Color( 0x5E5F6B );
+const BOOST_PARTICLE_COLORS = [
+	new THREE.Color( 0xff4b1f ),
+	new THREE.Color( 0xff9f1c ),
+];
 
 export class SmokeTrails {
 
@@ -36,18 +41,21 @@ export class SmokeTrails {
 		}
 
 		this.emitIndex = 0;
+		this.boostFxTime = 0;
 
 	}
 
 	update( dt, vehicle ) {
 
+		this.boostFxTime = Math.max( 0, this.boostFxTime - dt );
+		const boostActive = this.boostFxTime > 0;
 		const shouldEmit = vehicle.driftIntensity > 0.25;
 
 		// Emit new particles from back wheel positions
 		if ( shouldEmit ) {
 
-			if ( vehicle.wheelBL ) this.emitAtWheel( vehicle.wheelBL, vehicle );
-			if ( vehicle.wheelBR ) this.emitAtWheel( vehicle.wheelBR, vehicle );
+			if ( vehicle.wheelBL ) this.emitAtWheel( vehicle.wheelBL, vehicle, boostActive );
+			if ( vehicle.wheelBR ) this.emitAtWheel( vehicle.wheelBR, vehicle, boostActive );
 
 		}
 
@@ -95,7 +103,13 @@ export class SmokeTrails {
 
 	}
 
-	emitAtWheel( wheel, vehicle ) {
+	triggerBoostFx( duration = 1 ) {
+
+		this.boostFxTime = Math.max( this.boostFxTime, duration );
+
+	}
+
+	emitAtWheel( wheel, vehicle, boostActive = false ) {
 
 		const p = this.particles[ this.emitIndex ];
 		this.emitIndex = ( this.emitIndex + 1 ) % POOL_SIZE;
@@ -107,6 +121,10 @@ export class SmokeTrails {
 		p.sprite.position.copy( _worldPos );
 		p.sprite.visible = true;
 		p.sprite.material.opacity = 0;
+		const particleColor = boostActive
+			? BOOST_PARTICLE_COLORS[ Math.random() < 0.5 ? 0 : 1 ]
+			: DEFAULT_PARTICLE_COLOR;
+		p.sprite.material.color.copy( particleColor );
 
 		// Godot: scale_min = 0.25, scale_max = 0.5
 		p.initialScale = 0.25 + Math.random() * 0.25;

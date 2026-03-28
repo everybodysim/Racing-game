@@ -135,12 +135,40 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	if ( extras ) {
 
 		const bumpCells = Array.isArray( extras.bumps ) ? extras.bumps : [];
+		const boostCells = Array.isArray( extras.boosts ) ? extras.boosts : [];
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
+		const roadCellSet = new Set( cells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 
 		for ( const [ gx, gz ] of bumpCells ) {
 
 			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
 			if ( piece ) trackPieceGroup.add( piece );
+
+		}
+
+		for ( const [ gx, gz ] of boostCells ) {
+
+			if ( ! roadCellSet.has( `${ gx },${ gz }` ) ) continue;
+			const piece = placePiece( models, 'track-straight', gx, gz, 0 );
+			if ( piece ) {
+
+				piece.position.y += 0.01;
+
+				piece.traverse( ( c ) => {
+
+					if ( c.isMesh ) {
+
+						c.material = c.material.clone();
+						c.material.color = new THREE.Color( 0xd8472d );
+						c.material.emissive = new THREE.Color( 0x6e1308 );
+						c.material.emissiveIntensity = 0.55;
+
+					}
+
+				} );
+				trackPieceGroup.add( piece );
+
+			}
 
 		}
 
@@ -319,7 +347,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 export function placePiece( models, key, gx, gz, orient ) {
 
-	const src = models[ key ];
+	const modelKey = key === 'track-checkpoint' ? 'track-finish' : key;
+	const src = models[ modelKey ];
 	if ( ! src ) return null;
 
 	const piece = src.clone();
@@ -334,7 +363,7 @@ export function placePiece( models, key, gx, gz, orient ) {
 
 // ─── Track Codec ──────────────────────────────────────────
 
-const TYPE_NAMES = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish' ];
+const TYPE_NAMES = [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-finish' ];
 const TYPE_INDEX = {};
 for ( let i = 0; i < TYPE_NAMES.length; i ++ ) TYPE_INDEX[ TYPE_NAMES[ i ] ] = i;
 
@@ -350,7 +379,8 @@ export function encodeCells( cells ) {
 	for ( let i = 0; i < cells.length; i ++ ) {
 
 		const [ gx, gz, name, godotOrient ] = cells[ i ];
-		const ti = TYPE_INDEX[ name ] ?? 0;
+		const normalizedName = name === 'track-bump' ? 'track-checkpoint' : name;
+		const ti = TYPE_INDEX[ normalizedName ] ?? 0;
 		const oi = GODOT_TO_ORIENT[ godotOrient ] ?? 0;
 
 		bytes[ i * 3 ] = gx + 128;
