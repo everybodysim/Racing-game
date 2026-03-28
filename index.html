@@ -63,12 +63,42 @@
 			opacity: 0.55;
 			cursor: not-allowed;
 		}
+		#campaign-bar {
+			position: absolute;
+			left: 12px;
+			bottom: 12px;
+			display: flex;
+			gap: 8px;
+			padding: 8px;
+			background: rgba(0,0,0,0.45);
+			border-radius: 8px;
+			z-index: 10;
+		}
+		.campaign-link {
+			text-decoration: none;
+			color: #fff;
+			font: 600 12px sans-serif;
+			background: rgba(255,255,255,0.14);
+			border: 1px solid rgba(255,255,255,0.22);
+			padding: 6px 10px;
+			border-radius: 6px;
+			white-space: nowrap;
+		}
+		.campaign-link:hover {
+			background: rgba(255,255,255,0.24);
+		}
 		@media (pointer: coarse) {
 			#editor-link { bottom: auto; top: 12px; right: 12px; }
 			#car-select { top: 12px; left: 12px; }
 			#respawnBtn { top: 54px; left: 12px; }
 			#lap-hud { top: 56px; }
 			#economy-hud { top: 12px; right: 12px; }
+			#campaign-bar {
+				left: 12px;
+				bottom: 12px;
+				right: 12px;
+				overflow-x: auto;
+			}
 		}
 	</style>
 	<script type="importmap">
@@ -96,6 +126,13 @@
 		<button id="buy-upgrade">Buy Upgrade</button>
 	</div>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>
+	<div id="campaign-bar" aria-label="Campaign tracks">
+		<a class="campaign-link" id="campaign-track-1" href="https://everybodysim.github.io/Racing-game/index.html">Track 1</a>
+		<a class="campaign-link" id="campaign-track-2" href="https://everybodysim.github.io/Racing-game/index.html?map=f30NgH0BgX0EgX4HgH4FgH8CgIEGgoEHgoAEgYABgYEJf4ALfYABfYEJfoEHfn8AfX0FfX4Gfn4Efn0BfIAFfIEG&mods=eyJiIjpbWzAsMF0sWy0yLDBdXSwicyI6W10sImQiOltbLTEsLTEsImRlY29yYXRpb24tdGVudHMiLDEwXV19">Track 2</a>
+		<a class="campaign-link" id="campaign-track-3" href="#">Track 3</a>
+		<a class="campaign-link" id="campaign-track-4" href="#">Track 4</a>
+		<a class="campaign-link" id="campaign-track-5" href="#">Track 5</a>
+	</div>
 	<script>
 		const map = new URLSearchParams( location.search ).get( 'map' );
 		const mods = new URLSearchParams( location.search ).get( 'mods' );
@@ -103,6 +140,13 @@
 			const link = document.getElementById( 'editor-link' );
 			link.href = 'editor.html?map=' + map + ( mods ? '&mods=' + mods : '' );
 			link.textContent = 'Edit this track';
+		}
+
+		// Replace these with your campaign URLs.
+		const campaignLinks = [ '#', '#', '#', '#', '#' ];
+		for ( let i = 0; i < campaignLinks.length; i ++ ) {
+			const el = document.getElementById( `campaign-track-${ i + 1 }` );
+			if ( el ) el.href = campaignLinks[ i ] || '#';
 		}
 	</script>
 	<script type="module" src="js/main.js"></script>
