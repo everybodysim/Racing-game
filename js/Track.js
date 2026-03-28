@@ -145,11 +145,20 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( piece ) trackPieceGroup.add( piece );
 
 		}
+// Build a lookup map for orientations
+const orientMap = new Map();
+for ( const [ gx, gz, , orient ] of cells ) {
+    orientMap.set(`${gx},${gz}`, orient);
+}
 
-		for ( const [ gx, gz ] of boostCells ) {
+for ( const [ gx, gz ] of boostCells ) {
 
-			if ( ! roadCellSet.has( `${ gx },${ gz }` ) ) continue;
-			const piece = placePiece( models, 'track-straight', gx, gz, 0 );
+    const key = `${gx},${gz}`;
+    if ( !roadCellSet.has( key ) ) continue;
+
+    const orient = orientMap.get( key ) ?? 0;
+
+    const piece = placePiece( models, 'track-straight', gx, gz, orient );
 			if ( piece ) {
 
 				piece.position.y += 0.01;
