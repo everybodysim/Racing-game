@@ -216,6 +216,82 @@ async function init() {
 
 	const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
 	scene.add( vehicleGroup );
+	let ghostModel = null;
+	const bestLapGhostSamples = [];
+	let currentLapGhostSamples = [];
+	let bestGhostDuration = 0;
+
+	function createGhostModel( model ) {
+
+		if ( ghostModel ) scene.remove( ghostModel );
+		ghostModel = null;
+		if ( ! model ) return;
+
+		ghostModel = model.clone();
+		ghostModel.traverse( ( child ) => {
+
+			if ( ! child.isMesh ) return;
+			child.material = child.material.clone();
+			child.material.transparent = true;
+			child.material.opacity = 0.35;
+			child.material.depthWrite = false;
+			child.castShadow = false;
+			child.receiveShadow = false;
+
+		} );
+		scene.add( ghostModel );
+
+	}
+
+	function resetCurrentLapGhost() {
+
+		currentLapGhostSamples = [];
+
+	}
+
+	function recordGhostSample( lapElapsed ) {
+
+		currentLapGhostSamples.push( {
+			t: lapElapsed,
+			x: vehicle.spherePos.x,
+			y: 0,
+			z: vehicle.spherePos.z,
+			angle: vehicle.container.rotation.y,
+		} );
+
+	}
+
+	function updateGhostPlayback( lapElapsed ) {
+
+		if ( ! ghostModel ) return;
+		if ( bestLapGhostSamples.length < 2 || bestGhostDuration <= 0 ) {
+
+			ghostModel.visible = false;
+			return;
+
+		}
+
+		ghostModel.visible = true;
+		const t = ( ( lapElapsed % bestGhostDuration ) + bestGhostDuration ) % bestGhostDuration;
+
+		let nextIndex = bestLapGhostSamples.findIndex( ( sample ) => sample.t >= t );
+		if ( nextIndex <= 0 ) nextIndex = 1;
+
+		const sampleA = bestLapGhostSamples[ nextIndex - 1 ];
+		const sampleB = bestLapGhostSamples[ nextIndex ];
+		const span = Math.max( 1e-4, sampleB.t - sampleA.t );
+		const alpha = THREE.MathUtils.clamp( ( t - sampleA.t ) / span, 0, 1 );
+
+		ghostModel.position.set(
+			THREE.MathUtils.lerp( sampleA.x, sampleB.x, alpha ),
+			THREE.MathUtils.lerp( sampleA.y, sampleB.y, alpha ),
+			THREE.MathUtils.lerp( sampleA.z, sampleB.z, alpha )
+		);
+		ghostModel.rotation.set( 0, THREE.MathUtils.lerp( sampleA.angle, sampleB.angle, alpha ), 0 );
+
+	}
+
+	createGhostModel( models[ 'vehicle-truck-yellow' ] );
 
 	dirLight.target = vehicleGroup;
 
@@ -443,6 +519,7 @@ async function init() {
 
 		lapStartSeconds = timer.getElapsed();
 		lapSeconds = 0;
+		resetCurrentLapGhost();
 		hasLeftStartZone = false;
 		hasPrevFinishSample = false;
 		lastLocalX = 0;
@@ -480,6 +557,7 @@ async function init() {
 
 		const selectedKey = carSelect.value;
 		if ( models[ selectedKey ] ) vehicle.setModel( models[ selectedKey ] );
+		if ( models[ selectedKey ] ) createGhostModel( models[ selectedKey ] );
 		applyVehiclePerformance();
 
 	} );
@@ -598,8 +676,16 @@ async function init() {
 			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
 
 				const completedLap = timer.getElapsed() - lapStartSeconds;
+				const isNewBest = bestLapSeconds === null || completedLap < bestLapSeconds;
 				lastLapSeconds = completedLap;
 				bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
+				if ( isNewBest && currentLapGhostSamples.length > 1 ) {
+
+					bestLapGhostSamples.length = 0;
+					for ( const sample of currentLapGhostSamples ) bestLapGhostSamples.push( { ...sample } );
+					bestGhostDuration = completedLap;
+
+				}
 				lapNumber ++;
 				lapStartSeconds = timer.getElapsed();
 				hasLeftStartZone = false;
@@ -620,6 +706,8 @@ async function init() {
 		}
 
 		lapSeconds = timer.getElapsed() - lapStartSeconds;
+		recordGhostSample( lapSeconds );
+		updateGhostPlayback( lapSeconds );
 		updateLapHud();
 
 		renderer.render( scene, cam.camera );
