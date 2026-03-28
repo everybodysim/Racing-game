@@ -109,6 +109,7 @@
 		<button id="btn-corner">Corner</button>
 		<button id="btn-bump">Bump +</button>
 		<button id="btn-finish">Finish</button>
+		<button id="btn-checkpoint">Checkpoint</button>
 		<button id="btn-deco-forest">Tree</button>
 		<button id="btn-deco-tents">Tent</button>
 		<button id="btn-deco-empty">Prop</button>
@@ -134,7 +135,7 @@
 
 	const grid = new Map(); // "gx,gz" → { type, orient, isFinish, mesh }
 	const ORIENTATIONS = [ 0, 16, 10, 22 ];
-	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish' ];
+	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint' ];
 	const BUMP_TOOL = 'overlay-bump';
 	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
 	let tool = 'paint'; // 'paint', 'erase'
@@ -285,7 +286,8 @@
 
 		if ( ! cell.type ) return;
 
-		const src = models[ cell.type ];
+		const modelType = cell.type === 'track-checkpoint' ? 'track-finish' : cell.type;
+		const src = models[ modelType ];
 		if ( ! src ) return;
 
 		const mesh = src.clone();
@@ -464,7 +466,8 @@
 
 	function addGhostPiece( type, orient, gx, gz, opacity ) {
 
-		const src = models[ type ];
+		const modelType = type === 'track-checkpoint' ? 'track-finish' : type;
+		const src = models[ modelType ];
 		if ( ! src ) return;
 
 		const mesh = src.clone();
@@ -672,6 +675,7 @@
 		'track-corner': document.getElementById( 'btn-corner' ),
 		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
 		'track-finish': document.getElementById( 'btn-finish' ),
+		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
