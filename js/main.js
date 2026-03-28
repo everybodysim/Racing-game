@@ -66,6 +66,10 @@ const CAR_STATS = {
 const ENGINE_MULTS = [ 1, 1.025, 1.05, 1.075, 1.1 ];
 const ENGINE_UPGRADE_COST = 100;
 const MAX_EFFECTIVE_TOP_SPEED = 1.8;
+const BOOST_VELOCITY_DELTA = 2.2;
+const BOOST_EFFECT_SECONDS = 1.0;
+const BOOST_FORCE_SECONDS = 0.45;
+const BOOST_ACCEL_PER_SECOND = 8.5;
 
 function decodeExtrasParam( str ) {
 
@@ -77,6 +81,7 @@ function decodeExtrasParam( str ) {
 		const parsed = JSON.parse( json );
 		return {
 			bumps: Array.isArray( parsed.b ) ? parsed.b : [],
+			boosts: Array.isArray( parsed.s ) ? parsed.s : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 		};
 
@@ -216,6 +221,102 @@ async function init() {
 
 	const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
 	scene.add( vehicleGroup );
+	let ghostModel = null;
+	const bestLapGhostSamples = [];
+	let currentLapGhostSamples = [];
+	let bestGhostDuration = 0;
+	let ghostRecordFrame = 0;
+	const _ghostForward = new THREE.Vector3();
+	const _ghostUp = new THREE.Vector3( 0, 1, 0 );
+
+	function createGhostModel( model ) {
+
+		if ( ghostModel ) scene.remove( ghostModel );
+		ghostModel = null;
+		if ( ! model ) return;
+
+		ghostModel = model.clone();
+		ghostModel.traverse( ( child ) => {
+
+			if ( ! child.isMesh ) return;
+			child.material = child.material.clone();
+			child.material.transparent = true;
+			child.material.opacity = 0.35;
+			child.material.depthWrite = false;
+			child.castShadow = false;
+			child.receiveShadow = false;
+
+		} );
+		scene.add( ghostModel );
+
+	}
+
+	function resetCurrentLapGhost() {
+
+		currentLapGhostSamples = [];
+		ghostRecordFrame = 0;
+
+	}
+
+	function recordGhostSample( lapElapsed, force = false ) {
+
+		ghostRecordFrame ++;
+		if ( ! force && ghostRecordFrame % 3 !== 0 ) return;
+
+		_ghostForward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+		_ghostForward.projectOnPlane( _ghostUp ).normalize();
+		const yaw = Math.atan2( _ghostForward.x, _ghostForward.z );
+
+		currentLapGhostSamples.push( {
+			t: lapElapsed,
+			x: vehicle.container.position.x,
+			y: vehicle.container.position.y,
+			z: vehicle.container.position.z,
+			yaw,
+		} );
+
+	}
+
+	function lerpAngle( a, b, t ) {
+
+		let delta = b - a;
+		while ( delta > Math.PI ) delta -= Math.PI * 2;
+		while ( delta < - Math.PI ) delta += Math.PI * 2;
+		return a + delta * t;
+
+	}
+
+	function updateGhostPlayback( lapElapsed ) {
+
+		if ( ! ghostModel ) return;
+		if ( bestLapGhostSamples.length < 2 || bestGhostDuration <= 0 ) {
+
+			ghostModel.visible = false;
+			return;
+
+		}
+
+		ghostModel.visible = true;
+		const t = ( ( lapElapsed % bestGhostDuration ) + bestGhostDuration ) % bestGhostDuration;
+
+		let nextIndex = bestLapGhostSamples.findIndex( ( sample ) => sample.t >= t );
+		if ( nextIndex <= 0 ) nextIndex = 1;
+
+		const sampleA = bestLapGhostSamples[ nextIndex - 1 ];
+		const sampleB = bestLapGhostSamples[ nextIndex ];
+		const span = Math.max( 1e-4, sampleB.t - sampleA.t );
+		const alpha = THREE.MathUtils.clamp( ( t - sampleA.t ) / span, 0, 1 );
+
+		ghostModel.position.set(
+			THREE.MathUtils.lerp( sampleA.x, sampleB.x, alpha ),
+			THREE.MathUtils.lerp( sampleA.y, sampleB.y, alpha ),
+			THREE.MathUtils.lerp( sampleA.z, sampleB.z, alpha )
+		);
+		ghostModel.rotation.set( 0, lerpAngle( sampleA.yaw, sampleB.yaw, alpha ), 0 );
+
+	}
+
+	createGhostModel( models[ 'vehicle-truck-yellow' ] );
 
 	dirLight.target = vehicleGroup;
 
@@ -329,6 +430,7 @@ async function init() {
 	audio.init( cam.camera );
 
 	const _forward = new THREE.Vector3();
+	const _boostForward = new THREE.Vector3();
 
 	const contactListener = {
 		onContactAdded( bodyA, bodyB ) {
@@ -348,12 +450,13 @@ async function init() {
 	const timer = new THREE.Timer();
 	const activeCells = customCells || TRACK_CELLS;
 	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells[ 0 ];
+	const checkpointCells = activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' );
 	const lapStoreKey = `racing-lap-stats:${ mapParam || 'default' }`;
-	const finishData = (() => {
+	function makeGateData( cell ) {
 
-		if ( ! finishCell ) return null;
+		if ( ! cell ) return null;
 
-		const [ gx, gz, , orient ] = finishCell;
+		const [ gx, gz, , orient ] = cell;
 		const centerX = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
 		const centerZ = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
 		const halfExtent = ( CELL_RAW * GRID_SCALE ) * 0.5;
@@ -362,7 +465,16 @@ async function init() {
 		const sinA = Math.sin( angle );
 		return { centerX, centerZ, halfExtent, angle, cosA, sinA };
 
-	})();
+	}
+
+	const finishData = makeGateData( finishCell );
+	const checkpointStates = checkpointCells.map( ( cell ) => ( {
+		...makeGateData( cell ),
+		lastLocalX: 0,
+		lastLocalZ: 0,
+		hasPrevSample: false,
+		passedThisLap: false,
+	} ) );
 
 	let lapNumber = 1;
 	let lapStartSeconds = 0;
@@ -373,6 +485,10 @@ async function init() {
 	let lastLocalX = 0;
 	let lastLocalZ = 0;
 	let hasLeftStartZone = false;
+	let boostActiveUntil = 0;
+	let boostContactCell = null;
+	const boostCells = Array.isArray( extras?.boosts ) ? extras.boosts : [];
+	const boostCellSet = new Set( boostCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 
 	function formatLapTime( totalSeconds ) {
 
@@ -388,7 +504,12 @@ async function init() {
 	function updateLapHud() {
 
 		if ( ! lapHud ) return;
-		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>`;
+		const totalCheckpoints = checkpointStates.length;
+		const passedCheckpoints = checkpointStates.reduce( ( count, checkpoint ) => count + ( checkpoint.passedThisLap ? 1 : 0 ), 0 );
+		const checkpointLine = totalCheckpoints > 0
+			? `<br><small>Checkpoints: ${ passedCheckpoints } / ${ totalCheckpoints }</small>`
+			: '';
+		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }`;
 
 	}
 
@@ -433,10 +554,23 @@ async function init() {
 
 		lapStartSeconds = timer.getElapsed();
 		lapSeconds = 0;
+		boostActiveUntil = 0;
+		boostContactCell = null;
+		resetCurrentLapGhost();
+		recordGhostSample( 0, true );
+		updateGhostPlayback( 0 );
 		hasLeftStartZone = false;
 		hasPrevFinishSample = false;
 		lastLocalX = 0;
 		lastLocalZ = 0;
+		for ( const checkpoint of checkpointStates ) {
+
+			checkpoint.lastLocalX = 0;
+			checkpoint.lastLocalZ = 0;
+			checkpoint.hasPrevSample = false;
+			checkpoint.passedThisLap = false;
+
+		}
 		updateLapHud();
 
 	}
@@ -451,6 +585,45 @@ async function init() {
 
 	}
 
+	function applyBoost() {
+
+		if ( ! vehicle?.rigidBody ) return;
+		const now = timer.getElapsed();
+		_boostForward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+		_boostForward.y = 0;
+		const boostLenSq = _boostForward.lengthSq();
+		if ( boostLenSq < 1e-6 ) return;
+		_boostForward.multiplyScalar( 1 / Math.sqrt( boostLenSq ) );
+		const vel = vehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+		rigidBody.setLinearVelocity( world, vehicle.rigidBody, [
+			vel[ 0 ] + _boostForward.x * BOOST_VELOCITY_DELTA,
+			vel[ 1 ],
+			vel[ 2 ] + _boostForward.z * BOOST_VELOCITY_DELTA,
+		] );
+		boostActiveUntil = now + BOOST_FORCE_SECONDS;
+		particles.triggerBoostFx( Math.max( BOOST_EFFECT_SECONDS, BOOST_FORCE_SECONDS ) );
+
+	}
+
+	function updateActiveBoost( dt ) {
+
+		if ( ! vehicle?.rigidBody ) return;
+		const now = timer.getElapsed();
+		if ( now >= boostActiveUntil ) return;
+		_boostForward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+		_boostForward.y = 0;
+		const boostLenSq = _boostForward.lengthSq();
+		if ( boostLenSq < 1e-6 ) return;
+		_boostForward.multiplyScalar( 1 / Math.sqrt( boostLenSq ) );
+		const vel = vehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+		rigidBody.setLinearVelocity( world, vehicle.rigidBody, [
+			vel[ 0 ] + _boostForward.x * BOOST_ACCEL_PER_SECOND * dt,
+			vel[ 1 ],
+			vel[ 2 ] + _boostForward.z * BOOST_ACCEL_PER_SECOND * dt,
+		] );
+
+	}
+
 	respawnBtn?.addEventListener( 'click', ( e ) => {
 
 		e.preventDefault();
@@ -462,6 +635,7 @@ async function init() {
 
 		const selectedKey = carSelect.value;
 		if ( models[ selectedKey ] ) vehicle.setModel( models[ selectedKey ] );
+		if ( models[ selectedKey ] ) createGhostModel( models[ selectedKey ] );
 		applyVehiclePerformance();
 
 	} );
@@ -484,15 +658,23 @@ async function init() {
 	loadLapStats();
 	resetLapState( true );
 
-	window.addEventListener( 'keydown', ( e ) => {
+		window.addEventListener( 'keydown', ( e ) => {
 
-		if ( e.code === 'KeyC' ) {
+			if ( e.code === 'KeyC' ) {
 
-			cam.toggleMode();
+				cam.toggleMode();
+				return;
 
-		}
+			}
 
-	} );
+			if ( e.code === 'KeyR' ) {
+
+				respawnVehicle();
+				return;
+
+			}
+
+		} );
 
 	function animate() {
 
@@ -506,6 +688,24 @@ async function init() {
 		updateWorld( world, contactListener, dt );
 
 		vehicle.update( dt, input );
+		updateActiveBoost( dt );
+		const boostGridX = Math.floor( vehicle.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
+		const boostGridZ = Math.floor( vehicle.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
+		const boostKey = `${ boostGridX },${ boostGridZ }`;
+		if ( boostCellSet.has( boostKey ) ) {
+
+			if ( boostContactCell !== boostKey ) {
+
+				applyBoost();
+				boostContactCell = boostKey;
+
+			}
+
+		} else {
+
+			boostContactCell = null;
+
+		}
 
 		dirLight.position.set(
 			vehicle.spherePos.x + 11.4,
@@ -516,6 +716,35 @@ async function init() {
 		cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
 		particles.update( dt, vehicle );
 		audio.update( dt, vehicle.linearSpeed, input.z, vehicle.driftIntensity );
+
+		for ( const checkpoint of checkpointStates ) {
+
+			const localX = ( ( vehicle.spherePos.x - checkpoint.centerX ) * checkpoint.cosA ) + ( ( vehicle.spherePos.z - checkpoint.centerZ ) * checkpoint.sinA );
+			const localZ = ( - ( vehicle.spherePos.x - checkpoint.centerX ) * checkpoint.sinA ) + ( ( vehicle.spherePos.z - checkpoint.centerZ ) * checkpoint.cosA );
+
+			let crossedCheckpoint = false;
+			if ( checkpoint.hasPrevSample ) {
+
+				const z0 = checkpoint.lastLocalZ;
+				const z1 = localZ;
+				const crossedPlane = ( z0 < 0 && z1 > 0 ) || ( z0 > 0 && z1 < 0 );
+
+				if ( crossedPlane ) {
+
+					const t = z0 / ( z0 - z1 );
+					const xCross = THREE.MathUtils.lerp( checkpoint.lastLocalX, localX, t );
+					crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent;
+
+				}
+
+			}
+
+			if ( crossedCheckpoint ) checkpoint.passedThisLap = true;
+			checkpoint.lastLocalX = localX;
+			checkpoint.lastLocalZ = localZ;
+			checkpoint.hasPrevSample = true;
+
+		}
 
 		if ( finishData ) {
 
@@ -547,14 +776,32 @@ async function init() {
 
 			}
 
-			if ( hasLeftStartZone && crossedFinish ) {
+			const allCheckpointsPassed = checkpointStates.every( ( checkpoint ) => checkpoint.passedThisLap );
+			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
 
 				const completedLap = timer.getElapsed() - lapStartSeconds;
+				const isNewBest = bestLapSeconds === null || completedLap < bestLapSeconds;
 				lastLapSeconds = completedLap;
 				bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
-				lapNumber ++;
-				lapStartSeconds = timer.getElapsed();
+				if ( isNewBest && currentLapGhostSamples.length > 1 ) {
+
+					bestLapGhostSamples.length = 0;
+					const t0 = currentLapGhostSamples[ 0 ].t;
+					for ( const sample of currentLapGhostSamples ) bestLapGhostSamples.push( { ...sample, t: sample.t - t0 } );
+					bestGhostDuration = Math.max( 1e-4, completedLap - t0 );
+
+				}
+					lapNumber ++;
+					lapStartSeconds = timer.getElapsed();
+					resetCurrentLapGhost();
+					recordGhostSample( 0, true );
+					updateGhostPlayback( 0 );
 				hasLeftStartZone = false;
+				for ( const checkpoint of checkpointStates ) {
+
+					checkpoint.passedThisLap = false;
+
+				}
 				saveLapStats();
 				rewardCoinsForLap( completedLap );
 
@@ -567,6 +814,8 @@ async function init() {
 		}
 
 		lapSeconds = timer.getElapsed() - lapStartSeconds;
+		recordGhostSample( lapSeconds );
+		updateGhostPlayback( lapSeconds );
 		updateLapHud();
 
 		renderer.render( scene, cam.camera );
