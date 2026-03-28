@@ -70,6 +70,8 @@ const MAX_EFFECTIVE_TOP_SPEED = 1.8;
 const BOOST_VELOCITY_DELTA = 2.2;
 const BOOST_EFFECT_SECONDS = 1.0;
 const BOOST_COOLDOWN_SECONDS = 5.0;
+const BOOST_FORCE_SECONDS = 0.45;
+const BOOST_ACCEL_PER_SECOND = 8.5;
 
 function decodeExtrasParam( str ) {
 
@@ -485,6 +487,7 @@ async function init() {
 	let lastLocalZ = 0;
 	let hasLeftStartZone = false;
 	let boostReadyAt = 0;
+	let boostActiveUntil = 0;
 
 	function formatLapTime( totalSeconds ) {
 
@@ -502,10 +505,15 @@ async function init() {
 		if ( ! lapHud ) return;
 		const totalCheckpoints = checkpointStates.length;
 		const passedCheckpoints = checkpointStates.reduce( ( count, checkpoint ) => count + ( checkpoint.passedThisLap ? 1 : 0 ), 0 );
+		const now = timer.getElapsed();
+		const cooldownRemaining = Math.max( 0, boostReadyAt - now );
+		const boostLine = cooldownRemaining > 0
+			? `<br><small>Boost: ${ cooldownRemaining.toFixed( 1 ) }s</small>`
+			: '<br><small>Boost: READY</small>';
 		const checkpointLine = totalCheckpoints > 0
 			? `<br><small>Checkpoints: ${ passedCheckpoints } / ${ totalCheckpoints }</small>`
 			: '';
-		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }`;
+		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ boostLine }`;
 
 	}
 
@@ -551,6 +559,7 @@ async function init() {
 		lapStartSeconds = timer.getElapsed();
 		lapSeconds = 0;
 		boostReadyAt = timer.getElapsed();
+		boostActiveUntil = 0;
 		resetCurrentLapGhost();
 		recordGhostSample( 0, true );
 		updateGhostPlayback( 0 );
@@ -596,8 +605,28 @@ async function init() {
 			vel[ 1 ],
 			vel[ 2 ] + _boostForward.z * BOOST_VELOCITY_DELTA,
 		] );
-		particles.triggerBoostFx( BOOST_EFFECT_SECONDS );
+		boostActiveUntil = now + BOOST_FORCE_SECONDS;
+		particles.triggerBoostFx( Math.max( BOOST_EFFECT_SECONDS, BOOST_FORCE_SECONDS ) );
 		boostReadyAt = now + BOOST_COOLDOWN_SECONDS;
+
+	}
+
+	function updateActiveBoost( dt ) {
+
+		if ( ! vehicle?.rigidBody ) return;
+		const now = timer.getElapsed();
+		if ( now >= boostActiveUntil ) return;
+		_boostForward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+		_boostForward.y = 0;
+		const boostLenSq = _boostForward.lengthSq();
+		if ( boostLenSq < 1e-6 ) return;
+		_boostForward.multiplyScalar( 1 / Math.sqrt( boostLenSq ) );
+		const vel = vehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+		rigidBody.setLinearVelocity( world, vehicle.rigidBody, [
+			vel[ 0 ] + _boostForward.x * BOOST_ACCEL_PER_SECOND * dt,
+			vel[ 1 ],
+			vel[ 2 ] + _boostForward.z * BOOST_ACCEL_PER_SECOND * dt,
+		] );
 
 	}
 
@@ -671,6 +700,7 @@ async function init() {
 		updateWorld( world, contactListener, dt );
 
 		vehicle.update( dt, input );
+		updateActiveBoost( dt );
 
 		dirLight.position.set(
 			vehicle.spherePos.x + 11.4,
