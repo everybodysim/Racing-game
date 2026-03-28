@@ -680,7 +680,7 @@ async function init() {
 
 			}
 
-			if ( e.code === 'KeyB' && ! e.repeat ) {
+			if ( e.code === 'Space' && ! e.repeat ) {
 
 				applyBoost();
 
