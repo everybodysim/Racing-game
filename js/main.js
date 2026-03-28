@@ -63,7 +63,7 @@ const CAR_STATS = {
 	'vehicle-truck-purple': { name: 'Purple', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 	'vehicle-truck-red': { name: 'Red', speed: 8, accel: 6, perf: { topSpeed: 1.05, accelRate: 5.5, driveForce: 102.0 } },
 };
-const ENGINE_MULTS = [ 1.2, 1.35, 1.5, 1.65, 1.8 ];
+const ENGINE_MULTS = [ 1, 1.05, 1.1, 1.15, 1.2 ];
 const ENGINE_UPGRADE_COST = 100;
 const MAX_EFFECTIVE_TOP_SPEED = 1.8;
 
