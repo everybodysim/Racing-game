@@ -1,4 +1,3 @@
-
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'; 
@@ -69,9 +68,8 @@ const ENGINE_UPGRADE_COST = 100;
 const MAX_EFFECTIVE_TOP_SPEED = 1.8;
 const BOOST_VELOCITY_DELTA = 2.2;
 const BOOST_EFFECT_SECONDS = 1.0;
-const BOOST_COOLDOWN_SECONDS = 4.0;
-const BOOST_FORCE_SECONDS = 0.35;
-const BOOST_ACCEL_PER_SECOND = 10.5;
+const BOOST_FORCE_SECONDS = 0.45;
+const BOOST_ACCEL_PER_SECOND = 8.5;
 
 function decodeExtrasParam( str ) {
 
@@ -83,6 +81,7 @@ function decodeExtrasParam( str ) {
 		const parsed = JSON.parse( json );
 		return {
 			bumps: Array.isArray( parsed.b ) ? parsed.b : [],
+			boosts: Array.isArray( parsed.s ) ? parsed.s : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 		};
 
@@ -486,8 +485,10 @@ async function init() {
 	let lastLocalX = 0;
 	let lastLocalZ = 0;
 	let hasLeftStartZone = false;
-	let boostReadyAt = 0;
 	let boostActiveUntil = 0;
+	let boostContactCell = null;
+	const boostCells = Array.isArray( extras?.boosts ) ? extras.boosts : [];
+	const boostCellSet = new Set( boostCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 
 	function formatLapTime( totalSeconds ) {
 
@@ -505,15 +506,10 @@ async function init() {
 		if ( ! lapHud ) return;
 		const totalCheckpoints = checkpointStates.length;
 		const passedCheckpoints = checkpointStates.reduce( ( count, checkpoint ) => count + ( checkpoint.passedThisLap ? 1 : 0 ), 0 );
-		const now = timer.getElapsed();
-		const cooldownRemaining = Math.max( 0, boostReadyAt - now );
-		const boostLine = cooldownRemaining > 0
-			? `<br><small>Boost: ${ cooldownRemaining.toFixed( 1 ) }s</small>`
-			: '<br><small>Boost: READY</small>';
 		const checkpointLine = totalCheckpoints > 0
 			? `<br><small>Checkpoints: ${ passedCheckpoints } / ${ totalCheckpoints }</small>`
 			: '';
-		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ boostLine }`;
+		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }`;
 
 	}
 
@@ -558,8 +554,8 @@ async function init() {
 
 		lapStartSeconds = timer.getElapsed();
 		lapSeconds = 0;
-		boostReadyAt = timer.getElapsed();
 		boostActiveUntil = 0;
+		boostContactCell = null;
 		resetCurrentLapGhost();
 		recordGhostSample( 0, true );
 		updateGhostPlayback( 0 );
@@ -593,7 +589,6 @@ async function init() {
 
 		if ( ! vehicle?.rigidBody ) return;
 		const now = timer.getElapsed();
-		if ( now < boostReadyAt ) return;
 		_boostForward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
 		_boostForward.y = 0;
 		const boostLenSq = _boostForward.lengthSq();
@@ -607,7 +602,6 @@ async function init() {
 		] );
 		boostActiveUntil = now + BOOST_FORCE_SECONDS;
 		particles.triggerBoostFx( Math.max( BOOST_EFFECT_SECONDS, BOOST_FORCE_SECONDS ) );
-		boostReadyAt = now + BOOST_COOLDOWN_SECONDS;
 
 	}
 
@@ -680,12 +674,6 @@ async function init() {
 
 			}
 
-			if ( e.code === 'Space' && ! e.repeat ) {
-
-				applyBoost();
-
-			}
-
 		} );
 
 	function animate() {
@@ -701,6 +689,23 @@ async function init() {
 
 		vehicle.update( dt, input );
 		updateActiveBoost( dt );
+		const boostGridX = Math.floor( vehicle.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
+		const boostGridZ = Math.floor( vehicle.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
+		const boostKey = `${ boostGridX },${ boostGridZ }`;
+		if ( boostCellSet.has( boostKey ) ) {
+
+			if ( boostContactCell !== boostKey ) {
+
+				applyBoost();
+				boostContactCell = boostKey;
+
+			}
+
+		} else {
+
+			boostContactCell = null;
+
+		}
 
 		dirLight.position.set(
 			vehicle.spherePos.x + 11.4,
