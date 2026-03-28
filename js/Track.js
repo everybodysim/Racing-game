@@ -135,12 +135,36 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	if ( extras ) {
 
 		const bumpCells = Array.isArray( extras.bumps ) ? extras.bumps : [];
+		const boostCells = Array.isArray( extras.boosts ) ? extras.boosts : [];
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
 
 		for ( const [ gx, gz ] of bumpCells ) {
 
 			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
 			if ( piece ) trackPieceGroup.add( piece );
+
+		}
+
+		for ( const [ gx, gz ] of boostCells ) {
+
+			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
+			if ( piece ) {
+
+				piece.traverse( ( c ) => {
+
+					if ( c.isMesh ) {
+
+						c.material = c.material.clone();
+						c.material.color = new THREE.Color( 0xff8a00 );
+						c.material.emissive = new THREE.Color( 0xff4d00 );
+						c.material.emissiveIntensity = 0.6;
+
+					}
+
+				} );
+				trackPieceGroup.add( piece );
+
+			}
 
 		}
 
