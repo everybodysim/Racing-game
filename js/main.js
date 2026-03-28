@@ -1,3 +1,4 @@
+
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'; 
@@ -66,6 +67,9 @@ const CAR_STATS = {
 const ENGINE_MULTS = [ 1, 1.025, 1.05, 1.075, 1.1 ];
 const ENGINE_UPGRADE_COST = 100;
 const MAX_EFFECTIVE_TOP_SPEED = 1.8;
+const BOOST_VELOCITY_DELTA = 2.2;
+const BOOST_EFFECT_SECONDS = 1.0;
+const BOOST_COOLDOWN_SECONDS = 5.0;
 
 function decodeExtrasParam( str ) {
 
@@ -425,6 +429,7 @@ async function init() {
 	audio.init( cam.camera );
 
 	const _forward = new THREE.Vector3();
+	const _boostForward = new THREE.Vector3();
 
 	const contactListener = {
 		onContactAdded( bodyA, bodyB ) {
@@ -479,6 +484,7 @@ async function init() {
 	let lastLocalX = 0;
 	let lastLocalZ = 0;
 	let hasLeftStartZone = false;
+	let boostReadyAt = 0;
 
 	function formatLapTime( totalSeconds ) {
 
@@ -544,6 +550,7 @@ async function init() {
 
 		lapStartSeconds = timer.getElapsed();
 		lapSeconds = 0;
+		boostReadyAt = timer.getElapsed();
 		resetCurrentLapGhost();
 		recordGhostSample( 0, true );
 		updateGhostPlayback( 0 );
@@ -570,6 +577,27 @@ async function init() {
 		cam.camera.position.addVectors( cam.targetPosition, cam.offset );
 
 		resetLapState( true );
+
+	}
+
+	function applyBoost() {
+
+		if ( ! vehicle?.rigidBody ) return;
+		const now = timer.getElapsed();
+		if ( now < boostReadyAt ) return;
+		_boostForward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+		_boostForward.y = 0;
+		const boostLenSq = _boostForward.lengthSq();
+		if ( boostLenSq < 1e-6 ) return;
+		_boostForward.multiplyScalar( 1 / Math.sqrt( boostLenSq ) );
+		const vel = vehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+		rigidBody.setLinearVelocity( world, vehicle.rigidBody, [
+			vel[ 0 ] + _boostForward.x * BOOST_VELOCITY_DELTA,
+			vel[ 1 ],
+			vel[ 2 ] + _boostForward.z * BOOST_VELOCITY_DELTA,
+		] );
+		particles.triggerBoostFx( BOOST_EFFECT_SECONDS );
+		boostReadyAt = now + BOOST_COOLDOWN_SECONDS;
 
 	}
 
@@ -619,6 +647,13 @@ async function init() {
 			if ( e.code === 'KeyR' ) {
 
 				respawnVehicle();
+				return;
+
+			}
+
+			if ( e.code === 'KeyB' && ! e.repeat ) {
+
+				applyBoost();
 
 			}
 
