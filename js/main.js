@@ -170,7 +170,7 @@ async function init() {
 	buildTrack( scene, models, customCells, extras );
 
 
-	const worldSettings = createWorldSettings();
+	const worldSettings = createWorldSettings();       
 	worldSettings.gravity = [ 0, - 9.81, 0 ];
 
 	const BPL_MOVING = addBroadphaseLayer( worldSettings );
