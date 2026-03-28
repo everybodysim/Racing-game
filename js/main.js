@@ -371,6 +371,7 @@ async function init() {
 		lastLocalX: 0,
 		lastLocalZ: 0,
 		hasPrevSample: false,
+		passedThisLap: false,
 	} ) );
 
 	let lapNumber = 1;
@@ -382,7 +383,6 @@ async function init() {
 	let lastLocalX = 0;
 	let lastLocalZ = 0;
 	let hasLeftStartZone = false;
-	let hasPassedCheckpoint = checkpointStates.length === 0;
 
 	function formatLapTime( totalSeconds ) {
 
@@ -447,12 +447,12 @@ async function init() {
 		hasPrevFinishSample = false;
 		lastLocalX = 0;
 		lastLocalZ = 0;
-		hasPassedCheckpoint = checkpointStates.length === 0;
 		for ( const checkpoint of checkpointStates ) {
 
 			checkpoint.lastLocalX = 0;
 			checkpoint.lastLocalZ = 0;
 			checkpoint.hasPrevSample = false;
+			checkpoint.passedThisLap = false;
 
 		}
 		updateLapHud();
@@ -557,7 +557,7 @@ async function init() {
 
 			}
 
-			if ( crossedCheckpoint ) hasPassedCheckpoint = true;
+			if ( crossedCheckpoint ) checkpoint.passedThisLap = true;
 			checkpoint.lastLocalX = localX;
 			checkpoint.lastLocalZ = localZ;
 			checkpoint.hasPrevSample = true;
@@ -594,7 +594,8 @@ async function init() {
 
 			}
 
-			if ( hasLeftStartZone && hasPassedCheckpoint && crossedFinish ) {
+			const allCheckpointsPassed = checkpointStates.every( ( checkpoint ) => checkpoint.passedThisLap );
+			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
 
 				const completedLap = timer.getElapsed() - lapStartSeconds;
 				lastLapSeconds = completedLap;
@@ -602,7 +603,11 @@ async function init() {
 				lapNumber ++;
 				lapStartSeconds = timer.getElapsed();
 				hasLeftStartZone = false;
-				hasPassedCheckpoint = checkpointStates.length === 0;
+				for ( const checkpoint of checkpointStates ) {
+
+					checkpoint.passedThisLap = false;
+
+				}
 				saveLapStats();
 				rewardCoinsForLap( completedLap );
 
