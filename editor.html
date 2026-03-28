@@ -1037,34 +1037,64 @@
 
 	}, { passive: false } );
 
-	window.addEventListener( 'keydown', ( e ) => {
+		window.addEventListener( 'keydown', ( e ) => {
 
-		if ( e.key === ' ' ) {
+			const panStep = cellWorld * 0.75 / camera.zoom;
 
-			if ( ! spaceDown ) {
+			if ( e.key === ' ' ) {
 
-				spaceDown = true;
-				el.style.cursor = 'grab';
+				if ( ! spaceDown ) {
+
+					spaceDown = true;
+					el.style.cursor = 'grab';
+
+				}
+
+				e.preventDefault();
+
+			} else if ( e.key === '1' ) {
+
+				selectTool( 'paint' );
+
+			} else if ( e.key === '2' ) {
+
+				selectTool( 'erase' );
+
+			} else if ( e.key.toLowerCase() === 'r' ) {
+
+				rotateSelection();
+
+			} else if ( e.key === 'ArrowUp' ) {
+
+				camTarget.z -= panStep;
+				camera.position.z = camTarget.z;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				e.preventDefault();
+
+			} else if ( e.key === 'ArrowDown' ) {
+
+				camTarget.z += panStep;
+				camera.position.z = camTarget.z;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				e.preventDefault();
+
+			} else if ( e.key === 'ArrowLeft' ) {
+
+				camTarget.x -= panStep;
+				camera.position.x = camTarget.x;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				e.preventDefault();
+
+			} else if ( e.key === 'ArrowRight' ) {
+
+				camTarget.x += panStep;
+				camera.position.x = camTarget.x;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				e.preventDefault();
 
 			}
 
-			e.preventDefault();
-
-		} else if ( e.key === '1' ) {
-
-			selectTool( 'paint' );
-
-		} else if ( e.key === '2' ) {
-
-			selectTool( 'erase' );
-
-		} else if ( e.key.toLowerCase() === 'r' ) {
-
-			rotateSelection();
-
-		}
-
-	} );
+		} );
 
 	window.addEventListener( 'keyup', ( e ) => {
 

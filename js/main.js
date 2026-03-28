@@ -607,15 +607,22 @@ async function init() {
 	loadLapStats();
 	resetLapState( true );
 
-	window.addEventListener( 'keydown', ( e ) => {
+		window.addEventListener( 'keydown', ( e ) => {
 
-		if ( e.code === 'KeyC' ) {
+			if ( e.code === 'KeyC' ) {
 
-			cam.toggleMode();
+				cam.toggleMode();
+				return;
 
-		}
+			}
 
-	} );
+			if ( e.code === 'KeyR' ) {
+
+				respawnVehicle();
+
+			}
+
+		} );
 
 	function animate() {
 
