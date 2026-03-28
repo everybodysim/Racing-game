@@ -220,6 +220,9 @@ async function init() {
 	const bestLapGhostSamples = [];
 	let currentLapGhostSamples = [];
 	let bestGhostDuration = 0;
+	let ghostRecordFrame = 0;
+	const _ghostForward = new THREE.Vector3();
+	const _ghostUp = new THREE.Vector3( 0, 1, 0 );
 
 	function createGhostModel( model ) {
 
@@ -246,18 +249,35 @@ async function init() {
 	function resetCurrentLapGhost() {
 
 		currentLapGhostSamples = [];
+		ghostRecordFrame = 0;
 
 	}
 
-	function recordGhostSample( lapElapsed ) {
+	function recordGhostSample( lapElapsed, force = false ) {
+
+		ghostRecordFrame ++;
+		if ( ! force && ghostRecordFrame % 3 !== 0 ) return;
+
+		_ghostForward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+		_ghostForward.projectOnPlane( _ghostUp ).normalize();
+		const yaw = Math.atan2( _ghostForward.x, _ghostForward.z );
 
 		currentLapGhostSamples.push( {
 			t: lapElapsed,
-			x: vehicle.spherePos.x,
-			y: 0,
-			z: vehicle.spherePos.z,
-			angle: vehicle.container.rotation.y,
+			x: vehicle.container.position.x,
+			y: vehicle.container.position.y,
+			z: vehicle.container.position.z,
+			yaw,
 		} );
+
+	}
+
+	function lerpAngle( a, b, t ) {
+
+		let delta = b - a;
+		while ( delta > Math.PI ) delta -= Math.PI * 2;
+		while ( delta < - Math.PI ) delta += Math.PI * 2;
+		return a + delta * t;
 
 	}
 
@@ -287,7 +307,7 @@ async function init() {
 			THREE.MathUtils.lerp( sampleA.y, sampleB.y, alpha ),
 			THREE.MathUtils.lerp( sampleA.z, sampleB.z, alpha )
 		);
-		ghostModel.rotation.set( 0, THREE.MathUtils.lerp( sampleA.angle, sampleB.angle, alpha ), 0 );
+		ghostModel.rotation.set( 0, lerpAngle( sampleA.yaw, sampleB.yaw, alpha ), 0 );
 
 	}
 
@@ -520,6 +540,8 @@ async function init() {
 		lapStartSeconds = timer.getElapsed();
 		lapSeconds = 0;
 		resetCurrentLapGhost();
+		recordGhostSample( 0, true );
+		updateGhostPlayback( 0 );
 		hasLeftStartZone = false;
 		hasPrevFinishSample = false;
 		lastLocalX = 0;
@@ -682,12 +704,16 @@ async function init() {
 				if ( isNewBest && currentLapGhostSamples.length > 1 ) {
 
 					bestLapGhostSamples.length = 0;
-					for ( const sample of currentLapGhostSamples ) bestLapGhostSamples.push( { ...sample } );
-					bestGhostDuration = completedLap;
+					const t0 = currentLapGhostSamples[ 0 ].t;
+					for ( const sample of currentLapGhostSamples ) bestLapGhostSamples.push( { ...sample, t: sample.t - t0 } );
+					bestGhostDuration = Math.max( 1e-4, completedLap - t0 );
 
 				}
-				lapNumber ++;
-				lapStartSeconds = timer.getElapsed();
+					lapNumber ++;
+					lapStartSeconds = timer.getElapsed();
+					resetCurrentLapGhost();
+					recordGhostSample( 0, true );
+					updateGhostPlayback( 0 );
 				hasLeftStartZone = false;
 				for ( const checkpoint of checkpointStates ) {
 
