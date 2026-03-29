@@ -9,6 +9,7 @@ import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, TRAC
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
+import { MultiplayerClient, readMultiplayerConfig } from './Multiplayer.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType } );
@@ -221,6 +222,81 @@ async function init() {
 
 	const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
 	scene.add( vehicleGroup );
+
+	const multiplayerConfig = readMultiplayerConfig();
+	const remotePlayers = new Map();
+	const _remoteVec = new THREE.Vector3();
+	let multiplayer = null;
+
+	function lerpAngle( a, b, t ) {
+
+		let delta = b - a;
+		while ( delta > Math.PI ) delta -= Math.PI * 2;
+		while ( delta < - Math.PI ) delta += Math.PI * 2;
+		return a + delta * t;
+
+	}
+
+	function createRemoteModel( model ) {
+
+		const remoteModel = model.clone();
+		remoteModel.traverse( ( child ) => {
+
+			if ( ! child.isMesh ) return;
+			child.castShadow = true;
+			child.receiveShadow = true;
+
+		} );
+		scene.add( remoteModel );
+		return remoteModel;
+
+	}
+
+	function upsertRemotePlayer( payload ) {
+
+		const id = payload.player;
+		if ( ! id || id === multiplayer?.playerId ) return;
+
+		let remote = remotePlayers.get( id );
+		const carKey = models[ payload.car ] ? payload.car : ( remote?.car || 'vehicle-truck-yellow' );
+		if ( ! Number.isFinite( payload.x ) || ! Number.isFinite( payload.y ) || ! Number.isFinite( payload.z ) ) return;
+		const targetPos = _remoteVec.set( payload.x, payload.y, payload.z );
+		const targetYaw = Number.isFinite( payload.yaw ) ? payload.yaw : 0;
+
+		if ( ! remote || remote.car !== carKey ) {
+
+			if ( remote?.model ) scene.remove( remote.model );
+			const model = createRemoteModel( models[ carKey ] );
+			remote = {
+				car: carKey,
+				model,
+				displayPos: targetPos.clone(),
+				displayYaw: targetYaw,
+				targetPos: targetPos.clone(),
+				targetYaw,
+				lastSeenAt: performance.now(),
+			};
+			remotePlayers.set( id, remote );
+			model.position.copy( remote.displayPos );
+			model.rotation.set( 0, remote.displayYaw, 0 );
+			return;
+
+		}
+
+		remote.targetPos.copy( targetPos );
+		remote.targetYaw = targetYaw;
+		remote.lastSeenAt = performance.now();
+
+	}
+
+	function removeRemotePlayer( id ) {
+
+		const remote = remotePlayers.get( id );
+		if ( ! remote ) return;
+		scene.remove( remote.model );
+		remotePlayers.delete( id );
+
+	}
 	let ghostModel = null;
 	const bestLapGhostSamples = [];
 	let currentLapGhostSamples = [];
@@ -277,7 +353,7 @@ async function init() {
 
 	}
 
-	function lerpAngle( a, b, t ) {
+	function lerpGhostAngle( a, b, t ) {
 
 		let delta = b - a;
 		while ( delta > Math.PI ) delta -= Math.PI * 2;
@@ -312,7 +388,7 @@ async function init() {
 			THREE.MathUtils.lerp( sampleA.y, sampleB.y, alpha ),
 			THREE.MathUtils.lerp( sampleA.z, sampleB.z, alpha )
 		);
-		ghostModel.rotation.set( 0, lerpAngle( sampleA.yaw, sampleB.yaw, alpha ), 0 );
+		ghostModel.rotation.set( 0, lerpGhostAngle( sampleA.yaw, sampleB.yaw, alpha ), 0 );
 
 	}
 
@@ -428,6 +504,30 @@ async function init() {
 
 	const audio = new GameAudio();
 	audio.init( cam.camera );
+
+	if ( multiplayerConfig ) {
+
+		multiplayer = new MultiplayerClient( {
+			...multiplayerConfig,
+			carKey: currentCarKey(),
+			onMessage: ( msg ) => {
+
+				if ( ! msg?.type ) return;
+				if ( msg.type === 'state' ) {
+
+					upsertRemotePlayer( msg );
+					return;
+
+				}
+
+				if ( msg.type === 'leave' ) removeRemotePlayer( msg.player );
+
+			},
+		} );
+		multiplayer.connect();
+		window.addEventListener( 'beforeunload', () => multiplayer.disconnect() );
+
+	}
 
 	const _forward = new THREE.Vector3();
 	const _boostForward = new THREE.Vector3();
@@ -642,6 +742,7 @@ async function init() {
 		if ( models[ selectedKey ] ) vehicle.setModel( models[ selectedKey ] );
 		if ( models[ selectedKey ] ) createGhostModel( models[ selectedKey ] );
 		applyVehiclePerformance();
+		multiplayer?.setCar( selectedKey );
 
 	} );
 
@@ -693,6 +794,12 @@ async function init() {
 		updateWorld( world, contactListener, dt );
 
 		vehicle.update( dt, input );
+		multiplayer?.sendState( {
+			x: vehicle.container.position.x,
+			y: vehicle.container.position.y,
+			z: vehicle.container.position.z,
+			yaw: vehicle.container.rotation.y,
+		} );
 		updateActiveBoost( dt );
 		const boostGridX = Math.floor( vehicle.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
 		const boostGridZ = Math.floor( vehicle.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
@@ -822,6 +929,23 @@ async function init() {
 		recordGhostSample( lapSeconds );
 		updateGhostPlayback( lapSeconds );
 		updateLapHud();
+		const now = performance.now();
+		for ( const [ id, remote ] of remotePlayers ) {
+
+			if ( now - remote.lastSeenAt > 7000 ) {
+
+				scene.remove( remote.model );
+				remotePlayers.delete( id );
+				continue;
+
+			}
+
+			remote.displayPos.lerp( remote.targetPos, 0.2 );
+			remote.displayYaw = lerpAngle( remote.displayYaw, remote.targetYaw, 0.2 );
+			remote.model.position.copy( remote.displayPos );
+			remote.model.rotation.set( 0, remote.displayYaw, 0 );
+
+		}
 
 		renderer.render( scene, cam.camera );
 
