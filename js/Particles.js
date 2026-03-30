@@ -1,12 +1,6 @@
 import * as THREE from 'three';
 
-const POOL_SIZE = 64;
-const _worldPos = new THREE.Vector3();
-const DEFAULT_PARTICLE_COLOR = new THREE.Color( 0x5E5F6B );
-const BOOST_PARTICLE_COLORS = [
-	new THREE.Color( 0xff4b1f ),
-	new THREE.Color( 0xff9f1c ),
-];
+const POOL_SIZE = 128;
 
 export class SmokeTrails {
 
@@ -41,21 +35,34 @@ export class SmokeTrails {
 		}
 
 		this.emitIndex = 0;
-		this.boostFxTime = 0;
 
 	}
 
-	update( dt, vehicle ) {
+	update( dt, vehicle, remoteVehicles ) {
 
-		this.boostFxTime = Math.max( 0, this.boostFxTime - dt );
-		const boostActive = this.boostFxTime > 0;
-		const shouldEmit = vehicle.driftIntensity > 0.25;
+		const shouldEmit = vehicle.driftIntensity > 0.25 && vehicle.colliding;
 
 		// Emit new particles from back wheel positions
 		if ( shouldEmit ) {
 
-			if ( vehicle.wheelBL ) this.emitAtWheel( vehicle.wheelBL, vehicle, boostActive );
-			if ( vehicle.wheelBR ) this.emitAtWheel( vehicle.wheelBR, vehicle, boostActive );
+			if ( vehicle.wheelBL ) this.emitAtWheel( vehicle.wheelBL, vehicle );
+			if ( vehicle.wheelBR ) this.emitAtWheel( vehicle.wheelBR, vehicle );
+
+		}
+
+		// Emit for remote vehicles
+		if ( remoteVehicles ) {
+
+			for ( const [ , remote ] of remoteVehicles ) {
+
+				if ( remote.driftIntensity > 0.25 ) {
+
+					if ( remote.wheelBL ) this.emitAtWheel( remote.wheelBL, remote );
+					if ( remote.wheelBR ) this.emitAtWheel( remote.wheelBR, remote );
+
+				}
+
+			}
 
 		}
 
@@ -103,28 +110,19 @@ export class SmokeTrails {
 
 	}
 
-	triggerBoostFx( duration = 1 ) {
-
-		this.boostFxTime = Math.max( this.boostFxTime, duration );
-
-	}
-
-	emitAtWheel( wheel, vehicle, boostActive = false ) {
+	emitAtWheel( wheel, vehicle ) {
 
 		const p = this.particles[ this.emitIndex ];
 		this.emitIndex = ( this.emitIndex + 1 ) % POOL_SIZE;
 
 		// Get wheel world position, but use road surface Y
-		wheel.getWorldPosition( _worldPos );
-		_worldPos.y = vehicle.container.position.y + 0.05;
+		const worldPos = new THREE.Vector3();
+		wheel.getWorldPosition( worldPos );
+		worldPos.y = vehicle.container.position.y + 0.05;
 
-		p.sprite.position.copy( _worldPos );
+		p.sprite.position.copy( worldPos );
 		p.sprite.visible = true;
 		p.sprite.material.opacity = 0;
-		const particleColor = boostActive
-			? BOOST_PARTICLE_COLORS[ Math.random() < 0.5 ? 0 : 1 ]
-			: DEFAULT_PARTICLE_COLOR;
-		p.sprite.material.color.copy( particleColor );
 
 		// Godot: scale_min = 0.25, scale_max = 0.5
 		p.initialScale = 0.25 + Math.random() * 0.25;
