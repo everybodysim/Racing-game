@@ -38,6 +38,11 @@ dirLight.castShadow = true;
 dirLight.shadow.mapSize.setScalar( 4096 );
 dirLight.shadow.camera.near = 0.5;
 dirLight.shadow.camera.far = 60;
+dirLight.shadow.camera.left = -30;
+dirLight.shadow.camera.right = 30;
+dirLight.shadow.camera.top = 30;
+dirLight.shadow.camera.bottom = -30;
+
 scene.add( dirLight );
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
@@ -258,7 +263,9 @@ async function init() {
 	const vehicle = new Vehicle();
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
-	vehicle.setSpawn( spawn ? spawn.position : [ 3.5, 0.5, 5 ], spawn ? spawn.angle : 0 );
+		vehicle.spherePos.set( spawnX, spawnY, spawnZ );
+	vehicle.prevModelPos.set( spawnX, 0, spawnZ );
+	vehicle.container.rotation.y = spawnAngle;
 	vehicle.setPerformance( CAR_STATS[ 'vehicle-truck-yellow' ].perf );
 
 	if ( spawn ) {
@@ -270,7 +277,7 @@ async function init() {
 
 	}
 
-	const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
+	const vehicleGroup = vehicle.init( models[ modelKey ] );
 	scene.add( vehicleGroup );
 	let ghostModel = null;
 	const bestLapGhostSamples = [];
@@ -371,7 +378,8 @@ async function init() {
 
 	dirLight.target = vehicleGroup;
 
-	const cam = new Camera();
+    const cam = new Camera( renderer );
+
 	cam.targetPosition.copy( vehicle.spherePos );
 
 	const controls = new Controls();
