@@ -1,3 +1,4 @@
+
 const DEFAULT_SEND_INTERVAL_MS = 80;
 
 function randomId() {
@@ -134,14 +135,28 @@ export class MultiplayerClient {
 
 }
 
+function hashRoomKey( value ) {
+
+	let h = 2166136261;
+	for ( let i = 0; i < value.length; i ++ ) {
+
+		h ^= value.charCodeAt( i );
+		h += ( h << 1 ) + ( h << 4 ) + ( h << 7 ) + ( h << 8 ) + ( h << 24 );
+
+	}
+	return ( h >>> 0 ).toString( 36 );
+
+}
+
 export function readMultiplayerConfig() {
 
 	const params = new URLSearchParams( window.location.search );
-	const roomId = params.get( 'room' ) || '';
+	const mapKey = params.get( 'map' ) || 'default';
+	const modsKey = params.get( 'mods' ) || '';
+	const derivedRoom = `map-${ hashRoomKey( `${ mapKey }|${ modsKey }` ) }`;
+	const roomId = params.get( 'room' ) || derivedRoom;
 	const playerId = params.get( 'player' ) || randomId();
 	const wsParam = params.get( 'ws' );
-
-	if ( ! roomId ) return null;
 
 	let wsBaseUrl = wsParam;
 	if ( ! wsBaseUrl ) {
