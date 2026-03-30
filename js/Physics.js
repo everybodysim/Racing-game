@@ -200,3 +200,23 @@ export function createSphereBody( world, spawnPos ) {
 	return body;
 
 }
+
+export function createRemoteBody( world, position ) {
+
+	const body = rigidBody.create( world, {
+		shape: sphere.create( { radius: 0.5 } ),
+		motionType: MotionType.DYNAMIC,
+		objectLayer: world._OL_MOVING,
+		position: position || [ 0, 0.5, 0 ],
+		mass: 1000.0,
+		friction: 0.0,
+		restitution: 0.3,
+		linearDamping: 0.5,
+		angularDamping: 4.0,
+		gravityFactor: 0,
+		motionQuality: MotionQuality.LINEAR_CAST,
+	} );
+
+	return body;
+
+}
