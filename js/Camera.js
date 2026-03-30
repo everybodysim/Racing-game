@@ -11,7 +11,7 @@ function lerpAngle( a, b, t ) {
 
 export class Camera {
 
-	constructor() {
+	constructor( renderer ) {
 
 		this.camera = new THREE.PerspectiveCamera( 42, window.innerWidth / window.innerHeight, 0.1, 60 );
 
@@ -39,6 +39,7 @@ export class Camera {
 		} );
 
 	}
+	update( dt, target ) {
 
 	toggleMode() {
 
@@ -88,12 +89,15 @@ export class Camera {
 			this.camera.lookAt( this.lookTarget );
 
 		} else {
+		this.targetPosition.lerp( target, dt * 4 );
 
 			this._desiredPos.copy( this.targetPosition ).add( this.offset );
 			this.camera.position.lerp( this._desiredPos, dt * 8 );
 			this.lookTarget.lerp( this.targetPosition, dt * 10 );
 			this.camera.lookAt( this.lookTarget );
 
+				this.camera.position.copy( this.targetPosition ).add( this.offset );
+		this.camera.lookAt( this.targetPosition );
 		}
 
 	}
