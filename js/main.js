@@ -9,6 +9,7 @@ import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, TRAC
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
+import { Multiplayer } from './Multiplayer.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType } );
@@ -99,6 +100,24 @@ async function loadModels() {
 	const promises = modelNames.map( ( name ) =>
 		new Promise( ( resolve, reject ) => {
 
+function setLoadingStatus( text ) {
+
+	const el = document.getElementById( 'loading-status' );
+	if ( el ) el.textContent = text;
+
+}
+
+function hideLoadingScreen() {
+
+	const el = document.getElementById( 'loading-screen' );
+	if ( ! el ) return;
+	el.classList.add( 'fade-out' );
+	el.addEventListener( 'transitionend', () => el.remove() );
+
+}
+
+
+			
 			loader.load( `models/${ name }.glb`, ( gltf ) => {
 
 				gltf.scene.traverse( ( child ) => {
@@ -131,6 +150,9 @@ async function loadModels() {
 }
 
 async function init() {
+
+		setLoadingStatus( 'Loading models…' );
+
 
 	registerAll();
 	await loadModels();
@@ -202,7 +224,36 @@ async function init() {
 		restitution: 0.0,
 	} );
 
-	const sphereBody = createSphereBody( world, spawn ? spawn.position : null );
+		// Connect to multiplayer server
+	setLoadingStatus( 'Connecting…' );
+	let multiplayer = null;
+	let modelKey = 'vehicle-truck-yellow';
+	let spawnX = spawn ? spawn.position[ 0 ] : 3.5;
+	let spawnY = spawn ? spawn.position[ 1 ] : 0.5;
+	let spawnZ = spawn ? spawn.position[ 2 ] : 5;
+	let spawnAngle = spawn ? spawn.angle : 0;
+
+	try {
+
+		multiplayer = new Multiplayer( scene, models, world );
+		await multiplayer.connect( mapParam );
+		modelKey = multiplayer.localModelKey;
+
+		// Server provides grid spawn position
+		const lp = multiplayer.localPlayer;
+		spawnX = lp.x;
+		spawnY = lp.y;
+		spawnZ = lp.z;
+		spawnAngle = lp.spawnAngle;
+
+	} catch ( e ) {
+
+		console.warn( 'Multiplayer unavailable, playing offline:', e.message );
+
+	}
+
+	const sphereBody = createSphereBody( world, [ spawnX, spawnY, spawnZ ] );
+
 
 	const vehicle = new Vehicle();
 	vehicle.rigidBody = sphereBody;
