@@ -64,13 +64,6 @@ const CAR_STATS = {
 	'vehicle-truck-purple': { name: 'Purple', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 	'vehicle-truck-red': { name: 'Red', speed: 8, accel: 6, perf: { topSpeed: 1.05, accelRate: 5.5, driveForce: 102.0 } },
 };
-const ENGINE_MULTS = [ 1, 1.025, 1.05, 1.075, 1.1 ];
-const ENGINE_UPGRADE_COST = 100;
-const MAX_EFFECTIVE_TOP_SPEED = 1.8;
-const BOOST_VELOCITY_DELTA = 2.2;
-const BOOST_EFFECT_SECONDS = 1.0;
-const BOOST_FORCE_SECONDS = 0.45;
-const BOOST_ACCEL_PER_SECOND = 8.5;
 
 function decodeExtrasParam( str ) {
 
@@ -405,18 +398,6 @@ async function init() {
 	const lapHud = document.getElementById( 'lap-hud' );
 	const respawnBtn = document.getElementById( 'respawnBtn' );
 	const carSelect = document.getElementById( 'car-select' );
-	const coinsLabel = document.getElementById( 'coins-label' );
-	const upgradeLabel = document.getElementById( 'upgrade-label' );
-	const buyUpgradeBtn = document.getElementById( 'buy-upgrade' );
-	const economyStoreKey = 'racing-economy-v1';
-	let coins = 0;
-	let engineTier = 0;
-
-	function getEngineMult() {
-
-		return ENGINE_MULTS[ Math.min( engineTier, ENGINE_MULTS.length - 1 ) ];
-
-	}
 
 	function currentCarKey() {
 
@@ -429,68 +410,7 @@ async function init() {
 		const carKey = currentCarKey();
 		const stats = CAR_STATS[ carKey ];
 		if ( ! stats ) return;
-		const mult = getEngineMult();
-		const perf = {
-			...stats.perf,
-			topSpeed: Math.min( MAX_EFFECTIVE_TOP_SPEED, stats.perf.topSpeed * mult ),
-			driveForce: stats.perf.driveForce * mult,
-		};
-		vehicle.setPerformance( perf );
-
-	}
-
-	function saveEconomy() {
-
-		localStorage.setItem( economyStoreKey, JSON.stringify( { coins, engineTier } ) );
-
-	}
-
-	function loadEconomy() {
-
-		try {
-
-			const raw = localStorage.getItem( economyStoreKey );
-			if ( ! raw ) return;
-			const parsed = JSON.parse( raw );
-			coins = Number.isFinite( parsed.coins ) ? parsed.coins : 0;
-			engineTier = Number.isFinite( parsed.engineTier ) ? parsed.engineTier : 0;
-			engineTier = Math.max( 0, Math.min( ENGINE_MULTS.length - 1, engineTier ) );
-
-		} catch ( e ) {
-
-			console.warn( 'Failed to load economy', e );
-
-		}
-
-	}
-
-	function updateEconomyHud() {
-
-		if ( coinsLabel ) coinsLabel.textContent = `Coins: ${ coins }`;
-		if ( upgradeLabel ) {
-
-			const mult = getEngineMult();
-			upgradeLabel.textContent = `Engine: x${ mult.toFixed( 2 ) }`;
-
-		}
-
-		if ( buyUpgradeBtn ) {
-
-			const atMax = engineTier >= ENGINE_MULTS.length - 1;
-			buyUpgradeBtn.disabled = atMax || coins < ENGINE_UPGRADE_COST;
-			if ( atMax ) buyUpgradeBtn.textContent = 'Max Upgrade';
-			else buyUpgradeBtn.textContent = `Buy Upgrade (${ ENGINE_UPGRADE_COST })`;
-
-		}
-
-	}
-
-	function rewardCoinsForLap( lapSecondsCompleted ) {
-
-		const reward = Math.max( 20, Math.min( 50, Math.round( 50 - lapSecondsCompleted * 0.75 ) ) );
-		coins += reward;
-		saveEconomy();
-		updateEconomyHud();
+		vehicle.setPerformance( stats.perf );
 
 	}
 
@@ -530,7 +450,6 @@ async function init() {
 	}
 
 	const _forward = new THREE.Vector3();
-	const _boostForward = new THREE.Vector3();
 
 	const contactListener = {
 		onContactAdded( bodyA, bodyB ) {
@@ -585,15 +504,6 @@ async function init() {
 	let lastLocalX = 0;
 	let lastLocalZ = 0;
 	let hasLeftStartZone = false;
-	let boostActiveUntil = 0;
-	let boostContactCell = null;
-	const boostCells = Array.isArray( extras?.boosts ) ? extras.boosts : [];
-	const roadCellSet = new Set( activeCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
-	const boostCellSet = new Set(
-		boostCells
-			.map( ( [ gx, gz ] ) => `${ gx },${ gz }` )
-			.filter( ( key ) => roadCellSet.has( key ) )
-	);
 
 	function formatLapTime( totalSeconds ) {
 
@@ -659,8 +569,6 @@ async function init() {
 
 		lapStartSeconds = timer.getElapsed();
 		lapSeconds = 0;
-		boostActiveUntil = 0;
-		boostContactCell = null;
 		resetCurrentLapGhost();
 		recordGhostSample( 0, true );
 		updateGhostPlayback( 0 );
@@ -690,45 +598,6 @@ async function init() {
 
 	}
 
-	function applyBoost() {
-
-		if ( ! vehicle?.rigidBody ) return;
-		const now = timer.getElapsed();
-		_boostForward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
-		_boostForward.y = 0;
-		const boostLenSq = _boostForward.lengthSq();
-		if ( boostLenSq < 1e-6 ) return;
-		_boostForward.multiplyScalar( 1 / Math.sqrt( boostLenSq ) );
-		const vel = vehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
-		rigidBody.setLinearVelocity( world, vehicle.rigidBody, [
-			vel[ 0 ] + _boostForward.x * BOOST_VELOCITY_DELTA,
-			vel[ 1 ],
-			vel[ 2 ] + _boostForward.z * BOOST_VELOCITY_DELTA,
-		] );
-		boostActiveUntil = now + BOOST_FORCE_SECONDS;
-		particles.triggerBoostFx( Math.max( BOOST_EFFECT_SECONDS, BOOST_FORCE_SECONDS ) );
-
-	}
-
-	function updateActiveBoost( dt ) {
-
-		if ( ! vehicle?.rigidBody ) return;
-		const now = timer.getElapsed();
-		if ( now >= boostActiveUntil ) return;
-		_boostForward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
-		_boostForward.y = 0;
-		const boostLenSq = _boostForward.lengthSq();
-		if ( boostLenSq < 1e-6 ) return;
-		_boostForward.multiplyScalar( 1 / Math.sqrt( boostLenSq ) );
-		const vel = vehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
-		rigidBody.setLinearVelocity( world, vehicle.rigidBody, [
-			vel[ 0 ] + _boostForward.x * BOOST_ACCEL_PER_SECOND * dt,
-			vel[ 1 ],
-			vel[ 2 ] + _boostForward.z * BOOST_ACCEL_PER_SECOND * dt,
-		] );
-
-	}
-
 	respawnBtn?.addEventListener( 'click', ( e ) => {
 
 		e.preventDefault();
@@ -746,21 +615,7 @@ async function init() {
 
 	} );
 
-	buyUpgradeBtn?.addEventListener( 'click', () => {
-
-		if ( engineTier >= ENGINE_MULTS.length - 1 ) return;
-		if ( coins < ENGINE_UPGRADE_COST ) return;
-		coins -= ENGINE_UPGRADE_COST;
-		engineTier ++;
-		applyVehiclePerformance();
-		saveEconomy();
-		updateEconomyHud();
-
-	} );
-
-	loadEconomy();
 	applyVehiclePerformance();
-	updateEconomyHud();
 	loadLapStats();
 	resetLapState( true );
 
@@ -800,24 +655,6 @@ async function init() {
 			z: vehicle.container.position.z,
 			yaw: vehicle.container.rotation.y,
 		} );
-		updateActiveBoost( dt );
-		const boostGridX = Math.floor( vehicle.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
-		const boostGridZ = Math.floor( vehicle.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
-		const boostKey = `${ boostGridX },${ boostGridZ }`;
-		if ( boostCellSet.has( boostKey ) ) {
-
-			if ( boostContactCell !== boostKey ) {
-
-				applyBoost();
-				boostContactCell = boostKey;
-
-			}
-
-		} else {
-
-			boostContactCell = null;
-
-		}
 
 		dirLight.position.set(
 			vehicle.spherePos.x + 11.4,
@@ -915,7 +752,6 @@ async function init() {
 
 				}
 				saveLapStats();
-				rewardCoinsForLap( completedLap );
 
 			}
 
