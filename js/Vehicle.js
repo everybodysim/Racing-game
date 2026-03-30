@@ -39,6 +39,11 @@ export class Vehicle {
 		this.modelVelocity = new THREE.Vector3();
 		this.prevModelPos = new THREE.Vector3( 3.5, 0, 5 );
 
+		this.colliding = false;
+		this.normal = new THREE.Vector3( 0, 1, 0 );
+
+
+		
 		this.container = new THREE.Group();
 		this.bodyNode = null;
 		this.wheels = [];
@@ -171,8 +176,14 @@ export class Vehicle {
 
 	update( dt, controlsInput ) {
 
-		this.inputX = controlsInput.x;
-		this.inputZ = controlsInput.z;
+				const isGrounded = true;
+
+		if ( isGrounded ) {
+
+			this.inputX = controlsInput.x;
+			this.inputZ = controlsInput.z;
+
+		}
 
 		let direction = Math.sign( this.linearSpeed );
 		if ( direction === 0 ) direction = Math.abs( this.inputZ ) > 0.1 ? Math.sign( this.inputZ ) : 1;
@@ -184,28 +195,49 @@ export class Vehicle {
 
 		this.container.rotateY( this.angularSpeed * dt );
 
-		_tmpVec.set( 0, 1, 0 ).applyQuaternion( this.container.quaternion );
+			if ( isGrounded ) {
 
-		if ( _tmpVec.y > 0.5 ) {
 
-			const targetQuat = this.alignWithY( this.container.quaternion, _up );
-			this.container.quaternion.slerp( targetQuat, 0.2 );
+					if ( ! this.colliding ) {
+
+
+							if ( this.bodyNode ) this.bodyNode.position.set( 0, 0.1, 0 );
+				this.inputZ = 0;
+
+			}
+
+			this.normal.set( 0, 1, 0 );
+
+			_tmpVec.set( 0, 1, 0 ).applyQuaternion( this.container.quaternion );
+
+			if ( this.normal.dot( _tmpVec ) > 0.5 ) {
+
+				const targetQuat = this.alignWithY( this.container.quaternion, this.normal );
+				this.container.quaternion.slerp( targetQuat, 0.2 );
+
+			}
+
 
 		}
 
-		const targetSpeed = this.inputZ * this.topSpeed;
+				this.colliding = isGrounded;
+
+		const targetSpeed = this.inputZ;
+
 
 		if ( targetSpeed < 0 && this.linearSpeed > 0.01 ) {
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, 0.0, dt * this.brakeRate );
+					this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, 0.0, dt * 8 );
+
 
 		} else if ( targetSpeed < 0 ) {
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed / 2, dt * this.reverseAccelRate );
+						this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed / 2, dt * 2 );
+
 
 		} else {
+			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed, dt * 6 );
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed, dt * this.accelRate );
 
 		}
 
@@ -222,7 +254,7 @@ export class Vehicle {
 			_right.normalize();
 
 			const angvel = this.rigidBody.motionProperties.angularVelocity;
-			const drive = this.linearSpeed * this.driveForce * dt;
+			const drive = this.linearSpeed * 100 * dt;
 
 			rigidBody.setAngularVelocity( this.physicsWorld, this.rigidBody, [
 				angvel[ 0 ] + _right.x * drive,
@@ -241,12 +273,28 @@ export class Vehicle {
 		this.acceleration = THREE.MathUtils.lerp(
 			this.acceleration,
 			this.linearSpeed + ( 0.25 * this.linearSpeed * Math.abs( this.linearSpeed ) ),
-			dt
+						dt * 1
+
 		);
 
 		if ( this.spherePos.y < - 10 ) {
 
-			this.resetToSpawn();
+					if ( this.rigidBody ) {
+
+				rigidBody.setPosition( this.physicsWorld, this.rigidBody, [ 3.5, 0.5, 5 ], false );
+				rigidBody.setLinearVelocity( this.physicsWorld, this.rigidBody, [ 0, 0, 0 ] );
+				rigidBody.setAngularVelocity( this.physicsWorld, this.rigidBody, [ 0, 0, 0 ] );
+
+			}
+
+			this.spherePos.set( 3.5, 0.5, 5 );
+			this.sphereVel.set( 0, 0, 0 );
+			this.linearSpeed = 0;
+			this.angularSpeed = 0;
+			this.acceleration = 0;
+			this.container.rotation.set( 0, 0, 0 );
+			this.container.quaternion.identity();
+
 
 		}
 
@@ -273,12 +321,12 @@ export class Vehicle {
 
 	alignWithY( quaternion, newY ) {
 
-		_zAxis.set( 0, 0, 1 ).applyQuaternion( quaternion );
-		const xAxis = _tmpVec.crossVectors( _zAxis, newY ).negate().normalize();
-		_newZ.crossVectors( xAxis, newY ).normalize();
+				const zAxis = new THREE.Vector3( 0, 0, 1 ).applyQuaternion( quaternion );
+		const xAxis = _tmpVec.crossVectors( zAxis, newY ).negate().normalize();
+		const newZ = new THREE.Vector3().crossVectors( xAxis, newY ).normalize();
 
-		_mat4.makeBasis( xAxis, newY, _newZ );
-		return _quat.setFromRotationMatrix( _mat4 );
+			const m = new THREE.Matrix4().makeBasis( xAxis, newY, newZ );
+		return new THREE.Quaternion().setFromRotationMatrix( m );
 
 	}
 
