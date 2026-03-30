@@ -105,21 +105,7 @@ async function loadModels() {
 	const promises = modelNames.map( ( name ) =>
 		new Promise( ( resolve, reject ) => {
 
-function setLoadingStatus( text ) {
 
-	const el = document.getElementById( 'loading-status' );
-	if ( el ) el.textContent = text;
-
-}
-
-function hideLoadingScreen() {
-
-	const el = document.getElementById( 'loading-screen' );
-	if ( ! el ) return;
-	el.classList.add( 'fade-out' );
-	el.addEventListener( 'transitionend', () => el.remove() );
-
-}
 
 
 			
@@ -151,6 +137,22 @@ function hideLoadingScreen() {
 	);
 
 	await Promise.all( promises );
+
+}
+
+function setLoadingStatus( text ) {
+
+	const el = document.getElementById( 'loading-status' );
+	if ( el ) el.textContent = text;
+
+}
+
+function hideLoadingScreen() {
+
+	const el = document.getElementById( 'loading-screen' );
+	if ( ! el ) return;
+	el.classList.add( 'fade-out' );
+	el.addEventListener( 'transitionend', () => el.remove() );
 
 }
 
