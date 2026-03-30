@@ -764,8 +764,11 @@ async function init() {
 			vehicle.spherePos.z - 5.3
 		);
 
-		cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
-		particles.update( dt, vehicle );
+				if ( multiplayer ) multiplayer.tick( dt, vehicle );
+
+		cam.update( dt, vehicle.spherePos );
+		particles.update( dt, vehicle, multiplayer ? multiplayer.remotePlayers : null );
+
 		audio.update( dt, vehicle.linearSpeed, input.z, vehicle.driftIntensity );
 
 		for ( const checkpoint of checkpointStates ) {
