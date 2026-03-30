@@ -262,6 +262,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
+				const _dummy = new THREE.Object3D();
+
+
 		function createInstances( src, positions ) {
 
 			if ( positions.length === 0 || ! src ) return;
@@ -347,7 +350,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 export function placePiece( models, key, gx, gz, orient ) {
 
 	const modelKey = key === 'track-checkpoint' ? 'track-finish' : key;
-	const src = models[ modelKey ];
+	const src = models[ key ];
 	if ( ! src ) return null;
 
 	const piece = src.clone();
@@ -379,7 +382,7 @@ export function encodeCells( cells ) {
 
 		const [ gx, gz, name, godotOrient ] = cells[ i ];
 		const normalizedName = name === 'track-bump' ? 'track-checkpoint' : name;
-		const ti = TYPE_INDEX[ normalizedName ] ?? 0;
+		const ti = TYPE_INDEX[ name ] ?? 0;
 		const oi = GODOT_TO_ORIENT[ godotOrient ] ?? 0;
 
 		bytes[ i * 3 ] = gx + 128;
