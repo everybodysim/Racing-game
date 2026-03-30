@@ -33,6 +33,7 @@ Open game clients with a shared room id:
 
 Notes:
 
+- If `room` is omitted, the game now auto-groups players by map (same `map` + `mods` params => same room).
 - Use the same `room` value for players who should see each other.
 - `ws` should point to your deployed Worker websocket endpoint.
 
