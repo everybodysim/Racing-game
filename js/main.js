@@ -872,6 +872,7 @@ async function init() {
 		renderer.render( scene, cam.camera );
 
 	}
+	hideLoadingScreen();
 
 	animate();
 
