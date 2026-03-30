@@ -107,20 +107,8 @@ export class Vehicle {
 
 	}
 
-	attachModel( model ) {
+	init( model ) {
 
-		this.wheels = [];
-		this.wheelFL = null;
-		this.wheelFR = null;
-		this.wheelBL = null;
-		this.wheelBR = null;
-		this.bodyNode = null;
-
-		for ( let i = this.container.children.length - 1; i >= 0; i -- ) {
-
-			this.container.remove( this.container.children[ i ] );
-
-		}
 
 		const vehicleModel = model.clone();
 
