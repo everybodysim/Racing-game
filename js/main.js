@@ -11,7 +11,7 @@ import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
 
 
-const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType } );
+const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
 renderer.setSize( window.innerWidth, window.innerHeight );
 renderer.setPixelRatio( window.devicePixelRatio );
 renderer.shadowMap.enabled = true;
@@ -332,9 +332,11 @@ async function init() {
 	const coinsLabel = document.getElementById( 'coins-label' );
 	const upgradeLabel = document.getElementById( 'upgrade-label' );
 	const buyUpgradeBtn = document.getElementById( 'buy-upgrade' );
+	const shareTimeBtn = document.getElementById( 'share-time-btn' );
 	const economyStoreKey = 'racing-economy-v1';
 	let coins = 0;
 	let engineTier = 0;
+	let shareImageDataUrl = '';
 
 	function getEngineMult() {
 
@@ -501,6 +503,57 @@ async function init() {
 
 	}
 
+	function formatShareSeconds( totalSeconds ) {
+
+		if ( ! Number.isFinite( totalSeconds ) ) return '--.--';
+		return totalSeconds.toFixed( 2 );
+
+	}
+
+	function createShareSnapshot( bestSeconds ) {
+
+		const source = renderer.domElement;
+		if ( ! source || source.width === 0 || source.height === 0 ) return '';
+
+		const output = document.createElement( 'canvas' );
+		output.width = source.width;
+		output.height = source.height;
+		const ctx = output.getContext( '2d' );
+		if ( ! ctx ) return '';
+
+		ctx.drawImage( source, 0, 0 );
+		const bannerWidth = output.width * 0.72;
+		const bannerHeight = output.height * 0.14;
+		const bannerX = ( output.width - bannerWidth ) / 2;
+		const bannerY = output.height - bannerHeight - output.height * 0.05;
+
+		ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+		ctx.fillRect( bannerX, bannerY, bannerWidth, bannerHeight );
+
+		const message = `Beat my time! My best time: ${ formatShareSeconds( bestSeconds ) }s`;
+		const fontSize = Math.max( 20, Math.round( output.height * 0.04 ) );
+		ctx.fillStyle = 'rgba(20, 20, 20, 0.92)';
+		ctx.font = `700 ${ fontSize }px sans-serif`;
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText( message, output.width / 2, bannerY + bannerHeight / 2 );
+
+		return output.toDataURL( 'image/png' );
+
+	}
+
+	function openShareTab() {
+
+		if ( ! shareImageDataUrl ) return;
+		const tab = window.open( 'about:blank', '_blank' );
+		if ( ! tab ) return;
+
+		tab.document.open();
+		tab.document.write( `<!doctype html><html><head><title>Share best time</title><style>body{margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100vw;max-height:100vh;object-fit:contain;display:block;}</style></head><body><img alt="Racing share image" src="${ shareImageDataUrl }"></body></html>` );
+		tab.document.close();
+
+	}
+
 	function updateLapHud() {
 
 		if ( ! lapHud ) return;
@@ -652,6 +705,12 @@ async function init() {
 
 	} );
 
+	shareTimeBtn?.addEventListener( 'click', () => {
+
+		openShareTab();
+
+	} );
+
 	loadEconomy();
 	applyVehiclePerformance();
 	updateEconomyHud();
@@ -783,6 +842,8 @@ async function init() {
 				const isNewBest = bestLapSeconds === null || completedLap < bestLapSeconds;
 				lastLapSeconds = completedLap;
 				bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
+				shareImageDataUrl = createShareSnapshot( bestLapSeconds );
+				if ( shareTimeBtn ) shareTimeBtn.disabled = ! shareImageDataUrl;
 				if ( isNewBest && currentLapGhostSamples.length > 1 ) {
 
 					bestLapGhostSamples.length = 0;
