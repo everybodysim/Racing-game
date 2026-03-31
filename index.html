@@ -141,14 +141,15 @@
 			window.__setLoadingStatus( 'Startup rejection: ' + message );
 		} );
 
-		const map = new URLSearchParams( location.search ).get( 'map' );
-		const mods = new URLSearchParams( location.search ).get( 'mods' );
-		if ( map ) {
-			const link = document.getElementById( 'editor-link' );
-			link.href = 'editor.html?map=' + map + ( mods ? '&mods=' + mods : '' );
-			link.textContent = 'Edit this track';
-		}
+			var map = new URLSearchParams( location.search ).get( 'map' );
+			var mods = new URLSearchParams( location.search ).get( 'mods' );
+			if ( map ) {
+				var link = document.getElementById( 'editor-link' );
+				link.href = 'editor.html?map=' + map + ( mods ? '&mods=' + mods : '' );
+				link.textContent = 'Edit this track';
+			}
 	</script>
 	<script type="module" src="js/main.js" onerror="window.__setLoadingStatus('Failed to load js/main.js')"></script>
+	<script nomodule>window.__setLoadingStatus('This browser is too old for the game (ES modules required).');</script>
 </body>
 </html>
