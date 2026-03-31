@@ -59,7 +59,7 @@ const loader = new GLTFLoader();
 const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
-	'decoration-empty', 'decoration-forest', 'decoration-tents', 'track-tents.glb',
+	'decoration-empty', 'decoration-forest', 'decoration-tents', 'track-tents',
 ];
 
 const models = {};
@@ -85,10 +85,50 @@ function decodeExtrasParam( str ) {
 
 		const json = decodeURIComponent( escape( atob( str.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
 		const parsed = JSON.parse( json );
+		const sanitizePairList = ( list ) => {
+
+			if ( ! Array.isArray( list ) ) return [];
+			const out = [];
+
+			for ( const item of list ) {
+
+				if ( ! Array.isArray( item ) || item.length < 2 ) continue;
+				const gx = Number( item[ 0 ] );
+				const gz = Number( item[ 1 ] );
+				if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+				out.push( [ gx, gz ] );
+
+			}
+
+			return out;
+
+		};
+
+		const sanitizeDecorations = ( list ) => {
+
+			if ( ! Array.isArray( list ) ) return [];
+			const out = [];
+
+			for ( const item of list ) {
+
+				if ( ! Array.isArray( item ) || item.length < 3 ) continue;
+				const gx = Number( item[ 0 ] );
+				const gz = Number( item[ 1 ] );
+				const key = typeof item[ 2 ] === 'string' ? item[ 2 ] : null;
+				if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) || ! key ) continue;
+				const orient = Number( item[ 3 ] );
+				out.push( [ gx, gz, key, Number.isFinite( orient ) ? orient : 0 ] );
+
+			}
+
+			return out;
+
+		};
+
 		return {
-			bumps: Array.isArray( parsed.b ) ? parsed.b : [],
-			boosts: Array.isArray( parsed.s ) ? parsed.s : [],
-			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
+			bumps: sanitizePairList( parsed.b ),
+			boosts: sanitizePairList( parsed.s ),
+			decorations: sanitizeDecorations( parsed.d ),
 		};
 
 	} catch ( e ) {
@@ -131,7 +171,11 @@ async function loadModels() {
 				models[ name ] = gltf.scene;
 				resolve();
 
-			}, undefined, reject );
+			}, undefined, ( error ) => {
+
+				reject( new Error( `Failed to load ${ name }: ${ error && error.message ? error.message : error }` ) );
+
+			} );
 
 		} )
 	);
@@ -158,7 +202,7 @@ function hideLoadingScreen() {
 
 async function init() {
 
-		setLoadingStatus( 'Loading models…' );
+	setLoadingStatus( 'Loading models…' );
 
 
 	registerAll();
@@ -203,7 +247,6 @@ async function init() {
 
 	buildTrack( scene, models, customCells, extras );
 
-
 	const worldSettings = createWorldSettings();       
 	worldSettings.gravity = [ 0, - 9.81, 0 ];
 
@@ -218,7 +261,6 @@ async function init() {
 	const world = createWorld( worldSettings );
 	world._OL_MOVING = OL_MOVING;
 	world._OL_STATIC = OL_STATIC;
-
 	buildWallColliders( world, null, customCells, extras );
 
 	const roadHalf = groundSize / 2;
@@ -891,4 +933,9 @@ async function init() {
 
 }
 
-init();
+init().catch( ( error ) => {
+
+	console.error( 'Initialization failed before connect:', error );
+	setLoadingStatus( 'Loading failed (see console)' );
+
+} );
