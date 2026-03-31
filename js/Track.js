@@ -350,7 +350,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 export function placePiece( models, key, gx, gz, orient ) {
 
 	const modelKey = key === 'track-checkpoint' ? 'track-finish' : key;
-	const src = models[ key ];
+	const src = models[ modelKey ];
 	if ( ! src ) return null;
 
 	const piece = src.clone();
@@ -382,7 +382,7 @@ export function encodeCells( cells ) {
 
 		const [ gx, gz, name, godotOrient ] = cells[ i ];
 		const normalizedName = name === 'track-bump' ? 'track-checkpoint' : name;
-		const ti = TYPE_INDEX[ name ] ?? 0;
+		const ti = TYPE_INDEX[ normalizedName ] ?? 0;
 		const oi = GODOT_TO_ORIENT[ godotOrient ] ?? 0;
 
 		bytes[ i * 3 ] = gx + 128;
