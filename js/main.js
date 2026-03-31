@@ -1,4 +1,3 @@
-
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'; 
@@ -226,6 +225,7 @@ async function init() {
 	const bestLapGhostSamples = [];
 	let currentLapGhostSamples = [];
 	let bestGhostDuration = 0;
+	let bestGhostCarKey = 'vehicle-truck-yellow';
 	let ghostRecordFrame = 0;
 	const _ghostForward = new THREE.Vector3();
 	const _ghostUp = new THREE.Vector3( 0, 1, 0 );
@@ -624,7 +624,10 @@ async function init() {
 
 	function updateGhostShareButtons() {
 
-		if ( exportGhostBtn ) exportGhostBtn.disabled = bestLapGhostSamples.length < 2 || ! Number.isFinite( bestLapSeconds );
+		if ( ! exportGhostBtn ) return;
+		const hasGhost = bestLapGhostSamples.length >= 2 && Number.isFinite( bestLapSeconds );
+		exportGhostBtn.disabled = false;
+		exportGhostBtn.title = hasGhost ? 'Export current best ghost' : 'Finish a clean lap first to generate an exportable ghost';
 
 	}
 
@@ -635,7 +638,7 @@ async function init() {
 			v: 1,
 			url: currentTrackUrl,
 			ghost: {
-				car: currentCarKey(),
+				car: bestGhostCarKey,
 				bestLapSeconds,
 				duration: bestGhostDuration,
 				samples: bestLapGhostSamples,
@@ -666,7 +669,12 @@ async function init() {
 		if ( bestLapGhostSamples.length < 2 ) return false;
 		bestGhostDuration = duration;
 		if ( Number.isFinite( payload.bestLapSeconds ) ) bestLapSeconds = payload.bestLapSeconds;
-		if ( payload?.car && models[ payload.car ] ) createGhostModel( models[ payload.car ] );
+		if ( payload?.car && models[ payload.car ] ) {
+
+			bestGhostCarKey = payload.car;
+			createGhostModel( models[ payload.car ] );
+
+		}
 		if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 		updateGhostShareButtons();
 		return true;
@@ -730,6 +738,9 @@ async function init() {
 			lapNumber,
 			lastLapSeconds,
 			bestLapSeconds,
+			bestGhostDuration,
+			bestGhostCarKey,
+			bestLapGhostSamples,
 		} ) );
 
 	}
@@ -744,6 +755,27 @@ async function init() {
 			lapNumber = Math.max( 1, parsed.lapNumber || 1 );
 			lastLapSeconds = Number.isFinite( parsed.lastLapSeconds ) ? parsed.lastLapSeconds : null;
 			bestLapSeconds = Number.isFinite( parsed.bestLapSeconds ) ? parsed.bestLapSeconds : null;
+			bestGhostDuration = Number.isFinite( parsed.bestGhostDuration ) ? parsed.bestGhostDuration : 0;
+			bestGhostCarKey = typeof parsed.bestGhostCarKey === 'string' ? parsed.bestGhostCarKey : 'vehicle-truck-yellow';
+			bestLapGhostSamples.length = 0;
+			if ( Array.isArray( parsed.bestLapGhostSamples ) ) {
+
+				for ( const sample of parsed.bestLapGhostSamples ) {
+
+					if ( ! Number.isFinite( sample?.t ) || ! Number.isFinite( sample?.x ) || ! Number.isFinite( sample?.y ) || ! Number.isFinite( sample?.z ) || ! Number.isFinite( sample?.yaw ) ) continue;
+					bestLapGhostSamples.push( {
+						t: sample.t,
+						x: sample.x,
+						y: sample.y,
+						z: sample.z,
+						yaw: sample.yaw,
+					} );
+
+				}
+
+			}
+			if ( bestLapGhostSamples.length < 2 ) bestGhostDuration = 0;
+			if ( bestLapGhostSamples.length >= 2 && models[ bestGhostCarKey ] ) createGhostModel( models[ bestGhostCarKey ] );
 
 		} catch ( e ) {
 
@@ -872,7 +904,12 @@ async function init() {
 	exportGhostBtn?.addEventListener( 'click', async () => {
 
 		const code = createGhostExportCode();
-		if ( ! code ) return;
+		if ( ! code ) {
+
+			window.alert( 'No ghost data yet. Finish a lap first, then export.' );
+			return;
+
+		}
 		openGhostCodeTab( code );
 
 	} );
@@ -1041,6 +1078,7 @@ async function init() {
 					const t0 = currentLapGhostSamples[ 0 ].t;
 					for ( const sample of currentLapGhostSamples ) bestLapGhostSamples.push( { ...sample, t: sample.t - t0 } );
 					bestGhostDuration = Math.max( 1e-4, completedLap - t0 );
+					bestGhostCarKey = currentCarKey();
 					updateGhostShareButtons();
 
 				}
