@@ -1,4 +1,3 @@
-
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'; 
@@ -334,6 +333,8 @@ async function init() {
 	const upgradeLabel = document.getElementById( 'upgrade-label' );
 	const buyUpgradeBtn = document.getElementById( 'buy-upgrade' );
 	const shareTimeBtn = document.getElementById( 'share-time-btn' );
+	const exportGhostBtn = document.getElementById( 'export-ghost-btn' );
+	const importGhostBtn = document.getElementById( 'import-ghost-btn' );
 	const economyStoreKey = 'racing-economy-v1';
 	let coins = 0;
 	let engineTier = 0;
@@ -455,6 +456,23 @@ async function init() {
 	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells[ 0 ];
 	const checkpointCells = activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' );
 	const lapStoreKey = `racing-lap-stats:${ mapParam || 'default' }`;
+	const currentTrackUrl = `${ window.location.origin }${ window.location.pathname }${ window.location.search }`;
+
+	function encodeBase64UrlJson( value ) {
+
+		return btoa( unescape( encodeURIComponent( JSON.stringify( value ) ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+
+	}
+
+	function decodeBase64UrlJson( value ) {
+
+		const normalized = value.replace( /-/g, '+' ).replace( /_/g, '/' );
+		const padLen = ( 4 - normalized.length % 4 ) % 4;
+		const padded = normalized + '='.repeat( padLen );
+		return JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
+
+	}
+
 	function makeGateData( cell ) {
 
 		if ( ! cell ) return null;
@@ -600,6 +618,86 @@ async function init() {
 		tab.document.open();
 		tab.document.write( `<!doctype html><html><head><title>Share best time</title><style>body{margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100vw;max-height:100vh;object-fit:contain;display:block;}</style></head><body><img alt="Racing share image" src="${ shareImageDataUrl }"></body></html>` );
 		tab.document.close();
+
+	}
+
+	function updateGhostShareButtons() {
+
+		if ( exportGhostBtn ) exportGhostBtn.disabled = bestLapGhostSamples.length < 2 || ! Number.isFinite( bestLapSeconds );
+
+	}
+
+	function createGhostExportCode() {
+
+		if ( bestLapGhostSamples.length < 2 || ! Number.isFinite( bestLapSeconds ) ) return '';
+		const payload = {
+			v: 1,
+			url: currentTrackUrl,
+			ghost: {
+				car: currentCarKey(),
+				bestLapSeconds,
+				duration: bestGhostDuration,
+				samples: bestLapGhostSamples,
+			}
+		};
+		return encodeBase64UrlJson( payload );
+
+	}
+
+	function applyImportedGhostPayload( payload ) {
+
+		const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
+		const duration = Number( payload?.duration );
+		if ( samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return false;
+		bestLapGhostSamples.length = 0;
+		for ( const sample of samples ) {
+
+			if ( ! Number.isFinite( sample?.t ) || ! Number.isFinite( sample?.x ) || ! Number.isFinite( sample?.y ) || ! Number.isFinite( sample?.z ) || ! Number.isFinite( sample?.yaw ) ) continue;
+			bestLapGhostSamples.push( {
+				t: sample.t,
+				x: sample.x,
+				y: sample.y,
+				z: sample.z,
+				yaw: sample.yaw,
+			} );
+
+		}
+		if ( bestLapGhostSamples.length < 2 ) return false;
+		bestGhostDuration = duration;
+		if ( Number.isFinite( payload.bestLapSeconds ) ) bestLapSeconds = payload.bestLapSeconds;
+		if ( payload?.car && models[ payload.car ] ) createGhostModel( models[ payload.car ] );
+		if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
+		updateGhostShareButtons();
+		return true;
+
+	}
+
+	function importGhostIntoNewTab() {
+
+		const code = window.prompt( 'Paste ghost code:' );
+		if ( ! code ) return;
+		let parsed;
+		try {
+
+			parsed = decodeBase64UrlJson( code.trim() );
+
+		} catch ( e ) {
+
+			window.alert( 'Invalid ghost code.' );
+			return;
+
+		}
+		const url = typeof parsed?.url === 'string' ? parsed.url : '';
+		if ( ! url || ! parsed?.ghost ) {
+
+			window.alert( 'Ghost code is missing required data.' );
+			return;
+
+		}
+
+		const ghostBlob = encodeBase64UrlJson( parsed.ghost );
+		const separator = url.includes( '#' ) ? '&' : '#';
+		window.open( `${ url }${ separator }ghost=${ ghostBlob }`, '_blank' );
 
 	}
 
@@ -760,12 +858,53 @@ async function init() {
 
 	} );
 
+	exportGhostBtn?.addEventListener( 'click', async () => {
+
+		const code = createGhostExportCode();
+		if ( ! code ) return;
+		try {
+
+			await navigator.clipboard.writeText( code );
+			window.alert( 'Ghost code copied to clipboard.' );
+
+		} catch ( e ) {
+
+			window.prompt( 'Copy this ghost code:', code );
+
+		}
+
+	} );
+
+	importGhostBtn?.addEventListener( 'click', () => {
+
+		importGhostIntoNewTab();
+
+	} );
+
 	loadEconomy();
 	applyVehiclePerformance();
 	updateEconomyHud();
 	loadLapStats();
 	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
+	updateGhostShareButtons();
 	resetLapState( true );
+
+	const hashParams = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
+	const importedGhost = hashParams.get( 'ghost' );
+	if ( importedGhost ) {
+
+		try {
+
+			const payload = decodeBase64UrlJson( importedGhost );
+			if ( applyImportedGhostPayload( payload ) ) updateLapHud();
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to import ghost from URL hash', e );
+
+		}
+
+	}
 
 		window.addEventListener( 'keydown', ( e ) => {
 
@@ -900,6 +1039,7 @@ async function init() {
 					const t0 = currentLapGhostSamples[ 0 ].t;
 					for ( const sample of currentLapGhostSamples ) bestLapGhostSamples.push( { ...sample, t: sample.t - t0 } );
 					bestGhostDuration = Math.max( 1e-4, completedLap - t0 );
+					updateGhostShareButtons();
 
 				}
 					lapNumber ++;
