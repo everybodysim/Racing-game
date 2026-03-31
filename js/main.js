@@ -143,6 +143,7 @@ function decodeExtrasParam( str ) {
 
 async function loadModels() {
 
+	let loadedCount = 0;
 	const promises = modelNames.map( ( name ) =>
 		new Promise( ( resolve, reject ) => {
 
@@ -170,9 +171,15 @@ async function loadModels() {
 				}
 
 				models[ name ] = gltf.scene;
+				loadedCount ++;
+				setLoadingStatus( `Loading models… (${ loadedCount }/${ modelNames.length })` );
 				resolve();
 
-			}, undefined, reject );
+			}, undefined, ( error ) => {
+
+				reject( new Error( `Failed to load ${ name }: ${ error && error.message ? error.message : error }` ) );
+
+			} );
 
 		} )
 	);
@@ -182,6 +189,13 @@ async function loadModels() {
 }
 
 function setLoadingStatus( text ) {
+
+	if ( typeof window.__setLoadingStatus === 'function' ) {
+
+		window.__setLoadingStatus( text );
+		return;
+
+	}
 
 	const el = document.getElementById( 'loading-status' );
 	if ( el ) el.textContent = text;
