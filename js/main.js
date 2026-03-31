@@ -545,7 +545,7 @@ async function init() {
 	function openShareTab() {
 
 		if ( ! shareImageDataUrl ) return;
-		const tab = window.open( '', '_blank', 'noopener,noreferrer' );
+		const tab = window.open( 'about:blank', '_blank' );
 		if ( ! tab ) return;
 
 		tab.document.open();
