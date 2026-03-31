@@ -11,7 +11,7 @@ import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
 
 
-const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType } );
+const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
 renderer.setSize( window.innerWidth, window.innerHeight );
 renderer.setPixelRatio( window.devicePixelRatio );
 renderer.shadowMap.enabled = true;
@@ -332,9 +332,13 @@ async function init() {
 	const coinsLabel = document.getElementById( 'coins-label' );
 	const upgradeLabel = document.getElementById( 'upgrade-label' );
 	const buyUpgradeBtn = document.getElementById( 'buy-upgrade' );
+	const shareTimeBtn = document.getElementById( 'share-time-btn' );
+	const exportGhostBtn = document.getElementById( 'export-ghost-btn' );
+	const importGhostBtn = document.getElementById( 'import-ghost-btn' );
 	const economyStoreKey = 'racing-economy-v1';
 	let coins = 0;
 	let engineTier = 0;
+	let shareImageDataUrl = '';
 
 	function getEngineMult() {
 
@@ -452,6 +456,23 @@ async function init() {
 	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells[ 0 ];
 	const checkpointCells = activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' );
 	const lapStoreKey = `racing-lap-stats:${ mapParam || 'default' }`;
+	const currentTrackUrl = `${ window.location.origin }${ window.location.pathname }${ window.location.search }`;
+
+	function encodeBase64UrlJson( value ) {
+
+		return btoa( unescape( encodeURIComponent( JSON.stringify( value ) ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+
+	}
+
+	function decodeBase64UrlJson( value ) {
+
+		const normalized = value.replace( /-/g, '+' ).replace( /_/g, '/' );
+		const padLen = ( 4 - normalized.length % 4 ) % 4;
+		const padded = normalized + '='.repeat( padLen );
+		return JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
+
+	}
+
 	function makeGateData( cell ) {
 
 		if ( ! cell ) return null;
@@ -498,6 +519,195 @@ async function init() {
 		const seconds = Math.floor( totalSeconds % 60 );
 		const millis = Math.floor( ( totalSeconds % 1 ) * 1000 );
 		return `${ String( minutes ).padStart( 2, '0' ) }:${ String( seconds ).padStart( 2, '0' ) }.${ String( millis ).padStart( 3, '0' ) }`;
+
+	}
+
+	function formatShareSeconds( totalSeconds ) {
+
+		if ( ! Number.isFinite( totalSeconds ) ) return '--.--';
+		return totalSeconds.toFixed( 2 );
+
+	}
+
+	function createTimeCardImage( bestSeconds ) {
+
+		const width = 1280;
+		const height = 720;
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = width;
+		canvas.height = height;
+		const ctx = canvas.getContext( '2d' );
+		if ( ! ctx ) return '';
+
+		const bg = ctx.createLinearGradient( 0, 0, width, height );
+		bg.addColorStop( 0, '#29323c' );
+		bg.addColorStop( 1, '#0f2027' );
+		ctx.fillStyle = bg;
+		ctx.fillRect( 0, 0, width, height );
+
+		ctx.fillStyle = 'rgba(255,255,255,0.12)';
+		ctx.fillRect( width * 0.1, height * 0.22, width * 0.8, height * 0.56 );
+
+		ctx.fillStyle = '#ffffff';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.font = '700 66px sans-serif';
+		ctx.fillText( 'Beat my time!', width / 2, height * 0.4 );
+		ctx.font = '700 94px sans-serif';
+		ctx.fillText( `${ formatShareSeconds( bestSeconds ) }s`, width / 2, height * 0.56 );
+		ctx.font = '500 38px sans-serif';
+		ctx.fillText( 'Racing Game • Best Lap', width / 2, height * 0.7 );
+
+		return canvas.toDataURL( 'image/png' );
+
+	}
+
+	function createShareSnapshot( bestSeconds ) {
+
+		try {
+
+			renderer.render( scene, cam.camera );
+			const source = renderer.domElement;
+			if ( ! source || source.width === 0 || source.height === 0 ) return '';
+
+			const output = document.createElement( 'canvas' );
+			output.width = source.width;
+			output.height = source.height;
+			const ctx = output.getContext( '2d' );
+			if ( ! ctx ) return '';
+
+			ctx.drawImage( source, 0, 0 );
+			const bannerWidth = output.width * 0.72;
+			const bannerHeight = output.height * 0.14;
+			const bannerX = ( output.width - bannerWidth ) / 2;
+			const bannerY = output.height - bannerHeight - output.height * 0.05;
+
+			ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+			ctx.fillRect( bannerX, bannerY, bannerWidth, bannerHeight );
+
+			const message = `Beat my time! My best time: ${ formatShareSeconds( bestSeconds ) }s`;
+			const fontSize = Math.max( 20, Math.round( output.height * 0.04 ) );
+			ctx.fillStyle = 'rgba(20, 20, 20, 0.92)';
+			ctx.font = `700 ${ fontSize }px sans-serif`;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText( message, output.width / 2, bannerY + bannerHeight / 2 );
+
+			return output.toDataURL( 'image/png' );
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to create share snapshot', e );
+			return createTimeCardImage( bestSeconds );
+
+		}
+
+	}
+
+	function openShareTab() {
+
+		if ( ! shareImageDataUrl && Number.isFinite( bestLapSeconds ) ) {
+
+			shareImageDataUrl = createTimeCardImage( bestLapSeconds );
+
+		}
+		if ( ! shareImageDataUrl ) return;
+		const tab = window.open( 'about:blank', '_blank' );
+		if ( ! tab ) return;
+
+		tab.document.open();
+		tab.document.write( `<!doctype html><html><head><title>Share best time</title><style>body{margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100vw;max-height:100vh;object-fit:contain;display:block;}</style></head><body><img alt="Racing share image" src="${ shareImageDataUrl }"></body></html>` );
+		tab.document.close();
+
+	}
+
+	function updateGhostShareButtons() {
+
+		if ( exportGhostBtn ) exportGhostBtn.disabled = bestLapGhostSamples.length < 2 || ! Number.isFinite( bestLapSeconds );
+
+	}
+
+	function createGhostExportCode() {
+
+		if ( bestLapGhostSamples.length < 2 || ! Number.isFinite( bestLapSeconds ) ) return '';
+		const payload = {
+			v: 1,
+			url: currentTrackUrl,
+			ghost: {
+				car: currentCarKey(),
+				bestLapSeconds,
+				duration: bestGhostDuration,
+				samples: bestLapGhostSamples,
+			}
+		};
+		return encodeBase64UrlJson( payload );
+
+	}
+
+	function applyImportedGhostPayload( payload ) {
+
+		const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
+		const duration = Number( payload?.duration );
+		if ( samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return false;
+		bestLapGhostSamples.length = 0;
+		for ( const sample of samples ) {
+
+			if ( ! Number.isFinite( sample?.t ) || ! Number.isFinite( sample?.x ) || ! Number.isFinite( sample?.y ) || ! Number.isFinite( sample?.z ) || ! Number.isFinite( sample?.yaw ) ) continue;
+			bestLapGhostSamples.push( {
+				t: sample.t,
+				x: sample.x,
+				y: sample.y,
+				z: sample.z,
+				yaw: sample.yaw,
+			} );
+
+		}
+		if ( bestLapGhostSamples.length < 2 ) return false;
+		bestGhostDuration = duration;
+		if ( Number.isFinite( payload.bestLapSeconds ) ) bestLapSeconds = payload.bestLapSeconds;
+		if ( payload?.car && models[ payload.car ] ) createGhostModel( models[ payload.car ] );
+		if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
+		updateGhostShareButtons();
+		return true;
+
+	}
+
+	function importGhostIntoNewTab() {
+
+		const code = window.prompt( 'Paste ghost code:' );
+		if ( ! code ) return;
+		let parsed;
+		try {
+
+			parsed = decodeBase64UrlJson( code.trim() );
+
+		} catch ( e ) {
+
+			window.alert( 'Invalid ghost code.' );
+			return;
+
+		}
+		const url = typeof parsed?.url === 'string' ? parsed.url : '';
+		if ( ! url || ! parsed?.ghost ) {
+
+			window.alert( 'Ghost code is missing required data.' );
+			return;
+
+		}
+
+		const ghostBlob = encodeBase64UrlJson( parsed.ghost );
+		const separator = url.includes( '#' ) ? '&' : '#';
+		window.open( `${ url }${ separator }ghost=${ ghostBlob }`, '_blank' );
+
+	}
+
+	function openGhostCodeTab( code ) {
+
+		const tab = window.open( 'about:blank', '_blank' );
+		if ( ! tab ) return;
+		tab.document.open();
+		tab.document.write( `<!doctype html><html><head><title>Ghost code</title><style>body{margin:0;padding:16px;background:#101218;color:#e8eef8;font:14px/1.4 monospace;}h1{font:600 16px sans-serif;margin:0 0 10px;}textarea{width:100%;height:70vh;background:#0b0d12;color:#dff4ff;border:1px solid #2a3240;border-radius:8px;padding:10px;box-sizing:border-box;}</style></head><body><h1>Raw ghost code</h1><textarea readonly>${ code }</textarea></body></html>` );
+		tab.document.close();
 
 	}
 
@@ -652,11 +862,50 @@ async function init() {
 
 	} );
 
+	shareTimeBtn?.addEventListener( 'click', () => {
+
+		openShareTab();
+
+	} );
+
+	exportGhostBtn?.addEventListener( 'click', async () => {
+
+		const code = createGhostExportCode();
+		if ( ! code ) return;
+		openGhostCodeTab( code );
+
+	} );
+
+	importGhostBtn?.addEventListener( 'click', () => {
+
+		importGhostIntoNewTab();
+
+	} );
+
 	loadEconomy();
 	applyVehiclePerformance();
 	updateEconomyHud();
 	loadLapStats();
+	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
+	updateGhostShareButtons();
 	resetLapState( true );
+
+	const hashParams = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
+	const importedGhost = hashParams.get( 'ghost' );
+	if ( importedGhost ) {
+
+		try {
+
+			const payload = decodeBase64UrlJson( importedGhost );
+			if ( applyImportedGhostPayload( payload ) ) updateLapHud();
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to import ghost from URL hash', e );
+
+		}
+
+	}
 
 		window.addEventListener( 'keydown', ( e ) => {
 
@@ -783,12 +1032,15 @@ async function init() {
 				const isNewBest = bestLapSeconds === null || completedLap < bestLapSeconds;
 				lastLapSeconds = completedLap;
 				bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
+				shareImageDataUrl = createShareSnapshot( bestLapSeconds );
+				if ( shareTimeBtn ) shareTimeBtn.disabled = ! shareImageDataUrl;
 				if ( isNewBest && currentLapGhostSamples.length > 1 ) {
 
 					bestLapGhostSamples.length = 0;
 					const t0 = currentLapGhostSamples[ 0 ].t;
 					for ( const sample of currentLapGhostSamples ) bestLapGhostSamples.push( { ...sample, t: sample.t - t0 } );
 					bestGhostDuration = Math.max( 1e-4, completedLap - t0 );
+					updateGhostShareButtons();
 
 				}
 					lapNumber ++;
