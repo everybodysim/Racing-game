@@ -1,3 +1,4 @@
+
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'; 
@@ -701,6 +702,16 @@ async function init() {
 
 	}
 
+	function openGhostCodeTab( code ) {
+
+		const tab = window.open( 'about:blank', '_blank' );
+		if ( ! tab ) return;
+		tab.document.open();
+		tab.document.write( `<!doctype html><html><head><title>Ghost code</title><style>body{margin:0;padding:16px;background:#101218;color:#e8eef8;font:14px/1.4 monospace;}h1{font:600 16px sans-serif;margin:0 0 10px;}textarea{width:100%;height:70vh;background:#0b0d12;color:#dff4ff;border:1px solid #2a3240;border-radius:8px;padding:10px;box-sizing:border-box;}</style></head><body><h1>Raw ghost code</h1><textarea readonly>${ code }</textarea></body></html>` );
+		tab.document.close();
+
+	}
+
 	function updateLapHud() {
 
 		if ( ! lapHud ) return;
@@ -862,16 +873,7 @@ async function init() {
 
 		const code = createGhostExportCode();
 		if ( ! code ) return;
-		try {
-
-			await navigator.clipboard.writeText( code );
-			window.alert( 'Ghost code copied to clipboard.' );
-
-		} catch ( e ) {
-
-			window.prompt( 'Copy this ghost code:', code );
-
-		}
+		openGhostCodeTab( code );
 
 	} );
 
