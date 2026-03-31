@@ -25,6 +25,7 @@
 		#share-time-btn { left: 16px; bottom: 12px; }
 		#export-ghost-btn { left: 180px; bottom: 12px; }
 		#import-ghost-btn { left: 300px; bottom: 12px; }
+		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
 		#editor-link:hover, #respawnBtn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
 		#share-time-btn:disabled {
 			opacity: 0.5;
@@ -104,7 +105,7 @@
 	</div>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>
 	<button id="share-time-btn" type="button" disabled>Share best time</button>
-	<button id="export-ghost-btn" type="button" disabled>Export ghost</button>
+	<button id="export-ghost-btn" type="button">Export ghost</button>
 	<button id="import-ghost-btn" type="button">Import ghost</button>
 	<script>
 		const map = new URLSearchParams( location.search ).get( 'map' );
