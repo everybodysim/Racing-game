@@ -1,3 +1,4 @@
+
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'; 
@@ -510,40 +511,88 @@ async function init() {
 
 	}
 
-	function createShareSnapshot( bestSeconds ) {
+	function createTimeCardImage( bestSeconds ) {
 
-		const source = renderer.domElement;
-		if ( ! source || source.width === 0 || source.height === 0 ) return '';
-
-		const output = document.createElement( 'canvas' );
-		output.width = source.width;
-		output.height = source.height;
-		const ctx = output.getContext( '2d' );
+		const width = 1280;
+		const height = 720;
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = width;
+		canvas.height = height;
+		const ctx = canvas.getContext( '2d' );
 		if ( ! ctx ) return '';
 
-		ctx.drawImage( source, 0, 0 );
-		const bannerWidth = output.width * 0.72;
-		const bannerHeight = output.height * 0.14;
-		const bannerX = ( output.width - bannerWidth ) / 2;
-		const bannerY = output.height - bannerHeight - output.height * 0.05;
+		const bg = ctx.createLinearGradient( 0, 0, width, height );
+		bg.addColorStop( 0, '#29323c' );
+		bg.addColorStop( 1, '#0f2027' );
+		ctx.fillStyle = bg;
+		ctx.fillRect( 0, 0, width, height );
 
-		ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
-		ctx.fillRect( bannerX, bannerY, bannerWidth, bannerHeight );
+		ctx.fillStyle = 'rgba(255,255,255,0.12)';
+		ctx.fillRect( width * 0.1, height * 0.22, width * 0.8, height * 0.56 );
 
-		const message = `Beat my time! My best time: ${ formatShareSeconds( bestSeconds ) }s`;
-		const fontSize = Math.max( 20, Math.round( output.height * 0.04 ) );
-		ctx.fillStyle = 'rgba(20, 20, 20, 0.92)';
-		ctx.font = `700 ${ fontSize }px sans-serif`;
+		ctx.fillStyle = '#ffffff';
 		ctx.textAlign = 'center';
 		ctx.textBaseline = 'middle';
-		ctx.fillText( message, output.width / 2, bannerY + bannerHeight / 2 );
+		ctx.font = '700 66px sans-serif';
+		ctx.fillText( 'Beat my time!', width / 2, height * 0.4 );
+		ctx.font = '700 94px sans-serif';
+		ctx.fillText( `${ formatShareSeconds( bestSeconds ) }s`, width / 2, height * 0.56 );
+		ctx.font = '500 38px sans-serif';
+		ctx.fillText( 'Racing Game • Best Lap', width / 2, height * 0.7 );
 
-		return output.toDataURL( 'image/png' );
+		return canvas.toDataURL( 'image/png' );
+
+	}
+
+	function createShareSnapshot( bestSeconds ) {
+
+		try {
+
+			renderer.render( scene, cam.camera );
+			const source = renderer.domElement;
+			if ( ! source || source.width === 0 || source.height === 0 ) return '';
+
+			const output = document.createElement( 'canvas' );
+			output.width = source.width;
+			output.height = source.height;
+			const ctx = output.getContext( '2d' );
+			if ( ! ctx ) return '';
+
+			ctx.drawImage( source, 0, 0 );
+			const bannerWidth = output.width * 0.72;
+			const bannerHeight = output.height * 0.14;
+			const bannerX = ( output.width - bannerWidth ) / 2;
+			const bannerY = output.height - bannerHeight - output.height * 0.05;
+
+			ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+			ctx.fillRect( bannerX, bannerY, bannerWidth, bannerHeight );
+
+			const message = `Beat my time! My best time: ${ formatShareSeconds( bestSeconds ) }s`;
+			const fontSize = Math.max( 20, Math.round( output.height * 0.04 ) );
+			ctx.fillStyle = 'rgba(20, 20, 20, 0.92)';
+			ctx.font = `700 ${ fontSize }px sans-serif`;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText( message, output.width / 2, bannerY + bannerHeight / 2 );
+
+			return output.toDataURL( 'image/png' );
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to create share snapshot', e );
+			return createTimeCardImage( bestSeconds );
+
+		}
 
 	}
 
 	function openShareTab() {
 
+		if ( ! shareImageDataUrl && Number.isFinite( bestLapSeconds ) ) {
+
+			shareImageDataUrl = createTimeCardImage( bestLapSeconds );
+
+		}
 		if ( ! shareImageDataUrl ) return;
 		const tab = window.open( 'about:blank', '_blank' );
 		if ( ! tab ) return;
@@ -715,6 +764,7 @@ async function init() {
 	applyVehiclePerformance();
 	updateEconomyHud();
 	loadLapStats();
+	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 	resetLapState( true );
 
 		window.addEventListener( 'keydown', ( e ) => {
