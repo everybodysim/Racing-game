@@ -126,6 +126,12 @@
 	</div>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>
 	<script>
+		window.__setLoadingStatus = ( text ) => {
+			const statusEl = document.getElementById( 'loading-status' );
+			if ( statusEl ) statusEl.textContent = text;
+		};
+		window.__setLoadingStatus( 'Booting game…' );
+
 		const map = new URLSearchParams( location.search ).get( 'map' );
 		const mods = new URLSearchParams( location.search ).get( 'mods' );
 		if ( map ) {
