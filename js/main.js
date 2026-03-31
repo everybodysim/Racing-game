@@ -59,7 +59,7 @@ const loader = new GLTFLoader();
 const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
-	'decoration-empty', 'decoration-forest', 'decoration-tents',
+	'decoration-empty', 'decoration-forest', 'decoration-tents', 'track-tents.glb',
 ];
 
 const models = {};
