@@ -126,14 +126,30 @@
 	</div>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>
 	<script>
-		const map = new URLSearchParams( location.search ).get( 'map' );
-		const mods = new URLSearchParams( location.search ).get( 'mods' );
-		if ( map ) {
-			const link = document.getElementById( 'editor-link' );
-			link.href = 'editor.html?map=' + map + ( mods ? '&mods=' + mods : '' );
-			link.textContent = 'Edit this track';
-		}
+		window.__setLoadingStatus = function ( text ) {
+			var statusEl = document.getElementById( 'loading-status' );
+			if ( statusEl ) statusEl.textContent = text;
+		};
+		window.__setLoadingStatus( 'Booting game…' );
+		window.addEventListener( 'error', function ( event ) {
+			var message = event && event.message ? event.message : 'Unknown startup error';
+			window.__setLoadingStatus( 'Startup error: ' + message );
+		} );
+		window.addEventListener( 'unhandledrejection', function ( event ) {
+			var reason = event && event.reason ? event.reason : 'Unknown promise rejection';
+			var message = reason && reason.message ? reason.message : String( reason );
+			window.__setLoadingStatus( 'Startup rejection: ' + message );
+		} );
+
+			var map = new URLSearchParams( location.search ).get( 'map' );
+			var mods = new URLSearchParams( location.search ).get( 'mods' );
+			if ( map ) {
+				var link = document.getElementById( 'editor-link' );
+				link.href = 'editor.html?map=' + map + ( mods ? '&mods=' + mods : '' );
+				link.textContent = 'Edit this track';
+			}
 	</script>
-	<script type="module" src="js/main.js"></script>
+	<script type="module" src="js/main.js" onerror="window.__setLoadingStatus('Failed to load js/main.js')"></script>
+	<script nomodule>window.__setLoadingStatus('This browser is too old for the game (ES modules required).');</script>
 </body>
 </html>
