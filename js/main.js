@@ -1,4 +1,3 @@
-
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'; 
@@ -143,7 +142,6 @@ function decodeExtrasParam( str ) {
 
 async function loadModels() {
 
-	let loadedCount = 0;
 	const promises = modelNames.map( ( name ) =>
 		new Promise( ( resolve, reject ) => {
 
@@ -171,8 +169,6 @@ async function loadModels() {
 				}
 
 				models[ name ] = gltf.scene;
-				loadedCount ++;
-				setLoadingStatus( `Loading models… (${ loadedCount }/${ modelNames.length })` );
 				resolve();
 
 			}, undefined, ( error ) => {
@@ -189,13 +185,6 @@ async function loadModels() {
 }
 
 function setLoadingStatus( text ) {
-
-	if ( typeof window.__setLoadingStatus === 'function' ) {
-
-		window.__setLoadingStatus( text );
-		return;
-
-	}
 
 	const el = document.getElementById( 'loading-status' );
 	if ( el ) el.textContent = text;
@@ -216,9 +205,8 @@ async function init() {
 	setLoadingStatus( 'Loading models…' );
 
 
-	await registerAll();
+	registerAll();
 	await loadModels();
-	setLoadingStatus( 'Preparing track…' );
 
 	const mapParam = new URLSearchParams( window.location.search ).get( 'map' );
 	const extrasParam = new URLSearchParams( window.location.search ).get( 'mods' );
@@ -259,8 +247,6 @@ async function init() {
 
 	buildTrack( scene, models, customCells, extras );
 
-	setLoadingStatus( 'Creating physics world…' );
-
 	const worldSettings = createWorldSettings();       
 	worldSettings.gravity = [ 0, - 9.81, 0 ];
 
@@ -275,8 +261,6 @@ async function init() {
 	const world = createWorld( worldSettings );
 	world._OL_MOVING = OL_MOVING;
 	world._OL_STATIC = OL_STATIC;
-
-	setLoadingStatus( 'Building colliders…' );
 	buildWallColliders( world, null, customCells, extras );
 
 	const roadHalf = groundSize / 2;
@@ -952,7 +936,6 @@ async function init() {
 init().catch( ( error ) => {
 
 	console.error( 'Initialization failed before connect:', error );
-	const message = error && error.message ? error.message : String( error );
-	setLoadingStatus( `Loading failed: ${ message }` );
+	setLoadingStatus( 'Loading failed (see console)' );
 
 } );
