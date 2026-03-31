@@ -131,6 +131,15 @@
 			if ( statusEl ) statusEl.textContent = text;
 		};
 		window.__setLoadingStatus( 'Booting game…' );
+		window.addEventListener( 'error', ( event ) => {
+			const message = event && event.message ? event.message : 'Unknown startup error';
+			window.__setLoadingStatus( `Startup error: ${ message }` );
+		} );
+		window.addEventListener( 'unhandledrejection', ( event ) => {
+			const reason = event && event.reason ? event.reason : 'Unknown promise rejection';
+			const message = reason && reason.message ? reason.message : String( reason );
+			window.__setLoadingStatus( `Startup rejection: ${ message }` );
+		} );
 
 		const map = new URLSearchParams( location.search ).get( 'map' );
 		const mods = new URLSearchParams( location.search ).get( 'mods' );
@@ -140,6 +149,6 @@
 			link.textContent = 'Edit this track';
 		}
 	</script>
-	<script type="module" src="js/main.js"></script>
+	<script type="module" src="js/main.js" onerror="window.__setLoadingStatus('Failed to load js/main.js')"></script>
 </body>
 </html>
