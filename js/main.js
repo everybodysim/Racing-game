@@ -607,12 +607,7 @@ async function init() {
 
 	function openShareTab() {
 
-		if ( ! shareImageDataUrl && Number.isFinite( bestLapSeconds ) ) {
-
-			shareImageDataUrl = createTimeCardImage( bestLapSeconds );
-
-		}
-		if ( ! shareImageDataUrl ) return;
+		if ( ! Number.isFinite( bestLapSeconds ) ) return;
 		const ghostCode = createGhostExportCode();
 		let playTrackUrl = '';
 		if ( ghostCode ) {
@@ -637,7 +632,8 @@ async function init() {
 		const codeHtml = ghostCode
 			? `<details><summary>Ghost code</summary><textarea readonly>${ ghostCode }</textarea></details>`
 			: '';
-		const html = `<!doctype html><html><head><title>Share best time</title><style>body{margin:0;background:#111;color:#f3f6ff;font:14px/1.4 sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:18px;box-sizing:border-box}.card{max-width:96vw;text-align:center}img{max-width:96vw;max-height:72vh;object-fit:contain;display:block;border-radius:8px;box-shadow:0 14px 34px rgba(0,0,0,.35)}#play-link{display:inline-block;margin-top:14px;padding:10px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.13);color:#fff;text-decoration:none;font:600 14px sans-serif;cursor:pointer}#play-link:disabled{opacity:.6;cursor:not-allowed}details{margin-top:10px;text-align:left}textarea{width:100%;height:84px;background:#0b0d12;color:#dff4ff;border:1px solid #2a3240;border-radius:8px;padding:8px;box-sizing:border-box}</style></head><body><div class="card"><img alt="Racing share image" src="${ shareImageDataUrl }">${ buttonHtml }${ codeHtml }</div></body></html>`;
+		const bestText = formatShareSeconds( bestLapSeconds );
+		const html = `<!doctype html><html><head><title>Share best time</title><style>body{margin:0;background:#111;color:#f3f6ff;font:14px/1.4 sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:18px;box-sizing:border-box}.card{max-width:96vw;text-align:center}canvas{max-width:96vw;max-height:72vh;border-radius:8px;box-shadow:0 14px 34px rgba(0,0,0,.35)}#play-link{display:inline-block;margin-top:14px;padding:10px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.13);color:#fff;text-decoration:none;font:600 14px sans-serif;cursor:pointer}#play-link:disabled{opacity:.6;cursor:not-allowed}details{margin-top:10px;text-align:left}textarea{width:100%;height:84px;background:#0b0d12;color:#dff4ff;border:1px solid #2a3240;border-radius:8px;padding:8px;box-sizing:border-box}</style></head><body><div class="card"><canvas id="card" width="1280" height="720" aria-label="Racing share image"></canvas>${ buttonHtml }${ codeHtml }</div><script>const c=document.getElementById('card');const x=c.getContext('2d');const g=x.createLinearGradient(0,0,c.width,c.height);g.addColorStop(0,'#29323c');g.addColorStop(1,'#0f2027');x.fillStyle=g;x.fillRect(0,0,c.width,c.height);x.fillStyle='rgba(255,255,255,0.12)';x.fillRect(c.width*0.1,c.height*0.22,c.width*0.8,c.height*0.56);x.fillStyle='#fff';x.textAlign='center';x.textBaseline='middle';x.font='700 66px sans-serif';x.fillText('Beat my time!',c.width/2,c.height*0.4);x.font='700 94px sans-serif';x.fillText('${ bestText }s',c.width/2,c.height*0.56);x.font='500 38px sans-serif';x.fillText('Racing Game • Best Lap',c.width/2,c.height*0.7);</script></body></html>`;
 		const sharePageUrl = `data:text/html;charset=utf-8,${ encodeURIComponent( html ) }`;
 		const tab = window.open( sharePageUrl, '_blank' );
 		if ( ! tab ) return;
@@ -1088,12 +1084,12 @@ async function init() {
 			const allCheckpointsPassed = checkpointStates.every( ( checkpoint ) => checkpoint.passedThisLap );
 			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
 
-				const completedLap = timer.getElapsed() - lapStartSeconds;
-				const isNewBest = bestLapSeconds === null || completedLap < bestLapSeconds;
-				lastLapSeconds = completedLap;
-				bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
-				shareImageDataUrl = createShareSnapshot( bestLapSeconds );
-				if ( shareTimeBtn ) shareTimeBtn.disabled = ! shareImageDataUrl;
+					const completedLap = timer.getElapsed() - lapStartSeconds;
+					const isNewBest = bestLapSeconds === null || completedLap < bestLapSeconds;
+					lastLapSeconds = completedLap;
+					bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
+					shareImageDataUrl = createShareSnapshot( bestLapSeconds );
+					if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 				if ( isNewBest && currentLapGhostSamples.length > 1 ) {
 
 					bestLapGhostSamples.length = 0;
