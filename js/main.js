@@ -276,7 +276,7 @@ async function init() {
 	function buildPathFromLinePoints( linePoints ) {
 
 		if ( ! Array.isArray( linePoints ) || linePoints.length < 2 ) return null;
-		const points = linePoints.map( ( [ gx, gz ] ) => ( {
+		const points = linePoints.slice( 0, 800 ).map( ( [ gx, gz ] ) => ( {
 			x: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
 			z: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
 		} ) );
@@ -307,16 +307,25 @@ async function init() {
 
 		}
 		if ( cleaned.length < 2 ) return null;
+		const curve = new THREE.CatmullRomCurve3(
+			cleaned.map( ( p ) => new THREE.Vector3( p.x, 0, p.z ) ),
+			false,
+			'centripetal',
+			0.5
+		);
+		const samples = Math.min( 500, Math.max( 20, cleaned.length * 10 ) );
+		const smoothed = curve.getPoints( samples ).map( ( p ) => ( { x: p.x, z: p.z } ) );
+		if ( smoothed.length < 2 ) return null;
 		const cumulative = [ 0 ];
 		let total = 0;
-		for ( let i = 1; i < cleaned.length; i ++ ) {
+		for ( let i = 1; i < smoothed.length; i ++ ) {
 
-			total += Math.hypot( cleaned[ i ].x - cleaned[ i - 1 ].x, cleaned[ i ].z - cleaned[ i - 1 ].z );
+			total += Math.hypot( smoothed[ i ].x - smoothed[ i - 1 ].x, smoothed[ i ].z - smoothed[ i - 1 ].z );
 			cumulative.push( total );
 
 		}
 		if ( total < 0.1 ) return null;
-		return { points: cleaned, cumulative, total };
+		return { points: smoothed, cumulative, total };
 
 	}
 
@@ -393,6 +402,7 @@ async function init() {
 			ai.progress = ai.offset;
 			const variance = 0.88 + Math.random() * 0.24;
 			ai.speed = Math.max( 5.4, ( 7 + playerCarrySpeed * 6.5 ) * variance );
+			ai.mesh.visible = aiEnabled && !! aiPath;
 
 		}
 
@@ -474,7 +484,7 @@ async function init() {
 
 	createGhostModel( models[ 'vehicle-truck-yellow' ] );
 	ensureAiCars();
-	setAiEnabled( true );
+	setAiEnabled( false );
 	syncAiCars( 0 );
 
 	dirLight.target = vehicleGroup;
@@ -501,7 +511,7 @@ async function init() {
 	let shareImageDataUrl = '';
 	let baseVehiclePerf = null;
 	let wasOnIceLastFrame = false;
-	let aiEnabled = true;
+let aiEnabled = false;
 
 	function getEngineMult() {
 
