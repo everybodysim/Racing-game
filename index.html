@@ -7,7 +7,7 @@
 	<style>
 		body { margin: 0; overflow: hidden; background: #000; }
 		canvas { display: block; touch-action: none; }
-		#editor-link, #respawnBtn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
+		#editor-link, #totd-link, #respawnBtn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
 			position: absolute;
 			bottom: 12px;
 			color: #fff;
@@ -18,15 +18,16 @@
 			z-index: 10;
 			border: none;
 		}
-		#editor-link, #respawnBtn { text-decoration: none; }
+		#editor-link, #totd-link, #respawnBtn { text-decoration: none; }
 		#editor-link { right: 16px; }
+		#totd-link { right: 16px; bottom: 54px; }
 		#respawnBtn { left: 16px; top: 54px; bottom: auto; }
 		#car-select { left: 16px; top: 12px; bottom: auto; }
 		#share-time-btn { left: 16px; bottom: 12px; }
 		#export-ghost-btn { left: 180px; bottom: 12px; }
 		#import-ghost-btn { left: 300px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
-		#editor-link:hover, #respawnBtn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#editor-link:hover, #totd-link:hover, #respawnBtn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
 		#share-time-btn:disabled {
 			opacity: 0.5;
 			cursor: not-allowed;
@@ -73,6 +74,7 @@
 		}
 		@media (pointer: coarse) {
 			#editor-link { bottom: auto; top: 12px; right: 12px; }
+			#totd-link { bottom: auto; top: 54px; right: 12px; }
 			#car-select { top: 12px; left: 12px; }
 			#respawnBtn { top: 54px; left: 12px; }
 			#lap-hud { top: 56px; }
@@ -91,6 +93,7 @@
 </head>
 <body>
 	<a id="editor-link" href="editor.html">Create your own track</a>
+	<a id="totd-link" href="totd.html">Track of the day</a>
 	<select id="car-select" aria-label="Select car">
 		<option value="vehicle-truck-yellow">Yellow</option>
 		<option value="vehicle-truck-green">Green</option>
