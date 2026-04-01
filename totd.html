@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Daily Track Generator v2</title>
+  <style>
+    body { font-family: system-ui,sans-serif; margin: 20px; background:#0f1117; color:#e8ecf1; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+    input, button, textarea { font: inherit; }
+    input, textarea { background:#161a22; color:#e8ecf1; border:1px solid #2a3140; border-radius:8px; padding:8px; }
+    button { background:#2f6feb; color:#fff; border:0; border-radius:8px; padding:8px 12px; cursor:pointer; }
+    button:hover { filter:brightness(1.08); }
+    textarea { width:100%; min-height:72px; }
+    .card { background:#121621; border:1px solid #262d3b; border-radius:12px; padding:12px; margin-top:12px; }
+    canvas { border:1px solid #2a3140; border-radius:8px; background:#0b0d12; }
+    code { background:#161a22; padding:2px 6px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <h2>Daily Track Generator (Seeded, Connected Loop)</h2>
+  <div class="row">
+    <label>UTC Date: <input id="dateInput" type="date"></label>
+  </div>
+  <div class="row">
+    <button id="genBtn">Generate</button>
+    <button id="copyBtn">Copy URL</button>
+    <button id="openBtn">Open URL</button>
+  </div>
+
+  <div class="card">
+    <div><strong>Base URL:</strong> <code id="baseOut"></code></div>
+    <div><strong>Seed:</strong> <span id="seedOut"></span></div>
+    <div><strong>Map:</strong><textarea id="mapOut" readonly></textarea></div>
+    <div><strong>Mods (bumps + scenery only):</strong><textarea id="modsOut" readonly></textarea></div>
+    <div><strong>Play URL:</strong><textarea id="urlOut" readonly></textarea></div>
+  </div>
+
+  <div class="card">
+    <strong>Cells JSON</strong>
+    <textarea id="cellsOut" readonly style="min-height:130px"></textarea>
+  </div>
+
+  <div class="card">
+    <strong>Preview</strong><br>
+    <canvas id="preview" width="640" height="440"></canvas>
+  </div>
+
+<script>
+(() => {
+  const BASE_URL = "https://everybodysim.github.io/Racing-game/index.html";
+
+  // ---------- codec ----------
+  const TYPE_INDEX = {
+    'track-straight': 0,
+    'track-corner': 1,
+    'track-checkpoint': 2,
+    'track-finish': 3
+  };
+  const GODOT_TO_ORIENT = { 0:0, 16:1, 10:2, 22:3 };
+
+  function encodeCells(cells) {
+    const bytes = new Uint8Array(cells.length * 3);
+    for (let i = 0; i < cells.length; i++) {
+      const [gx, gz, type, orient] = cells[i];
+      const ti = TYPE_INDEX[type] ?? 0;
+      const oi = GODOT_TO_ORIENT[orient] ?? 0;
+      bytes[i * 3] = gx + 128;
+      bytes[i * 3 + 1] = gz + 128;
+      bytes[i * 3 + 2] = (ti << 2) | oi;
+    }
+    let bin = '';
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function encodeMods(modsObj) {
+    const json = JSON.stringify(modsObj);
+    return btoa(unescape(encodeURIComponent(json)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  // ---------- deterministic random ----------
+  function hash32(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return h >>> 0;
+  }
+
+  function mulberry32(seed) {
+    let t = seed >>> 0;
+    return function() {
+      t += 0x6D2B79F5;
+      let r = Math.imul(t ^ (t >>> 15), 1 | t);
+      r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+      return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  const rndInt = (rng, a, b) => a + Math.floor(rng() * (b - a + 1));
+
+  function utcTodayStr() {
+    const d = new Date();
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  // ---------- loop generation ----------
+  const DIRS = [[1,0],[0,1],[-1,0],[0,-1]]; // E,S,W,N
+  const key = (x,z) => `${x},${z}`;
+
+  function genClosedLoop(rng, opts = {}) {
+    const W = opts.W ?? 14;
+    const H = opts.H ?? 14;
+    const minLen = opts.minLen ?? 18;
+    const maxLen = opts.maxLen ?? 44;
+    const attempts = opts.attempts ?? 240;
+
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const start = [rndInt(rng, 2, W - 3), rndInt(rng, 2, H - 3)];
+      let path = [start];
+      const seen = new Set([key(start[0], start[1])]);
+      let prevDir = -1;
+      const target = rndInt(rng, minLen, maxLen);
+
+      for (let step = 0; step < maxLen + 20; step++) {
+        const [cx, cz] = path[path.length - 1];
+        const [sx, sz] = start;
+
+        // close if adjacent to start and long enough
+        if (path.length >= minLen && Math.abs(cx - sx) + Math.abs(cz - sz) === 1) {
+          path.push([sx, sz]); // repeat start as closure marker
+          if (path.length - 1 >= minLen) return path;
+        }
+
+        let candidates = [];
+        for (let di = 0; di < 4; di++) {
+          const [dx, dz] = DIRS[di];
+          const nx = cx + dx, nz = cz + dz;
+
+          // keep away from borders
+          if (nx < 1 || nz < 1 || nx >= W - 1 || nz >= H - 1) continue;
+
+          const k = key(nx, nz);
+          const isStart = (nx === sx && nz === sz);
+
+          // no revisits except closure to start
+          if (!isStart && seen.has(k)) continue;
+
+          // no immediate backtracking
+          if (prevDir !== -1 && (di + 2) % 4 === prevDir) continue;
+
+          // discourage side touching that creates messy near-crossings
+          let neighbors = 0;
+          for (const [adx, adz] of DIRS) {
+            if (seen.has(key(nx + adx, nz + adz))) neighbors++;
+          }
+          if (!isStart && neighbors > 2) continue;
+
+          let score = 1;
+          if (prevDir === di) score += 1.4; // smoother lines
+          if (isStart && path.length >= minLen) score += 5;
+          candidates.push({di, nx, nz, score, isStart});
+        }
+
+        if (!candidates.length) break;
+
+        // weighted pick
+        let total = candidates.reduce((s, c) => s + c.score, 0);
+        let r = rng() * total;
+        let pick = candidates[0];
+        for (const c of candidates) {
+          r -= c.score;
+          if (r <= 0) { pick = c; break; }
+        }
+
+        path.push([pick.nx, pick.nz]);
+        if (!pick.isStart) seen.add(key(pick.nx, pick.nz));
+        prevDir = pick.di;
+
+        // try early close near target
+        if (path.length >= target && Math.abs(pick.nx - start[0]) + Math.abs(pick.nz - start[1]) === 1) {
+          path.push([start[0], start[1]]);
+          return path;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function loopToTiles(loop) {
+    const unique = loop.slice(0, -1); // remove repeated end/start
+    const n = unique.length;
+
+    function dir(a, b) {
+      const dx = b[0] - a[0], dz = b[1] - a[1];
+      if (dx === 1 && dz === 0) return 'E';
+      if (dx === -1 && dz === 0) return 'W';
+      if (dx === 0 && dz === 1) return 'S';
+      if (dx === 0 && dz === -1) return 'N';
+      return '?';
+    }
+
+    const tiles = [];
+    for (let i = 0; i < n; i++) {
+      const prev = unique[(i - 1 + n) % n];
+      const cur = unique[i];
+      const next = unique[(i + 1) % n];
+      const d1 = dir(cur, prev);
+      const d2 = dir(cur, next);
+      const set = new Set([d1, d2]);
+
+      let type = 'track-straight';
+      let orient = 0;
+
+      // straights
+      if (set.has('N') && set.has('S')) {
+        type = 'track-straight';
+        orient = 0;
+      } else if (set.has('E') && set.has('W')) {
+        type = 'track-straight';
+        orient = 22;
+      } else {
+        // corners mapping from your game conventions:
+        // E+S => 16, W+S => 0, N+E => 10, W+N => 22
+        type = 'track-corner';
+        if (set.has('E') && set.has('S')) orient = 16;
+        else if (set.has('W') && set.has('S')) orient = 0;
+        else if (set.has('N') && set.has('E')) orient = 10;
+        else if (set.has('W') && set.has('N')) orient = 22;
+      }
+
+      tiles.push([cur[0], cur[1], type, orient]);
+    }
+
+    // choose finish on straight if possible
+    let finishIdx = tiles.findIndex(t => t[2] === 'track-straight');
+    if (finishIdx < 0) finishIdx = 0;
+    tiles[finishIdx][2] = 'track-finish';
+
+    // checkpoint candidates on straights, away from finish
+    const cpCandidates = [];
+    for (let i = 0; i < tiles.length; i++) {
+      if (i === finishIdx) continue;
+      if (tiles[i][2] !== 'track-straight') continue;
+      const ringDist = Math.min(Math.abs(i - finishIdx), tiles.length - Math.abs(i - finishIdx));
+      if (ringDist > Math.floor(tiles.length / 6)) cpCandidates.push(i);
+    }
+
+    return { tiles, cpCandidates };
+  }
+
+  function sampleDeterministic(arr, rng, count) {
+    const copy = arr.slice();
+    const out = [];
+    for (let i = 0; i < count && copy.length; i++) {
+      const idx = Math.floor(rng() * copy.length);
+      out.push(copy[idx]);
+      copy.splice(idx, 1);
+    }
+    return out;
+  }
+
+  function generateForDate(utcDate) {
+    const seedText = `daily-v2:${utcDate}`;
+    const seed = hash32(seedText);
+    const rng = mulberry32(seed);
+
+    let loop = genClosedLoop(rng, {
+      W: rndInt(rng, 12, 18),
+      H: rndInt(rng, 12, 18),
+      minLen: rndInt(rng, 18, 26),
+      maxLen: rndInt(rng, 30, 46),
+      attempts: 260
+    });
+
+    // fallback rectangle loop
+    if (!loop) {
+      const expanded = [];
+      for (let x = 2; x <= 8; x++) expanded.push([x, 2]);
+      for (let z = 3; z <= 7; z++) expanded.push([8, z]);
+      for (let x = 7; x >= 2; x--) expanded.push([x, 7]);
+      for (let z = 6; z >= 2; z--) expanded.push([2, z]);
+      expanded.push([2, 2]); // close
+      loop = expanded;
+    }
+
+    const { tiles, cpCandidates } = loopToTiles(loop);
+
+    // checkpoints are part of map cells
+    const cpCount = Math.min(cpCandidates.length, rndInt(rng, 1, 3));
+    const cpIdxs = sampleDeterministic(cpCandidates, rng, cpCount);
+    for (const idx of cpIdxs) tiles[idx][2] = 'track-checkpoint';
+
+    // bumps only on road cells
+    const roadCells = tiles.map(t => [t[0], t[1]]);
+    const bumpCount = Math.min(4, Math.max(1, Math.floor(tiles.length / 12)));
+    const bumps = sampleDeterministic(roadCells, rng, bumpCount);
+
+    // scenery around road
+    const roadSet = new Set(roadCells.map(([x, z]) => `${x},${z}`));
+    const xs = tiles.map(t => t[0]), zs = tiles.map(t => t[1]);
+    const minX = Math.min(...xs) - 2, maxX = Math.max(...xs) + 2;
+    const minZ = Math.min(...zs) - 2, maxZ = Math.max(...zs) + 2;
+
+    const decoCandidates = [];
+    for (let z = minZ; z <= maxZ; z++) {
+      for (let x = minX; x <= maxX; x++) {
+        const k = `${x},${z}`;
+        if (roadSet.has(k)) continue;
+
+        let nearRoad = false;
+        for (let dz = -1; dz <= 1 && !nearRoad; dz++) {
+          for (let dx = -1; dx <= 1 && !nearRoad; dx++) {
+            if (roadSet.has(`${x + dx},${z + dz}`)) nearRoad = true;
+          }
+        }
+        if (nearRoad) decoCandidates.push([x, z]);
+      }
+    }
+
+    const decoCount = Math.min(10, Math.max(3, Math.floor(tiles.length / 6)));
+    const pickedDeco = sampleDeterministic(decoCandidates, rng, decoCount);
+    const decoTypes = ['decoration-forest', 'decoration-tents', 'decoration-empty'];
+
+    const deco = pickedDeco.map(([x, z]) => {
+      const type = decoTypes[Math.floor(rng() * decoTypes.length)];
+      const orient = [0, 16, 10, 22][Math.floor(rng() * 4)];
+      return [x, z, type, orient];
+    });
+
+    return {
+      seedText,
+      cells: tiles,
+      mods: {
+        b: bumps, // bumps
+        s: [],    // NO BOOST PADS
+        d: deco   // scenery
+      }
+    };
+  }
+
+  function buildUrl(map, mods) {
+    const u = new URL(BASE_URL);
+    u.searchParams.set('map', map);
+    u.searchParams.set('mods', mods);
+    return u.toString();
+  }
+
+  function drawPreview(cells, mods) {
+    const cv = document.getElementById('preview');
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, cv.width, cv.height);
+
+    const xs = cells.map(c => c[0]), zs = cells.map(c => c[1]);
+    const minX = Math.min(...xs) - 2, maxX = Math.max(...xs) + 2;
+    const minZ = Math.min(...zs) - 2, maxZ = Math.max(...zs) + 2;
+    const gw = maxX - minX + 1, gh = maxZ - minZ + 1;
+    const pad = 18;
+    const size = Math.floor(Math.min((cv.width - pad * 2) / gw, (cv.height - pad * 2) / gh));
+
+    const toPix = (x, z) => [pad + (x - minX) * size, pad + (z - minZ) * size];
+
+    // grid
+    ctx.strokeStyle = '#1f2532';
+    for (let x = 0; x <= gw; x++) {
+      const px = pad + x * size;
+      ctx.beginPath(); ctx.moveTo(px, pad); ctx.lineTo(px, pad + gh * size); ctx.stroke();
+    }
+    for (let z = 0; z <= gh; z++) {
+      const py = pad + z * size;
+      ctx.beginPath(); ctx.moveTo(pad, py); ctx.lineTo(pad + gw * size, py); ctx.stroke();
+    }
+
+    const color = {
+      'track-straight': '#4da3ff',
+      'track-corner': '#b084ff',
+      'track-checkpoint': '#ffd54f',
+      'track-finish': '#72e39a',
+    };
+
+    for (const [x, z, t] of cells) {
+      const [px, py] = toPix(x, z);
+      ctx.fillStyle = color[t] || '#777';
+      ctx.fillRect(px + 2, py + 2, size - 4, size - 4);
+    }
+
+    // scenery markers
+    for (const [x, z, type] of (mods.d || [])) {
+      const [px, py] = toPix(x, z);
+      ctx.fillStyle =
+        type === 'decoration-forest' ? '#2ecc71' :
+        type === 'decoration-tents'  ? '#f39c12' :
+        '#95a5a6';
+      ctx.fillRect(px + size * 0.25, py + size * 0.25, size * 0.5, size * 0.5);
+    }
+
+    // bumps as red rings
+    ctx.strokeStyle = '#ff4d4d';
+    ctx.lineWidth = 2;
+    for (const [x, z] of (mods.b || [])) {
+      const [px, py] = toPix(x, z);
+      ctx.beginPath();
+      ctx.arc(px + size / 2, py + size / 2, Math.max(5, size * 0.26), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  function run() {
+    const date = document.getElementById('dateInput').value || utcTodayStr();
+    const generated = generateForDate(date);
+    const map = encodeCells(generated.cells);
+    const mods = encodeMods(generated.mods);
+    const url = buildUrl(map, mods);
+
+    document.getElementById('baseOut').textContent = BASE_URL;
+    document.getElementById('seedOut').textContent = generated.seedText;
+    document.getElementById('mapOut').value = map;
+    document.getElementById('modsOut').value = mods;
+    document.getElementById('urlOut').value = url;
+    document.getElementById('cellsOut').value = JSON.stringify(generated.cells, null, 2);
+
+    drawPreview(generated.cells, generated.mods);
+  }
+
+  document.getElementById('dateInput').value = utcTodayStr();
+  document.getElementById('genBtn').addEventListener('click', run);
+  document.getElementById('copyBtn').addEventListener('click', async () => {
+    const txt = document.getElementById('urlOut').value;
+    try { await navigator.clipboard.writeText(txt); alert('URL copied'); }
+    catch { alert('Copy failed; copy manually.'); }
+  });
+  document.getElementById('openBtn').addEventListener('click', () => {
+    const url = document.getElementById('urlOut').value;
+    if (url) window.open(url, '_blank');
+  });
+
+  run();
+})();
+</script>
+</body>
+</html>
