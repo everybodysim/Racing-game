@@ -113,6 +113,7 @@
 		<button id="btn-deco-forest">Tree</button>
 		<button id="btn-deco-tents">Tent</button>
 		<button id="btn-deco-empty">Prop</button>
+		<button id="btn-line">Racing Line</button>
 		<button id="btn-rotate">Rotate: 0°</button>
 		<div class="separator"></div>
 		<button id="btn-paint" class="active">Paint</button>
@@ -141,6 +142,8 @@
 	let tool = 'paint'; // 'paint', 'erase'
 	let selectedType = 'track-straight';
 	let selectedOrient = 0;
+	let racingLinePoints = [];
+	let racingLineGroup = null;
 
 	function cellKey( gx, gz ) { return gx + ',' + gz; }
 
@@ -220,6 +223,10 @@
 	ghostGroup.position.y = - 0.5;
 	ghostGroup.scale.setScalar( GRID_SCALE );
 	scene.add( ghostGroup );
+
+	racingLineGroup = new THREE.Group();
+	racingLineGroup.position.y = - 0.45;
+	scene.add( racingLineGroup );
 
 	// ─── Camera (orthographic, top-down) ──────────────────────
 
@@ -385,7 +392,11 @@
 
 	function placeSelectedBlock( gx, gz ) {
 
-		if ( selectedType === BUMP_TOOL ) {
+		if ( selectedType === 'racing-line' ) {
+
+			return;
+
+		} else if ( selectedType === BUMP_TOOL ) {
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
@@ -458,6 +469,8 @@
 		}
 
 		grid.clear();
+		racingLinePoints = [];
+		rebuildRacingLineMesh();
 		save();
 
 	}
@@ -539,6 +552,45 @@
 
 	}
 
+
+	function rebuildRacingLineMesh() {
+
+		while ( racingLineGroup.children.length ) racingLineGroup.remove( racingLineGroup.children[ 0 ] );
+		if ( racingLinePoints.length < 2 ) return;
+
+		const points = racingLinePoints.map( ( p ) => new THREE.Vector3( p[ 0 ], 0, p[ 1 ] ) );
+		const curve = new THREE.CatmullRomCurve3( points, true, 'centripetal', 0.5 );
+		const sampled = curve.getPoints( Math.max( 64, points.length * 20 ) );
+		const geom = new THREE.BufferGeometry().setFromPoints( sampled );
+		const line = new THREE.LineLoop( geom, new THREE.LineBasicMaterial( { color: 0x19d3ff } ) );
+		racingLineGroup.add( line );
+
+		for ( const point of racingLinePoints ) {
+
+			const marker = new THREE.Mesh( new THREE.SphereGeometry( 0.25, 10, 10 ), new THREE.MeshBasicMaterial( { color: 0xffd54f } ) );
+			marker.position.set( point[ 0 ], 0, point[ 1 ] );
+			racingLineGroup.add( marker );
+
+		}
+
+	}
+
+	function addRacingLinePointFromScreen( clientX, clientY ) {
+
+		mouse.x = ( clientX / window.innerWidth ) * 2 - 1;
+		mouse.y = - ( clientY / window.innerHeight ) * 2 + 1;
+		raycaster.setFromCamera( mouse, camera );
+		const plane = new THREE.Plane( new THREE.Vector3( 0, 1, 0 ), 0.45 );
+		const hit = new THREE.Vector3();
+		raycaster.ray.intersectPlane( plane, hit );
+		if ( ! hit ) return;
+
+		racingLinePoints.push( [ Number( hit.x.toFixed( 3 ) ), Number( hit.z.toFixed( 3 ) ) ] );
+		rebuildRacingLineMesh();
+		save();
+
+	}
+
 	// ─── Persistence ──────────────────────────────────────────
 
 	function save() {
@@ -570,14 +622,14 @@
 
 		}
 
-		const payload = JSON.stringify( { b: bumps, d: deco } );
+		const payload = JSON.stringify( { b: bumps, d: deco, r: racingLinePoints } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], d: [] };
+		if ( ! modsStr ) return { b: [], d: [], r: [] };
 
 		try {
 
@@ -586,12 +638,13 @@
 			return {
 				b: Array.isArray( parsed.b ) ? parsed.b : [],
 				d: Array.isArray( parsed.d ) ? parsed.d : [],
+				r: Array.isArray( parsed.r ) ? parsed.r : [],
 			};
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-			return { b: [], d: [] };
+			return { b: [], d: [], r: [] };
 
 		}
 
@@ -634,6 +687,9 @@
 					placeOverlayMesh( gx, gz, cell );
 
 			}
+
+			racingLinePoints = Array.isArray( mods.r ) ? mods.r.filter( ( p ) => Array.isArray( p ) && Number.isFinite( p[ 0 ] ) && Number.isFinite( p[ 1 ] ) ).map( ( p ) => [ Number( p[ 0 ] ), Number( p[ 1 ] ) ] ) : [];
+			rebuildRacingLineMesh();
 
 			for ( const [ gx, gz, decoType, decoOrient ] of mods.d ) {
 
@@ -679,6 +735,7 @@
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
+		'racing-line': document.getElementById( 'btn-line' ),
 	};
 	const btnRotate = document.getElementById( 'btn-rotate' );
 	const btnPaint = document.getElementById( 'btn-paint' );
@@ -694,7 +751,7 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES, 'racing-line' ] ) {
 
 			tileButtons[ type ].classList.toggle( 'active', selectedType === type );
 
@@ -722,7 +779,7 @@
 
 	}
 
-	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES ] ) {
+	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES, 'racing-line' ] ) {
 
 		tileButtons[ type ].addEventListener( 'click', () => selectTileType( type ) );
 
@@ -894,6 +951,13 @@
 
 		if ( e.button === 0 ) {
 
+			if ( tool === 'paint' && selectedType === 'racing-line' ) {
+
+				addRacingLinePointFromScreen( e.clientX, e.clientY );
+				return;
+
+			}
+
 			if ( tool === 'erase' ) {
 
 				isErasing = true;
@@ -1063,6 +1127,13 @@
 			} else if ( e.key.toLowerCase() === 'r' ) {
 
 				rotateSelection();
+
+			} else if ( e.key === 'Backspace' && selectedType === 'racing-line' ) {
+
+				racingLinePoints.pop();
+				rebuildRacingLineMesh();
+				save();
+				e.preventDefault();
 
 			} else if ( e.key === 'ArrowUp' ) {
 

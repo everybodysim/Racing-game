@@ -7,7 +7,7 @@
 	<style>
 		body { margin: 0; overflow: hidden; background: #000; }
 		canvas { display: block; touch-action: none; }
-		#editor-link, #respawnBtn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
+		#editor-link, #respawnBtn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn, #ai-toggle-btn {
 			position: absolute;
 			bottom: 12px;
 			color: #fff;
@@ -23,10 +23,11 @@
 		#respawnBtn { left: 16px; top: 54px; bottom: auto; }
 		#car-select { left: 16px; top: 12px; bottom: auto; }
 		#share-time-btn { left: 16px; bottom: 12px; }
+		#ai-toggle-btn { left: 430px; bottom: 12px; cursor: pointer; }
 		#export-ghost-btn { left: 180px; bottom: 12px; }
 		#import-ghost-btn { left: 300px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
-		#editor-link:hover, #respawnBtn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#editor-link:hover, #respawnBtn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover, #ai-toggle-btn:hover { background: rgba(0,0,0,0.7); }
 		#share-time-btn:disabled {
 			opacity: 0.5;
 			cursor: not-allowed;
@@ -107,6 +108,7 @@
 	<button id="share-time-btn" type="button" disabled>Share best time</button>
 	<button id="export-ghost-btn" type="button">Export ghost</button>
 	<button id="import-ghost-btn" type="button">Import ghost</button>
+	<button id="ai-toggle-btn" type="button">AI: ON</button>
 	<script>
 		const map = new URLSearchParams( location.search ).get( 'map' );
 		const mods = new URLSearchParams( location.search ).get( 'mods' );

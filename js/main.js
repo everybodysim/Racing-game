@@ -71,6 +71,7 @@ const BOOST_VELOCITY_DELTA = 2.2;
 const BOOST_EFFECT_SECONDS = 1.0;
 const BOOST_FORCE_SECONDS = 0.45;
 const BOOST_ACCEL_PER_SECOND = 8.5;
+const AI_CAR_KEYS = [ 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ];
 
 function decodeExtrasParam( str ) {
 
@@ -84,6 +85,7 @@ function decodeExtrasParam( str ) {
 			bumps: Array.isArray( parsed.b ) ? parsed.b : [],
 			boosts: Array.isArray( parsed.s ) ? parsed.s : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
+			racingLine: Array.isArray( parsed.r ) ? parsed.r : [],
 		};
 
 	} catch ( e ) {
@@ -92,6 +94,50 @@ function decodeExtrasParam( str ) {
 		return null;
 
 	}
+
+}
+
+
+function buildBezierLoopSamples( rawPoints, samplesPerSegment = 16 ) {
+
+	const points = Array.isArray( rawPoints ) ? rawPoints
+		.filter( ( p ) => Array.isArray( p ) && Number.isFinite( p[ 0 ] ) && Number.isFinite( p[ 1 ] ) )
+		.map( ( p ) => new THREE.Vector3( p[ 0 ], 0, p[ 1 ] ) ) : [];
+
+	if ( points.length < 3 ) return [];
+
+	const out = [];
+	for ( let i = 0; i < points.length; i ++ ) {
+
+		const prev = points[ ( i - 1 + points.length ) % points.length ];
+		const curr = points[ i ];
+		const next = points[ ( i + 1 ) % points.length ];
+		const start = prev.clone().lerp( curr, 0.5 );
+		const end = curr.clone().lerp( next, 0.5 );
+
+		for ( let step = 0; step < samplesPerSegment; step ++ ) {
+
+			const t = step / samplesPerSegment;
+			const oneMinus = 1 - t;
+			out.push( start.clone().multiplyScalar( oneMinus * oneMinus )
+				.add( curr.clone().multiplyScalar( 2 * oneMinus * t ) )
+				.add( end.clone().multiplyScalar( t * t ) ) );
+
+		}
+
+	}
+
+	return out;
+
+}
+
+function buildLineFromGhostSamples( ghostSamples ) {
+
+	if ( ! Array.isArray( ghostSamples ) || ghostSamples.length < 8 ) return [];
+	const step = Math.max( 1, Math.floor( ghostSamples.length / 24 ) );
+	const pts = [];
+	for ( let i = 0; i < ghostSamples.length; i += step ) pts.push( [ ghostSamples[ i ].x, ghostSamples[ i ].z ] );
+	return pts;
 
 }
 
@@ -230,6 +276,14 @@ async function init() {
 	let ghostRecordFrame = 0;
 	const _ghostForward = new THREE.Vector3();
 	const _ghostUp = new THREE.Vector3( 0, 1, 0 );
+	const _aiForward = new THREE.Vector3();
+	const _aiTarget = new THREE.Vector3();
+	const _aiBlend = new THREE.Vector3();
+	let aiCarsEnabled = true;
+	let aiCars = [];
+	let aiPathSamples = [];
+	let aiPathLengths = [];
+	let aiPathLength = 0;
 
 	function createGhostModel( model ) {
 
@@ -257,6 +311,117 @@ async function init() {
 
 		currentLapGhostSamples = [];
 		ghostRecordFrame = 0;
+
+	}
+
+	function rebuildAiPath() {
+
+		const sourceLine = Array.isArray( extras?.racingLine ) && extras.racingLine.length >= 3
+			? extras.racingLine
+			: buildLineFromGhostSamples( bestLapGhostSamples );
+		aiPathSamples = buildBezierLoopSamples( sourceLine );
+		aiPathLengths = [];
+		aiPathLength = 0;
+
+		if ( aiPathSamples.length < 2 ) return;
+		aiPathLengths.push( 0 );
+		for ( let i = 1; i < aiPathSamples.length; i ++ ) {
+
+			aiPathLength += aiPathSamples[ i ].distanceTo( aiPathSamples[ i - 1 ] );
+			aiPathLengths.push( aiPathLength );
+
+		}
+		aiPathLength += aiPathSamples[ 0 ].distanceTo( aiPathSamples[ aiPathSamples.length - 1 ] );
+
+	}
+
+	function sampleAiPath( distance, outPos, outTan ) {
+
+		if ( aiPathSamples.length < 2 || aiPathLength <= 0 ) return false;
+		let d = ( distance % aiPathLength + aiPathLength ) % aiPathLength;
+		let idx = aiPathLengths.findIndex( ( x ) => x >= d );
+		if ( idx <= 0 ) idx = 1;
+		const a = aiPathSamples[ idx - 1 ];
+		const b = aiPathSamples[ idx % aiPathSamples.length ];
+		const la = aiPathLengths[ idx - 1 ];
+		const lb = idx < aiPathLengths.length ? aiPathLengths[ idx ] : aiPathLength;
+		const t = THREE.MathUtils.clamp( ( d - la ) / Math.max( 1e-5, lb - la ), 0, 1 );
+		outPos.copy( a ).lerp( b, t );
+		outTan.copy( b ).sub( a ).normalize();
+		return true;
+
+	}
+
+	function setupAiCars() {
+
+		aiCars.forEach( ( ai ) => scene.remove( ai.mesh ) );
+		aiCars = [];
+		for ( const key of AI_CAR_KEYS ) {
+
+			const src = models[ key ];
+			if ( ! src ) continue;
+			const mesh = src.clone();
+			mesh.traverse( ( child ) => { if ( child.isMesh ) { child.castShadow = true; child.receiveShadow = true; } } );
+			scene.add( mesh );
+			aiCars.push( { mesh, progress: 0, speed: 0, targetSpeed: 0, offset: ( Math.random() - 0.5 ) * 1.4 } );
+
+		}
+
+	}
+
+	function syncAiCars( seedSpeed = 0.8 ) {
+
+		rebuildAiPath();
+		if ( aiPathSamples.length < 2 ) {
+
+			aiCars.forEach( ( ai ) => ai.mesh.visible = false );
+			return;
+
+		}
+
+		aiCars.forEach( ( ai, index ) => {
+
+			ai.mesh.visible = aiCarsEnabled;
+			ai.progress = ( aiPathLength * index ) / Math.max( 1, aiCars.length );
+			ai.speed = Math.max( 3, seedSpeed + ( Math.random() - 0.5 ) * 1.5 );
+			ai.targetSpeed = ai.speed;
+
+		} );
+
+	}
+
+	function updateAiCars( dt, lapElapsed ) {
+
+		if ( ! aiCarsEnabled || aiPathSamples.length < 2 ) {
+
+			aiCars.forEach( ( ai ) => ai.mesh.visible = false );
+			return;
+
+		}
+
+		for ( const ai of aiCars ) {
+
+			ai.mesh.visible = true;
+			ai.targetSpeed = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed ) * 10 + ( Math.random() - 0.5 ) * 1.5, 5.5, 14.0 );
+			ai.speed = THREE.MathUtils.lerp( ai.speed, ai.targetSpeed, dt * 1.5 );
+			ai.progress += ai.speed * dt;
+
+			if ( ! sampleAiPath( ai.progress, _aiTarget, _aiForward ) ) continue;
+			_aiBlend.copy( _aiForward ).cross( _ghostUp ).normalize().multiplyScalar( ai.offset );
+			_aiTarget.add( _aiBlend );
+
+			if ( ghostModel?.visible ) {
+
+				_aiBlend.set( ghostModel.position.x, 0, ghostModel.position.z );
+				_aiTarget.lerp( _aiBlend, 0.3 );
+
+			}
+
+			_aiBlend.set( _aiTarget.x, 0, _aiTarget.z );
+			ai.mesh.position.lerp( _aiBlend, THREE.MathUtils.clamp( dt * 5, 0, 1 ) );
+			ai.mesh.rotation.y = Math.atan2( _aiForward.x, _aiForward.z );
+
+		}
 
 	}
 
@@ -337,6 +502,7 @@ async function init() {
 	const shareTimeBtn = document.getElementById( 'share-time-btn' );
 	const exportGhostBtn = document.getElementById( 'export-ghost-btn' );
 	const importGhostBtn = document.getElementById( 'import-ghost-btn' );
+	const aiToggleBtn = document.getElementById( 'ai-toggle-btn' );
 	const economyStoreKey = 'racing-economy-v1';
 	let coins = 0;
 	let engineTier = 0;
@@ -694,6 +860,7 @@ async function init() {
 		}
 		if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 		updateGhostShareButtons();
+		rebuildAiPath();
 		return true;
 
 	}
@@ -793,6 +960,7 @@ async function init() {
 			}
 			if ( bestLapGhostSamples.length < 2 ) bestGhostDuration = 0;
 			if ( bestLapGhostSamples.length >= 2 && models[ bestGhostCarKey ] ) createGhostModel( models[ bestGhostCarKey ] );
+			rebuildAiPath();
 
 		} catch ( e ) {
 
@@ -837,11 +1005,13 @@ async function init() {
 
 	function respawnVehicle() {
 
+		const seedSpeed = Math.max( 6, Math.abs( vehicle.linearSpeed ) * 10 );
 		vehicle.resetToSpawn();
 		cam.targetPosition.copy( vehicle.spherePos );
 		cam.camera.position.addVectors( cam.targetPosition, cam.offset );
 
 		resetLapState( true );
+		syncAiCars( seedSpeed );
 
 	}
 
@@ -937,13 +1107,23 @@ async function init() {
 
 	} );
 
+	aiToggleBtn?.addEventListener( 'click', () => {
+
+		aiCarsEnabled = ! aiCarsEnabled;
+		aiToggleBtn.textContent = `AI: ${ aiCarsEnabled ? 'ON' : 'OFF' }`;
+		if ( aiCarsEnabled ) syncAiCars( Math.max( 6, Math.abs( vehicle.linearSpeed ) * 10 ) );
+
+	} );
+
 	loadEconomy();
 	applyVehiclePerformance();
 	updateEconomyHud();
 	loadLapStats();
 	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 	updateGhostShareButtons();
+	setupAiCars();
 	resetLapState( true );
+	syncAiCars( 8 );
 
 	const hashParams = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
 	const importedGhost = hashParams.get( 'ghost' );
@@ -1097,6 +1277,7 @@ async function init() {
 					bestGhostDuration = Math.max( 1e-4, completedLap - t0 );
 					bestGhostCarKey = currentCarKey();
 					updateGhostShareButtons();
+					rebuildAiPath();
 
 				}
 					lapNumber ++;
@@ -1112,6 +1293,7 @@ async function init() {
 				}
 				saveLapStats();
 				rewardCoinsForLap( completedLap );
+				syncAiCars( Math.abs( vehicle.linearSpeed ) * 10 );
 
 			}
 
@@ -1124,6 +1306,7 @@ async function init() {
 		lapSeconds = timer.getElapsed() - lapStartSeconds;
 		recordGhostSample( lapSeconds );
 		updateGhostPlayback( lapSeconds );
+		updateAiCars( dt, lapSeconds );
 		updateLapHud();
 
 		renderer.render( scene, cam.camera );
