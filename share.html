@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Share best time</title>
+	<style>
+		body { margin: 0; background: #111; color: #f3f6ff; font: 14px/1.4 sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 18px; box-sizing: border-box; }
+		.card { max-width: 96vw; text-align: center; }
+		canvas { max-width: 96vw; max-height: 72vh; border-radius: 8px; box-shadow: 0 14px 34px rgba(0,0,0,.35); display: block; }
+		#play-link { display: inline-block; margin-top: 14px; padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,.22); background: rgba(255,255,255,.13); color: #fff; text-decoration: none; font: 600 14px sans-serif; }
+		#play-link[aria-disabled="true"] { opacity: .6; pointer-events: none; }
+		details { margin-top: 10px; text-align: left; }
+		textarea { width: 100%; height: 84px; background: #0b0d12; color: #dff4ff; border: 1px solid #2a3240; border-radius: 8px; padding: 8px; box-sizing: border-box; }
+	</style>
+</head>
+<body>
+	<div class="card">
+		<canvas id="card" width="1280" height="720" aria-label="Racing share image"></canvas>
+		<a id="play-link" href="#" target="_blank" rel="noopener noreferrer" aria-disabled="true">Ghost unavailable</a>
+		<details>
+			<summary>Ghost code</summary>
+			<textarea id="ghost-code" readonly></textarea>
+		</details>
+	</div>
+	<script>
+		function decodeBase64UrlJson( value ) {
+			const normalized = value.replace( /-/g, '+' ).replace( /_/g, '/' );
+			const padLen = ( 4 - normalized.length % 4 ) % 4;
+			const padded = normalized + '='.repeat( padLen );
+			return JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
+		}
+
+		function formatShareSeconds( totalSeconds ) {
+			if ( ! Number.isFinite( totalSeconds ) ) return '--.--';
+			return totalSeconds.toFixed( 2 );
+		}
+
+		const hash = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
+		const raw = hash.get( 'data' );
+		let payload = null;
+		if ( raw ) {
+			try { payload = decodeBase64UrlJson( raw ); } catch ( e ) { payload = null; }
+		}
+
+		const bestText = formatShareSeconds( Number( payload?.bestLapSeconds ) );
+		const canvas = document.getElementById( 'card' );
+		const ctx = canvas.getContext( '2d' );
+		const grad = ctx.createLinearGradient( 0, 0, canvas.width, canvas.height );
+		grad.addColorStop( 0, '#29323c' );
+		grad.addColorStop( 1, '#0f2027' );
+		ctx.fillStyle = grad;
+		ctx.fillRect( 0, 0, canvas.width, canvas.height );
+		ctx.fillStyle = 'rgba(255,255,255,0.12)';
+		ctx.fillRect( canvas.width * 0.1, canvas.height * 0.22, canvas.width * 0.8, canvas.height * 0.56 );
+		ctx.fillStyle = '#fff';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.font = '700 66px sans-serif';
+		ctx.fillText( 'Beat my time!', canvas.width / 2, canvas.height * 0.4 );
+		ctx.font = '700 94px sans-serif';
+		ctx.fillText( `${ bestText }s`, canvas.width / 2, canvas.height * 0.56 );
+		ctx.font = '500 38px sans-serif';
+		ctx.fillText( 'Racing Game • Best Lap', canvas.width / 2, canvas.height * 0.7 );
+
+		const playLink = document.getElementById( 'play-link' );
+		if ( payload?.playTrackUrl ) {
+			playLink.href = payload.playTrackUrl;
+			playLink.textContent = 'Race this ghost';
+			playLink.setAttribute( 'aria-disabled', 'false' );
+		}
+
+		const ghostCode = document.getElementById( 'ghost-code' );
+		ghostCode.value = payload?.ghostCode || '';
+		if ( ! payload?.ghostCode ) ghostCode.placeholder = 'No ghost code available.';
+	</script>
+</body>
+</html>
