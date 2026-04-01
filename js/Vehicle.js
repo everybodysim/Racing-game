@@ -58,6 +58,7 @@ export class Vehicle {
 		this.reverseAccelRate = 2.0;
 		this.brakeRate = 8.0;
 		this.driveForce = 100.0;
+		this.linearDamp = LINEAR_DAMP;
 
 	}
 
@@ -209,7 +210,7 @@ export class Vehicle {
 
 		}
 
-		this.linearSpeed *= Math.max( 0, 1 - LINEAR_DAMP * dt );
+		this.linearSpeed *= Math.max( 0, 1 - this.linearDamp * dt );
 
 		if ( this.rigidBody ) {
 

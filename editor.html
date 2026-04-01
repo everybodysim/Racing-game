@@ -108,11 +108,14 @@
 		<button id="btn-straight" class="active">Straight</button>
 		<button id="btn-corner">Corner</button>
 		<button id="btn-bump">Bump +</button>
+		<button id="btn-ice">Ice</button>
 		<button id="btn-finish">Finish</button>
 		<button id="btn-checkpoint">Checkpoint</button>
 		<button id="btn-deco-forest">Tree</button>
 		<button id="btn-deco-tents">Tent</button>
 		<button id="btn-deco-empty">Prop</button>
+		<button id="btn-line">Line Pt</button>
+		<button id="btn-line-undo">Line Undo</button>
 		<button id="btn-rotate">Rotate: 0°</button>
 		<div class="separator"></div>
 		<button id="btn-paint" class="active">Paint</button>
@@ -137,10 +140,14 @@
 	const ORIENTATIONS = [ 0, 16, 10, 22 ];
 	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint' ];
 	const BUMP_TOOL = 'overlay-bump';
+	const ICE_TOOL = 'overlay-ice';
+	const LINE_TOOL = 'overlay-line';
 	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
 	let tool = 'paint'; // 'paint', 'erase'
 	let selectedType = 'track-straight';
 	let selectedOrient = 0;
+	const racingLine = [];
+	let racingLineMesh = null;
 
 	function cellKey( gx, gz ) { return gx + ',' + gz; }
 
@@ -154,6 +161,7 @@
 			bump: false,
 			bumpOrient: 0,
 			bumpMesh: null,
+			ice: false,
 			decoType: null,
 			decoOrient: 0,
 			decoMesh: null
@@ -297,6 +305,14 @@
 
 			if ( c.isMesh ) {
 
+				if ( cell.ice && ( cell.type === 'track-straight' || cell.type === 'track-corner' ) ) {
+
+					c.material = c.material.clone();
+					c.material.color = c.material.color.clone().lerp( new THREE.Color( 0x9edcff ), 0.55 );
+					c.material.emissive = new THREE.Color( 0x5aaeff );
+					c.material.emissiveIntensity = 0.1;
+
+				}
 				c.castShadow = true;
 				c.receiveShadow = true;
 
@@ -368,6 +384,23 @@
 
 	}
 
+	function redrawRacingLine() {
+
+		if ( racingLineMesh ) scene.remove( racingLineMesh );
+		racingLineMesh = null;
+		if ( racingLine.length < 2 ) return;
+		const points = racingLine.map( ( [ gx, gz ] ) => new THREE.Vector3(
+			( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
+			0.22,
+			( gz + 0.5 ) * CELL_RAW * GRID_SCALE
+		) );
+		const geometry = new THREE.BufferGeometry().setFromPoints( points );
+		const material = new THREE.LineBasicMaterial( { color: 0xff66cc } );
+		racingLineMesh = new THREE.Line( geometry, material );
+		scene.add( racingLineMesh );
+
+	}
+
 	function setCell( gx, gz, type, orient ) {
 
 		const key = cellKey( gx, gz );
@@ -375,6 +408,7 @@
 		cell.type = type;
 		cell.orient = orient;
 		cell.isFinish = type === 'track-finish';
+		if ( type !== 'track-straight' && type !== 'track-corner' ) cell.ice = false;
 		grid.set( key, cell );
 		placeMesh( gx, gz, cell );
 		placeOverlayMesh( gx, gz, cell );
@@ -399,6 +433,30 @@
 			} else {
 
 				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+		} else if ( selectedType === ICE_TOOL ) {
+
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key );
+			if ( ! cell || ! cell.type || ( cell.type !== 'track-straight' && cell.type !== 'track-corner' ) ) {
+
+				showToast( 'Ice only applies to straight/corner road blocks' );
+				return;
+
+			}
+			cell.ice = ! cell.ice;
+			placeMesh( gx, gz, cell );
+			placeOverlayMesh( gx, gz, cell );
+
+		} else if ( selectedType === LINE_TOOL ) {
+
+			const last = racingLine[ racingLine.length - 1 ];
+			if ( ! last || last[ 0 ] !== gx || last[ 1 ] !== gz ) {
+
+				racingLine.push( [ gx, gz ] );
+				redrawRacingLine();
 
 			}
 
@@ -458,6 +516,8 @@
 		}
 
 		grid.clear();
+		racingLine.length = 0;
+		redrawRacingLine();
 		save();
 
 	}
@@ -497,7 +557,8 @@
 		clearGhost();
 
 		if ( tool === 'erase' ) return;
-		const ghostType = selectedType === BUMP_TOOL ? 'track-bump' : selectedType;
+		if ( selectedType === LINE_TOOL ) return;
+		const ghostType = selectedType === BUMP_TOOL ? 'track-bump' : selectedType === ICE_TOOL ? 'track-straight' : selectedType;
 		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
 
 	}
@@ -560,38 +621,42 @@
 	function encodeMods() {
 
 		const bumps = [];
+		const ices = [];
 		const deco = [];
 
 		for ( const [ key, cell ] of grid ) {
 
 				const [ gx, gz ] = key.split( ',' ).map( Number );
 				if ( cell.bump ) bumps.push( [ gx, gz ] );
+				if ( cell.ice ) ices.push( [ gx, gz ] );
 			if ( cell.decoType ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
 
 		}
 
-		const payload = JSON.stringify( { b: bumps, d: deco } );
+		const payload = JSON.stringify( { b: bumps, i: ices, l: racingLine, d: deco } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], d: [] };
+		if ( ! modsStr ) return { b: [], i: [], l: [], d: [] };
 
 		try {
 
 			const payload = decodeURIComponent( escape( atob( modsStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
 			const parsed = JSON.parse( payload );
 			return {
-				b: Array.isArray( parsed.b ) ? parsed.b : [],
-				d: Array.isArray( parsed.d ) ? parsed.d : [],
+					b: Array.isArray( parsed.b ) ? parsed.b : [],
+					i: Array.isArray( parsed.i ) ? parsed.i : [],
+					l: Array.isArray( parsed.l ) ? parsed.l : [],
+					d: Array.isArray( parsed.d ) ? parsed.d : [],
 			};
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-			return { b: [], d: [] };
+			return { b: [], i: [], l: [], d: [] };
 
 		}
 
@@ -635,6 +700,27 @@
 
 			}
 
+			for ( const [ gx, gz ] of mods.i ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key );
+				if ( ! cell || ! cell.type ) continue;
+				if ( cell.type !== 'track-straight' && cell.type !== 'track-corner' ) continue;
+				cell.ice = true;
+				placeMesh( gx, gz, cell );
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			racingLine.length = 0;
+			for ( const [ gx, gz ] of mods.l ) {
+
+				if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+				racingLine.push( [ gx, gz ] );
+
+			}
+			redrawRacingLine();
+
 			for ( const [ gx, gz, decoType, decoOrient ] of mods.d ) {
 
 				const key = cellKey( gx, gz );
@@ -674,6 +760,8 @@
 		'track-straight': document.getElementById( 'btn-straight' ),
 		'track-corner': document.getElementById( 'btn-corner' ),
 		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
+		[ ICE_TOOL ]: document.getElementById( 'btn-ice' ),
+		[ LINE_TOOL ]: document.getElementById( 'btn-line' ),
 		'track-finish': document.getElementById( 'btn-finish' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
@@ -694,7 +782,7 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ICE_TOOL, LINE_TOOL, ...DECO_TYPES ] ) {
 
 			tileButtons[ type ].classList.toggle( 'active', selectedType === type );
 
@@ -722,13 +810,21 @@
 
 	}
 
-	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES ] ) {
+	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ICE_TOOL, LINE_TOOL, ...DECO_TYPES ] ) {
 
 		tileButtons[ type ].addEventListener( 'click', () => selectTileType( type ) );
 
 	}
 
 	btnRotate.addEventListener( 'click', rotateSelection );
+	document.getElementById( 'btn-line-undo' ).addEventListener( 'click', () => {
+
+		if ( racingLine.length === 0 ) return;
+		racingLine.pop();
+		redrawRacingLine();
+		save();
+
+	} );
 	btnPaint.addEventListener( 'click', () => selectTool( 'paint' ) );
 	btnErase.addEventListener( 'click', () => selectTool( 'erase' ) );
 	updateTileToolbar();
