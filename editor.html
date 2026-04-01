@@ -108,6 +108,7 @@
 		<button id="btn-straight" class="active">Straight</button>
 		<button id="btn-corner">Corner</button>
 		<button id="btn-bump">Bump +</button>
+		<button id="btn-ice">Ice</button>
 		<button id="btn-finish">Finish</button>
 		<button id="btn-checkpoint">Checkpoint</button>
 		<button id="btn-deco-forest">Tree</button>
@@ -137,6 +138,7 @@
 	const ORIENTATIONS = [ 0, 16, 10, 22 ];
 	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint' ];
 	const BUMP_TOOL = 'overlay-bump';
+	const ICE_TOOL = 'overlay-ice';
 	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
 	let tool = 'paint'; // 'paint', 'erase'
 	let selectedType = 'track-straight';
@@ -154,6 +156,7 @@
 			bump: false,
 			bumpOrient: 0,
 			bumpMesh: null,
+			ice: false,
 			decoType: null,
 			decoOrient: 0,
 			decoMesh: null
@@ -297,6 +300,14 @@
 
 			if ( c.isMesh ) {
 
+				if ( cell.ice && ( cell.type === 'track-straight' || cell.type === 'track-corner' ) ) {
+
+					c.material = c.material.clone();
+					c.material.color = c.material.color.clone().lerp( new THREE.Color( 0x9edcff ), 0.55 );
+					c.material.emissive = new THREE.Color( 0x5aaeff );
+					c.material.emissiveIntensity = 0.1;
+
+				}
 				c.castShadow = true;
 				c.receiveShadow = true;
 
@@ -375,6 +386,7 @@
 		cell.type = type;
 		cell.orient = orient;
 		cell.isFinish = type === 'track-finish';
+		if ( type !== 'track-straight' && type !== 'track-corner' ) cell.ice = false;
 		grid.set( key, cell );
 		placeMesh( gx, gz, cell );
 		placeOverlayMesh( gx, gz, cell );
@@ -401,6 +413,20 @@
 				placeOverlayMesh( gx, gz, cell );
 
 			}
+
+		} else if ( selectedType === ICE_TOOL ) {
+
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key );
+			if ( ! cell || ! cell.type || ( cell.type !== 'track-straight' && cell.type !== 'track-corner' ) ) {
+
+				showToast( 'Ice only applies to straight/corner road blocks' );
+				return;
+
+			}
+			cell.ice = ! cell.ice;
+			placeMesh( gx, gz, cell );
+			placeOverlayMesh( gx, gz, cell );
 
 		} else if ( DECO_TYPES.includes( selectedType ) ) {
 
@@ -497,7 +523,7 @@
 		clearGhost();
 
 		if ( tool === 'erase' ) return;
-		const ghostType = selectedType === BUMP_TOOL ? 'track-bump' : selectedType;
+		const ghostType = selectedType === BUMP_TOOL ? 'track-bump' : selectedType === ICE_TOOL ? 'track-straight' : selectedType;
 		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
 
 	}
@@ -560,24 +586,26 @@
 	function encodeMods() {
 
 		const bumps = [];
+		const ices = [];
 		const deco = [];
 
 		for ( const [ key, cell ] of grid ) {
 
 				const [ gx, gz ] = key.split( ',' ).map( Number );
 				if ( cell.bump ) bumps.push( [ gx, gz ] );
+				if ( cell.ice ) ices.push( [ gx, gz ] );
 			if ( cell.decoType ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
 
 		}
 
-		const payload = JSON.stringify( { b: bumps, d: deco } );
+		const payload = JSON.stringify( { b: bumps, i: ices, d: deco } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], d: [] };
+		if ( ! modsStr ) return { b: [], i: [], d: [] };
 
 		try {
 
@@ -585,13 +613,14 @@
 			const parsed = JSON.parse( payload );
 			return {
 				b: Array.isArray( parsed.b ) ? parsed.b : [],
+				i: Array.isArray( parsed.i ) ? parsed.i : [],
 				d: Array.isArray( parsed.d ) ? parsed.d : [],
 			};
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-			return { b: [], d: [] };
+			return { b: [], i: [], d: [] };
 
 		}
 
@@ -635,6 +664,18 @@
 
 			}
 
+			for ( const [ gx, gz ] of mods.i ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key );
+				if ( ! cell || ! cell.type ) continue;
+				if ( cell.type !== 'track-straight' && cell.type !== 'track-corner' ) continue;
+				cell.ice = true;
+				placeMesh( gx, gz, cell );
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
 			for ( const [ gx, gz, decoType, decoOrient ] of mods.d ) {
 
 				const key = cellKey( gx, gz );
@@ -674,6 +715,7 @@
 		'track-straight': document.getElementById( 'btn-straight' ),
 		'track-corner': document.getElementById( 'btn-corner' ),
 		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
+		[ ICE_TOOL ]: document.getElementById( 'btn-ice' ),
 		'track-finish': document.getElementById( 'btn-finish' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
@@ -694,7 +736,7 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ICE_TOOL, ...DECO_TYPES ] ) {
 
 			tileButtons[ type ].classList.toggle( 'active', selectedType === type );
 
@@ -722,7 +764,7 @@
 
 	}
 
-	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES ] ) {
+	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ICE_TOOL, ...DECO_TYPES ] ) {
 
 		tileButtons[ type ].addEventListener( 'click', () => selectTileType( type ) );
 

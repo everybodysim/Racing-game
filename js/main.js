@@ -11,7 +11,7 @@ import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
 
 
-const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType } );
+const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
 renderer.setSize( window.innerWidth, window.innerHeight );
 renderer.setPixelRatio( window.devicePixelRatio );
 renderer.shadowMap.enabled = true;
@@ -70,6 +70,13 @@ const BOOST_VELOCITY_DELTA = 2.2;
 const BOOST_EFFECT_SECONDS = 1.0;
 const BOOST_FORCE_SECONDS = 0.45;
 const BOOST_ACCEL_PER_SECOND = 8.5;
+const ICE_TOP_SPEED_MULT = 0.88;
+const ICE_ACCEL_RATE_MULT = 0.42;
+const ICE_DRIVE_FORCE_MULT = 0.56;
+const ICE_REVERSE_ACCEL_MULT = 0.5;
+const ICE_BRAKE_RATE_MULT = 0.34;
+const ICE_LINEAR_DAMP = 0.02;
+const NORMAL_LINEAR_DAMP = 0.1;
 
 function decodeExtrasParam( str ) {
 
@@ -82,6 +89,7 @@ function decodeExtrasParam( str ) {
 		return {
 			bumps: Array.isArray( parsed.b ) ? parsed.b : [],
 			boosts: Array.isArray( parsed.s ) ? parsed.s : [],
+			ices: Array.isArray( parsed.i ) ? parsed.i : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 		};
 
@@ -225,6 +233,7 @@ async function init() {
 	const bestLapGhostSamples = [];
 	let currentLapGhostSamples = [];
 	let bestGhostDuration = 0;
+	let bestGhostCarKey = 'vehicle-truck-yellow';
 	let ghostRecordFrame = 0;
 	const _ghostForward = new THREE.Vector3();
 	const _ghostUp = new THREE.Vector3( 0, 1, 0 );
@@ -332,9 +341,15 @@ async function init() {
 	const coinsLabel = document.getElementById( 'coins-label' );
 	const upgradeLabel = document.getElementById( 'upgrade-label' );
 	const buyUpgradeBtn = document.getElementById( 'buy-upgrade' );
+	const shareTimeBtn = document.getElementById( 'share-time-btn' );
+	const exportGhostBtn = document.getElementById( 'export-ghost-btn' );
+	const importGhostBtn = document.getElementById( 'import-ghost-btn' );
 	const economyStoreKey = 'racing-economy-v1';
 	let coins = 0;
 	let engineTier = 0;
+	let shareImageDataUrl = '';
+	let baseVehiclePerf = null;
+	let wasOnIceLastFrame = false;
 
 	function getEngineMult() {
 
@@ -354,12 +369,40 @@ async function init() {
 		const stats = CAR_STATS[ carKey ];
 		if ( ! stats ) return;
 		const mult = getEngineMult();
-		const perf = {
+		baseVehiclePerf = {
 			...stats.perf,
 			topSpeed: Math.min( MAX_EFFECTIVE_TOP_SPEED, stats.perf.topSpeed * mult ),
 			driveForce: stats.perf.driveForce * mult,
 		};
-		vehicle.setPerformance( perf );
+		vehicle.setPerformance( baseVehiclePerf );
+		vehicle.linearDamp = NORMAL_LINEAR_DAMP;
+		wasOnIceLastFrame = false;
+
+	}
+
+	function applySurfaceGrip( onIce ) {
+
+		if ( ! baseVehiclePerf ) return;
+		if ( onIce === wasOnIceLastFrame ) return;
+		wasOnIceLastFrame = onIce;
+
+		if ( onIce ) {
+
+			vehicle.setPerformance( {
+				...baseVehiclePerf,
+				topSpeed: baseVehiclePerf.topSpeed * ICE_TOP_SPEED_MULT,
+				accelRate: ( baseVehiclePerf.accelRate ?? 6 ) * ICE_ACCEL_RATE_MULT,
+				reverseAccelRate: ( baseVehiclePerf.reverseAccelRate ?? 2 ) * ICE_REVERSE_ACCEL_MULT,
+				brakeRate: ( baseVehiclePerf.brakeRate ?? 8 ) * ICE_BRAKE_RATE_MULT,
+				driveForce: baseVehiclePerf.driveForce * ICE_DRIVE_FORCE_MULT,
+			} );
+			vehicle.linearDamp = ICE_LINEAR_DAMP;
+			return;
+
+		}
+
+		vehicle.setPerformance( baseVehiclePerf );
+		vehicle.linearDamp = NORMAL_LINEAR_DAMP;
 
 	}
 
@@ -452,6 +495,23 @@ async function init() {
 	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells[ 0 ];
 	const checkpointCells = activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' );
 	const lapStoreKey = `racing-lap-stats:${ mapParam || 'default' }`;
+	const currentTrackUrl = `${ window.location.origin }${ window.location.pathname }${ window.location.search }`;
+
+	function encodeBase64UrlJson( value ) {
+
+		return btoa( unescape( encodeURIComponent( JSON.stringify( value ) ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+
+	}
+
+	function decodeBase64UrlJson( value ) {
+
+		const normalized = value.replace( /-/g, '+' ).replace( /_/g, '/' );
+		const padLen = ( 4 - normalized.length % 4 ) % 4;
+		const padded = normalized + '='.repeat( padLen );
+		return JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
+
+	}
+
 	function makeGateData( cell ) {
 
 		if ( ! cell ) return null;
@@ -488,7 +548,9 @@ async function init() {
 	let boostActiveUntil = 0;
 	let boostContactCell = null;
 	const boostCells = Array.isArray( extras?.boosts ) ? extras.boosts : [];
+	const iceCells = Array.isArray( extras?.ices ) ? extras.ices : [];
 	const boostCellSet = new Set( boostCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+	const iceCellSet = new Set( iceCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 
 	function formatLapTime( totalSeconds ) {
 
@@ -498,6 +560,219 @@ async function init() {
 		const seconds = Math.floor( totalSeconds % 60 );
 		const millis = Math.floor( ( totalSeconds % 1 ) * 1000 );
 		return `${ String( minutes ).padStart( 2, '0' ) }:${ String( seconds ).padStart( 2, '0' ) }.${ String( millis ).padStart( 3, '0' ) }`;
+
+	}
+
+	function formatShareSeconds( totalSeconds ) {
+
+		if ( ! Number.isFinite( totalSeconds ) ) return '--.--';
+		return totalSeconds.toFixed( 2 );
+
+	}
+
+	function createTimeCardImage( bestSeconds ) {
+
+		const width = 1280;
+		const height = 720;
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = width;
+		canvas.height = height;
+		const ctx = canvas.getContext( '2d' );
+		if ( ! ctx ) return '';
+
+		const bg = ctx.createLinearGradient( 0, 0, width, height );
+		bg.addColorStop( 0, '#29323c' );
+		bg.addColorStop( 1, '#0f2027' );
+		ctx.fillStyle = bg;
+		ctx.fillRect( 0, 0, width, height );
+
+		ctx.fillStyle = 'rgba(255,255,255,0.12)';
+		ctx.fillRect( width * 0.1, height * 0.22, width * 0.8, height * 0.56 );
+
+		ctx.fillStyle = '#ffffff';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.font = '700 66px sans-serif';
+		ctx.fillText( 'Beat my time!', width / 2, height * 0.4 );
+		ctx.font = '700 94px sans-serif';
+		ctx.fillText( `${ formatShareSeconds( bestSeconds ) }s`, width / 2, height * 0.56 );
+		ctx.font = '500 38px sans-serif';
+		ctx.fillText( 'Racing Game • Best Lap', width / 2, height * 0.7 );
+
+		return canvas.toDataURL( 'image/png' );
+
+	}
+
+	function createShareSnapshot( bestSeconds ) {
+
+		try {
+
+			renderer.render( scene, cam.camera );
+			const source = renderer.domElement;
+			if ( ! source || source.width === 0 || source.height === 0 ) return '';
+
+			const output = document.createElement( 'canvas' );
+			output.width = source.width;
+			output.height = source.height;
+			const ctx = output.getContext( '2d' );
+			if ( ! ctx ) return '';
+
+			ctx.drawImage( source, 0, 0 );
+			const bannerWidth = output.width * 0.72;
+			const bannerHeight = output.height * 0.14;
+			const bannerX = ( output.width - bannerWidth ) / 2;
+			const bannerY = output.height - bannerHeight - output.height * 0.05;
+
+			ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+			ctx.fillRect( bannerX, bannerY, bannerWidth, bannerHeight );
+
+			const message = `Beat my time! My best time: ${ formatShareSeconds( bestSeconds ) }s`;
+			const fontSize = Math.max( 20, Math.round( output.height * 0.04 ) );
+			ctx.fillStyle = 'rgba(20, 20, 20, 0.92)';
+			ctx.font = `700 ${ fontSize }px sans-serif`;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText( message, output.width / 2, bannerY + bannerHeight / 2 );
+
+			return output.toDataURL( 'image/png' );
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to create share snapshot', e );
+			return createTimeCardImage( bestSeconds );
+
+		}
+
+	}
+
+	function openShareTab() {
+
+		if ( ! Number.isFinite( bestLapSeconds ) ) return;
+		const ghostCode = createGhostExportCode();
+		let playTrackUrl = '';
+		if ( ghostCode ) {
+
+			try {
+
+				const parsed = decodeBase64UrlJson( ghostCode );
+				const ghostBlob = encodeBase64UrlJson( parsed.ghost );
+				const separator = parsed.url.includes( '#' ) ? '&' : '#';
+				playTrackUrl = `${ parsed.url }${ separator }ghost=${ ghostBlob }`;
+
+			} catch ( e ) {
+
+				console.warn( 'Failed to build track ghost URL from export code', e );
+
+			}
+
+		}
+		const sharePayload = encodeBase64UrlJson( {
+			v: 1,
+			bestLapSeconds,
+			ghostCode,
+			playTrackUrl,
+		} );
+		const sharePageUrl = `share.html#data=${ sharePayload }`;
+		const tab = window.open( sharePageUrl, '_blank' );
+		if ( ! tab ) return;
+
+	}
+
+	function updateGhostShareButtons() {
+
+		if ( ! exportGhostBtn ) return;
+		const hasGhost = bestLapGhostSamples.length >= 2 && Number.isFinite( bestLapSeconds );
+		exportGhostBtn.disabled = false;
+		exportGhostBtn.title = hasGhost ? 'Export current best ghost' : 'Finish a clean lap first to generate an exportable ghost';
+
+	}
+
+	function createGhostExportCode() {
+
+		if ( bestLapGhostSamples.length < 2 || ! Number.isFinite( bestLapSeconds ) ) return '';
+		const payload = {
+			v: 1,
+			url: currentTrackUrl,
+			ghost: {
+				car: bestGhostCarKey,
+				bestLapSeconds,
+				duration: bestGhostDuration,
+				samples: bestLapGhostSamples,
+			}
+		};
+		return encodeBase64UrlJson( payload );
+
+	}
+
+	function applyImportedGhostPayload( payload ) {
+
+		const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
+		const duration = Number( payload?.duration );
+		if ( samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return false;
+		bestLapGhostSamples.length = 0;
+		for ( const sample of samples ) {
+
+			if ( ! Number.isFinite( sample?.t ) || ! Number.isFinite( sample?.x ) || ! Number.isFinite( sample?.y ) || ! Number.isFinite( sample?.z ) || ! Number.isFinite( sample?.yaw ) ) continue;
+			bestLapGhostSamples.push( {
+				t: sample.t,
+				x: sample.x,
+				y: sample.y,
+				z: sample.z,
+				yaw: sample.yaw,
+			} );
+
+		}
+		if ( bestLapGhostSamples.length < 2 ) return false;
+		bestGhostDuration = duration;
+		if ( Number.isFinite( payload.bestLapSeconds ) ) bestLapSeconds = payload.bestLapSeconds;
+		if ( payload?.car && models[ payload.car ] ) {
+
+			bestGhostCarKey = payload.car;
+			createGhostModel( models[ payload.car ] );
+
+		}
+		if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
+		updateGhostShareButtons();
+		return true;
+
+	}
+
+	function importGhostIntoNewTab() {
+
+		const code = window.prompt( 'Paste ghost code:' );
+		if ( ! code ) return;
+		let parsed;
+		try {
+
+			parsed = decodeBase64UrlJson( code.trim() );
+
+		} catch ( e ) {
+
+			window.alert( 'Invalid ghost code.' );
+			return;
+
+		}
+		const url = typeof parsed?.url === 'string' ? parsed.url : '';
+		if ( ! url || ! parsed?.ghost ) {
+
+			window.alert( 'Ghost code is missing required data.' );
+			return;
+
+		}
+
+		const ghostBlob = encodeBase64UrlJson( parsed.ghost );
+		const separator = url.includes( '#' ) ? '&' : '#';
+		window.open( `${ url }${ separator }ghost=${ ghostBlob }`, '_blank' );
+
+	}
+
+	function openGhostCodeTab( code ) {
+
+		const tab = window.open( 'about:blank', '_blank' );
+		if ( ! tab ) return;
+		tab.document.open();
+		tab.document.write( `<!doctype html><html><head><title>Ghost code</title><style>body{margin:0;padding:16px;background:#101218;color:#e8eef8;font:14px/1.4 monospace;}h1{font:600 16px sans-serif;margin:0 0 10px;}textarea{width:100%;height:70vh;background:#0b0d12;color:#dff4ff;border:1px solid #2a3240;border-radius:8px;padding:10px;box-sizing:border-box;}</style></head><body><h1>Raw ghost code</h1><textarea readonly>${ code }</textarea></body></html>` );
+		tab.document.close();
 
 	}
 
@@ -519,6 +794,9 @@ async function init() {
 			lapNumber,
 			lastLapSeconds,
 			bestLapSeconds,
+			bestGhostDuration,
+			bestGhostCarKey,
+			bestLapGhostSamples,
 		} ) );
 
 	}
@@ -533,6 +811,27 @@ async function init() {
 			lapNumber = Math.max( 1, parsed.lapNumber || 1 );
 			lastLapSeconds = Number.isFinite( parsed.lastLapSeconds ) ? parsed.lastLapSeconds : null;
 			bestLapSeconds = Number.isFinite( parsed.bestLapSeconds ) ? parsed.bestLapSeconds : null;
+			bestGhostDuration = Number.isFinite( parsed.bestGhostDuration ) ? parsed.bestGhostDuration : 0;
+			bestGhostCarKey = typeof parsed.bestGhostCarKey === 'string' ? parsed.bestGhostCarKey : 'vehicle-truck-yellow';
+			bestLapGhostSamples.length = 0;
+			if ( Array.isArray( parsed.bestLapGhostSamples ) ) {
+
+				for ( const sample of parsed.bestLapGhostSamples ) {
+
+					if ( ! Number.isFinite( sample?.t ) || ! Number.isFinite( sample?.x ) || ! Number.isFinite( sample?.y ) || ! Number.isFinite( sample?.z ) || ! Number.isFinite( sample?.yaw ) ) continue;
+					bestLapGhostSamples.push( {
+						t: sample.t,
+						x: sample.x,
+						y: sample.y,
+						z: sample.z,
+						yaw: sample.yaw,
+					} );
+
+				}
+
+			}
+			if ( bestLapGhostSamples.length < 2 ) bestGhostDuration = 0;
+			if ( bestLapGhostSamples.length >= 2 && models[ bestGhostCarKey ] ) createGhostModel( models[ bestGhostCarKey ] );
 
 		} catch ( e ) {
 
@@ -652,11 +951,55 @@ async function init() {
 
 	} );
 
+	shareTimeBtn?.addEventListener( 'click', () => {
+
+		openShareTab();
+
+	} );
+
+	exportGhostBtn?.addEventListener( 'click', async () => {
+
+		const code = createGhostExportCode();
+		if ( ! code ) {
+
+			window.alert( 'No ghost data yet. Finish a lap first, then export.' );
+			return;
+
+		}
+		openGhostCodeTab( code );
+
+	} );
+
+	importGhostBtn?.addEventListener( 'click', () => {
+
+		importGhostIntoNewTab();
+
+	} );
+
 	loadEconomy();
 	applyVehiclePerformance();
 	updateEconomyHud();
 	loadLapStats();
+	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
+	updateGhostShareButtons();
 	resetLapState( true );
+
+	const hashParams = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
+	const importedGhost = hashParams.get( 'ghost' );
+	if ( importedGhost ) {
+
+		try {
+
+			const payload = decodeBase64UrlJson( importedGhost );
+			if ( applyImportedGhostPayload( payload ) ) updateLapHud();
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to import ghost from URL hash', e );
+
+		}
+
+	}
 
 		window.addEventListener( 'keydown', ( e ) => {
 
@@ -686,6 +1029,11 @@ async function init() {
 		const input = controls.update();
 
 		updateWorld( world, contactListener, dt );
+
+		const iceGridX = Math.floor( vehicle.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
+		const iceGridZ = Math.floor( vehicle.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
+		const isOnIce = iceCellSet.has( `${ iceGridX },${ iceGridZ }` );
+		applySurfaceGrip( isOnIce );
 
 		vehicle.update( dt, input );
 		updateActiveBoost( dt );
@@ -779,16 +1127,20 @@ async function init() {
 			const allCheckpointsPassed = checkpointStates.every( ( checkpoint ) => checkpoint.passedThisLap );
 			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
 
-				const completedLap = timer.getElapsed() - lapStartSeconds;
-				const isNewBest = bestLapSeconds === null || completedLap < bestLapSeconds;
-				lastLapSeconds = completedLap;
-				bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
+					const completedLap = timer.getElapsed() - lapStartSeconds;
+					const isNewBest = bestLapSeconds === null || completedLap < bestLapSeconds;
+					lastLapSeconds = completedLap;
+					bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
+					shareImageDataUrl = createShareSnapshot( bestLapSeconds );
+					if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 				if ( isNewBest && currentLapGhostSamples.length > 1 ) {
 
 					bestLapGhostSamples.length = 0;
 					const t0 = currentLapGhostSamples[ 0 ].t;
 					for ( const sample of currentLapGhostSamples ) bestLapGhostSamples.push( { ...sample, t: sample.t - t0 } );
 					bestGhostDuration = Math.max( 1e-4, completedLap - t0 );
+					bestGhostCarKey = currentCarKey();
+					updateGhostShareButtons();
 
 				}
 					lapNumber ++;

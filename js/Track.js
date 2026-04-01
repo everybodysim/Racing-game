@@ -124,10 +124,27 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	const decoGroup = new THREE.Group();
 
 	const cells = customCells || TRACK_CELLS;
+	const iceCells = Array.isArray( extras?.ices ) ? extras.ices : [];
+	const iceSet = new Set( iceCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 
 	for ( const [ gx, gz, key, orient ] of cells ) {
 
 		const piece = placePiece( models, key, gx, gz, orient );
+		if ( piece && iceSet.has( `${ gx },${ gz }` ) && ( key === 'track-straight' || key === 'track-corner' ) ) {
+
+			piece.traverse( ( c ) => {
+
+				if ( ! c.isMesh ) return;
+				c.material = c.material.clone();
+				c.material.color = c.material.color.clone().lerp( new THREE.Color( 0x9edcff ), 0.55 );
+				c.material.emissive = new THREE.Color( 0x5aaeff );
+				c.material.emissiveIntensity = 0.1;
+				c.material.roughness = Math.max( 0.08, ( c.material.roughness ?? 0.5 ) * 0.5 );
+				c.material.metalness = Math.max( 0.15, c.material.metalness ?? 0 );
+
+			} );
+
+		}
 		if ( piece ) trackPieceGroup.add( piece );
 
 	}
