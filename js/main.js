@@ -613,12 +613,34 @@ async function init() {
 
 		}
 		if ( ! shareImageDataUrl ) return;
-		const tab = window.open( 'about:blank', '_blank' );
-		if ( ! tab ) return;
+		const ghostCode = createGhostExportCode();
+		let playTrackUrl = '';
+		if ( ghostCode ) {
 
-		tab.document.open();
-		tab.document.write( `<!doctype html><html><head><title>Share best time</title><style>body{margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:100vw;max-height:100vh;object-fit:contain;display:block;}</style></head><body><img alt="Racing share image" src="${ shareImageDataUrl }"></body></html>` );
-		tab.document.close();
+			try {
+
+				const parsed = decodeBase64UrlJson( ghostCode );
+				const ghostBlob = encodeBase64UrlJson( parsed.ghost );
+				const separator = parsed.url.includes( '#' ) ? '&' : '#';
+				playTrackUrl = `${ parsed.url }${ separator }ghost=${ ghostBlob }`;
+
+			} catch ( e ) {
+
+				console.warn( 'Failed to build track ghost URL from export code', e );
+
+			}
+
+		}
+		const buttonHtml = playTrackUrl
+			? `<a id="play-link" href="${ playTrackUrl }" target="_blank" rel="noopener noreferrer">Race this ghost</a>`
+			: `<button id="play-link" disabled>Ghost unavailable</button>`;
+		const codeHtml = ghostCode
+			? `<details><summary>Ghost code</summary><textarea readonly>${ ghostCode }</textarea></details>`
+			: '';
+		const html = `<!doctype html><html><head><title>Share best time</title><style>body{margin:0;background:#111;color:#f3f6ff;font:14px/1.4 sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:18px;box-sizing:border-box}.card{max-width:96vw;text-align:center}img{max-width:96vw;max-height:72vh;object-fit:contain;display:block;border-radius:8px;box-shadow:0 14px 34px rgba(0,0,0,.35)}#play-link{display:inline-block;margin-top:14px;padding:10px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.13);color:#fff;text-decoration:none;font:600 14px sans-serif;cursor:pointer}#play-link:disabled{opacity:.6;cursor:not-allowed}details{margin-top:10px;text-align:left}textarea{width:100%;height:84px;background:#0b0d12;color:#dff4ff;border:1px solid #2a3240;border-radius:8px;padding:8px;box-sizing:border-box}</style></head><body><div class="card"><img alt="Racing share image" src="${ shareImageDataUrl }">${ buttonHtml }${ codeHtml }</div></body></html>`;
+		const sharePageUrl = `data:text/html;charset=utf-8,${ encodeURIComponent( html ) }`;
+		const tab = window.open( sharePageUrl, '_blank' );
+		if ( ! tab ) return;
 
 	}
 
