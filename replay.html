@@ -19,7 +19,7 @@
 		}
 		button { cursor: pointer; background: #1d4ed8; border-color: #1d4ed8; }
 		textarea { width: 100%; min-height: 76px; box-sizing: border-box; }
-		iframe { width: 100%; height: 72vh; border-radius: 8px; border: 1px solid #2a354a; background: #0a0f17; }
+		canvas { width: 100%; height: auto; border-radius: 8px; border: 1px solid #2a354a; background: #0a0f17; }
 		.meta { opacity: 0.85; }
 	</style>
 </head>
@@ -28,19 +28,20 @@
 		<div class="panel">
 			<div class="controls">
 				<button id="load-code">Load Ghost Code</button>
-				<button id="play-pause">Restart Replay</button>
+				<button id="play-pause">Play</button>
 				<button id="open-race">Open Race URL</button>
-				<button id="switch-camera">Switch Camera</button>
 				<div id="status" class="meta">No replay loaded.</div>
 			</div>
 			<div style="margin-top:8px">
 				<textarea id="ghost-code" placeholder="Paste exported ghost code here..."></textarea>
 			</div>
-			<div id="camera-status" class="meta" style="margin-top:8px">Camera: chase</div>
+			<div style="margin-top:8px">
+				<input id="timeline" type="range" min="0" max="1000" value="0" style="width:100%">
+			</div>
 		</div>
 
 		<div class="panel">
-			<iframe id="replay-frame" title="Replay preview"></iframe>
+			<canvas id="replay-canvas" width="1280" height="720"></canvas>
 		</div>
 	</div>
 
@@ -52,40 +53,176 @@
 			return JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
 		}
 
+		const TYPE_NAMES = [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-finish' ];
+		const ORIENT_TO_GODOT = [ 0, 16, 10, 22 ];
+
+		function decodeMapCells( mapStr ) {
+			if ( ! mapStr ) return [];
+			const base64 = mapStr.replace( /-/g, '+' ).replace( /_/g, '/' );
+			const binary = atob( base64 );
+			const bytes = new Uint8Array( binary.length );
+			for ( let i = 0; i < binary.length; i ++ ) bytes[ i ] = binary.charCodeAt( i );
+
+			const cells = [];
+			for ( let i = 0; i + 2 < bytes.length; i += 3 ) {
+				const gx = bytes[ i ] - 128;
+				const gz = bytes[ i + 1 ] - 128;
+				const packed = bytes[ i + 2 ];
+				const ti = ( packed >> 2 ) & 0x03;
+				const oi = packed & 0x03;
+				cells.push( [ gx, gz, TYPE_NAMES[ ti ], ORIENT_TO_GODOT[ oi ] ] );
+			}
+
+			return cells;
+		}
+
+		function decodeMods( modsStr ) {
+			if ( ! modsStr ) return { b: [], s: [], u: [], d: [] };
+			try {
+				const payload = decodeURIComponent( escape( atob( modsStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
+				const parsed = JSON.parse( payload );
+				return {
+					b: Array.isArray( parsed.b ) ? parsed.b : [],
+					s: Array.isArray( parsed.s ) ? parsed.s : [],
+					u: Array.isArray( parsed.u ) ? parsed.u : [],
+					d: Array.isArray( parsed.d ) ? parsed.d : [],
+				};
+			} catch ( e ) {
+				return { b: [], s: [], u: [], d: [] };
+			}
+		}
+
 		const codeInput = document.getElementById( 'ghost-code' );
 		const loadBtn = document.getElementById( 'load-code' );
-		const openRaceBtn = document.getElementById( 'open-race' );
 		const playBtn = document.getElementById( 'play-pause' );
-		const switchCameraBtn = document.getElementById( 'switch-camera' );
-		const cameraStatusEl = document.getElementById( 'camera-status' );
+		const openRaceBtn = document.getElementById( 'open-race' );
 		const statusEl = document.getElementById( 'status' );
-		const replayFrame = document.getElementById( 'replay-frame' );
+		const timeline = document.getElementById( 'timeline' );
+		const canvas = document.getElementById( 'replay-canvas' );
+		const ctx = canvas.getContext( '2d' );
 
 		let replay = null;
-		let currentCameraIndex = 0;
-		const replayEditorCameraModes = [ 'chase', 'hood', 'overview' ];
+		let isPlaying = false;
+		let playStartMs = 0;
+		let pausedAt = 0;
+		let replayTrack = null;
 
 		function readCodeFromHash() {
 			const hash = new URLSearchParams( location.hash.startsWith( '#' ) ? location.hash.slice( 1 ) : location.hash );
 			return hash.get( 'code' ) || '';
 		}
 
-		function updateCameraStatus() {
-			cameraStatusEl.textContent = `Camera: ${ replayEditorCameraModes[ currentCameraIndex ] }`;
+		function getSampleAtTime( samples, t ) {
+			if ( ! samples || samples.length === 0 ) return null;
+			if ( t <= samples[ 0 ].t ) return samples[ 0 ];
+			for ( let i = 1; i < samples.length; i ++ ) {
+				const b = samples[ i ];
+				if ( b.t >= t ) {
+					const a = samples[ i - 1 ];
+					const span = Math.max( 1e-4, b.t - a.t );
+					const alpha = Math.max( 0, Math.min( 1, ( t - a.t ) / span ) );
+					return {
+						x: a.x + ( b.x - a.x ) * alpha,
+						y: a.y + ( b.y - a.y ) * alpha,
+						z: a.z + ( b.z - a.z ) * alpha,
+						yaw: a.yaw + ( b.yaw - a.yaw ) * alpha,
+					};
+				}
+			}
+			return samples[ samples.length - 1 ];
 		}
 
-		function buildReplayUrl( parsed ) {
-			if ( ! parsed?.url || ! parsed?.ghost ) return '';
-			const ghostBlob = btoa( unescape( encodeURIComponent( JSON.stringify( parsed.ghost ) ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
-			const separator = parsed.url.includes( '#' ) ? '&' : '#';
-			return `${ parsed.url }${ separator }ghost=${ ghostBlob }`;
+		function fitBounds( samples ) {
+			let minX = Infinity, maxX = - Infinity, minZ = Infinity, maxZ = - Infinity;
+			for ( const s of samples ) {
+				minX = Math.min( minX, s.x );
+				maxX = Math.max( maxX, s.x );
+				minZ = Math.min( minZ, s.z );
+				maxZ = Math.max( maxZ, s.z );
+			}
+			if ( ! Number.isFinite( minX ) ) return { minX: -10, maxX: 10, minZ: -10, maxZ: 10 };
+			const pad = 4;
+			return { minX: minX - pad, maxX: maxX + pad, minZ: minZ - pad, maxZ: maxZ + pad };
 		}
 
-		function applyReplayToFrame( parsed ) {
-			const replayUrl = buildReplayUrl( parsed );
-			if ( ! replayUrl ) return false;
-			replayFrame.src = replayUrl;
-			return true;
+		function drawReplay() {
+			ctx.clearRect( 0, 0, canvas.width, canvas.height );
+			ctx.fillStyle = '#0a0f17';
+			ctx.fillRect( 0, 0, canvas.width, canvas.height );
+
+			if ( ! replay ) return;
+			const samples = replay.ghost.samples || [];
+			if ( samples.length < 2 ) return;
+
+			const bounds = fitBounds( samples );
+			if ( replayTrack && replayTrack.cells.length > 0 ) {
+				for ( const [ gx, gz ] of replayTrack.cells ) {
+					bounds.minX = Math.min( bounds.minX, gx * 7.4925 );
+					bounds.maxX = Math.max( bounds.maxX, ( gx + 1 ) * 7.4925 );
+					bounds.minZ = Math.min( bounds.minZ, gz * 7.4925 );
+					bounds.maxZ = Math.max( bounds.maxZ, ( gz + 1 ) * 7.4925 );
+				}
+			}
+			const w = bounds.maxX - bounds.minX;
+			const h = bounds.maxZ - bounds.minZ;
+			const sx = ( canvas.width * 0.86 ) / Math.max( w, 1 );
+			const sy = ( canvas.height * 0.78 ) / Math.max( h, 1 );
+			const scale = Math.min( sx, sy );
+			const ox = canvas.width * 0.5 - ( bounds.minX + bounds.maxX ) * 0.5 * scale;
+			const oy = canvas.height * 0.5 - ( bounds.minZ + bounds.maxZ ) * 0.5 * scale;
+			const toPix = ( x, z ) => ( { x: x * scale + ox, y: z * scale + oy } );
+
+			if ( replayTrack && replayTrack.cells.length > 0 ) {
+				const cellSize = 9.99 * 0.75;
+				for ( const [ gx, gz, tileType ] of replayTrack.cells ) {
+					const color =
+						tileType === 'track-finish' ? '#4ade80' :
+						tileType === 'track-checkpoint' ? '#facc15' :
+						tileType === 'track-corner' ? '#818cf8' :
+						'#60a5fa';
+
+					const x0 = gx * cellSize;
+					const z0 = gz * cellSize;
+					const p0 = toPix( x0, z0 );
+					ctx.fillStyle = color;
+					ctx.fillRect( p0.x, p0.y, cellSize * scale, cellSize * scale );
+				}
+
+				for ( const [ gx, gz, surfaceType ] of replayTrack.mods.u || [] ) {
+					const x0 = gx * cellSize;
+					const z0 = gz * cellSize;
+					const p0 = toPix( x0, z0 );
+					ctx.fillStyle =
+						surfaceType === 'surface-ice' ? 'rgba(122,216,255,0.75)' :
+						surfaceType === 'surface-boost' ? 'rgba(255,159,46,0.78)' :
+						'rgba(184,134,87,0.75)';
+					ctx.fillRect( p0.x + cellSize * scale * 0.16, p0.y + cellSize * scale * 0.16, cellSize * scale * 0.68, cellSize * scale * 0.68 );
+				}
+			}
+
+			ctx.strokeStyle = '#34435f';
+			ctx.lineWidth = 3;
+			ctx.beginPath();
+			for ( let i = 0; i < samples.length; i ++ ) {
+				const p = toPix( samples[ i ].x, samples[ i ].z );
+				if ( i === 0 ) ctx.moveTo( p.x, p.y );
+				else ctx.lineTo( p.x, p.y );
+			}
+			ctx.stroke();
+
+			const nowT = ( pausedAt / 1000 );
+			const car = getSampleAtTime( samples, nowT );
+			if ( car ) {
+				const p = toPix( car.x, car.z );
+				ctx.fillStyle = '#67e8f9';
+				ctx.beginPath();
+				ctx.arc( p.x, p.y, 9, 0, Math.PI * 2 );
+				ctx.fill();
+			}
+
+			ctx.fillStyle = '#dbe6ff';
+			ctx.font = '600 24px system-ui, sans-serif';
+			ctx.fillText( `${ replay.car || 'Car' } • ${ nowT.toFixed( 2 ) }s / ${ replay.ghost.duration.toFixed( 2 ) }s`, 20, 34 );
 		}
 
 		function setReplay( parsed ) {
@@ -94,13 +231,21 @@
 				return false;
 			}
 			replay = parsed;
-			if ( ! applyReplayToFrame( replay ) ) {
-				statusEl.textContent = 'Ghost URL is missing from replay data.';
-				return false;
-			}
-			currentCameraIndex = 0;
-			updateCameraStatus();
+			replayTrack = null;
+			try {
+				if ( replay.url ) {
+					const replayUrl = new URL( replay.url );
+					const map = replayUrl.searchParams.get( 'map' );
+					const mods = replayUrl.searchParams.get( 'mods' );
+					replayTrack = { cells: decodeMapCells( map ), mods: decodeMods( mods ) };
+				}
+			} catch ( e ) {}
+			pausedAt = 0;
+			timeline.value = 0;
+			isPlaying = false;
+			playBtn.textContent = 'Play';
 			statusEl.textContent = `Loaded ${ replay.ghost.samples.length } samples from ${ replay.url || 'unknown URL' }`;
+			drawReplay();
 			return true;
 		}
 
@@ -113,31 +258,40 @@
 			}
 		}
 
+		function animate() {
+			requestAnimationFrame( animate );
+			if ( replay && isPlaying ) {
+				const now = performance.now();
+				const elapsed = now - playStartMs;
+				const durationMs = Math.max( 1, replay.ghost.duration * 1000 );
+				pausedAt = elapsed % durationMs;
+				timeline.value = Math.round( ( pausedAt / durationMs ) * 1000 );
+			}
+			drawReplay();
+		}
+
 		loadBtn.addEventListener( 'click', loadFromTextarea );
 		playBtn.addEventListener( 'click', () => {
 			if ( ! replay ) return;
-			applyReplayToFrame( replay );
+			isPlaying = ! isPlaying;
+			if ( isPlaying ) playStartMs = performance.now() - pausedAt;
+			playBtn.textContent = isPlaying ? 'Pause' : 'Play';
 		} );
 		openRaceBtn.addEventListener( 'click', () => {
 			if ( ! replay || ! replay.url || ! replay.ghost ) return;
 			try {
-				window.open( buildReplayUrl( replay ), '_blank' );
+				const blob = btoa( unescape( encodeURIComponent( JSON.stringify( replay.ghost ) ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+				const separator = replay.url.includes( '#' ) ? '&' : '#';
+				window.open( `${ replay.url }${ separator }ghost=${ blob }`, '_blank' );
 			} catch ( e ) {
 				statusEl.textContent = 'Failed to open race URL.';
 			}
 		} );
-		switchCameraBtn.addEventListener( 'click', () => {
-			if ( ! replayFrame.contentWindow ) return;
-			currentCameraIndex = ( currentCameraIndex + 1 ) % replayEditorCameraModes.length;
-			const mode = replayEditorCameraModes[ currentCameraIndex ];
-			replayFrame.contentWindow.postMessage( { type: 'racing:setCamera', mode }, window.location.origin );
-			updateCameraStatus();
-		} );
-
-		replayFrame.addEventListener( 'load', () => {
-			if ( ! replayFrame.contentWindow ) return;
-			replayFrame.contentWindow.postMessage( { type: 'racing:setCameraModes', modes: replayEditorCameraModes }, window.location.origin );
-			replayFrame.contentWindow.postMessage( { type: 'racing:setCamera', mode: replayEditorCameraModes[ currentCameraIndex ] }, window.location.origin );
+		timeline.addEventListener( 'input', () => {
+			if ( ! replay ) return;
+			const durationMs = Math.max( 1, replay.ghost.duration * 1000 );
+			pausedAt = ( Number( timeline.value ) / 1000 ) * durationMs;
+			if ( isPlaying ) playStartMs = performance.now() - pausedAt;
 		} );
 
 		const hashCode = readCodeFromHash();
@@ -146,7 +300,7 @@
 			loadFromTextarea();
 		}
 
-		updateCameraStatus();
+		animate();
 	</script>
 </body>
 </html>
