@@ -71,9 +71,10 @@ const BOOST_VELOCITY_DELTA = 2.2;
 const BOOST_EFFECT_SECONDS = 1.0;
 const BOOST_FORCE_SECONDS = 0.45;
 const BOOST_ACCEL_PER_SECOND = 8.5;
+const VEHICLE_SURFACE_RADIUS = 0.5;
 const SURFACE_EFFECTS = {
-	'surface-wood': { grip: 1.55, drag: 1.35 },
-	'surface-ice': { grip: 0.2, drag: 0.58 },
+	'surface-wood': { grip: 1.55, drag: 1.35, accel: 1.0, drive: 1.55 },
+	'surface-ice': { grip: 0.2, drag: 0.58, accel: 0.45, drive: 1.0 },
 };
 
 function decodeExtrasParam( str ) {
@@ -521,12 +522,43 @@ async function init() {
 	const surfaceCellMap = new Map( surfaceCells.map( ( [ gx, gz, type ] ) => [ `${ gx },${ gz }`, type ] ) );
 	let activeSurfaceType = null;
 
+	function getOverlappingGridBounds( position, radius = VEHICLE_SURFACE_RADIUS ) {
+
+		const cellSize = CELL_RAW * GRID_SCALE;
+		const minX = Math.floor( ( position.x - radius ) / cellSize );
+		const maxX = Math.floor( ( position.x + radius ) / cellSize );
+		const minZ = Math.floor( ( position.z - radius ) / cellSize );
+		const maxZ = Math.floor( ( position.z + radius ) / cellSize );
+		return { minX, maxX, minZ, maxZ };
+
+	}
+
+	function findActiveSurfaceType() {
+
+		const bounds = getOverlappingGridBounds( vehicle.spherePos );
+		for ( let gx = bounds.minX; gx <= bounds.maxX; gx ++ ) {
+
+			for ( let gz = bounds.minZ; gz <= bounds.maxZ; gz ++ ) {
+
+				const surfaceType = surfaceCellMap.get( `${ gx },${ gz }` );
+				if ( surfaceType ) return surfaceType;
+
+			}
+
+		}
+
+		return null;
+
+	}
+
 	function applySurfaceGrip( surfaceType ) {
 
 		activeSurfaceType = surfaceType || null;
 		const effect = SURFACE_EFFECTS[ activeSurfaceType ];
 		vehicle.gripMultiplier = effect ? effect.grip : 1.0;
 		vehicle.dragMultiplier = effect ? effect.drag : 1.0;
+		vehicle.accelMultiplier = effect ? effect.accel : 1.0;
+		vehicle.driveMultiplier = effect ? effect.drive : 1.0;
 
 	}
 
@@ -1005,14 +1037,11 @@ async function init() {
 		const dt = Math.min( timer.getDelta(), 1 / 30 );
 
 		const input = controls.update();
-		const surfaceGridX = Math.floor( vehicle.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
-		const surfaceGridZ = Math.floor( vehicle.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
-		const surfaceKey = `${ surfaceGridX },${ surfaceGridZ }`;
-		applySurfaceGrip( surfaceCellMap.get( surfaceKey ) || null );
 
 		updateWorld( world, contactListener, dt );
 
 		vehicle.update( dt, input );
+		applySurfaceGrip( findActiveSurfaceType() );
 		updateActiveBoost( dt );
 		const boostGridX = Math.floor( vehicle.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
 		const boostGridZ = Math.floor( vehicle.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
