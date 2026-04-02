@@ -192,7 +192,10 @@
 					const x0 = gx * cellSize;
 					const z0 = gz * cellSize;
 					const p0 = toPix( x0, z0 );
-					ctx.fillStyle = surfaceType === 'surface-ice' ? 'rgba(122,216,255,0.75)' : 'rgba(184,134,87,0.75)';
+					ctx.fillStyle =
+						surfaceType === 'surface-ice' ? 'rgba(122,216,255,0.75)' :
+						surfaceType === 'surface-boost' ? 'rgba(255,159,46,0.78)' :
+						'rgba(184,134,87,0.75)';
 					ctx.fillRect( p0.x + cellSize * scale * 0.16, p0.y + cellSize * scale * 0.16, cellSize * scale * 0.68, cellSize * scale * 0.68 );
 				}
 			}

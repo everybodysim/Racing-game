@@ -112,6 +112,7 @@
 		<button id="btn-checkpoint">Checkpoint</button>
 		<button id="btn-surface-wood">Wood</button>
 		<button id="btn-surface-ice">Ice</button>
+		<button id="btn-surface-boost">Boost Surface</button>
 		<button id="btn-deco-forest">Tree</button>
 		<button id="btn-deco-tents">Tent</button>
 		<button id="btn-deco-empty">Prop</button>
@@ -139,7 +140,7 @@
 	const ORIENTATIONS = [ 0, 16, 10, 22 ];
 	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint' ];
 	const BUMP_TOOL = 'overlay-bump';
-	const SURFACE_TYPES = [ 'surface-wood', 'surface-ice' ];
+	const SURFACE_TYPES = [ 'surface-wood', 'surface-ice', 'surface-boost' ];
 	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
 	let tool = 'paint'; // 'paint', 'erase'
 	let selectedType = 'track-straight';
@@ -350,8 +351,10 @@
 
 		if ( cell.surfaceType ) {
 
-			const color = cell.surfaceType === 'surface-ice' ? 0x7ad8ff : 0xb88657;
-			const emissive = cell.surfaceType === 'surface-ice' ? 0x1f6f8a : 0x4a2b12;
+			const isIce = cell.surfaceType === 'surface-ice';
+			const isBoost = cell.surfaceType === 'surface-boost';
+			const color = isIce ? 0x7ad8ff : ( isBoost ? 0xffa733 : 0xb88657 );
+			const emissive = isIce ? 0x1f6f8a : ( isBoost ? 0xff4d00 : 0x4a2b12 );
 			const patch = new THREE.Mesh(
 				new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
 				new THREE.MeshStandardMaterial( {
@@ -360,8 +363,8 @@
 					emissiveIntensity: 0.2,
 					transparent: true,
 					opacity: 0.58,
-					metalness: cell.surfaceType === 'surface-ice' ? 0.2 : 0.0,
-					roughness: cell.surfaceType === 'surface-ice' ? 0.15 : 0.9
+					metalness: isIce ? 0.2 : 0.0,
+					roughness: isIce ? 0.15 : 0.9
 				} )
 			);
 			patch.rotation.x = - Math.PI / 2;
@@ -693,7 +696,7 @@
 				const key = cellKey( gx, gz );
 					const cell = grid.get( key ) || makeEmptyCell();
 					if ( ! grid.has( key ) ) grid.set( key, cell );
-					cell.surfaceType = surfaceType === 'surface-ice' ? 'surface-ice' : 'surface-wood';
+					cell.surfaceType = SURFACE_TYPES.includes( surfaceType ) ? surfaceType : 'surface-wood';
 					placeOverlayMesh( gx, gz, cell );
 
 			}
@@ -741,6 +744,7 @@
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
 		'surface-wood': document.getElementById( 'btn-surface-wood' ),
 		'surface-ice': document.getElementById( 'btn-surface-ice' ),
+		'surface-boost': document.getElementById( 'btn-surface-boost' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
