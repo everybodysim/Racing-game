@@ -1028,11 +1028,38 @@ async function init() {
 
 	}
 
-		window.addEventListener( 'keydown', ( e ) => {
+	window.addEventListener( 'message', ( e ) => {
+
+		if ( e.origin !== window.location.origin ) return;
+		const msg = e.data || {};
+		if ( msg.type === 'racing:setCameraModes' ) {
+
+			cam.setAllowedModes( msg.modes );
+			return;
+
+		}
+
+		if ( msg.type === 'racing:cycleCamera' ) {
+
+			cam.cycleMode();
+			return;
+
+		}
+
+		if ( msg.type === 'racing:setCamera' && typeof msg.mode === 'string' ) {
+
+			cam.setMode( msg.mode );
+			return;
+
+		}
+
+	} );
+
+	window.addEventListener( 'keydown', ( e ) => {
 
 			if ( e.code === 'KeyC' ) {
 
-				cam.toggleMode();
+				cam.cycleMode();
 				return;
 
 			}
