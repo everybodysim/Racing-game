@@ -74,7 +74,7 @@ const BOOST_ACCEL_PER_SECOND = 8.5;
 const VEHICLE_SURFACE_RADIUS = 0.5;
 const SURFACE_EFFECTS = {
 	'surface-wood': { grip: 1.55, drag: 1.35, accel: 1.0, drive: 1.55 },
-	'surface-ice': { grip: 0.9, drag: 0.58, accel: 0.45, drive: 0.6 },
+	'surface-ice': { grip: 0.2, drag: 0.58, accel: 0.45, drive: 1.0 },
 };
 
 function decodeExtrasParam( str ) {
@@ -542,6 +542,23 @@ async function init() {
 
 				const surfaceType = surfaceCellMap.get( `${ gx },${ gz }` );
 				if ( surfaceType ) return surfaceType;
+
+			}
+
+		}
+
+		return null;
+
+	}
+
+	function findBoostSurfaceContactKey() {
+
+		const bounds = getOverlappingGridBounds( vehicle.spherePos );
+		for ( let gx = bounds.minX; gx <= bounds.maxX; gx ++ ) {
+
+			for ( let gz = bounds.minZ; gz <= bounds.maxZ; gz ++ ) {
+
+				if ( surfaceCellMap.get( `${ gx },${ gz }` ) === 'surface-boost' ) return `surface:${ gx },${ gz }`;
 
 			}
 
@@ -1045,13 +1062,14 @@ async function init() {
 		updateActiveBoost( dt );
 		const boostGridX = Math.floor( vehicle.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
 		const boostGridZ = Math.floor( vehicle.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
-		const boostKey = `${ boostGridX },${ boostGridZ }`;
-		if ( boostCellSet.has( boostKey ) ) {
+		const boostTileKey = `${ boostGridX },${ boostGridZ }`;
+		const activeBoostContactKey = boostCellSet.has( boostTileKey ) ? `boost:${ boostTileKey }` : findBoostSurfaceContactKey();
+		if ( activeBoostContactKey ) {
 
-			if ( boostContactCell !== boostKey ) {
+			if ( boostContactCell !== activeBoostContactKey ) {
 
 				applyBoost();
-				boostContactCell = boostKey;
+				boostContactCell = activeBoostContactKey;
 
 			}
 
