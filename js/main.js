@@ -73,8 +73,8 @@ const BOOST_FORCE_SECONDS = 0.45;
 const BOOST_ACCEL_PER_SECOND = 8.5;
 const VEHICLE_SURFACE_RADIUS = 0.5;
 const SURFACE_EFFECTS = {
-	'surface-wood': { grip: 1.55, drag: 1.35 },
-	'surface-ice': { grip: 0.2, drag: 0.58 },
+	'surface-wood': { grip: 1.55, drag: 1.35, accel: 1.0, drive: 1.55 },
+	'surface-ice': { grip: 0.2, drag: 0.58, accel: 0.45, drive: 1.0 },
 };
 
 function decodeExtrasParam( str ) {
@@ -557,6 +557,8 @@ async function init() {
 		const effect = SURFACE_EFFECTS[ activeSurfaceType ];
 		vehicle.gripMultiplier = effect ? effect.grip : 1.0;
 		vehicle.dragMultiplier = effect ? effect.drag : 1.0;
+		vehicle.accelMultiplier = effect ? effect.accel : 1.0;
+		vehicle.driveMultiplier = effect ? effect.drive : 1.0;
 
 	}
 
