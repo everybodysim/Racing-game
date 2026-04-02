@@ -74,7 +74,7 @@ const BOOST_ACCEL_PER_SECOND = 8.5;
 const VEHICLE_SURFACE_RADIUS = 0.5;
 const SURFACE_EFFECTS = {
 	'surface-wood': { grip: 1.55, drag: 1.35, accel: 1.0, drive: 1.55 },
-	'surface-ice': { grip: 0.2, drag: 0.58, accel: 0.45, drive: 0.6 },
+	'surface-ice': { grip: 0.9, drag: 0.58, accel: 0.45, drive: 0.6 },
 };
 
 function decodeExtrasParam( str ) {
