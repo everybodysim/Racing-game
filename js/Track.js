@@ -137,6 +137,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const bumpCells = Array.isArray( extras.bumps ) ? extras.bumps : [];
 		const boostCells = Array.isArray( extras.boosts ) ? extras.boosts : [];
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
+		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
 
 		for ( const [ gx, gz ] of bumpCells ) {
 
@@ -172,6 +173,29 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 			const piece = placePiece( models, key, gx, gz, orient || 0 );
 			if ( piece ) decoGroup.add( piece );
+
+		}
+
+		for ( const [ gx, gz, surfaceType ] of surfaces ) {
+
+			const color = surfaceType === 'surface-ice' ? 0x7ad8ff : 0xb88657;
+			const emissive = surfaceType === 'surface-ice' ? 0x1f6f8a : 0x4a2b12;
+			const patch = new THREE.Mesh(
+				new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
+				new THREE.MeshStandardMaterial( {
+					color,
+					emissive,
+					emissiveIntensity: 0.2,
+					transparent: true,
+					opacity: 0.58,
+					metalness: surfaceType === 'surface-ice' ? 0.2 : 0.0,
+					roughness: surfaceType === 'surface-ice' ? 0.15 : 0.9
+				} )
+			);
+			patch.rotation.x = - Math.PI / 2;
+			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505, ( gz + 0.5 ) * CELL_RAW );
+			patch.receiveShadow = true;
+			trackPieceGroup.add( patch );
 
 		}
 

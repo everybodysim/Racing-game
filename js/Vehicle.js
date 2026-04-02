@@ -58,6 +58,8 @@ export class Vehicle {
 		this.reverseAccelRate = 2.0;
 		this.brakeRate = 8.0;
 		this.driveForce = 100.0;
+		this.gripMultiplier = 1.0;
+		this.dragMultiplier = 1.0;
 
 	}
 
@@ -177,7 +179,7 @@ export class Vehicle {
 		let direction = Math.sign( this.linearSpeed );
 		if ( direction === 0 ) direction = Math.abs( this.inputZ ) > 0.1 ? Math.sign( this.inputZ ) : 1;
 
-		const steeringGrip = THREE.MathUtils.clamp( Math.abs( this.linearSpeed ), 0.2, 1.0 );
+		const steeringGrip = THREE.MathUtils.clamp( Math.abs( this.linearSpeed ), 0.2, 1.0 ) * this.gripMultiplier;
 
 		const targetAngular = - this.inputX * steeringGrip * 4 * direction;
 		this.angularSpeed = THREE.MathUtils.lerp( this.angularSpeed, targetAngular, dt * 4 );
@@ -209,7 +211,7 @@ export class Vehicle {
 
 		}
 
-		this.linearSpeed *= Math.max( 0, 1 - LINEAR_DAMP * dt );
+		this.linearSpeed *= Math.max( 0, 1 - LINEAR_DAMP * this.dragMultiplier * dt );
 
 		if ( this.rigidBody ) {
 
@@ -222,7 +224,7 @@ export class Vehicle {
 			_right.normalize();
 
 			const angvel = this.rigidBody.motionProperties.angularVelocity;
-			const drive = this.linearSpeed * this.driveForce * dt;
+			const drive = this.linearSpeed * this.driveForce * this.gripMultiplier * dt;
 
 			rigidBody.setAngularVelocity( this.physicsWorld, this.rigidBody, [
 				angvel[ 0 ] + _right.x * drive,

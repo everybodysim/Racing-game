@@ -71,6 +71,10 @@ const BOOST_VELOCITY_DELTA = 2.2;
 const BOOST_EFFECT_SECONDS = 1.0;
 const BOOST_FORCE_SECONDS = 0.45;
 const BOOST_ACCEL_PER_SECOND = 8.5;
+const SURFACE_EFFECTS = {
+	'surface-wood': { grip: 1.55, drag: 1.35 },
+	'surface-ice': { grip: 0.2, drag: 0.58 },
+};
 
 function decodeExtrasParam( str ) {
 
@@ -84,6 +88,7 @@ function decodeExtrasParam( str ) {
 			bumps: Array.isArray( parsed.b ) ? parsed.b : [],
 			boosts: Array.isArray( parsed.s ) ? parsed.s : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
+			surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
 		};
 
 	} catch ( e ) {
@@ -512,6 +517,18 @@ async function init() {
 	let boostContactCell = null;
 	const boostCells = Array.isArray( extras?.boosts ) ? extras.boosts : [];
 	const boostCellSet = new Set( boostCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+	const surfaceCells = Array.isArray( extras?.surfaces ) ? extras.surfaces : [];
+	const surfaceCellMap = new Map( surfaceCells.map( ( [ gx, gz, type ] ) => [ `${ gx },${ gz }`, type ] ) );
+	let activeSurfaceType = null;
+
+	function applySurfaceGrip( surfaceType ) {
+
+		activeSurfaceType = surfaceType || null;
+		const effect = SURFACE_EFFECTS[ activeSurfaceType ];
+		vehicle.gripMultiplier = effect ? effect.grip : 1.0;
+		vehicle.dragMultiplier = effect ? effect.drag : 1.0;
+
+	}
 
 	function formatLapTime( totalSeconds ) {
 
@@ -988,6 +1005,10 @@ async function init() {
 		const dt = Math.min( timer.getDelta(), 1 / 30 );
 
 		const input = controls.update();
+		const surfaceGridX = Math.floor( vehicle.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
+		const surfaceGridZ = Math.floor( vehicle.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
+		const surfaceKey = `${ surfaceGridX },${ surfaceGridZ }`;
+		applySurfaceGrip( surfaceCellMap.get( surfaceKey ) || null );
 
 		updateWorld( world, contactListener, dt );
 
