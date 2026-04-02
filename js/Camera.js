@@ -20,7 +20,6 @@ export class Camera {
 		this.targetPosition = new THREE.Vector3();
 		this.lookTarget = new THREE.Vector3();
 		this.mode = 'overview';
-		this.allowedModes = [ 'overview', 'chase' ];
 		this._desiredPos = new THREE.Vector3();
 		this._desiredLook = new THREE.Vector3();
 		this._forward = new THREE.Vector3();
@@ -48,31 +47,6 @@ export class Camera {
 
 	}
 
-	setAllowedModes( modes = [ 'overview', 'chase' ] ) {
-
-		const filtered = Array.isArray( modes ) ? modes.filter( ( mode ) => [ 'overview', 'chase', 'hood' ].includes( mode ) ) : [];
-		this.allowedModes = filtered.length > 0 ? filtered : [ 'overview', 'chase' ];
-		if ( ! this.allowedModes.includes( this.mode ) ) this.setMode( this.allowedModes[ 0 ] );
-
-	}
-
-	setMode( mode ) {
-
-		if ( ! [ 'overview', 'chase', 'hood' ].includes( mode ) ) return;
-		this.mode = mode;
-		if ( this.mode !== 'chase' && this.mode !== 'hood' ) this.hasChaseYaw = false;
-
-	}
-
-	cycleMode() {
-
-		const modes = this.allowedModes || [ 'overview', 'chase' ];
-		const idx = modes.indexOf( this.mode );
-		const next = modes[ ( idx + 1 ) % modes.length ];
-		this.setMode( next );
-
-	}
-
 	getMode() {
 
 		return this.mode;
@@ -84,7 +58,7 @@ export class Camera {
 		const targetLerp = this.mode === 'chase' ? 10 : 6;
 		this.targetPosition.lerp( target, dt * targetLerp );
 
-		if ( ( this.mode === 'chase' || this.mode === 'hood' ) && targetQuaternion ) {
+		if ( this.mode === 'chase' && targetQuaternion ) {
 
 			this._forward.set( 0, 0, 1 ).applyQuaternion( targetQuaternion );
 			this._forward.y = 0;
@@ -103,23 +77,11 @@ export class Camera {
 
 			}
 
+			this._rotatedOffset.copy( this.chaseOffset ).applyAxisAngle( this._upAxis, this.chaseYaw );
+			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
-
-			if ( this.mode === 'hood' ) {
-
-				this._desiredPos.copy( this.targetPosition ).addScaledVector( this._forward, 0.65 );
-				this._desiredPos.y += 1.1;
-				this._desiredLook.copy( this._desiredPos ).addScaledVector( this._forward, 7.0 );
-				this._desiredLook.y += 0.15;
-
-			} else {
-
-				this._rotatedOffset.copy( this.chaseOffset ).applyAxisAngle( this._upAxis, this.chaseYaw );
-				this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
-				this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, 4.8 );
-				this._desiredLook.y += 1.0;
-
-			}
+			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, 4.8 );
+			this._desiredLook.y += 1.0;
 
 			this.camera.position.lerp( this._desiredPos, dt * 10 );
 			this.lookTarget.lerp( this._desiredLook, dt * 8 );

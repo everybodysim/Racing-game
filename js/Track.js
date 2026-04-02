@@ -180,8 +180,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 			const isIce = surfaceType === 'surface-ice';
 			const isBoost = surfaceType === 'surface-boost';
-			const color = isIce ? 0x7ad8ff : ( isBoost ? 0xff4b4b : 0xb88657 );
-			const emissive = isIce ? 0x1f6f8a : ( isBoost ? 0xc1121f : 0x4a2b12 );
+			const color = isIce ? 0x7ad8ff : ( isBoost ? 0xffa733 : 0xb88657 );
+			const emissive = isIce ? 0x1f6f8a : ( isBoost ? 0xff4d00 : 0x4a2b12 );
 			const patch = new THREE.Mesh(
 				new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
 				new THREE.MeshStandardMaterial( {
