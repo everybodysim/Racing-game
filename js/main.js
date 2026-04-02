@@ -67,10 +67,10 @@ const CAR_STATS = {
 const ENGINE_MULTS = [ 1, 1.025, 1.05, 1.075, 1.1 ];
 const ENGINE_UPGRADE_COST = 100;
 const MAX_EFFECTIVE_TOP_SPEED = 1.8;
-const BOOST_VELOCITY_DELTA = 4.2;
+const BOOST_VELOCITY_DELTA = 8.2;
 const BOOST_EFFECT_SECONDS = 1.0;
 const BOOST_FORCE_SECONDS = 0.45;
-const BOOST_ACCEL_PER_SECOND = 12.5;
+const BOOST_ACCEL_PER_SECOND = 16.5;
 const VEHICLE_SURFACE_RADIUS = 0.5;
 const SURFACE_EFFECTS = {
 	'surface-wood': { grip: 1.55, drag: 1.35, accel: 1.0, drive: 1.55 },
