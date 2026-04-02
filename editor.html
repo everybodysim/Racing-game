@@ -110,6 +110,8 @@
 		<button id="btn-bump">Bump +</button>
 		<button id="btn-finish">Finish</button>
 		<button id="btn-checkpoint">Checkpoint</button>
+		<button id="btn-surface-wood">Wood</button>
+		<button id="btn-surface-ice">Ice</button>
 		<button id="btn-deco-forest">Tree</button>
 		<button id="btn-deco-tents">Tent</button>
 		<button id="btn-deco-empty">Prop</button>
@@ -137,6 +139,7 @@
 	const ORIENTATIONS = [ 0, 16, 10, 22 ];
 	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint' ];
 	const BUMP_TOOL = 'overlay-bump';
+	const SURFACE_TYPES = [ 'surface-wood', 'surface-ice' ];
 	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
 	let tool = 'paint'; // 'paint', 'erase'
 	let selectedType = 'track-straight';
@@ -154,6 +157,8 @@
 			bump: false,
 			bumpOrient: 0,
 			bumpMesh: null,
+			surfaceType: null,
+			surfaceMesh: null,
 			decoType: null,
 			decoOrient: 0,
 			decoMesh: null
@@ -312,8 +317,10 @@
 	function placeOverlayMesh( gx, gz, cell ) {
 
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+		if ( cell.surfaceMesh ) trackGroup.remove( cell.surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		cell.bumpMesh = null;
+		cell.surfaceMesh = null;
 		cell.decoMesh = null;
 
 		if ( cell.bump ) {
@@ -338,6 +345,30 @@
 				cell.bumpMesh = bump;
 
 			}
+
+		}
+
+		if ( cell.surfaceType ) {
+
+			const color = cell.surfaceType === 'surface-ice' ? 0x7ad8ff : 0xb88657;
+			const emissive = cell.surfaceType === 'surface-ice' ? 0x1f6f8a : 0x4a2b12;
+			const patch = new THREE.Mesh(
+				new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
+				new THREE.MeshStandardMaterial( {
+					color,
+					emissive,
+					emissiveIntensity: 0.2,
+					transparent: true,
+					opacity: 0.58,
+					metalness: cell.surfaceType === 'surface-ice' ? 0.2 : 0.0,
+					roughness: cell.surfaceType === 'surface-ice' ? 0.15 : 0.9
+				} )
+			);
+			patch.rotation.x = - Math.PI / 2;
+			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505, ( gz + 0.5 ) * CELL_RAW );
+			patch.receiveShadow = true;
+			trackGroup.add( patch );
+			cell.surfaceMesh = patch;
 
 		}
 
@@ -392,7 +423,24 @@
 			grid.set( key, cell );
 			cell.bump = ! cell.bump;
 			cell.bumpOrient = selectedOrient;
-			if ( ! cell.bump && ! cell.type && ! cell.decoType ) {
+			if ( ! cell.bump && ! cell.type && ! cell.decoType && ! cell.surfaceType ) {
+
+				grid.delete( key );
+
+			} else {
+
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+		} else if ( SURFACE_TYPES.includes( selectedType ) ) {
+
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			grid.set( key, cell );
+			cell.surfaceType = cell.surfaceType === selectedType ? null : selectedType;
+
+			if ( ! cell.bump && ! cell.type && ! cell.decoType && ! cell.surfaceType ) {
 
 				grid.delete( key );
 
@@ -441,6 +489,7 @@
 		const cell = grid.get( key );
 		if ( cell.mesh ) trackGroup.remove( cell.mesh );
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+		if ( cell.surfaceMesh ) trackGroup.remove( cell.surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		grid.delete( key );
 		save();
@@ -453,6 +502,7 @@
 
 				if ( cell.mesh ) trackGroup.remove( cell.mesh );
 				if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+				if ( cell.surfaceMesh ) trackGroup.remove( cell.surfaceMesh );
 				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 
 		}
@@ -497,7 +547,7 @@
 		clearGhost();
 
 		if ( tool === 'erase' ) return;
-		const ghostType = selectedType === BUMP_TOOL ? 'track-bump' : selectedType;
+		const ghostType = selectedType === BUMP_TOOL ? 'track-bump' : ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType );
 		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
 
 	}
@@ -560,24 +610,26 @@
 	function encodeMods() {
 
 		const bumps = [];
+		const surfaces = [];
 		const deco = [];
 
 		for ( const [ key, cell ] of grid ) {
 
 				const [ gx, gz ] = key.split( ',' ).map( Number );
 				if ( cell.bump ) bumps.push( [ gx, gz ] );
+			if ( cell.surfaceType ) surfaces.push( [ gx, gz, cell.surfaceType ] );
 			if ( cell.decoType ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
 
 		}
 
-		const payload = JSON.stringify( { b: bumps, d: deco } );
+		const payload = JSON.stringify( { b: bumps, u: surfaces, d: deco } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], d: [] };
+		if ( ! modsStr ) return { b: [], u: [], d: [] };
 
 		try {
 
@@ -585,13 +637,14 @@
 			const parsed = JSON.parse( payload );
 			return {
 				b: Array.isArray( parsed.b ) ? parsed.b : [],
+				u: Array.isArray( parsed.u ) ? parsed.u : [],
 				d: Array.isArray( parsed.d ) ? parsed.d : [],
 			};
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-			return { b: [], d: [] };
+			return { b: [], u: [], d: [] };
 
 		}
 
@@ -631,6 +684,16 @@
 					if ( ! grid.has( key ) ) grid.set( key, cell );
 					cell.bump = true;
 					cell.bumpOrient = 0;
+					placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz, surfaceType ] of mods.u ) {
+
+				const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					cell.surfaceType = surfaceType === 'surface-ice' ? 'surface-ice' : 'surface-wood';
 					placeOverlayMesh( gx, gz, cell );
 
 			}
@@ -676,6 +739,8 @@
 		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
 		'track-finish': document.getElementById( 'btn-finish' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
+		'surface-wood': document.getElementById( 'btn-surface-wood' ),
+		'surface-ice': document.getElementById( 'btn-surface-ice' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
@@ -694,7 +759,7 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...SURFACE_TYPES, ...DECO_TYPES ] ) {
 
 			tileButtons[ type ].classList.toggle( 'active', selectedType === type );
 
@@ -722,7 +787,7 @@
 
 	}
 
-	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...DECO_TYPES ] ) {
+	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, ...SURFACE_TYPES, ...DECO_TYPES ] ) {
 
 		tileButtons[ type ].addEventListener( 'click', () => selectTileType( type ) );
 

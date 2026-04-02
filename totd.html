@@ -32,7 +32,7 @@
     <div><strong>Base URL:</strong> <code id="baseOut"></code></div>
     <div><strong>Seed:</strong> <span id="seedOut"></span></div>
     <div><strong>Map:</strong><textarea id="mapOut" readonly></textarea></div>
-    <div><strong>Mods (bumps + scenery only):</strong><textarea id="modsOut" readonly></textarea></div>
+    <div><strong>Mods (bumps + surfaces + scenery):</strong><textarea id="modsOut" readonly></textarea></div>
     <div><strong>Play URL:</strong><textarea id="urlOut" readonly></textarea></div>
   </div>
 
@@ -335,12 +335,20 @@
       return [x, z, type, orient];
     });
 
+    const surfaceCount = Math.min(6, Math.max(2, Math.floor(tiles.length / 8)));
+    const surfaceCells = sampleDeterministic(roadCells, rng, surfaceCount).map(([x, z], idx) => [
+      x,
+      z,
+      idx % 2 === 0 ? 'surface-wood' : 'surface-ice'
+    ]);
+
     return {
       seedText,
       cells: tiles,
       mods: {
         b: bumps, // bumps
         s: [],    // NO BOOST PADS
+        u: surfaceCells,
         d: deco   // scenery
       }
     };
@@ -389,6 +397,13 @@
       const [px, py] = toPix(x, z);
       ctx.fillStyle = color[t] || '#777';
       ctx.fillRect(px + 2, py + 2, size - 4, size - 4);
+    }
+
+    // surface markers
+    for (const [x, z, surfaceType] of (mods.u || [])) {
+      const [px, py] = toPix(x, z);
+      ctx.fillStyle = surfaceType === 'surface-ice' ? '#7ad8ff' : '#b88657';
+      ctx.fillRect(px + size * 0.12, py + size * 0.12, size * 0.76, size * 0.76);
     }
 
     // scenery markers

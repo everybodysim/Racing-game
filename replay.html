@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Replay Watcher</title>
+	<style>
+		body { margin: 0; background: #0e1118; color: #eaf0ff; font: 14px/1.4 system-ui, sans-serif; }
+		.wrap { max-width: 980px; margin: 18px auto; padding: 0 14px; }
+		.panel { background: #131925; border: 1px solid #273146; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+		.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+		button, input[type="text"], textarea, input[type="range"] {
+			font: inherit;
+			color: #eaf0ff;
+			background: #0e141f;
+			border: 1px solid #2a354a;
+			border-radius: 8px;
+			padding: 8px 10px;
+		}
+		button { cursor: pointer; background: #1d4ed8; border-color: #1d4ed8; }
+		textarea { width: 100%; min-height: 76px; box-sizing: border-box; }
+		canvas { width: 100%; height: auto; border-radius: 8px; border: 1px solid #2a354a; background: #0a0f17; }
+		.meta { opacity: 0.85; }
+	</style>
+</head>
+<body>
+	<div class="wrap">
+		<div class="panel">
+			<div class="controls">
+				<button id="load-code">Load Ghost Code</button>
+				<button id="play-pause">Play</button>
+				<button id="open-race">Open Race URL</button>
+				<div id="status" class="meta">No replay loaded.</div>
+			</div>
+			<div style="margin-top:8px">
+				<textarea id="ghost-code" placeholder="Paste exported ghost code here..."></textarea>
+			</div>
+			<div style="margin-top:8px">
+				<input id="timeline" type="range" min="0" max="1000" value="0" style="width:100%">
+			</div>
+		</div>
+
+		<div class="panel">
+			<canvas id="replay-canvas" width="1280" height="720"></canvas>
+		</div>
+	</div>
+
+	<script>
+		function decodeBase64UrlJson( value ) {
+			const normalized = value.replace( /-/g, '+' ).replace( /_/g, '/' );
+			const padLen = ( 4 - normalized.length % 4 ) % 4;
+			const padded = normalized + '='.repeat( padLen );
+			return JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
+		}
+
+		const codeInput = document.getElementById( 'ghost-code' );
+		const loadBtn = document.getElementById( 'load-code' );
+		const playBtn = document.getElementById( 'play-pause' );
+		const openRaceBtn = document.getElementById( 'open-race' );
+		const statusEl = document.getElementById( 'status' );
+		const timeline = document.getElementById( 'timeline' );
+		const canvas = document.getElementById( 'replay-canvas' );
+		const ctx = canvas.getContext( '2d' );
+
+		let replay = null;
+		let isPlaying = false;
+		let playStartMs = 0;
+		let pausedAt = 0;
+
+		function readCodeFromHash() {
+			const hash = new URLSearchParams( location.hash.startsWith( '#' ) ? location.hash.slice( 1 ) : location.hash );
+			return hash.get( 'code' ) || '';
+		}
+
+		function getSampleAtTime( samples, t ) {
+			if ( ! samples || samples.length === 0 ) return null;
+			if ( t <= samples[ 0 ].t ) return samples[ 0 ];
+			for ( let i = 1; i < samples.length; i ++ ) {
+				const b = samples[ i ];
+				if ( b.t >= t ) {
+					const a = samples[ i - 1 ];
+					const span = Math.max( 1e-4, b.t - a.t );
+					const alpha = Math.max( 0, Math.min( 1, ( t - a.t ) / span ) );
+					return {
+						x: a.x + ( b.x - a.x ) * alpha,
+						y: a.y + ( b.y - a.y ) * alpha,
+						z: a.z + ( b.z - a.z ) * alpha,
+						yaw: a.yaw + ( b.yaw - a.yaw ) * alpha,
+					};
+				}
+			}
+			return samples[ samples.length - 1 ];
+		}
+
+		function fitBounds( samples ) {
+			let minX = Infinity, maxX = - Infinity, minZ = Infinity, maxZ = - Infinity;
+			for ( const s of samples ) {
+				minX = Math.min( minX, s.x );
+				maxX = Math.max( maxX, s.x );
+				minZ = Math.min( minZ, s.z );
+				maxZ = Math.max( maxZ, s.z );
+			}
+			if ( ! Number.isFinite( minX ) ) return { minX: -10, maxX: 10, minZ: -10, maxZ: 10 };
+			const pad = 4;
+			return { minX: minX - pad, maxX: maxX + pad, minZ: minZ - pad, maxZ: maxZ + pad };
+		}
+
+		function drawReplay() {
+			ctx.clearRect( 0, 0, canvas.width, canvas.height );
+			ctx.fillStyle = '#0a0f17';
+			ctx.fillRect( 0, 0, canvas.width, canvas.height );
+
+			if ( ! replay ) return;
+			const samples = replay.ghost.samples || [];
+			if ( samples.length < 2 ) return;
+
+			const bounds = fitBounds( samples );
+			const w = bounds.maxX - bounds.minX;
+			const h = bounds.maxZ - bounds.minZ;
+			const sx = ( canvas.width * 0.86 ) / Math.max( w, 1 );
+			const sy = ( canvas.height * 0.78 ) / Math.max( h, 1 );
+			const scale = Math.min( sx, sy );
+			const ox = canvas.width * 0.5 - ( bounds.minX + bounds.maxX ) * 0.5 * scale;
+			const oy = canvas.height * 0.5 - ( bounds.minZ + bounds.maxZ ) * 0.5 * scale;
+			const toPix = ( x, z ) => ( { x: x * scale + ox, y: z * scale + oy } );
+
+			ctx.strokeStyle = '#34435f';
+			ctx.lineWidth = 3;
+			ctx.beginPath();
+			for ( let i = 0; i < samples.length; i ++ ) {
+				const p = toPix( samples[ i ].x, samples[ i ].z );
+				if ( i === 0 ) ctx.moveTo( p.x, p.y );
+				else ctx.lineTo( p.x, p.y );
+			}
+			ctx.stroke();
+
+			const nowT = ( pausedAt / 1000 );
+			const car = getSampleAtTime( samples, nowT );
+			if ( car ) {
+				const p = toPix( car.x, car.z );
+				ctx.fillStyle = '#67e8f9';
+				ctx.beginPath();
+				ctx.arc( p.x, p.y, 9, 0, Math.PI * 2 );
+				ctx.fill();
+			}
+
+			ctx.fillStyle = '#dbe6ff';
+			ctx.font = '600 24px system-ui, sans-serif';
+			ctx.fillText( `${ replay.car || 'Car' } • ${ nowT.toFixed( 2 ) }s / ${ replay.ghost.duration.toFixed( 2 ) }s`, 20, 34 );
+		}
+
+		function setReplay( parsed ) {
+			if ( ! parsed || ! parsed.ghost || ! Array.isArray( parsed.ghost.samples ) || parsed.ghost.samples.length < 2 ) {
+				statusEl.textContent = 'Invalid ghost payload.';
+				return false;
+			}
+			replay = parsed;
+			pausedAt = 0;
+			timeline.value = 0;
+			isPlaying = false;
+			playBtn.textContent = 'Play';
+			statusEl.textContent = `Loaded ${ replay.ghost.samples.length } samples from ${ replay.url || 'unknown URL' }`;
+			drawReplay();
+			return true;
+		}
+
+		function loadFromTextarea() {
+			try {
+				const parsed = decodeBase64UrlJson( codeInput.value.trim() );
+				setReplay( parsed );
+			} catch ( e ) {
+				statusEl.textContent = 'Could not decode ghost code.';
+			}
+		}
+
+		function animate() {
+			requestAnimationFrame( animate );
+			if ( replay && isPlaying ) {
+				const now = performance.now();
+				const elapsed = now - playStartMs;
+				const durationMs = Math.max( 1, replay.ghost.duration * 1000 );
+				pausedAt = elapsed % durationMs;
+				timeline.value = Math.round( ( pausedAt / durationMs ) * 1000 );
+			}
+			drawReplay();
+		}
+
+		loadBtn.addEventListener( 'click', loadFromTextarea );
+		playBtn.addEventListener( 'click', () => {
+			if ( ! replay ) return;
+			isPlaying = ! isPlaying;
+			if ( isPlaying ) playStartMs = performance.now() - pausedAt;
+			playBtn.textContent = isPlaying ? 'Pause' : 'Play';
+		} );
+		openRaceBtn.addEventListener( 'click', () => {
+			if ( ! replay || ! replay.url || ! replay.ghost ) return;
+			try {
+				const blob = btoa( unescape( encodeURIComponent( JSON.stringify( replay.ghost ) ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+				const separator = replay.url.includes( '#' ) ? '&' : '#';
+				window.open( `${ replay.url }${ separator }ghost=${ blob }`, '_blank' );
+			} catch ( e ) {
+				statusEl.textContent = 'Failed to open race URL.';
+			}
+		} );
+		timeline.addEventListener( 'input', () => {
+			if ( ! replay ) return;
+			const durationMs = Math.max( 1, replay.ghost.duration * 1000 );
+			pausedAt = ( Number( timeline.value ) / 1000 ) * durationMs;
+			if ( isPlaying ) playStartMs = performance.now() - pausedAt;
+		} );
+
+		const hashCode = readCodeFromHash();
+		if ( hashCode ) {
+			codeInput.value = hashCode;
+			loadFromTextarea();
+		}
+
+		animate();
+	</script>
+</body>
+</html>
