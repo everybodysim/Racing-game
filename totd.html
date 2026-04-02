@@ -336,10 +336,11 @@
     });
 
     const surfaceCount = Math.min(6, Math.max(2, Math.floor(tiles.length / 8)));
+    const surfacePalette = ['surface-wood', 'surface-ice', 'surface-boost'];
     const surfaceCells = sampleDeterministic(roadCells, rng, surfaceCount).map(([x, z], idx) => [
       x,
       z,
-      idx % 2 === 0 ? 'surface-wood' : 'surface-ice'
+      surfacePalette[idx % surfacePalette.length]
     ]);
 
     return {
@@ -347,7 +348,7 @@
       cells: tiles,
       mods: {
         b: bumps, // bumps
-        s: [],    // NO BOOST PADS
+        s: [],    // legacy boost pads (unused; boost surfaces can still appear via `u`)
         u: surfaceCells,
         d: deco   // scenery
       }
@@ -402,7 +403,10 @@
     // surface markers
     for (const [x, z, surfaceType] of (mods.u || [])) {
       const [px, py] = toPix(x, z);
-      ctx.fillStyle = surfaceType === 'surface-ice' ? '#7ad8ff' : '#b88657';
+      ctx.fillStyle =
+        surfaceType === 'surface-ice' ? '#7ad8ff' :
+        surfaceType === 'surface-boost' ? '#ff9f2e' :
+        '#b88657';
       ctx.fillRect(px + size * 0.12, py + size * 0.12, size * 0.76, size * 0.76);
     }
 

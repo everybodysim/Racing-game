@@ -178,8 +178,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		for ( const [ gx, gz, surfaceType ] of surfaces ) {
 
-			const color = surfaceType === 'surface-ice' ? 0x7ad8ff : 0xb88657;
-			const emissive = surfaceType === 'surface-ice' ? 0x1f6f8a : 0x4a2b12;
+			const isIce = surfaceType === 'surface-ice';
+			const isBoost = surfaceType === 'surface-boost';
+			const color = isIce ? 0x7ad8ff : ( isBoost ? 0xffa733 : 0xb88657 );
+			const emissive = isIce ? 0x1f6f8a : ( isBoost ? 0xff4d00 : 0x4a2b12 );
 			const patch = new THREE.Mesh(
 				new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
 				new THREE.MeshStandardMaterial( {
@@ -188,8 +190,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					emissiveIntensity: 0.2,
 					transparent: true,
 					opacity: 0.58,
-					metalness: surfaceType === 'surface-ice' ? 0.2 : 0.0,
-					roughness: surfaceType === 'surface-ice' ? 0.15 : 0.9
+					metalness: isIce ? 0.2 : 0.0,
+					roughness: isIce ? 0.15 : 0.9
 				} )
 			);
 			patch.rotation.x = - Math.PI / 2;
