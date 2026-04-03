@@ -6,6 +6,10 @@ export const CELL_RAW = 9.99;
 export const GRID_SCALE = 0.75;
 
 const _dummy = new THREE.Object3D();
+const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
+const JUMP_RAMP_SIZE = CELL_RAW * 0.72;
+const JUMP_RAMP_DEPTH = CELL_RAW * 0.36;
+const JUMP_RAMP_Y = 0.33;
 
 export const TRACK_CELLS = [
 	[ -3, -3, 'track-corner',   16 ],
@@ -136,6 +140,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		const bumpCells = Array.isArray( extras.bumps ) ? extras.bumps : [];
 		const boostCells = Array.isArray( extras.boosts ) ? extras.boosts : [];
+		const jumpCells = Array.isArray( extras.jumps ) ? extras.jumps : [];
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
 		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
 
@@ -166,6 +171,26 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				trackPieceGroup.add( piece );
 
 			}
+
+		}
+
+		for ( const [ gx, gz, orient = 0 ] of jumpCells ) {
+
+			const jump = new THREE.Mesh(
+				new THREE.BoxGeometry( JUMP_RAMP_SIZE, JUMP_RAMP_DEPTH, JUMP_RAMP_SIZE ),
+				new THREE.MeshStandardMaterial( {
+					color: 0x7f6a58,
+					roughness: 0.85,
+					metalness: 0.02,
+				} )
+			);
+			jump.position.set( ( gx + 0.5 ) * CELL_RAW, JUMP_RAMP_Y, ( gz + 0.5 ) * CELL_RAW );
+			jump.rotation.order = 'YXZ';
+			jump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
+			jump.rotation.x = - JUMP_RAMP_ANGLE;
+			jump.castShadow = true;
+			jump.receiveShadow = true;
+			trackPieceGroup.add( jump );
 
 		}
 

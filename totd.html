@@ -32,7 +32,7 @@
     <div><strong>Base URL:</strong> <code id="baseOut"></code></div>
     <div><strong>Seed:</strong> <span id="seedOut"></span></div>
     <div><strong>Map:</strong><textarea id="mapOut" readonly></textarea></div>
-    <div><strong>Mods (bumps + surfaces + scenery):</strong><textarea id="modsOut" readonly></textarea></div>
+    <div><strong>Mods (bumps + jumps + surfaces + scenery):</strong><textarea id="modsOut" readonly></textarea></div>
     <div><strong>Play URL:</strong><textarea id="urlOut" readonly></textarea></div>
   </div>
 
@@ -302,6 +302,12 @@
     const roadCells = tiles.map(t => [t[0], t[1]]);
     const bumpCount = Math.min(4, Math.max(1, Math.floor(tiles.length / 12)));
     const bumps = sampleDeterministic(roadCells, rng, bumpCount);
+    const jumpCount = Math.min(4, Math.max(1, Math.floor(tiles.length / 14)));
+    const jumps = sampleDeterministic(roadCells, rng, jumpCount).map(([x, z]) => [
+      x,
+      z,
+      [0, 16, 10, 22][Math.floor(rng() * 4)]
+    ]);
 
     // scenery around road
     const roadSet = new Set(roadCells.map(([x, z]) => `${x},${z}`));
@@ -348,6 +354,7 @@
       cells: tiles,
       mods: {
         b: bumps, // bumps
+        j: jumps, // jump ramps
         s: [],    // legacy boost pads (unused; boost surfaces can still appear via `u`)
         u: surfaceCells,
         d: deco   // scenery
@@ -427,6 +434,17 @@
       const [px, py] = toPix(x, z);
       ctx.beginPath();
       ctx.arc(px + size / 2, py + size / 2, Math.max(5, size * 0.26), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // jumps as orange diagonal marks
+    ctx.strokeStyle = '#ff9f2e';
+    ctx.lineWidth = 2;
+    for (const [x, z] of (mods.j || [])) {
+      const [px, py] = toPix(x, z);
+      ctx.beginPath();
+      ctx.moveTo(px + size * 0.2, py + size * 0.75);
+      ctx.lineTo(px + size * 0.8, py + size * 0.25);
       ctx.stroke();
     }
   }
