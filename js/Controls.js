@@ -1,10 +1,18 @@
 export class Controls {
 
-	constructor() {
+	constructor( options = {} ) {
 
 		this.keys = {};
 		this.x = 0;
 		this.z = 0;
+		this.keymap = {
+			left: options.leftKeys || [ 'KeyA', 'ArrowLeft' ],
+			right: options.rightKeys || [ 'KeyD', 'ArrowRight' ],
+			forward: options.forwardKeys || [ 'KeyW', 'ArrowUp' ],
+			back: options.backKeys || [ 'KeyS', 'ArrowDown' ],
+		};
+		this.enableGamepad = options.enableGamepad !== undefined ? options.enableGamepad : true;
+		this.enableTouch = options.enableTouch !== undefined ? options.enableTouch : true;
 
 		// Touch state
 		this.touchSteer = 0;
@@ -16,7 +24,7 @@ export class Controls {
 		window.addEventListener( 'keydown', ( e ) => this.keys[ e.code ] = true );
 		window.addEventListener( 'keyup', ( e ) => this.keys[ e.code ] = false );
 
-		this.setupTouchUI();
+		if ( this.enableTouch ) this.setupTouchUI();
 
 	}
 
@@ -153,28 +161,32 @@ export class Controls {
 
 		// Keyboard
 
-		if ( this.keys[ 'KeyA' ] || this.keys[ 'ArrowLeft' ] ) x -= 1;
-		if ( this.keys[ 'KeyD' ] || this.keys[ 'ArrowRight' ] ) x += 1;
-		if ( this.keys[ 'KeyW' ] || this.keys[ 'ArrowUp' ] ) z += 1;
-		if ( this.keys[ 'KeyS' ] || this.keys[ 'ArrowDown' ] ) z -= 1;
+		if ( this.keymap.left.some( ( code ) => this.keys[ code ] ) ) x -= 1;
+		if ( this.keymap.right.some( ( code ) => this.keys[ code ] ) ) x += 1;
+		if ( this.keymap.forward.some( ( code ) => this.keys[ code ] ) ) z += 1;
+		if ( this.keymap.back.some( ( code ) => this.keys[ code ] ) ) z -= 1;
 
 		// Gamepad
 
-		const gamepads = navigator.getGamepads();
+		if ( this.enableGamepad ) {
 
-		for ( const gp of gamepads ) {
+			const gamepads = navigator.getGamepads();
 
-			if ( ! gp ) continue;
+			for ( const gp of gamepads ) {
 
-			const stickX = gp.axes[ 0 ];
-			if ( Math.abs( stickX ) > 0.15 ) x = stickX;
+				if ( ! gp ) continue;
 
-			const rt = gp.buttons[ 7 ] ? gp.buttons[ 7 ].value : 0;
-			const lt = gp.buttons[ 6 ] ? gp.buttons[ 6 ].value : 0;
+				const stickX = gp.axes[ 0 ];
+				if ( Math.abs( stickX ) > 0.15 ) x = stickX;
 
-			if ( rt > 0.1 || lt > 0.1 ) z = rt - lt;
+				const rt = gp.buttons[ 7 ] ? gp.buttons[ 7 ].value : 0;
+				const lt = gp.buttons[ 6 ] ? gp.buttons[ 6 ].value : 0;
 
-			break;
+				if ( rt > 0.1 || lt > 0.1 ) z = rt - lt;
+
+				break;
+
+			}
 
 		}
 

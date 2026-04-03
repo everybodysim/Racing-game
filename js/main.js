@@ -13,8 +13,9 @@ import { GameAudio } from './Audio.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
+const MAX_PIXEL_RATIO = 1.5;
 renderer.setSize( window.innerWidth, window.innerHeight );
-renderer.setPixelRatio( window.devicePixelRatio );
+renderer.setPixelRatio( Math.min( window.devicePixelRatio, MAX_PIXEL_RATIO ) );
 renderer.shadowMap.enabled = true;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -145,6 +146,9 @@ async function init() {
 
 	const mapParam = new URLSearchParams( window.location.search ).get( 'map' );
 	const extrasParam = new URLSearchParams( window.location.search ).get( 'mods' );
+	const isSplitScreen = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1';
+	const ghostEnabled = ! isSplitScreen;
+	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
 	let customCells = null;
 	let spawn = null;
 	const extras = decodeExtrasParam( extrasParam );
@@ -229,6 +233,24 @@ async function init() {
 
 	const vehicleGroup = vehicle.init( models[ 'vehicle-truck-yellow' ] );
 	scene.add( vehicleGroup );
+	let vehicle2 = null;
+	let sphereBody2 = null;
+	if ( isSplitScreen ) {
+
+		const spawnPos2 = spawn ? [ ...spawn.position ] : [ 3.5, 0.5, 5 ];
+		const spawnAngle = spawn ? spawn.angle : 0;
+		spawnPos2[ 0 ] += Math.cos( spawnAngle ) * 1.3;
+		spawnPos2[ 2 ] += - Math.sin( spawnAngle ) * 1.3;
+		sphereBody2 = createSphereBody( world, spawnPos2 );
+		vehicle2 = new Vehicle();
+		vehicle2.rigidBody = sphereBody2;
+		vehicle2.physicsWorld = world;
+		vehicle2.setSpawn( spawnPos2, spawnAngle );
+		vehicle2.setPerformance( CAR_STATS[ 'vehicle-truck-red' ].perf );
+		const vehicleGroup2 = vehicle2.init( models[ 'vehicle-truck-red' ] );
+		scene.add( vehicleGroup2 );
+
+	}
 	let ghostModel = null;
 	const bestLapGhostSamples = [];
 	let currentLapGhostSamples = [];
@@ -240,6 +262,7 @@ async function init() {
 
 	function createGhostModel( model ) {
 
+		if ( ! ghostEnabled ) return;
 		if ( ghostModel ) scene.remove( ghostModel );
 		ghostModel = null;
 		if ( ! model ) return;
@@ -262,6 +285,7 @@ async function init() {
 
 	function resetCurrentLapGhost() {
 
+		if ( ! ghostEnabled ) return;
 		currentLapGhostSamples = [];
 		ghostRecordFrame = 0;
 
@@ -269,6 +293,7 @@ async function init() {
 
 	function recordGhostSample( lapElapsed, force = false ) {
 
+		if ( ! ghostEnabled ) return;
 		ghostRecordFrame ++;
 		if ( ! force && ghostRecordFrame % 3 !== 0 ) return;
 
@@ -297,6 +322,7 @@ async function init() {
 
 	function updateGhostPlayback( lapElapsed ) {
 
+		if ( ! ghostEnabled ) return;
 		if ( ! ghostModel ) return;
 		if ( bestLapGhostSamples.length < 2 || bestGhostDuration <= 0 ) {
 
@@ -325,17 +351,31 @@ async function init() {
 
 	}
 
-	createGhostModel( models[ 'vehicle-truck-yellow' ] );
+	if ( ghostEnabled ) createGhostModel( models[ 'vehicle-truck-yellow' ] );
 
 	dirLight.target = vehicleGroup;
 
 	const cam = new Camera();
 	cam.targetPosition.copy( vehicle.spherePos );
+	const cam2 = isSplitScreen ? new Camera() : null;
+	if ( cam2 && vehicle2 ) {
 
-	const controls = new Controls();
+		cam2.targetPosition.copy( vehicle2.spherePos );
+		cam2.toggleMode();
+
+	}
+
+	const controls = isSplitScreen
+		? new Controls( { leftKeys: [ 'KeyA' ], rightKeys: [ 'KeyD' ], forwardKeys: [ 'KeyW' ], backKeys: [ 'KeyS' ], enableGamepad: false, enableTouch: false } )
+		: new Controls();
+	const controls2 = isSplitScreen
+		? new Controls( { leftKeys: [ 'ArrowLeft' ], rightKeys: [ 'ArrowRight' ], forwardKeys: [ 'ArrowUp' ], backKeys: [ 'ArrowDown' ], enableGamepad: false, enableTouch: false } )
+		: null;
 
 	const particles = new SmokeTrails( scene );
+	const particles2 = isSplitScreen ? new SmokeTrails( scene ) : null;
 	const lapHud = document.getElementById( 'lap-hud' );
+	const lapHud2 = document.getElementById( 'lap-hud-2' );
 	const respawnBtn = document.getElementById( 'respawnBtn' );
 	const carSelect = document.getElementById( 'car-select' );
 	const coinsLabel = document.getElementById( 'coins-label' );
@@ -344,6 +384,18 @@ async function init() {
 	const shareTimeBtn = document.getElementById( 'share-time-btn' );
 	const exportGhostBtn = document.getElementById( 'export-ghost-btn' );
 	const importGhostBtn = document.getElementById( 'import-ghost-btn' );
+	const economyHud = document.getElementById( 'economy-hud' );
+	if ( lapHud2 ) lapHud2.style.display = isSplitScreen ? 'block' : 'none';
+	if ( isSplitScreen ) {
+
+		if ( economyHud ) economyHud.style.display = 'none';
+		if ( carSelect ) carSelect.style.display = 'none';
+		if ( buyUpgradeBtn ) buyUpgradeBtn.style.display = 'none';
+		if ( shareTimeBtn ) shareTimeBtn.style.display = 'none';
+		if ( exportGhostBtn ) exportGhostBtn.style.display = 'none';
+		if ( importGhostBtn ) importGhostBtn.style.display = 'none';
+
+	}
 	const economyStoreKey = 'racing-economy-v1';
 	let coins = 0;
 	let engineTier = 0;
@@ -363,6 +415,12 @@ async function init() {
 
 	function applyVehiclePerformance() {
 
+		if ( isSplitScreen ) {
+
+			vehicle.setPerformance( CAR_STATS[ 'vehicle-truck-yellow' ].perf );
+			return;
+
+		}
 		const carKey = currentCarKey();
 		const stats = CAR_STATS[ carKey ];
 		if ( ! stats ) return;
@@ -424,6 +482,7 @@ async function init() {
 
 	function rewardCoinsForLap( lapSecondsCompleted ) {
 
+		if ( isSplitScreen ) return;
 		const reward = Math.max( 20, Math.min( 50, Math.round( 50 - lapSecondsCompleted * 0.75 ) ) );
 		coins += reward;
 		saveEconomy();
@@ -522,6 +581,25 @@ async function init() {
 	const surfaceCells = Array.isArray( extras?.surfaces ) ? extras.surfaces : [];
 	const surfaceCellMap = new Map( surfaceCells.map( ( [ gx, gz, type ] ) => [ `${ gx },${ gz }`, type ] ) );
 	let activeSurfaceType = null;
+	let activeSurfaceType2 = null;
+	let lapNumber2 = 1;
+	let lapStartSeconds2 = 0;
+	let lapSeconds2 = 0;
+	let lastLapSeconds2 = null;
+	let bestLapSeconds2 = null;
+	let hasPrevFinishSample2 = false;
+	let lastLocalX2 = 0;
+	let lastLocalZ2 = 0;
+	let hasLeftStartZone2 = false;
+	let boostActiveUntil2 = 0;
+	let boostContactCell2 = null;
+	const checkpointStates2 = checkpointCells.map( ( cell ) => ( {
+		...makeGateData( cell ),
+		lastLocalX: 0,
+		lastLocalZ: 0,
+		hasPrevSample: false,
+		passedThisLap: false,
+	} ) );
 
 	function getOverlappingGridBounds( position, radius = VEHICLE_SURFACE_RADIUS ) {
 
@@ -534,9 +612,9 @@ async function init() {
 
 	}
 
-	function findActiveSurfaceType() {
+	function findActiveSurfaceTypeFor( targetVehicle ) {
 
-		const bounds = getOverlappingGridBounds( vehicle.spherePos );
+		const bounds = getOverlappingGridBounds( targetVehicle.spherePos );
 		for ( let gx = bounds.minX; gx <= bounds.maxX; gx ++ ) {
 
 			for ( let gz = bounds.minZ; gz <= bounds.maxZ; gz ++ ) {
@@ -552,9 +630,9 @@ async function init() {
 
 	}
 
-	function findBoostSurfaceContactKey() {
+	function findBoostSurfaceContactKeyFor( targetVehicle ) {
 
-		const bounds = getOverlappingGridBounds( vehicle.spherePos );
+		const bounds = getOverlappingGridBounds( targetVehicle.spherePos );
 		for ( let gx = bounds.minX; gx <= bounds.maxX; gx ++ ) {
 
 			for ( let gz = bounds.minZ; gz <= bounds.maxZ; gz ++ ) {
@@ -569,14 +647,13 @@ async function init() {
 
 	}
 
-	function applySurfaceGrip( surfaceType ) {
+	function applySurfaceGrip( targetVehicle, surfaceType ) {
 
-		activeSurfaceType = surfaceType || null;
-		const effect = SURFACE_EFFECTS[ activeSurfaceType ];
-		vehicle.gripMultiplier = effect ? effect.grip : 1.0;
-		vehicle.dragMultiplier = effect ? effect.drag : 1.0;
-		vehicle.accelMultiplier = effect ? effect.accel : 1.0;
-		vehicle.driveMultiplier = effect ? effect.drive : 1.0;
+		const effect = SURFACE_EFFECTS[ surfaceType || null ];
+		targetVehicle.gripMultiplier = effect ? effect.grip : 1.0;
+		targetVehicle.dragMultiplier = effect ? effect.drag : 1.0;
+		targetVehicle.accelMultiplier = effect ? effect.accel : 1.0;
+		targetVehicle.driveMultiplier = effect ? effect.drive : 1.0;
 
 	}
 
@@ -709,6 +786,13 @@ async function init() {
 	function updateGhostShareButtons() {
 
 		if ( ! exportGhostBtn ) return;
+		if ( ! ghostEnabled ) {
+
+			exportGhostBtn.disabled = true;
+			exportGhostBtn.title = 'Ghosts are disabled in local multiplayer';
+			return;
+
+		}
 		const hasGhost = bestLapGhostSamples.length >= 2 && Number.isFinite( bestLapSeconds );
 		exportGhostBtn.disabled = false;
 		exportGhostBtn.title = hasGhost ? 'Export current best ghost' : 'Finish a clean lap first to generate an exportable ghost';
@@ -717,6 +801,7 @@ async function init() {
 
 	function createGhostExportCode() {
 
+		if ( ! ghostEnabled ) return '';
 		if ( bestLapGhostSamples.length < 2 || ! Number.isFinite( bestLapSeconds ) ) return '';
 		const payload = {
 			v: 1,
@@ -734,6 +819,7 @@ async function init() {
 
 	function applyImportedGhostPayload( payload ) {
 
+		if ( ! ghostEnabled ) return false;
 		const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
 		const duration = Number( payload?.duration );
 		if ( samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return false;
@@ -767,6 +853,7 @@ async function init() {
 
 	function importGhostIntoNewTab() {
 
+		if ( ! ghostEnabled ) return;
 		const code = window.prompt( 'Paste ghost code:' );
 		if ( ! code ) return;
 		let parsed;
@@ -816,8 +903,33 @@ async function init() {
 
 	}
 
+	function updateLapHud2() {
+
+		if ( ! lapHud2 || ! isSplitScreen ) return;
+		const totalCheckpoints = checkpointStates2.length;
+		const passedCheckpoints = checkpointStates2.reduce( ( count, checkpoint ) => count + ( checkpoint.passedThisLap ? 1 : 0 ), 0 );
+		const checkpointLine = totalCheckpoints > 0
+			? `<br><small>Checkpoints: ${ passedCheckpoints } / ${ totalCheckpoints }</small>`
+			: '';
+		lapHud2.innerHTML = `P2 • Lap ${ lapNumber2 } • ${ formatLapTime( lapSeconds2 ) }<br><small>Last: ${ formatLapTime( lastLapSeconds2 ) } • Best: ${ formatLapTime( bestLapSeconds2 ) }</small>${ checkpointLine }<br><small>Keys: Arrows • Respawn: P</small>`;
+
+	}
+
 	function saveLapStats() {
 
+		if ( ! ghostEnabled ) {
+
+			localStorage.setItem( lapStoreKey, JSON.stringify( {
+				lapNumber,
+				lastLapSeconds,
+				bestLapSeconds,
+				bestGhostDuration: 0,
+				bestGhostCarKey: 'vehicle-truck-yellow',
+				bestLapGhostSamples: [],
+			} ) );
+			return;
+
+		}
 		localStorage.setItem( lapStoreKey, JSON.stringify( {
 			lapNumber,
 			lastLapSeconds,
@@ -859,7 +971,7 @@ async function init() {
 
 			}
 			if ( bestLapGhostSamples.length < 2 ) bestGhostDuration = 0;
-			if ( bestLapGhostSamples.length >= 2 && models[ bestGhostCarKey ] ) createGhostModel( models[ bestGhostCarKey ] );
+			if ( ghostEnabled && bestLapGhostSamples.length >= 2 && models[ bestGhostCarKey ] ) createGhostModel( models[ bestGhostCarKey ] );
 
 		} catch ( e ) {
 
@@ -902,6 +1014,36 @@ async function init() {
 
 	}
 
+	function resetLapState2( keepRecords = false ) {
+
+		if ( ! isSplitScreen ) return;
+		if ( ! keepRecords ) {
+
+			lapNumber2 = 1;
+			lastLapSeconds2 = null;
+			bestLapSeconds2 = null;
+
+		}
+		lapStartSeconds2 = timer.getElapsed();
+		lapSeconds2 = 0;
+		boostActiveUntil2 = 0;
+		boostContactCell2 = null;
+		hasLeftStartZone2 = false;
+		hasPrevFinishSample2 = false;
+		lastLocalX2 = 0;
+		lastLocalZ2 = 0;
+		for ( const checkpoint of checkpointStates2 ) {
+
+			checkpoint.lastLocalX = 0;
+			checkpoint.lastLocalZ = 0;
+			checkpoint.hasPrevSample = false;
+			checkpoint.passedThisLap = false;
+
+		}
+		updateLapHud2();
+
+	}
+
 	function respawnVehicle() {
 
 		vehicle.resetToSpawn();
@@ -912,38 +1054,46 @@ async function init() {
 
 	}
 
-	function applyBoost() {
+	function respawnVehicle2() {
 
-		if ( ! vehicle?.rigidBody ) return;
-		const now = timer.getElapsed();
-		_boostForward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+		if ( ! vehicle2 || ! cam2 ) return;
+		vehicle2.resetToSpawn();
+		cam2.targetPosition.copy( vehicle2.spherePos );
+		cam2.camera.position.addVectors( cam2.targetPosition, cam2.offset );
+		resetLapState2( true );
+
+	}
+
+	function applyBoostFor( targetVehicle, setBoostActiveUntil, targetParticles = null, now = timer.getElapsed() ) {
+
+		if ( ! targetVehicle?.rigidBody ) return;
+		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
 		_boostForward.y = 0;
 		const boostLenSq = _boostForward.lengthSq();
 		if ( boostLenSq < 1e-6 ) return;
 		_boostForward.multiplyScalar( 1 / Math.sqrt( boostLenSq ) );
-		const vel = vehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
-		rigidBody.setLinearVelocity( world, vehicle.rigidBody, [
+		const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
 			vel[ 0 ] + _boostForward.x * BOOST_VELOCITY_DELTA,
 			vel[ 1 ],
 			vel[ 2 ] + _boostForward.z * BOOST_VELOCITY_DELTA,
 		] );
-		boostActiveUntil = now + BOOST_FORCE_SECONDS;
-		particles.triggerBoostFx( Math.max( BOOST_EFFECT_SECONDS, BOOST_FORCE_SECONDS ) );
+		setBoostActiveUntil( now + BOOST_FORCE_SECONDS );
+		targetParticles?.triggerBoostFx( Math.max( BOOST_EFFECT_SECONDS, BOOST_FORCE_SECONDS ) );
 
 	}
 
-	function updateActiveBoost( dt ) {
+	function updateActiveBoost( targetVehicle, boostActiveUntil, dt, now = timer.getElapsed() ) {
 
-		if ( ! vehicle?.rigidBody ) return;
-		const now = timer.getElapsed();
+		if ( ! targetVehicle?.rigidBody ) return;
 		if ( now >= boostActiveUntil ) return;
-		_boostForward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
 		_boostForward.y = 0;
 		const boostLenSq = _boostForward.lengthSq();
 		if ( boostLenSq < 1e-6 ) return;
 		_boostForward.multiplyScalar( 1 / Math.sqrt( boostLenSq ) );
-		const vel = vehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
-		rigidBody.setLinearVelocity( world, vehicle.rigidBody, [
+		const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
 			vel[ 0 ] + _boostForward.x * BOOST_ACCEL_PER_SECOND * dt,
 			vel[ 1 ],
 			vel[ 2 ] + _boostForward.z * BOOST_ACCEL_PER_SECOND * dt,
@@ -1010,6 +1160,7 @@ async function init() {
 	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 	updateGhostShareButtons();
 	resetLapState( true );
+	resetLapState2( true );
 
 	const hashParams = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
 	const importedGhost = hashParams.get( 'ghost' );
@@ -1028,7 +1179,7 @@ async function init() {
 
 	}
 
-		window.addEventListener( 'keydown', ( e ) => {
+	window.addEventListener( 'keydown', ( e ) => {
 
 			if ( e.code === 'KeyC' ) {
 
@@ -1044,7 +1195,16 @@ async function init() {
 
 			}
 
+			if ( e.code === 'KeyP' ) {
+
+				respawnVehicle2();
+				return;
+
+			}
+
 		} );
+
+	let hudUpdateAccumulator = 0;
 
 	function animate() {
 
@@ -1052,23 +1212,38 @@ async function init() {
 
 		timer.update();
 		const dt = Math.min( timer.getDelta(), 1 / 30 );
+		const now = timer.getElapsed();
 
 		const input = controls.update();
+		const input2 = controls2 ? controls2.update() : null;
 
 		updateWorld( world, contactListener, dt );
 
 		vehicle.update( dt, input );
-		applySurfaceGrip( findActiveSurfaceType() );
-		updateActiveBoost( dt );
+		if ( vehicle2 && input2 ) vehicle2.update( dt, input2 );
+		activeSurfaceType = findActiveSurfaceTypeFor( vehicle );
+		applySurfaceGrip( vehicle, activeSurfaceType );
+		if ( vehicle2 ) {
+
+			activeSurfaceType2 = findActiveSurfaceTypeFor( vehicle2 );
+			applySurfaceGrip( vehicle2, activeSurfaceType2 );
+
+		}
+		updateActiveBoost( vehicle, boostActiveUntil, dt, now );
+		if ( vehicle2 ) updateActiveBoost( vehicle2, boostActiveUntil2, dt, now );
 		const boostGridX = Math.floor( vehicle.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
 		const boostGridZ = Math.floor( vehicle.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
 		const boostTileKey = `${ boostGridX },${ boostGridZ }`;
-		const activeBoostContactKey = boostCellSet.has( boostTileKey ) ? `boost:${ boostTileKey }` : findBoostSurfaceContactKey();
+		const activeBoostContactKey = boostCellSet.has( boostTileKey ) ? `boost:${ boostTileKey }` : findBoostSurfaceContactKeyFor( vehicle );
 		if ( activeBoostContactKey ) {
 
 			if ( boostContactCell !== activeBoostContactKey ) {
 
-				applyBoost();
+				applyBoostFor( vehicle, ( value ) => {
+
+					boostActiveUntil = value;
+
+				}, particles, now );
 				boostContactCell = activeBoostContactKey;
 
 			}
@@ -1079,6 +1254,33 @@ async function init() {
 
 		}
 
+		if ( vehicle2 ) {
+
+			const boostGridX2 = Math.floor( vehicle2.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
+			const boostGridZ2 = Math.floor( vehicle2.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
+			const boostTileKey2 = `${ boostGridX2 },${ boostGridZ2 }`;
+			const activeBoostContactKey2 = boostCellSet.has( boostTileKey2 ) ? `boost:${ boostTileKey2 }` : findBoostSurfaceContactKeyFor( vehicle2 );
+			if ( activeBoostContactKey2 ) {
+
+				if ( boostContactCell2 !== activeBoostContactKey2 ) {
+
+					applyBoostFor( vehicle2, ( value ) => {
+
+						boostActiveUntil2 = value;
+
+					}, particles2, now );
+					boostContactCell2 = activeBoostContactKey2;
+
+				}
+
+			} else {
+
+				boostContactCell2 = null;
+
+			}
+
+		}
+
 		dirLight.position.set(
 			vehicle.spherePos.x + 11.4,
 			15,
@@ -1086,7 +1288,9 @@ async function init() {
 		);
 
 		cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
+		if ( cam2 && vehicle2 ) cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
 		particles.update( dt, vehicle );
+		particles2?.update( dt, vehicle2 );
 		audio.update( dt, vehicle.linearSpeed, input.z, vehicle.driftIntensity );
 
 		for ( const checkpoint of checkpointStates ) {
@@ -1115,6 +1319,39 @@ async function init() {
 			checkpoint.lastLocalX = localX;
 			checkpoint.lastLocalZ = localZ;
 			checkpoint.hasPrevSample = true;
+
+		}
+
+		if ( vehicle2 ) {
+
+			for ( const checkpoint of checkpointStates2 ) {
+
+				const localX = ( ( vehicle2.spherePos.x - checkpoint.centerX ) * checkpoint.cosA ) + ( ( vehicle2.spherePos.z - checkpoint.centerZ ) * checkpoint.sinA );
+				const localZ = ( - ( vehicle2.spherePos.x - checkpoint.centerX ) * checkpoint.sinA ) + ( ( vehicle2.spherePos.z - checkpoint.centerZ ) * checkpoint.cosA );
+
+				let crossedCheckpoint = false;
+				if ( checkpoint.hasPrevSample ) {
+
+					const z0 = checkpoint.lastLocalZ;
+					const z1 = localZ;
+					const crossedPlane = ( z0 < 0 && z1 > 0 ) || ( z0 > 0 && z1 < 0 );
+
+					if ( crossedPlane ) {
+
+						const t = z0 / ( z0 - z1 );
+						const xCross = THREE.MathUtils.lerp( checkpoint.lastLocalX, localX, t );
+						crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent;
+
+					}
+
+				}
+
+				if ( crossedCheckpoint ) checkpoint.passedThisLap = true;
+				checkpoint.lastLocalX = localX;
+				checkpoint.lastLocalZ = localZ;
+				checkpoint.hasPrevSample = true;
+
+			}
 
 		}
 
@@ -1151,7 +1388,7 @@ async function init() {
 			const allCheckpointsPassed = checkpointStates.every( ( checkpoint ) => checkpoint.passedThisLap );
 			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
 
-					const completedLap = timer.getElapsed() - lapStartSeconds;
+					const completedLap = now - lapStartSeconds;
 					const isNewBest = bestLapSeconds === null || completedLap < bestLapSeconds;
 					lastLapSeconds = completedLap;
 					bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
@@ -1168,7 +1405,7 @@ async function init() {
 
 				}
 					lapNumber ++;
-					lapStartSeconds = timer.getElapsed();
+					lapStartSeconds = now;
 					resetCurrentLapGhost();
 					recordGhostSample( 0, true );
 					updateGhostPlayback( 0 );
@@ -1189,12 +1426,87 @@ async function init() {
 
 		}
 
-		lapSeconds = timer.getElapsed() - lapStartSeconds;
+		if ( finishData && vehicle2 ) {
+
+			const localX = ( ( vehicle2.spherePos.x - finishData.centerX ) * finishData.cosA ) + ( ( vehicle2.spherePos.z - finishData.centerZ ) * finishData.sinA );
+			const localZ = ( - ( vehicle2.spherePos.x - finishData.centerX ) * finishData.sinA ) + ( ( vehicle2.spherePos.z - finishData.centerZ ) * finishData.cosA );
+			const inFinishCell = Math.abs( localX ) < finishData.halfExtent && Math.abs( localZ ) < finishData.halfExtent;
+
+			if ( ! hasLeftStartZone2 && ! inFinishCell ) hasLeftStartZone2 = true;
+
+			let crossedFinish = false;
+			if ( hasPrevFinishSample2 ) {
+
+				const z0 = lastLocalZ2;
+				const z1 = localZ;
+				const crossedPlane = ( z0 < 0 && z1 > 0 ) || ( z0 > 0 && z1 < 0 );
+				if ( crossedPlane ) {
+
+					const t = z0 / ( z0 - z1 );
+					const xCross = THREE.MathUtils.lerp( lastLocalX2, localX, t );
+					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent;
+
+				}
+
+			}
+
+			const allCheckpointsPassed2 = checkpointStates2.every( ( checkpoint ) => checkpoint.passedThisLap );
+			if ( hasLeftStartZone2 && allCheckpointsPassed2 && crossedFinish ) {
+
+				const completedLap2 = now - lapStartSeconds2;
+				lastLapSeconds2 = completedLap2;
+				bestLapSeconds2 = bestLapSeconds2 === null ? completedLap2 : Math.min( bestLapSeconds2, completedLap2 );
+				lapNumber2 ++;
+				lapStartSeconds2 = now;
+				hasLeftStartZone2 = false;
+				for ( const checkpoint of checkpointStates2 ) checkpoint.passedThisLap = false;
+
+			}
+
+			lastLocalX2 = localX;
+			lastLocalZ2 = localZ;
+			hasPrevFinishSample2 = true;
+
+		}
+
+		lapSeconds = now - lapStartSeconds;
+		if ( vehicle2 ) lapSeconds2 = now - lapStartSeconds2;
 		recordGhostSample( lapSeconds );
 		updateGhostPlayback( lapSeconds );
-		updateLapHud();
+		hudUpdateAccumulator += dt;
+		if ( hudUpdateAccumulator >= 0.08 ) {
 
-		renderer.render( scene, cam.camera );
+			hudUpdateAccumulator = 0;
+			updateLapHud();
+			updateLapHud2();
+
+		}
+
+		if ( isSplitScreen && cam2 ) {
+
+			const width = window.innerWidth;
+			const height = window.innerHeight;
+			const halfH = Math.floor( height / 2 );
+
+			renderer.setScissorTest( true );
+			cam.camera.aspect = width / Math.max( 1, halfH );
+			cam.camera.updateProjectionMatrix();
+			renderer.setViewport( 0, halfH, width, height - halfH );
+			renderer.setScissor( 0, halfH, width, height - halfH );
+			renderer.render( scene, cam.camera );
+
+			cam2.camera.aspect = width / Math.max( 1, halfH );
+			cam2.camera.updateProjectionMatrix();
+			renderer.setViewport( 0, 0, width, halfH );
+			renderer.setScissor( 0, 0, width, halfH );
+			renderer.render( scene, cam2.camera );
+			renderer.setScissorTest( false );
+
+		} else {
+
+			renderer.render( scene, cam.camera );
+
+		}
 
 	}
 
