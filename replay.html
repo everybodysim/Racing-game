@@ -77,18 +77,19 @@
 		}
 
 		function decodeMods( modsStr ) {
-			if ( ! modsStr ) return { b: [], s: [], u: [], d: [] };
+			if ( ! modsStr ) return { b: [], j: [], s: [], u: [], d: [] };
 			try {
 				const payload = decodeURIComponent( escape( atob( modsStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
 				const parsed = JSON.parse( payload );
 				return {
 					b: Array.isArray( parsed.b ) ? parsed.b : [],
+					j: Array.isArray( parsed.j ) ? parsed.j : [],
 					s: Array.isArray( parsed.s ) ? parsed.s : [],
 					u: Array.isArray( parsed.u ) ? parsed.u : [],
 					d: Array.isArray( parsed.d ) ? parsed.d : [],
 				};
 			} catch ( e ) {
-				return { b: [], s: [], u: [], d: [] };
+				return { b: [], j: [], s: [], u: [], d: [] };
 			}
 		}
 
@@ -197,6 +198,18 @@
 						surfaceType === 'surface-boost' ? 'rgba(255,159,46,0.78)' :
 						'rgba(184,134,87,0.75)';
 					ctx.fillRect( p0.x + cellSize * scale * 0.16, p0.y + cellSize * scale * 0.16, cellSize * scale * 0.68, cellSize * scale * 0.68 );
+				}
+
+				ctx.strokeStyle = 'rgba(255,159,46,0.9)';
+				ctx.lineWidth = 2;
+				for ( const [ gx, gz ] of replayTrack.mods.j || [] ) {
+					const x0 = gx * cellSize;
+					const z0 = gz * cellSize;
+					const p0 = toPix( x0, z0 );
+					ctx.beginPath();
+					ctx.moveTo( p0.x + cellSize * scale * 0.2, p0.y + cellSize * scale * 0.75 );
+					ctx.lineTo( p0.x + cellSize * scale * 0.8, p0.y + cellSize * scale * 0.25 );
+					ctx.stroke();
 				}
 			}
 

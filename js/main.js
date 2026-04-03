@@ -88,6 +88,7 @@ function decodeExtrasParam( str ) {
 		return {
 			bumps: Array.isArray( parsed.b ) ? parsed.b : [],
 			boosts: Array.isArray( parsed.s ) ? parsed.s : [],
+			jumps: Array.isArray( parsed.j ) ? parsed.j : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 			surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
 		};
@@ -961,7 +962,6 @@ async function init() {
 
 		const selectedKey = carSelect.value;
 		if ( models[ selectedKey ] ) vehicle.setModel( models[ selectedKey ] );
-		if ( models[ selectedKey ] ) createGhostModel( models[ selectedKey ] );
 		applyVehiclePerformance();
 
 	} );
