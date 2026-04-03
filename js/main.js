@@ -13,8 +13,9 @@ import { GameAudio } from './Audio.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
+const MAX_PIXEL_RATIO = 1.5;
 renderer.setSize( window.innerWidth, window.innerHeight );
-renderer.setPixelRatio( window.devicePixelRatio );
+renderer.setPixelRatio( Math.min( window.devicePixelRatio, MAX_PIXEL_RATIO ) );
 renderer.shadowMap.enabled = true;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -146,6 +147,8 @@ async function init() {
 	const mapParam = new URLSearchParams( window.location.search ).get( 'map' );
 	const extrasParam = new URLSearchParams( window.location.search ).get( 'mods' );
 	const isSplitScreen = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1';
+	const ghostEnabled = ! isSplitScreen;
+	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
 	let customCells = null;
 	let spawn = null;
 	const extras = decodeExtrasParam( extrasParam );
@@ -259,6 +262,7 @@ async function init() {
 
 	function createGhostModel( model ) {
 
+		if ( ! ghostEnabled ) return;
 		if ( ghostModel ) scene.remove( ghostModel );
 		ghostModel = null;
 		if ( ! model ) return;
@@ -281,6 +285,7 @@ async function init() {
 
 	function resetCurrentLapGhost() {
 
+		if ( ! ghostEnabled ) return;
 		currentLapGhostSamples = [];
 		ghostRecordFrame = 0;
 
@@ -288,6 +293,7 @@ async function init() {
 
 	function recordGhostSample( lapElapsed, force = false ) {
 
+		if ( ! ghostEnabled ) return;
 		ghostRecordFrame ++;
 		if ( ! force && ghostRecordFrame % 3 !== 0 ) return;
 
@@ -316,6 +322,7 @@ async function init() {
 
 	function updateGhostPlayback( lapElapsed ) {
 
+		if ( ! ghostEnabled ) return;
 		if ( ! ghostModel ) return;
 		if ( bestLapGhostSamples.length < 2 || bestGhostDuration <= 0 ) {
 
@@ -344,7 +351,7 @@ async function init() {
 
 	}
 
-	createGhostModel( models[ 'vehicle-truck-yellow' ] );
+	if ( ghostEnabled ) createGhostModel( models[ 'vehicle-truck-yellow' ] );
 
 	dirLight.target = vehicleGroup;
 
@@ -382,6 +389,8 @@ async function init() {
 	if ( isSplitScreen ) {
 
 		if ( economyHud ) economyHud.style.display = 'none';
+		if ( carSelect ) carSelect.style.display = 'none';
+		if ( buyUpgradeBtn ) buyUpgradeBtn.style.display = 'none';
 		if ( shareTimeBtn ) shareTimeBtn.style.display = 'none';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = 'none';
 		if ( importGhostBtn ) importGhostBtn.style.display = 'none';
@@ -406,6 +415,12 @@ async function init() {
 
 	function applyVehiclePerformance() {
 
+		if ( isSplitScreen ) {
+
+			vehicle.setPerformance( CAR_STATS[ 'vehicle-truck-yellow' ].perf );
+			return;
+
+		}
 		const carKey = currentCarKey();
 		const stats = CAR_STATS[ carKey ];
 		if ( ! stats ) return;
@@ -467,6 +482,7 @@ async function init() {
 
 	function rewardCoinsForLap( lapSecondsCompleted ) {
 
+		if ( isSplitScreen ) return;
 		const reward = Math.max( 20, Math.min( 50, Math.round( 50 - lapSecondsCompleted * 0.75 ) ) );
 		coins += reward;
 		saveEconomy();
@@ -770,6 +786,13 @@ async function init() {
 	function updateGhostShareButtons() {
 
 		if ( ! exportGhostBtn ) return;
+		if ( ! ghostEnabled ) {
+
+			exportGhostBtn.disabled = true;
+			exportGhostBtn.title = 'Ghosts are disabled in local multiplayer';
+			return;
+
+		}
 		const hasGhost = bestLapGhostSamples.length >= 2 && Number.isFinite( bestLapSeconds );
 		exportGhostBtn.disabled = false;
 		exportGhostBtn.title = hasGhost ? 'Export current best ghost' : 'Finish a clean lap first to generate an exportable ghost';
@@ -778,6 +801,7 @@ async function init() {
 
 	function createGhostExportCode() {
 
+		if ( ! ghostEnabled ) return '';
 		if ( bestLapGhostSamples.length < 2 || ! Number.isFinite( bestLapSeconds ) ) return '';
 		const payload = {
 			v: 1,
@@ -795,6 +819,7 @@ async function init() {
 
 	function applyImportedGhostPayload( payload ) {
 
+		if ( ! ghostEnabled ) return false;
 		const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
 		const duration = Number( payload?.duration );
 		if ( samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return false;
@@ -828,6 +853,7 @@ async function init() {
 
 	function importGhostIntoNewTab() {
 
+		if ( ! ghostEnabled ) return;
 		const code = window.prompt( 'Paste ghost code:' );
 		if ( ! code ) return;
 		let parsed;
@@ -891,6 +917,19 @@ async function init() {
 
 	function saveLapStats() {
 
+		if ( ! ghostEnabled ) {
+
+			localStorage.setItem( lapStoreKey, JSON.stringify( {
+				lapNumber,
+				lastLapSeconds,
+				bestLapSeconds,
+				bestGhostDuration: 0,
+				bestGhostCarKey: 'vehicle-truck-yellow',
+				bestLapGhostSamples: [],
+			} ) );
+			return;
+
+		}
 		localStorage.setItem( lapStoreKey, JSON.stringify( {
 			lapNumber,
 			lastLapSeconds,
@@ -932,7 +971,7 @@ async function init() {
 
 			}
 			if ( bestLapGhostSamples.length < 2 ) bestGhostDuration = 0;
-			if ( bestLapGhostSamples.length >= 2 && models[ bestGhostCarKey ] ) createGhostModel( models[ bestGhostCarKey ] );
+			if ( ghostEnabled && bestLapGhostSamples.length >= 2 && models[ bestGhostCarKey ] ) createGhostModel( models[ bestGhostCarKey ] );
 
 		} catch ( e ) {
 
@@ -1025,10 +1064,9 @@ async function init() {
 
 	}
 
-	function applyBoostFor( targetVehicle, setBoostActiveUntil, targetParticles = null ) {
+	function applyBoostFor( targetVehicle, setBoostActiveUntil, targetParticles = null, now = timer.getElapsed() ) {
 
 		if ( ! targetVehicle?.rigidBody ) return;
-		const now = timer.getElapsed();
 		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
 		_boostForward.y = 0;
 		const boostLenSq = _boostForward.lengthSq();
@@ -1045,10 +1083,9 @@ async function init() {
 
 	}
 
-	function updateActiveBoost( targetVehicle, boostActiveUntil, dt ) {
+	function updateActiveBoost( targetVehicle, boostActiveUntil, dt, now = timer.getElapsed() ) {
 
 		if ( ! targetVehicle?.rigidBody ) return;
-		const now = timer.getElapsed();
 		if ( now >= boostActiveUntil ) return;
 		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
 		_boostForward.y = 0;
@@ -1167,12 +1204,15 @@ async function init() {
 
 		} );
 
+	let hudUpdateAccumulator = 0;
+
 	function animate() {
 
 		requestAnimationFrame( animate );
 
 		timer.update();
 		const dt = Math.min( timer.getDelta(), 1 / 30 );
+		const now = timer.getElapsed();
 
 		const input = controls.update();
 		const input2 = controls2 ? controls2.update() : null;
@@ -1189,8 +1229,8 @@ async function init() {
 			applySurfaceGrip( vehicle2, activeSurfaceType2 );
 
 		}
-		updateActiveBoost( vehicle, boostActiveUntil, dt );
-		if ( vehicle2 ) updateActiveBoost( vehicle2, boostActiveUntil2, dt );
+		updateActiveBoost( vehicle, boostActiveUntil, dt, now );
+		if ( vehicle2 ) updateActiveBoost( vehicle2, boostActiveUntil2, dt, now );
 		const boostGridX = Math.floor( vehicle.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
 		const boostGridZ = Math.floor( vehicle.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
 		const boostTileKey = `${ boostGridX },${ boostGridZ }`;
@@ -1203,7 +1243,7 @@ async function init() {
 
 					boostActiveUntil = value;
 
-				}, particles );
+				}, particles, now );
 				boostContactCell = activeBoostContactKey;
 
 			}
@@ -1228,7 +1268,7 @@ async function init() {
 
 						boostActiveUntil2 = value;
 
-					}, particles2 );
+					}, particles2, now );
 					boostContactCell2 = activeBoostContactKey2;
 
 				}
@@ -1348,7 +1388,7 @@ async function init() {
 			const allCheckpointsPassed = checkpointStates.every( ( checkpoint ) => checkpoint.passedThisLap );
 			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
 
-					const completedLap = timer.getElapsed() - lapStartSeconds;
+					const completedLap = now - lapStartSeconds;
 					const isNewBest = bestLapSeconds === null || completedLap < bestLapSeconds;
 					lastLapSeconds = completedLap;
 					bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
@@ -1365,7 +1405,7 @@ async function init() {
 
 				}
 					lapNumber ++;
-					lapStartSeconds = timer.getElapsed();
+					lapStartSeconds = now;
 					resetCurrentLapGhost();
 					recordGhostSample( 0, true );
 					updateGhostPlayback( 0 );
@@ -1413,11 +1453,11 @@ async function init() {
 			const allCheckpointsPassed2 = checkpointStates2.every( ( checkpoint ) => checkpoint.passedThisLap );
 			if ( hasLeftStartZone2 && allCheckpointsPassed2 && crossedFinish ) {
 
-				const completedLap2 = timer.getElapsed() - lapStartSeconds2;
+				const completedLap2 = now - lapStartSeconds2;
 				lastLapSeconds2 = completedLap2;
 				bestLapSeconds2 = bestLapSeconds2 === null ? completedLap2 : Math.min( bestLapSeconds2, completedLap2 );
 				lapNumber2 ++;
-				lapStartSeconds2 = timer.getElapsed();
+				lapStartSeconds2 = now;
 				hasLeftStartZone2 = false;
 				for ( const checkpoint of checkpointStates2 ) checkpoint.passedThisLap = false;
 
@@ -1429,12 +1469,18 @@ async function init() {
 
 		}
 
-		lapSeconds = timer.getElapsed() - lapStartSeconds;
-		if ( vehicle2 ) lapSeconds2 = timer.getElapsed() - lapStartSeconds2;
+		lapSeconds = now - lapStartSeconds;
+		if ( vehicle2 ) lapSeconds2 = now - lapStartSeconds2;
 		recordGhostSample( lapSeconds );
 		updateGhostPlayback( lapSeconds );
-		updateLapHud();
-		updateLapHud2();
+		hudUpdateAccumulator += dt;
+		if ( hudUpdateAccumulator >= 0.08 ) {
+
+			hudUpdateAccumulator = 0;
+			updateLapHud();
+			updateLapHud2();
+
+		}
 
 		if ( isSplitScreen && cam2 ) {
 
