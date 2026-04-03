@@ -30,13 +30,16 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	const WALL_HALF_THICK = 0.25;
 	const WALL_X = 4.75;
-	const WALL_HALF_H = 1.5;
+	const WALL_HALF_H = 0.45;
 
 	const wallY = ( 0.5 + WALL_HALF_H ) * S - 0.5;
 	const hThick = WALL_HALF_THICK * S;
 	const hHeight = WALL_HALF_H * S;
 	const hLen = CELL_HALF * S;
 	const groundY = - 0.125;
+	const jumpRampHalfExtents = [ CELL_HALF * S * 0.36, 0.26 * S, CELL_HALF * S * 0.44 ];
+	const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
+	const JUMP_RAMP_SINK = 0.14;
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
 	const BUMP_RADIUS = 7.5 * S;
@@ -73,7 +76,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 				position,
 				quaternion,
 				friction: 0.0,
-				restitution: 0.1,
+				restitution: 0.0,
 			} );
 
 			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
@@ -82,11 +85,41 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
+	function addJumpRampCollider( gx, gz, orient = 0 ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const yaw = deg * Math.PI / 180;
+		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( - JUMP_RAMP_ANGLE, yaw, 0, 'YXZ' ) );
+		const position = [ cx, groundY - JUMP_RAMP_SINK, cz ];
+		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
+
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: jumpRampHalfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			quaternion,
+			friction: 1.0,
+			restitution: 0.0,
+		} );
+
+		if ( debugGroup ) addDebugBox( debugGroup, jumpRampHalfExtents, position, quaternion );
+
+	}
+
 	const cells = customCells || TRACK_CELLS;
 	const bumpSet = new Set();
+	const jumpMap = new Map();
 	if ( extras && Array.isArray( extras.bumps ) ) {
 
 		for ( const [ gx, gz ] of extras.bumps ) bumpSet.add( gx + ',' + gz );
+
+	}
+	if ( extras && Array.isArray( extras.jumps ) ) {
+
+		for ( const [ gx, gz, orient = 0 ] of extras.jumps ) jumpMap.set( gx + ',' + gz, orient );
 
 	}
 
@@ -101,6 +134,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		const hasBump = key === 'track-bump' || bumpSet.has( gx + ',' + gz );
 		if ( hasBump ) bumpSet.delete( gx + ',' + gz );
+		const jumpKey = gx + ',' + gz;
+		if ( jumpMap.has( jumpKey ) ) {
+
+			addJumpRampCollider( gx, gz, jumpMap.get( jumpKey ) );
+			jumpMap.delete( jumpKey );
+
+		}
+
 		const baseKey = key === 'track-bump' ? 'track-straight' : key;
 
 		if ( hasBump ) {
@@ -138,7 +179,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 					position,
 					quaternion,
 					friction: 0.0,
-					restitution: 0.1,
+					restitution: 0.0,
 				} );
 
 				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
@@ -176,6 +217,13 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		} );
 
 		if ( debugGroup ) addDebugSphere( debugGroup, BUMP_RADIUS, position );
+
+	}
+
+	for ( const [ key, orient ] of jumpMap ) {
+
+		const [ gx, gz ] = key.split( ',' ).map( Number );
+		addJumpRampCollider( gx, gz, orient );
 
 	}
 
