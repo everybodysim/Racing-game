@@ -77,6 +77,20 @@ const SURFACE_EFFECTS = {
 	'surface-wood': { grip: 0.9, drag: 1.35, accel: 1.0, drive: 1.55 },
 	'surface-ice': { grip: 0.4, drag: 0.58, accel: 0.45, drive: 0.8 },
 };
+const WEATHER_PRESETS = {
+	clear: { bg: 0xadb2ba, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
+	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
+	sunset: { bg: 0xc7987d, fogNearMul: 0.28, fogFarMul: 0.6, sun: 4.4, hemi: 1.2, exposure: 1.08 },
+	night: { bg: 0x0b1220, fogNearMul: 0.24, fogFarMul: 0.5, sun: 1.7, hemi: 0.45, exposure: 0.7 },
+	'dawn-mist': { bg: 0xb6c2cc, fogNearMul: 0.2, fogFarMul: 0.42, sun: 2.9, hemi: 1.1, exposure: 0.88 },
+};
+const WEATHER_DEFAULT = 'clear';
+
+function normalizeWeatherPreset( preset ) {
+
+	return WEATHER_PRESETS[ preset ] ? preset : WEATHER_DEFAULT;
+
+}
 
 function decodeExtrasParam( str ) {
 
@@ -92,6 +106,7 @@ function decodeExtrasParam( str ) {
 			jumps: Array.isArray( parsed.j ) ? parsed.j : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 			surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
+			weather: { preset: normalizeWeatherPreset( parsed?.w?.preset ) },
 		};
 
 	} catch ( e ) {
@@ -175,6 +190,8 @@ async function init() {
 	const hw = bounds.halfWidth;
 	const hd = bounds.halfDepth;
 	const groundSize = Math.max( hw, hd ) * 2 + 20;
+	const weatherPreset = normalizeWeatherPreset( extras?.weather?.preset );
+	const weatherConfig = WEATHER_PRESETS[ weatherPreset ];
 
 	const shadowExtent = Math.max( hw, hd ) + 10;
 	dirLight.shadow.camera.left = - shadowExtent;
@@ -183,8 +200,11 @@ async function init() {
 	dirLight.shadow.camera.bottom = - shadowExtent;
 	dirLight.shadow.camera.updateProjectionMatrix();
 
-	scene.fog.near = groundSize * 0.4;
-	scene.fog.far = groundSize * 0.8;
+	scene.background = new THREE.Color( weatherConfig.bg );
+	scene.fog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul, groundSize * weatherConfig.fogFarMul );
+	dirLight.intensity = weatherConfig.sun;
+	hemiLight.intensity = weatherConfig.hemi;
+	renderer.toneMappingExposure = weatherConfig.exposure;
 
 	buildTrack( scene, models, customCells, extras );
 
