@@ -840,7 +840,7 @@ async function init() {
 
 		try {
 
-			const response = await fetch( './api/tracks' );
+			const response = await fetch( 'https://racing-track-board-api.ga1010.workers.dev/api/tracks' );
 			if ( ! response.ok ) return [];
 			const data = await response.json();
 			return Array.isArray( data?.entries ) ? data.entries.filter( ( entry ) => Number.isFinite( Number( entry?.bestLapSeconds ) ) && typeof entry?.playUrl === 'string' ) : [];
