@@ -77,7 +77,7 @@
 		}
 
 		function decodeMods( modsStr ) {
-			if ( ! modsStr ) return { b: [], j: [], s: [], u: [], d: [] };
+			if ( ! modsStr ) return { b: [], j: [], s: [], u: [], d: [], w: { preset: 'clear', precipitation: 'none', intensity: 'medium', lightning: false, wind: 'none' } };
 			try {
 				const payload = decodeURIComponent( escape( atob( modsStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
 				const parsed = JSON.parse( payload );
@@ -87,9 +87,16 @@
 					s: Array.isArray( parsed.s ) ? parsed.s : [],
 					u: Array.isArray( parsed.u ) ? parsed.u : [],
 					d: Array.isArray( parsed.d ) ? parsed.d : [],
+					w: {
+						preset: typeof parsed?.w?.preset === 'string' ? parsed.w.preset : 'clear',
+						precipitation: typeof parsed?.w?.precipitation === 'string' ? parsed.w.precipitation : 'none',
+						intensity: typeof parsed?.w?.intensity === 'string' ? parsed.w.intensity : 'medium',
+						lightning: Boolean( parsed?.w?.lightning ),
+						wind: typeof parsed?.w?.wind === 'string' ? parsed.w.wind : 'none',
+					},
 				};
 			} catch ( e ) {
-				return { b: [], j: [], s: [], u: [], d: [] };
+				return { b: [], j: [], s: [], u: [], d: [], w: { preset: 'clear', precipitation: 'none', intensity: 'medium', lightning: false, wind: 'none' } };
 			}
 		}
 
@@ -236,7 +243,14 @@
 			ctx.fillStyle = '#dbe6ff';
 			ctx.font = '600 24px system-ui, sans-serif';
 			ctx.fillText( `${ replay.car || 'Car' } • ${ nowT.toFixed( 2 ) }s / ${ replay.ghost.duration.toFixed( 2 ) }s`, 20, 34 );
-		}
+			const weatherPreset = replayTrack?.mods?.w?.preset || 'clear';
+			const weatherPrecip = replayTrack?.mods?.w?.precipitation || 'none';
+			const weatherIntensity = replayTrack?.mods?.w?.intensity || 'medium';
+			const weatherWind = replayTrack?.mods?.w?.wind || 'none';
+			ctx.font = '500 16px system-ui, sans-serif';
+			ctx.fillStyle = '#9fd0ff';
+			ctx.fillText( `Weather: ${ weatherPreset} • ${ weatherPrecip } • ${ weatherIntensity } • ${ weatherWind }`, 20, 58 );
+			}
 
 		function setReplay( parsed ) {
 			if ( ! parsed || ! parsed.ghost || ! Array.isArray( parsed.ghost.samples ) || parsed.ghost.samples.length < 2 ) {
@@ -257,7 +271,10 @@
 			timeline.value = 0;
 			isPlaying = false;
 			playBtn.textContent = 'Play';
-			statusEl.textContent = `Loaded ${ replay.ghost.samples.length } samples from ${ replay.url || 'unknown URL' }`;
+			const weather = replayTrack?.mods?.w || {};
+			const weatherPreset = weather.preset || 'clear';
+			const weatherSummary = `${ weather.precipitation || 'none' }, ${ weather.intensity || 'medium' }, ${ weather.wind || 'none' }${ weather.lightning ? ', lightning' : '' }`;
+			statusEl.textContent = `Loaded ${ replay.ghost.samples.length } samples from ${ replay.url || 'unknown URL' } • Weather: ${ weatherPreset } (${ weatherSummary })`;
 			drawReplay();
 			return true;
 		}
