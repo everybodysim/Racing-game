@@ -125,6 +125,11 @@
 			font: 600 13px sans-serif;
 		}
 		#mode-menu button:hover { background: rgba(255,255,255,0.18); }
+		#garage-panel { margin-top: 12px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.12); }
+		#garage-panel h4 { margin: 0 0 8px; font: 700 12px/1.2 sans-serif; color: #b5d8ff; }
+		.garage-row { display: grid; grid-template-columns: 88px 1fr auto; gap: 6px; align-items: center; margin-bottom: 8px; }
+		.garage-row small { grid-column: 1 / -1; color: #9fb2c7; font: 600 11px/1.2 sans-serif; }
+		.garage-row input[type="range"] { width: 100%; }
 		#stunt-points {
 			position: absolute;
 			bottom: 12px;
@@ -198,6 +203,27 @@
 		<div id="mode-error"></div>
 		<button id="mode-race-btn" type="button">Race Mode</button>
 		<button id="mode-stunt-btn" type="button">Stunt Mode</button>
+		<div id="garage-panel">
+			<h4>Garage (mod packs)</h4>
+			<div class="garage-row">
+				<label for="garage-grip">Handling Pack</label>
+				<input id="garage-grip" type="range" min="0.85" max="1.15" step="0.01" value="1">
+				<span id="garage-grip-value">x1.00</span>
+				<small id="garage-grip-status">Locked (1200 pts)</small>
+			</div>
+			<div class="garage-row">
+				<label for="garage-accel">Power Pack</label>
+				<input id="garage-accel" type="range" min="0.85" max="1.15" step="0.01" value="1">
+				<span id="garage-accel-value">x1.00</span>
+				<small id="garage-accel-status">Locked (2500 pts)</small>
+			</div>
+			<div class="garage-row">
+				<label for="garage-drive">Traction Pack</label>
+				<input id="garage-drive" type="range" min="0.85" max="1.15" step="0.01" value="1">
+				<span id="garage-drive-value">x1.00</span>
+				<small id="garage-drive-status">Locked (4000 pts)</small>
+			</div>
+		</div>
 	</div>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>
 	<a id="mode-menu-btn" href="#" role="button">Mode Menu (E)</a>

@@ -96,6 +96,40 @@
 		}
 		#toast.show { opacity: 1; }
 
+		#settings-bar {
+			position: absolute;
+			top: 12px;
+			left: 50%;
+			transform: translateX(-50%);
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			padding: 8px 12px;
+			background: rgba(20, 20, 30, 0.82);
+			backdrop-filter: blur(10px);
+			-webkit-backdrop-filter: blur(10px);
+			border-radius: 10px;
+			border: 1px solid rgba(255, 255, 255, 0.12);
+			color: rgba(255, 255, 255, 0.9);
+			font-size: 12px;
+			z-index: 20;
+		}
+
+		#settings-bar select {
+			border: 1px solid rgba(255, 255, 255, 0.2);
+			border-radius: 7px;
+			background: rgba(10, 12, 18, 0.8);
+			color: #e9f1ff;
+			padding: 5px 8px;
+			font-size: 12px;
+		}
+
+		#settings-bar input[type="checkbox"] {
+			accent-color: #7ab8ff;
+			width: 14px;
+			height: 14px;
+		}
+
 	</style>
 	<script type="importmap">
 	{
@@ -107,6 +141,37 @@
 	</script>
 </head>
 <body>
+	<div id="settings-bar">
+		<label for="weather-preset">Weather</label>
+		<select id="weather-preset" aria-label="Weather preset">
+			<option value="clear">Clear</option>
+			<option value="cloudy">Cloudy</option>
+			<option value="sunset">Sunset</option>
+			<option value="night">Night</option>
+			<option value="dawn-mist">Dawn Mist</option>
+		</select>
+		<label for="weather-precip">Precip</label>
+		<select id="weather-precip" aria-label="Precipitation">
+			<option value="none">None</option>
+			<option value="rain">Rain</option>
+			<option value="snow">Snow</option>
+		</select>
+		<label for="weather-intensity">Intensity</label>
+		<select id="weather-intensity" aria-label="Weather intensity">
+			<option value="low">Low</option>
+			<option value="medium" selected>Medium</option>
+			<option value="high">High</option>
+		</select>
+		<label for="weather-wind">Wind</label>
+		<select id="weather-wind" aria-label="Wind">
+			<option value="none">Calm</option>
+			<option value="breezy">Breezy</option>
+			<option value="gusty">Gusty</option>
+		</select>
+		<label for="weather-lightning">Lightning</label>
+		<input id="weather-lightning" type="checkbox" aria-label="Lightning flashes">
+	</div>
+
 	<div id="toolbar">
 		<button id="btn-straight" class="active">Straight</button>
 		<button id="btn-corner">Corner</button>
@@ -234,6 +299,57 @@
 	ghostGroup.position.y = - 0.5;
 	ghostGroup.scale.setScalar( GRID_SCALE );
 	scene.add( ghostGroup );
+
+	const WEATHER_PRESETS = {
+		clear: { name: 'Clear', bg: 0xadb2ba, fogNear: 80, fogFar: 160, sun: 5, hemi: 1.5, exposure: 1.0, ground: 0x369069 },
+		cloudy: { name: 'Cloudy', bg: 0x9aa4b2, fogNear: 70, fogFar: 130, sun: 3.8, hemi: 1.3, exposure: 0.95, ground: 0x3f835f },
+		sunset: { name: 'Sunset', bg: 0xc7987d, fogNear: 65, fogFar: 120, sun: 4.6, hemi: 1.25, exposure: 1.08, ground: 0x4c7d58 },
+		night: { name: 'Night', bg: 0x0b1220, fogNear: 45, fogFar: 95, sun: 1.6, hemi: 0.45, exposure: 0.7, ground: 0x243745 },
+		'dawn-mist': { name: 'Dawn Mist', bg: 0xb6c2cc, fogNear: 36, fogFar: 78, sun: 2.9, hemi: 1.1, exposure: 0.88, ground: 0x4f7f74 },
+	};
+	const WEATHER_DEFAULT = 'clear';
+	const PRECIP_TYPES = [ 'none', 'rain', 'snow' ];
+	const INTENSITY_TYPES = [ 'low', 'medium', 'high' ];
+	const WIND_TYPES = [ 'none', 'breezy', 'gusty' ];
+	let weatherSettings = {
+		preset: WEATHER_DEFAULT,
+		precipitation: 'none',
+		intensity: 'medium',
+		lightning: false,
+		wind: 'none',
+	};
+
+	function normalizeWeatherPreset( preset ) {
+
+		return WEATHER_PRESETS[ preset ] ? preset : WEATHER_DEFAULT;
+
+	}
+
+	function normalizeWeatherSettings( value ) {
+
+		const next = value || {};
+		return {
+			preset: normalizeWeatherPreset( next.preset ),
+			precipitation: PRECIP_TYPES.includes( next.precipitation ) ? next.precipitation : 'none',
+			intensity: INTENSITY_TYPES.includes( next.intensity ) ? next.intensity : 'medium',
+			lightning: Boolean( next.lightning ),
+			wind: WIND_TYPES.includes( next.wind ) ? next.wind : 'none',
+		};
+
+	}
+
+	function applyWeatherPreset( preset ) {
+
+		weatherSettings.preset = normalizeWeatherPreset( preset );
+		const weather = WEATHER_PRESETS[ weatherSettings.preset ];
+		scene.background = new THREE.Color( weather.bg );
+		scene.fog = new THREE.Fog( weather.bg, weather.fogNear, weather.fogFar );
+		dirLight.intensity = weather.sun;
+		hemiLight.intensity = weather.hemi;
+		groundMat.color.setHex( weather.ground );
+		renderer.toneMappingExposure = weather.exposure;
+
+	}
 
 	// ─── Camera (orthographic, top-down) ──────────────────────
 
@@ -669,14 +785,14 @@
 
 		}
 
-		const payload = JSON.stringify( { b: bumps, j: jumps, u: surfaces, d: deco } );
+		const payload = JSON.stringify( { b: bumps, j: jumps, u: surfaces, d: deco, w: { ...weatherSettings } } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], j: [], u: [], d: [] };
+		if ( ! modsStr ) return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ) };
 
 		try {
 
@@ -687,12 +803,13 @@
 				j: Array.isArray( parsed.j ) ? parsed.j : [],
 				u: Array.isArray( parsed.u ) ? parsed.u : [],
 				d: Array.isArray( parsed.d ) ? parsed.d : [],
+				w: normalizeWeatherSettings( parsed?.w ),
 			};
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-			return { b: [], j: [], u: [], d: [] };
+			return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ) };
 
 		}
 
@@ -725,6 +842,18 @@
 			}
 
 			const mods = decodeMods( modsEncoded );
+			weatherSettings = normalizeWeatherSettings( mods.w );
+			applyWeatherPreset( weatherSettings.preset );
+			const weatherSelect = document.getElementById( 'weather-preset' );
+			const precipitationSelect = document.getElementById( 'weather-precip' );
+			const intensitySelect = document.getElementById( 'weather-intensity' );
+			const windSelect = document.getElementById( 'weather-wind' );
+			const lightningToggle = document.getElementById( 'weather-lightning' );
+			if ( weatherSelect ) weatherSelect.value = weatherSettings.preset;
+			if ( precipitationSelect ) precipitationSelect.value = weatherSettings.precipitation;
+			if ( intensitySelect ) intensitySelect.value = weatherSettings.intensity;
+			if ( windSelect ) windSelect.value = weatherSettings.wind;
+			if ( lightningToggle ) lightningToggle.checked = weatherSettings.lightning;
 			for ( const [ gx, gz ] of mods.b ) {
 
 				const key = cellKey( gx, gz );
@@ -857,6 +986,32 @@
 	btnRotate.addEventListener( 'click', rotateSelection );
 	btnPaint.addEventListener( 'click', () => selectTool( 'paint' ) );
 	btnErase.addEventListener( 'click', () => selectTool( 'erase' ) );
+	const weatherSelect = document.getElementById( 'weather-preset' );
+	const precipitationSelect = document.getElementById( 'weather-precip' );
+	const intensitySelect = document.getElementById( 'weather-intensity' );
+	const windSelect = document.getElementById( 'weather-wind' );
+	const lightningToggle = document.getElementById( 'weather-lightning' );
+
+	function applyWeatherSettingsFromUi() {
+
+		weatherSettings = normalizeWeatherSettings( {
+			preset: weatherSelect.value,
+			precipitation: precipitationSelect.value,
+			intensity: intensitySelect.value,
+			lightning: lightningToggle.checked,
+			wind: windSelect.value,
+		} );
+		applyWeatherPreset( weatherSettings.preset );
+		save();
+		showToast( `Weather: ${ WEATHER_PRESETS[ weatherSettings.preset ].name }` );
+
+	}
+
+	weatherSelect.addEventListener( 'change', applyWeatherSettingsFromUi );
+	precipitationSelect.addEventListener( 'change', applyWeatherSettingsFromUi );
+	intensitySelect.addEventListener( 'change', applyWeatherSettingsFromUi );
+	windSelect.addEventListener( 'change', applyWeatherSettingsFromUi );
+	lightningToggle.addEventListener( 'change', applyWeatherSettingsFromUi );
 	updateTileToolbar();
 
 	function getCellsArray() {
@@ -1236,6 +1391,7 @@
 	// ─── Init & render loop ───────────────────────────────────
 
 	await loadModels();
+	applyWeatherPreset( WEATHER_DEFAULT );
 	loadSaved();
 
 	// Start with a finish cell if the grid is empty
