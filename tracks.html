@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Track Shares</title>
+	<style>
+		:root { color-scheme: dark; }
+		body { margin: 0; font: 14px/1.45 Inter, system-ui, sans-serif; background: linear-gradient(160deg, #0b1220, #121826); color: #e6edf7; }
+		.wrap { max-width: 980px; margin: 0 auto; padding: 22px 14px 40px; }
+		h1 { margin: 0 0 4px; font-size: 30px; }
+		p.sub { margin: 0 0 18px; color: #b9c6dd; }
+		.panel { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+		label { display: block; margin: 8px 0 6px; font-weight: 600; color: #cfe0ff; }
+		input, textarea { width: 100%; box-sizing: border-box; border: 1px solid rgba(255,255,255,0.22); background: rgba(8,10,16,0.85); color: #e6edf7; border-radius: 8px; padding: 10px; font: inherit; }
+		textarea { min-height: 94px; resize: vertical; }
+		.row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+		button, .linkbtn { border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.12); color: #fff; border-radius: 8px; padding: 9px 12px; cursor: pointer; font: 600 13px sans-serif; text-decoration: none; }
+		button:hover, .linkbtn:hover { background: rgba(255,255,255,0.2); }
+		#status { min-height: 18px; margin-top: 8px; color: #93f4b7; }
+		#grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-top: 12px; }
+		.card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 11px; }
+		.card h3 { margin: 0 0 6px; font-size: 17px; }
+		.meta { color: #b5c2da; font-size: 12px; margin-bottom: 8px; }
+		.card a { color: #9fe8ff; text-decoration: none; font-weight: 600; }
+		.card a:hover { text-decoration: underline; }
+	</style>
+</head>
+<body>
+	<div class="wrap">
+		<h1>Track Share Board</h1>
+		<p class="sub">Paste ghost codes, name tracks, and keep a shareable list of race links.</p>
+			<div class="panel">
+			<label for="track-name">Track name</label>
+			<input id="track-name" placeholder="e.g. Forest Sprint" />
+			<label for="ghost-code">Ghost code</label>
+			<textarea id="ghost-code" placeholder="Paste export ghost code here..."></textarea>
+				<div class="row">
+					<button id="add-btn" type="button">Add to board</button>
+				<button id="export-board-btn" type="button">Export board code</button>
+				<button id="import-board-btn" type="button">Import board code</button>
+				<button id="copy-link-btn" type="button">Copy share link</button>
+				<a class="linkbtn" href="index.html">Back to game</a>
+				</div>
+				<div id="status"></div>
+			</div>
+			<div class="panel">
+				<div class="row" style="margin-top:0">
+					<input id="search-input" placeholder="Search track name..." style="max-width:320px" />
+					<select id="size-filter">
+						<option value="all">All sizes</option>
+						<option value="small">Small</option>
+						<option value="medium">Medium</option>
+						<option value="large">Large</option>
+					</select>
+					<button id="random-track-btn" type="button">Random track</button>
+				</div>
+			</div>
+			<div id="grid"></div>
+		</div>
+		<script>
+			const API_BASE = '/api/tracks';
+			const nameInput = document.getElementById( 'track-name' );
+		const ghostInput = document.getElementById( 'ghost-code' );
+		const addBtn = document.getElementById( 'add-btn' );
+		const exportBtn = document.getElementById( 'export-board-btn' );
+		const importBtn = document.getElementById( 'import-board-btn' );
+			const copyLinkBtn = document.getElementById( 'copy-link-btn' );
+			const searchInput = document.getElementById( 'search-input' );
+			const sizeFilter = document.getElementById( 'size-filter' );
+			const randomTrackBtn = document.getElementById( 'random-track-btn' );
+			const statusEl = document.getElementById( 'status' );
+			const grid = document.getElementById( 'grid' );
+			let entries = [];
+			let useRemoteBoard = false;
+
+		function encodeBase64UrlJson( value ) {
+			return btoa( unescape( encodeURIComponent( JSON.stringify( value ) ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+		}
+
+		function decodeBase64UrlJson( value ) {
+			const normalized = value.replace( /-/g, '+' ).replace( /_/g, '/' );
+			const padded = normalized + '='.repeat( ( 4 - normalized.length % 4 ) % 4 );
+			return JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
+		}
+
+		function setStatus( msg, isError = false ) {
+			statusEl.textContent = msg;
+			statusEl.style.color = isError ? '#ff9fa8' : '#93f4b7';
+		}
+
+		async function apiRequest( path = '', options = {} ) {
+			const res = await fetch( `${ API_BASE }${ path }`, {
+				headers: { 'Content-Type': 'application/json', ...( options.headers || {} ) },
+				...options,
+			} );
+			if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+			return res.json();
+		}
+
+		function saveToHash() {
+			const payload = encodeBase64UrlJson( { v: 1, entries } );
+			const hash = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
+			hash.set( 'board', payload );
+			window.location.hash = hash.toString();
+		}
+
+		function loadFromHash() {
+			try {
+				const hash = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
+				const rawBoard = hash.get( 'board' );
+				if ( ! rawBoard ) {
+
+					entries = [];
+					return;
+
+				}
+				const parsed = decodeBase64UrlJson( rawBoard );
+				entries = Array.isArray( parsed?.entries ) ? parsed.entries : [];
+			} catch ( e ) {
+				entries = [];
+			}
+		}
+
+		async function loadFromRemote() {
+			const payload = await apiRequest();
+			entries = Array.isArray( payload?.entries ) ? payload.entries : [];
+		}
+
+		function inferTrackName( url, fallback = 'Shared Track' ) {
+			try {
+				const parsed = new URL( url, window.location.href );
+				const map = parsed.searchParams.get( 'map' );
+				if ( map ) return `Custom Track (${ map.slice( 0, 8 ) }...)`;
+				return parsed.pathname.split( '/' ).pop() || fallback;
+			} catch ( e ) {
+				return fallback;
+			}
+		}
+
+		function formatSeconds( value ) {
+			return Number.isFinite( value ) ? `${ value.toFixed( 2 ) }s` : '--.--';
+		}
+
+		function inferTrackSize( entry ) {
+			try {
+				const parsed = new URL( entry.playUrl, window.location.href );
+				const map = parsed.searchParams.get( 'map' ) || '';
+				if ( map.length === 0 ) return 'medium';
+				if ( map.length < 90 ) return 'small';
+				if ( map.length < 250 ) return 'medium';
+				return 'large';
+			} catch ( e ) {
+				return 'medium';
+			}
+		}
+
+		function getFilteredEntries() {
+			const search = ( searchInput?.value || '' ).trim().toLowerCase();
+			const size = sizeFilter?.value || 'all';
+			return entries.filter( ( entry ) => {
+				const nameMatch = ! search || String( entry.name || '' ).toLowerCase().includes( search );
+				const sizeMatch = size === 'all' || inferTrackSize( entry ) === size;
+				return nameMatch && sizeMatch;
+			} );
+		}
+
+		function buildPlayUrl( baseUrl, ghostPayload ) {
+			const ghostBlob = encodeBase64UrlJson( ghostPayload );
+			const separator = baseUrl.includes( '#' ) ? '&' : '#';
+			return `${ baseUrl }${ separator }ghost=${ ghostBlob }`;
+		}
+
+		function render() {
+			grid.innerHTML = '';
+			const filtered = getFilteredEntries();
+			if ( filtered.length === 0 ) {
+				const hasAny = entries.length > 0;
+				grid.innerHTML = hasAny
+					? '<div class="card"><h3>No matches</h3><div class="meta">Try a different search or size filter.</div></div>'
+					: '<div class="card"><h3>No uploads yet</h3><div class="meta">Add a ghost code to get started.</div></div>';
+				return;
+			}
+
+			for ( const entry of filtered ) {
+				const card = document.createElement( 'div' );
+				card.className = 'card';
+				const sizeTag = inferTrackSize( entry );
+				card.innerHTML = `<h3>${ entry.name }</h3>
+					<div class="meta">Best: ${ formatSeconds( entry.bestLapSeconds ) } • Samples: ${ entry.sampleCount || 0 } • Size: ${ sizeTag }</div>
+					<div class="row" style="margin-top:0">
+						<a href="${ entry.playUrl }" target="_blank" rel="noopener noreferrer">Open track link</a>
+						<button data-id="${ entry.id }" type="button">Remove</button>
+					</div>`;
+				grid.appendChild( card );
+			}
+		}
+
+		async function addEntryFromGhostCode() {
+			const rawCode = ghostInput.value.trim();
+			if ( ! rawCode ) return setStatus( 'Paste a ghost code first.', true );
+
+			let parsed;
+			try {
+				parsed = decodeBase64UrlJson( rawCode );
+			} catch ( e ) {
+				return setStatus( 'Could not decode ghost code.', true );
+			}
+
+			if ( ! parsed?.url || ! parsed?.ghost?.samples || parsed.ghost.samples.length < 2 ) {
+				return setStatus( 'Ghost code is missing required race data.', true );
+			}
+
+			const name = ( nameInput.value || '' ).trim() || inferTrackName( parsed.url );
+			const playUrl = buildPlayUrl( parsed.url, parsed.ghost );
+			const entryId = `${ Date.now() }:${ entries.length }`;
+			if ( useRemoteBoard ) {
+
+				await apiRequest( '', {
+					method: 'POST',
+					body: JSON.stringify( { name, ghostCode: rawCode } ),
+				} );
+				await loadFromRemote();
+
+			} else {
+
+				entries.unshift( {
+					id: entryId,
+					name,
+					playUrl,
+					bestLapSeconds: Number( parsed.ghost.bestLapSeconds ),
+					sampleCount: Array.isArray( parsed.ghost.samples ) ? parsed.ghost.samples.length : 0,
+				} );
+				saveToHash();
+
+			}
+			render();
+			setStatus( `Added "${ name }" to board.` );
+			ghostInput.value = '';
+		}
+
+		addBtn.addEventListener( 'click', () => {
+			addEntryFromGhostCode().catch( () => setStatus( 'Failed to add entry.', true ) );
+		} );
+			grid.addEventListener( 'click', async ( e ) => {
+				if ( e.target.tagName !== 'BUTTON' ) return;
+				const id = e.target.getAttribute( 'data-id' );
+				if ( useRemoteBoard ) {
+
+					setStatus( 'Remote board removals require admin endpoint configuration.', true );
+					return;
+
+				}
+				entries = entries.filter( ( entry ) => entry.id !== id );
+				saveToHash();
+				render();
+			} );
+		exportBtn.addEventListener( 'click', () => {
+			const code = encodeBase64UrlJson( { v: 1, entries } );
+			ghostInput.value = code;
+			setStatus( 'Board code generated in the textarea. Share it anywhere.' );
+		} );
+			importBtn.addEventListener( 'click', () => {
+				if ( useRemoteBoard ) return setStatus( 'Import board code is available in local mode only.', true );
+				const raw = ghostInput.value.trim();
+			if ( ! raw ) return setStatus( 'Paste a board code in the textarea first.', true );
+				try {
+					const parsed = decodeBase64UrlJson( raw );
+					if ( ! Array.isArray( parsed?.entries ) ) throw new Error();
+					entries = parsed.entries.filter( ( entry ) => typeof entry?.playUrl === 'string' && typeof entry?.name === 'string' );
+					saveToHash();
+					render();
+					setStatus( `Imported ${ entries.length } shared track entries.` );
+				} catch ( e ) {
+					setStatus( 'Invalid board code.', true );
+				}
+			} );
+			copyLinkBtn.addEventListener( 'click', async () => {
+				try {
+					const link = useRemoteBoard ? `${ window.location.origin }/tracks.html` : window.location.href;
+					await navigator.clipboard.writeText( link );
+					setStatus( useRemoteBoard
+						? 'Share link copied. All devices will load the same cloud board.'
+						: 'Share link copied. Open it on any device to load this board.' );
+				} catch ( e ) {
+					setStatus( 'Copy failed. Manually copy the URL from your browser.', true );
+				}
+			} );
+			window.addEventListener( 'hashchange', () => {
+				if ( useRemoteBoard ) return;
+				loadFromHash();
+				render();
+			} );
+			searchInput.addEventListener( 'input', () => render() );
+			sizeFilter.addEventListener( 'change', () => render() );
+			randomTrackBtn.addEventListener( 'click', () => {
+				const filtered = getFilteredEntries();
+				if ( filtered.length === 0 ) {
+
+					setStatus( 'No tracks match your filters.', true );
+					return;
+
+				}
+				const pick = filtered[ Math.floor( Math.random() * filtered.length ) ];
+				window.open( pick.playUrl, '_blank', 'noopener,noreferrer' );
+			} );
+
+			( async () => {
+				try {
+
+					await loadFromRemote();
+					useRemoteBoard = true;
+					setStatus( 'Connected to cloud board.' );
+					importBtn.disabled = true;
+					exportBtn.disabled = true;
+
+				} catch ( e ) {
+
+					useRemoteBoard = false;
+					loadFromHash();
+					setStatus( 'Cloud board unavailable. Using local share-link mode.' );
+
+				}
+				render();
+
+			} )();
+		</script>
+</body>
+</html>
