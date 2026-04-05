@@ -77,6 +77,39 @@ const SURFACE_EFFECTS = {
 	'surface-wood': { grip: 0.9, drag: 1.35, accel: 1.0, drive: 1.55 },
 	'surface-ice': { grip: 0.4, drag: 0.58, accel: 0.45, drive: 0.8 },
 };
+const WEATHER_PRESETS = {
+	clear: { bg: 0xadb2ba, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
+	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
+	sunset: { bg: 0xc7987d, fogNearMul: 0.28, fogFarMul: 0.6, sun: 4.4, hemi: 1.2, exposure: 1.08 },
+	night: { bg: 0x0b1220, fogNearMul: 0.24, fogFarMul: 0.5, sun: 1.7, hemi: 0.45, exposure: 0.7 },
+	'dawn-mist': { bg: 0xb6c2cc, fogNearMul: 0.2, fogFarMul: 0.42, sun: 2.9, hemi: 1.1, exposure: 0.88 },
+};
+const WEATHER_DEFAULT = 'clear';
+const PRECIP_DEFAULT = 'none';
+const INTENSITY_DEFAULT = 'medium';
+const WIND_DEFAULT = 'none';
+const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
+const INTENSITY_TYPES = new Set( [ 'low', 'medium', 'high' ] );
+const WIND_TYPES = new Set( [ 'none', 'breezy', 'gusty' ] );
+
+function normalizeWeatherPreset( preset ) {
+
+	return WEATHER_PRESETS[ preset ] ? preset : WEATHER_DEFAULT;
+
+}
+
+function normalizeWeatherDetails( value ) {
+
+	const next = value || {};
+	return {
+		preset: normalizeWeatherPreset( next.preset ),
+		precipitation: PRECIP_TYPES.has( next.precipitation ) ? next.precipitation : PRECIP_DEFAULT,
+		intensity: INTENSITY_TYPES.has( next.intensity ) ? next.intensity : INTENSITY_DEFAULT,
+		lightning: Boolean( next.lightning ),
+		wind: WIND_TYPES.has( next.wind ) ? next.wind : WIND_DEFAULT,
+	};
+
+}
 
 function decodeExtrasParam( str ) {
 
@@ -92,6 +125,7 @@ function decodeExtrasParam( str ) {
 			jumps: Array.isArray( parsed.j ) ? parsed.j : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 			surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
+			weather: normalizeWeatherDetails( parsed?.w ),
 		};
 
 	} catch ( e ) {
@@ -175,6 +209,8 @@ async function init() {
 	const hw = bounds.halfWidth;
 	const hd = bounds.halfDepth;
 	const groundSize = Math.max( hw, hd ) * 2 + 20;
+	const weatherSettings = normalizeWeatherDetails( extras?.weather );
+	const weatherConfig = WEATHER_PRESETS[ weatherSettings.preset ];
 
 	const shadowExtent = Math.max( hw, hd ) + 10;
 	dirLight.shadow.camera.left = - shadowExtent;
@@ -183,8 +219,16 @@ async function init() {
 	dirLight.shadow.camera.bottom = - shadowExtent;
 	dirLight.shadow.camera.updateProjectionMatrix();
 
-	scene.fog.near = groundSize * 0.4;
-	scene.fog.far = groundSize * 0.8;
+	scene.background = new THREE.Color( weatherConfig.bg );
+	scene.fog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul, groundSize * weatherConfig.fogFarMul );
+	dirLight.intensity = weatherConfig.sun;
+	hemiLight.intensity = weatherConfig.hemi;
+	renderer.toneMappingExposure = weatherConfig.exposure;
+	const baseWeatherLight = {
+		sun: weatherConfig.sun,
+		hemi: weatherConfig.hemi,
+		exposure: weatherConfig.exposure,
+	};
 
 	buildTrack( scene, models, customCells, extras );
 
@@ -728,6 +772,133 @@ async function init() {
 		hasPrevSample: false,
 		passedThisLap: false,
 	} ) );
+	const INTENSITY_SCALE = { low: 0.6, medium: 1.0, high: 1.45 };
+	const WIND_SPEED = { none: 0, breezy: 2.0, gusty: 4.5 };
+	let weatherFx = null;
+	let lightningCooldown = THREE.MathUtils.randFloat( 2.2, 6.2 );
+	let lightningFlashTime = 0;
+	let lightningFlashDuration = 0.12;
+	let lightningFlashStrength = 0;
+
+	function clearWeatherFx() {
+
+		if ( ! weatherFx ) return;
+		if ( weatherFx.points ) scene.remove( weatherFx.points );
+		weatherFx = null;
+
+	}
+
+	function setupWeatherFx( centerX = 0, centerZ = 0 ) {
+
+		clearWeatherFx();
+		const precip = weatherSettings.precipitation;
+		if ( precip === 'none' ) return;
+		const count = Math.round( ( precip === 'rain' ? 520 : 380 ) * ( INTENSITY_SCALE[ weatherSettings.intensity ] || 1 ) );
+		const positions = new Float32Array( count * 3 );
+		const speeds = new Float32Array( count );
+		const spread = 65;
+		for ( let i = 0; i < count; i ++ ) {
+
+			const index = i * 3;
+			positions[ index ] = centerX + THREE.MathUtils.randFloatSpread( spread );
+			positions[ index + 1 ] = THREE.MathUtils.randFloat( 3, 30 );
+			positions[ index + 2 ] = centerZ + THREE.MathUtils.randFloatSpread( spread );
+			speeds[ i ] = precip === 'rain'
+				? THREE.MathUtils.randFloat( 18, 32 )
+				: THREE.MathUtils.randFloat( 2.2, 5.1 );
+
+		}
+		const geometry = new THREE.BufferGeometry();
+		geometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+		const material = new THREE.PointsMaterial( {
+			color: precip === 'rain' ? 0x77b8ff : 0xffffff,
+			size: precip === 'rain' ? 0.06 : 0.13,
+			transparent: true,
+			opacity: precip === 'rain' ? 0.5 : 0.75,
+			depthWrite: false,
+		} );
+		weatherFx = {
+			kind: precip,
+			points: new THREE.Points( geometry, material ),
+			positions,
+			speeds,
+			count,
+		};
+		scene.add( weatherFx.points );
+
+	}
+
+	function updateWeatherFx( dt, now = timer.getElapsed() ) {
+
+		const wind = WIND_SPEED[ weatherSettings.wind ] || 0;
+		const centerX = vehicle.spherePos.x;
+		const centerZ = vehicle.spherePos.z;
+		if ( weatherFx?.positions ) {
+
+			const positions = weatherFx.positions;
+			const sway = weatherFx.kind === 'snow' ? 0.6 : 0.15;
+			for ( let i = 0; i < weatherFx.count; i ++ ) {
+
+				const p = i * 3;
+				const fallSpeed = weatherFx.speeds[ i ];
+				positions[ p + 1 ] -= fallSpeed * dt;
+				positions[ p ] += ( wind + Math.sin( now * 0.8 + i ) * sway ) * dt;
+				if ( positions[ p + 1 ] < 0.2 ) {
+
+					positions[ p ] = centerX + THREE.MathUtils.randFloatSpread( 65 );
+					positions[ p + 1 ] = THREE.MathUtils.randFloat( 16, 34 );
+					positions[ p + 2 ] = centerZ + THREE.MathUtils.randFloatSpread( 65 );
+
+				} else if ( Math.abs( positions[ p ] - centerX ) > 55 || Math.abs( positions[ p + 2 ] - centerZ ) > 55 ) {
+
+					positions[ p ] = centerX + THREE.MathUtils.randFloatSpread( 52 );
+					positions[ p + 2 ] = centerZ + THREE.MathUtils.randFloatSpread( 52 );
+
+				}
+
+			}
+			weatherFx.points.geometry.attributes.position.needsUpdate = true;
+
+		}
+
+		if ( weatherSettings.lightning ) {
+
+			if ( lightningFlashTime > 0 ) {
+
+				lightningFlashTime = Math.max( 0, lightningFlashTime - dt );
+				const pulse = lightningFlashTime / Math.max( 1e-4, lightningFlashDuration );
+				dirLight.intensity = baseWeatherLight.sun + lightningFlashStrength * pulse;
+				hemiLight.intensity = baseWeatherLight.hemi + lightningFlashStrength * 0.22 * pulse;
+				renderer.toneMappingExposure = baseWeatherLight.exposure + lightningFlashStrength * 0.08 * pulse;
+
+			} else {
+
+				lightningCooldown -= dt;
+				dirLight.intensity = baseWeatherLight.sun;
+				hemiLight.intensity = baseWeatherLight.hemi;
+				renderer.toneMappingExposure = baseWeatherLight.exposure;
+				if ( lightningCooldown <= 0 ) {
+
+					lightningFlashDuration = THREE.MathUtils.randFloat( 0.07, 0.2 );
+					lightningFlashTime = lightningFlashDuration;
+					lightningFlashStrength = THREE.MathUtils.randFloat( 3.6, 7.2 );
+					lightningCooldown = THREE.MathUtils.randFloat( 2.6, 8.5 );
+
+				}
+
+			}
+
+		} else {
+
+			dirLight.intensity = baseWeatherLight.sun;
+			hemiLight.intensity = baseWeatherLight.hemi;
+			renderer.toneMappingExposure = baseWeatherLight.exposure;
+
+		}
+
+	}
+
+	setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
 
 	function getOverlappingGridBounds( position, radius = VEHICLE_SURFACE_RADIUS ) {
 
@@ -1447,6 +1618,7 @@ async function init() {
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
 		audio.update( dt, vehicle.linearSpeed, input.z, vehicle.driftIntensity );
+		updateWeatherFx( dt, now );
 
 		for ( const checkpoint of checkpointStates ) {
 
