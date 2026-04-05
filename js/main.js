@@ -77,6 +77,39 @@ const SURFACE_EFFECTS = {
 	'surface-wood': { grip: 0.9, drag: 1.35, accel: 1.0, drive: 1.55 },
 	'surface-ice': { grip: 0.4, drag: 0.58, accel: 0.45, drive: 0.8 },
 };
+const WEATHER_PRESETS = {
+	clear: { bg: 0xadb2ba, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
+	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
+	sunset: { bg: 0xc7987d, fogNearMul: 0.28, fogFarMul: 0.6, sun: 4.4, hemi: 1.2, exposure: 1.08 },
+	night: { bg: 0x0b1220, fogNearMul: 0.24, fogFarMul: 0.5, sun: 1.7, hemi: 0.45, exposure: 0.7 },
+	'dawn-mist': { bg: 0xb6c2cc, fogNearMul: 0.2, fogFarMul: 0.42, sun: 2.9, hemi: 1.1, exposure: 0.88 },
+};
+const WEATHER_DEFAULT = 'clear';
+const PRECIP_DEFAULT = 'none';
+const INTENSITY_DEFAULT = 'medium';
+const WIND_DEFAULT = 'none';
+const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
+const INTENSITY_TYPES = new Set( [ 'low', 'medium', 'high' ] );
+const WIND_TYPES = new Set( [ 'none', 'breezy', 'gusty' ] );
+
+function normalizeWeatherPreset( preset ) {
+
+	return WEATHER_PRESETS[ preset ] ? preset : WEATHER_DEFAULT;
+
+}
+
+function normalizeWeatherDetails( value ) {
+
+	const next = value || {};
+	return {
+		preset: normalizeWeatherPreset( next.preset ),
+		precipitation: PRECIP_TYPES.has( next.precipitation ) ? next.precipitation : PRECIP_DEFAULT,
+		intensity: INTENSITY_TYPES.has( next.intensity ) ? next.intensity : INTENSITY_DEFAULT,
+		lightning: Boolean( next.lightning ),
+		wind: WIND_TYPES.has( next.wind ) ? next.wind : WIND_DEFAULT,
+	};
+
+}
 
 function decodeExtrasParam( str ) {
 
@@ -92,6 +125,7 @@ function decodeExtrasParam( str ) {
 			jumps: Array.isArray( parsed.j ) ? parsed.j : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 			surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
+			weather: normalizeWeatherDetails( parsed?.w ),
 		};
 
 	} catch ( e ) {
@@ -175,6 +209,8 @@ async function init() {
 	const hw = bounds.halfWidth;
 	const hd = bounds.halfDepth;
 	const groundSize = Math.max( hw, hd ) * 2 + 20;
+	const weatherSettings = normalizeWeatherDetails( extras?.weather );
+	const weatherConfig = WEATHER_PRESETS[ weatherSettings.preset ];
 
 	const shadowExtent = Math.max( hw, hd ) + 10;
 	dirLight.shadow.camera.left = - shadowExtent;
@@ -183,8 +219,16 @@ async function init() {
 	dirLight.shadow.camera.bottom = - shadowExtent;
 	dirLight.shadow.camera.updateProjectionMatrix();
 
-	scene.fog.near = groundSize * 0.4;
-	scene.fog.far = groundSize * 0.8;
+	scene.background = new THREE.Color( weatherConfig.bg );
+	scene.fog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul, groundSize * weatherConfig.fogFarMul );
+	dirLight.intensity = weatherConfig.sun;
+	hemiLight.intensity = weatherConfig.hemi;
+	renderer.toneMappingExposure = weatherConfig.exposure;
+	const baseWeatherLight = {
+		sun: weatherConfig.sun,
+		hemi: weatherConfig.hemi,
+		exposure: weatherConfig.exposure,
+	};
 
 	buildTrack( scene, models, customCells, extras );
 
@@ -395,12 +439,35 @@ async function init() {
 	const raceModeBtn = document.getElementById( 'mode-race-btn' );
 	const stuntModeBtn = document.getElementById( 'mode-stunt-btn' );
 	const stuntPointsHud = document.getElementById( 'stunt-points' );
+	const garageGripSlider = document.getElementById( 'garage-grip' );
+	const garageAccelSlider = document.getElementById( 'garage-accel' );
+	const garageDriveSlider = document.getElementById( 'garage-drive' );
+	const garageGripValue = document.getElementById( 'garage-grip-value' );
+	const garageAccelValue = document.getElementById( 'garage-accel-value' );
+	const garageDriveValue = document.getElementById( 'garage-drive-value' );
+	const garageGripStatus = document.getElementById( 'garage-grip-status' );
+	const garageAccelStatus = document.getElementById( 'garage-accel-status' );
+	const garageDriveStatus = document.getElementById( 'garage-drive-status' );
+	const garageGripUnlockBtn = document.getElementById( 'garage-grip-unlock' );
+	const garageAccelUnlockBtn = document.getElementById( 'garage-accel-unlock' );
+	const garageDriveUnlockBtn = document.getElementById( 'garage-drive-unlock' );
 	let gameMode = 'race';
 	let stuntPoints = 0;
 	let bestStuntPoints = 0;
 	let stuntReasonText = '--';
 	let stuntReasonTimer = 0;
+	let stuntCombo = 1;
+	let stuntComboTimer = 0;
+	let stuntAirTime = 0;
 	let modeMenuOpen = false;
+	const GARAGE_PACKS = {
+		grip: { cost: 250, label: 'Handling Pack' },
+		accel: { cost: 325, label: 'Power Pack' },
+		drive: { cost: 400, label: 'Traction Pack' },
+	};
+	const garageStoreKey = 'racing-garage-mods-v1';
+	let garageMods = { grip: 1.0, accel: 1.0, drive: 1.0 };
+	let garageUnlocked = { grip: false, accel: false, drive: false };
 	if ( lapHud2 ) lapHud2.style.display = isSplitScreen ? 'block' : 'none';
 	if ( isSplitScreen ) {
 
@@ -479,7 +546,7 @@ async function init() {
 	function updateStuntPointsHud() {
 
 		if ( ! stuntPointsHud || gameMode !== 'stunt' ) return;
-		stuntPointsHud.innerHTML = `Points: ${ Math.floor( stuntPoints ) }<small class="best-points">Best: ${ Math.floor( bestStuntPoints ) }</small><small>Bonus: ${ stuntReasonText }</small>`;
+		stuntPointsHud.innerHTML = `Points: ${ Math.floor( stuntPoints ) }<small class="best-points">Best: ${ Math.floor( bestStuntPoints ) }</small><small>Combo: x${ stuntCombo.toFixed( 2 ) }</small><small>Bonus: ${ stuntReasonText }</small>`;
 
 	}
 
@@ -509,11 +576,13 @@ async function init() {
 	function addStuntPoints( amount, reason, reasonDuration = 0.9 ) {
 
 		if ( gameMode !== 'stunt' || ! Number.isFinite( amount ) || amount <= 0 ) return;
-		stuntPoints += amount;
+		const scaledAmount = amount * stuntCombo;
+		stuntPoints += scaledAmount;
 		if ( stuntPoints > bestStuntPoints ) {
 
 			bestStuntPoints = stuntPoints;
 			saveStuntStats();
+			updateGarageUi();
 
 		}
 		if ( reason ) {
@@ -522,6 +591,14 @@ async function init() {
 			stuntReasonTimer = reasonDuration;
 
 		}
+
+	}
+
+	function resetStuntChain() {
+
+		stuntCombo = 1;
+		stuntComboTimer = 0;
+		stuntAirTime = 0;
 
 	}
 
@@ -542,6 +619,7 @@ async function init() {
 			stuntPoints = 0;
 			stuntReasonText = '--';
 			stuntReasonTimer = 0;
+			resetStuntChain();
 			updateStuntPointsHud();
 
 		} else {
@@ -558,6 +636,117 @@ async function init() {
 
 		modeMenuOpen = open;
 		if ( modeMenu ) modeMenu.style.display = open ? 'block' : 'none';
+
+	}
+
+	function clampGarageValue( value, fallback = 1.0 ) {
+
+		const parsed = Number( value );
+		if ( ! Number.isFinite( parsed ) ) return fallback;
+		return THREE.MathUtils.clamp( parsed, 0.85, 1.15 );
+
+	}
+
+	function getGarageUnlocks() {
+
+		return { ...garageUnlocked };
+
+	}
+
+	function saveGarageMods() {
+
+		localStorage.setItem( garageStoreKey, JSON.stringify( { mods: garageMods, unlocked: garageUnlocked } ) );
+
+	}
+
+	function loadGarageMods() {
+
+		try {
+
+			const raw = localStorage.getItem( garageStoreKey );
+			if ( ! raw ) return;
+			const parsed = JSON.parse( raw );
+			const legacy = parsed && ! parsed.mods;
+			const mods = legacy ? parsed : parsed?.mods;
+			const unlocked = legacy ? null : parsed?.unlocked;
+			garageMods = {
+				grip: clampGarageValue( mods?.grip, 1.0 ),
+				accel: clampGarageValue( mods?.accel, 1.0 ),
+				drive: clampGarageValue( mods?.drive, 1.0 ),
+			};
+			garageUnlocked = {
+				grip: Boolean( unlocked?.grip ),
+				accel: Boolean( unlocked?.accel ),
+				drive: Boolean( unlocked?.drive ),
+			};
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to load garage mods', e );
+
+		}
+
+	}
+
+	function updateGarageUi() {
+
+		const unlocks = getGarageUnlocks();
+		if ( isSplitScreen ) {
+
+			if ( garageGripSlider ) garageGripSlider.disabled = true;
+			if ( garageAccelSlider ) garageAccelSlider.disabled = true;
+			if ( garageDriveSlider ) garageDriveSlider.disabled = true;
+			if ( garageGripUnlockBtn ) garageGripUnlockBtn.disabled = true;
+			if ( garageAccelUnlockBtn ) garageAccelUnlockBtn.disabled = true;
+			if ( garageDriveUnlockBtn ) garageDriveUnlockBtn.disabled = true;
+			if ( garageGripStatus ) garageGripStatus.textContent = 'Unavailable in 2P mode';
+			if ( garageAccelStatus ) garageAccelStatus.textContent = 'Unavailable in 2P mode';
+			if ( garageDriveStatus ) garageDriveStatus.textContent = 'Unavailable in 2P mode';
+			return;
+
+		}
+		if ( garageGripSlider ) {
+
+			garageGripSlider.disabled = ! unlocks.grip;
+			garageGripSlider.value = String( garageMods.grip );
+
+		}
+		if ( garageAccelSlider ) {
+
+			garageAccelSlider.disabled = ! unlocks.accel;
+			garageAccelSlider.value = String( garageMods.accel );
+
+		}
+		if ( garageDriveSlider ) {
+
+			garageDriveSlider.disabled = ! unlocks.drive;
+			garageDriveSlider.value = String( garageMods.drive );
+
+		}
+		if ( garageGripValue ) garageGripValue.textContent = `x${ garageMods.grip.toFixed( 2 ) }`;
+		if ( garageAccelValue ) garageAccelValue.textContent = `x${ garageMods.accel.toFixed( 2 ) }`;
+		if ( garageDriveValue ) garageDriveValue.textContent = `x${ garageMods.drive.toFixed( 2 ) }`;
+		if ( garageGripUnlockBtn ) {
+
+			garageGripUnlockBtn.disabled = unlocks.grip || coins < GARAGE_PACKS.grip.cost;
+			garageGripUnlockBtn.textContent = unlocks.grip ? 'Unlocked' : `Unlock (${ GARAGE_PACKS.grip.cost })`;
+
+		}
+		if ( garageAccelUnlockBtn ) {
+
+			garageAccelUnlockBtn.disabled = unlocks.accel || coins < GARAGE_PACKS.accel.cost;
+			garageAccelUnlockBtn.textContent = unlocks.accel ? 'Unlocked' : `Unlock (${ GARAGE_PACKS.accel.cost })`;
+
+		}
+		if ( garageDriveUnlockBtn ) {
+
+			garageDriveUnlockBtn.disabled = unlocks.drive || coins < GARAGE_PACKS.drive.cost;
+			garageDriveUnlockBtn.textContent = unlocks.drive ? 'Unlocked' : `Unlock (${ GARAGE_PACKS.drive.cost })`;
+
+		}
+		if ( garageGripStatus ) garageGripStatus.textContent = unlocks.grip ? 'Pack active' : 'Buy to activate slider';
+		if ( garageAccelStatus ) garageAccelStatus.textContent = unlocks.accel ? 'Pack active' : 'Buy to activate slider';
+		if ( garageDriveStatus ) garageDriveStatus.textContent = unlocks.drive ? 'Pack active' : 'Buy to activate slider';
 
 	}
 
@@ -604,6 +793,7 @@ async function init() {
 			else buyUpgradeBtn.textContent = `Buy Upgrade (${ ENGINE_UPGRADE_COST })`;
 
 		}
+		updateGarageUi();
 
 	}
 
@@ -728,6 +918,133 @@ async function init() {
 		hasPrevSample: false,
 		passedThisLap: false,
 	} ) );
+	const INTENSITY_SCALE = { low: 0.6, medium: 1.0, high: 1.45 };
+	const WIND_SPEED = { none: 0, breezy: 2.0, gusty: 4.5 };
+	let weatherFx = null;
+	let lightningCooldown = THREE.MathUtils.randFloat( 2.2, 6.2 );
+	let lightningFlashTime = 0;
+	let lightningFlashDuration = 0.12;
+	let lightningFlashStrength = 0;
+
+	function clearWeatherFx() {
+
+		if ( ! weatherFx ) return;
+		if ( weatherFx.points ) scene.remove( weatherFx.points );
+		weatherFx = null;
+
+	}
+
+	function setupWeatherFx( centerX = 0, centerZ = 0 ) {
+
+		clearWeatherFx();
+		const precip = weatherSettings.precipitation;
+		if ( precip === 'none' ) return;
+		const count = Math.round( ( precip === 'rain' ? 520 : 380 ) * ( INTENSITY_SCALE[ weatherSettings.intensity ] || 1 ) );
+		const positions = new Float32Array( count * 3 );
+		const speeds = new Float32Array( count );
+		const spread = 65;
+		for ( let i = 0; i < count; i ++ ) {
+
+			const index = i * 3;
+			positions[ index ] = centerX + THREE.MathUtils.randFloatSpread( spread );
+			positions[ index + 1 ] = THREE.MathUtils.randFloat( 3, 30 );
+			positions[ index + 2 ] = centerZ + THREE.MathUtils.randFloatSpread( spread );
+			speeds[ i ] = precip === 'rain'
+				? THREE.MathUtils.randFloat( 18, 32 )
+				: THREE.MathUtils.randFloat( 2.2, 5.1 );
+
+		}
+		const geometry = new THREE.BufferGeometry();
+		geometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+		const material = new THREE.PointsMaterial( {
+			color: precip === 'rain' ? 0x77b8ff : 0xffffff,
+			size: precip === 'rain' ? 0.06 : 0.13,
+			transparent: true,
+			opacity: precip === 'rain' ? 0.5 : 0.75,
+			depthWrite: false,
+		} );
+		weatherFx = {
+			kind: precip,
+			points: new THREE.Points( geometry, material ),
+			positions,
+			speeds,
+			count,
+		};
+		scene.add( weatherFx.points );
+
+	}
+
+	function updateWeatherFx( dt, now = timer.getElapsed() ) {
+
+		const wind = WIND_SPEED[ weatherSettings.wind ] || 0;
+		const centerX = vehicle.spherePos.x;
+		const centerZ = vehicle.spherePos.z;
+		if ( weatherFx?.positions ) {
+
+			const positions = weatherFx.positions;
+			const sway = weatherFx.kind === 'snow' ? 0.6 : 0.15;
+			for ( let i = 0; i < weatherFx.count; i ++ ) {
+
+				const p = i * 3;
+				const fallSpeed = weatherFx.speeds[ i ];
+				positions[ p + 1 ] -= fallSpeed * dt;
+				positions[ p ] += ( wind + Math.sin( now * 0.8 + i ) * sway ) * dt;
+				if ( positions[ p + 1 ] < 0.2 ) {
+
+					positions[ p ] = centerX + THREE.MathUtils.randFloatSpread( 65 );
+					positions[ p + 1 ] = THREE.MathUtils.randFloat( 16, 34 );
+					positions[ p + 2 ] = centerZ + THREE.MathUtils.randFloatSpread( 65 );
+
+				} else if ( Math.abs( positions[ p ] - centerX ) > 55 || Math.abs( positions[ p + 2 ] - centerZ ) > 55 ) {
+
+					positions[ p ] = centerX + THREE.MathUtils.randFloatSpread( 52 );
+					positions[ p + 2 ] = centerZ + THREE.MathUtils.randFloatSpread( 52 );
+
+				}
+
+			}
+			weatherFx.points.geometry.attributes.position.needsUpdate = true;
+
+		}
+
+		if ( weatherSettings.lightning ) {
+
+			if ( lightningFlashTime > 0 ) {
+
+				lightningFlashTime = Math.max( 0, lightningFlashTime - dt );
+				const pulse = lightningFlashTime / Math.max( 1e-4, lightningFlashDuration );
+				dirLight.intensity = baseWeatherLight.sun + lightningFlashStrength * pulse;
+				hemiLight.intensity = baseWeatherLight.hemi + lightningFlashStrength * 0.22 * pulse;
+				renderer.toneMappingExposure = baseWeatherLight.exposure + lightningFlashStrength * 0.08 * pulse;
+
+			} else {
+
+				lightningCooldown -= dt;
+				dirLight.intensity = baseWeatherLight.sun;
+				hemiLight.intensity = baseWeatherLight.hemi;
+				renderer.toneMappingExposure = baseWeatherLight.exposure;
+				if ( lightningCooldown <= 0 ) {
+
+					lightningFlashDuration = THREE.MathUtils.randFloat( 0.07, 0.2 );
+					lightningFlashTime = lightningFlashDuration;
+					lightningFlashStrength = THREE.MathUtils.randFloat( 3.6, 7.2 );
+					lightningCooldown = THREE.MathUtils.randFloat( 2.6, 8.5 );
+
+				}
+
+			}
+
+		} else {
+
+			dirLight.intensity = baseWeatherLight.sun;
+			hemiLight.intensity = baseWeatherLight.hemi;
+			renderer.toneMappingExposure = baseWeatherLight.exposure;
+
+		}
+
+	}
+
+	setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
 
 	function getOverlappingGridBounds( position, radius = VEHICLE_SURFACE_RADIUS ) {
 
@@ -778,10 +1095,14 @@ async function init() {
 	function applySurfaceGrip( targetVehicle, surfaceType ) {
 
 		const effect = SURFACE_EFFECTS[ surfaceType || null ];
-		targetVehicle.gripMultiplier = effect ? effect.grip : 1.0;
+		const unlocks = getGarageUnlocks();
+		const gripPack = unlocks.grip ? garageMods.grip : 1.0;
+		const accelPack = unlocks.accel ? garageMods.accel : 1.0;
+		const drivePack = unlocks.drive ? garageMods.drive : 1.0;
+		targetVehicle.gripMultiplier = ( effect ? effect.grip : 1.0 ) * gripPack;
 		targetVehicle.dragMultiplier = effect ? effect.drag : 1.0;
-		targetVehicle.accelMultiplier = effect ? effect.accel : 1.0;
-		targetVehicle.driveMultiplier = effect ? effect.drive : 1.0;
+		targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * accelPack;
+		targetVehicle.driveMultiplier = ( effect ? effect.drive : 1.0 ) * drivePack;
 
 	}
 
@@ -1250,6 +1571,42 @@ async function init() {
 
 	} );
 
+	function onGarageSliderChange( key, value ) {
+
+		const unlocks = getGarageUnlocks();
+		if ( ! unlocks[ key ] ) return;
+		garageMods[ key ] = clampGarageValue( value, 1.0 );
+		saveGarageMods();
+		updateGarageUi();
+
+	}
+
+	function unlockGaragePack( key ) {
+
+		const pack = GARAGE_PACKS[ key ];
+		if ( ! pack || garageUnlocked[ key ] ) return;
+		if ( coins < pack.cost ) {
+
+			window.alert( `Not enough coins for ${ pack.label }. Need ${ pack.cost }.` );
+			return;
+
+		}
+		coins -= pack.cost;
+		garageUnlocked[ key ] = true;
+		saveEconomy();
+		saveGarageMods();
+		updateEconomyHud();
+		updateGarageUi();
+
+	}
+
+	garageGripSlider?.addEventListener( 'input', () => onGarageSliderChange( 'grip', garageGripSlider.value ) );
+	garageAccelSlider?.addEventListener( 'input', () => onGarageSliderChange( 'accel', garageAccelSlider.value ) );
+	garageDriveSlider?.addEventListener( 'input', () => onGarageSliderChange( 'drive', garageDriveSlider.value ) );
+	garageGripUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'grip' ) );
+	garageAccelUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'accel' ) );
+	garageDriveUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'drive' ) );
+
 	buyUpgradeBtn?.addEventListener( 'click', () => {
 
 		if ( engineTier >= ENGINE_MULTS.length - 1 ) return;
@@ -1301,6 +1658,8 @@ async function init() {
 
 	loadEconomy();
 	loadStuntStats();
+	loadGarageMods();
+	updateGarageUi();
 	applyVehiclePerformance();
 	updateEconomyHud();
 	loadLapStats();
@@ -1447,6 +1806,7 @@ async function init() {
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
 		audio.update( dt, vehicle.linearSpeed, input.z, vehicle.driftIntensity );
+		updateWeatherFx( dt, now );
 
 		for ( const checkpoint of checkpointStates ) {
 
@@ -1575,22 +1935,24 @@ async function init() {
 					rewardCoinsForLap( completedLap );
 					if ( gameMode === 'stunt' ) {
 
-						let lapBonus = Math.max( 0, Math.round( ( 65 - completedLap ) * 4 ) );
-						if ( isNewBest ) lapBonus += 140;
-						else if ( Number.isFinite( previousBestLap ) && completedLap <= previousBestLap * 1.03 ) lapBonus += 60;
+						let lapBonus = Math.max( 0, Math.round( ( 65 - completedLap ) * 2 ) );
+						if ( isNewBest ) lapBonus += 70;
+						else if ( Number.isFinite( previousBestLap ) && completedLap <= previousBestLap * 1.03 ) lapBonus += 30;
 						const lapTotalWithBonus = stuntPoints + lapBonus;
-						if ( lapTotalWithBonus > bestStuntPoints ) {
+							if ( lapTotalWithBonus > bestStuntPoints ) {
 
-							bestStuntPoints = lapTotalWithBonus;
-							saveStuntStats();
+								bestStuntPoints = lapTotalWithBonus;
+								saveStuntStats();
+								updateGarageUi();
 
-						}
+							}
 						stuntPoints = 0;
 						stuntReasonText = '--';
 						stuntReasonTimer = 0;
+						resetStuntChain();
 						if ( lapBonus > 0 ) {
 
-							stuntReasonText = `Fast lap +${ lapBonus} (best only)`;
+							stuntReasonText = `Fast lap +${ lapBonus}`;
 							stuntReasonTimer = 1.6;
 
 						}
@@ -1659,9 +2021,40 @@ async function init() {
 			const overspeed = speedRatio > 1.0;
 			const hasBoostSource = activeSurfaceType === 'surface-wood' || activeSurfaceType === 'surface-boost' || now < boostActiveUntil;
 			const isAirborne = vehicle.spherePos.y > 0.78 || Math.abs( vehicle.sphereVel.y ) > 1.1;
-			if ( vehicle.driftIntensity > 0.45 ) addStuntPoints( ( vehicle.driftIntensity - 0.45 ) * 46 * dt, 'Drift' );
+			const hardTurn = Math.abs( input.x ) > 0.35 && speedRatio > 0.6;
+			const drifting = vehicle.driftIntensity > 0.45;
+			const activeTrick = drifting || ( overspeed && hasBoostSource ) || isAirborne || hardTurn;
+			if ( drifting ) addStuntPoints( ( vehicle.driftIntensity - 0.45 ) * 46 * dt, 'Drift' );
 			if ( overspeed && hasBoostSource ) addStuntPoints( 38 * dt, 'Speed burst' );
-			if ( isAirborne ) addStuntPoints( 40 * dt, vehicle.spherePos.y > 1.35 ? 'Big jump' : 'Air' );
+			if ( hardTurn ) addStuntPoints( 18 * dt, 'Corner carve' );
+			if ( isAirborne ) {
+
+				stuntAirTime += dt;
+				addStuntPoints( 40 * dt, vehicle.spherePos.y > 1.35 ? 'Big jump' : 'Air' );
+
+			} else if ( stuntAirTime > 0.2 ) {
+
+				const landingBonus = 14 + Math.min( 80, stuntAirTime * 55 );
+				addStuntPoints( landingBonus, 'Landing');
+				stuntAirTime = 0;
+
+			} else {
+
+				stuntAirTime = 0;
+
+			}
+
+			if ( activeTrick ) {
+
+				stuntComboTimer = Math.min( 2.4, stuntComboTimer + dt * 1.2 );
+				stuntCombo = Math.min( 3.0, stuntCombo + dt * 0.35 );
+
+			} else {
+
+				stuntComboTimer = Math.max( 0, stuntComboTimer - dt );
+				if ( stuntComboTimer === 0 ) stuntCombo = Math.max( 1, stuntCombo - dt * 0.8 );
+
+			}
 
 		}
 		if ( stuntReasonTimer > 0 ) {

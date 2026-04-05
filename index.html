@@ -125,6 +125,13 @@
 			font: 600 13px sans-serif;
 		}
 		#mode-menu button:hover { background: rgba(255,255,255,0.18); }
+		#garage-panel { margin-top: 12px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.12); }
+		#garage-panel h4 { margin: 0 0 8px; font: 700 12px/1.2 sans-serif; color: #b5d8ff; }
+		.garage-row { display: grid; grid-template-columns: 88px 1fr auto auto; gap: 6px; align-items: center; margin-bottom: 8px; }
+		.garage-row small { grid-column: 1 / -1; color: #9fb2c7; font: 600 11px/1.2 sans-serif; }
+		.garage-row input[type="range"] { width: 100%; }
+		.garage-row button { padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; font: 600 11px/1 sans-serif; }
+		.garage-row button:disabled { opacity: 0.55; cursor: default; }
 		#stunt-points {
 			position: absolute;
 			bottom: 12px;
@@ -198,6 +205,30 @@
 		<div id="mode-error"></div>
 		<button id="mode-race-btn" type="button">Race Mode</button>
 		<button id="mode-stunt-btn" type="button">Stunt Mode</button>
+		<div id="garage-panel">
+			<h4>Garage (mod packs)</h4>
+			<div class="garage-row">
+				<label for="garage-grip">Handling Pack</label>
+				<input id="garage-grip" type="range" min="0.85" max="1.15" step="0.01" value="1">
+				<span id="garage-grip-value">x1.00</span>
+				<button id="garage-grip-unlock" type="button">Unlock (250)</button>
+				<small id="garage-grip-status">Locked</small>
+			</div>
+			<div class="garage-row">
+				<label for="garage-accel">Power Pack</label>
+				<input id="garage-accel" type="range" min="0.85" max="1.15" step="0.01" value="1">
+				<span id="garage-accel-value">x1.00</span>
+				<button id="garage-accel-unlock" type="button">Unlock (325)</button>
+				<small id="garage-accel-status">Locked</small>
+			</div>
+			<div class="garage-row">
+				<label for="garage-drive">Traction Pack</label>
+				<input id="garage-drive" type="range" min="0.85" max="1.15" step="0.01" value="1">
+				<span id="garage-drive-value">x1.00</span>
+				<button id="garage-drive-unlock" type="button">Unlock (400)</button>
+				<small id="garage-drive-status">Locked</small>
+			</div>
+		</div>
 	</div>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>
 	<a id="mode-menu-btn" href="#" role="button">Mode Menu (E)</a>
