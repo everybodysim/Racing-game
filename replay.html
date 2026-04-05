@@ -77,7 +77,7 @@
 		}
 
 		function decodeMods( modsStr ) {
-			if ( ! modsStr ) return { b: [], j: [], s: [], u: [], d: [] };
+			if ( ! modsStr ) return { b: [], j: [], s: [], u: [], d: [], w: { preset: 'clear' } };
 			try {
 				const payload = decodeURIComponent( escape( atob( modsStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
 				const parsed = JSON.parse( payload );
@@ -87,9 +87,10 @@
 					s: Array.isArray( parsed.s ) ? parsed.s : [],
 					u: Array.isArray( parsed.u ) ? parsed.u : [],
 					d: Array.isArray( parsed.d ) ? parsed.d : [],
+					w: { preset: typeof parsed?.w?.preset === 'string' ? parsed.w.preset : 'clear' },
 				};
 			} catch ( e ) {
-				return { b: [], j: [], s: [], u: [], d: [] };
+				return { b: [], j: [], s: [], u: [], d: [], w: { preset: 'clear' } };
 			}
 		}
 
@@ -236,7 +237,11 @@
 			ctx.fillStyle = '#dbe6ff';
 			ctx.font = '600 24px system-ui, sans-serif';
 			ctx.fillText( `${ replay.car || 'Car' } • ${ nowT.toFixed( 2 ) }s / ${ replay.ghost.duration.toFixed( 2 ) }s`, 20, 34 );
-		}
+			const weatherPreset = replayTrack?.mods?.w?.preset || 'clear';
+			ctx.font = '500 16px system-ui, sans-serif';
+			ctx.fillStyle = '#9fd0ff';
+			ctx.fillText( `Weather: ${ weatherPreset }`, 20, 58 );
+			}
 
 		function setReplay( parsed ) {
 			if ( ! parsed || ! parsed.ghost || ! Array.isArray( parsed.ghost.samples ) || parsed.ghost.samples.length < 2 ) {
@@ -257,7 +262,8 @@
 			timeline.value = 0;
 			isPlaying = false;
 			playBtn.textContent = 'Play';
-			statusEl.textContent = `Loaded ${ replay.ghost.samples.length } samples from ${ replay.url || 'unknown URL' }`;
+			const weatherPreset = replayTrack?.mods?.w?.preset || 'clear';
+			statusEl.textContent = `Loaded ${ replay.ghost.samples.length } samples from ${ replay.url || 'unknown URL' } • Weather: ${ weatherPreset }`;
 			drawReplay();
 			return true;
 		}
