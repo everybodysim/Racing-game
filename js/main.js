@@ -722,6 +722,7 @@ async function init() {
 	let leaderboardMyRank = null;
 	let leaderboardSubmitMsg = '';
 	let leaderboardTrackId = null;
+	const lbCacheKey = `racing-lb-cache:${ mapParam || 'default' }`;
 
 	async function computeTrackId( mapKey ) {
 
@@ -740,6 +741,43 @@ async function init() {
 
 	}
 
+	function loadCachedLeaderboard() {
+
+		try {
+
+			const raw = localStorage.getItem( lbCacheKey );
+			if ( raw ) {
+
+				const cached = JSON.parse( raw );
+				if ( Array.isArray( cached.times ) ) {
+
+					leaderboardTimes = cached.times;
+					if ( accountUsername ) {
+
+						const idx = leaderboardTimes.findIndex( ( t ) => t.username === accountUsername );
+						leaderboardMyRank = idx !== - 1 ? idx + 1 : null;
+
+					}
+
+				}
+
+			}
+
+		} catch ( e ) { /* ignore corrupt cache */ }
+
+	}
+	loadCachedLeaderboard();
+
+	function saveCachedLeaderboard() {
+
+		try {
+
+			localStorage.setItem( lbCacheKey, JSON.stringify( { times: leaderboardTimes, updatedAt: Date.now() } ) );
+
+		} catch ( e ) { /* storage full, ignore */ }
+
+	}
+
 	async function fetchTrackLeaderboard() {
 
 		try {
@@ -752,6 +790,7 @@ async function init() {
 
 				leaderboardTimes = data.times || [];
 				leaderboardSubmitMsg = '';
+				saveCachedLeaderboard();
 				if ( accountUsername ) {
 
 					const idx = leaderboardTimes.findIndex( ( t ) => t.username === accountUsername );
