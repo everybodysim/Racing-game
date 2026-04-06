@@ -2140,7 +2140,19 @@ async function init() {
 
 	}
 
+	function isTypingIntoField( event ) {
+
+		const target = event?.target;
+		if ( ! target ) return false;
+		if ( target.isContentEditable ) return true;
+		const tagName = target.tagName ? target.tagName.toUpperCase() : '';
+		return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
+
+	}
+
 	window.addEventListener( 'keydown', ( e ) => {
+
+			if ( isTypingIntoField( e ) ) return;
 
 			if ( e.code === 'KeyE' ) {
 
