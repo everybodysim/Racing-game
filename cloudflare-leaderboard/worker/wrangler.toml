@@ -1,0 +1,7 @@
+name = "racing-leaderboard-api"
+main = "src/index.js"
+compatibility_date = "2026-04-06"
+
+[[kv_namespaces]]
+binding = "LEADERBOARD_KV"
+id = "REPLACE_WITH_LEADERBOARD_KV_NAMESPACE_ID"
