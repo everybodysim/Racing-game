@@ -88,6 +88,10 @@ const WEATHER_DEFAULT = 'clear';
 const PRECIP_DEFAULT = 'none';
 const INTENSITY_DEFAULT = 'medium';
 const WIND_DEFAULT = 'none';
+const LEADERBOARD_API_BASE = 'https://REPLACE_WITH_YOUR_WORKER_URL/api/leaderboard';
+const PLAYER_NAME_KEY = 'racing-player-name-v1';
+const MAX_PLAYER_NAME_LENGTH = 24;
+const MAX_LEADERBOARD_ROWS = 15;
 const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
 const INTENSITY_TYPES = new Set( [ 'low', 'medium', 'high' ] );
 const WIND_TYPES = new Set( [ 'none', 'breezy', 'gusty' ] );
@@ -134,6 +138,27 @@ function decodeExtrasParam( str ) {
 		return null;
 
 	}
+
+}
+
+function sanitizePlayerName( value ) {
+
+	const stripped = String( value || '' ).replace( /\s+/g, ' ' ).trim();
+	return stripped.slice( 0, MAX_PLAYER_NAME_LENGTH );
+
+}
+
+function getTrackLabel( mapParamValue ) {
+
+	if ( mapParamValue ) return `Custom ${ mapParamValue.slice( 0, 10 ) }`;
+	return 'Default Track';
+
+}
+
+function getTrackId( mapParamValue, extrasParamValue ) {
+
+	const base = `${ window.location.pathname }?map=${ mapParamValue || 'default' }&mods=${ extrasParamValue || 'none' }`;
+	return btoa( base ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
 
 }
 
@@ -436,6 +461,16 @@ async function init() {
 	const economyHud = document.getElementById( 'economy-hud' );
 	const modeMenu = document.getElementById( 'mode-menu' );
 	const modeError = document.getElementById( 'mode-error' );
+	const playerNameInput = document.getElementById( 'player-name-input' );
+	const leaderboardList = document.getElementById( 'leaderboard-list' );
+	const leaderboardEmpty = document.getElementById( 'leaderboard-empty' );
+	const leaderboardTrackLabel = document.getElementById( 'leaderboard-track-label' );
+	const leaderboardPanel = document.getElementById( 'leaderboard-panel' );
+	const leaderboardToggleBtn = document.getElementById( 'leaderboard-toggle-btn' );
+	const namePopup = document.getElementById( 'name-popup' );
+	const namePopupInput = document.getElementById( 'name-popup-input' );
+	const namePopupSave = document.getElementById( 'name-popup-save' );
+	const namePopupSkip = document.getElementById( 'name-popup-skip' );
 	const raceModeBtn = document.getElementById( 'mode-race-btn' );
 	const stuntModeBtn = document.getElementById( 'mode-stunt-btn' );
 	const campaignModeBtn = document.getElementById( 'mode-campaign-btn' );
@@ -464,6 +499,8 @@ async function init() {
 	let stuntComboTimer = 0;
 	let stuntAirTime = 0;
 	let modeMenuOpen = false;
+	let pendingLeaderboardRecord = null;
+	let leaderboardVisible = true;
 	let campaignState = null;
 	let campaignTargetAuthorSeconds = null;
 	let campaignTrackName = '';
@@ -983,6 +1020,8 @@ async function init() {
 	const lapStoreKey = `racing-lap-stats:${ mapParam || 'default' }`;
 	const stuntStoreKey = `racing-stunt-stats:${ mapParam || 'default' }`;
 	const currentTrackUrl = `${ window.location.origin }${ window.location.pathname }${ window.location.search }`;
+	const leaderboardTrackId = getTrackId( mapParam, extrasParam );
+	const leaderboardTrackName = getTrackLabel( mapParam );
 	const campaignParamEnabled = new URLSearchParams( window.location.search ).get( 'campaign' ) === '1';
 	const campaignAuthorParam = Number( new URLSearchParams( window.location.search ).get( 'campaignAuthor' ) );
 	const campaignGoalParam = new URLSearchParams( window.location.search ).get( 'campaignGoal' ) || '';
@@ -1574,6 +1613,120 @@ async function init() {
 
 	}
 
+	function renderLeaderboardRows( rows ) {
+
+		if ( ! leaderboardList || ! leaderboardEmpty ) return;
+		const entries = Array.isArray( rows ) ? rows : [];
+		leaderboardList.innerHTML = '';
+		if ( entries.length === 0 ) {
+
+			leaderboardList.hidden = true;
+			leaderboardEmpty.hidden = false;
+			leaderboardEmpty.textContent = 'No records yet. Finish a lap to post one.';
+			return;
+
+		}
+		leaderboardEmpty.hidden = true;
+		leaderboardList.hidden = false;
+		for ( const [ index, entry ] of entries.slice( 0, MAX_LEADERBOARD_ROWS ).entries() ) {
+
+			const row = document.createElement( 'li' );
+			const safeName = sanitizePlayerName( entry?.name ) || 'Anonymous';
+			const timeText = formatLapTime( Number( entry?.timeSeconds ) );
+			row.innerHTML = `<span class=\"lb-rank\">#${ index + 1 }</span> <span class=\"lb-name\">${ safeName }</span> — <span class=\"lb-time\">${ timeText }</span>`;
+			leaderboardList.appendChild( row );
+
+		}
+
+	}
+
+	async function fetchTrackLeaderboard() {
+
+		if ( leaderboardTrackLabel ) leaderboardTrackLabel.textContent = `Track: ${ leaderboardTrackName }`;
+		if ( ! leaderboardEmpty || ! leaderboardList ) return;
+		leaderboardEmpty.hidden = false;
+		leaderboardList.hidden = true;
+		leaderboardEmpty.textContent = 'Loading leaderboard…';
+		try {
+
+			const response = await fetch( `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( leaderboardTrackId ) }` );
+			if ( ! response.ok ) throw new Error( `Leaderboard HTTP ${ response.status }` );
+			const parsed = await response.json();
+			renderLeaderboardRows( parsed?.entries || [] );
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to fetch leaderboard', e );
+			leaderboardList.hidden = true;
+			leaderboardEmpty.hidden = false;
+			leaderboardEmpty.textContent = 'Leaderboard unavailable (check Cloudflare setup).';
+
+		}
+
+	}
+
+	function closeNamePopup() {
+
+		if ( ! namePopup ) return;
+		namePopup.style.display = 'none';
+
+	}
+
+	function setLeaderboardVisible( visible ) {
+
+		leaderboardVisible = Boolean( visible );
+		if ( leaderboardPanel ) leaderboardPanel.classList.toggle( 'hidden', ! leaderboardVisible );
+		if ( leaderboardToggleBtn ) leaderboardToggleBtn.textContent = leaderboardVisible ? 'Hide Leaderboard' : 'Show Leaderboard';
+
+	}
+
+	function openNamePopup( pendingTime ) {
+
+		pendingLeaderboardRecord = pendingTime;
+		if ( ! namePopup || ! namePopupInput ) return;
+		namePopup.style.display = 'flex';
+		namePopupInput.value = sanitizePlayerName( playerNameInput?.value );
+		namePopupInput.focus();
+		namePopupInput.select();
+
+	}
+
+	async function submitLeaderboardTime( lapTimeSeconds, forcedName = '' ) {
+
+		const chosenName = sanitizePlayerName( forcedName || playerNameInput?.value );
+		if ( ! chosenName ) {
+
+			openNamePopup( lapTimeSeconds );
+			return false;
+
+		}
+		localStorage.setItem( PLAYER_NAME_KEY, chosenName );
+		if ( playerNameInput ) playerNameInput.value = chosenName;
+		try {
+
+			const response = await fetch( LEADERBOARD_API_BASE, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify( {
+					trackId: leaderboardTrackId,
+					trackName: leaderboardTrackName,
+					name: chosenName,
+					timeSeconds: lapTimeSeconds,
+				} ),
+			} );
+			if ( ! response.ok ) throw new Error( `Leaderboard POST ${ response.status }` );
+			await fetchTrackLeaderboard();
+			return true;
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to submit leaderboard time', e );
+			return false;
+
+		}
+
+	}
+
 	function saveLapStats() {
 
 		if ( ! ghostEnabled ) {
@@ -1903,6 +2056,51 @@ async function init() {
 
 	} );
 
+	const storedPlayerName = sanitizePlayerName( localStorage.getItem( PLAYER_NAME_KEY ) || '' );
+	if ( playerNameInput ) playerNameInput.value = storedPlayerName;
+	if ( namePopupInput ) namePopupInput.value = storedPlayerName;
+	leaderboardToggleBtn?.addEventListener( 'click', () => {
+
+		setLeaderboardVisible( ! leaderboardVisible );
+
+	} );
+	setLeaderboardVisible( true );
+	playerNameInput?.addEventListener( 'change', () => {
+
+		const sanitized = sanitizePlayerName( playerNameInput.value );
+		playerNameInput.value = sanitized;
+		localStorage.setItem( PLAYER_NAME_KEY, sanitized );
+
+	} );
+	namePopupSave?.addEventListener( 'click', async () => {
+
+		const sanitized = sanitizePlayerName( namePopupInput?.value );
+		if ( ! sanitized ) {
+
+			window.alert( 'Please enter a name before submitting.' );
+			return;
+
+		}
+		if ( playerNameInput ) playerNameInput.value = sanitized;
+		localStorage.setItem( PLAYER_NAME_KEY, sanitized );
+		const pendingTime = pendingLeaderboardRecord;
+		closeNamePopup();
+		pendingLeaderboardRecord = null;
+		if ( Number.isFinite( pendingTime ) ) await submitLeaderboardTime( pendingTime, sanitized );
+
+	} );
+	namePopupSkip?.addEventListener( 'click', () => {
+
+		pendingLeaderboardRecord = null;
+		closeNamePopup();
+
+	} );
+	namePopup?.addEventListener( 'click', ( event ) => {
+
+		if ( event.target === namePopup ) closeNamePopup();
+
+	} );
+
 	loadEconomy();
 	loadStuntStats();
 	loadGarageMods();
@@ -1915,6 +2113,12 @@ async function init() {
 	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 	updateGhostShareButtons();
 	updateModeHudVisibility();
+	fetchTrackLeaderboard();
+	setInterval( () => {
+
+		if ( leaderboardVisible ) fetchTrackLeaderboard();
+
+	}, 4000 );
 	if ( campaignParamEnabled ) setGameMode( 'campaign' );
 	resetLapState( true );
 	resetLapState2( true );
@@ -2160,7 +2364,7 @@ async function init() {
 					bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
 					shareImageDataUrl = createShareSnapshot( bestLapSeconds );
 					if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
-				if ( isNewBest && currentLapGhostSamples.length > 1 ) {
+					if ( isNewBest && currentLapGhostSamples.length > 1 ) {
 
 					bestLapGhostSamples.length = 0;
 					const t0 = currentLapGhostSamples[ 0 ].t;
@@ -2170,6 +2374,7 @@ async function init() {
 					updateGhostShareButtons();
 
 				}
+					if ( isNewBest && ! isSplitScreen ) submitLeaderboardTime( completedLap );
 					lapNumber ++;
 					lapStartSeconds = now;
 					resetCurrentLapGhost();
