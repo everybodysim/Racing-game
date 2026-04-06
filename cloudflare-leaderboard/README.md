@@ -1,259 +1,345 @@
-# Cloudflare Worker Backend Setup (Track-Specific Leaderboard)
+# Cloudflare Leaderboard Setup (No Terminal / No Commands / Mobile-Friendly)
 
-This folder contains a **new backend** for the racing game's per-track leaderboard.
+This guide is for people who:
 
-It is designed so each track has its own leaderboard entries, and the frontend submits:
+- are **not comfortable with backend work**,
+- are on **phone/tablet**,
+- and do **not want to run commands**.
 
-- `trackId` (unique ID for the current track)
-- `trackName`
-- `name` (player username from the in-game E menu, stored in local storage)
-- `timeSeconds` (lap time)
-
----
-
-## Folder layout
-
-- `cloudflare-leaderboard/worker/src/index.js` → Worker API source.
-- `cloudflare-leaderboard/worker/wrangler.toml` → Worker deployment config + KV binding.
+Everything below is written as a **click-by-click Cloudflare Dashboard workflow**.
 
 ---
 
-## API overview
+## What you are setting up (plain-language)
 
-The Worker exposes:
+Your game now has an in-game leaderboard UI.
 
-- `GET /api/leaderboard?trackId=<id>`
-  - Returns leaderboard for one track only.
-- `POST /api/leaderboard`
-  - Stores a new record for a track.
-  - Accepts JSON:
+- It shows in a top corner.
+- It is scrollable.
+- It is resizable.
+- It stores player names and lap times.
+- It is unique per track.
 
-```json
-{
-  "trackId": "abc123",
-  "trackName": "Default Track",
-  "name": "playerOne",
-  "timeSeconds": 43.287
-}
-```
+To make that work across players/devices, we need a small online backend.
+That backend is a **Cloudflare Worker** + **Cloudflare KV** storage.
 
-### Behavior details
+You will configure 3 things:
 
-- Track isolation is done by KV key prefix: `leaderboard:<trackId>`.
-- Results are sorted by fastest time first.
-- Ties are broken by oldest submission first.
-- Each track keeps only top `25` entries.
+1. A KV database bucket (for leaderboard entries).
+2. A Worker API script (the backend endpoint).
+3. A Worker URL in your game frontend (`js/main.js`).
 
 ---
 
-## Prerequisites
+## Before you start
 
-1. Cloudflare account.
-2. Node.js 18+ and npm.
-3. Wrangler CLI.
+You need:
 
-Check:
+- A Cloudflare account you can log into in a browser.
+- Access to your site files (GitHub, host file manager, or editor app).
+- The updated project files in this repo.
 
-```bash
-node -v
-npm -v
-```
+You do **not** need:
 
-Install Wrangler globally (or use `npx wrangler` in every command):
-
-```bash
-npm install -g wrangler
-wrangler --version
-```
+- Node.js
+- npm
+- wrangler
+- terminal
 
 ---
 
-## Step 1) Log in to Cloudflare
+## Part A — Create KV storage in Cloudflare Dashboard
 
-From any terminal:
+### Step A1) Open Cloudflare dashboard
 
-```bash
-wrangler login
-```
+1. Open your browser.
+2. Go to: `https://dash.cloudflare.com`
+3. Sign in.
 
-A browser tab opens. Approve access for the account that owns your Worker/KV resources.
+### Step A2) Open the Workers & Pages area
 
----
+1. In the left menu, tap **Workers & Pages**.
+2. Wait for the page to load.
 
-## Step 2) Create KV namespace for leaderboard data
+### Step A3) Open KV
 
-From this repository root:
+Depending on Cloudflare UI version:
 
-```bash
-cd cloudflare-leaderboard/worker
-wrangler kv namespace create LEADERBOARD_KV
-```
+- You may see **Storage & Databases** → **KV**, or
+- A direct **KV** section inside Workers.
 
-You will get output including a namespace ID, similar to:
+Open **KV**.
 
-```text
-[[kv_namespaces]]
-binding = "LEADERBOARD_KV"
-id = "1234567890abcdef1234567890abcdef"
-```
+### Step A4) Create namespace
 
-Copy that `id` value.
+1. Tap **Create namespace**.
+2. Name it exactly:
 
----
+`LEADERBOARD_KV`
 
-## Step 3) Configure `wrangler.toml`
+3. Tap **Create**.
 
-Open:
-
-- `cloudflare-leaderboard/worker/wrangler.toml`
-
-Replace:
-
-```toml
-id = "REPLACE_WITH_LEADERBOARD_KV_NAMESPACE_ID"
-```
-
-with your real namespace ID.
+You now have storage ready.
 
 ---
 
-## Step 4) Deploy the Worker
+## Part B — Create the Worker backend in Dashboard (no CLI)
 
-Still inside `cloudflare-leaderboard/worker`:
+### Step B1) Create Worker
 
-```bash
-wrangler deploy
-```
+1. Go back to **Workers & Pages**.
+2. Tap **Create application**.
+3. Tap **Create Worker**.
+4. Choose a name, for example:
 
-Wrangler will print your deployed URL, for example:
+`racing-leaderboard-api`
 
-```text
-https://racing-leaderboard-api.your-subdomain.workers.dev
-```
+5. Tap **Deploy** (quick deploy is fine).
+6. Tap **Edit code**.
+
+### Step B2) Replace Worker code with project backend
+
+1. Open this file from your repo:
+   - `cloudflare-leaderboard/worker/src/index.js`
+2. Copy its full contents.
+3. In Cloudflare code editor, select all existing code and replace it.
+4. Paste the copied code.
+5. Save the file in the editor.
+
+What this code does:
+
+- `GET /api/leaderboard?trackId=...` returns leaderboard rows for that track only.
+- `POST /api/leaderboard` adds a new `{ name, timeSeconds }` entry for one track.
+- Automatically sorts by fastest time.
+- Keeps top entries.
 
 ---
 
-## Step 5) Connect frontend to Worker URL
+## Part C — Bind KV to Worker in Dashboard UI
 
-The game code uses this constant in `js/main.js`:
+### Step C1) Open Worker settings
+
+1. In the Worker editor screen, find **Settings**.
+2. Open **Bindings**.
+
+### Step C2) Add KV binding
+
+1. Tap **Add binding**.
+2. Choose binding type: **KV Namespace**.
+3. Variable name (must be exact):
+
+`LEADERBOARD_KV`
+
+4. Namespace: select the one you created (`LEADERBOARD_KV`).
+5. Save binding.
+
+Why exact name matters:
+
+- The backend code expects `env.LEADERBOARD_KV`.
+- If you choose another variable name, reads/writes will fail.
+
+---
+
+## Part D — Deploy Worker from dashboard
+
+### Step D1) Deploy current code
+
+1. Return to Worker code editor.
+2. Tap **Deploy** or **Save and Deploy**.
+3. Wait until deployment success message appears.
+
+### Step D2) Copy Worker URL
+
+After deploy, you will see a URL like:
+
+`https://racing-leaderboard-api.<your-subdomain>.workers.dev`
+
+Copy this URL. You need it for frontend wiring.
+
+---
+
+## Part E — Connect game frontend to Worker URL
+
+Your game file currently contains this placeholder:
+
+- File: `js/main.js`
+- Constant:
 
 ```js
 const LEADERBOARD_API_BASE = 'https://REPLACE_WITH_YOUR_WORKER_URL/api/leaderboard';
 ```
 
-Replace it with your real URL:
+You must replace it with your real Worker URL + `/api/leaderboard`.
+
+Example:
 
 ```js
-const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.your-subdomain.workers.dev/api/leaderboard';
+const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.abcd1234.workers.dev/api/leaderboard';
 ```
 
-If your site and Worker are on the same domain and routed under `/api`, you can also use:
+### Mobile-friendly ways to edit this file
 
-```js
-const LEADERBOARD_API_BASE = '/api/leaderboard';
-```
+Choose whichever you already use:
+
+- GitHub web editor in browser.
+- Replit / StackBlitz / Codespaces web editor.
+- Hosting provider file manager editor.
+
+After editing, publish/redeploy your frontend as you normally do.
 
 ---
 
-## Step 6) Test endpoints manually
+## Part F — How to verify (no command line)
 
-Use real values for `WORKER_URL` and `trackId`.
+### Check 1: API URL directly in browser
 
-### Read leaderboard for one track
+1. Open browser and visit:
 
-```bash
-curl "https://WORKER_URL/api/leaderboard?trackId=default-track"
-```
+`https://YOUR-WORKER-URL/api/leaderboard?trackId=test-track`
 
-Expected: JSON with `ok: true` and an `entries` array.
+2. You should see JSON response like:
 
-### Submit a leaderboard time
+- `ok: true`
+- `entries: []` (empty is normal for new track)
 
-```bash
-curl -X POST "https://WORKER_URL/api/leaderboard" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "trackId":"default-track",
-    "trackName":"Default Track",
-    "name":"playerOne",
-    "timeSeconds":42.913
-  }'
-```
+### Check 2: In-game leaderboard panel
 
-Expected: JSON with `ok: true` and sorted entries.
+1. Open your game.
+2. Start a track.
+3. Confirm leaderboard panel appears.
+4. Panel should show loading or empty message first.
 
----
+### Check 3: Username behavior
 
-## Step 7) Test in the game
+1. Press **E** to open mode menu.
+2. Enter player name in new name field.
+3. Close menu.
+4. Finish a fast lap.
+5. Entry should appear in leaderboard with your name/time.
 
-1. Open the game.
-2. Press **E** to open the mode menu.
-3. Set your player name in the new name input.
-4. Finish laps.
-5. Confirm leaderboard panel updates in the top-left corner.
-6. Change tracks (or map/mod parameters) and confirm leaderboard changes per track.
+### Check 4: Popup behavior when no name is set
 
-### Name popup behavior
+1. Clear the name field in E menu.
+2. Finish a new best lap.
+3. Popup should appear asking for a name.
+4. Enter name and save.
+5. Record should submit.
 
-- If a new personal best is set and no name is saved, the game shows a popup.
-- Entering a name saves it to local storage and submits the record.
+### Check 5: Per-track separation
 
----
-
-## Operations / debugging
-
-From `cloudflare-leaderboard/worker`:
-
-```bash
-wrangler tail
-wrangler kv key list --binding LEADERBOARD_KV
-```
-
-To inspect one track key (replace with actual key):
-
-```bash
-wrangler kv key get --binding LEADERBOARD_KV "leaderboard:YOUR_TRACK_ID"
-```
+1. Set a time on Track A.
+2. Switch to Track B (or different map/mods URL).
+3. Track B leaderboard should be different.
+4. Return to Track A and confirm Track A time still exists.
 
 ---
 
-## Security + production notes
+## Understanding the important files
 
-Current implementation is intentionally simple. Before public launch, consider:
+### Backend files (new root folder)
 
-1. **Rate limiting**
-   - Add per-IP throttling (Durable Object or Cloudflare WAF rules).
-2. **Bot protection**
-   - Add Turnstile on POST requests.
-3. **Validation hardening**
-   - Add stricter time plausibility checks (anti-cheat heuristics).
-4. **Moderation**
-   - Add admin endpoints for deleting invalid submissions.
-5. **Analytics / observability**
-   - Use `wrangler tail` and Cloudflare Logs to monitor abuse and API failures.
+- `cloudflare-leaderboard/worker/src/index.js`
+  - API logic, validation, sorting, per-track keying.
 
----
+- `cloudflare-leaderboard/worker/wrangler.toml`
+  - Local/CLI config reference for same Worker (you can ignore this if doing dashboard-only setup).
 
-## Quick redeploy workflow
+### Frontend files
 
-When you update Worker code:
+- `index.html`
+  - Leaderboard panel UI, name input field, popup structure.
 
-```bash
-cd cloudflare-leaderboard/worker
-wrangler deploy
-```
-
-When you update frontend API URL or leaderboard UI:
-
-- redeploy your static site (or push to your hosting provider) so `js/main.js` changes go live.
+- `js/main.js`
+  - Track ID generation, leaderboard fetch/post, local storage for player name, popup flow.
 
 ---
 
-## Common mistakes checklist
+## Troubleshooting (no terminal required)
 
-- [ ] Forgot to replace KV namespace ID in `wrangler.toml`.
-- [ ] Forgot to replace `LEADERBOARD_API_BASE` in `js/main.js`.
-- [ ] CORS blocked because wrong endpoint URL was used.
-- [ ] Worker deployed to a different account/subdomain than expected.
-- [ ] Browser cached old frontend JS (hard refresh to verify).
+## 1) Leaderboard says unavailable
+
+Possible causes:
+
+- Worker URL in `LEADERBOARD_API_BASE` is wrong.
+- Worker not deployed after code change.
+- KV binding missing or misspelled.
+
+Fix:
+
+1. Re-open Worker URL in browser and verify it responds.
+2. Re-check binding variable is exactly `LEADERBOARD_KV`.
+3. Re-deploy Worker.
+4. Hard-refresh game page.
+
+## 2) Names do not save
+
+Possible causes:
+
+- Browser privacy mode blocking local storage.
+- Player name contains only spaces.
+
+Fix:
+
+1. Use normal browser tab, not strict/private mode.
+2. Enter a non-empty name (letters/numbers).
+3. Save again in E menu.
+
+## 3) Records not posting
+
+Possible causes:
+
+- `LEADERBOARD_API_BASE` still placeholder value.
+- Worker failed to parse payload.
+
+Fix:
+
+1. Confirm constant points to real deployed Worker URL.
+2. Confirm URL ends with `/api/leaderboard`.
+3. Re-publish frontend.
+
+## 4) Same leaderboard appears on all tracks
+
+Possible causes:
+
+- Track URL not actually changing map/mods.
+- Testing same track with same `map/mods` values.
+
+Fix:
+
+1. Verify `?map=...` or `?mods=...` changes between tests.
+2. Use clearly different shared track links.
+
+---
+
+## Safety and anti-cheat notes (for later)
+
+Current backend is simple so setup is easy.
+
+For public/competitive use, add later:
+
+- Rate limiting.
+- Bot protection.
+- Moderation tools.
+- Stronger lap validation.
+
+This project already gives you a clean base that works for small/community usage.
+
+---
+
+## Quick checklist (copy this)
+
+- [ ] Created KV namespace `LEADERBOARD_KV` in dashboard.
+- [ ] Created Worker and pasted `cloudflare-leaderboard/worker/src/index.js` code.
+- [ ] Added KV binding variable name exactly `LEADERBOARD_KV`.
+- [ ] Deployed Worker and copied Worker URL.
+- [ ] Replaced `LEADERBOARD_API_BASE` in `js/main.js` with real URL + `/api/leaderboard`.
+- [ ] Published frontend changes.
+- [ ] Verified leaderboard load, submit, popup, and per-track separation in game.
+
+---
+
+## If you want an even easier future version
+
+If you want, next pass can move the API URL out of code and into a small config file/UI toggle,
+so you can change endpoints without editing JavaScript manually.
 
