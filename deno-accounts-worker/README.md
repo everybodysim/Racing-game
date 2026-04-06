@@ -31,21 +31,41 @@ Storage uses **Deno KV** — it's built into Deno Deploy, so there's nothing ext
 2. Click **New Playground** (top-right).
 3. This opens a code editor in your browser with some starter code.
 
-### 2) Paste the worker code
+### 2) Add the config file (required for KV)
 
-1. **Select all** the starter code in the editor (Ctrl+A / Cmd+A).
-2. **Delete** it.
-3. Open the file `deno-accounts-worker/main.js` from this repo (you can view it on GitHub).
-4. **Copy the entire contents** of that file.
-5. **Paste** it into the Deno Deploy editor.
+Deno KV is an unstable API and must be enabled via a config file.
 
-### 3) Deploy
+1. In the Playground editor, look for a way to **add a new file** (there may be a "+" button or a file panel on the left).
+2. Create a new file called `deno.json`.
+3. Paste this into it:
+
+```json
+{
+	"unstable": ["kv"]
+}
+```
+
+If the Playground doesn't support multiple files, you can try the **Deploy Classic** approach instead:
+1. Go to https://dash.deno.com (the classic dashboard).
+2. Click **New Project** → **Play**.
+3. This creates a single-file playground that has KV enabled by default on Deploy Classic.
+
+### 3) Paste the worker code
+
+1. Click on the main file (usually `main.ts` or `mod.ts`) in the file panel.
+2. **Select all** the starter code in the editor (Ctrl+A / Cmd+A).
+3. **Delete** it.
+4. Open the file `deno-accounts-worker/main.js` from this repo (you can view it on GitHub).
+5. **Copy the entire contents** of that file.
+6. **Paste** it into the Deno Deploy editor.
+
+### 4) Deploy
 
 1. Click **Save & Deploy** (top-right), or press **Ctrl+S**.
 2. The preview panel on the right will show the deployed URL.
 3. Your worker is now live! The URL looks like: `https://<random-name>.deno.dev`
 
-### 4) Note your URL
+### 5) Note your URL
 
 Look at the preview panel or the project settings — your URL will be something like:
 
@@ -55,7 +75,7 @@ https://gentle-fox-42.deno.dev
 
 You'll need this URL in the next step.
 
-### 5) (Optional) Rename your project
+### 6) (Optional) Rename your project
 
 1. Click the **Settings** icon (gear) in the playground.
 2. Change the project name to something memorable, like `racing-accounts`.
@@ -143,6 +163,7 @@ This is more than enough for a game with casual users. See https://deno.com/depl
 ## File map
 
 - Deno Deploy worker: `deno-accounts-worker/main.js`
+- Deno config (enables KV): `deno-accounts-worker/deno.json`
 - Cloudflare worker (alternative): `cloudflare/accounts-worker/src/index.js`
 - Frontend account UI: `index.html` (the `#account-panel` section)
 - Frontend account logic: `js/main.js` (search for "Cloud account state")
