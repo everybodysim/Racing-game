@@ -512,6 +512,7 @@ async function init() {
 
 	// ---- Cloud account state ----
 	const ACCOUNTS_API_BASE = 'https://near-boa-43.everybodysim.deno.net/api/accounts';
+	const LEADERBOARD_API_BASE = ACCOUNTS_API_BASE.replace( '/api/accounts', '/api/leaderboard' );
 	const ACCOUNT_TOKEN_KEY = 'racing-account-token';
 	const ACCOUNT_USER_KEY = 'racing-account-user';
 	let accountToken = localStorage.getItem( ACCOUNT_TOKEN_KEY ) || '';
@@ -691,6 +692,71 @@ async function init() {
 
 		clearAccountSession();
 		setAccountSuccess( 'Logged out' );
+
+	}
+
+	// ---- Leaderboard ----
+	let leaderboardStatus = '';
+
+	async function computeTrackId( mapKey ) {
+
+		const encoder = new TextEncoder();
+		const data = encoder.encode( mapKey || 'default' );
+		const hashBuffer = await crypto.subtle.digest( 'SHA-256', data );
+		return [ ...new Uint8Array( hashBuffer ) ].map( ( b ) => b.toString( 16 ).padStart( 2, '0' ) ).join( '' );
+
+	}
+
+	function inferCurrentTrackName() {
+
+		if ( campaignTrackName ) return campaignTrackName;
+		if ( mapParam ) return `Custom Track (${ mapParam.slice( 0, 8 ) }...)`;
+		return 'Default Track';
+
+	}
+
+	async function submitToLeaderboard( lapTime ) {
+
+		if ( ! accountToken || ! accountUsername ) {
+
+			leaderboardStatus = 'Log in to submit times';
+			return;
+
+		}
+
+		try {
+
+			const trackId = await computeTrackId( mapParam );
+			const trackName = inferCurrentTrackName();
+			const res = await fetch( `${ LEADERBOARD_API_BASE }/submit`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ accountToken }` },
+				body: JSON.stringify( { trackId, lapTime, trackName } ),
+			} );
+			const data = await res.json();
+			if ( data.ok ) {
+
+				if ( data.message ) {
+
+					leaderboardStatus = `#${ data.rank } (PB: ${ formatLapTime( data.personalBest ) })`;
+
+				} else {
+
+					leaderboardStatus = `#${ data.rank } of ${ data.totalEntries }`;
+
+				}
+
+			} else {
+
+				leaderboardStatus = data.error || 'Submit failed';
+
+			}
+
+		} catch ( e ) {
+
+			leaderboardStatus = 'Leaderboard offline';
+
+		}
 
 	}
 
@@ -1754,7 +1820,8 @@ async function init() {
 		const checkpointLine = totalCheckpoints > 0
 			? `<br><small>Checkpoints: ${ passedCheckpoints } / ${ totalCheckpoints }</small>`
 			: '';
-		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }`;
+		const lbLine = leaderboardStatus ? `<br><small>Leaderboard: ${ leaderboardStatus }</small>` : ( ! accountToken ? '<br><small>Log in to submit times</small>' : '' );
+		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ lbLine }`;
 
 	}
 
@@ -2393,6 +2460,7 @@ async function init() {
 
 					}
 					saveLapStats();
+					submitToLeaderboard( completedLap );
 					rewardCoinsForLap( completedLap );
 						if ( gameMode === 'stunt' ) {
 

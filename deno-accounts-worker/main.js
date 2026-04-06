@@ -8,15 +8,22 @@
  *   GET  /api/accounts/profile   — load profile data (requires auth token)
  *   POST /api/accounts/delete   — delete account (requires auth token)
  *
+ * Leaderboard endpoints:
+ *   POST /api/leaderboard/submit      — submit a lap time (requires auth token)
+ *   GET  /api/leaderboard/:trackId    — get top times for a track
+ *
  * Storage: Deno KV (built-in, no config needed on Deno Deploy).
  *   Key ["user", username]      → { passwordHash, createdAt }
  *   Key ["profile", username]   → profile JSON blob (same format as Export Profile)
  *   Key ["token", tokenHex]     → { username, createdAt }   (auto-expires after 90 days)
+ *   Key ["lb", trackId]         → { trackName, times: [ { username, lapTime, submittedAt } ] }
  */
 
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 90; // 90 days in milliseconds
 const USERNAME_RE = /^[a-zA-Z0-9_\-]{3,24}$/;
 const MAX_PROFILE_BYTES = 64 * 1024; // 64 KB
+const MAX_LEADERBOARD_ENTRIES = 50;
+const MIN_LAP_TIME = 3; // reject impossibly fast times
 
 const kv = await Deno.openKv();
 
@@ -56,6 +63,19 @@ Deno.serve( async ( request ) => {
 	if ( url.pathname === '/api/accounts/delete' && request.method === 'POST' ) {
 
 		return withCors( await handleDelete( request ) );
+
+	}
+
+	if ( url.pathname === '/api/leaderboard/submit' && request.method === 'POST' ) {
+
+		return withCors( await handleLeaderboardSubmit( request ) );
+
+	}
+
+	const lbMatch = url.pathname.match( /^\/api\/leaderboard\/([a-f0-9]{1,64})$/ );
+	if ( lbMatch && request.method === 'GET' ) {
+
+		return withCors( await handleLeaderboardGet( lbMatch[ 1 ] ) );
 
 	}
 
@@ -152,6 +172,73 @@ async function handleDelete( request ) {
 	await kv.delete( [ 'profile', auth.username ] );
 	await kv.delete( [ 'token', auth.tokenKey ] );
 	return json( { ok: true } );
+
+}
+
+// ---------------------------------------------------------------------------
+// Leaderboard handlers
+// ---------------------------------------------------------------------------
+
+async function handleLeaderboardSubmit( request ) {
+
+	const auth = await authenticate( request );
+	if ( ! auth ) return json( { ok: false, error: 'Log in to submit times to the leaderboard' }, 401 );
+
+	const body = await parseBody( request );
+	if ( ! body ) return json( { ok: false, error: 'Invalid JSON body' }, 400 );
+
+	const trackId = typeof body.trackId === 'string' ? body.trackId.trim() : '';
+	const lapTime = Number( body.lapTime );
+	const trackName = typeof body.trackName === 'string' ? body.trackName.trim().slice( 0, 64 ) : 'Unknown Track';
+
+	if ( ! trackId || ! /^[a-f0-9]{1,64}$/.test( trackId ) ) return json( { ok: false, error: 'Invalid trackId' }, 400 );
+	if ( ! Number.isFinite( lapTime ) || lapTime < MIN_LAP_TIME ) return json( { ok: false, error: 'Invalid lap time' }, 400 );
+	if ( lapTime > 3600 ) return json( { ok: false, error: 'Lap time too large' }, 400 );
+
+	const entry = await kv.get( [ 'lb', trackId ] );
+	const board = entry.value || { trackName, times: [] };
+
+	// Update track name if provided
+	if ( trackName && trackName !== 'Unknown Track' ) board.trackName = trackName;
+
+	// Check if user already has an entry — only keep their best
+	const existingIndex = board.times.findIndex( ( t ) => t.username === auth.username );
+	if ( existingIndex !== - 1 ) {
+
+		if ( board.times[ existingIndex ].lapTime <= lapTime ) {
+
+			// Existing time is better or equal, return current rank
+			const rank = existingIndex + 1;
+			return json( { ok: true, rank, totalEntries: board.times.length, personalBest: board.times[ existingIndex ].lapTime, message: 'Your existing time is faster' } );
+
+		}
+
+		// Remove old entry so we can insert the new better one
+		board.times.splice( existingIndex, 1 );
+
+	}
+
+	// Insert in sorted position (ascending by lapTime)
+	const newEntry = { username: auth.username, lapTime, submittedAt: Date.now() };
+	let insertIndex = board.times.findIndex( ( t ) => t.lapTime > lapTime );
+	if ( insertIndex === - 1 ) insertIndex = board.times.length;
+	board.times.splice( insertIndex, 0, newEntry );
+
+	// Trim to max entries
+	if ( board.times.length > MAX_LEADERBOARD_ENTRIES ) board.times.length = MAX_LEADERBOARD_ENTRIES;
+
+	await kv.set( [ 'lb', trackId ], board );
+
+	const rank = insertIndex + 1;
+	return json( { ok: true, rank, totalEntries: board.times.length, personalBest: lapTime } );
+
+}
+
+async function handleLeaderboardGet( trackId ) {
+
+	const entry = await kv.get( [ 'lb', trackId ] );
+	const board = entry.value || { trackName: 'Unknown Track', times: [] };
+	return json( { ok: true, trackId, trackName: board.trackName, times: board.times } );
 
 }
 
