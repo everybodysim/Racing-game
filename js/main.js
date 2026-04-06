@@ -511,7 +511,7 @@ async function init() {
 	let shareImageDataUrl = '';
 
 	// ---- Cloud account state ----
-	const ACCOUNTS_API_BASE = '/api/accounts';
+	const ACCOUNTS_API_BASE = 'https://near-boa-43.everybodysim.deno.net/api/accounts';
 	const ACCOUNT_TOKEN_KEY = 'racing-account-token';
 	const ACCOUNT_USER_KEY = 'racing-account-user';
 	let accountToken = localStorage.getItem( ACCOUNT_TOKEN_KEY ) || '';
