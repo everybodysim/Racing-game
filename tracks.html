@@ -30,6 +30,8 @@
 	<div class="wrap">
 		<h1>Track Share Board</h1>
 		<p class="sub">Paste ghost codes, name tracks, and keep a shareable list of race links.</p>
+		<br>
+		<input id="adminTokenInput" placeholder="Admin password" type="password">
 			<div class="panel">
 			<label for="track-name">Track name</label>
 			<input id="track-name" placeholder="e.g. Forest Sprint" />
@@ -242,19 +244,40 @@
 		addBtn.addEventListener( 'click', () => {
 			addEntryFromGhostCode().catch( () => setStatus( 'Failed to add entry.', true ) );
 		} );
-			grid.addEventListener( 'click', async ( e ) => {
-				if ( e.target.tagName !== 'BUTTON' ) return;
-				const id = e.target.getAttribute( 'data-id' );
-				if ( useRemoteBoard ) {
+			grid.addEventListener('click', async (e) => {
+  if (e.target.tagName !== 'BUTTON') return;
 
-					setStatus( 'Remote board removals require admin endpoint configuration.', true );
-					return;
+  const id = e.target.getAttribute('data-id');
 
-				}
-				entries = entries.filter( ( entry ) => entry.id !== id );
-				saveToHash();
-				render();
-			} );
+  // 🔑 get password from input
+  const token = document.getElementById("adminTokenInput").value;
+
+  if (useRemoteBoard) {
+    try {
+      await apiRequest(`/${id}`, {
+        method: "DELETE",
+        headers: {
+          "X-Admin-Token": token
+        }
+      });
+
+      // reload from server
+      await loadFromRemote();
+      render();
+      setStatus("Track deleted!");
+
+    } catch (err) {
+      setStatus("Delete failed (wrong password?)", true);
+    }
+
+    return;
+  }
+
+  // local mode (unchanged)
+  entries = entries.filter((entry) => entry.id !== id);
+  saveToHash();
+  render();
+});
 		exportBtn.addEventListener( 'click', () => {
 			const code = encodeBase64UrlJson( { v: 1, entries } );
 			ghostInput.value = code;
