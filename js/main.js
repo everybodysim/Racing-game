@@ -724,10 +724,12 @@ async function init() {
 
 			if ( ! leaderboardTrackId ) leaderboardTrackId = await computeTrackId( mapParam );
 			const res = await fetch( `${ LEADERBOARD_API_BASE }/${ leaderboardTrackId }` );
+			if ( ! res.ok ) { leaderboardSubmitMsg = 'Leaderboard server not responding'; return; }
 			const data = await res.json();
 			if ( data.ok ) {
 
 				leaderboardTimes = data.times || [];
+				leaderboardSubmitMsg = '';
 				if ( accountUsername ) {
 
 					const idx = leaderboardTimes.findIndex( ( t ) => t.username === accountUsername );
@@ -737,7 +739,7 @@ async function init() {
 
 			}
 
-		} catch ( e ) { /* silently fail, will retry on next lap */ }
+		} catch ( e ) { leaderboardSubmitMsg = 'Leaderboard server not reachable'; }
 
 	}
 
@@ -745,7 +747,7 @@ async function init() {
 
 		if ( ! accountToken || ! accountUsername ) {
 
-			leaderboardSubmitMsg = 'Log in to submit times';
+			leaderboardSubmitMsg = 'Log in to submit your lap times';
 			return;
 
 		}
@@ -766,6 +768,10 @@ async function init() {
 					? `#${ data.rank } (PB: ${ formatLapTime( data.personalBest ) })`
 					: `New! #${ data.rank } of ${ data.totalEntries }`;
 
+			} else if ( res.status === 401 ) {
+
+				leaderboardSubmitMsg = 'Session expired — please re-login to verify';
+
 			} else {
 
 				leaderboardSubmitMsg = data.error || 'Submit failed';
@@ -776,7 +782,7 @@ async function init() {
 
 		} catch ( e ) {
 
-			leaderboardSubmitMsg = 'Leaderboard offline';
+			leaderboardSubmitMsg = 'Leaderboard server not reachable';
 
 		}
 

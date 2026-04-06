@@ -182,7 +182,7 @@ async function handleDelete( request ) {
 async function handleLeaderboardSubmit( request ) {
 
 	const auth = await authenticate( request );
-	if ( ! auth ) return json( { ok: false, error: 'Log in to submit times to the leaderboard' }, 401 );
+	if ( ! auth ) return json( { ok: false, error: 'Session expired — please re-login to verify' }, 401 );
 
 	const body = await parseBody( request );
 	if ( ! body ) return json( { ok: false, error: 'Invalid JSON body' }, 400 );
