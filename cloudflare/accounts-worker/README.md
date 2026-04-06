@@ -1,4 +1,4 @@
-# Accounts Worker — Cloudflare setup guide (very detailed)
+# Accounts Worker — Cloudflare setup guide (web dashboard only)
 
 This worker handles user accounts (signup, login, profile cloud-sync) for the racing game. It lives alongside the existing track-share worker — they are separate Workers with separate KV namespaces.
 
@@ -19,119 +19,95 @@ Storage uses **Cloudflare KV** via the `ACCOUNTS_KV` binding.
 ## Prerequisites
 
 1. A Cloudflare account (same one you used for the track-share worker).
-2. Node.js installed (`node -v` should work).
-3. `npm` installed (`npm -v` should work).
-4. Wrangler CLI installed. If you already set it up for the track worker, you're good.
+2. That's it — everything below is done in the Cloudflare dashboard.
 
 ---
 
-## Step-by-step deployment
+## Step-by-step deployment (all in the browser)
 
-### 1) Install Wrangler (skip if already installed)
+### 1) Create a KV namespace
 
-```bash
-npm install -g wrangler
-wrangler --version
-```
+1. Go to https://dash.cloudflare.com
+2. In the left sidebar, click **Workers & Pages**.
+3. Click **KV** in the sub-menu.
+4. Click **Create a namespace**.
+5. Name it `racing-accounts` (or whatever you like).
+6. Click **Add**.
+7. **Copy the namespace ID** — you'll see it in the table. It's a long hex string like `abc123def456...`.
 
-### 2) Log in to Cloudflare (skip if already logged in)
+### 2) Update `wrangler.toml` with the namespace ID
 
-```bash
-wrangler login
-```
-
-This opens a browser. Authorize, then return to terminal.
-
-### 3) Create KV namespace for accounts
-
-Navigate to this folder and run:
-
-```bash
-cd cloudflare/accounts-worker
-wrangler kv namespace create ACCOUNTS_KV
-```
-
-You'll see output like:
-
-```
-✅ Successfully created namespace "racing-accounts-api-ACCOUNTS_KV"
-with id "abc123def456..."
-```
-
-**Copy** the namespace ID (the long hex string).
-
-### 4) Paste the namespace ID into `wrangler.toml`
-
-Open `cloudflare/accounts-worker/wrangler.toml` and replace:
+Open `cloudflare/accounts-worker/wrangler.toml` in your code editor (or on GitHub) and replace:
 
 ```toml
 id = "REPLACE_WITH_KV_NAMESPACE_ID"
 ```
 
-with the real ID you just copied. For example:
+with the real ID you copied. For example:
 
 ```toml
 id = "abc123def456..."
 ```
 
-Save the file.
+Commit and push this change.
 
-### 5) Deploy the Worker
+### 3) Create the Worker
 
-From `cloudflare/accounts-worker`:
+1. In the Cloudflare dashboard, go to **Workers & Pages**.
+2. Click **Create** → **Create Worker**.
+3. Name it `racing-accounts-api`.
+4. Click **Deploy** (this creates a placeholder — you'll paste the real code next).
+5. After it deploys, click **Edit code** (the "Quick Edit" button).
+6. **Delete** all the placeholder code in the editor.
+7. **Copy the entire contents** of `cloudflare/accounts-worker/src/index.js` from this repo.
+8. **Paste** it into the Cloudflare editor.
+9. Click **Deploy** (top-right).
 
-```bash
-wrangler deploy
-```
+### 4) Bind the KV namespace to the Worker
 
-You'll get a URL like:
+1. Go back to the Worker's page in the dashboard (Workers & Pages → `racing-accounts-api`).
+2. Click **Settings** → **Bindings**.
+3. Click **Add** → **KV Namespace**.
+4. Set the **Variable name** to exactly: `ACCOUNTS_KV`
+5. Select the KV namespace you created in step 1 (`racing-accounts`).
+6. Click **Save**.
+
+### 5) Test it
+
+Your Worker is now live at:
 
 ```
 https://racing-accounts-api.<your-subdomain>.workers.dev
 ```
 
-Test it:
+To find your exact URL: go to **Workers & Pages** → click `racing-accounts-api` → the URL is shown at the top.
 
-```bash
-curl https://racing-accounts-api.<your-subdomain>.workers.dev/api/accounts/profile
+Open that URL in a browser with `/api/accounts/profile` appended, e.g.:
+
+```
+https://racing-accounts-api.yourname.workers.dev/api/accounts/profile
 ```
 
-Should return `{"ok":false,"error":"Unauthorized — please log in again"}` (expected — no token yet).
-
-### 6) Test signup + login with curl
-
-```bash
-# Sign up
-curl -X POST https://racing-accounts-api.<your-subdomain>.workers.dev/api/accounts/signup \
-  -H "Content-Type: application/json" \
-  -d '{"username":"testuser","password":"test1234"}'
-
-# Login
-curl -X POST https://racing-accounts-api.<your-subdomain>.workers.dev/api/accounts/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"testuser","password":"test1234"}'
-```
-
-Both should return `{"ok":true,"token":"...","username":"testuser"}`.
+You should see: `{"ok":false,"error":"Unauthorized — please log in again"}` — that's correct (no token yet).
 
 ---
 
-## 7) Connect the game frontend to this Worker
+## 6) Connect the game frontend to this Worker
 
-The frontend code uses `ACCOUNTS_API_BASE` in `js/main.js` (currently set to `'/api/accounts'`).
+### Option A (recommended): same domain via route
 
-### Pattern A (recommended): same domain via Cloudflare Pages + route
+If your game is on Cloudflare Pages or a custom domain on Cloudflare:
 
-If your game is on Cloudflare Pages, add a route so `/api/accounts/*` goes to this Worker:
-
-1. Go to **Cloudflare dashboard → Workers & Pages → your Pages project → Settings → Functions**.
-2. Or, go to **Workers Routes** under your domain and add:
-   - Route: `yourdomain.com/api/accounts/*`
-   - Worker: `racing-accounts-api`
+1. Go to your **domain** in the Cloudflare dashboard.
+2. Click **Workers Routes** (under the Workers tab).
+3. Click **Add route**.
+4. Route: `yourdomain.com/api/accounts/*`
+5. Worker: select `racing-accounts-api`.
+6. Click **Save**.
 
 Then the default `ACCOUNTS_API_BASE = '/api/accounts'` in `main.js` works with no changes.
 
-### Pattern B: separate domains
+### Option B: separate domains
 
 If the game is hosted elsewhere (GitHub Pages, Netlify, etc.), edit the `ACCOUNTS_API_BASE` constant in `js/main.js`:
 
@@ -143,7 +119,7 @@ CORS is already enabled in the Worker, so cross-origin requests will work.
 
 ---
 
-## 8) Verify end-to-end
+## 7) Verify end-to-end
 
 1. Open the game in a browser.
 2. Press **E** (or click "Mode Menu") to open the mode menu.
@@ -155,7 +131,7 @@ CORS is already enabled in the Worker, so cross-origin requests will work.
 
 ---
 
-## 9) How data is stored
+## How data is stored
 
 In your `ACCOUNTS_KV` namespace, data is stored under these key patterns:
 
@@ -165,38 +141,17 @@ In your `ACCOUNTS_KV` namespace, data is stored under these key patterns:
 | `profile:<username>` | Profile JSON (same format as the Export Profile button) |
 | `token:<hex>` | `{ username, createdAt }` — auto-expires after 90 days |
 
+You can inspect these in the Cloudflare dashboard: **Workers & Pages → KV → your namespace → View**.
+
 ---
 
-## 10) Security notes
+## Security notes
 
 - Passwords are hashed with SHA-256 before storage (never stored in plain text).
 - Auth tokens are 32-byte random hex strings, stored with a 90-day TTL.
 - Usernames are 3–24 characters, alphanumeric plus `_` and `-`.
 - Profile data is capped at 64 KB.
-- For production use, consider adding rate limiting via Cloudflare's built-in tools.
-
----
-
-## 11) Useful debug commands
-
-From `cloudflare/accounts-worker`:
-
-```bash
-# Re-deploy after changes
-wrangler deploy
-
-# Live-tail logs
-wrangler tail
-
-# List all keys in the KV namespace
-wrangler kv key list --binding ACCOUNTS_KV
-
-# Get a specific user record
-wrangler kv key get --binding ACCOUNTS_KV "user:testuser"
-
-# Get a specific profile
-wrangler kv key get --binding ACCOUNTS_KV "profile:testuser"
-```
+- For production use, consider adding rate limiting via Cloudflare's built-in tools (dashboard → Security → Rate Limiting).
 
 ---
 

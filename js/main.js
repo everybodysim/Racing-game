@@ -2146,6 +2146,9 @@ async function init() {
 
 	window.addEventListener( 'keydown', ( e ) => {
 
+			const tag = e.target?.tagName;
+			if ( tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ) return;
+
 			if ( e.code === 'KeyE' ) {
 
 				setModeMenuOpen( ! modeMenuOpen );
