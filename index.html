@@ -158,125 +158,6 @@
 			color: #c8f2ff;
 			margin-top: 2px;
 		}
-		#leaderboard-toggle-btn {
-			position: absolute;
-			top: 12px;
-			left: 12px;
-			z-index: 14;
-			color: #fff;
-			font: 600 12px sans-serif;
-			background: rgba(0,0,0,0.6);
-			border: 1px solid rgba(255,255,255,0.25);
-			border-radius: 8px;
-			padding: 7px 10px;
-			cursor: pointer;
-		}
-		#leaderboard-toggle-btn:hover { background: rgba(0,0,0,0.78); }
-		#leaderboard-panel {
-			position: absolute;
-			top: 136px;
-			left: 12px;
-			width: min(320px, 42vw);
-			min-width: 220px;
-			min-height: 150px;
-			max-height: 52vh;
-			resize: both;
-			overflow: auto;
-			z-index: 13;
-			background: rgba(8, 10, 16, 0.82);
-			border: 1px solid rgba(255,255,255,0.2);
-			border-radius: 10px;
-			padding: 10px;
-			color: #fff;
-			font: 600 12px/1.35 sans-serif;
-		}
-		#leaderboard-panel.hidden {
-			display: none;
-		}
-		#leaderboard-panel h3 {
-			margin: 0 0 4px;
-			font: 700 14px/1.2 sans-serif;
-		}
-		#leaderboard-track-label {
-			color: #bbd9ff;
-			font: 600 11px/1.2 sans-serif;
-			margin-bottom: 8px;
-		}
-		#leaderboard-list {
-			margin: 0;
-			padding-left: 18px;
-		}
-		#leaderboard-list li {
-			margin: 5px 0;
-		}
-		#leaderboard-list .lb-name {
-			color: #dff2ff;
-		}
-		#leaderboard-list .lb-time {
-			color: #ffe08a;
-		}
-		#leaderboard-empty {
-			opacity: 0.8;
-		}
-		#username-record-row {
-			margin-top: 10px;
-			padding-top: 8px;
-			border-top: 1px solid rgba(255,255,255,0.12);
-		}
-		#player-name-input {
-			margin-top: 6px;
-			width: 100%;
-			box-sizing: border-box;
-			padding: 8px;
-			border-radius: 7px;
-			border: 1px solid rgba(255,255,255,0.2);
-			background: rgba(0,0,0,0.25);
-			color: #fff;
-			font: 600 13px/1.2 sans-serif;
-		}
-		#name-popup {
-			position: fixed;
-			inset: 0;
-			display: none;
-			align-items: center;
-			justify-content: center;
-			background: rgba(0,0,0,0.6);
-			z-index: 40;
-		}
-		#name-popup .panel {
-			width: min(420px, calc(100vw - 24px));
-			background: rgba(12, 15, 22, 0.95);
-			border: 1px solid rgba(255,255,255,0.2);
-			border-radius: 12px;
-			padding: 14px;
-			color: #fff;
-			font: 600 13px/1.4 sans-serif;
-		}
-		#name-popup h4 { margin: 0 0 8px; font: 700 15px sans-serif; }
-		#name-popup input {
-			width: 100%;
-			box-sizing: border-box;
-			padding: 9px;
-			border-radius: 8px;
-			border: 1px solid rgba(255,255,255,0.2);
-			background: rgba(0,0,0,0.25);
-			color: #fff;
-		}
-		#name-popup .actions {
-			display: flex;
-			gap: 8px;
-			margin-top: 10px;
-		}
-		#name-popup button {
-			flex: 1;
-			padding: 8px;
-			border-radius: 8px;
-			border: 1px solid rgba(255,255,255,0.2);
-			background: rgba(255,255,255,0.12);
-			color: #fff;
-			cursor: pointer;
-		}
-		#name-popup button:hover { background: rgba(255,255,255,0.2); }
 		@media (pointer: coarse) {
 			#editor-link { bottom: auto; top: 12px; right: 12px; }
 				#totd-link { bottom: auto; top: 54px; right: 12px; }
@@ -288,7 +169,6 @@
 				#mode-menu-btn { top: 96px; left: 12px; }
 				#lap-hud { top: 56px; }
 				#economy-hud { top: 12px; right: 12px; }
-				#leaderboard-panel { top: 136px; left: 12px; }
 		}
 	</style>
 	<script type="importmap">
@@ -319,13 +199,6 @@
 		<div id="coins-label">Coins: 0</div>
 		<div id="upgrade-label">Engine: x1.20</div>
 		<button id="buy-upgrade">Buy Upgrade</button>
-	</div>
-	<button id="leaderboard-toggle-btn" type="button">Hide Leaderboard</button>
-	<div id="leaderboard-panel">
-		<h3>Leaderboard</h3>
-		<div id="leaderboard-track-label">Track: loading…</div>
-		<div id="leaderboard-empty">Loading leaderboard…</div>
-		<ol id="leaderboard-list" hidden></ol>
 	</div>
 	<div id="stunt-points">Points: 0<small class="best-points">Best: 0</small><small>Bonus: --</small></div>
 	<div id="mode-menu">
@@ -360,21 +233,6 @@
 			</div>
 			<button id="profile-export-btn" type="button">Export Profile</button>
 			<button id="profile-import-btn" type="button">Import Profile</button>
-		</div>
-		<div id="username-record-row">
-			<label for="player-name-input">Player name (saved in your browser)</label>
-			<input id="player-name-input" maxlength="24" placeholder="Add your leaderboard name" />
-		</div>
-	</div>
-	<div id="name-popup" role="dialog" aria-modal="true" aria-labelledby="name-popup-title">
-		<div class="panel">
-			<h4 id="name-popup-title">New record! Add your name</h4>
-			<div>You just set a personal best. Enter a name to submit to the track leaderboard.</div>
-			<input id="name-popup-input" maxlength="24" placeholder="Your name" />
-			<div class="actions">
-				<button id="name-popup-save" type="button">Save & submit</button>
-				<button id="name-popup-skip" type="button">Skip for now</button>
-			</div>
 		</div>
 	</div>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>
