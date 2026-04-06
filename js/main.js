@@ -548,6 +548,9 @@ async function init() {
 		localStorage.setItem( ACCOUNT_TOKEN_KEY, token );
 		localStorage.setItem( ACCOUNT_USER_KEY, username );
 		updateAccountUi();
+		// Refresh leaderboard with new login so rank is updated
+		leaderboardSubmitMsg = '';
+		fetchTrackLeaderboard();
 
 	}
 
@@ -569,6 +572,25 @@ async function init() {
 		return res.json();
 
 	}
+
+	// Verify saved token on load — clear if expired
+	async function verifyAccountSession() {
+
+		if ( ! accountToken ) return;
+		try {
+
+			const res = await accountFetch( '/profile' );
+			if ( ! res.ok ) {
+
+				clearAccountSession();
+				setAccountError( 'Session expired — please log in again' );
+
+			}
+
+		} catch ( e ) { /* network error, keep session for now */ }
+
+	}
+	verifyAccountSession();
 
 	async function handleAccountLogin() {
 
@@ -788,8 +810,9 @@ async function init() {
 
 	}
 
-	// Fetch leaderboard on load
+	// Fetch leaderboard on load and refresh every 30 seconds
 	fetchTrackLeaderboard();
+	setInterval( fetchTrackLeaderboard, 30000 );
 
 	function getEngineMult() {
 
