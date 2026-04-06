@@ -1,0 +1,12 @@
+name = "racing-live-chat"
+main = "src/index.js"
+compatibility_date = "2026-04-06"
+
+[durable_objects]
+bindings = [
+	{ name = "CHAT_ROOM", class_name = "ChatRoom" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = [ "ChatRoom" ]
