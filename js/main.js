@@ -1848,12 +1848,22 @@ async function init() {
 		let lbLine = '';
 		if ( leaderboardTimes.length > 0 ) {
 
-			const top3 = leaderboardTimes.slice( 0, 3 ).map( ( t, i ) => {
-				const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
-				return `${ medal } ${ t.username } ${ formatLapTime( t.lapTime ) }`;
-			} ).join( ' • ' );
-			lbLine = `<br><small>${ top3 }</small>`;
-			if ( leaderboardMyRank ) lbLine += `<br><small>Your rank: #${ leaderboardMyRank } of ${ leaderboardTimes.length }</small>`;
+			lbLine = '<br><small style="color:#9fe8ff">── Leaderboard ──</small>';
+			const show = leaderboardTimes.slice( 0, 10 );
+			for ( let i = 0; i < show.length; i ++ ) {
+
+				const t = show[ i ];
+				const medal = i === 0 ? '🥇 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : `${ i + 1 }. `;
+				const isMe = accountUsername && t.username === accountUsername;
+				const style = isMe ? ' style="color:#ffd700"' : '';
+				lbLine += `<br><small${ style }>${ medal }${ t.username } — ${ formatLapTime( t.lapTime ) }</small>`;
+
+			}
+			if ( leaderboardTimes.length > 10 ) lbLine += `<br><small style="color:#8fa4c0">+ ${ leaderboardTimes.length - 10 } more</small>`;
+
+		} else {
+
+			lbLine = '<br><small style="color:#8fa4c0">No leaderboard times yet</small>';
 
 		}
 		if ( leaderboardSubmitMsg ) lbLine += `<br><small>${ leaderboardSubmitMsg }</small>`;
