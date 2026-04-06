@@ -79,6 +79,12 @@ Deno.serve( async ( request ) => {
 
 	}
 
+	if ( url.pathname === '/api/leaderboard/all' && request.method === 'GET' ) {
+
+		return withCors( await handleLeaderboardAll() );
+
+	}
+
 	return withCors( json( { ok: false, error: 'Not found' }, 404 ) );
 
 } );
@@ -195,42 +201,55 @@ async function handleLeaderboardSubmit( request ) {
 	if ( ! Number.isFinite( lapTime ) || lapTime < MIN_LAP_TIME ) return json( { ok: false, error: 'Invalid lap time' }, 400 );
 	if ( lapTime > 3600 ) return json( { ok: false, error: 'Lap time too large' }, 400 );
 
-	const entry = await kv.get( [ 'lb', trackId ] );
-	const board = entry.value || { trackName, times: [] };
+	// Retry loop for atomic compare-and-swap to prevent race conditions
+	for ( let attempt = 0; attempt < 5; attempt ++ ) {
 
-	// Update track name if provided
-	if ( trackName && trackName !== 'Unknown Track' ) board.trackName = trackName;
+		const entry = await kv.get( [ 'lb', trackId ] );
+		const board = entry.value ? structuredClone( entry.value ) : { trackName, times: [] };
 
-	// Check if user already has an entry — only keep their best
-	const existingIndex = board.times.findIndex( ( t ) => t.username === auth.username );
-	if ( existingIndex !== - 1 ) {
+		// Update track name if provided
+		if ( trackName && trackName !== 'Unknown Track' ) board.trackName = trackName;
 
-		if ( board.times[ existingIndex ].lapTime <= lapTime ) {
+		// Check if user already has an entry — only keep their best
+		const existingIndex = board.times.findIndex( ( t ) => t.username === auth.username );
+		if ( existingIndex !== - 1 ) {
 
-			// Existing time is better or equal, return current rank
-			const rank = existingIndex + 1;
-			return json( { ok: true, rank, totalEntries: board.times.length, personalBest: board.times[ existingIndex ].lapTime, message: 'Your existing time is faster' } );
+			if ( board.times[ existingIndex ].lapTime <= lapTime ) {
+
+				const rank = existingIndex + 1;
+				return json( { ok: true, rank, totalEntries: board.times.length, personalBest: board.times[ existingIndex ].lapTime, message: 'Your existing time is faster' } );
+
+			}
+			board.times.splice( existingIndex, 1 );
 
 		}
 
-		// Remove old entry so we can insert the new better one
-		board.times.splice( existingIndex, 1 );
+		// Insert in sorted position (ascending by lapTime)
+		const newEntry = { username: auth.username, lapTime, submittedAt: Date.now() };
+		let insertIndex = board.times.findIndex( ( t ) => t.lapTime > lapTime );
+		if ( insertIndex === - 1 ) insertIndex = board.times.length;
+		board.times.splice( insertIndex, 0, newEntry );
+
+		// Trim to max entries
+		if ( board.times.length > MAX_LEADERBOARD_ENTRIES ) board.times.length = MAX_LEADERBOARD_ENTRIES;
+
+		// Atomic write — only succeeds if nobody else modified the entry since we read it
+		const result = await kv.atomic()
+			.check( entry )
+			.set( [ 'lb', trackId ], board )
+			.commit();
+
+		if ( result.ok ) {
+
+			const rank = insertIndex + 1;
+			return json( { ok: true, rank, totalEntries: board.times.length, personalBest: lapTime } );
+
+		}
+		// Conflict — another write happened, retry
 
 	}
 
-	// Insert in sorted position (ascending by lapTime)
-	const newEntry = { username: auth.username, lapTime, submittedAt: Date.now() };
-	let insertIndex = board.times.findIndex( ( t ) => t.lapTime > lapTime );
-	if ( insertIndex === - 1 ) insertIndex = board.times.length;
-	board.times.splice( insertIndex, 0, newEntry );
-
-	// Trim to max entries
-	if ( board.times.length > MAX_LEADERBOARD_ENTRIES ) board.times.length = MAX_LEADERBOARD_ENTRIES;
-
-	await kv.set( [ 'lb', trackId ], board );
-
-	const rank = insertIndex + 1;
-	return json( { ok: true, rank, totalEntries: board.times.length, personalBest: lapTime } );
+	return json( { ok: false, error: 'Server busy — please try again' }, 503 );
 
 }
 
@@ -239,6 +258,24 @@ async function handleLeaderboardGet( trackId ) {
 	const entry = await kv.get( [ 'lb', trackId ] );
 	const board = entry.value || { trackName: 'Unknown Track', times: [] };
 	return json( { ok: true, trackId, trackName: board.trackName, times: board.times } );
+
+}
+
+async function handleLeaderboardAll() {
+
+	const boards = [];
+	const iter = kv.list( { prefix: [ 'lb' ] } );
+	for await ( const entry of iter ) {
+
+		boards.push( {
+			trackId: entry.key[ 1 ],
+			trackName: entry.value.trackName,
+			entryCount: entry.value.times?.length || 0,
+			times: entry.value.times || [],
+		} );
+
+	}
+	return json( { ok: true, boards } );
 
 }
 
