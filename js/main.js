@@ -788,9 +788,44 @@ async function init() {
 			const data = await res.json();
 			if ( data.ok ) {
 
-				leaderboardTimes = data.times || [];
+				const serverTimes = data.times || [];
+
+				// Protect against server data loss (e.g. KV reset after re-deploy).
+				// If the server returned empty but we have cached times, keep the
+				// cache and try to re-upload the cached times back to the server.
+				if ( serverTimes.length === 0 && leaderboardTimes.length > 0 ) {
+
+					leaderboardSubmitMsg = 'Server data was reset — keeping local cache';
+					// Try to re-submit our own cached best time back to the server
+					if ( accountToken && accountUsername ) {
+
+						const myEntry = leaderboardTimes.find( ( t ) => t.username === accountUsername );
+						if ( myEntry ) {
+
+							const trackName = inferCurrentTrackName();
+							fetch( `${ LEADERBOARD_API_BASE }/submit`, {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ accountToken }` },
+								body: JSON.stringify( { trackId: leaderboardTrackId, lapTime: myEntry.lapTime, trackName } ),
+							} ).catch( () => {} );
+
+						}
+
+					}
+					return;
+
+				}
+
+				// Merge: keep any cached entries that the server doesn't have
+				// (could happen if another player's cache has entries the server lost)
+				if ( serverTimes.length > 0 || leaderboardTimes.length === 0 ) {
+
+					leaderboardTimes = serverTimes;
+					saveCachedLeaderboard();
+
+				}
+
 				leaderboardSubmitMsg = '';
-				saveCachedLeaderboard();
 				if ( accountUsername ) {
 
 					const idx = leaderboardTimes.findIndex( ( t ) => t.username === accountUsername );
