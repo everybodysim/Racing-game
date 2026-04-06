@@ -100,36 +100,69 @@
 			color: #fff;
 			border: 1px solid rgba(255,255,255,0.2);
 			border-radius: 12px;
-			padding: 14px;
+			padding: 10px 14px;
 			z-index: 20;
-			min-width: 240px;
+			min-width: 220px;
+			max-height: 85vh;
+			overflow-y: auto;
 			display: none;
-			font: 600 13px/1.4 sans-serif;
-		}
-		#mode-menu h3 { margin: 0 0 10px; font: 700 16px sans-serif; }
-		#mode-error {
-			min-height: 16px;
-			margin: 0 0 6px;
-			color: #ff9ea2;
 			font: 600 12px/1.3 sans-serif;
+		}
+		#mode-menu h3 { margin: 0 0 6px; font: 700 14px sans-serif; }
+		#mode-error {
+			min-height: 14px;
+			margin: 0 0 4px;
+			color: #ff9ea2;
+			font: 600 11px/1.2 sans-serif;
 		}
 		#mode-menu button {
 			width: 100%;
-			margin-top: 8px;
-			padding: 9px 10px;
-			border-radius: 8px;
+			margin-top: 5px;
+			padding: 6px 8px;
+			border-radius: 6px;
 			border: 1px solid rgba(255,255,255,0.2);
 			background: rgba(255,255,255,0.1);
 			color: #fff;
 			cursor: pointer;
-			font: 600 13px sans-serif;
+			font: 600 12px sans-serif;
 		}
 		#mode-menu button:hover { background: rgba(255,255,255,0.18); }
-		#campaign-progress { margin-top: 8px; color: #bde6ff; font: 600 12px/1.3 sans-serif; }
-		#garage-panel { margin-top: 12px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.12); }
-		#garage-panel h4 { margin: 0 0 8px; font: 700 12px/1.2 sans-serif; color: #b5d8ff; }
-		.garage-row { display: grid; grid-template-columns: 88px 1fr auto auto; gap: 6px; align-items: center; margin-bottom: 8px; }
-		.garage-row small { grid-column: 1 / -1; color: #9fb2c7; font: 600 11px/1.2 sans-serif; }
+		#campaign-progress { margin-top: 6px; color: #bde6ff; font: 600 11px/1.2 sans-serif; }
+		#account-panel { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.12); }
+		#account-panel h4 { margin: 0 0 4px; font: 700 11px/1.2 sans-serif; color: #b5d8ff; }
+		#account-status { margin-bottom: 4px; color: #9fb2c7; font: 600 10px/1.2 sans-serif; }
+		#account-panel input {
+			width: calc(100% - 14px);
+			margin-bottom: 4px;
+			padding: 5px 7px;
+			border-radius: 5px;
+			border: 1px solid rgba(255,255,255,0.22);
+			background: rgba(255,255,255,0.08);
+			color: #fff;
+			font: 600 11px sans-serif;
+			outline: none;
+		}
+		#account-panel input::placeholder { color: rgba(255,255,255,0.4); }
+		#account-panel input:focus { border-color: rgba(255,255,255,0.45); }
+		.account-btn {
+			width: 100%;
+			margin-top: 3px;
+			padding: 5px 8px;
+			border-radius: 5px;
+			border: 1px solid rgba(255,255,255,0.22);
+			background: rgba(255,255,255,0.1);
+			color: #fff;
+			cursor: pointer;
+			font: 600 11px sans-serif;
+		}
+		.account-btn:hover { background: rgba(255,255,255,0.18); }
+		.account-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+		#account-error { color: #ff9ea2; font: 600 10px/1.2 sans-serif; margin-top: 3px; min-height: 12px; }
+		#account-success { color: #a2ffb0; font: 600 10px/1.2 sans-serif; margin-top: 3px; min-height: 12px; }
+		#garage-panel { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.12); }
+		#garage-panel h4 { margin: 0 0 4px; font: 700 11px/1.2 sans-serif; color: #b5d8ff; }
+		.garage-row { display: grid; grid-template-columns: 80px 1fr auto auto; gap: 4px; align-items: center; margin-bottom: 4px; }
+		.garage-row small { grid-column: 1 / -1; color: #9fb2c7; font: 600 10px/1.2 sans-serif; }
 		.garage-row input[type="range"] { width: 100%; }
 		.garage-row button { padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; font: 600 11px/1 sans-serif; }
 		.garage-row button:disabled { opacity: 0.55; cursor: default; }
@@ -233,6 +266,23 @@
 			</div>
 			<button id="profile-export-btn" type="button">Export Profile</button>
 			<button id="profile-import-btn" type="button">Import Profile</button>
+		</div>
+		<div id="account-panel">
+			<h4>Cloud Account</h4>
+			<div id="account-status">Not logged in</div>
+			<div id="account-logged-out">
+				<input id="account-username" type="text" placeholder="Username" maxlength="24" autocomplete="username">
+				<input id="account-password" type="password" placeholder="Password" maxlength="128" autocomplete="current-password">
+				<button id="account-login-btn" class="account-btn" type="button">Log In</button>
+				<button id="account-signup-btn" class="account-btn" type="button">Sign Up</button>
+			</div>
+			<div id="account-logged-in" style="display:none">
+				<button id="account-sync-btn" class="account-btn" type="button">Save to Cloud</button>
+				<button id="account-load-btn" class="account-btn" type="button">Load from Cloud</button>
+				<button id="account-logout-btn" class="account-btn" type="button">Log Out</button>
+			</div>
+			<div id="account-error"></div>
+			<div id="account-success"></div>
 		</div>
 	</div>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>

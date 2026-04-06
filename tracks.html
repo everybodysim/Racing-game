@@ -24,6 +24,17 @@
 		.meta { color: #b5c2da; font-size: 12px; margin-bottom: 8px; }
 		.card a { color: #9fe8ff; text-decoration: none; font-weight: 600; }
 		.card a:hover { text-decoration: underline; }
+		.lb-panel { margin-top: 8px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px; display: none; }
+		.lb-panel.open { display: block; }
+		.lb-panel h4 { margin: 0 0 6px; font-size: 13px; color: #9fe8ff; }
+		.lb-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+		.lb-table th { text-align: left; color: #8fa4c0; padding: 3px 6px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+		.lb-table td { padding: 3px 6px; }
+		.lb-table tr:nth-child(even) td { background: rgba(255,255,255,0.03); }
+		.lb-table .rank-1 td { color: #ffd700; }
+		.lb-table .rank-2 td { color: #c0c0c0; }
+		.lb-table .rank-3 td { color: #cd7f32; }
+		.lb-login { color: #ff9fa8; font-size: 12px; margin-top: 4px; }
 	</style>
 </head>
 <body>
@@ -60,6 +71,7 @@
 		</div>
 		<script>
 			const API_BASE = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
+			const LEADERBOARD_API_BASE = 'https://near-boa-43.everybodysim.deno.net/api/leaderboard';
 			const nameInput = document.getElementById( 'track-name' );
 		const ghostInput = document.getElementById( 'ghost-code' );
 		const addBtn = document.getElementById( 'add-btn' );
@@ -171,6 +183,47 @@
 			return `${ baseUrl }${ separator }ghost=${ ghostBlob }`;
 		}
 
+		async function computeTrackId( playUrl ) {
+			try {
+				const parsed = new URL( playUrl, window.location.href );
+				const mapKey = parsed.searchParams.get( 'map' ) || 'default';
+				const encoder = new TextEncoder();
+				const data = encoder.encode( mapKey );
+				const hashBuffer = await crypto.subtle.digest( 'SHA-256', data );
+				return [ ...new Uint8Array( hashBuffer ) ].map( ( b ) => b.toString( 16 ).padStart( 2, '0' ) ).join( '' );
+			} catch ( e ) {
+				return null;
+			}
+		}
+
+		async function fetchLeaderboard( trackId ) {
+			try {
+				const res = await fetch( `${ LEADERBOARD_API_BASE }/${ trackId }` );
+				if ( ! res.ok ) return null;
+				const data = await res.json();
+				return data.ok ? data : null;
+			} catch ( e ) {
+				return null;
+			}
+		}
+
+		function renderLeaderboardPanel( panel, times ) {
+			if ( ! times || times.length === 0 ) {
+				panel.innerHTML = '<h4>Leaderboard</h4><div class="meta">No times submitted yet. Play this track and log in to submit your time!</div>';
+				return;
+			}
+			let rows = '';
+			for ( let i = 0; i < times.length; i ++ ) {
+				const t = times[ i ];
+				const rankClass = i < 3 ? ` class="rank-${ i + 1 }"` : '';
+				const medal = i === 0 ? '🥇 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : '';
+				rows += `<tr${ rankClass }><td>${ medal }${ i + 1 }</td><td>${ t.username }</td><td>${ formatSeconds( t.lapTime ) }</td></tr>`;
+			}
+			panel.innerHTML = `<h4>Leaderboard (${ times.length } player${ times.length !== 1 ? 's' : '' })</h4>
+				<table class="lb-table"><thead><tr><th>#</th><th>Player</th><th>Time</th></tr></thead>
+				<tbody>${ rows }</tbody></table>`;
+		}
+
 		function render() {
 			grid.innerHTML = '';
 			const filtered = getFilteredEntries();
@@ -186,12 +239,15 @@
 				const card = document.createElement( 'div' );
 				card.className = 'card';
 				const sizeTag = inferTrackSize( entry );
+				const lbId = `lb-${ entry.id }`;
 				card.innerHTML = `<h3>${ entry.name }</h3>
 					<div class="meta">Best: ${ formatSeconds( entry.bestLapSeconds ) } • Samples: ${ entry.sampleCount || 0 } • Size: ${ sizeTag }</div>
 					<div class="row" style="margin-top:0">
 						<a href="${ entry.playUrl }" target="_blank" rel="noopener noreferrer">Open track link</a>
+						<button data-lb="${ entry.id }" type="button">Leaderboard</button>
 						<button data-id="${ entry.id }" type="button">Remove</button>
-					</div>`;
+					</div>
+					<div class="lb-panel" id="${ lbId }"></div>`;
 				grid.appendChild( card );
 			}
 		}
@@ -242,19 +298,43 @@
 		addBtn.addEventListener( 'click', () => {
 			addEntryFromGhostCode().catch( () => setStatus( 'Failed to add entry.', true ) );
 		} );
-			grid.addEventListener( 'click', async ( e ) => {
-				if ( e.target.tagName !== 'BUTTON' ) return;
-				const id = e.target.getAttribute( 'data-id' );
-				if ( useRemoteBoard ) {
+				grid.addEventListener( 'click', async ( e ) => {
+					if ( e.target.tagName !== 'BUTTON' ) return;
 
-					setStatus( 'Remote board removals require admin endpoint configuration.', true );
-					return;
+					// Leaderboard toggle
+					const lbEntryId = e.target.getAttribute( 'data-lb' );
+					if ( lbEntryId ) {
+						const panel = document.getElementById( `lb-${ lbEntryId }` );
+						if ( ! panel ) return;
+						if ( panel.classList.contains( 'open' ) ) {
+							panel.classList.remove( 'open' );
+							return;
+						}
+						panel.classList.add( 'open' );
+						panel.innerHTML = '<div class="meta">Loading leaderboard...</div>';
+						const entry = entries.find( ( ent ) => ent.id === lbEntryId );
+						if ( ! entry ) return;
+						const trackId = await computeTrackId( entry.playUrl );
+						if ( ! trackId ) { panel.innerHTML = '<div class="meta">Could not identify track.</div>'; return; }
+						const lb = await fetchLeaderboard( trackId );
+						if ( ! lb ) { panel.innerHTML = '<div class="meta">Leaderboard unavailable.</div>'; return; }
+						renderLeaderboardPanel( panel, lb.times );
+						return;
+					}
 
-				}
-				entries = entries.filter( ( entry ) => entry.id !== id );
-				saveToHash();
-				render();
-			} );
+					// Remove entry
+					const id = e.target.getAttribute( 'data-id' );
+					if ( ! id ) return;
+					if ( useRemoteBoard ) {
+
+						setStatus( 'Remote board removals require admin endpoint configuration.', true );
+						return;
+
+					}
+					entries = entries.filter( ( entry ) => entry.id !== id );
+					saveToHash();
+					render();
+				} );
 		exportBtn.addEventListener( 'click', () => {
 			const code = encodeBase64UrlJson( { v: 1, entries } );
 			ghostInput.value = code;

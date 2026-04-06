@@ -455,6 +455,18 @@ async function init() {
 	const garageDriveUnlockBtn = document.getElementById( 'garage-drive-unlock' );
 	const profileExportBtn = document.getElementById( 'profile-export-btn' );
 	const profileImportBtn = document.getElementById( 'profile-import-btn' );
+	const accountStatus = document.getElementById( 'account-status' );
+	const accountLoggedOut = document.getElementById( 'account-logged-out' );
+	const accountLoggedIn = document.getElementById( 'account-logged-in' );
+	const accountUsernameInput = document.getElementById( 'account-username' );
+	const accountPasswordInput = document.getElementById( 'account-password' );
+	const accountLoginBtn = document.getElementById( 'account-login-btn' );
+	const accountSignupBtn = document.getElementById( 'account-signup-btn' );
+	const accountSyncBtn = document.getElementById( 'account-sync-btn' );
+	const accountLoadBtn = document.getElementById( 'account-load-btn' );
+	const accountLogoutBtn = document.getElementById( 'account-logout-btn' );
+	const accountErrorEl = document.getElementById( 'account-error' );
+	const accountSuccessEl = document.getElementById( 'account-success' );
 	let gameMode = 'race';
 	let stuntPoints = 0;
 	let bestStuntPoints = 0;
@@ -497,6 +509,384 @@ async function init() {
 	let coins = 0;
 	let engineTier = 0;
 	let shareImageDataUrl = '';
+
+	// ---- Cloud account state ----
+	const ACCOUNTS_API_BASE = 'https://near-boa-43.everybodysim.deno.net/api/accounts';
+	const LEADERBOARD_API_BASE = ACCOUNTS_API_BASE.replace( '/api/accounts', '/api/leaderboard' );
+	const ACCOUNT_TOKEN_KEY = 'racing-account-token';
+	const ACCOUNT_USER_KEY = 'racing-account-user';
+	let accountToken = localStorage.getItem( ACCOUNT_TOKEN_KEY ) || '';
+	let accountUsername = localStorage.getItem( ACCOUNT_USER_KEY ) || '';
+
+	function setAccountError( msg ) {
+
+		if ( accountErrorEl ) accountErrorEl.textContent = msg || '';
+		if ( accountSuccessEl ) accountSuccessEl.textContent = '';
+
+	}
+
+	function setAccountSuccess( msg ) {
+
+		if ( accountSuccessEl ) accountSuccessEl.textContent = msg || '';
+		if ( accountErrorEl ) accountErrorEl.textContent = '';
+
+	}
+
+	function updateAccountUi() {
+
+		const loggedIn = Boolean( accountToken && accountUsername );
+		if ( accountStatus ) accountStatus.textContent = loggedIn ? `Logged in as ${ accountUsername }` : 'Not logged in';
+		if ( accountLoggedOut ) accountLoggedOut.style.display = loggedIn ? 'none' : 'block';
+		if ( accountLoggedIn ) accountLoggedIn.style.display = loggedIn ? 'block' : 'none';
+
+	}
+
+	function saveAccountSession( token, username ) {
+
+		accountToken = token;
+		accountUsername = username;
+		localStorage.setItem( ACCOUNT_TOKEN_KEY, token );
+		localStorage.setItem( ACCOUNT_USER_KEY, username );
+		updateAccountUi();
+		// Refresh leaderboard with new login so rank is updated
+		leaderboardSubmitMsg = '';
+		fetchTrackLeaderboard();
+
+	}
+
+	function clearAccountSession() {
+
+		accountToken = '';
+		accountUsername = '';
+		localStorage.removeItem( ACCOUNT_TOKEN_KEY );
+		localStorage.removeItem( ACCOUNT_USER_KEY );
+		updateAccountUi();
+
+	}
+
+	async function accountFetch( path, options = {} ) {
+
+		const headers = { 'Content-Type': 'application/json', ...( options.headers || {} ) };
+		if ( accountToken ) headers[ 'Authorization' ] = `Bearer ${ accountToken }`;
+		const res = await fetch( `${ ACCOUNTS_API_BASE }${ path }`, { ...options, headers } );
+		return res.json();
+
+	}
+
+	// Verify saved token on load — clear if expired
+	async function verifyAccountSession() {
+
+		if ( ! accountToken ) return;
+		try {
+
+			const res = await accountFetch( '/profile' );
+			if ( ! res.ok ) {
+
+				clearAccountSession();
+				setAccountError( 'Session expired — please log in again' );
+
+			}
+
+		} catch ( e ) { /* network error, keep session for now */ }
+
+	}
+	verifyAccountSession();
+
+	async function handleAccountLogin() {
+
+		const username = accountUsernameInput?.value?.trim() || '';
+		const password = accountPasswordInput?.value || '';
+		if ( ! username || ! password ) { setAccountError( 'Enter username and password' ); return; }
+
+		setAccountError( '' );
+		try {
+
+			const res = await accountFetch( '/login', {
+				method: 'POST',
+				body: JSON.stringify( { username, password } ),
+			} );
+			if ( ! res.ok ) { setAccountError( res.error || 'Login failed' ); return; }
+
+			saveAccountSession( res.token, res.username );
+			if ( accountPasswordInput ) accountPasswordInput.value = '';
+
+			// Auto-import profile if server has one
+			if ( res.profile ) {
+
+				const code = encodeBase64UrlJson( res.profile );
+				applyImportedProfile( code );
+				setAccountSuccess( 'Logged in — profile loaded from cloud' );
+
+			} else {
+
+				setAccountSuccess( 'Logged in' );
+
+			}
+
+		} catch ( e ) {
+
+			setAccountError( 'Network error — check your connection' );
+
+		}
+
+	}
+
+	async function handleAccountSignup() {
+
+		const username = accountUsernameInput?.value?.trim() || '';
+		const password = accountPasswordInput?.value || '';
+		if ( ! username || ! password ) { setAccountError( 'Enter username and password' ); return; }
+
+		setAccountError( '' );
+		try {
+
+			const res = await accountFetch( '/signup', {
+				method: 'POST',
+				body: JSON.stringify( { username, password } ),
+			} );
+			if ( ! res.ok ) { setAccountError( res.error || 'Signup failed' ); return; }
+
+			saveAccountSession( res.token, res.username );
+			if ( accountPasswordInput ) accountPasswordInput.value = '';
+
+			// Auto-save current profile to the new account
+			const profileCode = createProfileExportCode();
+			const profileObj = decodeBase64UrlJson( profileCode );
+			await accountFetch( '/save', {
+				method: 'POST',
+				body: JSON.stringify( { profile: profileObj } ),
+			} );
+
+			setAccountSuccess( 'Account created — profile saved to cloud' );
+
+		} catch ( e ) {
+
+			setAccountError( 'Network error — check your connection' );
+
+		}
+
+	}
+
+	async function handleAccountSave() {
+
+		setAccountError( '' );
+		try {
+
+			const profileCode = createProfileExportCode();
+			const profileObj = decodeBase64UrlJson( profileCode );
+			const res = await accountFetch( '/save', {
+				method: 'POST',
+				body: JSON.stringify( { profile: profileObj } ),
+			} );
+			if ( ! res.ok ) { setAccountError( res.error || 'Save failed' ); return; }
+			setAccountSuccess( 'Profile saved to cloud' );
+
+		} catch ( e ) {
+
+			setAccountError( 'Network error — check your connection' );
+
+		}
+
+	}
+
+	async function handleAccountLoad() {
+
+		setAccountError( '' );
+		try {
+
+			const res = await accountFetch( '/profile' );
+			if ( ! res.ok ) { setAccountError( res.error || 'Load failed' ); return; }
+			if ( ! res.profile ) { setAccountError( 'No saved profile on this account' ); return; }
+
+			const code = encodeBase64UrlJson( res.profile );
+			if ( ! applyImportedProfile( code ) ) { setAccountError( 'Could not apply profile data' ); return; }
+			setAccountSuccess( 'Profile loaded from cloud' );
+
+		} catch ( e ) {
+
+			setAccountError( 'Network error — check your connection' );
+
+		}
+
+	}
+
+	function handleAccountLogout() {
+
+		clearAccountSession();
+		setAccountSuccess( 'Logged out' );
+
+	}
+
+	// ---- Leaderboard ----
+	let leaderboardTimes = [];
+	let leaderboardMyRank = null;
+	let leaderboardSubmitMsg = '';
+	let leaderboardTrackId = null;
+	const lbCacheKey = `racing-lb-cache:${ mapParam || 'default' }`;
+
+	async function computeTrackId( mapKey ) {
+
+		const encoder = new TextEncoder();
+		const data = encoder.encode( mapKey || 'default' );
+		const hashBuffer = await crypto.subtle.digest( 'SHA-256', data );
+		return [ ...new Uint8Array( hashBuffer ) ].map( ( b ) => b.toString( 16 ).padStart( 2, '0' ) ).join( '' );
+
+	}
+
+	function inferCurrentTrackName() {
+
+		if ( campaignTrackName ) return campaignTrackName;
+		if ( mapParam ) return `Custom Track (${ mapParam.slice( 0, 8 ) }...)`;
+		return 'Default Track';
+
+	}
+
+	function loadCachedLeaderboard() {
+
+		try {
+
+			const raw = localStorage.getItem( lbCacheKey );
+			if ( raw ) {
+
+				const cached = JSON.parse( raw );
+				if ( Array.isArray( cached.times ) ) {
+
+					leaderboardTimes = cached.times;
+					if ( accountUsername ) {
+
+						const idx = leaderboardTimes.findIndex( ( t ) => t.username === accountUsername );
+						leaderboardMyRank = idx !== - 1 ? idx + 1 : null;
+
+					}
+
+				}
+
+			}
+
+		} catch ( e ) { /* ignore corrupt cache */ }
+
+	}
+	loadCachedLeaderboard();
+
+	function saveCachedLeaderboard() {
+
+		try {
+
+			localStorage.setItem( lbCacheKey, JSON.stringify( { times: leaderboardTimes, updatedAt: Date.now() } ) );
+
+		} catch ( e ) { /* storage full, ignore */ }
+
+	}
+
+	async function fetchTrackLeaderboard() {
+
+		try {
+
+			if ( ! leaderboardTrackId ) leaderboardTrackId = await computeTrackId( mapParam );
+			const res = await fetch( `${ LEADERBOARD_API_BASE }/${ leaderboardTrackId }` );
+			if ( ! res.ok ) { leaderboardSubmitMsg = 'Leaderboard server not responding'; return; }
+			const data = await res.json();
+			if ( data.ok ) {
+
+				const serverTimes = data.times || [];
+
+				// Protect against server data loss (e.g. KV reset after re-deploy).
+				// If the server returned empty but we have cached times, keep the
+				// cache and try to re-upload the cached times back to the server.
+				if ( serverTimes.length === 0 && leaderboardTimes.length > 0 ) {
+
+					leaderboardSubmitMsg = 'Server data was reset — keeping local cache';
+					// Try to re-submit our own cached best time back to the server
+					if ( accountToken && accountUsername ) {
+
+						const myEntry = leaderboardTimes.find( ( t ) => t.username === accountUsername );
+						if ( myEntry ) {
+
+							const trackName = inferCurrentTrackName();
+							fetch( `${ LEADERBOARD_API_BASE }/submit`, {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ accountToken }` },
+								body: JSON.stringify( { trackId: leaderboardTrackId, lapTime: myEntry.lapTime, trackName } ),
+							} ).catch( () => {} );
+
+						}
+
+					}
+					return;
+
+				}
+
+				// Merge: keep any cached entries that the server doesn't have
+				// (could happen if another player's cache has entries the server lost)
+				if ( serverTimes.length > 0 || leaderboardTimes.length === 0 ) {
+
+					leaderboardTimes = serverTimes;
+					saveCachedLeaderboard();
+
+				}
+
+				leaderboardSubmitMsg = '';
+				if ( accountUsername ) {
+
+					const idx = leaderboardTimes.findIndex( ( t ) => t.username === accountUsername );
+					leaderboardMyRank = idx !== - 1 ? idx + 1 : null;
+
+				}
+
+			}
+
+		} catch ( e ) { leaderboardSubmitMsg = 'Leaderboard server not reachable'; }
+
+	}
+
+	async function submitToLeaderboard( lapTime ) {
+
+		if ( ! accountToken || ! accountUsername ) {
+
+			leaderboardSubmitMsg = 'Log in to submit your lap times';
+			return;
+
+		}
+
+		try {
+
+			if ( ! leaderboardTrackId ) leaderboardTrackId = await computeTrackId( mapParam );
+			const trackName = inferCurrentTrackName();
+			const res = await fetch( `${ LEADERBOARD_API_BASE }/submit`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ accountToken }` },
+				body: JSON.stringify( { trackId: leaderboardTrackId, lapTime, trackName } ),
+			} );
+			const data = await res.json();
+			if ( data.ok ) {
+
+				leaderboardSubmitMsg = data.message
+					? `#${ data.rank } (PB: ${ formatLapTime( data.personalBest ) })`
+					: `New! #${ data.rank } of ${ data.totalEntries }`;
+
+			} else if ( res.status === 401 ) {
+
+				leaderboardSubmitMsg = 'Session expired — please re-login to verify';
+
+			} else {
+
+				leaderboardSubmitMsg = data.error || 'Submit failed';
+
+			}
+			// Refresh leaderboard after submitting
+			await fetchTrackLeaderboard();
+
+		} catch ( e ) {
+
+			leaderboardSubmitMsg = 'Leaderboard server not reachable';
+
+		}
+
+	}
+
+	// Fetch leaderboard on load and refresh every 30 seconds
+	fetchTrackLeaderboard();
+	setInterval( fetchTrackLeaderboard, 30000 );
 
 	function getEngineMult() {
 
@@ -1558,7 +1948,29 @@ async function init() {
 		const checkpointLine = totalCheckpoints > 0
 			? `<br><small>Checkpoints: ${ passedCheckpoints } / ${ totalCheckpoints }</small>`
 			: '';
-		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }`;
+		let lbLine = '';
+		if ( leaderboardTimes.length > 0 ) {
+
+			lbLine = '<br><small style="color:#9fe8ff">── Leaderboard ──</small>';
+			const show = leaderboardTimes.slice( 0, 10 );
+			for ( let i = 0; i < show.length; i ++ ) {
+
+				const t = show[ i ];
+				const medal = i === 0 ? '🥇 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : `${ i + 1 }. `;
+				const isMe = accountUsername && t.username === accountUsername;
+				const style = isMe ? ' style="color:#ffd700"' : '';
+				lbLine += `<br><small${ style }>${ medal }${ t.username } — ${ formatLapTime( t.lapTime ) }</small>`;
+
+			}
+			if ( leaderboardTimes.length > 10 ) lbLine += `<br><small style="color:#8fa4c0">+ ${ leaderboardTimes.length - 10 } more</small>`;
+
+		} else {
+
+			lbLine = '<br><small style="color:#8fa4c0">No leaderboard times yet</small>';
+
+		}
+		if ( leaderboardSubmitMsg ) lbLine += `<br><small>${ leaderboardSubmitMsg }</small>`;
+		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ lbLine }`;
 
 	}
 
@@ -1903,6 +2315,17 @@ async function init() {
 
 	} );
 
+	accountLoginBtn?.addEventListener( 'click', () => handleAccountLogin() );
+	accountSignupBtn?.addEventListener( 'click', () => handleAccountSignup() );
+	accountSyncBtn?.addEventListener( 'click', () => handleAccountSave() );
+	accountLoadBtn?.addEventListener( 'click', () => handleAccountLoad() );
+	accountLogoutBtn?.addEventListener( 'click', () => handleAccountLogout() );
+	accountPasswordInput?.addEventListener( 'keydown', ( e ) => {
+
+		if ( e.code === 'Enter' ) handleAccountLogin();
+
+	} );
+
 	loadEconomy();
 	loadStuntStats();
 	loadGarageMods();
@@ -1911,6 +2334,7 @@ async function init() {
 	applyVehiclePerformance();
 	updateEconomyHud();
 	updateCampaignUi();
+	updateAccountUi();
 	loadLapStats();
 	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 	updateGhostShareButtons();
@@ -1937,6 +2361,9 @@ async function init() {
 	}
 
 	window.addEventListener( 'keydown', ( e ) => {
+
+			const tag = e.target?.tagName;
+			if ( tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ) return;
 
 			if ( e.code === 'KeyE' ) {
 
@@ -2182,6 +2609,7 @@ async function init() {
 
 					}
 					saveLapStats();
+					submitToLeaderboard( completedLap );
 					rewardCoinsForLap( completedLap );
 						if ( gameMode === 'stunt' ) {
 
