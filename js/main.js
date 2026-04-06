@@ -696,7 +696,10 @@ async function init() {
 	}
 
 	// ---- Leaderboard ----
-	let leaderboardStatus = '';
+	let leaderboardTimes = [];
+	let leaderboardMyRank = null;
+	let leaderboardSubmitMsg = '';
+	let leaderboardTrackId = null;
 
 	async function computeTrackId( mapKey ) {
 
@@ -715,50 +718,72 @@ async function init() {
 
 	}
 
+	async function fetchTrackLeaderboard() {
+
+		try {
+
+			if ( ! leaderboardTrackId ) leaderboardTrackId = await computeTrackId( mapParam );
+			const res = await fetch( `${ LEADERBOARD_API_BASE }/${ leaderboardTrackId }` );
+			const data = await res.json();
+			if ( data.ok ) {
+
+				leaderboardTimes = data.times || [];
+				if ( accountUsername ) {
+
+					const idx = leaderboardTimes.findIndex( ( t ) => t.username === accountUsername );
+					leaderboardMyRank = idx !== - 1 ? idx + 1 : null;
+
+				}
+
+			}
+
+		} catch ( e ) { /* silently fail, will retry on next lap */ }
+
+	}
+
 	async function submitToLeaderboard( lapTime ) {
 
 		if ( ! accountToken || ! accountUsername ) {
 
-			leaderboardStatus = 'Log in to submit times';
+			leaderboardSubmitMsg = 'Log in to submit times';
 			return;
 
 		}
 
 		try {
 
-			const trackId = await computeTrackId( mapParam );
+			if ( ! leaderboardTrackId ) leaderboardTrackId = await computeTrackId( mapParam );
 			const trackName = inferCurrentTrackName();
 			const res = await fetch( `${ LEADERBOARD_API_BASE }/submit`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ accountToken }` },
-				body: JSON.stringify( { trackId, lapTime, trackName } ),
+				body: JSON.stringify( { trackId: leaderboardTrackId, lapTime, trackName } ),
 			} );
 			const data = await res.json();
 			if ( data.ok ) {
 
-				if ( data.message ) {
-
-					leaderboardStatus = `#${ data.rank } (PB: ${ formatLapTime( data.personalBest ) })`;
-
-				} else {
-
-					leaderboardStatus = `#${ data.rank } of ${ data.totalEntries }`;
-
-				}
+				leaderboardSubmitMsg = data.message
+					? `#${ data.rank } (PB: ${ formatLapTime( data.personalBest ) })`
+					: `New! #${ data.rank } of ${ data.totalEntries }`;
 
 			} else {
 
-				leaderboardStatus = data.error || 'Submit failed';
+				leaderboardSubmitMsg = data.error || 'Submit failed';
 
 			}
+			// Refresh leaderboard after submitting
+			await fetchTrackLeaderboard();
 
 		} catch ( e ) {
 
-			leaderboardStatus = 'Leaderboard offline';
+			leaderboardSubmitMsg = 'Leaderboard offline';
 
 		}
 
 	}
+
+	// Fetch leaderboard on load
+	fetchTrackLeaderboard();
 
 	function getEngineMult() {
 
@@ -1820,7 +1845,18 @@ async function init() {
 		const checkpointLine = totalCheckpoints > 0
 			? `<br><small>Checkpoints: ${ passedCheckpoints } / ${ totalCheckpoints }</small>`
 			: '';
-		const lbLine = leaderboardStatus ? `<br><small>Leaderboard: ${ leaderboardStatus }</small>` : ( ! accountToken ? '<br><small>Log in to submit times</small>' : '' );
+		let lbLine = '';
+		if ( leaderboardTimes.length > 0 ) {
+
+			const top3 = leaderboardTimes.slice( 0, 3 ).map( ( t, i ) => {
+				const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
+				return `${ medal } ${ t.username } ${ formatLapTime( t.lapTime ) }`;
+			} ).join( ' • ' );
+			lbLine = `<br><small>${ top3 }</small>`;
+			if ( leaderboardMyRank ) lbLine += `<br><small>Your rank: #${ leaderboardMyRank } of ${ leaderboardTimes.length }</small>`;
+
+		}
+		if ( leaderboardSubmitMsg ) lbLine += `<br><small>${ leaderboardSubmitMsg }</small>`;
 		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ lbLine }`;
 
 	}
