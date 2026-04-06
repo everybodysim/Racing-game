@@ -455,6 +455,18 @@ async function init() {
 	const garageDriveUnlockBtn = document.getElementById( 'garage-drive-unlock' );
 	const profileExportBtn = document.getElementById( 'profile-export-btn' );
 	const profileImportBtn = document.getElementById( 'profile-import-btn' );
+	const accountStatus = document.getElementById( 'account-status' );
+	const accountLoggedOut = document.getElementById( 'account-logged-out' );
+	const accountLoggedIn = document.getElementById( 'account-logged-in' );
+	const accountUsernameInput = document.getElementById( 'account-username' );
+	const accountPasswordInput = document.getElementById( 'account-password' );
+	const accountLoginBtn = document.getElementById( 'account-login-btn' );
+	const accountSignupBtn = document.getElementById( 'account-signup-btn' );
+	const accountSyncBtn = document.getElementById( 'account-sync-btn' );
+	const accountLoadBtn = document.getElementById( 'account-load-btn' );
+	const accountLogoutBtn = document.getElementById( 'account-logout-btn' );
+	const accountErrorEl = document.getElementById( 'account-error' );
+	const accountSuccessEl = document.getElementById( 'account-success' );
 	let gameMode = 'race';
 	let stuntPoints = 0;
 	let bestStuntPoints = 0;
@@ -497,6 +509,190 @@ async function init() {
 	let coins = 0;
 	let engineTier = 0;
 	let shareImageDataUrl = '';
+
+	// ---- Cloud account state ----
+	const ACCOUNTS_API_BASE = '/api/accounts';
+	const ACCOUNT_TOKEN_KEY = 'racing-account-token';
+	const ACCOUNT_USER_KEY = 'racing-account-user';
+	let accountToken = localStorage.getItem( ACCOUNT_TOKEN_KEY ) || '';
+	let accountUsername = localStorage.getItem( ACCOUNT_USER_KEY ) || '';
+
+	function setAccountError( msg ) {
+
+		if ( accountErrorEl ) accountErrorEl.textContent = msg || '';
+		if ( accountSuccessEl ) accountSuccessEl.textContent = '';
+
+	}
+
+	function setAccountSuccess( msg ) {
+
+		if ( accountSuccessEl ) accountSuccessEl.textContent = msg || '';
+		if ( accountErrorEl ) accountErrorEl.textContent = '';
+
+	}
+
+	function updateAccountUi() {
+
+		const loggedIn = Boolean( accountToken && accountUsername );
+		if ( accountStatus ) accountStatus.textContent = loggedIn ? `Logged in as ${ accountUsername }` : 'Not logged in';
+		if ( accountLoggedOut ) accountLoggedOut.style.display = loggedIn ? 'none' : 'block';
+		if ( accountLoggedIn ) accountLoggedIn.style.display = loggedIn ? 'block' : 'none';
+
+	}
+
+	function saveAccountSession( token, username ) {
+
+		accountToken = token;
+		accountUsername = username;
+		localStorage.setItem( ACCOUNT_TOKEN_KEY, token );
+		localStorage.setItem( ACCOUNT_USER_KEY, username );
+		updateAccountUi();
+
+	}
+
+	function clearAccountSession() {
+
+		accountToken = '';
+		accountUsername = '';
+		localStorage.removeItem( ACCOUNT_TOKEN_KEY );
+		localStorage.removeItem( ACCOUNT_USER_KEY );
+		updateAccountUi();
+
+	}
+
+	async function accountFetch( path, options = {} ) {
+
+		const headers = { 'Content-Type': 'application/json', ...( options.headers || {} ) };
+		if ( accountToken ) headers[ 'Authorization' ] = `Bearer ${ accountToken }`;
+		const res = await fetch( `${ ACCOUNTS_API_BASE }${ path }`, { ...options, headers } );
+		return res.json();
+
+	}
+
+	async function handleAccountLogin() {
+
+		const username = accountUsernameInput?.value?.trim() || '';
+		const password = accountPasswordInput?.value || '';
+		if ( ! username || ! password ) { setAccountError( 'Enter username and password' ); return; }
+
+		setAccountError( '' );
+		try {
+
+			const res = await accountFetch( '/login', {
+				method: 'POST',
+				body: JSON.stringify( { username, password } ),
+			} );
+			if ( ! res.ok ) { setAccountError( res.error || 'Login failed' ); return; }
+
+			saveAccountSession( res.token, res.username );
+			if ( accountPasswordInput ) accountPasswordInput.value = '';
+
+			// Auto-import profile if server has one
+			if ( res.profile ) {
+
+				const code = encodeBase64UrlJson( res.profile );
+				applyImportedProfile( code );
+				setAccountSuccess( 'Logged in — profile loaded from cloud' );
+
+			} else {
+
+				setAccountSuccess( 'Logged in' );
+
+			}
+
+		} catch ( e ) {
+
+			setAccountError( 'Network error — check your connection' );
+
+		}
+
+	}
+
+	async function handleAccountSignup() {
+
+		const username = accountUsernameInput?.value?.trim() || '';
+		const password = accountPasswordInput?.value || '';
+		if ( ! username || ! password ) { setAccountError( 'Enter username and password' ); return; }
+
+		setAccountError( '' );
+		try {
+
+			const res = await accountFetch( '/signup', {
+				method: 'POST',
+				body: JSON.stringify( { username, password } ),
+			} );
+			if ( ! res.ok ) { setAccountError( res.error || 'Signup failed' ); return; }
+
+			saveAccountSession( res.token, res.username );
+			if ( accountPasswordInput ) accountPasswordInput.value = '';
+
+			// Auto-save current profile to the new account
+			const profileCode = createProfileExportCode();
+			const profileObj = decodeBase64UrlJson( profileCode );
+			await accountFetch( '/save', {
+				method: 'POST',
+				body: JSON.stringify( { profile: profileObj } ),
+			} );
+
+			setAccountSuccess( 'Account created — profile saved to cloud' );
+
+		} catch ( e ) {
+
+			setAccountError( 'Network error — check your connection' );
+
+		}
+
+	}
+
+	async function handleAccountSave() {
+
+		setAccountError( '' );
+		try {
+
+			const profileCode = createProfileExportCode();
+			const profileObj = decodeBase64UrlJson( profileCode );
+			const res = await accountFetch( '/save', {
+				method: 'POST',
+				body: JSON.stringify( { profile: profileObj } ),
+			} );
+			if ( ! res.ok ) { setAccountError( res.error || 'Save failed' ); return; }
+			setAccountSuccess( 'Profile saved to cloud' );
+
+		} catch ( e ) {
+
+			setAccountError( 'Network error — check your connection' );
+
+		}
+
+	}
+
+	async function handleAccountLoad() {
+
+		setAccountError( '' );
+		try {
+
+			const res = await accountFetch( '/profile' );
+			if ( ! res.ok ) { setAccountError( res.error || 'Load failed' ); return; }
+			if ( ! res.profile ) { setAccountError( 'No saved profile on this account' ); return; }
+
+			const code = encodeBase64UrlJson( res.profile );
+			if ( ! applyImportedProfile( code ) ) { setAccountError( 'Could not apply profile data' ); return; }
+			setAccountSuccess( 'Profile loaded from cloud' );
+
+		} catch ( e ) {
+
+			setAccountError( 'Network error — check your connection' );
+
+		}
+
+	}
+
+	function handleAccountLogout() {
+
+		clearAccountSession();
+		setAccountSuccess( 'Logged out' );
+
+	}
 
 	function getEngineMult() {
 
@@ -1903,6 +2099,17 @@ async function init() {
 
 	} );
 
+	accountLoginBtn?.addEventListener( 'click', () => handleAccountLogin() );
+	accountSignupBtn?.addEventListener( 'click', () => handleAccountSignup() );
+	accountSyncBtn?.addEventListener( 'click', () => handleAccountSave() );
+	accountLoadBtn?.addEventListener( 'click', () => handleAccountLoad() );
+	accountLogoutBtn?.addEventListener( 'click', () => handleAccountLogout() );
+	accountPasswordInput?.addEventListener( 'keydown', ( e ) => {
+
+		if ( e.code === 'Enter' ) handleAccountLogin();
+
+	} );
+
 	loadEconomy();
 	loadStuntStats();
 	loadGarageMods();
@@ -1911,6 +2118,7 @@ async function init() {
 	applyVehiclePerformance();
 	updateEconomyHud();
 	updateCampaignUi();
+	updateAccountUi();
 	loadLapStats();
 	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 	updateGhostShareButtons();
