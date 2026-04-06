@@ -2,6 +2,7 @@
 
 ## Recent gameplay/editor updates
 
+- Trying out new server side features like account saving, maybe some leaderboards in the future too.
 - Editor now uses explicit tile painting (Straight/Corner/Bump/Finish) with rotation controls.
 - Respawn button is wired in gameplay.
 - Lap HUD tracks current/last/best lap times.
