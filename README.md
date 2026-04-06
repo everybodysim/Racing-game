@@ -3,7 +3,7 @@
 ## Recent gameplay/editor updates
 
 - Editor now uses explicit tile painting (Straight/Corner/Bump/Finish) with rotation controls.
-- Respawn button is wired in gameplay.
+- Respawn button is wired in gameplay. 
 - Lap HUD tracks current/last/best lap times.
 - Lap completion currently works from either finish-line direction (checkpoint system planned for future updates).
 - Camera mode can be toggled during gameplay with `C`:
