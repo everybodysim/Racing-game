@@ -2118,7 +2118,7 @@ async function init() {
 
 		if ( leaderboardVisible ) fetchTrackLeaderboard();
 
-	}, 4000 );
+	}, 15000 );
 	if ( campaignParamEnabled ) setGameMode( 'campaign' );
 	resetLapState( true );
 	resetLapState2( true );
