@@ -1,0 +1,7 @@
+name = "racing-live-chat"
+main = "src/index.js"
+compatibility_date = "2026-04-06"
+
+[[kv_namespaces]]
+binding = "CHAT_KV"
+id = "REPLACE_WITH_CHAT_KV_NAMESPACE_ID"
