@@ -89,9 +89,6 @@ const PRECIP_DEFAULT = 'none';
 const INTENSITY_DEFAULT = 'medium';
 const WIND_DEFAULT = 'none';
 const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
-const CHAT_API_BASE = '/api/chat/messages';
-const CHAT_ROOM_ID = 'global';
-const CHAT_POLL_MS = 2000;
 const PLAYER_NAME_KEY = 'racing-player-name-v1';
 const MAX_PLAYER_NAME_LENGTH = 24;
 const MAX_LEADERBOARD_ROWS = 15;
@@ -493,11 +490,6 @@ async function init() {
 	const garageDriveUnlockBtn = document.getElementById( 'garage-drive-unlock' );
 	const profileExportBtn = document.getElementById( 'profile-export-btn' );
 	const profileImportBtn = document.getElementById( 'profile-import-btn' );
-	const chatPanel = document.getElementById( 'chat-panel' );
-	const chatStatus = document.getElementById( 'chat-status' );
-	const chatMessagesEl = document.getElementById( 'chat-messages' );
-	const chatInput = document.getElementById( 'chat-input' );
-	const chatSendBtn = document.getElementById( 'chat-send-btn' );
 	let gameMode = 'race';
 	let stuntPoints = 0;
 	let bestStuntPoints = 0;
@@ -542,9 +534,6 @@ async function init() {
 	let coins = 0;
 	let engineTier = 0;
 	let shareImageDataUrl = '';
-	let chatCursor = 0;
-	let chatPollTimer = null;
-	let chatSending = false;
 
 	function getEngineMult() {
 
@@ -596,120 +585,6 @@ async function init() {
 
 		if ( modeError ) modeError.textContent = message || '';
 		if ( message ) window.alert( message );
-
-	}
-
-	function escapeHtml( value ) {
-
-		return String( value || '' )
-			.replace( /&/g, '&amp;' )
-			.replace( /</g, '&lt;' )
-			.replace( />/g, '&gt;' )
-			.replace( /"/g, '&quot;' )
-			.replace( /'/g, '&#39;' );
-
-	}
-
-	function formatChatTime( timestamp ) {
-
-		const date = new Date( Number( timestamp ) || Date.now() );
-		return date.toLocaleTimeString( [], { hour: '2-digit', minute: '2-digit' } );
-
-	}
-
-	function setChatStatus( message ) {
-
-		if ( chatStatus ) chatStatus.textContent = message;
-
-	}
-
-	function renderChatMessages( messages, append = false ) {
-
-		if ( ! chatMessagesEl ) return;
-		if ( ! append ) chatMessagesEl.innerHTML = '';
-		for ( const entry of messages ) {
-
-			const row = document.createElement( 'div' );
-			row.className = 'chat-msg';
-			row.innerHTML = `<div class="meta">${ escapeHtml( entry.name ) } • ${ formatChatTime( entry.createdAt ) }</div><div class="text">${ escapeHtml( entry.text ) }</div>`;
-			chatMessagesEl.appendChild( row );
-
-		}
-		if ( ! chatMessagesEl.children.length ) {
-
-			const empty = document.createElement( 'div' );
-			empty.className = 'chat-empty';
-			empty.textContent = 'No chat messages yet. Say hi 👋';
-			chatMessagesEl.appendChild( empty );
-
-		}
-		chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
-
-	}
-
-	async function fetchChatMessages( incremental = true ) {
-
-		if ( ! chatPanel ) return;
-		const params = new URLSearchParams( { room: CHAT_ROOM_ID } );
-		const shouldAppend = incremental && chatCursor > 0;
-		if ( shouldAppend ) params.set( 'since', String( chatCursor ) );
-		try {
-
-			const response = await fetch( `${ CHAT_API_BASE }?${ params.toString() }` );
-			if ( ! response.ok ) throw new Error( `HTTP ${ response.status }` );
-			const payload = await response.json();
-			const messages = Array.isArray( payload?.messages ) ? payload.messages : [];
-			if ( Number.isFinite( payload?.cursor ) ) chatCursor = payload.cursor;
-			renderChatMessages( messages, shouldAppend );
-			setChatStatus( `Live • room: ${ CHAT_ROOM_ID }` );
-
-		} catch ( e ) {
-
-			setChatStatus( 'Chat offline (retrying...)' );
-
-		}
-
-	}
-
-	async function sendChatMessage() {
-
-		if ( ! chatInput || chatSending ) return;
-		const text = String( chatInput.value || '' ).replace( /\s+/g, ' ' ).trim().slice( 0, 220 );
-		if ( ! text ) return;
-		chatSending = true;
-		if ( chatSendBtn ) chatSendBtn.disabled = true;
-		try {
-
-			const name = sanitizePlayerName( playerNameInput?.value ) || 'Player';
-			const response = await fetch( `${ CHAT_API_BASE }?room=${ encodeURIComponent( CHAT_ROOM_ID ) }`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify( { name, text } ),
-			} );
-			if ( ! response.ok ) throw new Error( `HTTP ${ response.status }` );
-			chatInput.value = '';
-			await fetchChatMessages( true );
-			setChatStatus( `Live • room: ${ CHAT_ROOM_ID }` );
-
-		} catch ( e ) {
-
-			setChatStatus( 'Failed to send (retry)' );
-
-		} finally {
-
-			chatSending = false;
-			if ( chatSendBtn ) chatSendBtn.disabled = false;
-
-		}
-
-	}
-
-	function startChatPolling() {
-
-		if ( ! chatPanel ) return;
-		if ( chatPollTimer ) clearInterval( chatPollTimer );
-		fetchChatMessages( false );
-		chatPollTimer = setInterval( () => fetchChatMessages( true ), CHAT_POLL_MS );
 
 	}
 
@@ -2225,19 +2100,6 @@ async function init() {
 		if ( event.target === namePopup ) closeNamePopup();
 
 	} );
-	chatSendBtn?.addEventListener( 'click', () => {
-
-		sendChatMessage();
-
-	} );
-	chatInput?.addEventListener( 'keydown', ( event ) => {
-
-		if ( event.key !== 'Enter' ) return;
-		event.preventDefault();
-		sendChatMessage();
-
-	} );
-	startChatPolling();
 
 	loadEconomy();
 	loadStuntStats();
@@ -2278,19 +2140,7 @@ async function init() {
 
 	}
 
-	function isTypingIntoField( event ) {
-
-		const target = event?.target;
-		if ( ! target ) return false;
-		if ( target.isContentEditable ) return true;
-		const tagName = target.tagName ? target.tagName.toUpperCase() : '';
-		return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
-
-	}
-
 	window.addEventListener( 'keydown', ( e ) => {
-
-			if ( isTypingIntoField( e ) ) return;
 
 			if ( e.code === 'KeyE' ) {
 

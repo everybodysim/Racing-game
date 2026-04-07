@@ -193,85 +193,6 @@
 		#leaderboard-panel.hidden {
 			display: none;
 		}
-		#chat-panel {
-			position: absolute;
-			right: 12px;
-			top: 50%;
-			transform: translateY(-50%);
-			width: min(360px, 42vw);
-			height: min(300px, 42vh);
-			min-width: 230px;
-			min-height: 160px;
-			max-width: 92vw;
-			max-height: 70vh;
-			resize: both;
-			overflow: auto;
-			z-index: 16;
-			background: rgba(8, 10, 16, 0.84);
-			border: 1px solid rgba(255,255,255,0.24);
-			border-radius: 10px;
-			padding: 10px;
-			color: #fff;
-			font: 600 12px/1.35 sans-serif;
-			display: flex;
-			flex-direction: column;
-			gap: 8px;
-		}
-		#chat-panel h3 {
-			margin: 0;
-			font: 700 14px/1.2 sans-serif;
-		}
-		#chat-status {
-			opacity: 0.8;
-			font: 600 11px/1.2 sans-serif;
-		}
-		#chat-messages {
-			flex: 1;
-			background: rgba(0,0,0,0.22);
-			border-radius: 8px;
-			padding: 8px;
-			overflow: auto;
-			border: 1px solid rgba(255,255,255,0.09);
-		}
-		.chat-msg {
-			margin-bottom: 7px;
-			word-break: break-word;
-		}
-		.chat-msg .meta {
-			color: #b7ddff;
-			font: 700 11px/1.2 sans-serif;
-		}
-		.chat-msg .text {
-			color: #fff;
-		}
-		.chat-empty {
-			opacity: 0.75;
-		}
-		#chat-controls {
-			display: grid;
-			grid-template-columns: 1fr auto;
-			gap: 6px;
-		}
-		#chat-input {
-			box-sizing: border-box;
-			width: 100%;
-			padding: 8px;
-			border-radius: 8px;
-			border: 1px solid rgba(255,255,255,0.2);
-			background: rgba(0,0,0,0.3);
-			color: #fff;
-			font: 600 12px/1.2 sans-serif;
-		}
-		#chat-send-btn {
-			padding: 8px 10px;
-			border-radius: 8px;
-			border: 1px solid rgba(255,255,255,0.2);
-			background: rgba(255,255,255,0.12);
-			color: #fff;
-			cursor: pointer;
-			font: 700 12px/1 sans-serif;
-		}
-		#chat-send-btn:hover { background: rgba(255,255,255,0.2); }
 		#leaderboard-panel h3 {
 			margin: 0 0 4px;
 			font: 700 14px/1.2 sans-serif;
@@ -368,14 +289,6 @@
 				#lap-hud { top: 56px; }
 				#economy-hud { top: 12px; right: 12px; }
 				#leaderboard-panel { top: 136px; left: 12px; }
-				#chat-panel {
-					top: auto;
-					bottom: 116px;
-					right: 12px;
-					transform: none;
-					width: min(370px, calc(100vw - 24px));
-					height: min(230px, 38vh);
-				}
 		}
 	</style>
 	<script type="importmap">
@@ -412,15 +325,6 @@
 		<div id="leaderboard-track-label">Track: loading…</div>
 		<div id="leaderboard-empty">Loading leaderboard…</div>
 		<ol id="leaderboard-list" hidden></ol>
-	</div>
-	<div id="chat-panel" aria-label="Live chat panel">
-		<h3>Live Chat</h3>
-		<div id="chat-status">Connecting…</div>
-		<div id="chat-messages"></div>
-		<div id="chat-controls">
-			<input id="chat-input" maxlength="220" placeholder="Type message and press Enter" />
-			<button id="chat-send-btn" type="button">Send</button>
-		</div>
 	</div>
 	<div id="stunt-points">Points: 0<small class="best-points">Best: 0</small><small>Bonus: --</small></div>
 	<div id="mode-menu">
