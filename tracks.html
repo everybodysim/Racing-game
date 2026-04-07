@@ -22,6 +22,8 @@
 		.card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 11px; }
 		.card h3 { margin: 0 0 6px; font-size: 17px; }
 		.meta { color: #b5c2da; font-size: 12px; margin-bottom: 8px; }
+		.badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+		.badge { font-size: 11px; border-radius: 999px; padding: 3px 7px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); }
 		.card a { color: #9fe8ff; text-decoration: none; font-weight: 600; }
 		.card a:hover { text-decoration: underline; }
 	</style>
@@ -55,6 +57,11 @@
 						<option value="medium">Medium</option>
 						<option value="large">Large</option>
 					</select>
+					<select id="sort-filter">
+						<option value="newest">Newest</option>
+						<option value="popular">Most popular</option>
+						<option value="best-time">Best lap time</option>
+					</select>
 					<button id="random-track-btn" type="button">Random track</button>
 				</div>
 			</div>
@@ -62,6 +69,7 @@
 		</div>
 		<script>
 			const API_BASE = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
+			const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
 			const nameInput = document.getElementById( 'track-name' );
 		const ghostInput = document.getElementById( 'ghost-code' );
 		const addBtn = document.getElementById( 'add-btn' );
@@ -70,11 +78,13 @@
 			const copyLinkBtn = document.getElementById( 'copy-link-btn' );
 			const searchInput = document.getElementById( 'search-input' );
 			const sizeFilter = document.getElementById( 'size-filter' );
+			const sortFilter = document.getElementById( 'sort-filter' );
 			const randomTrackBtn = document.getElementById( 'random-track-btn' );
 			const statusEl = document.getElementById( 'status' );
 			const grid = document.getElementById( 'grid' );
 			let entries = [];
 			let useRemoteBoard = false;
+			let topByTrackId = new Map();
 
 		function encodeBase64UrlJson( value ) {
 			return btoa( unescape( encodeURIComponent( JSON.stringify( value ) ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
@@ -127,6 +137,36 @@
 		async function loadFromRemote() {
 			const payload = await apiRequest();
 			entries = Array.isArray( payload?.entries ) ? payload.entries : [];
+			await hydrateTopLeaderboardRows( entries );
+		}
+
+		function getTrackIdFromPlayUrl( playUrl ) {
+			try {
+				const parsed = new URL( playUrl, window.location.href );
+				const map = parsed.searchParams.get( 'map' ) || 'default';
+				const mods = parsed.searchParams.get( 'mods' ) || 'none';
+				const base = `${ parsed.pathname }?map=${ map }&mods=${ mods }`;
+				return btoa( base ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+			} catch ( e ) {
+				return '';
+			}
+		}
+
+		async function hydrateTopLeaderboardRows( sourceEntries ) {
+			const next = new Map();
+			const uniqueTrackIds = [ ...new Set( sourceEntries.map( ( entry ) => getTrackIdFromPlayUrl( entry.playUrl ) ).filter( Boolean ) ) ];
+			await Promise.all( uniqueTrackIds.map( async ( trackId ) => {
+				try {
+					const res = await fetch( `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( trackId ) }` );
+					if ( ! res.ok ) return;
+					const payload = await res.json();
+					const top = Array.isArray( payload?.entries ) && payload.entries.length > 0 ? payload.entries[ 0 ] : null;
+					next.set( trackId, top );
+				} catch ( e ) {
+					next.set( trackId, null );
+				}
+			} ) );
+			topByTrackId = next;
 		}
 
 		function inferTrackName( url, fallback = 'Shared Track' ) {
@@ -160,11 +200,19 @@
 		function getFilteredEntries() {
 			const search = ( searchInput?.value || '' ).trim().toLowerCase();
 			const size = sizeFilter?.value || 'all';
-			return entries.filter( ( entry ) => {
+			const sortMode = sortFilter?.value || 'newest';
+			const filtered = entries.filter( ( entry ) => {
 				const nameMatch = ! search || String( entry.name || '' ).toLowerCase().includes( search );
 				const sizeMatch = size === 'all' || inferTrackSize( entry ) === size;
 				return nameMatch && sizeMatch;
 			} );
+			if ( sortMode === 'popular' ) {
+				return [ ...filtered ].sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) );
+			}
+			if ( sortMode === 'best-time' ) {
+				return [ ...filtered ].sort( ( a, b ) => ( Number( a.bestLapSeconds ) || Infinity ) - ( Number( b.bestLapSeconds ) || Infinity ) );
+			}
+			return [ ...filtered ].sort( ( a, b ) => ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) );
 		}
 
 		function buildPlayUrl( baseUrl, ghostPayload ) {
@@ -188,10 +236,16 @@
 				const card = document.createElement( 'div' );
 				card.className = 'card';
 				const sizeTag = inferTrackSize( entry );
+				const trackId = getTrackIdFromPlayUrl( entry.playUrl );
+				const topRow = topByTrackId.get( trackId ) || null;
 				card.innerHTML = `<h3>${ entry.name }</h3>
-					<div class="meta">Best: ${ formatSeconds( entry.bestLapSeconds ) } • Samples: ${ entry.sampleCount || 0 } • Size: ${ sizeTag }</div>
+					<div class="badges">
+						<span class="badge">👁️ ${ Number( entry.viewCount ) || 0 } views</span>
+						<span class="badge">🏁 ${ sizeTag }</span>
+					</div>
+					<div class="meta">Best: ${ formatSeconds( entry.bestLapSeconds ) } • Samples: ${ entry.sampleCount || 0 } • #1: ${ topRow ? `${ topRow.name } (${ formatSeconds( Number( topRow.timeSeconds ) ) })` : 'No leaderboard times yet' }</div>
 					<div class="row" style="margin-top:0">
-						<a href="${ entry.playUrl }" target="_blank" rel="noopener noreferrer">Open track link</a>
+						<a href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">Open track link</a>
 						<button data-id="${ entry.id }" type="button">Remove</button>
 					</div>`;
 				grid.appendChild( card );
@@ -232,6 +286,8 @@
 					playUrl,
 					bestLapSeconds: Number( parsed.ghost.bestLapSeconds ),
 					sampleCount: Array.isArray( parsed.ghost.samples ) ? parsed.ghost.samples.length : 0,
+					viewCount: 0,
+					createdAt: Date.now(),
 				} );
 				saveToHash();
 
@@ -245,6 +301,22 @@
 			addEntryFromGhostCode().catch( () => setStatus( 'Failed to add entry.', true ) );
 		} );
 			grid.addEventListener('click', async (e) => {
+  const openLink = e.target.closest( 'a[data-action="open-track"]' );
+  if ( openLink ) {
+    if ( useRemoteBoard ) {
+      const id = openLink.getAttribute( 'data-id' );
+      try {
+        await apiRequest( `/${ id }/view`, { method: 'POST' } );
+        const current = entries.find( ( entry ) => entry.id === id );
+        if ( current ) current.viewCount = ( Number( current.viewCount ) || 0 ) + 1;
+        render();
+      } catch ( err ) {
+        // no-op, link still opens in new tab
+      }
+    }
+    return;
+  }
+
   if (e.target.tagName !== 'BUTTON') return;
 
   const id = e.target.getAttribute('data-id');
@@ -316,6 +388,7 @@
 			} );
 			searchInput.addEventListener( 'input', () => render() );
 			sizeFilter.addEventListener( 'change', () => render() );
+			sortFilter.addEventListener( 'change', () => render() );
 			randomTrackBtn.addEventListener( 'click', () => {
 				const filtered = getFilteredEntries();
 				if ( filtered.length === 0 ) {
