@@ -100,13 +100,15 @@
 			color: #fff;
 			border: 1px solid rgba(255,255,255,0.2);
 			border-radius: 12px;
-			padding: 14px;
+			padding: 10px;
 			z-index: 20;
-			min-width: 240px;
+			width: min(320px, calc(100vw - 20px));
+			max-height: min(80vh, 660px);
+			overflow: auto;
 			display: none;
-			font: 600 13px/1.4 sans-serif;
+			font: 600 12px/1.35 sans-serif;
 		}
-		#mode-menu h3 { margin: 0 0 10px; font: 700 16px sans-serif; }
+		#mode-menu h3 { margin: 0 0 8px; font: 700 14px sans-serif; }
 		#mode-error {
 			min-height: 16px;
 			margin: 0 0 6px;
@@ -222,6 +224,28 @@
 			margin-top: 10px;
 			padding-top: 8px;
 			border-top: 1px solid rgba(255,255,255,0.12);
+		}
+		#account-row {
+			margin-top: 10px;
+			padding-top: 8px;
+			border-top: 1px solid rgba(255,255,255,0.12);
+		}
+		#account-row input {
+			margin-top: 6px;
+			width: 100%;
+			box-sizing: border-box;
+			padding: 8px;
+			border-radius: 7px;
+			border: 1px solid rgba(255,255,255,0.2);
+			background: rgba(0,0,0,0.25);
+			color: #fff;
+			font: 600 12px/1.2 sans-serif;
+		}
+		#account-status {
+			margin-top: 6px;
+			color: #bde6ff;
+			font: 600 11px/1.2 sans-serif;
+			min-height: 14px;
 		}
 		#player-name-input {
 			margin-top: 6px;
@@ -363,6 +387,19 @@
 		<div id="username-record-row">
 			<label for="player-name-input">Player name (saved in your browser)</label>
 			<input id="player-name-input" maxlength="24" placeholder="Add your leaderboard name" />
+		</div>
+		<div id="account-row">
+			<label for="account-username-input">Account username</label>
+			<input id="account-username-input" maxlength="24" autocomplete="username" placeholder="e.g. speed_runner77" />
+			<label for="account-password-input">Account password</label>
+			<input id="account-password-input" type="password" maxlength="80" autocomplete="current-password" placeholder="At least 6 characters" />
+			<button id="account-signup-btn" type="button">Sign Up</button>
+			<button id="account-login-btn" type="button">Login</button>
+			<button id="account-cloud-save-btn" type="button">Cloud Save Profile</button>
+			<button id="account-cloud-load-btn" type="button">Cloud Load Profile</button>
+			<button id="account-export-btn" type="button">Export Account</button>
+			<button id="account-import-btn" type="button">Import Account</button>
+			<div id="account-status"></div>
 		</div>
 	</div>
 	<div id="name-popup" role="dialog" aria-modal="true" aria-labelledby="name-popup-title">
