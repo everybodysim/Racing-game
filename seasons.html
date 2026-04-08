@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Season Hub</title>
+  <style>
+    body{margin:0;background:#0a1020;color:#e6eeff;font:14px/1.45 system-ui,sans-serif}
+    .wrap{max-width:940px;margin:0 auto;padding:20px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:14px}
+    table{width:100%;border-collapse:collapse}
+    td,th{padding:7px;border-bottom:1px solid rgba(255,255,255,.12);text-align:left}
+    .muted{opacity:.78}
+    a{color:#9fe8ff}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Season Hub</h1>
+    <p class="muted">TOTD-style seasonal seed + projected coin rewards for current leaders.</p>
+    <div class="grid">
+      <div class="card">
+        <h3>Current season seed</h3>
+        <div id="season-status">Loading season…</div>
+        <ul id="season-data"></ul>
+      </div>
+      <div class="card">
+        <h3>Projected season rewards</h3>
+        <div class="muted">Based on current global coin leaderboard.</div>
+        <table>
+          <thead><tr><th>Place</th><th>Player</th><th>Coins</th><th>Projected Reward</th></tr></thead>
+          <tbody id="reward-rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <p><a href="index.html">Back to game</a></p>
+  </div>
+
+  <script>
+    const SEASON_API = 'https://racing-season-api.ga1010.workers.dev/api/season/current';
+    const COINS_API = 'https://racing-coins-api.ga1010.workers.dev/api/coins/top';
+
+    const seasonStatus = document.getElementById('season-status');
+    const seasonData = document.getElementById('season-data');
+    const rewardRows = document.getElementById('reward-rows');
+
+    async function loadSeasonHub() {
+      try {
+        const seasonRes = await fetch(SEASON_API);
+        if (!seasonRes.ok) throw new Error(`Season API ${seasonRes.status}`);
+        const season = await seasonRes.json();
+        if (season?.ok === false) throw new Error(season.error || 'Season API failed');
+
+        seasonStatus.textContent = `Season ${season.seasonId} ready.`;
+        seasonData.innerHTML = `
+          <li>Season ID: <strong>${season.seasonId}</strong></li>
+          <li>Season seed: <strong>${season.seasonSeed}</strong></li>
+          <li>Daily seed: <strong>${season.daySeed}</strong></li>
+          <li>Reward pool: <strong>${season.rewardPool} coins</strong></li>
+        `;
+
+        const coinsRes = await fetch(COINS_API);
+        if (!coinsRes.ok) throw new Error(`Coins API ${coinsRes.status}`);
+        const coinsData = await coinsRes.json();
+        const entries = Array.isArray(coinsData?.entries) ? coinsData.entries : [];
+        const top = entries.slice(0, 10);
+        rewardRows.innerHTML = '';
+        const splits = [0.4,0.22,0.14,0.08,0.05,0.04,0.03,0.02,0.015,0.015];
+        top.forEach((entry, i) => {
+          const reward = Math.round((season.rewardPool || 0) * (splits[i] || 0));
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>#${i+1}</td><td>${entry.name || 'Unknown'}</td><td>${entry.coins || 0}</td><td>${reward}</td>`;
+          rewardRows.appendChild(tr);
+        });
+        if (!top.length) rewardRows.innerHTML = '<tr><td colspan="4">No coin rankings submitted yet.</td></tr>';
+      } catch (e) {
+        seasonStatus.textContent = `Failed to load season hub: ${e.message}`;
+      }
+    }
+
+    loadSeasonHub();
+  </script>
+</body>
+</html>

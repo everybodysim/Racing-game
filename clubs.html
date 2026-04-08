@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Clubs</title>
+  <style>
+    body{margin:0;background:#0b1220;color:#e8eefc;font:14px/1.45 system-ui,sans-serif}
+    .wrap{max-width:980px;margin:0 auto;padding:20px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:14px}
+    input,button{font:inherit;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(10,12,20,.8);color:#e8eefc}
+    button{cursor:pointer;background:rgba(255,255,255,.14)}
+    a{color:#9fe8ff}
+    ul{padding-left:18px}
+    table{width:100%;border-collapse:collapse}
+    td,th{padding:6px;border-bottom:1px solid rgba(255,255,255,.1)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Clubs Hub</h1>
+    <p>Create clubs, join clubs, and open each club's page with rankings.</p>
+    <p id="active-club" style="opacity:.82"></p>
+    <div class="grid">
+      <div class="card">
+        <h3>Create club</h3>
+        <input id="create-name" placeholder="Club name"><br><br>
+        <input id="create-owner" placeholder="Your player name"><br><br>
+        <button id="create-btn">Create Club</button>
+        <div id="create-status"></div>
+      </div>
+      <div class="card">
+        <h3>Join club</h3>
+        <input id="join-id" placeholder="Club ID"><br><br>
+        <input id="join-name" placeholder="Your player name"><br><br>
+        <button id="join-btn">Join Club</button>
+        <div id="join-status"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h3>Top clubs</h3>
+      <ul id="club-list"></ul>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h3>Open club page</h3>
+      <input id="view-id" placeholder="Club ID">
+      <button id="view-btn">Load Club</button>
+      <div id="club-view"></div>
+    </div>
+
+    <p><a href="index.html">Back to game</a></p>
+  </div>
+
+  <script>
+    const CLUBS_API_BASE = 'https://racing-clubs-api.ga1010.workers.dev/api/clubs';
+    const ACTIVE_CLUB_ID_KEY = 'racing-active-club-id-v1';
+    const ACTIVE_CLUB_NAME_KEY = 'racing-active-club-name-v1';
+    const listEl = document.getElementById('club-list');
+    const viewEl = document.getElementById('club-view');
+    const activeClubEl = document.getElementById('active-club');
+
+    async function api(path = '', options = {}) {
+      const res = await fetch(`${CLUBS_API_BASE}${path}`, {
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+        ...options,
+      });
+      const data = await res.json();
+      if (!res.ok || data?.ok === false) throw new Error(data?.error || `HTTP ${res.status}`);
+      return data;
+    }
+
+    async function refreshClubs() {
+      try {
+        const data = await api('');
+        const clubs = Array.isArray(data?.clubs) ? data.clubs : [];
+        listEl.innerHTML = '';
+        clubs.forEach(club => {
+          const li = document.createElement('li');
+          li.innerHTML = `<strong>${club.name}</strong> (<a href="clubs.html?club=${club.id}">${club.id}</a>) — members ${club.memberCount || 0}, coins ${club.totalCoins || 0}, records ${club.totalRecords || 0}`;
+          listEl.appendChild(li);
+        });
+        if (!clubs.length) listEl.innerHTML = '<li>No clubs yet.</li>';
+      } catch {
+        listEl.innerHTML = '<li>Could not load clubs.</li>';
+      }
+    }
+
+    document.getElementById('create-btn').addEventListener('click', async () => {
+      const name = document.getElementById('create-name').value.trim();
+      const owner = document.getElementById('create-owner').value.trim();
+      try {
+        const data = await api('', { method: 'POST', body: JSON.stringify({ name, owner }) });
+        document.getElementById('create-status').textContent = `Created ${data.club.name} (${data.club.id})`;
+        document.getElementById('view-id').value = data.club.id;
+        localStorage.setItem(ACTIVE_CLUB_ID_KEY, data.club.id);
+        localStorage.setItem(ACTIVE_CLUB_NAME_KEY, owner);
+        refreshClubs();
+      } catch (e) {
+        document.getElementById('create-status').textContent = e.message;
+      }
+    });
+
+    document.getElementById('join-btn').addEventListener('click', async () => {
+      const id = document.getElementById('join-id').value.trim();
+      const name = document.getElementById('join-name').value.trim();
+      try {
+        await api(`/${id}/join`, { method: 'POST', body: JSON.stringify({ name }) });
+        document.getElementById('join-status').textContent = `Joined club ${id}`;
+        localStorage.setItem(ACTIVE_CLUB_ID_KEY, id);
+        localStorage.setItem(ACTIVE_CLUB_NAME_KEY, name);
+        refreshClubs();
+      } catch (e) {
+        document.getElementById('join-status').textContent = e.message;
+      }
+    });
+
+    async function loadClubViewById(id) {
+      if (!id) return;
+      document.getElementById('view-id').value = id;
+      history.replaceState({}, '', `${location.pathname}?club=${encodeURIComponent(id)}`);
+      try {
+        const data = await api(`/${id}`);
+        const club = data.club;
+        const byCoins = data.membersByCoins || [];
+        const byRecords = data.membersByRecords || [];
+        viewEl.innerHTML = `
+          <h4>${club.name} (${club.id})</h4>
+          <p>Owner: ${club.owner} • Members: ${club.memberCount || 0} • Coins: ${club.totalCoins || 0} • Records: ${club.totalRecords || 0}</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <h5>Best Coins</h5>
+              <table>${byCoins.map((m,i)=>`<tr><td>#${i+1}</td><td>${m.name}</td><td>${m.coins}</td></tr>`).join('')}</table>
+            </div>
+            <div>
+              <h5>Most Records</h5>
+              <table>${byRecords.map((m,i)=>`<tr><td>#${i+1}</td><td>${m.name}</td><td>${m.records}</td></tr>`).join('')}</table>
+            </div>
+          </div>
+        `;
+      } catch (e) {
+        viewEl.textContent = e.message;
+      }
+    }
+
+    document.getElementById('view-btn').addEventListener('click', async () => {
+      const id = document.getElementById('view-id').value.trim();
+      if (!id) return;
+      await loadClubViewById(id);
+    });
+
+    refreshClubs();
+    const clubFromUrl = new URLSearchParams(location.search).get('club');
+    if (clubFromUrl) loadClubViewById(clubFromUrl);
+    const activeClubId = localStorage.getItem(ACTIVE_CLUB_ID_KEY);
+    const activeClubName = localStorage.getItem(ACTIVE_CLUB_NAME_KEY);
+    if (activeClubId && activeClubName) activeClubEl.textContent = `Auto-sync active club: ${activeClubId} as ${activeClubName}`;
+    else activeClubEl.textContent = 'No active club selected yet. Create or join one to enable auto-sync from gameplay.';
+  </script>
+</body>
+</html>

@@ -54,12 +54,7 @@ async function postLeaderboardTime( request, env ) {
 		createdAt: Date.now(),
 	} );
 
-	entries.sort( ( a, b ) => {
-		if ( a.timeSeconds !== b.timeSeconds ) return a.timeSeconds - b.timeSeconds;
-		return a.createdAt - b.createdAt;
-	} );
-
-	const trimmed = entries.slice( 0, MAX_ROWS_PER_TRACK );
+	const trimmed = dedupeAndSortEntries( entries ).slice( 0, MAX_ROWS_PER_TRACK );
 	await env.LEADERBOARD_KV.put( keyForTrack( trackId ), JSON.stringify( trimmed ) );
 	return json( { ok: true, entries: trimmed } );
 }
@@ -74,12 +69,37 @@ async function loadTrackEntries( env, trackId ) {
 	try {
 		const parsed = JSON.parse( raw );
 		if ( ! Array.isArray( parsed ) ) return [];
-		return parsed.filter( ( entry ) => {
+		const valid = parsed.filter( ( entry ) => {
 			return typeof entry?.name === 'string' && Number.isFinite( Number( entry?.timeSeconds ) );
 		} );
+		return dedupeAndSortEntries( valid );
 	} catch {
 		return [];
 	}
+}
+
+function dedupeAndSortEntries( entries ) {
+	const bestByName = new Map();
+	for ( const entry of entries ) {
+		const key = normalizeNameKey( entry?.name );
+		if ( ! key ) continue;
+		const timeSeconds = Number( entry.timeSeconds );
+		if ( ! Number.isFinite( timeSeconds ) ) continue;
+		const normalized = {
+			name: sanitizePlayerName( entry.name ) || 'Anonymous',
+			timeSeconds: roundTime( timeSeconds ),
+			trackName: sanitizeTrackName( entry.trackName ),
+			createdAt: Number.isFinite( Number( entry.createdAt ) ) ? Number( entry.createdAt ) : Date.now(),
+		};
+		const existing = bestByName.get( key );
+		if ( ! existing || normalized.timeSeconds < existing.timeSeconds || ( normalized.timeSeconds === existing.timeSeconds && normalized.createdAt < existing.createdAt ) ) {
+			bestByName.set( key, normalized );
+		}
+	}
+	return [ ...bestByName.values() ].sort( ( a, b ) => {
+		if ( a.timeSeconds !== b.timeSeconds ) return a.timeSeconds - b.timeSeconds;
+		return a.createdAt - b.createdAt;
+	} );
 }
 
 function sanitizeTrackId( value ) {
@@ -94,6 +114,10 @@ function sanitizeTrackName( value ) {
 
 function sanitizePlayerName( value ) {
 	return String( value || '' ).replace( /\s+/g, ' ' ).trim().slice( 0, 24 );
+}
+
+function normalizeNameKey( value ) {
+	return sanitizePlayerName( value ).toLowerCase();
 }
 
 function roundTime( value ) {

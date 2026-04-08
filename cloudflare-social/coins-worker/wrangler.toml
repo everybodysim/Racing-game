@@ -1,0 +1,7 @@
+name = "racing-coins-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "COINS_KV"
+id = "REPLACE_WITH_COINS_KV_ID"
