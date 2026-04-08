@@ -11,6 +11,32 @@ const JUMP_RAMP_SIZE = CELL_RAW * 0.36;
 const JUMP_RAMP_DEPTH = CELL_RAW * 0.18;
 const JUMP_RAMP_Y = 0.24;
 
+function getSurfaceVisual( surfaceType ) {
+
+	switch ( surfaceType ) {
+
+		case 'surface-ice': return { color: 0x7ad8ff, emissive: 0x1f6f8a, metalness: 0.2, roughness: 0.15 };
+		case 'surface-boost': return { color: 0xff4b4b, emissive: 0xc1121f, metalness: 0.0, roughness: 0.9 };
+		case 'surface-sand': return { color: 0xd7b46a, emissive: 0x6f4f22, metalness: 0.0, roughness: 1.0 };
+		case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
+		case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
+		case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
+		case 'surface-grip': return { color: 0x7fff91, emissive: 0x1f6f2f, metalness: 0.0, roughness: 0.7 };
+		case 'surface-mud': return { color: 0x6b4a2a, emissive: 0x2b1a0c, metalness: 0.0, roughness: 1.0 };
+		case 'surface-glass': return { color: 0xaee9ff, emissive: 0x2d5f80, metalness: 0.32, roughness: 0.06 };
+		case 'surface-slow': return { color: 0x8d8d8d, emissive: 0x2d2d2d, metalness: 0.0, roughness: 1.0 };
+		case 'surface-turbo': return { color: 0xffb347, emissive: 0x8f4b00, metalness: 0.0, roughness: 0.75 };
+		case 'surface-pop': return { color: 0xb2ff8a, emissive: 0x348f20, metalness: 0.0, roughness: 0.72 };
+		case 'surface-launch': return { color: 0xffd166, emissive: 0x8f6512, metalness: 0.0, roughness: 0.82 };
+		case 'surface-reverse': return { color: 0xff9f7a, emissive: 0x8f3e20, metalness: 0.0, roughness: 0.82 };
+		case 'surface-spin-l': return { color: 0xd7a3ff, emissive: 0x5f2c8f, metalness: 0.0, roughness: 0.8 };
+		case 'surface-spin-r': return { color: 0xffa3d7, emissive: 0x8f2c5f, metalness: 0.0, roughness: 0.8 };
+		default: return { color: 0xb88657, emissive: 0x4a2b12, metalness: 0.0, roughness: 0.9 };
+
+	}
+
+}
+
 export const TRACK_CELLS = [
 	[ -3, -3, 'track-corner',   16 ],
 	[ -2, -3, 'track-straight', 22 ],
@@ -203,20 +229,17 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		for ( const [ gx, gz, surfaceType ] of surfaces ) {
 
-			const isIce = surfaceType === 'surface-ice';
-			const isBoost = surfaceType === 'surface-boost';
-			const color = isIce ? 0x7ad8ff : ( isBoost ? 0xff4b4b : 0xb88657 );
-			const emissive = isIce ? 0x1f6f8a : ( isBoost ? 0xc1121f : 0x4a2b12 );
+			const visual = getSurfaceVisual( surfaceType );
 			const patch = new THREE.Mesh(
 				new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
 				new THREE.MeshStandardMaterial( {
-					color,
-					emissive,
+					color: visual.color,
+					emissive: visual.emissive,
 					emissiveIntensity: 0.2,
 					transparent: true,
 					opacity: 0.58,
-					metalness: isIce ? 0.2 : 0.0,
-					roughness: isIce ? 0.15 : 0.9
+					metalness: visual.metalness,
+					roughness: visual.roughness
 				} )
 			);
 			patch.rotation.x = - Math.PI / 2;
