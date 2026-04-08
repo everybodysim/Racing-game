@@ -40,6 +40,11 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const jumpRampHalfExtents = [ CELL_HALF * S * 0.36, 0.26 * S, CELL_HALF * S * 0.44 ];
 	const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
 	const JUMP_RAMP_SINK = 0.14;
+	const TALL_HEIGHT = 5;
+	const TALL_Y = groundY + TALL_HEIGHT * S;
+	const ROAD_HALF_THICK = 0.06;
+	const SLOPE_SPAN_CELLS = 2;
+	const SLOPE_ANGLE = Math.atan2( TALL_HEIGHT, CELL_RAW * SLOPE_SPAN_CELLS );
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
 	const BUMP_RADIUS = 7.5 * S;
@@ -112,6 +117,9 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const cells = customCells || TRACK_CELLS;
 	const bumpSet = new Set();
 	const jumpMap = new Map();
+	const slopeMap = new Map();
+	const tallStraightMap = new Map();
+	const tallCornerMap = new Map();
 	if ( extras && Array.isArray( extras.bumps ) ) {
 
 		for ( const [ gx, gz ] of extras.bumps ) bumpSet.add( gx + ',' + gz );
@@ -120,6 +128,47 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	if ( extras && Array.isArray( extras.jumps ) ) {
 
 		for ( const [ gx, gz, orient = 0 ] of extras.jumps ) jumpMap.set( gx + ',' + gz, orient );
+
+	}
+	if ( extras && Array.isArray( extras.slopes ) ) {
+
+		for ( const [ gx, gz, orient = 0 ] of extras.slopes ) slopeMap.set( gx + ',' + gz, orient );
+
+	}
+	if ( extras && Array.isArray( extras.tallStraights ) ) {
+
+		for ( const [ gx, gz, orient = 0 ] of extras.tallStraights ) tallStraightMap.set( gx + ',' + gz, orient );
+
+	}
+	if ( extras && Array.isArray( extras.tallCorners ) ) {
+
+		for ( const [ gx, gz, orient = 0 ] of extras.tallCorners ) tallCornerMap.set( gx + ',' + gz, orient );
+
+	}
+
+	function addRoadSurfaceCollider( gx, gz, orient = 0, y = groundY, spanCells = 1, isSlope = false ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const yaw = deg * Math.PI / 180;
+		const pitch = isSlope ? - SLOPE_ANGLE : 0;
+		const halfExtents = [ CELL_HALF * S * 0.98, ROAD_HALF_THICK * S, CELL_HALF * S * spanCells * 0.98 ];
+		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( pitch, yaw, 0, 'YXZ' ) );
+		const position = [ cx, y, cz ];
+		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
+
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			quaternion,
+			friction: 1.2,
+			restitution: 0.0,
+		} );
+
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
 	}
 
@@ -135,10 +184,33 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const hasBump = key === 'track-bump' || bumpSet.has( gx + ',' + gz );
 		if ( hasBump ) bumpSet.delete( gx + ',' + gz );
 		const jumpKey = gx + ',' + gz;
+		const slopeKey = gx + ',' + gz;
 		if ( jumpMap.has( jumpKey ) ) {
 
 			addJumpRampCollider( gx, gz, jumpMap.get( jumpKey ) );
 			jumpMap.delete( jumpKey );
+
+		}
+		if ( slopeMap.has( slopeKey ) ) {
+
+			addRoadSurfaceCollider( gx, gz, slopeMap.get( slopeKey ), groundY + TALL_HEIGHT * S * 0.5, SLOPE_SPAN_CELLS, true );
+			slopeMap.delete( slopeKey );
+
+		}
+
+		const tallStraightOrient = tallStraightMap.get( gx + ',' + gz );
+		if ( tallStraightOrient !== undefined ) {
+
+			addRoadSurfaceCollider( gx, gz, tallStraightOrient, TALL_Y );
+			tallStraightMap.delete( gx + ',' + gz );
+
+		}
+
+		const tallCornerOrient = tallCornerMap.get( gx + ',' + gz );
+		if ( tallCornerOrient !== undefined ) {
+
+			addRoadSurfaceCollider( gx, gz, tallCornerOrient, TALL_Y );
+			tallCornerMap.delete( gx + ',' + gz );
 
 		}
 
@@ -224,6 +296,27 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		const [ gx, gz ] = key.split( ',' ).map( Number );
 		addJumpRampCollider( gx, gz, orient );
+
+	}
+
+	for ( const [ key, orient ] of slopeMap ) {
+
+		const [ gx, gz ] = key.split( ',' ).map( Number );
+		addRoadSurfaceCollider( gx, gz, orient, groundY + TALL_HEIGHT * S * 0.5, SLOPE_SPAN_CELLS, true );
+
+	}
+
+	for ( const [ key, orient ] of tallStraightMap ) {
+
+		const [ gx, gz ] = key.split( ',' ).map( Number );
+		addRoadSurfaceCollider( gx, gz, orient, TALL_Y );
+
+	}
+
+	for ( const [ key, orient ] of tallCornerMap ) {
+
+		const [ gx, gz ] = key.split( ',' ).map( Number );
+		addRoadSurfaceCollider( gx, gz, orient, TALL_Y );
 
 	}
 

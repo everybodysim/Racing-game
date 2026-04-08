@@ -77,7 +77,7 @@
 		}
 
 		function decodeMods( modsStr ) {
-			if ( ! modsStr ) return { b: [], j: [], s: [], u: [], d: [], w: { preset: 'clear', precipitation: 'none', intensity: 'medium', lightning: false, wind: 'none' } };
+			if ( ! modsStr ) return { b: [], j: [], s: [], sl: [], ts: [], tc: [], u: [], d: [], w: { preset: 'clear', precipitation: 'none', intensity: 'medium', lightning: false, wind: 'none' } };
 			try {
 				const payload = decodeURIComponent( escape( atob( modsStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
 				const parsed = JSON.parse( payload );
@@ -85,6 +85,9 @@
 					b: Array.isArray( parsed.b ) ? parsed.b : [],
 					j: Array.isArray( parsed.j ) ? parsed.j : [],
 					s: Array.isArray( parsed.s ) ? parsed.s : [],
+					sl: Array.isArray( parsed.sl ) ? parsed.sl : [],
+					ts: Array.isArray( parsed.ts ) ? parsed.ts : [],
+					tc: Array.isArray( parsed.tc ) ? parsed.tc : [],
 					u: Array.isArray( parsed.u ) ? parsed.u : [],
 					d: Array.isArray( parsed.d ) ? parsed.d : [],
 					w: {
@@ -96,7 +99,7 @@
 					},
 				};
 			} catch ( e ) {
-				return { b: [], j: [], s: [], u: [], d: [], w: { preset: 'clear', precipitation: 'none', intensity: 'medium', lightning: false, wind: 'none' } };
+				return { b: [], j: [], s: [], sl: [], ts: [], tc: [], u: [], d: [], w: { preset: 'clear', precipitation: 'none', intensity: 'medium', lightning: false, wind: 'none' } };
 			}
 		}
 
@@ -216,6 +219,17 @@
 					ctx.beginPath();
 					ctx.moveTo( p0.x + cellSize * scale * 0.2, p0.y + cellSize * scale * 0.75 );
 					ctx.lineTo( p0.x + cellSize * scale * 0.8, p0.y + cellSize * scale * 0.25 );
+					ctx.stroke();
+				}
+
+				ctx.strokeStyle = 'rgba(173,216,230,0.95)';
+				for ( const [ gx, gz ] of replayTrack.mods.sl || [] ) {
+					const x0 = gx * cellSize;
+					const z0 = gz * cellSize;
+					const p0 = toPix( x0, z0 );
+					ctx.beginPath();
+					ctx.moveTo( p0.x + cellSize * scale * 0.1, p0.y + cellSize * scale * 0.85 );
+					ctx.lineTo( p0.x + cellSize * scale * 0.9, p0.y + cellSize * scale * 0.15 );
 					ctx.stroke();
 				}
 			}
