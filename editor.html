@@ -182,6 +182,10 @@
 		<button id="btn-surface-wood">Wood</button>
 		<button id="btn-surface-ice">Ice</button>
 		<button id="btn-surface-boost">Boost Surface</button>
+		<button id="btn-surface-sand">Sand</button>
+		<button id="btn-surface-bounce">Bounce Plate</button>
+		<button id="btn-surface-kick-l">Kick Left</button>
+		<button id="btn-surface-kick-r">Kick Right</button>
 		<button id="btn-deco-forest">Tree</button>
 		<button id="btn-deco-tents">Tent</button>
 		<button id="btn-deco-empty">Prop</button>
@@ -210,7 +214,7 @@
 	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint' ];
 	const BUMP_TOOL = 'overlay-bump';
 	const JUMP_TOOL = 'overlay-jump';
-	const SURFACE_TYPES = [ 'surface-wood', 'surface-ice', 'surface-boost' ];
+	const SURFACE_TYPES = [ 'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r' ];
 	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
 	let tool = 'paint'; // 'paint', 'erase'
 	let selectedType = 'track-straight';
@@ -237,6 +241,22 @@
 			decoOrient: 0,
 			decoMesh: null
 		};
+
+	}
+
+	function getSurfaceVisual( surfaceType ) {
+
+		switch ( surfaceType ) {
+
+			case 'surface-ice': return { color: 0x7ad8ff, emissive: 0x1f6f8a, metalness: 0.2, roughness: 0.15 };
+			case 'surface-boost': return { color: 0xff4b4b, emissive: 0xc1121f, metalness: 0.0, roughness: 0.9 };
+			case 'surface-sand': return { color: 0xd7b46a, emissive: 0x6f4f22, metalness: 0.0, roughness: 1.0 };
+			case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
+			case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
+			case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
+			default: return { color: 0xb88657, emissive: 0x4a2b12, metalness: 0.0, roughness: 0.9 };
+
+		}
 
 	}
 
@@ -498,20 +518,17 @@
 
 		if ( cell.surfaceType ) {
 
-			const isIce = cell.surfaceType === 'surface-ice';
-			const isBoost = cell.surfaceType === 'surface-boost';
-			const color = isIce ? 0x7ad8ff : ( isBoost ? 0xff4b4b : 0xb88657 );
-			const emissive = isIce ? 0x1f6f8a : ( isBoost ? 0xc1121f : 0x4a2b12 );
+			const visual = getSurfaceVisual( cell.surfaceType );
 			const patch = new THREE.Mesh(
 				new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
 				new THREE.MeshStandardMaterial( {
-					color,
-					emissive,
+					color: visual.color,
+					emissive: visual.emissive,
 					emissiveIntensity: 0.2,
 					transparent: true,
 					opacity: 0.58,
-					metalness: isIce ? 0.2 : 0.0,
-					roughness: isIce ? 0.15 : 0.9
+					metalness: visual.metalness,
+					roughness: visual.roughness
 				} )
 			);
 			patch.rotation.x = - Math.PI / 2;
@@ -931,6 +948,10 @@
 		'surface-wood': document.getElementById( 'btn-surface-wood' ),
 		'surface-ice': document.getElementById( 'btn-surface-ice' ),
 		'surface-boost': document.getElementById( 'btn-surface-boost' ),
+		'surface-sand': document.getElementById( 'btn-surface-sand' ),
+		'surface-bounce': document.getElementById( 'btn-surface-bounce' ),
+		'surface-kick-l': document.getElementById( 'btn-surface-kick-l' ),
+		'surface-kick-r': document.getElementById( 'btn-surface-kick-r' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
