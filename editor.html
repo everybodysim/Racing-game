@@ -129,6 +129,24 @@
 			width: 14px;
 			height: 14px;
 		}
+		#builder-hud {
+			position: absolute;
+			left: 14px;
+			top: 14px;
+			width: min(280px, calc(100vw - 24px));
+			padding: 12px;
+			border-radius: 12px;
+			background: linear-gradient(160deg, rgba(23,33,57,0.88), rgba(12,16,29,0.88));
+			border: 1px solid rgba(120,170,255,0.35);
+			color: #dbe9ff;
+			z-index: 21;
+			box-shadow: 0 10px 26px rgba(0,0,0,0.35);
+		}
+		#builder-hud h2 { margin: 0 0 4px; font-size: 16px; }
+		#builder-hud p { margin: 0 0 8px; font-size: 12px; opacity: 0.85; }
+		#builder-hud ul { margin: 0; padding-left: 18px; font-size: 12px; opacity: 0.9; }
+		#builder-hud .tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+		#builder-hud .tag { font-size: 11px; border: 1px solid rgba(255,255,255,0.2); border-radius: 999px; padding: 2px 7px; background: rgba(255,255,255,0.08); }
 
 	</style>
 	<script type="importmap">
@@ -141,6 +159,20 @@
 	</script>
 </head>
 <body>
+	<div id="builder-hud">
+		<h2>Builder League 🚧</h2>
+		<p>Editor now has creator-game vibes: build, test, share, repeat.</p>
+		<div class="tag-row">
+			<span class="tag">No new block types</span>
+			<span class="tag">URL-safe format</span>
+			<span class="tag">Fast iteration</span>
+		</div>
+		<ul>
+			<li>Paint/Erase + rotate quickly.</li>
+			<li>Weather and surface choices for mood.</li>
+			<li>Publish to Track Share Board and race immediately.</li>
+		</ul>
+	</div>
 	<div id="settings-bar">
 		<label for="weather-preset">Weather</label>
 		<select id="weather-preset" aria-label="Weather preset">
