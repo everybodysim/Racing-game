@@ -14,9 +14,18 @@ export default {
 			return withCors( await addTrack( request, env ) );
 		}
 
+		if ( url.pathname === '/api/tracks/link' && request.method === 'POST' ) {
+			return withCors( await addTrackFromPlayUrl( request, env ) );
+		}
+
 		if ( url.pathname.startsWith( '/api/tracks/' ) && request.method === 'DELETE' ) {
 			const id = url.pathname.split( '/' ).pop();
 			return withCors( await deleteTrack( id, request, env ) );
+		}
+
+		if ( url.pathname.startsWith( '/api/tracks/' ) && url.pathname.endsWith( '/view' ) && request.method === 'POST' ) {
+			const id = url.pathname.split( '/' )[ 3 ];
+			return withCors( await incrementTrackViews( id, env ) );
 		}
 
 		return withCors( new Response( JSON.stringify( { ok: false, error: 'Not found' } ), {
@@ -68,6 +77,7 @@ async function addTrack( request, env ) {
 		playUrl: buildPlayUrl( decoded.url, decoded.ghost ),
 		bestLapSeconds: Number( decoded.ghost.bestLapSeconds ),
 		sampleCount: Array.isArray( decoded.ghost.samples ) ? decoded.ghost.samples.length : 0,
+		viewCount: 0,
 		createdAt: Date.now(),
 	};
 
@@ -88,12 +98,58 @@ async function deleteTrack( id, request, env ) {
 	return json( { ok: true } );
 }
 
+async function addTrackFromPlayUrl( request, env ) {
+	let payload;
+	try {
+		payload = await request.json();
+	} catch {
+		return json( { ok: false, error: 'Invalid JSON body' }, 400 );
+	}
+	const name = String( payload?.name || '' ).trim().slice( 0, 80 );
+	const playUrl = String( payload?.playUrl || '' ).trim();
+	if ( ! playUrl ) return json( { ok: false, error: 'playUrl is required' }, 400 );
+	try {
+		new URL( playUrl );
+	} catch {
+		return json( { ok: false, error: 'playUrl must be a valid URL' }, 400 );
+	}
+	const entry = {
+		id: crypto.randomUUID(),
+		name: name || inferTrackName( playUrl ),
+		playUrl,
+		bestLapSeconds: null,
+		sampleCount: 0,
+		viewCount: 0,
+		createdAt: Date.now(),
+	};
+	const entries = await loadEntries( env );
+	entries.unshift( entry );
+	const trimmed = entries.slice( 0, MAX_ENTRIES );
+	await env.TRACKS_KV.put( TRACKS_KEY, JSON.stringify( trimmed ) );
+	return json( { ok: true, entry } );
+}
+
+async function incrementTrackViews( id, env ) {
+	if ( ! id ) return json( { ok: false, error: 'id is required' }, 400 );
+	const entries = await loadEntries( env );
+	const index = entries.findIndex( ( entry ) => entry.id === id );
+	if ( index === - 1 ) return json( { ok: false, error: 'Not found' }, 404 );
+	const current = Number( entries[ index ].viewCount );
+	entries[ index ].viewCount = Number.isFinite( current ) ? current + 1 : 1;
+	await env.TRACKS_KV.put( TRACKS_KEY, JSON.stringify( entries ) );
+	return json( { ok: true, entry: entries[ index ] } );
+}
+
 async function loadEntries( env ) {
 	const raw = await env.TRACKS_KV.get( TRACKS_KEY );
 	if ( ! raw ) return [];
 	try {
 		const parsed = JSON.parse( raw );
-		return Array.isArray( parsed ) ? parsed : [];
+		if ( ! Array.isArray( parsed ) ) return [];
+		return parsed.map( ( entry ) => ( {
+			...entry,
+			viewCount: Number.isFinite( Number( entry?.viewCount ) ) ? Number( entry.viewCount ) : 0,
+		} ) );
 	} catch {
 		return [];
 	}

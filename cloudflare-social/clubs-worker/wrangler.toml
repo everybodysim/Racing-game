@@ -1,0 +1,7 @@
+name = "racing-clubs-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "CLUBS_KV"
+id = "REPLACE_WITH_CLUBS_KV_ID"

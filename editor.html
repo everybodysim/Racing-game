@@ -192,6 +192,7 @@
 		<div class="separator"></div>
 		<button id="btn-play" class="action">Play</button>
 		<button id="btn-share" class="action">Share</button>
+		<button id="btn-quick-upload" class="action">Quick Upload</button>
 		<div class="separator"></div>
 		<button id="btn-clear" class="danger">Clear</button>
 	</div>
@@ -1066,6 +1067,40 @@
 			showToast( url );
 
 		} );
+
+	} );
+
+	document.getElementById( 'btn-quick-upload' ).addEventListener( 'click', async () => {
+
+		if ( getCellsArray().length === 0 ) {
+
+			showToast( 'Draw some road first!' );
+			return;
+
+		}
+
+		const title = window.prompt( 'Track title for board upload:', 'My Custom Track' );
+		if ( title === null ) return;
+		const encoded = encodeCells( getCellsArray() );
+		const mods = encodeMods();
+		const base = window.location.href.replace( /editor\.html.*/, '' );
+		const playUrl = `${ base }index.html?map=${ encoded }&mods=${ mods }`;
+
+		try {
+
+			const response = await fetch( 'https://racing-track-board-api.ga1010.workers.dev/api/tracks/link', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify( { name: String( title || '' ).trim(), playUrl } ),
+			} );
+			if ( ! response.ok ) throw new Error( `HTTP ${ response.status }` );
+			showToast( 'Uploaded to Track Share Board!' );
+
+		} catch ( e ) {
+
+			showToast( 'Upload failed. Check Track Board Worker URL/deploy.' );
+
+		}
 
 	} );
 

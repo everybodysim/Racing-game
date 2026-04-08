@@ -89,9 +89,35 @@ const PRECIP_DEFAULT = 'none';
 const INTENSITY_DEFAULT = 'medium';
 const WIND_DEFAULT = 'none';
 const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
+const ACCOUNT_API_BASE = 'https://racing-account-api.ga1010.workers.dev/api/accounts';
+const CLUBS_API_BASE = 'https://racing-clubs-api.ga1010.workers.dev/api/clubs';
 const PLAYER_NAME_KEY = 'racing-player-name-v1';
 const MAX_PLAYER_NAME_LENGTH = 24;
+const ACCOUNT_SESSION_KEY = 'racing-account-session-v1';
+const RECORD_TRACKS_KEY = 'racing-record-track-set-v1';
+const ACTIVE_CLUB_ID_KEY = 'racing-active-club-id-v1';
+const ACTIVE_CLUB_NAME_KEY = 'racing-active-club-name-v1';
 const MAX_LEADERBOARD_ROWS = 15;
+const CAMPAIGN_STAGES = [
+	{ type: 'beat-authors', goal: 1, text: 'Defeat 1 author time' },
+	{ type: 'beat-authors', goal: 3, text: 'Defeat 3 author times' },
+	{ type: 'beat-authors', goal: 5, text: 'Defeat 5 author times' },
+	{ type: 'beat-authors', goal: 7, text: 'Defeat 7 author times' },
+	{ type: 'beat-authors', goal: 9, text: 'Defeat 9 author times' },
+	{ type: 'beat-authors', goal: 11, text: 'Defeat 11 author times' },
+	{ type: 'beat-authors', goal: 13, text: 'Defeat 13 author times' },
+	{ type: 'beat-authors', goal: 15, text: 'Defeat 15 author times' },
+	{ type: 'beat-authors', goal: 17, text: 'Defeat 17 author times' },
+	{ type: 'beat-authors', goal: 19, text: 'Defeat 19 author times' },
+	{ type: 'beat-authors', goal: 21, text: 'Defeat 21 author times' },
+	{ type: 'beat-authors', goal: 23, text: 'Defeat 23 author times' },
+	{ type: 'beat-authors', goal: 25, text: 'Defeat 25 author times' },
+	{ type: 'beat-authors', goal: 28, text: 'Defeat 28 author times' },
+	{ type: 'beat-authors', goal: 32, text: 'Defeat 32 author times' },
+	{ type: 'beat-authors', goal: 36, text: 'Defeat 36 author times' },
+	{ type: 'beat-authors', goal: 40, text: 'Defeat 40 author times' },
+];
+const CAMPAIGN_STAGE_COUNT = CAMPAIGN_STAGES.length;
 const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
 const INTENSITY_TYPES = new Set( [ 'low', 'medium', 'high' ] );
 const WIND_TYPES = new Set( [ 'none', 'breezy', 'gusty' ] );
@@ -490,6 +516,15 @@ async function init() {
 	const garageDriveUnlockBtn = document.getElementById( 'garage-drive-unlock' );
 	const profileExportBtn = document.getElementById( 'profile-export-btn' );
 	const profileImportBtn = document.getElementById( 'profile-import-btn' );
+	const accountUsernameInput = document.getElementById( 'account-username-input' );
+	const accountPasswordInput = document.getElementById( 'account-password-input' );
+	const accountSignupBtn = document.getElementById( 'account-signup-btn' );
+	const accountLoginBtn = document.getElementById( 'account-login-btn' );
+	const accountCloudSaveBtn = document.getElementById( 'account-cloud-save-btn' );
+	const accountCloudLoadBtn = document.getElementById( 'account-cloud-load-btn' );
+	const accountExportBtn = document.getElementById( 'account-export-btn' );
+	const accountImportBtn = document.getElementById( 'account-import-btn' );
+	const accountStatus = document.getElementById( 'account-status' );
 	let gameMode = 'race';
 	let stuntPoints = 0;
 	let bestStuntPoints = 0;
@@ -501,6 +536,7 @@ async function init() {
 	let modeMenuOpen = false;
 	let pendingLeaderboardRecord = null;
 	let leaderboardVisible = true;
+	let accountSession = null;
 	let campaignState = null;
 	let campaignTargetAuthorSeconds = null;
 	let campaignTrackName = '';
@@ -522,18 +558,19 @@ async function init() {
 		if ( shareTimeBtn ) shareTimeBtn.style.display = 'none';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = 'none';
 		if ( importGhostBtn ) importGhostBtn.style.display = 'none';
-		if ( stuntModeBtn ) {
+	}
+	if ( stuntModeBtn ) {
 
-			stuntModeBtn.disabled = true;
-			stuntModeBtn.title = 'Stunt mode is unavailable in local multiplayer';
-
-		}
+		stuntModeBtn.disabled = true;
+		stuntModeBtn.title = 'Stunt mode is under construction';
 
 	}
 	const economyStoreKey = 'racing-economy-v1';
 	let coins = 0;
 	let engineTier = 0;
 	let shareImageDataUrl = '';
+	let lastClubSubmitAt = 0;
+	let recordTrackSet = new Set();
 
 	function getEngineMult() {
 
@@ -652,6 +689,12 @@ async function init() {
 	function setGameMode( mode ) {
 
 		if ( mode !== 'race' && mode !== 'stunt' && mode !== 'campaign' ) return;
+		if ( mode === 'stunt' ) {
+
+			showModeError( 'Stunt Mode is under construction right now.' );
+			return;
+
+		}
 		if ( ( mode === 'stunt' || mode === 'campaign' ) && isSplitScreen ) {
 
 			showModeError( `${ mode === 'campaign' ? 'Campaign' : 'Stunt Mode' } is disabled in local multiplayer (2P).` );
@@ -799,11 +842,8 @@ async function init() {
 
 	function campaignStageConfig( stage = 1 ) {
 
-		if ( stage <= 1 ) return { type: 'beat-authors', goal: 1, text: 'Defeat 1 author time' };
-		if ( stage === 2 ) return { type: 'beat-authors', goal: 3, text: 'Defeat 3 author times' };
-		if ( stage === 3 ) return { type: 'stunt-score', goal: 300, text: 'Score 300 stunt points on this track' };
-		if ( stage === 4 ) return { type: 'beat-authors', goal: 5, text: 'Defeat 5 author times' };
-		return { type: 'stunt-score', goal: 500, text: 'Score 500 stunt points on this track' };
+		const normalizedStage = Math.max( 1, Math.min( CAMPAIGN_STAGE_COUNT, Number( stage ) || 1 ) );
+		return CAMPAIGN_STAGES[ normalizedStage - 1 ];
 
 	}
 
@@ -820,7 +860,7 @@ async function init() {
 
 			const raw = localStorage.getItem( campaignStoreKey );
 			const parsed = raw ? JSON.parse( raw ) : {};
-			const stage = Math.max( 1, Number( parsed?.stage ) || 1 );
+			const stage = Math.max( 1, Math.min( CAMPAIGN_STAGE_COUNT, Number( parsed?.stage ) || 1 ) );
 			const config = campaignStageConfig( stage );
 			campaignState = {
 				stage,
@@ -859,7 +899,7 @@ async function init() {
 		campaignState.stageType = next.type;
 		campaignState.goal = next.goal;
 		campaignState.progress = 0;
-		if ( campaignState.stage > 5 ) {
+		if ( campaignState.stage > CAMPAIGN_STAGE_COUNT ) {
 
 			campaignState.completedRoadmaps ++;
 			campaignState.stage = 1;
@@ -971,6 +1011,80 @@ async function init() {
 
 		}
 		updateGarageUi();
+		queueClubStatsSubmit();
+
+	}
+
+	function getRecordCount() {
+
+		return recordTrackSet.size;
+
+	}
+
+	function loadRecordTrackSet() {
+
+		try {
+
+			const raw = localStorage.getItem( RECORD_TRACKS_KEY );
+			if ( ! raw ) return;
+			const parsed = JSON.parse( raw );
+			if ( Array.isArray( parsed ) ) recordTrackSet = new Set( parsed.filter( ( item ) => typeof item === 'string' ) );
+
+		} catch ( e ) {
+
+			recordTrackSet = new Set();
+
+		}
+
+	}
+
+	function saveRecordTrackSet() {
+
+		localStorage.setItem( RECORD_TRACKS_KEY, JSON.stringify( [ ...recordTrackSet ] ) );
+
+	}
+
+	function markTrackRecord( trackId ) {
+
+		if ( ! trackId ) return;
+		const before = recordTrackSet.size;
+		recordTrackSet.add( trackId );
+		if ( recordTrackSet.size !== before ) {
+
+			saveRecordTrackSet();
+			queueClubStatsSubmit();
+
+		}
+
+	}
+
+	async function submitClubStatsSnapshot() {
+
+		const clubId = String( localStorage.getItem( ACTIVE_CLUB_ID_KEY ) || '' ).trim();
+		const clubName = sanitizePlayerName( localStorage.getItem( ACTIVE_CLUB_NAME_KEY ) || playerNameInput?.value || '' );
+		if ( ! clubId || ! clubName ) return;
+		try {
+
+			await fetch( `${ CLUBS_API_BASE }/${ encodeURIComponent( clubId ) }/stats`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify( { name: clubName, coins, records: getRecordCount() } ),
+			} );
+
+		} catch ( e ) {
+
+			// non-critical background sync
+
+		}
+
+	}
+
+	function queueClubStatsSubmit() {
+
+		const now = Date.now();
+		if ( now - lastClubSubmitAt < 20000 ) return;
+		lastClubSubmitAt = now;
+		submitClubStatsSnapshot();
 
 	}
 
@@ -1047,16 +1161,55 @@ async function init() {
 
 	}
 
-	function createProfileExportCode() {
+	function getCurrentProfileSnapshot() {
 
-		const profile = {
-			v: 1,
+		return {
+			v: 2,
+			playerName: sanitizePlayerName( playerNameInput?.value || '' ),
 			economy: { coins, engineTier },
 			garage: { mods: garageMods, unlocked: garageUnlocked },
 			campaign: campaignState,
 			carKey: currentCarKey(),
 		};
-		return encodeBase64UrlJson( profile );
+
+	}
+
+	function setAccountStatus( message, isError = false ) {
+
+		if ( ! accountStatus ) return;
+		accountStatus.textContent = message || '';
+		accountStatus.style.color = isError ? '#ff9ea2' : '#bde6ff';
+
+	}
+
+	function updateAccountUi() {
+
+		if ( accountUsernameInput && accountSession?.username ) accountUsernameInput.value = accountSession.username;
+		setAccountStatus( accountSession?.token ? `Signed in as ${ accountSession.username }` : 'Not signed in' );
+		if ( accountCloudSaveBtn ) accountCloudSaveBtn.disabled = ! accountSession?.token;
+		if ( accountCloudLoadBtn ) accountCloudLoadBtn.disabled = ! accountSession?.token;
+
+	}
+
+	async function accountApiRequest( path, options = {} ) {
+
+		const response = await fetch( `${ ACCOUNT_API_BASE }${ path }`, {
+			headers: { 'Content-Type': 'application/json', ...( options.headers || {} ) },
+			...options,
+		} );
+		const payload = await response.json().catch( () => ( {} ) );
+		if ( ! response.ok || payload?.ok === false ) {
+
+			throw new Error( payload?.error || `Account API HTTP ${ response.status }` );
+
+		}
+		return payload;
+
+	}
+
+	function createProfileExportCode() {
+
+		return encodeBase64UrlJson( getCurrentProfileSnapshot() );
 
 	}
 
@@ -1064,6 +1217,14 @@ async function init() {
 
 		const parsed = decodeBase64UrlJson( code );
 		if ( ! parsed || typeof parsed !== 'object' ) return false;
+		if ( parsed?.playerName && playerNameInput ) {
+
+			const importedName = sanitizePlayerName( parsed.playerName );
+			playerNameInput.value = importedName;
+			if ( namePopupInput ) namePopupInput.value = importedName;
+			localStorage.setItem( PLAYER_NAME_KEY, importedName );
+
+		}
 		const nextCoins = Number( parsed?.economy?.coins );
 		const nextTier = Number( parsed?.economy?.engineTier );
 		coins = Number.isFinite( nextCoins ) ? Math.max( 0, Math.floor( nextCoins ) ) : coins;
@@ -1104,6 +1265,39 @@ async function init() {
 		updateEconomyHud();
 		updateGarageUi();
 		updateCampaignUi();
+		return true;
+
+	}
+
+	function createAccountExportCode() {
+
+		return encodeBase64UrlJson( {
+			v: 1,
+			session: accountSession ? { username: accountSession.username, token: accountSession.token } : null,
+			profile: getCurrentProfileSnapshot(),
+		} );
+
+	}
+
+	function applyImportedAccountCode( code ) {
+
+		const parsed = decodeBase64UrlJson( code );
+		if ( ! parsed || typeof parsed !== 'object' ) return false;
+		if ( parsed?.profile ) {
+
+			applyImportedProfile( encodeBase64UrlJson( parsed.profile ) );
+
+		}
+		if ( parsed?.session?.token && parsed?.session?.username ) {
+
+			accountSession = {
+				username: String( parsed.session.username ),
+				token: String( parsed.session.token ),
+			};
+			localStorage.setItem( ACCOUNT_SESSION_KEY, JSON.stringify( accountSession ) );
+
+		}
+		updateAccountUi();
 		return true;
 
 	}
@@ -1727,6 +1921,59 @@ async function init() {
 
 	}
 
+	async function signupAccount() {
+
+		const username = String( accountUsernameInput?.value || '' ).trim();
+		const password = String( accountPasswordInput?.value || '' );
+		const payload = await accountApiRequest( '/signup', {
+			method: 'POST',
+			body: JSON.stringify( { username, password, profile: getCurrentProfileSnapshot() } ),
+		} );
+		accountSession = { username: payload.username, token: payload.token };
+		localStorage.setItem( ACCOUNT_SESSION_KEY, JSON.stringify( accountSession ) );
+		updateAccountUi();
+		setAccountStatus( `Signed up and logged in as ${ payload.username }.` );
+
+	}
+
+	async function loginAccount() {
+
+		const username = String( accountUsernameInput?.value || '' ).trim();
+		const password = String( accountPasswordInput?.value || '' );
+		const payload = await accountApiRequest( '/login', {
+			method: 'POST',
+			body: JSON.stringify( { username, password } ),
+		} );
+		accountSession = { username: payload.username, token: payload.token };
+		localStorage.setItem( ACCOUNT_SESSION_KEY, JSON.stringify( accountSession ) );
+		updateAccountUi();
+		setAccountStatus( `Logged in as ${ payload.username }.` );
+
+	}
+
+	async function cloudSaveProfile() {
+
+		if ( ! accountSession?.token ) throw new Error( 'Log in first.' );
+		await accountApiRequest( '/profile', {
+			method: 'POST',
+			body: JSON.stringify( { token: accountSession.token, profile: getCurrentProfileSnapshot() } ),
+		} );
+		setAccountStatus( 'Cloud profile saved.' );
+
+	}
+
+	async function cloudLoadProfile() {
+
+		if ( ! accountSession?.token ) throw new Error( 'Log in first.' );
+		const payload = await accountApiRequest( `/profile?token=${ encodeURIComponent( accountSession.token ) }` );
+		if ( payload?.profile ) applyImportedProfile( encodeBase64UrlJson( payload.profile ) );
+		if ( payload?.username ) accountSession.username = payload.username;
+		localStorage.setItem( ACCOUNT_SESSION_KEY, JSON.stringify( accountSession ) );
+		updateAccountUi();
+		setAccountStatus( 'Cloud profile loaded.' );
+
+	}
+
 	function saveLapStats() {
 
 		if ( ! ghostEnabled ) {
@@ -2055,10 +2302,115 @@ async function init() {
 		}
 
 	} );
+	accountSignupBtn?.addEventListener( 'click', async () => {
+
+		try {
+
+			await signupAccount();
+
+		} catch ( e ) {
+
+			setAccountStatus( e.message || 'Sign up failed.', true );
+
+		}
+
+	} );
+	accountLoginBtn?.addEventListener( 'click', async () => {
+
+		try {
+
+			await loginAccount();
+
+		} catch ( e ) {
+
+			setAccountStatus( e.message || 'Login failed.', true );
+
+		}
+
+	} );
+	accountCloudSaveBtn?.addEventListener( 'click', async () => {
+
+		try {
+
+			await cloudSaveProfile();
+
+		} catch ( e ) {
+
+			setAccountStatus( e.message || 'Cloud save failed.', true );
+
+		}
+
+	} );
+	accountCloudLoadBtn?.addEventListener( 'click', async () => {
+
+		try {
+
+			await cloudLoadProfile();
+
+		} catch ( e ) {
+
+			setAccountStatus( e.message || 'Cloud load failed.', true );
+
+		}
+
+	} );
+	accountExportBtn?.addEventListener( 'click', async () => {
+
+		const code = createAccountExportCode();
+		try {
+
+			await navigator.clipboard.writeText( code );
+			window.alert( 'Account code copied to clipboard.' );
+
+		} catch ( e ) {
+
+			window.prompt( 'Copy your account code:', code );
+
+		}
+
+	} );
+	accountImportBtn?.addEventListener( 'click', () => {
+
+		const code = window.prompt( 'Paste account code:' );
+		if ( ! code ) return;
+		try {
+
+			if ( ! applyImportedAccountCode( code.trim() ) ) window.alert( 'Invalid account code.' );
+
+		} catch ( e ) {
+
+			window.alert( 'Could not import account code.' );
+
+		}
+
+	} );
 
 	const storedPlayerName = sanitizePlayerName( localStorage.getItem( PLAYER_NAME_KEY ) || '' );
 	if ( playerNameInput ) playerNameInput.value = storedPlayerName;
 	if ( namePopupInput ) namePopupInput.value = storedPlayerName;
+	try {
+
+		const rawSession = localStorage.getItem( ACCOUNT_SESSION_KEY );
+		if ( rawSession ) {
+
+			const parsedSession = JSON.parse( rawSession );
+			if ( parsedSession?.token && parsedSession?.username ) {
+
+				accountSession = {
+					username: String( parsedSession.username ),
+					token: String( parsedSession.token ),
+				};
+
+			}
+
+		}
+
+	} catch ( e ) {
+
+		accountSession = null;
+
+	}
+	updateAccountUi();
 	leaderboardToggleBtn?.addEventListener( 'click', () => {
 
 		setLeaderboardVisible( ! leaderboardVisible );
@@ -2070,6 +2422,7 @@ async function init() {
 		const sanitized = sanitizePlayerName( playerNameInput.value );
 		playerNameInput.value = sanitized;
 		localStorage.setItem( PLAYER_NAME_KEY, sanitized );
+		queueClubStatsSubmit();
 
 	} );
 	namePopupSave?.addEventListener( 'click', async () => {
@@ -2083,6 +2436,7 @@ async function init() {
 		}
 		if ( playerNameInput ) playerNameInput.value = sanitized;
 		localStorage.setItem( PLAYER_NAME_KEY, sanitized );
+		queueClubStatsSubmit();
 		const pendingTime = pendingLeaderboardRecord;
 		closeNamePopup();
 		pendingLeaderboardRecord = null;
@@ -2102,6 +2456,7 @@ async function init() {
 	} );
 
 	loadEconomy();
+	loadRecordTrackSet();
 	loadStuntStats();
 	loadGarageMods();
 	loadCampaignState();
@@ -2141,6 +2496,14 @@ async function init() {
 	}
 
 	window.addEventListener( 'keydown', ( e ) => {
+
+			const target = e.target;
+			const isTypingTarget = target && (
+				target.tagName === 'INPUT' ||
+				target.tagName === 'TEXTAREA' ||
+				target.isContentEditable
+			);
+			if ( isTypingTarget ) return;
 
 			if ( e.code === 'KeyE' ) {
 
@@ -2374,6 +2737,7 @@ async function init() {
 					updateGhostShareButtons();
 
 				}
+					if ( isNewBest ) markTrackRecord( leaderboardTrackId );
 					if ( isNewBest && ! isSplitScreen ) submitLeaderboardTime( completedLap );
 					lapNumber ++;
 					lapStartSeconds = now;

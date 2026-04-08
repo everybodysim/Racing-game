@@ -1,0 +1,7 @@
+name = "racing-season-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "SEASON_KV"
+id = "REPLACE_WITH_SEASON_KV_ID"
