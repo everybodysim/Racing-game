@@ -76,7 +76,10 @@ const VEHICLE_SURFACE_RADIUS = 0.5;
 const SURFACE_EFFECTS = {
 	'surface-wood': { grip: 0.9, drag: 1.35, accel: 1.0, drive: 1.55 },
 	'surface-ice': { grip: 0.4, drag: 0.58, accel: 0.45, drive: 0.8 },
+	'surface-sand': { grip: 0.72, drag: 2.6, accel: 0.35, drive: 0.5 },
 };
+const BOUNCE_VERTICAL_DELTA = 7.2;
+const KICK_LATERAL_DELTA = 7.4;
 const WEATHER_PRESETS = {
 	clear: { bg: 0xadb2ba, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
 	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
@@ -1257,6 +1260,9 @@ async function init() {
 	let hasLeftStartZone = false;
 	let boostActiveUntil = 0;
 	let boostContactCell = null;
+	let bounceContactCell = null;
+	let kickLeftContactCell = null;
+	let kickRightContactCell = null;
 	const boostCells = Array.isArray( extras?.boosts ) ? extras.boosts : [];
 	const boostCellSet = new Set( boostCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 	const surfaceCells = Array.isArray( extras?.surfaces ) ? extras.surfaces : [];
@@ -1274,6 +1280,9 @@ async function init() {
 	let hasLeftStartZone2 = false;
 	let boostActiveUntil2 = 0;
 	let boostContactCell2 = null;
+	let bounceContactCell2 = null;
+	let kickLeftContactCell2 = null;
+	let kickRightContactCell2 = null;
 	const checkpointStates2 = checkpointCells.map( ( cell ) => ( {
 		...makeGateData( cell ),
 		lastLocalX: 0,
@@ -1446,6 +1455,23 @@ async function init() {
 			for ( let gz = bounds.minZ; gz <= bounds.maxZ; gz ++ ) {
 
 				if ( surfaceCellMap.get( `${ gx },${ gz }` ) === 'surface-boost' ) return `surface:${ gx },${ gz }`;
+
+			}
+
+		}
+
+		return null;
+
+	}
+
+	function findSurfaceContactKeyForType( targetVehicle, surfaceType ) {
+
+		const bounds = getOverlappingGridBounds( targetVehicle.spherePos );
+		for ( let gx = bounds.minX; gx <= bounds.maxX; gx ++ ) {
+
+			for ( let gz = bounds.minZ; gz <= bounds.maxZ; gz ++ ) {
+
+				if ( surfaceCellMap.get( `${ gx },${ gz }` ) === surfaceType ) return `surface:${ gx },${ gz }`;
 
 			}
 
@@ -1974,6 +2000,9 @@ async function init() {
 		lapSeconds = 0;
 		boostActiveUntil = 0;
 		boostContactCell = null;
+		bounceContactCell = null;
+		kickLeftContactCell = null;
+		kickRightContactCell = null;
 		resetCurrentLapGhost();
 		recordGhostSample( 0, true );
 		updateGhostPlayback( 0 );
@@ -2007,6 +2036,9 @@ async function init() {
 		lapSeconds2 = 0;
 		boostActiveUntil2 = 0;
 		boostContactCell2 = null;
+		bounceContactCell2 = null;
+		kickLeftContactCell2 = null;
+		kickRightContactCell2 = null;
 		hasLeftStartZone2 = false;
 		hasPrevFinishSample2 = false;
 		lastLocalX2 = 0;
@@ -2076,6 +2108,31 @@ async function init() {
 			vel[ 0 ] + _boostForward.x * BOOST_ACCEL_PER_SECOND * dt,
 			vel[ 1 ],
 			vel[ 2 ] + _boostForward.z * BOOST_ACCEL_PER_SECOND * dt,
+		] );
+
+	}
+
+	function applySurfaceBounceFor( targetVehicle ) {
+
+		const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], Math.max( vel[ 1 ], 0 ) + BOUNCE_VERTICAL_DELTA, vel[ 2 ] ] );
+
+	}
+
+	function applySurfaceKickFor( targetVehicle, direction ) {
+
+		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+		_boostForward.y = 0;
+		const forwardLenSq = _boostForward.lengthSq();
+		if ( forwardLenSq < 1e-6 ) return;
+		_boostForward.multiplyScalar( 1 / Math.sqrt( forwardLenSq ) );
+		const lateralX = - _boostForward.z * direction;
+		const lateralZ = _boostForward.x * direction;
+		const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
+			vel[ 0 ] + lateralX * KICK_LATERAL_DELTA,
+			vel[ 1 ],
+			vel[ 2 ] + lateralZ * KICK_LATERAL_DELTA,
 		] );
 
 	}
@@ -2502,6 +2559,42 @@ async function init() {
 
 		}
 
+		const bounceSurfaceKey = findSurfaceContactKeyForType( vehicle, 'surface-bounce' );
+		if ( bounceSurfaceKey ) {
+
+			if ( bounceContactCell !== bounceSurfaceKey ) applySurfaceBounceFor( vehicle );
+			bounceContactCell = bounceSurfaceKey;
+
+		} else {
+
+			bounceContactCell = null;
+
+		}
+
+		const kickLeftSurfaceKey = findSurfaceContactKeyForType( vehicle, 'surface-kick-l' );
+		if ( kickLeftSurfaceKey ) {
+
+			if ( kickLeftContactCell !== kickLeftSurfaceKey ) applySurfaceKickFor( vehicle, - 1 );
+			kickLeftContactCell = kickLeftSurfaceKey;
+
+		} else {
+
+			kickLeftContactCell = null;
+
+		}
+
+		const kickRightSurfaceKey = findSurfaceContactKeyForType( vehicle, 'surface-kick-r' );
+		if ( kickRightSurfaceKey ) {
+
+			if ( kickRightContactCell !== kickRightSurfaceKey ) applySurfaceKickFor( vehicle, 1 );
+			kickRightContactCell = kickRightSurfaceKey;
+
+		} else {
+
+			kickRightContactCell = null;
+
+		}
+
 		if ( vehicle2 ) {
 
 			const boostGridX2 = Math.floor( vehicle2.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
@@ -2524,6 +2617,42 @@ async function init() {
 			} else {
 
 				boostContactCell2 = null;
+
+			}
+
+			const bounceSurfaceKey2 = findSurfaceContactKeyForType( vehicle2, 'surface-bounce' );
+			if ( bounceSurfaceKey2 ) {
+
+				if ( bounceContactCell2 !== bounceSurfaceKey2 ) applySurfaceBounceFor( vehicle2 );
+				bounceContactCell2 = bounceSurfaceKey2;
+
+			} else {
+
+				bounceContactCell2 = null;
+
+			}
+
+			const kickLeftSurfaceKey2 = findSurfaceContactKeyForType( vehicle2, 'surface-kick-l' );
+			if ( kickLeftSurfaceKey2 ) {
+
+				if ( kickLeftContactCell2 !== kickLeftSurfaceKey2 ) applySurfaceKickFor( vehicle2, - 1 );
+				kickLeftContactCell2 = kickLeftSurfaceKey2;
+
+			} else {
+
+				kickLeftContactCell2 = null;
+
+			}
+
+			const kickRightSurfaceKey2 = findSurfaceContactKeyForType( vehicle2, 'surface-kick-r' );
+			if ( kickRightSurfaceKey2 ) {
+
+				if ( kickRightContactCell2 !== kickRightSurfaceKey2 ) applySurfaceKickFor( vehicle2, 1 );
+				kickRightContactCell2 = kickRightSurfaceKey2;
+
+			} else {
+
+				kickRightContactCell2 = null;
 
 			}
 
