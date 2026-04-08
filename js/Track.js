@@ -10,6 +10,10 @@ const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
 const JUMP_RAMP_SIZE = CELL_RAW * 0.36;
 const JUMP_RAMP_DEPTH = CELL_RAW * 0.18;
 const JUMP_RAMP_Y = 0.24;
+const TALL_HEIGHT = 5;
+const SLOPE_SPAN_CELLS = 2;
+const SLOPE_ANGLE = Math.atan2( TALL_HEIGHT, CELL_RAW * SLOPE_SPAN_CELLS );
+const SLOPE_MID_Y = 0.5 + TALL_HEIGHT / 2;
 
 export const TRACK_CELLS = [
 	[ -3, -3, 'track-corner',   16 ],
@@ -141,6 +145,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const bumpCells = Array.isArray( extras.bumps ) ? extras.bumps : [];
 		const boostCells = Array.isArray( extras.boosts ) ? extras.boosts : [];
 		const jumpCells = Array.isArray( extras.jumps ) ? extras.jumps : [];
+		const slopeCells = Array.isArray( extras.slopes ) ? extras.slopes : [];
+		const tallStraightCells = Array.isArray( extras.tallStraights ) ? extras.tallStraights : [];
+		const tallCornerCells = Array.isArray( extras.tallCorners ) ? extras.tallCorners : [];
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
 		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
 
@@ -191,6 +198,32 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			jump.castShadow = true;
 			jump.receiveShadow = true;
 			trackPieceGroup.add( jump );
+
+		}
+
+		for ( const [ gx, gz, orient = 0 ] of slopeCells ) {
+
+			const piece = placePiece( models, 'track-straight', gx, gz, orient, {
+				y: SLOPE_MID_Y,
+				scaleZ: SLOPE_SPAN_CELLS,
+				pitch: - SLOPE_ANGLE,
+				rotationOrder: 'YXZ',
+			} );
+			if ( piece ) trackPieceGroup.add( piece );
+
+		}
+
+		for ( const [ gx, gz, orient = 0 ] of tallStraightCells ) {
+
+			const piece = placePiece( models, 'track-straight', gx, gz, orient, { y: 0.5 + TALL_HEIGHT } );
+			if ( piece ) trackPieceGroup.add( piece );
+
+		}
+
+		for ( const [ gx, gz, orient = 0 ] of tallCornerCells ) {
+
+			const piece = placePiece( models, 'track-corner', gx, gz, orient, { y: 0.5 + TALL_HEIGHT } );
+			if ( piece ) trackPieceGroup.add( piece );
 
 		}
 
@@ -392,17 +425,29 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 }
 
-export function placePiece( models, key, gx, gz, orient ) {
+export function placePiece( models, key, gx, gz, orient, options = {} ) {
 
 	const modelKey = key === 'track-checkpoint' ? 'track-finish' : key;
 	const src = models[ modelKey ];
 	if ( ! src ) return null;
 
 	const piece = src.clone();
-	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5, ( gz + 0.5 ) * CELL_RAW );
+	piece.position.set( ( gx + 0.5 ) * CELL_RAW, options.y ?? 0.5, ( gz + 0.5 ) * CELL_RAW );
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
+	piece.rotation.order = options.rotationOrder || piece.rotation.order;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
+	if ( options.pitch ) piece.rotation.x = options.pitch;
+	if ( options.roll ) piece.rotation.z = options.roll;
+	if ( options.scaleX || options.scaleY || options.scaleZ ) {
+
+		piece.scale.set(
+			options.scaleX ?? 1,
+			options.scaleY ?? 1,
+			options.scaleZ ?? 1
+		);
+
+	}
 
 	return piece;
 

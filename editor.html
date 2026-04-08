@@ -177,6 +177,9 @@
 		<button id="btn-corner">Corner</button>
 		<button id="btn-bump">Bump +</button>
 		<button id="btn-jump">Jump +</button>
+		<button id="btn-slope">Slope</button>
+		<button id="btn-tall-straight">Tall Straight</button>
+		<button id="btn-tall-corner">Tall Corner</button>
 		<button id="btn-finish">Finish</button>
 		<button id="btn-checkpoint">Checkpoint</button>
 		<button id="btn-surface-wood">Wood</button>
@@ -210,6 +213,9 @@
 	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint' ];
 	const BUMP_TOOL = 'overlay-bump';
 	const JUMP_TOOL = 'overlay-jump';
+	const SLOPE_TOOL = 'overlay-slope';
+	const TALL_STRAIGHT_TOOL = 'overlay-tall-straight';
+	const TALL_CORNER_TOOL = 'overlay-tall-corner';
 	const SURFACE_TYPES = [ 'surface-wood', 'surface-ice', 'surface-boost' ];
 	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
 	let tool = 'paint'; // 'paint', 'erase'
@@ -231,6 +237,15 @@
 			jump: false,
 			jumpOrient: 0,
 			jumpMesh: null,
+			slope: false,
+			slopeOrient: 0,
+			slopeMesh: null,
+			tallStraight: false,
+			tallStraightOrient: 0,
+			tallStraightMesh: null,
+			tallCorner: false,
+			tallCornerOrient: 0,
+			tallCornerMesh: null,
 			surfaceType: null,
 			surfaceMesh: null,
 			decoType: null,
@@ -443,10 +458,16 @@
 
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
 		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+		if ( cell.slopeMesh ) trackGroup.remove( cell.slopeMesh );
+		if ( cell.tallStraightMesh ) trackGroup.remove( cell.tallStraightMesh );
+		if ( cell.tallCornerMesh ) trackGroup.remove( cell.tallCornerMesh );
 		if ( cell.surfaceMesh ) trackGroup.remove( cell.surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		cell.bumpMesh = null;
 		cell.jumpMesh = null;
+		cell.slopeMesh = null;
+		cell.tallStraightMesh = null;
+		cell.tallCornerMesh = null;
 		cell.surfaceMesh = null;
 		cell.decoMesh = null;
 
@@ -547,6 +568,86 @@
 
 		}
 
+		if ( cell.slope ) {
+
+			const slopeSrc = models[ 'track-straight' ];
+			if ( slopeSrc ) {
+
+				const slope = slopeSrc.clone();
+				const slopeRise = 5;
+				const slopeSpan = 2;
+				slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + slopeRise / 2, ( gz + 0.5 ) * CELL_RAW );
+				slope.rotation.order = 'YXZ';
+				slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.slopeOrient || 0 ] || 0 );
+				slope.rotation.x = - Math.atan2( slopeRise, CELL_RAW * slopeSpan );
+				slope.scale.z = slopeSpan;
+				slope.traverse( ( c ) => {
+
+					if ( c.isMesh ) {
+
+						c.castShadow = true;
+						c.receiveShadow = true;
+
+					}
+
+				} );
+				trackGroup.add( slope );
+				cell.slopeMesh = slope;
+
+			}
+
+		}
+
+		if ( cell.tallStraight ) {
+
+			const tallStraightSrc = models[ 'track-straight' ];
+			if ( tallStraightSrc ) {
+
+				const tallStraight = tallStraightSrc.clone();
+				tallStraight.position.set( ( gx + 0.5 ) * CELL_RAW, 5.5, ( gz + 0.5 ) * CELL_RAW );
+				tallStraight.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.tallStraightOrient || 0 ] || 0 );
+				tallStraight.traverse( ( c ) => {
+
+					if ( c.isMesh ) {
+
+						c.castShadow = true;
+						c.receiveShadow = true;
+
+					}
+
+				} );
+				trackGroup.add( tallStraight );
+				cell.tallStraightMesh = tallStraight;
+
+			}
+
+		}
+
+		if ( cell.tallCorner ) {
+
+			const tallCornerSrc = models[ 'track-corner' ];
+			if ( tallCornerSrc ) {
+
+				const tallCorner = tallCornerSrc.clone();
+				tallCorner.position.set( ( gx + 0.5 ) * CELL_RAW, 5.5, ( gz + 0.5 ) * CELL_RAW );
+				tallCorner.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.tallCornerOrient || 0 ] || 0 );
+				tallCorner.traverse( ( c ) => {
+
+					if ( c.isMesh ) {
+
+						c.castShadow = true;
+						c.receiveShadow = true;
+
+					}
+
+				} );
+				trackGroup.add( tallCorner );
+				cell.tallCornerMesh = tallCorner;
+
+			}
+
+		}
+
 	}
 
 	function setCell( gx, gz, type, orient ) {
@@ -566,7 +667,7 @@
 
 	function placeSelectedBlock( gx, gz ) {
 
-		if ( selectedType === BUMP_TOOL || selectedType === JUMP_TOOL ) {
+		if ( selectedType === BUMP_TOOL || selectedType === JUMP_TOOL || selectedType === SLOPE_TOOL || selectedType === TALL_STRAIGHT_TOOL || selectedType === TALL_CORNER_TOOL ) {
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
@@ -576,13 +677,28 @@
 				cell.bump = ! cell.bump;
 				cell.bumpOrient = selectedOrient;
 
-			} else {
+			} else if ( selectedType === JUMP_TOOL ) {
 
 				cell.jump = ! cell.jump;
 				cell.jumpOrient = selectedOrient;
 
+			} else if ( selectedType === SLOPE_TOOL ) {
+
+				cell.slope = ! cell.slope;
+				cell.slopeOrient = selectedOrient;
+
+			} else if ( selectedType === TALL_STRAIGHT_TOOL ) {
+
+				cell.tallStraight = ! cell.tallStraight;
+				cell.tallStraightOrient = selectedOrient;
+
+			} else {
+
+				cell.tallCorner = ! cell.tallCorner;
+				cell.tallCornerOrient = selectedOrient;
+
 			}
-			if ( ! cell.bump && ! cell.jump && ! cell.type && ! cell.decoType && ! cell.surfaceType ) {
+			if ( ! cell.bump && ! cell.jump && ! cell.slope && ! cell.tallStraight && ! cell.tallCorner && ! cell.type && ! cell.decoType && ! cell.surfaceType ) {
 
 				grid.delete( key );
 
@@ -599,7 +715,7 @@
 			grid.set( key, cell );
 			cell.surfaceType = cell.surfaceType === selectedType ? null : selectedType;
 
-			if ( ! cell.bump && ! cell.jump && ! cell.type && ! cell.decoType && ! cell.surfaceType ) {
+			if ( ! cell.bump && ! cell.jump && ! cell.slope && ! cell.tallStraight && ! cell.tallCorner && ! cell.type && ! cell.decoType && ! cell.surfaceType ) {
 
 				grid.delete( key );
 
@@ -649,6 +765,9 @@
 		if ( cell.mesh ) trackGroup.remove( cell.mesh );
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
 		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+		if ( cell.slopeMesh ) trackGroup.remove( cell.slopeMesh );
+		if ( cell.tallStraightMesh ) trackGroup.remove( cell.tallStraightMesh );
+		if ( cell.tallCornerMesh ) trackGroup.remove( cell.tallCornerMesh );
 		if ( cell.surfaceMesh ) trackGroup.remove( cell.surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		grid.delete( key );
@@ -663,6 +782,9 @@
 				if ( cell.mesh ) trackGroup.remove( cell.mesh );
 				if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
 				if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+				if ( cell.slopeMesh ) trackGroup.remove( cell.slopeMesh );
+				if ( cell.tallStraightMesh ) trackGroup.remove( cell.tallStraightMesh );
+				if ( cell.tallCornerMesh ) trackGroup.remove( cell.tallCornerMesh );
 				if ( cell.surfaceMesh ) trackGroup.remove( cell.surfaceMesh );
 				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 
@@ -708,7 +830,9 @@
 		clearGhost();
 
 		if ( tool === 'erase' ) return;
-		const ghostType = selectedType === BUMP_TOOL ? 'track-bump' : ( selectedType === JUMP_TOOL ? 'track-straight' : ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType ) );
+		const ghostType = selectedType === BUMP_TOOL ? 'track-bump'
+			: ( selectedType === JUMP_TOOL || selectedType === SLOPE_TOOL || selectedType === TALL_STRAIGHT_TOOL ? 'track-straight'
+				: ( selectedType === TALL_CORNER_TOOL ? 'track-corner' : ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType ) ) );
 		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
 
 	}
@@ -772,6 +896,9 @@
 
 		const bumps = [];
 		const jumps = [];
+		const slopes = [];
+		const tallStraights = [];
+		const tallCorners = [];
 		const surfaces = [];
 		const deco = [];
 
@@ -780,19 +907,22 @@
 				const [ gx, gz ] = key.split( ',' ).map( Number );
 				if ( cell.bump ) bumps.push( [ gx, gz ] );
 				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
+				if ( cell.slope ) slopes.push( [ gx, gz, cell.slopeOrient || 0 ] );
+				if ( cell.tallStraight ) tallStraights.push( [ gx, gz, cell.tallStraightOrient || 0 ] );
+				if ( cell.tallCorner ) tallCorners.push( [ gx, gz, cell.tallCornerOrient || 0 ] );
 			if ( cell.surfaceType ) surfaces.push( [ gx, gz, cell.surfaceType ] );
 			if ( cell.decoType ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
 
 		}
 
-		const payload = JSON.stringify( { b: bumps, j: jumps, u: surfaces, d: deco, w: { ...weatherSettings } } );
+		const payload = JSON.stringify( { b: bumps, j: jumps, sl: slopes, ts: tallStraights, tc: tallCorners, u: surfaces, d: deco, w: { ...weatherSettings } } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ) };
+		if ( ! modsStr ) return { b: [], j: [], sl: [], ts: [], tc: [], u: [], d: [], w: normalizeWeatherSettings( null ) };
 
 		try {
 
@@ -801,6 +931,9 @@
 			return {
 				b: Array.isArray( parsed.b ) ? parsed.b : [],
 				j: Array.isArray( parsed.j ) ? parsed.j : [],
+				sl: Array.isArray( parsed.sl ) ? parsed.sl : [],
+				ts: Array.isArray( parsed.ts ) ? parsed.ts : [],
+				tc: Array.isArray( parsed.tc ) ? parsed.tc : [],
 				u: Array.isArray( parsed.u ) ? parsed.u : [],
 				d: Array.isArray( parsed.d ) ? parsed.d : [],
 				w: normalizeWeatherSettings( parsed?.w ),
@@ -809,7 +942,7 @@
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-			return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ) };
+			return { b: [], j: [], sl: [], ts: [], tc: [], u: [], d: [], w: normalizeWeatherSettings( null ) };
 
 		}
 
@@ -876,6 +1009,39 @@
 
 			}
 
+			for ( const [ gx, gz, slopeOrient ] of mods.sl ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.slope = true;
+				cell.slopeOrient = slopeOrient || 0;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz, orient ] of mods.ts ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.tallStraight = true;
+				cell.tallStraightOrient = orient || 0;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz, orient ] of mods.tc ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.tallCorner = true;
+				cell.tallCornerOrient = orient || 0;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
 			for ( const [ gx, gz, surfaceType ] of mods.u ) {
 
 				const key = cellKey( gx, gz );
@@ -926,6 +1092,9 @@
 		'track-corner': document.getElementById( 'btn-corner' ),
 		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
 		[ JUMP_TOOL ]: document.getElementById( 'btn-jump' ),
+		[ SLOPE_TOOL ]: document.getElementById( 'btn-slope' ),
+		[ TALL_STRAIGHT_TOOL ]: document.getElementById( 'btn-tall-straight' ),
+		[ TALL_CORNER_TOOL ]: document.getElementById( 'btn-tall-corner' ),
 		'track-finish': document.getElementById( 'btn-finish' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
 		'surface-wood': document.getElementById( 'btn-surface-wood' ),
@@ -949,7 +1118,7 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, ...SURFACE_TYPES, ...DECO_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, SLOPE_TOOL, TALL_STRAIGHT_TOOL, TALL_CORNER_TOOL, ...SURFACE_TYPES, ...DECO_TYPES ] ) {
 
 			tileButtons[ type ].classList.toggle( 'active', selectedType === type );
 
@@ -977,7 +1146,7 @@
 
 	}
 
-	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, ...SURFACE_TYPES, ...DECO_TYPES ] ) {
+	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, SLOPE_TOOL, TALL_STRAIGHT_TOOL, TALL_CORNER_TOOL, ...SURFACE_TYPES, ...DECO_TYPES ] ) {
 
 		tileButtons[ type ].addEventListener( 'click', () => selectTileType( type ) );
 
