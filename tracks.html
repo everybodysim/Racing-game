@@ -22,6 +22,17 @@
 		.card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 11px; }
 		.card h3 { margin: 0 0 6px; font-size: 17px; }
 		.meta { color: #b5c2da; font-size: 12px; margin-bottom: 8px; }
+		.record-holder { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); background: linear-gradient(130deg, rgba(50,72,120,0.45), rgba(48,170,128,0.18)); }
+		.record-holder .label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #d7e5ff; opacity: 0.86; }
+		.record-holder .value { font-size: 15px; font-weight: 700; color: #f7fbff; }
+		.record-holder .time { color: #9be7bf; font-size: 12px; font-weight: 600; }
+		.records-board h2 { margin: 0 0 10px; font-size: 18px; }
+		.records-board .sub { margin-bottom: 10px; font-size: 12px; }
+		.records-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+		.record-chip { border-radius: 9px; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.04); padding: 8px; }
+		.record-chip .name { font-size: 14px; font-weight: 700; color: #f3f8ff; }
+		.record-chip .count { margin-top: 3px; color: #9be7bf; font-size: 12px; }
+		.records-empty { color: #b5c2da; font-size: 12px; }
 		.badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
 		.badge { font-size: 11px; border-radius: 999px; padding: 3px 7px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); }
 		.card a { color: #9fe8ff; text-decoration: none; font-weight: 600; }
@@ -65,6 +76,11 @@
 					<button id="random-track-btn" type="button">Random track</button>
 				</div>
 			</div>
+			<div class="panel records-board">
+				<h2>Track Share Record Board</h2>
+				<p class="sub">Drivers ranked by how many unique shared tracks they currently hold #1 on.</p>
+				<div id="records-board-list" class="records-list"></div>
+			</div>
 			<div id="grid"></div>
 		</div>
 		<script>
@@ -80,6 +96,7 @@
 			const sizeFilter = document.getElementById( 'size-filter' );
 			const sortFilter = document.getElementById( 'sort-filter' );
 			const randomTrackBtn = document.getElementById( 'random-track-btn' );
+			const recordsBoardList = document.getElementById( 'records-board-list' );
 			const statusEl = document.getElementById( 'status' );
 			const grid = document.getElementById( 'grid' );
 			let entries = [];
@@ -184,6 +201,35 @@
 			return Number.isFinite( value ) ? `${ value.toFixed( 2 ) }s` : '--.--';
 		}
 
+		function getRecordLeaders() {
+			const winsByDriver = new Map();
+			const uniqueTrackIds = [ ...new Set( entries.map( ( entry ) => getTrackIdFromPlayUrl( entry.playUrl ) ).filter( Boolean ) ) ];
+			for ( const trackId of uniqueTrackIds ) {
+				const topRow = topByTrackId.get( trackId );
+				const driverName = String( topRow?.name || '' ).trim();
+				if ( ! driverName ) continue;
+				winsByDriver.set( driverName, ( winsByDriver.get( driverName ) || 0 ) + 1 );
+			}
+			return [ ...winsByDriver.entries() ]
+				.map( ( [ name, wins ] ) => ( { name, wins } ) )
+				.sort( ( a, b ) => b.wins - a.wins || a.name.localeCompare( b.name ) );
+		}
+
+		function renderRecordBoard() {
+			if ( ! recordsBoardList ) return;
+			const leaders = getRecordLeaders();
+			if ( leaders.length === 0 ) {
+				recordsBoardList.innerHTML = '<div class="records-empty">No leaderboard winners yet. Complete a lap to create the first record holder.</div>';
+				return;
+			}
+			recordsBoardList.innerHTML = leaders.slice( 0, 8 )
+				.map( ( leader, idx ) => `<div class="record-chip">
+					<div class="name">${ idx === 0 ? '👑 ' : '' }${ leader.name }</div>
+					<div class="count">${ leader.wins } unique track record${ leader.wins === 1 ? '' : 's' }</div>
+				</div>` )
+				.join( '' );
+		}
+
 		function inferTrackSize( entry ) {
 			try {
 				const parsed = new URL( entry.playUrl, window.location.href );
@@ -223,6 +269,7 @@
 
 		function render() {
 			grid.innerHTML = '';
+			renderRecordBoard();
 			const filtered = getFilteredEntries();
 			if ( filtered.length === 0 ) {
 				const hasAny = entries.length > 0;
@@ -243,7 +290,14 @@
 						<span class="badge">👁️ ${ Number( entry.viewCount ) || 0 } views</span>
 						<span class="badge">🏁 ${ sizeTag }</span>
 					</div>
-					<div class="meta">Best: ${ formatSeconds( entry.bestLapSeconds ) } • Samples: ${ entry.sampleCount || 0 } • #1: ${ topRow ? `${ topRow.name } (${ formatSeconds( Number( topRow.timeSeconds ) ) })` : 'No leaderboard times yet' }</div>
+					<div class="record-holder">
+						<div>
+							<div class="label">Current record holder</div>
+							<div class="value">${ topRow ? topRow.name : 'No leaderboard times yet' }</div>
+						</div>
+						<div class="time">${ topRow ? formatSeconds( Number( topRow.timeSeconds ) ) : '' }</div>
+					</div>
+					<div class="meta">Best: ${ formatSeconds( entry.bestLapSeconds ) } • Samples: ${ entry.sampleCount || 0 }</div>
 					<div class="row" style="margin-top:0">
 						<a href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">Open track link</a>
 						<button data-id="${ entry.id }" type="button">Remove</button>
@@ -290,6 +344,7 @@
 					createdAt: Date.now(),
 				} );
 				saveToHash();
+				await hydrateTopLeaderboardRows( entries );
 
 			}
 			render();
@@ -364,8 +419,11 @@
 					if ( ! Array.isArray( parsed?.entries ) ) throw new Error();
 					entries = parsed.entries.filter( ( entry ) => typeof entry?.playUrl === 'string' && typeof entry?.name === 'string' );
 					saveToHash();
-					render();
-					setStatus( `Imported ${ entries.length } shared track entries.` );
+					hydrateTopLeaderboardRows( entries )
+						.finally( () => {
+							render();
+							setStatus( `Imported ${ entries.length } shared track entries.` );
+						} );
 				} catch ( e ) {
 					setStatus( 'Invalid board code.', true );
 				}
@@ -384,7 +442,7 @@
 			window.addEventListener( 'hashchange', () => {
 				if ( useRemoteBoard ) return;
 				loadFromHash();
-				render();
+				hydrateTopLeaderboardRows( entries ).finally( () => render() );
 			} );
 			searchInput.addEventListener( 'input', () => render() );
 			sizeFilter.addEventListener( 'change', () => render() );
@@ -415,6 +473,7 @@
 					useRemoteBoard = false;
 					loadFromHash();
 					setStatus( 'Cloud board unavailable. Using local share-link mode.' );
+					await hydrateTopLeaderboardRows( entries );
 
 				}
 				render();
