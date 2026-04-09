@@ -160,6 +160,88 @@
 			height: 14px;
 		}
 
+		#side-ui-bar {
+			position: absolute;
+			left: 12px;
+			top: 50%;
+			transform: translateY(-50%);
+			display: flex;
+			flex-direction: column;
+			gap: 8px;
+			z-index: 32;
+		}
+		#side-ui-bar button {
+			padding: 8px 10px;
+			border: 1px solid rgba(255,255,255,0.18);
+			border-radius: 8px;
+			background: rgba(15, 18, 24, 0.88);
+			color: #e8efff;
+			font-size: 12px;
+			cursor: pointer;
+		}
+		#side-ui-bar button:hover { background: rgba(45,55,72,0.92); }
+
+		#panel-overlay {
+			position: absolute;
+			inset: 0;
+			background: rgba(0,0,0,0.42);
+			backdrop-filter: blur(2px);
+			z-index: 34;
+		}
+		#panel-overlay[hidden] { display: none; }
+		#panel-center {
+			position: absolute;
+			left: 50%;
+			top: 50%;
+			transform: translate(-50%, -50%);
+			z-index: 35;
+			width: min(620px, calc(100vw - 24px));
+			max-height: min(78vh, 760px);
+			overflow: auto;
+		}
+		#panel-center[hidden] { display: none; }
+		.tool-panel {
+			background: rgba(15, 18, 24, 0.95);
+			border: 1px solid rgba(255,255,255,0.16);
+			border-radius: 12px;
+			padding: 12px;
+			color: #eef3ff;
+		}
+		.tool-panel[hidden] { display: none; }
+		.tool-panel-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			margin-bottom: 10px;
+		}
+		.tool-panel-header h3 {
+			margin: 0;
+			font-size: 15px;
+		}
+		.tool-panel-header button {
+			padding: 5px 8px;
+			border-radius: 7px;
+			border: 1px solid rgba(255,255,255,0.16);
+			background: rgba(255,255,255,0.06);
+			color: #e9f1ff;
+			cursor: pointer;
+		}
+		.panel-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+		.panel-row label { font-size: 12px; color: #cfd8ea; }
+		.panel-row input, .panel-row select, .panel-row button {
+			background: rgba(6, 9, 14, 0.9);
+			color: #eef3ff;
+			border: 1px solid rgba(255,255,255,0.16);
+			border-radius: 8px;
+			padding: 6px 8px;
+			font-size: 12px;
+		}
+		#constraints-output { font-size: 12px; line-height: 1.45; background: rgba(7,10,16,0.72); border-radius: 8px; padding: 10px; border: 1px solid rgba(255,255,255,0.12); }
+		#prefab-list { display: grid; gap: 6px; margin-top: 8px; }
+		.prefab-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,0.05); }
+		.prefab-item button { padding: 5px 8px; font-size: 12px; }
+
 	</style>
 	<script type="importmap">
 	{
@@ -200,6 +282,71 @@
 		</select>
 		<label for="weather-lightning">Lightning</label>
 		<input id="weather-lightning" type="checkbox" aria-label="Lightning flashes">
+	</div>
+	<div id="side-ui-bar">
+		<button id="open-flow-panel">Flow</button>
+		<button id="open-constraints-panel">Constraints</button>
+		<button id="open-prefab-panel">Prefabs</button>
+	</div>
+	<div id="panel-overlay" hidden></div>
+	<div id="panel-center" hidden>
+		<div id="flow-panel" class="tool-panel" hidden>
+			<div class="tool-panel-header">
+				<h3>Flow Brush</h3>
+				<button data-close-panel>Close</button>
+			</div>
+			<div class="panel-row">
+				<label><input type="checkbox" id="flow-enabled"> Enable flow brush</label>
+			</div>
+			<div class="panel-row">
+				<label for="flow-straight-type">Straight piece</label>
+				<select id="flow-straight-type">
+					<option value="track-straight">Track Straight</option>
+					<option value="track-checkpoint">Checkpoint</option>
+				</select>
+				<label for="flow-corner-type">Corner piece</label>
+				<select id="flow-corner-type">
+					<option value="track-corner">Track Corner</option>
+					<option value="track-checkpoint">Checkpoint</option>
+				</select>
+			</div>
+			<div class="panel-row">
+				<label>Draw with paint tool; release pointer to auto-build path with straights + corners.</label>
+			</div>
+		</div>
+		<div id="constraints-panel" class="tool-panel" hidden>
+			<div class="tool-panel-header">
+				<h3>Track Constraints</h3>
+				<button data-close-panel>Close</button>
+			</div>
+			<div class="panel-row">
+				<button id="constraints-refresh">Refresh checks</button>
+				<label><input type="checkbox" id="constraints-auto" checked> Auto refresh after edits</label>
+			</div>
+			<div id="constraints-output">No analysis yet.</div>
+		</div>
+		<div id="prefab-panel" class="tool-panel" hidden>
+			<div class="tool-panel-header">
+				<h3>Pattern Prefabs</h3>
+				<button data-close-panel>Close</button>
+			</div>
+			<div class="panel-row">
+				<label for="prefab-name">Name</label>
+				<input id="prefab-name" placeholder="Chicane Kit">
+				<button id="prefab-corner-a">Set Corner A (hover)</button>
+				<button id="prefab-corner-b">Set Corner B (hover)</button>
+			</div>
+			<div class="panel-row">
+				<span id="prefab-corners-readout">Corners: not set</span>
+			</div>
+			<div class="panel-row">
+				<button id="prefab-save">Save Selection as Prefab</button>
+			</div>
+			<div class="panel-row">
+				<label>Choose a prefab and click “Arm Placement”, then place it with one click on the map.</label>
+			</div>
+			<div id="prefab-list"></div>
+		</div>
 	</div>
 
 	<div id="toolbar">
@@ -288,6 +435,22 @@
 	};
 	let customSurfaceConfigs = JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) );
 	let activeCustomSurfaceEditor = null;
+	const FLOW_STRAIGHT_ORIENT = { ns: 0, ew: 22 };
+	const FLOW_CORNER_ORIENT = {
+		'S,E': 16, 'E,S': 16,
+		'S,W': 0, 'W,S': 0,
+		'N,E': 10, 'E,N': 10,
+		'N,W': 22, 'W,N': 22,
+	};
+	const PREFAB_STORAGE_KEY = 'racing-editor-prefabs-v1';
+	let flowBrushEnabled = false;
+	let flowStrokeCells = [];
+	let flowStraightType = 'track-straight';
+	let flowCornerType = 'track-corner';
+	let prefabs = [];
+	let prefabCornerA = null;
+	let prefabCornerB = null;
+	let armedPrefabId = null;
 
 	function cellKey( gx, gz ) { return gx + ',' + gz; }
 
@@ -312,6 +475,55 @@
 			decoOrient: 0,
 			decoMesh: null
 		};
+
+	}
+
+	function cloneCellData( cell ) {
+
+		return {
+			roadPieces: ( cell.roadPieces || [] ).map( ( p ) => ( { ...p } ) ),
+			bump: Boolean( cell.bump ),
+			bumpOrient: cell.bumpOrient || 0,
+			jump: Boolean( cell.jump ),
+			jumpOrient: cell.jumpOrient || 0,
+			surfaceTypes: [ ...( cell.surfaceTypes || [] ) ],
+			decoType: cell.decoType || null,
+			decoOrient: cell.decoOrient || 0,
+		};
+
+	}
+
+	function applyCellData( gx, gz, data ) {
+
+		const key = cellKey( gx, gz );
+		const hasRoadPieces = Array.isArray( data.roadPieces ) && data.roadPieces.length > 0;
+		const hasOverlay = Boolean( data.bump || data.jump || ( data.surfaceTypes && data.surfaceTypes.length ) || data.decoType );
+		if ( ! hasRoadPieces && ! hasOverlay ) {
+
+			eraseRoad( gx, gz );
+			return;
+
+		}
+		const cell = makeEmptyCell();
+		cell.roadPieces = hasRoadPieces ? data.roadPieces.map( ( p ) => ( { ...p } ) ) : [];
+		if ( cell.roadPieces.length > 0 ) {
+
+			const last = cell.roadPieces[ cell.roadPieces.length - 1 ];
+			cell.type = last.type;
+			cell.orient = last.orient || 0;
+			cell.isFinish = Boolean( cell.roadPieces.find( ( p ) => p.isFinish || p.type === 'track-finish' ) );
+
+		}
+		cell.bump = Boolean( data.bump );
+		cell.bumpOrient = data.bumpOrient || 0;
+		cell.jump = Boolean( data.jump );
+		cell.jumpOrient = data.jumpOrient || 0;
+		cell.surfaceTypes = [ ...( data.surfaceTypes || [] ) ];
+		cell.decoType = data.decoType || null;
+		cell.decoOrient = data.decoOrient || 0;
+		grid.set( key, cell );
+		placeMesh( gx, gz, cell );
+		placeOverlayMesh( gx, gz, cell );
 
 	}
 
@@ -807,6 +1019,302 @@
 
 	}
 
+	function getDirection( from, to ) {
+
+		if ( ! from || ! to ) return null;
+		const dx = to.gx - from.gx;
+		const dz = to.gz - from.gz;
+		if ( Math.abs( dx ) + Math.abs( dz ) !== 1 ) return null;
+		if ( dx === 1 ) return 'E';
+		if ( dx === - 1 ) return 'W';
+		if ( dz === 1 ) return 'S';
+		if ( dz === - 1 ) return 'N';
+		return null;
+
+	}
+
+	function getFlowRoadPlacement( prev, current, next ) {
+
+		const inDir = getDirection( current, prev );
+		const outDir = getDirection( current, next );
+		const oneDir = inDir || outDir;
+		if ( ! oneDir ) return { type: flowStraightType, orient: FLOW_STRAIGHT_ORIENT.ns };
+		if ( ! inDir || ! outDir || inDir === outDir || ( inDir === 'N' && outDir === 'S' ) || ( inDir === 'S' && outDir === 'N' ) || ( inDir === 'E' && outDir === 'W' ) || ( inDir === 'W' && outDir === 'E' ) ) {
+
+			return {
+				type: flowStraightType,
+				orient: ( oneDir === 'E' || oneDir === 'W' ) ? FLOW_STRAIGHT_ORIENT.ew : FLOW_STRAIGHT_ORIENT.ns,
+			};
+
+		}
+		const cornerOrient = FLOW_CORNER_ORIENT[ `${ inDir },${ outDir }` ] ?? FLOW_CORNER_ORIENT[ `${ outDir },${ inDir }` ] ?? 0;
+		return { type: flowCornerType, orient: cornerOrient };
+
+	}
+
+	function applyFlowStroke() {
+
+		if ( flowStrokeCells.length === 0 ) return;
+		const deduped = [];
+		const seen = new Set();
+		for ( const cell of flowStrokeCells ) {
+
+			const key = cellKey( cell.gx, cell.gz );
+			if ( seen.has( key ) ) continue;
+			seen.add( key );
+			deduped.push( cell );
+
+		}
+		for ( let i = 0; i < deduped.length; i ++ ) {
+
+			const current = deduped[ i ];
+			const prev = i > 0 ? deduped[ i - 1 ] : null;
+			const next = i < deduped.length - 1 ? deduped[ i + 1 ] : null;
+			const piece = getFlowRoadPlacement( prev, current, next );
+			setCell( current.gx, current.gz, piece.type, piece.orient );
+
+		}
+		flowStrokeCells = [];
+		save();
+		refreshConstraintsPanelIfEnabled();
+
+	}
+
+	function analyzeTrackConstraints() {
+
+		const roadCells = new Map();
+		let finishCount = 0;
+		let checkpointCount = 0;
+		for ( const [ key, cell ] of grid ) {
+
+			if ( ! cell.roadPieces?.length ) continue;
+			roadCells.set( key, { ...cell } );
+			if ( cell.roadPieces.find( ( p ) => p.type === 'track-finish' ) ) finishCount ++;
+			checkpointCount += cell.roadPieces.filter( ( p ) => p.type === 'track-checkpoint' ).length;
+
+		}
+
+		const issues = [];
+		if ( roadCells.size === 0 ) issues.push( 'No road cells placed.' );
+		if ( finishCount === 0 ) issues.push( 'No finish tile found.' );
+		if ( finishCount > 1 ) issues.push( `Multiple finish tiles found (${ finishCount }).` );
+
+		const dirs = [ [ 1, 0 ], [ - 1, 0 ], [ 0, 1 ], [ 0, - 1 ] ];
+		const neighborsCount = new Map();
+		for ( const key of roadCells.keys() ) {
+
+			const [ gx, gz ] = key.split( ',' ).map( Number );
+			let count = 0;
+			for ( const [ dx, dz ] of dirs ) {
+
+				if ( roadCells.has( cellKey( gx + dx, gz + dz ) ) ) count ++;
+
+			}
+			neighborsCount.set( key, count );
+
+		}
+
+		let deadEnds = 0;
+		for ( const count of neighborsCount.values() ) if ( count <= 1 ) deadEnds ++;
+		if ( deadEnds > 0 ) issues.push( `Dead-end road cells: ${ deadEnds }.` );
+
+		let components = 0;
+		const seen = new Set();
+		for ( const key of roadCells.keys() ) {
+
+			if ( seen.has( key ) ) continue;
+			components ++;
+			const queue = [ key ];
+			seen.add( key );
+			while ( queue.length ) {
+
+				const k = queue.shift();
+				const [ gx, gz ] = k.split( ',' ).map( Number );
+				for ( const [ dx, dz ] of dirs ) {
+
+					const nk = cellKey( gx + dx, gz + dz );
+					if ( ! roadCells.has( nk ) || seen.has( nk ) ) continue;
+					seen.add( nk );
+					queue.push( nk );
+
+				}
+
+			}
+
+		}
+		if ( components > 1 ) issues.push( `Track is split into ${ components } disconnected road groups.` );
+
+		return { roadCells: roadCells.size, finishCount, checkpointCount, deadEnds, components, issues };
+
+	}
+
+	function renderConstraintsPanel() {
+
+		const output = document.getElementById( 'constraints-output' );
+		if ( ! output ) return;
+		const report = analyzeTrackConstraints();
+		const summary = [
+			`Road cells: ${ report.roadCells }`,
+			`Finish tiles: ${ report.finishCount }`,
+			`Checkpoint tiles: ${ report.checkpointCount }`,
+			`Dead ends: ${ report.deadEnds }`,
+			`Connected groups: ${ report.components }`
+		];
+		const issueList = report.issues.length
+			? report.issues.map( ( item ) => `• ${ item }` ).join( '<br>' )
+			: '• No major issues detected.';
+		output.innerHTML = `<strong>Summary</strong><br>${ summary.join( '<br>' ) }<br><br><strong>Checks</strong><br>${ issueList }`;
+
+	}
+
+	function refreshConstraintsPanelIfEnabled() {
+
+		const auto = document.getElementById( 'constraints-auto' );
+		if ( auto?.checked ) renderConstraintsPanel();
+
+	}
+
+	function savePrefabs() {
+
+		localStorage.setItem( PREFAB_STORAGE_KEY, JSON.stringify( prefabs ) );
+
+	}
+
+	function loadPrefabs() {
+
+		try {
+
+			const parsed = JSON.parse( localStorage.getItem( PREFAB_STORAGE_KEY ) || '[]' );
+			prefabs = Array.isArray( parsed ) ? parsed : [];
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to parse prefabs', e );
+			prefabs = [];
+
+		}
+
+	}
+
+	function updatePrefabCornersReadout() {
+
+		const readout = document.getElementById( 'prefab-corners-readout' );
+		if ( ! readout ) return;
+		const a = prefabCornerA ? `A(${ prefabCornerA.gx },${ prefabCornerA.gz })` : 'A(?)';
+		const b = prefabCornerB ? `B(${ prefabCornerB.gx },${ prefabCornerB.gz })` : 'B(?)';
+		readout.textContent = `Corners: ${ a } ${ b }`;
+
+	}
+
+	function renderPrefabList() {
+
+		const list = document.getElementById( 'prefab-list' );
+		if ( ! list ) return;
+		list.innerHTML = '';
+		if ( prefabs.length === 0 ) {
+
+			list.innerHTML = '<div class="prefab-item"><span>No prefabs yet.</span></div>';
+			return;
+
+		}
+		for ( const prefab of prefabs ) {
+
+			const row = document.createElement( 'div' );
+			row.className = 'prefab-item';
+			const meta = document.createElement( 'span' );
+			meta.textContent = `${ prefab.name } (${ prefab.cells.length } cells)`;
+			const actions = document.createElement( 'div' );
+			const armBtn = document.createElement( 'button' );
+			armBtn.textContent = armedPrefabId === prefab.id ? 'Armed' : 'Arm Placement';
+			armBtn.addEventListener( 'click', () => {
+
+				armedPrefabId = armedPrefabId === prefab.id ? null : prefab.id;
+				showToast( armedPrefabId ? `Prefab "${ prefab.name }" armed` : 'Prefab placement canceled' );
+				renderPrefabList();
+
+			} );
+			const delBtn = document.createElement( 'button' );
+			delBtn.textContent = 'Delete';
+			delBtn.addEventListener( 'click', () => {
+
+				prefabs = prefabs.filter( ( p ) => p.id !== prefab.id );
+				if ( armedPrefabId === prefab.id ) armedPrefabId = null;
+				savePrefabs();
+				renderPrefabList();
+				showToast( `Deleted prefab "${ prefab.name }"` );
+
+			} );
+			actions.appendChild( armBtn );
+			actions.appendChild( delBtn );
+			row.appendChild( meta );
+			row.appendChild( actions );
+			list.appendChild( row );
+
+		}
+
+	}
+
+	function savePrefabFromCorners() {
+
+		if ( ! prefabCornerA || ! prefabCornerB ) {
+
+			showToast( 'Set both prefab corners first' );
+			return;
+
+		}
+		const nameInput = document.getElementById( 'prefab-name' );
+		const name = ( nameInput?.value || '' ).trim() || `Prefab ${ prefabs.length + 1 }`;
+		const minX = Math.min( prefabCornerA.gx, prefabCornerB.gx );
+		const maxX = Math.max( prefabCornerA.gx, prefabCornerB.gx );
+		const minZ = Math.min( prefabCornerA.gz, prefabCornerB.gz );
+		const maxZ = Math.max( prefabCornerA.gz, prefabCornerB.gz );
+		const cells = [];
+		for ( let gz = minZ; gz <= maxZ; gz ++ ) {
+
+			for ( let gx = minX; gx <= maxX; gx ++ ) {
+
+				const cell = grid.get( cellKey( gx, gz ) );
+				if ( ! cell ) continue;
+				cells.push( { dx: gx - minX, dz: gz - minZ, data: cloneCellData( cell ) } );
+
+			}
+
+		}
+		if ( cells.length === 0 ) {
+
+			showToast( 'No placed cells in that rectangle' );
+			return;
+
+		}
+		const prefab = { id: String( Date.now() + Math.random() ), name, cells };
+		prefabs.push( prefab );
+		savePrefabs();
+		renderPrefabList();
+		showToast( `Saved prefab "${ name }"` );
+
+	}
+
+	function placeArmedPrefabAt( gx, gz ) {
+
+		if ( ! armedPrefabId ) return false;
+		const prefab = prefabs.find( ( p ) => p.id === armedPrefabId );
+		if ( ! prefab ) {
+
+			armedPrefabId = null;
+			renderPrefabList();
+			return false;
+
+		}
+		for ( const item of prefab.cells ) applyCellData( gx + item.dx, gz + item.dz, item.data );
+		save();
+		refreshConstraintsPanelIfEnabled();
+		showToast( `Placed prefab "${ prefab.name }"` );
+		armedPrefabId = null;
+		renderPrefabList();
+		return true;
+
+	}
+
 	// ─── Ghost preview ────────────────────────────────────────
 
 	function addGhostPiece( type, orient, gx, gz, opacity ) {
@@ -893,6 +1401,7 @@
 		const encoded = encodeCells( arr );
 		localStorage.setItem( 'racing-editor-cells', encoded );
 		localStorage.setItem( 'racing-editor-mods', encodeMods() );
+		refreshConstraintsPanelIfEnabled();
 
 	}
 
@@ -1092,6 +1601,31 @@
 	const btnRotate = document.getElementById( 'btn-rotate' );
 	const btnPaint = document.getElementById( 'btn-paint' );
 	const btnErase = document.getElementById( 'btn-erase' );
+	const panelOverlay = document.getElementById( 'panel-overlay' );
+	const panelCenter = document.getElementById( 'panel-center' );
+	const flowPanel = document.getElementById( 'flow-panel' );
+	const constraintsPanel = document.getElementById( 'constraints-panel' );
+	const prefabPanel = document.getElementById( 'prefab-panel' );
+	const panels = [ flowPanel, constraintsPanel, prefabPanel ];
+
+	function closePanelCenter() {
+
+		panelOverlay.hidden = true;
+		panelCenter.hidden = true;
+		for ( const panel of panels ) panel.hidden = true;
+
+	}
+
+	function openPanelCenter( panel ) {
+
+		if ( ! panel ) return;
+		panelOverlay.hidden = false;
+		panelCenter.hidden = false;
+		for ( const candidate of panels ) candidate.hidden = candidate !== panel;
+		if ( panel === constraintsPanel ) renderConstraintsPanel();
+		if ( panel === prefabPanel ) renderPrefabList();
+
+	}
 
 	function selectTool( t ) {
 
@@ -1219,6 +1753,50 @@
 	} );
 	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
 	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
+	document.getElementById( 'open-flow-panel' )?.addEventListener( 'click', () => openPanelCenter( flowPanel ) );
+	document.getElementById( 'open-constraints-panel' )?.addEventListener( 'click', () => openPanelCenter( constraintsPanel ) );
+	document.getElementById( 'open-prefab-panel' )?.addEventListener( 'click', () => openPanelCenter( prefabPanel ) );
+	panelOverlay?.addEventListener( 'click', closePanelCenter );
+	document.querySelectorAll( '[data-close-panel]' ).forEach( ( btn ) => btn.addEventListener( 'click', closePanelCenter ) );
+	const flowEnabledInput = document.getElementById( 'flow-enabled' );
+	const flowStraightSelect = document.getElementById( 'flow-straight-type' );
+	const flowCornerSelect = document.getElementById( 'flow-corner-type' );
+	flowEnabledInput?.addEventListener( 'change', () => {
+
+		flowBrushEnabled = Boolean( flowEnabledInput.checked );
+		showToast( flowBrushEnabled ? 'Flow brush enabled' : 'Flow brush disabled' );
+
+	} );
+	flowStraightSelect?.addEventListener( 'change', () => { flowStraightType = flowStraightSelect.value || 'track-straight'; } );
+	flowCornerSelect?.addEventListener( 'change', () => { flowCornerType = flowCornerSelect.value || 'track-corner'; } );
+	document.getElementById( 'constraints-refresh' )?.addEventListener( 'click', renderConstraintsPanel );
+	document.getElementById( 'prefab-corner-a' )?.addEventListener( 'click', () => {
+
+		if ( ! hoveredCell ) {
+
+			showToast( 'Hover over a cell first' );
+			return;
+
+		}
+		prefabCornerA = { ...hoveredCell };
+		updatePrefabCornersReadout();
+		showToast( 'Prefab corner A set' );
+
+	} );
+	document.getElementById( 'prefab-corner-b' )?.addEventListener( 'click', () => {
+
+		if ( ! hoveredCell ) {
+
+			showToast( 'Hover over a cell first' );
+			return;
+
+		}
+		prefabCornerB = { ...hoveredCell };
+		updatePrefabCornersReadout();
+		showToast( 'Prefab corner B set' );
+
+	} );
+	document.getElementById( 'prefab-save' )?.addEventListener( 'click', savePrefabFromCorners );
 
 	btnRotate.addEventListener( 'click', rotateSelection );
 	btnPaint.addEventListener( 'click', () => selectTool( 'paint' ) );
@@ -1350,7 +1928,16 @@
 
 		} else if ( isDrawing ) {
 
-			placeSelectedBlock( cell.gx, cell.gz );
+			const isRoadType = TILE_TYPES.includes( selectedType );
+			if ( flowBrushEnabled && isRoadType ) {
+
+				flowStrokeCells.push( { gx: cell.gx, gz: cell.gz } );
+
+			} else {
+
+				placeSelectedBlock( cell.gx, cell.gz );
+
+			}
 
 		}
 
@@ -1416,6 +2003,14 @@
 
 		if ( e.button === 0 ) {
 
+			if ( armedPrefabId ) {
+
+				const target = screenToGrid( e.clientX, e.clientY );
+				if ( target ) placeArmedPrefabAt( target.gx, target.gz );
+				return;
+
+			}
+
 			if ( tool === 'erase' ) {
 
 				isErasing = true;
@@ -1427,6 +2022,7 @@
 			}
 
 			lastDrawCell = null;
+			flowStrokeCells = [];
 
 			// On touch, defer draw until pointermove confirms single-finger gesture
 			if ( e.pointerType !== 'touch' ) handleDraw( e.clientX, e.clientY );
@@ -1519,6 +2115,7 @@
 			}
 
 			isPanning = false;
+			if ( isDrawing && flowBrushEnabled && TILE_TYPES.includes( selectedType ) ) applyFlowStroke();
 			isDrawing = false;
 			isErasing = false;
 			lastDrawCell = null;
@@ -1634,6 +2231,10 @@
 	await loadModels();
 	applyWeatherPreset( WEATHER_DEFAULT );
 	loadSaved();
+	loadPrefabs();
+	updatePrefabCornersReadout();
+	renderPrefabList();
+	renderConstraintsPanel();
 
 	// Start with a finish cell if the grid is empty
 	if ( grid.size === 0 ) {
