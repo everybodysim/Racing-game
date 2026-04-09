@@ -34,6 +34,40 @@ function getSurfaceVisual( surfaceType, customSurfaces = null ) {
 
 }
 
+function normalizeCurveId( value ) {
+
+	return String( value || '' ).trim().toLowerCase().replace( /[^a-z0-9_-]/g, '' ).slice( 0, 32 );
+
+}
+
+function getCurveDirectionVector( orient ) {
+
+	switch ( orient ) {
+
+		case 16: return new THREE.Vector2( 1, 0 );
+		case 10: return new THREE.Vector2( 0, 1 );
+		case 22: return new THREE.Vector2( -1, 0 );
+		case 0:
+		default: return new THREE.Vector2( 0, -1 );
+
+	}
+
+}
+
+function cubicBezier( p0, p1, p2, p3, t ) {
+
+	const it = 1 - t;
+	const it2 = it * it;
+	const it3 = it2 * it;
+	const t2 = t * t;
+	const t3 = t2 * t;
+	return new THREE.Vector2(
+		p0.x * it3 + 3 * p1.x * it2 * t + 3 * p2.x * it * t2 + p3.x * t3,
+		p0.y * it3 + 3 * p1.y * it2 * t + 3 * p2.y * it * t2 + p3.y * t3
+	);
+
+}
+
 export const TRACK_CELLS = [
 	[ -3, -3, 'track-corner',   16 ],
 	[ -2, -3, 'track-straight', 22 ],
@@ -166,6 +200,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const jumpCells = Array.isArray( extras.jumps ) ? extras.jumps : [];
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
 		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
+		const curveAnchors = Array.isArray( extras.curveAnchors ) ? extras.curveAnchors : [];
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
 
 		for ( const [ gx, gz ] of bumpCells ) {
@@ -244,6 +279,75 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505, ( gz + 0.5 ) * CELL_RAW );
 			patch.receiveShadow = true;
 			trackPieceGroup.add( patch );
+
+		}
+
+		if ( curveAnchors.length ) {
+
+			const byId = new Map();
+			for ( const entry of curveAnchors ) {
+
+				const [ rawId, gx, gz, orient ] = entry;
+				const id = normalizeCurveId( rawId );
+				if ( ! id ) continue;
+				if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+				if ( ! byId.has( id ) ) byId.set( id, [] );
+				byId.get( id ).push( { gx: Number( gx ), gz: Number( gz ), orient: Number( orient ) || 0 } );
+
+			}
+
+			for ( const [ , anchors ] of byId ) {
+
+				if ( anchors.length < 2 ) continue;
+				const ordered = anchors.slice().sort( ( a, b ) => ( a.gx - b.gx ) || ( a.gz - b.gz ) );
+				for ( let i = 0; i + 1 < ordered.length; i ++ ) {
+
+					const a = ordered[ i ];
+					const b = ordered[ i + 1 ];
+					const p0 = new THREE.Vector2( ( a.gx + 0.5 ) * CELL_RAW, ( a.gz + 0.5 ) * CELL_RAW );
+					const p3 = new THREE.Vector2( ( b.gx + 0.5 ) * CELL_RAW, ( b.gz + 0.5 ) * CELL_RAW );
+					const chord = p3.clone().sub( p0 );
+					const chordLength = chord.length();
+					if ( chordLength < 0.001 ) continue;
+					const handleLength = Math.max( CELL_RAW * 0.45, chordLength * 0.42 );
+					const p1 = p0.clone().add( getCurveDirectionVector( a.orient ).multiplyScalar( handleLength ) );
+					const p2 = p3.clone().sub( getCurveDirectionVector( b.orient ).multiplyScalar( handleLength ) );
+					const segmentCount = Math.max( 3, Math.ceil( chordLength / ( CELL_RAW * 0.7 ) ) );
+					let prev = p0;
+
+					for ( let s = 1; s <= segmentCount; s ++ ) {
+
+						const t = s / segmentCount;
+						const cur = cubicBezier( p0, p1, p2, p3, t );
+						const delta = cur.clone().sub( prev );
+						const segLen = delta.length();
+						if ( segLen < 0.01 ) {
+
+							prev = cur;
+							continue;
+
+						}
+
+						const piece = placePiece( models, 'track-straight', 0, 0, 0 );
+						if ( ! piece ) {
+
+							prev = cur;
+							continue;
+
+						}
+						const mid = prev.clone().add( cur ).multiplyScalar( 0.5 );
+						piece.position.set( mid.x, 0.5, mid.y );
+						piece.rotation.y = Math.atan2( delta.x, delta.y );
+						const stretch = Math.max( 0.6, segLen / CELL_RAW );
+						piece.scale.set( 1, 1, stretch );
+						trackPieceGroup.add( piece );
+						prev = cur;
+
+					}
+
+				}
+
+			}
 
 		}
 

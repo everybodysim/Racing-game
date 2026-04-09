@@ -157,6 +157,7 @@ function decodeExtrasParam( str ) {
 			jumps: Array.isArray( parsed.j ) ? parsed.j : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 			surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
+			curveAnchors: Array.isArray( parsed.k ) ? parsed.k : [],
 			customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
 			weather: normalizeWeatherDetails( parsed?.w ),
 		};
