@@ -1316,7 +1316,7 @@ async function init() {
 		clearWeatherFx();
 		const precip = weatherSettings.precipitation;
 		if ( precip === 'none' ) return;
-		const count = Math.round( ( precip === 'rain' ? 520 : 380 ) * ( INTENSITY_SCALE[ weatherSettings.intensity ] || 1 ) );
+		const count = Math.round( ( precip === 'rain' ? 940 : 380 ) * ( INTENSITY_SCALE[ weatherSettings.intensity ] || 1 ) );
 		const positions = new Float32Array( count * 3 );
 		const speeds = new Float32Array( count );
 		const spread = 65;
