@@ -106,6 +106,25 @@
 			z-index: 20;
 		}
 		#toast.show { opacity: 1; }
+		#custom-surface-panel {
+			position: absolute;
+			right: 12px;
+			top: 72px;
+			width: min(360px, calc(100vw - 24px));
+			padding: 10px;
+			border-radius: 10px;
+			background: rgba(16, 18, 24, 0.92);
+			border: 1px solid rgba(255,255,255,0.15);
+			color: #eef3ff;
+			z-index: 30;
+		}
+		#custom-surface-panel h3 { margin: 0 0 8px; font-size: 14px; }
+		.custom-surface-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; font-size: 12px; }
+		.custom-surface-grid label { display: flex; align-items: center; gap: 6px; }
+		.custom-surface-grid input[type="number"],
+		.custom-surface-grid input[type="color"] { width: 100%; }
+		.custom-surface-actions { margin-top: 10px; display: flex; gap: 8px; justify-content: flex-end; }
+		.custom-surface-actions button { padding: 6px 10px; }
 
 		#settings-bar {
 			position: absolute;
@@ -199,17 +218,11 @@
 			<option value="surface-bounce">Bounce Plate</option>
 			<option value="surface-kick-l">Kick Left</option>
 			<option value="surface-kick-r">Kick Right</option>
-			<option value="surface-grip">Grip</option>
-			<option value="surface-mud">Mud</option>
-			<option value="surface-glass">Glass</option>
-			<option value="surface-slow">Slow Field</option>
-			<option value="surface-turbo">Turbo Lane</option>
-			<option value="surface-pop">Pop Pad</option>
-			<option value="surface-launch">Launch Fwd</option>
-			<option value="surface-reverse">Launch Back</option>
-			<option value="surface-spin-l">Spin Left</option>
-			<option value="surface-spin-r">Spin Right</option>
 		</select>
+		<button id="btn-surface-custom-a">Custom A</button>
+		<button id="btn-surface-custom-b">Custom B</button>
+		<button id="btn-surface-custom-c">Custom C</button>
+		<button id="btn-overlap-toggle">Overlap: Off</button>
 		<button id="btn-deco-forest">Tree</button>
 		<button id="btn-deco-tents">Tent</button>
 		<button id="btn-deco-empty">Prop</button>
@@ -225,6 +238,26 @@
 	</div>
 
 	<div id="toast"></div>
+	<div id="custom-surface-panel" hidden>
+		<h3 id="custom-surface-title">Custom Surface</h3>
+		<div class="custom-surface-grid">
+			<label><input type="checkbox" id="cs-force-forward"> Force Forward</label>
+			<label><input type="checkbox" id="cs-force-backward"> Force Backward</label>
+			<label><input type="checkbox" id="cs-force-left"> Force Left</label>
+			<label><input type="checkbox" id="cs-force-right"> Force Right</label>
+			<label><input type="checkbox" id="cs-force-up"> Force Up</label>
+			<label>Force Amount <input type="range" id="cs-force-amount" min="-1" max="20" step="0.1" value="4"></label>
+			<label><input type="checkbox" id="cs-no-air"> Don't trigger in air</label>
+			<label><input type="checkbox" id="cs-once-contact"> Trigger once until leave/re-enter</label>
+			<label>Color <input type="color" id="cs-color" value="#9c7bff"></label>
+			<label>Grip <input type="range" id="cs-grip" min="0" max="5" step="0.05" value="1.2"></label>
+			<label>Speed <input type="range" id="cs-speed" min="0" max="5" step="0.05" value="1.05"></label>
+		</div>
+		<div class="custom-surface-actions">
+			<button id="cs-save">Save</button>
+			<button id="cs-close">Close</button>
+		</div>
+	</div>
 
 	<script type="module">
 	import * as THREE from 'three';
@@ -240,13 +273,21 @@
 	const JUMP_TOOL = 'overlay-jump';
 	const SURFACE_TYPES = [
 		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
-		'surface-grip', 'surface-mud', 'surface-glass', 'surface-slow', 'surface-turbo',
-		'surface-pop', 'surface-launch', 'surface-reverse', 'surface-spin-l', 'surface-spin-r'
+		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
 	];
 	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
+	const CUSTOM_SURFACE_TYPES = [ 'surface-custom-a', 'surface-custom-b', 'surface-custom-c' ];
 	let tool = 'paint'; // 'paint', 'erase'
 	let selectedType = 'track-straight';
 	let selectedOrient = 0;
+	let allowSurfaceOverlap = false;
+	const CUSTOM_SURFACE_DEFAULTS = {
+		'surface-custom-a': { color: '#9c7bff', grip: 1.2, speed: 1.05, forceAmount: 4, force: { forward: true, backward: false, left: false, right: false, up: false }, noAir: true, oncePerContact: true },
+		'surface-custom-b': { color: '#7bffda', grip: 0.55, speed: 0.72, forceAmount: 3, force: { forward: false, backward: true, left: false, right: false, up: false }, noAir: false, oncePerContact: true },
+		'surface-custom-c': { color: '#ffc97b', grip: 0.95, speed: 1.25, forceAmount: 6, force: { forward: false, backward: false, left: true, right: true, up: true }, noAir: true, oncePerContact: false },
+	};
+	let customSurfaceConfigs = JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) );
+	let activeCustomSurfaceEditor = null;
 
 	function cellKey( gx, gz ) { return gx + ',' + gz; }
 
@@ -257,14 +298,16 @@
 			orient: 0,
 			isFinish: false,
 			mesh: null,
+			roadPieces: [],
+			roadMeshes: [],
 			bump: false,
 			bumpOrient: 0,
 			bumpMesh: null,
 			jump: false,
 			jumpOrient: 0,
 			jumpMesh: null,
-			surfaceType: null,
-			surfaceMesh: null,
+			surfaceTypes: [],
+			surfaceMeshes: [],
 			decoType: null,
 			decoOrient: 0,
 			decoMesh: null
@@ -282,16 +325,13 @@
 			case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
 			case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
 			case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
-			case 'surface-grip': return { color: 0x7fff91, emissive: 0x1f6f2f, metalness: 0.0, roughness: 0.7 };
-			case 'surface-mud': return { color: 0x6b4a2a, emissive: 0x2b1a0c, metalness: 0.0, roughness: 1.0 };
-			case 'surface-glass': return { color: 0xaee9ff, emissive: 0x2d5f80, metalness: 0.32, roughness: 0.06 };
-			case 'surface-slow': return { color: 0x8d8d8d, emissive: 0x2d2d2d, metalness: 0.0, roughness: 1.0 };
-			case 'surface-turbo': return { color: 0xffb347, emissive: 0x8f4b00, metalness: 0.0, roughness: 0.75 };
-			case 'surface-pop': return { color: 0xb2ff8a, emissive: 0x348f20, metalness: 0.0, roughness: 0.72 };
-			case 'surface-launch': return { color: 0xffd166, emissive: 0x8f6512, metalness: 0.0, roughness: 0.82 };
-			case 'surface-reverse': return { color: 0xff9f7a, emissive: 0x8f3e20, metalness: 0.0, roughness: 0.82 };
-			case 'surface-spin-l': return { color: 0xd7a3ff, emissive: 0x5f2c8f, metalness: 0.0, roughness: 0.8 };
-			case 'surface-spin-r': return { color: 0xffa3d7, emissive: 0x8f2c5f, metalness: 0.0, roughness: 0.8 };
+			case 'surface-custom-a':
+			case 'surface-custom-b':
+			case 'surface-custom-c': {
+				const colorHex = customSurfaceConfigs?.[ surfaceType ]?.color || '#9c7bff';
+				const color = new THREE.Color( colorHex );
+				return { color: color.getHex(), emissive: color.clone().multiplyScalar( 0.45 ).getHex(), metalness: 0.02, roughness: 0.72 };
+			}
 			default: return { color: 0xb88657, emissive: 0x4a2b12, metalness: 0.0, roughness: 0.9 };
 
 		}
@@ -469,31 +509,42 @@
 
 	function placeMesh( gx, gz, cell ) {
 
+		for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
 		if ( cell.mesh ) trackGroup.remove( cell.mesh );
 		cell.mesh = null;
+		cell.roadMeshes = [];
+		if ( ! cell.roadPieces?.length && cell.type ) {
 
-		if ( ! cell.type ) return;
+			cell.roadPieces = [ { type: cell.type, orient: cell.orient, isFinish: cell.isFinish } ];
 
-		const modelType = cell.type === 'track-checkpoint' ? 'track-finish' : cell.type;
-		const src = models[ modelType ];
-		if ( ! src ) return;
+		}
 
-		const mesh = src.clone();
-		mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5, ( gz + 0.5 ) * CELL_RAW );
-		mesh.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.orient ] || 0 );
-		mesh.traverse( ( c ) => {
+		if ( ! cell.roadPieces?.length ) return;
 
-			if ( c.isMesh ) {
+		cell.roadPieces.forEach( ( roadPiece, idx ) => {
 
-				c.castShadow = true;
-				c.receiveShadow = true;
+			const modelType = roadPiece.type === 'track-checkpoint' ? 'track-finish' : roadPiece.type;
+			const src = models[ modelType ];
+			if ( ! src ) return;
 
-			}
+			const mesh = src.clone();
+			mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + idx * 0.035, ( gz + 0.5 ) * CELL_RAW );
+			mesh.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ roadPiece.orient ] || 0 );
+			mesh.traverse( ( c ) => {
+
+				if ( c.isMesh ) {
+
+					c.castShadow = true;
+					c.receiveShadow = true;
+
+				}
+
+			} );
+			trackGroup.add( mesh );
+			cell.roadMeshes.push( mesh );
+			cell.mesh = mesh;
 
 		} );
-
-		trackGroup.add( mesh );
-		cell.mesh = mesh;
 
 	}
 
@@ -501,11 +552,11 @@
 
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
 		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
-		if ( cell.surfaceMesh ) trackGroup.remove( cell.surfaceMesh );
+		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		cell.bumpMesh = null;
 		cell.jumpMesh = null;
-		cell.surfaceMesh = null;
+		cell.surfaceMeshes = [];
 		cell.decoMesh = null;
 
 		if ( cell.bump ) {
@@ -554,26 +605,30 @@
 
 		}
 
-		if ( cell.surfaceType ) {
+		if ( cell.surfaceTypes?.length ) {
 
-			const visual = getSurfaceVisual( cell.surfaceType );
-			const patch = new THREE.Mesh(
-				new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
-				new THREE.MeshStandardMaterial( {
-					color: visual.color,
-					emissive: visual.emissive,
-					emissiveIntensity: 0.2,
-					transparent: true,
-					opacity: 0.58,
-					metalness: visual.metalness,
-					roughness: visual.roughness
-				} )
-			);
-			patch.rotation.x = - Math.PI / 2;
-			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505, ( gz + 0.5 ) * CELL_RAW );
-			patch.receiveShadow = true;
-			trackGroup.add( patch );
-			cell.surfaceMesh = patch;
+			cell.surfaceTypes.forEach( ( surfaceType, idx ) => {
+
+				const visual = getSurfaceVisual( surfaceType );
+				const patch = new THREE.Mesh(
+					new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
+					new THREE.MeshStandardMaterial( {
+						color: visual.color,
+						emissive: visual.emissive,
+						emissiveIntensity: 0.2,
+						transparent: true,
+						opacity: 0.58,
+						metalness: visual.metalness,
+						roughness: visual.roughness
+					} )
+				);
+				patch.rotation.x = - Math.PI / 2;
+				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
+				patch.receiveShadow = true;
+				trackGroup.add( patch );
+				cell.surfaceMeshes.push( patch );
+
+			} );
 
 		}
 
@@ -608,9 +663,21 @@
 
 		const key = cellKey( gx, gz );
 		const cell = grid.get( key ) || makeEmptyCell();
-		cell.type = type;
-		cell.orient = orient;
-		cell.isFinish = type === 'track-finish';
+		if ( allowSurfaceOverlap ) {
+
+			cell.roadPieces.push( { type, orient, isFinish: type === 'track-finish' } );
+			cell.type = cell.roadPieces[ cell.roadPieces.length - 1 ].type;
+			cell.orient = cell.roadPieces[ cell.roadPieces.length - 1 ].orient;
+			cell.isFinish = Boolean( cell.roadPieces.find( ( p ) => p.isFinish ) );
+
+		} else {
+
+			cell.roadPieces = [ { type, orient, isFinish: type === 'track-finish' } ];
+			cell.type = type;
+			cell.orient = orient;
+			cell.isFinish = type === 'track-finish';
+
+		}
 		grid.set( key, cell );
 		placeMesh( gx, gz, cell );
 		placeOverlayMesh( gx, gz, cell );
@@ -637,7 +704,7 @@
 				cell.jumpOrient = selectedOrient;
 
 			}
-			if ( ! cell.bump && ! cell.jump && ! cell.type && ! cell.decoType && ! cell.surfaceType ) {
+			if ( ! cell.bump && ! cell.jump && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				grid.delete( key );
 
@@ -652,9 +719,18 @@
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
 			grid.set( key, cell );
-			cell.surfaceType = cell.surfaceType === selectedType ? null : selectedType;
+			const hadType = cell.surfaceTypes.includes( selectedType );
+			if ( allowSurfaceOverlap ) {
 
-			if ( ! cell.bump && ! cell.jump && ! cell.type && ! cell.decoType && ! cell.surfaceType ) {
+				cell.surfaceTypes = hadType ? [ ...cell.surfaceTypes ] : [ ...cell.surfaceTypes, selectedType ];
+
+			} else {
+
+				cell.surfaceTypes = hadType ? [] : [ selectedType ];
+
+			}
+
+			if ( ! cell.bump && ! cell.jump && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				grid.delete( key );
 
@@ -690,6 +766,7 @@
 		cell.type = 'track-finish';
 		cell.orient = 0;
 		cell.isFinish = true;
+		cell.roadPieces = [ { type: 'track-finish', orient: 0, isFinish: true } ];
 		grid.set( cellKey( 0, 0 ), cell );
 		placeMesh( 0, 0, cell );
 
@@ -701,10 +778,11 @@
 		if ( ! grid.has( key ) ) return;
 
 		const cell = grid.get( key );
+		for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
 		if ( cell.mesh ) trackGroup.remove( cell.mesh );
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
 		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
-		if ( cell.surfaceMesh ) trackGroup.remove( cell.surfaceMesh );
+		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		grid.delete( key );
 		save();
@@ -715,10 +793,11 @@
 
 		for ( const [ , cell ] of grid ) {
 
+				for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
 				if ( cell.mesh ) trackGroup.remove( cell.mesh );
 				if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
 				if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
-				if ( cell.surfaceMesh ) trackGroup.remove( cell.surfaceMesh );
+				for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 
 		}
@@ -809,13 +888,7 @@
 
 	function save() {
 
-		const arr = [];
-		for ( const [ key, cell ] of grid ) {
-
-			const [ gx, gz ] = key.split( ',' ).map( Number );
-				if ( cell.type ) arr.push( [ gx, gz, cell.type, cell.orient ] );
-
-		}
+		const arr = getCellsArray();
 
 		const encoded = encodeCells( arr );
 		localStorage.setItem( 'racing-editor-cells', encoded );
@@ -835,36 +908,37 @@
 				const [ gx, gz ] = key.split( ',' ).map( Number );
 				if ( cell.bump ) bumps.push( [ gx, gz ] );
 				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
-			if ( cell.surfaceType ) surfaces.push( [ gx, gz, cell.surfaceType ] );
+			for ( const surfaceType of ( cell.surfaceTypes || [] ) ) surfaces.push( [ gx, gz, surfaceType ] );
 			if ( cell.decoType ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
 
 		}
 
-		const payload = JSON.stringify( { b: bumps, j: jumps, u: surfaces, d: deco, w: { ...weatherSettings } } );
+		const payload = JSON.stringify( { b: bumps, j: jumps, u: surfaces, d: deco, w: { ...weatherSettings }, c: customSurfaceConfigs } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ) };
+		if ( ! modsStr ) return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ) };
 
 		try {
 
 			const payload = decodeURIComponent( escape( atob( modsStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
 			const parsed = JSON.parse( payload );
-			return {
-				b: Array.isArray( parsed.b ) ? parsed.b : [],
-				j: Array.isArray( parsed.j ) ? parsed.j : [],
-				u: Array.isArray( parsed.u ) ? parsed.u : [],
-				d: Array.isArray( parsed.d ) ? parsed.d : [],
-				w: normalizeWeatherSettings( parsed?.w ),
-			};
+				return {
+					b: Array.isArray( parsed.b ) ? parsed.b : [],
+					j: Array.isArray( parsed.j ) ? parsed.j : [],
+					u: Array.isArray( parsed.u ) ? parsed.u : [],
+					d: Array.isArray( parsed.d ) ? parsed.d : [],
+					w: normalizeWeatherSettings( parsed?.w ),
+					c: parsed?.c && typeof parsed.c === 'object' ? parsed.c : JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
+				};
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-			return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ) };
+				return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ) };
 
 		}
 
@@ -884,19 +958,25 @@
 
 			const arr = decodeCells( encoded );
 
-			for ( const [ gx, gz, type, orient ] of arr ) {
+				for ( const [ gx, gz, type, orient ] of arr ) {
 
-				const isFinish = ( type === 'track-finish' );
-				const cell = makeEmptyCell();
-				cell.type = type;
-				cell.orient = orient;
-				cell.isFinish = isFinish;
-				grid.set( cellKey( gx, gz ), cell );
-				placeMesh( gx, gz, cell );
+					const isFinish = ( type === 'track-finish' );
+					const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					cell.roadPieces.push( { type, orient, isFinish } );
+					cell.type = type;
+					cell.orient = orient;
+					cell.isFinish = cell.isFinish || isFinish;
+					placeMesh( gx, gz, cell );
 
-			}
+				}
 
 			const mods = decodeMods( modsEncoded );
+			customSurfaceConfigs = {
+				...JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
+				...( mods.c || {} )
+			};
 			weatherSettings = normalizeWeatherSettings( mods.w );
 			applyWeatherPreset( weatherSettings.preset );
 			const weatherSelect = document.getElementById( 'weather-preset' );
@@ -936,7 +1016,7 @@
 				const key = cellKey( gx, gz );
 					const cell = grid.get( key ) || makeEmptyCell();
 					if ( ! grid.has( key ) ) grid.set( key, cell );
-					cell.surfaceType = SURFACE_TYPES.includes( surfaceType ) ? surfaceType : 'surface-wood';
+					if ( SURFACE_TYPES.includes( surfaceType ) ) cell.surfaceTypes.push( surfaceType );
 					placeOverlayMesh( gx, gz, cell );
 
 			}
@@ -986,8 +1066,29 @@
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
+		'surface-custom-a': document.getElementById( 'btn-surface-custom-a' ),
+		'surface-custom-b': document.getElementById( 'btn-surface-custom-b' ),
+		'surface-custom-c': document.getElementById( 'btn-surface-custom-c' ),
 	};
 	const surfaceSelect = document.getElementById( 'surface-select' );
+	const overlapToggleBtn = document.getElementById( 'btn-overlap-toggle' );
+	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
+	const customSurfaceTitle = document.getElementById( 'custom-surface-title' );
+	const customSurfaceInputs = {
+		forward: document.getElementById( 'cs-force-forward' ),
+		backward: document.getElementById( 'cs-force-backward' ),
+		left: document.getElementById( 'cs-force-left' ),
+		right: document.getElementById( 'cs-force-right' ),
+		up: document.getElementById( 'cs-force-up' ),
+		forceAmount: document.getElementById( 'cs-force-amount' ),
+		noAir: document.getElementById( 'cs-no-air' ),
+		oncePerContact: document.getElementById( 'cs-once-contact' ),
+		color: document.getElementById( 'cs-color' ),
+		grip: document.getElementById( 'cs-grip' ),
+		speed: document.getElementById( 'cs-speed' ),
+		save: document.getElementById( 'cs-save' ),
+		close: document.getElementById( 'cs-close' ),
+	};
 	const btnRotate = document.getElementById( 'btn-rotate' );
 	const btnPaint = document.getElementById( 'btn-paint' );
 	const btnErase = document.getElementById( 'btn-erase' );
@@ -1002,12 +1103,18 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, ...DECO_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
 
 			tileButtons[ type ].classList.toggle( 'active', selectedType === type );
 
 		}
 		if ( surfaceSelect ) surfaceSelect.value = SURFACE_TYPES.includes( selectedType ) ? selectedType : '';
+		if ( overlapToggleBtn ) {
+
+			overlapToggleBtn.classList.toggle( 'active', allowSurfaceOverlap );
+			overlapToggleBtn.textContent = `Overlap: ${ allowSurfaceOverlap ? 'On' : 'Off' }`;
+
+		}
 
 		const rotIndex = ORIENTATIONS.indexOf( selectedOrient );
 		btnRotate.textContent = `Rotate: ${ Math.max( 0, rotIndex ) * 90 }°`;
@@ -1022,6 +1129,62 @@
 
 	}
 
+	function openCustomSurfaceEditor( surfaceType ) {
+
+		activeCustomSurfaceEditor = surfaceType;
+		const config = customSurfaceConfigs[ surfaceType ] || CUSTOM_SURFACE_DEFAULTS[ surfaceType ];
+		customSurfaceTitle.textContent = `Edit ${ surfaceType.replace( 'surface-', '' ) }`;
+		customSurfaceInputs.forward.checked = Boolean( config.force?.forward );
+		customSurfaceInputs.backward.checked = Boolean( config.force?.backward );
+		customSurfaceInputs.left.checked = Boolean( config.force?.left );
+		customSurfaceInputs.right.checked = Boolean( config.force?.right );
+		customSurfaceInputs.up.checked = Boolean( config.force?.up );
+		customSurfaceInputs.forceAmount.value = String( Number( config.forceAmount ?? 0 ) );
+		customSurfaceInputs.noAir.checked = Boolean( config.noAir );
+		customSurfaceInputs.oncePerContact.checked = Boolean( config.oncePerContact );
+		customSurfaceInputs.color.value = config.color || '#9c7bff';
+		customSurfaceInputs.grip.value = String( Number( config.grip ?? 1 ) );
+		customSurfaceInputs.speed.value = String( Number( config.speed ?? 1 ) );
+		customSurfacePanel.hidden = false;
+
+	}
+
+	function closeCustomSurfaceEditor() {
+
+		customSurfacePanel.hidden = true;
+		activeCustomSurfaceEditor = null;
+
+	}
+
+	function saveCustomSurfaceEditor() {
+
+		if ( ! activeCustomSurfaceEditor ) return;
+		customSurfaceConfigs[ activeCustomSurfaceEditor ] = {
+			color: customSurfaceInputs.color.value || '#9c7bff',
+			grip: Number( customSurfaceInputs.grip.value ) || 1,
+			speed: Number( customSurfaceInputs.speed.value ) || 1,
+			forceAmount: Math.max( 0, Number( customSurfaceInputs.forceAmount.value ) || 0 ),
+			force: {
+				forward: customSurfaceInputs.forward.checked,
+				backward: customSurfaceInputs.backward.checked,
+				left: customSurfaceInputs.left.checked,
+				right: customSurfaceInputs.right.checked,
+				up: customSurfaceInputs.up.checked,
+			},
+			noAir: customSurfaceInputs.noAir.checked,
+			oncePerContact: customSurfaceInputs.oncePerContact.checked,
+		};
+		save();
+		for ( const [ key, cell ] of grid ) {
+
+			if ( ! cell.surfaceTypes?.includes( activeCustomSurfaceEditor ) ) continue;
+			const [ gx, gz ] = key.split( ',' ).map( Number );
+			placeOverlayMesh( gx, gz, cell );
+
+		}
+		showToast( `${ activeCustomSurfaceEditor } saved` );
+	}
+
 	function rotateSelection() {
 
 		const idx = ORIENTATIONS.indexOf( selectedOrient );
@@ -1031,9 +1194,14 @@
 
 	}
 
-	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, ...DECO_TYPES ] ) {
+	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
 
-		tileButtons[ type ].addEventListener( 'click', () => selectTileType( type ) );
+		tileButtons[ type ].addEventListener( 'click', () => {
+
+			selectTileType( type );
+			if ( CUSTOM_SURFACE_TYPES.includes( type ) ) openCustomSurfaceEditor( type );
+
+		} );
 
 	}
 	surfaceSelect?.addEventListener( 'change', () => {
@@ -1042,6 +1210,15 @@
 		selectTileType( surfaceSelect.value );
 
 	} );
+	overlapToggleBtn?.addEventListener( 'click', () => {
+
+		allowSurfaceOverlap = ! allowSurfaceOverlap;
+		updateTileToolbar();
+		showToast( `Surface overlap ${ allowSurfaceOverlap ? 'enabled' : 'disabled' }` );
+
+	} );
+	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
+	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
 
 	btnRotate.addEventListener( 'click', rotateSelection );
 	btnPaint.addEventListener( 'click', () => selectTool( 'paint' ) );
@@ -1080,7 +1257,11 @@
 			for ( const [ key, cell ] of grid ) {
 
 				const [ gx, gz ] = key.split( ',' ).map( Number );
-				if ( cell.type ) arr.push( [ gx, gz, cell.type, cell.orient ] );
+				for ( const roadPiece of ( cell.roadPieces || [] ) ) {
+
+					arr.push( [ gx, gz, roadPiece.type, roadPiece.orient ] );
+
+				}
 
 		}
 
