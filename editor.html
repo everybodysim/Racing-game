@@ -118,6 +118,19 @@
 			color: #eef3ff;
 			z-index: 30;
 		}
+		#curve-anchor-panel {
+			position: absolute;
+			right: 12px;
+			top: 72px;
+			width: min(320px, calc(100vw - 24px));
+			padding: 10px;
+			border-radius: 10px;
+			background: rgba(16, 18, 24, 0.92);
+			border: 1px solid rgba(255,255,255,0.15);
+			color: #eef3ff;
+			z-index: 30;
+		}
+		#curve-anchor-panel h3 { margin: 0 0 8px; font-size: 14px; }
 		#custom-surface-panel h3 { margin: 0 0 8px; font-size: 14px; }
 		.custom-surface-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; font-size: 12px; }
 		.custom-surface-grid label { display: flex; align-items: center; gap: 6px; }
@@ -207,6 +220,7 @@
 		<button id="btn-corner">Corner</button>
 		<button id="btn-bump">Bump +</button>
 		<button id="btn-jump">Jump +</button>
+		<button id="btn-curve-anchor">Curve Anchor</button>
 		<button id="btn-finish">Finish</button>
 		<button id="btn-checkpoint">Checkpoint</button>
 		<select id="surface-select" aria-label="Surface picker">
@@ -258,6 +272,24 @@
 			<button id="cs-close">Close</button>
 		</div>
 	</div>
+	<div id="curve-anchor-panel" hidden>
+		<h3>Curve Anchor</h3>
+		<div class="custom-surface-grid">
+			<label>Curve ID <input type="text" id="curve-id-input" maxlength="32" placeholder="curve-a"></label>
+			<label>Preset
+				<select id="curve-id-preset">
+					<option value="">Pick…</option>
+					<option value="curve-a">curve-a</option>
+					<option value="curve-b">curve-b</option>
+					<option value="curve-c">curve-c</option>
+					<option value="curve-d">curve-d</option>
+				</select>
+			</label>
+		</div>
+		<div class="custom-surface-actions">
+			<button id="curve-close">Close</button>
+		</div>
+	</div>
 
 	<script type="module">
 	import * as THREE from 'three';
@@ -271,6 +303,7 @@
 	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint' ];
 	const BUMP_TOOL = 'overlay-bump';
 	const JUMP_TOOL = 'overlay-jump';
+	const CURVE_ANCHOR_TOOL = 'overlay-curve-anchor';
 	const SURFACE_TYPES = [
 		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
 		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
@@ -281,6 +314,10 @@
 	let selectedType = 'track-straight';
 	let selectedOrient = 0;
 	let allowSurfaceOverlap = false;
+	let activeCurveId = 'curve-a';
+	const curveAnchors = [];
+	const curveAnchorMeshes = [];
+	const curveGeneratedMeshes = [];
 	const CUSTOM_SURFACE_DEFAULTS = {
 		'surface-custom-a': { color: '#9c7bff', grip: 1.2, speed: 1.05, forceAmount: 4, force: { forward: true, backward: false, left: false, right: false, up: false }, noAir: true, oncePerContact: true },
 		'surface-custom-b': { color: '#7bffda', grip: 0.55, speed: 0.72, forceAmount: 3, force: { forward: false, backward: true, left: false, right: false, up: false }, noAir: false, oncePerContact: true },
@@ -333,6 +370,155 @@
 				return { color: color.getHex(), emissive: color.clone().multiplyScalar( 0.45 ).getHex(), metalness: 0.02, roughness: 0.72 };
 			}
 			default: return { color: 0xb88657, emissive: 0x4a2b12, metalness: 0.0, roughness: 0.9 };
+
+		}
+
+	}
+
+	function normalizeCurveId( value ) {
+
+		const id = String( value || '' ).trim().toLowerCase().replace( /[^a-z0-9_-]/g, '' );
+		return id.slice( 0, 32 );
+
+	}
+
+	function getCurveDirectionVector( orient ) {
+
+		switch ( orient ) {
+
+			case 16: return new THREE.Vector2( 1, 0 );
+			case 10: return new THREE.Vector2( 0, 1 );
+			case 22: return new THREE.Vector2( -1, 0 );
+			case 0:
+			default: return new THREE.Vector2( 0, -1 );
+
+		}
+
+	}
+
+	function cubicBezier( p0, p1, p2, p3, t ) {
+
+		const it = 1 - t;
+		const it2 = it * it;
+		const it3 = it2 * it;
+		const t2 = t * t;
+		const t3 = t2 * t;
+		return new THREE.Vector2(
+			p0.x * it3 + 3 * p1.x * it2 * t + 3 * p2.x * it * t2 + p3.x * t3,
+			p0.y * it3 + 3 * p1.y * it2 * t + 3 * p2.y * it * t2 + p3.y * t3
+		);
+
+	}
+
+	function clearCurveMeshes() {
+
+		while ( curveGeneratedMeshes.length ) trackGroup.remove( curveGeneratedMeshes.pop() );
+		while ( curveAnchorMeshes.length ) trackGroup.remove( curveAnchorMeshes.pop() );
+
+	}
+
+	function renderCurveAnchorsAndSplines() {
+
+		clearCurveMeshes();
+		const straightSrc = models[ 'track-straight' ];
+		if ( ! straightSrc ) return;
+
+		for ( const anchor of curveAnchors ) {
+
+			const mesh = straightSrc.clone();
+			mesh.position.set( ( anchor.gx + 0.5 ) * CELL_RAW, 0.52, ( anchor.gz + 0.5 ) * CELL_RAW );
+			mesh.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ anchor.orient ] || 0 );
+			mesh.scale.set( 0.85, 0.85, 0.85 );
+			mesh.traverse( ( c ) => {
+
+				if ( c.isMesh ) {
+
+					c.material = c.material.clone();
+					c.material.color = new THREE.Color( 0x6ecbff );
+					c.material.emissive = new THREE.Color( 0x1d5f7f );
+					c.material.emissiveIntensity = 0.25;
+					c.castShadow = true;
+					c.receiveShadow = true;
+
+				}
+
+			} );
+			trackGroup.add( mesh );
+			curveAnchorMeshes.push( mesh );
+
+		}
+
+		const groups = new Map();
+		for ( const anchor of curveAnchors ) {
+
+			if ( ! groups.has( anchor.id ) ) groups.set( anchor.id, [] );
+			groups.get( anchor.id ).push( anchor );
+
+		}
+
+		for ( const [ , anchors ] of groups ) {
+
+			if ( anchors.length < 2 ) continue;
+
+			const ordered = anchors.slice().sort( ( a, b ) => ( a.gx - b.gx ) || ( a.gz - b.gz ) );
+			for ( let i = 0; i + 1 < ordered.length; i ++ ) {
+
+				const a = ordered[ i ];
+				const b = ordered[ i + 1 ];
+				const p0 = new THREE.Vector2( ( a.gx + 0.5 ) * CELL_RAW, ( a.gz + 0.5 ) * CELL_RAW );
+				const p3 = new THREE.Vector2( ( b.gx + 0.5 ) * CELL_RAW, ( b.gz + 0.5 ) * CELL_RAW );
+				const chord = p3.clone().sub( p0 );
+				const chordLength = chord.length();
+				if ( chordLength < 0.001 ) continue;
+
+				const handleLength = Math.max( CELL_RAW * 0.45, chordLength * 0.42 );
+				const dirA = getCurveDirectionVector( a.orient ).multiplyScalar( handleLength );
+				const dirB = getCurveDirectionVector( b.orient ).multiplyScalar( handleLength );
+				const p1 = p0.clone().add( dirA );
+				const p2 = p3.clone().sub( dirB );
+				const segmentCount = Math.max( 3, Math.ceil( chordLength / ( CELL_RAW * 0.7 ) ) );
+				let prev = p0;
+
+				for ( let s = 1; s <= segmentCount; s ++ ) {
+
+					const t = s / segmentCount;
+					const cur = cubicBezier( p0, p1, p2, p3, t );
+					const delta = cur.clone().sub( prev );
+					const len = delta.length();
+					if ( len < 0.01 ) {
+
+						prev = cur;
+						continue;
+
+					}
+
+					const mesh = straightSrc.clone();
+					const mid = prev.clone().add( cur ).multiplyScalar( 0.5 );
+					mesh.position.set( mid.x, 0.5, mid.y );
+					mesh.rotation.y = Math.atan2( delta.x, delta.y );
+					const stretch = Math.max( 0.6, len / CELL_RAW );
+					mesh.scale.set( 1.0, 1.0, stretch );
+					mesh.traverse( ( c ) => {
+
+						if ( c.isMesh ) {
+
+							c.material = c.material.clone();
+							c.material.color = new THREE.Color( 0xa2d6ff );
+							c.material.emissive = new THREE.Color( 0x1b3a52 );
+							c.material.emissiveIntensity = 0.18;
+							c.castShadow = true;
+							c.receiveShadow = true;
+
+						}
+
+					} );
+					trackGroup.add( mesh );
+					curveGeneratedMeshes.push( mesh );
+					prev = cur;
+
+				}
+
+			}
 
 		}
 
@@ -688,7 +874,29 @@
 
 	function placeSelectedBlock( gx, gz ) {
 
-		if ( selectedType === BUMP_TOOL || selectedType === JUMP_TOOL ) {
+		if ( selectedType === CURVE_ANCHOR_TOOL ) {
+
+			const curveId = normalizeCurveId( activeCurveId );
+			if ( ! curveId ) {
+
+				showToast( 'Pick a Curve ID first' );
+				return;
+
+			}
+
+			const existingIdx = curveAnchors.findIndex( ( a ) => a.id === curveId && a.gx === gx && a.gz === gz );
+			if ( existingIdx >= 0 ) {
+
+				curveAnchors.splice( existingIdx, 1 );
+
+			} else {
+
+				curveAnchors.push( { id: curveId, gx, gz, orient: selectedOrient } );
+
+			}
+			renderCurveAnchorsAndSplines();
+
+		} else if ( selectedType === BUMP_TOOL || selectedType === JUMP_TOOL ) {
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
@@ -803,6 +1011,8 @@
 		}
 
 		grid.clear();
+		curveAnchors.length = 0;
+		renderCurveAnchorsAndSplines();
 		save();
 
 	}
@@ -842,7 +1052,7 @@
 		clearGhost();
 
 		if ( tool === 'erase' ) return;
-		const ghostType = selectedType === BUMP_TOOL ? 'track-bump' : ( selectedType === JUMP_TOOL ? 'track-straight' : ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType ) );
+		const ghostType = selectedType === BUMP_TOOL ? 'track-bump' : ( selectedType === JUMP_TOOL || selectedType === CURVE_ANCHOR_TOOL ? 'track-straight' : ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType ) );
 		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
 
 	}
@@ -913,14 +1123,17 @@
 
 		}
 
-		const payload = JSON.stringify( { b: bumps, j: jumps, u: surfaces, d: deco, w: { ...weatherSettings }, c: customSurfaceConfigs } );
+		const curves = curveAnchors
+			.map( ( anchor ) => [ normalizeCurveId( anchor.id ), anchor.gx, anchor.gz, anchor.orient || 0 ] )
+			.filter( ( anchor ) => anchor[ 0 ] );
+		const payload = JSON.stringify( { b: bumps, j: jumps, u: surfaces, d: deco, w: { ...weatherSettings }, c: customSurfaceConfigs, k: curves } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ) };
+		if ( ! modsStr ) return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), k: [] };
 
 		try {
 
@@ -933,12 +1146,13 @@
 					d: Array.isArray( parsed.d ) ? parsed.d : [],
 					w: normalizeWeatherSettings( parsed?.w ),
 					c: parsed?.c && typeof parsed.c === 'object' ? parsed.c : JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
+					k: Array.isArray( parsed.k ) ? parsed.k : [],
 				};
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-				return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ) };
+				return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), k: [] };
 
 		}
 
@@ -1028,9 +1242,21 @@
 					if ( ! grid.has( key ) ) grid.set( key, cell );
 					cell.decoType = decoType;
 					cell.decoOrient = decoOrient || 0;
-					placeOverlayMesh( gx, gz, cell );
+				placeOverlayMesh( gx, gz, cell );
 
 			}
+
+			curveAnchors.length = 0;
+			for ( const entry of mods.k || [] ) {
+
+				const [ rawId, gx, gz, orient ] = entry;
+				const id = normalizeCurveId( rawId );
+				if ( ! id ) continue;
+				if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+				curveAnchors.push( { id, gx: Number( gx ), gz: Number( gz ), orient: Number( orient ) || 0 } );
+
+			}
+			renderCurveAnchorsAndSplines();
 
 		} catch ( e ) {
 
@@ -1061,6 +1287,7 @@
 		'track-corner': document.getElementById( 'btn-corner' ),
 		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
 		[ JUMP_TOOL ]: document.getElementById( 'btn-jump' ),
+		[ CURVE_ANCHOR_TOOL ]: document.getElementById( 'btn-curve-anchor' ),
 		'track-finish': document.getElementById( 'btn-finish' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
@@ -1073,6 +1300,10 @@
 	const surfaceSelect = document.getElementById( 'surface-select' );
 	const overlapToggleBtn = document.getElementById( 'btn-overlap-toggle' );
 	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
+	const curveAnchorPanel = document.getElementById( 'curve-anchor-panel' );
+	const curveIdInput = document.getElementById( 'curve-id-input' );
+	const curveIdPreset = document.getElementById( 'curve-id-preset' );
+	const curveCloseBtn = document.getElementById( 'curve-close' );
 	const customSurfaceTitle = document.getElementById( 'custom-surface-title' );
 	const customSurfaceInputs = {
 		forward: document.getElementById( 'cs-force-forward' ),
@@ -1103,12 +1334,13 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, CURVE_ANCHOR_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
 
 			tileButtons[ type ].classList.toggle( 'active', selectedType === type );
 
 		}
 		if ( surfaceSelect ) surfaceSelect.value = SURFACE_TYPES.includes( selectedType ) ? selectedType : '';
+		if ( selectedType !== CURVE_ANCHOR_TOOL ) curveAnchorPanel.hidden = true;
 		if ( overlapToggleBtn ) {
 
 			overlapToggleBtn.classList.toggle( 'active', allowSurfaceOverlap );
@@ -1125,7 +1357,17 @@
 
 		selectedType = type;
 		selectTool( 'paint' );
+		if ( ! CUSTOM_SURFACE_TYPES.includes( type ) ) closeCustomSurfaceEditor();
 		updateTileToolbar();
+
+	}
+
+	function openCurveAnchorEditor() {
+
+		curveAnchorPanel.hidden = false;
+		curveIdInput.value = activeCurveId;
+		curveIdPreset.value = '';
+		curveIdInput.focus();
 
 	}
 
@@ -1194,12 +1436,13 @@
 
 	}
 
-	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
+	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, CURVE_ANCHOR_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
 
 		tileButtons[ type ].addEventListener( 'click', () => {
 
 			selectTileType( type );
 			if ( CUSTOM_SURFACE_TYPES.includes( type ) ) openCustomSurfaceEditor( type );
+			if ( type === CURVE_ANCHOR_TOOL ) openCurveAnchorEditor();
 
 		} );
 
@@ -1219,6 +1462,26 @@
 	} );
 	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
 	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
+	curveIdInput?.addEventListener( 'input', () => {
+
+		const normalized = normalizeCurveId( curveIdInput.value );
+		curveIdInput.value = normalized;
+		activeCurveId = normalized;
+
+	} );
+	curveIdPreset?.addEventListener( 'change', () => {
+
+		if ( ! curveIdPreset.value ) return;
+		activeCurveId = normalizeCurveId( curveIdPreset.value ) || activeCurveId;
+		curveIdInput.value = activeCurveId;
+		curveIdPreset.value = '';
+
+	} );
+	curveCloseBtn?.addEventListener( 'click', () => {
+
+		curveAnchorPanel.hidden = true;
+
+	} );
 
 	btnRotate.addEventListener( 'click', rotateSelection );
 	btnPaint.addEventListener( 'click', () => selectTool( 'paint' ) );
@@ -1634,6 +1897,7 @@
 	await loadModels();
 	applyWeatherPreset( WEATHER_DEFAULT );
 	loadSaved();
+	renderCurveAnchorsAndSplines();
 
 	// Start with a finish cell if the grid is empty
 	if ( grid.size === 0 ) {
