@@ -446,5 +446,286 @@
 		splitLink.href = `${ location.pathname }?${ splitParams.toString() }${ location.hash || '' }`;
 	</script>
 	<script type="module" src="js/main.js"></script>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      margin: 0;
+      height: 100vh;
+    }
+
+    /* Floating chat button */
+    /* Floating chat button (middle right) */
+#chat-btn {
+  position: fixed;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+
+  width: 48px;
+  height: 48px;
+
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(20, 20, 30, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  z-index: 50;
+}
+
+#chat-btn.has-unread::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff3b30;
+  box-shadow: 0 0 0 2px rgba(16, 18, 24, 0.95);
+}
+
+/* Chat window (right-middle anchored) */
+#chat-box {
+  position: fixed;
+  right: 80px;
+  top: 50%;
+  transform: translateY(-50%);
+
+  width: 280px;   /* smaller */
+  height: 380px;  /* smaller */
+
+  display: none;
+  flex-direction: column;
+
+  background: rgba(16, 18, 24, 0.92);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 14px;
+
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+
+  box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+  overflow: hidden;
+  z-index: 60;
+}
+
+    /* Header */
+    #chat-header {
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.9);
+      background: rgba(255,255,255,0.05);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    /* Name bar */
+    #name-bar {
+      display: flex;
+      gap: 6px;
+      padding: 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    #name {
+      flex: 1;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(8,10,14,0.7);
+      color: white;
+      font-size: 12px;
+      outline: none;
+    }
+
+    #set-name {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 12px;
+      color: rgba(255,255,255,0.9);
+      background: rgba(255,255,255,0.08);
+      transition: 0.15s;
+    }
+
+    #set-name:hover {
+      background: rgba(255,255,255,0.15);
+    }
+
+    /* Chat messages */
+    #chat {
+      flex: 1;
+      padding: 10px;
+      overflow-y: auto;
+    }
+
+    .msg {
+      margin: 6px 0;
+      padding: 8px 10px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      color: rgba(255,255,255,0.85);
+      font-size: 13px;
+      word-wrap: break-word;
+    }
+
+    /* Input area */
+    #input-area {
+      display: flex;
+      gap: 6px;
+      padding: 8px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03);
+    }
+
+    #msg {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(8,10,14,0.7);
+      color: white;
+      outline: none;
+      font-size: 13px;
+    }
+
+    #send {
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+
+      background: rgba(80, 180, 80, 0.25);
+      color: rgba(140, 255, 140, 0.9);
+      font-size: 12px;
+      transition: 0.15s;
+    }
+
+    #send:hover {
+      background: rgba(80, 180, 80, 0.4);
+      color: #fff;
+    }
+  </style>
+</head>
+
+<body>
+
+<button id="chat-btn">💬</button>
+
+<div id="chat-box">
+  <div id="chat-header">Live Chat</div>
+
+  <div id="name-bar">
+    <input id="name" placeholder="Enter your name..." />
+    <button id="set-name">Set</button>
+  </div>
+
+  <div id="chat"></div>
+
+  <div id="input-area">
+    <input id="msg" placeholder="Type message..." />
+    <button id="send">Send</button>
+  </div>
+</div>
+
+<script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+
+<script>
+  const ably = new Ably.Realtime("kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDmM");
+  const channel = ably.channels.get("global-chat");
+
+  const chatBox = document.getElementById("chat");
+  const chatWindow = document.getElementById("chat-box");
+  const chatButton = document.getElementById("chat-btn");
+
+  let userName = "";
+  let seen = new Set(); // prevent duplicates
+  let hasUnreadMessages = false;
+
+  function setUnreadIndicator(visible) {
+    hasUnreadMessages = Boolean(visible);
+    chatButton.classList.toggle("has-unread", hasUnreadMessages);
+  }
+
+  function addMessage(text) {
+    if (seen.has(text)) return;
+    seen.add(text);
+
+    const div = document.createElement("div");
+    div.className = "msg";
+    div.innerText = text;
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  // Toggle chat
+  chatButton.onclick = () => {
+    const opening = chatWindow.style.display !== "flex";
+
+    chatWindow.style.display = opening ? "flex" : "none";
+
+    if (opening) {
+      setUnreadIndicator(false);
+    }
+
+    // Load history ONLY when opening (so it doesn’t reload every time)
+    if (opening && chatBox.childElementCount === 0) {
+      channel.history({ limit: 100 }, (err, result) => {
+        if (err) {
+          console.error(err);
+          return;
+        }
+
+        const messages = result.items.reverse(); // oldest → newest
+        messages.forEach(msg => addMessage(msg.data));
+      });
+    }
+  };
+
+  chatWindow.style.display = "none";
+  chatWindow.style.flexDirection = "column";
+
+  // Set username
+  document.getElementById("set-name").onclick = () => {
+    const input = document.getElementById("name");
+    if (!input.value.trim()) return;
+    userName = input.value.trim();
+    input.disabled = true;
+  };
+
+  // Live messages
+  channel.subscribe(msg => {
+    addMessage(msg.data);
+    if (chatWindow.style.display !== "flex") {
+      setUnreadIndicator(true);
+    }
+  });
+
+  // Send message
+  function sendMsg() {
+    const input = document.getElementById("msg");
+    if (!input.value.trim()) return;
+
+    const name = userName || "Anon";
+    const message = name + ": " + input.value;
+
+    channel.publish("message", message);
+    input.value = "";
+  }
+
+  document.getElementById("send").onclick = sendMsg;
+
+  document.getElementById("msg").addEventListener("keypress", (e) => {
+    if (e.key === "Enter") sendMsg();
+  });
+</script>
 </body>
 </html>
