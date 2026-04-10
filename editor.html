@@ -279,7 +279,7 @@
 		<input id="weather-lightning" type="checkbox" aria-label="Lightning flashes">
 	</div>
 	<div id="side-ui-bar">
-	<!--	<button id="open-flow-panel">Flow</button> -->
+		<button id="open-flow-panel">Flow</button>
 	</div>
 	<div id="panel-overlay" hidden></div>
 	<div id="panel-center" hidden>
@@ -289,7 +289,7 @@
 				<button data-close-panel>Close</button>
 			</div>
 			<div class="panel-row">
-				<label><input type="checkbox" id="flow-enabled"> Enable flow brush</label>
+				<label><input type="checkbox" id="flow-enabled" checked> Enable flow brush</label>
 			</div>
 			<div class="panel-row">
 				<label for="flow-straight-type">Straight piece</label>
@@ -402,7 +402,7 @@
 		'N,E': 10, 'E,N': 10,
 		'N,W': 22, 'W,N': 22,
 	};
-	let flowBrushEnabled = false;
+	let flowBrushEnabled = true;
 	let flowStrokeCells = [];
 	let flowStraightType = 'track-straight';
 	let flowCornerType = 'track-corner';
@@ -959,9 +959,8 @@
 
 	}
 
-	function applyFlowStroke() {
+	function getDedupedFlowStrokeCells() {
 
-		if ( flowStrokeCells.length === 0 ) return;
 		const deduped = [];
 		const seen = new Set();
 		for ( const cell of flowStrokeCells ) {
@@ -972,6 +971,32 @@
 			deduped.push( cell );
 
 		}
+
+		return deduped;
+
+	}
+
+	function renderFlowStrokePreview() {
+
+		if ( ! isDrawing || ! flowBrushEnabled || ! TILE_TYPES.includes( selectedType ) ) return;
+		clearGhost();
+		const deduped = getDedupedFlowStrokeCells();
+		for ( let i = 0; i < deduped.length; i ++ ) {
+
+			const current = deduped[ i ];
+			const prev = i > 0 ? deduped[ i - 1 ] : null;
+			const next = i < deduped.length - 1 ? deduped[ i + 1 ] : null;
+			const piece = getFlowRoadPlacement( prev, current, next );
+			addGhostPiece( piece.type, piece.orient, current.gx, current.gz, 0.28 );
+
+		}
+
+	}
+
+	function applyFlowStroke() {
+
+		if ( flowStrokeCells.length === 0 ) return;
+		const deduped = getDedupedFlowStrokeCells();
 		for ( let i = 0; i < deduped.length; i ++ ) {
 
 			const current = deduped[ i ];
@@ -1433,6 +1458,7 @@
 	} );
 	flowStraightSelect?.addEventListener( 'change', () => { flowStraightType = flowStraightSelect.value || 'track-straight'; } );
 	flowCornerSelect?.addEventListener( 'change', () => { flowCornerType = flowCornerSelect.value || 'track-corner'; } );
+	if ( flowEnabledInput ) flowEnabledInput.checked = flowBrushEnabled;
 
 	btnRotate.addEventListener( 'click', rotateSelection );
 	btnPaint.addEventListener( 'click', () => selectTool( 'paint' ) );
@@ -1568,6 +1594,7 @@
 			if ( flowBrushEnabled && isRoadType ) {
 
 				flowStrokeCells.push( { gx: cell.gx, gz: cell.gz } );
+				renderFlowStrokePreview();
 
 			} else {
 
@@ -1651,6 +1678,7 @@
 
 			lastDrawCell = null;
 			flowStrokeCells = [];
+			if ( flowBrushEnabled && TILE_TYPES.includes( selectedType ) ) clearGhost();
 
 			// On touch, defer draw until pointermove confirms single-finger gesture
 			if ( e.pointerType !== 'touch' ) handleDraw( e.clientX, e.clientY );
@@ -1743,7 +1771,13 @@
 			}
 
 			isPanning = false;
-			if ( isDrawing && flowBrushEnabled && TILE_TYPES.includes( selectedType ) ) applyFlowStroke();
+			if ( isDrawing && flowBrushEnabled && TILE_TYPES.includes( selectedType ) ) {
+
+				applyFlowStroke();
+				if ( hoveredCell ) updateGhost( hoveredCell.gx, hoveredCell.gz );
+				else clearGhost();
+
+			}
 			isDrawing = false;
 			isErasing = false;
 			lastDrawCell = null;
