@@ -1266,7 +1266,6 @@ async function init() {
 	let boostContactCell = null;
 	const specialSurfaceContactState = new Map();
 	const boostCells = Array.isArray( extras?.boosts ) ? extras.boosts : [];
-	const boostCellSet = new Set( boostCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 	const surfaceCells = Array.isArray( extras?.surfaces ) ? extras.surfaces : [];
 	const customSurfaceConfigs = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
 	const surfaceCellMap = new Map();
@@ -1278,6 +1277,18 @@ async function init() {
 		surfaceCellMap.set( key, list );
 
 	}
+	const surfaceHalfExtent = CELL_RAW * GRID_SCALE * 0.39;
+	const legacyBoostHalfExtent = CELL_RAW * GRID_SCALE * 0.5;
+	const surfaceEntries = surfaceCells.map( ( [ gx, gz, type ] ) => ( {
+		gx, gz, type,
+		centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
+		centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
+	} ) );
+	const legacyBoostEntries = boostCells.map( ( [ gx, gz ] ) => ( {
+		gx, gz,
+		centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
+		centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
+	} ) );
 	let activeSurfaceType = null;
 	let activeSurfaceType2 = null;
 	let lapNumber2 = 1;
@@ -1427,28 +1438,20 @@ async function init() {
 
 	setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
 
-	function getOverlappingGridBounds( position, radius = VEHICLE_SURFACE_RADIUS ) {
+	function overlapsSurfaceEntry( targetVehicle, entry, halfExtent = surfaceHalfExtent ) {
 
-		const cellSize = CELL_RAW * GRID_SCALE;
-		const minX = Math.floor( ( position.x - radius ) / cellSize );
-		const maxX = Math.floor( ( position.x + radius ) / cellSize );
-		const minZ = Math.floor( ( position.z - radius ) / cellSize );
-		const maxZ = Math.floor( ( position.z + radius ) / cellSize );
-		return { minX, maxX, minZ, maxZ };
+		const dx = Math.abs( targetVehicle.spherePos.x - entry.centerX );
+		const dz = Math.abs( targetVehicle.spherePos.z - entry.centerZ );
+		return dx <= halfExtent + VEHICLE_SURFACE_RADIUS && dz <= halfExtent + VEHICLE_SURFACE_RADIUS;
 
 	}
 
 	function findActiveSurfaceTypeFor( targetVehicle ) {
 
-		const bounds = getOverlappingGridBounds( targetVehicle.spherePos );
-		for ( let gx = bounds.minX; gx <= bounds.maxX; gx ++ ) {
+		for ( let i = surfaceEntries.length - 1; i >= 0; i -- ) {
 
-			for ( let gz = bounds.minZ; gz <= bounds.maxZ; gz ++ ) {
-
-				const surfaceTypes = surfaceCellMap.get( `${ gx },${ gz }` );
-				if ( surfaceTypes?.length ) return surfaceTypes[ surfaceTypes.length - 1 ];
-
-			}
+			const entry = surfaceEntries[ i ];
+			if ( overlapsSurfaceEntry( targetVehicle, entry ) ) return entry.type;
 
 		}
 
@@ -1458,14 +1461,10 @@ async function init() {
 
 	function findBoostSurfaceContactKeyFor( targetVehicle ) {
 
-		const bounds = getOverlappingGridBounds( targetVehicle.spherePos );
-		for ( let gx = bounds.minX; gx <= bounds.maxX; gx ++ ) {
+		for ( let i = surfaceEntries.length - 1; i >= 0; i -- ) {
 
-			for ( let gz = bounds.minZ; gz <= bounds.maxZ; gz ++ ) {
-
-				if ( ( surfaceCellMap.get( `${ gx },${ gz }` ) || [] ).includes( 'surface-boost' ) ) return `surface:${ gx },${ gz }`;
-
-			}
+			const entry = surfaceEntries[ i ];
+			if ( entry.type === 'surface-boost' && overlapsSurfaceEntry( targetVehicle, entry ) ) return `surface:${ entry.gx },${ entry.gz }`;
 
 		}
 
@@ -1475,14 +1474,22 @@ async function init() {
 
 	function findSurfaceContactKeyForType( targetVehicle, surfaceType ) {
 
-		const bounds = getOverlappingGridBounds( targetVehicle.spherePos );
-		for ( let gx = bounds.minX; gx <= bounds.maxX; gx ++ ) {
+		for ( let i = surfaceEntries.length - 1; i >= 0; i -- ) {
 
-			for ( let gz = bounds.minZ; gz <= bounds.maxZ; gz ++ ) {
+			const entry = surfaceEntries[ i ];
+			if ( entry.type === surfaceType && overlapsSurfaceEntry( targetVehicle, entry ) ) return `surface:${ entry.gx },${ entry.gz }`;
 
-				if ( ( surfaceCellMap.get( `${ gx },${ gz }` ) || [] ).includes( surfaceType ) ) return `surface:${ gx },${ gz }`;
+		}
 
-			}
+		return null;
+
+	}
+
+	function findLegacyBoostContactKeyFor( targetVehicle ) {
+
+		for ( const entry of legacyBoostEntries ) {
+
+			if ( overlapsSurfaceEntry( targetVehicle, entry, legacyBoostHalfExtent ) ) return `boost:${ entry.gx },${ entry.gz }`;
 
 		}
 
@@ -2661,10 +2668,7 @@ async function init() {
 		}
 		updateActiveBoost( vehicle, boostActiveUntil, dt, now );
 		if ( vehicle2 ) updateActiveBoost( vehicle2, boostActiveUntil2, dt, now );
-		const boostGridX = Math.floor( vehicle.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
-		const boostGridZ = Math.floor( vehicle.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
-		const boostTileKey = `${ boostGridX },${ boostGridZ }`;
-		const activeBoostContactKey = boostCellSet.has( boostTileKey ) ? `boost:${ boostTileKey }` : findBoostSurfaceContactKeyFor( vehicle );
+		const activeBoostContactKey = findLegacyBoostContactKeyFor( vehicle ) || findBoostSurfaceContactKeyFor( vehicle );
 		if ( activeBoostContactKey ) {
 
 			if ( boostContactCell !== activeBoostContactKey ) {
@@ -2688,10 +2692,7 @@ async function init() {
 
 		if ( vehicle2 ) {
 
-			const boostGridX2 = Math.floor( vehicle2.spherePos.x / ( CELL_RAW * GRID_SCALE ) - 0.5 );
-			const boostGridZ2 = Math.floor( vehicle2.spherePos.z / ( CELL_RAW * GRID_SCALE ) - 0.5 );
-			const boostTileKey2 = `${ boostGridX2 },${ boostGridZ2 }`;
-			const activeBoostContactKey2 = boostCellSet.has( boostTileKey2 ) ? `boost:${ boostTileKey2 }` : findBoostSurfaceContactKeyFor( vehicle2 );
+			const activeBoostContactKey2 = findLegacyBoostContactKeyFor( vehicle2 ) || findBoostSurfaceContactKeyFor( vehicle2 );
 			if ( activeBoostContactKey2 ) {
 
 				if ( boostContactCell2 !== activeBoostContactKey2 ) {
