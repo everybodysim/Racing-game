@@ -478,25 +478,6 @@
   z-index: 50;
 }
 
-	  #chat-btn {
-  position: relative;
-}
-
-/* Red notification dot */
-#chat-dot {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-
-  background: red;
-  box-shadow: 0 0 6px rgba(255,0,0,0.8);
-
-  display: none; /* hidden by default */
-}
 /* Chat window (right-middle anchored) */
 #chat-box {
   position: fixed;
@@ -625,10 +606,7 @@
 
 <body>
 
-<button id="chat-btn">
-  💬
-  <span id="chat-dot"></span>
-</button>
+<button id="chat-btn">💬</button>
 
 <div id="chat-box">
   <div id="chat-header">Live Chat</div>
@@ -649,9 +627,6 @@
 <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
 
 <script>
-  const chatDot = document.getElementById("chat-dot");
-  let unreadCount = 0;
- 	
   const ably = new Ably.Realtime("kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDmM");
   const channel = ably.channels.get("global-chat");
 
@@ -673,30 +648,25 @@
   }
 
   // Toggle chat
-document.getElementById("chat-btn").onclick = () => {
-  const opening = chatWindow.style.display !== "flex";
+  document.getElementById("chat-btn").onclick = () => {
+    const opening = chatWindow.style.display !== "flex";
 
-  chatWindow.style.display = opening ? "flex" : "none";
+    chatWindow.style.display = opening ? "flex" : "none";
 
-  // ✅ ADD THIS PART
-  if (opening) {
-    unreadCount = 0;
-    chatDot.style.display = "none";
-  }
+    // Load history ONLY when opening (so it doesn’t reload every time)
+    if (opening && chatBox.childElementCount === 0) {
+      channel.history({ limit: 100 }, (err, result) => {
+        if (err) {
+          console.error(err);
+          return;
+        }
 
-  // Load history ONLY when opening
-  if (opening && chatBox.childElementCount === 0) {
-    channel.history({ limit: 100 }, (err, result) => {
-      if (err) {
-        console.error(err);
-        return;
-      }
+        const messages = result.items.reverse(); // oldest → newest
+        messages.forEach(msg => addMessage(msg.data));
+      });
+    }
+  };
 
-      const messages = result.items.reverse();
-      messages.forEach(msg => addMessage(msg.data));
-    });
-  }
-};
   chatWindow.style.display = "none";
   chatWindow.style.flexDirection = "column";
 
@@ -710,15 +680,8 @@ document.getElementById("chat-btn").onclick = () => {
 
   // Live messages
   channel.subscribe(msg => {
-  addMessage(msg.data);
-
-  const isOpen = chatWindow.style.display === "flex";
-
-  if (!isOpen) {
-    unreadCount++;
-    chatDot.style.display = "block";
-  }
-});
+    addMessage(msg.data);
+  });
 
   // Send message
   function sendMsg() {
