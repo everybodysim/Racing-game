@@ -10,6 +10,9 @@ const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
 const JUMP_RAMP_SIZE = CELL_RAW * 0.36;
 const JUMP_RAMP_DEPTH = CELL_RAW * 0.18;
 const JUMP_RAMP_Y = 0.24;
+const VISUAL_HEIGHT_OFFSET = 0.012;
+const DECORATION_HEIGHT_OFFSET = VISUAL_HEIGHT_OFFSET * 0.5;
+const NO_DECO_BUFFER_CELLS = 1;
 
 function getSurfaceVisual( surfaceType, customSurfaces = null ) {
 
@@ -208,7 +211,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					metalness: 0.02,
 				} )
 			);
-			jump.position.set( ( gx + 0.5 ) * CELL_RAW, JUMP_RAMP_Y, ( gz + 0.5 ) * CELL_RAW );
+			jump.position.set( ( gx + 0.5 ) * CELL_RAW, JUMP_RAMP_Y + VISUAL_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
 			jump.rotation.order = 'YXZ';
 			jump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
 			jump.rotation.x = - JUMP_RAMP_ANGLE;
@@ -241,7 +244,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				} )
 			);
 			patch.rotation.x = - Math.PI / 2;
-			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505, ( gz + 0.5 ) * CELL_RAW );
+			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
 			patch.receiveShadow = true;
 			trackPieceGroup.add( patch );
 
@@ -265,6 +268,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		// Auto-generate decorations to fill any gaps
 		const occupied = new Set();
+		const treeBlocked = new Set();
 		let minX = Infinity, maxX = - Infinity;
 		let minZ = Infinity, maxZ = - Infinity;
 
@@ -275,6 +279,16 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			maxX = Math.max( maxX, gx );
 			minZ = Math.min( minZ, gz );
 			maxZ = Math.max( maxZ, gz );
+
+			const minBlockX = Math.floor( gx );
+			const maxBlockX = Math.ceil( gx + 1 ) - 1;
+			const minBlockZ = Math.floor( gz );
+			const maxBlockZ = Math.ceil( gz + 1 ) - 1;
+			for ( let bx = minBlockX; bx <= maxBlockX; bx ++ ) {
+
+				for ( let bz = minBlockZ; bz <= maxBlockZ; bz ++ ) treeBlocked.add( bx + ',' + bz );
+
+			}
 
 		}
 
@@ -306,9 +320,14 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		for ( let gz = minZ - pad; gz <= maxZ + pad; gz ++ ) {
+		const startX = Math.floor( minX - pad );
+		const endX = Math.ceil( maxX + pad );
+		const startZ = Math.floor( minZ - pad );
+		const endZ = Math.ceil( maxZ + pad );
 
-			for ( let gx = minX - pad; gx <= maxX + pad; gx ++ ) {
+		for ( let gz = startZ; gz <= endZ; gz ++ ) {
+
+			for ( let gx = startX; gx <= endX; gx ++ ) {
 
 				if ( occupied.has( gx + ',' + gz ) ) continue;
 
@@ -319,7 +338,14 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				const x = ( gx + 0.5 ) * CELL_RAW;
 				const z = ( gz + 0.5 ) * CELL_RAW;
 
-				if ( dist <= 1 ) {
+				if ( treeBlocked.has( gx + ',' + gz ) ) {
+
+					emptyPositions.push( x, z );
+					continue;
+
+				}
+
+				if ( dist <= NO_DECO_BUFFER_CELLS + 1 ) {
 
 					emptyPositions.push( x, z );
 
@@ -420,7 +446,8 @@ export function placePiece( models, key, gx, gz, orient ) {
 	if ( ! src ) return null;
 
 	const piece = src.clone();
-	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5, ( gz + 0.5 ) * CELL_RAW );
+	const yOffset = String( key || '' ).startsWith( 'decoration-' ) ? DECORATION_HEIGHT_OFFSET : VISUAL_HEIGHT_OFFSET;
+	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
@@ -442,26 +469,59 @@ export { TYPE_NAMES };
 
 export function encodeCells( cells ) {
 
-	const bytes = new Uint8Array( cells.length * 3 );
+	const supportsCompactCodec = cells.every( ( cell ) => {
 
-	for ( let i = 0; i < cells.length; i ++ ) {
-
-		const [ gx, gz, name, godotOrient ] = cells[ i ];
+		const [ gx, gz, name ] = cell;
 		const normalizedName = name === 'track-bump' ? 'track-checkpoint' : name;
-		const ti = TYPE_INDEX[ normalizedName ] ?? 0;
-		const oi = GODOT_TO_ORIENT[ godotOrient ] ?? 0;
+		return Number.isInteger( gx )
+			&& Number.isInteger( gz )
+			&& gx >= - 128 && gx <= 127
+			&& gz >= - 128 && gz <= 127
+			&& TYPE_INDEX[ normalizedName ] !== undefined;
 
-		bytes[ i * 3 ] = gx + 128;
-		bytes[ i * 3 + 1 ] = gz + 128;
-		bytes[ i * 3 + 2 ] = ( ti << 2 ) | oi;
+	} );
+
+	if ( supportsCompactCodec ) {
+
+		const bytes = new Uint8Array( cells.length * 3 );
+
+		for ( let i = 0; i < cells.length; i ++ ) {
+
+			const [ gx, gz, name, godotOrient ] = cells[ i ];
+			const normalizedName = name === 'track-bump' ? 'track-checkpoint' : name;
+			const ti = TYPE_INDEX[ normalizedName ] ?? 0;
+			const oi = GODOT_TO_ORIENT[ godotOrient ] ?? 0;
+
+			bytes[ i * 3 ] = gx + 128;
+			bytes[ i * 3 + 1 ] = gz + 128;
+			bytes[ i * 3 + 2 ] = ( ti << 2 ) | oi;
+
+		}
+
+		return bytesToBase64url( bytes );
 
 	}
 
-	return bytesToBase64url( bytes );
+	const payload = JSON.stringify( { v: 2, cells } );
+	const encoded = btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+	return `v2.${ encoded }`;
 
 }
 
 export function decodeCells( str ) {
+
+	if ( str.startsWith( 'v2.' ) ) {
+
+		const raw = str.slice( 3 ).replace( /-/g, '+' ).replace( /_/g, '/' );
+		const padded = raw + '==='.slice( ( raw.length + 3 ) % 4 );
+		const payload = decodeURIComponent( escape( atob( padded ) ) );
+		const parsed = JSON.parse( payload );
+		const entries = Array.isArray( parsed?.cells ) ? parsed.cells : [];
+		return entries
+			.filter( ( cell ) => Array.isArray( cell ) && cell.length >= 4 )
+			.map( ( [ gx, gz, name, orient ] ) => [ Number( gx ), Number( gz ), name, orient ] );
+
+	}
 
 	const bytes = base64urlToBytes( str );
 	const cells = [];

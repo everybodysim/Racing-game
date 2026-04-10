@@ -4,6 +4,10 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 	<title>Racing</title>
+	<meta name="theme-color" content="#2f8f2f">
+	<link rel="manifest" href="manifest.webmanifest">
+	<link rel="icon" href="icons/icon-192.svg" type="image/svg+xml">
+	<link rel="apple-touch-icon" href="icons/icon-192.svg">
 	<style>
 		body { margin: 0; overflow: hidden; background: #000; }
 		canvas { display: block; touch-action: none; }
@@ -478,6 +482,18 @@
   z-index: 50;
 }
 
+#chat-btn.has-unread::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff3b30;
+  box-shadow: 0 0 0 2px rgba(16, 18, 24, 0.95);
+}
+
 /* Chat window (right-middle anchored) */
 #chat-box {
   position: fixed;
@@ -632,9 +648,16 @@
 
   const chatBox = document.getElementById("chat");
   const chatWindow = document.getElementById("chat-box");
+  const chatButton = document.getElementById("chat-btn");
 
   let userName = "";
   let seen = new Set(); // prevent duplicates
+  let hasUnreadMessages = false;
+
+  function setUnreadIndicator(visible) {
+    hasUnreadMessages = Boolean(visible);
+    chatButton.classList.toggle("has-unread", hasUnreadMessages);
+  }
 
   function addMessage(text) {
     if (seen.has(text)) return;
@@ -648,10 +671,14 @@
   }
 
   // Toggle chat
-  document.getElementById("chat-btn").onclick = () => {
+  chatButton.onclick = () => {
     const opening = chatWindow.style.display !== "flex";
 
     chatWindow.style.display = opening ? "flex" : "none";
+
+    if (opening) {
+      setUnreadIndicator(false);
+    }
 
     // Load history ONLY when opening (so it doesn’t reload every time)
     if (opening && chatBox.childElementCount === 0) {
@@ -681,6 +708,9 @@
   // Live messages
   channel.subscribe(msg => {
     addMessage(msg.data);
+    if (chatWindow.style.display !== "flex") {
+      setUnreadIndicator(true);
+    }
   });
 
   // Send message
@@ -700,6 +730,14 @@
   document.getElementById("msg").addEventListener("keypress", (e) => {
     if (e.key === "Enter") sendMsg();
   });
+</script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Service worker registration failed', err));
+    });
+  }
 </script>
 </body>
 </html>
