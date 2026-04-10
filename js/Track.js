@@ -442,26 +442,59 @@ export { TYPE_NAMES };
 
 export function encodeCells( cells ) {
 
-	const bytes = new Uint8Array( cells.length * 3 );
+	const supportsCompactCodec = cells.every( ( cell ) => {
 
-	for ( let i = 0; i < cells.length; i ++ ) {
-
-		const [ gx, gz, name, godotOrient ] = cells[ i ];
+		const [ gx, gz, name ] = cell;
 		const normalizedName = name === 'track-bump' ? 'track-checkpoint' : name;
-		const ti = TYPE_INDEX[ normalizedName ] ?? 0;
-		const oi = GODOT_TO_ORIENT[ godotOrient ] ?? 0;
+		return Number.isInteger( gx )
+			&& Number.isInteger( gz )
+			&& gx >= - 128 && gx <= 127
+			&& gz >= - 128 && gz <= 127
+			&& TYPE_INDEX[ normalizedName ] !== undefined;
 
-		bytes[ i * 3 ] = gx + 128;
-		bytes[ i * 3 + 1 ] = gz + 128;
-		bytes[ i * 3 + 2 ] = ( ti << 2 ) | oi;
+	} );
+
+	if ( supportsCompactCodec ) {
+
+		const bytes = new Uint8Array( cells.length * 3 );
+
+		for ( let i = 0; i < cells.length; i ++ ) {
+
+			const [ gx, gz, name, godotOrient ] = cells[ i ];
+			const normalizedName = name === 'track-bump' ? 'track-checkpoint' : name;
+			const ti = TYPE_INDEX[ normalizedName ] ?? 0;
+			const oi = GODOT_TO_ORIENT[ godotOrient ] ?? 0;
+
+			bytes[ i * 3 ] = gx + 128;
+			bytes[ i * 3 + 1 ] = gz + 128;
+			bytes[ i * 3 + 2 ] = ( ti << 2 ) | oi;
+
+		}
+
+		return bytesToBase64url( bytes );
 
 	}
 
-	return bytesToBase64url( bytes );
+	const payload = JSON.stringify( { v: 2, cells } );
+	const encoded = btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+	return `v2.${ encoded }`;
 
 }
 
 export function decodeCells( str ) {
+
+	if ( str.startsWith( 'v2.' ) ) {
+
+		const raw = str.slice( 3 ).replace( /-/g, '+' ).replace( /_/g, '/' );
+		const padded = raw + '==='.slice( ( raw.length + 3 ) % 4 );
+		const payload = decodeURIComponent( escape( atob( padded ) ) );
+		const parsed = JSON.parse( payload );
+		const entries = Array.isArray( parsed?.cells ) ? parsed.cells : [];
+		return entries
+			.filter( ( cell ) => Array.isArray( cell ) && cell.length >= 4 )
+			.map( ( [ gx, gz, name, orient ] ) => [ Number( gx ), Number( gz ), name, orient ] );
+
+	}
 
 	const bytes = base64urlToBytes( str );
 	const cells = [];
