@@ -634,15 +634,43 @@
   const chatWindow = document.getElementById("chat-box");
 
   let userName = "";
+  let seen = new Set(); // prevent duplicates
 
+  function addMessage(text) {
+    if (seen.has(text)) return;
+    seen.add(text);
+
+    const div = document.createElement("div");
+    div.className = "msg";
+    div.innerText = text;
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  // Toggle chat
   document.getElementById("chat-btn").onclick = () => {
-    chatWindow.style.display =
-      chatWindow.style.display === "flex" ? "none" : "flex";
+    const opening = chatWindow.style.display !== "flex";
+
+    chatWindow.style.display = opening ? "flex" : "none";
+
+    // Load history ONLY when opening (so it doesn’t reload every time)
+    if (opening && chatBox.childElementCount === 0) {
+      channel.history({ limit: 100 }, (err, result) => {
+        if (err) {
+          console.error(err);
+          return;
+        }
+
+        const messages = result.items.reverse(); // oldest → newest
+        messages.forEach(msg => addMessage(msg.data));
+      });
+    }
   };
 
   chatWindow.style.display = "none";
   chatWindow.style.flexDirection = "column";
 
+  // Set username
   document.getElementById("set-name").onclick = () => {
     const input = document.getElementById("name");
     if (!input.value.trim()) return;
@@ -650,14 +678,12 @@
     input.disabled = true;
   };
 
+  // Live messages
   channel.subscribe(msg => {
-    const div = document.createElement("div");
-    div.className = "msg";
-    div.innerText = msg.data;
-    chatBox.appendChild(div);
-    chatBox.scrollTop = chatBox.scrollHeight;
+    addMessage(msg.data);
   });
 
+  // Send message
   function sendMsg() {
     const input = document.getElementById("msg");
     if (!input.value.trim()) return;
