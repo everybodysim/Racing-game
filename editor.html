@@ -278,9 +278,7 @@
 		<label for="weather-lightning">Lightning</label>
 		<input id="weather-lightning" type="checkbox" aria-label="Lightning flashes">
 	</div>
-	<div id="side-ui-bar">
-	<!--	<button id="open-flow-panel">Flow</button> -->
-	</div>
+	<div id="side-ui-bar"></div>
 	<div id="panel-overlay" hidden></div>
 	<div id="panel-center" hidden>
 		<div id="flow-panel" class="tool-panel" hidden>
@@ -337,6 +335,8 @@
 		<div class="separator"></div>
 		<button id="btn-paint" class="active">Paint</button>
 		<button id="btn-erase">Erase</button>
+		<button id="btn-flow">Flow: Off</button>
+		<button id="btn-offgrid">Snap: Grid</button>
 		<div class="separator"></div>
 		<button id="btn-play" class="action">Play</button>
 		<button id="btn-share" class="action">Share</button>
@@ -406,8 +406,17 @@
 	let flowStrokeCells = [];
 	let flowStraightType = 'track-straight';
 	let flowCornerType = 'track-corner';
+	let placeOffGrid = false;
+	const OFFGRID_STEP = 0.25;
 
-	function cellKey( gx, gz ) { return gx + ',' + gz; }
+	function normalizeCoord( value ) {
+
+		const num = Number( value ) || 0;
+		return Math.round( num * 1000 ) / 1000;
+
+	}
+
+	function cellKey( gx, gz ) { return `${ normalizeCoord( gx ) },${ normalizeCoord( gz ) }`; }
 
 	function makeEmptyCell() {
 
@@ -959,9 +968,8 @@
 
 	}
 
-	function applyFlowStroke() {
+	function getDedupedFlowStrokeCells() {
 
-		if ( flowStrokeCells.length === 0 ) return;
 		const deduped = [];
 		const seen = new Set();
 		for ( const cell of flowStrokeCells ) {
@@ -972,6 +980,32 @@
 			deduped.push( cell );
 
 		}
+
+		return deduped;
+
+	}
+
+	function renderFlowStrokePreview() {
+
+		if ( ! isDrawing || ! flowBrushEnabled || ! TILE_TYPES.includes( selectedType ) ) return;
+		clearGhost();
+		const deduped = getDedupedFlowStrokeCells();
+		for ( let i = 0; i < deduped.length; i ++ ) {
+
+			const current = deduped[ i ];
+			const prev = i > 0 ? deduped[ i - 1 ] : null;
+			const next = i < deduped.length - 1 ? deduped[ i + 1 ] : null;
+			const piece = getFlowRoadPlacement( prev, current, next );
+			addGhostPiece( piece.type, piece.orient, current.gx, current.gz, 0.28 );
+
+		}
+
+	}
+
+	function applyFlowStroke() {
+
+		if ( flowStrokeCells.length === 0 ) return;
+		const deduped = getDedupedFlowStrokeCells();
 		for ( let i = 0; i < deduped.length; i ++ ) {
 
 			const current = deduped[ i ];
@@ -1056,10 +1090,21 @@
 
 		if ( ! hit ) return null;
 
-		const gx = Math.floor( hit.x / cellWorld );
-		const gz = Math.floor( hit.z / cellWorld );
+		let gx = hit.x / cellWorld;
+		let gz = hit.z / cellWorld;
+		if ( ! placeOffGrid ) {
 
-		return { gx, gz };
+			gx = Math.floor( gx );
+			gz = Math.floor( gz );
+
+		} else {
+
+			gx = Math.round( gx / OFFGRID_STEP ) * OFFGRID_STEP;
+			gz = Math.round( gz / OFFGRID_STEP ) * OFFGRID_STEP;
+
+		}
+
+		return { gx: normalizeCoord( gx ), gz: normalizeCoord( gz ) };
 
 	}
 
@@ -1419,7 +1464,6 @@
 	} );
 	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
 	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
-	document.getElementById( 'open-flow-panel' )?.addEventListener( 'click', () => openPanelCenter( flowPanel ) );
 	panelOverlay?.addEventListener( 'click', closePanelCenter );
 	document.querySelectorAll( '[data-close-panel]' ).forEach( ( btn ) => btn.addEventListener( 'click', closePanelCenter ) );
 	const flowEnabledInput = document.getElementById( 'flow-enabled' );
@@ -1428,11 +1472,61 @@
 	flowEnabledInput?.addEventListener( 'change', () => {
 
 		flowBrushEnabled = Boolean( flowEnabledInput.checked );
+		syncFlowUi();
+	syncPlacementUi();
 		showToast( flowBrushEnabled ? 'Flow brush enabled' : 'Flow brush disabled' );
 
 	} );
 	flowStraightSelect?.addEventListener( 'change', () => { flowStraightType = flowStraightSelect.value || 'track-straight'; } );
 	flowCornerSelect?.addEventListener( 'change', () => { flowCornerType = flowCornerSelect.value || 'track-corner'; } );
+
+	const flowToggleBtn = document.getElementById( 'btn-flow' );
+	const offGridToggleBtn = document.getElementById( 'btn-offgrid' );
+
+	function syncFlowUi() {
+
+		if ( flowEnabledInput ) flowEnabledInput.checked = flowBrushEnabled;
+		if ( flowToggleBtn ) {
+
+			flowToggleBtn.textContent = `Flow: ${ flowBrushEnabled ? 'On' : 'Off' }`;
+			flowToggleBtn.classList.toggle( 'active', flowBrushEnabled );
+
+		}
+
+	}
+
+	function syncPlacementUi() {
+
+		if ( ! offGridToggleBtn ) return;
+		offGridToggleBtn.textContent = placeOffGrid ? 'Snap: Off' : 'Snap: Grid';
+		offGridToggleBtn.classList.toggle( 'active', placeOffGrid );
+
+	}
+
+	offGridToggleBtn?.addEventListener( 'click', () => {
+
+		placeOffGrid = ! placeOffGrid;
+		syncPlacementUi();
+		showToast( placeOffGrid ? 'Off-grid placement enabled' : 'Grid snap enabled' );
+
+	} );
+
+
+	flowToggleBtn?.addEventListener( 'click', () => {
+
+		flowBrushEnabled = ! flowBrushEnabled;
+		syncFlowUi();
+		showToast( flowBrushEnabled ? 'Flow brush enabled' : 'Flow brush disabled' );
+
+	} );
+
+	flowToggleBtn?.addEventListener( 'contextmenu', ( e ) => {
+
+		e.preventDefault();
+		openPanelCenter( flowPanel );
+
+	} );
+	syncFlowUi();
 
 	btnRotate.addEventListener( 'click', rotateSelection );
 	btnPaint.addEventListener( 'click', () => selectTool( 'paint' ) );
@@ -1568,6 +1662,7 @@
 			if ( flowBrushEnabled && isRoadType ) {
 
 				flowStrokeCells.push( { gx: cell.gx, gz: cell.gz } );
+				renderFlowStrokePreview();
 
 			} else {
 
@@ -1651,6 +1746,7 @@
 
 			lastDrawCell = null;
 			flowStrokeCells = [];
+			if ( flowBrushEnabled && TILE_TYPES.includes( selectedType ) ) clearGhost();
 
 			// On touch, defer draw until pointermove confirms single-finger gesture
 			if ( e.pointerType !== 'touch' ) handleDraw( e.clientX, e.clientY );
@@ -1743,7 +1839,13 @@
 			}
 
 			isPanning = false;
-			if ( isDrawing && flowBrushEnabled && TILE_TYPES.includes( selectedType ) ) applyFlowStroke();
+			if ( isDrawing && flowBrushEnabled && TILE_TYPES.includes( selectedType ) ) {
+
+				applyFlowStroke();
+				if ( hoveredCell ) updateGhost( hoveredCell.gx, hoveredCell.gz );
+				else clearGhost();
+
+			}
 			isDrawing = false;
 			isErasing = false;
 			lastDrawCell = null;
