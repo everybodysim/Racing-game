@@ -80,24 +80,24 @@ const DECO_CELLS = [
 	[  2, -7, 'decoration-forest', 0 ],
 	[ -8, -6, 'decoration-forest', 0 ], [ -7, -6, 'decoration-forest', 0 ],
 	[ -6, -6, 'decoration-forest', 0 ], [ -5, -6, 'decoration-forest', 0 ],
-	[ -4, -6, 'decoration-forest', 0 ], [ -3, -6, 'decoration-empty', 0 ],
-	[ -2, -6, 'decoration-empty', 0 ],  [ -1, -6, 'decoration-empty', 0 ],
-	[  0, -6, 'decoration-empty', 0 ],  [  1, -6, 'decoration-forest', 0 ],
+	[ -4, -6, 'decoration-forest', 0 ], [ -3, -6, 'decoration-ground', 0 ],
+	[ -2, -6, 'decoration-ground', 0 ],  [ -1, -6, 'decoration-ground', 0 ],
+	[  0, -6, 'decoration-ground', 0 ],  [  1, -6, 'decoration-forest', 0 ],
 	[  2, -6, 'decoration-forest', 0 ],
 	[ -8, -5, 'decoration-forest', 0 ], [ -7, -5, 'decoration-forest', 0 ],
 	[ -6, -5, 'decoration-forest', 0 ], [ -5, -5, 'decoration-forest', 0 ],
-	[ -4, -5, 'decoration-empty', 0 ],  [ -3, -5, 'decoration-empty', 0 ],
-	[ -2, -5, 'decoration-empty', 0 ],  [ -1, -5, 'decoration-empty', 0 ],
-	[  0, -5, 'decoration-empty', 0 ],  [  1, -5, 'decoration-forest', 0 ],
+	[ -4, -5, 'decoration-ground', 0 ],  [ -3, -5, 'decoration-ground', 0 ],
+	[ -2, -5, 'decoration-ground', 0 ],  [ -1, -5, 'decoration-ground', 0 ],
+	[  0, -5, 'decoration-ground', 0 ],  [  1, -5, 'decoration-forest', 0 ],
 	[  2, -5, 'decoration-forest', 0 ],
 	[ -8, -4, 'decoration-forest', 0 ], [ -7, -4, 'decoration-forest', 0 ],
 	[ -6, -4, 'decoration-forest', 0 ], [ -5, -4, 'decoration-forest', 0 ],
-	[ -4, -4, 'decoration-empty', 0 ],
+	[ -4, -4, 'decoration-ground', 0 ],
 	[  1, -4, 'decoration-forest', 0 ],
 	[  2, -4, 'decoration-forest', 0 ],
 	[ -8, -3, 'decoration-forest', 0 ], [ -7, -3, 'decoration-forest', 0 ],
 	[ -6, -3, 'decoration-forest', 0 ], [ -5, -3, 'decoration-forest', 0 ],
-	[ -4, -3, 'decoration-empty', 0 ],
+	[ -4, -3, 'decoration-ground', 0 ],
 	[  1, -3, 'decoration-forest', 0 ],
 	[  2, -3, 'decoration-forest', 0 ],
 	[ -8, -2, 'decoration-forest', 0 ], [ -7, -2, 'decoration-forest', 0 ],
@@ -106,23 +106,23 @@ const DECO_CELLS = [
 	[  2, -2, 'decoration-forest', 0 ],
 	[ -8, -1, 'decoration-forest', 0 ], [ -7, -1, 'decoration-forest', 0 ],
 	[ -6, -1, 'decoration-forest', 0 ], [ -5, -1, 'decoration-forest', 0 ],
-	[ -4, -1, 'decoration-empty', 0 ],  [ -1, -1, 'decoration-empty', 0 ],
+	[ -4, -1, 'decoration-ground', 0 ],  [ -1, -1, 'decoration-ground', 0 ],
 	[  1, -1, 'decoration-forest', 0 ],
 	[  2, -1, 'decoration-forest', 0 ],
 	[ -8,  0, 'decoration-forest', 0 ], [ -7,  0, 'decoration-forest', 0 ],
 	[ -6,  0, 'decoration-forest', 0 ], [ -5,  0, 'decoration-forest', 0 ],
-	[ -4,  0, 'decoration-empty', 0 ],  [ -3,  0, 'decoration-empty', 0 ],
-	[ -1,  0, 'decoration-empty', 0 ],
+	[ -4,  0, 'decoration-ground', 0 ],  [ -3,  0, 'decoration-ground', 0 ],
+	[ -1,  0, 'decoration-ground', 0 ],
 	[  1,  0, 'decoration-forest', 0 ],
 	[  2,  0, 'decoration-forest', 0 ],
 	[ -8,  1, 'decoration-forest', 0 ], [ -7,  1, 'decoration-forest', 0 ],
 	[ -6,  1, 'decoration-forest', 0 ], [ -5,  1, 'decoration-forest', 0 ],
-	[ -4,  1, 'decoration-empty', 0 ],  [ -3,  1, 'decoration-empty', 0 ],
+	[ -4,  1, 'decoration-ground', 0 ],  [ -3,  1, 'decoration-ground', 0 ],
 	[  1,  1, 'decoration-forest', 0 ],
 	[  2,  1, 'decoration-forest', 0 ],
 	[ -8,  2, 'decoration-forest', 0 ], [ -7,  2, 'decoration-forest', 0 ],
 	[ -6,  2, 'decoration-forest', 0 ], [ -5,  2, 'decoration-forest', 0 ],
-	[ -4,  2, 'decoration-empty', 0 ],  [ -3,  2, 'decoration-empty', 0 ],
+	[ -4,  2, 'decoration-ground', 0 ],  [ -3,  2, 'decoration-ground', 0 ],
 	[  1,  2, 'decoration-forest', 0 ],
 	[  2,  2, 'decoration-forest', 0 ],
 	[ -8,  3, 'decoration-forest', 0 ], [ -7,  3, 'decoration-forest', 0 ],
@@ -280,13 +280,14 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			minZ = Math.min( minZ, gz );
 			maxZ = Math.max( maxZ, gz );
 
-			const minBlockX = Math.floor( gx );
-			const maxBlockX = Math.ceil( gx + 1 ) - 1;
-			const minBlockZ = Math.floor( gz );
-			const maxBlockZ = Math.ceil( gz + 1 ) - 1;
-			for ( let bx = minBlockX; bx <= maxBlockX; bx ++ ) {
+			// FIXED: Expanded blocking area to catch partial overlaps from off-grid track pieces
+			for ( let bx = Math.floor( gx ) - 1; bx <= Math.ceil( gx ) + 1; bx ++ ) {
 
-				for ( let bz = minBlockZ; bz <= maxBlockZ; bz ++ ) treeBlocked.add( bx + ',' + bz );
+				for ( let bz = Math.floor( gz ) - 1; bz <= Math.ceil( gz ) + 1; bz ++ ) {
+					
+					treeBlocked.add( bx + ',' + bz );
+
+				}
 
 			}
 
@@ -387,7 +388,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		createInstances( models[ 'decoration-empty' ], emptyPositions );
+		createInstances( models[ 'decoration-ground' ], emptyPositions );
 		createInstances( models[ 'decoration-forest' ], forestPositions );
 
 	}
