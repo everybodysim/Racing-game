@@ -1,307 +1,666 @@
-import * as THREE from 'three';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+	<title>Track Editor</title>
+	<style>
+		* { box-sizing: border-box; }
+		body { margin: 0; overflow: hidden; background: #000; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+		canvas { display: block; touch-action: none; }
 
-export const ORIENT_DEG = { 0: 0, 10: 180, 16: 90, 22: 270 };
-
-export const CELL_RAW = 9.99;
-export const GRID_SCALE = 0.75;
-
-const _dummy = new THREE.Object3D();
-const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
-const JUMP_RAMP_SIZE = CELL_RAW * 0.36;
-const JUMP_RAMP_DEPTH = CELL_RAW * 0.18;
-const JUMP_RAMP_Y = 0.24;
-const VISUAL_HEIGHT_OFFSET = 0.012;
-const DECORATION_HEIGHT_OFFSET = VISUAL_HEIGHT_OFFSET * 0.5;
-const NO_DECO_BUFFER_CELLS = 1;
-
-function getSurfaceVisual( surfaceType, customSurfaces = null ) {
-
-	switch ( surfaceType ) {
-
-		case 'surface-ice': return { color: 0x7ad8ff, emissive: 0x1f6f8a, metalness: 0.2, roughness: 0.15 };
-		case 'surface-boost': return { color: 0xff4b4b, emissive: 0xc1121f, metalness: 0.0, roughness: 0.9 };
-		case 'surface-sand': return { color: 0xd7b46a, emissive: 0x6f4f22, metalness: 0.0, roughness: 1.0 };
-		case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
-		case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
-		case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
-		case 'surface-custom-a':
-		case 'surface-custom-b':
-		case 'surface-custom-c': {
-			const colorHex = customSurfaces?.[ surfaceType ]?.color || '#9c7bff';
-			const color = new THREE.Color( colorHex );
-			return { color: color.getHex(), emissive: color.clone().multiplyScalar( 0.45 ).getHex(), metalness: 0.02, roughness: 0.72 };
-		}
-		default: return { color: 0xb88657, emissive: 0x4a2b12, metalness: 0.0, roughness: 0.9 };
-
-	}
-
-}
-
-export const TRACK_CELLS = [
-	[ -3, -3, 'track-corner',   16 ],
-	[ -2, -3, 'track-straight', 22 ],
-	[ -1, -3, 'track-straight', 22 ],
-	[  0, -3, 'track-corner',    0 ],
-	[ -3, -2, 'track-straight',  0 ],
-	[  0, -2, 'track-straight',  0 ],
-	[ -3, -1, 'track-corner',   10 ],
-	[ -2, -1, 'track-corner',    0 ],
-	[  0, -1, 'track-straight',  0 ],
-	[ -2,  0, 'track-straight', 10 ],
-	[  0,  0, 'track-finish',    0 ],
-	[ -2,  1, 'track-straight', 10 ],
-	[  0,  1, 'track-straight',  0 ],
-	[ -2,  2, 'track-corner',   10 ],
-	[ -1,  2, 'track-straight', 16 ],
-	[  0,  2, 'track-corner',   22 ],
-];
-
-const DECO_CELLS = [
-	[ -4, -2, 'decoration-tents', 10 ],
-	[ -1, -4, 'decoration-tents', 22 ],
-	[ -1,  1, 'decoration-tents', 22 ],
-];
-
-const NPC_TRUCKS = [
-	[ 'vehicle-truck-green',  -3.51, -0.01,  12.70,  98.0 ],
-	[ 'vehicle-truck-purple', -23.78, -0.14, -13.56,   0.0 ],
-	[ 'vehicle-truck-red',    -1.36, -0.15, -23.80, 155.9 ],
-];
-
-export function buildTrack( scene, models, customCells, extras = null ) {
-
-	const trackGroup = new THREE.Group();
-	trackGroup.position.y = -0.5;
-
-	const trackPieceGroup = new THREE.Group();
-	const decoGroup = new THREE.Group();
-
-	const cells = customCells || TRACK_CELLS;
-
-	for ( const [ gx, gz, key, orient ] of cells ) {
-
-		const piece = placePiece( models, key, gx, gz, orient );
-		if ( piece ) trackPieceGroup.add( piece );
-
-	}
-
-	if ( extras ) {
-
-		const bumpCells = Array.isArray( extras.bumps ) ? extras.bumps : [];
-		const boostCells = Array.isArray( extras.boosts ) ? extras.boosts : [];
-		const jumpCells = Array.isArray( extras.jumps ) ? extras.jumps : [];
-		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
-		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
-		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
-
-		for ( const [ gx, gz ] of bumpCells ) {
-
-			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
-			if ( piece ) trackPieceGroup.add( piece );
-
+		#toolbar {
+			position: absolute;
+			bottom: 14px;
+			left: 50%;
+			transform: translateX(-50%);
+			display: flex;
+			flex-wrap: wrap;
+			justify-content: center;
+			align-items: center;
+			gap: 4px;
+			padding: 6px 8px;
+			max-width: calc(100vw - 20px);
+			background: rgba(20, 20, 30, 0.85);
+			backdrop-filter: blur(12px);
+			-webkit-backdrop-filter: blur(12px);
+			border-radius: 14px;
+			border: 1px solid rgba(255, 255, 255, 0.1);
+			box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+			z-index: 10;
 		}
 
-		for ( const [ gx, gz ] of boostCells ) {
-
-			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
-			if ( piece ) {
-
-				piece.traverse( ( c ) => {
-
-					if ( c.isMesh ) {
-
-						c.material = c.material.clone();
-						c.material.color = new THREE.Color( 0xff8a00 );
-						c.material.emissive = new THREE.Color( 0xff4d00 );
-						c.material.emissiveIntensity = 0.6;
-
-					}
-
-				} );
-				trackPieceGroup.add( piece );
-
-			}
-
+		#toolbar button {
+			padding: 6px 10px;
+			border: none;
+			border-radius: 8px;
+			background: transparent;
+			color: rgba(255, 255, 255, 0.65);
+			font-size: 12px;
+			font-weight: 500;
+			cursor: pointer;
+			transition: all 0.15s;
+			white-space: nowrap;
+		}
+		#toolbar select {
+			padding: 6px 10px;
+			border: 1px solid rgba(255, 255, 255, 0.18);
+			border-radius: 8px;
+			background: rgba(8, 10, 14, 0.9);
+			color: rgba(255, 255, 255, 0.92);
+			font-size: 12px;
+			font-weight: 500;
+			cursor: pointer;
+			white-space: nowrap;
+		}
+		#toolbar button:hover {
+			background: rgba(255, 255, 255, 0.1);
+			color: #fff;
+		}
+		#toolbar button.active {
+			background: rgba(255, 255, 255, 0.18);
+			color: #fff;
 		}
 
-		for ( const [ gx, gz, orient = 0 ] of jumpCells ) {
-
-			const jump = new THREE.Mesh(
-				new THREE.BoxGeometry( JUMP_RAMP_SIZE, JUMP_RAMP_DEPTH, JUMP_RAMP_SIZE ),
-				new THREE.MeshStandardMaterial( {
-					color: 0x7f6a58,
-					roughness: 0.85,
-					metalness: 0.02,
-				} )
-			);
-			jump.position.set( ( gx + 0.5 ) * CELL_RAW, JUMP_RAMP_Y + VISUAL_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
-			jump.rotation.order = 'YXZ';
-			jump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
-			jump.rotation.x = - JUMP_RAMP_ANGLE;
-			jump.castShadow = true;
-			jump.receiveShadow = true;
-			trackPieceGroup.add( jump );
-
+		.separator {
+			width: 1px;
+			height: 18px;
+			background: rgba(255, 255, 255, 0.15);
+			margin: 0 1px;
+			flex-shrink: 0;
 		}
 
-		for ( const [ gx, gz, key, orient ] of decorations ) {
-
-			const piece = placePiece( models, key, gx, gz, orient || 0 );
-			if ( piece ) decoGroup.add( piece );
-
+		#toolbar button.action {
+			background: rgba(80, 180, 80, 0.25);
+			color: rgba(140, 255, 140, 0.9);
+		}
+		#toolbar button.action:hover {
+			background: rgba(80, 180, 80, 0.4);
+			color: #fff;
 		}
 
-		for ( const [ gx, gz, surfaceType ] of surfaces ) {
-
-			const visual = getSurfaceVisual( surfaceType, customSurfaces );
-			const patch = new THREE.Mesh(
-				new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
-				new THREE.MeshStandardMaterial( {
-					color: visual.color,
-					emissive: visual.emissive,
-					emissiveIntensity: 0.2,
-					transparent: true,
-					opacity: 0.58,
-					metalness: visual.metalness,
-					roughness: visual.roughness
-				} )
-			);
-			patch.rotation.x = - Math.PI / 2;
-			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
-			patch.receiveShadow = true;
-			trackPieceGroup.add( patch );
-
+		#toolbar button.danger {
+			color: rgba(255, 255, 255, 0.45);
+		}
+		#toolbar button.danger:hover {
+			background: rgba(220, 80, 80, 0.25);
+			color: rgba(255, 140, 140, 0.9);
 		}
 
-	}
+		#toast {
+			position: absolute;
+			bottom: 90px;
+			left: 50%;
+			transform: translateX(-50%);
+			padding: 10px 24px;
+			background: rgba(20, 20, 30, 0.85);
+			backdrop-filter: blur(12px);
+			-webkit-backdrop-filter: blur(12px);
+			color: #fff;
+			border-radius: 10px;
+			border: 1px solid rgba(255, 255, 255, 0.1);
+			font-size: 13px;
+			opacity: 0;
+			transition: opacity 0.3s;
+			pointer-events: none;
+			z-index: 20;
+		}
+		#toast.show { opacity: 1; }
+		#custom-surface-panel {
+			position: absolute;
+			right: 12px;
+			top: 72px;
+			width: min(360px, calc(100vw - 24px));
+			padding: 10px;
+			border-radius: 10px;
+			background: rgba(16, 18, 24, 0.92);
+			border: 1px solid rgba(255,255,255,0.15);
+			color: #eef3ff;
+			z-index: 30;
+		}
+		#custom-surface-panel h3 { margin: 0 0 8px; font-size: 14px; }
+		.custom-surface-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; font-size: 12px; }
+		.custom-surface-grid label { display: flex; align-items: center; gap: 6px; }
+		.custom-surface-grid input[type="number"],
+		.custom-surface-grid input[type="color"] { width: 100%; }
+		.custom-surface-actions { margin-top: 10px; display: flex; gap: 8px; justify-content: flex-end; }
+		.custom-surface-actions button { padding: 6px 10px; }
 
-	if ( ! customCells ) {
-
-		// Place hand-authored decorations for the default track
-		for ( const [ gx, gz, key, orient ] of DECO_CELLS ) {
-
-			const piece = placePiece( models, key, gx, gz, orient );
-			if ( piece ) decoGroup.add( piece );
-
+		#settings-bar {
+			position: absolute;
+			top: 12px;
+			left: 50%;
+			transform: translateX(-50%);
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			padding: 8px 12px;
+			background: rgba(20, 20, 30, 0.82);
+			backdrop-filter: blur(10px);
+			-webkit-backdrop-filter: blur(10px);
+			border-radius: 10px;
+			border: 1px solid rgba(255, 255, 255, 0.12);
+			color: rgba(255, 255, 255, 0.9);
+			font-size: 12px;
+			z-index: 20;
 		}
 
-	}
+		#settings-bar select {
+			border: 1px solid rgba(255, 255, 255, 0.2);
+			border-radius: 7px;
+			background: rgba(10, 12, 18, 0.8);
+			color: #e9f1ff;
+			padding: 5px 8px;
+			font-size: 12px;
+		}
 
+		#settings-bar input[type="checkbox"] {
+			accent-color: #7ab8ff;
+			width: 14px;
+			height: 14px;
+		}
+
+		#side-ui-bar {
+			position: absolute;
+			left: 12px;
+			top: 90%;
+			transform: translateY(-50%);
+			display: flex;
+			flex-direction: column;
+			gap: 8px;
+			z-index: 32;
+		}
+		#side-ui-bar button {
+			padding: 8px 10px;
+			border: 1px solid rgba(255,255,255,0.18);
+			border-radius: 8px;
+			background: rgba(15, 18, 24, 0.88);
+			color: #e8efff;
+			font-size: 12px;
+			cursor: pointer;
+		}
+		#side-ui-bar button:hover { background: rgba(45,55,72,0.92); }
+
+		#panel-overlay {
+			position: absolute;
+			inset: 0;
+			background: rgba(0,0,0,0.42);
+			backdrop-filter: blur(2px);
+			z-index: 34;
+		}
+		#panel-overlay[hidden] { display: none; }
+		#panel-center {
+			position: absolute;
+			left: 50%;
+			top: 50%;
+			transform: translate(-50%, -50%);
+			z-index: 35;
+			width: min(620px, calc(100vw - 24px));
+			max-height: min(78vh, 760px);
+			overflow: auto;
+		}
+		#panel-center[hidden] { display: none; }
+		.tool-panel {
+			background: rgba(15, 18, 24, 0.95);
+			border: 1px solid rgba(255,255,255,0.16);
+			border-radius: 12px;
+			padding: 12px;
+			color: #eef3ff;
+		}
+		.tool-panel[hidden] { display: none; }
+		.tool-panel-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			margin-bottom: 10px;
+		}
+		.tool-panel-header h3 {
+			margin: 0;
+			font-size: 15px;
+		}
+		.tool-panel-header button {
+			padding: 5px 8px;
+			border-radius: 7px;
+			border: 1px solid rgba(255,255,255,0.16);
+			background: rgba(255,255,255,0.06);
+			color: #e9f1ff;
+			cursor: pointer;
+		}
+		.panel-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+		.panel-row label { font-size: 12px; color: #cfd8ea; }
+		.panel-row input, .panel-row select, .panel-row button {
+			background: rgba(6, 9, 14, 0.9);
+			color: #eef3ff;
+			border: 1px solid rgba(255,255,255,0.16);
+			border-radius: 8px;
+			padding: 6px 8px;
+			font-size: 12px;
+		}
+	</style>
+	<script type="importmap">
 	{
-
-		// Auto-generate solid green ground to fill gaps (NO TREES)
-		const occupied = new Set();
-		let minX = Infinity, maxX = - Infinity;
-		let minZ = Infinity, maxZ = - Infinity;
-
-		for ( const [ gx, gz ] of cells ) {
-
-			occupied.add( gx + ',' + gz );
-			minX = Math.min( minX, gx );
-			maxX = Math.max( maxX, gx );
-			minZ = Math.min( minZ, gz );
-			maxZ = Math.max( maxZ, gz );
-
+		"imports": {
+			"three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
+			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/"
 		}
+	}
+	</script>
+</head>
+<body>
+	<div id="settings-bar">
+		<label for="weather-preset">Weather</label>
+		<select id="weather-preset" aria-label="Weather preset">
+			<option value="clear">Clear</option>
+			<option value="cloudy">Cloudy</option>
+			<option value="sunset">Sunset</option>
+			<option value="night">Night</option>
+			<option value="dawn-mist">Dawn Mist</option>
+		</select>
+		<label for="weather-precip">Precip</label>
+		<select id="weather-precip" aria-label="Precipitation">
+			<option value="none">None</option>
+			<option value="rain">Rain</option>
+			<option value="snow">Snow</option>
+		</select>
+		<label for="weather-intensity">Intensity</label>
+		<select id="weather-intensity" aria-label="Weather intensity">
+			<option value="low">Low</option>
+			<option value="medium" selected>Medium</option>
+			<option value="high">High</option>
+		</select>
+		<label for="weather-wind">Wind</label>
+		<select id="weather-wind" aria-label="Wind">
+			<option value="none">Calm</option>
+			<option value="breezy">Breezy</option>
+			<option value="gusty">Gusty</option>
+		</select>
+		<label for="weather-lightning">Lightning</label>
+		<input id="weather-lightning" type="checkbox" aria-label="Lightning flashes">
+	</div>
+	<div id="side-ui-bar"></div>
+	<div id="panel-overlay" hidden></div>
+	<div id="panel-center" hidden>
+		<div id="flow-panel" class="tool-panel" hidden>
+			<div class="tool-panel-header">
+				<h3>Flow Brush</h3>
+				<button data-close-panel>Close</button>
+			</div>
+			<div class="panel-row">
+				<label><input type="checkbox" id="flow-enabled"> Enable flow brush</label>
+			</div>
+			<div class="panel-row">
+				<label for="flow-straight-type">Straight piece</label>
+				<select id="flow-straight-type">
+					<option value="track-straight">Track Straight</option>
+					<option value="track-checkpoint">Checkpoint</option>
+				</select>
+				<label for="flow-corner-type">Corner piece</label>
+				<select id="flow-corner-type">
+					<option value="track-corner">Track Corner</option>
+					<option value="track-checkpoint">Checkpoint</option>
+				</select>
+			</div>
+			<div class="panel-row">
+				<label>Draw with paint tool; release pointer to auto-build path with straights + corners.</label>
+			</div>
+		</div>
+	</div>
 
-		// Also mark existing decoration cells as occupied
-		if ( ! customCells ) {
+	<div id="toolbar">
+		<button id="btn-straight" class="active">Straight</button>
+		<button id="btn-corner">Corner</button>
+		<button id="btn-bump">Bump +</button>
+		<button id="btn-jump">Jump +</button>
+		<button id="btn-finish">Finish</button>
+		<button id="btn-checkpoint">Checkpoint</button>
+		<select id="surface-select" aria-label="Surface picker">
+			<option value="">Surface…</option>
+			<option value="surface-wood">Wood</option>
+			<option value="surface-ice">Ice</option>
+			<option value="surface-boost">Boost Surface</option>
+			<option value="surface-sand">Sand</option>
+			<option value="surface-bounce">Bounce Plate</option>
+			<option value="surface-kick-l">Kick Left</option>
+			<option value="surface-kick-r">Kick Right</option>
+		</select>
+		<button id="btn-surface-custom-a">Custom A</button>
+		<button id="btn-surface-custom-b">Custom B</button>
+		<button id="btn-surface-custom-c">Custom C</button>
+		<button id="btn-overlap-toggle">Overlap: Off</button>
+		<button id="btn-deco-forest">Tree</button>
+		<button id="btn-deco-tents">Tent</button>
+		<button id="btn-deco-empty">Prop</button>
+		<button id="btn-rotate">Rotate: 0°</button>
+		<div class="separator"></div>
+		<button id="btn-paint" class="active">Paint</button>
+		<button id="btn-erase">Erase</button>
+		<button id="btn-flow">Flow: Off</button>
+		<button id="btn-offgrid">Snap: Grid</button>
+		<div class="separator"></div>
+		<button id="btn-play" class="action">Play</button>
+		<button id="btn-share" class="action">Share</button>
+		<div class="separator"></div>
+		<button id="btn-clear" class="danger">Clear</button>
+	</div>
 
-			for ( const [ gx, gz ] of DECO_CELLS ) {
+	<div id="toast"></div>
+	<div id="custom-surface-panel" hidden>
+		<h3 id="custom-surface-title">Custom Surface</h3>
+		<div class="custom-surface-grid">
+			<label><input type="checkbox" id="cs-force-forward"> Force Forward</label>
+			<label><input type="checkbox" id="cs-force-backward"> Force Backward</label>
+			<label><input type="checkbox" id="cs-force-left"> Force Left</label>
+			<label><input type="checkbox" id="cs-force-right"> Force Right</label>
+			<label><input type="checkbox" id="cs-force-up"> Force Up</label>
+			<label>Force Amount <input type="range" id="cs-force-amount" min="-1" max="20" step="0.1" value="4"></label>
+			<label><input type="checkbox" id="cs-no-air"> Don't trigger in air</label>
+			<label><input type="checkbox" id="cs-once-contact"> Trigger once until leave/re-enter</label>
+			<label>Color <input type="color" id="cs-color" value="#9c7bff"></label>
+			<label>Grip <input type="range" id="cs-grip" min="0" max="5" step="0.05" value="1.2"></label>
+			<label>Speed <input type="range" id="cs-speed" min="0" max="5" step="0.05" value="1.05"></label>
+		</div>
+		<div class="custom-surface-actions">
+			<button id="cs-save">Save</button>
+			<button id="cs-close">Close</button>
+		</div>
+	</div>
 
-				occupied.add( gx + ',' + gz );
-				minX = Math.min( minX, gx );
-				maxX = Math.max( maxX, gx );
-				minZ = Math.min( minZ, gz );
-				maxZ = Math.max( maxZ, gz );
+	<script type="module">
+	import * as THREE from 'three';
+	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells } from './js/Track.js';
 
-			}
+	// ─── State ────────────────────────────────────────────────
 
-		}
+	const grid = new Map(); // "gx,gz" → { type, orient, isFinish, mesh }
+	const ORIENTATIONS = [ 0, 16, 10, 22 ];
+	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint' ];
+	const BUMP_TOOL = 'overlay-bump';
+	const JUMP_TOOL = 'overlay-jump';
+	const SURFACE_TYPES = [
+		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
+		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
+	];
+	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
+	const CUSTOM_SURFACE_TYPES = [ 'surface-custom-a', 'surface-custom-b', 'surface-custom-c' ];
+	let tool = 'paint'; // 'paint', 'erase'
+	let selectedType = 'track-straight';
+	let selectedOrient = 0;
+	let allowSurfaceOverlap = false;
+	const CUSTOM_SURFACE_DEFAULTS = {
+		'surface-custom-a': { color: '#9c7bff', grip: 1.2, speed: 1.05, forceAmount: 4, force: { forward: true, backward: false, left: false, right: false, up: false }, noAir: true, oncePerContact: true },
+		'surface-custom-b': { color: '#7bffda', grip: 0.55, speed: 0.72, forceAmount: 3, force: { forward: false, backward: true, left: false, right: false, up: false }, noAir: false, oncePerContact: true },
+		'surface-custom-c': { color: '#ffc97b', grip: 0.95, speed: 1.25, forceAmount: 6, force: { forward: false, backward: false, left: true, right: true, up: true }, noAir: true, oncePerContact: false },
+	};
+	let customSurfaceConfigs = JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) );
+	let activeCustomSurfaceEditor = null;
+	const FLOW_STRAIGHT_ORIENT = { ns: 0, ew: 22 };
+	const FLOW_CORNER_ORIENT = {
+		'S,E': 16, 'E,S': 16,
+		'S,W': 0, 'W,S': 0,
+		'N,E': 10, 'E,N': 10,
+		'N,W': 22, 'W,N': 22,
+	};
+	let flowBrushEnabled = false;
+	let flowStrokeCells = [];
+	let flowStraightType = 'track-straight';
+	let flowCornerType = 'track-corner';
+	let placeOffGrid = false;
+	const OFFGRID_STEP = 0.25;
+	const BLOCK_HEIGHT_OFFSET = 0.012;
+	const DECO_HEIGHT_OFFSET = BLOCK_HEIGHT_OFFSET * 0.5;
 
-		const pad = 3;
-		const greenGroundPositions = [];
+	function normalizeCoord( value ) {
 
-		const startX = Math.floor( minX - pad );
-		const endX = Math.ceil( maxX + pad );
-		const startZ = Math.floor( minZ - pad );
-		const endZ = Math.ceil( maxZ + pad );
-
-		for ( let gz = startZ; gz <= endZ; gz ++ ) {
-
-			for ( let gx = startX; gx <= endX; gx ++ ) {
-
-				if ( occupied.has( gx + ',' + gz ) ) continue;
-
-				const x = ( gx + 0.5 ) * CELL_RAW;
-				const z = ( gz + 0.5 ) * CELL_RAW;
-
-				greenGroundPositions.push( x, z );
-
-			}
-
-		}
-
-		// Create solid green ground planes
-		function createGreenGround( positions ) {
-
-			if ( positions.length === 0 ) return;
-
-			const count = positions.length / 2;
-
-			const geometry = new THREE.PlaneGeometry( CELL_RAW * 0.99, CELL_RAW * 0.99 );
-			const material = new THREE.MeshStandardMaterial( {
-				color: 0x5a8f3a,
-				roughness: 0.8,
-				metalness: 0.0
-			} );
-
-			for ( let i = 0; i < count; i ++ ) {
-
-				const groundMesh = new THREE.Mesh( geometry, material );
-				groundMesh.rotation.x = - Math.PI / 2;
-				groundMesh.position.set( positions[ i * 2 ], 0.001, positions[ i * 2 + 1 ] );
-				groundMesh.receiveShadow = true;
-				decoGroup.add( groundMesh );
-
-			}
-
-		}
-
-		createGreenGround( greenGroundPositions );
+		const num = Number( value ) || 0;
+		return Math.round( num * 1000 ) / 1000;
 
 	}
 
-	trackGroup.add( trackPieceGroup );
-	trackGroup.add( decoGroup );
+	function cellKey( gx, gz ) { return `${ normalizeCoord( gx ) },${ normalizeCoord( gz ) }`; }
 
-	trackGroup.scale.setScalar( 0.75 );
+	function makeEmptyCell() {
+
+		return {
+			type: null,
+			orient: 0,
+			isFinish: false,
+			mesh: null,
+			roadPieces: [],
+			roadMeshes: [],
+			bump: false,
+			bumpOrient: 0,
+			bumpMesh: null,
+			jump: false,
+			jumpOrient: 0,
+			jumpMesh: null,
+			surfaceTypes: [],
+			surfaceMeshes: [],
+			decoType: null,
+			decoOrient: 0,
+			decoMesh: null
+		};
+
+	}
+
+
+	function getSurfaceVisual( surfaceType ) {
+
+		switch ( surfaceType ) {
+
+			case 'surface-ice': return { color: 0x7ad8ff, emissive: 0x1f6f8a, metalness: 0.2, roughness: 0.15 };
+			case 'surface-boost': return { color: 0xff4b4b, emissive: 0xc1121f, metalness: 0.0, roughness: 0.9 };
+			case 'surface-sand': return { color: 0xd7b46a, emissive: 0x6f4f22, metalness: 0.0, roughness: 1.0 };
+			case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
+			case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
+			case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
+			case 'surface-custom-a':
+			case 'surface-custom-b':
+			case 'surface-custom-c': {
+				const colorHex = customSurfaceConfigs?.[ surfaceType ]?.color || '#9c7bff';
+				const color = new THREE.Color( colorHex );
+				return { color: color.getHex(), emissive: color.clone().multiplyScalar( 0.45 ).getHex(), metalness: 0.02, roughness: 0.72 };
+			}
+			default: return { color: 0xb88657, emissive: 0x4a2b12, metalness: 0.0, roughness: 0.9 };
+
+		}
+
+	}
+
+	// ─── Renderer ─────────────────────────────────────────────
+
+	const renderer = new THREE.WebGLRenderer( { antialias: true } );
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.shadowMap.enabled = true;
+	renderer.toneMapping = THREE.ACESFilmicToneMapping;
+	renderer.toneMappingExposure = 1.0;
+	document.body.appendChild( renderer.domElement );
+
+	// ─── Scene ────────────────────────────────────────────────
+
+	const scene = new THREE.Scene();
+	scene.background = new THREE.Color( 0xadb2ba );
+	scene.fog = new THREE.Fog( 0xadb2ba, 80, 160 );
+
+	const dirLight = new THREE.DirectionalLight( 0xffffff, 5 );
+	dirLight.position.set( 11.4, 15, - 5.3 );
+	dirLight.castShadow = true;
+	dirLight.shadow.mapSize.setScalar( 4096 );
+	dirLight.shadow.camera.near = 0.5;
+	dirLight.shadow.camera.far = 100;
+	dirLight.shadow.camera.left = - 60;
+	dirLight.shadow.camera.right = 60;
+	dirLight.shadow.camera.top = 60;
+	dirLight.shadow.camera.bottom = - 60;
+	scene.add( dirLight );
+
+	const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
+	scene.add( hemiLight );
+
+	// Ground
+	const groundMat = new THREE.MeshStandardMaterial( { color: 0x369069, metalness: 0 } );
+	const ground = new THREE.Mesh( new THREE.PlaneGeometry( 200, 200 ), groundMat );
+	ground.rotation.x = - Math.PI / 2;
+	ground.position.y = - 0.14;
+	ground.receiveShadow = true;
+	scene.add( ground );
+
+	// Grid helper
+	const gridSize = 30;
+	const cellWorld = CELL_RAW * GRID_SCALE;
+	const gridHelper = new THREE.GridHelper( gridSize * cellWorld, gridSize, 0x4a7a2a, 0x4a7a2a );
+	gridHelper.position.y = - 0.49;
+	gridHelper.material.opacity = 0.3;
+	gridHelper.material.transparent = true;
+	scene.add( gridHelper );
+
+	// Track group (mirrors game structure)
+	const trackGroup = new THREE.Group();
+	trackGroup.position.y = - 0.5;
+	trackGroup.scale.setScalar( GRID_SCALE );
 	scene.add( trackGroup );
 
-	trackGroup.updateMatrixWorld( true );
+	// Ghost preview group
+	const ghostGroup = new THREE.Group();
+	ghostGroup.position.y = - 0.5;
+	ghostGroup.scale.setScalar( GRID_SCALE );
+	scene.add( ghostGroup );
 
-	trackGroup.traverse( ( child ) => {
+	const WEATHER_PRESETS = {
+		clear: { name: 'Clear', bg: 0xadb2ba, fogNear: 80, fogFar: 160, sun: 5, hemi: 1.5, exposure: 1.0, ground: 0x369069 },
+		cloudy: { name: 'Cloudy', bg: 0x9aa4b2, fogNear: 70, fogFar: 130, sun: 3.8, hemi: 1.3, exposure: 0.95, ground: 0x3f835f },
+		sunset: { name: 'Sunset', bg: 0xc7987d, fogNear: 65, fogFar: 120, sun: 4.6, hemi: 1.25, exposure: 1.08, ground: 0x4c7d58 },
+		night: { name: 'Night', bg: 0x0b1220, fogNear: 45, fogFar: 95, sun: 1.6, hemi: 0.45, exposure: 0.7, ground: 0x243745 },
+		'dawn-mist': { name: 'Dawn Mist', bg: 0xb6c2cc, fogNear: 36, fogFar: 78, sun: 2.9, hemi: 1.1, exposure: 0.88, ground: 0x4f7f74 },
+	};
+	const WEATHER_DEFAULT = 'clear';
+	const PRECIP_TYPES = [ 'none', 'rain', 'snow' ];
+	const INTENSITY_TYPES = [ 'low', 'medium', 'high' ];
+	const WIND_TYPES = [ 'none', 'breezy', 'gusty' ];
+	let weatherSettings = {
+		preset: WEATHER_DEFAULT,
+		precipitation: 'none',
+		intensity: 'medium',
+		lightning: false,
+		wind: 'none',
+	};
 
-		if ( child.isMesh ) {
+	function normalizeWeatherPreset( preset ) {
 
-			child.castShadow = true;
-			child.receiveShadow = true;
+		return WEATHER_PRESETS[ preset ] ? preset : WEATHER_DEFAULT;
 
-		}
+	}
+
+	function normalizeWeatherSettings( value ) {
+
+		const next = value || {};
+		return {
+			preset: normalizeWeatherPreset( next.preset ),
+			precipitation: PRECIP_TYPES.includes( next.precipitation ) ? next.precipitation : 'none',
+			intensity: INTENSITY_TYPES.includes( next.intensity ) ? next.intensity : 'medium',
+			lightning: Boolean( next.lightning ),
+			wind: WIND_TYPES.includes( next.wind ) ? next.wind : 'none',
+		};
+
+	}
+
+	function applyWeatherPreset( preset ) {
+
+		weatherSettings.preset = normalizeWeatherPreset( preset );
+		const weather = WEATHER_PRESETS[ weatherSettings.preset ];
+		scene.background = new THREE.Color( weather.bg );
+		scene.fog = new THREE.Fog( weather.bg, weather.fogNear, weather.fogFar );
+		dirLight.intensity = weather.sun;
+		hemiLight.intensity = weather.hemi;
+		groundMat.color.setHex( weather.ground );
+		renderer.toneMappingExposure = weather.exposure;
+
+	}
+
+	// ─── Camera (orthographic, top-down) ──────────────────────
+
+	const frustum = 30;
+	const aspect = window.innerWidth / window.innerHeight;
+	const camera = new THREE.OrthographicCamera(
+		- frustum * aspect, frustum * aspect,
+		frustum, - frustum,
+		0.1, 200
+	);
+	const cellCenter = 0.5 * CELL_RAW * GRID_SCALE;
+	camera.position.set( cellCenter, 50, cellCenter );
+	camera.lookAt( cellCenter, 0, cellCenter );
+
+	const camTarget = new THREE.Vector3( cellCenter, 0, cellCenter );
+
+	window.addEventListener( 'resize', () => {
+
+		const a = window.innerWidth / window.innerHeight;
+		camera.left = - frustum * a;
+		camera.right = frustum * a;
+		camera.updateProjectionMatrix();
+		renderer.setSize( window.innerWidth, window.innerHeight );
 
 	} );
 
-	if ( ! customCells ) {
+	// ─── Load models ──────────────────────────────────────────
 
-		for ( const [ key, x, y, z, rotDeg ] of NPC_TRUCKS ) {
+	const loader = new GLTFLoader();
+	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
+	const models = {};
 
-			const src = models[ key ];
-			if ( ! src ) continue;
+	async function loadModels() {
 
-			const npc = src.clone();
-			npc.position.set( x, y, z );
-			npc.rotation.y = THREE.MathUtils.degToRad( rotDeg + 180 );
-			npc.traverse( ( c ) => {
+		const promises = modelNames.map( ( name ) =>
+			new Promise( ( resolve, reject ) => {
+
+				loader.load( `models/${ name }.glb`, ( gltf ) => {
+
+					gltf.scene.traverse( ( child ) => {
+
+						if ( child.isMesh ) child.material.side = THREE.FrontSide;
+
+					} );
+
+					models[ name ] = gltf.scene;
+					resolve();
+
+				}, undefined, reject );
+
+			} )
+		);
+
+		await Promise.all( promises );
+
+	}
+
+	// ─── Tile placement ───────────────────────────────────────
+
+	function placeMesh( gx, gz, cell ) {
+
+		for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
+		if ( cell.mesh ) trackGroup.remove( cell.mesh );
+		cell.mesh = null;
+		cell.roadMeshes = [];
+		if ( ! cell.roadPieces?.length && cell.type ) {
+
+			cell.roadPieces = [ { type: cell.type, orient: cell.orient, isFinish: cell.isFinish } ];
+
+		}
+
+		if ( ! cell.roadPieces?.length ) return;
+
+		cell.roadPieces.forEach( ( roadPiece, idx ) => {
+
+			const modelType = roadPiece.type === 'track-checkpoint' ? 'track-finish' : roadPiece.type;
+			const src = models[ modelType ];
+			if ( ! src ) return;
+
+			const mesh = src.clone();
+			mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + idx * 0.035, ( gz + 0.5 ) * CELL_RAW );
+			mesh.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ roadPiece.orient ] || 0 );
+			mesh.traverse( ( c ) => {
 
 				if ( c.isMesh ) {
 
@@ -311,188 +670,1316 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				}
 
 			} );
-			scene.add( npc );
+			trackGroup.add( mesh );
+			cell.roadMeshes.push( mesh );
+			cell.mesh = mesh;
+
+		} );
+
+	}
+
+	function placeOverlayMesh( gx, gz, cell ) {
+
+		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
+		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+		cell.bumpMesh = null;
+		cell.jumpMesh = null;
+		cell.surfaceMeshes = [];
+		cell.decoMesh = null;
+
+		if ( cell.bump ) {
+
+			const bumpSrc = models[ 'track-bump' ];
+			if ( bumpSrc ) {
+
+				const bump = bumpSrc.clone();
+				bump.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
+				bump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.bumpOrient || 0 ] || 0 );
+				bump.traverse( ( c ) => {
+
+					if ( c.isMesh ) {
+
+						c.castShadow = true;
+						c.receiveShadow = true;
+
+					}
+
+				} );
+				trackGroup.add( bump );
+				cell.bumpMesh = bump;
+
+			}
+
+		}
+
+		if ( cell.jump ) {
+
+			const jump = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.36, CELL_RAW * 0.18, CELL_RAW * 0.36 ),
+				new THREE.MeshStandardMaterial( {
+					color: 0x7f6a58,
+					roughness: 0.85,
+					metalness: 0.02,
+				} )
+			);
+			jump.position.set( ( gx + 0.5 ) * CELL_RAW, 0.24 + BLOCK_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
+			jump.rotation.order = 'YXZ';
+			jump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.jumpOrient || 0 ] || 0 );
+			jump.rotation.x = - THREE.MathUtils.degToRad( 30 );
+			jump.castShadow = true;
+			jump.receiveShadow = true;
+			trackGroup.add( jump );
+			cell.jumpMesh = jump;
+
+		}
+
+		if ( cell.surfaceTypes?.length ) {
+
+			cell.surfaceTypes.forEach( ( surfaceType, idx ) => {
+
+				const visual = getSurfaceVisual( surfaceType );
+				const patch = new THREE.Mesh(
+					new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
+					new THREE.MeshStandardMaterial( {
+						color: visual.color,
+						emissive: visual.emissive,
+						emissiveIntensity: 0.2,
+						transparent: true,
+						opacity: 0.58,
+						metalness: visual.metalness,
+						roughness: visual.roughness
+					} )
+				);
+				patch.rotation.x = - Math.PI / 2;
+				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
+				patch.receiveShadow = true;
+				trackGroup.add( patch );
+				cell.surfaceMeshes.push( patch );
+
+			} );
+
+		}
+
+		if ( cell.decoType ) {
+
+			const decoSrc = models[ cell.decoType ];
+			if ( decoSrc ) {
+
+				const deco = decoSrc.clone();
+				deco.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + DECO_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
+				deco.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.decoOrient || 0 ] || 0 );
+				deco.traverse( ( c ) => {
+
+					if ( c.isMesh ) {
+
+						c.castShadow = true;
+						c.receiveShadow = true;
+
+					}
+
+				} );
+				trackGroup.add( deco );
+				cell.decoMesh = deco;
+
+			}
 
 		}
 
 	}
 
-}
+	function setCell( gx, gz, type, orient ) {
 
-export function placePiece( models, key, gx, gz, orient ) {
+		const key = cellKey( gx, gz );
+		const cell = grid.get( key ) || makeEmptyCell();
+		if ( allowSurfaceOverlap ) {
 
-	const modelKey = key === 'track-checkpoint' ? 'track-finish' : key;
-	const src = models[ modelKey ];
-	if ( ! src ) return null;
+			cell.roadPieces.push( { type, orient, isFinish: type === 'track-finish' } );
+			cell.type = cell.roadPieces[ cell.roadPieces.length - 1 ].type;
+			cell.orient = cell.roadPieces[ cell.roadPieces.length - 1 ].orient;
+			cell.isFinish = Boolean( cell.roadPieces.find( ( p ) => p.isFinish ) );
 
-	const piece = src.clone();
-	const yOffset = String( key || '' ).startsWith( 'decoration-' ) ? DECORATION_HEIGHT_OFFSET : VISUAL_HEIGHT_OFFSET;
-	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+		} else {
 
-	const deg = ORIENT_DEG[ orient ] ?? 0;
-	piece.rotation.y = THREE.MathUtils.degToRad( deg );
+			cell.roadPieces = [ { type, orient, isFinish: type === 'track-finish' } ];
+			cell.type = type;
+			cell.orient = orient;
+			cell.isFinish = type === 'track-finish';
 
-	return piece;
+		}
+		grid.set( key, cell );
+		placeMesh( gx, gz, cell );
+		placeOverlayMesh( gx, gz, cell );
 
-}
+	}
 
-// ─── Track Codec ──────────────────────────────────────────
+	// ─── Cell operations ──────────────────────────────────────
 
-const TYPE_NAMES = [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-finish' ];
-const TYPE_INDEX = {};
-for ( let i = 0; i < TYPE_NAMES.length; i ++ ) TYPE_INDEX[ TYPE_NAMES[ i ] ] = i;
+	function placeSelectedBlock( gx, gz ) {
 
-const ORIENT_TO_GODOT = [ 0, 16, 10, 22 ];
-const GODOT_TO_ORIENT = { 0: 0, 16: 1, 10: 2, 22: 3 };
+		if ( selectedType === BUMP_TOOL || selectedType === JUMP_TOOL ) {
 
-export { TYPE_NAMES };
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			grid.set( key, cell );
+			if ( selectedType === BUMP_TOOL ) {
 
-export function encodeCells( cells ) {
+				cell.bump = ! cell.bump;
+				cell.bumpOrient = selectedOrient;
 
-	const supportsCompactCodec = cells.every( ( cell ) => {
+			} else {
 
-		const [ gx, gz, name ] = cell;
-		const normalizedName = name === 'track-bump' ? 'track-checkpoint' : name;
-		return Number.isInteger( gx )
-			&& Number.isInteger( gz )
-			&& gx >= - 128 && gx <= 127
-			&& gz >= - 128 && gz <= 127
-			&& TYPE_INDEX[ normalizedName ] !== undefined;
+				cell.jump = ! cell.jump;
+				cell.jumpOrient = selectedOrient;
+
+			}
+			if ( ! cell.bump && ! cell.jump && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+
+				grid.delete( key );
+
+			} else {
+
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+		} else if ( SURFACE_TYPES.includes( selectedType ) ) {
+
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			grid.set( key, cell );
+			const hadType = cell.surfaceTypes.includes( selectedType );
+			if ( allowSurfaceOverlap ) {
+
+				cell.surfaceTypes = hadType ? [ ...cell.surfaceTypes ] : [ ...cell.surfaceTypes, selectedType ];
+
+			} else {
+
+				cell.surfaceTypes = hadType ? [] : [ selectedType ];
+
+			}
+
+			if ( ! cell.bump && ! cell.jump && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+
+				grid.delete( key );
+
+			} else {
+
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+		} else if ( DECO_TYPES.includes( selectedType ) ) {
+
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			grid.set( key, cell );
+
+			cell.decoType = selectedType;
+			cell.decoOrient = selectedOrient;
+			placeOverlayMesh( gx, gz, cell );
+
+		} else {
+
+			setCell( gx, gz, selectedType, selectedOrient );
+
+		}
+
+		save();
+
+	}
+
+	function placeFinish() {
+
+		const cell = makeEmptyCell();
+		cell.type = 'track-finish';
+		cell.orient = 0;
+		cell.isFinish = true;
+		cell.roadPieces = [ { type: 'track-finish', orient: 0, isFinish: true } ];
+		grid.set( cellKey( 0, 0 ), cell );
+		placeMesh( 0, 0, cell );
+
+	}
+
+	function eraseRoad( gx, gz ) {
+
+		const key = cellKey( gx, gz );
+		if ( ! grid.has( key ) ) return;
+
+		const cell = grid.get( key );
+		for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
+		if ( cell.mesh ) trackGroup.remove( cell.mesh );
+		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
+		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+		grid.delete( key );
+		save();
+
+	}
+
+	function clearAll() {
+
+		for ( const [ , cell ] of grid ) {
+
+				for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
+				if ( cell.mesh ) trackGroup.remove( cell.mesh );
+				if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+				if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+				for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
+				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+
+		}
+
+		grid.clear();
+		save();
+
+	}
+
+	function getDirection( from, to ) {
+
+		if ( ! from || ! to ) return null;
+		const dx = to.gx - from.gx;
+		const dz = to.gz - from.gz;
+		if ( Math.abs( dx ) + Math.abs( dz ) !== 1 ) return null;
+		if ( dx === 1 ) return 'E';
+		if ( dx === - 1 ) return 'W';
+		if ( dz === 1 ) return 'S';
+		if ( dz === - 1 ) return 'N';
+		return null;
+
+	}
+
+	function getFlowRoadPlacement( prev, current, next ) {
+
+		const inDir = getDirection( current, prev );
+		const outDir = getDirection( current, next );
+		const oneDir = inDir || outDir;
+		if ( ! oneDir ) return { type: flowStraightType, orient: FLOW_STRAIGHT_ORIENT.ns };
+		if ( ! inDir || ! outDir || inDir === outDir || ( inDir === 'N' && outDir === 'S' ) || ( inDir === 'S' && outDir === 'N' ) || ( inDir === 'E' && outDir === 'W' ) || ( inDir === 'W' && outDir === 'E' ) ) {
+
+			return {
+				type: flowStraightType,
+				orient: ( oneDir === 'E' || oneDir === 'W' ) ? FLOW_STRAIGHT_ORIENT.ew : FLOW_STRAIGHT_ORIENT.ns,
+			};
+
+		}
+		const cornerOrient = FLOW_CORNER_ORIENT[ `${ inDir },${ outDir }` ] ?? FLOW_CORNER_ORIENT[ `${ outDir },${ inDir }` ] ?? 0;
+		return { type: flowCornerType, orient: cornerOrient };
+
+	}
+
+	function getDedupedFlowStrokeCells() {
+
+		const deduped = [];
+		const seen = new Set();
+		for ( const cell of flowStrokeCells ) {
+
+			const key = cellKey( cell.gx, cell.gz );
+			if ( seen.has( key ) ) continue;
+			seen.add( key );
+			deduped.push( cell );
+
+		}
+
+		return deduped;
+
+	}
+
+	function renderFlowStrokePreview() {
+
+		if ( ! isDrawing || ! flowBrushEnabled || ! TILE_TYPES.includes( selectedType ) ) return;
+		clearGhost();
+		const deduped = getDedupedFlowStrokeCells();
+		for ( let i = 0; i < deduped.length; i ++ ) {
+
+			const current = deduped[ i ];
+			const prev = i > 0 ? deduped[ i - 1 ] : null;
+			const next = i < deduped.length - 1 ? deduped[ i + 1 ] : null;
+			const piece = getFlowRoadPlacement( prev, current, next );
+			addGhostPiece( piece.type, piece.orient, current.gx, current.gz, 0.28 );
+
+		}
+
+	}
+
+	function applyFlowStroke() {
+
+		if ( flowStrokeCells.length === 0 ) return;
+		const deduped = getDedupedFlowStrokeCells();
+		for ( let i = 0; i < deduped.length; i ++ ) {
+
+			const current = deduped[ i ];
+			const prev = i > 0 ? deduped[ i - 1 ] : null;
+			const next = i < deduped.length - 1 ? deduped[ i + 1 ] : null;
+			const piece = getFlowRoadPlacement( prev, current, next );
+			setCell( current.gx, current.gz, piece.type, piece.orient );
+
+		}
+		flowStrokeCells = [];
+		save();
+
+	}
+
+	// ─── Ghost preview ────────────────────────────────────────
+
+	function addGhostPiece( type, orient, gx, gz, opacity ) {
+
+		const modelType = type === 'track-checkpoint' ? 'track-finish' : type;
+		const src = models[ modelType ];
+		if ( ! src ) return;
+
+		const mesh = src.clone();
+		mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
+
+		const deg = ORIENT_DEG[ orient ] || 0;
+		mesh.rotation.y = THREE.MathUtils.degToRad( deg );
+
+		mesh.traverse( ( c ) => {
+
+			if ( c.isMesh ) {
+
+				c.material = c.material.clone();
+				c.material.transparent = true;
+				c.material.opacity = opacity;
+
+			}
+
+		} );
+
+		ghostGroup.add( mesh );
+
+	}
+
+	function updateGhost( gx, gz ) {
+
+		clearGhost();
+
+		if ( tool === 'erase' ) return;
+		const ghostType = selectedType === BUMP_TOOL ? 'track-bump' : ( selectedType === JUMP_TOOL ? 'track-straight' : ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType ) );
+		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
+
+	}
+
+	function clearGhost() {
+
+		// Remove all ghost preview meshes
+		while ( ghostGroup.children.length > 0 ) {
+
+			ghostGroup.remove( ghostGroup.children[ 0 ] );
+
+		}
+
+	}
+
+	// ─── Raycasting ───────────────────────────────────────────
+
+	const raycaster = new THREE.Raycaster();
+	const mouse = new THREE.Vector2();
+	let hoveredCell = null;
+
+	function screenToGrid( clientX, clientY ) {
+
+		mouse.x = ( clientX / window.innerWidth ) * 2 - 1;
+		mouse.y = - ( clientY / window.innerHeight ) * 2 + 1;
+
+		raycaster.setFromCamera( mouse, camera );
+
+		const plane = new THREE.Plane( new THREE.Vector3( 0, 1, 0 ), 0.51 );
+		const hit = new THREE.Vector3();
+		raycaster.ray.intersectPlane( plane, hit );
+
+		if ( ! hit ) return null;
+
+		let gx = hit.x / cellWorld;
+		let gz = hit.z / cellWorld;
+		if ( ! placeOffGrid ) {
+
+			gx = Math.floor( gx );
+			gz = Math.floor( gz );
+
+		} else {
+
+			gx = Math.round( gx / OFFGRID_STEP ) * OFFGRID_STEP;
+			gz = Math.round( gz / OFFGRID_STEP ) * OFFGRID_STEP;
+
+		}
+
+		return { gx: normalizeCoord( gx ), gz: normalizeCoord( gz ) };
+
+	}
+
+	// ─── Persistence ──────────────────────────────────────────
+
+	function save() {
+
+		const arr = getCellsArray();
+
+		const encoded = encodeCells( arr );
+		localStorage.setItem( 'racing-editor-cells', encoded );
+		localStorage.setItem( 'racing-editor-mods', encodeMods() );
+
+	}
+
+	function encodeMods() {
+
+		const bumps = [];
+		const jumps = [];
+		const surfaces = [];
+		const deco = [];
+
+		for ( const [ key, cell ] of grid ) {
+
+				const [ gx, gz ] = key.split( ',' ).map( Number );
+				if ( cell.bump ) bumps.push( [ gx, gz ] );
+				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
+			for ( const surfaceType of ( cell.surfaceTypes || [] ) ) surfaces.push( [ gx, gz, surfaceType ] );
+			if ( cell.decoType ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
+
+		}
+
+		const payload = JSON.stringify( { b: bumps, j: jumps, u: surfaces, d: deco, w: { ...weatherSettings }, c: customSurfaceConfigs } );
+		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
+
+	}
+
+	function decodeMods( modsStr ) {
+
+		if ( ! modsStr ) return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ) };
+
+		try {
+
+			const payload = decodeURIComponent( escape( atob( modsStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
+			const parsed = JSON.parse( payload );
+				return {
+					b: Array.isArray( parsed.b ) ? parsed.b : [],
+					j: Array.isArray( parsed.j ) ? parsed.j : [],
+					u: Array.isArray( parsed.u ) ? parsed.u : [],
+					d: Array.isArray( parsed.d ) ? parsed.d : [],
+					w: normalizeWeatherSettings( parsed?.w ),
+					c: parsed?.c && typeof parsed.c === 'object' ? parsed.c : JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
+				};
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to decode mods', e );
+				return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ) };
+
+		}
+
+	}
+
+	function loadSaved() {
+
+		const params = new URLSearchParams( window.location.search );
+		const mapParam = params.get( 'map' );
+		const modsParam = params.get( 'mods' );
+		const encoded = mapParam || localStorage.getItem( 'racing-editor-cells' );
+		const modsEncoded = modsParam || localStorage.getItem( 'racing-editor-mods' );
+
+		if ( ! encoded ) return;
+
+		try {
+
+			const arr = decodeCells( encoded );
+
+				for ( const [ gx, gz, type, orient ] of arr ) {
+
+					const isFinish = ( type === 'track-finish' );
+					const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					cell.roadPieces.push( { type, orient, isFinish } );
+					cell.type = type;
+					cell.orient = orient;
+					cell.isFinish = cell.isFinish || isFinish;
+					placeMesh( gx, gz, cell );
+
+				}
+
+			const mods = decodeMods( modsEncoded );
+			customSurfaceConfigs = {
+				...JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
+				...( mods.c || {} )
+			};
+			weatherSettings = normalizeWeatherSettings( mods.w );
+			applyWeatherPreset( weatherSettings.preset );
+			const weatherSelect = document.getElementById( 'weather-preset' );
+			const precipitationSelect = document.getElementById( 'weather-precip' );
+			const intensitySelect = document.getElementById( 'weather-intensity' );
+			const windSelect = document.getElementById( 'weather-wind' );
+			const lightningToggle = document.getElementById( 'weather-lightning' );
+			if ( weatherSelect ) weatherSelect.value = weatherSettings.preset;
+			if ( precipitationSelect ) precipitationSelect.value = weatherSettings.precipitation;
+			if ( intensitySelect ) intensitySelect.value = weatherSettings.intensity;
+			if ( windSelect ) windSelect.value = weatherSettings.wind;
+			if ( lightningToggle ) lightningToggle.checked = weatherSettings.lightning;
+			for ( const [ gx, gz ] of mods.b ) {
+
+				const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					cell.bump = true;
+					cell.bumpOrient = 0;
+					placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz, jumpOrient ] of mods.j ) {
+
+				const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					cell.jump = true;
+					cell.jumpOrient = jumpOrient || 0;
+					placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz, surfaceType ] of mods.u ) {
+
+				const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					if ( SURFACE_TYPES.includes( surfaceType ) ) cell.surfaceTypes.push( surfaceType );
+					placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz, decoType, decoOrient ] of mods.d ) {
+
+				const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					cell.decoType = decoType;
+					cell.decoOrient = decoOrient || 0;
+					placeOverlayMesh( gx, gz, cell );
+
+			}
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to load saved map', e );
+
+		}
+
+	}
+
+	// ─── Toast ────────────────────────────────────────────────
+
+	let toastTimer = 0;
+
+	function showToast( msg ) {
+
+		const el = document.getElementById( 'toast' );
+		el.textContent = msg;
+		el.classList.add( 'show' );
+		clearTimeout( toastTimer );
+		toastTimer = setTimeout( () => el.classList.remove( 'show' ), 2000 );
+
+	}
+
+	// ─── Toolbar ──────────────────────────────────────────────
+
+	const tileButtons = {
+		'track-straight': document.getElementById( 'btn-straight' ),
+		'track-corner': document.getElementById( 'btn-corner' ),
+		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
+		[ JUMP_TOOL ]: document.getElementById( 'btn-jump' ),
+		'track-finish': document.getElementById( 'btn-finish' ),
+		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
+		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
+		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
+		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
+		'surface-custom-a': document.getElementById( 'btn-surface-custom-a' ),
+		'surface-custom-b': document.getElementById( 'btn-surface-custom-b' ),
+		'surface-custom-c': document.getElementById( 'btn-surface-custom-c' ),
+	};
+	const surfaceSelect = document.getElementById( 'surface-select' );
+	const overlapToggleBtn = document.getElementById( 'btn-overlap-toggle' );
+	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
+	const customSurfaceTitle = document.getElementById( 'custom-surface-title' );
+	const customSurfaceInputs = {
+		forward: document.getElementById( 'cs-force-forward' ),
+		backward: document.getElementById( 'cs-force-backward' ),
+		left: document.getElementById( 'cs-force-left' ),
+		right: document.getElementById( 'cs-force-right' ),
+		up: document.getElementById( 'cs-force-up' ),
+		forceAmount: document.getElementById( 'cs-force-amount' ),
+		noAir: document.getElementById( 'cs-no-air' ),
+		oncePerContact: document.getElementById( 'cs-once-contact' ),
+		color: document.getElementById( 'cs-color' ),
+		grip: document.getElementById( 'cs-grip' ),
+		speed: document.getElementById( 'cs-speed' ),
+		save: document.getElementById( 'cs-save' ),
+		close: document.getElementById( 'cs-close' ),
+	};
+	const btnRotate = document.getElementById( 'btn-rotate' );
+	const btnPaint = document.getElementById( 'btn-paint' );
+	const btnErase = document.getElementById( 'btn-erase' );
+	const panelOverlay = document.getElementById( 'panel-overlay' );
+	const panelCenter = document.getElementById( 'panel-center' );
+	const flowPanel = document.getElementById( 'flow-panel' );
+	const panels = [ flowPanel ];
+
+	function closePanelCenter() {
+
+		panelOverlay.hidden = true;
+		panelCenter.hidden = true;
+		for ( const panel of panels ) panel.hidden = true;
+
+	}
+
+	function openPanelCenter( panel ) {
+
+		if ( ! panel ) return;
+		panelOverlay.hidden = false;
+		panelCenter.hidden = false;
+		for ( const candidate of panels ) candidate.hidden = candidate !== panel;
+
+	}
+
+	function selectTool( t ) {
+
+		tool = t;
+		btnPaint.classList.toggle( 'active', t === 'paint' );
+		btnErase.classList.toggle( 'active', t === 'erase' );
+
+	}
+
+	function updateTileToolbar() {
+
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
+
+			tileButtons[ type ].classList.toggle( 'active', selectedType === type );
+
+		}
+		if ( surfaceSelect ) surfaceSelect.value = SURFACE_TYPES.includes( selectedType ) ? selectedType : '';
+		if ( overlapToggleBtn ) {
+
+			overlapToggleBtn.classList.toggle( 'active', allowSurfaceOverlap );
+			overlapToggleBtn.textContent = `Overlap: ${ allowSurfaceOverlap ? 'On' : 'Off' }`;
+
+		}
+
+		const rotIndex = ORIENTATIONS.indexOf( selectedOrient );
+		btnRotate.textContent = `Rotate: ${ Math.max( 0, rotIndex ) * 90 }°`;
+
+	}
+
+	function selectTileType( type ) {
+
+		selectedType = type;
+		selectTool( 'paint' );
+		updateTileToolbar();
+
+	}
+
+	function openCustomSurfaceEditor( surfaceType ) {
+
+		activeCustomSurfaceEditor = surfaceType;
+		const config = customSurfaceConfigs[ surfaceType ] || CUSTOM_SURFACE_DEFAULTS[ surfaceType ];
+		customSurfaceTitle.textContent = `Edit ${ surfaceType.replace( 'surface-', '' ) }`;
+		customSurfaceInputs.forward.checked = Boolean( config.force?.forward );
+		customSurfaceInputs.backward.checked = Boolean( config.force?.backward );
+		customSurfaceInputs.left.checked = Boolean( config.force?.left );
+		customSurfaceInputs.right.checked = Boolean( config.force?.right );
+		customSurfaceInputs.up.checked = Boolean( config.force?.up );
+		customSurfaceInputs.forceAmount.value = String( Number( config.forceAmount ?? 0 ) );
+		customSurfaceInputs.noAir.checked = Boolean( config.noAir );
+		customSurfaceInputs.oncePerContact.checked = Boolean( config.oncePerContact );
+		customSurfaceInputs.color.value = config.color || '#9c7bff';
+		customSurfaceInputs.grip.value = String( Number( config.grip ?? 1 ) );
+		customSurfaceInputs.speed.value = String( Number( config.speed ?? 1 ) );
+		customSurfacePanel.hidden = false;
+
+	}
+
+	function closeCustomSurfaceEditor() {
+
+		customSurfacePanel.hidden = true;
+		activeCustomSurfaceEditor = null;
+
+	}
+
+	function saveCustomSurfaceEditor() {
+
+		if ( ! activeCustomSurfaceEditor ) return;
+		customSurfaceConfigs[ activeCustomSurfaceEditor ] = {
+			color: customSurfaceInputs.color.value || '#9c7bff',
+			grip: Number( customSurfaceInputs.grip.value ) || 1,
+			speed: Number( customSurfaceInputs.speed.value ) || 1,
+			forceAmount: Math.max( 0, Number( customSurfaceInputs.forceAmount.value ) || 0 ),
+			force: {
+				forward: customSurfaceInputs.forward.checked,
+				backward: customSurfaceInputs.backward.checked,
+				left: customSurfaceInputs.left.checked,
+				right: customSurfaceInputs.right.checked,
+				up: customSurfaceInputs.up.checked,
+			},
+			noAir: customSurfaceInputs.noAir.checked,
+			oncePerContact: customSurfaceInputs.oncePerContact.checked,
+		};
+		save();
+		for ( const [ key, cell ] of grid ) {
+
+			if ( ! cell.surfaceTypes?.includes( activeCustomSurfaceEditor ) ) continue;
+			const [ gx, gz ] = key.split( ',' ).map( Number );
+			placeOverlayMesh( gx, gz, cell );
+
+		}
+		showToast( `${ activeCustomSurfaceEditor } saved` );
+	}
+
+	function rotateSelection() {
+
+		const idx = ORIENTATIONS.indexOf( selectedOrient );
+		const nextIdx = idx >= 0 ? ( idx + 1 ) % ORIENTATIONS.length : 0;
+		selectedOrient = ORIENTATIONS[ nextIdx ];
+		updateTileToolbar();
+
+	}
+
+	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
+
+		tileButtons[ type ].addEventListener( 'click', () => {
+
+			selectTileType( type );
+			if ( CUSTOM_SURFACE_TYPES.includes( type ) ) openCustomSurfaceEditor( type );
+
+		} );
+
+	}
+	surfaceSelect?.addEventListener( 'change', () => {
+
+		if ( ! surfaceSelect.value ) return;
+		selectTileType( surfaceSelect.value );
+
+	} );
+	overlapToggleBtn?.addEventListener( 'click', () => {
+
+		allowSurfaceOverlap = ! allowSurfaceOverlap;
+		updateTileToolbar();
+		showToast( `Surface overlap ${ allowSurfaceOverlap ? 'enabled' : 'disabled' }` );
+
+	} );
+	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
+	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
+	panelOverlay?.addEventListener( 'click', closePanelCenter );
+	document.querySelectorAll( '[data-close-panel]' ).forEach( ( btn ) => btn.addEventListener( 'click', closePanelCenter ) );
+	const flowEnabledInput = document.getElementById( 'flow-enabled' );
+	const flowStraightSelect = document.getElementById( 'flow-straight-type' );
+	const flowCornerSelect = document.getElementById( 'flow-corner-type' );
+	flowEnabledInput?.addEventListener( 'change', () => {
+
+		flowBrushEnabled = Boolean( flowEnabledInput.checked );
+		syncFlowUi();
+	syncPlacementUi();
+		showToast( flowBrushEnabled ? 'Flow brush enabled' : 'Flow brush disabled' );
+
+	} );
+	flowStraightSelect?.addEventListener( 'change', () => { flowStraightType = flowStraightSelect.value || 'track-straight'; } );
+	flowCornerSelect?.addEventListener( 'change', () => { flowCornerType = flowCornerSelect.value || 'track-corner'; } );
+
+	const flowToggleBtn = document.getElementById( 'btn-flow' );
+	const offGridToggleBtn = document.getElementById( 'btn-offgrid' );
+
+	function syncFlowUi() {
+
+		if ( flowEnabledInput ) flowEnabledInput.checked = flowBrushEnabled;
+		if ( flowToggleBtn ) {
+
+			flowToggleBtn.textContent = `Flow: ${ flowBrushEnabled ? 'On' : 'Off' }`;
+			flowToggleBtn.classList.toggle( 'active', flowBrushEnabled );
+
+		}
+
+	}
+
+	function syncPlacementUi() {
+
+		if ( ! offGridToggleBtn ) return;
+		offGridToggleBtn.textContent = placeOffGrid ? 'Snap: Off' : 'Snap: Grid';
+		offGridToggleBtn.classList.toggle( 'active', placeOffGrid );
+
+	}
+
+	offGridToggleBtn?.addEventListener( 'click', () => {
+
+		placeOffGrid = ! placeOffGrid;
+		syncPlacementUi();
+		showToast( placeOffGrid ? 'Off-grid placement enabled' : 'Grid snap enabled' );
 
 	} );
 
-	if ( supportsCompactCodec ) {
 
-		const bytes = new Uint8Array( cells.length * 3 );
+	flowToggleBtn?.addEventListener( 'click', () => {
 
-		for ( let i = 0; i < cells.length; i ++ ) {
+		flowBrushEnabled = ! flowBrushEnabled;
+		syncFlowUi();
+		showToast( flowBrushEnabled ? 'Flow brush enabled' : 'Flow brush disabled' );
 
-			const [ gx, gz, name, godotOrient ] = cells[ i ];
-			const normalizedName = name === 'track-bump' ? 'track-checkpoint' : name;
-			const ti = TYPE_INDEX[ normalizedName ] ?? 0;
-			const oi = GODOT_TO_ORIENT[ godotOrient ] ?? 0;
+	} );
 
-			bytes[ i * 3 ] = gx + 128;
-			bytes[ i * 3 + 1 ] = gz + 128;
-			bytes[ i * 3 + 2 ] = ( ti << 2 ) | oi;
+	flowToggleBtn?.addEventListener( 'contextmenu', ( e ) => {
+
+		e.preventDefault();
+		openPanelCenter( flowPanel );
+
+	} );
+	syncFlowUi();
+
+	btnRotate.addEventListener( 'click', rotateSelection );
+	btnPaint.addEventListener( 'click', () => selectTool( 'paint' ) );
+	btnErase.addEventListener( 'click', () => selectTool( 'erase' ) );
+	const weatherSelect = document.getElementById( 'weather-preset' );
+	const precipitationSelect = document.getElementById( 'weather-precip' );
+	const intensitySelect = document.getElementById( 'weather-intensity' );
+	const windSelect = document.getElementById( 'weather-wind' );
+	const lightningToggle = document.getElementById( 'weather-lightning' );
+
+	function applyWeatherSettingsFromUi() {
+
+		weatherSettings = normalizeWeatherSettings( {
+			preset: weatherSelect.value,
+			precipitation: precipitationSelect.value,
+			intensity: intensitySelect.value,
+			lightning: lightningToggle.checked,
+			wind: windSelect.value,
+		} );
+		applyWeatherPreset( weatherSettings.preset );
+		save();
+		showToast( `Weather: ${ WEATHER_PRESETS[ weatherSettings.preset ].name }` );
+
+	}
+
+	weatherSelect.addEventListener( 'change', applyWeatherSettingsFromUi );
+	precipitationSelect.addEventListener( 'change', applyWeatherSettingsFromUi );
+	intensitySelect.addEventListener( 'change', applyWeatherSettingsFromUi );
+	windSelect.addEventListener( 'change', applyWeatherSettingsFromUi );
+	lightningToggle.addEventListener( 'change', applyWeatherSettingsFromUi );
+	updateTileToolbar();
+
+	function getCellsArray() {
+
+			const arr = [];
+			for ( const [ key, cell ] of grid ) {
+
+				const [ gx, gz ] = key.split( ',' ).map( Number );
+				for ( const roadPiece of ( cell.roadPieces || [] ) ) {
+
+					arr.push( [ gx, gz, roadPiece.type, roadPiece.orient ] );
+
+				}
 
 		}
 
-		return bytesToBase64url( bytes );
+		return arr;
 
 	}
 
-	const payload = JSON.stringify( { v: 2, cells } );
-	const encoded = btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
-	return `v2.${ encoded }`;
+	document.getElementById( 'btn-play' ).addEventListener( 'click', () => {
 
-}
+		if ( getCellsArray().length === 0 ) {
 
-export function decodeCells( str ) {
+			showToast( 'Draw some road first!' );
+			return;
 
-	if ( str.startsWith( 'v2.' ) ) {
+		}
 
-		const raw = str.slice( 3 ).replace( /-/g, '+' ).replace( /_/g, '/' );
-		const padded = raw + '==='.slice( ( raw.length + 3 ) % 4 );
-		const payload = decodeURIComponent( escape( atob( padded ) ) );
-		const parsed = JSON.parse( payload );
-		const entries = Array.isArray( parsed?.cells ) ? parsed.cells : [];
-		return entries
-			.filter( ( cell ) => Array.isArray( cell ) && cell.length >= 4 )
-			.map( ( [ gx, gz, name, orient ] ) => [ Number( gx ), Number( gz ), name, orient ] );
+		const encoded = encodeCells( getCellsArray() );
+		const mods = encodeMods();
+		window.open( 'index.html?map=' + encoded + '&mods=' + mods, '_blank' );
 
-	}
+	} );
 
-	const bytes = base64urlToBytes( str );
-	const cells = [];
+	document.getElementById( 'btn-share' ).addEventListener( 'click', () => {
 
-	for ( let i = 0; i + 2 < bytes.length; i += 3 ) {
+		if ( getCellsArray().length === 0 ) {
 
-		const gx = bytes[ i ] - 128;
-		const gz = bytes[ i + 1 ] - 128;
-		const packed = bytes[ i + 2 ];
-		const ti = ( packed >> 2 ) & 0x03;
-		const oi = packed & 0x03;
+			showToast( 'Draw some road first!' );
+			return;
 
-		cells.push( [ gx, gz, TYPE_NAMES[ ti ], ORIENT_TO_GODOT[ oi ] ] );
+		}
 
-	}
+		const encoded = encodeCells( getCellsArray() );
+		const mods = encodeMods();
+		const base = window.location.href.replace( /editor\.html.*/, '' );
+		const url = base + 'index.html?map=' + encoded + '&mods=' + mods;
 
-	return cells;
+		navigator.clipboard.writeText( url ).then( () => {
 
-}
+			showToast( 'Link copied to clipboard!' );
 
-export function computeSpawnPosition( cells ) {
+		} ).catch( () => {
 
-	let cell = cells[ 0 ];
+			showToast( url );
 
-	for ( const c of cells ) {
+		} );
 
-		if ( c[ 2 ] === 'track-finish' ) {
+	} );
 
-			cell = c;
-			break;
+	document.getElementById( 'btn-clear' ).addEventListener( 'click', () => {
+
+		clearAll();
+		showToast( 'Track cleared' );
+
+	} );
+
+	// ─── Input (pointer events) ───────────────────────────────
+
+	let isPanning = false;
+	let isDrawing = false;
+	let isErasing = false;
+	let panStart = { x: 0, y: 0 };
+	let camStart = { x: 0, z: 0 };
+	let lastDrawCell = null;
+	let spaceDown = false;
+
+	// Track active pointers for multi-touch (pinch/pan)
+	const pointers = new Map();
+	let pinchStartDist = 0;
+	let pinchStartZoom = 1;
+
+	const el = renderer.domElement;
+
+	el.addEventListener( 'contextmenu', ( e ) => e.preventDefault() );
+
+	function handleDraw( clientX, clientY ) {
+
+		const cell = screenToGrid( clientX, clientY );
+		if ( ! cell ) return;
+
+		if ( lastDrawCell && lastDrawCell.gx === cell.gx && lastDrawCell.gz === cell.gz ) return;
+		lastDrawCell = cell;
+
+		if ( isErasing ) {
+
+			eraseRoad( cell.gx, cell.gz );
+
+		} else if ( isDrawing ) {
+
+			const isRoadType = TILE_TYPES.includes( selectedType );
+			if ( flowBrushEnabled && isRoadType ) {
+
+				flowStrokeCells.push( { gx: cell.gx, gz: cell.gz } );
+				renderFlowStrokePreview();
+
+			} else {
+
+				placeSelectedBlock( cell.gx, cell.gz );
+
+			}
 
 		}
 
 	}
 
-	if ( ! cell ) return { position: [ 3.5, 0.5, 5 ], angle: 0 };
+	function getPinchDist() {
 
-	const gx = cell[ 0 ];
-	const gz = cell[ 1 ];
-	const x = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
-	const z = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
-
-	const orient = cell[ 3 ];
-	const angle = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
-
-	return { position: [ x, 0.5, z ], angle };
-
-}
-
-export function computeTrackBounds( cells ) {
-
-	if ( ! cells || cells.length === 0 ) return { centerX: 0, centerZ: 0, halfWidth: 30, halfDepth: 30 };
-
-	let minX = Infinity, maxX = - Infinity;
-	let minZ = Infinity, maxZ = - Infinity;
-
-	for ( const [ gx, gz ] of cells ) {
-
-		minX = Math.min( minX, gx );
-		maxX = Math.max( maxX, gx );
-		minZ = Math.min( minZ, gz );
-		maxZ = Math.max( maxZ, gz );
+		const pts = [ ...pointers.values() ];
+		const dx = pts[ 1 ].x - pts[ 0 ].x;
+		const dy = pts[ 1 ].y - pts[ 0 ].y;
+		return Math.sqrt( dx * dx + dy * dy );
 
 	}
 
-	const S = CELL_RAW * GRID_SCALE;
-	const centerX = ( minX + maxX + 1 ) / 2 * S;
-	const centerZ = ( minZ + maxZ + 1 ) / 2 * S;
-	const halfWidth = ( maxX - minX + 1 ) / 2 * S + S;
-	const halfDepth = ( maxZ - minZ + 1 ) / 2 * S + S;
+	function getPinchMid() {
 
-	return { centerX, centerZ, halfWidth, halfDepth };
+		const pts = [ ...pointers.values() ];
+		return {
+			x: ( pts[ 0 ].x + pts[ 1 ].x ) / 2,
+			y: ( pts[ 0 ].y + pts[ 1 ].y ) / 2
+		};
 
-}
+	}
 
-function bytesToBase64url( bytes ) {
+	el.addEventListener( 'pointerdown', ( e ) => {
 
-	let binary = '';
-	for ( let i = 0; i < bytes.length; i ++ ) binary += String.fromCharCode( bytes[ i ] );
+		el.setPointerCapture( e.pointerId );
+		pointers.set( e.pointerId, { x: e.clientX, y: e.clientY } );
 
-	return btoa( binary ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
+		// Two pointers → switch to pan/pinch
+		if ( pointers.size === 2 ) {
 
-}
+			isDrawing = false;
+			isErasing = false;
+			isPanning = true;
 
-function base64urlToBytes( str ) {
+			const mid = getPinchMid();
+			panStart.x = mid.x;
+			panStart.y = mid.y;
+			camStart.x = camTarget.x;
+			camStart.z = camTarget.z;
+			pinchStartDist = getPinchDist();
+			pinchStartZoom = camera.zoom;
+			return;
 
-	const base64 = str.replace( /-/g, '+' ).replace( /_/g, '/' );
-	const binary = atob( base64 );
-	const bytes = new Uint8Array( binary.length );
-	for ( let i = 0; i < binary.length; i ++ ) bytes[ i ] = binary.charCodeAt( i );
+		}
 
-	return bytes;
+		if ( pointers.size > 2 ) return;
 
-}
+		// Single pointer
+		// Middle mouse, ctrl+click, or space+click → pan
+		if ( e.button === 1 || ( e.button === 0 && ( e.ctrlKey || e.metaKey || spaceDown ) ) ) {
+
+			isPanning = true;
+			panStart.x = e.clientX;
+			panStart.y = e.clientY;
+			camStart.x = camTarget.x;
+			camStart.z = camTarget.z;
+			el.style.cursor = 'grabbing';
+			return;
+
+		}
+
+		if ( e.button === 0 ) {
+
+			if ( tool === 'erase' ) {
+
+				isErasing = true;
+
+			} else {
+
+				isDrawing = true;
+
+			}
+
+			lastDrawCell = null;
+			flowStrokeCells = [];
+			if ( flowBrushEnabled && TILE_TYPES.includes( selectedType ) ) clearGhost();
+
+			// On touch, defer draw until pointermove confirms single-finger gesture
+			if ( e.pointerType !== 'touch' ) handleDraw( e.clientX, e.clientY );
+
+		} else if ( e.button === 2 ) {
+
+			isErasing = true;
+			lastDrawCell = null;
+			handleDraw( e.clientX, e.clientY );
+
+		}
+
+	} );
+
+	el.addEventListener( 'pointermove', ( e ) => {
+
+		pointers.set( e.pointerId, { x: e.clientX, y: e.clientY } );
+
+		// Two-pointer pan + pinch
+		if ( pointers.size === 2 && isPanning ) {
+
+			const mid = getPinchMid();
+			const scale = frustum * 2 / window.innerHeight / camera.zoom;
+			camTarget.x = camStart.x - ( mid.x - panStart.x ) * scale;
+			camTarget.z = camStart.z - ( mid.y - panStart.y ) * scale;
+			camera.position.x = camTarget.x;
+			camera.position.z = camTarget.z;
+			camera.lookAt( camTarget.x, 0, camTarget.z );
+
+			const dist = getPinchDist();
+			camera.zoom = Math.max( 0.1, Math.min( 10, pinchStartZoom * ( dist / pinchStartDist ) ) );
+			camera.updateProjectionMatrix();
+			return;
+
+		}
+
+		// Single-pointer pan
+		if ( isPanning ) {
+
+			const zoom = camera.zoom;
+			const dx = ( e.clientX - panStart.x ) / window.innerWidth * frustum * 2 * ( window.innerWidth / window.innerHeight ) / zoom;
+			const dz = ( e.clientY - panStart.y ) / window.innerHeight * frustum * 2 / zoom;
+			camTarget.x = camStart.x - dx;
+			camTarget.z = camStart.z - dz;
+			camera.position.x = camTarget.x;
+			camera.position.z = camTarget.z;
+			camera.lookAt( camTarget.x, 0, camTarget.z );
+			return;
+
+		}
+
+		if ( isDrawing || isErasing ) {
+
+			handleDraw( e.clientX, e.clientY );
+			return;
+
+		}
+
+		// Hover ghost (mouse only)
+		if ( e.pointerType === 'mouse' ) {
+
+			const cell = screenToGrid( e.clientX, e.clientY );
+			if ( cell ) {
+
+				hoveredCell = cell;
+				updateGhost( cell.gx, cell.gz );
+
+			} else {
+
+				hoveredCell = null;
+				clearGhost();
+
+			}
+
+		}
+
+	} );
+
+	window.addEventListener( 'pointerup', ( e ) => {
+
+		pointers.delete( e.pointerId );
+
+		if ( pointers.size === 0 ) {
+
+			// Touch tap: if we deferred draw and never moved, draw now
+			if ( ( isDrawing || isErasing ) && lastDrawCell === null && ! isPanning ) {
+
+				handleDraw( e.clientX, e.clientY );
+
+			}
+
+			isPanning = false;
+			if ( isDrawing && flowBrushEnabled && TILE_TYPES.includes( selectedType ) ) {
+
+				applyFlowStroke();
+				if ( hoveredCell ) updateGhost( hoveredCell.gx, hoveredCell.gz );
+				else clearGhost();
+
+			}
+			isDrawing = false;
+			isErasing = false;
+			lastDrawCell = null;
+			el.style.cursor = spaceDown ? 'grab' : '';
+
+		}
+
+	} );
+
+	window.addEventListener( 'pointercancel', ( e ) => {
+
+		pointers.delete( e.pointerId );
+
+	} );
+
+	// Trackpad: two-finger scroll → pan, pinch (ctrl+wheel) → zoom
+	el.addEventListener( 'wheel', ( e ) => {
+
+		e.preventDefault();
+
+		if ( e.ctrlKey ) {
+
+			const zoomSpeed = 1.02;
+			camera.zoom *= e.deltaY > 0 ? 1 / zoomSpeed : zoomSpeed;
+			camera.zoom = Math.max( 0.1, Math.min( 10, camera.zoom ) );
+			camera.updateProjectionMatrix();
+
+		} else {
+
+			const scale = frustum * 2 / window.innerHeight / camera.zoom;
+			camTarget.x += e.deltaX * scale;
+			camTarget.z += e.deltaY * scale;
+			camera.position.x = camTarget.x;
+			camera.position.z = camTarget.z;
+			camera.lookAt( camTarget.x, 0, camTarget.z );
+
+		}
+
+	}, { passive: false } );
+
+		window.addEventListener( 'keydown', ( e ) => {
+
+			const panStep = cellWorld * 0.75 / camera.zoom;
+
+			if ( e.key === ' ' ) {
+
+				if ( ! spaceDown ) {
+
+					spaceDown = true;
+					el.style.cursor = 'grab';
+
+				}
+
+				e.preventDefault();
+
+			} else if ( e.key === '1' ) {
+
+				selectTool( 'paint' );
+
+			} else if ( e.key === '2' ) {
+
+				selectTool( 'erase' );
+
+			} else if ( e.key.toLowerCase() === 'r' ) {
+
+				rotateSelection();
+
+			} else if ( e.key === 'ArrowUp' ) {
+
+				camTarget.z -= panStep;
+				camera.position.z = camTarget.z;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				e.preventDefault();
+
+			} else if ( e.key === 'ArrowDown' ) {
+
+				camTarget.z += panStep;
+				camera.position.z = camTarget.z;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				e.preventDefault();
+
+			} else if ( e.key === 'ArrowLeft' ) {
+
+				camTarget.x -= panStep;
+				camera.position.x = camTarget.x;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				e.preventDefault();
+
+			} else if ( e.key === 'ArrowRight' ) {
+
+				camTarget.x += panStep;
+				camera.position.x = camTarget.x;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				e.preventDefault();
+
+			}
+
+		} );
+
+	window.addEventListener( 'keyup', ( e ) => {
+
+		if ( e.key === ' ' ) {
+
+			spaceDown = false;
+			if ( ! isPanning ) el.style.cursor = '';
+
+		}
+
+	} );
+
+	// ─── Init & render loop ───────────────────────────────────
+
+	await loadModels();
+	applyWeatherPreset( WEATHER_DEFAULT );
+	loadSaved();
+
+	// Start with a finish cell if the grid is empty
+	if ( grid.size === 0 ) {
+
+		placeFinish();
+
+	}
+
+	function animate() {
+
+		requestAnimationFrame( animate );
+		renderer.render( scene, camera );
+
+	}
+
+	animate();
+
+	</script>
+</body>
+</html>
