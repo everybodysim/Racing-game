@@ -60,83 +60,6 @@ const DECO_CELLS = [
 	[ -4, -2, 'decoration-tents', 10 ],
 	[ -1, -4, 'decoration-tents', 22 ],
 	[ -1,  1, 'decoration-tents', 22 ],
-	[ -8, -9, 'decoration-forest', 0 ], [ -7, -9, 'decoration-forest', 0 ],
-	[ -6, -9, 'decoration-forest', 0 ], [ -5, -9, 'decoration-forest', 0 ],
-	[ -4, -9, 'decoration-forest', 0 ], [ -3, -9, 'decoration-forest', 0 ],
-	[ -2, -9, 'decoration-forest', 0 ], [ -1, -9, 'decoration-forest', 0 ],
-	[  0, -9, 'decoration-forest', 0 ], [  1, -9, 'decoration-forest', 0 ],
-	[  2, -9, 'decoration-forest', 0 ],
-	[ -8, -8, 'decoration-forest', 0 ], [ -7, -8, 'decoration-forest', 0 ],
-	[ -6, -8, 'decoration-forest', 0 ], [ -5, -8, 'decoration-forest', 0 ],
-	[ -4, -8, 'decoration-forest', 0 ], [ -3, -8, 'decoration-forest', 0 ],
-	[ -2, -8, 'decoration-forest', 0 ], [ -1, -8, 'decoration-forest', 0 ],
-	[  0, -8, 'decoration-forest', 0 ], [  1, -8, 'decoration-forest', 0 ],
-	[  2, -8, 'decoration-forest', 0 ],
-	[ -8, -7, 'decoration-forest', 0 ], [ -7, -7, 'decoration-forest', 0 ],
-	[ -6, -7, 'decoration-forest', 0 ], [ -5, -7, 'decoration-forest', 0 ],
-	[ -4, -7, 'decoration-forest', 0 ], [ -3, -7, 'decoration-forest', 0 ],
-	[ -2, -7, 'decoration-forest', 0 ], [ -1, -7, 'decoration-forest', 0 ],
-	[  0, -7, 'decoration-forest', 0 ], [  1, -7, 'decoration-forest', 0 ],
-	[  2, -7, 'decoration-forest', 0 ],
-	[ -8, -6, 'decoration-forest', 0 ], [ -7, -6, 'decoration-forest', 0 ],
-	[ -6, -6, 'decoration-forest', 0 ], [ -5, -6, 'decoration-forest', 0 ],
-	[ -4, -6, 'decoration-forest', 0 ], [ -3, -6, 'decoration-ground', 0 ],
-	[ -2, -6, 'decoration-ground', 0 ],  [ -1, -6, 'decoration-ground', 0 ],
-	[  0, -6, 'decoration-ground', 0 ],  [  1, -6, 'decoration-forest', 0 ],
-	[  2, -6, 'decoration-forest', 0 ],
-	[ -8, -5, 'decoration-forest', 0 ], [ -7, -5, 'decoration-forest', 0 ],
-	[ -6, -5, 'decoration-forest', 0 ], [ -5, -5, 'decoration-forest', 0 ],
-	[ -4, -5, 'decoration-ground', 0 ],  [ -3, -5, 'decoration-ground', 0 ],
-	[ -2, -5, 'decoration-ground', 0 ],  [ -1, -5, 'decoration-ground', 0 ],
-	[  0, -5, 'decoration-ground', 0 ],  [  1, -5, 'decoration-forest', 0 ],
-	[  2, -5, 'decoration-forest', 0 ],
-	[ -8, -4, 'decoration-forest', 0 ], [ -7, -4, 'decoration-forest', 0 ],
-	[ -6, -4, 'decoration-forest', 0 ], [ -5, -4, 'decoration-forest', 0 ],
-	[ -4, -4, 'decoration-ground', 0 ],
-	[  1, -4, 'decoration-forest', 0 ],
-	[  2, -4, 'decoration-forest', 0 ],
-	[ -8, -3, 'decoration-forest', 0 ], [ -7, -3, 'decoration-forest', 0 ],
-	[ -6, -3, 'decoration-forest', 0 ], [ -5, -3, 'decoration-forest', 0 ],
-	[ -4, -3, 'decoration-ground', 0 ],
-	[  1, -3, 'decoration-forest', 0 ],
-	[  2, -3, 'decoration-forest', 0 ],
-	[ -8, -2, 'decoration-forest', 0 ], [ -7, -2, 'decoration-forest', 0 ],
-	[ -6, -2, 'decoration-forest', 0 ], [ -5, -2, 'decoration-forest', 0 ],
-	[  1, -2, 'decoration-forest', 0 ],
-	[  2, -2, 'decoration-forest', 0 ],
-	[ -8, -1, 'decoration-forest', 0 ], [ -7, -1, 'decoration-forest', 0 ],
-	[ -6, -1, 'decoration-forest', 0 ], [ -5, -1, 'decoration-forest', 0 ],
-	[ -4, -1, 'decoration-ground', 0 ],  [ -1, -1, 'decoration-ground', 0 ],
-	[  1, -1, 'decoration-forest', 0 ],
-	[  2, -1, 'decoration-forest', 0 ],
-	[ -8,  0, 'decoration-forest', 0 ], [ -7,  0, 'decoration-forest', 0 ],
-	[ -6,  0, 'decoration-forest', 0 ], [ -5,  0, 'decoration-forest', 0 ],
-	[ -4,  0, 'decoration-ground', 0 ],  [ -3,  0, 'decoration-ground', 0 ],
-	[ -1,  0, 'decoration-ground', 0 ],
-	[  1,  0, 'decoration-forest', 0 ],
-	[  2,  0, 'decoration-forest', 0 ],
-	[ -8,  1, 'decoration-forest', 0 ], [ -7,  1, 'decoration-forest', 0 ],
-	[ -6,  1, 'decoration-forest', 0 ], [ -5,  1, 'decoration-forest', 0 ],
-	[ -4,  1, 'decoration-ground', 0 ],  [ -3,  1, 'decoration-ground', 0 ],
-	[  1,  1, 'decoration-forest', 0 ],
-	[  2,  1, 'decoration-forest', 0 ],
-	[ -8,  2, 'decoration-forest', 0 ], [ -7,  2, 'decoration-forest', 0 ],
-	[ -6,  2, 'decoration-forest', 0 ], [ -5,  2, 'decoration-forest', 0 ],
-	[ -4,  2, 'decoration-ground', 0 ],  [ -3,  2, 'decoration-ground', 0 ],
-	[  1,  2, 'decoration-forest', 0 ],
-	[  2,  2, 'decoration-forest', 0 ],
-	[ -8,  3, 'decoration-forest', 0 ], [ -7,  3, 'decoration-forest', 0 ],
-	[ -6,  3, 'decoration-forest', 0 ], [ -5,  3, 'decoration-forest', 0 ],
-	[ -4,  3, 'decoration-forest', 0 ], [ -3,  3, 'decoration-forest', 0 ],
-	[ -2,  3, 'decoration-forest', 0 ], [ -1,  3, 'decoration-forest', 0 ],
-	[  0,  3, 'decoration-forest', 0 ], [  1,  3, 'decoration-forest', 0 ],
-	[  2,  3, 'decoration-forest', 0 ],
-	[ -8,  4, 'decoration-forest', 0 ], [ -7,  4, 'decoration-forest', 0 ],
-	[ -6,  4, 'decoration-forest', 0 ], [ -5,  4, 'decoration-forest', 0 ],
-	[ -4,  4, 'decoration-forest', 0 ], [ -3,  4, 'decoration-forest', 0 ],
-	[ -2,  4, 'decoration-forest', 0 ], [ -1,  4, 'decoration-forest', 0 ],
-	[  0,  4, 'decoration-forest', 0 ], [  1,  4, 'decoration-forest', 0 ],
-	[  2,  4, 'decoration-forest', 0 ],
 ];
 
 const NPC_TRUCKS = [
@@ -266,9 +189,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 	{
 
-		// Auto-generate decorations to fill any gaps
+		// Auto-generate solid green ground to fill gaps (NO TREES)
 		const occupied = new Set();
-		const treeBlocked = new Set();
 		let minX = Infinity, maxX = - Infinity;
 		let minZ = Infinity, maxZ = - Infinity;
 
@@ -279,17 +201,6 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			maxX = Math.max( maxX, gx );
 			minZ = Math.min( minZ, gz );
 			maxZ = Math.max( maxZ, gz );
-
-			// FIXED: Expanded blocking area to catch partial overlaps from off-grid track pieces
-			for ( let bx = Math.floor( gx ) - 1; bx <= Math.ceil( gx ) + 1; bx ++ ) {
-
-				for ( let bz = Math.floor( gz ) - 1; bz <= Math.ceil( gz ) + 1; bz ++ ) {
-					
-					treeBlocked.add( bx + ',' + bz );
-
-				}
-
-			}
 
 		}
 
@@ -309,17 +220,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		}
 
 		const pad = 3;
-		const emptyPositions = [];
-		const forestPositions = [];
-
-		// Simple hash for deterministic pseudo-random placement
-		function hash( gx, gz ) {
-
-			let h = gx * 374761393 + gz * 668265263;
-			h = ( h ^ ( h >> 13 ) ) * 1274126177;
-			return ( h ^ ( h >> 16 ) ) >>> 0;
-
-		}
+		const greenGroundPositions = [];
 
 		const startX = Math.floor( minX - pad );
 		const endX = Math.ceil( maxX + pad );
@@ -332,64 +233,42 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 				if ( occupied.has( gx + ',' + gz ) ) continue;
 
-				const distX = gx < minX ? minX - gx : gx > maxX ? gx - maxX : 0;
-				const distZ = gz < minZ ? minZ - gz : gz > maxZ ? gz - maxZ : 0;
-				const dist = Math.max( distX, distZ );
-
 				const x = ( gx + 0.5 ) * CELL_RAW;
 				const z = ( gz + 0.5 ) * CELL_RAW;
 
-				if ( treeBlocked.has( gx + ',' + gz ) ) {
-
-					emptyPositions.push( x, z );
-					continue;
-
-				}
-
-				if ( dist <= NO_DECO_BUFFER_CELLS + 1 ) {
-
-					emptyPositions.push( x, z );
-
-				} else {
-
-					forestPositions.push( x, z );
-
-				}
+				greenGroundPositions.push( x, z );
 
 			}
 
 		}
 
-		function createInstances( src, positions ) {
+		// Create solid green ground planes
+		function createGreenGround( positions ) {
 
-			if ( positions.length === 0 || ! src ) return;
+			if ( positions.length === 0 ) return;
 
 			const count = positions.length / 2;
 
-			src.traverse( ( child ) => {
-
-				if ( ! child.isMesh ) return;
-
-				const inst = new THREE.InstancedMesh( child.geometry, child.material, count );
-				inst.castShadow = true;
-				inst.receiveShadow = true;
-
-				for ( let i = 0; i < count; i ++ ) {
-
-					_dummy.position.set( positions[ i * 2 ], 0.5, positions[ i * 2 + 1 ] );
-					_dummy.updateMatrix();
-					inst.setMatrixAt( i, _dummy.matrix );
-
-				}
-
-				decoGroup.add( inst );
-
+			const geometry = new THREE.PlaneGeometry( CELL_RAW * 0.99, CELL_RAW * 0.99 );
+			const material = new THREE.MeshStandardMaterial( {
+				color: 0x5a8f3a,
+				roughness: 0.8,
+				metalness: 0.0
 			} );
+
+			for ( let i = 0; i < count; i ++ ) {
+
+				const groundMesh = new THREE.Mesh( geometry, material );
+				groundMesh.rotation.x = - Math.PI / 2;
+				groundMesh.position.set( positions[ i * 2 ], 0.001, positions[ i * 2 + 1 ] );
+				groundMesh.receiveShadow = true;
+				decoGroup.add( groundMesh );
+
+			}
 
 		}
 
-		createInstances( models[ 'decoration-ground' ], emptyPositions );
-		createInstances( models[ 'decoration-forest' ], forestPositions );
+		createGreenGround( greenGroundPositions );
 
 	}
 
