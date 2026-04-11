@@ -398,7 +398,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		}
 
 		createInstances( models[ 'untitled' ], emptyPositions );
-		createInstances( models[ 'decoration-forest' ], forestPositions );
+		// createInstances( models[ 'decoration-forest' ], forestPositions );
 
 	}
 
