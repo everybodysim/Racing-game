@@ -11,7 +11,7 @@ import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
 
-
+ 
 const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
 const MAX_PIXEL_RATIO = 1.5;
 renderer.setSize( window.innerWidth, window.innerHeight );
