@@ -2,6 +2,7 @@ const BOARD_KEY_PREFIX = 'leaderboard:';
 const MAX_ROWS_PER_TRACK = 25;
 const MIN_TIME_SECONDS = 1;
 const MAX_TIME_SECONDS = 3600;
+const MAX_GHOST_SAMPLES = 2500;
 
 export default {
 	async fetch( request, env ) {
@@ -39,6 +40,7 @@ async function postLeaderboardTime( request, env ) {
 	const trackName = sanitizeTrackName( payload?.trackName );
 	const playerName = sanitizePlayerName( payload?.name );
 	const timeSeconds = Number( payload?.timeSeconds );
+	const ghost = sanitizeGhostPayload( payload?.ghost );
 
 	if ( ! trackId ) return json( { ok: false, error: 'trackId is required' }, 400 );
 	if ( ! playerName ) return json( { ok: false, error: 'name is required' }, 400 );
@@ -51,6 +53,7 @@ async function postLeaderboardTime( request, env ) {
 		name: playerName,
 		timeSeconds: roundTime( timeSeconds ),
 		trackName,
+		ghost,
 		createdAt: Date.now(),
 	} );
 
@@ -89,6 +92,7 @@ function dedupeAndSortEntries( entries ) {
 			name: sanitizePlayerName( entry.name ) || 'Anonymous',
 			timeSeconds: roundTime( timeSeconds ),
 			trackName: sanitizeTrackName( entry.trackName ),
+			ghost: sanitizeGhostPayload( entry.ghost ),
 			createdAt: Number.isFinite( Number( entry.createdAt ) ) ? Number( entry.createdAt ) : Date.now(),
 		};
 		const existing = bestByName.get( key );
@@ -122,6 +126,37 @@ function normalizeNameKey( value ) {
 
 function roundTime( value ) {
 	return Math.round( value * 1000 ) / 1000;
+}
+
+function sanitizeGhostPayload( payload ) {
+	if ( ! payload || typeof payload !== 'object' ) return null;
+	const car = typeof payload.car === 'string' ? payload.car.trim().slice( 0, 40 ) : '';
+	const duration = Number( payload.duration );
+	if ( ! car || ! Number.isFinite( duration ) || duration <= 0 || duration > MAX_TIME_SECONDS ) return null;
+	const sourceSamples = Array.isArray( payload.samples ) ? payload.samples.slice( 0, MAX_GHOST_SAMPLES ) : [];
+	const samples = [];
+	for ( const sample of sourceSamples ) {
+		const t = Number( sample?.t );
+		const x = Number( sample?.x );
+		const y = Number( sample?.y );
+		const z = Number( sample?.z );
+		const yaw = Number( sample?.yaw );
+		if ( ! Number.isFinite( t ) || ! Number.isFinite( x ) || ! Number.isFinite( y ) || ! Number.isFinite( z ) || ! Number.isFinite( yaw ) ) continue;
+		samples.push( {
+			t: roundTime( t ),
+			x: roundTime( x ),
+			y: roundTime( y ),
+			z: roundTime( z ),
+			yaw: roundTime( yaw ),
+		} );
+	}
+	if ( samples.length < 2 ) return null;
+	return {
+		car,
+		bestLapSeconds: Number.isFinite( Number( payload.bestLapSeconds ) ) ? roundTime( Number( payload.bestLapSeconds ) ) : undefined,
+		duration: roundTime( duration ),
+		samples,
+	};
 }
 
 function withCors( response ) {
