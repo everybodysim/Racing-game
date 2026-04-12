@@ -1,4 +1,4 @@
-const CACHE_NAME = 'racing-game-v1';
+const CACHE_NAME = 'racing-game-v2';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -33,6 +33,26 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
+
+  const isNavigation = event.request.mode === 'navigate';
+  const isHtml = url.pathname.endsWith('.html') || url.pathname === '/' || url.pathname === '';
+  const isScript = url.pathname.endsWith('.js') || url.pathname.startsWith('/js/');
+  const preferNetwork = isNavigation || isHtml || isScript;
+
+  if (preferNetwork) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const responseToCache = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached || caches.match('./index.html')))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
