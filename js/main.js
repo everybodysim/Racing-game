@@ -100,6 +100,7 @@ const PLAYER_NAME_KEY = 'racing-player-name-v1';
 const MAX_PLAYER_NAME_LENGTH = 24;
 const ACCOUNT_SESSION_KEY = 'racing-account-session-v1';
 const MAX_LEADERBOARD_ROWS = 15;
+const MAX_LEADERBOARD_GHOST_SAMPLES = 2500;
 const CAMPAIGN_STAGES = [
 	{ type: 'beat-authors', goal: 1, text: 'Defeat 1 author time' },
 	{ type: 'beat-authors', goal: 3, text: 'Defeat 3 author times' },
@@ -480,6 +481,7 @@ async function init() {
 	const lapHud2 = document.getElementById( 'lap-hud-2' );
 	const respawnBtn = document.getElementById( 'respawnBtn' );
 	const modeMenuBtn = document.getElementById( 'mode-menu-btn' );
+	const topMessage = document.getElementById( 'top-message' );
 	const carSelect = document.getElementById( 'car-select' );
 	const coinsLabel = document.getElementById( 'coins-label' );
 	const upgradeLabel = document.getElementById( 'upgrade-label' );
@@ -537,7 +539,9 @@ async function init() {
 	let stuntComboTimer = 0;
 	let stuntAirTime = 0;
 	let modeMenuOpen = false;
+	let topMessageTimer = 0;
 	let pendingLeaderboardRecord = null;
+	let activeLeaderboardGhostName = '';
 	let leaderboardVisible = true;
 	let accountSession = null;
 	let campaignState = null;
@@ -623,6 +627,24 @@ async function init() {
 
 		if ( modeError ) modeError.textContent = message || '';
 		if ( message ) window.alert( message );
+
+	}
+
+	function showTopMessage( message, isError = false, durationMs = 1800 ) {
+
+		if ( ! topMessage ) return;
+		topMessage.textContent = String( message || '' ).trim();
+		topMessage.classList.toggle( 'error', Boolean( isError ) );
+		topMessage.classList.toggle( 'show', Boolean( topMessage.textContent ) );
+		window.clearTimeout( topMessageTimer );
+		if ( ! topMessage.textContent ) return;
+		topMessageTimer = window.setTimeout( () => {
+
+			if ( ! topMessage ) return;
+			topMessage.classList.remove( 'show' );
+			topMessage.textContent = '';
+
+		}, Math.max( 300, Number( durationMs ) || 1800 ) );
 
 	}
 
@@ -1692,7 +1714,20 @@ async function init() {
 
 	}
 
-	function applyImportedGhostPayload( payload ) {
+	function createLeaderboardGhostPayload() {
+
+		if ( ! ghostEnabled ) return null;
+		if ( bestLapGhostSamples.length < 2 || ! Number.isFinite( bestGhostDuration ) || bestGhostDuration <= 0 ) return null;
+		return {
+			car: bestGhostCarKey,
+			bestLapSeconds: Number.isFinite( bestLapSeconds ) ? bestLapSeconds : undefined,
+			duration: bestGhostDuration,
+			samples: bestLapGhostSamples.slice( 0, MAX_LEADERBOARD_GHOST_SAMPLES ),
+		};
+
+	}
+
+	function applyImportedGhostPayload( payload, options = {} ) {
 
 		if ( ! ghostEnabled ) return false;
 		const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
@@ -1713,7 +1748,7 @@ async function init() {
 		}
 		if ( bestLapGhostSamples.length < 2 ) return false;
 		bestGhostDuration = duration;
-		if ( Number.isFinite( payload.bestLapSeconds ) ) bestLapSeconds = payload.bestLapSeconds;
+		if ( options.applyBestLapSeconds !== false && Number.isFinite( payload.bestLapSeconds ) ) bestLapSeconds = payload.bestLapSeconds;
 		if ( payload?.car && models[ payload.car ] ) {
 
 			bestGhostCarKey = payload.car;
@@ -1810,7 +1845,39 @@ async function init() {
 			const row = document.createElement( 'li' );
 			const safeName = sanitizePlayerName( entry?.name ) || 'Anonymous';
 			const timeText = formatLapTime( Number( entry?.timeSeconds ) );
-			row.innerHTML = `<span class=\"lb-rank\">#${ index + 1 }</span> <span class=\"lb-name\">${ safeName }</span> — <span class=\"lb-time\">${ timeText }</span>`;
+			const hasGhost = Boolean( entry?.ghost );
+			row.classList.toggle( 'has-ghost', hasGhost );
+			if ( hasGhost ) row.tabIndex = 0;
+			row.innerHTML = `<span class=\"lb-rank\">#${ index + 1 }</span> <span class=\"lb-name\">${ safeName }</span> — <span class=\"lb-time\">${ timeText }</span>${ hasGhost ? '<span class=\"lb-ghost\">👻 ghost</span>' : '' }`;
+			if ( hasGhost ) {
+
+				const handleGhostPick = () => {
+
+					if ( ! applyImportedGhostPayload( entry.ghost, { applyBestLapSeconds: false } ) ) {
+
+						showTopMessage( `${ safeName } has an invalid cloud ghost entry.`, true, 1900 );
+						return;
+
+					}
+					activeLeaderboardGhostName = safeName;
+					showTopMessage( `Showing ${ safeName }'s cloud ghost. Beat it to switch back to yours.`, false, 1900 );
+					updateLapHud();
+
+				};
+				row.addEventListener( 'click', handleGhostPick );
+				row.addEventListener( 'keydown', ( event ) => {
+
+					if ( event.key !== 'Enter' && event.key !== ' ' ) return;
+					event.preventDefault();
+					handleGhostPick();
+
+				} );
+
+			} else {
+
+				row.addEventListener( 'click', () => showTopMessage( `${ safeName }'s record was set before cloud ghosts existed.`, true, 1900 ) );
+
+			}
 			leaderboardList.appendChild( row );
 
 		}
@@ -1889,6 +1956,7 @@ async function init() {
 					trackName: leaderboardTrackName,
 					name: chosenName,
 					timeSeconds: lapTimeSeconds,
+					ghost: createLeaderboardGhostPayload(),
 				} ),
 			} );
 			if ( ! response.ok ) throw new Error( `Leaderboard POST ${ response.status }` );
@@ -2591,7 +2659,12 @@ async function init() {
 		try {
 
 			const payload = decodeBase64UrlJson( importedGhost );
-			if ( applyImportedGhostPayload( payload ) ) updateLapHud();
+			if ( applyImportedGhostPayload( payload ) ) {
+
+				activeLeaderboardGhostName = '';
+				updateLapHud();
+
+			}
 
 		} catch ( e ) {
 
@@ -2831,13 +2904,19 @@ async function init() {
 					bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
 					shareImageDataUrl = createShareSnapshot( bestLapSeconds );
 					if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
-					if ( isNewBest && currentLapGhostSamples.length > 1 ) {
+				if ( isNewBest && currentLapGhostSamples.length > 1 ) {
 
 					bestLapGhostSamples.length = 0;
 					const t0 = currentLapGhostSamples[ 0 ].t;
 					for ( const sample of currentLapGhostSamples ) bestLapGhostSamples.push( { ...sample, t: sample.t - t0 } );
 					bestGhostDuration = Math.max( 1e-4, completedLap - t0 );
 					bestGhostCarKey = currentCarKey();
+					if ( activeLeaderboardGhostName ) {
+
+						showTopMessage( 'New personal best! Switched ghost playback back to yours.', false, 2100 );
+						activeLeaderboardGhostName = '';
+
+					}
 					updateGhostShareButtons();
 
 				}
