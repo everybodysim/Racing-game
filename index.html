@@ -221,6 +221,16 @@
 		}
 		#leaderboard-list li {
 			margin: 5px 0;
+			padding: 3px 5px;
+			border-radius: 6px;
+		}
+		#leaderboard-list li.has-ghost {
+			cursor: pointer;
+		}
+		#leaderboard-list li.has-ghost:hover,
+		#leaderboard-list li.has-ghost:focus-visible {
+			background: rgba(140, 198, 255, 0.18);
+			outline: none;
 		}
 		#leaderboard-list .lb-name {
 			color: #dff2ff;
@@ -228,9 +238,55 @@
 		#leaderboard-list .lb-time {
 			color: #ffe08a;
 		}
+		#leaderboard-list .lb-ghost {
+			color: #9ef7c0;
+			font-size: 11px;
+			margin-left: 4px;
+		}
 		#leaderboard-empty {
 			opacity: 0.8;
 		}
+		#leaderboard-debug-row {
+			margin: 8px 0;
+			padding-top: 7px;
+			border-top: 1px solid rgba(255,255,255,0.12);
+			font: 600 10px/1.3 monospace;
+			color: #b9cce8;
+		}
+		#leaderboard-track-id {
+			word-break: break-all;
+			margin-bottom: 5px;
+		}
+		#leaderboard-open-api {
+			width: 100%;
+			padding: 6px 8px;
+			border-radius: 7px;
+			border: 1px solid rgba(255,255,255,0.22);
+			background: rgba(255,255,255,0.08);
+			color: #fff;
+			cursor: pointer;
+			font: 600 11px/1 sans-serif;
+		}
+		#leaderboard-open-api:hover { background: rgba(255,255,255,0.16); }
+		#top-message {
+			position: absolute;
+			top: 12px;
+			left: 50%;
+			transform: translateX(-50%);
+			z-index: 30;
+			max-width: min(70vw, 640px);
+			padding: 8px 12px;
+			border-radius: 8px;
+			border: 1px solid rgba(255,255,255,0.25);
+			background: rgba(15,24,36,0.88);
+			font: 700 12px/1.3 sans-serif;
+			color: #e9f3ff;
+			pointer-events: none;
+			opacity: 0;
+			transition: opacity 0.15s ease;
+		}
+		#top-message.show { opacity: 1; }
+		#top-message.error { color: #ffb6ba; border-color: rgba(255,150,160,0.65); }
 		#username-record-row {
 			margin-top: 10px;
 			padding-top: 8px;
@@ -337,6 +393,7 @@
 	</script>
 </head>
 <body>
+	<div id="top-message" aria-live="polite"></div>
 	<a id="editor-link" href="editor.html">Create your own track</a>
 	<a id="totd-link" href="totd.html">Track of the day</a>
 	<a id="replay-link" href="replay.html">Replay watcher</a>
@@ -355,12 +412,16 @@
 		<div id="upgrade-label">Engine: x1.20</div>
 		<button id="buy-upgrade">Buy Upgrade</button>
 	</div>
-	<div id="leaderboard-panel">
-		<h3>Leaderboard</h3>
-		<div id="leaderboard-track-label">Track: loading…</div>
-		<div id="leaderboard-empty">Loading leaderboard…</div>
-		<ol id="leaderboard-list" hidden></ol>
-	</div>
+		<div id="leaderboard-panel">
+			<h3>Leaderboard</h3>
+			<div id="leaderboard-track-label">Track: loading…</div>
+			<div id="leaderboard-debug-row">
+				<div id="leaderboard-track-id">Track ID: loading…</div>
+				<button id="leaderboard-open-api" type="button">Open API test for this track</button>
+			</div>
+			<div id="leaderboard-empty">Loading leaderboard…</div>
+			<ol id="leaderboard-list" hidden></ol>
+		</div>
 	<div id="stunt-points">Points: 0<small class="best-points">Best: 0</small><small>Bonus: --</small></div>
 	<div id="mode-menu">
 		<h3>Game Mode (E)</h3>
