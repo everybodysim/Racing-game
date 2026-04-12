@@ -21,16 +21,9 @@ function getSurfaceVisual( surfaceType ) {
 		case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
 		case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
 		case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
-		case 'surface-grip': return { color: 0x7fff91, emissive: 0x1f6f2f, metalness: 0.0, roughness: 0.7 };
-		case 'surface-mud': return { color: 0x6b4a2a, emissive: 0x2b1a0c, metalness: 0.0, roughness: 1.0 };
-		case 'surface-glass': return { color: 0xaee9ff, emissive: 0x2d5f80, metalness: 0.32, roughness: 0.06 };
-		case 'surface-slow': return { color: 0x8d8d8d, emissive: 0x2d2d2d, metalness: 0.0, roughness: 1.0 };
-		case 'surface-turbo': return { color: 0xffb347, emissive: 0x8f4b00, metalness: 0.0, roughness: 0.75 };
-		case 'surface-pop': return { color: 0xb2ff8a, emissive: 0x348f20, metalness: 0.0, roughness: 0.72 };
-		case 'surface-launch': return { color: 0xffd166, emissive: 0x8f6512, metalness: 0.0, roughness: 0.82 };
-		case 'surface-reverse': return { color: 0xff9f7a, emissive: 0x8f3e20, metalness: 0.0, roughness: 0.82 };
-		case 'surface-spin-l': return { color: 0xd7a3ff, emissive: 0x5f2c8f, metalness: 0.0, roughness: 0.8 };
-		case 'surface-spin-r': return { color: 0xffa3d7, emissive: 0x8f2c5f, metalness: 0.0, roughness: 0.8 };
+		case 'surface-custom-a': return { color: 0x9c7bff, emissive: 0x3f2d80, metalness: 0.0, roughness: 0.74 };
+		case 'surface-custom-b': return { color: 0x7bffda, emissive: 0x216657, metalness: 0.04, roughness: 0.7 };
+		case 'surface-custom-c': return { color: 0xffc97b, emissive: 0x7a4e1f, metalness: 0.0, roughness: 0.76 };
 		default: return { color: 0xb88657, emissive: 0x4a2b12, metalness: 0.0, roughness: 0.9 };
 
 	}

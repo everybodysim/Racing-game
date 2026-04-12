@@ -77,18 +77,12 @@ const SURFACE_EFFECTS = {
 	'surface-wood': { grip: 0.9, drag: 1.35, accel: 1.0, drive: 1.55 },
 	'surface-ice': { grip: 0.4, drag: 0.58, accel: 0.45, drive: 0.8 },
 	'surface-sand': { grip: 0.72, drag: 2.6, accel: 0.35, drive: 0.5 },
-	'surface-grip': { grip: 1.45, drag: 1.08, accel: 1.1, drive: 1.25 },
-	'surface-mud': { grip: 0.82, drag: 2.15, accel: 0.58, drive: 0.68 },
-	'surface-glass': { grip: 0.25, drag: 0.74, accel: 0.5, drive: 0.62 },
-	'surface-slow': { grip: 0.95, drag: 3.2, accel: 0.3, drive: 0.4 },
-	'surface-turbo': { grip: 0.95, drag: 0.85, accel: 1.35, drive: 1.4 },
+	'surface-custom-a': { grip: 1.2, drag: 1.0, accel: 1.05, drive: 1.15 },
+	'surface-custom-b': { grip: 0.55, drag: 0.9, accel: 0.72, drive: 0.85 },
+	'surface-custom-c': { grip: 0.95, drag: 1.7, accel: 1.25, drive: 1.3 },
 };
 const BOUNCE_VERTICAL_DELTA = 7.2;
-const POP_VERTICAL_DELTA = 4.6;
 const KICK_LATERAL_DELTA = 7.4;
-const LAUNCH_FORWARD_DELTA = 10.5;
-const REVERSE_FORWARD_DELTA = - 8.5;
-const SPIN_YAW_DELTA = 5.4;
 const WEATHER_PRESETS = {
 	clear: { bg: 0xadb2ba, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
 	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
@@ -1273,7 +1267,15 @@ async function init() {
 	const boostCells = Array.isArray( extras?.boosts ) ? extras.boosts : [];
 	const boostCellSet = new Set( boostCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 	const surfaceCells = Array.isArray( extras?.surfaces ) ? extras.surfaces : [];
-	const surfaceCellMap = new Map( surfaceCells.map( ( [ gx, gz, type ] ) => [ `${ gx },${ gz }`, type ] ) );
+	const surfaceCellMap = new Map();
+	for ( const [ gx, gz, type ] of surfaceCells ) {
+
+		const key = `${ gx },${ gz }`;
+		const list = surfaceCellMap.get( key ) || [];
+		list.push( type );
+		surfaceCellMap.set( key, list );
+
+	}
 	let activeSurfaceType = null;
 	let activeSurfaceType2 = null;
 	let lapNumber2 = 1;
@@ -1441,8 +1443,8 @@ async function init() {
 
 			for ( let gz = bounds.minZ; gz <= bounds.maxZ; gz ++ ) {
 
-				const surfaceType = surfaceCellMap.get( `${ gx },${ gz }` );
-				if ( surfaceType ) return surfaceType;
+				const surfaceTypes = surfaceCellMap.get( `${ gx },${ gz }` );
+				if ( surfaceTypes?.length ) return surfaceTypes[ surfaceTypes.length - 1 ];
 
 			}
 
@@ -1459,7 +1461,7 @@ async function init() {
 
 			for ( let gz = bounds.minZ; gz <= bounds.maxZ; gz ++ ) {
 
-				if ( surfaceCellMap.get( `${ gx },${ gz }` ) === 'surface-boost' ) return `surface:${ gx },${ gz }`;
+				if ( ( surfaceCellMap.get( `${ gx },${ gz }` ) || [] ).includes( 'surface-boost' ) ) return `surface:${ gx },${ gz }`;
 
 			}
 
@@ -1476,7 +1478,7 @@ async function init() {
 
 			for ( let gz = bounds.minZ; gz <= bounds.maxZ; gz ++ ) {
 
-				if ( surfaceCellMap.get( `${ gx },${ gz }` ) === surfaceType ) return `surface:${ gx },${ gz }`;
+				if ( ( surfaceCellMap.get( `${ gx },${ gz }` ) || [] ).includes( surfaceType ) ) return `surface:${ gx },${ gz }`;
 
 			}
 
@@ -2122,15 +2124,6 @@ async function init() {
 
 	}
 
-	function applySurfacePopFor( targetVehicle ) {
-
-		if ( ! isVehicleOnGround( targetVehicle ) ) return false;
-		const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
-		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], Math.max( vel[ 1 ], 0 ) + POP_VERTICAL_DELTA, vel[ 2 ] ] );
-		return true;
-
-	}
-
 	function applySurfaceKickFor( targetVehicle, direction ) {
 
 		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
@@ -2150,36 +2143,6 @@ async function init() {
 
 	}
 
-	function applySurfaceForwardKickFor( targetVehicle, direction ) {
-
-		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
-		_boostForward.y = 0;
-		const forwardLenSq = _boostForward.lengthSq();
-		if ( forwardLenSq < 1e-6 ) return;
-		_boostForward.multiplyScalar( 1 / Math.sqrt( forwardLenSq ) );
-		const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
-		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
-			vel[ 0 ] + _boostForward.x * direction,
-			vel[ 1 ],
-			vel[ 2 ] + _boostForward.z * direction,
-		] );
-		return true;
-
-	}
-
-	function applySurfaceSpinFor( targetVehicle, direction ) {
-
-		applySurfaceKickFor( targetVehicle, direction );
-		const angVel = targetVehicle.rigidBody.motionProperties?.angularVelocity || [ 0, 0, 0 ];
-		rigidBody.setAngularVelocity( world, targetVehicle.rigidBody, [
-			angVel[ 0 ],
-			angVel[ 1 ] + ( SPIN_YAW_DELTA * direction ),
-			angVel[ 2 ],
-		] );
-		return true;
-
-	}
-
 	function isVehicleOnGround( targetVehicle ) {
 
 		const posY = targetVehicle?.spherePos?.y ?? 999;
@@ -2188,15 +2151,10 @@ async function init() {
 
 	}
 
-		const SPECIAL_SURFACE_HANDLERS = {
+	const SPECIAL_SURFACE_HANDLERS = {
 		'surface-bounce': ( targetVehicle ) => applySurfaceBounceFor( targetVehicle ),
 		'surface-kick-l': ( targetVehicle ) => applySurfaceKickFor( targetVehicle, - 1 ),
 		'surface-kick-r': ( targetVehicle ) => applySurfaceKickFor( targetVehicle, 1 ),
-		'surface-pop': ( targetVehicle ) => applySurfacePopFor( targetVehicle ),
-		'surface-launch': ( targetVehicle ) => applySurfaceForwardKickFor( targetVehicle, LAUNCH_FORWARD_DELTA ),
-		'surface-reverse': ( targetVehicle ) => applySurfaceForwardKickFor( targetVehicle, REVERSE_FORWARD_DELTA ),
-		'surface-spin-l': ( targetVehicle ) => applySurfaceSpinFor( targetVehicle, - 1 ),
-		'surface-spin-r': ( targetVehicle ) => applySurfaceSpinFor( targetVehicle, 1 ),
 	};
 
 	const SPECIAL_SURFACE_TYPES = Object.keys( SPECIAL_SURFACE_HANDLERS );
