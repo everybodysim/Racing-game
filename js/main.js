@@ -187,7 +187,11 @@ function getTrackLabel( mapParamValue ) {
 
 function getTrackId( mapParamValue, extrasParamValue ) {
 
-	const base = `${ window.location.pathname }?map=${ mapParamValue || 'default' }&mods=${ extrasParamValue || 'none' }`;
+	const params = new URLSearchParams( window.location.search );
+	if ( ! params.has( 'map' ) ) params.set( 'map', mapParamValue || 'default' );
+	if ( ! params.has( 'mods' ) ) params.set( 'mods', extrasParamValue || 'none' );
+	params.sort();
+	const base = `${ window.location.pathname }?${ params.toString() }`;
 	return btoa( base ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
 
 }
