@@ -13,6 +13,7 @@ const JUMP_RAMP_Y = 0.24;
 const VISUAL_HEIGHT_OFFSET = 0.012;
 const DECORATION_HEIGHT_OFFSET = VISUAL_HEIGHT_OFFSET * 0.5;
 const NO_DECO_BUFFER_CELLS = 1;
+const EPSILON = 1e-6;
 
 function getSurfaceVisual( surfaceType, customSurfaces = null ) {
 
@@ -269,6 +270,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		// Auto-generate decorations to fill any gaps
 		const occupied = new Set();
 		const treeBlocked = new Set();
+		const forcedForest = new Set();
+		const offGridPieces = [];
 		let minX = Infinity, maxX = - Infinity;
 		let minZ = Infinity, maxZ = - Infinity;
 
@@ -287,6 +290,51 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			for ( let bx = minBlockX; bx <= maxBlockX; bx ++ ) {
 
 				for ( let bz = minBlockZ; bz <= maxBlockZ; bz ++ ) treeBlocked.add( bx + ',' + bz );
+
+			}
+			if ( Math.abs( gx - Math.round( gx ) ) > EPSILON || Math.abs( gz - Math.round( gz ) ) > EPSILON ) {
+
+				const coveredTiles = [];
+				for ( let bx = minBlockX; bx <= maxBlockX; bx ++ ) {
+
+					for ( let bz = minBlockZ; bz <= maxBlockZ; bz ++ ) coveredTiles.push( [ bx, bz ] );
+
+				}
+				offGridPieces.push( { gx, gz, coveredTiles } );
+
+			}
+
+		}
+
+		const isNearMultipleOffGridPieces = ( x, z ) => {
+
+			let nearby = 0;
+			for ( const piece of offGridPieces ) {
+
+				const dx = Math.abs( ( piece.gx + 0.5 ) - ( x + 0.5 ) );
+				const dz = Math.abs( ( piece.gz + 0.5 ) - ( z + 0.5 ) );
+				if ( Math.max( dx, dz ) <= 1.25 ) nearby ++;
+				if ( nearby > 1 ) return true;
+
+			}
+			return false;
+
+		};
+
+		for ( const piece of offGridPieces ) {
+
+			for ( const [ tileX, tileZ ] of piece.coveredTiles ) {
+
+				for ( const [ dx, dz ] of [ [ 1, 0 ], [ -1, 0 ], [ 0, 1 ], [ 0, -1 ] ] ) {
+
+					const nx = tileX + dx;
+					const nz = tileZ + dz;
+					const key = nx + ',' + nz;
+					if ( treeBlocked.has( key ) || occupied.has( key ) ) continue;
+					if ( isNearMultipleOffGridPieces( nx, nz ) ) continue;
+					forcedForest.add( key );
+
+				}
 
 			}
 
@@ -341,6 +389,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				if ( treeBlocked.has( gx + ',' + gz ) ) {
 
 					emptyPositions.push( x, z );
+					continue;
+
+				}
+
+				if ( forcedForest.has( gx + ',' + gz ) ) {
+
+					forestPositions.push( x, z );
 					continue;
 
 				}
