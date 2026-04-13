@@ -187,8 +187,35 @@ function getTrackLabel( mapParamValue ) {
 
 function getTrackId( mapParamValue, extrasParamValue ) {
 
-	const base = `${ window.location.pathname }?map=${ mapParamValue || 'default' }&mods=${ extrasParamValue || 'none' }`;
-	return btoa( base ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+	const params = new URLSearchParams( window.location.search );
+	if ( ! params.has( 'map' ) ) params.set( 'map', mapParamValue || 'default' );
+	if ( ! params.has( 'mods' ) ) params.set( 'mods', extrasParamValue || 'none' );
+	params.sort();
+	const base = `${ window.location.pathname }?${ params.toString() }`;
+	return `trk-${ hashTrackSeed( base ) }`;
+
+}
+
+function hashTrackSeed( value ) {
+
+	const hashA = fnv64Hex( value, 0xcbf29ce484222325n, 0x100000001b3n );
+	const hashB = fnv64Hex( value, 0x84222325cbf29cen, 0x100000001c3n );
+	return `${ hashA }${ hashB }`;
+
+}
+
+function fnv64Hex( value, start, prime ) {
+
+	let hash = start;
+
+	for ( let i = 0; i < value.length; i ++ ) {
+
+		hash ^= BigInt( value.charCodeAt( i ) );
+		hash = ( hash * prime ) & 0xffffffffffffffffn;
+
+	}
+
+	return hash.toString( 16 ).padStart( 16, '0' );
 
 }
 
