@@ -187,8 +187,58 @@ function getTrackLabel( mapParamValue ) {
 
 function getTrackId( mapParamValue, extrasParamValue ) {
 
-	const base = `${ window.location.pathname }?map=${ mapParamValue || 'default' }&mods=${ extrasParamValue || 'none' }`;
-	return btoa( base ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+	const params = new URLSearchParams( window.location.search );
+	if ( ! params.has( 'map' ) ) params.set( 'map', mapParamValue || 'default' );
+	if ( ! params.has( 'mods' ) ) params.set( 'mods', extrasParamValue || 'none' );
+	params.sort();
+	const base = `${ window.location.pathname }?${ params.toString() }`;
+	return `trk-${ hashTrackSeed( base ) }`;
+
+}
+
+function getLegacyTrackIds( mapParamValue, extrasParamValue ) {
+
+	const ids = [];
+	const map = mapParamValue || 'default';
+	const mods = extrasParamValue || 'none';
+	ids.push( encodeBase64Url( `${ window.location.pathname }?map=${ map }&mods=${ mods }` ) );
+
+	const params = new URLSearchParams( window.location.search );
+	if ( ! params.has( 'map' ) ) params.set( 'map', map );
+	if ( ! params.has( 'mods' ) ) params.set( 'mods', mods );
+	params.sort();
+	ids.push( encodeBase64Url( `${ window.location.pathname }?${ params.toString() }` ) );
+
+	return [ ...new Set( ids.filter( Boolean ) ) ];
+
+}
+
+function encodeBase64Url( value ) {
+
+	return btoa( value ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+
+}
+
+function hashTrackSeed( value ) {
+
+	const hashA = fnv64Hex( value, 0xcbf29ce484222325n, 0x100000001b3n );
+	const hashB = fnv64Hex( value, 0x84222325cbf29cen, 0x100000001c3n );
+	return `${ hashA }${ hashB }`;
+
+}
+
+function fnv64Hex( value, start, prime ) {
+
+	let hash = start;
+
+	for ( let i = 0; i < value.length; i ++ ) {
+
+		hash ^= BigInt( value.charCodeAt( i ) );
+		hash = ( hash * prime ) & 0xffffffffffffffffn;
+
+	}
+
+	return hash.toString( 16 ).padStart( 16, '0' );
 
 }
 
@@ -1085,6 +1135,7 @@ async function init() {
 	const stuntStoreKey = `racing-stunt-stats:${ mapParam || 'default' }`;
 	const currentTrackUrl = `${ window.location.origin }${ window.location.pathname }${ window.location.search }`;
 	const leaderboardTrackId = getTrackId( mapParam, extrasParam );
+	const leaderboardLegacyTrackIds = getLegacyTrackIds( mapParam, extrasParam );
 	const leaderboardTrackName = getTrackLabel( mapParam );
 	const leaderboardTrackApiUrl = `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( leaderboardTrackId ) }`;
 	const campaignParamEnabled = new URLSearchParams( window.location.search ).get( 'campaign' ) === '1';
@@ -1895,10 +1946,16 @@ async function init() {
 		leaderboardEmpty.textContent = 'Loading leaderboard…';
 		try {
 
-			const response = await fetch( `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( leaderboardTrackId ) }` );
-			if ( ! response.ok ) throw new Error( `Leaderboard HTTP ${ response.status }` );
-			const parsed = await response.json();
-			renderLeaderboardRows( parsed?.entries || [] );
+			const trackIdsToRead = [ leaderboardTrackId, ...leaderboardLegacyTrackIds ];
+			const payloads = await Promise.all( trackIdsToRead.map( async ( trackId ) => {
+
+				const response = await fetch( `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( trackId ) }` );
+				if ( ! response.ok ) throw new Error( `Leaderboard HTTP ${ response.status }` );
+				return response.json();
+
+			} ) );
+			const merged = dedupeAndSortLeaderboardEntries( payloads.flatMap( ( parsed ) => Array.isArray( parsed?.entries ) ? parsed.entries : [] ) );
+			renderLeaderboardRows( merged );
 
 		} catch ( e ) {
 
@@ -1908,6 +1965,39 @@ async function init() {
 			leaderboardEmpty.textContent = 'Leaderboard unavailable (check Cloudflare setup).';
 
 		}
+
+	}
+
+	function dedupeAndSortLeaderboardEntries( entries ) {
+
+		const bestByName = new Map();
+		for ( const entry of entries ) {
+
+			const key = sanitizePlayerName( entry?.name ).toLowerCase();
+			if ( ! key ) continue;
+			const timeSeconds = Number( entry?.timeSeconds );
+			if ( ! Number.isFinite( timeSeconds ) ) continue;
+			const normalized = {
+				name: sanitizePlayerName( entry.name ) || 'Anonymous',
+				timeSeconds: Math.round( timeSeconds * 1000 ) / 1000,
+				ghost: entry?.ghost || null,
+				createdAt: Number.isFinite( Number( entry?.createdAt ) ) ? Number( entry.createdAt ) : Date.now(),
+			};
+			const existing = bestByName.get( key );
+			if ( ! existing || normalized.timeSeconds < existing.timeSeconds || ( normalized.timeSeconds === existing.timeSeconds && normalized.createdAt < existing.createdAt ) ) {
+
+				bestByName.set( key, normalized );
+
+			}
+
+		}
+
+		return [ ...bestByName.values() ].sort( ( a, b ) => {
+
+			if ( a.timeSeconds !== b.timeSeconds ) return a.timeSeconds - b.timeSeconds;
+			return a.createdAt - b.createdAt;
+
+		} );
 
 	}
 
@@ -1952,11 +2042,12 @@ async function init() {
 		const submittedRoundedTime = Math.round( Number( lapTimeSeconds ) * 1000 ) / 1000;
 		try {
 
+			const trackIdsToWrite = [ leaderboardTrackId, ...leaderboardLegacyTrackIds ];
 			const response = await fetch( LEADERBOARD_API_BASE, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify( {
-					trackId: leaderboardTrackId,
+					trackId: trackIdsToWrite[ 0 ],
 					trackName: leaderboardTrackName,
 					name: chosenName,
 					timeSeconds: lapTimeSeconds,
@@ -1991,6 +2082,17 @@ async function init() {
 				}
 
 			}
+			await Promise.all( trackIdsToWrite.slice( 1 ).map( ( legacyId ) => fetch( LEADERBOARD_API_BASE, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify( {
+					trackId: legacyId,
+					trackName: leaderboardTrackName,
+					name: chosenName,
+					timeSeconds: lapTimeSeconds,
+					ghost: submittedGhost,
+				} ),
+			} ).catch( () => null ) ) );
 			await fetchTrackLeaderboard();
 			return true;
 
