@@ -11,7 +11,7 @@
 	<style>
 		body { margin: 0; overflow: hidden; background: #000; }
 		canvas { display: block; touch-action: none; }
-		#editor-link, #totd-link, #replay-link, #tracks-link, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
+		#editor-link, #totd-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
 			position: absolute;
 			bottom: 12px;
 			color: #fff;
@@ -22,12 +22,14 @@
 			z-index: 10;
 			border: none;
 		}
-		#editor-link, #totd-link, #replay-link, #tracks-link, #split-link, #respawnBtn, #mode-menu-btn { text-decoration: none; }
+		#editor-link, #totd-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn { text-decoration: none; }
 		#editor-link { right: 16px; }
 		#totd-link { right: 16px; bottom: 54px; }
 		#replay-link { right: 16px; bottom: 96px; }
 		#tracks-link { right: 16px; bottom: 138px; }
-		#split-link { right: 16px; bottom: 180px; }
+		#mods-link { right: 16px; bottom: 180px; }
+		#hacks-toggle { right: 16px; bottom: 222px; }
+		#split-link { right: 16px; bottom: 264px; }
 		#respawnBtn { left: 16px; top: 54px; bottom: auto; }
 		#mode-menu-btn { left: 16px; top: 96px; bottom: auto; }
 		#car-select { left: 16px; top: 12px; bottom: auto; }
@@ -35,7 +37,7 @@
 		#export-ghost-btn { left: 180px; bottom: 12px; }
 		#import-ghost-btn { left: 300px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
-		#editor-link:hover, #totd-link:hover, #replay-link:hover, #tracks-link:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#editor-link:hover, #totd-link:hover, #replay-link:hover, #tracks-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
 		#share-time-btn:disabled {
 			opacity: 0.5;
 			cursor: not-allowed;
@@ -69,6 +71,33 @@
 			z-index: 10;
 			display: none;
 		}
+		
+		#boost-ui {
+			position: absolute;
+			top: 96px;
+			right: 12px;
+			width: 180px;
+			background: rgba(0,0,0,0.45);
+			border-radius: 8px;
+			padding: 8px;
+			color: #fff;
+			font: 600 12px sans-serif;
+			z-index: 11;
+			display: none;
+		}
+		#boost-bar {
+			height: 8px;
+			background: rgba(255,255,255,0.18);
+			border-radius: 10px;
+			overflow: hidden;
+			margin: 6px 0;
+		}
+		#boost-fill {
+			height: 100%;
+			width: 0%;
+			background: linear-gradient(90deg, #53d4ff, #8dff77);
+		}
+
 		#economy-hud {
 			position: absolute;
 			top: 12px;
@@ -360,17 +389,102 @@
 			cursor: pointer;
 		}
 		#name-popup button:hover { background: rgba(255,255,255,0.2); }
+		
+		#quick-menu-btn {
+			position: absolute;
+			right: 16px;
+			bottom: 12px;
+			z-index: 16;
+			color: #fff;
+			font: 600 13px sans-serif;
+			background: rgba(0,0,0,0.62);
+			padding: 8px 12px;
+			border-radius: 8px;
+			border: 1px solid rgba(255,255,255,0.22);
+			cursor: pointer;
+		}
+		#quick-menu-panel {
+			position: absolute;
+			right: 16px;
+			bottom: 52px;
+			z-index: 16;
+			display: none;
+			flex-direction: column;
+			gap: 8px;
+			background: rgba(0,0,0,0.62);
+			padding: 8px;
+			border-radius: 10px;
+			border: 1px solid rgba(255,255,255,0.2);
+			min-width: 180px;
+		}
+		#quick-menu-panel a {
+			position: static !important;
+			display: block;
+			background: rgba(255,255,255,0.1);
+			padding: 8px 10px;
+			border-radius: 7px;
+		}
+		#quick-menu-panel.open { display: flex; }
+
+		
+		#hacks-panel {
+			position: absolute;
+			left: 50%;
+			top: 50%;
+			transform: translate(-50%, -50%);
+			width: min(360px, calc(100vw - 20px));
+			background: rgba(12,16,26,0.95);
+			border: 1px solid rgba(255,255,255,0.2);
+			border-radius: 12px;
+			padding: 10px;
+			z-index: 25;
+			display: none;
+			color: #fff;
+			font: 600 12px/1.35 sans-serif;
+		}
+		#hacks-panel input[type="range"] { width: 100%; }
+		#hacks-panel label { display: block; margin-top: 8px; }
+
 		@media (pointer: coarse) {
 			#editor-link { bottom: auto; top: 12px; right: 12px; }
 				#totd-link { bottom: auto; top: 54px; right: 12px; }
 				#replay-link { bottom: auto; top: 96px; right: 12px; }
 				#tracks-link { bottom: auto; top: 138px; right: 12px; }
-				#split-link { bottom: auto; top: 180px; right: 12px; }
+				#mods-link { bottom: auto; top: 180px; right: 12px; }
+			#hacks-toggle { bottom: auto; top: 222px; right: 12px; }
+			#split-link { bottom: auto; top: 264px; right: 12px; }
 			#car-select { top: 12px; left: 12px; }
 				#respawnBtn { top: 54px; left: 12px; }
 				#mode-menu-btn { top: 96px; left: 12px; }
 				#lap-hud { top: 56px; }
-				#economy-hud { top: 12px; right: 12px; }
+				
+		#boost-ui {
+			position: absolute;
+			top: 96px;
+			right: 12px;
+			width: 180px;
+			background: rgba(0,0,0,0.45);
+			border-radius: 8px;
+			padding: 8px;
+			color: #fff;
+			font: 600 12px sans-serif;
+			z-index: 11;
+			display: none;
+		}
+		#boost-bar {
+			height: 8px;
+			background: rgba(255,255,255,0.18);
+			border-radius: 10px;
+			overflow: hidden;
+			margin: 6px 0;
+		}
+		#boost-fill {
+			height: 100%;
+			width: 0%;
+			background: linear-gradient(90deg, #53d4ff, #8dff77);
+		}
+
+		#economy-hud { top: 12px; right: 12px; }
 				#leaderboard-panel { top: 136px; left: 12px; }
 		}
 	</style>
@@ -390,7 +504,11 @@
 	<a id="totd-link" href="totd.html">Track of the day</a>
 	<a id="replay-link" href="replay.html">Replay watcher</a>
 	<a id="tracks-link" href="tracks.html">Track share board</a>
+	<a id="mods-link" href="mods.html">Mods</a>
+	<a id="hacks-toggle" href="#" style="display:none;">Hacks</a>
 	<a id="split-link" href="#">2P split screen</a>
+	<button id="quick-menu-btn" type="button" aria-expanded="false">Menu ▾</button>
+	<div id="quick-menu-panel"></div>
 	<select id="car-select" aria-label="Select car">
 		<option value="vehicle-truck-yellow">Yellow</option>
 		<option value="vehicle-truck-green">Green</option>
@@ -403,6 +521,11 @@
 		<div id="coins-label">Coins: 0</div>
 		<div id="upgrade-label">Engine: x1.20</div>
 		<button id="buy-upgrade">Buy Upgrade</button>
+	</div>
+	<div id="boost-ui">
+		<div>Arcade Boost</div>
+		<div id="boost-bar"><div id="boost-fill"></div></div>
+		<button id="boost-activate-btn" type="button">Activate Boost (X)</button>
 	</div>
 		<div id="leaderboard-panel">
 			<h3>Leaderboard</h3>
@@ -465,6 +588,29 @@
 			<div id="account-status"></div>
 		</div>
 	</div>
+	<div id="hacks-panel">
+		<h3 style="margin:0 0 8px;">Hacks (Leaderboard disabled)</h3>
+		<label><input id="hack-enable" type="checkbox"> Enable hacks</label>
+		<label><input id="hack-infinite-coins" type="checkbox"> Infinite coins</label>
+		<label><input id="hack-boost-anywhere" type="checkbox"> Boost anywhere (hold B)</label>
+		<label><input id="hack-no-limits" type="checkbox"> Remove car stat limits</label>
+		<label><input id="hack-always-nitro" type="checkbox"> Always nitro forward</label>
+		<label><input id="hack-super-jump" type="checkbox"> Super jump (hold J)</label>
+		<label><input id="hack-teleport" type="checkbox"> Teleport forward (press G)</label>
+		<label><input id="hack-low-friction" type="checkbox"> Low friction drift mode</label>
+		<label><input id="hack-instant-stop" type="checkbox"> Instant stop (hold V)</label>
+		<label><input id="hack-checkpoint-bypass" type="checkbox"> Auto-pass checkpoints</label>
+		<label>Game speed
+			<input id="hack-timescale" type="range" min="0.15" max="1" step="0.05" value="1">
+		</label>
+		<label>Gravity
+			<input id="hack-gravity" type="range" min="0.1" max="2" step="0.05" value="1">
+		</label>
+		<label>Road grip
+			<input id="hack-road-grip" type="range" min="0.5" max="3" step="0.05" value="1">
+		</label>
+		<button id="hack-reset-btn" type="button">Reset Hacks</button>
+	</div>
 	<div id="name-popup" role="dialog" aria-modal="true" aria-labelledby="name-popup-title">
 		<div class="panel">
 			<h4 id="name-popup-title">New record! Add your name</h4>
@@ -500,6 +646,43 @@
 			splitLink.textContent = '2P split screen';
 		}
 		splitLink.href = `${ location.pathname }?${ splitParams.toString() }${ location.hash || '' }`;
+	</script>
+
+	<script>
+		const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
+		const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
+		const quickMenuLinks = [ 'editor-link', 'totd-link', 'replay-link', 'tracks-link', 'mods-link', 'hacks-toggle', 'split-link' ];
+		for ( const id of quickMenuLinks ) {
+			const node = document.getElementById( id );
+			if ( node ) quickMenuPanel.appendChild( node );
+		}
+			try {
+				const installedMods = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
+				if ( Array.isArray( installedMods ) ) {
+					for ( const mod of installedMods ) {
+						if ( mod?.id === 'hacks' ) continue;
+						if ( ! mod?.viewerPage ) continue;
+						const modLink = document.createElement( 'a' );
+						modLink.href = mod.viewerPage;
+					modLink.textContent = `Mod: ${ mod.name || mod.id || 'Unknown' }`;
+					quickMenuPanel.appendChild( modLink );
+				}
+			}
+		} catch ( e ) {
+			console.warn( 'Failed to load installed mods menu links', e );
+		}
+		quickMenuBtn?.addEventListener( 'click', () => {
+			const open = quickMenuPanel.classList.toggle( 'open' );
+			quickMenuBtn.setAttribute( 'aria-expanded', String( open ) );
+			quickMenuBtn.textContent = open ? 'Menu ▴' : 'Menu ▾';
+		} );
+		document.addEventListener( 'click', ( event ) => {
+			if ( ! quickMenuPanel.classList.contains( 'open' ) ) return;
+			if ( quickMenuPanel.contains( event.target ) || quickMenuBtn.contains( event.target ) ) return;
+			quickMenuPanel.classList.remove( 'open' );
+			quickMenuBtn.setAttribute( 'aria-expanded', 'false' );
+			quickMenuBtn.textContent = 'Menu ▾';
+		} );
 	</script>
 	<script type="module" src="js/main.js"></script>
   <style>
