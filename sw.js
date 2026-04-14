@@ -1,8 +1,10 @@
-const CACHE_NAME = 'racing-game-v2';
+const CACHE_NAME = 'racing-game-v3';
 const CORE_ASSETS = [
   './',
   './index.html',
   './editor.html',
+  './mods.html',
+  './tas-viewer.html',
   './manifest.webmanifest',
   './icons/icon-192.svg',
   './icons/icon-512.svg',
@@ -13,8 +15,14 @@ const CORE_ASSETS = [
   './js/Camera.js',
   './js/Controls.js',
   './js/Particles.js',
-  './js/Audio.js'
+  './js/Audio.js',
+  './js/mods-manager.js',
+  './js/tas-viewer.js',
+  './mods/mods.json',
+  './mods/TAS.js'
 ];
+
+const CORE_PATHS = new Set(CORE_ASSETS.map((path) => new URL(path, self.location.origin).pathname));
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -24,7 +32,9 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim())
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim())
   );
 });
 
@@ -34,37 +44,22 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  const isNavigation = event.request.mode === 'navigate';
-  const isHtml = url.pathname.endsWith('.html') || url.pathname === '/' || url.pathname === '';
-  const isScript = url.pathname.endsWith('.js') || url.pathname.startsWith('/js/');
-  const preferNetwork = isNavigation || isHtml || isScript;
-
-  if (preferNetwork) {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const responseToCache = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
-          }
-          return response;
-        })
-        .catch(() => caches.match(event.request).then((cached) => cached || caches.match('./index.html')))
-    );
-    return;
-  }
+  const canCache = !url.search && CORE_PATHS.has(url.pathname);
+  const fallback = event.request.mode === 'navigate' ? './index.html' : null;
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((response) => {
-          if (!response || response.status !== 200) return response;
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
-          return response;
-        })
-        .catch(() => caches.match('./index.html'));
-    })
+    fetch(event.request)
+      .then((response) => {
+        if (canCache && response?.status === 200) {
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
+        }
+        return response;
+      })
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        if (fallback) return caches.match(fallback);
+        return Response.error();
+      })
   );
 });
