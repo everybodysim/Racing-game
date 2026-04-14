@@ -292,7 +292,14 @@ async function init() {
 	let spawn = null;
 	const extras = decodeExtrasParam( extrasParam );
 	const carKeys = Object.keys( CAR_STATS );
-	const pickRandomCarKey = () => carKeys[ Math.floor( Math.random() * carKeys.length ) ];
+	const deterministicCarSeed = hashTrackSeed( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
+	const pickRandomCarKey = () => {
+
+		const slice = deterministicCarSeed.slice( 0, 8 );
+		const index = Number.parseInt( slice, 16 ) % carKeys.length;
+		return carKeys[ index ];
+
+	};
 
 	if ( mapParam ) {
 
