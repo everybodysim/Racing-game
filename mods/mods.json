@@ -1,0 +1,40 @@
+{
+  "mods": [
+    {
+      "id": "tas",
+      "name": "TAS",
+      "folder": "mods",
+      "entry": "mods/TAS.js",
+      "viewerPage": "tas-viewer.html",
+      "status": "under-construction"
+    },
+    {
+      "id": "hacks",
+      "name": "Hacks",
+      "folder": "mods",
+      "entry": "mods/Hacks.js",
+      "viewerPage": "index.html"
+    },
+    {
+      "id": "arcade-boost",
+      "name": "Arcade Boost",
+      "folder": "mods",
+      "entry": "mods/ArcadeBoost.js",
+      "viewerPage": "index.html"
+    },
+    {
+      "id": "practice-start",
+      "name": "Practice Start Points",
+      "folder": "mods",
+      "entry": "mods/PracticeStart.js",
+      "viewerPage": "index.html"
+    },
+    {
+      "id": "checkpoint-respawn",
+      "name": "Checkpoint Respawn",
+      "folder": "mods",
+      "entry": "mods/CheckpointRespawn.js",
+      "viewerPage": "index.html"
+    }
+  ]
+}
