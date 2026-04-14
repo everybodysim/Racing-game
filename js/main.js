@@ -292,7 +292,14 @@ async function init() {
 	let spawn = null;
 	const extras = decodeExtrasParam( extrasParam );
 	const carKeys = Object.keys( CAR_STATS );
-	const pickRandomCarKey = () => carKeys[ Math.floor( Math.random() * carKeys.length ) ];
+	const deterministicCarSeed = hashTrackSeed( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
+	const pickRandomCarKey = () => {
+
+		const slice = deterministicCarSeed.slice( 0, 8 );
+		const index = Number.parseInt( slice, 16 ) % carKeys.length;
+		return carKeys[ index ];
+
+	};
 
 	if ( mapParam ) {
 
@@ -407,6 +414,10 @@ async function init() {
 	let ghostModel = null;
 	const bestLapGhostSamples = [];
 	let currentLapGhostSamples = [];
+	let bestLapInputFrames = [];
+	let latestLapInputFrames = [];
+	let currentLapInputFrames = [];
+	let inputRecordFrame = 0;
 	let bestGhostDuration = 0;
 	let bestGhostCarKey = 'vehicle-truck-yellow';
 	let ghostRecordFrame = 0;
@@ -441,6 +452,33 @@ async function init() {
 		if ( ! ghostEnabled ) return;
 		currentLapGhostSamples = [];
 		ghostRecordFrame = 0;
+
+	}
+
+	function resetCurrentLapInputs() {
+
+		currentLapInputFrames = [];
+		inputRecordFrame = 0;
+
+	}
+
+	function recordLapInput( lapElapsed, input, controlState ) {
+
+		if ( ! ghostEnabled ) return;
+		inputRecordFrame ++;
+		if ( inputRecordFrame % 2 !== 0 ) return;
+		const keys = controlState || {};
+		currentLapInputFrames.push( {
+			t: lapElapsed,
+			x: Number.isFinite( input?.x ) ? input.x : 0,
+			z: Number.isFinite( input?.z ) ? input.z : 0,
+			keys: {
+				left: Boolean( keys.KeyA || keys.ArrowLeft ),
+				right: Boolean( keys.KeyD || keys.ArrowRight ),
+				forward: Boolean( keys.KeyW || keys.ArrowUp ),
+				back: Boolean( keys.KeyS || keys.ArrowDown ),
+			},
+		} );
 
 	}
 
@@ -539,6 +577,22 @@ async function init() {
 	const shareTimeBtn = document.getElementById( 'share-time-btn' );
 	const exportGhostBtn = document.getElementById( 'export-ghost-btn' );
 	const importGhostBtn = document.getElementById( 'import-ghost-btn' );
+	const exportInputsBtn = document.getElementById( 'export-inputs-btn' );
+	const importInputsBtn = document.getElementById( 'import-inputs-btn' );
+	const hacksToggleLink = document.getElementById( 'hacks-toggle' );
+	const hacksPanel = document.getElementById( 'hacks-panel' );
+	const hackEnableInput = document.getElementById( 'hack-enable' );
+	const hackInfiniteCoinsInput = document.getElementById( 'hack-infinite-coins' );
+	const hackBoostAnywhereInput = document.getElementById( 'hack-boost-anywhere' );
+	const hackNoLimitsInput = document.getElementById( 'hack-no-limits' );
+	const hackAlwaysNitroInput = document.getElementById( 'hack-always-nitro' );
+	const hackSuperJumpInput = document.getElementById( 'hack-super-jump' );
+	const hackTeleportInput = document.getElementById( 'hack-teleport' );
+	const hackLowFrictionInput = document.getElementById( 'hack-low-friction' );
+	const hackCheckpointBypassInput = document.getElementById( 'hack-checkpoint-bypass' );
+	const hackTimescaleInput = document.getElementById( 'hack-timescale' );
+	const hackGravityInput = document.getElementById( 'hack-gravity' );
+	const hackRoadGripInput = document.getElementById( 'hack-road-grip' );
 	const economyHud = document.getElementById( 'economy-hud' );
 	const modeMenu = document.getElementById( 'mode-menu' );
 	const modeError = document.getElementById( 'mode-error' );
@@ -616,6 +670,8 @@ async function init() {
 		if ( shareTimeBtn ) shareTimeBtn.style.display = 'none';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = 'none';
 		if ( importGhostBtn ) importGhostBtn.style.display = 'none';
+		if ( exportInputsBtn ) exportInputsBtn.style.display = 'none';
+		if ( importInputsBtn ) importInputsBtn.style.display = 'none';
 	}
 	if ( stuntModeBtn ) {
 
@@ -627,6 +683,37 @@ async function init() {
 	let coins = 0;
 	let engineTier = 0;
 	let shareImageDataUrl = '';
+	const HACKS_STORE_KEY = 'racing-hacks-v1';
+	const installedMods = (() => {
+
+		try {
+
+			const parsed = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
+			return Array.isArray( parsed ) ? parsed : [];
+
+		} catch {
+
+			return [];
+
+		}
+
+	})();
+	const hacksInstalled = installedMods.some( ( mod ) => mod?.id === 'hacks' );
+	const hacksState = {
+		enabled: false,
+		infiniteCoins: false,
+		boostAnywhere: false,
+		noLimits: false,
+		alwaysNitro: false,
+		superJump: false,
+		teleportForward: false,
+		lowFriction: false,
+		checkpointBypass: false,
+		timeScale: 1,
+		gravity: 1,
+		roadGrip: 1,
+	};
+	let hackTeleportLatch = false;
 
 	function getEngineMult() {
 
@@ -652,11 +739,11 @@ async function init() {
 		const stats = CAR_STATS[ carKey ];
 		if ( ! stats ) return;
 		const mult = getEngineMult();
-		const perf = {
-			...stats.perf,
-			topSpeed: Math.min( MAX_EFFECTIVE_TOP_SPEED, stats.perf.topSpeed * mult ),
-			driveForce: stats.perf.driveForce * mult,
-		};
+			const perf = {
+				...stats.perf,
+				topSpeed: Math.min( hacksState.enabled && hacksState.noLimits ? 99 : MAX_EFFECTIVE_TOP_SPEED, stats.perf.topSpeed * mult * ( hacksState.enabled && hacksState.noLimits ? 2.5 : 1 ) ),
+				driveForce: stats.perf.driveForce * mult * ( hacksState.enabled && hacksState.noLimits ? 2.5 : 1 ),
+			};
 		vehicle.setPerformance( perf );
 
 	}
@@ -671,6 +758,64 @@ async function init() {
 		if ( shareTimeBtn ) shareTimeBtn.style.display = ! isSplitScreen ? 'block' : 'none';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = ! isSplitScreen ? 'block' : 'none';
 		if ( importGhostBtn ) importGhostBtn.style.display = ! isSplitScreen ? 'block' : 'none';
+		if ( exportInputsBtn ) exportInputsBtn.style.display = ! isSplitScreen ? 'block' : 'none';
+		if ( importInputsBtn ) importInputsBtn.style.display = ! isSplitScreen ? 'block' : 'none';
+		if ( hacksToggleLink ) hacksToggleLink.style.display = hacksInstalled && ! isSplitScreen ? 'block' : 'none';
+		if ( hacksPanel ) hacksPanel.style.display = 'none';
+
+	}
+
+	function saveHacksState() {
+
+		localStorage.setItem( HACKS_STORE_KEY, JSON.stringify( hacksState ) );
+
+	}
+
+	function applyHacksUi() {
+
+		if ( ! hacksInstalled ) {
+
+			hacksState.enabled = false;
+			if ( hacksPanel ) hacksPanel.style.display = 'none';
+			return;
+
+		}
+		if ( hackEnableInput ) hackEnableInput.checked = hacksState.enabled;
+		if ( hackInfiniteCoinsInput ) hackInfiniteCoinsInput.checked = hacksState.infiniteCoins;
+		if ( hackBoostAnywhereInput ) hackBoostAnywhereInput.checked = hacksState.boostAnywhere;
+		if ( hackNoLimitsInput ) hackNoLimitsInput.checked = hacksState.noLimits;
+		if ( hackAlwaysNitroInput ) hackAlwaysNitroInput.checked = hacksState.alwaysNitro;
+		if ( hackSuperJumpInput ) hackSuperJumpInput.checked = hacksState.superJump;
+		if ( hackTeleportInput ) hackTeleportInput.checked = hacksState.teleportForward;
+		if ( hackLowFrictionInput ) hackLowFrictionInput.checked = hacksState.lowFriction;
+		if ( hackCheckpointBypassInput ) hackCheckpointBypassInput.checked = hacksState.checkpointBypass;
+		if ( hackTimescaleInput ) hackTimescaleInput.value = String( hacksState.timeScale );
+		if ( hackGravityInput ) hackGravityInput.value = String( hacksState.gravity );
+		if ( hackRoadGripInput ) hackRoadGripInput.value = String( hacksState.roadGrip );
+
+	}
+
+	function loadHacksState() {
+
+		if ( ! hacksInstalled ) return;
+		try {
+
+			const parsed = JSON.parse( localStorage.getItem( HACKS_STORE_KEY ) || '{}' );
+			hacksState.enabled = Boolean( parsed.enabled );
+			hacksState.infiniteCoins = Boolean( parsed.infiniteCoins );
+			hacksState.boostAnywhere = Boolean( parsed.boostAnywhere );
+			hacksState.noLimits = Boolean( parsed.noLimits );
+			hacksState.alwaysNitro = Boolean( parsed.alwaysNitro );
+			hacksState.superJump = Boolean( parsed.superJump );
+			hacksState.teleportForward = Boolean( parsed.teleportForward );
+			hacksState.lowFriction = Boolean( parsed.lowFriction );
+			hacksState.checkpointBypass = Boolean( parsed.checkpointBypass );
+			hacksState.timeScale = THREE.MathUtils.clamp( Number( parsed.timeScale ) || 1, 0.15, 1 );
+			hacksState.gravity = THREE.MathUtils.clamp( Number( parsed.gravity ) || 1, 0.1, 2 );
+			hacksState.roadGrip = THREE.MathUtils.clamp( Number( parsed.roadGrip ) || 1, 0.5, 3 );
+
+		} catch {}
+		applyHacksUi();
 
 	}
 
@@ -1601,7 +1746,9 @@ async function init() {
 		const accelPack = unlocks.accel ? garageMods.accel : 1.0;
 		const drivePack = unlocks.drive ? garageMods.drive : 1.0;
 		targetVehicle.gripMultiplier = ( effect ? effect.grip : 1.0 ) * gripPack;
+		if ( hacksState.enabled ) targetVehicle.gripMultiplier *= hacksState.roadGrip;
 		targetVehicle.dragMultiplier = effect ? effect.drag : 1.0;
+		if ( hacksState.enabled && hacksState.lowFriction ) targetVehicle.dragMultiplier *= 0.35;
 		targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * accelPack;
 		targetVehicle.driveMultiplier = ( effect ? effect.drive : 1.0 ) * drivePack;
 
@@ -1761,9 +1908,55 @@ async function init() {
 				bestLapSeconds,
 				duration: bestGhostDuration,
 				samples: bestLapGhostSamples,
+				inputs: bestLapInputFrames,
 			}
 		};
 		return encodeBase64UrlJson( payload );
+
+	}
+
+	function createInputsExportCode() {
+
+		const sourceInputs = Array.isArray( bestLapInputFrames ) && bestLapInputFrames.length >= 2
+			? bestLapInputFrames
+			: latestLapInputFrames;
+		if ( ! Array.isArray( sourceInputs ) || sourceInputs.length < 2 ) return '';
+		return encodeBase64UrlJson( {
+			v: 1,
+			url: currentTrackUrl,
+			trackId: leaderboardTrackId,
+			inputs: sourceInputs,
+		} );
+
+	}
+
+	function deriveInputsFromGhostSamples( samples, duration ) {
+
+		if ( ! Array.isArray( samples ) || samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return [];
+		const derived = [];
+		for ( let i = 1; i < samples.length; i ++ ) {
+
+			const prev = samples[ i - 1 ];
+			const next = samples[ i ];
+			const dt = Math.max( 1e-4, next.t - prev.t );
+			const dx = next.x - prev.x;
+			const dz = next.z - prev.z;
+			const speed = Math.sqrt( dx * dx + dz * dz ) / dt;
+			const yawDelta = lerpAngle( prev.yaw, next.yaw, 1 ) - prev.yaw;
+			derived.push( {
+				t: next.t,
+				x: THREE.MathUtils.clamp( yawDelta * 2.3, - 1, 1 ),
+				z: speed > 0.08 ? 1 : 0,
+				keys: {
+					left: yawDelta > 0.08,
+					right: yawDelta < - 0.08,
+					forward: speed > 0.08,
+					back: false,
+				},
+			} );
+
+		}
+		return derived;
 
 	}
 
@@ -1831,16 +2024,36 @@ async function init() {
 
 		}
 		const url = typeof parsed?.url === 'string' ? parsed.url : '';
-		if ( ! url || ! parsed?.ghost ) {
+		if ( ! parsed?.ghost ) {
 
 			window.alert( 'Ghost code is missing required data.' );
 			return;
 
 		}
+		const applied = applyImportedGhostPayload( parsed.ghost );
+		if ( applied ) {
 
-		const ghostBlob = encodeBase64UrlJson( parsed.ghost );
-		const separator = url.includes( '#' ) ? '&' : '#';
-		window.open( `${ url }${ separator }ghost=${ ghostBlob }`, '_blank' );
+			const importedInputs = Array.isArray( parsed.ghost?.inputs ) ? parsed.ghost.inputs : deriveInputsFromGhostSamples( parsed.ghost?.samples, parsed.ghost?.duration );
+				if ( importedInputs.length > 1 ) {
+
+					bestLapInputFrames = importedInputs;
+					latestLapInputFrames = importedInputs.slice();
+					saveLapStats();
+
+			}
+			showTopMessage( 'Ghost imported for current track.', false, 1700 );
+			return;
+
+		}
+		if ( url ) {
+
+			const ghostBlob = encodeBase64UrlJson( parsed.ghost );
+			const separator = url.includes( '#' ) ? '&' : '#';
+			window.open( `${ url }${ separator }ghost=${ ghostBlob }`, '_blank' );
+			return;
+
+		}
+		window.alert( 'Ghost code could not be applied to this track.' );
 
 	}
 
@@ -2029,6 +2242,13 @@ async function init() {
 
 	async function submitLeaderboardTime( lapTimeSeconds, forcedName = '' ) {
 
+		if ( hacksInstalled && hacksState.enabled ) {
+
+			showTopMessage( 'Leaderboard submitting is disabled while hacks are enabled.', true, 2200 );
+			return false;
+
+		}
+
 		const chosenName = sanitizePlayerName( forcedName || playerNameInput?.value );
 		if ( ! chosenName ) {
 
@@ -2162,25 +2382,29 @@ async function init() {
 
 		if ( ! ghostEnabled ) {
 
+				localStorage.setItem( lapStoreKey, JSON.stringify( {
+					lapNumber,
+					lastLapSeconds,
+					bestLapSeconds,
+					bestGhostDuration: 0,
+					bestGhostCarKey: 'vehicle-truck-yellow',
+					bestLapGhostSamples: [],
+					bestLapInputFrames: [],
+					latestLapInputFrames: [],
+				} ) );
+			return;
+
+		}
 			localStorage.setItem( lapStoreKey, JSON.stringify( {
 				lapNumber,
 				lastLapSeconds,
 				bestLapSeconds,
-				bestGhostDuration: 0,
-				bestGhostCarKey: 'vehicle-truck-yellow',
-				bestLapGhostSamples: [],
+				bestGhostDuration,
+				bestGhostCarKey,
+				bestLapGhostSamples,
+				bestLapInputFrames,
+				latestLapInputFrames,
 			} ) );
-			return;
-
-		}
-		localStorage.setItem( lapStoreKey, JSON.stringify( {
-			lapNumber,
-			lastLapSeconds,
-			bestLapSeconds,
-			bestGhostDuration,
-			bestGhostCarKey,
-			bestLapGhostSamples,
-		} ) );
 
 	}
 
@@ -2195,9 +2419,11 @@ async function init() {
 			lastLapSeconds = Number.isFinite( parsed.lastLapSeconds ) ? parsed.lastLapSeconds : null;
 			bestLapSeconds = Number.isFinite( parsed.bestLapSeconds ) ? parsed.bestLapSeconds : null;
 			bestGhostDuration = Number.isFinite( parsed.bestGhostDuration ) ? parsed.bestGhostDuration : 0;
-			bestGhostCarKey = typeof parsed.bestGhostCarKey === 'string' ? parsed.bestGhostCarKey : 'vehicle-truck-yellow';
-			bestLapGhostSamples.length = 0;
-			if ( Array.isArray( parsed.bestLapGhostSamples ) ) {
+				bestGhostCarKey = typeof parsed.bestGhostCarKey === 'string' ? parsed.bestGhostCarKey : 'vehicle-truck-yellow';
+					bestLapGhostSamples.length = 0;
+					bestLapInputFrames = [];
+					latestLapInputFrames = [];
+				if ( Array.isArray( parsed.bestLapGhostSamples ) ) {
 
 				for ( const sample of parsed.bestLapGhostSamples ) {
 
@@ -2209,6 +2435,16 @@ async function init() {
 						z: sample.z,
 						yaw: sample.yaw,
 					} );
+
+				}
+				if ( Array.isArray( parsed.bestLapInputFrames ) ) {
+
+					bestLapInputFrames = parsed.bestLapInputFrames.filter( ( sample ) => Number.isFinite( sample?.t ) && Number.isFinite( sample?.x ) && Number.isFinite( sample?.z ) );
+
+				}
+				if ( Array.isArray( parsed.latestLapInputFrames ) ) {
+
+					latestLapInputFrames = parsed.latestLapInputFrames.filter( ( sample ) => Number.isFinite( sample?.t ) && Number.isFinite( sample?.x ) && Number.isFinite( sample?.z ) );
 
 				}
 
@@ -2240,6 +2476,7 @@ async function init() {
 		boostContactCell = null;
 		specialSurfaceContactState.clear();
 		resetCurrentLapGhost();
+		resetCurrentLapInputs();
 		recordGhostSample( 0, true );
 		updateGhostPlayback( 0 );
 		hasLeftStartZone = false;
@@ -2482,6 +2719,54 @@ async function init() {
 		setModeMenuOpen( ! modeMenuOpen );
 
 	} );
+	hacksToggleLink?.addEventListener( 'click', ( e ) => {
+
+		e.preventDefault();
+		if ( ! hacksInstalled ) {
+
+			window.alert( 'Install the Hacks mod from Mod Manager first.' );
+			return;
+
+		}
+		if ( ! hacksPanel ) return;
+		hacksPanel.style.display = hacksPanel.style.display === 'block' ? 'none' : 'block';
+
+	} );
+
+	function bindHackControl( node, applyFn ) {
+
+		if ( ! node ) return;
+		node.addEventListener( 'input', () => {
+
+			applyFn();
+			saveHacksState();
+			applyVehiclePerformance();
+			updateEconomyHud();
+
+		} );
+		node.addEventListener( 'change', () => {
+
+			applyFn();
+			saveHacksState();
+			applyVehiclePerformance();
+			updateEconomyHud();
+
+		} );
+
+	}
+
+	bindHackControl( hackEnableInput, () => hacksState.enabled = Boolean( hackEnableInput?.checked ) );
+	bindHackControl( hackInfiniteCoinsInput, () => hacksState.infiniteCoins = Boolean( hackInfiniteCoinsInput?.checked ) );
+	bindHackControl( hackBoostAnywhereInput, () => hacksState.boostAnywhere = Boolean( hackBoostAnywhereInput?.checked ) );
+	bindHackControl( hackNoLimitsInput, () => hacksState.noLimits = Boolean( hackNoLimitsInput?.checked ) );
+	bindHackControl( hackAlwaysNitroInput, () => hacksState.alwaysNitro = Boolean( hackAlwaysNitroInput?.checked ) );
+	bindHackControl( hackSuperJumpInput, () => hacksState.superJump = Boolean( hackSuperJumpInput?.checked ) );
+	bindHackControl( hackTeleportInput, () => hacksState.teleportForward = Boolean( hackTeleportInput?.checked ) );
+	bindHackControl( hackLowFrictionInput, () => hacksState.lowFriction = Boolean( hackLowFrictionInput?.checked ) );
+	bindHackControl( hackCheckpointBypassInput, () => hacksState.checkpointBypass = Boolean( hackCheckpointBypassInput?.checked ) );
+	bindHackControl( hackTimescaleInput, () => hacksState.timeScale = THREE.MathUtils.clamp( Number( hackTimescaleInput?.value ) || 1, 0.15, 1 ) );
+	bindHackControl( hackGravityInput, () => hacksState.gravity = THREE.MathUtils.clamp( Number( hackGravityInput?.value ) || 1, 0.1, 2 ) );
+	bindHackControl( hackRoadGripInput, () => hacksState.roadGrip = THREE.MathUtils.clamp( Number( hackRoadGripInput?.value ) || 1, 0.5, 3 ) );
 
 	carSelect?.addEventListener( 'change', () => {
 
@@ -2561,6 +2846,39 @@ async function init() {
 	importGhostBtn?.addEventListener( 'click', () => {
 
 		importGhostIntoNewTab();
+
+	} );
+	exportInputsBtn?.addEventListener( 'click', () => {
+
+		const code = createInputsExportCode();
+		if ( ! code ) {
+
+			window.alert( 'No best-run input data yet. Set a best lap first.' );
+			return;
+
+		}
+		openGhostCodeTab( code );
+
+	} );
+	importInputsBtn?.addEventListener( 'click', () => {
+
+		const code = window.prompt( 'Paste input code:' );
+		if ( ! code ) return;
+		try {
+
+			const parsed = decodeBase64UrlJson( code.trim() );
+				const inputs = Array.isArray( parsed?.inputs ) ? parsed.inputs : [];
+				if ( inputs.length < 2 ) throw new Error( 'Invalid input payload.' );
+				bestLapInputFrames = inputs.filter( ( sample ) => Number.isFinite( sample?.t ) && Number.isFinite( sample?.x ) && Number.isFinite( sample?.z ) );
+				latestLapInputFrames = bestLapInputFrames.slice();
+				saveLapStats();
+			showTopMessage( `Imported ${ bestLapInputFrames.length } run input samples.`, false, 1800 );
+
+		} catch ( e ) {
+
+			window.alert( 'Invalid input code.' );
+
+		}
 
 	} );
 	raceModeBtn?.addEventListener( 'click', () => {
@@ -2769,6 +3087,7 @@ async function init() {
 	} );
 
 	loadEconomy();
+	loadHacksState();
 	loadStuntStats();
 	loadGarageMods();
 	loadCampaignState();
@@ -2858,19 +3177,71 @@ async function init() {
 
 		requestAnimationFrame( animate );
 
-		timer.update();
-		const dt = Math.min( timer.getDelta(), 1 / 30 );
-		const now = timer.getElapsed();
+			timer.update();
+			const dtBase = Math.min( timer.getDelta(), 1 / 30 );
+			const dt = dtBase * ( hacksInstalled && hacksState.enabled ? hacksState.timeScale : 1 );
+			const now = timer.getElapsed();
 
-		const input = modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls.update();
-		const input2 = controls2 ? ( modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls2.update() ) : null;
+			const input = modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls.update();
+			const input2 = controls2 ? ( modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls2.update() ) : null;
+			recordLapInput( Math.max( 0, now - lapStartSeconds ), input, controls?.keys );
+			if ( hacksInstalled && hacksState.enabled && hacksState.infiniteCoins ) coins = Math.max( coins, 9999999 );
 
 		updateWorld( world, contactListener, dt );
 
-		vehicle.update( dt, input );
-		if ( vehicle2 && input2 ) vehicle2.update( dt, input2 );
-		activeSurfaceType = findActiveSurfaceTypeFor( vehicle );
-		applySurfaceGrip( vehicle, activeSurfaceType );
+			vehicle.update( dt, input );
+			if ( vehicle2 && input2 ) vehicle2.update( dt, input2 );
+			if ( hacksInstalled && hacksState.enabled ) {
+
+				if ( vehicle?.rigidBody?.motionProperties ) vehicle.rigidBody.motionProperties.gravityFactor = hacksState.gravity;
+				if ( vehicle2?.rigidBody?.motionProperties ) vehicle2.rigidBody.motionProperties.gravityFactor = hacksState.gravity;
+				if ( hacksState.boostAnywhere && controls?.keys?.KeyB && vehicle?.rigidBody?.motionProperties ) {
+
+					const vel = [ ...vehicle.rigidBody.motionProperties.linearVelocity ];
+					const boostDir = new THREE.Vector3( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).setY( 0 ).normalize();
+					vel[ 0 ] += boostDir.x * 0.85;
+					vel[ 2 ] += boostDir.z * 0.85;
+					rigidBody.setLinearVelocity( world, vehicle.rigidBody, vel );
+
+				}
+				if ( hacksState.alwaysNitro && vehicle?.rigidBody?.motionProperties ) {
+
+					const vel = [ ...vehicle.rigidBody.motionProperties.linearVelocity ];
+					const boostDir = new THREE.Vector3( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).setY( 0 ).normalize();
+					vel[ 0 ] += boostDir.x * 0.22;
+					vel[ 2 ] += boostDir.z * 0.22;
+					rigidBody.setLinearVelocity( world, vehicle.rigidBody, vel );
+
+				}
+				if ( hacksState.superJump && controls?.keys?.KeyJ && vehicle?.rigidBody?.motionProperties ) {
+
+					const vel = [ ...vehicle.rigidBody.motionProperties.linearVelocity ];
+					vel[ 1 ] = Math.max( vel[ 1 ], 4.2 );
+					rigidBody.setLinearVelocity( world, vehicle.rigidBody, vel );
+
+				}
+				if ( hacksState.teleportForward && vehicle?.rigidBody?.motionProperties ) {
+
+					const trigger = Boolean( controls?.keys?.KeyT );
+					if ( trigger && ! hackTeleportLatch ) {
+
+						const fwd = new THREE.Vector3( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).setY( 0 ).normalize();
+						vehicle.spherePos.addScaledVector( fwd, 6.5 );
+						rigidBody.setPosition( world, vehicle.rigidBody, vehicle.spherePos.toArray(), false );
+
+					}
+					hackTeleportLatch = trigger;
+
+				}
+
+			} else hackTeleportLatch = false;
+			activeSurfaceType = findActiveSurfaceTypeFor( vehicle );
+			applySurfaceGrip( vehicle, activeSurfaceType );
+			if ( hacksState.enabled && hacksState.checkpointBypass ) {
+
+				for ( const checkpoint of checkpointStates ) checkpoint.passedThisLap = true;
+
+			}
 		if ( vehicle2 ) {
 
 			activeSurfaceType2 = findActiveSurfaceTypeFor( vehicle2 );
@@ -3058,11 +3429,32 @@ async function init() {
 					updateGhostShareButtons();
 
 				}
+				if ( isNewBest && currentLapInputFrames.length > 1 ) {
+
+					bestLapInputFrames = currentLapInputFrames.map( ( sample ) => ( {
+						t: sample.t,
+						x: sample.x,
+						z: sample.z,
+						keys: sample.keys || { left: false, right: false, forward: false, back: false },
+					} ) );
+
+				}
+				if ( currentLapInputFrames.length > 1 ) {
+
+					latestLapInputFrames = currentLapInputFrames.map( ( sample ) => ( {
+						t: sample.t,
+						x: sample.x,
+						z: sample.z,
+						keys: sample.keys || { left: false, right: false, forward: false, back: false },
+					} ) );
+
+				}
 					if ( isNewBest && ! isSplitScreen ) submitLeaderboardTime( completedLap );
-					lapNumber ++;
-					lapStartSeconds = now;
-					resetCurrentLapGhost();
-					recordGhostSample( 0, true );
+						lapNumber ++;
+						lapStartSeconds = now;
+						resetCurrentLapGhost();
+						resetCurrentLapInputs();
+						recordGhostSample( 0, true );
 					updateGhostPlayback( 0 );
 				hasLeftStartZone = false;
 				for ( const checkpoint of checkpointStates ) {
