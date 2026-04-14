@@ -292,7 +292,14 @@ async function init() {
 	let spawn = null;
 	const extras = decodeExtrasParam( extrasParam );
 	const carKeys = Object.keys( CAR_STATS );
-	const pickRandomCarKey = () => carKeys[ Math.floor( Math.random() * carKeys.length ) ];
+	const deterministicCarSeed = hashTrackSeed( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
+	const pickRandomCarKey = () => {
+
+		const slice = deterministicCarSeed.slice( 0, 8 );
+		const index = Number.parseInt( slice, 16 ) % carKeys.length;
+		return carKeys[ index ];
+
+	};
 
 	if ( mapParam ) {
 
@@ -407,6 +414,9 @@ async function init() {
 	let ghostModel = null;
 	const bestLapGhostSamples = [];
 	let currentLapGhostSamples = [];
+	let bestLapInputFrames = [];
+	let currentLapInputFrames = [];
+	let inputRecordFrame = 0;
 	let bestGhostDuration = 0;
 	let bestGhostCarKey = 'vehicle-truck-yellow';
 	let ghostRecordFrame = 0;
@@ -441,6 +451,33 @@ async function init() {
 		if ( ! ghostEnabled ) return;
 		currentLapGhostSamples = [];
 		ghostRecordFrame = 0;
+
+	}
+
+	function resetCurrentLapInputs() {
+
+		currentLapInputFrames = [];
+		inputRecordFrame = 0;
+
+	}
+
+	function recordLapInput( lapElapsed, input, controlState ) {
+
+		if ( ! ghostEnabled ) return;
+		inputRecordFrame ++;
+		if ( inputRecordFrame % 2 !== 0 ) return;
+		const keys = controlState || {};
+		currentLapInputFrames.push( {
+			t: lapElapsed,
+			x: Number.isFinite( input?.x ) ? input.x : 0,
+			z: Number.isFinite( input?.z ) ? input.z : 0,
+			keys: {
+				left: Boolean( keys.KeyA || keys.ArrowLeft ),
+				right: Boolean( keys.KeyD || keys.ArrowRight ),
+				forward: Boolean( keys.KeyW || keys.ArrowUp ),
+				back: Boolean( keys.KeyS || keys.ArrowDown ),
+			},
+		} );
 
 	}
 
@@ -539,6 +576,8 @@ async function init() {
 	const shareTimeBtn = document.getElementById( 'share-time-btn' );
 	const exportGhostBtn = document.getElementById( 'export-ghost-btn' );
 	const importGhostBtn = document.getElementById( 'import-ghost-btn' );
+	const exportInputsBtn = document.getElementById( 'export-inputs-btn' );
+	const importInputsBtn = document.getElementById( 'import-inputs-btn' );
 	const economyHud = document.getElementById( 'economy-hud' );
 	const modeMenu = document.getElementById( 'mode-menu' );
 	const modeError = document.getElementById( 'mode-error' );
@@ -616,6 +655,8 @@ async function init() {
 		if ( shareTimeBtn ) shareTimeBtn.style.display = 'none';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = 'none';
 		if ( importGhostBtn ) importGhostBtn.style.display = 'none';
+		if ( exportInputsBtn ) exportInputsBtn.style.display = 'none';
+		if ( importInputsBtn ) importInputsBtn.style.display = 'none';
 	}
 	if ( stuntModeBtn ) {
 
@@ -671,6 +712,8 @@ async function init() {
 		if ( shareTimeBtn ) shareTimeBtn.style.display = ! isSplitScreen ? 'block' : 'none';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = ! isSplitScreen ? 'block' : 'none';
 		if ( importGhostBtn ) importGhostBtn.style.display = ! isSplitScreen ? 'block' : 'none';
+		if ( exportInputsBtn ) exportInputsBtn.style.display = ! isSplitScreen ? 'block' : 'none';
+		if ( importInputsBtn ) importInputsBtn.style.display = ! isSplitScreen ? 'block' : 'none';
 
 	}
 
@@ -1761,9 +1804,52 @@ async function init() {
 				bestLapSeconds,
 				duration: bestGhostDuration,
 				samples: bestLapGhostSamples,
+				inputs: bestLapInputFrames,
 			}
 		};
 		return encodeBase64UrlJson( payload );
+
+	}
+
+	function createInputsExportCode() {
+
+		if ( ! Array.isArray( bestLapInputFrames ) || bestLapInputFrames.length < 2 ) return '';
+		return encodeBase64UrlJson( {
+			v: 1,
+			url: currentTrackUrl,
+			trackId: leaderboardTrackId,
+			inputs: bestLapInputFrames,
+		} );
+
+	}
+
+	function deriveInputsFromGhostSamples( samples, duration ) {
+
+		if ( ! Array.isArray( samples ) || samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return [];
+		const derived = [];
+		for ( let i = 1; i < samples.length; i ++ ) {
+
+			const prev = samples[ i - 1 ];
+			const next = samples[ i ];
+			const dt = Math.max( 1e-4, next.t - prev.t );
+			const dx = next.x - prev.x;
+			const dz = next.z - prev.z;
+			const speed = Math.sqrt( dx * dx + dz * dz ) / dt;
+			const yawDelta = lerpAngle( prev.yaw, next.yaw, 1 ) - prev.yaw;
+			derived.push( {
+				t: next.t,
+				x: THREE.MathUtils.clamp( yawDelta * 2.3, - 1, 1 ),
+				z: speed > 0.08 ? 1 : 0,
+				keys: {
+					left: yawDelta > 0.08,
+					right: yawDelta < - 0.08,
+					forward: speed > 0.08,
+					back: false,
+				},
+			} );
+
+		}
+		return derived;
 
 	}
 
@@ -1831,16 +1917,35 @@ async function init() {
 
 		}
 		const url = typeof parsed?.url === 'string' ? parsed.url : '';
-		if ( ! url || ! parsed?.ghost ) {
+		if ( ! parsed?.ghost ) {
 
 			window.alert( 'Ghost code is missing required data.' );
 			return;
 
 		}
+		const applied = applyImportedGhostPayload( parsed.ghost );
+		if ( applied ) {
 
-		const ghostBlob = encodeBase64UrlJson( parsed.ghost );
-		const separator = url.includes( '#' ) ? '&' : '#';
-		window.open( `${ url }${ separator }ghost=${ ghostBlob }`, '_blank' );
+			const importedInputs = Array.isArray( parsed.ghost?.inputs ) ? parsed.ghost.inputs : deriveInputsFromGhostSamples( parsed.ghost?.samples, parsed.ghost?.duration );
+			if ( importedInputs.length > 1 ) {
+
+				bestLapInputFrames = importedInputs;
+				saveLapStats();
+
+			}
+			showTopMessage( 'Ghost imported for current track.', false, 1700 );
+			return;
+
+		}
+		if ( url ) {
+
+			const ghostBlob = encodeBase64UrlJson( parsed.ghost );
+			const separator = url.includes( '#' ) ? '&' : '#';
+			window.open( `${ url }${ separator }ghost=${ ghostBlob }`, '_blank' );
+			return;
+
+		}
+		window.alert( 'Ghost code could not be applied to this track.' );
 
 	}
 
@@ -2162,25 +2267,27 @@ async function init() {
 
 		if ( ! ghostEnabled ) {
 
+				localStorage.setItem( lapStoreKey, JSON.stringify( {
+					lapNumber,
+					lastLapSeconds,
+					bestLapSeconds,
+					bestGhostDuration: 0,
+					bestGhostCarKey: 'vehicle-truck-yellow',
+					bestLapGhostSamples: [],
+					bestLapInputFrames: [],
+				} ) );
+			return;
+
+		}
 			localStorage.setItem( lapStoreKey, JSON.stringify( {
 				lapNumber,
 				lastLapSeconds,
 				bestLapSeconds,
-				bestGhostDuration: 0,
-				bestGhostCarKey: 'vehicle-truck-yellow',
-				bestLapGhostSamples: [],
+				bestGhostDuration,
+				bestGhostCarKey,
+				bestLapGhostSamples,
+				bestLapInputFrames,
 			} ) );
-			return;
-
-		}
-		localStorage.setItem( lapStoreKey, JSON.stringify( {
-			lapNumber,
-			lastLapSeconds,
-			bestLapSeconds,
-			bestGhostDuration,
-			bestGhostCarKey,
-			bestLapGhostSamples,
-		} ) );
 
 	}
 
@@ -2196,8 +2303,9 @@ async function init() {
 			bestLapSeconds = Number.isFinite( parsed.bestLapSeconds ) ? parsed.bestLapSeconds : null;
 			bestGhostDuration = Number.isFinite( parsed.bestGhostDuration ) ? parsed.bestGhostDuration : 0;
 			bestGhostCarKey = typeof parsed.bestGhostCarKey === 'string' ? parsed.bestGhostCarKey : 'vehicle-truck-yellow';
-			bestLapGhostSamples.length = 0;
-			if ( Array.isArray( parsed.bestLapGhostSamples ) ) {
+				bestLapGhostSamples.length = 0;
+				bestLapInputFrames = [];
+				if ( Array.isArray( parsed.bestLapGhostSamples ) ) {
 
 				for ( const sample of parsed.bestLapGhostSamples ) {
 
@@ -2209,6 +2317,11 @@ async function init() {
 						z: sample.z,
 						yaw: sample.yaw,
 					} );
+
+				}
+				if ( Array.isArray( parsed.bestLapInputFrames ) ) {
+
+					bestLapInputFrames = parsed.bestLapInputFrames.filter( ( sample ) => Number.isFinite( sample?.t ) && Number.isFinite( sample?.x ) && Number.isFinite( sample?.z ) );
 
 				}
 
@@ -2240,6 +2353,7 @@ async function init() {
 		boostContactCell = null;
 		specialSurfaceContactState.clear();
 		resetCurrentLapGhost();
+		resetCurrentLapInputs();
 		recordGhostSample( 0, true );
 		updateGhostPlayback( 0 );
 		hasLeftStartZone = false;
@@ -2563,6 +2677,38 @@ async function init() {
 		importGhostIntoNewTab();
 
 	} );
+	exportInputsBtn?.addEventListener( 'click', () => {
+
+		const code = createInputsExportCode();
+		if ( ! code ) {
+
+			window.alert( 'No best-run input data yet. Set a best lap first.' );
+			return;
+
+		}
+		openGhostCodeTab( code );
+
+	} );
+	importInputsBtn?.addEventListener( 'click', () => {
+
+		const code = window.prompt( 'Paste input code:' );
+		if ( ! code ) return;
+		try {
+
+			const parsed = decodeBase64UrlJson( code.trim() );
+			const inputs = Array.isArray( parsed?.inputs ) ? parsed.inputs : [];
+			if ( inputs.length < 2 ) throw new Error( 'Invalid input payload.' );
+			bestLapInputFrames = inputs.filter( ( sample ) => Number.isFinite( sample?.t ) && Number.isFinite( sample?.x ) && Number.isFinite( sample?.z ) );
+			saveLapStats();
+			showTopMessage( `Imported ${ bestLapInputFrames.length } run input samples.`, false, 1800 );
+
+		} catch ( e ) {
+
+			window.alert( 'Invalid input code.' );
+
+		}
+
+	} );
 	raceModeBtn?.addEventListener( 'click', () => {
 
 		setGameMode( 'race' );
@@ -2862,8 +3008,9 @@ async function init() {
 		const dt = Math.min( timer.getDelta(), 1 / 30 );
 		const now = timer.getElapsed();
 
-		const input = modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls.update();
-		const input2 = controls2 ? ( modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls2.update() ) : null;
+			const input = modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls.update();
+			const input2 = controls2 ? ( modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls2.update() ) : null;
+			recordLapInput( Math.max( 0, now - lapStartSeconds ), input, controls?.keys );
 
 		updateWorld( world, contactListener, dt );
 
@@ -3058,11 +3205,22 @@ async function init() {
 					updateGhostShareButtons();
 
 				}
+				if ( isNewBest && currentLapInputFrames.length > 1 ) {
+
+					bestLapInputFrames = currentLapInputFrames.map( ( sample ) => ( {
+						t: sample.t,
+						x: sample.x,
+						z: sample.z,
+						keys: sample.keys || { left: false, right: false, forward: false, back: false },
+					} ) );
+
+				}
 					if ( isNewBest && ! isSplitScreen ) submitLeaderboardTime( completedLap );
-					lapNumber ++;
-					lapStartSeconds = now;
-					resetCurrentLapGhost();
-					recordGhostSample( 0, true );
+						lapNumber ++;
+						lapStartSeconds = now;
+						resetCurrentLapGhost();
+						resetCurrentLapInputs();
+						recordGhostSample( 0, true );
 					updateGhostPlayback( 0 );
 				hasLeftStartZone = false;
 				for ( const checkpoint of checkpointStates ) {
