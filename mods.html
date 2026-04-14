@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Racing Mods</title>
+  <style>
+    body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: #111722; color: #fff; }
+    main { max-width: 860px; margin: 24px auto; padding: 0 16px; }
+    .panel { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+    input, button { padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: #fff; }
+    button { cursor: pointer; }
+    ul { margin: 8px 0 0; padding-left: 20px; }
+    a { color: #8dc7ff; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Mod Manager</h1>
+    <div class="panel">
+      <p>Install by typing mod name (example: <code>TAS</code>).</p>
+      <div class="row">
+        <input id="mod-name" placeholder="Mod name" />
+        <button id="install-btn" type="button">Install</button>
+      </div>
+      <div id="install-status"></div>
+    </div>
+    <div class="panel">
+      <h2>Installed mods</h2>
+      <ul id="installed-list"></ul>
+    </div>
+    <div class="panel">
+      <h2>All available mods</h2>
+      <ul id="catalog-list"></ul>
+    </div>
+    <p><a href="index.html">← Back to game</a></p>
+  </main>
+  <script type="module" src="js/mods-manager.js"></script>
+</body>
+</html>
