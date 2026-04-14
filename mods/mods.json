@@ -1,0 +1,19 @@
+{
+  "mods": [
+    {
+      "id": "tas",
+      "name": "TAS",
+      "folder": "mods",
+      "entry": "mods/TAS.js",
+      "viewerPage": "tas-viewer.html",
+      "status": "under-construction"
+    },
+    {
+      "id": "hacks",
+      "name": "Hacks",
+      "folder": "mods",
+      "entry": "mods/Hacks.js",
+      "viewerPage": "index.html"
+    }
+  ]
+}
