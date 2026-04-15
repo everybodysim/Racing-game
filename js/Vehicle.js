@@ -62,6 +62,8 @@ export class Vehicle {
 		this.dragMultiplier = 1.0;
 		this.accelMultiplier = 1.0;
 		this.driveMultiplier = 1.0;
+		this.rotationUnlockEnabled = false;
+		this.rotationUnlockSpeed = 2.6;
 
 	}
 
@@ -73,6 +75,12 @@ export class Vehicle {
 		this.reverseAccelRate = perf.reverseAccelRate ?? this.reverseAccelRate;
 		this.brakeRate = perf.brakeRate ?? this.brakeRate;
 		this.driveForce = perf.driveForce ?? this.driveForce;
+
+	}
+
+	setRotationUnlockEnabled( enabled ) {
+
+		this.rotationUnlockEnabled = Boolean( enabled );
 
 	}
 
@@ -177,6 +185,8 @@ export class Vehicle {
 
 		this.inputX = controlsInput.x;
 		this.inputZ = controlsInput.z;
+		const pitchInput = THREE.MathUtils.clamp( controlsInput.pitch || 0, -1, 1 );
+		const rollInput = THREE.MathUtils.clamp( controlsInput.roll || 0, -1, 1 );
 
 		let direction = Math.sign( this.linearSpeed );
 		if ( direction === 0 ) direction = Math.abs( this.inputZ ) > 0.1 ? Math.sign( this.inputZ ) : 1;
@@ -188,12 +198,21 @@ export class Vehicle {
 
 		this.container.rotateY( this.angularSpeed * dt );
 
-		_tmpVec.set( 0, 1, 0 ).applyQuaternion( this.container.quaternion );
+		if ( this.rotationUnlockEnabled ) {
 
-		if ( _tmpVec.y > 0.5 ) {
+			this.container.rotateX( pitchInput * this.rotationUnlockSpeed * dt );
+			this.container.rotateZ( -rollInput * this.rotationUnlockSpeed * dt );
 
-			const targetQuat = this.alignWithY( this.container.quaternion, _up );
-			this.container.quaternion.slerp( targetQuat, 0.2 );
+		} else {
+
+			_tmpVec.set( 0, 1, 0 ).applyQuaternion( this.container.quaternion );
+
+			if ( _tmpVec.y > 0.5 ) {
+
+				const targetQuat = this.alignWithY( this.container.quaternion, _up );
+				this.container.quaternion.slerp( targetQuat, 0.2 );
+
+			}
 
 		}
 

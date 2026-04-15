@@ -376,9 +376,24 @@ async function init() {
 
 	const player1CarKey = isSplitScreen ? pickRandomCarKey() : 'vehicle-truck-yellow';
 	const player2CarKey = isSplitScreen ? pickRandomCarKey() : 'vehicle-truck-red';
+	const airRotationUnlockInitiallyInstalled = (() => {
+
+		try {
+
+			const parsed = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
+			return Array.isArray( parsed ) && parsed.some( ( mod ) => mod?.id === 'air-rotation-unlock' );
+
+		} catch {
+
+			return false;
+
+		}
+
+	})();
 	const vehicle = new Vehicle();
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
+	vehicle.setRotationUnlockEnabled( airRotationUnlockInitiallyInstalled );
 	vehicle.setSpawn( spawn ? spawn.position : [ 3.5, 0.5, 5 ], spawn ? spawn.angle : 0 );
 	vehicle.setPerformance( CAR_STATS[ player1CarKey ].perf );
 
@@ -700,6 +715,7 @@ async function init() {
 	const practiceStartInstalled = installedMods.some( ( mod ) => mod?.id === 'practice-start' );
 	const stuntModeModInstalled = installedMods.some( ( mod ) => mod?.id === 'stunt-mode' );
 	const freecamInstalled = installedMods.some( ( mod ) => mod?.id === 'freecam' );
+	const airRotationUnlockInstalled = installedMods.some( ( mod ) => mod?.id === 'air-rotation-unlock' );
 	if ( stuntModeBtn ) {
 
 		stuntModeBtn.disabled = ! stuntModeModInstalled;
@@ -3386,7 +3402,15 @@ async function init() {
 			const now = raceClockSeconds;
 
 			const controlsBlocked = modeMenuOpen || freecamState.active;
-			const input = controlsBlocked ? { x: 0, y: 0, z: 0 } : controls.update();
+			const input = controlsBlocked ? { x: 0, y: 0, z: 0, pitch: 0, roll: 0 } : controls.update();
+			if ( airRotationUnlockInstalled ) {
+
+				const pitchInput = ( controls?.keys?.KeyI ? 1 : 0 ) - ( controls?.keys?.KeyK ? 1 : 0 );
+				const rollInput = ( controls?.keys?.KeyJ ? 1 : 0 ) - ( controls?.keys?.KeyL ? 1 : 0 );
+				input.pitch = THREE.MathUtils.clamp( pitchInput, -1, 1 );
+				input.roll = THREE.MathUtils.clamp( rollInput, -1, 1 );
+
+			}
 			const input2 = controls2 ? ( modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls2.update() ) : null;
 			recordLapInput( Math.max( 0, now - lapStartSeconds ), input, controls?.keys );
 			if ( hacksActive && hacksState.infiniteCoins ) coins = Math.max( coins, 9999999 );
