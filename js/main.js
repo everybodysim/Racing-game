@@ -702,7 +702,7 @@ async function init() {
 	const hacksInstalled = installedMods.some( ( mod ) => mod?.id === 'hacks' );
 	const arcadeBoostInstalled = installedMods.some( ( mod ) => mod?.id === 'arcade-boost' );
 	const anyModsInstalled = installedMods.length > 0;
-	const checkpointRespawnInstalled = false;
+	const checkpointRespawnInstalled = installedMods.some( ( mod ) => mod?.id === 'checkpoint-respawn' );
 	const practiceStartInstalled = false;
 	const hacksState = {
 		enabled: false,
@@ -2095,7 +2095,11 @@ async function init() {
 		const checkpointLine = totalCheckpoints > 0
 			? `<br><small>Checkpoints: ${ passedCheckpoints } / ${ totalCheckpoints }</small>`
 			: '';
-		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }`;
+		const controlsHints = [];
+		if ( checkpointRespawnInstalled ) controlsHints.push( 'Checkpoint respawn: T' );
+		if ( practiceStartInstalled ) controlsHints.push( 'Save/Load practice: Y / U' );
+		const controlsLine = controlsHints.length ? `<br><small>${ controlsHints.join( ' • ' ) }</small>` : '';
+		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ controlsLine }`;
 
 	}
 
@@ -3252,6 +3256,13 @@ async function init() {
 
 			}
 
+			if ( checkpointRespawnInstalled && e.code === 'KeyT' ) {
+
+				respawnToLastCheckpoint();
+				return;
+
+			}
+
 		} );
 
 	let hudUpdateAccumulator = 0;
@@ -3436,7 +3447,12 @@ async function init() {
 
 			}
 
-			if ( crossedCheckpoint ) checkpoint.passedThisLap = true;
+			if ( crossedCheckpoint ) {
+
+				checkpoint.passedThisLap = true;
+				if ( checkpointRespawnInstalled ) saveCheckpointState();
+
+			}
 			checkpoint.lastLocalX = localX;
 			checkpoint.lastLocalZ = localZ;
 			checkpoint.hasPrevSample = true;
@@ -3470,7 +3486,7 @@ async function init() {
 				if ( crossedCheckpoint ) {
 
 					checkpoint.passedThisLap = true;
-					saveCheckpointState();
+					if ( checkpointRespawnInstalled ) saveCheckpointState();
 
 				}
 				checkpoint.lastLocalX = localX;

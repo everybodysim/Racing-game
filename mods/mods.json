@@ -21,6 +21,13 @@
       "folder": "mods",
       "entry": "mods/ArcadeBoost.js",
       "viewerPage": "index.html"
+    },
+    {
+      "id": "checkpoint-respawn",
+      "name": "Checkpoint Respawn",
+      "folder": "mods",
+      "entry": "mods/CheckpointRespawn.js",
+      "viewerPage": "index.html"
     }
   ]
 }
