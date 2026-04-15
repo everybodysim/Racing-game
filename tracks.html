@@ -162,7 +162,6 @@
 				const parsed = new URL( playUrl, window.location.href );
 				const params = new URLSearchParams( parsed.search );
 				if ( ! params.has( 'map' ) ) params.set( 'map', 'default' );
-				if ( ! params.has( 'mods' ) ) params.set( 'mods', 'none' );
 				params.sort();
 				const base = `${ parsed.pathname }?${ params.toString() }`;
 				return `trk-${ hashTrackSeed( base ) }`;
@@ -171,11 +170,27 @@
 			}
 		}
 
+		function decodeMapPayload( mapParamValue ) {
+			if ( ! mapParamValue || ! mapParamValue.startsWith( 'm1.' ) ) return null;
+			try {
+				const raw = mapParamValue.slice( 3 ).replace( /-/g, '+' ).replace( /_/g, '/' );
+				const padded = raw + '==='.slice( ( raw.length + 3 ) % 4 );
+				const parsed = JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
+				const map = typeof parsed?.map === 'string' ? parsed.map : '';
+				if ( ! map ) return null;
+				return { map, mods: typeof parsed?.mods === 'string' ? parsed.mods : '' };
+			} catch ( e ) {
+				return null;
+			}
+		}
+
 		function getLegacyTrackIdsFromPlayUrl( playUrl ) {
 			try {
 				const parsed = new URL( playUrl, window.location.href );
-				const map = parsed.searchParams.get( 'map' ) || 'default';
-				const mods = parsed.searchParams.get( 'mods' ) || 'none';
+				const mapRaw = parsed.searchParams.get( 'map' ) || 'default';
+				const mapPayload = decodeMapPayload( mapRaw );
+				const map = mapPayload?.map || mapRaw;
+				const mods = mapPayload?.mods || parsed.searchParams.get( 'mods' ) || 'none';
 				const ids = [ encodeBase64Url( `${ parsed.pathname }?map=${ map }&mods=${ mods }` ) ];
 				const params = new URLSearchParams( parsed.search );
 				if ( ! params.has( 'map' ) ) params.set( 'map', map );

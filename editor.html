@@ -1170,13 +1170,47 @@
 
 	}
 
+	function encodeMapPayload( mapEncoded, modsEncoded ) {
+
+		const payload = JSON.stringify( { map: mapEncoded, mods: modsEncoded || '' } );
+		return 'm1.' + btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
+
+	}
+
+	function decodeMapPayload( mapParamValue ) {
+
+		if ( ! mapParamValue || ! mapParamValue.startsWith( 'm1.' ) ) return null;
+
+		try {
+
+			const raw = mapParamValue.slice( 3 ).replace( /-/g, '+' ).replace( /_/g, '/' );
+			const padded = raw + '==='.slice( ( raw.length + 3 ) % 4 );
+			const parsed = JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
+			const map = typeof parsed?.map === 'string' ? parsed.map : '';
+			if ( ! map ) return null;
+			return {
+				map,
+				mods: typeof parsed?.mods === 'string' ? parsed.mods : '',
+			};
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to decode map payload', e );
+			return null;
+
+		}
+
+	}
+
 	function loadSaved() {
 
 		const params = new URLSearchParams( window.location.search );
-		const mapParam = params.get( 'map' );
+		const mapParamRaw = params.get( 'map' );
+		const mapPayload = decodeMapPayload( mapParamRaw );
+		const mapParam = mapPayload?.map || mapParamRaw;
 		const modsParam = params.get( 'mods' );
 		const encoded = mapParam || localStorage.getItem( 'racing-editor-cells' );
-		const modsEncoded = modsParam || localStorage.getItem( 'racing-editor-mods' );
+		const modsEncoded = mapPayload?.mods || modsParam || localStorage.getItem( 'racing-editor-mods' );
 
 		if ( ! encoded ) return;
 
@@ -1590,7 +1624,8 @@
 
 		const encoded = encodeCells( getCellsArray() );
 		const mods = encodeMods();
-		window.open( 'index.html?map=' + encoded + '&mods=' + mods, '_blank' );
+		const mapPayload = encodeMapPayload( encoded, mods );
+		window.open( 'index.html?map=' + mapPayload, '_blank' );
 
 	} );
 
@@ -1605,8 +1640,9 @@
 
 		const encoded = encodeCells( getCellsArray() );
 		const mods = encodeMods();
+		const mapPayload = encodeMapPayload( encoded, mods );
 		const base = window.location.href.replace( /editor\.html.*/, '' );
-		const url = base + 'index.html?map=' + encoded + '&mods=' + mods;
+		const url = base + 'index.html?map=' + mapPayload;
 
 		navigator.clipboard.writeText( url ).then( () => {
 

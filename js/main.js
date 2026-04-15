@@ -171,6 +171,31 @@ function decodeExtrasParam( str ) {
 
 }
 
+function decodeMapPayload( mapParamValue ) {
+
+	if ( ! mapParamValue || ! mapParamValue.startsWith( 'm1.' ) ) return null;
+
+	try {
+
+		const raw = mapParamValue.slice( 3 ).replace( /-/g, '+' ).replace( /_/g, '/' );
+		const padded = raw + '==='.slice( ( raw.length + 3 ) % 4 );
+		const parsed = JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
+		const map = typeof parsed?.map === 'string' ? parsed.map : '';
+		if ( ! map ) return null;
+		return {
+			map,
+			mods: typeof parsed?.mods === 'string' ? parsed.mods : '',
+		};
+
+	} catch ( e ) {
+
+		console.warn( 'Invalid map payload, falling back to legacy params' );
+		return null;
+
+	}
+
+}
+
 function sanitizePlayerName( value ) {
 
 	const stripped = String( value || '' ).replace( /\s+/g, ' ' ).trim();
@@ -189,7 +214,6 @@ function getTrackId( mapParamValue, extrasParamValue ) {
 
 	const params = new URLSearchParams( window.location.search );
 	if ( ! params.has( 'map' ) ) params.set( 'map', mapParamValue || 'default' );
-	if ( ! params.has( 'mods' ) ) params.set( 'mods', extrasParamValue || 'none' );
 	params.sort();
 	const base = `${ window.location.pathname }?${ params.toString() }`;
 	return `trk-${ hashTrackSeed( base ) }`;
@@ -283,8 +307,10 @@ async function init() {
 	registerAll();
 	await loadModels();
 
-	const mapParam = new URLSearchParams( window.location.search ).get( 'map' );
-	const extrasParam = new URLSearchParams( window.location.search ).get( 'mods' );
+	const mapParamRaw = new URLSearchParams( window.location.search ).get( 'map' );
+	const mapPayload = decodeMapPayload( mapParamRaw );
+	const mapParam = mapPayload?.map || mapParamRaw;
+	const extrasParam = mapPayload?.mods || new URLSearchParams( window.location.search ).get( 'mods' );
 	const isSplitScreen = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1';
 	const ghostEnabled = ! isSplitScreen;
 	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
