@@ -702,8 +702,8 @@ async function init() {
 	const hacksInstalled = installedMods.some( ( mod ) => mod?.id === 'hacks' );
 	const arcadeBoostInstalled = installedMods.some( ( mod ) => mod?.id === 'arcade-boost' );
 	const anyModsInstalled = installedMods.length > 0;
-	const checkpointRespawnInstalled = false;
-	const practiceStartInstalled = false;
+	const checkpointRespawnInstalled = installedMods.some( ( mod ) => mod?.id === 'checkpoint-respawn' );
+	const practiceStartInstalled = installedMods.some( ( mod ) => mod?.id === 'practice-start' );
 	const hacksState = {
 		enabled: false,
 		infiniteCoins: false,
@@ -2095,7 +2095,11 @@ async function init() {
 		const checkpointLine = totalCheckpoints > 0
 			? `<br><small>Checkpoints: ${ passedCheckpoints } / ${ totalCheckpoints }</small>`
 			: '';
-		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }`;
+		const controlsHints = [];
+		if ( checkpointRespawnInstalled ) controlsHints.push( 'Checkpoint respawn: T' );
+		if ( practiceStartInstalled ) controlsHints.push( 'Save/Load practice: Y / Shift+Y' );
+		const controlsLine = controlsHints.length ? `<br><small>${ controlsHints.join( ' • ' ) }</small>` : '';
+		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ controlsLine }`;
 
 	}
 
@@ -2566,14 +2570,12 @@ async function init() {
 
 	}
 
-	function saveCheckpointState() {
+	function saveCheckpointState( checkpoint = null ) {
 
 		if ( ! finishData ) return;
 		savedCheckpointState = {
 			position: vehicle.spherePos.toArray(),
-			rotationY: vehicle.container.rotation.y,
-			linearVelocity: [ ...vehicle.rigidBody.motionProperties.linearVelocity ],
-			angularVelocity: [ ...vehicle.rigidBody.motionProperties.angularVelocity ],
+			checkpointAngle: Number.isFinite( checkpoint?.angle ) ? checkpoint.angle : vehicle.container.rotation.y,
 		};
 
 	}
@@ -2587,11 +2589,16 @@ async function init() {
 
 		}
 		rigidBody.setPosition( world, vehicle.rigidBody, savedCheckpointState.position, false );
-		rigidBody.setLinearVelocity( world, vehicle.rigidBody, savedCheckpointState.linearVelocity || [ 0, 0, 0 ] );
-		rigidBody.setAngularVelocity( world, vehicle.rigidBody, savedCheckpointState.angularVelocity || [ 0, 0, 0 ] );
+		rigidBody.setLinearVelocity( world, vehicle.rigidBody, [ 0, 0, 0 ] );
+		rigidBody.setAngularVelocity( world, vehicle.rigidBody, [ 0, 0, 0 ] );
 		vehicle.spherePos.fromArray( savedCheckpointState.position );
 		vehicle.container.position.set( vehicle.spherePos.x, vehicle.spherePos.y - 0.5, vehicle.spherePos.z );
-		vehicle.container.rotation.y = savedCheckpointState.rotationY || 0;
+		vehicle.container.rotation.y = savedCheckpointState.checkpointAngle || 0;
+		vehicle.linearSpeed = 0;
+		vehicle.angularSpeed = 0;
+		vehicle.acceleration = 0;
+		vehicle.sphereVel.set( 0, 0, 0 );
+		vehicle.modelVelocity.set( 0, 0, 0 );
 		cam.targetPosition.copy( vehicle.spherePos );
 
 	}
@@ -3252,6 +3259,21 @@ async function init() {
 
 			}
 
+			if ( checkpointRespawnInstalled && e.code === 'KeyT' ) {
+
+				respawnToLastCheckpoint();
+				return;
+
+			}
+
+			if ( practiceStartInstalled && e.code === 'KeyY' ) {
+
+				if ( e.shiftKey ) restorePracticeState();
+				else savePracticeState();
+				return;
+
+			}
+
 		} );
 
 	let hudUpdateAccumulator = 0;
@@ -3436,7 +3458,12 @@ async function init() {
 
 			}
 
-			if ( crossedCheckpoint ) checkpoint.passedThisLap = true;
+			if ( crossedCheckpoint ) {
+
+				checkpoint.passedThisLap = true;
+				if ( checkpointRespawnInstalled ) saveCheckpointState( checkpoint );
+
+			}
 			checkpoint.lastLocalX = localX;
 			checkpoint.lastLocalZ = localZ;
 			checkpoint.hasPrevSample = true;
@@ -3470,7 +3497,7 @@ async function init() {
 				if ( crossedCheckpoint ) {
 
 					checkpoint.passedThisLap = true;
-					saveCheckpointState();
+					if ( checkpointRespawnInstalled ) saveCheckpointState( checkpoint );
 
 				}
 				checkpoint.lastLocalX = localX;
