@@ -204,8 +204,23 @@ function parseTrackCellsFromUrl(rawUrl) {
   if (!rawUrl) return null;
   try {
     const target = new URL(rawUrl, window.location.href);
-    const mapParam = target.searchParams.get('map');
-    return mapParam ? decodeCells(mapParam) : null;
+    const mapParamRaw = target.searchParams.get('map');
+    if (!mapParamRaw) return null;
+    const mapParam = decodeMapPayload(mapParamRaw)?.map || mapParamRaw;
+    return decodeCells(mapParam);
+  } catch {
+    return null;
+  }
+}
+
+function decodeMapPayload(mapParamValue) {
+  if (!mapParamValue || !mapParamValue.startsWith('m1.')) return null;
+  try {
+    const raw = mapParamValue.slice(3).replace(/-/g, '+').replace(/_/g, '/');
+    const padded = raw + '==='.slice((raw.length + 3) % 4);
+    const parsed = JSON.parse(decodeURIComponent(escape(atob(padded))));
+    const map = typeof parsed?.map === 'string' ? parsed.map : '';
+    return map ? { map } : null;
   } catch {
     return null;
   }
