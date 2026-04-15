@@ -21,6 +21,34 @@
       "folder": "mods",
       "entry": "mods/ArcadeBoost.js",
       "viewerPage": "index.html"
+    },
+    {
+      "id": "checkpoint-respawn",
+      "name": "Checkpoint Respawn",
+      "folder": "mods",
+      "entry": "mods/CheckpointRespawn.js",
+      "viewerPage": "index.html"
+    },
+    {
+      "id": "practice-start",
+      "name": "Practice Start Points",
+      "folder": "mods",
+      "entry": "mods/PracticeStart.js",
+      "viewerPage": "index.html"
+    },
+    {
+      "id": "stunt-mode",
+      "name": "Stunt Mode (Experimental)",
+      "folder": "mods",
+      "entry": "mods/StuntMode.js",
+      "viewerPage": "index.html"
+    },
+    {
+      "id": "freecam",
+      "name": "Freecam",
+      "folder": "mods",
+      "entry": "mods/Freecam.js",
+      "viewerPage": "index.html"
     }
   ]
 }
