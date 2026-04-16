@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds } from './Track.js';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 
 const FIXED_DT = 1 / 120;
@@ -56,8 +56,22 @@ let currentCells = null;
 let steps = [];
 let currentStep = 0;
 let simulationTime = 0;
-let lapCount = 1;
-let lastCross = false;
+let raceClockSeconds = 0;
+let lapNumber = 1;
+let lapStartSeconds = 0;
+let lapSeconds = 0;
+let lastLapSeconds = null;
+let bestLapSeconds = null;
+let hasPrevFinishSample = false;
+let lastLocalX = 0;
+let lastLocalZ = 0;
+let hasLeftStartZone = false;
+let checkpointStates = [];
+let finishData = null;
+let lapHistory = [];
+let lastFrameNow = performance.now() / 1000;
+let playbackAccumulator = 0;
+let currentExtras = null;
 let runtimeReady = false;
 let physicsEnabled = true;
 
@@ -83,21 +97,13 @@ function parseInputLines(text) {
     const [inputRaw = '', fRaw = '1'] = trimmed.split(',');
     const frames = Math.max(1, Math.min(1200, Math.floor(Number(fRaw) || 1)));
     const token = String(inputRaw).trim();
-    let keys;
-    if ( token.includes( 'Arrow' ) || token.includes( '+' ) ) {
-      const parts = token.split('+').map((v) => v.trim()).filter(Boolean);
-      keys = {
-        left: parts.includes('ArrowLeft'),
-        right: parts.includes('ArrowRight'),
-        up: parts.includes('ArrowUp'),
-        down: parts.includes('ArrowDown'),
-      };
-    } else {
-      const [xRaw, zRaw] = token.split('/').map((v) => Number(v));
-      const x = Number.isFinite(xRaw) ? THREE.MathUtils.clamp(xRaw, -1, 1) : 0;
-      const z = Number.isFinite(zRaw) ? THREE.MathUtils.clamp(zRaw, -1, 1) : 0;
-      keys = { left: x < -0.25, right: x > 0.25, up: z > 0.25, down: z < -0.25 };
-    }
+    const parts = token.split('+').map((v) => v.trim()).filter(Boolean);
+    const keys = {
+      left: parts.includes('ArrowLeft'),
+      right: parts.includes('ArrowRight'),
+      up: parts.includes('ArrowUp'),
+      down: parts.includes('ArrowDown'),
+    };
     for (let i = 0; i < frames; i++) out.push({ keys });
   }
   return out;
@@ -146,6 +152,47 @@ function buildWorld() {
   return nextWorld;
 }
 
+function formatLapTime(totalSeconds) {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '--:--.---';
+  const mins = Math.floor(totalSeconds / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  const ms = Math.floor((totalSeconds - Math.floor(totalSeconds)) * 1000);
+  return `${String(mins).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+}
+
+function makeGateData(cell) {
+  if (!cell) return null;
+  const [gx, gz, , orient] = cell;
+  const centerX = (gx + 0.5) * CELL_RAW * GRID_SCALE;
+  const centerZ = (gz + 0.5) * CELL_RAW * GRID_SCALE;
+  const halfExtent = (CELL_RAW * GRID_SCALE) * 0.5;
+  const angle = THREE.MathUtils.degToRad(ORIENT_DEG[orient] || 0);
+  const cosA = Math.cos(angle);
+  const sinA = Math.sin(angle);
+  return { centerX, centerZ, halfExtent, cosA, sinA };
+}
+
+function parseExtrasFromUrl(rawUrl) {
+  if (!rawUrl) return null;
+  try {
+    const target = new URL(rawUrl, window.location.href);
+    const modsParam = target.searchParams.get('mods');
+    if (!modsParam) return null;
+    const json = decodeURIComponent(escape(atob(modsParam.replace(/-/g, '+').replace(/_/g, '/'))));
+    const parsed = JSON.parse(json);
+    return {
+      bumps: Array.isArray(parsed.b) ? parsed.b : [],
+      boosts: Array.isArray(parsed.s) ? parsed.s : [],
+      jumps: Array.isArray(parsed.j) ? parsed.j : [],
+      decorations: Array.isArray(parsed.d) ? parsed.d : [],
+      surfaces: Array.isArray(parsed.u) ? parsed.u : [],
+      customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
+    };
+  } catch {
+    return null;
+  }
+}
+
 function updateCarConfig() {
   if (!vehicle) return;
   const carKey = carSelect.value;
@@ -166,14 +213,32 @@ function updateCarConfig() {
 function resetRun() {
   currentStep = 0;
   simulationTime = 0;
-  lapCount = 1;
-  lastCross = false;
+  raceClockSeconds = 0;
+  lapNumber = 1;
+  lapStartSeconds = 0;
+  lapSeconds = 0;
+  lastLapSeconds = null;
+  bestLapSeconds = null;
+  hasPrevFinishSample = false;
+  lastLocalX = 0;
+  lastLocalZ = 0;
+  hasLeftStartZone = false;
+  lapHistory = [];
+  for (const checkpoint of checkpointStates) {
+    checkpoint.lastLocalX = 0;
+    checkpoint.lastLocalZ = 0;
+    checkpoint.hasPrevSample = false;
+    checkpoint.passedThisLap = false;
+  }
   vehicle?.resetToSpawn();
+  lapHud.textContent = `Lap ${lapNumber} • ${formatLapTime(0)} • Last --:--.--- • Best --:--.---`;
 }
 
 function stepSimulation(input) {
   updateCarConfig();
   const axes = keysToAxes( input?.keys );
+  raceClockSeconds += FIXED_DT;
+  lapSeconds = Math.max(0, raceClockSeconds - lapStartSeconds);
   if (physicsEnabled && world) updateWorld(world, null, FIXED_DT);
   vehicle.update(FIXED_DT, axes);
   if ( ! physicsEnabled ) {
@@ -184,18 +249,69 @@ function stepSimulation(input) {
   }
   cameraRig.update(FIXED_DT, vehicle.spherePos, vehicle.container.quaternion);
   simulationTime += FIXED_DT;
+  if (finishData) {
+    for (const checkpoint of checkpointStates) {
+      const localX = (((vehicle.spherePos.x - checkpoint.centerX) * checkpoint.cosA) + ((vehicle.spherePos.z - checkpoint.centerZ) * checkpoint.sinA));
+      const localZ = ((-(vehicle.spherePos.x - checkpoint.centerX) * checkpoint.sinA) + ((vehicle.spherePos.z - checkpoint.centerZ) * checkpoint.cosA));
+      let crossedCheckpoint = false;
+      if (checkpoint.hasPrevSample) {
+        const z0 = checkpoint.lastLocalZ;
+        const z1 = localZ;
+        const crossedPlane = (z0 < 0 && z1 > 0) || (z0 > 0 && z1 < 0);
+        if (crossedPlane) {
+          const t = z0 / (z0 - z1);
+          const xCross = THREE.MathUtils.lerp(checkpoint.lastLocalX, localX, t);
+          crossedCheckpoint = t >= 0 && t <= 1 && Math.abs(xCross) <= checkpoint.halfExtent;
+        }
+      }
+      if (crossedCheckpoint) checkpoint.passedThisLap = true;
+      checkpoint.lastLocalX = localX;
+      checkpoint.lastLocalZ = localZ;
+      checkpoint.hasPrevSample = true;
+    }
 
-  const nowCross = vehicle.spherePos.z > 5 && Math.abs(vehicle.spherePos.x - 3.5) < 3;
-  if (nowCross && !lastCross) lapCount += 1;
-  lastCross = nowCross;
-  lapHud.textContent = `Lap ${Math.min(lapCount, 2)}/2 • ${simulationTime.toFixed(3)}s`;
+    const localX = (((vehicle.spherePos.x - finishData.centerX) * finishData.cosA) + ((vehicle.spherePos.z - finishData.centerZ) * finishData.sinA));
+    const localZ = ((-(vehicle.spherePos.x - finishData.centerX) * finishData.sinA) + ((vehicle.spherePos.z - finishData.centerZ) * finishData.cosA));
+    const inFinishCell = Math.abs(localX) < finishData.halfExtent && Math.abs(localZ) < finishData.halfExtent;
+    if (!hasLeftStartZone && !inFinishCell) hasLeftStartZone = true;
+
+    let crossedFinish = false;
+    if (hasPrevFinishSample) {
+      const z0 = lastLocalZ;
+      const z1 = localZ;
+      const crossedPlane = (z0 < 0 && z1 > 0) || (z0 > 0 && z1 < 0);
+      if (crossedPlane) {
+        const t = z0 / (z0 - z1);
+        const xCross = THREE.MathUtils.lerp(lastLocalX, localX, t);
+        crossedFinish = t >= 0 && t <= 1 && Math.abs(xCross) <= finishData.halfExtent;
+      }
+    }
+
+    const allCheckpointsPassed = checkpointStates.every((checkpoint) => checkpoint.passedThisLap);
+    if (hasLeftStartZone && allCheckpointsPassed && crossedFinish) {
+      const completedLap = raceClockSeconds - lapStartSeconds;
+      lastLapSeconds = completedLap;
+      bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min(bestLapSeconds, completedLap);
+      lapHistory.push(completedLap);
+      lapNumber += 1;
+      lapStartSeconds = raceClockSeconds;
+      hasLeftStartZone = false;
+      for (const checkpoint of checkpointStates) checkpoint.passedThisLap = false;
+    }
+
+    lastLocalX = localX;
+    lastLocalZ = localZ;
+    hasPrevFinishSample = true;
+  }
+
+  lapHud.textContent = `Lap ${lapNumber} • ${formatLapTime(lapSeconds)} • Last ${formatLapTime(lastLapSeconds)} • Best ${formatLapTime(bestLapSeconds)}`;
 }
 
 function evaluate(inputSteps) {
   resetRun();
   for (let i = 0; i < Math.min(MAX_STEPS, inputSteps.length); i++) {
     stepSimulation(inputSteps[i]);
-    if (lapCount > 2) return simulationTime;
+    if (lapHistory.length > 0) return lapHistory[0];
   }
   return 999999;
 }
@@ -213,6 +329,13 @@ function parseTrackCellsFromUrl(rawUrl) {
 
 function rebuildTrack() {
   if (trackGroup) {
+    trackGroup.traverse((child) => {
+      if (!child.isMesh) return;
+      child.geometry?.dispose?.();
+      const material = child.material;
+      if (Array.isArray(material)) material.forEach((entry) => entry?.dispose?.());
+      else material?.dispose?.();
+    });
     scene.remove(trackGroup);
     trackGroup = null;
   }
@@ -225,7 +348,8 @@ function rebuildTrack() {
     console.warn('TAS physics init failed; using kinematic fallback.', error);
   }
   currentCells = parseTrackCellsFromUrl(trackUrlInput.value.trim());
-  trackGroup = buildTrack(scene, models, currentCells, null);
+  currentExtras = parseExtrasFromUrl(trackUrlInput.value.trim());
+  trackGroup = buildTrack(scene, models, currentCells, currentExtras);
   if ( physicsEnabled && world ) buildWallColliders(world, null, currentCells, null);
 
   const spawn = computeSpawnPosition(currentCells);
@@ -249,6 +373,17 @@ function rebuildTrack() {
   vehicle.setSpawn(spawn, 0);
   scene.add(vehicle.init(models[carSelect.value] || models['vehicle-truck-yellow']));
   updateCarConfig();
+  const activeCells = currentCells || TRACK_CELLS;
+  const finishCell = activeCells.find((c) => c[2] === 'track-finish') || activeCells[0];
+  const checkpointCells = activeCells.filter((c) => c[2] === 'track-checkpoint');
+  finishData = makeGateData(finishCell);
+  checkpointStates = checkpointCells.map((cell) => ({
+    ...makeGateData(cell),
+    lastLocalX: 0,
+    lastLocalZ: 0,
+    hasPrevSample: false,
+    passedThisLap: false,
+  }));
   resetRun();
 }
 
@@ -260,11 +395,16 @@ function animate() {
     renderer.render( scene, fallbackCamera );
     return;
   }
-  if (vehicle && currentStep < steps.length && lapCount <= 2) {
-    stepSimulation(steps[currentStep]);
-    currentStep += 1;
-  } else if (vehicle) {
-    stepSimulation({ keys: { up: false, down: false, left: false, right: false } });
+  const now = performance.now() / 1000;
+  const dt = Math.min(0.25, Math.max(0, now - lastFrameNow));
+  lastFrameNow = now;
+  playbackAccumulator += dt;
+
+  while (playbackAccumulator >= FIXED_DT && vehicle) {
+    const inputStep = currentStep < steps.length ? steps[currentStep] : null;
+    stepSimulation(inputStep || { keys: { up: false, down: false, left: false, right: false } });
+    if (currentStep < steps.length) currentStep += 1;
+    playbackAccumulator -= FIXED_DT;
   }
   renderer.render(scene, cameraRig.camera);
 }
@@ -313,6 +453,8 @@ document.getElementById('new-btn')?.addEventListener('click', () => {
 document.getElementById('run-btn')?.addEventListener('click', () => {
   steps = parseInputLines(inputsEl.value);
   resetRun();
+  lastFrameNow = performance.now() / 1000;
+  playbackAccumulator = 0;
   statusEl.textContent = `Running ${steps.length} deterministic input frames.`;
 });
 
