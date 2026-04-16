@@ -75,16 +75,6 @@ let currentExtras = null;
 let runtimeReady = false;
 let physicsEnabled = true;
 
-const fallbackCamera = new THREE.PerspectiveCamera( 50, 1, 0.1, 100 );
-fallbackCamera.position.set( 3, 2, 4 );
-fallbackCamera.lookAt( 0, 0, 0 );
-const fallbackMesh = new THREE.Mesh(
-	new THREE.BoxGeometry( 0.8, 0.8, 0.8 ),
-	new THREE.MeshStandardMaterial( { color: 0x00d4ff, emissive: 0x123355, roughness: 0.35 } )
-);
-fallbackMesh.position.set( 0, 1, 0 );
-scene.add( fallbackMesh );
-
 function seededRng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 0x100000000); }
 function encodeCode(data) { return btoa(unescape(encodeURIComponent(JSON.stringify(data)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
 function decodeCode(code) { return JSON.parse(decodeURIComponent(escape(atob(code.replace(/-/g, '+').replace(/_/g, '/'))))); }
@@ -329,13 +319,6 @@ function parseTrackCellsFromUrl(rawUrl) {
 
 function rebuildTrack() {
   if (trackGroup) {
-    trackGroup.traverse((child) => {
-      if (!child.isMesh) return;
-      child.geometry?.dispose?.();
-      const material = child.material;
-      if (Array.isArray(material)) material.forEach((entry) => entry?.dispose?.());
-      else material?.dispose?.();
-    });
     scene.remove(trackGroup);
     trackGroup = null;
   }
@@ -390,9 +373,7 @@ function rebuildTrack() {
 function animate() {
   requestAnimationFrame(animate);
   if ( ! runtimeReady ) {
-    fallbackMesh.rotation.x += 0.01;
-    fallbackMesh.rotation.y += 0.02;
-    renderer.render( scene, fallbackCamera );
+    if (cameraRig?.camera) renderer.render(scene, cameraRig.camera);
     return;
   }
   const now = performance.now() / 1000;
@@ -410,6 +391,7 @@ function animate() {
 }
 
 async function initScene() {
+  statusEl.textContent = 'Loading TAS scene...';
   registerAll();
   cameraRig = new Camera();
   cameraRig.mode = 'overview';
@@ -426,7 +408,7 @@ async function initScene() {
   rebuildTrack();
   steps = parseInputLines(inputsEl.value);
   runtimeReady = true;
-  scene.remove( fallbackMesh );
+  statusEl.textContent = `Loaded ${steps.length} deterministic input frames.`;
   resize();
 }
 
