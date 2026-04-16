@@ -674,12 +674,6 @@ async function init() {
 		if ( exportGhostBtn ) exportGhostBtn.style.display = 'none';
 		if ( importGhostBtn ) importGhostBtn.style.display = 'none';
 	}
-	if ( stuntModeBtn ) {
-
-		stuntModeBtn.disabled = true;
-		stuntModeBtn.title = 'Stunt mode is under construction';
-
-	}
 	const economyStoreKey = 'racing-economy-v1';
 	let coins = 0;
 	let engineTier = 0;
@@ -702,8 +696,19 @@ async function init() {
 	const hacksInstalled = installedMods.some( ( mod ) => mod?.id === 'hacks' );
 	const arcadeBoostInstalled = installedMods.some( ( mod ) => mod?.id === 'arcade-boost' );
 	const anyModsInstalled = installedMods.length > 0;
-	const checkpointRespawnInstalled = false;
-	const practiceStartInstalled = false;
+	const checkpointRespawnInstalled = installedMods.some( ( mod ) => mod?.id === 'checkpoint-respawn' );
+	const practiceStartInstalled = installedMods.some( ( mod ) => mod?.id === 'practice-start' );
+	const stuntModeModInstalled = installedMods.some( ( mod ) => mod?.id === 'stunt-mode' );
+	const freecamInstalled = installedMods.some( ( mod ) => mod?.id === 'freecam' );
+	if ( stuntModeBtn ) {
+
+		stuntModeBtn.disabled = ! stuntModeModInstalled;
+		stuntModeBtn.title = stuntModeModInstalled
+			? 'Experimental stunt mode enabled via mod.'
+			: 'Stunt mode is under construction (install the Stunt Mode mod to try it).';
+		if ( stuntModeModInstalled ) stuntModeBtn.textContent = '🚧 Stunt Mode (Experimental)';
+
+	}
 	const hacksState = {
 		enabled: false,
 		infiniteCoins: false,
@@ -725,6 +730,17 @@ async function init() {
 	const BOOST_METER_MAX = 100;
 	let savedCheckpointState = null;
 	let savedPracticeState = null;
+	const freecamState = {
+		active: false,
+		yaw: 0,
+		pitch: 0,
+		moveSpeed: 11,
+		sprintMultiplier: 2.25,
+		mouseSensitivity: 0.0022,
+	};
+	const freecamForward = new THREE.Vector3();
+	const freecamRight = new THREE.Vector3();
+	const freecamMove = new THREE.Vector3();
 
 	function getEngineMult() {
 
@@ -942,7 +958,7 @@ async function init() {
 	function setGameMode( mode ) {
 
 		if ( mode !== 'race' && mode !== 'stunt' && mode !== 'campaign' ) return;
-		if ( mode === 'stunt' ) {
+		if ( mode === 'stunt' && ! stuntModeModInstalled ) {
 
 			showModeError( 'Stunt Mode is under construction right now.' );
 			return;
@@ -972,6 +988,67 @@ async function init() {
 
 		}
 		updateModeHudVisibility();
+
+	}
+
+	function setFreecamActive( active ) {
+
+		if ( ! freecamInstalled ) return;
+		const next = Boolean( active );
+		if ( next === freecamState.active ) return;
+		if ( next && isSplitScreen ) {
+
+			showTopMessage( 'Freecam is unavailable in 2P split screen.', true, 1700 );
+			return;
+
+		}
+		freecamState.active = next;
+		if ( next ) {
+
+			setModeMenuOpen( false );
+			cam.camera.getWorldDirection( freecamForward );
+			const xzLen = Math.hypot( freecamForward.x, freecamForward.z );
+			freecamState.yaw = Math.atan2( freecamForward.x, freecamForward.z );
+			freecamState.pitch = Math.atan2( freecamForward.y, Math.max( xzLen, 1e-4 ) );
+			renderer.domElement.requestPointerLock?.();
+			showTopMessage( 'Freecam enabled (WASD + mouse • Shift = fast • F to exit).', false, 2000 );
+
+		} else {
+
+			if ( document.pointerLockElement === renderer.domElement ) document.exitPointerLock?.();
+			showTopMessage( 'Freecam disabled.', false, 900 );
+
+		}
+
+	}
+
+	function updateFreecam( dt ) {
+
+		if ( ! freecamState.active ) return;
+		const keys = controls?.keys || {};
+		freecamState.pitch = THREE.MathUtils.clamp( freecamState.pitch, - Math.PI * 0.49, Math.PI * 0.49 );
+		const cosPitch = Math.cos( freecamState.pitch );
+		freecamForward.set(
+			Math.sin( freecamState.yaw ) * cosPitch,
+			Math.sin( freecamState.pitch ),
+			Math.cos( freecamState.yaw ) * cosPitch
+		).normalize();
+		freecamRight.set( Math.cos( freecamState.yaw ), 0, - Math.sin( freecamState.yaw ) ).normalize();
+		freecamMove.set( 0, 0, 0 );
+		if ( keys.KeyW ) freecamMove.add( freecamForward );
+		if ( keys.KeyS ) freecamMove.sub( freecamForward );
+		if ( keys.KeyD ) freecamMove.add( freecamRight );
+		if ( keys.KeyA ) freecamMove.sub( freecamRight );
+		if ( keys.Space ) freecamMove.y += 1;
+		if ( keys.ControlLeft || keys.ControlRight ) freecamMove.y -= 1;
+		if ( freecamMove.lengthSq() > 1e-6 ) {
+
+			const speed = freecamState.moveSpeed * ( keys.ShiftLeft || keys.ShiftRight ? freecamState.sprintMultiplier : 1 );
+			cam.camera.position.addScaledVector( freecamMove.normalize(), speed * dt );
+
+		}
+		cam.lookTarget.copy( cam.camera.position ).add( freecamForward );
+		cam.camera.lookAt( cam.lookTarget );
 
 	}
 
@@ -2095,7 +2172,12 @@ async function init() {
 		const checkpointLine = totalCheckpoints > 0
 			? `<br><small>Checkpoints: ${ passedCheckpoints } / ${ totalCheckpoints }</small>`
 			: '';
-		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }`;
+		const controlsHints = [];
+		if ( checkpointRespawnInstalled ) controlsHints.push( 'Checkpoint respawn: T' );
+		if ( practiceStartInstalled ) controlsHints.push( 'Save/Load practice: Y / Shift+Y' );
+		if ( freecamInstalled ) controlsHints.push( 'Freecam: F (WASD + mouse)' );
+		const controlsLine = controlsHints.length ? `<br><small>${ controlsHints.join( ' • ' ) }</small>` : '';
+		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ controlsLine }`;
 
 	}
 
@@ -2566,14 +2648,12 @@ async function init() {
 
 	}
 
-	function saveCheckpointState() {
+	function saveCheckpointState( checkpoint = null ) {
 
 		if ( ! finishData ) return;
 		savedCheckpointState = {
 			position: vehicle.spherePos.toArray(),
-			rotationY: vehicle.container.rotation.y,
-			linearVelocity: [ ...vehicle.rigidBody.motionProperties.linearVelocity ],
-			angularVelocity: [ ...vehicle.rigidBody.motionProperties.angularVelocity ],
+			checkpointAngle: Number.isFinite( checkpoint?.angle ) ? checkpoint.angle : vehicle.container.rotation.y,
 		};
 
 	}
@@ -2587,11 +2667,16 @@ async function init() {
 
 		}
 		rigidBody.setPosition( world, vehicle.rigidBody, savedCheckpointState.position, false );
-		rigidBody.setLinearVelocity( world, vehicle.rigidBody, savedCheckpointState.linearVelocity || [ 0, 0, 0 ] );
-		rigidBody.setAngularVelocity( world, vehicle.rigidBody, savedCheckpointState.angularVelocity || [ 0, 0, 0 ] );
+		rigidBody.setLinearVelocity( world, vehicle.rigidBody, [ 0, 0, 0 ] );
+		rigidBody.setAngularVelocity( world, vehicle.rigidBody, [ 0, 0, 0 ] );
 		vehicle.spherePos.fromArray( savedCheckpointState.position );
 		vehicle.container.position.set( vehicle.spherePos.x, vehicle.spherePos.y - 0.5, vehicle.spherePos.z );
-		vehicle.container.rotation.y = savedCheckpointState.rotationY || 0;
+		vehicle.container.rotation.y = savedCheckpointState.checkpointAngle || 0;
+		vehicle.linearSpeed = 0;
+		vehicle.angularSpeed = 0;
+		vehicle.acceleration = 0;
+		vehicle.sphereVel.set( 0, 0, 0 );
+		vehicle.modelVelocity.set( 0, 0, 0 );
 		cam.targetPosition.copy( vehicle.spherePos );
 
 	}
@@ -3207,6 +3292,17 @@ async function init() {
 
 	}
 
+	window.addEventListener( 'mousemove', ( e ) => {
+
+		if ( ! freecamInstalled || ! freecamState.active ) return;
+		const hasPointerLock = document.pointerLockElement === renderer.domElement;
+		if ( ! hasPointerLock ) return;
+		freecamState.yaw -= e.movementX * freecamState.mouseSensitivity;
+		freecamState.pitch -= e.movementY * freecamState.mouseSensitivity;
+		freecamState.pitch = THREE.MathUtils.clamp( freecamState.pitch, - Math.PI * 0.49, Math.PI * 0.49 );
+
+	} );
+
 	window.addEventListener( 'keydown', ( e ) => {
 
 			const target = e.target;
@@ -3238,6 +3334,13 @@ async function init() {
 
 			}
 
+			if ( freecamInstalled && e.code === 'KeyF' ) {
+
+				setFreecamActive( ! freecamState.active );
+				return;
+
+			}
+
 				if ( e.code === 'KeyR' ) {
 
 				respawnVehicle();
@@ -3248,6 +3351,21 @@ async function init() {
 			if ( e.code === 'KeyP' ) {
 
 				respawnVehicle2();
+				return;
+
+			}
+
+			if ( checkpointRespawnInstalled && e.code === 'KeyT' ) {
+
+				respawnToLastCheckpoint();
+				return;
+
+			}
+
+			if ( practiceStartInstalled && e.code === 'KeyY' ) {
+
+				if ( e.shiftKey ) restorePracticeState();
+				else savePracticeState();
 				return;
 
 			}
@@ -3267,7 +3385,8 @@ async function init() {
 			raceClockSeconds += dt;
 			const now = raceClockSeconds;
 
-			const input = modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls.update();
+			const controlsBlocked = modeMenuOpen || freecamState.active;
+			const input = controlsBlocked ? { x: 0, y: 0, z: 0 } : controls.update();
 			const input2 = controls2 ? ( modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls2.update() ) : null;
 			recordLapInput( Math.max( 0, now - lapStartSeconds ), input, controls?.keys );
 			if ( hacksActive && hacksState.infiniteCoins ) coins = Math.max( coins, 9999999 );
@@ -3407,7 +3526,8 @@ async function init() {
 			vehicle.spherePos.z - 5.3
 		);
 
-		cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
+		if ( freecamState.active ) updateFreecam( dt );
+		else cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
 		if ( cam2 && vehicle2 ) cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
@@ -3436,7 +3556,12 @@ async function init() {
 
 			}
 
-			if ( crossedCheckpoint ) checkpoint.passedThisLap = true;
+			if ( crossedCheckpoint ) {
+
+				checkpoint.passedThisLap = true;
+				if ( checkpointRespawnInstalled ) saveCheckpointState( checkpoint );
+
+			}
 			checkpoint.lastLocalX = localX;
 			checkpoint.lastLocalZ = localZ;
 			checkpoint.hasPrevSample = true;
@@ -3470,7 +3595,7 @@ async function init() {
 				if ( crossedCheckpoint ) {
 
 					checkpoint.passedThisLap = true;
-					saveCheckpointState();
+					if ( checkpointRespawnInstalled ) saveCheckpointState( checkpoint );
 
 				}
 				checkpoint.lastLocalX = localX;
