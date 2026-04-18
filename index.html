@@ -11,7 +11,7 @@
 	<style>
 		body { margin: 0; overflow: hidden; background: #000; }
 		canvas { display: block; touch-action: none; }
-		#editor-link, #totd-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
+		#editor-link, #totd-link, #weekly-cup-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
 			position: absolute;
 			bottom: 12px;
 			color: #fff;
@@ -22,14 +22,15 @@
 			z-index: 10;
 			border: none;
 		}
-		#editor-link, #totd-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn { text-decoration: none; }
+		#editor-link, #totd-link, #weekly-cup-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn { text-decoration: none; }
 		#editor-link { right: 16px; }
 		#totd-link { right: 16px; bottom: 54px; }
-		#replay-link { right: 16px; bottom: 96px; }
-		#tracks-link { right: 16px; bottom: 138px; }
-		#mods-link { right: 16px; bottom: 180px; }
-		#hacks-toggle { right: 16px; bottom: 222px; }
-		#split-link { right: 16px; bottom: 264px; }
+		#weekly-cup-link { right: 16px; bottom: 96px; }
+		#replay-link { right: 16px; bottom: 138px; }
+		#tracks-link { right: 16px; bottom: 180px; }
+		#mods-link { right: 16px; bottom: 222px; }
+		#hacks-toggle { right: 16px; bottom: 264px; }
+		#split-link { right: 16px; bottom: 306px; }
 		#respawnBtn { left: 16px; top: 54px; bottom: auto; }
 		#mode-menu-btn { left: 16px; top: 96px; bottom: auto; }
 		#car-select { left: 16px; top: 12px; bottom: auto; }
@@ -37,7 +38,7 @@
 		#export-ghost-btn { left: 180px; bottom: 12px; }
 		#import-ghost-btn { left: 300px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
-		#editor-link:hover, #totd-link:hover, #replay-link:hover, #tracks-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #replay-link:hover, #tracks-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
 		#share-time-btn:disabled {
 			opacity: 0.5;
 			cursor: not-allowed;
@@ -100,29 +101,15 @@
 
 		#economy-hud {
 			position: absolute;
-			top: 12px;
-			right: 12px;
+			left: 12px;
+			bottom: 56px;
 			color: #fff;
 			font: 600 13px/1.35 sans-serif;
-			text-align: right;
+			text-align: left;
 			background: rgba(0,0,0,0.4);
 			border-radius: 8px;
 			padding: 8px 10px;
 			z-index: 10;
-		}
-		#buy-upgrade {
-			margin-top: 6px;
-			background: rgba(255,255,255,0.16);
-			color: #fff;
-			border: 1px solid rgba(255,255,255,0.22);
-			border-radius: 6px;
-			padding: 4px 8px;
-			font: 600 12px sans-serif;
-			cursor: pointer;
-		}
-		#buy-upgrade:disabled {
-			opacity: 0.55;
-			cursor: not-allowed;
 		}
 		#mode-menu {
 			position: absolute;
@@ -448,11 +435,12 @@
 		@media (pointer: coarse) {
 			#editor-link { bottom: auto; top: 12px; right: 12px; }
 				#totd-link { bottom: auto; top: 54px; right: 12px; }
-				#replay-link { bottom: auto; top: 96px; right: 12px; }
-				#tracks-link { bottom: auto; top: 138px; right: 12px; }
-				#mods-link { bottom: auto; top: 180px; right: 12px; }
-			#hacks-toggle { bottom: auto; top: 222px; right: 12px; }
-			#split-link { bottom: auto; top: 264px; right: 12px; }
+				#weekly-cup-link { bottom: auto; top: 96px; right: 12px; }
+				#replay-link { bottom: auto; top: 138px; right: 12px; }
+				#tracks-link { bottom: auto; top: 180px; right: 12px; }
+				#mods-link { bottom: auto; top: 222px; right: 12px; }
+			#hacks-toggle { bottom: auto; top: 264px; right: 12px; }
+			#split-link { bottom: auto; top: 306px; right: 12px; }
 			#car-select { top: 12px; left: 12px; }
 				#respawnBtn { top: 54px; left: 12px; }
 				#mode-menu-btn { top: 96px; left: 12px; }
@@ -484,7 +472,7 @@
 			background: linear-gradient(90deg, #53d4ff, #8dff77);
 		}
 
-		#economy-hud { top: 12px; right: 12px; }
+			#economy-hud { left: 12px; bottom: 140px; }
 				#leaderboard-panel { top: 136px; left: 12px; }
 		}
 	</style>
@@ -502,6 +490,7 @@
 	<div id="top-message" aria-live="polite"></div>
 	<a id="editor-link" href="editor.html">Create your own track</a>
 	<a id="totd-link" href="totd.html">Track of the day</a>
+	<a id="weekly-cup-link" href="weekly-cup.html">Weekly cup</a>
 	<a id="replay-link" href="replay.html">Replay watcher</a>
 	<a id="tracks-link" href="tracks.html">Track share board</a>
 	<a id="mods-link" href="mods.html">Mods</a>
@@ -519,8 +508,6 @@
 		<div id="lap-hud-2">P2 • Lap 1 • 00:00.000<br><small>Last: --:--.--- • Best: --:--.---</small><br><small>Keys: Arrows</small></div>
 	<div id="economy-hud">
 		<div id="coins-label">Coins: 0</div>
-		<div id="upgrade-label">Engine: x1.20</div>
-		<button id="buy-upgrade">Buy Upgrade</button>
 	</div>
 	<div id="boost-ui">
 		<div>Arcade Boost</div>
@@ -651,7 +638,7 @@
 	<script>
 		const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
 		const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
-		const quickMenuLinks = [ 'editor-link', 'totd-link', 'replay-link', 'tracks-link', 'mods-link', 'hacks-toggle', 'split-link' ];
+		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'replay-link', 'tracks-link', 'mods-link', 'hacks-toggle', 'split-link' ];
 		for ( const id of quickMenuLinks ) {
 			const node = document.getElementById( id );
 			if ( node ) quickMenuPanel.appendChild( node );

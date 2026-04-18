@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Weekly Cup</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font: 14px/1.4 Inter, system-ui, sans-serif; background: linear-gradient(160deg, #0b1220, #121826); color: #e6edf7; }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 16px; }
+    .top { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+    label, input, button { font: inherit; }
+    input { background: rgba(10, 14, 23, 0.9); border: 1px solid rgba(255,255,255,0.24); color: #fff; border-radius: 8px; padding: 8px 10px; }
+    button, .linkbtn { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.22); color: #fff; border-radius: 8px; padding: 8px 12px; text-decoration: none; cursor: pointer; }
+    .layout { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .card, .panel { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 10px; }
+    .card h3 { margin: 0 0 8px; font-size: 14px; }
+    canvas { width: 100%; aspect-ratio: 1.2; display: block; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: #0d1118; }
+    .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
+    .meta { color: #bbcae4; font-size: 12px; }
+    h1 { margin: 0; font-size: 28px; }
+    h2 { margin: 0 0 8px; font-size: 18px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left; }
+    .champ { border-radius: 10px; background: linear-gradient(120deg, rgba(82,120,196,0.4), rgba(52,161,113,0.3)); border: 1px solid rgba(255,255,255,0.18); padding: 10px; margin-bottom: 10px; }
+    .champ .name { font-size: 18px; font-weight: 700; }
+    .champ .count { color: #9be7bf; font-size: 13px; }
+    @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <h1>Weekly Cup</h1>
+      <label>Week seed date: <input id="dateInput" type="date"></label>
+      <button id="regenBtn" type="button">Generate Cup</button>
+      <a class="linkbtn" href="index.html">Back to game</a>
+    </div>
+    <div class="layout">
+      <div id="cupGrid" class="grid"></div>
+      <div class="panel">
+        <h2 id="cupTitle">Weekly Cup</h2>
+        <div class="meta" id="seedLine">Seed: --</div>
+        <div class="champ" id="champBox">
+          <div class="meta">Most records held</div>
+          <div class="name" id="champName">Loading…</div>
+          <div class="count" id="champCount"></div>
+        </div>
+        <table>
+          <thead><tr><th>Track</th><th>Holder</th><th>Time</th></tr></thead>
+          <tbody id="leaderRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+<script>
+(() => {
+  const BASE_URL = 'https://everybodysim.github.io/Racing-game/index.html';
+  const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
+
+  const TYPE_INDEX = { 'track-straight': 0, 'track-corner': 1, 'track-checkpoint': 2, 'track-finish': 3 };
+  const GODOT_TO_ORIENT = { 0: 0, 16: 1, 10: 2, 22: 3 };
+  const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+
+  function hash32(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return h >>> 0;
+  }
+
+  function mulberry32(seed) {
+    let t = seed >>> 0;
+    return function() {
+      t += 0x6D2B79F5;
+      let r = Math.imul(t ^ (t >>> 15), 1 | t);
+      r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+      return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  const rndInt = (rng, a, b) => a + Math.floor(rng() * (b - a + 1));
+  const key = (x, z) => `${x},${z}`;
+
+  function encodeCells(cells) {
+    const bytes = new Uint8Array(cells.length * 3);
+    for (let i = 0; i < cells.length; i++) {
+      const [gx, gz, type, orient] = cells[i];
+      bytes[i * 3] = gx + 128;
+      bytes[i * 3 + 1] = gz + 128;
+      bytes[i * 3 + 2] = ((TYPE_INDEX[type] ?? 0) << 2) | (GODOT_TO_ORIENT[orient] ?? 0);
+    }
+    let bin = '';
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function encodeMods(modsObj) {
+    return btoa(unescape(encodeURIComponent(JSON.stringify(modsObj))))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function sampleDeterministic(arr, rng, count) {
+    const copy = arr.slice();
+    const out = [];
+    for (let i = 0; i < count && copy.length; i++) {
+      const idx = Math.floor(rng() * copy.length);
+      out.push(copy[idx]);
+      copy.splice(idx, 1);
+    }
+    return out;
+  }
+
+  function genClosedLoop(rng, opts = {}) {
+    const W = opts.W ?? 14;
+    const H = opts.H ?? 14;
+    const minLen = opts.minLen ?? 18;
+    const maxLen = opts.maxLen ?? 44;
+    for (let attempt = 0; attempt < (opts.attempts ?? 240); attempt++) {
+      const start = [rndInt(rng, 2, W - 3), rndInt(rng, 2, H - 3)];
+      const path = [start];
+      const seen = new Set([key(start[0], start[1])]);
+      let prevDir = -1;
+      const target = rndInt(rng, minLen, maxLen);
+      for (let step = 0; step < maxLen + 20; step++) {
+        const [cx, cz] = path[path.length - 1];
+        const [sx, sz] = start;
+        if (path.length >= minLen && Math.abs(cx - sx) + Math.abs(cz - sz) === 1) {
+          path.push([sx, sz]);
+          if (path.length - 1 >= minLen) return path;
+        }
+        const candidates = [];
+        for (let di = 0; di < 4; di++) {
+          const [dx, dz] = DIRS[di];
+          const nx = cx + dx;
+          const nz = cz + dz;
+          if (nx < 1 || nz < 1 || nx >= W - 1 || nz >= H - 1) continue;
+          const isStart = nx === sx && nz === sz;
+          if (!isStart && seen.has(key(nx, nz))) continue;
+          if (prevDir !== -1 && (di + 2) % 4 === prevDir) continue;
+          let neighbors = 0;
+          for (const [adx, adz] of DIRS) {
+            if (seen.has(key(nx + adx, nz + adz))) neighbors++;
+          }
+          if (!isStart && neighbors > 2) continue;
+          let score = 1;
+          if (prevDir === di) score += 1.4;
+          if (isStart && path.length >= minLen) score += 5;
+          candidates.push({ di, nx, nz, score, isStart });
+        }
+        if (!candidates.length) break;
+        let total = candidates.reduce((s, c) => s + c.score, 0);
+        let r = rng() * total;
+        let pick = candidates[0];
+        for (const c of candidates) {
+          r -= c.score;
+          if (r <= 0) { pick = c; break; }
+        }
+        path.push([pick.nx, pick.nz]);
+        if (!pick.isStart) seen.add(key(pick.nx, pick.nz));
+        prevDir = pick.di;
+        if (path.length >= target && Math.abs(pick.nx - sx) + Math.abs(pick.nz - sz) === 1) {
+          path.push([sx, sz]);
+          return path;
+        }
+      }
+    }
+    return null;
+  }
+
+  function loopToTiles(loop) {
+    const unique = loop.slice(0, -1);
+    const n = unique.length;
+    const dir = (a, b) => {
+      const dx = b[0] - a[0], dz = b[1] - a[1];
+      if (dx === 1 && dz === 0) return 'E';
+      if (dx === -1 && dz === 0) return 'W';
+      if (dx === 0 && dz === 1) return 'S';
+      if (dx === 0 && dz === -1) return 'N';
+      return '?';
+    };
+    const tiles = [];
+    for (let i = 0; i < n; i++) {
+      const prev = unique[(i - 1 + n) % n];
+      const cur = unique[i];
+      const next = unique[(i + 1) % n];
+      const set = new Set([dir(cur, prev), dir(cur, next)]);
+      let type = 'track-straight';
+      let orient = 0;
+      if (set.has('N') && set.has('S')) { type = 'track-straight'; orient = 0; }
+      else if (set.has('E') && set.has('W')) { type = 'track-straight'; orient = 22; }
+      else {
+        type = 'track-corner';
+        if (set.has('E') && set.has('S')) orient = 16;
+        else if (set.has('W') && set.has('S')) orient = 0;
+        else if (set.has('N') && set.has('E')) orient = 10;
+        else if (set.has('W') && set.has('N')) orient = 22;
+      }
+      tiles.push([cur[0], cur[1], type, orient]);
+    }
+    let finishIdx = tiles.findIndex((t) => t[2] === 'track-straight');
+    if (finishIdx < 0) finishIdx = 0;
+    tiles[finishIdx][2] = 'track-finish';
+    const cpCandidates = [];
+    for (let i = 0; i < tiles.length; i++) {
+      if (i === finishIdx || tiles[i][2] !== 'track-straight') continue;
+      const ringDist = Math.min(Math.abs(i - finishIdx), tiles.length - Math.abs(i - finishIdx));
+      if (ringDist > Math.floor(tiles.length / 6)) cpCandidates.push(i);
+    }
+    return { tiles, cpCandidates };
+  }
+
+  function generateTrack(seedText) {
+    const seed = hash32(seedText);
+    const rng = mulberry32(seed);
+    let loop = genClosedLoop(rng, {
+      W: rndInt(rng, 12, 18), H: rndInt(rng, 12, 18), minLen: rndInt(rng, 18, 26),
+      maxLen: rndInt(rng, 30, 46), attempts: 260
+    });
+    if (!loop) {
+      loop = [[2,2],[3,2],[4,2],[5,2],[6,2],[7,2],[8,2],[8,3],[8,4],[8,5],[8,6],[8,7],[7,7],[6,7],[5,7],[4,7],[3,7],[2,7],[2,6],[2,5],[2,4],[2,3],[2,2]];
+    }
+    const { tiles, cpCandidates } = loopToTiles(loop);
+    const cpCount = Math.min(cpCandidates.length, rndInt(rng, 1, 3));
+    for (const idx of sampleDeterministic(cpCandidates, rng, cpCount)) tiles[idx][2] = 'track-checkpoint';
+    const roadCells = tiles.map((t) => [t[0], t[1]]);
+    const bumps = sampleDeterministic(roadCells, rng, Math.min(4, Math.max(1, Math.floor(tiles.length / 12))));
+    const surfacePalette = ['surface-wood', 'surface-ice', 'surface-boost'];
+    const surfaceCells = sampleDeterministic(roadCells, rng, Math.min(6, Math.max(2, Math.floor(tiles.length / 8))))
+      .map(([x, z], idx) => [x, z, surfacePalette[idx % surfacePalette.length]]);
+    const mods = { b: bumps, s: [], u: surfaceCells, d: [] };
+    const map = encodeCells(tiles);
+    const modsEncoded = encodeMods(mods);
+    const playUrl = `${BASE_URL}?map=${encodeURIComponent(map)}&mods=${encodeURIComponent(modsEncoded)}`;
+    return { map, mods: modsEncoded, playUrl, cells: tiles, modsObj: mods };
+  }
+
+  function fnv64Hex(value, start, prime) {
+    let hash = start;
+    for (let i = 0; i < value.length; i++) {
+      hash ^= BigInt(value.charCodeAt(i));
+      hash = (hash * prime) & 0xffffffffffffffffn;
+    }
+    return hash.toString(16).padStart(16, '0');
+  }
+
+  function hashTrackSeed(value) {
+    return `${fnv64Hex(value, 0xcbf29ce484222325n, 0x100000001b3n)}${fnv64Hex(value, 0x84222325cbf29cen, 0x100000001c3n)}`;
+  }
+
+  function encodeBase64Url(value) {
+    return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function getTrackIds(playUrl) {
+    try {
+      const parsed = new URL(playUrl, window.location.href);
+      const params = new URLSearchParams(parsed.search);
+      if (!params.has('map')) params.set('map', 'default');
+      if (!params.has('mods')) params.set('mods', 'none');
+      params.sort();
+      const base = `${parsed.pathname}?${params.toString()}`;
+      const primary = `trk-${hashTrackSeed(base)}`;
+      const map = parsed.searchParams.get('map') || 'default';
+      const mods = parsed.searchParams.get('mods') || 'none';
+      const legacyA = encodeBase64Url(`${parsed.pathname}?map=${map}&mods=${mods}`);
+      const legacyB = encodeBase64Url(base);
+      return [primary, legacyA, legacyB].filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  function drawPreview(canvas, cells, mods) {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const xs = cells.map((c) => c[0]);
+    const zs = cells.map((c) => c[1]);
+    const minX = Math.min(...xs) - 1, maxX = Math.max(...xs) + 1;
+    const minZ = Math.min(...zs) - 1, maxZ = Math.max(...zs) + 1;
+    const gw = maxX - minX + 1;
+    const gh = maxZ - minZ + 1;
+    const pad = 8;
+    const size = Math.max(4, Math.floor(Math.min((canvas.width - pad * 2) / gw, (canvas.height - pad * 2) / gh)));
+    const toPix = (x, z) => [pad + (x - minX) * size, pad + (z - minZ) * size];
+    for (const [x, z, t] of cells) {
+      const [px, py] = toPix(x, z);
+      ctx.fillStyle = t === 'track-finish' ? '#72e39a' : t === 'track-checkpoint' ? '#ffd54f' : t === 'track-corner' ? '#b084ff' : '#4da3ff';
+      ctx.fillRect(px + 1, py + 1, size - 2, size - 2);
+    }
+    ctx.strokeStyle = '#ff4d4d';
+    for (const [x, z] of (mods.b || [])) {
+      const [px, py] = toPix(x, z);
+      ctx.beginPath();
+      ctx.arc(px + size / 2, py + size / 2, Math.max(2, size * 0.22), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  function utcTodayStr() {
+    const d = new Date();
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  function formatSeconds(v) { return Number.isFinite(v) ? `${v.toFixed(2)}s` : '--.--'; }
+
+  async function fetchTopRow(playUrl) {
+    const ids = getTrackIds(playUrl);
+    const payloads = await Promise.all(ids.map(async (id) => {
+      try {
+        const res = await fetch(`${LEADERBOARD_API_BASE}?trackId=${encodeURIComponent(id)}`);
+        if (!res.ok) return null;
+        return await res.json();
+      } catch { return null; }
+    }));
+    const rows = payloads.flatMap((payload) => Array.isArray(payload?.entries) ? payload.entries : []);
+    if (!rows.length) return null;
+    return rows.slice().sort((a, b) => Number(a?.timeSeconds) - Number(b?.timeSeconds))[0] || null;
+  }
+
+  async function renderCup() {
+    const date = document.getElementById('dateInput').value || utcTodayStr();
+    const gridEl = document.getElementById('cupGrid');
+    const leaderRows = document.getElementById('leaderRows');
+    document.getElementById('cupTitle').textContent = `Weekly Cup • ${date}`;
+    document.getElementById('seedLine').textContent = `Seed: weekly-cup:${date}`;
+    gridEl.innerHTML = '';
+    leaderRows.innerHTML = '<tr><td colspan="3">Loading leaderboard data…</td></tr>';
+
+    const tracks = [];
+    for (let i = 0; i < 9; i++) tracks.push(generateTrack(`weekly-cup:${date}:slot:${i + 1}`));
+
+    tracks.forEach((track, idx) => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<h3>Track ${idx + 1}</h3><canvas width="280" height="210"></canvas><div class="row"><span class="meta">Seed slot ${idx + 1}</span><a class="linkbtn" href="${track.playUrl}" target="_blank" rel="noopener">Play</a></div>`;
+      const canvas = card.querySelector('canvas');
+      drawPreview(canvas, track.cells, track.modsObj);
+      gridEl.appendChild(card);
+    });
+
+    const topRows = await Promise.all(tracks.map((track) => fetchTopRow(track.playUrl)));
+    leaderRows.innerHTML = '';
+    const wins = new Map();
+    topRows.forEach((row, idx) => {
+      const holder = String(row?.name || 'No record yet');
+      if (row?.name) wins.set(holder, (wins.get(holder) || 0) + 1);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><a href="${tracks[idx].playUrl}" target="_blank" rel="noopener">Track ${idx + 1}</a></td><td>${holder}</td><td>${formatSeconds(Number(row?.timeSeconds))}</td>`;
+      leaderRows.appendChild(tr);
+    });
+
+    const leaders = [...wins.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    document.getElementById('champName').textContent = leaders.length ? leaders[0][0] : 'No records yet';
+    document.getElementById('champCount').textContent = leaders.length ? `${leaders[0][1]} weekly cup record${leaders[0][1] === 1 ? '' : 's'} held` : 'Complete a lap to claim first.';
+  }
+
+  const dateInput = document.getElementById('dateInput');
+  dateInput.value = utcTodayStr();
+  document.getElementById('regenBtn').addEventListener('click', () => { renderCup(); });
+  renderCup();
+})();
+</script>
+</body>
+</html>

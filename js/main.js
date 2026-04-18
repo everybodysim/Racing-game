@@ -65,8 +65,7 @@ const CAR_STATS = {
 	'vehicle-truck-purple': { name: 'Purple', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 	'vehicle-truck-red': { name: 'Red', speed: 8, accel: 6, perf: { topSpeed: 1.05, accelRate: 5.5, driveForce: 102.0 } },
 };
-const ENGINE_MULTS = [ 1, 1.025, 1.05, 1.075, 1.1 ];
-const ENGINE_UPGRADE_COST = 100;
+const DEFAULT_ENGINE_MULT = 1.1;
 const MAX_EFFECTIVE_TOP_SPEED = 1.8;
 const BOOST_VELOCITY_DELTA = 8.2;
 const BOOST_EFFECT_SECONDS = 1.0;
@@ -572,8 +571,6 @@ async function init() {
 	const topMessage = document.getElementById( 'top-message' );
 	const carSelect = document.getElementById( 'car-select' );
 	const coinsLabel = document.getElementById( 'coins-label' );
-	const upgradeLabel = document.getElementById( 'upgrade-label' );
-	const buyUpgradeBtn = document.getElementById( 'buy-upgrade' );
 	const shareTimeBtn = document.getElementById( 'share-time-btn' );
 	const exportGhostBtn = document.getElementById( 'export-ghost-btn' );
 	const importGhostBtn = document.getElementById( 'import-ghost-btn' );
@@ -669,14 +666,12 @@ async function init() {
 
 		if ( economyHud ) economyHud.style.display = 'none';
 		if ( carSelect ) carSelect.style.display = 'none';
-		if ( buyUpgradeBtn ) buyUpgradeBtn.style.display = 'none';
 		if ( shareTimeBtn ) shareTimeBtn.style.display = 'none';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = 'none';
 		if ( importGhostBtn ) importGhostBtn.style.display = 'none';
 	}
 	const economyStoreKey = 'racing-economy-v1';
 	let coins = 0;
-	let engineTier = 0;
 	let shareImageDataUrl = '';
 	const HACKS_STORE_KEY = 'racing-hacks-v1';
 	const installedMods = (() => {
@@ -744,7 +739,7 @@ async function init() {
 
 	function getEngineMult() {
 
-		return ENGINE_MULTS[ Math.min( engineTier, ENGINE_MULTS.length - 1 ) ];
+		return DEFAULT_ENGINE_MULT;
 
 	}
 
@@ -1299,7 +1294,7 @@ async function init() {
 
 	function saveEconomy() {
 
-		localStorage.setItem( economyStoreKey, JSON.stringify( { coins, engineTier } ) );
+		localStorage.setItem( economyStoreKey, JSON.stringify( { coins } ) );
 
 	}
 
@@ -1311,8 +1306,6 @@ async function init() {
 			if ( ! raw ) return;
 			const parsed = JSON.parse( raw );
 			coins = Number.isFinite( parsed.coins ) ? parsed.coins : 0;
-			engineTier = Number.isFinite( parsed.engineTier ) ? parsed.engineTier : 0;
-			engineTier = Math.max( 0, Math.min( ENGINE_MULTS.length - 1, engineTier ) );
 
 		} catch ( e ) {
 
@@ -1325,21 +1318,6 @@ async function init() {
 	function updateEconomyHud() {
 
 		if ( coinsLabel ) coinsLabel.textContent = `Coins: ${ coins }`;
-		if ( upgradeLabel ) {
-
-			const mult = getEngineMult();
-			upgradeLabel.textContent = `Engine: x${ mult.toFixed( 2 ) }`;
-
-		}
-
-		if ( buyUpgradeBtn ) {
-
-			const atMax = engineTier >= ENGINE_MULTS.length - 1;
-			buyUpgradeBtn.disabled = atMax || coins < ENGINE_UPGRADE_COST;
-			if ( atMax ) buyUpgradeBtn.textContent = 'Max Upgrade';
-			else buyUpgradeBtn.textContent = `Buy Upgrade (${ ENGINE_UPGRADE_COST })`;
-
-		}
 		updateGarageUi();
 
 	}
@@ -1425,7 +1403,7 @@ async function init() {
 		return {
 			v: 2,
 			playerName: sanitizePlayerName( playerNameInput?.value || '' ),
-			economy: { coins, engineTier },
+			economy: { coins },
 			garage: { mods: garageMods, unlocked: garageUnlocked },
 			campaign: campaignState,
 			carKey: currentCarKey(),
@@ -1485,9 +1463,7 @@ async function init() {
 
 		}
 		const nextCoins = Number( parsed?.economy?.coins );
-		const nextTier = Number( parsed?.economy?.engineTier );
 		coins = Number.isFinite( nextCoins ) ? Math.max( 0, Math.floor( nextCoins ) ) : coins;
-		engineTier = Number.isFinite( nextTier ) ? Math.max( 0, Math.min( ENGINE_MULTS.length - 1, Math.floor( nextTier ) ) ) : engineTier;
 		garageMods = {
 			grip: clampGarageValue( parsed?.garage?.mods?.grip, garageMods.grip ),
 			accel: clampGarageValue( parsed?.garage?.mods?.accel, garageMods.accel ),
@@ -3005,18 +2981,6 @@ async function init() {
 	garageGripUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'grip' ) );
 	garageAccelUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'accel' ) );
 	garageDriveUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'drive' ) );
-
-	buyUpgradeBtn?.addEventListener( 'click', () => {
-
-		if ( engineTier >= ENGINE_MULTS.length - 1 ) return;
-		if ( coins < ENGINE_UPGRADE_COST ) return;
-		coins -= ENGINE_UPGRADE_COST;
-		engineTier ++;
-		applyVehiclePerformance();
-		saveEconomy();
-		updateEconomyHud();
-
-	} );
 
 	shareTimeBtn?.addEventListener( 'click', () => {
 
