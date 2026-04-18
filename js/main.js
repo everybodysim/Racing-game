@@ -65,8 +65,7 @@ const CAR_STATS = {
 	'vehicle-truck-purple': { name: 'Purple', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 	'vehicle-truck-red': { name: 'Red', speed: 8, accel: 6, perf: { topSpeed: 1.05, accelRate: 5.5, driveForce: 102.0 } },
 };
-const ENGINE_MULTS = [ 1, 1.025, 1.05, 1.075, 1.1 ];
-const ENGINE_UPGRADE_COST = 100;
+const DEFAULT_ENGINE_MULT = 1.1;
 const MAX_EFFECTIVE_TOP_SPEED = 1.8;
 const BOOST_VELOCITY_DELTA = 8.2;
 const BOOST_EFFECT_SECONDS = 1.0;
@@ -423,6 +422,27 @@ async function init() {
 	let ghostRecordFrame = 0;
 	const _ghostForward = new THREE.Vector3();
 	const _ghostUp = new THREE.Vector3( 0, 1, 0 );
+	const selectedLeaderboardGhosts = new Set();
+	const leaderboardGhostPlayers = new Map();
+
+	function createGhostVisualModel( model, opacity = 0.35 ) {
+
+		if ( ! ghostEnabled || ! model ) return null;
+		const cloned = model.clone();
+		cloned.traverse( ( child ) => {
+
+			if ( ! child.isMesh ) return;
+			child.material = child.material.clone();
+			child.material.transparent = true;
+			child.material.opacity = opacity;
+			child.material.depthWrite = false;
+			child.castShadow = false;
+			child.receiveShadow = false;
+
+		} );
+		return cloned;
+
+	}
 
 	function createGhostModel( model ) {
 
@@ -431,18 +451,8 @@ async function init() {
 		ghostModel = null;
 		if ( ! model ) return;
 
-		ghostModel = model.clone();
-		ghostModel.traverse( ( child ) => {
-
-			if ( ! child.isMesh ) return;
-			child.material = child.material.clone();
-			child.material.transparent = true;
-			child.material.opacity = 0.35;
-			child.material.depthWrite = false;
-			child.castShadow = false;
-			child.receiveShadow = false;
-
-		} );
+		ghostModel = createGhostVisualModel( model, 0.35 );
+		if ( ! ghostModel ) return;
 		scene.add( ghostModel );
 
 	}
@@ -542,6 +552,122 @@ async function init() {
 
 	}
 
+	function extractNormalizedGhostPayload( payload ) {
+
+		const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
+		const duration = Number( payload?.duration );
+		if ( samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return null;
+		const normalizedSamples = [];
+		for ( const sample of samples ) {
+
+			if ( ! Number.isFinite( sample?.t ) || ! Number.isFinite( sample?.x ) || ! Number.isFinite( sample?.y ) || ! Number.isFinite( sample?.z ) || ! Number.isFinite( sample?.yaw ) ) continue;
+			normalizedSamples.push( {
+				t: sample.t,
+				x: sample.x,
+				y: sample.y,
+				z: sample.z,
+				yaw: sample.yaw,
+			} );
+
+		}
+		if ( normalizedSamples.length < 2 ) return null;
+		return {
+			samples: normalizedSamples,
+			duration,
+			car: payload?.car,
+			bestLapSeconds: payload?.bestLapSeconds,
+		};
+
+	}
+
+	function removeLeaderboardGhost( playerName ) {
+
+		const existing = leaderboardGhostPlayers.get( playerName );
+		if ( existing?.model ) scene.remove( existing.model );
+		leaderboardGhostPlayers.delete( playerName );
+
+	}
+
+	function enableLeaderboardGhost( playerName, payload ) {
+
+		if ( ! ghostEnabled ) return false;
+		const normalized = extractNormalizedGhostPayload( payload );
+		if ( ! normalized ) return false;
+		const modelKey = normalized.car && models[ normalized.car ] ? normalized.car : 'vehicle-truck-yellow';
+		const model = createGhostVisualModel( models[ modelKey ], 0.27 );
+		if ( ! model ) return false;
+		removeLeaderboardGhost( playerName );
+		scene.add( model );
+		leaderboardGhostPlayers.set( playerName, {
+			model,
+			samples: normalized.samples,
+			duration: normalized.duration,
+		} );
+		return true;
+
+	}
+
+	function updateSelectedLeaderboardGhosts( rows ) {
+
+		const byName = new Map();
+		for ( const entry of rows ) {
+
+			const name = sanitizePlayerName( entry?.name ) || 'Anonymous';
+			byName.set( name, entry );
+
+		}
+		for ( const selectedName of [ ...selectedLeaderboardGhosts ] ) {
+
+			const entry = byName.get( selectedName );
+			if ( ! entry?.ghost ) {
+
+				selectedLeaderboardGhosts.delete( selectedName );
+				removeLeaderboardGhost( selectedName );
+				continue;
+
+			}
+			if ( leaderboardGhostPlayers.has( selectedName ) ) continue;
+			if ( ! enableLeaderboardGhost( selectedName, entry.ghost ) ) {
+
+				selectedLeaderboardGhosts.delete( selectedName );
+				removeLeaderboardGhost( selectedName );
+
+			}
+
+		}
+
+	}
+
+	function updateLeaderboardGhostPlayback( lapElapsed ) {
+
+		if ( ! ghostEnabled || leaderboardGhostPlayers.size === 0 ) return;
+		for ( const state of leaderboardGhostPlayers.values() ) {
+
+			if ( ! state?.model || ! Array.isArray( state.samples ) || state.samples.length < 2 || ! Number.isFinite( state.duration ) || state.duration <= 0 ) {
+
+				if ( state?.model ) state.model.visible = false;
+				continue;
+
+			}
+			state.model.visible = true;
+			const t = ( ( lapElapsed % state.duration ) + state.duration ) % state.duration;
+			let nextIndex = state.samples.findIndex( ( sample ) => sample.t >= t );
+			if ( nextIndex <= 0 ) nextIndex = 1;
+			const sampleA = state.samples[ nextIndex - 1 ];
+			const sampleB = state.samples[ nextIndex ];
+			const span = Math.max( 1e-4, sampleB.t - sampleA.t );
+			const alpha = THREE.MathUtils.clamp( ( t - sampleA.t ) / span, 0, 1 );
+			state.model.position.set(
+				THREE.MathUtils.lerp( sampleA.x, sampleB.x, alpha ),
+				THREE.MathUtils.lerp( sampleA.y, sampleB.y, alpha ),
+				THREE.MathUtils.lerp( sampleA.z, sampleB.z, alpha )
+			);
+			state.model.rotation.set( 0, lerpAngle( sampleA.yaw, sampleB.yaw, alpha ), 0 );
+
+		}
+
+	}
+
 	if ( ghostEnabled ) createGhostModel( models[ 'vehicle-truck-yellow' ] );
 
 	dirLight.target = vehicleGroup;
@@ -572,8 +698,6 @@ async function init() {
 	const topMessage = document.getElementById( 'top-message' );
 	const carSelect = document.getElementById( 'car-select' );
 	const coinsLabel = document.getElementById( 'coins-label' );
-	const upgradeLabel = document.getElementById( 'upgrade-label' );
-	const buyUpgradeBtn = document.getElementById( 'buy-upgrade' );
 	const shareTimeBtn = document.getElementById( 'share-time-btn' );
 	const exportGhostBtn = document.getElementById( 'export-ghost-btn' );
 	const importGhostBtn = document.getElementById( 'import-ghost-btn' );
@@ -649,7 +773,6 @@ async function init() {
 	let modeMenuOpen = false;
 	let topMessageTimer = 0;
 	let pendingLeaderboardRecord = null;
-	let activeLeaderboardGhostName = '';
 	let leaderboardVisible = true;
 	let accountSession = null;
 	let campaignState = null;
@@ -669,14 +792,12 @@ async function init() {
 
 		if ( economyHud ) economyHud.style.display = 'none';
 		if ( carSelect ) carSelect.style.display = 'none';
-		if ( buyUpgradeBtn ) buyUpgradeBtn.style.display = 'none';
 		if ( shareTimeBtn ) shareTimeBtn.style.display = 'none';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = 'none';
 		if ( importGhostBtn ) importGhostBtn.style.display = 'none';
 	}
 	const economyStoreKey = 'racing-economy-v1';
 	let coins = 0;
-	let engineTier = 0;
 	let shareImageDataUrl = '';
 	const HACKS_STORE_KEY = 'racing-hacks-v1';
 	const installedMods = (() => {
@@ -744,7 +865,7 @@ async function init() {
 
 	function getEngineMult() {
 
-		return ENGINE_MULTS[ Math.min( engineTier, ENGINE_MULTS.length - 1 ) ];
+		return DEFAULT_ENGINE_MULT;
 
 	}
 
@@ -1299,7 +1420,7 @@ async function init() {
 
 	function saveEconomy() {
 
-		localStorage.setItem( economyStoreKey, JSON.stringify( { coins, engineTier } ) );
+		localStorage.setItem( economyStoreKey, JSON.stringify( { coins } ) );
 
 	}
 
@@ -1311,8 +1432,6 @@ async function init() {
 			if ( ! raw ) return;
 			const parsed = JSON.parse( raw );
 			coins = Number.isFinite( parsed.coins ) ? parsed.coins : 0;
-			engineTier = Number.isFinite( parsed.engineTier ) ? parsed.engineTier : 0;
-			engineTier = Math.max( 0, Math.min( ENGINE_MULTS.length - 1, engineTier ) );
 
 		} catch ( e ) {
 
@@ -1325,21 +1444,6 @@ async function init() {
 	function updateEconomyHud() {
 
 		if ( coinsLabel ) coinsLabel.textContent = `Coins: ${ coins }`;
-		if ( upgradeLabel ) {
-
-			const mult = getEngineMult();
-			upgradeLabel.textContent = `Engine: x${ mult.toFixed( 2 ) }`;
-
-		}
-
-		if ( buyUpgradeBtn ) {
-
-			const atMax = engineTier >= ENGINE_MULTS.length - 1;
-			buyUpgradeBtn.disabled = atMax || coins < ENGINE_UPGRADE_COST;
-			if ( atMax ) buyUpgradeBtn.textContent = 'Max Upgrade';
-			else buyUpgradeBtn.textContent = `Buy Upgrade (${ ENGINE_UPGRADE_COST })`;
-
-		}
 		updateGarageUi();
 
 	}
@@ -1425,7 +1529,7 @@ async function init() {
 		return {
 			v: 2,
 			playerName: sanitizePlayerName( playerNameInput?.value || '' ),
-			economy: { coins, engineTier },
+			economy: { coins },
 			garage: { mods: garageMods, unlocked: garageUnlocked },
 			campaign: campaignState,
 			carKey: currentCarKey(),
@@ -1485,9 +1589,7 @@ async function init() {
 
 		}
 		const nextCoins = Number( parsed?.economy?.coins );
-		const nextTier = Number( parsed?.economy?.engineTier );
 		coins = Number.isFinite( nextCoins ) ? Math.max( 0, Math.floor( nextCoins ) ) : coins;
-		engineTier = Number.isFinite( nextTier ) ? Math.max( 0, Math.min( ENGINE_MULTS.length - 1, Math.floor( nextTier ) ) ) : engineTier;
 		garageMods = {
 			grip: clampGarageValue( parsed?.garage?.mods?.grip, garageMods.grip ),
 			accel: clampGarageValue( parsed?.garage?.mods?.accel, garageMods.accel ),
@@ -2073,29 +2175,17 @@ async function init() {
 	function applyImportedGhostPayload( payload, options = {} ) {
 
 		if ( ! ghostEnabled ) return false;
-		const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
-		const duration = Number( payload?.duration );
-		if ( samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return false;
+		const normalized = extractNormalizedGhostPayload( payload );
+		if ( ! normalized ) return false;
 		bestLapGhostSamples.length = 0;
-		for ( const sample of samples ) {
-
-			if ( ! Number.isFinite( sample?.t ) || ! Number.isFinite( sample?.x ) || ! Number.isFinite( sample?.y ) || ! Number.isFinite( sample?.z ) || ! Number.isFinite( sample?.yaw ) ) continue;
-			bestLapGhostSamples.push( {
-				t: sample.t,
-				x: sample.x,
-				y: sample.y,
-				z: sample.z,
-				yaw: sample.yaw,
-			} );
-
-		}
+		for ( const sample of normalized.samples ) bestLapGhostSamples.push( sample );
 		if ( bestLapGhostSamples.length < 2 ) return false;
-		bestGhostDuration = duration;
-		if ( options.applyBestLapSeconds !== false && Number.isFinite( payload.bestLapSeconds ) ) bestLapSeconds = payload.bestLapSeconds;
-		if ( payload?.car && models[ payload.car ] ) {
+		bestGhostDuration = normalized.duration;
+		if ( options.applyBestLapSeconds !== false && Number.isFinite( normalized.bestLapSeconds ) ) bestLapSeconds = normalized.bestLapSeconds;
+		if ( normalized.car && models[ normalized.car ] ) {
 
-			bestGhostCarKey = payload.car;
-			createGhostModel( models[ payload.car ] );
+			bestGhostCarKey = normalized.car;
+			createGhostModel( models[ normalized.car ] );
 
 		}
 		if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
@@ -2208,6 +2298,7 @@ async function init() {
 		}
 		leaderboardEmpty.hidden = true;
 		leaderboardList.hidden = false;
+		updateSelectedLeaderboardGhosts( entries );
 		for ( const [ index, entry ] of entries.slice( 0, MAX_LEADERBOARD_ROWS ).entries() ) {
 
 			const row = document.createElement( 'li' );
@@ -2215,29 +2306,31 @@ async function init() {
 			const timeText = formatLapTime( Number( entry?.timeSeconds ) );
 			const hasGhost = Boolean( entry?.ghost );
 			row.classList.toggle( 'has-ghost', hasGhost );
-			if ( hasGhost ) row.tabIndex = 0;
-			row.innerHTML = `<span class=\"lb-rank\">#${ index + 1 }</span> <span class=\"lb-name\">${ safeName }</span> — <span class=\"lb-time\">${ timeText }</span>${ hasGhost ? '<span class=\"lb-ghost\">👻 ghost</span>' : '' }`;
+			const checked = hasGhost && selectedLeaderboardGhosts.has( safeName );
+			row.innerHTML = `<span class=\"lb-rank\">#${ index + 1 }</span> <span class=\"lb-name\">${ safeName }</span> — <span class=\"lb-time\">${ timeText }</span>${ hasGhost ? '<label class=\"lb-ghost-toggle\"><input type=\"checkbox\" class=\"lb-ghost-check\" data-player-name=\"' + safeName.replace( /\"/g, '&quot;' ) + '\" ' + ( checked ? 'checked' : '' ) + '> show ghost</label>' : '' }`;
 			if ( hasGhost ) {
 
-				const handleGhostPick = () => {
+				const checkbox = row.querySelector( '.lb-ghost-check' );
+				checkbox?.addEventListener( 'change', () => {
 
-					if ( ! applyImportedGhostPayload( entry.ghost, { applyBestLapSeconds: false } ) ) {
+					if ( checkbox.checked ) {
 
-						showTopMessage( `${ safeName } has an invalid cloud ghost entry.`, true, 1900 );
-						return;
+						if ( ! enableLeaderboardGhost( safeName, entry.ghost ) ) {
+
+							checkbox.checked = false;
+							showTopMessage( `${ safeName } has an invalid cloud ghost entry.`, true, 1900 );
+							return;
+
+						}
+						selectedLeaderboardGhosts.add( safeName );
+						showTopMessage( `Enabled ${ safeName } ghost.`, false, 1500 );
+					} else {
+
+						selectedLeaderboardGhosts.delete( safeName );
+						removeLeaderboardGhost( safeName );
+						showTopMessage( `Disabled ${ safeName } ghost.`, false, 1500 );
 
 					}
-					activeLeaderboardGhostName = safeName;
-					showTopMessage( `Showing ${ safeName }'s cloud ghost. Beat it to switch back to yours.`, false, 1900 );
-					updateLapHud();
-
-				};
-				row.addEventListener( 'click', handleGhostPick );
-				row.addEventListener( 'keydown', ( event ) => {
-
-					if ( event.key !== 'Enter' && event.key !== ' ' ) return;
-					event.preventDefault();
-					handleGhostPick();
 
 				} );
 
@@ -2581,6 +2674,7 @@ async function init() {
 		resetCurrentLapInputs();
 		recordGhostSample( 0, true );
 		updateGhostPlayback( 0 );
+		updateLeaderboardGhostPlayback( 0 );
 		hasLeftStartZone = false;
 		hasPrevFinishSample = false;
 		lastLocalX = 0;
@@ -3006,18 +3100,6 @@ async function init() {
 	garageAccelUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'accel' ) );
 	garageDriveUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'drive' ) );
 
-	buyUpgradeBtn?.addEventListener( 'click', () => {
-
-		if ( engineTier >= ENGINE_MULTS.length - 1 ) return;
-		if ( coins < ENGINE_UPGRADE_COST ) return;
-		coins -= ENGINE_UPGRADE_COST;
-		engineTier ++;
-		applyVehiclePerformance();
-		saveEconomy();
-		updateEconomyHud();
-
-	} );
-
 	shareTimeBtn?.addEventListener( 'click', () => {
 
 		openShareTab();
@@ -3279,7 +3361,6 @@ async function init() {
 			const payload = decodeBase64UrlJson( importedGhost );
 			if ( applyImportedGhostPayload( payload ) ) {
 
-				activeLeaderboardGhostName = '';
 				updateLapHud();
 
 			}
@@ -3653,12 +3734,6 @@ async function init() {
 					for ( const sample of currentLapGhostSamples ) bestLapGhostSamples.push( { ...sample, t: sample.t - t0 } );
 					bestGhostDuration = Math.max( 1e-4, completedLap - t0 );
 					bestGhostCarKey = currentCarKey();
-					if ( activeLeaderboardGhostName ) {
-
-						showTopMessage( 'New personal best! Switched ghost playback back to yours.', false, 2100 );
-						activeLeaderboardGhostName = '';
-
-					}
 					updateGhostShareButtons();
 
 				}
@@ -3689,6 +3764,7 @@ async function init() {
 						resetCurrentLapInputs();
 						recordGhostSample( 0, true );
 					updateGhostPlayback( 0 );
+					updateLeaderboardGhostPlayback( 0 );
 				hasLeftStartZone = false;
 				for ( const checkpoint of checkpointStates ) {
 
@@ -3787,6 +3863,7 @@ async function init() {
 		if ( vehicle2 ) lapSeconds2 = now - lapStartSeconds2;
 		recordGhostSample( lapSeconds );
 		updateGhostPlayback( lapSeconds );
+		updateLeaderboardGhostPlayback( lapSeconds );
 		const stuntScoringActive = gameMode === 'stunt' || ( gameMode === 'campaign' && campaignState?.stageType === 'stunt-score' );
 		if ( stuntScoringActive ) {
 

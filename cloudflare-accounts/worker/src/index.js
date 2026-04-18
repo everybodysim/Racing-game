@@ -3,6 +3,7 @@ const SESSION_KEY_PREFIX = 'session:';
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const MAX_USERNAME_LENGTH = 24;
 const MAX_PROFILE_BYTES = 12000;
+const MAX_COIN_LEADERBOARD_SCAN = 5000;
 
 export default {
 	async fetch( request, env ) {
@@ -20,6 +21,9 @@ export default {
 		}
 		if ( url.pathname === '/api/accounts/profile' && request.method === 'POST' ) {
 			return withCors( await saveProfile( request, env ) );
+		}
+		if ( url.pathname === '/api/accounts/coins-leaderboard' && request.method === 'GET' ) {
+			return withCors( await getCoinsLeaderboard( url, env ) );
 		}
 
 		return withCors( json( { ok: false, error: 'Not found' }, 404 ) );
@@ -97,6 +101,44 @@ async function saveProfile( request, env ) {
 	userRecord.updatedAt = Date.now();
 	await env.ACCOUNTS_KV.put( keyForUser( session.usernameKey ), JSON.stringify( userRecord ) );
 	return json( { ok: true, username: userRecord.username, profile } );
+}
+
+async function getCoinsLeaderboard( url, env ) {
+	const limit = Math.max( 1, Math.min( 100, Math.floor( Number( url.searchParams.get( 'limit' ) || 25 ) ) ) );
+	let cursor = undefined;
+	let scanned = 0;
+	const entries = [];
+	while ( scanned < MAX_COIN_LEADERBOARD_SCAN ) {
+		const batch = await env.ACCOUNTS_KV.list( { prefix: USER_KEY_PREFIX, cursor, limit: 100 } );
+		const keys = Array.isArray( batch?.keys ) ? batch.keys : [];
+		if ( keys.length === 0 ) break;
+		const userRecords = await Promise.all( keys.map( ( key ) => env.ACCOUNTS_KV.get( key.name, 'json' ) ) );
+		for ( const user of userRecords ) {
+			scanned ++;
+			if ( ! user || typeof user !== 'object' ) continue;
+			const coins = Math.max( 0, Math.floor( Number( user?.profile?.economy?.coins ) || 0 ) );
+			const username = sanitizePlayerName( user?.username || '' );
+			const playerName = sanitizePlayerName( user?.profile?.playerName || '' ) || username;
+			entries.push( {
+				username,
+				playerName,
+				coins,
+			} );
+			if ( scanned >= MAX_COIN_LEADERBOARD_SCAN ) break;
+		}
+		if ( ! batch?.list_complete ) {
+			cursor = batch?.cursor;
+			if ( ! cursor ) break;
+		} else {
+			break;
+		}
+	}
+	entries.sort( ( a, b ) => b.coins - a.coins || a.playerName.localeCompare( b.playerName ) );
+	return json( {
+		ok: true,
+		entries: entries.slice( 0, limit ),
+		scanned,
+	} );
 }
 
 function keyForUser( usernameKey ) {

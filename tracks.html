@@ -21,6 +21,7 @@
 		#grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-top: 12px; }
 		.card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 11px; }
 		.card h3 { margin: 0 0 6px; font-size: 17px; }
+		.preview-canvas { width: 100%; height: auto; display: block; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); background: #0d1118; margin: 8px 0; }
 		.meta { color: #b5c2da; font-size: 12px; margin-bottom: 8px; }
 		.record-holder { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); background: linear-gradient(130deg, rgba(50,72,120,0.45), rgba(48,170,128,0.18)); }
 		.record-holder .label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #d7e5ff; opacity: 0.86; }
@@ -247,6 +248,80 @@
 			return Number.isFinite( value ) ? `${ value.toFixed( 2 ) }s` : '--.--';
 		}
 
+		function decodeBase64Url( value ) {
+			const normalized = String( value || '' ).replace( /-/g, '+' ).replace( /_/g, '/' );
+			const padded = normalized + '='.repeat( ( 4 - normalized.length % 4 ) % 4 );
+			return atob( padded );
+		}
+
+		function decodeCellsFromMap( mapToken ) {
+			const bytes = decodeBase64Url( mapToken );
+			const typeByIdx = [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-finish' ];
+			const orientByIdx = [ 0, 16, 10, 22 ];
+			const cells = [];
+			for ( let i = 0; i + 2 < bytes.length; i += 3 ) {
+				const gx = bytes.charCodeAt( i ) - 128;
+				const gz = bytes.charCodeAt( i + 1 ) - 128;
+				const packed = bytes.charCodeAt( i + 2 );
+				const type = typeByIdx[ packed >> 2 ] || 'track-straight';
+				const orient = orientByIdx[ packed & 3 ] ?? 0;
+				cells.push( [ gx, gz, type, orient ] );
+			}
+			return cells;
+		}
+
+		function decodeModsFromToken( modsToken ) {
+			const decoded = decodeBase64Url( modsToken );
+			return JSON.parse( decodeURIComponent( escape( decoded ) ) );
+		}
+
+		function parseTrackLayoutFromUrl( playUrl ) {
+			try {
+				const parsed = new URL( playUrl, window.location.href );
+				const map = parsed.searchParams.get( 'map' );
+				const mods = parsed.searchParams.get( 'mods' );
+				if ( ! map ) return null;
+				return {
+					cells: decodeCellsFromMap( map ),
+					mods: mods ? decodeModsFromToken( mods ) : { b: [], u: [], d: [] },
+				};
+			} catch ( e ) {
+				return null;
+			}
+		}
+
+		function drawTrackPreview( canvas, cells, mods = {} ) {
+			if ( ! canvas || ! cells || cells.length === 0 ) return;
+			const ctx = canvas.getContext( '2d' );
+			ctx.clearRect( 0, 0, canvas.width, canvas.height );
+			const xs = cells.map( ( c ) => c[ 0 ] );
+			const zs = cells.map( ( c ) => c[ 1 ] );
+			const minX = Math.min( ...xs ) - 1;
+			const maxX = Math.max( ...xs ) + 1;
+			const minZ = Math.min( ...zs ) - 1;
+			const maxZ = Math.max( ...zs ) + 1;
+			const gw = maxX - minX + 1;
+			const gh = maxZ - minZ + 1;
+			const pad = 8;
+			const size = Math.max( 4, Math.floor( Math.min( ( canvas.width - pad * 2 ) / gw, ( canvas.height - pad * 2 ) / gh ) ) );
+			const toPix = ( x, z ) => [ pad + ( x - minX ) * size, pad + ( z - minZ ) * size ];
+			for ( const [ x, z, type ] of cells ) {
+				const [ px, py ] = toPix( x, z );
+				ctx.fillStyle = type === 'track-finish' ? '#72e39a'
+					: type === 'track-checkpoint' ? '#ffd54f'
+					: type === 'track-corner' ? '#b084ff'
+					: '#4da3ff';
+				ctx.fillRect( px + 1, py + 1, size - 2, size - 2 );
+			}
+			ctx.strokeStyle = '#ff4d4d';
+			for ( const [ x, z ] of ( mods.b || [] ) ) {
+				const [ px, py ] = toPix( x, z );
+				ctx.beginPath();
+				ctx.arc( px + size / 2, py + size / 2, Math.max( 2, size * 0.22 ), 0, Math.PI * 2 );
+				ctx.stroke();
+			}
+		}
+
 		function getRecordLeaders() {
 			const winsByDriver = new Map();
 			const uniqueTrackIds = [ ...new Set( entries.map( ( entry ) => getTrackIdFromPlayUrl( entry.playUrl ) ).filter( Boolean ) ) ];
@@ -343,11 +418,14 @@
 						</div>
 						<div class="time">${ topRow ? formatSeconds( Number( topRow.timeSeconds ) ) : '' }</div>
 					</div>
+					<canvas class="preview-canvas" width="300" height="180" aria-label="Track preview for ${ entry.name }"></canvas>
 					<div class="meta">Best: ${ formatSeconds( entry.bestLapSeconds ) } • Samples: ${ entry.sampleCount || 0 }</div>
 					<div class="row" style="margin-top:0">
 						<a href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">Open track link</a>
 						<button data-id="${ entry.id }" type="button">Remove</button>
 					</div>`;
+				const previewData = parseTrackLayoutFromUrl( entry.playUrl );
+				if ( previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), previewData.cells, previewData.mods );
 				grid.appendChild( card );
 			}
 		}
