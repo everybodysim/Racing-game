@@ -135,8 +135,19 @@ function parseExtrasFromUrl(rawUrl) {
       customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
     };
   } catch {
-    return null;
+    return 'parse-error';
   }
+}
+
+function normalizeTrackExtras(extras) {
+  return {
+    bumps: Array.isArray(extras?.bumps) ? extras.bumps : [],
+    boosts: Array.isArray(extras?.boosts) ? extras.boosts : [],
+    jumps: Array.isArray(extras?.jumps) ? extras.jumps : [],
+    decorations: Array.isArray(extras?.decorations) ? extras.decorations : [],
+    surfaces: Array.isArray(extras?.surfaces) ? extras.surfaces : [],
+    customSurfaces: extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {},
+  };
 }
 
 function updateCarConfig() {
@@ -315,10 +326,19 @@ function rebuildTrack() {
     world = null;
     console.warn('TAS physics init failed; using kinematic fallback.', error);
   }
-  currentCells = parseTrackCellsFromUrl(trackUrlInput.value.trim());
-  currentExtras = parseExtrasFromUrl(trackUrlInput.value.trim());
-  trackGroup = buildTrack(scene, models, currentCells, currentExtras);
-  if ( physicsEnabled && world ) buildWallColliders(world, null, currentCells, null);
+  const trackUrl = trackUrlInput.value.trim();
+  const nextCells = parseTrackCellsFromUrl(trackUrl);
+  const parsedExtras = parseExtrasFromUrl(trackUrl);
+  const extrasParseFailed = parsedExtras === 'parse-error';
+  const nextExtras = normalizeTrackExtras(extrasParseFailed ? null : parsedExtras);
+  currentCells = nextCells;
+  currentExtras = nextExtras;
+  trackGroup = buildTrack(scene, models, nextCells, nextExtras);
+  if ( physicsEnabled && world ) buildWallColliders(world, null, nextCells, nextExtras);
+  if (extrasParseFailed) {
+    pushRunError('Extras parse failed; TAS used default collider data.');
+    statusEl.textContent = 'Warning: extras parse failed; TAS used default collider data.';
+  }
 
   const spawn = computeSpawnPosition(currentCells);
   const bounds = computeTrackBounds(currentCells);
