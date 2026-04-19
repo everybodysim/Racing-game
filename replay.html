@@ -20,7 +20,11 @@
 		button { cursor: pointer; background: #1d4ed8; border-color: #1d4ed8; }
 		textarea { width: 100%; min-height: 76px; box-sizing: border-box; }
 		canvas { width: 100%; height: auto; border-radius: 8px; border: 1px solid #2a354a; background: #0a0f17; }
+		#stats-graph { height: 220px; }
 		.meta { opacity: 0.85; }
+		.legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: #bfd0ef; }
+		.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 999px; margin-right: 6px; vertical-align: middle; }
+		#stats-now { margin-top: 6px; font-size: 12px; color: #9fd0ff; }
 	</style>
 </head>
 <body>
@@ -42,6 +46,17 @@
 
 		<div class="panel">
 			<canvas id="replay-canvas" width="1280" height="720"></canvas>
+		</div>
+		<div class="panel">
+			<div class="meta">Car stats over time (derived from ghost samples)</div>
+			<canvas id="stats-graph" width="1280" height="320"></canvas>
+			<div class="legend">
+				<div><span class="swatch" style="background:#67e8f9"></span>Speed</div>
+				<div><span class="swatch" style="background:#f59e0b"></span>Acceleration</div>
+				<div><span class="swatch" style="background:#a78bfa"></span>Yaw rate</div>
+				<div><span class="swatch" style="background:#4ade80"></span>Ride height</div>
+			</div>
+			<div id="stats-now">Load a replay to inspect telemetry.</div>
 		</div>
 	</div>
 
@@ -108,12 +123,16 @@
 		const timeline = document.getElementById( 'timeline' );
 		const canvas = document.getElementById( 'replay-canvas' );
 		const ctx = canvas.getContext( '2d' );
+		const statsCanvas = document.getElementById( 'stats-graph' );
+		const statsCtx = statsCanvas.getContext( '2d' );
+		const statsNowEl = document.getElementById( 'stats-now' );
 
 		let replay = null;
 		let isPlaying = false;
 		let playStartMs = 0;
 		let pausedAt = 0;
 		let replayTrack = null;
+		let telemetry = null;
 
 		function readCodeFromHash() {
 			const hash = new URLSearchParams( location.hash.startsWith( '#' ) ? location.hash.slice( 1 ) : location.hash );
@@ -151,6 +170,142 @@
 			if ( ! Number.isFinite( minX ) ) return { minX: -10, maxX: 10, minZ: -10, maxZ: 10 };
 			const pad = 4;
 			return { minX: minX - pad, maxX: maxX + pad, minZ: minZ - pad, maxZ: maxZ + pad };
+		}
+
+		function wrapAngleDiff( a, b ) {
+			let diff = b - a;
+			while ( diff > Math.PI ) diff -= Math.PI * 2;
+			while ( diff < - Math.PI ) diff += Math.PI * 2;
+			return diff;
+		}
+
+		function buildTelemetry( samples ) {
+			if ( ! Array.isArray( samples ) || samples.length < 2 ) return null;
+			const points = [];
+			for ( let i = 0; i < samples.length; i ++ ) {
+				const current = samples[ i ];
+				const prev = samples[ Math.max( 0, i - 1 ) ];
+				const dt = Math.max( 1e-4, ( current.t ?? 0 ) - ( prev.t ?? 0 ) );
+				const dx = ( current.x ?? 0 ) - ( prev.x ?? 0 );
+				const dz = ( current.z ?? 0 ) - ( prev.z ?? 0 );
+				const speed = Math.hypot( dx, dz ) / dt;
+				const yawRate = i === 0 ? 0 : Math.abs( wrapAngleDiff( prev.yaw ?? 0, current.yaw ?? 0 ) ) / dt;
+				points.push( {
+					t: Number( current.t ) || 0,
+					speed,
+					height: Number( current.y ) || 0,
+					yawRate,
+					accel: 0,
+				} );
+			}
+			for ( let i = 1; i < points.length; i ++ ) {
+				const dt = Math.max( 1e-4, points[ i ].t - points[ i - 1 ].t );
+				points[ i ].accel = ( points[ i ].speed - points[ i - 1 ].speed ) / dt;
+			}
+			return {
+				points,
+				ranges: {
+					speed: computeRange( points.map( ( point ) => point.speed ) ),
+					accel: computeRange( points.map( ( point ) => point.accel ) ),
+					yawRate: computeRange( points.map( ( point ) => point.yawRate ) ),
+					height: computeRange( points.map( ( point ) => point.height ) ),
+				},
+			};
+		}
+
+		function computeRange( values ) {
+			let min = Infinity;
+			let max = - Infinity;
+			for ( const value of values ) {
+				if ( ! Number.isFinite( value ) ) continue;
+				min = Math.min( min, value );
+				max = Math.max( max, value );
+			}
+			if ( ! Number.isFinite( min ) || ! Number.isFinite( max ) ) return { min: 0, max: 1 };
+			if ( Math.abs( max - min ) < 1e-5 ) return { min: min - 1, max: max + 1 };
+			return { min, max };
+		}
+
+		function getTelemetryAtTime( t ) {
+			if ( ! telemetry?.points?.length ) return null;
+			const points = telemetry.points;
+			if ( t <= points[ 0 ].t ) return points[ 0 ];
+			for ( let i = 1; i < points.length; i ++ ) {
+				if ( points[ i ].t >= t ) return points[ i ];
+			}
+			return points[ points.length - 1 ];
+		}
+
+		function drawTelemetryGraph( nowT ) {
+			statsCtx.clearRect( 0, 0, statsCanvas.width, statsCanvas.height );
+			statsCtx.fillStyle = '#0a0f17';
+			statsCtx.fillRect( 0, 0, statsCanvas.width, statsCanvas.height );
+			if ( ! telemetry?.points?.length || ! replay?.ghost?.duration ) {
+				statsCtx.fillStyle = '#93a5c2';
+				statsCtx.font = '500 16px system-ui, sans-serif';
+				statsCtx.fillText( 'No telemetry data.', 18, 30 );
+				return;
+			}
+
+			const points = telemetry.points;
+			const duration = Math.max( 1e-4, Number( replay.ghost.duration ) || points[ points.length - 1 ].t );
+			const pad = { l: 52, r: 18, t: 20, b: 32 };
+			const plotW = statsCanvas.width - pad.l - pad.r;
+			const plotH = statsCanvas.height - pad.t - pad.b;
+			const toX = ( t ) => pad.l + ( Math.max( 0, Math.min( duration, t ) ) / duration ) * plotW;
+			const toY = ( value, range ) => {
+				const span = Math.max( 1e-6, range.max - range.min );
+				const alpha = ( value - range.min ) / span;
+				return pad.t + ( 1 - alpha ) * plotH;
+			};
+
+			statsCtx.strokeStyle = 'rgba(80,101,138,0.45)';
+			statsCtx.lineWidth = 1;
+			statsCtx.strokeRect( pad.l, pad.t, plotW, plotH );
+			for ( let i = 0; i <= 4; i ++ ) {
+				const y = pad.t + ( i / 4 ) * plotH;
+				statsCtx.beginPath();
+				statsCtx.moveTo( pad.l, y );
+				statsCtx.lineTo( pad.l + plotW, y );
+				statsCtx.stroke();
+			}
+
+			drawMetricLine( points, ( point ) => point.speed, telemetry.ranges.speed, '#67e8f9', toX, toY );
+			drawMetricLine( points, ( point ) => point.accel, telemetry.ranges.accel, '#f59e0b', toX, toY );
+			drawMetricLine( points, ( point ) => point.yawRate, telemetry.ranges.yawRate, '#a78bfa', toX, toY );
+			drawMetricLine( points, ( point ) => point.height, telemetry.ranges.height, '#4ade80', toX, toY );
+
+			const nowX = toX( nowT );
+			statsCtx.strokeStyle = '#ffffff';
+			statsCtx.lineWidth = 1.2;
+			statsCtx.beginPath();
+			statsCtx.moveTo( nowX, pad.t );
+			statsCtx.lineTo( nowX, pad.t + plotH );
+			statsCtx.stroke();
+
+			statsCtx.fillStyle = '#9fb5d8';
+			statsCtx.font = '12px system-ui, sans-serif';
+			statsCtx.fillText( '0.00s', pad.l, statsCanvas.height - 10 );
+			statsCtx.fillText( `${ duration.toFixed( 2 ) }s`, pad.l + plotW - 42, statsCanvas.height - 10 );
+
+			const current = getTelemetryAtTime( nowT );
+			if ( current && statsNowEl ) {
+				statsNowEl.textContent = `t=${ nowT.toFixed( 2 ) }s • speed ${ current.speed.toFixed( 2 ) } • accel ${ current.accel.toFixed( 2 ) } • yaw rate ${ current.yawRate.toFixed( 2 ) } • height ${ current.height.toFixed( 2 ) }`;
+			}
+		}
+
+		function drawMetricLine( points, getter, range, color, toX, toY ) {
+			statsCtx.strokeStyle = color;
+			statsCtx.lineWidth = 2;
+			statsCtx.beginPath();
+			for ( let i = 0; i < points.length; i ++ ) {
+				const point = points[ i ];
+				const x = toX( point.t );
+				const y = toY( getter( point ), range );
+				if ( i === 0 ) statsCtx.moveTo( x, y );
+				else statsCtx.lineTo( x, y );
+			}
+			statsCtx.stroke();
 		}
 
 		function drawReplay() {
@@ -250,6 +405,7 @@
 			ctx.font = '500 16px system-ui, sans-serif';
 			ctx.fillStyle = '#9fd0ff';
 			ctx.fillText( `Weather: ${ weatherPreset} • ${ weatherPrecip } • ${ weatherIntensity } • ${ weatherWind }`, 20, 58 );
+			drawTelemetryGraph( nowT );
 			}
 
 		function setReplay( parsed ) {
@@ -258,6 +414,7 @@
 				return false;
 			}
 			replay = parsed;
+			telemetry = buildTelemetry( replay.ghost.samples );
 			replayTrack = null;
 			try {
 				if ( replay.url ) {
@@ -276,6 +433,7 @@
 			const weatherSummary = `${ weather.precipitation || 'none' }, ${ weather.intensity || 'medium' }, ${ weather.wind || 'none' }${ weather.lightning ? ', lightning' : '' }`;
 			statusEl.textContent = `Loaded ${ replay.ghost.samples.length } samples from ${ replay.url || 'unknown URL' } • Weather: ${ weatherPreset } (${ weatherSummary })`;
 			drawReplay();
+			drawTelemetryGraph( 0 );
 			return true;
 		}
 
