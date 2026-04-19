@@ -737,8 +737,15 @@ async function init() {
 	const raceModeBtn = document.getElementById( 'mode-race-btn' );
 	const stuntModeBtn = document.getElementById( 'mode-stunt-btn' );
 	const campaignModeBtn = document.getElementById( 'mode-campaign-btn' );
+	const modeTabGameplayBtn = document.getElementById( 'mode-tab-gameplay' );
+	const modeTabGarageBtn = document.getElementById( 'mode-tab-garage' );
+	const modeTabAccountBtn = document.getElementById( 'mode-tab-account' );
+	const modePanelGameplay = document.getElementById( 'mode-panel-gameplay' );
+	const modePanelGarage = document.getElementById( 'mode-panel-garage' );
+	const modePanelAccount = document.getElementById( 'mode-panel-account' );
 	const campaignProgressLabel = document.getElementById( 'campaign-progress' );
 	const stuntPointsHud = document.getElementById( 'stunt-points' );
+	const garageCarSelect = document.getElementById( 'garage-car-select' );
 	const garageGripSlider = document.getElementById( 'garage-grip' );
 	const garageAccelSlider = document.getElementById( 'garage-accel' );
 	const garageDriveSlider = document.getElementById( 'garage-drive' );
@@ -751,6 +758,13 @@ async function init() {
 	const garageGripUnlockBtn = document.getElementById( 'garage-grip-unlock' );
 	const garageAccelUnlockBtn = document.getElementById( 'garage-accel-unlock' );
 	const garageDriveUnlockBtn = document.getElementById( 'garage-drive-unlock' );
+	const garageColorGrid = document.getElementById( 'garage-color-grid' );
+	const garageSourceColorInput = document.getElementById( 'garage-source-color' );
+	const garageSourceToleranceInput = document.getElementById( 'garage-source-tolerance' );
+	const garageSourceToleranceValue = document.getElementById( 'garage-source-tolerance-value' );
+	const garageAddMappingBtn = document.getElementById( 'garage-add-mapping-btn' );
+	const garageMappingStatus = document.getElementById( 'garage-mapping-status' );
+	const garageMappingsList = document.getElementById( 'garage-mappings-list' );
 	const profileExportBtn = document.getElementById( 'profile-export-btn' );
 	const profileImportBtn = document.getElementById( 'profile-import-btn' );
 	const accountUsernameInput = document.getElementById( 'account-username-input' );
@@ -787,6 +801,11 @@ async function init() {
 	const campaignStoreKey = 'racing-campaign-v1';
 	let garageMods = { grip: 1.0, accel: 1.0, drive: 1.0 };
 	let garageUnlocked = { grip: false, accel: false, drive: false };
+	const GARAGE_COLOR_UNLOCK_COST = 90;
+	const GARAGE_PAINT_PALETTE = buildGaragePaintPalette();
+	const GARAGE_DEFAULT_PAINT_UNLOCKS = new Set( [ GARAGE_PAINT_PALETTE[ 0 ]?.id, GARAGE_PAINT_PALETTE[ 1 ]?.id, GARAGE_PAINT_PALETTE[ 11 ]?.id ].filter( Boolean ) );
+	let selectedPaintColorId = GARAGE_PAINT_PALETTE[ 0 ]?.id || '';
+	let garageCosmetics = normalizeGarageCosmetics( null );
 	if ( lapHud2 ) lapHud2.style.display = isSplitScreen ? 'block' : 'none';
 	if ( isSplitScreen ) {
 
@@ -1180,11 +1199,96 @@ async function init() {
 
 	}
 
+	function buildGaragePaintPalette() {
+
+		const colors = [];
+		for ( let row = 0; row < 7; row ++ ) {
+
+			for ( let col = 0; col < 11; col ++ ) {
+
+				const hue = Math.round( ( col / 11 ) * 360 ) % 360;
+				const sat = THREE.MathUtils.lerp( 0.34, 1.0, row / 6 );
+				const light = THREE.MathUtils.lerp( 0.84, 0.38, row / 6 );
+				const color = new THREE.Color().setHSL( hue / 360, sat, light );
+				colors.push( {
+					id: `p-${ row }-${ col }`,
+					hex: `#${ color.getHexString() }`,
+					row,
+					col,
+				} );
+
+			}
+
+		}
+		return colors;
+
+	}
+
+	function normalizeGarageCosmetics( value ) {
+
+		const next = value && typeof value === 'object' ? value : {};
+		const unlockedPaints = {};
+		for ( const entry of GARAGE_PAINT_PALETTE ) {
+
+			const unlocked = Boolean( next?.unlockedPaints?.[ entry.id ] ) || GARAGE_DEFAULT_PAINT_UNLOCKS.has( entry.id );
+			if ( unlocked ) unlockedPaints[ entry.id ] = true;
+
+		}
+
+		const cars = {};
+		if ( next?.cars && typeof next.cars === 'object' ) {
+
+			for ( const [ carKey, carData ] of Object.entries( next.cars ) ) {
+
+				if ( ! CAR_STATS[ carKey ] ) continue;
+				const mappings = Array.isArray( carData?.mappings ) ? carData.mappings : [];
+				cars[ carKey ] = {
+					mappings: mappings.slice( 0, 48 ).map( ( mapping ) => ( {
+						sourceHex: typeof mapping?.sourceHex === 'string' ? mapping.sourceHex : '#ff0000',
+						targetColorId: typeof mapping?.targetColorId === 'string' ? mapping.targetColorId : '',
+						tolerance: THREE.MathUtils.clamp( Number( mapping?.tolerance ) || 40, 8, 180 ),
+					} ) ).filter( ( mapping ) => /^#[0-9a-fA-F]{6}$/.test( mapping.sourceHex ) && unlockedPaints[ mapping.targetColorId ] ),
+				};
+
+			}
+
+		}
+
+		return { unlockedPaints, cars };
+
+	}
+
+	function getGarageCosmeticCar( carKey ) {
+
+		if ( ! garageCosmetics.cars[ carKey ] ) garageCosmetics.cars[ carKey ] = { mappings: [] };
+		return garageCosmetics.cars[ carKey ];
+
+	}
+
+	function getSelectedGarageCarKey() {
+
+		const candidate = garageCarSelect?.value;
+		return CAR_STATS[ candidate ] ? candidate : currentCarKey();
+
+	}
+
 	function clampGarageValue( value, fallback = 1.0 ) {
 
 		const parsed = Number( value );
 		if ( ! Number.isFinite( parsed ) ) return fallback;
 		return THREE.MathUtils.clamp( parsed, 0.85, 1.15 );
+
+	}
+
+	function setModeTab( tabName ) {
+
+		const tab = tabName === 'garage' || tabName === 'account' ? tabName : 'gameplay';
+		modeTabGameplayBtn?.classList.toggle( 'active', tab === 'gameplay' );
+		modeTabGarageBtn?.classList.toggle( 'active', tab === 'garage' );
+		modeTabAccountBtn?.classList.toggle( 'active', tab === 'account' );
+		modePanelGameplay?.classList.toggle( 'active', tab === 'gameplay' );
+		modePanelGarage?.classList.toggle( 'active', tab === 'garage' );
+		modePanelAccount?.classList.toggle( 'active', tab === 'account' );
 
 	}
 
@@ -1196,7 +1300,7 @@ async function init() {
 
 	function saveGarageMods() {
 
-		localStorage.setItem( garageStoreKey, JSON.stringify( { mods: garageMods, unlocked: garageUnlocked } ) );
+		localStorage.setItem( garageStoreKey, JSON.stringify( { mods: garageMods, unlocked: garageUnlocked, cosmetics: garageCosmetics } ) );
 
 	}
 
@@ -1220,6 +1324,7 @@ async function init() {
 				accel: Boolean( unlocked?.accel ),
 				drive: Boolean( unlocked?.drive ),
 			};
+			garageCosmetics = normalizeGarageCosmetics( parsed?.cosmetics );
 
 		} catch ( e ) {
 
@@ -1288,6 +1393,150 @@ async function init() {
 		if ( garageGripStatus ) garageGripStatus.textContent = unlocks.grip ? 'Pack active' : 'Buy to activate slider';
 		if ( garageAccelStatus ) garageAccelStatus.textContent = unlocks.accel ? 'Pack active' : 'Buy to activate slider';
 		if ( garageDriveStatus ) garageDriveStatus.textContent = unlocks.drive ? 'Pack active' : 'Buy to activate slider';
+		if ( garageCarSelect ) garageCarSelect.value = getSelectedGarageCarKey();
+		updateGaragePaletteUi();
+		updateGarageMappingsUi();
+
+	}
+
+	function getPaintColorById( colorId ) {
+
+		return GARAGE_PAINT_PALETTE.find( ( color ) => color.id === colorId ) || null;
+
+	}
+
+	function setGarageMappingStatus( message, isError = false ) {
+
+		if ( ! garageMappingStatus ) return;
+		garageMappingStatus.textContent = message || '';
+		garageMappingStatus.style.color = isError ? '#ff9ea2' : '#b9d0ea';
+
+	}
+
+	function updateGaragePaletteUi() {
+
+		if ( ! garageColorGrid ) return;
+		const unlockedPaints = garageCosmetics?.unlockedPaints || {};
+		if ( ! unlockedPaints[ selectedPaintColorId ] ) {
+
+			const fallback = GARAGE_PAINT_PALETTE.find( ( entry ) => unlockedPaints[ entry.id ] );
+			selectedPaintColorId = fallback?.id || '';
+
+		}
+		garageColorGrid.innerHTML = '';
+		for ( const entry of GARAGE_PAINT_PALETTE ) {
+
+			const button = document.createElement( 'button' );
+			button.type = 'button';
+			button.className = `garage-dot${ unlockedPaints[ entry.id ] ? '' : ' locked' }${ selectedPaintColorId === entry.id ? ' selected' : '' }`;
+			button.style.background = entry.hex;
+			button.title = unlockedPaints[ entry.id ] ? `Select ${ entry.hex }` : `Unlock ${ entry.hex } (${ GARAGE_COLOR_UNLOCK_COST } coins)`;
+			button.addEventListener( 'click', () => {
+
+				if ( unlockedPaints[ entry.id ] ) {
+
+					selectedPaintColorId = entry.id;
+					updateGaragePaletteUi();
+					setGarageMappingStatus( `Selected paint ${ entry.hex }.` );
+					return;
+
+				}
+				if ( coins < GARAGE_COLOR_UNLOCK_COST ) {
+
+					setGarageMappingStatus( `Need ${ GARAGE_COLOR_UNLOCK_COST } coins to unlock this paint.`, true );
+					return;
+
+				}
+				coins -= GARAGE_COLOR_UNLOCK_COST;
+				garageCosmetics.unlockedPaints[ entry.id ] = true;
+				selectedPaintColorId = entry.id;
+				saveEconomy();
+				saveGarageMods();
+				updateEconomyHud();
+				updateGarageUi();
+				setGarageMappingStatus( `Unlocked paint ${ entry.hex }.` );
+
+			} );
+			garageColorGrid.appendChild( button );
+
+		}
+
+	}
+
+	function updateGarageMappingsUi() {
+
+		if ( ! garageMappingsList ) return;
+		const carKey = getSelectedGarageCarKey();
+		const mappings = getGarageCosmeticCar( carKey ).mappings;
+		garageMappingsList.innerHTML = '';
+		if ( mappings.length === 0 ) {
+
+			const empty = document.createElement( 'li' );
+			empty.textContent = 'No mappings yet for this car.';
+			garageMappingsList.appendChild( empty );
+			return;
+
+		}
+		mappings.forEach( ( mapping, index ) => {
+
+			const destination = getPaintColorById( mapping.targetColorId );
+			const item = document.createElement( 'li' );
+			item.innerHTML = `<span>${ mapping.sourceHex } → ${ destination?.hex || '(locked)' } (tol ${ Math.round( mapping.tolerance ) })</span>`;
+			const removeBtn = document.createElement( 'button' );
+			removeBtn.type = 'button';
+			removeBtn.textContent = 'Remove';
+			removeBtn.style.marginLeft = '6px';
+			removeBtn.addEventListener( 'click', () => {
+
+				mappings.splice( index, 1 );
+				saveGarageMods();
+				updateGarageMappingsUi();
+				applyCarCustomization( vehicle );
+
+			} );
+			item.appendChild( removeBtn );
+			garageMappingsList.appendChild( item );
+
+		} );
+
+	}
+
+	function applyCarCustomization( targetVehicle ) {
+
+		if ( ! targetVehicle?.container ) return;
+		const carKey = currentCarKey();
+		const carData = getGarageCosmeticCar( carKey );
+		const mappings = Array.isArray( carData?.mappings ) ? carData.mappings : [];
+		targetVehicle.container.traverse( ( child ) => {
+
+			if ( ! child.isMesh || ! child.material?.color ) return;
+			const material = child.material;
+			if ( ! material.userData.baseColorHex ) material.userData.baseColorHex = `#${ material.color.getHexString() }`;
+			const sourceColor = new THREE.Color( material.userData.baseColorHex );
+			let best = null;
+			let bestDistance = Number.POSITIVE_INFINITY;
+			for ( const mapping of mappings ) {
+
+				const targetPaint = getPaintColorById( mapping.targetColorId );
+				if ( ! targetPaint || ! garageCosmetics.unlockedPaints[ mapping.targetColorId ] ) continue;
+				const source = new THREE.Color( mapping.sourceHex );
+				const dist = Math.sqrt(
+					( sourceColor.r - source.r ) ** 2 +
+					( sourceColor.g - source.g ) ** 2 +
+					( sourceColor.b - source.b ) ** 2
+				);
+				const threshold = THREE.MathUtils.clamp( mapping.tolerance / 255, 0.03, 0.8 );
+				if ( dist <= threshold && dist < bestDistance ) {
+
+					best = targetPaint;
+					bestDistance = dist;
+
+				}
+
+			}
+			material.color.set( best ? best.hex : material.userData.baseColorHex );
+
+		} );
 
 	}
 
@@ -1530,7 +1779,7 @@ async function init() {
 			v: 2,
 			playerName: sanitizePlayerName( playerNameInput?.value || '' ),
 			economy: { coins },
-			garage: { mods: garageMods, unlocked: garageUnlocked },
+			garage: { mods: garageMods, unlocked: garageUnlocked, cosmetics: garageCosmetics },
 			campaign: campaignState,
 			carKey: currentCarKey(),
 		};
@@ -1600,6 +1849,7 @@ async function init() {
 			accel: Boolean( parsed?.garage?.unlocked?.accel ),
 			drive: Boolean( parsed?.garage?.unlocked?.drive ),
 		};
+		garageCosmetics = normalizeGarageCosmetics( parsed?.garage?.cosmetics );
 		if ( parsed?.campaign && typeof parsed.campaign === 'object' ) {
 
 			const stage = Math.max( 1, Number( parsed.campaign.stage ) || 1 );
@@ -1616,7 +1866,13 @@ async function init() {
 		if ( typeof parsed?.carKey === 'string' && carSelect && CAR_STATS[ parsed.carKey ] ) {
 
 			carSelect.value = parsed.carKey;
-			if ( models[ parsed.carKey ] ) vehicle.setModel( models[ parsed.carKey ] );
+			if ( garageCarSelect ) garageCarSelect.value = parsed.carKey;
+			if ( models[ parsed.carKey ] ) {
+
+				vehicle.setModel( models[ parsed.carKey ] );
+				applyCarCustomization( vehicle );
+
+			}
 
 		}
 		saveEconomy();
@@ -1625,6 +1881,7 @@ async function init() {
 		applyVehiclePerformance();
 		updateEconomyHud();
 		updateGarageUi();
+		applyCarCustomization( vehicle );
 		updateCampaignUi();
 		return true;
 
@@ -3059,8 +3316,30 @@ async function init() {
 	carSelect?.addEventListener( 'change', () => {
 
 		const selectedKey = carSelect.value;
-		if ( models[ selectedKey ] ) vehicle.setModel( models[ selectedKey ] );
+		if ( garageCarSelect ) garageCarSelect.value = selectedKey;
+		if ( models[ selectedKey ] ) {
+
+			vehicle.setModel( models[ selectedKey ] );
+			applyCarCustomization( vehicle );
+
+		}
 		applyVehiclePerformance();
+
+	} );
+
+	garageCarSelect?.addEventListener( 'change', () => {
+
+		const selectedKey = garageCarSelect.value;
+		if ( carSelect ) carSelect.value = selectedKey;
+		if ( models[ selectedKey ] ) {
+
+			vehicle.setModel( models[ selectedKey ] );
+			applyCarCustomization( vehicle );
+
+		}
+		updateGarageMappingsUi();
+		applyVehiclePerformance();
+		saveGarageMods();
 
 	} );
 
@@ -3099,6 +3378,35 @@ async function init() {
 	garageGripUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'grip' ) );
 	garageAccelUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'accel' ) );
 	garageDriveUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'drive' ) );
+	modeTabGameplayBtn?.addEventListener( 'click', () => setModeTab( 'gameplay' ) );
+	modeTabGarageBtn?.addEventListener( 'click', () => setModeTab( 'garage' ) );
+	modeTabAccountBtn?.addEventListener( 'click', () => setModeTab( 'account' ) );
+	garageSourceToleranceInput?.addEventListener( 'input', () => {
+
+		if ( garageSourceToleranceValue ) garageSourceToleranceValue.textContent = String( Math.round( Number( garageSourceToleranceInput.value ) || 40 ) );
+
+	} );
+	garageAddMappingBtn?.addEventListener( 'click', () => {
+
+		const carKey = getSelectedGarageCarKey();
+		const sourceHex = String( garageSourceColorInput?.value || '#ff0000' );
+		const tolerance = THREE.MathUtils.clamp( Number( garageSourceToleranceInput?.value ) || 40, 8, 180 );
+		const targetColor = getPaintColorById( selectedPaintColorId );
+		if ( ! targetColor || ! garageCosmetics?.unlockedPaints?.[ targetColor.id ] ) {
+
+			setGarageMappingStatus( 'Select an unlocked paint dot first.', true );
+			return;
+
+		}
+		const carData = getGarageCosmeticCar( carKey );
+		carData.mappings.push( { sourceHex, targetColorId: targetColor.id, tolerance } );
+		if ( carData.mappings.length > 48 ) carData.mappings.shift();
+		saveGarageMods();
+		updateGarageMappingsUi();
+		applyCarCustomization( vehicle );
+		setGarageMappingStatus( `Mapped ${ sourceHex } to ${ targetColor.hex }.` );
+
+	} );
 
 	shareTimeBtn?.addEventListener( 'click', () => {
 
@@ -3334,7 +3642,10 @@ async function init() {
 	loadStuntStats();
 	loadGarageMods();
 	loadCampaignState();
+	setModeTab( 'gameplay' );
+	if ( garageCarSelect ) garageCarSelect.value = currentCarKey();
 	updateGarageUi();
+	applyCarCustomization( vehicle );
 	applyVehiclePerformance();
 	updateEconomyHud();
 	updateCampaignUi();
