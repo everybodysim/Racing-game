@@ -376,9 +376,24 @@ async function init() {
 
 	const player1CarKey = isSplitScreen ? pickRandomCarKey() : 'vehicle-truck-yellow';
 	const player2CarKey = isSplitScreen ? pickRandomCarKey() : 'vehicle-truck-red';
+	const airRotationUnlockInitiallyInstalled = (() => {
+
+		try {
+
+			const parsed = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
+			return Array.isArray( parsed ) && parsed.some( ( mod ) => mod?.id === 'air-rotation-unlock' );
+
+		} catch {
+
+			return false;
+
+		}
+
+	})();
 	const vehicle = new Vehicle();
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
+	vehicle.setRotationUnlockEnabled( airRotationUnlockInitiallyInstalled );
 	vehicle.setSpawn( spawn ? spawn.position : [ 3.5, 0.5, 5 ], spawn ? spawn.angle : 0 );
 	vehicle.setPerformance( CAR_STATS[ player1CarKey ].perf );
 
