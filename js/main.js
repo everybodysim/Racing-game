@@ -488,23 +488,115 @@ async function init() {
 	let inputRecordFrame = 0;
 	let bestGhostDuration = 0;
 	let bestGhostCarKey = 'vehicle-truck-yellow';
+	let bestGhostCosmetics = null;
 	let ghostRecordFrame = 0;
 	const _ghostForward = new THREE.Vector3();
 	const _ghostUp = new THREE.Vector3( 0, 1, 0 );
 	const selectedLeaderboardGhosts = new Set();
 	const leaderboardGhostPlayers = new Map();
 
-	function createGhostVisualModel( model, opacity = 0.35 ) {
+	function normalizeGhostCosmeticsPayload( payload ) {
+
+		const sourceMappings = Array.isArray( payload?.mappings ) ? payload.mappings : [];
+		const mappings = [];
+		for ( const entry of sourceMappings.slice( 0, 48 ) ) {
+
+			const sourceHex = typeof entry?.sourceHex === 'string' ? entry.sourceHex.trim() : '';
+			const targetHex = typeof entry?.targetHex === 'string' ? entry.targetHex.trim() : '';
+			if ( ! /^#[0-9a-fA-F]{6}$/.test( sourceHex ) || ! /^#[0-9a-fA-F]{6}$/.test( targetHex ) ) continue;
+			mappings.push( {
+				sourceHex,
+				targetHex,
+				tolerance: THREE.MathUtils.clamp( Number( entry?.tolerance ) || 40, 8, 180 ),
+				finish: entry?.finish === 'shiny' ? 'shiny' : 'matte',
+			} );
+
+		}
+		if ( mappings.length === 0 ) return null;
+		return { mappings };
+
+	}
+
+	function buildGhostCosmeticsSnapshot( carKey ) {
+
+		const carData = getGarageCosmeticCar( carKey );
+		const mappings = Array.isArray( carData?.mappings ) ? carData.mappings : [];
+		const resolved = [];
+		for ( const mapping of mappings.slice( 0, 48 ) ) {
+
+			const sourceHex = typeof mapping?.sourceHex === 'string' ? mapping.sourceHex : '';
+			const targetPaint = getPaintColorById( mapping?.targetColorId );
+			if ( ! /^#[0-9a-fA-F]{6}$/.test( sourceHex ) || ! targetPaint?.hex || ! garageCosmetics?.unlockedPaints?.[ mapping?.targetColorId ] ) continue;
+			resolved.push( {
+				sourceHex,
+				targetHex: targetPaint.hex,
+				tolerance: THREE.MathUtils.clamp( Number( mapping?.tolerance ) || 40, 8, 180 ),
+				finish: targetPaint.finish === 'shiny' ? 'shiny' : 'matte',
+			} );
+
+		}
+		return resolved.length > 0 ? { mappings: resolved } : null;
+
+	}
+
+	function buildResolvedMappingsFromGhostCosmetics( cosmetics ) {
+
+		const normalized = normalizeGhostCosmeticsPayload( cosmetics );
+		if ( ! normalized ) return [];
+		const resolved = [];
+		for ( const mapping of normalized.mappings ) {
+
+			const source = hexToRgbBytes( mapping.sourceHex );
+			const target = hexToRgbBytes( mapping.targetHex );
+			if ( ! source || ! target ) continue;
+			const tolerance = THREE.MathUtils.clamp( Number( mapping.tolerance ) || 40, 8, 180 );
+			resolved.push( {
+				source,
+				target,
+				finish: mapping.finish === 'shiny' ? 'shiny' : 'matte',
+				toleranceSq: tolerance * tolerance,
+			} );
+
+		}
+		return resolved;
+
+	}
+
+	function createGhostVisualModel( model, opacity = 0.35, cosmetics = null ) {
 
 		if ( ! ghostEnabled || ! model ) return null;
 		const cloned = model.clone();
+		const resolvedMappings = buildResolvedMappingsFromGhostCosmetics( cosmetics );
 		cloned.traverse( ( child ) => {
 
-			if ( ! child.isMesh ) return;
-			child.material = child.material.clone();
-			child.material.transparent = true;
-			child.material.opacity = opacity;
-			child.material.depthWrite = false;
+			if ( ! child.isMesh || ! child.material ) return;
+			const incomingMaterials = Array.isArray( child.material ) ? child.material : [ child.material ];
+			const builtMaterials = incomingMaterials.map( ( baseMaterial ) => {
+
+				const material = baseMaterial.clone();
+				if ( resolvedMappings.length > 0 && material.color ) {
+
+					const baseRgb = hexToRgbBytes( `#${ baseMaterial.color.getHexString() }` );
+					const mappedSolid = baseRgb ? pickMappedColor( baseRgb, resolvedMappings ) : null;
+					if ( mappedSolid ) material.color.setRGB( mappedSolid.r / 255, mappedSolid.g / 255, mappedSolid.b / 255 );
+					if ( mappedSolid?.finish === 'shiny' ) applyShinyFinish( material, mappedSolid );
+
+				}
+				if ( resolvedMappings.length > 0 && material.map ) {
+
+					const remapped = recolorTexture( material.map, resolvedMappings );
+					material.map = remapped.texture;
+					if ( remapped.hasShiny ) applyShinyFinish( material );
+
+				}
+				material.transparent = true;
+				material.opacity = opacity;
+				material.depthWrite = false;
+				material.needsUpdate = true;
+				return material;
+
+			} );
+			child.material = Array.isArray( child.material ) ? builtMaterials : builtMaterials[ 0 ];
 			child.castShadow = false;
 			child.receiveShadow = false;
 
@@ -513,14 +605,14 @@ async function init() {
 
 	}
 
-	function createGhostModel( model ) {
+	function createGhostModel( model, cosmetics = null ) {
 
 		if ( ! ghostEnabled ) return;
 		if ( ghostModel ) scene.remove( ghostModel );
 		ghostModel = null;
 		if ( ! model ) return;
 
-		ghostModel = createGhostVisualModel( model, 0.35 );
+		ghostModel = createGhostVisualModel( model, 0.35, cosmetics );
 		if ( ! ghostModel ) return;
 		scene.add( ghostModel );
 
@@ -645,6 +737,7 @@ async function init() {
 			duration,
 			car: payload?.car,
 			bestLapSeconds: payload?.bestLapSeconds,
+			cosmetics: normalizeGhostCosmeticsPayload( payload?.cosmetics ),
 		};
 
 	}
@@ -663,7 +756,8 @@ async function init() {
 		const normalized = extractNormalizedGhostPayload( payload );
 		if ( ! normalized ) return false;
 		const modelKey = normalized.car && models[ normalized.car ] ? normalized.car : 'vehicle-truck-yellow';
-		const model = createGhostVisualModel( models[ modelKey ], 0.27 );
+		const ghostCosmetics = normalized.car === modelKey ? normalized.cosmetics : null;
+		const model = createGhostVisualModel( models[ modelKey ], 0.27, ghostCosmetics );
 		if ( ! model ) return false;
 		removeLeaderboardGhost( playerName );
 		scene.add( model );
@@ -2707,6 +2801,7 @@ async function init() {
 			url: currentTrackUrl,
 			ghost: {
 				car: bestGhostCarKey,
+				cosmetics: bestGhostCosmetics,
 				bestLapSeconds,
 				duration: bestGhostDuration,
 				samples: bestLapGhostSamples,
@@ -2753,6 +2848,7 @@ async function init() {
 		if ( bestLapGhostSamples.length < 2 || ! Number.isFinite( bestGhostDuration ) || bestGhostDuration <= 0 ) return null;
 		return {
 			car: bestGhostCarKey,
+			cosmetics: bestGhostCosmetics,
 			bestLapSeconds: Number.isFinite( bestLapSeconds ) ? bestLapSeconds : undefined,
 			duration: bestGhostDuration,
 			samples: bestLapGhostSamples.slice( 0, MAX_LEADERBOARD_GHOST_SAMPLES ),
@@ -2769,11 +2865,12 @@ async function init() {
 		for ( const sample of normalized.samples ) bestLapGhostSamples.push( sample );
 		if ( bestLapGhostSamples.length < 2 ) return false;
 		bestGhostDuration = normalized.duration;
+		bestGhostCosmetics = normalized.cosmetics;
 		if ( options.applyBestLapSeconds !== false && Number.isFinite( normalized.bestLapSeconds ) ) bestLapSeconds = normalized.bestLapSeconds;
 		if ( normalized.car && models[ normalized.car ] ) {
 
 			bestGhostCarKey = normalized.car;
-			createGhostModel( models[ normalized.car ] );
+			createGhostModel( models[ normalized.car ], bestGhostCosmetics );
 
 		}
 		if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
@@ -3171,6 +3268,7 @@ async function init() {
 					bestLapSeconds,
 					bestGhostDuration: 0,
 					bestGhostCarKey: 'vehicle-truck-yellow',
+					bestGhostCosmetics: null,
 					bestLapGhostSamples: [],
 					bestLapInputFrames: [],
 					latestLapInputFrames: [],
@@ -3184,6 +3282,7 @@ async function init() {
 				bestLapSeconds,
 				bestGhostDuration,
 				bestGhostCarKey,
+				bestGhostCosmetics,
 				bestLapGhostSamples,
 				bestLapInputFrames,
 				latestLapInputFrames,
@@ -3203,6 +3302,7 @@ async function init() {
 			bestLapSeconds = Number.isFinite( parsed.bestLapSeconds ) ? parsed.bestLapSeconds : null;
 			bestGhostDuration = Number.isFinite( parsed.bestGhostDuration ) ? parsed.bestGhostDuration : 0;
 				bestGhostCarKey = typeof parsed.bestGhostCarKey === 'string' ? parsed.bestGhostCarKey : 'vehicle-truck-yellow';
+				bestGhostCosmetics = normalizeGhostCosmeticsPayload( parsed.bestGhostCosmetics );
 					bestLapGhostSamples.length = 0;
 					bestLapInputFrames = [];
 					latestLapInputFrames = [];
@@ -3233,7 +3333,7 @@ async function init() {
 
 			}
 			if ( bestLapGhostSamples.length < 2 ) bestGhostDuration = 0;
-			if ( ghostEnabled && bestLapGhostSamples.length >= 2 && models[ bestGhostCarKey ] ) createGhostModel( models[ bestGhostCarKey ] );
+			if ( ghostEnabled && bestLapGhostSamples.length >= 2 && models[ bestGhostCarKey ] ) createGhostModel( models[ bestGhostCarKey ], bestGhostCosmetics );
 
 		} catch ( e ) {
 
@@ -4395,6 +4495,8 @@ async function init() {
 					for ( const sample of currentLapGhostSamples ) bestLapGhostSamples.push( { ...sample, t: sample.t - t0 } );
 					bestGhostDuration = Math.max( 1e-4, completedLap - t0 );
 					bestGhostCarKey = currentCarKey();
+					bestGhostCosmetics = buildGhostCosmeticsSnapshot( bestGhostCarKey );
+					if ( models[ bestGhostCarKey ] ) createGhostModel( models[ bestGhostCarKey ], bestGhostCosmetics );
 					updateGhostShareButtons();
 
 				}
