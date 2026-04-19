@@ -182,6 +182,7 @@ function sanitizePassword( value ) {
 function sanitizeProfile( value ) {
 	const profile = value && typeof value === 'object' ? value : {};
 	const name = sanitizePlayerName( profile?.playerName );
+	const cosmetics = sanitizeGarageCosmetics( profile?.garage?.cosmetics );
 	return {
 		version: Number.isFinite( Number( profile?.version ) ) ? Number( profile.version ) : 2,
 		playerName: name,
@@ -200,10 +201,36 @@ function sanitizeProfile( value ) {
 				accel: Boolean( profile?.garage?.unlocked?.accel ),
 				drive: Boolean( profile?.garage?.unlocked?.drive ),
 			},
+			cosmetics,
 		},
 		campaign: profile?.campaign && typeof profile.campaign === 'object' ? profile.campaign : null,
 		carKey: typeof profile?.carKey === 'string' ? profile.carKey : '',
 	};
+}
+
+function sanitizeGarageCosmetics( value ) {
+	const source = value && typeof value === 'object' ? value : {};
+	const unlockedPaints = {};
+	if ( source?.unlockedPaints && typeof source.unlockedPaints === 'object' ) {
+		for ( const [ paintId, unlocked ] of Object.entries( source.unlockedPaints ) ) {
+			if ( typeof paintId === 'string' && paintId.length <= 32 && unlocked ) unlockedPaints[ paintId ] = true;
+		}
+	}
+	const cars = {};
+	if ( source?.cars && typeof source.cars === 'object' ) {
+		for ( const [ carKey, entry ] of Object.entries( source.cars ) ) {
+			if ( typeof carKey !== 'string' || carKey.length > 64 ) continue;
+			const mappings = Array.isArray( entry?.mappings ) ? entry.mappings : [];
+			cars[ carKey ] = {
+				mappings: mappings.slice( 0, 48 ).map( ( mapping ) => ( {
+					sourceHex: typeof mapping?.sourceHex === 'string' ? mapping.sourceHex.slice( 0, 7 ) : '#ff0000',
+					targetColorId: typeof mapping?.targetColorId === 'string' ? mapping.targetColorId.slice( 0, 32 ) : '',
+					tolerance: Math.max( 8, Math.min( 180, Math.floor( Number( mapping?.tolerance ) || 40 ) ) ),
+				} ) ),
+			};
+		}
+	}
+	return { unlockedPaints, cars };
 }
 
 function sanitizePlayerName( value ) {
