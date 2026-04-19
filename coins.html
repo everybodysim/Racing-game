@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Coin Leaderboard</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font: 14px/1.45 Inter, system-ui, sans-serif; background: linear-gradient(160deg, #0b1220, #121826); color: #e6edf7; }
+    .wrap { max-width: 880px; margin: 0 auto; padding: 20px 14px 34px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    .sub { margin: 0 0 14px; color: #bfd0eb; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    button, select, .linkbtn { font: inherit; border-radius: 8px; border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.12); color: #fff; padding: 8px 10px; }
+    button { cursor: pointer; }
+    .panel { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left; }
+    th:last-child, td:last-child { text-align: right; }
+    .status { min-height: 18px; margin-top: 10px; color: #9be7bf; }
+    .rank-1 { color: #ffd86b; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Coin Leaderboard</h1>
+    <p class="sub">Top accounts ranked by saved profile coin totals.</p>
+    <div class="toolbar">
+      <label>Show
+        <select id="limitSelect">
+          <option value="10">Top 10</option>
+          <option value="25" selected>Top 25</option>
+          <option value="50">Top 50</option>
+        </select>
+      </label>
+      <button id="refreshBtn" type="button">Refresh</button>
+      <a class="linkbtn" href="index.html">Back to game</a>
+    </div>
+    <div class="panel">
+      <table>
+        <thead>
+          <tr><th>#</th><th>Player</th><th>Coins</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="status" id="status">Loading…</div>
+    </div>
+  </div>
+<script>
+(() => {
+  const ACCOUNT_API_BASE = 'https://racing-account-api.ga1010.workers.dev/api/accounts';
+  const rowsEl = document.getElementById('rows');
+  const statusEl = document.getElementById('status');
+  const limitSelect = document.getElementById('limitSelect');
+  const refreshBtn = document.getElementById('refreshBtn');
+
+  function setStatus(msg, error = false) {
+    statusEl.textContent = msg;
+    statusEl.style.color = error ? '#ff9fa8' : '#9be7bf';
+  }
+
+  function formatCoins(value) {
+    return Number(value || 0).toLocaleString();
+  }
+
+  function renderRows(entries) {
+    rowsEl.innerHTML = '';
+    if (!Array.isArray(entries) || entries.length === 0) {
+      rowsEl.innerHTML = '<tr><td colspan="3">No profiles with coins yet.</td></tr>';
+      return;
+    }
+    entries.forEach((entry, index) => {
+      const tr = document.createElement('tr');
+      const rank = index + 1;
+      const rankClass = rank === 1 ? 'rank-1' : '';
+      tr.innerHTML = `<td class="${rankClass}">${rank}</td><td>${entry.playerName || entry.username || 'Unknown'}</td><td>${formatCoins(entry.coins)}</td>`;
+      rowsEl.appendChild(tr);
+    });
+  }
+
+  async function loadLeaderboard() {
+    const limit = Number(limitSelect.value) || 25;
+    setStatus('Loading…');
+    try {
+      const response = await fetch(`${ACCOUNT_API_BASE}/coins-leaderboard?limit=${encodeURIComponent(String(limit))}`);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.ok === false) {
+        throw new Error(payload?.error || `HTTP ${response.status}`);
+      }
+      const entries = Array.isArray(payload.entries) ? payload.entries : [];
+      renderRows(entries);
+      setStatus(`Loaded ${entries.length} account${entries.length === 1 ? '' : 's'}.`);
+    } catch (err) {
+      renderRows([]);
+      setStatus(`Failed to load coin leaderboard: ${err.message}`, true);
+    }
+  }
+
+  limitSelect.addEventListener('change', loadLeaderboard);
+  refreshBtn.addEventListener('click', loadLeaderboard);
+  loadLeaderboard();
+})();
+</script>
+</body>
+</html>
