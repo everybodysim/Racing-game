@@ -656,21 +656,6 @@
 			const node = document.getElementById( id );
 			if ( node ) quickMenuPanel.appendChild( node );
 		}
-			try {
-				const installedMods = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
-				if ( Array.isArray( installedMods ) ) {
-					for ( const mod of installedMods ) {
-						if ( mod?.id === 'hacks' ) continue;
-						if ( ! mod?.viewerPage ) continue;
-						const modLink = document.createElement( 'a' );
-						modLink.href = mod.viewerPage;
-					modLink.textContent = `Mod: ${ mod.name || mod.id || 'Unknown' }`;
-					quickMenuPanel.appendChild( modLink );
-				}
-			}
-		} catch ( e ) {
-			console.warn( 'Failed to load installed mods menu links', e );
-		}
 		quickMenuBtn?.addEventListener( 'click', () => {
 			const open = quickMenuPanel.classList.toggle( 'open' );
 			quickMenuBtn.setAttribute( 'aria-expanded', String( open ) );

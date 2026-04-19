@@ -49,6 +49,13 @@
       "folder": "mods",
       "entry": "mods/Freecam.js",
       "viewerPage": "index.html"
+    },
+    {
+      "id": "air-rotation-unlock",
+      "name": "Air Rotation Unlock",
+      "folder": "mods",
+      "entry": "mods/AirRotationUnlock.js",
+      "viewerPage": "index.html"
     }
   ]
 }
