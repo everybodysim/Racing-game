@@ -9,6 +9,12 @@ const _newZ = new THREE.Vector3();
 const _mat4 = new THREE.Matrix4();
 const _quat = new THREE.Quaternion();
 const _up = new THREE.Vector3( 0, 1, 0 );
+const _angularVel = new THREE.Vector3();
+const _velocityForward = new THREE.Vector3();
+const _currentUp = new THREE.Vector3();
+const _rightAxis = new THREE.Vector3();
+const _targetUp = new THREE.Vector3();
+const _targetQuat = new THREE.Quaternion();
 
 const SPEED_SCALE = 12.5;
 const LINEAR_DAMP = 0.1;
@@ -62,6 +68,7 @@ export class Vehicle {
 		this.dragMultiplier = 1.0;
 		this.accelMultiplier = 1.0;
 		this.driveMultiplier = 1.0;
+		this.rotationUnlockEnabled = false;
 
 	}
 
@@ -73,6 +80,12 @@ export class Vehicle {
 		this.reverseAccelRate = perf.reverseAccelRate ?? this.reverseAccelRate;
 		this.brakeRate = perf.brakeRate ?? this.brakeRate;
 		this.driveForce = perf.driveForce ?? this.driveForce;
+
+	}
+
+	setRotationUnlockEnabled( enabled ) {
+
+		this.rotationUnlockEnabled = Boolean( enabled );
 
 	}
 
@@ -188,12 +201,20 @@ export class Vehicle {
 
 		this.container.rotateY( this.angularSpeed * dt );
 
-		_tmpVec.set( 0, 1, 0 ).applyQuaternion( this.container.quaternion );
+		if ( this.rotationUnlockEnabled ) {
 
-		if ( _tmpVec.y > 0.5 ) {
+			this.applyPhysicsRotation( dt );
 
-			const targetQuat = this.alignWithY( this.container.quaternion, _up );
-			this.container.quaternion.slerp( targetQuat, 0.2 );
+		} else {
+
+			_tmpVec.set( 0, 1, 0 ).applyQuaternion( this.container.quaternion );
+
+			if ( _tmpVec.y > 0.5 ) {
+
+				const targetQuat = this.alignWithY( this.container.quaternion, _up );
+				this.container.quaternion.slerp( targetQuat, 0.2 );
+
+			}
 
 		}
 
@@ -272,6 +293,33 @@ export class Vehicle {
 
 		this.driftIntensity = Math.abs( this.linearSpeed - this.acceleration ) +
 			( this.bodyNode ? Math.abs( this.bodyNode.rotation.z ) * 2 : 0 );
+
+	}
+
+	applyPhysicsRotation( dt ) {
+
+		if ( ! this.rigidBody?.motionProperties?.angularVelocity ) return;
+		const angvel = this.rigidBody.motionProperties.angularVelocity;
+		_angularVel.set( angvel[ 0 ], angvel[ 1 ], angvel[ 2 ] );
+		const angle = _angularVel.length() * dt;
+		if ( angle <= 1e-5 ) return;
+		_angularVel.normalize();
+		_quat.setFromAxisAngle( _angularVel, angle );
+		this.container.quaternion.premultiply( _quat );
+
+		if ( this.sphereVel.lengthSq() < 0.04 ) return;
+		_velocityForward.copy( this.sphereVel ).normalize();
+		_currentUp.set( 0, 1, 0 ).applyQuaternion( this.container.quaternion ).normalize();
+
+		if ( Math.abs( _velocityForward.dot( _currentUp ) ) > 0.96 ) _currentUp.copy( _up );
+		_rightAxis.crossVectors( _currentUp, _velocityForward );
+		if ( _rightAxis.lengthSq() < 1e-5 ) _rightAxis.crossVectors( _up, _velocityForward );
+		_rightAxis.normalize();
+		_targetUp.crossVectors( _velocityForward, _rightAxis ).normalize();
+
+		_mat4.makeBasis( _rightAxis, _targetUp, _velocityForward );
+		_targetQuat.setFromRotationMatrix( _mat4 );
+		this.container.quaternion.slerp( _targetQuat, THREE.MathUtils.clamp( dt * 4, 0, 1 ) );
 
 	}
 
