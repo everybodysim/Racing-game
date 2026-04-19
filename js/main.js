@@ -1570,11 +1570,13 @@ async function init() {
 			const target = hexToRgbBytes( targetPaint?.hex );
 			if ( ! source || ! target || ! garageCosmetics.unlockedPaints[ mapping?.targetColorId ] ) continue;
 			const tolerance = THREE.MathUtils.clamp( Number( mapping?.tolerance ) || 40, 8, 180 );
+			const softStart = Math.max( 6, tolerance * 0.35 );
 			resolved.push( {
 				source,
 				target,
 				finish: targetPaint.finish || 'matte',
 				toleranceSq: tolerance * tolerance,
+				softStartSq: softStart * softStart,
 			} );
 
 		}
@@ -1582,20 +1584,28 @@ async function init() {
 
 	}
 
+	function colorDistanceSq( a, b ) {
+
+		const dr = a.r - b.r;
+		const dg = a.g - b.g;
+		const db = a.b - b.b;
+		return dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114;
+
+	}
+
 	function pickMappedColor( rgb, resolvedMappings ) {
 
 		let best = null;
-		let bestDistSq = Number.POSITIVE_INFINITY;
+		let bestStrength = 0;
 		for ( const mapping of resolvedMappings ) {
 
-			const dr = rgb.r - mapping.source.r;
-			const dg = rgb.g - mapping.source.g;
-			const db = rgb.b - mapping.source.b;
-			const distSq = dr * dr + dg * dg + db * db;
-			if ( distSq <= mapping.toleranceSq && distSq < bestDistSq ) {
+			const distSq = colorDistanceSq( rgb, mapping.source );
+			if ( distSq > mapping.toleranceSq ) continue;
+			const strength = 1 - THREE.MathUtils.smoothstep( distSq, mapping.softStartSq, mapping.toleranceSq );
+			if ( strength > bestStrength ) {
 
-				best = { ...mapping.target, finish: mapping.finish };
-				bestDistSq = distSq;
+				best = { ...mapping.target, finish: mapping.finish, strength };
+				bestStrength = strength;
 
 			}
 
@@ -1629,31 +1639,74 @@ async function init() {
 
 	function recolorTexture( texture, resolvedMappings ) {
 
-		if ( resolvedMappings.length === 0 || ! texture ) return { texture, hasShiny: false };
+		if ( resolvedMappings.length === 0 || ! texture ) return { texture };
 		const source = getTextureSourcePixels( texture );
-		if ( ! source ) return { texture, hasShiny: false };
+		if ( ! source ) return { texture };
 
 		const canvas = document.createElement( 'canvas' );
 		canvas.width = source.width;
 		canvas.height = source.height;
 		const ctx = canvas.getContext( '2d', { willReadFrequently: true } );
-		if ( ! ctx ) return { texture, hasShiny: false };
+		if ( ! ctx ) return { texture };
 
 		const output = new Uint8ClampedArray( source.data );
-		let hasShiny = false;
+		const widthMinusOne = Math.max( 1, source.width - 1 );
+		const heightMinusOne = Math.max( 1, source.height - 1 );
 		for ( let i = 0; i < output.length; i += 4 ) {
 
+			const pixelIndex = i / 4;
+			const x = pixelIndex % source.width;
+			const y = Math.floor( pixelIndex / source.width );
+			const u = x / widthMinusOne;
+			const v = y / heightMinusOne;
+			const srcR = source.data[ i ];
+			const srcG = source.data[ i + 1 ];
+			const srcB = source.data[ i + 2 ];
 			const mapped = pickMappedColor( {
-				r: output[ i ],
-				g: output[ i + 1 ],
-				b: output[ i + 2 ],
+				r: srcR,
+				g: srcG,
+				b: srcB,
 			}, resolvedMappings );
 			if ( mapped ) {
 
-				output[ i ] = mapped.r;
-				output[ i + 1 ] = mapped.g;
-				output[ i + 2 ] = mapped.b;
-				if ( mapped.finish === 'shiny' ) hasShiny = true;
+				if ( mapped.finish === 'shiny' ) {
+
+					const centeredU = u * 2 - 1;
+					const centeredV = v * 2 - 1;
+					const radial = Math.min( 1, Math.hypot( centeredU, centeredV ) );
+					const fresnel = Math.pow( radial, 1.75 );
+					const cloudBand = Math.sin( ( centeredU * 7.2 ) + ( centeredV * 5.5 ) ) * 0.5 + 0.5;
+					const horizonBand = Math.cos( centeredV * 12.0 ) * 0.5 + 0.5;
+					const sparkle = Math.sin( ( centeredU * 42.0 ) + ( centeredV * 36.0 ) ) * 0.5 + 0.5;
+					const reflection = THREE.MathUtils.clamp(
+						0.42 + fresnel * 0.74 + cloudBand * 0.28 + horizonBand * 0.22 + sparkle * 0.14,
+						0,
+						1
+					);
+					const skyR = THREE.MathUtils.lerp( 150, 245, 1 - v );
+					const skyG = THREE.MathUtils.lerp( 175, 248, 1 - v );
+					const skyB = THREE.MathUtils.lerp( 205, 255, 1 - v );
+					const groundR = THREE.MathUtils.lerp( 28, 78, v );
+					const groundG = THREE.MathUtils.lerp( 30, 82, v );
+					const groundB = THREE.MathUtils.lerp( 38, 95, v );
+					const mirrorR = THREE.MathUtils.lerp( groundR, skyR, reflection );
+					const mirrorG = THREE.MathUtils.lerp( groundG, skyG, reflection );
+					const mirrorB = THREE.MathUtils.lerp( groundB, skyB, reflection );
+					const accent = THREE.MathUtils.clamp( ( mapped.r + mapped.g + mapped.b ) / ( 255 * 3 ), 0.08, 0.92 );
+					const finalR = mirrorR * 0.9 + mapped.r * 0.1 * accent;
+					const finalG = mirrorG * 0.9 + mapped.g * 0.1 * accent;
+					const finalB = mirrorB * 0.9 + mapped.b * 0.1 * accent;
+					output[ i ] = THREE.MathUtils.lerp( srcR, finalR, mapped.strength );
+					output[ i + 1 ] = THREE.MathUtils.lerp( srcG, finalG, mapped.strength );
+					output[ i + 2 ] = THREE.MathUtils.lerp( srcB, finalB, mapped.strength );
+
+				} else {
+
+					output[ i ] = THREE.MathUtils.lerp( srcR, mapped.r, mapped.strength );
+					output[ i + 1 ] = THREE.MathUtils.lerp( srcG, mapped.g, mapped.strength );
+					output[ i + 2 ] = THREE.MathUtils.lerp( srcB, mapped.b, mapped.strength );
+
+				}
 
 			}
 
@@ -1675,7 +1728,7 @@ async function init() {
 		nextTexture.generateMipmaps = texture.generateMipmaps;
 		nextTexture.anisotropy = texture.anisotropy;
 		nextTexture.needsUpdate = true;
-		return { texture: nextTexture, hasShiny };
+		return { texture: nextTexture };
 
 	}
 
@@ -1753,12 +1806,7 @@ async function init() {
 				if ( material.map ) {
 
 					const remapped = recolorTexture( material.map, resolvedMappings );
-						material.map = remapped.texture;
-						if ( remapped.hasShiny ) {
-
-							applyShinyFinish( material );
-
-						}
+					material.map = remapped.texture;
 
 				}
 				material.needsUpdate = true;
