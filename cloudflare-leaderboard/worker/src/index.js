@@ -151,12 +151,33 @@ function sanitizeGhostPayload( payload ) {
 		} );
 	}
 	if ( samples.length < 2 ) return null;
+	const cosmetics = sanitizeGhostCosmetics( payload.cosmetics );
 	return {
 		car,
 		bestLapSeconds: Number.isFinite( Number( payload.bestLapSeconds ) ) ? roundTime( Number( payload.bestLapSeconds ) ) : undefined,
 		duration: roundTime( duration ),
 		samples,
+		cosmetics,
 	};
+}
+
+function sanitizeGhostCosmetics( payload ) {
+	if ( ! payload || typeof payload !== 'object' ) return null;
+	const sourceMappings = Array.isArray( payload.mappings ) ? payload.mappings.slice( 0, 48 ) : [];
+	const mappings = [];
+	for ( const entry of sourceMappings ) {
+		const sourceHex = typeof entry?.sourceHex === 'string' ? entry.sourceHex.trim() : '';
+		const targetHex = typeof entry?.targetHex === 'string' ? entry.targetHex.trim() : '';
+		if ( ! /^#[0-9a-fA-F]{6}$/.test( sourceHex ) || ! /^#[0-9a-fA-F]{6}$/.test( targetHex ) ) continue;
+		const tolerance = Number( entry?.tolerance );
+		mappings.push( {
+			sourceHex: sourceHex.toLowerCase(),
+			targetHex: targetHex.toLowerCase(),
+			tolerance: Number.isFinite( tolerance ) ? Math.max( 8, Math.min( 180, Math.round( tolerance ) ) ) : 40,
+			finish: entry?.finish === 'shiny' ? 'shiny' : 'matte',
+		} );
+	}
+	return mappings.length > 0 ? { mappings } : null;
 }
 
 function withCors( response ) {
