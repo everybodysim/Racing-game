@@ -341,6 +341,11 @@ function rebuildTrack() {
   }
 
   const spawn = computeSpawnPosition(currentCells);
+  const hasValidSpawnPosition = Array.isArray(spawn?.position) && spawn.position.length === 3
+    && spawn.position.every((v) => Number.isFinite(v));
+  const spawnData = hasValidSpawnPosition
+    ? { position: spawn.position, angle: Number.isFinite(spawn?.angle) ? spawn.angle : 0 }
+    : null;
   const bounds = computeTrackBounds(currentCells);
   const groundSize = Math.max(bounds.halfWidth, bounds.halfDepth) * 2 + 20;
   if ( physicsEnabled && world ) {
@@ -356,9 +361,14 @@ function rebuildTrack() {
   vehicle = new Vehicle();
   if ( physicsEnabled && world ) {
     vehicle.physicsWorld = world;
-    vehicle.rigidBody = createSphereBody(world, spawn);
+    vehicle.rigidBody = createSphereBody(world, spawnData?.position || null);
   }
-  vehicle.setSpawn(spawn, 0);
+  vehicle.setSpawn(spawnData?.position || [3.5, 0.5, 5], spawnData?.angle || 0);
+  const [sx, sy, sz] = spawnData?.position || [3.5, 0.5, 5];
+  vehicle.spherePos.set(sx, sy, sz);
+  vehicle.container.position.set(sx, sy - 0.5, sz);
+  vehicle.container.rotation.y = spawnData?.angle || 0;
+  vehicle.prevModelPos.copy(vehicle.container.position);
   scene.add(vehicle.init(models[carSelect.value] || models['vehicle-truck-yellow']));
   updateCarConfig();
   const activeCells = currentCells || TRACK_CELLS;
