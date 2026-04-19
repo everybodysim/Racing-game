@@ -431,11 +431,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				}
 
 			} );
-			scene.add( npc );
+			trackGroup.add( npc );
 
 		}
 
 	}
+
+	return trackGroup;
 
 }
 
