@@ -10,6 +10,7 @@ import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, TRAC
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
+import { DeterministicPlaybackController } from './tas-core.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
@@ -241,6 +242,73 @@ function fnv64Hex( value, start, prime ) {
 
 }
 
+
+function readInstalledRuntimeMods() {
+
+	try {
+
+		const parsed = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
+		return Array.isArray( parsed ) ? parsed : [];
+
+	} catch {
+
+		return [];
+
+	}
+
+}
+
+function normalizeModEntryPath( entryPath ) {
+
+	if ( ! entryPath || typeof entryPath !== 'string' ) return null;
+	if ( entryPath.startsWith( './' ) ) return `../${ entryPath.slice( 2 ) }`;
+	if ( entryPath.startsWith( '/' ) ) return entryPath;
+	return `../${ entryPath }`;
+
+}
+
+async function loadRuntimeMods() {
+
+	const installed = readInstalledRuntimeMods();
+	if ( installed.length === 0 ) return [];
+	const installedIds = new Set( installed.map( ( mod ) => mod?.id ).filter( Boolean ) );
+	if ( installedIds.size === 0 ) return [];
+	try {
+
+		const response = await fetch( './mods/mods.json', { cache: 'no-store' } );
+		if ( ! response.ok ) return [];
+		const parsed = await response.json();
+		const catalog = Array.isArray( parsed?.mods ) ? parsed.mods : [];
+		const runtimes = [];
+		for ( const mod of catalog ) {
+
+			if ( ! installedIds.has( mod?.id ) || ! mod?.entry ) continue;
+			const entryPath = normalizeModEntryPath( mod.entry );
+			if ( ! entryPath ) continue;
+			try {
+
+				const loaded = await import( entryPath );
+				const runtime = loaded?.default || loaded?.TAS_MOD || loaded?.mod || null;
+				if ( runtime && typeof runtime.init === 'function' ) runtimes.push( runtime );
+
+			} catch ( error ) {
+
+				console.warn( `Failed to load mod runtime: ${ mod.id }`, error );
+
+			}
+
+		}
+		return runtimes;
+
+	} catch ( error ) {
+
+		console.warn( 'Failed to bootstrap mod runtimes', error );
+		return [];
+
+	}
+
+}
+
 async function loadModels() {
 
 	const promises = modelNames.map( ( name ) =>
@@ -281,6 +349,7 @@ async function init() {
 
 	registerAll();
 	await loadModels();
+	const runtimeMods = await loadRuntimeMods();
 
 	const mapParam = new URLSearchParams( window.location.search ).get( 'map' );
 	const extrasParam = new URLSearchParams( window.location.search ).get( 'mods' );
@@ -688,6 +757,48 @@ async function init() {
 	const controls2 = isSplitScreen
 		? new Controls( { leftKeys: [ 'ArrowLeft' ], rightKeys: [ 'ArrowRight' ], forwardKeys: [ 'ArrowUp' ], backKeys: [ 'ArrowDown' ], enableGamepad: false, enableTouch: false } )
 		: null;
+
+	const runtimeModContext = {
+		vehicle,
+		world,
+		scene,
+		controls,
+		renderer,
+		camera: cam,
+		playbackController: new DeterministicPlaybackController(),
+		resetPlayerVehicle: () => vehicle.resetToSpawn(),
+	};
+	for ( const runtime of runtimeMods ) {
+
+		try {
+
+			runtime.init( runtimeModContext );
+
+		} catch ( error ) {
+
+			console.warn( `Mod init failed: ${ runtime?.id || 'unknown' }`, error );
+
+		}
+
+	}
+	window.addEventListener( 'beforeunload', () => {
+
+		for ( const runtime of runtimeMods ) {
+
+			if ( typeof runtime?.dispose !== 'function' ) continue;
+			try {
+
+				runtime.dispose();
+
+			} catch ( error ) {
+
+				console.warn( `Mod dispose failed: ${ runtime?.id || 'unknown' }`, error );
+
+			}
+
+		}
+
+	} );
 
 	const particles = new SmokeTrails( scene );
 	const particles2 = isSplitScreen ? new SmokeTrails( scene ) : null;
@@ -4001,7 +4112,23 @@ async function init() {
 			const now = raceClockSeconds;
 
 			const controlsBlocked = modeMenuOpen || freecamState.active;
-			const input = controlsBlocked ? { x: 0, y: 0, z: 0 } : controls.update();
+			const baseInput = controlsBlocked ? { x: 0, y: 0, z: 0 } : controls.update();
+			let input = baseInput;
+			for ( const runtime of runtimeMods ) {
+
+				if ( typeof runtime?.applyFrame !== 'function' ) continue;
+				try {
+
+					const result = runtime.applyFrame( { dt, input, controls, vehicle, world, now } );
+					if ( result?.input ) input = result.input;
+
+				} catch ( error ) {
+
+					console.warn( `Mod applyFrame failed: ${ runtime?.id || 'unknown' }`, error );
+
+				}
+
+			}
 			const input2 = controls2 ? ( modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls2.update() ) : null;
 			recordLapInput( Math.max( 0, now - lapStartSeconds ), input, controls?.keys );
 			if ( hacksActive && hacksState.infiniteCoins ) coins = Math.max( coins, 9999999 );
