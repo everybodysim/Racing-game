@@ -59,41 +59,6 @@
 
     .row { margin-bottom: 8px; }
 
-    /* =========================
-       UNDER CONSTRUCTION OVERLAY
-       ========================= */
-    #overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.85);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 9999;
-    }
-
-    #overlayCard {
-      max-width: 420px;
-      padding: 20px;
-      border-radius: 12px;
-      border: 1px solid rgba(255,255,255,0.2);
-      background: rgba(255,255,255,0.06);
-      text-align: center;
-    }
-
-    #overlayCard h1 {
-      margin-top: 0;
-      font-size: 18px;
-    }
-
-    #overlayCard button {
-      margin-top: 12px;
-      background: rgba(255,255,255,0.1);
-    }
-
-    #overlayCard button:hover {
-      background: rgba(255,255,255,0.2);
-    }
   </style>
 
   <script type="importmap">
@@ -109,20 +74,8 @@
 
 <body>
 
-  <!-- =========================
-       UNDER CONSTRUCTION UI
-       ========================= -->
-  <div id="overlay">
-    <div id="overlayCard">
-      <h1>⚠️ TAS Under Construction</h1>
-      <p>The TAS system is currently being rebuilt and may be unstable.</p>
-      <p>You can still try it anyway (experimental).</p>
-      <button id="tryAnywayBtn">Try Anyway</button>
-    </div>
-  </div>
-
   <div id="root">
-    <div id="view"><div id="lap">Lap 1/2 • 00:00.000</div></div>
+    <div id="view"><div id="lap">Lap 1 • 00:00.000 • Last --:--.--- • Best --:--.---</div></div>
 
     <aside id="side">
       <h2>TAS</h2>
@@ -159,12 +112,10 @@
       <button id="run-btn">Run TAS</button>
       <button id="export-btn">Export Ghost Code</button>
 
-      <input id="import-code" placeholder="Paste ghost code" />
-      <button id="import-btn">Import Ghost Code</button>
-
-      <label>Inputs (x,z,frames per line)</label>
-      <textarea id="inputs">0,1,30
-0,1,30</textarea>
+      <label>Inputs (Arrow keys + frames, e.g. ArrowUp+ArrowLeft,30)</label>
+      <textarea id="inputs">ArrowUp,120
+ArrowUp+ArrowLeft,30
+ArrowUp,120</textarea>
 
       <label>Brute force: number of inputs to touch</label>
       <input id="bf-count" type="number" min="1" value="30" />
@@ -178,18 +129,7 @@
     </aside>
   </div>
 
-  <!-- Your real TAS logic still loads -->
   <script type="module" src="js/tas-viewer.js"></script>
-
-  <!-- Overlay logic -->
-  <script>
-    const overlay = document.getElementById('overlay');
-    const btn = document.getElementById('tryAnywayBtn');
-
-    btn.onclick = () => {
-      overlay.style.display = 'none';
-    };
-  </script>
 
 </body>
 </html>
