@@ -11,6 +11,7 @@ import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
+import firebaseConfig from './firebase-config.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
@@ -29,6 +30,8 @@ bloomPass.threshold = 0.5;
 renderer.setEffects( [ bloomPass ] );
 
 document.body.appendChild( renderer.domElement );
+
+updateMissingMultiplayerConfigNotice();
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color( 0xadb2ba );
@@ -124,6 +127,34 @@ const CAMPAIGN_STAGE_COUNT = CAMPAIGN_STAGES.length;
 const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
 const INTENSITY_TYPES = new Set( [ 'low', 'medium', 'high' ] );
 const WIND_TYPES = new Set( [ 'none', 'breezy', 'gusty' ] );
+
+function hasFirebaseMultiplayerConfig() {
+
+	if ( ! firebaseConfig || typeof firebaseConfig !== 'object' ) return false;
+	const requiredKeys = [ 'apiKey', 'authDomain', 'databaseURL', 'projectId', 'storageBucket', 'messagingSenderId', 'appId' ];
+	return requiredKeys.every( ( key ) => {
+
+		const value = firebaseConfig[ key ];
+		if ( typeof value !== 'string' ) return false;
+		const trimmed = value.trim();
+		if ( ! trimmed ) return false;
+		if ( trimmed.startsWith( 'PASTE_' ) ) return false;
+		if ( trimmed.startsWith( 'YOUR_' ) ) return false;
+		if ( trimmed.startsWith( 'REPLACE_' ) ) return false;
+		return true;
+
+	} );
+
+}
+
+function updateMissingMultiplayerConfigNotice() {
+
+	const statusEl = document.getElementById( 'mp-status' );
+	if ( ! statusEl ) return;
+	if ( hasFirebaseMultiplayerConfig() ) return;
+	statusEl.textContent = 'Multiplayer not set up yet. Ask host to add Firebase keys in js/firebase-config.js.';
+
+}
 
 function normalizeWeatherPreset( preset ) {
 
