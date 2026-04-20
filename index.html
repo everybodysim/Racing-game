@@ -206,6 +206,25 @@
 			color: #ffdca8;
 			font: 700 11px/1.2 sans-serif;
 		}
+		#garage-shiny-tuning {
+			margin-top: 8px;
+			padding: 8px;
+			border: 1px solid rgba(255,255,255,0.14);
+			border-radius: 8px;
+			background: rgba(20, 28, 42, 0.35);
+		}
+		#garage-shiny-tuning h5 {
+			margin: 0 0 8px;
+			font: 700 11px/1.2 sans-serif;
+			color: #ffdfaf;
+		}
+		#garage-shiny-tuning .garage-row {
+			grid-template-columns: 120px 1fr 46px;
+			margin-bottom: 6px;
+		}
+		#garage-shiny-tuning .garage-row:last-child { margin-bottom: 0; }
+		#garage-shiny-tuning .garage-row label { font-size: 11px; }
+		#garage-shiny-tuning .garage-row span { font: 600 11px/1 sans-serif; text-align: right; color: #fff2cf; }
 		.garage-dot {
 			aspect-ratio: 1;
 			border-radius: 999px;
@@ -667,6 +686,18 @@
 			<div id="garage-color-grid"></div>
 			<div id="garage-shiny-help">Premium reflective paints (1000 coins each)</div>
 			<div id="garage-shiny-grid"></div>
+			<div id="garage-shiny-tuning">
+				<h5>Premium shine tuning</h5>
+				<div class="garage-row"><label for="garage-shiny-metalness">Metallic</label><input id="garage-shiny-metalness" type="range" min="0" max="1" step="0.01" value="0.9"><span id="garage-shiny-metalness-value">0.90</span></div>
+				<div class="garage-row"><label for="garage-shiny-roughness">Roughness</label><input id="garage-shiny-roughness" type="range" min="0" max="1" step="0.01" value="0.04"><span id="garage-shiny-roughness-value">0.04</span></div>
+				<div class="garage-row"><label for="garage-shiny-env">Reflection</label><input id="garage-shiny-env" type="range" min="0" max="8" step="0.1" value="4"><span id="garage-shiny-env-value">4.0</span></div>
+				<div class="garage-row"><label for="garage-shiny-clearcoat">Clearcoat</label><input id="garage-shiny-clearcoat" type="range" min="0" max="1" step="0.01" value="1"><span id="garage-shiny-clearcoat-value">1.00</span></div>
+				<div class="garage-row"><label for="garage-shiny-clearcoat-roughness">Clearcoat rough</label><input id="garage-shiny-clearcoat-roughness" type="range" min="0" max="1" step="0.01" value="0.05"><span id="garage-shiny-clearcoat-roughness-value">0.05</span></div>
+				<div class="garage-row"><label for="garage-shiny-specular">Specular</label><input id="garage-shiny-specular" type="range" min="0" max="2" step="0.01" value="1"><span id="garage-shiny-specular-value">1.00</span></div>
+				<div class="garage-row"><label for="garage-shiny-phong">Shininess</label><input id="garage-shiny-phong" type="range" min="0" max="300" step="1" value="220"><span id="garage-shiny-phong-value">220</span></div>
+				<div class="garage-row"><label for="garage-shiny-brightness">Brightness</label><input id="garage-shiny-brightness" type="range" min="0.5" max="2" step="0.01" value="1.45"><span id="garage-shiny-brightness-value">1.45</span></div>
+				<div class="garage-row"><label for="garage-shiny-emissive">Glow</label><input id="garage-shiny-emissive" type="range" min="0" max="1" step="0.01" value="0.22"><span id="garage-shiny-emissive-value">0.22</span></div>
+			</div>
 			<div id="garage-mapping-controls">
 				<label for="garage-source-color">Source color (car RGB)</label>
 				<input id="garage-source-color" type="color" value="#ff0000">
