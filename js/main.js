@@ -11,6 +11,7 @@ import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
+import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
@@ -29,6 +30,8 @@ bloomPass.threshold = 0.5;
 renderer.setEffects( [ bloomPass ] );
 
 document.body.appendChild( renderer.domElement );
+
+initMultiplayerPanel();
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color( 0xadb2ba );
@@ -124,6 +127,340 @@ const CAMPAIGN_STAGE_COUNT = CAMPAIGN_STAGES.length;
 const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
 const INTENSITY_TYPES = new Set( [ 'low', 'medium', 'high' ] );
 const WIND_TYPES = new Set( [ 'none', 'breezy', 'gusty' ] );
+
+function hasFirebaseMultiplayerConfig() {
+
+	return Boolean( readFirebaseConfig() );
+
+}
+
+function updateMultiplayerStatus( text ) {
+
+	const statusEl = document.getElementById( 'mp-status' );
+	if ( ! statusEl ) return;
+	statusEl.textContent = text || '';
+
+}
+
+const multiplayerSessionState = {
+	role: 'none',
+	roomCode: '',
+	clientId: ( globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `p-${ Math.random().toString( 36 ).slice( 2, 10 ) }` ),
+};
+
+function setMultiplayerLeaderboardVisible( visible ) {
+
+	const container = document.getElementById( 'mp-lb' );
+	if ( ! container ) return;
+	container.style.display = visible ? 'block' : 'none';
+
+}
+
+function renderMultiplayerRoomLeaderboard( lapTimes ) {
+
+	const listEl = document.getElementById( 'mp-lb-list' );
+	if ( ! listEl ) return;
+	const rows = lapTimes && typeof lapTimes === 'object' ? Object.values( lapTimes ) : [];
+	rows.sort( ( a, b ) => ( Number( a?.time ) || Infinity ) - ( Number( b?.time ) || Infinity ) );
+	listEl.innerHTML = '';
+	for ( const row of rows.slice( 0, 8 ) ) {
+
+		const li = document.createElement( 'li' );
+		const name = typeof row?.name === 'string' && row.name.trim() ? row.name.trim() : 'Player';
+		const time = Number( row?.time );
+		li.textContent = `${ name } — ${ Number.isFinite( time ) ? formatLapTime( time ) : '--:--.---' }`;
+		listEl.appendChild( li );
+
+	}
+
+}
+
+function getLocalMultiplayerDisplayName() {
+
+	const storedName = sanitizePlayerName( localStorage.getItem( PLAYER_NAME_KEY ) || '' );
+	return storedName || `Player ${ multiplayerSessionState.clientId.slice( 0, 4 ).toUpperCase() }`;
+
+}
+
+function normalizeMultiplayerCarKey( value ) {
+
+	const key = typeof value === 'string' ? value.trim() : '';
+	if ( CAR_STATS[ key ] && models[ key ] ) return key;
+	const lower = key.toLowerCase();
+	const fallbackByName = {
+		yellow: 'vehicle-truck-yellow',
+		green: 'vehicle-truck-green',
+		purple: 'vehicle-truck-purple',
+		red: 'vehicle-truck-red',
+	};
+	return fallbackByName[ lower ] || 'vehicle-truck-yellow';
+
+}
+
+async function maybeSubmitOnlinePersonalBest( lapTimes ) {
+
+	if ( ! lapTimes || typeof lapTimes !== 'object' ) return;
+	const localName = sanitizePlayerName( playerNameInput?.value || localStorage.getItem( PLAYER_NAME_KEY ) || '' );
+	if ( ! localName ) return;
+	const matchingRows = Object.values( lapTimes ).filter( ( row ) => sanitizePlayerName( row?.name ) === localName );
+	if ( matchingRows.length === 0 ) return;
+	const bestOnlineTime = Math.min( ...matchingRows.map( ( row ) => Number( row?.time ) ).filter( Number.isFinite ) );
+	if ( ! Number.isFinite( bestOnlineTime ) ) return;
+	if ( Number.isFinite( bestLapSeconds ) && bestOnlineTime >= bestLapSeconds - 1e-6 ) return;
+	if ( Number.isFinite( lastSyncedOnlineBestLapSeconds ) && bestOnlineTime >= lastSyncedOnlineBestLapSeconds - 1e-6 ) return;
+	bestLapSeconds = bestOnlineTime;
+	shareImageDataUrl = createShareSnapshot( bestLapSeconds );
+	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
+	updateLapHud();
+	saveLapStats();
+	if ( ! accountSession?.token ) {
+
+		showTopMessage( 'Log in to submit your online PB to the global leaderboard.', true, 2600 );
+		setModeMenuOpen( true );
+		setModeTab( 'account' );
+
+	}
+	await submitLeaderboardTime( bestOnlineTime, localName );
+	lastSyncedOnlineBestLapSeconds = bestOnlineTime;
+
+}
+
+async function publishMultiplayerBestLap( bestLap ) {
+
+	if ( ! Number.isFinite( bestLap ) ) return;
+	const roomCode = multiplayerSessionState.roomCode;
+	if ( ! roomCode ) return;
+	const displayName = getLocalMultiplayerDisplayName();
+	try {
+
+		await firebaseRoomsRequest( roomCode, 'PUT', {
+			name: displayName,
+			time: Number( bestLap ),
+			updatedAt: Date.now(),
+		}, `lapTimes/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
+
+	} catch ( error ) {
+
+		console.warn( 'Failed to publish multiplayer best lap', error );
+
+	}
+
+}
+
+function getCurrentMapSignature() {
+
+	const params = new URLSearchParams( window.location.search );
+	return `${ params.get( 'map' ) || 'default' }|${ params.get( 'mods' ) || 'none' }`;
+
+}
+
+function getFirebaseRoomsBaseUrl() {
+
+	const config = readFirebaseConfig();
+	if ( ! config?.databaseURL ) return '';
+	return `${ config.databaseURL.replace( /\/+$/, '' ) }/racing-rooms`;
+
+}
+
+async function firebaseRoomsRequest( roomCode, method = 'GET', payload = undefined, subPath = '' ) {
+
+	const baseUrl = getFirebaseRoomsBaseUrl();
+	if ( ! baseUrl ) throw new Error( 'missing-db-url' );
+	const safeCode = String( roomCode || '' ).trim().toUpperCase();
+	const normalizedSubPath = subPath ? `/${ subPath.replace( /^\/+/, '' ) }` : '';
+	const url = `${ baseUrl }/${ encodeURIComponent( safeCode ) }${ normalizedSubPath }.json`;
+	const response = await fetch( url, {
+		method,
+		headers: { 'Content-Type': 'application/json' },
+		body: payload === undefined ? undefined : JSON.stringify( payload ),
+	} );
+	if ( ! response.ok ) {
+
+		let detail = '';
+		try {
+
+			detail = await response.text();
+
+		} catch {
+
+			detail = '';
+
+		}
+		throw new Error( `room-http-${ response.status }${ detail ? `:${ detail }` : '' }` );
+
+	}
+	return response.json();
+
+}
+
+function isFirebasePermissionError( error ) {
+
+	const msg = String( error?.message || '' ).toLowerCase();
+	return msg.includes( 'room-http-401' ) || msg.includes( 'room-http-403' ) || msg.includes( 'permission denied' );
+
+}
+
+function initMultiplayerPanel() {
+
+	const hostBtn = document.getElementById( 'mp-host-btn' );
+	const joinBtn = document.getElementById( 'mp-join-btn' );
+	const copyBtn = document.getElementById( 'mp-copy-btn' );
+	const codeInput = document.getElementById( 'mp-code-input' );
+	if ( ! hostBtn || ! joinBtn || ! copyBtn || ! codeInput ) return;
+
+	const configReady = hasFirebaseMultiplayerConfig();
+	if ( ! configReady ) {
+
+		hostBtn.disabled = true;
+		joinBtn.disabled = true;
+		copyBtn.disabled = true;
+		updateMultiplayerStatus( 'Multiplayer not set up yet. Ask host to add Firebase keys in js/firebase-config.js.' );
+		setMultiplayerLeaderboardVisible( false );
+		return;
+
+	}
+
+	hostBtn.addEventListener( 'click', async () => {
+
+		const code = createHostCode();
+		codeInput.value = code;
+		updateMultiplayerStatus( `Creating room ${ code }...` );
+		hostBtn.disabled = true;
+		joinBtn.disabled = true;
+		copyBtn.disabled = true;
+		const now = Date.now();
+		const roomPayload = {
+			code,
+			mapSignature: getCurrentMapSignature(),
+			createdAt: now,
+			updatedAt: now,
+			status: 'hosting',
+		};
+		try {
+
+			await firebaseRoomsRequest( code, 'PUT', roomPayload );
+			const verify = await firebaseRoomsRequest( code, 'GET' );
+			if ( ! verify || verify.code !== code ) {
+
+				codeInput.value = '';
+				updateMultiplayerStatus( 'Room was not saved. Check Firebase databaseURL and RTDB rules for /racing-rooms.' );
+				return;
+
+			}
+			updateMultiplayerStatus( `Hosting room ${ code }. Share this code with your friend.` );
+			multiplayerSessionState.role = 'host';
+			multiplayerSessionState.roomCode = code;
+			setMultiplayerLeaderboardVisible( true );
+
+		} catch ( error ) {
+
+			console.warn( 'Failed to create multiplayer room', error );
+			codeInput.value = '';
+			if ( isFirebasePermissionError( error ) ) {
+
+				updateMultiplayerStatus( 'Firebase denied write access. Publish RTDB rules for /racing-rooms first.' );
+			} else {
+
+				updateMultiplayerStatus( 'Failed to create room. Check Firebase Realtime Database rules and databaseURL.' );
+
+			}
+			multiplayerSessionState.role = 'none';
+			multiplayerSessionState.roomCode = '';
+			setMultiplayerLeaderboardVisible( false );
+		} finally {
+
+			hostBtn.disabled = false;
+			joinBtn.disabled = false;
+			copyBtn.disabled = false;
+
+		}
+
+	} );
+
+	joinBtn.addEventListener( 'click', async () => {
+
+		const code = codeInput.value.trim().toUpperCase();
+		if ( ! /^[A-Z0-9]{6}$/.test( code ) ) {
+
+			updateMultiplayerStatus( 'Enter a valid 6-character room code first.' );
+			return;
+
+		}
+
+		updateMultiplayerStatus( `Trying to join room ${ code }...` );
+		try {
+
+			const room = await firebaseRoomsRequest( code, 'GET' );
+			if ( ! room || typeof room !== 'object' ) {
+
+				updateMultiplayerStatus( `Room ${ code } not found. Ask host to click Host first.` );
+				return;
+
+			}
+
+			const joinMap = getCurrentMapSignature();
+			if ( ! canJoinMap( room.mapSignature, joinMap ) ) {
+
+				updateMultiplayerStatus( 'Join failed: both players must be on the same map/mods.' );
+				return;
+
+			}
+
+			await firebaseRoomsRequest( code, 'PATCH', {
+				updatedAt: Date.now(),
+				lastJoinAt: Date.now(),
+				status: 'joined',
+			} );
+			updateMultiplayerStatus( `Joined room ${ code }.` );
+			multiplayerSessionState.role = 'join';
+			multiplayerSessionState.roomCode = code;
+			setMultiplayerLeaderboardVisible( true );
+
+		} catch ( error ) {
+
+			console.warn( 'Failed to join multiplayer room', error );
+			if ( isFirebasePermissionError( error ) ) {
+
+				updateMultiplayerStatus( 'Firebase denied read access. Publish RTDB rules for /racing-rooms first.' );
+				multiplayerSessionState.role = 'none';
+				multiplayerSessionState.roomCode = '';
+				setMultiplayerLeaderboardVisible( false );
+				return;
+
+			}
+			updateMultiplayerStatus( 'Join failed. Verify databaseURL/rules and that host room code is active.' );
+			multiplayerSessionState.role = 'none';
+			multiplayerSessionState.roomCode = '';
+			setMultiplayerLeaderboardVisible( false );
+
+		}
+
+	} );
+
+	copyBtn.addEventListener( 'click', async () => {
+
+		const code = codeInput.value.trim().toUpperCase();
+		if ( ! code ) {
+
+			updateMultiplayerStatus( 'Generate or enter a room code before copying.' );
+			return;
+
+		}
+
+		try {
+
+			await navigator.clipboard.writeText( code );
+			updateMultiplayerStatus( `Copied code ${ code } to clipboard.` );
+
+		} catch {
+
+			updateMultiplayerStatus( `Copy failed. Room code: ${ code }` );
+
+		}
+
+	} );
+
+}
 
 function normalizeWeatherPreset( preset ) {
 
@@ -479,6 +816,189 @@ async function init() {
 		scene.add( vehicleGroup2 );
 
 	}
+	const remotePlayerVisuals = new Map();
+	const REMOTE_PLAYER_STALE_MS = 4000;
+	const REMOTE_SYNC_MS = 220;
+
+	function createRemoteNameTag( displayName ) {
+
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = 256;
+		canvas.height = 64;
+		const ctx = canvas.getContext( '2d' );
+		if ( ! ctx ) return null;
+		ctx.clearRect( 0, 0, canvas.width, canvas.height );
+		ctx.fillStyle = 'rgba(0, 0, 0, 0.62)';
+		ctx.fillRect( 12, 8, 232, 48 );
+		ctx.fillStyle = '#ffffff';
+		ctx.font = '700 22px sans-serif';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText( ( displayName || 'Player' ).slice( 0, 20 ), 128, 32 );
+		const texture = new THREE.CanvasTexture( canvas );
+		texture.needsUpdate = true;
+		const material = new THREE.SpriteMaterial( { map: texture, transparent: true, depthWrite: false } );
+		const sprite = new THREE.Sprite( material );
+		sprite.scale.set( 2.4, 0.6, 1 );
+		sprite.position.set( 0, 1.18, 0 );
+		return sprite;
+
+	}
+
+	function ensureRemotePlayerVisual( playerId, carKey ) {
+
+		const modelKey = normalizeMultiplayerCarKey( carKey );
+		const existing = remotePlayerVisuals.get( playerId );
+		if ( existing && existing.carKey === modelKey ) return existing;
+		if ( existing ) removeRemotePlayerVisual( playerId );
+		const mesh = createGhostVisualModel( models[ modelKey ], 0.42, null ) || new THREE.Mesh(
+			new THREE.BoxGeometry( 0.95, 0.5, 1.7 ),
+			new THREE.MeshStandardMaterial( { color: 0x53d4ff, transparent: true, opacity: 0.38, depthWrite: false } ),
+		);
+		mesh.traverse?.( ( obj ) => {
+
+			if ( ! obj?.isMesh ) return;
+			if ( Array.isArray( obj.material ) ) {
+
+				for ( const mat of obj.material ) {
+
+					if ( ! mat ) continue;
+					mat.transparent = false;
+					mat.opacity = 1.0;
+					mat.depthWrite = true;
+
+				}
+
+			} else if ( obj.material ) {
+
+				obj.material.transparent = false;
+				obj.material.opacity = 1.0;
+				obj.material.depthWrite = true;
+
+			}
+			obj.castShadow = true;
+			obj.receiveShadow = true;
+
+		} );
+		scene.add( mesh );
+		const state = { mesh, carKey: modelKey, displayName: 'Player', nameTag: null, targetPos: mesh.position.clone(), targetRotY: mesh.rotation.y };
+		remotePlayerVisuals.set( playerId, state );
+		return state;
+
+	}
+
+	function ensureRemoteNameTag( state, displayName ) {
+
+		const safeName = sanitizePlayerName( displayName ) || 'Player';
+		if ( state.displayName === safeName && state.nameTag ) return;
+		if ( state.nameTag ) {
+
+			state.mesh.remove( state.nameTag );
+			state.nameTag.material?.map?.dispose?.();
+			state.nameTag.material?.dispose?.();
+
+		}
+		state.displayName = safeName;
+		state.nameTag = createRemoteNameTag( safeName );
+		if ( state.nameTag ) state.mesh.add( state.nameTag );
+
+	}
+
+	function removeRemotePlayerVisual( playerId ) {
+
+		const state = remotePlayerVisuals.get( playerId );
+		if ( ! state ) return;
+		const mesh = state.mesh;
+		if ( state.nameTag ) {
+
+			mesh.remove( state.nameTag );
+			state.nameTag.material?.map?.dispose?.();
+			state.nameTag.material?.dispose?.();
+
+		}
+		scene.remove( mesh );
+		mesh.traverse?.( ( obj ) => {
+
+			if ( obj?.isMesh ) {
+
+				obj.geometry?.dispose?.();
+				if ( Array.isArray( obj.material ) ) obj.material.forEach( ( mat ) => mat?.dispose?.() );
+				else obj.material?.dispose?.();
+
+			}
+
+		} );
+		remotePlayerVisuals.delete( playerId );
+
+	}
+
+	function updateRemotePlayerVisualsFrame( dt ) {
+
+		const alpha = THREE.MathUtils.clamp( dt * 10, 0, 1 );
+		for ( const state of remotePlayerVisuals.values() ) {
+
+			state.mesh.position.lerp( state.targetPos, alpha );
+			state.mesh.rotation.y = THREE.MathUtils.lerp( state.mesh.rotation.y, state.targetRotY, alpha );
+
+		}
+
+	}
+
+	async function syncMultiplayerTransforms() {
+
+		const roomCode = multiplayerSessionState.roomCode;
+		if ( ! roomCode ) return;
+		const now = Date.now();
+		const mapSignature = getCurrentMapSignature();
+			const localPayload = {
+			x: Number( vehicle.container.position.x.toFixed( 3 ) ),
+			y: Number( vehicle.container.position.y.toFixed( 3 ) ),
+			z: Number( vehicle.container.position.z.toFixed( 3 ) ),
+			ry: Number( vehicle.container.rotation.y.toFixed( 4 ) ),
+			carKey: normalizeMultiplayerCarKey( currentCarKey() ),
+			name: getLocalMultiplayerDisplayName(),
+			mapSignature,
+			updatedAt: now,
+		};
+
+		try {
+
+				await firebaseRoomsRequest( roomCode, 'PUT', localPayload, `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
+					const room = await firebaseRoomsRequest( roomCode, 'GET' );
+					const players = room?.players && typeof room.players === 'object' ? room.players : {};
+					renderMultiplayerRoomLeaderboard( room?.lapTimes );
+					maybeSubmitOnlinePersonalBest( room?.lapTimes );
+					const seen = new Set();
+			for ( const [ playerId, playerState ] of Object.entries( players ) ) {
+
+				if ( playerId === multiplayerSessionState.clientId ) continue;
+				if ( ! canJoinMap( playerState?.mapSignature, mapSignature ) ) continue;
+				const updatedAt = Number( playerState?.updatedAt ) || 0;
+				if ( now - updatedAt > REMOTE_PLAYER_STALE_MS ) continue;
+					const visualState = ensureRemotePlayerVisual( playerId, playerState?.carKey );
+					ensureRemoteNameTag( visualState, playerState?.name || room?.lapTimes?.[ playerId ]?.name || 'Player' );
+					visualState.targetPos.set( Number( playerState?.x ) || 0, ( Number( playerState?.y ) || 0 ) - 0.1, Number( playerState?.z ) || 0 );
+					visualState.targetRotY = Math.PI - ( Number( playerState?.ry ) || 0 );
+					seen.add( playerId );
+
+			}
+
+			for ( const existingId of [ ...remotePlayerVisuals.keys() ] ) {
+
+				if ( seen.has( existingId ) ) continue;
+				removeRemotePlayerVisual( existingId );
+
+			}
+
+		} catch ( error ) {
+
+			console.warn( 'Multiplayer transform sync failed', error );
+
+		}
+
+	}
+
+	setInterval( syncMultiplayerTransforms, REMOTE_SYNC_MS );
 	let ghostModel = null;
 	const bestLapGhostSamples = [];
 	let currentLapGhostSamples = [];
@@ -2374,6 +2894,7 @@ async function init() {
 	let lapSeconds = 0;
 	let lastLapSeconds = null;
 	let bestLapSeconds = null;
+	let lastSyncedOnlineBestLapSeconds = null;
 	let hasPrevFinishSample = false;
 	let lastLocalX = 0;
 	let lastLocalZ = 0;
@@ -4246,6 +4767,7 @@ async function init() {
 
 			vehicle.update( dt, input );
 			if ( vehicle2 && input2 ) vehicle2.update( dt, input2 );
+			updateRemotePlayerVisualsFrame( dt );
 			if ( hacksActive ) {
 
 				if ( vehicle?.rigidBody?.motionProperties ) vehicle.rigidBody.motionProperties.gravityFactor = hacksState.gravity;
@@ -4486,6 +5008,7 @@ async function init() {
 					const isNewBest = bestLapSeconds === null || completedLap < bestLapSeconds;
 					lastLapSeconds = completedLap;
 					bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
+					if ( isNewBest ) publishMultiplayerBestLap( bestLapSeconds );
 					shareImageDataUrl = createShareSnapshot( bestLapSeconds );
 					if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 				if ( isNewBest && currentLapGhostSamples.length > 1 ) {
