@@ -501,6 +501,89 @@
 			border-radius: 7px;
 		}
 		#quick-menu-panel.open { display: flex; }
+		#tm-main-menu {
+			position: fixed;
+			inset: 0;
+			z-index: 35;
+			display: none;
+			flex-direction: column;
+			justify-content: space-between;
+			background:
+				radial-gradient(circle at 15% 30%, rgba(96, 238, 173, 0.35), rgba(0, 0, 0, 0) 42%),
+				radial-gradient(circle at 75% 25%, rgba(97, 214, 255, 0.35), rgba(0, 0, 0, 0) 40%),
+				linear-gradient(180deg, #0f3a56 0%, #0d7c76 50%, #1f994f 100%);
+			color: #fff;
+			padding: 22px;
+			box-sizing: border-box;
+			font-family: "Segoe UI", system-ui, sans-serif;
+		}
+		#tm-main-menu.visible { display: flex; }
+		.tm-main-menu-top {
+			display: flex;
+			gap: 18px;
+			align-items: center;
+			font: 700 26px/1 "Segoe UI", sans-serif;
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+			text-shadow: 0 2px 8px rgba(0,0,0,0.4);
+		}
+		.tm-main-menu-center {
+			max-width: 780px;
+			width: min(92vw, 780px);
+			display: flex;
+			flex-direction: column;
+			gap: 14px;
+		}
+		.tm-main-actions {
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			flex-wrap: wrap;
+		}
+		.tm-main-actions button {
+			border: 1px solid rgba(255,255,255,0.26);
+			background: rgba(15, 26, 40, 0.55);
+			color: #fff;
+			border-radius: 12px;
+			padding: 12px 16px;
+			cursor: pointer;
+			font: 700 15px/1.2 "Segoe UI", sans-serif;
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+		}
+		.tm-main-actions button:hover { background: rgba(255,255,255,0.18); }
+		.tm-main-actions #tm-open-mode-menu { margin-left: auto; }
+		#tm-main-menu-bottom-bar {
+			display: flex;
+			gap: 8px;
+			flex-wrap: wrap;
+			align-items: center;
+			background: rgba(0,0,0,0.45);
+			border: 1px solid rgba(255,255,255,0.2);
+			border-radius: 12px;
+			padding: 10px;
+		}
+		#tm-main-menu-bottom-bar a, #tm-main-menu-bottom-bar button {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			border-radius: 8px;
+			padding: 8px 11px;
+			border: 1px solid rgba(255,255,255,0.2);
+			background: rgba(255,255,255,0.1);
+			color: #fff;
+			text-decoration: none;
+			font: 600 12px/1.1 sans-serif;
+		}
+		#tm-main-menu-bottom-bar button { cursor: pointer; }
+		#tm-main-menu-bottom-bar a:hover, #tm-main-menu-bottom-bar button:hover { background: rgba(255,255,255,0.2); }
+		body.tm-menu-open #quick-menu-btn,
+		body.tm-menu-open #quick-menu-panel {
+			display: none !important;
+		}
+		@media (max-width: 760px) {
+			.tm-main-actions #tm-open-mode-menu { margin-left: 0; }
+		}
 
 		
 		#hacks-panel {
@@ -578,6 +661,24 @@
 </head>
 <body>
 	<div id="top-message" aria-live="polite"></div>
+	<div id="tm-main-menu" aria-hidden="true">
+		<div class="tm-main-menu-top">
+			<span>Solo</span>
+			<span>Live</span>
+			<span>Clubs</span>
+			<span>Local</span>
+			<span>Create</span>
+		</div>
+		<div class="tm-main-menu-center">
+			<div class="tm-main-actions">
+				<button id="tm-play-btn" type="button">Play</button>
+				<button id="tm-totd-btn" type="button">Track of the Day</button>
+				<button id="tm-campaign-btn" type="button">Campaign</button>
+				<button id="tm-open-mode-menu" type="button">Mode Menu (E)</button>
+			</div>
+		</div>
+		<div id="tm-main-menu-bottom-bar"></div>
+	</div>
 	<a id="editor-link" href="editor.html">Create your own track</a>
 	<a id="totd-link" href="totd.html">Track of the day</a>
 	<a id="weekly-cup-link" href="weekly-cup.html">Weekly cup</a>
@@ -778,6 +879,42 @@
 			quickMenuBtn.setAttribute( 'aria-expanded', 'false' );
 			quickMenuBtn.textContent = 'Menu ▾';
 		} );
+		const tmMenu = document.getElementById( 'tm-main-menu' );
+		const tmBottomBar = document.getElementById( 'tm-main-menu-bottom-bar' );
+		const tmPlayBtn = document.getElementById( 'tm-play-btn' );
+		const tmTotdBtn = document.getElementById( 'tm-totd-btn' );
+		const tmCampaignBtn = document.getElementById( 'tm-campaign-btn' );
+		const tmOpenModeMenuBtn = document.getElementById( 'tm-open-mode-menu' );
+		const modeMenuBtn = document.getElementById( 'mode-menu-btn' );
+		const searchParams = new URLSearchParams( location.search );
+		const shouldOpenMainMenu = ! searchParams.get( 'map' );
+		const tmBottomBarItems = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'replay-link', 'tracks-link', 'mods-link', 'hacks-toggle', 'split-link' ];
+		for ( const id of tmBottomBarItems ) {
+			const node = document.getElementById( id );
+			if ( ! node ) continue;
+			const clone = node.cloneNode( true );
+			clone.id = '';
+			tmBottomBar?.appendChild( clone );
+		}
+		const tmModeClone = document.createElement( 'button' );
+		tmModeClone.type = 'button';
+		tmModeClone.textContent = 'Mode Menu (E)';
+		tmModeClone.addEventListener( 'click', () => modeMenuBtn?.click() );
+		tmBottomBar?.appendChild( tmModeClone );
+		if ( shouldOpenMainMenu ) {
+			document.body.classList.add( 'tm-menu-open' );
+			tmMenu?.classList.add( 'visible' );
+			tmMenu?.setAttribute( 'aria-hidden', 'false' );
+		}
+		const closeTmMainMenu = () => {
+			tmMenu?.classList.remove( 'visible' );
+			tmMenu?.setAttribute( 'aria-hidden', 'true' );
+			document.body.classList.remove( 'tm-menu-open' );
+		};
+		tmPlayBtn?.addEventListener( 'click', closeTmMainMenu );
+		tmTotdBtn?.addEventListener( 'click', () => { location.href = 'totd.html'; } );
+		tmCampaignBtn?.addEventListener( 'click', () => { location.href = 'weekly-cup.html'; } );
+		tmOpenModeMenuBtn?.addEventListener( 'click', () => modeMenuBtn?.click() );
 	</script>
 	<script type="module" src="js/main.js"></script>
   <style>
