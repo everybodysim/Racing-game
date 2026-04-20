@@ -965,6 +965,24 @@ async function init() {
 	const garageDriveUnlockBtn = document.getElementById( 'garage-drive-unlock' );
 	const garageColorGrid = document.getElementById( 'garage-color-grid' );
 	const garageShinyGrid = document.getElementById( 'garage-shiny-grid' );
+	const garageShinyMetalnessInput = document.getElementById( 'garage-shiny-metalness' );
+	const garageShinyRoughnessInput = document.getElementById( 'garage-shiny-roughness' );
+	const garageShinyEnvInput = document.getElementById( 'garage-shiny-env' );
+	const garageShinyClearcoatInput = document.getElementById( 'garage-shiny-clearcoat' );
+	const garageShinyClearcoatRoughnessInput = document.getElementById( 'garage-shiny-clearcoat-roughness' );
+	const garageShinySpecularInput = document.getElementById( 'garage-shiny-specular' );
+	const garageShinyPhongInput = document.getElementById( 'garage-shiny-phong' );
+	const garageShinyBrightnessInput = document.getElementById( 'garage-shiny-brightness' );
+	const garageShinyEmissiveInput = document.getElementById( 'garage-shiny-emissive' );
+	const garageShinyMetalnessValue = document.getElementById( 'garage-shiny-metalness-value' );
+	const garageShinyRoughnessValue = document.getElementById( 'garage-shiny-roughness-value' );
+	const garageShinyEnvValue = document.getElementById( 'garage-shiny-env-value' );
+	const garageShinyClearcoatValue = document.getElementById( 'garage-shiny-clearcoat-value' );
+	const garageShinyClearcoatRoughnessValue = document.getElementById( 'garage-shiny-clearcoat-roughness-value' );
+	const garageShinySpecularValue = document.getElementById( 'garage-shiny-specular-value' );
+	const garageShinyPhongValue = document.getElementById( 'garage-shiny-phong-value' );
+	const garageShinyBrightnessValue = document.getElementById( 'garage-shiny-brightness-value' );
+	const garageShinyEmissiveValue = document.getElementById( 'garage-shiny-emissive-value' );
 	const garageSourceColorInput = document.getElementById( 'garage-source-color' );
 	const garageSourceToleranceInput = document.getElementById( 'garage-source-tolerance' );
 	const garageSourceToleranceValue = document.getElementById( 'garage-source-tolerance-value' );
@@ -1012,7 +1030,7 @@ async function init() {
 	const GARAGE_STANDARD_PALETTE = buildGaragePaintPalette();
 	const GARAGE_SHINY_PALETTE = buildGarageShinyPalette();
 	const GARAGE_PAINT_PALETTE = [ ...GARAGE_STANDARD_PALETTE, ...GARAGE_SHINY_PALETTE ];
-	const SHINY_MATERIAL_TUNING = {
+	const DEFAULT_SHINY_MATERIAL_TUNING = {
 		metalness: 0.9,
 		roughness: 0.04,
 		envMapIntensity: 4.0,
@@ -1022,6 +1040,17 @@ async function init() {
 		clearcoatRoughness: 0.05,
 		specularIntensity: 1.0,
 		phongShininess: 220,
+	};
+	const SHINY_MATERIAL_LIMITS = {
+		metalness: [ 0, 1 ],
+		roughness: [ 0, 1 ],
+		envMapIntensity: [ 0, 8 ],
+		brightnessBoost: [ 0.5, 2 ],
+		emissiveBoost: [ 0, 1 ],
+		clearcoat: [ 0, 1 ],
+		clearcoatRoughness: [ 0, 1 ],
+		specularIntensity: [ 0, 2 ],
+		phongShininess: [ 0, 300 ],
 	};
 	const GARAGE_DEFAULT_PAINT_UNLOCKS = new Set( [ GARAGE_STANDARD_PALETTE[ 0 ]?.id, GARAGE_STANDARD_PALETTE[ 1 ]?.id, GARAGE_STANDARD_PALETTE[ 11 ]?.id ].filter( Boolean ) );
 	let selectedPaintColorId = GARAGE_PAINT_PALETTE[ 0 ]?.id || '';
@@ -1497,7 +1526,23 @@ async function init() {
 
 		}
 
-		return { unlockedPaints, cars };
+		return { unlockedPaints, cars, shinyTuning: normalizeGarageShinyTuning( next?.shinyTuning ) };
+
+	}
+
+	function normalizeGarageShinyTuning( value ) {
+
+		const next = value && typeof value === 'object' ? value : {};
+		const normalized = {};
+		for ( const [ key, fallback ] of Object.entries( DEFAULT_SHINY_MATERIAL_TUNING ) ) {
+
+			const [ min, max ] = SHINY_MATERIAL_LIMITS[ key ] || [ 0, 1 ];
+			const parsed = Number( next?.[ key ] );
+			const safe = Number.isFinite( parsed ) ? parsed : fallback;
+			normalized[ key ] = THREE.MathUtils.clamp( safe, min, max );
+
+		}
+		return normalized;
 
 	}
 
@@ -1637,8 +1682,42 @@ async function init() {
 		if ( garageAccelStatus ) garageAccelStatus.textContent = unlocks.accel ? 'Pack active' : 'Buy to activate slider';
 		if ( garageDriveStatus ) garageDriveStatus.textContent = unlocks.drive ? 'Pack active' : 'Buy to activate slider';
 		if ( garageCarSelect ) garageCarSelect.value = getSelectedGarageCarKey();
+		updateGarageShinyUi();
 		updateGaragePaletteUi();
 		updateGarageMappingsUi();
+
+	}
+
+	function updateGarageShinyUi() {
+
+		const tuning = garageCosmetics?.shinyTuning || DEFAULT_SHINY_MATERIAL_TUNING;
+		const syncSlider = ( input, valueEl, key, decimals = 2 ) => {
+
+			if ( input ) input.value = String( tuning[ key ] );
+			if ( valueEl ) valueEl.textContent = decimals === 0 ? String( Math.round( tuning[ key ] ) ) : tuning[ key ].toFixed( decimals );
+
+		};
+		syncSlider( garageShinyMetalnessInput, garageShinyMetalnessValue, 'metalness' );
+		syncSlider( garageShinyRoughnessInput, garageShinyRoughnessValue, 'roughness' );
+		syncSlider( garageShinyEnvInput, garageShinyEnvValue, 'envMapIntensity', 1 );
+		syncSlider( garageShinyClearcoatInput, garageShinyClearcoatValue, 'clearcoat' );
+		syncSlider( garageShinyClearcoatRoughnessInput, garageShinyClearcoatRoughnessValue, 'clearcoatRoughness' );
+		syncSlider( garageShinySpecularInput, garageShinySpecularValue, 'specularIntensity' );
+		syncSlider( garageShinyPhongInput, garageShinyPhongValue, 'phongShininess', 0 );
+		syncSlider( garageShinyBrightnessInput, garageShinyBrightnessValue, 'brightnessBoost' );
+		syncSlider( garageShinyEmissiveInput, garageShinyEmissiveValue, 'emissiveBoost' );
+
+	}
+
+	function onGarageShinySliderChange( key, value ) {
+
+		if ( ! garageCosmetics.shinyTuning ) garageCosmetics.shinyTuning = normalizeGarageShinyTuning( null );
+		const [ min, max ] = SHINY_MATERIAL_LIMITS[ key ] || [ 0, 1 ];
+		const next = THREE.MathUtils.clamp( Number( value ) || DEFAULT_SHINY_MATERIAL_TUNING[ key ], min, max );
+		garageCosmetics.shinyTuning[ key ] = next;
+		saveGarageMods();
+		updateGarageShinyUi();
+		applyCarCustomization( vehicle );
 
 	}
 
@@ -1884,20 +1963,21 @@ async function init() {
 
 	function applyShinyFinish( material, mappedColor = null ) {
 
-		if ( typeof material.metalness === 'number' ) material.metalness = SHINY_MATERIAL_TUNING.metalness;
-		if ( typeof material.roughness === 'number' ) material.roughness = SHINY_MATERIAL_TUNING.roughness;
-		if ( typeof material.envMapIntensity === 'number' ) material.envMapIntensity = SHINY_MATERIAL_TUNING.envMapIntensity;
-		if ( typeof material.clearcoat === 'number' ) material.clearcoat = SHINY_MATERIAL_TUNING.clearcoat;
-		if ( typeof material.clearcoatRoughness === 'number' ) material.clearcoatRoughness = SHINY_MATERIAL_TUNING.clearcoatRoughness;
-		if ( typeof material.specularIntensity === 'number' ) material.specularIntensity = SHINY_MATERIAL_TUNING.specularIntensity;
-		if ( typeof material.shininess === 'number' ) material.shininess = SHINY_MATERIAL_TUNING.phongShininess;
+		const tuning = garageCosmetics?.shinyTuning || DEFAULT_SHINY_MATERIAL_TUNING;
+		if ( typeof material.metalness === 'number' ) material.metalness = tuning.metalness;
+		if ( typeof material.roughness === 'number' ) material.roughness = tuning.roughness;
+		if ( typeof material.envMapIntensity === 'number' ) material.envMapIntensity = tuning.envMapIntensity;
+		if ( typeof material.clearcoat === 'number' ) material.clearcoat = tuning.clearcoat;
+		if ( typeof material.clearcoatRoughness === 'number' ) material.clearcoatRoughness = tuning.clearcoatRoughness;
+		if ( typeof material.specularIntensity === 'number' ) material.specularIntensity = tuning.specularIntensity;
+		if ( typeof material.shininess === 'number' ) material.shininess = tuning.phongShininess;
 		if ( material.specular && typeof material.specular.setScalar === 'function' ) material.specular.setScalar( 1.0 );
-		if ( material.color ) material.color.multiplyScalar( SHINY_MATERIAL_TUNING.brightnessBoost );
+		if ( material.color ) material.color.multiplyScalar( tuning.brightnessBoost );
 		if ( material.emissive ) {
 
 			if ( mappedColor ) material.emissive.setRGB( mappedColor.r / 255, mappedColor.g / 255, mappedColor.b / 255 );
 			else material.emissive.copy( material.color );
-			material.emissive.multiplyScalar( SHINY_MATERIAL_TUNING.emissiveBoost );
+			material.emissive.multiplyScalar( tuning.emissiveBoost );
 
 		}
 
@@ -3809,6 +3889,15 @@ async function init() {
 	garageGripSlider?.addEventListener( 'input', () => onGarageSliderChange( 'grip', garageGripSlider.value ) );
 	garageAccelSlider?.addEventListener( 'input', () => onGarageSliderChange( 'accel', garageAccelSlider.value ) );
 	garageDriveSlider?.addEventListener( 'input', () => onGarageSliderChange( 'drive', garageDriveSlider.value ) );
+	garageShinyMetalnessInput?.addEventListener( 'input', () => onGarageShinySliderChange( 'metalness', garageShinyMetalnessInput.value ) );
+	garageShinyRoughnessInput?.addEventListener( 'input', () => onGarageShinySliderChange( 'roughness', garageShinyRoughnessInput.value ) );
+	garageShinyEnvInput?.addEventListener( 'input', () => onGarageShinySliderChange( 'envMapIntensity', garageShinyEnvInput.value ) );
+	garageShinyClearcoatInput?.addEventListener( 'input', () => onGarageShinySliderChange( 'clearcoat', garageShinyClearcoatInput.value ) );
+	garageShinyClearcoatRoughnessInput?.addEventListener( 'input', () => onGarageShinySliderChange( 'clearcoatRoughness', garageShinyClearcoatRoughnessInput.value ) );
+	garageShinySpecularInput?.addEventListener( 'input', () => onGarageShinySliderChange( 'specularIntensity', garageShinySpecularInput.value ) );
+	garageShinyPhongInput?.addEventListener( 'input', () => onGarageShinySliderChange( 'phongShininess', garageShinyPhongInput.value ) );
+	garageShinyBrightnessInput?.addEventListener( 'input', () => onGarageShinySliderChange( 'brightnessBoost', garageShinyBrightnessInput.value ) );
+	garageShinyEmissiveInput?.addEventListener( 'input', () => onGarageShinySliderChange( 'emissiveBoost', garageShinyEmissiveInput.value ) );
 	garageGripUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'grip' ) );
 	garageAccelUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'accel' ) );
 	garageDriveUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'drive' ) );
