@@ -11,6 +11,7 @@ import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
+import { FirebaseMultiplayer } from './FirebaseMultiplayer.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
@@ -354,6 +355,7 @@ async function init() {
 	const mapParam = new URLSearchParams( window.location.search ).get( 'map' );
 	const extrasParam = new URLSearchParams( window.location.search ).get( 'mods' );
 	const isSplitScreen = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1';
+	const multiplayerTrackId = getTrackId( mapParam, extrasParam );
 	const ghostEnabled = ! isSplitScreen;
 	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
 	let customCells = null;
@@ -862,6 +864,8 @@ async function init() {
 		playbackController: new DeterministicPlaybackController(),
 		resetPlayerVehicle: () => vehicle.resetToSpawn(),
 	};
+	let multiplayerSync = null;
+	function clearRemoteCars() {}
 	for ( const runtime of runtimeMods ) {
 
 		try {
@@ -891,6 +895,9 @@ async function init() {
 			}
 
 		}
+
+		multiplayerSync?.dispose();
+		clearRemoteCars();
 
 	} );
 
@@ -982,6 +989,145 @@ async function init() {
 	const accountExportBtn = document.getElementById( 'account-export-btn' );
 	const accountImportBtn = document.getElementById( 'account-import-btn' );
 	const accountStatus = document.getElementById( 'account-status' );
+	const mpHostBtn = document.getElementById( 'mp-host-btn' );
+	const mpJoinBtn = document.getElementById( 'mp-join-btn' );
+	const mpLeaveBtn = document.getElementById( 'mp-leave-btn' );
+	const mpRoomInput = document.getElementById( 'mp-room-code' );
+	const mpStatus = document.getElementById( 'mp-status' );
+	const mpCodeLabel = document.getElementById( 'mp-room-label' );
+	const remoteCars = new Map();
+
+	const remoteCarMaterial = new THREE.MeshStandardMaterial( {
+		color: 0x6fd8ff,
+		transparent: true,
+		opacity: 0.76,
+		metalness: 0.12,
+		roughness: 0.7,
+	} );
+	function ensureRemoteCar( playerId ) {
+
+		const existing = remoteCars.get( playerId );
+		if ( existing ) return existing;
+		const mesh = new THREE.Mesh( new THREE.BoxGeometry( 0.78, 0.35, 1.16 ), remoteCarMaterial.clone() );
+		mesh.castShadow = true;
+		mesh.receiveShadow = false;
+		scene.add( mesh );
+		const entry = {
+			mesh,
+			target: { x: 0, y: 0, z: 0, yaw: 0 },
+		};
+		remoteCars.set( playerId, entry );
+		return entry;
+
+	}
+
+	clearRemoteCars = function clearRemoteCarsImpl() {
+
+		for ( const entry of remoteCars.values() ) scene.remove( entry.mesh );
+		remoteCars.clear();
+
+	};
+
+	function applyRemotePlayers( remoteMap ) {
+
+		const seen = new Set();
+		for ( const [ playerId, data ] of remoteMap.entries() ) {
+
+			const entry = ensureRemoteCar( playerId );
+			entry.target.x = Number( data?.x ) || 0;
+			entry.target.y = Number( data?.y ) || 0;
+			entry.target.z = Number( data?.z ) || 0;
+			entry.target.yaw = Number( data?.yaw ) || 0;
+			seen.add( playerId );
+
+		}
+
+		for ( const [ playerId, entry ] of remoteCars.entries() ) {
+
+			if ( seen.has( playerId ) ) continue;
+			scene.remove( entry.mesh );
+			remoteCars.delete( playerId );
+
+		}
+
+	}
+
+	multiplayerSync = new FirebaseMultiplayer( {
+		mapId: multiplayerTrackId,
+		getLocalSnapshot: () => ( {
+			x: vehicle.container.position.x,
+			y: vehicle.container.position.y,
+			z: vehicle.container.position.z,
+			yaw: vehicle.container.rotation.y,
+			v: vehicle.linearSpeed,
+		} ),
+		onRemotePlayers: applyRemotePlayers,
+		onStatus: ( message ) => {
+
+			if ( mpStatus ) mpStatus.textContent = message;
+			if ( ! mpCodeLabel ) return;
+			if ( multiplayerSync.roomCode ) mpCodeLabel.textContent = `Room: ${ multiplayerSync.roomCode }`;
+			else mpCodeLabel.textContent = 'Room: —';
+
+		},
+		onError: ( error ) => {
+
+			const text = error?.message || String( error || 'Unknown multiplayer error' );
+			if ( mpStatus ) mpStatus.textContent = text;
+
+		},
+	} );
+
+	if ( isSplitScreen ) {
+
+		if ( mpStatus ) mpStatus.textContent = 'Unavailable in split-screen mode.';
+		if ( mpHostBtn ) mpHostBtn.disabled = true;
+		if ( mpJoinBtn ) mpJoinBtn.disabled = true;
+		if ( mpLeaveBtn ) mpLeaveBtn.disabled = true;
+		if ( mpRoomInput ) mpRoomInput.disabled = true;
+
+	} else {
+
+		if ( mpStatus ) mpStatus.textContent = 'Offline';
+
+		mpHostBtn?.addEventListener( 'click', async () => {
+
+			try {
+
+				const code = await multiplayerSync.host();
+				if ( mpStatus ) mpStatus.textContent = `Hosting room ${ code }`;
+
+			} catch ( error ) {
+
+				if ( mpStatus ) mpStatus.textContent = error?.message || 'Host failed';
+
+			}
+
+		} );
+
+		mpJoinBtn?.addEventListener( 'click', async () => {
+
+			try {
+
+				await multiplayerSync.join( mpRoomInput?.value || '' );
+				if ( mpStatus ) mpStatus.textContent = `Joined room ${ multiplayerSync.roomCode }`;
+
+			} catch ( error ) {
+
+				if ( mpStatus ) mpStatus.textContent = error?.message || 'Join failed';
+
+			}
+
+		} );
+
+		mpLeaveBtn?.addEventListener( 'click', async () => {
+
+			await multiplayerSync.leave();
+			clearRemoteCars();
+
+		} );
+
+	}
 	let gameMode = 'race';
 	let stuntPoints = 0;
 	let bestStuntPoints = 0;
@@ -4310,6 +4456,14 @@ async function init() {
 
 			activeSurfaceType2 = findActiveSurfaceTypeFor( vehicle2 );
 			applySurfaceGrip( vehicle2, activeSurfaceType2 );
+
+		}
+		for ( const entry of remoteCars.values() ) {
+
+			entry.mesh.position.x += ( entry.target.x - entry.mesh.position.x ) * 0.25;
+			entry.mesh.position.y += ( entry.target.y - entry.mesh.position.y ) * 0.25;
+			entry.mesh.position.z += ( entry.target.z - entry.mesh.position.z ) * 0.25;
+			entry.mesh.rotation.y = THREE.MathUtils.lerp( entry.mesh.rotation.y, entry.target.yaw, 0.25 );
 
 		}
 		updateActiveBoost( vehicle, boostActiveUntil, dt, now );
