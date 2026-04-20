@@ -840,7 +840,7 @@ async function init() {
 		const material = new THREE.SpriteMaterial( { map: texture, transparent: true, depthWrite: false } );
 		const sprite = new THREE.Sprite( material );
 		sprite.scale.set( 2.4, 0.6, 1 );
-		sprite.position.set( 0, 1.18, 0 );
+		sprite.position.set( 0, 2.38, 0 );
 		return sprite;
 
 	}
