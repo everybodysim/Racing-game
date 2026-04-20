@@ -11,6 +11,7 @@ import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
+import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
@@ -29,6 +30,8 @@ bloomPass.threshold = 0.5;
 renderer.setEffects( [ bloomPass ] );
 
 document.body.appendChild( renderer.domElement );
+
+initMultiplayerPanel();
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color( 0xadb2ba );
@@ -124,6 +127,218 @@ const CAMPAIGN_STAGE_COUNT = CAMPAIGN_STAGES.length;
 const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
 const INTENSITY_TYPES = new Set( [ 'low', 'medium', 'high' ] );
 const WIND_TYPES = new Set( [ 'none', 'breezy', 'gusty' ] );
+
+function hasFirebaseMultiplayerConfig() {
+
+	return Boolean( readFirebaseConfig() );
+
+}
+
+function updateMultiplayerStatus( text ) {
+
+	const statusEl = document.getElementById( 'mp-status' );
+	if ( ! statusEl ) return;
+	statusEl.textContent = text || '';
+
+}
+
+function getCurrentMapSignature() {
+
+	const params = new URLSearchParams( window.location.search );
+	return `${ params.get( 'map' ) || 'default' }|${ params.get( 'mods' ) || 'none' }`;
+
+}
+
+function getFirebaseRoomsBaseUrl() {
+
+	const config = readFirebaseConfig();
+	if ( ! config?.databaseURL ) return '';
+	return `${ config.databaseURL.replace( /\/+$/, '' ) }/racing-rooms`;
+
+}
+
+async function firebaseRoomsRequest( roomCode, method = 'GET', payload = undefined ) {
+
+	const baseUrl = getFirebaseRoomsBaseUrl();
+	if ( ! baseUrl ) throw new Error( 'missing-db-url' );
+	const safeCode = String( roomCode || '' ).trim().toUpperCase();
+	const url = `${ baseUrl }/${ encodeURIComponent( safeCode ) }.json`;
+	const response = await fetch( url, {
+		method,
+		headers: { 'Content-Type': 'application/json' },
+		body: payload === undefined ? undefined : JSON.stringify( payload ),
+	} );
+	if ( ! response.ok ) {
+
+		let detail = '';
+		try {
+
+			detail = await response.text();
+
+		} catch {
+
+			detail = '';
+
+		}
+		throw new Error( `room-http-${ response.status }${ detail ? `:${ detail }` : '' }` );
+
+	}
+	return response.json();
+
+}
+
+function isFirebasePermissionError( error ) {
+
+	const msg = String( error?.message || '' ).toLowerCase();
+	return msg.includes( 'room-http-401' ) || msg.includes( 'room-http-403' ) || msg.includes( 'permission denied' );
+
+}
+
+function initMultiplayerPanel() {
+
+	const hostBtn = document.getElementById( 'mp-host-btn' );
+	const joinBtn = document.getElementById( 'mp-join-btn' );
+	const copyBtn = document.getElementById( 'mp-copy-btn' );
+	const codeInput = document.getElementById( 'mp-code-input' );
+	if ( ! hostBtn || ! joinBtn || ! copyBtn || ! codeInput ) return;
+
+	const configReady = hasFirebaseMultiplayerConfig();
+	if ( ! configReady ) {
+
+		hostBtn.disabled = true;
+		joinBtn.disabled = true;
+		copyBtn.disabled = true;
+		updateMultiplayerStatus( 'Multiplayer not set up yet. Ask host to add Firebase keys in js/firebase-config.js.' );
+		return;
+
+	}
+
+	hostBtn.addEventListener( 'click', async () => {
+
+		const code = createHostCode();
+		codeInput.value = code;
+		updateMultiplayerStatus( `Creating room ${ code }...` );
+		hostBtn.disabled = true;
+		joinBtn.disabled = true;
+		copyBtn.disabled = true;
+		const now = Date.now();
+		const roomPayload = {
+			code,
+			mapSignature: getCurrentMapSignature(),
+			createdAt: now,
+			updatedAt: now,
+			status: 'hosting',
+		};
+		try {
+
+			await firebaseRoomsRequest( code, 'PUT', roomPayload );
+			const verify = await firebaseRoomsRequest( code, 'GET' );
+			if ( ! verify || verify.code !== code ) {
+
+				codeInput.value = '';
+				updateMultiplayerStatus( 'Room was not saved. Check Firebase databaseURL and RTDB rules for /racing-rooms.' );
+				return;
+
+			}
+			updateMultiplayerStatus( `Hosting room ${ code }. Share this code with your friend.` );
+
+		} catch ( error ) {
+
+			console.warn( 'Failed to create multiplayer room', error );
+			codeInput.value = '';
+			if ( isFirebasePermissionError( error ) ) {
+
+				updateMultiplayerStatus( 'Firebase denied write access. Publish RTDB rules for /racing-rooms first.' );
+			} else {
+
+				updateMultiplayerStatus( 'Failed to create room. Check Firebase Realtime Database rules and databaseURL.' );
+
+			}
+		} finally {
+
+			hostBtn.disabled = false;
+			joinBtn.disabled = false;
+			copyBtn.disabled = false;
+
+		}
+
+	} );
+
+	joinBtn.addEventListener( 'click', async () => {
+
+		const code = codeInput.value.trim().toUpperCase();
+		if ( ! /^[A-Z0-9]{6}$/.test( code ) ) {
+
+			updateMultiplayerStatus( 'Enter a valid 6-character room code first.' );
+			return;
+
+		}
+
+		updateMultiplayerStatus( `Trying to join room ${ code }...` );
+		try {
+
+			const room = await firebaseRoomsRequest( code, 'GET' );
+			if ( ! room || typeof room !== 'object' ) {
+
+				updateMultiplayerStatus( `Room ${ code } not found. Ask host to click Host first.` );
+				return;
+
+			}
+
+			const joinMap = getCurrentMapSignature();
+			if ( ! canJoinMap( room.mapSignature, joinMap ) ) {
+
+				updateMultiplayerStatus( 'Join failed: both players must be on the same map/mods.' );
+				return;
+
+			}
+
+			await firebaseRoomsRequest( code, 'PATCH', {
+				updatedAt: Date.now(),
+				lastJoinAt: Date.now(),
+				status: 'joined',
+			} );
+			updateMultiplayerStatus( `Joined room ${ code }.` );
+
+		} catch ( error ) {
+
+			console.warn( 'Failed to join multiplayer room', error );
+			if ( isFirebasePermissionError( error ) ) {
+
+				updateMultiplayerStatus( 'Firebase denied read access. Publish RTDB rules for /racing-rooms first.' );
+				return;
+
+			}
+			updateMultiplayerStatus( 'Join failed. Verify databaseURL/rules and that host room code is active.' );
+
+		}
+
+	} );
+
+	copyBtn.addEventListener( 'click', async () => {
+
+		const code = codeInput.value.trim().toUpperCase();
+		if ( ! code ) {
+
+			updateMultiplayerStatus( 'Generate or enter a room code before copying.' );
+			return;
+
+		}
+
+		try {
+
+			await navigator.clipboard.writeText( code );
+			updateMultiplayerStatus( `Copied code ${ code } to clipboard.` );
+
+		} catch {
+
+			updateMultiplayerStatus( `Copy failed. Room code: ${ code }` );
+
+		}
+
+	} );
+
+}
 
 function normalizeWeatherPreset( preset ) {
 
