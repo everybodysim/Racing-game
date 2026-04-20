@@ -17,3 +17,7 @@
 - **Respawn**: on-screen button
 - **Toggle camera mode**: `C`
 
+
+## Multiplayer setup guide
+
+- Firebase Spark (free-tier) browser-only multiplayer guide: `docs/firebase-spark-multiplayer.md`.
