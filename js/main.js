@@ -11,6 +11,7 @@ import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
+import { createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
@@ -29,6 +30,8 @@ bloomPass.threshold = 0.5;
 renderer.setEffects( [ bloomPass ] );
 
 document.body.appendChild( renderer.domElement );
+
+initMultiplayerPanel();
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color( 0xadb2ba );
@@ -124,6 +127,86 @@ const CAMPAIGN_STAGE_COUNT = CAMPAIGN_STAGES.length;
 const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
 const INTENSITY_TYPES = new Set( [ 'low', 'medium', 'high' ] );
 const WIND_TYPES = new Set( [ 'none', 'breezy', 'gusty' ] );
+
+function hasFirebaseMultiplayerConfig() {
+
+	return Boolean( readFirebaseConfig() );
+
+}
+
+function updateMultiplayerStatus( text ) {
+
+	const statusEl = document.getElementById( 'mp-status' );
+	if ( ! statusEl ) return;
+	statusEl.textContent = text || '';
+
+}
+
+function initMultiplayerPanel() {
+
+	const hostBtn = document.getElementById( 'mp-host-btn' );
+	const joinBtn = document.getElementById( 'mp-join-btn' );
+	const copyBtn = document.getElementById( 'mp-copy-btn' );
+	const codeInput = document.getElementById( 'mp-code-input' );
+	if ( ! hostBtn || ! joinBtn || ! copyBtn || ! codeInput ) return;
+
+	const configReady = hasFirebaseMultiplayerConfig();
+	if ( ! configReady ) {
+
+		hostBtn.disabled = true;
+		joinBtn.disabled = true;
+		copyBtn.disabled = true;
+		updateMultiplayerStatus( 'Multiplayer not set up yet. Ask host to add Firebase keys in js/firebase-config.js.' );
+		return;
+
+	}
+
+	hostBtn.addEventListener( 'click', () => {
+
+		const code = createHostCode();
+		codeInput.value = code;
+		updateMultiplayerStatus( `Hosting room ${ code }. Share this code with your friend.` );
+
+	} );
+
+	joinBtn.addEventListener( 'click', () => {
+
+		const code = codeInput.value.trim().toUpperCase();
+		if ( ! /^[A-Z0-9]{6}$/.test( code ) ) {
+
+			updateMultiplayerStatus( 'Enter a valid 6-character room code first.' );
+			return;
+
+		}
+
+		updateMultiplayerStatus( `Trying to join room ${ code }...` );
+
+	} );
+
+	copyBtn.addEventListener( 'click', async () => {
+
+		const code = codeInput.value.trim().toUpperCase();
+		if ( ! code ) {
+
+			updateMultiplayerStatus( 'Generate or enter a room code before copying.' );
+			return;
+
+		}
+
+		try {
+
+			await navigator.clipboard.writeText( code );
+			updateMultiplayerStatus( `Copied code ${ code } to clipboard.` );
+
+		} catch {
+
+			updateMultiplayerStatus( `Copy failed. Room code: ${ code }` );
+
+		}
+
+	} );
+
+}
 
 function normalizeWeatherPreset( preset ) {
 
