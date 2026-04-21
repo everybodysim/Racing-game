@@ -1,6 +1,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'; 
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
 import { Vehicle } from './Vehicle.js';
@@ -56,6 +57,7 @@ window.addEventListener( 'resize', () => {
 } );
 
 const loader = new GLTFLoader();
+const objLoader = new OBJLoader();
 const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
@@ -268,11 +270,13 @@ async function firebaseRoomsRequest( roomCode, method = 'GET', payload = undefin
 	if ( ! baseUrl ) throw new Error( 'missing-db-url' );
 	const safeCode = String( roomCode || '' ).trim().toUpperCase();
 	const normalizedSubPath = subPath ? `/${ subPath.replace( /^\/+/, '' ) }` : '';
-	const url = `${ baseUrl }/${ encodeURIComponent( safeCode ) }${ normalizedSubPath }.json`;
+	const cacheBust = method === 'GET' ? `${ normalizedSubPath ? '&' : '?' }_=${ Date.now() }` : '';
+	const url = `${ baseUrl }/${ encodeURIComponent( safeCode ) }${ normalizedSubPath }.json${ cacheBust }`;
 	const response = await fetch( url, {
 		method,
 		headers: { 'Content-Type': 'application/json' },
 		body: payload === undefined ? undefined : JSON.stringify( payload ),
+		cache: 'no-store',
 	} );
 	if ( ! response.ok ) {
 
@@ -496,6 +500,7 @@ function decodeExtrasParam( str ) {
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 			surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
 			customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
+			customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
 			weather: normalizeWeatherDetails( parsed?.w ),
 		};
 
@@ -682,6 +687,61 @@ async function loadModels() {
 
 }
 
+function normalizeImportedObjectToCell( root ) {
+
+	const box = new THREE.Box3().setFromObject( root );
+	const size = new THREE.Vector3();
+	const center = new THREE.Vector3();
+	box.getSize( size );
+	box.getCenter( center );
+	const maxDim = Math.max( size.x, size.z, 1e-4 );
+	const scale = CELL_RAW / maxDim;
+	root.position.sub( center );
+	root.position.y -= box.min.y - center.y;
+	root.scale.multiplyScalar( scale );
+	root.updateMatrixWorld( true );
+
+}
+
+async function loadCustomTrackAssets( extras ) {
+
+	const entries = Object.entries( extras?.customAssets || {} ).slice( 0, 32 );
+	for ( const [ id, asset ] of entries ) {
+
+		if ( ! asset?.dataUrl ) continue;
+		const modelKey = `custom:${ id }`;
+		try {
+
+			let scene = null;
+			if ( asset.format === 'obj' ) {
+
+				const text = await ( await fetch( asset.dataUrl ) ).text();
+				scene = objLoader.parse( text );
+
+			} else {
+
+				scene = await new Promise( ( resolve, reject ) => loader.load( asset.dataUrl, ( gltf ) => resolve( gltf.scene ), undefined, reject ) );
+
+			}
+			if ( ! scene ) continue;
+			normalizeImportedObjectToCell( scene );
+			scene.traverse( ( child ) => {
+
+				if ( child.isMesh ) child.material.side = THREE.FrontSide;
+
+			} );
+			models[ modelKey ] = scene;
+
+		} catch ( error ) {
+
+			console.warn( 'Failed to load custom track asset', id, error );
+
+		}
+
+	}
+
+}
+
 async function init() {
 
 	registerAll();
@@ -696,6 +756,7 @@ async function init() {
 	let customCells = null;
 	let spawn = null;
 	const extras = decodeExtrasParam( extrasParam );
+	await loadCustomTrackAssets( extras );
 	const carKeys = Object.keys( CAR_STATS );
 	const deterministicCarSeed = hashTrackSeed( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
 	const pickRandomCarKey = () => {
@@ -847,11 +908,26 @@ async function init() {
 
 	function ensureRemotePlayerVisual( playerId, carKey ) {
 
+		return ensureRemotePlayerVisualWithCosmetics( playerId, carKey, null );
+
+	}
+
+	function cosmeticsSignature( cosmetics ) {
+
+		const normalized = normalizeGhostCosmeticsPayload( cosmetics );
+		return normalized ? JSON.stringify( normalized ) : '';
+
+	}
+
+	function ensureRemotePlayerVisualWithCosmetics( playerId, carKey, cosmetics ) {
+
 		const modelKey = normalizeMultiplayerCarKey( carKey );
+		const signature = cosmeticsSignature( cosmetics );
 		const existing = remotePlayerVisuals.get( playerId );
-		if ( existing && existing.carKey === modelKey ) return existing;
+		if ( existing && existing.carKey === modelKey && existing.cosmeticsSignature === signature ) return existing;
 		if ( existing ) removeRemotePlayerVisual( playerId );
-		const mesh = createGhostVisualModel( models[ modelKey ], 0.42, null ) || new THREE.Mesh(
+		const model = models[ modelKey ] || models[ 'vehicle-truck-yellow' ];
+		const mesh = createGhostVisualModel( model, 0.42, cosmetics ) || new THREE.Mesh(
 			new THREE.BoxGeometry( 0.95, 0.5, 1.7 ),
 			new THREE.MeshStandardMaterial( { color: 0x53d4ff, transparent: true, opacity: 0.38, depthWrite: false } ),
 		);
@@ -881,7 +957,15 @@ async function init() {
 
 		} );
 		scene.add( mesh );
-		const state = { mesh, carKey: modelKey, displayName: 'Player', nameTag: null, targetPos: mesh.position.clone(), targetRotY: mesh.rotation.y };
+		const state = {
+			mesh,
+			carKey: modelKey,
+			cosmeticsSignature: signature,
+			displayName: 'Player',
+			nameTag: null,
+			targetPos: mesh.position.clone(),
+			targetRotY: mesh.rotation.y,
+		};
 		remotePlayerVisuals.set( playerId, state );
 		return state;
 
@@ -944,18 +1028,21 @@ async function init() {
 
 	}
 
+	let multiplayerSyncInFlight = false;
 	async function syncMultiplayerTransforms() {
 
 		const roomCode = multiplayerSessionState.roomCode;
 		if ( ! roomCode ) return;
+		if ( multiplayerSyncInFlight ) return;
 		const now = Date.now();
 		const mapSignature = getCurrentMapSignature();
-			const localPayload = {
+		const localPayload = {
 			x: Number( vehicle.container.position.x.toFixed( 3 ) ),
 			y: Number( vehicle.container.position.y.toFixed( 3 ) ),
 			z: Number( vehicle.container.position.z.toFixed( 3 ) ),
 			ry: Number( vehicle.container.rotation.y.toFixed( 4 ) ),
 			carKey: normalizeMultiplayerCarKey( currentCarKey() ),
+			cosmetics: buildGhostCosmeticsSnapshot( currentCarKey() ),
 			name: getLocalMultiplayerDisplayName(),
 			mapSignature,
 			updatedAt: now,
@@ -963,23 +1050,24 @@ async function init() {
 
 		try {
 
-				await firebaseRoomsRequest( roomCode, 'PUT', localPayload, `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
-					const room = await firebaseRoomsRequest( roomCode, 'GET' );
-					const players = room?.players && typeof room.players === 'object' ? room.players : {};
-					renderMultiplayerRoomLeaderboard( room?.lapTimes );
-					maybeSubmitOnlinePersonalBest( room?.lapTimes );
-					const seen = new Set();
+			multiplayerSyncInFlight = true;
+			await firebaseRoomsRequest( roomCode, 'PUT', localPayload, `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
+			const room = await firebaseRoomsRequest( roomCode, 'GET' );
+			const players = room?.players && typeof room.players === 'object' ? room.players : {};
+			renderMultiplayerRoomLeaderboard( room?.lapTimes );
+			maybeSubmitOnlinePersonalBest( room?.lapTimes );
+			const seen = new Set();
 			for ( const [ playerId, playerState ] of Object.entries( players ) ) {
 
 				if ( playerId === multiplayerSessionState.clientId ) continue;
 				if ( ! canJoinMap( playerState?.mapSignature, mapSignature ) ) continue;
 				const updatedAt = Number( playerState?.updatedAt ) || 0;
 				if ( now - updatedAt > REMOTE_PLAYER_STALE_MS ) continue;
-					const visualState = ensureRemotePlayerVisual( playerId, playerState?.carKey );
-					ensureRemoteNameTag( visualState, playerState?.name || room?.lapTimes?.[ playerId ]?.name || 'Player' );
-					visualState.targetPos.set( Number( playerState?.x ) || 0, ( Number( playerState?.y ) || 0 ) - 0.1, Number( playerState?.z ) || 0 );
-					visualState.targetRotY = Math.PI - ( Number( playerState?.ry ) || 0 );
-					seen.add( playerId );
+				const visualState = ensureRemotePlayerVisualWithCosmetics( playerId, playerState?.carKey, playerState?.cosmetics );
+				ensureRemoteNameTag( visualState, playerState?.name || room?.lapTimes?.[ playerId ]?.name || 'Player' );
+				visualState.targetPos.set( Number( playerState?.x ) || 0, ( Number( playerState?.y ) || 0 ) - 0.1, Number( playerState?.z ) || 0 );
+				visualState.targetRotY = Math.PI - ( Number( playerState?.ry ) || 0 );
+				seen.add( playerId );
 
 			}
 
@@ -994,11 +1082,23 @@ async function init() {
 
 			console.warn( 'Multiplayer transform sync failed', error );
 
+		} finally {
+
+			multiplayerSyncInFlight = false;
+
 		}
 
 	}
 
 	setInterval( syncMultiplayerTransforms, REMOTE_SYNC_MS );
+	window.addEventListener( 'beforeunload', () => {
+
+		if ( ! multiplayerSessionState.roomCode ) return;
+		const roomCode = multiplayerSessionState.roomCode;
+		const playerPath = `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }`;
+		firebaseRoomsRequest( roomCode, 'DELETE', undefined, playerPath ).catch( () => {} );
+
+	} );
 	let ghostModel = null;
 	const bestLapGhostSamples = [];
 	let currentLapGhostSamples = [];
