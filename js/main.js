@@ -64,10 +64,10 @@ const modelNames = [
 
 const models = {};
 const CAR_STATS = {
-	'vehicle-truck-yellow': { name: 'Yellow', speed: 9, accel: 5, perf: { topSpeed: 1.0, accelRate: 6.0, driveForce: 100.0 } },
-	'vehicle-truck-green': { name: 'Green', speed: 9, accel: 5, perf: { topSpeed: 0.92, accelRate: 7.8, driveForce: 108.0 } },
+	'vehicle-truck-yellow': { name: 'Yellow', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-green': { name: 'Green', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 	'vehicle-truck-purple': { name: 'Purple', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-red': { name: 'Red', speed: 9, accel: 5, perf: { topSpeed: 1.05, accelRate: 5.5, driveForce: 102.0 } },
+	'vehicle-truck-red': { name: 'Red', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 };
 const DEFAULT_ENGINE_MULT = 1.1;
 const MAX_EFFECTIVE_TOP_SPEED = 1.8;
