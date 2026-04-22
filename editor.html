@@ -125,6 +125,46 @@
 		.custom-surface-grid input[type="color"] { width: 100%; }
 		.custom-surface-actions { margin-top: 10px; display: flex; gap: 8px; justify-content: flex-end; }
 		.custom-surface-actions button { padding: 6px 10px; }
+		#import-options-panel {
+			position: absolute;
+			right: 12px;
+			top: 12px;
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			padding: 8px 10px;
+			background: rgba(20, 20, 30, 0.9);
+			border: 1px solid rgba(255,255,255,0.14);
+			border-radius: 10px;
+			color: #eef3ff;
+			font-size: 12px;
+			z-index: 22;
+		}
+		#import-options-panel input[type="checkbox"] { accent-color: #7ab8ff; }
+		#import-options-panel button {
+			border: 1px solid rgba(255,255,255,0.2);
+			border-radius: 7px;
+			background: rgba(10, 12, 18, 0.8);
+			color: #e9f1ff;
+			padding: 4px 8px;
+			font-size: 11px;
+			cursor: pointer;
+		}
+		#import-options-panel[hidden] { display: none; }
+		#import-options-show {
+			position: absolute;
+			right: 12px;
+			top: 12px;
+			z-index: 22;
+			border: 1px solid rgba(255,255,255,0.2);
+			border-radius: 8px;
+			background: rgba(10, 12, 18, 0.82);
+			color: #e9f1ff;
+			padding: 6px 10px;
+			font-size: 12px;
+			cursor: pointer;
+		}
+		#import-options-show[hidden] { display: none; }
 
 		#settings-bar {
 			position: absolute;
@@ -278,6 +318,11 @@
 		<label for="weather-lightning">Lightning</label>
 		<input id="weather-lightning" type="checkbox" aria-label="Lightning flashes">
 	</div>
+	<div id="import-options-panel">
+		<label><input id="import-default-colormap" type="checkbox"> Use default colormap when texture missing</label>
+		<button id="import-options-hide" type="button">Hide</button>
+	</div>
+	<button id="import-options-show" type="button" hidden>Import options</button>
 	<div id="side-ui-bar"></div>
 	<div id="panel-overlay" hidden></div>
 	<div id="panel-center" hidden>
@@ -615,11 +660,118 @@
 
 	const loader = new GLTFLoader();
 	const objLoader = new OBJLoader();
+	const textureLoader = new THREE.TextureLoader();
 	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
 	const models = {};
 	const customAssets = new Map();
 	let customAssetOrder = [];
 	let selectedCustomAssetId = '';
+	let defaultColormapTexture = null;
+	let defaultColormapTexturePromise = null;
+
+	function getDefaultColormapEnabled() {
+
+		return Boolean( document.getElementById( 'import-default-colormap' )?.checked );
+
+	}
+
+	function setImportOptionsVisibility( visible ) {
+
+		const panel = document.getElementById( 'import-options-panel' );
+		const showBtn = document.getElementById( 'import-options-show' );
+		if ( panel ) panel.hidden = ! visible;
+		if ( showBtn ) showBtn.hidden = visible;
+
+	}
+
+	async function getDefaultColormapTexture() {
+
+		if ( defaultColormapTexture ) return defaultColormapTexture;
+		if ( ! defaultColormapTexturePromise ) {
+
+			defaultColormapTexturePromise = new Promise( ( resolve, reject ) => {
+
+				textureLoader.load( 'models/Textures/colormap.png', ( texture ) => {
+
+					texture.colorSpace = THREE.SRGBColorSpace;
+					texture.wrapS = THREE.ClampToEdgeWrapping;
+					texture.wrapT = THREE.ClampToEdgeWrapping;
+					texture.needsUpdate = true;
+					defaultColormapTexture = texture;
+					resolve( texture );
+
+				}, undefined, reject );
+
+			} ).catch( ( error ) => {
+
+				defaultColormapTexturePromise = null;
+				throw error;
+
+			} );
+
+		}
+		return defaultColormapTexturePromise;
+
+	}
+
+	async function applyImportedAssetMaterials( root ) {
+
+		const useDefaultColormap = getDefaultColormapEnabled();
+		let fallbackTexture = null;
+		let fallbackFailed = false;
+		if ( useDefaultColormap ) {
+
+			try {
+
+				fallbackTexture = await getDefaultColormapTexture();
+
+			} catch ( error ) {
+
+				fallbackFailed = true;
+				console.warn( 'Could not load fallback colormap texture', error );
+
+			}
+
+		}
+		let meshCount = 0;
+		let texturedMeshCount = 0;
+		let fallbackAppliedCount = 0;
+		root.traverse( ( node ) => {
+
+			if ( ! node?.isMesh || ! node.material ) return;
+			meshCount += 1;
+			const incomingMaterials = Array.isArray( node.material ) ? node.material : [ node.material ];
+			const builtMaterials = incomingMaterials.map( ( baseMaterial ) => {
+
+				const material = baseMaterial?.clone ? baseMaterial.clone() : new THREE.MeshStandardMaterial();
+				const hasTexture = Boolean( material?.map );
+				if ( hasTexture ) {
+
+					texturedMeshCount += 1;
+					material.map.colorSpace = THREE.SRGBColorSpace;
+					material.map.needsUpdate = true;
+
+				}
+				if ( node.geometry?.getAttribute( 'color' ) && 'vertexColors' in material ) material.vertexColors = true;
+				if ( useDefaultColormap && ! hasTexture && fallbackTexture ) {
+
+					material.map = fallbackTexture;
+					if ( material.color ) material.color.set( 0xffffff );
+					fallbackAppliedCount += 1;
+
+				}
+				material.needsUpdate = true;
+				return material;
+
+			} );
+			node.material = Array.isArray( node.material ) ? builtMaterials : builtMaterials[ 0 ];
+			node.castShadow = true;
+			node.receiveShadow = true;
+
+		} );
+		return { meshCount, texturedMeshCount, fallbackAppliedCount, fallbackFailed };
+
+	}
 
 	function makeCustomAssetId( fileName ) {
 
@@ -706,16 +858,7 @@
 		} );
 		const loaded = await loadImportedAssetFromDataUrl( dataUrl, format );
 		normalizeImportedObjectToCell( loaded );
-		loaded.traverse( ( c ) => {
-
-			if ( c.isMesh ) {
-
-				c.castShadow = true;
-				c.receiveShadow = true;
-
-			}
-
-		} );
+		const importSummary = await applyImportedAssetMaterials( loaded );
 		const id = makeCustomAssetId( file.name );
 		const modelKey = `${ CUSTOM_MODEL_KEY_PREFIX }${ id }`;
 		models[ modelKey ] = loaded;
@@ -730,7 +873,11 @@
 		selectedCustomAssetId = id;
 		selectedType = modelKey;
 		updateCustomAssetButtonLabel();
-		showToast( `Imported ${ file.name } as a 10x10 cell block.` );
+		const colorMsg = importSummary.fallbackAppliedCount > 0
+			? ` Applied default colormap to ${ importSummary.fallbackAppliedCount } mesh material(s).`
+			: '';
+		const warningMsg = importSummary.fallbackFailed ? ' (Fallback colormap failed to load.)' : '';
+		showToast( `Imported ${ file.name } as a 10x10 cell block.${ colorMsg}${ warningMsg }` );
 
 	}
 
@@ -1639,6 +1786,16 @@
 	} );
 	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
 	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
+	document.getElementById( 'import-options-hide' )?.addEventListener( 'click', () => {
+
+		setImportOptionsVisibility( false );
+
+	} );
+	document.getElementById( 'import-options-show' )?.addEventListener( 'click', () => {
+
+		setImportOptionsVisibility( true );
+
+	} );
 	document.getElementById( 'btn-custom-import' )?.addEventListener( 'click', () => {
 
 		document.getElementById( 'custom-model-file' )?.click();
@@ -1680,6 +1837,7 @@
 
 	} );
 	updateCustomAssetButtonLabel();
+	setImportOptionsVisibility( true );
 	window.__editorDebug = {
 		getCustomAssets: () => [ ...customAssets.values() ],
 		getGridSnapshot: () => getCellsArray(),
