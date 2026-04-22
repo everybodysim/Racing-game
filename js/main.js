@@ -1850,7 +1850,7 @@ async function init() {
 	} );
 	if ( economyHud ) {
 
-		economyHud.style.top = '76px';
+		economyHud.style.top = '88px';
 		economyHud.style.right = '12px';
 
 	}
