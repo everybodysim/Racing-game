@@ -104,6 +104,16 @@
 			let useRemoteBoard = false;
 			let topByTrackId = new Map();
 
+		function isPackBoardEntry( entry ) {
+			const name = String( entry?.name || '' ).trim();
+			return name.startsWith( '[PACK]' );
+		}
+
+		function sanitizeBoardEntries( input ) {
+			const rows = Array.isArray( input ) ? input : [];
+			return rows.filter( ( entry ) => typeof entry?.playUrl === 'string' && typeof entry?.name === 'string' && ! isPackBoardEntry( entry ) );
+		}
+
 		function encodeBase64UrlJson( value ) {
 			return btoa( unescape( encodeURIComponent( JSON.stringify( value ) ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
 		}
@@ -146,7 +156,7 @@
 
 				}
 				const parsed = decodeBase64UrlJson( rawBoard );
-				entries = Array.isArray( parsed?.entries ) ? parsed.entries : [];
+				entries = sanitizeBoardEntries( parsed?.entries );
 			} catch ( e ) {
 				entries = [];
 			}
@@ -154,7 +164,7 @@
 
 		async function loadFromRemote() {
 			const payload = await apiRequest();
-			entries = Array.isArray( payload?.entries ) ? payload.entries : [];
+			entries = sanitizeBoardEntries( payload?.entries );
 			await hydrateTopLeaderboardRows( entries );
 		}
 
@@ -541,7 +551,7 @@
 				try {
 					const parsed = decodeBase64UrlJson( raw );
 					if ( ! Array.isArray( parsed?.entries ) ) throw new Error();
-					entries = parsed.entries.filter( ( entry ) => typeof entry?.playUrl === 'string' && typeof entry?.name === 'string' );
+					entries = sanitizeBoardEntries( parsed.entries );
 					saveToHash();
 					hydrateTopLeaderboardRows( entries )
 						.finally( () => {
