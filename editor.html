@@ -342,6 +342,14 @@
 		<button id="btn-offgrid">Snap: Grid</button>
 		<div class="separator"></div>
 		<button id="btn-play" class="action">Play</button>
+		<button id="btn-select-spawn">Pick Test Spawn</button>
+		<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;"><input id="autosave-enable" type="checkbox" checked> Auto-save</label>
+		<select id="autosave-interval" aria-label="Autosave interval">
+			<option value="15">15s</option>
+			<option value="30" selected>30s</option>
+			<option value="60">60s</option>
+			<option value="120">120s</option>
+		</select>
 		<button id="btn-share" class="action">Share</button>
 		<div class="separator"></div>
 		<button id="btn-clear" class="danger">Clear</button>
@@ -414,6 +422,11 @@
 	let flowStraightType = 'track-straight';
 	let flowCornerType = 'track-corner';
 	let placeOffGrid = false;
+	let testSpawnCell = null;
+	let pickTestSpawnMode = false;
+	let autosaveEnabled = true;
+	let autosaveEverySeconds = 30;
+	let autosaveTimer = null;
 	const OFFGRID_STEP = 0.25;
 	const BLOCK_HEIGHT_OFFSET = 0.012;
 	const DECO_HEIGHT_OFFSET = BLOCK_HEIGHT_OFFSET * 0.5;
@@ -1246,6 +1259,20 @@
 
 	}
 
+	function restartAutosaveTimer() {
+
+		if ( autosaveTimer ) clearInterval( autosaveTimer );
+		autosaveTimer = null;
+		if ( ! autosaveEnabled ) return;
+		autosaveTimer = setInterval( () => {
+
+			save();
+			showToast( 'Auto-saved editor state' );
+
+		}, Math.max( 5, autosaveEverySeconds ) * 1000 );
+
+	}
+
 	function encodeMods() {
 
 		const bumps = [];
@@ -1863,12 +1890,22 @@
 
 	}
 
+	function buildTestSpawnQuery() {
+
+		if ( ! testSpawnCell ) return '';
+		const gx = Number( testSpawnCell.gx );
+		const gz = Number( testSpawnCell.gz );
+		const orient = Number( testSpawnCell.orient || 0 );
+		return `&testSpawn=${ encodeURIComponent( `${ gx },${ gz },${ orient }` ) }`;
+
+	}
+
 	async function createPlayableTrackUrl() {
 
 		const encoded = encodeCells( getCellsArray() );
 		const mods = encodeMods();
 		const base = window.location.href.replace( /editor\.html.*/, '' );
-		const rawUrl = `${ base }index.html?map=${ encoded }&mods=${ mods }`;
+		const rawUrl = `${ base }index.html?map=${ encoded }&mods=${ mods }${ buildTestSpawnQuery() }`;
 		const shouldForcePacked = customAssets.size > 0;
 		if ( ! shouldForcePacked && rawUrl.length <= 7000 ) return { url: rawUrl, mode: 'raw' };
 		try {
@@ -1908,6 +1945,27 @@
 			}
 
 	} );
+	document.getElementById( 'btn-select-spawn' )?.addEventListener( 'click', () => {
+
+		pickTestSpawnMode = true;
+		showToast( 'Click any tile to set test spawn.' );
+
+	} );
+	const autosaveEnableInput = document.getElementById( 'autosave-enable' );
+	const autosaveIntervalSelect = document.getElementById( 'autosave-interval' );
+	autosaveEnableInput?.addEventListener( 'change', () => {
+
+		autosaveEnabled = Boolean( autosaveEnableInput.checked );
+		restartAutosaveTimer();
+
+	} );
+	autosaveIntervalSelect?.addEventListener( 'change', () => {
+
+		autosaveEverySeconds = Math.max( 5, Number( autosaveIntervalSelect.value ) || 30 );
+		restartAutosaveTimer();
+
+	} );
+	restartAutosaveTimer();
 
 	document.getElementById( 'btn-share' ).addEventListener( 'click', async () => {
 
@@ -1974,6 +2032,16 @@
 
 		const cell = screenToGrid( clientX, clientY );
 		if ( ! cell ) return;
+		if ( pickTestSpawnMode ) {
+
+			const key = cellKey( cell.gx, cell.gz );
+			const existing = grid.get( key );
+			testSpawnCell = { gx: cell.gx, gz: cell.gz, orient: existing?.orient || selectedOrient || 0 };
+			pickTestSpawnMode = false;
+			showToast( `Test spawn set: ${ cell.gx }, ${ cell.gz }` );
+			return;
+
+		}
 
 		if ( lastDrawCell && lastDrawCell.gx === cell.gx && lastDrawCell.gz === cell.gz ) return;
 		lastDrawCell = cell;
