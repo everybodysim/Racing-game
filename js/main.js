@@ -1564,7 +1564,7 @@ async function init() {
 
 		}
 		if ( ! ghostEnabled || ! fxSettings.recentGhostsEnabled ) return;
-		const targetCount = Math.max( 1, Math.min( 20, fxSettings.recentGhostCount ) );
+		const targetCount = Math.max( 1, Math.min( 100, fxSettings.recentGhostCount ) );
 		for ( const entry of recentGhostHistory.slice( 0, targetCount ) ) {
 
 			const model = createGhostVisualModel( models[ entry.car || 'vehicle-truck-yellow' ] || models[ 'vehicle-truck-yellow' ], 0.22, entry.cosmetics || null );
@@ -1826,7 +1826,7 @@ async function init() {
 	fxPanel.style.borderRadius = '8px';
 	fxPanel.style.font = '12px/1.3 sans-serif';
 	fxPanel.innerHTML = `<label style="display:block;margin-bottom:4px;"><input id="fx-recent-ghosts" type="checkbox" ${ fxSettings.recentGhostsEnabled ? 'checked' : '' }> Show recent ghosts</label>
-	<label style="display:block;margin-top:4px;">Recent ghost count <input id="fx-recent-ghost-count" type="number" min="1" max="20" step="1" value="${ fxSettings.recentGhostCount }" style="width:100%;margin-top:3px;background:#0f1520;color:#e9f5ff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:2px 4px;"></label>`;
+	<label style="display:block;margin-top:4px;">Recent ghost count <input id="fx-recent-ghost-count" type="number" min="1" max="100" step="1" value="${ fxSettings.recentGhostCount }" style="width:100%;margin-top:3px;background:#0f1520;color:#e9f5ff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:2px 4px;"></label>`;
 	document.body.appendChild( fxPanel );
 	const fxRecentGhostsInput = fxPanel.querySelector( '#fx-recent-ghosts' );
 	const fxRecentGhostCountSelect = fxPanel.querySelector( '#fx-recent-ghost-count' );
