@@ -18,9 +18,9 @@
 			flex-wrap: wrap;
 			justify-content: center;
 			align-items: center;
-			gap: 4px;
+			gap: 3px;
 			padding: 6px 8px;
-			max-width: calc(100vw - 20px);
+			max-width: calc(100vw - 8px);
 			background: rgba(20, 20, 30, 0.85);
 			backdrop-filter: blur(12px);
 			-webkit-backdrop-filter: blur(12px);
@@ -31,24 +31,24 @@
 		}
 
 		#toolbar button {
-			padding: 6px 10px;
+			padding: 5px 8px;
 			border: none;
 			border-radius: 8px;
 			background: transparent;
 			color: rgba(255, 255, 255, 0.65);
-			font-size: 12px;
+			font-size: 11px;
 			font-weight: 500;
 			cursor: pointer;
 			transition: all 0.15s;
 			white-space: nowrap;
 		}
 		#toolbar select {
-			padding: 6px 10px;
+			padding: 5px 8px;
 			border: 1px solid rgba(255, 255, 255, 0.18);
 			border-radius: 8px;
 			background: rgba(8, 10, 14, 0.9);
 			color: rgba(255, 255, 255, 0.92);
-			font-size: 12px;
+			font-size: 11px;
 			font-weight: 500;
 			cursor: pointer;
 			white-space: nowrap;
@@ -342,6 +342,9 @@
 		<button id="btn-offgrid">Snap: Grid</button>
 		<div class="separator"></div>
 		<button id="btn-play" class="action">Play</button>
+		<button id="btn-select-spawn">Pick Test Spawn</button>
+		<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;"><input id="autosave-enable" type="checkbox" checked> Auto-save</label>
+		<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;">Every <input id="autosave-interval" type="number" min="5" max="600" step="1" value="30" style="width:62px;background:rgba(8,10,14,0.9);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 4px;"> s</label>
 		<button id="btn-share" class="action">Share</button>
 		<div class="separator"></div>
 		<button id="btn-clear" class="danger">Clear</button>
@@ -414,6 +417,11 @@
 	let flowStraightType = 'track-straight';
 	let flowCornerType = 'track-corner';
 	let placeOffGrid = false;
+	let testSpawnCell = null;
+	let pickTestSpawnMode = false;
+	let autosaveEnabled = true;
+	let autosaveEverySeconds = 30;
+	let autosaveTimer = null;
 	const OFFGRID_STEP = 0.25;
 	const BLOCK_HEIGHT_OFFSET = 0.012;
 	const DECO_HEIGHT_OFFSET = BLOCK_HEIGHT_OFFSET * 0.5;
@@ -1246,6 +1254,20 @@
 
 	}
 
+	function restartAutosaveTimer() {
+
+		if ( autosaveTimer ) clearInterval( autosaveTimer );
+		autosaveTimer = null;
+		if ( ! autosaveEnabled ) return;
+		autosaveTimer = setInterval( () => {
+
+			save();
+			showToast( 'Auto-saved editor state' );
+
+		}, Math.max( 5, autosaveEverySeconds ) * 1000 );
+
+	}
+
 	function encodeMods() {
 
 		const bumps = [];
@@ -1863,12 +1885,22 @@
 
 	}
 
+	function buildTestSpawnQuery() {
+
+		if ( ! testSpawnCell ) return '';
+		const gx = Number( testSpawnCell.gx );
+		const gz = Number( testSpawnCell.gz );
+		const orient = Number( testSpawnCell.orient || 0 );
+		return `&testSpawn=${ encodeURIComponent( `${ gx },${ gz },${ orient }` ) }`;
+
+	}
+
 	async function createPlayableTrackUrl() {
 
 		const encoded = encodeCells( getCellsArray() );
 		const mods = encodeMods();
 		const base = window.location.href.replace( /editor\.html.*/, '' );
-		const rawUrl = `${ base }index.html?map=${ encoded }&mods=${ mods }`;
+		const rawUrl = `${ base }index.html?map=${ encoded }&mods=${ mods }${ buildTestSpawnQuery() }`;
 		const shouldForcePacked = customAssets.size > 0;
 		if ( ! shouldForcePacked && rawUrl.length <= 7000 ) return { url: rawUrl, mode: 'raw' };
 		try {
@@ -1908,6 +1940,27 @@
 			}
 
 	} );
+	document.getElementById( 'btn-select-spawn' )?.addEventListener( 'click', () => {
+
+		pickTestSpawnMode = true;
+		showToast( 'Click any tile to set test spawn.' );
+
+	} );
+	const autosaveEnableInput = document.getElementById( 'autosave-enable' );
+	const autosaveIntervalSelect = document.getElementById( 'autosave-interval' );
+	autosaveEnableInput?.addEventListener( 'change', () => {
+
+		autosaveEnabled = Boolean( autosaveEnableInput.checked );
+		restartAutosaveTimer();
+
+	} );
+	autosaveIntervalSelect?.addEventListener( 'change', () => {
+
+		autosaveEverySeconds = Math.max( 5, Number( autosaveIntervalSelect.value ) || 30 );
+		restartAutosaveTimer();
+
+	} );
+	restartAutosaveTimer();
 
 	document.getElementById( 'btn-share' ).addEventListener( 'click', async () => {
 
@@ -1974,6 +2027,16 @@
 
 		const cell = screenToGrid( clientX, clientY );
 		if ( ! cell ) return;
+		if ( pickTestSpawnMode ) {
+
+			const key = cellKey( cell.gx, cell.gz );
+			const existing = grid.get( key );
+			testSpawnCell = { gx: cell.gx, gz: cell.gz, orient: existing?.orient || selectedOrient || 0 };
+			pickTestSpawnMode = false;
+			showToast( `Test spawn set: ${ cell.gx }, ${ cell.gz }` );
+			return;
+
+		}
 
 		if ( lastDrawCell && lastDrawCell.gx === cell.gx && lastDrawCell.gz === cell.gz ) return;
 		lastDrawCell = cell;
