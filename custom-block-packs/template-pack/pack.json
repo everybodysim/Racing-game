@@ -1,0 +1,18 @@
+{
+  "id": "template-pack",
+  "name": "Template Pack",
+  "blocks": [
+    {
+      "id": "example-block",
+      "name": "Example Block",
+      "model": "./blocks/example-block/model.obj",
+      "textures": [
+        {
+          "id": "example-texture",
+          "name": "Example Texture",
+          "file": "./textures/example-texture/albedo.png"
+        }
+      ]
+    }
+  ]
+}
