@@ -77,6 +77,7 @@ const BOOST_VELOCITY_DELTA = 8.2;
 const BOOST_EFFECT_SECONDS = 1.0;
 const BOOST_FORCE_SECONDS = 0.45;
 const BOOST_ACCEL_PER_SECOND = 16.5;
+const FX_SETTINGS_KEY = 'racing-fx-settings-v1';
 const VEHICLE_SURFACE_RADIUS = 0.5;
 const SURFACE_EFFECTS = {
 	'surface-wood': { grip: 0.9, drag: 1.35, accel: 1.0, drive: 1.55 },
@@ -908,6 +909,23 @@ async function init() {
 		}
 
 	}
+	const testSpawnRaw = String( searchParams.get( 'testSpawn' ) || '' ).trim();
+	if ( testSpawnRaw ) {
+
+		const [ gxRaw, gzRaw, orientRaw ] = testSpawnRaw.split( ',' );
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		const orient = Number( orientRaw );
+		if ( Number.isFinite( gx ) && Number.isFinite( gz ) ) {
+
+			const x = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
+			const z = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
+			const angle = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
+			spawn = { position: [ x, 0.5, z ], angle };
+
+		}
+
+	}
 
 	// Compute track bounds and size physics/shadows to fit
 	const bounds = computeTrackBounds( customCells );
@@ -1241,6 +1259,9 @@ async function init() {
 	const _ghostUp = new THREE.Vector3( 0, 1, 0 );
 	const selectedLeaderboardGhosts = new Set();
 	const leaderboardGhostPlayers = new Map();
+	const recentGhostHistory = [];
+	const recentGhostPlayers = [];
+	let bestGhostCheckpointTimes = [];
 
 	function normalizeGhostCosmeticsPayload( payload ) {
 
@@ -1497,6 +1518,64 @@ async function init() {
 
 	}
 
+	function computeCheckpointCrossTimes( samples ) {
+
+		if ( ! Array.isArray( samples ) || samples.length < 2 || checkpointStates.length === 0 ) return [];
+		const times = new Array( checkpointStates.length ).fill( null );
+		const state = checkpointStates.map( () => ( { x: 0, z: 0, hasPrev: false } ) );
+		for ( const sample of samples ) {
+
+			for ( let i = 0; i < checkpointStates.length; i ++ ) {
+
+				if ( times[ i ] !== null ) continue;
+				const cp = checkpointStates[ i ];
+				const localX = ( ( sample.x - cp.centerX ) * cp.cosA ) + ( ( sample.z - cp.centerZ ) * cp.sinA );
+				const localZ = ( - ( sample.x - cp.centerX ) * cp.sinA ) + ( ( sample.z - cp.centerZ ) * cp.cosA );
+				const prev = state[ i ];
+				if ( prev.hasPrev ) {
+
+					const crossedPlane = ( prev.z < 0 && localZ > 0 ) || ( prev.z > 0 && localZ < 0 );
+					if ( crossedPlane ) {
+
+						const t = prev.z / ( prev.z - localZ );
+						const xCross = THREE.MathUtils.lerp( prev.x, localX, t );
+						if ( t >= 0 && t <= 1 && Math.abs( xCross ) <= cp.halfExtent ) times[ i ] = Number( sample.t );
+
+					}
+
+				}
+				prev.x = localX;
+				prev.z = localZ;
+				prev.hasPrev = true;
+
+			}
+
+		}
+		return times;
+
+	}
+
+	function rebuildRecentGhostVisuals() {
+
+		while ( recentGhostPlayers.length > 0 ) {
+
+			const state = recentGhostPlayers.pop();
+			if ( state?.model ) scene.remove( state.model );
+
+		}
+		if ( ! ghostEnabled || ! fxSettings.recentGhostsEnabled ) return;
+		const targetCount = Math.max( 1, Math.min( 5, fxSettings.recentGhostCount ) );
+		for ( const entry of recentGhostHistory.slice( 0, targetCount ) ) {
+
+			const model = createGhostVisualModel( models[ entry.car || 'vehicle-truck-yellow' ] || models[ 'vehicle-truck-yellow' ], 0.22, entry.cosmetics || null );
+			if ( ! model ) continue;
+			scene.add( model );
+			recentGhostPlayers.push( { ...entry, model } );
+
+		}
+
+	}
+
 	function enableLeaderboardGhost( playerName, payload ) {
 
 		if ( ! ghostEnabled ) return false;
@@ -1512,6 +1591,7 @@ async function init() {
 			model,
 			samples: normalized.samples,
 			duration: normalized.duration,
+			checkpointTimes: computeCheckpointCrossTimes( normalized.samples ),
 		} );
 		return true;
 
@@ -1552,6 +1632,36 @@ async function init() {
 
 		if ( ! ghostEnabled || leaderboardGhostPlayers.size === 0 ) return;
 		for ( const state of leaderboardGhostPlayers.values() ) {
+
+			if ( ! state?.model || ! Array.isArray( state.samples ) || state.samples.length < 2 || ! Number.isFinite( state.duration ) || state.duration <= 0 ) {
+
+				if ( state?.model ) state.model.visible = false;
+				continue;
+
+			}
+			state.model.visible = true;
+			const t = ( ( lapElapsed % state.duration ) + state.duration ) % state.duration;
+			let nextIndex = state.samples.findIndex( ( sample ) => sample.t >= t );
+			if ( nextIndex <= 0 ) nextIndex = 1;
+			const sampleA = state.samples[ nextIndex - 1 ];
+			const sampleB = state.samples[ nextIndex ];
+			const span = Math.max( 1e-4, sampleB.t - sampleA.t );
+			const alpha = THREE.MathUtils.clamp( ( t - sampleA.t ) / span, 0, 1 );
+			state.model.position.set(
+				THREE.MathUtils.lerp( sampleA.x, sampleB.x, alpha ),
+				THREE.MathUtils.lerp( sampleA.y, sampleB.y, alpha ),
+				THREE.MathUtils.lerp( sampleA.z, sampleB.z, alpha )
+			);
+			state.model.rotation.set( 0, lerpAngle( sampleA.yaw, sampleB.yaw, alpha ), 0 );
+
+		}
+
+	}
+
+	function updateRecentGhostPlayback( lapElapsed ) {
+
+		if ( ! ghostEnabled || recentGhostPlayers.length === 0 || ! fxSettings.recentGhostsEnabled ) return;
+		for ( const state of recentGhostPlayers ) {
 
 			if ( ! state?.model || ! Array.isArray( state.samples ) || state.samples.length < 2 || ! Number.isFinite( state.duration ) || state.duration <= 0 ) {
 
@@ -1679,9 +1789,78 @@ async function init() {
 	const leaderboardList = document.getElementById( 'leaderboard-list' );
 	const leaderboardEmpty = document.getElementById( 'leaderboard-empty' );
 	const leaderboardTrackLabel = document.getElementById( 'leaderboard-track-label' );
+	let leaderboardPercentileLabel = document.getElementById( 'leaderboard-percentile-label' );
 	const leaderboardOpenApiBtn = document.getElementById( 'leaderboard-open-api' );
 	const leaderboardPanel = document.getElementById( 'leaderboard-panel' );
 	const leaderboardToggleBtn = document.getElementById( 'leaderboard-toggle-btn' );
+	if ( leaderboardPanel && ! leaderboardPercentileLabel ) {
+
+		leaderboardPercentileLabel = document.createElement( 'div' );
+		leaderboardPercentileLabel.id = 'leaderboard-percentile-label';
+		leaderboardPercentileLabel.style.fontSize = '12px';
+		leaderboardPercentileLabel.style.color = '#bde6ff';
+		leaderboardPercentileLabel.style.marginBottom = '8px';
+		leaderboardPanel.insertBefore( leaderboardPercentileLabel, leaderboardEmpty || leaderboardList || null );
+
+	}
+	const fxSettings = {
+		motionBlur: true,
+		recentGhostsEnabled: false,
+		recentGhostCount: 3,
+	};
+	try {
+
+		const parsed = JSON.parse( localStorage.getItem( FX_SETTINGS_KEY ) || '{}' );
+		if ( typeof parsed?.motionBlur === 'boolean' ) fxSettings.motionBlur = parsed.motionBlur;
+		if ( typeof parsed?.recentGhostsEnabled === 'boolean' ) fxSettings.recentGhostsEnabled = parsed.recentGhostsEnabled;
+		if ( [ 1, 3, 5 ].includes( Number( parsed?.recentGhostCount ) ) ) fxSettings.recentGhostCount = Number( parsed.recentGhostCount );
+
+	} catch {}
+
+	const fxPanel = document.createElement( 'div' );
+	fxPanel.style.position = 'fixed';
+	fxPanel.style.left = '12px';
+	fxPanel.style.bottom = '88px';
+	fxPanel.style.zIndex = '56';
+	fxPanel.style.background = 'rgba(0,0,0,0.45)';
+	fxPanel.style.color = '#e9f5ff';
+	fxPanel.style.padding = '6px 8px';
+	fxPanel.style.borderRadius = '8px';
+	fxPanel.style.font = '12px/1.3 sans-serif';
+	fxPanel.innerHTML = `<label style="display:block;margin-bottom:4px;"><input id="fx-motion-blur" type="checkbox" ${ fxSettings.motionBlur ? 'checked' : '' }> Motion blur</label>
+	<label style="display:block;margin-bottom:4px;"><input id="fx-recent-ghosts" type="checkbox" ${ fxSettings.recentGhostsEnabled ? 'checked' : '' }> Show recent ghosts</label>
+	<select id="fx-recent-ghost-count" style="width:100%;background:#0f1520;color:#e9f5ff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:2px 4px;">
+		<option value="1">Last run</option>
+		<option value="3">Last 3 runs</option>
+		<option value="5">Last 5 runs</option>
+	</select>`;
+	document.body.appendChild( fxPanel );
+	const fxMotionBlurInput = fxPanel.querySelector( '#fx-motion-blur' );
+	const fxRecentGhostsInput = fxPanel.querySelector( '#fx-recent-ghosts' );
+	const fxRecentGhostCountSelect = fxPanel.querySelector( '#fx-recent-ghost-count' );
+	if ( fxRecentGhostCountSelect ) fxRecentGhostCountSelect.value = String( fxSettings.recentGhostCount );
+	const saveFxSettings = () => localStorage.setItem( FX_SETTINGS_KEY, JSON.stringify( fxSettings ) );
+	fxMotionBlurInput?.addEventListener( 'change', () => {
+
+		fxSettings.motionBlur = Boolean( fxMotionBlurInput.checked );
+		saveFxSettings();
+
+	} );
+	fxRecentGhostsInput?.addEventListener( 'change', () => {
+
+		fxSettings.recentGhostsEnabled = Boolean( fxRecentGhostsInput.checked );
+		saveFxSettings();
+		rebuildRecentGhostVisuals();
+
+	} );
+	fxRecentGhostCountSelect?.addEventListener( 'change', () => {
+
+		const value = Number( fxRecentGhostCountSelect.value );
+		if ( [ 1, 3, 5 ].includes( value ) ) fxSettings.recentGhostCount = value;
+		saveFxSettings();
+		rebuildRecentGhostVisuals();
+
+	} );
 	const namePopup = document.getElementById( 'name-popup' );
 	const namePopupInput = document.getElementById( 'name-popup-input' );
 	const namePopupSave = document.getElementById( 'name-popup-save' );
@@ -2909,12 +3088,17 @@ async function init() {
 
 			const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
 			audio.playImpact( impactVelocity );
+			if ( impactVelocity > 1.15 ) cam.triggerShake( THREE.MathUtils.clamp( impactVelocity * 0.03, 0.05, 0.4 ), 0.22 );
+			if ( impactVelocity > 1.15 ) impactBlurUntil = raceClockSeconds + THREE.MathUtils.clamp( impactVelocity * 0.03, 0.06, 0.35 );
 
 		}
 	};
 
 	const timer = new THREE.Timer();
 	let raceClockSeconds = 0;
+	let impactBlurUntil = 0;
+	let wasAirborne = false;
+	let airbornePeakVel = 0;
 	const activeCells = customCells || TRACK_CELLS;
 	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells[ 0 ];
 	const checkpointCells = activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' );
@@ -3126,6 +3310,7 @@ async function init() {
 	let lapSeconds = 0;
 	let lastLapSeconds = null;
 	let bestLapSeconds = null;
+	let checkpointDeltaText = '';
 	let lastSyncedOnlineBestLapSeconds = null;
 	let hasPrevFinishSample = false;
 	let lastLocalX = 0;
@@ -3403,6 +3588,37 @@ async function init() {
 
 	}
 
+	function getFastestVisibleGhostCheckpointTime( checkpointIndex ) {
+
+		let best = Number.isFinite( bestGhostCheckpointTimes?.[ checkpointIndex ] ) ? bestGhostCheckpointTimes[ checkpointIndex ] : Infinity;
+		for ( const state of leaderboardGhostPlayers.values() ) {
+
+			const time = Number( state?.checkpointTimes?.[ checkpointIndex ] );
+			if ( Number.isFinite( time ) ) best = Math.min( best, time );
+
+		}
+		for ( const state of recentGhostPlayers ) {
+
+			const time = Number( state?.checkpointTimes?.[ checkpointIndex ] );
+			if ( Number.isFinite( time ) ) best = Math.min( best, time );
+
+		}
+		return Number.isFinite( best ) ? best : null;
+
+	}
+
+	function formatDeltaSigned( deltaSeconds ) {
+
+		if ( ! Number.isFinite( deltaSeconds ) ) return '';
+		const sign = deltaSeconds >= 0 ? '+' : '-';
+		const abs = Math.abs( deltaSeconds );
+		const minutes = Math.floor( abs / 60 );
+		const seconds = Math.floor( abs % 60 );
+		const millis = Math.floor( ( abs % 1 ) * 1000 );
+		return `${ sign }${ String( minutes ).padStart( 2, '0' ) }.${ String( seconds ).padStart( 2, '0' ) }.${ String( millis ).padStart( 3, '0' ) }`;
+
+	}
+
 	function formatLapTime( totalSeconds ) {
 
 		if ( totalSeconds === null || ! Number.isFinite( totalSeconds ) ) return '--:--.---';
@@ -3619,6 +3835,7 @@ async function init() {
 		if ( bestLapGhostSamples.length < 2 ) return false;
 		bestGhostDuration = normalized.duration;
 		bestGhostCosmetics = normalized.cosmetics;
+		bestGhostCheckpointTimes = computeCheckpointCrossTimes( normalized.samples );
 		if ( options.applyBestLapSeconds !== false && Number.isFinite( normalized.bestLapSeconds ) ) bestLapSeconds = normalized.bestLapSeconds;
 		if ( normalized.car && models[ normalized.car ] ) {
 
@@ -3705,7 +3922,8 @@ async function init() {
 		if ( practiceStartInstalled ) controlsHints.push( 'Save/Load practice: Y / Shift+Y' );
 		if ( freecamInstalled ) controlsHints.push( 'Freecam: F (WASD + mouse)' );
 		const controlsLine = controlsHints.length ? `<br><small>${ controlsHints.join( ' • ' ) }</small>` : '';
-		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ controlsLine }`;
+		const checkpointDeltaLine = checkpointDeltaText ? `<br><small>Checkpoint Δ: ${ checkpointDeltaText }</small>` : '';
+		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ checkpointDeltaLine }${ controlsLine }`;
 
 	}
 
@@ -3731,6 +3949,7 @@ async function init() {
 			leaderboardList.hidden = true;
 			leaderboardEmpty.hidden = false;
 			leaderboardEmpty.textContent = 'No records yet. Finish a lap to post one.';
+			if ( leaderboardPercentileLabel ) leaderboardPercentileLabel.textContent = '';
 			return;
 
 		}
@@ -3783,6 +4002,36 @@ async function init() {
 
 	}
 
+	function updateLeaderboardPercentile( rows ) {
+
+		if ( ! leaderboardPercentileLabel ) return;
+		const entries = Array.isArray( rows ) ? rows : [];
+		if ( entries.length === 0 ) {
+
+			leaderboardPercentileLabel.textContent = '';
+			return;
+
+		}
+		const localName = sanitizePlayerName( playerNameInput?.value || localStorage.getItem( PLAYER_NAME_KEY ) || '' ).toLowerCase();
+		let myRank = -1;
+		if ( localName ) myRank = entries.findIndex( ( row ) => sanitizePlayerName( row?.name ).toLowerCase() === localName );
+		if ( myRank < 0 && Number.isFinite( bestLapSeconds ) ) {
+
+			myRank = entries.findIndex( ( row ) => Number( row?.timeSeconds ) >= bestLapSeconds - 1e-6 );
+
+		}
+		if ( myRank < 0 ) {
+
+			leaderboardPercentileLabel.textContent = `Entries: ${ entries.length }`;
+			return;
+
+		}
+		const rank = myRank + 1;
+		const percentile = Math.max( 0, 100 * ( 1 - ( rank - 1 ) / Math.max( 1, entries.length ) ) );
+		leaderboardPercentileLabel.textContent = `Your percentile: top ${ percentile.toFixed( 1 ) }% (#${ rank }/${ entries.length })`;
+
+	}
+
 	async function fetchTrackLeaderboard() {
 
 		if ( leaderboardTrackLabel ) leaderboardTrackLabel.textContent = `Track: ${ leaderboardTrackName }`;
@@ -3802,6 +4051,7 @@ async function init() {
 			} ) );
 			const merged = dedupeAndSortLeaderboardEntries( payloads.flatMap( ( parsed ) => Array.isArray( parsed?.entries ) ? parsed.entries : [] ) );
 			renderLeaderboardRows( merged );
+			updateLeaderboardPercentile( merged );
 
 		} catch ( e ) {
 
@@ -3809,6 +4059,7 @@ async function init() {
 			leaderboardList.hidden = true;
 			leaderboardEmpty.hidden = false;
 			leaderboardEmpty.textContent = 'Leaderboard unavailable (check Cloudflare setup).';
+			if ( leaderboardPercentileLabel ) leaderboardPercentileLabel.textContent = '';
 
 		}
 
@@ -4116,11 +4367,14 @@ async function init() {
 		recordGhostSample( 0, true );
 		updateGhostPlayback( 0 );
 		updateLeaderboardGhostPlayback( 0 );
+		updateRecentGhostPlayback( 0 );
 		hasLeftStartZone = false;
 		hasPrevFinishSample = false;
 		lastLocalX = 0;
 		lastLocalZ = 0;
-		for ( const checkpoint of checkpointStates ) {
+		for ( let checkpointIndex = 0; checkpointIndex < checkpointStates.length; checkpointIndex ++ ) {
+
+			const checkpoint = checkpointStates[ checkpointIndex ];
 
 			checkpoint.lastLocalX = 0;
 			checkpoint.lastLocalZ = 0;
@@ -4999,6 +5253,25 @@ async function init() {
 
 			vehicle.update( dt, input );
 			if ( vehicle2 && input2 ) vehicle2.update( dt, input2 );
+			const verticalSpeed = Math.abs( vehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0 );
+			const onGround = vehicle?.spherePos?.y <= 0.62 && verticalSpeed < 1.2;
+			if ( ! onGround ) {
+
+				airbornePeakVel = Math.max( airbornePeakVel, verticalSpeed );
+				wasAirborne = true;
+
+			} else if ( wasAirborne ) {
+
+				if ( airbornePeakVel > 3.2 ) {
+
+					cam.triggerShake( THREE.MathUtils.clamp( airbornePeakVel * 0.03, 0.07, 0.38 ), 0.2 );
+					impactBlurUntil = Math.max( impactBlurUntil, raceClockSeconds + THREE.MathUtils.clamp( airbornePeakVel * 0.03, 0.08, 0.28 ) );
+
+				}
+				wasAirborne = false;
+				airbornePeakVel = 0;
+
+			}
 			updateRemotePlayerVisualsFrame( dt );
 			if ( hacksActive ) {
 
@@ -5128,6 +5401,19 @@ async function init() {
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
 		audio.update( dt, vehicle.linearSpeed, input.z, vehicle.driftIntensity );
+		if ( fxSettings.motionBlur ) {
+
+			const speedBlur = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed ) * 0.008, 0, 0.06 );
+			const impactBlur = raceClockSeconds < impactBlurUntil ? 0.1 : 0;
+			bloomPass.strength = 0.02 + speedBlur + impactBlur;
+			bloomPass.radius = 0.02 + speedBlur * 0.6 + impactBlur * 0.5;
+
+		} else {
+
+			bloomPass.strength = 0.02;
+			bloomPass.radius = 0.02;
+
+		}
 		updateWeatherFx( dt, now );
 
 		for ( const checkpoint of checkpointStates ) {
@@ -5156,6 +5442,14 @@ async function init() {
 
 				checkpoint.passedThisLap = true;
 				if ( checkpointRespawnInstalled ) saveCheckpointState( checkpoint );
+				const ghostTime = getFastestVisibleGhostCheckpointTime( checkpointIndex );
+				if ( Number.isFinite( ghostTime ) ) {
+
+					const currentSplit = now - lapStartSeconds;
+					checkpointDeltaText = formatDeltaSigned( currentSplit - ghostTime );
+					showTopMessage( `CP ${ checkpointIndex + 1}: ${ checkpointDeltaText }`, checkpointDeltaText.startsWith( '+' ), 1200 );
+
+				}
 
 			}
 			checkpoint.lastLocalX = localX;
@@ -5251,6 +5545,7 @@ async function init() {
 					bestGhostDuration = Math.max( 1e-4, completedLap - t0 );
 					bestGhostCarKey = currentCarKey();
 					bestGhostCosmetics = buildGhostCosmeticsSnapshot( bestGhostCarKey );
+					bestGhostCheckpointTimes = computeCheckpointCrossTimes( bestLapGhostSamples );
 					if ( models[ bestGhostCarKey ] ) createGhostModel( models[ bestGhostCarKey ], bestGhostCosmetics );
 					updateGhostShareButtons();
 
@@ -5275,14 +5570,32 @@ async function init() {
 					} ) );
 
 				}
-					if ( isNewBest && ! isSplitScreen ) submitLeaderboardTime( completedLap );
+				if ( currentLapGhostSamples.length > 1 ) {
+
+					const t0 = currentLapGhostSamples[ 0 ].t;
+					const normalized = currentLapGhostSamples.map( ( sample ) => ( { ...sample, t: sample.t - t0 } ) );
+					const runDuration = Math.max( 1e-4, completedLap - t0 );
+					recentGhostHistory.unshift( {
+						samples: normalized,
+						duration: runDuration,
+						car: currentCarKey(),
+						cosmetics: buildGhostCosmeticsSnapshot( currentCarKey() ),
+						checkpointTimes: computeCheckpointCrossTimes( normalized ),
+					} );
+					if ( recentGhostHistory.length > 12 ) recentGhostHistory.length = 12;
+					rebuildRecentGhostVisuals();
+
+				}
+				if ( isNewBest && ! isSplitScreen ) submitLeaderboardTime( completedLap );
 						lapNumber ++;
 						lapStartSeconds = now;
+						checkpointDeltaText = '';
 						resetCurrentLapGhost();
 						resetCurrentLapInputs();
 						recordGhostSample( 0, true );
 					updateGhostPlayback( 0 );
 					updateLeaderboardGhostPlayback( 0 );
+					updateRecentGhostPlayback( 0 );
 				hasLeftStartZone = false;
 				for ( const checkpoint of checkpointStates ) {
 
@@ -5382,6 +5695,7 @@ async function init() {
 		recordGhostSample( lapSeconds );
 		updateGhostPlayback( lapSeconds );
 		updateLeaderboardGhostPlayback( lapSeconds );
+		updateRecentGhostPlayback( lapSeconds );
 		const stuntScoringActive = gameMode === 'stunt' || ( gameMode === 'campaign' && campaignState?.stageType === 'stunt-score' );
 		if ( stuntScoringActive ) {
 
@@ -5481,6 +5795,7 @@ async function init() {
 
 	}
 
+	rebuildRecentGhostVisuals();
 	animate();
 
 }
