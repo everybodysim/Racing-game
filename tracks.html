@@ -81,6 +81,19 @@
 				<h2>Track Share Record Board</h2>
 				<p class="sub">Drivers ranked by how many unique shared tracks they currently hold #1 on.</p>
 				<div id="records-board-list" class="records-list"></div>
+				<h2 style="margin-top:16px">Global Placement Rating</h2>
+				<p class="sub">Cross-track rating from placement points (1st/2nd/3rd…) across all shared tracks.</p>
+				<div id="placement-rating-list" class="records-list"></div>
+			</div>
+			<div class="panel">
+				<details id="new-week-section">
+					<summary style="cursor:pointer;font-weight:700;">New this week</summary>
+					<div id="new-week-list" class="records-list" style="margin-top:8px;"></div>
+				</details>
+				<details id="trending-section" style="margin-top:10px;">
+					<summary style="cursor:pointer;font-weight:700;">Trending (recent plays)</summary>
+					<div id="trending-list" class="records-list" style="margin-top:8px;"></div>
+				</details>
 			</div>
 			<div id="grid"></div>
 		</div>
@@ -98,11 +111,15 @@
 			const sortFilter = document.getElementById( 'sort-filter' );
 			const randomTrackBtn = document.getElementById( 'random-track-btn' );
 			const recordsBoardList = document.getElementById( 'records-board-list' );
+			const placementRatingList = document.getElementById( 'placement-rating-list' );
+			const newWeekList = document.getElementById( 'new-week-list' );
+			const trendingList = document.getElementById( 'trending-list' );
 			const statusEl = document.getElementById( 'status' );
 			const grid = document.getElementById( 'grid' );
 			let entries = [];
 			let useRemoteBoard = false;
 			let topByTrackId = new Map();
+			let rowsByTrackId = new Map();
 
 		function isPackBoardEntry( entry ) {
 			const name = String( entry?.name || '' ).trim();
@@ -220,6 +237,7 @@
 
 		async function hydrateTopLeaderboardRows( sourceEntries ) {
 			const next = new Map();
+			const rowsMap = new Map();
 			const bestRowForTrack = ( rows ) => {
 				if ( ! Array.isArray( rows ) || rows.length === 0 ) return null;
 				return rows.slice().sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ] || null;
@@ -238,9 +256,14 @@
 					}
 				} ) );
 				const mergedRows = payloads.flatMap( ( payload ) => Array.isArray( payload?.entries ) ? payload.entries : [] );
+				const dedupedRows = [ ...new Map( mergedRows.map( ( row ) => [ `${ String( row?.name || '' ).trim().toLowerCase() }|${ Number( row?.timeSeconds ) || Infinity }`, row ] ) ).values() ]
+					.filter( ( row ) => String( row?.name || '' ).trim() && Number.isFinite( Number( row?.timeSeconds ) ) )
+					.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
+				rowsMap.set( primaryId, dedupedRows );
 				next.set( primaryId, bestRowForTrack( mergedRows ) );
 			} ) );
 			topByTrackId = next;
+			rowsByTrackId = rowsMap;
 		}
 
 		function inferTrackName( url, fallback = 'Shared Track' ) {
@@ -346,6 +369,44 @@
 				.sort( ( a, b ) => b.wins - a.wins || a.name.localeCompare( b.name ) );
 		}
 
+		function getPlacementRatings() {
+			const scoreByDriver = new Map();
+			const POINTS_BY_PLACE = [ 100, 80, 65, 54, 46, 40, 35, 30, 26, 22 ];
+			for ( const rows of rowsByTrackId.values() ) {
+
+				if ( ! Array.isArray( rows ) || rows.length === 0 ) continue;
+				rows.slice( 0, POINTS_BY_PLACE.length ).forEach( ( row, index ) => {
+
+					const name = String( row?.name || '' ).trim();
+					if ( ! name ) return;
+					const points = POINTS_BY_PLACE[ index ] || 0;
+					const existing = scoreByDriver.get( name ) || { name, points: 0, podiums: 0 };
+					existing.points += points;
+					if ( index <= 2 ) existing.podiums += 1;
+					scoreByDriver.set( name, existing );
+
+				} );
+
+			}
+			return [ ...scoreByDriver.values() ]
+				.sort( ( a, b ) => b.points - a.points || b.podiums - a.podiums || a.name.localeCompare( b.name ) );
+		}
+
+		function classifyTrackStyle( cells = [], mods = {} ) {
+			if ( ! Array.isArray( cells ) || cells.length === 0 ) return 'Mixed';
+			const corners = cells.filter( ( cell ) => cell[ 2 ] === 'track-corner' ).length;
+			const straights = cells.filter( ( cell ) => cell[ 2 ] === 'track-straight' || cell[ 2 ] === 'track-finish' || cell[ 2 ] === 'track-checkpoint' ).length;
+			const surfaces = Array.isArray( mods?.u ) ? mods.u.map( ( item ) => item[ 2 ] ) : [];
+			const iceCount = surfaces.filter( ( surface ) => surface === 'surface-ice' ).length;
+			const boostCount = surfaces.filter( ( surface ) => surface === 'surface-boost' || surface === 'surface-wood' ).length;
+			const cornerRatio = corners / Math.max( 1, corners + straights );
+			if ( iceCount >= 2 ) return 'Ice';
+			if ( cornerRatio >= 0.45 ) return 'Tech';
+			if ( boostCount >= 2 || cornerRatio <= 0.22 ) return 'Speed';
+			return 'Mixed';
+
+		}
+
 		function renderRecordBoard() {
 			if ( ! recordsBoardList ) return;
 			const leaders = getRecordLeaders();
@@ -359,6 +420,49 @@
 					<div class="count">${ leader.wins } unique track record${ leader.wins === 1 ? '' : 's' }</div>
 				</div>` )
 				.join( '' );
+			if ( ! placementRatingList ) return;
+			const ratings = getPlacementRatings();
+			if ( ratings.length === 0 ) {
+
+				placementRatingList.innerHTML = '<div class="records-empty">No placement ratings yet. Finish laps on shared tracks first.</div>';
+				return;
+
+			}
+			placementRatingList.innerHTML = ratings.slice( 0, 10 )
+				.map( ( row, idx ) => `<div class="record-chip">
+					<div class="name">${ idx === 0 ? '⭐ ' : '' }${ row.name }</div>
+					<div class="count">${ row.points } pts • ${ row.podiums } podium${ row.podiums === 1 ? '' : 's' }</div>
+				</div>` )
+				.join( '' );
+		}
+
+		function renderHighlights() {
+
+			const now = Date.now();
+			const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+			const newWeek = entries
+				.filter( ( entry ) => Number( entry?.createdAt ) >= weekAgo )
+				.sort( ( a, b ) => Number( b.createdAt ) - Number( a.createdAt ) )
+				.slice( 0, 6 );
+			const trending = entries
+				.filter( ( entry ) => Number( entry?.createdAt ) >= weekAgo )
+				.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) )
+				.slice( 0, 6 );
+				if ( newWeekList ) {
+
+					newWeekList.innerHTML = newWeek.length
+						? newWeek.map( ( entry ) => `<div class="record-chip"><div class="name">${ entry.name }</div><div class="count">${ new Date( entry.createdAt || Date.now() ).toLocaleDateString() }</div><a href="${ entry.playUrl }" target="_blank" rel="noopener noreferrer">Play</a></div>` ).join( '' )
+						: '<div class="records-empty">No new tracks in the past 7 days.</div>';
+
+			}
+				if ( trendingList ) {
+
+					trendingList.innerHTML = trending.length
+						? trending.map( ( entry ) => `<div class="record-chip"><div class="name">${ entry.name }</div><div class="count">${ Number( entry.viewCount ) || 0 } recent plays</div><a href="${ entry.playUrl }" target="_blank" rel="noopener noreferrer">Play</a></div>` ).join( '' )
+						: '<div class="records-empty">No trending data yet.</div>';
+
+			}
+
 		}
 
 		function inferTrackSize( entry ) {
@@ -401,6 +505,7 @@
 		function render() {
 			grid.innerHTML = '';
 			renderRecordBoard();
+			renderHighlights();
 			const filtered = getFilteredEntries();
 			if ( filtered.length === 0 ) {
 				const hasAny = entries.length > 0;
@@ -416,10 +521,13 @@
 				const sizeTag = inferTrackSize( entry );
 				const trackId = getTrackIdFromPlayUrl( entry.playUrl );
 				const topRow = topByTrackId.get( trackId ) || null;
+				const previewData = parseTrackLayoutFromUrl( entry.playUrl );
+				const styleTag = classifyTrackStyle( previewData?.cells || [], previewData?.mods || {} );
 				card.innerHTML = `<h3>${ entry.name }</h3>
 					<div class="badges">
 						<span class="badge">👁️ ${ Number( entry.viewCount ) || 0 } views</span>
 						<span class="badge">🏁 ${ sizeTag }</span>
+						<span class="badge">🧭 ${ styleTag }</span>
 					</div>
 					<div class="record-holder">
 						<div>
@@ -434,7 +542,6 @@
 						<a href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">Open track link</a>
 						<button data-id="${ entry.id }" type="button">Remove</button>
 					</div>`;
-				const previewData = parseTrackLayoutFromUrl( entry.playUrl );
 				if ( previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), previewData.cells, previewData.mods );
 				grid.appendChild( card );
 			}

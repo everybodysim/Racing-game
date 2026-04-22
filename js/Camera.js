@@ -27,6 +27,10 @@ export class Camera {
 		this._upAxis = new THREE.Vector3( 0, 1, 0 );
 		this.chaseYaw = 0;
 		this.hasChaseYaw = false;
+		this.shakeTime = 0;
+		this.shakeDuration = 0.2;
+		this.shakeStrength = 0;
+		this._shakeOffset = new THREE.Vector3();
 
 		this.camera.position.copy( this.offset );
 		this.camera.lookAt( 0, 0, 0 );
@@ -37,6 +41,14 @@ export class Camera {
 			this.camera.updateProjectionMatrix();
 
 		} );
+
+	}
+
+	triggerShake( strength = 0.2, duration = 0.2 ) {
+
+		this.shakeStrength = Math.max( this.shakeStrength, Math.min( 1.5, strength ) );
+		this.shakeTime = Math.max( this.shakeTime, duration );
+		this.shakeDuration = Math.max( this.shakeDuration, duration );
 
 	}
 
@@ -85,6 +97,20 @@ export class Camera {
 
 			this.camera.position.lerp( this._desiredPos, dt * 10 );
 			this.lookTarget.lerp( this._desiredLook, dt * 8 );
+			if ( this.shakeTime > 0 ) {
+
+				this.shakeTime = Math.max( 0, this.shakeTime - dt );
+				const damp = this.shakeTime > 0 ? ( this.shakeTime / Math.max( 1e-4, this.shakeDuration ) ) : 0;
+				const amp = this.shakeStrength * damp;
+				this._shakeOffset.set(
+					( Math.random() - 0.5 ) * amp,
+					( Math.random() - 0.5 ) * amp * 0.7,
+					( Math.random() - 0.5 ) * amp
+				);
+				this.camera.position.add( this._shakeOffset );
+				this.shakeStrength *= 0.92;
+
+			}
 			this.camera.lookAt( this.lookTarget );
 
 		} else {
@@ -92,6 +118,19 @@ export class Camera {
 			this._desiredPos.copy( this.targetPosition ).add( this.offset );
 			this.camera.position.lerp( this._desiredPos, dt * 8 );
 			this.lookTarget.lerp( this.targetPosition, dt * 10 );
+			if ( this.shakeTime > 0 ) {
+
+				this.shakeTime = Math.max( 0, this.shakeTime - dt );
+				const amp = this.shakeStrength * Math.max( 0.1, this.shakeTime * 2.5 );
+				this._shakeOffset.set(
+					( Math.random() - 0.5 ) * amp,
+					( Math.random() - 0.5 ) * amp * 0.55,
+					( Math.random() - 0.5 ) * amp
+				);
+				this.camera.position.add( this._shakeOffset );
+				this.shakeStrength *= 0.92;
+
+			}
 			this.camera.lookAt( this.lookTarget );
 
 		}
