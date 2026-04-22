@@ -112,6 +112,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const cells = customCells || TRACK_CELLS;
 	const bumpSet = new Set();
 	const jumpMap = new Map();
+	const customAssetColliders = extras?.customAssets && typeof extras.customAssets === 'object' ? extras.customAssets : {};
+	const decorationEntries = extras && Array.isArray( extras.decorations ) ? extras.decorations : [];
 	if ( extras && Array.isArray( extras.bumps ) ) {
 
 		for ( const [ gx, gz ] of extras.bumps ) bumpSet.add( gx + ',' + gz );
@@ -224,6 +226,48 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		const [ gx, gz ] = key.split( ',' ).map( Number );
 		addJumpRampCollider( gx, gz, orient );
+
+	}
+
+	for ( const [ gx, gz, decoKey, orient = 0, customOptions = null ] of decorationEntries ) {
+
+		if ( typeof decoKey !== 'string' || ! decoKey.startsWith( 'custom:' ) ) continue;
+		const assetId = decoKey.slice( 'custom:'.length );
+		const colliderBoxes = Array.isArray( customAssetColliders?.[ assetId ]?.colliderBoxes ) ? customAssetColliders[ assetId ].colliderBoxes : [];
+		if ( colliderBoxes.length === 0 ) continue;
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+		const rotQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
+		const scaleMul = THREE.MathUtils.clamp( Number( customOptions?.scale ) || 1, 0.2, 3 );
+		const heightOffset = THREE.MathUtils.clamp( Number( customOptions?.heightOffset ) || 0, - 2, 6 );
+		const cellCenter = new THREE.Vector3( ( gx + 0.5 ) * CELL_RAW * S, 0.01 + heightOffset * S, ( gz + 0.5 ) * CELL_RAW * S );
+		for ( const boxEntry of colliderBoxes.slice( 0, 96 ) ) {
+
+			const localCenter = new THREE.Vector3(
+				Number( boxEntry?.c?.[ 0 ] ) || 0,
+				Number( boxEntry?.c?.[ 1 ] ) || 0,
+				Number( boxEntry?.c?.[ 2 ] ) || 0
+				).multiplyScalar( S * scaleMul );
+			localCenter.applyQuaternion( rotQuat );
+			const worldCenter = cellCenter.clone().add( localCenter );
+			const halfExtents = [
+					Math.max( 0.02, Number( boxEntry?.e?.[ 0 ] ) || 0.02 ) * S * scaleMul,
+					Math.max( 0.02, Number( boxEntry?.e?.[ 1 ] ) || 0.02 ) * S * scaleMul,
+					Math.max( 0.02, Number( boxEntry?.e?.[ 2 ] ) || 0.02 ) * S * scaleMul,
+				];
+			const position = [ worldCenter.x, worldCenter.y, worldCenter.z ];
+			const quaternion = [ rotQuat.x, rotQuat.y, rotQuat.z, rotQuat.w ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				quaternion,
+				friction: 0.7,
+				restitution: 0.05,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+		}
 
 	}
 

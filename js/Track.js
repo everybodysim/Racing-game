@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+const customTextureLoader = new THREE.TextureLoader();
 
 export const ORIENT_DEG = { 0: 0, 10: 180, 16: 90, 22: 270 };
 
@@ -168,6 +169,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const boostCells = Array.isArray( extras.boosts ) ? extras.boosts : [];
 		const jumpCells = Array.isArray( extras.jumps ) ? extras.jumps : [];
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
+		const customAssets = extras?.customAssets && typeof extras.customAssets === 'object' ? extras.customAssets : {};
 		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
 
@@ -221,9 +223,42 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		for ( const [ gx, gz, key, orient ] of decorations ) {
+		for ( const [ gx, gz, key, orient, customOptions = null ] of decorations ) {
 
 			const piece = placePiece( models, key, gx, gz, orient || 0 );
+			if ( piece && typeof key === 'string' && key.startsWith( 'custom:' ) ) {
+
+				const scaleMul = THREE.MathUtils.clamp( Number( customOptions?.scale ) || 1, 0.2, 3 );
+				const heightOffset = THREE.MathUtils.clamp( Number( customOptions?.heightOffset ) || 0, - 2, 6 );
+				piece.scale.multiplyScalar( scaleMul );
+				piece.position.y += heightOffset;
+				const assetId = key.slice( 'custom:'.length );
+				const textures = Array.isArray( customAssets?.[ assetId ]?.textures ) ? customAssets[ assetId ].textures : [];
+				const textureId = typeof customOptions?.textureId === 'string' ? customOptions.textureId : '';
+				const textureEntry = textures.find( ( texture ) => texture.id === textureId );
+				if ( textureEntry?.dataUrl ) {
+
+					const texture = customTextureLoader.load( textureEntry.dataUrl );
+					texture.colorSpace = THREE.SRGBColorSpace;
+					piece.traverse( ( child ) => {
+
+						if ( ! child?.isMesh || ! child.material ) return;
+						const materials = Array.isArray( child.material ) ? child.material : [ child.material ];
+						const updated = materials.map( ( material ) => {
+
+							const clone = material.clone();
+							clone.map = texture;
+							clone.needsUpdate = true;
+							return clone;
+
+						} );
+						child.material = Array.isArray( child.material ) ? updated : updated[ 0 ];
+
+					} );
+
+				}
+
+			}
 			if ( piece ) decoGroup.add( piece );
 
 		}
