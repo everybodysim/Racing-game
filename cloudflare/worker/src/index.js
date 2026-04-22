@@ -1,5 +1,7 @@
 const TRACKS_KEY = 'tracks:all';
 const MAX_ENTRIES = 300;
+const PACK_KEY_PREFIX = 'pack:';
+const MAX_PACK_BYTES = 20_000_000;
 
 export default {
 	async fetch( request, env ) {
@@ -22,6 +24,15 @@ export default {
 		if ( url.pathname.startsWith( '/api/tracks/' ) && url.pathname.endsWith( '/view' ) && request.method === 'POST' ) {
 			const id = url.pathname.split( '/' )[ 3 ];
 			return withCors( await incrementTrackViews( id, env ) );
+		}
+
+		if ( url.pathname === '/api/packs' && request.method === 'POST' ) {
+			return withCors( await createPack( request, env ) );
+		}
+
+		if ( url.pathname.startsWith( '/api/packs/' ) && request.method === 'GET' ) {
+			const id = url.pathname.split( '/' ).pop();
+			return withCors( await getPack( id, env ) );
 		}
 
 		return withCors( new Response( JSON.stringify( { ok: false, error: 'Not found' } ), {
@@ -117,6 +128,37 @@ async function loadEntries( env ) {
 		} ) );
 	} catch {
 		return [];
+	}
+}
+
+async function createPack( request, env ) {
+	let payload;
+	try {
+		payload = await request.json();
+	} catch {
+		return json( { ok: false, error: 'Invalid JSON body' }, 400 );
+	}
+	const map = String( payload?.map || '' ).trim();
+	const mods = String( payload?.mods || '' ).trim();
+	if ( ! map ) return json( { ok: false, error: 'map is required' }, 400 );
+	const entry = { map, mods, createdAt: Date.now() };
+	const serialized = JSON.stringify( entry );
+	if ( serialized.length > MAX_PACK_BYTES ) return json( { ok: false, error: 'Pack too large' }, 413 );
+	const id = crypto.randomUUID().replace( /-/g, '' ).slice( 0, 16 );
+	await env.TRACKS_KV.put( `${ PACK_KEY_PREFIX }${ id }`, serialized );
+	return json( { ok: true, id } );
+}
+
+async function getPack( id, env ) {
+	const safeId = String( id || '' ).trim();
+	if ( safeId.length < 1 || safeId.length > 128 || ! /^[a-zA-Z0-9._-]+$/.test( safeId ) ) return json( { ok: false, error: 'Invalid pack id' }, 400 );
+	const raw = await env.TRACKS_KV.get( `${ PACK_KEY_PREFIX }${ safeId }` );
+	if ( ! raw ) return json( { ok: false, error: 'Not found' }, 404 );
+	try {
+		const parsed = JSON.parse( raw );
+		return json( { ok: true, map: String( parsed?.map || '' ), mods: String( parsed?.mods || '' ) } );
+	} catch {
+		return json( { ok: false, error: 'Corrupt pack' }, 500 );
 	}
 }
 
