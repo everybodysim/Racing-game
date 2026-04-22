@@ -1679,9 +1679,20 @@ async function init() {
 	const leaderboardList = document.getElementById( 'leaderboard-list' );
 	const leaderboardEmpty = document.getElementById( 'leaderboard-empty' );
 	const leaderboardTrackLabel = document.getElementById( 'leaderboard-track-label' );
+	let leaderboardPercentileLabel = document.getElementById( 'leaderboard-percentile-label' );
 	const leaderboardOpenApiBtn = document.getElementById( 'leaderboard-open-api' );
 	const leaderboardPanel = document.getElementById( 'leaderboard-panel' );
 	const leaderboardToggleBtn = document.getElementById( 'leaderboard-toggle-btn' );
+	if ( leaderboardPanel && ! leaderboardPercentileLabel ) {
+
+		leaderboardPercentileLabel = document.createElement( 'div' );
+		leaderboardPercentileLabel.id = 'leaderboard-percentile-label';
+		leaderboardPercentileLabel.style.fontSize = '12px';
+		leaderboardPercentileLabel.style.color = '#bde6ff';
+		leaderboardPercentileLabel.style.marginBottom = '8px';
+		leaderboardPanel.insertBefore( leaderboardPercentileLabel, leaderboardEmpty || leaderboardList || null );
+
+	}
 	const namePopup = document.getElementById( 'name-popup' );
 	const namePopupInput = document.getElementById( 'name-popup-input' );
 	const namePopupSave = document.getElementById( 'name-popup-save' );
@@ -3731,6 +3742,7 @@ async function init() {
 			leaderboardList.hidden = true;
 			leaderboardEmpty.hidden = false;
 			leaderboardEmpty.textContent = 'No records yet. Finish a lap to post one.';
+			if ( leaderboardPercentileLabel ) leaderboardPercentileLabel.textContent = '';
 			return;
 
 		}
@@ -3783,6 +3795,36 @@ async function init() {
 
 	}
 
+	function updateLeaderboardPercentile( rows ) {
+
+		if ( ! leaderboardPercentileLabel ) return;
+		const entries = Array.isArray( rows ) ? rows : [];
+		if ( entries.length === 0 ) {
+
+			leaderboardPercentileLabel.textContent = '';
+			return;
+
+		}
+		const localName = sanitizePlayerName( playerNameInput?.value || localStorage.getItem( PLAYER_NAME_KEY ) || '' ).toLowerCase();
+		let myRank = -1;
+		if ( localName ) myRank = entries.findIndex( ( row ) => sanitizePlayerName( row?.name ).toLowerCase() === localName );
+		if ( myRank < 0 && Number.isFinite( bestLapSeconds ) ) {
+
+			myRank = entries.findIndex( ( row ) => Number( row?.timeSeconds ) >= bestLapSeconds - 1e-6 );
+
+		}
+		if ( myRank < 0 ) {
+
+			leaderboardPercentileLabel.textContent = `Entries: ${ entries.length }`;
+			return;
+
+		}
+		const rank = myRank + 1;
+		const percentile = Math.max( 0, 100 * ( 1 - ( rank - 1 ) / Math.max( 1, entries.length ) ) );
+		leaderboardPercentileLabel.textContent = `Your percentile: top ${ percentile.toFixed( 1 ) }% (#${ rank }/${ entries.length })`;
+
+	}
+
 	async function fetchTrackLeaderboard() {
 
 		if ( leaderboardTrackLabel ) leaderboardTrackLabel.textContent = `Track: ${ leaderboardTrackName }`;
@@ -3802,6 +3844,7 @@ async function init() {
 			} ) );
 			const merged = dedupeAndSortLeaderboardEntries( payloads.flatMap( ( parsed ) => Array.isArray( parsed?.entries ) ? parsed.entries : [] ) );
 			renderLeaderboardRows( merged );
+			updateLeaderboardPercentile( merged );
 
 		} catch ( e ) {
 
@@ -3809,6 +3852,7 @@ async function init() {
 			leaderboardList.hidden = true;
 			leaderboardEmpty.hidden = false;
 			leaderboardEmpty.textContent = 'Leaderboard unavailable (check Cloudflare setup).';
+			if ( leaderboardPercentileLabel ) leaderboardPercentileLabel.textContent = '';
 
 		}
 
