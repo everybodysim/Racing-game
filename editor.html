@@ -331,6 +331,9 @@
 		<button id="btn-deco-forest">Tree</button>
 		<button id="btn-deco-tents">Tent</button>
 		<button id="btn-deco-empty">Prop</button>
+		<button id="btn-custom-import">Import 3D</button>
+		<button id="btn-custom-cycle">Custom: none</button>
+		<input id="custom-model-file" type="file" accept=".glb,.gltf,.obj,model/gltf-binary,model/gltf+json" style="display:none" />
 		<button id="btn-rotate">Rotate: 0°</button>
 		<div class="separator"></div>
 		<button id="btn-paint" class="active">Paint</button>
@@ -369,6 +372,7 @@
 	<script type="module">
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells } from './js/Track.js';
 
 	// ─── State ────────────────────────────────────────────────
@@ -383,6 +387,9 @@
 		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
 	];
 	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
+	const CUSTOM_MODEL_KEY_PREFIX = 'custom:';
+	const TRACK_SHARE_API_ROOT = 'https://racing-track-board-api.ga1010.workers.dev';
+	const TRACK_SHARE_API_PREFIXES = [ '/api', '' ];
 	const CUSTOM_SURFACE_TYPES = [ 'surface-custom-a', 'surface-custom-b', 'surface-custom-c' ];
 	let tool = 'paint'; // 'paint', 'erase'
 	let selectedType = 'track-straight';
@@ -607,8 +614,125 @@
 	// ─── Load models ──────────────────────────────────────────
 
 	const loader = new GLTFLoader();
+	const objLoader = new OBJLoader();
 	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
 	const models = {};
+	const customAssets = new Map();
+	let customAssetOrder = [];
+	let selectedCustomAssetId = '';
+
+	function makeCustomAssetId( fileName ) {
+
+		const safe = String( fileName || 'asset' ).toLowerCase().replace( /[^a-z0-9]+/g, '-' ).replace( /^-+|-+$/g, '' ).slice( 0, 24 ) || 'asset';
+		return `${ safe }-${ Math.random().toString( 36 ).slice( 2, 8 ) }`;
+
+	}
+
+	function normalizeImportedObjectToCell( root ) {
+
+		const box = new THREE.Box3().setFromObject( root );
+		const size = new THREE.Vector3();
+		const center = new THREE.Vector3();
+		box.getSize( size );
+		box.getCenter( center );
+		const maxDim = Math.max( size.x, size.z, 1e-4 );
+		const scale = CELL_RAW / maxDim;
+		root.position.sub( center );
+		root.position.y -= box.min.y - center.y;
+		root.scale.multiplyScalar( scale );
+		root.updateMatrixWorld( true );
+
+	}
+
+	function extractImportedColliderBoxes( root ) {
+
+		const out = [];
+		root.updateMatrixWorld( true );
+		root.traverse( ( node ) => {
+
+			if ( ! node?.isMesh || ! node.geometry ) return;
+			const geo = node.geometry.clone();
+			geo.applyMatrix4( node.matrixWorld );
+			const box = new THREE.Box3().setFromBufferAttribute( geo.getAttribute( 'position' ) );
+			const size = new THREE.Vector3();
+			const center = new THREE.Vector3();
+			box.getSize( size );
+			box.getCenter( center );
+			if ( size.lengthSq() < 1e-6 ) return;
+			out.push( {
+				c: [ Number( center.x.toFixed( 4 ) ), Number( center.y.toFixed( 4 ) ), Number( center.z.toFixed( 4 ) ) ],
+				e: [ Number( ( size.x * 0.5 ).toFixed( 4 ) ), Number( ( size.y * 0.5 ).toFixed( 4 ) ), Number( ( size.z * 0.5 ).toFixed( 4 ) ) ],
+				q: [ 0, 0, 0, 1 ],
+			} );
+
+		} );
+		return out.slice( 0, 96 );
+
+	}
+
+	function updateCustomAssetButtonLabel() {
+
+		const btn = document.getElementById( 'btn-custom-cycle' );
+		if ( ! btn ) return;
+		const active = customAssets.get( selectedCustomAssetId );
+		btn.textContent = active ? `Custom: ${ active.name.slice( 0, 12 ) }` : 'Custom: none';
+
+	}
+
+	async function loadImportedAssetFromDataUrl( dataUrl, format ) {
+
+		if ( format === 'obj' ) {
+
+			const text = await ( await fetch( dataUrl ) ).text();
+			return objLoader.parse( text );
+
+		}
+		return new Promise( ( resolve, reject ) => loader.load( dataUrl, ( gltf ) => resolve( gltf.scene ), undefined, reject ) );
+
+	}
+
+	async function importCustomAssetFile( file ) {
+
+		if ( ! file ) return;
+		const lower = file.name.toLowerCase();
+		const format = lower.endsWith( '.obj' ) ? 'obj' : 'glb';
+		const dataUrl = await new Promise( ( resolve, reject ) => {
+
+			const reader = new FileReader();
+			reader.onload = () => resolve( String( reader.result || '' ) );
+			reader.onerror = reject;
+			reader.readAsDataURL( file );
+
+		} );
+		const loaded = await loadImportedAssetFromDataUrl( dataUrl, format );
+		normalizeImportedObjectToCell( loaded );
+		loaded.traverse( ( c ) => {
+
+			if ( c.isMesh ) {
+
+				c.castShadow = true;
+				c.receiveShadow = true;
+
+			}
+
+		} );
+		const id = makeCustomAssetId( file.name );
+		const modelKey = `${ CUSTOM_MODEL_KEY_PREFIX }${ id }`;
+		models[ modelKey ] = loaded;
+		customAssets.set( id, {
+			id,
+			name: file.name,
+			format,
+			dataUrl,
+			colliderBoxes: extractImportedColliderBoxes( loaded ),
+		} );
+		customAssetOrder = [ ...customAssets.keys() ];
+		selectedCustomAssetId = id;
+		selectedType = modelKey;
+		updateCustomAssetButtonLabel();
+		showToast( `Imported ${ file.name } as a 10x10 cell block.` );
+
+	}
 
 	async function loadModels() {
 
@@ -870,7 +994,7 @@
 
 			}
 
-		} else if ( DECO_TYPES.includes( selectedType ) ) {
+		} else if ( DECO_TYPES.includes( selectedType ) || selectedType.startsWith( CUSTOM_MODEL_KEY_PREFIX ) ) {
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
@@ -1139,14 +1263,25 @@
 
 		}
 
-		const payload = JSON.stringify( { b: bumps, j: jumps, u: surfaces, d: deco, w: { ...weatherSettings }, c: customSurfaceConfigs } );
+		const customPayload = {};
+		for ( const [ id, asset ] of customAssets.entries() ) {
+
+			customPayload[ id ] = {
+				name: asset.name,
+				format: asset.format,
+				dataUrl: asset.dataUrl,
+				colliderBoxes: asset.colliderBoxes,
+			};
+
+		}
+		const payload = JSON.stringify( { b: bumps, j: jumps, u: surfaces, d: deco, w: { ...weatherSettings }, c: customSurfaceConfigs, x: customPayload } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ) };
+		if ( ! modsStr ) return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), x: {} };
 
 		try {
 
@@ -1159,18 +1294,55 @@
 					d: Array.isArray( parsed.d ) ? parsed.d : [],
 					w: normalizeWeatherSettings( parsed?.w ),
 					c: parsed?.c && typeof parsed.c === 'object' ? parsed.c : JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
+					x: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
 				};
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-				return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ) };
+				return { b: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), x: {} };
 
 		}
 
 	}
 
-	function loadSaved() {
+	async function loadCustomAssetsFromMods( assetsPayload ) {
+
+		customAssets.clear();
+		customAssetOrder = [];
+		selectedCustomAssetId = '';
+		const entries = Object.entries( assetsPayload || {} ).slice( 0, 32 );
+		for ( const [ id, asset ] of entries ) {
+
+			if ( ! asset?.dataUrl ) continue;
+			try {
+
+				const loaded = await loadImportedAssetFromDataUrl( asset.dataUrl, asset.format === 'obj' ? 'obj' : 'glb' );
+				normalizeImportedObjectToCell( loaded );
+				const modelKey = `${ CUSTOM_MODEL_KEY_PREFIX }${ id }`;
+				models[ modelKey ] = loaded;
+				customAssets.set( id, {
+					id,
+					name: asset.name || id,
+					format: asset.format === 'obj' ? 'obj' : 'glb',
+					dataUrl: asset.dataUrl,
+					colliderBoxes: Array.isArray( asset.colliderBoxes ) ? asset.colliderBoxes : extractImportedColliderBoxes( loaded ),
+				} );
+
+			} catch ( e ) {
+
+				console.warn( 'Failed to restore custom asset', id, e );
+
+			}
+
+		}
+		customAssetOrder = [ ...customAssets.keys() ];
+		if ( customAssetOrder.length > 0 ) selectedCustomAssetId = customAssetOrder[ 0 ];
+		updateCustomAssetButtonLabel();
+
+	}
+
+	async function loadSaved() {
 
 		const params = new URLSearchParams( window.location.search );
 		const mapParam = params.get( 'map' );
@@ -1199,6 +1371,7 @@
 				}
 
 			const mods = decodeMods( modsEncoded );
+			await loadCustomAssetsFromMods( mods.x );
 			customSurfaceConfigs = {
 				...JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
 				...( mods.c || {} )
@@ -1466,6 +1639,51 @@
 	} );
 	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
 	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
+	document.getElementById( 'btn-custom-import' )?.addEventListener( 'click', () => {
+
+		document.getElementById( 'custom-model-file' )?.click();
+
+	} );
+	document.getElementById( 'custom-model-file' )?.addEventListener( 'change', async ( event ) => {
+
+		const file = event.target?.files?.[ 0 ];
+		if ( ! file ) return;
+		try {
+
+			await importCustomAssetFile( file );
+			selectTileType( `${ CUSTOM_MODEL_KEY_PREFIX }${ selectedCustomAssetId }` );
+
+		} catch ( error ) {
+
+			console.warn( 'Failed to import custom model', error );
+			showToast( 'Import failed. Use GLB/OBJ only.' );
+
+		}
+		event.target.value = '';
+
+	} );
+	document.getElementById( 'btn-custom-cycle' )?.addEventListener( 'click', () => {
+
+		if ( customAssetOrder.length === 0 ) {
+
+			showToast( 'No imported custom assets yet.' );
+			return;
+
+		}
+		const index = customAssetOrder.indexOf( selectedCustomAssetId );
+		const nextIndex = ( index + 1 ) % customAssetOrder.length;
+		selectedCustomAssetId = customAssetOrder[ nextIndex ];
+		selectedType = `${ CUSTOM_MODEL_KEY_PREFIX }${ selectedCustomAssetId }`;
+		updateCustomAssetButtonLabel();
+		selectTileType( selectedType );
+		showToast( `Selected ${ customAssets.get( selectedCustomAssetId )?.name || 'custom' }` );
+
+	} );
+	updateCustomAssetButtonLabel();
+	window.__editorDebug = {
+		getCustomAssets: () => [ ...customAssets.values() ],
+		getGridSnapshot: () => getCellsArray(),
+	};
 	panelOverlay?.addEventListener( 'click', closePanelCenter );
 	document.querySelectorAll( '[data-close-panel]' ).forEach( ( btn ) => btn.addEventListener( 'click', closePanelCenter ) );
 	const flowEnabledInput = document.getElementById( 'flow-enabled' );
@@ -1579,38 +1797,144 @@
 
 	}
 
-	document.getElementById( 'btn-play' ).addEventListener( 'click', () => {
+	async function createPackedTrackUrl( encodedMap, encodedMods ) {
 
-		if ( getCellsArray().length === 0 ) {
+		let payload = null;
+		let lastError = null;
+		for ( const prefix of TRACK_SHARE_API_PREFIXES ) {
 
-			showToast( 'Draw some road first!' );
-			return;
+			const endpoint = `${ TRACK_SHARE_API_ROOT }${ prefix }/packs`;
+			try {
+
+				const response = await fetch( endpoint, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify( { map: encodedMap, mods: encodedMods } ),
+					} );
+					if ( ! response.ok ) {
+
+						let detail = '';
+						try {
+
+							detail = await response.text();
+
+						} catch {}
+						lastError = new Error( `pack-http-${ response.status }@${ endpoint }${ detail ? `:${ detail }` : '' }` );
+						continue;
+
+					}
+				const parsed = await response.json();
+				if ( ! parsed?.ok || ! parsed?.id ) {
+
+					lastError = new Error( `pack-invalid-response@${ endpoint }` );
+					continue;
+
+				}
+				payload = parsed;
+				break;
+
+			} catch ( error ) {
+
+				lastError = error;
+
+			}
 
 		}
+		if ( ! payload?.id ) throw ( lastError || new Error( 'pack-upload-failed' ) );
+		const base = window.location.href.replace( /editor\.html.*/, '' );
+		return `${ base }index.html?pack=${ encodeURIComponent( payload.id ) }`;
 
-		const encoded = encodeCells( getCellsArray() );
-		const mods = encodeMods();
-		window.open( 'index.html?map=' + encoded + '&mods=' + mods, '_blank' );
+	}
 
-	} );
+	function createLocalPackId( encodedMap, encodedMods ) {
 
-	document.getElementById( 'btn-share' ).addEventListener( 'click', () => {
+		const id = `lp-${ Math.random().toString( 36 ).slice( 2, 10 ) }`;
+		const payload = JSON.stringify( { map: encodedMap, mods: encodedMods, createdAt: Date.now() } );
+		localStorage.setItem( `racing-local-pack:${ id }`, payload );
+		return id;
 
-		if ( getCellsArray().length === 0 ) {
+	}
 
-			showToast( 'Draw some road first!' );
-			return;
+	function createLocalPackedTrackUrl( encodedMap, encodedMods ) {
 
-		}
+		const id = createLocalPackId( encodedMap, encodedMods );
+		const base = window.location.href.replace( /editor\.html.*/, '' );
+		return `${ base }index.html?localPack=${ encodeURIComponent( id ) }`;
+
+	}
+
+	async function createPlayableTrackUrl() {
 
 		const encoded = encodeCells( getCellsArray() );
 		const mods = encodeMods();
 		const base = window.location.href.replace( /editor\.html.*/, '' );
-		const url = base + 'index.html?map=' + encoded + '&mods=' + mods;
+		const rawUrl = `${ base }index.html?map=${ encoded }&mods=${ mods }`;
+		const shouldForcePacked = customAssets.size > 0;
+		if ( ! shouldForcePacked && rawUrl.length <= 7000 ) return { url: rawUrl, mode: 'raw' };
+		try {
+
+			const packed = await createPackedTrackUrl( encoded, mods );
+			return { url: packed, mode: 'remote-pack' };
+
+		} catch ( error ) {
+
+			console.warn( 'Remote pack upload failed; falling back to local pack', error );
+			return { url: createLocalPackedTrackUrl( encoded, mods ), mode: 'local-pack' };
+
+		}
+
+	}
+
+	document.getElementById( 'btn-play' ).addEventListener( 'click', async () => {
+
+		if ( getCellsArray().length === 0 ) {
+
+			showToast( 'Draw some road first!' );
+			return;
+
+		}
+
+		try {
+
+			const result = await createPlayableTrackUrl();
+			window.open( result.url, '_blank' );
+			if ( result.mode === 'local-pack' ) showToast( 'Opened with local pack fallback (same browser/device only).' );
+
+			} catch ( error ) {
+
+				console.warn( 'Failed to create play URL', error );
+				showToast( `Could not build share URL (${ String( error?.message || 'pack upload failed' ).slice( 0, 80 ) }).` );
+
+			}
+
+	} );
+
+	document.getElementById( 'btn-share' ).addEventListener( 'click', async () => {
+
+		if ( getCellsArray().length === 0 ) {
+
+			showToast( 'Draw some road first!' );
+			return;
+
+		}
+
+		let shareResult = null;
+		try {
+
+			shareResult = await createPlayableTrackUrl();
+
+			} catch ( error ) {
+
+				console.warn( 'Failed to create share URL', error );
+				showToast( `Could not build share URL (${ String( error?.message || 'pack upload failed' ).slice( 0, 80 ) }).` );
+				return;
+
+			}
+		const url = shareResult.url;
 
 		navigator.clipboard.writeText( url ).then( () => {
 
-			showToast( 'Link copied to clipboard!' );
+			showToast( shareResult.mode === 'local-pack' ? 'Local-only link copied (same browser/device).' : 'Link copied to clipboard!' );
 
 		} ).catch( () => {
 
@@ -1962,7 +2286,7 @@
 
 	await loadModels();
 	applyWeatherPreset( WEATHER_DEFAULT );
-	loadSaved();
+	await loadSaved();
 
 	// Start with a finish cell if the grid is empty
 	if ( grid.size === 0 ) {
