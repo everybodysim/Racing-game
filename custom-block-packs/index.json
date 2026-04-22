@@ -1,0 +1,9 @@
+{
+  "packs": [
+    {
+      "id": "template-pack",
+      "name": "Template Pack",
+      "manifest": "./custom-block-packs/template-pack/pack.json"
+    }
+  ]
+}
