@@ -443,7 +443,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 export function placePiece( models, key, gx, gz, orient ) {
 
-	const modelKey = key === 'track-checkpoint' ? 'track-finish' : key;
+	const modelKey = key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key;
 	const src = models[ modelKey ];
 	if ( ! src ) return null;
 
@@ -453,6 +453,33 @@ export function placePiece( models, key, gx, gz, orient ) {
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
+	const tintColor = key === 'track-start'
+		? new THREE.Color( 0x66cc66 )
+		: ( key === 'track-finish' ? new THREE.Color( 0xcc6666 ) : ( key === 'track-start-finish' ? new THREE.Color( 0xcc9955 ) : null ) );
+	if ( tintColor ) {
+
+		piece.traverse( ( c ) => {
+
+			if ( ! c.isMesh || ! c.material ) return;
+			if ( Array.isArray( c.material ) ) {
+
+				c.material = c.material.map( ( mat ) => {
+
+					const clone = mat.clone();
+					if ( clone.color ) clone.color.lerp( tintColor, 0.22 );
+					return clone;
+
+				} );
+				return;
+
+			}
+			const clone = c.material.clone();
+			if ( clone.color ) clone.color.lerp( tintColor, 0.22 );
+			c.material = clone;
+
+		} );
+
+	}
 
 	return piece;
 
@@ -550,10 +577,40 @@ export function computeSpawnPosition( cells ) {
 
 	for ( const c of cells ) {
 
-		if ( c[ 2 ] === 'track-finish' ) {
+		if ( c[ 2 ] === 'track-start' ) {
 
 			cell = c;
 			break;
+
+		}
+
+	}
+
+	if ( cell?.[ 2 ] !== 'track-start' ) {
+
+		for ( const c of cells ) {
+
+			if ( c[ 2 ] === 'track-start-finish' ) {
+
+				cell = c;
+				break;
+
+			}
+
+		}
+
+	}
+
+	if ( cell?.[ 2 ] !== 'track-start' && cell?.[ 2 ] !== 'track-start-finish' ) {
+
+		for ( const c of cells ) {
+
+			if ( c[ 2 ] === 'track-finish' ) {
+
+				cell = c;
+				break;
+
+			}
 
 		}
 
