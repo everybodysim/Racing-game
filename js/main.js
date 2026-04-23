@@ -259,6 +259,39 @@ function getCurrentMapSignature() {
 
 }
 
+function parseMapSignature( mapSignature ) {
+
+	const raw = String( mapSignature || '' );
+	if ( ! raw ) return { map: 'default', mods: 'none' };
+	const splitAt = raw.indexOf( '|' );
+	if ( splitAt < 0 ) return { map: raw || 'default', mods: 'none' };
+	return {
+		map: raw.slice( 0, splitAt ) || 'default',
+		mods: raw.slice( splitAt + 1 ) || 'none',
+	};
+
+}
+
+function redirectToRoomMap( roomCode, mapSignature ) {
+
+	const target = parseMapSignature( mapSignature );
+	const params = new URLSearchParams( window.location.search );
+	params.set( 'map', target.map );
+	if ( target.mods === 'none' ) {
+
+		params.delete( 'mods' );
+
+	} else {
+
+		params.set( 'mods', target.mods );
+
+	}
+	params.set( 'joinRoom', String( roomCode || '' ).trim().toUpperCase() );
+	window.location.search = params.toString();
+
+}
+
+
 function getFirebaseRoomsBaseUrl() {
 
 	const config = readFirebaseConfig();
@@ -408,7 +441,8 @@ function initMultiplayerPanel() {
 			const joinMap = getCurrentMapSignature();
 			if ( ! canJoinMap( room.mapSignature, joinMap ) ) {
 
-				updateMultiplayerStatus( 'Join failed: both players must be on the same map/mods.' );
+				updateMultiplayerStatus( `Switching to host map for room ${ code }...` );
+				redirectToRoomMap( code, room.mapSignature );
 				return;
 
 			}
@@ -466,6 +500,18 @@ function initMultiplayerPanel() {
 		}
 
 	} );
+
+	const joinRoomParam = String( new URLSearchParams( window.location.search ).get( 'joinRoom' ) || '' ).trim().toUpperCase();
+	if ( /^[A-Z0-9]{6}$/.test( joinRoomParam ) ) {
+
+		codeInput.value = joinRoomParam;
+		const params = new URLSearchParams( window.location.search );
+		params.delete( 'joinRoom' );
+		const nextQuery = params.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ nextQuery ? `?${ nextQuery }` : '' }${ window.location.hash }` );
+		setTimeout( () => joinBtn.click(), 0 );
+
+	}
 
 }
 
