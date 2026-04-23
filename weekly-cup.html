@@ -265,19 +265,39 @@
     );
 }
 
-async function getTrackIds(playUrl) {
+function hashTrackId(str) {
+  // stable browser-safe hash (fast + deterministic)
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16);
+}
+
+function getTrackIds(playUrl) {
   try {
     const parsed = new URL(playUrl, window.location.href);
 
     const map = parsed.searchParams.get('map');
     const mods = parsed.searchParams.get('mods');
 
+    // must exist for leaderboard tracks
     if (!map || !mods) return [];
 
-    // IMPORTANT: this must match backend exactly
+    /*
+      IMPORTANT:
+      This MUST match whatever your backend uses.
+      If backend uses ONLY map+mods:
+    */
     const canonical = `${map}|${mods}`;
 
-    const id = await md5(canonical);
+    /*
+      If that still returns no records, switch to:
+      const canonical = `${parsed.pathname}|${map}|${mods}`;
+    */
+
+    const id = hashTrackId(canonical);
 
     return [id];
 
@@ -285,27 +305,6 @@ async function getTrackIds(playUrl) {
     return [];
   }
 }
-
-  function decodeExtrasParamToken(str) {
-    if (!str || str === 'none') return null;
-    try {
-      const json = decodeURIComponent(escape(atob(str.replace(/-/g, '+').replace(/_/g, '/'))));
-      const parsed = JSON.parse(json);
-      return {
-        bumps: Array.isArray(parsed.b) ? parsed.b : [],
-        boosts: Array.isArray(parsed.s) ? parsed.s : [],
-        jumps: Array.isArray(parsed.j) ? parsed.j : [],
-        decorations: Array.isArray(parsed.d) ? parsed.d : [],
-        surfaces: Array.isArray(parsed.u) ? parsed.u : [],
-        customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
-        customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
-        weather: parsed?.w && typeof parsed.w === 'object' ? parsed.w : { preset: 'sunset', precipitation: 'none', intensity: 'light', lightning: false, wind: 'calm' },
-      };
-    } catch {
-      return null;
-    }
-  }
-
   function drawPreview(canvas, cells, mods) {
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
