@@ -657,29 +657,81 @@ function getTrackLabel( mapParamValue ) {
 
 function getTrackId( mapParamValue, extrasParamValue ) {
 
-	const params = new URLSearchParams( window.location.search );
-	if ( ! params.has( 'map' ) ) params.set( 'map', mapParamValue || 'default' );
-	if ( ! params.has( 'mods' ) ) params.set( 'mods', extrasParamValue || 'none' );
-	params.sort();
-	const base = `${ window.location.pathname }?${ params.toString() }`;
-	return `trk-${ hashTrackSeed( base ) }`;
+	const map = mapParamValue || 'default';
+	const mods = extrasParamValue || 'none';
+	const extras = decodeExtrasParam( extrasParamValue ) || {
+		bumps: [],
+		boosts: [],
+		jumps: [],
+		decorations: [],
+		surfaces: [],
+		customSurfaces: {},
+		customAssets: {},
+		weather: normalizeWeatherDetails(),
+	};
+	const identity = {
+		path: normalizeTrackPath( window.location.pathname ),
+		map,
+		mods,
+		trackLayoutVersion: map === 'default' ? 2 : 1,
+		extras: {
+			bumps: extras.bumps,
+			boosts: extras.boosts,
+			jumps: extras.jumps,
+			decorations: extras.decorations,
+			surfaces: extras.surfaces,
+			customSurfaces: extras.customSurfaces,
+			customAssets: extras.customAssets,
+			weather: extras.weather,
+		},
+	};
+	const base = JSON.stringify( identity );
+	return `trk-${ hashTrackSeed( `v3|${ base }` ) }`;
 
 }
 
 function getLegacyTrackIds( mapParamValue, extrasParamValue ) {
 
-	const ids = [];
+	const normalizedPath = normalizeTrackPath( window.location.pathname );
+	if ( normalizedPath === window.location.pathname ) return [];
 	const map = mapParamValue || 'default';
 	const mods = extrasParamValue || 'none';
-	ids.push( encodeBase64Url( `${ window.location.pathname }?map=${ map }&mods=${ mods }` ) );
+	const extras = decodeExtrasParam( extrasParamValue ) || {
+		bumps: [],
+		boosts: [],
+		jumps: [],
+		decorations: [],
+		surfaces: [],
+		customSurfaces: {},
+		customAssets: {},
+		weather: normalizeWeatherDetails(),
+	};
+	const base = JSON.stringify( {
+		path: window.location.pathname,
+		map,
+		mods,
+		trackLayoutVersion: map === 'default' ? 2 : 1,
+		extras: {
+			bumps: extras.bumps,
+			boosts: extras.boosts,
+			jumps: extras.jumps,
+			decorations: extras.decorations,
+			surfaces: extras.surfaces,
+			customSurfaces: extras.customSurfaces,
+			customAssets: extras.customAssets,
+			weather: extras.weather,
+		},
+	} );
+	return [ `trk-${ hashTrackSeed( `v3|${ base }` ) }` ];
 
-	const params = new URLSearchParams( window.location.search );
-	if ( ! params.has( 'map' ) ) params.set( 'map', map );
-	if ( ! params.has( 'mods' ) ) params.set( 'mods', mods );
-	params.sort();
-	ids.push( encodeBase64Url( `${ window.location.pathname }?${ params.toString() }` ) );
+}
 
-	return [ ...new Set( ids.filter( Boolean ) ) ];
+function normalizeTrackPath( pathValue ) {
+
+	const raw = String( pathValue || '/' );
+	if ( raw === '/index.html' ) return '/';
+	if ( raw.endsWith( '/index.html' ) ) return `${ raw.slice( 0, -11 ) }/`;
+	return raw;
 
 }
 
