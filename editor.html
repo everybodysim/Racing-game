@@ -313,6 +313,11 @@
 		<button id="btn-bump">Bump +</button>
 		<button id="btn-jump">Jump +</button>
 		<button id="btn-finish">Finish</button>
+		<button id="btn-start-finish">Start/Finish</button>
+		<select id="finish-mode-select" aria-label="Start or finish mode">
+			<option value="track-finish">Place: Finish</option>
+			<option value="track-start">Place: Start</option>
+		</select>
 		<button id="btn-checkpoint">Checkpoint</button>
 		<select id="surface-select" aria-label="Surface picker">
 			<option value="">Surface…</option>
@@ -382,7 +387,7 @@
 
 	const grid = new Map(); // "gx,gz" → { type, orient, isFinish, mesh }
 	const ORIENTATIONS = [ 0, 16, 10, 22 ];
-	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint' ];
+	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint', 'track-start' ];
 	const BUMP_TOOL = 'overlay-bump';
 	const JUMP_TOOL = 'overlay-jump';
 	const SURFACE_TYPES = [
@@ -785,7 +790,7 @@
 
 		cell.roadPieces.forEach( ( roadPiece, idx ) => {
 
-			const modelType = roadPiece.type === 'track-checkpoint' ? 'track-finish' : roadPiece.type;
+			const modelType = ( roadPiece.type === 'track-checkpoint' || roadPiece.type === 'track-start' ) ? 'track-finish' : roadPiece.type;
 			const src = models[ modelType ];
 			if ( ! src ) return;
 
@@ -1158,7 +1163,7 @@
 
 	function addGhostPiece( type, orient, gx, gz, opacity ) {
 
-		const modelType = type === 'track-checkpoint' ? 'track-finish' : type;
+		const modelType = ( type === 'track-checkpoint' || type === 'track-start' ) ? 'track-finish' : type;
 		const src = models[ modelType ];
 		if ( ! src ) return;
 
@@ -1483,6 +1488,7 @@
 		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
 		[ JUMP_TOOL ]: document.getElementById( 'btn-jump' ),
 		'track-finish': document.getElementById( 'btn-finish' ),
+		'track-start': document.getElementById( 'btn-finish' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
@@ -1491,6 +1497,9 @@
 		'surface-custom-b': document.getElementById( 'btn-surface-custom-b' ),
 		'surface-custom-c': document.getElementById( 'btn-surface-custom-c' ),
 	};
+	const finishToolBtn = document.getElementById( 'btn-finish' );
+	const startFinishToolBtn = document.getElementById( 'btn-start-finish' );
+	const finishModeSelect = document.getElementById( 'finish-mode-select' );
 	const surfaceSelect = document.getElementById( 'surface-select' );
 	const overlapToggleBtn = document.getElementById( 'btn-overlap-toggle' );
 	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
@@ -1547,9 +1556,12 @@
 
 		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
 
-			tileButtons[ type ].classList.toggle( 'active', selectedType === type );
+			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
 		}
+		const finishActive = selectedType === 'track-finish' || selectedType === 'track-start';
+		if ( finishToolBtn ) finishToolBtn.classList.toggle( 'active', finishActive );
+		if ( startFinishToolBtn ) startFinishToolBtn.classList.toggle( 'active', finishActive );
 		if ( surfaceSelect ) surfaceSelect.value = SURFACE_TYPES.includes( selectedType ) ? selectedType : '';
 		if ( overlapToggleBtn ) {
 
@@ -1568,6 +1580,13 @@
 		selectedType = type;
 		selectTool( 'paint' );
 		updateTileToolbar();
+
+	}
+
+	function selectFinishTool() {
+
+		const selectedGateType = finishModeSelect?.value === 'track-start' ? 'track-start' : 'track-finish';
+		selectTileType( selectedGateType );
 
 	}
 
@@ -1636,7 +1655,7 @@
 
 	}
 
-	for ( const type of [ ...TILE_TYPES, BUMP_TOOL, JUMP_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, JUMP_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
 
 		tileButtons[ type ].addEventListener( 'click', () => {
 
@@ -1646,6 +1665,13 @@
 		} );
 
 	}
+	finishToolBtn?.addEventListener( 'click', selectFinishTool );
+	startFinishToolBtn?.addEventListener( 'click', selectFinishTool );
+	finishModeSelect?.addEventListener( 'change', () => {
+
+		if ( selectedType === 'track-finish' || selectedType === 'track-start' ) selectFinishTool();
+
+	} );
 	surfaceSelect?.addEventListener( 'change', () => {
 
 		if ( ! surfaceSelect.value ) return;
