@@ -165,15 +165,28 @@ function renderMultiplayerRoomLeaderboard( lapTimes ) {
 
 	const listEl = document.getElementById( 'mp-lb-list' );
 	if ( ! listEl ) return;
-	const rows = lapTimes && typeof lapTimes === 'object' ? Object.values( lapTimes ) : [];
-	rows.sort( ( a, b ) => ( Number( a?.time ) || Infinity ) - ( Number( b?.time ) || Infinity ) );
+	const entries = lapTimes && typeof lapTimes === 'object' ? Object.entries( lapTimes ) : [];
+	const rows = entries.map( ( [ id, row ] ) => {
+
+		const time = Number( row?.time ?? row?.bestLap ?? row?.bestLapSeconds );
+		const name = typeof row?.name === 'string' && row.name.trim() ? row.name.trim() : `Player ${ String( id || '' ).slice( 0, 4 ).toUpperCase() }`;
+		return { id, name, time };
+
+	} ).filter( ( row ) => Number.isFinite( row.time ) );
+	rows.sort( ( a, b ) => a.time - b.time );
 	listEl.innerHTML = '';
+	if ( rows.length === 0 ) {
+
+		const li = document.createElement( 'li' );
+		li.textContent = 'No room laps yet.';
+		listEl.appendChild( li );
+		return;
+
+	}
 	for ( const row of rows.slice( 0, 8 ) ) {
 
 		const li = document.createElement( 'li' );
-		const name = typeof row?.name === 'string' && row.name.trim() ? row.name.trim() : 'Player';
-		const time = Number( row?.time );
-		li.textContent = `${ name } — ${ Number.isFinite( time ) ? formatLapTime( time ) : '--:--.---' }`;
+		li.textContent = `${ row.name } — ${ formatLapTime( row.time ) }`;
 		listEl.appendChild( li );
 
 	}
@@ -207,9 +220,14 @@ async function maybeSubmitOnlinePersonalBest( lapTimes ) {
 	if ( ! lapTimes || typeof lapTimes !== 'object' ) return;
 	const localName = sanitizePlayerName( playerNameInput?.value || localStorage.getItem( PLAYER_NAME_KEY ) || '' );
 	if ( ! localName ) return;
+	const encodedClientId = encodeURIComponent( multiplayerSessionState.clientId );
+	const localRow = lapTimes[ encodedClientId ] || lapTimes[ multiplayerSessionState.clientId ] || null;
+	const ownTime = Number( localRow?.time ?? localRow?.bestLap ?? localRow?.bestLapSeconds );
 	const matchingRows = Object.values( lapTimes ).filter( ( row ) => sanitizePlayerName( row?.name ) === localName );
-	if ( matchingRows.length === 0 ) return;
-	const bestOnlineTime = Math.min( ...matchingRows.map( ( row ) => Number( row?.time ) ).filter( Number.isFinite ) );
+	const bestByName = matchingRows.length > 0
+		? Math.min( ...matchingRows.map( ( row ) => Number( row?.time ?? row?.bestLap ?? row?.bestLapSeconds ) ).filter( Number.isFinite ) )
+		: Infinity;
+	const bestOnlineTime = Number.isFinite( ownTime ) ? ownTime : bestByName;
 	if ( ! Number.isFinite( bestOnlineTime ) ) return;
 	if ( Number.isFinite( bestLapSeconds ) && bestOnlineTime >= bestLapSeconds - 1e-6 ) return;
 	if ( Number.isFinite( lastSyncedOnlineBestLapSeconds ) && bestOnlineTime >= lastSyncedOnlineBestLapSeconds - 1e-6 ) return;
@@ -241,6 +259,7 @@ async function publishMultiplayerBestLap( bestLap ) {
 		await firebaseRoomsRequest( roomCode, 'PUT', {
 			name: displayName,
 			time: Number( bestLap ),
+			bestLapSeconds: Number( bestLap ),
 			updatedAt: Date.now(),
 		}, `lapTimes/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
 
@@ -258,6 +277,39 @@ function getCurrentMapSignature() {
 	return `${ params.get( 'map' ) || 'default' }|${ params.get( 'mods' ) || 'none' }`;
 
 }
+
+function parseMapSignature( mapSignature ) {
+
+	const raw = String( mapSignature || '' );
+	if ( ! raw ) return { map: 'default', mods: 'none' };
+	const splitAt = raw.indexOf( '|' );
+	if ( splitAt < 0 ) return { map: raw || 'default', mods: 'none' };
+	return {
+		map: raw.slice( 0, splitAt ) || 'default',
+		mods: raw.slice( splitAt + 1 ) || 'none',
+	};
+
+}
+
+function redirectToRoomMap( roomCode, mapSignature ) {
+
+	const target = parseMapSignature( mapSignature );
+	const params = new URLSearchParams( window.location.search );
+	params.set( 'map', target.map );
+	if ( target.mods === 'none' ) {
+
+		params.delete( 'mods' );
+
+	} else {
+
+		params.set( 'mods', target.mods );
+
+	}
+	params.set( 'joinRoom', String( roomCode || '' ).trim().toUpperCase() );
+	window.location.search = params.toString();
+
+}
+
 
 function getFirebaseRoomsBaseUrl() {
 
@@ -408,7 +460,8 @@ function initMultiplayerPanel() {
 			const joinMap = getCurrentMapSignature();
 			if ( ! canJoinMap( room.mapSignature, joinMap ) ) {
 
-				updateMultiplayerStatus( 'Join failed: both players must be on the same map/mods.' );
+				updateMultiplayerStatus( `Switching to host map for room ${ code }...` );
+				redirectToRoomMap( code, room.mapSignature );
 				return;
 
 			}
@@ -466,6 +519,18 @@ function initMultiplayerPanel() {
 		}
 
 	} );
+
+	const joinRoomParam = String( new URLSearchParams( window.location.search ).get( 'joinRoom' ) || '' ).trim().toUpperCase();
+	if ( /^[A-Z0-9]{6}$/.test( joinRoomParam ) ) {
+
+		codeInput.value = joinRoomParam;
+		const params = new URLSearchParams( window.location.search );
+		params.delete( 'joinRoom' );
+		const nextQuery = params.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ nextQuery ? `?${ nextQuery }` : '' }${ window.location.hash }` );
+		setTimeout( () => joinBtn.click(), 0 );
+
+	}
 
 }
 
@@ -2027,7 +2092,7 @@ async function init() {
 	})();
 	const hacksInstalled = installedMods.some( ( mod ) => mod?.id === 'hacks' );
 	const arcadeBoostInstalled = installedMods.some( ( mod ) => mod?.id === 'arcade-boost' );
-	const anyModsInstalled = installedMods.length > 0;
+	const nonFreecamModsInstalled = installedMods.some( ( mod ) => mod?.id && mod.id !== 'freecam' );
 	const checkpointRespawnInstalled = installedMods.some( ( mod ) => mod?.id === 'checkpoint-respawn' );
 	const practiceStartInstalled = installedMods.some( ( mod ) => mod?.id === 'practice-start' );
 	const stuntModeModInstalled = installedMods.some( ( mod ) => mod?.id === 'stunt-mode' );
@@ -3140,6 +3205,7 @@ async function init() {
 	const timer = new THREE.Timer();
 	let raceClockSeconds = 0;
 	const activeCells = customCells || TRACK_CELLS;
+	const startCell = activeCells.find( ( c ) => c[ 2 ] === 'track-start' ) || null;
 	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells[ 0 ];
 	const checkpointCells = activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' );
 	const lapStoreKey = `racing-lap-stats:${ mapParam || 'default' }`;
@@ -3337,6 +3403,7 @@ async function init() {
 	}
 
 	const finishData = makeGateData( finishCell );
+	const startGateData = makeGateData( startCell || finishCell );
 	const checkpointStates = checkpointCells.map( ( cell ) => ( {
 		...makeGateData( cell ),
 		lastLocalX: 0,
@@ -4166,9 +4233,9 @@ async function init() {
 
 	async function submitLeaderboardTime( lapTimeSeconds, forcedName = '' ) {
 
-		if ( anyModsInstalled ) {
+		if ( nonFreecamModsInstalled ) {
 
-			showTopMessage( 'Leaderboard submitting is disabled when mods are installed.', true, 2200 );
+			showTopMessage( 'Leaderboard submitting is disabled when gameplay mods are installed.', true, 2200 );
 			return false;
 
 		}
@@ -5510,9 +5577,11 @@ async function init() {
 
 			const localX = ( ( vehicle.spherePos.x - finishData.centerX ) * finishData.cosA ) + ( ( vehicle.spherePos.z - finishData.centerZ ) * finishData.sinA );
 			const localZ = ( - ( vehicle.spherePos.x - finishData.centerX ) * finishData.sinA ) + ( ( vehicle.spherePos.z - finishData.centerZ ) * finishData.cosA );
-			const inFinishCell = Math.abs( localX ) < finishData.halfExtent && Math.abs( localZ ) < finishData.halfExtent;
+			const startLocalX = ( ( vehicle.spherePos.x - startGateData.centerX ) * startGateData.cosA ) + ( ( vehicle.spherePos.z - startGateData.centerZ ) * startGateData.sinA );
+			const startLocalZ = ( - ( vehicle.spherePos.x - startGateData.centerX ) * startGateData.sinA ) + ( ( vehicle.spherePos.z - startGateData.centerZ ) * startGateData.cosA );
+			const inStartCell = Math.abs( startLocalX ) < startGateData.halfExtent && Math.abs( startLocalZ ) < startGateData.halfExtent;
 
-			if ( ! hasLeftStartZone && ! inFinishCell ) {
+			if ( ! hasLeftStartZone && ! inStartCell ) {
 
 				hasLeftStartZone = true;
 
@@ -5661,9 +5730,11 @@ async function init() {
 
 			const localX = ( ( vehicle2.spherePos.x - finishData.centerX ) * finishData.cosA ) + ( ( vehicle2.spherePos.z - finishData.centerZ ) * finishData.sinA );
 			const localZ = ( - ( vehicle2.spherePos.x - finishData.centerX ) * finishData.sinA ) + ( ( vehicle2.spherePos.z - finishData.centerZ ) * finishData.cosA );
-			const inFinishCell = Math.abs( localX ) < finishData.halfExtent && Math.abs( localZ ) < finishData.halfExtent;
+			const startLocalX = ( ( vehicle2.spherePos.x - startGateData.centerX ) * startGateData.cosA ) + ( ( vehicle2.spherePos.z - startGateData.centerZ ) * startGateData.sinA );
+			const startLocalZ = ( - ( vehicle2.spherePos.x - startGateData.centerX ) * startGateData.sinA ) + ( ( vehicle2.spherePos.z - startGateData.centerZ ) * startGateData.cosA );
+			const inStartCell = Math.abs( startLocalX ) < startGateData.halfExtent && Math.abs( startLocalZ ) < startGateData.halfExtent;
 
-			if ( ! hasLeftStartZone2 && ! inFinishCell ) hasLeftStartZone2 = true;
+			if ( ! hasLeftStartZone2 && ! inStartCell ) hasLeftStartZone2 = true;
 
 			let crossedFinish = false;
 			if ( hasPrevFinishSample2 ) {

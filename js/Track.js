@@ -443,7 +443,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 export function placePiece( models, key, gx, gz, orient ) {
 
-	const modelKey = key === 'track-checkpoint' ? 'track-finish' : key;
+	const modelKey = key === 'track-checkpoint' || key === 'track-start' ? 'track-finish' : key;
 	const src = models[ modelKey ];
 	if ( ! src ) return null;
 
@@ -550,10 +550,25 @@ export function computeSpawnPosition( cells ) {
 
 	for ( const c of cells ) {
 
-		if ( c[ 2 ] === 'track-finish' ) {
+		if ( c[ 2 ] === 'track-start' ) {
 
 			cell = c;
 			break;
+
+		}
+
+	}
+
+	if ( cell?.[ 2 ] !== 'track-start' ) {
+
+		for ( const c of cells ) {
+
+			if ( c[ 2 ] === 'track-finish' ) {
+
+				cell = c;
+				break;
+
+			}
 
 		}
 
