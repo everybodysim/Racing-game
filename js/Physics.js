@@ -111,7 +111,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	const cells = customCells || TRACK_CELLS;
 	const bumpSet = new Set();
+	const poleSet = new Set();
+	const cubeSet = new Set();
+	const wallMap = new Map();
+	const physicsBoxSet = new Set();
 	const jumpMap = new Map();
+	const resettableDynamicBodies = [];
 	const customAssetColliders = extras?.customAssets && typeof extras.customAssets === 'object' ? extras.customAssets : {};
 	const decorationEntries = extras && Array.isArray( extras.decorations ) ? extras.decorations : [];
 	if ( extras && Array.isArray( extras.bumps ) ) {
@@ -119,9 +124,127 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		for ( const [ gx, gz ] of extras.bumps ) bumpSet.add( gx + ',' + gz );
 
 	}
+	if ( extras && Array.isArray( extras.poles ) ) {
+
+		for ( const [ gx, gz ] of extras.poles ) poleSet.add( `${ gx },${ gz }` );
+
+	}
+	if ( extras && Array.isArray( extras.cubes ) ) {
+
+		for ( const [ gx, gz ] of extras.cubes ) cubeSet.add( `${ gx },${ gz }` );
+
+	}
+	if ( extras && Array.isArray( extras.walls ) ) {
+
+		for ( const [ gx, gz, orient = 0 ] of extras.walls ) wallMap.set( `${ gx },${ gz }`, orient );
+
+	}
+	if ( extras && Array.isArray( extras.physicsBoxes ) ) {
+
+		for ( const [ gx, gz ] of extras.physicsBoxes ) physicsBoxSet.add( `${ gx },${ gz }` );
+
+	}
 	if ( extras && Array.isArray( extras.jumps ) ) {
 
 		for ( const [ gx, gz, orient = 0 ] of extras.jumps ) jumpMap.set( gx + ',' + gz, orient );
+
+	}
+
+	for ( const poleKey of poleSet ) {
+
+		const [ gxRaw, gzRaw ] = poleKey.split( ',' );
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const poleRadius = CELL_RAW * S * 0.08;
+		const poleRise = CELL_RAW * S * 0.065;
+		const position = [ cx, groundY + poleRise, cz ];
+
+		rigidBody.create( world, {
+			shape: sphere.create( { radius: poleRadius } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 1.0,
+			restitution: 0.02,
+		} );
+		if ( debugGroup ) addDebugSphere( debugGroup, poleRadius, position );
+
+	}
+
+	for ( const cubeKey of cubeSet ) {
+
+		const [ gxRaw, gzRaw ] = cubeKey.split( ',' );
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const halfExtents = [ CELL_RAW * S * 0.08, CELL_RAW * S * 0.08, CELL_RAW * S * 0.08 ];
+		const position = [ cx, groundY + halfExtents[ 1 ], cz ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 0.9,
+			restitution: 0.02,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+	}
+
+	for ( const [ wallKey, orient ] of wallMap ) {
+
+		const [ gxRaw, gzRaw ] = wallKey.split( ',' );
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const halfExtents = [ CELL_RAW * S * 0.31, CELL_RAW * S * 0.075, CELL_RAW * S * 0.04 ];
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+		const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
+		const position = [ cx, groundY + halfExtents[ 1 ], cz ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			quaternion,
+			friction: 0.9,
+			restitution: 0.01,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+	}
+
+	for ( const physKey of physicsBoxSet ) {
+
+		const [ gxRaw, gzRaw ] = physKey.split( ',' );
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const halfExtents = [ CELL_RAW * S * 0.07, CELL_RAW * S * 0.07, CELL_RAW * S * 0.07 ];
+		const position = [ cx, groundY + halfExtents[ 1 ], cz ];
+		const body = rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.DYNAMIC,
+			objectLayer: world._OL_MOVING,
+			position,
+			mass: 12.0,
+			friction: 0.9,
+			restitution: 0.06,
+			linearDamping: 0.08,
+			angularDamping: 0.3,
+			motionQuality: MotionQuality.LINEAR_CAST,
+		} );
+		resettableDynamicBodies.push( { body, position } );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
 
 	}
 
@@ -163,7 +286,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		}
 
-		if ( baseKey === 'track-straight' || baseKey === 'track-finish' || baseKey === 'track-checkpoint' ) {
+		if ( baseKey === 'track-straight' || baseKey === 'track-finish' || baseKey === 'track-checkpoint' || baseKey === 'track-start' || baseKey === 'track-start-finish' ) {
 
 			for ( const side of [ - 1, 1 ] ) {
 
@@ -268,6 +391,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		}
 
 	}
+
+	return resettableDynamicBodies;
 
 }
 
