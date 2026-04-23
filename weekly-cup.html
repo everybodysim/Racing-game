@@ -290,7 +290,7 @@ function getTrackIds(playUrl) {
       This MUST match whatever your backend uses.
       If backend uses ONLY map+mods:
     */
-    const canonical = `${map}|${mods}`;
+    const canonical = `${parsed.pathname}|${map}|${mods}`;
 
     /*
       If that still returns no records, switch to:
