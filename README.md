@@ -1,5 +1,5 @@
 # Racing Game
-   
+    
 ## Recent gameplay/editor updates
 
 - Editor now uses explicit tile painting (Straight/Corner/Bump/Finish) with rotation controls.
