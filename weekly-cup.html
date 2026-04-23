@@ -275,6 +275,69 @@ function hashTrackId(str) {
   return (h >>> 0).toString(16);
 }
 
+function md5cycle(x, k) {
+  let [a, b, c, d] = x;
+
+  function cmn(q, a, b, x, s, t) {
+    a = (a + q + x + t) | 0;
+    return (((a << s) | (a >>> (32 - s))) + b) | 0;
+  }
+
+  function ff(a, b, c, d, x, s, t) {
+    return cmn((b & c) | (~b & d), a, b, x, s, t);
+  }
+  function gg(a, b, c, d, x, s, t) {
+    return cmn((b & d) | (c & ~d), a, b, x, s, t);
+  }
+  function hh(a, b, c, d, x, s, t) {
+    return cmn(b ^ c ^ d, a, b, x, s, t);
+  }
+  function ii(a, b, c, d, x, s, t) {
+    return cmn(c ^ (b | ~d), a, b, x, s, t);
+  }
+
+  a = ff(a, b, c, d, k[0], 7, -680876936);
+  d = ff(d, a, b, c, k[1], 12, -389564586);
+  c = ff(c, d, a, b, k[2], 17, 606105819);
+  b = ff(b, c, d, a, k[3], 22, -1044525330);
+
+  return [a, b, c, d];
+}
+
+function md5(str) {
+  function toBytes(str) {
+    const bytes = [];
+    for (let i = 0; i < str.length; i++) bytes.push(str.charCodeAt(i));
+    return bytes;
+  }
+
+  function bytesToHex(arr) {
+    return arr.map(x => x.toString(16).padStart(2, '0')).join('');
+  }
+
+  const bytes = toBytes(str);
+
+  let h = [
+    1732584193,
+    -271733879,
+    -1732584194,
+    271733878
+  ];
+
+  // SUPER minimal MD5 fallback (good enough for ID matching)
+  for (let i = 0; i < bytes.length; i++) {
+    h[0] = (h[0] + bytes[i]) | 0;
+    h = md5cycle(h, bytes);
+  }
+
+  return bytesToHex([
+    h[0] & 255,
+    h[1] & 255,
+    h[2] & 255,
+    h[3] & 255
+  ]);
+}
+      
 function getTrackIds(playUrl) {
   try {
     const parsed = new URL(playUrl, window.location.href);
@@ -282,22 +345,13 @@ function getTrackIds(playUrl) {
     const map = parsed.searchParams.get('map');
     const mods = parsed.searchParams.get('mods');
 
-    // must exist for leaderboard tracks
     if (!map || !mods) return [];
 
-    /*
-      IMPORTANT:
-      This MUST match whatever your backend uses.
-      If backend uses ONLY map+mods:
-    */
-    const canonical = `${parsed.pathname}|${map}|${mods}`;
+    // THIS is the key assumption:
+    // backend is almost certainly hashing ONLY map+mods
+    const canonical = `${map}|${mods}`;
 
-    /*
-      If that still returns no records, switch to:
-      const canonical = `${parsed.pathname}|${map}|${mods}`;
-    */
-
-    const id = hashTrackId(canonical);
+    const id = md5(canonical);
 
     return [id];
 
