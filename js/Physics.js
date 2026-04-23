@@ -163,7 +163,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		}
 
-		if ( baseKey === 'track-straight' || baseKey === 'track-finish' || baseKey === 'track-checkpoint' ) {
+		if ( baseKey === 'track-straight' || baseKey === 'track-finish' || baseKey === 'track-checkpoint' || baseKey === 'track-start' ) {
 
 			for ( const side of [ - 1, 1 ] ) {
 
