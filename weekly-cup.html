@@ -256,33 +256,34 @@
     return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
-  function getTrackIds(playUrl) {
+ function md5(str) {
+  // lightweight MD5 (browser-safe)
+  return crypto.subtle.digest("MD5", new TextEncoder().encode(str))
+    .then(buf => [...new Uint8Array(buf)]
+      .map(x => x.toString(16).padStart(2, "0"))
+      .join("")
+    );
+}
+
+async function getTrackIds(playUrl) {
   try {
     const parsed = new URL(playUrl, window.location.href);
 
     const map = parsed.searchParams.get('map');
     const mods = parsed.searchParams.get('mods');
 
-    // Only valid TOtD / seeded tracks
     if (!map || !mods) return [];
 
-    // Match game identity: "Custom hokHhYkPhI"
-    const seed = map.slice(0, 13);
+    // IMPORTANT: this must match backend exactly
+    const canonical = `${map}|${mods}`;
 
-    return [`custom-${seed}`];
+    const id = await md5(canonical);
+
+    return [id];
 
   } catch {
     return [];
   }
-}
-
-function normalizeTrackPath(pathValue) {
-  const raw = String(pathValue || '/');
-
-  if (raw === '/index.html') return '/';
-  if (raw.endsWith('/index.html')) return raw.slice(0, -10);
-
-  return raw;
 }
 
   function decodeExtrasParamToken(str) {
