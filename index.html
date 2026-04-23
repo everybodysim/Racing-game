@@ -40,7 +40,77 @@
 		#import-ghost-btn { left: 300px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
 		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #replay-link:hover, #tracks-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
-		#share-time-btn:disabled {
+		#mp-panel {
+			position: absolute;
+			left: 16px;
+			bottom: 54px;
+			z-index: 10;
+			background: rgba(0,0,0,0.55);
+			border-radius: 10px;
+			padding: 10px;
+			color: #fff;
+			font: 13px/1.3 sans-serif;
+			min-width: 210px;
+			backdrop-filter: blur(2px);
+		}
+		#mp-panel-title { font: 700 13px/1 sans-serif; margin-bottom: 8px; opacity: 0.95; }
+		#mp-actions { display: flex; gap: 6px; margin-bottom: 8px; }
+		#mp-actions button {
+			border: none;
+			border-radius: 6px;
+			background: rgba(255,255,255,0.16);
+			color: #fff;
+			padding: 6px 9px;
+			font: 600 12px/1 sans-serif;
+			cursor: pointer;
+		}
+		#mp-actions button:hover { background: rgba(255,255,255,0.27); }
+		#mp-code-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+		#mp-code-input {
+			flex: 1;
+			min-width: 0;
+			border-radius: 6px;
+			border: 1px solid rgba(255,255,255,0.24);
+			background: rgba(20,20,20,0.45);
+			color: #fff;
+			padding: 6px 8px;
+			font: 700 12px/1 monospace;
+			text-transform: uppercase;
+		}
+		#mp-copy-btn {
+			border: none;
+			border-radius: 6px;
+			background: rgba(83,212,255,0.25);
+			color: #fff;
+			padding: 6px 8px;
+			font: 600 12px/1 sans-serif;
+			cursor: pointer;
+		}
+		#mp-copy-btn:hover { background: rgba(83,212,255,0.4); }
+		#mp-status {
+			display: none;
+			color: #ffe9a9;
+			font: 600 12px/1.3 sans-serif;
+			text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+		}
+		#mp-status:not(:empty) { display: block; }
+		#mp-lb {
+			display: none;
+			margin-top: 8px;
+			padding-top: 8px;
+			border-top: 1px solid rgba(255,255,255,0.18);
+		}
+		#mp-lb-title { font: 700 11px/1 sans-serif; margin-bottom: 6px; opacity: 0.9; }
+		#mp-lb-list {
+			margin: 0;
+			padding-left: 16px;
+			max-height: 120px;
+			overflow: auto;
+			font: 600 11px/1.35 sans-serif;
+		}
+		#mp-lb-list li { margin: 2px 0; }
+
+#share-time-btn:disabled {
 			opacity: 0.5;
 			cursor: not-allowed;
 		}
@@ -737,6 +807,22 @@
 	<button id="share-time-btn" type="button" disabled>Share best time</button>
 	<button id="export-ghost-btn" type="button">Export ghost</button>
 	<button id="import-ghost-btn" type="button">Import ghost</button>
+	<div id="mp-panel" aria-label="Multiplayer">
+		<div id="mp-panel-title">Multiplayer</div>
+		<div id="mp-actions">
+			<button id="mp-host-btn" type="button">Host</button>
+			<button id="mp-join-btn" type="button">Join</button>
+		</div>
+		<div id="mp-code-row">
+			<input id="mp-code-input" type="text" maxlength="6" placeholder="ROOM CODE" aria-label="Room code">
+			<button id="mp-copy-btn" type="button">Copy</button>
+		</div>
+		<div id="mp-status" aria-live="polite"></div>
+		<div id="mp-lb">
+			<div id="mp-lb-title">Online room best laps</div>
+			<ol id="mp-lb-list"></ol>
+		</div>
+	</div>
 	<script>
 		const map = new URLSearchParams( location.search ).get( 'map' );
 		const mods = new URLSearchParams( location.search ).get( 'mods' );
