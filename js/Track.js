@@ -43,7 +43,7 @@ export const TRACK_CELLS = [
 	[ -1, -3, 'track-straight', 22 ],
 	[  0, -3, 'track-corner',    0 ],
 	[ -3, -2, 'track-straight',  0 ],
-	[  0, -2, 'track-straight',  0 ],
+	[  0, -2, 'track-checkpoint',  0 ],
 	[ -3, -1, 'track-corner',   10 ],
 	[ -2, -1, 'track-corner',    0 ],
 	[  0, -1, 'track-straight',  0 ],
