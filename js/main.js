@@ -658,11 +658,42 @@ function getTrackLabel( mapParamValue ) {
 function getTrackId( mapParamValue, extrasParamValue ) {
 
 	const params = new URLSearchParams( window.location.search );
-	if ( ! params.has( 'map' ) ) params.set( 'map', mapParamValue || 'default' );
-	if ( ! params.has( 'mods' ) ) params.set( 'mods', extrasParamValue || 'none' );
-	params.sort();
-	const base = `${ window.location.pathname }?${ params.toString() }`;
-	return `trk-${ hashTrackSeed( base ) }`;
+	const map = mapParamValue || 'default';
+	const mods = extrasParamValue || 'none';
+	const extras = decodeExtrasParam( extrasParamValue ) || {
+		bumps: [],
+		boosts: [],
+		jumps: [],
+		decorations: [],
+		surfaces: [],
+		customSurfaces: {},
+		customAssets: {},
+		weather: normalizeWeatherDetails(),
+	};
+	const identity = {
+		path: window.location.pathname,
+		map,
+		mods,
+		extras: {
+			bumps: extras.bumps,
+			boosts: extras.boosts,
+			jumps: extras.jumps,
+			decorations: extras.decorations,
+			surfaces: extras.surfaces,
+			customSurfaces: extras.customSurfaces,
+			customAssets: extras.customAssets,
+			weather: extras.weather,
+		},
+		params: {},
+	};
+	for ( const [ key, value ] of params.entries() ) {
+
+		if ( key === 'map' || key === 'mods' ) continue;
+		identity.params[ key ] = value;
+
+	}
+	const base = JSON.stringify( identity );
+	return `trk2-${ hashTrackSeed( base ) }`;
 
 }
 
