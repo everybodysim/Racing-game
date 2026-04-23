@@ -111,6 +111,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	const cells = customCells || TRACK_CELLS;
 	const bumpSet = new Set();
+	const poleSet = new Set();
 	const jumpMap = new Map();
 	const customAssetColliders = extras?.customAssets && typeof extras.customAssets === 'object' ? extras.customAssets : {};
 	const decorationEntries = extras && Array.isArray( extras.decorations ) ? extras.decorations : [];
@@ -119,9 +120,38 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		for ( const [ gx, gz ] of extras.bumps ) bumpSet.add( gx + ',' + gz );
 
 	}
+	if ( extras && Array.isArray( extras.poles ) ) {
+
+		for ( const [ gx, gz ] of extras.poles ) poleSet.add( `${ gx },${ gz }` );
+
+	}
 	if ( extras && Array.isArray( extras.jumps ) ) {
 
 		for ( const [ gx, gz, orient = 0 ] of extras.jumps ) jumpMap.set( gx + ',' + gz, orient );
+
+	}
+
+	for ( const poleKey of poleSet ) {
+
+		const [ gxRaw, gzRaw ] = poleKey.split( ',' );
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const poleRadius = CELL_RAW * S * 0.08;
+		const poleRise = CELL_RAW * S * 0.065;
+		const position = [ cx, groundY + poleRise, cz ];
+
+		rigidBody.create( world, {
+			shape: sphere.create( { radius: poleRadius } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 1.0,
+			restitution: 0.02,
+		} );
+		if ( debugGroup ) addDebugSphere( debugGroup, poleRadius, position );
 
 	}
 
@@ -163,7 +193,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		}
 
-		if ( baseKey === 'track-straight' || baseKey === 'track-finish' || baseKey === 'track-checkpoint' ) {
+		if ( baseKey === 'track-straight' || baseKey === 'track-finish' || baseKey === 'track-checkpoint' || baseKey === 'track-start' || baseKey === 'track-start-finish' ) {
 
 			for ( const side of [ - 1, 1 ] ) {
 
