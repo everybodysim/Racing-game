@@ -13,6 +13,8 @@ const JUMP_RAMP_Y = 0.24;
 const VISUAL_HEIGHT_OFFSET = 0.012;
 const DECORATION_HEIGHT_OFFSET = VISUAL_HEIGHT_OFFSET * 0.5;
 const NO_DECO_BUFFER_CELLS = 1;
+const POLE_RADIUS = CELL_RAW * 0.08;
+const POLE_HEIGHT = CELL_RAW * 0.13;
 
 function getSurfaceVisual( surfaceType, customSurfaces = null ) {
 
@@ -167,6 +169,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const bumpCells = Array.isArray( extras.bumps ) ? extras.bumps : [];
 		const boostCells = Array.isArray( extras.boosts ) ? extras.boosts : [];
 		const jumpCells = Array.isArray( extras.jumps ) ? extras.jumps : [];
+		const cubeCells = Array.isArray( extras.cubes ) ? extras.cubes : [];
+		const wallCells = Array.isArray( extras.walls ) ? extras.walls : [];
+		const physicsBoxCells = Array.isArray( extras.physicsBoxes ) ? extras.physicsBoxes : [];
+		const poleCells = Array.isArray( extras.poles ) ? extras.poles : [];
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
 		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
@@ -175,6 +181,59 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
 			if ( piece ) trackPieceGroup.add( piece );
+
+		}
+
+		for ( const [ gx, gz ] of poleCells ) {
+
+			const pole = new THREE.Mesh(
+				new THREE.CylinderGeometry( POLE_RADIUS, POLE_RADIUS, POLE_HEIGHT, 16 ),
+				new THREE.MeshStandardMaterial( { color: 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
+			);
+			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( POLE_HEIGHT * 0.5 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			pole.castShadow = true;
+			pole.receiveShadow = true;
+			trackPieceGroup.add( pole );
+
+		}
+
+		for ( const [ gx, gz ] of cubeCells ) {
+
+			const cube = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+				new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
+			);
+			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			cube.castShadow = true;
+			cube.receiveShadow = true;
+			trackPieceGroup.add( cube );
+
+		}
+
+		for ( const [ gx, gz, orient = 0 ] of wallCells ) {
+
+			const wall = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
+				new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
+			);
+			wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+			wall.castShadow = true;
+			wall.receiveShadow = true;
+			trackPieceGroup.add( wall );
+
+		}
+
+		for ( const [ gx, gz ] of physicsBoxCells ) {
+
+			const physicsBox = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.14, CELL_RAW * 0.14, CELL_RAW * 0.14 ),
+				new THREE.MeshStandardMaterial( { color: 0xc1a466, roughness: 0.8, metalness: 0.02 } )
+			);
+			physicsBox.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.07 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			physicsBox.castShadow = true;
+			physicsBox.receiveShadow = true;
+			trackPieceGroup.add( physicsBox );
 
 		}
 
@@ -443,7 +502,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 export function placePiece( models, key, gx, gz, orient ) {
 
-	const modelKey = key === 'track-checkpoint' ? 'track-finish' : key;
+	const modelKey = key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key;
 	const src = models[ modelKey ];
 	if ( ! src ) return null;
 
@@ -453,6 +512,33 @@ export function placePiece( models, key, gx, gz, orient ) {
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
+	const tintColor = key === 'track-start'
+		? new THREE.Color( 0x66cc66 )
+		: ( key === 'track-finish' ? new THREE.Color( 0xcc6666 ) : ( key === 'track-start-finish' ? new THREE.Color( 0xcc9955 ) : null ) );
+	if ( tintColor ) {
+
+		piece.traverse( ( c ) => {
+
+			if ( ! c.isMesh || ! c.material ) return;
+			if ( Array.isArray( c.material ) ) {
+
+				c.material = c.material.map( ( mat ) => {
+
+					const clone = mat.clone();
+					if ( clone.color ) clone.color.lerp( tintColor, 0.22 );
+					return clone;
+
+				} );
+				return;
+
+			}
+			const clone = c.material.clone();
+			if ( clone.color ) clone.color.lerp( tintColor, 0.22 );
+			c.material = clone;
+
+		} );
+
+	}
 
 	return piece;
 
@@ -550,10 +636,40 @@ export function computeSpawnPosition( cells ) {
 
 	for ( const c of cells ) {
 
-		if ( c[ 2 ] === 'track-finish' ) {
+		if ( c[ 2 ] === 'track-start' ) {
 
 			cell = c;
 			break;
+
+		}
+
+	}
+
+	if ( cell?.[ 2 ] !== 'track-start' ) {
+
+		for ( const c of cells ) {
+
+			if ( c[ 2 ] === 'track-start-finish' ) {
+
+				cell = c;
+				break;
+
+			}
+
+		}
+
+	}
+
+	if ( cell?.[ 2 ] !== 'track-start' && cell?.[ 2 ] !== 'track-start-finish' ) {
+
+		for ( const c of cells ) {
+
+			if ( c[ 2 ] === 'track-finish' ) {
+
+				cell = c;
+				break;
+
+			}
 
 		}
 

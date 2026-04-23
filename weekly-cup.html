@@ -244,122 +244,127 @@
     return { map, mods: modsEncoded, playUrl, cells: tiles, modsObj: mods };
   }
 
-  function fnv64Hex(value, start, prime) {
-    let hash = start;
-    for (let i = 0; i < value.length; i++) {
-      hash ^= BigInt(value.charCodeAt(i));
-      hash = (hash * prime) & 0xffffffffffffffffn;
-    }
-    return hash.toString(16).padStart(16, '0');
-  }
+const WEATHER_PRESETS = {
+  clear: { sky: 0xbfd8ff, ambient: 0xffffff },
+  sunset: { sky: 0xffb37b, ambient: 0xffe0c7 },
+  night: { sky: 0x0d1220, ambient: 0x9fb6ff },
+  overcast: { sky: 0x9ca9b8, ambient: 0xd7dde8 },
+};
+const WEATHER_DEFAULT = 'clear';
+const PRECIP_DEFAULT = 'none';
+const INTENSITY_DEFAULT = 'medium';
+const WIND_DEFAULT = 'none';
+const PRECIP_TYPES = new Set(['none', 'rain', 'snow']);
+const INTENSITY_TYPES = new Set(['low', 'medium', 'high']);
+const WIND_TYPES = new Set(['none', 'breezy', 'gusty']);
 
-  function hashTrackSeed(value) {
-    return `${fnv64Hex(value, 0xcbf29ce484222325n, 0x100000001b3n)}${fnv64Hex(value, 0x84222325cbf29cen, 0x100000001c3n)}`;
-  }
-
-  function encodeBase64Url(value) {
-    return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-
- function md5(str) {
-  // lightweight MD5 (browser-safe)
-  return crypto.subtle.digest("MD5", new TextEncoder().encode(str))
-    .then(buf => [...new Uint8Array(buf)]
-      .map(x => x.toString(16).padStart(2, "0"))
-      .join("")
-    );
+function normalizeWeatherPreset(preset) {
+  return WEATHER_PRESETS[preset] ? preset : WEATHER_DEFAULT;
 }
 
-function hashTrackId(str) {
-  // stable browser-safe hash (fast + deterministic)
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(16);
+function normalizeWeatherDetails(value) {
+  const next = value || {};
+  return {
+    preset: normalizeWeatherPreset(next.preset),
+    precipitation: PRECIP_TYPES.has(next.precipitation) ? next.precipitation : PRECIP_DEFAULT,
+    intensity: INTENSITY_TYPES.has(next.intensity) ? next.intensity : INTENSITY_DEFAULT,
+    lightning: Boolean(next.lightning),
+    wind: WIND_TYPES.has(next.wind) ? next.wind : WIND_DEFAULT,
+  };
 }
 
-function md5cycle(x, k) {
-  let [a, b, c, d] = x;
-
-  function cmn(q, a, b, x, s, t) {
-    a = (a + q + x + t) | 0;
-    return (((a << s) | (a >>> (32 - s))) + b) | 0;
+function decodeExtrasParam(str) {
+  if (!str) return null;
+  try {
+    const json = decodeURIComponent(escape(atob(str.replace(/-/g, '+').replace(/_/g, '/'))));
+    const parsed = JSON.parse(json);
+    return {
+      bumps: Array.isArray(parsed.b) ? parsed.b : [],
+      poles: Array.isArray(parsed.p) ? parsed.p : [],
+      cubes: Array.isArray(parsed.k) ? parsed.k : [],
+      walls: Array.isArray(parsed.l) ? parsed.l : [],
+      physicsBoxes: Array.isArray(parsed.q) ? parsed.q : [],
+      boosts: Array.isArray(parsed.s) ? parsed.s : [],
+      jumps: Array.isArray(parsed.j) ? parsed.j : [],
+      decorations: Array.isArray(parsed.d) ? parsed.d : [],
+      surfaces: Array.isArray(parsed.u) ? parsed.u : [],
+      customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
+      customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
+      weather: normalizeWeatherDetails(parsed?.w),
+    };
+  } catch {
+    return null;
   }
-
-  function ff(a, b, c, d, x, s, t) {
-    return cmn((b & c) | (~b & d), a, b, x, s, t);
-  }
-  function gg(a, b, c, d, x, s, t) {
-    return cmn((b & d) | (c & ~d), a, b, x, s, t);
-  }
-  function hh(a, b, c, d, x, s, t) {
-    return cmn(b ^ c ^ d, a, b, x, s, t);
-  }
-  function ii(a, b, c, d, x, s, t) {
-    return cmn(c ^ (b | ~d), a, b, x, s, t);
-  }
-
-  a = ff(a, b, c, d, k[0], 7, -680876936);
-  d = ff(d, a, b, c, k[1], 12, -389564586);
-  c = ff(c, d, a, b, k[2], 17, 606105819);
-  b = ff(b, c, d, a, k[3], 22, -1044525330);
-
-  return [a, b, c, d];
 }
 
-function md5(str) {
-  function toBytes(str) {
-    const bytes = [];
-    for (let i = 0; i < str.length; i++) bytes.push(str.charCodeAt(i));
-    return bytes;
-  }
-
-  function bytesToHex(arr) {
-    return arr.map(x => x.toString(16).padStart(2, '0')).join('');
-  }
-
-  const bytes = toBytes(str);
-
-  let h = [
-    1732584193,
-    -271733879,
-    -1732584194,
-    271733878
-  ];
-
-  // SUPER minimal MD5 fallback (good enough for ID matching)
-  for (let i = 0; i < bytes.length; i++) {
-    h[0] = (h[0] + bytes[i]) | 0;
-    h = md5cycle(h, bytes);
-  }
-
-  return bytesToHex([
-    h[0] & 255,
-    h[1] & 255,
-    h[2] & 255,
-    h[3] & 255
-  ]);
+function normalizeTrackPath(pathValue) {
+  const raw = String(pathValue || '/');
+  if (raw === '/index.html') return '/';
+  if (raw.endsWith('/index.html')) return `${raw.slice(0, -11)}/`;
+  return raw;
 }
-      
+
+function hashTrackSeed(value) {
+  const hashA = fnv64Hex(value, 0xcbf29ce484222325n, 0x100000001b3n);
+  const hashB = fnv64Hex(value, 0x84222325cbf29cen, 0x100000001c3n);
+  return `${hashA}${hashB}`;
+}
+
+function fnv64Hex(value, start, prime) {
+  let hash = start;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= BigInt(value.charCodeAt(i));
+    hash = (hash * prime) & 0xffffffffffffffffn;
+  }
+  return hash.toString(16).padStart(16, '0');
+}
+
+function buildTrackId(pathname, mapParam, modsParam) {
+  const map = mapParam || 'default';
+  const mods = modsParam || 'none';
+  const extras = decodeExtrasParam(modsParam) || {
+    bumps: [],
+    poles: [],
+    cubes: [],
+    walls: [],
+    physicsBoxes: [],
+    boosts: [],
+    jumps: [],
+    decorations: [],
+    surfaces: [],
+    customSurfaces: {},
+    customAssets: {},
+    weather: normalizeWeatherDetails(),
+  };
+  const identity = {
+    path: pathname,
+    map,
+    mods,
+    trackLayoutVersion: map === 'default' ? 2 : 1,
+    extras: {
+      bumps: extras.bumps,
+      boosts: extras.boosts,
+      jumps: extras.jumps,
+      decorations: extras.decorations,
+      surfaces: extras.surfaces,
+      customSurfaces: extras.customSurfaces,
+      customAssets: extras.customAssets,
+      weather: extras.weather,
+    },
+  };
+  return `trk-${hashTrackSeed(`v3|${JSON.stringify(identity)}`)}`;
+}
+
 function getTrackIds(playUrl) {
   try {
     const parsed = new URL(playUrl, window.location.href);
-
     const map = parsed.searchParams.get('map');
     const mods = parsed.searchParams.get('mods');
-
-    if (!map || !mods) return [];
-
-    // THIS is the key assumption:
-    // backend is almost certainly hashing ONLY map+mods
-    const canonical = `${map}|${mods}`;
-
-    const id = md5(canonical);
-
-    return [id];
-
+    const rawPath = parsed.pathname || '/';
+    const normalizedPath = normalizeTrackPath(rawPath);
+    const ids = [buildTrackId(normalizedPath, map, mods)];
+    if (normalizedPath !== rawPath) ids.push(buildTrackId(rawPath, map, mods));
+    return [...new Set(ids)];
   } catch {
     return [];
   }

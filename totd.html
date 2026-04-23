@@ -302,6 +302,9 @@
     const roadCells = tiles.map(t => [t[0], t[1]]);
     const bumpCount = Math.min(4, Math.max(1, Math.floor(tiles.length / 12)));
     const bumps = sampleDeterministic(roadCells, rng, bumpCount);
+    const poleCandidates = [...roadCells, ...roadCells.map(([x, z]) => [x + 1, z]), ...roadCells.map(([x, z]) => [x - 1, z])];
+    const poleCount = Math.min(5, Math.max(1, Math.floor(tiles.length / 16)));
+    const poles = sampleDeterministic(poleCandidates, rng, poleCount);
 
     // scenery around road
     const roadSet = new Set(roadCells.map(([x, z]) => `${x},${z}`));
@@ -348,6 +351,7 @@
       cells: tiles,
       mods: {
         b: bumps, // bumps
+        p: poles, // poles
         s: [],    // legacy boost pads (unused; boost surfaces can still appear via `u`)
         u: surfaceCells,
         d: deco   // scenery
@@ -428,6 +432,15 @@
       ctx.beginPath();
       ctx.arc(px + size / 2, py + size / 2, Math.max(5, size * 0.26), 0, Math.PI * 2);
       ctx.stroke();
+    }
+
+    // poles as orange dots
+    ctx.fillStyle = '#f08c3a';
+    for (const [x, z] of (mods.p || [])) {
+      const [px, py] = toPix(x, z);
+      ctx.beginPath();
+      ctx.arc(px + size / 2, py + size / 2, Math.max(2, size * 0.12), 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
