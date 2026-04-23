@@ -263,28 +263,27 @@
     const map = parsed.searchParams.get('map');
     const mods = parsed.searchParams.get('mods');
 
-    // Only TOtD / legacy tracks are valid for Weekly Cup
+    // Only valid TOtD / seeded tracks
     if (!map || !mods) return [];
 
-    const base = JSON.stringify({
-      path: normalizeTrackPath(parsed.pathname),
-      map,
-      mods
-    });
+    // Match game identity: "Custom hokHhYkPhI"
+    const seed = map.slice(0, 13);
 
-    return [`trk-${hashTrackSeed(`v3|${base}`)}`];
+    return [`custom-${seed}`];
 
   } catch {
     return [];
   }
 }
 
-  function normalizeTrackPath(pathValue) {
-    const raw = String(pathValue || '/');
-    if (raw === '/index.html') return '/';
-    if (raw.endsWith('/index.html')) return `${raw.slice(0, -11)}/`;
-    return raw;
-  }
+function normalizeTrackPath(pathValue) {
+  const raw = String(pathValue || '/');
+
+  if (raw === '/index.html') return '/';
+  if (raw.endsWith('/index.html')) return raw.slice(0, -10);
+
+  return raw;
+}
 
   function decodeExtrasParamToken(str) {
     if (!str || str === 'none') return null;
