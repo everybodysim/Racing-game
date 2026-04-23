@@ -132,6 +132,7 @@ const CAMPAIGN_STAGE_COUNT = CAMPAIGN_STAGES.length;
 const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
 const INTENSITY_TYPES = new Set( [ 'low', 'medium', 'high' ] );
 const WIND_TYPES = new Set( [ 'none', 'breezy', 'gusty' ] );
+const FIREBASE_ROOM_TIMEOUT_MS = 2200;
 
 function hasFirebaseMultiplayerConfig() {
 
@@ -165,15 +166,28 @@ function renderMultiplayerRoomLeaderboard( lapTimes ) {
 
 	const listEl = document.getElementById( 'mp-lb-list' );
 	if ( ! listEl ) return;
-	const rows = lapTimes && typeof lapTimes === 'object' ? Object.values( lapTimes ) : [];
-	rows.sort( ( a, b ) => ( Number( a?.time ) || Infinity ) - ( Number( b?.time ) || Infinity ) );
+	const entries = lapTimes && typeof lapTimes === 'object' ? Object.entries( lapTimes ) : [];
+	const rows = entries.map( ( [ id, row ] ) => {
+
+		const time = Number( row?.time ?? row?.bestLap ?? row?.bestLapSeconds );
+		const name = typeof row?.name === 'string' && row.name.trim() ? row.name.trim() : `Player ${ String( id || '' ).slice( 0, 4 ).toUpperCase() }`;
+		return { id, name, time };
+
+	} ).filter( ( row ) => Number.isFinite( row.time ) );
+	rows.sort( ( a, b ) => a.time - b.time );
 	listEl.innerHTML = '';
+	if ( rows.length === 0 ) {
+
+		const li = document.createElement( 'li' );
+		li.textContent = 'No room laps yet.';
+		listEl.appendChild( li );
+		return;
+
+	}
 	for ( const row of rows.slice( 0, 8 ) ) {
 
 		const li = document.createElement( 'li' );
-		const name = typeof row?.name === 'string' && row.name.trim() ? row.name.trim() : 'Player';
-		const time = Number( row?.time );
-		li.textContent = `${ name } — ${ Number.isFinite( time ) ? formatLapTime( time ) : '--:--.---' }`;
+		li.textContent = `${ row.name } — ${ formatLapTime( row.time ) }`;
 		listEl.appendChild( li );
 
 	}
@@ -207,9 +221,14 @@ async function maybeSubmitOnlinePersonalBest( lapTimes ) {
 	if ( ! lapTimes || typeof lapTimes !== 'object' ) return;
 	const localName = sanitizePlayerName( playerNameInput?.value || localStorage.getItem( PLAYER_NAME_KEY ) || '' );
 	if ( ! localName ) return;
+	const encodedClientId = encodeURIComponent( multiplayerSessionState.clientId );
+	const localRow = lapTimes[ encodedClientId ] || lapTimes[ multiplayerSessionState.clientId ] || null;
+	const ownTime = Number( localRow?.time ?? localRow?.bestLap ?? localRow?.bestLapSeconds );
 	const matchingRows = Object.values( lapTimes ).filter( ( row ) => sanitizePlayerName( row?.name ) === localName );
-	if ( matchingRows.length === 0 ) return;
-	const bestOnlineTime = Math.min( ...matchingRows.map( ( row ) => Number( row?.time ) ).filter( Number.isFinite ) );
+	const bestByName = matchingRows.length > 0
+		? Math.min( ...matchingRows.map( ( row ) => Number( row?.time ?? row?.bestLap ?? row?.bestLapSeconds ) ).filter( Number.isFinite ) )
+		: Infinity;
+	const bestOnlineTime = Number.isFinite( ownTime ) ? ownTime : bestByName;
 	if ( ! Number.isFinite( bestOnlineTime ) ) return;
 	if ( Number.isFinite( bestLapSeconds ) && bestOnlineTime >= bestLapSeconds - 1e-6 ) return;
 	if ( Number.isFinite( lastSyncedOnlineBestLapSeconds ) && bestOnlineTime >= lastSyncedOnlineBestLapSeconds - 1e-6 ) return;
@@ -241,6 +260,7 @@ async function publishMultiplayerBestLap( bestLap ) {
 		await firebaseRoomsRequest( roomCode, 'PUT', {
 			name: displayName,
 			time: Number( bestLap ),
+			bestLapSeconds: Number( bestLap ),
 			updatedAt: Date.now(),
 		}, `lapTimes/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
 
@@ -259,6 +279,39 @@ function getCurrentMapSignature() {
 
 }
 
+function parseMapSignature( mapSignature ) {
+
+	const raw = String( mapSignature || '' );
+	if ( ! raw ) return { map: 'default', mods: 'none' };
+	const splitAt = raw.indexOf( '|' );
+	if ( splitAt < 0 ) return { map: raw || 'default', mods: 'none' };
+	return {
+		map: raw.slice( 0, splitAt ) || 'default',
+		mods: raw.slice( splitAt + 1 ) || 'none',
+	};
+
+}
+
+function redirectToRoomMap( roomCode, mapSignature ) {
+
+	const target = parseMapSignature( mapSignature );
+	const params = new URLSearchParams( window.location.search );
+	params.set( 'map', target.map );
+	if ( target.mods === 'none' ) {
+
+		params.delete( 'mods' );
+
+	} else {
+
+		params.set( 'mods', target.mods );
+
+	}
+	params.set( 'joinRoom', String( roomCode || '' ).trim().toUpperCase() );
+	window.location.search = params.toString();
+
+}
+
+
 function getFirebaseRoomsBaseUrl() {
 
 	const config = readFirebaseConfig();
@@ -275,12 +328,29 @@ async function firebaseRoomsRequest( roomCode, method = 'GET', payload = undefin
 	const normalizedSubPath = subPath ? `/${ subPath.replace( /^\/+/, '' ) }` : '';
 	const cacheBust = method === 'GET' ? `${ normalizedSubPath ? '&' : '?' }_=${ Date.now() }` : '';
 	const url = `${ baseUrl }/${ encodeURIComponent( safeCode ) }${ normalizedSubPath }.json${ cacheBust }`;
-	const response = await fetch( url, {
-		method,
-		headers: { 'Content-Type': 'application/json' },
-		body: payload === undefined ? undefined : JSON.stringify( payload ),
-		cache: 'no-store',
-	} );
+	const controller = new AbortController();
+	const timeoutId = setTimeout( () => controller.abort(), FIREBASE_ROOM_TIMEOUT_MS );
+	let response;
+	try {
+
+		response = await fetch( url, {
+			method,
+			headers: { 'Content-Type': 'application/json' },
+			body: payload === undefined ? undefined : JSON.stringify( payload ),
+			cache: 'no-store',
+			signal: controller.signal,
+		} );
+
+	} catch ( error ) {
+
+		if ( error?.name === 'AbortError' ) throw new Error( 'room-timeout' );
+		throw error;
+
+	} finally {
+
+		clearTimeout( timeoutId );
+
+	}
 	if ( ! response.ok ) {
 
 		let detail = '';
@@ -408,7 +478,8 @@ function initMultiplayerPanel() {
 			const joinMap = getCurrentMapSignature();
 			if ( ! canJoinMap( room.mapSignature, joinMap ) ) {
 
-				updateMultiplayerStatus( 'Join failed: both players must be on the same map/mods.' );
+				updateMultiplayerStatus( `Switching to host map for room ${ code }...` );
+				redirectToRoomMap( code, room.mapSignature );
 				return;
 
 			}
@@ -467,6 +538,18 @@ function initMultiplayerPanel() {
 
 	} );
 
+	const joinRoomParam = String( new URLSearchParams( window.location.search ).get( 'joinRoom' ) || '' ).trim().toUpperCase();
+	if ( /^[A-Z0-9]{6}$/.test( joinRoomParam ) ) {
+
+		codeInput.value = joinRoomParam;
+		const params = new URLSearchParams( window.location.search );
+		params.delete( 'joinRoom' );
+		const nextQuery = params.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ nextQuery ? `?${ nextQuery }` : '' }${ window.location.hash }` );
+		setTimeout( () => joinBtn.click(), 0 );
+
+	}
+
 }
 
 function normalizeWeatherPreset( preset ) {
@@ -498,6 +581,7 @@ function decodeExtrasParam( str ) {
 		const parsed = JSON.parse( json );
 		return {
 			bumps: Array.isArray( parsed.b ) ? parsed.b : [],
+			poles: Array.isArray( parsed.p ) ? parsed.p : [],
 			boosts: Array.isArray( parsed.s ) ? parsed.s : [],
 			jumps: Array.isArray( parsed.j ) ? parsed.j : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
@@ -661,6 +745,7 @@ function getTrackId( mapParamValue, extrasParamValue ) {
 	const mods = extrasParamValue || 'none';
 	const extras = decodeExtrasParam( extrasParamValue ) || {
 		bumps: [],
+		poles: [],
 		boosts: [],
 		jumps: [],
 		decorations: [],
@@ -674,10 +759,10 @@ function getTrackId( mapParamValue, extrasParamValue ) {
 		map,
 		mods,
 		trackLayoutVersion: map === 'default' ? 2 : 1,
-		extras: {
-			bumps: extras.bumps,
-			boosts: extras.boosts,
-			jumps: extras.jumps,
+			extras: {
+				bumps: extras.bumps,
+				boosts: extras.boosts,
+				jumps: extras.jumps,
 			decorations: extras.decorations,
 			surfaces: extras.surfaces,
 			customSurfaces: extras.customSurfaces,
@@ -698,6 +783,7 @@ function getLegacyTrackIds( mapParamValue, extrasParamValue ) {
 	const mods = extrasParamValue || 'none';
 	const extras = decodeExtrasParam( extrasParamValue ) || {
 		bumps: [],
+		poles: [],
 		boosts: [],
 		jumps: [],
 		decorations: [],
@@ -2027,7 +2113,7 @@ async function init() {
 	})();
 	const hacksInstalled = installedMods.some( ( mod ) => mod?.id === 'hacks' );
 	const arcadeBoostInstalled = installedMods.some( ( mod ) => mod?.id === 'arcade-boost' );
-	const anyModsInstalled = installedMods.length > 0;
+	const nonFreecamModsInstalled = installedMods.some( ( mod ) => mod?.id && mod.id !== 'freecam' );
 	const checkpointRespawnInstalled = installedMods.some( ( mod ) => mod?.id === 'checkpoint-respawn' );
 	const practiceStartInstalled = installedMods.some( ( mod ) => mod?.id === 'practice-start' );
 	const stuntModeModInstalled = installedMods.some( ( mod ) => mod?.id === 'stunt-mode' );
@@ -3140,7 +3226,11 @@ async function init() {
 	const timer = new THREE.Timer();
 	let raceClockSeconds = 0;
 	const activeCells = customCells || TRACK_CELLS;
-	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells[ 0 ];
+	const hasSeparateStartCell = activeCells.some( ( c ) => c[ 2 ] === 'track-start' );
+	const hasSeparateFinishCell = activeCells.some( ( c ) => c[ 2 ] === 'track-finish' );
+	const shouldAutoRespawnAfterLap = hasSeparateStartCell && hasSeparateFinishCell;
+	const startCell = activeCells.find( ( c ) => c[ 2 ] === 'track-start' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || null;
+	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || activeCells[ 0 ];
 	const checkpointCells = activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' );
 	const lapStoreKey = `racing-lap-stats:${ mapParam || 'default' }`;
 	const stuntStoreKey = `racing-stunt-stats:${ mapParam || 'default' }`;
@@ -3337,6 +3427,7 @@ async function init() {
 	}
 
 	const finishData = makeGateData( finishCell );
+	const startGateData = makeGateData( startCell || finishCell );
 	const checkpointStates = checkpointCells.map( ( cell ) => ( {
 		...makeGateData( cell ),
 		lastLocalX: 0,
@@ -3352,6 +3443,7 @@ async function init() {
 	let bestLapSeconds = null;
 	let checkpointDeltaText = '';
 	let lastSyncedOnlineBestLapSeconds = null;
+	let autoRespawnTimerId = null;
 	let hasPrevFinishSample = false;
 	let lastLocalX = 0;
 	let lastLocalZ = 0;
@@ -3390,6 +3482,7 @@ async function init() {
 	let lapSeconds2 = 0;
 	let lastLapSeconds2 = null;
 	let bestLapSeconds2 = null;
+	let autoRespawnTimerId2 = null;
 	let hasPrevFinishSample2 = false;
 	let lastLocalX2 = 0;
 	let lastLocalZ2 = 0;
@@ -4166,9 +4259,9 @@ async function init() {
 
 	async function submitLeaderboardTime( lapTimeSeconds, forcedName = '' ) {
 
-		if ( anyModsInstalled ) {
+		if ( nonFreecamModsInstalled ) {
 
-			showTopMessage( 'Leaderboard submitting is disabled when mods are installed.', true, 2200 );
+			showTopMessage( 'Leaderboard submitting is disabled when gameplay mods are installed.', true, 2200 );
 			return false;
 
 		}
@@ -4459,6 +4552,12 @@ async function init() {
 
 	function respawnVehicle() {
 
+		if ( autoRespawnTimerId ) {
+
+			clearTimeout( autoRespawnTimerId );
+			autoRespawnTimerId = null;
+
+		}
 		vehicle.resetToSpawn();
 		cam.targetPosition.copy( vehicle.spherePos );
 		cam.camera.position.addVectors( cam.targetPosition, cam.offset );
@@ -4470,6 +4569,12 @@ async function init() {
 	function respawnVehicle2() {
 
 		if ( ! vehicle2 || ! cam2 ) return;
+		if ( autoRespawnTimerId2 ) {
+
+			clearTimeout( autoRespawnTimerId2 );
+			autoRespawnTimerId2 = null;
+
+		}
 		vehicle2.resetToSpawn();
 		cam2.targetPosition.copy( vehicle2.spherePos );
 		cam2.camera.position.addVectors( cam2.targetPosition, cam2.offset );
@@ -4507,6 +4612,30 @@ async function init() {
 		vehicle.sphereVel.set( 0, 0, 0 );
 		vehicle.modelVelocity.set( 0, 0, 0 );
 		cam.targetPosition.copy( vehicle.spherePos );
+
+	}
+
+	function scheduleAutoRespawnVehicle() {
+
+		if ( autoRespawnTimerId ) clearTimeout( autoRespawnTimerId );
+		autoRespawnTimerId = setTimeout( () => {
+
+			autoRespawnTimerId = null;
+			respawnVehicle();
+
+		}, 500 );
+
+	}
+
+	function scheduleAutoRespawnVehicle2() {
+
+		if ( autoRespawnTimerId2 ) clearTimeout( autoRespawnTimerId2 );
+		autoRespawnTimerId2 = setTimeout( () => {
+
+			autoRespawnTimerId2 = null;
+			respawnVehicle2();
+
+		}, 500 );
 
 	}
 
@@ -5510,9 +5639,11 @@ async function init() {
 
 			const localX = ( ( vehicle.spherePos.x - finishData.centerX ) * finishData.cosA ) + ( ( vehicle.spherePos.z - finishData.centerZ ) * finishData.sinA );
 			const localZ = ( - ( vehicle.spherePos.x - finishData.centerX ) * finishData.sinA ) + ( ( vehicle.spherePos.z - finishData.centerZ ) * finishData.cosA );
-			const inFinishCell = Math.abs( localX ) < finishData.halfExtent && Math.abs( localZ ) < finishData.halfExtent;
+			const startLocalX = ( ( vehicle.spherePos.x - startGateData.centerX ) * startGateData.cosA ) + ( ( vehicle.spherePos.z - startGateData.centerZ ) * startGateData.sinA );
+			const startLocalZ = ( - ( vehicle.spherePos.x - startGateData.centerX ) * startGateData.sinA ) + ( ( vehicle.spherePos.z - startGateData.centerZ ) * startGateData.cosA );
+			const inStartCell = Math.abs( startLocalX ) < startGateData.halfExtent && Math.abs( startLocalZ ) < startGateData.halfExtent;
 
-			if ( ! hasLeftStartZone && ! inFinishCell ) {
+			if ( ! hasLeftStartZone && ! inStartCell ) {
 
 				hasLeftStartZone = true;
 
@@ -5611,7 +5742,8 @@ async function init() {
 
 					checkpoint.passedThisLap = false;
 
-					}
+				}
+				if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle();
 					saveLapStats();
 					rewardCoinsForLap( completedLap );
 						if ( gameMode === 'stunt' ) {
@@ -5661,9 +5793,11 @@ async function init() {
 
 			const localX = ( ( vehicle2.spherePos.x - finishData.centerX ) * finishData.cosA ) + ( ( vehicle2.spherePos.z - finishData.centerZ ) * finishData.sinA );
 			const localZ = ( - ( vehicle2.spherePos.x - finishData.centerX ) * finishData.sinA ) + ( ( vehicle2.spherePos.z - finishData.centerZ ) * finishData.cosA );
-			const inFinishCell = Math.abs( localX ) < finishData.halfExtent && Math.abs( localZ ) < finishData.halfExtent;
+			const startLocalX = ( ( vehicle2.spherePos.x - startGateData.centerX ) * startGateData.cosA ) + ( ( vehicle2.spherePos.z - startGateData.centerZ ) * startGateData.sinA );
+			const startLocalZ = ( - ( vehicle2.spherePos.x - startGateData.centerX ) * startGateData.sinA ) + ( ( vehicle2.spherePos.z - startGateData.centerZ ) * startGateData.cosA );
+			const inStartCell = Math.abs( startLocalX ) < startGateData.halfExtent && Math.abs( startLocalZ ) < startGateData.halfExtent;
 
-			if ( ! hasLeftStartZone2 && ! inFinishCell ) hasLeftStartZone2 = true;
+			if ( ! hasLeftStartZone2 && ! inStartCell ) hasLeftStartZone2 = true;
 
 			let crossedFinish = false;
 			if ( hasPrevFinishSample2 ) {
@@ -5691,6 +5825,7 @@ async function init() {
 				lapStartSeconds2 = now;
 				hasLeftStartZone2 = false;
 				for ( const checkpoint of checkpointStates2 ) checkpoint.passedThisLap = false;
+				if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle2();
 
 			}
 
