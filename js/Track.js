@@ -64,8 +64,13 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
 
 	const piece = models[ modelKey ].clone();
-	let yAdjust = 0;  if ( type === 'slope-up' || type === 'slope-down' ) {     yAdjust = - ( ELEVATED_HEIGHT * 0.5 ) + 0.4; }
-	piece.position.set(   ( gx + 0.5 ) * CELL_RAW,   0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust - (ELEVATED_HEIGHT * 0.5),   ( gz + 0.5 ) * CELL_RAW );
+	let yAdjust = 0;
+	if ( type === 'slope-up' || type === 'slope-down' ) yAdjust = - ( ELEVATED_HEIGHT * 0.5 ) + 0.06;
+	piece.position.set(
+		( gx + 0.5 ) * CELL_RAW,
+		0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust,
+		( gz + 0.5 ) * CELL_RAW
+	);
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
 	if ( type === 'slope-up' || type === 'slope-down' ) {
