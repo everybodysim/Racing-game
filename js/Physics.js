@@ -44,8 +44,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const SUPPORT_SINK = 0.03 * S;
 	const SUPPORT_HALF_EXTENTS = [ CELL_HALF * S, CELL_HALF * 0.5 * S, CELL_HALF * S ];
 	const ELEVATED_SURFACE_HALF_H = 0.12 * S;
-	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S * 1.08;
+	const ELEVATED_SURFACE_SEAM_PAD = 0.02 * S;
+	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S + ELEVATED_SURFACE_SEAM_PAD;
 	const ELEVATED_SURFACE_DROP = 0.4;
+	const ELEVATED_GRID_HEIGHT_STEP = 0.0005 * S;
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const ELEVATED_WALL_HALF_H = WALL_HALF_H * S;
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
@@ -124,7 +126,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
-		const position = [ cx, groundY + SUPPORT_HALF_EXTENTS[ 1 ] - SUPPORT_SINK, cz ];
+		const yGridOffset = getElevatedGridHeightOffset( gx, gz );
+		const position = [ cx, groundY + SUPPORT_HALF_EXTENTS[ 1 ] - SUPPORT_SINK + yGridOffset, cz ];
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents: SUPPORT_HALF_EXTENTS } ),
 			motionType: MotionType.STATIC,
@@ -144,13 +147,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const deg = ORIENT_DEG[ orient ] ?? 0;
 		const rad = deg * Math.PI / 180;
 		const cr = Math.cos( rad ), sr = Math.sin( rad );
+		const yGridOffset = getElevatedGridHeightOffset( gx, gz );
 		for ( const side of [ - 1, 1 ] ) {
 
 			const lx = side * WALL_X;
 			const wx = cx + ( lx * cr ) * S;
 			const wz = cz + ( - lx * sr ) * S;
 			const halfExtents = [ hThick, ELEVATED_WALL_HALF_H, hLen ];
-			const position = [ wx, elevatedWallY, wz ];
+			const position = [ wx, elevatedWallY + yGridOffset, wz ];
 			const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
@@ -177,13 +181,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S;
 		const wcz = cz + ( - ARC_CENTER_X * sr + ARC_CENTER_Z * cr ) * S;
 		const arcStart = - rad;
+		const yGridOffset = getElevatedGridHeightOffset( gx, gz );
 		for ( const [ radius, segCount, segHalfLen ] of [ [ OUTER_R, OUTER_SEG, OUTER_SEG_HALF_LEN ], [ INNER_R, INNER_SEG, INNER_SEG_HALF_LEN ] ] ) {
 
 			for ( let i = 0; i < segCount; i ++ ) {
 
 				const aMid = arcStart + ( ( i + 0.5 ) / segCount ) * ARC_SPAN;
 				const halfExtents = [ hThick, ELEVATED_WALL_HALF_H, segHalfLen ];
-				const position = [ wcx + radius * Math.cos( aMid ) * S, elevatedWallY, wcz + radius * Math.sin( aMid ) * S ];
+				const position = [ wcx + radius * Math.cos( aMid ) * S, elevatedWallY + yGridOffset, wcz + radius * Math.sin( aMid ) * S ];
 				const quaternion = [ 0, Math.sin( - aMid / 2 ), 0, Math.cos( - aMid / 2 ) ];
 				rigidBody.create( world, {
 					shape: box.create( { halfExtents } ),
@@ -206,10 +211,11 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const yGridOffset = getElevatedGridHeightOffset( gx, gz );
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( up ? slopeAngle : - slopeAngle, yaw, 0, 'YXZ' ) );
 		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, ELEVATED_SURFACE_HALF_XZ ];
-		const position = [ cx, groundY + ( ELEVATED_HEIGHT * 0.5 ) - ELEVATED_SURFACE_DROP, cz ];
+		const position = [ cx, groundY + ( ELEVATED_HEIGHT * 0.5 ) - ELEVATED_SURFACE_DROP + yGridOffset, cz ];
 		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents } ),
@@ -273,6 +279,15 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
 		if ( ! elevatedEntry ) return 0;
 		return elevatedEntry.type === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
+
+	}
+
+	function getElevatedGridHeightOffset( gx, gz ) {
+
+		const gxCell = Math.trunc( Number( gx ) );
+		const gzCell = Math.trunc( Number( gz ) );
+		const staggerIndex = ( ( ( gxCell % 2 ) + 2 ) % 2 ) + ( ( ( gzCell % 2 ) + 2 ) % 2 ) * 2;
+		return staggerIndex * ELEVATED_GRID_HEIGHT_STEP;
 
 	}
 
@@ -463,8 +478,9 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 			const cx = ( Number( gx ) + 0.5 ) * CELL_RAW * S;
 			const cz = ( Number( gz ) + 0.5 ) * CELL_RAW * S;
+			const yGridOffset = getElevatedGridHeightOffset( gx, gz );
 			const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, ELEVATED_SURFACE_HALF_XZ ];
-			const position = [ cx, elevatedSurfaceY, cz ];
+			const position = [ cx, elevatedSurfaceY + yGridOffset, cz ];
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
 				motionType: MotionType.STATIC,
@@ -480,8 +496,9 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 			const cx = ( Number( gx ) + 0.5 ) * CELL_RAW * S;
 			const cz = ( Number( gz ) + 0.5 ) * CELL_RAW * S;
+			const yGridOffset = getElevatedGridHeightOffset( gx, gz );
 			const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, ELEVATED_SURFACE_HALF_XZ ];
-			const position = [ cx, elevatedSurfaceY, cz ];
+			const position = [ cx, elevatedSurfaceY + yGridOffset, cz ];
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
 				motionType: MotionType.STATIC,
