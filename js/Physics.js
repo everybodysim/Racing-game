@@ -96,14 +96,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	function addJumpRampCollider( gx, gz, orient = 0 ) {
+	function addJumpRampCollider( gx, gz, orient = 0, yOffset = 0 ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
 		const deg = ORIENT_DEG[ orient ] ?? 0;
 		const yaw = deg * Math.PI / 180;
 		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( - JUMP_RAMP_ANGLE, yaw, 0, 'YXZ' ) );
-		const position = [ cx, groundY - JUMP_RAMP_SINK, cz ];
+		const position = [ cx, groundY - JUMP_RAMP_SINK + yOffset, cz ];
 		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
 
 		rigidBody.create( world, {
@@ -117,6 +117,37 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		} );
 
 		if ( debugGroup ) addDebugBox( debugGroup, jumpRampHalfExtents, position, quaternion );
+
+	}
+
+	function addSlopeSideWalls( gx, gz, orient = 0 ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+		const baseQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( slopeAngle, yaw, 0, 'YXZ' ) );
+		const cr = Math.cos( yaw ), sr = Math.sin( yaw );
+		const wallCenterY = groundY + ( ELEVATED_HEIGHT * 0.5 ) - ELEVATED_SURFACE_DROP;
+		for ( const side of [ - 1, 1 ] ) {
+
+			const lx = side * WALL_X;
+			const wx = cx + ( lx * cr ) * S;
+			const wz = cz + ( - lx * sr ) * S;
+			const halfExtents = [ hThick, hHeight, hLen ];
+			const position = [ wx, wallCenterY, wz ];
+			const quaternion = [ baseQuat.x, baseQuat.y, baseQuat.z, baseQuat.w ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				quaternion,
+				friction: 0.0,
+				restitution: 0.0,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+		}
 
 	}
 
@@ -221,7 +252,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			restitution: 0.0,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
-		addElevatedRoadWalls( gx, gz, orient );
+		addSlopeSideWalls( gx, gz, orient );
 
 	}
 
@@ -232,6 +263,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const wallMap = new Map();
 	const jumpMap = new Map();
 	const elevatedEntries = extras && Array.isArray( extras.elevated ) ? extras.elevated : [];
+	const elevatedMap = new Map();
 	const customAssetColliders = extras?.customAssets && typeof extras.customAssets === 'object' ? extras.customAssets : {};
 	const decorationEntries = extras && Array.isArray( extras.decorations ) ? extras.decorations : [];
 	if ( extras && Array.isArray( extras.bumps ) ) {
@@ -259,6 +291,21 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		for ( const [ gx, gz, orient = 0 ] of extras.jumps ) jumpMap.set( gx + ',' + gz, orient );
 
 	}
+	for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedEntries ) {
+
+		const key = `${ gx },${ gz }`;
+		if ( elevatedType === 'slope-down' ) elevatedMap.set( key, { type: 'slope-up', orient: ORIENT_180[ orient ] ?? orient } );
+		else elevatedMap.set( key, { type: elevatedType, orient } );
+
+	}
+
+	function getOverlayHeightOffset( gx, gz ) {
+
+		const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
+		if ( ! elevatedEntry ) return 0;
+		return elevatedEntry.type === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
+
+	}
 
 	for ( const poleKey of poleSet ) {
 
@@ -270,7 +317,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
 		const poleRadius = CELL_RAW * S * 0.08;
 		const poleRise = CELL_RAW * S * 0.065;
-		const position = [ cx, groundY + poleRise, cz ];
+		const position = [ cx, groundY + poleRise + getOverlayHeightOffset( gx, gz ), cz ];
 
 		rigidBody.create( world, {
 			shape: sphere.create( { radius: poleRadius } ),
@@ -293,7 +340,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
 		const halfExtents = [ CELL_RAW * S * 0.08, CELL_RAW * S * 0.08, CELL_RAW * S * 0.08 ];
-		const position = [ cx, groundY + halfExtents[ 1 ], cz ];
+		const position = [ cx, groundY + halfExtents[ 1 ] + getOverlayHeightOffset( gx, gz ), cz ];
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents } ),
 			motionType: MotionType.STATIC,
@@ -317,7 +364,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const halfExtents = [ CELL_RAW * S * 0.31, CELL_RAW * S * 0.075, CELL_RAW * S * 0.04 ];
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 		const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
-		const position = [ cx, groundY + halfExtents[ 1 ], cz ];
+		const position = [ cx, groundY + halfExtents[ 1 ] + getOverlayHeightOffset( gx, gz ), cz ];
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents } ),
 			motionType: MotionType.STATIC,
@@ -346,7 +393,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const jumpKey = gx + ',' + gz;
 		if ( jumpMap.has( jumpKey ) ) {
 
-			addJumpRampCollider( gx, gz, jumpMap.get( jumpKey ) );
+			addJumpRampCollider( gx, gz, jumpMap.get( jumpKey ), getOverlayHeightOffset( gx, gz ) );
 			jumpMap.delete( jumpKey );
 
 		}
@@ -355,7 +402,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		if ( hasBump ) {
 
-			const position = [ cx, bumpY, cz ];
+			const position = [ cx, bumpY + getOverlayHeightOffset( gx, gz ), cz ];
 
 			rigidBody.create( world, {
 				shape: sphere.create( { radius: BUMP_RADIUS } ),
@@ -414,7 +461,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const [ gx, gz ] = key.split( ',' ).map( Number );
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
-		const position = [ cx, bumpY, cz ];
+		const position = [ cx, bumpY + getOverlayHeightOffset( gx, gz ), cz ];
 
 		rigidBody.create( world, {
 			shape: sphere.create( { radius: BUMP_RADIUS } ),
@@ -432,7 +479,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	for ( const [ key, orient ] of jumpMap ) {
 
 		const [ gx, gz ] = key.split( ',' ).map( Number );
-		addJumpRampCollider( gx, gz, orient );
+		addJumpRampCollider( gx, gz, orient, getOverlayHeightOffset( gx, gz ) );
 
 	}
 
@@ -479,7 +526,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		} else if ( normalizedType === 'slope-up' ) {
 
-			addSlopeCollider( Number( gx ), Number( gz ), normalizedOrient, true );
+			addSlopeCollider( Number( gx ), Number( gz ), ORIENT_180[ normalizedOrient ] ?? normalizedOrient, true );
 
 		}
 

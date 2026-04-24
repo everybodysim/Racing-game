@@ -403,7 +403,6 @@
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
 	const SUPPORT_HEIGHT = CELL_RAW * 0.5;
 	const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
-	const SLOPE_VISUAL_DROP = CELL_RAW * 0.04;
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const SURFACE_TYPES = [
 		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
@@ -446,6 +445,34 @@
 	const OFFGRID_STEP = 0.25;
 	const BLOCK_HEIGHT_OFFSET = 0.012;
 	const DECO_HEIGHT_OFFSET = BLOCK_HEIGHT_OFFSET * 0.5;
+
+	function getOverlayHeightOffset( cell ) {
+
+		if ( ! cell?.elevatedType ) return 0;
+		return cell.elevatedType === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
+
+	}
+
+	function createSlopeSupportGeometry() {
+
+		const geometry = new THREE.BoxGeometry( CELL_RAW, SUPPORT_HEIGHT, CELL_RAW );
+		const position = geometry.attributes.position;
+		const halfHeight = SUPPORT_HEIGHT * 0.5;
+		for ( let i = 0; i < position.count; i ++ ) {
+
+			const y = position.getY( i );
+			if ( y < halfHeight - 1e-5 ) continue;
+			const z = position.getZ( i );
+			const isNearEdge = z >= 0;
+			const topY = ( isNearEdge ? 0 : SUPPORT_HEIGHT ) - halfHeight;
+			position.setY( i, topY );
+
+		}
+		position.needsUpdate = true;
+		geometry.computeVertexNormals();
+		return geometry;
+
+	}
 
 	function normalizeCoord( value ) {
 
@@ -890,7 +917,8 @@
 			if ( bumpSrc ) {
 
 				const bump = bumpSrc.clone();
-				bump.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
+				const yOffset = getOverlayHeightOffset( cell );
+				bump.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
 				bump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.bumpOrient || 0 ] || 0 );
 				bump.traverse( ( c ) => {
 
@@ -919,7 +947,8 @@
 					metalness: 0.02,
 				} )
 			);
-			jump.position.set( ( gx + 0.5 ) * CELL_RAW, 0.24 + BLOCK_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
+			const yOffset = getOverlayHeightOffset( cell );
+			jump.position.set( ( gx + 0.5 ) * CELL_RAW, 0.24 + BLOCK_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			jump.rotation.order = 'YXZ';
 			jump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.jumpOrient || 0 ] || 0 );
 			jump.rotation.x = - THREE.MathUtils.degToRad( 30 );
@@ -941,12 +970,13 @@
 			if ( elevatedSrc ) {
 
 				const elevated = elevatedSrc.clone();
-				const yAdjust = normalizedType === 'slope-up' ? - SLOPE_VISUAL_DROP : 0;
+				const yAdjust = normalizedType === 'slope-up' ? - ( ELEVATED_HEIGHT * 0.5 ) + 0.06 : 0;
 				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
 				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 );
 				if ( normalizedType === 'slope-up' ) {
 
 					elevated.rotation.order = 'YXZ';
+					elevated.rotation.y += Math.PI;
 					elevated.rotation.x = - SLOPE_ANGLE;
 					elevated.scale.z = 1.08;
 
@@ -967,10 +997,12 @@
 			}
 
 			const support = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW, SUPPORT_HEIGHT, CELL_RAW ),
+				normalizedType === 'slope-up' ? createSlopeSupportGeometry() : new THREE.BoxGeometry( CELL_RAW, SUPPORT_HEIGHT, CELL_RAW ),
 				new THREE.MeshStandardMaterial( { color: 0x0d0d0d, roughness: 0.95, metalness: 0.0 } )
 			);
 			support.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + SUPPORT_HEIGHT * 0.5, ( gz + 0.5 ) * CELL_RAW );
+			support.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 );
+			if ( normalizedType === 'slope-up' ) support.rotation.y += Math.PI;
 			support.castShadow = true;
 			support.receiveShadow = true;
 			trackGroup.add( support );
@@ -984,7 +1016,8 @@
 				new THREE.CylinderGeometry( CELL_RAW * 0.08, CELL_RAW * 0.08, CELL_RAW * 0.13, 16 ),
 				new THREE.MeshStandardMaterial( { color: 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
 			);
-			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.065 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			const yOffset = getOverlayHeightOffset( cell );
+			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.065 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			pole.castShadow = true;
 			pole.receiveShadow = true;
 			trackGroup.add( pole );
@@ -998,7 +1031,8 @@
 				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
 				new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
 			);
-			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			const yOffset = getOverlayHeightOffset( cell );
+			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			cube.castShadow = true;
 			cube.receiveShadow = true;
 			trackGroup.add( cube );
@@ -1012,7 +1046,8 @@
 				new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
 				new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
 			);
-			wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			const yOffset = getOverlayHeightOffset( cell );
+			wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.wallOrient || 0 ] || 0 );
 			wall.castShadow = true;
 			wall.receiveShadow = true;
@@ -1039,7 +1074,8 @@
 					} )
 				);
 				patch.rotation.x = - Math.PI / 2;
-				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
+				const yOffset = getOverlayHeightOffset( cell );
+				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
 				patch.receiveShadow = true;
 				trackGroup.add( patch );
 				cell.surfaceMeshes.push( patch );
