@@ -335,6 +335,20 @@
 			<option value="surface-kick-l">Kick Left</option>
 			<option value="surface-kick-r">Kick Right</option>
 		</select>
+		<select id="pad-select" aria-label="Pad picker">
+			<option value="">Pads…</option>
+			<option value="pad-reset">Reset Effects</option>
+			<option value="pad-low-gravity">Low Gravity</option>
+			<option value="pad-heavy-gravity">Heavy Gravity</option>
+			<option value="pad-high-grip">High Grip</option>
+			<option value="pad-high-speed">High Speed</option>
+			<option value="pad-no-brakes">No Brakes</option>
+			<option value="pad-no-steering">No Steering</option>
+			<option value="pad-no-acceleration">No Acceleration (Slide)</option>
+			<option value="pad-slow-motion">Slow Motion</option>
+			<option value="pad-fast-motion">Fast Motion</option>
+			<option value="pad-drift">Drift Mode</option>
+		</select>
 		<button id="btn-surface-custom-a">Custom A</button>
 		<button id="btn-surface-custom-b">Custom B</button>
 		<button id="btn-surface-custom-c">Custom C</button>
@@ -407,6 +421,8 @@
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const SURFACE_TYPES = [
 		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
+		'pad-reset', 'pad-low-gravity', 'pad-heavy-gravity', 'pad-high-grip', 'pad-high-speed',
+		'pad-no-brakes', 'pad-no-steering', 'pad-no-acceleration', 'pad-slow-motion', 'pad-fast-motion', 'pad-drift',
 		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
 	];
 	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
@@ -516,6 +532,17 @@
 				const color = new THREE.Color( colorHex );
 				return { color: color.getHex(), emissive: color.clone().multiplyScalar( 0.45 ).getHex(), metalness: 0.02, roughness: 0.72 };
 			}
+			case 'pad-reset': return { color: 0xffffff, emissive: 0x557c92, metalness: 0.1, roughness: 0.35 };
+			case 'pad-low-gravity': return { color: 0x9bc2ff, emissive: 0x2e4f9f, metalness: 0.05, roughness: 0.55 };
+			case 'pad-heavy-gravity': return { color: 0x4a5f85, emissive: 0x111b36, metalness: 0.05, roughness: 0.8 };
+			case 'pad-high-grip': return { color: 0x5cff9a, emissive: 0x0d6a39, metalness: 0.02, roughness: 0.95 };
+			case 'pad-high-speed': return { color: 0xffbc4f, emissive: 0x8a4e06, metalness: 0.0, roughness: 0.8 };
+			case 'pad-no-brakes': return { color: 0xff6f6f, emissive: 0x7d1a1a, metalness: 0.0, roughness: 0.82 };
+			case 'pad-no-steering': return { color: 0xff7ed8, emissive: 0x7a1f65, metalness: 0.02, roughness: 0.78 };
+			case 'pad-no-acceleration': return { color: 0x85ffd8, emissive: 0x156e58, metalness: 0.0, roughness: 0.72 };
+			case 'pad-slow-motion': return { color: 0x6ab5ff, emissive: 0x104f88, metalness: 0.05, roughness: 0.68 };
+			case 'pad-fast-motion': return { color: 0xff9f3c, emissive: 0x8a2f00, metalness: 0.02, roughness: 0.7 };
+			case 'pad-drift': return { color: 0xd6ff6a, emissive: 0x5c7a0f, metalness: 0.03, roughness: 0.8 };
 			default: return { color: 0xb88657, emissive: 0x4a2b12, metalness: 0.0, roughness: 0.9 };
 
 		}
@@ -1804,6 +1831,7 @@
 	};
 	const gateSelect = document.getElementById( 'gate-select' );
 	const surfaceSelect = document.getElementById( 'surface-select' );
+	const padSelect = document.getElementById( 'pad-select' );
 	const overlapToggleBtn = document.getElementById( 'btn-overlap-toggle' );
 	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
 	const customSurfaceTitle = document.getElementById( 'custom-surface-title' );
@@ -1886,6 +1914,7 @@
 
 		}
 		if ( surfaceSelect ) surfaceSelect.value = SURFACE_TYPES.includes( selectedType ) ? selectedType : '';
+		if ( padSelect ) padSelect.value = selectedType.startsWith( 'pad-' ) ? selectedType : '';
 		if ( overlapToggleBtn ) {
 
 			overlapToggleBtn.classList.toggle( 'active', allowSurfaceOverlap );
@@ -1991,6 +2020,13 @@
 
 		if ( ! surfaceSelect.value ) return;
 		selectTileType( surfaceSelect.value );
+
+	} );
+	padSelect?.addEventListener( 'change', () => {
+
+		if ( ! padSelect.value ) return;
+		selectTileType( padSelect.value );
+		showToast( `Pad: ${ padSelect.options[ padSelect.selectedIndex ]?.textContent || padSelect.value }` );
 
 	} );
 	overlapToggleBtn?.addEventListener( 'click', () => {
