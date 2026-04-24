@@ -321,6 +321,11 @@
 			<option value="track-finish">Place: Finish</option>
 		</select>
 		<button id="btn-checkpoint">Checkpoint</button>
+		<button id="btn-elevated-straight" style="display:none">Elev Straight</button>
+		<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
+		<button id="btn-elevated-checkpoint" style="display:none">Elev Checkpoint</button>
+		<button id="btn-slope-up" style="display:none">Slope Up</button>
+		<button id="btn-slope-down" style="display:none">Slope Down</button>
 		<select id="surface-select" aria-label="Surface picker">
 			<option value="">Surface…</option>
 			<option value="surface-wood">Wood</option>
@@ -395,6 +400,10 @@
 	const CUBE_TOOL = 'overlay-cube';
 	const WALL_TOOL = 'overlay-wall';
 	const JUMP_TOOL = 'overlay-jump';
+	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down' ];
+	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
+	const SUPPORT_HEIGHT = CELL_RAW * 0.5;
+	const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
 	const SURFACE_TYPES = [
 		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
 		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
@@ -427,6 +436,7 @@
 	let flowStraightType = 'track-straight';
 	let flowCornerType = 'track-corner';
 	let placeOffGrid = false;
+	let slopesModInstalled = false;
 	let testSpawnCell = null;
 	let pickTestSpawnMode = false;
 	let autosaveEnabled = true;
@@ -467,6 +477,10 @@
 			jump: false,
 			jumpOrient: 0,
 			jumpMesh: null,
+			elevatedType: null,
+			elevatedOrient: 0,
+			elevatedMesh: null,
+			elevatedSupportMesh: null,
 			surfaceTypes: [],
 			surfaceMeshes: [],
 			decoType: null,
@@ -855,6 +869,8 @@
 		if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
 		if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
+		if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
 		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		cell.bumpMesh = null;
@@ -862,6 +878,8 @@
 		cell.cubeMesh = null;
 		cell.wallMesh = null;
 		cell.jumpMesh = null;
+		cell.elevatedMesh = null;
+		cell.elevatedSupportMesh = null;
 		cell.surfaceMeshes = [];
 		cell.decoMesh = null;
 
@@ -908,6 +926,51 @@
 			jump.receiveShadow = true;
 			trackGroup.add( jump );
 			cell.jumpMesh = jump;
+
+		}
+
+		if ( cell.elevatedType ) {
+
+			const sourceType = ( cell.elevatedType === 'elevated-corner' )
+				? 'track-corner'
+				: ( cell.elevatedType === 'elevated-checkpoint' ? 'track-finish' : 'track-straight' );
+			const elevatedSrc = models[ sourceType ];
+			if ( elevatedSrc ) {
+
+				const elevated = elevatedSrc.clone();
+				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT, ( gz + 0.5 ) * CELL_RAW );
+				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.elevatedOrient || 0 ] || 0 );
+				if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) {
+
+					elevated.rotation.order = 'YXZ';
+					elevated.rotation.x = cell.elevatedType === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
+					elevated.scale.z = 1.08;
+
+				}
+				elevated.traverse( ( c ) => {
+
+					if ( c.isMesh ) {
+
+						c.castShadow = true;
+						c.receiveShadow = true;
+
+					}
+
+				} );
+				trackGroup.add( elevated );
+				cell.elevatedMesh = elevated;
+
+			}
+
+			const support = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW, SUPPORT_HEIGHT, CELL_RAW ),
+				new THREE.MeshStandardMaterial( { color: 0x0d0d0d, roughness: 0.95, metalness: 0.0 } )
+			);
+			support.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + SUPPORT_HEIGHT * 0.5, ( gz + 0.5 ) * CELL_RAW );
+			support.castShadow = true;
+			support.receiveShadow = true;
+			trackGroup.add( support );
+			cell.elevatedSupportMesh = support;
 
 		}
 
@@ -1037,7 +1100,7 @@
 
 	function placeSelectedBlock( gx, gz ) {
 
-		if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL ) {
+		if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || ELEVATED_TYPES.includes( selectedType ) ) {
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
@@ -1060,13 +1123,27 @@
 				cell.wall = ! cell.wall;
 				cell.wallOrient = selectedOrient;
 
-			} else {
+			} else if ( selectedType === JUMP_TOOL ) {
 
 				cell.jump = ! cell.jump;
 				cell.jumpOrient = selectedOrient;
 
+			} else {
+
+				if ( cell.elevatedType === selectedType ) {
+
+					cell.elevatedType = null;
+					cell.elevatedOrient = 0;
+
+				} else {
+
+					cell.elevatedType = selectedType;
+					cell.elevatedOrient = selectedOrient;
+
+				}
+
 			}
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				grid.delete( key );
 
@@ -1092,7 +1169,7 @@
 
 			}
 
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				grid.delete( key );
 
@@ -1147,6 +1224,8 @@
 		if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
 		if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
+		if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
 		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		grid.delete( key );
@@ -1165,6 +1244,8 @@
 				if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
 				if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 				if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+				if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
+				if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
 				for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 
@@ -1326,7 +1407,11 @@
 			? 'track-bump'
 			: ( selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL
 				? 'track-straight'
-				: ( selectedType === JUMP_TOOL ? 'track-straight' : ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType ) ) );
+				: ( selectedType === JUMP_TOOL
+					? 'track-straight'
+					: ( selectedType === 'elevated-corner'
+						? 'track-corner'
+						: ( ELEVATED_TYPES.includes( selectedType ) || SURFACE_TYPES.includes( selectedType ) || selectedType === 'elevated-checkpoint' ? 'track-straight' : selectedType ) ) ) );
 		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
 
 	}
@@ -1412,6 +1497,7 @@
 		const cubes = [];
 		const walls = [];
 		const jumps = [];
+		const elevated = [];
 		const surfaces = [];
 		const deco = [];
 
@@ -1423,6 +1509,7 @@
 				if ( cell.cube ) cubes.push( [ gx, gz ] );
 				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0 ] );
 				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
+				if ( cell.elevatedType ) elevated.push( [ gx, gz, cell.elevatedType, cell.elevatedOrient || 0 ] );
 			for ( const surfaceType of ( cell.surfaceTypes || [] ) ) surfaces.push( [ gx, gz, surfaceType ] );
 			if ( cell.decoType ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
 
@@ -1439,14 +1526,14 @@
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, u: surfaces, d: deco, w: { ...weatherSettings }, c: customSurfaceConfigs, x: customPayload } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, e: elevated, u: surfaces, d: deco, w: { ...weatherSettings }, c: customSurfaceConfigs, x: customPayload } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), x: {} };
+		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), x: {} };
 
 		try {
 
@@ -1458,6 +1545,7 @@
 					k: Array.isArray( parsed.k ) ? parsed.k : [],
 					l: Array.isArray( parsed.l ) ? parsed.l : [],
 					j: Array.isArray( parsed.j ) ? parsed.j : [],
+					e: Array.isArray( parsed.e ) ? parsed.e : [],
 					u: Array.isArray( parsed.u ) ? parsed.u : [],
 					d: Array.isArray( parsed.d ) ? parsed.d : [],
 					w: normalizeWeatherSettings( parsed?.w ),
@@ -1468,7 +1556,7 @@
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-				return { b: [], p: [], k: [], l: [], j: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), x: {} };
+				return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), x: {} };
 
 		}
 
@@ -1609,6 +1697,21 @@
 
 			}
 
+			for ( const [ gx, gz, elevatedType, elevatedOrient ] of mods.e || [] ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				if ( ELEVATED_TYPES.includes( elevatedType ) ) {
+
+					cell.elevatedType = elevatedType;
+					cell.elevatedOrient = elevatedOrient || 0;
+					placeOverlayMesh( gx, gz, cell );
+
+				}
+
+			}
+
 			for ( const [ gx, gz, surfaceType ] of mods.u ) {
 
 				const key = cellKey( gx, gz );
@@ -1663,6 +1766,11 @@
 		[ WALL_TOOL ]: document.getElementById( 'btn-wall' ),
 		[ JUMP_TOOL ]: document.getElementById( 'btn-jump' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
+		'elevated-straight': document.getElementById( 'btn-elevated-straight' ),
+		'elevated-corner': document.getElementById( 'btn-elevated-corner' ),
+		'elevated-checkpoint': document.getElementById( 'btn-elevated-checkpoint' ),
+		'slope-up': document.getElementById( 'btn-slope-up' ),
+		'slope-down': document.getElementById( 'btn-slope-down' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
@@ -1690,6 +1798,30 @@
 		save: document.getElementById( 'cs-save' ),
 		close: document.getElementById( 'cs-close' ),
 	};
+
+	function refreshModTools() {
+
+		try {
+
+			const parsed = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
+			slopesModInstalled = Array.isArray( parsed ) && parsed.some( ( mod ) => mod?.id === 'slopes' );
+
+		} catch {
+
+			slopesModInstalled = false;
+
+		}
+
+		for ( const type of ELEVATED_TYPES ) {
+
+			const btn = tileButtons[ type ];
+			if ( ! btn ) continue;
+			btn.style.display = slopesModInstalled ? '' : 'none';
+
+		}
+		if ( ! slopesModInstalled && ELEVATED_TYPES.includes( selectedType ) ) selectTileType( 'track-straight' );
+
+	}
 	const btnRotate = document.getElementById( 'btn-rotate' );
 	const btnPaint = document.getElementById( 'btn-paint' );
 	const btnErase = document.getElementById( 'btn-erase' );
@@ -1725,7 +1857,7 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, WALL_TOOL, JUMP_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
 
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
@@ -2541,6 +2673,7 @@
 
 	// ─── Init & render loop ───────────────────────────────────
 
+	refreshModTools();
 	await loadModels();
 	applyWeatherPreset( WEATHER_DEFAULT );
 	await loadSaved();

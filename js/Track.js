@@ -15,6 +15,12 @@ const DECORATION_HEIGHT_OFFSET = VISUAL_HEIGHT_OFFSET * 0.5;
 const NO_DECO_BUFFER_CELLS = 1;
 const POLE_RADIUS = CELL_RAW * 0.08;
 const POLE_HEIGHT = CELL_RAW * 0.13;
+const ELEVATED_HEIGHT = CELL_RAW * 0.5;
+const SUPPORT_HEIGHT = CELL_RAW * 0.5;
+const SUPPORT_COLOR = 0x0d0d0d;
+const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
+
+const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down' ] );
 
 function getSurfaceVisual( surfaceType, customSurfaces = null ) {
 
@@ -36,6 +42,44 @@ function getSurfaceVisual( surfaceType, customSurfaces = null ) {
 		default: return { color: 0xb88657, emissive: 0x4a2b12, metalness: 0.0, roughness: 0.9 };
 
 	}
+
+}
+
+function cloneElevatedPiece( models, type, orient, gx, gz ) {
+
+	let modelKey = null;
+	if ( type === 'elevated-straight' || type === 'slope-up' || type === 'slope-down' ) modelKey = 'track-straight';
+	else if ( type === 'elevated-corner' ) modelKey = 'track-corner';
+	else if ( type === 'elevated-checkpoint' ) modelKey = 'track-finish';
+	if ( ! modelKey || ! models[ modelKey ] ) return null;
+
+	const piece = models[ modelKey ].clone();
+	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT, ( gz + 0.5 ) * CELL_RAW );
+	const deg = ORIENT_DEG[ orient ] ?? 0;
+	piece.rotation.y = THREE.MathUtils.degToRad( deg );
+	if ( type === 'slope-up' || type === 'slope-down' ) {
+
+		piece.rotation.order = 'YXZ';
+		piece.rotation.x = type === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
+		piece.scale.z = 1.08;
+
+	}
+
+	return piece;
+
+}
+
+function createElevatedSupport( gx, gz, orient = 0 ) {
+
+	const support = new THREE.Mesh(
+		new THREE.BoxGeometry( CELL_RAW, SUPPORT_HEIGHT, CELL_RAW ),
+		new THREE.MeshStandardMaterial( { color: SUPPORT_COLOR, roughness: 0.95, metalness: 0.0 } )
+	);
+	support.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET + ( SUPPORT_HEIGHT * 0.5 ), ( gz + 0.5 ) * CELL_RAW );
+	support.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+	support.castShadow = true;
+	support.receiveShadow = true;
+	return support;
 
 }
 
@@ -172,6 +216,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const cubeCells = Array.isArray( extras.cubes ) ? extras.cubes : [];
 		const wallCells = Array.isArray( extras.walls ) ? extras.walls : [];
 		const poleCells = Array.isArray( extras.poles ) ? extras.poles : [];
+		const elevatedCells = Array.isArray( extras.elevated ) ? extras.elevated : [];
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
 		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
@@ -193,6 +238,15 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			pole.castShadow = true;
 			pole.receiveShadow = true;
 			trackPieceGroup.add( pole );
+
+		}
+
+		for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedCells ) {
+
+			if ( ! ELEVATED_TYPES.has( elevatedType ) ) continue;
+			const piece = cloneElevatedPiece( models, elevatedType, orient, gx, gz );
+			if ( piece ) trackPieceGroup.add( piece );
+			trackPieceGroup.add( createElevatedSupport( gx, gz, orient ) );
 
 		}
 
