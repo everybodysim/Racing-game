@@ -50,17 +50,13 @@ function getSurfaceVisual( surfaceType, customSurfaces = null ) {
 
 function cloneElevatedPiece( models, type, orient, gx, gz ) {
 
-	if ( type === 'slope-up' || type === 'slope-down' ) {
+	if ( type === 'slope-down' ) {
 
-    piece.rotation.order = 'YXZ';
+		type = 'slope-up';
+		orient = ORIENT_180[ orient ] ?? orient;
 
-    // FIX: align GLB forward with support slope direction
-    piece.rotation.y += Math.PI;
+	}
 
-    piece.rotation.x = type === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
-    piece.scale.z = 1.08;
-
-}
 	let modelKey = null;
 	if ( type === 'elevated-straight' || type === 'slope-up' || type === 'slope-down' ) modelKey = 'track-straight';
 	else if ( type === 'elevated-corner' ) modelKey = 'track-corner';
@@ -74,11 +70,14 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
 	if ( type === 'slope-up' || type === 'slope-down' ) {
 
-		piece.rotation.order = 'YXZ';
-		piece.rotation.x = type === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
-		piece.scale.z = 1.08;
+    piece.rotation.order = 'YXZ';
 
-	}
+    piece.rotation.y += Math.PI; // ✅ ADD THIS LINE RIGHT HERE
+
+    piece.rotation.x = type === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
+    piece.scale.z = 1.08;
+
+}
 
 	return piece;
 
