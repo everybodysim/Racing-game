@@ -46,6 +46,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const ELEVATED_SURFACE_HALF_H = 0.12 * S;
 	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S * 1.08;
 	const ELEVATED_SURFACE_DROP = 0.4;
+	const ELEVATED_SEAM_BUMP_RADIUS = 2.8 * S;
+	const ELEVATED_SEAM_BUMP_RISE = 0.035 * S;
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const ELEVATED_WALL_HALF_H = WALL_HALF_H * S;
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
@@ -222,6 +224,30 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 		addElevatedRoadWalls( gx, gz, orient );
+
+	}
+
+	function addElevatedSeamConnector( gxA, gzA, entryA, gxB, gzB, entryB ) {
+
+		if ( entryA.type === 'slope-up' || entryB.type === 'slope-up' ) return;
+
+		const ax = ( gxA + 0.5 ) * CELL_RAW * S;
+		const az = ( gzA + 0.5 ) * CELL_RAW * S;
+		const bx = ( gxB + 0.5 ) * CELL_RAW * S;
+		const bz = ( gzB + 0.5 ) * CELL_RAW * S;
+		const midX = ( ax + bx ) * 0.5;
+		const midZ = ( az + bz ) * 0.5;
+		const position = [ midX, elevatedSurfaceY + ELEVATED_SEAM_BUMP_RISE - ELEVATED_SEAM_BUMP_RADIUS, midZ ];
+
+		rigidBody.create( world, {
+			shape: sphere.create( { radius: ELEVATED_SEAM_BUMP_RADIUS } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 1.0,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugSphere( debugGroup, ELEVATED_SEAM_BUMP_RADIUS, position );
 
 	}
 
@@ -496,6 +522,29 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		} else if ( normalizedType === 'slope-up' ) {
 
 			addSlopeCollider( Number( gx ), Number( gz ), normalizedOrient, true );
+
+		}
+
+	}
+
+	const seamPairs = new Set();
+	for ( const [ key, entry ] of elevatedMap ) {
+
+		const [ gxRaw, gzRaw ] = key.split( ',' );
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		for ( const [ dx, dz ] of [ [ 1, 0 ], [ 0, 1 ] ] ) {
+
+			const nx = gx + dx;
+			const nz = gz + dz;
+			const neighborKey = `${ nx },${ nz }`;
+			const neighborEntry = elevatedMap.get( neighborKey );
+			if ( ! neighborEntry ) continue;
+			const pairKey = `${ Math.min( gx, nx ) },${ Math.min( gz, nz ) }|${ Math.max( gx, nx ) },${ Math.max( gz, nz ) }`;
+			if ( seamPairs.has( pairKey ) ) continue;
+			seamPairs.add( pairKey );
+			addElevatedSeamConnector( gx, gz, entry, nx, nz, neighborEntry );
 
 		}
 
