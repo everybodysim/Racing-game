@@ -19,6 +19,9 @@ const ELEVATED_HEIGHT = CELL_RAW * 0.5;
 const SUPPORT_HEIGHT = CELL_RAW * 0.5;
 const SUPPORT_COLOR = 0x0d0d0d;
 const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
+const SUPPORT_SINK = 0.03;
+const SLOPE_VISUAL_DROP = CELL_RAW * 0.04;
+const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 
 const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down' ] );
 
@@ -47,6 +50,13 @@ function getSurfaceVisual( surfaceType, customSurfaces = null ) {
 
 function cloneElevatedPiece( models, type, orient, gx, gz ) {
 
+	if ( type === 'slope-down' ) {
+
+		type = 'slope-up';
+		orient = ORIENT_180[ orient ] ?? orient;
+
+	}
+
 	let modelKey = null;
 	if ( type === 'elevated-straight' || type === 'slope-up' || type === 'slope-down' ) modelKey = 'track-straight';
 	else if ( type === 'elevated-corner' ) modelKey = 'track-corner';
@@ -54,28 +64,66 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
 
 	const piece = models[ modelKey ].clone();
-	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT, ( gz + 0.5 ) * CELL_RAW );
+	let yAdjust = 0;  if ( type === 'slope-up' || type === 'slope-down' ) {     yAdjust = - ( ELEVATED_HEIGHT * 0.5 ) + 0.4; }
+	piece.position.set(   ( gx + 0.5 ) * CELL_RAW,   0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust - (ELEVATED_HEIGHT * 0.5),   ( gz + 0.5 ) * CELL_RAW );
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
 	if ( type === 'slope-up' || type === 'slope-down' ) {
 
-		piece.rotation.order = 'YXZ';
-		piece.rotation.x = type === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
-		piece.scale.z = 1.08;
+    piece.rotation.order = 'YXZ';
 
-	}
+    piece.rotation.y += Math.PI; // ✅ ADD THIS LINE RIGHT HERE
+
+    piece.rotation.x = type === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
+    piece.scale.z = 1.08;
+
+}
 
 	return piece;
 
 }
 
-function createElevatedSupport( gx, gz, orient = 0 ) {
+function createSlopeSupportGeometry( slopeType ) {
+
+	const geometry = new THREE.BoxGeometry( CELL_RAW, SUPPORT_HEIGHT, CELL_RAW );
+	const position = geometry.attributes.position;
+	const halfHeight = SUPPORT_HEIGHT * 0.5;
+	const isSlopeUp = slopeType === 'slope-up';
+	for ( let i = 0; i < position.count; i ++ ) {
+
+		const y = position.getY( i );
+		if ( y < halfHeight - 1e-5 ) continue;
+		const z = position.getZ( i );
+		const nearIsLow = isSlopeUp;
+		const isNearEdge = z >= 0;
+		const topY = ( nearIsLow ? ( isNearEdge ? 0 : SUPPORT_HEIGHT ) : ( isNearEdge ? SUPPORT_HEIGHT : 0 ) ) - halfHeight;
+		position.setY( i, topY );
+
+	}
+	position.needsUpdate = true;
+	geometry.computeVertexNormals();
+	return geometry;
+
+}
+
+function createElevatedSupport( gx, gz, orient = 0, elevatedType = 'elevated-straight' ) {
+
+	if ( elevatedType === 'slope-down' ) {
+
+		elevatedType = 'slope-up';
+		orient = ORIENT_180[ orient ] ?? orient;
+
+	}
+
+	const geometry = elevatedType === 'slope-up' || elevatedType === 'slope-down'
+		? createSlopeSupportGeometry( elevatedType )
+		: new THREE.BoxGeometry( CELL_RAW, SUPPORT_HEIGHT, CELL_RAW );
 
 	const support = new THREE.Mesh(
-		new THREE.BoxGeometry( CELL_RAW, SUPPORT_HEIGHT, CELL_RAW ),
+		geometry,
 		new THREE.MeshStandardMaterial( { color: SUPPORT_COLOR, roughness: 0.95, metalness: 0.0 } )
 	);
-	support.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET + ( SUPPORT_HEIGHT * 0.5 ), ( gz + 0.5 ) * CELL_RAW );
+	support.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET + ( SUPPORT_HEIGHT * 0.5 ) - SUPPORT_SINK, ( gz + 0.5 ) * CELL_RAW );
 	support.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 	support.castShadow = true;
 	support.receiveShadow = true;
@@ -246,7 +294,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( ! ELEVATED_TYPES.has( elevatedType ) ) continue;
 			const piece = cloneElevatedPiece( models, elevatedType, orient, gx, gz );
 			if ( piece ) trackPieceGroup.add( piece );
-			trackPieceGroup.add( createElevatedSupport( gx, gz, orient ) );
+			trackPieceGroup.add( createElevatedSupport( gx, gz, orient, elevatedType ) );
 
 		}
 

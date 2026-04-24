@@ -325,7 +325,6 @@
 		<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
 		<button id="btn-elevated-checkpoint" style="display:none">Elev Checkpoint</button>
 		<button id="btn-slope-up" style="display:none">Slope Up</button>
-		<button id="btn-slope-down" style="display:none">Slope Down</button>
 		<select id="surface-select" aria-label="Surface picker">
 			<option value="">Surface…</option>
 			<option value="surface-wood">Wood</option>
@@ -400,10 +399,12 @@
 	const CUBE_TOOL = 'overlay-cube';
 	const WALL_TOOL = 'overlay-wall';
 	const JUMP_TOOL = 'overlay-jump';
-	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down' ];
+	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up' ];
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
 	const SUPPORT_HEIGHT = CELL_RAW * 0.5;
 	const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
+	const SLOPE_VISUAL_DROP = CELL_RAW * 0.04;
+	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const SURFACE_TYPES = [
 		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
 		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
@@ -931,19 +932,22 @@
 
 		if ( cell.elevatedType ) {
 
-			const sourceType = ( cell.elevatedType === 'elevated-corner' )
+			const normalizedType = cell.elevatedType === 'slope-down' ? 'slope-up' : cell.elevatedType;
+			const normalizedOrient = cell.elevatedType === 'slope-down' ? ( ORIENT_180[ cell.elevatedOrient || 0 ] ?? ( cell.elevatedOrient || 0 ) ) : ( cell.elevatedOrient || 0 );
+			const sourceType = ( normalizedType === 'elevated-corner' )
 				? 'track-corner'
-				: ( cell.elevatedType === 'elevated-checkpoint' ? 'track-finish' : 'track-straight' );
+				: ( normalizedType === 'elevated-checkpoint' ? 'track-finish' : 'track-straight' );
 			const elevatedSrc = models[ sourceType ];
 			if ( elevatedSrc ) {
 
 				const elevated = elevatedSrc.clone();
-				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT, ( gz + 0.5 ) * CELL_RAW );
-				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.elevatedOrient || 0 ] || 0 );
-				if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) {
+				const yAdjust = normalizedType === 'slope-up' ? - SLOPE_VISUAL_DROP : 0;
+				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
+				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 );
+				if ( normalizedType === 'slope-up' ) {
 
 					elevated.rotation.order = 'YXZ';
-					elevated.rotation.x = cell.elevatedType === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
+					elevated.rotation.x = - SLOPE_ANGLE;
 					elevated.scale.z = 1.08;
 
 				}
@@ -1509,7 +1513,13 @@
 				if ( cell.cube ) cubes.push( [ gx, gz ] );
 				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0 ] );
 				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
-				if ( cell.elevatedType ) elevated.push( [ gx, gz, cell.elevatedType, cell.elevatedOrient || 0 ] );
+				if ( cell.elevatedType ) {
+
+					const typeOut = cell.elevatedType === 'slope-down' ? 'slope-up' : cell.elevatedType;
+					const orientOut = cell.elevatedType === 'slope-down' ? ( ORIENT_180[ cell.elevatedOrient || 0 ] ?? ( cell.elevatedOrient || 0 ) ) : ( cell.elevatedOrient || 0 );
+					elevated.push( [ gx, gz, typeOut, orientOut ] );
+
+				}
 			for ( const surfaceType of ( cell.surfaceTypes || [] ) ) surfaces.push( [ gx, gz, surfaceType ] );
 			if ( cell.decoType ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
 
@@ -1702,10 +1712,12 @@
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
-				if ( ELEVATED_TYPES.includes( elevatedType ) ) {
+				const normalizedType = elevatedType === 'slope-down' ? 'slope-up' : elevatedType;
+				const normalizedOrient = elevatedType === 'slope-down' ? ( ORIENT_180[ elevatedOrient || 0 ] ?? ( elevatedOrient || 0 ) ) : ( elevatedOrient || 0 );
+				if ( ELEVATED_TYPES.includes( normalizedType ) ) {
 
-					cell.elevatedType = elevatedType;
-					cell.elevatedOrient = elevatedOrient || 0;
+					cell.elevatedType = normalizedType;
+					cell.elevatedOrient = normalizedOrient;
 					placeOverlayMesh( gx, gz, cell );
 
 				}
@@ -1770,7 +1782,6 @@
 		'elevated-corner': document.getElementById( 'btn-elevated-corner' ),
 		'elevated-checkpoint': document.getElementById( 'btn-elevated-checkpoint' ),
 		'slope-up': document.getElementById( 'btn-slope-up' ),
-		'slope-down': document.getElementById( 'btn-slope-down' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
