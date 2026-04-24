@@ -13,6 +13,43 @@ const JUMP_RAMP_Y = 0.24;
 const VISUAL_HEIGHT_OFFSET = 0.012;
 const DECORATION_HEIGHT_OFFSET = VISUAL_HEIGHT_OFFSET * 0.5;
 const NO_DECO_BUFFER_CELLS = 1;
+const ELEVATED_HEIGHT = CELL_RAW * 0.5;
+const SLOPE_RISE = ELEVATED_HEIGHT;
+const SUPPORT_COLOR = 0x050505;
+const SLOPE_STRETCH_Z = 1.03;
+const MAX_SLOPE_ANGLE = JUMP_RAMP_ANGLE;
+
+function createSupportColumn( gx, gz, topY ) {
+
+	const minTopY = Math.max( 0.9, topY );
+	const supportHeight = Math.max( 0.8, minTopY - 0.5 );
+	const support = new THREE.Mesh(
+		new THREE.BoxGeometry( CELL_RAW * 0.5, supportHeight, CELL_RAW * 0.5 ),
+		new THREE.MeshStandardMaterial( {
+			color: SUPPORT_COLOR,
+			roughness: 0.96,
+			metalness: 0.0,
+		} )
+	);
+	support.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + supportHeight * 0.5, ( gz + 0.5 ) * CELL_RAW );
+	support.castShadow = true;
+	support.receiveShadow = true;
+	return support;
+
+}
+
+function createSlopePiece( models, gx, gz, orient = 0, direction = 1 ) {
+
+	const piece = placePiece( models, 'track-straight', gx, gz, orient, 0 );
+	if ( ! piece ) return null;
+	const slopeAngle = Math.min( MAX_SLOPE_ANGLE, Math.atan2( SLOPE_RISE, CELL_RAW ) );
+	piece.rotation.order = 'YXZ';
+	piece.rotation.x = direction >= 0 ? - slopeAngle : slopeAngle;
+	piece.scale.z *= SLOPE_STRETCH_Z;
+	piece.position.y = 0.5 + VISUAL_HEIGHT_OFFSET + SLOPE_RISE * 0.5;
+	return piece;
+
+}
 
 function getSurfaceVisual( surfaceType, customSurfaces = null ) {
 
@@ -145,7 +182,7 @@ const NPC_TRUCKS = [
 	[ 'vehicle-truck-red',    -1.36, -0.15, -23.80, 155.9 ],
 ];
 
-export function buildTrack( scene, models, customCells, extras = null ) {
+export function buildTrack( scene, models, customCells, extras = null, options = null ) {
 
 	const trackGroup = new THREE.Group();
 	trackGroup.position.y = -0.5;
@@ -170,6 +207,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
 		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
+		const slopesEnabled = Boolean( options?.slopesEnabled );
+		const elevatedTiles = slopesEnabled && Array.isArray( extras.elevated ) ? extras.elevated : [];
+		const slopeTiles = slopesEnabled && Array.isArray( extras.slopes ) ? extras.slopes : [];
 
 		for ( const [ gx, gz ] of bumpCells ) {
 
@@ -218,6 +258,34 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			jump.castShadow = true;
 			jump.receiveShadow = true;
 			trackPieceGroup.add( jump );
+
+		}
+
+		for ( const [ gx, gz, key = 'track-straight', orient = 0, height = ELEVATED_HEIGHT ] of elevatedTiles ) {
+
+			const safeType = key === 'track-corner' || key === 'track-checkpoint' || key === 'track-finish' || key === 'track-straight'
+				? key
+				: 'track-straight';
+			const elevation = Number.isFinite( Number( height ) ) ? Math.max( SLOPE_RISE, Number( height ) ) : ELEVATED_HEIGHT;
+			const piece = placePiece( models, safeType, gx, gz, orient, elevation );
+			if ( piece ) {
+
+				trackPieceGroup.add( piece );
+				trackPieceGroup.add( createSupportColumn( gx, gz, 0.5 + VISUAL_HEIGHT_OFFSET + elevation ) );
+
+			}
+
+		}
+
+		for ( const [ gx, gz, orient = 0, dir = 1 ] of slopeTiles ) {
+
+			const piece = createSlopePiece( models, gx, gz, orient, Number( dir ) >= 0 ? 1 : - 1 );
+			if ( piece ) {
+
+				trackPieceGroup.add( piece );
+				trackPieceGroup.add( createSupportColumn( gx, gz, 0.5 + VISUAL_HEIGHT_OFFSET + SLOPE_RISE * 0.5 ) );
+
+			}
 
 		}
 
@@ -441,7 +509,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 }
 
-export function placePiece( models, key, gx, gz, orient ) {
+export function placePiece( models, key, gx, gz, orient, heightOffset = 0 ) {
 
 	const modelKey = key === 'track-checkpoint' ? 'track-finish' : key;
 	const src = models[ modelKey ];
@@ -449,7 +517,7 @@ export function placePiece( models, key, gx, gz, orient ) {
 
 	const piece = src.clone();
 	const yOffset = String( key || '' ).startsWith( 'decoration-' ) ? DECORATION_HEIGHT_OFFSET : VISUAL_HEIGHT_OFFSET;
-	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + yOffset + heightOffset, ( gz + 0.5 ) * CELL_RAW );
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );

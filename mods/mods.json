@@ -49,6 +49,13 @@
       "folder": "mods",
       "entry": "mods/Freecam.js",
       "viewerPage": "index.html"
+    },
+    {
+      "id": "slopes",
+      "name": "Slopes & Elevated Tiles",
+      "folder": "mods",
+      "entry": "mods/Slopes.js",
+      "viewerPage": "index.html"
     }
   ]
 }
