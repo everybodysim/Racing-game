@@ -585,6 +585,7 @@ function decodeExtrasParam( str ) {
 				cubes: Array.isArray( parsed.k ) ? parsed.k : [],
 				walls: Array.isArray( parsed.l ) ? parsed.l : [],
 				boosts: Array.isArray( parsed.s ) ? parsed.s : [],
+				elevated: Array.isArray( parsed.e ) ? parsed.e : [],
 			jumps: Array.isArray( parsed.j ) ? parsed.j : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 			surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
