@@ -373,7 +373,12 @@ function rebuildTrack() {
   updateCarConfig();
   const activeCells = currentCells || TRACK_CELLS;
   const finishCell = activeCells.find((c) => c[2] === 'track-finish') || activeCells.find((c) => c[2] === 'track-start-finish') || activeCells[0];
-  const checkpointCells = activeCells.filter((c) => c[2] === 'track-checkpoint');
+  const elevatedCheckpointCells = Array.isArray(currentExtras?.elevated)
+    ? currentExtras.elevated
+      .filter((c) => Array.isArray(c) && c[2] === 'elevated-checkpoint')
+      .map(([gx, gz, , orient = 0]) => [gx, gz, 'track-checkpoint', orient])
+    : [];
+  const checkpointCells = [...activeCells.filter((c) => c[2] === 'track-checkpoint'), ...elevatedCheckpointCells];
   finishData = makeGateData(finishCell);
   checkpointStates = checkpointCells.map((cell) => ({
     ...makeGateData(cell),
