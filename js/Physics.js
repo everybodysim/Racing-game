@@ -23,7 +23,7 @@ function addDebugSphere( group, radius, position ) {
 
 }
 
-export function buildWallColliders( world, debugGroup, customCells, extras = null ) {
+export function buildWallColliders( world, debugGroup, customCells, extras = null, options = null ) {
 
 	const S = GRID_SCALE;
 	const CELL_HALF = CELL_RAW / 2;
@@ -40,6 +40,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const jumpRampHalfExtents = [ CELL_HALF * S * 0.36, 0.26 * S, CELL_HALF * S * 0.44 ];
 	const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
 	const JUMP_RAMP_SINK = 0.14;
+	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
+	const SLOPE_RISE = ELEVATED_HEIGHT;
+	const SLOPE_ANGLE = Math.min( JUMP_RAMP_ANGLE, Math.atan2( SLOPE_RISE, CELL_RAW ) );
+	const supportHalfExtents = [ CELL_HALF * S * 0.25, ( SLOPE_RISE * 0.5 ) * S, CELL_HALF * S * 0.25 ];
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
 	const BUMP_RADIUS = 7.5 * S;
@@ -109,9 +113,57 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
+	function addSupportCollider( gx, gz, topY ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const topWorldY = topY * S - 0.5;
+		const centerY = Math.max( - 0.1, ( topWorldY - 0.5 ) * 0.5 );
+		const halfY = Math.max( 0.2 * S, topWorldY * 0.5 );
+		const halfExtents = [ supportHalfExtents[ 0 ], halfY, supportHalfExtents[ 2 ] ];
+		const position = [ cx, centerY, cz ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 1.0,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+	}
+
+	function addSlopeCollider( gx, gz, orient = 0, direction = 1 ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const yaw = deg * Math.PI / 180;
+		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( direction >= 0 ? - SLOPE_ANGLE : SLOPE_ANGLE, yaw, 0, 'YXZ' ) );
+		const halfExtents = [ CELL_HALF * S * 0.95, 0.32 * S, CELL_HALF * S * 1.02 ];
+		const position = [ cx, ( 0.5 + ( SLOPE_RISE * 0.5 ) ) * S - 0.5, cz ];
+		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			quaternion,
+			friction: 1.0,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+		addSupportCollider( gx, gz, 0.5 + SLOPE_RISE * 0.5 );
+
+	}
+
 	const cells = customCells || TRACK_CELLS;
 	const bumpSet = new Set();
 	const jumpMap = new Map();
+	const slopesEnabled = Boolean( options?.slopesEnabled );
+	const elevatedEntries = slopesEnabled && Array.isArray( extras?.elevated ) ? extras.elevated : [];
+	const slopeEntries = slopesEnabled && Array.isArray( extras?.slopes ) ? extras.slopes : [];
 	const customAssetColliders = extras?.customAssets && typeof extras.customAssets === 'object' ? extras.customAssets : {};
 	const decorationEntries = extras && Array.isArray( extras.decorations ) ? extras.decorations : [];
 	if ( extras && Array.isArray( extras.bumps ) ) {
@@ -228,6 +280,73 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		addJumpRampCollider( gx, gz, orient );
 
 	}
+
+	for ( const [ gx, gz, rawType = 'track-straight', orient = 0, height = ELEVATED_HEIGHT ] of elevatedEntries ) {
+
+		const baseKey = rawType === 'track-corner' ? 'track-corner' : ( rawType === 'track-checkpoint' || rawType === 'track-finish' ? 'track-checkpoint' : 'track-straight' );
+		const safeHeight = Number.isFinite( Number( height ) ) ? Math.max( SLOPE_RISE, Number( height ) ) : ELEVATED_HEIGHT;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const rad = deg * Math.PI / 180;
+		const cr = Math.cos( rad ), sr = Math.sin( rad );
+		const elevatedWallY = wallY + safeHeight * S;
+		if ( baseKey === 'track-straight' || baseKey === 'track-checkpoint' ) {
+
+			for ( const side of [ - 1, 1 ] ) {
+
+				const lx = side * WALL_X;
+				const wx = cx + ( lx * cr ) * S;
+				const wz = cz + ( - lx * sr ) * S;
+				const halfExtents = [ hThick, hHeight, hLen ];
+				const position = [ wx, elevatedWallY, wz ];
+				const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
+				rigidBody.create( world, {
+					shape: box.create( { halfExtents } ),
+					motionType: MotionType.STATIC,
+					objectLayer: world._OL_STATIC,
+					position,
+					quaternion,
+					friction: 0.0,
+					restitution: 0.0,
+				} );
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			}
+
+		} else {
+
+			const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S;
+			const wcz = cz + ( - ARC_CENTER_X * sr + ARC_CENTER_Z * cr ) * S;
+			const arcStart = - rad;
+			const elevatedArcY = elevatedWallY;
+			for ( let i = 0; i < OUTER_SEG; i ++ ) {
+
+				const aMid = arcStart + ( ( i + 0.5 ) / OUTER_SEG ) * ARC_SPAN;
+				const halfExtents = [ hThick, hHeight, OUTER_SEG_HALF_LEN ];
+				const position = [ wcx + OUTER_R * Math.cos( aMid ) * S, elevatedArcY, wcz + OUTER_R * Math.sin( aMid ) * S ];
+				const quaternion = [ 0, Math.sin( - aMid / 2 ), 0, Math.cos( - aMid / 2 ) ];
+				rigidBody.create( world, { shape: box.create( { halfExtents } ), motionType: MotionType.STATIC, objectLayer: world._OL_STATIC, position, quaternion, friction: 0.0, restitution: 0.0 } );
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			}
+			for ( let i = 0; i < INNER_SEG; i ++ ) {
+
+				const aMid = arcStart + ( ( i + 0.5 ) / INNER_SEG ) * ARC_SPAN;
+				const halfExtents = [ hThick, hHeight, INNER_SEG_HALF_LEN ];
+				const position = [ wcx + INNER_R * Math.cos( aMid ) * S, elevatedArcY, wcz + INNER_R * Math.sin( aMid ) * S ];
+				const quaternion = [ 0, Math.sin( - aMid / 2 ), 0, Math.cos( - aMid / 2 ) ];
+				rigidBody.create( world, { shape: box.create( { halfExtents } ), motionType: MotionType.STATIC, objectLayer: world._OL_STATIC, position, quaternion, friction: 0.0, restitution: 0.0 } );
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			}
+
+		}
+		addSupportCollider( gx, gz, 0.5 + safeHeight );
+
+	}
+
+	for ( const [ gx, gz, orient = 0, dir = 1 ] of slopeEntries ) addSlopeCollider( gx, gz, orient, Number( dir ) >= 0 ? 1 : - 1 );
 
 	for ( const [ gx, gz, decoKey, orient = 0 ] of decorationEntries ) {
 

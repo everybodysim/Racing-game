@@ -488,7 +488,7 @@ function normalizeWeatherDetails( value ) {
 
 }
 
-function decodeExtrasParam( str ) {
+function decodeExtrasParam( str, options = {} ) {
 
 	if ( ! str ) return null;
 
@@ -496,12 +496,15 @@ function decodeExtrasParam( str ) {
 
 		const json = decodeURIComponent( escape( atob( str.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
 		const parsed = JSON.parse( json );
+		const slopesEnabled = Boolean( options?.slopesEnabled );
 		return {
 			bumps: Array.isArray( parsed.b ) ? parsed.b : [],
 			boosts: Array.isArray( parsed.s ) ? parsed.s : [],
 			jumps: Array.isArray( parsed.j ) ? parsed.j : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 			surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
+			elevated: slopesEnabled && Array.isArray( parsed.e ) ? parsed.e : [],
+			slopes: slopesEnabled && Array.isArray( parsed.l ) ? parsed.l : [],
 			customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
 			customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
 			weather: normalizeWeatherDetails( parsed?.w ),
@@ -935,7 +938,9 @@ async function init() {
 	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
 	let customCells = null;
 	let spawn = null;
-	const extras = decodeExtrasParam( extrasParam );
+	const installedRuntimeMods = readInstalledRuntimeMods();
+	const slopesInstalled = installedRuntimeMods.some( ( mod ) => mod?.id === 'slopes' );
+	const extras = decodeExtrasParam( extrasParam, { slopesEnabled: slopesInstalled } );
 	await loadCustomTrackAssets( extras );
 	const carKeys = Object.keys( CAR_STATS );
 	const deterministicCarSeed = hashTrackSeed( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
@@ -1005,7 +1010,7 @@ async function init() {
 		exposure: weatherConfig.exposure,
 	};
 
-	buildTrack( scene, models, customCells, extras );
+	buildTrack( scene, models, customCells, extras, { slopesEnabled: slopesInstalled } );
 
 
 	const worldSettings = createWorldSettings();       
@@ -1023,7 +1028,7 @@ async function init() {
 	world._OL_MOVING = OL_MOVING;
 	world._OL_STATIC = OL_STATIC;
 
-	buildWallColliders( world, null, customCells, extras );
+	buildWallColliders( world, null, customCells, extras, { slopesEnabled: slopesInstalled } );
 
 	const roadHalf = groundSize / 2;
 	rigidBody.create( world, {
