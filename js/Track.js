@@ -20,10 +20,23 @@ const SUPPORT_HEIGHT = CELL_RAW * 0.5;
 const SUPPORT_COLOR = 0x0d0d0d;
 const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
 const SUPPORT_SINK = 0.03;
-const SLOPE_VISUAL_DROP = CELL_RAW * 0.04;
 const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 
 const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down' ] );
+
+function normalizeElevatedEntry( elevatedType, orient = 0 ) {
+
+	if ( elevatedType === 'slope-down' ) return { type: 'slope-up', orient: ORIENT_180[ orient ] ?? orient };
+	return { type: elevatedType, orient };
+
+}
+
+function getOverlayHeightOffset( elevatedEntry ) {
+
+	if ( ! elevatedEntry ) return 0;
+	return elevatedEntry.type === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
+
+}
 
 function getSurfaceVisual( surfaceType, customSurfaces = null ) {
 
@@ -64,18 +77,23 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
 
 	const piece = models[ modelKey ].clone();
-	let yAdjust = 0;  if ( type === 'slope-up' || type === 'slope-down' ) {     yAdjust = - ( ELEVATED_HEIGHT * 0.5 ) + 0.4; }
-	piece.position.set(   ( gx + 0.5 ) * CELL_RAW,   0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust - (ELEVATED_HEIGHT * 0.5),   ( gz + 0.5 ) * CELL_RAW );
+	let yAdjust = 0;
+	if ( type === 'slope-up' || type === 'slope-down' ) yAdjust = - ( ELEVATED_HEIGHT * 0.5 ) + 0.06;
+	piece.position.set(
+		( gx + 0.5 ) * CELL_RAW,
+		0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust,
+		( gz + 0.5 ) * CELL_RAW
+	);
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
 	if ( type === 'slope-up' || type === 'slope-down' ) {
 
     piece.rotation.order = 'YXZ';
 
-    piece.rotation.y += Math.PI; // ✅ ADD THIS LINE RIGHT HERE
-
+piece.rotation.y = THREE.MathUtils.degToRad( deg + 180 );
+		
     piece.rotation.x = type === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
-    piece.scale.z = 1.08;
+    piece.scale.z = 1.11;
 
 }
 
@@ -268,11 +286,24 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
 		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
+		const elevatedMap = new Map();
+		for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedCells ) {
+
+			if ( ! ELEVATED_TYPES.has( elevatedType ) ) continue;
+			elevatedMap.set( `${ gx },${ gz }`, normalizeElevatedEntry( elevatedType, orient ) );
+
+		}
 
 		for ( const [ gx, gz ] of bumpCells ) {
 
 			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
-			if ( piece ) trackPieceGroup.add( piece );
+			if ( piece ) {
+
+				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+				piece.position.y += yOffset;
+				trackPieceGroup.add( piece );
+
+			}
 
 		}
 
@@ -282,7 +313,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				new THREE.CylinderGeometry( POLE_RADIUS, POLE_RADIUS, POLE_HEIGHT, 16 ),
 				new THREE.MeshStandardMaterial( { color: 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
 			);
-			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( POLE_HEIGHT * 0.5 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( POLE_HEIGHT * 0.5 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			pole.castShadow = true;
 			pole.receiveShadow = true;
 			trackPieceGroup.add( pole );
@@ -304,7 +336,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
 				new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
 			);
-			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			cube.castShadow = true;
 			cube.receiveShadow = true;
 			trackPieceGroup.add( cube );
@@ -317,7 +350,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
 				new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
 			);
-			wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+			wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 			wall.castShadow = true;
 			wall.receiveShadow = true;
@@ -342,6 +376,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					}
 
 				} );
+				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+				piece.position.y += yOffset;
 				trackPieceGroup.add( piece );
 
 			}
@@ -358,7 +394,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					metalness: 0.02,
 				} )
 			);
-			jump.position.set( ( gx + 0.5 ) * CELL_RAW, JUMP_RAMP_Y + VISUAL_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
+			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+			jump.position.set( ( gx + 0.5 ) * CELL_RAW, JUMP_RAMP_Y + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			jump.rotation.order = 'YXZ';
 			jump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
 			jump.rotation.x = - JUMP_RAMP_ANGLE;
@@ -391,7 +428,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				} )
 			);
 			patch.rotation.x = - Math.PI / 2;
-			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
+			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			patch.receiveShadow = true;
 			trackPieceGroup.add( patch );
 
