@@ -41,11 +41,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
 	const JUMP_RAMP_SINK = 0.14;
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5 * S;
+	const SUPPORT_SINK = 0.03 * S;
 	const SUPPORT_HALF_EXTENTS = [ CELL_HALF * S, CELL_HALF * 0.5 * S, CELL_HALF * S ];
-	const ELEVATED_SURFACE_HALF_H = 0.22 * S;
+	const ELEVATED_SURFACE_HALF_H = 0.12 * S;
 	const ELEVATED_WALL_HALF_H = WALL_HALF_H * S;
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
-	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT + ELEVATED_SURFACE_HALF_H;
+	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT;
 	const slopeAngle = Math.atan2( CELL_RAW * 0.5, CELL_RAW );
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
@@ -120,7 +121,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
-		const position = [ cx, groundY + SUPPORT_HALF_EXTENTS[ 1 ], cz ];
+		const position = [ cx, groundY + SUPPORT_HALF_EXTENTS[ 1 ] - SUPPORT_SINK, cz ];
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents: SUPPORT_HALF_EXTENTS } ),
 			motionType: MotionType.STATIC,
@@ -204,8 +205,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( up ? - slopeAngle : slopeAngle, yaw, 0, 'YXZ' ) );
-		const halfExtents = [ CELL_HALF * S * 0.98, ELEVATED_SURFACE_HALF_H, CELL_HALF * S ];
-		const position = [ cx, groundY + ( ELEVATED_HEIGHT * 0.5 ) + ELEVATED_SURFACE_HALF_H, cz ];
+		const halfExtents = [ CELL_HALF * S, ELEVATED_SURFACE_HALF_H, CELL_HALF * S ];
+		const position = [ cx, groundY + ( ELEVATED_HEIGHT * 0.5 ), cz ];
 		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents } ),
@@ -440,7 +441,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 			const cx = ( Number( gx ) + 0.5 ) * CELL_RAW * S;
 			const cz = ( Number( gz ) + 0.5 ) * CELL_RAW * S;
-			const halfExtents = [ CELL_HALF * S * 0.98, ELEVATED_SURFACE_HALF_H, CELL_HALF * S * 0.98 ];
+			const halfExtents = [ CELL_HALF * S, ELEVATED_SURFACE_HALF_H, CELL_HALF * S ];
 			const position = [ cx, elevatedSurfaceY, cz ];
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
@@ -457,7 +458,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 			const cx = ( Number( gx ) + 0.5 ) * CELL_RAW * S;
 			const cz = ( Number( gz ) + 0.5 ) * CELL_RAW * S;
-			const halfExtents = [ CELL_HALF * S * 0.98, ELEVATED_SURFACE_HALF_H, CELL_HALF * S * 0.98 ];
+			const halfExtents = [ CELL_HALF * S, ELEVATED_SURFACE_HALF_H, CELL_HALF * S ];
 			const position = [ cx, elevatedSurfaceY, cz ];
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
