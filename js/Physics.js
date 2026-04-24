@@ -225,6 +225,37 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
+	function addElevatedSeamBridge( gxA, gzA, gxB, gzB ) {
+
+		const ax = Number( gxA );
+		const az = Number( gzA );
+		const bx = Number( gxB );
+		const bz = Number( gzB );
+		const dx = bx - ax;
+		const dz = bz - az;
+		if ( Math.abs( dx ) + Math.abs( dz ) !== 1 ) return;
+
+		const midX = ( ( ax + 0.5 ) + ( bx + 0.5 ) ) * 0.5 * CELL_RAW * S;
+		const midZ = ( ( az + 0.5 ) + ( bz + 0.5 ) ) * 0.5 * CELL_RAW * S;
+		const seamHalfSpan = ELEVATED_SURFACE_HALF_XZ;
+		const seamHalfThickness = CELL_RAW * S * 0.06;
+		const halfExtents = Math.abs( dx ) === 1
+			? [ seamHalfThickness, ELEVATED_SURFACE_HALF_H, seamHalfSpan ]
+			: [ seamHalfSpan, ELEVATED_SURFACE_HALF_H, seamHalfThickness ];
+		const position = [ midX, elevatedSurfaceY, midZ ];
+
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 1.0,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+	}
+
 	const cells = customCells || TRACK_CELLS;
 	const bumpSet = new Set();
 	const poleSet = new Set();
@@ -265,6 +296,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const key = `${ gx },${ gz }`;
 		if ( elevatedType === 'slope-down' ) elevatedMap.set( key, { type: 'slope-up', orient: ORIENT_180[ orient ] ?? orient } );
 		else elevatedMap.set( key, { type: elevatedType, orient } );
+
+	}
+
+	function isFlatElevatedCell( entry ) {
+
+		return Boolean( entry ) && entry.type !== 'slope-up';
 
 	}
 
@@ -498,6 +535,22 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			addSlopeCollider( Number( gx ), Number( gz ), normalizedOrient, true );
 
 		}
+
+	}
+
+	for ( const [ key, elevatedEntry ] of elevatedMap ) {
+
+		if ( ! isFlatElevatedCell( elevatedEntry ) ) continue;
+		const [ gxRaw, gzRaw ] = key.split( ',' );
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+
+		const rightNeighbor = elevatedMap.get( `${ gx + 1 },${ gz }` );
+		if ( isFlatElevatedCell( rightNeighbor ) ) addElevatedSeamBridge( gx, gz, gx + 1, gz );
+
+		const downNeighbor = elevatedMap.get( `${ gx },${ gz + 1 }` );
+		if ( isFlatElevatedCell( downNeighbor ) ) addElevatedSeamBridge( gx, gz, gx, gz + 1 );
 
 	}
 
