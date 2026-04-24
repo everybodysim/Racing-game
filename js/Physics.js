@@ -234,6 +234,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const elevatedEntries = extras && Array.isArray( extras.elevated ) ? extras.elevated : [];
 	const customAssetColliders = extras?.customAssets && typeof extras.customAssets === 'object' ? extras.customAssets : {};
 	const decorationEntries = extras && Array.isArray( extras.decorations ) ? extras.decorations : [];
+	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-checkpoint', 'elevated-corner' ] );
+	const ELEVATED_MERGE_EPSILON = 0.03 * S;
 	if ( extras && Array.isArray( extras.bumps ) ) {
 
 		for ( const [ gx, gz ] of extras.bumps ) bumpSet.add( gx + ',' + gz );
@@ -436,6 +438,97 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
+	const flatElevatedGrid = new Map();
+	for ( const entry of elevatedEntries ) {
+
+		if ( ! Array.isArray( entry ) ) continue;
+		const [ gxRaw, gzRaw, elevatedType ] = entry;
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		if ( ! FLAT_ELEVATED_TYPES.has( elevatedType ) ) continue;
+		flatElevatedGrid.set( `${ gx },${ gz }`, { gx, gz, y: elevatedSurfaceY } );
+
+	}
+
+	const mergedElevatedTopCells = new Set();
+	const mergedElevatedRegions = [];
+	const remainingFlatKeys = new Set( flatElevatedGrid.keys() );
+	while ( remainingFlatKeys.size > 0 ) {
+
+		const seedKey = remainingFlatKeys.values().next().value;
+		const seedCell = flatElevatedGrid.get( seedKey );
+		if ( ! seedCell ) {
+
+			remainingFlatKeys.delete( seedKey );
+			continue;
+
+		}
+
+		const minX = seedCell.gx;
+		const minZ = seedCell.gz;
+		let width = 1;
+		while ( remainingFlatKeys.has( `${ minX + width },${ minZ }` ) ) width ++;
+		let depth = 1;
+		let canGrowDepth = true;
+		while ( canGrowDepth ) {
+
+			const z = minZ + depth;
+			for ( let dx = 0; dx < width; dx ++ ) {
+
+				if ( ! remainingFlatKeys.has( `${ minX + dx },${ z }` ) ) {
+
+					canGrowDepth = false;
+					break;
+
+				}
+
+			}
+			if ( canGrowDepth ) depth ++;
+
+		}
+
+		const maxX = minX + width - 1;
+		const maxZ = minZ + depth - 1;
+		for ( let gz = minZ; gz <= maxZ; gz ++ ) {
+
+			for ( let gx = minX; gx <= maxX; gx ++ ) {
+
+				const cellKey = `${ gx },${ gz }`;
+				remainingFlatKeys.delete( cellKey );
+				mergedElevatedTopCells.add( cellKey );
+
+			}
+
+		}
+		mergedElevatedRegions.push( { minX, maxX, minZ, maxZ, y: seedCell.y } );
+
+	}
+
+	for ( const region of mergedElevatedRegions ) {
+
+		const widthCells = region.maxX - region.minX + 1;
+		const depthCells = region.maxZ - region.minZ + 1;
+		const centerX = ( ( region.minX + region.maxX + 1 ) * 0.5 ) * CELL_RAW * S;
+		const centerZ = ( ( region.minZ + region.maxZ + 1 ) * 0.5 ) * CELL_RAW * S;
+		const halfExtents = [
+			widthCells * CELL_HALF * S + ELEVATED_MERGE_EPSILON,
+			ELEVATED_SURFACE_HALF_H,
+			depthCells * CELL_HALF * S + ELEVATED_MERGE_EPSILON
+		];
+		const position = [ centerX, region.y, centerZ ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 1.0,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+	}
+
 	for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedEntries ) {
 
 		if ( ! Number.isFinite( Number( gx ) ) || ! Number.isFinite( Number( gz ) ) ) continue;
@@ -445,36 +538,46 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		if ( ! isSlope ) addElevatedSupportCollider( Number( gx ), Number( gz ) );
 		if ( normalizedType === 'elevated-straight' || normalizedType === 'elevated-checkpoint' ) {
 
-			const cx = ( Number( gx ) + 0.5 ) * CELL_RAW * S;
-			const cz = ( Number( gz ) + 0.5 ) * CELL_RAW * S;
-			const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, ELEVATED_SURFACE_HALF_XZ ];
-			const position = [ cx, elevatedSurfaceY, cz ];
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents } ),
-				motionType: MotionType.STATIC,
-				objectLayer: world._OL_STATIC,
-				position,
-				friction: 1.0,
-				restitution: 0.0,
-			} );
-			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+			const flatKey = `${ Number( gx ) },${ Number( gz ) }`;
+			if ( ! mergedElevatedTopCells.has( flatKey ) ) {
+
+				const cx = ( Number( gx ) + 0.5 ) * CELL_RAW * S;
+				const cz = ( Number( gz ) + 0.5 ) * CELL_RAW * S;
+				const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, ELEVATED_SURFACE_HALF_XZ ];
+				const position = [ cx, elevatedSurfaceY, cz ];
+				rigidBody.create( world, {
+					shape: box.create( { halfExtents } ),
+					motionType: MotionType.STATIC,
+					objectLayer: world._OL_STATIC,
+					position,
+					friction: 1.0,
+					restitution: 0.0,
+				} );
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+			}
 			addElevatedRoadWalls( Number( gx ), Number( gz ), normalizedOrient );
 
 		} else if ( normalizedType === 'elevated-corner' ) {
 
-			const cx = ( Number( gx ) + 0.5 ) * CELL_RAW * S;
-			const cz = ( Number( gz ) + 0.5 ) * CELL_RAW * S;
-			const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, ELEVATED_SURFACE_HALF_XZ ];
-			const position = [ cx, elevatedSurfaceY, cz ];
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents } ),
-				motionType: MotionType.STATIC,
-				objectLayer: world._OL_STATIC,
-				position,
-				friction: 1.0,
-				restitution: 0.0,
-			} );
-			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+			const flatKey = `${ Number( gx ) },${ Number( gz ) }`;
+			if ( ! mergedElevatedTopCells.has( flatKey ) ) {
+
+				const cx = ( Number( gx ) + 0.5 ) * CELL_RAW * S;
+				const cz = ( Number( gz ) + 0.5 ) * CELL_RAW * S;
+				const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, ELEVATED_SURFACE_HALF_XZ ];
+				const position = [ cx, elevatedSurfaceY, cz ];
+				rigidBody.create( world, {
+					shape: box.create( { halfExtents } ),
+					motionType: MotionType.STATIC,
+					objectLayer: world._OL_STATIC,
+					position,
+					friction: 1.0,
+					restitution: 0.0,
+				} );
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+			}
 			addElevatedCornerWalls( Number( gx ), Number( gz ), normalizedOrient );
 
 		} else if ( normalizedType === 'slope-up' ) {
