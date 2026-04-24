@@ -193,7 +193,11 @@
 					const mods = parsed.searchParams.get( 'mods' ) || 'none';
 				const extras = decodeExtrasParamToken( mods ) || {
 					bumps: [],
+					poles: [],
+					cubes: [],
+					walls: [],
 					boosts: [],
+					elevated: [],
 					jumps: [],
 					decorations: [],
 					surfaces: [],
@@ -208,7 +212,11 @@
 					trackLayoutVersion: map === 'default' ? 2 : 1,
 					extras: {
 						bumps: extras.bumps,
+						poles: extras.poles,
+						cubes: extras.cubes,
+						walls: extras.walls,
 						boosts: extras.boosts,
+						elevated: extras.elevated,
 						jumps: extras.jumps,
 						decorations: extras.decorations,
 						surfaces: extras.surfaces,
@@ -232,7 +240,11 @@
 					const mods = parsed.searchParams.get( 'mods' ) || 'none';
 				const extras = decodeExtrasParamToken( mods ) || {
 					bumps: [],
+					poles: [],
+					cubes: [],
+					walls: [],
 					boosts: [],
+					elevated: [],
 					jumps: [],
 					decorations: [],
 					surfaces: [],
@@ -247,7 +259,11 @@
 					trackLayoutVersion: map === 'default' ? 2 : 1,
 					extras: {
 						bumps: extras.bumps,
+						poles: extras.poles,
+						cubes: extras.cubes,
+						walls: extras.walls,
 						boosts: extras.boosts,
+						elevated: extras.elevated,
 						jumps: extras.jumps,
 						decorations: extras.decorations,
 						surfaces: extras.surfaces,
@@ -276,7 +292,11 @@
 				const parsed = JSON.parse( json );
 				return {
 					bumps: Array.isArray( parsed.b ) ? parsed.b : [],
+					poles: Array.isArray( parsed.p ) ? parsed.p : [],
+					cubes: Array.isArray( parsed.k ) ? parsed.k : [],
+					walls: Array.isArray( parsed.l ) ? parsed.l : [],
 					boosts: Array.isArray( parsed.s ) ? parsed.s : [],
+					elevated: Array.isArray( parsed.e ) ? parsed.e : [],
 					jumps: Array.isArray( parsed.j ) ? parsed.j : [],
 					decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 					surfaces: Array.isArray( parsed.u ) ? parsed.u : [],

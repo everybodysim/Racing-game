@@ -87,6 +87,19 @@ const SURFACE_EFFECTS = {
 	'surface-custom-b': { grip: 0.55, drag: 0.9, accel: 0.72, drive: 0.85 },
 	'surface-custom-c': { grip: 0.95, drag: 1.7, accel: 1.25, drive: 1.3 },
 };
+const PAD_RESET_TYPE = 'pad-reset';
+const PAD_EFFECTS = {
+	'pad-low-gravity': { id: 'low-gravity', gravity: 0.45 },
+	'pad-heavy-gravity': { id: 'heavy-gravity', gravity: 1.7 },
+	'pad-high-grip': { id: 'high-grip', grip: 2.2, drag: 1.25 },
+	'pad-high-speed': { id: 'high-speed', accel: 1.5, drive: 1.6, topSpeed: 1.25 },
+	'pad-no-brakes': { id: 'no-brakes', disableBrakes: true },
+	'pad-no-steering': { id: 'no-steering', disableSteering: true },
+	'pad-no-acceleration': { id: 'no-acceleration', disableAcceleration: true, accel: 0.0, drive: 0.0, drag: 0.18, grip: 0.86 },
+	'pad-slow-motion': { id: 'slow-motion', accel: 0.55, drive: 0.55, topSpeed: 0.7, steering: 0.85 },
+	'pad-fast-motion': { id: 'fast-motion', accel: 1.65, drive: 1.7, topSpeed: 1.22, steering: 1.1 },
+	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
+};
 const BOUNCE_VERTICAL_DELTA = 7.2;
 const KICK_LATERAL_DELTA = 7.4;
 const WEATHER_PRESETS = {
@@ -764,9 +777,13 @@ function getTrackId( mapParamValue, extrasParamValue ) {
 		map,
 		mods,
 		trackLayoutVersion: map === 'default' ? 2 : 1,
-			extras: {
+		extras: {
 				bumps: extras.bumps,
+				poles: extras.poles,
+				cubes: extras.cubes,
+				walls: extras.walls,
 				boosts: extras.boosts,
+				elevated: extras.elevated,
 				jumps: extras.jumps,
 			decorations: extras.decorations,
 			surfaces: extras.surfaces,
@@ -806,7 +823,11 @@ function getLegacyTrackIds( mapParamValue, extrasParamValue ) {
 		trackLayoutVersion: map === 'default' ? 2 : 1,
 		extras: {
 			bumps: extras.bumps,
+			poles: extras.poles,
+			cubes: extras.cubes,
+			walls: extras.walls,
 			boosts: extras.boosts,
+			elevated: extras.elevated,
 			jumps: extras.jumps,
 			decorations: extras.decorations,
 			surfaces: extras.surfaces,
@@ -3482,6 +3503,7 @@ async function init() {
 		centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
 		centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
 	} ) );
+	const padEntries = surfaceEntries.filter( ( entry ) => entry.type === PAD_RESET_TYPE || PAD_EFFECTS[ entry.type ] );
 	const legacyBoostEntries = boostCells.map( ( [ gx, gz ] ) => ( {
 		gx, gz,
 		centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
@@ -3502,6 +3524,10 @@ async function init() {
 	let boostActiveUntil2 = 0;
 	let boostContactCell2 = null;
 	const specialSurfaceContactState2 = new Map();
+	let activePadEffect = null;
+	let activePadEffect2 = null;
+	let padContactKey = null;
+	let padContactKey2 = null;
 	const checkpointStates2 = checkpointCells.map( ( cell ) => ( {
 		...makeGateData( cell ),
 		lastLocalX: 0,
@@ -3696,6 +3722,54 @@ async function init() {
 
 	}
 
+	function findPadContactFor( targetVehicle ) {
+
+		for ( let i = padEntries.length - 1; i >= 0; i -- ) {
+
+			const entry = padEntries[ i ];
+			if ( overlapsSurfaceEntry( targetVehicle, entry ) ) {
+
+				return {
+					key: `pad:${ entry.gx },${ entry.gz },${ entry.type }`,
+					type: entry.type,
+				};
+
+			}
+
+		}
+		return null;
+
+	}
+
+	function applyPadContact( targetVehicle, lastContactKey, setEffect ) {
+
+		const contact = findPadContactFor( targetVehicle );
+		if ( ! contact ) return null;
+		if ( contact.key === lastContactKey ) return lastContactKey;
+		if ( contact.type === PAD_RESET_TYPE ) {
+
+			setEffect( null );
+			return contact.key;
+
+		}
+		const effect = PAD_EFFECTS[ contact.type ] || null;
+		setEffect( effect );
+		return contact.key;
+
+	}
+
+	function applyPadInputModifiers( baseInput, effect ) {
+
+		if ( ! baseInput ) return baseInput;
+		const input = { ...baseInput };
+		if ( effect?.disableSteering ) input.x = 0;
+		if ( effect?.disableBrakes && input.z < 0 ) input.z = 0;
+		if ( effect?.disableAcceleration && input.z > 0 ) input.z = 0;
+		if ( Number.isFinite( effect?.steering ) ) input.x *= effect.steering;
+		return input;
+
+	}
+
 	function getCustomSurfaceEffect( surfaceType ) {
 
 		const conf = customSurfaceConfigs?.[ surfaceType ];
@@ -3717,19 +3791,24 @@ async function init() {
 
 	}
 
-	function applySurfaceGrip( targetVehicle, surfaceType ) {
+	function applySurfaceGrip( targetVehicle, surfaceType, padEffect = null ) {
 
 		const effect = getSurfaceEffect( surfaceType );
 		const unlocks = getGarageUnlocks();
 		const gripPack = unlocks.grip ? garageMods.grip : 1.0;
 		const accelPack = unlocks.accel ? garageMods.accel : 1.0;
 		const drivePack = unlocks.drive ? garageMods.drive : 1.0;
-		targetVehicle.gripMultiplier = ( effect ? effect.grip : 1.0 ) * gripPack;
+		const padGrip = Number.isFinite( padEffect?.grip ) ? padEffect.grip : 1.0;
+		const padDrag = Number.isFinite( padEffect?.drag ) ? padEffect.drag : 1.0;
+		const padAccel = Number.isFinite( padEffect?.accel ) ? padEffect.accel : 1.0;
+		const padDrive = Number.isFinite( padEffect?.drive ) ? padEffect.drive : 1.0;
+		targetVehicle.gripMultiplier = ( effect ? effect.grip : 1.0 ) * gripPack * padGrip;
 		if ( hacksInstalled && hacksState.enabled ) targetVehicle.gripMultiplier *= hacksState.roadGrip;
-		targetVehicle.dragMultiplier = effect ? effect.drag : 1.0;
+		targetVehicle.dragMultiplier = ( effect ? effect.drag : 1.0 ) * padDrag;
 		if ( hacksInstalled && hacksState.enabled && hacksState.lowFriction ) targetVehicle.dragMultiplier *= 0.35;
-		targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * accelPack;
-		targetVehicle.driveMultiplier = ( effect ? effect.drive : 1.0 ) * drivePack;
+		const speedCapScale = Number.isFinite( padEffect?.topSpeed ) ? padEffect.topSpeed : 1.0;
+		targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * accelPack * padAccel * speedCapScale;
+		targetVehicle.driveMultiplier = ( effect ? effect.drive : 1.0 ) * drivePack * padDrive * speedCapScale;
 
 	}
 
@@ -4506,6 +4585,8 @@ async function init() {
 		lapSeconds = 0;
 		boostActiveUntil = 0;
 		boostContactCell = null;
+		activePadEffect = null;
+		padContactKey = null;
 		specialSurfaceContactState.clear();
 		resetCurrentLapGhost();
 		resetCurrentLapInputs();
@@ -4545,6 +4626,8 @@ async function init() {
 		lapSeconds2 = 0;
 		boostActiveUntil2 = 0;
 		boostContactCell2 = null;
+		activePadEffect2 = null;
+		padContactKey2 = null;
 		specialSurfaceContactState2.clear();
 		hasLeftStartZone2 = false;
 		hasPrevFinishSample2 = false;
@@ -5436,7 +5519,9 @@ async function init() {
 
 			}
 			const input2 = controls2 ? ( modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls2.update() ) : null;
-			recordLapInput( Math.max( 0, now - lapStartSeconds ), input, controls?.keys );
+			const padAdjustedInput = applyPadInputModifiers( input, activePadEffect );
+			const padAdjustedInput2 = input2 ? applyPadInputModifiers( input2, activePadEffect2 ) : null;
+			recordLapInput( Math.max( 0, now - lapStartSeconds ), padAdjustedInput, controls?.keys );
 			if ( hacksActive && hacksState.infiniteCoins ) coins = Math.max( coins, 9999999 );
 			if ( arcadeBoostInstalled ) {
 
@@ -5450,13 +5535,15 @@ async function init() {
 
 		updateWorld( world, contactListener, dt );
 
-			vehicle.update( dt, input );
-			if ( vehicle2 && input2 ) vehicle2.update( dt, input2 );
+			vehicle.update( dt, padAdjustedInput );
+			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
 			updateRemotePlayerVisualsFrame( dt );
+			const gravityScale1 = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
+			const gravityScale2 = Number.isFinite( activePadEffect2?.gravity ) ? activePadEffect2.gravity : 1.0;
+			if ( vehicle?.rigidBody?.motionProperties ) vehicle.rigidBody.motionProperties.gravityFactor = gravityScale1 * ( hacksActive ? hacksState.gravity : 1.0 );
+			if ( vehicle2?.rigidBody?.motionProperties ) vehicle2.rigidBody.motionProperties.gravityFactor = gravityScale2 * ( hacksActive ? hacksState.gravity : 1.0 );
 			if ( hacksActive ) {
 
-				if ( vehicle?.rigidBody?.motionProperties ) vehicle.rigidBody.motionProperties.gravityFactor = hacksState.gravity;
-				if ( vehicle2?.rigidBody?.motionProperties ) vehicle2.rigidBody.motionProperties.gravityFactor = hacksState.gravity;
 				if ( hacksState.boostAnywhere && controls?.keys?.KeyB && vehicle?.rigidBody?.motionProperties ) {
 
 					const vel = [ ...vehicle.rigidBody.motionProperties.linearVelocity ];
@@ -5506,8 +5593,13 @@ async function init() {
 				}
 
 			} else hackTeleportLatch = false;
+			padContactKey = applyPadContact( vehicle, padContactKey, ( effect ) => {
+
+				activePadEffect = effect;
+
+			} ) || null;
 			activeSurfaceType = findActiveSurfaceTypeFor( vehicle );
-			applySurfaceGrip( vehicle, activeSurfaceType );
+			applySurfaceGrip( vehicle, activeSurfaceType, activePadEffect );
 			if ( hacksActive && hacksState.checkpointBypass ) {
 
 				for ( const checkpoint of checkpointStates ) checkpoint.passedThisLap = true;
@@ -5515,8 +5607,13 @@ async function init() {
 			}
 		if ( vehicle2 ) {
 
+			padContactKey2 = applyPadContact( vehicle2, padContactKey2, ( effect ) => {
+
+				activePadEffect2 = effect;
+
+			} ) || null;
 			activeSurfaceType2 = findActiveSurfaceTypeFor( vehicle2 );
-			applySurfaceGrip( vehicle2, activeSurfaceType2 );
+			applySurfaceGrip( vehicle2, activeSurfaceType2, activePadEffect2 );
 
 		}
 		updateActiveBoost( vehicle, boostActiveUntil, dt, now );
@@ -5580,12 +5677,14 @@ async function init() {
 		if ( cam2 && vehicle2 ) cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
-		audio.update( dt, vehicle.linearSpeed, input.z, vehicle.driftIntensity );
+		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
 		bloomPass.strength = 0.02;
 		bloomPass.radius = 0.02;
 		updateWeatherFx( dt, now );
 
-		for ( const checkpoint of checkpointStates ) {
+		for ( let checkpointIndex = 0; checkpointIndex < checkpointStates.length; checkpointIndex ++ ) {
+
+			const checkpoint = checkpointStates[ checkpointIndex ];
 
 			const localX = ( ( vehicle.spherePos.x - checkpoint.centerX ) * checkpoint.cosA ) + ( ( vehicle.spherePos.z - checkpoint.centerZ ) * checkpoint.sinA );
 			const localZ = ( - ( vehicle.spherePos.x - checkpoint.centerX ) * checkpoint.sinA ) + ( ( vehicle.spherePos.z - checkpoint.centerZ ) * checkpoint.cosA );
@@ -5610,6 +5709,8 @@ async function init() {
 			if ( crossedCheckpoint && ! checkpoint.passedThisLap ) {
 
 				checkpoint.passedThisLap = true;
+				activePadEffect = null;
+				padContactKey = null;
 				if ( checkpointRespawnInstalled ) saveCheckpointState( checkpoint );
 				const ghostTime = getFastestVisibleGhostCheckpointTime( checkpointIndex );
 				if ( Number.isFinite( ghostTime ) ) {
@@ -5654,6 +5755,8 @@ async function init() {
 				if ( crossedCheckpoint ) {
 
 					checkpoint.passedThisLap = true;
+					activePadEffect2 = null;
+					padContactKey2 = null;
 					if ( checkpointRespawnInstalled ) saveCheckpointState( checkpoint );
 
 				}
