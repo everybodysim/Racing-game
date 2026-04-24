@@ -437,7 +437,7 @@
 	let flowStraightType = 'track-straight';
 	let flowCornerType = 'track-corner';
 	let placeOffGrid = false;
-	let slopesModInstalled = false;
+	let slopesModInstalled = true;
 	let testSpawnCell = null;
 	let pickTestSpawnMode = false;
 	let autosaveEnabled = true;
@@ -1825,16 +1825,7 @@
 
 	function refreshModTools() {
 
-		try {
-
-			const parsed = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
-			slopesModInstalled = Array.isArray( parsed ) && parsed.some( ( mod ) => mod?.id === 'slopes' );
-
-		} catch {
-
-			slopesModInstalled = false;
-
-		}
+		slopesModInstalled = true;
 
 		for ( const type of ELEVATED_TYPES ) {
 

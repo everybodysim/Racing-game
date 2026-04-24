@@ -49,13 +49,6 @@
       "folder": "mods",
       "entry": "mods/Freecam.js",
       "viewerPage": "index.html"
-    },
-    {
-      "id": "slopes",
-      "name": "Slopes",
-      "folder": "mods",
-      "entry": "mods/Slopes.js",
-      "viewerPage": "index.html"
     }
   ]
 }
