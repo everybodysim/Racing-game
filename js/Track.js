@@ -93,7 +93,7 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 piece.rotation.y = THREE.MathUtils.degToRad( deg + 180 );
 		
     piece.rotation.x = type === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
-    piece.scale.z = 1.08;
+    piece.scale.z = 1.11;
 
 }
 
