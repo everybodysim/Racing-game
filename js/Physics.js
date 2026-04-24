@@ -225,6 +225,64 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
+	function addElevatedSeamBridge( gxA, gzA, gxB, gzB ) {
+
+		const ax = Number( gxA );
+		const az = Number( gzA );
+		const bx = Number( gxB );
+		const bz = Number( gzB );
+		const dx = bx - ax;
+		const dz = bz - az;
+		if ( Math.abs( dx ) + Math.abs( dz ) !== 1 ) return;
+
+		const midX = ( ( ax + 0.5 ) + ( bx + 0.5 ) ) * 0.5 * CELL_RAW * S;
+		const midZ = ( ( az + 0.5 ) + ( bz + 0.5 ) ) * 0.5 * CELL_RAW * S;
+		const seamLayers = [
+			{ thickness: CELL_RAW * S * 0.04, spanScale: 1.0 },
+			{ thickness: CELL_RAW * S * 0.08, spanScale: 1.05 },
+			{ thickness: CELL_RAW * S * 0.14, spanScale: 1.12 },
+		];
+		for ( const layer of seamLayers ) {
+
+			const seamHalfSpan = ELEVATED_SURFACE_HALF_XZ * layer.spanScale;
+			const seamHalfThickness = layer.thickness;
+			const halfExtents = Math.abs( dx ) === 1
+				? [ seamHalfThickness, ELEVATED_SURFACE_HALF_H, seamHalfSpan ]
+				: [ seamHalfSpan, ELEVATED_SURFACE_HALF_H, seamHalfThickness ];
+			const position = [ midX, elevatedSurfaceY, midZ ];
+
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				friction: 1.0,
+				restitution: 0.0,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+		}
+
+	}
+
+	function addElevatedSurfaceReinforcement( gx, gz ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ * 1.14, ELEVATED_SURFACE_HALF_H, ELEVATED_SURFACE_HALF_XZ * 1.14 ];
+		const position = [ cx, elevatedSurfaceY, cz ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 1.0,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+	}
+
 	const cells = customCells || TRACK_CELLS;
 	const bumpSet = new Set();
 	const poleSet = new Set();
@@ -265,6 +323,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const key = `${ gx },${ gz }`;
 		if ( elevatedType === 'slope-down' ) elevatedMap.set( key, { type: 'slope-up', orient: ORIENT_180[ orient ] ?? orient } );
 		else elevatedMap.set( key, { type: elevatedType, orient } );
+
+	}
+
+	function isFlatElevatedCell( entry ) {
+
+		return Boolean( entry ) && entry.type !== 'slope-up';
 
 	}
 
@@ -474,6 +538,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 				restitution: 0.0,
 			} );
 			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+			addElevatedSurfaceReinforcement( Number( gx ), Number( gz ) );
 			addElevatedRoadWalls( Number( gx ), Number( gz ), normalizedOrient );
 
 		} else if ( normalizedType === 'elevated-corner' ) {
@@ -491,6 +556,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 				restitution: 0.0,
 			} );
 			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+			addElevatedSurfaceReinforcement( Number( gx ), Number( gz ) );
 			addElevatedCornerWalls( Number( gx ), Number( gz ), normalizedOrient );
 
 		} else if ( normalizedType === 'slope-up' ) {
@@ -498,6 +564,22 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			addSlopeCollider( Number( gx ), Number( gz ), normalizedOrient, true );
 
 		}
+
+	}
+
+	for ( const [ key, elevatedEntry ] of elevatedMap ) {
+
+		if ( ! isFlatElevatedCell( elevatedEntry ) ) continue;
+		const [ gxRaw, gzRaw ] = key.split( ',' );
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+
+		const rightNeighbor = elevatedMap.get( `${ gx + 1 },${ gz }` );
+		if ( isFlatElevatedCell( rightNeighbor ) ) addElevatedSeamBridge( gx, gz, gx + 1, gz );
+
+		const downNeighbor = elevatedMap.get( `${ gx },${ gz + 1 }` );
+		if ( isFlatElevatedCell( downNeighbor ) ) addElevatedSeamBridge( gx, gz, gx, gz + 1 );
 
 	}
 
