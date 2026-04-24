@@ -20,7 +20,7 @@ const SUPPORT_HEIGHT = CELL_RAW * 0.5;
 const SUPPORT_COLOR = 0x0d0d0d;
 const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
 const SUPPORT_SINK = 0.03;
-const SLOPE_VISUAL_DROP = CELL_RAW * 0.04;
+const SLOPE_VISUAL_DROP = CELL_RAW * 0.7;
 const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 
 const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down' ] );
