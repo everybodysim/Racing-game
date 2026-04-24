@@ -48,6 +48,17 @@ function getSurfaceVisual( surfaceType, customSurfaces = null ) {
 		case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
 		case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
 		case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
+		case 'pad-reset': return { color: 0xffffff, emissive: 0x557c92, metalness: 0.1, roughness: 0.35 };
+		case 'pad-low-gravity': return { color: 0x9bc2ff, emissive: 0x2e4f9f, metalness: 0.05, roughness: 0.55 };
+		case 'pad-heavy-gravity': return { color: 0x4a5f85, emissive: 0x111b36, metalness: 0.05, roughness: 0.8 };
+		case 'pad-high-grip': return { color: 0x5cff9a, emissive: 0x0d6a39, metalness: 0.02, roughness: 0.95 };
+		case 'pad-high-speed': return { color: 0xffbc4f, emissive: 0x8a4e06, metalness: 0.0, roughness: 0.8 };
+		case 'pad-no-brakes': return { color: 0xff6f6f, emissive: 0x7d1a1a, metalness: 0.0, roughness: 0.82 };
+		case 'pad-no-steering': return { color: 0xff7ed8, emissive: 0x7a1f65, metalness: 0.02, roughness: 0.78 };
+		case 'pad-no-acceleration': return { color: 0x85ffd8, emissive: 0x156e58, metalness: 0.0, roughness: 0.72 };
+		case 'pad-slow-motion': return { color: 0x6ab5ff, emissive: 0x104f88, metalness: 0.05, roughness: 0.68 };
+		case 'pad-fast-motion': return { color: 0xff9f3c, emissive: 0x8a2f00, metalness: 0.02, roughness: 0.7 };
+		case 'pad-drift': return { color: 0xd6ff6a, emissive: 0x5c7a0f, metalness: 0.03, roughness: 0.8 };
 		case 'surface-custom-a':
 		case 'surface-custom-b':
 		case 'surface-custom-c': {
