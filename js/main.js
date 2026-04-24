@@ -3238,7 +3238,12 @@ async function init() {
 	const shouldAutoRespawnAfterLap = hasSeparateStartCell && hasSeparateFinishCell;
 	const startCell = activeCells.find( ( c ) => c[ 2 ] === 'track-start' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || null;
 	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || activeCells[ 0 ];
-	const checkpointCells = activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' );
+	const elevatedCheckpointCells = Array.isArray( extras?.elevated )
+		? extras.elevated
+			.filter( ( c ) => Array.isArray( c ) && c[ 2 ] === 'elevated-checkpoint' )
+			.map( ( [ gx, gz, , orient = 0 ] ) => [ gx, gz, 'track-checkpoint', orient ] )
+		: [];
+	const checkpointCells = [ ...activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' ), ...elevatedCheckpointCells ];
 	const lapStoreKey = `racing-lap-stats:${ mapParam || 'default' }`;
 	const stuntStoreKey = `racing-stunt-stats:${ mapParam || 'default' }`;
 	const currentTrackUrl = `${ window.location.origin }${ window.location.pathname }${ window.location.search }`;
