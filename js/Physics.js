@@ -46,6 +46,9 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const ELEVATED_SURFACE_HALF_H = 0.12 * S;
 	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S * 1.08;
 	const ELEVATED_SURFACE_DROP = 0.4;
+	const ELEVATED_SEAM_HALF_H = 0.08 * S;
+	const ELEVATED_SEAM_HALF_NARROW = 0.24 * S;
+	const ELEVATED_SEAM_HALF_WIDE = CELL_HALF * S * 1.04;
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const ELEVATED_WALL_HALF_H = WALL_HALF_H * S;
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
@@ -222,6 +225,68 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 		addElevatedRoadWalls( gx, gz, orient );
+
+	}
+
+	function getElevatedSurfacePose( gx, gz, entry ) {
+
+		if ( ! entry ) return null;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ entry.orient ] ?? 0 );
+		const pitch = entry.type === 'slope-up' ? slopeAngle : 0;
+		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( pitch, yaw, 0, 'YXZ' ) );
+		const centerY = entry.type === 'slope-up'
+			? groundY + ( ELEVATED_HEIGHT * 0.5 ) - ELEVATED_SURFACE_DROP
+			: elevatedSurfaceY;
+		return {
+			center: new THREE.Vector3( cx, centerY, cz ),
+			quat
+		};
+
+	}
+
+	function getSurfaceYAtXZ( pose, x, z ) {
+
+		const normal = new THREE.Vector3( 0, 1, 0 ).applyQuaternion( pose.quat );
+		if ( Math.abs( normal.y ) < 1e-4 ) return pose.center.y;
+		const dx = x - pose.center.x;
+		const dz = z - pose.center.z;
+		return pose.center.y - ( normal.x * dx + normal.z * dz ) / normal.y;
+
+	}
+
+	function addElevatedSeamConnector( gxA, gzA, entryA, gxB, gzB, entryB ) {
+
+		const poseA = getElevatedSurfacePose( gxA, gzA, entryA );
+		const poseB = getElevatedSurfacePose( gxB, gzB, entryB );
+		if ( ! poseA || ! poseB ) return;
+
+		const midX = ( poseA.center.x + poseB.center.x ) * 0.5;
+		const midZ = ( poseA.center.z + poseB.center.z ) * 0.5;
+		const yA = getSurfaceYAtXZ( poseA, midX, midZ );
+		const yB = getSurfaceYAtXZ( poseB, midX, midZ );
+		const midY = ( yA + yB ) * 0.5;
+
+		const quaternion = poseA.quat.clone().slerp( poseB.quat, 0.5 );
+		const dx = gxB - gxA;
+		const dz = gzB - gzA;
+		const halfExtents = Math.abs( dx ) === 1
+			? [ ELEVATED_SEAM_HALF_NARROW, ELEVATED_SEAM_HALF_H, ELEVATED_SEAM_HALF_WIDE ]
+			: [ ELEVATED_SEAM_HALF_WIDE, ELEVATED_SEAM_HALF_H, ELEVATED_SEAM_HALF_NARROW ];
+		const position = [ midX, midY, midZ ];
+		const quatArray = [ quaternion.x, quaternion.y, quaternion.z, quaternion.w ];
+
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			quaternion: quatArray,
+			friction: 1.0,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quatArray );
 
 	}
 
@@ -496,6 +561,29 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		} else if ( normalizedType === 'slope-up' ) {
 
 			addSlopeCollider( Number( gx ), Number( gz ), normalizedOrient, true );
+
+		}
+
+	}
+
+	const seamPairs = new Set();
+	for ( const [ key, entry ] of elevatedMap ) {
+
+		const [ gxRaw, gzRaw ] = key.split( ',' );
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		for ( const [ dx, dz ] of [ [ 1, 0 ], [ 0, 1 ] ] ) {
+
+			const nx = gx + dx;
+			const nz = gz + dz;
+			const neighborKey = `${ nx },${ nz }`;
+			const neighborEntry = elevatedMap.get( neighborKey );
+			if ( ! neighborEntry ) continue;
+			const pairKey = `${ Math.min( gx, nx ) },${ Math.min( gz, nz ) }|${ Math.max( gx, nx ) },${ Math.max( gz, nz ) }`;
+			if ( seamPairs.has( pairKey ) ) continue;
+			seamPairs.add( pairKey );
+			addElevatedSeamConnector( gx, gz, entry, nx, nz, neighborEntry );
 
 		}
 
