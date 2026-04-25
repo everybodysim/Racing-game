@@ -348,10 +348,16 @@
 			<option value="pad-slow-motion">Slow Motion</option>
 			<option value="pad-fast-motion">Fast Motion</option>
 			<option value="pad-drift">Drift Mode</option>
+			<option value="pad-custom-a">Custom Pad A</option>
+			<option value="pad-custom-b">Custom Pad B</option>
+			<option value="pad-custom-c">Custom Pad C</option>
 		</select>
 		<button id="btn-surface-custom-a">Custom A</button>
 		<button id="btn-surface-custom-b">Custom B</button>
 		<button id="btn-surface-custom-c">Custom C</button>
+		<button id="btn-pad-custom-a">Pad A</button>
+		<button id="btn-pad-custom-b">Pad B</button>
+		<button id="btn-pad-custom-c">Pad C</button>
 		<button id="btn-overlap-toggle">Overlap: Off</button>
 		<button id="btn-deco-forest">Tree</button>
 		<button id="btn-deco-tents">Tent</button>
@@ -390,6 +396,16 @@
 			<label>Color <input type="color" id="cs-color" value="#9c7bff"></label>
 			<label>Grip <input type="range" id="cs-grip" min="0" max="5" step="0.05" value="1.2"></label>
 			<label>Speed <input type="range" id="cs-speed" min="0" max="5" step="0.05" value="1.05"></label>
+			<label>Gravity <input type="range" id="cs-pad-gravity" min="0.15" max="3" step="0.05" value="1"></label>
+			<label>Drag <input type="range" id="cs-pad-drag" min="0.05" max="5" step="0.05" value="1"></label>
+			<label>Accel <input type="range" id="cs-pad-accel" min="0" max="5" step="0.05" value="1"></label>
+			<label>Drive <input type="range" id="cs-pad-drive" min="0" max="5" step="0.05" value="1"></label>
+			<label>Top Speed <input type="range" id="cs-pad-top-speed" min="0" max="3" step="0.05" value="1"></label>
+			<label>Steering <input type="range" id="cs-pad-steering" min="0" max="3" step="0.05" value="1"></label>
+			<label>Time Scale <input type="range" id="cs-pad-time-scale" min="0.15" max="3" step="0.05" value="1"></label>
+			<label><input type="checkbox" id="cs-pad-no-brakes"> Disable brakes</label>
+			<label><input type="checkbox" id="cs-pad-no-steering"> Disable steering</label>
+			<label><input type="checkbox" id="cs-pad-no-acceleration"> Disable acceleration</label>
 		</div>
 		<div class="custom-surface-actions">
 			<button id="cs-save">Save</button>
@@ -423,6 +439,7 @@
 		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
 		'pad-reset', 'pad-low-gravity', 'pad-heavy-gravity', 'pad-high-grip', 'pad-high-speed',
 		'pad-no-brakes', 'pad-no-steering', 'pad-no-acceleration', 'pad-slow-motion', 'pad-fast-motion', 'pad-drift',
+		'pad-custom-a', 'pad-custom-b', 'pad-custom-c',
 		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
 	];
 	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
@@ -430,6 +447,7 @@
 	const TRACK_SHARE_API_ROOT = 'https://racing-track-board-api.ga1010.workers.dev';
 	const TRACK_SHARE_API_PREFIXES = [ '/api', '' ];
 	const CUSTOM_SURFACE_TYPES = [ 'surface-custom-a', 'surface-custom-b', 'surface-custom-c' ];
+	const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 	let tool = 'paint'; // 'paint', 'erase'
 	let selectedType = 'track-straight';
 	let selectedOrient = 0;
@@ -440,6 +458,12 @@
 		'surface-custom-c': { color: '#ffc97b', grip: 0.95, speed: 1.25, forceAmount: 6, force: { forward: false, backward: false, left: true, right: true, up: true }, noAir: true, oncePerContact: false },
 	};
 	let customSurfaceConfigs = JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) );
+	const CUSTOM_PAD_DEFAULTS = {
+		'pad-custom-a': { color: '#7fb7ff', gravity: 1, drag: 1, accel: 1, drive: 1, topSpeed: 1, steering: 1, timeScale: 1, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+		'pad-custom-b': { color: '#a4ffd9', gravity: 0.8, drag: 0.7, accel: 1.25, drive: 1.25, topSpeed: 1.15, steering: 1.1, timeScale: 1.15, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+		'pad-custom-c': { color: '#ffd28e', gravity: 1.35, drag: 1.4, accel: 0.65, drive: 0.7, topSpeed: 0.85, steering: 0.9, timeScale: 0.8, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+	};
+	let customPadConfigs = JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) );
 	let activeCustomSurfaceEditor = null;
 	const FLOW_STRAIGHT_ORIENT = { ns: 0, ew: 22 };
 	const FLOW_CORNER_ORIENT = {
@@ -543,6 +567,13 @@
 			case 'pad-slow-motion': return { color: 0x6ab5ff, emissive: 0x104f88, metalness: 0.05, roughness: 0.68 };
 			case 'pad-fast-motion': return { color: 0xff9f3c, emissive: 0x8a2f00, metalness: 0.02, roughness: 0.7 };
 			case 'pad-drift': return { color: 0xd6ff6a, emissive: 0x5c7a0f, metalness: 0.03, roughness: 0.8 };
+			case 'pad-custom-a':
+			case 'pad-custom-b':
+			case 'pad-custom-c': {
+				const colorHex = customPadConfigs?.[ surfaceType ]?.color || '#7fb7ff';
+				const color = new THREE.Color( colorHex );
+				return { color: color.getHex(), emissive: color.clone().multiplyScalar( 0.45 ).getHex(), metalness: 0.04, roughness: 0.72 };
+			}
 			default: return { color: 0xb88657, emissive: 0x4a2b12, metalness: 0.0, roughness: 0.9 };
 
 		}
@@ -1065,8 +1096,9 @@
 			cell.surfaceTypes.forEach( ( surfaceType, idx ) => {
 
 				const visual = getSurfaceVisual( surfaceType );
+				const isPad = String( surfaceType || '' ).startsWith( 'pad-' );
 				const patch = new THREE.Mesh(
-					new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
+					isPad ? new THREE.CircleGeometry( CELL_RAW * 0.39, 24 ) : new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
 					new THREE.MeshStandardMaterial( {
 						color: visual.color,
 						emissive: visual.emissive,
@@ -1576,14 +1608,14 @@
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, e: elevated, u: surfaces, d: deco, w: { ...weatherSettings }, c: customSurfaceConfigs, x: customPayload } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, e: elevated, u: surfaces, d: deco, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), x: {} };
+		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
 
 		try {
 
@@ -1597,16 +1629,17 @@
 					j: Array.isArray( parsed.j ) ? parsed.j : [],
 					e: Array.isArray( parsed.e ) ? parsed.e : [],
 					u: Array.isArray( parsed.u ) ? parsed.u : [],
-					d: Array.isArray( parsed.d ) ? parsed.d : [],
-					w: normalizeWeatherSettings( parsed?.w ),
-					c: parsed?.c && typeof parsed.c === 'object' ? parsed.c : JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
-					x: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
-				};
+						d: Array.isArray( parsed.d ) ? parsed.d : [],
+						w: normalizeWeatherSettings( parsed?.w ),
+						c: parsed?.c && typeof parsed.c === 'object' ? parsed.c : JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
+						y: parsed?.y && typeof parsed.y === 'object' ? parsed.y : JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ),
+						x: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
+					};
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-				return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), x: {} };
+				return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
 
 		}
 
@@ -1681,6 +1714,10 @@
 			customSurfaceConfigs = {
 				...JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
 				...( mods.c || {} )
+			};
+			customPadConfigs = {
+				...JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ),
+				...( mods.y || {} )
 			};
 			weatherSettings = normalizeWeatherSettings( mods.w );
 			applyWeatherPreset( weatherSettings.preset );
@@ -1828,6 +1865,9 @@
 		'surface-custom-a': document.getElementById( 'btn-surface-custom-a' ),
 		'surface-custom-b': document.getElementById( 'btn-surface-custom-b' ),
 		'surface-custom-c': document.getElementById( 'btn-surface-custom-c' ),
+		'pad-custom-a': document.getElementById( 'btn-pad-custom-a' ),
+		'pad-custom-b': document.getElementById( 'btn-pad-custom-b' ),
+		'pad-custom-c': document.getElementById( 'btn-pad-custom-c' ),
 	};
 	const gateSelect = document.getElementById( 'gate-select' );
 	const surfaceSelect = document.getElementById( 'surface-select' );
@@ -1847,6 +1887,16 @@
 		color: document.getElementById( 'cs-color' ),
 		grip: document.getElementById( 'cs-grip' ),
 		speed: document.getElementById( 'cs-speed' ),
+		padGravity: document.getElementById( 'cs-pad-gravity' ),
+		padDrag: document.getElementById( 'cs-pad-drag' ),
+		padAccel: document.getElementById( 'cs-pad-accel' ),
+		padDrive: document.getElementById( 'cs-pad-drive' ),
+		padTopSpeed: document.getElementById( 'cs-pad-top-speed' ),
+		padSteering: document.getElementById( 'cs-pad-steering' ),
+		padTimeScale: document.getElementById( 'cs-pad-time-scale' ),
+		padNoBrakes: document.getElementById( 'cs-pad-no-brakes' ),
+		padNoSteering: document.getElementById( 'cs-pad-no-steering' ),
+		padNoAcceleration: document.getElementById( 'cs-pad-no-acceleration' ),
 		save: document.getElementById( 'cs-save' ),
 		close: document.getElementById( 'cs-close' ),
 	};
@@ -1900,7 +1950,7 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
@@ -1938,8 +1988,11 @@
 	function openCustomSurfaceEditor( surfaceType ) {
 
 		activeCustomSurfaceEditor = surfaceType;
-		const config = customSurfaceConfigs[ surfaceType ] || CUSTOM_SURFACE_DEFAULTS[ surfaceType ];
-		customSurfaceTitle.textContent = `Edit ${ surfaceType.replace( 'surface-', '' ) }`;
+		const isPad = surfaceType.startsWith( 'pad-' );
+		const config = isPad
+			? ( customPadConfigs[ surfaceType ] || CUSTOM_PAD_DEFAULTS[ surfaceType ] )
+			: ( customSurfaceConfigs[ surfaceType ] || CUSTOM_SURFACE_DEFAULTS[ surfaceType ] );
+		customSurfaceTitle.textContent = `Edit ${ surfaceType.replace( 'surface-', '' ).replace( 'pad-', 'pad-' ) }`;
 		customSurfaceInputs.forward.checked = Boolean( config.force?.forward );
 		customSurfaceInputs.backward.checked = Boolean( config.force?.backward );
 		customSurfaceInputs.left.checked = Boolean( config.force?.left );
@@ -1951,6 +2004,16 @@
 		customSurfaceInputs.color.value = config.color || '#9c7bff';
 		customSurfaceInputs.grip.value = String( Number( config.grip ?? 1 ) );
 		customSurfaceInputs.speed.value = String( Number( config.speed ?? 1 ) );
+		customSurfaceInputs.padGravity.value = String( Number( config.gravity ?? 1 ) );
+		customSurfaceInputs.padDrag.value = String( Number( config.drag ?? 1 ) );
+		customSurfaceInputs.padAccel.value = String( Number( config.accel ?? 1 ) );
+		customSurfaceInputs.padDrive.value = String( Number( config.drive ?? 1 ) );
+		customSurfaceInputs.padTopSpeed.value = String( Number( config.topSpeed ?? 1 ) );
+		customSurfaceInputs.padSteering.value = String( Number( config.steering ?? 1 ) );
+		customSurfaceInputs.padTimeScale.value = String( Number( config.timeScale ?? 1 ) );
+		customSurfaceInputs.padNoBrakes.checked = Boolean( config.disableBrakes );
+		customSurfaceInputs.padNoSteering.checked = Boolean( config.disableSteering );
+		customSurfaceInputs.padNoAcceleration.checked = Boolean( config.disableAcceleration );
 		customSurfacePanel.hidden = false;
 
 	}
@@ -1965,7 +2028,23 @@
 	function saveCustomSurfaceEditor() {
 
 		if ( ! activeCustomSurfaceEditor ) return;
-		customSurfaceConfigs[ activeCustomSurfaceEditor ] = {
+		if ( activeCustomSurfaceEditor.startsWith( 'pad-' ) ) {
+
+			customPadConfigs[ activeCustomSurfaceEditor ] = {
+				color: customSurfaceInputs.color.value || '#7fb7ff',
+				gravity: Number( customSurfaceInputs.padGravity.value ) || 1,
+				drag: Number( customSurfaceInputs.padDrag.value ) || 1,
+				accel: Number( customSurfaceInputs.padAccel.value ) || 1,
+				drive: Number( customSurfaceInputs.padDrive.value ) || 1,
+				topSpeed: Number( customSurfaceInputs.padTopSpeed.value ) || 1,
+				steering: Number( customSurfaceInputs.padSteering.value ) || 1,
+				timeScale: Number( customSurfaceInputs.padTimeScale.value ) || 1,
+				disableBrakes: customSurfaceInputs.padNoBrakes.checked,
+				disableSteering: customSurfaceInputs.padNoSteering.checked,
+				disableAcceleration: customSurfaceInputs.padNoAcceleration.checked,
+			};
+
+		} else customSurfaceConfigs[ activeCustomSurfaceEditor ] = {
 			color: customSurfaceInputs.color.value || '#9c7bff',
 			grip: Number( customSurfaceInputs.grip.value ) || 1,
 			speed: Number( customSurfaceInputs.speed.value ) || 1,
@@ -2000,12 +2079,12 @@
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 
 			selectTileType( type );
-			if ( CUSTOM_SURFACE_TYPES.includes( type ) ) openCustomSurfaceEditor( type );
+			if ( CUSTOM_SURFACE_TYPES.includes( type ) || CUSTOM_PAD_TYPES.includes( type ) ) openCustomSurfaceEditor( type );
 
 		} );
 
@@ -2026,6 +2105,7 @@
 
 		if ( ! padSelect.value ) return;
 		selectTileType( padSelect.value );
+		if ( CUSTOM_PAD_TYPES.includes( padSelect.value ) ) openCustomSurfaceEditor( padSelect.value );
 		showToast( `Pad: ${ padSelect.options[ padSelect.selectedIndex ]?.textContent || padSelect.value }` );
 
 	} );

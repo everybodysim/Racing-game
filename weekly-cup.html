@@ -289,6 +289,7 @@ function decodeExtrasParam(str) {
       decorations: Array.isArray(parsed.d) ? parsed.d : [],
       surfaces: Array.isArray(parsed.u) ? parsed.u : [],
       customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
+      customPads: parsed?.y && typeof parsed.y === 'object' ? parsed.y : {},
       customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
       weather: normalizeWeatherDetails(parsed?.w),
     };
@@ -320,43 +321,11 @@ function fnv64Hex(value, start, prime) {
 }
 
 function buildTrackId(pathname, mapParam, modsParam) {
-  const map = mapParam || 'default';
-  const mods = modsParam || 'none';
-	  const extras = decodeExtrasParam(modsParam) || {
-	    bumps: [],
-	    poles: [],
-	    cubes: [],
-	    walls: [],
-	    boosts: [],
-	    elevated: [],
-	    jumps: [],
-    decorations: [],
-    surfaces: [],
-    customSurfaces: {},
-    customAssets: {},
-    weather: normalizeWeatherDetails(),
-  };
-  const identity = {
-    path: pathname,
-    map,
-    mods,
-    trackLayoutVersion: map === 'default' ? 2 : 1,
-	    extras: {
-	      bumps: extras.bumps,
-	      poles: extras.poles,
-	      cubes: extras.cubes,
-	      walls: extras.walls,
-	      boosts: extras.boosts,
-	      elevated: extras.elevated,
-	      jumps: extras.jumps,
-      decorations: extras.decorations,
-      surfaces: extras.surfaces,
-      customSurfaces: extras.customSurfaces,
-      customAssets: extras.customAssets,
-      weather: extras.weather,
-    },
-  };
-  return `trk-${hashTrackSeed(`v3|${JSON.stringify(identity)}`)}`;
+  const query = new URLSearchParams();
+  if (mapParam) query.set('map', mapParam);
+  if (modsParam) query.set('mods', modsParam);
+  const rawUrl = `${pathname}${query.toString() ? `?${query.toString()}` : ''}`;
+  return `trk-${hashTrackSeed(`v4-url|${rawUrl}`)}`;
 }
 
 function getTrackIds(playUrl) {
@@ -366,9 +335,7 @@ function getTrackIds(playUrl) {
     const mods = parsed.searchParams.get('mods');
     const rawPath = parsed.pathname || '/';
     const normalizedPath = normalizeTrackPath(rawPath);
-    const ids = [buildTrackId(normalizedPath, map, mods)];
-    if (normalizedPath !== rawPath) ids.push(buildTrackId(rawPath, map, mods));
-    return [...new Set(ids)];
+    return [buildTrackId(normalizedPath, map, mods)];
   } catch {
     return [];
   }
