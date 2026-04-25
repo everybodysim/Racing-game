@@ -88,6 +88,7 @@ const SURFACE_EFFECTS = {
 	'surface-custom-c': { grip: 0.95, drag: 1.7, accel: 1.25, drive: 1.3 },
 };
 const PAD_RESET_TYPE = 'pad-reset';
+const VEHICLE_BASE_GRAVITY_FACTOR = 1.5;
 const PAD_EFFECTS = {
 	'pad-low-gravity': { id: 'low-gravity', gravity: 0.45 },
 	'pad-heavy-gravity': { id: 'heavy-gravity', gravity: 1.7 },
@@ -5524,7 +5525,11 @@ async function init() {
 			const dtBase = Math.min( timer.getDelta(), 1 / 30 );
 			const hacksActive = hacksInstalled && hacksState.enabled;
 			const hackTimeScale = hacksActive ? hacksState.timeScale : 1;
-			const padTimeScale = Math.max( Number( activePadTimeScale ) || 1, Number( activePadTimeScale2 ) || 1 );
+			const padScale1 = Number( activePadTimeScale ) || 1;
+			const padScale2 = Number( activePadTimeScale2 ) || 1;
+			const padTimeScale = ( padScale1 < 1 || padScale2 < 1 )
+				? Math.min( padScale1, padScale2 )
+				: Math.max( padScale1, padScale2 );
 			const dt = dtBase * hackTimeScale * padTimeScale;
 			raceClockSeconds += dt;
 			const now = raceClockSeconds;
@@ -5569,8 +5574,8 @@ async function init() {
 			updateRemotePlayerVisualsFrame( dt );
 			const gravityScale1 = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
 			const gravityScale2 = Number.isFinite( activePadEffect2?.gravity ) ? activePadEffect2.gravity : 1.0;
-			if ( vehicle?.rigidBody?.motionProperties ) vehicle.rigidBody.motionProperties.gravityFactor = gravityScale1 * ( hacksActive ? hacksState.gravity : 1.0 );
-			if ( vehicle2?.rigidBody?.motionProperties ) vehicle2.rigidBody.motionProperties.gravityFactor = gravityScale2 * ( hacksActive ? hacksState.gravity : 1.0 );
+			if ( vehicle?.rigidBody?.motionProperties ) vehicle.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale1 * ( hacksActive ? hacksState.gravity : 1.0 );
+			if ( vehicle2?.rigidBody?.motionProperties ) vehicle2.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale2 * ( hacksActive ? hacksState.gravity : 1.0 );
 			if ( hacksActive ) {
 
 				if ( hacksState.boostAnywhere && controls?.keys?.KeyB && vehicle?.rigidBody?.motionProperties ) {
