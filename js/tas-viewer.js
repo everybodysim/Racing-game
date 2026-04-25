@@ -133,6 +133,7 @@ function parseExtrasFromUrl(rawUrl) {
       decorations: Array.isArray(parsed.d) ? parsed.d : [],
       surfaces: Array.isArray(parsed.u) ? parsed.u : [],
       customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
+      customPads: parsed?.y && typeof parsed.y === 'object' ? parsed.y : {},
     };
   } catch {
     return 'parse-error';
@@ -147,6 +148,7 @@ function normalizeTrackExtras(extras) {
     decorations: Array.isArray(extras?.decorations) ? extras.decorations : [],
     surfaces: Array.isArray(extras?.surfaces) ? extras.surfaces : [],
     customSurfaces: extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {},
+    customPads: extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {},
   };
 }
 

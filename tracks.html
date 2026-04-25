@@ -189,93 +189,20 @@
 			try {
 				const parsed = new URL( playUrl, window.location.href );
 				const normalizedPath = normalizeTrackPath( parsed.pathname );
-					const map = parsed.searchParams.get( 'map' ) || 'default';
-					const mods = parsed.searchParams.get( 'mods' ) || 'none';
-				const extras = decodeExtrasParamToken( mods ) || {
-					bumps: [],
-					poles: [],
-					cubes: [],
-					walls: [],
-					boosts: [],
-					elevated: [],
-					jumps: [],
-					decorations: [],
-					surfaces: [],
-					customSurfaces: {},
-					customAssets: {},
-					weather: { preset: 'sunset', precipitation: 'none', intensity: 'light', lightning: false, wind: 'calm' },
-				};
-					const base = JSON.stringify( {
-					path: normalizedPath,
-					map,
-					mods,
-					trackLayoutVersion: map === 'default' ? 2 : 1,
-					extras: {
-						bumps: extras.bumps,
-						poles: extras.poles,
-						cubes: extras.cubes,
-						walls: extras.walls,
-						boosts: extras.boosts,
-						elevated: extras.elevated,
-						jumps: extras.jumps,
-						decorations: extras.decorations,
-						surfaces: extras.surfaces,
-						customSurfaces: extras.customSurfaces,
-						customAssets: extras.customAssets,
-						weather: extras.weather,
-						},
-					} );
-				return `trk-${ hashTrackSeed( `v3|${ base }` ) }`;
+				const query = new URLSearchParams();
+				const map = parsed.searchParams.get( 'map' ) || '';
+				const mods = parsed.searchParams.get( 'mods' ) || '';
+				if ( map ) query.set( 'map', map );
+				if ( mods ) query.set( 'mods', mods );
+				const rawUrl = `${ normalizedPath }${ query.toString() ? `?${ query.toString() }` : '' }`;
+				return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
 			} catch ( e ) {
 				return '';
 			}
 		}
 
 		function getLegacyTrackIdsFromPlayUrl( playUrl ) {
-			try {
-				const parsed = new URL( playUrl, window.location.href );
-				const normalizedPath = normalizeTrackPath( parsed.pathname );
-				if ( normalizedPath === parsed.pathname ) return [];
-					const map = parsed.searchParams.get( 'map' ) || 'default';
-					const mods = parsed.searchParams.get( 'mods' ) || 'none';
-				const extras = decodeExtrasParamToken( mods ) || {
-					bumps: [],
-					poles: [],
-					cubes: [],
-					walls: [],
-					boosts: [],
-					elevated: [],
-					jumps: [],
-					decorations: [],
-					surfaces: [],
-					customSurfaces: {},
-					customAssets: {},
-					weather: { preset: 'sunset', precipitation: 'none', intensity: 'light', lightning: false, wind: 'calm' },
-				};
-					const base = JSON.stringify( {
-					path: parsed.pathname,
-					map,
-					mods,
-					trackLayoutVersion: map === 'default' ? 2 : 1,
-					extras: {
-						bumps: extras.bumps,
-						poles: extras.poles,
-						cubes: extras.cubes,
-						walls: extras.walls,
-						boosts: extras.boosts,
-						elevated: extras.elevated,
-						jumps: extras.jumps,
-						decorations: extras.decorations,
-						surfaces: extras.surfaces,
-						customSurfaces: extras.customSurfaces,
-						customAssets: extras.customAssets,
-						weather: extras.weather,
-						},
-					} );
-				return [ `trk-${ hashTrackSeed( `v3|${ base }` ) }` ];
-			} catch ( e ) {
-				return [];
-			}
+			return [];
 		}
 
 		function normalizeTrackPath( pathValue ) {

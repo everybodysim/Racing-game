@@ -38,7 +38,7 @@ function getOverlayHeightOffset( elevatedEntry ) {
 
 }
 
-function getSurfaceVisual( surfaceType, customSurfaces = null ) {
+function getSurfaceVisual( surfaceType, customSurfaces = null, customPads = null ) {
 
 	switch ( surfaceType ) {
 
@@ -59,6 +59,13 @@ function getSurfaceVisual( surfaceType, customSurfaces = null ) {
 		case 'pad-slow-motion': return { color: 0x6ab5ff, emissive: 0x104f88, metalness: 0.05, roughness: 0.68 };
 		case 'pad-fast-motion': return { color: 0xff9f3c, emissive: 0x8a2f00, metalness: 0.02, roughness: 0.7 };
 		case 'pad-drift': return { color: 0xd6ff6a, emissive: 0x5c7a0f, metalness: 0.03, roughness: 0.8 };
+		case 'pad-custom-a':
+		case 'pad-custom-b':
+		case 'pad-custom-c': {
+			const colorHex = customPads?.[ surfaceType ]?.color || '#88c4ff';
+			const color = new THREE.Color( colorHex );
+			return { color: color.getHex(), emissive: color.clone().multiplyScalar( 0.45 ).getHex(), metalness: 0.04, roughness: 0.72 };
+		}
 		case 'surface-custom-a':
 		case 'surface-custom-b':
 		case 'surface-custom-c': {
@@ -297,6 +304,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
 		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
+		const customPads = extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {};
 		const elevatedMap = new Map();
 		for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedCells ) {
 
@@ -425,9 +433,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		for ( const [ gx, gz, surfaceType ] of surfaces ) {
 
-			const visual = getSurfaceVisual( surfaceType, customSurfaces );
+			const visual = getSurfaceVisual( surfaceType, customSurfaces, customPads );
+			const isPad = String( surfaceType || '' ).startsWith( 'pad-' );
+			const geometry = isPad
+				? new THREE.CircleGeometry( CELL_RAW * 0.39, 24 )
+				: new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 );
 			const patch = new THREE.Mesh(
-				new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
+				geometry,
 				new THREE.MeshStandardMaterial( {
 					color: visual.color,
 					emissive: visual.emissive,

@@ -96,10 +96,11 @@ const PAD_EFFECTS = {
 	'pad-no-brakes': { id: 'no-brakes', disableBrakes: true },
 	'pad-no-steering': { id: 'no-steering', disableSteering: true },
 	'pad-no-acceleration': { id: 'no-acceleration', disableAcceleration: true, accel: 0.0, drive: 0.0, drag: 0.18, grip: 0.86 },
-	'pad-slow-motion': { id: 'slow-motion', accel: 0.55, drive: 0.55, topSpeed: 0.7, steering: 0.85 },
-	'pad-fast-motion': { id: 'fast-motion', accel: 1.65, drive: 1.7, topSpeed: 1.22, steering: 1.1 },
+	'pad-slow-motion': { id: 'slow-motion', timeScale: 0.6 },
+	'pad-fast-motion': { id: 'fast-motion', timeScale: 1.35 },
 	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
 };
+const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 const BOUNCE_VERTICAL_DELTA = 7.2;
 const KICK_LATERAL_DELTA = 7.4;
 const WEATHER_PRESETS = {
@@ -603,6 +604,7 @@ function decodeExtrasParam( str ) {
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 			surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
 			customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
+			customPads: parsed?.y && typeof parsed.y === 'object' ? parsed.y : {},
 			customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
 			weather: normalizeWeatherDetails( parsed?.w ),
 		};
@@ -757,86 +759,18 @@ function getTrackLabel( mapParamValue ) {
 
 function getTrackId( mapParamValue, extrasParamValue ) {
 
-	const map = mapParamValue || 'default';
-	const mods = extrasParamValue || 'none';
-	const extras = decodeExtrasParam( extrasParamValue ) || {
-		bumps: [],
-		poles: [],
-		cubes: [],
-		walls: [],
-		boosts: [],
-		jumps: [],
-		decorations: [],
-		surfaces: [],
-		customSurfaces: {},
-		customAssets: {},
-		weather: normalizeWeatherDetails(),
-	};
-	const identity = {
-		path: normalizeTrackPath( window.location.pathname ),
-		map,
-		mods,
-		trackLayoutVersion: map === 'default' ? 2 : 1,
-		extras: {
-				bumps: extras.bumps,
-				poles: extras.poles,
-				cubes: extras.cubes,
-				walls: extras.walls,
-				boosts: extras.boosts,
-				elevated: extras.elevated,
-				jumps: extras.jumps,
-			decorations: extras.decorations,
-			surfaces: extras.surfaces,
-			customSurfaces: extras.customSurfaces,
-			customAssets: extras.customAssets,
-			weather: extras.weather,
-		},
-	};
-	const base = JSON.stringify( identity );
-	return `trk-${ hashTrackSeed( `v3|${ base }` ) }`;
+	const params = new URLSearchParams();
+	if ( mapParamValue ) params.set( 'map', mapParamValue );
+	if ( extrasParamValue ) params.set( 'mods', extrasParamValue );
+	const normalizedPath = normalizeTrackPath( window.location.pathname );
+	const rawUrl = `${ normalizedPath }${ params.toString() ? `?${ params.toString() }` : '' }`;
+	return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
 
 }
 
 function getLegacyTrackIds( mapParamValue, extrasParamValue ) {
 
-	const normalizedPath = normalizeTrackPath( window.location.pathname );
-	if ( normalizedPath === window.location.pathname ) return [];
-	const map = mapParamValue || 'default';
-	const mods = extrasParamValue || 'none';
-	const extras = decodeExtrasParam( extrasParamValue ) || {
-		bumps: [],
-		poles: [],
-		cubes: [],
-		walls: [],
-		boosts: [],
-		jumps: [],
-		decorations: [],
-		surfaces: [],
-		customSurfaces: {},
-		customAssets: {},
-		weather: normalizeWeatherDetails(),
-	};
-	const base = JSON.stringify( {
-		path: window.location.pathname,
-		map,
-		mods,
-		trackLayoutVersion: map === 'default' ? 2 : 1,
-		extras: {
-			bumps: extras.bumps,
-			poles: extras.poles,
-			cubes: extras.cubes,
-			walls: extras.walls,
-			boosts: extras.boosts,
-			elevated: extras.elevated,
-			jumps: extras.jumps,
-			decorations: extras.decorations,
-			surfaces: extras.surfaces,
-			customSurfaces: extras.customSurfaces,
-			customAssets: extras.customAssets,
-			weather: extras.weather,
-		},
-	} );
-	return [ `trk-${ hashTrackSeed( `v3|${ base }` ) }` ];
+	return [];
 
 }
 
@@ -1924,6 +1858,8 @@ async function init() {
 	const respawnBtn = document.getElementById( 'respawnBtn' );
 	const modeMenuBtn = document.getElementById( 'mode-menu-btn' );
 	const topMessage = document.getElementById( 'top-message' );
+	const effectMessage = document.getElementById( 'effect-message' );
+	let effectMessageTimeout = null;
 	const carSelect = document.getElementById( 'car-select' );
 	const coinsLabel = document.getElementById( 'coins-label' );
 	const shareTimeBtn = document.getElementById( 'share-time-btn' );
@@ -3487,6 +3423,7 @@ async function init() {
 	const boostCells = Array.isArray( extras?.boosts ) ? extras.boosts : [];
 	const surfaceCells = Array.isArray( extras?.surfaces ) ? extras.surfaces : [];
 	const customSurfaceConfigs = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
+	const customPadConfigs = extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {};
 	const surfaceCellMap = new Map();
 	for ( const [ gx, gz, type ] of surfaceCells ) {
 
@@ -3503,7 +3440,7 @@ async function init() {
 		centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
 		centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
 	} ) );
-	const padEntries = surfaceEntries.filter( ( entry ) => entry.type === PAD_RESET_TYPE || PAD_EFFECTS[ entry.type ] );
+	const padEntries = surfaceEntries.filter( ( entry ) => entry.type === PAD_RESET_TYPE || PAD_EFFECTS[ entry.type ] || CUSTOM_PAD_TYPES.includes( entry.type ) );
 	const legacyBoostEntries = boostCells.map( ( [ gx, gz ] ) => ( {
 		gx, gz,
 		centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
@@ -3511,6 +3448,8 @@ async function init() {
 	} ) );
 	let activeSurfaceType = null;
 	let activeSurfaceType2 = null;
+	let lastSurfaceNotifyType = null;
+	let lastSurfaceNotifyType2 = null;
 	let lapNumber2 = 1;
 	let lapStartSeconds2 = 0;
 	let lapSeconds2 = 0;
@@ -3523,9 +3462,13 @@ async function init() {
 	let hasLeftStartZone2 = false;
 	let boostActiveUntil2 = 0;
 	let boostContactCell2 = null;
+	let lastBoostNotifyKey = null;
+	let lastBoostNotifyKey2 = null;
 	const specialSurfaceContactState2 = new Map();
 	let activePadEffect = null;
 	let activePadEffect2 = null;
+	let activePadTimeScale = 1;
+	let activePadTimeScale2 = 1;
 	let padContactKey = null;
 	let padContactKey2 = null;
 	const checkpointStates2 = checkpointCells.map( ( cell ) => ( {
@@ -3671,6 +3614,16 @@ async function init() {
 
 	}
 
+	function overlapsPadEntry( targetVehicle, entry ) {
+
+		const dx = targetVehicle.spherePos.x - entry.centerX;
+		const dz = targetVehicle.spherePos.z - entry.centerZ;
+		const padRadius = surfaceHalfExtent;
+		const radius = padRadius + VEHICLE_SURFACE_RADIUS;
+		return dx * dx + dz * dz <= radius * radius;
+
+	}
+
 	function findActiveSurfaceTypeFor( targetVehicle ) {
 
 		for ( let i = surfaceEntries.length - 1; i >= 0; i -- ) {
@@ -3727,7 +3680,7 @@ async function init() {
 		for ( let i = padEntries.length - 1; i >= 0; i -- ) {
 
 			const entry = padEntries[ i ];
-			if ( overlapsSurfaceEntry( targetVehicle, entry ) ) {
+			if ( overlapsPadEntry( targetVehicle, entry ) ) {
 
 				return {
 					key: `pad:${ entry.gx },${ entry.gz },${ entry.type }`,
@@ -3741,6 +3694,76 @@ async function init() {
 
 	}
 
+	function getPadLabel( padType ) {
+
+		switch ( padType ) {
+
+			case PAD_RESET_TYPE: return 'Pad Reset';
+			case 'pad-low-gravity': return 'Low Gravity';
+			case 'pad-heavy-gravity': return 'Heavy Gravity';
+			case 'pad-high-grip': return 'High Grip';
+			case 'pad-high-speed': return 'High Speed';
+			case 'pad-no-brakes': return 'No Brakes';
+			case 'pad-no-steering': return 'No Steering';
+			case 'pad-no-acceleration': return 'No Acceleration';
+			case 'pad-slow-motion': return 'Slow Motion';
+			case 'pad-fast-motion': return 'Fast Motion';
+			case 'pad-drift': return 'Drift Mode';
+			case 'pad-custom-a': return 'Custom Pad A';
+			case 'pad-custom-b': return 'Custom Pad B';
+			case 'pad-custom-c': return 'Custom Pad C';
+			default: return 'Pad';
+
+		}
+
+	}
+
+	function showEffectPopup( text ) {
+
+		if ( ! effectMessage ) {
+
+			showTopMessage( text, false, 1000 );
+			return;
+
+		}
+		effectMessage.textContent = String( text || '' ).trim();
+		effectMessage.classList.add( 'show' );
+		if ( effectMessageTimeout ) clearTimeout( effectMessageTimeout );
+		effectMessageTimeout = setTimeout( () => {
+
+			effectMessage.classList.remove( 'show' );
+
+		}, 1000 );
+
+	}
+
+	function getCustomPadEffect( padType ) {
+
+		const conf = customPadConfigs?.[ padType ];
+		if ( ! conf ) return null;
+		return {
+			id: padType,
+			gravity: Number.isFinite( Number( conf.gravity ) ) ? THREE.MathUtils.clamp( Number( conf.gravity ), 0.15, 3 ) : undefined,
+			grip: Number.isFinite( Number( conf.grip ) ) ? THREE.MathUtils.clamp( Number( conf.grip ), 0.05, 5 ) : undefined,
+			drag: Number.isFinite( Number( conf.drag ) ) ? THREE.MathUtils.clamp( Number( conf.drag ), 0.05, 5 ) : undefined,
+			accel: Number.isFinite( Number( conf.accel ) ) ? THREE.MathUtils.clamp( Number( conf.accel ), 0, 5 ) : undefined,
+			drive: Number.isFinite( Number( conf.drive ) ) ? THREE.MathUtils.clamp( Number( conf.drive ), 0, 5 ) : undefined,
+			topSpeed: Number.isFinite( Number( conf.topSpeed ) ) ? THREE.MathUtils.clamp( Number( conf.topSpeed ), 0, 3 ) : undefined,
+			steering: Number.isFinite( Number( conf.steering ) ) ? THREE.MathUtils.clamp( Number( conf.steering ), 0, 3 ) : undefined,
+			timeScale: Number.isFinite( Number( conf.timeScale ) ) ? THREE.MathUtils.clamp( Number( conf.timeScale ), 0.15, 3 ) : undefined,
+			disableBrakes: Boolean( conf.disableBrakes ),
+			disableSteering: Boolean( conf.disableSteering ),
+			disableAcceleration: Boolean( conf.disableAcceleration ),
+		};
+
+	}
+
+	function getPadEffectForType( padType ) {
+
+		return getCustomPadEffect( padType ) || PAD_EFFECTS[ padType ] || null;
+
+	}
+
 	function applyPadContact( targetVehicle, lastContactKey, setEffect ) {
 
 		const contact = findPadContactFor( targetVehicle );
@@ -3749,11 +3772,13 @@ async function init() {
 		if ( contact.type === PAD_RESET_TYPE ) {
 
 			setEffect( null );
+			showEffectPopup( 'Effect applied: Reset to default' );
 			return contact.key;
 
 		}
-		const effect = PAD_EFFECTS[ contact.type ] || null;
+		const effect = getPadEffectForType( contact.type );
 		setEffect( effect );
+		showEffectPopup( `Effect applied: ${ getPadLabel( contact.type ) }` );
 		return contact.key;
 
 	}
@@ -4586,6 +4611,7 @@ async function init() {
 		boostActiveUntil = 0;
 		boostContactCell = null;
 		activePadEffect = null;
+		activePadTimeScale = 1;
 		padContactKey = null;
 		specialSurfaceContactState.clear();
 		resetCurrentLapGhost();
@@ -4627,6 +4653,7 @@ async function init() {
 		boostActiveUntil2 = 0;
 		boostContactCell2 = null;
 		activePadEffect2 = null;
+		activePadTimeScale2 = 1;
 		padContactKey2 = null;
 		specialSurfaceContactState2.clear();
 		hasLeftStartZone2 = false;
@@ -5496,7 +5523,9 @@ async function init() {
 			timer.update();
 			const dtBase = Math.min( timer.getDelta(), 1 / 30 );
 			const hacksActive = hacksInstalled && hacksState.enabled;
-			const dt = dtBase * ( hacksActive ? hacksState.timeScale : 1 );
+			const hackTimeScale = hacksActive ? hacksState.timeScale : 1;
+			const padTimeScale = Math.max( Number( activePadTimeScale ) || 1, Number( activePadTimeScale2 ) || 1 );
+			const dt = dtBase * hackTimeScale * padTimeScale;
 			raceClockSeconds += dt;
 			const now = raceClockSeconds;
 
@@ -5596,10 +5625,13 @@ async function init() {
 			padContactKey = applyPadContact( vehicle, padContactKey, ( effect ) => {
 
 				activePadEffect = effect;
+				activePadTimeScale = Number.isFinite( effect?.timeScale ) ? effect.timeScale : 1;
 
 			} ) || null;
 			activeSurfaceType = findActiveSurfaceTypeFor( vehicle );
 			applySurfaceGrip( vehicle, activeSurfaceType, activePadEffect );
+			if ( activeSurfaceType && activeSurfaceType !== lastSurfaceNotifyType && ! activeSurfaceType.startsWith( 'pad-' ) ) showEffectPopup( `Effect applied: ${ activeSurfaceType.replace( /^surface-/, '' ).replace( /-/g, ' ' ) }` );
+			lastSurfaceNotifyType = activeSurfaceType;
 			if ( hacksActive && hacksState.checkpointBypass ) {
 
 				for ( const checkpoint of checkpointStates ) checkpoint.passedThisLap = true;
@@ -5610,10 +5642,13 @@ async function init() {
 			padContactKey2 = applyPadContact( vehicle2, padContactKey2, ( effect ) => {
 
 				activePadEffect2 = effect;
+				activePadTimeScale2 = Number.isFinite( effect?.timeScale ) ? effect.timeScale : 1;
 
 			} ) || null;
 			activeSurfaceType2 = findActiveSurfaceTypeFor( vehicle2 );
 			applySurfaceGrip( vehicle2, activeSurfaceType2, activePadEffect2 );
+			if ( activeSurfaceType2 && activeSurfaceType2 !== lastSurfaceNotifyType2 && ! activeSurfaceType2.startsWith( 'pad-' ) ) showEffectPopup( `Effect applied: ${ activeSurfaceType2.replace( /^surface-/, '' ).replace( /-/g, ' ' ) }` );
+			lastSurfaceNotifyType2 = activeSurfaceType2;
 
 		}
 		updateActiveBoost( vehicle, boostActiveUntil, dt, now );
@@ -5629,12 +5664,15 @@ async function init() {
 
 				}, particles, now );
 				boostContactCell = activeBoostContactKey;
+				if ( activeBoostContactKey !== lastBoostNotifyKey ) showEffectPopup( 'Effect applied: Boost' );
+				lastBoostNotifyKey = activeBoostContactKey;
 
 			}
 
 		} else {
 
 			boostContactCell = null;
+			lastBoostNotifyKey = null;
 
 		}
 
@@ -5653,12 +5691,15 @@ async function init() {
 
 					}, particles2, now );
 					boostContactCell2 = activeBoostContactKey2;
+					if ( activeBoostContactKey2 !== lastBoostNotifyKey2 ) showEffectPopup( 'Effect applied: Boost' );
+					lastBoostNotifyKey2 = activeBoostContactKey2;
 
 				}
 
 			} else {
 
 				boostContactCell2 = null;
+				lastBoostNotifyKey2 = null;
 
 			}
 
@@ -5710,6 +5751,7 @@ async function init() {
 
 				checkpoint.passedThisLap = true;
 				activePadEffect = null;
+				activePadTimeScale = 1;
 				padContactKey = null;
 				if ( checkpointRespawnInstalled ) saveCheckpointState( checkpoint );
 				const ghostTime = getFastestVisibleGhostCheckpointTime( checkpointIndex );
@@ -5756,6 +5798,7 @@ async function init() {
 
 					checkpoint.passedThisLap = true;
 					activePadEffect2 = null;
+					activePadTimeScale2 = 1;
 					padContactKey2 = null;
 					if ( checkpointRespawnInstalled ) saveCheckpointState( checkpoint );
 
