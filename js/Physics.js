@@ -45,12 +45,25 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const SUPPORT_HALF_EXTENTS = [ CELL_HALF * S, CELL_HALF * 0.5 * S, CELL_HALF * S ];
 	const ELEVATED_SURFACE_HALF_H = 0.12 * S;
 	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S * 1.08;
-	const ELEVATED_SURFACE_DROP = 0.4;
+	const FLAT_ELEVATED_SURFACE_DROP = 0.06;
+	const SLOPE_SURFACE_DROP = 0.4;
+	const SLOPE_TOP_BLEND_RAISE = 0.12;
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const ELEVATED_WALL_HALF_H = WALL_HALF_H * S;
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
-	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT - ELEVATED_SURFACE_DROP;
+	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT - FLAT_ELEVATED_SURFACE_DROP;
+	const elevatedSupportWallY = wallY + ( ELEVATED_HEIGHT * 0.5 );
 	const slopeAngle = Math.atan2( CELL_RAW * 0.5, CELL_RAW );
+	const baseSlopeCenterY = groundY + ( ELEVATED_HEIGHT * 0.5 ) - SLOPE_SURFACE_DROP;
+	const slopeNormalYOffset = Math.cos( slopeAngle ) * ELEVATED_SURFACE_HALF_H;
+	const baseSlopeForwardYOffset = Math.sin( slopeAngle ) * ELEVATED_SURFACE_HALF_XZ;
+	const slopeBottomY = baseSlopeCenterY - baseSlopeForwardYOffset - slopeNormalYOffset;
+	const elevatedSurfaceTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H + SLOPE_TOP_BLEND_RAISE;
+	const slopeTargetCenterY = ( elevatedSurfaceTopY + slopeBottomY ) * 0.5;
+	const slopeTargetHalfLen = Math.max(
+		ELEVATED_SURFACE_HALF_XZ,
+		( ( elevatedSurfaceTopY - slopeBottomY ) * 0.5 - slopeNormalYOffset ) / Math.sin( slopeAngle )
+	);
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
 	const BUMP_RADIUS = 7.5 * S;
@@ -67,15 +80,15 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const INNER_SEG = 3;
 	const INNER_SEG_HALF_LEN = ( INNER_R * ( Math.PI / 2 ) / INNER_SEG / 2 ) * S;
 
-	function addArcWall( wcx, wcz, arcStart, radius, numSeg, segHalfLen ) {
+	function addArcWall( wcx, wcz, arcStart, radius, numSeg, segHalfLen, centerY = wallY, wallHalfHeight = hHeight ) {
 
 		for ( let i = 0; i < numSeg; i ++ ) {
 
 			const aMid = arcStart + ( ( i + 0.5 ) / numSeg ) * ARC_SPAN;
-			const halfExtents = [ hThick, hHeight, segHalfLen ];
+			const halfExtents = [ hThick, wallHalfHeight, segHalfLen ];
 			const position = [
 				wcx + radius * Math.cos( aMid ) * S,
-				wallY,
+				centerY,
 				wcz + radius * Math.sin( aMid ) * S
 			];
 			const quaternion = [ 0, Math.sin( - aMid / 2 ), 0, Math.cos( - aMid / 2 ) ];
@@ -137,7 +150,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	function addElevatedRoadWalls( gx, gz, orient = 0 ) {
+	function addElevatedRoadWalls( gx, gz, orient = 0, centerY = elevatedWallY, wallHalfHeight = ELEVATED_WALL_HALF_H ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
@@ -149,8 +162,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const lx = side * WALL_X;
 			const wx = cx + ( lx * cr ) * S;
 			const wz = cz + ( - lx * sr ) * S;
-			const halfExtents = [ hThick, ELEVATED_WALL_HALF_H, hLen ];
-			const position = [ wx, elevatedWallY, wz ];
+			const halfExtents = [ hThick, wallHalfHeight, hLen ];
+			const position = [ wx, centerY, wz ];
 			const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
@@ -167,7 +180,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	function addElevatedCornerWalls( gx, gz, orient = 0 ) {
+	function addElevatedCornerWalls( gx, gz, orient = 0, centerY = elevatedWallY, wallHalfHeight = ELEVATED_WALL_HALF_H ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
@@ -182,8 +195,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			for ( let i = 0; i < segCount; i ++ ) {
 
 				const aMid = arcStart + ( ( i + 0.5 ) / segCount ) * ARC_SPAN;
-				const halfExtents = [ hThick, ELEVATED_WALL_HALF_H, segHalfLen ];
-				const position = [ wcx + radius * Math.cos( aMid ) * S, elevatedWallY, wcz + radius * Math.sin( aMid ) * S ];
+				const halfExtents = [ hThick, wallHalfHeight, segHalfLen ];
+				const position = [ wcx + radius * Math.cos( aMid ) * S, centerY, wcz + radius * Math.sin( aMid ) * S ];
 				const quaternion = [ 0, Math.sin( - aMid / 2 ), 0, Math.cos( - aMid / 2 ) ];
 				rigidBody.create( world, {
 					shape: box.create( { halfExtents } ),
@@ -208,8 +221,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( up ? slopeAngle : - slopeAngle, yaw, 0, 'YXZ' ) );
-		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, ELEVATED_SURFACE_HALF_XZ ];
-		const position = [ cx, groundY + ( ELEVATED_HEIGHT * 0.5 ) - ELEVATED_SURFACE_DROP, cz ];
+		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, slopeTargetHalfLen ];
+		const position = [ cx, slopeTargetCenterY, cz ];
 		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents } ),
@@ -308,7 +321,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		for ( const rect of activeRects.values() ) finishedRects.push( rect );
 
-		const edgeOverhang = CELL_RAW * S * 0.08;
+		const edgeOverhang = CELL_RAW * S * 0.16;
 		for ( const rect of finishedRects ) {
 
 			const spanCellsX = rect.maxX - rect.minX + 1;
@@ -567,9 +580,25 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		if ( ! Number.isFinite( Number( gx ) ) || ! Number.isFinite( Number( gz ) ) ) continue;
 		const normalizedType = elevatedType === 'slope-down' ? 'slope-up' : elevatedType;
 		const normalizedOrient = elevatedType === 'slope-down' ? ( ORIENT_180[ orient ] ?? orient ) : orient;
+		const nx = Number( gx );
+		const nz = Number( gz );
 		if ( normalizedType === 'slope-up' ) {
 
-			addSlopeCollider( Number( gx ), Number( gz ), normalizedOrient, true );
+			addSlopeCollider( nx, nz, normalizedOrient, true );
+			continue;
+
+		}
+		if ( normalizedType === 'elevated-straight' || normalizedType === 'elevated-checkpoint' ) {
+
+			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
+			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedSupportWallY, hHeight );
+			continue;
+
+		}
+		if ( normalizedType === 'elevated-corner' ) {
+
+			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
+			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedSupportWallY, hHeight );
 
 		}
 
