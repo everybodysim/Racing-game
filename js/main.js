@@ -5525,7 +5525,11 @@ async function init() {
 			const dtBase = Math.min( timer.getDelta(), 1 / 30 );
 			const hacksActive = hacksInstalled && hacksState.enabled;
 			const hackTimeScale = hacksActive ? hacksState.timeScale : 1;
-			const padTimeScale = Math.max( Number( activePadTimeScale ) || 1, Number( activePadTimeScale2 ) || 1 );
+			const padScale1 = Number( activePadTimeScale ) || 1;
+			const padScale2 = Number( activePadTimeScale2 ) || 1;
+			const padTimeScale = ( padScale1 < 1 || padScale2 < 1 )
+				? Math.min( padScale1, padScale2 )
+				: Math.max( padScale1, padScale2 );
 			const dt = dtBase * hackTimeScale * padTimeScale;
 			raceClockSeconds += dt;
 			const now = raceClockSeconds;
