@@ -225,6 +225,114 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
+	function addMergedElevatedSurfaceColliders( elevatedList ) {
+
+		const flatSet = new Set();
+		for ( const entry of elevatedList ) {
+
+			if ( ! Array.isArray( entry ) ) continue;
+			const [ gxRaw, gzRaw, elevatedType ] = entry;
+			const gx = Number( gxRaw );
+			const gz = Number( gzRaw );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-checkpoint' ) continue;
+			flatSet.add( `${ gx },${ gz }` );
+
+		}
+
+		if ( flatSet.size === 0 ) return;
+
+		const rows = new Map();
+		for ( const cellKey of flatSet ) {
+
+			const [ gx, gz ] = cellKey.split( ',' ).map( Number );
+			if ( ! rows.has( gz ) ) rows.set( gz, [] );
+			rows.get( gz ).push( gx );
+
+		}
+
+		const rowKeys = [ ...rows.keys() ].sort( ( a, b ) => a - b );
+		const activeRects = new Map();
+		const finishedRects = [];
+
+		for ( const gz of rowKeys ) {
+
+			const xs = rows.get( gz ).sort( ( a, b ) => a - b );
+			const spans = [];
+			let start = xs[ 0 ];
+			let prev = xs[ 0 ];
+			for ( let i = 1; i < xs.length; i ++ ) {
+
+				const x = xs[ i ];
+				if ( x === prev + 1 ) {
+
+					prev = x;
+					continue;
+
+				}
+				spans.push( [ start, prev ] );
+				start = x;
+				prev = x;
+
+			}
+			spans.push( [ start, prev ] );
+
+			const nextActive = new Map();
+			for ( const [ spanStart, spanEnd ] of spans ) {
+
+				const spanKey = `${ spanStart },${ spanEnd }`;
+				const existing = activeRects.get( spanKey );
+				if ( existing ) {
+
+					existing.maxZ = gz;
+					nextActive.set( spanKey, existing );
+
+				} else {
+
+					nextActive.set( spanKey, { minX: spanStart, maxX: spanEnd, minZ: gz, maxZ: gz } );
+
+				}
+
+			}
+
+			for ( const [ spanKey, rect ] of activeRects ) {
+
+				if ( ! nextActive.has( spanKey ) ) finishedRects.push( rect );
+
+			}
+
+			activeRects.clear();
+			for ( const [ spanKey, rect ] of nextActive ) activeRects.set( spanKey, rect );
+
+		}
+
+		for ( const rect of activeRects.values() ) finishedRects.push( rect );
+
+		const edgeOverhang = CELL_RAW * S * 0.08;
+		for ( const rect of finishedRects ) {
+
+			const spanCellsX = rect.maxX - rect.minX + 1;
+			const spanCellsZ = rect.maxZ - rect.minZ + 1;
+			const fullX = spanCellsX * CELL_RAW * S + edgeOverhang;
+			const fullZ = spanCellsZ * CELL_RAW * S + edgeOverhang;
+			const halfExtents = [ fullX * 0.5, ELEVATED_SURFACE_HALF_H, fullZ * 0.5 ];
+			const centerX = ( ( rect.minX + rect.maxX + 1 ) * 0.5 ) * CELL_RAW * S;
+			const centerZ = ( ( rect.minZ + rect.maxZ + 1 ) * 0.5 ) * CELL_RAW * S;
+			const position = [ centerX, elevatedSurfaceY, centerZ ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				friction: 1.0,
+				restitution: 0.0,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+		}
+
+	}
+
 	const cells = customCells || TRACK_CELLS;
 	const bumpSet = new Set();
 	const poleSet = new Set();
@@ -452,6 +560,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
+	addMergedElevatedSurfaceColliders( elevatedEntries );
+
 	for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedEntries ) {
 
 		if ( ! Number.isFinite( Number( gx ) ) || ! Number.isFinite( Number( gz ) ) ) continue;
@@ -460,37 +570,9 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const isSlope = normalizedType === 'slope-up';
 		if ( ! isSlope ) addElevatedSupportCollider( Number( gx ), Number( gz ) );
 		if ( normalizedType === 'elevated-straight' || normalizedType === 'elevated-checkpoint' ) {
-
-			const cx = ( Number( gx ) + 0.5 ) * CELL_RAW * S;
-			const cz = ( Number( gz ) + 0.5 ) * CELL_RAW * S;
-			const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, ELEVATED_SURFACE_HALF_XZ ];
-			const position = [ cx, elevatedSurfaceY, cz ];
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents } ),
-				motionType: MotionType.STATIC,
-				objectLayer: world._OL_STATIC,
-				position,
-				friction: 1.0,
-				restitution: 0.0,
-			} );
-			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
 			addElevatedRoadWalls( Number( gx ), Number( gz ), normalizedOrient );
 
 		} else if ( normalizedType === 'elevated-corner' ) {
-
-			const cx = ( Number( gx ) + 0.5 ) * CELL_RAW * S;
-			const cz = ( Number( gz ) + 0.5 ) * CELL_RAW * S;
-			const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, ELEVATED_SURFACE_HALF_XZ ];
-			const position = [ cx, elevatedSurfaceY, cz ];
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents } ),
-				motionType: MotionType.STATIC,
-				objectLayer: world._OL_STATIC,
-				position,
-				friction: 1.0,
-				restitution: 0.0,
-			} );
-			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
 			addElevatedCornerWalls( Number( gx ), Number( gz ), normalizedOrient );
 
 		} else if ( normalizedType === 'slope-up' ) {
