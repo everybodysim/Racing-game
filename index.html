@@ -169,6 +169,19 @@
 			width: 0%;
 			background: linear-gradient(90deg, #53d4ff, #8dff77);
 		}
+		#arc-link-ui {
+			position: absolute;
+			right: 12px;
+			bottom: 12px;
+			width: 220px;
+			background: rgba(0,0,0,0.45);
+			border-radius: 8px;
+			padding: 8px 10px;
+			color: #fff;
+			font: 600 12px/1.35 sans-serif;
+			z-index: 11;
+			display: none;
+		}
 
 		#economy-hud {
 			position: absolute;
@@ -800,6 +813,7 @@
 		<div id="boost-bar"><div id="boost-fill"></div></div>
 		<button id="boost-activate-btn" type="button">Activate Boost (X)</button>
 	</div>
+	<div id="arc-link-ui">Arc Link: idle</div>
 		<div id="leaderboard-panel">
 			<h3>Leaderboard</h3>
 			<div id="leaderboard-track-label">Track: loading…</div>

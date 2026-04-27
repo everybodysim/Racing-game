@@ -111,6 +111,9 @@ const MAGNET_MIN_MAX_DISTANCE_BLOCKS = 0.75;
 const MAGNET_MAX_MAX_DISTANCE_BLOCKS = 2.5;
 const MAGNET_MIN_FORCE_PER_SECOND = 8.0;
 const MAGNET_MAX_FORCE_PER_SECOND = 64.0;
+const ARC_LINK_TRIGGER_RADIUS = CELL_RAW * GRID_SCALE * 0.32;
+const ARC_LINK_MIN_TIME = 0.45;
+const ARC_LINK_MAX_TIME = 1.6;
 const WEATHER_PRESETS = {
 	clear: { bg: 0xadb2ba, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
 	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
@@ -611,6 +614,7 @@ function decodeExtrasParam( str ) {
 			jumps: Array.isArray( parsed.j ) ? parsed.j : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
 			magnets: Array.isArray( parsed.m ) ? parsed.m : [],
+			arcLinks: Array.isArray( parsed.a ) ? parsed.a : [],
 			surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
 			customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
 			customPads: parsed?.y && typeof parsed.y === 'object' ? parsed.y : {},
@@ -1894,6 +1898,7 @@ async function init() {
 	const boostUi = document.getElementById( 'boost-ui' );
 	const boostFill = document.getElementById( 'boost-fill' );
 	const boostActivateBtn = document.getElementById( 'boost-activate-btn' );
+	const arcLinkUi = document.getElementById( 'arc-link-ui' );
 	const modeMenu = document.getElementById( 'mode-menu' );
 	const modeError = document.getElementById( 'mode-error' );
 	const playerNameInput = document.getElementById( 'player-name-input' );
@@ -3430,6 +3435,7 @@ async function init() {
 	let hasLeftStartZone = false;
 	let boostActiveUntil = 0;
 	let boostContactCell = null;
+	let arcContactKey = null;
 	const specialSurfaceContactState = new Map();
 	const boostCells = Array.isArray( extras?.boosts ) ? extras.boosts : [];
 	const surfaceCells = Array.isArray( extras?.surfaces ) ? extras.surfaces : [];
@@ -3458,6 +3464,7 @@ async function init() {
 		centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
 	} ) );
 	const magnetCells = Array.isArray( extras?.magnets ) ? extras.magnets : [];
+	const arcLinkCells = Array.isArray( extras?.arcLinks ) ? extras.arcLinks : [];
 	const magnetFullStrengthDistance = CELL_RAW * GRID_SCALE * MAGNET_FULL_STRENGTH_BLOCKS;
 	const magnetEntries = magnetCells
 		.map( ( [ gxRaw, gzRaw, yGridRaw, variant, forceRaw, rangeRaw ] ) => {
@@ -3479,6 +3486,34 @@ async function init() {
 
 		} )
 		.filter( Boolean );
+	const arcLinkEntries = arcLinkCells
+		.map( ( [ gxRaw, gzRaw, yGridRaw, variantRaw, idRaw ] ) => {
+
+			const gx = Number( gxRaw );
+			const gz = Number( gzRaw );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) return null;
+			const yGrid = THREE.MathUtils.clamp( Number( yGridRaw ) || 0, - 1, 3 );
+			const color = String( variantRaw ) === 'orange' ? 'orange' : 'green';
+			const linkId = THREE.MathUtils.clamp( Math.round( Number( idRaw ) || 1 ), 1, 999 );
+			return {
+				gx, gz, yGrid, color, linkId,
+				centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
+				centerY: ( CELL_RAW * GRID_SCALE * 0.08 ) - 0.06 + yGrid * CELL_RAW * GRID_SCALE,
+				centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
+			};
+
+		} )
+		.filter( Boolean );
+	const arcEntriesById = new Map();
+	for ( const entry of arcLinkEntries ) {
+
+		const bucket = arcEntriesById.get( entry.linkId ) || [];
+		bucket.push( entry );
+		arcEntriesById.set( entry.linkId, bucket );
+
+	}
+	if ( arcLinkEntries.length > 0 ) setArcLinkHud( `Arc Link: ready (${ arcEntriesById.size } id${ arcEntriesById.size === 1 ? '' : 's' })` );
+	else setArcLinkHud( null );
 	let activeSurfaceType = null;
 	let activeSurfaceType2 = null;
 	let lastSurfaceNotifyType = null;
@@ -3495,6 +3530,7 @@ async function init() {
 	let hasLeftStartZone2 = false;
 	let boostActiveUntil2 = 0;
 	let boostContactCell2 = null;
+	let arcContactKey2 = null;
 	let lastBoostNotifyKey = null;
 	let lastBoostNotifyKey2 = null;
 	const specialSurfaceContactState2 = new Map();
@@ -4643,6 +4679,7 @@ async function init() {
 		lapSeconds = 0;
 		boostActiveUntil = 0;
 		boostContactCell = null;
+		arcContactKey = null;
 		activePadEffect = null;
 		activePadTimeScale = 1;
 		padContactKey = null;
@@ -4685,6 +4722,7 @@ async function init() {
 		lapSeconds2 = 0;
 		boostActiveUntil2 = 0;
 		boostContactCell2 = null;
+		arcContactKey2 = null;
 		activePadEffect2 = null;
 		activePadTimeScale2 = 1;
 		padContactKey2 = null;
@@ -5015,6 +5053,59 @@ async function init() {
 
 		}
 		if ( changed ) rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ nextVelX, nextVelY, nextVelZ ] );
+
+	}
+
+	function setArcLinkHud( text ) {
+
+		if ( ! arcLinkUi ) return;
+		if ( ! text ) {
+
+			arcLinkUi.style.display = 'none';
+			return;
+
+		}
+		arcLinkUi.style.display = 'block';
+		arcLinkUi.textContent = text;
+
+	}
+
+	function applyArcLinkFor( targetVehicle, currentContactKey ) {
+
+		if ( ! targetVehicle?.rigidBody || arcLinkEntries.length === 0 ) return currentContactKey;
+		let nextContactKey = null;
+		for ( const entry of arcLinkEntries ) {
+
+			const dx = entry.centerX - targetVehicle.spherePos.x;
+			const dy = entry.centerY - targetVehicle.spherePos.y;
+			const dz = entry.centerZ - targetVehicle.spherePos.z;
+			const distSq = dx * dx + dy * dy + dz * dz;
+			if ( distSq > ARC_LINK_TRIGGER_RADIUS * ARC_LINK_TRIGGER_RADIUS ) continue;
+			nextContactKey = `arc:${ entry.linkId }:${ entry.color }:${ entry.gx },${ entry.gz }`;
+			if ( currentContactKey === nextContactKey ) break;
+			const pair = ( arcEntriesById.get( entry.linkId ) || [] ).find( ( candidate ) => candidate !== entry && candidate.color !== entry.color );
+			if ( ! pair ) {
+
+				setArcLinkHud( `Arc Link #${ entry.linkId }: missing ${ entry.color === 'green' ? 'orange' : 'green' } target` );
+				break;
+
+			}
+			const tx = pair.centerX - targetVehicle.spherePos.x;
+			const ty = pair.centerY - targetVehicle.spherePos.y;
+			const tz = pair.centerZ - targetVehicle.spherePos.z;
+			const horizontal = Math.hypot( tx, tz );
+			const travelTime = THREE.MathUtils.clamp( horizontal / 12, ARC_LINK_MIN_TIME, ARC_LINK_MAX_TIME );
+			const gravityFactor = Number( targetVehicle?.rigidBody?.motionProperties?.gravityFactor ) || VEHICLE_BASE_GRAVITY_FACTOR;
+			const gravity = 9.81 * gravityFactor;
+			const vx = tx / travelTime;
+			const vz = tz / travelTime;
+			const vy = ( ty + 0.5 * gravity * travelTime * travelTime ) / travelTime;
+			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vx, vy, vz ] );
+			setArcLinkHud( `Arc Link #${ entry.linkId }: ${ entry.color } → ${ pair.color }` );
+			break;
+
+		}
+		return nextContactKey;
 
 	}
 
@@ -5644,6 +5735,8 @@ async function init() {
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
 			applyMagnetForceFor( vehicle, dt );
 			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
+			arcContactKey = applyArcLinkFor( vehicle, arcContactKey );
+			if ( vehicle2 ) arcContactKey2 = applyArcLinkFor( vehicle2, arcContactKey2 );
 			updateRemotePlayerVisualsFrame( dt );
 			const gravityScale1 = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
 			const gravityScale2 = Number.isFinite( activePadEffect2?.gravity ) ? activePadEffect2.gravity : 1.0;

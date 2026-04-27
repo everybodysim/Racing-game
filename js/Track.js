@@ -306,6 +306,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
 		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
 		const magnets = Array.isArray( extras.magnets ) ? extras.magnets : [];
+		const arcLinks = Array.isArray( extras.arcLinks ) ? extras.arcLinks : [];
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
 		const customPads = extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {};
 		const elevatedMap = new Map();
@@ -387,6 +388,30 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			magnet.castShadow = true;
 			magnet.receiveShadow = true;
 			trackPieceGroup.add( magnet );
+
+		}
+
+		for ( const [ gxRaw, gzRaw, yGridRaw, variant ] of arcLinks ) {
+
+			const gx = Number( gxRaw );
+			const gz = Number( gzRaw );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+			const yGrid = THREE.MathUtils.clamp( Number( yGridRaw ) || 0, - 1, 3 );
+			const isOrange = String( variant ) === 'orange';
+			const arcNode = new THREE.Mesh(
+				new THREE.BoxGeometry( MAGNET_HALF_SIZE * 2, MAGNET_HALF_SIZE * 2, MAGNET_HALF_SIZE * 2 ),
+				new THREE.MeshStandardMaterial( {
+					color: isOrange ? 0xffae52 : 0x6dff6d,
+					emissive: isOrange ? 0x8c4b00 : 0x1f6d1f,
+					emissiveIntensity: 0.24,
+					roughness: 0.5,
+					metalness: 0.28,
+				} )
+			);
+			arcNode.position.set( ( gx + 0.5 ) * CELL_RAW, MAGNET_BASE_Y + yGrid * CELL_RAW, ( gz + 0.5 ) * CELL_RAW );
+			arcNode.castShadow = true;
+			arcNode.receiveShadow = true;
+			trackPieceGroup.add( arcNode );
 
 		}
 
