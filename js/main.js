@@ -3435,7 +3435,7 @@ async function init() {
 	let hasLeftStartZone = false;
 	let boostActiveUntil = 0;
 	let boostContactCell = null;
-	let arcContactKey = null;
+	let arcLinkState = { contactKey: null, lockUntilExit: false };
 	const specialSurfaceContactState = new Map();
 	const boostCells = Array.isArray( extras?.boosts ) ? extras.boosts : [];
 	const surfaceCells = Array.isArray( extras?.surfaces ) ? extras.surfaces : [];
@@ -3530,7 +3530,7 @@ async function init() {
 	let hasLeftStartZone2 = false;
 	let boostActiveUntil2 = 0;
 	let boostContactCell2 = null;
-	let arcContactKey2 = null;
+	let arcLinkState2 = { contactKey: null, lockUntilExit: false };
 	let lastBoostNotifyKey = null;
 	let lastBoostNotifyKey2 = null;
 	const specialSurfaceContactState2 = new Map();
@@ -4679,7 +4679,7 @@ async function init() {
 		lapSeconds = 0;
 		boostActiveUntil = 0;
 		boostContactCell = null;
-		arcContactKey = null;
+		arcLinkState = { contactKey: null, lockUntilExit: false };
 		activePadEffect = null;
 		activePadTimeScale = 1;
 		padContactKey = null;
@@ -4722,7 +4722,7 @@ async function init() {
 		lapSeconds2 = 0;
 		boostActiveUntil2 = 0;
 		boostContactCell2 = null;
-		arcContactKey2 = null;
+		arcLinkState2 = { contactKey: null, lockUntilExit: false };
 		activePadEffect2 = null;
 		activePadTimeScale2 = 1;
 		padContactKey2 = null;
@@ -5070,10 +5070,14 @@ async function init() {
 
 	}
 
-	function applyArcLinkFor( targetVehicle, currentContactKey ) {
+	function applyArcLinkFor( targetVehicle, state ) {
 
-		if ( ! targetVehicle?.rigidBody || arcLinkEntries.length === 0 ) return currentContactKey;
+		const currentState = state && typeof state === 'object'
+			? state
+			: { contactKey: null, lockUntilExit: false };
+		if ( ! targetVehicle?.rigidBody || arcLinkEntries.length === 0 ) return currentState;
 		let nextContactKey = null;
+		let triggeredEntry = null;
 		for ( const entry of arcLinkEntries ) {
 
 			const dx = entry.centerX - targetVehicle.spherePos.x;
@@ -5082,30 +5086,34 @@ async function init() {
 			const distSq = dx * dx + dy * dy + dz * dz;
 			if ( distSq > ARC_LINK_TRIGGER_RADIUS * ARC_LINK_TRIGGER_RADIUS ) continue;
 			nextContactKey = `arc:${ entry.linkId }:${ entry.color }:${ entry.gx },${ entry.gz }`;
-			if ( currentContactKey === nextContactKey ) break;
-			const pair = ( arcEntriesById.get( entry.linkId ) || [] ).find( ( candidate ) => candidate !== entry && candidate.color !== entry.color );
-			if ( ! pair ) {
-
-				setArcLinkHud( `Arc Link #${ entry.linkId }: missing ${ entry.color === 'green' ? 'orange' : 'green' } target` );
-				break;
-
-			}
-			const tx = pair.centerX - targetVehicle.spherePos.x;
-			const ty = pair.centerY - targetVehicle.spherePos.y;
-			const tz = pair.centerZ - targetVehicle.spherePos.z;
-			const horizontal = Math.hypot( tx, tz );
-			const travelTime = THREE.MathUtils.clamp( horizontal / 12, ARC_LINK_MIN_TIME, ARC_LINK_MAX_TIME );
-			const gravityFactor = Number( targetVehicle?.rigidBody?.motionProperties?.gravityFactor ) || VEHICLE_BASE_GRAVITY_FACTOR;
-			const gravity = 9.81 * gravityFactor;
-			const vx = tx / travelTime;
-			const vz = tz / travelTime;
-			const vy = ( ty + 0.5 * gravity * travelTime * travelTime ) / travelTime;
-			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vx, vy, vz ] );
-			setArcLinkHud( `Arc Link #${ entry.linkId }: ${ entry.color } → ${ pair.color }` );
+			triggeredEntry = entry;
 			break;
 
 		}
-		return nextContactKey;
+		if ( ! nextContactKey ) return { contactKey: null, lockUntilExit: false };
+		if ( currentState.lockUntilExit ) return { contactKey: nextContactKey, lockUntilExit: true };
+		if ( currentState.contactKey === nextContactKey ) return { contactKey: nextContactKey, lockUntilExit: false };
+		const pair = ( arcEntriesById.get( triggeredEntry.linkId ) || [] )
+			.find( ( candidate ) => candidate !== triggeredEntry && candidate.color !== triggeredEntry.color );
+		if ( ! pair ) {
+
+			setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: missing ${ triggeredEntry.color === 'green' ? 'orange' : 'green' } target` );
+			return { contactKey: nextContactKey, lockUntilExit: false };
+
+		}
+		const tx = pair.centerX - targetVehicle.spherePos.x;
+		const ty = pair.centerY - targetVehicle.spherePos.y;
+		const tz = pair.centerZ - targetVehicle.spherePos.z;
+		const horizontal = Math.hypot( tx, tz );
+		const travelTime = THREE.MathUtils.clamp( horizontal / 12, ARC_LINK_MIN_TIME, ARC_LINK_MAX_TIME );
+		const gravityFactor = Number( targetVehicle?.rigidBody?.motionProperties?.gravityFactor ) || VEHICLE_BASE_GRAVITY_FACTOR;
+		const gravity = 9.81 * gravityFactor;
+		const vx = tx / travelTime;
+		const vz = tz / travelTime;
+		const vy = ( ty + 0.5 * gravity * travelTime * travelTime ) / travelTime;
+		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vx, vy, vz ] );
+		setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: ${ triggeredEntry.color } → ${ pair.color }` );
+		return { contactKey: nextContactKey, lockUntilExit: true };
 
 	}
 
@@ -5735,8 +5743,8 @@ async function init() {
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
 			applyMagnetForceFor( vehicle, dt );
 			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
-			arcContactKey = applyArcLinkFor( vehicle, arcContactKey );
-			if ( vehicle2 ) arcContactKey2 = applyArcLinkFor( vehicle2, arcContactKey2 );
+			arcLinkState = applyArcLinkFor( vehicle, arcLinkState );
+			if ( vehicle2 ) arcLinkState2 = applyArcLinkFor( vehicle2, arcLinkState2 );
 			updateRemotePlayerVisualsFrame( dt );
 			const gravityScale1 = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
 			const gravityScale2 = Number.isFinite( activePadEffect2?.gravity ) ? activePadEffect2.gravity : 1.0;
