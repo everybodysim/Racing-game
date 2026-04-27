@@ -980,6 +980,7 @@ async function init() {
 	const searchParams = new URLSearchParams( window.location.search );
 	const { mapParam, extrasParam } = await resolvePackedTrackParams( searchParams );
 	const isSplitScreen = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1';
+	const settingsRequested = searchParams.get( 'settings' ) === '1';
 	const ghostEnabled = ! isSplitScreen;
 	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
 	let customCells = null;
@@ -2435,10 +2436,13 @@ async function init() {
 
 	}
 
-	function setModeMenuOpen( open ) {
+	function setModeMenuOpen( open, options = {} ) {
 
 		modeMenuOpen = open;
 		if ( modeMenu ) modeMenu.style.display = open ? 'block' : 'none';
+		const expanded = Boolean( options.expanded );
+		modeMenu?.classList.toggle( 'mode-menu-expanded', expanded );
+		if ( modeMenuBtn ) modeMenuBtn.textContent = expanded ? 'Settings (E)' : 'Mode Menu (E)';
 
 	}
 
@@ -5006,7 +5010,8 @@ async function init() {
 	modeMenuBtn?.addEventListener( 'click', ( e ) => {
 
 		e.preventDefault();
-		setModeMenuOpen( ! modeMenuOpen );
+		const nextOpen = ! modeMenuOpen;
+		setModeMenuOpen( nextOpen, { expanded: nextOpen ? modeMenu?.classList.contains( 'mode-menu-expanded' ) : false } );
 
 	} );
 	hacksToggleLink?.addEventListener( 'click', ( e ) => {
@@ -5394,6 +5399,7 @@ async function init() {
 	loadGarageMods();
 	loadCampaignState();
 	setModeTab( 'gameplay' );
+	if ( settingsRequested ) setModeTab( 'garage' );
 	if ( garageCarSelect ) garageCarSelect.value = currentCarKey();
 	updateGarageUi();
 	applyCarCustomization( vehicle );
@@ -5404,6 +5410,7 @@ async function init() {
 	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 	updateGhostShareButtons();
 	updateModeHudVisibility();
+	if ( settingsRequested ) setModeMenuOpen( true, { expanded: true } );
 	fetchTrackLeaderboard();
 	setInterval( () => {
 
@@ -5465,7 +5472,8 @@ async function init() {
 
 					}
 
-					setModeMenuOpen( ! modeMenuOpen );
+					const nextOpen = ! modeMenuOpen;
+					setModeMenuOpen( nextOpen, { expanded: false } );
 					return;
 
 			}
