@@ -77,16 +77,17 @@
 		}
 
 		function decodeMods( modsStr ) {
-			if ( ! modsStr ) return { b: [], j: [], s: [], u: [], d: [], w: { preset: 'clear', precipitation: 'none', intensity: 'medium', lightning: false, wind: 'none' } };
+				if ( ! modsStr ) return { b: [], j: [], s: [], u: [], d: [], n: [], w: { preset: 'clear', precipitation: 'none', intensity: 'medium', lightning: false, wind: 'none' } };
 			try {
 				const payload = decodeURIComponent( escape( atob( modsStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
 				const parsed = JSON.parse( payload );
 				return {
 					b: Array.isArray( parsed.b ) ? parsed.b : [],
 					j: Array.isArray( parsed.j ) ? parsed.j : [],
-					s: Array.isArray( parsed.s ) ? parsed.s : [],
-					u: Array.isArray( parsed.u ) ? parsed.u : [],
-					d: Array.isArray( parsed.d ) ? parsed.d : [],
+						s: Array.isArray( parsed.s ) ? parsed.s : [],
+						u: Array.isArray( parsed.u ) ? parsed.u : [],
+						d: Array.isArray( parsed.d ) ? parsed.d : [],
+						n: Array.isArray( parsed.n ) ? parsed.n : [],
 					w: {
 						preset: typeof parsed?.w?.preset === 'string' ? parsed.w.preset : 'clear',
 						precipitation: typeof parsed?.w?.precipitation === 'string' ? parsed.w.precipitation : 'none',
