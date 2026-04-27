@@ -181,6 +181,16 @@
 			cursor: pointer;
 		}
 		#side-ui-bar button:hover { background: rgba(45,55,72,0.92); }
+		#arc-link-help {
+			grid-column: 1 / -1;
+			padding: 6px 8px;
+			border: 1px solid rgba(255,255,255,0.14);
+			border-radius: 8px;
+			background: rgba(10, 12, 18, 0.72);
+			color: rgba(233, 242, 255, 0.92);
+			font-size: 10px;
+			line-height: 1.3;
+		}
 
 		#panel-overlay {
 			position: absolute;
@@ -288,12 +298,13 @@
 		<button id="btn-magnet-strength-down" title="Decrease selected magnet strength">Strength -</button>
 		<button id="btn-magnet-range-up" title="Increase selected magnet range">Range +</button>
 		<button id="btn-magnet-range-down" title="Decrease selected magnet range">Range -</button>
-		<button id="btn-arc-green">Arc Green +</button>
-		<button id="btn-arc-orange">Arc Orange +</button>
+		<button id="btn-arc-green" title="Green arc is the endpoint only (does not launch)">Arc End (Green) +</button>
+		<button id="btn-arc-orange" title="Orange arc is the launch/start point">Arc Start (Orange) +</button>
 		<button id="btn-arc-up" title="Move selected arc up by 0.1 grid">Arc ▲</button>
 		<button id="btn-arc-down" title="Move selected arc down by 0.1 grid">Arc ▼</button>
 		<button id="btn-arc-id-down" title="Decrease selected arc link id">Arc ID -</button>
 		<button id="btn-arc-id-up" title="Increase selected arc link id">Arc ID +</button>
+		<div id="arc-link-help">Arc Link flow: <strong>Orange launches</strong> to matching <strong>Green endpoint</strong>. Green never launches.</div>
 	</div>
 	<div id="panel-overlay" hidden></div>
 	<div id="panel-center" hidden>
@@ -732,14 +743,41 @@
 
 	}
 
+	function makeArcIdSprite( linkId ) {
+
+		const size = 96;
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = size;
+		canvas.height = size;
+		const ctx = canvas.getContext( '2d' );
+		if ( ! ctx ) return null;
+		ctx.clearRect( 0, 0, size, size );
+		ctx.fillStyle = 'rgba(255,255,255,0.9)';
+		ctx.fillRect( 12, 12, size - 24, size - 24 );
+		ctx.fillStyle = '#000';
+		ctx.font = 'bold 44px sans-serif';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText( String( clampArcLinkId( linkId ) ), size * 0.5, size * 0.54 );
+		const texture = new THREE.CanvasTexture( canvas );
+		texture.needsUpdate = true;
+		const material = new THREE.SpriteMaterial( {
+			map: texture,
+			transparent: true,
+			depthTest: false,
+			depthWrite: false,
+		} );
+		const sprite = new THREE.Sprite( material );
+		sprite.scale.set( CELL_RAW * 0.24, CELL_RAW * 0.24, 1 );
+		sprite.position.set( 0, CELL_RAW * 0.18, 0 );
+		sprite.renderOrder = 5;
+		return sprite;
+
+	}
+
 	function rebuildArcMeshes() {
 
-		for ( const arc of arcBlocks ) {
-
-			if ( arc.mesh ) trackGroup.remove( arc.mesh );
-			arc.mesh = null;
-
-		}
+		clearArcMeshes();
 		for ( const arc of arcBlocks ) {
 
 			const isOrange = arc.type === ARC_ORANGE_TOOL;
@@ -756,12 +794,33 @@
 			mesh.position.set( ( arc.gx + 0.5 ) * CELL_RAW, getMagnetWorldY( arc.y ), ( arc.gz + 0.5 ) * CELL_RAW );
 			mesh.castShadow = true;
 			mesh.receiveShadow = true;
+			const idSprite = makeArcIdSprite( arc.linkId );
+			if ( idSprite ) mesh.add( idSprite );
 			trackGroup.add( mesh );
 			arc.mesh = mesh;
+			arc.idSprite = idSprite;
 
 		}
 		if ( selectedArcIndex >= arcBlocks.length ) selectedArcIndex = arcBlocks.length - 1;
 		refreshArcSelectionTint();
+
+	}
+
+	function clearArcMeshes() {
+
+		for ( const arc of arcBlocks ) {
+
+			if ( arc.idSprite ) {
+
+				if ( arc.idSprite.material?.map ) arc.idSprite.material.map.dispose();
+				arc.idSprite.material?.dispose?.();
+				arc.idSprite = null;
+
+			}
+			if ( arc.mesh ) trackGroup.remove( arc.mesh );
+			arc.mesh = null;
+
+		}
 
 	}
 
@@ -775,6 +834,7 @@
 		}
 		const arc = arcBlocks[ selectedArcIndex ];
 		arc.linkId = clampArcLinkId( ( arc.linkId ?? ARC_DEFAULT_ID ) + delta );
+		rebuildArcMeshes();
 		save();
 		showToast( `Arc link id: ${ arc.linkId }` );
 
@@ -1680,6 +1740,7 @@
 
 	function clearAll() {
 
+		clearGhost();
 		for ( const [ , cell ] of grid ) {
 
 				for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
@@ -1698,11 +1759,11 @@
 
 		grid.clear();
 		clearMagnetMeshes();
+		clearArcMeshes();
 		magnetBlocks.length = 0;
 		selectedMagnetIndex = -1;
 		arcBlocks.length = 0;
 		selectedArcIndex = -1;
-		rebuildArcMeshes();
 		save();
 
 	}
