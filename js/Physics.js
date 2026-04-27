@@ -43,6 +43,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5 * S;
 	const SUPPORT_SINK = 0.03 * S;
 	const SUPPORT_HALF_EXTENTS = [ CELL_HALF * S, CELL_HALF * 0.5 * S, CELL_HALF * S ];
+	const MAGNET_HALF_SIZE = CELL_RAW * S * 0.08;
+	const MAGNET_BASE_Y = ( CELL_RAW * S * 0.08 ) - 0.06;
 	const ELEVATED_SURFACE_HALF_H = 0.12 * S;
 	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S * 1.08;
 	const FLAT_ELEVATED_SURFACE_DROP = 0.06;
@@ -355,6 +357,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const cubeSet = new Set();
 	const wallMap = new Map();
 	const jumpMap = new Map();
+	const magnetEntries = extras && Array.isArray( extras.magnets ) ? extras.magnets : [];
 	const elevatedEntries = extras && Array.isArray( extras.elevated ) ? extras.elevated : [];
 	const elevatedMap = new Map();
 	const customAssetColliders = extras?.customAssets && typeof extras.customAssets === 'object' ? extras.customAssets : {};
@@ -440,6 +443,28 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			objectLayer: world._OL_STATIC,
 			position,
 			friction: 0.9,
+			restitution: 0.02,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+	}
+
+	for ( const [ gxRaw, gzRaw, yGridRaw ] of magnetEntries ) {
+
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const yGrid = THREE.MathUtils.clamp( Number( yGridRaw ) || 0, - 1, 3 );
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const halfExtents = [ MAGNET_HALF_SIZE, MAGNET_HALF_SIZE, MAGNET_HALF_SIZE ];
+		const position = [ cx, groundY + MAGNET_BASE_Y + yGrid * CELL_RAW * S, cz ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 0.8,
 			restitution: 0.02,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );

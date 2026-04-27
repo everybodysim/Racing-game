@@ -104,6 +104,13 @@ const PAD_EFFECTS = {
 const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 const BOUNCE_VERTICAL_DELTA = 7.2;
 const KICK_LATERAL_DELTA = 7.4;
+const MAGNET_FULL_STRENGTH_BLOCKS = 0.5;
+const MAGNET_DEFAULT_MAX_DISTANCE_BLOCKS = 1.5;
+const MAGNET_DEFAULT_FORCE_PER_SECOND = 26.0;
+const MAGNET_MIN_MAX_DISTANCE_BLOCKS = 0.75;
+const MAGNET_MAX_MAX_DISTANCE_BLOCKS = 2.5;
+const MAGNET_MIN_FORCE_PER_SECOND = 8.0;
+const MAGNET_MAX_FORCE_PER_SECOND = 64.0;
 const WEATHER_PRESETS = {
 	clear: { bg: 0xadb2ba, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
 	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
@@ -603,6 +610,7 @@ function decodeExtrasParam( str ) {
 				elevated: Array.isArray( parsed.e ) ? parsed.e : [],
 			jumps: Array.isArray( parsed.j ) ? parsed.j : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
+			magnets: Array.isArray( parsed.m ) ? parsed.m : [],
 			surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
 			customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
 			customPads: parsed?.y && typeof parsed.y === 'object' ? parsed.y : {},
@@ -3172,6 +3180,8 @@ async function init() {
 
 	const _forward = new THREE.Vector3();
 	const _boostForward = new THREE.Vector3();
+	const _magnetDelta = new THREE.Vector3();
+	const _magnetDir = new THREE.Vector3();
 
 	const contactListener = {
 		onContactAdded( bodyA, bodyB ) {
@@ -3447,6 +3457,28 @@ async function init() {
 		centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
 		centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
 	} ) );
+	const magnetCells = Array.isArray( extras?.magnets ) ? extras.magnets : [];
+	const magnetFullStrengthDistance = CELL_RAW * GRID_SCALE * MAGNET_FULL_STRENGTH_BLOCKS;
+	const magnetEntries = magnetCells
+		.map( ( [ gxRaw, gzRaw, yGridRaw, variant, forceRaw, rangeRaw ] ) => {
+
+			const gx = Number( gxRaw );
+			const gz = Number( gzRaw );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) return null;
+			const yGrid = THREE.MathUtils.clamp( Number( yGridRaw ) || 0, - 1, 3 );
+			const kind = String( variant ) === 'red' ? 'red' : 'blue';
+			const forcePerSecond = THREE.MathUtils.clamp( Number( forceRaw ) || MAGNET_DEFAULT_FORCE_PER_SECOND, MAGNET_MIN_FORCE_PER_SECOND, MAGNET_MAX_FORCE_PER_SECOND );
+			const maxDistanceBlocks = THREE.MathUtils.clamp( Number( rangeRaw ) || MAGNET_DEFAULT_MAX_DISTANCE_BLOCKS, MAGNET_MIN_MAX_DISTANCE_BLOCKS, MAGNET_MAX_MAX_DISTANCE_BLOCKS );
+			const maxDistance = CELL_RAW * GRID_SCALE * maxDistanceBlocks;
+			return {
+				gx, gz, yGrid, kind, forcePerSecond, maxDistance,
+				centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
+				centerY: ( CELL_RAW * GRID_SCALE * 0.08 ) - 0.06 + yGrid * CELL_RAW * GRID_SCALE,
+				centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
+			};
+
+		} )
+		.filter( Boolean );
 	let activeSurfaceType = null;
 	let activeSurfaceType2 = null;
 	let lastSurfaceNotifyType = null;
@@ -4947,6 +4979,45 @@ async function init() {
 
 	}
 
+	function applyMagnetForceFor( targetVehicle, dt ) {
+
+		if ( ! targetVehicle?.rigidBody || magnetEntries.length === 0 ) return;
+		const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+		let nextVelX = vel[ 0 ];
+		let nextVelY = vel[ 1 ];
+		let nextVelZ = vel[ 2 ];
+		let changed = false;
+		for ( const magnet of magnetEntries ) {
+
+			_magnetDelta.set( magnet.centerX - targetVehicle.spherePos.x, magnet.centerY - targetVehicle.spherePos.y, magnet.centerZ - targetVehicle.spherePos.z );
+			const distance = _magnetDelta.length();
+			if ( distance <= 1e-4 || distance > magnet.maxDistance ) continue;
+			_magnetDir.copy( _magnetDelta ).multiplyScalar( 1 / distance );
+			if ( magnet.kind === 'red' ) _magnetDir.multiplyScalar( - 1 );
+			let strengthScale = 0;
+			if ( distance <= magnetFullStrengthDistance ) strengthScale = 1;
+			else {
+
+				const t = THREE.MathUtils.clamp(
+					( distance - magnetFullStrengthDistance ) / Math.max( 1e-6, magnet.maxDistance - magnetFullStrengthDistance ),
+					0,
+					1
+				);
+				// Curved falloff: stays stronger for longer, then fades to zero at max range.
+				strengthScale = Math.pow( 1 - t, 1.6 );
+
+			}
+			const impulse = magnet.forcePerSecond * strengthScale * dt;
+			nextVelX += _magnetDir.x * impulse;
+			nextVelY += _magnetDir.y * impulse;
+			nextVelZ += _magnetDir.z * impulse;
+			changed = true;
+
+		}
+		if ( changed ) rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ nextVelX, nextVelY, nextVelZ ] );
+
+	}
+
 	function isVehicleOnGround( targetVehicle ) {
 
 		const posY = targetVehicle?.spherePos?.y ?? 999;
@@ -5571,6 +5642,8 @@ async function init() {
 
 			vehicle.update( dt, padAdjustedInput );
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
+			applyMagnetForceFor( vehicle, dt );
+			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
 			updateRemotePlayerVisualsFrame( dt );
 			const gravityScale1 = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
 			const gravityScale2 = Number.isFinite( activePadEffect2?.gravity ) ? activePadEffect2.gravity : 1.0;
