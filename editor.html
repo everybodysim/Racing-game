@@ -278,7 +278,10 @@
 		<label for="weather-lightning">Lightning</label>
 		<input id="weather-lightning" type="checkbox" aria-label="Lightning flashes">
 	</div>
-	<div id="side-ui-bar"></div>
+	<div id="side-ui-bar">
+		<button id="btn-magnet-up" title="Move selected magnet up by 0.1 grid">Magnet ▲</button>
+		<button id="btn-magnet-down" title="Move selected magnet down by 0.1 grid">Magnet ▼</button>
+	</div>
 	<div id="panel-overlay" hidden></div>
 	<div id="panel-center" hidden>
 		<div id="flow-panel" class="tool-panel" hidden>
@@ -313,6 +316,8 @@
 		<button id="btn-bump">Bump +</button>
 		<button id="btn-pole">Pole +</button>
 		<button id="btn-cube">Cube +</button>
+		<button id="btn-magnet-blue">Magnet Blue +</button>
+		<button id="btn-magnet-red">Magnet Red +</button>
 		<button id="btn-wall">Wall +</button>
 		<button id="btn-jump">Jump +</button>
 		<select id="gate-select" aria-label="Gate picker">
@@ -429,6 +434,8 @@
 	const CUBE_TOOL = 'overlay-cube';
 	const WALL_TOOL = 'overlay-wall';
 	const JUMP_TOOL = 'overlay-jump';
+	const MAGNET_BLUE_TOOL = 'magnet-blue';
+	const MAGNET_RED_TOOL = 'magnet-red';
 	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up' ];
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
 	const SUPPORT_HEIGHT = CELL_RAW * 0.5;
@@ -477,6 +484,8 @@
 	let flowStraightType = 'track-straight';
 	let flowCornerType = 'track-corner';
 	let placeOffGrid = false;
+	const magnetBlocks = [];
+	let selectedMagnetIndex = -1;
 	let slopesModInstalled = true;
 	let testSpawnCell = null;
 	let pickTestSpawnMode = false;
@@ -484,8 +493,124 @@
 	let autosaveEverySeconds = 30;
 	let autosaveTimer = null;
 	const OFFGRID_STEP = 0.25;
+	const MAGNET_Y_STEP = 0.1;
+	const MAGNET_MIN_Y = -1;
+	const MAGNET_MAX_Y = 3;
+	const MAGNET_DEFAULT_Y = 0;
+	const MAGNET_BASE_Y = ( CELL_RAW * 0.08 ) - 0.06;
+	const MAGNET_SELECT_RADIUS = CELL_RAW * 0.22;
 	const BLOCK_HEIGHT_OFFSET = 0.012;
 	const DECO_HEIGHT_OFFSET = BLOCK_HEIGHT_OFFSET * 0.5;
+
+	function clampMagnetGridY( value ) {
+
+		const num = Number( value );
+		if ( ! Number.isFinite( num ) ) return MAGNET_DEFAULT_Y;
+		return Math.round( THREE.MathUtils.clamp( num, MAGNET_MIN_Y, MAGNET_MAX_Y ) * 1000 ) / 1000;
+
+	}
+
+	function getMagnetWorldY( yGrid = MAGNET_DEFAULT_Y ) {
+
+		return MAGNET_BASE_Y + clampMagnetGridY( yGrid ) * CELL_RAW;
+
+	}
+
+	function findNearestMagnetIndex( gx, gz ) {
+
+		let bestIndex = -1;
+		let bestDistSq = MAGNET_SELECT_RADIUS * MAGNET_SELECT_RADIUS;
+		const wx = ( gx + 0.5 ) * CELL_RAW;
+		const wz = ( gz + 0.5 ) * CELL_RAW;
+		for ( let i = 0; i < magnetBlocks.length; i ++ ) {
+
+			const magnet = magnetBlocks[ i ];
+			const mx = ( magnet.gx + 0.5 ) * CELL_RAW;
+			const mz = ( magnet.gz + 0.5 ) * CELL_RAW;
+			const dx = mx - wx;
+			const dz = mz - wz;
+			const distSq = dx * dx + dz * dz;
+			if ( distSq <= bestDistSq ) {
+
+				bestDistSq = distSq;
+				bestIndex = i;
+
+			}
+
+		}
+		return bestIndex;
+
+	}
+
+	function refreshMagnetSelectionTint() {
+
+		for ( let i = 0; i < magnetBlocks.length; i ++ ) {
+
+			const magnet = magnetBlocks[ i ];
+			if ( ! magnet?.mesh?.material?.emissive ) continue;
+			const isBlue = magnet.type === MAGNET_BLUE_TOOL;
+			magnet.mesh.material.emissive.setHex( i === selectedMagnetIndex ? 0xffffff : ( isBlue ? 0x1b45a9 : 0x7a1111 ) );
+			magnet.mesh.material.emissiveIntensity = i === selectedMagnetIndex ? 0.38 : 0.2;
+
+		}
+
+	}
+
+	function clearMagnetMeshes() {
+
+		for ( const magnet of magnetBlocks ) {
+
+			if ( magnet.mesh ) trackGroup.remove( magnet.mesh );
+			magnet.mesh = null;
+
+		}
+
+	}
+
+	function rebuildMagnetMeshes() {
+
+		clearMagnetMeshes();
+		for ( const magnet of magnetBlocks ) {
+
+			const isBlue = magnet.type === MAGNET_BLUE_TOOL;
+			const mesh = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+				new THREE.MeshStandardMaterial( {
+					color: isBlue ? 0x4f96ff : 0xff5d5d,
+					emissive: isBlue ? 0x1b45a9 : 0x7a1111,
+					emissiveIntensity: 0.2,
+					roughness: 0.5,
+					metalness: 0.28
+				} )
+			);
+			mesh.position.set( ( magnet.gx + 0.5 ) * CELL_RAW, getMagnetWorldY( magnet.y ), ( magnet.gz + 0.5 ) * CELL_RAW );
+			mesh.castShadow = true;
+			mesh.receiveShadow = true;
+			trackGroup.add( mesh );
+			magnet.mesh = mesh;
+
+		}
+		if ( selectedMagnetIndex >= magnetBlocks.length ) selectedMagnetIndex = magnetBlocks.length - 1;
+		refreshMagnetSelectionTint();
+
+	}
+
+	function nudgeSelectedMagnet( deltaGridY ) {
+
+		if ( selectedMagnetIndex < 0 || ! magnetBlocks[ selectedMagnetIndex ] ) {
+
+			showToast( 'Select a magnet cube first' );
+			return;
+
+		}
+		const magnet = magnetBlocks[ selectedMagnetIndex ];
+		magnet.y = clampMagnetGridY( magnet.y + deltaGridY );
+		if ( magnet.mesh ) magnet.mesh.position.y = getMagnetWorldY( magnet.y );
+		refreshMagnetSelectionTint();
+		save();
+		showToast( `Magnet Y: ${ magnet.y.toFixed( 2 ) }` );
+
+	}
 
 	function getOverlayHeightOffset( cell ) {
 
@@ -1176,7 +1301,23 @@
 
 	function placeSelectedBlock( gx, gz ) {
 
-		if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || ELEVATED_TYPES.includes( selectedType ) ) {
+		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL ) {
+
+			const existingIndex = findNearestMagnetIndex( gx, gz );
+			if ( existingIndex >= 0 ) {
+
+				selectedMagnetIndex = existingIndex;
+				if ( magnetBlocks[ existingIndex ].type !== selectedType ) magnetBlocks[ existingIndex ].type = selectedType;
+
+			} else {
+
+				magnetBlocks.push( { gx, gz, y: MAGNET_DEFAULT_Y, type: selectedType, mesh: null } );
+				selectedMagnetIndex = magnetBlocks.length - 1;
+
+			}
+			rebuildMagnetMeshes();
+
+		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || ELEVATED_TYPES.includes( selectedType ) ) {
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
@@ -1289,6 +1430,20 @@
 
 	function eraseRoad( gx, gz ) {
 
+		const magnetIndex = findNearestMagnetIndex( gx, gz );
+		if ( magnetIndex >= 0 ) {
+
+			const magnet = magnetBlocks[ magnetIndex ];
+			if ( magnet?.mesh ) trackGroup.remove( magnet.mesh );
+			magnetBlocks.splice( magnetIndex, 1 );
+			if ( selectedMagnetIndex === magnetIndex ) selectedMagnetIndex = -1;
+			else if ( selectedMagnetIndex > magnetIndex ) selectedMagnetIndex --;
+			refreshMagnetSelectionTint();
+			save();
+			return;
+
+		}
+
 		const key = cellKey( gx, gz );
 		if ( ! grid.has( key ) ) return;
 
@@ -1328,6 +1483,9 @@
 		}
 
 		grid.clear();
+		clearMagnetMeshes();
+		magnetBlocks.length = 0;
+		selectedMagnetIndex = -1;
 		save();
 
 	}
@@ -1474,11 +1632,51 @@
 
 	}
 
+	function addGhostMagnetPreview( gx, gz ) {
+
+		const isRed = selectedType === MAGNET_RED_TOOL;
+		let previewGx = gx;
+		let previewGz = gz;
+		let previewY = MAGNET_DEFAULT_Y;
+		const existingIndex = findNearestMagnetIndex( gx, gz );
+		if ( existingIndex >= 0 && magnetBlocks[ existingIndex ] ) {
+
+			selectedMagnetIndex = existingIndex;
+			previewGx = magnetBlocks[ existingIndex ].gx;
+			previewGz = magnetBlocks[ existingIndex ].gz;
+			previewY = clampMagnetGridY( magnetBlocks[ existingIndex ].y );
+			refreshMagnetSelectionTint();
+
+		}
+
+		const preview = new THREE.Mesh(
+			new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+			new THREE.MeshStandardMaterial( {
+				color: isRed ? 0xff7777 : 0x76abff,
+				emissive: isRed ? 0x7a1111 : 0x1b45a9,
+				emissiveIntensity: 0.32,
+				transparent: true,
+				opacity: 0.5,
+				roughness: 0.55,
+				metalness: 0.22,
+			} )
+		);
+		preview.position.set( ( previewGx + 0.5 ) * CELL_RAW, getMagnetWorldY( previewY ), ( previewGz + 0.5 ) * CELL_RAW );
+		ghostGroup.add( preview );
+
+	}
+
 	function updateGhost( gx, gz ) {
 
 		clearGhost();
 
 		if ( tool === 'erase' ) return;
+		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL ) {
+
+			addGhostMagnetPreview( gx, gz );
+			return;
+
+		}
 		const ghostType = selectedType === BUMP_TOOL
 			? 'track-bump'
 			: ( selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL
@@ -1524,7 +1722,12 @@
 
 		let gx = hit.x / cellWorld;
 		let gz = hit.z / cellWorld;
-		if ( ! placeOffGrid ) {
+		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL ) {
+
+			gx = normalizeCoord( gx - 0.5 );
+			gz = normalizeCoord( gz - 0.5 );
+
+		} else if ( ! placeOffGrid ) {
 
 			gx = Math.floor( gx );
 			gz = Math.floor( gz );
@@ -1576,6 +1779,7 @@
 		const elevated = [];
 		const surfaces = [];
 		const deco = [];
+		const magnets = [];
 
 		for ( const [ key, cell ] of grid ) {
 
@@ -1597,6 +1801,8 @@
 
 		}
 
+		for ( const magnet of magnetBlocks ) magnets.push( [ normalizeCoord( magnet.gx ), normalizeCoord( magnet.gz ), clampMagnetGridY( magnet.y ), magnet.type === MAGNET_RED_TOOL ? 'red' : 'blue' ] );
+
 		const customPayload = {};
 		for ( const [ id, asset ] of customAssets.entries() ) {
 
@@ -1608,14 +1814,14 @@
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, e: elevated, u: surfaces, d: deco, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, e: elevated, u: surfaces, d: deco, m: magnets, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
+		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], m: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
 
 		try {
 
@@ -1630,6 +1836,7 @@
 					e: Array.isArray( parsed.e ) ? parsed.e : [],
 					u: Array.isArray( parsed.u ) ? parsed.u : [],
 						d: Array.isArray( parsed.d ) ? parsed.d : [],
+					m: Array.isArray( parsed.m ) ? parsed.m : [],
 						w: normalizeWeatherSettings( parsed?.w ),
 						c: parsed?.c && typeof parsed.c === 'object' ? parsed.c : JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
 						y: parsed?.y && typeof parsed.y === 'object' ? parsed.y : JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ),
@@ -1639,7 +1846,7 @@
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-				return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
+				return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], m: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
 
 		}
 
@@ -1822,6 +2029,19 @@
 
 			}
 
+			for ( const [ gx, gz, yGrid, variant ] of mods.m || [] ) {
+
+				magnetBlocks.push( {
+					gx: normalizeCoord( gx ),
+					gz: normalizeCoord( gz ),
+					y: clampMagnetGridY( yGrid ),
+					type: String( variant ) === 'red' ? MAGNET_RED_TOOL : MAGNET_BLUE_TOOL,
+					mesh: null,
+				} );
+
+			}
+			rebuildMagnetMeshes();
+
 		} catch ( e ) {
 
 			console.warn( 'Failed to load saved map', e );
@@ -1852,6 +2072,8 @@
 		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
 		[ POLE_TOOL ]: document.getElementById( 'btn-pole' ),
 		[ CUBE_TOOL ]: document.getElementById( 'btn-cube' ),
+		[ MAGNET_BLUE_TOOL ]: document.getElementById( 'btn-magnet-blue' ),
+		[ MAGNET_RED_TOOL ]: document.getElementById( 'btn-magnet-red' ),
 		[ WALL_TOOL ]: document.getElementById( 'btn-wall' ),
 		[ JUMP_TOOL ]: document.getElementById( 'btn-jump' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
@@ -1950,7 +2172,7 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
@@ -1981,6 +2203,17 @@
 
 		selectedType = type;
 		selectTool( 'paint' );
+		if ( type === MAGNET_BLUE_TOOL || type === MAGNET_RED_TOOL ) {
+
+			if ( hoveredCell ) {
+
+				const existingIndex = findNearestMagnetIndex( hoveredCell.gx, hoveredCell.gz );
+				if ( existingIndex >= 0 ) selectedMagnetIndex = existingIndex;
+				refreshMagnetSelectionTint();
+
+			}
+
+		}
 		updateTileToolbar();
 
 	}
@@ -2079,7 +2312,7 @@
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 
@@ -2116,6 +2349,8 @@
 		showToast( `Surface overlap ${ allowSurfaceOverlap ? 'enabled' : 'disabled' }` );
 
 	} );
+	document.getElementById( 'btn-magnet-up' )?.addEventListener( 'click', () => nudgeSelectedMagnet( MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-magnet-down' )?.addEventListener( 'click', () => nudgeSelectedMagnet( - MAGNET_Y_STEP ) );
 	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
 	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
 	document.getElementById( 'btn-custom-import' )?.addEventListener( 'click', () => {
