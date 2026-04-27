@@ -15,6 +15,8 @@ const DECORATION_HEIGHT_OFFSET = VISUAL_HEIGHT_OFFSET * 0.5;
 const NO_DECO_BUFFER_CELLS = 1;
 const POLE_RADIUS = CELL_RAW * 0.08;
 const POLE_HEIGHT = CELL_RAW * 0.13;
+const MAGNET_HALF_SIZE = CELL_RAW * 0.08;
+const MAGNET_BASE_Y = ( CELL_RAW * 0.08 ) - 0.06;
 const ELEVATED_HEIGHT = CELL_RAW * 0.5;
 const SUPPORT_HEIGHT = CELL_RAW * 0.5;
 const SUPPORT_COLOR = 0x0d0d0d;
@@ -303,6 +305,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const elevatedCells = Array.isArray( extras.elevated ) ? extras.elevated : [];
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
 		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
+		const magnets = Array.isArray( extras.magnets ) ? extras.magnets : [];
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
 		const customPads = extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {};
 		const elevatedMap = new Map();
@@ -360,6 +363,30 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			cube.castShadow = true;
 			cube.receiveShadow = true;
 			trackPieceGroup.add( cube );
+
+		}
+
+		for ( const [ gxRaw, gzRaw, yGridRaw, variant ] of magnets ) {
+
+			const gx = Number( gxRaw );
+			const gz = Number( gzRaw );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+			const yGrid = THREE.MathUtils.clamp( Number( yGridRaw ) || 0, - 1, 3 );
+			const isRed = String( variant ) === 'red';
+			const magnet = new THREE.Mesh(
+				new THREE.BoxGeometry( MAGNET_HALF_SIZE * 2, MAGNET_HALF_SIZE * 2, MAGNET_HALF_SIZE * 2 ),
+				new THREE.MeshStandardMaterial( {
+					color: isRed ? 0xff5d5d : 0x4f96ff,
+					emissive: isRed ? 0x7a1111 : 0x1b45a9,
+					emissiveIntensity: 0.24,
+					roughness: 0.5,
+					metalness: 0.28,
+				} )
+			);
+			magnet.position.set( ( gx + 0.5 ) * CELL_RAW, MAGNET_BASE_Y + yGrid * CELL_RAW, ( gz + 0.5 ) * CELL_RAW );
+			magnet.castShadow = true;
+			magnet.receiveShadow = true;
+			trackPieceGroup.add( magnet );
 
 		}
 
