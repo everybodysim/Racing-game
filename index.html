@@ -1039,6 +1039,20 @@
   border-radius: 50%;
   background: #ff3b30;
   box-shadow: 0 0 0 2px rgba(16, 18, 24, 0.95);
+  animation: unread-dot-flash 0.95s ease-in-out infinite;
+}
+
+@keyframes unread-dot-flash {
+  0%, 100% {
+    transform: scale(0.82);
+    opacity: 0.35;
+    filter: brightness(0.9);
+  }
+  50% {
+    transform: scale(1.14);
+    opacity: 1;
+    filter: brightness(1.35);
+  }
 }
 
 /* Chat window (right-middle anchored) */
