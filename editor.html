@@ -358,6 +358,13 @@
 		<button id="btn-pad-custom-a">Pad A</button>
 		<button id="btn-pad-custom-b">Pad B</button>
 		<button id="btn-pad-custom-c">Pad C</button>
+		<select id="idea-pack-select" aria-label="Preset idea pack">
+			<option value="flow-chaos">Idea: Flow Chaos</option>
+			<option value="ice-drift">Idea: Ice Drift Arena</option>
+			<option value="pinball-lab">Idea: Pinball Lab</option>
+			<option value="gravity-gauntlet">Idea: Gravity Gauntlet</option>
+		</select>
+		<button id="btn-apply-idea-pack">Apply Idea Pack</button>
 		<button id="btn-overlap-toggle">Overlap: Off</button>
 		<button id="btn-deco-forest">Tree</button>
 		<button id="btn-deco-tents">Tent</button>
@@ -462,6 +469,60 @@
 		'pad-custom-a': { color: '#7fb7ff', gravity: 1, drag: 1, accel: 1, drive: 1, topSpeed: 1, steering: 1, timeScale: 1, disableBrakes: false, disableSteering: false, disableAcceleration: false },
 		'pad-custom-b': { color: '#a4ffd9', gravity: 0.8, drag: 0.7, accel: 1.25, drive: 1.25, topSpeed: 1.15, steering: 1.1, timeScale: 1.15, disableBrakes: false, disableSteering: false, disableAcceleration: false },
 		'pad-custom-c': { color: '#ffd28e', gravity: 1.35, drag: 1.4, accel: 0.65, drive: 0.7, topSpeed: 0.85, steering: 0.9, timeScale: 0.8, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+	};
+	const IDEA_PACKS = {
+		'flow-chaos': {
+			label: 'Flow Chaos',
+			surfaces: {
+				'surface-custom-a': { color: '#86c8ff', grip: 1.05, speed: 1.4, forceAmount: 9, force: { forward: true, backward: false, left: false, right: false, up: false }, noAir: true, oncePerContact: true },
+				'surface-custom-b': { color: '#ff8ce8', grip: 0.72, speed: 1.1, forceAmount: 8, force: { forward: false, backward: false, left: true, right: false, up: true }, noAir: false, oncePerContact: false },
+				'surface-custom-c': { color: '#ffe28b', grip: 0.9, speed: 0.9, forceAmount: 6, force: { forward: false, backward: true, left: false, right: true, up: false }, noAir: true, oncePerContact: false },
+			},
+			pads: {
+				'pad-custom-a': { color: '#6fb2ff', gravity: 0.9, drag: 0.8, accel: 1.5, drive: 1.45, topSpeed: 1.35, steering: 1.05, timeScale: 1.1, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+				'pad-custom-b': { color: '#ff7bc2', gravity: 0.7, drag: 0.85, accel: 0.95, drive: 1.05, topSpeed: 1.45, steering: 1.35, timeScale: 1.25, disableBrakes: true, disableSteering: false, disableAcceleration: false },
+				'pad-custom-c': { color: '#ffd875', gravity: 1.2, drag: 0.7, accel: 1.2, drive: 1.3, topSpeed: 1.2, steering: 1.25, timeScale: 0.95, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+			},
+		},
+		'ice-drift': {
+			label: 'Ice Drift Arena',
+			surfaces: {
+				'surface-custom-a': { color: '#9be6ff', grip: 0.35, speed: 1.2, forceAmount: 4, force: { forward: false, backward: false, left: true, right: true, up: false }, noAir: false, oncePerContact: false },
+				'surface-custom-b': { color: '#67b7ff', grip: 0.28, speed: 1.4, forceAmount: 2.5, force: { forward: true, backward: false, left: false, right: false, up: false }, noAir: false, oncePerContact: false },
+				'surface-custom-c': { color: '#d3f4ff', grip: 0.22, speed: 1.05, forceAmount: 7.5, force: { forward: false, backward: false, left: false, right: false, up: true }, noAir: true, oncePerContact: true },
+			},
+			pads: {
+				'pad-custom-a': { color: '#94dbff', gravity: 0.85, drag: 0.55, accel: 1.05, drive: 1.2, topSpeed: 1.2, steering: 1.35, timeScale: 1, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+				'pad-custom-b': { color: '#72c4ff', gravity: 0.7, drag: 0.6, accel: 0.95, drive: 1.05, topSpeed: 1.3, steering: 1.5, timeScale: 1.15, disableBrakes: true, disableSteering: false, disableAcceleration: false },
+				'pad-custom-c': { color: '#dff8ff', gravity: 1.25, drag: 1.35, accel: 0.8, drive: 0.85, topSpeed: 0.9, steering: 0.95, timeScale: 0.85, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+			},
+		},
+		'pinball-lab': {
+			label: 'Pinball Lab',
+			surfaces: {
+				'surface-custom-a': { color: '#ff9d8e', grip: 1, speed: 1.1, forceAmount: 16, force: { forward: false, backward: false, left: false, right: false, up: true }, noAir: true, oncePerContact: true },
+				'surface-custom-b': { color: '#ffc576', grip: 0.75, speed: 0.95, forceAmount: 13, force: { forward: false, backward: false, left: true, right: false, up: true }, noAir: true, oncePerContact: true },
+				'surface-custom-c': { color: '#ff6fb5', grip: 0.75, speed: 0.95, forceAmount: 13, force: { forward: false, backward: false, left: false, right: true, up: true }, noAir: true, oncePerContact: true },
+			},
+			pads: {
+				'pad-custom-a': { color: '#ffb58a', gravity: 1.15, drag: 0.8, accel: 1.4, drive: 1.35, topSpeed: 1.25, steering: 1.1, timeScale: 1.2, disableBrakes: true, disableSteering: false, disableAcceleration: false },
+				'pad-custom-b': { color: '#ffd36f', gravity: 0.95, drag: 1.05, accel: 1.65, drive: 1.6, topSpeed: 1.4, steering: 0.9, timeScale: 1.1, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+				'pad-custom-c': { color: '#ff87ca', gravity: 1.35, drag: 0.9, accel: 1.1, drive: 1.05, topSpeed: 1.05, steering: 1.45, timeScale: 1.25, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+			},
+		},
+		'gravity-gauntlet': {
+			label: 'Gravity Gauntlet',
+			surfaces: {
+				'surface-custom-a': { color: '#b68cff', grip: 1.15, speed: 1, forceAmount: 7, force: { forward: false, backward: false, left: false, right: false, up: true }, noAir: true, oncePerContact: true },
+				'surface-custom-b': { color: '#7cffc0', grip: 1.05, speed: 1.12, forceAmount: 5.5, force: { forward: true, backward: false, left: false, right: false, up: true }, noAir: true, oncePerContact: true },
+				'surface-custom-c': { color: '#ff9fb2', grip: 0.8, speed: 0.86, forceAmount: 9, force: { forward: false, backward: true, left: false, right: false, up: false }, noAir: false, oncePerContact: false },
+			},
+			pads: {
+				'pad-custom-a': { color: '#ae8aff', gravity: 0.48, drag: 0.65, accel: 1.2, drive: 1.15, topSpeed: 1.2, steering: 1.2, timeScale: 0.9, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+				'pad-custom-b': { color: '#77ffc0', gravity: 1.65, drag: 1.35, accel: 0.85, drive: 0.75, topSpeed: 0.88, steering: 0.95, timeScale: 1, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+				'pad-custom-c': { color: '#ff9fb2', gravity: 0.78, drag: 0.9, accel: 1.65, drive: 1.5, topSpeed: 1.6, steering: 1.05, timeScale: 1.28, disableBrakes: true, disableSteering: false, disableAcceleration: false },
+			},
+		},
 	};
 	let customPadConfigs = JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) );
 	let activeCustomSurfaceEditor = null;
@@ -1872,6 +1933,8 @@
 	const gateSelect = document.getElementById( 'gate-select' );
 	const surfaceSelect = document.getElementById( 'surface-select' );
 	const padSelect = document.getElementById( 'pad-select' );
+	const ideaPackSelect = document.getElementById( 'idea-pack-select' );
+	const applyIdeaPackBtn = document.getElementById( 'btn-apply-idea-pack' );
 	const overlapToggleBtn = document.getElementById( 'btn-overlap-toggle' );
 	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
 	const customSurfaceTitle = document.getElementById( 'custom-surface-title' );
@@ -2070,6 +2133,31 @@
 		showToast( `${ activeCustomSurfaceEditor } saved` );
 	}
 
+	function applyIdeaPack( ideaId ) {
+
+		const idea = IDEA_PACKS[ ideaId ];
+		if ( ! idea ) {
+
+			showToast( 'Unknown idea pack.' );
+			return;
+
+		}
+		customSurfaceConfigs = JSON.parse( JSON.stringify( { ...customSurfaceConfigs, ...idea.surfaces } ) );
+		customPadConfigs = JSON.parse( JSON.stringify( { ...customPadConfigs, ...idea.pads } ) );
+		for ( const [ key, cell ] of grid ) {
+
+			const hasCustomSurface = cell.surfaceTypes?.some( ( type ) => CUSTOM_SURFACE_TYPES.includes( type ) || CUSTOM_PAD_TYPES.includes( type ) );
+			if ( ! hasCustomSurface ) continue;
+			const [ gx, gz ] = key.split( ',' ).map( Number );
+			placeOverlayMesh( gx, gz, cell );
+
+		}
+		if ( activeCustomSurfaceEditor ) openCustomSurfaceEditor( activeCustomSurfaceEditor );
+		save();
+		showToast( `Applied idea pack: ${ idea.label }` );
+
+	}
+
 	function rotateSelection() {
 
 		const idx = ORIENTATIONS.indexOf( selectedOrient );
@@ -2107,6 +2195,11 @@
 		selectTileType( padSelect.value );
 		if ( CUSTOM_PAD_TYPES.includes( padSelect.value ) ) openCustomSurfaceEditor( padSelect.value );
 		showToast( `Pad: ${ padSelect.options[ padSelect.selectedIndex ]?.textContent || padSelect.value }` );
+
+	} );
+	applyIdeaPackBtn?.addEventListener( 'click', () => {
+
+		applyIdeaPack( ideaPackSelect?.value || 'flow-chaos' );
 
 	} );
 	overlapToggleBtn?.addEventListener( 'click', () => {
