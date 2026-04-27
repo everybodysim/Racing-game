@@ -7,14 +7,34 @@ const BOOST_PARTICLE_COLORS = [
 	new THREE.Color( 0xff4b1f ),
 	new THREE.Color( 0xff9f1c ),
 ];
+const TRAIL_TEXTURES = new Map();
+const TRAIL_SVGS = {
+	smoke: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><defs><radialGradient id="g" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff" stop-opacity="0.95"/><stop offset="58%" stop-color="#d8dfef" stop-opacity="0.65"/><stop offset="100%" stop-color="#cad2e6" stop-opacity="0"/></radialGradient></defs><circle cx="40" cy="40" r="37" fill="url(#g)"/></svg>`,
+	neonRing: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><defs><radialGradient id="c" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#aaf5ff" stop-opacity="0.06"/><stop offset="70%" stop-color="#74f4ff" stop-opacity="0.35"/><stop offset="100%" stop-color="#74f4ff" stop-opacity="0"/></radialGradient></defs><circle cx="40" cy="40" r="25" fill="none" stroke="#79f6ff" stroke-opacity="0.9" stroke-width="9"/><circle cx="40" cy="40" r="36" fill="url(#c)"/></svg>`,
+	comet: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><defs><linearGradient id="t" x1="0%" y1="50%" x2="100%" y2="50%"><stop offset="0%" stop-color="#ffffff" stop-opacity="0"/><stop offset="45%" stop-color="#ffffff" stop-opacity="0.42"/><stop offset="100%" stop-color="#ffffff" stop-opacity="0.95"/></linearGradient></defs><ellipse cx="47" cy="40" rx="24" ry="12" fill="#ffffff" fill-opacity="0.9"/><path d="M5 40C20 26 28 24 43 30L43 50C29 55 18 53 5 40Z" fill="url(#t)"/></svg>`,
+	sparks: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><g fill="#fff"><path d="M40 6l7 20h20l-16 12 7 20-18-12-18 12 7-20-16-12h20z" fill-opacity="0.9"/><circle cx="15" cy="18" r="3" fill-opacity="0.72"/><circle cx="65" cy="62" r="2.5" fill-opacity="0.65"/><circle cx="62" cy="18" r="2.2" fill-opacity="0.6"/></g></svg>`,
+};
+
+function getTrailTexture( trailId ) {
+
+	const key = Object.prototype.hasOwnProperty.call( TRAIL_SVGS, trailId ) ? trailId : 'smoke';
+	if ( TRAIL_TEXTURES.has( key ) ) return TRAIL_TEXTURES.get( key );
+	const svg = TRAIL_SVGS[ key ];
+	const url = `data:image/svg+xml;utf8,${ encodeURIComponent( svg ) }`;
+	const texture = new THREE.TextureLoader().load( url );
+	texture.colorSpace = THREE.SRGBColorSpace;
+	TRAIL_TEXTURES.set( key, texture );
+	return texture;
+
+}
 
 export class SmokeTrails {
 
-	constructor( scene ) {
+	constructor( scene, options = {} ) {
 
 		this.particles = [];
-
-		const map = new THREE.TextureLoader().load( 'sprites/smoke.png' );
+		this.trailId = typeof options?.trailId === 'string' ? options.trailId : 'smoke';
+		const map = getTrailTexture( this.trailId );
 		this.material = new THREE.SpriteMaterial( {
 			map,
 			transparent: true,
@@ -42,6 +62,21 @@ export class SmokeTrails {
 
 		this.emitIndex = 0;
 		this.boostFxTime = 0;
+
+	}
+
+	setTrailStyle( trailId ) {
+
+		const nextTrail = typeof trailId === 'string' ? trailId : 'smoke';
+		if ( nextTrail === this.trailId ) return;
+		this.trailId = nextTrail;
+		const nextMap = getTrailTexture( this.trailId );
+		for ( const particle of this.particles ) {
+
+			particle.sprite.material.map = nextMap;
+			particle.sprite.material.needsUpdate = true;
+
+		}
 
 	}
 
