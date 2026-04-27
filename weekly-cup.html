@@ -260,18 +260,64 @@
     try {
       const parsed = new URL(playUrl, window.location.href);
       const params = new URLSearchParams(parsed.search);
-      if (!params.has('map')) params.set('map', 'default');
-      if (!params.has('mods')) params.set('mods', 'none');
-      params.sort();
-      const base = `${parsed.pathname}?${params.toString()}`;
-      const primary = `trk-${hashTrackSeed(base)}`;
       const map = parsed.searchParams.get('map') || 'default';
       const mods = parsed.searchParams.get('mods') || 'none';
-      const legacyA = encodeBase64Url(`${parsed.pathname}?map=${map}&mods=${mods}`);
-      const legacyB = encodeBase64Url(base);
-      return [primary, legacyA, legacyB].filter(Boolean);
+      const extras = decodeExtrasParamToken(mods) || {
+        bumps: [],
+        boosts: [],
+        jumps: [],
+        decorations: [],
+        surfaces: [],
+        customSurfaces: {},
+        customAssets: {},
+        weather: { preset: 'sunset', precipitation: 'none', intensity: 'light', lightning: false, wind: 'calm' },
+      };
+      const identityParams = {};
+      for (const key of [...new Set([...params.keys()])].sort()) {
+        if (key === 'map' || key === 'mods') continue;
+        const values = params.getAll(key);
+        identityParams[key] = values.length > 1 ? values.slice().sort() : (values[0] || '');
+      }
+      const base = JSON.stringify({
+        path: parsed.pathname,
+        map,
+        mods,
+        trackLayoutVersion: map === 'default' ? 2 : 1,
+        extras: {
+          bumps: extras.bumps,
+          boosts: extras.boosts,
+          jumps: extras.jumps,
+          decorations: extras.decorations,
+          surfaces: extras.surfaces,
+          customSurfaces: extras.customSurfaces,
+          customAssets: extras.customAssets,
+          weather: extras.weather,
+        },
+        params: identityParams,
+      });
+      return [`trk-${hashTrackSeed(`v3|${base}`)}`];
     } catch {
       return [];
+    }
+  }
+
+  function decodeExtrasParamToken(str) {
+    if (!str || str === 'none') return null;
+    try {
+      const json = decodeURIComponent(escape(atob(str.replace(/-/g, '+').replace(/_/g, '/'))));
+      const parsed = JSON.parse(json);
+      return {
+        bumps: Array.isArray(parsed.b) ? parsed.b : [],
+        boosts: Array.isArray(parsed.s) ? parsed.s : [],
+        jumps: Array.isArray(parsed.j) ? parsed.j : [],
+        decorations: Array.isArray(parsed.d) ? parsed.d : [],
+        surfaces: Array.isArray(parsed.u) ? parsed.u : [],
+        customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
+        customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
+        weather: parsed?.w && typeof parsed.w === 'object' ? parsed.w : { preset: 'sunset', precipitation: 'none', intensity: 'light', lightning: false, wind: 'calm' },
+      };
+    } catch {
+      return null;
     }
   }
 
