@@ -48,6 +48,7 @@ function getSurfaceVisual( surfaceType, customSurfaces = null, customPads = null
 		case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
 		case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
 		case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
+		case 'surface-link-node': return { color: 0x71f3ff, emissive: 0x0f7b94, metalness: 0.02, roughness: 0.65 };
 		case 'pad-reset': return { color: 0xffffff, emissive: 0x557c92, metalness: 0.1, roughness: 0.35 };
 		case 'pad-low-gravity': return { color: 0x9bc2ff, emissive: 0x2e4f9f, metalness: 0.05, roughness: 0.55 };
 		case 'pad-heavy-gravity': return { color: 0x4a5f85, emissive: 0x111b36, metalness: 0.05, roughness: 0.8 };
@@ -302,7 +303,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const poleCells = Array.isArray( extras.poles ) ? extras.poles : [];
 		const elevatedCells = Array.isArray( extras.elevated ) ? extras.elevated : [];
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
-		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
+			const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
+			const linkNodes = Array.isArray( extras.linkNodes ) ? extras.linkNodes : [];
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
 		const customPads = extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {};
 		const elevatedMap = new Map();
@@ -431,7 +433,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		for ( const [ gx, gz, surfaceType ] of surfaces ) {
+			for ( const [ gx, gz, surfaceType ] of surfaces ) {
 
 			const visual = getSurfaceVisual( surfaceType, customSurfaces, customPads );
 			const isPad = String( surfaceType || '' ).startsWith( 'pad-' );
@@ -454,9 +456,56 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
 			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			patch.receiveShadow = true;
-			trackPieceGroup.add( patch );
+				trackPieceGroup.add( patch );
+				if ( surfaceType === 'surface-link-node' ) {
 
-		}
+					const marker = new THREE.Mesh(
+						new THREE.SphereGeometry( CELL_RAW * 0.09, 16, 16 ),
+						new THREE.MeshStandardMaterial( {
+							color: 0x84f6ff,
+							emissive: 0x124b57,
+							emissiveIntensity: 0.45,
+							roughness: 0.32,
+							metalness: 0.12
+						} )
+					);
+					marker.position.set( ( gx + 0.5 ) * CELL_RAW, 0.8 + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
+					marker.castShadow = true;
+					marker.receiveShadow = true;
+					trackPieceGroup.add( marker );
+
+				}
+
+			}
+			const linkNodeById = new Map();
+			for ( const [ gx, gz, nodeId ] of linkNodes ) {
+
+				const id = String( nodeId || '' ).trim();
+				if ( ! id ) continue;
+				linkNodeById.set( id, { gx: Number( gx ) || 0, gz: Number( gz ) || 0 } );
+
+			}
+			const seenPairs = new Set();
+			for ( const [ gx, gz, nodeId, linkId ] of linkNodes ) {
+
+				const fromId = String( nodeId || '' ).trim();
+				const toId = String( linkId || '' ).trim();
+				if ( ! fromId || ! toId ) continue;
+				const from = linkNodeById.get( fromId );
+				const to = linkNodeById.get( toId );
+				if ( ! from || ! to ) continue;
+				const pairKey = [ fromId, toId ].sort().join( '|' );
+				if ( seenPairs.has( pairKey ) ) continue;
+				seenPairs.add( pairKey );
+				const points = [
+					new THREE.Vector3( ( from.gx + 0.5 ) * CELL_RAW, 0.58, ( from.gz + 0.5 ) * CELL_RAW ),
+					new THREE.Vector3( ( to.gx + 0.5 ) * CELL_RAW, 0.58, ( to.gz + 0.5 ) * CELL_RAW ),
+				];
+				const geometry = new THREE.BufferGeometry().setFromPoints( points );
+				const line = new THREE.Line( geometry, new THREE.LineBasicMaterial( { color: 0x71f3ff, transparent: true, opacity: 0.72 } ) );
+				trackPieceGroup.add( line );
+
+			}
 
 	}
 

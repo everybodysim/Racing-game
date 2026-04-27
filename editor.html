@@ -334,6 +334,7 @@
 			<option value="surface-bounce">Bounce Plate</option>
 			<option value="surface-kick-l">Kick Left</option>
 			<option value="surface-kick-r">Kick Right</option>
+			<option value="surface-link-node">Link Node</option>
 		</select>
 		<select id="pad-select" aria-label="Pad picker">
 			<option value="">Pads…</option>
@@ -359,6 +360,7 @@
 		<button id="btn-pad-custom-b">Pad B</button>
 		<button id="btn-pad-custom-c">Pad C</button>
 		<button id="btn-overlap-toggle">Overlap: Off</button>
+		<button id="btn-link-pair">Link Pair: Off</button>
 		<button id="btn-deco-forest">Tree</button>
 		<button id="btn-deco-tents">Tent</button>
 		<button id="btn-deco-empty">Prop</button>
@@ -437,6 +439,7 @@
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const SURFACE_TYPES = [
 		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
+		'surface-link-node',
 		'pad-reset', 'pad-low-gravity', 'pad-heavy-gravity', 'pad-high-grip', 'pad-high-speed',
 		'pad-no-brakes', 'pad-no-steering', 'pad-no-acceleration', 'pad-slow-motion', 'pad-fast-motion', 'pad-drift',
 		'pad-custom-a', 'pad-custom-b', 'pad-custom-c',
@@ -483,6 +486,13 @@
 	let autosaveEnabled = true;
 	let autosaveEverySeconds = 30;
 	let autosaveTimer = null;
+	let linkNodeCounter = 1;
+	let linkPairMode = false;
+	let pendingLinkSourceKey = null;
+	let hoveredLinkNodeCell = null;
+	const LINK_NODE_TYPE = 'surface-link-node';
+	const LINK_NODE_DEFAULT_VERTICAL_BOOST = 1.6;
+	const linkPreviewGroup = new THREE.Group();
 	const OFFGRID_STEP = 0.25;
 	const BLOCK_HEIGHT_OFFSET = 0.012;
 	const DECO_HEIGHT_OFFSET = BLOCK_HEIGHT_OFFSET * 0.5;
@@ -502,6 +512,139 @@
 	}
 
 	function cellKey( gx, gz ) { return `${ normalizeCoord( gx ) },${ normalizeCoord( gz ) }`; }
+
+	function makeLinkNodeId() {
+
+		linkNodeCounter += 1;
+		return `ln-${ linkNodeCounter.toString( 36 ) }`;
+
+	}
+
+	function ensureLinkNode( cell ) {
+
+		if ( ! cell ) return null;
+		if ( ! cell.linkNode || typeof cell.linkNode !== 'object' ) {
+
+			cell.linkNode = {
+				id: makeLinkNodeId(),
+				linkId: '',
+				verticalBoost: LINK_NODE_DEFAULT_VERTICAL_BOOST,
+			};
+
+		}
+		if ( ! cell.linkNode.id ) cell.linkNode.id = makeLinkNodeId();
+		cell.linkNode.linkId = String( cell.linkNode.linkId || '' );
+		const verticalBoost = Number( cell.linkNode.verticalBoost );
+		cell.linkNode.verticalBoost = Number.isFinite( verticalBoost ) ? verticalBoost : LINK_NODE_DEFAULT_VERTICAL_BOOST;
+		return cell.linkNode;
+
+	}
+
+	function clearLinkNodeLinksById( nodeId, exceptKey = null ) {
+
+		if ( ! nodeId ) return;
+		for ( const [ key, cell ] of grid ) {
+
+			if ( key === exceptKey || ! cell?.linkNode ) continue;
+			if ( cell.linkNode.id === nodeId || cell.linkNode.linkId === nodeId ) cell.linkNode.linkId = '';
+
+		}
+
+	}
+
+	function sanitizeLinkNodes() {
+
+		const idToKey = new Map();
+		let highestCounter = linkNodeCounter;
+		for ( const [ key, cell ] of grid ) {
+
+			if ( ! cell?.surfaceTypes?.includes( LINK_NODE_TYPE ) ) {
+
+				cell.linkNode = null;
+				continue;
+
+			}
+			const node = ensureLinkNode( cell );
+			if ( idToKey.has( node.id ) ) node.id = makeLinkNodeId();
+			idToKey.set( node.id, key );
+			const parsedCounter = parseInt( String( node.id ).split( '-' ).pop(), 36 );
+			if ( Number.isFinite( parsedCounter ) ) highestCounter = Math.max( highestCounter, parsedCounter );
+
+		}
+		linkNodeCounter = highestCounter;
+		for ( const [ key, cell ] of grid ) {
+
+			if ( ! cell?.linkNode ) continue;
+			if ( cell.linkNode.linkId && ! idToKey.has( cell.linkNode.linkId ) ) cell.linkNode.linkId = '';
+			if ( cell.linkNode.linkId === cell.linkNode.id ) cell.linkNode.linkId = '';
+			if ( cell.linkNode.linkId ) {
+
+				const partnerCell = grid.get( idToKey.get( cell.linkNode.linkId ) );
+				if ( partnerCell?.linkNode?.linkId !== cell.linkNode.id ) partnerCell.linkNode.linkId = cell.linkNode.id;
+
+			}
+
+		}
+		if ( pendingLinkSourceKey && ! grid.get( pendingLinkSourceKey )?.linkNode ) pendingLinkSourceKey = null;
+
+	}
+
+	function drawLinkLine( fromGx, fromGz, toGx, toGz, colorHex = 0x71f3ff ) {
+
+		const points = [
+			new THREE.Vector3( ( fromGx + 0.5 ) * CELL_RAW, 0.58, ( fromGz + 0.5 ) * CELL_RAW ),
+			new THREE.Vector3( ( toGx + 0.5 ) * CELL_RAW, 0.58, ( toGz + 0.5 ) * CELL_RAW ),
+		];
+		const geometry = new THREE.BufferGeometry().setFromPoints( points );
+		const line = new THREE.Line( geometry, new THREE.LineBasicMaterial( { color: colorHex, transparent: true, opacity: 0.9 } ) );
+		linkPreviewGroup.add( line );
+
+	}
+
+	function refreshLinkPreview() {
+
+		while ( linkPreviewGroup.children.length ) {
+
+			const child = linkPreviewGroup.children.pop();
+			child.geometry?.dispose?.();
+			child.material?.dispose?.();
+
+		}
+		const idToCell = new Map();
+		const seenPairs = new Set();
+		for ( const [ key, cell ] of grid ) {
+
+			if ( ! cell?.linkNode ) continue;
+			idToCell.set( cell.linkNode.id, { key, cell } );
+
+		}
+		for ( const [ key, cell ] of grid ) {
+
+			if ( ! cell?.linkNode?.linkId ) continue;
+			const other = idToCell.get( cell.linkNode.linkId );
+			if ( ! other?.cell?.linkNode ) continue;
+			const pairKey = [ cell.linkNode.id, other.cell.linkNode.id ].sort().join( '|' );
+			if ( seenPairs.has( pairKey ) ) continue;
+			seenPairs.add( pairKey );
+			const [ gx, gz ] = key.split( ',' ).map( Number );
+			const [ tx, tz ] = other.key.split( ',' ).map( Number );
+			drawLinkLine( gx, gz, tx, tz, 0x71f3ff );
+
+		}
+		if ( pendingLinkSourceKey ) {
+
+			const sourceCell = grid.get( pendingLinkSourceKey );
+			const targetCell = hoveredLinkNodeCell ? grid.get( cellKey( hoveredLinkNodeCell.gx, hoveredLinkNodeCell.gz ) ) : null;
+			if ( sourceCell?.linkNode && targetCell?.linkNode ) {
+
+				const [ gx, gz ] = pendingLinkSourceKey.split( ',' ).map( Number );
+				drawLinkLine( gx, gz, hoveredLinkNodeCell.gx, hoveredLinkNodeCell.gz, 0xffde6a );
+
+			}
+
+		}
+
+	}
 
 	function makeEmptyCell() {
 
@@ -531,6 +674,7 @@
 			elevatedSupportMesh: null,
 			surfaceTypes: [],
 			surfaceMeshes: [],
+			linkNode: null,
 			decoType: null,
 			decoOrient: 0,
 			decoMesh: null
@@ -549,6 +693,7 @@
 			case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
 			case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
 			case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
+			case 'surface-link-node': return { color: 0x71f3ff, emissive: 0x0f7b94, metalness: 0.02, roughness: 0.65 };
 			case 'surface-custom-a':
 			case 'surface-custom-b':
 			case 'surface-custom-c': {
@@ -633,6 +778,7 @@
 	trackGroup.position.y = - 0.5;
 	trackGroup.scale.setScalar( GRID_SCALE );
 	scene.add( trackGroup );
+	scene.add( linkPreviewGroup );
 
 	// Ghost preview group
 	const ghostGroup = new THREE.Group();
@@ -1091,7 +1237,7 @@
 
 		}
 
-		if ( cell.surfaceTypes?.length ) {
+			if ( cell.surfaceTypes?.length ) {
 
 			cell.surfaceTypes.forEach( ( surfaceType, idx ) => {
 
@@ -1112,13 +1258,34 @@
 				patch.rotation.x = - Math.PI / 2;
 				const yOffset = getOverlayHeightOffset( cell );
 				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
-				patch.receiveShadow = true;
-				trackGroup.add( patch );
-				cell.surfaceMeshes.push( patch );
+					patch.receiveShadow = true;
+					trackGroup.add( patch );
+					cell.surfaceMeshes.push( patch );
+					if ( surfaceType === LINK_NODE_TYPE ) {
 
-			} );
+						const nodeMeta = ensureLinkNode( cell );
+						const marker = new THREE.Mesh(
+							new THREE.SphereGeometry( CELL_RAW * 0.09, 16, 16 ),
+							new THREE.MeshStandardMaterial( {
+								color: pendingLinkSourceKey === cellKey( gx, gz ) ? 0xffde6a : 0x84f6ff,
+								emissive: pendingLinkSourceKey === cellKey( gx, gz ) ? 0x8f6600 : 0x124b57,
+								emissiveIntensity: 0.45,
+								roughness: 0.32,
+								metalness: 0.12
+							} )
+						);
+						marker.position.set( ( gx + 0.5 ) * CELL_RAW, 0.8 + BLOCK_HEIGHT_OFFSET + yOffset + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
+						marker.castShadow = true;
+						marker.receiveShadow = true;
+						marker.userData.linkNodeId = nodeMeta.id;
+						trackGroup.add( marker );
+						cell.surfaceMeshes.push( marker );
 
-		}
+					}
+
+				} );
+
+			}
 
 		if ( cell.decoType ) {
 
@@ -1244,6 +1411,17 @@
 				cell.surfaceTypes = hadType ? [] : [ selectedType ];
 
 			}
+			if ( selectedType === LINK_NODE_TYPE ) {
+
+				if ( cell.surfaceTypes.includes( LINK_NODE_TYPE ) ) ensureLinkNode( cell );
+				else if ( cell.linkNode?.id ) {
+
+					clearLinkNodeLinksById( cell.linkNode.id, key );
+					cell.linkNode = null;
+
+				}
+
+			}
 
 			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
@@ -1271,6 +1449,8 @@
 
 		}
 
+		sanitizeLinkNodes();
+		refreshLinkPreview();
 		save();
 
 	}
@@ -1293,6 +1473,7 @@
 		if ( ! grid.has( key ) ) return;
 
 		const cell = grid.get( key );
+		if ( cell?.linkNode?.id ) clearLinkNodeLinksById( cell.linkNode.id, key );
 		for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
 		if ( cell.mesh ) trackGroup.remove( cell.mesh );
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
@@ -1305,6 +1486,9 @@
 		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		grid.delete( key );
+		if ( pendingLinkSourceKey === key ) pendingLinkSourceKey = null;
+		sanitizeLinkNodes();
+		refreshLinkPreview();
 		save();
 
 	}
@@ -1328,6 +1512,10 @@
 		}
 
 		grid.clear();
+		pendingLinkSourceKey = null;
+		hoveredLinkNodeCell = null;
+		sanitizeLinkNodes();
+		refreshLinkPreview();
 		save();
 
 	}
@@ -1576,6 +1764,7 @@
 		const elevated = [];
 		const surfaces = [];
 		const deco = [];
+		const linkNodes = [];
 
 		for ( const [ key, cell ] of grid ) {
 
@@ -1594,6 +1783,7 @@
 				}
 			for ( const surfaceType of ( cell.surfaceTypes || [] ) ) surfaces.push( [ gx, gz, surfaceType ] );
 			if ( cell.decoType ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
+			if ( cell.linkNode?.id ) linkNodes.push( [ gx, gz, cell.linkNode.id, cell.linkNode.linkId || '', Number( cell.linkNode.verticalBoost ?? LINK_NODE_DEFAULT_VERTICAL_BOOST ) ] );
 
 		}
 
@@ -1608,14 +1798,14 @@
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, e: elevated, u: surfaces, d: deco, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, e: elevated, u: surfaces, d: deco, n: linkNodes, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
+		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], n: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
 
 		try {
 
@@ -1627,9 +1817,10 @@
 					k: Array.isArray( parsed.k ) ? parsed.k : [],
 					l: Array.isArray( parsed.l ) ? parsed.l : [],
 					j: Array.isArray( parsed.j ) ? parsed.j : [],
-					e: Array.isArray( parsed.e ) ? parsed.e : [],
-					u: Array.isArray( parsed.u ) ? parsed.u : [],
-						d: Array.isArray( parsed.d ) ? parsed.d : [],
+						e: Array.isArray( parsed.e ) ? parsed.e : [],
+						u: Array.isArray( parsed.u ) ? parsed.u : [],
+							d: Array.isArray( parsed.d ) ? parsed.d : [],
+							n: Array.isArray( parsed.n ) ? parsed.n : [],
 						w: normalizeWeatherSettings( parsed?.w ),
 						c: parsed?.c && typeof parsed.c === 'object' ? parsed.c : JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
 						y: parsed?.y && typeof parsed.y === 'object' ? parsed.y : JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ),
@@ -1639,7 +1830,7 @@
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-				return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
+				return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], n: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
 
 		}
 
@@ -1811,6 +2002,19 @@
 
 			}
 
+			for ( const [ gx, gz, nodeId, linkId, verticalBoost ] of ( mods.n || [] ) ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key );
+				if ( ! cell?.surfaceTypes?.includes( LINK_NODE_TYPE ) ) continue;
+				cell.linkNode = {
+					id: String( nodeId || makeLinkNodeId() ),
+					linkId: String( linkId || '' ),
+					verticalBoost: Number.isFinite( Number( verticalBoost ) ) ? Number( verticalBoost ) : LINK_NODE_DEFAULT_VERTICAL_BOOST,
+				};
+
+			}
+
 			for ( const [ gx, gz, decoType, decoOrient ] of mods.d ) {
 
 				const key = cellKey( gx, gz );
@@ -1821,6 +2025,8 @@
 					placeOverlayMesh( gx, gz, cell );
 
 			}
+			sanitizeLinkNodes();
+			refreshLinkPreview();
 
 		} catch ( e ) {
 
@@ -1873,6 +2079,7 @@
 	const surfaceSelect = document.getElementById( 'surface-select' );
 	const padSelect = document.getElementById( 'pad-select' );
 	const overlapToggleBtn = document.getElementById( 'btn-overlap-toggle' );
+	const linkPairBtn = document.getElementById( 'btn-link-pair' );
 	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
 	const customSurfaceTitle = document.getElementById( 'custom-surface-title' );
 	const customSurfaceInputs = {
@@ -1969,6 +2176,14 @@
 
 			overlapToggleBtn.classList.toggle( 'active', allowSurfaceOverlap );
 			overlapToggleBtn.textContent = `Overlap: ${ allowSurfaceOverlap ? 'On' : 'Off' }`;
+
+		}
+		if ( linkPairBtn ) {
+
+			linkPairBtn.classList.toggle( 'active', linkPairMode );
+			linkPairBtn.textContent = pendingLinkSourceKey
+				? 'Link Pair: Pick Target'
+				: `Link Pair: ${ linkPairMode ? 'On' : 'Off' }`;
 
 		}
 
@@ -2114,6 +2329,15 @@
 		allowSurfaceOverlap = ! allowSurfaceOverlap;
 		updateTileToolbar();
 		showToast( `Surface overlap ${ allowSurfaceOverlap ? 'enabled' : 'disabled' }` );
+
+	} );
+	linkPairBtn?.addEventListener( 'click', () => {
+
+		linkPairMode = ! linkPairMode;
+		pendingLinkSourceKey = null;
+		updateTileToolbar();
+		refreshLinkPreview();
+		showToast( linkPairMode ? 'Link pairing enabled. Click source node.' : 'Link pairing disabled.' );
 
 	} );
 	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
@@ -2497,6 +2721,66 @@
 
 		if ( lastDrawCell && lastDrawCell.gx === cell.gx && lastDrawCell.gz === cell.gz ) return;
 		lastDrawCell = cell;
+		const key = cellKey( cell.gx, cell.gz );
+		const currentCell = grid.get( key );
+		if ( linkPairMode && ! isErasing && ! isPanning ) {
+
+			if ( currentCell?.linkNode ) {
+
+				if ( ! pendingLinkSourceKey ) {
+
+					pendingLinkSourceKey = key;
+					showToast( 'Source node selected. Click a target node.' );
+
+				} else {
+
+					const sourceCell = grid.get( pendingLinkSourceKey );
+					if ( ! sourceCell?.linkNode ) {
+
+						pendingLinkSourceKey = null;
+						showToast( 'Source node was removed. Pick source again.' );
+						updateTileToolbar();
+						refreshLinkPreview();
+						return;
+
+					}
+					if ( pendingLinkSourceKey === key ) {
+
+						const oldLink = sourceCell.linkNode.linkId;
+						sourceCell.linkNode.linkId = '';
+						if ( oldLink ) clearLinkNodeLinksById( oldLink, pendingLinkSourceKey );
+						showToast( 'Source node unpaired.' );
+
+					} else {
+
+						const targetCell = currentCell;
+						sourceCell.linkNode.linkId = targetCell.linkNode.id;
+						targetCell.linkNode.linkId = sourceCell.linkNode.id;
+						showToast( 'Nodes paired.' );
+
+					}
+					pendingLinkSourceKey = null;
+					sanitizeLinkNodes();
+					save();
+
+				}
+				updateTileToolbar();
+				placeOverlayMesh( cell.gx, cell.gz, currentCell );
+				if ( pendingLinkSourceKey ) {
+
+					const [ srcX, srcZ ] = pendingLinkSourceKey.split( ',' ).map( Number );
+					const srcCell = grid.get( pendingLinkSourceKey );
+					if ( srcCell ) placeOverlayMesh( srcX, srcZ, srcCell );
+
+				}
+				refreshLinkPreview();
+				return;
+
+			}
+			showToast( 'Pick a link node cell.' );
+			return;
+
+		}
 
 		if ( isErasing ) {
 
@@ -2655,6 +2939,19 @@
 		if ( e.pointerType === 'mouse' ) {
 
 			const cell = screenToGrid( e.clientX, e.clientY );
+			if ( linkPairMode ) {
+
+				const key = cell ? cellKey( cell.gx, cell.gz ) : '';
+				const nextHover = cell && grid.get( key )?.linkNode ? cell : null;
+				const changed = ( hoveredLinkNodeCell?.gx !== nextHover?.gx ) || ( hoveredLinkNodeCell?.gz !== nextHover?.gz );
+				if ( changed ) {
+
+					hoveredLinkNodeCell = nextHover;
+					refreshLinkPreview();
+
+				}
+
+			}
 			if ( cell ) {
 
 				hoveredCell = cell;

@@ -104,6 +104,9 @@ const PAD_EFFECTS = {
 const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 const BOUNCE_VERTICAL_DELTA = 7.2;
 const KICK_LATERAL_DELTA = 7.4;
+const LINK_NODE_RADIUS = CELL_RAW * GRID_SCALE * 0.39;
+const LINK_NODE_IMPULSE = 9.5;
+const LINK_NODE_FALLBACK_IMPULSE = 6.2;
 const WEATHER_PRESETS = {
 	clear: { bg: 0xadb2ba, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
 	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
@@ -603,8 +606,9 @@ function decodeExtrasParam( str ) {
 				elevated: Array.isArray( parsed.e ) ? parsed.e : [],
 			jumps: Array.isArray( parsed.j ) ? parsed.j : [],
 			decorations: Array.isArray( parsed.d ) ? parsed.d : [],
-			surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
-			customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
+				surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
+				linkNodes: Array.isArray( parsed.n ) ? parsed.n : [],
+				customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
 			customPads: parsed?.y && typeof parsed.y === 'object' ? parsed.y : {},
 			customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
 			weather: normalizeWeatherDetails( parsed?.w ),
@@ -3423,6 +3427,7 @@ async function init() {
 	const specialSurfaceContactState = new Map();
 	const boostCells = Array.isArray( extras?.boosts ) ? extras.boosts : [];
 	const surfaceCells = Array.isArray( extras?.surfaces ) ? extras.surfaces : [];
+	const linkNodeCells = Array.isArray( extras?.linkNodes ) ? extras.linkNodes : [];
 	const customSurfaceConfigs = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
 	const customPadConfigs = extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {};
 	const surfaceCellMap = new Map();
@@ -3442,6 +3447,26 @@ async function init() {
 		centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
 	} ) );
 	const padEntries = surfaceEntries.filter( ( entry ) => entry.type === PAD_RESET_TYPE || PAD_EFFECTS[ entry.type ] || CUSTOM_PAD_TYPES.includes( entry.type ) );
+	const linkNodesById = new Map();
+	for ( const [ gx, gz, nodeIdRaw, linkIdRaw, verticalBoostRaw ] of linkNodeCells ) {
+
+		const nodeId = String( nodeIdRaw || '' ).trim();
+		if ( ! nodeId ) continue;
+		const verticalBoost = Number( verticalBoostRaw );
+		const entry = {
+			gx,
+			gz,
+			centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
+			centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
+			nodeId,
+			linkId: String( linkIdRaw || '' ).trim(),
+			verticalBoost: Number.isFinite( verticalBoost ) ? verticalBoost : 1.6,
+		};
+		linkNodesById.set( nodeId, entry );
+
+	}
+	const linkNodeContactState = new Map();
+	const linkNodeContactState2 = new Map();
 	const legacyBoostEntries = boostCells.map( ( [ gx, gz ] ) => ( {
 		gx, gz,
 		centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
@@ -4947,6 +4972,55 @@ async function init() {
 
 	}
 
+	function findActiveLinkNodeFor( targetVehicle ) {
+
+		const radius = LINK_NODE_RADIUS + VEHICLE_SURFACE_RADIUS;
+		const radiusSq = radius * radius;
+		for ( const entry of linkNodesById.values() ) {
+
+			const dx = targetVehicle.spherePos.x - entry.centerX;
+			const dz = targetVehicle.spherePos.z - entry.centerZ;
+			if ( dx * dx + dz * dz <= radiusSq ) return entry;
+
+		}
+		return null;
+
+	}
+
+	function applyLinkedNodeImpulseFor( targetVehicle, sourceNode ) {
+
+		if ( ! sourceNode ) return false;
+		const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+		let dirX = 0;
+		let dirZ = 0;
+		const linkedNode = sourceNode.linkId ? linkNodesById.get( sourceNode.linkId ) : null;
+		if ( linkedNode ) {
+
+			dirX = linkedNode.centerX - sourceNode.centerX;
+			dirZ = linkedNode.centerZ - sourceNode.centerZ;
+
+		} else {
+
+			_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+			_boostForward.y = 0;
+			dirX = _boostForward.x;
+			dirZ = _boostForward.z;
+
+		}
+		const lengthSq = dirX * dirX + dirZ * dirZ;
+		if ( lengthSq < 1e-6 ) return false;
+		const invLength = 1 / Math.sqrt( lengthSq );
+		const impulse = linkedNode ? LINK_NODE_IMPULSE : LINK_NODE_FALLBACK_IMPULSE;
+		const nextVel = [
+			vel[ 0 ] + dirX * invLength * impulse,
+			vel[ 1 ] + Math.max( 0, Number( sourceNode.verticalBoost ) || 0 ),
+			vel[ 2 ] + dirZ * invLength * impulse,
+		];
+		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, nextVel );
+		return true;
+
+	}
+
 	function isVehicleOnGround( targetVehicle ) {
 
 		const posY = targetVehicle?.spherePos?.y ?? 999;
@@ -4994,6 +5068,24 @@ async function init() {
 			}
 
 		}
+
+	}
+
+	function applyLinkedNodesFor( targetVehicle, contactState ) {
+
+		const sourceNode = findActiveLinkNodeFor( targetVehicle );
+		if ( sourceNode ) {
+
+			const wasActive = contactState.get( sourceNode.nodeId ) === true;
+			if ( ! wasActive ) applyLinkedNodeImpulseFor( targetVehicle, sourceNode );
+			contactState.set( sourceNode.nodeId, true );
+			for ( const key of [ ...contactState.keys() ] ) {
+
+				if ( key !== sourceNode.nodeId ) contactState.delete( key );
+
+			}
+
+		} else contactState.clear();
 
 	}
 
@@ -5681,7 +5773,8 @@ async function init() {
 
 		}
 
-		applySpecialSurfacesFor( vehicle, specialSurfaceContactState );
+			applySpecialSurfacesFor( vehicle, specialSurfaceContactState );
+			applyLinkedNodesFor( vehicle, linkNodeContactState );
 
 		if ( vehicle2 ) {
 
@@ -5708,7 +5801,8 @@ async function init() {
 
 			}
 
-			applySpecialSurfacesFor( vehicle2, specialSurfaceContactState2 );
+				applySpecialSurfacesFor( vehicle2, specialSurfaceContactState2 );
+				applyLinkedNodesFor( vehicle2, linkNodeContactState2 );
 
 		}
 

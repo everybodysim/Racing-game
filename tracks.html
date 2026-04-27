@@ -225,9 +225,10 @@
 					boosts: Array.isArray( parsed.s ) ? parsed.s : [],
 					elevated: Array.isArray( parsed.e ) ? parsed.e : [],
 					jumps: Array.isArray( parsed.j ) ? parsed.j : [],
-					decorations: Array.isArray( parsed.d ) ? parsed.d : [],
-					surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
-					customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
+						decorations: Array.isArray( parsed.d ) ? parsed.d : [],
+						surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
+						linkNodes: Array.isArray( parsed.n ) ? parsed.n : [],
+						customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
 					customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
 					weather: parsed?.w && typeof parsed.w === 'object' ? parsed.w : { preset: 'sunset', precipitation: 'none', intensity: 'light', lightning: false, wind: 'calm' },
 				};

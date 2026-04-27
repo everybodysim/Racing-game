@@ -132,6 +132,7 @@ function parseExtrasFromUrl(rawUrl) {
       jumps: Array.isArray(parsed.j) ? parsed.j : [],
       decorations: Array.isArray(parsed.d) ? parsed.d : [],
       surfaces: Array.isArray(parsed.u) ? parsed.u : [],
+      linkNodes: Array.isArray(parsed.n) ? parsed.n : [],
       customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
       customPads: parsed?.y && typeof parsed.y === 'object' ? parsed.y : {},
     };
@@ -147,6 +148,7 @@ function normalizeTrackExtras(extras) {
     jumps: Array.isArray(extras?.jumps) ? extras.jumps : [],
     decorations: Array.isArray(extras?.decorations) ? extras.decorations : [],
     surfaces: Array.isArray(extras?.surfaces) ? extras.surfaces : [],
+    linkNodes: Array.isArray(extras?.linkNodes) ? extras.linkNodes : [],
     customSurfaces: extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {},
     customPads: extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {},
   };
