@@ -980,6 +980,7 @@ async function init() {
 	const searchParams = new URLSearchParams( window.location.search );
 	const { mapParam, extrasParam } = await resolvePackedTrackParams( searchParams );
 	const isSplitScreen = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1';
+	const settingsRequested = searchParams.get( 'settings' ) === '1';
 	const ghostEnabled = ! isSplitScreen;
 	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
 	let customCells = null;
@@ -1993,6 +1994,8 @@ async function init() {
 	const garageAddMappingBtn = document.getElementById( 'garage-add-mapping-btn' );
 	const garageMappingStatus = document.getElementById( 'garage-mapping-status' );
 	const garageMappingsList = document.getElementById( 'garage-mappings-list' );
+	const garageTrailsGrid = document.getElementById( 'garage-trails-grid' );
+	const settingsLink = document.getElementById( 'settings-link' );
 	const profileExportBtn = document.getElementById( 'profile-export-btn' );
 	const profileImportBtn = document.getElementById( 'profile-import-btn' );
 	const accountUsernameInput = document.getElementById( 'account-username-input' );
@@ -2031,6 +2034,14 @@ async function init() {
 	let garageUnlocked = { grip: false, accel: false, drive: false };
 	const GARAGE_COLOR_UNLOCK_COST = 90;
 	const GARAGE_SHINY_UNLOCK_COST = 1000;
+	const GARAGE_TRAIL_DEFAULT_ID = 'smoke';
+	const GARAGE_TRAIL_LIBRARY = [
+		{ id: 'smoke', label: 'Classic Smoke', unlockCost: 0, accent: '#c9d3e5', iconSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 42"><defs><radialGradient id="a" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#fff" stop-opacity=".95"/><stop offset="66%" stop-color="#d9e1ef" stop-opacity=".45"/><stop offset="100%" stop-color="#d9e1ef" stop-opacity="0"/></radialGradient></defs><circle cx="28" cy="21" r="15" fill="url(#a)"/><circle cx="52" cy="18" r="13" fill="url(#a)"/><circle cx="77" cy="21" r="15" fill="url(#a)"/></svg>' },
+		{ id: 'neonRing', label: 'Neon Ring', unlockCost: 420, accent: '#7ef8ff', iconSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 42"><circle cx="30" cy="21" r="11" fill="none" stroke="#7ef8ff" stroke-width="5"/><circle cx="60" cy="21" r="11" fill="none" stroke="#7ef8ff" stroke-width="5"/><circle cx="90" cy="21" r="11" fill="none" stroke="#7ef8ff" stroke-width="5"/></svg>' },
+		{ id: 'comet', label: 'Comet Tail', unlockCost: 600, accent: '#ffeeba', iconSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 42"><defs><linearGradient id="b" x1="0%" y1="50%" x2="100%" y2="50%"><stop offset="0%" stop-color="#fff" stop-opacity="0"/><stop offset="100%" stop-color="#fff" stop-opacity=".95"/></linearGradient></defs><ellipse cx="88" cy="21" rx="16" ry="8" fill="#fff"/><path d="M8 21c25-16 47-14 80-4v8c-34 10-54 11-80-4Z" fill="url(#b)"/></svg>' },
+		{ id: 'sparks', label: 'Apex Sparks', unlockCost: 780, accent: '#fff2b2', iconSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 42"><g fill="#fff"><path d="m20 6 4 10h10l-8 6 4 10-10-6-10 6 4-10-8-6h10z"/><path d="m60 6 4 10h10l-8 6 4 10-10-6-10 6 4-10-8-6h10z"/><path d="m100 6 4 10h10l-8 6 4 10-10-6-10 6 4-10-8-6h10z"/></g></svg>' },
+	];
+	const GARAGE_TRAIL_IDS = new Set( GARAGE_TRAIL_LIBRARY.map( ( entry ) => entry.id ) );
 	const GARAGE_STANDARD_PALETTE = buildGaragePaintPalette();
 	const GARAGE_SHINY_PALETTE = buildGarageShinyPalette();
 	const GARAGE_PAINT_PALETTE = [ ...GARAGE_STANDARD_PALETTE, ...GARAGE_SHINY_PALETTE ];
@@ -2435,10 +2446,13 @@ async function init() {
 
 	}
 
-	function setModeMenuOpen( open ) {
+	function setModeMenuOpen( open, options = {} ) {
 
 		modeMenuOpen = open;
 		if ( modeMenu ) modeMenu.style.display = open ? 'block' : 'none';
+		const expanded = Boolean( options.expanded );
+		modeMenu?.classList.toggle( 'mode-menu-expanded', expanded );
+		if ( modeMenuBtn ) modeMenuBtn.textContent = expanded ? 'Settings (E)' : 'Mode Menu (E)';
 
 	}
 
@@ -2519,7 +2533,19 @@ async function init() {
 
 		}
 
-		return { unlockedPaints, cars };
+		const unlockedTrails = {};
+		const legacyTrail = typeof next?.trail === 'string' ? next.trail : '';
+		const selectedTrailIdRaw = typeof next?.selectedTrailId === 'string' ? next.selectedTrailId : legacyTrail;
+		for ( const trail of GARAGE_TRAIL_LIBRARY ) {
+
+			if ( trail.unlockCost <= 0 || Boolean( next?.unlockedTrails?.[ trail.id ] ) ) unlockedTrails[ trail.id ] = true;
+
+		}
+		const selectedTrailId = GARAGE_TRAIL_IDS.has( selectedTrailIdRaw ) && unlockedTrails[ selectedTrailIdRaw ]
+			? selectedTrailIdRaw
+			: GARAGE_TRAIL_DEFAULT_ID;
+
+		return { unlockedPaints, cars, unlockedTrails, selectedTrailId };
 
 	}
 
@@ -2574,7 +2600,12 @@ async function init() {
 		try {
 
 			const raw = localStorage.getItem( garageStoreKey );
-			if ( ! raw ) return;
+			if ( ! raw ) {
+
+				applySelectedTrailStyle();
+				return;
+
+			}
 			const parsed = JSON.parse( raw );
 			const legacy = parsed && ! parsed.mods;
 			const mods = legacy ? parsed : parsed?.mods;
@@ -2590,10 +2621,12 @@ async function init() {
 				drive: Boolean( unlocked?.drive ),
 			};
 			garageCosmetics = normalizeGarageCosmetics( parsed?.cosmetics );
+			applySelectedTrailStyle();
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to load garage mods', e );
+			applySelectedTrailStyle();
 
 		}
 
@@ -2613,6 +2646,7 @@ async function init() {
 			if ( garageGripStatus ) garageGripStatus.textContent = 'Unavailable in 2P mode';
 			if ( garageAccelStatus ) garageAccelStatus.textContent = 'Unavailable in 2P mode';
 			if ( garageDriveStatus ) garageDriveStatus.textContent = 'Unavailable in 2P mode';
+			updateGarageTrailUi();
 			return;
 
 		}
@@ -2661,6 +2695,7 @@ async function init() {
 		if ( garageCarSelect ) garageCarSelect.value = getSelectedGarageCarKey();
 		updateGaragePaletteUi();
 		updateGarageMappingsUi();
+		updateGarageTrailUi();
 
 	}
 
@@ -2675,6 +2710,65 @@ async function init() {
 		if ( ! garageMappingStatus ) return;
 		garageMappingStatus.textContent = message || '';
 		garageMappingStatus.style.color = isError ? '#ff9ea2' : '#b9d0ea';
+
+	}
+
+	function makeTrailIconDataUrl( trail ) {
+
+		const svg = typeof trail?.iconSvg === 'string' ? trail.iconSvg : '';
+		return `data:image/svg+xml;utf8,${ encodeURIComponent( svg ) }`;
+
+	}
+
+	function applySelectedTrailStyle() {
+
+		const trailId = garageCosmetics?.selectedTrailId || GARAGE_TRAIL_DEFAULT_ID;
+		particles.setTrailStyle( trailId );
+		particles2?.setTrailStyle( trailId );
+
+	}
+
+	function updateGarageTrailUi() {
+
+		if ( ! garageTrailsGrid ) return;
+		garageTrailsGrid.innerHTML = '';
+		const unlockedTrails = garageCosmetics?.unlockedTrails || {};
+		const selectedTrailId = garageCosmetics?.selectedTrailId || GARAGE_TRAIL_DEFAULT_ID;
+		for ( const trail of GARAGE_TRAIL_LIBRARY ) {
+
+			const unlocked = Boolean( unlockedTrails[ trail.id ] ) || trail.unlockCost <= 0;
+			const isActive = unlocked && selectedTrailId === trail.id;
+			const card = document.createElement( 'button' );
+			card.type = 'button';
+			card.className = `garage-trail-card${ isActive ? ' active' : '' }${ unlocked ? '' : ' locked' }`;
+			card.style.borderColor = isActive ? trail.accent : '';
+			card.innerHTML = `<img class="garage-trail-icon" alt="${ trail.label } icon" src="${ makeTrailIconDataUrl( trail ) }"><div>${ trail.label }</div><div class="garage-trail-meta"><span>${ unlocked ? 'Owned' : `${ trail.unlockCost } coins` }</span><span>${ isActive ? 'Active' : '' }</span></div>`;
+			card.addEventListener( 'click', () => {
+
+				if ( ! unlocked ) {
+
+					if ( coins < trail.unlockCost ) {
+
+						setGarageMappingStatus( `Need ${ trail.unlockCost } coins to unlock ${ trail.label }.`, true );
+						return;
+
+					}
+					coins -= trail.unlockCost;
+					garageCosmetics.unlockedTrails[ trail.id ] = true;
+					saveEconomy();
+					updateEconomyHud();
+
+				}
+				garageCosmetics.selectedTrailId = trail.id;
+				saveGarageMods();
+				applySelectedTrailStyle();
+				updateGarageTrailUi();
+				setGarageMappingStatus( `${ trail.label } trail equipped.` );
+
+			} );
+			garageTrailsGrid.appendChild( card );
+
+		}
 
 	}
 
@@ -3311,6 +3405,7 @@ async function init() {
 			drive: Boolean( parsed?.garage?.unlocked?.drive ),
 		};
 		garageCosmetics = normalizeGarageCosmetics( parsed?.garage?.cosmetics );
+		applySelectedTrailStyle();
 		if ( parsed?.campaign && typeof parsed.campaign === 'object' ) {
 
 			const stage = Math.max( 1, Number( parsed.campaign.stage ) || 1 );
@@ -5006,7 +5101,15 @@ async function init() {
 	modeMenuBtn?.addEventListener( 'click', ( e ) => {
 
 		e.preventDefault();
-		setModeMenuOpen( ! modeMenuOpen );
+		const nextOpen = ! modeMenuOpen;
+		setModeMenuOpen( nextOpen, { expanded: nextOpen ? modeMenu?.classList.contains( 'mode-menu-expanded' ) : false } );
+
+	} );
+	settingsLink?.addEventListener( 'click', ( e ) => {
+
+		e.preventDefault();
+		setModeTab( 'garage' );
+		setModeMenuOpen( true, { expanded: true } );
 
 	} );
 	hacksToggleLink?.addEventListener( 'click', ( e ) => {
@@ -5394,6 +5497,7 @@ async function init() {
 	loadGarageMods();
 	loadCampaignState();
 	setModeTab( 'gameplay' );
+	if ( settingsRequested ) setModeTab( 'garage' );
 	if ( garageCarSelect ) garageCarSelect.value = currentCarKey();
 	updateGarageUi();
 	applyCarCustomization( vehicle );
@@ -5404,6 +5508,7 @@ async function init() {
 	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 	updateGhostShareButtons();
 	updateModeHudVisibility();
+	if ( settingsRequested ) setModeMenuOpen( true, { expanded: true } );
 	fetchTrackLeaderboard();
 	setInterval( () => {
 
@@ -5465,7 +5570,8 @@ async function init() {
 
 					}
 
-					setModeMenuOpen( ! modeMenuOpen );
+					const nextOpen = ! modeMenuOpen;
+					setModeMenuOpen( nextOpen, { expanded: false } );
 					return;
 
 			}
