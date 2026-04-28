@@ -397,12 +397,19 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			const gz = Number( gzRaw );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
 			const yGrid = THREE.MathUtils.clamp( Number( yGridRaw ) || 0, - 1, 3 );
-			const isOrange = String( variant ) === 'orange';
+			const arcVariant = String( variant );
+			const colors = arcVariant === 'orange'
+				? { color: 0xffae52, emissive: 0x8c4b00 }
+				: ( arcVariant === 'purple'
+					? { color: 0xb468ff, emissive: 0x4a1677 }
+					: ( arcVariant === 'yellow'
+						? { color: 0xffef4a, emissive: 0x8f7b00 }
+						: { color: 0x6dff6d, emissive: 0x1f6d1f } ) );
 			const arcNode = new THREE.Mesh(
 				new THREE.BoxGeometry( MAGNET_HALF_SIZE * 2, MAGNET_HALF_SIZE * 2, MAGNET_HALF_SIZE * 2 ),
 				new THREE.MeshStandardMaterial( {
-					color: isOrange ? 0xffae52 : 0x6dff6d,
-					emissive: isOrange ? 0x8c4b00 : 0x1f6d1f,
+					color: colors.color,
+					emissive: colors.emissive,
 					emissiveIntensity: 0.24,
 					roughness: 0.5,
 					metalness: 0.28,
