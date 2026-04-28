@@ -3573,7 +3573,12 @@ async function init() {
 			const gz = Number( gzRaw );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) return null;
 			const yGrid = THREE.MathUtils.clamp( Number( yGridRaw ) || 0, - 1, 3 );
-			const color = String( variantRaw ) === 'orange' ? 'orange' : 'green';
+			const variant = String( variantRaw );
+			const color = variant === 'portal-purple' || variant === 'purple'
+				? 'portal-purple'
+				: ( variant === 'portal-yellow' || variant === 'yellow'
+					? 'portal-yellow'
+					: ( variant === 'orange' ? 'orange' : 'green' ) );
 			const linkId = THREE.MathUtils.clamp( Math.round( Number( idRaw ) || 1 ), 1, 999 );
 			return {
 				gx, gz, yGrid, color, linkId,
@@ -5170,7 +5175,7 @@ async function init() {
 		let triggeredEntry = null;
 		for ( const entry of arcLinkEntries ) {
 
-			if ( entry.color !== 'orange' ) continue;
+			if ( entry.color !== 'orange' && entry.color !== 'portal-purple' ) continue;
 
 			const dx = entry.centerX - targetVehicle.spherePos.x;
 			const dy = entry.centerY - targetVehicle.spherePos.y;
@@ -5185,12 +5190,27 @@ async function init() {
 		if ( ! nextContactKey ) return { contactKey: null, lockUntilExit: false };
 		if ( currentState.lockUntilExit ) return { contactKey: nextContactKey, lockUntilExit: true };
 		if ( currentState.contactKey === nextContactKey ) return { contactKey: nextContactKey, lockUntilExit: false };
-		const pair = ( arcEntriesById.get( triggeredEntry.linkId ) || [] )
-			.find( ( candidate ) => candidate !== triggeredEntry && candidate.color === 'green' );
+		const pairCandidates = ( arcEntriesById.get( triggeredEntry.linkId ) || [] )
+			.filter( ( candidate ) => candidate !== triggeredEntry );
+		const pair = triggeredEntry.color === 'portal-purple'
+			? pairCandidates.find( ( candidate ) => candidate.color === 'portal-yellow' )
+			: pairCandidates.find( ( candidate ) => candidate.color === 'green' );
 		if ( ! pair ) {
 
-			setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: missing green endpoint` );
+			const missingLabel = triggeredEntry.color === 'portal-purple' ? 'yellow portal endpoint' : 'green endpoint';
+			setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: missing ${ missingLabel }` );
 			return { contactKey: nextContactKey, lockUntilExit: false };
+
+		}
+		if ( triggeredEntry.color === 'portal-purple' ) {
+
+			const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+			rigidBody.setPosition( world, targetVehicle.rigidBody, [ pair.centerX, pair.centerY, pair.centerZ ], false );
+			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], vel[ 1 ], vel[ 2 ] ] );
+			targetVehicle.spherePos.set( pair.centerX, pair.centerY, pair.centerZ );
+			targetVehicle.container.position.set( targetVehicle.spherePos.x, targetVehicle.spherePos.y - 0.5, targetVehicle.spherePos.z );
+			setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: purple portal → yellow endpoint (velocity kept)` );
+			return { contactKey: nextContactKey, lockUntilExit: true };
 
 		}
 		const tx = pair.centerX - targetVehicle.spherePos.x;
