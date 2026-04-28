@@ -298,6 +298,19 @@
 			color: #b9d0ea;
 			font: 600 11px/1.3 sans-serif;
 		}
+		#garage-remap-help {
+			margin-top: 8px;
+			padding: 8px;
+			border-radius: 8px;
+			border: 1px solid rgba(255,255,255,0.16);
+			background: rgba(17,26,42,0.55);
+			color: #c9def7;
+			font: 600 11px/1.4 sans-serif;
+		}
+		#garage-remap-help ol {
+			margin: 6px 0 0 16px;
+			padding: 0;
+		}
 		#garage-mapping-controls { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.14); }
 		#garage-mapping-controls label { display: block; margin-top: 6px; }
 		#garage-mapping-controls input[type="range"] { width: 100%; margin-top: 6px; }
@@ -858,6 +871,16 @@
 			<button id="profile-import-btn" type="button">Import Profile</button>
 			<h4 style="margin-top:12px;">Paint Shop</h4>
 			<div id="garage-color-help">Unlock colors, select one, then map near source RGB values on this car.</div>
+			<div id="garage-remap-help">
+				<strong>How color remapping works</strong>
+				<ol>
+					<li>Pick the car above so you edit that car's mappings.</li>
+					<li>Unlock and select a paint dot (target color).</li>
+					<li>Choose a source color that already exists on the model.</li>
+					<li>Raise tolerance to include more shades, lower it for precision.</li>
+					<li>Click <em>Add color mapping</em>, then test drive and tune.</li>
+				</ol>
+			</div>
 			<div id="garage-color-grid"></div>
 			<div id="garage-shiny-help">Premium reflective paints (1000 coins each)</div>
 			<div id="garage-shiny-grid"></div>
@@ -884,8 +907,8 @@
 			<input id="account-password-input" type="password" maxlength="80" autocomplete="current-password" placeholder="At least 6 characters" />
 			<button id="account-signup-btn" type="button">Sign Up</button>
 			<button id="account-login-btn" type="button">Login</button>
-			<button id="account-cloud-save-btn" type="button">Cloud Save Profile</button>
-			<button id="account-cloud-load-btn" type="button">Cloud Load Profile</button>
+			<button id="account-cloud-save-btn" type="button">Save profile to cloud</button>
+			<button id="account-cloud-load-btn" type="button">Load profile from cloud</button>
 			<button id="account-export-btn" type="button">Export Account</button>
 			<button id="account-import-btn" type="button">Import Account</button>
 			<div id="account-status"></div>
@@ -904,6 +927,7 @@
 		<label><input id="hack-low-friction" type="checkbox"> Low friction drift mode</label>
 		<label><input id="hack-instant-stop" type="checkbox"> Instant stop (hold V)</label>
 		<label><input id="hack-checkpoint-bypass" type="checkbox"> Auto-pass checkpoints</label>
+		<label><input id="hack-show-hitboxes" type="checkbox"> Show hitboxes + transparent world</label>
 		<label>Game speed
 			<input id="hack-timescale" type="range" min="0.15" max="1" step="0.05" value="1">
 		</label>
@@ -949,12 +973,13 @@
 	</div>
 	<script>
 		const map = new URLSearchParams( location.search ).get( 'map' );
+		const pack = new URLSearchParams( location.search ).get( 'pack' );
 		const play = new URLSearchParams( location.search ).get( 'play' );
 		const mods = new URLSearchParams( location.search ).get( 'mods' );
 		const multiplayer = new URLSearchParams( location.search ).get( 'multiplayer' );
 		const landing = document.getElementById( 'home-landing' );
 		const isIndexPath = /(?:^|\/)(?:index\.html)?$/.test( location.pathname );
-		if ( landing && isIndexPath && !map && play !== '1' ) {
+		if ( landing && isIndexPath && !map && !pack && play !== '1' ) {
 			landing.classList.add( 'visible' );
 		}
 		if ( map ) {
@@ -994,6 +1019,52 @@
 			quickMenuBtn.setAttribute( 'aria-expanded', 'false' );
 			quickMenuBtn.textContent = 'Menu ▾';
 		} );
+
+		async function readLeaderboardNameFromPage( pageUrl, selector, fallbackLabel ) {
+			return new Promise( ( resolve ) => {
+				const iframe = document.createElement( 'iframe' );
+				iframe.src = pageUrl;
+				iframe.style.display = 'none';
+				document.body.appendChild( iframe );
+				const timeout = window.setTimeout( () => {
+					iframe.remove();
+					resolve( fallbackLabel );
+				}, 8000 );
+				iframe.addEventListener( 'load', () => {
+					let attempts = 0;
+					const poll = window.setInterval( () => {
+						attempts ++;
+						const text = iframe.contentDocument?.querySelector( selector )?.textContent?.trim();
+						if ( text && ! /^loading/i.test( text ) ) {
+							window.clearTimeout( timeout );
+							window.clearInterval( poll );
+							iframe.remove();
+							resolve( text );
+							return;
+						}
+						if ( attempts > 30 ) {
+							window.clearTimeout( timeout );
+							window.clearInterval( poll );
+							iframe.remove();
+							resolve( fallbackLabel );
+						}
+					}, 220 );
+				}, { once: true } );
+			} );
+		}
+
+		( async () => {
+			const totdLink = document.getElementById( 'totd-link' );
+			const weeklyLink = document.getElementById( 'weekly-cup-link' );
+			if ( totdLink ) {
+				const winner = await readLeaderboardNameFromPage( 'totd.html', '#totd-record-holder', 'No record yet' );
+				totdLink.textContent = `Track of the day • ${ winner }`;
+			}
+			if ( weeklyLink ) {
+				const winner = await readLeaderboardNameFromPage( 'weekly-cup.html', '#champName', 'No records yet' );
+				weeklyLink.textContent = `Weekly cup • ${ winner }`;
+			}
+		} )();
 	</script>
 	<script type="module" src="js/main.js"></script>
   <style>

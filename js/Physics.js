@@ -2,12 +2,18 @@ import * as THREE from 'three';
 import { rigidBody, box, sphere, MotionType, MotionQuality } from 'crashcat';
 import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
 
-const _debugMat = new THREE.MeshBasicMaterial( { color: 0x00ff00, wireframe: true } );
+const _debugMat = new THREE.MeshBasicMaterial( {
+	color: 0x0b2f75,
+	transparent: true,
+	opacity: 0.34,
+	depthWrite: false,
+} );
 
 function addDebugBox( group, halfExtents, position, quaternion ) {
 
 	const geo = new THREE.BoxGeometry( halfExtents[ 0 ] * 2, halfExtents[ 1 ] * 2, halfExtents[ 2 ] * 2 );
 	const mesh = new THREE.Mesh( geo, _debugMat );
+	mesh.userData.isHackHitboxDebug = true;
 	mesh.position.set( position[ 0 ], position[ 1 ], position[ 2 ] );
 	if ( quaternion ) mesh.quaternion.set( quaternion[ 0 ], quaternion[ 1 ], quaternion[ 2 ], quaternion[ 3 ] );
 	group.add( mesh );
@@ -18,6 +24,7 @@ function addDebugSphere( group, radius, position ) {
 
 	const geo = new THREE.SphereGeometry( radius, 16, 12 );
 	const mesh = new THREE.Mesh( geo, _debugMat );
+	mesh.userData.isHackHitboxDebug = true;
 	mesh.position.set( position[ 0 ], position[ 1 ], position[ 2 ] );
 	group.add( mesh );
 

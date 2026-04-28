@@ -101,6 +101,8 @@ const PAD_EFFECTS = {
 	'pad-fast-motion': { id: 'fast-motion', timeScale: 1.35 },
 	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
 };
+const HACK_HITBOX_OPACITY = 0.34;
+const HACK_WORLD_OPACITY = 0.52;
 const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 const BOUNCE_VERTICAL_DELTA = 7.2;
 const KICK_LATERAL_DELTA = 7.4;
@@ -1084,7 +1086,11 @@ async function init() {
 	world._OL_MOVING = OL_MOVING;
 	world._OL_STATIC = OL_STATIC;
 
-	const resettableObstacleBodies = buildWallColliders( world, null, customCells, extras ) || [];
+	const hitboxDebugGroup = new THREE.Group();
+	hitboxDebugGroup.visible = false;
+	hitboxDebugGroup.userData.isHackHitboxDebug = true;
+	scene.add( hitboxDebugGroup );
+	const resettableObstacleBodies = buildWallColliders( world, hitboxDebugGroup, customCells, extras ) || [];
 
 	const roadHalf = groundSize / 2;
 	rigidBody.create( world, {
@@ -1097,6 +1103,18 @@ async function init() {
 	} );
 
 	const sphereBody = createSphereBody( world, spawn ? spawn.position : null );
+	const carHitboxMaterial = new THREE.MeshBasicMaterial( {
+		color: 0x0b2f75,
+		transparent: true,
+		opacity: HACK_HITBOX_OPACITY,
+		depthWrite: false,
+	} );
+	const carHitboxMesh = new THREE.Mesh( new THREE.SphereGeometry( VEHICLE_SURFACE_RADIUS, 20, 14 ), carHitboxMaterial );
+	carHitboxMesh.userData.isHackHitboxDebug = true;
+	carHitboxMesh.visible = false;
+	scene.add( carHitboxMesh );
+	const originalHackTransparencyByMaterial = new Map();
+	let hackVisualsApplied = false;
 
 	const player1CarKey = isSplitScreen ? pickRandomCarKey() : 'vehicle-truck-yellow';
 	const player2CarKey = isSplitScreen ? pickRandomCarKey() : 'vehicle-truck-red';
@@ -1890,6 +1908,7 @@ async function init() {
 	const hackLowFrictionInput = document.getElementById( 'hack-low-friction' );
 	const hackInstantStopInput = document.getElementById( 'hack-instant-stop' );
 	const hackCheckpointBypassInput = document.getElementById( 'hack-checkpoint-bypass' );
+	const hackShowHitboxesInput = document.getElementById( 'hack-show-hitboxes' );
 	const hackTimescaleInput = document.getElementById( 'hack-timescale' );
 	const hackGravityInput = document.getElementById( 'hack-gravity' );
 	const hackRoadGripInput = document.getElementById( 'hack-road-grip' );
@@ -2116,6 +2135,7 @@ async function init() {
 		lowFriction: false,
 		instantStop: false,
 		checkpointBypass: false,
+		showHitboxes: false,
 		timeScale: 1,
 		gravity: 1,
 		roadGrip: 1,
@@ -2193,12 +2213,68 @@ async function init() {
 
 	}
 
+	function setHackMeshTransparencyEnabled( enabled ) {
+
+		if ( enabled ) {
+
+			scene.traverse( ( node ) => {
+
+				if ( ! node?.isMesh || node?.userData?.isHackHitboxDebug ) return;
+				const materials = Array.isArray( node.material ) ? node.material : [ node.material ];
+				for ( const material of materials ) {
+
+					if ( ! material ) continue;
+					if ( ! originalHackTransparencyByMaterial.has( material ) ) {
+
+						originalHackTransparencyByMaterial.set( material, {
+							transparent: material.transparent,
+							opacity: material.opacity,
+							depthWrite: material.depthWrite,
+						} );
+
+					}
+					material.transparent = true;
+					material.opacity = Math.min( Number.isFinite( material.opacity ) ? material.opacity : 1, HACK_WORLD_OPACITY );
+					material.depthWrite = false;
+					material.needsUpdate = true;
+
+				}
+
+			} );
+			return;
+
+		}
+		for ( const [ material, original ] of originalHackTransparencyByMaterial.entries() ) {
+
+			material.transparent = original.transparent;
+			material.opacity = original.opacity;
+			material.depthWrite = original.depthWrite;
+			material.needsUpdate = true;
+
+		}
+		originalHackTransparencyByMaterial.clear();
+
+	}
+
+	function applyHitboxHackVisuals( force = false ) {
+
+		const shouldShow = Boolean( hacksInstalled && hacksState.enabled && hacksState.showHitboxes );
+		if ( ! force && shouldShow === hackVisualsApplied ) return;
+		hackVisualsApplied = shouldShow;
+		hitboxDebugGroup.visible = shouldShow;
+		carHitboxMesh.visible = shouldShow;
+		setHackMeshTransparencyEnabled( shouldShow );
+
+	}
+
 	function applyHacksUi() {
 
 		if ( ! hacksInstalled ) {
 
 			hacksState.enabled = false;
+			hacksState.showHitboxes = false;
 			if ( hacksPanel ) hacksPanel.style.display = 'none';
+			applyHitboxHackVisuals( true );
 			return;
 
 		}
@@ -2212,9 +2288,11 @@ async function init() {
 		if ( hackLowFrictionInput ) hackLowFrictionInput.checked = hacksState.lowFriction;
 		if ( hackInstantStopInput ) hackInstantStopInput.checked = hacksState.instantStop;
 		if ( hackCheckpointBypassInput ) hackCheckpointBypassInput.checked = hacksState.checkpointBypass;
+		if ( hackShowHitboxesInput ) hackShowHitboxesInput.checked = hacksState.showHitboxes;
 		if ( hackTimescaleInput ) hackTimescaleInput.value = String( hacksState.timeScale );
 		if ( hackGravityInput ) hackGravityInput.value = String( hacksState.gravity );
 		if ( hackRoadGripInput ) hackRoadGripInput.value = String( hacksState.roadGrip );
+		applyHitboxHackVisuals();
 
 	}
 
@@ -2234,6 +2312,7 @@ async function init() {
 			hacksState.lowFriction = Boolean( parsed.lowFriction );
 			hacksState.instantStop = Boolean( parsed.instantStop );
 			hacksState.checkpointBypass = Boolean( parsed.checkpointBypass );
+			hacksState.showHitboxes = Boolean( parsed.showHitboxes );
 			hacksState.timeScale = THREE.MathUtils.clamp( Number( parsed.timeScale ) || 1, 0.15, 1 );
 			hacksState.gravity = THREE.MathUtils.clamp( Number( parsed.gravity ) || 1, 0.1, 2 );
 			hacksState.roadGrip = THREE.MathUtils.clamp( Number( parsed.roadGrip ) || 1, 0.5, 3 );
@@ -2255,6 +2334,7 @@ async function init() {
 		hacksState.lowFriction = false;
 		hacksState.instantStop = false;
 		hacksState.checkpointBypass = false;
+		hacksState.showHitboxes = false;
 		hacksState.timeScale = 1;
 		hacksState.gravity = 1;
 		hacksState.roadGrip = 1;
@@ -4553,7 +4633,17 @@ async function init() {
 		accountSession = { username: payload.username, token: payload.token };
 		localStorage.setItem( ACCOUNT_SESSION_KEY, JSON.stringify( accountSession ) );
 		updateAccountUi();
-		setAccountStatus( `Logged in as ${ payload.username }.` );
+		try {
+
+			await cloudLoadProfile();
+			setAccountStatus( `Logged in as ${ payload.username } and loaded cloud profile.` );
+
+		} catch ( loadError ) {
+
+			console.warn( 'Auto cloud profile load after login failed', loadError );
+			setAccountStatus( `Logged in as ${ payload.username } (auto-load failed, use "Load profile from cloud").`, true );
+
+		}
 
 	}
 
@@ -5202,6 +5292,7 @@ async function init() {
 
 			applyFn();
 			saveHacksState();
+			applyHitboxHackVisuals();
 			applyVehiclePerformance();
 			updateEconomyHud();
 
@@ -5210,6 +5301,7 @@ async function init() {
 
 			applyFn();
 			saveHacksState();
+			applyHitboxHackVisuals();
 			applyVehiclePerformance();
 			updateEconomyHud();
 
@@ -5227,6 +5319,7 @@ async function init() {
 	bindHackControl( hackLowFrictionInput, () => hacksState.lowFriction = Boolean( hackLowFrictionInput?.checked ) );
 	bindHackControl( hackInstantStopInput, () => hacksState.instantStop = Boolean( hackInstantStopInput?.checked ) );
 	bindHackControl( hackCheckpointBypassInput, () => hacksState.checkpointBypass = Boolean( hackCheckpointBypassInput?.checked ) );
+	bindHackControl( hackShowHitboxesInput, () => hacksState.showHitboxes = Boolean( hackShowHitboxesInput?.checked ) );
 	bindHackControl( hackTimescaleInput, () => hacksState.timeScale = THREE.MathUtils.clamp( Number( hackTimescaleInput?.value ) || 1, 0.15, 1 ) );
 	bindHackControl( hackGravityInput, () => hacksState.gravity = THREE.MathUtils.clamp( Number( hackGravityInput?.value ) || 1, 0.1, 2 ) );
 	bindHackControl( hackRoadGripInput, () => hacksState.roadGrip = THREE.MathUtils.clamp( Number( hackRoadGripInput?.value ) || 1, 0.5, 3 ) );
@@ -5241,6 +5334,7 @@ async function init() {
 
 			vehicle.setModel( models[ selectedKey ] );
 			applyCarCustomization( vehicle );
+			applyHitboxHackVisuals( true );
 
 		}
 		updateGarageMappingsUi();
@@ -5257,6 +5351,7 @@ async function init() {
 
 			vehicle.setModel( models[ selectedKey ] );
 			applyCarCustomization( vehicle );
+			applyHitboxHackVisuals( true );
 
 		}
 		updateGarageMappingsUi();
@@ -5743,6 +5838,7 @@ async function init() {
 
 			vehicle.update( dt, padAdjustedInput );
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
+			if ( carHitboxMesh.visible ) carHitboxMesh.position.set( vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z );
 			applyMagnetForceFor( vehicle, dt );
 			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
 			arcLinkState = applyArcLinkFor( vehicle, arcLinkState );
