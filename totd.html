@@ -3,9 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Daily Track Generator v2</title>
+  <title>Track of the Day</title>
   <style>
-    body { font-family: system-ui,sans-serif; margin: 20px; background:#0f1117; color:#e8ecf1; }
+    :root { color-scheme: dark; }
+    body { font-family: system-ui,sans-serif; margin: 0; padding: 20px; background: radial-gradient(circle at top, #14243f 0%, #0f1117 40%, #0b0d12 100%); color:#e8ecf1; }
+    h2 { margin-top: 0; font-size: 30px; }
+    .subtitle { color:#b8c7dc; margin: -4px 0 14px; }
     .row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
     input, button, textarea { font: inherit; }
     input, textarea { background:#161a22; color:#e8ecf1; border:1px solid #2a3140; border-radius:8px; padding:8px; }
@@ -13,12 +16,16 @@
     button:hover { filter:brightness(1.08); }
     textarea { width:100%; min-height:72px; }
     .card { background:#121621; border:1px solid #262d3b; border-radius:12px; padding:12px; margin-top:12px; }
+    .record-card { background: linear-gradient(130deg, rgba(70,120,220,0.28), rgba(52,170,110,0.22)); border: 1px solid rgba(255,255,255,0.18); }
+    .record-main { font-size: 22px; font-weight: 700; margin-top: 4px; }
+    .record-time { color: #9be7bf; font-size: 14px; margin-top: 4px; }
     canvas { border:1px solid #2a3140; border-radius:8px; background:#0b0d12; }
     code { background:#161a22; padding:2px 6px; border-radius:6px; }
   </style>
 </head>
 <body>
-  <h2>Daily Track Generator (Seeded, Connected Loop)</h2>
+  <h2>🏁 Track of the Day</h2>
+  <p class="subtitle">Daily seeded challenge track with leaderboard lookup for today's fastest run.</p>
   <div class="row">
     <label>UTC Date: <input id="dateInput" type="date"></label>
   </div>
@@ -26,6 +33,12 @@
     <button id="genBtn">Generate</button>
     <button id="copyBtn">Copy URL</button>
     <button id="openBtn">Open URL</button>
+  </div>
+
+  <div class="card record-card">
+    <div><strong>Current record holder</strong></div>
+    <div class="record-main" id="totd-record-holder">Loading…</div>
+    <div class="record-time" id="totd-record-time">--.--s</div>
   </div>
 
   <div class="card">
@@ -49,6 +62,7 @@
 <script>
 (() => {
   const BASE_URL = "https://everybodysim.github.io/Racing-game/index.html";
+  const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
 
   // ---------- codec ----------
   const TYPE_INDEX = {
@@ -78,6 +92,62 @@
     const json = JSON.stringify(modsObj);
     return btoa(unescape(encodeURIComponent(json)))
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function normalizeTrackPath(pathValue) {
+    const raw = String(pathValue || '/');
+    if (raw === '/index.html') return '/';
+    if (raw.endsWith('/index.html')) return `${raw.slice(0, -11)}/`;
+    return raw;
+  }
+
+  function fnv64Hex(value, start, prime) {
+    let hash = start;
+    for (let i = 0; i < value.length; i++) {
+      hash ^= BigInt(value.charCodeAt(i));
+      hash = (hash * prime) & 0xffffffffffffffffn;
+    }
+    return hash.toString(16).padStart(16, '0');
+  }
+
+  function hashTrackSeed(value) {
+    const hashA = fnv64Hex(value, 0xcbf29ce484222325n, 0x100000001b3n);
+    const hashB = fnv64Hex(value, 0x84222325cbf29cen, 0x100000001c3n);
+    return `${hashA}${hashB}`;
+  }
+
+  function buildTrackId(pathname, mapParam, modsParam) {
+    const query = new URLSearchParams();
+    if (mapParam) query.set('map', mapParam);
+    if (modsParam) query.set('mods', modsParam);
+    const rawUrl = `${pathname}${query.toString() ? `?${query.toString()}` : ''}`;
+    return `trk-${hashTrackSeed(`v4-url|${rawUrl}`)}`;
+  }
+
+  function getTrackIds(playUrl) {
+    try {
+      const parsed = new URL(playUrl, window.location.href);
+      const map = parsed.searchParams.get('map');
+      const mods = parsed.searchParams.get('mods');
+      const normalizedPath = normalizeTrackPath(parsed.pathname || '/');
+      return [buildTrackId(normalizedPath, map, mods)];
+    } catch {
+      return [];
+    }
+  }
+
+  async function fetchTopRow(playUrl) {
+    const ids = getTrackIds(playUrl);
+    const payloads = await Promise.all(ids.map(async (id) => {
+      try {
+        const res = await fetch(`${LEADERBOARD_API_BASE}?trackId=${encodeURIComponent(id)}`);
+        if (!res.ok) return null;
+        return await res.json();
+      } catch { return null; }
+    }));
+    const rows = payloads.flatMap((payload) => Array.isArray(payload?.entries) ? payload.entries : []);
+    if (!rows.length) return null;
+    return rows.slice().sort((a, b) => Number(a?.timeSeconds) - Number(b?.timeSeconds))[0] || null;
   }
 
   // ---------- deterministic random ----------
@@ -444,7 +514,7 @@
     }
   }
 
-  function run() {
+  async function run() {
     const date = document.getElementById('dateInput').value || utcTodayStr();
     const generated = generateForDate(date);
     const map = encodeCells(generated.cells);
@@ -459,10 +529,22 @@
     document.getElementById('cellsOut').value = JSON.stringify(generated.cells, null, 2);
 
     drawPreview(generated.cells, generated.mods);
+
+    const holderEl = document.getElementById('totd-record-holder');
+    const timeEl = document.getElementById('totd-record-time');
+    if (holderEl) holderEl.textContent = 'Loading…';
+    if (timeEl) timeEl.textContent = '--.--s';
+    const topRow = await fetchTopRow(url);
+    if (!topRow) {
+      if (holderEl) holderEl.textContent = 'No record yet';
+      return;
+    }
+    if (holderEl) holderEl.textContent = String(topRow.name || 'Unknown');
+    if (timeEl) timeEl.textContent = Number.isFinite(Number(topRow.timeSeconds)) ? `${Number(topRow.timeSeconds).toFixed(2)}s` : '--.--s';
   }
 
   document.getElementById('dateInput').value = utcTodayStr();
-  document.getElementById('genBtn').addEventListener('click', run);
+  document.getElementById('genBtn').addEventListener('click', () => { run(); });
   document.getElementById('copyBtn').addEventListener('click', async () => {
     const txt = document.getElementById('urlOut').value;
     try { await navigator.clipboard.writeText(txt); alert('URL copied'); }

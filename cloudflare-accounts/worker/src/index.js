@@ -4,6 +4,12 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const MAX_USERNAME_LENGTH = 24;
 const MAX_PROFILE_BYTES = 12000;
 const MAX_COIN_LEADERBOARD_SCAN = 5000;
+const MAX_NOTIFICATIONS_PER_USER = 120;
+const DEFAULT_NOTIFICATION_SETTINGS = {
+	recordBeaten: true,
+	totdUpdates: true,
+	cotwUpdates: true,
+};
 
 export default {
 	async fetch( request, env ) {
@@ -24,6 +30,15 @@ export default {
 		}
 		if ( url.pathname === '/api/accounts/coins-leaderboard' && request.method === 'GET' ) {
 			return withCors( await getCoinsLeaderboard( url, env ) );
+		}
+		if ( url.pathname === '/api/accounts/notifications' && request.method === 'GET' ) {
+			return withCors( await getNotifications( url, env ) );
+		}
+		if ( url.pathname === '/api/accounts/notifications/read' && request.method === 'POST' ) {
+			return withCors( await markNotificationsRead( request, env ) );
+		}
+		if ( url.pathname === '/api/accounts/notifications/settings' && request.method === 'POST' ) {
+			return withCors( await saveNotificationSettings( request, env ) );
 		}
 
 		return withCors( json( { ok: false, error: 'Not found' }, 404 ) );
@@ -53,6 +68,7 @@ async function signup( request, env ) {
 		salt,
 		createdAt: Date.now(),
 		profile,
+		notifications: createDefaultNotificationState(),
 	};
 	await env.ACCOUNTS_KV.put( keyForUser( usernameKey ), JSON.stringify( userRecord ) );
 	const token = await createSession( env, usernameKey );
@@ -141,6 +157,65 @@ async function getCoinsLeaderboard( url, env ) {
 	} );
 }
 
+async function getNotifications( url, env ) {
+	const token = String( url.searchParams.get( 'token' ) || '' ).trim();
+	if ( ! token ) return json( { ok: false, error: 'token is required' }, 400 );
+	const session = await loadSession( env, token );
+	if ( ! session ) return json( { ok: false, error: 'Invalid or expired token' }, 401 );
+	const userRecord = await env.ACCOUNTS_KV.get( keyForUser( session.usernameKey ), 'json' );
+	if ( ! userRecord ) return json( { ok: false, error: 'Account not found' }, 404 );
+	const limit = Math.max( 1, Math.min( 100, Math.floor( Number( url.searchParams.get( 'limit' ) || 25 ) ) ) );
+	const unreadOnly = String( url.searchParams.get( 'unreadOnly' ) || '' ) === '1';
+	const notifications = sanitizeNotificationState( userRecord.notifications );
+	const sourceItems = unreadOnly ? notifications.items.filter( ( item ) => ! item.readAt ) : notifications.items;
+	const items = sourceItems.slice( 0, limit );
+	const unreadCount = notifications.items.filter( ( item ) => ! item.readAt ).length;
+	return json( { ok: true, settings: notifications.settings, unreadCount, items } );
+}
+
+async function markNotificationsRead( request, env ) {
+	const payload = await parseJsonBody( request );
+	if ( ! payload.ok ) return payload.response;
+	const token = String( payload.value?.token || '' ).trim();
+	if ( ! token ) return json( { ok: false, error: 'token is required' }, 400 );
+	const session = await loadSession( env, token );
+	if ( ! session ) return json( { ok: false, error: 'Invalid or expired token' }, 401 );
+	const userRecord = await env.ACCOUNTS_KV.get( keyForUser( session.usernameKey ), 'json' );
+	if ( ! userRecord ) return json( { ok: false, error: 'Account not found' }, 404 );
+	const notifications = sanitizeNotificationState( userRecord.notifications );
+	const markAll = Boolean( payload.value?.all );
+	const idsToMark = Array.isArray( payload.value?.notificationIds )
+		? new Set( payload.value.notificationIds.map( ( id ) => String( id || '' ).trim() ).filter( Boolean ) )
+		: new Set();
+	const now = Date.now();
+	for ( const item of notifications.items ) {
+		if ( item.readAt ) continue;
+		if ( markAll || idsToMark.has( item.id ) ) item.readAt = now;
+	}
+	userRecord.notifications = notifications;
+	userRecord.updatedAt = now;
+	await env.ACCOUNTS_KV.put( keyForUser( session.usernameKey ), JSON.stringify( userRecord ) );
+	const unreadCount = notifications.items.filter( ( item ) => ! item.readAt ).length;
+	return json( { ok: true, unreadCount } );
+}
+
+async function saveNotificationSettings( request, env ) {
+	const payload = await parseJsonBody( request );
+	if ( ! payload.ok ) return payload.response;
+	const token = String( payload.value?.token || '' ).trim();
+	if ( ! token ) return json( { ok: false, error: 'token is required' }, 400 );
+	const session = await loadSession( env, token );
+	if ( ! session ) return json( { ok: false, error: 'Invalid or expired token' }, 401 );
+	const userRecord = await env.ACCOUNTS_KV.get( keyForUser( session.usernameKey ), 'json' );
+	if ( ! userRecord ) return json( { ok: false, error: 'Account not found' }, 404 );
+	const notifications = sanitizeNotificationState( userRecord.notifications );
+	notifications.settings = sanitizeNotificationSettings( payload.value?.settings );
+	userRecord.notifications = notifications;
+	userRecord.updatedAt = Date.now();
+	await env.ACCOUNTS_KV.put( keyForUser( session.usernameKey ), JSON.stringify( userRecord ) );
+	return json( { ok: true, settings: notifications.settings } );
+}
+
 function keyForUser( usernameKey ) {
 	return `${ USER_KEY_PREFIX }${ usernameKey }`;
 }
@@ -205,6 +280,52 @@ function sanitizeProfile( value ) {
 		},
 		campaign: profile?.campaign && typeof profile.campaign === 'object' ? profile.campaign : null,
 		carKey: typeof profile?.carKey === 'string' ? profile.carKey : '',
+	};
+}
+
+function createDefaultNotificationState() {
+	return {
+		settings: { ...DEFAULT_NOTIFICATION_SETTINGS },
+		items: [],
+	};
+}
+
+function sanitizeNotificationSettings( value ) {
+	const source = value && typeof value === 'object' ? value : {};
+	return {
+		recordBeaten: source.recordBeaten !== false,
+		totdUpdates: source.totdUpdates !== false,
+		cotwUpdates: source.cotwUpdates !== false,
+	};
+}
+
+function sanitizeNotificationState( value ) {
+	const source = value && typeof value === 'object' ? value : {};
+	const settings = sanitizeNotificationSettings( source.settings );
+	const rawItems = Array.isArray( source.items ) ? source.items : [];
+	const items = rawItems
+		.map( ( item ) => sanitizeNotificationItem( item ) )
+		.filter( Boolean )
+		.slice( 0, MAX_NOTIFICATIONS_PER_USER );
+	return { settings, items };
+}
+
+function sanitizeNotificationItem( item ) {
+	if ( ! item || typeof item !== 'object' ) return null;
+	const id = String( item.id || '' ).trim().slice( 0, 80 );
+	const type = String( item.type || 'info' ).trim().slice( 0, 40 );
+	const message = String( item.message || '' ).replace( /\s+/g, ' ' ).trim().slice( 0, 240 );
+	const createdAt = Number( item.createdAt );
+	if ( ! id || ! message || ! Number.isFinite( createdAt ) ) return null;
+	const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata : null;
+	const readAt = Number( item.readAt );
+	return {
+		id,
+		type,
+		message,
+		createdAt,
+		readAt: Number.isFinite( readAt ) ? readAt : null,
+		metadata,
 	};
 }
 

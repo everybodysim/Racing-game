@@ -101,6 +101,8 @@ const PAD_EFFECTS = {
 	'pad-fast-motion': { id: 'fast-motion', timeScale: 1.35 },
 	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
 };
+const HACK_HITBOX_OPACITY = 0.34;
+const HACK_WORLD_OPACITY = 0.52;
 const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 const BOUNCE_VERTICAL_DELTA = 7.2;
 const KICK_LATERAL_DELTA = 7.4;
@@ -127,6 +129,7 @@ const INTENSITY_DEFAULT = 'medium';
 const WIND_DEFAULT = 'none';
 const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
 const ACCOUNT_API_BASE = 'https://racing-account-api.ga1010.workers.dev/api/accounts';
+const NOTIFICATIONS_POLL_MS = 45000;
 const TRACK_SHARE_API_ROOT = 'https://racing-track-board-api.ga1010.workers.dev';
 const TRACK_SHARE_API_PREFIXES = [ '/api', '' ];
 const PLAYER_NAME_KEY = 'racing-player-name-v1';
@@ -1084,7 +1087,11 @@ async function init() {
 	world._OL_MOVING = OL_MOVING;
 	world._OL_STATIC = OL_STATIC;
 
-	const resettableObstacleBodies = buildWallColliders( world, null, customCells, extras ) || [];
+	const hitboxDebugGroup = new THREE.Group();
+	hitboxDebugGroup.visible = false;
+	hitboxDebugGroup.userData.isHackHitboxDebug = true;
+	scene.add( hitboxDebugGroup );
+	const resettableObstacleBodies = buildWallColliders( world, hitboxDebugGroup, customCells, extras ) || [];
 
 	const roadHalf = groundSize / 2;
 	rigidBody.create( world, {
@@ -1097,6 +1104,18 @@ async function init() {
 	} );
 
 	const sphereBody = createSphereBody( world, spawn ? spawn.position : null );
+	const carHitboxMaterial = new THREE.MeshBasicMaterial( {
+		color: 0x0b2f75,
+		transparent: true,
+		opacity: HACK_HITBOX_OPACITY,
+		depthWrite: false,
+	} );
+	const carHitboxMesh = new THREE.Mesh( new THREE.SphereGeometry( VEHICLE_SURFACE_RADIUS, 20, 14 ), carHitboxMaterial );
+	carHitboxMesh.userData.isHackHitboxDebug = true;
+	carHitboxMesh.visible = false;
+	scene.add( carHitboxMesh );
+	const originalHackTransparencyByMaterial = new Map();
+	let hackVisualsApplied = false;
 
 	const player1CarKey = isSplitScreen ? pickRandomCarKey() : 'vehicle-truck-yellow';
 	const player2CarKey = isSplitScreen ? pickRandomCarKey() : 'vehicle-truck-red';
@@ -1890,6 +1909,7 @@ async function init() {
 	const hackLowFrictionInput = document.getElementById( 'hack-low-friction' );
 	const hackInstantStopInput = document.getElementById( 'hack-instant-stop' );
 	const hackCheckpointBypassInput = document.getElementById( 'hack-checkpoint-bypass' );
+	const hackShowHitboxesInput = document.getElementById( 'hack-show-hitboxes' );
 	const hackTimescaleInput = document.getElementById( 'hack-timescale' );
 	const hackGravityInput = document.getElementById( 'hack-gravity' );
 	const hackRoadGripInput = document.getElementById( 'hack-road-grip' );
@@ -2017,6 +2037,14 @@ async function init() {
 	const accountExportBtn = document.getElementById( 'account-export-btn' );
 	const accountImportBtn = document.getElementById( 'account-import-btn' );
 	const accountStatus = document.getElementById( 'account-status' );
+	const notificationsLink = document.getElementById( 'notifications-link' );
+	const notificationsPanel = document.getElementById( 'notifications-panel' );
+	const notificationsRefreshBtn = document.getElementById( 'notifications-refresh-btn' );
+	const notificationsReadBtn = document.getElementById( 'notifications-read-btn' );
+	const notificationsList = document.getElementById( 'notifications-list' );
+	const notifSettingRecordBeatenInput = document.getElementById( 'notif-setting-record-beaten' );
+	const notifSettingTotdInput = document.getElementById( 'notif-setting-totd' );
+	const notifSettingCotwInput = document.getElementById( 'notif-setting-cotw' );
 	let gameMode = 'race';
 	let stuntPoints = 0;
 	let bestStuntPoints = 0;
@@ -2030,6 +2058,16 @@ async function init() {
 	let pendingLeaderboardRecord = null;
 	let leaderboardVisible = true;
 	let accountSession = null;
+	let notificationsPollTimer = null;
+	let notificationsState = {
+		unreadCount: 0,
+		items: [],
+		settings: {
+			recordBeaten: true,
+			totdUpdates: true,
+			cotwUpdates: true,
+		},
+	};
 	let campaignState = null;
 	let campaignTargetAuthorSeconds = null;
 	let campaignTrackName = '';
@@ -2116,6 +2154,7 @@ async function init() {
 		lowFriction: false,
 		instantStop: false,
 		checkpointBypass: false,
+		showHitboxes: false,
 		timeScale: 1,
 		gravity: 1,
 		roadGrip: 1,
@@ -2193,12 +2232,68 @@ async function init() {
 
 	}
 
+	function setHackMeshTransparencyEnabled( enabled ) {
+
+		if ( enabled ) {
+
+			scene.traverse( ( node ) => {
+
+				if ( ! node?.isMesh || node?.userData?.isHackHitboxDebug ) return;
+				const materials = Array.isArray( node.material ) ? node.material : [ node.material ];
+				for ( const material of materials ) {
+
+					if ( ! material ) continue;
+					if ( ! originalHackTransparencyByMaterial.has( material ) ) {
+
+						originalHackTransparencyByMaterial.set( material, {
+							transparent: material.transparent,
+							opacity: material.opacity,
+							depthWrite: material.depthWrite,
+						} );
+
+					}
+					material.transparent = true;
+					material.opacity = Math.min( Number.isFinite( material.opacity ) ? material.opacity : 1, HACK_WORLD_OPACITY );
+					material.depthWrite = false;
+					material.needsUpdate = true;
+
+				}
+
+			} );
+			return;
+
+		}
+		for ( const [ material, original ] of originalHackTransparencyByMaterial.entries() ) {
+
+			material.transparent = original.transparent;
+			material.opacity = original.opacity;
+			material.depthWrite = original.depthWrite;
+			material.needsUpdate = true;
+
+		}
+		originalHackTransparencyByMaterial.clear();
+
+	}
+
+	function applyHitboxHackVisuals( force = false ) {
+
+		const shouldShow = Boolean( hacksInstalled && hacksState.enabled && hacksState.showHitboxes );
+		if ( ! force && shouldShow === hackVisualsApplied ) return;
+		hackVisualsApplied = shouldShow;
+		hitboxDebugGroup.visible = shouldShow;
+		carHitboxMesh.visible = shouldShow;
+		setHackMeshTransparencyEnabled( shouldShow );
+
+	}
+
 	function applyHacksUi() {
 
 		if ( ! hacksInstalled ) {
 
 			hacksState.enabled = false;
+			hacksState.showHitboxes = false;
 			if ( hacksPanel ) hacksPanel.style.display = 'none';
+			applyHitboxHackVisuals( true );
 			return;
 
 		}
@@ -2212,9 +2307,11 @@ async function init() {
 		if ( hackLowFrictionInput ) hackLowFrictionInput.checked = hacksState.lowFriction;
 		if ( hackInstantStopInput ) hackInstantStopInput.checked = hacksState.instantStop;
 		if ( hackCheckpointBypassInput ) hackCheckpointBypassInput.checked = hacksState.checkpointBypass;
+		if ( hackShowHitboxesInput ) hackShowHitboxesInput.checked = hacksState.showHitboxes;
 		if ( hackTimescaleInput ) hackTimescaleInput.value = String( hacksState.timeScale );
 		if ( hackGravityInput ) hackGravityInput.value = String( hacksState.gravity );
 		if ( hackRoadGripInput ) hackRoadGripInput.value = String( hacksState.roadGrip );
+		applyHitboxHackVisuals();
 
 	}
 
@@ -2234,6 +2331,7 @@ async function init() {
 			hacksState.lowFriction = Boolean( parsed.lowFriction );
 			hacksState.instantStop = Boolean( parsed.instantStop );
 			hacksState.checkpointBypass = Boolean( parsed.checkpointBypass );
+			hacksState.showHitboxes = Boolean( parsed.showHitboxes );
 			hacksState.timeScale = THREE.MathUtils.clamp( Number( parsed.timeScale ) || 1, 0.15, 1 );
 			hacksState.gravity = THREE.MathUtils.clamp( Number( parsed.gravity ) || 1, 0.1, 2 );
 			hacksState.roadGrip = THREE.MathUtils.clamp( Number( parsed.roadGrip ) || 1, 0.5, 3 );
@@ -2255,6 +2353,7 @@ async function init() {
 		hacksState.lowFriction = false;
 		hacksState.instantStop = false;
 		hacksState.checkpointBypass = false;
+		hacksState.showHitboxes = false;
 		hacksState.timeScale = 1;
 		hacksState.gravity = 1;
 		hacksState.roadGrip = 1;
@@ -3276,6 +3375,130 @@ async function init() {
 		setAccountStatus( accountSession?.token ? `Signed in as ${ accountSession.username }` : 'Not signed in' );
 		if ( accountCloudSaveBtn ) accountCloudSaveBtn.disabled = ! accountSession?.token;
 		if ( accountCloudLoadBtn ) accountCloudLoadBtn.disabled = ! accountSession?.token;
+		updateNotificationsUi();
+		restartNotificationsPolling();
+
+	}
+
+	function updateNotificationsUi() {
+
+		if ( notificationsLink ) {
+
+			const unread = Math.max( 0, Number( notificationsState.unreadCount ) || 0 );
+			notificationsLink.classList.toggle( 'has-unread', unread > 0 );
+			notificationsLink.textContent = unread > 0 ? `Notifications (${ unread })` : 'Notifications';
+
+		}
+		if ( notifSettingRecordBeatenInput ) notifSettingRecordBeatenInput.checked = notificationsState.settings.recordBeaten !== false;
+		if ( notifSettingTotdInput ) notifSettingTotdInput.checked = notificationsState.settings.totdUpdates !== false;
+		if ( notifSettingCotwInput ) notifSettingCotwInput.checked = notificationsState.settings.cotwUpdates !== false;
+		if ( notificationsList ) {
+
+			notificationsList.innerHTML = '';
+			const items = Array.isArray( notificationsState.items ) ? notificationsState.items : [];
+			if ( items.length === 0 ) {
+
+				const item = document.createElement( 'li' );
+				item.textContent = accountSession?.token ? 'No notifications yet.' : 'Log in to see notifications.';
+				notificationsList.appendChild( item );
+			} else {
+
+				for ( const entry of items ) {
+
+					const li = document.createElement( 'li' );
+					const createdAt = Number( entry?.createdAt );
+					const stamp = Number.isFinite( createdAt ) ? new Date( createdAt ).toLocaleString() : '';
+					li.innerHTML = `<div>${ String( entry?.message || '' ) }</div><small style="opacity:0.72;">${ stamp }</small>`;
+					notificationsList.appendChild( li );
+
+				}
+
+			}
+
+		}
+
+	}
+
+	function setNotificationsPanelOpen( open ) {
+
+		if ( ! notificationsPanel ) return;
+		notificationsPanel.style.display = open ? 'block' : 'none';
+
+	}
+
+	async function fetchNotifications() {
+
+		if ( ! accountSession?.token ) {
+
+			notificationsState = {
+				unreadCount: 0,
+				items: [],
+				settings: {
+					recordBeaten: true,
+					totdUpdates: true,
+					cotwUpdates: true,
+				},
+			};
+			updateNotificationsUi();
+			return;
+
+		}
+		const payload = await accountApiRequest( `/notifications?token=${ encodeURIComponent( accountSession.token ) }&limit=30` );
+		notificationsState.unreadCount = Math.max( 0, Number( payload?.unreadCount ) || 0 );
+		notificationsState.items = Array.isArray( payload?.items ) ? payload.items : [];
+		notificationsState.settings = payload?.settings && typeof payload.settings === 'object'
+			? {
+				recordBeaten: payload.settings.recordBeaten !== false,
+				totdUpdates: payload.settings.totdUpdates !== false,
+				cotwUpdates: payload.settings.cotwUpdates !== false,
+			}
+			: {
+				recordBeaten: true,
+				totdUpdates: true,
+				cotwUpdates: true,
+			};
+		updateNotificationsUi();
+
+	}
+
+	async function markAllNotificationsRead() {
+
+		if ( ! accountSession?.token ) return;
+		await accountApiRequest( '/notifications/read', {
+			method: 'POST',
+			body: JSON.stringify( { token: accountSession.token, all: true } ),
+		} );
+		await fetchNotifications();
+
+	}
+
+	async function saveNotificationSettings() {
+
+		if ( ! accountSession?.token ) return;
+		const settings = {
+			recordBeaten: Boolean( notifSettingRecordBeatenInput?.checked ),
+			totdUpdates: Boolean( notifSettingTotdInput?.checked ),
+			cotwUpdates: Boolean( notifSettingCotwInput?.checked ),
+		};
+		const payload = await accountApiRequest( '/notifications/settings', {
+			method: 'POST',
+			body: JSON.stringify( { token: accountSession.token, settings } ),
+		} );
+		notificationsState.settings = payload?.settings && typeof payload.settings === 'object' ? payload.settings : settings;
+		updateNotificationsUi();
+
+	}
+
+	function restartNotificationsPolling() {
+
+		if ( notificationsPollTimer ) clearInterval( notificationsPollTimer );
+		notificationsPollTimer = null;
+		if ( ! accountSession?.token ) return;
+		notificationsPollTimer = setInterval( () => {
+
+			fetchNotifications().catch( ( error ) => console.warn( 'Notification poll failed', error ) );
+
+		}, NOTIFICATIONS_POLL_MS );
 
 	}
 
@@ -4539,6 +4762,7 @@ async function init() {
 		localStorage.setItem( ACCOUNT_SESSION_KEY, JSON.stringify( accountSession ) );
 		updateAccountUi();
 		setAccountStatus( `Signed up and logged in as ${ payload.username }.` );
+		await fetchNotifications();
 
 	}
 
@@ -4553,7 +4777,18 @@ async function init() {
 		accountSession = { username: payload.username, token: payload.token };
 		localStorage.setItem( ACCOUNT_SESSION_KEY, JSON.stringify( accountSession ) );
 		updateAccountUi();
-		setAccountStatus( `Logged in as ${ payload.username }.` );
+		await fetchNotifications();
+		try {
+
+			await cloudLoadProfile();
+			setAccountStatus( `Logged in as ${ payload.username } and loaded cloud profile.` );
+
+		} catch ( loadError ) {
+
+			console.warn( 'Auto cloud profile load after login failed', loadError );
+			setAccountStatus( `Logged in as ${ payload.username } (auto-load failed, use "Load profile from cloud").`, true );
+
+		}
 
 	}
 
@@ -4577,6 +4812,7 @@ async function init() {
 		localStorage.setItem( ACCOUNT_SESSION_KEY, JSON.stringify( accountSession ) );
 		updateAccountUi();
 		setAccountStatus( 'Cloud profile loaded.' );
+		await fetchNotifications();
 
 	}
 
@@ -5202,6 +5438,7 @@ async function init() {
 
 			applyFn();
 			saveHacksState();
+			applyHitboxHackVisuals();
 			applyVehiclePerformance();
 			updateEconomyHud();
 
@@ -5210,6 +5447,7 @@ async function init() {
 
 			applyFn();
 			saveHacksState();
+			applyHitboxHackVisuals();
 			applyVehiclePerformance();
 			updateEconomyHud();
 
@@ -5227,6 +5465,7 @@ async function init() {
 	bindHackControl( hackLowFrictionInput, () => hacksState.lowFriction = Boolean( hackLowFrictionInput?.checked ) );
 	bindHackControl( hackInstantStopInput, () => hacksState.instantStop = Boolean( hackInstantStopInput?.checked ) );
 	bindHackControl( hackCheckpointBypassInput, () => hacksState.checkpointBypass = Boolean( hackCheckpointBypassInput?.checked ) );
+	bindHackControl( hackShowHitboxesInput, () => hacksState.showHitboxes = Boolean( hackShowHitboxesInput?.checked ) );
 	bindHackControl( hackTimescaleInput, () => hacksState.timeScale = THREE.MathUtils.clamp( Number( hackTimescaleInput?.value ) || 1, 0.15, 1 ) );
 	bindHackControl( hackGravityInput, () => hacksState.gravity = THREE.MathUtils.clamp( Number( hackGravityInput?.value ) || 1, 0.1, 2 ) );
 	bindHackControl( hackRoadGripInput, () => hacksState.roadGrip = THREE.MathUtils.clamp( Number( hackRoadGripInput?.value ) || 1, 0.5, 3 ) );
@@ -5241,6 +5480,7 @@ async function init() {
 
 			vehicle.setModel( models[ selectedKey ] );
 			applyCarCustomization( vehicle );
+			applyHitboxHackVisuals( true );
 
 		}
 		updateGarageMappingsUi();
@@ -5257,6 +5497,7 @@ async function init() {
 
 			vehicle.setModel( models[ selectedKey ] );
 			applyCarCustomization( vehicle );
+			applyHitboxHackVisuals( true );
 
 		}
 		updateGarageMappingsUi();
@@ -5486,6 +5727,46 @@ async function init() {
 		}
 
 	} );
+	notificationsLink?.addEventListener( 'click', ( e ) => {
+
+		e.preventDefault();
+		const currentlyOpen = notificationsPanel?.style.display === 'block';
+		setNotificationsPanelOpen( ! currentlyOpen );
+		if ( ! currentlyOpen ) fetchNotifications().catch( ( error ) => console.warn( 'Failed to fetch notifications', error ) );
+
+	} );
+	notificationsRefreshBtn?.addEventListener( 'click', () => {
+
+		fetchNotifications().catch( ( error ) => console.warn( 'Failed to refresh notifications', error ) );
+
+	} );
+	notificationsReadBtn?.addEventListener( 'click', () => {
+
+		markAllNotificationsRead().catch( ( error ) => console.warn( 'Failed to mark notifications as read', error ) );
+
+	} );
+	notifSettingRecordBeatenInput?.addEventListener( 'change', () => {
+
+		saveNotificationSettings().catch( ( error ) => console.warn( 'Failed to save notification settings', error ) );
+
+	} );
+	notifSettingTotdInput?.addEventListener( 'change', () => {
+
+		saveNotificationSettings().catch( ( error ) => console.warn( 'Failed to save notification settings', error ) );
+
+	} );
+	notifSettingCotwInput?.addEventListener( 'change', () => {
+
+		saveNotificationSettings().catch( ( error ) => console.warn( 'Failed to save notification settings', error ) );
+
+	} );
+	document.addEventListener( 'click', ( event ) => {
+
+		if ( ! notificationsPanel || notificationsPanel.style.display !== 'block' ) return;
+		if ( notificationsPanel.contains( event.target ) || notificationsLink?.contains( event.target ) ) return;
+		setNotificationsPanelOpen( false );
+
+	} );
 
 	const storedPlayerName = sanitizePlayerName( localStorage.getItem( PLAYER_NAME_KEY ) || '' );
 	if ( playerNameInput ) playerNameInput.value = storedPlayerName;
@@ -5513,6 +5794,7 @@ async function init() {
 
 	}
 	updateAccountUi();
+	fetchNotifications().catch( ( error ) => console.warn( 'Failed to initialize notifications', error ) );
 	leaderboardToggleBtn?.addEventListener( 'click', () => {
 
 		setLeaderboardVisible( ! leaderboardVisible );
@@ -5743,6 +6025,7 @@ async function init() {
 
 			vehicle.update( dt, padAdjustedInput );
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
+			if ( carHitboxMesh.visible ) carHitboxMesh.position.set( vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z );
 			applyMagnetForceFor( vehicle, dt );
 			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
 			arcLinkState = applyArcLinkFor( vehicle, arcLinkState );

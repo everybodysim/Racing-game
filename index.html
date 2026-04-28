@@ -11,7 +11,7 @@
 	<style>
 		body { margin: 0; overflow: hidden; background: #000; }
 		canvas { display: block; touch-action: none; }
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
+		#editor-link, #totd-link, #weekly-cup-link, #notifications-link, #coin-leaderboard-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
 			position: absolute;
 			bottom: 12px;
 			color: #fff;
@@ -22,10 +22,11 @@
 			z-index: 10;
 			border: none;
 		}
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn { text-decoration: none; }
+		#editor-link, #totd-link, #weekly-cup-link, #notifications-link, #coin-leaderboard-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn { text-decoration: none; }
 		#editor-link { right: 16px; }
 		#totd-link { right: 16px; bottom: 54px; }
 		#weekly-cup-link { right: 16px; bottom: 96px; }
+		#notifications-link { right: 16px; bottom: 138px; }
 		#coin-leaderboard-link { right: 16px; bottom: 138px; }
 		#replay-link { right: 16px; bottom: 180px; }
 		#tracks-link { right: 16px; bottom: 222px; }
@@ -39,7 +40,44 @@
 		#export-ghost-btn { left: 180px; bottom: 12px; }
 		#import-ghost-btn { left: 300px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
-		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #replay-link:hover, #tracks-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #notifications-link:hover, #coin-leaderboard-link:hover, #replay-link:hover, #tracks-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#notifications-link.has-unread {
+			background: rgba(164, 20, 30, 0.78);
+			border-color: rgba(255,120,120,0.92);
+			animation: notif-flash 1s ease-in-out infinite;
+		}
+		@keyframes notif-flash {
+			0%, 100% { filter: brightness(1); }
+			50% { filter: brightness(1.35); }
+		}
+		#notifications-panel {
+			position: fixed;
+			right: 12px;
+			top: 12px;
+			width: 320px;
+			max-height: 70vh;
+			overflow: auto;
+			display: none;
+			z-index: 56;
+			background: rgba(16,18,28,0.95);
+			border: 1px solid rgba(255,255,255,0.18);
+			border-radius: 12px;
+			padding: 10px;
+			font: 12px/1.35 sans-serif;
+			color: #e5f0ff;
+		}
+		#notifications-panel h3 { margin: 0 0 8px; }
+		#notifications-panel .notif-actions { display: flex; gap: 6px; margin-bottom: 8px; }
+		#notifications-panel button {
+			border: 1px solid rgba(255,255,255,0.2);
+			background: rgba(255,255,255,0.08);
+			color: #fff;
+			border-radius: 8px;
+			padding: 4px 8px;
+		}
+		#notifications-list { list-style: none; padding: 0; margin: 8px 0 0; }
+		#notifications-list li { border-top: 1px solid rgba(255,255,255,0.12); padding: 6px 0; }
+		#notifications-settings label { display: block; margin: 4px 0; }
 		#mp-panel {
 			position: absolute;
 			left: 16px;
@@ -297,6 +335,19 @@
 			margin-top: 6px;
 			color: #b9d0ea;
 			font: 600 11px/1.3 sans-serif;
+		}
+		#garage-remap-help {
+			margin-top: 8px;
+			padding: 8px;
+			border-radius: 8px;
+			border: 1px solid rgba(255,255,255,0.16);
+			background: rgba(17,26,42,0.55);
+			color: #c9def7;
+			font: 600 11px/1.4 sans-serif;
+		}
+		#garage-remap-help ol {
+			margin: 6px 0 0 16px;
+			padding: 0;
 		}
 		#garage-mapping-controls { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.14); }
 		#garage-mapping-controls label { display: block; margin-top: 6px; }
@@ -700,12 +751,13 @@
 			#editor-link { bottom: auto; top: 12px; right: 12px; }
 				#totd-link { bottom: auto; top: 54px; right: 12px; }
 				#weekly-cup-link { bottom: auto; top: 96px; right: 12px; }
-				#coin-leaderboard-link { bottom: auto; top: 138px; right: 12px; }
-				#replay-link { bottom: auto; top: 180px; right: 12px; }
-				#tracks-link { bottom: auto; top: 222px; right: 12px; }
-				#mods-link { bottom: auto; top: 264px; right: 12px; }
-			#hacks-toggle { bottom: auto; top: 306px; right: 12px; }
-			#split-link { bottom: auto; top: 348px; right: 12px; }
+				#notifications-link { bottom: auto; top: 138px; right: 12px; }
+				#coin-leaderboard-link { bottom: auto; top: 180px; right: 12px; }
+				#replay-link { bottom: auto; top: 222px; right: 12px; }
+				#tracks-link { bottom: auto; top: 264px; right: 12px; }
+				#mods-link { bottom: auto; top: 306px; right: 12px; }
+			#hacks-toggle { bottom: auto; top: 348px; right: 12px; }
+			#split-link { bottom: auto; top: 390px; right: 12px; }
 			#car-select { top: 12px; left: 12px; }
 				#respawnBtn { top: 54px; left: 12px; }
 				#mode-menu-btn { top: 96px; left: 12px; }
@@ -775,6 +827,7 @@
 	<a id="editor-link" href="editor.html">Create your own track</a>
 	<a id="totd-link" href="totd.html">Track of the day</a>
 	<a id="weekly-cup-link" href="weekly-cup.html">Weekly cup</a>
+	<a id="notifications-link" href="#" role="button">Notifications</a>
 <!--	<a id="coin-leaderboard-link" href="coins.html">Coin leaderboard</a> -->
 	<a id="replay-link" href="replay.html">Replay watcher</a>
 	<a id="tracks-link" href="tracks.html">Track share board</a>
@@ -783,6 +836,19 @@
 	<a id="split-link" href="#">2P split screen</a>
 	<button id="quick-menu-btn" type="button" aria-expanded="false">Menu ▾</button>
 	<div id="quick-menu-panel"></div>
+	<div id="notifications-panel" aria-live="polite">
+		<h3>Notifications</h3>
+		<div class="notif-actions">
+			<button id="notifications-refresh-btn" type="button">Refresh</button>
+			<button id="notifications-read-btn" type="button">Mark all read</button>
+		</div>
+		<div id="notifications-settings">
+			<label><input id="notif-setting-record-beaten" type="checkbox" checked> Record beaten alerts</label>
+			<label><input id="notif-setting-totd" type="checkbox" checked> TOTD alerts</label>
+			<label><input id="notif-setting-cotw" type="checkbox" checked> COTW alerts</label>
+		</div>
+		<ul id="notifications-list"></ul>
+	</div>
 	<select id="car-select" aria-label="Select car">
 		<option value="vehicle-truck-yellow">Yellow</option>
 		<option value="vehicle-truck-green">Green</option>
@@ -858,6 +924,16 @@
 			<button id="profile-import-btn" type="button">Import Profile</button>
 			<h4 style="margin-top:12px;">Paint Shop</h4>
 			<div id="garage-color-help">Unlock colors, select one, then map near source RGB values on this car.</div>
+			<div id="garage-remap-help">
+				<strong>How color remapping works</strong>
+				<ol>
+					<li>Pick the car above so you edit that car's mappings.</li>
+					<li>Unlock and select a paint dot (target color).</li>
+					<li>Choose a source color that already exists on the model.</li>
+					<li>Raise tolerance to include more shades, lower it for precision.</li>
+					<li>Click <em>Add color mapping</em>, then test drive and tune.</li>
+				</ol>
+			</div>
 			<div id="garage-color-grid"></div>
 			<div id="garage-shiny-help">Premium reflective paints (1000 coins each)</div>
 			<div id="garage-shiny-grid"></div>
@@ -884,8 +960,8 @@
 			<input id="account-password-input" type="password" maxlength="80" autocomplete="current-password" placeholder="At least 6 characters" />
 			<button id="account-signup-btn" type="button">Sign Up</button>
 			<button id="account-login-btn" type="button">Login</button>
-			<button id="account-cloud-save-btn" type="button">Cloud Save Profile</button>
-			<button id="account-cloud-load-btn" type="button">Cloud Load Profile</button>
+			<button id="account-cloud-save-btn" type="button">Save profile to cloud</button>
+			<button id="account-cloud-load-btn" type="button">Load profile from cloud</button>
 			<button id="account-export-btn" type="button">Export Account</button>
 			<button id="account-import-btn" type="button">Import Account</button>
 			<div id="account-status"></div>
@@ -904,6 +980,7 @@
 		<label><input id="hack-low-friction" type="checkbox"> Low friction drift mode</label>
 		<label><input id="hack-instant-stop" type="checkbox"> Instant stop (hold V)</label>
 		<label><input id="hack-checkpoint-bypass" type="checkbox"> Auto-pass checkpoints</label>
+		<label><input id="hack-show-hitboxes" type="checkbox"> Show hitboxes + transparent world</label>
 		<label>Game speed
 			<input id="hack-timescale" type="range" min="0.15" max="1" step="0.05" value="1">
 		</label>
@@ -949,12 +1026,13 @@
 	</div>
 	<script>
 		const map = new URLSearchParams( location.search ).get( 'map' );
+		const pack = new URLSearchParams( location.search ).get( 'pack' );
 		const play = new URLSearchParams( location.search ).get( 'play' );
 		const mods = new URLSearchParams( location.search ).get( 'mods' );
 		const multiplayer = new URLSearchParams( location.search ).get( 'multiplayer' );
 		const landing = document.getElementById( 'home-landing' );
 		const isIndexPath = /(?:^|\/)(?:index\.html)?$/.test( location.pathname );
-		if ( landing && isIndexPath && !map && play !== '1' ) {
+		if ( landing && isIndexPath && !map && !pack && play !== '1' ) {
 			landing.classList.add( 'visible' );
 		}
 		if ( map ) {
@@ -977,7 +1055,7 @@
 	<script>
 		const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
 		const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
-		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link',/* 'coin-leaderboard-link',*/ 'replay-link', 'tracks-link', 'mods-link', 'hacks-toggle', 'split-link' ];
+		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'notifications-link',/* 'coin-leaderboard-link',*/ 'replay-link', 'tracks-link', 'mods-link', 'hacks-toggle', 'split-link' ];
 		for ( const id of quickMenuLinks ) {
 			const node = document.getElementById( id );
 			if ( node ) quickMenuPanel.appendChild( node );
@@ -994,6 +1072,52 @@
 			quickMenuBtn.setAttribute( 'aria-expanded', 'false' );
 			quickMenuBtn.textContent = 'Menu ▾';
 		} );
+
+		async function readLeaderboardNameFromPage( pageUrl, selector, fallbackLabel ) {
+			return new Promise( ( resolve ) => {
+				const iframe = document.createElement( 'iframe' );
+				iframe.src = pageUrl;
+				iframe.style.display = 'none';
+				document.body.appendChild( iframe );
+				const timeout = window.setTimeout( () => {
+					iframe.remove();
+					resolve( fallbackLabel );
+				}, 8000 );
+				iframe.addEventListener( 'load', () => {
+					let attempts = 0;
+					const poll = window.setInterval( () => {
+						attempts ++;
+						const text = iframe.contentDocument?.querySelector( selector )?.textContent?.trim();
+						if ( text && ! /^loading/i.test( text ) ) {
+							window.clearTimeout( timeout );
+							window.clearInterval( poll );
+							iframe.remove();
+							resolve( text );
+							return;
+						}
+						if ( attempts > 30 ) {
+							window.clearTimeout( timeout );
+							window.clearInterval( poll );
+							iframe.remove();
+							resolve( fallbackLabel );
+						}
+					}, 220 );
+				}, { once: true } );
+			} );
+		}
+
+		( async () => {
+			const totdLink = document.getElementById( 'totd-link' );
+			const weeklyLink = document.getElementById( 'weekly-cup-link' );
+			if ( totdLink ) {
+				const winner = await readLeaderboardNameFromPage( 'totd.html', '#totd-record-holder', 'No record yet' );
+				totdLink.textContent = `Track of the day • ${ winner }`;
+			}
+			if ( weeklyLink ) {
+				const winner = await readLeaderboardNameFromPage( 'weekly-cup.html', '#champName', 'No records yet' );
+				weeklyLink.textContent = `Weekly cup • ${ winner }`;
+			}
+		} )();
 	</script>
 	<script type="module" src="js/main.js"></script>
   <style>

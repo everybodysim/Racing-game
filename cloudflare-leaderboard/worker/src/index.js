@@ -3,6 +3,8 @@ const MAX_ROWS_PER_TRACK = 25;
 const MIN_TIME_SECONDS = 1;
 const MAX_TIME_SECONDS = 3600;
 const MAX_GHOST_SAMPLES = 2500;
+const USER_KEY_PREFIX = 'user:';
+const MAX_NOTIFICATIONS_PER_USER = 120;
 
 export default {
 	async fetch( request, env ) {
@@ -49,6 +51,7 @@ async function postLeaderboardTime( request, env ) {
 	}
 
 	const entries = await loadTrackEntries( env, trackId );
+	const previousBest = entries.length > 0 ? entries[ 0 ] : null;
 	entries.push( {
 		name: playerName,
 		timeSeconds: roundTime( timeSeconds ),
@@ -59,7 +62,40 @@ async function postLeaderboardTime( request, env ) {
 
 	const trimmed = dedupeAndSortEntries( entries ).slice( 0, MAX_ROWS_PER_TRACK );
 	await env.LEADERBOARD_KV.put( keyForTrack( trackId ), JSON.stringify( trimmed ) );
+	const nextBest = trimmed.length > 0 ? trimmed[ 0 ] : null;
+	await maybeNotifyBeatenRecordHolder( env, previousBest, nextBest, trackId, trackName );
 	return json( { ok: true, entries: trimmed } );
+}
+
+async function maybeNotifyBeatenRecordHolder( env, previousBest, nextBest, trackId, trackName ) {
+	if ( ! previousBest || ! nextBest ) return;
+	const prevKey = normalizeNameKey( previousBest.name );
+	const nextKey = normalizeNameKey( nextBest.name );
+	if ( ! prevKey || ! nextKey || prevKey === nextKey ) return;
+	if ( ! env.ACCOUNTS_KV ) return;
+	const userRecord = await env.ACCOUNTS_KV.get( `${ USER_KEY_PREFIX }${ prevKey }`, 'json' );
+	if ( ! userRecord || typeof userRecord !== 'object' ) return;
+	const notifications = sanitizeNotificationState( userRecord.notifications );
+	if ( notifications.settings.recordBeaten === false ) return;
+	const now = Date.now();
+	notifications.items.unshift( {
+		id: `${ now }-${ Math.random().toString( 36 ).slice( 2, 10 ) }`,
+		type: 'record_beaten',
+		message: `Your record on ${ trackName || 'a track' } was beaten by ${ nextBest.name } (${ nextBest.timeSeconds.toFixed( 3 ) }s).`,
+		createdAt: now,
+		readAt: null,
+		metadata: {
+			trackId,
+			trackName: trackName || '',
+			previousHolder: previousBest.name,
+			newHolder: nextBest.name,
+			newTimeSeconds: nextBest.timeSeconds,
+		},
+	} );
+	if ( notifications.items.length > MAX_NOTIFICATIONS_PER_USER ) notifications.items.length = MAX_NOTIFICATIONS_PER_USER;
+	userRecord.notifications = notifications;
+	userRecord.updatedAt = now;
+	await env.ACCOUNTS_KV.put( `${ USER_KEY_PREFIX }${ prevKey }`, JSON.stringify( userRecord ) );
 }
 
 function keyForTrack( trackId ) {
@@ -126,6 +162,40 @@ function normalizeNameKey( value ) {
 
 function roundTime( value ) {
 	return Math.round( value * 1000 ) / 1000;
+}
+
+function sanitizeNotificationState( value ) {
+	const source = value && typeof value === 'object' ? value : {};
+	const settingsSource = source.settings && typeof source.settings === 'object' ? source.settings : {};
+	const settings = {
+		recordBeaten: settingsSource.recordBeaten !== false,
+		totdUpdates: settingsSource.totdUpdates !== false,
+		cotwUpdates: settingsSource.cotwUpdates !== false,
+	};
+	const rawItems = Array.isArray( source.items ) ? source.items : [];
+	const items = rawItems
+		.map( ( item ) => sanitizeNotificationItem( item ) )
+		.filter( Boolean )
+		.slice( 0, MAX_NOTIFICATIONS_PER_USER );
+	return { settings, items };
+}
+
+function sanitizeNotificationItem( item ) {
+	if ( ! item || typeof item !== 'object' ) return null;
+	const id = String( item.id || '' ).trim().slice( 0, 80 );
+	const type = String( item.type || 'info' ).trim().slice( 0, 40 );
+	const message = String( item.message || '' ).replace( /\s+/g, ' ' ).trim().slice( 0, 240 );
+	const createdAt = Number( item.createdAt );
+	if ( ! id || ! message || ! Number.isFinite( createdAt ) ) return null;
+	const readAt = Number( item.readAt );
+	return {
+		id,
+		type,
+		message,
+		createdAt,
+		readAt: Number.isFinite( readAt ) ? readAt : null,
+		metadata: item.metadata && typeof item.metadata === 'object' ? item.metadata : null,
+	};
 }
 
 function sanitizeGhostPayload( payload ) {
