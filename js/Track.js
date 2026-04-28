@@ -400,9 +400,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			const arcVariant = String( variant );
 			const colors = arcVariant === 'orange'
 				? { color: 0xffae52, emissive: 0x8c4b00 }
-				: ( arcVariant === 'purple'
+				: ( arcVariant === 'portal-purple' || arcVariant === 'purple'
 					? { color: 0xb468ff, emissive: 0x4a1677 }
-					: ( arcVariant === 'yellow'
+					: ( arcVariant === 'portal-yellow' || arcVariant === 'yellow'
 						? { color: 0xffef4a, emissive: 0x8f7b00 }
 						: { color: 0x6dff6d, emissive: 0x1f6d1f } ) );
 			const arcNode = new THREE.Mesh(

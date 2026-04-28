@@ -299,13 +299,13 @@
 		<button id="btn-magnet-range-up" title="Increase selected magnet range">Range +</button>
 		<button id="btn-magnet-range-down" title="Decrease selected magnet range">Range -</button>
 		<button id="btn-arc-green" title="Green arc is the endpoint only (does not launch)">Arc End (Green) +</button>
-		<button id="btn-arc-yellow" title="Yellow arc is endpoint only (one-way, does not launch)">Arc End (Yellow) +</button>
+		<button id="btn-portal-yellow" title="Yellow portal is endpoint only (one-way, does not launch)">Portal End (Yellow) +</button>
 		<button id="btn-arc-orange" title="Orange arc is the launch/start point">Arc Start (Orange) +</button>
-		<button id="btn-arc-purple" title="Purple arc is a portal start that keeps velocity">Arc Start (Purple) +</button>
-		<button id="btn-arc-up" title="Move selected arc up by 0.1 grid">Arc ▲</button>
-		<button id="btn-arc-down" title="Move selected arc down by 0.1 grid">Arc ▼</button>
-		<button id="btn-arc-id-down" title="Decrease selected arc link id">Arc ID -</button>
-		<button id="btn-arc-id-up" title="Increase selected arc link id">Arc ID +</button>
+		<button id="btn-portal-purple" title="Purple portal is the start point and keeps velocity">Portal Start (Purple) +</button>
+		<button id="btn-portal-up" title="Move selected portal up by 0.1 grid">Portal ▲</button>
+		<button id="btn-portal-down" title="Move selected portal down by 0.1 grid">Portal ▼</button>
+		<button id="btn-portal-id-down" title="Decrease selected portal link id">Portal ID -</button>
+		<button id="btn-portal-id-up" title="Increase selected portal link id">Portal ID +</button>
 		<div id="arc-link-help">Arc Link flow: <strong>Orange launches</strong> to matching <strong>Green endpoint</strong>. Portal flow: <strong>Purple teleports</strong> to matching <strong>Yellow endpoint</strong> and keeps velocity. Green/Yellow never launch.</div>
 	</div>
 	<div id="panel-overlay" hidden></div>
@@ -462,8 +462,8 @@
 	const MAGNET_RED_TOOL = 'magnet-red';
 	const ARC_GREEN_TOOL = 'arc-green';
 	const ARC_ORANGE_TOOL = 'arc-orange';
-	const ARC_YELLOW_TOOL = 'arc-yellow';
-	const ARC_PURPLE_TOOL = 'arc-purple';
+	const PORTAL_YELLOW_TOOL = 'portal-yellow';
+	const PORTAL_PURPLE_TOOL = 'portal-purple';
 	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up' ];
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
 	const SUPPORT_HEIGHT = CELL_RAW * 0.5;
@@ -741,7 +741,7 @@
 			if ( ! arc?.mesh?.material?.emissive ) continue;
 			const tint = arc.type === ARC_ORANGE_TOOL
 				? 0x8c4b00
-				: ( arc.type === ARC_PURPLE_TOOL ? 0x4a1677 : ( arc.type === ARC_YELLOW_TOOL ? 0x8f7b00 : 0x1f6d1f ) );
+				: ( arc.type === PORTAL_PURPLE_TOOL ? 0x4a1677 : ( arc.type === PORTAL_YELLOW_TOOL ? 0x8f7b00 : 0x1f6d1f ) );
 			arc.mesh.material.emissive.setHex( i === selectedArcIndex ? 0xffffff : tint );
 			arc.mesh.material.emissiveIntensity = i === selectedArcIndex ? 0.4 : 0.22;
 
@@ -788,9 +788,9 @@
 
 			const colors = arc.type === ARC_ORANGE_TOOL
 				? { color: 0xffae52, emissive: 0x8c4b00 }
-				: ( arc.type === ARC_PURPLE_TOOL
+				: ( arc.type === PORTAL_PURPLE_TOOL
 					? { color: 0xb468ff, emissive: 0x4a1677 }
-					: ( arc.type === ARC_YELLOW_TOOL
+					: ( arc.type === PORTAL_YELLOW_TOOL
 						? { color: 0xffef4a, emissive: 0x8f7b00 }
 						: { color: 0x6dff6d, emissive: 0x1f6d1f } ) );
 			const mesh = new THREE.Mesh(
@@ -1574,7 +1574,7 @@
 			}
 			rebuildMagnetMeshes();
 
-		} else if ( selectedType === ARC_GREEN_TOOL || selectedType === ARC_ORANGE_TOOL || selectedType === ARC_YELLOW_TOOL || selectedType === ARC_PURPLE_TOOL ) {
+		} else if ( selectedType === ARC_GREEN_TOOL || selectedType === ARC_ORANGE_TOOL || selectedType === PORTAL_YELLOW_TOOL || selectedType === PORTAL_PURPLE_TOOL ) {
 
 			const existingIndex = findNearestArcIndex( gx, gz );
 			if ( existingIndex >= 0 ) {
@@ -1967,13 +1967,13 @@
 			return;
 
 		}
-		if ( selectedType === ARC_GREEN_TOOL || selectedType === ARC_ORANGE_TOOL || selectedType === ARC_YELLOW_TOOL || selectedType === ARC_PURPLE_TOOL ) {
+		if ( selectedType === ARC_GREEN_TOOL || selectedType === ARC_ORANGE_TOOL || selectedType === PORTAL_YELLOW_TOOL || selectedType === PORTAL_PURPLE_TOOL ) {
 
 			const colors = selectedType === ARC_ORANGE_TOOL
 				? { color: 0xffae52, emissive: 0x8c4b00 }
-				: ( selectedType === ARC_PURPLE_TOOL
+				: ( selectedType === PORTAL_PURPLE_TOOL
 					? { color: 0xb468ff, emissive: 0x4a1677 }
-					: ( selectedType === ARC_YELLOW_TOOL
+					: ( selectedType === PORTAL_YELLOW_TOOL
 						? { color: 0xffef4a, emissive: 0x8f7b00 }
 						: { color: 0x6dff6d, emissive: 0x1f6d1f } ) );
 			let previewGx = gx;
@@ -2049,7 +2049,7 @@
 
 		let gx = hit.x / cellWorld;
 		let gz = hit.z / cellWorld;
-		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL || selectedType === ARC_GREEN_TOOL || selectedType === ARC_ORANGE_TOOL || selectedType === ARC_YELLOW_TOOL || selectedType === ARC_PURPLE_TOOL ) {
+		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL || selectedType === ARC_GREEN_TOOL || selectedType === ARC_ORANGE_TOOL || selectedType === PORTAL_YELLOW_TOOL || selectedType === PORTAL_PURPLE_TOOL ) {
 
 			gx = normalizeCoord( gx - 0.5 );
 			gz = normalizeCoord( gz - 0.5 );
@@ -2150,7 +2150,7 @@
 				clampMagnetGridY( arc.y ),
 				arc.type === ARC_ORANGE_TOOL
 					? 'orange'
-					: ( arc.type === ARC_PURPLE_TOOL ? 'purple' : ( arc.type === ARC_YELLOW_TOOL ? 'yellow' : 'green' ) ),
+					: ( arc.type === PORTAL_PURPLE_TOOL ? 'portal-purple' : ( arc.type === PORTAL_YELLOW_TOOL ? 'portal-yellow' : 'green' ) ),
 				clampArcLinkId( arc.linkId ),
 			] );
 
@@ -2406,7 +2406,7 @@
 					y: clampMagnetGridY( yGrid ),
 					type: String( variant ) === 'orange'
 						? ARC_ORANGE_TOOL
-						: ( String( variant ) === 'purple' ? ARC_PURPLE_TOOL : ( String( variant ) === 'yellow' ? ARC_YELLOW_TOOL : ARC_GREEN_TOOL ) ),
+						: ( [ 'portal-purple', 'purple' ].includes( String( variant ) ) ? PORTAL_PURPLE_TOOL : ( [ 'portal-yellow', 'yellow' ].includes( String( variant ) ) ? PORTAL_YELLOW_TOOL : ARC_GREEN_TOOL ) ),
 					linkId: clampArcLinkId( linkIdRaw ),
 					mesh: null,
 				} );
@@ -2448,8 +2448,8 @@
 		[ MAGNET_RED_TOOL ]: document.getElementById( 'btn-magnet-red' ),
 		[ ARC_GREEN_TOOL ]: document.getElementById( 'btn-arc-green' ),
 		[ ARC_ORANGE_TOOL ]: document.getElementById( 'btn-arc-orange' ),
-		[ ARC_YELLOW_TOOL ]: document.getElementById( 'btn-arc-yellow' ),
-		[ ARC_PURPLE_TOOL ]: document.getElementById( 'btn-arc-purple' ),
+		[ PORTAL_YELLOW_TOOL ]: document.getElementById( 'btn-portal-yellow' ),
+		[ PORTAL_PURPLE_TOOL ]: document.getElementById( 'btn-portal-purple' ),
 		[ WALL_TOOL ]: document.getElementById( 'btn-wall' ),
 		[ JUMP_TOOL ]: document.getElementById( 'btn-jump' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
@@ -2548,7 +2548,7 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, ARC_YELLOW_TOOL, ARC_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
@@ -2590,7 +2590,7 @@
 			}
 
 		}
-		if ( type === ARC_GREEN_TOOL || type === ARC_ORANGE_TOOL || type === ARC_YELLOW_TOOL || type === ARC_PURPLE_TOOL ) {
+		if ( type === ARC_GREEN_TOOL || type === ARC_ORANGE_TOOL || type === PORTAL_YELLOW_TOOL || type === PORTAL_PURPLE_TOOL ) {
 
 			if ( hoveredCell ) {
 
@@ -2699,7 +2699,7 @@
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, ARC_YELLOW_TOOL, ARC_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 
@@ -2742,10 +2742,10 @@
 	document.getElementById( 'btn-magnet-strength-down' )?.addEventListener( 'click', () => nudgeSelectedMagnetStrength( - MAGNET_STRENGTH_STEP ) );
 	document.getElementById( 'btn-magnet-range-up' )?.addEventListener( 'click', () => nudgeSelectedMagnetRange( MAGNET_RANGE_STEP ) );
 	document.getElementById( 'btn-magnet-range-down' )?.addEventListener( 'click', () => nudgeSelectedMagnetRange( - MAGNET_RANGE_STEP ) );
-	document.getElementById( 'btn-arc-up' )?.addEventListener( 'click', () => nudgeSelectedArc( MAGNET_Y_STEP ) );
-	document.getElementById( 'btn-arc-down' )?.addEventListener( 'click', () => nudgeSelectedArc( - MAGNET_Y_STEP ) );
-	document.getElementById( 'btn-arc-id-up' )?.addEventListener( 'click', () => nudgeSelectedArcId( 1 ) );
-	document.getElementById( 'btn-arc-id-down' )?.addEventListener( 'click', () => nudgeSelectedArcId( - 1 ) );
+	document.getElementById( 'btn-portal-up' )?.addEventListener( 'click', () => nudgeSelectedArc( MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-portal-down' )?.addEventListener( 'click', () => nudgeSelectedArc( - MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-portal-id-up' )?.addEventListener( 'click', () => nudgeSelectedArcId( 1 ) );
+	document.getElementById( 'btn-portal-id-down' )?.addEventListener( 'click', () => nudgeSelectedArcId( - 1 ) );
 	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
 	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
 	document.getElementById( 'btn-custom-import' )?.addEventListener( 'click', () => {
