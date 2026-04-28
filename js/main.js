@@ -1068,7 +1068,7 @@ async function init() {
 		exposure: weatherConfig.exposure,
 	};
 
-	buildTrack( scene, models, customCells, extras );
+	const trackGroup = buildTrack( scene, models, customCells, extras );
 
 
 	const worldSettings = createWorldSettings();       
@@ -1090,7 +1090,10 @@ async function init() {
 	hitboxDebugGroup.visible = false;
 	hitboxDebugGroup.userData.isHackHitboxDebug = true;
 	scene.add( hitboxDebugGroup );
-	const resettableObstacleBodies = buildWallColliders( world, hitboxDebugGroup, customCells, extras ) || [];
+	const colliderBuild = buildWallColliders( world, hitboxDebugGroup, customCells, extras ) || {};
+	const resettableObstacleBodies = Array.isArray( colliderBuild ) ? colliderBuild : ( colliderBuild.resettableBodies || [] );
+	const obstacleColliderUpdaters = Array.isArray( colliderBuild?.obstacleUpdaters ) ? colliderBuild.obstacleUpdaters : [];
+	const obstacleVisualUpdaters = Array.isArray( trackGroup?.userData?.obstacleAnimators ) ? trackGroup.userData.obstacleAnimators : [];
 
 	const roadHalf = groundSize / 2;
 	rigidBody.create( world, {
@@ -4915,7 +4918,7 @@ async function init() {
 			if ( ! body || ! Array.isArray( position ) ) continue;
 			rigidBody.setPosition( world, body, position, false );
 			rigidBody.setLinearVelocity( world, body, [ 0, 0, 0 ] );
-			rigidBody.setAngularVelocity( world, body, [ 0, 0, 0 ] );
+			rigidBody.setAngularVelocity( world, body, Array.isArray( entry?.angularVelocity ) ? entry.angularVelocity : [ 0, 0, 0 ] );
 
 		}
 
@@ -5854,6 +5857,8 @@ async function init() {
 
 			} else boostPressedLatch = false;
 
+		for ( const updater of obstacleVisualUpdaters ) updater( dt );
+		for ( const updater of obstacleColliderUpdaters ) updater( dt );
 		updateWorld( world, contactListener, dt );
 
 			vehicle.update( dt, padAdjustedInput );

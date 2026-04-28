@@ -23,6 +23,20 @@ const SUPPORT_COLOR = 0x0d0d0d;
 const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
 const SUPPORT_SINK = 0.03;
 const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
+const SPINNER_HALF_SIZE = { x: CELL_RAW * 0.42, y: CELL_RAW * 0.06, z: CELL_RAW * 0.08 };
+
+export const DEFAULT_OBSTACLES = {
+	staticShapes: [
+		{ gx: - 3.55, gz: - 1.55, yawDeg: 32, color: 0x585f6d, size: [ CELL_RAW * 0.28, CELL_RAW * 0.24, CELL_RAW * 0.28 ] },
+		{ gx: 0.55, gz: 1.65, yawDeg: - 18, color: 0x736553, size: [ CELL_RAW * 0.34, CELL_RAW * 0.18, CELL_RAW * 0.22 ] },
+	],
+	physicsBoxes: [
+		{ gx: - 1.2, gz: - 1.6, yawDeg: 8 },
+		{ gx: - 0.05, gz: 1.25, yawDeg: - 12 },
+		{ gx: - 2.85, gz: 1.15, yawDeg: 26 },
+	],
+	spinner: { gx: - 1.52, gz: - 3.18, yawDeg: 0, spinSpeed: 0.65 },
+};
 
 const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down' ] );
 
@@ -284,6 +298,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 	const trackPieceGroup = new THREE.Group();
 	const decoGroup = new THREE.Group();
+	const obstacleAnimators = [];
 
 	const cells = customCells || TRACK_CELLS;
 
@@ -531,6 +546,56 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 	}
 
+	if ( ! customCells ) {
+
+		for ( const shape of DEFAULT_OBSTACLES.staticShapes ) {
+
+			const [ sx, sy, sz ] = shape.size;
+			const rock = new THREE.Mesh(
+				new THREE.BoxGeometry( sx, sy, sz ),
+				new THREE.MeshStandardMaterial( { color: shape.color, roughness: 0.82, metalness: 0.04 } )
+			);
+			rock.position.set( ( shape.gx + 0.5 ) * CELL_RAW, ( sy * 0.5 ) - 0.06, ( shape.gz + 0.5 ) * CELL_RAW );
+			rock.rotation.y = THREE.MathUtils.degToRad( shape.yawDeg || 0 );
+			rock.castShadow = true;
+			rock.receiveShadow = true;
+			trackPieceGroup.add( rock );
+
+		}
+
+		for ( const boxShape of DEFAULT_OBSTACLES.physicsBoxes ) {
+
+			const size = CELL_RAW * 0.2;
+			const crate = new THREE.Mesh(
+				new THREE.BoxGeometry( size, size, size ),
+				new THREE.MeshStandardMaterial( { color: 0x8e6e4a, roughness: 0.88, metalness: 0.03 } )
+			);
+			crate.position.set( ( boxShape.gx + 0.5 ) * CELL_RAW, ( size * 0.5 ) - 0.06, ( boxShape.gz + 0.5 ) * CELL_RAW );
+			crate.rotation.y = THREE.MathUtils.degToRad( boxShape.yawDeg || 0 );
+			crate.castShadow = true;
+			crate.receiveShadow = true;
+			trackPieceGroup.add( crate );
+
+		}
+
+		const spinner = DEFAULT_OBSTACLES.spinner;
+		const spinnerWall = new THREE.Mesh(
+			new THREE.BoxGeometry( SPINNER_HALF_SIZE.x * 2, SPINNER_HALF_SIZE.y * 2, SPINNER_HALF_SIZE.z * 2 ),
+			new THREE.MeshStandardMaterial( { color: 0x93a0b8, roughness: 0.46, metalness: 0.38 } )
+		);
+		spinnerWall.position.set( ( spinner.gx + 0.5 ) * CELL_RAW, SPINNER_HALF_SIZE.y - 0.06, ( spinner.gz + 0.5 ) * CELL_RAW );
+		spinnerWall.rotation.y = THREE.MathUtils.degToRad( spinner.yawDeg || 0 );
+		spinnerWall.castShadow = true;
+		spinnerWall.receiveShadow = true;
+		trackPieceGroup.add( spinnerWall );
+		obstacleAnimators.push( ( dt = 0 ) => {
+
+			spinnerWall.rotation.y += spinner.spinSpeed * dt;
+
+		} );
+
+	}
+
 	{
 
 		// Auto-generate decorations to fill any gaps
@@ -704,6 +769,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 	}
 
+	trackGroup.userData.obstacleAnimators = obstacleAnimators;
 	return trackGroup;
 
 }

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { rigidBody, box, sphere, MotionType, MotionQuality } from 'crashcat';
-import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
+import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE, DEFAULT_OBSTACLES } from './Track.js';
 
 const _debugMat = new THREE.MeshBasicMaterial( {
 	color: 0x0b2f75,
@@ -89,6 +89,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const INNER_R = WALL_HALF_THICK;
 	const INNER_SEG = 3;
 	const INNER_SEG_HALF_LEN = ( INNER_R * ( Math.PI / 2 ) / INNER_SEG / 2 ) * S;
+	const resettableBodies = [];
+	const obstacleUpdaters = [];
 
 	function addArcWall( wcx, wcz, arcStart, radius, numSeg, segHalfLen, centerY = wallY, wallHalfHeight = hHeight ) {
 
@@ -679,7 +681,87 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	return [];
+	if ( ! customCells ) {
+
+		for ( const shape of DEFAULT_OBSTACLES.staticShapes ) {
+
+			const halfExtents = [
+				Math.max( 0.12, Number( shape?.size?.[ 0 ] ) || 0.12 ) * 0.5 * S,
+				Math.max( 0.12, Number( shape?.size?.[ 1 ] ) || 0.12 ) * 0.5 * S,
+				Math.max( 0.12, Number( shape?.size?.[ 2 ] ) || 0.12 ) * 0.5 * S
+			];
+			const yaw = THREE.MathUtils.degToRad( Number( shape?.yawDeg ) || 0 );
+			const position = [ ( Number( shape.gx ) + 0.5 ) * CELL_RAW * S, groundY + halfExtents[ 1 ], ( Number( shape.gz ) + 0.5 ) * CELL_RAW * S ];
+			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				quaternion,
+				friction: 0.9,
+				restitution: 0.01,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+		}
+
+		for ( const boxObstacle of DEFAULT_OBSTACLES.physicsBoxes ) {
+
+			const halfExtents = [ CELL_RAW * S * 0.1, CELL_RAW * S * 0.1, CELL_RAW * S * 0.1 ];
+			const yaw = THREE.MathUtils.degToRad( Number( boxObstacle?.yawDeg ) || 0 );
+			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
+			const position = [ ( Number( boxObstacle.gx ) + 0.5 ) * CELL_RAW * S, groundY + halfExtents[ 1 ], ( Number( boxObstacle.gz ) + 0.5 ) * CELL_RAW * S ];
+			const body = rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.DYNAMIC,
+				objectLayer: world._OL_MOVING,
+				position,
+				quaternion,
+				mass: 42.0,
+				friction: 0.95,
+				restitution: 0.08,
+				linearDamping: 0.22,
+				angularDamping: 0.28,
+				motionQuality: MotionQuality.LINEAR_CAST,
+			} );
+			resettableBodies.push( { body, position, quaternion } );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+		}
+
+		const spinner = DEFAULT_OBSTACLES.spinner;
+		const spinnerHalfExtents = [ CELL_RAW * S * 0.42, CELL_RAW * S * 0.06, CELL_RAW * S * 0.08 ];
+		const spinnerPosition = [ ( Number( spinner.gx ) + 0.5 ) * CELL_RAW * S, groundY + spinnerHalfExtents[ 1 ], ( Number( spinner.gz ) + 0.5 ) * CELL_RAW * S ];
+		const spinnerYaw = THREE.MathUtils.degToRad( Number( spinner?.yawDeg ) || 0 );
+		const spinnerQuat = [ 0, Math.sin( spinnerYaw / 2 ), 0, Math.cos( spinnerYaw / 2 ) ];
+		const spinBody = rigidBody.create( world, {
+			shape: box.create( { halfExtents: spinnerHalfExtents } ),
+			motionType: MotionType.DYNAMIC,
+			objectLayer: world._OL_MOVING,
+			position: spinnerPosition,
+			quaternion: spinnerQuat,
+			mass: 420.0,
+			friction: 0.6,
+			restitution: 0.04,
+			linearDamping: 0.92,
+			angularDamping: 0.0,
+			motionQuality: MotionQuality.LINEAR_CAST,
+		} );
+		const spinVelocity = Number( spinner.spinSpeed ) || 0.65;
+		obstacleUpdaters.push( () => {
+
+			rigidBody.setPosition( world, spinBody, spinnerPosition, false );
+			rigidBody.setLinearVelocity( world, spinBody, [ 0, 0, 0 ] );
+			rigidBody.setAngularVelocity( world, spinBody, [ 0, spinVelocity, 0 ] );
+
+		} );
+		resettableBodies.push( { body: spinBody, position: spinnerPosition, quaternion: spinnerQuat, angularVelocity: [ 0, spinVelocity, 0 ] } );
+		if ( debugGroup ) addDebugBox( debugGroup, spinnerHalfExtents, spinnerPosition, spinnerQuat );
+
+	}
+
+	return { resettableBodies, obstacleUpdaters };
 
 }
 
