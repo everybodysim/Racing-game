@@ -5188,11 +5188,12 @@ async function init() {
 		if ( currentState.contactKey === nextContactKey ) return { contactKey: nextContactKey, lockUntilExit: false };
 		const pairCandidates = ( arcEntriesById.get( triggeredEntry.linkId ) || [] )
 			.filter( ( candidate ) => candidate !== triggeredEntry );
-		let pair = pairCandidates.find( ( candidate ) => candidate.color === 'green' );
-		if ( ! pair && triggeredEntry.color === 'purple' ) pair = pairCandidates.find( ( candidate ) => candidate.color === 'yellow' );
+		const pair = triggeredEntry.color === 'purple'
+			? pairCandidates.find( ( candidate ) => candidate.color === 'yellow' )
+			: pairCandidates.find( ( candidate ) => candidate.color === 'green' );
 		if ( ! pair ) {
 
-			const missingLabel = triggeredEntry.color === 'purple' ? 'green/yellow endpoint' : 'green endpoint';
+			const missingLabel = triggeredEntry.color === 'purple' ? 'yellow portal endpoint' : 'green endpoint';
 			setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: missing ${ missingLabel }` );
 			return { contactKey: nextContactKey, lockUntilExit: false };
 
