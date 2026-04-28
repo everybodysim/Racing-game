@@ -342,6 +342,11 @@
 		<button id="btn-bump">Bump +</button>
 		<button id="btn-pole">Pole +</button>
 		<button id="btn-cube">Cube +</button>
+		<button id="btn-obstacle-static-block">Static Block +</button>
+		<button id="btn-obstacle-static-pillar">Static Pillar +</button>
+		<button id="btn-obstacle-slider">Mover Slider +</button>
+		<button id="btn-obstacle-spinner">Mover Spinner +</button>
+		<button id="btn-obstacle-crate">Physics Crate +</button>
 		<button id="btn-wall">Wall +</button>
 		<button id="btn-jump">Jump +</button>
 		<select id="gate-select" aria-label="Gate picker">
@@ -458,6 +463,25 @@
 	const CUBE_TOOL = 'overlay-cube';
 	const WALL_TOOL = 'overlay-wall';
 	const JUMP_TOOL = 'overlay-jump';
+	const OBSTACLE_STATIC_BLOCK_TOOL = 'obstacle-static-block';
+	const OBSTACLE_STATIC_PILLAR_TOOL = 'obstacle-static-pillar';
+	const OBSTACLE_MOVING_SLIDER_TOOL = 'obstacle-moving-slider';
+	const OBSTACLE_MOVING_SPINNER_TOOL = 'obstacle-moving-spinner';
+	const OBSTACLE_PHYSICS_CRATE_TOOL = 'obstacle-physics-crate';
+	const OBSTACLE_TYPES = [
+		'static-block',
+		'static-pillar',
+		'moving-slider',
+		'moving-spinner',
+		'physics-crate',
+	];
+	const TOOL_TO_OBSTACLE_TYPE = {
+		[ OBSTACLE_STATIC_BLOCK_TOOL ]: 'static-block',
+		[ OBSTACLE_STATIC_PILLAR_TOOL ]: 'static-pillar',
+		[ OBSTACLE_MOVING_SLIDER_TOOL ]: 'moving-slider',
+		[ OBSTACLE_MOVING_SPINNER_TOOL ]: 'moving-spinner',
+		[ OBSTACLE_PHYSICS_CRATE_TOOL ]: 'physics-crate',
+	};
 	const MAGNET_BLUE_TOOL = 'magnet-blue';
 	const MAGNET_RED_TOOL = 'magnet-red';
 	const ARC_GREEN_TOOL = 'arc-green';
@@ -901,6 +925,9 @@
 			poleMesh: null,
 			cube: false,
 			cubeMesh: null,
+			obstacleType: null,
+			obstacleOrient: 0,
+			obstacleMesh: null,
 			wall: false,
 			wallOrient: 0,
 			wallMesh: null,
@@ -1315,6 +1342,7 @@
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
 		if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
 		if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
+		if ( cell.obstacleMesh ) trackGroup.remove( cell.obstacleMesh );
 		if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
 		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
@@ -1324,6 +1352,7 @@
 		cell.bumpMesh = null;
 		cell.poleMesh = null;
 		cell.cubeMesh = null;
+		cell.obstacleMesh = null;
 		cell.wallMesh = null;
 		cell.jumpMesh = null;
 		cell.elevatedMesh = null;
@@ -1454,6 +1483,64 @@
 			cube.receiveShadow = true;
 			trackGroup.add( cube );
 			cell.cubeMesh = cube;
+
+		}
+
+		if ( cell.obstacleType ) {
+
+			const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.obstacleOrient || 0 ] || 0 );
+			const yOffset = getOverlayHeightOffset( cell );
+			let obstacleMesh = null;
+			if ( cell.obstacleType === 'static-block' ) {
+
+				obstacleMesh = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW * 0.32, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
+					new THREE.MeshStandardMaterial( { color: 0x657180, roughness: 0.8, metalness: 0.08 } )
+				);
+				obstacleMesh.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.11 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+
+			} else if ( cell.obstacleType === 'static-pillar' ) {
+
+				obstacleMesh = new THREE.Mesh(
+					new THREE.CylinderGeometry( CELL_RAW * 0.12, CELL_RAW * 0.12, CELL_RAW * 0.24, 16 ),
+					new THREE.MeshStandardMaterial( { color: 0x7a6e57, roughness: 0.86, metalness: 0.04 } )
+				);
+				obstacleMesh.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.12 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+
+			} else if ( cell.obstacleType === 'physics-crate' ) {
+
+				obstacleMesh = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW * 0.2, CELL_RAW * 0.2, CELL_RAW * 0.2 ),
+					new THREE.MeshStandardMaterial( { color: 0x8e6e4a, roughness: 0.88, metalness: 0.03 } )
+				);
+				obstacleMesh.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.1 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+
+			} else if ( cell.obstacleType === 'moving-spinner' ) {
+
+				obstacleMesh = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW * 0.84, CELL_RAW * 0.12, CELL_RAW * 0.16 ),
+					new THREE.MeshStandardMaterial( { color: 0x93a0b8, roughness: 0.46, metalness: 0.38 } )
+				);
+				obstacleMesh.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.06 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+
+			} else if ( cell.obstacleType === 'moving-slider' ) {
+
+				obstacleMesh = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW * 0.36, CELL_RAW * 0.22, CELL_RAW * 0.18 ),
+					new THREE.MeshStandardMaterial( { color: 0x7a8f9a, roughness: 0.52, metalness: 0.22 } )
+				);
+				obstacleMesh.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.11 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+
+			}
+			if ( obstacleMesh ) {
+
+				obstacleMesh.rotation.y = yaw;
+				obstacleMesh.castShadow = true;
+				obstacleMesh.receiveShadow = true;
+				trackGroup.add( obstacleMesh );
+				cell.obstacleMesh = obstacleMesh;
+
+			}
 
 		}
 
@@ -1590,7 +1677,7 @@
 			}
 			rebuildArcMeshes();
 
-		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || ELEVATED_TYPES.includes( selectedType ) ) {
+		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || ELEVATED_TYPES.includes( selectedType ) || TOOL_TO_OBSTACLE_TYPE[ selectedType ] ) {
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
@@ -1618,6 +1705,21 @@
 				cell.jump = ! cell.jump;
 				cell.jumpOrient = selectedOrient;
 
+			} else if ( TOOL_TO_OBSTACLE_TYPE[ selectedType ] ) {
+
+				const obstacleType = TOOL_TO_OBSTACLE_TYPE[ selectedType ];
+				if ( cell.obstacleType === obstacleType ) {
+
+					cell.obstacleType = null;
+					cell.obstacleOrient = 0;
+
+				} else {
+
+					cell.obstacleType = obstacleType;
+					cell.obstacleOrient = selectedOrient;
+
+				}
+
 			} else {
 
 				if ( cell.elevatedType === selectedType ) {
@@ -1633,7 +1735,7 @@
 				}
 
 			}
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.obstacleType && ! cell.wall && ! cell.jump && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				grid.delete( key );
 
@@ -1659,7 +1761,7 @@
 
 			}
 
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.obstacleType && ! cell.wall && ! cell.jump && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				grid.delete( key );
 
@@ -1739,6 +1841,7 @@
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
 		if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
 		if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
+		if ( cell.obstacleMesh ) trackGroup.remove( cell.obstacleMesh );
 		if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
 		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
@@ -1760,6 +1863,7 @@
 				if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
 				if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
 				if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
+				if ( cell.obstacleMesh ) trackGroup.remove( cell.obstacleMesh );
 				if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 				if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
 				if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
@@ -2006,7 +2110,7 @@
 		}
 		const ghostType = selectedType === BUMP_TOOL
 			? 'track-bump'
-			: ( selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL
+			: ( selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || Boolean( TOOL_TO_OBSTACLE_TYPE[ selectedType ] )
 				? 'track-straight'
 				: ( selectedType === JUMP_TOOL
 					? 'track-straight'
@@ -2101,6 +2205,7 @@
 		const bumps = [];
 		const poles = [];
 		const cubes = [];
+		const obstacles = [];
 		const walls = [];
 		const jumps = [];
 		const elevated = [];
@@ -2115,6 +2220,7 @@
 				if ( cell.bump ) bumps.push( [ gx, gz ] );
 				if ( cell.pole ) poles.push( [ gx, gz ] );
 				if ( cell.cube ) cubes.push( [ gx, gz ] );
+				if ( cell.obstacleType ) obstacles.push( [ gx, gz, cell.obstacleType, cell.obstacleOrient || 0 ] );
 				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0 ] );
 				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
 				if ( cell.elevatedType ) {
@@ -2167,14 +2273,14 @@
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, o: obstacles, l: walls, j: jumps, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
+		if ( ! modsStr ) return { b: [], p: [], k: [], o: [], l: [], j: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
 
 		try {
 
@@ -2184,6 +2290,7 @@
 					b: Array.isArray( parsed.b ) ? parsed.b : [],
 					p: Array.isArray( parsed.p ) ? parsed.p : [],
 					k: Array.isArray( parsed.k ) ? parsed.k : [],
+					o: Array.isArray( parsed.o ) ? parsed.o : [],
 					l: Array.isArray( parsed.l ) ? parsed.l : [],
 					j: Array.isArray( parsed.j ) ? parsed.j : [],
 					e: Array.isArray( parsed.e ) ? parsed.e : [],
@@ -2200,7 +2307,7 @@
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-				return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
+				return { b: [], p: [], k: [], o: [], l: [], j: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
 
 		}
 
@@ -2319,6 +2426,18 @@
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
 				cell.cube = true;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz, obstacleType, obstacleOrient ] of mods.o || [] ) {
+
+				if ( ! OBSTACLE_TYPES.includes( obstacleType ) ) continue;
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.obstacleType = obstacleType;
+				cell.obstacleOrient = obstacleOrient || 0;
 				placeOverlayMesh( gx, gz, cell );
 
 			}
@@ -2444,6 +2563,11 @@
 		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
 		[ POLE_TOOL ]: document.getElementById( 'btn-pole' ),
 		[ CUBE_TOOL ]: document.getElementById( 'btn-cube' ),
+		[ OBSTACLE_STATIC_BLOCK_TOOL ]: document.getElementById( 'btn-obstacle-static-block' ),
+		[ OBSTACLE_STATIC_PILLAR_TOOL ]: document.getElementById( 'btn-obstacle-static-pillar' ),
+		[ OBSTACLE_MOVING_SLIDER_TOOL ]: document.getElementById( 'btn-obstacle-slider' ),
+		[ OBSTACLE_MOVING_SPINNER_TOOL ]: document.getElementById( 'btn-obstacle-spinner' ),
+		[ OBSTACLE_PHYSICS_CRATE_TOOL ]: document.getElementById( 'btn-obstacle-crate' ),
 		[ MAGNET_BLUE_TOOL ]: document.getElementById( 'btn-magnet-blue' ),
 		[ MAGNET_RED_TOOL ]: document.getElementById( 'btn-magnet-red' ),
 		[ ARC_GREEN_TOOL ]: document.getElementById( 'btn-arc-green' ),
@@ -2699,7 +2823,7 @@
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, OBSTACLE_STATIC_BLOCK_TOOL, OBSTACLE_STATIC_PILLAR_TOOL, OBSTACLE_MOVING_SLIDER_TOOL, OBSTACLE_MOVING_SPINNER_TOOL, OBSTACLE_PHYSICS_CRATE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 

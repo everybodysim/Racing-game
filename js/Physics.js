@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { rigidBody, box, sphere, MotionType, MotionQuality } from 'crashcat';
-import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE, DEFAULT_OBSTACLES } from './Track.js';
+import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
 
 const _debugMat = new THREE.MeshBasicMaterial( {
 	color: 0x0b2f75,
@@ -681,83 +681,128 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	if ( ! customCells ) {
+	if ( extras && Array.isArray( extras.obstacles ) ) {
 
-		for ( const shape of DEFAULT_OBSTACLES.staticShapes ) {
+		for ( const [ gxRaw, gzRaw, obstacleTypeRaw, orientRaw = 0 ] of extras.obstacles ) {
 
-			const halfExtents = [
-				Math.max( 0.12, Number( shape?.size?.[ 0 ] ) || 0.12 ) * 0.5 * S,
-				Math.max( 0.12, Number( shape?.size?.[ 1 ] ) || 0.12 ) * 0.5 * S,
-				Math.max( 0.12, Number( shape?.size?.[ 2 ] ) || 0.12 ) * 0.5 * S
-			];
-			const yaw = THREE.MathUtils.degToRad( Number( shape?.yawDeg ) || 0 );
-			const position = [ ( Number( shape.gx ) + 0.5 ) * CELL_RAW * S, groundY + halfExtents[ 1 ], ( Number( shape.gz ) + 0.5 ) * CELL_RAW * S ];
+			const gx = Number( gxRaw );
+			const gz = Number( gzRaw );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+			const obstacleType = String( obstacleTypeRaw || '' );
+			const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orientRaw ] ?? 0 );
+			const position = [ ( gx + 0.5 ) * CELL_RAW * S, groundY, ( gz + 0.5 ) * CELL_RAW * S ];
 			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents } ),
-				motionType: MotionType.STATIC,
-				objectLayer: world._OL_STATIC,
-				position,
-				quaternion,
-				friction: 0.9,
-				restitution: 0.01,
-			} );
-			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+			if ( obstacleType === 'static-block' ) {
+
+				const halfExtents = [ CELL_RAW * S * 0.16, CELL_RAW * S * 0.11, CELL_RAW * S * 0.11 ];
+				position[ 1 ] += halfExtents[ 1 ];
+				rigidBody.create( world, {
+					shape: box.create( { halfExtents } ),
+					motionType: MotionType.STATIC,
+					objectLayer: world._OL_STATIC,
+					position,
+					quaternion,
+					friction: 0.9,
+					restitution: 0.01,
+				} );
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			} else if ( obstacleType === 'static-pillar' ) {
+
+				const radius = CELL_RAW * S * 0.12;
+				position[ 1 ] += CELL_RAW * S * 0.12;
+				rigidBody.create( world, {
+					shape: sphere.create( { radius } ),
+					motionType: MotionType.STATIC,
+					objectLayer: world._OL_STATIC,
+					position,
+					friction: 0.9,
+					restitution: 0.01,
+				} );
+				if ( debugGroup ) addDebugSphere( debugGroup, radius, position );
+
+			} else if ( obstacleType === 'physics-crate' ) {
+
+				const halfExtents = [ CELL_RAW * S * 0.1, CELL_RAW * S * 0.1, CELL_RAW * S * 0.1 ];
+				position[ 1 ] += halfExtents[ 1 ];
+				const body = rigidBody.create( world, {
+					shape: box.create( { halfExtents } ),
+					motionType: MotionType.DYNAMIC,
+					objectLayer: world._OL_MOVING,
+					position,
+					quaternion,
+					mass: 42.0,
+					friction: 0.95,
+					restitution: 0.08,
+					linearDamping: 0.22,
+					angularDamping: 0.28,
+					motionQuality: MotionQuality.LINEAR_CAST,
+				} );
+				resettableBodies.push( { body, position } );
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			} else if ( obstacleType === 'moving-spinner' ) {
+
+				const halfExtents = [ CELL_RAW * S * 0.42, CELL_RAW * S * 0.06, CELL_RAW * S * 0.08 ];
+				position[ 1 ] += halfExtents[ 1 ];
+				const spinBody = rigidBody.create( world, {
+					shape: box.create( { halfExtents } ),
+					motionType: MotionType.DYNAMIC,
+					objectLayer: world._OL_MOVING,
+					position,
+					quaternion,
+					mass: 420.0,
+					friction: 0.6,
+					restitution: 0.04,
+					linearDamping: 0.92,
+					angularDamping: 0.0,
+					motionQuality: MotionQuality.LINEAR_CAST,
+				} );
+				const spinVelocity = 0.75;
+				obstacleUpdaters.push( () => {
+
+					rigidBody.setPosition( world, spinBody, position, false );
+					rigidBody.setLinearVelocity( world, spinBody, [ 0, 0, 0 ] );
+					rigidBody.setAngularVelocity( world, spinBody, [ 0, spinVelocity, 0 ] );
+
+				} );
+				resettableBodies.push( { body: spinBody, position, angularVelocity: [ 0, spinVelocity, 0 ] } );
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			} else if ( obstacleType === 'moving-slider' ) {
+
+				const halfExtents = [ CELL_RAW * S * 0.18, CELL_RAW * S * 0.11, CELL_RAW * S * 0.09 ];
+				position[ 1 ] += halfExtents[ 1 ];
+				const sliderBody = rigidBody.create( world, {
+					shape: box.create( { halfExtents } ),
+					motionType: MotionType.DYNAMIC,
+					objectLayer: world._OL_MOVING,
+					position,
+					quaternion,
+					mass: 180.0,
+					friction: 0.7,
+					restitution: 0.02,
+					linearDamping: 0.95,
+					angularDamping: 0.95,
+					motionQuality: MotionQuality.LINEAR_CAST,
+				} );
+				const dirX = Math.sin( yaw );
+				const dirZ = Math.cos( yaw );
+				obstacleUpdaters.push( () => {
+
+					const phase = Math.sin( performance.now() * 0.001 * 1.1 ) * CELL_RAW * S * 0.22;
+					const sliderPos = [ position[ 0 ] + dirX * phase, position[ 1 ], position[ 2 ] + dirZ * phase ];
+					rigidBody.setPosition( world, sliderBody, sliderPos, false );
+					rigidBody.setLinearVelocity( world, sliderBody, [ 0, 0, 0 ] );
+					rigidBody.setAngularVelocity( world, sliderBody, [ 0, 0, 0 ] );
+
+				} );
+				resettableBodies.push( { body: sliderBody, position, angularVelocity: [ 0, 0, 0 ] } );
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			}
 
 		}
-
-		for ( const boxObstacle of DEFAULT_OBSTACLES.physicsBoxes ) {
-
-			const halfExtents = [ CELL_RAW * S * 0.1, CELL_RAW * S * 0.1, CELL_RAW * S * 0.1 ];
-			const yaw = THREE.MathUtils.degToRad( Number( boxObstacle?.yawDeg ) || 0 );
-			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
-			const position = [ ( Number( boxObstacle.gx ) + 0.5 ) * CELL_RAW * S, groundY + halfExtents[ 1 ], ( Number( boxObstacle.gz ) + 0.5 ) * CELL_RAW * S ];
-			const body = rigidBody.create( world, {
-				shape: box.create( { halfExtents } ),
-				motionType: MotionType.DYNAMIC,
-				objectLayer: world._OL_MOVING,
-				position,
-				quaternion,
-				mass: 42.0,
-				friction: 0.95,
-				restitution: 0.08,
-				linearDamping: 0.22,
-				angularDamping: 0.28,
-				motionQuality: MotionQuality.LINEAR_CAST,
-			} );
-			resettableBodies.push( { body, position, quaternion } );
-			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
-
-		}
-
-		const spinner = DEFAULT_OBSTACLES.spinner;
-		const spinnerHalfExtents = [ CELL_RAW * S * 0.42, CELL_RAW * S * 0.06, CELL_RAW * S * 0.08 ];
-		const spinnerPosition = [ ( Number( spinner.gx ) + 0.5 ) * CELL_RAW * S, groundY + spinnerHalfExtents[ 1 ], ( Number( spinner.gz ) + 0.5 ) * CELL_RAW * S ];
-		const spinnerYaw = THREE.MathUtils.degToRad( Number( spinner?.yawDeg ) || 0 );
-		const spinnerQuat = [ 0, Math.sin( spinnerYaw / 2 ), 0, Math.cos( spinnerYaw / 2 ) ];
-		const spinBody = rigidBody.create( world, {
-			shape: box.create( { halfExtents: spinnerHalfExtents } ),
-			motionType: MotionType.DYNAMIC,
-			objectLayer: world._OL_MOVING,
-			position: spinnerPosition,
-			quaternion: spinnerQuat,
-			mass: 420.0,
-			friction: 0.6,
-			restitution: 0.04,
-			linearDamping: 0.92,
-			angularDamping: 0.0,
-			motionQuality: MotionQuality.LINEAR_CAST,
-		} );
-		const spinVelocity = Number( spinner.spinSpeed ) || 0.65;
-		obstacleUpdaters.push( () => {
-
-			rigidBody.setPosition( world, spinBody, spinnerPosition, false );
-			rigidBody.setLinearVelocity( world, spinBody, [ 0, 0, 0 ] );
-			rigidBody.setAngularVelocity( world, spinBody, [ 0, spinVelocity, 0 ] );
-
-		} );
-		resettableBodies.push( { body: spinBody, position: spinnerPosition, quaternion: spinnerQuat, angularVelocity: [ 0, spinVelocity, 0 ] } );
-		if ( debugGroup ) addDebugBox( debugGroup, spinnerHalfExtents, spinnerPosition, spinnerQuat );
 
 	}
 

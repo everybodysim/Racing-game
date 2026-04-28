@@ -611,6 +611,7 @@ function decodeExtrasParam( str ) {
 				poles: Array.isArray( parsed.p ) ? parsed.p : [],
 				cubes: Array.isArray( parsed.k ) ? parsed.k : [],
 				walls: Array.isArray( parsed.l ) ? parsed.l : [],
+				obstacles: Array.isArray( parsed.o ) ? parsed.o : [],
 				boosts: Array.isArray( parsed.s ) ? parsed.s : [],
 				elevated: Array.isArray( parsed.e ) ? parsed.e : [],
 			jumps: Array.isArray( parsed.j ) ? parsed.j : [],

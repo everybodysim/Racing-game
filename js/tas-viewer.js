@@ -128,6 +128,7 @@ function parseExtrasFromUrl(rawUrl) {
     const parsed = JSON.parse(json);
     return {
       bumps: Array.isArray(parsed.b) ? parsed.b : [],
+      obstacles: Array.isArray(parsed.o) ? parsed.o : [],
       boosts: Array.isArray(parsed.s) ? parsed.s : [],
       jumps: Array.isArray(parsed.j) ? parsed.j : [],
       decorations: Array.isArray(parsed.d) ? parsed.d : [],
@@ -143,6 +144,7 @@ function parseExtrasFromUrl(rawUrl) {
 function normalizeTrackExtras(extras) {
   return {
     bumps: Array.isArray(extras?.bumps) ? extras.bumps : [],
+    obstacles: Array.isArray(extras?.obstacles) ? extras.obstacles : [],
     boosts: Array.isArray(extras?.boosts) ? extras.boosts : [],
     jumps: Array.isArray(extras?.jumps) ? extras.jumps : [],
     decorations: Array.isArray(extras?.decorations) ? extras.decorations : [],
