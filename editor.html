@@ -2558,13 +2558,7 @@
 	const movingCustomColor = document.getElementById( 'moving-custom-color' );
 	function readCustomMovingUi() { return { shape: movingCustomShape?.value || 'square', sx: Number( movingCustomSx?.value ) || 2, sy: Number( movingCustomSy?.value ) || 0.8, sz: Number( movingCustomSz?.value ) || 0.8, orbit: Number( movingCustomOrbit?.value ) || 0, count: Math.max( 1, Math.round( Number( movingCustomCount?.value ) || 1 ) ), rot: Number( movingCustomRot?.value ) || 1, color: movingCustomColor?.value || '#ff8844' }; }
 
-	// OLD:
-function refreshMovingSpeedUi() {
-    const visible = isMovingObstacleTool( selectedType );
-    if ( movingSpeedWrap ) movingSpeedWrap.style.display = visible ? 'inline-flex' : 'none';
-    if ( movingCustomWrap ) movingCustomWrap.style.display = selectedType === MOVING_CUSTOM_TOOL ? 'inline-flex' : 'none';
-    if ( movingSpeedValue ) movingSpeedValue.textContent = `${ Number( movingSpeedInput?.value || 1 ).toFixed( 2 ) }x`;
-}
+	
 
 // NEW:
 function refreshMovingSpeedUi() {
