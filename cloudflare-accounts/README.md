@@ -243,3 +243,88 @@ Allowed username:
 - Frontend account UI + logic: `index.html`, `js/main.js`
 - Leaderboard dedupe update: `cloudflare-leaderboard/worker/src/index.js`
 
+
+---
+
+## Notifications system (new) — Cloudflare Worker + KV
+
+This repo now includes account-scoped notifications stored in the same `ACCOUNTS_KV` user object.
+
+### New endpoints in `cloudflare-accounts/worker/src/index.js`
+
+- `GET /api/accounts/notifications?token=...`
+  - Returns all saved notifications for logged-in account.
+- `POST /api/accounts/notifications/delete`
+  - Body `{ token, id }`
+  - Deletes one notification from your account.
+- `POST /api/accounts/notify-event`
+  - Body `{ secret, username, type, title, message, meta }`
+  - Appends a notification to a specific account.
+  - If `NOTIFY_WRITE_SECRET` exists in Worker secrets, `secret` must match.
+
+Notifications are **persistent** and only removed when deleted.
+
+### What changed in storage shape
+
+Each user record now can contain:
+
+```json
+{
+  "notifications": [
+    {
+      "id": "<uuid-no-dashes>",
+      "type": "important",
+      "title": "...",
+      "message": "...",
+      "meta": {},
+      "createdAt": 1710000000000
+    }
+  ]
+}
+```
+
+### Auto-generated notifications (already wired)
+
+- On profile save (`POST /api/accounts/profile`), when coins increase, a notification is auto-added.
+
+### How to generate notifications for records/events (TOTD, weekly cup, track share, default track, leaderboard pass, etc.)
+
+Use `POST /api/accounts/notify-event` from your other Cloudflare Workers whenever you detect an event:
+
+1. TOTD Worker detects a new record holder.
+2. Weekly cup logic detects a record change.
+3. Track share Worker detects somebody takes #1 on a shared track.
+4. Coin leaderboard refresh process detects rank pass event.
+5. Publishing pipeline detects new track release.
+
+Each of those should call account worker `notify-event` with the target username and a descriptive message.
+
+### Worker secrets and republish steps
+
+1. In Cloudflare dashboard, open the Account Worker.
+2. Go to **Settings → Variables / Secrets**.
+3. Add secret:
+   - Name: `NOTIFY_WRITE_SECRET`
+   - Value: a strong random string.
+4. Save.
+5. Deploy the account worker again (`Save and Deploy`).
+
+Then, in each other Worker that should emit notifications:
+
+1. Add secret/variable with same value (for outbound call auth).
+2. Update code to call:
+   - `https://<account-worker>/api/accounts/notify-event`
+3. Deploy that Worker.
+
+### Frontend page
+
+- New page: `notifications.html`
+- Reads session token from `localStorage` key `racing-account-session-v1`.
+- Lists notifications and allows per-item deletion.
+
+### UI highlight behavior
+
+- `index.html` now has a Notifications link in:
+  - main landing grid
+  - quick bottom-right menu
+- The Notifications link highlights red when cached notification count > 0 (`racing-notification-count-v1`).

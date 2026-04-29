@@ -11,7 +11,7 @@
 	<style>
 		body { margin: 0; overflow: hidden; background: #000; }
 		canvas { display: block; touch-action: none; }
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
+		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #replay-link, #tracks-link, #mods-link, #notifications-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
 			position: absolute;
 			bottom: 12px;
 			color: #fff;
@@ -22,7 +22,7 @@
 			z-index: 10;
 			border: none;
 		}
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn { text-decoration: none; }
+		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #replay-link, #tracks-link, #mods-link, #notifications-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn { text-decoration: none; }
 		#editor-link { right: 16px; }
 		#totd-link { right: 16px; bottom: 54px; }
 		#weekly-cup-link { right: 16px; bottom: 96px; }
@@ -30,8 +30,9 @@
 		#replay-link { right: 16px; bottom: 180px; }
 		#tracks-link { right: 16px; bottom: 222px; }
 		#mods-link { right: 16px; bottom: 264px; }
-		#hacks-toggle { right: 16px; bottom: 306px; }
-		#split-link { right: 16px; bottom: 348px; }
+		#notifications-link { right: 16px; bottom: 306px; }
+		#hacks-toggle { right: 16px; bottom: 348px; }
+		#split-link { right: 16px; bottom: 390px; }
 		#respawnBtn { left: 16px; top: 54px; bottom: auto; }
 		#mode-menu-btn { left: 16px; top: 96px; bottom: auto; }
 		#car-select { left: 16px; top: 12px; bottom: auto; }
@@ -39,7 +40,8 @@
 		#export-ghost-btn { left: 180px; bottom: 12px; }
 		#import-ghost-btn { left: 300px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
-		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #replay-link:hover, #tracks-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #replay-link:hover, #tracks-link:hover, #mods-link:hover, #notifications-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		.has-notifications { border: 1px solid #ff5e5e !important; box-shadow: 0 0 0 1px rgba(255,94,94,0.5) inset; }
 		#mp-panel {
 			position: absolute;
 			left: 16px;
@@ -775,6 +777,7 @@
 				<a class="home-main-link" href="editor.html">Create your own track<em>Build and test original circuits</em></a>
 				<a class="home-main-link" href="weekly-cup.html">Weekly cup<em>Competitive rotating event</em></a>
 				<a class="home-main-link" href="totd.html">Track of the day<em>One featured challenge each day</em></a>
+				<a class="home-main-link" href="notifications.html">Notifications<em>Important account and record updates</em></a>
 			</div>
 			<div id="home-secondary">
 				<a class="home-secondary-link" href="replay.html">Replay watcher</a>
@@ -792,6 +795,7 @@
 	<a id="replay-link" href="replay.html">Replay watcher</a>
 	<a id="tracks-link" href="tracks.html">Track share board</a>
 	<a id="mods-link" href="mods.html">Mods</a>
+	<a id="notifications-link" href="notifications.html">Notifications</a>
 	<a id="hacks-toggle" href="#" style="display:none;">Hacks</a>
 	<a id="split-link" href="#">2P split screen</a>
 	<button id="quick-menu-btn" type="button" aria-expanded="false">Menu ▾</button>
@@ -1002,7 +1006,7 @@
 	<script>
 		const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
 		const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
-		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'coin-leaderboard-link', 'replay-link', 'tracks-link', 'mods-link', 'hacks-toggle', 'split-link' ];
+		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'coin-leaderboard-link', 'replay-link', 'tracks-link', 'mods-link', 'notifications-link', 'hacks-toggle', 'split-link' ];
 		for ( const id of quickMenuLinks ) {
 			const node = document.getElementById( id );
 			if ( node ) quickMenuPanel.appendChild( node );
@@ -1065,6 +1069,8 @@
 				weeklyLink.textContent = `Weekly cup • ${ winner }`;
 			}
 		} )();
+		const cachedCount = Math.max( 0, Number( localStorage.getItem( 'racing-notification-count-v1' ) || 0 ) );
+		if ( cachedCount > 0 ) document.getElementById( 'notifications-link' )?.classList.add( 'has-notifications' );
 	</script>
 	<script type="module" src="js/main.js"></script>
   <style>

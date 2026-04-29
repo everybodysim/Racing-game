@@ -4,6 +4,7 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const MAX_USERNAME_LENGTH = 24;
 const MAX_PROFILE_BYTES = 12000;
 const MAX_COIN_LEADERBOARD_SCAN = 5000;
+const MAX_NOTIFICATIONS = 200;
 
 export default {
 	async fetch( request, env ) {
@@ -24,6 +25,15 @@ export default {
 		}
 		if ( url.pathname === '/api/accounts/coins-leaderboard' && request.method === 'GET' ) {
 			return withCors( await getCoinsLeaderboard( url, env ) );
+		}
+		if ( url.pathname === '/api/accounts/notifications' && request.method === 'GET' ) {
+			return withCors( await getNotifications( url, env ) );
+		}
+		if ( url.pathname === '/api/accounts/notifications/delete' && request.method === 'POST' ) {
+			return withCors( await deleteNotification( request, env ) );
+		}
+		if ( url.pathname === '/api/accounts/notify-event' && request.method === 'POST' ) {
+			return withCors( await pushNotificationEvent( request, env ) );
 		}
 
 		return withCors( json( { ok: false, error: 'Not found' }, 404 ) );
@@ -97,10 +107,67 @@ async function saveProfile( request, env ) {
 	if ( byteLength( JSON.stringify( profile ) ) > MAX_PROFILE_BYTES ) {
 		return json( { ok: false, error: 'profile payload is too large' }, 400 );
 	}
+	const previousCoins = Math.max( 0, Math.floor( Number( userRecord?.profile?.economy?.coins ) || 0 ) );
 	userRecord.profile = profile;
 	userRecord.updatedAt = Date.now();
+	const nextCoins = Math.max( 0, Math.floor( Number( profile?.economy?.coins ) || 0 ) );
+	if ( nextCoins > previousCoins ) {
+		appendNotification( userRecord, {
+			type: 'coins-earned',
+			title: 'Coins updated',
+			message: `Your coins increased from ${ previousCoins } to ${ nextCoins }.`,
+		} );
+	}
 	await env.ACCOUNTS_KV.put( keyForUser( session.usernameKey ), JSON.stringify( userRecord ) );
 	return json( { ok: true, username: userRecord.username, profile } );
+}
+
+async function getNotifications( url, env ) {
+	const token = String( url.searchParams.get( 'token' ) || '' ).trim();
+	if ( ! token ) return json( { ok: false, error: 'token is required' }, 400 );
+	const session = await loadSession( env, token );
+	if ( ! session ) return json( { ok: false, error: 'Invalid or expired token' }, 401 );
+	const userRecord = await env.ACCOUNTS_KV.get( keyForUser( session.usernameKey ), 'json' );
+	if ( ! userRecord ) return json( { ok: false, error: 'Account not found' }, 404 );
+	const notifications = sanitizeNotifications( userRecord.notifications );
+	return json( { ok: true, notifications } );
+}
+
+async function deleteNotification( request, env ) {
+	const payload = await parseJsonBody( request );
+	if ( ! payload.ok ) return payload.response;
+	const token = String( payload.value?.token || '' ).trim();
+	const id = String( payload.value?.id || '' ).trim();
+	if ( ! token || ! id ) return json( { ok: false, error: 'token and id are required' }, 400 );
+	const session = await loadSession( env, token );
+	if ( ! session ) return json( { ok: false, error: 'Invalid or expired token' }, 401 );
+	const userRecord = await env.ACCOUNTS_KV.get( keyForUser( session.usernameKey ), 'json' );
+	if ( ! userRecord ) return json( { ok: false, error: 'Account not found' }, 404 );
+	const notifications = sanitizeNotifications( userRecord.notifications ).filter( ( entry ) => entry.id !== id );
+	userRecord.notifications = notifications;
+	userRecord.updatedAt = Date.now();
+	await env.ACCOUNTS_KV.put( keyForUser( session.usernameKey ), JSON.stringify( userRecord ) );
+	return json( { ok: true, notifications } );
+}
+
+async function pushNotificationEvent( request, env ) {
+	const payload = await parseJsonBody( request );
+	if ( ! payload.ok ) return payload.response;
+	const secret = String( payload.value?.secret || '' ).trim();
+	if ( env.NOTIFY_WRITE_SECRET && secret !== env.NOTIFY_WRITE_SECRET ) return json( { ok: false, error: 'Unauthorized' }, 401 );
+	const username = sanitizeUsername( payload.value?.username );
+	const usernameKey = normalizeUsernameKey( username );
+	const userRecord = await env.ACCOUNTS_KV.get( keyForUser( usernameKey ), 'json' );
+	if ( ! userRecord ) return json( { ok: false, error: 'Account not found' }, 404 );
+	appendNotification( userRecord, {
+		type: String( payload.value?.type || 'important' ),
+		title: String( payload.value?.title || 'Important update' ).slice( 0, 120 ),
+		message: String( payload.value?.message || 'Something important happened.' ).slice( 0, 400 ),
+		meta: payload.value?.meta && typeof payload.value.meta === 'object' ? payload.value.meta : null,
+	} );
+	userRecord.updatedAt = Date.now();
+	await env.ACCOUNTS_KV.put( keyForUser( usernameKey ), JSON.stringify( userRecord ) );
+	return json( { ok: true } );
 }
 
 async function getCoinsLeaderboard( url, env ) {
@@ -206,6 +273,31 @@ function sanitizeProfile( value ) {
 		campaign: profile?.campaign && typeof profile.campaign === 'object' ? profile.campaign : null,
 		carKey: typeof profile?.carKey === 'string' ? profile.carKey : '',
 	};
+}
+
+function appendNotification( userRecord, event ) {
+	const notifications = sanitizeNotifications( userRecord.notifications );
+	notifications.unshift( {
+		id: crypto.randomUUID().replace( /-/g, '' ),
+		type: String( event?.type || 'important' ).slice( 0, 40 ),
+		title: String( event?.title || 'Important update' ).slice( 0, 120 ),
+		message: String( event?.message || '' ).slice( 0, 400 ),
+		meta: event?.meta && typeof event.meta === 'object' ? event.meta : null,
+		createdAt: Date.now(),
+	} );
+	userRecord.notifications = notifications.slice( 0, MAX_NOTIFICATIONS );
+}
+
+function sanitizeNotifications( value ) {
+	const rows = Array.isArray( value ) ? value : [];
+	return rows.slice( 0, MAX_NOTIFICATIONS ).map( ( row ) => ( {
+		id: typeof row?.id === 'string' ? row.id.slice( 0, 64 ) : crypto.randomUUID().replace( /-/g, '' ),
+		type: typeof row?.type === 'string' ? row.type.slice( 0, 40 ) : 'important',
+		title: typeof row?.title === 'string' ? row.title.slice( 0, 120 ) : 'Important update',
+		message: typeof row?.message === 'string' ? row.message.slice( 0, 400 ) : '',
+		meta: row?.meta && typeof row.meta === 'object' ? row.meta : null,
+		createdAt: Number.isFinite( Number( row?.createdAt ) ) ? Number( row.createdAt ) : Date.now(),
+	} ) );
 }
 
 function sanitizeGarageCosmetics( value ) {

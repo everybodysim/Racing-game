@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Notifications</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font: 14px/1.45 Inter, system-ui, sans-serif; background: linear-gradient(160deg, #0b1220, #121826); color: #e6edf7; }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 20px 14px 30px; }
+    .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+    button, .linkbtn { font: inherit; border-radius: 8px; border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.12); color: #fff; padding: 8px 10px; }
+    button { cursor:pointer; }
+    .linkbtn { text-decoration:none; }
+    .panel { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 12px; }
+    .item { border: 1px solid rgba(255,255,255,0.16); border-radius: 10px; padding: 10px; margin: 8px 0; background: rgba(255,255,255,0.03); }
+    .meta { color:#9eb7da; font-size:12px; }
+    .title { font-size:16px; font-weight:700; margin: 3px 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Notifications</h1>
+    <div class="toolbar">
+      <button id="refreshBtn" type="button">Refresh</button>
+      <a class="linkbtn" href="index.html">Back to game</a>
+    </div>
+    <div class="panel" id="list">Loading…</div>
+  </div>
+<script>
+(() => {
+  const ACCOUNT_API_BASE = 'https://racing-account-api.ga1010.workers.dev/api/accounts';
+  const ACCOUNT_SESSION_KEY = 'racing-account-session-v1';
+  const listEl = document.getElementById('list');
+  const refreshBtn = document.getElementById('refreshBtn');
+
+  function getToken() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(ACCOUNT_SESSION_KEY) || '{}');
+      return typeof raw?.token === 'string' ? raw.token : '';
+    } catch { return ''; }
+  }
+
+  async function deleteNotification(id) {
+    const token = getToken();
+    await fetch(`${ACCOUNT_API_BASE}/notifications/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, id }),
+    });
+    await load();
+  }
+
+  async function load() {
+    const token = getToken();
+    if (!token) { listEl.textContent = 'Log into your account in-game first.'; return; }
+    listEl.textContent = 'Loading…';
+    const response = await fetch(`${ACCOUNT_API_BASE}/notifications?token=${encodeURIComponent(token)}`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.ok === false) {
+      listEl.textContent = `Failed: ${payload?.error || 'HTTP error'}`;
+      return;
+    }
+    const rows = Array.isArray(payload.notifications) ? payload.notifications : [];
+    localStorage.setItem('racing-notification-count-v1', String(rows.length));
+    if (!rows.length) { listEl.textContent = 'No notifications yet.'; return; }
+    listEl.innerHTML = '';
+    rows.forEach((row) => {
+      const div = document.createElement('div');
+      div.className = 'item';
+      const when = new Date(Number(row.createdAt) || Date.now()).toLocaleString();
+      div.innerHTML = `<div class="meta">${row.type || 'important'} • ${when}</div><div class="title">${row.title || 'Update'}</div><div>${row.message || ''}</div>`;
+      const del = document.createElement('button');
+      del.textContent = 'Delete';
+      del.type = 'button';
+      del.style.marginTop = '8px';
+      del.addEventListener('click', () => deleteNotification(row.id));
+      div.appendChild(del);
+      listEl.appendChild(div);
+    });
+  }
+
+  refreshBtn.addEventListener('click', load);
+  load();
+})();
+</script>
+</body>
+</html>
