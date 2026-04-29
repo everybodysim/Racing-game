@@ -261,6 +261,7 @@
 <body>
 	<div id="settings-bar">
 		<label for="weather-preset">Weather</label>
+		<label id="moving-custom-wrap" style="display:none;color:#dbe8ff;font-size:11px;gap:6px;align-items:center;">Shape <select id="moving-custom-shape"><option value="square">Square</option><option value="pole">Pole</option></select> SizeX <input id="moving-custom-sx" type="range" min="0.3" max="4" step="0.1" value="2"> SizeY <input id="moving-custom-sy" type="range" min="0.2" max="3" step="0.1" value="0.8"> SizeZ <input id="moving-custom-sz" type="range" min="0.3" max="4" step="0.1" value="0.8"> OrbitR <input id="moving-custom-orbit" type="range" min="0" max="4" step="0.1" value="0"> Count <input id="moving-custom-count" type="range" min="1" max="8" step="1" value="1"> Rot <input id="moving-custom-rot" type="range" min="-4" max="4" step="0.1" value="1"> <input id="moving-custom-color" type="color" value="#ff8844"></label>
 		<select id="weather-preset" aria-label="Weather preset">
 			<option value="clear">Clear</option>
 			<option value="cloudy">Cloudy</option>
@@ -347,6 +348,7 @@
 		<button id="btn-moving-slide">Sliding Block +</button>
 		<button id="btn-moving-spin">Spinning Wall +</button>
 		<button id="btn-moving-orbit">Orbit Poles +</button>
+		<button id="btn-moving-custom">Custom Mover +</button>
 		<label id="moving-speed-wrap" style="display:none;color:#dbe8ff;font-size:11px;">Move Speed <input id="moving-speed" type="range" min="0.25" max="3" step="0.05" value="1"><span id="moving-speed-value">1.00x</span></label>
 		<select id="gate-select" aria-label="Gate picker">
 			<option value="track-start-finish">Start/Finish</option>
@@ -465,6 +467,7 @@
 	const MOVING_SLIDE_TOOL = 'moving-slide-block';
 	const MOVING_SPIN_TOOL = 'moving-spin-wall';
 	const MOVING_ORBIT_TOOL = 'moving-orbit-poles';
+	const MOVING_CUSTOM_TOOL = 'moving-custom';
 	const MAGNET_BLUE_TOOL = 'magnet-blue';
 	const MAGNET_RED_TOOL = 'magnet-red';
 	const ARC_GREEN_TOOL = 'arc-green';
@@ -915,6 +918,7 @@
 			jumpOrient: 0,
 			movingObstacle: '',
 			movingSpeed: 1,
+			movingCustom: null,
 			jumpMesh: null,
 			elevatedType: null,
 			elevatedOrient: 0,
@@ -1491,6 +1495,12 @@
 				hub.rotation.z = Math.PI * 0.5;
 				marker.add( hub );
 
+			} else if ( cell.movingObstacle === MOVING_CUSTOM_TOOL ) {
+				const cfg = cell.movingCustom || readCustomMovingUi();
+				const sx = Number( cfg?.sx ) || 2, sy = Number( cfg?.sy ) || 0.8, sz = Number( cfg?.sz ) || 0.8;
+				const cmat = new THREE.MeshStandardMaterial( { color: cfg?.color || '#ff8844', emissive: 0x331100 } );
+				const custom = cfg?.shape === 'pole' ? new THREE.CylinderGeometry( sx * 0.18, sx * 0.18, sy, 12 ) : new THREE.BoxGeometry( sx, sy, sz );
+				marker.add( new THREE.Mesh( custom, cmat ) );
 			} else {
 
 				for ( let i = 0; i < 3; i ++ ) {
@@ -1644,7 +1654,7 @@
 			}
 			rebuildArcMeshes();
 
-		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
+		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || MOVING_CUSTOM_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
@@ -1672,10 +1682,11 @@
 				cell.jump = ! cell.jump;
 				cell.jumpOrient = selectedOrient;
 
-			} else if ( selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL ) {
+			} else if ( selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL ) {
 
 				cell.movingObstacle = cell.movingObstacle === selectedType ? '' : selectedType;
 				if ( cell.movingObstacle ) cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedInput?.value ) || 1 ) );
+				if ( cell.movingObstacle === MOVING_CUSTOM_TOOL ) cell.movingCustom = readCustomMovingUi();
 
 			} else {
 
@@ -2177,7 +2188,7 @@
 				if ( cell.cube ) cubes.push( [ gx, gz ] );
 				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0 ] );
 				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
-				if ( cell.movingObstacle ) movingObstacles.push( [ gx, gz, cell.movingObstacle, cell.wallOrient || 0, Number.isFinite( Number( cell.movingSpeed ) ) ? Number( cell.movingSpeed ) : 1 ] );
+				if ( cell.movingObstacle ) movingObstacles.push( [ gx, gz, cell.movingObstacle, cell.wallOrient || 0, Number.isFinite( Number( cell.movingSpeed ) ) ? Number( cell.movingSpeed ) : 1, cell.movingCustom && typeof cell.movingCustom === 'object' ? cell.movingCustom : null ] );
 				if ( cell.elevatedType ) {
 
 					const typeOut = cell.elevatedType === 'slope-down' ? 'slope-up' : cell.elevatedType;
@@ -2409,12 +2420,12 @@
 
 
 
-			for ( const [ gx, gz, movingType, _orient, movingSpeedRaw ] of mods.o || [] ) {
+			for ( const [ gx, gz, movingType, _orient, movingSpeedRaw, movingCustomRaw ] of mods.o || [] ) {
 
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
-				if ( [ MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL ].includes( movingType ) ) { cell.movingObstacle = movingType; cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedRaw ) || 1 ) ); }
+				if ( [ MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, MOVING_CUSTOM_TOOL ].includes( movingType ) ) { cell.movingObstacle = movingType; cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedRaw ) || 1 ) ); cell.movingCustom = movingCustomRaw && typeof movingCustomRaw === 'object' ? movingCustomRaw : null; }
 				placeOverlayMesh( gx, gz, cell );
 
 			}
@@ -2515,10 +2526,23 @@
 	const movingSpeedWrap = document.getElementById( 'moving-speed-wrap' );
 	const movingSpeedInput = document.getElementById( 'moving-speed' );
 	const movingSpeedValue = document.getElementById( 'moving-speed-value' );
-	function isMovingObstacleTool( type ) { return type === MOVING_SLIDE_TOOL || type === MOVING_SPIN_TOOL || type === MOVING_ORBIT_TOOL; }
+	function isMovingObstacleTool( type ) { return type === MOVING_SLIDE_TOOL || type === MOVING_SPIN_TOOL || type === MOVING_ORBIT_TOOL || type === MOVING_CUSTOM_TOOL; }
+
+	const movingCustomWrap = document.getElementById( 'moving-custom-wrap' );
+	const movingCustomShape = document.getElementById( 'moving-custom-shape' );
+	const movingCustomSx = document.getElementById( 'moving-custom-sx' );
+	const movingCustomSy = document.getElementById( 'moving-custom-sy' );
+	const movingCustomSz = document.getElementById( 'moving-custom-sz' );
+	const movingCustomOrbit = document.getElementById( 'moving-custom-orbit' );
+	const movingCustomCount = document.getElementById( 'moving-custom-count' );
+	const movingCustomRot = document.getElementById( 'moving-custom-rot' );
+	const movingCustomColor = document.getElementById( 'moving-custom-color' );
+	function readCustomMovingUi() { return { shape: movingCustomShape?.value || 'square', sx: Number( movingCustomSx?.value ) || 2, sy: Number( movingCustomSy?.value ) || 0.8, sz: Number( movingCustomSz?.value ) || 0.8, orbit: Number( movingCustomOrbit?.value ) || 0, count: Math.max( 1, Math.round( Number( movingCustomCount?.value ) || 1 ) ), rot: Number( movingCustomRot?.value ) || 1, color: movingCustomColor?.value || '#ff8844' }; }
+
 	function refreshMovingSpeedUi() {
 		const visible = isMovingObstacleTool( selectedType );
 		if ( movingSpeedWrap ) movingSpeedWrap.style.display = visible ? 'inline-flex' : 'none';
+		if ( movingCustomWrap ) movingCustomWrap.style.display = selectedType === MOVING_CUSTOM_TOOL ? 'inline-flex' : 'none';
 		if ( movingSpeedValue ) movingSpeedValue.textContent = `${ Number( movingSpeedInput?.value || 1 ).toFixed( 2 ) }x`;
 	}
 	movingSpeedInput?.addEventListener( 'input', () => {
@@ -2549,6 +2573,7 @@
 		[ MOVING_SLIDE_TOOL ]: document.getElementById( 'btn-moving-slide' ),
 		[ MOVING_SPIN_TOOL ]: document.getElementById( 'btn-moving-spin' ),
 		[ MOVING_ORBIT_TOOL ]: document.getElementById( 'btn-moving-orbit' ),
+		[ MOVING_CUSTOM_TOOL ]: document.getElementById( 'btn-moving-custom' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
 		'elevated-straight': document.getElementById( 'btn-elevated-straight' ),
 		'elevated-corner': document.getElementById( 'btn-elevated-corner' ),
@@ -2645,7 +2670,7 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
@@ -2802,7 +2827,7 @@
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 

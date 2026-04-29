@@ -619,6 +619,18 @@ function createMovingObstacleState( scene, extras ) {
 			const m = new THREE.Mesh( new THREE.BoxGeometry( 3.8, 0.8, 0.55 ), new THREE.MeshStandardMaterial( { color: 0xb4b8bf } ) );
 			obstacle.mesh.add( m );
 			obstacle.colliders.push( { half: new THREE.Vector3( 1.9, 0.4, 0.275 ), offset: new THREE.Vector3() } );
+		} else if ( type === 'moving-custom' ) {
+			const cfg = entry?.[5] && typeof entry[5] === 'object' ? entry[5] : {};
+			obstacle.custom = cfg;
+			const count = Math.max( 1, Math.min( 8, Math.round( Number( cfg.count ) || 1 ) ) );
+			for ( let i = 0; i < count; i ++ ) {
+				const sx = Number( cfg.sx ) || 2, sy = Number( cfg.sy ) || 0.8, sz = Number( cfg.sz ) || 0.8;
+				const shape = String( cfg.shape || 'square' );
+				const geom = shape === 'pole' ? new THREE.CylinderGeometry( sx * 0.18, sx * 0.18, sy, 12 ) : new THREE.BoxGeometry( sx, sy, sz );
+				const mesh = new THREE.Mesh( geom, new THREE.MeshStandardMaterial( { color: cfg.color || '#ff8844' } ) );
+				obstacle.mesh.add( mesh );
+				obstacle.colliders.push( { half: new THREE.Vector3( shape === 'pole' ? sx * 0.18 : sx * 0.5, sy * 0.5, shape === 'pole' ? sx * 0.18 : sz * 0.5 ), offset: new THREE.Vector3(), shape } );
+			}
 		} else if ( type === 'moving-orbit-poles' ) {
 			for ( let i = 0; i < 3; i ++ ) {
 				const pole = new THREE.Mesh( new THREE.CylinderGeometry( 0.23, 0.23, 1.0, 12 ), new THREE.MeshStandardMaterial( { color: 0x979ea8 } ) );
@@ -646,7 +658,17 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		obstacle.mesh.rotation.set( 0, 0, 0 );
 		if ( obstacle.type === 'moving-slide-block' ) p.x += Math.sin( t * 1.35 * obstacle.speed ) * 1.7;
 		if ( obstacle.type === 'moving-spin-wall' ) obstacle.mesh.rotation.y = t * 0.9 * obstacle.speed;
-		if ( obstacle.type === 'moving-orbit-poles' ) {
+		if ( obstacle.type === 'moving-custom' ) {
+			const cfg = obstacle.custom || {};
+			const orbitR = Number( cfg.orbit ) || 0;
+			for ( let i = 0; i < obstacle.mesh.children.length; i ++ ) {
+				const a = ( t * ( Number( cfg.rot ) || 1 ) * obstacle.speed ) + i * ( Math.PI * 2 / obstacle.mesh.children.length );
+				const ox = Math.cos( a ) * orbitR, oz = Math.sin( a ) * orbitR;
+				obstacle.mesh.children[i].position.set( ox, 0, oz );
+				obstacle.mesh.children[i].rotation.y = a;
+				obstacle.colliders[i].offset.set( ox, 0, oz );
+			}
+		} else if ( obstacle.type === 'moving-orbit-poles' ) {
 			for ( let i = 0; i < obstacle.mesh.children.length; i ++ ) {
 				const a = t * 1.35 * obstacle.speed + i * ( Math.PI * 2 / 3 );
 				obstacle.mesh.children[ i ].position.set( Math.cos( a ) * 1.25, 0, Math.sin( a ) * 1.25 );
