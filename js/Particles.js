@@ -12,11 +12,13 @@ const SKID_MAX_SEGMENTS = 400;
 const SKID_EMIT_INTERVAL = 0.05;
 const SKID_COLOR = new THREE.Color( 0x171717 );
 const SKID_WIDTH = 0.22;
-const SKID_GROUND_VEL_Y_THRESHOLD = 1.25;
+const SKID_GROUND_CLEARANCE = 0.02;
 const _backward = new THREE.Vector3();
 const _rightVec = new THREE.Vector3();
 const _trackPoint = new THREE.Vector3();
 const _upAxis = new THREE.Vector3( 0, 1, 0 );
+const _downAxis = new THREE.Vector3( 0, -1, 0 );
+const _rayOrigin = new THREE.Vector3();
 
 export class SmokeTrails {
 
@@ -175,6 +177,8 @@ export class SkidMarks {
 		this.emitAccumulator = 0;
 		this.leftTrackPoints = [];
 		this.rightTrackPoints = [];
+		this.groundRaycaster = new THREE.Raycaster();
+		this.groundRaycaster.firstHitOnly = true;
 		this.restoreFromStorage();
 		this.rebuildGeometry();
 
@@ -187,18 +191,47 @@ export class SkidMarks {
 		if ( this.emitAccumulator < SKID_EMIT_INTERVAL ) return;
 		this.emitAccumulator = 0;
 		if ( vehicle.driftIntensity <= 0.25 ) return;
-		if ( ! this.isOnGround( vehicle ) ) return;
 		const wheelBackOffset = Math.min( 0.45, Math.max( 0.2, Math.abs( vehicle.linearSpeed ) * 0.05 ) );
-		if ( vehicle.wheelBL ) this.addSmoothedQuadFromWheel( vehicle.wheelBL, vehicle, this.leftTrackPoints, wheelBackOffset );
-		if ( vehicle.wheelBR ) this.addSmoothedQuadFromWheel( vehicle.wheelBR, vehicle, this.rightTrackPoints, wheelBackOffset );
+		if ( vehicle.wheelBL && this.isWheelGrounded( vehicle.wheelBL, vehicle ) ) this.addSmoothedQuadFromWheel( vehicle.wheelBL, vehicle, this.leftTrackPoints, wheelBackOffset );
+		if ( vehicle.wheelBR && this.isWheelGrounded( vehicle.wheelBR, vehicle ) ) this.addSmoothedQuadFromWheel( vehicle.wheelBR, vehicle, this.rightTrackPoints, wheelBackOffset );
 		this.rebuildGeometry();
 		this.saveToStorage();
 
 	}
 
-	isOnGround( vehicle ) {
+	isWheelGrounded( wheel, vehicle ) {
 
-		return Math.abs( vehicle?.sphereVel?.y || 0 ) <= SKID_GROUND_VEL_Y_THRESHOLD;
+		wheel.getWorldPosition( _worldPos );
+		_rayOrigin.copy( _worldPos );
+		_rayOrigin.y += 0.08;
+		this.groundRaycaster.set( _rayOrigin, _downAxis );
+		this.groundRaycaster.far = 0.25;
+		const hits = this.groundRaycaster.intersectObjects( this.scene.children, true );
+		for ( const hit of hits ) {
+
+			if ( hit.object === this.mesh ) continue;
+			if ( vehicle.container && vehicle.container === hit.object ) continue;
+			if ( vehicle.container?.contains && vehicle.container.contains( hit.object ) ) continue;
+			if ( this.isDescendantOf( hit.object, vehicle.container ) ) continue;
+			const clearance = _worldPos.y - hit.point.y;
+			if ( clearance <= SKID_GROUND_CLEARANCE + 0.0001 ) return true;
+
+		}
+
+		return false;
+
+	}
+
+	isDescendantOf( child, ancestor ) {
+
+		let cursor = child;
+		while ( cursor ) {
+
+			if ( cursor === ancestor ) return true;
+			cursor = cursor.parent;
+
+		}
+		return false;
 
 	}
 
