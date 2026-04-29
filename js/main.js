@@ -618,7 +618,7 @@ function createMovingObstacleState( scene, extras ) {
 		} else if ( type === 'moving-spin-wall' ) {
 			const m = new THREE.Mesh( new THREE.BoxGeometry( 3.8, 0.8, 0.55 ), new THREE.MeshStandardMaterial( { color: 0xb4b8bf } ) );
 			obstacle.mesh.add( m );
-			obstacle.colliders.push( { half: new THREE.Vector3( 1.9, 0.4, 0.28 ), offset: new THREE.Vector3() } );
+			for ( let i = -2; i <= 2; i ++ ) obstacle.colliders.push( { half: new THREE.Vector3( 0.42, 0.4, 0.28 ), offset: new THREE.Vector3( i * 0.9, 0, 0 ) } );
 		} else if ( type === 'moving-orbit-poles' ) {
 			for ( let i = 0; i < 3; i ++ ) {
 				const pole = new THREE.Mesh( new THREE.CylinderGeometry( 0.23, 0.23, 1.0, 12 ), new THREE.MeshStandardMaterial( { color: 0x979ea8 } ) );
@@ -646,6 +646,15 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		obstacle.mesh.rotation.set( 0, 0, 0 );
 		if ( obstacle.type === 'moving-slide-block' ) p.x += Math.sin( t * 1.35 ) * 1.7;
 		if ( obstacle.type === 'moving-spin-wall' ) obstacle.mesh.rotation.y = t * 0.9;
+
+		if ( obstacle.type === 'moving-spin-wall' ) {
+			const a = obstacle.mesh.rotation.y;
+			const c = Math.cos( a ), si = Math.sin( a );
+			for ( let i = 0; i < obstacle.colliders.length; i ++ ) {
+				const baseX = ( i - 2 ) * 0.9;
+				obstacle.colliders[ i ].offset.set( baseX * c, 0, - baseX * si );
+			}
+		}
 		if ( obstacle.type === 'moving-orbit-poles' ) {
 			for ( let i = 0; i < obstacle.mesh.children.length; i ++ ) {
 				const a = t * 1.35 + i * ( Math.PI * 2 / 3 );
@@ -659,9 +668,9 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			const r = 0.5;
 			for ( const collider of obstacle.colliders ) {
 				const world = collider.offset.clone().applyEuler( obstacle.mesh.rotation ).add( obstacle.mesh.position );
-				const local = vehicle.spherePos.clone().sub( world ).applyEuler( new THREE.Euler( 0, - obstacle.mesh.rotation.y, 0 ) );
-				const clampedLocal = new THREE.Vector3( THREE.MathUtils.clamp( local.x, -collider.half.x, collider.half.x ), THREE.MathUtils.clamp( local.y, -collider.half.y, collider.half.y ), THREE.MathUtils.clamp( local.z, -collider.half.z, collider.half.z ) );
-				const closest = clampedLocal.clone().applyEuler( new THREE.Euler( 0, obstacle.mesh.rotation.y, 0 ) ).add( world );
+				const d = vehicle.spherePos.clone().sub( world );
+				const clampedLocal = new THREE.Vector3( THREE.MathUtils.clamp( d.x, -collider.half.x, collider.half.x ), THREE.MathUtils.clamp( d.y, -collider.half.y, collider.half.y ), THREE.MathUtils.clamp( d.z, -collider.half.z, collider.half.z ) );
+				const closest = world.clone().add( clampedLocal );
 				const delta = vehicle.spherePos.clone().sub( closest );
 				const distSq = delta.lengthSq();
 				if ( distSq >= r * r || distSq < 1e-8 ) continue;

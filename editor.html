@@ -637,7 +637,7 @@
 
 			const isBlue = magnet.type === MAGNET_BLUE_TOOL;
 			const mesh = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
 				new THREE.MeshStandardMaterial( {
 					color: isBlue ? 0x4f96ff : 0xff5d5d,
 					emissive: isBlue ? 0x1b45a9 : 0x7a1111,
@@ -800,7 +800,7 @@
 						? { color: 0xffef4a, emissive: 0x8f7b00 }
 						: { color: 0x6dff6d, emissive: 0x1f6d1f } ) );
 			const mesh = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
 				new THREE.MeshStandardMaterial( {
 					color: colors.color,
 					emissive: colors.emissive,
@@ -1452,7 +1452,7 @@
 		if ( cell.cube ) {
 
 			const cube = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
 				new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
 			);
 			const yOffset = getOverlayHeightOffset( cell );
@@ -1470,19 +1470,19 @@
 			if ( cell.movingObstacle === MOVING_SLIDE_TOOL ) {
 
 				const body = new THREE.Mesh(
-					new THREE.BoxGeometry( CELL_RAW * 0.28, CELL_RAW * 0.14, CELL_RAW * 0.2 ),
-					new THREE.MeshStandardMaterial( { color: 0x6fa8dc, emissive: 0x1f3344, metalness: 0.2, roughness: 0.65 } )
+					new THREE.BoxGeometry( CELL_RAW * 0.42, CELL_RAW * 0.2, CELL_RAW * 0.3 ),
+					new THREE.MeshStandardMaterial( { color: 0x7ec8ff, emissive: 0x2c5f86, emissiveIntensity: 0.65, metalness: 0.25, roughness: 0.45 } )
 				);
 				marker.add( body );
-				const rail = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.4, CELL_RAW * 0.03, CELL_RAW * 0.04 ), new THREE.MeshStandardMaterial( { color: 0x9fb9cf } ) );
+				const rail = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.04, CELL_RAW * 0.06 ), new THREE.MeshStandardMaterial( { color: 0x9fb9cf } ) );
 				rail.position.y = - CELL_RAW * 0.09;
 				marker.add( rail );
 
 			} else if ( cell.movingObstacle === MOVING_SPIN_TOOL ) {
 
 				const arm = new THREE.Mesh(
-					new THREE.BoxGeometry( CELL_RAW * 0.38, CELL_RAW * 0.08, CELL_RAW * 0.06 ),
-					new THREE.MeshStandardMaterial( { color: 0xdc8f6f, emissive: 0x4a2416, metalness: 0.15, roughness: 0.72 } )
+					new THREE.BoxGeometry( CELL_RAW * 0.58, CELL_RAW * 0.18, CELL_RAW * 0.08 ),
+					new THREE.MeshStandardMaterial( { color: 0xffa073, emissive: 0x7a2f10, emissiveIntensity: 0.65, metalness: 0.18, roughness: 0.5 } )
 				);
 				marker.add( arm );
 				const hub = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.03, CELL_RAW * 0.03, CELL_RAW * 0.1, 12 ), new THREE.MeshStandardMaterial( { color: 0xcccccc } ) );
@@ -1493,9 +1493,9 @@
 
 				for ( let i = 0; i < 3; i ++ ) {
 
-					const pole = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.035, CELL_RAW * 0.035, CELL_RAW * 0.16, 10 ), new THREE.MeshStandardMaterial( { color: 0x9b6fdc, emissive: 0x2f1f4f } ) );
+					const pole = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.035, CELL_RAW * 0.035, CELL_RAW * 0.22, 10 ), new THREE.MeshStandardMaterial( { color: 0x9b6fdc, emissive: 0x2f1f4f } ) );
 					const a = i * ( Math.PI * 2 / 3 );
-					pole.position.set( Math.cos( a ) * CELL_RAW * 0.12, 0, Math.sin( a ) * CELL_RAW * 0.12 );
+					pole.position.set( Math.cos( a ) * CELL_RAW * 0.18, 0, Math.sin( a ) * CELL_RAW * 0.18 );
 					marker.add( pole );
 
 				}
@@ -1996,7 +1996,7 @@
 		}
 
 		const preview = new THREE.Mesh(
-			new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+			new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
 			new THREE.MeshStandardMaterial( {
 				color: isRed ? 0xff7777 : 0x76abff,
 				emissive: isRed ? 0x7a1111 : 0x1b45a9,
@@ -2046,7 +2046,7 @@
 
 			}
 			const preview = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
 				new THREE.MeshStandardMaterial( {
 					color: colors.color,
 					emissive: colors.emissive,
