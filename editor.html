@@ -344,6 +344,9 @@
 		<button id="btn-cube">Cube +</button>
 		<button id="btn-wall">Wall +</button>
 		<button id="btn-jump">Jump +</button>
+		<button id="btn-moving-slide">Sliding Block +</button>
+		<button id="btn-moving-spin">Spinning Wall +</button>
+		<button id="btn-moving-orbit">Orbit Poles +</button>
 		<select id="gate-select" aria-label="Gate picker">
 			<option value="track-start-finish">Start/Finish</option>
 			<option value="track-start">Place: Start</option>
@@ -458,6 +461,9 @@
 	const CUBE_TOOL = 'overlay-cube';
 	const WALL_TOOL = 'overlay-wall';
 	const JUMP_TOOL = 'overlay-jump';
+	const MOVING_SLIDE_TOOL = 'moving-slide-block';
+	const MOVING_SPIN_TOOL = 'moving-spin-wall';
+	const MOVING_ORBIT_TOOL = 'moving-orbit-poles';
 	const MAGNET_BLUE_TOOL = 'magnet-blue';
 	const MAGNET_RED_TOOL = 'magnet-red';
 	const ARC_GREEN_TOOL = 'arc-green';
@@ -631,7 +637,7 @@
 
 			const isBlue = magnet.type === MAGNET_BLUE_TOOL;
 			const mesh = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
 				new THREE.MeshStandardMaterial( {
 					color: isBlue ? 0x4f96ff : 0xff5d5d,
 					emissive: isBlue ? 0x1b45a9 : 0x7a1111,
@@ -794,7 +800,7 @@
 						? { color: 0xffef4a, emissive: 0x8f7b00 }
 						: { color: 0x6dff6d, emissive: 0x1f6d1f } ) );
 			const mesh = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
 				new THREE.MeshStandardMaterial( {
 					color: colors.color,
 					emissive: colors.emissive,
@@ -906,6 +912,7 @@
 			wallMesh: null,
 			jump: false,
 			jumpOrient: 0,
+			movingObstacle: '',
 			jumpMesh: null,
 			elevatedType: null,
 			elevatedOrient: 0,
@@ -1445,7 +1452,7 @@
 		if ( cell.cube ) {
 
 			const cube = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
 				new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
 			);
 			const yOffset = getOverlayHeightOffset( cell );
@@ -1454,6 +1461,51 @@
 			cube.receiveShadow = true;
 			trackGroup.add( cube );
 			cell.cubeMesh = cube;
+
+		}
+
+		if ( cell.movingObstacle ) {
+
+			const marker = new THREE.Group();
+			if ( cell.movingObstacle === MOVING_SLIDE_TOOL ) {
+
+				const body = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW * 0.42, CELL_RAW * 0.2, CELL_RAW * 0.3 ),
+					new THREE.MeshStandardMaterial( { color: 0x7ec8ff, emissive: 0x2c5f86, emissiveIntensity: 0.65, metalness: 0.25, roughness: 0.45 } )
+				);
+				marker.add( body );
+				const rail = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.04, CELL_RAW * 0.06 ), new THREE.MeshStandardMaterial( { color: 0x9fb9cf } ) );
+				rail.position.y = - CELL_RAW * 0.09;
+				marker.add( rail );
+
+			} else if ( cell.movingObstacle === MOVING_SPIN_TOOL ) {
+
+				const arm = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW * 0.58, CELL_RAW * 0.18, CELL_RAW * 0.08 ),
+					new THREE.MeshStandardMaterial( { color: 0xffa073, emissive: 0x7a2f10, emissiveIntensity: 0.65, metalness: 0.18, roughness: 0.5 } )
+				);
+				marker.add( arm );
+				const hub = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.03, CELL_RAW * 0.03, CELL_RAW * 0.1, 12 ), new THREE.MeshStandardMaterial( { color: 0xcccccc } ) );
+				hub.rotation.z = Math.PI * 0.5;
+				marker.add( hub );
+
+			} else {
+
+				for ( let i = 0; i < 3; i ++ ) {
+
+					const pole = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.035, CELL_RAW * 0.035, CELL_RAW * 0.22, 10 ), new THREE.MeshStandardMaterial( { color: 0x9b6fdc, emissive: 0x2f1f4f } ) );
+					const a = i * ( Math.PI * 2 / 3 );
+					pole.position.set( Math.cos( a ) * CELL_RAW * 0.18, 0, Math.sin( a ) * CELL_RAW * 0.18 );
+					marker.add( pole );
+
+				}
+
+			}
+
+			marker.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.1 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			marker.traverse( ( child ) => { if ( child.isMesh ) { child.castShadow = true; child.receiveShadow = true; } } );
+			trackGroup.add( marker );
+			cell.cubeMesh = marker;
 
 		}
 
@@ -1590,7 +1642,7 @@
 			}
 			rebuildArcMeshes();
 
-		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || ELEVATED_TYPES.includes( selectedType ) ) {
+		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
@@ -1618,6 +1670,10 @@
 				cell.jump = ! cell.jump;
 				cell.jumpOrient = selectedOrient;
 
+			} else if ( selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL ) {
+
+				cell.movingObstacle = cell.movingObstacle === selectedType ? '' : selectedType;
+
 			} else {
 
 				if ( cell.elevatedType === selectedType ) {
@@ -1633,7 +1689,7 @@
 				}
 
 			}
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.movingObstacle && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				grid.delete( key );
 
@@ -1659,7 +1715,7 @@
 
 			}
 
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.movingObstacle && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				grid.delete( key );
 
@@ -1940,7 +1996,7 @@
 		}
 
 		const preview = new THREE.Mesh(
-			new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+			new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
 			new THREE.MeshStandardMaterial( {
 				color: isRed ? 0xff7777 : 0x76abff,
 				emissive: isRed ? 0x7a1111 : 0x1b45a9,
@@ -1990,7 +2046,7 @@
 
 			}
 			const preview = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
 				new THREE.MeshStandardMaterial( {
 					color: colors.color,
 					emissive: colors.emissive,
@@ -2108,6 +2164,7 @@
 		const deco = [];
 		const magnets = [];
 		const arcs = [];
+		const movingObstacles = [];
 
 		for ( const [ key, cell ] of grid ) {
 
@@ -2117,6 +2174,7 @@
 				if ( cell.cube ) cubes.push( [ gx, gz ] );
 				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0 ] );
 				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
+				if ( cell.movingObstacle ) movingObstacles.push( [ gx, gz, cell.movingObstacle, cell.wallOrient || 0 ] );
 				if ( cell.elevatedType ) {
 
 					const typeOut = cell.elevatedType === 'slope-down' ? 'slope-up' : cell.elevatedType;
@@ -2167,14 +2225,14 @@
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
+		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
 
 		try {
 
@@ -2186,6 +2244,7 @@
 					k: Array.isArray( parsed.k ) ? parsed.k : [],
 					l: Array.isArray( parsed.l ) ? parsed.l : [],
 					j: Array.isArray( parsed.j ) ? parsed.j : [],
+					o: Array.isArray( parsed.o ) ? parsed.o : [],
 					e: Array.isArray( parsed.e ) ? parsed.e : [],
 					u: Array.isArray( parsed.u ) ? parsed.u : [],
 						d: Array.isArray( parsed.d ) ? parsed.d : [],
@@ -2200,7 +2259,7 @@
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-				return { b: [], p: [], k: [], l: [], j: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
+				return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
 
 		}
 
@@ -2345,6 +2404,17 @@
 
 			}
 
+
+
+			for ( const [ gx, gz, movingType ] of mods.o || [] ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				if ( [ MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL ].includes( movingType ) ) cell.movingObstacle = movingType;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
 			for ( const [ gx, gz, elevatedType, elevatedOrient ] of mods.e || [] ) {
 
 				const key = cellKey( gx, gz );
@@ -2452,6 +2522,9 @@
 		[ PORTAL_PURPLE_TOOL ]: document.getElementById( 'btn-portal-purple' ),
 		[ WALL_TOOL ]: document.getElementById( 'btn-wall' ),
 		[ JUMP_TOOL ]: document.getElementById( 'btn-jump' ),
+		[ MOVING_SLIDE_TOOL ]: document.getElementById( 'btn-moving-slide' ),
+		[ MOVING_SPIN_TOOL ]: document.getElementById( 'btn-moving-spin' ),
+		[ MOVING_ORBIT_TOOL ]: document.getElementById( 'btn-moving-orbit' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
 		'elevated-straight': document.getElementById( 'btn-elevated-straight' ),
 		'elevated-corner': document.getElementById( 'btn-elevated-corner' ),
@@ -2548,7 +2621,7 @@
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
@@ -2699,7 +2772,7 @@
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 
