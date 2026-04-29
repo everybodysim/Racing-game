@@ -9,7 +9,7 @@ import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js';
 import { buildWallColliders, createSphereBody } from './Physics.js';
-import { SmokeTrails } from './Particles.js';
+import { SmokeTrails, SkidMarks } from './Particles.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
@@ -1995,6 +1995,7 @@ async function init() {
 
 	const particles = new SmokeTrails( scene );
 	const particles2 = isSplitScreen ? new SmokeTrails( scene ) : null;
+	const skidMarks = new SkidMarks( scene );
 	const lapHud = document.getElementById( 'lap-hud' );
 	const lapHud2 = document.getElementById( 'lap-hud-2' );
 	const respawnBtn = document.getElementById( 'respawnBtn' );
@@ -6129,6 +6130,7 @@ async function init() {
 		if ( cam2 && vehicle2 ) cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
+		skidMarks.update( dt, vehicle );
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
 		bloomPass.strength = 0.02;
 		bloomPass.radius = 0.02;

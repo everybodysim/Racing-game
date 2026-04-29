@@ -7,6 +7,10 @@ const BOOST_PARTICLE_COLORS = [
 	new THREE.Color( 0xff4b1f ),
 	new THREE.Color( 0xff9f1c ),
 ];
+const SKID_STORAGE_KEY = 'racing-skid-marks-v1';
+const SKID_MAX_SEGMENTS = 400;
+const SKID_EMIT_INTERVAL = 0.05;
+const SKID_COLOR = new THREE.Color( 0x171717 );
 
 export class SmokeTrails {
 
@@ -140,6 +144,111 @@ export class SmokeTrails {
 		// Godot: lifetime = 0.5
 		p.maxLife = 0.5;
 		p.life = p.maxLife;
+
+	}
+
+}
+
+export class SkidMarks {
+
+	constructor( scene ) {
+
+		this.scene = scene;
+		this.segments = [];
+		this.geometry = new THREE.BufferGeometry();
+		this.material = new THREE.LineBasicMaterial( {
+			color: SKID_COLOR,
+			transparent: true,
+			opacity: 0.7,
+		} );
+		this.lines = new THREE.LineSegments( this.geometry, this.material );
+		this.lines.frustumCulled = false;
+		scene.add( this.lines );
+
+		this.emitAccumulator = 0;
+		this.restoreFromStorage();
+		this.rebuildGeometry();
+
+	}
+
+	update( dt, vehicle ) {
+
+		if ( ! vehicle ) return;
+		this.emitAccumulator += dt;
+		if ( this.emitAccumulator < SKID_EMIT_INTERVAL ) return;
+		this.emitAccumulator = 0;
+		if ( vehicle.driftIntensity <= 0.25 ) return;
+		const wheelBackOffset = Math.min( 0.45, Math.max( 0.2, Math.abs( vehicle.linearSpeed ) * 0.05 ) );
+		if ( vehicle.wheelBL ) this.addSegmentFromWheel( vehicle.wheelBL, vehicle, wheelBackOffset );
+		if ( vehicle.wheelBR ) this.addSegmentFromWheel( vehicle.wheelBR, vehicle, wheelBackOffset );
+		this.rebuildGeometry();
+		this.saveToStorage();
+
+	}
+
+	addSegmentFromWheel( wheel, vehicle, backOffset = 0.25 ) {
+
+		wheel.getWorldPosition( _worldPos );
+		const backward = new THREE.Vector3( 0, 0, -1 ).applyQuaternion( vehicle.container.quaternion );
+		_worldPos.addScaledVector( backward, backOffset );
+		_worldPos.y = vehicle.container.position.y + 0.01;
+		const halfWidth = 0.08;
+		const right = new THREE.Vector3( 1, 0, 0 ).applyQuaternion( vehicle.container.quaternion );
+		const start = _worldPos.clone().addScaledVector( right, -halfWidth );
+		const end = _worldPos.clone().addScaledVector( right, halfWidth );
+
+		this.segments.push( [ start.toArray(), end.toArray() ] );
+		if ( this.segments.length > SKID_MAX_SEGMENTS ) this.segments.splice( 0, this.segments.length - SKID_MAX_SEGMENTS );
+
+	}
+
+	rebuildGeometry() {
+
+		const positions = new Float32Array( this.segments.length * 2 * 3 );
+		let offset = 0;
+		for ( const [ a, b ] of this.segments ) {
+
+			positions[ offset ++ ] = a[ 0 ];
+			positions[ offset ++ ] = a[ 1 ];
+			positions[ offset ++ ] = a[ 2 ];
+			positions[ offset ++ ] = b[ 0 ];
+			positions[ offset ++ ] = b[ 1 ];
+			positions[ offset ++ ] = b[ 2 ];
+
+		}
+		this.geometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+		this.geometry.computeBoundingSphere();
+
+	}
+
+	saveToStorage() {
+
+		try {
+
+			localStorage.setItem( SKID_STORAGE_KEY, JSON.stringify( this.segments ) );
+
+		} catch {}
+
+	}
+
+	restoreFromStorage() {
+
+		try {
+
+			const raw = localStorage.getItem( SKID_STORAGE_KEY );
+			if ( ! raw ) return;
+			const parsed = JSON.parse( raw );
+			if ( ! Array.isArray( parsed ) ) return;
+			this.segments = parsed
+				.filter( ( pair ) => Array.isArray( pair ) && pair.length === 2 )
+				.map( ( pair ) => [
+					Array.isArray( pair[ 0 ] ) ? pair[ 0 ].slice( 0, 3 ).map( Number ) : [ 0, 0, 0 ],
+					Array.isArray( pair[ 1 ] ) ? pair[ 1 ].slice( 0, 3 ).map( Number ) : [ 0, 0, 0 ],
+				] )
+				.filter( ( pair ) => pair[ 0 ].every( Number.isFinite ) && pair[ 1 ].every( Number.isFinite ) )
+				.slice( -SKID_MAX_SEGMENTS );
+
+		} catch {}
 
 	}
 
