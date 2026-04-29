@@ -7,6 +7,18 @@ const BOOST_PARTICLE_COLORS = [
 	new THREE.Color( 0xff4b1f ),
 	new THREE.Color( 0xff9f1c ),
 ];
+const SKID_STORAGE_KEY = 'racing-skid-marks-v1';
+const SKID_MAX_SEGMENTS = 400;
+const SKID_EMIT_INTERVAL = 0.05;
+const SKID_COLOR = new THREE.Color( 0x171717 );
+const SKID_WIDTH = 0.22;
+const SKID_GROUND_CLEARANCE = 0.02;
+const _backward = new THREE.Vector3();
+const _rightVec = new THREE.Vector3();
+const _trackPoint = new THREE.Vector3();
+const _upAxis = new THREE.Vector3( 0, 1, 0 );
+const _downAxis = new THREE.Vector3( 0, -1, 0 );
+const _rayOrigin = new THREE.Vector3();
 
 export class SmokeTrails {
 
@@ -140,6 +152,186 @@ export class SmokeTrails {
 		// Godot: lifetime = 0.5
 		p.maxLife = 0.5;
 		p.life = p.maxLife;
+
+	}
+
+}
+
+export class SkidMarks {
+
+	constructor( scene ) {
+
+		this.scene = scene;
+		this.quads = [];
+		this.geometry = new THREE.BufferGeometry();
+		this.material = new THREE.MeshBasicMaterial( {
+			color: SKID_COLOR,
+			transparent: true,
+			opacity: 0.7,
+			side: THREE.DoubleSide,
+		} );
+		this.mesh = new THREE.Mesh( this.geometry, this.material );
+		this.mesh.frustumCulled = false;
+		scene.add( this.mesh );
+
+		this.emitAccumulator = 0;
+		this.leftTrackPoints = [];
+		this.rightTrackPoints = [];
+		this.groundRaycaster = new THREE.Raycaster();
+		this.groundRaycaster.firstHitOnly = true;
+		this.restoreFromStorage();
+		this.rebuildGeometry();
+
+	}
+
+	update( dt, vehicle ) {
+
+		if ( ! vehicle ) return;
+		this.emitAccumulator += dt;
+		if ( this.emitAccumulator < SKID_EMIT_INTERVAL ) return;
+		this.emitAccumulator = 0;
+		if ( vehicle.driftIntensity <= 0.25 ) return;
+		const wheelBackOffset = Math.min( 0.45, Math.max( 0.2, Math.abs( vehicle.linearSpeed ) * 0.05 ) );
+		if ( vehicle.wheelBL && this.isWheelGrounded( vehicle.wheelBL, vehicle ) ) this.addSmoothedQuadFromWheel( vehicle.wheelBL, vehicle, this.leftTrackPoints, wheelBackOffset );
+		if ( vehicle.wheelBR && this.isWheelGrounded( vehicle.wheelBR, vehicle ) ) this.addSmoothedQuadFromWheel( vehicle.wheelBR, vehicle, this.rightTrackPoints, wheelBackOffset );
+		this.rebuildGeometry();
+		this.saveToStorage();
+
+	}
+
+	isWheelGrounded( wheel, vehicle ) {
+
+		wheel.getWorldPosition( _worldPos );
+		_rayOrigin.copy( _worldPos );
+		_rayOrigin.y += 0.08;
+		this.groundRaycaster.set( _rayOrigin, _downAxis );
+		this.groundRaycaster.far = 0.25;
+		const hits = this.groundRaycaster.intersectObjects( this.scene.children, true );
+		for ( const hit of hits ) {
+
+			if ( hit.object === this.mesh ) continue;
+			if ( vehicle.container && vehicle.container === hit.object ) continue;
+			if ( vehicle.container?.contains && vehicle.container.contains( hit.object ) ) continue;
+			if ( this.isDescendantOf( hit.object, vehicle.container ) ) continue;
+			const clearance = _worldPos.y - hit.point.y;
+			if ( clearance <= SKID_GROUND_CLEARANCE + 0.0001 ) return true;
+
+		}
+
+		return false;
+
+	}
+
+	isDescendantOf( child, ancestor ) {
+
+		let cursor = child;
+		while ( cursor ) {
+
+			if ( cursor === ancestor ) return true;
+			cursor = cursor.parent;
+
+		}
+		return false;
+
+	}
+
+	addSmoothedQuadFromWheel( wheel, vehicle, trackPoints, backOffset = 0.25 ) {
+
+		wheel.getWorldPosition( _worldPos );
+		_backward.set( 0, 0, -1 ).applyQuaternion( vehicle.container.quaternion );
+		_worldPos.addScaledVector( _backward, backOffset );
+		_worldPos.y = vehicle.container.position.y + 0.01;
+		trackPoints.push( _worldPos.clone() );
+		if ( trackPoints.length > 4 ) trackPoints.shift();
+		if ( trackPoints.length < 3 ) return;
+
+		const p0 = trackPoints[ trackPoints.length - 3 ];
+		const p1 = trackPoints[ trackPoints.length - 2 ];
+		const p2 = trackPoints[ trackPoints.length - 1 ];
+
+		_trackPoint.copy( p0 ).multiplyScalar( 0.25 );
+		_trackPoint.addScaledVector( p1, 0.5 );
+		_trackPoint.addScaledVector( p2, 0.25 );
+		const smoothStart = _trackPoint.clone();
+		const smoothEnd = p2.clone();
+		const tangent = smoothEnd.clone().sub( smoothStart );
+		if ( tangent.lengthSq() < 0.0001 ) return;
+		tangent.normalize();
+		_rightVec.crossVectors( _upAxis, tangent ).normalize();
+		const halfWidth = SKID_WIDTH * 0.5;
+		const a = smoothStart.clone().addScaledVector( _rightVec, halfWidth );
+		const b = smoothStart.clone().addScaledVector( _rightVec, -halfWidth );
+		const c = smoothEnd.clone().addScaledVector( _rightVec, halfWidth );
+		const d = smoothEnd.clone().addScaledVector( _rightVec, -halfWidth );
+
+		this.quads.push( [ a.toArray(), b.toArray(), c.toArray(), d.toArray() ] );
+		if ( this.quads.length > SKID_MAX_SEGMENTS ) this.quads.splice( 0, this.quads.length - SKID_MAX_SEGMENTS );
+
+	}
+
+	rebuildGeometry() {
+
+		const positions = new Float32Array( this.quads.length * 6 * 3 );
+		let offset = 0;
+		for ( const [ a, b, c, d ] of this.quads ) {
+
+			positions[ offset ++ ] = a[ 0 ]; positions[ offset ++ ] = a[ 1 ]; positions[ offset ++ ] = a[ 2 ];
+			positions[ offset ++ ] = b[ 0 ]; positions[ offset ++ ] = b[ 1 ]; positions[ offset ++ ] = b[ 2 ];
+			positions[ offset ++ ] = c[ 0 ]; positions[ offset ++ ] = c[ 1 ]; positions[ offset ++ ] = c[ 2 ];
+			positions[ offset ++ ] = c[ 0 ]; positions[ offset ++ ] = c[ 1 ]; positions[ offset ++ ] = c[ 2 ];
+			positions[ offset ++ ] = b[ 0 ]; positions[ offset ++ ] = b[ 1 ]; positions[ offset ++ ] = b[ 2 ];
+			positions[ offset ++ ] = d[ 0 ]; positions[ offset ++ ] = d[ 1 ]; positions[ offset ++ ] = d[ 2 ];
+
+		}
+		this.geometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+		this.geometry.computeBoundingSphere();
+
+	}
+
+	saveToStorage() {
+
+		try {
+
+			localStorage.setItem( SKID_STORAGE_KEY, JSON.stringify( this.quads ) );
+
+		} catch {}
+
+	}
+
+	restoreFromStorage() {
+
+		try {
+
+			const raw = localStorage.getItem( SKID_STORAGE_KEY );
+			if ( ! raw ) return;
+			const parsed = JSON.parse( raw );
+			if ( ! Array.isArray( parsed ) ) return;
+			this.quads = parsed
+				.filter( ( quad ) => Array.isArray( quad ) && quad.length === 4 )
+				.map( ( quad ) => [
+					Array.isArray( quad[ 0 ] ) ? quad[ 0 ].slice( 0, 3 ).map( Number ) : [ 0, 0, 0 ],
+					Array.isArray( quad[ 1 ] ) ? quad[ 1 ].slice( 0, 3 ).map( Number ) : [ 0, 0, 0 ],
+					Array.isArray( quad[ 2 ] ) ? quad[ 2 ].slice( 0, 3 ).map( Number ) : [ 0, 0, 0 ],
+					Array.isArray( quad[ 3 ] ) ? quad[ 3 ].slice( 0, 3 ).map( Number ) : [ 0, 0, 0 ],
+				] )
+				.filter( ( quad ) => quad.every( ( pt ) => pt.every( Number.isFinite ) ) )
+				.slice( -SKID_MAX_SEGMENTS );
+
+		} catch {}
+
+	}
+
+	clear() {
+
+		this.quads = [];
+		this.leftTrackPoints = [];
+		this.rightTrackPoints = [];
+		this.rebuildGeometry();
+		try {
+
+			localStorage.removeItem( SKID_STORAGE_KEY );
+
+		} catch {}
 
 	}
 
