@@ -1465,11 +1465,48 @@
 		}
 
 		if ( cell.movingObstacle ) {
-			const movingColor = cell.movingObstacle === MOVING_SLIDE_TOOL ? 0x6fa8dc : ( cell.movingObstacle === MOVING_SPIN_TOOL ? 0xdc8f6f : 0x9b6fdc );
-			const movingMesh = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.12, CELL_RAW * 0.22 ), new THREE.MeshStandardMaterial( { color: movingColor, emissive: 0x222222 } ) );
-			movingMesh.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.1 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
-			trackGroup.add( movingMesh );
-			cell.cubeMesh = movingMesh;
+
+			const marker = new THREE.Group();
+			if ( cell.movingObstacle === MOVING_SLIDE_TOOL ) {
+
+				const body = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW * 0.28, CELL_RAW * 0.14, CELL_RAW * 0.2 ),
+					new THREE.MeshStandardMaterial( { color: 0x6fa8dc, emissive: 0x1f3344, metalness: 0.2, roughness: 0.65 } )
+				);
+				marker.add( body );
+				const rail = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.4, CELL_RAW * 0.03, CELL_RAW * 0.04 ), new THREE.MeshStandardMaterial( { color: 0x9fb9cf } ) );
+				rail.position.y = - CELL_RAW * 0.09;
+				marker.add( rail );
+
+			} else if ( cell.movingObstacle === MOVING_SPIN_TOOL ) {
+
+				const arm = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW * 0.38, CELL_RAW * 0.08, CELL_RAW * 0.06 ),
+					new THREE.MeshStandardMaterial( { color: 0xdc8f6f, emissive: 0x4a2416, metalness: 0.15, roughness: 0.72 } )
+				);
+				marker.add( arm );
+				const hub = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.03, CELL_RAW * 0.03, CELL_RAW * 0.1, 12 ), new THREE.MeshStandardMaterial( { color: 0xcccccc } ) );
+				hub.rotation.z = Math.PI * 0.5;
+				marker.add( hub );
+
+			} else {
+
+				for ( let i = 0; i < 3; i ++ ) {
+
+					const pole = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.035, CELL_RAW * 0.035, CELL_RAW * 0.16, 10 ), new THREE.MeshStandardMaterial( { color: 0x9b6fdc, emissive: 0x2f1f4f } ) );
+					const a = i * ( Math.PI * 2 / 3 );
+					pole.position.set( Math.cos( a ) * CELL_RAW * 0.12, 0, Math.sin( a ) * CELL_RAW * 0.12 );
+					marker.add( pole );
+
+				}
+
+			}
+
+			marker.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.1 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			marker.traverse( ( child ) => { if ( child.isMesh ) { child.castShadow = true; child.receiveShadow = true; } } );
+			trackGroup.add( marker );
+			cell.cubeMesh = marker;
+
 		}
 
 		if ( cell.wall ) {

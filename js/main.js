@@ -644,11 +644,11 @@ function updateMovingObstacles( state, now, vehicleList ) {
 	for ( const obstacle of state.items ) {
 		const p = obstacle.base.clone();
 		obstacle.mesh.rotation.set( 0, 0, 0 );
-		if ( obstacle.type === 'moving-slide-block' ) p.x += Math.sin( t * 0.9 ) * 1.7;
-		if ( obstacle.type === 'moving-spin-wall' ) obstacle.mesh.rotation.y = t * 0.6;
+		if ( obstacle.type === 'moving-slide-block' ) p.x += Math.sin( t * 1.35 ) * 1.7;
+		if ( obstacle.type === 'moving-spin-wall' ) obstacle.mesh.rotation.y = t * 0.9;
 		if ( obstacle.type === 'moving-orbit-poles' ) {
 			for ( let i = 0; i < obstacle.mesh.children.length; i ++ ) {
-				const a = t * 0.9 + i * ( Math.PI * 2 / 3 );
+				const a = t * 1.35 + i * ( Math.PI * 2 / 3 );
 				obstacle.mesh.children[ i ].position.set( Math.cos( a ) * 1.25, 0, Math.sin( a ) * 1.25 );
 				obstacle.colliders[ i ].offset.set( Math.cos( a ) * 1.25, 0, Math.sin( a ) * 1.25 );
 			}
@@ -659,9 +659,9 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			const r = 0.5;
 			for ( const collider of obstacle.colliders ) {
 				const world = collider.offset.clone().applyEuler( obstacle.mesh.rotation ).add( obstacle.mesh.position );
-				const d = vehicle.spherePos.clone().sub( world );
-				const clamped = new THREE.Vector3( THREE.MathUtils.clamp( d.x, -collider.half.x, collider.half.x ), THREE.MathUtils.clamp( d.y, -collider.half.y, collider.half.y ), THREE.MathUtils.clamp( d.z, -collider.half.z, collider.half.z ) );
-				const closest = world.clone().add( clamped );
+				const local = vehicle.spherePos.clone().sub( world ).applyEuler( new THREE.Euler( 0, - obstacle.mesh.rotation.y, 0 ) );
+				const clampedLocal = new THREE.Vector3( THREE.MathUtils.clamp( local.x, -collider.half.x, collider.half.x ), THREE.MathUtils.clamp( local.y, -collider.half.y, collider.half.y ), THREE.MathUtils.clamp( local.z, -collider.half.z, collider.half.z ) );
+				const closest = clampedLocal.clone().applyEuler( new THREE.Euler( 0, obstacle.mesh.rotation.y, 0 ) ).add( world );
 				const delta = vehicle.spherePos.clone().sub( closest );
 				const distSq = delta.lengthSq();
 				if ( distSq >= r * r || distSq < 1e-8 ) continue;
