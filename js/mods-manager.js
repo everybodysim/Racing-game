@@ -11,7 +11,9 @@ async function loadCatalog() {
 function readInstalled() {
   try {
     const parsed = JSON.parse(localStorage.getItem(INSTALLED_MODS_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed : [];
+    const list = Array.isArray(parsed) ? parsed : [];
+    if (!list.some((mod) => mod?.id === 'freecam')) list.push({ id: 'freecam', name: 'Freecam', entry: 'mods/Freecam.js' });
+    return list;
   } catch {
     return [];
   }

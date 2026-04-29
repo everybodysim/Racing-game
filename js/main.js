@@ -833,7 +833,9 @@ function readInstalledRuntimeMods() {
 	try {
 
 		const parsed = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
-		return Array.isArray( parsed ) ? parsed : [];
+		const list = Array.isArray( parsed ) ? parsed : [];
+		if ( ! list.some( ( mod ) => mod?.id === 'freecam' ) ) list.push( { id: 'freecam', name: 'Freecam', entry: 'mods/Freecam.js' } );
+		return list;
 
 	} catch {
 
@@ -2099,7 +2101,9 @@ async function init() {
 		try {
 
 			const parsed = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
-			return Array.isArray( parsed ) ? parsed : [];
+			const list = Array.isArray( parsed ) ? parsed : [];
+			if ( ! list.some( ( mod ) => mod?.id === 'freecam' ) ) list.push( { id: 'freecam', name: 'Freecam', entry: 'mods/Freecam.js' } );
+			return list;
 
 		} catch {
 
@@ -2513,8 +2517,8 @@ async function init() {
 		freecamMove.set( 0, 0, 0 );
 		if ( keys.KeyW ) freecamMove.add( freecamForward );
 		if ( keys.KeyS ) freecamMove.sub( freecamForward );
-		if ( keys.KeyD ) freecamMove.add( freecamRight );
-		if ( keys.KeyA ) freecamMove.sub( freecamRight );
+		if ( keys.KeyD ) freecamMove.sub( freecamRight );
+		if ( keys.KeyA ) freecamMove.add( freecamRight );
 		if ( keys.Space ) freecamMove.y += 1;
 		if ( keys.ControlLeft || keys.ControlRight ) freecamMove.y -= 1;
 		if ( freecamMove.lengthSq() > 1e-6 ) {
