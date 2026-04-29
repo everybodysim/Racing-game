@@ -347,6 +347,7 @@
 		<button id="btn-moving-slide">Sliding Block +</button>
 		<button id="btn-moving-spin">Spinning Wall +</button>
 		<button id="btn-moving-orbit">Orbit Poles +</button>
+		<label id="moving-speed-wrap" style="display:none;color:#dbe8ff;font-size:11px;">Move Speed <input id="moving-speed" type="range" min="0.25" max="3" step="0.05" value="1"><span id="moving-speed-value">1.00x</span></label>
 		<select id="gate-select" aria-label="Gate picker">
 			<option value="track-start-finish">Start/Finish</option>
 			<option value="track-start">Place: Start</option>
@@ -913,6 +914,7 @@
 			jump: false,
 			jumpOrient: 0,
 			movingObstacle: '',
+			movingSpeed: 1,
 			jumpMesh: null,
 			elevatedType: null,
 			elevatedOrient: 0,
@@ -1673,6 +1675,7 @@
 			} else if ( selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL ) {
 
 				cell.movingObstacle = cell.movingObstacle === selectedType ? '' : selectedType;
+				if ( cell.movingObstacle ) cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedInput?.value ) || 1 ) );
 
 			} else {
 
@@ -2174,7 +2177,7 @@
 				if ( cell.cube ) cubes.push( [ gx, gz ] );
 				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0 ] );
 				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
-				if ( cell.movingObstacle ) movingObstacles.push( [ gx, gz, cell.movingObstacle, cell.wallOrient || 0 ] );
+				if ( cell.movingObstacle ) movingObstacles.push( [ gx, gz, cell.movingObstacle, cell.wallOrient || 0, Number.isFinite( Number( cell.movingSpeed ) ) ? Number( cell.movingSpeed ) : 1 ] );
 				if ( cell.elevatedType ) {
 
 					const typeOut = cell.elevatedType === 'slope-down' ? 'slope-up' : cell.elevatedType;
@@ -2406,12 +2409,12 @@
 
 
 
-			for ( const [ gx, gz, movingType ] of mods.o || [] ) {
+			for ( const [ gx, gz, movingType, _orient, movingSpeedRaw ] of mods.o || [] ) {
 
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
-				if ( [ MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL ].includes( movingType ) ) cell.movingObstacle = movingType;
+				if ( [ MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL ].includes( movingType ) ) { cell.movingObstacle = movingType; cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedRaw ) || 1 ) ); }
 				placeOverlayMesh( gx, gz, cell );
 
 			}
@@ -2508,6 +2511,27 @@
 
 	// ─── Toolbar ──────────────────────────────────────────────
 
+
+	const movingSpeedWrap = document.getElementById( 'moving-speed-wrap' );
+	const movingSpeedInput = document.getElementById( 'moving-speed' );
+	const movingSpeedValue = document.getElementById( 'moving-speed-value' );
+	function isMovingObstacleTool( type ) { return type === MOVING_SLIDE_TOOL || type === MOVING_SPIN_TOOL || type === MOVING_ORBIT_TOOL; }
+	function refreshMovingSpeedUi() {
+		const visible = isMovingObstacleTool( selectedType );
+		if ( movingSpeedWrap ) movingSpeedWrap.style.display = visible ? 'inline-flex' : 'none';
+		if ( movingSpeedValue ) movingSpeedValue.textContent = `${ Number( movingSpeedInput?.value || 1 ).toFixed( 2 ) }x`;
+	}
+	movingSpeedInput?.addEventListener( 'input', () => {
+		refreshMovingSpeedUi();
+		if ( hoveredCell ) {
+			const cell = grid.get( cellKey( hoveredCell.gx, hoveredCell.gz ) );
+			if ( cell?.movingObstacle ) {
+				cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedInput.value ) || 1 ) );
+				placeOverlayMesh( hoveredCell.gx, hoveredCell.gz, cell );
+				save();
+			}
+		}
+	} );
 	const tileButtons = {
 		'track-straight': document.getElementById( 'btn-straight' ),
 		'track-corner': document.getElementById( 'btn-corner' ),
@@ -2663,6 +2687,10 @@
 			}
 
 		}
+		if ( isMovingObstacleTool( type ) && hoveredCell ) {
+			const cell = grid.get( cellKey( hoveredCell.gx, hoveredCell.gz ) );
+			if ( cell?.movingObstacle && movingSpeedInput ) movingSpeedInput.value = String( Math.max( 0.25, Math.min( 3, Number( cell.movingSpeed ) || 1 ) ) );
+		}
 		if ( type === ARC_GREEN_TOOL || type === ARC_ORANGE_TOOL || type === PORTAL_YELLOW_TOOL || type === PORTAL_PURPLE_TOOL ) {
 
 			if ( hoveredCell ) {
@@ -2675,6 +2703,7 @@
 
 		}
 		updateTileToolbar();
+		refreshMovingSpeedUi();
 
 	}
 
@@ -2769,6 +2798,7 @@
 		const nextIdx = idx >= 0 ? ( idx + 1 ) % ORIENTATIONS.length : 0;
 		selectedOrient = ORIENTATIONS[ nextIdx ];
 		updateTileToolbar();
+		refreshMovingSpeedUi();
 
 	}
 
@@ -2806,6 +2836,7 @@
 
 		allowSurfaceOverlap = ! allowSurfaceOverlap;
 		updateTileToolbar();
+		refreshMovingSpeedUi();
 		showToast( `Surface overlap ${ allowSurfaceOverlap ? 'enabled' : 'disabled' }` );
 
 	} );

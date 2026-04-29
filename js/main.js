@@ -603,14 +603,14 @@ function createMovingObstacleState( scene, extras ) {
 	const entries = Array.isArray( extras?.movingObstacles ) ? extras.movingObstacles : [];
 	const state = { items: [], startTime: 0 };
 	for ( const entry of entries ) {
-		const [ gxRaw, gzRaw, typeRaw, orientRaw ] = Array.isArray( entry ) ? entry : [];
+		const [ gxRaw, gzRaw, typeRaw, orientRaw, speedRaw ] = Array.isArray( entry ) ? entry : [];
 		const gx = Number( gxRaw );
 		const gz = Number( gzRaw );
 		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
 		const type = String( typeRaw || '' );
 		const orient = Number( orientRaw ) || 0;
 		const base = new THREE.Vector3( ( gx + 0.5 ) * CELL_RAW * GRID_SCALE, -0.5 + ( CELL_RAW * GRID_SCALE * 0.08 ), ( gz + 0.5 ) * CELL_RAW * GRID_SCALE );
-		const obstacle = { type, orient, base, mesh: new THREE.Group(), colliders: [] };
+		const obstacle = { type, orient, speed: THREE.MathUtils.clamp( Number( speedRaw ) || 1, 0.25, 3 ), base, mesh: new THREE.Group(), colliders: [] };
 		if ( type === 'moving-slide-block' ) {
 			const m = new THREE.Mesh( new THREE.BoxGeometry( 2.1, 1.2, 1.5 ), new THREE.MeshStandardMaterial( { color: 0x8ca0b8 } ) );
 			obstacle.mesh.add( m );
@@ -644,11 +644,11 @@ function updateMovingObstacles( state, now, vehicleList ) {
 	for ( const obstacle of state.items ) {
 		const p = obstacle.base.clone();
 		obstacle.mesh.rotation.set( 0, 0, 0 );
-		if ( obstacle.type === 'moving-slide-block' ) p.x += Math.sin( t * 1.35 ) * 1.7;
-		if ( obstacle.type === 'moving-spin-wall' ) obstacle.mesh.rotation.y = t * 0.9;
+		if ( obstacle.type === 'moving-slide-block' ) p.x += Math.sin( t * 1.35 * obstacle.speed ) * 1.7;
+		if ( obstacle.type === 'moving-spin-wall' ) obstacle.mesh.rotation.y = t * 0.9 * obstacle.speed;
 		if ( obstacle.type === 'moving-orbit-poles' ) {
 			for ( let i = 0; i < obstacle.mesh.children.length; i ++ ) {
-				const a = t * 1.35 + i * ( Math.PI * 2 / 3 );
+				const a = t * 1.35 * obstacle.speed + i * ( Math.PI * 2 / 3 );
 				obstacle.mesh.children[ i ].position.set( Math.cos( a ) * 1.25, 0, Math.sin( a ) * 1.25 );
 				obstacle.colliders[ i ].offset.set( Math.cos( a ) * 1.25, 0, Math.sin( a ) * 1.25 );
 			}
