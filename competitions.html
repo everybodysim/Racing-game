@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Competitions</title>
+  <style>
+    :root{color-scheme:dark} body{margin:0;font:14px/1.4 Inter,system-ui,sans-serif;background:linear-gradient(160deg,#081120,#121a2a);color:#e8eef8}
+    .wrap{max-width:1200px;margin:0 auto;padding:16px}.top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .layout{display:grid;grid-template-columns:300px 1fr;gap:12px;margin-top:12px}.panel{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:12px}
+    .tier-btn{width:100%;text-align:left;margin-bottom:8px;padding:9px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;cursor:pointer}
+    .tier-btn.active{background:rgba(95,150,255,.35)} .tier-btn:disabled{opacity:.45;cursor:not-allowed}
+    .preview{height:150px;border-radius:10px;border:1px solid rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 20% 20%,#2a4677,#101725)}
+    .kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}.kpi div{background:rgba(255,255,255,.05);padding:8px;border-radius:8px}
+    table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:7px;border-bottom:1px solid rgba(255,255,255,.1);text-align:left}
+    .top3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pill{border-radius:10px;padding:9px;background:rgba(255,255,255,.07)}
+    .status{min-height:18px;margin-top:8px}.ok{color:#9be7bf}.err{color:#ff9fa8}
+    @media(max-width:900px){.layout{grid-template-columns:1fr}}
+  </style>
+</head><body><div class="wrap">
+<div class="top"><h1>🏁 Competitions</h1><a href="index.html">Back to game</a><div id="coins"></div></div>
+<div class="layout">
+<div class="panel"><h3>Tiers (1–9)</h3><div id="tierList"></div><small>Higher tiers unlock by campaign progress.</small></div>
+<div>
+  <div class="panel">
+    <h2 id="trackName"></h2><div id="preview" class="preview"></div>
+    <div class="kpi"><div>Duration<br><strong id="dur"></strong></div><div>Entry Fee<br><strong id="fee"></strong></div><div>Prize Pool<br><strong id="pool"></strong></div><div>Time Left<br><strong id="left"></strong></div><div>Entries<br><strong id="entries"></strong></div><div>Top Prize<br><strong id="top"></strong></div></div>
+    <button id="enterBtn" style="margin-top:10px">Enter Competition</button><div id="status" class="status"></div>
+  </div>
+  <div class="panel" style="margin-top:12px"><h3>Leaderboard</h3><div class="top3" id="top3"></div><table><thead><tr><th>#</th><th>Player</th><th>Best Time</th><th>Δ from leader</th></tr></thead><tbody id="rows"></tbody></table></div>
+</div></div></div>
+<script>
+(()=>{
+const ECON='racing-economy-v1', CAMP='racing-campaign-v1', COMP='racing-competitions-v1', PLAYER='racing-player-name-v1';
+const now=()=>Date.now(), cycleMs=1000*60*60*24*3; // 3-day cycles
+const tiers=[
+{tier:1,name:'Tier 1 • Micro Apex',duration:'~5–8s',fee:500,min:5,max:8},{tier:2,name:'Tier 2 • Blade Sprint',duration:'~9–14s',fee:1800,min:9,max:14},{tier:3,name:'Tier 3 • Nano Precision',duration:'~15–20s',fee:5000,min:15,max:20},
+{tier:4,name:'Tier 4 • Momentum Ring',duration:'~20–30s',fee:7000,min:20,max:30},{tier:5,name:'Tier 5 • Switchback Grid',duration:'~30–45s',fee:14000,min:30,max:45},{tier:6,name:'Tier 6 • Gateflow Circuit',duration:'~45–60s',fee:25000,min:45,max:60},
+{tier:7,name:'Tier 7 • Endurance Line',duration:'~60–75s',fee:40000,min:60,max:75},{tier:8,name:'Tier 8 • Iron Rhythm',duration:'~75–90s',fee:70000,min:75,max:90},{tier:9,name:'Tier 9 • Titan Marathon',duration:'~90–95s',fee:99000,min:90,max:95}
+];
+let state=loadState(); let selected=1;
+function loadEconomy(){try{return JSON.parse(localStorage.getItem(ECON)||'{}')}catch{return {}}}
+function saveEconomy(c){localStorage.setItem(ECON,JSON.stringify({coins:c}))}
+function loadState(){try{return JSON.parse(localStorage.getItem(COMP)||'{}')}catch{return {}}}
+function saveState(){localStorage.setItem(COMP,JSON.stringify(state))}
+function cycleSeed(tier){return Math.floor(now()/cycleMs)+'-'+tier}
+function ensureComp(t){const seed=cycleSeed(t);state[t]??={};if(state[t].seed!==seed){state[t]={seed,pool:0,entries:0,lb:[]};}return state[t];}
+function unlockedTier(){try{const s=JSON.parse(localStorage.getItem(CAMP)||'{}');return Math.max(1,Math.min(9,Number(s.stage)||1));}catch{return 1}}
+function pname(){return (localStorage.getItem(PLAYER)||'Player').trim()||'Player'}
+function format(n){return Number(n||0).toLocaleString()}function s(n){return Number(n).toFixed(2)+'s'}
+function timeLeft(){const end=(Math.floor(now()/cycleMs)+1)*cycleMs;const sec=Math.max(0,Math.floor((end-now())/1000));const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60);return `${h}h ${m}m`}
+function renderTiers(){const box=document.getElementById('tierList');box.innerHTML='';const unlocked=unlockedTier();tiers.forEach(t=>{const b=document.createElement('button');b.className='tier-btn'+(selected===t.tier?' active':'');b.disabled=t.tier>unlocked;b.textContent=`${t.name} • Fee ${format(t.fee)}`;b.onclick=()=>{selected=t.tier;render()};box.appendChild(b);});}
+function render(){renderTiers();const t=tiers[selected-1], c=ensureComp(selected), unlocked=unlockedTier();document.getElementById('coins').textContent='Coins: '+format(loadEconomy().coins||0);document.getElementById('trackName').textContent=t.name;document.getElementById('dur').textContent=t.duration;document.getElementById('fee').textContent=format(t.fee);document.getElementById('pool').textContent=format(c.pool);document.getElementById('entries').textContent=format(c.entries);document.getElementById('left').textContent=timeLeft();
+const p1=Math.floor(c.pool*0.6),p2=Math.floor(c.pool*0.28),p3=Math.floor(c.pool*0.12);document.getElementById('top').textContent=`1st ${format(p1)} / 2nd ${format(p2)} / 3rd ${format(p3)}`;
+const prev=document.getElementById('preview');prev.textContent=selected<=unlocked?`Track preview unlocked for Tier ${selected}`:'🔒 Track preview locked';
+const lb=(c.lb||[]).slice().sort((a,b)=>a.time-b.time);const lead=lb[0]?.time??null;
+const top3=document.getElementById('top3');top3.innerHTML=[0,1,2].map(i=>{const r=lb[i];return `<div class='pill'><strong>${['🥇','🥈','🥉'][i]}</strong><br>${r?r.name:'--'}<br>${r?s(r.time):'--'}${r&&lead!=null?`<br>+${(r.time-lead).toFixed(2)}s`:''}</div>`}).join('');
+const rows=document.getElementById('rows');rows.innerHTML='';lb.forEach((r,i)=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${i+1}</td><td>${r.name}</td><td>${s(r.time)}</td><td>${lead==null?'--':`+${(r.time-lead).toFixed(2)}s`}</td>`;rows.appendChild(tr)});
+if(!lb.length) rows.innerHTML='<tr><td colspan="4">No runs yet this cycle.</td></tr>';
+const btn=document.getElementById('enterBtn');btn.disabled=selected>unlocked;btn.textContent='Enter Competition';
+}
+function setStatus(msg,err=false){const el=document.getElementById('status');el.textContent=msg;el.className='status '+(err?'err':'ok')}
+function enter(){const t=tiers[selected-1],c=ensureComp(selected);const eco=loadEconomy();let coins=Math.max(0,Math.floor(Number(eco.coins)||0));if(coins<t.fee)return setStatus('Insufficient coins for entry fee.',true);coins-=t.fee;c.pool+=t.fee;c.entries+=1;const me=pname();const trial=t.min+Math.random()*(t.max-t.min)+(Math.random()*0.8);const existing=(c.lb||[]).find(r=>r.name===me);if(!existing)c.lb.push({name:me,time:trial});else if(trial<existing.time)existing.time=trial;saveEconomy(coins);saveState();setStatus(`Entry confirmed. ${format(t.fee)} coins staked. New run: ${s(trial)}.`);render();}
+setInterval(()=>{render()},30000);document.getElementById('enterBtn').onclick=enter;render();
+})();
+</script></body></html>
