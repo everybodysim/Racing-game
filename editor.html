@@ -261,7 +261,7 @@
 <body>
 	<div id="settings-bar">
 		<label for="weather-preset">Weather</label>
-		<label id="moving-custom-wrap" style="display:none;color:#dbe8ff;font-size:11px;gap:6px;align-items:center;">Shape <select id="moving-custom-shape"><option value="square">Square</option><option value="pole">Pole</option></select> SizeX <input id="moving-custom-sx" type="range" min="0.3" max="4" step="0.1" value="2"> SizeY <input id="moving-custom-sy" type="range" min="0.2" max="3" step="0.1" value="0.8"> SizeZ <input id="moving-custom-sz" type="range" min="0.3" max="4" step="0.1" value="0.8"> OrbitR <input id="moving-custom-orbit" type="range" min="0" max="4" step="0.1" value="0"> Count <input id="moving-custom-count" type="range" min="1" max="8" step="1" value="1"> Rot <input id="moving-custom-rot" type="range" min="-4" max="4" step="0.1" value="1"> <input id="moving-custom-color" type="color" value="#ff8844"></label>
+		
 		<select id="weather-preset" aria-label="Weather preset">
 			<option value="clear">Clear</option>
 			<option value="cloudy">Cloudy</option>
@@ -447,7 +447,26 @@
 			<button id="cs-close">Close</button>
 		</div>
 	</div>
-
+<div id="custom-mover-panel" hidden style="position:absolute;right:12px;top:72px;width:min(320px,calc(100vw - 24px));padding:12px;border-radius:10px;background:rgba(16,18,24,0.92);border:1px solid rgba(255,255,255,0.15);color:#eef3ff;z-index:30;">
+  <h3 style="margin:0 0 10px;font-size:14px;">Custom Mover</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:12px;">
+    <label style="display:flex;align-items:center;gap:6px;">Shape
+      <select id="moving-custom-shape" style="flex:1;background:rgba(8,10,14,0.9);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;padding:3px;">
+        <option value="square">Square</option>
+        <option value="pole">Pole</option>
+      </select>
+    </label>
+    <label style="display:flex;align-items:center;gap:6px;">Color
+      <input id="moving-custom-color" type="color" value="#ff8844" style="flex:1;height:28px;border:none;background:none;cursor:pointer;">
+    </label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Size X<input id="moving-custom-sx" type="range" min="0.3" max="4" step="0.1" value="2"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Size Y<input id="moving-custom-sy" type="range" min="0.2" max="3" step="0.1" value="0.8"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Size Z<input id="moving-custom-sz" type="range" min="0.3" max="4" step="0.1" value="0.8"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Orbit R<input id="moving-custom-orbit" type="range" min="0" max="4" step="0.1" value="0"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Count<input id="moving-custom-count" type="range" min="1" max="8" step="1" value="1"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Rotation<input id="moving-custom-rot" type="range" min="-4" max="4" step="0.1" value="1"></label>
+  </div>
+</div>
 	<script type="module">
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -2528,7 +2547,7 @@
 	const movingSpeedValue = document.getElementById( 'moving-speed-value' );
 	function isMovingObstacleTool( type ) { return type === MOVING_SLIDE_TOOL || type === MOVING_SPIN_TOOL || type === MOVING_ORBIT_TOOL || type === MOVING_CUSTOM_TOOL; }
 
-	const movingCustomWrap = document.getElementById( 'moving-custom-wrap' );
+	 
 	const movingCustomShape = document.getElementById( 'moving-custom-shape' );
 	const movingCustomSx = document.getElementById( 'moving-custom-sx' );
 	const movingCustomSy = document.getElementById( 'moving-custom-sy' );
@@ -2539,12 +2558,22 @@
 	const movingCustomColor = document.getElementById( 'moving-custom-color' );
 	function readCustomMovingUi() { return { shape: movingCustomShape?.value || 'square', sx: Number( movingCustomSx?.value ) || 2, sy: Number( movingCustomSy?.value ) || 0.8, sz: Number( movingCustomSz?.value ) || 0.8, orbit: Number( movingCustomOrbit?.value ) || 0, count: Math.max( 1, Math.round( Number( movingCustomCount?.value ) || 1 ) ), rot: Number( movingCustomRot?.value ) || 1, color: movingCustomColor?.value || '#ff8844' }; }
 
-	function refreshMovingSpeedUi() {
-		const visible = isMovingObstacleTool( selectedType );
-		if ( movingSpeedWrap ) movingSpeedWrap.style.display = visible ? 'inline-flex' : 'none';
-		if ( movingCustomWrap ) movingCustomWrap.style.display = selectedType === MOVING_CUSTOM_TOOL ? 'inline-flex' : 'none';
-		if ( movingSpeedValue ) movingSpeedValue.textContent = `${ Number( movingSpeedInput?.value || 1 ).toFixed( 2 ) }x`;
-	}
+	// OLD:
+function refreshMovingSpeedUi() {
+    const visible = isMovingObstacleTool( selectedType );
+    if ( movingSpeedWrap ) movingSpeedWrap.style.display = visible ? 'inline-flex' : 'none';
+    if ( movingCustomWrap ) movingCustomWrap.style.display = selectedType === MOVING_CUSTOM_TOOL ? 'inline-flex' : 'none';
+    if ( movingSpeedValue ) movingSpeedValue.textContent = `${ Number( movingSpeedInput?.value || 1 ).toFixed( 2 ) }x`;
+}
+
+// NEW:
+function refreshMovingSpeedUi() {
+    const visible = isMovingObstacleTool( selectedType );
+    if ( movingSpeedWrap ) movingSpeedWrap.style.display = visible ? 'inline-flex' : 'none';
+    const customMoverPanel = document.getElementById( 'custom-mover-panel' );
+    if ( customMoverPanel ) customMoverPanel.hidden = selectedType !== MOVING_CUSTOM_TOOL;
+    if ( movingSpeedValue ) movingSpeedValue.textContent = `${ Number( movingSpeedInput?.value || 1 ).toFixed( 2 ) }x`;
+}
 	movingSpeedInput?.addEventListener( 'input', () => {
 		refreshMovingSpeedUi();
 		if ( hoveredCell ) {
