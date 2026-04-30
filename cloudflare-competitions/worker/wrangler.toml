@@ -2,7 +2,7 @@ name = "racing-competitions-api"
 main = "src/index.js"
 compatibility_date = "2026-04-30"
 
+# KV is already bound in Cloudflare dashboard,
+# so no id or preview_id needed here.
 [[kv_namespaces]]
 binding = "COMP_KV"
-id = "REPLACE_WITH_PRODUCTION_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_PREVIEW_KV_NAMESPACE_ID"
