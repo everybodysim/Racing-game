@@ -1,66 +1,30 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Competitions</title>
-  <style>
-    :root{color-scheme:dark} body{margin:0;font:14px/1.4 Inter,system-ui,sans-serif;background:linear-gradient(160deg,#081120,#121a2a);color:#e8eef8}
-    .wrap{max-width:1200px;margin:0 auto;padding:16px}.top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .layout{display:grid;grid-template-columns:300px 1fr;gap:12px;margin-top:12px}.panel{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:12px}
-    .tier-btn{width:100%;text-align:left;margin-bottom:8px;padding:9px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;cursor:pointer}
-    .tier-btn.active{background:rgba(95,150,255,.35)} .tier-btn:disabled{opacity:.45;cursor:not-allowed}
-    .preview{height:150px;border-radius:10px;border:1px solid rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 20% 20%,#2a4677,#101725)}
-    .kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}.kpi div{background:rgba(255,255,255,.05);padding:8px;border-radius:8px}
-    table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:7px;border-bottom:1px solid rgba(255,255,255,.1);text-align:left}
-    .top3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pill{border-radius:10px;padding:9px;background:rgba(255,255,255,.07)}
-    .status{min-height:18px;margin-top:8px}.ok{color:#9be7bf}.err{color:#ff9fa8}
-    @media(max-width:900px){.layout{grid-template-columns:1fr}}
-  </style>
-</head><body><div class="wrap">
-<div class="top"><h1>🏁 Competitions</h1><a href="index.html">Back to game</a><div id="coins"></div></div>
-<div class="layout">
-<div class="panel"><h3>Tiers (1–9)</h3><div id="tierList"></div><small>Higher tiers unlock by campaign progress.</small></div>
-<div>
-  <div class="panel">
-    <h2 id="trackName"></h2><div id="preview" class="preview"></div>
-    <div class="kpi"><div>Duration<br><strong id="dur"></strong></div><div>Entry Fee<br><strong id="fee"></strong></div><div>Prize Pool<br><strong id="pool"></strong></div><div>Time Left<br><strong id="left"></strong></div><div>Entries<br><strong id="entries"></strong></div><div>Top Prize<br><strong id="top"></strong></div></div>
-    <button id="enterBtn" style="margin-top:10px">Enter Competition</button><div id="status" class="status"></div>
-  </div>
-  <div class="panel" style="margin-top:12px"><h3>Leaderboard</h3><div class="top3" id="top3"></div><table><thead><tr><th>#</th><th>Player</th><th>Best Time</th><th>Δ from leader</th></tr></thead><tbody id="rows"></tbody></table></div>
-</div></div></div>
+<!doctype html><html lang='en'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>Competitions</title>
+<style>:root{color-scheme:dark}body{margin:0;font:14px/1.4 Inter,system-ui,sans-serif;background:linear-gradient(160deg,#081120,#121a2a);color:#e8eef8}.wrap{max-width:1200px;margin:0 auto;padding:16px}.top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.layout{display:grid;grid-template-columns:300px 1fr;gap:12px;margin-top:12px}.panel{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:12px}.tier-btn{width:100%;text-align:left;margin-bottom:8px;padding:9px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;cursor:pointer}.tier-btn.active{background:rgba(95,150,255,.35)}.preview{width:100%;height:210px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:#0e1321}.kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}.kpi div{background:rgba(255,255,255,.05);padding:8px;border-radius:8px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:7px;border-bottom:1px solid rgba(255,255,255,.1);text-align:left}.top3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pill{border-radius:10px;padding:9px;background:rgba(255,255,255,.07)}.status{min-height:18px;margin-top:8px}.ok{color:#9be7bf}.err{color:#ff9fa8}@media(max-width:900px){.layout{grid-template-columns:1fr}}</style></head>
+<body><div class='wrap'><div class='top'><h1>🏁 Competitions</h1><a href='index.html'>Back to game</a><div id='coins'></div><div id='weekSeed'></div></div>
+<div class='layout'><div class='panel'><h3>Tiers (1–9)</h3><div id='tierList'></div><small>Click locked next tier to unlock by paying coins.</small></div><div><div class='panel'><h2 id='trackName'></h2><canvas id='preview' class='preview' width='520' height='210'></canvas><div class='kpi'><div>Duration<br><strong id='dur'></strong></div><div>Entry Fee<br><strong id='fee'></strong></div><div>Unlock Cost<br><strong id='unlock'></strong></div><div>Prize Pool<br><strong id='pool'></strong></div><div>Time Left<br><strong id='left'></strong></div><div>Top Prize<br><strong id='top'></strong></div></div><button id='enterBtn' style='margin-top:10px'>Enter Competition</button> <button id='openTrackBtn' style='margin-top:10px'>Open on Track Share Board</button><div id='status' class='status'></div></div><div class='panel' style='margin-top:12px'><h3>Leaderboard</h3><div class='top3' id='top3'></div><table><thead><tr><th>#</th><th>Player</th><th>Best Time</th><th>Δ from leader</th></tr></thead><tbody id='rows'></tbody></table></div></div></div></div>
 <script>
-(()=>{
-const ECON='racing-economy-v1', CAMP='racing-campaign-v1', COMP='racing-competitions-v1', PLAYER='racing-player-name-v1';
-const now=()=>Date.now(), cycleMs=1000*60*60*24*3; // 3-day cycles
-const tiers=[
-{tier:1,name:'Tier 1 • Micro Apex',duration:'~5–8s',fee:500,min:5,max:8},{tier:2,name:'Tier 2 • Blade Sprint',duration:'~9–14s',fee:1800,min:9,max:14},{tier:3,name:'Tier 3 • Nano Precision',duration:'~15–20s',fee:5000,min:15,max:20},
-{tier:4,name:'Tier 4 • Momentum Ring',duration:'~20–30s',fee:7000,min:20,max:30},{tier:5,name:'Tier 5 • Switchback Grid',duration:'~30–45s',fee:14000,min:30,max:45},{tier:6,name:'Tier 6 • Gateflow Circuit',duration:'~45–60s',fee:25000,min:45,max:60},
-{tier:7,name:'Tier 7 • Endurance Line',duration:'~60–75s',fee:40000,min:60,max:75},{tier:8,name:'Tier 8 • Iron Rhythm',duration:'~75–90s',fee:70000,min:75,max:90},{tier:9,name:'Tier 9 • Titan Marathon',duration:'~90–95s',fee:99000,min:90,max:95}
-];
-let state=loadState(); let selected=1;
-function loadEconomy(){try{return JSON.parse(localStorage.getItem(ECON)||'{}')}catch{return {}}}
-function saveEconomy(c){localStorage.setItem(ECON,JSON.stringify({coins:c}))}
-function loadState(){try{return JSON.parse(localStorage.getItem(COMP)||'{}')}catch{return {}}}
-function saveState(){localStorage.setItem(COMP,JSON.stringify(state))}
-function cycleSeed(tier){return Math.floor(now()/cycleMs)+'-'+tier}
-function ensureComp(t){const seed=cycleSeed(t);state[t]??={};if(state[t].seed!==seed){state[t]={seed,pool:0,entries:0,lb:[]};}return state[t];}
-function unlockedTier(){try{const s=JSON.parse(localStorage.getItem(CAMP)||'{}');return Math.max(1,Math.min(9,Number(s.stage)||1));}catch{return 1}}
-function pname(){return (localStorage.getItem(PLAYER)||'Player').trim()||'Player'}
-function format(n){return Number(n||0).toLocaleString()}function s(n){return Number(n).toFixed(2)+'s'}
-function timeLeft(){const end=(Math.floor(now()/cycleMs)+1)*cycleMs;const sec=Math.max(0,Math.floor((end-now())/1000));const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60);return `${h}h ${m}m`}
-function renderTiers(){const box=document.getElementById('tierList');box.innerHTML='';const unlocked=unlockedTier();tiers.forEach(t=>{const b=document.createElement('button');b.className='tier-btn'+(selected===t.tier?' active':'');b.disabled=t.tier>unlocked;b.textContent=`${t.name} • Fee ${format(t.fee)}`;b.onclick=()=>{selected=t.tier;render()};box.appendChild(b);});}
-function render(){renderTiers();const t=tiers[selected-1], c=ensureComp(selected), unlocked=unlockedTier();document.getElementById('coins').textContent='Coins: '+format(loadEconomy().coins||0);document.getElementById('trackName').textContent=t.name;document.getElementById('dur').textContent=t.duration;document.getElementById('fee').textContent=format(t.fee);document.getElementById('pool').textContent=format(c.pool);document.getElementById('entries').textContent=format(c.entries);document.getElementById('left').textContent=timeLeft();
-const p1=Math.floor(c.pool*0.6),p2=Math.floor(c.pool*0.28),p3=Math.floor(c.pool*0.12);document.getElementById('top').textContent=`1st ${format(p1)} / 2nd ${format(p2)} / 3rd ${format(p3)}`;
-const prev=document.getElementById('preview');prev.textContent=selected<=unlocked?`Track preview unlocked for Tier ${selected}`:'🔒 Track preview locked';
-const lb=(c.lb||[]).slice().sort((a,b)=>a.time-b.time);const lead=lb[0]?.time??null;
-const top3=document.getElementById('top3');top3.innerHTML=[0,1,2].map(i=>{const r=lb[i];return `<div class='pill'><strong>${['🥇','🥈','🥉'][i]}</strong><br>${r?r.name:'--'}<br>${r?s(r.time):'--'}${r&&lead!=null?`<br>+${(r.time-lead).toFixed(2)}s`:''}</div>`}).join('');
-const rows=document.getElementById('rows');rows.innerHTML='';lb.forEach((r,i)=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${i+1}</td><td>${r.name}</td><td>${s(r.time)}</td><td>${lead==null?'--':`+${(r.time-lead).toFixed(2)}s`}</td>`;rows.appendChild(tr)});
-if(!lb.length) rows.innerHTML='<tr><td colspan="4">No runs yet this cycle.</td></tr>';
-const btn=document.getElementById('enterBtn');btn.disabled=selected>unlocked;btn.textContent='Enter Competition';
-}
-function setStatus(msg,err=false){const el=document.getElementById('status');el.textContent=msg;el.className='status '+(err?'err':'ok')}
-function enter(){const t=tiers[selected-1],c=ensureComp(selected);const eco=loadEconomy();let coins=Math.max(0,Math.floor(Number(eco.coins)||0));if(coins<t.fee)return setStatus('Insufficient coins for entry fee.',true);coins-=t.fee;c.pool+=t.fee;c.entries+=1;const me=pname();const trial=t.min+Math.random()*(t.max-t.min)+(Math.random()*0.8);const existing=(c.lb||[]).find(r=>r.name===me);if(!existing)c.lb.push({name:me,time:trial});else if(trial<existing.time)existing.time=trial;saveEconomy(coins);saveState();setStatus(`Entry confirmed. ${format(t.fee)} coins staked. New run: ${s(trial)}.`);render();}
-setInterval(()=>{render()},30000);document.getElementById('enterBtn').onclick=enter;render();
-})();
+(()=>{const ECON='racing-economy-v1',COMP='racing-competitions-v2',PLAYER='racing-player-name-v1';const cycleMs=1000*60*60*24*7;const BASE='https://everybodysim.github.io/Racing-game/index.html';
+const tiers=[{tier:1,name:'Micro Apex',fee:500,min:5,max:8},{tier:2,name:'Blade Sprint',fee:1800,min:9,max:14},{tier:3,name:'Nano Precision',fee:5000,min:15,max:20},{tier:4,name:'Momentum Ring',fee:7000,min:20,max:30},{tier:5,name:'Switchback Grid',fee:14000,min:30,max:45},{tier:6,name:'Gateflow Circuit',fee:25000,min:45,max:60},{tier:7,name:'Endurance Line',fee:40000,min:60,max:75},{tier:8,name:'Iron Rhythm',fee:70000,min:75,max:90},{tier:9,name:'Titan Marathon',fee:99000,min:90,max:95}];
+const TYPE={'track-straight':0,'track-corner':1,'track-checkpoint':2,'track-finish':3},ORI={0:0,16:1,10:2,22:3};let state=loadState();let selected=1;
+function n(){return Date.now()}function ws(){return Math.round((Math.floor(n()/86400000))/7)}function fmt(v){return Number(v||0).toLocaleString()}function sec(v){return Number(v).toFixed(2)+'s'}
+function loadState(){try{return JSON.parse(localStorage.getItem(COMP)||'{}')}catch{return {}}}function saveState(){localStorage.setItem(COMP,JSON.stringify(state))}
+function eco(){try{return JSON.parse(localStorage.getItem(ECON)||'{}')}catch{return {}}}function setCoins(c){localStorage.setItem(ECON,JSON.stringify({coins:c}))}
+function pname(){return (localStorage.getItem(PLAYER)||'Player').trim()||'Player'} function left(){const end=(Math.floor(n()/cycleMs)+1)*cycleMs;const s=Math.floor((end-n())/1000);return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'}
+function encodeCells(cells){const b=new Uint8Array(cells.length*3);for(let i=0;i<cells.length;i++){const [x,z,t,o]=cells[i];b[i*3]=x+128;b[i*3+1]=z+128;b[i*3+2]=((TYPE[t]||0)<<2)|(ORI[o]||0)}let bin='';for(const x of b)bin+=String.fromCharCode(x);return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+function rng(seed){let t=seed>>>0;return()=>{t+=0x6D2B79F5;let r=Math.imul(t^(t>>>15),1|t);r^=r+Math.imul(r^(r>>>7),61|r);return((r^(r>>>14))>>>0)/4294967296}}
+function genTrack(tier){const t=tiers[tier-1],r=rng(ws()*100+tier*17);let best=null;for(let tries=0;tries<220;tries++){const w=6+Math.floor(r()*24),h=5+Math.floor(r()*20);const loop=2*(w+h)-4;const est=loop*(0.40+0.16*tier);if(est<t.min||est>t.max)continue;const cells=[];let x=0,z=0;for(let i=0;i<w;i++)cells.push([x+i,z,'track-straight',22]);x+=w-1;for(let i=1;i<h;i++)cells.push([x,z+i,'track-straight',0]);z+=h-1;for(let i=1;i<w;i++)cells.push([x-i,z,'track-straight',22]);x=0;for(let i=1;i<h-1;i++)cells.push([x,z-i,'track-straight',0]);cells[0][2]='track-finish';cells[Math.floor(cells.length/2)][2]='track-checkpoint';best={cells,est,w,h};break;}if(!best)best={cells:[[0,0,'track-finish',22],[1,0,'track-straight',22],[2,0,'track-checkpoint',22],[2,1,'track-straight',0],[1,1,'track-straight',22],[0,1,'track-straight',22]],est:(t.min+t.max)/2,w:3,h:2};
+const map=encodeCells(best.cells);const play=`${BASE}?map=${map}`;return {...best,play};}
+function ensureComp(tier){const seed=ws()+'-'+tier;state.events??={};state.unlockTier=state.unlockTier||1;if(!state.events[tier]||state.events[tier].seed!==seed){const tr=genTrack(tier);state.events[tier]={seed,pool:0,entries:0,lb:[],track:tr};saveState()}return state.events[tier]}
+function unlockCost(t){return Math.round(t.fee*1.35)}
+function render(){const unlocked=state.unlockTier||1;document.getElementById('coins').textContent='Coins: '+fmt(eco().coins||0);document.getElementById('weekSeed').textContent='Week seed: '+ws();const tl=document.getElementById('tierList');tl.innerHTML='';tiers.forEach(t=>{const b=document.createElement('button');b.className='tier-btn'+(selected===t.tier?' active':'');const isLocked=t.tier>unlocked;const canUnlock=t.tier===unlocked+1;b.textContent=`Tier ${t.tier} • ${t.name} • Fee ${fmt(t.fee)}${isLocked?` • Locked (${canUnlock?'click to unlock':''})`:''}`;b.onclick=()=>{if(isLocked&&canUnlock)return unlockTier(t.tier);if(!isLocked){selected=t.tier;render()}};tl.appendChild(b)});
+const t=tiers[selected-1],c=ensureComp(selected),track=c.track;document.getElementById('trackName').textContent=`Tier ${selected} • ${t.name}`;document.getElementById('dur').textContent=`~${track.est.toFixed(1)}s target`;document.getElementById('fee').textContent=fmt(t.fee);document.getElementById('unlock').textContent=fmt(unlockCost(t));document.getElementById('pool').textContent=fmt(c.pool);document.getElementById('left').textContent=left();document.getElementById('top').textContent=`1st ${fmt(Math.floor(c.pool*.6))} / 2nd ${fmt(Math.floor(c.pool*.28))} / 3rd ${fmt(Math.floor(c.pool*.12))}`;
+const cv=document.getElementById('preview'),ctx=cv.getContext('2d');ctx.fillStyle='#0f1422';ctx.fillRect(0,0,cv.width,cv.height);const lock=selected>unlocked;if(lock){ctx.fillStyle='#fff';ctx.font='bold 22px sans-serif';ctx.fillText('🔒 Unlock this tier to reveal track preview',22,110)}else{const s=8,ox=50,oy=20;ctx.strokeStyle='#8cd3ff';ctx.lineWidth=6;ctx.beginPath();track.cells.forEach((p,i)=>{const X=ox+p[0]*s,Y=oy+p[1]*s;i?ctx.lineTo(X,Y):ctx.moveTo(X,Y)});ctx.closePath();ctx.stroke();ctx.fillStyle='#9be7bf';ctx.fillText('Weekly seeded track preview',18,195)}
+const lb=(c.lb||[]).slice().sort((a,b)=>a.time-b.time),lead=lb[0]?.time;document.getElementById('top3').innerHTML=[0,1,2].map(i=>{const r=lb[i];return`<div class='pill'><strong>${['🥇','🥈','🥉'][i]}</strong><br>${r?r.name:'--'}<br>${r?sec(r.time):'--'}${r&&lead!=null?`<br>+${(r.time-lead).toFixed(2)}s`:''}</div>`}).join('');
+const rows=document.getElementById('rows');rows.innerHTML='';if(!lb.length)rows.innerHTML='<tr><td colspan="4">No runs yet this cycle.</td></tr>';lb.forEach((r,i)=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${i+1}</td><td>${r.name}</td><td>${sec(r.time)}</td><td>${lead==null?'--':`+${(r.time-lead).toFixed(2)}s`}</td>`;rows.appendChild(tr)});
+const enterBtn=document.getElementById('enterBtn');enterBtn.disabled=lock;document.getElementById('openTrackBtn').disabled=lock;}
+function status(m,e=false){const s=document.getElementById('status');s.textContent=m;s.className='status '+(e?'err':'ok')}
+function unlockTier(tier){const unlocked=state.unlockTier||1;if(tier!==unlocked+1)return;const cost=unlockCost(tiers[tier-1]);let coins=Math.floor(Number(eco().coins)||0);if(coins<cost)return status(`Need ${fmt(cost)} coins to unlock tier ${tier}.`,true);coins-=cost;state.unlockTier=tier;setCoins(coins);saveState();selected=tier;status(`Tier ${tier} unlocked for ${fmt(cost)} coins.`);render()}
+function enter(){const t=tiers[selected-1],c=ensureComp(selected);let coins=Math.floor(Number(eco().coins)||0);if(coins<t.fee)return status('Insufficient coins for entry fee.',true);coins-=t.fee;c.pool+=t.fee;c.entries++;const trial=c.track.est*(0.94+Math.random()*0.12);const name=pname();const ex=c.lb.find(r=>r.name===name);if(!ex)c.lb.push({name,time:trial});else if(trial<ex.time)ex.time=trial;setCoins(coins);saveState();status(`Entry confirmed. ${fmt(t.fee)} coins staked.`);render()}
+function openTrack(){const c=ensureComp(selected);const share='tracks.html#competitionPlayUrl='+encodeURIComponent(c.track.play);window.location.href=share}
+setInterval(render,30000);document.getElementById('enterBtn').onclick=enter;document.getElementById('openTrackBtn').onclick=openTrack;render();})();
 </script></body></html>
