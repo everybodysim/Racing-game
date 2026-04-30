@@ -686,6 +686,25 @@
 			box-shadow: 0 10px 25px rgba(30,71,126,0.35);
 			background: linear-gradient(165deg, rgba(118,185,255,0.4), rgba(59,128,212,0.36));
 		}
+
+		.home-main-link.out-of-order, #competitions-link.out-of-order {
+			position: relative;
+			opacity: 0.7;
+			pointer-events: auto;
+		}
+		.home-main-link.out-of-order::after, #competitions-link.out-of-order::after {
+			content: 'OUT OF ORDER';
+			position: absolute;
+			inset: 8px;
+			display: grid;
+			place-items: center;
+			font: 800 12px/1 sans-serif;
+			letter-spacing: 0.08em;
+			color: #fff;
+			background: rgba(160, 24, 24, 0.76);
+			border: 1px solid rgba(255,255,255,0.4);
+			border-radius: 8px;
+		}
 		.home-main-link.play-link {
 			background: linear-gradient(165deg, rgba(91,236,126,0.33), rgba(34,159,73,0.3));
 			border-color: rgba(168,255,190,0.62);
@@ -784,7 +803,7 @@
 				<a class="home-main-link" href="tracks.html">Track shares<em>Discover and copy community maps</em></a>
 				<a class="home-main-link" href="editor.html">Create your own track<em>Build and test original circuits</em></a>
 				<a class="home-main-link" href="weekly-cup.html">Weekly cup<em>Competitive rotating event</em></a>
-				<a class="home-main-link" href="competitions.html">Competitions<em>9 live stake-based tier events</em></a>
+				<a class="home-main-link out-of-order" href="competitions.html" data-out-of-order="1">Competitions<em>9 live stake-based tier events</em></a>
 				<a class="home-main-link" href="totd.html">Track of the day<em>One featured challenge each day</em></a>
 			</div>
 			<div id="home-secondary">
@@ -800,7 +819,7 @@
 	<a id="totd-link" href="totd.html">Track of the day</a>
 	<a id="weekly-cup-link" href="weekly-cup.html">Weekly cup</a>
 	<a id="coin-leaderboard-link" href="coins.html">Coin leaderboard</a> 
-	<a id="competitions-link" href="competitions.html">Competitions</a>
+	<a id="competitions-link" class="out-of-order" href="competitions.html" data-out-of-order="1">Competitions</a>
 	<a id="replay-link" href="replay.html">Replay watcher</a>
 	<a id="tracks-link" href="tracks.html">Track share board</a>
 	<a id="mods-link" href="mods.html">Mods</a>
@@ -1012,6 +1031,7 @@
 	</script>
 
 	<script>
+		document.querySelectorAll('[data-out-of-order="1"]').forEach((node)=>{node.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();alert('Competitions is temporarily out of order and will be back soon.');});});
 		const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
 		const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
 		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'coin-leaderboard-link', 'competitions-link', 'replay-link', 'tracks-link', 'mods-link', 'hacks-toggle', 'split-link' ];
