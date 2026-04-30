@@ -956,6 +956,7 @@ function readInstalledRuntimeMods() {
 function normalizeModEntryPath( entryPath ) {
 
 	if ( ! entryPath || typeof entryPath !== 'string' ) return null;
+	if ( entryPath.startsWith( 'data:text/javascript' ) ) return entryPath;
 	if ( entryPath.startsWith( './' ) ) return `../${ entryPath.slice( 2 ) }`;
 	if ( entryPath.startsWith( '/' ) ) return entryPath;
 	return `../${ entryPath }`;
@@ -966,41 +967,25 @@ async function loadRuntimeMods() {
 
 	const installed = readInstalledRuntimeMods();
 	if ( installed.length === 0 ) return [];
-	const installedIds = new Set( installed.map( ( mod ) => mod?.id ).filter( Boolean ) );
-	if ( installedIds.size === 0 ) return [];
-	try {
+	const runtimes = [];
+	for ( const mod of installed ) {
 
-		const response = await fetch( './mods/mods.json', { cache: 'no-store' } );
-		if ( ! response.ok ) return [];
-		const parsed = await response.json();
-		const catalog = Array.isArray( parsed?.mods ) ? parsed.mods : [];
-		const runtimes = [];
-		for ( const mod of catalog ) {
+		const entryPath = normalizeModEntryPath( mod?.entry );
+		if ( ! entryPath ) continue;
+		try {
 
-			if ( ! installedIds.has( mod?.id ) || ! mod?.entry ) continue;
-			const entryPath = normalizeModEntryPath( mod.entry );
-			if ( ! entryPath ) continue;
-			try {
+			const loaded = await import( entryPath );
+			const runtime = loaded?.default || loaded?.TAS_MOD || loaded?.mod || null;
+			if ( runtime && typeof runtime.init === 'function' ) runtimes.push( runtime );
 
-				const loaded = await import( entryPath );
-				const runtime = loaded?.default || loaded?.TAS_MOD || loaded?.mod || null;
-				if ( runtime && typeof runtime.init === 'function' ) runtimes.push( runtime );
+		} catch ( error ) {
 
-			} catch ( error ) {
-
-				console.warn( `Failed to load mod runtime: ${ mod.id }`, error );
-
-			}
+			console.warn( `Failed to load mod runtime: ${ mod?.id || 'unknown' }`, error );
 
 		}
-		return runtimes;
-
-	} catch ( error ) {
-
-		console.warn( 'Failed to bootstrap mod runtimes', error );
-		return [];
 
 	}
+	return runtimes;
 
 }
 
