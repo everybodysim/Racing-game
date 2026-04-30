@@ -13,6 +13,7 @@
     ul { margin: 8px 0 0; padding-left: 20px; }
     a { color: #8dc7ff; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .notice { margin-top: 10px; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,183,77,0.55); background: rgba(255,183,77,0.14); color: #ffd79a; }
   </style>
 </head>
 <body>
@@ -32,8 +33,9 @@
     </div>
     <div class="panel">
       <h2>Build your own mod</h2>
-      <p>Want to prototype with Scratch 3 style blocks? Open the experimental custom builder page.</p>
-      <p><a href="custommods.html">Open Custom Mods Lab</a></p>
+      <p>Custom Mods Lab is under construction right now.</p>
+      <p><a href="custommods.html">Open Custom Mods Lab (Preview)</a></p>
+      <div class="notice">🚧 Installing custom mods is temporarily disabled while this feature is under construction.</div>
     </div>
 
     <div class="panel">
@@ -41,7 +43,7 @@
       <p>Paste a share URL or share payload JSON from Custom Mods Lab.</p>
       <div class="row">
         <input id="shared-mod-input" placeholder="https://...custommods.html?share=... or JSON" style="min-width: 320px; flex: 1;" />
-        <button id="import-shared-btn" type="button">Import Shared</button>
+        <button id="import-shared-btn" type="button" disabled>Import Shared (Disabled)</button>
       </div>
       <ul id="shared-mods-list"></ul>
     </div>
