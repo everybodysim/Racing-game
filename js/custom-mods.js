@@ -9,52 +9,82 @@ function setStatus(message, warn = false) {
   statusEl.classList.toggle('warn', warn);
 }
 
-function buildToolbox() {
-  return {
-    kind: 'categoryToolbox',
-    contents: [
-      {
-        kind: 'category',
-        name: 'Events',
-        colour: '#FFBF00',
-        contents: [
-          { kind: 'block', type: 'event_whenflagclicked' },
-          { kind: 'block', type: 'event_whenkeypressed' },
-          { kind: 'block', type: 'event_whenthisspriteclicked' }
-        ]
-      },
-      {
-        kind: 'category',
-        name: 'Logic',
-        colour: '#59C059',
-        contents: [
-          { kind: 'block', type: 'control_if' },
-          { kind: 'block', type: 'control_if_else' },
-          { kind: 'block', type: 'operator_equals' },
-          { kind: 'block', type: 'operator_gt' },
-          { kind: 'block', type: 'operator_lt' }
-        ]
-      },
-      {
-        kind: 'category',
-        name: 'Math',
-        colour: '#4C97FF',
-        contents: [
-          { kind: 'block', type: 'operator_add' },
-          { kind: 'block', type: 'operator_subtract' },
-          { kind: 'block', type: 'operator_multiply' },
-          { kind: 'block', type: 'operator_divide' },
-          { kind: 'block', type: 'math_number' }
-        ]
-      },
-      {
-        kind: 'category',
-        name: 'Variables',
-        custom: 'VARIABLE',
-        colour: '#FF8C1A'
-      }
+function appendOutput(message) {
+  outputEl.textContent = `${outputEl.textContent}\n${message}`.trim();
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = false;
+    script.onload = () => resolve(src);
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+async function loadScratchBlocks() {
+  const scriptSets = [
+    [
+      'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/blockly_compressed_vertical.js',
+      'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/blocks_compressed_vertical.js',
+      'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/msg/messages.js'
+    ],
+    [
+      'https://unpkg.com/scratch-blocks@1.1.15/blockly_compressed_vertical.js',
+      'https://unpkg.com/scratch-blocks@1.1.15/blocks_compressed_vertical.js',
+      'https://unpkg.com/scratch-blocks@1.1.15/msg/messages.js'
+    ],
+    [
+      'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/blockly_compressed.js',
+      'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/blocks_compressed.js',
+      'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/msg/messages.js'
     ]
-  };
+  ];
+
+  for (const set of scriptSets) {
+    try {
+      for (const src of set) {
+        await loadScript(src);
+      }
+      if (window.ScratchBlocks || window.Blockly) return;
+    } catch (error) {
+      appendOutput(`Loader note: ${error.message}`);
+    }
+  }
+
+  throw new Error('Unable to load scratch-blocks from all known CDNs.');
+}
+
+function getBlocklyApi() {
+  return window.ScratchBlocks || window.Blockly || null;
+}
+
+function buildToolbox() {
+  return `<xml xmlns="https://developers.google.com/blockly/xml" style="display: none">
+    <category name="Events" colour="#FFBF00">
+      <block type="event_whenflagclicked"></block>
+      <block type="event_whenkeypressed"></block>
+      <block type="event_whenthisspriteclicked"></block>
+    </category>
+    <category name="Control" colour="#FFAB19">
+      <block type="control_if"></block>
+      <block type="control_if_else"></block>
+      <block type="control_repeat"></block>
+      <block type="control_forever"></block>
+    </category>
+    <category name="Operators" colour="#59C059">
+      <block type="operator_add"></block>
+      <block type="operator_subtract"></block>
+      <block type="operator_multiply"></block>
+      <block type="operator_divide"></block>
+      <block type="operator_gt"></block>
+      <block type="operator_lt"></block>
+      <block type="operator_equals"></block>
+    </category>
+    <category name="Variables" colour="#FF8C1A" custom="VARIABLE"></category>
+  </xml>`;
 }
 
 function safeId(value) {
@@ -65,25 +95,34 @@ function generateTemplate(metadata, workspaceJson) {
   const modId = safeId(metadata.id) || `custom-${Date.now()}`;
   const modName = metadata.name?.trim() || 'Custom Mod';
   const description = metadata.description?.trim() || 'Generated from Custom Mods Lab';
-  return `// ${modName}\n// ${description}\n// Generated ${new Date().toISOString()}\n\nexport function applyCustomMod({ game, bus }) {\n  // TODO: translate workspace JSON into runtime behavior.\n  // Keep this data around for manual conversion/testing.\n  const workspaceModel = ${JSON.stringify(workspaceJson, null, 2)};\n\n  console.log('[custom-mod:${modId}] loaded', workspaceModel);\n\n  return () => {\n    console.log('[custom-mod:${modId}] unloaded');\n  };\n}\n`;
+  return `// ${modName}\n// ${description}\n// Generated ${new Date().toISOString()}\n\nexport function applyCustomMod({ game, bus }) {\n  const workspaceModel = ${JSON.stringify(workspaceJson, null, 2)};\n\n  console.log('[custom-mod:${modId}] loaded', workspaceModel);\n  // TODO: translate block model into runtime hooks affecting game systems.\n\n  return () => {\n    console.log('[custom-mod:${modId}] unloaded');\n  };\n}\n`;
 }
 
-function initBlockly() {
-  if (!window.Blockly) {
-    setStatus('Scratch blocks failed to load. Check internet/CDN access and refresh.', true);
-    return null;
+let workspace = null;
+let SB = null;
+
+async function initBlockly() {
+  setStatus('Loading Scratch block runtime...');
+  try {
+    await loadScratchBlocks();
+  } catch (error) {
+    setStatus(error.message, true);
+    return;
   }
-  const workspace = window.Blockly.inject('blocklyDiv', {
+
+  SB = getBlocklyApi();
+  if (!SB) {
+    setStatus('Scratch blocks loaded scripts but API object was missing.', true);
+    return;
+  }
+
+  workspace = SB.inject('blocklyDiv', {
     toolbox: buildToolbox(),
-    renderer: 'zelos',
-    grid: { spacing: 24, length: 3, colour: '#334155', snap: true },
     zoom: { controls: true, wheel: true, startScale: 0.9, maxScale: 2, minScale: 0.35 }
   });
-  setStatus('Scratch blocks loaded. Start dragging blocks to prototype your mod logic.');
-  return workspace;
-}
 
-const workspace = initBlockly();
+  setStatus('Scratch blocks loaded. Start dragging blocks to prototype your mod logic.');
+}
 
 function readMetadata() {
   return {
@@ -93,23 +132,33 @@ function readMetadata() {
   };
 }
 
+function getWorkspaceJson() {
+  const xml = SB.Xml.workspaceToDom(workspace);
+  return SB.Xml.domToText(xml);
+}
+
+function loadWorkspaceFromJson(xmlText) {
+  workspace.clear();
+  const dom = SB.Xml.textToDom(xmlText);
+  SB.Xml.domToWorkspace(dom, workspace);
+}
+
 document.getElementById('save-workspace')?.addEventListener('click', () => {
-  if (!workspace) return;
-  const data = window.Blockly.serialization.workspaces.save(workspace);
+  if (!workspace || !SB) return;
+  const data = getWorkspaceJson();
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ metadata: readMetadata(), data }));
   setStatus('Draft saved to localStorage.');
 });
 
 document.getElementById('load-workspace')?.addEventListener('click', () => {
-  if (!workspace) return;
+  if (!workspace || !SB) return;
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) {
     setStatus('No saved draft found.', true);
     return;
   }
   const parsed = JSON.parse(raw);
-  workspace.clear();
-  window.Blockly.serialization.workspaces.load(parsed.data, workspace);
+  loadWorkspaceFromJson(parsed.data);
   document.getElementById('mod-id').value = parsed.metadata?.id || '';
   document.getElementById('mod-name').value = parsed.metadata?.name || '';
   document.getElementById('mod-description').value = parsed.metadata?.description || '';
@@ -124,23 +173,21 @@ document.getElementById('clear-workspace')?.addEventListener('click', () => {
 });
 
 document.getElementById('export-json')?.addEventListener('click', () => {
-  if (!workspace) return;
-  const serialized = window.Blockly.serialization.workspaces.save(workspace);
-  outputEl.textContent = JSON.stringify(serialized, null, 2);
-  setStatus('Workspace JSON exported.');
+  if (!workspace || !SB) return;
+  outputEl.textContent = getWorkspaceJson();
+  setStatus('Workspace XML exported.');
 });
 
 document.getElementById('export-template')?.addEventListener('click', () => {
-  if (!workspace) return;
-  const serialized = window.Blockly.serialization.workspaces.save(workspace);
-  outputEl.textContent = generateTemplate(readMetadata(), serialized);
+  if (!workspace || !SB) return;
+  outputEl.textContent = generateTemplate(readMetadata(), getWorkspaceJson());
   setStatus('Starter JS template generated.');
 });
 
 document.getElementById('save-local-mod')?.addEventListener('click', () => {
-  if (!workspace) return;
+  if (!workspace || !SB) return;
   const metadata = readMetadata();
-  const serialized = window.Blockly.serialization.workspaces.save(workspace);
+  const serialized = getWorkspaceJson();
   const id = safeId(metadata.id);
   if (!id) {
     setStatus('Please provide a mod ID before saving local custom mod.', true);
@@ -153,3 +200,5 @@ document.getElementById('save-local-mod')?.addEventListener('click', () => {
   localStorage.setItem(CUSTOM_MODS_KEY, JSON.stringify(next));
   setStatus(`Saved local custom mod '${id}'. You can inspect it from devtools/localStorage.`);
 });
+
+initBlockly();
