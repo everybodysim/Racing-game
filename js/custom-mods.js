@@ -34,6 +34,22 @@ function generateTemplate(xmlText) {
   return `// ${name}\nexport function applyCustomMod({ game, bus }) {\n  const workspaceXml = ${JSON.stringify(xmlText, null, 2)};\n  console.log('[${id}] loaded', workspaceXml);\n  // TODO: parse xml + map actions/events to game hooks\n  return () => console.log('[${id}] unloaded');\n}\n`;
 }
 
+
+function toBase64Url(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  bytes.forEach((b) => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function fromBase64Url(raw) {
+  const norm = String(raw || '').replace(/-/g, '+').replace(/_/g, '/');
+  const padded = norm + '==='.slice((norm.length + 3) % 4);
+  const bin = atob(padded);
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
 function getSharePayload() {
   const xml = exportXmlPretty();
   const template = generateTemplate(xml);
@@ -71,7 +87,7 @@ document.getElementById('load-draft')?.addEventListener('click', () => {
 });
 
 document.getElementById('export-share')?.addEventListener('click', async () => {
-  const packed = btoa(unescape(encodeURIComponent(JSON.stringify(getSharePayload()))));
+  const packed = toBase64Url(JSON.stringify(getSharePayload()));
   const url = `${location.origin}${location.pathname}?share=${encodeURIComponent(packed)}`;
   document.getElementById('xmlBox').value = url;
   try { await navigator.clipboard.writeText(url); setStatus('Share URL copied'); } catch { setStatus('Share URL generated'); }
@@ -87,7 +103,7 @@ document.getElementById('save-to-manager')?.addEventListener('click', () => {
 
 const shareParam = new URLSearchParams(location.search).get('share');
 if (shareParam) {
-  try { applySharePayload(JSON.parse(decodeURIComponent(escape(atob(shareParam))))); setStatus('Loaded shared mod from URL'); } catch { setStatus('Invalid shared URL payload'); }
+  try { applySharePayload(JSON.parse(fromBase64Url(shareParam))); setStatus('Loaded shared mod from URL'); } catch { setStatus('Invalid shared URL payload'); }
 } else {
   setStatus('Workspace loaded');
 }
