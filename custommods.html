@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Custom Mods Lab</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f172a;
+      --panel: rgba(255, 255, 255, 0.06);
+      --border: rgba(255, 255, 255, 0.2);
+      --text: #f8fafc;
+      --muted: #cbd5e1;
+      --accent: #38bdf8;
+    }
+    body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: radial-gradient(circle at top, #1e293b, var(--bg)); color: var(--text); }
+    main { max-width: 1160px; margin: 20px auto 30px; padding: 0 16px; }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+    h1, h2 { margin: 0 0 8px; }
+    p { margin: 0 0 10px; color: var(--muted); }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; }
+    label { display: flex; flex-direction: column; gap: 6px; min-width: 220px; }
+    input, textarea, button { border-radius: 8px; border: 1px solid var(--border); background: rgba(2, 6, 23, 0.65); color: var(--text); padding: 8px 10px; }
+    textarea { min-height: 84px; resize: vertical; }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    #blocklyArea { height: 58vh; min-height: 420px; }
+    #blocklyDiv { width: 100%; height: 100%; border-radius: 10px; overflow: hidden; }
+    .warn { color: #facc15; }
+    pre { white-space: pre-wrap; background: rgba(2, 6, 23, 0.8); border: 1px solid var(--border); border-radius: 10px; padding: 10px; max-height: 260px; overflow: auto; }
+    a { color: #93c5fd; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Custom Mods Lab (Experimental)</h1>
+    <p>This page tries to use Scratch 3-style blocks from <code>scratch-blocks</code> to help you assemble custom mod data. It's intentionally flexible and hackable.</p>
+
+    <div class="panel">
+      <h2>1) Mod metadata</h2>
+      <div class="row">
+        <label>Mod ID
+          <input id="mod-id" placeholder="custom-super-speed">
+        </label>
+        <label>Display name
+          <input id="mod-name" placeholder="Custom Super Speed">
+        </label>
+      </div>
+      <label style="margin-top:8px;">Description
+        <textarea id="mod-description" placeholder="What this mod should do..."></textarea>
+      </label>
+      <div class="row" style="margin-top:8px;">
+        <button id="save-workspace" type="button">Save workspace draft</button>
+        <button id="load-workspace" type="button">Load saved draft</button>
+        <button id="clear-workspace" type="button">Clear workspace</button>
+      </div>
+    </div>
+
+    <div class="panel" id="blocklyArea">
+      <div id="blocklyDiv"></div>
+    </div>
+
+    <div class="panel">
+      <h2>2) Export</h2>
+      <p>Exported code is a starter template that you can copy into a new JS file in <code>/mods</code> and wire into the catalog.</p>
+      <div class="row">
+        <button id="export-json" type="button">Export workspace JSON</button>
+        <button id="export-template" type="button">Generate JS template</button>
+        <button id="save-local-mod" type="button">Save as local custom mod</button>
+      </div>
+      <p id="status"></p>
+      <pre id="output">Output will appear here.</pre>
+      <p><a href="mods.html">← Back to mods menu</a></p>
+    </div>
+  </main>
+
+  <script src="https://unpkg.com/scratch-blocks@latest/blockly_compressed_vertical.js"></script>
+  <script src="https://unpkg.com/scratch-blocks@latest/blocks_compressed.js"></script>
+  <script src="https://unpkg.com/scratch-blocks@latest/msg/messages.js"></script>
+  <script type="module" src="js/custom-mods.js"></script>
+</body>
+</html>
