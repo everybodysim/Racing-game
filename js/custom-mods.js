@@ -80,25 +80,48 @@ async function loadScratchBlocks() {
   throw new Error('Unable to load scratch-blocks/blockly from all known CDNs.');
 }
 
-function buildToolboxDom() {
-  const xmlText = `<xml xmlns="https://developers.google.com/blockly/xml">
-    <category name="Events" colour="20">
+function buildToolboxDom(mode = 'scratch') {
+  const scratchXml = `<xml xmlns="https://developers.google.com/blockly/xml">
+    <category name="Events" colour="#FFBF00">
       <block type="event_whenflagclicked"></block>
       <block type="event_whenkeypressed"></block>
     </category>
-    <category name="Control" colour="40">
+    <category name="Control" colour="#FFAB19">
       <block type="control_if"></block>
       <block type="control_if_else"></block>
       <block type="control_repeat"></block>
     </category>
-    <category name="Motion/Math" colour="230">
+    <category name="Operators" colour="#59C059">
       <block type="operator_add"></block>
       <block type="operator_subtract"></block>
       <block type="operator_multiply"></block>
       <block type="operator_divide"></block>
-      <block type="math_number"></block>
+      <block type="operator_equals"></block>
     </category>
   </xml>`;
+
+  const blocklyXml = `<xml xmlns="https://developers.google.com/blockly/xml">
+    <category name="Logic" colour="#5C81A6">
+      <block type="controls_if"></block>
+      <block type="logic_compare"></block>
+      <block type="logic_operation"></block>
+      <block type="logic_boolean"></block>
+    </category>
+    <category name="Loops" colour="#5CA65C">
+      <block type="controls_repeat_ext"><value name="TIMES"><shadow type="math_number"><field name="NUM">10</field></shadow></value></block>
+      <block type="controls_whileUntil"></block>
+    </category>
+    <category name="Math" colour="#5C68A6">
+      <block type="math_number"></block>
+      <block type="math_arithmetic"></block>
+      <block type="math_random_int"></block>
+    </category>
+    <category name="Text" colour="#5CA68D">
+      <block type="text"></block>
+      <block type="text_print"></block>
+    </category>
+  </xml>`;
+  const xmlText = mode === 'scratch' ? scratchXml : blocklyXml;
   return new DOMParser().parseFromString(xmlText, 'text/xml').documentElement;
 }
 
@@ -134,20 +157,29 @@ async function initBlockly() {
   setStatus('Loading Scratch block runtime...');
   try {
     const loaded = await loadScratchBlocks();
-    SB = loaded.api;
-    try {
+
+    const tryInject = (api, mode, source, media) => {
+      SB = api;
       workspace = SB.inject('blocklyDiv', {
-        toolbox: buildToolboxDom(),
-        media: loaded.media,
+        toolbox: buildToolboxDom(mode),
+        media,
         sounds: false,
         trashcan: true,
         zoom: { controls: true, wheel: true, startScale: 0.9, maxScale: 2, minScale: 0.35 }
       });
-      setStatus(`Workspace ready (${loaded.source}). Drag blocks from the left toolbox.`);
+      setStatus(`Workspace ready (${source}/${mode}). Drag blocks from the left toolbox.`);
+    };
+
+    try {
+      tryInject(loaded.api, loaded.source.includes('scratch-blocks') ? 'scratch' : 'blockly', loaded.source, loaded.media);
+      return;
     } catch (injectError) {
-      appendOutput(`Inject error: ${injectError.message}`);
-      setStatus(`Scratch runtime loaded but toolbox inject failed: ${injectError.message}`, true);
+      appendOutput(`Inject error (${loaded.source}): ${injectError.message}`);
     }
+
+    appendOutput('Trying hard fallback: plain Blockly runtime');
+    await loadScript('https://unpkg.com/blockly@10.4.3/blockly.min.js');
+    tryInject(window.Blockly, 'blockly', 'blockly-fallback-runtime', 'https://unpkg.com/blockly@10.4.3/media/');
   } catch (error) {
     setStatus(error.message, true);
   }
