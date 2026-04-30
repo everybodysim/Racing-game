@@ -173,6 +173,36 @@ function buildBlocklyToolbox() {
   };
 }
 
+
+const FALLBACK_SNIPPETS = [
+  'when green flag clicked',
+  'repeat (10)',
+  'if < > then',
+  'set [speed v] to (12)',
+  'change [speed v] by (1)',
+  'wait (0.1) seconds'
+];
+
+function enableSnippetFallback(reason) {
+  const panel = document.getElementById('fallback-builder');
+  const buttons = document.getElementById('snippet-buttons');
+  const script = document.getElementById('snippet-script');
+  if (!panel || !buttons || !script) return;
+  panel.style.display = 'block';
+  buttons.innerHTML = '';
+  for (const snippet of FALLBACK_SNIPPETS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = snippet;
+    btn.addEventListener('click', () => {
+      script.value = script.value ? `${script.value}
+${snippet}` : snippet;
+    });
+    buttons.appendChild(btn);
+  }
+  appendOutput(`Fallback builder enabled: ${reason}`);
+}
+
 function safeId(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-');
 }
@@ -217,6 +247,10 @@ async function initBlockly() {
         toolboxPosition: 'start',
         horizontalLayout: false
       });
+      const toolbox = typeof workspace.getToolbox === 'function' ? workspace.getToolbox() : null;
+      if (!toolbox) {
+        throw new Error('Workspace initialized but toolbox is missing.');
+      }
       setStatus(`Workspace ready (${source}/${mode}). Drag blocks from the left toolbox.`);
     };
 
@@ -232,6 +266,7 @@ async function initBlockly() {
     tryInject(window.Blockly, 'blockly', 'blockly-fallback-runtime', 'https://unpkg.com/blockly@10.4.3/media/');
   } catch (error) {
     setStatus(error.message, true);
+    enableSnippetFallback(error.message);
   }
 }
 
@@ -284,9 +319,14 @@ document.getElementById('clear-workspace')?.addEventListener('click', () => {
 });
 
 document.getElementById('export-json')?.addEventListener('click', () => {
-  if (!workspace || !SB) return;
-  outputEl.textContent = getWorkspaceXml();
-  setStatus('Workspace XML exported.');
+  if (workspace && SB) {
+    outputEl.textContent = getWorkspaceXml();
+    setStatus('Workspace XML exported.');
+    return;
+  }
+  const snippetScript = document.getElementById('snippet-script')?.value || '';
+  outputEl.textContent = snippetScript;
+  setStatus('Fallback script exported as text.');
 });
 
 document.getElementById('export-template')?.addEventListener('click', () => {
