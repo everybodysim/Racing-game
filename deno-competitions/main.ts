@@ -1,5 +1,3 @@
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-
 const kv = await Deno.openKv();
 const CORS = {
   "access-control-allow-origin": "*",
@@ -11,9 +9,12 @@ function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", ...CORS } });
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   const url = new URL(req.url);
+  if (url.pathname === "/" || url.pathname === "/ready") {
+    return json({ ok: true, service: "competitions-api", runtime: "deno" });
+  }
   if (url.pathname === "/health") return json({ ok: true });
 
   if (url.pathname === "/api/competitions/event" && req.method === "GET") {
