@@ -125,6 +125,54 @@ function buildToolboxDom(mode = 'scratch') {
   return new DOMParser().parseFromString(xmlText, 'text/xml').documentElement;
 }
 
+
+function buildBlocklyToolbox() {
+  return {
+    kind: 'categoryToolbox',
+    contents: [
+      {
+        kind: 'category',
+        name: 'Logic',
+        colour: '#5C81A6',
+        contents: [
+          { kind: 'block', type: 'controls_if' },
+          { kind: 'block', type: 'logic_compare' },
+          { kind: 'block', type: 'logic_operation' },
+          { kind: 'block', type: 'logic_boolean' }
+        ]
+      },
+      {
+        kind: 'category',
+        name: 'Loops',
+        colour: '#5CA65C',
+        contents: [
+          { kind: 'block', type: 'controls_repeat_ext' },
+          { kind: 'block', type: 'controls_whileUntil' }
+        ]
+      },
+      {
+        kind: 'category',
+        name: 'Math',
+        colour: '#5C68A6',
+        contents: [
+          { kind: 'block', type: 'math_number' },
+          { kind: 'block', type: 'math_arithmetic' },
+          { kind: 'block', type: 'math_random_int' }
+        ]
+      },
+      {
+        kind: 'category',
+        name: 'Text',
+        colour: '#5CA68D',
+        contents: [
+          { kind: 'block', type: 'text' },
+          { kind: 'block', type: 'text_print' }
+        ]
+      }
+    ]
+  };
+}
+
 function safeId(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-');
 }
@@ -161,11 +209,13 @@ async function initBlockly() {
     const tryInject = (api, mode, source, media) => {
       SB = api;
       workspace = SB.inject('blocklyDiv', {
-        toolbox: buildToolboxDom(mode),
+        toolbox: mode === 'scratch' ? buildToolboxDom('scratch') : buildBlocklyToolbox(),
         media,
         sounds: false,
         trashcan: true,
-        zoom: { controls: true, wheel: true, startScale: 0.9, maxScale: 2, minScale: 0.35 }
+        zoom: { controls: true, wheel: true, startScale: 0.9, maxScale: 2, minScale: 0.35 },
+        toolboxPosition: 'start',
+        horizontalLayout: false
       });
       setStatus(`Workspace ready (${source}/${mode}). Drag blocks from the left toolbox.`);
     };
