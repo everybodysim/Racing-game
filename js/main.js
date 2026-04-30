@@ -963,6 +963,37 @@ function normalizeModEntryPath( entryPath ) {
 
 }
 
+
+function toRuntimeMod( loadedModule, modId ) {
+
+	const runtime = loadedModule?.default || loadedModule?.TAS_MOD || loadedModule?.mod || null;
+	if ( runtime && typeof runtime.init === 'function' ) return runtime;
+	if ( typeof loadedModule?.applyCustomMod === 'function' ) {
+
+		let disposer = null;
+		return {
+			id: modId || 'custom',
+			init( context ) {
+
+				disposer = loadedModule.applyCustomMod( {
+					game: context,
+					bus: context?.world,
+				} );
+
+			},
+			dispose() {
+
+				if ( typeof disposer === 'function' ) disposer();
+				disposer = null;
+
+			}
+		};
+
+	}
+	return null;
+
+}
+
 async function loadRuntimeMods() {
 
 	const installed = readInstalledRuntimeMods();
@@ -975,8 +1006,8 @@ async function loadRuntimeMods() {
 		try {
 
 			const loaded = await import( entryPath );
-			const runtime = loaded?.default || loaded?.TAS_MOD || loaded?.mod || null;
-			if ( runtime && typeof runtime.init === 'function' ) runtimes.push( runtime );
+			const runtime = toRuntimeMod( loaded, mod?.id );
+			if ( runtime ) runtimes.push( runtime );
 
 		} catch ( error ) {
 
