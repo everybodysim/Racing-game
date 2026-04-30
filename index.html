@@ -637,7 +637,7 @@
 		}
 		#home-landing.visible { display: flex; }
 		#home-card {
-			width: min(1040px, 100%);
+			width: min(1320px, 100%);
 			border-radius: 22px;
 			padding: clamp(18px, 2.5vw, 34px);
 			background: rgba(11,17,27,0.8);
@@ -658,7 +658,7 @@
 		}
 		#home-main-grid {
 			display: grid;
-			grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+			grid-template-columns: repeat(6, minmax(0, 1fr));
 			gap: 12px;
 		}
 		.home-main-link {
@@ -708,6 +708,14 @@
 		.home-secondary-link:hover {
 			background: rgba(255,255,255,0.14);
 			color: #fff;
+		}
+
+		@media (max-width: 1180px) {
+			#home-main-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+		}
+
+		@media (max-width: 760px) {
+			#home-main-grid { grid-template-columns: 1fr; }
 		}
 
 		@media (pointer: coarse) {
