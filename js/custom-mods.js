@@ -28,10 +28,92 @@ const workspace = Blockly.inject('blocklyDiv', { toolbox: document.getElementByI
 function exportXmlPretty() { return Blockly.Xml.domToPrettyText(Blockly.Xml.workspaceToDom(workspace)); }
 function loadXmlText(text) { Blockly.Xml.clearWorkspaceAndLoadFromXml(Blockly.Xml.textToDom(text), workspace); }
 
+function parseValueBlock(block) {
+  if (!block) return null;
+  if (block.type === 'math_number') {
+    const raw = Number(block.getFieldValue('NUM'));
+    return Number.isFinite(raw) ? raw : 0;
+  }
+  if (block.type === 'text') return String(block.getFieldValue('TEXT') || '');
+  if (block.type === 'math_arithmetic') {
+    const op = block.getFieldValue('OP');
+    const a = Number(parseValueBlock(block.getInputTargetBlock('A')) || 0);
+    const b = Number(parseValueBlock(block.getInputTargetBlock('B')) || 0);
+    if (op === 'ADD') return a + b;
+    if (op === 'MINUS') return a - b;
+    if (op === 'MULTIPLY') return a * b;
+    if (op === 'DIVIDE') return b === 0 ? 0 : a / b;
+  }
+  return null;
+}
+
+function parseActionStatement(block) {
+  if (!block) return null;
+  if (block.type === 'action_set_speed') return { type: 'set_speed', value: Number(parseValueBlock(block.getInputTargetBlock('SPEED')) || 0) };
+  if (block.type === 'action_boost') return { type: 'boost', value: Number(parseValueBlock(block.getInputTargetBlock('AMOUNT')) || 0) };
+  if (block.type === 'action_set_gravity') return { type: 'set_gravity', value: Number(parseValueBlock(block.getInputTargetBlock('G')) || 0) };
+  if (block.type === 'action_show_message') return { type: 'show_message', value: String(parseValueBlock(block.getInputTargetBlock('TEXT')) || '') };
+  return null;
+}
+
+function parseStatementChain(firstBlock) {
+  const actions = [];
+  let cursor = firstBlock;
+  while (cursor) {
+    const parsed = parseActionStatement(cursor);
+    if (parsed) actions.push(parsed);
+    cursor = cursor.getNextBlock();
+  }
+  return actions;
+}
+
+function buildRuntimeSpec() {
+  const spec = { onStart: [], onTick: [], onKey: {}, onCheckpoint: [], onCrash: [] };
+  const tops = workspace.getTopBlocks(true);
+  for (const block of tops) {
+    if (block.type === 'event_on_start') spec.onStart.push(...parseStatementChain(block.getInputTargetBlock('DO')));
+    if (block.type === 'event_on_tick') spec.onTick.push(...parseStatementChain(block.getInputTargetBlock('DO')));
+    if (block.type === 'event_on_checkpoint') spec.onCheckpoint.push(...parseStatementChain(block.getInputTargetBlock('DO')));
+    if (block.type === 'event_on_crash') spec.onCrash.push(...parseStatementChain(block.getInputTargetBlock('DO')));
+    if (block.type === 'event_on_key') {
+      const key = block.getFieldValue('KEY') || 'KeyW';
+      spec.onKey[key] = [ ...(spec.onKey[key] || []), ...parseStatementChain(block.getInputTargetBlock('DO')) ];
+    }
+  }
+  return spec;
+}
+
+function renderActionsRuntimeCode() {
+  return `
+function runActions(actions, ctx) {
+  for (const action of actions || []) {
+    if (!action || !action.type) continue;
+    if (action.type === 'set_speed' && ctx?.vehicle) {
+      const forward = ctx.vehicle.forward || { x: 0, y: 0, z: -1 };
+      const velocity = Number(action.value) || 0;
+      if (ctx.vehicle.linearVel?.set) ctx.vehicle.linearVel.set(forward.x * velocity, ctx.vehicle.linearVel.y || 0, forward.z * velocity);
+    }
+    if (action.type === 'boost' && ctx?.vehicle && Number.isFinite(action.value)) {
+      const f = ctx.vehicle.forward || { x: 0, y: 0, z: -1 };
+      if (ctx.vehicle.linearVel?.addScaledVector) ctx.vehicle.linearVel.addScaledVector(f, Number(action.value));
+    }
+    if (action.type === 'set_gravity' && ctx?.world?.gravity?.set) {
+      const g = Number(action.value) || 9.81;
+      ctx.world.gravity.set(0, -Math.abs(g), 0);
+    }
+    if (action.type === 'show_message' && typeof action.value === 'string' && action.value) {
+      console.log('[custom-mod]', action.value);
+    }
+  }
+}
+`;
+}
+
 function generateTemplate(xmlText) {
   const id = safeId(document.getElementById('mod-id')?.value) || `custom-${Date.now()}`;
   const name = (document.getElementById('mod-name')?.value || 'Custom Mod').trim();
-  return `// ${name}\nexport function applyCustomMod({ game, bus }) {\n  const workspaceXml = ${JSON.stringify(xmlText, null, 2)};\n  console.log('[${id}] loaded', workspaceXml);\n  // TODO: parse xml + map actions/events to game hooks\n  return () => console.log('[${id}] unloaded');\n}\n`;
+  const spec = buildRuntimeSpec();
+  return `// ${name}\nconst SPEC = ${JSON.stringify(spec, null, 2)};\n${renderActionsRuntimeCode()}\nexport default {\n  id: ${JSON.stringify(id)},\n  init(context) {\n    this.ctx = context;\n    this.keyLatch = Object.create(null);\n    runActions(SPEC.onStart, context);\n  },\n  applyFrame({ controls, vehicle, world }) {\n    const ctx = this.ctx || { vehicle, world, controls };\n    runActions(SPEC.onTick, ctx);\n    for (const [key, actions] of Object.entries(SPEC.onKey || {})) {\n      const down = Boolean(controls?.keys?.[key]);\n      if (down && !this.keyLatch[key]) runActions(actions, ctx);\n      this.keyLatch[key] = down;\n    }\n  },\n  dispose() {\n    this.ctx = null;\n    this.keyLatch = Object.create(null);\n  }\n};\n`;
 }
 
 
