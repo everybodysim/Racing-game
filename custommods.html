@@ -25,6 +25,8 @@
   <button id="export-template" type="button">Generate JS Template</button>
   <button id="save-draft" type="button">Save Draft</button>
   <button id="load-draft" type="button">Load Draft</button>
+  <button id="export-share" type="button">Copy Share URL</button>
+  <button id="save-to-manager" type="button">Save to Mod Manager</button>
   <a href="mods.html">← Back</a>
   <span id="status">Ready</span>
 </div>
@@ -36,11 +38,16 @@
     <block type="event_on_start"></block>
     <block type="event_on_tick"></block>
     <block type="event_on_key"></block>
+    <block type="event_on_checkpoint"></block>
+    <block type="event_on_crash"></block>
   </category>
   <category name="Actions" colour="#06b6d4">
     <block type="action_set_speed"></block>
     <block type="action_boost"></block>
     <block type="action_show_message"></block>
+    <block type="action_set_gravity"></block>
+    <block type="action_spawn_particle"></block>
+    <block type="action_camera_shake"></block>
   </category>
   <category name="Logic" colour="#3b82f6">
     <block type="controls_if"></block>

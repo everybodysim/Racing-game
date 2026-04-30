@@ -1,121 +1,32 @@
 const INSTALLED_MODS_KEY = 'racing-installed-mods-v1';
+const SHARED_KEY = 'racing-shared-custom-mods-v1';
 let currentCatalog = [];
 
-async function loadCatalog() {
-  const response = await fetch('./mods/mods.json', { cache: 'no-store' });
-  if (!response.ok) throw new Error('Failed to load mod catalog');
-  const parsed = await response.json();
-  return Array.isArray(parsed?.mods) ? parsed.mods : [];
+async function loadCatalog() { const r = await fetch('./mods/mods.json', { cache: 'no-store' }); if (!r.ok) throw new Error('Failed to load mod catalog'); const p = await r.json(); return Array.isArray(p?.mods) ? p.mods : []; }
+function readInstalled() { try { const p = JSON.parse(localStorage.getItem(INSTALLED_MODS_KEY) || '[]'); const list = Array.isArray(p) ? p : []; if (!list.some((m) => m?.id === 'freecam')) list.push({ id: 'freecam', name: 'Freecam', entry: 'mods/Freecam.js' }); return list; } catch { return []; } }
+function saveInstalled(mods) { localStorage.setItem(INSTALLED_MODS_KEY, JSON.stringify(mods)); }
+function readSharedMods() { try { const p = JSON.parse(localStorage.getItem(SHARED_KEY) || '[]'); return Array.isArray(p) ? p : []; } catch { return []; } }
+function saveSharedMods(mods) { localStorage.setItem(SHARED_KEY, JSON.stringify(mods)); }
+
+function renderInstalled(mods) { const list = document.getElementById('installed-list'); list.innerHTML=''; for (const mod of mods){ const li=document.createElement('li'); li.textContent=mod.name; const b=document.createElement('button'); b.textContent='Remove'; b.style.marginLeft='8px'; b.onclick=()=>{const n=readInstalled().filter((x)=>x.id!==mod.id); saveInstalled(n); renderInstalled(n); renderCatalog(currentCatalog,n);}; li.appendChild(b); list.appendChild(li);} }
+function renderCatalog(catalog, installed) { const list=document.getElementById('catalog-list'); if(!list) return; list.innerHTML=''; for(const mod of catalog){ const li=document.createElement('li'); li.textContent=`${mod.name}${installed.some((e)=>e.id===mod.id)?' — Installed':''}`; list.appendChild(li);} }
+function renderShared(mods) { const list=document.getElementById('shared-mods-list'); if(!list) return; list.innerHTML=''; for(const mod of mods){ const li=document.createElement('li'); li.textContent=`${mod.modName||mod.modId} (${mod.modId})`; const copy=document.createElement('button'); copy.textContent='Copy JSON'; copy.style.marginLeft='8px'; copy.onclick=()=>navigator.clipboard?.writeText(JSON.stringify(mod)); const rm=document.createElement('button'); rm.textContent='Delete'; rm.style.marginLeft='8px'; rm.onclick=()=>{const n=readSharedMods().filter((x)=>x.modId!==mod.modId); saveSharedMods(n); renderShared(n);}; li.append(copy,rm); list.appendChild(li);} }
+function findModByName(catalog, query) { const q=String(query||'').trim().toLowerCase(); if(!q) return null; return catalog.find((e)=>[e.name,e.id,e.folder].filter(Boolean).some((v)=>String(v).toLowerCase()===q))||null; }
+
+function parseSharedInput(raw) {
+  const txt = String(raw || '').trim();
+  if (!txt) throw new Error('No input provided');
+  if (txt.startsWith('{')) return JSON.parse(txt);
+  const url = new URL(txt);
+  const share = url.searchParams.get('share');
+  if (!share) throw new Error('No share param in URL');
+  return JSON.parse(decodeURIComponent(escape(atob(share))));
 }
 
-function readInstalled() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(INSTALLED_MODS_KEY) || '[]');
-    const list = Array.isArray(parsed) ? parsed : [];
-    if (!list.some((mod) => mod?.id === 'freecam')) list.push({ id: 'freecam', name: 'Freecam', entry: 'mods/Freecam.js' });
-    return list;
-  } catch {
-    return [];
-  }
-}
-
-function saveInstalled(mods) {
-  localStorage.setItem(INSTALLED_MODS_KEY, JSON.stringify(mods));
-}
-
-function renderInstalled(mods) {
-  const list = document.getElementById('installed-list');
-  list.innerHTML = '';
-  if (!mods.length) {
-    const li = document.createElement('li');
-    li.textContent = 'No mods installed yet.';
-    list.appendChild(li);
-    return;
-  }
-  for (const mod of mods) {
-    const li = document.createElement('li');
-    const label = document.createElement('span');
-    label.textContent = mod.status === 'under-construction' ? `${mod.name} (Under construction)` : mod.name;
-    li.appendChild(label);
-    if (mod.viewerPage && mod.id !== 'hacks') {
-      const open = document.createElement('a');
-      open.href = mod.viewerPage;
-      open.textContent = ' Open';
-      open.style.marginLeft = '8px';
-      li.appendChild(open);
-    } else if (mod.id === 'hacks') {
-      const hint = document.createElement('small');
-      hint.textContent = ' (toggle from in-game Menu ▾ > Hacks)';
-      hint.style.marginLeft = '8px';
-      li.appendChild(hint);
-    }
-    const removeBtn = document.createElement('button');
-    removeBtn.type = 'button';
-    removeBtn.textContent = 'Remove';
-    removeBtn.style.marginLeft = '8px';
-    removeBtn.addEventListener('click', () => {
-      const next = readInstalled().filter((entry) => entry.id !== mod.id);
-      saveInstalled(next);
-      renderInstalled(next);
-      renderCatalog(currentCatalog, next);
-      document.getElementById('install-status').textContent = `${mod.name} removed.`;
-    });
-    li.appendChild(removeBtn);
-    list.appendChild(li);
-  }
-}
-
-function renderCatalog(catalog, installed) {
-  const list = document.getElementById('catalog-list');
-  if (!list) return;
-  list.innerHTML = '';
-  for (const mod of catalog) {
-    const li = document.createElement('li');
-    const isInstalled = installed.some((entry) => entry.id === mod.id);
-    li.textContent = `${mod.name}${mod.status === 'under-construction' ? ' (Under construction)' : ''}${isInstalled ? ' — Installed' : ''}`;
-    list.appendChild(li);
-  }
-}
-
-function findModByName(catalog, query) {
-  const q = String(query || '').trim().toLowerCase();
-  if (!q) return null;
-  return catalog.find((entry) =>
-    [entry.name, entry.id, entry.folder].filter(Boolean).some((value) => String(value).toLowerCase() === q)
-  ) || null;
-}
-
-(async function init() {
-  const installBtn = document.getElementById('install-btn');
-  const nameInput = document.getElementById('mod-name');
-  const status = document.getElementById('install-status');
-
-  let catalog = [];
-  try {
-    catalog = await loadCatalog();
-    currentCatalog = catalog;
-  } catch (error) {
-    status.textContent = error.message;
-  }
-
-  let installed = readInstalled();
-  renderInstalled(installed);
-  renderCatalog(catalog, installed);
-
-  installBtn?.addEventListener('click', () => {
-    const mod = findModByName(catalog, nameInput?.value);
-    if (!mod) {
-      status.textContent = 'Mod not found. Try TAS.';
-      return;
-    }
-    if (installed.some((entry) => entry.id === mod.id)) {
-      status.textContent = `${mod.name} is already installed.`;
-      return;
-    }
-    installed = [...installed, mod];
-    saveInstalled(installed);
-    renderInstalled(installed);
-    renderCatalog(catalog, installed);
-    status.textContent = `${mod.name} installed.`;
-  });
+(async function init(){
+  const installBtn=document.getElementById('install-btn'); const nameInput=document.getElementById('mod-name'); const status=document.getElementById('install-status');
+  let catalog=[]; try{catalog=await loadCatalog(); currentCatalog=catalog;}catch(e){status.textContent=e.message;}
+  let installed=readInstalled(); renderInstalled(installed); renderCatalog(catalog,installed); renderShared(readSharedMods());
+  installBtn?.addEventListener('click',()=>{ const mod=findModByName(catalog,nameInput?.value); if(!mod) return status.textContent='Mod not found.'; if(installed.some((e)=>e.id===mod.id)) return status.textContent='Already installed'; installed=[...installed,mod]; saveInstalled(installed); renderInstalled(installed); renderCatalog(catalog,installed); status.textContent=`${mod.name} installed.`; });
+  document.getElementById('import-shared-btn')?.addEventListener('click',()=>{ try{ const payload=parseSharedInput(document.getElementById('shared-mod-input')?.value); if(payload.type!=='racing-custom-mod-share-v1') throw new Error('Invalid payload type'); const all=readSharedMods().filter((x)=>x.modId!==payload.modId); all.push(payload); saveSharedMods(all); renderShared(all); status.textContent=`Imported shared mod ${payload.modName||payload.modId}`;}catch(e){ status.textContent=`Import failed: ${e.message}`; }});
 })();

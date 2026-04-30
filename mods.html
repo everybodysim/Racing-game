@@ -35,6 +35,16 @@
       <p>Want to prototype with Scratch 3 style blocks? Open the experimental custom builder page.</p>
       <p><a href="custommods.html">Open Custom Mods Lab</a></p>
     </div>
+
+    <div class="panel">
+      <h2>Import shared custom mod</h2>
+      <p>Paste a share URL or share payload JSON from Custom Mods Lab.</p>
+      <div class="row">
+        <input id="shared-mod-input" placeholder="https://...custommods.html?share=... or JSON" style="min-width: 320px; flex: 1;" />
+        <button id="import-shared-btn" type="button">Import Shared</button>
+      </div>
+      <ul id="shared-mods-list"></ul>
+    </div>
     <div class="panel">
       <h2>All available mods</h2>
       <ul id="catalog-list"></ul>
