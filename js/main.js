@@ -3417,6 +3417,11 @@ async function init() {
 	const leaderboardLegacyTrackIds = getLegacyTrackIds( mapParam, extrasParam );
 	const leaderboardTrackName = getTrackLabel( mapParam );
 	const leaderboardTrackApiUrl = `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( leaderboardTrackId ) }`;
+
+	const competitionParamEnabled = new URLSearchParams( window.location.search ).get( 'competition' ) === '1';
+	const competitionReturnParam = new URLSearchParams( window.location.search ).get( 'competitionReturn' ) || '';
+	const competitionTierParam = Number( new URLSearchParams( window.location.search ).get( 'competitionTier' ) );
+	const competitionSeedParam = String( new URLSearchParams( window.location.search ).get( 'competitionSeed' ) || '' );
 	const campaignParamEnabled = new URLSearchParams( window.location.search ).get( 'campaign' ) === '1';
 	const campaignAuthorParam = Number( new URLSearchParams( window.location.search ).get( 'campaignAuthor' ) );
 	const campaignGoalParam = new URLSearchParams( window.location.search ).get( 'campaignGoal' ) || '';
@@ -6335,6 +6340,15 @@ async function init() {
 				if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle();
 					saveLapStats();
 					rewardCoinsForLap( completedLap );
+					if ( competitionParamEnabled && competitionReturnParam && ! isSplitScreen ) {
+						const competitionResultUrl = new URL( competitionReturnParam, window.location.href );
+						competitionResultUrl.searchParams.set( 'competitionResult', '1' );
+						competitionResultUrl.searchParams.set( 'time', String( Number( completedLap ) ) );
+						if ( Number.isFinite( competitionTierParam ) ) competitionResultUrl.searchParams.set( 'tier', String( competitionTierParam ) );
+						if ( competitionSeedParam ) competitionResultUrl.searchParams.set( 'seed', competitionSeedParam );
+						window.location.href = competitionResultUrl.toString();
+						return;
+					}
 						if ( gameMode === 'stunt' ) {
 
 						let lapBonus = Math.max( 0, Math.round( ( 65 - completedLap ) * 2 ) );
