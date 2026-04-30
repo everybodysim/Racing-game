@@ -10,7 +10,8 @@ function setStatus(message, warn = false) {
 }
 
 function appendOutput(message) {
-  outputEl.textContent = `${outputEl.textContent}\n${message}`.trim();
+  outputEl.textContent = `${outputEl.textContent}
+${message}`.trim();
 }
 
 function loadScript(src) {
@@ -24,41 +25,59 @@ function loadScript(src) {
   });
 }
 
+function withTimeout(promise, label, ms = 12000) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise.finally(() => clearTimeout(timer)), timeout]);
+}
+
+async function loadScriptSet(set) {
+  for (const src of set) {
+    await withTimeout(loadScript(src), src);
+  }
+}
+
 async function loadScratchBlocks() {
   const scriptSets = [
-    [
-      'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/blockly_compressed_vertical.js',
-      'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/blocks_compressed_vertical.js',
-      'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/msg/messages.js'
-    ],
-    [
-      'https://unpkg.com/scratch-blocks@1.1.15/blockly_compressed_vertical.js',
-      'https://unpkg.com/scratch-blocks@1.1.15/blocks_compressed_vertical.js',
-      'https://unpkg.com/scratch-blocks@1.1.15/msg/messages.js'
-    ],
-    [
-      'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/blockly_compressed.js',
-      'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/blocks_compressed.js',
-      'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/msg/messages.js'
-    ]
+    {
+      label: 'scratch-blocks/jsdelivr vertical',
+      media: 'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/media/',
+      scripts: [
+        'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/blockly_compressed_vertical.js',
+        'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/blocks_compressed_vertical.js',
+        'https://cdn.jsdelivr.net/npm/scratch-blocks@1.1.15/msg/messages.js'
+      ]
+    },
+    {
+      label: 'scratch-blocks/unpkg vertical',
+      media: 'https://unpkg.com/scratch-blocks@1.1.15/media/',
+      scripts: [
+        'https://unpkg.com/scratch-blocks@1.1.15/blockly_compressed_vertical.js',
+        'https://unpkg.com/scratch-blocks@1.1.15/blocks_compressed_vertical.js',
+        'https://unpkg.com/scratch-blocks@1.1.15/msg/messages.js'
+      ]
+    },
+    {
+      label: 'blockly fallback/unpkg',
+      media: 'https://unpkg.com/blockly@10.4.3/media/',
+      scripts: ['https://unpkg.com/blockly@10.4.3/blockly.min.js']
+    }
   ];
 
   for (const set of scriptSets) {
     try {
-      for (const src of set) {
-        await loadScript(src);
-      }
-      if (window.ScratchBlocks || window.Blockly) return;
+      appendOutput(`Trying loader: ${set.label}`);
+      await loadScriptSet(set.scripts);
+      const api = window.ScratchBlocks || window.Blockly;
+      if (api) return { api, media: set.media, source: set.label };
     } catch (error) {
-      appendOutput(`Loader note: ${error.message}`);
+      appendOutput(`Loader note (${set.label}): ${error.message}`);
     }
   }
 
-  throw new Error('Unable to load scratch-blocks from all known CDNs.');
-}
-
-function getBlocklyApi() {
-  return window.ScratchBlocks || window.Blockly || null;
+  throw new Error('Unable to load scratch-blocks/blockly from all known CDNs.');
 }
 
 function buildToolbox() {
@@ -91,11 +110,25 @@ function safeId(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-');
 }
 
-function generateTemplate(metadata, workspaceJson) {
+function generateTemplate(metadata, workspaceXml) {
   const modId = safeId(metadata.id) || `custom-${Date.now()}`;
   const modName = metadata.name?.trim() || 'Custom Mod';
   const description = metadata.description?.trim() || 'Generated from Custom Mods Lab';
-  return `// ${modName}\n// ${description}\n// Generated ${new Date().toISOString()}\n\nexport function applyCustomMod({ game, bus }) {\n  const workspaceModel = ${JSON.stringify(workspaceJson, null, 2)};\n\n  console.log('[custom-mod:${modId}] loaded', workspaceModel);\n  // TODO: translate block model into runtime hooks affecting game systems.\n\n  return () => {\n    console.log('[custom-mod:${modId}] unloaded');\n  };\n}\n`;
+  return `// ${modName}
+// ${description}
+// Generated ${new Date().toISOString()}
+
+export function applyCustomMod({ game, bus }) {
+  const workspaceModelXml = ${JSON.stringify(workspaceXml, null, 2)};
+
+  console.log('[custom-mod:${modId}] loaded', workspaceModelXml);
+  // TODO: translate block model into runtime hooks affecting game systems.
+
+  return () => {
+    console.log('[custom-mod:${modId}] unloaded');
+  };
+}
+`;
 }
 
 let workspace = null;
@@ -104,24 +137,19 @@ let SB = null;
 async function initBlockly() {
   setStatus('Loading Scratch block runtime...');
   try {
-    await loadScratchBlocks();
+    const loaded = await loadScratchBlocks();
+    SB = loaded.api;
+    workspace = SB.inject('blocklyDiv', {
+      toolbox: buildToolbox(),
+      media: loaded.media,
+      sounds: false,
+      trashcan: true,
+      zoom: { controls: true, wheel: true, startScale: 0.9, maxScale: 2, minScale: 0.35 }
+    });
+    setStatus(`Workspace ready (${loaded.source}).`);
   } catch (error) {
     setStatus(error.message, true);
-    return;
   }
-
-  SB = getBlocklyApi();
-  if (!SB) {
-    setStatus('Scratch blocks loaded scripts but API object was missing.', true);
-    return;
-  }
-
-  workspace = SB.inject('blocklyDiv', {
-    toolbox: buildToolbox(),
-    zoom: { controls: true, wheel: true, startScale: 0.9, maxScale: 2, minScale: 0.35 }
-  });
-
-  setStatus('Scratch blocks loaded. Start dragging blocks to prototype your mod logic.');
 }
 
 function readMetadata() {
@@ -132,12 +160,12 @@ function readMetadata() {
   };
 }
 
-function getWorkspaceJson() {
+function getWorkspaceXml() {
   const xml = SB.Xml.workspaceToDom(workspace);
   return SB.Xml.domToText(xml);
 }
 
-function loadWorkspaceFromJson(xmlText) {
+function loadWorkspaceFromXml(xmlText) {
   workspace.clear();
   const dom = SB.Xml.textToDom(xmlText);
   SB.Xml.domToWorkspace(dom, workspace);
@@ -145,7 +173,7 @@ function loadWorkspaceFromJson(xmlText) {
 
 document.getElementById('save-workspace')?.addEventListener('click', () => {
   if (!workspace || !SB) return;
-  const data = getWorkspaceJson();
+  const data = getWorkspaceXml();
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ metadata: readMetadata(), data }));
   setStatus('Draft saved to localStorage.');
 });
@@ -158,7 +186,7 @@ document.getElementById('load-workspace')?.addEventListener('click', () => {
     return;
   }
   const parsed = JSON.parse(raw);
-  loadWorkspaceFromJson(parsed.data);
+  loadWorkspaceFromXml(parsed.data);
   document.getElementById('mod-id').value = parsed.metadata?.id || '';
   document.getElementById('mod-name').value = parsed.metadata?.name || '';
   document.getElementById('mod-description').value = parsed.metadata?.description || '';
@@ -174,20 +202,20 @@ document.getElementById('clear-workspace')?.addEventListener('click', () => {
 
 document.getElementById('export-json')?.addEventListener('click', () => {
   if (!workspace || !SB) return;
-  outputEl.textContent = getWorkspaceJson();
+  outputEl.textContent = getWorkspaceXml();
   setStatus('Workspace XML exported.');
 });
 
 document.getElementById('export-template')?.addEventListener('click', () => {
   if (!workspace || !SB) return;
-  outputEl.textContent = generateTemplate(readMetadata(), getWorkspaceJson());
+  outputEl.textContent = generateTemplate(readMetadata(), getWorkspaceXml());
   setStatus('Starter JS template generated.');
 });
 
 document.getElementById('save-local-mod')?.addEventListener('click', () => {
   if (!workspace || !SB) return;
   const metadata = readMetadata();
-  const serialized = getWorkspaceJson();
+  const serialized = getWorkspaceXml();
   const id = safeId(metadata.id);
   if (!id) {
     setStatus('Please provide a mod ID before saving local custom mod.', true);
