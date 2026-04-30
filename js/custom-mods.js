@@ -80,30 +80,26 @@ async function loadScratchBlocks() {
   throw new Error('Unable to load scratch-blocks/blockly from all known CDNs.');
 }
 
-function buildToolbox() {
-  return `<xml xmlns="https://developers.google.com/blockly/xml" style="display: none">
-    <category name="Events" colour="#FFBF00">
+function buildToolboxDom() {
+  const xmlText = `<xml xmlns="https://developers.google.com/blockly/xml">
+    <category name="Events" colour="20">
       <block type="event_whenflagclicked"></block>
       <block type="event_whenkeypressed"></block>
-      <block type="event_whenthisspriteclicked"></block>
     </category>
-    <category name="Control" colour="#FFAB19">
+    <category name="Control" colour="40">
       <block type="control_if"></block>
       <block type="control_if_else"></block>
       <block type="control_repeat"></block>
-      <block type="control_forever"></block>
     </category>
-    <category name="Operators" colour="#59C059">
+    <category name="Motion/Math" colour="230">
       <block type="operator_add"></block>
       <block type="operator_subtract"></block>
       <block type="operator_multiply"></block>
       <block type="operator_divide"></block>
-      <block type="operator_gt"></block>
-      <block type="operator_lt"></block>
-      <block type="operator_equals"></block>
+      <block type="math_number"></block>
     </category>
-    <category name="Variables" colour="#FF8C1A" custom="VARIABLE"></category>
   </xml>`;
+  return new DOMParser().parseFromString(xmlText, 'text/xml').documentElement;
 }
 
 function safeId(value) {
@@ -139,14 +135,19 @@ async function initBlockly() {
   try {
     const loaded = await loadScratchBlocks();
     SB = loaded.api;
-    workspace = SB.inject('blocklyDiv', {
-      toolbox: buildToolbox(),
-      media: loaded.media,
-      sounds: false,
-      trashcan: true,
-      zoom: { controls: true, wheel: true, startScale: 0.9, maxScale: 2, minScale: 0.35 }
-    });
-    setStatus(`Workspace ready (${loaded.source}).`);
+    try {
+      workspace = SB.inject('blocklyDiv', {
+        toolbox: buildToolboxDom(),
+        media: loaded.media,
+        sounds: false,
+        trashcan: true,
+        zoom: { controls: true, wheel: true, startScale: 0.9, maxScale: 2, minScale: 0.35 }
+      });
+      setStatus(`Workspace ready (${loaded.source}). Drag blocks from the left toolbox.`);
+    } catch (injectError) {
+      appendOutput(`Inject error: ${injectError.message}`);
+      setStatus(`Scratch runtime loaded but toolbox inject failed: ${injectError.message}`, true);
+    }
   } catch (error) {
     setStatus(error.message, true);
   }
