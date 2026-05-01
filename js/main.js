@@ -3551,6 +3551,7 @@ async function init() {
 	audio.init( cam.camera );
 
 	const _forward = new THREE.Vector3();
+	const _up = new THREE.Vector3( 0, 1, 0 );
 	const _boostForward = new THREE.Vector3();
 	const _magnetDelta = new THREE.Vector3();
 	const _magnetDir = new THREE.Vector3();
@@ -3584,6 +3585,9 @@ async function init() {
 			.map( ( [ gx, gz, , orient = 0 ] ) => [ gx, gz, 'track-checkpoint', orient ] )
 		: [];
 	const checkpointCells = [ ...activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' ), ...elevatedCheckpointCells ];
+	const slopeElevatedCells = Array.isArray( extras?.elevated )
+		? extras.elevated.filter( ( c ) => Array.isArray( c ) && ( c[ 2 ] === 'slope-up' || c[ 2 ] === 'slope-down' ) )
+		: [];
 	const lapStoreKey = `racing-lap-stats:${ mapParam || 'default' }`;
 	const stuntStoreKey = `racing-stunt-stats:${ mapParam || 'default' }`;
 	const currentTrackUrl = `${ window.location.origin }${ window.location.pathname }${ window.location.search }`;
@@ -3823,6 +3827,25 @@ async function init() {
 
 	}
 	const surfaceHalfExtent = CELL_RAW * GRID_SCALE * 0.39;
+	const cellWorldSize = CELL_RAW * GRID_SCALE;
+	const cellHalfExtent = cellWorldSize * 0.5;
+	const slopeCellMap = new Map();
+	const SLOPE_CONFORM_ANGLE = Math.atan2( CELL_RAW * 0.5, CELL_RAW );
+	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
+	for ( const [ gx, gz, rawType, rawOrient = 0 ] of slopeElevatedCells ) {
+
+		if ( ! Number.isFinite( Number( gx ) ) || ! Number.isFinite( Number( gz ) ) ) continue;
+		let type = rawType;
+		let orient = rawOrient;
+		if ( type === 'slope-down' ) {
+
+			type = 'slope-up';
+			orient = ORIENT_180[ orient ] ?? orient;
+
+		}
+		slopeCellMap.set( `${ gx },${ gz }`, { gx, gz, type, orient } );
+
+	}
 	const legacyBoostHalfExtent = CELL_RAW * GRID_SCALE * 0.5;
 	const surfaceEntries = surfaceCells.map( ( [ gx, gz, type ] ) => ( {
 		gx, gz, type,
@@ -4066,6 +4089,45 @@ async function init() {
 		const dx = Math.abs( targetVehicle.spherePos.x - entry.centerX );
 		const dz = Math.abs( targetVehicle.spherePos.z - entry.centerZ );
 		return dx <= halfExtent + VEHICLE_SURFACE_RADIUS && dz <= halfExtent + VEHICLE_SURFACE_RADIUS;
+
+	}
+
+	const _slopeForward = new THREE.Vector3();
+	const _slopeUp = new THREE.Vector3();
+	const _slopeCarForward = new THREE.Vector3();
+	const _slopeCarRight = new THREE.Vector3();
+	function applySlopeConformVisual( targetVehicle ) {
+
+		if ( ! targetVehicle?.container ) return;
+		const gx = Math.floor( targetVehicle.spherePos.x / cellWorldSize );
+		const gz = Math.floor( targetVehicle.spherePos.z / cellWorldSize );
+		const slopeCell = slopeCellMap.get( `${ gx },${ gz }` );
+		if ( ! slopeCell ) {
+
+			targetVehicle.setSlopeVisualTilt( 0, 0 );
+			return;
+
+		}
+
+		const centerX = ( slopeCell.gx + 0.5 ) * cellWorldSize;
+		const centerZ = ( slopeCell.gz + 0.5 ) * cellWorldSize;
+		if ( Math.abs( targetVehicle.spherePos.x - centerX ) > cellHalfExtent || Math.abs( targetVehicle.spherePos.z - centerZ ) > cellHalfExtent ) {
+
+			targetVehicle.setSlopeVisualTilt( 0, 0 );
+			return;
+
+		}
+
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeCell.orient ] || 0 );
+		_slopeForward.set( 0, 0, 1 ).applyAxisAngle( _up, yaw ).normalize();
+		_slopeUp.copy( _up ).addScaledVector( _slopeForward, - Math.tan( SLOPE_CONFORM_ANGLE ) ).normalize();
+		_slopeCarForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion ).setY( 0 ).normalize();
+		if ( _slopeCarForward.lengthSq() < 1e-6 ) _slopeCarForward.set( 0, 0, 1 );
+		_slopeCarRight.set( 1, 0, 0 ).applyQuaternion( targetVehicle.container.quaternion ).setY( 0 ).normalize();
+		if ( _slopeCarRight.lengthSq() < 1e-6 ) _slopeCarRight.set( 1, 0, 0 );
+		const pitch = Math.atan2( _slopeUp.dot( _slopeCarForward ), _slopeUp.y );
+		const roll = - Math.atan2( _slopeUp.dot( _slopeCarRight ), _slopeUp.y );
+		targetVehicle.setSlopeVisualTilt( pitch, roll );
 
 	}
 
@@ -6247,6 +6309,8 @@ async function init() {
 
 			vehicle.update( dt, padAdjustedInput );
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
+			applySlopeConformVisual( vehicle );
+			if ( vehicle2 ) applySlopeConformVisual( vehicle2 );
 			if ( carHitboxMesh.visible ) carHitboxMesh.position.set( vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z );
 			applyMagnetForceFor( vehicle, dt );
 			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
