@@ -4313,7 +4313,7 @@ async function init() {
 
 	}
 
-	function applyPadContact( targetVehicle, lastContactKey, setEffect ) {
+	function applyPadContact( targetVehicle, lastContactKey, setEffect, getCurrentEffect = null ) {
 
 		const contact = findPadContactFor( targetVehicle );
 		if ( ! contact ) return null;
@@ -4326,7 +4326,13 @@ async function init() {
 
 		}
 		const effect = getPadEffectForType( contact.type );
-		setEffect( effect );
+		if ( effect?.trick && getCurrentEffect ) {
+
+			const previous = getCurrentEffect() || null;
+			const merged = { ...( previous || {} ), ...effect, trick: effect.trick };
+			setEffect( merged );
+
+		} else setEffect( effect );
 		showEffectPopup( `Effect applied: ${ getPadLabel( contact.type ) }` );
 		return contact.key;
 
@@ -4349,7 +4355,7 @@ async function init() {
 		if ( ! targetVehicle || ! state ) return;
 		const trick = activePadEffect?.trick || null;
 		const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
-		const airborne = targetVehicle.spherePos.y > 1.15 || Math.abs( verticalVel ) > 1.0;
+		const airborne = targetVehicle.spherePos.y > 0.62 || Math.abs( verticalVel ) > 0.35;
 		if ( ! trick || ! airborne ) {
 			state.active = false;
 			state.progress = 0;
@@ -4372,8 +4378,9 @@ async function init() {
 
 		state.progress = Math.min( 1, state.progress + dt / 0.62 );
 		const smoothT = state.progress * state.progress * ( 3 - 2 * state.progress );
-		const targetQuat = state.baseQuat.clone().multiply( state.deltaQuat );
-		targetVehicle.container.quaternion.copy( state.baseQuat ).slerp( targetQuat, smoothT );
+			const targetQuat = state.baseQuat.clone().multiply( state.deltaQuat );
+			targetVehicle.container.quaternion.copy( state.baseQuat ).slerp( targetQuat, smoothT );
+			targetVehicle.container.updateMatrixWorld( true );
 
 	}
 
@@ -6445,7 +6452,7 @@ async function init() {
 				activePadEffect = effect;
 				activePadTimeScale = Number.isFinite( effect?.timeScale ) ? effect.timeScale : 1;
 
-			} ) || null;
+			}, () => activePadEffect ) || null;
 			activeSurfaceType = findActiveSurfaceTypeFor( vehicle );
 			updateAirTrickStateFor( vehicle, activePadEffect, airTrickState, dt );
 			applySurfaceGrip( vehicle, activeSurfaceType, activePadEffect );
@@ -6463,7 +6470,7 @@ async function init() {
 				activePadEffect2 = effect;
 				activePadTimeScale2 = Number.isFinite( effect?.timeScale ) ? effect.timeScale : 1;
 
-			} ) || null;
+			}, () => activePadEffect2 ) || null;
 			activeSurfaceType2 = findActiveSurfaceTypeFor( vehicle2 );
 			updateAirTrickStateFor( vehicle2, activePadEffect2, airTrickState2, dt );
 			applySurfaceGrip( vehicle2, activeSurfaceType2, activePadEffect2 );
