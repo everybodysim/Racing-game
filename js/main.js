@@ -4096,7 +4096,8 @@ async function init() {
 	const _slopeForward = new THREE.Vector3();
 	const _slopeUp = new THREE.Vector3();
 	const _slopeCarForward = new THREE.Vector3();
-	const _slopeCarRight = new THREE.Vector3();
+	const _slopeLocalUp = new THREE.Vector3();
+	const _slopeYawOnlyQuat = new THREE.Quaternion();
 	function applySlopeConformVisual( targetVehicle ) {
 
 		if ( ! targetVehicle?.container ) return;
@@ -4121,13 +4122,14 @@ async function init() {
 
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeCell.orient ] || 0 );
 		_slopeForward.set( 0, 0, 1 ).applyAxisAngle( _up, yaw ).normalize();
-		_slopeUp.copy( _up ).addScaledVector( _slopeForward, Math.tan( SLOPE_CONFORM_ANGLE ) ).normalize();
+		_slopeUp.copy( _up ).addScaledVector( _slopeForward, - Math.tan( SLOPE_CONFORM_ANGLE ) ).normalize();
 		_slopeCarForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion ).setY( 0 ).normalize();
 		if ( _slopeCarForward.lengthSq() < 1e-6 ) _slopeCarForward.set( 0, 0, 1 );
-		_slopeCarRight.set( 1, 0, 0 ).applyQuaternion( targetVehicle.container.quaternion ).setY( 0 ).normalize();
-		if ( _slopeCarRight.lengthSq() < 1e-6 ) _slopeCarRight.set( 1, 0, 0 );
-		const pitch = - Math.atan2( _slopeUp.dot( _slopeCarForward ), _slopeUp.y );
-		const roll = Math.atan2( _slopeUp.dot( _slopeCarRight ), _slopeUp.y );
+		const headingYaw = Math.atan2( _slopeCarForward.x, _slopeCarForward.z );
+		_slopeYawOnlyQuat.setFromAxisAngle( _up, - headingYaw );
+		_slopeLocalUp.copy( _slopeUp ).applyQuaternion( _slopeYawOnlyQuat ).normalize();
+		const pitch = THREE.MathUtils.clamp( Math.atan2( - _slopeLocalUp.z, _slopeLocalUp.y ), - SLOPE_CONFORM_ANGLE, SLOPE_CONFORM_ANGLE );
+		const roll = THREE.MathUtils.clamp( Math.atan2( _slopeLocalUp.x, _slopeLocalUp.y ), - SLOPE_CONFORM_ANGLE, SLOPE_CONFORM_ANGLE );
 		targetVehicle.setSlopeVisualTilt( pitch, roll );
 
 	}
