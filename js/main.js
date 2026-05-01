@@ -4121,13 +4121,13 @@ async function init() {
 
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeCell.orient ] || 0 );
 		_slopeForward.set( 0, 0, 1 ).applyAxisAngle( _up, yaw ).normalize();
-		_slopeUp.copy( _up ).addScaledVector( _slopeForward, - Math.tan( SLOPE_CONFORM_ANGLE ) ).normalize();
+		_slopeUp.copy( _up ).addScaledVector( _slopeForward, Math.tan( SLOPE_CONFORM_ANGLE ) ).normalize();
 		_slopeCarForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion ).setY( 0 ).normalize();
 		if ( _slopeCarForward.lengthSq() < 1e-6 ) _slopeCarForward.set( 0, 0, 1 );
 		_slopeCarRight.set( 1, 0, 0 ).applyQuaternion( targetVehicle.container.quaternion ).setY( 0 ).normalize();
 		if ( _slopeCarRight.lengthSq() < 1e-6 ) _slopeCarRight.set( 1, 0, 0 );
-		const pitch = Math.atan2( _slopeUp.dot( _slopeCarForward ), _slopeUp.y );
-		const roll = - Math.atan2( _slopeUp.dot( _slopeCarRight ), _slopeUp.y );
+		const pitch = - Math.atan2( _slopeUp.dot( _slopeCarForward ), _slopeUp.y );
+		const roll = Math.atan2( _slopeUp.dot( _slopeCarRight ), _slopeUp.y );
 		targetVehicle.setSlopeVisualTilt( pitch, roll );
 
 	}
