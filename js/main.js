@@ -2273,7 +2273,7 @@ async function init() {
 	} );
 	if ( economyHud ) {
 
-		economyHud.style.top = '88px';
+		economyHud.style.top = '108px';
 		economyHud.style.right = '12px';
 
 	}
