@@ -373,12 +373,16 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			const gz = Number( gzRaw );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
 			const yGrid = THREE.MathUtils.clamp( Number( yGridRaw ) || 0, - 1, 3 );
-			const isRed = String( variant ) === 'red';
+			const magnetKind = String( variant );
+			const isRed = magnetKind === 'red';
+			const isGrapple = magnetKind === 'grapple';
 			const magnet = new THREE.Mesh(
-				new THREE.BoxGeometry( MAGNET_HALF_SIZE * 2, MAGNET_HALF_SIZE * 2, MAGNET_HALF_SIZE * 2 ),
+				isGrapple
+					? new THREE.SphereGeometry( MAGNET_HALF_SIZE * 0.95, 14, 10 )
+					: new THREE.BoxGeometry( MAGNET_HALF_SIZE * 2, MAGNET_HALF_SIZE * 2, MAGNET_HALF_SIZE * 2 ),
 				new THREE.MeshStandardMaterial( {
-					color: isRed ? 0xff5d5d : 0x4f96ff,
-					emissive: isRed ? 0x7a1111 : 0x1b45a9,
+					color: isGrapple ? 0xb48cff : ( isRed ? 0xff5d5d : 0x4f96ff ),
+					emissive: isGrapple ? 0x8a5cff : ( isRed ? 0x7a1111 : 0x1b45a9 ),
 					emissiveIntensity: 0.24,
 					roughness: 0.5,
 					metalness: 0.28,

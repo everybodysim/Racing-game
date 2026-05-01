@@ -293,6 +293,7 @@
 	<div id="side-ui-bar">
 		<button id="btn-magnet-blue">Magnet Blue +</button>
 		<button id="btn-magnet-red">Magnet Red +</button>
+		<button id="btn-magnet-grapple">Grapple Orb +</button>
 		<button id="btn-magnet-up" title="Move selected magnet up by 0.1 grid">Magnet ▲</button>
 		<button id="btn-magnet-down" title="Move selected magnet down by 0.1 grid">Magnet ▼</button>
 		<button id="btn-magnet-strength-up" title="Increase selected magnet strength">Strength +</button>
@@ -489,6 +490,7 @@
 	const MOVING_CUSTOM_TOOL = 'moving-custom';
 	const MAGNET_BLUE_TOOL = 'magnet-blue';
 	const MAGNET_RED_TOOL = 'magnet-red';
+	const MAGNET_GRAPPLE_TOOL = 'magnet-grapple';
 	const ARC_GREEN_TOOL = 'arc-green';
 	const ARC_ORANGE_TOOL = 'arc-orange';
 	const PORTAL_YELLOW_TOOL = 'portal-yellow';
@@ -635,7 +637,8 @@
 			const magnet = magnetBlocks[ i ];
 			if ( ! magnet?.mesh?.material?.emissive ) continue;
 			const isBlue = magnet.type === MAGNET_BLUE_TOOL;
-			magnet.mesh.material.emissive.setHex( i === selectedMagnetIndex ? 0xffffff : ( isBlue ? 0x1b45a9 : 0x7a1111 ) );
+			const isGrapple = magnet.type === MAGNET_GRAPPLE_TOOL;
+			magnet.mesh.material.emissive.setHex( i === selectedMagnetIndex ? 0xffffff : ( isGrapple ? 0x8a5cff : ( isBlue ? 0x1b45a9 : 0x7a1111 ) ) );
 			magnet.mesh.material.emissiveIntensity = i === selectedMagnetIndex ? 0.38 : 0.2;
 
 		}
@@ -1641,7 +1644,7 @@
 
 	function placeSelectedBlock( gx, gz ) {
 
-		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL ) {
+		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL || selectedType === MAGNET_GRAPPLE_TOOL ) {
 
 			const existingIndex = findNearestMagnetIndex( gx, gz );
 			if ( existingIndex >= 0 ) {
@@ -2050,7 +2053,7 @@
 		clearGhost();
 
 		if ( tool === 'erase' ) return;
-		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL ) {
+		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL || selectedType === MAGNET_GRAPPLE_TOOL ) {
 
 			addGhostMagnetPreview( gx, gz );
 			return;
@@ -2226,7 +2229,7 @@
 				normalizeCoord( magnet.gx ),
 				normalizeCoord( magnet.gz ),
 				clampMagnetGridY( magnet.y ),
-				magnet.type === MAGNET_RED_TOOL ? 'red' : 'blue',
+				magnet.type === MAGNET_RED_TOOL ? 'red' : ( magnet.type === MAGNET_GRAPPLE_TOOL ? 'grapple' : 'blue' ),
 				clampMagnetStrength( magnet.strength ),
 				clampMagnetRange( magnet.range ),
 			] );
@@ -2587,6 +2590,7 @@ function refreshMovingSpeedUi() {
 		[ CUBE_TOOL ]: document.getElementById( 'btn-cube' ),
 		[ MAGNET_BLUE_TOOL ]: document.getElementById( 'btn-magnet-blue' ),
 		[ MAGNET_RED_TOOL ]: document.getElementById( 'btn-magnet-red' ),
+		[ MAGNET_GRAPPLE_TOOL ]: document.getElementById( 'btn-magnet-grapple' ),
 		[ ARC_GREEN_TOOL ]: document.getElementById( 'btn-arc-green' ),
 		[ ARC_ORANGE_TOOL ]: document.getElementById( 'btn-arc-orange' ),
 		[ PORTAL_YELLOW_TOOL ]: document.getElementById( 'btn-portal-yellow' ),
@@ -2693,7 +2697,7 @@ function refreshMovingSpeedUi() {
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
@@ -2850,7 +2854,7 @@ function refreshMovingSpeedUi() {
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 

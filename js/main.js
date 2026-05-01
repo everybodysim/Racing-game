@@ -3845,7 +3845,8 @@ async function init() {
 			const gz = Number( gzRaw );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) return null;
 			const yGrid = THREE.MathUtils.clamp( Number( yGridRaw ) || 0, - 1, 3 );
-			const kind = String( variant ) === 'red' ? 'red' : 'blue';
+			const kindRaw = String( variant );
+			const kind = kindRaw === 'red' ? 'red' : ( kindRaw === 'grapple' ? 'grapple' : 'blue' );
 			const forcePerSecond = THREE.MathUtils.clamp( Number( forceRaw ) || MAGNET_DEFAULT_FORCE_PER_SECOND, MAGNET_MIN_FORCE_PER_SECOND, MAGNET_MAX_FORCE_PER_SECOND );
 			const maxDistanceBlocks = THREE.MathUtils.clamp( Number( rangeRaw ) || MAGNET_DEFAULT_MAX_DISTANCE_BLOCKS, MAGNET_MIN_MAX_DISTANCE_BLOCKS, MAGNET_MAX_MAX_DISTANCE_BLOCKS );
 			const maxDistance = CELL_RAW * GRID_SCALE * maxDistanceBlocks;
@@ -3858,6 +3859,14 @@ async function init() {
 
 		} )
 		.filter( Boolean );
+
+	const grappleEntries = magnetEntries.filter( ( entry ) => entry.kind === 'grapple' );
+	const grappleState = {
+		active: false,
+		anchor: null,
+		ropeLength: 0,
+		line: null,
+	};
 	const arcLinkEntries = arcLinkCells
 		.map( ( [ gxRaw, gzRaw, yGridRaw, variantRaw, idRaw ] ) => {
 
@@ -5444,6 +5453,93 @@ async function init() {
 
 	}
 
+
+	function applyGrappleSwingFor( targetVehicle, controlKeys = {}, dt = 0 ) {
+
+		if ( ! targetVehicle?.rigidBody ) return;
+		if ( ! grappleState.line ) {
+
+			const geo = new THREE.BufferGeometry().setFromPoints( [ new THREE.Vector3(), new THREE.Vector3() ] );
+			grappleState.line = new THREE.Line( geo, new THREE.LineBasicMaterial( { color: 0xd7b6ff, transparent: true, opacity: 0.9 } ) );
+			scene.add( grappleState.line );
+
+		}
+		const wantsGrapple = Boolean( controlKeys?.Space );
+		if ( ! wantsGrapple ) {
+
+			grappleState.active = false;
+			grappleState.anchor = null;
+			grappleState.line.visible = false;
+			return;
+
+		}
+		if ( ! grappleState.active ) {
+
+			let best = null;
+			let bestDist = Infinity;
+			for ( const entry of grappleEntries ) {
+
+				const dx = entry.centerX - targetVehicle.spherePos.x;
+				const dy = entry.centerY - targetVehicle.spherePos.y;
+				const dz = entry.centerZ - targetVehicle.spherePos.z;
+				const dist = Math.hypot( dx, dy, dz );
+				if ( dist < bestDist && dist <= entry.maxDistance ) {
+
+					best = entry;
+					bestDist = dist;
+
+				}
+
+			}
+			if ( best ) {
+
+				grappleState.active = true;
+				grappleState.anchor = best;
+				grappleState.ropeLength = Math.max( 1.6, bestDist * 0.95 );
+
+			}
+
+		}
+		if ( ! grappleState.active || ! grappleState.anchor ) {
+
+			grappleState.line.visible = false;
+			return;
+
+		}
+		const anchor = grappleState.anchor;
+		const dx = anchor.centerX - targetVehicle.spherePos.x;
+		const dy = anchor.centerY - targetVehicle.spherePos.y;
+		const dz = anchor.centerZ - targetVehicle.spherePos.z;
+		const distance = Math.hypot( dx, dy, dz );
+		if ( distance > anchor.maxDistance * 1.35 ) {
+
+			grappleState.active = false;
+			grappleState.anchor = null;
+			grappleState.line.visible = false;
+			return;
+
+		}
+		const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+		const dirX = dx / Math.max( 1e-5, distance );
+		const dirY = dy / Math.max( 1e-5, distance );
+		const dirZ = dz / Math.max( 1e-5, distance );
+		if ( distance > grappleState.ropeLength ) {
+
+			const pull = ( distance - grappleState.ropeLength ) * ( 7.5 + Math.min( 8, distance ) ) * dt;
+			vel[ 0 ] += dirX * pull;
+			vel[ 1 ] += dirY * pull;
+			vel[ 2 ] += dirZ * pull;
+
+		}
+		targetVehicle.rigidBody.motionProperties.linearVelocity = vel;
+		grappleState.line.visible = true;
+		grappleState.line.geometry.setFromPoints( [
+			new THREE.Vector3( targetVehicle.spherePos.x, targetVehicle.spherePos.y + 0.3, targetVehicle.spherePos.z ),
+			new THREE.Vector3( anchor.centerX, anchor.centerY, anchor.centerZ ),
+		] );
+
+	}
+
 	function setArcLinkHud( text ) {
 
 		if ( ! arcLinkUi ) return;
@@ -6154,6 +6250,7 @@ async function init() {
 			if ( carHitboxMesh.visible ) carHitboxMesh.position.set( vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z );
 			applyMagnetForceFor( vehicle, dt );
 			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
+			applyGrappleSwingFor( vehicle, controls?.keys, dt );
 			arcLinkState = applyArcLinkFor( vehicle, arcLinkState );
 			if ( vehicle2 ) arcLinkState2 = applyArcLinkFor( vehicle2, arcLinkState2 );
 			updateRemotePlayerVisualsFrame( dt );
