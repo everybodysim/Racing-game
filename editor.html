@@ -384,6 +384,7 @@
 			<option value="pad-slow-motion">Slow Motion</option>
 			<option value="pad-fast-motion">Fast Motion</option>
 			<option value="pad-drift">Drift Mode</option>
+			<option value="pad-off-gravity">Off-Gravity (WIP)</option>
 			<option value="pad-custom-a">Custom Pad A</option>
 			<option value="pad-custom-b">Custom Pad B</option>
 			<option value="pad-custom-c">Custom Pad C</option>
@@ -505,6 +506,7 @@
 		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
 		'pad-reset', 'pad-low-gravity', 'pad-heavy-gravity', 'pad-high-grip', 'pad-high-speed',
 		'pad-no-brakes', 'pad-no-steering', 'pad-no-acceleration', 'pad-slow-motion', 'pad-fast-motion', 'pad-drift',
+		'pad-off-gravity',
 		'pad-custom-a', 'pad-custom-b', 'pad-custom-c',
 		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
 	];
@@ -984,6 +986,7 @@
 			case 'pad-slow-motion': return { color: 0x6ab5ff, emissive: 0x104f88, metalness: 0.05, roughness: 0.68 };
 			case 'pad-fast-motion': return { color: 0xff9f3c, emissive: 0x8a2f00, metalness: 0.02, roughness: 0.7 };
 			case 'pad-drift': return { color: 0xd6ff6a, emissive: 0x5c7a0f, metalness: 0.03, roughness: 0.8 };
+			case 'pad-off-gravity': return { color: 0x53b6ff, emissive: 0x114f8a, metalness: 0.03, roughness: 0.7 };
 			case 'pad-custom-a':
 			case 'pad-custom-b':
 			case 'pad-custom-c': {
