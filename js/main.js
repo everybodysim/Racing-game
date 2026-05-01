@@ -1593,8 +1593,6 @@ async function init() {
 		const avgDuration = visibleGhosts.reduce( ( sum, g ) => sum + g.duration, 0 ) / visibleGhosts.length;
 		const outlierDist = avgDuration <= 5 ? 2 : ( avgDuration >= 6.3 ? 4 : THREE.MathUtils.lerp( 2, 4, ( avgDuration - 5 ) / 1.3 ) );
 		const sampleCount = 120;
-		const positions = [];
-		const colors = [];
 		const centers = [];
 		const spreads = [];
 		for ( let i = 0; i < sampleCount; i ++ ) {
@@ -1645,24 +1643,23 @@ async function init() {
 		}
 		if ( centers.length < 2 ) return;
 		const maxSpread = Math.max( 0.05, ...spreads );
-		const curve = new THREE.CatmullRomCurve3( centers, false, 'centripetal', 0.45 );
-		const tubeSegments = Math.max( 48, centers.length * 3 );
-		const geometry = new THREE.TubeGeometry( curve, tubeSegments, 0.12, 8, false ).toNonIndexed();
-		const colorArray = new Float32Array( geometry.attributes.position.count * 3 );
-		for ( let i = 0; i < geometry.attributes.position.count; i ++ ) {
+		const positions = [];
+		const colors = [];
+		for ( let i = 0; i < centers.length - 1; i ++ ) {
 
-			const t = i / Math.max( 1, geometry.attributes.position.count - 1 );
-			const spreadIndex = Math.min( spreads.length - 1, Math.round( t * ( spreads.length - 1 ) ) );
-			const heat = THREE.MathUtils.clamp( spreads[ spreadIndex ] / maxSpread, 0, 1 );
+			const a = centers[ i ];
+			const b = centers[ i + 1 ];
+			positions.push( a.x, a.y, a.z, b.x, b.y, b.z );
+			const heat = THREE.MathUtils.clamp( ( ( spreads[ i ] + spreads[ i + 1 ] ) * 0.5 ) / maxSpread, 0, 1 );
 			const color = new THREE.Color().setHSL( 0.33 * ( 1 - heat ), 0.95, 0.5 );
-			colorArray[ i * 3 ] = color.r;
-			colorArray[ i * 3 + 1 ] = color.g;
-			colorArray[ i * 3 + 2 ] = color.b;
+			colors.push( color.r, color.g, color.b, color.r, color.g, color.b );
 
 		}
-		geometry.setAttribute( 'color', new THREE.BufferAttribute( colorArray, 3 ) );
-		const material = new THREE.MeshBasicMaterial( { vertexColors: true, transparent: true, opacity: 0.95 } );
-		ghostSpreadLine = new THREE.Mesh( geometry, material );
+		const geometry = new THREE.BufferGeometry();
+		geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
+		geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( colors, 3 ) );
+		const material = new THREE.LineBasicMaterial( { vertexColors: true, transparent: true, opacity: 0.95 } );
+		ghostSpreadLine = new THREE.LineSegments( geometry, material );
 		scene.add( ghostSpreadLine );
 
 	}
