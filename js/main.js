@@ -101,6 +101,19 @@ const PAD_EFFECTS = {
 	'pad-fast-motion': { id: 'fast-motion', timeScale: 1.35 },
 	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
 	'pad-off-gravity': { id: 'off-gravity' },
+	'pad-trick-yaw-1': { id: 'trick-yaw-1', trick: { yaw: 1 } },
+	'pad-trick-yaw-2': { id: 'trick-yaw-2', trick: { yaw: 2 } },
+	'pad-trick-pitch-1': { id: 'trick-pitch-1', trick: { pitch: 1 } },
+	'pad-trick-pitch-2': { id: 'trick-pitch-2', trick: { pitch: 2 } },
+	'pad-trick-roll-1': { id: 'trick-roll-1', trick: { roll: 1 } },
+	'pad-trick-roll-2': { id: 'trick-roll-2', trick: { roll: 2 } },
+	'pad-trick-yaw-pitch-1': { id: 'trick-yaw-pitch-1', trick: { yaw: 1, pitch: 1 } },
+	'pad-trick-yaw-roll-1': { id: 'trick-yaw-roll-1', trick: { yaw: 1, roll: 1 } },
+	'pad-trick-pitch-roll-1': { id: 'trick-pitch-roll-1', trick: { pitch: 1, roll: 1 } },
+	'pad-trick-yaw-pitch-roll-1': { id: 'trick-yaw-pitch-roll-1', trick: { yaw: 1, pitch: 1, roll: 1 } },
+	'pad-trick-yaw2-roll-1': { id: 'trick-yaw2-roll-1', trick: { yaw: 2, roll: 1 } },
+	'pad-trick-pitch2-roll-1': { id: 'trick-pitch2-roll-1', trick: { pitch: 2, roll: 1 } },
+	'pad-trick-yaw2-pitch2': { id: 'trick-yaw2-pitch2', trick: { yaw: 2, pitch: 2 } },
 };
 const HACK_HITBOX_OPACITY = 0.34;
 const HACK_WORLD_OPACITY = 0.52;
@@ -3950,6 +3963,8 @@ async function init() {
 	let activePadTimeScale2 = 1;
 	let padContactKey = null;
 	let padContactKey2 = null;
+	const airTrickState = { active: false, progress: 0, baseQuat: new THREE.Quaternion(), deltaQuat: new THREE.Quaternion() };
+	const airTrickState2 = { active: false, progress: 0, baseQuat: new THREE.Quaternion(), deltaQuat: new THREE.Quaternion() };
 	const checkpointStates2 = checkpointCells.map( ( cell ) => ( {
 		...makeGateData( cell ),
 		lastLocalX: 0,
@@ -4230,6 +4245,19 @@ async function init() {
 			case 'pad-fast-motion': return 'Fast Motion';
 			case 'pad-drift': return 'Drift Mode';
 			case 'pad-off-gravity': return 'Off-Gravity (WIP)';
+			case 'pad-trick-yaw-1': return 'Yaw Flip ×1';
+			case 'pad-trick-yaw-2': return 'Yaw Flip ×2';
+			case 'pad-trick-pitch-1': return 'Pitch Flip ×1';
+			case 'pad-trick-pitch-2': return 'Pitch Flip ×2';
+			case 'pad-trick-roll-1': return 'Roll Flip ×1';
+			case 'pad-trick-roll-2': return 'Roll Flip ×2';
+			case 'pad-trick-yaw-pitch-1': return 'Yaw+Pitch ×1';
+			case 'pad-trick-yaw-roll-1': return 'Yaw+Roll ×1';
+			case 'pad-trick-pitch-roll-1': return 'Pitch+Roll ×1';
+			case 'pad-trick-yaw-pitch-roll-1': return 'Yaw+Pitch+Roll ×1';
+			case 'pad-trick-yaw2-roll-1': return 'Yaw ×2 + Roll ×1';
+			case 'pad-trick-pitch2-roll-1': return 'Pitch ×2 + Roll ×1';
+			case 'pad-trick-yaw2-pitch2': return 'Yaw ×2 + Pitch ×2';
 			case 'pad-custom-a': return 'Custom Pad A';
 			case 'pad-custom-b': return 'Custom Pad B';
 			case 'pad-custom-c': return 'Custom Pad C';
@@ -4313,6 +4341,39 @@ async function init() {
 		if ( effect?.disableAcceleration && input.z > 0 ) input.z = 0;
 		if ( Number.isFinite( effect?.steering ) ) input.x *= effect.steering;
 		return input;
+
+	}
+
+	function updateAirTrickStateFor( targetVehicle, activePadEffect, state, dt ) {
+
+		if ( ! targetVehicle || ! state ) return;
+		const trick = activePadEffect?.trick || null;
+		const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
+		const airborne = targetVehicle.spherePos.y > 1.15 || Math.abs( verticalVel ) > 1.0;
+		if ( ! trick || ! airborne ) {
+			state.active = false;
+			state.progress = 0;
+			return;
+		}
+
+		if ( ! state.active ) {
+			state.active = true;
+			state.progress = 0;
+			state.baseQuat.copy( targetVehicle.container.quaternion );
+			state.deltaQuat.identity();
+			const euler = new THREE.Euler(
+				( Number( trick.pitch ) || 0 ) * Math.PI * 2,
+				( Number( trick.yaw ) || 0 ) * Math.PI * 2,
+				( Number( trick.roll ) || 0 ) * Math.PI * 2,
+				'YXZ'
+			);
+			state.deltaQuat.setFromEuler( euler );
+		}
+
+		state.progress = Math.min( 1, state.progress + dt / 0.62 );
+		const smoothT = state.progress * state.progress * ( 3 - 2 * state.progress );
+		const targetQuat = state.baseQuat.clone().multiply( state.deltaQuat );
+		targetVehicle.container.quaternion.copy( state.baseQuat ).slerp( targetQuat, smoothT );
 
 	}
 
@@ -5145,6 +5206,7 @@ async function init() {
 		activePadEffect = null;
 		activePadTimeScale = 1;
 		padContactKey = null;
+		airTrickState.active = false;
 		specialSurfaceContactState.clear();
 		resetCurrentLapGhost();
 		resetCurrentLapInputs();
@@ -5188,6 +5250,7 @@ async function init() {
 		activePadEffect2 = null;
 		activePadTimeScale2 = 1;
 		padContactKey2 = null;
+		airTrickState2.active = false;
 		specialSurfaceContactState2.clear();
 		hasLeftStartZone2 = false;
 		hasPrevFinishSample2 = false;
@@ -6384,6 +6447,7 @@ async function init() {
 
 			} ) || null;
 			activeSurfaceType = findActiveSurfaceTypeFor( vehicle );
+			updateAirTrickStateFor( vehicle, activePadEffect, airTrickState, dt );
 			applySurfaceGrip( vehicle, activeSurfaceType, activePadEffect );
 			if ( activeSurfaceType && activeSurfaceType !== lastSurfaceNotifyType && ! activeSurfaceType.startsWith( 'pad-' ) ) showEffectPopup( `Effect applied: ${ activeSurfaceType.replace( /^surface-/, '' ).replace( /-/g, ' ' ) }` );
 			lastSurfaceNotifyType = activeSurfaceType;
@@ -6401,6 +6465,7 @@ async function init() {
 
 			} ) || null;
 			activeSurfaceType2 = findActiveSurfaceTypeFor( vehicle2 );
+			updateAirTrickStateFor( vehicle2, activePadEffect2, airTrickState2, dt );
 			applySurfaceGrip( vehicle2, activeSurfaceType2, activePadEffect2 );
 			if ( activeSurfaceType2 && activeSurfaceType2 !== lastSurfaceNotifyType2 && ! activeSurfaceType2.startsWith( 'pad-' ) ) showEffectPopup( `Effect applied: ${ activeSurfaceType2.replace( /^surface-/, '' ).replace( /-/g, ' ' ) }` );
 			lastSurfaceNotifyType2 = activeSurfaceType2;

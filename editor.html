@@ -389,6 +389,22 @@
 			<option value="pad-custom-b">Custom Pad B</option>
 			<option value="pad-custom-c">Custom Pad C</option>
 		</select>
+		<select id="effect-select" aria-label="Effect picker">
+			<option value="">Effects…</option>
+			<option value="pad-trick-yaw-1">Yaw Flip ×1</option>
+			<option value="pad-trick-yaw-2">Yaw Flip ×2</option>
+			<option value="pad-trick-pitch-1">Pitch Flip ×1</option>
+			<option value="pad-trick-pitch-2">Pitch Flip ×2</option>
+			<option value="pad-trick-roll-1">Roll Flip ×1</option>
+			<option value="pad-trick-roll-2">Roll Flip ×2</option>
+			<option value="pad-trick-yaw-pitch-1">Yaw+Pitch ×1</option>
+			<option value="pad-trick-yaw-roll-1">Yaw+Roll ×1</option>
+			<option value="pad-trick-pitch-roll-1">Pitch+Roll ×1</option>
+			<option value="pad-trick-yaw-pitch-roll-1">Yaw+Pitch+Roll ×1</option>
+			<option value="pad-trick-yaw2-roll-1">Yaw ×2 + Roll ×1</option>
+			<option value="pad-trick-pitch2-roll-1">Pitch ×2 + Roll ×1</option>
+			<option value="pad-trick-yaw2-pitch2">Yaw ×2 + Pitch ×2</option>
+		</select>
 		<button id="btn-surface-custom-a">Custom A</button>
 		<button id="btn-surface-custom-b">Custom B</button>
 		<button id="btn-surface-custom-c">Custom C</button>
@@ -507,6 +523,9 @@
 		'pad-reset', 'pad-low-gravity', 'pad-heavy-gravity', 'pad-high-grip', 'pad-high-speed',
 		'pad-no-brakes', 'pad-no-steering', 'pad-no-acceleration', 'pad-slow-motion', 'pad-fast-motion', 'pad-drift',
 		'pad-off-gravity',
+		'pad-trick-yaw-1', 'pad-trick-yaw-2', 'pad-trick-pitch-1', 'pad-trick-pitch-2', 'pad-trick-roll-1', 'pad-trick-roll-2',
+		'pad-trick-yaw-pitch-1', 'pad-trick-yaw-roll-1', 'pad-trick-pitch-roll-1', 'pad-trick-yaw-pitch-roll-1',
+		'pad-trick-yaw2-roll-1', 'pad-trick-pitch2-roll-1', 'pad-trick-yaw2-pitch2',
 		'pad-custom-a', 'pad-custom-b', 'pad-custom-c',
 		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
 	];
@@ -987,6 +1006,20 @@
 			case 'pad-fast-motion': return { color: 0xff9f3c, emissive: 0x8a2f00, metalness: 0.02, roughness: 0.7 };
 			case 'pad-drift': return { color: 0xd6ff6a, emissive: 0x5c7a0f, metalness: 0.03, roughness: 0.8 };
 			case 'pad-off-gravity': return { color: 0x53b6ff, emissive: 0x114f8a, metalness: 0.03, roughness: 0.7 };
+			case 'pad-trick-yaw-1':
+			case 'pad-trick-yaw-2':
+			case 'pad-trick-pitch-1':
+			case 'pad-trick-pitch-2':
+			case 'pad-trick-roll-1':
+			case 'pad-trick-roll-2':
+			case 'pad-trick-yaw-pitch-1':
+			case 'pad-trick-yaw-roll-1':
+			case 'pad-trick-pitch-roll-1':
+			case 'pad-trick-yaw-pitch-roll-1':
+			case 'pad-trick-yaw2-roll-1':
+			case 'pad-trick-pitch2-roll-1':
+			case 'pad-trick-yaw2-pitch2':
+				return { color: 0x9c7dff, emissive: 0x311c72, metalness: 0.06, roughness: 0.62 };
 			case 'pad-custom-a':
 			case 'pad-custom-b':
 			case 'pad-custom-c': {
@@ -2622,6 +2655,7 @@ function refreshMovingSpeedUi() {
 	const gateSelect = document.getElementById( 'gate-select' );
 	const surfaceSelect = document.getElementById( 'surface-select' );
 	const padSelect = document.getElementById( 'pad-select' );
+	const effectSelect = document.getElementById( 'effect-select' );
 	const overlapToggleBtn = document.getElementById( 'btn-overlap-toggle' );
 	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
 	const customSurfaceTitle = document.getElementById( 'custom-surface-title' );
@@ -2715,6 +2749,7 @@ function refreshMovingSpeedUi() {
 		}
 		if ( surfaceSelect ) surfaceSelect.value = SURFACE_TYPES.includes( selectedType ) ? selectedType : '';
 		if ( padSelect ) padSelect.value = selectedType.startsWith( 'pad-' ) ? selectedType : '';
+		if ( effectSelect ) effectSelect.value = selectedType.startsWith( 'pad-trick-' ) ? selectedType : '';
 		if ( overlapToggleBtn ) {
 
 			overlapToggleBtn.classList.toggle( 'active', allowSurfaceOverlap );
@@ -2885,6 +2920,13 @@ function refreshMovingSpeedUi() {
 		selectTileType( padSelect.value );
 		if ( CUSTOM_PAD_TYPES.includes( padSelect.value ) ) openCustomSurfaceEditor( padSelect.value );
 		showToast( `Pad: ${ padSelect.options[ padSelect.selectedIndex ]?.textContent || padSelect.value }` );
+
+	} );
+	effectSelect?.addEventListener( 'change', () => {
+
+		if ( ! effectSelect.value ) return;
+		selectTileType( effectSelect.value );
+		showToast( `Effect: ${ effectSelect.options[ effectSelect.selectedIndex ]?.textContent || effectSelect.value }` );
 
 	} );
 	overlapToggleBtn?.addEventListener( 'click', () => {
