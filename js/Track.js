@@ -24,7 +24,7 @@ const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
 const SUPPORT_SINK = 0.03;
 const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 
-const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down' ] );
+const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down', 'halfpipe-straight', 'halfpipe-corner' ] );
 
 function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 
@@ -91,8 +91,8 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	}
 
 	let modelKey = null;
-	if ( type === 'elevated-straight' || type === 'slope-up' || type === 'slope-down' ) modelKey = 'track-straight';
-	else if ( type === 'elevated-corner' ) modelKey = 'track-corner';
+	if ( type === 'elevated-straight' || type === 'slope-up' || type === 'slope-down' || type === 'halfpipe-straight' ) modelKey = 'track-straight';
+	else if ( type === 'elevated-corner' || type === 'halfpipe-corner' ) modelKey = 'track-corner';
 	else if ( type === 'elevated-checkpoint' ) modelKey = 'track-finish';
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
 

@@ -18,6 +18,11 @@
 		button, .linkbtn { border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.12); color: #fff; border-radius: 8px; padding: 9px 12px; cursor: pointer; font: 600 13px sans-serif; text-decoration: none; }
 		button:hover, .linkbtn:hover { background: rgba(255,255,255,0.2); }
 		#status { min-height: 18px; margin-top: 8px; color: #93f4b7; }
+		#leaderboard-progress-wrap { margin-top: 8px; display: none; }
+		#leaderboard-progress-wrap.visible { display: block; }
+		#leaderboard-progress-label { font-size: 12px; color: #b5c2da; margin-bottom: 4px; }
+		#leaderboard-progress-bar { width: 100%; height: 8px; border-radius: 999px; background: rgba(255,255,255,0.15); overflow: hidden; }
+		#leaderboard-progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #5ac8ff, #77f3b1); transition: width 0.15s ease; }
 		#grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-top: 12px; }
 		.card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 11px; }
 		.card h3 { margin: 0 0 6px; font-size: 17px; }
@@ -59,6 +64,10 @@
 				<a class="linkbtn" href="index.html">Back to game</a>
 				</div>
 				<div id="status"></div>
+				<div id="leaderboard-progress-wrap" aria-live="polite">
+					<div id="leaderboard-progress-label">Loading leaderboard data…</div>
+					<div id="leaderboard-progress-bar"><div id="leaderboard-progress-fill"></div></div>
+				</div>
 			</div>
 			<div class="panel">
 				<div class="row" style="margin-top:0">
@@ -115,11 +124,15 @@
 			const newWeekList = document.getElementById( 'new-week-list' );
 			const trendingList = document.getElementById( 'trending-list' );
 			const statusEl = document.getElementById( 'status' );
+			const leaderboardProgressWrap = document.getElementById( 'leaderboard-progress-wrap' );
+			const leaderboardProgressLabel = document.getElementById( 'leaderboard-progress-label' );
+			const leaderboardProgressFill = document.getElementById( 'leaderboard-progress-fill' );
 			const grid = document.getElementById( 'grid' );
 			let entries = [];
 			let useRemoteBoard = false;
 			let topByTrackId = new Map();
 			let rowsByTrackId = new Map();
+			let leaderboardHydrating = false;
 
 		function isPackBoardEntry( entry ) {
 			const name = String( entry?.name || '' ).trim();
@@ -144,6 +157,20 @@
 		function setStatus( msg, isError = false ) {
 			statusEl.textContent = msg;
 			statusEl.style.color = isError ? '#ff9fa8' : '#93f4b7';
+		}
+
+		function setLeaderboardProgress( completed, total ) {
+			if ( ! leaderboardProgressWrap || ! leaderboardProgressFill || ! leaderboardProgressLabel ) return;
+			if ( ! leaderboardHydrating || total === 0 ) {
+				leaderboardProgressWrap.classList.remove( 'visible' );
+				leaderboardProgressFill.style.width = '0%';
+				return;
+			}
+			const safeCompleted = Math.min( total, Math.max( 0, completed ) );
+			const percent = Math.floor( ( safeCompleted / total ) * 100 );
+			leaderboardProgressWrap.classList.add( 'visible' );
+			leaderboardProgressFill.style.width = `${ percent }%`;
+			leaderboardProgressLabel.textContent = `Loading leaderboard data… ${ safeCompleted } / ${ total } tracks`;
 		}
 
 		async function apiRequest( path = '', options = {} ) {
@@ -258,32 +285,50 @@
 		async function hydrateTopLeaderboardRows( sourceEntries ) {
 			const next = new Map();
 			const rowsMap = new Map();
+			const CHUNK_SIZE = 12;
 			const bestRowForTrack = ( rows ) => {
 				if ( ! Array.isArray( rows ) || rows.length === 0 ) return null;
 				return rows.slice().sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ] || null;
 			};
-			await Promise.all( sourceEntries.map( async ( entry ) => {
+			const trackRequests = [ ...new Map( sourceEntries.map( ( entry ) => {
 				const primaryId = getTrackIdFromPlayUrl( entry.playUrl );
-				if ( ! primaryId ) return;
-				const candidateIds = [ primaryId, ...getLegacyTrackIdsFromPlayUrl( entry.playUrl ) ];
-				const payloads = await Promise.all( candidateIds.map( async ( trackId ) => {
-					try {
-						const res = await fetch( `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( trackId ) }` );
-						if ( ! res.ok ) return null;
-						return res.json();
-					} catch ( e ) {
-						return null;
-					}
+				if ( ! primaryId ) return [ '', null ];
+				return [ primaryId, { primaryId, candidateIds: [ primaryId, ...getLegacyTrackIdsFromPlayUrl( entry.playUrl ) ] } ];
+			} ) ).values() ].filter( Boolean );
+			leaderboardHydrating = true;
+			setLeaderboardProgress( 0, trackRequests.length );
+			topByTrackId = new Map();
+			rowsByTrackId = new Map();
+			render();
+			for ( let i = 0; i < trackRequests.length; i += CHUNK_SIZE ) {
+				const chunk = trackRequests.slice( i, i + CHUNK_SIZE );
+				await Promise.all( chunk.map( async ( request ) => {
+					const { primaryId, candidateIds } = request;
+					const payloads = await Promise.all( candidateIds.map( async ( trackId ) => {
+						try {
+							const res = await fetch( `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( trackId ) }` );
+							if ( ! res.ok ) return null;
+							return res.json();
+						} catch ( e ) {
+							return null;
+						}
+					} ) );
+					const mergedRows = payloads.flatMap( ( payload ) => Array.isArray( payload?.entries ) ? payload.entries : [] );
+					const dedupedRows = [ ...new Map( mergedRows.map( ( row ) => [ `${ String( row?.name || '' ).trim().toLowerCase() }|${ Number( row?.timeSeconds ) || Infinity }`, row ] ) ).values() ]
+						.filter( ( row ) => String( row?.name || '' ).trim() && Number.isFinite( Number( row?.timeSeconds ) ) )
+						.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
+					rowsMap.set( primaryId, dedupedRows );
+					next.set( primaryId, bestRowForTrack( dedupedRows ) );
 				} ) );
-				const mergedRows = payloads.flatMap( ( payload ) => Array.isArray( payload?.entries ) ? payload.entries : [] );
-				const dedupedRows = [ ...new Map( mergedRows.map( ( row ) => [ `${ String( row?.name || '' ).trim().toLowerCase() }|${ Number( row?.timeSeconds ) || Infinity }`, row ] ) ).values() ]
-					.filter( ( row ) => String( row?.name || '' ).trim() && Number.isFinite( Number( row?.timeSeconds ) ) )
-					.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
-				rowsMap.set( primaryId, dedupedRows );
-				next.set( primaryId, bestRowForTrack( mergedRows ) );
-			} ) );
+				topByTrackId = new Map( next );
+				rowsByTrackId = new Map( rowsMap );
+				setLeaderboardProgress( Math.min( i + CHUNK_SIZE, trackRequests.length ), trackRequests.length );
+				render();
+			}
 			topByTrackId = next;
 			rowsByTrackId = rowsMap;
+			leaderboardHydrating = false;
+			setLeaderboardProgress( trackRequests.length, trackRequests.length );
 		}
 
 		function inferTrackName( url, fallback = 'Shared Track' ) {
@@ -429,6 +474,11 @@
 
 		function renderRecordBoard() {
 			if ( ! recordsBoardList ) return;
+			if ( leaderboardHydrating ) {
+				recordsBoardList.innerHTML = '<div class="records-empty">Loading record holders…</div>';
+				if ( placementRatingList ) placementRatingList.innerHTML = '<div class="records-empty">Loading placement ratings…</div>';
+				return;
+			}
 			const leaders = getRecordLeaders();
 			if ( leaders.length === 0 ) {
 				recordsBoardList.innerHTML = '<div class="records-empty">No leaderboard winners yet. Complete a lap to create the first record holder.</div>';

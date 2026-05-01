@@ -260,7 +260,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const gx = Number( gxRaw );
 			const gz = Number( gzRaw );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
-			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-checkpoint' ) continue;
+			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-checkpoint' && elevatedType !== 'halfpipe-straight' && elevatedType !== 'halfpipe-corner' ) continue;
 			flatSet.add( `${ gx },${ gz }` );
 
 		}
@@ -623,14 +623,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			continue;
 
 		}
-		if ( normalizedType === 'elevated-straight' || normalizedType === 'elevated-checkpoint' ) {
+		if ( normalizedType === 'elevated-straight' || normalizedType === 'elevated-checkpoint' || normalizedType === 'halfpipe-straight' ) {
 
 			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
 			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedSupportWallY, hHeight );
 			continue;
 
 		}
-		if ( normalizedType === 'elevated-corner' ) {
+		if ( normalizedType === 'elevated-corner' || normalizedType === 'halfpipe-corner' ) {
 
 			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
 			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedSupportWallY, hHeight );

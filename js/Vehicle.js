@@ -41,6 +41,7 @@ export class Vehicle {
 
 		this.container = new THREE.Group();
 		this.bodyNode = null;
+		this.modelRoot = null;
 		this.wheels = [];
 		this.wheelFL = null;
 		this.wheelFR = null;
@@ -62,6 +63,8 @@ export class Vehicle {
 		this.dragMultiplier = 1.0;
 		this.accelMultiplier = 1.0;
 		this.driveMultiplier = 1.0;
+		this.slopeTiltPitch = 0;
+		this.slopeTiltRoll = 0;
 
 	}
 
@@ -114,6 +117,7 @@ export class Vehicle {
 		this.wheelBL = null;
 		this.wheelBR = null;
 		this.bodyNode = null;
+		this.modelRoot = null;
 
 		for ( let i = this.container.children.length - 1; i >= 0; i -- ) {
 
@@ -122,6 +126,7 @@ export class Vehicle {
 		}
 
 		const vehicleModel = model.clone();
+		this.modelRoot = vehicleModel;
 
 		this.container.add( vehicleModel );
 
@@ -269,9 +274,26 @@ export class Vehicle {
 
 		this.updateBody( dt );
 		this.updateWheels( dt );
+		this.applySlopeVisualTilt( dt );
 
 		this.driftIntensity = Math.abs( this.linearSpeed - this.acceleration ) +
 			( this.bodyNode ? Math.abs( this.bodyNode.rotation.z ) * 2 : 0 );
+
+	}
+
+	setSlopeVisualTilt( pitch = 0, roll = 0 ) {
+
+		this.slopeTiltPitch = Number.isFinite( pitch ) ? pitch : 0;
+		this.slopeTiltRoll = Number.isFinite( roll ) ? roll : 0;
+
+	}
+
+	applySlopeVisualTilt( dt ) {
+
+		if ( ! this.modelRoot ) return;
+		const blend = 1 - Math.exp( - dt * 10 );
+		this.modelRoot.rotation.x = THREE.MathUtils.lerp( this.modelRoot.rotation.x, this.slopeTiltPitch, blend );
+		this.modelRoot.rotation.z = THREE.MathUtils.lerp( this.modelRoot.rotation.z, this.slopeTiltRoll, blend );
 
 	}
 

@@ -361,6 +361,8 @@
 		<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
 		<button id="btn-elevated-checkpoint" style="display:none">Elev Checkpoint</button>
 		<button id="btn-slope-up" style="display:none">Slope Up</button>
+		<button id="btn-halfpipe-straight" style="display:none">Halfpipe Straight</button>
+		<button id="btn-halfpipe-corner" style="display:none">Halfpipe Corner</button>
 		<select id="surface-select" aria-label="Surface picker">
 			<option value="">Surface…</option>
 			<option value="surface-wood">Wood</option>
@@ -384,6 +386,7 @@
 			<option value="pad-slow-motion">Slow Motion</option>
 			<option value="pad-fast-motion">Fast Motion</option>
 			<option value="pad-drift">Drift Mode</option>
+			<option value="pad-off-gravity">Off-Gravity (WIP)</option>
 			<option value="pad-custom-a">Custom Pad A</option>
 			<option value="pad-custom-b">Custom Pad B</option>
 			<option value="pad-custom-c">Custom Pad C</option>
@@ -495,7 +498,7 @@
 	const ARC_ORANGE_TOOL = 'arc-orange';
 	const PORTAL_YELLOW_TOOL = 'portal-yellow';
 	const PORTAL_PURPLE_TOOL = 'portal-purple';
-	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up' ];
+	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'halfpipe-straight', 'halfpipe-corner' ];
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
 	const SUPPORT_HEIGHT = CELL_RAW * 0.5;
 	const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
@@ -505,6 +508,7 @@
 		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
 		'pad-reset', 'pad-low-gravity', 'pad-heavy-gravity', 'pad-high-grip', 'pad-high-speed',
 		'pad-no-brakes', 'pad-no-steering', 'pad-no-acceleration', 'pad-slow-motion', 'pad-fast-motion', 'pad-drift',
+		'pad-off-gravity',
 		'pad-custom-a', 'pad-custom-b', 'pad-custom-c',
 		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
 	];
@@ -984,6 +988,7 @@
 			case 'pad-slow-motion': return { color: 0x6ab5ff, emissive: 0x104f88, metalness: 0.05, roughness: 0.68 };
 			case 'pad-fast-motion': return { color: 0xff9f3c, emissive: 0x8a2f00, metalness: 0.02, roughness: 0.7 };
 			case 'pad-drift': return { color: 0xd6ff6a, emissive: 0x5c7a0f, metalness: 0.03, roughness: 0.8 };
+			case 'pad-off-gravity': return { color: 0x53b6ff, emissive: 0x114f8a, metalness: 0.03, roughness: 0.7 };
 			case 'pad-custom-a':
 			case 'pad-custom-b':
 			case 'pad-custom-c': {
@@ -1418,7 +1423,7 @@
 
 			const normalizedType = cell.elevatedType === 'slope-down' ? 'slope-up' : cell.elevatedType;
 			const normalizedOrient = cell.elevatedType === 'slope-down' ? ( ORIENT_180[ cell.elevatedOrient || 0 ] ?? ( cell.elevatedOrient || 0 ) ) : ( cell.elevatedOrient || 0 );
-			const sourceType = ( normalizedType === 'elevated-corner' )
+			const sourceType = ( normalizedType === 'elevated-corner' || normalizedType === 'halfpipe-corner' )
 				? 'track-corner'
 				: ( normalizedType === 'elevated-checkpoint' ? 'track-finish' : 'track-straight' );
 			const elevatedSrc = models[ sourceType ];
@@ -1433,6 +1438,11 @@
 					elevated.rotation.order = 'YXZ';
 					elevated.rotation.x = - SLOPE_ANGLE;
 					elevated.scale.z = 1.08;
+
+				} else if ( normalizedType === 'halfpipe-straight' || normalizedType === 'halfpipe-corner' ) {
+
+					elevated.rotation.order = 'YXZ';
+					elevated.scale.set( 1.02, 1.02, 1.02 );
 
 				}
 				elevated.traverse( ( c ) => {
@@ -2606,6 +2616,8 @@ function refreshMovingSpeedUi() {
 		'elevated-corner': document.getElementById( 'btn-elevated-corner' ),
 		'elevated-checkpoint': document.getElementById( 'btn-elevated-checkpoint' ),
 		'slope-up': document.getElementById( 'btn-slope-up' ),
+		'halfpipe-straight': document.getElementById( 'btn-halfpipe-straight' ),
+		'halfpipe-corner': document.getElementById( 'btn-halfpipe-corner' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
