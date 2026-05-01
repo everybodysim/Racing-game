@@ -5,16 +5,22 @@
 <script>
 (()=>{const API='https://racing-track-board-api.ga1010.workers.dev/api/tracks',COMP_API=(localStorage.getItem('racing-competitions-api-base')||'https://racing-competitions-api.ga1010.workers.dev').replace(/\/$/, ''),ECON='racing-economy-v1',COMP='racing-competitions-v3',PLAYER='racing-player-name-v1';
 const tiers=[{tier:1,min:5,max:20,fee:500},{tier:2,min:8,max:20,fee:1500},{tier:3,min:10,max:20,fee:5000},{tier:4,min:20,max:35,fee:7000},{tier:5,min:30,max:45,fee:14000},{tier:6,min:45,max:60,fee:25000},{tier:7,min:60,max:75,fee:40000},{tier:8,min:75,max:90,fee:70000},{tier:9,min:90,max:99,fee:99000}];
-const weeklySeed=Math.round(Math.floor(Date.now()/86400000)/7); let selected=1,state=load(),tracks=[];
-const rng=(seed)=>()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296};
+const WEEK_MS=7*24*60*60*1000;
+const weekIndexFromTs=(ts)=>Math.floor(Number(ts)/WEEK_MS);
+const weekStartFromIndex=(idx)=>idx*WEEK_MS;
+const weekEndFromIndex=(idx)=>weekStartFromIndex(idx+1);
+const currentWeekIndex=weekIndexFromTs(Date.now());
+const weeklySeed=String(currentWeekIndex);
+let selected=1,state=load(),tracks=[];
 function decodeMapCells(playUrl){try{const u=new URL(playUrl,window.location.href);const m=u.searchParams.get('map');if(!m)return [];const n=m.replace(/-/g,'+').replace(/_/g,'/');const p=n+'='.repeat((4-n.length%4)%4);const bin=atob(p);const cells=[];for(let i=0;i+2<bin.length;i+=3){cells.push([bin.charCodeAt(i)-128,bin.charCodeAt(i+1)-128]);}return cells;}catch{return []}}
 function load(){try{return JSON.parse(localStorage.getItem(COMP)||'{}')}catch{return {}}} function save(){localStorage.setItem(COMP,JSON.stringify(state))}
 function eco(){try{return JSON.parse(localStorage.getItem(ECON)||'{}')}catch{return {}}} function setCoins(c){localStorage.setItem(ECON,JSON.stringify({coins:c}))}
 function name(){return (localStorage.getItem(PLAYER)||'Player').trim()||'Player'} const fmt=(n)=>Number(n||0).toLocaleString(); const sec=(n)=>Number(n).toFixed(2)+'s';
 function status(m,e=false){const el=document.getElementById('status');el.textContent=m;el.className='status '+(e?'err':'ok')}
 function tierUnlocked(t){return t<=(state.unlockTier||1)} function unlockCost(t){return Math.round(t.fee*1.35)}
-function ensureEvent(t){state.events??={};const key=`${weeklySeed}-${t}`;if(!state.events[t]||state.events[t].seed!==key){const tr=pickTrack(t);state.events[t]={seed:key,pool:0,entries:0,lb:[],track:tr}}return state.events[t]}
-function pickTrack(tier){const cfg=tiers[tier-1];const filtered=tracks.filter(x=>Number.isFinite(Number(x.bestLapSeconds))&&Number(x.bestLapSeconds)>=cfg.min&&Number(x.bestLapSeconds)<=cfg.max&&typeof x.playUrl==='string');const pool=filtered.length?filtered:tracks.filter(x=>typeof x.playUrl==='string');if(!pool.length)return {name:'No track found',playUrl:'index.html?play=1',bestLapSeconds:(cfg.min+cfg.max)/2};const r=rng((weeklySeed*1009)+(tier*917));return pool[Math.floor(r()*pool.length)]}
+function ensureEvent(t){state.events??={};const key=`${weeklySeed}-${t}`;if(!state.events[t]||state.events[t].seed!==key){const tr=pickTrack(t);state.events[t]={seed:key,pool:0,entries:0,lb:[],track:tr,weekIndex:currentWeekIndex};}return state.events[t]}
+function normalizedTrackPoolForTier(tier){const cfg=tiers[tier-1];const allPlayable=tracks.filter((x)=>typeof x?.playUrl==='string'&&x.playUrl.trim());const filtered=allPlayable.filter((x)=>{const best=Number(x?.bestLapSeconds);return Number.isFinite(best)&&best>=cfg.min&&best<=cfg.max;});const pool=(filtered.length?filtered:allPlayable).slice();pool.sort((a,b)=>{const ka=`${String(a?.playUrl||'')}|${String(a?.name||'')}`;const kb=`${String(b?.playUrl||'')}|${String(b?.name||'')}`;return ka.localeCompare(kb);});return pool;}
+function pickTrack(tier){const cfg=tiers[tier-1];const pool=normalizedTrackPoolForTier(tier);if(!pool.length)return {name:'No track found',playUrl:'index.html?play=1',bestLapSeconds:(cfg.min+cfg.max)/2};const weekSeed=Math.max(0,Number(currentWeekIndex)||0);const index=(weekSeed*31+tier*17)%pool.length;return pool[index];}
 function drawPreview(){const c=document.getElementById('preview'),ctx=c.getContext('2d');const g=document.getElementById('gridPreview'),gctx=g.getContext('2d');ctx.fillStyle='#0f1522';ctx.fillRect(0,0,c.width,c.height);gctx.fillStyle='#0f1522';gctx.fillRect(0,0,g.width,g.height);const e=ensureEvent(selected);if(!tierUnlocked(selected)){for(const x of [ctx,gctx]){x.fillStyle='#fff';x.font='bold 26px sans-serif';x.fillText('🔒 Unlock this tier',20,115);}return;}ctx.fillStyle='#8cd3ff';ctx.font='bold 20px sans-serif';ctx.fillText('Track Share Board selection',20,32);ctx.fillStyle='#cfe6ff';ctx.fillText(e.track.name||'Shared Track',20,58);ctx.fillStyle='#9be7bf';ctx.fillText('Estimated: '+sec(e.track.bestLapSeconds||0),20,84);ctx.fillStyle='#aac4dd';ctx.fillText('Weekly Seed '+weeklySeed+' • Tier '+selected,20,110);ctx.fillStyle='#bad0ea';ctx.fillText('Entry fee: '+fmt(tiers[selected-1].fee)+' coins',20,145);ctx.fillText('Prize pool grows from all entries.',20,170);ctx.fillText('Top 3 split: 60% / 28% / 12%',20,195);const cells=decodeMapCells(e.track.playUrl);gctx.fillStyle='#8cd3ff';gctx.font='bold 16px sans-serif';gctx.fillText('Track Grid Preview',14,24);if(!cells.length){gctx.fillStyle='#ffd66b';gctx.fillText('No map cells found for this shared track.',14,54);return;}const xs=cells.map(v=>v[0]),zs=cells.map(v=>v[1]);const minX=Math.min(...xs),maxX=Math.max(...xs),minZ=Math.min(...zs),maxZ=Math.max(...zs);const w=Math.max(1,maxX-minX+1),h=Math.max(1,maxZ-minZ+1);const cell=Math.max(3,Math.floor(Math.min((g.width-30)/w,(g.height-50)/h)));const ox=14,oy=36;for(const [x,z] of cells){gctx.fillStyle='rgba(130,220,255,0.88)';gctx.fillRect(ox+(x-minX)*cell,oy+(z-minZ)*cell,cell-1,cell-1);}gctx.strokeStyle='rgba(255,255,255,0.28)';gctx.strokeRect(ox-1,oy-1,w*cell+2,h*cell+2)}
 
 async function syncEventFromBackend(tier){
@@ -26,13 +32,42 @@ async function syncEventFromBackend(tier){
   }catch{}
 }
 
-function render(){document.getElementById('coins').textContent='Coins: '+fmt(eco().coins||0);document.getElementById('seed').textContent='Week Seed: '+weeklySeed;const tbox=document.getElementById('tiers');tbox.innerHTML='';tiers.forEach(t=>{const b=document.createElement('button');b.className='tier-btn'+(selected===t.tier?' active':'');const locked=!tierUnlocked(t.tier);b.textContent=`Tier ${t.tier} • ${t.min}-${t.max}s • Fee ${fmt(t.fee)}${locked?' • Locked':''}`;b.onclick=()=>{selected=t.tier;render()};tbox.appendChild(b)});
-const cfg=tiers[selected-1],ev=ensureEvent(selected);document.getElementById('title').textContent=`Tier ${selected} Competition`;document.getElementById('trackMeta').textContent=`Track: ${ev.track.name||'Shared Track'}`;document.getElementById('dur').textContent=`${cfg.min}-${cfg.max}s`;document.getElementById('fee').textContent=fmt(cfg.fee);document.getElementById('pool').textContent=fmt(ev.pool);document.getElementById('left').textContent='Resets weekly';document.getElementById('src').textContent='Track Share Board';document.getElementById('payouts').textContent=`${fmt(Math.floor(ev.pool*.6))}/${fmt(Math.floor(ev.pool*.28))}/${fmt(Math.floor(ev.pool*.12))}`;drawPreview();
+function render(){document.getElementById('coins').textContent='Coins: '+fmt(eco().coins||0);const weekStart=new Date(weekStartFromIndex(currentWeekIndex));const weekEndDate=new Date(weekEndFromIndex(currentWeekIndex));document.getElementById('seed').textContent=`Week ${weeklySeed} (${weekStart.toLocaleDateString()} - ${weekEndDate.toLocaleDateString()})`;const tbox=document.getElementById('tiers');tbox.innerHTML='';tiers.forEach(t=>{const b=document.createElement('button');b.className='tier-btn'+(selected===t.tier?' active':'');const locked=!tierUnlocked(t.tier);b.textContent=`Tier ${t.tier} • ${t.min}-${t.max}s • Fee ${fmt(t.fee)}${locked?' • Locked':''}`;b.onclick=()=>{selected=t.tier;render()};tbox.appendChild(b)});
+const cfg=tiers[selected-1],ev=ensureEvent(selected);document.getElementById('title').textContent=`Tier ${selected} Competition`;document.getElementById('trackMeta').textContent=`Track: ${ev.track.name||'Shared Track'}`;document.getElementById('dur').textContent=`${cfg.min}-${cfg.max}s`;document.getElementById('fee').textContent=fmt(cfg.fee);document.getElementById('pool').textContent=fmt(ev.pool);const weekEnd=weekEndFromIndex(currentWeekIndex);const leftMs=Math.max(0,weekEnd-Date.now());const d=Math.floor(leftMs/86400000),h=Math.floor((leftMs%86400000)/3600000),m=Math.floor((leftMs%3600000)/60000);document.getElementById('left').textContent=`${d}d ${h}h ${m}m`;document.getElementById('src').textContent='Track Share Board';document.getElementById('payouts').textContent=`${fmt(Math.floor(ev.pool*.6))}/${fmt(Math.floor(ev.pool*.28))}/${fmt(Math.floor(ev.pool*.12))}`;drawPreview();
 const ub=document.getElementById('unlockBtn');ub.disabled=tierUnlocked(selected)||selected!==(state.unlockTier||1)+1;ub.textContent=tierUnlocked(selected)?'Unlocked':`Unlock Tier (${fmt(unlockCost(cfg))})`;const eb=document.getElementById('enterBtn');eb.disabled=!tierUnlocked(selected);
 const lb=ev.lb.slice().sort((a,b)=>a.time-b.time);const lead=lb[0]?.time||null;const rows=document.getElementById('rows');rows.innerHTML=lb.length?'':'<tr><td colspan="4">No competition times yet.</td></tr>';lb.forEach((r,i)=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${i+1}</td><td>${r.name}</td><td>${sec(r.time)}</td><td>${lead?`+${(r.time-lead).toFixed(2)}s`:'--'}</td>`;rows.appendChild(tr)});save()}
 function unlockTier(){const cfg=tiers[selected-1];const allowed=(state.unlockTier||1)+1;if(selected!==allowed)return;let coins=Math.floor(Number(eco().coins)||0),cost=unlockCost(cfg);if(coins<cost)return status('Not enough coins to unlock tier.',true);coins-=cost;setCoins(coins);state.unlockTier=selected;status('Tier unlocked.');render()}
 async function enterCompetition(){const cfg=tiers[selected-1],ev=ensureEvent(selected);let coins=Math.floor(Number(eco().coins)||0);if(coins<cfg.fee)return status('Insufficient coins for entry fee.',true);coins-=cfg.fee;setCoins(coins);try{await fetch(`${COMP_API}/api/competitions/enter`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tier:selected,seed:ev.seed,fee:cfg.fee})});}catch{}await syncEventFromBackend(selected);state.pending={tier:selected,seed:ev.seed,playUrl:ev.track.playUrl};save();const url=new URL(ev.track.playUrl,window.location.href);url.searchParams.set('competition','1');url.searchParams.set('competitionTier',String(selected));url.searchParams.set('competitionSeed',String(ev.seed));url.searchParams.set('competitionReturn','competitions.html');window.location.href=url.toString()}
 async function applyResult(){const p=new URLSearchParams(window.location.search);if(p.get('competitionResult')!=='1')return;const t=Number(p.get('tier')),seed=String(p.get('seed')||''),time=Number(p.get('time'));if(!Number.isFinite(t)||!Number.isFinite(time)||!seed)return;const me=name();try{await fetch(`${COMP_API}/api/competitions/submit`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tier:t,seed,time,player:me})});}catch{}await syncEventFromBackend(t);status(`Competition result recorded: ${sec(time)}`);const clean=new URL(window.location.href);clean.search='';history.replaceState(null,'',clean.toString());save()}
-async function init(){state.unlockTier=state.unlockTier||1;await applyResult();status('Loading track share board tracks...');try{const res=await fetch(API);const data=await res.json();tracks=Array.isArray(data?.entries)?data.entries:[];status(`Loaded ${tracks.length} shared tracks.`);}catch(e){status('Failed to load track board tracks.',true);tracks=[];}await syncEventFromBackend(selected);render()}
+
+async function settlePreviousWeekPayouts(){
+  state.settledWeeks ??= {};
+  const previousWeek = String(currentWeekIndex - 1);
+  if (!Number.isFinite(Number(previousWeek)) || Number(previousWeek) < 0) return;
+  const playerName = name();
+  let payoutTotal = 0;
+  for (const cfg of tiers){
+    const settleKey = `${previousWeek}-${cfg.tier}-${playerName}`;
+    if (state.settledWeeks[settleKey]) continue;
+    try {
+      const res = await fetch(`${COMP_API}/api/competitions/event?tier=${encodeURIComponent(String(cfg.tier))}&seed=${encodeURIComponent(`${previousWeek}-${cfg.tier}`)}`);
+      const data = await res.json();
+      if (!data?.ok || !data?.event) { state.settledWeeks[settleKey]=true; continue; }
+      const lb = Array.isArray(data.event.leaderboard) ? data.event.leaderboard : [];
+      const rank = lb.findIndex((row)=>String(row?.name||'')===playerName);
+      const pool = Number(data.event.pool || 0);
+      const splits = [0.6,0.28,0.12];
+      if (rank >= 0 && rank < splits.length && pool > 0){ payoutTotal += Math.floor(pool * splits[rank]); }
+      state.settledWeeks[settleKey]=true;
+    } catch {}
+  }
+  if (payoutTotal > 0){
+    const coins = Math.floor(Number(eco().coins)||0) + payoutTotal;
+    setCoins(coins);
+    status(`Previous week prizes paid: +${fmt(payoutTotal)} coins`);
+  }
+  save();
+}
+async function init(){state.unlockTier=state.unlockTier||1;await applyResult();await settlePreviousWeekPayouts();status('Loading track share board tracks...');try{const res=await fetch(API);const data=await res.json();tracks=Array.isArray(data?.entries)?data.entries:[];status(`Loaded ${tracks.length} shared tracks.`);}catch(e){status('Failed to load track board tracks.',true);tracks=[];}await syncEventFromBackend(selected);render()}
 document.getElementById('unlockBtn').onclick=unlockTier;document.getElementById('enterBtn').onclick=enterCompetition;init();})();
 </script></body></html>
