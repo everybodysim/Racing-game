@@ -4350,13 +4350,13 @@ async function init() {
 
 	}
 
-	function updateAirTrickStateFor( targetVehicle, activePadEffect, state, dt ) {
+	function updateAirTrickStateFor( targetVehicle, activePadEffect, state, dt, onTrickFinished = null ) {
 
 		if ( ! targetVehicle || ! state ) return;
 		const trick = activePadEffect?.trick || null;
 		const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
 		const airborne = targetVehicle.spherePos.y > 0.62 || Math.abs( verticalVel ) > 0.35;
-		if ( ! trick || ! airborne ) {
+			if ( ! trick || ! airborne ) {
 			state.active = false;
 			state.progress = 0;
 			return;
@@ -4378,9 +4378,16 @@ async function init() {
 
 		state.progress = Math.min( 1, state.progress + dt / 0.62 );
 		const smoothT = state.progress * state.progress * ( 3 - 2 * state.progress );
-			const targetQuat = state.baseQuat.clone().multiply( state.deltaQuat );
-			targetVehicle.container.quaternion.copy( state.baseQuat ).slerp( targetQuat, smoothT );
-			targetVehicle.container.updateMatrixWorld( true );
+		const targetQuat = state.baseQuat.clone().multiply( state.deltaQuat );
+		targetVehicle.container.quaternion.copy( state.baseQuat ).slerp( targetQuat, smoothT );
+		targetVehicle.container.updateMatrixWorld( true );
+		if ( state.progress >= 1 ) {
+
+			state.active = false;
+			state.progress = 0;
+			if ( onTrickFinished ) onTrickFinished();
+
+		}
 
 	}
 
@@ -6454,7 +6461,13 @@ async function init() {
 
 			}, () => activePadEffect ) || null;
 			activeSurfaceType = findActiveSurfaceTypeFor( vehicle );
-			updateAirTrickStateFor( vehicle, activePadEffect, airTrickState, dt );
+			updateAirTrickStateFor( vehicle, activePadEffect, airTrickState, dt, () => {
+
+				if ( ! activePadEffect?.trick ) return;
+				const { trick, ...rest } = activePadEffect;
+				activePadEffect = Object.keys( rest ).length ? rest : null;
+
+			} );
 			applySurfaceGrip( vehicle, activeSurfaceType, activePadEffect );
 			if ( activeSurfaceType && activeSurfaceType !== lastSurfaceNotifyType && ! activeSurfaceType.startsWith( 'pad-' ) ) showEffectPopup( `Effect applied: ${ activeSurfaceType.replace( /^surface-/, '' ).replace( /-/g, ' ' ) }` );
 			lastSurfaceNotifyType = activeSurfaceType;
@@ -6472,7 +6485,13 @@ async function init() {
 
 			}, () => activePadEffect2 ) || null;
 			activeSurfaceType2 = findActiveSurfaceTypeFor( vehicle2 );
-			updateAirTrickStateFor( vehicle2, activePadEffect2, airTrickState2, dt );
+				updateAirTrickStateFor( vehicle2, activePadEffect2, airTrickState2, dt, () => {
+
+					if ( ! activePadEffect2?.trick ) return;
+					const { trick, ...rest } = activePadEffect2;
+					activePadEffect2 = Object.keys( rest ).length ? rest : null;
+
+				} );
 			applySurfaceGrip( vehicle2, activeSurfaceType2, activePadEffect2 );
 			if ( activeSurfaceType2 && activeSurfaceType2 !== lastSurfaceNotifyType2 && ! activeSurfaceType2.startsWith( 'pad-' ) ) showEffectPopup( `Effect applied: ${ activeSurfaceType2.replace( /^surface-/, '' ).replace( /-/g, ' ' ) }` );
 			lastSurfaceNotifyType2 = activeSurfaceType2;
