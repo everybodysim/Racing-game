@@ -409,6 +409,7 @@ function initMultiplayerPanel() {
 	const hostBtn = document.getElementById( 'mp-host-btn' );
 	const joinBtn = document.getElementById( 'mp-join-btn' );
 	const copyBtn = document.getElementById( 'mp-copy-btn' );
+	const refreshBtn = document.getElementById( 'mp-refresh-btn' );
 	const codeInput = document.getElementById( 'mp-code-input' );
 	if ( ! hostBtn || ! joinBtn || ! copyBtn || ! codeInput ) return;
 
@@ -562,6 +563,19 @@ function initMultiplayerPanel() {
 			updateMultiplayerStatus( `Copy failed. Room code: ${ code }` );
 
 		}
+
+	} );
+
+	refreshBtn?.addEventListener( 'click', async () => {
+
+		if ( ! multiplayerSessionState.roomCode ) {
+
+			updateMultiplayerStatus( 'Join or host a room first.' );
+			return;
+
+		}
+		updateMultiplayerStatus( `Refreshing room ${ multiplayerSessionState.roomCode } sync...` );
+		await syncMultiplayerTransforms( { force: true } );
 
 	} );
 
@@ -1368,6 +1382,7 @@ async function init() {
 			nameTag: null,
 			targetPos: mesh.position.clone(),
 			targetRotY: mesh.rotation.y,
+			lastSeenAt: 0,
 		};
 		remotePlayerVisuals.set( playerId, state );
 		return state;
@@ -1432,11 +1447,12 @@ async function init() {
 	}
 
 	let multiplayerSyncInFlight = false;
-	async function syncMultiplayerTransforms() {
+	async function syncMultiplayerTransforms( options = {} ) {
 
 		const roomCode = multiplayerSessionState.roomCode;
 		if ( ! roomCode ) return;
 		if ( multiplayerSyncInFlight ) return;
+		const force = Boolean( options?.force );
 		const now = Date.now();
 		const mapSignature = getCurrentMapSignature();
 		const localPayload = {
@@ -1465,11 +1481,12 @@ async function init() {
 				if ( playerId === multiplayerSessionState.clientId ) continue;
 				if ( ! canJoinMap( playerState?.mapSignature, mapSignature ) ) continue;
 				const updatedAt = Number( playerState?.updatedAt ) || 0;
-				if ( now - updatedAt > REMOTE_PLAYER_STALE_MS ) continue;
+				if ( ! force && now - updatedAt > REMOTE_PLAYER_STALE_MS ) continue;
 				const visualState = ensureRemotePlayerVisualWithCosmetics( playerId, playerState?.carKey, playerState?.cosmetics );
 				ensureRemoteNameTag( visualState, playerState?.name || room?.lapTimes?.[ playerId ]?.name || 'Player' );
 				visualState.targetPos.set( Number( playerState?.x ) || 0, ( Number( playerState?.y ) || 0 ) - 0.1, Number( playerState?.z ) || 0 );
 				visualState.targetRotY = Math.PI - ( Number( playerState?.ry ) || 0 );
+				visualState.lastSeenAt = now;
 				seen.add( playerId );
 
 			}
@@ -1477,6 +1494,8 @@ async function init() {
 			for ( const existingId of [ ...remotePlayerVisuals.keys() ] ) {
 
 				if ( seen.has( existingId ) ) continue;
+				const existing = remotePlayerVisuals.get( existingId );
+				if ( existing && now - ( Number( existing.lastSeenAt ) || 0 ) <= REMOTE_PLAYER_STALE_MS * 2 ) continue;
 				removeRemotePlayerVisual( existingId );
 
 			}
@@ -1626,21 +1645,24 @@ async function init() {
 		}
 		if ( centers.length < 2 ) return;
 		const maxSpread = Math.max( 0.05, ...spreads );
-		for ( let i = 0; i < centers.length - 1; i ++ ) {
+		const curve = new THREE.CatmullRomCurve3( centers, false, 'centripetal', 0.45 );
+		const tubeSegments = Math.max( 48, centers.length * 3 );
+		const geometry = new THREE.TubeGeometry( curve, tubeSegments, 0.12, 8, false ).toNonIndexed();
+		const colorArray = new Float32Array( geometry.attributes.position.count * 3 );
+		for ( let i = 0; i < geometry.attributes.position.count; i ++ ) {
 
-			const a = centers[ i ];
-			const b = centers[ i + 1 ];
-			positions.push( a.x, a.y, a.z, b.x, b.y, b.z );
-			const heat = THREE.MathUtils.clamp( ( ( spreads[ i ] + spreads[ i + 1 ] ) * 0.5 ) / maxSpread, 0, 1 );
+			const t = i / Math.max( 1, geometry.attributes.position.count - 1 );
+			const spreadIndex = Math.min( spreads.length - 1, Math.round( t * ( spreads.length - 1 ) ) );
+			const heat = THREE.MathUtils.clamp( spreads[ spreadIndex ] / maxSpread, 0, 1 );
 			const color = new THREE.Color().setHSL( 0.33 * ( 1 - heat ), 0.95, 0.5 );
-			colors.push( color.r, color.g, color.b, color.r, color.g, color.b );
+			colorArray[ i * 3 ] = color.r;
+			colorArray[ i * 3 + 1 ] = color.g;
+			colorArray[ i * 3 + 2 ] = color.b;
 
 		}
-		const geometry = new THREE.BufferGeometry();
-		geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
-		geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( colors, 3 ) );
-		const material = new THREE.LineBasicMaterial( { vertexColors: true, transparent: true, opacity: 0.95 } );
-		ghostSpreadLine = new THREE.LineSegments( geometry, material );
+		geometry.setAttribute( 'color', new THREE.BufferAttribute( colorArray, 3 ) );
+		const material = new THREE.MeshBasicMaterial( { vertexColors: true, transparent: true, opacity: 0.95 } );
+		ghostSpreadLine = new THREE.Mesh( geometry, material );
 		scene.add( ghostSpreadLine );
 
 	}
@@ -1946,7 +1968,7 @@ async function init() {
 			if ( state?.model ) scene.remove( state.model );
 
 		}
-		if ( ! ghostEnabled || ! fxSettings.recentGhostsEnabled ) return;
+		if ( ! ghostEnabled || ! fxSettings.recentGhostsEnabled || ! fxSettings.recentGhostPathEnabled ) return;
 		const targetCount = Math.max( 1, Math.min( 100, fxSettings.recentGhostCount ) );
 		for ( const entry of recentGhostHistory.slice( 0, targetCount ) ) {
 
@@ -2193,12 +2215,14 @@ async function init() {
 	}
 	const fxSettings = {
 		recentGhostsEnabled: false,
+		recentGhostPathEnabled: true,
 		recentGhostCount: 3,
 	};
 	try {
 
 		const parsed = JSON.parse( localStorage.getItem( FX_SETTINGS_KEY ) || '{}' );
 		if ( typeof parsed?.recentGhostsEnabled === 'boolean' ) fxSettings.recentGhostsEnabled = parsed.recentGhostsEnabled;
+		if ( typeof parsed?.recentGhostPathEnabled === 'boolean' ) fxSettings.recentGhostPathEnabled = parsed.recentGhostPathEnabled;
 		if ( Number.isFinite( Number( parsed?.recentGhostCount ) ) ) fxSettings.recentGhostCount = THREE.MathUtils.clamp( Math.round( Number( parsed.recentGhostCount ) ), 1, 20 );
 
 	} catch {}
@@ -2214,9 +2238,11 @@ async function init() {
 	fxPanel.style.borderRadius = '8px';
 	fxPanel.style.font = '12px/1.3 sans-serif';
 	fxPanel.innerHTML = `<label style="display:block;margin-bottom:4px;"><input id="fx-recent-ghosts" type="checkbox" ${ fxSettings.recentGhostsEnabled ? 'checked' : '' }> Show recent ghosts</label>
+	<label style="display:block;margin-bottom:4px;"><input id="fx-recent-ghost-path" type="checkbox" ${ fxSettings.recentGhostPathEnabled ? 'checked' : '' }> Show ghost spread path</label>
 	<label style="display:block;margin-top:4px;">Recent ghost count <input id="fx-recent-ghost-count" type="number" min="1" max="100" step="1" value="${ fxSettings.recentGhostCount }" style="width:100%;margin-top:3px;background:#0f1520;color:#e9f5ff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:2px 4px;"></label>`;
 	document.body.appendChild( fxPanel );
 	const fxRecentGhostsInput = fxPanel.querySelector( '#fx-recent-ghosts' );
+	const fxRecentGhostPathInput = fxPanel.querySelector( '#fx-recent-ghost-path' );
 	const fxRecentGhostCountSelect = fxPanel.querySelector( '#fx-recent-ghost-count' );
 	if ( fxRecentGhostCountSelect ) fxRecentGhostCountSelect.value = String( fxSettings.recentGhostCount );
 	const saveFxSettings = () => localStorage.setItem( FX_SETTINGS_KEY, JSON.stringify( fxSettings ) );
@@ -2225,6 +2251,13 @@ async function init() {
 		fxSettings.recentGhostsEnabled = Boolean( fxRecentGhostsInput.checked );
 		saveFxSettings();
 		rebuildRecentGhostVisuals();
+		rebuildGhostSpreadLine();
+
+	} );
+	fxRecentGhostPathInput?.addEventListener( 'change', () => {
+
+		fxSettings.recentGhostPathEnabled = Boolean( fxRecentGhostPathInput.checked );
+		saveFxSettings();
 		rebuildGhostSpreadLine();
 
 	} );
