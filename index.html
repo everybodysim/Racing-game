@@ -110,6 +110,41 @@
 			font: 600 11px/1.35 sans-serif;
 		}
 		#mp-lb-list li { margin: 2px 0; }
+		#competitions-warning-overlay {
+			position: fixed;
+			inset: 0;
+			z-index: 120;
+			display: none;
+			align-items: center;
+			justify-content: center;
+			background: rgba(0,0,0,0.72);
+			padding: 16px;
+		}
+		#competitions-warning-overlay.visible { display: flex; }
+		#competitions-warning-dialog {
+			width: min(420px, 100%);
+			background: rgba(15,18,24,0.96);
+			border: 1px solid rgba(255,255,255,0.24);
+			border-radius: 12px;
+			padding: 16px;
+			color: #fff;
+			font: 600 14px/1.4 sans-serif;
+			box-shadow: 0 14px 30px rgba(0,0,0,0.45);
+		}
+		#competitions-warning-dialog h2 { margin: 0 0 8px; font: 700 18px/1.2 sans-serif; }
+		#competitions-warning-countdown { margin: 8px 0 0; color: #bde6ff; }
+		#competitions-warning-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+		#competitions-warning-actions button {
+			border: 1px solid rgba(255,255,255,0.28);
+			border-radius: 8px;
+			background: rgba(255,255,255,0.12);
+			color: #fff;
+			padding: 8px 12px;
+			font: 700 13px/1 sans-serif;
+			cursor: pointer;
+		}
+		#competitions-warning-actions button:hover { background: rgba(255,255,255,0.2); }
+		#competitions-warning-skip-row { display: inline-flex; align-items: center; gap: 6px; font: 600 12px/1.2 sans-serif; }
 
 #share-time-btn:disabled {
 			opacity: 0.5;
@@ -995,6 +1030,20 @@
 			<ol id="mp-lb-list"></ol>
 		</div>
 	</div>
+	<div id="competitions-warning-overlay" role="presentation" aria-hidden="true">
+		<div id="competitions-warning-dialog" role="dialog" aria-modal="true" aria-labelledby="competitions-warning-title">
+			<h2 id="competitions-warning-title">Competitions notice</h2>
+			<p id="competitions-warning-message">Competitions are still being finalized. Entering in 3…</p>
+			<p id="competitions-warning-countdown" aria-live="polite" aria-atomic="true"></p>
+			<div id="competitions-warning-actions">
+				<label id="competitions-warning-skip-row">
+					<input id="competitions-warning-skip" type="checkbox">
+					Don’t show again this session
+				</label>
+				<button id="competitions-warning-cancel" type="button">Cancel</button>
+			</div>
+		</div>
+	</div>
 	<script>
 		const map = new URLSearchParams( location.search ).get( 'map' );
 		const pack = new URLSearchParams( location.search ).get( 'pack' );
@@ -1024,7 +1073,79 @@
 	</script>
 
 	<script>
-		document.querySelectorAll('[data-out-of-order="1"]').forEach((node)=>{node.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();alert('Competitions is temporarily out of order and will be back soon.');});});
+		const competitionsEntryLinks = [
+			document.getElementById( 'competitions-link' ),
+			document.querySelector( 'a.home-main-link[href="competitions.html"][data-out-of-order="1"]' )
+		].filter( Boolean );
+		const competitionsWarningOverlay = document.getElementById( 'competitions-warning-overlay' );
+		const competitionsWarningMessage = document.getElementById( 'competitions-warning-message' );
+		const competitionsWarningCountdown = document.getElementById( 'competitions-warning-countdown' );
+		const competitionsWarningCancel = document.getElementById( 'competitions-warning-cancel' );
+		const competitionsWarningSkip = document.getElementById( 'competitions-warning-skip' );
+		const competitionsSkipSessionKey = 'competitions-warning-skip-session';
+		let competitionsWarningTimer = null;
+		let competitionsCountdownValue = 0;
+		let competitionsRedirectTarget = 'competitions.html';
+		let competitionsLastFocused = null;
+
+		function updateCompetitionsCountdown() {
+			competitionsWarningMessage.textContent = `Competitions are still being finalized. Entering in ${ competitionsCountdownValue }…`;
+			competitionsWarningCountdown.textContent = `Redirecting in ${ competitionsCountdownValue } second${ competitionsCountdownValue === 1 ? '' : 's' }.`;
+		}
+
+		function closeCompetitionsWarning( { restoreFocus = true } = {} ) {
+			if ( competitionsWarningTimer ) {
+				window.clearInterval( competitionsWarningTimer );
+				competitionsWarningTimer = null;
+			}
+			competitionsWarningOverlay.classList.remove( 'visible' );
+			competitionsWarningOverlay.setAttribute( 'aria-hidden', 'true' );
+			if ( restoreFocus ) competitionsLastFocused?.focus?.();
+		}
+
+		function startCompetitionsCountdown() {
+			competitionsCountdownValue = 3;
+			updateCompetitionsCountdown();
+			competitionsWarningTimer = window.setInterval( () => {
+				competitionsCountdownValue -= 1;
+				if ( competitionsCountdownValue <= 0 ) {
+					closeCompetitionsWarning( { restoreFocus: false } );
+					location.href = competitionsRedirectTarget;
+					return;
+				}
+				updateCompetitionsCountdown();
+			}, 1000 );
+		}
+
+		function openCompetitionsWarning( targetHref ) {
+			competitionsLastFocused = document.activeElement;
+			competitionsRedirectTarget = targetHref || 'competitions.html';
+			competitionsWarningOverlay.classList.add( 'visible' );
+			competitionsWarningOverlay.setAttribute( 'aria-hidden', 'false' );
+			competitionsWarningCancel.focus();
+			startCompetitionsCountdown();
+		}
+
+		competitionsWarningCancel?.addEventListener( 'click', () => closeCompetitionsWarning() );
+		competitionsWarningSkip?.addEventListener( 'change', () => {
+			if ( competitionsWarningSkip.checked ) {
+				sessionStorage.setItem( competitionsSkipSessionKey, '1' );
+			} else {
+				sessionStorage.removeItem( competitionsSkipSessionKey );
+			}
+		} );
+
+		if ( competitionsWarningSkip ) {
+			competitionsWarningSkip.checked = sessionStorage.getItem( competitionsSkipSessionKey ) === '1';
+		}
+
+		competitionsEntryLinks.forEach( ( node ) => {
+			node.addEventListener( 'click', ( event ) => {
+				if ( sessionStorage.getItem( competitionsSkipSessionKey ) === '1' ) return;
+				event.preventDefault();
+				openCompetitionsWarning( node.getAttribute( 'href' ) || 'competitions.html' );
+			} );
+		} );
 		const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
 		const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
 		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'coin-leaderboard-link', 'competitions-link', 'replay-link', 'tracks-link', 'mods-link', 'hacks-toggle', 'split-link' ];
