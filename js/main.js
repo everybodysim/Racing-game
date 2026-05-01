@@ -1521,6 +1521,130 @@ async function init() {
 	const recentGhostPlayers = [];
 	let bestGhostCheckpointTimes = [];
 
+	let ghostSpreadLine = null;
+	const _ghostSpreadSampleVec = new THREE.Vector3();
+
+	function sampleGhostPositionAtTime( samples, duration, t, out = _ghostSpreadSampleVec ) {
+
+		if ( ! Array.isArray( samples ) || samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return null;
+		const wrapped = ( ( t % duration ) + duration ) % duration;
+		let nextIndex = samples.findIndex( ( sample ) => sample.t >= wrapped );
+		if ( nextIndex <= 0 ) nextIndex = 1;
+		const sampleA = samples[ nextIndex - 1 ];
+		const sampleB = samples[ nextIndex ];
+		const span = Math.max( 1e-4, sampleB.t - sampleA.t );
+		const alpha = THREE.MathUtils.clamp( ( wrapped - sampleA.t ) / span, 0, 1 );
+		out.set(
+			THREE.MathUtils.lerp( sampleA.x, sampleB.x, alpha ),
+			THREE.MathUtils.lerp( sampleA.y, sampleB.y, alpha ),
+			THREE.MathUtils.lerp( sampleA.z, sampleB.z, alpha )
+		);
+		return out;
+
+	}
+
+	function rebuildGhostSpreadLine() {
+
+		if ( ghostSpreadLine ) {
+
+			scene.remove( ghostSpreadLine );
+			ghostSpreadLine.geometry?.dispose?.();
+			ghostSpreadLine.material?.dispose?.();
+			ghostSpreadLine = null;
+
+		}
+		if ( ! ghostEnabled || ! fxSettings.recentGhostsEnabled ) return;
+		const visibleGhosts = [];
+		if ( bestLapGhostSamples.length >= 2 && Number.isFinite( bestGhostDuration ) && bestGhostDuration > 0 ) {
+
+			visibleGhosts.push( { samples: bestLapGhostSamples, duration: bestGhostDuration } );
+
+		}
+		for ( const state of leaderboardGhostPlayers.values() ) {
+
+			if ( Array.isArray( state?.samples ) && state.samples.length >= 2 && Number.isFinite( state?.duration ) && state.duration > 0 ) visibleGhosts.push( { samples: state.samples, duration: state.duration } );
+
+		}
+		for ( const state of recentGhostPlayers ) {
+
+			if ( Array.isArray( state?.samples ) && state.samples.length >= 2 && Number.isFinite( state?.duration ) && state.duration > 0 ) visibleGhosts.push( { samples: state.samples, duration: state.duration } );
+
+		}
+		if ( visibleGhosts.length < 2 ) return;
+		const avgDuration = visibleGhosts.reduce( ( sum, g ) => sum + g.duration, 0 ) / visibleGhosts.length;
+		const outlierDist = avgDuration <= 5 ? 2 : ( avgDuration >= 6.3 ? 4 : THREE.MathUtils.lerp( 2, 4, ( avgDuration - 5 ) / 1.3 ) );
+		const sampleCount = 120;
+		const positions = [];
+		const colors = [];
+		const centers = [];
+		const spreads = [];
+		for ( let i = 0; i < sampleCount; i ++ ) {
+
+			const normalizedT = i / ( sampleCount - 1 );
+			const cluster = [];
+			for ( const ghost of visibleGhosts ) {
+
+				const p = sampleGhostPositionAtTime( ghost.samples, ghost.duration, normalizedT * ghost.duration );
+				if ( p ) cluster.push( p.clone() );
+
+			}
+			if ( cluster.length < 2 ) continue;
+			let cx = 0;
+			let cy = 0;
+			let cz = 0;
+			for ( const p of cluster ) {
+
+				cx += p.x;
+				cy += p.y;
+				cz += p.z;
+
+			}
+			cx /= cluster.length;
+			cy /= cluster.length;
+			cz /= cluster.length;
+			const filtered = cluster.filter( ( p ) => Math.hypot( p.x - cx, p.z - cz ) <= outlierDist );
+			if ( filtered.length < 2 ) continue;
+			cx = 0;
+			cy = 0;
+			cz = 0;
+			for ( const p of filtered ) {
+
+				cx += p.x;
+				cy += p.y;
+				cz += p.z;
+
+			}
+			cx /= filtered.length;
+			cy /= filtered.length;
+			cz /= filtered.length;
+			let spread = 0;
+			for ( const p of filtered ) spread += Math.hypot( p.x - cx, p.z - cz );
+			spread /= filtered.length;
+			centers.push( new THREE.Vector3( cx, cy + 0.25, cz ) );
+			spreads.push( spread );
+
+		}
+		if ( centers.length < 2 ) return;
+		const maxSpread = Math.max( 0.05, ...spreads );
+		for ( let i = 0; i < centers.length - 1; i ++ ) {
+
+			const a = centers[ i ];
+			const b = centers[ i + 1 ];
+			positions.push( a.x, a.y, a.z, b.x, b.y, b.z );
+			const heat = THREE.MathUtils.clamp( ( ( spreads[ i ] + spreads[ i + 1 ] ) * 0.5 ) / maxSpread, 0, 1 );
+			const color = new THREE.Color().setHSL( 0.33 * ( 1 - heat ), 0.95, 0.5 );
+			colors.push( color.r, color.g, color.b, color.r, color.g, color.b );
+
+		}
+		const geometry = new THREE.BufferGeometry();
+		geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
+		geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( colors, 3 ) );
+		const material = new THREE.LineBasicMaterial( { vertexColors: true, transparent: true, opacity: 0.95 } );
+		ghostSpreadLine = new THREE.LineSegments( geometry, material );
+		scene.add( ghostSpreadLine );
+
+	}
+
 	function normalizeGhostCosmeticsPayload( payload ) {
 
 		const sourceMappings = Array.isArray( payload?.mappings ) ? payload.mappings : [];
@@ -1773,6 +1897,7 @@ async function init() {
 		const existing = leaderboardGhostPlayers.get( playerName );
 		if ( existing?.model ) scene.remove( existing.model );
 		leaderboardGhostPlayers.delete( playerName );
+		rebuildGhostSpreadLine();
 
 	}
 
@@ -1851,6 +1976,7 @@ async function init() {
 			duration: normalized.duration,
 			checkpointTimes: computeCheckpointCrossTimes( normalized.samples ),
 		} );
+		rebuildGhostSpreadLine();
 		return true;
 
 	}
@@ -2099,6 +2225,7 @@ async function init() {
 		fxSettings.recentGhostsEnabled = Boolean( fxRecentGhostsInput.checked );
 		saveFxSettings();
 		rebuildRecentGhostVisuals();
+		rebuildGhostSpreadLine();
 
 	} );
 	fxRecentGhostCountSelect?.addEventListener( 'change', () => {
@@ -2108,6 +2235,7 @@ async function init() {
 		fxRecentGhostCountSelect.value = String( fxSettings.recentGhostCount );
 		saveFxSettings();
 		rebuildRecentGhostVisuals();
+		rebuildGhostSpreadLine();
 
 	} );
 	if ( economyHud ) {
@@ -6333,6 +6461,7 @@ async function init() {
 					} );
 					if ( recentGhostHistory.length > 12 ) recentGhostHistory.length = 12;
 					rebuildRecentGhostVisuals();
+					rebuildGhostSpreadLine();
 
 				}
 				if ( isNewBest && ! isSplitScreen ) submitLeaderboardTime( completedLap );
