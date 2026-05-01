@@ -258,30 +258,37 @@
 		async function hydrateTopLeaderboardRows( sourceEntries ) {
 			const next = new Map();
 			const rowsMap = new Map();
+			const CHUNK_SIZE = 12;
 			const bestRowForTrack = ( rows ) => {
 				if ( ! Array.isArray( rows ) || rows.length === 0 ) return null;
 				return rows.slice().sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ] || null;
 			};
-			await Promise.all( sourceEntries.map( async ( entry ) => {
+			const trackRequests = [ ...new Map( sourceEntries.map( ( entry ) => {
 				const primaryId = getTrackIdFromPlayUrl( entry.playUrl );
-				if ( ! primaryId ) return;
-				const candidateIds = [ primaryId, ...getLegacyTrackIdsFromPlayUrl( entry.playUrl ) ];
-				const payloads = await Promise.all( candidateIds.map( async ( trackId ) => {
-					try {
-						const res = await fetch( `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( trackId ) }` );
-						if ( ! res.ok ) return null;
-						return res.json();
-					} catch ( e ) {
-						return null;
-					}
+				if ( ! primaryId ) return [ '', null ];
+				return [ primaryId, { primaryId, candidateIds: [ primaryId, ...getLegacyTrackIdsFromPlayUrl( entry.playUrl ) ] } ];
+			} ) ).values() ].filter( Boolean );
+			for ( let i = 0; i < trackRequests.length; i += CHUNK_SIZE ) {
+				const chunk = trackRequests.slice( i, i + CHUNK_SIZE );
+				await Promise.all( chunk.map( async ( request ) => {
+					const { primaryId, candidateIds } = request;
+					const payloads = await Promise.all( candidateIds.map( async ( trackId ) => {
+						try {
+							const res = await fetch( `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( trackId ) }` );
+							if ( ! res.ok ) return null;
+							return res.json();
+						} catch ( e ) {
+							return null;
+						}
+					} ) );
+					const mergedRows = payloads.flatMap( ( payload ) => Array.isArray( payload?.entries ) ? payload.entries : [] );
+					const dedupedRows = [ ...new Map( mergedRows.map( ( row ) => [ `${ String( row?.name || '' ).trim().toLowerCase() }|${ Number( row?.timeSeconds ) || Infinity }`, row ] ) ).values() ]
+						.filter( ( row ) => String( row?.name || '' ).trim() && Number.isFinite( Number( row?.timeSeconds ) ) )
+						.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
+					rowsMap.set( primaryId, dedupedRows );
+					next.set( primaryId, bestRowForTrack( dedupedRows ) );
 				} ) );
-				const mergedRows = payloads.flatMap( ( payload ) => Array.isArray( payload?.entries ) ? payload.entries : [] );
-				const dedupedRows = [ ...new Map( mergedRows.map( ( row ) => [ `${ String( row?.name || '' ).trim().toLowerCase() }|${ Number( row?.timeSeconds ) || Infinity }`, row ] ) ).values() ]
-					.filter( ( row ) => String( row?.name || '' ).trim() && Number.isFinite( Number( row?.timeSeconds ) ) )
-					.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
-				rowsMap.set( primaryId, dedupedRows );
-				next.set( primaryId, bestRowForTrack( mergedRows ) );
-			} ) );
+			}
 			topByTrackId = next;
 			rowsByTrackId = rowsMap;
 		}
