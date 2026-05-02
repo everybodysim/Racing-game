@@ -102,18 +102,15 @@ const PAD_EFFECTS = {
 	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
 	'pad-off-gravity': { id: 'off-gravity' },
 	'pad-trick-yaw-1': { id: 'trick-yaw-1', trick: { yaw: 1 } },
-	'pad-trick-yaw-2': { id: 'trick-yaw-2', trick: { yaw: 2 } },
 	'pad-trick-pitch-1': { id: 'trick-pitch-1', trick: { pitch: 1 } },
-	'pad-trick-pitch-2': { id: 'trick-pitch-2', trick: { pitch: 2 } },
 	'pad-trick-roll-1': { id: 'trick-roll-1', trick: { roll: 1 } },
-	'pad-trick-roll-2': { id: 'trick-roll-2', trick: { roll: 2 } },
 	'pad-trick-yaw-pitch-1': { id: 'trick-yaw-pitch-1', trick: { yaw: 1, pitch: 1 } },
 	'pad-trick-yaw-roll-1': { id: 'trick-yaw-roll-1', trick: { yaw: 1, roll: 1 } },
 	'pad-trick-pitch-roll-1': { id: 'trick-pitch-roll-1', trick: { pitch: 1, roll: 1 } },
 	'pad-trick-yaw-pitch-roll-1': { id: 'trick-yaw-pitch-roll-1', trick: { yaw: 1, pitch: 1, roll: 1 } },
-	'pad-trick-yaw2-roll-1': { id: 'trick-yaw2-roll-1', trick: { yaw: 2, roll: 1 } },
-	'pad-trick-pitch2-roll-1': { id: 'trick-pitch2-roll-1', trick: { pitch: 2, roll: 1 } },
-	'pad-trick-yaw2-pitch2': { id: 'trick-yaw2-pitch2', trick: { yaw: 2, pitch: 2 } },
+	'pad-trick-yaw-pitch-roll-snake': { id: 'trick-yaw-pitch-roll-snake', trick: { yaw: 1, pitch: 1, roll: -1 } },
+	'pad-trick-yaw-roll-pitch': { id: 'trick-yaw-roll-pitch', trick: { yaw: 1, roll: 1, pitch: -1 } },
+	'pad-trick-pitch-yaw-roll': { id: 'trick-pitch-yaw-roll', trick: { pitch: 1, yaw: -1, roll: 1 } },
 };
 const HACK_HITBOX_OPACITY = 0.34;
 const HACK_WORLD_OPACITY = 0.52;
@@ -3964,8 +3961,8 @@ async function init() {
 	let activePadTimeScale2 = 1;
 	let padContactKey = null;
 	let padContactKey2 = null;
-	const airTrickState = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
-	const airTrickState2 = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
+	const airTrickState = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, chainStage: 0, chainSpeed: 1, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
+	const airTrickState2 = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, chainStage: 0, chainSpeed: 1, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
 	const camYawLockQuat = new THREE.Quaternion();
 	const camYawLockQuat2 = new THREE.Quaternion();
 	const camYawLockEuler = new THREE.Euler( 0, 0, 0, 'YXZ' );
@@ -4255,18 +4252,15 @@ async function init() {
 			case 'pad-drift': return 'Drift Mode';
 			case 'pad-off-gravity': return 'Off-Gravity (WIP)';
 			case 'pad-trick-yaw-1': return 'Yaw Flip ×1';
-			case 'pad-trick-yaw-2': return 'Yaw Flip ×2';
 			case 'pad-trick-pitch-1': return 'Pitch Flip ×1';
-			case 'pad-trick-pitch-2': return 'Pitch Flip ×2';
 			case 'pad-trick-roll-1': return 'Roll Flip ×1';
-			case 'pad-trick-roll-2': return 'Roll Flip ×2';
 			case 'pad-trick-yaw-pitch-1': return 'Yaw+Pitch ×1';
 			case 'pad-trick-yaw-roll-1': return 'Yaw+Roll ×1';
 			case 'pad-trick-pitch-roll-1': return 'Pitch+Roll ×1';
 			case 'pad-trick-yaw-pitch-roll-1': return 'Yaw+Pitch+Roll ×1';
-			case 'pad-trick-yaw2-roll-1': return 'Yaw ×2 + Roll ×1';
-			case 'pad-trick-pitch2-roll-1': return 'Pitch ×2 + Roll ×1';
-			case 'pad-trick-yaw2-pitch2': return 'Yaw ×2 + Pitch ×2';
+			case 'pad-trick-yaw-pitch-roll-snake': return 'Snake Combo';
+			case 'pad-trick-yaw-roll-pitch': return 'Yaw+Roll+Pitch';
+			case 'pad-trick-pitch-yaw-roll': return 'Pitch+Yaw+Roll';
 			case 'pad-custom-a': return 'Custom Pad A';
 			case 'pad-custom-b': return 'Custom Pad B';
 			case 'pad-custom-c': return 'Custom Pad C';
@@ -4382,6 +4376,8 @@ async function init() {
 			state.active = false;
 			state.progress = 0;
 			state.lastSmoothT = 0;
+			state.chainStage = 0;
+			state.chainSpeed = 1;
 			if ( interrupted && onTrickFinished ) onTrickFinished();
 			if ( state.recovering ) {
 
@@ -4402,12 +4398,14 @@ async function init() {
 			state.recoveryT = 0;
 			state.progress = 0;
 			state.lastSmoothT = 0;
+			state.chainStage = 0;
+			state.chainSpeed = 1;
 			state.pitchTotal = ( Number( trick.pitch ) || 0 ) * Math.PI * 2;
 			state.yawTotal = ( Number( trick.yaw ) || 0 ) * Math.PI * 2;
 			state.rollTotal = ( Number( trick.roll ) || 0 ) * Math.PI * 2;
 		}
 
-		state.progress = Math.min( 1, state.progress + dt / AIR_TRICK_DURATION_SECONDS );
+		state.progress = Math.min( 1, state.progress + dt / ( AIR_TRICK_DURATION_SECONDS / Math.max( 1, state.chainSpeed ) ) );
 		const smoothT = 0.5 - 0.5 * Math.cos( Math.PI * state.progress );
 		const deltaT = Math.max( 0, smoothT - state.lastSmoothT );
 		state.lastSmoothT = smoothT;
@@ -4426,9 +4424,20 @@ async function init() {
 		targetVehicle.container.updateMatrixWorld( true );
 			if ( state.progress >= 1 ) {
 
+				if ( state.chainStage === 0 && isVehicleAirborne( targetVehicle ) ) {
+
+					state.chainStage = 1;
+					state.chainSpeed = 1.2;
+					state.progress = 0;
+					state.lastSmoothT = 0;
+					return;
+
+				}
 				state.active = false;
 				state.progress = 0;
 				state.lastSmoothT = 0;
+				state.chainStage = 0;
+				state.chainSpeed = 1;
 				state.recovering = true;
 				state.recoveryT = 0;
 				state.recoveryStartQuat.copy( targetVehicle.container.quaternion );

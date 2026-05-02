@@ -62,18 +62,15 @@ function getSurfaceVisual( surfaceType, customSurfaces = null, customPads = null
 		case 'pad-fast-motion': return { color: 0xff9f3c, emissive: 0x8a2f00, metalness: 0.02, roughness: 0.7 };
 		case 'pad-drift': return { color: 0xd6ff6a, emissive: 0x5c7a0f, metalness: 0.03, roughness: 0.8 };
 		case 'pad-trick-yaw-1':
-		case 'pad-trick-yaw-2':
 		case 'pad-trick-pitch-1':
-		case 'pad-trick-pitch-2':
 		case 'pad-trick-roll-1':
-		case 'pad-trick-roll-2':
 		case 'pad-trick-yaw-pitch-1':
 		case 'pad-trick-yaw-roll-1':
 		case 'pad-trick-pitch-roll-1':
 		case 'pad-trick-yaw-pitch-roll-1':
-		case 'pad-trick-yaw2-roll-1':
-		case 'pad-trick-pitch2-roll-1':
-		case 'pad-trick-yaw2-pitch2':
+		case 'pad-trick-yaw-pitch-roll-snake':
+		case 'pad-trick-yaw-roll-pitch':
+		case 'pad-trick-pitch-yaw-roll':
 			return { color: 0x9c7dff, emissive: 0x311c72, metalness: 0.06, roughness: 0.62 };
 		case 'pad-custom-a':
 		case 'pad-custom-b':
