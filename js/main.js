@@ -130,7 +130,7 @@ const MAGNET_MAX_FORCE_PER_SECOND = 64.0;
 	const ARC_LINK_TRIGGER_RADIUS = CELL_RAW * GRID_SCALE * 0.32;
 	const ARC_LINK_MIN_TIME = 0.45;
 	const ARC_LINK_MAX_TIME = 1.6;
-	const AIR_TRICK_DURATION_SECONDS = 0.74;
+	const AIR_TRICK_DURATION_SECONDS = 0.96;
 const WEATHER_PRESETS = {
 	clear: { bg: 0xadb2ba, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
 	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
@@ -4359,9 +4359,22 @@ async function init() {
 			const airborne = targetVehicle.spherePos.y > 0.62 || Math.abs( verticalVel ) > 0.35;
 		if ( ! trick || ! airborne ) {
 
+			const interrupted = state.active && state.progress > 0 && state.progress < 1;
+			if ( interrupted ) {
+
+				state.recovering = true;
+				state.recoveryT = 0;
+				state.recoveryStartQuat.copy( targetVehicle.container.quaternion );
+				const euler = new THREE.Euler().setFromQuaternion( targetVehicle.container.quaternion, 'YXZ' );
+				euler.x = 0;
+				euler.z = 0;
+				state.recoveryTargetQuat.setFromEuler( euler );
+
+			}
 			state.active = false;
 			state.progress = 0;
 			state.lastSmoothT = 0;
+			if ( interrupted && onTrickFinished ) onTrickFinished();
 			if ( state.recovering ) {
 
 				state.recoveryT = Math.min( 1, state.recoveryT + dt / state.recoveryDuration );
@@ -4387,7 +4400,7 @@ async function init() {
 		}
 
 		state.progress = Math.min( 1, state.progress + dt / AIR_TRICK_DURATION_SECONDS );
-		const smoothT = state.progress * state.progress * state.progress * ( state.progress * ( state.progress * 6 - 15 ) + 10 );
+		const smoothT = 0.5 - 0.5 * Math.cos( Math.PI * state.progress );
 		const deltaT = Math.max( 0, smoothT - state.lastSmoothT );
 		state.lastSmoothT = smoothT;
 		if ( deltaT > 0 ) {
