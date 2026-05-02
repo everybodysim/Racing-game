@@ -384,6 +384,9 @@
 			<option value="pad-slow-motion">Slow Motion</option>
 			<option value="pad-fast-motion">Fast Motion</option>
 			<option value="pad-drift">Drift Mode</option>
+			<option value="pad-size-small">Mini Pad (0.5×)</option>
+			<option value="pad-size-normal">Normal Pad (1.0×)</option>
+			<option value="pad-size-mega">Mega Pad (1.8×)</option>
 			<option value="pad-custom-a">Custom Pad A</option>
 			<option value="pad-custom-b">Custom Pad B</option>
 			<option value="pad-custom-c">Custom Pad C</option>
@@ -518,6 +521,7 @@
 		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
 		'pad-reset', 'pad-low-gravity', 'pad-heavy-gravity', 'pad-high-grip', 'pad-high-speed',
 		'pad-no-brakes', 'pad-no-steering', 'pad-no-acceleration', 'pad-slow-motion', 'pad-fast-motion', 'pad-drift',
+		'pad-size-small', 'pad-size-normal', 'pad-size-mega',
 		'pad-trick-yaw-1', 'pad-trick-pitch-1', 'pad-trick-roll-1',
 		'pad-trick-yaw-pitch-1', 'pad-trick-yaw-roll-1', 'pad-trick-pitch-roll-1', 'pad-trick-yaw-pitch-roll-1',
 		'pad-trick-yaw-roll-pitch', 'pad-trick-pitch-yaw-roll',
@@ -1000,6 +1004,9 @@
 			case 'pad-slow-motion': return { color: 0x6ab5ff, emissive: 0x104f88, metalness: 0.05, roughness: 0.68 };
 			case 'pad-fast-motion': return { color: 0xff9f3c, emissive: 0x8a2f00, metalness: 0.02, roughness: 0.7 };
 			case 'pad-drift': return { color: 0xd6ff6a, emissive: 0x5c7a0f, metalness: 0.03, roughness: 0.8 };
+		case 'pad-size-small': return { color: 0x58dcff, emissive: 0x156b8f, metalness: 0.04, roughness: 0.72 };
+		case 'pad-size-normal': return { color: 0xffffff, emissive: 0x4f5f7a, metalness: 0.06, roughness: 0.7 };
+		case 'pad-size-mega': return { color: 0xff8c5a, emissive: 0x7a2f12, metalness: 0.02, roughness: 0.78 };
 			case 'pad-trick-yaw-1':
 			case 'pad-trick-pitch-1':
 			case 'pad-trick-roll-1':

@@ -100,6 +100,9 @@ const PAD_EFFECTS = {
 	'pad-slow-motion': { id: 'slow-motion', timeScale: 0.6 },
 	'pad-fast-motion': { id: 'fast-motion', timeScale: 1.35 },
 	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
+	'pad-size-small': { id: 'size-small', scale: 0.5, grip: 1.6, accel: 1.35, drive: 1.4, topSpeed: 1.25 },
+	'pad-size-normal': { id: 'size-normal', scale: 1.0 },
+	'pad-size-mega': { id: 'size-mega', scale: 1.8, grip: 1.6, accel: 0.72, drive: 0.76, topSpeed: 0.8 },
 	'pad-trick-yaw-1': { id: 'trick-yaw-1', trick: { yaw: 1 } },
 	'pad-trick-pitch-1': { id: 'trick-pitch-1', trick: { pitch: 1 } },
 	'pad-trick-roll-1': { id: 'trick-roll-1', trick: { roll: 1 } },
@@ -4273,6 +4276,9 @@ async function init() {
 			case 'pad-slow-motion': return 'Slow Motion';
 			case 'pad-fast-motion': return 'Fast Motion';
 			case 'pad-drift': return 'Drift Mode';
+			case 'pad-size-small': return 'Mini Pad';
+			case 'pad-size-normal': return 'Normal Pad';
+			case 'pad-size-mega': return 'Mega Pad';
 			case 'pad-trick-yaw-1': return 'Yaw Flip ×1';
 			case 'pad-trick-pitch-1': return 'Pitch Flip ×1';
 			case 'pad-trick-roll-1': return 'Roll Flip ×1';
@@ -4342,7 +4348,7 @@ async function init() {
 		if ( ! current ) return incoming ? { ...incoming } : null;
 		if ( ! incoming ) return { ...current };
 		const combined = { ...current, ...incoming };
-		const multiplicativeKeys = [ 'gravity', 'grip', 'drag', 'accel', 'drive', 'topSpeed', 'steering', 'timeScale' ];
+		const multiplicativeKeys = [ 'gravity', 'grip', 'drag', 'accel', 'drive', 'topSpeed', 'steering', 'timeScale', 'scale' ];
 		for ( const key of multiplicativeKeys ) {
 
 			const a = Number( current[ key ] );
@@ -4377,6 +4383,25 @@ async function init() {
 		setEffect( combinePadEffects( previous, effect ) );
 		showEffectPopup( `Effect applied: ${ getPadLabel( contact.type ) }` );
 		return contact.key;
+
+	}
+
+
+	function applyVehicleScaleFromPad( targetVehicle, effect, targetHitboxMesh = null ) {
+
+		if ( ! targetVehicle?.container ) return;
+		const nextScale = Number.isFinite( effect?.scale ) ? THREE.MathUtils.clamp( effect.scale, 0.35, 2.5 ) : 1;
+		const prevScale = Number.isFinite( targetVehicle.__padScale ) ? targetVehicle.__padScale : 1;
+		targetVehicle.container.scale.setScalar( nextScale );
+		targetVehicle.__padScale = nextScale;
+		if ( targetHitboxMesh ) targetHitboxMesh.scale.setScalar( nextScale );
+		if ( nextScale > prevScale && nextScale > 1.01 && targetVehicle?.spherePos && targetVehicle?.rigidBody ) {
+
+			const lift = 0.24 * ( nextScale - prevScale );
+			targetVehicle.spherePos.y += lift;
+			rigidBody.setPosition( targetVehicle.physicsWorld, targetVehicle.rigidBody, targetVehicle.spherePos.toArray(), false );
+
+		}
 
 	}
 
@@ -6568,6 +6593,7 @@ async function init() {
 
 			} );
 			applySurfaceGrip( vehicle, activeSurfaceType, activePadEffect );
+			applyVehicleScaleFromPad( vehicle, activePadEffect, carHitboxMesh );
 			if ( activeSurfaceType && activeSurfaceType !== lastSurfaceNotifyType && ! activeSurfaceType.startsWith( 'pad-' ) ) showEffectPopup( `Effect applied: ${ activeSurfaceType.replace( /^surface-/, '' ).replace( /-/g, ' ' ) }` );
 			lastSurfaceNotifyType = activeSurfaceType;
 			if ( hacksActive && hacksState.checkpointBypass ) {
@@ -6592,6 +6618,7 @@ async function init() {
 
 				} );
 			applySurfaceGrip( vehicle2, activeSurfaceType2, activePadEffect2 );
+			applyVehicleScaleFromPad( vehicle2, activePadEffect2 );
 			if ( activeSurfaceType2 && activeSurfaceType2 !== lastSurfaceNotifyType2 && ! activeSurfaceType2.startsWith( 'pad-' ) ) showEffectPopup( `Effect applied: ${ activeSurfaceType2.replace( /^surface-/, '' ).replace( /-/g, ' ' ) }` );
 			lastSurfaceNotifyType2 = activeSurfaceType2;
 
