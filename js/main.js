@@ -101,7 +101,7 @@ const PAD_EFFECTS = {
 	'pad-fast-motion': { id: 'fast-motion', timeScale: 1.35 },
 	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
 	'pad-size-small': { id: 'size-small', scale: 0.5 },
-	'pad-size-normal': { id: 'size-normal', scale: 1.0, grip: 1, drag: 1, accel: 1, drive: 1, topSpeed: 1, steering: 1, timeScale: 1 },
+	'pad-size-normal': { id: 'size-normal', scale: 1.0 },
 	'pad-size-mega': { id: 'size-mega', scale: 1.8 },
 	'pad-trick-yaw-1': { id: 'trick-yaw-1', trick: { yaw: 1 } },
 	'pad-trick-pitch-1': { id: 'trick-pitch-1', trick: { pitch: 1 } },
