@@ -394,11 +394,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		for ( const [ gx, gz, orient = 0 ] of extras.jumps ) jumpMap.set( gx + ',' + gz, orient );
 
 	}
-	for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedEntries ) {
+	for ( const [ gx, gz, elevatedType, orient = 0, levelRaw = 1 ] of elevatedEntries ) {
 
 		const key = `${ gx },${ gz }`;
-		if ( elevatedType === 'slope-down' ) elevatedMap.set( key, { type: 'slope-up', orient: ORIENT_180[ orient ] ?? orient } );
-		else elevatedMap.set( key, { type: elevatedType, orient } );
+		const level = Math.max( 1, Number( levelRaw ) || 1 );
+		if ( elevatedType === 'slope-down' ) elevatedMap.set( key, { type: 'slope-up', orient: ORIENT_180[ orient ] ?? orient, level } );
+		else elevatedMap.set( key, { type: elevatedType, orient, level } );
 
 	}
 
@@ -406,7 +407,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
 		if ( ! elevatedEntry ) return 0;
-		return elevatedEntry.type === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
+		const level = Math.max( 1, Number( elevatedEntry.level ) || 1 );
+		return elevatedEntry.type === 'slope-up' ? ELEVATED_HEIGHT * ( level - 0.5 ) : ELEVATED_HEIGHT * level;
 
 	}
 

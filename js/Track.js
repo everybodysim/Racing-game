@@ -36,7 +36,8 @@ function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 function getOverlayHeightOffset( elevatedEntry ) {
 
 	if ( ! elevatedEntry ) return 0;
-	return elevatedEntry.type === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
+	const level = Math.max( 1, Number( elevatedEntry.level ) || 1 );
+	return elevatedEntry.type === 'slope-up' ? ELEVATED_HEIGHT * ( level - 0.5 ) : ELEVATED_HEIGHT * level;
 
 }
 
@@ -91,7 +92,7 @@ function getSurfaceVisual( surfaceType, customSurfaces = null, customPads = null
 
 }
 
-function cloneElevatedPiece( models, type, orient, gx, gz ) {
+function cloneElevatedPiece( models, type, orient, gx, gz, level = 1 ) {
 
 	if ( type === 'slope-down' ) {
 
@@ -111,7 +112,7 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	if ( type === 'slope-up' || type === 'slope-down' ) yAdjust = - ( ELEVATED_HEIGHT * 0.5 ) + 0.06;
 	piece.position.set(
 		( gx + 0.5 ) * CELL_RAW,
-		0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust,
+		0.5 + VISUAL_HEIGHT_OFFSET + ( ELEVATED_HEIGHT * level ) + yAdjust,
 		( gz + 0.5 ) * CELL_RAW
 	);
 	const deg = ORIENT_DEG[ orient ] ?? 0;
@@ -154,7 +155,7 @@ function createSlopeSupportGeometry( slopeType ) {
 
 }
 
-function createElevatedSupport( gx, gz, orient = 0, elevatedType = 'elevated-straight' ) {
+function createElevatedSupport( gx, gz, orient = 0, elevatedType = 'elevated-straight', level = 1 ) {
 
 	if ( elevatedType === 'slope-down' ) {
 
@@ -171,7 +172,8 @@ function createElevatedSupport( gx, gz, orient = 0, elevatedType = 'elevated-str
 		geometry,
 		new THREE.MeshStandardMaterial( { color: SUPPORT_COLOR, roughness: 0.95, metalness: 0.0 } )
 	);
-	support.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET + ( SUPPORT_HEIGHT * 0.5 ) - SUPPORT_SINK, ( gz + 0.5 ) * CELL_RAW );
+	support.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET + ( SUPPORT_HEIGHT * level * 0.5 ) - SUPPORT_SINK, ( gz + 0.5 ) * CELL_RAW );
+	support.scale.y = level;
 	support.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 	support.castShadow = true;
 	support.receiveShadow = true;
@@ -320,10 +322,12 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
 		const customPads = extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {};
 		const elevatedMap = new Map();
-		for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedCells ) {
+		for ( const [ gx, gz, elevatedType, orient = 0, levelRaw = 1 ] of elevatedCells ) {
 
 			if ( ! ELEVATED_TYPES.has( elevatedType ) ) continue;
-			elevatedMap.set( `${ gx },${ gz }`, normalizeElevatedEntry( elevatedType, orient ) );
+			const entry = normalizeElevatedEntry( elevatedType, orient );
+			entry.level = Math.max( 1, Number( levelRaw ) || 1 );
+			elevatedMap.set( `${ gx },${ gz }`, entry );
 
 		}
 
@@ -354,12 +358,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedCells ) {
+		for ( const [ gx, gz, elevatedType, orient = 0, levelRaw = 1 ] of elevatedCells ) {
 
 			if ( ! ELEVATED_TYPES.has( elevatedType ) ) continue;
-			const piece = cloneElevatedPiece( models, elevatedType, orient, gx, gz );
+			const level = Math.max( 1, Number( levelRaw ) || 1 );
+			const piece = cloneElevatedPiece( models, elevatedType, orient, gx, gz, level );
 			if ( piece ) trackPieceGroup.add( piece );
-			trackPieceGroup.add( createElevatedSupport( gx, gz, orient, elevatedType ) );
+			trackPieceGroup.add( createElevatedSupport( gx, gz, orient, elevatedType, level ) );
 
 		}
 

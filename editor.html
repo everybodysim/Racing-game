@@ -919,7 +919,8 @@
 	function getOverlayHeightOffset( cell ) {
 
 		if ( ! cell?.elevatedType ) return 0;
-		return cell.elevatedType === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
+		const level = Math.max( 1, Number( cell.elevatedLevel ) || 1 );
+		return cell.elevatedType === 'slope-up' ? ELEVATED_HEIGHT * ( level - 0.5 ) : ELEVATED_HEIGHT * level;
 
 	}
 
@@ -959,6 +960,7 @@
 			jumpMesh: null,
 			elevatedType: null,
 			elevatedOrient: 0,
+			elevatedLevel: 0,
 			elevatedMesh: null,
 			elevatedSupportMesh: null,
 			surfaceTypes: [],
@@ -1451,7 +1453,8 @@
 
 				const elevated = elevatedSrc.clone();
 				const yAdjust = normalizedType === 'slope-up' ? - SLOPE_VISUAL_DROP : 0;
-				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
+				const elevatedOffset = getOverlayHeightOffset( cell );
+				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + elevatedOffset + yAdjust, ( gz + 0.5 ) * CELL_RAW );
 				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 );
 				if ( normalizedType === 'slope-up' ) {
 
@@ -1479,7 +1482,9 @@
 				new THREE.BoxGeometry( CELL_RAW, SUPPORT_HEIGHT, CELL_RAW ),
 				new THREE.MeshStandardMaterial( { color: 0x0d0d0d, roughness: 0.95, metalness: 0.0 } )
 			);
-			support.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + SUPPORT_HEIGHT * 0.5, ( gz + 0.5 ) * CELL_RAW );
+			const elevatedLevel = Math.max( 1, Number( cell.elevatedLevel ) || 1 );
+			support.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ( SUPPORT_HEIGHT * elevatedLevel * 0.5 ), ( gz + 0.5 ) * CELL_RAW );
+			support.scale.y = elevatedLevel;
 			support.castShadow = true;
 			support.receiveShadow = true;
 			trackGroup.add( support );
@@ -1739,13 +1744,13 @@
 
 				if ( cell.elevatedType === selectedType ) {
 
-					cell.elevatedType = null;
-					cell.elevatedOrient = 0;
+					cell.elevatedLevel = Math.max( 1, Number( cell.elevatedLevel ) || 1 ) + 1;
 
 				} else {
 
 					cell.elevatedType = selectedType;
 					cell.elevatedOrient = selectedOrient;
+					cell.elevatedLevel = 1;
 
 				}
 
@@ -1851,6 +1856,19 @@
 		if ( ! grid.has( key ) ) return;
 
 		const cell = grid.get( key );
+		if ( cell?.elevatedType ) {
+
+			const level = Math.max( 1, Number( cell.elevatedLevel ) || 1 );
+			if ( level > 1 ) {
+
+				cell.elevatedLevel = level - 1;
+				placeOverlayMesh( gx, gz, cell );
+				save();
+				return;
+
+			}
+
+		}
 		for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
 		if ( cell.mesh ) trackGroup.remove( cell.mesh );
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
@@ -2240,7 +2258,8 @@
 
 					const typeOut = cell.elevatedType === 'slope-down' ? 'slope-up' : cell.elevatedType;
 					const orientOut = cell.elevatedType === 'slope-down' ? ( ORIENT_180[ cell.elevatedOrient || 0 ] ?? ( cell.elevatedOrient || 0 ) ) : ( cell.elevatedOrient || 0 );
-					elevated.push( [ gx, gz, typeOut, orientOut ] );
+					const levelOut = Math.max( 1, Number( cell.elevatedLevel ) || 1 );
+					elevated.push( [ gx, gz, typeOut, orientOut, levelOut ] );
 
 				}
 			for ( const surfaceType of ( cell.surfaceTypes || [] ) ) surfaces.push( [ gx, gz, surfaceType ] );
@@ -2476,7 +2495,7 @@
 				placeOverlayMesh( gx, gz, cell );
 
 			}
-			for ( const [ gx, gz, elevatedType, elevatedOrient ] of mods.e || [] ) {
+			for ( const [ gx, gz, elevatedType, elevatedOrient, elevatedLevel ] of mods.e || [] ) {
 
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
@@ -2487,6 +2506,7 @@
 
 					cell.elevatedType = normalizedType;
 					cell.elevatedOrient = normalizedOrient;
+					cell.elevatedLevel = Math.max( 1, Number( elevatedLevel ) || 1 );
 					placeOverlayMesh( gx, gz, cell );
 
 				}
