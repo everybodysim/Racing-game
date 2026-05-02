@@ -70,9 +70,6 @@ function getSurfaceVisual( surfaceType, customSurfaces = null, customPads = null
 		case 'pad-trick-yaw-pitch-roll-1':
 		case 'pad-trick-yaw-roll-pitch':
 		case 'pad-trick-pitch-yaw-roll':
-		case 'pad-trick-chain-yaw-roll':
-		case 'pad-trick-chain-pitch-yaw':
-		case 'pad-trick-chain-roll-pitch':
 			return { color: 0x9c7dff, emissive: 0x311c72, metalness: 0.06, roughness: 0.62 };
 		case 'pad-custom-a':
 		case 'pad-custom-b':

@@ -109,9 +109,6 @@ const PAD_EFFECTS = {
 	'pad-trick-yaw-pitch-roll-1': { id: 'trick-yaw-pitch-roll-1', trick: { yaw: 1, pitch: 1, roll: 1 } },
 	'pad-trick-yaw-roll-pitch': { id: 'trick-yaw-roll-pitch', trick: { yaw: 1, roll: 1, pitch: -1 } },
 	'pad-trick-pitch-yaw-roll': { id: 'trick-pitch-yaw-roll', trick: { pitch: 1, yaw: -1, roll: 1 } },
-	'pad-trick-chain-yaw-roll': { id: 'trick-chain-yaw-roll', chain: true, trickSequence: [ { yaw: 1 }, { roll: 1 } ] },
-	'pad-trick-chain-pitch-yaw': { id: 'trick-chain-pitch-yaw', chain: true, trickSequence: [ { pitch: 1 }, { yaw: 1 } ] },
-	'pad-trick-chain-roll-pitch': { id: 'trick-chain-roll-pitch', chain: true, trickSequence: [ { roll: 1 }, { pitch: 1 } ] },
 };
 const HACK_HITBOX_OPACITY = 0.34;
 const HACK_WORLD_OPACITY = 0.52;
@@ -3962,8 +3959,8 @@ async function init() {
 	let activePadTimeScale2 = 1;
 	let padContactKey = null;
 	let padContactKey2 = null;
-	const airTrickState = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, chainStage: 0, chainSpeed: 1, allowChain: false, sequence: null, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
-	const airTrickState2 = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, chainStage: 0, chainSpeed: 1, allowChain: false, sequence: null, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
+	const airTrickState = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, baseYaw: 0, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
+	const airTrickState2 = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, baseYaw: 0, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
 	const camYawLockQuat = new THREE.Quaternion();
 	const camYawLockQuat2 = new THREE.Quaternion();
 	const camYawLockEuler = new THREE.Euler( 0, 0, 0, 'YXZ' );
@@ -4260,9 +4257,6 @@ async function init() {
 			case 'pad-trick-yaw-pitch-roll-1': return 'Yaw+Pitch+Roll ×1';
 			case 'pad-trick-yaw-roll-pitch': return 'Yaw+Roll+Pitch';
 			case 'pad-trick-pitch-yaw-roll': return 'Pitch+Yaw+Roll';
-			case 'pad-trick-chain-yaw-roll': return 'Chain: Yaw → Roll';
-			case 'pad-trick-chain-pitch-yaw': return 'Chain: Pitch → Yaw';
-			case 'pad-trick-chain-roll-pitch': return 'Chain: Roll → Pitch';
 			case 'pad-custom-a': return 'Custom Pad A';
 			case 'pad-custom-b': return 'Custom Pad B';
 			case 'pad-custom-c': return 'Custom Pad C';
@@ -4359,8 +4353,7 @@ async function init() {
 
 		if ( ! targetVehicle || ! state ) return;
 		const trick = activePadEffect?.trick || null;
-		const trickSequence = Array.isArray( activePadEffect?.trickSequence ) ? activePadEffect.trickSequence : null;
-		const hasTrickPayload = Boolean( trick ) || ( Array.isArray( trickSequence ) && trickSequence.length > 0 );
+		const hasTrickPayload = Boolean( trick );
 		const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
 		const airborne = state.active
 			? ( targetVehicle.spherePos.y > 0.3 || verticalVel > 0.1 )
@@ -4382,10 +4375,6 @@ async function init() {
 			state.active = false;
 			state.progress = 0;
 			state.lastSmoothT = 0;
-			state.chainStage = 0;
-			state.chainSpeed = 1;
-			state.allowChain = false;
-			state.sequence = null;
 			if ( interrupted && onTrickFinished ) onTrickFinished();
 			if ( state.recovering ) {
 
@@ -4406,17 +4395,15 @@ async function init() {
 			state.recoveryT = 0;
 			state.progress = 0;
 			state.lastSmoothT = 0;
-			state.chainStage = 0;
-			state.chainSpeed = 1;
-			state.allowChain = Boolean( activePadEffect?.chain ) && Array.isArray( trickSequence ) && trickSequence.length > 1;
-			state.sequence = state.allowChain ? trickSequence : [ trick ];
-			const phase = state.sequence?.[ 0 ] || trick || {};
+			const phase = trick || {};
+			const qEuler = new THREE.Euler().setFromQuaternion( targetVehicle.container.quaternion, 'YXZ' );
+			state.baseYaw = qEuler.y;
 			state.pitchTotal = ( Number( phase.pitch ) || 0 ) * Math.PI * 2;
 			state.yawTotal = ( Number( phase.yaw ) || 0 ) * Math.PI * 2;
 			state.rollTotal = ( Number( phase.roll ) || 0 ) * Math.PI * 2;
 		}
 
-		const baseDuration = AIR_TRICK_DURATION_SECONDS / Math.max( 1, state.chainSpeed );
+		const baseDuration = AIR_TRICK_DURATION_SECONDS;
 		state.progress = Math.min( 1, state.progress + ( dt / baseDuration ) );
 		const deltaT = Math.max( 0, state.progress - state.lastSmoothT );
 		state.lastSmoothT = state.progress;
@@ -4435,32 +4422,13 @@ async function init() {
 		targetVehicle.container.updateMatrixWorld( true );
 			if ( state.progress >= 1 ) {
 
-				if ( state.allowChain && state.chainStage + 1 < ( state.sequence?.length || 0 ) && isVehicleAirborne( targetVehicle ) ) {
-
-					state.chainStage += 1;
-					state.chainSpeed = 1.3;
-					state.progress = 0;
-					state.lastSmoothT = 0;
-					const phase = state.sequence?.[ state.chainStage ] || {};
-					state.pitchTotal = ( Number( phase.pitch ) || 0 ) * Math.PI * 2;
-					state.yawTotal = ( Number( phase.yaw ) || 0 ) * Math.PI * 2;
-					state.rollTotal = ( Number( phase.roll ) || 0 ) * Math.PI * 2;
-					return;
-
-				}
 				state.active = false;
 				state.progress = 0;
 				state.lastSmoothT = 0;
-				state.chainStage = 0;
-				state.chainSpeed = 1;
-				state.allowChain = false;
-				state.sequence = null;
 				state.recovering = true;
 				state.recoveryT = 0;
 				state.recoveryStartQuat.copy( targetVehicle.container.quaternion );
-				const euler = new THREE.Euler().setFromQuaternion( targetVehicle.container.quaternion, 'YXZ' );
-				euler.x = 0;
-				euler.z = 0;
+				const euler = new THREE.Euler( 0, state.baseYaw, 0, 'YXZ' );
 				state.recoveryTargetQuat.setFromEuler( euler );
 				if ( onTrickFinished ) onTrickFinished();
 
