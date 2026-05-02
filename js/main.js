@@ -3963,8 +3963,8 @@ async function init() {
 	let activePadTimeScale2 = 1;
 	let padContactKey = null;
 	let padContactKey2 = null;
-	const airTrickState = { active: false, progress: 0, baseQuat: new THREE.Quaternion(), deltaQuat: new THREE.Quaternion() };
-	const airTrickState2 = { active: false, progress: 0, baseQuat: new THREE.Quaternion(), deltaQuat: new THREE.Quaternion() };
+	const airTrickState = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0 };
+	const airTrickState2 = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0 };
 	const checkpointStates2 = checkpointCells.map( ( cell ) => ( {
 		...makeGateData( cell ),
 		lastLocalX: 0,
@@ -4359,32 +4359,41 @@ async function init() {
 			if ( ! trick || ! airborne ) {
 			state.active = false;
 			state.progress = 0;
+			state.lastSmoothT = 0;
 			return;
 		}
 
-		if ( ! state.active ) {
-			state.active = true;
-			state.progress = 0;
-			state.baseQuat.copy( targetVehicle.container.quaternion );
-			state.deltaQuat.identity();
-			const euler = new THREE.Euler(
-				( Number( trick.pitch ) || 0 ) * Math.PI * 2,
-				( Number( trick.yaw ) || 0 ) * Math.PI * 2,
-				( Number( trick.roll ) || 0 ) * Math.PI * 2,
-				'YXZ'
-			);
-			state.deltaQuat.setFromEuler( euler );
-		}
+			if ( ! state.active ) {
+				state.active = true;
+				state.progress = 0;
+				state.lastSmoothT = 0;
+				state.pitchTotal = ( Number( trick.pitch ) || 0 ) * Math.PI * 2;
+				state.yawTotal = ( Number( trick.yaw ) || 0 ) * Math.PI * 2;
+				state.rollTotal = ( Number( trick.roll ) || 0 ) * Math.PI * 2;
+			}
 
 		state.progress = Math.min( 1, state.progress + dt / 0.62 );
 		const smoothT = state.progress * state.progress * ( 3 - 2 * state.progress );
-		const targetQuat = state.baseQuat.clone().multiply( state.deltaQuat );
-		targetVehicle.container.quaternion.copy( state.baseQuat ).slerp( targetQuat, smoothT );
+		const deltaT = Math.max( 0, smoothT - state.lastSmoothT );
+		state.lastSmoothT = smoothT;
+		if ( deltaT > 0 ) {
+
+			const deltaEuler = new THREE.Euler(
+				state.pitchTotal * deltaT,
+				state.yawTotal * deltaT,
+				state.rollTotal * deltaT,
+				'YXZ'
+			);
+			const dq = new THREE.Quaternion().setFromEuler( deltaEuler );
+			targetVehicle.container.quaternion.multiply( dq ).normalize();
+
+		}
 		targetVehicle.container.updateMatrixWorld( true );
 		if ( state.progress >= 1 ) {
 
 			state.active = false;
 			state.progress = 0;
+			state.lastSmoothT = 0;
 			if ( onTrickFinished ) onTrickFinished();
 
 		}
