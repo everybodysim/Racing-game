@@ -1722,7 +1722,7 @@
 			}
 			rebuildArcMeshes();
 
-		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || MOVING_CUSTOM_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
+		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || MOVING_CUSTOM_TOOL === selectedType || DRAWBRIDGE_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
@@ -1750,7 +1750,7 @@
 				cell.jump = ! cell.jump;
 				cell.jumpOrient = selectedOrient;
 
-			} else if ( selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL ) {
+			} else if ( selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL || selectedType === DRAWBRIDGE_TOOL ) {
 
 				cell.movingObstacle = cell.movingObstacle === selectedType ? '' : selectedType;
 				if ( cell.movingObstacle ) cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedInput?.value ) || 1 ) );
@@ -2144,7 +2144,7 @@
 		}
 		const ghostType = selectedType === BUMP_TOOL
 			? 'track-bump'
-			: ( selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL
+			: ( selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === DRAWBRIDGE_TOOL
 				? 'track-straight'
 				: ( selectedType === JUMP_TOOL
 					? 'track-straight'
