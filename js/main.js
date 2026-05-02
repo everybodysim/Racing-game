@@ -100,9 +100,9 @@ const PAD_EFFECTS = {
 	'pad-slow-motion': { id: 'slow-motion', timeScale: 0.6 },
 	'pad-fast-motion': { id: 'fast-motion', timeScale: 1.35 },
 	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
-	'pad-size-small': { id: 'size-small', scale: 0.5, grip: 1.6, accel: 1.35, drive: 1.4, topSpeed: 1.25 },
-	'pad-size-normal': { id: 'size-normal', scale: 1.0 },
-	'pad-size-mega': { id: 'size-mega', scale: 1.8, grip: 1.6, accel: 0.72, drive: 0.76, topSpeed: 0.8 },
+	'pad-size-small': { id: 'size-small', scale: 0.5 },
+	'pad-size-normal': { id: 'size-normal', scale: 1.0, grip: 1, drag: 1, accel: 1, drive: 1, topSpeed: 1, steering: 1, timeScale: 1 },
+	'pad-size-mega': { id: 'size-mega', scale: 1.8 },
 	'pad-trick-yaw-1': { id: 'trick-yaw-1', trick: { yaw: 1 } },
 	'pad-trick-pitch-1': { id: 'trick-pitch-1', trick: { pitch: 1 } },
 	'pad-trick-roll-1': { id: 'trick-roll-1', trick: { roll: 1 } },
@@ -115,6 +115,7 @@ const PAD_EFFECTS = {
 };
 const HACK_HITBOX_OPACITY = 0.34;
 const HACK_WORLD_OPACITY = 0.52;
+const SIZE_PAD_TYPES = new Set( [ 'pad-size-small', 'pad-size-normal', 'pad-size-mega' ] );
 const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 const BOUNCE_VERTICAL_DELTA = 7.2;
 const KICK_LATERAL_DELTA = 7.4;
@@ -4366,6 +4367,18 @@ async function init() {
 
 	}
 
+
+	function applySizePadEffect( current, incoming ) {
+
+		const base = current ? { ...current } : {};
+		delete base.scale;
+		delete base.__sizePadType;
+		const next = incoming ? { ...base, ...incoming } : base;
+		next.__sizePadType = incoming?.id || null;
+		return Object.keys( next ).length ? next : null;
+
+	}
+
 	function applyPadContact( targetVehicle, lastContactKey, setEffect, getCurrentEffect = null ) {
 
 		const contact = findPadContactFor( targetVehicle );
@@ -4380,7 +4393,8 @@ async function init() {
 		}
 		const effect = getPadEffectForType( contact.type );
 		const previous = getCurrentEffect ? ( getCurrentEffect() || null ) : null;
-		setEffect( combinePadEffects( previous, effect ) );
+		if ( SIZE_PAD_TYPES.has( contact.type ) ) setEffect( applySizePadEffect( previous, effect ) );
+		else setEffect( combinePadEffects( previous, effect ) );
 		showEffectPopup( `Effect applied: ${ getPadLabel( contact.type ) }` );
 		return contact.key;
 
