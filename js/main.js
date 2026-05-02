@@ -101,6 +101,19 @@ const PAD_EFFECTS = {
 	'pad-fast-motion': { id: 'fast-motion', timeScale: 1.35 },
 	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
 	'pad-off-gravity': { id: 'off-gravity' },
+	'pad-trick-yaw-1': { id: 'trick-yaw-1', trick: { yaw: 1 } },
+	'pad-trick-yaw-2': { id: 'trick-yaw-2', trick: { yaw: 2 } },
+	'pad-trick-pitch-1': { id: 'trick-pitch-1', trick: { pitch: 1 } },
+	'pad-trick-pitch-2': { id: 'trick-pitch-2', trick: { pitch: 2 } },
+	'pad-trick-roll-1': { id: 'trick-roll-1', trick: { roll: 1 } },
+	'pad-trick-roll-2': { id: 'trick-roll-2', trick: { roll: 2 } },
+	'pad-trick-yaw-pitch-1': { id: 'trick-yaw-pitch-1', trick: { yaw: 1, pitch: 1 } },
+	'pad-trick-yaw-roll-1': { id: 'trick-yaw-roll-1', trick: { yaw: 1, roll: 1 } },
+	'pad-trick-pitch-roll-1': { id: 'trick-pitch-roll-1', trick: { pitch: 1, roll: 1 } },
+	'pad-trick-yaw-pitch-roll-1': { id: 'trick-yaw-pitch-roll-1', trick: { yaw: 1, pitch: 1, roll: 1 } },
+	'pad-trick-yaw2-roll-1': { id: 'trick-yaw2-roll-1', trick: { yaw: 2, roll: 1 } },
+	'pad-trick-pitch2-roll-1': { id: 'trick-pitch2-roll-1', trick: { pitch: 2, roll: 1 } },
+	'pad-trick-yaw2-pitch2': { id: 'trick-yaw2-pitch2', trick: { yaw: 2, pitch: 2 } },
 };
 const HACK_HITBOX_OPACITY = 0.34;
 const HACK_WORLD_OPACITY = 0.52;
@@ -114,9 +127,10 @@ const MAGNET_MIN_MAX_DISTANCE_BLOCKS = 0.75;
 const MAGNET_MAX_MAX_DISTANCE_BLOCKS = 2.5;
 const MAGNET_MIN_FORCE_PER_SECOND = 8.0;
 const MAGNET_MAX_FORCE_PER_SECOND = 64.0;
-const ARC_LINK_TRIGGER_RADIUS = CELL_RAW * GRID_SCALE * 0.32;
-const ARC_LINK_MIN_TIME = 0.45;
-const ARC_LINK_MAX_TIME = 1.6;
+	const ARC_LINK_TRIGGER_RADIUS = CELL_RAW * GRID_SCALE * 0.32;
+	const ARC_LINK_MIN_TIME = 0.45;
+	const ARC_LINK_MAX_TIME = 1.6;
+	const AIR_TRICK_DURATION_SECONDS = 0.74;
 const WEATHER_PRESETS = {
 	clear: { bg: 0xadb2ba, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
 	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
@@ -3950,6 +3964,8 @@ async function init() {
 	let activePadTimeScale2 = 1;
 	let padContactKey = null;
 	let padContactKey2 = null;
+	const airTrickState = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
+	const airTrickState2 = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
 	const checkpointStates2 = checkpointCells.map( ( cell ) => ( {
 		...makeGateData( cell ),
 		lastLocalX: 0,
@@ -4230,6 +4246,19 @@ async function init() {
 			case 'pad-fast-motion': return 'Fast Motion';
 			case 'pad-drift': return 'Drift Mode';
 			case 'pad-off-gravity': return 'Off-Gravity (WIP)';
+			case 'pad-trick-yaw-1': return 'Yaw Flip ×1';
+			case 'pad-trick-yaw-2': return 'Yaw Flip ×2';
+			case 'pad-trick-pitch-1': return 'Pitch Flip ×1';
+			case 'pad-trick-pitch-2': return 'Pitch Flip ×2';
+			case 'pad-trick-roll-1': return 'Roll Flip ×1';
+			case 'pad-trick-roll-2': return 'Roll Flip ×2';
+			case 'pad-trick-yaw-pitch-1': return 'Yaw+Pitch ×1';
+			case 'pad-trick-yaw-roll-1': return 'Yaw+Roll ×1';
+			case 'pad-trick-pitch-roll-1': return 'Pitch+Roll ×1';
+			case 'pad-trick-yaw-pitch-roll-1': return 'Yaw+Pitch+Roll ×1';
+			case 'pad-trick-yaw2-roll-1': return 'Yaw ×2 + Roll ×1';
+			case 'pad-trick-pitch2-roll-1': return 'Pitch ×2 + Roll ×1';
+			case 'pad-trick-yaw2-pitch2': return 'Yaw ×2 + Pitch ×2';
 			case 'pad-custom-a': return 'Custom Pad A';
 			case 'pad-custom-b': return 'Custom Pad B';
 			case 'pad-custom-c': return 'Custom Pad C';
@@ -4285,7 +4314,7 @@ async function init() {
 
 	}
 
-	function applyPadContact( targetVehicle, lastContactKey, setEffect ) {
+	function applyPadContact( targetVehicle, lastContactKey, setEffect, getCurrentEffect = null ) {
 
 		const contact = findPadContactFor( targetVehicle );
 		if ( ! contact ) return null;
@@ -4298,7 +4327,13 @@ async function init() {
 
 		}
 		const effect = getPadEffectForType( contact.type );
-		setEffect( effect );
+		if ( effect?.trick && getCurrentEffect ) {
+
+			const previous = getCurrentEffect() || null;
+			const merged = { ...( previous || {} ), ...effect, trick: effect.trick };
+			setEffect( merged );
+
+		} else setEffect( effect );
 		showEffectPopup( `Effect applied: ${ getPadLabel( contact.type ) }` );
 		return contact.key;
 
@@ -4313,6 +4348,76 @@ async function init() {
 		if ( effect?.disableAcceleration && input.z > 0 ) input.z = 0;
 		if ( Number.isFinite( effect?.steering ) ) input.x *= effect.steering;
 		return input;
+
+	}
+
+	function updateAirTrickStateFor( targetVehicle, activePadEffect, state, dt, onTrickFinished = null ) {
+
+		if ( ! targetVehicle || ! state ) return;
+			const trick = activePadEffect?.trick || null;
+			const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
+			const airborne = targetVehicle.spherePos.y > 0.62 || Math.abs( verticalVel ) > 0.35;
+		if ( ! trick || ! airborne ) {
+
+			state.active = false;
+			state.progress = 0;
+			state.lastSmoothT = 0;
+			if ( state.recovering ) {
+
+				state.recoveryT = Math.min( 1, state.recoveryT + dt / state.recoveryDuration );
+				const t = state.recoveryT * state.recoveryT * ( 3 - 2 * state.recoveryT );
+				targetVehicle.container.quaternion.copy( state.recoveryStartQuat ).slerp( state.recoveryTargetQuat, t );
+				targetVehicle.container.updateMatrixWorld( true );
+				if ( state.recoveryT >= 1 ) state.recovering = false;
+
+			}
+			return;
+
+		}
+
+		if ( ! state.active ) {
+			state.active = true;
+			state.recovering = false;
+			state.recoveryT = 0;
+			state.progress = 0;
+			state.lastSmoothT = 0;
+			state.pitchTotal = ( Number( trick.pitch ) || 0 ) * Math.PI * 2;
+			state.yawTotal = ( Number( trick.yaw ) || 0 ) * Math.PI * 2;
+			state.rollTotal = ( Number( trick.roll ) || 0 ) * Math.PI * 2;
+		}
+
+		state.progress = Math.min( 1, state.progress + dt / AIR_TRICK_DURATION_SECONDS );
+		const smoothT = state.progress * state.progress * state.progress * ( state.progress * ( state.progress * 6 - 15 ) + 10 );
+		const deltaT = Math.max( 0, smoothT - state.lastSmoothT );
+		state.lastSmoothT = smoothT;
+		if ( deltaT > 0 ) {
+
+			const deltaEuler = new THREE.Euler(
+				state.pitchTotal * deltaT,
+				state.yawTotal * deltaT,
+				state.rollTotal * deltaT,
+				'YXZ'
+			);
+			const dq = new THREE.Quaternion().setFromEuler( deltaEuler );
+			targetVehicle.container.quaternion.multiply( dq ).normalize();
+
+		}
+		targetVehicle.container.updateMatrixWorld( true );
+			if ( state.progress >= 1 ) {
+
+				state.active = false;
+				state.progress = 0;
+				state.lastSmoothT = 0;
+				state.recovering = true;
+				state.recoveryT = 0;
+				state.recoveryStartQuat.copy( targetVehicle.container.quaternion );
+				const euler = new THREE.Euler().setFromQuaternion( targetVehicle.container.quaternion, 'YXZ' );
+				euler.x = 0;
+				euler.z = 0;
+				state.recoveryTargetQuat.setFromEuler( euler );
+				if ( onTrickFinished ) onTrickFinished();
+
+			}
 
 	}
 
@@ -5145,6 +5250,8 @@ async function init() {
 		activePadEffect = null;
 		activePadTimeScale = 1;
 		padContactKey = null;
+		airTrickState.active = false;
+		airTrickState.recovering = false;
 		specialSurfaceContactState.clear();
 		resetCurrentLapGhost();
 		resetCurrentLapInputs();
@@ -5188,6 +5295,8 @@ async function init() {
 		activePadEffect2 = null;
 		activePadTimeScale2 = 1;
 		padContactKey2 = null;
+		airTrickState2.active = false;
+		airTrickState2.recovering = false;
 		specialSurfaceContactState2.clear();
 		hasLeftStartZone2 = false;
 		hasPrevFinishSample2 = false;
@@ -6382,8 +6491,15 @@ async function init() {
 				activePadEffect = effect;
 				activePadTimeScale = Number.isFinite( effect?.timeScale ) ? effect.timeScale : 1;
 
-			} ) || null;
+			}, () => activePadEffect ) || null;
 			activeSurfaceType = findActiveSurfaceTypeFor( vehicle );
+			updateAirTrickStateFor( vehicle, activePadEffect, airTrickState, dt, () => {
+
+				if ( ! activePadEffect?.trick ) return;
+				const { trick, ...rest } = activePadEffect;
+				activePadEffect = Object.keys( rest ).length ? rest : null;
+
+			} );
 			applySurfaceGrip( vehicle, activeSurfaceType, activePadEffect );
 			if ( activeSurfaceType && activeSurfaceType !== lastSurfaceNotifyType && ! activeSurfaceType.startsWith( 'pad-' ) ) showEffectPopup( `Effect applied: ${ activeSurfaceType.replace( /^surface-/, '' ).replace( /-/g, ' ' ) }` );
 			lastSurfaceNotifyType = activeSurfaceType;
@@ -6399,8 +6515,15 @@ async function init() {
 				activePadEffect2 = effect;
 				activePadTimeScale2 = Number.isFinite( effect?.timeScale ) ? effect.timeScale : 1;
 
-			} ) || null;
+			}, () => activePadEffect2 ) || null;
 			activeSurfaceType2 = findActiveSurfaceTypeFor( vehicle2 );
+				updateAirTrickStateFor( vehicle2, activePadEffect2, airTrickState2, dt, () => {
+
+					if ( ! activePadEffect2?.trick ) return;
+					const { trick, ...rest } = activePadEffect2;
+					activePadEffect2 = Object.keys( rest ).length ? rest : null;
+
+				} );
 			applySurfaceGrip( vehicle2, activeSurfaceType2, activePadEffect2 );
 			if ( activeSurfaceType2 && activeSurfaceType2 !== lastSurfaceNotifyType2 && ! activeSurfaceType2.startsWith( 'pad-' ) ) showEffectPopup( `Effect applied: ${ activeSurfaceType2.replace( /^surface-/, '' ).replace( /-/g, ' ' ) }` );
 			lastSurfaceNotifyType2 = activeSurfaceType2;
@@ -6468,9 +6591,15 @@ async function init() {
 			vehicle.spherePos.z - 5.3
 		);
 
-		if ( freecamState.active ) updateFreecam( dt );
-		else cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
-		if ( cam2 && vehicle2 ) cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
+		const trickCameraLock = airTrickState.active || airTrickState2.active;
+		if ( ! trickCameraLock ) {
+
+			if ( freecamState.active ) updateFreecam( dt );
+			else if ( camMode === 'free' ) updateFreeCamera( dt );
+			else cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
+			if ( cam2 && vehicle2 ) cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
+
+		}
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
