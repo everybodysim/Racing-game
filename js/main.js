@@ -6619,7 +6619,7 @@ async function init() {
 		if ( freecamState.active ) updateFreecam( dt );
 		else {
 
-			const shouldLockYaw = airTrickState.active && isVehicleAirborne( vehicle ) && Math.abs( airTrickState.yawTotal ) > 0.001;
+			const shouldLockYaw = airTrickState.active && isVehicleAirborne( vehicle );
 			if ( shouldLockYaw ) {
 
 				if ( ! camYawLockActive ) {
@@ -6642,7 +6642,7 @@ async function init() {
 		}
 		if ( cam2 && vehicle2 ) {
 
-			const shouldLockYaw2 = airTrickState2.active && isVehicleAirborne( vehicle2 ) && Math.abs( airTrickState2.yawTotal ) > 0.001;
+			const shouldLockYaw2 = airTrickState2.active && isVehicleAirborne( vehicle2 );
 			if ( shouldLockYaw2 ) {
 
 				if ( ! camYawLockActive2 ) {
