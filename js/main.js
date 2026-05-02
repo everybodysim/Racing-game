@@ -111,6 +111,9 @@ const PAD_EFFECTS = {
 	'pad-trick-yaw-pitch-roll-snake': { id: 'trick-yaw-pitch-roll-snake', trick: { yaw: 1, pitch: 1, roll: -1 } },
 	'pad-trick-yaw-roll-pitch': { id: 'trick-yaw-roll-pitch', trick: { yaw: 1, roll: 1, pitch: -1 } },
 	'pad-trick-pitch-yaw-roll': { id: 'trick-pitch-yaw-roll', trick: { pitch: 1, yaw: -1, roll: 1 } },
+	'pad-trick-chain-yaw-roll': { id: 'trick-chain-yaw-roll', chain: true, trickSequence: [ { yaw: 1 }, { roll: 1 } ] },
+	'pad-trick-chain-pitch-yaw': { id: 'trick-chain-pitch-yaw', chain: true, trickSequence: [ { pitch: 1 }, { yaw: 1 } ] },
+	'pad-trick-chain-roll-pitch': { id: 'trick-chain-roll-pitch', chain: true, trickSequence: [ { roll: 1 }, { pitch: 1 } ] },
 };
 const HACK_HITBOX_OPACITY = 0.34;
 const HACK_WORLD_OPACITY = 0.52;
@@ -3961,8 +3964,8 @@ async function init() {
 	let activePadTimeScale2 = 1;
 	let padContactKey = null;
 	let padContactKey2 = null;
-	const airTrickState = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, chainStage: 0, chainSpeed: 1, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
-	const airTrickState2 = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, chainStage: 0, chainSpeed: 1, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
+	const airTrickState = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, chainStage: 0, chainSpeed: 1, allowChain: false, sequence: null, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
+	const airTrickState2 = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, chainStage: 0, chainSpeed: 1, allowChain: false, sequence: null, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
 	const camYawLockQuat = new THREE.Quaternion();
 	const camYawLockQuat2 = new THREE.Quaternion();
 	const camYawLockEuler = new THREE.Euler( 0, 0, 0, 'YXZ' );
@@ -4261,6 +4264,9 @@ async function init() {
 			case 'pad-trick-yaw-pitch-roll-snake': return 'Snake Combo';
 			case 'pad-trick-yaw-roll-pitch': return 'Yaw+Roll+Pitch';
 			case 'pad-trick-pitch-yaw-roll': return 'Pitch+Yaw+Roll';
+			case 'pad-trick-chain-yaw-roll': return 'Chain: Yaw → Roll';
+			case 'pad-trick-chain-pitch-yaw': return 'Chain: Pitch → Yaw';
+			case 'pad-trick-chain-roll-pitch': return 'Chain: Roll → Pitch';
 			case 'pad-custom-a': return 'Custom Pad A';
 			case 'pad-custom-b': return 'Custom Pad B';
 			case 'pad-custom-c': return 'Custom Pad C';
@@ -4356,10 +4362,12 @@ async function init() {
 	function updateAirTrickStateFor( targetVehicle, activePadEffect, state, dt, onTrickFinished = null ) {
 
 		if ( ! targetVehicle || ! state ) return;
-			const trick = activePadEffect?.trick || null;
+		const trick = activePadEffect?.trick || null;
+		const trickSequence = Array.isArray( activePadEffect?.trickSequence ) ? activePadEffect.trickSequence : null;
+		const hasTrickPayload = Boolean( trick ) || ( Array.isArray( trickSequence ) && trickSequence.length > 0 );
 			const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
 			const airborne = targetVehicle.spherePos.y > 0.62 || Math.abs( verticalVel ) > 0.35;
-		if ( ! trick || ! airborne ) {
+		if ( ! hasTrickPayload || ! airborne ) {
 
 			const interrupted = state.active && state.progress > 0 && state.progress < 1;
 			if ( interrupted ) {
@@ -4378,6 +4386,8 @@ async function init() {
 			state.lastSmoothT = 0;
 			state.chainStage = 0;
 			state.chainSpeed = 1;
+			state.allowChain = false;
+			state.sequence = null;
 			if ( interrupted && onTrickFinished ) onTrickFinished();
 			if ( state.recovering ) {
 
@@ -4400,9 +4410,12 @@ async function init() {
 			state.lastSmoothT = 0;
 			state.chainStage = 0;
 			state.chainSpeed = 1;
-			state.pitchTotal = ( Number( trick.pitch ) || 0 ) * Math.PI * 2;
-			state.yawTotal = ( Number( trick.yaw ) || 0 ) * Math.PI * 2;
-			state.rollTotal = ( Number( trick.roll ) || 0 ) * Math.PI * 2;
+			state.allowChain = Boolean( activePadEffect?.chain ) && Array.isArray( trickSequence ) && trickSequence.length > 1;
+			state.sequence = state.allowChain ? trickSequence : [ trick ];
+			const phase = state.sequence?.[ 0 ] || trick || {};
+			state.pitchTotal = ( Number( phase.pitch ) || 0 ) * Math.PI * 2;
+			state.yawTotal = ( Number( phase.yaw ) || 0 ) * Math.PI * 2;
+			state.rollTotal = ( Number( phase.roll ) || 0 ) * Math.PI * 2;
 		}
 
 		state.progress = Math.min( 1, state.progress + dt / ( AIR_TRICK_DURATION_SECONDS / Math.max( 1, state.chainSpeed ) ) );
@@ -4424,12 +4437,16 @@ async function init() {
 		targetVehicle.container.updateMatrixWorld( true );
 			if ( state.progress >= 1 ) {
 
-				if ( state.chainStage === 0 && isVehicleAirborne( targetVehicle ) ) {
+				if ( state.allowChain && state.chainStage + 1 < ( state.sequence?.length || 0 ) && isVehicleAirborne( targetVehicle ) ) {
 
-					state.chainStage = 1;
+					state.chainStage += 1;
 					state.chainSpeed = 1.2;
 					state.progress = 0;
 					state.lastSmoothT = 0;
+					const phase = state.sequence?.[ state.chainStage ] || {};
+					state.pitchTotal = ( Number( phase.pitch ) || 0 ) * Math.PI * 2;
+					state.yawTotal = ( Number( phase.yaw ) || 0 ) * Math.PI * 2;
+					state.rollTotal = ( Number( phase.roll ) || 0 ) * Math.PI * 2;
 					return;
 
 				}
@@ -4438,6 +4455,8 @@ async function init() {
 				state.lastSmoothT = 0;
 				state.chainStage = 0;
 				state.chainSpeed = 1;
+				state.allowChain = false;
+				state.sequence = null;
 				state.recovering = true;
 				state.recoveryT = 0;
 				state.recoveryStartQuat.copy( targetVehicle.container.quaternion );
@@ -6634,7 +6653,7 @@ async function init() {
 		if ( freecamState.active ) updateFreecam( dt );
 		else {
 
-			const shouldLockYaw = Boolean( activePadEffect?.trick ) && airTrickState.active && isVehicleAirborne( vehicle );
+			const shouldLockYaw = airTrickState.active && isVehicleAirborne( vehicle ) && Math.abs( airTrickState.yawTotal ) > 0.001;
 			if ( shouldLockYaw ) {
 
 				if ( ! camYawLockActive ) {
@@ -6657,7 +6676,7 @@ async function init() {
 		}
 		if ( cam2 && vehicle2 ) {
 
-			const shouldLockYaw2 = Boolean( activePadEffect2?.trick ) && airTrickState2.active && isVehicleAirborne( vehicle2 );
+			const shouldLockYaw2 = airTrickState2.active && isVehicleAirborne( vehicle2 ) && Math.abs( airTrickState2.yawTotal ) > 0.001;
 			if ( shouldLockYaw2 ) {
 
 				if ( ! camYawLockActive2 ) {
