@@ -1144,6 +1144,11 @@ async function init() {
 	const searchParams = new URLSearchParams( window.location.search );
 	const { mapParam, extrasParam } = await resolvePackedTrackParams( searchParams );
 	const isSplitScreen = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1';
+	const editorQuickTestEnabled = searchParams.get( 'editorQuickTest' ) === '1';
+	const editorReturnParam = String( searchParams.get( 'editorReturn' ) || '' );
+	const editorGhostMapHash = String( searchParams.get( 'editorGhostMap' ) || '' );
+	const QUICK_TEST_GHOST_KEY = 'racing-editor-quicktest-ghost-v1';
+	const QUICK_TEST_GHOST_MAP_KEY = 'racing-editor-quicktest-map-v1';
 	const ghostEnabled = ! isSplitScreen;
 	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
 	let customCells = null;
@@ -6889,6 +6894,32 @@ async function init() {
 
 				}
 				if ( isNewBest && ! isSplitScreen ) submitLeaderboardTime( completedLap );
+				if ( editorQuickTestEnabled && editorReturnParam && ! isSplitScreen && currentLapGhostSamples.length > 1 ) {
+
+					try {
+
+						const t0 = currentLapGhostSamples[ 0 ].t;
+						const normalizedSamples = currentLapGhostSamples.map( ( sample ) => ( {
+							x: sample.x,
+							z: sample.z,
+							t: sample.t - t0,
+						} ) );
+						localStorage.setItem( QUICK_TEST_GHOST_KEY, JSON.stringify( {
+							samples: normalizedSamples,
+							duration: completedLap,
+							at: Date.now(),
+						} ) );
+						localStorage.setItem( QUICK_TEST_GHOST_MAP_KEY, editorGhostMapHash );
+
+					} catch ( error ) {
+
+						console.warn( 'Failed to persist quick-test ghost', error );
+
+					}
+					window.location.href = editorReturnParam;
+					return;
+
+				}
 						lapNumber ++;
 					resetMovingObstacles( movingObstacleState, now );
 						lapStartSeconds = now;

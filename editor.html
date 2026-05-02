@@ -1081,6 +1081,12 @@
 	ghostGroup.position.y = - 0.5;
 	ghostGroup.scale.setScalar( GRID_SCALE );
 	scene.add( ghostGroup );
+	const quickTestGhostGroup = new THREE.Group();
+	quickTestGhostGroup.position.y = - 0.49;
+	quickTestGhostGroup.scale.setScalar( GRID_SCALE );
+	scene.add( quickTestGhostGroup );
+	const QUICK_TEST_GHOST_KEY = 'racing-editor-quicktest-ghost-v1';
+	const QUICK_TEST_GHOST_MAP_KEY = 'racing-editor-quicktest-map-v1';
 
 	const WEATHER_PRESETS = {
 		clear: { name: 'Clear', bg: 0xadb2ba, fogNear: 80, fogFar: 160, sun: 5, hemi: 1.5, exposure: 1.0, ground: 0x369069 },
@@ -2145,6 +2151,62 @@
 
 	}
 
+	function clearQuickTestGhost() {
+
+		while ( quickTestGhostGroup.children.length > 0 ) quickTestGhostGroup.remove( quickTestGhostGroup.children[ 0 ] );
+
+	}
+
+	function drawQuickTestGhost( payload ) {
+
+		clearQuickTestGhost();
+		if ( ! payload || ! Array.isArray( payload.samples ) || payload.samples.length < 2 ) return;
+		const points = [];
+		for ( const sample of payload.samples ) {
+
+			const x = Number( sample?.x );
+			const z = Number( sample?.z );
+			if ( ! Number.isFinite( x ) || ! Number.isFinite( z ) ) continue;
+			points.push( new THREE.Vector3( x / GRID_SCALE, 0.06, z / GRID_SCALE ) );
+
+		}
+		if ( points.length < 2 ) return;
+		const geometry = new THREE.BufferGeometry().setFromPoints( points );
+		const line = new THREE.Line( geometry, new THREE.LineBasicMaterial( {
+			color: 0x8efb9a,
+			transparent: true,
+			opacity: 0.85,
+		} ) );
+		quickTestGhostGroup.add( line );
+
+	}
+
+	function maybeLoadQuickTestGhost() {
+
+		const encoded = encodeCells( getCellsArray() );
+		const mapHash = `${ encoded }|${ encodeMods() }`;
+		const expectedHash = localStorage.getItem( QUICK_TEST_GHOST_MAP_KEY ) || '';
+		if ( expectedHash !== mapHash ) {
+
+			localStorage.removeItem( QUICK_TEST_GHOST_KEY );
+			localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
+			clearQuickTestGhost();
+			return;
+
+		}
+		try {
+
+			const parsed = JSON.parse( localStorage.getItem( QUICK_TEST_GHOST_KEY ) || 'null' );
+			drawQuickTestGhost( parsed );
+
+		} catch {
+
+			clearQuickTestGhost();
+
+		}
+
+	}
+
 	// ─── Raycasting ───────────────────────────────────────────
 
 	const raycaster = new THREE.Raycaster();
@@ -2196,6 +2258,9 @@
 		const encoded = encodeCells( arr );
 		localStorage.setItem( 'racing-editor-cells', encoded );
 		localStorage.setItem( 'racing-editor-mods', encodeMods() );
+		localStorage.removeItem( QUICK_TEST_GHOST_KEY );
+		localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
+		clearQuickTestGhost();
 
 	}
 
@@ -3206,7 +3271,11 @@ function refreshMovingSpeedUi() {
 		try {
 
 			const result = await createPlayableTrackUrl();
-			window.open( result.url, '_blank' );
+			const testUrl = new URL( result.url, window.location.href );
+			testUrl.searchParams.set( 'editorQuickTest', '1' );
+			testUrl.searchParams.set( 'editorReturn', window.location.href.split( '?' )[ 0 ] );
+			testUrl.searchParams.set( 'editorGhostMap', `${ encodeCells( getCellsArray() ) }|${ encodeMods() }` );
+			window.location.href = testUrl.toString();
 			if ( result.mode === 'local-pack' ) showToast( 'Opened with local pack fallback (same browser/device only).' );
 
 			} catch ( error ) {
@@ -3238,6 +3307,7 @@ function refreshMovingSpeedUi() {
 
 	} );
 	restartAutosaveTimer();
+	maybeLoadQuickTestGhost();
 
 	document.getElementById( 'btn-share' ).addEventListener( 'click', async () => {
 
