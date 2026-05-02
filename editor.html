@@ -350,6 +350,7 @@
 		<button id="btn-moving-spin">Spinning Wall +</button>
 		<button id="btn-moving-orbit">Orbit Poles +</button>
 		<button id="btn-moving-custom">Custom Mover +</button>
+		<button id="btn-drawbridge">Drawbridge Block +</button>
 		<label id="moving-speed-wrap" style="display:none;color:#dbe8ff;font-size:11px;">Move Speed <input id="moving-speed" type="range" min="0.25" max="3" step="0.05" value="1"><span id="moving-speed-value">1.00x</span></label>
 		<select id="gate-select" aria-label="Gate picker">
 			<option value="track-start-finish">Start/Finish</option>
@@ -501,6 +502,7 @@
 	const MOVING_SPIN_TOOL = 'moving-spin-wall';
 	const MOVING_ORBIT_TOOL = 'moving-orbit-poles';
 	const MOVING_CUSTOM_TOOL = 'moving-custom';
+	const DRAWBRIDGE_TOOL = 'drawbridge-block';
 	const MAGNET_BLUE_TOOL = 'magnet-blue';
 	const MAGNET_RED_TOOL = 'magnet-red';
 	const MAGNET_GRAPPLE_TOOL = 'magnet-grapple';
@@ -1549,6 +1551,18 @@
 				hub.rotation.z = Math.PI * 0.5;
 				marker.add( hub );
 
+			} else if ( cell.movingObstacle === DRAWBRIDGE_TOOL ) {
+				const left = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.21, CELL_RAW * 0.2, CELL_RAW * 0.78 ), new THREE.MeshStandardMaterial( { color: 0x22252a } ) );
+				const right = left.clone();
+				left.position.x = - CELL_RAW * 0.125;
+				right.position.x = CELL_RAW * 0.125;
+				const capL = new THREE.Mesh( new THREE.PlaneGeometry( CELL_RAW * 0.21, CELL_RAW * 0.78 ), new THREE.MeshStandardMaterial( { color: 0x030303, side: THREE.DoubleSide } ) );
+				capL.rotation.x = - Math.PI / 2;
+				capL.position.y = - CELL_RAW * 0.03;
+				const capR = capL.clone();
+				capR.position.x = CELL_RAW * 0.25;
+				capL.position.x = - CELL_RAW * 0.25;
+				marker.add( left ); marker.add( right ); marker.add( capL ); marker.add( capR );
 			} else if ( cell.movingObstacle === MOVING_CUSTOM_TOOL ) {
 				const cfg = cell.movingCustom || readCustomMovingUi();
 				const sx = Number( cfg?.sx ) || 2, sy = Number( cfg?.sy ) || 0.8, sz = Number( cfg?.sz ) || 0.8;
@@ -2538,7 +2552,7 @@
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
-				if ( [ MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, MOVING_CUSTOM_TOOL ].includes( movingType ) ) { cell.movingObstacle = movingType; cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedRaw ) || 1 ) ); cell.movingCustom = movingCustomRaw && typeof movingCustomRaw === 'object' ? movingCustomRaw : null; }
+				if ( [ MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, DRAWBRIDGE_TOOL ].includes( movingType ) ) { cell.movingObstacle = movingType; cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedRaw ) || 1 ) ); cell.movingCustom = movingCustomRaw && typeof movingCustomRaw === 'object' ? movingCustomRaw : null; }
 				placeOverlayMesh( gx, gz, cell );
 
 			}
@@ -2639,7 +2653,7 @@
 	const movingSpeedWrap = document.getElementById( 'moving-speed-wrap' );
 	const movingSpeedInput = document.getElementById( 'moving-speed' );
 	const movingSpeedValue = document.getElementById( 'moving-speed-value' );
-	function isMovingObstacleTool( type ) { return type === MOVING_SLIDE_TOOL || type === MOVING_SPIN_TOOL || type === MOVING_ORBIT_TOOL || type === MOVING_CUSTOM_TOOL; }
+	function isMovingObstacleTool( type ) { return type === MOVING_SLIDE_TOOL || type === MOVING_SPIN_TOOL || type === MOVING_ORBIT_TOOL || type === MOVING_CUSTOM_TOOL || type === DRAWBRIDGE_TOOL; }
 
 	 
 	const movingCustomShape = document.getElementById( 'moving-custom-shape' );
@@ -2692,6 +2706,7 @@ function refreshMovingSpeedUi() {
 		[ MOVING_SPIN_TOOL ]: document.getElementById( 'btn-moving-spin' ),
 		[ MOVING_ORBIT_TOOL ]: document.getElementById( 'btn-moving-orbit' ),
 		[ MOVING_CUSTOM_TOOL ]: document.getElementById( 'btn-moving-custom' ),
+		[ DRAWBRIDGE_TOOL ]: document.getElementById( 'btn-drawbridge' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
 		'elevated-straight': document.getElementById( 'btn-elevated-straight' ),
 		'elevated-corner': document.getElementById( 'btn-elevated-corner' ),
@@ -2789,7 +2804,7 @@ function refreshMovingSpeedUi() {
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, DRAWBRIDGE_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 

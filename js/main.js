@@ -634,7 +634,7 @@ function createMovingObstacleState( scene, extras ) {
 		const type = String( typeRaw || '' );
 		const orient = Number( orientRaw ) || 0;
 		const base = new THREE.Vector3( ( gx + 0.5 ) * CELL_RAW * GRID_SCALE, -0.5 + ( CELL_RAW * GRID_SCALE * 0.08 ), ( gz + 0.5 ) * CELL_RAW * GRID_SCALE );
-		const obstacle = { type, orient, speed: THREE.MathUtils.clamp( Number( speedRaw ) || 1, 0.25, 3 ), base, mesh: new THREE.Group(), colliders: [] };
+		const obstacle = { type, orient, speed: THREE.MathUtils.clamp( Number( speedRaw ) || 1, 0.25, 3 ), base, mesh: new THREE.Group(), colliders: [], groundColliders: [] };
 		if ( type === 'moving-slide-block' ) {
 			const m = new THREE.Mesh( new THREE.BoxGeometry( 2.1, 1.2, 1.5 ), new THREE.MeshStandardMaterial( { color: 0x8ca0b8 } ) );
 			obstacle.mesh.add( m );
@@ -643,6 +643,28 @@ function createMovingObstacleState( scene, extras ) {
 			const m = new THREE.Mesh( new THREE.BoxGeometry( 3.8, 0.8, 0.55 ), new THREE.MeshStandardMaterial( { color: 0xb4b8bf } ) );
 			obstacle.mesh.add( m );
 			obstacle.colliders.push( { half: new THREE.Vector3( 1.9, 0.4, 0.275 ), offset: new THREE.Vector3() } );
+
+		} else if ( type === 'drawbridge-block' ) {
+			const halfLen = CELL_RAW * GRID_SCALE * 0.25;
+			const quarterOffset = CELL_RAW * GRID_SCALE * 0.25;
+			const yBase = -0.5 + ( CELL_RAW * GRID_SCALE * 0.08 );
+			const makeLeaf = ( sign ) => {
+				const leaf = new THREE.Group();
+				leaf.position.set( sign * quarterOffset, 0, 0 );
+				leaf.userData.hingeSign = sign;
+				const road = models['track-straight'] ? models['track-straight'].clone() : new THREE.Mesh( new THREE.BoxGeometry( 2.2, 0.25, 1.2 ), new THREE.MeshStandardMaterial( { color: 0x7f7f7f } ) );
+				road.scale.x = 0.5;
+				leaf.add( road );
+				const cover = new THREE.Mesh( new THREE.PlaneGeometry( halfLen * 2, CELL_RAW * GRID_SCALE * 0.78 ), new THREE.MeshStandardMaterial( { color: 0x050505, side: THREE.DoubleSide } ) );
+				cover.rotation.x = - Math.PI / 2;
+				cover.position.y = -0.015;
+				leaf.add( cover );
+				obstacle.mesh.add( leaf );
+				obstacle.colliders.push( { half: new THREE.Vector3( halfLen, 0.55, CELL_RAW * GRID_SCALE * 0.39 ), offset: new THREE.Vector3( sign * quarterOffset, 0, 0 ), rotX: 0 } );
+				obstacle.groundColliders.push( { half: new THREE.Vector3( halfLen, 0.05, CELL_RAW * GRID_SCALE * 0.39 ), offset: new THREE.Vector3( sign * quarterOffset, -0.01, 0 ), rotX: 0 } );
+			};
+			makeLeaf( -1 );
+			makeLeaf( 1 );
 		} else if ( type === 'moving-custom' ) {
 			const cfg = entry?.[5] && typeof entry[5] === 'object' ? entry[5] : {};
 			obstacle.custom = cfg;
@@ -681,6 +703,15 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		const p = obstacle.base.clone();
 		obstacle.mesh.rotation.set( 0, 0, 0 );
 		if ( obstacle.type === 'moving-slide-block' ) p.x += Math.sin( t * 1.35 * obstacle.speed ) * 1.7;
+		if ( obstacle.type === 'drawbridge-block' ) {
+			const phase = ( ( t * obstacle.speed ) % 5 ) / 5;
+			const swing = Math.sin( phase * Math.PI * 2 ) * ( Math.PI * 0.48 );
+			for ( const child of obstacle.mesh.children ) {
+				if ( child.userData?.hingeSign ) child.rotation.z = child.userData.hingeSign * swing;
+			}
+			for ( let i = 0; i < obstacle.colliders.length; i ++ ) obstacle.colliders[i].rotX = obstacle.mesh.children[i]?.userData?.hingeSign ? obstacle.mesh.children[i].rotation.z : 0;
+			for ( let i = 0; i < obstacle.groundColliders.length; i ++ ) obstacle.groundColliders[i].rotX = obstacle.colliders[i]?.rotX || 0;
+		}
 		if ( obstacle.type === 'moving-spin-wall' ) obstacle.mesh.rotation.y = t * 0.9 * obstacle.speed;
 		if ( obstacle.type === 'moving-custom' ) {
 			const cfg = obstacle.custom || {};
@@ -703,8 +734,9 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		for ( const vehicle of vehicleList ) {
 			if ( ! vehicle?.rigidBody ) continue;
 			const r = 0.5;
-			for ( const collider of obstacle.colliders ) {
-				const quat = obstacle.mesh.quaternion;
+			for ( const collider of [ ...( obstacle.colliders || [] ), ...( obstacle.groundColliders || [] ) ] ) {
+				const quat = obstacle.mesh.quaternion.clone();
+				if ( Number.isFinite( collider.rotX ) && Math.abs( collider.rotX ) > 1e-5 ) quat.multiply( new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 0, 1 ), collider.rotX ) );
 				const world = collider.offset.clone().applyQuaternion( quat ).add( obstacle.mesh.position );
 				const local = vehicle.spherePos.clone().sub( world ).applyQuaternion( quat.clone().invert() );
 				const clampedLocal = new THREE.Vector3(
