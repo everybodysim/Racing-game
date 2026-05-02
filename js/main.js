@@ -3966,6 +3966,10 @@ async function init() {
 	let padContactKey2 = null;
 	const airTrickState = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
 	const airTrickState2 = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
+	const trickCameraQuat = new THREE.Quaternion();
+	const trickCameraQuat2 = new THREE.Quaternion();
+	let trickCameraQuatLocked = false;
+	let trickCameraQuatLocked2 = false;
 	const checkpointStates2 = checkpointCells.map( ( cell ) => ( {
 		...makeGateData( cell ),
 		lastLocalX: 0,
@@ -5252,6 +5256,7 @@ async function init() {
 		padContactKey = null;
 		airTrickState.active = false;
 		airTrickState.recovering = false;
+		trickCameraQuatLocked = false;
 		specialSurfaceContactState.clear();
 		resetCurrentLapGhost();
 		resetCurrentLapInputs();
@@ -5297,6 +5302,7 @@ async function init() {
 		padContactKey2 = null;
 		airTrickState2.active = false;
 		airTrickState2.recovering = false;
+		trickCameraQuatLocked2 = false;
 		specialSurfaceContactState2.clear();
 		hasLeftStartZone2 = false;
 		hasPrevFinishSample2 = false;
@@ -6591,13 +6597,48 @@ async function init() {
 			vehicle.spherePos.z - 5.3
 		);
 
-		const trickCameraLock = airTrickState.active || airTrickState2.active;
-		if ( ! trickCameraLock ) {
+		const trickCameraLock = airTrickState.active || airTrickState.recovering;
+		const trickCameraLock2 = airTrickState2.active || airTrickState2.recovering;
+		if ( freecamState.active ) updateFreecam( dt );
+		else if ( camMode === 'free' ) updateFreeCamera( dt );
+		else {
 
-			if ( freecamState.active ) updateFreecam( dt );
-			else if ( camMode === 'free' ) updateFreeCamera( dt );
-			else cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
-			if ( cam2 && vehicle2 ) cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
+			if ( trickCameraLock ) {
+
+				if ( ! trickCameraQuatLocked ) {
+
+					trickCameraQuat.copy( vehicle.container.quaternion );
+					trickCameraQuatLocked = true;
+
+				}
+				cam.update( dt, vehicle.spherePos, trickCameraQuat );
+
+			} else {
+
+				trickCameraQuatLocked = false;
+				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
+
+			}
+
+		}
+		if ( cam2 && vehicle2 ) {
+
+			if ( trickCameraLock2 ) {
+
+				if ( ! trickCameraQuatLocked2 ) {
+
+					trickCameraQuat2.copy( vehicle2.container.quaternion );
+					trickCameraQuatLocked2 = true;
+
+				}
+				cam2.update( dt, vehicle2.spherePos, trickCameraQuat2 );
+
+			} else {
+
+				trickCameraQuatLocked2 = false;
+				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
+
+			}
 
 		}
 		particles.update( dt, vehicle );
