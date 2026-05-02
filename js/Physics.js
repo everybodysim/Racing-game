@@ -225,7 +225,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	function addSlopeCollider( gx, gz, orient = 0, up = true ) {
+	function addSlopeCollider( gx, gz, orient = 0, up = true, yOffset = 0 ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
@@ -234,7 +234,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const shiftZ = Math.cos( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
 		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( up ? slopeAngle : - slopeAngle, yaw, 0, 'YXZ' ) );
 		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, slopeTargetHalfLen ];
-		const position = [ cx + shiftX, slopeTargetCenterY, cz + shiftZ ];
+		const position = [ cx + shiftX, slopeTargetCenterY + yOffset, cz + shiftZ ];
 		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents } ),
@@ -252,35 +252,40 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	function addMergedElevatedSurfaceColliders( elevatedList ) {
 
-		const flatSet = new Set();
+		const levelSets = new Map();
 		for ( const entry of elevatedList ) {
 
 			if ( ! Array.isArray( entry ) ) continue;
-			const [ gxRaw, gzRaw, elevatedType ] = entry;
+			const [ gxRaw, gzRaw, elevatedType, _orient = 0, levelRaw = 1 ] = entry;
 			const gx = Number( gxRaw );
 			const gz = Number( gzRaw );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
 			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-checkpoint' ) continue;
-			flatSet.add( `${ gx },${ gz }` );
+			const level = Math.max( 1, Number( levelRaw ) || 1 );
+			if ( ! levelSets.has( level ) ) levelSets.set( level, new Set() );
+			levelSets.get( level ).add( `${ gx },${ gz }` );
 
 		}
 
-		if ( flatSet.size === 0 ) return;
+		if ( levelSets.size === 0 ) return;
 
-		const rows = new Map();
-		for ( const cellKey of flatSet ) {
+		const edgeOverhang = CELL_RAW * S * 0.16;
+		for ( const [ level, flatSet ] of levelSets ) {
 
-			const [ gx, gz ] = cellKey.split( ',' ).map( Number );
-			if ( ! rows.has( gz ) ) rows.set( gz, [] );
-			rows.get( gz ).push( gx );
+			const rows = new Map();
+			for ( const cellKey of flatSet ) {
 
-		}
+				const [ gx, gz ] = cellKey.split( ',' ).map( Number );
+				if ( ! rows.has( gz ) ) rows.set( gz, [] );
+				rows.get( gz ).push( gx );
 
-		const rowKeys = [ ...rows.keys() ].sort( ( a, b ) => a - b );
-		const activeRects = new Map();
-		const finishedRects = [];
+			}
 
-		for ( const gz of rowKeys ) {
+			const rowKeys = [ ...rows.keys() ].sort( ( a, b ) => a - b );
+			const activeRects = new Map();
+			const finishedRects = [];
+
+			for ( const gz of rowKeys ) {
 
 			const xs = rows.get( gz ).sort( ( a, b ) => a - b );
 			const spans = [];
@@ -302,7 +307,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			}
 			spans.push( [ start, prev ] );
 
-			const nextActive = new Map();
+				const nextActive = new Map();
 			for ( const [ spanStart, spanEnd ] of spans ) {
 
 				const spanKey = `${ spanStart },${ spanEnd }`;
@@ -320,21 +325,20 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 			}
 
-			for ( const [ spanKey, rect ] of activeRects ) {
+				for ( const [ spanKey, rect ] of activeRects ) {
 
 				if ( ! nextActive.has( spanKey ) ) finishedRects.push( rect );
 
 			}
 
-			activeRects.clear();
-			for ( const [ spanKey, rect ] of nextActive ) activeRects.set( spanKey, rect );
+				activeRects.clear();
+				for ( const [ spanKey, rect ] of nextActive ) activeRects.set( spanKey, rect );
 
-		}
+			}
 
-		for ( const rect of activeRects.values() ) finishedRects.push( rect );
+			for ( const rect of activeRects.values() ) finishedRects.push( rect );
 
-		const edgeOverhang = CELL_RAW * S * 0.16;
-		for ( const rect of finishedRects ) {
+			for ( const rect of finishedRects ) {
 
 			const spanCellsX = rect.maxX - rect.minX + 1;
 			const spanCellsZ = rect.maxZ - rect.minZ + 1;
@@ -343,7 +347,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const halfExtents = [ fullX * 0.5, ELEVATED_SURFACE_HALF_H, fullZ * 0.5 ];
 			const centerX = ( ( rect.minX + rect.maxX + 1 ) * 0.5 ) * CELL_RAW * S;
 			const centerZ = ( ( rect.minZ + rect.maxZ + 1 ) * 0.5 ) * CELL_RAW * S;
-			const position = [ centerX, elevatedSurfaceY, centerZ ];
+				const position = [ centerX, elevatedSurfaceY + ( ELEVATED_HEIGHT * ( level - 1 ) ), centerZ ];
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
 				motionType: MotionType.STATIC,
@@ -353,6 +357,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 				restitution: 0.0,
 			} );
 			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+			}
 
 		}
 
@@ -612,30 +618,32 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	addMergedElevatedSurfaceColliders( elevatedEntries );
 
-	for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedEntries ) {
+	for ( const [ gx, gz, elevatedType, orient = 0, levelRaw = 1 ] of elevatedEntries ) {
 
 		if ( ! Number.isFinite( Number( gx ) ) || ! Number.isFinite( Number( gz ) ) ) continue;
 		const normalizedType = elevatedType === 'slope-down' ? 'slope-up' : elevatedType;
 		const normalizedOrient = elevatedType === 'slope-down' ? ( ORIENT_180[ orient ] ?? orient ) : orient;
+		const level = Math.max( 1, Number( levelRaw ) || 1 );
+		const levelYOffset = ELEVATED_HEIGHT * ( level - 1 );
 		const nx = Number( gx );
 		const nz = Number( gz );
 		if ( normalizedType === 'slope-up' ) {
 
-			addSlopeCollider( nx, nz, normalizedOrient, true );
+			addSlopeCollider( nx, nz, normalizedOrient, true, levelYOffset );
 			continue;
 
 		}
 		if ( normalizedType === 'elevated-straight' || normalizedType === 'elevated-checkpoint' ) {
 
-			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
-			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedSupportWallY, hHeight );
+			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedWallY + levelYOffset, ELEVATED_WALL_HALF_H );
+			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedSupportWallY + ( levelYOffset * 0.5 ), hHeight * level );
 			continue;
 
 		}
 		if ( normalizedType === 'elevated-corner' ) {
 
-			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
-			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedSupportWallY, hHeight );
+			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY + levelYOffset, ELEVATED_WALL_HALF_H );
+			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedSupportWallY + ( levelYOffset * 0.5 ), hHeight * level );
 
 		}
 

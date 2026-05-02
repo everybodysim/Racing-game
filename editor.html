@@ -1459,6 +1459,7 @@
 				if ( normalizedType === 'slope-up' ) {
 
 					elevated.rotation.order = 'YXZ';
+					elevated.rotation.y = THREE.MathUtils.degToRad( ( ORIENT_DEG[ normalizedOrient ] || 0 ) + 180 );
 					elevated.rotation.x = - SLOPE_ANGLE;
 					elevated.scale.z = 1.08;
 
@@ -1479,8 +1480,8 @@
 			}
 
 			const support = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW, SUPPORT_HEIGHT, CELL_RAW ),
-				new THREE.MeshStandardMaterial( { color: 0x0d0d0d, roughness: 0.95, metalness: 0.0 } )
+				new THREE.BoxGeometry( CELL_RAW * 0.24, SUPPORT_HEIGHT, CELL_RAW * 0.24 ),
+				new THREE.MeshStandardMaterial( { color: 0x0d0d0d, roughness: 0.95, metalness: 0.0, transparent: true, opacity: 0.55 } )
 			);
 			const elevatedLevel = Math.max( 1, Number( cell.elevatedLevel ) || 1 );
 			support.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ( SUPPORT_HEIGHT * elevatedLevel * 0.5 ), ( gz + 0.5 ) * CELL_RAW );
