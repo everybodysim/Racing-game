@@ -100,7 +100,6 @@ const PAD_EFFECTS = {
 	'pad-slow-motion': { id: 'slow-motion', timeScale: 0.6 },
 	'pad-fast-motion': { id: 'fast-motion', timeScale: 1.35 },
 	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
-	'pad-off-gravity': { id: 'off-gravity' },
 	'pad-trick-yaw-1': { id: 'trick-yaw-1', trick: { yaw: 1 } },
 	'pad-trick-pitch-1': { id: 'trick-pitch-1', trick: { pitch: 1 } },
 	'pad-trick-roll-1': { id: 'trick-roll-1', trick: { roll: 1 } },
@@ -108,7 +107,6 @@ const PAD_EFFECTS = {
 	'pad-trick-yaw-roll-1': { id: 'trick-yaw-roll-1', trick: { yaw: 1, roll: 1 } },
 	'pad-trick-pitch-roll-1': { id: 'trick-pitch-roll-1', trick: { pitch: 1, roll: 1 } },
 	'pad-trick-yaw-pitch-roll-1': { id: 'trick-yaw-pitch-roll-1', trick: { yaw: 1, pitch: 1, roll: 1 } },
-	'pad-trick-yaw-pitch-roll-snake': { id: 'trick-yaw-pitch-roll-snake', trick: { yaw: 1, pitch: 1, roll: -1 } },
 	'pad-trick-yaw-roll-pitch': { id: 'trick-yaw-roll-pitch', trick: { yaw: 1, roll: 1, pitch: -1 } },
 	'pad-trick-pitch-yaw-roll': { id: 'trick-pitch-yaw-roll', trick: { pitch: 1, yaw: -1, roll: 1 } },
 	'pad-trick-chain-yaw-roll': { id: 'trick-chain-yaw-roll', chain: true, trickSequence: [ { yaw: 1 }, { roll: 1 } ] },
@@ -130,7 +128,7 @@ const MAGNET_MAX_FORCE_PER_SECOND = 64.0;
 	const ARC_LINK_TRIGGER_RADIUS = CELL_RAW * GRID_SCALE * 0.32;
 	const ARC_LINK_MIN_TIME = 0.45;
 	const ARC_LINK_MAX_TIME = 1.6;
-	const AIR_TRICK_DURATION_SECONDS = 0.96;
+	const AIR_TRICK_DURATION_SECONDS = 0.62;
 const WEATHER_PRESETS = {
 	clear: { bg: 0xadb2ba, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
 	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
@@ -4253,7 +4251,6 @@ async function init() {
 			case 'pad-slow-motion': return 'Slow Motion';
 			case 'pad-fast-motion': return 'Fast Motion';
 			case 'pad-drift': return 'Drift Mode';
-			case 'pad-off-gravity': return 'Off-Gravity (WIP)';
 			case 'pad-trick-yaw-1': return 'Yaw Flip ×1';
 			case 'pad-trick-pitch-1': return 'Pitch Flip ×1';
 			case 'pad-trick-roll-1': return 'Roll Flip ×1';
@@ -4261,7 +4258,6 @@ async function init() {
 			case 'pad-trick-yaw-roll-1': return 'Yaw+Roll ×1';
 			case 'pad-trick-pitch-roll-1': return 'Pitch+Roll ×1';
 			case 'pad-trick-yaw-pitch-roll-1': return 'Yaw+Pitch+Roll ×1';
-			case 'pad-trick-yaw-pitch-roll-snake': return 'Snake Combo';
 			case 'pad-trick-yaw-roll-pitch': return 'Yaw+Roll+Pitch';
 			case 'pad-trick-pitch-yaw-roll': return 'Pitch+Yaw+Roll';
 			case 'pad-trick-chain-yaw-roll': return 'Chain: Yaw → Roll';
@@ -4440,7 +4436,7 @@ async function init() {
 				if ( state.allowChain && state.chainStage + 1 < ( state.sequence?.length || 0 ) && isVehicleAirborne( targetVehicle ) ) {
 
 					state.chainStage += 1;
-					state.chainSpeed = 1.2;
+					state.chainSpeed = 1.3;
 					state.progress = 0;
 					state.lastSmoothT = 0;
 					const phase = state.sequence?.[ state.chainStage ] || {};

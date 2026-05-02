@@ -68,7 +68,6 @@ function getSurfaceVisual( surfaceType, customSurfaces = null, customPads = null
 		case 'pad-trick-yaw-roll-1':
 		case 'pad-trick-pitch-roll-1':
 		case 'pad-trick-yaw-pitch-roll-1':
-		case 'pad-trick-yaw-pitch-roll-snake':
 		case 'pad-trick-yaw-roll-pitch':
 		case 'pad-trick-pitch-yaw-roll':
 		case 'pad-trick-chain-yaw-roll':
