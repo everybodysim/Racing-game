@@ -4361,8 +4361,8 @@ async function init() {
 		const trick = activePadEffect?.trick || null;
 		const trickSequence = Array.isArray( activePadEffect?.trickSequence ) ? activePadEffect.trickSequence : null;
 		const hasTrickPayload = Boolean( trick ) || ( Array.isArray( trickSequence ) && trickSequence.length > 0 );
-			const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
-			const airborne = targetVehicle.spherePos.y > 0.62 || Math.abs( verticalVel ) > 0.35;
+		const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
+		const airborne = state.active ? ( targetVehicle.spherePos.y > 0.54 ) : ( targetVehicle.spherePos.y > 0.62 || Math.abs( verticalVel ) > 0.35 );
 		if ( ! hasTrickPayload || ! airborne ) {
 
 			const interrupted = state.active && state.progress > 0 && state.progress < 1;
@@ -4415,15 +4415,7 @@ async function init() {
 		}
 
 		const baseDuration = AIR_TRICK_DURATION_SECONDS / Math.max( 1, state.chainSpeed );
-		let catchUpScale = 1;
-		if ( verticalVel < - 0.15 && targetVehicle.spherePos.y < 1.05 ) {
-
-			const heightFactor = THREE.MathUtils.clamp( ( 1.05 - targetVehicle.spherePos.y ) / 0.75, 0, 1 );
-			const fallFactor = THREE.MathUtils.clamp( Math.abs( verticalVel ) / 2.2, 0, 1 );
-			catchUpScale = 1 + ( heightFactor * 0.95 ) + ( fallFactor * 0.55 );
-
-		}
-		state.progress = Math.min( 1, state.progress + ( dt / baseDuration ) * catchUpScale );
+		state.progress = Math.min( 1, state.progress + ( dt / baseDuration ) );
 		const deltaT = Math.max( 0, state.progress - state.lastSmoothT );
 		state.lastSmoothT = state.progress;
 		if ( deltaT > 0 ) {
