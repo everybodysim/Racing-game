@@ -4332,6 +4332,29 @@ async function init() {
 
 	}
 
+	function combinePadEffects( current, incoming ) {
+
+		if ( ! current ) return incoming ? { ...incoming } : null;
+		if ( ! incoming ) return { ...current };
+		const combined = { ...current, ...incoming };
+		const multiplicativeKeys = [ 'gravity', 'grip', 'drag', 'accel', 'drive', 'topSpeed', 'steering', 'timeScale' ];
+		for ( const key of multiplicativeKeys ) {
+
+			const a = Number( current[ key ] );
+			const b = Number( incoming[ key ] );
+			if ( Number.isFinite( a ) && Number.isFinite( b ) ) combined[ key ] = a * b;
+			else if ( Number.isFinite( b ) ) combined[ key ] = b;
+			else if ( Number.isFinite( a ) ) combined[ key ] = a;
+
+		}
+		combined.disableBrakes = Boolean( current.disableBrakes || incoming.disableBrakes );
+		combined.disableSteering = Boolean( current.disableSteering || incoming.disableSteering );
+		combined.disableAcceleration = Boolean( current.disableAcceleration || incoming.disableAcceleration );
+		if ( incoming.trick ) combined.trick = incoming.trick;
+		return combined;
+
+	}
+
 	function applyPadContact( targetVehicle, lastContactKey, setEffect, getCurrentEffect = null ) {
 
 		const contact = findPadContactFor( targetVehicle );
@@ -4345,13 +4368,8 @@ async function init() {
 
 		}
 		const effect = getPadEffectForType( contact.type );
-		if ( effect?.trick && getCurrentEffect ) {
-
-			const previous = getCurrentEffect() || null;
-			const merged = { ...( previous || {} ), ...effect, trick: effect.trick };
-			setEffect( merged );
-
-		} else setEffect( effect );
+		const previous = getCurrentEffect ? ( getCurrentEffect() || null ) : null;
+		setEffect( combinePadEffects( previous, effect ) );
 		showEffectPopup( `Effect applied: ${ getPadLabel( contact.type ) }` );
 		return contact.key;
 
