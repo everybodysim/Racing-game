@@ -4393,10 +4393,9 @@ async function init() {
 		const trick = activePadEffect?.trick || null;
 		const hasTrickPayload = Boolean( trick );
 		const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
-		const airborne = state.active
-			? ( targetVehicle.spherePos.y > 0.3 || verticalVel > 0.1 )
-			: ( targetVehicle.spherePos.y > 0.5 || Math.abs( verticalVel ) > 0.25 );
-		if ( ! hasTrickPayload || ! airborne ) {
+		const airborne = targetVehicle.spherePos.y > 0.5 || Math.abs( verticalVel ) > 0.25;
+		const canRun = state.active ? hasTrickPayload : ( hasTrickPayload && airborne );
+		if ( ! canRun ) {
 
 			const interrupted = state.active && state.progress > 0 && state.progress < 1;
 			if ( interrupted ) {
