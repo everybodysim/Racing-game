@@ -1841,6 +1841,7 @@ async function init() {
 		_ghostForward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
 		_ghostForward.projectOnPlane( _ghostUp ).normalize();
 		const yaw = Math.atan2( _ghostForward.x, _ghostForward.z );
+		const euler = new THREE.Euler().setFromQuaternion( vehicle.container.quaternion, 'YXZ' );
 
 		currentLapGhostSamples.push( {
 			t: lapElapsed,
@@ -1848,6 +1849,8 @@ async function init() {
 			y: vehicle.container.position.y,
 			z: vehicle.container.position.z,
 			yaw,
+			pitch: euler.x,
+			roll: euler.z,
 		} );
 
 	}
@@ -1888,7 +1891,12 @@ async function init() {
 			THREE.MathUtils.lerp( sampleA.y, sampleB.y, alpha ),
 			THREE.MathUtils.lerp( sampleA.z, sampleB.z, alpha )
 		);
-		ghostModel.rotation.set( 0, lerpAngle( sampleA.yaw, sampleB.yaw, alpha ), 0 );
+		const targetPitch = lerpAngle( sampleA.pitch || 0, sampleB.pitch || 0, alpha );
+		const targetYaw = lerpAngle( sampleA.yaw, sampleB.yaw, alpha );
+		const targetRoll = lerpAngle( sampleA.roll || 0, sampleB.roll || 0, alpha );
+		ghostModel.rotation.x = lerpAngle( ghostModel.rotation.x, targetPitch, 0.18 );
+		ghostModel.rotation.y = lerpAngle( ghostModel.rotation.y, targetYaw, 0.18 );
+		ghostModel.rotation.z = lerpAngle( ghostModel.rotation.z, targetRoll, 0.18 );
 
 	}
 
@@ -1907,6 +1915,8 @@ async function init() {
 				y: sample.y,
 				z: sample.z,
 				yaw: sample.yaw,
+				pitch: Number.isFinite( sample?.pitch ) ? sample.pitch : 0,
+				roll: Number.isFinite( sample?.roll ) ? sample.roll : 0,
 			} );
 
 		}
@@ -2065,7 +2075,12 @@ async function init() {
 				THREE.MathUtils.lerp( sampleA.y, sampleB.y, alpha ),
 				THREE.MathUtils.lerp( sampleA.z, sampleB.z, alpha )
 			);
-			state.model.rotation.set( 0, lerpAngle( sampleA.yaw, sampleB.yaw, alpha ), 0 );
+			const targetPitch = lerpAngle( sampleA.pitch || 0, sampleB.pitch || 0, alpha );
+			const targetYaw = lerpAngle( sampleA.yaw, sampleB.yaw, alpha );
+			const targetRoll = lerpAngle( sampleA.roll || 0, sampleB.roll || 0, alpha );
+			state.model.rotation.x = lerpAngle( state.model.rotation.x, targetPitch, 0.18 );
+			state.model.rotation.y = lerpAngle( state.model.rotation.y, targetYaw, 0.18 );
+			state.model.rotation.z = lerpAngle( state.model.rotation.z, targetRoll, 0.18 );
 
 		}
 
@@ -2095,7 +2110,12 @@ async function init() {
 				THREE.MathUtils.lerp( sampleA.y, sampleB.y, alpha ),
 				THREE.MathUtils.lerp( sampleA.z, sampleB.z, alpha )
 			);
-			state.model.rotation.set( 0, lerpAngle( sampleA.yaw, sampleB.yaw, alpha ), 0 );
+			const targetPitch = lerpAngle( sampleA.pitch || 0, sampleB.pitch || 0, alpha );
+			const targetYaw = lerpAngle( sampleA.yaw, sampleB.yaw, alpha );
+			const targetRoll = lerpAngle( sampleA.roll || 0, sampleB.roll || 0, alpha );
+			state.model.rotation.x = lerpAngle( state.model.rotation.x, targetPitch, 0.18 );
+			state.model.rotation.y = lerpAngle( state.model.rotation.y, targetYaw, 0.18 );
+			state.model.rotation.z = lerpAngle( state.model.rotation.z, targetRoll, 0.18 );
 
 		}
 
