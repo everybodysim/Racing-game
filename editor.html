@@ -963,6 +963,7 @@
 			elevatedLevel: 0,
 			elevatedMesh: null,
 			elevatedSupportMesh: null,
+			elevatedLabelMesh: null,
 			surfaceTypes: [],
 			surfaceMeshes: [],
 			decoType: null,
@@ -1381,6 +1382,7 @@
 		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
 		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
 		if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
+		if ( cell.elevatedLabelMesh ) trackGroup.remove( cell.elevatedLabelMesh );
 		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		cell.bumpMesh = null;
@@ -1390,6 +1392,7 @@
 		cell.jumpMesh = null;
 		cell.elevatedMesh = null;
 		cell.elevatedSupportMesh = null;
+		cell.elevatedLabelMesh = null;
 		cell.surfaceMeshes = [];
 		cell.decoMesh = null;
 
@@ -1479,17 +1482,49 @@
 
 			}
 
-			const support = new THREE.Mesh(
+			const elevatedLevel = Math.max( 1, Number( cell.elevatedLevel ) || 1 );
+			const support = new THREE.Group();
+			const supportColumn = new THREE.Mesh(
 				new THREE.BoxGeometry( CELL_RAW * 0.24, SUPPORT_HEIGHT, CELL_RAW * 0.24 ),
 				new THREE.MeshStandardMaterial( { color: 0x0d0d0d, roughness: 0.95, metalness: 0.0, transparent: true, opacity: 0.55 } )
 			);
-			const elevatedLevel = Math.max( 1, Number( cell.elevatedLevel ) || 1 );
-			support.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ( SUPPORT_HEIGHT * elevatedLevel * 0.5 ), ( gz + 0.5 ) * CELL_RAW );
-			support.scale.y = elevatedLevel;
-			support.castShadow = true;
-			support.receiveShadow = true;
+			supportColumn.position.y = 0.5 + BLOCK_HEIGHT_OFFSET + ( SUPPORT_HEIGHT * elevatedLevel * 0.5 );
+			supportColumn.scale.y = elevatedLevel;
+			supportColumn.castShadow = true;
+			supportColumn.receiveShadow = true;
+			support.add( supportColumn );
+			if ( normalizedType === 'slope-up' ) {
+				const slopeSupport = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW, SUPPORT_HEIGHT, CELL_RAW ),
+					new THREE.MeshStandardMaterial( { color: 0x0d0d0d, roughness: 0.95, metalness: 0.0, transparent: true, opacity: 0.5 } )
+				);
+				slopeSupport.position.y = 0.5 + BLOCK_HEIGHT_OFFSET + ( ELEVATED_HEIGHT * elevatedLevel ) - ( SUPPORT_HEIGHT * 0.5 );
+				slopeSupport.rotation.order = 'YXZ';
+				slopeSupport.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 );
+				slopeSupport.rotation.x = - SLOPE_ANGLE;
+				support.add( slopeSupport );
+			}
+			support.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
 			trackGroup.add( support );
 			cell.elevatedSupportMesh = support;
+
+			const labelCanvas = document.createElement( 'canvas' );
+			labelCanvas.width = 128;
+			labelCanvas.height = 64;
+			const ctx = labelCanvas.getContext( '2d' );
+			ctx.fillStyle = 'rgba(0,0,0,0.65)';
+			ctx.fillRect( 0, 0, 128, 64 );
+			ctx.fillStyle = '#ffffff';
+			ctx.font = 'bold 42px Arial';
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText( String( elevatedLevel ), 64, 34 );
+			const labelTex = new THREE.CanvasTexture( labelCanvas );
+			const label = new THREE.Sprite( new THREE.SpriteMaterial( { map: labelTex, transparent: true, depthTest: false } ) );
+			label.scale.set( CELL_RAW * 0.35, CELL_RAW * 0.18, 1 );
+			label.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ( ELEVATED_HEIGHT * elevatedLevel ) + 1.2, ( gz + 0.5 ) * CELL_RAW );
+			trackGroup.add( label );
+			cell.elevatedLabelMesh = label;
 
 		}
 
@@ -1900,6 +1935,7 @@
 				if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
 				if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
 				if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
+				if ( cell.elevatedLabelMesh ) trackGroup.remove( cell.elevatedLabelMesh );
 				for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 

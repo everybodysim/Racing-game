@@ -143,20 +143,37 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	function addElevatedSupportCollider( gx, gz ) {
+	function addElevatedSupportCollider( gx, gz, level = 1, orient = 0, isSlope = false ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
-		const position = [ cx, groundY + SUPPORT_HALF_EXTENTS[ 1 ] - SUPPORT_SINK, cz ];
+		const supportHalfY = Math.max( SUPPORT_HALF_EXTENTS[ 1 ], SUPPORT_HALF_EXTENTS[ 1 ] * level );
+		const position = [ cx, groundY + supportHalfY - SUPPORT_SINK, cz ];
 		rigidBody.create( world, {
-			shape: box.create( { halfExtents: SUPPORT_HALF_EXTENTS } ),
+			shape: box.create( { halfExtents: [ SUPPORT_HALF_EXTENTS[ 0 ], supportHalfY, SUPPORT_HALF_EXTENTS[ 2 ] ] } ),
 			motionType: MotionType.STATIC,
 			objectLayer: world._OL_STATIC,
 			position,
 			friction: 0.95,
 			restitution: 0.0,
 		} );
-		if ( debugGroup ) addDebugBox( debugGroup, SUPPORT_HALF_EXTENTS, position );
+		if ( debugGroup ) addDebugBox( debugGroup, [ SUPPORT_HALF_EXTENTS[ 0 ], supportHalfY, SUPPORT_HALF_EXTENTS[ 2 ] ], position );
+		if ( ! isSlope ) return;
+		const topHalfExtents = [ ELEVATED_SURFACE_HALF_XZ * 0.9, ELEVATED_SURFACE_HALF_H, ELEVATED_SURFACE_HALF_XZ * 0.9 ];
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( - slopeAngle, yaw, 0, 'YXZ' ) );
+		const topPosition = [ cx, groundY + ( ELEVATED_HEIGHT * level ) - ELEVATED_SURFACE_HALF_H - 0.06, cz ];
+		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: topHalfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: topPosition,
+			quaternion,
+			friction: 0.95,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, topHalfExtents, topPosition, quaternion );
 
 	}
 
@@ -630,6 +647,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		if ( normalizedType === 'slope-up' ) {
 
 			addSlopeCollider( nx, nz, normalizedOrient, true, levelYOffset );
+			addElevatedSupportCollider( nx, nz, level, normalizedOrient, true );
 			continue;
 
 		}
@@ -637,6 +655,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedWallY + levelYOffset, ELEVATED_WALL_HALF_H );
 			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedSupportWallY + ( levelYOffset * 0.5 ), hHeight * level );
+			addElevatedSupportCollider( nx, nz, level, normalizedOrient, false );
 			continue;
 
 		}
@@ -644,6 +663,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY + levelYOffset, ELEVATED_WALL_HALF_H );
 			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedSupportWallY + ( levelYOffset * 0.5 ), hHeight * level );
+			addElevatedSupportCollider( nx, nz, level, normalizedOrient, false );
 
 		}
 
