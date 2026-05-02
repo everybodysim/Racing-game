@@ -3966,6 +3966,14 @@ async function init() {
 	let padContactKey2 = null;
 	const airTrickState = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
 	const airTrickState2 = { active: false, progress: 0, lastSmoothT: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0, recovering: false, recoveryT: 0, recoveryDuration: 0.42, recoveryStartQuat: new THREE.Quaternion(), recoveryTargetQuat: new THREE.Quaternion() };
+	const camYawLockQuat = new THREE.Quaternion();
+	const camYawLockQuat2 = new THREE.Quaternion();
+	const camYawLockEuler = new THREE.Euler( 0, 0, 0, 'YXZ' );
+	const camYawLockEuler2 = new THREE.Euler( 0, 0, 0, 'YXZ' );
+	let camYawLockActive = false;
+	let camYawLockActive2 = false;
+	let camYawLockValue = 0;
+	let camYawLockValue2 = 0;
 	const checkpointStates2 = checkpointCells.map( ( cell ) => ( {
 		...makeGateData( cell ),
 		lastLocalX: 0,
@@ -4431,6 +4439,14 @@ async function init() {
 				if ( onTrickFinished ) onTrickFinished();
 
 			}
+
+	}
+
+	function isVehicleAirborne( targetVehicle ) {
+
+		if ( ! targetVehicle ) return false;
+		const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
+		return targetVehicle.spherePos.y > 0.62 || Math.abs( verticalVel ) > 0.35;
 
 	}
 
@@ -5265,6 +5281,7 @@ async function init() {
 		padContactKey = null;
 		airTrickState.active = false;
 		airTrickState.recovering = false;
+		camYawLockActive = false;
 		specialSurfaceContactState.clear();
 		resetCurrentLapGhost();
 		resetCurrentLapInputs();
@@ -5310,6 +5327,7 @@ async function init() {
 		padContactKey2 = null;
 		airTrickState2.active = false;
 		airTrickState2.recovering = false;
+		camYawLockActive2 = false;
 		specialSurfaceContactState2.clear();
 		hasLeftStartZone2 = false;
 		hasPrevFinishSample2 = false;
@@ -6605,8 +6623,52 @@ async function init() {
 		);
 
 		if ( freecamState.active ) updateFreecam( dt );
-		else cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
-		if ( cam2 && vehicle2 ) cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
+		else {
+
+			const shouldLockYaw = Boolean( activePadEffect?.trick ) && airTrickState.active && isVehicleAirborne( vehicle );
+			if ( shouldLockYaw ) {
+
+				if ( ! camYawLockActive ) {
+
+					camYawLockEuler.setFromQuaternion( vehicle.container.quaternion, 'YXZ' );
+					camYawLockValue = camYawLockEuler.y;
+					camYawLockActive = true;
+
+				}
+				camYawLockQuat.setFromEuler( camYawLockEuler.set( 0, camYawLockValue, 0, 'YXZ' ) );
+				cam.update( dt, vehicle.spherePos, camYawLockQuat );
+
+			} else {
+
+				camYawLockActive = false;
+				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
+
+			}
+
+		}
+		if ( cam2 && vehicle2 ) {
+
+			const shouldLockYaw2 = Boolean( activePadEffect2?.trick ) && airTrickState2.active && isVehicleAirborne( vehicle2 );
+			if ( shouldLockYaw2 ) {
+
+				if ( ! camYawLockActive2 ) {
+
+					camYawLockEuler2.setFromQuaternion( vehicle2.container.quaternion, 'YXZ' );
+					camYawLockValue2 = camYawLockEuler2.y;
+					camYawLockActive2 = true;
+
+				}
+				camYawLockQuat2.setFromEuler( camYawLockEuler2.set( 0, camYawLockValue2, 0, 'YXZ' ) );
+				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2 );
+
+			} else {
+
+				camYawLockActive2 = false;
+				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
+
+			}
+
+		}
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
