@@ -127,9 +127,10 @@ const MAGNET_MIN_MAX_DISTANCE_BLOCKS = 0.75;
 const MAGNET_MAX_MAX_DISTANCE_BLOCKS = 2.5;
 const MAGNET_MIN_FORCE_PER_SECOND = 8.0;
 const MAGNET_MAX_FORCE_PER_SECOND = 64.0;
-const ARC_LINK_TRIGGER_RADIUS = CELL_RAW * GRID_SCALE * 0.32;
-const ARC_LINK_MIN_TIME = 0.45;
-const ARC_LINK_MAX_TIME = 1.6;
+	const ARC_LINK_TRIGGER_RADIUS = CELL_RAW * GRID_SCALE * 0.32;
+	const ARC_LINK_MIN_TIME = 0.45;
+	const ARC_LINK_MAX_TIME = 1.6;
+	const AIR_TRICK_DURATION_SECONDS = 0.74;
 const WEATHER_PRESETS = {
 	clear: { bg: 0xadb2ba, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
 	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
@@ -4372,8 +4373,8 @@ async function init() {
 				state.rollTotal = ( Number( trick.roll ) || 0 ) * Math.PI * 2;
 			}
 
-		state.progress = Math.min( 1, state.progress + dt / 0.62 );
-		const smoothT = state.progress * state.progress * ( 3 - 2 * state.progress );
+		state.progress = Math.min( 1, state.progress + dt / AIR_TRICK_DURATION_SECONDS );
+		const smoothT = state.progress * state.progress * state.progress * ( state.progress * ( state.progress * 6 - 15 ) + 10 );
 		const deltaT = Math.max( 0, smoothT - state.lastSmoothT );
 		state.lastSmoothT = smoothT;
 		if ( deltaT > 0 ) {
@@ -6568,9 +6569,15 @@ async function init() {
 			vehicle.spherePos.z - 5.3
 		);
 
-		if ( freecamState.active ) updateFreecam( dt );
-		else cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
-		if ( cam2 && vehicle2 ) cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
+		const trickCameraLock = airTrickState.active || airTrickState2.active;
+		if ( ! trickCameraLock ) {
+
+			if ( freecamState.active ) updateFreecam( dt );
+			else if ( camMode === 'free' ) updateFreeCamera( dt );
+			else cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
+			if ( cam2 && vehicle2 ) cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
+
+		}
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
