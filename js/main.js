@@ -4414,10 +4414,18 @@ async function init() {
 			state.rollTotal = ( Number( phase.roll ) || 0 ) * Math.PI * 2;
 		}
 
-		state.progress = Math.min( 1, state.progress + dt / ( AIR_TRICK_DURATION_SECONDS / Math.max( 1, state.chainSpeed ) ) );
-		const smoothT = 0.5 - 0.5 * Math.cos( Math.PI * state.progress );
-		const deltaT = Math.max( 0, smoothT - state.lastSmoothT );
-		state.lastSmoothT = smoothT;
+		const baseDuration = AIR_TRICK_DURATION_SECONDS / Math.max( 1, state.chainSpeed );
+		let catchUpScale = 1;
+		if ( verticalVel < - 0.15 && targetVehicle.spherePos.y < 1.05 ) {
+
+			const heightFactor = THREE.MathUtils.clamp( ( 1.05 - targetVehicle.spherePos.y ) / 0.75, 0, 1 );
+			const fallFactor = THREE.MathUtils.clamp( Math.abs( verticalVel ) / 2.2, 0, 1 );
+			catchUpScale = 1 + ( heightFactor * 0.95 ) + ( fallFactor * 0.55 );
+
+		}
+		state.progress = Math.min( 1, state.progress + ( dt / baseDuration ) * catchUpScale );
+		const deltaT = Math.max( 0, state.progress - state.lastSmoothT );
+		state.lastSmoothT = state.progress;
 		if ( deltaT > 0 ) {
 
 			const deltaEuler = new THREE.Euler(
