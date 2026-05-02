@@ -6592,7 +6592,6 @@ async function init() {
 		);
 
 		if ( freecamState.active ) updateFreecam( dt );
-		else if ( camMode === 'free' ) updateFreeCamera( dt );
 		else cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
 		if ( cam2 && vehicle2 ) cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
 		particles.update( dt, vehicle );
