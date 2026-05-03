@@ -62,6 +62,26 @@
 			color: #fff;
 		}
 
+		.toolbar-group {
+			display: flex;
+			align-items: center;
+			gap: 4px;
+			padding: 5px 6px;
+			border-radius: 10px;
+			border: 1px solid rgba(255, 255, 255, 0.08);
+			background: rgba(6, 10, 16, 0.55);
+		}
+
+		.toolbar-group-label {
+			font-size: 10px;
+			font-weight: 700;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+			color: rgba(190, 210, 240, 0.72);
+			margin-right: 2px;
+			white-space: nowrap;
+		}
+
 		.separator {
 			width: 1px;
 			height: 18px;
@@ -339,99 +359,117 @@
 	</div>
 
 	<div id="toolbar">
-		<button id="btn-straight" class="active">Straight</button>
-		<button id="btn-corner">Corner</button>
-		<button id="btn-bump">Bump +</button>
-		<button id="btn-pole">Pole +</button>
-		<button id="btn-cube">Cube +</button>
-		<button id="btn-wall">Wall +</button>
-		<button id="btn-jump">Jump +</button>
-		<button id="btn-moving-slide">Sliding Block +</button>
-		<button id="btn-moving-spin">Spinning Wall +</button>
-		<button id="btn-moving-orbit">Orbit Poles +</button>
-		<button id="btn-moving-custom">Custom Mover +</button>
-		<label id="moving-speed-wrap" style="display:none;color:#dbe8ff;font-size:11px;">Move Speed <input id="moving-speed" type="range" min="0.25" max="3" step="0.05" value="1"><span id="moving-speed-value">1.00x</span></label>
-		<select id="gate-select" aria-label="Gate picker">
-			<option value="track-start-finish">Start/Finish</option>
-			<option value="track-start">Place: Start</option>
-			<option value="track-finish">Place: Finish</option>
-		</select>
-		<button id="btn-checkpoint">Checkpoint</button>
-		<button id="btn-elevated-straight" style="display:none">Elev Straight</button>
-		<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
-		<button id="btn-elevated-checkpoint" style="display:none">Elev Checkpoint</button>
-		<button id="btn-slope-up" style="display:none">Slope Up</button>
-		<select id="surface-select" aria-label="Surface picker">
-			<option value="">Surface…</option>
-			<option value="surface-wood">Wood</option>
-			<option value="surface-ice">Ice</option>
-			<option value="surface-boost">Boost Surface</option>
-			<option value="surface-sand">Sand</option>
-			<option value="surface-bounce">Bounce Plate</option>
-			<option value="surface-kick-l">Kick Left</option>
-			<option value="surface-kick-r">Kick Right</option>
-		</select>
-		<select id="pad-select" aria-label="Pad picker">
-			<option value="">Pads…</option>
-			<option value="pad-reset">Reset Effects</option>
-			<option value="pad-low-gravity">Low Gravity</option>
-			<option value="pad-heavy-gravity">Heavy Gravity</option>
-			<option value="pad-high-grip">High Grip</option>
-			<option value="pad-high-speed">High Speed</option>
-			<option value="pad-no-brakes">No Brakes</option>
-			<option value="pad-no-steering">No Steering</option>
-			<option value="pad-no-acceleration">No Acceleration (Slide)</option>
-			<option value="pad-slow-motion">Slow Motion</option>
-			<option value="pad-fast-motion">Fast Motion</option>
-			<option value="pad-drift">Drift Mode</option>
-			<option value="pad-size-small">Mini Pad (0.5×)</option>
-			<option value="pad-size-normal">Normal Pad (1.0×)</option>
-			<option value="pad-size-mega">Mega Pad (1.8×)</option>
-			<option value="pad-custom-a">Custom Pad A</option>
-			<option value="pad-custom-b">Custom Pad B</option>
-			<option value="pad-custom-c">Custom Pad C</option>
-		</select>
-		<select id="effect-select" aria-label="Effect picker">
-			<option value="">Effects…</option>
-			<option value="pad-trick-yaw-1">Yaw Flip ×1</option>
-			<option value="pad-trick-pitch-1">Pitch Flip ×1</option>
-			<option value="pad-trick-roll-1">Roll Flip ×1</option>
-			<option value="pad-trick-yaw-pitch-1">Yaw+Pitch ×1</option>
-			<option value="pad-trick-yaw-roll-1">Yaw+Roll ×1</option>
-			<option value="pad-trick-pitch-roll-1">Pitch+Roll ×1</option>
-			<option value="pad-trick-yaw-pitch-roll-1">Yaw+Pitch+Roll ×1</option>
-			<option value="pad-trick-yaw-roll-pitch">Yaw+Roll+Pitch</option>
-			<option value="pad-trick-pitch-yaw-roll">Pitch+Yaw+Roll</option>
-		</select>
-		<button id="btn-surface-custom-a">Custom A</button>
-		<button id="btn-surface-custom-b">Custom B</button>
-		<button id="btn-surface-custom-c">Custom C</button>
-		<button id="btn-pad-custom-a">Pad A</button>
-		<button id="btn-pad-custom-b">Pad B</button>
-		<button id="btn-pad-custom-c">Pad C</button>
-		<button id="btn-overlap-toggle">Overlap: Off</button>
-		<button id="btn-deco-forest">Tree</button>
-		<button id="btn-deco-tents">Tent</button>
-		<button id="btn-deco-empty">Prop</button>
-		<button id="btn-custom-import">Import 3D</button>
-		<button id="btn-custom-cycle">Custom: none</button>
-		<input id="custom-model-file" type="file" accept=".glb,.gltf,.obj,model/gltf-binary,model/gltf+json" style="display:none" />
-		<button id="btn-rotate">Rotate: 0°</button>
-		<div class="separator"></div>
-		<button id="btn-paint" class="active">Paint</button>
-		<button id="btn-erase">Erase</button>
-		<button id="btn-flow">Flow: Off</button>
-		<button id="btn-offgrid">Snap: Grid</button>
-		<div class="separator"></div>
-		<button id="btn-play" class="action">Play</button>
-		<button id="btn-quick-test" class="action">Quick Test</button>
-		<button id="btn-select-spawn">Pick Test Spawn</button>
-		<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;"><input id="autosave-enable" type="checkbox" checked> Auto-save</label>
-		<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;">Every <input id="autosave-interval" type="number" min="5" max="600" step="1" value="30" style="width:62px;background:rgba(8,10,14,0.9);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 4px;"> s</label>
-		<button id="btn-share" class="action">Share</button>
-		<div class="separator"></div>
-		<button id="btn-clear" class="danger">Clear</button>
-	</div>
+		<div class="toolbar-group" aria-label="Track pieces">
+			<span class="toolbar-group-label">Track</span>
+			<button id="btn-straight" class="active">Straight</button>
+			<button id="btn-corner">Corner</button>
+			<select id="gate-select" aria-label="Gate picker">
+				<option value="track-start-finish">Start/Finish</option>
+				<option value="track-start">Place: Start</option>
+				<option value="track-finish">Place: Finish</option>
+			</select>
+			<button id="btn-checkpoint">Checkpoint</button>
+			<button id="btn-elevated-straight" style="display:none">Elev Straight</button>
+			<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
+			<button id="btn-elevated-checkpoint" style="display:none">Elev Checkpoint</button>
+			<button id="btn-slope-up" style="display:none">Slope Up</button>
+		</div>
+		<div class="toolbar-group" aria-label="Obstacles">
+			<span class="toolbar-group-label">Obstacles</span>
+			<button id="btn-bump">Bump +</button>
+			<button id="btn-pole">Pole +</button>
+			<button id="btn-cube">Cube +</button>
+			<button id="btn-wall">Wall +</button>
+			<button id="btn-jump">Jump +</button>
+		</div>
+		<div class="toolbar-group" aria-label="Moving objects">
+			<span class="toolbar-group-label">Moving</span>
+			<button id="btn-moving-slide">Sliding Block +</button>
+			<button id="btn-moving-spin">Spinning Wall +</button>
+			<button id="btn-moving-orbit">Orbit Poles +</button>
+			<button id="btn-moving-custom">Custom Mover +</button>
+			<label id="moving-speed-wrap" style="display:none;color:#dbe8ff;font-size:11px;">Move Speed <input id="moving-speed" type="range" min="0.25" max="3" step="0.05" value="1"><span id="moving-speed-value">1.00x</span></label>
+		</div>
+		<div class="toolbar-group" aria-label="Surfaces and pads">
+			<span class="toolbar-group-label">Surfaces</span>
+			<select id="surface-select" aria-label="Surface picker">
+				<option value="">Surface…</option>
+				<option value="surface-wood">Wood</option>
+				<option value="surface-ice">Ice</option>
+				<option value="surface-boost">Boost Surface</option>
+				<option value="surface-sand">Sand</option>
+				<option value="surface-bounce">Bounce Plate</option>
+				<option value="surface-kick-l">Kick Left</option>
+				<option value="surface-kick-r">Kick Right</option>
+			</select>
+			<select id="pad-select" aria-label="Pad picker">
+				<option value="">Pads…</option>
+				<option value="pad-reset">Reset Effects</option>
+				<option value="pad-low-gravity">Low Gravity</option>
+				<option value="pad-heavy-gravity">Heavy Gravity</option>
+				<option value="pad-high-grip">High Grip</option>
+				<option value="pad-high-speed">High Speed</option>
+				<option value="pad-no-brakes">No Brakes</option>
+				<option value="pad-no-steering">No Steering</option>
+				<option value="pad-no-acceleration">No Acceleration (Slide)</option>
+				<option value="pad-slow-motion">Slow Motion</option>
+				<option value="pad-fast-motion">Fast Motion</option>
+				<option value="pad-drift">Drift Mode</option>
+				<option value="pad-size-small">Mini Pad (0.5×)</option>
+				<option value="pad-size-normal">Normal Pad (1.0×)</option>
+				<option value="pad-size-mega">Mega Pad (1.8×)</option>
+				<option value="pad-custom-a">Custom Pad A</option>
+				<option value="pad-custom-b">Custom Pad B</option>
+				<option value="pad-custom-c">Custom Pad C</option>
+			</select>
+			<select id="effect-select" aria-label="Effect picker">
+				<option value="">Effects…</option>
+				<option value="pad-trick-yaw-1">Yaw Flip ×1</option>
+				<option value="pad-trick-pitch-1">Pitch Flip ×1</option>
+				<option value="pad-trick-roll-1">Roll Flip ×1</option>
+				<option value="pad-trick-yaw-pitch-1">Yaw+Pitch ×1</option>
+				<option value="pad-trick-yaw-roll-1">Yaw+Roll ×1</option>
+				<option value="pad-trick-pitch-roll-1">Pitch+Roll ×1</option>
+				<option value="pad-trick-yaw-pitch-roll-1">Yaw+Pitch+Roll ×1</option>
+				<option value="pad-trick-yaw-roll-pitch">Yaw+Roll+Pitch</option>
+				<option value="pad-trick-pitch-yaw-roll">Pitch+Yaw+Roll</option>
+			</select>
+			<button id="btn-surface-custom-a">Custom A</button>
+			<button id="btn-surface-custom-b">Custom B</button>
+			<button id="btn-surface-custom-c">Custom C</button>
+			<button id="btn-pad-custom-a">Pad A</button>
+			<button id="btn-pad-custom-b">Pad B</button>
+			<button id="btn-pad-custom-c">Pad C</button>
+			<button id="btn-overlap-toggle">Overlap: Off</button>
+		</div>
+		<div class="toolbar-group" aria-label="Decor and custom imports">
+			<span class="toolbar-group-label">Decor</span>
+			<button id="btn-deco-forest">Tree</button>
+			<button id="btn-deco-tents">Tent</button>
+			<button id="btn-deco-empty">Prop</button>
+			<button id="btn-custom-import">Import 3D</button>
+			<button id="btn-custom-cycle">Custom: none</button>
+			<input id="custom-model-file" type="file" accept=".glb,.gltf,.obj,model/gltf-binary,model/gltf+json" style="display:none" />
+			<button id="btn-rotate">Rotate: 0°</button>
+		</div>
+		<div class="toolbar-group" aria-label="Edit tools">
+			<span class="toolbar-group-label">Edit</span>
+			<button id="btn-paint" class="active">Paint</button>
+			<button id="btn-erase">Erase</button>
+			<button id="btn-flow">Flow: Off</button>
+			<button id="btn-offgrid">Snap: Grid</button>
+		</div>
+		<div class="toolbar-group" aria-label="Testing and sharing">
+			<span class="toolbar-group-label">Run</span>
+			<button id="btn-play" class="action">Play</button>
+			<button id="btn-quick-test" class="action">Quick Test</button>
+			<button id="btn-select-spawn">Pick Test Spawn</button>
+			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;"><input id="autosave-enable" type="checkbox" checked> Auto-save</label>
+			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;">Every <input id="autosave-interval" type="number" min="5" max="600" step="1" value="30" style="width:62px;background:rgba(8,10,14,0.9);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 4px;"> s</label>
+			<button id="btn-share" class="action">Share</button>
+			<button id="btn-clear" class="danger">Clear</button>
+		</div>
+	</div>>
 
 	<div id="toast"></div>
 	<div id="custom-surface-panel" hidden>
