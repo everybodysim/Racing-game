@@ -8,6 +8,10 @@ const _zAxis = new THREE.Vector3();
 const _newZ = new THREE.Vector3();
 const _mat4 = new THREE.Matrix4();
 const _quat = new THREE.Quaternion();
+const _wheelQuat = new THREE.Quaternion();
+const _wheelSteerQuat = new THREE.Quaternion();
+const _wheelTiltQuat = new THREE.Quaternion();
+const _wheelSpinQuat = new THREE.Quaternion();
 const _up = new THREE.Vector3( 0, 1, 0 );
 
 const SPEED_SCALE = 12.5;
@@ -337,8 +341,12 @@ export class Vehicle {
 
 			if ( this.flyingMode ) {
 
-				wheel.rotation.x = this.wheelSpin;
-				wheel.rotation.z = -Math.PI * 0.25;
+				const steerY = ( wheel === this.wheelFL || wheel === this.wheelFR ) ? ( -this.inputX / 1.5 ) : 0;
+				_wheelSteerQuat.setFromAxisAngle( _up, steerY );
+				_wheelTiltQuat.setFromAxisAngle( _zAxis.set( 0, 0, 1 ), -Math.PI * 0.25 );
+				_wheelSpinQuat.setFromAxisAngle( _right.set( 1, 0, 0 ), this.wheelSpin );
+				_wheelQuat.identity().multiply( _wheelSteerQuat ).multiply( _wheelTiltQuat ).multiply( _wheelSpinQuat );
+				wheel.quaternion.copy( _wheelQuat );
 
 			} else {
 

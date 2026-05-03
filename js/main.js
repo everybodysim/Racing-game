@@ -100,7 +100,7 @@ const PAD_EFFECTS = {
 	'pad-slow-motion': { id: 'slow-motion', timeScale: 0.6 },
 	'pad-fast-motion': { id: 'fast-motion', timeScale: 1.35 },
 	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
-	'pad-jetstream': { id: 'jetstream', grip: 1.0, drag: 0.035, accel: 1.2, drive: 1.2, flyingMode: true },
+	'pad-flight-mode': { id: 'flight-mode', grip: 1.0, drag: 0.035, accel: 1.2, drive: 1.2, flyingMode: true },
 	'pad-size-small': { id: 'size-small', scale: 0.5 },
 	'pad-size-normal': { id: 'size-normal', scale: 1.0 },
 	'pad-size-mega': { id: 'size-mega', scale: 1.8 },
@@ -4319,7 +4319,7 @@ async function init() {
 			case 'pad-slow-motion': return 'Slow Motion';
 			case 'pad-fast-motion': return 'Fast Motion';
 			case 'pad-drift': return 'Drift Mode';
-			case 'pad-jetstream': return 'Jetstream';
+			case 'pad-flight-mode': return 'Flight Mode';
 			case 'pad-size-small': return 'Mini Pad';
 			case 'pad-size-normal': return 'Normal Pad';
 			case 'pad-size-mega': return 'Mega Pad';
@@ -6585,8 +6585,8 @@ async function init() {
 				if ( padAdjustedInput.z > 0.01 ) {
 
 					const flyForward = new THREE.Vector3( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).setY( 0 ).normalize();
-					vel[ 0 ] += flyForward.x * dt * 3.4 * padAdjustedInput.z;
-					vel[ 2 ] += flyForward.z * dt * 3.4 * padAdjustedInput.z;
+					vel[ 0 ] += flyForward.x * dt * 10.2 * padAdjustedInput.z;
+					vel[ 2 ] += flyForward.z * dt * 10.2 * padAdjustedInput.z;
 
 				}
 				rigidBody.setLinearVelocity( world, vehicle.rigidBody, vel );
@@ -6605,8 +6605,8 @@ async function init() {
 				if ( padAdjustedInput2?.z > 0.01 ) {
 
 					const flyForward = new THREE.Vector3( 0, 0, 1 ).applyQuaternion( vehicle2.container.quaternion ).setY( 0 ).normalize();
-					vel[ 0 ] += flyForward.x * dt * 3.4 * padAdjustedInput2.z;
-					vel[ 2 ] += flyForward.z * dt * 3.4 * padAdjustedInput2.z;
+					vel[ 0 ] += flyForward.x * dt * 10.2 * padAdjustedInput2.z;
+					vel[ 2 ] += flyForward.z * dt * 10.2 * padAdjustedInput2.z;
 
 				}
 				rigidBody.setLinearVelocity( world, vehicle2.rigidBody, vel );
