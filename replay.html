@@ -9,17 +9,9 @@
 		.wrap { max-width: 980px; margin: 18px auto; padding: 0 14px; }
 		.panel { background: #131925; border: 1px solid #273146; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
 		.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-		button, input[type="text"], textarea, input[type="range"] {
-			font: inherit;
-			color: #eaf0ff;
-			background: #0e141f;
-			border: 1px solid #2a354a;
-			border-radius: 8px;
-			padding: 8px 10px;
-		}
+		button, textarea { font: inherit; color: #eaf0ff; background: #0e141f; border: 1px solid #2a354a; border-radius: 8px; padding: 8px 10px; }
 		button { cursor: pointer; background: #1d4ed8; border-color: #1d4ed8; }
 		textarea { width: 100%; min-height: 76px; box-sizing: border-box; }
-		canvas { width: 100%; height: auto; border-radius: 8px; border: 1px solid #2a354a; background: #0a0f17; }
 		.meta { opacity: 0.85; }
 	</style>
 </head>
@@ -35,180 +27,76 @@
 			<div style="margin-top:8px">
 				<textarea id="ghost-code" placeholder="Paste exported ghost code here..."></textarea>
 			</div>
-			<div style="margin-top:8px">
-				<input id="timeline" type="range" min="0" max="1000" value="0" style="width:100%">
-			</div>
 		</div>
-
 		<div class="panel">
 			<iframe id="replay-frame" title="Replay renderer" style="width:100%;height:70vh;border:1px solid #2a354a;border-radius:8px;background:#0a0f17;" loading="lazy"></iframe>
 		</div>
 	</div>
-
 	<script>
-		function decodeBase64UrlJson( value ) {
-			const normalized = value.replace( /-/g, '+' ).replace( /_/g, '/' );
-			const padLen = ( 4 - normalized.length % 4 ) % 4;
-			const padded = normalized + '='.repeat( padLen );
-			return JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
+		function decodeBase64UrlJson(value) {
+			const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+			const padLen = (4 - normalized.length % 4) % 4;
+			const padded = normalized + '='.repeat(padLen);
+			return JSON.parse(decodeURIComponent(escape(atob(padded))));
 		}
-
-		const TYPE_NAMES = [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-finish' ];
-		const ORIENT_TO_GODOT = [ 0, 16, 10, 22 ];
-
-		function decodeMapCells( mapStr ) {
-			if ( ! mapStr ) return [];
-			const base64 = mapStr.replace( /-/g, '+' ).replace( /_/g, '/' );
-			const binary = atob( base64 );
-			const bytes = new Uint8Array( binary.length );
-			for ( let i = 0; i < binary.length; i ++ ) bytes[ i ] = binary.charCodeAt( i );
-
-			const cells = [];
-			for ( let i = 0; i + 2 < bytes.length; i += 3 ) {
-				const gx = bytes[ i ] - 128;
-				const gz = bytes[ i + 1 ] - 128;
-				const packed = bytes[ i + 2 ];
-				const ti = ( packed >> 2 ) & 0x03;
-				const oi = packed & 0x03;
-				cells.push( [ gx, gz, TYPE_NAMES[ ti ], ORIENT_TO_GODOT[ oi ] ] );
-			}
-
-			return cells;
-		}
-
-		function decodeMods( modsStr ) {
-			if ( ! modsStr ) return { b: [], j: [], s: [], u: [], d: [], w: { preset: 'clear', precipitation: 'none', intensity: 'medium', lightning: false, wind: 'none' } };
-			try {
-				const payload = decodeURIComponent( escape( atob( modsStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
-				const parsed = JSON.parse( payload );
-				return {
-					b: Array.isArray( parsed.b ) ? parsed.b : [],
-					j: Array.isArray( parsed.j ) ? parsed.j : [],
-					s: Array.isArray( parsed.s ) ? parsed.s : [],
-					u: Array.isArray( parsed.u ) ? parsed.u : [],
-					d: Array.isArray( parsed.d ) ? parsed.d : [],
-					w: {
-						preset: typeof parsed?.w?.preset === 'string' ? parsed.w.preset : 'clear',
-						precipitation: typeof parsed?.w?.precipitation === 'string' ? parsed.w.precipitation : 'none',
-						intensity: typeof parsed?.w?.intensity === 'string' ? parsed.w.intensity : 'medium',
-						lightning: Boolean( parsed?.w?.lightning ),
-						wind: typeof parsed?.w?.wind === 'string' ? parsed.w.wind : 'none',
-					},
-				};
-			} catch ( e ) {
-				return { b: [], j: [], s: [], u: [], d: [], w: { preset: 'clear', precipitation: 'none', intensity: 'medium', lightning: false, wind: 'none' } };
-			}
-		}
-
-		const codeInput = document.getElementById( 'ghost-code' );
-		const loadBtn = document.getElementById( 'load-code' );
-		const playBtn = document.getElementById( 'play-pause' );
-		const openRaceBtn = document.getElementById( 'open-race' );
-		const statusEl = document.getElementById( 'status' );
-		const timeline = document.getElementById( 'timeline' );
-		const replayFrame = document.getElementById( 'replay-frame' );
-
+		const codeInput = document.getElementById('ghost-code');
+		const loadBtn = document.getElementById('load-code');
+		const playBtn = document.getElementById('play-pause');
+		const openRaceBtn = document.getElementById('open-race');
+		const statusEl = document.getElementById('status');
+		const replayFrame = document.getElementById('replay-frame');
 		let replay = null;
 		let isPlaying = false;
-		let playStartMs = 0;
-		let pausedAt = 0;
-
 		function readCodeFromHash() {
-			const hash = new URLSearchParams( location.hash.startsWith( '#' ) ? location.hash.slice( 1 ) : location.hash );
-			return hash.get( 'code' ) || '';
+			const hash = new URLSearchParams(location.hash.startsWith('#') ? location.hash.slice(1) : location.hash);
+			return hash.get('code') || '';
 		}
-
-		function buildReplayUrl( replayData ) {
-			if ( ! replayData?.url || ! replayData?.ghost ) return null;
+		function buildReplayUrl(replayData) {
+			if (!replayData?.url || !replayData?.ghost) return null;
 			try {
-				const base = new URL( replayData.url, window.location.href );
-				base.searchParams.set( 'replayViewer', '1' );
+				const base = new URL(replayData.url, window.location.href);
+				base.searchParams.set('replayViewer', '1');
 				base.hash = '';
-				const blob = btoa( unescape( encodeURIComponent( JSON.stringify( replayData.ghost ) ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
-				return `${ base.toString() }#ghost=${ blob }`;
-			} catch ( e ) {
-				return null;
-			}
+				const blob = btoa(unescape(encodeURIComponent(JSON.stringify(replayData.ghost)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+				return `${base.toString()}#ghost=${blob}`;
+			} catch { return null; }
 		}
-
-		function setReplay( parsed ) {
-			if ( ! parsed || ! parsed.ghost || ! Array.isArray( parsed.ghost.samples ) || parsed.ghost.samples.length < 2 ) {
+		function setReplay(parsed) {
+			if (!parsed || !parsed.ghost || !Array.isArray(parsed.ghost.samples) || parsed.ghost.samples.length < 2) {
 				statusEl.textContent = 'Invalid ghost payload.';
 				return false;
 			}
 			replay = parsed;
-			const replayUrl = buildReplayUrl( replay );
-			if ( ! replayUrl ) {
+			const replayUrl = buildReplayUrl(replay);
+			if (!replayUrl) {
 				statusEl.textContent = 'Replay URL is missing or invalid.';
 				return false;
 			}
 			replayFrame.src = replayUrl;
-			pausedAt = 0;
-			timeline.value = 0;
 			isPlaying = false;
 			playBtn.textContent = 'Play';
-			statusEl.textContent = `Loaded ${ replay.ghost.samples.length } samples from ${ replay.url || 'unknown URL' }`;
+			statusEl.textContent = `Loaded ${replay.ghost.samples.length} samples from ${replay.url || 'unknown URL'}`;
 			return true;
 		}
-
 		function loadFromTextarea() {
-			try {
-				const parsed = decodeBase64UrlJson( codeInput.value.trim() );
-				setReplay( parsed );
-			} catch ( e ) {
-				statusEl.textContent = 'Could not decode ghost code.';
-			}
+			try { setReplay(decodeBase64UrlJson(codeInput.value.trim())); }
+			catch { statusEl.textContent = 'Could not decode ghost code.'; }
 		}
-
-		function animate() {
-			requestAnimationFrame( animate );
-			if ( replay && isPlaying ) {
-				const now = performance.now();
-				const elapsed = now - playStartMs;
-				const durationMs = Math.max( 1, replay.ghost.duration * 1000 );
-				pausedAt = elapsed % durationMs;
-				timeline.value = Math.round( ( pausedAt / durationMs ) * 1000 );
-			}
-		}
-
-		loadBtn.addEventListener( 'click', loadFromTextarea );
-		playBtn.addEventListener( 'click', () => {
-			if ( ! replay ) {
-				statusEl.textContent = 'Load a ghost code first.';
-				return;
-			}
-			isPlaying = ! isPlaying;
-			if ( isPlaying ) playStartMs = performance.now() - pausedAt;
+		loadBtn.addEventListener('click', loadFromTextarea);
+		playBtn.addEventListener('click', () => {
+			if (!replay) return void (statusEl.textContent = 'Load a ghost code first.');
+			isPlaying = !isPlaying;
 			playBtn.textContent = isPlaying ? 'Pause' : 'Play';
-			replayFrame.contentWindow?.postMessage( { type: isPlaying ? 'replay-play' : 'replay-pause' }, '*' );
-		} );
-		openRaceBtn.addEventListener( 'click', () => {
-			if ( ! replay ) {
-				statusEl.textContent = 'Load a ghost code first.';
-				return;
-			}
-			const replayUrl = buildReplayUrl( replay );
-			if ( ! replayUrl ) {
-				statusEl.textContent = 'Replay URL is missing or invalid.';
-				return;
-			}
-			window.open( replayUrl, '_blank' );
-		} );
-		timeline.addEventListener( 'input', () => {
-			if ( ! replay ) return;
-			const durationMs = Math.max( 1, replay.ghost.duration * 1000 );
-			pausedAt = ( Number( timeline.value ) / 1000 ) * durationMs;
-			if ( isPlaying ) playStartMs = performance.now() - pausedAt;
-			replayFrame.contentWindow?.postMessage( { type: 'replay-seek', t: pausedAt / 1000 }, '*' );
-		} );
-
-const hashCode = readCodeFromHash();
-		if ( hashCode ) {
-			codeInput.value = hashCode;
-			loadFromTextarea();
-		}
-
-		animate();
+			replayFrame.contentWindow?.postMessage({ type: isPlaying ? 'replay-play' : 'replay-pause' }, '*');
+		});
+		openRaceBtn.addEventListener('click', () => {
+			if (!replay) return void (statusEl.textContent = 'Load a ghost code first.');
+			const replayUrl = buildReplayUrl(replay);
+			if (!replayUrl) return void (statusEl.textContent = 'Replay URL is missing or invalid.');
+			window.open(replayUrl, '_blank');
+		});
+		const hashCode = readCodeFromHash();
+		if (hashCode) { codeInput.value = hashCode; loadFromTextarea(); }
 	</script>
 </body>
 </html>

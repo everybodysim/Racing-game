@@ -1779,9 +1779,9 @@ async function init() {
 					if ( remapped.hasShiny ) applyShinyFinish( material );
 
 				}
-				material.transparent = true;
+				material.transparent = opacity < 1;
 				material.opacity = opacity;
-				material.depthWrite = false;
+				material.depthWrite = opacity >= 1;
 				material.needsUpdate = true;
 				return material;
 
