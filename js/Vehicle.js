@@ -63,6 +63,7 @@ export class Vehicle {
 		this.dragMultiplier = 1.0;
 		this.accelMultiplier = 1.0;
 		this.driveMultiplier = 1.0;
+		this.flyingMode = false;
 		this.slopeTiltPitch = 0;
 		this.slopeTiltRoll = 0;
 
@@ -333,6 +334,8 @@ export class Vehicle {
 		for ( const wheel of this.wheels ) {
 
 			wheel.rotation.x += this.acceleration;
+			const targetRoll = this.flyingMode ? -Math.PI * 0.25 : 0;
+			wheel.rotation.z = lerpAngle( wheel.rotation.z, targetRoll, dt * 10 );
 
 		}
 

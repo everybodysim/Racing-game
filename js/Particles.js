@@ -7,6 +7,7 @@ const BOOST_PARTICLE_COLORS = [
 	new THREE.Color( 0xff4b1f ),
 	new THREE.Color( 0xff9f1c ),
 ];
+const ROCKET_FLAME_COLOR = new THREE.Color( 0x59a8ff );
 
 export class SmokeTrails {
 
@@ -56,6 +57,12 @@ export class SmokeTrails {
 
 			if ( vehicle.wheelBL ) this.emitAtWheel( vehicle.wheelBL, vehicle, boostActive );
 			if ( vehicle.wheelBR ) this.emitAtWheel( vehicle.wheelBR, vehicle, boostActive );
+
+		}
+		if ( vehicle.flyingMode ) {
+
+			if ( vehicle.wheelBL ) this.emitAtWheel( vehicle.wheelBL, vehicle, false, true );
+			if ( vehicle.wheelBR ) this.emitAtWheel( vehicle.wheelBR, vehicle, false, true );
 
 		}
 
@@ -109,7 +116,7 @@ export class SmokeTrails {
 
 	}
 
-	emitAtWheel( wheel, vehicle, boostActive = false ) {
+	emitAtWheel( wheel, vehicle, boostActive = false, rocketMode = false ) {
 
 		const p = this.particles[ this.emitIndex ];
 		this.emitIndex = ( this.emitIndex + 1 ) % POOL_SIZE;
@@ -121,24 +128,26 @@ export class SmokeTrails {
 		p.sprite.position.copy( _worldPos );
 		p.sprite.visible = true;
 		p.sprite.material.opacity = 0;
-		const particleColor = boostActive
+		const particleColor = rocketMode
+			? ROCKET_FLAME_COLOR
+			: boostActive
 			? BOOST_PARTICLE_COLORS[ Math.random() < 0.5 ? 0 : 1 ]
 			: DEFAULT_PARTICLE_COLOR;
 		p.sprite.material.color.copy( particleColor );
 
 		// Godot: scale_min = 0.25, scale_max = 0.5
-		p.initialScale = 0.25 + Math.random() * 0.25;
+		p.initialScale = rocketMode ? ( 0.09 + Math.random() * 0.06 ) : ( 0.25 + Math.random() * 0.25 );
 		p.sprite.scale.setScalar( p.initialScale * 0.5 );
 
 		// Godot: no gravity, damping = 1.0 — minimal velocity
 		p.velocity.set(
 			( Math.random() - 0.5 ) * 0.2,
-			Math.random() * 0.1,
-			( Math.random() - 0.5 ) * 0.2
+			rocketMode ? -0.08 - Math.random() * 0.05 : Math.random() * 0.1,
+			( Math.random() - 0.5 ) * ( rocketMode ? 0.08 : 0.2 )
 		);
 
 		// Godot: lifetime = 0.5
-		p.maxLife = 0.5;
+		p.maxLife = rocketMode ? 0.2 : 0.5;
 		p.life = p.maxLife;
 
 	}

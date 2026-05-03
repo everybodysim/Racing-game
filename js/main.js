@@ -100,6 +100,7 @@ const PAD_EFFECTS = {
 	'pad-slow-motion': { id: 'slow-motion', timeScale: 0.6 },
 	'pad-fast-motion': { id: 'fast-motion', timeScale: 1.35 },
 	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
+	'pad-sky-surge': { id: 'sky-surge', grip: 1.0, drag: 0.035, accel: 1.2, drive: 1.2, flyingMode: true },
 	'pad-size-small': { id: 'size-small', scale: 0.5 },
 	'pad-size-normal': { id: 'size-normal', scale: 1.0 },
 	'pad-size-mega': { id: 'size-mega', scale: 1.8 },
@@ -3876,6 +3877,7 @@ async function init() {
 	const cellWorldSize = CELL_RAW * GRID_SCALE;
 	const cellHalfExtent = cellWorldSize * 0.5;
 	const slopeCellMap = new Map();
+	const elevatedCellMap = new Map();
 	const SLOPE_CONFORM_ANGLE = Math.atan2( CELL_RAW * 0.5, CELL_RAW );
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	for ( const [ gx, gz, rawType, rawOrient = 0 ] of slopeElevatedCells ) {
@@ -3890,6 +3892,39 @@ async function init() {
 
 		}
 		slopeCellMap.set( `${ gx },${ gz }`, { gx, gz, type, orient } );
+		elevatedCellMap.set( `${ gx },${ gz }`, { gx, gz, type, orient } );
+
+	}
+	for ( const [ gx, gz, type, orient = 0 ] of ( Array.isArray( extras?.elevated ) ? extras.elevated : [] ) ) {
+
+		if ( ! elevatedCellMap.has( `${ gx },${ gz }` ) ) elevatedCellMap.set( `${ gx },${ gz }`, { gx, gz, type, orient } );
+
+	}
+
+	function sampleFlyingSurfaceHeight( targetVehicle ) {
+
+		if ( ! targetVehicle?.spherePos ) return null;
+		const localX = targetVehicle.spherePos.x / cellWorldSize;
+		const localZ = targetVehicle.spherePos.z / cellWorldSize;
+		const gx = Math.floor( localX );
+		const gz = Math.floor( localZ );
+		const entry = elevatedCellMap.get( `${ gx },${ gz }` );
+		if ( ! entry ) return null;
+		if ( entry.type === 'elevated-straight' || entry.type === 'elevated-corner' || entry.type === 'elevated-checkpoint' ) return 3.2;
+		if ( entry.type === 'slope-up' || entry.type === 'slope-down' ) {
+
+			const orientDeg = ORIENT_DEG[ entry.orient ] ?? 0;
+			const yaw = THREE.MathUtils.degToRad( orientDeg );
+			const centerX = ( gx + 0.5 ) * cellWorldSize;
+			const centerZ = ( gz + 0.5 ) * cellWorldSize;
+			const dx = targetVehicle.spherePos.x - centerX;
+			const dz = targetVehicle.spherePos.z - centerZ;
+			const forward = Math.cos( yaw ) * dz + Math.sin( yaw ) * dx;
+			const t = THREE.MathUtils.clamp( ( forward / cellHalfExtent + 1 ) * 0.5, 0, 1 );
+			return 0.2 + ( 3.0 * t );
+
+		}
+		return null;
 
 	}
 	const legacyBoostHalfExtent = CELL_RAW * GRID_SCALE * 0.5;
@@ -4284,6 +4319,7 @@ async function init() {
 			case 'pad-slow-motion': return 'Slow Motion';
 			case 'pad-fast-motion': return 'Fast Motion';
 			case 'pad-drift': return 'Drift Mode';
+			case 'pad-sky-surge': return 'Sky Surge';
 			case 'pad-size-small': return 'Mini Pad';
 			case 'pad-size-normal': return 'Normal Pad';
 			case 'pad-size-mega': return 'Mega Pad';
@@ -4571,6 +4607,7 @@ async function init() {
 		const speedCapScale = Number.isFinite( padEffect?.topSpeed ) ? padEffect.topSpeed : 1.0;
 		targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * accelPack * padAccel * speedCapScale;
 		targetVehicle.driveMultiplier = ( effect ? effect.drive : 1.0 ) * drivePack * padDrive * speedCapScale;
+		targetVehicle.flyingMode = Boolean( padEffect?.flyingMode );
 
 	}
 
@@ -6535,6 +6572,32 @@ async function init() {
 
 			vehicle.update( dt, padAdjustedInput );
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
+			if ( vehicle.flyingMode && vehicle?.rigidBody ) {
+
+				const targetBaseY = 1.625;
+				const elevatedY = sampleFlyingSurfaceHeight( vehicle );
+				const targetY = ( elevatedY ?? targetBaseY );
+				const nextY = THREE.MathUtils.lerp( vehicle.spherePos.y, targetY, 1 - Math.exp( - dt * 10 ) );
+				vehicle.spherePos.y = nextY;
+				rigidBody.setPosition( world, vehicle.rigidBody, vehicle.spherePos.toArray(), false );
+				const vel = [ ...vehicle.rigidBody.motionProperties.linearVelocity ];
+				vel[ 1 ] *= 0.2;
+				rigidBody.setLinearVelocity( world, vehicle.rigidBody, vel );
+
+			}
+			if ( vehicle2?.flyingMode && vehicle2?.rigidBody ) {
+
+				const targetBaseY = 1.625;
+				const elevatedY = sampleFlyingSurfaceHeight( vehicle2 );
+				const targetY = ( elevatedY ?? targetBaseY );
+				const nextY = THREE.MathUtils.lerp( vehicle2.spherePos.y, targetY, 1 - Math.exp( - dt * 10 ) );
+				vehicle2.spherePos.y = nextY;
+				rigidBody.setPosition( world, vehicle2.rigidBody, vehicle2.spherePos.toArray(), false );
+				const vel = [ ...vehicle2.rigidBody.motionProperties.linearVelocity ];
+				vel[ 1 ] *= 0.2;
+				rigidBody.setLinearVelocity( world, vehicle2.rigidBody, vel );
+
+			}
 			applySlopeConformVisual( vehicle );
 			if ( vehicle2 ) applySlopeConformVisual( vehicle2 );
 			if ( carHitboxMesh.visible ) carHitboxMesh.position.set( vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z );
