@@ -170,6 +170,38 @@
 				timeline.value = Math.round( ( pausedAt / durationMs ) * 1000 );
 			}
 		}
+
+		loadBtn.addEventListener( 'click', loadFromTextarea );
+		playBtn.addEventListener( 'click', () => {
+			if ( ! replay ) {
+				statusEl.textContent = 'Load a ghost code first.';
+				return;
+			}
+			isPlaying = ! isPlaying;
+			if ( isPlaying ) playStartMs = performance.now() - pausedAt;
+			playBtn.textContent = isPlaying ? 'Pause' : 'Play';
+			replayFrame.contentWindow?.postMessage( { type: isPlaying ? 'replay-play' : 'replay-pause' }, '*' );
+		} );
+		openRaceBtn.addEventListener( 'click', () => {
+			if ( ! replay ) {
+				statusEl.textContent = 'Load a ghost code first.';
+				return;
+			}
+			const replayUrl = buildReplayUrl( replay );
+			if ( ! replayUrl ) {
+				statusEl.textContent = 'Replay URL is missing or invalid.';
+				return;
+			}
+			window.open( replayUrl, '_blank' );
+		} );
+		timeline.addEventListener( 'input', () => {
+			if ( ! replay ) return;
+			const durationMs = Math.max( 1, replay.ghost.duration * 1000 );
+			pausedAt = ( Number( timeline.value ) / 1000 ) * durationMs;
+			if ( isPlaying ) playStartMs = performance.now() - pausedAt;
+			replayFrame.contentWindow?.postMessage( { type: 'replay-seek', t: pausedAt / 1000 }, '*' );
+		} );
+
 const hashCode = readCodeFromHash();
 		if ( hashCode ) {
 			codeInput.value = hashCode;
