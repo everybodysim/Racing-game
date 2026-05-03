@@ -810,7 +810,10 @@
 				#economy-hud { top: 108px; right: 12px; }
 				#leaderboard-panel { top: 136px; left: 12px; }
 		}
-	</style>
+	
+		body.replay-viewer-mode > :not(canvas):not(script) { display: none !important; }
+		body.replay-viewer-mode canvas { touch-action: none; }
+</style>
 	<script type="importmap">
 	{
 		"imports": {

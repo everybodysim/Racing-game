@@ -1149,11 +1149,13 @@ async function init() {
 	const { mapParam, extrasParam } = await resolvePackedTrackParams( searchParams );
 	const isSplitScreen = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1';
 	const editorQuickTestEnabled = searchParams.get( 'editorQuickTest' ) === '1';
+	const replayViewerMode = searchParams.get( 'replayViewer' ) === '1';
 	const editorReturnParam = String( searchParams.get( 'editorReturn' ) || '' );
 	const editorGhostMapHash = String( searchParams.get( 'editorGhostMap' ) || '' );
 	const QUICK_TEST_GHOST_KEY = 'racing-editor-quicktest-ghost-v1';
 	const QUICK_TEST_GHOST_MAP_KEY = 'racing-editor-quicktest-map-v1';
 	const ghostEnabled = ! isSplitScreen;
+	if ( replayViewerMode ) document.body.classList.add( 'replay-viewer-mode' );
 	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
 	let customCells = null;
 	let spawn = null;
@@ -1800,7 +1802,7 @@ async function init() {
 		ghostModel = null;
 		if ( ! model ) return;
 
-		ghostModel = createGhostVisualModel( model, 0.35, cosmetics );
+		ghostModel = createGhostVisualModel( model, replayViewerMode ? 1 : 0.35, cosmetics );
 		if ( ! ghostModel ) return;
 		scene.add( ghostModel );
 
@@ -1906,6 +1908,10 @@ async function init() {
 		ghostModel.rotation.x = lerpAngle( ghostModel.rotation.x, targetPitch, 0.18 );
 		ghostModel.rotation.y = lerpAngle( ghostModel.rotation.y, targetYaw, 0.18 );
 		ghostModel.rotation.z = lerpAngle( ghostModel.rotation.z, targetRoll, 0.18 );
+		if ( replayViewerMode && ! freecamState.active ) {
+			cam.targetPosition.copy( ghostModel.position );
+			cam.update( 1 / 60, ghostModel.position, ghostModel.quaternion );
+		}
 
 	}
 
@@ -2131,6 +2137,7 @@ async function init() {
 	}
 
 	if ( ghostEnabled ) createGhostModel( models[ 'vehicle-truck-yellow' ] );
+	if ( replayViewerMode ) vehicle.container.visible = false;
 
 	dirLight.target = vehicleGroup;
 
@@ -6491,7 +6498,7 @@ async function init() {
 			raceClockSeconds += dt;
 			const now = raceClockSeconds;
 
-			const controlsBlocked = modeMenuOpen || freecamState.active;
+			const controlsBlocked = modeMenuOpen || freecamState.active || replayViewerMode;
 			const baseInput = controlsBlocked ? { x: 0, y: 0, z: 0 } : controls.update();
 			let input = baseInput;
 			for ( const runtime of runtimeMods ) {
@@ -6509,7 +6516,7 @@ async function init() {
 				}
 
 			}
-			const input2 = controls2 ? ( modeMenuOpen ? { x: 0, y: 0, z: 0 } : controls2.update() ) : null;
+			const input2 = controls2 ? ( modeMenuOpen || replayViewerMode ? { x: 0, y: 0, z: 0 } : controls2.update() ) : null;
 			const padAdjustedInput = applyPadInputModifiers( input, activePadEffect );
 			const padAdjustedInput2 = input2 ? applyPadInputModifiers( input2, activePadEffect2 ) : null;
 			recordLapInput( Math.max( 0, now - lapStartSeconds ), padAdjustedInput, controls?.keys );
@@ -6700,7 +6707,7 @@ async function init() {
 		);
 
 		if ( freecamState.active ) updateFreecam( dt );
-		else {
+		else if ( ! replayViewerMode ) {
 
 			const shouldLockYaw = airTrickState.active && isVehicleAirborne( vehicle );
 			if ( shouldLockYaw ) {
