@@ -66,6 +66,7 @@ export class Vehicle {
 		this.flyingMode = false;
 		this.slopeTiltPitch = 0;
 		this.slopeTiltRoll = 0;
+		this.wheelSpin = 0;
 
 	}
 
@@ -331,11 +332,20 @@ export class Vehicle {
 
 	updateWheels( dt ) {
 
+		this.wheelSpin += this.acceleration;
 		for ( const wheel of this.wheels ) {
 
-			wheel.rotation.x += this.acceleration;
-			const targetRoll = this.flyingMode ? -Math.PI * 0.25 : 0;
-			wheel.rotation.z = lerpAngle( wheel.rotation.z, targetRoll, dt * 10 );
+			if ( this.flyingMode ) {
+
+				wheel.rotation.x = this.wheelSpin;
+				wheel.rotation.z = -Math.PI * 0.25;
+
+			} else {
+
+				wheel.rotation.x += this.acceleration;
+				wheel.rotation.z = lerpAngle( wheel.rotation.z, 0, dt * 10 );
+
+			}
 
 		}
 

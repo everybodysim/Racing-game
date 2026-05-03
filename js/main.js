@@ -100,7 +100,7 @@ const PAD_EFFECTS = {
 	'pad-slow-motion': { id: 'slow-motion', timeScale: 0.6 },
 	'pad-fast-motion': { id: 'fast-motion', timeScale: 1.35 },
 	'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
-	'pad-sky-surge': { id: 'sky-surge', grip: 1.0, drag: 0.035, accel: 1.2, drive: 1.2, flyingMode: true },
+	'pad-jetstream': { id: 'jetstream', grip: 1.0, drag: 0.035, accel: 1.2, drive: 1.2, flyingMode: true },
 	'pad-size-small': { id: 'size-small', scale: 0.5 },
 	'pad-size-normal': { id: 'size-normal', scale: 1.0 },
 	'pad-size-mega': { id: 'size-mega', scale: 1.8 },
@@ -3909,8 +3909,8 @@ async function init() {
 		const gx = Math.floor( localX );
 		const gz = Math.floor( localZ );
 		const entry = elevatedCellMap.get( `${ gx },${ gz }` );
-		if ( ! entry ) return null;
-		if ( entry.type === 'elevated-straight' || entry.type === 'elevated-corner' || entry.type === 'elevated-checkpoint' ) return 3.2;
+		if ( ! entry ) return 2.0;
+		if ( entry.type === 'elevated-straight' || entry.type === 'elevated-corner' || entry.type === 'elevated-checkpoint' ) return 5.65;
 		if ( entry.type === 'slope-up' || entry.type === 'slope-down' ) {
 
 			const orientDeg = ORIENT_DEG[ entry.orient ] ?? 0;
@@ -3921,10 +3921,10 @@ async function init() {
 			const dz = targetVehicle.spherePos.z - centerZ;
 			const forward = Math.cos( yaw ) * dz + Math.sin( yaw ) * dx;
 			const t = THREE.MathUtils.clamp( ( forward / cellHalfExtent + 1 ) * 0.5, 0, 1 );
-			return 0.2 + ( 3.0 * t );
+			return 2.0 + ( 3.65 * t );
 
 		}
-		return null;
+		return 2.0;
 
 	}
 	const legacyBoostHalfExtent = CELL_RAW * GRID_SCALE * 0.5;
@@ -4319,7 +4319,7 @@ async function init() {
 			case 'pad-slow-motion': return 'Slow Motion';
 			case 'pad-fast-motion': return 'Fast Motion';
 			case 'pad-drift': return 'Drift Mode';
-			case 'pad-sky-surge': return 'Sky Surge';
+			case 'pad-jetstream': return 'Jetstream';
 			case 'pad-size-small': return 'Mini Pad';
 			case 'pad-size-normal': return 'Normal Pad';
 			case 'pad-size-mega': return 'Mega Pad';
@@ -6574,27 +6574,41 @@ async function init() {
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
 			if ( vehicle.flyingMode && vehicle?.rigidBody ) {
 
-				const targetBaseY = 1.625;
+				const targetBaseY = 2.0;
 				const elevatedY = sampleFlyingSurfaceHeight( vehicle );
 				const targetY = ( elevatedY ?? targetBaseY );
-				const nextY = THREE.MathUtils.lerp( vehicle.spherePos.y, targetY, 1 - Math.exp( - dt * 10 ) );
+				const nextY = THREE.MathUtils.lerp( vehicle.spherePos.y, targetY, 1 - Math.exp( - dt * 6 ) );
 				vehicle.spherePos.y = nextY;
 				rigidBody.setPosition( world, vehicle.rigidBody, vehicle.spherePos.toArray(), false );
 				const vel = [ ...vehicle.rigidBody.motionProperties.linearVelocity ];
-				vel[ 1 ] *= 0.2;
+				vel[ 1 ] = THREE.MathUtils.lerp( vel[ 1 ], ( targetY - vehicle.spherePos.y ) * 8, 0.35 );
+				if ( padAdjustedInput.z > 0.01 ) {
+
+					const flyForward = new THREE.Vector3( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).setY( 0 ).normalize();
+					vel[ 0 ] += flyForward.x * dt * 3.4 * padAdjustedInput.z;
+					vel[ 2 ] += flyForward.z * dt * 3.4 * padAdjustedInput.z;
+
+				}
 				rigidBody.setLinearVelocity( world, vehicle.rigidBody, vel );
 
 			}
 			if ( vehicle2?.flyingMode && vehicle2?.rigidBody ) {
 
-				const targetBaseY = 1.625;
+				const targetBaseY = 2.0;
 				const elevatedY = sampleFlyingSurfaceHeight( vehicle2 );
 				const targetY = ( elevatedY ?? targetBaseY );
-				const nextY = THREE.MathUtils.lerp( vehicle2.spherePos.y, targetY, 1 - Math.exp( - dt * 10 ) );
+				const nextY = THREE.MathUtils.lerp( vehicle2.spherePos.y, targetY, 1 - Math.exp( - dt * 6 ) );
 				vehicle2.spherePos.y = nextY;
 				rigidBody.setPosition( world, vehicle2.rigidBody, vehicle2.spherePos.toArray(), false );
 				const vel = [ ...vehicle2.rigidBody.motionProperties.linearVelocity ];
-				vel[ 1 ] *= 0.2;
+				vel[ 1 ] = THREE.MathUtils.lerp( vel[ 1 ], ( targetY - vehicle2.spherePos.y ) * 8, 0.35 );
+				if ( padAdjustedInput2?.z > 0.01 ) {
+
+					const flyForward = new THREE.Vector3( 0, 0, 1 ).applyQuaternion( vehicle2.container.quaternion ).setY( 0 ).normalize();
+					vel[ 0 ] += flyForward.x * dt * 3.4 * padAdjustedInput2.z;
+					vel[ 2 ] += flyForward.z * dt * 3.4 * padAdjustedInput2.z;
+
+				}
 				rigidBody.setLinearVelocity( world, vehicle2.rigidBody, vel );
 
 			}
