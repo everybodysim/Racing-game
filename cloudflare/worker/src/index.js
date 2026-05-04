@@ -26,6 +26,11 @@ export default {
 			return withCors( await incrementTrackViews( id, env ) );
 		}
 
+		if ( url.pathname.startsWith( '/api/tracks/' ) && url.pathname.endsWith( '/vote' ) && request.method === 'POST' ) {
+			const id = url.pathname.split( '/' )[ 3 ];
+			return withCors( await voteTrack( id, request, env ) );
+		}
+
 		if ( url.pathname === '/api/packs' && request.method === 'POST' ) {
 			return withCors( await createPack( request, env ) );
 		}
@@ -65,7 +70,12 @@ async function addTrack( request, env ) {
 
 	const name = String( payload?.name || '' ).trim();
 	const ghostCode = String( payload?.ghostCode || '' ).trim();
+	const description = String( payload?.description || '' ).trim().slice( 0, 600 );
+	const thumbnailDataUrl = String( payload?.thumbnailDataUrl || '' ).trim();
 	if ( ! ghostCode ) return json( { ok: false, error: 'ghostCode is required' }, 400 );
+	if ( thumbnailDataUrl && ! /^data:image\/(?:png|jpeg|webp|gif);base64,[a-zA-Z0-9+/=]+$/.test( thumbnailDataUrl ) ) {
+		return json( { ok: false, error: 'thumbnailDataUrl must be a valid image data URL' }, 400 );
+	}
 
 	let decoded;
 	try {
@@ -85,6 +95,11 @@ async function addTrack( request, env ) {
 		bestLapSeconds: Number( decoded.ghost.bestLapSeconds ),
 		sampleCount: Array.isArray( decoded.ghost.samples ) ? decoded.ghost.samples.length : 0,
 		viewCount: 0,
+		thumbsUp: 0,
+		thumbsDown: 0,
+		lastLikedAt: 0,
+		description,
+		thumbnailDataUrl: thumbnailDataUrl.slice( 0, 400000 ),
 		createdAt: Date.now(),
 	};
 
@@ -116,6 +131,30 @@ async function incrementTrackViews( id, env ) {
 	return json( { ok: true, entry: entries[ index ] } );
 }
 
+async function voteTrack( id, request, env ) {
+	if ( ! id ) return json( { ok: false, error: 'id is required' }, 400 );
+	let payload;
+	try {
+		payload = await request.json();
+	} catch {
+		return json( { ok: false, error: 'Invalid JSON body' }, 400 );
+	}
+	const vote = Number( payload?.vote );
+	if ( vote !== 1 && vote !== -1 ) return json( { ok: false, error: 'vote must be 1 or -1' }, 400 );
+	const entries = await loadEntries( env );
+	const index = entries.findIndex( ( entry ) => entry.id === id );
+	if ( index === - 1 ) return json( { ok: false, error: 'Not found' }, 404 );
+	const currentUp = Number( entries[ index ].thumbsUp );
+	const currentDown = Number( entries[ index ].thumbsDown );
+	entries[ index ].thumbsUp = Number.isFinite( currentUp ) ? currentUp : 0;
+	entries[ index ].thumbsDown = Number.isFinite( currentDown ) ? currentDown : 0;
+	if ( vote > 0 ) entries[ index ].thumbsUp += 1;
+	if ( vote < 0 ) entries[ index ].thumbsDown += 1;
+	entries[ index ].lastLikedAt = Date.now();
+	await env.TRACKS_KV.put( TRACKS_KEY, JSON.stringify( entries ) );
+	return json( { ok: true, entry: entries[ index ] } );
+}
+
 async function loadEntries( env ) {
 	const raw = await env.TRACKS_KV.get( TRACKS_KEY );
 	if ( ! raw ) return [];
@@ -125,6 +164,11 @@ async function loadEntries( env ) {
 		return parsed.map( ( entry ) => ( {
 			...entry,
 			viewCount: Number.isFinite( Number( entry?.viewCount ) ) ? Number( entry.viewCount ) : 0,
+			thumbsUp: Number.isFinite( Number( entry?.thumbsUp ) ) ? Number( entry.thumbsUp ) : 0,
+			thumbsDown: Number.isFinite( Number( entry?.thumbsDown ) ) ? Number( entry.thumbsDown ) : 0,
+			description: String( entry?.description || '' ),
+			thumbnailDataUrl: String( entry?.thumbnailDataUrl || '' ),
+			lastLikedAt: Number.isFinite( Number( entry?.lastLikedAt ) ) ? Number( entry.lastLikedAt ) : 0,
 		} ) );
 	} catch {
 		return [];

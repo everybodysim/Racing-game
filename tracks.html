@@ -56,6 +56,10 @@
 			<input id="track-name" placeholder="e.g. Forest Sprint" />
 			<label for="ghost-code">Ghost code</label>
 			<textarea id="ghost-code" placeholder="Paste export ghost code here..."></textarea>
+			<label for="track-description">Description (optional)</label>
+			<textarea id="track-description" placeholder="Add notes, style, and tips..."></textarea>
+			<label for="track-thumbnail">Thumbnail image (optional)</label>
+			<input id="track-thumbnail" type="file" accept="image/*" />
 				<div class="row">
 					<button id="add-btn" type="button">Add to board</button>
 				<button id="export-board-btn" type="button">Export board code</button>
@@ -81,6 +85,7 @@
 					<select id="sort-filter">
 						<option value="newest">Newest</option>
 						<option value="popular">Most popular</option>
+						<option value="most-liked">Most liked</option>
 						<option value="best-time">Best lap time</option>
 					</select>
 					<button id="random-track-btn" type="button">Random track</button>
@@ -103,6 +108,10 @@
 					<summary style="cursor:pointer;font-weight:700;">Trending (recent plays)</summary>
 					<div id="trending-list" class="records-list" style="margin-top:8px;"></div>
 				</details>
+				<details id="recent-likes-section" style="margin-top:10px;">
+					<summary style="cursor:pointer;font-weight:700;">Most recent likes</summary>
+					<div id="recent-likes-list" class="records-list" style="margin-top:8px;"></div>
+				</details>
 			</div>
 			<div id="grid"></div>
 		</div>
@@ -111,6 +120,8 @@
 			const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
 			const nameInput = document.getElementById( 'track-name' );
 		const ghostInput = document.getElementById( 'ghost-code' );
+		const descriptionInput = document.getElementById( 'track-description' );
+		const thumbnailInput = document.getElementById( 'track-thumbnail' );
 		const addBtn = document.getElementById( 'add-btn' );
 		const exportBtn = document.getElementById( 'export-board-btn' );
 		const importBtn = document.getElementById( 'import-board-btn' );
@@ -123,6 +134,7 @@
 			const placementRatingList = document.getElementById( 'placement-rating-list' );
 			const newWeekList = document.getElementById( 'new-week-list' );
 			const trendingList = document.getElementById( 'trending-list' );
+			const recentLikesList = document.getElementById( 'recent-likes-list' );
 			const statusEl = document.getElementById( 'status' );
 			const leaderboardProgressWrap = document.getElementById( 'leaderboard-progress-wrap' );
 			const leaderboardProgressLabel = document.getElementById( 'leaderboard-progress-label' );
@@ -133,6 +145,7 @@
 			let topByTrackId = new Map();
 			let rowsByTrackId = new Map();
 			let leaderboardHydrating = false;
+			let selectedThumbnailDataUrl = '';
 
 		function isPackBoardEntry( entry ) {
 			const name = String( entry?.name || '' ).trim();
@@ -285,7 +298,7 @@
 		async function hydrateTopLeaderboardRows( sourceEntries ) {
 			const next = new Map();
 			const rowsMap = new Map();
-			const CHUNK_SIZE = 12;
+			const CHUNK_SIZE = 20;
 			const bestRowForTrack = ( rows ) => {
 				if ( ! Array.isArray( rows ) || rows.length === 0 ) return null;
 				return rows.slice().sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ] || null;
@@ -302,7 +315,7 @@
 			render();
 			for ( let i = 0; i < trackRequests.length; i += CHUNK_SIZE ) {
 				const chunk = trackRequests.slice( i, i + CHUNK_SIZE );
-				await Promise.all( chunk.map( async ( request ) => {
+				const tasks = chunk.map( async ( request ) => {
 					const { primaryId, candidateIds } = request;
 					const payloads = await Promise.all( candidateIds.map( async ( trackId ) => {
 						try {
@@ -319,11 +332,12 @@
 						.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
 					rowsMap.set( primaryId, dedupedRows );
 					next.set( primaryId, bestRowForTrack( dedupedRows ) );
-				} ) );
+					setLeaderboardProgress( next.size, trackRequests.length );
+					renderRecordBoard();
+				} );
+				await Promise.all( tasks );
 				topByTrackId = new Map( next );
 				rowsByTrackId = new Map( rowsMap );
-				setLeaderboardProgress( Math.min( i + CHUNK_SIZE, trackRequests.length ), trackRequests.length );
-				render();
 			}
 			topByTrackId = next;
 			rowsByTrackId = rowsMap;
@@ -518,12 +532,21 @@
 				.filter( ( entry ) => Number( entry?.createdAt ) >= weekAgo )
 				.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) )
 				.slice( 0, 6 );
+			const recentLikes = entries
+				.filter( ( entry ) => Number( entry?.lastLikedAt ) > 0 )
+				.sort( ( a, b ) => Number( b.lastLikedAt ) - Number( a.lastLikedAt ) )
+				.slice( 0, 6 );
 				if ( newWeekList ) {
 
 					newWeekList.innerHTML = newWeek.length
 						? newWeek.map( ( entry ) => `<div class="record-chip"><div class="name">${ entry.name }</div><div class="count">${ new Date( entry.createdAt || Date.now() ).toLocaleDateString() }</div><a href="${ entry.playUrl }" target="_blank" rel="noopener noreferrer">Play</a></div>` ).join( '' )
 						: '<div class="records-empty">No new tracks in the past 7 days.</div>';
 
+			}
+			if ( recentLikesList ) {
+				recentLikesList.innerHTML = recentLikes.length
+					? recentLikes.map( ( entry ) => `<div class="record-chip"><div class="name">${ entry.name }</div><div class="count">${ Number( entry.thumbsUp ) || 0 } 👍 • last like ${ new Date( entry.lastLikedAt ).toLocaleDateString() }</div><a href="${ entry.playUrl }" target="_blank" rel="noopener noreferrer">Play</a></div>` ).join( '' )
+					: '<div class="records-empty">No likes yet.</div>';
 			}
 				if ( trendingList ) {
 
@@ -559,6 +582,9 @@
 			} );
 			if ( sortMode === 'popular' ) {
 				return [ ...filtered ].sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) );
+			}
+			if ( sortMode === 'most-liked' ) {
+				return [ ...filtered ].sort( ( a, b ) => ( Number( b.thumbsUp ) || 0 ) - ( Number( a.thumbsUp ) || 0 ) );
 			}
 			if ( sortMode === 'best-time' ) {
 				return [ ...filtered ].sort( ( a, b ) => ( Number( a.bestLapSeconds ) || Infinity ) - ( Number( b.bestLapSeconds ) || Infinity ) );
@@ -606,13 +632,17 @@
 						</div>
 						<div class="time">${ topRow ? formatSeconds( Number( topRow.timeSeconds ) ) : '' }</div>
 					</div>
-					<canvas class="preview-canvas" width="300" height="180" aria-label="Track preview for ${ entry.name }"></canvas>
+					${ entry.thumbnailDataUrl ? `<img class="preview-canvas" src="${ entry.thumbnailDataUrl }" alt="Track thumbnail for ${ entry.name }">` : `<canvas class="preview-canvas" width="300" height="180" aria-label="Track preview for ${ entry.name }"></canvas>` }
+					<div class="meta">${ entry.description ? entry.description : 'No description.' }</div>
 					<div class="meta">Best: ${ formatSeconds( entry.bestLapSeconds ) } • Samples: ${ entry.sampleCount || 0 }</div>
+					<div class="meta">👍 ${ Number( entry.thumbsUp ) || 0 } • 👎 ${ Number( entry.thumbsDown ) || 0 }</div>
 					<div class="row" style="margin-top:0">
 						<a href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">Open track link</a>
+						<button data-id="${ entry.id }" data-vote="1" type="button">👍</button>
+						<button data-id="${ entry.id }" data-vote="-1" type="button">👎</button>
 						<button data-id="${ entry.id }" type="button">Remove</button>
 					</div>`;
-				if ( previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), previewData.cells, previewData.mods );
+				if ( ! entry.thumbnailDataUrl && previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), previewData.cells, previewData.mods );
 				grid.appendChild( card );
 			}
 		}
@@ -633,13 +663,14 @@
 			}
 
 			const name = ( nameInput.value || '' ).trim() || inferTrackName( parsed.url );
+			const description = ( descriptionInput.value || '' ).trim();
 			const playUrl = buildPlayUrl( parsed.url, parsed.ghost );
 			const entryId = `${ Date.now() }:${ entries.length }`;
 			if ( useRemoteBoard ) {
 
 				await apiRequest( '', {
 					method: 'POST',
-					body: JSON.stringify( { name, ghostCode: rawCode } ),
+					body: JSON.stringify( { name, ghostCode: rawCode, description, thumbnailDataUrl: selectedThumbnailDataUrl } ),
 				} );
 				await loadFromRemote();
 
@@ -652,6 +683,11 @@
 					bestLapSeconds: Number( parsed.ghost.bestLapSeconds ),
 					sampleCount: Array.isArray( parsed.ghost.samples ) ? parsed.ghost.samples.length : 0,
 					viewCount: 0,
+					thumbsUp: 0,
+					thumbsDown: 0,
+					lastLikedAt: 0,
+					description,
+					thumbnailDataUrl: selectedThumbnailDataUrl,
 					createdAt: Date.now(),
 				} );
 				saveToHash();
@@ -661,6 +697,9 @@
 			render();
 			setStatus( `Added "${ name }" to board.` );
 			ghostInput.value = '';
+			descriptionInput.value = '';
+			thumbnailInput.value = '';
+			selectedThumbnailDataUrl = '';
 		}
 
 		addBtn.addEventListener( 'click', () => {
@@ -686,6 +725,25 @@
   if (e.target.tagName !== 'BUTTON') return;
 
   const id = e.target.getAttribute('data-id');
+  const vote = Number( e.target.getAttribute( 'data-vote' ) );
+  if ( vote === 1 || vote === -1 ) {
+    if ( useRemoteBoard ) {
+      try {
+        await apiRequest( `/${ id }/vote`, { method: 'POST', body: JSON.stringify( { vote } ) } );
+      } catch ( err ) {}
+    }
+    const current = entries.find( ( entry ) => entry.id === id );
+    if ( current ) {
+      current.thumbsUp = Number( current.thumbsUp ) || 0;
+      current.thumbsDown = Number( current.thumbsDown ) || 0;
+      if ( vote > 0 ) current.thumbsUp += 1;
+      if ( vote < 0 ) current.thumbsDown += 1;
+      current.lastLikedAt = Date.now();
+    }
+    if ( ! useRemoteBoard ) saveToHash();
+    render();
+    return;
+  }
 
   // 🔑 get password from input
   const token = document.getElementById("adminTokenInput").value;
@@ -758,6 +816,19 @@
 			searchInput.addEventListener( 'input', () => render() );
 			sizeFilter.addEventListener( 'change', () => render() );
 			sortFilter.addEventListener( 'change', () => render() );
+			thumbnailInput.addEventListener( 'change', async () => {
+				const file = thumbnailInput.files?.[ 0 ];
+				if ( ! file ) {
+					selectedThumbnailDataUrl = '';
+					return;
+				}
+				const reader = new FileReader();
+				reader.onload = () => {
+					selectedThumbnailDataUrl = String( reader.result || '' );
+					setStatus( 'Thumbnail selected.' );
+				};
+				reader.readAsDataURL( file );
+			} );
 			randomTrackBtn.addEventListener( 'click', () => {
 				const filtered = getFilteredEntries();
 				if ( filtered.length === 0 ) {
