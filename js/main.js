@@ -984,7 +984,7 @@ function readInstalledRuntimeMods() {
 function normalizeModEntryPath( entryPath ) {
 
 	if ( ! entryPath || typeof entryPath !== 'string' ) return null;
-	if ( entryPath.startsWith( 'data:text/javascript' ) ) return entryPath;
+	if ( entryPath.startsWith( 'data:text/javascript' ) ) return null;
 	if ( entryPath.startsWith( './' ) ) return `../${ entryPath.slice( 2 ) }`;
 	if ( entryPath.startsWith( '/' ) ) return entryPath;
 	return `../${ entryPath }`;
@@ -1220,9 +1220,6 @@ async function init() {
 
 	scene.background = new THREE.Color( weatherConfig.bg );
 	scene.fog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul, groundSize * weatherConfig.fogFarMul );
-	freecamFogState.near = groundSize * weatherConfig.fogNearMul;
-	freecamFogState.far = groundSize * weatherConfig.fogFarMul;
-	applyFreecamFogDistance();
 	dirLight.intensity = weatherConfig.sun;
 	hemiLight.intensity = weatherConfig.hemi;
 	renderer.toneMappingExposure = weatherConfig.exposure;
@@ -2171,31 +2168,6 @@ async function init() {
 		playbackController: new DeterministicPlaybackController(),
 		resetPlayerVehicle: () => vehicle.resetToSpawn(),
 	};
-	const runtimeModEffects = {
-		boost: 0,
-		gravityScale: 1,
-		message: '',
-		messageUntil: 0,
-	};
-	const runtimeModApi = {
-		setSpeed( speed ) {
-			if ( ! vehicle ) return;
-			vehicle.linearSpeed = Number.isFinite( Number( speed ) ) ? Number( speed ) : vehicle.linearSpeed;
-		},
-		boost( amount ) {
-			const value = Number( amount );
-			if ( Number.isFinite( value ) ) runtimeModEffects.boost += value;
-		},
-		setGravity( gravityValue ) {
-			const value = Number( gravityValue );
-			if ( Number.isFinite( value ) ) runtimeModEffects.gravityScale = THREE.MathUtils.clamp( Math.abs( value ) / 9.81, 0.2, 4.0 );
-		},
-		showMessage( text ) {
-			runtimeModEffects.message = String( text || '' ).slice( 0, 120 );
-			runtimeModEffects.messageUntil = performance.now() / 1000 + 1.2;
-		},
-	};
-	runtimeModContext.api = runtimeModApi;
 	for ( const runtime of runtimeMods ) {
 
 		try {
@@ -2518,15 +2490,6 @@ async function init() {
 	const freecamForward = new THREE.Vector3();
 	const freecamRight = new THREE.Vector3();
 	const freecamMove = new THREE.Vector3();
-	const freecamFogState = { near: 30, far: 55 };
-
-	function applyFreecamFogDistance() {
-
-		if ( ! scene || ! scene.fog ) return;
-		if ( Number.isFinite( freecamFogState.near ) ) scene.fog.near = freecamFogState.near;
-		scene.fog.far = freecamState.active ? freecamFogState.far * 3 : freecamFogState.far;
-
-	}
 
 	function getEngineMult() {
 
@@ -2849,7 +2812,6 @@ async function init() {
 
 		}
 		freecamState.active = next;
-		applyFreecamFogDistance();
 		if ( next ) {
 
 			setModeMenuOpen( false );
@@ -6544,7 +6506,7 @@ async function init() {
 				if ( typeof runtime?.applyFrame !== 'function' ) continue;
 				try {
 
-					const result = runtime.applyFrame( { dt, input, controls, vehicle, world, now, api: runtimeModApi } );
+					const result = runtime.applyFrame( { dt, input, controls, vehicle, world, now } );
 					if ( result?.input ) input = result.input;
 
 				} catch ( error ) {
@@ -6572,13 +6534,6 @@ async function init() {
 		updateWorld( world, contactListener, dt );
 
 			vehicle.update( dt, padAdjustedInput );
-			if ( runtimeModEffects.boost !== 0 ) {
-				vehicle.linearSpeed += runtimeModEffects.boost * 0.02;
-				runtimeModEffects.boost = 0;
-			}
-			if ( runtimeModEffects.message && performance.now() / 1000 <= runtimeModEffects.messageUntil ) {
-				showTopMessage( runtimeModEffects.message, false, 250 );
-			}
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
 			applySlopeConformVisual( vehicle );
 			if ( vehicle2 ) applySlopeConformVisual( vehicle2 );
@@ -6591,8 +6546,8 @@ async function init() {
 			updateRemotePlayerVisualsFrame( dt );
 			const gravityScale1 = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
 			const gravityScale2 = Number.isFinite( activePadEffect2?.gravity ) ? activePadEffect2.gravity : 1.0;
-			if ( vehicle?.rigidBody?.motionProperties ) vehicle.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale1 * runtimeModEffects.gravityScale * ( hacksActive ? hacksState.gravity : 1.0 );
-			if ( vehicle2?.rigidBody?.motionProperties ) vehicle2.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale2 * runtimeModEffects.gravityScale * ( hacksActive ? hacksState.gravity : 1.0 );
+			if ( vehicle?.rigidBody?.motionProperties ) vehicle.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale1 * ( hacksActive ? hacksState.gravity : 1.0 );
+			if ( vehicle2?.rigidBody?.motionProperties ) vehicle2.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale2 * ( hacksActive ? hacksState.gravity : 1.0 );
 			if ( hacksActive ) {
 
 				if ( hacksState.boostAnywhere && controls?.keys?.KeyB && vehicle?.rigidBody?.motionProperties ) {
