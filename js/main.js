@@ -984,7 +984,7 @@ function readInstalledRuntimeMods() {
 function normalizeModEntryPath( entryPath ) {
 
 	if ( ! entryPath || typeof entryPath !== 'string' ) return null;
-	if ( entryPath.startsWith( 'data:text/javascript' ) ) return entryPath;
+	if ( entryPath.startsWith( 'data:text/javascript' ) ) return null;
 	if ( entryPath.startsWith( './' ) ) return `../${ entryPath.slice( 2 ) }`;
 	if ( entryPath.startsWith( '/' ) ) return entryPath;
 	return `../${ entryPath }`;

@@ -86,23 +86,25 @@ function buildRuntimeSpec() {
 function renderActionsRuntimeCode() {
   return `
 function runActions(actions, ctx) {
+  const api = ctx?.api || {};
   for (const action of actions || []) {
     if (!action || !action.type) continue;
-    if (action.type === 'set_speed' && ctx?.vehicle) {
-      const forward = ctx.vehicle.forward || { x: 0, y: 0, z: -1 };
+    if (action.type === 'set_speed') {
       const velocity = Number(action.value) || 0;
-      if (ctx.vehicle.linearVel?.set) ctx.vehicle.linearVel.set(forward.x * velocity, ctx.vehicle.linearVel.y || 0, forward.z * velocity);
+      if (typeof api.setSpeed === 'function') api.setSpeed(velocity);
+      else if (ctx?.vehicle && Number.isFinite(velocity)) ctx.vehicle.linearSpeed = velocity;
     }
-    if (action.type === 'boost' && ctx?.vehicle && Number.isFinite(action.value)) {
-      const f = ctx.vehicle.forward || { x: 0, y: 0, z: -1 };
-      if (ctx.vehicle.linearVel?.addScaledVector) ctx.vehicle.linearVel.addScaledVector(f, Number(action.value));
+    if (action.type === 'boost' && Number.isFinite(action.value)) {
+      if (typeof api.boost === 'function') api.boost(Number(action.value));
+      else if (ctx?.vehicle) ctx.vehicle.linearSpeed += Number(action.value) * 0.02;
     }
-    if (action.type === 'set_gravity' && ctx?.world?.gravity?.set) {
+    if (action.type === 'set_gravity') {
       const g = Number(action.value) || 9.81;
-      ctx.world.gravity.set(0, -Math.abs(g), 0);
+      if (typeof api.setGravity === 'function') api.setGravity(g);
     }
     if (action.type === 'show_message' && typeof action.value === 'string' && action.value) {
-      console.log('[custom-mod]', action.value);
+      if (typeof api.showMessage === 'function') api.showMessage(action.value);
+      else console.log('[custom-mod]', action.value);
     }
   }
 }
