@@ -1220,7 +1220,6 @@ async function init() {
 
 	scene.background = new THREE.Color( weatherConfig.bg );
 	scene.fog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul, groundSize * weatherConfig.fogFarMul );
-	freecamFogState.color = weatherConfig.bg;
 	freecamFogState.near = groundSize * weatherConfig.fogNearMul;
 	freecamFogState.far = groundSize * weatherConfig.fogFarMul;
 	applyFreecamFogDistance();
@@ -2519,13 +2518,12 @@ async function init() {
 	const freecamForward = new THREE.Vector3();
 	const freecamRight = new THREE.Vector3();
 	const freecamMove = new THREE.Vector3();
-	const freecamFogState = { color: 0xadb2ba, near: 30, far: 55 };
+	const freecamFogState = { near: 30, far: 55 };
 
 	function applyFreecamFogDistance() {
 
 		if ( ! scene || ! scene.fog ) return;
-		scene.fog.color.setHex( freecamFogState.color );
-		scene.fog.near = freecamFogState.near;
+		if ( Number.isFinite( freecamFogState.near ) ) scene.fog.near = freecamFogState.near;
 		scene.fog.far = freecamState.active ? freecamFogState.far * 3 : freecamFogState.far;
 
 	}
