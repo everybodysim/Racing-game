@@ -146,6 +146,25 @@
 			let rowsByTrackId = new Map();
 			let leaderboardHydrating = false;
 			let selectedThumbnailDataUrl = '';
+			const TRACK_VOTE_SESSION_KEY = 'trackVotes:v1';
+			const votedTrackActions = loadVoteSession();
+
+		function loadVoteSession() {
+			try {
+				const parsed = JSON.parse( sessionStorage.getItem( TRACK_VOTE_SESSION_KEY ) || '[]' );
+				return new Set( Array.isArray( parsed ) ? parsed.map( ( item ) => String( item ) ) : [] );
+			} catch ( e ) {
+				return new Set();
+			}
+		}
+
+		function saveVoteSession() {
+			try {
+				sessionStorage.setItem( TRACK_VOTE_SESSION_KEY, JSON.stringify( [ ...votedTrackActions ] ) );
+			} catch ( e ) {
+				// ignore storage failures
+			}
+		}
 
 		function isPackBoardEntry( entry ) {
 			const name = String( entry?.name || '' ).trim();
@@ -638,8 +657,8 @@
 					<div class="meta">👍 ${ Number( entry.thumbsUp ) || 0 } • 👎 ${ Number( entry.thumbsDown ) || 0 }</div>
 					<div class="row" style="margin-top:0">
 						<a href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">Open track link</a>
-						<button data-id="${ entry.id }" data-vote="1" type="button">👍</button>
-						<button data-id="${ entry.id }" data-vote="-1" type="button">👎</button>
+							<button data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
+							<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
 						<button data-id="${ entry.id }" type="button">Remove</button>
 					</div>`;
 				if ( ! entry.thumbnailDataUrl && previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), previewData.cells, previewData.mods );
@@ -726,12 +745,17 @@
 
   const id = e.target.getAttribute('data-id');
   const vote = Number( e.target.getAttribute( 'data-vote' ) );
-  if ( vote === 1 || vote === -1 ) {
-    if ( useRemoteBoard ) {
-      try {
-        await apiRequest( `/${ id }/vote`, { method: 'POST', body: JSON.stringify( { vote } ) } );
-      } catch ( err ) {}
-    }
+	  if ( vote === 1 || vote === -1 ) {
+		const voteKey = `${ id }:${ vote }`;
+		if ( votedTrackActions.has( voteKey ) ) {
+			setStatus( 'You already used that vote this session.', true );
+			return;
+		}
+	    if ( useRemoteBoard ) {
+	      try {
+	        await apiRequest( `/${ id }/vote`, { method: 'POST', body: JSON.stringify( { vote } ) } );
+	      } catch ( err ) {}
+	    }
     const current = entries.find( ( entry ) => entry.id === id );
     if ( current ) {
       current.thumbsUp = Number( current.thumbsUp ) || 0;
@@ -740,10 +764,12 @@
       if ( vote < 0 ) current.thumbsDown += 1;
       current.lastLikedAt = Date.now();
     }
-    if ( ! useRemoteBoard ) saveToHash();
-    render();
-    return;
-  }
+	    if ( ! useRemoteBoard ) saveToHash();
+		votedTrackActions.add( voteKey );
+		saveVoteSession();
+	    render();
+	    return;
+	  }
 
   // 🔑 get password from input
   const token = document.getElementById("adminTokenInput").value;
