@@ -2172,6 +2172,31 @@ async function init() {
 		playbackController: new DeterministicPlaybackController(),
 		resetPlayerVehicle: () => vehicle.resetToSpawn(),
 	};
+	const runtimeModEffects = {
+		boost: 0,
+		gravity: 9.81,
+		message: '',
+		messageUntil: 0,
+	};
+	const runtimeModApi = {
+		setSpeed( speed ) {
+			if ( ! vehicle ) return;
+			vehicle.linearSpeed = Number.isFinite( Number( speed ) ) ? Number( speed ) : vehicle.linearSpeed;
+		},
+		boost( amount ) {
+			const value = Number( amount );
+			if ( Number.isFinite( value ) ) runtimeModEffects.boost += value;
+		},
+		setGravity( gravityValue ) {
+			const value = Number( gravityValue );
+			if ( Number.isFinite( value ) ) runtimeModEffects.gravity = Math.max( 0.5, Math.abs( value ) );
+		},
+		showMessage( text ) {
+			runtimeModEffects.message = String( text || '' ).slice( 0, 120 );
+			runtimeModEffects.messageUntil = raceClockSeconds + 1.2;
+		},
+	};
+	runtimeModContext.api = runtimeModApi;
 	for ( const runtime of runtimeMods ) {
 
 		try {
@@ -6521,7 +6546,7 @@ async function init() {
 				if ( typeof runtime?.applyFrame !== 'function' ) continue;
 				try {
 
-					const result = runtime.applyFrame( { dt, input, controls, vehicle, world, now } );
+					const result = runtime.applyFrame( { dt, input, controls, vehicle, world, now, api: runtimeModApi } );
 					if ( result?.input ) input = result.input;
 
 				} catch ( error ) {
@@ -6549,6 +6574,14 @@ async function init() {
 		updateWorld( world, contactListener, dt );
 
 			vehicle.update( dt, padAdjustedInput );
+			if ( runtimeModEffects.boost !== 0 ) {
+				vehicle.linearSpeed += runtimeModEffects.boost * 0.02;
+				runtimeModEffects.boost = 0;
+			}
+			if ( world?.settings ) world.settings.gravity = [ 0, - runtimeModEffects.gravity, 0 ];
+			if ( runtimeModEffects.message && now <= runtimeModEffects.messageUntil ) {
+				showTopMessage( runtimeModEffects.message, false, 250 );
+			}
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
 			applySlopeConformVisual( vehicle );
 			if ( vehicle2 ) applySlopeConformVisual( vehicle2 );

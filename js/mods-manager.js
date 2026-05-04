@@ -1,6 +1,6 @@
 const INSTALLED_MODS_KEY = 'racing-installed-mods-v1';
 const SHARED_KEY = 'racing-shared-custom-mods-v1';
-const CUSTOM_MODS_ENABLED = false;
+const CUSTOM_MODS_ENABLED = true;
 let currentCatalog = [];
 
 function toBase64JsDataUrl(code) {
