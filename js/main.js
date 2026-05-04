@@ -2174,7 +2174,7 @@ async function init() {
 	};
 	const runtimeModEffects = {
 		boost: 0,
-		gravity: 9.81,
+		gravityScale: 1,
 		message: '',
 		messageUntil: 0,
 	};
@@ -2189,11 +2189,11 @@ async function init() {
 		},
 		setGravity( gravityValue ) {
 			const value = Number( gravityValue );
-			if ( Number.isFinite( value ) ) runtimeModEffects.gravity = Math.max( 0.5, Math.abs( value ) );
+			if ( Number.isFinite( value ) ) runtimeModEffects.gravityScale = THREE.MathUtils.clamp( Math.abs( value ) / 9.81, 0.2, 4.0 );
 		},
 		showMessage( text ) {
 			runtimeModEffects.message = String( text || '' ).slice( 0, 120 );
-			runtimeModEffects.messageUntil = raceClockSeconds + 1.2;
+			runtimeModEffects.messageUntil = performance.now() / 1000 + 1.2;
 		},
 	};
 	runtimeModContext.api = runtimeModApi;
@@ -6578,8 +6578,7 @@ async function init() {
 				vehicle.linearSpeed += runtimeModEffects.boost * 0.02;
 				runtimeModEffects.boost = 0;
 			}
-			if ( world?.settings ) world.settings.gravity = [ 0, - runtimeModEffects.gravity, 0 ];
-			if ( runtimeModEffects.message && now <= runtimeModEffects.messageUntil ) {
+			if ( runtimeModEffects.message && performance.now() / 1000 <= runtimeModEffects.messageUntil ) {
 				showTopMessage( runtimeModEffects.message, false, 250 );
 			}
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
@@ -6594,8 +6593,8 @@ async function init() {
 			updateRemotePlayerVisualsFrame( dt );
 			const gravityScale1 = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
 			const gravityScale2 = Number.isFinite( activePadEffect2?.gravity ) ? activePadEffect2.gravity : 1.0;
-			if ( vehicle?.rigidBody?.motionProperties ) vehicle.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale1 * ( hacksActive ? hacksState.gravity : 1.0 );
-			if ( vehicle2?.rigidBody?.motionProperties ) vehicle2.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale2 * ( hacksActive ? hacksState.gravity : 1.0 );
+			if ( vehicle?.rigidBody?.motionProperties ) vehicle.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale1 * runtimeModEffects.gravityScale * ( hacksActive ? hacksState.gravity : 1.0 );
+			if ( vehicle2?.rigidBody?.motionProperties ) vehicle2.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale2 * runtimeModEffects.gravityScale * ( hacksActive ? hacksState.gravity : 1.0 );
 			if ( hacksActive ) {
 
 				if ( hacksState.boostAnywhere && controls?.keys?.KeyB && vehicle?.rigidBody?.motionProperties ) {
