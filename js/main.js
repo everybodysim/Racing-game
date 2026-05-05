@@ -151,23 +151,18 @@ const ACCOUNT_SESSION_KEY = 'racing-account-session-v1';
 const MAX_LEADERBOARD_ROWS = 15;
 const MAX_LEADERBOARD_GHOST_SAMPLES = 2500;
 const CAMPAIGN_STAGES = [
-	{ type: 'beat-authors', goal: 1, text: 'Defeat 1 author time' },
-	{ type: 'beat-authors', goal: 3, text: 'Defeat 3 author times' },
-	{ type: 'beat-authors', goal: 5, text: 'Defeat 5 author times' },
-	{ type: 'beat-authors', goal: 7, text: 'Defeat 7 author times' },
-	{ type: 'beat-authors', goal: 9, text: 'Defeat 9 author times' },
-	{ type: 'beat-authors', goal: 11, text: 'Defeat 11 author times' },
-	{ type: 'beat-authors', goal: 13, text: 'Defeat 13 author times' },
-	{ type: 'beat-authors', goal: 15, text: 'Defeat 15 author times' },
-	{ type: 'beat-authors', goal: 17, text: 'Defeat 17 author times' },
-	{ type: 'beat-authors', goal: 19, text: 'Defeat 19 author times' },
-	{ type: 'beat-authors', goal: 21, text: 'Defeat 21 author times' },
-	{ type: 'beat-authors', goal: 23, text: 'Defeat 23 author times' },
-	{ type: 'beat-authors', goal: 25, text: 'Defeat 25 author times' },
-	{ type: 'beat-authors', goal: 28, text: 'Defeat 28 author times' },
-	{ type: 'beat-authors', goal: 32, text: 'Defeat 32 author times' },
-	{ type: 'beat-authors', goal: 36, text: 'Defeat 36 author times' },
-	{ type: 'beat-authors', goal: 40, text: 'Defeat 40 author times' },
+	{ type: 'lap-default', goal: 1, text: 'Complete 1 lap on default track' },
+	{ type: 'play-share', goal: 1, text: 'Play 1 track from Track Share Board' },
+	{ type: 'podium', goal: 1, text: 'Set 1 podium finish on a shared-track leaderboard' },
+	{ type: 'publish-track', goal: 1, text: 'Publish 1 track to the board' },
+	{ type: 'set-record', goal: 1, text: 'Drive 1 leaderboard record' },
+	{ type: 'install-mod', goal: 1, text: 'Install 1 mod' },
+	{ type: 'customize-car', goal: 1, text: 'Customize your car once' },
+	{ type: 'beat-authors', goal: 3, text: 'Beat 3 author times' },
+	{ type: 'beat-records', goal: 3, text: 'Beat 3 existing records' },
+	{ type: 'like-tracks', goal: 3, text: 'Like 3 tracks' },
+	{ type: 'beat-authors', goal: 5, text: 'Keep going: beat 5 more author times' },
+	{ type: 'set-record', goal: 3, text: 'Set 3 more records' },
 ];
 const CAMPAIGN_STAGE_COUNT = CAMPAIGN_STAGES.length;
 const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
@@ -2244,6 +2239,7 @@ async function init() {
 	const leaderboardTrackLabel = document.getElementById( 'leaderboard-track-label' );
 	let leaderboardPercentileLabel = document.getElementById( 'leaderboard-percentile-label' );
 	const leaderboardOpenApiBtn = document.getElementById( 'leaderboard-open-api' );
+	const leaderboardRefreshBtn = document.getElementById( 'leaderboard-refresh-btn' );
 	const leaderboardPanel = document.getElementById( 'leaderboard-panel' );
 	const leaderboardToggleBtn = document.getElementById( 'leaderboard-toggle-btn' );
 	if ( leaderboardPanel && ! leaderboardPercentileLabel ) {
@@ -2327,6 +2323,7 @@ async function init() {
 	const raceModeBtn = document.getElementById( 'mode-race-btn' );
 	const stuntModeBtn = document.getElementById( 'mode-stunt-btn' );
 	const campaignModeBtn = document.getElementById( 'mode-campaign-btn' );
+	const campaignInfoBtn = document.getElementById( 'campaign-info-btn' );
 	const modeTabGameplayBtn = document.getElementById( 'mode-tab-gameplay' );
 	const modeTabGarageBtn = document.getElementById( 'mode-tab-garage' );
 	const modeTabAccountBtn = document.getElementById( 'mode-tab-account' );
@@ -2383,6 +2380,7 @@ async function init() {
 	let campaignState = null;
 	let campaignTargetAuthorSeconds = null;
 	let campaignTrackName = '';
+	let currentTrackLeaderboardRows = [];
 	const GARAGE_PACKS = {
 		grip: { cost: 250, label: 'Handling Pack' },
 		accel: { cost: 325, label: 'Power Pack' },
@@ -3464,7 +3462,15 @@ async function init() {
 
 	}
 
-	function completeCampaignStage() {
+	function incrementCampaignProgress( stageType, amount = 1 ) {
+	if ( ! campaignState || campaignState.stageType !== stageType ) return;
+	campaignState.progress = Math.min( campaignState.goal, campaignState.progress + Math.max( 1, amount ) );
+	saveCampaignState();
+	if ( campaignState.progress >= campaignState.goal ) completeCampaignStage();
+	updateCampaignUi();
+}
+
+function completeCampaignStage() {
 
 		if ( ! campaignState ) return;
 		campaignState.stage ++;
@@ -5036,6 +5042,7 @@ async function init() {
 
 			} ) );
 			const merged = dedupeAndSortLeaderboardEntries( payloads.flatMap( ( parsed ) => Array.isArray( parsed?.entries ) ? parsed.entries : [] ) );
+		currentTrackLeaderboardRows = merged;
 			renderLeaderboardRows( merged );
 			updateLeaderboardPercentile( merged );
 
@@ -5045,6 +5052,7 @@ async function init() {
 			leaderboardList.hidden = true;
 			leaderboardEmpty.hidden = false;
 			leaderboardEmpty.textContent = 'Leaderboard unavailable (check Cloudflare setup).';
+			currentTrackLeaderboardRows = [];
 			if ( leaderboardPercentileLabel ) leaderboardPercentileLabel.textContent = '';
 
 		}
@@ -6166,6 +6174,9 @@ async function init() {
 		await startCampaignChallenge();
 
 	} );
+	campaignInfoBtn?.addEventListener( 'click', () => {
+		window.location.href = 'campaign.html';
+	} );
 	profileExportBtn?.addEventListener( 'click', async () => {
 
 		const code = createProfileExportCode();
@@ -6341,6 +6352,9 @@ async function init() {
 		closeNamePopup();
 
 	} );
+	leaderboardRefreshBtn?.addEventListener( 'click', () => {
+		fetchTrackLeaderboard();
+	} );
 	leaderboardOpenApiBtn?.addEventListener( 'click', () => {
 
 		window.open( leaderboardTrackApiUrl, '_blank', 'noopener,noreferrer' );
@@ -6373,7 +6387,7 @@ async function init() {
 
 		if ( leaderboardVisible ) fetchTrackLeaderboard();
 
-	}, 32000 );
+	}, 480000 );
 	if ( campaignParamEnabled ) setGameMode( 'campaign' );
 	resetLapState( true );
 	resetLapState2( true );

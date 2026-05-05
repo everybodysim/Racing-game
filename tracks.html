@@ -317,7 +317,7 @@
 		async function hydrateTopLeaderboardRows( sourceEntries ) {
 			const next = new Map();
 			const rowsMap = new Map();
-			const CHUNK_SIZE = 20;
+			const CHUNK_SIZE = 40;
 			const bestRowForTrack = ( rows ) => {
 				if ( ! Array.isArray( rows ) || rows.length === 0 ) return null;
 				return rows.slice().sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ] || null;

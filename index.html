@@ -834,6 +834,7 @@
 				<a class="home-main-link" href="tracks.html">Track shares<em>Discover and copy community maps</em></a>
 				<a class="home-main-link" href="editor.html">Create your own track<em>Build and test original circuits</em></a>
 				<a class="home-main-link" href="weekly-cup.html">Weekly cup<em>Competitive rotating event</em></a>
+				<a class="home-main-link" href="campaign.html">Campaign<em>Guided feature progression</em></a>
 				<a class="home-main-link out-of-order" href="competitions.html" data-out-of-order="1">Competitions<em>9 live stake-based tier events</em></a>
 				<a class="home-main-link" href="totd.html">Track of the day<em>One featured challenge each day</em></a>
 			</div>
@@ -841,6 +842,7 @@
 				<a class="home-secondary-link" href="replay.html">Replay watcher</a>
 				<a class="home-secondary-link" href="mods.html">Mods</a>
 				<a class="home-secondary-link" href="index.html?play=1&multiplayer=1">2P split screen</a>
+				<a class="home-secondary-link" href="campaign.html">Campaign guide</a>
 			</div>
 		</div>
 	</section>
@@ -879,6 +881,7 @@
 			<div id="leaderboard-track-label">Track: loading…</div>
 			<div id="leaderboard-debug-row">
 				<button id="leaderboard-open-api" type="button">Open API test for this track</button>
+				<button id="leaderboard-refresh-btn" type="button">Refresh leaderboard</button>
 			</div>
 			<div id="leaderboard-empty">Loading leaderboard…</div>
 			<ol id="leaderboard-list" hidden></ol>
@@ -896,7 +899,8 @@
 			<button id="mode-race-btn" type="button">Race Mode</button>
 			<button id="mode-stunt-btn" type="button" disabled title="Under construction">🚧 Stunt Mode (Under Construction)</button>
 			<button id="mode-campaign-btn" type="button">Campaign Mode</button>
-			<div id="campaign-progress">Campaign: Stage 1 • 0/1 author times</div>
+			<button id="campaign-info-btn" type="button">Campaign intro</button>
+			<div id="campaign-progress">Campaign Stage 1: Complete 1 lap on default track • 0/1</div>
 		</div>
 		<div class="mode-tab-panel" id="mode-panel-garage">
 		<div id="garage-panel">

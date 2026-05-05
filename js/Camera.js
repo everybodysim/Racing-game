@@ -19,7 +19,7 @@ export class Camera {
 		this.chaseOffset = new THREE.Vector3( 0, 2.3, - 6.6 );
 		this.targetPosition = new THREE.Vector3();
 		this.lookTarget = new THREE.Vector3();
-		this.mode = 'overview';
+		this.mode = 'chase';
 		this._desiredPos = new THREE.Vector3();
 		this._desiredLook = new THREE.Vector3();
 		this._forward = new THREE.Vector3();
