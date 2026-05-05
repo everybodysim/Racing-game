@@ -295,6 +295,12 @@
 			}
 		}
 
+
+		function bumpCampaignCounter( key, amount = 1 ) {
+			const storeKey = `racing-campaign-counter:${ key }`;
+			const next = Math.max( 0, Number( localStorage.getItem( storeKey ) || 0 ) + amount );
+			localStorage.setItem( storeKey, String( next ) );
+		}
 		function encodeBase64Url( value ) {
 			return btoa( value ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
 		}
@@ -686,6 +692,7 @@
 			const playUrl = buildPlayUrl( parsed.url, parsed.ghost );
 			const entryId = `${ Date.now() }:${ entries.length }`;
 			if ( useRemoteBoard ) {
+				bumpCampaignCounter( 'play-share-open', 1 );
 
 				await apiRequest( '', {
 					method: 'POST',
@@ -714,6 +721,7 @@
 
 			}
 			render();
+			bumpCampaignCounter( 'publish-track', 1 );
 			setStatus( `Added "${ name }" to board.` );
 			ghostInput.value = '';
 			descriptionInput.value = '';

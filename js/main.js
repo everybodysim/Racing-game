@@ -155,6 +155,7 @@ const CAMPAIGN_STAGES = [
 	{ type: 'play-share', goal: 1, text: 'Play 1 track from Track Share Board' },
 	{ type: 'podium', goal: 1, text: 'Set 1 shared-track podium' },
 	{ type: 'publish-track', goal: 1, text: 'Publish your first track' },
+	{ type: 'editor-play', goal: 1, text: 'Open editor and launch Play/Quick Test' },
 	{ type: 'set-record', goal: 1, text: 'Set your first #1 record' },
 	{ type: 'install-mod', goal: 1, text: 'Install 1 mod pack' },
 	{ type: 'customize-car', goal: 1, text: 'Customize your car once' },
@@ -3484,12 +3485,16 @@ async function init() {
 
 
 	function syncCampaignCountersFromStorage() {
-		const likes = Number( localStorage.getItem( 'racing-track-likes-count' ) || 0 );
-		const published = Number( localStorage.getItem( 'racing-track-publish-count' ) || 0 );
+		const likes = Number( localStorage.getItem( 'racing-campaign-counter:like-tracks' ) || 0 );
+		const published = Number( localStorage.getItem( 'racing-campaign-counter:publish-track' ) || 0 );
+		const sharedOpens = Number( localStorage.getItem( 'racing-campaign-counter:play-share-open' ) || 0 );
+		const editorPlayed = localStorage.getItem( 'racing-campaign-editor-played' ) === '1' ? 1 : 0;
 		const modsInstalled = Number( localStorage.getItem( 'racing-mod-install-count' ) || 0 );
 		if ( campaignState?.stageType === 'like-tracks' && likes > campaignState.progress ) campaignState.progress = Math.min( campaignState.goal, likes );
 		if ( campaignState?.stageType === 'publish-track' && published > campaignState.progress ) campaignState.progress = Math.min( campaignState.goal, published );
 		if ( campaignState?.stageType === 'install-mod' && modsInstalled > campaignState.progress ) campaignState.progress = Math.min( campaignState.goal, modsInstalled );
+		if ( campaignState?.stageType === 'play-share' && sharedOpens > campaignState.progress ) campaignState.progress = Math.min( campaignState.goal, sharedOpens );
+		if ( campaignState?.stageType === 'editor-play' && editorPlayed > campaignState.progress ) campaignState.progress = Math.min( campaignState.goal, editorPlayed );
 	}
 function completeCampaignStage() {
 
