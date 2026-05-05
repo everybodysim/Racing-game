@@ -3595,10 +3595,26 @@ function completeCampaignStage() {
 
 		const stats = CAR_STATS[ option.value ];
 		if ( ! stats ) return;
-		option.textContent = `${ stats.name } (SPD ${ stats.speed } / ACC ${ stats.accel })`;
+		option.textContent = `${ stats.name }`;
 
 	} );
 
+
+	function pickRandomOwnedCarKey() {
+		const available = Object.keys( CAR_STATS ).filter( ( key ) => models[ key ] );
+		if ( available.length === 0 ) return currentCarKey();
+		return available[ Math.floor( Math.random() * available.length ) ];
+	}
+
+	function randomizeLapCarIfSinglePlayer() {
+		if ( isSplitScreen || ! carSelect ) return;
+		const nextKey = pickRandomOwnedCarKey();
+		if ( ! nextKey || ! CAR_STATS[ nextKey ] ) return;
+		carSelect.value = nextKey;
+		if ( models[ nextKey ] ) vehicle.setModel( models[ nextKey ] );
+		applyCarCustomization( vehicle );
+		applyVehiclePerformance();
+	}
 	const audio = new GameAudio();
 	audio.init( cam.camera );
 
@@ -6389,6 +6405,7 @@ function completeCampaignStage() {
 
 	}, 480000 );
 	if ( campaignParamEnabled ) setGameMode( 'campaign' );
+	randomizeLapCarIfSinglePlayer();
 	resetLapState( true );
 	resetLapState2( true );
 
@@ -6983,6 +7000,7 @@ function completeCampaignStage() {
 
 				}
 						lapNumber ++;
+					randomizeLapCarIfSinglePlayer();
 					resetMovingObstacles( movingObstacleState, now );
 						lapStartSeconds = now;
 						checkpointDeltaText = '';
