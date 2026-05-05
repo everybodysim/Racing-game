@@ -572,7 +572,8 @@
 			background: rgba(12, 15, 22, 0.95);
 			border: 1px solid rgba(255,255,255,0.2);
 			border-radius: 12px;
-			padding: 14px;
+			padding: 10px 8px;
+			min-height: 96px;
 			color: #fff;
 			font: 600 13px/1.4 sans-serif;
 		}
@@ -693,18 +694,19 @@
 		}
 		#home-main-grid {
 			display: grid;
-			grid-template-columns: repeat(6, minmax(0, 1fr));
+			grid-template-columns: repeat(7, minmax(0, 1fr));
 			gap: 12px;
 		}
 		.home-main-link {
 			display: block;
-			padding: 14px;
+			padding: 10px 8px;
+			min-height: 96px;
 			border-radius: 13px;
 			text-decoration: none;
 			color: #f7fbff;
 			background: linear-gradient(165deg, rgba(90,159,255,0.3), rgba(47,104,181,0.32));
 			border: 1px solid rgba(189,223,255,0.5);
-			font: 700 clamp(14px, 2vw, 18px)/1.25 "Inter", "Segoe UI", sans-serif;
+			font: 700 clamp(12px, 1.35vw, 15px)/1.2 "Inter", "Segoe UI", sans-serif;
 			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
 			box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
 		}

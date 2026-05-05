@@ -153,16 +153,26 @@ const MAX_LEADERBOARD_GHOST_SAMPLES = 2500;
 const CAMPAIGN_STAGES = [
 	{ type: 'lap-default', goal: 1, text: 'Complete 1 lap on default track' },
 	{ type: 'play-share', goal: 1, text: 'Play 1 track from Track Share Board' },
-	{ type: 'podium', goal: 1, text: 'Set 1 podium finish on a shared-track leaderboard' },
-	{ type: 'publish-track', goal: 1, text: 'Publish 1 track to the board' },
-	{ type: 'set-record', goal: 1, text: 'Drive 1 leaderboard record' },
-	{ type: 'install-mod', goal: 1, text: 'Install 1 mod' },
+	{ type: 'podium', goal: 1, text: 'Set 1 shared-track podium' },
+	{ type: 'publish-track', goal: 1, text: 'Publish your first track' },
+	{ type: 'set-record', goal: 1, text: 'Set your first #1 record' },
+	{ type: 'install-mod', goal: 1, text: 'Install 1 mod pack' },
 	{ type: 'customize-car', goal: 1, text: 'Customize your car once' },
 	{ type: 'beat-authors', goal: 3, text: 'Beat 3 author times' },
 	{ type: 'beat-records', goal: 3, text: 'Beat 3 existing records' },
-	{ type: 'like-tracks', goal: 3, text: 'Like 3 tracks' },
-	{ type: 'beat-authors', goal: 5, text: 'Keep going: beat 5 more author times' },
-	{ type: 'set-record', goal: 3, text: 'Set 3 more records' },
+	{ type: 'like-tracks', goal: 3, text: 'Like 3 tracks on the board' },
+	{ type: 'play-share', goal: 3, text: 'Play 3 more shared tracks' },
+	{ type: 'podium', goal: 3, text: 'Earn 3 podium finishes' },
+	{ type: 'set-record', goal: 3, text: 'Set 3 records' },
+	{ type: 'beat-authors', goal: 5, text: 'Beat 5 more author times' },
+	{ type: 'like-tracks', goal: 6, text: 'Like 6 tracks total' },
+	{ type: 'beat-records', goal: 6, text: 'Beat 6 records total' },
+	{ type: 'set-record', goal: 5, text: 'Set 5 records total' },
+	{ type: 'play-share', goal: 8, text: 'Play 8 shared tracks total' },
+	{ type: 'podium', goal: 8, text: 'Reach 8 podiums total' },
+	{ type: 'beat-authors', goal: 10, text: 'Beat 10 author times total' },
+	{ type: 'endurance-laps', goal: 12, text: 'Complete 12 campaign laps' },
+	{ type: 'mastery', goal: 1, text: 'Campaign mastery complete' },
 ];
 const CAMPAIGN_STAGE_COUNT = CAMPAIGN_STAGES.length;
 const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
@@ -3431,7 +3441,9 @@ async function init() {
 
 			const raw = localStorage.getItem( campaignStoreKey );
 			const parsed = raw ? JSON.parse( raw ) : {};
-			const stage = Math.max( 1, Math.min( CAMPAIGN_STAGE_COUNT, Number( parsed?.stage ) || 1 ) );
+			const urlStage = Number( new URLSearchParams( window.location.search ).get( 'campaignStage' ) );
+			const baseStage = Number.isFinite( urlStage ) && urlStage > 0 ? urlStage : Number( parsed?.stage ) || 1;
+			const stage = Math.max( 1, Math.min( CAMPAIGN_STAGE_COUNT, baseStage ) );
 			const config = campaignStageConfig( stage );
 			campaignState = {
 				stage,
@@ -3453,6 +3465,7 @@ async function init() {
 	function updateCampaignUi() {
 
 		if ( ! campaignProgressLabel || ! campaignState ) return;
+		syncCampaignCountersFromStorage();
 		const config = campaignStageConfig( campaignState.stage );
 		const status = `${ campaignState.progress }/${ campaignState.goal }`;
 		const target = campaignState.stageType === 'beat-authors' && Number.isFinite( campaignTargetAuthorSeconds )
@@ -3470,6 +3483,15 @@ async function init() {
 	updateCampaignUi();
 }
 
+
+	function syncCampaignCountersFromStorage() {
+		const likes = Number( localStorage.getItem( 'racing-track-likes-count' ) || 0 );
+		const published = Number( localStorage.getItem( 'racing-track-publish-count' ) || 0 );
+		const modsInstalled = Number( localStorage.getItem( 'racing-mod-install-count' ) || 0 );
+		if ( campaignState?.stageType === 'like-tracks' && likes > campaignState.progress ) campaignState.progress = Math.min( campaignState.goal, likes );
+		if ( campaignState?.stageType === 'publish-track' && published > campaignState.progress ) campaignState.progress = Math.min( campaignState.goal, published );
+		if ( campaignState?.stageType === 'install-mod' && modsInstalled > campaignState.progress ) campaignState.progress = Math.min( campaignState.goal, modsInstalled );
+	}
 function completeCampaignStage() {
 
 		if ( ! campaignState ) return;
@@ -6144,6 +6166,7 @@ function completeCampaignStage() {
 		updateGarageMappingsUi();
 		applyCarCustomization( vehicle );
 		setGarageMappingStatus( `Mapped ${ sourceHex } to ${ targetColor.hex }.` );
+		if ( gameMode === 'campaign' ) incrementCampaignProgress( 'customize-car' );
 
 	} );
 
@@ -7055,12 +7078,16 @@ function completeCampaignStage() {
 							updateStuntPointsHud();
 
 						}
-						if ( gameMode === 'campaign' && campaignState?.stageType === 'beat-authors' && Number.isFinite( campaignTargetAuthorSeconds ) && completedLap <= campaignTargetAuthorSeconds ) {
+						if ( gameMode === 'campaign' ) {
 
-							campaignState.progress = Math.min( campaignState.goal, campaignState.progress + 1 );
-							saveCampaignState();
-							if ( campaignState.progress >= campaignState.goal ) completeCampaignStage();
-							updateCampaignUi();
+							if ( campaignState?.stageType === 'lap-default' && !mapParam ) incrementCampaignProgress( 'lap-default' );
+							if ( campaignState?.stageType === 'play-share' && mapParam ) incrementCampaignProgress( 'play-share' );
+							if ( campaignState?.stageType === 'beat-authors' && Number.isFinite( campaignTargetAuthorSeconds ) && completedLap <= campaignTargetAuthorSeconds ) incrementCampaignProgress( 'beat-authors' );
+							if ( campaignState?.stageType === 'beat-records' && Array.isArray( currentTrackLeaderboardRows ) && currentTrackLeaderboardRows.length > 0 && completedLap <= Number( currentTrackLeaderboardRows[ 0 ]?.timeSeconds ) ) incrementCampaignProgress( 'beat-records' );
+							if ( campaignState?.stageType === 'set-record' && Array.isArray( currentTrackLeaderboardRows ) && currentTrackLeaderboardRows.length > 0 && completedLap <= Number( currentTrackLeaderboardRows[ 0 ]?.timeSeconds ) ) incrementCampaignProgress( 'set-record' );
+							if ( campaignState?.stageType === 'podium' && Array.isArray( currentTrackLeaderboardRows ) && currentTrackLeaderboardRows.length >= 3 && completedLap <= Number( currentTrackLeaderboardRows[ 2 ]?.timeSeconds ) ) incrementCampaignProgress( 'podium' );
+							if ( campaignState?.stageType === 'endurance-laps' ) incrementCampaignProgress( 'endurance-laps' );
+							if ( campaignState?.stageType === 'mastery' ) incrementCampaignProgress( 'mastery' );
 
 						}
 
