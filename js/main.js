@@ -2248,7 +2248,6 @@ async function init() {
 	const leaderboardEmpty = document.getElementById( 'leaderboard-empty' );
 	const leaderboardTrackLabel = document.getElementById( 'leaderboard-track-label' );
 	let leaderboardPercentileLabel = document.getElementById( 'leaderboard-percentile-label' );
-	const leaderboardOpenApiBtn = document.getElementById( 'leaderboard-open-api' );
 	const leaderboardRefreshBtn = document.getElementById( 'leaderboard-refresh-btn' );
 	const leaderboardPanel = document.getElementById( 'leaderboard-panel' );
 	const leaderboardToggleBtn = document.getElementById( 'leaderboard-toggle-btn' );
@@ -6394,11 +6393,6 @@ function completeCampaignStage() {
 	leaderboardRefreshBtn?.addEventListener( 'click', () => {
 		fetchTrackLeaderboard();
 	} );
-	leaderboardOpenApiBtn?.addEventListener( 'click', () => {
-
-		window.open( leaderboardTrackApiUrl, '_blank', 'noopener,noreferrer' );
-
-	} );
 	namePopup?.addEventListener( 'click', ( event ) => {
 
 		if ( event.target === namePopup ) closeNamePopup();
@@ -7023,7 +7017,6 @@ function completeCampaignStage() {
 
 				}
 						lapNumber ++;
-					randomizeLapCarIfSinglePlayer();
 					resetMovingObstacles( movingObstacleState, now );
 						lapStartSeconds = now;
 						checkpointDeltaText = '';

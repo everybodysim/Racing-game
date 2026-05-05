@@ -11,7 +11,7 @@
 	<style>
 		body { margin: 0; overflow: hidden; background: #000; }
 		canvas { display: block; touch-action: none; }
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
+		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn, #leaderboard-refresh-btn {
 			position: absolute;
 			bottom: 12px;
 			color: #fff;
@@ -40,7 +40,7 @@
 		#export-ghost-btn { left: 180px; bottom: 12px; }
 		#import-ghost-btn { left: 300px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
-		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover, #leaderboard-refresh-btn:hover { background: rgba(0,0,0,0.7); }
 		#mp-panel {
 			position: absolute;
 			left: 16px;
@@ -472,17 +472,6 @@
 		#leaderboard-debug-row {
 			margin: 6px 0 8px;
 		}
-		#leaderboard-open-api {
-			width: 100%;
-			padding: 6px 8px;
-			border-radius: 7px;
-			border: 1px solid rgba(255,255,255,0.22);
-			background: rgba(255,255,255,0.08);
-			color: #fff;
-			cursor: pointer;
-			font: 600 11px/1 sans-serif;
-		}
-		#leaderboard-open-api:hover { background: rgba(255,255,255,0.16); }
 		#top-message {
 			position: absolute;
 			top: 12px;
@@ -882,7 +871,6 @@
 			<h3>Leaderboard</h3>
 			<div id="leaderboard-track-label">Track: loading…</div>
 			<div id="leaderboard-debug-row">
-				<button id="leaderboard-open-api" type="button">Open API test for this track</button>
 				<button id="leaderboard-refresh-btn" type="button">Refresh leaderboard</button>
 			</div>
 			<div id="leaderboard-empty">Loading leaderboard…</div>
