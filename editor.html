@@ -274,6 +274,56 @@
 			padding: 6px 8px;
 			font-size: 12px;
 		}
+
+		#editor-collab-panel {
+			position: absolute;
+			top: 12px;
+			right: 12px;
+			z-index: 33;
+			width: 224px;
+			padding: 9px;
+			border-radius: 10px;
+			background: rgba(0, 0, 0, 0.56);
+			border: 1px solid rgba(255, 255, 255, 0.13);
+			color: #fff;
+			font: 12px/1.25 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+			backdrop-filter: blur(4px);
+			-webkit-backdrop-filter: blur(4px);
+		}
+		#editor-collab-title { font: 700 12px/1 sans-serif; margin-bottom: 7px; opacity: 0.95; }
+		#editor-collab-actions, #editor-collab-code-row { display: flex; gap: 5px; margin-bottom: 7px; }
+		#editor-collab-actions button, #editor-collab-copy-btn {
+			border: none;
+			border-radius: 6px;
+			background: rgba(255,255,255,0.16);
+			color: #fff;
+			padding: 5px 7px;
+			font: 700 11px/1 sans-serif;
+			cursor: pointer;
+		}
+		#editor-collab-actions button:hover, #editor-collab-copy-btn:hover { background: rgba(255,255,255,0.28); }
+		#editor-collab-code-input {
+			flex: 1;
+			min-width: 0;
+			border-radius: 6px;
+			border: 1px solid rgba(255,255,255,0.24);
+			background: rgba(20,20,20,0.48);
+			color: #fff;
+			padding: 5px 7px;
+			font: 700 11px/1 monospace;
+			text-transform: uppercase;
+		}
+		#editor-collab-status {
+			min-height: 15px;
+			color: #ffe9a9;
+			font: 600 11px/1.3 sans-serif;
+			text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+		}
+		#editor-collab-count {
+			margin-top: 5px;
+			color: rgba(225, 239, 255, 0.82);
+			font: 700 10px/1 sans-serif;
+		}
 	</style>
 	<script type="importmap">
 	{
@@ -285,6 +335,20 @@
 	</script>
 </head>
 <body>
+	<div id="editor-collab-panel" aria-label="Editor collaboration">
+		<div id="editor-collab-title">Editor Sync</div>
+		<div id="editor-collab-actions">
+			<button id="editor-collab-host-btn" type="button">Host</button>
+			<button id="editor-collab-join-btn" type="button">Join</button>
+			<button id="editor-collab-refresh-btn" type="button" title="Refresh editor room sync">Sync</button>
+		</div>
+		<div id="editor-collab-code-row">
+			<input id="editor-collab-code-input" type="text" maxlength="6" placeholder="ROOM" aria-label="Editor room code">
+			<button id="editor-collab-copy-btn" type="button">Copy</button>
+		</div>
+		<div id="editor-collab-status" aria-live="polite">Offline</div>
+		<div id="editor-collab-count">Participants: 0</div>
+	</div>
 	<div id="settings-bar">
 		<label for="weather-preset">Weather</label>
 		
@@ -533,6 +597,7 @@
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells } from './js/Track.js';
+	import { readFirebaseConfig, getMissingFirebaseConfigMessage, createHostCode } from './js/FirebaseMultiplayer.js';
 
 	// ─── State ────────────────────────────────────────────────
 
@@ -576,6 +641,21 @@
 	const CUSTOM_MODEL_KEY_PREFIX = 'custom:';
 	const TRACK_SHARE_API_ROOT = 'https://racing-track-board-api.ga1010.workers.dev';
 	const TRACK_SHARE_API_PREFIXES = [ '/api', '' ];
+	const EDITOR_ROOM_TIMEOUT_MS = 8000;
+	const EDITOR_COLLAB_PUBLISH_DEBOUNCE_MS = 750;
+	const editorCollabClientId = localStorage.getItem( 'racing-editor-collab-client-id' ) || ( globalThis.crypto?.randomUUID?.() || `editor-${ Math.random().toString( 36 ).slice( 2 ) }` );
+	localStorage.setItem( 'racing-editor-collab-client-id', editorCollabClientId );
+	const editorCollabState = {
+		role: 'none',
+		roomCode: '',
+		trackRevision: 0,
+		lastAppliedRemoteRevision: 0,
+		publishTimer: 0,
+		publishInFlight: false,
+		lastPublishedHash: '',
+		syncTimer: 0,
+	};
+	let isApplyingRemoteSnapshot = false;
 	const CUSTOM_SURFACE_TYPES = [ 'surface-custom-a', 'surface-custom-b', 'surface-custom-c' ];
 	const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 	let tool = 'paint'; // 'paint', 'erase'
@@ -2313,6 +2393,7 @@
 		localStorage.removeItem( QUICK_TEST_GHOST_KEY );
 		localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
 		clearQuickTestGhost();
+		if ( ! isApplyingRemoteSnapshot ) scheduleEditorCollabPublish();
 
 	}
 
@@ -2667,6 +2748,550 @@
 			console.warn( 'Failed to load saved map', e );
 
 		}
+
+	}
+
+
+	// ─── Editor Firebase collaboration ─────────────────────────
+
+	function getEditorRoomsBaseUrl() {
+
+		const config = readFirebaseConfig();
+		if ( ! config?.databaseURL ) return '';
+		return `${ config.databaseURL.replace( /\/+$/, '' ) }/editor-rooms`;
+
+	}
+
+	async function editorRoomRequest( roomCode, method = 'GET', payload = undefined, subPath = '' ) {
+
+		const baseUrl = getEditorRoomsBaseUrl();
+		if ( ! baseUrl ) throw new Error( 'missing-db-url' );
+		const safeCode = String( roomCode || '' ).trim().toUpperCase();
+		const normalizedSubPath = subPath ? `/${ subPath.replace( /^\/+/, '' ) }` : '';
+		const cacheBust = method === 'GET' ? `${ normalizedSubPath ? '&' : '?' }_=${ Date.now() }` : '';
+		const url = `${ baseUrl }/${ encodeURIComponent( safeCode ) }${ normalizedSubPath }.json${ cacheBust }`;
+		const controller = new AbortController();
+		const timeoutId = setTimeout( () => controller.abort(), EDITOR_ROOM_TIMEOUT_MS );
+		let response;
+		try {
+
+			response = await fetch( url, {
+				method,
+				headers: { 'Content-Type': 'application/json' },
+				body: payload === undefined ? undefined : JSON.stringify( payload ),
+				cache: 'no-store',
+				signal: controller.signal,
+			} );
+
+		} catch ( error ) {
+
+			if ( error?.name === 'AbortError' ) throw new Error( 'editor-room-timeout' );
+			throw error;
+
+		} finally {
+
+			clearTimeout( timeoutId );
+
+		}
+		if ( ! response.ok ) {
+
+			let detail = '';
+			try {
+
+				detail = await response.text();
+
+			} catch {}
+			throw new Error( `editor-room-http-${ response.status }${ detail ? `:${ detail }` : '' }` );
+
+		}
+		return response.json();
+
+	}
+
+	function isEditorFirebasePermissionError( error ) {
+
+		const msg = String( error?.message || '' ).toLowerCase();
+		return msg.includes( 'editor-room-http-401' ) || msg.includes( 'editor-room-http-403' ) || msg.includes( 'permission denied' );
+
+	}
+
+	function buildEditorTrackSnapshot() {
+
+		return {
+			map: encodeCells( getCellsArray() ),
+			mods: encodeMods(),
+			authorClientId: editorCollabClientId,
+		};
+
+	}
+
+	function getEditorTrackHash( track ) {
+
+		return `${ track?.map || '' }|${ track?.mods || '' }`;
+
+	}
+
+	function countEditorParticipants( participants ) {
+
+		if ( ! participants || typeof participants !== 'object' ) return 0;
+		return Object.keys( participants ).length;
+
+	}
+
+	function updateEditorCollabStatus( text ) {
+
+		const status = document.getElementById( 'editor-collab-status' );
+		if ( status ) status.textContent = text;
+
+	}
+
+	function updateEditorCollabParticipantCount( room ) {
+
+		const count = document.getElementById( 'editor-collab-count' );
+		if ( ! count ) return;
+		count.textContent = `Participants: ${ countEditorParticipants( room?.participants ) }`;
+
+	}
+
+	async function writeEditorParticipant( roomCode ) {
+
+		await editorRoomRequest( roomCode, 'PUT', {
+			clientId: editorCollabClientId,
+			role: editorCollabState.role,
+			updatedAt: Date.now(),
+		}, `participants/${ encodeURIComponent( editorCollabClientId ) }` );
+
+	}
+
+	async function applyRemoteEditorTrackSnapshot( track, revision ) {
+
+		if ( ! track || track.authorClientId === editorCollabClientId ) return false;
+		const remoteRevision = Number( revision ) || 0;
+		if ( remoteRevision && remoteRevision <= editorCollabState.lastAppliedRemoteRevision ) return false;
+		const encoded = String( track.map || '' );
+		if ( ! encoded ) throw new Error( 'missing-editor-track-map' );
+
+		const arr = decodeCells( encoded );
+		const mods = decodeMods( track.mods );
+
+		isApplyingRemoteSnapshot = true;
+		try {
+
+			clearAll();
+			for ( const [ gx, gz, type, orient ] of arr ) {
+
+				const isFinish = type === 'track-finish' || type === 'track-start-finish';
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.roadPieces.push( { type, orient, isFinish } );
+				cell.type = type;
+				cell.orient = orient;
+				cell.isFinish = cell.isFinish || isFinish;
+				placeMesh( gx, gz, cell );
+
+			}
+
+			await loadCustomAssetsFromMods( mods.x );
+			customSurfaceConfigs = {
+				...JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
+				...( mods.c || {} ),
+			};
+			customPadConfigs = {
+				...JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ),
+				...( mods.y || {} ),
+			};
+			weatherSettings = normalizeWeatherSettings( mods.w );
+			applyWeatherPreset( weatherSettings.preset );
+			const weatherSelect = document.getElementById( 'weather-preset' );
+			const precipitationSelect = document.getElementById( 'weather-precip' );
+			const intensitySelect = document.getElementById( 'weather-intensity' );
+			const windSelect = document.getElementById( 'weather-wind' );
+			const lightningToggle = document.getElementById( 'weather-lightning' );
+			if ( weatherSelect ) weatherSelect.value = weatherSettings.preset;
+			if ( precipitationSelect ) precipitationSelect.value = weatherSettings.precipitation;
+			if ( intensitySelect ) intensitySelect.value = weatherSettings.intensity;
+			if ( windSelect ) windSelect.value = weatherSettings.wind;
+			if ( lightningToggle ) lightningToggle.checked = weatherSettings.lightning;
+
+			for ( const [ gx, gz ] of mods.b ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.bump = true;
+				cell.bumpOrient = 0;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+			for ( const [ gx, gz ] of mods.p ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.pole = true;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+			for ( const [ gx, gz ] of mods.k ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.cube = true;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+			for ( const [ gx, gz, wallOrient ] of mods.l ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.wall = true;
+				cell.wallOrient = wallOrient || 0;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+			for ( const [ gx, gz, jumpOrient ] of mods.j ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.jump = true;
+				cell.jumpOrient = jumpOrient || 0;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+			for ( const [ gx, gz, movingType, _orient, movingSpeedRaw, movingCustomRaw ] of mods.o || [] ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				if ( [ MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL ].includes( movingType ) ) {
+
+					cell.movingObstacle = movingType;
+					cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedRaw ) || 1 ) );
+					cell.movingCustom = movingCustomRaw && typeof movingCustomRaw === 'object' ? movingCustomRaw : null;
+
+				}
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+			for ( const [ gx, gz, elevatedType, elevatedOrient ] of mods.e || [] ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				const normalizedType = elevatedType === 'slope-down' ? 'slope-up' : elevatedType;
+				const normalizedOrient = elevatedType === 'slope-down' ? ( ORIENT_180[ elevatedOrient || 0 ] ?? ( elevatedOrient || 0 ) ) : ( elevatedOrient || 0 );
+				if ( ELEVATED_TYPES.includes( normalizedType ) ) {
+
+					cell.elevatedType = normalizedType;
+					cell.elevatedOrient = normalizedOrient;
+					placeOverlayMesh( gx, gz, cell );
+
+				}
+
+			}
+			for ( const [ gx, gz, surfaceType ] of mods.u ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				if ( SURFACE_TYPES.includes( surfaceType ) ) cell.surfaceTypes.push( surfaceType );
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+			for ( const [ gx, gz, decoType, decoOrient ] of mods.d ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.decoType = decoType;
+				cell.decoOrient = decoOrient || 0;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+			for ( const [ gx, gz, yGrid, variant, strengthRaw, rangeRaw ] of mods.m || [] ) {
+
+				magnetBlocks.push( {
+					gx: normalizeCoord( gx ),
+					gz: normalizeCoord( gz ),
+					y: clampMagnetGridY( yGrid ),
+					type: String( variant ) === 'red' ? MAGNET_RED_TOOL : ( String( variant ) === 'grapple' ? MAGNET_GRAPPLE_TOOL : MAGNET_BLUE_TOOL ),
+					strength: clampMagnetStrength( strengthRaw ),
+					range: clampMagnetRange( rangeRaw ),
+					mesh: null,
+				} );
+
+			}
+			rebuildMagnetMeshes();
+			for ( const [ gx, gz, yGrid, variant, linkIdRaw ] of mods.a || [] ) {
+
+				arcBlocks.push( {
+					gx: normalizeCoord( gx ),
+					gz: normalizeCoord( gz ),
+					y: clampMagnetGridY( yGrid ),
+					type: String( variant ) === 'orange'
+						? ARC_ORANGE_TOOL
+						: ( [ 'portal-purple', 'purple' ].includes( String( variant ) ) ? PORTAL_PURPLE_TOOL : ( [ 'portal-yellow', 'yellow' ].includes( String( variant ) ) ? PORTAL_YELLOW_TOOL : ARC_GREEN_TOOL ) ),
+					linkId: clampArcLinkId( linkIdRaw ),
+					mesh: null,
+				} );
+
+			}
+			rebuildArcMeshes();
+			editorCollabState.lastAppliedRemoteRevision = Math.max( editorCollabState.lastAppliedRemoteRevision, remoteRevision );
+			save();
+			editorCollabState.lastPublishedHash = getEditorTrackHash( track );
+			return true;
+
+		} finally {
+
+			isApplyingRemoteSnapshot = false;
+
+		}
+
+	}
+
+	async function publishEditorCollabSnapshot( options = {} ) {
+
+		if ( ! editorCollabState.roomCode || editorCollabState.publishInFlight ) return;
+		const roomCode = editorCollabState.roomCode;
+		const now = Date.now();
+		editorCollabState.trackRevision = Math.max( editorCollabState.trackRevision + 1, now );
+		const track = buildEditorTrackSnapshot();
+		const trackHash = getEditorTrackHash( track );
+		if ( trackHash === editorCollabState.lastPublishedHash && ! options.force ) {
+
+			await writeEditorParticipant( roomCode );
+			if ( options.showStatus ) updateEditorCollabStatus( `No editor changes to publish for ${ roomCode }.` );
+			return;
+
+		}
+		const payload = {
+			mode: 'editor',
+			code: roomCode,
+			trackRevision: editorCollabState.trackRevision,
+			updatedAt: now,
+			hostClientId: editorCollabState.role === 'host' ? editorCollabClientId : undefined,
+			track,
+		};
+
+		try {
+
+			editorCollabState.publishInFlight = true;
+			await editorRoomRequest( roomCode, 'PATCH', payload );
+			editorCollabState.lastPublishedHash = trackHash;
+			await writeEditorParticipant( roomCode );
+			if ( options.showStatus ) updateEditorCollabStatus( `Synced ${ roomCode }.` );
+
+		} catch ( error ) {
+
+			console.warn( 'Failed to publish editor room snapshot', error );
+			updateEditorCollabStatus( isEditorFirebasePermissionError( error ) ? 'Firebase denied /editor-rooms write.' : 'Editor sync publish failed.' );
+
+		} finally {
+
+			editorCollabState.publishInFlight = false;
+
+		}
+
+	}
+
+	function scheduleEditorCollabPublish() {
+
+		if ( ! editorCollabState.roomCode ) return;
+		clearTimeout( editorCollabState.publishTimer );
+		editorCollabState.publishTimer = setTimeout( () => {
+
+			publishEditorCollabSnapshot().catch( () => {} );
+
+		}, EDITOR_COLLAB_PUBLISH_DEBOUNCE_MS );
+
+	}
+
+	async function refreshEditorCollabRoom( options = {} ) {
+
+		const code = String( editorCollabState.roomCode || document.getElementById( 'editor-collab-code-input' )?.value || '' ).trim().toUpperCase();
+		if ( ! code ) {
+
+			updateEditorCollabStatus( 'Host or join a room first.' );
+			return;
+
+		}
+		const room = await editorRoomRequest( code, 'GET' );
+		if ( ! room || room.mode !== 'editor' ) {
+
+			updateEditorCollabStatus( `Editor room ${ code } not found.` );
+			return;
+
+		}
+		updateEditorCollabParticipantCount( room );
+		const applied = await applyRemoteEditorTrackSnapshot( room.track, room.trackRevision );
+		if ( applied ) updateEditorCollabStatus( `Applied room ${ code } revision ${ room.trackRevision }.` );
+		else if ( options.showStatus ) updateEditorCollabStatus( `Room ${ code } already synced.` );
+		await writeEditorParticipant( code );
+
+	}
+
+	function initEditorCollabPanel() {
+
+		const hostBtn = document.getElementById( 'editor-collab-host-btn' );
+		const joinBtn = document.getElementById( 'editor-collab-join-btn' );
+		const copyBtn = document.getElementById( 'editor-collab-copy-btn' );
+		const refreshBtn = document.getElementById( 'editor-collab-refresh-btn' );
+		const codeInput = document.getElementById( 'editor-collab-code-input' );
+		if ( ! hostBtn || ! joinBtn || ! copyBtn || ! refreshBtn || ! codeInput ) return;
+
+		if ( ! readFirebaseConfig() ) {
+
+			hostBtn.disabled = true;
+			joinBtn.disabled = true;
+			copyBtn.disabled = true;
+			refreshBtn.disabled = true;
+			updateEditorCollabStatus( getMissingFirebaseConfigMessage() );
+			return;
+
+		}
+
+		hostBtn.addEventListener( 'click', async () => {
+
+			const code = createHostCode();
+			codeInput.value = code;
+			editorCollabState.role = 'host';
+			editorCollabState.roomCode = code;
+			editorCollabState.trackRevision = Date.now();
+			updateEditorCollabStatus( `Creating editor room ${ code }...` );
+			const now = Date.now();
+			const roomPayload = {
+				mode: 'editor',
+				code,
+				trackRevision: editorCollabState.trackRevision,
+				createdAt: now,
+				updatedAt: now,
+				hostClientId: editorCollabClientId,
+				track: buildEditorTrackSnapshot(),
+				participants: {
+					[ editorCollabClientId ]: {
+						clientId: editorCollabClientId,
+						role: 'host',
+						updatedAt: now,
+					},
+				},
+			};
+
+			try {
+
+				await editorRoomRequest( code, 'PUT', roomPayload );
+				const verify = await editorRoomRequest( code, 'GET' );
+				if ( ! verify || verify.mode !== 'editor' || verify.code !== code ) throw new Error( 'editor-room-not-saved' );
+				editorCollabState.lastPublishedHash = getEditorTrackHash( verify.track );
+				updateEditorCollabParticipantCount( verify );
+				updateEditorCollabStatus( `Hosting editor room ${ code }.` );
+
+			} catch ( error ) {
+
+				console.warn( 'Failed to host editor room', error );
+				editorCollabState.role = 'none';
+				editorCollabState.roomCode = '';
+				codeInput.value = '';
+				updateEditorCollabStatus( isEditorFirebasePermissionError( error ) ? 'Firebase denied /editor-rooms write.' : 'Failed to create editor room.' );
+
+			}
+
+		} );
+
+		joinBtn.addEventListener( 'click', async () => {
+
+			const code = codeInput.value.trim().toUpperCase();
+			if ( ! /^[A-Z0-9]{6}$/.test( code ) ) {
+
+				updateEditorCollabStatus( 'Enter a valid 6-character code.' );
+				return;
+
+			}
+			updateEditorCollabStatus( `Joining editor room ${ code }...` );
+			try {
+
+				const room = await editorRoomRequest( code, 'GET' );
+				if ( ! room || room.mode !== 'editor' || ! room.track ) {
+
+					updateEditorCollabStatus( `Editor room ${ code } not found.` );
+					return;
+
+				}
+				editorCollabState.role = 'join';
+				editorCollabState.roomCode = code;
+				editorCollabState.trackRevision = Number( room.trackRevision ) || 0;
+				await writeEditorParticipant( code );
+				await applyRemoteEditorTrackSnapshot( room.track, room.trackRevision );
+				const refreshedRoom = await editorRoomRequest( code, 'GET' );
+				updateEditorCollabParticipantCount( refreshedRoom );
+				updateEditorCollabStatus( `Joined editor room ${ code }.` );
+
+			} catch ( error ) {
+
+				console.warn( 'Failed to join editor room', error );
+				editorCollabState.role = 'none';
+				editorCollabState.roomCode = '';
+				updateEditorCollabStatus( isEditorFirebasePermissionError( error ) ? 'Firebase denied /editor-rooms read.' : 'Failed to join editor room.' );
+
+			}
+
+		} );
+
+		copyBtn.addEventListener( 'click', async () => {
+
+			const code = codeInput.value.trim().toUpperCase();
+			if ( ! code ) {
+
+				updateEditorCollabStatus( 'Generate or enter a code first.' );
+				return;
+
+			}
+			try {
+
+				await navigator.clipboard.writeText( code );
+				updateEditorCollabStatus( `Copied code ${ code }.` );
+
+			} catch {
+
+				updateEditorCollabStatus( `Copy failed. Code: ${ code }` );
+
+			}
+
+		} );
+
+		refreshBtn.addEventListener( 'click', async () => {
+
+			try {
+
+				await publishEditorCollabSnapshot( { showStatus: true, force: true } );
+				await refreshEditorCollabRoom( { showStatus: true } );
+
+			} catch ( error ) {
+
+				console.warn( 'Failed to refresh editor room', error );
+				updateEditorCollabStatus( isEditorFirebasePermissionError( error ) ? 'Firebase denied /editor-rooms access.' : 'Editor room sync failed.' );
+
+			}
+
+		} );
+
+		editorCollabState.syncTimer = setInterval( () => {
+
+			if ( ! editorCollabState.roomCode ) return;
+			refreshEditorCollabRoom().catch( ( error ) => console.warn( 'Editor room background sync failed', error ) );
+
+		}, 3000 );
+
+		window.addEventListener( 'beforeunload', () => {
+
+			if ( ! editorCollabState.roomCode ) return;
+			editorRoomRequest( editorCollabState.roomCode, 'DELETE', undefined, `participants/${ encodeURIComponent( editorCollabClientId ) }` ).catch( () => {} );
+
+		} );
 
 	}
 
@@ -3776,6 +4401,7 @@ function refreshMovingSpeedUi() {
 	await loadModels();
 	applyWeatherPreset( WEATHER_DEFAULT );
 	await loadSaved();
+	initEditorCollabPanel();
 
 	// Start with a finish cell if the grid is empty
 	if ( grid.size === 0 ) {

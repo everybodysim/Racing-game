@@ -1,6 +1,6 @@
 # Firebase Spark multiplayer setup
 
-This project uses Firebase Realtime Database on the Spark plan for lightweight multiplayer sessions.
+This project uses Firebase Realtime Database on the Spark plan for lightweight multiplayer sessions and editor collaboration rooms.
 
 ## 1) Firebase Console setup
 
@@ -17,6 +17,18 @@ This project uses Firebase Realtime Database on the Spark plan for lightweight m
         ".read": true,
         ".write": true,
         ".validate": "newData.hasChildren(['code','mapSignature','updatedAt']) || newData.child('status').val() === 'joined'"
+      }
+    },
+    "editor-rooms": {
+      "$roomCode": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.hasChildren(['mode','code','trackRevision','updatedAt','hostClientId','track']) && newData.child('mode').val() === 'editor'",
+        "participants": {
+          "$clientId": {
+            ".validate": "!newData.exists() || newData.hasChildren(['clientId','role','updatedAt'])"
+          }
+        }
       }
     }
   }
@@ -41,3 +53,10 @@ Deploy the site to GitHub Pages (or your normal static host flow).
 - Join enters that code to connect.
 - Join only succeeds when both players are on the same map.
 - Remote cars are ghosted (non-colliding) so network peers never physically collide.
+
+## 5) Editor collaboration usage
+
+- The track editor hosts collaborative editing sessions under `/editor-rooms/{roomCode}`.
+- Editor rooms store `mode: "editor"`, `code`, `trackRevision`, `updatedAt`, `hostClientId`, `track: { map, mods }`, and `participants/{clientId}` metadata.
+- Race rooms and editor rooms intentionally do **not** share database paths: gameplay multiplayer uses `/racing-rooms/{roomCode}`, while editor collaboration uses `/editor-rooms/{roomCode}`.
+- Joiners load the host snapshot into the editor grid, then compact editor snapshots are debounced before publishing back to Firebase.
