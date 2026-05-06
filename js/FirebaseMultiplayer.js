@@ -1,3 +1,5 @@
+import { initializeApp, getApp, getApps } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+import { getDatabase, onDisconnect, onValue, ref, remove, set, update } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js';
 import firebaseConfig from './firebase-config.js';
 
 const CONFIG_KEYS = [
@@ -16,6 +18,9 @@ const LOCAL_STORAGE_CONFIG_KEYS = [
 ];
 
 const PLACEHOLDER_PREFIXES = [ 'PASTE_', 'YOUR_', 'REPLACE_' ];
+const FIREBASE_APP_NAME = 'racing-game';
+let realtimeDatabase = null;
+let realtimeDatabaseInitError = null;
 
 function normalizeConfigShape( input ) {
 
@@ -89,6 +94,40 @@ export function readFirebaseConfig() {
 	return null;
 
 }
+
+
+export function getFirebaseRealtimeDatabase() {
+
+	if ( realtimeDatabase ) return realtimeDatabase;
+	if ( realtimeDatabaseInitError ) return null;
+	const config = readFirebaseConfig();
+	if ( ! config ) return null;
+	try {
+
+		const app = getApps().some( ( existingApp ) => existingApp.name === FIREBASE_APP_NAME )
+			? getApp( FIREBASE_APP_NAME )
+			: initializeApp( config, FIREBASE_APP_NAME );
+		realtimeDatabase = getDatabase( app );
+		return realtimeDatabase;
+
+	} catch ( error ) {
+
+		realtimeDatabaseInitError = error;
+		console.warn( 'Failed to initialize Firebase Realtime Database SDK', error );
+		return null;
+
+	}
+
+}
+
+export {
+	onDisconnect as firebaseOnDisconnect,
+	onValue as firebaseOnValue,
+	ref as firebaseRef,
+	remove as firebaseRemove,
+	set as firebaseSet,
+	update as firebaseUpdate,
+};
 
 export function getMissingFirebaseConfigMessage() {
 

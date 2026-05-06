@@ -12,7 +12,18 @@ import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
-import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
+import {
+	canJoinMap,
+	createHostCode,
+	firebaseOnDisconnect,
+	firebaseOnValue,
+	firebaseRef,
+	firebaseRemove,
+	firebaseSet,
+	firebaseUpdate,
+	getFirebaseRealtimeDatabase,
+	readFirebaseConfig,
+} from './FirebaseMultiplayer.js';
 
 
 const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
@@ -201,6 +212,19 @@ const multiplayerSessionState = {
 	clientId: ( globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `p-${ Math.random().toString( 36 ).slice( 2, 10 ) }` ),
 };
 
+const multiplayerRealtimeState = {
+	db: null,
+	playerRef: null,
+	playersUnsubscribe: null,
+	lapTimesUnsubscribe: null,
+	connectionUnsubscribe: null,
+	localWriteTimer: 0,
+	staleCleanupTimer: 0,
+	usingSdk: false,
+	lastPlayers: {},
+	lastLapTimes: null,
+};
+
 function setMultiplayerLeaderboardVisible( visible ) {
 
 	const container = document.getElementById( 'mp-lb' );
@@ -304,7 +328,7 @@ async function publishMultiplayerBestLap( bestLap ) {
 	const displayName = getLocalMultiplayerDisplayName();
 	try {
 
-		await firebaseRoomsRequest( roomCode, 'PUT', {
+		await firebaseRoomWrite( roomCode, 'PUT', {
 			name: displayName,
 			time: Number( bestLap ),
 			bestLapSeconds: Number( bestLap ),
@@ -417,10 +441,42 @@ async function firebaseRoomsRequest( roomCode, method = 'GET', payload = undefin
 
 }
 
+
+function getFirebaseSdkPath( roomCode, subPath = '' ) {
+
+	const safeCode = String( roomCode || '' ).trim().toUpperCase();
+	const normalizedSubPath = subPath ? `/${ subPath.replace( /^\/+/, '' ) }` : '';
+	return `racing-rooms/${ safeCode }${ normalizedSubPath }`;
+
+}
+
+async function firebaseRoomWrite( roomCode, method, payload, subPath = '' ) {
+
+	const db = getFirebaseRealtimeDatabase();
+	if ( db ) {
+
+		if ( method === 'PUT' ) {
+
+			await firebaseSet( firebaseRef( db, getFirebaseSdkPath( roomCode, subPath ) ), payload );
+			return;
+
+		}
+		if ( method === 'PATCH' ) {
+
+			await firebaseUpdate( firebaseRef( db, getFirebaseSdkPath( roomCode, subPath ) ), payload );
+			return;
+
+		}
+
+	}
+	await firebaseRoomsRequest( roomCode, method, payload, subPath );
+
+}
+
 function isFirebasePermissionError( error ) {
 
 	const msg = String( error?.message || '' ).toLowerCase();
-	return msg.includes( 'room-http-401' ) || msg.includes( 'room-http-403' ) || msg.includes( 'permission denied' );
+	return msg.includes( 'room-http-401' ) || msg.includes( 'room-http-403' ) || msg.includes( 'permission denied' ) || msg.includes( 'permission-denied' );
 
 }
 
@@ -463,7 +519,7 @@ function initMultiplayerPanel() {
 		};
 		try {
 
-			await firebaseRoomsRequest( code, 'PUT', roomPayload );
+			await firebaseRoomWrite( code, 'PUT', roomPayload );
 			const verify = await firebaseRoomsRequest( code, 'GET' );
 			if ( ! verify || verify.code !== code ) {
 
@@ -472,10 +528,10 @@ function initMultiplayerPanel() {
 				return;
 
 			}
-			updateMultiplayerStatus( `Hosting room ${ code }. Share this code with your friend.` );
 			multiplayerSessionState.role = 'host';
-			multiplayerSessionState.roomCode = code;
 			setMultiplayerLeaderboardVisible( true );
+			await startMultiplayerRealtimeSync( code );
+			updateMultiplayerStatus( `Hosting room ${ code }. Share this code with your friend.` );
 
 		} catch ( error ) {
 
@@ -532,15 +588,15 @@ function initMultiplayerPanel() {
 
 			}
 
-			await firebaseRoomsRequest( code, 'PATCH', {
+			await firebaseRoomWrite( code, 'PATCH', {
 				updatedAt: Date.now(),
 				lastJoinAt: Date.now(),
 				status: 'joined',
 			} );
-			updateMultiplayerStatus( `Joined room ${ code }.` );
 			multiplayerSessionState.role = 'join';
-			multiplayerSessionState.roomCode = code;
 			setMultiplayerLeaderboardVisible( true );
+			await startMultiplayerRealtimeSync( code );
+			updateMultiplayerStatus( `Joined room ${ code }.` );
 
 		} catch ( error ) {
 
@@ -595,7 +651,7 @@ function initMultiplayerPanel() {
 
 		}
 		updateMultiplayerStatus( `Refreshing room ${ multiplayerSessionState.roomCode } sync...` );
-		await syncMultiplayerTransforms( { force: true } );
+		await refreshMultiplayerRealtimeSync();
 
 	} );
 
@@ -1323,7 +1379,7 @@ async function init() {
 	}
 	const remotePlayerVisuals = new Map();
 	const REMOTE_PLAYER_STALE_MS = 4000;
-	const REMOTE_SYNC_MS = 220;
+	const REMOTE_LOCAL_WRITE_MS = 125;
 
 	function createRemoteNameTag( displayName ) {
 
@@ -1474,15 +1530,10 @@ async function init() {
 	}
 
 	let multiplayerSyncInFlight = false;
-	async function syncMultiplayerTransforms( options = {} ) {
+	function buildLocalMultiplayerPlayerPayload() {
 
-		const roomCode = multiplayerSessionState.roomCode;
-		if ( ! roomCode ) return;
-		if ( multiplayerSyncInFlight ) return;
-		const force = Boolean( options?.force );
 		const now = Date.now();
-		const mapSignature = getCurrentMapSignature();
-		const localPayload = {
+		return {
 			x: Number( vehicle.container.position.x.toFixed( 3 ) ),
 			y: Number( vehicle.container.position.y.toFixed( 3 ) ),
 			z: Number( vehicle.container.position.z.toFixed( 3 ) ),
@@ -1490,46 +1541,35 @@ async function init() {
 			carKey: normalizeMultiplayerCarKey( currentCarKey() ),
 			cosmetics: buildGhostCosmeticsSnapshot( currentCarKey() ),
 			name: getLocalMultiplayerDisplayName(),
-			mapSignature,
+			mapSignature: getCurrentMapSignature(),
 			updatedAt: now,
 		};
 
+	}
+
+	async function writeLocalMultiplayerPlayer() {
+
+		const roomCode = multiplayerSessionState.roomCode;
+		if ( ! roomCode ) return;
+		if ( multiplayerSyncInFlight ) return;
 		try {
 
 			multiplayerSyncInFlight = true;
-			await firebaseRoomsRequest( roomCode, 'PUT', localPayload, `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
-			const room = await firebaseRoomsRequest( roomCode, 'GET' );
-			const players = room?.players && typeof room.players === 'object' ? room.players : {};
-			renderMultiplayerRoomLeaderboard( room?.lapTimes );
-			maybeSubmitOnlinePersonalBest( room?.lapTimes );
-			const seen = new Set();
-			for ( const [ playerId, playerState ] of Object.entries( players ) ) {
+			const playerPath = `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }`;
+			if ( multiplayerRealtimeState.usingSdk && multiplayerRealtimeState.playerRef ) {
 
-				if ( playerId === multiplayerSessionState.clientId ) continue;
-				if ( ! canJoinMap( playerState?.mapSignature, mapSignature ) ) continue;
-				const updatedAt = Number( playerState?.updatedAt ) || 0;
-				if ( ! force && now - updatedAt > REMOTE_PLAYER_STALE_MS ) continue;
-				const visualState = ensureRemotePlayerVisualWithCosmetics( playerId, playerState?.carKey, playerState?.cosmetics );
-				ensureRemoteNameTag( visualState, playerState?.name || room?.lapTimes?.[ playerId ]?.name || 'Player' );
-				visualState.targetPos.set( Number( playerState?.x ) || 0, ( Number( playerState?.y ) || 0 ) - 0.1, Number( playerState?.z ) || 0 );
-				visualState.targetRotY = Math.PI - ( Number( playerState?.ry ) || 0 );
-				visualState.lastSeenAt = now;
-				seen.add( playerId );
+				await firebaseSet( multiplayerRealtimeState.playerRef, buildLocalMultiplayerPlayerPayload() );
 
-			}
+			} else {
 
-			for ( const existingId of [ ...remotePlayerVisuals.keys() ] ) {
-
-				if ( seen.has( existingId ) ) continue;
-				const existing = remotePlayerVisuals.get( existingId );
-				if ( existing && now - ( Number( existing.lastSeenAt ) || 0 ) <= REMOTE_PLAYER_STALE_MS * 2 ) continue;
-				removeRemotePlayerVisual( existingId );
+				await firebaseRoomsRequest( roomCode, 'PUT', buildLocalMultiplayerPlayerPayload(), playerPath );
 
 			}
 
 		} catch ( error ) {
 
-			console.warn( 'Multiplayer transform sync failed', error );
+			console.warn( 'Multiplayer local player write failed', error );
+			updateMultiplayerStatus( isFirebasePermissionError( error ) ? 'Firebase denied player writes. Check /racing-rooms rules.' : 'Disconnected from multiplayer sync; player writes are failing.' );
 
 		} finally {
 
@@ -1539,13 +1579,192 @@ async function init() {
 
 	}
 
-	setInterval( syncMultiplayerTransforms, REMOTE_SYNC_MS );
+	function cleanupStaleRemotePlayers( now = Date.now(), presentIds = null ) {
+
+		for ( const existingId of [ ...remotePlayerVisuals.keys() ] ) {
+
+			if ( presentIds && ! presentIds.has( existingId ) ) {
+
+				removeRemotePlayerVisual( existingId );
+				continue;
+
+			}
+			const existing = remotePlayerVisuals.get( existingId );
+			if ( existing && now - ( Number( existing.lastSeenAt ) || 0 ) > REMOTE_PLAYER_STALE_MS * 2 ) removeRemotePlayerVisual( existingId );
+
+		}
+
+	}
+
+	function applyMultiplayerPlayersSnapshot( players, options = {} ) {
+
+		const roomPlayers = players && typeof players === 'object' ? players : {};
+		multiplayerRealtimeState.lastPlayers = roomPlayers;
+		const force = Boolean( options?.force );
+		const now = Date.now();
+		const mapSignature = getCurrentMapSignature();
+		const lapTimes = multiplayerRealtimeState.lastLapTimes || {};
+		const seen = new Set();
+		const presentIds = new Set();
+		for ( const [ playerId, playerState ] of Object.entries( roomPlayers ) ) {
+
+			if ( playerId === multiplayerSessionState.clientId ) continue;
+			presentIds.add( playerId );
+			if ( ! canJoinMap( playerState?.mapSignature, mapSignature ) ) continue;
+			const updatedAt = Number( playerState?.updatedAt ) || 0;
+			if ( ! force && now - updatedAt > REMOTE_PLAYER_STALE_MS ) continue;
+			const visualState = ensureRemotePlayerVisualWithCosmetics( playerId, playerState?.carKey, playerState?.cosmetics );
+			ensureRemoteNameTag( visualState, playerState?.name || lapTimes?.[ playerId ]?.name || 'Player' );
+			visualState.targetPos.set( Number( playerState?.x ) || 0, ( Number( playerState?.y ) || 0 ) - 0.1, Number( playerState?.z ) || 0 );
+			visualState.targetRotY = Math.PI - ( Number( playerState?.ry ) || 0 );
+			visualState.lastSeenAt = now;
+			seen.add( playerId );
+
+		}
+
+		cleanupStaleRemotePlayers( now, presentIds );
+		for ( const existingId of [ ...remotePlayerVisuals.keys() ] ) {
+
+			if ( seen.has( existingId ) ) continue;
+			const existing = remotePlayerVisuals.get( existingId );
+			if ( existing && now - ( Number( existing.lastSeenAt ) || 0 ) > REMOTE_PLAYER_STALE_MS * 2 ) removeRemotePlayerVisual( existingId );
+
+		}
+
+	}
+
+	function applyMultiplayerLapTimesSnapshot( lapTimes ) {
+
+		multiplayerRealtimeState.lastLapTimes = lapTimes && typeof lapTimes === 'object' ? lapTimes : {};
+		renderMultiplayerRoomLeaderboard( multiplayerRealtimeState.lastLapTimes );
+		maybeSubmitOnlinePersonalBest( multiplayerRealtimeState.lastLapTimes ).catch( ( error ) => console.warn( 'Failed to sync online multiplayer PB', error ) );
+		applyMultiplayerPlayersSnapshot( multiplayerRealtimeState.lastPlayers || {}, { force: true } );
+
+	}
+
+	function stopMultiplayerRealtimeSync( options = {} ) {
+
+		if ( multiplayerRealtimeState.localWriteTimer ) clearInterval( multiplayerRealtimeState.localWriteTimer );
+		if ( multiplayerRealtimeState.staleCleanupTimer ) clearInterval( multiplayerRealtimeState.staleCleanupTimer );
+		multiplayerRealtimeState.localWriteTimer = 0;
+		multiplayerRealtimeState.staleCleanupTimer = 0;
+		multiplayerRealtimeState.playersUnsubscribe?.();
+		multiplayerRealtimeState.lapTimesUnsubscribe?.();
+		multiplayerRealtimeState.connectionUnsubscribe?.();
+		multiplayerRealtimeState.playersUnsubscribe = null;
+		multiplayerRealtimeState.lapTimesUnsubscribe = null;
+		multiplayerRealtimeState.connectionUnsubscribe = null;
+		if ( options.removePlayer && multiplayerSessionState.roomCode ) {
+
+			const playerPath = `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }`;
+			if ( multiplayerRealtimeState.playerRef ) firebaseRemove( multiplayerRealtimeState.playerRef ).catch( () => {} );
+			else firebaseRoomsRequest( multiplayerSessionState.roomCode, 'DELETE', undefined, playerPath ).catch( () => {} );
+
+		}
+		multiplayerRealtimeState.db = null;
+		multiplayerRealtimeState.playerRef = null;
+		multiplayerRealtimeState.usingSdk = false;
+		multiplayerRealtimeState.lastPlayers = {};
+		multiplayerRealtimeState.lastLapTimes = null;
+		for ( const existingId of [ ...remotePlayerVisuals.keys() ] ) removeRemotePlayerVisual( existingId );
+
+	}
+
+	async function startMultiplayerRealtimeSync( roomCode ) {
+
+		stopMultiplayerRealtimeSync( { removePlayer: true } );
+		multiplayerSessionState.roomCode = roomCode;
+		const db = getFirebaseRealtimeDatabase();
+		if ( ! db ) {
+
+			multiplayerRealtimeState.usingSdk = false;
+			await writeLocalMultiplayerPlayer();
+			multiplayerRealtimeState.localWriteTimer = setInterval( () => syncMultiplayerTransforms().catch( () => {} ), REMOTE_LOCAL_WRITE_MS );
+			updateMultiplayerStatus( `Room ${ roomCode } connected with REST fallback sync.` );
+			return;
+
+		}
+
+		multiplayerRealtimeState.db = db;
+		multiplayerRealtimeState.usingSdk = true;
+		multiplayerRealtimeState.playerRef = firebaseRef( db, getFirebaseSdkPath( roomCode, `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }` ) );
+		await firebaseOnDisconnect( multiplayerRealtimeState.playerRef ).remove();
+		await writeLocalMultiplayerPlayer();
+		multiplayerRealtimeState.localWriteTimer = setInterval( () => writeLocalMultiplayerPlayer().catch( () => {} ), REMOTE_LOCAL_WRITE_MS );
+		multiplayerRealtimeState.staleCleanupTimer = setInterval( () => cleanupStaleRemotePlayers(), 1000 );
+		multiplayerRealtimeState.playersUnsubscribe = firebaseOnValue(
+			firebaseRef( db, getFirebaseSdkPath( roomCode, 'players' ) ),
+			( snapshot ) => applyMultiplayerPlayersSnapshot( snapshot.val() || {} ),
+			( error ) => {
+
+				console.warn( 'Multiplayer players listener failed', error );
+				updateMultiplayerStatus( isFirebasePermissionError( error ) ? 'Firebase denied player listener. Check /racing-rooms rules.' : 'Disconnected from multiplayer player listener.' );
+
+			},
+		);
+		multiplayerRealtimeState.lapTimesUnsubscribe = firebaseOnValue(
+			firebaseRef( db, getFirebaseSdkPath( roomCode, 'lapTimes' ) ),
+			( snapshot ) => applyMultiplayerLapTimesSnapshot( snapshot.val() || {} ),
+			( error ) => {
+
+				console.warn( 'Multiplayer lapTimes listener failed', error );
+				updateMultiplayerStatus( isFirebasePermissionError( error ) ? 'Firebase denied lap listener. Check /racing-rooms rules.' : 'Disconnected from multiplayer lap listener.' );
+
+			},
+		);
+		multiplayerRealtimeState.connectionUnsubscribe = firebaseOnValue( firebaseRef( db, '.info/connected' ), ( snapshot ) => {
+
+			if ( snapshot.val() === false ) updateMultiplayerStatus( 'Firebase disconnected; reconnecting multiplayer sync...' );
+
+		}, ( error ) => {
+
+			console.warn( 'Firebase connection listener failed', error );
+			updateMultiplayerStatus( 'Firebase connection listener failed.' );
+
+		} );
+
+	}
+
+	async function refreshMultiplayerRealtimeSync() {
+
+		await writeLocalMultiplayerPlayer();
+		if ( multiplayerRealtimeState.usingSdk ) {
+
+			applyMultiplayerPlayersSnapshot( multiplayerRealtimeState.lastPlayers || {}, { force: true } );
+			applyMultiplayerLapTimesSnapshot( multiplayerRealtimeState.lastLapTimes || {} );
+
+		} else {
+
+			await syncMultiplayerTransforms( { force: true } );
+
+		}
+
+	}
+
+	async function syncMultiplayerTransforms( options = {} ) {
+
+		const roomCode = multiplayerSessionState.roomCode;
+		if ( ! roomCode ) return;
+		await writeLocalMultiplayerPlayer();
+		try {
+
+			const room = await firebaseRoomsRequest( roomCode, 'GET' );
+			renderMultiplayerRoomLeaderboard( room?.lapTimes );
+			await maybeSubmitOnlinePersonalBest( room?.lapTimes );
+			applyMultiplayerPlayersSnapshot( room?.players || {}, { force: Boolean( options?.force ) } );
+
+		} catch ( error ) {
+
+			console.warn( 'Multiplayer REST fallback sync failed', error );
+			updateMultiplayerStatus( isFirebasePermissionError( error ) ? 'Firebase denied REST sync. Check /racing-rooms rules.' : 'Multiplayer REST fallback sync failed.' );
+
+		}
+
+	}
+
 	window.addEventListener( 'beforeunload', () => {
 
-		if ( ! multiplayerSessionState.roomCode ) return;
-		const roomCode = multiplayerSessionState.roomCode;
-		const playerPath = `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }`;
-		firebaseRoomsRequest( roomCode, 'DELETE', undefined, playerPath ).catch( () => {} );
+		stopMultiplayerRealtimeSync( { removePlayer: true } );
 
 	} );
 	let ghostModel = null;
