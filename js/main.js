@@ -180,6 +180,9 @@ const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
 const INTENSITY_TYPES = new Set( [ 'low', 'medium', 'high' ] );
 const WIND_TYPES = new Set( [ 'none', 'breezy', 'gusty' ] );
 const FIREBASE_ROOM_TIMEOUT_MS = 2200;
+const AI_RACE_CAR_COUNT = 3;
+const AI_RACE_CATCHUP_DISTANCE = 18;
+const AI_RACE_CATCHUP_MAX_TOP_SPEED_BONUS = 0.12;
 
 function hasFirebaseMultiplayerConfig() {
 
@@ -2209,6 +2212,7 @@ async function init() {
 	const particles = new SmokeTrails( scene );
 	const particles2 = isSplitScreen ? new SmokeTrails( scene ) : null;
 	const lapHud = document.getElementById( 'lap-hud' );
+	const aiPlaceHud = document.getElementById( 'ai-place-hud' );
 	const lapHud2 = document.getElementById( 'lap-hud-2' );
 	const respawnBtn = document.getElementById( 'respawnBtn' );
 	const modeMenuBtn = document.getElementById( 'mode-menu-btn' );
@@ -2331,6 +2335,7 @@ async function init() {
 	const namePopupSave = document.getElementById( 'name-popup-save' );
 	const namePopupSkip = document.getElementById( 'name-popup-skip' );
 	const raceModeBtn = document.getElementById( 'mode-race-btn' );
+	const aiRaceModeBtn = document.getElementById( 'mode-ai-race-btn' );
 	const stuntModeBtn = document.getElementById( 'mode-stunt-btn' );
 	const campaignModeBtn = document.getElementById( 'mode-campaign-btn' );
 	const campaignInfoBtn = document.getElementById( 'campaign-info-btn' );
@@ -2511,6 +2516,21 @@ async function init() {
 
 	}
 
+	function getPlayerPerformanceConfig() {
+
+		if ( isSplitScreen ) return { ...CAR_STATS[ player1CarKey ].perf };
+		const carKey = currentCarKey();
+		const stats = CAR_STATS[ carKey ];
+		if ( ! stats ) return null;
+		const mult = getEngineMult();
+		return {
+			...stats.perf,
+			topSpeed: Math.min( hacksState.enabled && hacksState.noLimits ? 99 : MAX_EFFECTIVE_TOP_SPEED, stats.perf.topSpeed * mult * ( hacksState.enabled && hacksState.noLimits ? 2.5 : 1 ) ),
+			driveForce: stats.perf.driveForce * mult * ( hacksState.enabled && hacksState.noLimits ? 2.5 : 1 ),
+		};
+
+	}
+
 	function applyVehiclePerformance() {
 
 		if ( isSplitScreen ) {
@@ -2519,21 +2539,16 @@ async function init() {
 			return;
 
 		}
-		const carKey = currentCarKey();
-		const stats = CAR_STATS[ carKey ];
-		if ( ! stats ) return;
-		const mult = getEngineMult();
-			const perf = {
-				...stats.perf,
-				topSpeed: Math.min( hacksState.enabled && hacksState.noLimits ? 99 : MAX_EFFECTIVE_TOP_SPEED, stats.perf.topSpeed * mult * ( hacksState.enabled && hacksState.noLimits ? 2.5 : 1 ) ),
-				driveForce: stats.perf.driveForce * mult * ( hacksState.enabled && hacksState.noLimits ? 2.5 : 1 ),
-			};
+		const perf = getPlayerPerformanceConfig();
+		if ( ! perf ) return;
 		vehicle.setPerformance( perf );
+		applyAiRacePerformance();
 
 	}
 
 	function updateModeHudVisibility() {
 
+		if ( aiPlaceHud ) aiPlaceHud.style.display = gameMode === 'ai-race' ? 'block' : 'none';
 		const inStunt = gameMode === 'stunt' || ( gameMode === 'campaign' && campaignState?.stageType === 'stunt-score' );
 		if ( stuntPointsHud ) stuntPointsHud.style.display = inStunt ? 'block' : 'none';
 		if ( lapHud ) lapHud.style.display = 'block';
@@ -2774,22 +2789,23 @@ async function init() {
 
 	function setGameMode( mode ) {
 
-		if ( mode !== 'race' && mode !== 'stunt' && mode !== 'campaign' ) return;
+		if ( mode !== 'race' && mode !== 'stunt' && mode !== 'campaign' && mode !== 'ai-race' ) return;
 		if ( mode === 'stunt' && ! stuntModeModInstalled ) {
 
 			showModeError( 'Stunt Mode is under construction right now.' );
 			return;
 
 		}
-		if ( ( mode === 'stunt' || mode === 'campaign' ) && isSplitScreen ) {
+		if ( ( mode === 'stunt' || mode === 'campaign' || mode === 'ai-race' ) && isSplitScreen ) {
 
-			showModeError( `${ mode === 'campaign' ? 'Campaign' : 'Stunt Mode' } is disabled in local multiplayer (2P).` );
+			showModeError( `${ mode === 'campaign' ? 'Campaign' : mode === 'ai-race' ? 'AI Race' : 'Stunt Mode' } is disabled in local multiplayer (2P).` );
 			return;
 
 		}
 		if ( gameMode === mode ) return;
 		showModeError( '' );
 		gameMode = mode;
+		setAiRaceActive( mode === 'ai-race' );
 		if ( mode === 'stunt' ) {
 
 			stuntPoints = 0;
@@ -2805,6 +2821,12 @@ async function init() {
 
 		}
 		updateModeHudVisibility();
+
+	}
+
+	function setAiRaceActive( active ) {
+
+		if ( typeof setAiRaceEnabled === 'function' ) setAiRaceEnabled( active );
 
 	}
 
@@ -3890,6 +3912,347 @@ function completeCampaignStage() {
 		hasPrevSample: false,
 		passedThisLap: false,
 	} ) );
+
+	const aiRaceFallbackPath = buildAiFallbackPath();
+	const aiRacers = createAiRacers();
+	let aiRaceEnabled = false;
+
+
+	function getCellCenter( cell, y = 0.5 ) {
+
+		const [ gx, gz ] = cell || [ 0, 0 ];
+		return new THREE.Vector3( ( gx + 0.5 ) * CELL_RAW * GRID_SCALE, y, ( gz + 0.5 ) * CELL_RAW * GRID_SCALE );
+
+	}
+
+	function getCellAngle( cell ) {
+
+		return THREE.MathUtils.degToRad( ORIENT_DEG[ cell?.[ 3 ] ] || 0 );
+
+	}
+
+	function buildAiFallbackPath() {
+
+		const sourceCells = activeCells.filter( ( cell ) => cell?.[ 2 ] && String( cell[ 2 ] ).startsWith( 'track-' ) );
+		const start = startCell || finishCell || sourceCells[ 0 ];
+		if ( sourceCells.length === 0 || ! start ) return [ new THREE.Vector3( 3.5, 0.5, 5 ) ];
+		const cellKey = ( cell ) => `${ cell[ 0 ] },${ cell[ 1 ] }`;
+		const byKey = new Map( sourceCells.map( ( cell ) => [ cellKey( cell ), cell ] ) );
+		const startKey = cellKey( start );
+		const visited = new Set( [ startKey ] );
+		const ordered = [ start ];
+		let current = start;
+		while ( visited.size < byKey.size ) {
+
+			let next = null;
+			let nextScore = Infinity;
+			for ( const candidate of sourceCells ) {
+
+				const key = cellKey( candidate );
+				if ( visited.has( key ) ) continue;
+				const dx = candidate[ 0 ] - current[ 0 ];
+				const dz = candidate[ 1 ] - current[ 1 ];
+				const score = ( dx * dx ) + ( dz * dz );
+				if ( score < nextScore ) {
+
+					next = candidate;
+					nextScore = score;
+
+				}
+
+			}
+			if ( ! next ) break;
+			visited.add( cellKey( next ) );
+			ordered.push( next );
+			current = next;
+
+		}
+		return ordered.map( ( cell ) => getCellCenter( cell, 0.5 ) );
+
+	}
+
+	function getAiSpawnTransform( index ) {
+
+		const baseCell = startCell || finishCell;
+		const center = getCellCenter( baseCell, 0.5 );
+		const angle = getCellAngle( baseCell );
+		const right = new THREE.Vector3( Math.cos( angle ), 0, - Math.sin( angle ) );
+		const forward = new THREE.Vector3( Math.sin( angle ), 0, Math.cos( angle ) );
+		const laneOffsets = [ - 1.25, 1.25, 0 ];
+		const rowOffsets = [ - 0.85, - 0.85, - 2.05 ];
+		center.addScaledVector( right, laneOffsets[ index % laneOffsets.length ] );
+		center.addScaledVector( forward, rowOffsets[ index % rowOffsets.length ] );
+		return { position: center.toArray(), angle };
+
+	}
+
+	function createAiRacers() {
+
+		if ( isSplitScreen ) return [];
+		return Array.from( { length: AI_RACE_CAR_COUNT }, ( _, index ) => {
+
+			const spawnInfo = getAiSpawnTransform( index );
+			const body = createSphereBody( world, spawnInfo.position );
+			const racer = new Vehicle();
+			racer.rigidBody = body;
+			racer.physicsWorld = world;
+			racer.setSpawn( spawnInfo.position, spawnInfo.angle );
+			const carKey = carKeys[ Math.floor( Math.random() * carKeys.length ) ] || 'vehicle-truck-yellow';
+			racer.setPerformance( getPlayerPerformanceConfig() || CAR_STATS[ 'vehicle-truck-yellow' ].perf );
+			const group = racer.init( models[ carKey ] || models[ 'vehicle-truck-yellow' ] );
+			group.visible = false;
+			scene.add( group );
+			return {
+				vehicle: racer,
+				group,
+				carKey,
+				lap: 1,
+				lapStart: raceClockSeconds,
+				targetIndex: Math.min( index + 1, Math.max( 0, aiRaceFallbackPath.length - 1 ) ),
+				lastProgress: 0,
+				lastLocalX: 0,
+				lastLocalZ: 0,
+				hasPrevFinishSample: false,
+				hasLeftStartZone: false,
+				checkpointStates: checkpointCells.map( ( cell ) => ( { ...makeGateData( cell ), passedThisLap: false } ) ),
+			};
+
+		} );
+
+	}
+
+	function getAiBiasSources() {
+
+		const sources = [];
+		if ( bestLapGhostSamples.length >= 2 && Number.isFinite( bestGhostDuration ) && bestGhostDuration > 0 ) sources.push( { samples: bestLapGhostSamples, duration: bestGhostDuration } );
+		for ( const state of leaderboardGhostPlayers.values() ) {
+
+			if ( Array.isArray( state?.samples ) && state.samples.length >= 2 && Number.isFinite( state?.duration ) && state.duration > 0 ) sources.push( { samples: state.samples, duration: state.duration } );
+
+		}
+		for ( const state of recentGhostPlayers ) {
+
+			if ( Array.isArray( state?.samples ) && state.samples.length >= 2 && Number.isFinite( state?.duration ) && state.duration > 0 ) sources.push( { samples: state.samples, duration: state.duration } );
+
+		}
+		for ( const row of currentTrackLeaderboardRows ) {
+
+			if ( sources.length >= AI_RACE_CAR_COUNT + 2 ) break;
+			const normalized = row?.ghost ? extractNormalizedGhostPayload( row.ghost ) : null;
+			if ( normalized ) sources.push( { samples: normalized.samples, duration: normalized.duration } );
+
+		}
+		return sources;
+
+	}
+
+	function getAiTargetPoint( ai, aiIndex, now ) {
+
+		const biasSources = getAiBiasSources();
+		if ( biasSources.length > 0 ) {
+
+			const source = biasSources[ aiIndex % biasSources.length ];
+			const elapsed = Math.max( 0, now - ai.lapStart + 0.45 + aiIndex * 0.18 );
+			const point = sampleGhostPositionAtTime( source.samples, source.duration, elapsed, new THREE.Vector3() );
+			if ( point ) return point;
+
+		}
+		const path = aiRaceFallbackPath;
+		if ( path.length === 0 ) return vehicle.spherePos;
+		const target = path[ ai.targetIndex % path.length ];
+		if ( ai.vehicle.spherePos.distanceToSquared( target ) < 4.0 ) ai.targetIndex = ( ai.targetIndex + 1 ) % path.length;
+		return path[ ai.targetIndex % path.length ];
+
+	}
+
+	function getAiRaceProgress( ai ) {
+
+		const sources = getAiBiasSources();
+		if ( sources.length > 0 ) return ( ai.lap - 1 ) + ( ( raceClockSeconds - ai.lapStart ) / Math.max( 8, sources[ 0 ].duration ) );
+		const path = aiRaceFallbackPath;
+		if ( path.length < 2 ) return ai.lap - 1;
+		let nearestIndex = 0;
+		let nearestDist = Infinity;
+		for ( let i = 0; i < path.length; i ++ ) {
+
+			const dist = ai.vehicle.spherePos.distanceToSquared( path[ i ] );
+			if ( dist < nearestDist ) {
+
+				nearestDist = dist;
+				nearestIndex = i;
+
+			}
+
+		}
+		return ( ai.lap - 1 ) + ( nearestIndex / path.length );
+
+	}
+
+	function getPlayerRaceProgress() {
+
+		const sources = getAiBiasSources();
+		if ( sources.length > 0 ) return ( lapNumber - 1 ) + ( lapSeconds / Math.max( 8, sources[ 0 ].duration ) );
+		const path = aiRaceFallbackPath;
+		if ( path.length < 2 ) return lapNumber - 1;
+		let nearestIndex = 0;
+		let nearestDist = Infinity;
+		for ( let i = 0; i < path.length; i ++ ) {
+
+			const dist = vehicle.spherePos.distanceToSquared( path[ i ] );
+			if ( dist < nearestDist ) {
+
+				nearestDist = dist;
+				nearestIndex = i;
+
+			}
+
+		}
+		return ( lapNumber - 1 ) + ( nearestIndex / path.length );
+
+	}
+
+	function applyAiRacePerformance() {
+
+		if ( ! Array.isArray( aiRacers ) ) return;
+		const perf = getPlayerPerformanceConfig();
+		if ( ! perf ) return;
+		for ( const ai of aiRacers ) ai.vehicle.setPerformance( perf );
+
+	}
+
+	function resetAiRacer( ai ) {
+
+		ai.vehicle.resetToSpawn();
+		ai.lap = Math.max( 1, lapNumber );
+		ai.lapStart = raceClockSeconds;
+		ai.targetIndex = Math.min( ai.targetIndex || 0, Math.max( 0, aiRaceFallbackPath.length - 1 ) );
+		ai.hasPrevFinishSample = false;
+		ai.hasLeftStartZone = false;
+		ai.lastLocalX = 0;
+		ai.lastLocalZ = 0;
+		for ( const checkpoint of ai.checkpointStates ) checkpoint.passedThisLap = false;
+
+	}
+
+	function resetAiRaceCars() {
+
+		for ( const ai of aiRacers ) resetAiRacer( ai );
+		updateAiPlaceHud();
+
+	}
+
+	function setAiRaceEnabled( enabled ) {
+
+		aiRaceEnabled = Boolean( enabled ) && ! isSplitScreen;
+		for ( const ai of aiRacers ) ai.group.visible = aiRaceEnabled;
+		if ( aiRaceEnabled ) {
+
+			applyAiRacePerformance();
+			resetAiRaceCars();
+
+		}
+		updateAiPlaceHud();
+
+	}
+
+	function updateAiRacerLapCrossing( ai ) {
+
+		if ( ! finishData ) return;
+		const p = ai.vehicle.spherePos;
+		const localX = ( ( p.x - finishData.centerX ) * finishData.cosA ) + ( ( p.z - finishData.centerZ ) * finishData.sinA );
+		const localZ = ( - ( p.x - finishData.centerX ) * finishData.sinA ) + ( ( p.z - finishData.centerZ ) * finishData.cosA );
+		const startLocalX = ( ( p.x - startGateData.centerX ) * startGateData.cosA ) + ( ( p.z - startGateData.centerZ ) * startGateData.sinA );
+		const startLocalZ = ( - ( p.x - startGateData.centerX ) * startGateData.sinA ) + ( ( p.z - startGateData.centerZ ) * startGateData.cosA );
+		const inStartCell = Math.abs( startLocalX ) < startGateData.halfExtent && Math.abs( startLocalZ ) < startGateData.halfExtent;
+		if ( ! ai.hasLeftStartZone && ! inStartCell ) ai.hasLeftStartZone = true;
+		for ( const checkpoint of ai.checkpointStates ) {
+
+			if ( checkpoint.passedThisLap ) continue;
+			const cpX = ( ( p.x - checkpoint.centerX ) * checkpoint.cosA ) + ( ( p.z - checkpoint.centerZ ) * checkpoint.sinA );
+			const cpZ = ( - ( p.x - checkpoint.centerX ) * checkpoint.sinA ) + ( ( p.z - checkpoint.centerZ ) * checkpoint.cosA );
+			if ( Math.abs( cpX ) <= checkpoint.halfExtent && Math.abs( cpZ ) <= checkpoint.halfExtent ) checkpoint.passedThisLap = true;
+
+		}
+		let crossedFinish = false;
+		if ( ai.hasPrevFinishSample ) {
+
+			const z0 = ai.lastLocalZ;
+			const z1 = localZ;
+			const crossedPlane = ( z0 < 0 && z1 > 0 ) || ( z0 > 0 && z1 < 0 );
+			if ( crossedPlane ) {
+
+				const t = z0 / ( z0 - z1 );
+				const xCross = THREE.MathUtils.lerp( ai.lastLocalX, localX, t );
+				crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent;
+
+			}
+
+		}
+		if ( ai.hasLeftStartZone && ai.checkpointStates.every( ( checkpoint ) => checkpoint.passedThisLap ) && crossedFinish ) {
+
+			ai.lap ++;
+			ai.lapStart = raceClockSeconds;
+			ai.hasLeftStartZone = false;
+			for ( const checkpoint of ai.checkpointStates ) checkpoint.passedThisLap = false;
+			if ( shouldAutoRespawnAfterLap ) ai.vehicle.resetToSpawn();
+
+		}
+		ai.lastLocalX = localX;
+		ai.lastLocalZ = localZ;
+		ai.hasPrevFinishSample = true;
+
+	}
+
+	function updateAiRaceCars( dt, now ) {
+
+		if ( ! aiRaceEnabled ) return;
+		const playerProgress = getPlayerRaceProgress();
+		for ( let i = 0; i < aiRacers.length; i ++ ) {
+
+			const ai = aiRacers[ i ];
+			const target = getAiTargetPoint( ai, i, now );
+			const toTarget = new THREE.Vector3().subVectors( target, ai.vehicle.spherePos );
+			toTarget.y = 0;
+			const distance = toTarget.length();
+			if ( distance < 0.2 ) continue;
+			toTarget.normalize();
+			const forward = new THREE.Vector3( 0, 0, 1 ).applyQuaternion( ai.vehicle.container.quaternion ).setY( 0 ).normalize();
+			const right = new THREE.Vector3( 1, 0, 0 ).applyQuaternion( ai.vehicle.container.quaternion ).setY( 0 ).normalize();
+			const turn = THREE.MathUtils.clamp( toTarget.dot( right ), - 1, 1 );
+			const alignment = forward.dot( toTarget );
+			const aiProgress = getAiRaceProgress( ai );
+			const catchup = playerProgress - aiProgress > 0.22 || ai.vehicle.spherePos.distanceTo( vehicle.spherePos ) > AI_RACE_CATCHUP_DISTANCE;
+			const baseTopSpeed = ai.vehicle.topSpeed;
+			if ( catchup ) ai.vehicle.topSpeed = baseTopSpeed * ( 1 + AI_RACE_CATCHUP_MAX_TOP_SPEED_BONUS );
+			ai.vehicle.update( dt, { x: turn, z: alignment < -0.25 ? 0.42 : 1 } );
+			ai.vehicle.topSpeed = baseTopSpeed;
+			applySlopeConformVisual( ai.vehicle );
+			applyMagnetForceFor( ai.vehicle, dt );
+			applySurfaceGrip( ai.vehicle, findActiveSurfaceTypeFor( ai.vehicle ), null );
+			updateAiRacerLapCrossing( ai );
+
+		}
+		updateAiPlaceHud();
+
+	}
+
+	function updateAiPlaceHud() {
+
+		if ( ! aiPlaceHud ) return;
+		if ( ! aiRaceEnabled ) {
+
+			aiPlaceHud.style.display = 'none';
+			return;
+
+		}
+		aiPlaceHud.style.display = 'block';
+		const playerProgress = getPlayerRaceProgress();
+		const ahead = aiRacers.filter( ( ai ) => getAiRaceProgress( ai ) > playerProgress + 0.002 ).length;
+		const place = THREE.MathUtils.clamp( ahead + 1, 1, AI_RACE_CAR_COUNT + 1 );
+		const suffix = place === 1 ? 'st' : place === 2 ? 'nd' : place === 3 ? 'rd' : 'th';
+		aiPlaceHud.textContent = `${ place }${ suffix }`;
+
+	}
 
 	let lapNumber = 1;
 	let lapStartSeconds = 0;
@@ -5486,6 +5849,7 @@ function completeCampaignStage() {
 
 		}
 		vehicle.resetToSpawn();
+		if ( aiRaceEnabled ) resetAiRaceCars();
 		resetMovingObstacles( movingObstacleState, raceClockSeconds );
 		cam.targetPosition.copy( vehicle.spherePos );
 		cam.camera.position.addVectors( cam.targetPosition, cam.offset );
@@ -6204,6 +6568,12 @@ function completeCampaignStage() {
 		setModeMenuOpen( false );
 
 	} );
+	aiRaceModeBtn?.addEventListener( 'click', () => {
+
+		setGameMode( 'ai-race' );
+		setModeMenuOpen( false );
+
+	} );
 	stuntModeBtn?.addEventListener( 'click', () => {
 
 		setGameMode( 'stunt' );
@@ -6588,6 +6958,7 @@ function completeCampaignStage() {
 
 			vehicle.update( dt, padAdjustedInput );
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
+			updateAiRaceCars( dt, now );
 			applySlopeConformVisual( vehicle );
 			if ( vehicle2 ) applySlopeConformVisual( vehicle2 );
 			if ( carHitboxMesh.visible ) carHitboxMesh.position.set( vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z );
@@ -7022,6 +7393,7 @@ function completeCampaignStage() {
 
 				}
 						lapNumber ++;
+						if ( aiRaceEnabled ) resetAiRaceCars();
 					resetMovingObstacles( movingObstacleState, now );
 						lapStartSeconds = now;
 						checkpointDeltaText = '';
