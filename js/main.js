@@ -78,6 +78,9 @@ const BOOST_EFFECT_SECONDS = 1.0;
 const BOOST_FORCE_SECONDS = 0.45;
 const BOOST_ACCEL_PER_SECOND = 16.5;
 const FX_SETTINGS_KEY = 'racing-fx-settings-v1';
+const COUNTDOWN_SETTINGS_KEY = 'racing-countdown-enabled-v1';
+const COUNTDOWN_DURATION_SECONDS = 3;
+const ZERO_DRIVE_INPUT = { x: 0, z: 0 };
 const VEHICLE_SURFACE_RADIUS = 0.5;
 const SURFACE_EFFECTS = {
 	'surface-wood': { grip: 0.9, drag: 1.35, accel: 1.0, drive: 1.55 },
@@ -2210,6 +2213,7 @@ async function init() {
 	const particles2 = isSplitScreen ? new SmokeTrails( scene ) : null;
 	const lapHud = document.getElementById( 'lap-hud' );
 	const lapHud2 = document.getElementById( 'lap-hud-2' );
+	const countdownHud = document.getElementById( 'countdown-hud' );
 	const respawnBtn = document.getElementById( 'respawnBtn' );
 	const modeMenuBtn = document.getElementById( 'mode-menu-btn' );
 	const topMessage = document.getElementById( 'top-message' );
@@ -2334,6 +2338,7 @@ async function init() {
 	const stuntModeBtn = document.getElementById( 'mode-stunt-btn' );
 	const campaignModeBtn = document.getElementById( 'mode-campaign-btn' );
 	const campaignInfoBtn = document.getElementById( 'campaign-info-btn' );
+	const countdownToggle = document.getElementById( 'countdown-toggle' );
 	const modeTabGameplayBtn = document.getElementById( 'mode-tab-gameplay' );
 	const modeTabGarageBtn = document.getElementById( 'mode-tab-garage' );
 	const modeTabAccountBtn = document.getElementById( 'mode-tab-account' );
@@ -3667,6 +3672,9 @@ function completeCampaignStage() {
 
 	const timer = new THREE.Timer();
 	let raceClockSeconds = 0;
+	let countdownActive = false;
+	let countdownEndsAt = 0;
+	let countdownEnabled = localStorage.getItem( COUNTDOWN_SETTINGS_KEY ) !== '0';
 	const activeCells = customCells || TRACK_CELLS;
 	const hasSeparateStartCell = activeCells.some( ( c ) => c[ 2 ] === 'track-start' );
 	const hasSeparateFinishCell = activeCells.some( ( c ) => c[ 2 ] === 'track-finish' );
@@ -5393,6 +5401,78 @@ function completeCampaignStage() {
 
 	}
 
+	function updateCountdownHud( now = raceClockSeconds ) {
+
+		if ( ! countdownHud ) return;
+		if ( ! countdownActive ) {
+
+			countdownHud.classList.remove( 'visible' );
+			countdownHud.textContent = '';
+			return;
+
+		}
+		const remaining = Math.max( 0, countdownEndsAt - now );
+		countdownHud.textContent = remaining > 0.35 ? String( Math.ceil( remaining ) ) : 'GO!';
+		countdownHud.classList.add( 'visible' );
+
+	}
+
+	function finishCountdown( now = raceClockSeconds ) {
+
+		if ( ! countdownActive ) return;
+		countdownActive = false;
+		countdownEndsAt = 0;
+		lapStartSeconds = now;
+		lapSeconds = 0;
+		if ( vehicle2 ) {
+
+			lapStartSeconds2 = now;
+			lapSeconds2 = 0;
+
+		}
+		resetCurrentLapGhost();
+		resetCurrentLapInputs();
+		recordGhostSample( 0, true );
+		updateCountdownHud( now );
+		updateLapHud();
+		updateLapHud2();
+
+	}
+
+	function startCountdown( now = raceClockSeconds ) {
+
+		if ( ! countdownEnabled ) {
+
+			countdownActive = false;
+			countdownEndsAt = 0;
+			updateCountdownHud( now );
+			return;
+
+		}
+		countdownActive = true;
+		countdownEndsAt = now + COUNTDOWN_DURATION_SECONDS;
+		lapSeconds = 0;
+		if ( vehicle2 ) lapSeconds2 = 0;
+		updateCountdownHud( now );
+		updateLapHud();
+		updateLapHud2();
+
+	}
+
+	function updateCountdownState( now = raceClockSeconds ) {
+
+		if ( ! countdownActive ) return;
+		if ( now >= countdownEndsAt ) finishCountdown( now );
+		else updateCountdownHud( now );
+
+	}
+
+	function updateCountdownToggle() {
+
+		if ( countdownToggle ) countdownToggle.checked = countdownEnabled;
+
+	}
+
 	function resetLapState( keepRecords = false ) {
 
 		if ( ! keepRecords ) {
@@ -5492,6 +5572,7 @@ function completeCampaignStage() {
 		resetPhysicsObstacles();
 
 		resetLapState( true );
+		startCountdown();
 
 	}
 
@@ -5509,6 +5590,7 @@ function completeCampaignStage() {
 		cam2.camera.position.addVectors( cam2.targetPosition, cam2.offset );
 		resetPhysicsObstacles();
 		resetLapState2( true );
+		startCountdown();
 
 	}
 
@@ -6146,6 +6228,14 @@ function completeCampaignStage() {
 	modeTabGameplayBtn?.addEventListener( 'click', () => setModeTab( 'gameplay' ) );
 	modeTabGarageBtn?.addEventListener( 'click', () => setModeTab( 'garage' ) );
 	modeTabAccountBtn?.addEventListener( 'click', () => setModeTab( 'account' ) );
+	updateCountdownToggle();
+	countdownToggle?.addEventListener( 'change', () => {
+
+		countdownEnabled = Boolean( countdownToggle.checked );
+		localStorage.setItem( COUNTDOWN_SETTINGS_KEY, countdownEnabled ? '1' : '0' );
+		if ( ! countdownEnabled ) finishCountdown();
+
+	} );
 	garageSourceToleranceInput?.addEventListener( 'input', () => {
 
 		if ( garageSourceToleranceValue ) garageSourceToleranceValue.textContent = String( Math.round( Number( garageSourceToleranceInput.value ) || 40 ) );
@@ -6430,6 +6520,7 @@ function completeCampaignStage() {
 	randomizeLapCarIfSinglePlayer();
 	resetLapState( true );
 	resetLapState2( true );
+	startCountdown();
 
 	const hashParams = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
 	const importedGhost = hashParams.get( 'ghost' );
@@ -6551,8 +6642,9 @@ function completeCampaignStage() {
 			raceClockSeconds += dt;
 			const now = raceClockSeconds;
 
-			const controlsBlocked = modeMenuOpen || freecamState.active || replayViewerMode;
-			const baseInput = controlsBlocked ? { x: 0, y: 0, z: 0 } : controls.update();
+			updateCountdownState( now );
+			const controlsBlocked = modeMenuOpen || freecamState.active || replayViewerMode || countdownActive;
+			const baseInput = controlsBlocked ? ZERO_DRIVE_INPUT : controls.update();
 			let input = baseInput;
 			for ( const runtime of runtimeMods ) {
 
@@ -6569,7 +6661,8 @@ function completeCampaignStage() {
 				}
 
 			}
-			const input2 = controls2 ? ( modeMenuOpen || replayViewerMode ? { x: 0, y: 0, z: 0 } : controls2.update() ) : null;
+			if ( countdownActive ) input = ZERO_DRIVE_INPUT;
+			const input2 = controls2 ? ( modeMenuOpen || replayViewerMode || countdownActive ? ZERO_DRIVE_INPUT : controls2.update() ) : null;
 			const padAdjustedInput = applyPadInputModifiers( input, activePadEffect );
 			const padAdjustedInput2 = input2 ? applyPadInputModifiers( input2, activePadEffect2 ) : null;
 			recordLapInput( Math.max( 0, now - lapStartSeconds ), padAdjustedInput, controls?.keys );
@@ -7144,8 +7237,8 @@ function completeCampaignStage() {
 
 		}
 
-		lapSeconds = now - lapStartSeconds;
-		if ( vehicle2 ) lapSeconds2 = now - lapStartSeconds2;
+		lapSeconds = countdownActive ? 0 : now - lapStartSeconds;
+		if ( vehicle2 ) lapSeconds2 = countdownActive ? 0 : now - lapStartSeconds2;
 		updateMovingObstacles( movingObstacleState, now, [ vehicle, vehicle2 ] );
 		recordGhostSample( lapSeconds );
 		updateGhostPlayback( lapSeconds );
