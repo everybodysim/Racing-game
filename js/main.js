@@ -4158,6 +4158,7 @@ function completeCampaignStage() {
 		passedThisLap: false,
 	} ) );
 	const INTENSITY_SCALE = { low: 0.6, medium: 1.0, high: 1.45 };
+	const WEATHER_FX_DENSITY_MULTIPLIER = 10;
 	const WIND_SPEED = { none: 0, breezy: 2.0, gusty: 4.5 };
 	let weatherFx = null;
 	let lightningCooldown = THREE.MathUtils.randFloat( 2.2, 6.2 );
@@ -4180,7 +4181,7 @@ function completeCampaignStage() {
 		if ( precip === 'none' ) return;
 		const particleScale = getGraphicsPreset().weatherParticleScale;
 		if ( particleScale <= 0 ) return;
-		const count = Math.round( ( precip === 'rain' ? 940 : 380 ) * ( INTENSITY_SCALE[ weatherSettings.intensity ] || 1 ) * particleScale );
+		const count = Math.round( ( precip === 'rain' ? 940 : 380 ) * WEATHER_FX_DENSITY_MULTIPLIER * ( INTENSITY_SCALE[ weatherSettings.intensity ] || 1 ) * particleScale );
 		const positions = new Float32Array( count * 3 );
 		const speeds = new Float32Array( count );
 		const spread = 65;
