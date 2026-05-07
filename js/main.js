@@ -2214,6 +2214,7 @@ async function init() {
 	const lapHud = document.getElementById( 'lap-hud' );
 	const lapHud2 = document.getElementById( 'lap-hud-2' );
 	const countdownHud = document.getElementById( 'countdown-hud' );
+	const pausePanel = document.getElementById( 'pause-panel' );
 	const respawnBtn = document.getElementById( 'respawnBtn' );
 	const modeMenuBtn = document.getElementById( 'mode-menu-btn' );
 	const topMessage = document.getElementById( 'top-message' );
@@ -2256,6 +2257,7 @@ async function init() {
 	const leaderboardRefreshBtn = document.getElementById( 'leaderboard-refresh-btn' );
 	const leaderboardPanel = document.getElementById( 'leaderboard-panel' );
 	const leaderboardToggleBtn = document.getElementById( 'leaderboard-toggle-btn' );
+	const pauseToggleBtn = document.getElementById( 'pause-toggle-btn' );
 	if ( leaderboardPanel && ! leaderboardPercentileLabel ) {
 
 		leaderboardPercentileLabel = document.createElement( 'div' );
@@ -3672,6 +3674,8 @@ function completeCampaignStage() {
 
 	const timer = new THREE.Timer();
 	let raceClockSeconds = 0;
+	let paused = false;
+	let currentLapInvalidatedByPause = false;
 	let countdownActive = false;
 	let countdownEndsAt = 0;
 	let countdownEnabled = localStorage.getItem( COUNTDOWN_SETTINGS_KEY ) !== '0';
@@ -4965,7 +4969,8 @@ function completeCampaignStage() {
 		if ( freecamInstalled ) controlsHints.push( 'Freecam: F (WASD + mouse)' );
 		const controlsLine = controlsHints.length ? `<br><small>${ controlsHints.join( ' • ' ) }</small>` : '';
 		const checkpointDeltaLine = checkpointDeltaText ? `<br><small>Checkpoint Δ: ${ checkpointDeltaText }</small>` : '';
-		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ checkpointDeltaLine }${ controlsLine }`;
+		const invalidLine = currentLapInvalidatedByPause ? '<br><small>Paused: leaderboard invalid</small>' : '';
+		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ checkpointDeltaLine }${ invalidLine }${ controlsLine }`;
 
 	}
 
@@ -5169,6 +5174,13 @@ function completeCampaignStage() {
 	}
 
 	async function submitLeaderboardTime( lapTimeSeconds, forcedName = '' ) {
+
+		if ( currentLapInvalidatedByPause ) {
+
+			showTopMessage( 'Leaderboard submission skipped: paused runs are invalid.', true, 2400 );
+			return false;
+
+		}
 
 		if ( nonFreecamModsInstalled ) {
 
@@ -5401,6 +5413,54 @@ function completeCampaignStage() {
 
 	}
 
+	function canPauseGameplay() {
+
+		return ! isSplitScreen && ! multiplayerSessionState.roomCode && ! replayViewerMode;
+
+	}
+
+	function updatePauseUi() {
+
+		const canPause = canPauseGameplay();
+		if ( pausePanel ) {
+
+			pausePanel.classList.toggle( 'visible', paused );
+			pausePanel.setAttribute( 'aria-hidden', paused ? 'false' : 'true' );
+
+		}
+		if ( pauseToggleBtn ) {
+
+			pauseToggleBtn.disabled = ! canPause;
+			pauseToggleBtn.textContent = paused ? 'Resume' : 'Pause';
+			pauseToggleBtn.title = canPause ? 'Pause or resume the race' : 'Pause is disabled in multiplayer.';
+
+		}
+
+	}
+
+	function setPaused( next ) {
+
+		const nextPaused = Boolean( next );
+		if ( nextPaused && ! canPauseGameplay() ) return;
+		if ( paused === nextPaused ) return;
+		paused = nextPaused;
+		if ( paused ) {
+
+			currentLapInvalidatedByPause = true;
+			showTopMessage( 'Paused run marked invalid for leaderboard submission.', true, 1800 );
+
+		}
+		updatePauseUi();
+		updateLapHud();
+
+	}
+
+	function togglePaused() {
+
+		setPaused( ! paused );
+
+	}
+
 	function updateCountdownHud( now = raceClockSeconds ) {
 
 		if ( ! countdownHud ) return;
@@ -5485,6 +5545,7 @@ function completeCampaignStage() {
 
 		lapStartSeconds = raceClockSeconds;
 		lapSeconds = 0;
+		currentLapInvalidatedByPause = false;
 		boostActiveUntil = 0;
 		boostContactCell = null;
 		arcLinkState = { contactKey: null, lockUntilExit: false };
@@ -6100,6 +6161,7 @@ function completeCampaignStage() {
 		setModeMenuOpen( ! modeMenuOpen );
 
 	} );
+	pauseToggleBtn?.addEventListener( 'click', () => togglePaused() );
 	hacksToggleLink?.addEventListener( 'click', ( e ) => {
 
 		e.preventDefault();
@@ -6510,6 +6572,7 @@ function completeCampaignStage() {
 	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 	updateGhostShareButtons();
 	updateModeHudVisibility();
+	updatePauseUi();
 	fetchTrackLeaderboard();
 	setInterval( () => {
 
@@ -6563,6 +6626,13 @@ function completeCampaignStage() {
 				target.isContentEditable
 			);
 			if ( isTypingTarget ) return;
+
+			if ( ( e.code === 'Escape' || e.code === 'KeyP' ) && canPauseGameplay() ) {
+
+				togglePaused();
+				return;
+
+			}
 
 				if ( e.code === 'KeyE' ) {
 
@@ -6625,12 +6695,48 @@ function completeCampaignStage() {
 
 	let hudUpdateAccumulator = 0;
 
+	function renderFrame() {
+
+		if ( isSplitScreen && cam2 ) {
+
+			const width = window.innerWidth;
+			const height = window.innerHeight;
+			const halfH = Math.floor( height / 2 );
+
+			renderer.setScissorTest( true );
+			cam.camera.aspect = width / Math.max( 1, halfH );
+			cam.camera.updateProjectionMatrix();
+			renderer.setViewport( 0, halfH, width, height - halfH );
+			renderer.setScissor( 0, halfH, width, height - halfH );
+			renderer.render( scene, cam.camera );
+
+			cam2.camera.aspect = width / Math.max( 1, halfH );
+			cam2.camera.updateProjectionMatrix();
+			renderer.setViewport( 0, 0, width, halfH );
+			renderer.setScissor( 0, 0, width, halfH );
+			renderer.render( scene, cam2.camera );
+			renderer.setScissorTest( false );
+
+		} else {
+
+			renderer.render( scene, cam.camera );
+
+		}
+
+	}
+
 	function animate() {
 
 		requestAnimationFrame( animate );
 
 			timer.update();
 			const dtBase = Math.min( timer.getDelta(), 1 / 30 );
+			if ( paused ) {
+
+				renderFrame();
+				return;
+
+			}
 			const hacksActive = hacksInstalled && hacksState.enabled;
 			const hackTimeScale = hacksActive ? hacksState.timeScale : 1;
 			const padScale1 = Number( activePadTimeScale ) || 1;
@@ -7030,13 +7136,22 @@ function completeCampaignStage() {
 			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
 
 					const completedLap = now - lapStartSeconds;
+					const lapInvalid = currentLapInvalidatedByPause;
 					const previousBestLap = bestLapSeconds;
-					const isNewBest = bestLapSeconds === null || completedLap < bestLapSeconds;
+					const isNewBest = ! lapInvalid && ( bestLapSeconds === null || completedLap < bestLapSeconds );
 					lastLapSeconds = completedLap;
-					bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
-					if ( isNewBest ) publishMultiplayerBestLap( bestLapSeconds );
-					shareImageDataUrl = createShareSnapshot( bestLapSeconds );
-					if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
+					if ( ! lapInvalid ) {
+
+						bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
+						if ( isNewBest ) publishMultiplayerBestLap( bestLapSeconds );
+						shareImageDataUrl = createShareSnapshot( bestLapSeconds );
+						if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
+
+					} else {
+
+						showTopMessage( 'Lap completed, but paused runs are leaderboard invalid.', true, 2400 );
+
+					}
 				if ( isNewBest && currentLapGhostSamples.length > 1 ) {
 
 					bestLapGhostSamples.length = 0;
@@ -7088,7 +7203,7 @@ function completeCampaignStage() {
 
 				}
 				if ( isNewBest && ! isSplitScreen ) submitLeaderboardTime( completedLap );
-				if ( editorQuickTestEnabled && editorReturnParam && ! isSplitScreen && currentLapGhostSamples.length > 1 ) {
+				if ( ! lapInvalid && editorQuickTestEnabled && editorReturnParam && ! isSplitScreen && currentLapGhostSamples.length > 1 ) {
 
 					try {
 
@@ -7117,6 +7232,7 @@ function completeCampaignStage() {
 						lapNumber ++;
 					resetMovingObstacles( movingObstacleState, now );
 						lapStartSeconds = now;
+						currentLapInvalidatedByPause = false;
 						checkpointDeltaText = '';
 						resetCurrentLapGhost();
 						resetCurrentLapInputs();
@@ -7134,7 +7250,7 @@ function completeCampaignStage() {
 				if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle();
 					saveLapStats();
 					rewardCoinsForLap( completedLap );
-					if ( competitionParamEnabled && competitionReturnParam && ! isSplitScreen ) {
+					if ( ! lapInvalid && competitionParamEnabled && competitionReturnParam && ! isSplitScreen ) {
 						const competitionResultUrl = new URL( competitionReturnParam, window.location.href );
 						competitionResultUrl.searchParams.set( 'competitionResult', '1' );
 						competitionResultUrl.searchParams.set( 'time', String( Number( completedLap ) ) );
@@ -7315,31 +7431,7 @@ function completeCampaignStage() {
 
 		}
 
-		if ( isSplitScreen && cam2 ) {
-
-			const width = window.innerWidth;
-			const height = window.innerHeight;
-			const halfH = Math.floor( height / 2 );
-
-			renderer.setScissorTest( true );
-			cam.camera.aspect = width / Math.max( 1, halfH );
-			cam.camera.updateProjectionMatrix();
-			renderer.setViewport( 0, halfH, width, height - halfH );
-			renderer.setScissor( 0, halfH, width, height - halfH );
-			renderer.render( scene, cam.camera );
-
-			cam2.camera.aspect = width / Math.max( 1, halfH );
-			cam2.camera.updateProjectionMatrix();
-			renderer.setViewport( 0, 0, width, halfH );
-			renderer.setScissor( 0, 0, width, halfH );
-			renderer.render( scene, cam2.camera );
-			renderer.setScissorTest( false );
-
-		} else {
-
-			renderer.render( scene, cam.camera );
-
-		}
+		renderFrame();
 
 	}
 

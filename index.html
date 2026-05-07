@@ -182,6 +182,28 @@
 			pointer-events: none;
 		}
 		#countdown-hud.visible { display: block; }
+		#pause-panel {
+			position: absolute;
+			left: 50%;
+			top: 50%;
+			transform: translate(-50%, -50%);
+			z-index: 19;
+			display: none;
+			width: min(360px, calc(100vw - 32px));
+			box-sizing: border-box;
+			padding: 22px 24px;
+			border-radius: 16px;
+			border: 1px solid rgba(255,255,255,0.24);
+			background: rgba(8,10,16,0.78);
+			color: #fff;
+			font: 600 14px/1.4 sans-serif;
+			text-align: center;
+			text-shadow: 0 2px 10px rgba(0,0,0,0.7);
+			pointer-events: none;
+		}
+		#pause-panel.visible { display: block; }
+		#pause-panel h2 { margin: 0 0 8px; font: 800 32px/1 sans-serif; }
+		#pause-panel p { margin: 0; color: #cfe1f8; }
 		#lap-hud-2 {
 			position: absolute;
 			left: 50%;
@@ -660,13 +682,21 @@
 			border: 1px solid rgba(255,255,255,0.2);
 			min-width: 180px;
 		}
-		#quick-menu-panel a {
+		#quick-menu-panel a, #quick-menu-panel button {
 			position: static !important;
 			display: block;
+			box-sizing: border-box;
+			width: 100%;
 			background: rgba(255,255,255,0.1);
+			color: #fff;
 			padding: 8px 10px;
 			border-radius: 7px;
+			border: 1px solid rgba(255,255,255,0.16);
+			font: 600 13px sans-serif;
+			text-align: left;
+			cursor: pointer;
 		}
+		#quick-menu-panel button:disabled { opacity: 0.55; cursor: not-allowed; }
 		#quick-menu-panel.open { display: flex; }
 
 		
@@ -891,7 +921,7 @@
 	<a id="hacks-toggle" href="#" style="display:none;">Hacks</a>
 	<a id="split-link" href="#">2P split screen</a>
 	<button id="quick-menu-btn" type="button" aria-expanded="false">Menu ▾</button>
-	<div id="quick-menu-panel"></div>
+	<div id="quick-menu-panel"><button id="pause-toggle-btn" type="button">Pause</button></div>
 	<select id="car-select" aria-label="Select car">
 		<option value="vehicle-truck-yellow">Yellow</option>
 		<option value="vehicle-truck-green">Green</option>
@@ -901,6 +931,10 @@
 		<div id="lap-hud">Lap 1 • 00:00.000<br><small>Last: --:--.--- • Best: --:--.---</small><br><small>Checkpoints: 0 / 0</small></div>
 		<div id="lap-hud-2">P2 • Lap 1 • 00:00.000<br><small>Last: --:--.--- • Best: --:--.---</small><br><small>Keys: Arrows</small></div>
 		<div id="countdown-hud" aria-live="polite"></div>
+		<div id="pause-panel" role="status" aria-live="polite" aria-hidden="true">
+			<h2>Paused</h2>
+			<p>Press Escape or P to resume.</p>
+		</div>
 	<div id="economy-hud">
 		<div id="coins-label">Coins: 0</div>
 	</div>
