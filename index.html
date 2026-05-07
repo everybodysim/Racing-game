@@ -301,7 +301,23 @@
 			color: #d7d7d7;
 		}
 		#campaign-progress { margin-top: 8px; color: #bde6ff; font: 600 12px/1.3 sans-serif; }
-		#countdown-setting {
+		#fps-hud {
+			position: absolute;
+			left: 50%;
+			bottom: 12px;
+			transform: translateX(-50%);
+			z-index: 10;
+			display: none;
+			padding: 4px 8px;
+			border-radius: 999px;
+			background: rgba(0,0,0,0.42);
+			color: rgba(255,255,255,0.84);
+			font: 700 11px/1 sans-serif;
+			text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+			pointer-events: none;
+		}
+		#fps-hud.visible { display: block; }
+		#countdown-setting, #fps-setting {
 			display: flex;
 			align-items: flex-start;
 			gap: 8px;
@@ -311,8 +327,8 @@
 			color: #fff;
 			font: 600 12px/1.3 sans-serif;
 		}
-		#countdown-setting input { margin-top: 2px; }
-		#countdown-setting small { display: block; margin-top: 2px; color: #bde6ff; }
+		#countdown-setting input, #fps-setting input { margin-top: 2px; }
+		#countdown-setting small, #fps-setting small { display: block; margin-top: 2px; color: #bde6ff; }
 		#graphics-section {
 			margin-top: 10px;
 			padding-top: 10px;
@@ -672,26 +688,26 @@
 			bottom: 12px;
 			z-index: 16;
 			color: #fff;
-			font: 600 13px sans-serif;
+			font: 600 12px sans-serif;
 			background: rgba(0,0,0,0.62);
-			padding: 8px 12px;
-			border-radius: 8px;
+			padding: 6px 9px;
+			border-radius: 7px;
 			border: 1px solid rgba(255,255,255,0.22);
 			cursor: pointer;
 		}
 		#quick-menu-panel {
 			position: absolute;
 			right: 16px;
-			bottom: 52px;
+			bottom: 44px;
 			z-index: 16;
 			display: none;
 			flex-direction: column;
-			gap: 8px;
+			gap: 4px;
 			background: rgba(0,0,0,0.62);
-			padding: 8px;
-			border-radius: 10px;
+			padding: 5px;
+			border-radius: 9px;
 			border: 1px solid rgba(255,255,255,0.2);
-			min-width: 180px;
+			min-width: 148px;
 		}
 		#quick-menu-panel a, #quick-menu-panel button {
 			position: static !important;
@@ -700,10 +716,10 @@
 			width: 100%;
 			background: rgba(255,255,255,0.1);
 			color: #fff;
-			padding: 8px 10px;
-			border-radius: 7px;
+			padding: 5px 7px;
+			border-radius: 6px;
 			border: 1px solid rgba(255,255,255,0.16);
-			font: 600 13px sans-serif;
+			font: 600 11px sans-serif;
 			text-align: left;
 			cursor: pointer;
 		}
@@ -942,6 +958,7 @@
 		<div id="lap-hud">Lap 1 • 00:00.000<br><small>Last: --:--.--- • Best: --:--.---</small><br><small>Checkpoints: 0 / 0</small></div>
 		<div id="lap-hud-2">P2 • Lap 1 • 00:00.000<br><small>Last: --:--.--- • Best: --:--.---</small><br><small>Keys: Arrows</small></div>
 		<div id="countdown-hud" aria-live="polite"></div>
+		<div id="fps-hud" aria-hidden="true">FPS: --</div>
 		<div id="pause-panel" role="status" aria-live="polite" aria-hidden="true">
 			<h2>Paused</h2>
 			<p>Press Escape or P to resume.</p>
@@ -980,6 +997,10 @@
 			<label id="countdown-setting" for="countdown-toggle">
 				<input id="countdown-toggle" type="checkbox" checked>
 				<span>Start countdown<small>Disable for instant restarts and advanced time trials.</small></span>
+			</label>
+			<label id="fps-setting" for="fps-toggle">
+				<input id="fps-toggle" type="checkbox">
+				<span>Show FPS<small>Displays a small bottom-center frame-rate counter.</small></span>
 			</label>
 			<section id="graphics-section" aria-labelledby="graphics-section-title">
 				<h4 id="graphics-section-title">Graphics</h4>

@@ -136,6 +136,7 @@ const BOOST_FORCE_SECONDS = 0.45;
 const BOOST_ACCEL_PER_SECOND = 16.5;
 const FX_SETTINGS_KEY = 'racing-fx-settings-v1';
 const COUNTDOWN_SETTINGS_KEY = 'racing-countdown-enabled-v1';
+const FPS_HUD_SETTINGS_KEY = 'racing-show-fps-v1';
 const COUNTDOWN_DURATION_SECONDS = 3;
 const ZERO_DRIVE_INPUT = { x: 0, z: 0 };
 const VEHICLE_SURFACE_RADIUS = 0.5;
@@ -2271,6 +2272,7 @@ async function init() {
 	const lapHud = document.getElementById( 'lap-hud' );
 	const lapHud2 = document.getElementById( 'lap-hud-2' );
 	const countdownHud = document.getElementById( 'countdown-hud' );
+	const fpsHud = document.getElementById( 'fps-hud' );
 	const pausePanel = document.getElementById( 'pause-panel' );
 	const respawnBtn = document.getElementById( 'respawnBtn' );
 	const modeMenuBtn = document.getElementById( 'mode-menu-btn' );
@@ -2398,6 +2400,7 @@ async function init() {
 	const campaignModeBtn = document.getElementById( 'mode-campaign-btn' );
 	const campaignInfoBtn = document.getElementById( 'campaign-info-btn' );
 	const countdownToggle = document.getElementById( 'countdown-toggle' );
+	const fpsToggle = document.getElementById( 'fps-toggle' );
 	const graphicsQualityButtons = Array.from( document.querySelectorAll( '[data-graphics-quality]' ) );
 	const graphicsQualityLabel = document.getElementById( 'graphics-quality-label' );
 	const modeTabGameplayBtn = document.getElementById( 'mode-tab-gameplay' );
@@ -3764,6 +3767,9 @@ function completeCampaignStage() {
 	let countdownActive = false;
 	let countdownEndsAt = 0;
 	let countdownEnabled = localStorage.getItem( COUNTDOWN_SETTINGS_KEY ) !== '0';
+	let fpsHudVisible = localStorage.getItem( FPS_HUD_SETTINGS_KEY ) === '1';
+	let rollingFps = 0;
+	let fpsHudAccumulator = 0;
 	const activeCells = customCells || TRACK_CELLS;
 	const hasSeparateStartCell = activeCells.some( ( c ) => c[ 2 ] === 'track-start' );
 	const hasSeparateFinishCell = activeCells.some( ( c ) => c[ 2 ] === 'track-finish' );
@@ -5502,6 +5508,31 @@ function completeCampaignStage() {
 
 	}
 
+	function updateFpsHudVisibility() {
+
+		if ( fpsToggle ) fpsToggle.checked = fpsHudVisible;
+		if ( fpsHud ) {
+
+			fpsHud.classList.toggle( 'visible', fpsHudVisible );
+			fpsHud.setAttribute( 'aria-hidden', fpsHudVisible ? 'false' : 'true' );
+
+		}
+
+	}
+
+	function updateFpsHud( frameSeconds ) {
+
+		if ( ! fpsHudVisible || ! fpsHud ) return;
+		const instantFps = frameSeconds > 0 ? 1 / frameSeconds : 0;
+		if ( ! Number.isFinite( instantFps ) || instantFps <= 0 ) return;
+		rollingFps = rollingFps > 0 ? THREE.MathUtils.lerp( rollingFps, instantFps, 0.08 ) : instantFps;
+		fpsHudAccumulator += frameSeconds;
+		if ( fpsHudAccumulator < 0.18 ) return;
+		fpsHudAccumulator = 0;
+		fpsHud.textContent = `FPS: ${ Math.round( rollingFps ) }`;
+
+	}
+
 	function canPauseGameplay() {
 
 		return ! isSplitScreen && ! multiplayerSessionState.roomCode && ! replayViewerMode;
@@ -6385,11 +6416,25 @@ function completeCampaignStage() {
 
 	}
 	updateCountdownToggle();
+	updateFpsHudVisibility();
 	countdownToggle?.addEventListener( 'change', () => {
 
 		countdownEnabled = Boolean( countdownToggle.checked );
 		localStorage.setItem( COUNTDOWN_SETTINGS_KEY, countdownEnabled ? '1' : '0' );
 		if ( ! countdownEnabled ) finishCountdown();
+
+	} );
+	fpsToggle?.addEventListener( 'change', () => {
+
+		fpsHudVisible = Boolean( fpsToggle.checked );
+		localStorage.setItem( FPS_HUD_SETTINGS_KEY, fpsHudVisible ? '1' : '0' );
+		if ( fpsHudVisible ) {
+
+			rollingFps = 0;
+			fpsHudAccumulator = 0;
+
+		}
+		updateFpsHudVisibility();
 
 	} );
 	garageSourceToleranceInput?.addEventListener( 'input', () => {
@@ -6824,7 +6869,9 @@ function completeCampaignStage() {
 		requestAnimationFrame( animate );
 
 			timer.update();
-			const dtBase = Math.min( timer.getDelta(), 1 / 30 );
+			const frameSeconds = timer.getDelta();
+			updateFpsHud( frameSeconds );
+			const dtBase = Math.min( frameSeconds, 1 / 30 );
 			if ( paused ) {
 
 				renderFrame();
