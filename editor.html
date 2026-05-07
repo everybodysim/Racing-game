@@ -462,6 +462,8 @@
 			<span class="toolbar-group-label">Edit</span>
 			<button id="btn-paint" class="active">Paint</button>
 			<button id="btn-erase">Erase</button>
+			<button id="btn-undo" title="Undo (Ctrl/Cmd+Z)" disabled>Undo</button>
+			<button id="btn-redo" title="Redo (Ctrl+Y or Cmd+Shift+Z)" disabled>Redo</button>
 			<button id="btn-flow">Flow: Off</button>
 			<button id="btn-offgrid">Snap: Grid</button>
 		</div>
@@ -757,6 +759,7 @@
 
 		}
 		const magnet = magnetBlocks[ selectedMagnetIndex ];
+		pushHistorySnapshot();
 		magnet.y = clampMagnetGridY( magnet.y + deltaGridY );
 		if ( magnet.mesh ) magnet.mesh.position.y = getMagnetWorldY( magnet.y );
 		refreshMagnetSelectionTint();
@@ -774,6 +777,7 @@
 
 		}
 		const magnet = magnetBlocks[ selectedMagnetIndex ];
+		pushHistorySnapshot();
 		magnet.strength = clampMagnetStrength( ( magnet.strength ?? MAGNET_DEFAULT_STRENGTH ) + deltaStrength );
 		save();
 		showToast( `Magnet strength: ${ magnet.strength }` );
@@ -789,6 +793,7 @@
 
 		}
 		const magnet = magnetBlocks[ selectedMagnetIndex ];
+		pushHistorySnapshot();
 		magnet.range = clampMagnetRange( ( magnet.range ?? MAGNET_DEFAULT_RANGE ) + deltaRange );
 		save();
 		showToast( `Magnet range: ${ magnet.range.toFixed( 2 ) }` );
@@ -941,6 +946,7 @@
 
 		}
 		const arc = arcBlocks[ selectedArcIndex ];
+		pushHistorySnapshot();
 		arc.linkId = clampArcLinkId( ( arc.linkId ?? ARC_DEFAULT_ID ) + delta );
 		rebuildArcMeshes();
 		save();
@@ -957,6 +963,7 @@
 
 		}
 		const arc = arcBlocks[ selectedArcIndex ];
+		pushHistorySnapshot();
 		arc.y = clampMagnetGridY( arc.y + deltaGridY );
 		if ( arc.mesh ) arc.mesh.position.y = getMagnetWorldY( arc.y );
 		refreshArcSelectionTint();
@@ -1299,6 +1306,7 @@
 	async function importCustomAssetFile( file ) {
 
 		if ( ! file ) return;
+		pushHistorySnapshot();
 		const lower = file.name.toLowerCase();
 		const format = lower.endsWith( '.obj' ) ? 'obj' : 'glb';
 		const dataUrl = await new Promise( ( resolve, reject ) => {
@@ -1727,6 +1735,7 @@
 
 	function placeSelectedBlock( gx, gz ) {
 
+		pushHistorySnapshot();
 		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL || selectedType === MAGNET_GRAPPLE_TOOL ) {
 
 			const existingIndex = findNearestMagnetIndex( gx, gz );
@@ -1878,6 +1887,7 @@
 
 	function eraseRoad( gx, gz ) {
 
+		pushHistorySnapshot();
 		const magnetIndex = findNearestMagnetIndex( gx, gz );
 		if ( magnetIndex >= 0 ) {
 
@@ -1927,6 +1937,7 @@
 
 	function clearAll() {
 
+		pushHistorySnapshot();
 		clearGhost();
 		for ( const [ , cell ] of grid ) {
 
@@ -2025,6 +2036,7 @@
 	function applyFlowStroke() {
 
 		if ( flowStrokeCells.length === 0 ) return;
+		pushHistorySnapshot();
 		const deduped = getDedupedFlowStrokeCells();
 		for ( let i = 0; i < deduped.length; i ++ ) {
 
@@ -2316,6 +2328,107 @@
 
 	}
 
+	const HISTORY_LIMIT = 30;
+	const undoStack = [];
+	const redoStack = [];
+	let isRestoringHistory = false;
+
+	function cloneTestSpawnCell() {
+
+		return testSpawnCell ? { gx: Number( testSpawnCell.gx ), gz: Number( testSpawnCell.gz ), orient: Number( testSpawnCell.orient || 0 ) } : null;
+
+	}
+
+	function createHistorySnapshot() {
+
+		return {
+			cells: encodeCells( getCellsArray() ),
+			mods: encodeMods(),
+			testSpawn: cloneTestSpawnCell(),
+		};
+
+	}
+
+	function historySnapshotsEqual( a, b ) {
+
+		return Boolean( a && b )
+			&& a.cells === b.cells
+			&& a.mods === b.mods
+			&& JSON.stringify( a.testSpawn || null ) === JSON.stringify( b.testSpawn || null );
+
+	}
+
+	function updateHistoryButtons() {
+
+		document.getElementById( 'btn-undo' )?.toggleAttribute( 'disabled', undoStack.length === 0 );
+		document.getElementById( 'btn-redo' )?.toggleAttribute( 'disabled', redoStack.length === 0 );
+
+	}
+
+	function pushHistorySnapshot() {
+
+		if ( isRestoringHistory ) return;
+		const snapshot = createHistorySnapshot();
+		if ( historySnapshotsEqual( undoStack[ undoStack.length - 1 ], snapshot ) ) return;
+		undoStack.push( snapshot );
+		if ( undoStack.length > HISTORY_LIMIT ) undoStack.shift();
+		redoStack.length = 0;
+		updateHistoryButtons();
+
+	}
+
+	async function restoreHistorySnapshot( snapshot ) {
+
+		if ( ! snapshot ) return;
+		isRestoringHistory = true;
+		try {
+
+			await loadEncodedState( snapshot.cells, snapshot.mods );
+			testSpawnCell = snapshot.testSpawn ? { ...snapshot.testSpawn } : null;
+			save();
+
+		} finally {
+
+			isRestoringHistory = false;
+			updateHistoryButtons();
+
+		}
+
+	}
+
+	async function undoEdit() {
+
+		const snapshot = undoStack.pop();
+		if ( ! snapshot ) {
+
+			updateHistoryButtons();
+			showToast( 'Nothing to undo' );
+			return;
+
+		}
+		redoStack.push( createHistorySnapshot() );
+		await restoreHistorySnapshot( snapshot );
+		showToast( 'Undo' );
+
+	}
+
+	async function redoEdit() {
+
+		const snapshot = redoStack.pop();
+		if ( ! snapshot ) {
+
+			updateHistoryButtons();
+			showToast( 'Nothing to redo' );
+			return;
+
+		}
+		undoStack.push( createHistorySnapshot() );
+		if ( undoStack.length > HISTORY_LIMIT ) undoStack.shift();
+		await restoreHistorySnapshot( snapshot );
+		showToast( 'Redo' );
+
+	}
+
 	function restartAutosaveTimer() {
 
 		if ( autosaveTimer ) clearInterval( autosaveTimer );
@@ -2479,15 +2592,39 @@
 
 	}
 
-	async function loadSaved() {
+	function clearEditorStateForLoad() {
 
-		const params = new URLSearchParams( window.location.search );
-		const mapParam = params.get( 'map' );
-		const modsParam = params.get( 'mods' );
-		const encoded = mapParam || localStorage.getItem( 'racing-editor-cells' );
-		const modsEncoded = modsParam || localStorage.getItem( 'racing-editor-mods' );
+		clearGhost();
+		clearMagnetMeshes();
+		clearArcMeshes();
+		for ( const [ , cell ] of grid ) {
 
-		if ( ! encoded ) return;
+			for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
+			if ( cell.mesh ) trackGroup.remove( cell.mesh );
+			if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+			if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
+			if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
+			if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
+			if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+			if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
+			if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
+			for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
+			if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+
+		}
+		grid.clear();
+		magnetBlocks.length = 0;
+		selectedMagnetIndex = -1;
+		arcBlocks.length = 0;
+		selectedArcIndex = -1;
+		testSpawnCell = null;
+
+	}
+
+	async function loadEncodedState( encoded, modsEncoded = '' ) {
+
+		if ( encoded == null ) return;
+		clearEditorStateForLoad();
 
 		try {
 
@@ -2670,6 +2807,18 @@
 
 	}
 
+	async function loadSaved() {
+
+		const params = new URLSearchParams( window.location.search );
+		const mapParam = params.get( 'map' );
+		const modsParam = params.get( 'mods' );
+		const encoded = mapParam || localStorage.getItem( 'racing-editor-cells' );
+		const modsEncoded = modsParam || localStorage.getItem( 'racing-editor-mods' );
+		await loadEncodedState( encoded, modsEncoded );
+
+	}
+
+
 	// ─── Toast ────────────────────────────────────────────────
 
 	let toastTimer = 0;
@@ -2718,6 +2867,7 @@ function refreshMovingSpeedUi() {
 		if ( hoveredCell ) {
 			const cell = grid.get( cellKey( hoveredCell.gx, hoveredCell.gz ) );
 			if ( cell?.movingObstacle ) {
+				pushHistorySnapshot();
 				cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedInput.value ) || 1 ) );
 				placeOverlayMesh( hoveredCell.gx, hoveredCell.gz, cell );
 				save();
@@ -2946,6 +3096,7 @@ function refreshMovingSpeedUi() {
 	function saveCustomSurfaceEditor() {
 
 		if ( ! activeCustomSurfaceEditor ) return;
+		pushHistorySnapshot();
 		if ( activeCustomSurfaceEditor.startsWith( 'pad-' ) ) {
 
 			customPadConfigs[ activeCustomSurfaceEditor ] = {
@@ -3164,6 +3315,9 @@ function refreshMovingSpeedUi() {
 	} );
 	syncFlowUi();
 
+	document.getElementById( 'btn-undo' )?.addEventListener( 'click', () => undoEdit() );
+	document.getElementById( 'btn-redo' )?.addEventListener( 'click', () => redoEdit() );
+	updateHistoryButtons();
 	btnRotate.addEventListener( 'click', rotateSelection );
 	btnPaint.addEventListener( 'click', () => selectTool( 'paint' ) );
 	btnErase.addEventListener( 'click', () => selectTool( 'erase' ) );
@@ -3175,6 +3329,7 @@ function refreshMovingSpeedUi() {
 
 	function applyWeatherSettingsFromUi() {
 
+		pushHistorySnapshot();
 		weatherSettings = normalizeWeatherSettings( {
 			preset: weatherSelect.value,
 			precipitation: precipitationSelect.value,
@@ -3454,6 +3609,7 @@ function refreshMovingSpeedUi() {
 		if ( ! cell ) return;
 		if ( pickTestSpawnMode ) {
 
+			pushHistorySnapshot();
 			const key = cellKey( cell.gx, cell.gz );
 			const existing = grid.get( key );
 			testSpawnCell = { gx: cell.gx, gz: cell.gz, orient: existing?.orient || selectedOrient || 0 };
@@ -3703,6 +3859,25 @@ function refreshMovingSpeedUi() {
 		window.addEventListener( 'keydown', ( e ) => {
 
 			const panStep = cellWorld * 0.75 / camera.zoom;
+			const key = e.key.toLowerCase();
+			const modifier = e.ctrlKey || e.metaKey;
+			const target = e.target;
+			const isTypingTarget = target && ( target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable );
+			if ( ! isTypingTarget && modifier && key === 'z' ) {
+
+				e.preventDefault();
+				if ( e.shiftKey ) redoEdit();
+				else undoEdit();
+				return;
+
+			}
+			if ( ! isTypingTarget && modifier && key === 'y' ) {
+
+				e.preventDefault();
+				redoEdit();
+				return;
+
+			}
 
 			if ( e.key === ' ' ) {
 
