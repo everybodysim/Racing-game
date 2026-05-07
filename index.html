@@ -313,6 +313,17 @@
 		}
 		#countdown-setting input { margin-top: 2px; }
 		#countdown-setting small { display: block; margin-top: 2px; color: #bde6ff; }
+		#graphics-section {
+			margin-top: 10px;
+			padding-top: 10px;
+			border-top: 1px solid rgba(255,255,255,0.14);
+		}
+		#graphics-section h4 { margin: 0 0 4px; font: 700 12px/1.2 sans-serif; color: #b5d8ff; }
+		#graphics-section p { margin: 0 0 8px; color: #cfe1f8; font: 600 11px/1.3 sans-serif; }
+		#graphics-quality-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+		#mode-menu #graphics-quality-row button { margin-top: 0; padding: 8px 6px; }
+		#mode-menu #graphics-quality-row button.active { background: rgba(126,181,255,0.32); border-color: rgba(190,220,255,0.8); }
+		#graphics-quality-label { display: block; margin-top: 7px; color: #ffdca8; font: 700 11px/1.2 sans-serif; }
 		#mode-tab-row { display: flex; gap: 6px; margin-bottom: 8px; }
 		.mode-tab-btn {
 			flex: 1;
@@ -970,6 +981,16 @@
 				<input id="countdown-toggle" type="checkbox" checked>
 				<span>Start countdown<small>Disable for instant restarts and advanced time trials.</small></span>
 			</label>
+			<section id="graphics-section" aria-labelledby="graphics-section-title">
+				<h4 id="graphics-section-title">Graphics</h4>
+				<p>Performance mode lowers resolution, shadows, particles, and decorative weather effects for smoother play.</p>
+				<div id="graphics-quality-row" role="group" aria-label="Graphics quality">
+					<button type="button" data-graphics-quality="low" aria-pressed="false">Low</button>
+					<button type="button" data-graphics-quality="medium" aria-pressed="false">Medium</button>
+					<button type="button" data-graphics-quality="high" aria-pressed="false">High</button>
+				</div>
+				<small id="graphics-quality-label">High performance mode</small>
+			</section>
 			<div id="campaign-progress">Campaign Stage 1: Complete 1 lap on default track • 0/1</div>
 		</div>
 		<div class="mode-tab-panel" id="mode-panel-garage">

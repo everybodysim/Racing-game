@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-const POOL_SIZE = 64;
+const DEFAULT_POOL_SIZE = 64;
 const _worldPos = new THREE.Vector3();
 const DEFAULT_PARTICLE_COLOR = new THREE.Color( 0x5E5F6B );
 const BOOST_PARTICLE_COLORS = [
@@ -10,9 +10,13 @@ const BOOST_PARTICLE_COLORS = [
 
 export class SmokeTrails {
 
-	constructor( scene ) {
+	constructor( scene, options = {} ) {
 
+		this.scene = scene;
 		this.particles = [];
+		this.maxParticles = Math.max( 1, Math.floor( Number( options.maxParticles ) || DEFAULT_POOL_SIZE ) );
+		this.emissionStride = Math.max( 1, Math.floor( Number( options.emissionStride ) || 1 ) );
+		this.emitFrame = 0;
 
 		const map = new THREE.TextureLoader().load( 'sprites/smoke.png' );
 		this.material = new THREE.SpriteMaterial( {
@@ -23,25 +27,48 @@ export class SmokeTrails {
 			color: 0x5E5F6B,
 		} );
 
-		for ( let i = 0; i < POOL_SIZE; i ++ ) {
-
-			const sprite = new THREE.Sprite( this.material.clone() );
-			sprite.visible = false;
-			sprite.scale.setScalar( 0.25 );
-			scene.add( sprite );
-
-			this.particles.push( {
-				sprite,
-				life: 0,
-				maxLife: 0,
-				velocity: new THREE.Vector3(),
-				initialScale: 0,
-			} );
-
-		}
+		this.ensurePoolSize( this.maxParticles );
 
 		this.emitIndex = 0;
 		this.boostFxTime = 0;
+
+	}
+
+	createParticle() {
+
+		const sprite = new THREE.Sprite( this.material.clone() );
+		sprite.visible = false;
+		sprite.scale.setScalar( 0.25 );
+		this.scene.add( sprite );
+
+		return {
+			sprite,
+			life: 0,
+			maxLife: 0,
+			velocity: new THREE.Vector3(),
+			initialScale: 0,
+		};
+
+	}
+
+	ensurePoolSize( size ) {
+
+		while ( this.particles.length < size ) this.particles.push( this.createParticle() );
+
+	}
+
+	setQuality( options = {} ) {
+
+		this.maxParticles = Math.max( 1, Math.floor( Number( options.maxParticles ) || this.maxParticles || DEFAULT_POOL_SIZE ) );
+		this.emissionStride = Math.max( 1, Math.floor( Number( options.emissionStride ) || this.emissionStride || 1 ) );
+		this.ensurePoolSize( this.maxParticles );
+		if ( this.emitIndex >= this.maxParticles ) this.emitIndex = 0;
+		for ( let i = this.maxParticles; i < this.particles.length; i ++ ) {
+
+			this.particles[ i ].life = 0;
+			this.particles[ i ].sprite.visible = false;
+
+		}
 
 	}
 
@@ -54,8 +81,13 @@ export class SmokeTrails {
 		// Emit new particles from back wheel positions
 		if ( shouldEmit ) {
 
-			if ( vehicle.wheelBL ) this.emitAtWheel( vehicle.wheelBL, vehicle, boostActive );
-			if ( vehicle.wheelBR ) this.emitAtWheel( vehicle.wheelBR, vehicle, boostActive );
+			this.emitFrame = ( this.emitFrame + 1 ) % this.emissionStride;
+			if ( this.emitFrame === 0 ) {
+
+				if ( vehicle.wheelBL ) this.emitAtWheel( vehicle.wheelBL, vehicle, boostActive );
+				if ( vehicle.wheelBR ) this.emitAtWheel( vehicle.wheelBR, vehicle, boostActive );
+
+			}
 
 		}
 
@@ -111,8 +143,9 @@ export class SmokeTrails {
 
 	emitAtWheel( wheel, vehicle, boostActive = false ) {
 
-		const p = this.particles[ this.emitIndex ];
-		this.emitIndex = ( this.emitIndex + 1 ) % POOL_SIZE;
+		const poolSize = Math.max( 1, Math.min( this.maxParticles, this.particles.length ) );
+		const p = this.particles[ this.emitIndex % poolSize ];
+		this.emitIndex = ( this.emitIndex + 1 ) % poolSize;
 
 		// Get wheel world position, but use road surface Y
 		wheel.getWorldPosition( _worldPos );

@@ -15,17 +15,58 @@ import { DeterministicPlaybackController } from './tas-core.js';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 
 
-const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
 const MAX_PIXEL_RATIO = 1.5;
+const GRAPHICS_QUALITY_KEY = 'racing-graphics-quality';
+const GRAPHICS_QUALITY_PRESETS = {
+	low: { label: 'Low', maxPixelRatio: 0.85, shadows: false, shadowMapSize: 1024, smokeParticles: 24, smokeEmissionStride: 3, weatherParticleScale: 0, bloomStrength: 0, bloomRadius: 0 },
+	medium: { label: 'Medium', maxPixelRatio: 1.1, shadows: true, shadowMapSize: 2048, smokeParticles: 44, smokeEmissionStride: 2, weatherParticleScale: 0.55, bloomStrength: 0.01, bloomRadius: 0.01 },
+	high: { label: 'High', maxPixelRatio: MAX_PIXEL_RATIO, shadows: true, shadowMapSize: 4096, smokeParticles: 64, smokeEmissionStride: 1, weatherParticleScale: 1, bloomStrength: 0.02, bloomRadius: 0.02 },
+};
+
+function isLikelyMobileDevice() {
+
+	return Boolean( window.matchMedia?.( '(pointer: coarse)' )?.matches || window.innerWidth <= 760 || /Android|iPhone|iPad|iPod/i.test( navigator.userAgent ) );
+
+}
+
+function getDefaultGraphicsQuality() {
+
+	if ( isLikelyMobileDevice() ) return ( Number( navigator.deviceMemory ) && navigator.deviceMemory <= 4 ) ? 'low' : 'medium';
+	return 'high';
+
+}
+
+function normalizeGraphicsQuality( value ) {
+
+	return GRAPHICS_QUALITY_PRESETS[ value ] ? value : getDefaultGraphicsQuality();
+
+}
+
+let graphicsQuality = normalizeGraphicsQuality( localStorage.getItem( GRAPHICS_QUALITY_KEY ) );
+
+function getGraphicsPreset() {
+
+	return GRAPHICS_QUALITY_PRESETS[ graphicsQuality ] || GRAPHICS_QUALITY_PRESETS[ getDefaultGraphicsQuality() ];
+
+}
+
+function getGraphicsParticleOptions() {
+
+	const preset = getGraphicsPreset();
+	return { maxParticles: preset.smokeParticles, emissionStride: preset.smokeEmissionStride };
+
+}
+
+const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
 renderer.setSize( window.innerWidth, window.innerHeight );
-renderer.setPixelRatio( Math.min( window.devicePixelRatio, MAX_PIXEL_RATIO ) );
-renderer.shadowMap.enabled = true;
+renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, getGraphicsPreset().maxPixelRatio ) );
+renderer.shadowMap.enabled = getGraphicsPreset().shadows;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
 const bloomPass = new UnrealBloomPass( new THREE.Vector2( window.innerWidth, window.innerHeight ) );
-bloomPass.strength = 0.02;
-bloomPass.radius = 0.02;
+bloomPass.strength = getGraphicsPreset().bloomStrength;
+bloomPass.radius = getGraphicsPreset().bloomRadius;
 bloomPass.threshold = 0.5;
 
 renderer.setEffects( [ bloomPass ] );
@@ -40,8 +81,8 @@ scene.fog = new THREE.Fog( 0xadb2ba, 30, 55 );
 
 const dirLight = new THREE.DirectionalLight( 0xffffff, 5 );
 dirLight.position.set( 11.4, 15, -5.3 );
-dirLight.castShadow = true;
-dirLight.shadow.mapSize.setScalar( 4096 );
+dirLight.castShadow = getGraphicsPreset().shadows;
+dirLight.shadow.mapSize.setScalar( getGraphicsPreset().shadowMapSize );
 dirLight.shadow.camera.near = 0.5;
 dirLight.shadow.camera.far = 60;
 scene.add( dirLight );
@@ -50,9 +91,25 @@ const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
 scene.add( hemiLight );
 
 
+function applyGraphicsPresetToRenderer() {
+
+	const preset = getGraphicsPreset();
+	const splitScreenPixelCap = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1' ? 1 : preset.maxPixelRatio;
+	renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, splitScreenPixelCap ) );
+	renderer.shadowMap.enabled = preset.shadows;
+	if ( renderer.shadowMap ) renderer.shadowMap.needsUpdate = true;
+	dirLight.castShadow = preset.shadows;
+	dirLight.shadow.mapSize.setScalar( preset.shadowMapSize );
+	dirLight.shadow.needsUpdate = true;
+	bloomPass.strength = preset.bloomStrength;
+	bloomPass.radius = preset.bloomRadius;
+
+}
+
 window.addEventListener( 'resize', () => {
 
 	renderer.setSize( window.innerWidth, window.innerHeight );
+	applyGraphicsPresetToRenderer();
 
 } );
 
@@ -2209,8 +2266,8 @@ async function init() {
 
 	} );
 
-	const particles = new SmokeTrails( scene );
-	const particles2 = isSplitScreen ? new SmokeTrails( scene ) : null;
+	const particles = new SmokeTrails( scene, getGraphicsParticleOptions() );
+	const particles2 = isSplitScreen ? new SmokeTrails( scene, getGraphicsParticleOptions() ) : null;
 	const lapHud = document.getElementById( 'lap-hud' );
 	const lapHud2 = document.getElementById( 'lap-hud-2' );
 	const countdownHud = document.getElementById( 'countdown-hud' );
@@ -2341,6 +2398,8 @@ async function init() {
 	const campaignModeBtn = document.getElementById( 'mode-campaign-btn' );
 	const campaignInfoBtn = document.getElementById( 'campaign-info-btn' );
 	const countdownToggle = document.getElementById( 'countdown-toggle' );
+	const graphicsQualityButtons = Array.from( document.querySelectorAll( '[data-graphics-quality]' ) );
+	const graphicsQualityLabel = document.getElementById( 'graphics-quality-label' );
 	const modeTabGameplayBtn = document.getElementById( 'mode-tab-gameplay' );
 	const modeTabGarageBtn = document.getElementById( 'mode-tab-garage' );
 	const modeTabAccountBtn = document.getElementById( 'mode-tab-account' );
@@ -2995,6 +3054,32 @@ async function init() {
 		modePanelGameplay?.classList.toggle( 'active', tab === 'gameplay' );
 		modePanelGarage?.classList.toggle( 'active', tab === 'garage' );
 		modePanelAccount?.classList.toggle( 'active', tab === 'account' );
+
+	}
+
+	function updateGraphicsQualityUi() {
+
+		const preset = getGraphicsPreset();
+		for ( const button of graphicsQualityButtons ) {
+
+			const selected = button.dataset.graphicsQuality === graphicsQuality;
+			button.classList.toggle( 'active', selected );
+			button.setAttribute( 'aria-pressed', String( selected ) );
+
+		}
+		if ( graphicsQualityLabel ) graphicsQualityLabel.textContent = `${ preset.label } performance mode`;
+
+	}
+
+	function applyGraphicsQuality( nextQuality, save = false ) {
+
+		graphicsQuality = normalizeGraphicsQuality( nextQuality );
+		if ( save ) localStorage.setItem( GRAPHICS_QUALITY_KEY, graphicsQuality );
+		applyGraphicsPresetToRenderer();
+		particles.setQuality( getGraphicsParticleOptions() );
+		particles2?.setQuality( getGraphicsParticleOptions() );
+		setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
+		updateGraphicsQualityUi();
 
 	}
 
@@ -4093,7 +4178,9 @@ function completeCampaignStage() {
 		clearWeatherFx();
 		const precip = weatherSettings.precipitation;
 		if ( precip === 'none' ) return;
-		const count = Math.round( ( precip === 'rain' ? 940 : 380 ) * ( INTENSITY_SCALE[ weatherSettings.intensity ] || 1 ) );
+		const particleScale = getGraphicsPreset().weatherParticleScale;
+		if ( particleScale <= 0 ) return;
+		const count = Math.round( ( precip === 'rain' ? 940 : 380 ) * ( INTENSITY_SCALE[ weatherSettings.intensity ] || 1 ) * particleScale );
 		const positions = new Float32Array( count * 3 );
 		const speeds = new Float32Array( count );
 		const spread = 65;
@@ -4161,7 +4248,7 @@ function completeCampaignStage() {
 
 		}
 
-		if ( weatherSettings.lightning ) {
+		if ( weatherSettings.lightning && getGraphicsPreset().weatherParticleScale > 0 ) {
 
 			if ( lightningFlashTime > 0 ) {
 
@@ -4199,6 +4286,7 @@ function completeCampaignStage() {
 	}
 
 	setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
+	updateGraphicsQualityUi();
 
 	function overlapsSurfaceEntry( targetVehicle, entry, halfExtent = surfaceHalfExtent ) {
 
@@ -6290,6 +6378,11 @@ function completeCampaignStage() {
 	modeTabGameplayBtn?.addEventListener( 'click', () => setModeTab( 'gameplay' ) );
 	modeTabGarageBtn?.addEventListener( 'click', () => setModeTab( 'garage' ) );
 	modeTabAccountBtn?.addEventListener( 'click', () => setModeTab( 'account' ) );
+	for ( const button of graphicsQualityButtons ) {
+
+		button.addEventListener( 'click', () => applyGraphicsQuality( button.dataset.graphicsQuality, true ) );
+
+	}
 	updateCountdownToggle();
 	countdownToggle?.addEventListener( 'change', () => {
 
@@ -7008,8 +7101,8 @@ function completeCampaignStage() {
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
-		bloomPass.strength = 0.02;
-		bloomPass.radius = 0.02;
+		bloomPass.strength = getGraphicsPreset().bloomStrength;
+		bloomPass.radius = getGraphicsPreset().bloomRadius;
 		updateWeatherFx( dt, now );
 
 		for ( let checkpointIndex = 0; checkpointIndex < checkpointStates.length; checkpointIndex ++ ) {
