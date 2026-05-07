@@ -59,7 +59,6 @@
 			background: linear-gradient(135deg, rgba(87,255,165,1), rgba(97,190,255,0.96));
 			text-decoration: none !important;
 		}
-		.pagination-bar { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin: 10px 0; flex-wrap: wrap; }
 	</style>
 </head>
 <body>
@@ -115,18 +114,6 @@
 				<h2 style="margin-top:16px">Global Placement Rating</h2>
 				<p class="sub">Cross-track rating from placement points (1st/2nd/3rd…) across all shared tracks.</p>
 				<div id="placement-rating-list" class="records-list"></div>
-				<div class="row" style="margin-top:8px">
-					<button id="toggle-all-rankings-btn" type="button">View all people</button>
-				</div>
-			</div>
-			<div class="pagination-bar">
-				<div id="pagination-summary">Showing 0 tracks</div>
-				<div class="row" style="margin-top:0">
-					<label for="page-size-select" style="margin:0">Rows per page</label>
-					<select id="page-size-select"><option>25</option><option selected>50</option><option>100</option><option>200</option></select>
-					<button id="prev-page-btn" type="button">Prev</button>
-					<button id="next-page-btn" type="button">Next</button>
-				</div>
 			</div>
 			<div class="panel">
 				<details id="new-week-section">
@@ -165,10 +152,6 @@
 			const trendingList = document.getElementById( 'trending-list' );
 			const recentLikesList = document.getElementById( 'recent-likes-list' );
 			const statusEl = document.getElementById( 'status' );
-			const toggleAllRankingsBtn = document.getElementById( 'toggle-all-rankings-btn' );
-			const pageSizeSelect = document.getElementById( 'page-size-select' );
-			const nextPageBtn = document.getElementById( 'next-page-btn' );
-			const paginationSummary = document.getElementById( 'pagination-summary' );
 			const leaderboardProgressWrap = document.getElementById( 'leaderboard-progress-wrap' );
 			const leaderboardProgressLabel = document.getElementById( 'leaderboard-progress-label' );
 			const leaderboardProgressFill = document.getElementById( 'leaderboard-progress-fill' );
@@ -179,9 +162,6 @@
 			let rowsByTrackId = new Map();
 			let leaderboardHydrating = false;
 			let selectedThumbnailDataUrl = '';
-			let currentPage = 1;
-			let pageSize = 50;
-			let showAllPlacementRanks = false;
 			const TRACK_VOTE_SESSION_KEY = 'trackVotes:v1';
 			const votedTrackActions = loadVoteSession();
 
@@ -573,14 +553,12 @@
 				return;
 
 			}
-			const ratingRows = showAllPlacementRanks ? ratings : ratings.slice( 0, 10 );
-			placementRatingList.innerHTML = ratingRows
+			placementRatingList.innerHTML = ratings.slice( 0, 10 )
 				.map( ( row, idx ) => `<div class="record-chip">
 					<div class="name">${ idx === 0 ? '⭐ ' : '' }${ row.name }</div>
 					<div class="count">${ row.points } pts • ${ row.podiums } podium${ row.podiums === 1 ? '' : 's' }</div>
 				</div>` )
 				.join( '' );
-			if ( toggleAllRankingsBtn ) toggleAllRankingsBtn.textContent = showAllPlacementRanks ? 'Show top 10 only' : 'View all people';
 		}
 
 		function renderHighlights() {
@@ -674,15 +652,7 @@
 				return;
 			}
 
-			const totalPages = Math.max( 1, Math.ceil( filtered.length / pageSize ) );
-			currentPage = Math.min( totalPages, Math.max( 1, currentPage ) );
-			const start = ( currentPage - 1 ) * pageSize;
-			const end = Math.min( filtered.length, start + pageSize );
-			const visibleRows = filtered.slice( start, end );
-			if ( paginationSummary ) paginationSummary.textContent = `Showing ${ start + 1 }-${ end } of ${ filtered.length } tracks (page ${ currentPage }/${ totalPages })`;
-			if ( prevPageBtn ) prevPageBtn.disabled = currentPage <= 1;
-			if ( nextPageBtn ) nextPageBtn.disabled = currentPage >= totalPages;
-			for ( const entry of visibleRows ) {
+			for ( const entry of filtered ) {
 				const card = document.createElement( 'div' );
 				card.className = 'card';
 				const sizeTag = inferTrackSize( entry );
@@ -778,14 +748,6 @@
 		addBtn.addEventListener( 'click', () => {
 			addEntryFromGhostCode().catch( () => setStatus( 'Failed to add entry.', true ) );
 		} );
-		pageSizeSelect?.addEventListener( 'change', () => {
-			pageSize = Math.max( 1, Number( pageSizeSelect.value ) || 50 );
-			currentPage = 1;
-			render();
-		} );
-		prevPageBtn?.addEventListener( 'click', () => { currentPage = Math.max( 1, currentPage - 1 ); render(); } );
-		nextPageBtn?.addEventListener( 'click', () => { currentPage += 1; render(); } );
-		toggleAllRankingsBtn?.addEventListener( 'click', () => { showAllPlacementRanks = ! showAllPlacementRanks; renderRecordBoard(); } );
 			grid.addEventListener('click', async (e) => {
   const openLink = e.target.closest( 'a[data-action="open-track"]' );
   if ( openLink ) {
