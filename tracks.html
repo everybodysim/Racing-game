@@ -43,6 +43,22 @@
 		.badge { font-size: 11px; border-radius: 999px; padding: 3px 7px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); }
 		.card a { color: #9fe8ff; text-decoration: none; font-weight: 600; }
 		.card a:hover { text-decoration: underline; }
+		.play-map-btn {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			gap: 6px;
+			border-color: rgba(132,245,172,0.72);
+			background: linear-gradient(135deg, rgba(48,198,119,0.95), rgba(48,151,255,0.85));
+			color: #04130b !important;
+			box-shadow: 0 0 18px rgba(77, 232, 152, 0.26);
+			font-weight: 800 !important;
+			letter-spacing: 0.01em;
+		}
+		.play-map-btn:hover {
+			background: linear-gradient(135deg, rgba(87,255,165,1), rgba(97,190,255,0.96));
+			text-decoration: none !important;
+		}
 	</style>
 </head>
 <body>
@@ -662,7 +678,7 @@
 					<div class="meta">Best: ${ formatSeconds( entry.bestLapSeconds ) } • Samples: ${ entry.sampleCount || 0 }</div>
 					<div class="meta">👍 ${ Number( entry.thumbsUp ) || 0 } • 👎 ${ Number( entry.thumbsDown ) || 0 }</div>
 					<div class="row" style="margin-top:0">
-						<a href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">Open track link</a>
+						<a class="linkbtn play-map-btn" href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play this map</a>
 							<button data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
 							<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
 						<button data-id="${ entry.id }" type="button">Remove</button>

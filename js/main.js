@@ -128,6 +128,12 @@ const CAR_STATS = {
 	'vehicle-truck-purple': { name: 'Purple', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 	'vehicle-truck-red': { name: 'Red', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 };
+const CAR_SELECT_STYLES = {
+	'vehicle-truck-yellow': { background: '#f2c94c', border: '#ffe082', color: '#1b1606' },
+	'vehicle-truck-green': { background: '#2f9e44', border: '#69db7c', color: '#f0fff4' },
+	'vehicle-truck-purple': { background: '#7b2cbf', border: '#c77dff', color: '#fff3ff' },
+	'vehicle-truck-red': { background: '#c92a2a', border: '#ff8787', color: '#fff5f5' },
+};
 const DEFAULT_ENGINE_MULT = 1.1;
 const MAX_EFFECTIVE_TOP_SPEED = 1.8;
 const BOOST_VELOCITY_DELTA = 8.2;
@@ -928,9 +934,8 @@ function decodeBase64UrlJsonLoose( value ) {
 
 }
 
-async function resolveTrackBoardSharedPack( sharedPackId ) {
+async function fetchTrackBoardEntries() {
 
-	if ( ! sharedPackId ) return null;
 	for ( const prefix of TRACK_SHARE_API_PREFIXES ) {
 
 		try {
@@ -938,26 +943,115 @@ async function resolveTrackBoardSharedPack( sharedPackId ) {
 			const response = await fetch( `${ TRACK_SHARE_API_ROOT }${ prefix }/tracks`, { cache: 'no-store' } );
 			if ( ! response.ok ) continue;
 			const data = await response.json();
-			const entries = Array.isArray( data?.entries ) ? data.entries : [];
-			const match = entries.find( ( entry ) => String( entry?.id ) === sharedPackId );
-			if ( ! match?.playUrl ) continue;
-			const parsed = new URL( match.playUrl, window.location.href );
-			const hash = new URLSearchParams( parsed.hash.replace( /^#/, '' ) );
-			const ghostBlob = hash.get( 'ghost' );
-			if ( ! ghostBlob ) continue;
-			const decoded = decodeBase64UrlJsonLoose( ghostBlob );
-			const pack = decoded?.pack && typeof decoded.pack === 'object' ? decoded.pack : {};
-			if ( typeof pack.map !== 'string' ) continue;
-			return { mapParam: pack.map, extrasParam: typeof pack.mods === 'string' ? pack.mods : '' };
+			return Array.isArray( data?.entries ) ? data.entries : [];
 
 		} catch ( error ) {
 
-			console.warn( 'Failed to resolve sharedPack from track board', error );
+			console.warn( 'Failed to fetch track share board entries', error );
 
 		}
 
 	}
-	return null;
+	return [];
+
+}
+
+function normalizeTrackPayloadValue( value ) {
+
+	return String( value || '' ).trim();
+
+}
+
+function extractTrackPayloadFromPlayUrl( playUrl ) {
+
+	try {
+
+		const parsed = new URL( playUrl, window.location.href );
+		return {
+			map: normalizeTrackPayloadValue( parsed.searchParams.get( 'map' ) ),
+			mods: normalizeTrackPayloadValue( parsed.searchParams.get( 'mods' ) ),
+			pack: normalizeTrackPayloadValue( parsed.searchParams.get( 'pack' ) ),
+			localPack: normalizeTrackPayloadValue( parsed.searchParams.get( 'localPack' ) ),
+			sharedPack: normalizeTrackPayloadValue( parsed.searchParams.get( 'sharedPack' ) ),
+		};
+
+	} catch ( error ) {
+
+		return { map: '', mods: '', pack: '', localPack: '', sharedPack: '' };
+
+	}
+
+}
+
+function trackBoardEntryMatchesCurrentPayload( entry, searchParams, mapParam, extrasParam ) {
+
+	if ( ! entry?.playUrl ) return false;
+	const current = {
+		map: normalizeTrackPayloadValue( mapParam || searchParams.get( 'map' ) ),
+		mods: normalizeTrackPayloadValue( extrasParam || searchParams.get( 'mods' ) ),
+		pack: normalizeTrackPayloadValue( searchParams.get( 'pack' ) ),
+		localPack: normalizeTrackPayloadValue( searchParams.get( 'localPack' ) ),
+		sharedPack: normalizeTrackPayloadValue( searchParams.get( 'sharedPack' ) ),
+	};
+	const entryPayload = extractTrackPayloadFromPlayUrl( entry.playUrl );
+	if ( current.sharedPack && String( entry.id ) === current.sharedPack ) return true;
+	if ( current.pack && entryPayload.pack === current.pack ) return true;
+	if ( current.localPack && entryPayload.localPack === current.localPack ) return true;
+	if ( current.sharedPack && entryPayload.sharedPack === current.sharedPack ) return true;
+	return Boolean( current.map ) && entryPayload.map === current.map && entryPayload.mods === current.mods;
+
+}
+
+async function updateDocumentTitleFromTrackBoard( searchParams, mapParam, extrasParam ) {
+
+	const hasPayload = Boolean(
+		searchParams.get( 'map' ) ||
+		searchParams.get( 'mods' ) ||
+		searchParams.get( 'pack' ) ||
+		searchParams.get( 'localPack' ) ||
+		searchParams.get( 'sharedPack' ) ||
+		mapParam ||
+		extrasParam
+	);
+	if ( ! hasPayload ) return;
+	try {
+
+		const entries = await fetchTrackBoardEntries();
+		const match = entries.find( ( entry ) => trackBoardEntryMatchesCurrentPayload( entry, searchParams, mapParam, extrasParam ) );
+		const trackName = String( match?.name || '' ).trim();
+		if ( trackName ) document.title = trackName;
+
+	} catch ( error ) {
+
+		console.warn( 'Failed to update document title from track share board', error );
+
+	}
+
+}
+
+async function resolveTrackBoardSharedPack( sharedPackId ) {
+
+	if ( ! sharedPackId ) return null;
+	try {
+
+		const entries = await fetchTrackBoardEntries();
+		const match = entries.find( ( entry ) => String( entry?.id ) === sharedPackId );
+		if ( ! match?.playUrl ) return null;
+		const parsed = new URL( match.playUrl, window.location.href );
+		const hash = new URLSearchParams( parsed.hash.replace( /^#/, '' ) );
+		const ghostBlob = hash.get( 'ghost' );
+		if ( ! ghostBlob ) return null;
+		const decoded = decodeBase64UrlJsonLoose( ghostBlob );
+		const pack = decoded?.pack && typeof decoded.pack === 'object' ? decoded.pack : {};
+		if ( typeof pack.map !== 'string' ) return null;
+		return { mapParam: pack.map, extrasParam: typeof pack.mods === 'string' ? pack.mods : '' };
+
+	} catch ( error ) {
+
+		console.warn( 'Failed to resolve sharedPack from track board', error );
+		return null;
+
+	}
 
 }
 
@@ -1214,6 +1308,7 @@ async function init() {
 
 	const searchParams = new URLSearchParams( window.location.search );
 	const { mapParam, extrasParam } = await resolvePackedTrackParams( searchParams );
+	updateDocumentTitleFromTrackBoard( searchParams, mapParam, extrasParam );
 	const isSplitScreen = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1';
 	const editorQuickTestEnabled = searchParams.get( 'editorQuickTest' ) === '1';
 	const replayViewerMode = searchParams.get( 'replayViewer' ) === '1';
@@ -2580,6 +2675,24 @@ async function init() {
 
 	}
 
+	function updateCarSelectColor() {
+
+		if ( ! carSelect ) return;
+		const style = CAR_SELECT_STYLES[ currentCarKey() ];
+		if ( ! style ) {
+
+			carSelect.style.backgroundColor = '';
+			carSelect.style.borderColor = '';
+			carSelect.style.color = '';
+			return;
+
+		}
+		carSelect.style.backgroundColor = style.background;
+		carSelect.style.borderColor = style.border;
+		carSelect.style.color = style.color;
+
+	}
+
 	function applyVehiclePerformance() {
 
 		if ( isSplitScreen ) {
@@ -3732,6 +3845,7 @@ function completeCampaignStage() {
 		const nextKey = pickRandomOwnedCarKey();
 		if ( ! nextKey || ! CAR_STATS[ nextKey ] ) return;
 		carSelect.value = nextKey;
+		updateCarSelectColor();
 		if ( models[ nextKey ] ) vehicle.setModel( models[ nextKey ] );
 		applyCarCustomization( vehicle );
 		applyVehiclePerformance();
@@ -3915,6 +4029,7 @@ function completeCampaignStage() {
 		if ( typeof parsed?.carKey === 'string' && carSelect && CAR_STATS[ parsed.carKey ] ) {
 
 			carSelect.value = parsed.carKey;
+			updateCarSelectColor();
 			if ( garageCarSelect ) garageCarSelect.value = parsed.carKey;
 			if ( models[ parsed.carKey ] ) {
 
@@ -6340,6 +6455,7 @@ function completeCampaignStage() {
 	carSelect?.addEventListener( 'change', () => {
 
 		const selectedKey = carSelect.value;
+		updateCarSelectColor();
 		if ( garageCarSelect ) garageCarSelect.value = selectedKey;
 		if ( models[ selectedKey ] ) {
 
@@ -6358,6 +6474,7 @@ function completeCampaignStage() {
 
 		const selectedKey = garageCarSelect.value;
 		if ( carSelect ) carSelect.value = selectedKey;
+		updateCarSelectColor();
 		if ( models[ selectedKey ] ) {
 
 			vehicle.setModel( models[ selectedKey ] );
@@ -6702,6 +6819,7 @@ function completeCampaignStage() {
 	loadCampaignState();
 	setModeTab( 'gameplay' );
 	if ( garageCarSelect ) garageCarSelect.value = currentCarKey();
+	updateCarSelectColor();
 	updateGarageUi();
 	applyCarCustomization( vehicle );
 	applyVehiclePerformance();
