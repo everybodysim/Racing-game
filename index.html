@@ -11,6 +11,27 @@
 	<style>
 		body { margin: 0; overflow: hidden; background: #000; }
 		canvas { display: block; touch-action: none; }
+		#loading-screen {
+			position: fixed;
+			inset: 0;
+			z-index: 9999;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			background: radial-gradient(circle at 30% 20%, #203040, #080b12 65%);
+			color: #fff;
+			font: 600 14px/1.4 Inter, system-ui, sans-serif;
+		}
+		#loading-screen.hidden { display: none; }
+		#loading-card { width: min(520px, calc(100vw - 30px)); background: rgba(8,12,22,0.72); border: 1px solid rgba(255,255,255,0.18); border-radius: 14px; padding: 18px; box-sizing: border-box; }
+		#loading-title { margin: 0 0 10px; font: 800 28px/1.2 Inter, system-ui, sans-serif; letter-spacing: 0.02em; }
+		#loading-spinner { width: 26px; height: 26px; border: 3px solid rgba(255,255,255,0.22); border-top-color: #6fe2ff; border-radius: 50%; animation: loading-spin 0.9s linear infinite; margin-bottom: 10px; }
+		#loading-progress { width: 100%; height: 10px; border-radius: 999px; background: rgba(255,255,255,0.12); overflow: hidden; margin-bottom: 10px; }
+		#loading-progress-fill { height: 100%; width: 4%; background: linear-gradient(90deg, #4bc2ff, #7cf3a3); transition: width 0.2s ease; }
+		#loading-status { color: #d7e7ff; font-size: 13px; min-height: 18px; }
+		#loading-error { margin-top: 12px; color: #ffc4c4; display: none; }
+		#loading-reload-btn { margin-top: 10px; display: none; border: 1px solid rgba(255,255,255,0.28); border-radius: 8px; background: rgba(255,255,255,0.12); color: #fff; padding: 7px 11px; cursor: pointer; font: 700 13px/1 sans-serif; }
+		@keyframes loading-spin { to { transform: rotate(360deg); } }
 		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
 			position: absolute;
 			bottom: 12px;
@@ -914,6 +935,16 @@
 	</script>
 </head>
 <body>
+	<div id="loading-screen" aria-live="polite">
+		<div id="loading-card">
+			<h1 id="loading-title">Racing</h1>
+			<div id="loading-spinner" aria-hidden="true"></div>
+			<div id="loading-progress"><div id="loading-progress-fill"></div></div>
+			<div id="loading-status">Starting…</div>
+			<div id="loading-error"></div>
+			<button id="loading-reload-btn" type="button">Reload</button>
+		</div>
+	</div>
 	<section id="home-landing" aria-label="Home page">
 		<div id="home-card">
 			<h1>Welcome to Skid Circuit</h1>

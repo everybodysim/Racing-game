@@ -247,6 +247,56 @@ const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
 const INTENSITY_TYPES = new Set( [ 'low', 'medium', 'high' ] );
 const WIND_TYPES = new Set( [ 'none', 'breezy', 'gusty' ] );
 const FIREBASE_ROOM_TIMEOUT_MS = 2200;
+const LOADING_PROGRESS_BY_STAGE = {
+	boot: 5,
+	models: 28,
+	track: 46,
+	physics: 63,
+	leaderboard: 82,
+	ready: 100,
+};
+
+let loadingOverlayDismissed = false;
+
+function setLoadingStatus( message, stage = null ) {
+
+	const statusEl = document.getElementById( 'loading-status' );
+	const fillEl = document.getElementById( 'loading-progress-fill' );
+	if ( statusEl ) statusEl.textContent = message || '';
+	if ( fillEl && stage && Number.isFinite( LOADING_PROGRESS_BY_STAGE[ stage ] ) ) fillEl.style.width = `${ LOADING_PROGRESS_BY_STAGE[ stage ] }%`;
+
+}
+
+function hideLoadingOverlay() {
+
+	if ( loadingOverlayDismissed ) return;
+	const loadingScreen = document.getElementById( 'loading-screen' );
+	if ( ! loadingScreen ) return;
+	loadingScreen.classList.add( 'hidden' );
+	loadingOverlayDismissed = true;
+
+}
+
+function showLoadingError( error ) {
+
+	const spinner = document.getElementById( 'loading-spinner' );
+	const progress = document.getElementById( 'loading-progress' );
+	const statusEl = document.getElementById( 'loading-status' );
+	const errorEl = document.getElementById( 'loading-error' );
+	const reloadBtn = document.getElementById( 'loading-reload-btn' );
+	if ( spinner ) spinner.style.display = 'none';
+	if ( progress ) progress.style.display = 'none';
+	if ( statusEl ) statusEl.textContent = 'Loading failed.';
+	if ( errorEl ) {
+		errorEl.textContent = `Error: ${ error?.message || 'Unknown startup error.' }`;
+		errorEl.style.display = 'block';
+	}
+	if ( reloadBtn ) {
+		reloadBtn.style.display = 'inline-flex';
+		reloadBtn.onclick = () => window.location.reload();
+	}
+
+}
 
 function hasFirebaseMultiplayerConfig() {
 
@@ -1302,8 +1352,11 @@ async function loadCustomTrackAssets( extras ) {
 
 async function init() {
 
+	setLoadingStatus( 'Loading game models…', 'boot' );
 	registerAll();
+	setLoadingStatus( 'Loading game models…', 'models' );
 	await loadModels();
+	setLoadingStatus( 'Loading track and mods…', 'track' );
 	const runtimeMods = await loadRuntimeMods();
 
 	const searchParams = new URLSearchParams( window.location.search );
@@ -1322,6 +1375,7 @@ async function init() {
 	let customCells = null;
 	let spawn = null;
 	const extras = decodeExtrasParam( extrasParam );
+	setLoadingStatus( 'Building track geometry…', 'track' );
 	await loadCustomTrackAssets( extras );
 	const carKeys = Object.keys( CAR_STATS );
 	const deterministicCarSeed = hashTrackSeed( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
@@ -1395,7 +1449,8 @@ async function init() {
 	const movingObstacleState = createMovingObstacleState( scene, extras );
 
 
-	const worldSettings = createWorldSettings();       
+	const worldSettings = createWorldSettings();
+	setLoadingStatus( 'Setting up physics world…', 'physics' );
 	worldSettings.gravity = [ 0, - 9.81, 0 ];
 
 	const BPL_MOVING = addBroadphaseLayer( worldSettings );
@@ -5296,6 +5351,7 @@ function completeCampaignStage() {
 		leaderboardEmpty.hidden = false;
 		leaderboardList.hidden = true;
 		leaderboardEmpty.textContent = 'Loading leaderboard…';
+		setLoadingStatus( 'Fetching leaderboard…', 'leaderboard' );
 		try {
 
 			const trackIdsToRead = [ leaderboardTrackId, ...leaderboardLegacyTrackIds ];
@@ -5310,6 +5366,7 @@ function completeCampaignStage() {
 		currentTrackLeaderboardRows = merged;
 			renderLeaderboardRows( merged );
 			updateLeaderboardPercentile( merged );
+			setLoadingStatus( 'Ready to race!', 'ready' );
 
 		} catch ( e ) {
 
@@ -6979,6 +7036,7 @@ function completeCampaignStage() {
 			renderer.render( scene, cam.camera );
 
 		}
+		hideLoadingOverlay();
 
 	}
 
@@ -7699,4 +7757,14 @@ function completeCampaignStage() {
 
 }
 
-init();
+init().then( () => {
+
+	setLoadingStatus( 'Ready to race!', 'ready' );
+	hideLoadingOverlay();
+
+} ).catch( ( error ) => {
+
+	console.error( 'Failed to initialize game', error );
+	showLoadingError( error );
+
+} );
