@@ -318,6 +318,11 @@ const multiplayerSessionState = {
 	clientId: ( globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `p-${ Math.random().toString( 36 ).slice( 2, 10 ) }` ),
 };
 
+const MULTIPLAYER_ROOM_ROTATE_MS = 120000;
+let lastHostRoomRotateAt = 0;
+let migrationSwitchInFlight = false;
+
+
 function setMultiplayerLeaderboardVisible( visible ) {
 
 	const container = document.getElementById( 'mp-lb' );
@@ -592,6 +597,7 @@ function initMultiplayerPanel() {
 			updateMultiplayerStatus( `Hosting room ${ code }. Share this code with your friend.` );
 			multiplayerSessionState.role = 'host';
 			multiplayerSessionState.roomCode = code;
+			lastHostRoomRotateAt = Date.now();
 			setMultiplayerLeaderboardVisible( true );
 
 		} catch ( error ) {
@@ -729,6 +735,64 @@ function initMultiplayerPanel() {
 	}
 
 }
+
+async function hostRotateRoomCode( currentRoomCode, mapSignature ) {
+
+	if ( ! currentRoomCode || multiplayerSessionState.role !== 'host' || migrationSwitchInFlight ) return currentRoomCode;
+	const nextCode = createHostCode();
+	if ( nextCode === currentRoomCode ) return currentRoomCode;
+	migrationSwitchInFlight = true;
+	try {
+
+		const now = Date.now();
+		const nextRoomPayload = {
+			code: nextCode,
+			mapSignature,
+			createdAt: now,
+			updatedAt: now,
+			status: 'hosting',
+		};
+		await firebaseRoomsRequest( nextCode, 'PUT', nextRoomPayload );
+		await firebaseRoomsRequest( currentRoomCode, 'PATCH', {
+			updatedAt: now,
+			migration: {
+				toCode: nextCode,
+				switchedAt: now,
+				mapSignature,
+			},
+			status: 'migrating',
+		} );
+		multiplayerSessionState.roomCode = nextCode;
+		const codeInput = document.getElementById( 'mp-code-input' );
+		if ( codeInput ) codeInput.value = nextCode;
+		updateMultiplayerStatus( `Switched to fresh room ${ nextCode } to keep sync smooth.` );
+		lastHostRoomRotateAt = now;
+		return nextCode;
+
+	} catch ( error ) {
+
+		console.warn( 'Failed to rotate multiplayer room code', error );
+		return currentRoomCode;
+
+	} finally {
+
+		migrationSwitchInFlight = false;
+
+	}
+
+}
+
+function getMigrationTargetCode( room, mapSignature ) {
+
+	const migration = room?.migration;
+	if ( ! migration || typeof migration !== 'object' ) return '';
+	const toCode = String( migration.toCode || '' ).trim().toUpperCase();
+	if ( ! /^[A-Z0-9]{6}$/.test( toCode ) ) return '';
+	if ( ! canJoinMap( migration.mapSignature, mapSignature ) ) return '';
+	return toCode;
+
+}
+
 
 function normalizeWeatherPreset( preset ) {
 
@@ -1710,6 +1774,22 @@ async function init() {
 			multiplayerSyncInFlight = true;
 			await firebaseRoomsRequest( roomCode, 'PUT', localPayload, `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
 			const room = await firebaseRoomsRequest( roomCode, 'GET' );
+			const migrationTarget = getMigrationTargetCode( room, mapSignature );
+			if ( migrationTarget && migrationTarget !== roomCode ) {
+
+				multiplayerSessionState.roomCode = migrationTarget;
+				const codeInput = document.getElementById( 'mp-code-input' );
+				if ( codeInput ) codeInput.value = migrationTarget;
+				updateMultiplayerStatus( `Host switched room to ${ migrationTarget }. Following without reload...` );
+				return;
+
+			}
+			if ( multiplayerSessionState.role === 'host' && now - lastHostRoomRotateAt >= MULTIPLAYER_ROOM_ROTATE_MS ) {
+
+				const rotatedCode = await hostRotateRoomCode( roomCode, mapSignature );
+				if ( rotatedCode !== roomCode ) return;
+
+			}
 			const players = room?.players && typeof room.players === 'object' ? room.players : {};
 			renderMultiplayerRoomLeaderboard( room?.lapTimes );
 			maybeSubmitOnlinePersonalBest( room?.lapTimes );
