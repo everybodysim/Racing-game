@@ -319,7 +319,9 @@ const multiplayerSessionState = {
 };
 
 const MULTIPLAYER_ROOM_ROTATE_MS = 120000;
+const HOST_ROOM_META_SYNC_MS = 1500;
 let lastHostRoomRotateAt = 0;
+let lastHostRoomMetaSyncAt = 0;
 let migrationSwitchInFlight = false;
 
 
@@ -598,6 +600,7 @@ function initMultiplayerPanel() {
 			multiplayerSessionState.role = 'host';
 			multiplayerSessionState.roomCode = code;
 			lastHostRoomRotateAt = Date.now();
+			lastHostRoomMetaSyncAt = 0;
 			setMultiplayerLeaderboardVisible( true );
 
 		} catch ( error ) {
@@ -1773,6 +1776,22 @@ async function init() {
 			multiplayerSyncInFlight = true;
 			await firebaseRoomsRequest( roomCode, 'PUT', localPayload, `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
 			const room = await firebaseRoomsRequest( roomCode, 'GET' );
+			if ( multiplayerSessionState.role === 'host' ) {
+
+				const shouldSyncRoomMeta = room?.mapSignature !== mapSignature || now - lastHostRoomMetaSyncAt >= HOST_ROOM_META_SYNC_MS;
+				if ( shouldSyncRoomMeta ) {
+
+					await firebaseRoomsRequest( roomCode, 'PATCH', {
+						mapSignature,
+						updatedAt: now,
+						status: 'hosting',
+					} );
+					lastHostRoomMetaSyncAt = now;
+					room.mapSignature = mapSignature;
+
+				}
+
+			}
 			if ( room?.mapSignature && ! canJoinMap( room.mapSignature, mapSignature ) ) {
 
 				updateMultiplayerStatus( `Switching to host map for room ${ roomCode }...` );
