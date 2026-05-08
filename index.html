@@ -1594,10 +1594,55 @@
   let userName = "";
   let seen = new Set(); // prevent duplicates
   let hasUnreadMessages = false;
+  const baseDocumentTitle = document.title;
+  const FLASH_TITLES = [ baseDocumentTitle, "🟥", "🟥🟥", "🟥🟥🟥" ];
+  let flashTitleTimer = null;
+  let flashTitleFrame = 0;
+
+  function updateUnreadTitleFlashing() {
+    const shouldFlash = hasUnreadMessages && document.hidden;
+    if (shouldFlash && !flashTitleTimer) {
+      flashTitleFrame = 0;
+      flashTitleTimer = window.setInterval(() => {
+        flashTitleFrame = (flashTitleFrame + 1) % FLASH_TITLES.length;
+        document.title = FLASH_TITLES[flashTitleFrame];
+      }, 500);
+      return;
+    }
+    if (!shouldFlash && flashTitleTimer) {
+      window.clearInterval(flashTitleTimer);
+      flashTitleTimer = null;
+    }
+    if (!shouldFlash) {
+      document.title = baseDocumentTitle;
+    }
+  }
 
   function setUnreadIndicator(visible) {
     hasUnreadMessages = Boolean(visible);
     chatButton.classList.toggle("has-unread", hasUnreadMessages);
+    updateUnreadTitleFlashing();
+  }
+
+
+  const NOTIFICATION_ONBOARDING_KEY = "racing-chat-notification-onboarding-v1";
+
+  function maybeAskNotificationPermission() {
+    if (!("Notification" in window)) return;
+    if (localStorage.getItem(NOTIFICATION_ONBOARDING_KEY) === "1") return;
+    localStorage.setItem(NOTIFICATION_ONBOARDING_KEY, "1");
+    Notification.requestPermission().catch(() => {});
+  }
+
+  function maybeSendMessageNotification(text) {
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    if (!document.hidden && chatWindow.style.display === "flex") return;
+    try {
+      new Notification("New Racing chat message", { body: String(text || "") });
+    } catch (err) {
+      console.warn("Chat notification failed", err);
+    }
   }
 
   function addMessage(text) {
@@ -1637,6 +1682,15 @@
 
   chatWindow.style.display = "none";
   chatWindow.style.flexDirection = "column";
+  maybeAskNotificationPermission();
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      setUnreadIndicator(false);
+    } else {
+      updateUnreadTitleFlashing();
+    }
+  });
 
   // Set username
   document.getElementById("set-name").onclick = () => {
@@ -1649,9 +1703,10 @@
   // Live messages
   channel.subscribe(msg => {
     addMessage(msg.data);
-    if (chatWindow.style.display !== "flex") {
+    if (chatWindow.style.display !== "flex" || document.hidden) {
       setUnreadIndicator(true);
     }
+    maybeSendMessageNotification(msg.data);
   });
 
   // Send message
