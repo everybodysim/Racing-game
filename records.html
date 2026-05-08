@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>All Records</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; padding:20px; font:14px/1.4 Inter,system-ui,sans-serif; background:#0b0d12; color:#e8ecf1; }
+    h1 { margin-top:0; }
+    table { width:100%; border-collapse: collapse; }
+    th,td { padding:8px; border-bottom:1px solid rgba(255,255,255,0.12); text-align:left; }
+    .muted { color:#a9b7cf; }
+  </style>
+</head>
+<body>
+  <h1 id="title">All Records</h1>
+  <div id="status" class="muted">Loading…</div>
+  <table id="table" hidden>
+    <thead><tr><th>#</th><th>Name</th><th>Time</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+<script>
+(() => {
+  const API = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
+  const params = new URLSearchParams(location.search);
+  const ids = (params.get('trackIds') || '').split(',').map(v => v.trim()).filter(Boolean);
+  const title = params.get('title') || 'All Records';
+  document.getElementById('title').textContent = title;
+  const status = document.getElementById('status');
+  const table = document.getElementById('table');
+  const rowsEl = document.getElementById('rows');
+  if (!ids.length) {
+    status.textContent = 'No track IDs provided.';
+    return;
+  }
+  const fmt = (v) => Number.isFinite(v) ? `${v.toFixed(3)}s` : '--';
+  Promise.all(ids.map(async (id) => {
+    try {
+      const res = await fetch(`${API}?trackId=${encodeURIComponent(id)}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data?.entries) ? data.entries : [];
+    } catch { return []; }
+  })).then((groups) => {
+    const merged = groups.flat().slice().sort((a,b) => Number(a?.timeSeconds) - Number(b?.timeSeconds));
+    if (!merged.length) {
+      status.textContent = 'No records yet.';
+      return;
+    }
+    status.textContent = `Showing ${merged.length} record${merged.length === 1 ? '' : 's'}.`;
+    rowsEl.innerHTML = '';
+    merged.forEach((entry, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i + 1}</td><td>${String(entry?.name || 'Anonymous')}</td><td>${fmt(Number(entry?.timeSeconds))}</td>`;
+      rowsEl.appendChild(tr);
+    });
+    table.hidden = false;
+  });
+})();
+</script>
+</body>
+</html>

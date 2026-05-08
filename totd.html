@@ -39,6 +39,7 @@
     <div><strong>Current record holder</strong></div>
     <div class="record-main" id="totd-record-holder">Loading…</div>
     <div class="record-time" id="totd-record-time">--.--s</div>
+    <div class="row" style="margin-top:8px;"><button id="totd-all-records-btn" type="button">View all records</button></div>
   </div>
 
   <div class="card">
@@ -63,6 +64,7 @@
 (() => {
   const BASE_URL = "https://everybodysim.github.io/Racing-game/index.html";
   const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
+  let currentTotdTrackIds = [];
 
   // ---------- codec ----------
   const TYPE_INDEX = {
@@ -138,6 +140,7 @@
 
   async function fetchTopRow(playUrl) {
     const ids = getTrackIds(playUrl);
+    currentTotdTrackIds = ids.slice();
     const payloads = await Promise.all(ids.map(async (id) => {
       try {
         const res = await fetch(`${LEADERBOARD_API_BASE}?trackId=${encodeURIComponent(id)}`);
@@ -550,6 +553,11 @@
     try { await navigator.clipboard.writeText(txt); alert('URL copied'); }
     catch { alert('Copy failed; copy manually.'); }
   });
+  document.getElementById('totd-all-records-btn').addEventListener('click', () => {
+    const url = `records.html?title=${encodeURIComponent('All Records • Track of the Day')}&trackIds=${encodeURIComponent(currentTotdTrackIds.join(','))}`;
+    window.open(url, '_blank', 'noopener');
+  });
+
   document.getElementById('openBtn').addEventListener('click', () => {
     const url = document.getElementById('urlOut').value;
     if (url) window.open(url, '_blank');

@@ -110,6 +110,7 @@
 			<div class="panel records-board">
 				<h2>Track Share Record Board</h2>
 				<p class="sub">Drivers ranked by how many unique shared tracks they currently hold #1 on.</p>
+				<button id="tracks-all-records-btn" type="button" style="margin-bottom:10px;">View all track-share records</button>
 				<div id="records-board-list" class="records-list"></div>
 				<h2 style="margin-top:16px">Global Placement Rating</h2>
 				<p class="sub">Cross-track rating from placement points (1st/2nd/3rd…) across all shared tracks.</p>
@@ -151,6 +152,7 @@
 			const newWeekList = document.getElementById( 'new-week-list' );
 			const trendingList = document.getElementById( 'trending-list' );
 			const recentLikesList = document.getElementById( 'recent-likes-list' );
+		const tracksAllRecordsBtn = document.getElementById( 'tracks-all-records-btn' );
 			const statusEl = document.getElementById( 'status' );
 			const leaderboardProgressWrap = document.getElementById( 'leaderboard-progress-wrap' );
 			const leaderboardProgressLabel = document.getElementById( 'leaderboard-progress-label' );
@@ -201,6 +203,12 @@
 			const padded = normalized + '='.repeat( ( 4 - normalized.length % 4 ) % 4 );
 			return JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
 		}
+
+		tracksAllRecordsBtn?.addEventListener( 'click', () => {
+			const ids = entries.map( ( entry ) => String( entry?.trackId || '' ).trim() ).filter( Boolean );
+			const url = `records.html?title=${ encodeURIComponent( 'All Records • Track Share Board' ) }&trackIds=${ encodeURIComponent( ids.join( ',' ) ) }`;
+			window.open( url, '_blank', 'noopener' );
+		} );
 
 		function setStatus( msg, isError = false ) {
 			statusEl.textContent = msg;

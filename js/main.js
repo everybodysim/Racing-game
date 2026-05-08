@@ -2464,6 +2464,7 @@ async function init() {
 	const leaderboardTrackLabel = document.getElementById( 'leaderboard-track-label' );
 	let leaderboardPercentileLabel = document.getElementById( 'leaderboard-percentile-label' );
 	const leaderboardRefreshBtn = document.getElementById( 'leaderboard-refresh-btn' );
+	const leaderboardAllBtn = document.getElementById( 'leaderboard-all-btn' );
 	const leaderboardPanel = document.getElementById( 'leaderboard-panel' );
 	const leaderboardToggleBtn = document.getElementById( 'leaderboard-toggle-btn' );
 	const pauseToggleBtn = document.getElementById( 'pause-toggle-btn' );
@@ -6862,6 +6863,11 @@ function completeCampaignStage() {
 	} );
 	leaderboardRefreshBtn?.addEventListener( 'click', () => {
 		fetchTrackLeaderboard();
+	} );
+	leaderboardAllBtn?.addEventListener( 'click', () => {
+		const trackIds = [ leaderboardTrackId, ...leaderboardLegacyTrackIds ].filter( Boolean );
+		const url = `records.html?title=${ encodeURIComponent( `All Records • ${ leaderboardTrackName }` ) }&trackIds=${ encodeURIComponent( trackIds.join( ',' ) ) }`;
+		window.open( url, '_blank', 'noopener' );
 	} );
 	namePopup?.addEventListener( 'click', ( event ) => {
 

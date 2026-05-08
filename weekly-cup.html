@@ -43,6 +43,7 @@
       <div class="panel">
         <h2 id="cupTitle">Weekly Cup</h2>
         <div class="meta" id="seedLine">Seed: --</div>
+        <div style="margin:8px 0;"><button id="weekly-all-records-btn" type="button">View all weekly cup records</button></div>
         <div class="champ" id="champBox">
           <div class="meta">Most records held</div>
           <div class="name" id="champName">Loading…</div>
@@ -64,6 +65,7 @@
 (() => {
   const BASE_URL = 'https://everybodysim.github.io/Racing-game/index.html';
   const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
+  let currentWeeklyTrackIds = [];
 
   const TYPE_INDEX = { 'track-straight': 0, 'track-corner': 1, 'track-checkpoint': 2, 'track-finish': 3 };
   const GODOT_TO_ORIENT = { 0: 0, 16: 1, 10: 2, 22: 3 };
@@ -412,7 +414,9 @@ function getTrackIds(playUrl) {
     leaderRows.innerHTML = '<tr><td colspan="3">Loading leaderboard data…</td></tr>';
 
     const tracks = [];
+    currentWeeklyTrackIds = [];
     for (let i = 0; i < 9; i++) tracks.push(generateTrack(`weekly-cup:${weekStart}:slot:${i + 1}`));
+    currentWeeklyTrackIds = tracks.flatMap((track) => getTrackIds(track.playUrl));
 
     tracks.forEach((track, idx) => {
       const card = document.createElement('div');
@@ -442,6 +446,10 @@ function getTrackIds(playUrl) {
   const dateInput = document.getElementById('dateInput');
   dateInput.value = utcTodayStr();
   document.getElementById('regenBtn').addEventListener('click', () => { renderCup(); });
+  document.getElementById('weekly-all-records-btn').addEventListener('click', () => {
+    const url = `records.html?title=${encodeURIComponent('All Records • Weekly Cup')}&trackIds=${encodeURIComponent(currentWeeklyTrackIds.join(','))}`;
+    window.open(url, '_blank', 'noopener');
+  });
   renderCup();
 })();
 </script>
