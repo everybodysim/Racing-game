@@ -782,13 +782,12 @@ async function hostRotateRoomCode( currentRoomCode, mapSignature ) {
 
 }
 
-function getMigrationTargetCode( room, mapSignature ) {
+function getMigrationTargetCode( room ) {
 
 	const migration = room?.migration;
 	if ( ! migration || typeof migration !== 'object' ) return '';
 	const toCode = String( migration.toCode || '' ).trim().toUpperCase();
 	if ( ! /^[A-Z0-9]{6}$/.test( toCode ) ) return '';
-	if ( ! canJoinMap( migration.mapSignature, mapSignature ) ) return '';
 	return toCode;
 
 }
@@ -1774,9 +1773,24 @@ async function init() {
 			multiplayerSyncInFlight = true;
 			await firebaseRoomsRequest( roomCode, 'PUT', localPayload, `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
 			const room = await firebaseRoomsRequest( roomCode, 'GET' );
-			const migrationTarget = getMigrationTargetCode( room, mapSignature );
+			if ( room?.mapSignature && ! canJoinMap( room.mapSignature, mapSignature ) ) {
+
+				updateMultiplayerStatus( `Switching to host map for room ${ roomCode }...` );
+				redirectToRoomMap( roomCode, room.mapSignature );
+				return;
+
+			}
+			const migrationTarget = getMigrationTargetCode( room );
 			if ( migrationTarget && migrationTarget !== roomCode ) {
 
+				const targetRoom = await firebaseRoomsRequest( migrationTarget, 'GET' );
+				if ( targetRoom?.mapSignature && ! canJoinMap( targetRoom.mapSignature, mapSignature ) ) {
+
+					updateMultiplayerStatus( `Host switched to ${ migrationTarget }. Loading host map...` );
+					redirectToRoomMap( migrationTarget, targetRoom.mapSignature );
+					return;
+
+				}
 				multiplayerSessionState.roomCode = migrationTarget;
 				const codeInput = document.getElementById( 'mp-code-input' );
 				if ( codeInput ) codeInput.value = migrationTarget;
