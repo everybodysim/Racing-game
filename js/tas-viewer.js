@@ -28,6 +28,14 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.setSize(200, 200);
 const view = document.getElementById('view');
 view.appendChild(renderer.domElement);
+const embeddedGame = document.createElement('iframe');
+embeddedGame.style.position = 'absolute';
+embeddedGame.style.inset = '0';
+embeddedGame.style.width = '100%';
+embeddedGame.style.height = '100%';
+embeddedGame.style.border = '0';
+embeddedGame.style.zIndex = '1';
+view.appendChild(embeddedGame);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xadb2ba);
@@ -392,6 +400,21 @@ function rebuildTrack() {
   resetRun();
 }
 
+
+function syncEmbeddedTas() {
+  const trackUrl = trackUrlInput.value.trim();
+  const target = new URL(trackUrl || 'index.html', window.location.href);
+  target.searchParams.set('mode', 'tas');
+  if (embeddedGame.dataset.src !== target.toString()) {
+    embeddedGame.src = target.toString();
+    embeddedGame.dataset.src = target.toString();
+  }
+  const inputs = parseInputLines(inputsEl.value).map((step) => keysToAxes(step.keys));
+  const post = () => embeddedGame.contentWindow?.postMessage({ type: 'tas:setInputs', inputs }, '*');
+  if (embeddedGame.contentWindow) post();
+  embeddedGame.onload = () => post();
+}
+
 function animate() {
   requestAnimationFrame(animate);
   if ( ! runtimeReady ) {
@@ -459,6 +482,7 @@ async function initScene() {
     ? `Loaded TAS with ${failedCount} missing model(s). Running ${steps.length} input frames.`
     : `Loaded ${steps.length} deterministic input frames.`;
   resize();
+  syncEmbeddedTas();
 }
 
 function resize() {
@@ -481,6 +505,7 @@ document.getElementById('new-btn')?.addEventListener('click', () => {
   inputsEl.value = '';
   resetRun();
   statusEl.textContent = 'Created new TAS.';
+  syncEmbeddedTas();
 });
 
 document.getElementById('run-btn')?.addEventListener('click', () => {
@@ -494,6 +519,7 @@ document.getElementById('run-btn')?.addEventListener('click', () => {
     statusEl.textContent = steps.length > 0
       ? `Running ${steps.length} deterministic input frames.`
       : 'No TAS steps parsed. Use "ArrowUp+ArrowLeft,30" or JSON step arrays.';
+    syncEmbeddedTas();
   } catch (error) {
     pushRunError(`Run parse failed: ${error?.message || String(error)}`);
     statusEl.textContent = 'Could not run TAS due to parsing error.';
@@ -503,6 +529,7 @@ document.getElementById('run-btn')?.addEventListener('click', () => {
 document.getElementById('load-track-btn')?.addEventListener('click', () => {
   rebuildTrack();
   statusEl.textContent = 'Loaded track data from URL (or default track).';
+  syncEmbeddedTas();
 });
 
 for (const el of [carSelect, engineTierInput, garageGripInput, garageAccelInput, garageDriveInput]) {

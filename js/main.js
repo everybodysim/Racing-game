@@ -1431,6 +1431,7 @@ async function init() {
 	const isSplitScreen = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1';
 	const editorQuickTestEnabled = searchParams.get( 'editorQuickTest' ) === '1';
 	const replayViewerMode = searchParams.get( 'replayViewer' ) === '1';
+	const tasMode = searchParams.get( 'mode' ) === 'tas';
 	const editorReturnParam = String( searchParams.get( 'editorReturn' ) || '' );
 	const editorGhostMapHash = String( searchParams.get( 'editorGhostMap' ) || '' );
 	const QUICK_TEST_GHOST_KEY = 'racing-editor-quicktest-ghost-v1';
@@ -2487,6 +2488,19 @@ async function init() {
 	const controls2 = isSplitScreen
 		? new Controls( { leftKeys: [ 'ArrowLeft' ], rightKeys: [ 'ArrowRight' ], forwardKeys: [ 'ArrowUp' ], backKeys: [ 'ArrowDown' ], enableGamepad: false, enableTouch: false } )
 		: null;
+
+	if ( tasMode ) {
+
+		window.__tasInputQueue = [];
+		window.addEventListener( 'message', ( event ) => {
+
+			const data = event?.data;
+			if ( ! data || data.type !== 'tas:setInputs' || ! Array.isArray( data.inputs ) ) return;
+			window.__tasInputQueue = data.inputs.map( ( step ) => ({ x: Number( step?.x ) || 0, z: Number( step?.z ) || 0 }) );
+
+		} );
+
+	}
 
 	const runtimeModContext = {
 		vehicle,
@@ -7174,14 +7188,21 @@ function completeCampaignStage() {
 			const padTimeScale = ( padScale1 < 1 || padScale2 < 1 )
 				? Math.min( padScale1, padScale2 )
 				: Math.max( padScale1, padScale2 );
-			const dt = dtBase * hackTimeScale * padTimeScale;
+			const dt = tasMode ? ( 1 / 60 ) : ( dtBase * hackTimeScale * padTimeScale );
 			raceClockSeconds += dt;
 			const now = raceClockSeconds;
 
 			updateCountdownState( now );
-			const controlsBlocked = modeMenuOpen || freecamState.active || replayViewerMode || countdownActive;
+			const controlsBlocked = modeMenuOpen || freecamState.active || replayViewerMode || countdownActive || tasMode;
 			const baseInput = controlsBlocked ? ZERO_DRIVE_INPUT : controls.update();
 			let input = baseInput;
+			if ( tasMode ) {
+
+				const queued = Array.isArray( window.__tasInputQueue ) ? window.__tasInputQueue : [];
+				const next = queued.length ? queued.shift() : null;
+				if ( next && typeof next === 'object' ) input = { x: Number( next.x ) || 0, z: Number( next.z ) || 0 };
+
+			}
 			for ( const runtime of runtimeMods ) {
 
 				if ( typeof runtime?.applyFrame !== 'function' ) continue;
