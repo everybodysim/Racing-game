@@ -5169,6 +5169,24 @@ function completeCampaignStage() {
 
 	}
 
+	function openReplayWatcherForGhost( ghostPayload ) {
+
+		if ( ! ghostPayload || ! Array.isArray( ghostPayload.samples ) || ghostPayload.samples.length < 2 ) {
+
+			showTopMessage( 'This ghost payload is invalid for replay viewing.', true, 2000 );
+			return;
+
+		}
+		const replayPayload = {
+			v: 1,
+			url: currentTrackUrl,
+			ghost: ghostPayload,
+		};
+		const replayCode = encodeBase64UrlJson( replayPayload );
+		window.open( `replay.html#code=${ replayCode }`, '_blank' );
+
+	}
+
 	function updateGhostShareButtons() {
 
 		if ( ! exportGhostBtn ) return;
@@ -5389,10 +5407,11 @@ function completeCampaignStage() {
 			const hasGhost = Boolean( entry?.ghost );
 			row.classList.toggle( 'has-ghost', hasGhost );
 			const checked = hasGhost && selectedLeaderboardGhosts.has( safeName );
-			row.innerHTML = `<span class=\"lb-rank\">#${ index + 1 }</span> <span class=\"lb-name\">${ safeName }</span> — <span class=\"lb-time\">${ timeText }</span>${ hasGhost ? '<label class=\"lb-ghost-toggle\"><input type=\"checkbox\" class=\"lb-ghost-check\" data-player-name=\"' + safeName.replace( /\"/g, '&quot;' ) + '\" ' + ( checked ? 'checked' : '' ) + '> show ghost</label>' : '' }`;
+			row.innerHTML = `<span class=\"lb-rank\">#${ index + 1 }</span> <span class=\"lb-name\">${ safeName }</span> — <span class=\"lb-time\">${ timeText }</span>${ hasGhost ? '<label class=\"lb-ghost-toggle\"><input type=\"checkbox\" class=\"lb-ghost-check\" data-player-name=\"' + safeName.replace( /\"/g, '&quot;' ) + '\" ' + ( checked ? 'checked' : '' ) + '> show ghost</label><button type=\"button\" class=\"lb-replay-btn\">watch replay</button>' : '' }`;
 			if ( hasGhost ) {
 
 				const checkbox = row.querySelector( '.lb-ghost-check' );
+				const replayBtn = row.querySelector( '.lb-replay-btn' );
 				checkbox?.addEventListener( 'change', () => {
 
 					if ( checkbox.checked ) {
@@ -5413,6 +5432,12 @@ function completeCampaignStage() {
 						showTopMessage( `Disabled ${ safeName } ghost.`, false, 1500 );
 
 					}
+
+				} );
+				replayBtn?.addEventListener( 'click', ( event ) => {
+
+					event.stopPropagation();
+					openReplayWatcherForGhost( entry.ghost );
 
 				} );
 
