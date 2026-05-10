@@ -558,6 +558,12 @@
 	const MOVING_ORBIT_TOOL = 'moving-orbit-poles';
 	const MOVING_CUSTOM_TOOL = 'moving-custom';
 	const OBSTACLE_VARIANTS = [ 'normal', 'plastic', 'sticky', 'slingshot' ];
+	function getObstacleVariantTint( variant ) {
+		if ( variant === 'plastic' ) return 0xe6d43a;
+		if ( variant === 'sticky' ) return 0x111111;
+		if ( variant === 'slingshot' ) return 0xcf2a2a;
+		return null;
+	}
 	const MAGNET_BLUE_TOOL = 'magnet-blue';
 	const MAGNET_RED_TOOL = 'magnet-red';
 	const MAGNET_GRAPPLE_TOOL = 'magnet-grapple';
@@ -1493,11 +1499,12 @@
 		}
 
 		if ( cell.jump ) {
+			const jumpVariantTint = getObstacleVariantTint( cell.jumpVariant );
 
 			const jump = new THREE.Mesh(
 				new THREE.BoxGeometry( CELL_RAW * 0.36, CELL_RAW * 0.18, CELL_RAW * 0.36 ),
 				new THREE.MeshStandardMaterial( {
-					color: 0x7f6a58,
+					color: jumpVariantTint || 0x7f6a58,
 					roughness: 0.85,
 					metalness: 0.02,
 				} )
@@ -1563,10 +1570,11 @@
 		}
 
 		if ( cell.pole ) {
+			const poleVariantTint = getObstacleVariantTint( cell.poleVariant );
 
 			const pole = new THREE.Mesh(
 				new THREE.CylinderGeometry( CELL_RAW * 0.08, CELL_RAW * 0.08, CELL_RAW * 0.13, 16 ),
-				new THREE.MeshStandardMaterial( { color: 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
+				new THREE.MeshStandardMaterial( { color: poleVariantTint || 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
 			);
 			const yOffset = getOverlayHeightOffset( cell );
 			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.065 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
@@ -1578,10 +1586,11 @@
 		}
 
 		if ( cell.cube ) {
+			const cubeVariantTint = getObstacleVariantTint( cell.cubeVariant );
 
 			const cube = new THREE.Mesh(
 				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
-				new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
+				new THREE.MeshStandardMaterial( { color: cubeVariantTint || 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
 			);
 			const yOffset = getOverlayHeightOffset( cell );
 			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
@@ -1593,13 +1602,14 @@
 		}
 
 		if ( cell.movingObstacle ) {
+			const movingVariantTint = getObstacleVariantTint( cell.movingVariant );
 
 			const marker = new THREE.Group();
 			if ( cell.movingObstacle === MOVING_SLIDE_TOOL ) {
 
 				const body = new THREE.Mesh(
 					new THREE.BoxGeometry( CELL_RAW * 0.42, CELL_RAW * 0.2, CELL_RAW * 0.3 ),
-					new THREE.MeshStandardMaterial( { color: 0x7ec8ff, emissive: 0x2c5f86, emissiveIntensity: 0.65, metalness: 0.25, roughness: 0.45 } )
+					new THREE.MeshStandardMaterial( { color: movingVariantTint || 0x7ec8ff, emissive: 0x2c5f86, emissiveIntensity: 0.65, metalness: 0.25, roughness: 0.45 } )
 				);
 				marker.add( body );
 				const rail = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.04, CELL_RAW * 0.06 ), new THREE.MeshStandardMaterial( { color: 0x9fb9cf } ) );
@@ -1610,7 +1620,7 @@
 
 				const arm = new THREE.Mesh(
 					new THREE.BoxGeometry( CELL_RAW * 0.58, CELL_RAW * 0.18, CELL_RAW * 0.08 ),
-					new THREE.MeshStandardMaterial( { color: 0xffa073, emissive: 0x7a2f10, emissiveIntensity: 0.65, metalness: 0.18, roughness: 0.5 } )
+					new THREE.MeshStandardMaterial( { color: movingVariantTint || 0xffa073, emissive: 0x7a2f10, emissiveIntensity: 0.65, metalness: 0.18, roughness: 0.5 } )
 				);
 				marker.add( arm );
 				const hub = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.03, CELL_RAW * 0.03, CELL_RAW * 0.1, 12 ), new THREE.MeshStandardMaterial( { color: 0xcccccc } ) );
@@ -1627,7 +1637,7 @@
 
 				for ( let i = 0; i < 3; i ++ ) {
 
-					const pole = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.035, CELL_RAW * 0.035, CELL_RAW * 0.22, 10 ), new THREE.MeshStandardMaterial( { color: 0x9b6fdc, emissive: 0x2f1f4f } ) );
+					const pole = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.035, CELL_RAW * 0.035, CELL_RAW * 0.22, 10 ), new THREE.MeshStandardMaterial( { color: movingVariantTint || 0x9b6fdc, emissive: 0x2f1f4f } ) );
 					const a = i * ( Math.PI * 2 / 3 );
 					pole.position.set( Math.cos( a ) * CELL_RAW * 0.18, 0, Math.sin( a ) * CELL_RAW * 0.18 );
 					marker.add( pole );
@@ -1644,10 +1654,11 @@
 		}
 
 		if ( cell.wall ) {
+			const wallVariantTint = getObstacleVariantTint( cell.wallVariant );
 
 			const wall = new THREE.Mesh(
 				new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
-				new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
+				new THREE.MeshStandardMaterial( { color: wallVariantTint || 0x868a90, roughness: 0.75, metalness: 0.05 } )
 			);
 			const yOffset = getOverlayHeightOffset( cell );
 			wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
@@ -1782,11 +1793,10 @@
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
 			grid.set( key, cell );
-			if ( selectedType === BUMP_TOOL ) {
+				if ( selectedType === BUMP_TOOL ) {
 
-				cell.bump = ! cell.bump;
-				cell.bumpOrient = selectedOrient;
-				if ( cell.bump ) cell.bumpVariant = selectedObstacleVariant;
+					cell.bump = ! cell.bump;
+					cell.bumpOrient = selectedOrient;
 
 			} else if ( selectedType === POLE_TOOL ) {
 
@@ -2475,7 +2485,7 @@
 		for ( const [ key, cell ] of grid ) {
 
 				const [ gx, gz ] = key.split( ',' ).map( Number );
-				if ( cell.bump ) bumps.push( [ gx, gz, cell.bumpVariant || 'normal' ] );
+				if ( cell.bump ) bumps.push( [ gx, gz ] );
 				if ( cell.pole ) poles.push( [ gx, gz, cell.poleVariant || 'normal' ] );
 				if ( cell.cube ) cubes.push( [ gx, gz, cell.cubeVariant || 'normal' ] );
 				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0, cell.wallVariant || 'normal' ] );
@@ -2681,14 +2691,13 @@
 			if ( intensitySelect ) intensitySelect.value = weatherSettings.intensity;
 			if ( windSelect ) windSelect.value = weatherSettings.wind;
 			if ( lightningToggle ) lightningToggle.checked = weatherSettings.lightning;
-			for ( const [ gx, gz, bumpVariant ] of mods.b ) {
+			for ( const [ gx, gz ] of mods.b ) {
 
 				const key = cellKey( gx, gz );
 					const cell = grid.get( key ) || makeEmptyCell();
 					if ( ! grid.has( key ) ) grid.set( key, cell );
 					cell.bump = true;
 					cell.bumpOrient = 0;
-					cell.bumpVariant = OBSTACLE_VARIANTS.includes( bumpVariant ) ? bumpVariant : 'normal';
 					placeOverlayMesh( gx, gz, cell );
 
 			}

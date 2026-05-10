@@ -827,13 +827,15 @@ function createMovingObstacleState( scene, extras ) {
 		const type = String( typeRaw || '' );
 		const orient = Number( orientRaw ) || 0;
 		const base = new THREE.Vector3( ( gx + 0.5 ) * CELL_RAW * GRID_SCALE, -0.5 + ( CELL_RAW * GRID_SCALE * 0.08 ), ( gz + 0.5 ) * CELL_RAW * GRID_SCALE );
-		const obstacle = { type, orient, speed: THREE.MathUtils.clamp( Number( speedRaw ) || 1, 0.25, 3 ), base, mesh: new THREE.Group(), colliders: [] };
+		const variantRaw = String( entry?.[6] || 'normal' );
+		const variant = [ 'normal', 'plastic', 'slingshot' ].includes( variantRaw ) ? variantRaw : 'normal';
+		const obstacle = { type, orient, variant, speed: THREE.MathUtils.clamp( Number( speedRaw ) || 1, 0.25, 3 ), base, mesh: new THREE.Group(), colliders: [] };
 		if ( type === 'moving-slide-block' ) {
-			const m = new THREE.Mesh( new THREE.BoxGeometry( 2.1, 1.2, 1.5 ), new THREE.MeshStandardMaterial( { color: 0x8ca0b8 } ) );
+			const m = new THREE.Mesh( new THREE.BoxGeometry( 2.1, 1.2, 1.5 ), new THREE.MeshStandardMaterial( { color: variant === 'plastic' ? 0xe6d43a : ( variant === 'slingshot' ? 0xcf2a2a : 0x8ca0b8 ) } ) );
 			obstacle.mesh.add( m );
 			obstacle.colliders.push( { half: new THREE.Vector3( 1.05, 0.6, 0.75 ), offset: new THREE.Vector3() } );
 		} else if ( type === 'moving-spin-wall' ) {
-			const m = new THREE.Mesh( new THREE.BoxGeometry( 3.8, 0.8, 0.55 ), new THREE.MeshStandardMaterial( { color: 0xb4b8bf } ) );
+			const m = new THREE.Mesh( new THREE.BoxGeometry( 3.8, 0.8, 0.55 ), new THREE.MeshStandardMaterial( { color: variant === 'plastic' ? 0xe6d43a : ( variant === 'slingshot' ? 0xcf2a2a : 0xb4b8bf ) } ) );
 			obstacle.mesh.add( m );
 			obstacle.colliders.push( { half: new THREE.Vector3( 1.9, 0.4, 0.275 ), offset: new THREE.Vector3() } );
 		} else if ( type === 'moving-custom' ) {
@@ -844,13 +846,13 @@ function createMovingObstacleState( scene, extras ) {
 				const sx = Number( cfg.sx ) || 2, sy = Number( cfg.sy ) || 0.8, sz = Number( cfg.sz ) || 0.8;
 				const shape = String( cfg.shape || 'square' );
 				const geom = shape === 'pole' ? new THREE.CylinderGeometry( sx * 0.18, sx * 0.18, sy, 12 ) : new THREE.BoxGeometry( sx, sy, sz );
-				const mesh = new THREE.Mesh( geom, new THREE.MeshStandardMaterial( { color: cfg.color || '#ff8844' } ) );
+				const mesh = new THREE.Mesh( geom, new THREE.MeshStandardMaterial( { color: variant === 'plastic' ? 0xe6d43a : ( variant === 'slingshot' ? 0xcf2a2a : ( cfg.color || '#ff8844' ) ) } ) );
 				obstacle.mesh.add( mesh );
 				obstacle.colliders.push( { half: new THREE.Vector3( shape === 'pole' ? sx * 0.18 : sx * 0.5, sy * 0.5, shape === 'pole' ? sx * 0.18 : sz * 0.5 ), offset: new THREE.Vector3(), shape } );
 			}
 		} else if ( type === 'moving-orbit-poles' ) {
 			for ( let i = 0; i < 3; i ++ ) {
-				const pole = new THREE.Mesh( new THREE.CylinderGeometry( 0.23, 0.23, 1.0, 12 ), new THREE.MeshStandardMaterial( { color: 0x979ea8 } ) );
+				const pole = new THREE.Mesh( new THREE.CylinderGeometry( 0.23, 0.23, 1.0, 12 ), new THREE.MeshStandardMaterial( { color: variant === 'plastic' ? 0xe6d43a : ( variant === 'slingshot' ? 0xcf2a2a : 0x979ea8 ) } ) );
 				obstacle.mesh.add( pole );
 				obstacle.colliders.push( { half: new THREE.Vector3( 0.23, 0.5, 0.23 ), offset: new THREE.Vector3() } );
 			}
@@ -916,7 +918,11 @@ function updateMovingObstacles( state, now, vehicleList ) {
 				rigidBody.setPosition( vehicle.physicsWorld, vehicle.rigidBody, [ vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z ], false );
 				const vx = vehicle.sphereVel.x, vy = vehicle.sphereVel.y, vz = vehicle.sphereVel.z;
 				const dot = vx * n.x + vy * n.y + vz * n.z;
-				if ( dot < 0 ) rigidBody.setLinearVelocity( vehicle.physicsWorld, vehicle.rigidBody, [ vx - dot * n.x, vy - dot * n.y, vz - dot * n.z ] );
+				if ( dot < 0 ) {
+					if ( obstacle.variant === 'plastic' ) rigidBody.setLinearVelocity( vehicle.physicsWorld, vehicle.rigidBody, [ vx - 2 * dot * n.x, vy - 2 * dot * n.y, vz - 2 * dot * n.z ] );
+					else if ( obstacle.variant === 'slingshot' ) rigidBody.setLinearVelocity( vehicle.physicsWorld, vehicle.rigidBody, [ -vx, -vy, -vz ] );
+					else rigidBody.setLinearVelocity( vehicle.physicsWorld, vehicle.rigidBody, [ vx - dot * n.x, vy - dot * n.y, vz - dot * n.z ] );
+				}
 			}
 		}
 	}

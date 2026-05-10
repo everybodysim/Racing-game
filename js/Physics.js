@@ -119,7 +119,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	function addJumpRampCollider( gx, gz, orient = 0, yOffset = 0 ) {
+	function addJumpRampCollider( gx, gz, orient = 0, yOffset = 0, variant = 'normal' ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
@@ -135,8 +135,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			objectLayer: world._OL_STATIC,
 			position,
 			quaternion,
-			friction: 1.0,
-			restitution: 0.0,
+			friction: variant === 'sticky' ? 10.0 : 1.0,
+			restitution: variant === 'plastic' ? 1.0 : 0.0,
 		} );
 
 		if ( debugGroup ) addDebugBox( debugGroup, jumpRampHalfExtents, position, quaternion );
@@ -364,6 +364,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const cubeSet = new Set();
 	const wallMap = new Map();
 	const jumpMap = new Map();
+	const variantMaps = { pole: new Map(), cube: new Map(), wall: new Map(), jump: new Map() };
 	const magnetEntries = extras && Array.isArray( extras.magnets ) ? extras.magnets : [];
 	const elevatedEntries = extras && Array.isArray( extras.elevated ) ? extras.elevated : [];
 	const elevatedMap = new Map();
@@ -376,22 +377,22 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	}
 	if ( extras && Array.isArray( extras.poles ) ) {
 
-		for ( const [ gx, gz ] of extras.poles ) poleSet.add( `${ gx },${ gz }` );
+		for ( const [ gx, gz, variant ] of extras.poles ) { const k = `${ gx },${ gz }`; poleSet.add( k ); variantMaps.pole.set( k, variant || 'normal' ); }
 
 	}
 	if ( extras && Array.isArray( extras.cubes ) ) {
 
-		for ( const [ gx, gz ] of extras.cubes ) cubeSet.add( `${ gx },${ gz }` );
+		for ( const [ gx, gz, variant ] of extras.cubes ) { const k = `${ gx },${ gz }`; cubeSet.add( k ); variantMaps.cube.set( k, variant || 'normal' ); }
 
 	}
 	if ( extras && Array.isArray( extras.walls ) ) {
 
-		for ( const [ gx, gz, orient = 0 ] of extras.walls ) wallMap.set( `${ gx },${ gz }`, orient );
+		for ( const [ gx, gz, orient = 0, variant ] of extras.walls ) { const k = `${ gx },${ gz }`; wallMap.set( k, orient ); variantMaps.wall.set( k, variant || 'normal' ); }
 
 	}
 	if ( extras && Array.isArray( extras.jumps ) ) {
 
-		for ( const [ gx, gz, orient = 0 ] of extras.jumps ) jumpMap.set( gx + ',' + gz, orient );
+		for ( const [ gx, gz, orient = 0, variant ] of extras.jumps ) { const k = gx + ',' + gz; jumpMap.set( k, orient ); variantMaps.jump.set( k, variant || 'normal' ); }
 
 	}
 	for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedEntries ) {
@@ -421,14 +422,15 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const poleRadius = CELL_RAW * S * 0.08;
 		const poleRise = CELL_RAW * S * 0.065;
 		const position = [ cx, groundY + poleRise + getOverlayHeightOffset( gx, gz ), cz ];
+		const poleVariant = variantMaps.pole.get( poleKey ) || 'normal';
 
 		rigidBody.create( world, {
 			shape: sphere.create( { radius: poleRadius } ),
 			motionType: MotionType.STATIC,
 			objectLayer: world._OL_STATIC,
 			position,
-			friction: 1.0,
-			restitution: 0.02,
+			friction: poleVariant === 'sticky' ? 8.0 : 1.0,
+			restitution: poleVariant === 'plastic' ? 1.0 : 0.02,
 		} );
 		if ( debugGroup ) addDebugSphere( debugGroup, poleRadius, position );
 
@@ -444,13 +446,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
 		const halfExtents = [ CELL_RAW * S * 0.08, CELL_RAW * S * 0.08, CELL_RAW * S * 0.08 ];
 		const position = [ cx, groundY + halfExtents[ 1 ] + getOverlayHeightOffset( gx, gz ), cz ];
+		const cubeVariant = variantMaps.cube.get( cubeKey ) || 'normal';
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents } ),
 			motionType: MotionType.STATIC,
 			objectLayer: world._OL_STATIC,
 			position,
-			friction: 0.9,
-			restitution: 0.02,
+			friction: cubeVariant === 'sticky' ? 8.0 : 0.9,
+			restitution: cubeVariant === 'plastic' ? 1.0 : 0.02,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
 
@@ -490,14 +493,15 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 		const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
 		const position = [ cx, groundY + halfExtents[ 1 ] + getOverlayHeightOffset( gx, gz ), cz ];
+		const wallVariant = variantMaps.wall.get( wallKey ) || 'normal';
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents } ),
 			motionType: MotionType.STATIC,
 			objectLayer: world._OL_STATIC,
 			position,
 			quaternion,
-			friction: 0.9,
-			restitution: 0.01,
+			friction: wallVariant === 'sticky' ? 10.0 : 0.9,
+			restitution: wallVariant === 'plastic' ? 1.0 : 0.01,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
@@ -518,7 +522,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const jumpKey = gx + ',' + gz;
 		if ( jumpMap.has( jumpKey ) ) {
 
-			addJumpRampCollider( gx, gz, jumpMap.get( jumpKey ), getOverlayHeightOffset( gx, gz ) );
+			addJumpRampCollider( gx, gz, jumpMap.get( jumpKey ), getOverlayHeightOffset( gx, gz ), variantMaps.jump.get( jumpKey ) || 'normal' );
 			jumpMap.delete( jumpKey );
 
 		}
@@ -604,7 +608,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	for ( const [ key, orient ] of jumpMap ) {
 
 		const [ gx, gz ] = key.split( ',' ).map( Number );
-		addJumpRampCollider( gx, gz, orient, getOverlayHeightOffset( gx, gz ) );
+		addJumpRampCollider( gx, gz, orient, getOverlayHeightOffset( gx, gz ), variantMaps.jump.get( key ) || 'normal' );
 
 	}
 
