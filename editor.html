@@ -370,6 +370,7 @@
 			<button id="btn-straight" class="active">Straight</button>
 			<button id="btn-corner">Corner</button>
 			<select id="gate-select" aria-label="Gate picker">
+				<option value="">Gate…</option>
 				<option value="track-start-finish">Start/Finish</option>
 				<option value="track-start">Place: Start</option>
 				<option value="track-finish">Place: Finish</option>
@@ -387,6 +388,12 @@
 			<button id="btn-cube">Cube +</button>
 			<button id="btn-wall">Wall +</button>
 			<button id="btn-jump">Jump +</button>
+			<select id="obstacle-variant-select" aria-label="Obstacle variant">
+				<option value="normal">Variant: Normal</option>
+				<option value="plastic">Variant: Plastic (Bouncy)</option>
+				<option value="sticky">Variant: Sticky</option>
+				<option value="slingshot">Variant: Slingshot</option>
+			</select>
 		</div>
 		<div class="toolbar-group" aria-label="Moving objects">
 			<span class="toolbar-group-label">Moving</span>
@@ -550,6 +557,7 @@
 	const MOVING_SPIN_TOOL = 'moving-spin-wall';
 	const MOVING_ORBIT_TOOL = 'moving-orbit-poles';
 	const MOVING_CUSTOM_TOOL = 'moving-custom';
+	const OBSTACLE_VARIANTS = [ 'normal', 'plastic', 'sticky', 'slingshot' ];
 	const MAGNET_BLUE_TOOL = 'magnet-blue';
 	const MAGNET_RED_TOOL = 'magnet-red';
 	const MAGNET_GRAPPLE_TOOL = 'magnet-grapple';
@@ -582,6 +590,7 @@
 	const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 	let tool = 'paint'; // 'paint', 'erase'
 	let selectedType = 'track-straight';
+	let selectedObstacleVariant = 'normal';
 	let selectedOrient = 0;
 	let allowSurfaceOverlap = false;
 	const CUSTOM_SURFACE_DEFAULTS = {
@@ -1777,30 +1786,36 @@
 
 				cell.bump = ! cell.bump;
 				cell.bumpOrient = selectedOrient;
+				if ( cell.bump ) cell.bumpVariant = selectedObstacleVariant;
 
 			} else if ( selectedType === POLE_TOOL ) {
 
 				cell.pole = ! cell.pole;
+				if ( cell.pole ) cell.poleVariant = selectedObstacleVariant;
 
 			} else if ( selectedType === CUBE_TOOL ) {
 
 				cell.cube = ! cell.cube;
+				if ( cell.cube ) cell.cubeVariant = selectedObstacleVariant;
 
 			} else if ( selectedType === WALL_TOOL ) {
 
 				cell.wall = ! cell.wall;
 				cell.wallOrient = selectedOrient;
+				if ( cell.wall ) cell.wallVariant = selectedObstacleVariant;
 
 			} else if ( selectedType === JUMP_TOOL ) {
 
 				cell.jump = ! cell.jump;
 				cell.jumpOrient = selectedOrient;
+				if ( cell.jump ) cell.jumpVariant = selectedObstacleVariant;
 
 			} else if ( selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL ) {
 
 				cell.movingObstacle = cell.movingObstacle === selectedType ? '' : selectedType;
 				if ( cell.movingObstacle ) cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedInput?.value ) || 1 ) );
 				if ( cell.movingObstacle === MOVING_CUSTOM_TOOL ) cell.movingCustom = readCustomMovingUi();
+				if ( cell.movingObstacle ) cell.movingVariant = selectedObstacleVariant === 'sticky' ? 'normal' : selectedObstacleVariant;
 
 			} else {
 
@@ -2460,12 +2475,12 @@
 		for ( const [ key, cell ] of grid ) {
 
 				const [ gx, gz ] = key.split( ',' ).map( Number );
-				if ( cell.bump ) bumps.push( [ gx, gz ] );
-				if ( cell.pole ) poles.push( [ gx, gz ] );
-				if ( cell.cube ) cubes.push( [ gx, gz ] );
-				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0 ] );
-				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
-				if ( cell.movingObstacle ) movingObstacles.push( [ gx, gz, cell.movingObstacle, cell.wallOrient || 0, Number.isFinite( Number( cell.movingSpeed ) ) ? Number( cell.movingSpeed ) : 1, cell.movingCustom && typeof cell.movingCustom === 'object' ? cell.movingCustom : null ] );
+				if ( cell.bump ) bumps.push( [ gx, gz, cell.bumpVariant || 'normal' ] );
+				if ( cell.pole ) poles.push( [ gx, gz, cell.poleVariant || 'normal' ] );
+				if ( cell.cube ) cubes.push( [ gx, gz, cell.cubeVariant || 'normal' ] );
+				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0, cell.wallVariant || 'normal' ] );
+				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0, cell.jumpVariant || 'normal' ] );
+				if ( cell.movingObstacle ) movingObstacles.push( [ gx, gz, cell.movingObstacle, cell.wallOrient || 0, Number.isFinite( Number( cell.movingSpeed ) ) ? Number( cell.movingSpeed ) : 1, cell.movingCustom && typeof cell.movingCustom === 'object' ? cell.movingCustom : null, cell.movingVariant || 'normal' ] );
 				if ( cell.elevatedType ) {
 
 					const typeOut = cell.elevatedType === 'slope-down' ? 'slope-up' : cell.elevatedType;
@@ -2666,67 +2681,72 @@
 			if ( intensitySelect ) intensitySelect.value = weatherSettings.intensity;
 			if ( windSelect ) windSelect.value = weatherSettings.wind;
 			if ( lightningToggle ) lightningToggle.checked = weatherSettings.lightning;
-			for ( const [ gx, gz ] of mods.b ) {
+			for ( const [ gx, gz, bumpVariant ] of mods.b ) {
 
 				const key = cellKey( gx, gz );
 					const cell = grid.get( key ) || makeEmptyCell();
 					if ( ! grid.has( key ) ) grid.set( key, cell );
 					cell.bump = true;
 					cell.bumpOrient = 0;
+					cell.bumpVariant = OBSTACLE_VARIANTS.includes( bumpVariant ) ? bumpVariant : 'normal';
 					placeOverlayMesh( gx, gz, cell );
 
 			}
 
-			for ( const [ gx, gz ] of mods.p ) {
+			for ( const [ gx, gz, poleVariant ] of mods.p ) {
 
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
 				cell.pole = true;
+				cell.poleVariant = OBSTACLE_VARIANTS.includes( poleVariant ) ? poleVariant : 'normal';
 				placeOverlayMesh( gx, gz, cell );
 
 			}
 
-			for ( const [ gx, gz ] of mods.k ) {
+			for ( const [ gx, gz, cubeVariant ] of mods.k ) {
 
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
 				cell.cube = true;
+				cell.cubeVariant = OBSTACLE_VARIANTS.includes( cubeVariant ) ? cubeVariant : 'normal';
 				placeOverlayMesh( gx, gz, cell );
 
 			}
 
-			for ( const [ gx, gz, wallOrient ] of mods.l ) {
+			for ( const [ gx, gz, wallOrient, wallVariant ] of mods.l ) {
 
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
 				cell.wall = true;
 				cell.wallOrient = wallOrient || 0;
+				cell.wallVariant = OBSTACLE_VARIANTS.includes( wallVariant ) ? wallVariant : 'normal';
 				placeOverlayMesh( gx, gz, cell );
 
 			}
 
-			for ( const [ gx, gz, jumpOrient ] of mods.j ) {
+			for ( const [ gx, gz, jumpOrient, jumpVariant ] of mods.j ) {
 
 				const key = cellKey( gx, gz );
 					const cell = grid.get( key ) || makeEmptyCell();
 					if ( ! grid.has( key ) ) grid.set( key, cell );
 					cell.jump = true;
 					cell.jumpOrient = jumpOrient || 0;
+					cell.jumpVariant = OBSTACLE_VARIANTS.includes( jumpVariant ) ? jumpVariant : 'normal';
 					placeOverlayMesh( gx, gz, cell );
 
 			}
 
 
 
-			for ( const [ gx, gz, movingType, _orient, movingSpeedRaw, movingCustomRaw ] of mods.o || [] ) {
+			for ( const [ gx, gz, movingType, _orient, movingSpeedRaw, movingCustomRaw, movingVariant ] of mods.o || [] ) {
 
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
-				if ( [ MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, MOVING_CUSTOM_TOOL ].includes( movingType ) ) { cell.movingObstacle = movingType; cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedRaw ) || 1 ) ); cell.movingCustom = movingCustomRaw && typeof movingCustomRaw === 'object' ? movingCustomRaw : null; }
+				if ( [ MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, MOVING_CUSTOM_TOOL ].includes( movingType ) ) { cell.movingObstacle = movingType; cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedRaw ) || 1 ) ); cell.movingCustom = movingCustomRaw && typeof movingCustomRaw === 'object' ? movingCustomRaw : null; cell.movingVariant = OBSTACLE_VARIANTS.includes( movingVariant ) && movingVariant !== 'sticky' ? movingVariant : 'normal'; }
 				placeOverlayMesh( gx, gz, cell );
 
 			}
@@ -2909,6 +2929,7 @@ function refreshMovingSpeedUi() {
 		'pad-custom-c': document.getElementById( 'btn-pad-custom-c' ),
 	};
 	const gateSelect = document.getElementById( 'gate-select' );
+	const obstacleVariantSelect = document.getElementById( 'obstacle-variant-select' );
 	const surfaceSelect = document.getElementById( 'surface-select' );
 	const padSelect = document.getElementById( 'pad-select' );
 	const effectSelect = document.getElementById( 'effect-select' );
@@ -2995,7 +3016,7 @@ function refreshMovingSpeedUi() {
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
 		}
-		if ( gateSelect ) gateSelect.value = [ 'track-finish', 'track-start', 'track-start-finish' ].includes( selectedType ) ? selectedType : 'track-start-finish';
+		if ( gateSelect ) gateSelect.value = [ 'track-finish', 'track-start', 'track-start-finish' ].includes( selectedType ) ? selectedType : '';
 		if ( gateSelect ) {
 
 			const tint = getGateTintColor( gateSelect.value );
@@ -3154,6 +3175,10 @@ function refreshMovingSpeedUi() {
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 
 			selectTileType( type );
+			if ( gateSelect ) gateSelect.value = '';
+			if ( surfaceSelect ) surfaceSelect.value = '';
+			if ( padSelect ) padSelect.value = '';
+			if ( effectSelect ) effectSelect.value = '';
 			if ( CUSTOM_SURFACE_TYPES.includes( type ) || CUSTOM_PAD_TYPES.includes( type ) ) openCustomSurfaceEditor( type );
 
 		} );
@@ -3164,6 +3189,10 @@ function refreshMovingSpeedUi() {
 		selectTileType( gateSelect.value || 'track-start-finish' );
 		showToast( `Gate tool: ${ gateSelect.options[ gateSelect.selectedIndex ]?.textContent || 'Start/Finish' }` );
 
+	} );
+	obstacleVariantSelect?.addEventListener( 'change', () => {
+		const next = obstacleVariantSelect.value;
+		selectedObstacleVariant = OBSTACLE_VARIANTS.includes( next ) ? next : 'normal';
 	} );
 	surfaceSelect?.addEventListener( 'change', () => {
 
