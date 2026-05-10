@@ -225,6 +225,13 @@
 		#pause-panel.visible { display: block; }
 		#pause-panel h2 { margin: 0 0 8px; font: 800 32px/1 sans-serif; }
 		#pause-panel p { margin: 0; color: #cfe1f8; }
+		.mid-screen-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(5,10,20,0.72); z-index: 210; }
+		.mid-screen-modal.show { display: flex; }
+		.mid-screen-card { width: min(920px, 92vw); max-height: 88vh; overflow: auto; background: #121a29; border: 1px solid rgba(125,166,230,0.3); border-radius: 12px; padding: 14px; position: relative; box-shadow: 0 18px 60px rgba(0,0,0,0.45); }
+		.modal-close { position: absolute; top: 8px; right: 10px; border: 1px solid rgba(255,255,255,0.28); background: rgba(255,255,255,0.08); color: #fff; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+		#finish-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+		#finish-actions button { cursor: pointer; border-radius: 8px; padding: 8px 12px; border: 1px solid rgba(255,255,255,0.26); background: rgba(255,255,255,0.12); color: #fff; }
+		#finish-replay-embed { width: 100%; height: min(66vh, 640px); border: 1px solid #2a354a; border-radius: 8px; background:#0b111c; }
 		#lap-hud-2 {
 			position: absolute;
 			left: 50%;
@@ -565,6 +572,19 @@
 		}
 		#leaderboard-list .lb-ghost-check {
 			accent-color: #9ef7c0;
+		}
+		#leaderboard-list .lb-replay-btn {
+			margin-left: 6px;
+			font-size: 11px;
+			padding: 2px 6px;
+			border-radius: 6px;
+			border: 1px solid rgba(158,247,192,0.55);
+			background: rgba(54,125,95,0.22);
+			color: #cffff0;
+			cursor: pointer;
+		}
+		#leaderboard-list .lb-replay-btn:hover {
+			background: rgba(84,164,128,0.3);
 		}
 		#leaderboard-empty {
 			opacity: 0.8;
@@ -994,6 +1014,25 @@
 			<h2>Paused</h2>
 			<p>Press Escape or P to resume.</p>
 		</div>
+		<div id="finish-menu-modal" class="mid-screen-modal" aria-hidden="true">
+			<div class="mid-screen-card">
+				<button id="finish-menu-close" class="modal-close" type="button">✕</button>
+				<h2>Lap Complete</h2>
+				<div id="finish-menu-summary">Great run.</div>
+				<div id="finish-actions">
+					<button id="finish-retry-btn" type="button">Retry (R)</button>
+					<button id="finish-exit-btn" type="button">Exit to Menu</button>
+					<button id="finish-watch-btn" type="button">Watch replay</button>
+				</div>
+			</div>
+		</div>
+		<div id="finish-replay-modal" class="mid-screen-modal" aria-hidden="true">
+			<div class="mid-screen-card">
+				<button id="finish-replay-close" class="modal-close" type="button">✕</button>
+				<h2>Replay broadcast cam</h2>
+				<iframe id="finish-replay-embed" title="Replay broadcast camera" loading="lazy"></iframe>
+			</div>
+		</div>
 	<div id="economy-hud">
 		<div id="coins-label">Coins: 0</div>
 	</div>
@@ -1032,6 +1071,10 @@
 			<label id="fps-setting" for="fps-toggle">
 				<input id="fps-toggle" type="checkbox">
 				<span>Show FPS<small>Displays a small bottom-center frame-rate counter.</small></span>
+			</label>
+			<label id="finish-menu-setting" for="finish-menu-toggle">
+				<input id="finish-menu-toggle" type="checkbox" checked>
+				<span>Finish lap popup<small>Show a mid-screen finish menu with retry, exit, and replay actions.</small></span>
 			</label>
 			<section id="graphics-section" aria-labelledby="graphics-section-title">
 				<h4 id="graphics-section-title">Graphics</h4>

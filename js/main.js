@@ -143,6 +143,7 @@ const BOOST_ACCEL_PER_SECOND = 16.5;
 const FX_SETTINGS_KEY = 'racing-fx-settings-v1';
 const COUNTDOWN_SETTINGS_KEY = 'racing-countdown-enabled-v1';
 const FPS_HUD_SETTINGS_KEY = 'racing-show-fps-v1';
+const FINISH_MENU_SETTINGS_KEY = 'racing-show-finish-menu-v1';
 const COUNTDOWN_DURATION_SECONDS = 3;
 const ZERO_DRIVE_INPUT = { x: 0, z: 0 };
 const VEHICLE_SURFACE_RADIUS = 0.5;
@@ -2664,6 +2665,16 @@ async function init() {
 	const campaignInfoBtn = document.getElementById( 'campaign-info-btn' );
 	const countdownToggle = document.getElementById( 'countdown-toggle' );
 	const fpsToggle = document.getElementById( 'fps-toggle' );
+	const finishMenuToggle = document.getElementById( 'finish-menu-toggle' );
+	const finishMenuModal = document.getElementById( 'finish-menu-modal' );
+	const finishMenuSummary = document.getElementById( 'finish-menu-summary' );
+	const finishMenuCloseBtn = document.getElementById( 'finish-menu-close' );
+	const finishRetryBtn = document.getElementById( 'finish-retry-btn' );
+	const finishExitBtn = document.getElementById( 'finish-exit-btn' );
+	const finishWatchBtn = document.getElementById( 'finish-watch-btn' );
+	const finishReplayModal = document.getElementById( 'finish-replay-modal' );
+	const finishReplayCloseBtn = document.getElementById( 'finish-replay-close' );
+	const finishReplayEmbed = document.getElementById( 'finish-replay-embed' );
 	const graphicsQualityButtons = Array.from( document.querySelectorAll( '[data-graphics-quality]' ) );
 	const graphicsQualityLabel = document.getElementById( 'graphics-quality-label' );
 	const modeTabGameplayBtn = document.getElementById( 'mode-tab-gameplay' );
@@ -4050,6 +4061,8 @@ function completeCampaignStage() {
 	let countdownEndsAt = 0;
 	let countdownEnabled = localStorage.getItem( COUNTDOWN_SETTINGS_KEY ) !== '0';
 	let fpsHudVisible = localStorage.getItem( FPS_HUD_SETTINGS_KEY ) === '1';
+	let finishMenuEnabled = localStorage.getItem( FINISH_MENU_SETTINGS_KEY ) !== '0';
+	let finishMenuOpen = false;
 	let rollingFps = 0;
 	let fpsHudAccumulator = 0;
 	const activeCells = customCells || TRACK_CELLS;
@@ -4070,6 +4083,11 @@ function completeCampaignStage() {
 	const lapStoreKey = `racing-lap-stats:${ mapParam || 'default' }`;
 	const stuntStoreKey = `racing-stunt-stats:${ mapParam || 'default' }`;
 	const currentTrackUrl = `${ window.location.origin }${ window.location.pathname }${ window.location.search }`;
+	const cinematicReplayMode = replayViewerMode && new URLSearchParams( window.location.search ).get( 'cam' ) === '3';
+	const cinematicState = { anchor: new THREE.Vector3(), hasAnchor: false, retargetAt: 0, failCount: 0 };
+	const cinematicRaycaster = new THREE.Raycaster();
+	const cinematicDir = new THREE.Vector3();
+	const cinematicCandidates = [ [ 15, 9 ], [ - 16, 8 ], [ 0, 12 ], [ 21, 7 ], [ - 22, 10 ], [ 10, 13 ] ];
 	const leaderboardTrackId = getTrackId( mapParam, extrasParam );
 	const leaderboardLegacyTrackIds = getLegacyTrackIds( mapParam, extrasParam );
 	const leaderboardTrackName = getTrackLabel( mapParam );
@@ -5169,6 +5187,99 @@ function completeCampaignStage() {
 
 	}
 
+	function openReplayWatcherForGhost( ghostPayload ) {
+
+		if ( ! ghostPayload || ! Array.isArray( ghostPayload.samples ) || ghostPayload.samples.length < 2 ) {
+
+			showTopMessage( 'This ghost payload is invalid for replay viewing.', true, 2000 );
+			return;
+
+		}
+		const replayPayload = {
+			v: 1,
+			url: currentTrackUrl,
+			ghost: ghostPayload,
+		};
+		const replayCode = encodeBase64UrlJson( replayPayload );
+		window.open( `replay.html#code=${ replayCode }`, '_blank' );
+
+	}
+
+	function setFinishMenuOpen( open ) {
+
+		finishMenuOpen = Boolean( open ) && finishMenuEnabled && ! replayViewerMode;
+		finishMenuModal?.classList.toggle( 'show', finishMenuOpen );
+		if ( finishMenuModal ) finishMenuModal.setAttribute( 'aria-hidden', finishMenuOpen ? 'false' : 'true' );
+		if ( finishMenuOpen ) setPaused( true );
+
+	}
+
+	function closeReplayEmbed() {
+
+		finishReplayModal?.classList.remove( 'show' );
+		finishReplayModal?.setAttribute( 'aria-hidden', 'true' );
+		if ( finishReplayEmbed ) finishReplayEmbed.src = 'about:blank';
+
+	}
+
+	function openReplayEmbedForLatestLap() {
+
+		if ( ! latestLapInputFrames.length && recentGhostHistory.length === 0 ) return showTopMessage( 'No completed lap replay to watch yet.', true, 1900 );
+		const source = recentGhostHistory[ 0 ];
+		if ( ! source?.samples?.length ) return showTopMessage( 'No completed lap replay to watch yet.', true, 1900 );
+		const payload = encodeBase64UrlJson( { v: 1, url: currentTrackUrl, ghost: source } );
+		const replayUrl = `replay.html#code=${ payload }`;
+		if ( finishReplayEmbed ) finishReplayEmbed.src = replayUrl;
+		finishReplayModal?.classList.add( 'show' );
+		finishReplayModal?.setAttribute( 'aria-hidden', 'false' );
+
+	}
+
+	function updateCinematicCamera( dt, nowSeconds ) {
+
+		if ( ! cinematicReplayMode ) return false;
+		const target = vehicle?.spherePos;
+		if ( ! target ) return false;
+		const shouldPickNew = ! cinematicState.hasAnchor || nowSeconds >= cinematicState.retargetAt || cinematicState.anchor.distanceToSquared( target ) > 1800;
+		if ( shouldPickNew ) {
+
+			let placed = false;
+			for ( let i = 0; i < cinematicCandidates.length; i ++ ) {
+
+				const [ cx, cy ] = cinematicCandidates[ ( i + cinematicState.failCount ) % cinematicCandidates.length ];
+				const candidate = new THREE.Vector3( target.x + cx, Math.max( 2.2, target.y + cy ), target.z + ( i % 2 === 0 ? 16 : - 16 ) );
+				cinematicDir.copy( target ).add( new THREE.Vector3( 0, 1.2, 0 ) ).sub( candidate );
+				const dist = cinematicDir.length();
+				if ( dist < 1e-3 ) continue;
+				cinematicDir.multiplyScalar( 1 / dist );
+				cinematicRaycaster.set( candidate, cinematicDir );
+				cinematicRaycaster.far = dist;
+				const hits = cinematicRaycaster.intersectObjects( scene.children, true );
+				const blocked = hits.some( ( h ) => h.distance < dist - 1.5 );
+				if ( blocked ) continue;
+				cinematicState.anchor.copy( candidate );
+				cinematicState.hasAnchor = true;
+				cinematicState.retargetAt = nowSeconds + THREE.MathUtils.randFloat( 1.8, 3.4 );
+				placed = true;
+				break;
+
+			}
+			if ( ! placed ) {
+
+				cinematicState.failCount ++;
+				cinematicState.retargetAt = nowSeconds + 0.7;
+				return false;
+
+			}
+
+		}
+		cam.camera.position.lerp( cinematicState.anchor, dt * 2.6 );
+		cam.lookTarget.lerp( target.clone().setY( target.y + 1.2 ), dt * 5.2 );
+		cam.camera.lookAt( cam.lookTarget );
+		return true;
+
+	}
+
 	function updateGhostShareButtons() {
 
 		if ( ! exportGhostBtn ) return;
@@ -5389,10 +5500,11 @@ function completeCampaignStage() {
 			const hasGhost = Boolean( entry?.ghost );
 			row.classList.toggle( 'has-ghost', hasGhost );
 			const checked = hasGhost && selectedLeaderboardGhosts.has( safeName );
-			row.innerHTML = `<span class=\"lb-rank\">#${ index + 1 }</span> <span class=\"lb-name\">${ safeName }</span> — <span class=\"lb-time\">${ timeText }</span>${ hasGhost ? '<label class=\"lb-ghost-toggle\"><input type=\"checkbox\" class=\"lb-ghost-check\" data-player-name=\"' + safeName.replace( /\"/g, '&quot;' ) + '\" ' + ( checked ? 'checked' : '' ) + '> show ghost</label>' : '' }`;
+			row.innerHTML = `<span class=\"lb-rank\">#${ index + 1 }</span> <span class=\"lb-name\">${ safeName }</span> — <span class=\"lb-time\">${ timeText }</span>${ hasGhost ? '<label class=\"lb-ghost-toggle\"><input type=\"checkbox\" class=\"lb-ghost-check\" data-player-name=\"' + safeName.replace( /\"/g, '&quot;' ) + '\" ' + ( checked ? 'checked' : '' ) + '> show ghost</label><button type=\"button\" class=\"lb-replay-btn\">watch replay</button>' : '' }`;
 			if ( hasGhost ) {
 
 				const checkbox = row.querySelector( '.lb-ghost-check' );
+				const replayBtn = row.querySelector( '.lb-replay-btn' );
 				checkbox?.addEventListener( 'change', () => {
 
 					if ( checkbox.checked ) {
@@ -5413,6 +5525,12 @@ function completeCampaignStage() {
 						showTopMessage( `Disabled ${ safeName } ghost.`, false, 1500 );
 
 					}
+
+				} );
+				replayBtn?.addEventListener( 'click', ( event ) => {
+
+					event.stopPropagation();
+					openReplayWatcherForGhost( entry.ghost );
 
 				} );
 
@@ -6704,6 +6822,7 @@ function completeCampaignStage() {
 	}
 	updateCountdownToggle();
 	updateFpsHudVisibility();
+	if ( finishMenuToggle ) finishMenuToggle.checked = finishMenuEnabled;
 	countdownToggle?.addEventListener( 'change', () => {
 
 		countdownEnabled = Boolean( countdownToggle.checked );
@@ -6724,6 +6843,29 @@ function completeCampaignStage() {
 		updateFpsHudVisibility();
 
 	} );
+	finishMenuToggle?.addEventListener( 'change', () => {
+
+		finishMenuEnabled = Boolean( finishMenuToggle.checked );
+		localStorage.setItem( FINISH_MENU_SETTINGS_KEY, finishMenuEnabled ? '1' : '0' );
+		if ( ! finishMenuEnabled ) setFinishMenuOpen( false );
+
+	} );
+	finishMenuCloseBtn?.addEventListener( 'click', () => setFinishMenuOpen( false ) );
+	finishRetryBtn?.addEventListener( 'click', () => {
+
+		setFinishMenuOpen( false );
+		respawnVehicle();
+
+	} );
+	finishExitBtn?.addEventListener( 'click', () => {
+
+		const url = new URL( window.location.href );
+		url.searchParams.set( 'play', '0' );
+		window.location.href = url.toString();
+
+	} );
+	finishWatchBtn?.addEventListener( 'click', () => openReplayEmbedForLatestLap() );
+	finishReplayCloseBtn?.addEventListener( 'click', () => closeReplayEmbed() );
 	garageSourceToleranceInput?.addEventListener( 'input', () => {
 
 		if ( garageSourceToleranceValue ) garageSourceToleranceValue.textContent = String( Math.round( Number( garageSourceToleranceInput.value ) || 40 ) );
@@ -7075,7 +7217,7 @@ function completeCampaignStage() {
 
 			}
 
-			if ( e.code === 'KeyC' ) {
+			if ( e.code === 'KeyC' && ! replayViewerMode ) {
 
 				cam.toggleMode();
 				return;
@@ -7091,6 +7233,8 @@ function completeCampaignStage() {
 
 				if ( e.code === 'KeyR' ) {
 
+				if ( finishMenuOpen ) setFinishMenuOpen( false );
+				closeReplayEmbed();
 				respawnVehicle();
 				return;
 
@@ -7389,6 +7533,11 @@ function completeCampaignStage() {
 		);
 
 		if ( freecamState.active ) updateFreecam( dt );
+		else if ( cinematicReplayMode && updateCinematicCamera( dt, now ) ) {
+
+			// cinematic broadcast camera consumes primary camera updates in replay mode
+
+		}
 		else if ( ! replayViewerMode ) {
 
 			const shouldLockYaw = airTrickState.active && isVehicleAirborne( vehicle );
@@ -7680,6 +7829,17 @@ function completeCampaignStage() {
 				if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle();
 					saveLapStats();
 					rewardCoinsForLap( completedLap );
+					if ( finishMenuEnabled && ! isSplitScreen && ! competitionParamEnabled ) {
+
+						if ( finishMenuSummary ) {
+
+							const bestLabel = Number.isFinite( bestLapSeconds ) ? formatLapTime( bestLapSeconds ) : '--:--.---';
+							finishMenuSummary.textContent = `Lap ${ formatLapTime( completedLap ) } • Best ${ bestLabel }`;
+
+						}
+						setFinishMenuOpen( true );
+
+					}
 					if ( ! lapInvalid && competitionParamEnabled && competitionReturnParam && ! isSplitScreen ) {
 						const competitionResultUrl = new URL( competitionReturnParam, window.location.href );
 						competitionResultUrl.searchParams.set( 'competitionResult', '1' );
