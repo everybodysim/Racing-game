@@ -2718,6 +2718,7 @@ async function init() {
 	let topMessageTimer = 0;
 	let pendingLeaderboardRecord = null;
 	let leaderboardVisible = true;
+	let uiHidden = false;
 	let accountSession = null;
 	let campaignState = null;
 	let campaignTargetAuthorSeconds = null;
@@ -5849,6 +5850,13 @@ function completeCampaignStage() {
 
 	}
 
+	function setUiHidden( hidden ) {
+
+		uiHidden = Boolean( hidden );
+		document.body.classList.toggle( 'ui-hidden', uiHidden );
+
+	}
+
 	function updatePauseUi() {
 
 		const canPause = canPauseGameplay();
@@ -7097,6 +7105,13 @@ function completeCampaignStage() {
 
 					setModeMenuOpen( ! modeMenuOpen );
 					return;
+
+			}
+
+			if ( e.code === 'KeyH' ) {
+
+				setUiHidden( ! uiHidden );
+				return;
 
 			}
 

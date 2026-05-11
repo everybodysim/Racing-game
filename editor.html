@@ -370,6 +370,7 @@
 			<button id="btn-straight" class="active">Straight</button>
 			<button id="btn-corner">Corner</button>
 			<select id="gate-select" aria-label="Gate picker">
+				<option value="">Gate…</option>
 				<option value="track-start-finish">Start/Finish</option>
 				<option value="track-start">Place: Start</option>
 				<option value="track-finish">Place: Finish</option>
@@ -2995,7 +2996,7 @@ function refreshMovingSpeedUi() {
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
 		}
-		if ( gateSelect ) gateSelect.value = [ 'track-finish', 'track-start', 'track-start-finish' ].includes( selectedType ) ? selectedType : 'track-start-finish';
+		if ( gateSelect ) gateSelect.value = [ 'track-finish', 'track-start', 'track-start-finish' ].includes( selectedType ) ? selectedType : '';
 		if ( gateSelect ) {
 
 			const tint = getGateTintColor( gateSelect.value );

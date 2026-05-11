@@ -794,6 +794,7 @@
 		}
 		#home-landing.visible { display: flex; }
 		#home-card {
+			position: relative;
 			width: min(1320px, 100%);
 			border-radius: 22px;
 			padding: clamp(18px, 2.5vw, 34px);
@@ -802,6 +803,22 @@
 			box-shadow: 0 24px 70px rgba(0,0,0,0.5);
 			color: #eaf2ff;
 		}
+
+		#home-player-counter {
+			position: absolute;
+			right: clamp(18px, 2.5vw, 34px);
+			top: clamp(18px, 2.5vw, 28px);
+			padding: 8px 10px;
+			border-radius: 10px;
+			background: rgba(5,10,18,0.55);
+			border: 1px solid rgba(255,255,255,0.16);
+			font: 600 11px/1.2 "Inter", "Segoe UI", sans-serif;
+			color: #d8ebff;
+			min-width: 120px;
+			text-align: right;
+		}
+		#home-player-counter a { color: #9ec6ff; text-decoration: none; font-size: 10px; }
+
 		#home-card h1 {
 			margin: 0 0 8px;
 			font: 800 clamp(30px, 5vw, 54px)/1.04 "Inter", "Segoe UI", sans-serif;
@@ -934,6 +951,9 @@
 				#leaderboard-panel { top: 136px; left: 12px; }
 		}
 	
+		body.ui-hidden > :not(canvas):not(script) { display: none !important; }
+		body.ui-hidden canvas { touch-action: none; }
+
 		body.replay-viewer-mode > :not(canvas):not(script) { display: none !important; }
 		body.replay-viewer-mode canvas { touch-action: none; }
 </style>
@@ -961,6 +981,14 @@
 	<section id="home-landing" aria-label="Home page">
 		<div id="home-card">
 			<h1>Welcome to Skid Circuit</h1>
+
+			<div id="home-player-counter" aria-label="Player counter">
+				<div>Players visited</div>
+				<a href='http://www.freevisitorcounters.com'>at Freevisitorcounters.com</a>
+				<script type='text/javascript' src='https://www.freevisitorcounters.com/auth.php?id=80aeb0b0a17286f9397ecfd36846075238e35741'></script>
+				<script type="text/javascript" src="https://www.freevisitorcounters.com/en/home/counter/1550946/t/0"></script>
+			</div>
+
 			<p>Start with a clean launch experience, then jump straight into racing, sharing, and curated events. Choose a destination below.</p>
 			<div id="home-main-grid">
 				<a class="home-main-link play-link" href="index.html?play=1">Play now<em>Launch the game immediately</em></a>
