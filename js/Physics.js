@@ -119,7 +119,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	function addJumpRampCollider( gx, gz, orient = 0, yOffset = 0 ) {
+	function addJumpRampCollider( gx, gz, orient = 0, yOffset = 0, isPlastic = false ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
@@ -135,8 +135,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			objectLayer: world._OL_STATIC,
 			position,
 			quaternion,
-			friction: 1.0,
-			restitution: 0.0,
+			friction: isPlastic ? 0.2 : 1.0,
+			restitution: isPlastic ? 0.9 : 0.0,
 		} );
 
 		if ( debugGroup ) addDebugBox( debugGroup, jumpRampHalfExtents, position, quaternion );
@@ -361,9 +361,13 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const cells = customCells || TRACK_CELLS;
 	const bumpSet = new Set();
 	const poleSet = new Set();
+	const polePlasticSet = new Set();
 	const cubeSet = new Set();
+	const cubePlasticSet = new Set();
 	const wallMap = new Map();
+	const wallPlasticMap = new Map();
 	const jumpMap = new Map();
+	const jumpPlasticMap = new Map();
 	const magnetEntries = extras && Array.isArray( extras.magnets ) ? extras.magnets : [];
 	const elevatedEntries = extras && Array.isArray( extras.elevated ) ? extras.elevated : [];
 	const elevatedMap = new Map();
@@ -374,26 +378,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		for ( const [ gx, gz ] of extras.bumps ) bumpSet.add( gx + ',' + gz );
 
 	}
-	if ( extras && Array.isArray( extras.poles ) ) {
-
-		for ( const [ gx, gz ] of extras.poles ) poleSet.add( `${ gx },${ gz }` );
-
-	}
-	if ( extras && Array.isArray( extras.cubes ) ) {
-
-		for ( const [ gx, gz ] of extras.cubes ) cubeSet.add( `${ gx },${ gz }` );
-
-	}
-	if ( extras && Array.isArray( extras.walls ) ) {
-
-		for ( const [ gx, gz, orient = 0 ] of extras.walls ) wallMap.set( `${ gx },${ gz }`, orient );
-
-	}
-	if ( extras && Array.isArray( extras.jumps ) ) {
-
-		for ( const [ gx, gz, orient = 0 ] of extras.jumps ) jumpMap.set( gx + ',' + gz, orient );
-
-	}
+	if ( extras && Array.isArray( extras.poles ) ) { for ( const [ gx, gz ] of extras.poles ) poleSet.add( `${ gx },${ gz }` ); }
+	if ( extras && Array.isArray( extras.polesPlastic ) ) { for ( const [ gx, gz ] of extras.polesPlastic ) polePlasticSet.add( `${ gx },${ gz }` ); }
+	if ( extras && Array.isArray( extras.cubes ) ) { for ( const [ gx, gz ] of extras.cubes ) cubeSet.add( `${ gx },${ gz }` ); }
+	if ( extras && Array.isArray( extras.cubesPlastic ) ) { for ( const [ gx, gz ] of extras.cubesPlastic ) cubePlasticSet.add( `${ gx },${ gz }` ); }
+	if ( extras && Array.isArray( extras.walls ) ) { for ( const [ gx, gz, orient = 0 ] of extras.walls ) wallMap.set( `${ gx },${ gz }`, orient ); }
+	if ( extras && Array.isArray( extras.wallsPlastic ) ) { for ( const [ gx, gz, orient = 0 ] of extras.wallsPlastic ) wallPlasticMap.set( `${ gx },${ gz }`, orient ); }
+	if ( extras && Array.isArray( extras.jumps ) ) { for ( const [ gx, gz, orient = 0 ] of extras.jumps ) jumpMap.set( gx + ',' + gz, orient ); }
+	if ( extras && Array.isArray( extras.jumpsPlastic ) ) { for ( const [ gx, gz, orient = 0 ] of extras.jumpsPlastic ) jumpPlasticMap.set( gx + ',' + gz, orient ); }
 	for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedEntries ) {
 
 		const key = `${ gx },${ gz }`;
@@ -410,7 +402,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	for ( const poleKey of poleSet ) {
+	for ( const poleKey of new Set([ ...poleSet, ...polePlasticSet ]) ) {
 
 		const [ gxRaw, gzRaw ] = poleKey.split( ',' );
 		const gx = Number( gxRaw );
@@ -421,20 +413,21 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const poleRadius = CELL_RAW * S * 0.08;
 		const poleRise = CELL_RAW * S * 0.065;
 		const position = [ cx, groundY + poleRise + getOverlayHeightOffset( gx, gz ), cz ];
+		const isPlastic = polePlasticSet.has( poleKey );
 
 		rigidBody.create( world, {
 			shape: sphere.create( { radius: poleRadius } ),
 			motionType: MotionType.STATIC,
 			objectLayer: world._OL_STATIC,
 			position,
-			friction: 1.0,
-			restitution: 0.02,
+			friction: isPlastic ? 0.2 : 1.0,
+			restitution: isPlastic ? 0.9 : 0.02,
 		} );
 		if ( debugGroup ) addDebugSphere( debugGroup, poleRadius, position );
 
 	}
 
-	for ( const cubeKey of cubeSet ) {
+	for ( const cubeKey of new Set([ ...cubeSet, ...cubePlasticSet ]) ) {
 
 		const [ gxRaw, gzRaw ] = cubeKey.split( ',' );
 		const gx = Number( gxRaw );
@@ -444,13 +437,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
 		const halfExtents = [ CELL_RAW * S * 0.08, CELL_RAW * S * 0.08, CELL_RAW * S * 0.08 ];
 		const position = [ cx, groundY + halfExtents[ 1 ] + getOverlayHeightOffset( gx, gz ), cz ];
+		const isPlastic = wallPlasticMap.has( wallKey );
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents } ),
 			motionType: MotionType.STATIC,
 			objectLayer: world._OL_STATIC,
 			position,
-			friction: 0.9,
-			restitution: 0.02,
+			friction: isPlastic ? 0.2 : 0.9,
+			restitution: isPlastic ? 0.9 : 0.02,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
 
@@ -478,7 +472,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	for ( const [ wallKey, orient ] of wallMap ) {
+	for ( const wallKey of new Set([ ...wallMap.keys(), ...wallPlasticMap.keys() ]) ) {
+		const orient = wallPlasticMap.has( wallKey ) ? wallPlasticMap.get( wallKey ) : wallMap.get( wallKey );
 
 		const [ gxRaw, gzRaw ] = wallKey.split( ',' );
 		const gx = Number( gxRaw );
@@ -490,14 +485,15 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 		const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
 		const position = [ cx, groundY + halfExtents[ 1 ] + getOverlayHeightOffset( gx, gz ), cz ];
+		const isPlastic = cubePlasticSet.has( cubeKey );
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents } ),
 			motionType: MotionType.STATIC,
 			objectLayer: world._OL_STATIC,
 			position,
 			quaternion,
-			friction: 0.9,
-			restitution: 0.01,
+			friction: isPlastic ? 0.2 : 0.9,
+			restitution: isPlastic ? 0.9 : 0.01,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
@@ -516,10 +512,13 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const hasBump = key === 'track-bump' || bumpSet.has( gx + ',' + gz );
 		if ( hasBump ) bumpSet.delete( gx + ',' + gz );
 		const jumpKey = gx + ',' + gz;
-		if ( jumpMap.has( jumpKey ) ) {
+		if ( jumpMap.has( jumpKey ) || jumpPlasticMap.has( jumpKey ) ) {
 
-			addJumpRampCollider( gx, gz, jumpMap.get( jumpKey ), getOverlayHeightOffset( gx, gz ) );
+			const jumpOrient = jumpPlasticMap.has( jumpKey ) ? ( jumpPlasticMap.get( jumpKey ) || 0 ) : ( jumpMap.get( jumpKey ) || 0 );
+			const isPlasticJump = jumpPlasticMap.has( jumpKey );
+			addJumpRampCollider( gx, gz, jumpOrient, getOverlayHeightOffset( gx, gz ), isPlasticJump );
 			jumpMap.delete( jumpKey );
+			jumpPlasticMap.delete( jumpKey );
 
 		}
 

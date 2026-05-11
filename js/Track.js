@@ -312,9 +312,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const bumpCells = Array.isArray( extras.bumps ) ? extras.bumps : [];
 		const boostCells = Array.isArray( extras.boosts ) ? extras.boosts : [];
 		const jumpCells = Array.isArray( extras.jumps ) ? extras.jumps : [];
+		const jumpPlasticCells = Array.isArray( extras.jumpsPlastic ) ? extras.jumpsPlastic : [];
 		const cubeCells = Array.isArray( extras.cubes ) ? extras.cubes : [];
+		const cubePlasticCells = Array.isArray( extras.cubesPlastic ) ? extras.cubesPlastic : [];
 		const wallCells = Array.isArray( extras.walls ) ? extras.walls : [];
+		const wallPlasticCells = Array.isArray( extras.wallsPlastic ) ? extras.wallsPlastic : [];
 		const poleCells = Array.isArray( extras.poles ) ? extras.poles : [];
+		const polePlasticCells = Array.isArray( extras.polesPlastic ) ? extras.polesPlastic : [];
 		const elevatedCells = Array.isArray( extras.elevated ) ? extras.elevated : [];
 		const decorations = Array.isArray( extras.decorations ) ? extras.decorations : [];
 		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
@@ -343,11 +347,11 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		for ( const [ gx, gz ] of poleCells ) {
+		for ( const [ gx, gz, isPlastic = 0 ] of [ ...poleCells.map(c=>[...c,0]), ...polePlasticCells.map(c=>[...c,1]) ] ) {
 
 			const pole = new THREE.Mesh(
 				new THREE.CylinderGeometry( POLE_RADIUS, POLE_RADIUS, POLE_HEIGHT, 16 ),
-				new THREE.MeshStandardMaterial( { color: 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
+				new THREE.MeshStandardMaterial( { color: isPlastic ? 0xffe14a : 0x8c8f96, emissive: isPlastic ? 0x8c6f00 : 0x000000, roughness: 0.65, metalness: 0.15 } )
 			);
 			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
 			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( POLE_HEIGHT * 0.5 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
@@ -366,11 +370,11 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		for ( const [ gx, gz ] of cubeCells ) {
+		for ( const [ gx, gz, isPlastic = 0 ] of [ ...cubeCells.map(c=>[...c,0]), ...cubePlasticCells.map(c=>[...c,1]) ] ) {
 
 			const cube = new THREE.Mesh(
 				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
-				new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
+				new THREE.MeshStandardMaterial( { color: isPlastic ? 0xffe14a : 0x9da5b1, emissive: isPlastic ? 0x8c6f00 : 0x000000, roughness: 0.65, metalness: 0.08 } )
 			);
 			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
 			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
@@ -439,11 +443,11 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		for ( const [ gx, gz, orient = 0 ] of wallCells ) {
+		for ( const [ gx, gz, orient = 0, isPlastic = 0 ] of [ ...wallCells.map(c=>[c[0],c[1],c[2],0]), ...wallPlasticCells.map(c=>[c[0],c[1],c[2],1]) ] ) {
 
 			const wall = new THREE.Mesh(
 				new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
-				new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
+				new THREE.MeshStandardMaterial( { color: isPlastic ? 0xffe14a : 0x868a90, emissive: isPlastic ? 0x8c6f00 : 0x000000, roughness: 0.75, metalness: 0.05 } )
 			);
 			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
 			wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
@@ -479,12 +483,12 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		for ( const [ gx, gz, orient = 0 ] of jumpCells ) {
+		for ( const [ gx, gz, orient = 0, isPlastic = 0 ] of [ ...jumpCells.map(c=>[c[0],c[1],c[2],0]), ...jumpPlasticCells.map(c=>[c[0],c[1],c[2],1]) ] ) {
 
 			const jump = new THREE.Mesh(
 				new THREE.BoxGeometry( JUMP_RAMP_SIZE, JUMP_RAMP_DEPTH, JUMP_RAMP_SIZE ),
 				new THREE.MeshStandardMaterial( {
-					color: 0x7f6a58,
+					color: isPlastic ? 0xffe14a : 0x7f6a58,
 					roughness: 0.85,
 					metalness: 0.02,
 				} )

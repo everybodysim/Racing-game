@@ -793,6 +793,7 @@
 			font-family: "Inter", "Segoe UI", sans-serif;
 		}
 		#home-landing.visible { display: flex; }
+		#home-player-counter{position:absolute;top:20px;right:24px;font:600 11px/1.2 sans-serif;color:#d8eeff;text-align:right;max-width:240px;}
 		#home-card {
 			width: min(1320px, 100%);
 			border-radius: 22px;
@@ -961,15 +962,15 @@
 	<section id="home-landing" aria-label="Home page">
 		<div id="home-card">
 			<h1>Welcome to Skid Circuit</h1>
+			<div id="home-player-counter"><a href='http://www.freevisitorcounters.com'>at Freevisitorcounters.com</a> <script type='text/javascript' src='https://www.freevisitorcounters.com/auth.php?id=80aeb0b0a17286f9397ecfd36846075238e35741'></script><script type='text/javascript' src='https://www.freevisitorcounters.com/en/home/counter/1550946/t/0'></script></div>
 			<p>Start with a clean launch experience, then jump straight into racing, sharing, and curated events. Choose a destination below.</p>
 			<div id="home-main-grid">
 				<a class="home-main-link play-link" href="index.html?play=1">Play now<em>Launch the game immediately</em></a>
-				<a class="home-main-link" href="tracks.html">Track shares<em>Discover and copy community maps</em></a>
+				<a id="home-track-share-link" class="home-main-link" href="tracks.html">Track shares<em>Discover and copy community maps</em></a>
 				<a class="home-main-link" href="editor.html">Create your own track<em>Build and test original circuits</em></a>
-				<a class="home-main-link" href="weekly-cup.html">Weekly cup<em>Competitive rotating event</em></a>
-				<a class="home-main-link out-of-order" href="#" data-out-of-order="1">Campaign<em>Guided feature progression</em></a>
-				<a class="home-main-link out-of-order" href="competitions.html" data-out-of-order="1">Competitions<em>9 live stake-based tier events</em></a>
-				<a class="home-main-link" href="totd.html">Track of the day<em>One featured challenge each day</em></a>
+				<a id="home-weekly-link" class="home-main-link" href="weekly-cup.html">Weekly cup<em>Competitive rotating event</em></a>
+								<a class="home-main-link out-of-order" href="competitions.html" data-out-of-order="1">Competitions<em>9 live stake-based tier events</em></a>
+				<a id="home-totd-link" class="home-main-link" href="totd.html">Track of the day<em>One featured challenge each day</em></a>
 			</div>
 			<div id="home-secondary">
 				<a class="home-secondary-link" href="replay.html">Replay watcher</a>
@@ -1364,6 +1365,16 @@
 		}
 
 		( async () => {
+
+			const homeTotdLink = document.getElementById( 'home-totd-link' );
+			const homeWeeklyLink = document.getElementById( 'home-weekly-link' );
+			const homeTrackShareLink = document.getElementById( 'home-track-share-link' );
+			if ( homeTotdLink ) homeTotdLink.querySelector('em').textContent = `Winner: ${ await readLeaderboardNameFromPage( 'totd.html', '#totd-record-holder', 'No record yet' ) }`;
+			if ( homeWeeklyLink ) homeWeeklyLink.querySelector('em').textContent = `Winner: ${ await readLeaderboardNameFromPage( 'weekly-cup.html', '#champName', 'No records yet' ) }`;
+			if ( homeTrackShareLink ) {
+				try { const resp = await fetch('https://racing-track-board-api.ga1010.workers.dev/api/tracks',{cache:'no-store'}); const data = await resp.json(); const count = Array.isArray(data?.entries)?data.entries.length:0; homeTrackShareLink.querySelector('em').textContent = `${ count } shared tracks`; } catch {}
+			}
+
 			const totdLink = document.getElementById( 'totd-link' );
 			const weeklyLink = document.getElementById( 'weekly-cup-link' );
 			if ( totdLink ) {
