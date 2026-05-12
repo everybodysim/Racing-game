@@ -1343,7 +1343,7 @@
 		} );
 		const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
 		const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
-		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'coin-leaderboard-link', 'competitions-link', 'replay-link', 'tracks-link', 'mods-link', 'hacks-toggle', 'split-link' ];
+		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'coin-leaderboard-link', 'competitions-link', 'replay-link', 'tracks-link', 'clubs-link', 'mods-link', 'hacks-toggle', 'split-link' ];
 		for ( const id of quickMenuLinks ) {
 			const node = document.getElementById( id );
 			if ( node ) quickMenuPanel.appendChild( node );
@@ -1635,7 +1635,11 @@
   const chatWindow = document.getElementById("chat-box");
   const chatButton = document.getElementById("chat-btn");
 
-  let userName = "";
+  let userName = (document.getElementById("player-name-input")?.value || localStorage.getItem("racing-player-name-v1") || localStorage.getItem("racing_player_name") || "").trim();
+  if (userName) {
+    const nameInput = document.getElementById("name");
+    if (nameInput) nameInput.value = userName;
+  }
   let seen = new Set(); // prevent duplicates
   let hasUnreadMessages = false;
   const baseDocumentTitle = document.title;
