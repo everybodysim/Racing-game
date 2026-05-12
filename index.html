@@ -1613,8 +1613,8 @@
   <div id="chat-header">Live Chat</div>
 
   <div id="name-bar">
-    <input id="name" placeholder="Enter your name..." />
-    <button id="set-name">Set</button>
+    <input id="name" placeholder="Account username required" disabled />
+    <button id="set-name" disabled>Locked</button>
   </div>
 
   <div id="chat"></div>
@@ -1635,7 +1635,15 @@
   const chatWindow = document.getElementById("chat-box");
   const chatButton = document.getElementById("chat-btn");
 
-  let userName = (document.getElementById("player-name-input")?.value || localStorage.getItem("racing-player-name-v1") || localStorage.getItem("racing_player_name") || "").trim();
+  function getAccountUsername() {
+    try {
+      const raw = localStorage.getItem("racing-account-session-v1");
+      if (!raw) return "";
+      const parsed = JSON.parse(raw);
+      return String(parsed?.username || "").trim();
+    } catch { return ""; }
+  }
+  let userName = getAccountUsername();
   if (userName) {
     const nameInput = document.getElementById("name");
     if (nameInput) nameInput.value = userName;
@@ -1745,13 +1753,11 @@
     }
   });
 
-  // Set username
-  document.getElementById("set-name").onclick = () => {
-    const input = document.getElementById("name");
-    if (!input.value.trim()) return;
-    userName = input.value.trim();
-    input.disabled = true;
-  };
+  // Username is locked to account username
+  const nameInput = document.getElementById("name");
+  const setBtn = document.getElementById("set-name");
+  if (!userName && nameInput) nameInput.placeholder = "Log in to an account to chat";
+  if (setBtn) setBtn.title = "Username is your account username";
 
   // Live messages
   channel.subscribe(msg => {
@@ -1768,7 +1774,8 @@
     const input = document.getElementById("msg");
     if (!input.value.trim()) return;
 
-    const name = userName || "Anon";
+    const name = getAccountUsername();
+    if (!name) { alert("Log in to your account to use chat."); return; }
     const message = name + ": " + input.value;
 
     channel.publish("message", message);

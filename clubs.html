@@ -34,9 +34,9 @@
     <a class="btn" href="index.html">← Back to game</a>
     <div class="stack">
       <div><b>Identity</b></div>
-      <input id="playerName" maxlength="24" placeholder="Your name">
-      <button class="btn" id="saveName">Save name</button>
-      <div class="small">Defaults to leaderboard name when available.</div>
+      <input id="playerName" maxlength="24" placeholder="Account username" disabled>
+      <button class="btn" id="saveName" disabled>Locked</button>
+      <div class="small">Chat username is locked to your signed-in account.</div>
     </div>
     <hr style="border-color:var(--line);width:100%">
     <div><b>Club Browser</b></div>
@@ -89,10 +89,11 @@ const CLUBS_API_BASE='https://racing-clubs-api.ga1010.workers.dev';
 const PLAYER_NAME_KEY='racing-player-name-v1';
 const ably = new Ably.Realtime('kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDmM');
 const channel = ably.channels.get('global-chat');
-let me=(localStorage.getItem(PLAYER_NAME_KEY)||'').trim()||'Anon';
+function getAccountUsername(){ try{ const raw=localStorage.getItem('racing-account-session-v1'); const parsed=raw?JSON.parse(raw):null; return String(parsed?.username||'').trim(); } catch { return ''; } }
+let me=getAccountUsername();
 let currentClub=null;
 const $=id=>document.getElementById(id);
-$('playerName').value=me;
+$('playerName').value=me||'Not signed in';
 
 function parseClubTaggedMessage(text){const v=String(text||'');const o=v.match(/^\[([^\]]+)\]\[owner\]\s+([^:]+):\s([\s\S]*)$/);if(o)return{clubId:o[1],stream:'owner'};const n=v.match(/^\[([^\]]+)\]\s+([^:]+):\s([\s\S]*)$/);if(n)return{clubId:n[1],stream:'normal'};return null;}
 async function api(path,options={}){const res=await fetch(CLUBS_API_BASE+path,{...options,headers:{'content-type':'application/json',...(options.headers||{})}});const json=await res.json();if(!res.ok) throw new Error(json.error||'Request failed');return json;}
@@ -102,13 +103,13 @@ function renderLog(id,items){const el=$(id);el.innerHTML='';(items||[]).forEach(
 async function renderClubs(){const data=await api('/clubs');$('club-list').innerHTML='';(data.clubs||[]).forEach(c=>{const b=document.createElement('button');b.className='btn club-item';b.textContent=`${c.displayName} (${c.members.length})`;b.onclick=()=>openClub(c.clubId);$('club-list').appendChild(b);});}
 async function openClub(clubId){const {club}=await api(`/clubs/${clubId}`);currentClub=club;const isOwner=club.ownerUsername.toLowerCase()===me.toLowerCase();$('club-title').textContent=club.displayName;$('club-meta').textContent=`owner: ${club.ownerUsername} · id: ${club.clubId}`;$('owner-tools').style.display=isOwner?'block':'none';$('annMessageInput').disabled=!isOwner;$('sendAnnBtn').disabled=!isOwner;renderMembers(club.members);await renderHistory();}
 async function renderHistory(){if(!currentClub)return;const h=await api(`/clubs/${currentClub.clubId}/messages`);renderLog('chat-log',h.normal);renderLog('ann-log',h.owner);}
-async function ownerAction(path,body){if(!currentClub) return;await api(`/clubs/${currentClub.clubId}/${path}`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify(body)});await openClub(currentClub.clubId);}
-async function sendClub(stream,inputId){if(!currentClub)return;const content=$(inputId).value.trim();if(!content)return;await api(`/clubs/${currentClub.clubId}/messages`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify({stream,username:me,content})});const tag=stream==='owner'?`[${currentClub.clubId}][owner]`:`[${currentClub.clubId}]`;channel.publish('message',`${tag} ${me}: ${content}`);$(inputId).value='';await renderHistory();}
+async function ownerAction(path,body){if(!currentClub) return; me=getAccountUsername(); if(!me) throw new Error('Log in first.');await api(`/clubs/${currentClub.clubId}/${path}`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify(body)});await openClub(currentClub.clubId);}
+async function sendClub(stream,inputId){if(!currentClub)return; me=getAccountUsername(); if(!me){ alert('Log in to your account to chat.'); return; }const content=$(inputId).value.trim();if(!content)return;await api(`/clubs/${currentClub.clubId}/messages`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify({stream,username:me,content})});const tag=stream==='owner'?`[${currentClub.clubId}][owner]`:`[${currentClub.clubId}]`;channel.publish('message',`${tag} ${me}: ${content}`);$(inputId).value='';await renderHistory();}
 
-$('saveName').onclick=()=>{me=$('playerName').value.trim()||'Anon';localStorage.setItem(PLAYER_NAME_KEY,me);toast('Name saved');};
+$('saveName').onclick=()=>{};
 $('refreshClubsBtn').onclick=()=>renderClubs();
 $('newClubFocusBtn').onclick=()=>$('newClubName').focus();
-$('createClubBtn').onclick=async()=>{const name=$('newClubName').value.trim();if(!name)return;await api('/clubs',{method:'POST',body:JSON.stringify({displayName:name,ownerUsername:me})});$('newClubName').value='';await renderClubs();};
+$('createClubBtn').onclick=async()=>{me=getAccountUsername(); if(!me){ alert('Log in to your account to create clubs.'); return; } const name=$('newClubName').value.trim();if(!name)return;await api('/clubs',{method:'POST',body:JSON.stringify({displayName:name,ownerUsername:me})});$('newClubName').value='';await renderClubs();};
 $('addMemberBtn').onclick=()=>ownerAction('members',{username:$('addMemberInput').value.trim()});
 $('kickMemberBtn').onclick=()=>ownerAction('kick',{username:$('kickMemberInput').value.trim()});
 $('muteMemberBtn').onclick=()=>ownerAction('mute',{username:$('muteMemberInput').value.trim()});
