@@ -150,14 +150,17 @@ export default {
         return json({ ok: true });
       }
       if (request.method === 'POST' && action === 'messages') {
+        const actor = normalize(request.headers.get('x-actor-username') || '');
+        if (!actor) return json({ error: 'Account username required' }, 401);
         const body = await request.json();
         const stream = body.stream === 'owner' ? 'owner' : 'normal';
-        const message = { messageId: id('msg'), username: normalize(body.username), content: normalize(body.content), timestamp: nowIso() };
-        if (!message.username || !message.content) return json({ error: 'username/content required' }, 400);
-        const isMember = club.members.find((m) => keyify(m) === keyify(message.username));
+        const content = normalize(body.content);
+        if (!content) return json({ error: 'content required' }, 400);
+        const isMember = club.members.find((m) => keyify(m) === keyify(actor));
         if (!isMember) return json({ error: 'Only club members can post' }, 403);
-        if (club.mutedMembers.find((m) => keyify(m) === keyify(message.username))) return json({ error: 'Muted member' }, 403);
-        if (stream === 'owner' && !ownerOnly(club, message.username)) return json({ error: 'Only owner can post announcements' }, 403);
+        if (club.mutedMembers.find((m) => keyify(m) === keyify(actor))) return json({ error: 'Muted member' }, 403);
+        if (stream === 'owner' && !ownerOnly(club, actor)) return json({ error: 'Only owner can post announcements' }, 403);
+        const message = { messageId: id('msg'), username: actor, content, timestamp: nowIso() };
         await appendHistory(env, clubId, stream, message);
         return json({ ok: true, message });
       }
