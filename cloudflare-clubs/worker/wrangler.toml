@@ -1,0 +1,9 @@
+name = "racing-clubs-worker"
+main = "src/index.js"
+compatibility_date = "2026-05-12"
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "CLUBS_KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+preview_id = "REPLACE_WITH_YOUR_KV_PREVIEW_ID"
