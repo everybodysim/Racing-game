@@ -304,3 +304,12 @@ content-type: application/json
 - Are you testing as owner for owner-only actions?
 - Are you passing JSON headers in API calls?
 
+
+
+## 17) Clubs frontend page
+
+A dedicated `clubs.html` page is included so the main global chat in `index.html` stays intact.
+
+- Open `clubs.html` from the new **Clubs** button in the game UI.
+- Configure `CLUBS_API_BASE` at the top of `clubs.html`.
+- The page includes club browser, create flow, member list, owner controls, normal chat, and announcement chat.

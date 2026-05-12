@@ -32,7 +32,7 @@
 		#loading-error { margin-top: 12px; color: #ffc4c4; display: none; }
 		#loading-reload-btn { margin-top: 10px; display: none; border: 1px solid rgba(255,255,255,0.28); border-radius: 8px; background: rgba(255,255,255,0.12); color: #fff; padding: 7px 11px; cursor: pointer; font: 700 13px/1 sans-serif; }
 		@keyframes loading-spin { to { transform: rotate(360deg); } }
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
+		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
 			position: absolute;
 			bottom: 12px;
 			color: #fff;
@@ -43,7 +43,7 @@
 			z-index: 10;
 			border: none;
 		}
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn { text-decoration: none; }
+		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn { text-decoration: none; }
 		#editor-link { right: 16px; }
 		#totd-link { right: 16px; bottom: 54px; }
 		#weekly-cup-link { right: 16px; bottom: 96px; }
@@ -51,6 +51,7 @@
 		#competitions-link { right: 16px; bottom: 180px; }
 		#replay-link { right: 16px; bottom: 222px; }
 		#tracks-link { right: 16px; bottom: 264px; }
+		#clubs-link { right: 16px; bottom: 222px; }
 		#mods-link { right: 16px; bottom: 306px; }
 		#hacks-toggle { right: 16px; bottom: 348px; }
 		#split-link { right: 16px; bottom: 390px; }
@@ -61,7 +62,7 @@
 		#export-ghost-btn { left: 180px; bottom: 12px; }
 		#import-ghost-btn { left: 300px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
-		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
 		#mp-panel {
 			position: absolute;
 			left: 16px;
@@ -913,6 +914,7 @@
 				#competitions-link { bottom: auto; top: 180px; right: 12px; }
 				#replay-link { bottom: auto; top: 222px; right: 12px; }
 				#tracks-link { bottom: auto; top: 264px; right: 12px; }
+				#clubs-link { bottom: auto; top: 222px; right: 12px; }
 				#mods-link { bottom: auto; top: 306px; right: 12px; }
 			#hacks-toggle { bottom: auto; top: 348px; right: 12px; }
 			#split-link { bottom: auto; top: 390px; right: 12px; }
@@ -1015,7 +1017,8 @@
 	<a id="coin-leaderboard-link" href="coins.html">Coin leaderboard</a> 
 	<a id="competitions-link" href="competitions.html" data-out-of-order="1">Competitions</a>
 	<a id="replay-link" href="replay.html">Replay watcher</a>
-	<a id="tracks-link" href="tracks.html">Track share board</a>
+	<a id="tracks-link" href="tracks.html">Track share board</a> 
+	<a id="clubs-link" href="clubs.html">Clubs</a>
 	<a id="mods-link" href="mods.html">Mods</a>
 	<a id="hacks-toggle" href="#" style="display:none;">Hacks</a>
 	<a id="split-link" href="#">2P split screen</a>
@@ -1625,57 +1628,148 @@
 <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
 
 <script>
-  const CLUBS_API_BASE = "https://REPLACE_WITH_YOUR_WORKER.workers.dev";
   const ably = new Ably.Realtime("kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDmM");
   const channel = ably.channels.get("global-chat");
-  let currentClub = null;
-  let userName = (document.getElementById("player-name-input")?.value || localStorage.getItem("racing_player_name") || "").trim() || "Anon";
-  let seen = new Set();
+
   const chatBox = document.getElementById("chat");
   const chatWindow = document.getElementById("chat-box");
   const chatButton = document.getElementById("chat-btn");
 
-  const clubsPanel = document.createElement('div');
-  clubsPanel.innerHTML = `<div style="padding:8px;border-bottom:1px solid rgba(255,255,255,.1)"><button id="clubs-tab">Clubs</button> <button id="global-tab">Global</button></div><div id="clubs-ui" style="padding:8px;max-height:220px;overflow:auto;display:none"></div>`;
-  chatWindow.insertBefore(clubsPanel, chatBox);
-  const clubsUi = document.getElementById('clubs-ui');
-  document.getElementById('clubs-tab').onclick = ()=>{clubsUi.style.display='block';chatBox.style.display='none';};
-  document.getElementById('global-tab').onclick = ()=>{clubsUi.style.display='none';chatBox.style.display='block';};
+  let userName = "";
+  let seen = new Set(); // prevent duplicates
+  let hasUnreadMessages = false;
+  const baseDocumentTitle = document.title;
+  const FLASH_TITLES = [ baseDocumentTitle, "🟥", "🟥🟥", "🟥🟥🟥" ];
+  let flashTitleTimer = null;
+  let flashTitleFrame = 0;
 
-  async function api(path, opts={}) { const r=await fetch(CLUBS_API_BASE+path, opts); return r.json(); }
-  async function renderClubs() {
-    const list = await api('/clubs');
-    clubsUi.innerHTML = `<h4 style="margin:0 0 6px">Clubs</h4><input id="club-name" placeholder="Create club name"><button id="create-club">Create</button><div id="club-list"></div><div id="club-home"></div>`;
-    document.getElementById('create-club').onclick = async ()=>{const name=document.getElementById('club-name').value.trim(); if(!name)return; await api('/clubs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({displayName:name,ownerUsername:userName})}); renderClubs();};
-    const host=document.getElementById('club-list');
-    (list.clubs||[]).forEach(club=>{const btn=document.createElement('button');btn.textContent=`${club.displayName} (${club.members.length})`;btn.onclick=()=>openClub(club.clubId);host.appendChild(btn);host.appendChild(document.createElement('br'));});
+  function updateUnreadTitleFlashing() {
+    const shouldFlash = hasUnreadMessages && document.hidden;
+    if (shouldFlash && !flashTitleTimer) {
+      flashTitleFrame = 0;
+      flashTitleTimer = window.setInterval(() => {
+        flashTitleFrame = (flashTitleFrame + 1) % FLASH_TITLES.length;
+        document.title = FLASH_TITLES[flashTitleFrame];
+      }, 500);
+      return;
+    }
+    if (!shouldFlash && flashTitleTimer) {
+      window.clearInterval(flashTitleTimer);
+      flashTitleTimer = null;
+    }
+    if (!shouldFlash) {
+      document.title = baseDocumentTitle;
+    }
   }
-  async function openClub(clubId){
-    const res = await api(`/clubs/${clubId}`); currentClub = res.club; const owner = (currentClub.ownerUsername||'').toLowerCase()===userName.toLowerCase();
-    const home=document.getElementById('club-home');
-    home.innerHTML=`<hr><b>${currentClub.displayName}</b><div>Owner: ${currentClub.ownerUsername}</div><div>Members: ${(currentClub.members||[]).join(', ')}</div><input id="club-msg" placeholder="normal chat"><button id="club-send">Send</button><input id="ann-msg" placeholder="announcement" ${owner?'':'disabled'}><button id="ann-send" ${owner?'':'disabled'}>Announce</button><div id="owner-tools" ${owner?'':'style="display:none"'}><input id="add-member" placeholder="username"><button id="add-btn">Add member</button></div><div id="club-log" style="max-height:120px;overflow:auto"></div>`;
-    document.getElementById('club-send').onclick=()=>sendClubMsg('normal');
-    document.getElementById('ann-send').onclick=()=>sendClubMsg('owner');
-    const addBtn=document.getElementById('add-btn'); if(addBtn) addBtn.onclick=async()=>{await api(`/clubs/${clubId}/members`,{method:'POST',headers:{'content-type':'application/json','x-actor-username':userName},body:JSON.stringify({username:document.getElementById('add-member').value.trim()})}); openClub(clubId);};
-    await refreshClubHistory();
-  }
-  async function sendClubMsg(stream){
-    if(!currentClub) return; const id=stream==='owner'?'ann-msg':'club-msg'; const content=document.getElementById(id).value.trim(); if(!content) return;
-    const tag = stream==='owner' ? `[${currentClub.clubId}][owner]` : `[${currentClub.clubId}]`;
-    const payload = `${tag} ${userName}: ${content}`;
-    await api(`/clubs/${currentClub.clubId}/messages`,{method:'POST',headers:{'content-type':'application/json','x-actor-username':userName},body:JSON.stringify({stream,username:userName,content})});
-    channel.publish('message', payload); document.getElementById(id).value=''; refreshClubHistory();
-  }
-  async function refreshClubHistory(){ if(!currentClub)return; const data=await api(`/clubs/${currentClub.clubId}/messages`); const log=document.getElementById('club-log'); if(!log) return; log.innerHTML=''; [...(data.normal||[]),...(data.owner||[])].sort((a,b)=>a.timestamp.localeCompare(b.timestamp)).forEach(m=>{const d=document.createElement('div');d.textContent=`${m.timestamp} ${m.username}: ${m.content}`;log.appendChild(d);}); }
 
-  function addMessage(text){ if(seen.has(text)) return; seen.add(text); const div=document.createElement('div'); div.className='msg'; div.innerText=text; chatBox.appendChild(div); chatBox.scrollTop=chatBox.scrollHeight; }
-  chatButton.onclick=()=>{ const opening = chatWindow.style.display !== 'flex'; chatWindow.style.display = opening ? 'flex' : 'none'; if(opening && chatBox.childElementCount===0){ channel.history({limit:100},(err,res)=>{ if(err) return; res.items.reverse().forEach(msg=>addMessage(msg.data)); }); renderClubs(); } };
-  chatWindow.style.display='none'; chatWindow.style.flexDirection='column';
-  document.getElementById('set-name').onclick=()=>{const input=document.getElementById('name'); if(!input.value.trim()) return; userName=input.value.trim(); input.disabled=true;};
-  channel.subscribe(msg=>addMessage(msg.data));
-  function sendMsg(){ const input=document.getElementById('msg'); if(!input.value.trim()) return; channel.publish('message', `${userName}: ${input.value}`); input.value=''; }
-  document.getElementById('send').onclick=sendMsg;
-  document.getElementById('msg').addEventListener('keypress', (e)=>{ if(e.key==='Enter') sendMsg(); });
+  function setUnreadIndicator(visible) {
+    hasUnreadMessages = Boolean(visible);
+    chatButton.classList.toggle("has-unread", hasUnreadMessages);
+    updateUnreadTitleFlashing();
+  }
+
+
+  const NOTIFICATION_ONBOARDING_KEY = "racing-chat-notification-onboarding-v1";
+
+  function maybeAskNotificationPermission() {
+    if (!("Notification" in window)) return;
+    if (localStorage.getItem(NOTIFICATION_ONBOARDING_KEY) === "1") return;
+    localStorage.setItem(NOTIFICATION_ONBOARDING_KEY, "1");
+    Notification.requestPermission().catch(() => {});
+  }
+
+  function maybeSendMessageNotification(text) {
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    if (!document.hidden && chatWindow.style.display === "flex") return;
+    try {
+      new Notification("New Racing chat message", { body: String(text || "") });
+    } catch (err) {
+      console.warn("Chat notification failed", err);
+    }
+  }
+
+  function addMessage(text) {
+    if (seen.has(text)) return;
+    seen.add(text);
+
+    const div = document.createElement("div");
+    div.className = "msg";
+    div.innerText = text;
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  // Toggle chat
+  chatButton.onclick = () => {
+    const opening = chatWindow.style.display !== "flex";
+
+    chatWindow.style.display = opening ? "flex" : "none";
+
+    if (opening) {
+      setUnreadIndicator(false);
+    }
+
+    // Load history ONLY when opening (so it doesn’t reload every time)
+    if (opening && chatBox.childElementCount === 0) {
+      channel.history({ limit: 100 }, (err, result) => {
+        if (err) {
+          console.error(err);
+          return;
+        }
+
+        const messages = result.items.reverse(); // oldest → newest
+        messages.forEach(msg => addMessage(msg.data));
+      });
+    }
+  };
+
+  chatWindow.style.display = "none";
+  chatWindow.style.flexDirection = "column";
+  maybeAskNotificationPermission();
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      setUnreadIndicator(false);
+    } else {
+      updateUnreadTitleFlashing();
+    }
+  });
+
+  // Set username
+  document.getElementById("set-name").onclick = () => {
+    const input = document.getElementById("name");
+    if (!input.value.trim()) return;
+    userName = input.value.trim();
+    input.disabled = true;
+  };
+
+  // Live messages
+  channel.subscribe(msg => {
+    addMessage(msg.data);
+    if (chatWindow.style.display !== "flex" || document.hidden) {
+      setUnreadIndicator(true);
+    }
+    maybeSendMessageNotification(msg.data);
+  });
+
+  // Send message
+  function sendMsg() {
+    const input = document.getElementById("msg");
+    if (!input.value.trim()) return;
+
+    const name = userName || "Anon";
+    const message = name + ": " + input.value;
+
+    channel.publish("message", message);
+    input.value = "";
+  }
+
+  document.getElementById("send").onclick = sendMsg;
+
+  document.getElementById("msg").addEventListener("keypress", (e) => {
+    if (e.key === "Enter") sendMsg();
+  });
 </script>
 
 <script>
