@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Racing Clubs</title>
+  <style>
+    body{margin:0;font-family:Arial;background:#0d1117;color:#e6edf3}
+    .wrap{max-width:1100px;margin:20px auto;padding:16px}
+    .card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:12px}
+    input,button,select{padding:8px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3}
+    button{cursor:pointer}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    #club-list button{display:block;width:100%;text-align:left;margin:6px 0}
+    #chat-log,#ann-log{height:180px;overflow:auto;background:#0b0f14;padding:8px;border-radius:8px}
+    .muted{opacity:.7;font-size:12px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <a href="index.html">← Back to game</a>
+  <h1>Clubs</h1>
+  <div class="card row">
+    <label>Your name:</label><input id="playerName" maxlength="24"><button id="saveName">Use name</button>
+    <span class="muted">Defaults to leaderboard submitting name when available.</span>
+  </div>
+
+  <div class="card">
+    <h3>Create Club</h3>
+    <div class="row"><input id="newClubName" placeholder="Unique club name"><button id="createClubBtn">Create</button></div>
+  </div>
+
+  <div class="card">
+    <h3>Club Browser</h3>
+    <div id="club-list"></div>
+  </div>
+
+  <div class="card" id="club-home" style="display:none">
+    <h3 id="club-title"></h3>
+    <div id="club-meta" class="muted"></div>
+    <h4>Members</h4><div id="member-list"></div>
+
+    <div id="owner-tools" style="display:none">
+      <h4>Owner Controls</h4>
+      <div class="row"><input id="addMemberInput" placeholder="Add member username"><button id="addMemberBtn">Add</button></div>
+      <div class="row"><input id="kickMemberInput" placeholder="Kick username"><button id="kickMemberBtn">Kick</button></div>
+      <div class="row"><input id="muteMemberInput" placeholder="Mute username"><button id="muteMemberBtn">Mute</button></div>
+      <div class="row"><input id="renameClubInput" placeholder="New club name"><button id="renameClubBtn">Rename</button></div>
+      <div class="row"><input id="transferOwnerInput" placeholder="Transfer owner to username"><button id="transferOwnerBtn">Transfer</button></div>
+      <div class="row"><button id="deleteClubBtn">Delete Club</button></div>
+    </div>
+
+    <h4>Club Chat</h4>
+    <div id="chat-log"></div>
+    <div class="row"><input id="clubMessageInput" placeholder="Type club message"><button id="sendClubMsgBtn">Send</button></div>
+
+    <h4>Announcements (owner-only post)</h4>
+    <div id="ann-log"></div>
+    <div class="row"><input id="annMessageInput" placeholder="Type announcement"><button id="sendAnnBtn">Announce</button></div>
+  </div>
+</div>
+<script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+<script>
+const CLUBS_API_BASE='https://racing-clubs-api.ga1010.workers.dev';
+const PLAYER_NAME_KEY='racing-player-name-v1';
+const ably = new Ably.Realtime('kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDmM');
+const channel = ably.channels.get('global-chat');
+let me = (localStorage.getItem(PLAYER_NAME_KEY)||document.getElementById('player-name-input')?.value||'').trim() || 'Anon';
+let currentClub=null;
+
+function parseClubTaggedMessage(text){
+  const value=String(text||'');
+  const owner=value.match(/^\[([^\]]+)\]\[owner\]\s+([^:]+):\s([\s\S]*)$/);
+  if(owner) return {clubId:owner[1],stream:'owner',username:owner[2].trim(),content:owner[3]};
+  const normal=value.match(/^\[([^\]]+)\]\s+([^:]+):\s([\s\S]*)$/);
+  if(normal) return {clubId:normal[1],stream:'normal',username:normal[2].trim(),content:normal[3]};
+  return null;
+}
+
+document.getElementById('playerName').value=me;
+document.getElementById('saveName').onclick=()=>{me=document.getElementById('playerName').value.trim()||'Anon';localStorage.setItem(PLAYER_NAME_KEY,me);renderClubs();};
+async function api(path,options={}){const res=await fetch(CLUBS_API_BASE+path,{...options,headers:{'content-type':'application/json',...(options.headers||{})}});return res.json();}
+async function renderClubs(){const data=await api('/clubs');const host=document.getElementById('club-list');host.innerHTML='';(data.clubs||[]).forEach(c=>{const b=document.createElement('button');b.textContent=`${c.displayName} • owner: ${c.ownerUsername} • members: ${c.members.length}`;b.onclick=()=>openClub(c.clubId);host.appendChild(b);});}
+async function openClub(clubId){const res=await api(`/clubs/${clubId}`);currentClub=res.club;const isOwner=currentClub.ownerUsername.toLowerCase()===me.toLowerCase();document.getElementById('club-home').style.display='block';document.getElementById('club-title').textContent=currentClub.displayName;document.getElementById('club-meta').textContent=`ID: ${currentClub.clubId} | created: ${currentClub.createdAt}`;document.getElementById('member-list').textContent=currentClub.members.join(', ');document.getElementById('owner-tools').style.display=isOwner?'block':'none';document.getElementById('annMessageInput').disabled=!isOwner;document.getElementById('sendAnnBtn').disabled=!isOwner;await renderHistory();}
+async function renderHistory(){if(!currentClub)return;const h=await api(`/clubs/${currentClub.clubId}/messages`);const fill=(id,arr)=>{const el=document.getElementById(id);el.innerHTML='';(arr||[]).forEach(m=>{const d=document.createElement('div');d.textContent=`${m.timestamp} ${m.username}: ${m.content}`;el.appendChild(d);});};fill('chat-log',h.normal);fill('ann-log',h.owner);}
+async function ownerAction(path,body){if(!currentClub)return;await api(`/clubs/${currentClub.clubId}/${path}`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify(body)});await openClub(currentClub.clubId);}
+
+document.getElementById('createClubBtn').onclick=async()=>{const name=document.getElementById('newClubName').value.trim();if(!name)return;await api('/clubs',{method:'POST',body:JSON.stringify({displayName:name,ownerUsername:me})});document.getElementById('newClubName').value='';renderClubs();};
+document.getElementById('addMemberBtn').onclick=()=>ownerAction('members',{username:document.getElementById('addMemberInput').value.trim()});
+document.getElementById('kickMemberBtn').onclick=()=>ownerAction('kick',{username:document.getElementById('kickMemberInput').value.trim()});
+document.getElementById('muteMemberBtn').onclick=()=>ownerAction('mute',{username:document.getElementById('muteMemberInput').value.trim()});
+document.getElementById('renameClubBtn').onclick=()=>ownerAction('rename',{displayName:document.getElementById('renameClubInput').value.trim()});
+document.getElementById('transferOwnerBtn').onclick=()=>ownerAction('transfer',{username:document.getElementById('transferOwnerInput').value.trim()});
+document.getElementById('deleteClubBtn').onclick=async()=>{if(!currentClub)return;await api(`/clubs/${currentClub.clubId}`,{method:'DELETE',headers:{'x-actor-username':me}});currentClub=null;document.getElementById('club-home').style.display='none';renderClubs();};
+async function sendClub(stream,inputId){if(!currentClub)return;const content=document.getElementById(inputId).value.trim();if(!content)return;await api(`/clubs/${currentClub.clubId}/messages`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify({stream,username:me,content})});const tag=stream==='owner'?`[${currentClub.clubId}][owner]`:`[${currentClub.clubId}]`;channel.publish('message',`${tag} ${me}: ${content}`);document.getElementById(inputId).value='';renderHistory();}
+document.getElementById('sendClubMsgBtn').onclick=()=>sendClub('normal','clubMessageInput');
+document.getElementById('sendAnnBtn').onclick=()=>sendClub('owner','annMessageInput');
+renderClubs();
+channel.subscribe((msg)=>{const parsed=parseClubTaggedMessage(msg?.data); if(!parsed||!currentClub) return; if(parsed.clubId!==currentClub.clubId) return; renderHistory();});
+setInterval(()=>{if(currentClub)renderHistory();},6000);
+</script>
+</body>
+</html>
