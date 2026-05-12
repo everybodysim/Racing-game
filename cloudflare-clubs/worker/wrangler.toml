@@ -5,5 +5,5 @@ workers_dev = true
 
 [[kv_namespaces]]
 binding = "CLUBS_KV"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_YOUR_KV_PREVIEW_ID"
+id = "CLUBS_KV"
+preview_id = "CLUBS_KV"
