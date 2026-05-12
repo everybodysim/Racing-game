@@ -5,59 +5,83 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Racing Clubs</title>
   <style>
-    body{margin:0;font-family:Arial;background:#0d1117;color:#e6edf3}
-    .wrap{max-width:1100px;margin:20px auto;padding:16px}
-    .card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:12px}
-    input,button,select{padding:8px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3}
-    button{cursor:pointer}
-    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    #club-list button{display:block;width:100%;text-align:left;margin:6px 0}
-    #chat-log,#ann-log{height:180px;overflow:auto;background:#0b0f14;padding:8px;border-radius:8px}
-    .muted{opacity:.7;font-size:12px}
+    :root{--bg:#0b1016;--panel:#141b24;--panel2:#1a2431;--text:#e6edf3;--muted:#9fb0c3;--line:#2c3a4d;--accent:#5cc8ff;--ok:#78e08f;--danger:#ff6b6b}
+    body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0b1016,#0d1117);color:var(--text)}
+    .app{display:grid;grid-template-columns:260px 1fr 320px;min-height:100vh}
+    .left,.right,.center{border-right:1px solid var(--line)} .right{border-right:none}
+    .left{background:var(--panel);padding:14px;display:flex;flex-direction:column;gap:10px}
+    .center{background:var(--panel2);display:flex;flex-direction:column}
+    .right{background:var(--panel);padding:12px;overflow:auto}
+    .topbar{display:flex;gap:8px;padding:10px;border-bottom:1px solid var(--line);align-items:center}
+    .btn,input{border:1px solid var(--line);background:#0e151f;color:var(--text);border-radius:8px;padding:8px}
+    .btn{cursor:pointer}.btn:hover{border-color:var(--accent)} .btn.primary{background:#123042}
+    .btn.ok{background:#183524}.btn.danger{background:#3b1d23}
+    .small{font-size:12px;color:var(--muted)}
+    .club-item{width:100%;text-align:left;margin:4px 0}
+    .chat-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:10px;flex:1;min-height:0}
+    .chat-col{display:flex;flex-direction:column;min-height:0}
+    .log{flex:1;min-height:220px;overflow:auto;background:#0b121b;border:1px solid var(--line);border-radius:10px;padding:10px}
+    .msg{padding:6px;border-bottom:1px dashed #243244}
+    .controls{display:flex;gap:8px;margin-top:8px}
+    .members{display:flex;flex-wrap:wrap;gap:6px}.tag{background:#0f1824;border:1px solid var(--line);padding:4px 8px;border-radius:999px;font-size:12px}
+    .stack{display:flex;flex-direction:column;gap:8px}
+    @media (max-width:1100px){.app{grid-template-columns:1fr}.left,.right{border-right:none;border-bottom:1px solid var(--line)}}
   </style>
 </head>
 <body>
-<div class="wrap">
-  <a href="index.html">← Back to game</a>
-  <h1>Clubs</h1>
-  <div class="card row">
-    <label>Your name:</label><input id="playerName" maxlength="24"><button id="saveName">Use name</button>
-    <span class="muted">Defaults to leaderboard submitting name when available.</span>
-  </div>
-
-  <div class="card">
-    <h3>Create Club</h3>
-    <div class="row"><input id="newClubName" placeholder="Unique club name"><button id="createClubBtn">Create</button></div>
-  </div>
-
-  <div class="card">
-    <h3>Club Browser</h3>
-    <div id="club-list"></div>
-  </div>
-
-  <div class="card" id="club-home" style="display:none">
-    <h3 id="club-title"></h3>
-    <div id="club-meta" class="muted"></div>
-    <h4>Members</h4><div id="member-list"></div>
-
-    <div id="owner-tools" style="display:none">
-      <h4>Owner Controls</h4>
-      <div class="row"><input id="addMemberInput" placeholder="Add member username"><button id="addMemberBtn">Add</button></div>
-      <div class="row"><input id="kickMemberInput" placeholder="Kick username"><button id="kickMemberBtn">Kick</button></div>
-      <div class="row"><input id="muteMemberInput" placeholder="Mute username"><button id="muteMemberBtn">Mute</button></div>
-      <div class="row"><input id="renameClubInput" placeholder="New club name"><button id="renameClubBtn">Rename</button></div>
-      <div class="row"><input id="transferOwnerInput" placeholder="Transfer owner to username"><button id="transferOwnerBtn">Transfer</button></div>
-      <div class="row"><button id="deleteClubBtn">Delete Club</button></div>
+<div class="app">
+  <aside class="left">
+    <a class="btn" href="index.html">← Back to game</a>
+    <div class="stack">
+      <div><b>Identity</b></div>
+      <input id="playerName" maxlength="24" placeholder="Your name">
+      <button class="btn" id="saveName">Save name</button>
+      <div class="small">Defaults to leaderboard name when available.</div>
     </div>
+    <hr style="border-color:var(--line);width:100%">
+    <div><b>Club Browser</b></div>
+    <div class="controls"><button class="btn" id="refreshClubsBtn">Refresh</button><button class="btn" id="newClubFocusBtn">+ New</button></div>
+    <div id="club-list"></div>
+  </aside>
 
-    <h4>Club Chat</h4>
-    <div id="chat-log"></div>
-    <div class="row"><input id="clubMessageInput" placeholder="Type club message"><button id="sendClubMsgBtn">Send</button></div>
+  <main class="center">
+    <div class="topbar">
+      <b id="club-title">No club selected</b>
+      <span class="small" id="club-meta"></span>
+      <button class="btn" id="jumpNormalBtn"># Club chat</button>
+      <button class="btn" id="jumpAnnBtn">📣 Announcements</button>
+    </div>
+    <div style="padding:10px;border-bottom:1px solid var(--line)">
+      <input id="newClubName" placeholder="Create a unique club name"> <button class="btn primary" id="createClubBtn">Create club</button>
+    </div>
+    <div class="chat-wrap">
+      <section class="chat-col">
+        <h3 id="normalHeader"># Club Chat</h3>
+        <div id="chat-log" class="log"></div>
+        <div class="controls"><input id="clubMessageInput" placeholder="Message club" style="flex:1"><button class="btn ok" id="sendClubMsgBtn">Send</button></div>
+      </section>
+      <section class="chat-col">
+        <h3 id="annHeader">📣 Announcements</h3>
+        <div id="ann-log" class="log"></div>
+        <div class="controls"><input id="annMessageInput" placeholder="Owner announcement" style="flex:1"><button class="btn primary" id="sendAnnBtn">Announce</button></div>
+      </section>
+    </div>
+  </main>
 
-    <h4>Announcements (owner-only post)</h4>
-    <div id="ann-log"></div>
-    <div class="row"><input id="annMessageInput" placeholder="Type announcement"><button id="sendAnnBtn">Announce</button></div>
-  </div>
+  <aside class="right">
+    <h3>Members</h3>
+    <div id="member-list" class="members"></div>
+    <p class="small">Owner controls are hidden if you are not the owner.</p>
+    <div id="owner-tools" style="display:none" class="stack">
+      <h4>Owner controls</h4>
+      <div class="controls"><input id="addMemberInput" placeholder="Add member"><button class="btn ok" id="addMemberBtn">Add</button></div>
+      <div class="controls"><input id="kickMemberInput" placeholder="Kick member"><button class="btn danger" id="kickMemberBtn">Kick</button></div>
+      <div class="controls"><input id="muteMemberInput" placeholder="Mute member"><button class="btn" id="muteMemberBtn">Mute</button></div>
+      <div class="controls"><input id="renameClubInput" placeholder="Rename club"><button class="btn" id="renameClubBtn">Rename</button></div>
+      <div class="controls"><input id="transferOwnerInput" placeholder="Transfer owner"><button class="btn" id="transferOwnerBtn">Transfer</button></div>
+      <button class="btn danger" id="deleteClubBtn">Delete club</button>
+    </div>
+  </aside>
 </div>
 <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
 <script>
@@ -65,39 +89,38 @@ const CLUBS_API_BASE='https://racing-clubs-api.ga1010.workers.dev';
 const PLAYER_NAME_KEY='racing-player-name-v1';
 const ably = new Ably.Realtime('kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDmM');
 const channel = ably.channels.get('global-chat');
-let me = (localStorage.getItem(PLAYER_NAME_KEY)||document.getElementById('player-name-input')?.value||'').trim() || 'Anon';
+let me=(localStorage.getItem(PLAYER_NAME_KEY)||'').trim()||'Anon';
 let currentClub=null;
+const $=id=>document.getElementById(id);
+$('playerName').value=me;
 
-function parseClubTaggedMessage(text){
-  const value=String(text||'');
-  const owner=value.match(/^\[([^\]]+)\]\[owner\]\s+([^:]+):\s([\s\S]*)$/);
-  if(owner) return {clubId:owner[1],stream:'owner',username:owner[2].trim(),content:owner[3]};
-  const normal=value.match(/^\[([^\]]+)\]\s+([^:]+):\s([\s\S]*)$/);
-  if(normal) return {clubId:normal[1],stream:'normal',username:normal[2].trim(),content:normal[3]};
-  return null;
-}
+function parseClubTaggedMessage(text){const v=String(text||'');const o=v.match(/^\[([^\]]+)\]\[owner\]\s+([^:]+):\s([\s\S]*)$/);if(o)return{clubId:o[1],stream:'owner'};const n=v.match(/^\[([^\]]+)\]\s+([^:]+):\s([\s\S]*)$/);if(n)return{clubId:n[1],stream:'normal'};return null;}
+async function api(path,options={}){const res=await fetch(CLUBS_API_BASE+path,{...options,headers:{'content-type':'application/json',...(options.headers||{})}});const json=await res.json();if(!res.ok) throw new Error(json.error||'Request failed');return json;}
+function toast(msg){console.log(msg);} // lightweight for now
+function renderMembers(list){$('member-list').innerHTML='';(list||[]).forEach(m=>{const s=document.createElement('span');s.className='tag';s.textContent=m;$('member-list').appendChild(s);});}
+function renderLog(id,items){const el=$(id);el.innerHTML='';(items||[]).forEach(m=>{const d=document.createElement('div');d.className='msg';d.textContent=`${m.timestamp} ${m.username}: ${m.content}`;el.appendChild(d);});el.scrollTop=el.scrollHeight;}
+async function renderClubs(){const data=await api('/clubs');$('club-list').innerHTML='';(data.clubs||[]).forEach(c=>{const b=document.createElement('button');b.className='btn club-item';b.textContent=`${c.displayName} (${c.members.length})`;b.onclick=()=>openClub(c.clubId);$('club-list').appendChild(b);});}
+async function openClub(clubId){const {club}=await api(`/clubs/${clubId}`);currentClub=club;const isOwner=club.ownerUsername.toLowerCase()===me.toLowerCase();$('club-title').textContent=club.displayName;$('club-meta').textContent=`owner: ${club.ownerUsername} · id: ${club.clubId}`;$('owner-tools').style.display=isOwner?'block':'none';$('annMessageInput').disabled=!isOwner;$('sendAnnBtn').disabled=!isOwner;renderMembers(club.members);await renderHistory();}
+async function renderHistory(){if(!currentClub)return;const h=await api(`/clubs/${currentClub.clubId}/messages`);renderLog('chat-log',h.normal);renderLog('ann-log',h.owner);}
+async function ownerAction(path,body){if(!currentClub) return;await api(`/clubs/${currentClub.clubId}/${path}`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify(body)});await openClub(currentClub.clubId);}
+async function sendClub(stream,inputId){if(!currentClub)return;const content=$(inputId).value.trim();if(!content)return;await api(`/clubs/${currentClub.clubId}/messages`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify({stream,username:me,content})});const tag=stream==='owner'?`[${currentClub.clubId}][owner]`:`[${currentClub.clubId}]`;channel.publish('message',`${tag} ${me}: ${content}`);$(inputId).value='';await renderHistory();}
 
-document.getElementById('playerName').value=me;
-document.getElementById('saveName').onclick=()=>{me=document.getElementById('playerName').value.trim()||'Anon';localStorage.setItem(PLAYER_NAME_KEY,me);renderClubs();};
-async function api(path,options={}){const res=await fetch(CLUBS_API_BASE+path,{...options,headers:{'content-type':'application/json',...(options.headers||{})}});return res.json();}
-async function renderClubs(){const data=await api('/clubs');const host=document.getElementById('club-list');host.innerHTML='';(data.clubs||[]).forEach(c=>{const b=document.createElement('button');b.textContent=`${c.displayName} • owner: ${c.ownerUsername} • members: ${c.members.length}`;b.onclick=()=>openClub(c.clubId);host.appendChild(b);});}
-async function openClub(clubId){const res=await api(`/clubs/${clubId}`);currentClub=res.club;const isOwner=currentClub.ownerUsername.toLowerCase()===me.toLowerCase();document.getElementById('club-home').style.display='block';document.getElementById('club-title').textContent=currentClub.displayName;document.getElementById('club-meta').textContent=`ID: ${currentClub.clubId} | created: ${currentClub.createdAt}`;document.getElementById('member-list').textContent=currentClub.members.join(', ');document.getElementById('owner-tools').style.display=isOwner?'block':'none';document.getElementById('annMessageInput').disabled=!isOwner;document.getElementById('sendAnnBtn').disabled=!isOwner;await renderHistory();}
-async function renderHistory(){if(!currentClub)return;const h=await api(`/clubs/${currentClub.clubId}/messages`);const fill=(id,arr)=>{const el=document.getElementById(id);el.innerHTML='';(arr||[]).forEach(m=>{const d=document.createElement('div');d.textContent=`${m.timestamp} ${m.username}: ${m.content}`;el.appendChild(d);});};fill('chat-log',h.normal);fill('ann-log',h.owner);}
-async function ownerAction(path,body){if(!currentClub)return;await api(`/clubs/${currentClub.clubId}/${path}`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify(body)});await openClub(currentClub.clubId);}
-
-document.getElementById('createClubBtn').onclick=async()=>{const name=document.getElementById('newClubName').value.trim();if(!name)return;await api('/clubs',{method:'POST',body:JSON.stringify({displayName:name,ownerUsername:me})});document.getElementById('newClubName').value='';renderClubs();};
-document.getElementById('addMemberBtn').onclick=()=>ownerAction('members',{username:document.getElementById('addMemberInput').value.trim()});
-document.getElementById('kickMemberBtn').onclick=()=>ownerAction('kick',{username:document.getElementById('kickMemberInput').value.trim()});
-document.getElementById('muteMemberBtn').onclick=()=>ownerAction('mute',{username:document.getElementById('muteMemberInput').value.trim()});
-document.getElementById('renameClubBtn').onclick=()=>ownerAction('rename',{displayName:document.getElementById('renameClubInput').value.trim()});
-document.getElementById('transferOwnerBtn').onclick=()=>ownerAction('transfer',{username:document.getElementById('transferOwnerInput').value.trim()});
-document.getElementById('deleteClubBtn').onclick=async()=>{if(!currentClub)return;await api(`/clubs/${currentClub.clubId}`,{method:'DELETE',headers:{'x-actor-username':me}});currentClub=null;document.getElementById('club-home').style.display='none';renderClubs();};
-async function sendClub(stream,inputId){if(!currentClub)return;const content=document.getElementById(inputId).value.trim();if(!content)return;await api(`/clubs/${currentClub.clubId}/messages`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify({stream,username:me,content})});const tag=stream==='owner'?`[${currentClub.clubId}][owner]`:`[${currentClub.clubId}]`;channel.publish('message',`${tag} ${me}: ${content}`);document.getElementById(inputId).value='';renderHistory();}
-document.getElementById('sendClubMsgBtn').onclick=()=>sendClub('normal','clubMessageInput');
-document.getElementById('sendAnnBtn').onclick=()=>sendClub('owner','annMessageInput');
+$('saveName').onclick=()=>{me=$('playerName').value.trim()||'Anon';localStorage.setItem(PLAYER_NAME_KEY,me);toast('Name saved');};
+$('refreshClubsBtn').onclick=()=>renderClubs();
+$('newClubFocusBtn').onclick=()=>$('newClubName').focus();
+$('createClubBtn').onclick=async()=>{const name=$('newClubName').value.trim();if(!name)return;await api('/clubs',{method:'POST',body:JSON.stringify({displayName:name,ownerUsername:me})});$('newClubName').value='';await renderClubs();};
+$('addMemberBtn').onclick=()=>ownerAction('members',{username:$('addMemberInput').value.trim()});
+$('kickMemberBtn').onclick=()=>ownerAction('kick',{username:$('kickMemberInput').value.trim()});
+$('muteMemberBtn').onclick=()=>ownerAction('mute',{username:$('muteMemberInput').value.trim()});
+$('renameClubBtn').onclick=()=>ownerAction('rename',{displayName:$('renameClubInput').value.trim()});
+$('transferOwnerBtn').onclick=()=>ownerAction('transfer',{username:$('transferOwnerInput').value.trim()});
+$('deleteClubBtn').onclick=async()=>{if(!currentClub)return;await api(`/clubs/${currentClub.clubId}`,{method:'DELETE',headers:{'x-actor-username':me}});currentClub=null;$('club-title').textContent='No club selected';$('club-meta').textContent='';$('chat-log').innerHTML='';$('ann-log').innerHTML='';$('member-list').innerHTML='';$('owner-tools').style.display='none';await renderClubs();};
+$('sendClubMsgBtn').onclick=()=>sendClub('normal','clubMessageInput');
+$('sendAnnBtn').onclick=()=>sendClub('owner','annMessageInput');
+$('jumpNormalBtn').onclick=()=>$('normalHeader').scrollIntoView({behavior:'smooth'});
+$('jumpAnnBtn').onclick=()=>$('annHeader').scrollIntoView({behavior:'smooth'});
+channel.subscribe((msg)=>{const p=parseClubTaggedMessage(msg?.data); if(!p||!currentClub||p.clubId!==currentClub.clubId) return; renderHistory();});
 renderClubs();
-channel.subscribe((msg)=>{const parsed=parseClubTaggedMessage(msg?.data); if(!parsed||!currentClub) return; if(parsed.clubId!==currentClub.clubId) return; renderHistory();});
-setInterval(()=>{if(currentClub)renderHistory();},6000);
 </script>
 </body>
 </html>

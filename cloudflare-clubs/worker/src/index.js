@@ -83,10 +83,9 @@ export default {
         return json({ normal, owner });
       }
 
-      const actor = request.headers.get('x-actor-username') || '';
-      if (!ownerOnly(club, actor)) return json({ error: 'Owner only action' }, 403);
-
       if (request.method === 'POST' && action === 'members') {
+        const actor = request.headers.get('x-actor-username') || '';
+        if (!ownerOnly(club, actor)) return json({ error: 'Owner only action' }, 403);
         const body = await request.json();
         const username = normalize(body.username);
         if (!username) return json({ error: 'username required' }, 400);
@@ -95,6 +94,8 @@ export default {
         return json({ club });
       }
       if (request.method === 'POST' && action === 'kick') {
+        const actor = request.headers.get('x-actor-username') || '';
+        if (!ownerOnly(club, actor)) return json({ error: 'Owner only action' }, 403);
         const body = await request.json();
         const username = keyify(body.username);
         club.members = club.members.filter((m) => keyify(m) !== username);
@@ -103,6 +104,8 @@ export default {
         return json({ club });
       }
       if (request.method === 'POST' && action === 'mute') {
+        const actor = request.headers.get('x-actor-username') || '';
+        if (!ownerOnly(club, actor)) return json({ error: 'Owner only action' }, 403);
         const body = await request.json();
         const username = normalize(body.username);
         if (!club.mutedMembers.find((m) => keyify(m) === keyify(username))) club.mutedMembers.push(username);
@@ -110,6 +113,8 @@ export default {
         return json({ club });
       }
       if (request.method === 'POST' && action === 'transfer') {
+        const actor = request.headers.get('x-actor-username') || '';
+        if (!ownerOnly(club, actor)) return json({ error: 'Owner only action' }, 403);
         const body = await request.json();
         const username = normalize(body.username);
         if (!club.members.find((m) => keyify(m) === keyify(username))) return json({ error: 'New owner must be a member' }, 400);
@@ -118,6 +123,8 @@ export default {
         return json({ club });
       }
       if (request.method === 'POST' && action === 'rename') {
+        const actor = request.headers.get('x-actor-username') || '';
+        if (!ownerOnly(club, actor)) return json({ error: 'Owner only action' }, 403);
         const body = await request.json();
         const newName = normalize(body.displayName);
         if (!newName) return json({ error: 'displayName required' }, 400);
@@ -131,6 +138,8 @@ export default {
         return json({ club });
       }
       if (request.method === 'DELETE' && action === '') {
+        const actor = request.headers.get('x-actor-username') || '';
+        if (!ownerOnly(club, actor)) return json({ error: 'Owner only action' }, 403);
         const ids = (await getJson(env.CLUBS_KV, 'clubs:index', [])).filter((id) => id !== clubId);
         const nameIndex = await getJson(env.CLUBS_KV, 'clubs:name-index', {});
         delete nameIndex[keyify(club.displayName)];
@@ -145,6 +154,8 @@ export default {
         const stream = body.stream === 'owner' ? 'owner' : 'normal';
         const message = { messageId: id('msg'), username: normalize(body.username), content: normalize(body.content), timestamp: nowIso() };
         if (!message.username || !message.content) return json({ error: 'username/content required' }, 400);
+        const isMember = club.members.find((m) => keyify(m) === keyify(message.username));
+        if (!isMember) return json({ error: 'Only club members can post' }, 403);
         if (club.mutedMembers.find((m) => keyify(m) === keyify(message.username))) return json({ error: 'Muted member' }, 403);
         if (stream === 'owner' && !ownerOnly(club, message.username)) return json({ error: 'Only owner can post announcements' }, 403);
         await appendHistory(env, clubId, stream, message);
