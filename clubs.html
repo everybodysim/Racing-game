@@ -47,7 +47,7 @@
   <main class="center">
     <div class="topbar">
       <b id="club-title">No club selected</b>
-      <span class="small" id="club-meta"></span>
+      <span class="small" id="club-meta"></span><span class="small" id="ui-status"></span>
       <button class="btn" id="jumpNormalBtn"># Club chat</button>
       <button class="btn" id="jumpAnnBtn">📣 Announcements</button>
     </div>
@@ -97,19 +97,27 @@ $('playerName').value=me||'Not signed in';
 
 function parseClubTaggedMessage(text){const v=String(text||'');const o=v.match(/^\[([^\]]+)\]\[owner\]\s+([^:]+):\s([\s\S]*)$/);if(o)return{clubId:o[1],stream:'owner'};const n=v.match(/^\[([^\]]+)\]\s+([^:]+):\s([\s\S]*)$/);if(n)return{clubId:n[1],stream:'normal'};return null;}
 async function api(path,options={}){const res=await fetch(CLUBS_API_BASE+path,{...options,headers:{'content-type':'application/json',...(options.headers||{})}});const json=await res.json();if(!res.ok) throw new Error(json.error||'Request failed');return json;}
-function toast(msg){console.log(msg);} // lightweight for now
+function toast(msg,isErr=false){const el=$('ui-status'); if(!el) return; el.textContent=String(msg||''); el.style.color=isErr?'#ff8b8b':'#9fb0c3'; setTimeout(()=>{ if(el.textContent===String(msg||'')) el.textContent=''; },3500);}
 function renderMembers(list){$('member-list').innerHTML='';(list||[]).forEach(m=>{const s=document.createElement('span');s.className='tag';s.textContent=m;$('member-list').appendChild(s);});}
 function renderLog(id,items){const el=$(id);el.innerHTML='';(items||[]).forEach(m=>{const d=document.createElement('div');d.className='msg';d.textContent=`${m.username}: ${m.content}`;el.appendChild(d);});el.scrollTop=el.scrollHeight;}
+
+function resolveClubIdentity(){
+  const accountName = getAccountUsername();
+  if(!currentClub) return accountName;
+  const found = (currentClub.members||[]).find(m=>String(m).trim().toLowerCase()===String(accountName).trim().toLowerCase());
+  return found || accountName;
+}
+
 async function renderClubs(){const data=await api('/clubs');$('club-list').innerHTML='';(data.clubs||[]).forEach(c=>{const b=document.createElement('button');b.className='btn club-item';b.textContent=`${c.displayName} (${c.members.length})`;b.onclick=()=>openClub(c.clubId);$('club-list').appendChild(b);});}
 async function openClub(clubId){const {club}=await api(`/clubs/${clubId}`);currentClub=club;const isOwner=club.ownerUsername.toLowerCase()===me.toLowerCase();$('club-title').textContent=club.displayName;$('club-meta').textContent=`owner: ${club.ownerUsername} · id: ${club.clubId}`;$('owner-tools').style.display=isOwner?'block':'none';$('annMessageInput').disabled=!isOwner;$('sendAnnBtn').disabled=!isOwner;renderMembers(club.members);await renderHistory();}
 async function renderHistory(){if(!currentClub)return;const h=await api(`/clubs/${currentClub.clubId}/messages`);renderLog('chat-log',h.normal);renderLog('ann-log',h.owner);}
-async function ownerAction(path,body){if(!currentClub) return; me=getAccountUsername(); if(!me) throw new Error('Log in first.');await api(`/clubs/${currentClub.clubId}/${path}`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify(body)});await openClub(currentClub.clubId);}
-async function sendClub(stream,inputId){if(!currentClub)return; me=getAccountUsername(); if(!me){ alert('Log in to your account to chat.'); return; }const content=$(inputId).value.trim();if(!content)return;await api(`/clubs/${currentClub.clubId}/messages`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify({stream,username:me,content})});const tag=stream==='owner'?`[${currentClub.clubId}][owner]`:`[${currentClub.clubId}]`;channel.publish('message',`${tag} ${me}: ${content}`);$(inputId).value='';await renderHistory();}
+async function ownerAction(path,body){if(!currentClub) return; me=getAccountUsername(); if(!me) throw new Error('Log in first.'); try { await api(`/clubs/${currentClub.clubId}/${path}`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify(body)}); await openClub(currentClub.clubId); } catch (err) { toast(err?.message||'Owner action failed', true); throw err; }}
+async function sendClub(stream,inputId){if(!currentClub)return; const actor=resolveClubIdentity(); if(!actor){ alert('Log in to your account to chat.'); return; } const content=$(inputId).value.trim(); if(!content)return; try { await api(`/clubs/${currentClub.clubId}/messages`,{method:'POST',headers:{'x-actor-username':actor},body:JSON.stringify({stream,username:actor,content})}); const tag=stream==='owner'?`[${currentClub.clubId}][owner]`:`[${currentClub.clubId}]`; channel.publish('message',`${tag} ${actor}: ${content}`); $(inputId).value=''; await renderHistory(); } catch (err) { toast(err?.message||'Failed to send message', true); throw err; }}
 
 $('saveName').onclick=()=>{};
 $('refreshClubsBtn').onclick=()=>renderClubs();
 $('newClubFocusBtn').onclick=()=>$('newClubName').focus();
-$('createClubBtn').onclick=async()=>{me=getAccountUsername(); if(!me){ alert('Log in to your account to create clubs.'); return; } const name=$('newClubName').value.trim();if(!name)return;await api('/clubs',{method:'POST',body:JSON.stringify({displayName:name,ownerUsername:me})});$('newClubName').value='';await renderClubs();};
+$('createClubBtn').onclick=async()=>{me=getAccountUsername(); if(!me){ alert('Log in to your account to create clubs.'); return; } const name=$('newClubName').value.trim();if(!name)return; try { await api('/clubs',{method:'POST',body:JSON.stringify({displayName:name,ownerUsername:me})}); $('newClubName').value=''; await renderClubs(); toast('Club created'); } catch (err) { toast(err?.message||'Create failed', true); }};
 $('addMemberBtn').onclick=()=>ownerAction('members',{username:$('addMemberInput').value.trim()});
 $('kickMemberBtn').onclick=()=>ownerAction('kick',{username:$('kickMemberInput').value.trim()});
 $('muteMemberBtn').onclick=()=>ownerAction('mute',{username:$('muteMemberInput').value.trim()});
