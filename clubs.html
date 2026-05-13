@@ -102,6 +102,22 @@ function toast(msg,isErr=false){const el=$('ui-status'); if(!el) return; el.text
 function renderMembers(list){$('member-list').innerHTML='';(list||[]).forEach(m=>{const s=document.createElement('span');s.className='tag';s.textContent=m;$('member-list').appendChild(s);});}
 function renderLog(id,items){const el=$(id);el.innerHTML='';(items||[]).forEach(m=>{const d=document.createElement('div');d.className='msg';d.textContent=`${m.username}: ${m.content}`;el.appendChild(d);});el.scrollTop=el.scrollHeight;}
 
+function parseClubNormalPayload(raw){
+  const body=String(raw||'').replace(/^\[[^\]]+\]\s+/, '');
+  const idx=body.indexOf(':');
+  if(idx<=0) return null;
+  return { username: body.slice(0,idx).trim(), content: body.slice(idx+1).trim() };
+}
+function dedupeMessages(items){
+  const seen=new Set();
+  const out=[];
+  (items||[]).forEach((m)=>{const u=String(m?.username||'').trim();const c=String(m?.content||'').trim();if(!u||!c)return;const t=m?.timestamp?new Date(m.timestamp).toISOString().slice(0,19):'';const key=`${u.toLowerCase()}|${c}|${t}`;if(seen.has(key)) return;seen.add(key);out.push({username:u,content:c,timestamp:m?.timestamp||null});});
+  return out;
+}
+async function getAblyNormalHistory(clubId){
+  try { const page = await channel.history({ limit: 100 }); const items = []; (page?.items||[]).forEach((msg)=>{const payload=parseClubTaggedMessage(msg?.data); if(!payload||payload.clubId!==clubId||payload.stream!=='normal') return; const parsed=parseClubNormalPayload(msg.data); if(!parsed) return; items.push({ username: parsed.username, content: parsed.content, timestamp: msg.timestamp?new Date(msg.timestamp).toISOString():null });}); return items; } catch { return []; }
+}
+
 function resolveClubIdentity(){
   const accountName = getAccountUsername();
   if(!currentClub) return accountName;
@@ -111,9 +127,9 @@ function resolveClubIdentity(){
 
 async function renderClubs(){const data=await api('/clubs');$('club-list').innerHTML='';(data.clubs||[]).forEach(c=>{const b=document.createElement('button');b.className='btn club-item';b.textContent=`${c.displayName} (${c.members.length})`;b.onclick=()=>openClub(c.clubId);$('club-list').appendChild(b);});}
 async function openClub(clubId){const {club}=await api(`/clubs/${clubId}`);currentClub=club;liveNormalFallback=[];const isOwner=club.ownerUsername.toLowerCase()===me.toLowerCase();$('club-title').textContent=club.displayName;$('club-meta').textContent=`owner: ${club.ownerUsername} · id: ${club.clubId}`;$('owner-tools').style.display=isOwner?'block':'none';$('annMessageInput').disabled=!isOwner;$('sendAnnBtn').disabled=!isOwner;renderMembers(club.members);await renderHistory();}
-async function renderHistory(){if(!currentClub)return;const h=await api(`/clubs/${currentClub.clubId}/messages`);const mergedNormal=[...(h.normal||[]),...liveNormalFallback];renderLog('chat-log',mergedNormal.slice(-30));renderLog('ann-log',h.owner);} 
+async function renderHistory(){if(!currentClub)return;const h=await api(`/clubs/${currentClub.clubId}/messages`);const ablyNormal=await getAblyNormalHistory(currentClub.clubId);const mergedNormal=dedupeMessages([...(h.normal||[]),...ablyNormal,...liveNormalFallback]);renderLog('chat-log',mergedNormal.slice(-30));renderLog('ann-log',h.owner);} 
 async function ownerAction(path,body){if(!currentClub) return; me=getAccountUsername(); if(!me) throw new Error('Log in first.'); try { await api(`/clubs/${currentClub.clubId}/${path}`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify(body)}); await openClub(currentClub.clubId); } catch (err) { toast(err?.message||'Owner action failed', true); throw err; }}
-async function sendClub(stream,inputId){if(!currentClub)return; const actor=resolveClubIdentity(); if(!actor){ alert('Log in to your account to chat.'); return; } const actorKey=String(actor).trim().toLowerCase(); const isMember=(currentClub.members||[]).some(m=>String(m).trim().toLowerCase()===actorKey); if(!isMember){ toast('Only club members can post in club chat.', true); return; } const content=$(inputId).value.trim(); if(!content)return; const tag=stream==='owner'?`[${currentClub.clubId}][owner]`:`[${currentClub.clubId}]`; if(stream==='owner'){ try { await api(`/clubs/${currentClub.clubId}/messages`,{method:'POST',headers:{'x-actor-username':actor},body:JSON.stringify({stream,username:actor,content})}); } catch (err) { toast(err?.message||'Failed to send announcement', true); throw err; } } else { liveNormalFallback.push({ username: actor, content, timestamp: new Date().toISOString() }); } channel.publish('message',`${tag} ${actor}: ${content}`); $(inputId).value=''; await renderHistory(); }
+async function sendClub(stream,inputId){if(!currentClub)return; const actor=resolveClubIdentity(); if(!actor){ alert('Log in to your account to chat.'); return; } const actorKey=String(actor).trim().toLowerCase(); const isMember=(currentClub.members||[]).some(m=>String(m).trim().toLowerCase()===actorKey); if(!isMember){ toast('Only club members can post in club chat.', true); return; } const content=$(inputId).value.trim(); if(!content)return; const tag=stream==='owner'?`[${currentClub.clubId}][owner]`:`[${currentClub.clubId}]`; if(stream==='owner'){ try { await api(`/clubs/${currentClub.clubId}/messages`,{method:'POST',headers:{'x-actor-username':actor},body:JSON.stringify({stream,username:actor,content})}); } catch (err) { toast(err?.message||'Failed to send announcement', true); throw err; } } else { liveNormalFallback=dedupeMessages([...liveNormalFallback,{ username: actor, content, timestamp: new Date().toISOString() }]); } channel.publish('message',`${tag} ${actor}: ${content}`); $(inputId).value=''; await renderHistory(); }
 
 $('saveName').onclick=()=>{};
 $('refreshClubsBtn').onclick=()=>renderClubs();
@@ -129,7 +145,7 @@ $('sendClubMsgBtn').onclick=()=>sendClub('normal','clubMessageInput');
 $('sendAnnBtn').onclick=()=>sendClub('owner','annMessageInput');
 $('jumpNormalBtn').onclick=()=>$('normalHeader').scrollIntoView({behavior:'smooth'});
 $('jumpAnnBtn').onclick=()=>$('annHeader').scrollIntoView({behavior:'smooth'});
-channel.subscribe((msg)=>{const p=parseClubTaggedMessage(msg?.data); if(!p||!currentClub||p.clubId!==currentClub.clubId) return; if(p.stream==='normal'){ const raw=String(msg.data||''); const body=raw.replace(/^\[[^\]]+\]\s+/, ''); const idx=body.indexOf(':'); if(idx>0){ const username=body.slice(0,idx).trim(); const content=body.slice(idx+1).trim(); liveNormalFallback.push({username,content,timestamp:new Date().toISOString()}); } } renderHistory();});
+channel.subscribe((msg)=>{const p=parseClubTaggedMessage(msg?.data); if(!p||!currentClub||p.clubId!==currentClub.clubId) return; if(p.stream==='normal'){ const parsed=parseClubNormalPayload(msg?.data); if(parsed){ liveNormalFallback=dedupeMessages([...liveNormalFallback,{username:parsed.username,content:parsed.content,timestamp:new Date().toISOString()}]); } } renderHistory();});
 renderClubs();
 </script>
 </body>
