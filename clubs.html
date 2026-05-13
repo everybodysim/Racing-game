@@ -49,7 +49,7 @@
       <b id="club-title">No club selected</b>
       <span class="small" id="club-meta"></span><span class="small" id="ui-status"></span>
       <button class="btn" id="jumpNormalBtn"># Club chat</button>
-      <button class="btn" id="jumpAnnBtn">📣 Announcements</button>
+      <button class="btn" id="jumpAnnBtn">💬 Main Chat</button>
     </div>
     <div style="padding:10px;border-bottom:1px solid var(--line)">
       <input id="newClubName" placeholder="Create a unique club name"> <button class="btn primary" id="createClubBtn">Create club</button>
@@ -61,9 +61,9 @@
         <div class="controls"><input id="clubMessageInput" placeholder="Message club" style="flex:1"><button class="btn ok" id="sendClubMsgBtn">Send</button></div>
       </section>
       <section class="chat-col">
-        <h3 id="annHeader">📣 Announcements</h3>
+        <h3 id="annHeader">💬 Main Chat</h3>
         <div id="ann-log" class="log"></div>
-        <div class="controls"><input id="annMessageInput" placeholder="Owner announcement" style="flex:1"><button class="btn primary" id="sendAnnBtn">Announce</button></div>
+        <div class="controls"><input id="annMessageInput" placeholder="Main chat message" style="flex:1"><button class="btn primary" id="sendAnnBtn">Send</button></div>
       </section>
     </div>
   </main>
@@ -71,7 +71,7 @@
   <aside class="right">
     <h3>Members</h3>
     <div id="member-list" class="members"></div>
-    <p class="small">Owner controls are hidden if you are not the owner.</p>
+    <p class="small">Owner controls are optional moderation tools.</p>
     <div id="owner-tools" style="display:none" class="stack">
       <h4>Owner controls</h4>
       <div class="controls"><input id="addMemberInput" placeholder="Add member"><button class="btn ok" id="addMemberBtn">Add</button></div>
@@ -111,8 +111,8 @@ function resolveClubIdentity(){
 }
 
 async function renderClubs(){const data=await api('/clubs');$('club-list').innerHTML='';(data.clubs||[]).forEach(c=>{const b=document.createElement('button');b.className='btn club-item';b.textContent=`${c.displayName} (${c.members.length})`;b.onclick=()=>openClub(c.clubId);$('club-list').appendChild(b);});}
-async function openClub(clubId){const {club}=await api(`/clubs/${clubId}`);currentClub=club;liveNormalFallback=[];const isOwner=club.ownerUsername.toLowerCase()===me.toLowerCase();$('club-title').textContent=club.displayName;$('club-meta').textContent=`owner: ${club.ownerUsername} · id: ${club.clubId}`;$('owner-tools').style.display=isOwner?'block':'none';$('annMessageInput').disabled=!isOwner;$('sendAnnBtn').disabled=!isOwner;renderMembers(club.members);await renderHistory();}
-async function renderHistory(){if(!currentClub)return;const h=await api(`/clubs/${currentClub.clubId}/messages`);renderLog('chat-log',(h.normal||[]).slice(-30));renderLog('ann-log',h.owner);} 
+async function openClub(clubId){const {club}=await api(`/clubs/${clubId}`);currentClub=club;liveNormalFallback=[];const isOwner=club.ownerUsername.toLowerCase()===me.toLowerCase();$('club-title').textContent=club.displayName;$('club-meta').textContent=`owner: ${club.ownerUsername} · id: ${club.clubId}`;$('owner-tools').style.display=isOwner?'block':'none';renderMembers(club.members);await renderHistory();}
+async function renderHistory(){if(!currentClub)return;const h=await api(`/clubs/${currentClub.clubId}/messages`);renderLog('chat-log',(h.normal||[]).slice(-30));renderLog('ann-log',(h.normal||[]).slice(-30));} 
 async function ownerAction(path,body){if(!currentClub) return; me=getAccountUsername(); if(!me) throw new Error('Log in first.'); try { await api(`/clubs/${currentClub.clubId}/${path}`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify(body)}); await openClub(currentClub.clubId); } catch (err) { toast(err?.message||'Owner action failed', true); throw err; }}
 async function sendClub(stream,inputId){if(!currentClub)return; const actor=resolveClubIdentity(); if(!actor){ alert('Log in to your account to chat.'); return; } const actorKey=String(actor).trim().toLowerCase(); const isMember=(currentClub.members||[]).some(m=>String(m).trim().toLowerCase()===actorKey); if(!isMember){ toast('Only club members can post in club chat.', true); return; } const content=$(inputId).value.trim(); if(!content)return; try { await api(`/clubs/${currentClub.clubId}/messages`,{method:'POST',headers:{'x-actor-username':actor},body:JSON.stringify({stream,username:actor,content})}); } catch (err) { toast(err?.message||(stream==='owner'?'Failed to send announcement':'Failed to send message'), true); throw err; } $(inputId).value=''; await renderHistory(); }
 
@@ -127,7 +127,7 @@ $('renameClubBtn').onclick=()=>ownerAction('rename',{displayName:$('renameClubIn
 $('transferOwnerBtn').onclick=()=>ownerAction('transfer',{username:$('transferOwnerInput').value.trim()});
 $('deleteClubBtn').onclick=async()=>{if(!currentClub)return;await api(`/clubs/${currentClub.clubId}`,{method:'DELETE',headers:{'x-actor-username':me}});currentClub=null;$('club-title').textContent='No club selected';$('club-meta').textContent='';$('chat-log').innerHTML='';$('ann-log').innerHTML='';$('member-list').innerHTML='';$('owner-tools').style.display='none';await renderClubs();};
 $('sendClubMsgBtn').onclick=()=>sendClub('normal','clubMessageInput');
-$('sendAnnBtn').onclick=()=>sendClub('owner','annMessageInput');
+$('sendAnnBtn').onclick=()=>sendClub('normal','annMessageInput');
 $('jumpNormalBtn').onclick=()=>$('normalHeader').scrollIntoView({behavior:'smooth'});
 $('jumpAnnBtn').onclick=()=>$('annHeader').scrollIntoView({behavior:'smooth'});
 renderClubs();
