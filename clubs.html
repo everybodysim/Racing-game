@@ -92,6 +92,7 @@ const channel = ably.channels.get('global-chat');
 function getAccountUsername(){ try{ const raw=localStorage.getItem('racing-account-session-v1'); const parsed=raw?JSON.parse(raw):null; return String(parsed?.username||'').trim(); } catch { return ''; } }
 let me=getAccountUsername();
 let currentClub=null;
+let liveNormalFallback=[];
 const $=id=>document.getElementById(id);
 $('playerName').value=me||'Not signed in';
 
@@ -109,10 +110,10 @@ function resolveClubIdentity(){
 }
 
 async function renderClubs(){const data=await api('/clubs');$('club-list').innerHTML='';(data.clubs||[]).forEach(c=>{const b=document.createElement('button');b.className='btn club-item';b.textContent=`${c.displayName} (${c.members.length})`;b.onclick=()=>openClub(c.clubId);$('club-list').appendChild(b);});}
-async function openClub(clubId){const {club}=await api(`/clubs/${clubId}`);currentClub=club;const isOwner=club.ownerUsername.toLowerCase()===me.toLowerCase();$('club-title').textContent=club.displayName;$('club-meta').textContent=`owner: ${club.ownerUsername} · id: ${club.clubId}`;$('owner-tools').style.display=isOwner?'block':'none';$('annMessageInput').disabled=!isOwner;$('sendAnnBtn').disabled=!isOwner;renderMembers(club.members);await renderHistory();}
-async function renderHistory(){if(!currentClub)return;const h=await api(`/clubs/${currentClub.clubId}/messages`);renderLog('chat-log',h.normal);renderLog('ann-log',h.owner);}
+async function openClub(clubId){const {club}=await api(`/clubs/${clubId}`);currentClub=club;liveNormalFallback=[];const isOwner=club.ownerUsername.toLowerCase()===me.toLowerCase();$('club-title').textContent=club.displayName;$('club-meta').textContent=`owner: ${club.ownerUsername} · id: ${club.clubId}`;$('owner-tools').style.display=isOwner?'block':'none';$('annMessageInput').disabled=!isOwner;$('sendAnnBtn').disabled=!isOwner;renderMembers(club.members);await renderHistory();}
+async function renderHistory(){if(!currentClub)return;const h=await api(`/clubs/${currentClub.clubId}/messages`);const mergedNormal=[...(h.normal||[]),...liveNormalFallback];renderLog('chat-log',mergedNormal.slice(-30));renderLog('ann-log',h.owner);} 
 async function ownerAction(path,body){if(!currentClub) return; me=getAccountUsername(); if(!me) throw new Error('Log in first.'); try { await api(`/clubs/${currentClub.clubId}/${path}`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify(body)}); await openClub(currentClub.clubId); } catch (err) { toast(err?.message||'Owner action failed', true); throw err; }}
-async function sendClub(stream,inputId){if(!currentClub)return; const actor=resolveClubIdentity(); if(!actor){ alert('Log in to your account to chat.'); return; } const content=$(inputId).value.trim(); if(!content)return; try { await api(`/clubs/${currentClub.clubId}/messages`,{method:'POST',headers:{'x-actor-username':actor},body:JSON.stringify({stream,username:actor,content})}); const tag=stream==='owner'?`[${currentClub.clubId}][owner]`:`[${currentClub.clubId}]`; channel.publish('message',`${tag} ${actor}: ${content}`); $(inputId).value=''; await renderHistory(); } catch (err) { toast(err?.message||'Failed to send message', true); throw err; }}
+async function sendClub(stream,inputId){if(!currentClub)return; const actor=resolveClubIdentity(); if(!actor){ alert('Log in to your account to chat.'); return; } const content=$(inputId).value.trim(); if(!content)return; const tag=stream==='owner'?`[${currentClub.clubId}][owner]`:`[${currentClub.clubId}]`; try { await api(`/clubs/${currentClub.clubId}/messages`,{method:'POST',headers:{'x-actor-username':actor},body:JSON.stringify({stream,username:actor,content})}); } catch (err) { if (stream==='normal' && String(err?.message||'').toLowerCase().includes('owner only')) { liveNormalFallback.push({ username: actor, content, timestamp: new Date().toISOString() }); toast('Worker rejected member message; sent live via Ably fallback.', true); } else { toast(err?.message||'Failed to send message', true); throw err; } } channel.publish('message',`${tag} ${actor}: ${content}`); $(inputId).value=''; await renderHistory(); }
 
 $('saveName').onclick=()=>{};
 $('refreshClubsBtn').onclick=()=>renderClubs();
@@ -128,7 +129,7 @@ $('sendClubMsgBtn').onclick=()=>sendClub('normal','clubMessageInput');
 $('sendAnnBtn').onclick=()=>sendClub('owner','annMessageInput');
 $('jumpNormalBtn').onclick=()=>$('normalHeader').scrollIntoView({behavior:'smooth'});
 $('jumpAnnBtn').onclick=()=>$('annHeader').scrollIntoView({behavior:'smooth'});
-channel.subscribe((msg)=>{const p=parseClubTaggedMessage(msg?.data); if(!p||!currentClub||p.clubId!==currentClub.clubId) return; renderHistory();});
+channel.subscribe((msg)=>{const p=parseClubTaggedMessage(msg?.data); if(!p||!currentClub||p.clubId!==currentClub.clubId) return; if(p.stream==='normal'){ const raw=String(msg.data||''); const body=raw.replace(/^\[[^\]]+\]\s+/, ''); const idx=body.indexOf(':'); if(idx>0){ const username=body.slice(0,idx).trim(); const content=body.slice(idx+1).trim(); liveNormalFallback.push({username,content,timestamp:new Date().toISOString()}); } } renderHistory();});
 renderClubs();
 </script>
 </body>
