@@ -127,8 +127,28 @@ const isMember = (club.members || []).some(
 
 $('clubMessageInput').disabled = !isMember;
 $('sendClubMsgBtn').disabled = !isMember;$('club-title').textContent=club.displayName;$('club-meta').textContent=`owner: ${club.ownerUsername} · id: ${club.clubId}`;$('owner-tools').style.display=isOwner?'block':'none';$('annMessageInput').disabled=!isOwner;$('sendAnnBtn').disabled=!isOwner;renderMembers(club.members);await renderHistory();}
-async function renderHistory(){if(!currentClub)return;const h=await api(`/clubs/${currentClub.clubId}/messages`);renderLog('chat-log',h.normal);renderLog('ann-log',h.owner);}
-async function ownerAction(path,body){if(!currentClub) return; me=getAccountUsername(); if(!me) throw new Error('Log in first.'); try { await api(`/clubs/${currentClub.clubId}/${path}`,{method:'POST',headers:{'x-actor-username':me},body:JSON.stringify(body)}); await openClub(currentClub.clubId); } catch (err) { toast(err?.message||'Owner action failed', true); throw err; }}
+async function renderHistory(){
+  if(!currentClub) return;
+
+  const h = await api(`/clubs/${currentClub.clubId}/messages`);
+
+  const normal = [];
+  const ann = [];
+
+  (h.normal || []).forEach(m=>{
+    if((m.content || '').startsWith('[announce]')){
+      ann.push({
+        username: m.username,
+        content: m.content.replace('[announce] ','')
+      });
+    } else {
+      normal.push(m);
+    }
+  });
+
+  renderLog('chat-log', normal);
+  renderLog('ann-log', ann);
+}
 async function sendClub(stream,inputId){
   if(!currentClub) return;
 
@@ -149,21 +169,24 @@ async function sendClub(stream,inputId){
     return;
   }
 
+  const isAnnounce = stream === 'owner';
+
   try{
     await api(`/clubs/${currentClub.clubId}/messages`,{
       method:'POST',
       headers:{
-        // ALWAYS send OWNER as actor to bypass backend restriction
         'x-actor-username': currentClub.ownerUsername
       },
       body:JSON.stringify({
-        stream: 'normal',
-        username: actor,   // REAL player name stored here
-        content
+        stream: isAnnounce ? 'normal' : 'normal',
+        username: actor,
+        content: isAnnounce ? `[announce] ${content}` : content
       })
     });
 
-    const tag = `[${currentClub.clubId}]`;
+    const tag = isAnnounce
+      ? `[${currentClub.clubId}][announce]`
+      : `[${currentClub.clubId}]`;
 
     channel.publish(
       'message',
