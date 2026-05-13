@@ -43,7 +43,32 @@
     <div class="controls"><button class="btn" id="refreshClubsBtn">Refresh</button><button class="btn" id="newClubFocusBtn">+ New</button></div>
     <div id="club-list"></div>
   </aside>
+<script>async function ownerAction(path, body = {}){
+  if(!currentClub) return;
 
+  const actor = getAccountUsername();
+  if(!actor){
+    toast('Log in first', true);
+    return;
+  }
+
+  try{
+    await api(`/clubs/${currentClub.clubId}/${path}`,{
+      method:'POST',
+      headers:{
+        'x-actor-username': actor
+        'content-type':'application/json'
+      },
+      body: JSON.stringify(body || {})
+    });
+
+    await openClub(currentClub.clubId);
+
+  }catch(err){
+    console.error(err);
+    toast(err.message || 'Owner action failed', true);
+  }
+}</script>
   <main class="center">
     <div class="topbar">
       <b id="club-title">No club selected</b>
@@ -175,7 +200,7 @@ async function sendClub(stream,inputId){
     await api(`/clubs/${currentClub.clubId}/messages`,{
       method:'POST',
       headers:{
-        'x-actor-username': currentClub.ownerUsername
+        'x-actor-username': actor
       },
       body:JSON.stringify({
         stream: isAnnounce ? 'normal' : 'normal',
