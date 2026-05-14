@@ -21,7 +21,9 @@
     .chat-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:10px;flex:1;min-height:0}
     .chat-col{display:flex;flex-direction:column;min-height:0}
     .log{flex:1;min-height:220px;overflow:auto;background:#0b121b;border:1px solid var(--line);border-radius:10px;padding:10px}
-    .msg{padding:6px;border-bottom:1px dashed #243244}
+    .msg{display:flex;align-items:flex-start;gap:7px;padding:7px 6px;border-bottom:1px dashed #243244}
+    .msg-user{flex:0 0 auto;max-width:42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 8px;border-radius:9px;border:1px solid rgba(120,245,184,0.45);background:linear-gradient(130deg,rgba(50,72,120,0.72),rgba(48,170,128,0.34));box-shadow:0 0 10px rgba(77,232,152,0.13);color:#f7fbff;font-weight:800;font-size:12px;line-height:1.15}
+    .msg-text{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text);line-height:1.35;padding-top:2px}
     .controls{display:flex;gap:8px;margin-top:8px}
     .members{display:flex;flex-wrap:wrap;gap:6px}.tag{background:#0f1824;border:1px solid var(--line);padding:4px 8px;border-radius:999px;font-size:12px}
     .stack{display:flex;flex-direction:column;gap:8px}
@@ -135,7 +137,13 @@ function renderLog(id,items){
     const name = m.username || 'Unknown';
     const text = m.content || '';
 
-    d.textContent = `[${name}] ${text}`;
+    const user = document.createElement('span');
+    user.className = 'msg-user';
+    user.textContent = name;
+    const body = document.createElement('span');
+    body.className = 'msg-text';
+    body.textContent = text;
+    d.append(user, body);
 
     el.appendChild(d);
   });

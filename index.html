@@ -837,6 +837,7 @@
 			gap: 12px;
 		}
 		.home-main-link {
+			position: relative;
 			display: block;
 			padding: 10px 8px;
 			min-height: 96px;
@@ -848,6 +849,35 @@
 			font: 700 clamp(12px, 1.35vw, 15px)/1.2 "Inter", "Segoe UI", sans-serif;
 			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
 			box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
+		}
+		.home-record-chip {
+			display: none;
+			margin: 0 0 8px;
+			padding: 6px 8px;
+			border-radius: 10px;
+			border: 1px solid rgba(120,245,184,0.46);
+			background: linear-gradient(130deg, rgba(50,72,120,0.76), rgba(48,170,128,0.36));
+			box-shadow: 0 0 14px rgba(77,232,152,0.16);
+		}
+		.home-record-chip.visible { display: block; }
+		.home-record-chip .record-label {
+			display: block;
+			font-size: 9px;
+			font-weight: 800;
+			letter-spacing: 0.08em;
+			text-transform: uppercase;
+			color: #d7e5ff;
+			opacity: 0.88;
+		}
+		.home-record-chip .record-name {
+			display: block;
+			margin-top: 2px;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			font-size: 12px;
+			font-weight: 900;
+			color: #f7fbff;
 		}
 		.home-main-link em {
 			display: block;
@@ -996,10 +1026,10 @@
 				<a class="home-main-link play-link" href="index.html?play=1">Play now<em>Launch the game immediately</em></a>
 				<a class="home-main-link" href="tracks.html">Track shares<em>Discover and copy community maps</em></a>
 				<a class="home-main-link" href="editor.html">Create your own track<em>Build and test original circuits</em></a>
-				<a class="home-main-link" href="weekly-cup.html">Weekly cup<em>Competitive rotating event</em></a>
+				<a class="home-main-link" href="weekly-cup.html"><span class="home-record-chip" data-record-badge="weekly"><span class="record-label">Weekly leader</span><span class="record-name">Loading…</span></span>Weekly cup<em>Competitive rotating event</em></a>
 				<a class="home-main-link" href="clubs.html">Clubs<em>Create and manage your racing communities</em></a>
 				<a class="home-main-link out-of-order" href="competitions.html" data-out-of-order="1">Competitions<em>9 live stake-based tier events</em></a>
-				<a class="home-main-link" href="totd.html">Track of the day<em>One featured challenge each day</em></a>
+				<a class="home-main-link" href="totd.html"><span class="home-record-chip" data-record-badge="totd"><span class="record-label">Today’s record</span><span class="record-name">Loading…</span></span>Track of the day<em>One featured challenge each day</em></a>
 			</div>
 			<div id="home-secondary">
 				<a class="home-secondary-link" href="replay.html">Replay watcher</a>
@@ -1394,16 +1424,27 @@
 			} );
 		}
 
+		function updateHomeRecordBadge( key, winner ) {
+			if ( ! landing?.classList.contains( 'visible' ) ) return;
+			const chip = document.querySelector( `.home-record-chip[data-record-badge="${ key }"]` );
+			if ( ! chip ) return;
+			const nameEl = chip.querySelector( '.record-name' );
+			if ( nameEl ) nameEl.textContent = winner;
+			chip.classList.add( 'visible' );
+		}
+
 		( async () => {
 			const totdLink = document.getElementById( 'totd-link' );
 			const weeklyLink = document.getElementById( 'weekly-cup-link' );
 			if ( totdLink ) {
 				const winner = await readLeaderboardNameFromPage( 'totd.html', '#totd-record-holder', 'No record yet' );
 				totdLink.textContent = `Track of the day • ${ winner }`;
+				updateHomeRecordBadge( 'totd', winner );
 			}
 			if ( weeklyLink ) {
 				const winner = await readLeaderboardNameFromPage( 'weekly-cup.html', '#champName', 'No records yet' );
 				weeklyLink.textContent = `Weekly cup • ${ winner }`;
+				updateHomeRecordBadge( 'weekly', winner );
 			}
 		} )();
 	</script>
