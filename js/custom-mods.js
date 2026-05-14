@@ -15,6 +15,7 @@ Blockly.Blocks.event_on_tick = { init() { this.appendDummyInput().appendField('e
 Blockly.Blocks.event_on_key = { init() { this.appendDummyInput().appendField('when key').appendField(new Blockly.FieldDropdown([['W','KeyW'],['A','KeyA'],['S','KeyS'],['D','KeyD'],['Space','Space']]),'KEY').appendField('pressed'); this.appendStatementInput('DO').appendField('do'); this.setColour('#f59e0b'); } };
 Blockly.Blocks.event_on_checkpoint = { init() { this.appendDummyInput().appendField('when checkpoint reached'); this.appendStatementInput('DO').appendField('do'); this.setColour('#f59e0b'); } };
 Blockly.Blocks.event_on_crash = { init() { this.appendDummyInput().appendField('when vehicle crashes'); this.appendStatementInput('DO').appendField('do'); this.setColour('#f59e0b'); } };
+Blockly.Blocks.event_on_lap_finish = { init() { this.appendDummyInput().appendField('when lap finishes'); this.appendStatementInput('DO').appendField('do'); this.setColour('#f59e0b'); } };
 
 Blockly.Blocks.action_set_speed = { init() { this.appendValueInput('SPEED').setCheck('Number').appendField('set car speed to'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
 Blockly.Blocks.action_boost = { init() { this.appendValueInput('AMOUNT').setCheck('Number').appendField('boost by'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
@@ -22,6 +23,16 @@ Blockly.Blocks.action_show_message = { init() { this.appendValueInput('TEXT').ap
 Blockly.Blocks.action_set_gravity = { init() { this.appendValueInput('G').setCheck('Number').appendField('set gravity to'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
 Blockly.Blocks.action_spawn_particle = { init() { this.appendDummyInput().appendField('spawn smoke particle'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
 Blockly.Blocks.action_camera_shake = { init() { this.appendValueInput('INT').setCheck('Number').appendField('camera shake intensity'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
+Blockly.Blocks.action_jump = { init() { this.appendValueInput('POWER').setCheck('Number').appendField('jump with power'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
+Blockly.Blocks.action_reset_car = { init() { this.appendDummyInput().appendField('reset car to spawn'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
+Blockly.Blocks.action_set_time_scale = { init() { this.appendValueInput('SCALE').setCheck('Number').appendField('set game speed scale'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
+Blockly.Blocks.action_add_coins = { init() { this.appendValueInput('COINS').setCheck('Number').appendField('add coins'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
+
+Blockly.Blocks.value_speed = { init() { this.appendDummyInput().appendField('current speed'); this.setOutput(true, 'Number'); this.setColour('#22c55e'); } };
+Blockly.Blocks.value_lap_time = { init() { this.appendDummyInput().appendField('current lap time'); this.setOutput(true, 'Number'); this.setColour('#22c55e'); } };
+Blockly.Blocks.value_checkpoint_number = { init() { this.appendDummyInput().appendField('checkpoint number'); this.setOutput(true, 'Number'); this.setColour('#22c55e'); } };
+Blockly.Blocks.value_crash_force = { init() { this.appendDummyInput().appendField('crash force'); this.setOutput(true, 'Number'); this.setColour('#22c55e'); } };
+Blockly.Blocks.value_random = { init() { this.appendDummyInput().appendField('random 0 to 1'); this.setOutput(true, 'Number'); this.setColour('#22c55e'); } };
 
 const workspace = Blockly.inject('blocklyDiv', { toolbox: document.getElementById('toolbox'), trashcan: true, zoom: { controls: true, wheel: true, startScale: 0.95 } });
 
@@ -37,24 +48,30 @@ function parseValueBlock(block) {
   if (block.type === 'text') return String(block.getFieldValue('TEXT') || '');
   if (block.type === 'math_arithmetic') {
     const op = block.getFieldValue('OP');
-    const a = Number(parseValueBlock(block.getInputTargetBlock('A')) || 0);
-    const b = Number(parseValueBlock(block.getInputTargetBlock('B')) || 0);
-    if (op === 'ADD') return a + b;
-    if (op === 'MINUS') return a - b;
-    if (op === 'MULTIPLY') return a * b;
-    if (op === 'DIVIDE') return b === 0 ? 0 : a / b;
+    const a = parseValueBlock(block.getInputTargetBlock('A')) ?? 0;
+    const b = parseValueBlock(block.getInputTargetBlock('B')) ?? 0;
+    return { kind: 'math', op, a, b };
   }
+  if (block.type === 'value_speed') return { kind: 'runtime', name: 'speed' };
+  if (block.type === 'value_lap_time') return { kind: 'runtime', name: 'lapTime' };
+  if (block.type === 'value_checkpoint_number') return { kind: 'runtime', name: 'checkpointNumber' };
+  if (block.type === 'value_crash_force') return { kind: 'runtime', name: 'crashForce' };
+  if (block.type === 'value_random') return { kind: 'runtime', name: 'random' };
   return null;
 }
 
 function parseActionStatement(block) {
   if (!block) return null;
-  if (block.type === 'action_set_speed') return { type: 'set_speed', value: Number(parseValueBlock(block.getInputTargetBlock('SPEED')) || 0) };
-  if (block.type === 'action_boost') return { type: 'boost', value: Number(parseValueBlock(block.getInputTargetBlock('AMOUNT')) || 0) };
-  if (block.type === 'action_set_gravity') return { type: 'set_gravity', value: Number(parseValueBlock(block.getInputTargetBlock('G')) || 0) };
-  if (block.type === 'action_show_message') return { type: 'show_message', value: String(parseValueBlock(block.getInputTargetBlock('TEXT')) || '') };
+  if (block.type === 'action_set_speed') return { type: 'set_speed', value: parseValueBlock(block.getInputTargetBlock('SPEED')) ?? 0 };
+  if (block.type === 'action_boost') return { type: 'boost', value: parseValueBlock(block.getInputTargetBlock('AMOUNT')) ?? 0 };
+  if (block.type === 'action_set_gravity') return { type: 'set_gravity', value: parseValueBlock(block.getInputTargetBlock('G')) ?? 9.81 };
+  if (block.type === 'action_show_message') return { type: 'show_message', value: parseValueBlock(block.getInputTargetBlock('TEXT')) ?? '' };
   if (block.type === 'action_spawn_particle') return { type: 'spawn_particle' };
-  if (block.type === 'action_camera_shake') return { type: 'camera_shake', value: Number(parseValueBlock(block.getInputTargetBlock('INT')) || 1) };
+  if (block.type === 'action_camera_shake') return { type: 'camera_shake', value: parseValueBlock(block.getInputTargetBlock('INT')) ?? 1 };
+  if (block.type === 'action_jump') return { type: 'jump', value: parseValueBlock(block.getInputTargetBlock('POWER')) ?? 6 };
+  if (block.type === 'action_reset_car') return { type: 'reset_car' };
+  if (block.type === 'action_set_time_scale') return { type: 'set_time_scale', value: parseValueBlock(block.getInputTargetBlock('SCALE')) ?? 1 };
+  if (block.type === 'action_add_coins') return { type: 'add_coins', value: parseValueBlock(block.getInputTargetBlock('COINS')) ?? 0 };
   return null;
 }
 
@@ -70,13 +87,14 @@ function parseStatementChain(firstBlock) {
 }
 
 function buildRuntimeSpec() {
-  const spec = { onStart: [], onTick: [], onKey: {}, onCheckpoint: [], onCrash: [] };
+  const spec = { onStart: [], onTick: [], onKey: {}, onCheckpoint: [], onCrash: [], onLapFinish: [] };
   const tops = workspace.getTopBlocks(true);
   for (const block of tops) {
     if (block.type === 'event_on_start') spec.onStart.push(...parseStatementChain(block.getInputTargetBlock('DO')));
     if (block.type === 'event_on_tick') spec.onTick.push(...parseStatementChain(block.getInputTargetBlock('DO')));
     if (block.type === 'event_on_checkpoint') spec.onCheckpoint.push(...parseStatementChain(block.getInputTargetBlock('DO')));
     if (block.type === 'event_on_crash') spec.onCrash.push(...parseStatementChain(block.getInputTargetBlock('DO')));
+    if (block.type === 'event_on_lap_finish') spec.onLapFinish.push(...parseStatementChain(block.getInputTargetBlock('DO')));
     if (block.type === 'event_on_key') {
       const key = block.getFieldValue('KEY') || 'KeyW';
       spec.onKey[key] = [ ...(spec.onKey[key] || []), ...parseStatementChain(block.getInputTargetBlock('DO')) ];
@@ -87,29 +105,57 @@ function buildRuntimeSpec() {
 
 function renderActionsRuntimeCode() {
   return `
+function resolveValue(value, ctx, event = {}) {
+  if (value && typeof value === 'object') {
+    if (value.kind === 'runtime') {
+      if (value.name === 'speed') return Math.abs(Number(ctx?.vehicle?.linearSpeed) || 0);
+      if (value.name === 'lapTime') return Number(event.lapTime ?? event.now) || 0;
+      if (value.name === 'checkpointNumber') return Number(event.checkpointNumber) || 0;
+      if (value.name === 'crashForce') return Number(event.impactVelocity) || 0;
+      if (value.name === 'random') return Math.random();
+    }
+    if (value.kind === 'math') {
+      const a = Number(resolveValue(value.a, ctx, event)) || 0;
+      const b = Number(resolveValue(value.b, ctx, event)) || 0;
+      if (value.op === 'ADD') return a + b;
+      if (value.op === 'MINUS') return a - b;
+      if (value.op === 'MULTIPLY') return a * b;
+      if (value.op === 'DIVIDE') return b === 0 ? 0 : a / b;
+    }
+  }
+  return value;
+}
 function runActions(actions, ctx, event = {}) {
   const api = ctx?.api || {};
   for (const action of actions || []) {
     if (!action || !action.type) continue;
+    const value = resolveValue(action.value, ctx, event);
     if (action.type === 'set_speed') {
-      const velocity = Number(action.value) || 0;
+      const velocity = Number(value) || 0;
       if (typeof api.setSpeed === 'function') api.setSpeed(velocity, event);
       else if (ctx?.vehicle && Number.isFinite(velocity)) ctx.vehicle.linearSpeed = velocity;
     }
-    if (action.type === 'boost' && Number.isFinite(Number(action.value))) {
-      if (typeof api.boost === 'function') api.boost(Number(action.value), event);
-      else if (ctx?.vehicle) ctx.vehicle.linearSpeed += Number(action.value) * 0.02;
+    if (action.type === 'boost' && Number.isFinite(Number(value))) {
+      if (typeof api.boost === 'function') api.boost(Number(value), event);
+      else if (ctx?.vehicle) ctx.vehicle.linearSpeed += Number(value) * 0.02;
     }
     if (action.type === 'set_gravity') {
-      const g = Number(action.value) || 9.81;
+      const g = Number(value) || 9.81;
       if (typeof api.setGravity === 'function') api.setGravity(g, event);
     }
-    if (action.type === 'show_message' && typeof action.value === 'string' && action.value) {
-      if (typeof api.showMessage === 'function') api.showMessage(action.value, event);
-      else console.log('[custom-mod]', action.value);
+    if (action.type === 'show_message') {
+      const message = String(value ?? '');
+      if (message) {
+        if (typeof api.showMessage === 'function') api.showMessage(message, event);
+        else console.log('[custom-mod]', message);
+      }
     }
     if (action.type === 'spawn_particle' && typeof api.spawnParticle === 'function') api.spawnParticle(event);
-    if (action.type === 'camera_shake' && typeof api.cameraShake === 'function') api.cameraShake(Number(action.value) || 1, event);
+    if (action.type === 'camera_shake' && typeof api.cameraShake === 'function') api.cameraShake(Number(value) || 1, event);
+    if (action.type === 'jump' && typeof api.jump === 'function') api.jump(Number(value) || 6, event);
+    if (action.type === 'reset_car' && typeof api.resetCar === 'function') api.resetCar(event);
+    if (action.type === 'set_time_scale' && typeof api.setTimeScale === 'function') api.setTimeScale(Number(value) || 1, event);
+    if (action.type === 'add_coins' && typeof api.addCoins === 'function') api.addCoins(Number(value) || 0, event);
   }
 }
 `;

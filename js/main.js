@@ -2489,6 +2489,7 @@ async function init() {
 		: null;
 
 	let customModGravityScale = 1;
+	let customModTimeScale = 1;
 	let customModShakeUntil = 0;
 	let customModShakeIntensity = 0;
 	let customModParticleBurstSeconds = 0;
@@ -2527,6 +2528,19 @@ async function init() {
 				customModGravityScale = Number.isFinite( g ) && g > 0 ? THREE.MathUtils.clamp( g / 9.81, 0.05, 5 ) : 1;
 			},
 			spawnParticle: () => { customModParticleBurstSeconds = Math.max( customModParticleBurstSeconds, 0.45 ); },
+			jump: ( power = 6 ) => {
+				if ( ! vehicle?.rigidBody ) return;
+				const current = vehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+				rigidBody.setLinearVelocity( world, vehicle.rigidBody, [ current[ 0 ], Math.max( current[ 1 ], 0 ) + ( Number( power ) || 6 ), current[ 2 ] ] );
+			},
+			resetCar: () => vehicle.resetToSpawn(),
+			setTimeScale: ( scale = 1 ) => { customModTimeScale = THREE.MathUtils.clamp( Number( scale ) || 1, 0.1, 4 ); },
+			addCoins: ( amount = 0 ) => {
+				if ( isSplitScreen ) return;
+				coins = Math.max( 0, Math.floor( coins + ( Number( amount ) || 0 ) ) );
+				saveEconomy();
+				updateEconomyHud();
+			},
 			cameraShake: ( intensity = 1 ) => {
 				customModShakeIntensity = Math.max( customModShakeIntensity, Math.max( 0, Number( intensity ) || 0 ) );
 				customModShakeUntil = Math.max( customModShakeUntil, raceClockSeconds + 0.45 );
@@ -7261,7 +7275,7 @@ function completeCampaignStage() {
 			const padTimeScale = ( padScale1 < 1 || padScale2 < 1 )
 				? Math.min( padScale1, padScale2 )
 				: Math.max( padScale1, padScale2 );
-			const dt = dtBase * hackTimeScale * padTimeScale;
+			const dt = dtBase * hackTimeScale * padTimeScale * customModTimeScale;
 			raceClockSeconds += dt;
 			const now = raceClockSeconds;
 
@@ -7713,6 +7727,7 @@ function completeCampaignStage() {
 					} ) );
 
 				}
+				dispatchRuntimeModEvent( 'onLapFinish', { type: 'lapFinish', lapTime: completedLap, bestLapSeconds, lapNumber, isNewBest, lapInvalid } );
 				if ( currentLapGhostSamples.length > 1 ) {
 
 					const t0 = currentLapGhostSamples[ 0 ].t;
