@@ -6030,7 +6030,6 @@ function completeCampaignStage() {
 		else updateCountdownHud( now );
 
 	}
-let countdownEnabled = false;
 	function updateCountdownToggle() {
 
 		if ( countdownToggle ) countdownToggle.checked = countdownEnabled;
@@ -6805,8 +6804,8 @@ let countdownEnabled = false;
 	updateFpsHudVisibility();
 	countdownToggle?.addEventListener( 'change', () => {
 
-		countdownEnabled = Boolean( countdownToggle.checked );
-		localStorage.setItem( COUNTDOWN_SETTINGS_KEY, countdownEnabled ? '1' : '0' );
+		countdownEnabled = false
+        localStorage.setItem(COUNTDOWN_SETTINGS_KEY, '0');
 		if ( ! countdownEnabled ) finishCountdown();
 
 	} );
