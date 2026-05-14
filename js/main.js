@@ -6030,7 +6030,7 @@ function completeCampaignStage() {
 		else updateCountdownHud( now );
 
 	}
-
+let countdownEnabled = false;
 	function updateCountdownToggle() {
 
 		if ( countdownToggle ) countdownToggle.checked = countdownEnabled;
