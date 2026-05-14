@@ -6132,7 +6132,6 @@ function completeCampaignStage() {
 		resetPhysicsObstacles();
 
 		resetLapState( true );
-		startCountdown();
 
 	}
 
@@ -6150,7 +6149,6 @@ function completeCampaignStage() {
 		cam2.camera.position.addVectors( cam2.targetPosition, cam2.offset );
 		resetPhysicsObstacles();
 		resetLapState2( true );
-		startCountdown();
 
 	}
 
@@ -7104,7 +7102,6 @@ function completeCampaignStage() {
 	randomizeLapCarIfSinglePlayer();
 	resetLapState( true );
 	resetLapState2( true );
-	startCountdown();
 
 	const hashParams = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
 	const importedGhost = hashParams.get( 'ghost' );
