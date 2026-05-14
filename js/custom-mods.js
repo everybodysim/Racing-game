@@ -53,6 +53,8 @@ function parseActionStatement(block) {
   if (block.type === 'action_boost') return { type: 'boost', value: Number(parseValueBlock(block.getInputTargetBlock('AMOUNT')) || 0) };
   if (block.type === 'action_set_gravity') return { type: 'set_gravity', value: Number(parseValueBlock(block.getInputTargetBlock('G')) || 0) };
   if (block.type === 'action_show_message') return { type: 'show_message', value: String(parseValueBlock(block.getInputTargetBlock('TEXT')) || '') };
+  if (block.type === 'action_spawn_particle') return { type: 'spawn_particle' };
+  if (block.type === 'action_camera_shake') return { type: 'camera_shake', value: Number(parseValueBlock(block.getInputTargetBlock('INT')) || 1) };
   return null;
 }
 
@@ -85,27 +87,29 @@ function buildRuntimeSpec() {
 
 function renderActionsRuntimeCode() {
   return `
-function runActions(actions, ctx) {
+function runActions(actions, ctx, event = {}) {
   const api = ctx?.api || {};
   for (const action of actions || []) {
     if (!action || !action.type) continue;
     if (action.type === 'set_speed') {
       const velocity = Number(action.value) || 0;
-      if (typeof api.setSpeed === 'function') api.setSpeed(velocity);
+      if (typeof api.setSpeed === 'function') api.setSpeed(velocity, event);
       else if (ctx?.vehicle && Number.isFinite(velocity)) ctx.vehicle.linearSpeed = velocity;
     }
-    if (action.type === 'boost' && Number.isFinite(action.value)) {
-      if (typeof api.boost === 'function') api.boost(Number(action.value));
+    if (action.type === 'boost' && Number.isFinite(Number(action.value))) {
+      if (typeof api.boost === 'function') api.boost(Number(action.value), event);
       else if (ctx?.vehicle) ctx.vehicle.linearSpeed += Number(action.value) * 0.02;
     }
     if (action.type === 'set_gravity') {
       const g = Number(action.value) || 9.81;
-      if (typeof api.setGravity === 'function') api.setGravity(g);
+      if (typeof api.setGravity === 'function') api.setGravity(g, event);
     }
     if (action.type === 'show_message' && typeof action.value === 'string' && action.value) {
-      if (typeof api.showMessage === 'function') api.showMessage(action.value);
+      if (typeof api.showMessage === 'function') api.showMessage(action.value, event);
       else console.log('[custom-mod]', action.value);
     }
+    if (action.type === 'spawn_particle' && typeof api.spawnParticle === 'function') api.spawnParticle(event);
+    if (action.type === 'camera_shake' && typeof api.cameraShake === 'function') api.cameraShake(Number(action.value) || 1, event);
   }
 }
 `;
@@ -115,7 +119,7 @@ function generateTemplate(xmlText) {
   const id = safeId(document.getElementById('mod-id')?.value) || `custom-${Date.now()}`;
   const name = (document.getElementById('mod-name')?.value || 'Custom Mod').trim();
   const spec = buildRuntimeSpec();
-  return `// ${name}\nconst SPEC = ${JSON.stringify(spec, null, 2)};\n${renderActionsRuntimeCode()}\nexport default {\n  id: ${JSON.stringify(id)},\n  init(context) {\n    this.ctx = context;\n    this.keyLatch = Object.create(null);\n    runActions(SPEC.onStart, context);\n  },\n  applyFrame({ controls, vehicle, world }) {\n    const ctx = this.ctx || { vehicle, world, controls };\n    runActions(SPEC.onTick, ctx);\n    for (const [key, actions] of Object.entries(SPEC.onKey || {})) {\n      const down = Boolean(controls?.keys?.[key]);\n      if (down && !this.keyLatch[key]) runActions(actions, ctx);\n      this.keyLatch[key] = down;\n    }\n  },\n  dispose() {\n    this.ctx = null;\n    this.keyLatch = Object.create(null);\n  }\n};\n`;
+  return `// ${name}\nconst SPEC = ${JSON.stringify(spec, null, 2)};\n${renderActionsRuntimeCode()}\nexport default {\n  id: ${JSON.stringify(id)},\n  init(context) {\n    this.ctx = context;\n    this.keyLatch = Object.create(null);\n    runActions(SPEC.onStart, context, { type: 'start' });\n  },\n  applyFrame({ controls, vehicle, world, dt, now }) {\n    const ctx = this.ctx || { vehicle, world, controls };\n    runActions(SPEC.onTick, ctx, { type: 'tick', dt, now });\n    for (const [key, actions] of Object.entries(SPEC.onKey || {})) {\n      const down = Boolean(controls?.keys?.[key]);\n      if (down && !this.keyLatch[key]) runActions(actions, ctx, { type: 'key', key });\n      this.keyLatch[key] = down;\n    }\n  },\n  onCheckpoint(event) {\n    runActions(SPEC.onCheckpoint, this.ctx, { type: 'checkpoint', ...(event || {}) });\n  },\n  onCrash(event) {\n    runActions(SPEC.onCrash, this.ctx, { type: 'crash', ...(event || {}) });\n  },\n  dispose() {\n    this.ctx = null;\n    this.keyLatch = Object.create(null);\n  }\n};\n`;
 }
 
 

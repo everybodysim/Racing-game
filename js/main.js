@@ -1261,7 +1261,7 @@ function readInstalledRuntimeMods() {
 function normalizeModEntryPath( entryPath ) {
 
 	if ( ! entryPath || typeof entryPath !== 'string' ) return null;
-	if ( entryPath.startsWith( 'data:text/javascript' ) ) return null;
+	if ( entryPath.startsWith( 'data:text/javascript' ) ) return entryPath;
 	if ( entryPath.startsWith( './' ) ) return `../${ entryPath.slice( 2 ) }`;
 	if ( entryPath.startsWith( '/' ) ) return entryPath;
 	return `../${ entryPath }`;
@@ -2488,6 +2488,10 @@ async function init() {
 		? new Controls( { leftKeys: [ 'ArrowLeft' ], rightKeys: [ 'ArrowRight' ], forwardKeys: [ 'ArrowUp' ], backKeys: [ 'ArrowDown' ], enableGamepad: false, enableTouch: false } )
 		: null;
 
+	let customModGravityScale = 1;
+	let customModShakeUntil = 0;
+	let customModShakeIntensity = 0;
+	let customModParticleBurstSeconds = 0;
 	const runtimeModContext = {
 		vehicle,
 		world,
@@ -2497,6 +2501,37 @@ async function init() {
 		camera: cam,
 		playbackController: new DeterministicPlaybackController(),
 		resetPlayerVehicle: () => vehicle.resetToSpawn(),
+		api: {
+			showMessage: ( message, event = {} ) => window.setTimeout( () => showTopMessage( String( message || '' ), false, event?.durationMs || 1600 ), 0 ),
+			setSpeed: ( speed ) => {
+				const value = Number( speed );
+				if ( ! Number.isFinite( value ) || ! vehicle?.rigidBody ) return;
+				const forward = new THREE.Vector3( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).setY( 0 );
+				if ( forward.lengthSq() < 1e-6 ) return;
+				forward.normalize();
+				const current = vehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+				rigidBody.setLinearVelocity( world, vehicle.rigidBody, [ forward.x * value, current[ 1 ], forward.z * value ] );
+			},
+			boost: ( amount = 1 ) => {
+				if ( ! vehicle?.rigidBody ) return;
+				const value = Number.isFinite( Number( amount ) ) ? Number( amount ) : 1;
+				const forward = new THREE.Vector3( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).setY( 0 );
+				if ( forward.lengthSq() < 1e-6 ) return;
+				forward.normalize();
+				const current = vehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+				rigidBody.setLinearVelocity( world, vehicle.rigidBody, [ current[ 0 ] + forward.x * value, current[ 1 ], current[ 2 ] + forward.z * value ] );
+				customModParticleBurstSeconds = Math.max( customModParticleBurstSeconds, Math.max( 0.25, Math.min( 2.5, Math.abs( value ) * 0.08 ) ) );
+			},
+			setGravity: ( gravity ) => {
+				const g = Number( gravity );
+				customModGravityScale = Number.isFinite( g ) && g > 0 ? THREE.MathUtils.clamp( g / 9.81, 0.05, 5 ) : 1;
+			},
+			spawnParticle: () => { customModParticleBurstSeconds = Math.max( customModParticleBurstSeconds, 0.45 ); },
+			cameraShake: ( intensity = 1 ) => {
+				customModShakeIntensity = Math.max( customModShakeIntensity, Math.max( 0, Number( intensity ) || 0 ) );
+				customModShakeUntil = Math.max( customModShakeUntil, raceClockSeconds + 0.45 );
+			},
+		},
 	};
 	for ( const runtime of runtimeMods ) {
 
@@ -2529,6 +2564,17 @@ async function init() {
 		}
 
 	} );
+
+	function dispatchRuntimeModEvent( hookName, payload = {} ) {
+		for ( const runtime of runtimeMods ) {
+			if ( typeof runtime?.[ hookName ] !== 'function' ) continue;
+			try {
+				runtime[ hookName ]( { ...payload, vehicle, world, controls, now: raceClockSeconds } );
+			} catch ( error ) {
+				console.warn( `Mod ${ hookName } failed: ${ runtime?.id || 'unknown' }`, error );
+			}
+		}
+	}
 
 	const particles = new SmokeTrails( scene, getGraphicsParticleOptions() );
 	const particles2 = isSplitScreen ? new SmokeTrails( scene, getGraphicsParticleOptions() ) : null;
@@ -4039,6 +4085,7 @@ function completeCampaignStage() {
 
 			const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
 			audio.playImpact( impactVelocity );
+			dispatchRuntimeModEvent( 'onCrash', { type: 'crash', impactVelocity } );
 
 		}
 	};
@@ -7268,7 +7315,7 @@ function completeCampaignStage() {
 			updateRemotePlayerVisualsFrame( dt );
 			const gravityScale1 = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
 			const gravityScale2 = Number.isFinite( activePadEffect2?.gravity ) ? activePadEffect2.gravity : 1.0;
-			if ( vehicle?.rigidBody?.motionProperties ) vehicle.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale1 * ( hacksActive ? hacksState.gravity : 1.0 );
+			if ( vehicle?.rigidBody?.motionProperties ) vehicle.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale1 * customModGravityScale * ( hacksActive ? hacksState.gravity : 1.0 );
 			if ( vehicle2?.rigidBody?.motionProperties ) vehicle2.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale2 * ( hacksActive ? hacksState.gravity : 1.0 );
 			if ( hacksActive ) {
 
@@ -7475,12 +7522,22 @@ function completeCampaignStage() {
 			}
 
 		}
+		if ( customModParticleBurstSeconds > 0 ) {
+			particles?.triggerBoostFx?.( customModParticleBurstSeconds );
+			customModParticleBurstSeconds = 0;
+		}
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
 		bloomPass.strength = getGraphicsPreset().bloomStrength;
 		bloomPass.radius = getGraphicsPreset().bloomRadius;
 		updateWeatherFx( dt, now );
+		if ( customModShakeUntil > now && customModShakeIntensity > 0 ) {
+			const shake = Math.min( 0.28, customModShakeIntensity * 0.025 );
+			cam.camera.position.x += ( Math.random() - 0.5 ) * shake;
+			cam.camera.position.y += ( Math.random() - 0.5 ) * shake;
+		}
+		if ( customModShakeUntil <= now ) customModShakeIntensity = 0;
 
 		for ( let checkpointIndex = 0; checkpointIndex < checkpointStates.length; checkpointIndex ++ ) {
 
@@ -7513,6 +7570,7 @@ function completeCampaignStage() {
 				activePadTimeScale = 1;
 				padContactKey = null;
 				if ( checkpointRespawnInstalled ) saveCheckpointState( checkpoint );
+				dispatchRuntimeModEvent( 'onCheckpoint', { type: 'checkpoint', checkpointIndex, checkpointNumber: checkpointIndex + 1, lapTime: now - lapStartSeconds } );
 				const ghostTime = getFastestVisibleGhostCheckpointTime( checkpointIndex );
 				if ( Number.isFinite( ghostTime ) ) {
 
