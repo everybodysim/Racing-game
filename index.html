@@ -1060,7 +1060,7 @@
 				<a class="home-main-link" href="editor.html">Create your own track<em>Build and test original circuits</em></a>
 				<a class="home-main-link" href="weekly-cup.html"><span class="home-record-chip" data-record-badge="weekly"><span class="record-label">Weekly leader</span><span class="record-name">Loading…</span></span>Weekly cup<em>Competitive rotating event</em></a>
 				<a class="home-main-link club-notify-target" href="clubs.html">Clubs<em>Create and manage your racing communities</em></a>
-				<a class="home-main-link out-of-order" href="competitions.html" data-out-of-order="1">Competitions<em>9 live stake-based tier events</em></a>
+				<a class="home-main-link" href="competitions.html">Competitions<em>9 live stake-based tier events</em></a>
 				<a class="home-main-link" href="totd.html"><span class="home-record-chip" data-record-badge="totd"><span class="record-label">Today’s record</span><span class="record-name">Loading…</span></span>Track of the day<em>One featured challenge each day</em></a>
 			</div>
 			<div id="home-secondary">
@@ -1077,7 +1077,7 @@
 	<a id="totd-link" href="totd.html">Track of the day</a>
 	<a id="weekly-cup-link" href="weekly-cup.html">Weekly cup</a>
 	<a id="coin-leaderboard-link" href="coins.html">Coin leaderboard</a> 
-	<a id="competitions-link" href="competitions.html" data-out-of-order="1">Competitions</a>
+	<a id="competitions-link" href="competitions.html">Competitions</a>
 	<a id="replay-link" href="replay.html">Replay watcher</a>
 	<a id="tracks-link" href="tracks.html">Track share board</a> 
 	<a id="clubs-link" class="club-notify-target" href="clubs.html">Clubs</a>
@@ -1331,8 +1331,8 @@
 
 	<script>
 		const competitionsEntryLinks = [
-			document.getElementById( 'competitions-link' ),
-			document.querySelector( 'a.home-main-link[href="competitions.html"][data-out-of-order="1"]' )
+			document.querySelector( 'a.home-main-link[href="competitions.html"][data-out-of-order="1"]' ),
+			document.querySelector( '#competitions-link[data-out-of-order="1"]' )
 		].filter( Boolean );
 		const competitionsWarningOverlay = document.getElementById( 'competitions-warning-overlay' );
 		const competitionsWarningMessage = document.getElementById( 'competitions-warning-message' );
