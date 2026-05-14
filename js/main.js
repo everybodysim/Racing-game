@@ -2535,12 +2535,14 @@ async function init() {
 			},
 			resetCar: () => vehicle.resetToSpawn(),
 			setTimeScale: ( scale = 1 ) => { customModTimeScale = THREE.MathUtils.clamp( Number( scale ) || 1, 0.1, 4 ); },
-			addCoins: ( amount = 0 ) => {
-				if ( isSplitScreen ) return;
-				coins = Math.max( 0, Math.floor( coins + ( Number( amount ) || 0 ) ) );
-				saveEconomy();
-				updateEconomyHud();
+			setBoostMeter: ( amount = 0 ) => { boostMeter = THREE.MathUtils.clamp( Number( amount ) || 0, 0, BOOST_METER_MAX ); },
+			respawnRace: () => vehicle.resetToSpawn(),
+			setCheckpointNumber: ( checkpointNumber = 1 ) => {
+				const next = Math.max( 1, Math.floor( Number( checkpointNumber ) || 1 ) );
+				checkpointIndex = Math.min( checkpoints.length ? checkpoints.length - 1 : 0, next - 1 );
+				updateLapHud();
 			},
+			effectMessage: ( message, event = {} ) => window.setTimeout( () => showEffectMessage( String( message || '' ), event?.durationMs || 1200 ), 0 ),
 			cameraShake: ( intensity = 1 ) => {
 				customModShakeIntensity = Math.max( customModShakeIntensity, Math.max( 0, Number( intensity ) || 0 ) );
 				customModShakeUntil = Math.max( customModShakeUntil, raceClockSeconds + 0.45 );
@@ -4110,6 +4112,7 @@ function completeCampaignStage() {
 	let currentLapInvalidatedByPause = false;
 	let countdownActive = false;
 	let countdownEndsAt = 0;
+	let countdownWaitingPause = false;
 	let countdownEnabled = localStorage.getItem( COUNTDOWN_SETTINGS_KEY ) !== '0';
 	let fpsHudVisible = localStorage.getItem( FPS_HUD_SETTINGS_KEY ) === '1';
 	let rollingFps = 0;
@@ -5981,6 +5984,7 @@ function completeCampaignStage() {
 		if ( ! countdownActive ) return;
 		countdownActive = false;
 		countdownEndsAt = 0;
+		countdownWaitingPause = false;
 		lapStartSeconds = now;
 		lapSeconds = 0;
 		if ( vehicle2 ) {
@@ -6010,6 +6014,7 @@ function completeCampaignStage() {
 		}
 		countdownActive = true;
 		countdownEndsAt = now + COUNTDOWN_DURATION_SECONDS;
+		countdownWaitingPause = true;
 		lapSeconds = 0;
 		if ( vehicle2 ) lapSeconds2 = 0;
 		updateCountdownHud( now );
@@ -7276,7 +7281,9 @@ function completeCampaignStage() {
 				? Math.min( padScale1, padScale2 )
 				: Math.max( padScale1, padScale2 );
 			const dt = dtBase * hackTimeScale * padTimeScale * customModTimeScale;
-			raceClockSeconds += dt;
+			const simulationDt = dt;
+			const raceDt = countdownWaitingPause ? 0 : dt;
+			raceClockSeconds += raceDt;
 			const now = raceClockSeconds;
 
 			updateCountdownState( now );
@@ -7314,16 +7321,16 @@ function completeCampaignStage() {
 
 			} else boostPressedLatch = false;
 
-		updateWorld( world, contactListener, dt );
+		updateWorld( world, contactListener, simulationDt );
 
-			vehicle.update( dt, padAdjustedInput );
-			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
+			vehicle.update( simulationDt, padAdjustedInput );
+			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( simulationDt, padAdjustedInput2 );
 			applySlopeConformVisual( vehicle );
 			if ( vehicle2 ) applySlopeConformVisual( vehicle2 );
 			if ( carHitboxMesh.visible ) carHitboxMesh.position.set( vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z );
-			applyMagnetForceFor( vehicle, dt );
-			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
-			applyGrappleSwingFor( vehicle, controls?.keys, dt );
+			applyMagnetForceFor( vehicle, simulationDt );
+			if ( vehicle2 ) applyMagnetForceFor( vehicle2, simulationDt );
+			applyGrappleSwingFor( vehicle, controls?.keys, simulationDt );
 			arcLinkState = applyArcLinkFor( vehicle, arcLinkState );
 			if ( vehicle2 ) arcLinkState2 = applyArcLinkFor( vehicle2, arcLinkState2 );
 			updateRemotePlayerVisualsFrame( dt );

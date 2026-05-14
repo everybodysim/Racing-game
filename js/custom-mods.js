@@ -26,7 +26,10 @@ Blockly.Blocks.action_camera_shake = { init() { this.appendValueInput('INT').set
 Blockly.Blocks.action_jump = { init() { this.appendValueInput('POWER').setCheck('Number').appendField('jump with power'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
 Blockly.Blocks.action_reset_car = { init() { this.appendDummyInput().appendField('reset car to spawn'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
 Blockly.Blocks.action_set_time_scale = { init() { this.appendValueInput('SCALE').setCheck('Number').appendField('set game speed scale'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
-Blockly.Blocks.action_add_coins = { init() { this.appendValueInput('COINS').setCheck('Number').appendField('add coins'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
+Blockly.Blocks.action_set_boost_meter = { init() { this.appendValueInput('AMOUNT').setCheck('Number').appendField('set boost meter'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
+Blockly.Blocks.action_respawn_race = { init() { this.appendDummyInput().appendField('respawn to start'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
+Blockly.Blocks.action_set_checkpoint = { init() { this.appendValueInput('CHECKPOINT').setCheck('Number').appendField('set checkpoint number'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
+Blockly.Blocks.action_flash_effect_message = { init() { this.appendValueInput('TEXT').appendField('effect message'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
 
 Blockly.Blocks.value_speed = { init() { this.appendDummyInput().appendField('current speed'); this.setOutput(true, 'Number'); this.setColour('#22c55e'); } };
 Blockly.Blocks.value_lap_time = { init() { this.appendDummyInput().appendField('current lap time'); this.setOutput(true, 'Number'); this.setColour('#22c55e'); } };
@@ -71,7 +74,10 @@ function parseActionStatement(block) {
   if (block.type === 'action_jump') return { type: 'jump', value: parseValueBlock(block.getInputTargetBlock('POWER')) ?? 6 };
   if (block.type === 'action_reset_car') return { type: 'reset_car' };
   if (block.type === 'action_set_time_scale') return { type: 'set_time_scale', value: parseValueBlock(block.getInputTargetBlock('SCALE')) ?? 1 };
-  if (block.type === 'action_add_coins') return { type: 'add_coins', value: parseValueBlock(block.getInputTargetBlock('COINS')) ?? 0 };
+  if (block.type === 'action_set_boost_meter') return { type: 'set_boost_meter', value: parseValueBlock(block.getInputTargetBlock('AMOUNT')) ?? 0 };
+  if (block.type === 'action_respawn_race') return { type: 'respawn_race' };
+  if (block.type === 'action_set_checkpoint') return { type: 'set_checkpoint', value: parseValueBlock(block.getInputTargetBlock('CHECKPOINT')) ?? 1 };
+  if (block.type === 'action_flash_effect_message') return { type: 'flash_effect_message', value: parseValueBlock(block.getInputTargetBlock('TEXT')) ?? '' };
   return null;
 }
 
@@ -155,7 +161,10 @@ function runActions(actions, ctx, event = {}) {
     if (action.type === 'jump' && typeof api.jump === 'function') api.jump(Number(value) || 6, event);
     if (action.type === 'reset_car' && typeof api.resetCar === 'function') api.resetCar(event);
     if (action.type === 'set_time_scale' && typeof api.setTimeScale === 'function') api.setTimeScale(Number(value) || 1, event);
-    if (action.type === 'add_coins' && typeof api.addCoins === 'function') api.addCoins(Number(value) || 0, event);
+    if (action.type === 'set_boost_meter' && typeof api.setBoostMeter === 'function') api.setBoostMeter(Number(value) || 0, event);
+    if (action.type === 'respawn_race' && typeof api.respawnRace === 'function') api.respawnRace(event);
+    if (action.type === 'set_checkpoint' && typeof api.setCheckpointNumber === 'function') api.setCheckpointNumber(Number(value) || 1, event);
+    if (action.type === 'flash_effect_message' && typeof api.effectMessage === 'function') api.effectMessage(String(value ?? ''), event);
   }
 }
 `;
