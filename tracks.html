@@ -161,8 +161,6 @@
 			let topByTrackId = new Map();
 			let rowsByTrackId = new Map();
 			let leaderboardHydrating = false;
-			let loadedLeaderboardTrackCount = 0;
-			let expectedLeaderboardTrackCount = 0;
 			let selectedThumbnailDataUrl = '';
 			const TRACK_VOTE_SESSION_KEY = 'trackVotes:v1';
 			const votedTrackActions = loadVoteSession();
@@ -352,8 +350,6 @@
 				return [ primaryId, { primaryId, candidateIds: [ primaryId, ...getLegacyTrackIdsFromPlayUrl( entry.playUrl ) ] } ];
 			} ) ).values() ].filter( Boolean );
 			leaderboardHydrating = true;
-			loadedLeaderboardTrackCount = 0;
-			expectedLeaderboardTrackCount = trackRequests.length;
 			setLeaderboardProgress( 0, trackRequests.length );
 			topByTrackId = new Map();
 			rowsByTrackId = new Map();
@@ -377,11 +373,8 @@
 						.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
 					rowsMap.set( primaryId, dedupedRows );
 					next.set( primaryId, bestRowForTrack( dedupedRows ) );
-					topByTrackId = new Map( next );
-					rowsByTrackId = new Map( rowsMap );
-					loadedLeaderboardTrackCount = Math.min( trackRequests.length, loadedLeaderboardTrackCount + 1 );
-					setLeaderboardProgress( loadedLeaderboardTrackCount, trackRequests.length );
-					render();
+					setLeaderboardProgress( next.size, trackRequests.length );
+					renderRecordBoard();
 				} );
 				await Promise.all( tasks );
 				topByTrackId = new Map( next );
@@ -390,9 +383,7 @@
 			topByTrackId = next;
 			rowsByTrackId = rowsMap;
 			leaderboardHydrating = false;
-			loadedLeaderboardTrackCount = trackRequests.length;
 			setLeaderboardProgress( trackRequests.length, trackRequests.length );
-			renderRecordBoard();
 		}
 
 		function inferTrackName( url, fallback = 'Shared Track' ) {
@@ -484,10 +475,6 @@
 			}
 		}
 
-		function leaderboardSummaryReady() {
-			return ! leaderboardHydrating && expectedLeaderboardTrackCount === loadedLeaderboardTrackCount;
-		}
-
 		function getRecordLeaders() {
 			const winsByDriver = new Map();
 			const uniqueTrackIds = [ ...new Set( entries.map( ( entry ) => getTrackIdFromPlayUrl( entry.playUrl ) ).filter( Boolean ) ) ];
@@ -542,9 +529,9 @@
 
 		function renderRecordBoard() {
 			if ( ! recordsBoardList ) return;
-			if ( ! leaderboardSummaryReady() ) {
-				recordsBoardList.innerHTML = '<div class="records-empty">Loading all track records before ranking record holders…</div>';
-				if ( placementRatingList ) placementRatingList.innerHTML = '<div class="records-empty">Placement ratings appear after every shared track has loaded.</div>';
+			if ( leaderboardHydrating ) {
+				recordsBoardList.innerHTML = '<div class="records-empty">Loading record holders…</div>';
+				if ( placementRatingList ) placementRatingList.innerHTML = '<div class="records-empty">Loading placement ratings…</div>';
 				return;
 			}
 			const leaders = getRecordLeaders();

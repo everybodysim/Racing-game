@@ -63,6 +63,38 @@
 		#import-ghost-btn { left: 300px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
 		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#clubs-link.has-club-unread {
+			animation: club-link-unread-pulse 1.2s ease-in-out infinite;
+			border-color: rgba(255,96,96,0.82);
+		}
+		.home-main-link.club-notify-target.has-club-unread {
+			animation: club-home-unread-pulse 1.2s ease-in-out infinite;
+			border-color: rgba(255,96,96,0.82);
+		}
+		#clubs-link.has-club-unread::after, .home-main-link.club-notify-target.has-club-unread::after {
+			content: attr(data-club-unread);
+			position: absolute;
+			top: -8px;
+			right: -8px;
+			min-width: 16px;
+			height: 16px;
+			padding: 2px 5px;
+			border-radius: 999px;
+			background: #ff3333;
+			color: #fff;
+			font: 800 11px/16px system-ui, sans-serif;
+			text-align: center;
+			border: 1px solid rgba(255,255,255,0.72);
+			box-shadow: 0 0 15px rgba(255,55,55,0.9);
+		}
+		@keyframes club-link-unread-pulse {
+			0%, 100% { background: rgba(0,0,0,0.5); box-shadow: none; }
+			50% { background: rgba(155,20,28,0.82); box-shadow: 0 0 18px rgba(255,58,58,0.58); }
+		}
+		@keyframes club-home-unread-pulse {
+			0%, 100% { background: linear-gradient(165deg, rgba(90,159,255,0.3), rgba(47,104,181,0.32)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.22); }
+			50% { background: linear-gradient(165deg, rgba(190,35,46,0.86), rgba(132,24,32,0.82)); box-shadow: 0 0 18px rgba(255,58,58,0.58); }
+		}
 		#mp-panel {
 			position: absolute;
 			left: 16px;
@@ -1027,7 +1059,7 @@
 				<a class="home-main-link" href="tracks.html">Track shares<em>Discover and copy community maps</em></a>
 				<a class="home-main-link" href="editor.html">Create your own track<em>Build and test original circuits</em></a>
 				<a class="home-main-link" href="weekly-cup.html"><span class="home-record-chip" data-record-badge="weekly"><span class="record-label">Weekly leader</span><span class="record-name">Loading…</span></span>Weekly cup<em>Competitive rotating event</em></a>
-				<a class="home-main-link" href="clubs.html">Clubs<em>Create and manage your racing communities</em></a>
+				<a class="home-main-link club-notify-target" href="clubs.html">Clubs<em>Create and manage your racing communities</em></a>
 				<a class="home-main-link out-of-order" href="competitions.html" data-out-of-order="1">Competitions<em>9 live stake-based tier events</em></a>
 				<a class="home-main-link" href="totd.html"><span class="home-record-chip" data-record-badge="totd"><span class="record-label">Today’s record</span><span class="record-name">Loading…</span></span>Track of the day<em>One featured challenge each day</em></a>
 			</div>
@@ -1048,7 +1080,7 @@
 	<a id="competitions-link" href="competitions.html" data-out-of-order="1">Competitions</a>
 	<a id="replay-link" href="replay.html">Replay watcher</a>
 	<a id="tracks-link" href="tracks.html">Track share board</a> 
-	<a id="clubs-link" href="clubs.html">Clubs</a>
+	<a id="clubs-link" class="club-notify-target" href="clubs.html">Clubs</a>
 	<a id="mods-link" href="mods.html">Mods</a>
 	<a id="hacks-toggle" href="#" style="display:none;">Hacks</a>
 	<a id="split-link" href="#">2P split screen</a>
@@ -1743,8 +1775,125 @@
   }
 
   function isClubTaggedMessage(text) {
-    return /^\[[^\]]+\](\[owner\])?\s/.test(String(text || ''));
+    return /^\[[^\]]+\](?:\[(?:owner|announce)\])?\s/.test(String(text || ''));
   }
+
+
+  const CLUBS_API_BASE = "https://racing-clubs-api.ga1010.workers.dev";
+  const CLUB_UNREAD_KEY_PREFIX = "racing-club-unread-v1";
+  const clubNotifyTargets = [ ...document.querySelectorAll('.club-notify-target[href="clubs.html"], #clubs-link') ];
+  let myClubIds = new Set();
+  let clubUnreadCount = loadClubUnreadState().count;
+
+  function clubUnreadKey() {
+    return `${CLUB_UNREAD_KEY_PREFIX}:${(getAccountUsername() || 'guest').toLowerCase()}`;
+  }
+
+  function loadClubUnreadState() {
+    try {
+      const raw = localStorage.getItem(clubUnreadKey());
+      if (!raw) return { count: 0, lastSeenAt: Date.now(), seenKeys: [] };
+      const parsed = JSON.parse(raw);
+      return {
+        count: Math.max(0, Number(parsed.count) || 0),
+        lastSeenAt: Math.max(0, Number(parsed.lastSeenAt) || 0),
+        seenKeys: Array.isArray(parsed.seenKeys) ? parsed.seenKeys.slice(-250) : []
+      };
+    } catch {
+      return { count: 0, lastSeenAt: 0, seenKeys: [] };
+    }
+  }
+
+  function saveClubUnreadState(state) {
+    try {
+      localStorage.setItem(clubUnreadKey(), JSON.stringify({
+        count: Math.max(0, Number(state.count) || 0),
+        lastSeenAt: Math.max(0, Number(state.lastSeenAt) || 0),
+        seenKeys: Array.isArray(state.seenKeys) ? state.seenKeys.slice(-250) : []
+      }));
+    } catch {}
+  }
+
+  function updateClubUnreadButtons() {
+    const visible = clubUnreadCount > 0;
+    const label = clubUnreadCount > 99 ? '99+' : String(clubUnreadCount);
+    clubNotifyTargets.forEach((target) => {
+      target.classList.toggle('has-club-unread', visible);
+      if (visible) {
+        target.setAttribute('data-club-unread', label);
+        target.setAttribute('aria-label', `Clubs, ${label} unread message${clubUnreadCount === 1 ? '' : 's'}`);
+      } else {
+        target.removeAttribute('data-club-unread');
+        target.removeAttribute('aria-label');
+      }
+    });
+  }
+
+  function clearClubUnread() {
+    clubUnreadCount = 0;
+    saveClubUnreadState({ count: 0, lastSeenAt: Date.now(), seenKeys: loadClubUnreadState().seenKeys });
+    updateClubUnreadButtons();
+  }
+
+  function parseClubTaggedMessage(text) {
+    const match = String(text || '').match(/^\[([^\]]+)\](?:\[(?:owner|announce)\])?\s+([^:]+):\s([\s\S]*)$/);
+    return match ? { clubId: match[1], username: match[2], content: match[3] } : null;
+  }
+
+  function isRelevantClubMessage(text) {
+    const parsed = parseClubTaggedMessage(text);
+    if (!parsed || !myClubIds.has(parsed.clubId)) return false;
+    return parsed.username.trim().toLowerCase() !== getAccountUsername().toLowerCase();
+  }
+
+  function clubMessageKey(message) {
+    const text = String(message?.data || '');
+    return `${Number(message?.timestamp) || 0}|${text}`;
+  }
+
+  function incrementClubUnread(message) {
+    if (!isRelevantClubMessage(message?.data)) return;
+    const state = loadClubUnreadState();
+    const key = clubMessageKey(message);
+    if (state.seenKeys.includes(key)) return;
+    state.seenKeys.push(key);
+    state.count = (Number(state.count) || 0) + 1;
+    state.lastSeenAt = Math.max(Number(state.lastSeenAt) || 0, Number(message?.timestamp) || Date.now());
+    clubUnreadCount = state.count;
+    saveClubUnreadState(state);
+    updateClubUnreadButtons();
+  }
+
+  async function loadMyClubIds() {
+    const name = getAccountUsername();
+    if (!name) return;
+    try {
+      const res = await fetch(`${CLUBS_API_BASE}/clubs`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const lowerName = name.toLowerCase();
+      myClubIds = new Set((data.clubs || [])
+        .filter((club) => (club.members || []).some((member) => String(member).trim().toLowerCase() === lowerName))
+        .map((club) => String(club.clubId || ''))
+        .filter(Boolean));
+    } catch (err) {
+      console.warn('Club notification club lookup failed', err);
+    }
+  }
+
+  function hydrateMissedClubMessages() {
+    const state = loadClubUnreadState();
+    channel.history({ limit: 100 }, (err, result) => {
+      if (err) return;
+      (result.items || []).reverse().forEach((message) => {
+        if ((Number(message?.timestamp) || 0) > state.lastSeenAt) incrementClubUnread(message);
+      });
+    });
+  }
+
+  clubNotifyTargets.forEach((target) => target.addEventListener('click', clearClubUnread));
+  updateClubUnreadButtons();
+  loadMyClubIds().then(hydrateMissedClubMessages);
 
   function addMessage(text) {
     if (isClubTaggedMessage(text)) return;
@@ -1802,7 +1951,10 @@
 
   // Live messages
   channel.subscribe(msg => {
-    if (isClubTaggedMessage(msg.data)) return;
+    if (isClubTaggedMessage(msg.data)) {
+      incrementClubUnread(msg);
+      return;
+    }
     addMessage(msg.data);
     if (chatWindow.style.display !== "flex" || document.hidden) {
       setUnreadIndicator(true);

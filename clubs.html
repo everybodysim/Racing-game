@@ -94,6 +94,16 @@ const ably = new Ably.Realtime('kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefh
 const channel = ably.channels.get('global-chat');
 function getAccountUsername(){ try{ const raw=localStorage.getItem('racing-account-session-v1'); const parsed=raw?JSON.parse(raw):null; return String(parsed?.username||'').trim(); } catch { return ''; } }
 let me=getAccountUsername();
+function clearClubUnreadForAccount(){
+  const key=`racing-club-unread-v1:${(me||'guest').toLowerCase()}`;
+  try{
+    const parsed=JSON.parse(localStorage.getItem(key)||'{}');
+    localStorage.setItem(key,JSON.stringify({count:0,lastSeenAt:Date.now(),seenKeys:Array.isArray(parsed.seenKeys)?parsed.seenKeys.slice(-250):[]}));
+  }catch{
+    localStorage.setItem(key,JSON.stringify({count:0,lastSeenAt:Date.now(),seenKeys:[]}));
+  }
+}
+clearClubUnreadForAccount();
 let currentClub=null;
 const $=id=>document.getElementById(id);
 $('playerName').value=me||'Not signed in';
