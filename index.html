@@ -11,6 +11,18 @@
 	<style>
 		body { margin: 0; overflow: hidden; background: #000; }
 		canvas { display: block; touch-action: none; }
+
+		#speed-blur-vignette {
+			position: fixed;
+			inset: 0;
+			z-index: 2;
+			pointer-events: none;
+			opacity: 0;
+			backdrop-filter: blur(0px);
+			-webkit-backdrop-filter: blur(0px);
+			background: radial-gradient(circle at var(--car-x, 50%) var(--car-y, 60%), rgba(0,0,0,0) 0%, rgba(0,0,0,0) 16%, rgba(6,12,24,0.02) 42%, rgba(6,12,24,0.08) 100%);
+			transition: opacity 120ms linear, backdrop-filter 120ms linear;
+		}
 		#loading-screen {
 			position: fixed;
 			inset: 0;
@@ -1032,6 +1044,7 @@
 	</script>
 </head>
 <body>
+	<div id="speed-blur-vignette" aria-hidden="true"></div>
 	<div id="loading-screen" aria-live="polite">
 		<div id="loading-card">
 			<h1 id="loading-title">Racing</h1>

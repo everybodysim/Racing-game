@@ -72,6 +72,7 @@ bloomPass.threshold = 0.5;
 renderer.setEffects( [ bloomPass ] );
 
 document.body.appendChild( renderer.domElement );
+const speedBlurVignette = document.getElementById( 'speed-blur-vignette' );
 
 initMultiplayerPanel();
 
@@ -111,10 +112,10 @@ const skyDome = new THREE.Mesh(
 			float h = clamp( dir.y * 0.5 + 0.5, 0.0, 1.0 );
 			float horizonBand = exp( -pow( abs( h - 0.48 ) * 8.0, 2.0 ) );
 			float cloudWave = sin( dir.x * 14.0 + time * 0.08 ) * sin( dir.z * 11.0 - time * 0.05 );
-			float cloudMask = smoothstep( 0.25, 0.95, cloudWave * 0.5 + 0.5 ) * 0.08;
+			float cloudMask = smoothstep( 0.22, 0.9, cloudWave * 0.5 + 0.5 ) * 0.14;
 			vec3 c = mix( groundColor, midColor, smoothstep( 0.03, 0.48, h ) );
 			c = mix( c, topColor, smoothstep( 0.45, 0.95, h ) );
-			c = mix( c, horizonColor, horizonBand * 0.75 );
+			c = mix( c, horizonColor, horizonBand * 0.88 );
 			c += vec3( cloudMask ) * ( 0.35 + vibrance );
 			c = mix( c, c * 1.15, vibrance * 0.5 );
 			gl_FragColor = vec4( c, 1.0 );
@@ -1592,7 +1593,7 @@ async function init() {
 
 	applySkyPalette( weatherSettings.preset );
 	scene.background = new THREE.Color( weatherConfig.bg );
-	scene.fog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul, groundSize * weatherConfig.fogFarMul );
+	scene.fog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul * 0.94, groundSize * weatherConfig.fogFarMul * 1.04 );
 	dirLight.intensity = weatherConfig.sun;
 	hemiLight.intensity = weatherConfig.hemi;
 	renderer.toneMappingExposure = weatherConfig.exposure;
@@ -7354,7 +7355,7 @@ function completeCampaignStage() {
 			timer.update();
 			const frameSeconds = timer.getDelta();
 			updateFpsHud( frameSeconds );
-			const dtBase = Math.min( frameSeconds, 1 / 30 );
+			const dtBase = Math.min( frameSeconds, 1 / 15 );
 			if ( paused ) {
 
 				renderFrame();
@@ -7648,12 +7649,23 @@ function completeCampaignStage() {
 			scene.fog.far = THREE.MathUtils.lerp( scene.fog.far, farBase * ( 1 + speedRatioFx * 0.06 ), Math.min( 1, dt * 3 ) );
 		}
 		const motionBlurPx = getGraphicsPreset().label === 'High'
-			? Math.max( 0, ( speedRatioFx - 0.72 ) * 2.2 )
-			: Math.max( 0, ( speedRatioFx - 0.9 ) * 1.35 );
-		const vibrance = 1.07 + ( driftFx * 0.03 ) + ( speedRatioFx * 0.015 );
-		renderer.domElement.style.filter = `saturate(${ vibrance.toFixed( 3 ) }) contrast(1.06) blur(${ motionBlurPx.toFixed( 3 ) }px)`;
+			? Math.max( 0, ( speedRatioFx - 0.8 ) * 1.05 )
+			: Math.max( 0, ( speedRatioFx - 0.96 ) * 0.7 );
+		const vibrance = 1.08 + ( driftFx * 0.04 ) + ( speedRatioFx * 0.025 );
+		renderer.domElement.style.filter = `saturate(${ vibrance.toFixed( 3 ) }) contrast(1.07)`;
+		if ( speedBlurVignette ) {
+			const projected = vehicle.spherePos.clone().project( cam.camera );
+			const px = ( projected.x * 0.5 + 0.5 ) * 100;
+			const py = ( - projected.y * 0.5 + 0.5 ) * 100;
+			speedBlurVignette.style.setProperty( '--car-x', `${ THREE.MathUtils.clamp( px, 8, 92 ).toFixed( 2 ) }%` );
+			speedBlurVignette.style.setProperty( '--car-y', `${ THREE.MathUtils.clamp( py, 12, 88 ).toFixed( 2 ) }%` );
+			speedBlurVignette.style.opacity = motionBlurPx > 0.02 ? '1' : '0';
+			const blurVignette = Math.min( 0.65, motionBlurPx );
+			speedBlurVignette.style.backdropFilter = `blur(${ blurVignette.toFixed( 3 ) }px)`;
+			speedBlurVignette.style.webkitBackdropFilter = `blur(${ blurVignette.toFixed( 3 ) }px)`;
+		}
 		skyUniforms.time.value = now;
-		skyUniforms.vibrance.value = THREE.MathUtils.lerp( skyUniforms.vibrance.value, 0.14 + ( speedRatioFx * 0.16 ) + ( driftFx * 0.08 ), Math.min( 1, dt * 2.4 ) );
+		skyUniforms.vibrance.value = THREE.MathUtils.lerp( skyUniforms.vibrance.value, 0.2 + ( speedRatioFx * 0.18 ) + ( driftFx * 0.1 ), Math.min( 1, dt * 2.4 ) );
 		updateWeatherFx( dt, now );
 		crashShakeTime = Math.max( 0, crashShakeTime - dt );
 		if ( crashShakeTime > 0 && crashShakeStrength > 0 ) {
