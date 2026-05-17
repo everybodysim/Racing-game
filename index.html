@@ -1099,6 +1099,7 @@
 				<a class="home-secondary-link" href="replay.html">Replay watcher</a>
 				<a class="home-secondary-link" href="mods.html">Mods</a>
 				<a class="home-secondary-link" href="index.html?play=1&multiplayer=1">2P split screen</a>
+				<button class="home-secondary-link" id="main-menu-reset-btn" type="button">Main menu reset</button>
 			<!--	<a class="home-secondary-link" href="campaign.html">Campaign guide</a> -->
 			</div>
 		</div>
@@ -1510,6 +1511,19 @@
 			getShellFrame( route.href );
 		}
 
+
+
+		const mainMenuResetBtn = document.getElementById( 'main-menu-reset-btn' );
+		mainMenuResetBtn?.addEventListener( 'click', () => {
+			const params = new URLSearchParams( window.location.search );
+			params.set( 'play', '0' );
+			params.delete( 'map' );
+			params.delete( 'pack' );
+			params.delete( 'localPack' );
+			params.delete( 'sharedPack' );
+			params.delete( 'mods' );
+			window.location.search = params.toString();
+		} );
 
 		const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
 		const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
