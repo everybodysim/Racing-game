@@ -2921,15 +2921,29 @@ async function init() {
 	function renderAdvGraph(){
 		if(!advCanvas) return;
 		const catY = { beginner:120, competition:340, community:560, modding:780, secret:1000 };
+		const positions = {};
 		advCanvas.innerHTML='';
-		ADVANCEMENTS.forEach((a,i)=>{ const node=document.createElement('div'); const unlocked=Boolean(advancementState[a.id]?.unlocked); node.style.cssText=`position:absolute;left:${120 + (i%5)*390}px;top:${catY[a.category] || 120}px;width:260px;padding:10px;border-radius:10px;background:${unlocked?'rgba(40,120,80,.85)':'rgba(20,30,45,.85)'};border:1px solid rgba(150,210,255,.45);color:#dff4ff;font:600 12px sans-serif;box-shadow:${unlocked?'0 0 18px rgba(80,255,180,.35)':'0 0 8px rgba(90,150,220,.2)'};`; node.textContent=(a.hidden && !unlocked)?'Hidden Advancement':`${a.title} — ${a.description}`; advCanvas.appendChild(node); });
+		ADVANCEMENTS.forEach((a,i)=>{ const x=120 + (i%5)*390; const y=catY[a.category] || 120; positions[a.id]={x,y}; const node=document.createElement('div'); const unlocked=Boolean(advancementState[a.id]?.unlocked); node.style.cssText=`position:absolute;left:${x}px;top:${y}px;width:260px;padding:10px;border-radius:10px;background:${unlocked?'rgba(40,120,80,.85)':'rgba(20,30,45,.85)'};border:1px solid rgba(150,210,255,.45);color:#dff4ff;font:600 12px sans-serif;box-shadow:${unlocked?'0 0 18px rgba(80,255,180,.35)':'0 0 8px rgba(90,150,220,.2)'};`; node.textContent=(a.hidden && !unlocked)?'Hidden Advancement':`${a.title} — ${a.description}`; advCanvas.appendChild(node); });
+		for (const a of ADVANCEMENTS){
+			if(!a.prerequisite||!positions[a.id]||!positions[a.prerequisite]) continue;
+			const p=positions[a.prerequisite], n=positions[a.id];
+			const line=document.createElement('div');
+			const x1=p.x+260, y1=p.y+24, x2=n.x, y2=n.y+24, dx=x2-x1, dy=y2-y1;
+			const len=Math.hypot(dx,dy), ang=Math.atan2(dy,dx)*180/Math.PI;
+			line.style.cssText=`position:absolute;left:${x1}px;top:${y1}px;width:${len}px;height:2px;background:linear-gradient(90deg, rgba(110,200,255,.8), rgba(70,145,240,.35));transform-origin:0 0;transform:rotate(${ang}deg);opacity:.85;`;
+			advCanvas.appendChild(line);
+		}
 	}
 	renderAdvGraph();
-	let advPan = { x: 0, y: 0, down: false, sx: 0, sy: 0 };
+	let advPan = { x: 0, y: 0, scale: 1, down: false, sx: 0, sy: 0 };
+	const applyAdvTransform = () => { if (!advCanvas) return; advCanvas.style.transform = `translate(${advPan.x}px, ${advPan.y}px) scale(${advPan.scale})`; if (advGraph) advGraph.style.backgroundPosition = `${advPan.x*0.35}px ${advPan.y*0.35}px`; };
 	advGraph?.addEventListener('mousedown',(e)=>{advPan.down=true;advPan.sx=e.clientX;advPan.sy=e.clientY;});
 	window.addEventListener('mouseup',()=>advPan.down=false);
-	window.addEventListener('mousemove',(e)=>{ if(!advPan.down||!advCanvas) return; advPan.x += (e.clientX-advPan.sx); advPan.y += (e.clientY-advPan.sy); advPan.sx=e.clientX; advPan.sy=e.clientY; advCanvas.style.transform=`translate(${advPan.x}px, ${advPan.y}px)`; });
-	advModeBtn?.addEventListener('click',()=>{ if(advOverlay) advOverlay.style.display='block'; });
+	window.addEventListener('mousemove',(e)=>{ if(!advPan.down||!advCanvas) return; advPan.x += (e.clientX-advPan.sx); advPan.y += (e.clientY-advPan.sy); advPan.sx=e.clientX; advPan.sy=e.clientY; applyAdvTransform(); });
+	advGraph?.addEventListener('wheel',(e)=>{ e.preventDefault(); advPan.scale = THREE.MathUtils.clamp(advPan.scale + (e.deltaY>0?-0.06:0.06), 0.45, 1.5); applyAdvTransform(); }, { passive:false });
+	advGraph?.addEventListener('keydown',(e)=>{ const step= e.shiftKey ? 60 : 28; if(e.key==='ArrowLeft') advPan.x+=step; if(e.key==='ArrowRight') advPan.x-=step; if(e.key==='ArrowUp') advPan.y+=step; if(e.key==='ArrowDown') advPan.y-=step; if(e.key==='-') advPan.scale=THREE.MathUtils.clamp(advPan.scale-0.05,0.45,1.5); if(e.key==='='||e.key==='+') advPan.scale=THREE.MathUtils.clamp(advPan.scale+0.05,0.45,1.5); applyAdvTransform(); });
+	advGraph?.addEventListener('scroll',(e)=>{ if(!advCanvas) return; advPan.x -= e.deltaX||0; advPan.y -= e.deltaY||0; applyAdvTransform(); }, { passive:true });
+	advModeBtn?.addEventListener('click',()=>{ if(advOverlay) advOverlay.style.display='block'; setTimeout(()=>advGraph?.focus(),20); });
 	advClose?.addEventListener('click',()=>{ if(advOverlay) advOverlay.style.display='none'; });
 
 	let campaignState = null;
