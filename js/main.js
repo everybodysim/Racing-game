@@ -6820,6 +6820,8 @@ function completeCampaignStage() {
 
 		e.preventDefault();
 		respawnVehicle();
+		advancementEvents.emit('player_respawned', { source: 'respawn_button' });
+		dispatchRuntimeModEvent( 'onRespawn', { type: 'respawn', source: 'respawn_button' } );
 
 	} );
 	modeMenuBtn?.addEventListener( 'click', ( e ) => {
