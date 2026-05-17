@@ -1593,7 +1593,8 @@ async function init() {
 
 	applySkyPalette( weatherSettings.preset );
 	scene.background = new THREE.Color( weatherConfig.bg );
-	scene.fog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul, groundSize * weatherConfig.fogFarMul );
+	const gameplayFog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul, groundSize * weatherConfig.fogFarMul );
+	scene.fog = gameplayFog;
 	dirLight.intensity = weatherConfig.sun;
 	hemiLight.intensity = weatherConfig.hemi;
 	renderer.toneMappingExposure = weatherConfig.exposure;
@@ -4202,6 +4203,7 @@ function completeCampaignStage() {
 	};
 
 	const timer = new THREE.Timer();
+	let lastFrameNowMs = performance.now();
 	let raceClockSeconds = 0;
 	let paused = false;
 	let currentLapInvalidatedByPause = false;
@@ -5989,13 +5991,13 @@ function completeCampaignStage() {
 
 	}
 
-	function updateFpsHud( frameSeconds ) {
+	function updateFpsHud( realFrameSeconds ) {
 
 		if ( ! fpsHudVisible || ! fpsHud ) return;
-		const instantFps = frameSeconds > 0 ? 1 / frameSeconds : 0;
+		const instantFps = realFrameSeconds > 0 ? 1 / realFrameSeconds : 0;
 		if ( ! Number.isFinite( instantFps ) || instantFps <= 0 ) return;
 		rollingFps = rollingFps > 0 ? THREE.MathUtils.lerp( rollingFps, instantFps, 0.08 ) : instantFps;
-		fpsHudAccumulator += frameSeconds;
+		fpsHudAccumulator += realFrameSeconds;
 		if ( fpsHudAccumulator < 0.18 ) return;
 		fpsHudAccumulator = 0;
 		fpsHud.textContent = `FPS: ${ Math.round( rollingFps ) }`;
@@ -7353,8 +7355,11 @@ function completeCampaignStage() {
 		requestAnimationFrame( animate );
 
 			timer.update();
+			const nowMs = performance.now();
+			const realFrameSeconds = Math.max( 1 / 1000, ( nowMs - lastFrameNowMs ) / 1000 );
+			lastFrameNowMs = nowMs;
 			const frameSeconds = timer.getDelta();
-			updateFpsHud( frameSeconds );
+			updateFpsHud( realFrameSeconds );
 			const dtBase = Math.min( frameSeconds, 1 / 15 );
 			if ( paused ) {
 
@@ -7583,6 +7588,8 @@ function completeCampaignStage() {
 			vehicle.spherePos.z - 5.3
 		);
 
+		if ( freecamState.active ) scene.fog = null;
+		else if ( scene.fog !== gameplayFog ) scene.fog = gameplayFog;
 		if ( freecamState.active ) updateFreecam( dt );
 		else if ( ! replayViewerMode ) {
 
