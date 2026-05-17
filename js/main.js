@@ -254,6 +254,60 @@ const WEATHER_PRESETS = {
 	'dawn-mist': { bg: 0xb6c2cc, fogNearMul: 0.2, fogFarMul: 0.42, sun: 2.9, hemi: 1.1, exposure: 0.88 },
 };
 
+
+const TRACK_PAYLOAD_STORAGE_KEY = 'racing-track-payload-v1';
+const TRACK_PAYLOAD_KEYS = [ 'map', 'mods', 'pack', 'localPack', 'sharedPack' ];
+
+function readStoredTrackPayload() {
+
+	try {
+
+		const parsed = JSON.parse( localStorage.getItem( TRACK_PAYLOAD_STORAGE_KEY ) || '{}' );
+		if ( ! parsed || typeof parsed !== 'object' ) return {};
+		const payload = {};
+		for ( const key of TRACK_PAYLOAD_KEYS ) {
+
+			if ( typeof parsed[ key ] === 'string' && parsed[ key ] ) payload[ key ] = parsed[ key ];
+
+		}
+		return payload;
+
+	} catch {
+
+		return {};
+
+	}
+
+}
+
+function persistTrackPayloadFromSearchParams( searchParams ) {
+
+	if ( ! searchParams ) return;
+	const payload = {};
+	for ( const key of TRACK_PAYLOAD_KEYS ) {
+
+		const value = searchParams.get( key );
+		if ( value ) payload[ key ] = value;
+
+	}
+	if ( Object.keys( payload ).length ) localStorage.setItem( TRACK_PAYLOAD_STORAGE_KEY, JSON.stringify( payload ) );
+
+}
+
+function getEffectiveSearchParams() {
+
+	const params = new URLSearchParams( window.location.search );
+	const stored = readStoredTrackPayload();
+	for ( const key of TRACK_PAYLOAD_KEYS ) {
+
+		if ( ! params.get( key ) && stored[ key ] ) params.set( key, stored[ key ] );
+
+	}
+	persistTrackPayloadFromSearchParams( params );
+	return params;
+
+}
+
 const WEATHER_SKY_GRADIENTS = {
 	clear: { top: '#1f78ff', mid: '#4db2ff', horizon: '#9fd6ff', ground: '#cbe8ff' },
 	cloudy: { top: '#4f77a8', mid: '#7ea2cf', horizon: '#d7dff0', ground: '#a8c0dd' },
@@ -503,7 +557,7 @@ async function publishMultiplayerBestLap( bestLap ) {
 
 function getCurrentMapSignature() {
 
-	const params = new URLSearchParams( window.location.search );
+	const params = getEffectiveSearchParams();
 	return `${ params.get( 'map' ) || 'default' }|${ params.get( 'mods' ) || 'none' }`;
 
 }
@@ -524,7 +578,7 @@ function parseMapSignature( mapSignature ) {
 function redirectToRoomMap( roomCode, mapSignature ) {
 
 	const target = parseMapSignature( mapSignature );
-	const params = new URLSearchParams( window.location.search );
+	const params = getEffectiveSearchParams();
 	params.set( 'map', target.map );
 	if ( target.mods === 'none' ) {
 
@@ -787,7 +841,7 @@ function initMultiplayerPanel() {
 	if ( /^[A-Z0-9]{6}$/.test( joinRoomParam ) ) {
 
 		codeInput.value = joinRoomParam;
-		const params = new URLSearchParams( window.location.search );
+		const params = getEffectiveSearchParams();
 		params.delete( 'joinRoom' );
 		const nextQuery = params.toString();
 		history.replaceState( null, '', `${ window.location.pathname }${ nextQuery ? `?${ nextQuery }` : '' }${ window.location.hash }` );
@@ -1517,7 +1571,7 @@ async function init() {
 	setLoadingStatus( 'Loading track and mods…', 'track' );
 	const runtimeMods = await loadRuntimeMods();
 
-	const searchParams = new URLSearchParams( window.location.search );
+	const searchParams = getEffectiveSearchParams();
 	const { mapParam, extrasParam } = await resolvePackedTrackParams( searchParams );
 	updateDocumentTitleFromTrackBoard( searchParams, mapParam, extrasParam );
 	const isSplitScreen = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1';
