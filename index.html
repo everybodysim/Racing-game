@@ -366,6 +366,16 @@
 			border-color: rgba(190,190,190,0.45);
 			color: #d7d7d7;
 		}
+		#mode-panel-gameplay.mode-compact #mode-race-btn {
+			width: 100%;
+			margin-bottom: 8px;
+		}
+		#mode-panel-gameplay.mode-compact #mode-stunt-btn,
+		#mode-panel-gameplay.mode-compact #mode-campaign-btn,
+		#mode-panel-gameplay.mode-compact #campaign-progress {
+			display: none !important;
+		}
+
 		#campaign-progress { margin-top: 8px; color: #bde6ff; font: 600 12px/1.3 sans-serif; }
 		#fps-hud {
 			position: absolute;
@@ -1139,10 +1149,8 @@
 			<button class="mode-tab-btn" id="mode-tab-garage" type="button">Garage</button>
 			<button class="mode-tab-btn" id="mode-tab-account" type="button">Account</button>
 		</div>
-		<div class="mode-tab-panel active" id="mode-panel-gameplay">
+		<div class="mode-tab-panel active mode-compact" id="mode-panel-gameplay">
 			<button id="mode-race-btn" type="button">Race Mode</button>
-			<button id="mode-stunt-btn" type="button" disabled title="Under construction">🚧 Stunt Mode (Under Construction)</button>
-			<button id="mode-campaign-btn" type="button">Campaign Mode</button>
 			<!-- <button id="campaign-info-btn" type="button">Campaign intro</button> -->
 		<!--	<label id="countdown-setting" for="countdown-toggle">
 				<input id="countdown-toggle" type="checkbox" checked>
