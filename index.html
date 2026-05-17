@@ -1042,6 +1042,15 @@
 
 		body.replay-viewer-mode > :not(canvas):not(script) { display: none !important; }
 		body.replay-viewer-mode canvas { touch-action: none; }
+
+		#page-shell-overlay { position: fixed; inset: 0; z-index: 260; display: none; background: rgba(7,10,16,0.92); }
+		#page-shell-overlay.open { display: block; }
+		#page-shell-header { position: absolute; inset: 10px 10px auto 10px; height: 44px; display:flex; align-items:center; justify-content:space-between; gap:10px; padding: 0 12px; border-radius: 10px; background: rgba(0,0,0,0.55); color:#fff; font: 700 13px/1 sans-serif; }
+		#page-shell-close { border:1px solid rgba(255,255,255,0.3); border-radius:8px; background: rgba(255,255,255,0.12); color:#fff; padding: 6px 10px; cursor:pointer; font:700 12px/1 sans-serif; }
+		#page-shell-close:hover { background: rgba(255,255,255,0.22); }
+		#page-shell-stage { position:absolute; inset:64px 10px 10px 10px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.2); background:#0c1019; }
+		.page-shell-frame { width:100%; height:100%; border:0; display:none; background:#0c1019; }
+		.page-shell-frame.active { display:block; }
 </style>
 	<script type="importmap">
 	{
@@ -1094,7 +1103,15 @@
 			</div>
 		</div>
 	</section>
-	<div id="top-message" aria-live="polite"></div>
+	
+	<div id="page-shell-overlay" aria-hidden="true">
+		<div id="page-shell-header">
+			<div id="page-shell-title">Loading…</div>
+			<button id="page-shell-close" type="button">Back to race</button>
+		</div>
+		<div id="page-shell-stage"></div>
+	</div>
+<div id="top-message" aria-live="polite"></div>
 	<div id="effect-message" aria-live="polite"></div>
 	<a id="editor-link" href="editor.html">Create your own track</a>
 	<a id="totd-link" href="totd.html">Track of the day</a>
@@ -1435,6 +1452,65 @@
 				openCompetitionsWarning( node.getAttribute( 'href' ) || 'competitions.html' );
 			} );
 		} );
+		
+		const pageShellOverlay = document.getElementById( 'page-shell-overlay' );
+		const pageShellStage = document.getElementById( 'page-shell-stage' );
+		const pageShellTitle = document.getElementById( 'page-shell-title' );
+		const pageShellCloseBtn = document.getElementById( 'page-shell-close' );
+		const pageShellFrames = new Map();
+		const pageShellRoutes = [
+			{ href: 'editor.html', title: 'Create your own track' },
+			{ href: 'totd.html', title: 'Track of the day' },
+			{ href: 'weekly-cup.html', title: 'Weekly cup' },
+			{ href: 'coins.html', title: 'Coin leaderboard' },
+			{ href: 'competitions.html', title: 'Competitions' },
+			{ href: 'replay.html', title: 'Replay watcher' },
+			{ href: 'tracks.html', title: 'Track share board' },
+			{ href: 'clubs.html', title: 'Clubs' },
+			{ href: 'mods.html', title: 'Mods' },
+		];
+
+		function getShellFrame( href ) {
+			if ( pageShellFrames.has( href ) ) return pageShellFrames.get( href );
+			const frame = document.createElement( 'iframe' );
+			frame.className = 'page-shell-frame';
+			frame.src = href;
+			frame.loading = 'eager';
+			pageShellStage.appendChild( frame );
+			pageShellFrames.set( href, frame );
+			return frame;
+		}
+
+		function openShellPage( href, title ) {
+			const frame = getShellFrame( href );
+			for ( const other of pageShellFrames.values() ) other.classList.remove( 'active' );
+			frame.classList.add( 'active' );
+			pageShellTitle.textContent = title;
+			pageShellOverlay.classList.add( 'open' );
+			pageShellOverlay.setAttribute( 'aria-hidden', 'false' );
+		}
+
+		function closeShellPage() {
+			pageShellOverlay.classList.remove( 'open' );
+			pageShellOverlay.setAttribute( 'aria-hidden', 'true' );
+		}
+
+		pageShellCloseBtn?.addEventListener( 'click', closeShellPage );
+		pageShellOverlay?.addEventListener( 'click', ( event ) => {
+			if ( event.target === pageShellOverlay ) closeShellPage();
+		} );
+
+		for ( const route of pageShellRoutes ) {
+			document.querySelectorAll( `a[href="${ route.href }"]` ).forEach( ( node ) => {
+				node.addEventListener( 'click', ( event ) => {
+					event.preventDefault();
+					openShellPage( route.href, route.title );
+				} );
+			} );
+			getShellFrame( route.href );
+		}
+
+
 		const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
 		const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
 		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'coin-leaderboard-link', 'competitions-link', 'replay-link', 'tracks-link', 'clubs-link', 'mods-link', 'hacks-toggle', 'split-link' ];
