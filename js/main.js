@@ -2589,6 +2589,10 @@ async function init() {
 	let crashShakeTime = 0;
 	let crashShakeStrength = 0;
 	let customModParticleBurstSeconds = 0;
+	let customModForceBrakeUntil = 0;
+	let customModForceThrottleUntil = 0;
+	let customModNoSteerUntil = 0;
+	let customModFogStrength = 1;
 	const runtimeModContext = {
 		vehicle,
 		world,
@@ -2631,6 +2635,13 @@ async function init() {
 			},
 			resetCar: () => vehicle.resetToSpawn(),
 			setTimeScale: ( scale = 1 ) => { customModTimeScale = THREE.MathUtils.clamp( Number( scale ) || 1, 0.1, 4 ); },
+			setAccelMultiplier: ( value = 1 ) => { vehicle.accelMultiplier = THREE.MathUtils.clamp( Number( value ) || 1, 0.1, 4 ); },
+			setDriveMultiplier: ( value = 1 ) => { vehicle.driveMultiplier = THREE.MathUtils.clamp( Number( value ) || 1, 0.1, 4 ); },
+			setGripMultiplier: ( value = 1 ) => { vehicle.gripMultiplier = THREE.MathUtils.clamp( Number( value ) || 1, 0.1, 4 ); },
+			forceBrake: ( secs = 0.4 ) => { customModForceBrakeUntil = Math.max( customModForceBrakeUntil, raceClockSeconds + THREE.MathUtils.clamp( Number( secs ) || 0.4, 0.05, 8 ) ); },
+			forceThrottle: ( secs = 0.4 ) => { customModForceThrottleUntil = Math.max( customModForceThrottleUntil, raceClockSeconds + THREE.MathUtils.clamp( Number( secs ) || 0.4, 0.05, 8 ) ); },
+			disableSteering: ( secs = 0.5 ) => { customModNoSteerUntil = Math.max( customModNoSteerUntil, raceClockSeconds + THREE.MathUtils.clamp( Number( secs ) || 0.5, 0.05, 8 ) ); },
+			setFogStrength: ( value = 1 ) => { customModFogStrength = THREE.MathUtils.clamp( Number( value ) || 1, 0, 2 ); },
 			addCoins: ( amount = 0 ) => {
 				if ( isSplitScreen ) return;
 				coins = Math.max( 0, Math.floor( coins + ( Number( amount ) || 0 ) ) );
@@ -7399,7 +7410,10 @@ function completeCampaignStage() {
 			}
 			if ( countdownActive ) input = ZERO_DRIVE_INPUT;
 			const input2 = controls2 ? ( modeMenuOpen || replayViewerMode || countdownActive ? ZERO_DRIVE_INPUT : controls2.update() ) : null;
-			const padAdjustedInput = applyPadInputModifiers( input, activePadEffect );
+			let padAdjustedInput = applyPadInputModifiers( input, activePadEffect );
+			if ( customModNoSteerUntil > now ) padAdjustedInput = { ...padAdjustedInput, x: 0 };
+			if ( customModForceBrakeUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: - 1 };
+			if ( customModForceThrottleUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: 1 };
 			const padAdjustedInput2 = input2 ? applyPadInputModifiers( input2, activePadEffect2 ) : null;
 			recordLapInput( Math.max( 0, now - lapStartSeconds ), padAdjustedInput, controls?.keys );
 			if ( hacksActive && hacksState.infiniteCoins ) coins = Math.max( coins, 9999999 );
@@ -7652,8 +7666,8 @@ function completeCampaignStage() {
 		if ( scene.fog ) {
 			const nearBase = groundSize * weatherConfig.fogNearMul;
 			const farBase = groundSize * weatherConfig.fogFarMul;
-			scene.fog.near = THREE.MathUtils.lerp( scene.fog.near, nearBase * ( 1 - speedRatioFx * 0.08 ), Math.min( 1, dt * 3 ) );
-			scene.fog.far = THREE.MathUtils.lerp( scene.fog.far, farBase * ( 1 + speedRatioFx * 0.06 ), Math.min( 1, dt * 3 ) );
+			scene.fog.near = THREE.MathUtils.lerp( scene.fog.near, nearBase * customModFogStrength * ( 1 - speedRatioFx * 0.08 ), Math.min( 1, dt * 3 ) );
+			scene.fog.far = THREE.MathUtils.lerp( scene.fog.far, farBase * customModFogStrength * ( 1 + speedRatioFx * 0.06 ), Math.min( 1, dt * 3 ) );
 		}
 		const motionBlurPx = getGraphicsPreset().label === 'High'
 			? Math.max( 0, ( speedRatioFx - 0.8 ) * 1.05 )
