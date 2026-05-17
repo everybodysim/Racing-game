@@ -79,6 +79,50 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color( 0xadb2ba );
 scene.fog = new THREE.Fog( 0xadb2ba, 30, 55 );
 
+const skyUniforms = {
+	topColor: { value: new THREE.Color( '#6fb9ff' ) },
+	midColor: { value: new THREE.Color( '#95ccff' ) },
+	horizonColor: { value: new THREE.Color( '#ffe2aa' ) },
+	groundColor: { value: new THREE.Color( '#bfd9f2' ) },
+	time: { value: 0 },
+	vibrance: { value: 0.15 },
+};
+const skyDome = new THREE.Mesh(
+	new THREE.SphereGeometry( 220, 24, 16 ),
+	new THREE.ShaderMaterial( {
+		side: THREE.BackSide,
+		depthWrite: false,
+		uniforms: skyUniforms,
+		vertexShader: `varying vec3 vWorldPos;
+		void main() {
+			vec4 wp = modelMatrix * vec4( position, 1.0 );
+			vWorldPos = wp.xyz;
+			gl_Position = projectionMatrix * viewMatrix * wp;
+		}`,
+		fragmentShader: `varying vec3 vWorldPos;
+		uniform vec3 topColor;
+		uniform vec3 midColor;
+		uniform vec3 horizonColor;
+		uniform vec3 groundColor;
+		uniform float time;
+		uniform float vibrance;
+		void main() {
+			vec3 dir = normalize( vWorldPos );
+			float h = clamp( dir.y * 0.5 + 0.5, 0.0, 1.0 );
+			float horizonBand = exp( -pow( abs( h - 0.48 ) * 8.0, 2.0 ) );
+			float cloudWave = sin( dir.x * 14.0 + time * 0.08 ) * sin( dir.z * 11.0 - time * 0.05 );
+			float cloudMask = smoothstep( 0.25, 0.95, cloudWave * 0.5 + 0.5 ) * 0.08;
+			vec3 c = mix( groundColor, midColor, smoothstep( 0.03, 0.48, h ) );
+			c = mix( c, topColor, smoothstep( 0.45, 0.95, h ) );
+			c = mix( c, horizonColor, horizonBand * 0.75 );
+			c += vec3( cloudMask ) * ( 0.35 + vibrance );
+			c = mix( c, c * 1.15, vibrance * 0.5 );
+			gl_FragColor = vec4( c, 1.0 );
+		}`
+	} )
+);
+scene.add( skyDome );
+
 const dirLight = new THREE.DirectionalLight( 0xffffff, 5 );
 dirLight.position.set( 11.4, 15, -5.3 );
 dirLight.castShadow = getGraphicsPreset().shadows;
@@ -89,6 +133,8 @@ scene.add( dirLight );
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
 scene.add( hemiLight );
+const fillLight = new THREE.AmbientLight( 0x9cb8d9, 0.24 );
+scene.add( fillLight );
 
 
 function applyGraphicsPresetToRenderer() {
@@ -103,6 +149,7 @@ function applyGraphicsPresetToRenderer() {
 	dirLight.shadow.needsUpdate = true;
 	bloomPass.strength = preset.bloomStrength;
 	bloomPass.radius = preset.bloomRadius;
+	bloomPass.threshold = preset.bloomStrength > 0 ? 0.62 : 1.0;
 
 }
 
@@ -204,6 +251,15 @@ const WEATHER_PRESETS = {
 	night: { bg: 0x0b1220, fogNearMul: 0.24, fogFarMul: 0.5, sun: 1.7, hemi: 0.45, exposure: 0.7 },
 	'dawn-mist': { bg: 0xb6c2cc, fogNearMul: 0.2, fogFarMul: 0.42, sun: 2.9, hemi: 1.1, exposure: 0.88 },
 };
+
+const WEATHER_SKY_GRADIENTS = {
+	clear: { top: '#6fb9ff', mid: '#95ccff', horizon: '#ffe2aa', ground: '#bfd9f2' },
+	cloudy: { top: '#6f85a3', mid: '#93a4bd', horizon: '#d8d5cc', ground: '#b9c3cf' },
+	sunset: { top: '#4d5bb8', mid: '#bf7192', horizon: '#ffb56b', ground: '#ffc78e' },
+	night: { top: '#040812', mid: '#16243e', horizon: '#344867', ground: '#223048' },
+	'dawn-mist': { top: '#7e9cb8', mid: '#aebfd3', horizon: '#efd8bc', ground: '#c5d2df' },
+};
+
 const WEATHER_DEFAULT = 'clear';
 const PRECIP_DEFAULT = 'none';
 const INTENSITY_DEFAULT = 'medium';
@@ -815,6 +871,40 @@ function normalizeWeatherDetails( value ) {
 
 }
 
+
+
+function makeSkyGradientTexture( preset = WEATHER_DEFAULT ) {
+
+	const gradient = WEATHER_SKY_GRADIENTS[ preset ] || WEATHER_SKY_GRADIENTS[ WEATHER_DEFAULT ];
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = 32;
+	canvas.height = 512;
+	const ctx = canvas.getContext( '2d' );
+	if ( ! ctx ) return null;
+	const g = ctx.createLinearGradient( 0, 0, 0, canvas.height );
+	g.addColorStop( 0.0, gradient.top );
+	g.addColorStop( 0.45, gradient.mid );
+	g.addColorStop( 0.78, gradient.horizon );
+	g.addColorStop( 1.0, gradient.ground );
+	ctx.fillStyle = g;
+	ctx.fillRect( 0, 0, canvas.width, canvas.height );
+	const tex = new THREE.CanvasTexture( canvas );
+	tex.colorSpace = THREE.SRGBColorSpace;
+	tex.needsUpdate = true;
+	return tex;
+
+}
+
+
+function applySkyPalette( preset = WEATHER_DEFAULT ) {
+
+	const palette = WEATHER_SKY_GRADIENTS[ preset ] || WEATHER_SKY_GRADIENTS[ WEATHER_DEFAULT ];
+	skyUniforms.topColor.value.set( palette.top );
+	skyUniforms.midColor.value.set( palette.mid );
+	skyUniforms.horizonColor.value.set( palette.horizon );
+	skyUniforms.groundColor.value.set( palette.ground );
+
+}
 
 function createMovingObstacleState( scene, extras ) {
 	const entries = Array.isArray( extras?.movingObstacles ) ? extras.movingObstacles : [];
@@ -1500,11 +1590,13 @@ async function init() {
 	dirLight.shadow.camera.bottom = - shadowExtent;
 	dirLight.shadow.camera.updateProjectionMatrix();
 
+	applySkyPalette( weatherSettings.preset );
 	scene.background = new THREE.Color( weatherConfig.bg );
 	scene.fog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul, groundSize * weatherConfig.fogFarMul );
 	dirLight.intensity = weatherConfig.sun;
 	hemiLight.intensity = weatherConfig.hemi;
 	renderer.toneMappingExposure = weatherConfig.exposure;
+	fillLight.intensity = weatherConfig.hemi * 0.16;
 	const baseWeatherLight = {
 		sun: weatherConfig.sun,
 		hemi: weatherConfig.hemi,
@@ -2492,6 +2584,8 @@ async function init() {
 	let customModTimeScale = 1;
 	let customModShakeUntil = 0;
 	let customModShakeIntensity = 0;
+	let crashShakeTime = 0;
+	let crashShakeStrength = 0;
 	let customModParticleBurstSeconds = 0;
 	const runtimeModContext = {
 		vehicle,
@@ -4098,6 +4192,8 @@ function completeCampaignStage() {
 			_forward.normalize();
 
 			const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
+			crashShakeStrength = Math.max( crashShakeStrength, THREE.MathUtils.clamp( ( impactVelocity - 1.1 ) * 0.12, 0, 0.16 ) );
+			crashShakeTime = Math.max( crashShakeTime, THREE.MathUtils.clamp( impactVelocity * 0.03, 0.05, 0.18 ) );
 			audio.playImpact( impactVelocity );
 			dispatchRuntimeModEvent( 'onCrash', { type: 'crash', impactVelocity } );
 
@@ -7500,12 +7596,12 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat.setFromEuler( camYawLockEuler.set( 0, camYawLockValue, 0, 'YXZ' ) );
-				cam.update( dt, vehicle.spherePos, camYawLockQuat );
+				cam.update( dt, vehicle.spherePos, camYawLockQuat, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity } );
 
 			} else {
 
 				camYawLockActive = false;
-				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
+				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity } );
 
 			}
 
@@ -7523,12 +7619,12 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat2.setFromEuler( camYawLockEuler2.set( 0, camYawLockValue2, 0, 'YXZ' ) );
-				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2 );
+				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity } );
 
 			} else {
 
 				camYawLockActive2 = false;
-				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
+				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity } );
 
 			}
 
@@ -7540,9 +7636,34 @@ function completeCampaignStage() {
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
-		bloomPass.strength = getGraphicsPreset().bloomStrength;
-		bloomPass.radius = getGraphicsPreset().bloomRadius;
+		const speedRatioFx = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), 0, 1.8 );
+		const driftFx = THREE.MathUtils.clamp( vehicle.driftIntensity, 0, 1 );
+		bloomPass.strength = getGraphicsPreset().bloomStrength + ( speedRatioFx * 0.01 ) + ( driftFx * 0.005 );
+		bloomPass.radius = getGraphicsPreset().bloomRadius + ( speedRatioFx * 0.01 );
+		renderer.toneMappingExposure = THREE.MathUtils.lerp( renderer.toneMappingExposure, baseWeatherLight.exposure + ( speedRatioFx * 0.045 ), Math.min( 1, dt * 2.8 ) );
+		if ( scene.fog ) {
+			const nearBase = groundSize * weatherConfig.fogNearMul;
+			const farBase = groundSize * weatherConfig.fogFarMul;
+			scene.fog.near = THREE.MathUtils.lerp( scene.fog.near, nearBase * ( 1 - speedRatioFx * 0.08 ), Math.min( 1, dt * 3 ) );
+			scene.fog.far = THREE.MathUtils.lerp( scene.fog.far, farBase * ( 1 + speedRatioFx * 0.06 ), Math.min( 1, dt * 3 ) );
+		}
+		const motionBlurPx = getGraphicsPreset().label === 'High'
+			? Math.max( 0, ( speedRatioFx - 0.72 ) * 2.2 )
+			: Math.max( 0, ( speedRatioFx - 0.9 ) * 1.35 );
+		const vibrance = 1.07 + ( driftFx * 0.03 ) + ( speedRatioFx * 0.015 );
+		renderer.domElement.style.filter = `saturate(${ vibrance.toFixed( 3 ) }) contrast(1.06) blur(${ motionBlurPx.toFixed( 3 ) }px)`;
+		skyUniforms.time.value = now;
+		skyUniforms.vibrance.value = THREE.MathUtils.lerp( skyUniforms.vibrance.value, 0.14 + ( speedRatioFx * 0.16 ) + ( driftFx * 0.08 ), Math.min( 1, dt * 2.4 ) );
 		updateWeatherFx( dt, now );
+		crashShakeTime = Math.max( 0, crashShakeTime - dt );
+		if ( crashShakeTime > 0 && crashShakeStrength > 0 ) {
+			const impactEnvelope = crashShakeTime / 0.18;
+			const impulse = crashShakeStrength * impactEnvelope;
+			cam.camera.position.x += ( Math.random() - 0.5 ) * impulse;
+			cam.camera.position.y += ( Math.random() - 0.5 ) * impulse * 0.7;
+			cam.camera.rotation.z += ( Math.random() - 0.5 ) * impulse * 0.08;
+			crashShakeStrength = Math.max( 0, crashShakeStrength - dt * 0.6 );
+		}
 		if ( customModShakeUntil > now && customModShakeIntensity > 0 ) {
 			const shake = Math.min( 0.28, customModShakeIntensity * 0.025 );
 			cam.camera.position.x += ( Math.random() - 0.5 ) * shake;

@@ -76,7 +76,8 @@ export class SmokeTrails {
 
 		this.boostFxTime = Math.max( 0, this.boostFxTime - dt );
 		const boostActive = this.boostFxTime > 0;
-		const shouldEmit = vehicle.driftIntensity > 0.25;
+		const speedRatio = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed || 0 ) / Math.max( 0.01, vehicle.topSpeed || 1 ), 0, 1.7 );
+		const shouldEmit = vehicle.driftIntensity > 0.22 || speedRatio > 0.9;
 
 		// Emit new particles from back wheel positions
 		if ( shouldEmit ) {
@@ -159,19 +160,22 @@ export class SmokeTrails {
 			: DEFAULT_PARTICLE_COLOR;
 		p.sprite.material.color.copy( particleColor );
 
+		const speedRatio = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed || 0 ) / Math.max( 0.01, vehicle.topSpeed || 1 ), 0, 1.7 );
+
 		// Godot: scale_min = 0.25, scale_max = 0.5
-		p.initialScale = 0.25 + Math.random() * 0.25;
+		p.initialScale = 0.24 + Math.random() * 0.24 + ( speedRatio * 0.08 );
 		p.sprite.scale.setScalar( p.initialScale * 0.5 );
 
 		// Godot: no gravity, damping = 1.0 — minimal velocity
+		const driftPush = THREE.MathUtils.clamp( vehicle.driftIntensity || 0, 0, 1 );
 		p.velocity.set(
-			( Math.random() - 0.5 ) * 0.2,
-			Math.random() * 0.1,
-			( Math.random() - 0.5 ) * 0.2
+			( Math.random() - 0.5 ) * ( 0.2 + speedRatio * 0.12 ),
+			Math.random() * ( 0.1 + speedRatio * 0.05 ),
+			( Math.random() - 0.5 ) * ( 0.2 + driftPush * 0.2 )
 		);
 
-		// Godot: lifetime = 0.5
-		p.maxLife = 0.5;
+		// Slightly longer at high speed for more readable trails
+		p.maxLife = 0.42 + ( speedRatio * 0.12 );
 		p.life = p.maxLife;
 
 	}
