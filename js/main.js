@@ -111,12 +111,12 @@ const skyDome = new THREE.Mesh(
 			vec3 dir = normalize( vWorldPos );
 			float h = clamp( dir.y * 0.5 + 0.5, 0.0, 1.0 );
 			float horizonBand = exp( -pow( abs( h - 0.48 ) * 8.0, 2.0 ) );
-			float cloudWave = sin( dir.x * 14.0 + time * 0.08 ) * sin( dir.z * 11.0 - time * 0.05 );
-			float cloudMask = smoothstep( 0.22, 0.9, cloudWave * 0.5 + 0.5 ) * 0.14;
+			float cloudWave = ( sin( dir.x * 9.0 + time * 0.03 ) * sin( dir.z * 7.0 - time * 0.02 ) );
+			float cloudMask = smoothstep( 0.68, 0.86, cloudWave * 0.5 + 0.5 ) * 0.09;
 			vec3 c = mix( groundColor, midColor, smoothstep( 0.03, 0.48, h ) );
 			c = mix( c, topColor, smoothstep( 0.45, 0.95, h ) );
 			c = mix( c, horizonColor, horizonBand * 0.88 );
-			c += vec3( cloudMask ) * ( 0.35 + vibrance );
+			c += vec3( cloudMask ) * ( 0.24 + vibrance * 0.45 );
 			c = mix( c, c * 1.15, vibrance * 0.5 );
 			gl_FragColor = vec4( c, 1.0 );
 		}`
@@ -254,11 +254,11 @@ const WEATHER_PRESETS = {
 };
 
 const WEATHER_SKY_GRADIENTS = {
-	clear: { top: '#6fb9ff', mid: '#95ccff', horizon: '#ffe2aa', ground: '#bfd9f2' },
-	cloudy: { top: '#6f85a3', mid: '#93a4bd', horizon: '#d8d5cc', ground: '#b9c3cf' },
-	sunset: { top: '#4d5bb8', mid: '#bf7192', horizon: '#ffb56b', ground: '#ffc78e' },
-	night: { top: '#040812', mid: '#16243e', horizon: '#344867', ground: '#223048' },
-	'dawn-mist': { top: '#7e9cb8', mid: '#aebfd3', horizon: '#efd8bc', ground: '#c5d2df' },
+	clear: { top: '#2f98ff', mid: '#6fc8ff', horizon: '#ffd88a', ground: '#b8ddff' },
+	cloudy: { top: '#4f77a8', mid: '#7ea2cf', horizon: '#d7dff0', ground: '#a8c0dd' },
+	sunset: { top: '#3751d8', mid: '#d86c8d', horizon: '#ff9a5f', ground: '#ffd095' },
+	night: { top: '#020611', mid: '#0f2145', horizon: '#2a4a80', ground: '#172845' },
+	'dawn-mist': { top: '#5f92d0', mid: '#9fc4eb', horizon: '#ffdcb0', ground: '#c5ddf4' },
 };
 
 const WEATHER_DEFAULT = 'clear';
@@ -1592,8 +1592,8 @@ async function init() {
 	dirLight.shadow.camera.updateProjectionMatrix();
 
 	applySkyPalette( weatherSettings.preset );
-	scene.background = new THREE.Color( weatherConfig.bg );
-	scene.fog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul * 0.94, groundSize * weatherConfig.fogFarMul * 1.04 );
+	scene.background = null;
+	scene.fog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul * 0.98, groundSize * weatherConfig.fogFarMul * 1.08 );
 	dirLight.intensity = weatherConfig.sun;
 	hemiLight.intensity = weatherConfig.hemi;
 	renderer.toneMappingExposure = weatherConfig.exposure;
@@ -7645,8 +7645,8 @@ function completeCampaignStage() {
 		if ( scene.fog ) {
 			const nearBase = groundSize * weatherConfig.fogNearMul;
 			const farBase = groundSize * weatherConfig.fogFarMul;
-			scene.fog.near = THREE.MathUtils.lerp( scene.fog.near, nearBase * ( 1 - speedRatioFx * 0.08 ), Math.min( 1, dt * 3 ) );
-			scene.fog.far = THREE.MathUtils.lerp( scene.fog.far, farBase * ( 1 + speedRatioFx * 0.06 ), Math.min( 1, dt * 3 ) );
+			scene.fog.near = THREE.MathUtils.lerp( scene.fog.near, nearBase * ( 1 - speedRatioFx * 0.04 ), Math.min( 1, dt * 3 ) );
+			scene.fog.far = THREE.MathUtils.lerp( scene.fog.far, farBase * ( 1 + speedRatioFx * 0.1 ), Math.min( 1, dt * 3 ) );
 		}
 		const motionBlurPx = getGraphicsPreset().label === 'High'
 			? Math.max( 0, ( speedRatioFx - 0.8 ) * 1.05 )
