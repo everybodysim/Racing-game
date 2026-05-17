@@ -156,6 +156,12 @@ export class Vehicle {
 
 				child.castShadow = true;
 				child.receiveShadow = true;
+				const mat = child.material;
+				if ( mat && mat.isMeshStandardMaterial ) {
+					mat.metalness = Math.max( mat.metalness ?? 0.08, 0.12 );
+					mat.roughness = Math.min( mat.roughness ?? 0.7, 0.56 );
+					mat.envMapIntensity = Math.max( mat.envMapIntensity ?? 1, 1.12 );
+				}
 
 			}
 
