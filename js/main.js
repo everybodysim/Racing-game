@@ -1592,8 +1592,9 @@ async function init() {
 	dirLight.shadow.camera.updateProjectionMatrix();
 
 	applySkyPalette( weatherSettings.preset );
-	scene.background = null;
-	scene.fog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul * 0.98, groundSize * weatherConfig.fogFarMul * 1.08 );
+	scene.background = new THREE.Color( weatherConfig.bg );
+	const fogColor = weatherSettings.preset === 'clear' ? 0x78b7ff : 0xffffff;
+	scene.fog = new THREE.Fog( fogColor, groundSize * weatherConfig.fogNearMul * 0.98, groundSize * weatherConfig.fogFarMul * 1.08 );
 	dirLight.intensity = weatherConfig.sun;
 	hemiLight.intensity = weatherConfig.hemi;
 	renderer.toneMappingExposure = weatherConfig.exposure;
