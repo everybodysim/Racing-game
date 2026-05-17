@@ -246,7 +246,7 @@ const MAGNET_MAX_FORCE_PER_SECOND = 64.0;
 	const ARC_LINK_MAX_TIME = 1.6;
 	const AIR_TRICK_DURATION_SECONDS = 0.62;
 const WEATHER_PRESETS = {
-	clear: { bg: 0xadb2ba, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
+	clear: { bg: 0x7fb6ff, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
 	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
 	sunset: { bg: 0xc7987d, fogNearMul: 0.28, fogFarMul: 0.6, sun: 4.4, hemi: 1.2, exposure: 1.08 },
 	night: { bg: 0x0b1220, fogNearMul: 0.24, fogFarMul: 0.5, sun: 1.7, hemi: 0.45, exposure: 0.7 },
@@ -254,7 +254,7 @@ const WEATHER_PRESETS = {
 };
 
 const WEATHER_SKY_GRADIENTS = {
-	clear: { top: '#2f98ff', mid: '#6fc8ff', horizon: '#ffd88a', ground: '#b8ddff' },
+	clear: { top: '#1f78ff', mid: '#4db2ff', horizon: '#9fd6ff', ground: '#cbe8ff' },
 	cloudy: { top: '#4f77a8', mid: '#7ea2cf', horizon: '#d7dff0', ground: '#a8c0dd' },
 	sunset: { top: '#3751d8', mid: '#d86c8d', horizon: '#ff9a5f', ground: '#ffd095' },
 	night: { top: '#020611', mid: '#0f2145', horizon: '#2a4a80', ground: '#172845' },
@@ -1593,8 +1593,7 @@ async function init() {
 
 	applySkyPalette( weatherSettings.preset );
 	scene.background = new THREE.Color( weatherConfig.bg );
-	const fogColor = weatherSettings.preset === 'clear' ? 0x78b7ff : 0xffffff;
-	scene.fog = new THREE.Fog( fogColor, groundSize * weatherConfig.fogNearMul * 0.98, groundSize * weatherConfig.fogFarMul * 1.08 );
+	scene.fog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul, groundSize * weatherConfig.fogFarMul );
 	dirLight.intensity = weatherConfig.sun;
 	hemiLight.intensity = weatherConfig.hemi;
 	renderer.toneMappingExposure = weatherConfig.exposure;
@@ -7646,8 +7645,8 @@ function completeCampaignStage() {
 		if ( scene.fog ) {
 			const nearBase = groundSize * weatherConfig.fogNearMul;
 			const farBase = groundSize * weatherConfig.fogFarMul;
-			scene.fog.near = THREE.MathUtils.lerp( scene.fog.near, nearBase * ( 1 - speedRatioFx * 0.04 ), Math.min( 1, dt * 3 ) );
-			scene.fog.far = THREE.MathUtils.lerp( scene.fog.far, farBase * ( 1 + speedRatioFx * 0.1 ), Math.min( 1, dt * 3 ) );
+			scene.fog.near = THREE.MathUtils.lerp( scene.fog.near, nearBase * ( 1 - speedRatioFx * 0.08 ), Math.min( 1, dt * 3 ) );
+			scene.fog.far = THREE.MathUtils.lerp( scene.fog.far, farBase * ( 1 + speedRatioFx * 0.06 ), Math.min( 1, dt * 3 ) );
 		}
 		const motionBlurPx = getGraphicsPreset().label === 'High'
 			? Math.max( 0, ( speedRatioFx - 0.8 ) * 1.05 )
