@@ -89,6 +89,8 @@ scene.add( dirLight );
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
 scene.add( hemiLight );
+const fillLight = new THREE.AmbientLight( 0x9cb8d9, 0.24 );
+scene.add( fillLight );
 
 
 function applyGraphicsPresetToRenderer() {
@@ -103,6 +105,7 @@ function applyGraphicsPresetToRenderer() {
 	dirLight.shadow.needsUpdate = true;
 	bloomPass.strength = preset.bloomStrength;
 	bloomPass.radius = preset.bloomRadius;
+	bloomPass.threshold = preset.bloomStrength > 0 ? 0.62 : 1.0;
 
 }
 
@@ -1505,6 +1508,7 @@ async function init() {
 	dirLight.intensity = weatherConfig.sun;
 	hemiLight.intensity = weatherConfig.hemi;
 	renderer.toneMappingExposure = weatherConfig.exposure;
+	fillLight.intensity = weatherConfig.hemi * 0.16;
 	const baseWeatherLight = {
 		sun: weatherConfig.sun,
 		hemi: weatherConfig.hemi,
@@ -7500,12 +7504,12 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat.setFromEuler( camYawLockEuler.set( 0, camYawLockValue, 0, 'YXZ' ) );
-				cam.update( dt, vehicle.spherePos, camYawLockQuat );
+				cam.update( dt, vehicle.spherePos, camYawLockQuat, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity } );
 
 			} else {
 
 				camYawLockActive = false;
-				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion );
+				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity } );
 
 			}
 
@@ -7523,12 +7527,12 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat2.setFromEuler( camYawLockEuler2.set( 0, camYawLockValue2, 0, 'YXZ' ) );
-				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2 );
+				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity } );
 
 			} else {
 
 				camYawLockActive2 = false;
-				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion );
+				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity } );
 
 			}
 
@@ -7540,8 +7544,17 @@ function completeCampaignStage() {
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
-		bloomPass.strength = getGraphicsPreset().bloomStrength;
-		bloomPass.radius = getGraphicsPreset().bloomRadius;
+		const speedRatioFx = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), 0, 1.8 );
+		const driftFx = THREE.MathUtils.clamp( vehicle.driftIntensity, 0, 1 );
+		bloomPass.strength = getGraphicsPreset().bloomStrength + ( speedRatioFx * 0.01 ) + ( driftFx * 0.005 );
+		bloomPass.radius = getGraphicsPreset().bloomRadius + ( speedRatioFx * 0.01 );
+		renderer.toneMappingExposure = THREE.MathUtils.lerp( renderer.toneMappingExposure, baseWeatherLight.exposure + ( speedRatioFx * 0.045 ), Math.min( 1, dt * 2.8 ) );
+		if ( scene.fog ) {
+			const nearBase = groundSize * weatherConfig.fogNearMul;
+			const farBase = groundSize * weatherConfig.fogFarMul;
+			scene.fog.near = THREE.MathUtils.lerp( scene.fog.near, nearBase * ( 1 - speedRatioFx * 0.08 ), Math.min( 1, dt * 3 ) );
+			scene.fog.far = THREE.MathUtils.lerp( scene.fog.far, farBase * ( 1 + speedRatioFx * 0.06 ), Math.min( 1, dt * 3 ) );
+		}
 		updateWeatherFx( dt, now );
 		if ( customModShakeUntil > now && customModShakeIntensity > 0 ) {
 			const shake = Math.min( 0.28, customModShakeIntensity * 0.025 );

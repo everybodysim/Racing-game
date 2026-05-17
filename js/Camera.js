@@ -53,8 +53,10 @@ export class Camera {
 
 	}
 
-	update( dt, target, targetQuaternion ) {
+	update( dt, target, targetQuaternion, dynamics = {} ) {
 
+		const speedRatio = THREE.MathUtils.clamp( Number( dynamics.speedRatio ) || 0, 0, 1.8 );
+		const driftAmount = THREE.MathUtils.clamp( Number( dynamics.driftIntensity ) || 0, 0, 1 );
 		const targetLerp = this.mode === 'chase' ? 10 : 6;
 		this.targetPosition.lerp( target, dt * targetLerp );
 
@@ -83,8 +85,12 @@ export class Camera {
 			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, 4.8 );
 			this._desiredLook.y += 1.0;
 
-			this.camera.position.lerp( this._desiredPos, dt * 10 );
+			const chaseLag = THREE.MathUtils.lerp( 10, 7.2, Math.min( 1, speedRatio * 0.8 + driftAmount * 0.4 ) );
+			this.camera.position.lerp( this._desiredPos, dt * chaseLag );
 			this.lookTarget.lerp( this._desiredLook, dt * 8 );
+			const targetFov = 42 + ( speedRatio * 6.5 ) + ( driftAmount * 1.5 );
+			this.camera.fov = THREE.MathUtils.lerp( this.camera.fov, targetFov, Math.min( 1, dt * 3.5 ) );
+			this.camera.updateProjectionMatrix();
 			this.camera.lookAt( this.lookTarget );
 
 		} else {
@@ -92,6 +98,8 @@ export class Camera {
 			this._desiredPos.copy( this.targetPosition ).add( this.offset );
 			this.camera.position.lerp( this._desiredPos, dt * 8 );
 			this.lookTarget.lerp( this.targetPosition, dt * 10 );
+			this.camera.fov = THREE.MathUtils.lerp( this.camera.fov, 42, Math.min( 1, dt * 4 ) );
+			this.camera.updateProjectionMatrix();
 			this.camera.lookAt( this.lookTarget );
 
 		}
