@@ -26,7 +26,72 @@ Blockly.Blocks.action_camera_shake = { init() { this.appendValueInput('INT').set
 Blockly.Blocks.action_jump = { init() { this.appendValueInput('POWER').setCheck('Number').appendField('jump with power'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
 Blockly.Blocks.action_reset_car = { init() { this.appendDummyInput().appendField('reset car to spawn'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
 Blockly.Blocks.action_set_time_scale = { init() { this.appendValueInput('SCALE').setCheck('Number').appendField('set game speed scale'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
-Blockly.Blocks.action_add_coins = { init() { this.appendValueInput('COINS').setCheck('Number').appendField('add coins'); this.setPreviousStatement(true); this.setNextStatement(true); this.setColour('#06b6d4'); } };
+
+
+const ACTION_PRESETS = [
+  { id: 1, label: 'tiny boost', action: 'boost', value: 0.8 },
+  { id: 2, label: 'small boost', action: 'boost', value: 1.5 },
+  { id: 3, label: 'big boost', action: 'boost', value: 3.2 },
+  { id: 4, label: 'nitro burst', action: 'boost', value: 5.0 },
+  { id: 5, label: 'micro jump', action: 'jump', value: 2.5 },
+  { id: 6, label: 'small jump', action: 'jump', value: 4.5 },
+  { id: 7, label: 'big jump', action: 'jump', value: 7.5 },
+  { id: 8, label: 'moon jump', action: 'jump', value: 11.0 },
+  { id: 9, label: 'slow motion x0.6', action: 'set_time_scale', value: 0.6 },
+  { id: 10, label: 'slow motion x0.8', action: 'set_time_scale', value: 0.8 },
+  { id: 11, label: 'normal time x1.0', action: 'set_time_scale', value: 1.0 },
+  { id: 12, label: 'fast time x1.2', action: 'set_time_scale', value: 1.2 },
+  { id: 13, label: 'fast time x1.5', action: 'set_time_scale', value: 1.5 },
+  { id: 14, label: 'ultra time x2.0', action: 'set_time_scale', value: 2.0 },
+  { id: 15, label: 'light gravity', action: 'set_gravity', value: 5.6 },
+  { id: 16, label: 'moon gravity', action: 'set_gravity', value: 2.1 },
+  { id: 17, label: 'earth gravity', action: 'set_gravity', value: 9.81 },
+  { id: 18, label: 'heavy gravity', action: 'set_gravity', value: 14.5 },
+  { id: 19, label: 'insane gravity', action: 'set_gravity', value: 20.0 },
+  { id: 20, label: 'camera shake light', action: 'camera_shake', value: 0.5 },
+  { id: 21, label: 'camera shake medium', action: 'camera_shake', value: 1.2 },
+  { id: 22, label: 'camera shake heavy', action: 'camera_shake', value: 2.2 },
+  { id: 23, label: 'spawn smoke', action: 'spawn_particle', value: 0 },
+  { id: 24, label: 'reset car to spawn', action: 'reset_car', value: 0 },
+  { id: 25, label: 'set speed 2', action: 'set_speed', value: 2.0 },
+  { id: 26, label: 'set speed 4', action: 'set_speed', value: 4.0 },
+  { id: 27, label: 'set speed 6', action: 'set_speed', value: 6.0 },
+  { id: 28, label: 'set speed 8', action: 'set_speed', value: 8.0 },
+  { id: 29, label: 'set speed 10', action: 'set_speed', value: 10.0 },
+  { id: 30, label: 'set speed 12', action: 'set_speed', value: 12.0 },
+  { id: 31, label: 'message GO!', action: 'show_message', value: 'GO!' },
+  { id: 32, label: 'message Drift!', action: 'show_message', value: 'Drift!' },
+  { id: 33, label: 'message Boost!', action: 'show_message', value: 'Boost!' },
+  { id: 34, label: 'message Checkpoint!', action: 'show_message', value: 'Checkpoint!' },
+  { id: 35, label: 'message Nice line!', action: 'show_message', value: 'Nice line!' },
+  { id: 36, label: 'boost + smoke', chain: [ { type:'boost', value:2.6 }, { type:'spawn_particle' } ] },
+  { id: 37, label: 'jump + shake', chain: [ { type:'jump', value:6.0 }, { type:'camera_shake', value:1.0 } ] },
+  { id: 38, label: 'heavy boost + shake', chain: [ { type:'boost', value:4.0 }, { type:'camera_shake', value:0.8 } ] },
+  { id: 39, label: 'slow then boost', chain: [ { type:'set_time_scale', value:0.8 }, { type:'boost', value:2.0 } ] },
+  { id: 40, label: 'fast then jump', chain: [ { type:'set_time_scale', value:1.4 }, { type:'jump', value:5.5 } ] },
+  { id: 41, label: 'soft gravity + jump', chain: [ { type:'set_gravity', value:4.2 }, { type:'jump', value:4.0 } ] },
+  { id: 42, label: 'restore default physics', chain: [ { type:'set_gravity', value:9.81 }, { type:'set_time_scale', value:1.0 } ] },
+  { id: 43, label: 'show message + shake', chain: [ { type:'show_message', value:'Impact!' }, { type:'camera_shake', value:1.2 } ] },
+  { id: 44, label: 'tiny speed set', action: 'set_speed', value: 1.0 },
+  { id: 45, label: 'speed set 14', action: 'set_speed', value: 14.0 },
+  { id: 46, label: 'speed set 16', action: 'set_speed', value: 16.0 },
+  { id: 47, label: 'speed set 18', action: 'set_speed', value: 18.0 },
+  { id: 48, label: 'calm shake', action: 'camera_shake', value: 0.25 },
+  { id: 49, label: 'boost 6', action: 'boost', value: 6.0 },
+  { id: 50, label: 'spawn smoke burst', chain: [ { type:'spawn_particle' }, { type:'spawn_particle' } ] },
+];
+
+for (const preset of ACTION_PRESETS) {
+  Blockly.Blocks[`action_preset_${preset.id}`] = {
+    init() {
+      this.appendDummyInput().appendField(`preset: ${preset.label}`);
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setColour('#0ea5e9');
+    }
+  };
+}
+
 
 Blockly.Blocks.value_speed = { init() { this.appendDummyInput().appendField('current speed'); this.setOutput(true, 'Number'); this.setColour('#22c55e'); } };
 Blockly.Blocks.value_lap_time = { init() { this.appendDummyInput().appendField('current lap time'); this.setOutput(true, 'Number'); this.setColour('#22c55e'); } };
@@ -71,7 +136,13 @@ function parseActionStatement(block) {
   if (block.type === 'action_jump') return { type: 'jump', value: parseValueBlock(block.getInputTargetBlock('POWER')) ?? 6 };
   if (block.type === 'action_reset_car') return { type: 'reset_car' };
   if (block.type === 'action_set_time_scale') return { type: 'set_time_scale', value: parseValueBlock(block.getInputTargetBlock('SCALE')) ?? 1 };
-  if (block.type === 'action_add_coins') return { type: 'add_coins', value: parseValueBlock(block.getInputTargetBlock('COINS')) ?? 0 };
+  if (block.type.startsWith('action_preset_')) {
+    const id = Number(block.type.replace('action_preset_', ''));
+    const preset = ACTION_PRESETS.find((entry) => entry.id === id);
+    if (!preset) return null;
+    if (Array.isArray(preset.chain)) return { type: 'run_chain', chain: preset.chain };
+    return { type: preset.action, value: preset.value };
+  }
   return null;
 }
 
@@ -155,7 +226,7 @@ function runActions(actions, ctx, event = {}) {
     if (action.type === 'jump' && typeof api.jump === 'function') api.jump(Number(value) || 6, event);
     if (action.type === 'reset_car' && typeof api.resetCar === 'function') api.resetCar(event);
     if (action.type === 'set_time_scale' && typeof api.setTimeScale === 'function') api.setTimeScale(Number(value) || 1, event);
-    if (action.type === 'add_coins' && typeof api.addCoins === 'function') api.addCoins(Number(value) || 0, event);
+    if (action.type === 'run_chain' && Array.isArray(action.chain)) runActions(action.chain, ctx, event);
   }
 }
 `;
