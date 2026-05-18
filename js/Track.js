@@ -3,6 +3,9 @@ import * as THREE from 'three';
 export const ORIENT_DEG = { 0: 0, 10: 180, 16: 90, 22: 270 };
 
 export const CELL_RAW = 9.99;
+const COLLIDER_OVERLAP = CELL_RAW * 0.06;
+const STEP_HEIGHT = CELL_RAW * 0.08;
+const GROUND_SNAP_DIST = CELL_RAW * 0.12;
 export const GRID_SCALE = 0.75;
 
 const _dummy = new THREE.Object3D();
@@ -126,7 +129,6 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 piece.rotation.y = THREE.MathUtils.degToRad( deg + 180 );
 		
     piece.rotation.x = type === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
-    piece.scale.z = 1.11;
 
 }
 
@@ -181,6 +183,54 @@ function createElevatedSupport( gx, gz, orient = 0, elevatedType = 'elevated-str
 	return support;
 
 }
+
+function createDriveSurface( gx, gz, orient = 0, type = 'flat' ) {
+
+```
+const depth =
+	type === 'slope'
+		? CELL_RAW + COLLIDER_OVERLAP
+		: CELL_RAW + COLLIDER_OVERLAP * 2;
+
+const geometry = new THREE.BoxGeometry(
+	CELL_RAW + COLLIDER_OVERLAP * 2,
+	type === 'slope' ? ELEVATED_HEIGHT : 0.4,
+	depth
+);
+
+const material = new THREE.MeshBasicMaterial( {
+	visible: false
+} );
+
+const mesh = new THREE.Mesh( geometry, material );
+
+mesh.userData.isDriveSurface = true;
+
+mesh.position.set(
+	( gx + 0.5 ) * CELL_RAW,
+	type === 'slope'
+		? ELEVATED_HEIGHT * 0.5
+		: 0,
+	( gz + 0.5 ) * CELL_RAW
+);
+
+mesh.rotation.y =
+	THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+
+if ( type === 'slope' ) {
+
+	mesh.rotation.order = 'YXZ';
+	mesh.rotation.x = -SLOPE_ANGLE;
+
+}
+
+mesh.updateMatrixWorld();
+
+return mesh;
+```
+
+}
+
 
 export const TRACK_CELLS = [
 	[ -3, -3, 'track-corner',   16 ],
@@ -296,12 +346,25 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	trackGroup.position.y = -0.5;
 
 	const trackPieceGroup = new THREE.Group();
+	const driveSurfaceGroup = new THREE.Group();
 	const decoGroup = new THREE.Group();
 
 	const cells = customCells || TRACK_CELLS;
 
 	for ( const [ gx, gz, key, orient ] of cells ) {
+if (
+	key === 'track-straight' ||
+	key === 'track-corner' ||
+	key === 'track-checkpoint' ||
+	key === 'track-finish'
+) {
 
+	const driveSurface =
+		createDriveSurface( gx, gz, orient, 'flat' );
+
+	driveSurfaceGroup.add( driveSurface );
+
+}
 		const piece = placePiece( models, key, gx, gz, orient );
 		if ( piece ) trackPieceGroup.add( piece );
 
@@ -324,7 +387,26 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const customPads = extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {};
 		const elevatedMap = new Map();
 		for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedCells ) {
+const driveSurface =
+	createDriveSurface(
+		gx,
+		gz,
+		orient,
+		elevatedType === 'slope-up'
+			? 'slope'
+			: 'flat'
+	);
 
+if (
+	elevatedType !== 'slope-up' &&
+	elevatedType !== 'slope-down'
+) {
+
+	driveSurface.position.y += ELEVATED_HEIGHT;
+
+}
+
+driveSurfaceGroup.add( driveSurface );
 			if ( ! ELEVATED_TYPES.has( elevatedType ) ) continue;
 			elevatedMap.set( `${ gx },${ gz }`, normalizeElevatedEntry( elevatedType, orient ) );
 
@@ -675,7 +757,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		createInstances( models[ 'decoration-forest' ], forestPositions );
 
 	}
-
+trackGroup.add( driveSurfaceGroup );
 	trackGroup.add( trackPieceGroup );
 	trackGroup.add( decoGroup );
 
