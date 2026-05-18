@@ -63,6 +63,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
 	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT - FLAT_ELEVATED_SURFACE_DROP;
 	const elevatedSupportWallY = wallY + ( ELEVATED_HEIGHT * 0.5 );
+	const elevatedSupportTopY = elevatedSupportWallY + hHeight;
+	const ELEVATED_SUPPORT_EXTRA_DROP = ELEVATED_HEIGHT * 0.85;
+	const elevatedSupportHalfHeight = hHeight + ELEVATED_SUPPORT_EXTRA_DROP;
+	const elevatedSupportCenterY = elevatedSupportTopY - elevatedSupportHalfHeight;
 	const slopeAngle = Math.atan2( CELL_RAW * 0.5, CELL_RAW );
 	const baseSlopeCenterY = groundY + ( ELEVATED_HEIGHT * 0.5 ) - SLOPE_SURFACE_DROP;
 	const slopeNormalYOffset = Math.cos( slopeAngle ) * ELEVATED_SURFACE_HALF_H;
@@ -333,7 +337,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		for ( const rect of activeRects.values() ) finishedRects.push( rect );
 
-		const edgeOverhang = CELL_RAW * S * 0.16;
+		const edgeOverhang = CELL_RAW * S * 0.42;
 		for ( const rect of finishedRects ) {
 
 			const spanCellsX = rect.maxX - rect.minX + 1;
@@ -626,14 +630,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		if ( normalizedType === 'elevated-straight' || normalizedType === 'elevated-checkpoint' ) {
 
 			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
-			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedSupportWallY, hHeight );
+			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedSupportCenterY, elevatedSupportHalfHeight );
 			continue;
 
 		}
 		if ( normalizedType === 'elevated-corner' ) {
 
 			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
-			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedSupportWallY, hHeight );
+			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedSupportCenterY, elevatedSupportHalfHeight );
 
 		}
 
