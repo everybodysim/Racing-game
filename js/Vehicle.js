@@ -9,14 +9,10 @@ const _newZ = new THREE.Vector3();
 const _mat4 = new THREE.Matrix4();
 const _quat = new THREE.Quaternion();
 const _up = new THREE.Vector3( 0, 1, 0 );
-const _raycaster = new THREE.Raycaster();
-const _groundNormal = new THREE.Vector3();
 
 const SPEED_SCALE = 12.5;
 const LINEAR_DAMP = 0.1;
-const GROUND_SNAP_DIST = 1.25;
-const GROUND_FLOAT_HEIGHT = 0.52;
-const SURFACE_ALIGN_SPEED = 12;
+
 function lerpAngle( a, b, t ) {
 
 	let diff = b - a;
@@ -39,7 +35,6 @@ export class Vehicle {
 
 		this.rigidBody = null;
 		this.physicsWorld = null;
-		this.driveSurfaces = null;
 
 		this.modelVelocity = new THREE.Vector3();
 		this.prevModelPos = new THREE.Vector3( 3.5, 0, 5 );
@@ -188,13 +183,6 @@ export class Vehicle {
 		return this.container;
 
 	}
-setDriveSurfaces( surfaces ) {
-
-```
-this.driveSurfaces = surfaces;
-```
-
-}
 
 	update( dt, controlsInput ) {
 
@@ -289,7 +277,7 @@ this.driveSurfaces = surfaces;
 			this.prevModelPos.copy( this.container.position );
 
 		}
-this.followGround( dt );
+
 		this.updateBody( dt );
 		this.updateWheels( dt );
 		this.applySlopeVisualTilt( dt );
@@ -325,85 +313,6 @@ this.followGround( dt );
 		return _quat.setFromRotationMatrix( _mat4 );
 
 	}
-followGround( dt ) {
-
-```
-if ( ! this.driveSurfaces ) return;
-
-const origin = this.spherePos.clone();
-origin.y += 2;
-
-_raycaster.set(
-	origin,
-	new THREE.Vector3( 0, -1, 0 )
-);
-
-const hits = _raycaster.intersectObjects(
-	this.driveSurfaces.children,
-	false
-);
-
-if ( hits.length === 0 ) return;
-
-const hit = hits[ 0 ];
-
-const targetY =
-	hit.point.y + GROUND_FLOAT_HEIGHT;
-
-const currentY = this.spherePos.y;
-
-const dist = currentY - targetY;
-
-if ( dist < GROUND_SNAP_DIST ) {
-
-	const newY = THREE.MathUtils.lerp(
-		currentY,
-		targetY,
-		1 - Math.exp( -dt * 24 )
-	);
-
-	this.spherePos.y = newY;
-
-	if ( this.rigidBody ) {
-
-		rigidBody.setPosition(
-			this.physicsWorld,
-			this.rigidBody,
-			[
-				this.spherePos.x,
-				newY,
-				this.spherePos.z
-			],
-			false
-		);
-
-	}
-
-}
-
-if ( hit.face ) {
-
-	_groundNormal
-		.copy( hit.face.normal )
-		.transformDirection(
-			hit.object.matrixWorld
-		);
-
-	const targetQuat =
-		this.alignWithY(
-			this.container.quaternion,
-			_groundNormal
-		);
-
-	this.container.quaternion.slerp(
-		targetQuat,
-		1 - Math.exp( -dt * SURFACE_ALIGN_SPEED )
-	);
-
-}
-```
-
-}
 
 	updateBody( dt ) {
 
@@ -448,3 +357,4 @@ if ( hit.face ) {
 	}
 
 }
+
