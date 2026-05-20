@@ -147,7 +147,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
-		const supportTopY = groundY + ( CELL_HALF * S ) - SUPPORT_SINK - 0.06;
+		const supportTopY = groundY + ( CELL_HALF * S ) - SUPPORT_SINK - 0.12;
 		const position = [ cx, supportTopY - SUPPORT_HALF_EXTENTS[ 1 ], cz ];
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents: SUPPORT_HALF_EXTENTS } ),
@@ -652,7 +652,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const normalizedOrient = elevatedType === 'slope-down' ? ( ORIENT_180[ orient ] ?? orient ) : orient;
 		const nx = Number( gx );
 		const nz = Number( gz );
-		addElevatedSupportCollider( nx, nz );
+		if ( normalizedType !== 'slope-up' ) addElevatedSupportCollider( nx, nz );
 		if ( normalizedType === 'slope-up' ) {
 
 			addSlopeCollider( nx, nz, normalizedOrient, true );
