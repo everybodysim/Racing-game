@@ -49,7 +49,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const JUMP_RAMP_SINK = 0.14;
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5 * S;
 	const SUPPORT_SINK = 0.03 * S;
-	const SUPPORT_HALF_HEIGHT = CELL_HALF * 0.8 * S;
+	const SUPPORT_HALF_HEIGHT = CELL_HALF * 0.5 * S;
 	const SUPPORT_HALF_EXTENTS = [ CELL_HALF * S, SUPPORT_HALF_HEIGHT, CELL_HALF * S ];
 	const MAGNET_HALF_SIZE = CELL_RAW * S * 0.08;
 	const MAGNET_BASE_Y = ( CELL_RAW * S * 0.08 ) - 0.06;
@@ -63,7 +63,6 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const ELEVATED_WALL_HALF_H = WALL_HALF_H * S;
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
 	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT - FLAT_ELEVATED_SURFACE_DROP;
-	const elevatedSupportWallY = wallY + ( ELEVATED_HEIGHT * 0.5 ) - ( SUPPORT_HALF_HEIGHT - ( CELL_HALF * 0.5 * S ) );
 	const slopeAngle = Math.atan2( CELL_RAW * 0.5, CELL_RAW );
 	const baseSlopeCenterY = groundY + ( ELEVATED_HEIGHT * 0.5 ) - SLOPE_SURFACE_DROP;
 	const slopeNormalYOffset = Math.cos( slopeAngle ) * ELEVATED_SURFACE_HALF_H;
@@ -148,7 +147,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
-		const supportTopY = groundY + ( CELL_HALF * S ) - SUPPORT_SINK;
+		const supportTopY = groundY + ( CELL_HALF * S ) - SUPPORT_SINK - 0.06;
 		const position = [ cx, supportTopY - SUPPORT_HALF_EXTENTS[ 1 ], cz ];
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents: SUPPORT_HALF_EXTENTS } ),
@@ -662,14 +661,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		if ( normalizedType === 'elevated-straight' || normalizedType === 'elevated-checkpoint' ) {
 
 			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
-			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedSupportWallY, hHeight );
 			continue;
 
 		}
 		if ( normalizedType === 'elevated-corner' ) {
 
 			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
-			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedSupportWallY, hHeight );
 
 		}
 
