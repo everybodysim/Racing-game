@@ -652,6 +652,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const normalizedOrient = elevatedType === 'slope-down' ? ( ORIENT_180[ orient ] ?? orient ) : orient;
 		const nx = Number( gx );
 		const nz = Number( gz );
+		addElevatedSupportCollider( nx, nz );
 		if ( normalizedType === 'slope-up' ) {
 
 			addSlopeCollider( nx, nz, normalizedOrient, true );
