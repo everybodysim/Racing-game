@@ -1,10 +1,15 @@
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Campaign</title>
 <style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
 :root{color-scheme:dark}body{margin:0;font:14px/1.45 Inter,Segoe UI,system-ui,sans-serif;background:#0c1018;color:#e8f2ff}
 .layout{display:grid;grid-template-columns:300px 1fr;min-height:100vh}.side{border-right:1px solid rgba(255,255,255,.12);padding:14px;overflow:auto}.main{padding:20px 22px}
 #stage-list{display:grid;gap:6px}.stage-btn{width:100%;text-align:left;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#fff;cursor:pointer}.stage-btn.locked{opacity:.45;cursor:not-allowed}.stage-btn.done{background:rgba(72,191,120,.22);border-color:rgba(129,242,176,.45)}.stage-btn.active{outline:2px solid #6ab4ff}
 .badge{font-size:11px;opacity:.9}a,button{background:#234056;color:#fff;border:1px solid #4f89b5;border-radius:8px;padding:8px 12px;text-decoration:none}
-</style></head><body><div class="layout"><aside class="side"><h2>Campaign Stages</h2><div id="stage-list"></div></aside><main class="main"><h1 id="title"></h1><p id="desc"></p><p id="status"></p><div><a id="start" href="index.html?play=1&campaign=1">Start stage</a> <a href="index.html">Main menu</a></div><p style="margin-top:12px;color:#9fb7d9">Complete stages in order to unlock the next one. Finished stages are green.</p></main></div>
+</style></head><body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content"><div class="layout"><aside class="side"><h2>Campaign Stages</h2><div id="stage-list"></div></aside><main class="main"><h1 id="title"></h1><p id="desc"></p><p id="status"></p><div><a id="start" href="index.html?play=1&campaign=1">Start stage</a> <a href="index.html">Main menu</a></div><p style="margin-top:12px;color:#9fb7d9">Complete stages in order to unlock the next one. Finished stages are green.</p></main></div>
 <script>
 const STAGES=[
 'Complete 1 lap on default track','Play 1 track from Track Share Board','Set 1 shared-track podium','Publish your first track','Open editor and launch Play/Quick Test','Set your first #1 record','Install 1 mod pack','Customize your car once','Beat 3 author times','Beat 3 existing records','Like 3 tracks on the board','Play 3 more shared tracks','Earn 3 podium finishes','Set 3 records','Beat 5 more author times','Like 6 tracks total','Beat 6 records total','Set 5 records total','Play 8 shared tracks total','Reach 8 podiums total','Beat 10 author times total','Complete 12 campaign laps','Campaign mastery complete'];
@@ -14,4 +19,5 @@ function done(n){return n<Math.max(1,Number(save.stage)||1)}
 function render(){const list=document.getElementById('stage-list');list.innerHTML='';STAGES.forEach((t,i)=>{const n=i+1;const b=document.createElement('button');b.className='stage-btn'+(unlocked(n)?'':' locked')+(done(n)?' done':'')+(selected===n?' active':'');b.textContent=`Stage ${n} · ${t}`;const st=document.createElement('div');st.className='badge';st.textContent=done(n)?'Completed':(unlocked(n)?'Unlocked':'Locked');b.appendChild(st);if(unlocked(n))b.onclick=()=>{selected=n;renderDetails();render()};list.appendChild(b)});renderDetails();}
 function renderDetails(){document.getElementById('title').textContent=`Stage ${selected}`;document.getElementById('desc').textContent=STAGES[selected-1];document.getElementById('status').textContent=done(selected)?'✅ Completed':(unlocked(selected)?'🔓 Unlocked':'🔒 Locked');const a=document.getElementById('start');a.href=`index.html?play=1&campaign=1&campaignStage=${selected}`;a.style.display=unlocked(selected)?'inline-block':'none';}
 render();
-</script></body></html>
+</script></main>
+</body></html>

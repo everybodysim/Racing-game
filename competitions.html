@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Competitions</title>
   <style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
     :root { color-scheme: dark; }
     body { margin: 0; font: 14px/1.4 Inter, system-ui, sans-serif; background: radial-gradient(circle at top, #14243f 0%, #0f1117 40%, #0b0d12 100%); color: #e8ecf1; }
     .wrap { max-width: 1280px; margin: 0 auto; padding: 16px; }
@@ -27,6 +30,8 @@
   </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
   <div class="wrap">
     <div class="top">
       <h1>🏁 Competitions</h1>
@@ -392,5 +397,6 @@
   init();
 })();
 </script>
+</main>
 </body>
 </html>

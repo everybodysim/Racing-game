@@ -6,6 +6,9 @@
   <title>Custom Mods Lab</title>
   <script src="https://unpkg.com/blockly/blockly.min.js"></script>
   <style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
     body { margin: 0; font-family: Arial, sans-serif; display: flex; flex-direction: column; height: 100vh; background: #0f172a; color: #fff; }
     #topbar { padding: 10px; background: #111827; color: white; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     #topbar input { padding: 6px 8px; border-radius: 6px; border: 1px solid #334155; background: #020617; color: #fff; }
@@ -17,6 +20,8 @@
   </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
 <div id="topbar">
   <input id="mod-id" placeholder="mod id (custom-speed)" value="custom-speed">
   <input id="mod-name" placeholder="mod name" value="Custom Speed">
@@ -93,5 +98,6 @@
 
 
 <script type="module" src="js/custom-mods.js"></script>
+</main>
 </body>
 </html>

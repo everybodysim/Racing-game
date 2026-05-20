@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <title>My Racing Game</title>
   <style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
     body {
       margin: 0;
       background: #000;
@@ -17,11 +20,14 @@
   </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
 
 <iframe 
   src="https://everybodysim.github.io/Racing-game/index.html"
   allowfullscreen
 ></iframe>
 
+</main>
 </body>
 </html>

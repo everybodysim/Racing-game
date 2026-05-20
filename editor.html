@@ -5,6 +5,9 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 	<title>Track Editor</title>
 	<style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
 		* { box-sizing: border-box; }
 		body { margin: 0; overflow: hidden; background: linear-gradient(180deg, #8db7ea 0%, #0f1728 35%, #03070f 100%); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 		canvas { display: block; touch-action: none; }
@@ -285,6 +288,8 @@
 	</script>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
 	<div id="settings-bar">
 		<label for="weather-preset">Weather</label>
 		
@@ -3970,5 +3975,6 @@ function refreshMovingSpeedUi() {
 	animate();
 
 	</script>
+</main>
 </body>
 </html>

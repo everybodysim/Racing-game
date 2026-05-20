@@ -6,6 +6,9 @@
   <title>TAS Viewer</title>
 
   <style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
     body { margin: 0; background: #090d14; color: #fff; font: 13px/1.4 system-ui, sans-serif; }
 
     #root {
@@ -73,6 +76,8 @@
 </head>
 
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
 
   <div id="root">
     <div id="view"><div id="lap">Lap 1 • 00:00.000 • Last --:--.--- • Best --:--.---</div></div>
@@ -132,5 +137,6 @@ ArrowUp,120</textarea>
 
   <script type="module" src="js/tas-viewer.js"></script>
 
+</main>
 </body>
 </html>

@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Racing Clubs</title>
   <style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
     :root{--bg:#0b1016;--panel:#141b24;--panel2:#1a2431;--text:#e6edf3;--muted:#9fb0c3;--line:#2c3a4d;--accent:#5cc8ff;--ok:#78e08f;--danger:#ff6b6b}
     body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0b1016,#0d1117);color:var(--text)}
     .app{display:grid;grid-template-columns:260px 1fr 320px;min-height:100vh}
@@ -31,6 +34,8 @@
   </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
 <div class="app">
   <aside class="left">
     <a class="btn" href="index.html">← Back to game</a>
@@ -260,5 +265,6 @@ $('jumpAnnBtn').onclick=()=>$('annHeader').scrollIntoView({behavior:'smooth'});
 channel.subscribe((msg)=>{const p=parseClubTaggedMessage(msg?.data); if(!p||!currentClub||p.clubId!==currentClub.clubId) return; renderHistory();});
 renderClubs();
 </script>
+</main>
 </body>
 </html>

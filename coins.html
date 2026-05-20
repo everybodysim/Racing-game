@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Coin Leaderboard</title>
   <style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
     :root { color-scheme: dark; }
     body { margin: 0; font: 14px/1.45 Inter, system-ui, sans-serif; background: linear-gradient(160deg, #0b1220, #121826); color: #e6edf7; }
     .wrap { max-width: 880px; margin: 0 auto; padding: 20px 14px 34px; }
@@ -22,6 +25,8 @@
   </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
   <div class="wrap">
     <h1>Coin Leaderboard</h1>
     <p class="sub">Top accounts ranked by saved profile coin totals.</p>
@@ -101,5 +106,6 @@
   loadLeaderboard();
 })();
 </script>
+</main>
 </body>
 </html>

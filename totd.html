@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Track of the Day</title>
   <style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
     :root { color-scheme: dark; }
     body { font-family: system-ui,sans-serif; margin: 0; padding: 20px; background: radial-gradient(circle at top, #14243f 0%, #0f1117 40%, #0b0d12 100%); color:#e8ecf1; }
     h2 { margin-top: 0; font-size: 30px; }
@@ -24,6 +27,8 @@
   </style>
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
   <h2>🏁 Track of the Day</h2>
   <p class="subtitle">Daily seeded challenge track with leaderboard lookup for today's fastest run.</p>
   <div class="row">
@@ -558,5 +563,6 @@
   run();
 })();
 </script>
+</main>
 </body>
 </html>
