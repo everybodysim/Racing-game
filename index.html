@@ -9,7 +9,24 @@
 	<link rel="icon" href="icons/icon-192.png" type="image/png">
 	<link rel="apple-touch-icon" href="icons/icon-192.png">
 	<style>
-		body { margin: 0; overflow: hidden; background: #000; }
+		:root {
+			--glass-bg: linear-gradient(145deg, rgba(153, 226, 255, 0.22), rgba(118, 122, 255, 0.14) 40%, rgba(255, 120, 214, 0.14));
+			--glass-stroke: rgba(200, 236, 255, 0.42);
+			--glass-shadow: 0 12px 36px rgba(8, 13, 30, 0.5), inset 0 1px 0 rgba(255,255,255,0.28);
+			--glass-hover: rgba(255,255,255,0.2);
+			--text-main: #eaf6ff;
+			--text-muted: #b9d2e8;
+		}
+		body {
+			margin: 0;
+			overflow: hidden;
+			background:
+				radial-gradient(1300px 600px at 82% -15%, rgba(99, 61, 255, 0.35), transparent 65%),
+				radial-gradient(900px 500px at 8% 110%, rgba(33, 182, 255, 0.24), transparent 70%),
+				#04060d;
+			color: var(--text-main);
+			font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+		}
 		canvas { display: block; touch-action: none; }
 
 		#speed-blur-vignette {
@@ -30,12 +47,12 @@
 			display: flex;
 			align-items: center;
 			justify-content: center;
-			background: radial-gradient(circle at 30% 20%, #203040, #080b12 65%);
+			background: radial-gradient(circle at 22% 10%, rgba(106, 80, 255, 0.42), rgba(7,10,22,0.96) 55%), radial-gradient(circle at 82% 82%, rgba(47,169,255,0.32), transparent 55%), #050812;
 			color: #fff;
 			font: 600 14px/1.4 Inter, system-ui, sans-serif;
 		}
 		#loading-screen.hidden { display: none; }
-		#loading-card { width: min(520px, calc(100vw - 30px)); background: rgba(8,12,22,0.72); border: 1px solid rgba(255,255,255,0.18); border-radius: 14px; padding: 18px; box-sizing: border-box; }
+		#loading-card { width: min(520px, calc(100vw - 30px)); background: linear-gradient(155deg, rgba(165,229,255,0.22), rgba(114,126,255,0.16), rgba(255,120,227,0.12)); border: 1px solid var(--glass-stroke); border-radius: 18px; padding: 18px; box-sizing: border-box; backdrop-filter: blur(18px); box-shadow: var(--glass-shadow); }
 		#loading-title { margin: 0 0 10px; font: 800 28px/1.2 Inter, system-ui, sans-serif; letter-spacing: 0.02em; }
 		#loading-spinner { width: 26px; height: 26px; border: 3px solid rgba(255,255,255,0.22); border-top-color: #6fe2ff; border-radius: 50%; animation: loading-spin 0.9s linear infinite; margin-bottom: 10px; }
 		#loading-progress { width: 100%; height: 10px; border-radius: 999px; background: rgba(255,255,255,0.12); overflow: hidden; margin-bottom: 10px; }
@@ -47,34 +64,43 @@
 		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
 			position: absolute;
 			bottom: 12px;
-			color: #fff;
-			font: 14px sans-serif;
-			background: rgba(0,0,0,0.5);
-			padding: 8px 14px;
-			border-radius: 6px;
+			color: var(--text-main);
+			font: 600 13px/1.2 Inter, system-ui, sans-serif;
+			letter-spacing: 0.02em;
+			background: var(--glass-bg);
+			padding: 10px 14px;
+			border-radius: 12px;
 			z-index: 10;
-			border: none;
+			border: 1px solid var(--glass-stroke);
+			backdrop-filter: blur(14px) saturate(140%);
+			-webkit-backdrop-filter: blur(14px) saturate(140%);
+			box-shadow: var(--glass-shadow);
+			transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
 		}
 		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn { text-decoration: none; }
 		#editor-link { right: 16px; }
-		#totd-link { right: 16px; bottom: 54px; }
-		#weekly-cup-link { right: 16px; bottom: 96px; }
-		#coin-leaderboard-link { right: 16px; bottom: 138px; }
-		#competitions-link { right: 16px; bottom: 180px; }
-		#replay-link { right: 16px; bottom: 222px; }
-		#tracks-link { right: 16px; bottom: 264px; }
-		#clubs-link { right: 16px; bottom: 222px; }
-		#mods-link { right: 16px; bottom: 306px; }
-		#hacks-toggle { right: 16px; bottom: 348px; }
-		#split-link { right: 16px; bottom: 390px; }
-		#respawnBtn { left: 16px; top: 54px; bottom: auto; }
-		#mode-menu-btn { left: 16px; top: 96px; bottom: auto; }
+		#totd-link { right: 16px; bottom: 56px; }
+		#weekly-cup-link { right: 16px; bottom: 100px; }
+		#coin-leaderboard-link { right: 16px; bottom: 144px; }
+		#competitions-link { right: 16px; bottom: 188px; }
+		#replay-link { right: 16px; bottom: 232px; }
+		#tracks-link { right: 16px; bottom: 276px; }
+		#clubs-link { right: 16px; bottom: 232px; }
+		#mods-link { right: 16px; bottom: 320px; }
+		#hacks-toggle { right: 16px; bottom: 364px; }
+		#split-link { right: 16px; bottom: 408px; }
+		#respawnBtn { left: 16px; top: 56px; bottom: auto; }
+		#mode-menu-btn { left: 16px; top: 102px; bottom: auto; }
 		#car-select { left: 16px; top: 12px; bottom: auto; }
 		#share-time-btn { left: 16px; bottom: 12px; }
-		#export-ghost-btn { left: 180px; bottom: 12px; }
-		#import-ghost-btn { left: 300px; bottom: 12px; }
+		#export-ghost-btn { left: 188px; bottom: 12px; }
+		#import-ghost-btn { left: 318px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
-		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover {
+			background: linear-gradient(145deg, rgba(186, 243, 255, 0.3), rgba(128, 138, 255, 0.2), rgba(255, 132, 227, 0.2));
+			border-color: rgba(221, 247, 255, 0.72);
+			transform: translateY(-1px);
+		}
 		#clubs-link.has-club-unread {
 			animation: club-link-unread-pulse 1.2s ease-in-out infinite;
 			border-color: rgba(255,96,96,0.82);
@@ -108,11 +134,13 @@
 			50% { background: linear-gradient(165deg, rgba(190,35,46,0.86), rgba(132,24,32,0.82)); box-shadow: 0 0 18px rgba(255,58,58,0.58); }
 		}
 		#mp-panel {
+			border: 1px solid var(--glass-stroke);
+			box-shadow: var(--glass-shadow);
 			position: absolute;
 			left: 16px;
 			bottom: 54px;
 			z-index: 10;
-			background: rgba(0,0,0,0.55);
+			background: linear-gradient(160deg, rgba(136,219,255,0.2), rgba(86,97,219,0.16), rgba(255,124,218,0.12));
 			border-radius: 10px;
 			padding: 10px;
 			color: #fff;
@@ -217,6 +245,9 @@
 			cursor: not-allowed;
 		}
 		#lap-hud {
+			border: 1px solid var(--glass-stroke);
+			backdrop-filter: blur(12px);
+			box-shadow: var(--glass-shadow);
 			position: absolute;
 			top: 12px;
 			left: 50%;
@@ -225,7 +256,7 @@
 			font: 600 14px/1.4 sans-serif;
 			text-align: center;
 			text-shadow: 0 1px 3px rgba(0,0,0,0.7);
-			background: rgba(0,0,0,0.4);
+			background: linear-gradient(145deg, rgba(170,236,255,0.18), rgba(112,122,255,0.16));
 			border-radius: 8px;
 			padding: 8px 12px;
 			z-index: 10;
@@ -279,7 +310,7 @@
 			font: 600 14px/1.4 sans-serif;
 			text-align: center;
 			text-shadow: 0 1px 3px rgba(0,0,0,0.7);
-			background: rgba(0,0,0,0.4);
+			background: linear-gradient(145deg, rgba(170,236,255,0.18), rgba(112,122,255,0.16));
 			border-radius: 8px;
 			padding: 8px 12px;
 			z-index: 10;
@@ -318,7 +349,7 @@
 			color: #fff;
 			font: 600 13px/1.35 sans-serif;
 			text-align: right;
-			background: rgba(0,0,0,0.4);
+			background: linear-gradient(145deg, rgba(170,236,255,0.18), rgba(112,122,255,0.16));
 			border-radius: 8px;
 			padding: 8px 10px;
 			z-index: 10;
@@ -1005,7 +1036,10 @@
 			#car-select { top: 12px; left: 12px; }
 				#respawnBtn { top: 54px; left: 12px; }
 				#mode-menu-btn { top: 96px; left: 12px; }
-				#lap-hud { top: 56px; }
+				#lap-hud {
+			border: 1px solid var(--glass-stroke);
+			backdrop-filter: blur(12px);
+			box-shadow: var(--glass-shadow); top: 56px; }
 				
 		#boost-ui {
 			position: absolute;
