@@ -287,46 +287,109 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	function addMergedElevatedSurfaceColliders( elevatedList ) {
 
-		const flatCells = [];
+		const flatSet = new Set();
 		for ( const entry of elevatedList ) {
 
 			if ( ! Array.isArray( entry ) ) continue;
 			const [ gxRaw, gzRaw, elevatedType ] = entry;
-			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-checkpoint' ) continue;
 			const gx = Number( gxRaw );
 			const gz = Number( gzRaw );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
-			flatCells.push( { gx, gz } );
+			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-checkpoint' ) continue;
+			flatSet.add( `${ gx },${ gz }` );
 
 		}
 
-		if ( flatCells.length === 0 ) return;
+		if ( flatSet.size === 0 ) return;
+
+		const rows = new Map();
+		for ( const cellKey of flatSet ) {
+
+			const [ gx, gz ] = cellKey.split( ',' ).map( Number );
+			if ( ! rows.has( gz ) ) rows.set( gz, [] );
+			rows.get( gz ).push( gx );
+
+		}
+
+		const rowKeys = [ ...rows.keys() ].sort( ( a, b ) => a - b );
+		const activeRects = new Map();
+		const finishedRects = [];
+
+		for ( const gz of rowKeys ) {
+
+			const xs = rows.get( gz ).sort( ( a, b ) => a - b );
+			const spans = [];
+			let start = xs[ 0 ];
+			let prev = xs[ 0 ];
+			for ( let i = 1; i < xs.length; i ++ ) {
+
+				const x = xs[ i ];
+				if ( x === prev + 1 ) {
+
+					prev = x;
+					continue;
+
+				}
+				spans.push( [ start, prev ] );
+				start = x;
+				prev = x;
+
+			}
+			spans.push( [ start, prev ] );
+
+			const nextActive = new Map();
+			for ( const [ spanStart, spanEnd ] of spans ) {
+
+				const spanKey = `${ spanStart },${ spanEnd }`;
+				const existing = activeRects.get( spanKey );
+				if ( existing ) {
+
+					existing.maxZ = gz;
+					nextActive.set( spanKey, existing );
+
+				} else {
+
+					nextActive.set( spanKey, { minX: spanStart, maxX: spanEnd, minZ: gz, maxZ: gz } );
+
+				}
+
+			}
+
+			for ( const [ spanKey, rect ] of activeRects ) {
+
+				if ( ! nextActive.has( spanKey ) ) finishedRects.push( rect );
+
+			}
+
+			activeRects.clear();
+			for ( const [ spanKey, rect ] of nextActive ) activeRects.set( spanKey, rect );
+
+		}
+
+		for ( const rect of activeRects.values() ) finishedRects.push( rect );
 
 		const edgeOverhang = CELL_RAW * S * 0.16;
-		const halfCell = CELL_RAW * S * 0.5;
-		let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-		for ( const cell of flatCells ) {
+		for ( const rect of finishedRects ) {
 
-			const centerX = ( cell.gx + 0.5 ) * CELL_RAW * S;
-			const centerZ = ( cell.gz + 0.5 ) * CELL_RAW * S;
-			minX = Math.min( minX, centerX - halfCell );
-			maxX = Math.max( maxX, centerX + halfCell );
-			minZ = Math.min( minZ, centerZ - halfCell );
-			maxZ = Math.max( maxZ, centerZ + halfCell );
+			const spanCellsX = rect.maxX - rect.minX + 1;
+			const spanCellsZ = rect.maxZ - rect.minZ + 1;
+			const fullX = spanCellsX * CELL_RAW * S + edgeOverhang;
+			const fullZ = spanCellsZ * CELL_RAW * S + edgeOverhang;
+			const halfExtents = [ fullX * 0.5, ELEVATED_SURFACE_HALF_H, fullZ * 0.5 ];
+			const centerX = ( ( rect.minX + rect.maxX + 1 ) * 0.5 ) * CELL_RAW * S;
+			const centerZ = ( ( rect.minZ + rect.maxZ + 1 ) * 0.5 ) * CELL_RAW * S;
+			const position = [ centerX, elevatedSurfaceY, centerZ ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				friction: 1.0,
+				restitution: 0.0,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
 
 		}
-
-		const halfExtents = [ ( maxX - minX + edgeOverhang ) * 0.5, ELEVATED_SURFACE_HALF_H, ( maxZ - minZ + edgeOverhang ) * 0.5 ];
-		const position = [ ( minX + maxX ) * 0.5, elevatedSurfaceY, ( minZ + maxZ ) * 0.5 ];
-		rigidBody.create( world, {
-			shape: box.create( { halfExtents } ),
-			motionType: MotionType.STATIC,
-			objectLayer: world._OL_STATIC,
-			position,
-			friction: 1.0,
-			restitution: 0.0,
-		} );
-		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
 
 	}
 
