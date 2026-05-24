@@ -843,152 +843,55 @@
 			inset: 0;
 			z-index: 200;
 			display: none;
-			align-items: center;
-			justify-content: center;
-			padding: 20px;
-			background:
-				radial-gradient(circle at 14% 12%, rgba(83, 212, 255, 0.24), transparent 38%),
-				radial-gradient(circle at 83% 76%, rgba(120, 104, 255, 0.18), transparent 36%),
-				linear-gradient(160deg, rgba(3,9,20,0.96), rgba(6,11,22,0.98));
 			font-family: "Inter", "Segoe UI", sans-serif;
 		}
-		#home-landing.visible { display: flex; }
-		#home-card {
-			position: relative;
-			width: min(1320px, 100%);
-			border-radius: 26px;
-			padding: clamp(18px, 2.5vw, 34px);
-			background: linear-gradient(150deg, rgba(8,20,43,0.88), rgba(5,14,30,0.8));
-			border: 1px solid rgba(111,167,255,0.32);
-			box-shadow: 0 24px 70px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12);
-			color: #eaf2ff;
-			backdrop-filter: blur(8px);
-			overflow: hidden;
-		}
-
-		#home-player-counter {
-			position: absolute;
-			right: clamp(18px, 2.5vw, 34px);
-			top: clamp(18px, 2.5vw, 28px);
-			padding: 8px 10px;
-			border-radius: 10px;
-			background: rgba(5,10,18,0.55);
-			border: 1px solid rgba(255,255,255,0.16);
-			font: 600 11px/1.2 "Inter", "Segoe UI", sans-serif;
-			color: #d8ebff;
-			min-width: 120px;
-			text-align: right;
-		}
-		#home-player-counter a { color: #9ec6ff; text-decoration: none; font-size: 10px; }
-
-		#home-card h1 {
-			margin: 0 0 8px;
-			font: 800 clamp(34px, 5vw, 58px)/1.04 "Inter", "Segoe UI", sans-serif;
-			letter-spacing: 0.02em;
-		}
-		#home-card p {
-			margin: 0 0 18px;
-			color: #bad0ea;
-			font: 500 clamp(13px, 1.8vw, 18px)/1.45 "Inter", "Segoe UI", sans-serif;
-			max-width: 62ch;
-		}
-		#home-main-grid {
-			display: grid;
-			grid-template-columns: 1.2fr repeat(3, minmax(0, 1fr));
-			gap: 12px;
-		}
-		.home-main-link {
-			position: relative;
-			display: block;
-			padding: 14px 12px;
-			min-height: 108px;
-			border-radius: 16px;
-			text-decoration: none;
-			color: #f7fbff;
-			background: linear-gradient(170deg, rgba(33,64,120,0.56), rgba(18,42,87,0.4));
-			border: 1px solid rgba(127,175,255,0.48);
-			font: 700 clamp(12px, 1.35vw, 15px)/1.2 "Inter", "Segoe UI", sans-serif;
-			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
-			box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 8px 28px rgba(9,22,40,0.34);
-		}
-		.home-record-chip {
-			display: none;
-			margin: 0 0 8px;
-			padding: 6px 8px;
-			border-radius: 10px;
-			border: 1px solid rgba(120,245,184,0.46);
-			background: linear-gradient(130deg, rgba(50,72,120,0.76), rgba(48,170,128,0.36));
-			box-shadow: 0 0 14px rgba(77,232,152,0.16);
-		}
-		.home-record-chip.visible { display: block; }
-		.home-record-chip .record-label {
-			display: block;
-			font-size: 9px;
-			font-weight: 800;
-			letter-spacing: 0.08em;
-			text-transform: uppercase;
-			color: #d7e5ff;
-			opacity: 0.88;
-		}
-		.home-record-chip .record-name {
-			display: block;
-			margin-top: 2px;
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
-			font-size: 12px;
-			font-weight: 900;
-			color: #f7fbff;
-		}
-		.home-main-link em {
-			display: block;
-			margin-top: 7px;
-			font-style: normal;
-			font-weight: 500;
-			font-size: 12px;
-			opacity: 0.9;
-		}
-		.home-main-link:hover {
-			transform: translateY(-2px);
-			box-shadow: 0 12px 28px rgba(30,71,126,0.45), 0 0 0 1px rgba(141,236,255,0.45) inset;
-			background: linear-gradient(165deg, rgba(64,132,240,0.56), rgba(28,86,164,0.45));
-		}
-
-		.home-main-link.out-of-order, #competitions-link.out-of-order {
-			position: relative;
-			opacity: 1;
-			pointer-events: auto;
-			background: linear-gradient(165deg, rgba(170,40,40,0.88), rgba(120,24,24,0.92));
-			border-color: rgba(255,180,180,0.65);
-			color: #fff3f3;
-		}
-		.home-main-link.out-of-order em {
-			color: #ffd4d4;
-		}
-		.home-main-link.play-link {
-			background: linear-gradient(165deg, rgba(39,212,123,0.42), rgba(20,124,85,0.36));
-			border-color: rgba(138,255,205,0.66);
-			box-shadow: inset 0 1px 0 rgba(220,255,236,0.24), 0 0 26px rgba(61,236,159,0.22);
-		}
-		#home-secondary {
-			margin-top: 14px;
-			display: flex;
-			flex-wrap: wrap;
-			gap: 8px;
-		}
-		.home-secondary-link {
-			text-decoration: none;
-			font: 600 12px/1 "Inter", "Segoe UI", sans-serif;
-			padding: 7px 10px;
-			border-radius: 999px;
-			color: #cfe1f8;
-			background: linear-gradient(145deg, rgba(14,32,58,0.8), rgba(7,20,40,0.72));
-			border: 1px solid rgba(147,198,255,0.36);
-		}
-		.home-secondary-link:hover {
-			background: linear-gradient(145deg, rgba(32,74,128,0.88), rgba(11,28,52,0.84));
-			color: #fff;
-		}
+		#home-landing.visible { display: block; }
+		.menuShell{ position:relative; width:100%; height:100vh; overflow:hidden; padding:28px; color:white; }
+		.menuBg{ position:absolute; inset:0; background-image:url('https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1600&auto=format&fit=crop'); background-size:cover; background-position:center; z-index:-4; }
+		.menuOverlay{ position:absolute; inset:0; background:linear-gradient(to bottom, rgba(0,0,0,.2), rgba(0,0,0,.85)); z-index:-3; }
+		.menuGlow{ position:absolute; width:500px; height:500px; border-radius:50%; filter:blur(120px); opacity:.15; pointer-events:none; }
+		.glowA{ background:#00d0ff; top:-200px; left:-120px; }
+		.glowB{ background:#7a5cff; right:-200px; bottom:-200px; }
+		.menuTop{ display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
+		.menuLogo{ font-size:54px; font-weight:900; letter-spacing:-4px; }
+		.menuSub{ opacity:.7; margin-top:6px; }
+		.visitorPanel{ padding:16px; border-radius:24px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); backdrop-filter:blur(18px); }
+		.visitorTitle{ margin-bottom:10px; font-size:13px; opacity:.7; }
+		.homeGrid{ display:grid; grid-template-columns:280px 1fr 360px; gap:24px; margin-top:24px; height:calc(100vh - 180px); }
+		.sideColumn,.mainColumn,.rightColumn{ display:flex; flex-direction:column; gap:18px; }
+		.navCard{ display:flex; align-items:center; gap:16px; padding:20px; border-radius:24px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.05); color:white; cursor:pointer; transition:.2s; backdrop-filter:blur(16px); text-align:left; }
+		.navCard:hover{ transform:translateY(-2px); background:rgba(255,255,255,.09); }
+		.playCard{ background:linear-gradient(135deg, rgba(30,255,120,.22), rgba(0,255,120,.08)); border:1px solid rgba(30,255,120,.45); }
+		.navIcon{ font-size:28px; }
+		.navTitle{ font-size:20px; font-weight:800; }
+		.navDesc{ margin-top:4px; opacity:.65; font-size:13px; }
+		.heroPanel,.contentPanel,.infoPanel{ border-radius:30px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.05); backdrop-filter:blur(20px); }
+		.heroPanel{ padding:34px; }
+		.heroHeading{ font-size:54px; font-weight:900; line-height:1; }
+		.heroDescription{ margin-top:16px; max-width:620px; opacity:.72; line-height:1.5; }
+		.heroButtons{ display:flex; gap:16px; margin-top:30px; }
+		.bigActionButton{ padding:18px 26px; border-radius:18px; border:none; cursor:pointer; font-weight:900; background:#1eff78; color:black; }
+		.bigActionButton.alt{ background:rgba(255,255,255,.08); color:white; }
+		.contentPanel{ padding:24px; }
+		.panelHeader{ display:flex; justify-content:space-between; align-items:center; }
+		.tinyLabel{ font-size:12px; opacity:.6; letter-spacing:1px; }
+		.panelTitle{ margin-top:6px; font-size:30px; font-weight:900; }
+		.liveBadge{ padding:10px 14px; border-radius:999px; background:#ff3b30; font-size:12px; font-weight:900; }
+		.trackScroller{ display:flex; gap:16px; overflow-x:auto; margin-top:20px; }
+		.trackCard{ min-width:280px; height:170px; border-radius:22px; padding:20px; background:linear-gradient(135deg, rgba(0,180,255,.18), rgba(140,0,255,.14)); border:1px solid rgba(255,255,255,.12); color:#fff; text-decoration:none; display:block; }
+		.trackCardName{ margin-top:70px; font-size:28px; font-weight:900; }
+		.trackCardMeta{ margin-top:8px; opacity:.7; font-size:13px; }
+		.lowerGrid{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+		.infoPanel{ padding:24px; }
+		.purple{ border-color:rgba(180,120,255,.4); }
+		.cyan{ border-color:rgba(0,255,255,.4); }
+		.recordMain{ margin-top:12px; font-size:34px; font-weight:900; }
+		.recordSub{ margin-top:8px; opacity:.65; }
+		.totdTrack{ margin-top:16px; font-size:36px; font-weight:900; }
+		.leaderboardList,.browserList{ display:flex; flex-direction:column; gap:12px; margin-top:20px; max-height:260px; overflow:auto; }
+		.leaderboardRow,.browserRow{ display:flex; justify-content:space-between; align-items:center; padding:14px; border-radius:16px; background:rgba(255,255,255,.05); color:#fff; text-decoration:none; }
+		.bottomDock{ position:absolute; left:50%; transform:translateX(-50%); bottom:24px; display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+		.dockButton{ padding:14px 18px; border-radius:18px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.06); color:white; cursor:pointer; text-decoration:none; }
 
 		@media (max-width: 1180px) {
 			#home-main-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -1075,35 +978,7 @@
 			<button id="loading-reload-btn" type="button">Reload</button>
 		</div>
 	</div>
-	<section id="home-landing" aria-label="Home page">
-		<div id="home-card">
-			<h1>Welcome to Skid Circuit</h1>
-
-			<div id="home-player-counter" aria-label="Player counter">
-				<div>Players visited</div>
-				<a href='http://www.freevisitorcounters.com'>at Freevisitorcounters.com</a>
-				<script type='text/javascript' src='https://www.freevisitorcounters.com/auth.php?id=80aeb0b0a17286f9397ecfd36846075238e35741'></script>
-				<script type="text/javascript" src="https://www.freevisitorcounters.com/en/home/counter/1550946/t/0"></script>
-			</div>
-
-			<p>Start with a clean launch experience, then jump straight into racing, sharing, and curated events. Choose a destination below.</p>
-			<div id="home-main-grid">
-				<a class="home-main-link play-link" href="index.html?play=1">Play now<em>Launch the game immediately</em></a>
-				<a class="home-main-link" href="tracks.html">Track shares<em>Discover and copy community maps</em></a>
-				<a class="home-main-link" href="editor.html">Create your own track<em>Build and test original circuits</em></a>
-				<a class="home-main-link" href="weekly-cup.html"><span class="home-record-chip" data-record-badge="weekly"><span class="record-label">Weekly leader</span><span class="record-name">Loading…</span></span>Weekly cup<em>Competitive rotating event</em></a>
-				<a class="home-main-link club-notify-target" href="clubs.html">Clubs<em>Create and manage your racing communities</em></a>
-				<a class="home-main-link" href="competitions.html">Competitions<em>9 live stake-based tier events</em></a>
-				<a class="home-main-link" href="totd.html"><span class="home-record-chip" data-record-badge="totd"><span class="record-label">Today’s record</span><span class="record-name">Loading…</span></span>Track of the day<em>One featured challenge each day</em></a>
-			</div>
-			<div id="home-secondary">
-				<a class="home-secondary-link" href="replay.html">Replay watcher</a>
-				<a class="home-secondary-link" href="mods.html">Mods</a>
-				<a class="home-secondary-link" href="index.html?play=1&multiplayer=1">2P split screen</a>
-			<!--	<a class="home-secondary-link" href="campaign.html">Campaign guide</a> -->
-			</div>
-		</div>
-	</section>
+	<section id="home-landing" aria-label="Home page"><div class="menuShell"><div class="menuBg"></div><div class="menuOverlay"></div><div class="menuGlow glowA"></div><div class="menuGlow glowB"></div><div class="menuTop"><div><div class="menuLogo">SKID CIRCUIT</div><div class="menuSub">Premium arcade drifting toybox</div></div><div class="visitorPanel"><div class="visitorTitle">Players visited</div><a href='http://www.freevisitorcounters.com'>at Freevisitorcounters.com</a><script type='text/javascript' src='https://www.freevisitorcounters.com/auth.php?id=80aeb0b0a17286f9397ecfd36846075238e35741'></script><script type="text/javascript" src="https://www.freevisitorcounters.com/en/home/counter/1550946/t/0"></script></div></div><div class="homeGrid"><div class="sideColumn"><button class="navCard playCard" onclick="location.href='index.html?play=1'"><div class="navIcon">▶</div><div><div class="navTitle">Play now</div><div class="navDesc">Launch the game immediately</div></div></button><button class="navCard" onclick="location.href='tracks.html'"><div class="navIcon">🌐</div><div><div class="navTitle">Track shares</div><div class="navDesc">Discover and copy maps</div></div></button><button class="navCard" onclick="location.href='editor.html'"><div class="navIcon">🛠</div><div><div class="navTitle">Create your own track</div><div class="navDesc">Build and test tracks</div></div></button><button class="navCard" onclick="location.href='clubs.html'"><div class="navIcon">👥</div><div><div class="navTitle">Clubs</div><div class="navDesc">Racing communities</div></div></button><button class="navCard" onclick="location.href='competitions.html'"><div class="navIcon">🏆</div><div><div class="navTitle">Competitions</div><div class="navDesc">Stake-based events</div></div></button></div><div class="mainColumn"><div class="heroPanel"><div class="heroText"><div class="heroHeading">Welcome to Skid Circuit</div><div class="heroDescription">Start with a clean launch experience, then jump straight into racing, sharing, and curated events.</div></div><div class="heroButtons"><button class="bigActionButton" onclick="location.href='index.html?play=1'">PLAY NOW</button><button class="bigActionButton alt" id="randomTrackButton">RANDOM TRACK</button></div></div><div class="contentPanel"><div class="panelHeader"><div><div class="tinyLabel">LIVE COMMUNITY PICKS</div><div class="panelTitle">Trending Tracks</div></div><div class="liveBadge">LIVE</div></div><div class="trackScroller" id="trackScroller"></div></div><div class="lowerGrid"><div class="infoPanel purple"><div class="tinyLabel">WEEKLY LEADER</div><div class="recordMain" id="weeklyLeaderName">Loading...</div><div class="recordSub">Competitive event</div></div><div class="infoPanel cyan"><div class="tinyLabel">TODAY'S RECORD</div><div class="recordMain" id="todaysRecord">Loading...</div><div class="recordSub">Track of the day</div></div></div></div><div class="rightColumn"><div class="contentPanel"><div class="panelTitle">Track of the Day</div><div class="totdTrack" id="totdTrackName">Loading...</div><div class="leaderboardList" id="totdLeaderboard"><div class="leaderboardRow"><span>#1 Loading...</span><span>--:--</span></div></div></div><div class="contentPanel"><div class="panelTitle">Community Browser</div><div class="browserList" id="communityBrowser"></div></div></div></div><div class="bottomDock"><a class="dockButton" href="replay.html">📹 Replay watcher</a><a class="dockButton" href="mods.html">📦 Mods</a><a class="dockButton" href="index.html?play=1&multiplayer=1">🎮 2P split screen</a><button class="dockButton" type="button" id="settingsOpenBtn">⚙ Settings</button></div></div></section>
 	<div id="top-message" aria-live="polite"></div>
 	<div id="effect-message" aria-live="polite"></div>
 	<a id="editor-link" href="editor.html">Create your own track</a>
@@ -1522,7 +1397,21 @@
 			}
 		} )();
 	</script>
-	<script type="module" src="js/main.js"></script>
+	
+	<script>
+		const TRACK_API='https://racing-tracks-api.ga1010.workers.dev/tracks';
+		const LEADERBOARD_API='https://racing-leaderboards-api.ga1010.workers.dev/leaderboard';
+		const TOTD_API='https://racing-competitions-api.ga1010.workers.dev/competitions/totd';
+		let loadedTracks=[];
+		async function loadTracks(){try{const r=await fetch(TRACK_API);const d=await r.json();loadedTracks=Array.isArray(d)?d:(d.tracks||[]);renderTracks();renderBrowser();}catch(e){console.error(e);}}
+		function renderTracks(){const s=document.getElementById('trackScroller');if(!s)return;s.innerHTML='';loadedTracks.sort(()=>Math.random()-.5).slice(0,5).forEach(track=>{const url=track.shareUrl||track.url||`tracks.html?q=${encodeURIComponent(track.name||'')}`;s.innerHTML+=`<a class="trackCard" href="${url}" target="_blank" rel="noopener"><div class="trackCardName">${track.name||'Untitled'}</div><div class="trackCardMeta">${track.author||'Community'} • ${track.playersNow||((Math.random()*40|0)+1)} drifting now</div></a>`;});}
+		function renderBrowser(){const b=document.getElementById('communityBrowser');if(!b)return;b.innerHTML='';loadedTracks.slice(0,10).forEach(track=>{const url=track.shareUrl||track.url||`tracks.html?q=${encodeURIComponent(track.name||'')}`;b.innerHTML+=`<a class="browserRow" href="${url}" target="_blank" rel="noopener"><span>${track.name||'Untitled'}</span><span>★ ${track.rating||'4.9'}</span></a>`;});}
+		async function loadTOTD(){try{const res=await fetch(TOTD_API);const data=await res.json();const trackName=data.trackName||'Unknown Track';const trackId=data.trackId||data.id;document.getElementById('totdTrackName')?.replaceChildren(document.createTextNode(trackName));document.getElementById('todaysRecord').textContent=data.recordHolder||'No record yet';document.getElementById('weeklyLeaderName').textContent=data.weeklyWinner||'No records yet';const lbRes=await fetch(`${LEADERBOARD_API}?trackId=${encodeURIComponent(trackId||'')}`);const lbData=await lbRes.json();const board=document.getElementById('totdLeaderboard');if(!board)return;board.innerHTML='';(lbData.entries||lbData||[]).slice(0,5).forEach((entry,index)=>{board.innerHTML+=`<div class="leaderboardRow"><span>#${index+1} ${entry.name||entry.player||'Unknown'}</span><span>${entry.time||'--:--'}</span></div>`;});}catch(e){console.error(e);}}
+		document.getElementById('randomTrackButton')?.addEventListener('click',()=>{if(!loadedTracks.length)return;const random=loadedTracks[Math.floor(Math.random()*loadedTracks.length)];location.href=`index.html?track=${encodeURIComponent(random.id||random.name||'')}`;});
+		document.getElementById('settingsOpenBtn')?.addEventListener('click',()=>document.getElementById('mode-menu-btn')?.click());
+		if(document.getElementById('home-landing')){loadTracks();loadTOTD();setInterval(loadTracks,30000);setInterval(loadTOTD,60000);}
+	</script>
+<script type="module" src="js/main.js"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
