@@ -1882,6 +1882,9 @@
 					cell.roadPieces = [];
 					cell.type = null;
 					cell.isFinish = false;
+					if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+					cell.decoMesh = null;
+					cell.decoType = null;
 				}
 
 			} else if ( selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL ) {
@@ -2384,7 +2387,12 @@
 
 		let gx = hit.x / cellWorld;
 		let gz = hit.z / cellWorld;
-		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL || selectedType === ARC_GREEN_TOOL || selectedType === ARC_ORANGE_TOOL || selectedType === PORTAL_YELLOW_TOOL || selectedType === PORTAL_PURPLE_TOOL ) {
+		if ( selectedType === WATER_TOOL ) {
+
+			gx = Math.floor( gx );
+			gz = Math.floor( gz );
+
+		} else if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL || selectedType === ARC_GREEN_TOOL || selectedType === ARC_ORANGE_TOOL || selectedType === PORTAL_YELLOW_TOOL || selectedType === PORTAL_PURPLE_TOOL ) {
 
 			gx = normalizeCoord( gx - 0.5 );
 			gz = normalizeCoord( gz - 0.5 );
@@ -2568,7 +2576,7 @@
 
 				}
 			for ( const surfaceType of ( cell.surfaceTypes || [] ) ) surfaces.push( [ gx, gz, surfaceType ] );
-			if ( cell.decoType ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
+			if ( cell.decoType && ! cell.water ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
 
 		}
 
@@ -2822,6 +2830,9 @@
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
 				cell.water = true;
+				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+				cell.decoMesh = null;
+				cell.decoType = null;
 				placeOverlayMesh( gx, gz, cell );
 
 			}
@@ -2868,6 +2879,7 @@
 				const key = cellKey( gx, gz );
 					const cell = grid.get( key ) || makeEmptyCell();
 					if ( ! grid.has( key ) ) grid.set( key, cell );
+					if ( cell.water ) continue;
 					cell.decoType = decoType;
 					cell.decoOrient = decoOrient || 0;
 					placeOverlayMesh( gx, gz, cell );

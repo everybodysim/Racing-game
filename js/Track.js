@@ -302,6 +302,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	const decoGroup = new THREE.Group();
 
 	const cells = customCells || TRACK_CELLS;
+	const waterCellsForDeco = extras && Array.isArray( extras.water ) ? extras.water : [];
 
 	for ( const [ gx, gz, key, orient ] of cells ) {
 
@@ -550,6 +551,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		for ( const [ gx, gz, key, orient ] of decorations ) {
 
+			if ( waterSet.has( `${ gx },${ gz }` ) ) continue;
 			const piece = placePiece( models, key, gx, gz, orient || 0 );
 			if ( piece ) decoGroup.add( piece );
 
@@ -604,7 +606,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		let minX = Infinity, maxX = - Infinity;
 		let minZ = Infinity, maxZ = - Infinity;
 
-		for ( const [ gx, gz ] of cells ) {
+		for ( const [ gx, gz ] of [ ...cells, ...waterCellsForDeco ] ) {
 
 			occupied.add( gx + ',' + gz );
 			minX = Math.min( minX, gx );

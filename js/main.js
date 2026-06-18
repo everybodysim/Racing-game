@@ -1643,19 +1643,28 @@ async function init() {
 		const maxGx = Math.ceil( ( bounds.centerX + roadHalf ) / cellWorld ) + 1;
 		const minGz = Math.floor( ( bounds.centerZ - roadHalf ) / cellWorld ) - 1;
 		const maxGz = Math.ceil( ( bounds.centerZ + roadHalf ) / cellWorld ) + 1;
-		for ( let gx = minGx; gx <= maxGx; gx ++ ) {
+		for ( let gz = minGz; gz <= maxGz; gz ++ ) {
 
-			for ( let gz = minGz; gz <= maxGz; gz ++ ) {
+			let runStart = null;
+			for ( let gx = minGx; gx <= maxGx + 1; gx ++ ) {
 
-				if ( waterSet.has( `${ gx },${ gz }` ) ) continue;
-				rigidBody.create( world, {
-					shape: box.create( { halfExtents: [ cellWorld * 0.5, 0.01, cellWorld * 0.5 ] } ),
-					motionType: MotionType.STATIC,
-					objectLayer: OL_STATIC,
-					position: [ ( gx + 0.5 ) * cellWorld, - 0.125, ( gz + 0.5 ) * cellWorld ],
-					friction: 5.0,
-					restitution: 0.0,
-				} );
+				const isSolidGround = gx <= maxGx && ! waterSet.has( `${ gx },${ gz }` );
+				if ( isSolidGround && runStart === null ) runStart = gx;
+				if ( ( ! isSolidGround || gx > maxGx ) && runStart !== null ) {
+
+					const runEnd = gx - 1;
+					const runCells = runEnd - runStart + 1;
+					rigidBody.create( world, {
+						shape: box.create( { halfExtents: [ cellWorld * runCells * 0.5, 0.01, cellWorld * 0.5 ] } ),
+						motionType: MotionType.STATIC,
+						objectLayer: OL_STATIC,
+						position: [ ( runStart + runCells * 0.5 ) * cellWorld, - 0.125, ( gz + 0.5 ) * cellWorld ],
+						friction: 5.0,
+						restitution: 0.0,
+					} );
+					runStart = null;
+
+				}
 
 			}
 
