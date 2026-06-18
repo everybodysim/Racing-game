@@ -24,6 +24,9 @@ const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
 const SUPPORT_SINK = 0.03;
 const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 
+const WATER_DEPTH = CELL_RAW * 0.34;
+const WATER_WALL_HEIGHT = CELL_RAW * 0.38;
+
 const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down' ] );
 
 function normalizeElevatedEntry( elevatedType, orient = 0 ) {
@@ -320,6 +323,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const surfaces = Array.isArray( extras.surfaces ) ? extras.surfaces : [];
 		const magnets = Array.isArray( extras.magnets ) ? extras.magnets : [];
 		const arcLinks = Array.isArray( extras.arcLinks ) ? extras.arcLinks : [];
+		const waterCells = Array.isArray( extras.water ) ? extras.water : [];
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
 		const customPads = extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {};
 		const elevatedMap = new Map();
@@ -327,6 +331,50 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 			if ( ! ELEVATED_TYPES.has( elevatedType ) ) continue;
 			elevatedMap.set( `${ gx },${ gz }`, normalizeElevatedEntry( elevatedType, orient ) );
+
+		}
+
+		const waterSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+		const isWaterCell = ( gx, gz ) => waterSet.has( `${ gx },${ gz }` );
+		for ( const [ gx, gz ] of waterCells ) {
+
+			const pool = new THREE.Group();
+			pool.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
+			const floor = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ),
+				new THREE.MeshStandardMaterial( { color: 0x31433e, roughness: 0.95, metalness: 0.0 } )
+			);
+			floor.position.y = - WATER_DEPTH;
+			floor.receiveShadow = true;
+			pool.add( floor );
+			const water = new THREE.Mesh(
+				new THREE.PlaneGeometry( CELL_RAW * 0.92, CELL_RAW * 0.92 ),
+				new THREE.MeshStandardMaterial( { color: 0x1f8fd6, emissive: 0x0a3d66, emissiveIntensity: 0.25, roughness: 0.35, metalness: 0.02, transparent: true, opacity: 0.82 } )
+			);
+			water.rotation.x = - Math.PI / 2;
+			water.position.y = - CELL_RAW * 0.18;
+			water.userData.waterSurface = true;
+			pool.add( water );
+			const sides = [
+				{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
+				{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+				{ dx: 0, dz: 1, x: 0, z: CELL_RAW * 0.5, ry: 0 },
+				{ dx: - 1, dz: 0, x: - CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+			];
+			for ( const side of sides ) {
+				if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
+				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { color: 0x20312e, roughness: 0.9, metalness: 0.0 } ) );
+				wall.position.set( side.x, - CELL_RAW * 0.16, side.z );
+				wall.rotation.y = side.ry;
+				wall.castShadow = true;
+				wall.receiveShadow = true;
+				pool.add( wall );
+				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: 0x5cc7ff, emissive: 0x116d9e, emissiveIntensity: 0.35, roughness: 0.4 } ) );
+				edge.position.set( side.x, - CELL_RAW * 0.005, side.z );
+				edge.rotation.y = side.ry;
+				pool.add( edge );
+			}
+			trackPieceGroup.add( pool );
 
 		}
 

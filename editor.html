@@ -292,7 +292,7 @@
 <main id="main-content">
 	<div id="settings-bar">
 		<label for="weather-preset">Weather</label>
-		
+
 		<select id="weather-preset" aria-label="Weather preset">
 			<option value="clear">Clear</option>
 			<option value="cloudy">Cloudy</option>
@@ -393,6 +393,7 @@
 			<button id="btn-cube">Cube +</button>
 			<button id="btn-wall">Wall +</button>
 			<button id="btn-jump">Jump +</button>
+			<button id="btn-water">Water Pool +</button>
 		</div>
 		<div class="toolbar-group" aria-label="Moving objects">
 			<span class="toolbar-group-label">Moving</span>
@@ -552,6 +553,7 @@
 	const CUBE_TOOL = 'overlay-cube';
 	const WALL_TOOL = 'overlay-wall';
 	const JUMP_TOOL = 'overlay-jump';
+	const WATER_TOOL = 'water-pool';
 	const MOVING_SLIDE_TOOL = 'moving-slide-block';
 	const MOVING_SPIN_TOOL = 'moving-spin-wall';
 	const MOVING_ORBIT_TOOL = 'moving-orbit-poles';
@@ -1449,6 +1451,7 @@
 		if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
 		if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
 		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
 		if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
 		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
@@ -1458,6 +1461,7 @@
 		cell.cubeMesh = null;
 		cell.wallMesh = null;
 		cell.jumpMesh = null;
+		cell.waterMesh = null;
 		cell.elevatedMesh = null;
 		cell.elevatedSupportMesh = null;
 		cell.surfaceMeshes = [];
@@ -1656,6 +1660,14 @@
 
 		}
 
+		if ( cell.water ) {
+
+			const pool = createWaterPoolMesh( gx, gz );
+			trackGroup.add( pool );
+			cell.waterMesh = pool;
+
+		}
+
 		if ( cell.surfaceTypes?.length ) {
 
 			cell.surfaceTypes.forEach( ( surfaceType, idx ) => {
@@ -1708,6 +1720,63 @@
 
 			}
 
+		}
+
+	}
+
+
+	function isWaterCell( gx, gz ) {
+
+		return Boolean( grid.get( cellKey( gx, gz ) )?.water );
+
+	}
+
+	function createWaterPoolMesh( gx, gz ) {
+
+		const group = new THREE.Group();
+		group.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
+		const waterMat = new THREE.MeshStandardMaterial( { color: 0x1f8fd6, emissive: 0x0a3d66, emissiveIntensity: 0.25, roughness: 0.35, metalness: 0.02, transparent: true, opacity: 0.82 } );
+		const floorMat = new THREE.MeshStandardMaterial( { color: 0x31433e, roughness: 0.95, metalness: 0.0 } );
+		const wallMat = new THREE.MeshStandardMaterial( { color: 0x20312e, roughness: 0.9, metalness: 0.0 } );
+		const edgeMat = new THREE.MeshStandardMaterial( { color: 0x5cc7ff, emissive: 0x116d9e, emissiveIntensity: 0.35, roughness: 0.4 } );
+		const floor = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ), floorMat );
+		floor.position.y = - CELL_RAW * 0.34;
+		floor.receiveShadow = true;
+		group.add( floor );
+		const water = new THREE.Mesh( new THREE.PlaneGeometry( CELL_RAW * 0.92, CELL_RAW * 0.92 ), waterMat );
+		water.rotation.x = - Math.PI / 2;
+		water.position.y = - CELL_RAW * 0.18;
+		water.userData.waterSurface = true;
+		group.add( water );
+		const sides = [
+			{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
+			{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+			{ dx: 0, dz: 1, x: 0, z: CELL_RAW * 0.5, ry: 0 },
+			{ dx: - 1, dz: 0, x: - CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+		];
+		for ( const side of sides ) {
+			if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
+			const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.38, CELL_RAW * 0.08 ), wallMat );
+			wall.position.set( side.x, - CELL_RAW * 0.16, side.z );
+			wall.rotation.y = side.ry;
+			wall.castShadow = true;
+			wall.receiveShadow = true;
+			group.add( wall );
+			const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), edgeMat );
+			edge.position.set( side.x, - CELL_RAW * 0.005, side.z );
+			edge.rotation.y = side.ry;
+			group.add( edge );
+		}
+		return group;
+
+	}
+
+	function refreshWaterNeighborhood( gx, gz ) {
+
+		for ( const [ dx, dz ] of [ [ 0, 0 ], [ 1, 0 ], [ - 1, 0 ], [ 0, 1 ], [ 0, - 1 ] ] ) {
+			const nx = gx + dx, nz = gz + dz;
+			const cell = grid.get( cellKey( nx, nz ) );
+			if ( cell?.water ) placeOverlayMesh( nx, nz, cell );
 		}
 
 	}
@@ -1774,7 +1843,7 @@
 			}
 			rebuildArcMeshes();
 
-		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || MOVING_CUSTOM_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
+		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || selectedType === WATER_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || MOVING_CUSTOM_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
@@ -1802,6 +1871,19 @@
 				cell.jump = ! cell.jump;
 				cell.jumpOrient = selectedOrient;
 
+			} else if ( selectedType === WATER_TOOL ) {
+
+				cell.water = ! cell.water;
+				if ( cell.water ) {
+					for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
+					if ( cell.mesh ) trackGroup.remove( cell.mesh );
+					cell.roadMeshes = [];
+					cell.mesh = null;
+					cell.roadPieces = [];
+					cell.type = null;
+					cell.isFinish = false;
+				}
+
 			} else if ( selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL ) {
 
 				cell.movingObstacle = cell.movingObstacle === selectedType ? '' : selectedType;
@@ -1823,7 +1905,7 @@
 				}
 
 			}
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.movingObstacle && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				grid.delete( key );
 
@@ -1832,6 +1914,7 @@
 				placeOverlayMesh( gx, gz, cell );
 
 			}
+			if ( selectedType === WATER_TOOL ) refreshWaterNeighborhood( gx, gz );
 
 		} else if ( SURFACE_TYPES.includes( selectedType ) ) {
 
@@ -1849,7 +1932,7 @@
 
 			}
 
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.movingObstacle && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				grid.delete( key );
 
@@ -1932,11 +2015,13 @@
 		if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
 		if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
 		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
 		if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
 		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		grid.delete( key );
+		refreshWaterNeighborhood( gx, gz );
 		save();
 
 	}
@@ -1954,6 +2039,7 @@
 				if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
 				if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 				if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
 				if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
 				if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
 				for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
@@ -2462,6 +2548,7 @@
 		const magnets = [];
 		const arcs = [];
 		const movingObstacles = [];
+		const water = [];
 
 		for ( const [ key, cell ] of grid ) {
 
@@ -2471,6 +2558,7 @@
 				if ( cell.cube ) cubes.push( [ gx, gz ] );
 				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0 ] );
 				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
+				if ( cell.water ) water.push( [ gx, gz ] );
 				if ( cell.movingObstacle ) movingObstacles.push( [ gx, gz, cell.movingObstacle, cell.wallOrient || 0, Number.isFinite( Number( cell.movingSpeed ) ) ? Number( cell.movingSpeed ) : 1, cell.movingCustom && typeof cell.movingCustom === 'object' ? cell.movingCustom : null ] );
 				if ( cell.elevatedType ) {
 
@@ -2522,14 +2610,14 @@
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, q: water, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
+		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, q: [] };
 
 		try {
 
@@ -2551,12 +2639,13 @@
 						c: parsed?.c && typeof parsed.c === 'object' ? parsed.c : JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
 						y: parsed?.y && typeof parsed.y === 'object' ? parsed.y : JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ),
 						x: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
+						q: Array.isArray( parsed.q ) ? parsed.q : [],
 					};
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-				return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {} };
+				return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, q: [] };
 
 		}
 
@@ -2612,6 +2701,7 @@
 			if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
 			if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 			if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
 			if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
 			if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
 			for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
@@ -2726,6 +2816,16 @@
 			}
 
 
+			for ( const [ gx, gz ] of mods.q || [] ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.water = true;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+			for ( const [ gx, gz ] of mods.q || [] ) refreshWaterNeighborhood( gx, gz );
 
 			for ( const [ gx, gz, movingType, _orient, movingSpeedRaw, movingCustomRaw ] of mods.o || [] ) {
 
@@ -2847,7 +2947,7 @@
 	const movingSpeedValue = document.getElementById( 'moving-speed-value' );
 	function isMovingObstacleTool( type ) { return type === MOVING_SLIDE_TOOL || type === MOVING_SPIN_TOOL || type === MOVING_ORBIT_TOOL || type === MOVING_CUSTOM_TOOL; }
 
-	 
+
 	const movingCustomShape = document.getElementById( 'moving-custom-shape' );
 	const movingCustomSx = document.getElementById( 'moving-custom-sx' );
 	const movingCustomSy = document.getElementById( 'moving-custom-sy' );
@@ -2858,7 +2958,7 @@
 	const movingCustomColor = document.getElementById( 'moving-custom-color' );
 	function readCustomMovingUi() { return { shape: movingCustomShape?.value || 'square', sx: Number( movingCustomSx?.value ) || 2, sy: Number( movingCustomSy?.value ) || 0.8, sz: Number( movingCustomSz?.value ) || 0.8, orbit: Number( movingCustomOrbit?.value ) || 0, count: Math.max( 1, Math.round( Number( movingCustomCount?.value ) || 1 ) ), rot: Number( movingCustomRot?.value ) || 1, color: movingCustomColor?.value || '#ff8844' }; }
 
-	
+
 
 // NEW:
 function refreshMovingSpeedUi() {
@@ -2894,6 +2994,7 @@ function refreshMovingSpeedUi() {
 		[ PORTAL_YELLOW_TOOL ]: document.getElementById( 'btn-portal-yellow' ),
 		[ PORTAL_PURPLE_TOOL ]: document.getElementById( 'btn-portal-purple' ),
 		[ WALL_TOOL ]: document.getElementById( 'btn-wall' ),
+		[ WATER_TOOL ]: document.getElementById( 'btn-water' ),
 		[ JUMP_TOOL ]: document.getElementById( 'btn-jump' ),
 		[ MOVING_SLIDE_TOOL ]: document.getElementById( 'btn-moving-slide' ),
 		[ MOVING_SPIN_TOOL ]: document.getElementById( 'btn-moving-spin' ),
@@ -2996,7 +3097,7 @@ function refreshMovingSpeedUi() {
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
@@ -3155,7 +3256,7 @@ function refreshMovingSpeedUi() {
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 

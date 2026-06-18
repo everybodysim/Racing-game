@@ -401,6 +401,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const jumpMap = new Map();
 	const magnetEntries = extras && Array.isArray( extras.magnets ) ? extras.magnets : [];
 	const elevatedEntries = extras && Array.isArray( extras.elevated ) ? extras.elevated : [];
+	const waterEntries = extras && Array.isArray( extras.water ) ? extras.water : [];
 	const elevatedMap = new Map();
 	const customAssetColliders = extras?.customAssets && typeof extras.customAssets === 'object' ? extras.customAssets : {};
 	const decorationEntries = extras && Array.isArray( extras.decorations ) ? extras.decorations : [];
@@ -434,6 +435,33 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const key = `${ gx },${ gz }`;
 		if ( elevatedType === 'slope-down' ) elevatedMap.set( key, { type: 'slope-up', orient: ORIENT_180[ orient ] ?? orient } );
 		else elevatedMap.set( key, { type: elevatedType, orient } );
+
+	}
+
+	const waterSet = new Set( waterEntries.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+	for ( const [ gx, gz ] of waterEntries ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const floorHalfExtents = [ CELL_HALF * S, 0.04 * S, CELL_HALF * S ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: floorHalfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: [ cx, groundY - CELL_RAW * S * 0.34, cz ],
+			friction: 0.25,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, floorHalfExtents, [ cx, groundY - CELL_RAW * S * 0.34, cz ] );
+		const sides = [ [ 0, - 1, 0, - CELL_HALF * S, 0 ], [ 1, 0, CELL_HALF * S, 0, Math.PI / 2 ], [ 0, 1, 0, CELL_HALF * S, 0 ], [ - 1, 0, - CELL_HALF * S, 0, Math.PI / 2 ] ];
+		for ( const [ dx, dz, ox, oz, yaw ] of sides ) {
+			if ( waterSet.has( `${ gx + dx },${ gz + dz }` ) ) continue;
+			const halfExtents = [ CELL_HALF * S, CELL_RAW * S * 0.19, CELL_RAW * S * 0.04 ];
+			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
+			const position = [ cx + ox, groundY - CELL_RAW * S * 0.16, cz + oz ];
+			rigidBody.create( world, { shape: box.create( { halfExtents } ), motionType: MotionType.STATIC, objectLayer: world._OL_STATIC, position, quaternion, friction: 0.9, restitution: 0.0 } );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+		}
 
 	}
 

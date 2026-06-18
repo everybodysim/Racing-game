@@ -1038,6 +1038,7 @@ function decodeExtrasParam( str ) {
 			customPads: parsed?.y && typeof parsed.y === 'object' ? parsed.y : {},
 			customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
 			movingObstacles: Array.isArray( parsed.o ) ? parsed.o : [],
+			water: Array.isArray( parsed.q ) ? parsed.q : [],
 			weather: normalizeWeatherDetails( parsed?.w ),
 		};
 
@@ -1633,14 +1634,45 @@ async function init() {
 	const resettableObstacleBodies = buildWallColliders( world, hitboxDebugGroup, customCells, extras ) || [];
 
 	const roadHalf = groundSize / 2;
-	rigidBody.create( world, {
-		shape: box.create( { halfExtents: [ roadHalf, 0.01, roadHalf ] } ),
-		motionType: MotionType.STATIC,
-		objectLayer: OL_STATIC,
-		position: [ bounds.centerX, - 0.125, bounds.centerZ ],
-		friction: 5.0,
-		restitution: 0.0,
-	} );
+	const waterCells = Array.isArray( extras?.water ) ? extras.water : [];
+	if ( waterCells.length > 0 ) {
+
+		const waterSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+		const cellWorld = CELL_RAW * GRID_SCALE;
+		const minGx = Math.floor( ( bounds.centerX - roadHalf ) / cellWorld ) - 1;
+		const maxGx = Math.ceil( ( bounds.centerX + roadHalf ) / cellWorld ) + 1;
+		const minGz = Math.floor( ( bounds.centerZ - roadHalf ) / cellWorld ) - 1;
+		const maxGz = Math.ceil( ( bounds.centerZ + roadHalf ) / cellWorld ) + 1;
+		for ( let gx = minGx; gx <= maxGx; gx ++ ) {
+
+			for ( let gz = minGz; gz <= maxGz; gz ++ ) {
+
+				if ( waterSet.has( `${ gx },${ gz }` ) ) continue;
+				rigidBody.create( world, {
+					shape: box.create( { halfExtents: [ cellWorld * 0.5, 0.01, cellWorld * 0.5 ] } ),
+					motionType: MotionType.STATIC,
+					objectLayer: OL_STATIC,
+					position: [ ( gx + 0.5 ) * cellWorld, - 0.125, ( gz + 0.5 ) * cellWorld ],
+					friction: 5.0,
+					restitution: 0.0,
+				} );
+
+			}
+
+		}
+
+	} else {
+
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: [ roadHalf, 0.01, roadHalf ] } ),
+			motionType: MotionType.STATIC,
+			objectLayer: OL_STATIC,
+			position: [ bounds.centerX, - 0.125, bounds.centerZ ],
+			friction: 5.0,
+			restitution: 0.0,
+		} );
+
+	}
 
 	const sphereBody = createSphereBody( world, spawn ? spawn.position : null );
 	const carHitboxMaterial = new THREE.MeshBasicMaterial( {
