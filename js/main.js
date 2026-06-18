@@ -1661,6 +1661,44 @@ async function init() {
 		return true;
 
 	}
+	function createGroundSurfaceCollider( halfExtents, position ) {
+
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: OL_STATIC,
+			position,
+			friction: 5.0,
+			restitution: 0.0,
+		} );
+
+		const bevelAngle = THREE.MathUtils.degToRad( 1.6 );
+		const bevelDepth = Math.min( cellWorld * 0.08, Math.max( 0.08, Math.min( halfExtents[ 0 ], halfExtents[ 2 ] ) * 0.35 ) );
+		const bevelHalfHeight = 0.008;
+		const bevelY = position[ 1 ] + halfExtents[ 1 ] - bevelHalfHeight;
+		const edges = [
+			{ x: position[ 0 ], z: position[ 2 ] - halfExtents[ 2 ], yaw: 0, pitch: - bevelAngle, half: [ halfExtents[ 0 ], bevelHalfHeight, bevelDepth ] },
+			{ x: position[ 0 ], z: position[ 2 ] + halfExtents[ 2 ], yaw: 0, pitch: bevelAngle, half: [ halfExtents[ 0 ], bevelHalfHeight, bevelDepth ] },
+			{ x: position[ 0 ] - halfExtents[ 0 ], z: position[ 2 ], yaw: Math.PI / 2, pitch: bevelAngle, half: [ halfExtents[ 2 ], bevelHalfHeight, bevelDepth ] },
+			{ x: position[ 0 ] + halfExtents[ 0 ], z: position[ 2 ], yaw: Math.PI / 2, pitch: - bevelAngle, half: [ halfExtents[ 2 ], bevelHalfHeight, bevelDepth ] },
+		];
+		for ( const edge of edges ) {
+
+			if ( edge.half[ 0 ] < 0.05 ) continue;
+			const edgeQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( edge.pitch, edge.yaw, 0, 'YXZ' ) );
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents: edge.half } ),
+				motionType: MotionType.STATIC,
+				objectLayer: OL_STATIC,
+				position: [ edge.x, bevelY, edge.z ],
+				quaternion: [ edgeQuat.x, edgeQuat.y, edgeQuat.z, edgeQuat.w ],
+				friction: 5.0,
+				restitution: 0.0,
+			} );
+
+		}
+
+	}
 	if ( waterCells.length > 0 ) {
 
 		const waterSet = waterCellSet;
@@ -1673,14 +1711,10 @@ async function init() {
 
 			const runCellsX = runEnd - runStart + 1;
 			const runCellsZ = endGz - startGz + 1;
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents: [ cellWorld * runCellsX * 0.5, 0.01, cellWorld * runCellsZ * 0.5 ] } ),
-				motionType: MotionType.STATIC,
-				objectLayer: OL_STATIC,
-				position: [ ( runStart + runCellsX * 0.5 ) * cellWorld, - 0.125, ( startGz + runCellsZ * 0.5 ) * cellWorld ],
-				friction: 5.0,
-				restitution: 0.0,
-			} );
+			createGroundSurfaceCollider(
+				[ cellWorld * runCellsX * 0.5, 0.01, cellWorld * runCellsZ * 0.5 ],
+				[ ( runStart + runCellsX * 0.5 ) * cellWorld, - 0.125, ( startGz + runCellsZ * 0.5 ) * cellWorld ]
+			);
 
 		}
 
@@ -1718,14 +1752,7 @@ async function init() {
 
 	} else {
 
-		rigidBody.create( world, {
-			shape: box.create( { halfExtents: [ roadHalf, 0.01, roadHalf ] } ),
-			motionType: MotionType.STATIC,
-			objectLayer: OL_STATIC,
-			position: [ bounds.centerX, - 0.125, bounds.centerZ ],
-			friction: 5.0,
-			restitution: 0.0,
-		} );
+		createGroundSurfaceCollider( [ roadHalf, 0.01, roadHalf ], [ bounds.centerX, - 0.125, bounds.centerZ ] );
 
 	}
 

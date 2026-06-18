@@ -66,7 +66,7 @@ function createRepositoryWaterMaterial() {
 				vec2 waveUvB = uv * 7.0 + vec2( - time * 0.018, time * 0.031 );
 				float waveA = texture2D( waveTex, waveUvA ).r;
 				float waveB = texture2D( waveTex, waveUvB ).g;
-				transformed.z += ( waveA + waveB - 1.0 ) * 0.18;
+				transformed.z += ( waveA + waveB - 1.0 ) * 0.045;
 				vec4 worldPosition = modelMatrix * vec4( transformed, 1.0 );
 				vWorldPosition = worldPosition.xyz;
 				gl_Position = projectionMatrix * viewMatrix * worldPosition;
@@ -86,18 +86,19 @@ function createRepositoryWaterMaterial() {
 				vec2 flowB = vUv * 9.0 + vec2( - time * 0.018, time * 0.036 );
 				vec3 waveA = texture2D( waveTex, flowA ).rgb;
 				vec3 waveB = texture2D( waveTex, flowB ).rgb;
-				vec2 ripple = ( waveA.rg + waveB.gb - 1.0 ) * 0.08;
-				float foam = smoothstep( 0.68, 0.98, waveA.b * 0.65 + waveB.r * 0.35 );
-				vec3 tile = texture2D( tileTex, vUv * 2.0 + ripple ).rgb;
+				vec2 ripple = ( waveA.rg + waveB.gb - 1.0 ) * 0.045;
+				float foam = smoothstep( 0.74, 0.99, waveA.b * 0.65 + waveB.r * 0.35 );
+				vec3 tile = texture2D( tileTex, vUv * 2.5 + ripple ).rgb;
+				float caustic = pow( max( max( tile.r, tile.g ), tile.b ), 3.0 );
 				vec3 normal = normalize( vec3( ripple.x * 3.2, 1.0, ripple.y * 3.2 ) );
 				vec3 viewDir = normalize( cameraPosition - vWorldPosition );
 				float fresnel = pow( 1.0 - max( dot( normal, viewDir ), 0.0 ), 3.0 );
 				float sparkle = pow( max( dot( reflect( - lightDir, normal ), viewDir ), 0.0 ), 46.0 );
-				vec3 color = mix( deepColor, shallowColor, 0.45 + 0.25 * waveA.b );
-				color += tile * 0.08;
-				color = mix( color, vec3( 0.78, 0.95, 1.0 ), fresnel * 0.55 + foam * 0.18 );
-				color += sparkle * vec3( 1.0, 0.88, 0.58 ) * 1.45;
-				gl_FragColor = vec4( color, 0.88 );
+				vec3 color = mix( deepColor, shallowColor, 0.52 + 0.18 * waveA.b );
+				color += tile * 0.045 + caustic * vec3( 0.35, 0.95, 1.15 ) * 0.23;
+				color = mix( color, vec3( 0.78, 0.97, 1.0 ), fresnel * 0.62 + foam * 0.2 );
+				color += sparkle * vec3( 1.0, 0.9, 0.62 ) * 1.25;
+				gl_FragColor = vec4( color, 0.78 );
 			}
 		`,
 		transparent: true,
@@ -435,7 +436,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				createRepositoryWaterMaterial()
 			);
 			waterPlane.rotation.x = - Math.PI / 2;
-			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.43, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
+			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.32, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
 			waterPlane.userData.waterSurface = true;
 			waterPlane.onBeforeRender = () => { waterPlane.material.uniforms.time.value = performance.now() * 0.001; };
 			trackPieceGroup.add( waterPlane );
