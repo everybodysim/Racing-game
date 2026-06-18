@@ -1745,7 +1745,7 @@
 		group.add( floor );
 		const water = new THREE.Mesh( new THREE.PlaneGeometry( CELL_RAW * 0.92, CELL_RAW * 0.92 ), waterMat );
 		water.rotation.x = - Math.PI / 2;
-		water.position.y = - CELL_RAW * 0.18;
+		water.position.y = 0.515;
 		water.userData.waterSurface = true;
 		group.add( water );
 		const sides = [
@@ -1763,7 +1763,7 @@
 			wall.receiveShadow = true;
 			group.add( wall );
 			const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), edgeMat );
-			edge.position.set( side.x, - CELL_RAW * 0.005, side.z );
+			edge.position.set( side.x, 0.535, side.z );
 			edge.rotation.y = side.ry;
 			group.add( edge );
 		}

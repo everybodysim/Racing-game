@@ -337,6 +337,29 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		const waterSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 		const isWaterCell = ( gx, gz ) => waterSet.has( `${ gx },${ gz }` );
+		if ( waterCells.length > 0 ) {
+
+			let minWaterGx = Infinity, maxWaterGx = - Infinity, minWaterGz = Infinity, maxWaterGz = - Infinity;
+			for ( const [ gx, gz ] of waterCells ) {
+
+				minWaterGx = Math.min( minWaterGx, gx );
+				maxWaterGx = Math.max( maxWaterGx, gx + 1 );
+				minWaterGz = Math.min( minWaterGz, gz );
+				maxWaterGz = Math.max( maxWaterGz, gz + 1 );
+
+			}
+			const waterWidth = Math.max( CELL_RAW, ( maxWaterGx - minWaterGx + 2 ) * CELL_RAW );
+			const waterDepth = Math.max( CELL_RAW, ( maxWaterGz - minWaterGz + 2 ) * CELL_RAW );
+			const waterPlane = new THREE.Mesh(
+				new THREE.PlaneGeometry( waterWidth, waterDepth ),
+				new THREE.MeshStandardMaterial( { color: 0x1f8fd6, emissive: 0x0a3d66, emissiveIntensity: 0.25, roughness: 0.35, metalness: 0.02, transparent: true, opacity: 0.86 } )
+			);
+			waterPlane.rotation.x = - Math.PI / 2;
+			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.43, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
+			waterPlane.userData.waterSurface = true;
+			trackPieceGroup.add( waterPlane );
+
+		}
 		for ( const [ gx, gz ] of waterCells ) {
 
 			const pool = new THREE.Group();
@@ -348,14 +371,6 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			floor.position.y = - WATER_DEPTH;
 			floor.receiveShadow = true;
 			pool.add( floor );
-			const water = new THREE.Mesh(
-				new THREE.PlaneGeometry( CELL_RAW * 0.92, CELL_RAW * 0.92 ),
-				new THREE.MeshStandardMaterial( { color: 0x1f8fd6, emissive: 0x0a3d66, emissiveIntensity: 0.25, roughness: 0.35, metalness: 0.02, transparent: true, opacity: 0.82 } )
-			);
-			water.rotation.x = - Math.PI / 2;
-			water.position.y = - CELL_RAW * 0.18;
-			water.userData.waterSurface = true;
-			pool.add( water );
 			const sides = [
 				{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
 				{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
@@ -365,13 +380,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			for ( const side of sides ) {
 				if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
 				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { color: 0x20312e, roughness: 0.9, metalness: 0.0 } ) );
-				wall.position.set( side.x, - CELL_RAW * 0.16, side.z );
+				wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
 				wall.rotation.y = side.ry;
 				wall.castShadow = true;
 				wall.receiveShadow = true;
 				pool.add( wall );
 				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: 0x5cc7ff, emissive: 0x116d9e, emissiveIntensity: 0.35, roughness: 0.4 } ) );
-				edge.position.set( side.x, - CELL_RAW * 0.005, side.z );
+				edge.position.set( side.x, 0.515, side.z );
 				edge.rotation.y = side.ry;
 				pool.add( edge );
 			}

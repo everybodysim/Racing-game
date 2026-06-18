@@ -1643,8 +1643,25 @@ async function init() {
 		const maxGx = Math.ceil( ( bounds.centerX + roadHalf ) / cellWorld ) + 1;
 		const minGz = Math.floor( ( bounds.centerZ - roadHalf ) / cellWorld ) - 1;
 		const maxGz = Math.ceil( ( bounds.centerZ + roadHalf ) / cellWorld ) + 1;
+		const activeGroundRuns = new Map();
+		function flushGroundRun( runStart, runEnd, startGz, endGz ) {
+
+			const runCellsX = runEnd - runStart + 1;
+			const runCellsZ = endGz - startGz + 1;
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents: [ cellWorld * runCellsX * 0.5, 0.01, cellWorld * runCellsZ * 0.5 ] } ),
+				motionType: MotionType.STATIC,
+				objectLayer: OL_STATIC,
+				position: [ ( runStart + runCellsX * 0.5 ) * cellWorld, - 0.125, ( startGz + runCellsZ * 0.5 ) * cellWorld ],
+				friction: 5.0,
+				restitution: 0.0,
+			} );
+
+		}
+
 		for ( let gz = minGz; gz <= maxGz; gz ++ ) {
 
+			const currentRowRuns = new Set();
 			let runStart = null;
 			for ( let gx = minGx; gx <= maxGx + 1; gx ++ ) {
 
@@ -1653,22 +1670,26 @@ async function init() {
 				if ( ( ! isSolidGround || gx > maxGx ) && runStart !== null ) {
 
 					const runEnd = gx - 1;
-					const runCells = runEnd - runStart + 1;
-					rigidBody.create( world, {
-						shape: box.create( { halfExtents: [ cellWorld * runCells * 0.5, 0.01, cellWorld * 0.5 ] } ),
-						motionType: MotionType.STATIC,
-						objectLayer: OL_STATIC,
-						position: [ ( runStart + runCells * 0.5 ) * cellWorld, - 0.125, ( gz + 0.5 ) * cellWorld ],
-						friction: 5.0,
-						restitution: 0.0,
-					} );
+					const runKey = `${ runStart },${ runEnd }`;
+					currentRowRuns.add( runKey );
+					if ( activeGroundRuns.has( runKey ) ) activeGroundRuns.get( runKey ).endGz = gz;
+					else activeGroundRuns.set( runKey, { runStart, runEnd, startGz: gz, endGz: gz } );
 					runStart = null;
 
 				}
 
 			}
 
+			for ( const [ runKey, run ] of [ ...activeGroundRuns.entries() ] ) {
+
+				if ( currentRowRuns.has( runKey ) ) continue;
+				flushGroundRun( run.runStart, run.runEnd, run.startGz, run.endGz );
+				activeGroundRuns.delete( runKey );
+
+			}
+
 		}
+		for ( const run of activeGroundRuns.values() ) flushGroundRun( run.runStart, run.runEnd, run.startGz, run.endGz );
 
 	} else {
 
