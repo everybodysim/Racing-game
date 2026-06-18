@@ -439,6 +439,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	}
 
 	const waterSet = new Set( waterEntries.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+	const WATER_BEVEL_ANGLE = THREE.MathUtils.degToRad( 1.6 );
 	for ( const [ gx, gz ] of waterEntries ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
@@ -461,6 +462,15 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const position = [ cx + ox, groundY - CELL_RAW * S * 0.16, cz + oz ];
 			rigidBody.create( world, { shape: box.create( { halfExtents } ), motionType: MotionType.STATIC, objectLayer: world._OL_STATIC, position, quaternion, friction: 0.9, restitution: 0.0 } );
 			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			const bevelHalfExtents = [ CELL_HALF * S, 0.012 * S, CELL_RAW * S * 0.09 ];
+			const bevelPitch = ( dx !== 0 ? - dx : dz ) * WATER_BEVEL_ANGLE;
+			const bevelQuatThree = new THREE.Quaternion().setFromEuler( new THREE.Euler( bevelPitch, yaw, 0, 'YXZ' ) );
+			const bevelQuaternion = [ bevelQuatThree.x, bevelQuatThree.y, bevelQuatThree.z, bevelQuatThree.w ];
+			const bevelInset = CELL_RAW * S * 0.075;
+			const bevelPosition = [ cx + ox - dx * bevelInset, groundY + 0.015, cz + oz - dz * bevelInset ];
+			rigidBody.create( world, { shape: box.create( { halfExtents: bevelHalfExtents } ), motionType: MotionType.STATIC, objectLayer: world._OL_STATIC, position: bevelPosition, quaternion: bevelQuaternion, friction: 0.85, restitution: 0.0 } );
+			if ( debugGroup ) addDebugBox( debugGroup, bevelHalfExtents, bevelPosition, bevelQuaternion );
 		}
 
 	}

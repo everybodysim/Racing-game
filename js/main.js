@@ -1637,12 +1637,28 @@ async function init() {
 	const waterCells = Array.isArray( extras?.water ) ? extras.water : [];
 	const waterCellSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 	const cellWorld = CELL_RAW * GRID_SCALE;
+	const WATER_GRAVITY_SCALE = 0.28;
+	const WATER_VELOCITY_DRAG = 4.5;
 	function isCameraTargetInWater( position ) {
 
 		if ( waterCellSet.size === 0 || ! position ) return false;
 		const gx = Math.floor( position.x / cellWorld );
 		const gz = Math.floor( position.z / cellWorld );
 		return waterCellSet.has( `${ gx },${ gz }` ) && position.y < 0.45;
+
+	}
+	function applyWaterPhysicsDamping( targetVehicle, deltaSeconds ) {
+
+		if ( ! isCameraTargetInWater( targetVehicle?.spherePos ) || ! targetVehicle?.rigidBody?.motionProperties ) return false;
+		const dragFactor = Math.exp( - WATER_VELOCITY_DRAG * Math.max( 0, deltaSeconds ) );
+		const velocity = targetVehicle.rigidBody.motionProperties.linearVelocity || [ 0, 0, 0 ];
+		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
+			velocity[ 0 ] * dragFactor,
+			velocity[ 1 ] * Math.sqrt( dragFactor ),
+			velocity[ 2 ] * dragFactor,
+		], false );
+		targetVehicle.linearSpeed *= dragFactor;
+		return true;
 
 	}
 	if ( waterCells.length > 0 ) {
@@ -7581,8 +7597,20 @@ function completeCampaignStage() {
 			updateRemotePlayerVisualsFrame( dt );
 			const gravityScale1 = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
 			const gravityScale2 = Number.isFinite( activePadEffect2?.gravity ) ? activePadEffect2.gravity : 1.0;
-			if ( vehicle?.rigidBody?.motionProperties ) vehicle.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale1 * customModGravityScale * ( hacksActive ? hacksState.gravity : 1.0 );
-			if ( vehicle2?.rigidBody?.motionProperties ) vehicle2.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale2 * ( hacksActive ? hacksState.gravity : 1.0 );
+			if ( vehicle?.rigidBody?.motionProperties ) {
+
+				const waterScale = isCameraTargetInWater( vehicle.spherePos ) ? WATER_GRAVITY_SCALE : 1.0;
+				vehicle.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale1 * customModGravityScale * ( hacksActive ? hacksState.gravity : 1.0 ) * waterScale;
+				applyWaterPhysicsDamping( vehicle, dt );
+
+			}
+			if ( vehicle2?.rigidBody?.motionProperties ) {
+
+				const waterScale2 = isCameraTargetInWater( vehicle2.spherePos ) ? WATER_GRAVITY_SCALE : 1.0;
+				vehicle2.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale2 * ( hacksActive ? hacksState.gravity : 1.0 ) * waterScale2;
+				applyWaterPhysicsDamping( vehicle2, dt );
+
+			}
 			if ( hacksActive ) {
 
 				if ( hacksState.boostAnywhere && controls?.keys?.KeyB && vehicle?.rigidBody?.motionProperties ) {
