@@ -27,6 +27,86 @@ const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 const WATER_DEPTH = CELL_RAW * 0.34;
 const WATER_WALL_HEIGHT = CELL_RAW * 0.38;
 
+const WATER_SHADER_ASSET_ROOT = 'https://cdn.jsdelivr.net/gh/martinRenou/threejs-water@master/';
+const waterTextureLoader = new THREE.TextureLoader();
+waterTextureLoader.setCrossOrigin( 'anonymous' );
+const waterWaveTexture = waterTextureLoader.load( `${ WATER_SHADER_ASSET_ROOT }water.png`, ( texture ) => {
+
+	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+	texture.minFilter = THREE.LinearFilter;
+	texture.magFilter = THREE.LinearFilter;
+
+} );
+const waterTileTexture = waterTextureLoader.load( `${ WATER_SHADER_ASSET_ROOT }tiles.jpg`, ( texture ) => {
+
+	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+
+} );
+
+function createRepositoryWaterMaterial() {
+
+	return new THREE.ShaderMaterial( {
+		uniforms: {
+			time: { value: 0 },
+			waveTex: { value: waterWaveTexture },
+			tileTex: { value: waterTileTexture },
+			lightDir: { value: new THREE.Vector3( 0.62, 0.74, - 0.25 ).normalize() },
+			shallowColor: { value: new THREE.Color( 0x33c8ff ) },
+			deepColor: { value: new THREE.Color( 0x06456e ) },
+		},
+		vertexShader: `
+			varying vec2 vUv;
+			varying vec3 vWorldPosition;
+			uniform sampler2D waveTex;
+			uniform float time;
+			void main() {
+				vUv = uv;
+				vec3 transformed = position;
+				vec2 waveUvA = uv * 3.0 + vec2( time * 0.035, time * 0.022 );
+				vec2 waveUvB = uv * 7.0 + vec2( - time * 0.018, time * 0.031 );
+				float waveA = texture2D( waveTex, waveUvA ).r;
+				float waveB = texture2D( waveTex, waveUvB ).g;
+				transformed.z += ( waveA + waveB - 1.0 ) * 0.18;
+				vec4 worldPosition = modelMatrix * vec4( transformed, 1.0 );
+				vWorldPosition = worldPosition.xyz;
+				gl_Position = projectionMatrix * viewMatrix * worldPosition;
+			}
+		`,
+		fragmentShader: `
+			uniform sampler2D waveTex;
+			uniform sampler2D tileTex;
+			uniform vec3 lightDir;
+			uniform vec3 shallowColor;
+			uniform vec3 deepColor;
+			uniform float time;
+			varying vec2 vUv;
+			varying vec3 vWorldPosition;
+			void main() {
+				vec2 flowA = vUv * 4.0 + vec2( time * 0.045, - time * 0.025 );
+				vec2 flowB = vUv * 9.0 + vec2( - time * 0.018, time * 0.036 );
+				vec3 waveA = texture2D( waveTex, flowA ).rgb;
+				vec3 waveB = texture2D( waveTex, flowB ).rgb;
+				vec2 ripple = ( waveA.rg + waveB.gb - 1.0 ) * 0.08;
+				float foam = smoothstep( 0.68, 0.98, waveA.b * 0.65 + waveB.r * 0.35 );
+				vec3 tile = texture2D( tileTex, vUv * 2.0 + ripple ).rgb;
+				vec3 normal = normalize( vec3( ripple.x * 3.2, 1.0, ripple.y * 3.2 ) );
+				vec3 viewDir = normalize( cameraPosition - vWorldPosition );
+				float fresnel = pow( 1.0 - max( dot( normal, viewDir ), 0.0 ), 3.0 );
+				float sparkle = pow( max( dot( reflect( - lightDir, normal ), viewDir ), 0.0 ), 46.0 );
+				vec3 color = mix( deepColor, shallowColor, 0.45 + 0.25 * waveA.b );
+				color += tile * 0.08;
+				color = mix( color, vec3( 0.78, 0.95, 1.0 ), fresnel * 0.55 + foam * 0.18 );
+				color += sparkle * vec3( 1.0, 0.88, 0.58 ) * 1.45;
+				gl_FragColor = vec4( color, 0.88 );
+			}
+		`,
+		transparent: true,
+		depthWrite: false,
+		side: THREE.DoubleSide,
+	} );
+
+}
+
 const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down' ] );
 
 function normalizeElevatedEntry( elevatedType, orient = 0 ) {
@@ -352,11 +432,12 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			const waterDepth = Math.max( CELL_RAW, ( maxWaterGz - minWaterGz + 2 ) * CELL_RAW );
 			const waterPlane = new THREE.Mesh(
 				new THREE.PlaneGeometry( waterWidth, waterDepth ),
-				new THREE.MeshStandardMaterial( { color: 0x1f8fd6, emissive: 0x0a3d66, emissiveIntensity: 0.25, roughness: 0.35, metalness: 0.02, transparent: true, opacity: 0.86 } )
+				createRepositoryWaterMaterial()
 			);
 			waterPlane.rotation.x = - Math.PI / 2;
 			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.43, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
 			waterPlane.userData.waterSurface = true;
+			waterPlane.onBeforeRender = () => { waterPlane.material.uniforms.time.value = performance.now() * 0.001; };
 			trackPieceGroup.add( waterPlane );
 
 		}

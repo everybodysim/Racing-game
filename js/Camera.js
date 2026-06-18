@@ -57,6 +57,7 @@ export class Camera {
 
 		const speedRatio = THREE.MathUtils.clamp( Number( dynamics.speedRatio ) || 0, 0, 1.8 );
 		const driftAmount = THREE.MathUtils.clamp( Number( dynamics.driftIntensity ) || 0, 0, 1 );
+		const underwaterLift = dynamics.underwaterCamera ? 1 : 0;
 		const targetLerp = this.mode === 'chase' ? 10 : 6;
 		this.targetPosition.lerp( target, dt * targetLerp );
 
@@ -81,9 +82,15 @@ export class Camera {
 
 			this._rotatedOffset.copy( this.chaseOffset ).applyAxisAngle( this._upAxis, this.chaseYaw );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
+			if ( underwaterLift ) {
+
+				this._desiredPos.y += 1.65;
+				this._desiredPos.addScaledVector( this._forward, - 0.85 );
+
+			}
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
 			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, 4.8 );
-			this._desiredLook.y += 1.0;
+			this._desiredLook.y += 1.0 + underwaterLift * 1.45;
 
 			const chaseLag = THREE.MathUtils.lerp( 10, 7.2, Math.min( 1, speedRatio * 0.8 + driftAmount * 0.4 ) );
 			this.camera.position.lerp( this._desiredPos, dt * chaseLag );
@@ -96,8 +103,11 @@ export class Camera {
 		} else {
 
 			this._desiredPos.copy( this.targetPosition ).add( this.offset );
+			if ( underwaterLift ) this._desiredPos.y += 1.6;
 			this.camera.position.lerp( this._desiredPos, dt * 8 );
-			this.lookTarget.lerp( this.targetPosition, dt * 10 );
+			this._desiredLook.copy( this.targetPosition );
+			if ( underwaterLift ) this._desiredLook.y += 1.4;
+			this.lookTarget.lerp( this._desiredLook, dt * 10 );
 			this.camera.fov = THREE.MathUtils.lerp( this.camera.fov, 42, Math.min( 1, dt * 4 ) );
 			this.camera.updateProjectionMatrix();
 			this.camera.lookAt( this.lookTarget );
