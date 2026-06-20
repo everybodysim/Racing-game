@@ -1465,7 +1465,7 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 	for ( const [ , , key ] of ( customCells || TRACK_CELLS ) ) {
 		required.add( key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key );
 	}
-	if ( ! customCells ) {
+	if ( extras?.worldPreset !== 'pool-filled' ) {
 		required.add( 'decoration-empty' );
 		required.add( 'decoration-forest' );
 	}
