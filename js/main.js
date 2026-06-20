@@ -1715,6 +1715,9 @@ async function init() {
 	const WATER_BUOYANCY = THREE.MathUtils.clamp( Number( customPoolSettings.buoyancy ) || 0.28, 0.05, 3 );
 	const WATER_GRAVITY_SCALE = Math.min( WATER_BUOYANCY, 1 );
 	const WATER_VELOCITY_DRAG = THREE.MathUtils.clamp( Number( customPoolSettings.drag ) || 1.8, 0.1, 6 );
+	const WATER_DRIVE_ACCELERATION = THREE.MathUtils.clamp( Number( customPoolSettings.drive ) || 3.2, 0, 10 );
+	const WATER_MAX_DRIVE_SPEED = THREE.MathUtils.clamp( Number( customPoolSettings.maxDriveSpeed ) || 3.8, 0.5, 12 );
+	const waterDriveForward = new THREE.Vector3();
 	function isCameraTargetInWater( position ) {
 
 		if ( waterCellSet.size === 0 || ! position ) return false;
@@ -1766,12 +1769,20 @@ async function init() {
 		const safeDelta = Math.max( 0, deltaSeconds );
 		const dragFactor = Math.exp( - WATER_VELOCITY_DRAG * safeDelta );
 		const velocity = targetVehicle.rigidBody.motionProperties.linearVelocity || [ 0, 0, 0 ];
+		const throttle = THREE.MathUtils.clamp( Number( targetVehicle.inputZ ) || 0, -1, 1 );
+		waterDriveForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+		waterDriveForward.y = 0;
+		if ( waterDriveForward.lengthSq() > 1e-5 ) waterDriveForward.normalize();
+		const drivenVelocityX = ( velocity[ 0 ] * dragFactor ) + ( waterDriveForward.x * throttle * WATER_DRIVE_ACCELERATION * safeDelta );
+		const drivenVelocityZ = ( velocity[ 2 ] * dragFactor ) + ( waterDriveForward.z * throttle * WATER_DRIVE_ACCELERATION * safeDelta );
+		const planarSpeed = Math.hypot( drivenVelocityX, drivenVelocityZ );
+		const speedScale = planarSpeed > WATER_MAX_DRIVE_SPEED ? WATER_MAX_DRIVE_SPEED / planarSpeed : 1;
 		const upwardFloatVelocity = Math.max( 0, WATER_BUOYANCY - 1 ) * 12 * safeDelta;
 		const verticalVelocity = THREE.MathUtils.clamp( ( velocity[ 1 ] * Math.sqrt( dragFactor ) ) + upwardFloatVelocity, -18, 8 );
 		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
-			velocity[ 0 ] * dragFactor,
+			drivenVelocityX * speedScale,
 			verticalVelocity,
-			velocity[ 2 ] * dragFactor,
+			drivenVelocityZ * speedScale,
 		], false );
 		targetVehicle.linearSpeed *= dragFactor;
 		return true;
