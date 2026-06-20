@@ -8,6 +8,24 @@
 	<link rel="manifest" href="manifest.webmanifest">
 	<link rel="icon" href="icons/icon-192.png" type="image/png">
 	<link rel="apple-touch-icon" href="icons/icon-192.png">
+
+	<script>
+		(() => {
+			if ( !( 'serviceWorker' in navigator ) ) return;
+			const resetKey = 'racing-sw-reset-v1';
+			navigator.serviceWorker.getRegistrations?.().then( ( registrations ) => {
+				if ( registrations.length === 0 ) return;
+				Promise.all( registrations.map( ( registration ) => registration.unregister() ) ).then( () => {
+					if ( navigator.serviceWorker.controller && ! sessionStorage.getItem( resetKey ) ) {
+						sessionStorage.setItem( resetKey, '1' );
+						window.location.reload();
+					} else {
+						sessionStorage.removeItem( resetKey );
+					}
+				} );
+			} ).catch( ( error ) => console.warn( 'Service worker cleanup failed', error ) );
+		})();
+	</script>
 	<style>
 .skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
 .skip-link:focus{top:12px}
@@ -1109,7 +1127,7 @@
 	
 	<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 	<link rel="preconnect" href="https://esm.sh" crossorigin>
-	<link rel="modulepreload" href="js/main.js">
+	<link rel="modulepreload" href="js/main.js?v=20260620-reloadfix">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/GLTFLoader.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/OBJLoader.js" crossorigin>
@@ -1634,7 +1652,7 @@
 		} );
 	</script>
 	<script>document.getElementById( 'loading-status' ).textContent = 'Loading game code…';</script>
-	<script type="module" src="js/main.js"></script>
+	<script type="module" src="js/main.js?v=20260620-reloadfix"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
@@ -2136,13 +2154,6 @@
   });
 </script>
 
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Service worker registration failed', err));
-    });
-  }
-</script>
 </main>
 </body>
 </html>
