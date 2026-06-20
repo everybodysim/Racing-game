@@ -595,7 +595,7 @@
   <h3 style="margin:0 0 10px;font-size:14px;">Custom Pool</h3>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:12px;">
     <label style="display:flex;flex-direction:column;gap:3px;">Drag<input id="cp-drag" type="range" min="0.1" max="6" step="0.05" value="1.8"></label>
-    <label style="display:flex;flex-direction:column;gap:3px;">Car buoyancy<input id="cp-buoyancy" type="range" min="0.05" max="1.5" step="0.05" value="0.28"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Car buoyancy<input id="cp-buoyancy" type="range" min="0.05" max="3" step="0.05" value="0.28"></label>
     <label style="display:flex;align-items:center;gap:6px;">Water color<input id="cp-water-color" type="color" value="#1f8fd6" style="flex:1;height:28px;border:none;background:none;cursor:pointer;"></label>
     <label style="display:flex;align-items:center;gap:6px;">Edge color<input id="cp-edge-color" type="color" value="#5cc7ff" style="flex:1;height:28px;border:none;background:none;cursor:pointer;"></label>
     <label style="grid-column:1 / -1;"><input id="cp-transparent" type="checkbox" checked> Partly transparent water textures</label>
@@ -641,6 +641,7 @@
 	const WATER_TOOL = 'water-pool';
 	const CUSTOM_POOL_DEFAULT = { drag: 1.8, buoyancy: 0.28, waterColor: '#1f8fd6', edgeColor: '#5cc7ff', transparent: true };
 	let customPoolConfig = { ...CUSTOM_POOL_DEFAULT };
+	let worldPreset = 'normal';
 	const MOVING_SLIDE_TOOL = 'moving-slide-block';
 	const MOVING_SPIN_TOOL = 'moving-spin-wall';
 	const MOVING_ORBIT_TOOL = 'moving-orbit-poles';
@@ -2703,7 +2704,7 @@
 				if ( cell.cube ) cubes.push( [ gx, gz ] );
 				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0 ] );
 				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
-				if ( cell.water ) water.push( [ gx, gz ] );
+				if ( cell.water && worldPreset !== 'pool-filled' ) water.push( [ gx, gz ] );
 				if ( cell.movingObstacle ) movingObstacles.push( [ gx, gz, cell.movingObstacle, cell.wallOrient || 0, Number.isFinite( Number( cell.movingSpeed ) ) ? Number( cell.movingSpeed ) : 1, cell.movingCustom && typeof cell.movingCustom === 'object' ? cell.movingCustom : null ] );
 				if ( cell.elevatedType ) {
 
@@ -2755,7 +2756,7 @@
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, q: water, r: { ...customPoolConfig }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
@@ -2764,7 +2765,7 @@
 		const next = value && typeof value === 'object' ? value : {};
 		return {
 			drag: THREE.MathUtils.clamp( Number( next.drag ?? CUSTOM_POOL_DEFAULT.drag ) || CUSTOM_POOL_DEFAULT.drag, 0.1, 6 ),
-			buoyancy: THREE.MathUtils.clamp( Number( next.buoyancy ?? CUSTOM_POOL_DEFAULT.buoyancy ) || CUSTOM_POOL_DEFAULT.buoyancy, 0.05, 1.5 ),
+			buoyancy: THREE.MathUtils.clamp( Number( next.buoyancy ?? CUSTOM_POOL_DEFAULT.buoyancy ) || CUSTOM_POOL_DEFAULT.buoyancy, 0.05, 3 ),
 			waterColor: /^#[0-9a-f]{6}$/i.test( String( next.waterColor || '' ) ) ? next.waterColor : CUSTOM_POOL_DEFAULT.waterColor,
 			edgeColor: /^#[0-9a-f]{6}$/i.test( String( next.edgeColor || '' ) ) ? next.edgeColor : CUSTOM_POOL_DEFAULT.edgeColor,
 			transparent: next.transparent !== false,
@@ -2773,7 +2774,7 @@
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [] };
+		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], t: 'normal', w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [] };
 
 		try {
 
@@ -2791,6 +2792,7 @@
 						d: Array.isArray( parsed.d ) ? parsed.d : [],
 					m: Array.isArray( parsed.m ) ? parsed.m : [],
 					a: Array.isArray( parsed.a ) ? parsed.a : [],
+						t: parsed.t === 'pool-filled' ? 'pool-filled' : 'normal',
 						w: normalizeWeatherSettings( parsed?.w ),
 						c: parsed?.c && typeof parsed.c === 'object' ? parsed.c : JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
 						y: parsed?.y && typeof parsed.y === 'object' ? parsed.y : JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ),
@@ -2802,7 +2804,7 @@
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-				return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [] };
+				return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], t: 'normal', w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [] };
 
 		}
 
@@ -2908,6 +2910,9 @@
 				...( mods.y || {} )
 			};
 			customPoolConfig = normalizeCustomPoolConfig( mods.r );
+			worldPreset = mods.t === 'pool-filled' ? 'pool-filled' : 'normal';
+			const templateSelect = document.getElementById( 'map-template-select' );
+			if ( templateSelect ) templateSelect.value = worldPreset === 'pool-filled' ? 'pool-filled' : 'normal';
 			weatherSettings = normalizeWeatherSettings( mods.w );
 			applyWeatherPreset( weatherSettings.preset );
 			const weatherSelect = document.getElementById( 'weather-preset' );
@@ -3072,6 +3077,7 @@
 
 			}
 			rebuildArcMeshes();
+			if ( worldPreset === 'pool-filled' ) applyPoolFilledTemplate();
 
 		} catch ( e ) {
 
@@ -3544,9 +3550,11 @@ function refreshMovingSpeedUi() {
 	document.getElementById( 'map-template-select' )?.addEventListener( 'change', ( event ) => {
 		pushHistorySnapshot();
 		if ( event.target.value === 'pool-filled' ) {
+			worldPreset = 'pool-filled';
 			applyPoolFilledTemplate();
 			showToast( 'Pool filled map template applied around the track' );
 		} else {
+			worldPreset = 'normal';
 			clearPoolTemplateWater();
 			showToast( 'Normal map template selected' );
 		}

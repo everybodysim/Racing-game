@@ -6,7 +6,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
@@ -183,7 +183,11 @@ window.addEventListener( 'resize', () => {
 
 } );
 
-const loader = new GLTFLoader();
+const loadingManager = new THREE.LoadingManager();
+loadingManager.onStart = ( url ) => appendLoadingConsole( `Fetching ${ url.split( '/' ).pop() }…` );
+loadingManager.onProgress = ( url, loaded, total ) => appendLoadingConsole( `Loaded ${ url.split( '/' ).pop() } (${ loaded }/${ total })` );
+loadingManager.onError = ( url ) => appendLoadingConsole( `Failed ${ url.split( '/' ).pop() }` );
+const loader = new GLTFLoader( loadingManager );
 const objLoader = new OBJLoader();
 const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
@@ -336,6 +340,19 @@ const LOADING_PROGRESS_BY_STAGE = {
 };
 
 let loadingOverlayDismissed = false;
+const loadingStartedAt = performance.now();
+
+function appendLoadingConsole( message ) {
+
+	const consoleEl = document.getElementById( 'loading-console' );
+	if ( ! consoleEl ) return;
+	const line = document.createElement( 'div' );
+	line.textContent = `[${ ( ( performance.now() - loadingStartedAt ) / 1000 ).toFixed( 2 ) }s] ${ message }`;
+	consoleEl.appendChild( line );
+	while ( consoleEl.children.length > 18 ) consoleEl.removeChild( consoleEl.firstChild );
+	consoleEl.scrollTop = consoleEl.scrollHeight;
+
+}
 
 function setLoadingStatus( message, stage = null ) {
 
@@ -343,6 +360,7 @@ function setLoadingStatus( message, stage = null ) {
 	const fillEl = document.getElementById( 'loading-progress-fill' );
 	if ( statusEl ) statusEl.textContent = message || '';
 	if ( fillEl && stage && Number.isFinite( LOADING_PROGRESS_BY_STAGE[ stage ] ) ) fillEl.style.width = `${ LOADING_PROGRESS_BY_STAGE[ stage ] }%`;
+	if ( message ) appendLoadingConsole( message );
 
 }
 
@@ -1059,6 +1077,7 @@ function decodeExtrasParam( str ) {
 			customPads: parsed?.y && typeof parsed.y === 'object' ? parsed.y : {},
 			customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
 			movingObstacles: Array.isArray( parsed.o ) ? parsed.o : [],
+			worldPreset: parsed.t === 'pool-filled' ? 'pool-filled' : 'normal',
 			water: Array.isArray( parsed.q ) ? parsed.q : [],
 			customPool: parsed?.r && typeof parsed.r === 'object' ? parsed.r : {},
 			weather: normalizeWeatherDetails( parsed?.w ),
@@ -1440,9 +1459,34 @@ async function loadRuntimeMods() {
 
 }
 
-async function loadModels() {
+function getRequiredModelNames( customCells, extras, carKeys ) {
 
-	const promises = modelNames.map( ( name ) =>
+	const required = new Set( carKeys );
+	for ( const [ , , key ] of ( customCells || TRACK_CELLS ) ) {
+		required.add( key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key );
+	}
+	if ( extras?.worldPreset !== 'pool-filled' ) {
+		required.add( 'decoration-empty' );
+		required.add( 'decoration-forest' );
+	}
+	if ( Array.isArray( extras?.bumps ) && extras.bumps.length ) required.add( 'track-bump' );
+	if ( Array.isArray( extras?.decorations ) ) {
+		for ( const deco of extras.decorations ) if ( typeof deco?.[ 2 ] === 'string' ) required.add( deco[ 2 ] );
+	}
+	if ( Array.isArray( extras?.elevated ) ) {
+		for ( const entry of extras.elevated ) {
+			if ( entry?.[ 2 ] === 'elevated-corner' ) required.add( 'track-corner' );
+			else if ( entry?.[ 2 ] === 'elevated-checkpoint' ) required.add( 'track-finish' );
+			else required.add( 'track-straight' );
+		}
+	}
+	return modelNames.filter( ( name ) => required.has( name ) );
+
+}
+
+async function loadModels( requiredNames = modelNames ) {
+
+	const promises = requiredNames.map( ( name ) =>
 		new Promise( ( resolve, reject ) => {
 
 			loader.load( `models/${ name }.glb`, ( gltf ) => {
@@ -1473,6 +1517,7 @@ async function loadModels() {
 	);
 
 	await Promise.all( promises );
+	appendLoadingConsole( `Ready with ${ requiredNames.length } optimized models.` );
 
 }
 
@@ -1533,12 +1578,10 @@ async function loadCustomTrackAssets( extras ) {
 
 async function init() {
 
-	setLoadingStatus( 'Loading game models…', 'boot' );
+	setLoadingStatus( 'Booting game systems…', 'boot' );
 	registerAll();
-	setLoadingStatus( 'Loading game models…', 'models' );
-	await loadModels();
-	setLoadingStatus( 'Loading track and mods…', 'track' );
-	const runtimeMods = await loadRuntimeMods();
+	setLoadingStatus( 'Resolving track data…', 'track' );
+	const runtimeModsPromise = loadRuntimeMods();
 
 	const searchParams = new URLSearchParams( window.location.search );
 	const { mapParam, extrasParam } = await resolvePackedTrackParams( searchParams );
@@ -1556,8 +1599,6 @@ async function init() {
 	let customCells = null;
 	let spawn = null;
 	const extras = decodeExtrasParam( extrasParam );
-	setLoadingStatus( 'Building track geometry…', 'track' );
-	await loadCustomTrackAssets( extras );
 	const carKeys = Object.keys( CAR_STATS );
 	const deterministicCarSeed = hashTrackSeed( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
 	const pickRandomCarKey = () => {
@@ -1582,6 +1623,17 @@ async function init() {
 		}
 
 	}
+	if ( extras?.worldPreset === 'pool-filled' ) {
+		const generatedWater = computePoolPresetWaterCells( customCells || TRACK_CELLS, extras );
+		const explicitWater = Array.isArray( extras.water ) ? extras.water : [];
+		const waterByKey = new Map( [ ...generatedWater, ...explicitWater ].map( ( cell ) => [ `${ cell[ 0 ] },${ cell[ 1 ] }`, cell ] ) );
+		extras.water = [ ...waterByKey.values() ];
+	}
+	const requiredModelNames = getRequiredModelNames( customCells, extras, carKeys );
+	setLoadingStatus( `Loading ${ requiredModelNames.length } needed models…`, 'models' );
+	await Promise.all( [ loadModels( requiredModelNames ), loadCustomTrackAssets( extras ) ] );
+	setLoadingStatus( 'Loading track and mods…', 'track' );
+	const runtimeMods = await runtimeModsPromise;
 	const testSpawnRaw = String( searchParams.get( 'testSpawn' ) || '' ).trim();
 	if ( testSpawnRaw ) {
 
@@ -1660,7 +1712,8 @@ async function init() {
 	const waterCellSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 	const cellWorld = CELL_RAW * GRID_SCALE;
 	const customPoolSettings = extras?.customPool && typeof extras.customPool === 'object' ? extras.customPool : {};
-	const WATER_GRAVITY_SCALE = THREE.MathUtils.clamp( Number( customPoolSettings.buoyancy ) || 0.28, 0.05, 1.5 );
+	const WATER_BUOYANCY = THREE.MathUtils.clamp( Number( customPoolSettings.buoyancy ) || 0.28, 0.05, 3 );
+	const WATER_GRAVITY_SCALE = Math.min( WATER_BUOYANCY, 1 );
 	const WATER_VELOCITY_DRAG = THREE.MathUtils.clamp( Number( customPoolSettings.drag ) || 1.8, 0.1, 6 );
 	function isCameraTargetInWater( position ) {
 
@@ -1673,11 +1726,14 @@ async function init() {
 	function applyWaterPhysicsDamping( targetVehicle, deltaSeconds ) {
 
 		if ( ! isCameraTargetInWater( targetVehicle?.spherePos ) || ! targetVehicle?.rigidBody?.motionProperties ) return false;
-		const dragFactor = Math.exp( - WATER_VELOCITY_DRAG * Math.max( 0, deltaSeconds ) );
+		const safeDelta = Math.max( 0, deltaSeconds );
+		const dragFactor = Math.exp( - WATER_VELOCITY_DRAG * safeDelta );
 		const velocity = targetVehicle.rigidBody.motionProperties.linearVelocity || [ 0, 0, 0 ];
+		const upwardFloatVelocity = Math.max( 0, WATER_BUOYANCY - 1 ) * 12 * safeDelta;
+		const verticalVelocity = THREE.MathUtils.clamp( ( velocity[ 1 ] * Math.sqrt( dragFactor ) ) + upwardFloatVelocity, -18, 8 );
 		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
 			velocity[ 0 ] * dragFactor,
-			velocity[ 1 ] * Math.sqrt( dragFactor ),
+			verticalVelocity,
 			velocity[ 2 ] * dragFactor,
 		], false );
 		targetVehicle.linearSpeed *= dragFactor;

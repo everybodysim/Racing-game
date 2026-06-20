@@ -1,4 +1,4 @@
-const CACHE_NAME = 'racing-game-v8';
+const CACHE_NAME = 'racing-game-v10';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -21,14 +21,28 @@ const CORE_ASSETS = [
   './mods/mods.json',
   './mods/TAS.js',
   './mods/Hacks.js',
-  './mods/ArcadeBoost.js'
+  './mods/ArcadeBoost.js',
+  './models/vehicle-truck-yellow.glb',
+  './models/vehicle-truck-green.glb',
+  './models/vehicle-truck-purple.glb',
+  './models/vehicle-truck-red.glb',
+  './models/track-straight.glb',
+  './models/track-corner.glb',
+  './models/track-bump.glb',
+  './models/track-finish.glb',
+  './models/decoration-empty.glb',
+  './models/decoration-forest.glb',
+  './models/decoration-tents.glb',
+  './models/Textures/colormap.png'
 ];
 
 const CORE_PATHS = new Set(CORE_ASSETS.map((path) => new URL(path, self.location.origin).pathname));
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE_ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME)
+      .then((cache) => Promise.allSettled(CORE_ASSETS.map((asset) => cache.add(new Request(asset, { cache: 'reload' })))))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -46,11 +60,14 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
+  const isNavigation = event.request.mode === 'navigate';
   const canCache = !url.search && CORE_PATHS.has(url.pathname);
-  const fallback = event.request.mode === 'navigate' ? './index.html' : null;
+  const fallback = isNavigation ? './index.html' : null;
+  const shouldBypassHttpCache = isNavigation || canCache;
+  const networkRequest = shouldBypassHttpCache ? new Request(event.request, { cache: 'reload' }) : event.request;
 
   event.respondWith(
-    fetch(event.request)
+    fetch(networkRequest)
       .then((response) => {
         if (canCache && response?.status === 200) {
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
