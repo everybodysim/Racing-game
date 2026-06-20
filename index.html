@@ -12,18 +12,24 @@
 	<script>
 		(() => {
 			if ( !( 'serviceWorker' in navigator ) ) return;
-			const resetKey = 'racing-sw-reset-v1';
-			navigator.serviceWorker.getRegistrations?.().then( ( registrations ) => {
-				if ( registrations.length === 0 ) return;
-				Promise.all( registrations.map( ( registration ) => registration.unregister() ) ).then( () => {
-					if ( navigator.serviceWorker.controller && ! sessionStorage.getItem( resetKey ) ) {
-						sessionStorage.setItem( resetKey, '1' );
-						window.location.reload();
-					} else {
-						sessionStorage.removeItem( resetKey );
-					}
-				} );
-			} ).catch( ( error ) => console.warn( 'Service worker cleanup failed', error ) );
+			const resetKey = 'racing-sw-reset-v2';
+			const clearRacingCaches = async () => {
+				if ( !( 'caches' in window ) ) return;
+				const keys = await caches.keys();
+				await Promise.all( keys.filter( ( key ) => key.startsWith( 'racing-game-' ) ).map( ( key ) => caches.delete( key ) ) );
+			};
+			const cleanup = async () => {
+				const registrations = await navigator.serviceWorker.getRegistrations?.() || [];
+				await Promise.all( registrations.map( ( registration ) => registration.unregister() ) );
+				await clearRacingCaches();
+				if ( navigator.serviceWorker.controller && ! sessionStorage.getItem( resetKey ) ) {
+					sessionStorage.setItem( resetKey, '1' );
+					window.location.replace( `${ window.location.pathname }${ window.location.search }${ window.location.search ? '&' : '?' }sw-reset=${ Date.now() }${ window.location.hash }` );
+				} else {
+					sessionStorage.removeItem( resetKey );
+				}
+			};
+			cleanup().catch( ( error ) => console.warn( 'Service worker cleanup failed', error ) );
 		})();
 	</script>
 	<style>
@@ -1127,7 +1133,7 @@
 	
 	<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 	<link rel="preconnect" href="https://esm.sh" crossorigin>
-	<link rel="modulepreload" href="js/main.js?v=20260620-reloadfix">
+	<link rel="modulepreload" href="js/main.js?v=20260620-camera-cachefix">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/GLTFLoader.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/OBJLoader.js" crossorigin>
@@ -1135,6 +1141,7 @@
 	<link rel="modulepreload" href="js/Track.js">
 	<link rel="modulepreload" href="js/Physics.js">
 	<link rel="modulepreload" href="js/Vehicle.js">
+	<link rel="modulepreload" href="js/Camera.js?v=20260620-movetowards">
 	<script type="importmap">
 	{
 		"imports": {
@@ -1652,7 +1659,7 @@
 		} );
 	</script>
 	<script>document.getElementById( 'loading-status' ).textContent = 'Loading game code…';</script>
-	<script type="module" src="js/main.js?v=20260620-reloadfix"></script>
+	<script type="module" src="js/main.js?v=20260620-camera-cachefix"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;

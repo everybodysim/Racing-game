@@ -1,5 +1,13 @@
 import * as THREE from 'three';
 
+
+function moveTowards( current, target, maxDelta ) {
+
+	if ( Math.abs( target - current ) <= maxDelta ) return target;
+	return current + Math.sign( target - current ) * maxDelta;
+
+}
+
 function lerpAngle( a, b, t ) {
 
 	let d = b - a;
@@ -61,7 +69,7 @@ export class Camera {
 		const speedRatio = THREE.MathUtils.clamp( Number( dynamics.speedRatio ) || 0, 0, 1.8 );
 		const driftAmount = THREE.MathUtils.clamp( Number( dynamics.driftIntensity ) || 0, 0, 1 );
 		const underwaterTarget = dynamics.underwaterCamera ? 1 : 0;
-		this.underwaterBlend = THREE.MathUtils.moveTowards( this.underwaterBlend, underwaterTarget, dt / 0.7 );
+		this.underwaterBlend = moveTowards( this.underwaterBlend, underwaterTarget, dt / 0.7 );
 		const underwaterLift = this.underwaterBlend;
 		const targetLerp = this.mode === 'chase' ? 10 : 6;
 		this.targetPosition.lerp( target, dt * targetLerp );
