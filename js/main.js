@@ -1723,6 +1723,43 @@ async function init() {
 		return waterCellSet.has( `${ gx },${ gz }` ) && position.y < 0;
 
 	}
+	function createWaterCameraState() {
+
+		return { underwater: false, exitTimer: 0 };
+
+	}
+	function updateWaterCameraState( state, position, deltaSeconds ) {
+
+		if ( ! state || ! position ) return false;
+		const gx = Math.floor( position.x / cellWorld );
+		const gz = Math.floor( position.z / cellWorld );
+		const inWaterCell = waterCellSet.has( `${ gx },${ gz }` );
+		const safeDelta = Math.max( 0, deltaSeconds );
+		if ( ! state.underwater ) {
+
+			if ( inWaterCell && position.y < 0.25 ) {
+
+				state.underwater = true;
+				state.exitTimer = 0;
+
+			}
+			return state.underwater;
+
+		}
+		const clearlyOutOfWater = ! inWaterCell || position.y > 1.1;
+		state.exitTimer = clearlyOutOfWater ? state.exitTimer + safeDelta : 0;
+		if ( state.exitTimer >= 0.35 ) {
+
+			state.underwater = false;
+			state.exitTimer = 0;
+
+		}
+		return state.underwater;
+
+	}
+	const waterCameraState1 = createWaterCameraState();
+	const waterCameraState2 = createWaterCameraState();
+
 	function applyWaterPhysicsDamping( targetVehicle, deltaSeconds ) {
 
 		if ( ! isCameraTargetInWater( targetVehicle?.spherePos ) || ! targetVehicle?.rigidBody?.motionProperties ) return false;
@@ -7891,12 +7928,12 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat.setFromEuler( camYawLockEuler.set( 0, camYawLockValue, 0, 'YXZ' ) );
-				cam.update( dt, vehicle.spherePos, camYawLockQuat, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity, underwaterCamera: isCameraTargetInWater( vehicle.spherePos ) } );
+				cam.update( dt, vehicle.spherePos, camYawLockQuat, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt ) } );
 
 			} else {
 
 				camYawLockActive = false;
-				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity, underwaterCamera: isCameraTargetInWater( vehicle.spherePos ) } );
+				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt ) } );
 
 			}
 
@@ -7914,12 +7951,12 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat2.setFromEuler( camYawLockEuler2.set( 0, camYawLockValue2, 0, 'YXZ' ) );
-				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity, underwaterCamera: isCameraTargetInWater( vehicle2.spherePos ) } );
+				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt ) } );
 
 			} else {
 
 				camYawLockActive2 = false;
-				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity, underwaterCamera: isCameraTargetInWater( vehicle2.spherePos ) } );
+				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt ) } );
 
 			}
 

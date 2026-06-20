@@ -29,6 +29,7 @@ export class Camera {
 		this._upAxis = new THREE.Vector3( 0, 1, 0 );
 		this.chaseYaw = 0;
 		this.hasChaseYaw = false;
+		this.underwaterBlend = 0;
 
 		this.camera.position.copy( this.offset );
 		this.camera.lookAt( 0, 0, 0 );
@@ -59,7 +60,9 @@ export class Camera {
 
 		const speedRatio = THREE.MathUtils.clamp( Number( dynamics.speedRatio ) || 0, 0, 1.8 );
 		const driftAmount = THREE.MathUtils.clamp( Number( dynamics.driftIntensity ) || 0, 0, 1 );
-		const underwaterLift = dynamics.underwaterCamera ? 1 : 0;
+		const underwaterTarget = dynamics.underwaterCamera ? 1 : 0;
+		this.underwaterBlend = THREE.MathUtils.moveTowards( this.underwaterBlend, underwaterTarget, dt / 0.7 );
+		const underwaterLift = this.underwaterBlend;
 		const targetLerp = this.mode === 'chase' ? 10 : 6;
 		this.targetPosition.lerp( target, dt * targetLerp );
 
@@ -82,11 +85,11 @@ export class Camera {
 
 			}
 
-			this._rotatedOffset.copy( underwaterLift ? this.underwaterChaseOffset : this.chaseOffset ).applyAxisAngle( this._upAxis, this.chaseYaw );
+			this._rotatedOffset.copy( this.chaseOffset ).lerp( this.underwaterChaseOffset, underwaterLift ).applyAxisAngle( this._upAxis, this.chaseYaw );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
-			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, underwaterLift ? 0.8 : 4.8 );
-			this._desiredLook.y += underwaterLift ? 0.45 : 1.0;
+			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) );
+			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift );
 
 			const chaseLag = THREE.MathUtils.lerp( 10, 7.2, Math.min( 1, speedRatio * 0.8 + driftAmount * 0.4 ) );
 			this.camera.position.lerp( this._desiredPos, dt * chaseLag );
@@ -98,7 +101,8 @@ export class Camera {
 
 		} else {
 
-			this._desiredPos.copy( this.targetPosition ).add( underwaterLift ? this.underwaterOverviewOffset : this.offset );
+			this._rotatedOffset.copy( this.offset ).lerp( this.underwaterOverviewOffset, underwaterLift );
+			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			this.camera.position.lerp( this._desiredPos, dt * 8 );
 			this._desiredLook.copy( this.targetPosition );
 			this.lookTarget.lerp( this._desiredLook, dt * 10 );
