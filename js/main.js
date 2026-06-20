@@ -183,7 +183,11 @@ window.addEventListener( 'resize', () => {
 
 } );
 
-const loader = new GLTFLoader();
+const loadingManager = new THREE.LoadingManager();
+loadingManager.onStart = ( url ) => appendLoadingConsole( `Fetching ${ url.split( '/' ).pop() }…` );
+loadingManager.onProgress = ( url, loaded, total ) => appendLoadingConsole( `Loaded ${ url.split( '/' ).pop() } (${ loaded }/${ total })` );
+loadingManager.onError = ( url ) => appendLoadingConsole( `Failed ${ url.split( '/' ).pop() }` );
+const loader = new GLTFLoader( loadingManager );
 const objLoader = new OBJLoader();
 const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
@@ -336,6 +340,19 @@ const LOADING_PROGRESS_BY_STAGE = {
 };
 
 let loadingOverlayDismissed = false;
+const loadingStartedAt = performance.now();
+
+function appendLoadingConsole( message ) {
+
+	const consoleEl = document.getElementById( 'loading-console' );
+	if ( ! consoleEl ) return;
+	const line = document.createElement( 'div' );
+	line.textContent = `[${ ( ( performance.now() - loadingStartedAt ) / 1000 ).toFixed( 2 ) }s] ${ message }`;
+	consoleEl.appendChild( line );
+	while ( consoleEl.children.length > 18 ) consoleEl.removeChild( consoleEl.firstChild );
+	consoleEl.scrollTop = consoleEl.scrollHeight;
+
+}
 
 function setLoadingStatus( message, stage = null ) {
 
@@ -343,6 +360,7 @@ function setLoadingStatus( message, stage = null ) {
 	const fillEl = document.getElementById( 'loading-progress-fill' );
 	if ( statusEl ) statusEl.textContent = message || '';
 	if ( fillEl && stage && Number.isFinite( LOADING_PROGRESS_BY_STAGE[ stage ] ) ) fillEl.style.width = `${ LOADING_PROGRESS_BY_STAGE[ stage ] }%`;
+	if ( message ) appendLoadingConsole( message );
 
 }
 
@@ -1440,9 +1458,34 @@ async function loadRuntimeMods() {
 
 }
 
-async function loadModels() {
+function getRequiredModelNames( customCells, extras, carKeys ) {
 
-	const promises = modelNames.map( ( name ) =>
+	const required = new Set( carKeys );
+	for ( const [ , , key ] of ( customCells || TRACK_CELLS ) ) {
+		required.add( key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key );
+	}
+	if ( ! customCells ) {
+		required.add( 'decoration-empty' );
+		required.add( 'decoration-forest' );
+	}
+	if ( Array.isArray( extras?.bumps ) && extras.bumps.length ) required.add( 'track-bump' );
+	if ( Array.isArray( extras?.decorations ) ) {
+		for ( const deco of extras.decorations ) if ( typeof deco?.[ 2 ] === 'string' ) required.add( deco[ 2 ] );
+	}
+	if ( Array.isArray( extras?.elevated ) ) {
+		for ( const entry of extras.elevated ) {
+			if ( entry?.[ 2 ] === 'elevated-corner' ) required.add( 'track-corner' );
+			else if ( entry?.[ 2 ] === 'elevated-checkpoint' ) required.add( 'track-finish' );
+			else required.add( 'track-straight' );
+		}
+	}
+	return modelNames.filter( ( name ) => required.has( name ) );
+
+}
+
+async function loadModels( requiredNames = modelNames ) {
+
+	const promises = requiredNames.map( ( name ) =>
 		new Promise( ( resolve, reject ) => {
 
 			loader.load( `models/${ name }.glb`, ( gltf ) => {
@@ -1473,6 +1516,7 @@ async function loadModels() {
 	);
 
 	await Promise.all( promises );
+	appendLoadingConsole( `Ready with ${ requiredNames.length } optimized models.` );
 
 }
 
@@ -1533,12 +1577,10 @@ async function loadCustomTrackAssets( extras ) {
 
 async function init() {
 
-	setLoadingStatus( 'Loading game models…', 'boot' );
+	setLoadingStatus( 'Booting game systems…', 'boot' );
 	registerAll();
-	setLoadingStatus( 'Loading game models…', 'models' );
-	await loadModels();
-	setLoadingStatus( 'Loading track and mods…', 'track' );
-	const runtimeMods = await loadRuntimeMods();
+	setLoadingStatus( 'Resolving track data…', 'track' );
+	const runtimeModsPromise = loadRuntimeMods();
 
 	const searchParams = new URLSearchParams( window.location.search );
 	const { mapParam, extrasParam } = await resolvePackedTrackParams( searchParams );
@@ -1556,8 +1598,6 @@ async function init() {
 	let customCells = null;
 	let spawn = null;
 	const extras = decodeExtrasParam( extrasParam );
-	setLoadingStatus( 'Building track geometry…', 'track' );
-	await loadCustomTrackAssets( extras );
 	const carKeys = Object.keys( CAR_STATS );
 	const deterministicCarSeed = hashTrackSeed( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
 	const pickRandomCarKey = () => {
@@ -1582,6 +1622,11 @@ async function init() {
 		}
 
 	}
+	const requiredModelNames = getRequiredModelNames( customCells, extras, carKeys );
+	setLoadingStatus( `Loading ${ requiredModelNames.length } needed models…`, 'models' );
+	await Promise.all( [ loadModels( requiredModelNames ), loadCustomTrackAssets( extras ) ] );
+	setLoadingStatus( 'Loading track and mods…', 'track' );
+	const runtimeMods = await runtimeModsPromise;
 	const testSpawnRaw = String( searchParams.get( 'testSpawn' ) || '' ).trim();
 	if ( testSpawnRaw ) {
 

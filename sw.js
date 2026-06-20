@@ -1,4 +1,4 @@
-const CACHE_NAME = 'racing-game-v8';
+const CACHE_NAME = 'racing-game-v9';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -21,7 +21,19 @@ const CORE_ASSETS = [
   './mods/mods.json',
   './mods/TAS.js',
   './mods/Hacks.js',
-  './mods/ArcadeBoost.js'
+  './mods/ArcadeBoost.js',
+  './models/vehicle-truck-yellow.glb',
+  './models/vehicle-truck-green.glb',
+  './models/vehicle-truck-purple.glb',
+  './models/vehicle-truck-red.glb',
+  './models/track-straight.glb',
+  './models/track-corner.glb',
+  './models/track-bump.glb',
+  './models/track-finish.glb',
+  './models/decoration-empty.glb',
+  './models/decoration-forest.glb',
+  './models/decoration-tents.glb',
+  './models/Textures/colormap.png'
 ];
 
 const CORE_PATHS = new Set(CORE_ASSETS.map((path) => new URL(path, self.location.origin).pathname));
