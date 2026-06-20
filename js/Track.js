@@ -28,31 +28,45 @@ const WATER_DEPTH = CELL_RAW * 0.34;
 const WATER_WALL_HEIGHT = CELL_RAW * 0.38;
 
 const WATER_SHADER_ASSET_ROOT = 'https://cdn.jsdelivr.net/gh/martinRenou/threejs-water@master/';
-const waterTextureLoader = new THREE.TextureLoader();
-waterTextureLoader.setCrossOrigin( 'anonymous' );
-const waterWaveTexture = waterTextureLoader.load( `${ WATER_SHADER_ASSET_ROOT }water.png`, ( texture ) => {
+let waterWaveTexture = null;
+let waterTileTexture = null;
+function getWaterTextures() {
+	if ( waterWaveTexture && waterTileTexture ) return { waterWaveTexture, waterTileTexture };
+	const waterTextureLoader = new THREE.TextureLoader();
+	waterTextureLoader.setCrossOrigin( 'anonymous' );
+	waterWaveTexture = waterTextureLoader.load( `${ WATER_SHADER_ASSET_ROOT }water.png`, ( texture ) => {
+		texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+		texture.minFilter = THREE.LinearFilter;
+		texture.magFilter = THREE.LinearFilter;
+	} );
+	waterTileTexture = waterTextureLoader.load( `${ WATER_SHADER_ASSET_ROOT }tiles.jpg`, ( texture ) => {
+		texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+	} );
+	return { waterWaveTexture, waterTileTexture };
+}
 
-	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-	texture.minFilter = THREE.LinearFilter;
-	texture.magFilter = THREE.LinearFilter;
+function normalizePoolVisuals( extras = null ) {
+	const cfg = extras?.customPool && typeof extras.customPool === 'object' ? extras.customPool : {};
+	const isHex = ( value ) => /^#[0-9a-f]{6}$/i.test( String( value || '' ) );
+	return {
+		waterColor: isHex( cfg.waterColor ) ? cfg.waterColor : '#1f8fd6',
+		edgeColor: isHex( cfg.edgeColor ) ? cfg.edgeColor : '#5cc7ff',
+		transparent: cfg.transparent !== false,
+	};
+}
 
-} );
-const waterTileTexture = waterTextureLoader.load( `${ WATER_SHADER_ASSET_ROOT }tiles.jpg`, ( texture ) => {
+function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 
-	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-
-} );
-
-function createRepositoryWaterMaterial() {
-
+	const { waterWaveTexture, waterTileTexture } = getWaterTextures();
 	return new THREE.ShaderMaterial( {
 		uniforms: {
 			time: { value: 0 },
 			waveTex: { value: waterWaveTexture },
 			tileTex: { value: waterTileTexture },
 			lightDir: { value: new THREE.Vector3( 0.62, 0.74, - 0.25 ).normalize() },
-			shallowColor: { value: new THREE.Color( 0x33c8ff ) },
-			deepColor: { value: new THREE.Color( 0x06456e ) },
+			shallowColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0xffffff ), 0.28 ) },
+			deepColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0x001b2f ), 0.45 ) },
+			waterAlpha: { value: visuals.transparent ? 0.68 : 1.0 },
 		},
 		vertexShader: `
 			varying vec2 vUv;
@@ -78,6 +92,7 @@ function createRepositoryWaterMaterial() {
 			uniform vec3 lightDir;
 			uniform vec3 shallowColor;
 			uniform vec3 deepColor;
+			uniform float waterAlpha;
 			uniform float time;
 			varying vec2 vUv;
 			varying vec3 vWorldPosition;
@@ -98,11 +113,11 @@ function createRepositoryWaterMaterial() {
 				color += tile * 0.045 + caustic * vec3( 0.35, 0.95, 1.15 ) * 0.23;
 				color = mix( color, vec3( 0.78, 0.97, 1.0 ), fresnel * 0.62 + foam * 0.2 );
 				color += sparkle * vec3( 1.0, 0.9, 0.62 ) * 1.25;
-				gl_FragColor = vec4( color, 0.68 );
+				gl_FragColor = vec4( color, waterAlpha );
 			}
 		`,
-		transparent: true,
-		depthWrite: false,
+		transparent: visuals.transparent,
+		depthWrite: ! visuals.transparent,
 		side: THREE.DoubleSide,
 	} );
 
@@ -408,6 +423,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const waterCells = Array.isArray( extras.water ) ? extras.water : [];
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
 		const customPads = extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {};
+		const poolVisuals = normalizePoolVisuals( extras );
 		const elevatedMap = new Map();
 		for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedCells ) {
 
@@ -433,7 +449,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			const waterDepth = Math.max( CELL_RAW, ( maxWaterGz - minWaterGz + 2 ) * CELL_RAW );
 			const waterPlane = new THREE.Mesh(
 				new THREE.PlaneGeometry( waterWidth, waterDepth ),
-				createRepositoryWaterMaterial()
+				createRepositoryWaterMaterial( poolVisuals )
 			);
 			waterPlane.rotation.x = - Math.PI / 2;
 			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.32, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
@@ -467,7 +483,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				wall.castShadow = true;
 				wall.receiveShadow = true;
 				pool.add( wall );
-				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: 0x5cc7ff, emissive: 0x116d9e, emissiveIntensity: 0.35, roughness: 0.4 } ) );
+				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: 0.28, roughness: 0.4 } ) );
 				edge.position.set( side.x, 0.515, side.z );
 				edge.rotation.y = side.ry;
 				pool.add( edge );

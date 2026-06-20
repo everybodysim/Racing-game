@@ -1039,6 +1039,7 @@ function decodeExtrasParam( str ) {
 			customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
 			movingObstacles: Array.isArray( parsed.o ) ? parsed.o : [],
 			water: Array.isArray( parsed.q ) ? parsed.q : [],
+			customPool: parsed?.r && typeof parsed.r === 'object' ? parsed.r : {},
 			weather: normalizeWeatherDetails( parsed?.w ),
 		};
 
@@ -1637,8 +1638,9 @@ async function init() {
 	const waterCells = Array.isArray( extras?.water ) ? extras.water : [];
 	const waterCellSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 	const cellWorld = CELL_RAW * GRID_SCALE;
-	const WATER_GRAVITY_SCALE = 0.28;
-	const WATER_VELOCITY_DRAG = 1.8;
+	const customPoolSettings = extras?.customPool && typeof extras.customPool === 'object' ? extras.customPool : {};
+	const WATER_GRAVITY_SCALE = THREE.MathUtils.clamp( Number( customPoolSettings.buoyancy ) || 0.28, 0.05, 1.5 );
+	const WATER_VELOCITY_DRAG = THREE.MathUtils.clamp( Number( customPoolSettings.drag ) || 1.8, 0.1, 6 );
 	function isCameraTargetInWater( position ) {
 
 		if ( waterCellSet.size === 0 || ! position ) return false;
@@ -4793,7 +4795,7 @@ function completeCampaignStage() {
 		passedThisLap: false,
 	} ) );
 	const INTENSITY_SCALE = { low: 0.6, medium: 1.0, high: 1.45 };
-	const WEATHER_FX_DENSITY_MULTIPLIER = 10;
+	const WEATHER_FX_DENSITY_MULTIPLIER = 3;
 	const WIND_SPEED = { none: 0, breezy: 2.0, gusty: 4.5 };
 	let weatherFx = null;
 	let lightningCooldown = THREE.MathUtils.randFloat( 2.2, 6.2 );
