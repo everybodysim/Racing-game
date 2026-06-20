@@ -366,7 +366,11 @@
 		</select>
 		<label for="weather-lightning">Lightning</label>
 		<input id="weather-lightning" type="checkbox" aria-label="Lightning flashes">
-		<button id="btn-pool-template" type="button" title="Fill the starter area with pool water so track pieces can be built above it">Pool filled map</button>
+		<label for="map-template-select">Template</label>
+		<select id="map-template-select" aria-label="Map template">
+			<option value="normal">Normal map</option>
+			<option value="pool-filled">Pool filled map</option>
+		</select>
 	</div>
 	<details id="mobile-editor-drawer">
 		<summary aria-label="Open mobile advanced object tools">Objects</summary>
@@ -3439,12 +3443,58 @@ function refreshMovingSpeedUi() {
 		for ( const [ key, cell ] of grid ) if ( cell.water ) { const [ gx, gz ] = key.split( ',' ).map( Number ); placeOverlayMesh( gx, gz, cell ); }
 		save(); customPoolPanel.hidden = true; showToast( 'Custom pool saved' );
 	} );
-	document.getElementById( 'btn-pool-template' )?.addEventListener( 'click', () => {
-		pushHistorySnapshot();
-		for ( let gx = -10; gx <= 10; gx ++ ) for ( let gz = -10; gz <= 10; gz ++ ) { const key = cellKey( gx, gz ); const cell = grid.get( key ) || makeEmptyCell(); if ( ! grid.has( key ) ) grid.set( key, cell ); cell.water = true; placeOverlayMesh( gx, gz, cell ); }
-		for ( let gx = -10; gx <= 10; gx ++ ) for ( let gz = -10; gz <= 10; gz ++ ) refreshWaterNeighborhood( gx, gz );
+	function getTemplateTrackBounds() {
+		const roadCells = [];
+		for ( const [ key, cell ] of grid ) {
+			if ( cell.roadPieces?.length || cell.type ) roadCells.push( key.split( ',' ).map( Number ) );
+		}
+		if ( roadCells.length === 0 ) roadCells.push( [ 0, 0 ] );
+		let minGx = Infinity, maxGx = - Infinity, minGz = Infinity, maxGz = - Infinity;
+		for ( const [ gx, gz ] of roadCells ) {
+			minGx = Math.min( minGx, gx );
+			maxGx = Math.max( maxGx, gx );
+			minGz = Math.min( minGz, gz );
+			maxGz = Math.max( maxGz, gz );
+		}
+		const pad = 2;
+		return { minGx: minGx - pad, maxGx: maxGx + pad, minGz: minGz - pad, maxGz: maxGz + pad };
+	}
+
+	function clearPoolTemplateWater() {
+		const changed = [];
+		for ( const [ key, cell ] of grid ) {
+			if ( ! cell.water ) continue;
+			cell.water = false;
+			const [ gx, gz ] = key.split( ',' ).map( Number );
+			placeOverlayMesh( gx, gz, cell );
+			changed.push( [ gx, gz ] );
+		}
+		for ( const [ gx, gz ] of changed ) refreshWaterNeighborhood( gx, gz );
+	}
+
+	function applyPoolFilledTemplate() {
 		if ( ! [ ...grid.values() ].some( c => c.isFinish ) ) placeFinish();
-		save(); showToast( 'Pool filled map template applied' );
+		const bounds = getTemplateTrackBounds();
+		for ( let gx = bounds.minGx; gx <= bounds.maxGx; gx ++ ) for ( let gz = bounds.minGz; gz <= bounds.maxGz; gz ++ ) {
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			if ( ! grid.has( key ) ) grid.set( key, cell );
+			cell.water = true;
+			placeOverlayMesh( gx, gz, cell );
+		}
+		for ( let gx = bounds.minGx; gx <= bounds.maxGx; gx ++ ) for ( let gz = bounds.minGz; gz <= bounds.maxGz; gz ++ ) refreshWaterNeighborhood( gx, gz );
+	}
+
+	document.getElementById( 'map-template-select' )?.addEventListener( 'change', ( event ) => {
+		pushHistorySnapshot();
+		if ( event.target.value === 'pool-filled' ) {
+			applyPoolFilledTemplate();
+			showToast( 'Pool filled map template applied around the track' );
+		} else {
+			clearPoolTemplateWater();
+			showToast( 'Normal map template selected' );
+		}
+		save();
 	} );
 	document.getElementById( 'btn-custom-import' )?.addEventListener( 'click', () => {
 
