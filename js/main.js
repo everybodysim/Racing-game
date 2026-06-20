@@ -6,7 +6,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
@@ -1077,6 +1077,7 @@ function decodeExtrasParam( str ) {
 			customPads: parsed?.y && typeof parsed.y === 'object' ? parsed.y : {},
 			customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
 			movingObstacles: Array.isArray( parsed.o ) ? parsed.o : [],
+			worldPreset: parsed.t === 'pool-filled' ? 'pool-filled' : 'normal',
 			water: Array.isArray( parsed.q ) ? parsed.q : [],
 			customPool: parsed?.r && typeof parsed.r === 'object' ? parsed.r : {},
 			weather: normalizeWeatherDetails( parsed?.w ),
@@ -1621,6 +1622,12 @@ async function init() {
 
 		}
 
+	}
+	if ( extras?.worldPreset === 'pool-filled' ) {
+		const generatedWater = computePoolPresetWaterCells( customCells || TRACK_CELLS, extras );
+		const explicitWater = Array.isArray( extras.water ) ? extras.water : [];
+		const waterByKey = new Map( [ ...generatedWater, ...explicitWater ].map( ( cell ) => [ `${ cell[ 0 ] },${ cell[ 1 ] }`, cell ] ) );
+		extras.water = [ ...waterByKey.values() ];
 	}
 	const requiredModelNames = getRequiredModelNames( customCells, extras, carKeys );
 	setLoadingStatus( `Loading ${ requiredModelNames.length } needed models…`, 'models' );

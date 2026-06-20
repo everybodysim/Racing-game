@@ -389,6 +389,53 @@ const NPC_TRUCKS = [
 	[ 'vehicle-truck-red',    -1.36, -0.15, -23.80, 155.9 ],
 ];
 
+
+export function computePoolPresetWaterCells( cells = TRACK_CELLS, extras = null ) {
+
+	const roadCells = [];
+	const occupied = new Set();
+	const addOccupied = ( gx, gz ) => {
+		if ( Number.isFinite( Number( gx ) ) && Number.isFinite( Number( gz ) ) ) occupied.add( `${ Number( gx ) },${ Number( gz ) }` );
+	};
+	const addRoad = ( gx, gz ) => {
+		if ( ! Number.isFinite( Number( gx ) ) || ! Number.isFinite( Number( gz ) ) ) return;
+		const nx = Number( gx );
+		const nz = Number( gz );
+		roadCells.push( [ nx, nz ] );
+		addOccupied( nx, nz );
+	};
+
+	for ( const [ gx, gz ] of ( Array.isArray( cells ) && cells.length ? cells : TRACK_CELLS ) ) addRoad( gx, gz );
+	const blockerLists = [ extras?.bumps, extras?.poles, extras?.cubes, extras?.walls, extras?.jumps, extras?.movingObstacles, extras?.elevated, extras?.surfaces, extras?.decorations, extras?.magnets, extras?.arcLinks ];
+	for ( const list of blockerLists ) {
+		if ( ! Array.isArray( list ) ) continue;
+		for ( const entry of list ) {
+			if ( ! Array.isArray( entry ) ) continue;
+			addOccupied( entry[ 0 ], entry[ 1 ] );
+			roadCells.push( [ Number( entry[ 0 ] ), Number( entry[ 1 ] ) ] );
+		}
+	}
+
+	if ( roadCells.length === 0 ) addRoad( 0, 0 );
+	let minGx = Infinity, maxGx = - Infinity, minGz = Infinity, maxGz = - Infinity;
+	for ( const [ gx, gz ] of roadCells ) {
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		minGx = Math.min( minGx, gx );
+		maxGx = Math.max( maxGx, gx );
+		minGz = Math.min( minGz, gz );
+		maxGz = Math.max( maxGz, gz );
+	}
+	const pad = 12;
+	const water = [];
+	for ( let gx = minGx - pad; gx <= maxGx + pad; gx ++ ) {
+		for ( let gz = minGz - pad; gz <= maxGz + pad; gz ++ ) {
+			if ( ! occupied.has( `${ gx },${ gz }` ) ) water.push( [ gx, gz ] );
+		}
+	}
+	return water;
+
+}
+
 export function buildTrack( scene, models, customCells, extras = null ) {
 
 	const trackGroup = new THREE.Group();
