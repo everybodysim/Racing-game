@@ -24,7 +24,9 @@
 				await clearRacingCaches();
 				if ( navigator.serviceWorker.controller && ! sessionStorage.getItem( resetKey ) ) {
 					sessionStorage.setItem( resetKey, '1' );
-					window.location.replace( `${ window.location.pathname }${ window.location.search }${ window.location.search ? '&' : '?' }sw-reset=${ Date.now() }${ window.location.hash }` );
+					const resetUrl = new URL( window.location.href );
+					resetUrl.searchParams.set( 'sw-reset', Date.now() );
+					window.location.replace( resetUrl.href );
 				} else {
 					sessionStorage.removeItem( resetKey );
 				}

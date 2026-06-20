@@ -1,3 +1,6 @@
+const CLEANUP_VERSION = '20260620-normal-reload-fix';
+const RACING_CACHE_PREFIX = 'racing-game-';
+
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting());
 });
@@ -5,10 +8,19 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((key) => key.startsWith('racing-game-')).map((key) => caches.delete(key)));
+    await Promise.all(
+      keys
+        .filter((key) => key.startsWith(RACING_CACHE_PREFIX))
+        .map((key) => caches.delete(key))
+    );
+    await self.clients.claim();
     await self.registration.unregister();
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for (const client of clients) client.navigate(client.url);
+    for (const client of clients) {
+      const url = new URL(client.url);
+      url.searchParams.set('sw-reset', CLEANUP_VERSION);
+      client.navigate(url.href);
+    }
   })());
 });
 
