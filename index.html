@@ -993,7 +993,65 @@
 			#home-main-grid { grid-template-columns: 1fr; }
 		}
 
+		#mobile-actions-menu { display: none; }
+
 		@media (pointer: coarse) {
+			#mobile-actions-menu {
+				display: block;
+				position: absolute;
+				left: 50%;
+				bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+				transform: translateX(-50%);
+				z-index: 30;
+				color: #fff;
+				font: 700 13px/1.2 sans-serif;
+			}
+			#mobile-actions-menu summary {
+				list-style: none;
+				cursor: pointer;
+				padding: 10px 14px;
+				border-radius: 999px;
+				background: rgba(6, 10, 16, 0.78);
+				border: 1px solid rgba(255,255,255,0.28);
+				box-shadow: 0 8px 22px rgba(0,0,0,0.35);
+				backdrop-filter: blur(10px);
+				-webkit-backdrop-filter: blur(10px);
+			}
+			#mobile-actions-menu summary::-webkit-details-marker { display: none; }
+			#mobile-actions-menu[open] summary { border-radius: 14px 14px 0 0; }
+			.mobile-actions-sheet {
+				position: absolute;
+				left: 50%;
+				bottom: 100%;
+				transform: translateX(-50%);
+				width: min(330px, calc(100vw - 24px));
+				max-height: min(52vh, 360px);
+				overflow: auto;
+				display: grid;
+				grid-template-columns: repeat(2, minmax(0, 1fr));
+				gap: 7px;
+				padding: 10px;
+				background: rgba(6, 10, 16, 0.9);
+				border: 1px solid rgba(255,255,255,0.2);
+				border-radius: 14px 14px 4px 4px;
+				box-shadow: 0 -10px 26px rgba(0,0,0,0.42);
+				backdrop-filter: blur(12px);
+				-webkit-backdrop-filter: blur(12px);
+			}
+			.mobile-actions-sheet a, .mobile-actions-sheet button {
+				position: static;
+				display: block;
+				padding: 10px 8px;
+				border-radius: 9px;
+				border: 1px solid rgba(255,255,255,0.14);
+				background: rgba(255,255,255,0.1);
+				color: #fff;
+				text-align: center;
+				text-decoration: none;
+				font: 700 12px/1.2 sans-serif;
+			}
+			#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #share-time-btn, #export-ghost-btn, #import-ghost-btn { display: none; }
+			#respawnBtn, #mode-menu-btn, #car-select { z-index: 31; }
 			#editor-link { bottom: auto; top: 12px; right: 12px; }
 				#totd-link { bottom: auto; top: 54px; right: 12px; }
 				#weekly-cup-link { bottom: auto; top: 96px; right: 12px; }
@@ -1302,6 +1360,24 @@
 			</div>
 		</div>
 	</div>
+	<details id="mobile-actions-menu">
+		<summary aria-label="Open mobile menu">Menu</summary>
+		<div class="mobile-actions-sheet" aria-label="Extra game actions">
+			<a href="editor.html">Create track</a>
+			<a href="totd.html">Track of day</a>
+			<a href="weekly-cup.html">Weekly cup</a>
+			<a href="coins.html">Coins</a>
+			<a href="competitions.html">Competitions</a>
+			<a href="replay.html">Replay</a>
+			<a href="tracks.html">Tracks</a>
+			<a href="clubs.html">Clubs</a>
+			<a href="mods.html">Mods</a>
+			<a href="itchdemo.html">Split screen</a>
+			<button type="button" data-mobile-click="share-time-btn">Share time</button>
+			<button type="button" data-mobile-click="export-ghost-btn">Export ghost</button>
+			<button type="button" data-mobile-click="import-ghost-btn">Import ghost</button>
+		</div>
+	</details>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>
 	<a id="mode-menu-btn" href="#" role="button">Mode Menu (E)</a>
 	<button id="share-time-btn" type="button" disabled>Share best time</button>
@@ -1442,6 +1518,13 @@
 		} );
 		const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
 		const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
+		document.querySelectorAll( '[data-mobile-click]' ).forEach( ( btn ) => {
+			btn.addEventListener( 'click', () => {
+				const target = document.getElementById( btn.dataset.mobileClick );
+				if ( target && ! target.disabled ) target.click();
+			} );
+		} );
+
 		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'coin-leaderboard-link', 'competitions-link', 'replay-link', 'tracks-link', 'clubs-link', 'mods-link', 'hacks-toggle', 'split-link' ];
 		for ( const id of quickMenuLinks ) {
 			const node = document.getElementById( id );

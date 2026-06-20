@@ -111,10 +111,56 @@
 		}
 
 
+		#mobile-editor-drawer { display: none; }
+
 		@media (max-width: 980px) {
 			#toolbar {
 				left: 12px;
 			}
+		}
+
+		@media (pointer: coarse), (max-width: 760px) {
+			#settings-bar {
+				left: 8px;
+				right: 8px;
+				top: calc(8px + env(safe-area-inset-top, 0px));
+				transform: none;
+				overflow-x: auto;
+				justify-content: flex-start;
+				padding: 7px 8px;
+				gap: 6px;
+			}
+			#settings-bar label { white-space: nowrap; }
+			#toolbar {
+				left: 8px;
+				right: 8px;
+				bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+				flex-wrap: nowrap;
+				justify-content: flex-start;
+				overflow-x: auto;
+				overflow-y: hidden;
+				padding: 6px 8px;
+				gap: 6px;
+				max-height: 70px;
+				-webkit-overflow-scrolling: touch;
+			}
+			.toolbar-group { flex: 0 0 auto; }
+			#toolbar button, #toolbar select { min-height: 34px; padding: 7px 9px; font-size: 11px; }
+			#side-ui-bar { display: none; }
+			#mobile-editor-drawer {
+				display: block;
+				position: absolute;
+				left: 8px;
+				bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+				z-index: 36;
+				color: #fff;
+				font: 700 12px/1.2 sans-serif;
+			}
+			#mobile-editor-drawer summary { list-style: none; cursor: pointer; padding: 9px 12px; border-radius: 999px; background: rgba(15,18,24,0.9); border: 1px solid rgba(255,255,255,0.22); }
+			#mobile-editor-drawer summary::-webkit-details-marker { display: none; }
+			.mobile-editor-sheet { width: min(330px, calc(100vw - 16px)); max-height: 42vh; overflow: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 6px; padding: 8px; border-radius: 12px; background: rgba(15,18,24,0.94); border: 1px solid rgba(255,255,255,0.18); }
+			.mobile-editor-sheet button { padding: 9px 7px; border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; background: rgba(255,255,255,0.1); color: #e8efff; font: 700 11px/1.15 sans-serif; }
+			.mobile-editor-help { grid-column: 1 / -1; color: #dbe8ff; font: 600 10px/1.35 sans-serif; }
 		}
 		#toast {
 			position: absolute;
@@ -321,6 +367,28 @@
 		<label for="weather-lightning">Lightning</label>
 		<input id="weather-lightning" type="checkbox" aria-label="Lightning flashes">
 	</div>
+	<details id="mobile-editor-drawer">
+		<summary aria-label="Open mobile advanced object tools">Objects</summary>
+		<div class="mobile-editor-sheet" aria-label="Advanced editor tools">
+			<button type="button" data-mobile-click="btn-magnet-blue">Magnet Blue +</button>
+			<button type="button" data-mobile-click="btn-magnet-red">Magnet Red +</button>
+			<button type="button" data-mobile-click="btn-magnet-up">Magnet ▲</button>
+			<button type="button" data-mobile-click="btn-magnet-down">Magnet ▼</button>
+			<button type="button" data-mobile-click="btn-magnet-strength-up">Strength +</button>
+			<button type="button" data-mobile-click="btn-magnet-strength-down">Strength -</button>
+			<button type="button" data-mobile-click="btn-magnet-range-up">Range +</button>
+			<button type="button" data-mobile-click="btn-magnet-range-down">Range -</button>
+			<button type="button" data-mobile-click="btn-arc-green">Arc End +</button>
+			<button type="button" data-mobile-click="btn-portal-yellow">Portal End +</button>
+			<button type="button" data-mobile-click="btn-arc-orange">Arc Start +</button>
+			<button type="button" data-mobile-click="btn-portal-purple">Portal Start +</button>
+			<button type="button" data-mobile-click="btn-portal-up">Arc/Portal ▲</button>
+			<button type="button" data-mobile-click="btn-portal-down">Arc/Portal ▼</button>
+			<button type="button" data-mobile-click="btn-portal-id-down">ID -</button>
+			<button type="button" data-mobile-click="btn-portal-id-up">ID +</button>
+			<div class="mobile-editor-help">Orange/Purple are starts. Green/Yellow are matching endpoints.</div>
+		</div>
+	</details>
 	<div id="side-ui-bar">
 		<button id="btn-magnet-blue">Magnet Blue +</button>
 		<button id="btn-magnet-red">Magnet Red +</button>
@@ -3712,6 +3780,13 @@ function refreshMovingSpeedUi() {
 	let camStart = { x: 0, z: 0 };
 	let lastDrawCell = null;
 	let spaceDown = false;
+
+	document.querySelectorAll( '[data-mobile-click]' ).forEach( ( btn ) => {
+		btn.addEventListener( 'click', () => {
+			const target = document.getElementById( btn.dataset.mobileClick );
+			if ( target && ! target.disabled ) target.click();
+		} );
+	} );
 
 	// Track active pointers for multi-touch (pinch/pan)
 	const pointers = new Map();
