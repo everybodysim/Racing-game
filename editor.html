@@ -3500,8 +3500,9 @@ function refreshMovingSpeedUi() {
 	function getTemplateTrackBounds() {
 		const roadCells = [];
 		for ( const [ key, cell ] of grid ) {
-			if ( cell.roadPieces?.length || cell.type ) roadCells.push( key.split( ',' ).map( Number ) );
+			if ( cellHasContentOtherThanWater( cell, ...key.split( ',' ).map( Number ) ) ) roadCells.push( key.split( ',' ).map( Number ) );
 		}
+		for ( const block of [ ...magnetBlocks, ...arcBlocks ] ) roadCells.push( [ block.gx, block.gz ] );
 		if ( roadCells.length === 0 ) roadCells.push( [ 0, 0 ] );
 		let minGx = Infinity, maxGx = - Infinity, minGz = Infinity, maxGz = - Infinity;
 		for ( const [ gx, gz ] of roadCells ) {
@@ -3510,7 +3511,7 @@ function refreshMovingSpeedUi() {
 			minGz = Math.min( minGz, gz );
 			maxGz = Math.max( maxGz, gz );
 		}
-		const pad = 2;
+		const pad = 12;
 		return { minGx: minGx - pad, maxGx: maxGx + pad, minGz: minGz - pad, maxGz: maxGz + pad };
 	}
 

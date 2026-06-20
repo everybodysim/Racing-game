@@ -1104,6 +1104,17 @@
 		body.replay-viewer-mode > :not(canvas):not(script) { display: none !important; }
 		body.replay-viewer-mode canvas { touch-action: none; }
 </style>
+	
+	<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+	<link rel="preconnect" href="https://esm.sh" crossorigin>
+	<link rel="modulepreload" href="js/main.js">
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js" crossorigin>
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/GLTFLoader.js" crossorigin>
+	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/OBJLoader.js" crossorigin>
+	<link rel="modulepreload" href="https://esm.sh/crashcat@0.0.2" crossorigin>
+	<link rel="modulepreload" href="js/Track.js">
+	<link rel="modulepreload" href="js/Physics.js">
+	<link rel="modulepreload" href="js/Vehicle.js">
 	<script type="importmap">
 	{
 		"imports": {
@@ -1600,6 +1611,7 @@
 			}
 		} )();
 	</script>
+	<script>document.getElementById( 'loading-status' ).textContent = 'Loading game code…';</script>
 	<script type="module" src="js/main.js"></script>
   <style>
     body {

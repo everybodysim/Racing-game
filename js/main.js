@@ -2,7 +2,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'; 
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
@@ -65,12 +64,36 @@ renderer.shadowMap.enabled = getGraphicsPreset().shadows;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
-const bloomPass = new UnrealBloomPass( new THREE.Vector2( window.innerWidth, window.innerHeight ) );
-bloomPass.strength = getGraphicsPreset().bloomStrength;
-bloomPass.radius = getGraphicsPreset().bloomRadius;
-bloomPass.threshold = 0.5;
+let bloomPass = null;
 
-renderer.setEffects( [ bloomPass ] );
+function applyBloomPreset() {
+
+	if ( ! bloomPass ) return;
+	const preset = getGraphicsPreset();
+	bloomPass.strength = preset.bloomStrength;
+	bloomPass.radius = preset.bloomRadius;
+	bloomPass.threshold = preset.bloomStrength > 0 ? 0.62 : 1.0;
+
+}
+
+async function loadBloomEffect() {
+
+	try {
+
+		const { UnrealBloomPass } = await import( 'three/addons/postprocessing/UnrealBloomPass.js' );
+		bloomPass = new UnrealBloomPass( new THREE.Vector2( window.innerWidth, window.innerHeight ) );
+		applyBloomPreset();
+		renderer.setEffects( [ bloomPass ] );
+
+	} catch ( error ) {
+
+		console.warn( 'Bloom effect unavailable; continuing without postprocessing.', error );
+
+	}
+
+}
+
+loadBloomEffect();
 
 document.body.appendChild( renderer.domElement );
 const speedBlurVignette = document.getElementById( 'speed-blur-vignette' );
@@ -149,9 +172,7 @@ function applyGraphicsPresetToRenderer() {
 	dirLight.castShadow = preset.shadows;
 	dirLight.shadow.mapSize.setScalar( preset.shadowMapSize );
 	dirLight.shadow.needsUpdate = true;
-	bloomPass.strength = preset.bloomStrength;
-	bloomPass.radius = preset.bloomRadius;
-	bloomPass.threshold = preset.bloomStrength > 0 ? 0.62 : 1.0;
+	applyBloomPreset();
 
 }
 
@@ -7856,8 +7877,10 @@ function completeCampaignStage() {
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
 		const speedRatioFx = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), 0, 1.8 );
 		const driftFx = THREE.MathUtils.clamp( vehicle.driftIntensity, 0, 1 );
-		bloomPass.strength = getGraphicsPreset().bloomStrength + ( speedRatioFx * 0.01 ) + ( driftFx * 0.005 );
-		bloomPass.radius = getGraphicsPreset().bloomRadius + ( speedRatioFx * 0.01 );
+		if ( bloomPass ) {
+			bloomPass.strength = getGraphicsPreset().bloomStrength + ( speedRatioFx * 0.01 ) + ( driftFx * 0.005 );
+			bloomPass.radius = getGraphicsPreset().bloomRadius + ( speedRatioFx * 0.01 );
+		}
 		renderer.toneMappingExposure = THREE.MathUtils.lerp( renderer.toneMappingExposure, baseWeatherLight.exposure + ( speedRatioFx * 0.045 ), Math.min( 1, dt * 2.8 ) );
 		if ( scene.fog ) {
 			const nearBase = groundSize * weatherConfig.fogNearMul;
