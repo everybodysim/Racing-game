@@ -1121,6 +1121,42 @@
 
 	}
 
+	function hasStandaloneObjectAtCell( gx, gz ) {
+
+		return magnetBlocks.some( ( block ) => block.gx === gx && block.gz === gz )
+			|| arcBlocks.some( ( block ) => block.gx === gx && block.gz === gz );
+
+	}
+
+	function cellHasContentOtherThanWater( cell, gx, gz ) {
+
+		if ( ! cell ) return hasStandaloneObjectAtCell( gx, gz );
+		return Boolean(
+			cell.roadPieces?.length || cell.type || cell.bump || cell.pole || cell.cube || cell.wall || cell.jump
+			|| cell.movingObstacle || cell.elevatedType || cell.decoType || cell.surfaceTypes?.length
+			|| hasStandaloneObjectAtCell( gx, gz )
+		);
+
+	}
+
+	function isCellCompletelyEmptyForPool( cell, gx, gz ) {
+
+		return ! cellHasContentOtherThanWater( cell, gx, gz ) && ! cell?.water;
+
+	}
+
+	function removePoolTileAt( gx, gz, cell = null ) {
+
+		const key = cellKey( gx, gz );
+		const targetCell = cell || grid.get( key );
+		if ( ! targetCell?.water ) return false;
+		targetCell.water = false;
+		placeOverlayMesh( gx, gz, targetCell );
+		refreshWaterNeighborhood( gx, gz );
+		return true;
+
+	}
+
 
 	function getSurfaceVisual( surfaceType ) {
 
@@ -1874,6 +1910,7 @@
 
 		const key = cellKey( gx, gz );
 		const cell = grid.get( key ) || makeEmptyCell();
+		removePoolTileAt( gx, gz, cell );
 		if ( allowSurfaceOverlap ) {
 
 			cell.roadPieces.push( { type, orient, isFinish: type === 'track-finish' || type === 'track-start-finish' } );
@@ -1902,6 +1939,8 @@
 		pushHistorySnapshot();
 		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL || selectedType === MAGNET_GRAPPLE_TOOL ) {
 
+			removePoolTileAt( gx, gz );
+
 			const existingIndex = findNearestMagnetIndex( gx, gz );
 			if ( existingIndex >= 0 ) {
 
@@ -1917,6 +1956,8 @@
 			rebuildMagnetMeshes();
 
 		} else if ( selectedType === ARC_GREEN_TOOL || selectedType === ARC_ORANGE_TOOL || selectedType === PORTAL_YELLOW_TOOL || selectedType === PORTAL_PURPLE_TOOL ) {
+
+			removePoolTileAt( gx, gz );
 
 			const existingIndex = findNearestArcIndex( gx, gz );
 			if ( existingIndex >= 0 ) {
@@ -1936,6 +1977,11 @@
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
+			if ( selectedType === WATER_TOOL && ! cell.water && ! isCellCompletelyEmptyForPool( cell, gx, gz ) ) {
+				showToast( 'Pool tiles can only be added to empty cells' );
+				return;
+			}
+			if ( selectedType !== WATER_TOOL ) removePoolTileAt( gx, gz, cell );
 			grid.set( key, cell );
 			if ( selectedType === BUMP_TOOL ) {
 
@@ -2012,6 +2058,7 @@
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
+			removePoolTileAt( gx, gz, cell );
 			grid.set( key, cell );
 			const hadType = cell.surfaceTypes.includes( selectedType );
 			if ( allowSurfaceOverlap ) {
@@ -2038,6 +2085,7 @@
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
+			removePoolTileAt( gx, gz, cell );
 			grid.set( key, cell );
 
 			cell.decoType = selectedType;
@@ -2930,6 +2978,7 @@
 
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! isCellCompletelyEmptyForPool( cell, gx, gz ) ) continue;
 				if ( ! grid.has( key ) ) grid.set( key, cell );
 				cell.water = true;
 				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
@@ -2944,6 +2993,7 @@
 
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
+				removePoolTileAt( gx, gz, cell );
 				if ( ! grid.has( key ) ) grid.set( key, cell );
 				if ( [ MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, MOVING_CUSTOM_TOOL ].includes( movingType ) ) { cell.movingObstacle = movingType; cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedRaw ) || 1 ) ); cell.movingCustom = movingCustomRaw && typeof movingCustomRaw === 'object' ? movingCustomRaw : null; }
 				placeOverlayMesh( gx, gz, cell );
@@ -2953,6 +3003,7 @@
 
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
+				removePoolTileAt( gx, gz, cell );
 				if ( ! grid.has( key ) ) grid.set( key, cell );
 				const normalizedType = elevatedType === 'slope-down' ? 'slope-up' : elevatedType;
 				const normalizedOrient = elevatedType === 'slope-down' ? ( ORIENT_180[ elevatedOrient || 0 ] ?? ( elevatedOrient || 0 ) ) : ( elevatedOrient || 0 );
@@ -2970,6 +3021,7 @@
 
 				const key = cellKey( gx, gz );
 					const cell = grid.get( key ) || makeEmptyCell();
+					removePoolTileAt( gx, gz, cell );
 					if ( ! grid.has( key ) ) grid.set( key, cell );
 					if ( SURFACE_TYPES.includes( surfaceType ) ) cell.surfaceTypes.push( surfaceType );
 					placeOverlayMesh( gx, gz, cell );
@@ -2980,8 +3032,8 @@
 
 				const key = cellKey( gx, gz );
 					const cell = grid.get( key ) || makeEmptyCell();
+					removePoolTileAt( gx, gz, cell );
 					if ( ! grid.has( key ) ) grid.set( key, cell );
-					if ( cell.water ) continue;
 					cell.decoType = decoType;
 					cell.decoOrient = decoOrient || 0;
 					placeOverlayMesh( gx, gz, cell );
@@ -2990,6 +3042,7 @@
 
 			for ( const [ gx, gz, yGrid, variant, strengthRaw, rangeRaw ] of mods.m || [] ) {
 
+				removePoolTileAt( normalizeCoord( gx ), normalizeCoord( gz ) );
 				magnetBlocks.push( {
 					gx: normalizeCoord( gx ),
 					gz: normalizeCoord( gz ),
@@ -3005,6 +3058,7 @@
 
 			for ( const [ gx, gz, yGrid, variant, linkIdRaw ] of mods.a || [] ) {
 
+				removePoolTileAt( normalizeCoord( gx ), normalizeCoord( gz ) );
 				arcBlocks.push( {
 					gx: normalizeCoord( gx ),
 					gz: normalizeCoord( gz ),
@@ -3478,6 +3532,7 @@ function refreshMovingSpeedUi() {
 		for ( let gx = bounds.minGx; gx <= bounds.maxGx; gx ++ ) for ( let gz = bounds.minGz; gz <= bounds.maxGz; gz ++ ) {
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
+			if ( ! isCellCompletelyEmptyForPool( cell, gx, gz ) ) continue;
 			if ( ! grid.has( key ) ) grid.set( key, cell );
 			cell.water = true;
 			placeOverlayMesh( gx, gz, cell );
