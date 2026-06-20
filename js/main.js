@@ -1638,13 +1638,13 @@ async function init() {
 	const waterCellSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 	const cellWorld = CELL_RAW * GRID_SCALE;
 	const WATER_GRAVITY_SCALE = 0.28;
-	const WATER_VELOCITY_DRAG = 4.5;
+	const WATER_VELOCITY_DRAG = 1.8;
 	function isCameraTargetInWater( position ) {
 
 		if ( waterCellSet.size === 0 || ! position ) return false;
 		const gx = Math.floor( position.x / cellWorld );
 		const gz = Math.floor( position.z / cellWorld );
-		return waterCellSet.has( `${ gx },${ gz }` ) && position.y < 0.45;
+		return waterCellSet.has( `${ gx },${ gz }` ) && position.y < 0;
 
 	}
 	function applyWaterPhysicsDamping( targetVehicle, deltaSeconds ) {

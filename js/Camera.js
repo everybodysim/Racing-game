@@ -17,6 +17,8 @@ export class Camera {
 
 		this.offset = new THREE.Vector3( 7.0, 7.1, 7.0 );
 		this.chaseOffset = new THREE.Vector3( 0, 2.3, - 6.6 );
+		this.underwaterChaseOffset = new THREE.Vector3( 0, 7.4, - 3.2 );
+		this.underwaterOverviewOffset = new THREE.Vector3( 3.6, 8.6, 3.6 );
 		this.targetPosition = new THREE.Vector3();
 		this.lookTarget = new THREE.Vector3();
 		this.mode = 'chase';
@@ -80,17 +82,11 @@ export class Camera {
 
 			}
 
-			this._rotatedOffset.copy( this.chaseOffset ).applyAxisAngle( this._upAxis, this.chaseYaw );
+			this._rotatedOffset.copy( underwaterLift ? this.underwaterChaseOffset : this.chaseOffset ).applyAxisAngle( this._upAxis, this.chaseYaw );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
-			if ( underwaterLift ) {
-
-				this._desiredPos.y += 1.65;
-				this._desiredPos.addScaledVector( this._forward, - 0.85 );
-
-			}
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
-			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, 4.8 );
-			this._desiredLook.y += 1.0 + underwaterLift * 1.45;
+			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, underwaterLift ? 0.8 : 4.8 );
+			this._desiredLook.y += underwaterLift ? 0.45 : 1.0;
 
 			const chaseLag = THREE.MathUtils.lerp( 10, 7.2, Math.min( 1, speedRatio * 0.8 + driftAmount * 0.4 ) );
 			this.camera.position.lerp( this._desiredPos, dt * chaseLag );
@@ -102,11 +98,9 @@ export class Camera {
 
 		} else {
 
-			this._desiredPos.copy( this.targetPosition ).add( this.offset );
-			if ( underwaterLift ) this._desiredPos.y += 1.6;
+			this._desiredPos.copy( this.targetPosition ).add( underwaterLift ? this.underwaterOverviewOffset : this.offset );
 			this.camera.position.lerp( this._desiredPos, dt * 8 );
 			this._desiredLook.copy( this.targetPosition );
-			if ( underwaterLift ) this._desiredLook.y += 1.4;
 			this.lookTarget.lerp( this._desiredLook, dt * 10 );
 			this.camera.fov = THREE.MathUtils.lerp( this.camera.fov, 42, Math.min( 1, dt * 4 ) );
 			this.camera.updateProjectionMatrix();

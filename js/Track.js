@@ -98,7 +98,7 @@ function createRepositoryWaterMaterial() {
 				color += tile * 0.045 + caustic * vec3( 0.35, 0.95, 1.15 ) * 0.23;
 				color = mix( color, vec3( 0.78, 0.97, 1.0 ), fresnel * 0.62 + foam * 0.2 );
 				color += sparkle * vec3( 1.0, 0.9, 0.62 ) * 1.25;
-				gl_FragColor = vec4( color, 0.78 );
+				gl_FragColor = vec4( color, 0.68 );
 			}
 		`,
 		transparent: true,
