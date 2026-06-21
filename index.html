@@ -1714,6 +1714,11 @@
 		reloadBtn.onclick = () => window.location.reload();
 	}
 } );
+		window.addEventListener("pageshow", (event) => {
+  if (event.persisted) {
+    window.location.reload();
+  }
+});
 	</script>
 	<script type="module" src="js/main.js?v=20260620-reloadfix"></script>
   <style>
