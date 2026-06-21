@@ -3,15 +3,9 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil((async () => {
-    const keys = await caches.keys();
-    await Promise.all(keys.filter((key) => key.startsWith('racing-game-')).map((key) => caches.delete(key)));
-    await self.registration.unregister();
-    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for (const client of clients) client.navigate(client.url);
-  })());
+  event.waitUntil(self.clients.claim());
 });
 
 self.addEventListener('fetch', () => {
-  // Intentionally no fetch handler: allow normal browser reload semantics.
+  // No caching. Let the browser/network handle all requests normally.
 });
