@@ -1,4 +1,7 @@
+const CLEANUP_WORKER_VERSION = '20260621-boot-cleanup-v2';
+
 self.addEventListener('install', (event) => {
+  console.info(`Installing racing game cleanup service worker ${CLEANUP_WORKER_VERSION}`);
   event.waitUntil(self.skipWaiting());
 });
 
@@ -12,6 +15,16 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
-self.addEventListener('fetch', () => {
-  // Intentionally no fetch handler: allow normal browser reload semantics.
+self.addEventListener('fetch', (event) => {
+  if (event.request.mode !== 'navigate') return;
+
+  event.respondWith((async () => {
+    try {
+      return await fetch(event.request, { cache: 'reload' });
+    } catch (error) {
+      // Do not serve an app-shell fallback here; let the browser perform a normal
+      // navigation request so stale index.html cannot be resurrected from CacheStorage.
+      return fetch(event.request);
+    }
+  })());
 });
