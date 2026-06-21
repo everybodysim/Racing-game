@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 	
-<script>
+<!--<script>
 (async () => {
   // kill service workers
   const regs = await navigator.serviceWorker.getRegistrations();
@@ -25,13 +25,13 @@
 navigator.serviceWorker?.getRegistrations?.().then(rs => {
   rs.forEach(r => r.unregister());
 });
-</script>
+</script> -->
 	<meta name="theme-color" content="#2f8f2f">
 	<link rel="manifest" href="manifest.webmanifest">
 	<link rel="icon" href="icons/icon-192.png" type="image/png">
 	<link rel="apple-touch-icon" href="icons/icon-192.png">
 
-	<script>
+<!--	<script>
 		(() => {
 			if ( !( 'serviceWorker' in navigator ) ) return;
 			const resetKey = 'racing-sw-reset-v1';
@@ -47,7 +47,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				} );
 			} ).catch( ( error ) => console.warn( 'Service worker cleanup failed', error ) );
 		})();
-	</script>
+	</script> -->
 	<style>
 .skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
 .skip-link:focus{top:12px}
