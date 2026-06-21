@@ -4,6 +4,11 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 	<title>Racing</title>
+	<script>
+navigator.serviceWorker?.getRegistrations?.().then(rs => {
+  rs.forEach(r => r.unregister());
+});
+</script>
 	<meta name="theme-color" content="#2f8f2f">
 	<link rel="manifest" href="manifest.webmanifest">
 	<link rel="icon" href="icons/icon-192.png" type="image/png">
@@ -1127,7 +1132,7 @@
 	
 	<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 	<link rel="preconnect" href="https://esm.sh" crossorigin>
-	<link rel="modulepreload" href="js/main.js?v=20260620-reloadfix">
+	<link rel="modulepreload" href="js/main.js?v=999999">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/GLTFLoader.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/OBJLoader.js" crossorigin>
