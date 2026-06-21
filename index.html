@@ -1689,6 +1689,31 @@
 				reloadBtn.onclick = () => window.location.reload();
 			}
 		} );
+		window.addEventListener( 'unhandledrejection', ( event ) => {
+	const spinner = document.getElementById( 'loading-spinner' );
+	const progress = document.getElementById( 'loading-progress' );
+	const statusEl = document.getElementById( 'loading-status' );
+	const errorEl = document.getElementById( 'loading-error' );
+	const reloadBtn = document.getElementById( 'loading-reload-btn' );
+
+	if ( spinner ) spinner.style.display = 'none';
+	if ( progress ) progress.style.display = 'none';
+	if ( statusEl ) statusEl.textContent = 'Loading failed.';
+
+	if ( errorEl ) {
+		errorEl.textContent =
+			'Promise error: ' +
+			( event.reason?.stack ||
+			  event.reason?.message ||
+			  String( event.reason ) );
+		errorEl.style.display = 'block';
+	}
+
+	if ( reloadBtn ) {
+		reloadBtn.style.display = 'inline-flex';
+		reloadBtn.onclick = () => window.location.reload();
+	}
+} );
 	</script>
 	<script type="module" src="js/main.js?v=20260620-reloadfix"></script>
   <style>
