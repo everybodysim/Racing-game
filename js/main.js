@@ -13,6 +13,8 @@ import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 
+document.title = 'Racing';
+
 setTimeout(() => {
 	const status = document.getElementById('loading-status');
 	if (status) status.textContent = 'MAINJS STARTED';
@@ -1273,8 +1275,9 @@ async function updateDocumentTitleFromTrackBoard( searchParams, mapParam, extras
 		const entries = await fetchTrackBoardEntries();
 		const match = entries.find( ( entry ) => trackBoardEntryMatchesCurrentPayload( entry, searchParams, mapParam, extrasParam ) );
 		const trackName = String( match?.name || '' ).trim();
-		if ( trackName ) document.title = trackName;
-
+if ( trackName ) {
+    // document.title = trackName;
+}
 	} catch ( error ) {
 
 		console.warn( 'Failed to update document title from track share board', error );
