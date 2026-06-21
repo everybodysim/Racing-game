@@ -1580,8 +1580,14 @@ async function loadCustomTrackAssets( extras ) {
 async function init() {
 
 	setLoadingStatus( 'Booting game systems…', 'boot' );
-	registerAll();
-	setLoadingStatus( 'Resolving track data…', 'track' );
+
+appendLoadingConsole('Before registerAll');
+
+registerAll();
+
+appendLoadingConsole('After registerAll');
+
+setLoadingStatus( 'Resolving track data…', 'track' );
 	const runtimeModsPromise = loadRuntimeMods();
 
 	const searchParams = new URLSearchParams( window.location.search );
