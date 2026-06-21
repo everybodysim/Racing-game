@@ -13,6 +13,11 @@ import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 
+setTimeout(() => {
+	const status = document.getElementById('loading-status');
+	if (status) status.textContent = 'MAINJS STARTED';
+}, 0);
+
 
 const MAX_PIXEL_RATIO = 1.5;
 const GRAPHICS_QUALITY_KEY = 'racing-graphics-quality';
