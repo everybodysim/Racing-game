@@ -1,4 +1,4 @@
-const CLEANUP_VERSION = '20260621-ctrl-r-boot';
+const CLEANUP_VERSION = '20260621-static-importmap-fix';
 const RACING_CACHE_PREFIX = 'racing-game-';
 
 self.addEventListener('install', (event) => {

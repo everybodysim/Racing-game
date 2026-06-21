@@ -2776,6 +2776,36 @@
 		};
 	}
 
+	function encodeCustomPoolParam() {
+
+		const payload = JSON.stringify( normalizeCustomPoolConfig( customPoolConfig ) );
+		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
+
+	}
+
+	function decodeCustomPoolParam( poolStr ) {
+
+		if ( ! poolStr ) return null;
+		try {
+
+			const payload = decodeURIComponent( escape( atob( poolStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
+			return normalizeCustomPoolConfig( JSON.parse( payload ) );
+
+		} catch ( error ) {
+
+			console.warn( 'Failed to decode custom pool URL settings', error );
+			return null;
+
+		}
+
+	}
+
+	function buildCustomPoolQuery() {
+
+		return `&pool=${ encodeURIComponent( encodeCustomPoolParam() ) }`;
+
+	}
+
 	function decodeMods( modsStr ) {
 
 		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], t: 'normal', w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [] };
@@ -2880,7 +2910,7 @@
 
 	}
 
-	async function loadEncodedState( encoded, modsEncoded = '' ) {
+	async function loadEncodedState( encoded, modsEncoded = '', poolEncoded = '' ) {
 
 		if ( encoded == null ) return;
 		clearEditorStateForLoad();
@@ -2913,7 +2943,7 @@
 				...JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ),
 				...( mods.y || {} )
 			};
-			customPoolConfig = normalizeCustomPoolConfig( mods.r );
+			customPoolConfig = decodeCustomPoolParam( poolEncoded ) || normalizeCustomPoolConfig( mods.r );
 			worldPreset = mods.t === 'pool-filled' ? 'pool-filled' : 'normal';
 			const templateSelect = document.getElementById( 'map-template-select' );
 			if ( templateSelect ) templateSelect.value = worldPreset === 'pool-filled' ? 'pool-filled' : 'normal';
@@ -3096,9 +3126,10 @@
 		const params = new URLSearchParams( window.location.search );
 		const mapParam = params.get( 'map' );
 		const modsParam = params.get( 'mods' );
+		const poolParam = params.get( 'pool' );
 		const encoded = mapParam || localStorage.getItem( 'racing-editor-cells' );
 		const modsEncoded = modsParam || localStorage.getItem( 'racing-editor-mods' );
-		await loadEncodedState( encoded, modsEncoded );
+		await loadEncodedState( encoded, modsEncoded, poolParam );
 
 	}
 
@@ -3773,7 +3804,7 @@ function refreshMovingSpeedUi() {
 		}
 		if ( ! payload?.id ) throw ( lastError || new Error( 'pack-upload-failed' ) );
 		const base = window.location.href.replace( /editor\.html.*/, '' );
-		return `${ base }index.html?pack=${ encodeURIComponent( payload.id ) }`;
+		return `${ base }index.html?pack=${ encodeURIComponent( payload.id ) }${ buildCustomPoolQuery() }`;
 
 	}
 
@@ -3790,7 +3821,7 @@ function refreshMovingSpeedUi() {
 
 		const id = createLocalPackId( encodedMap, encodedMods );
 		const base = window.location.href.replace( /editor\.html.*/, '' );
-		return `${ base }index.html?localPack=${ encodeURIComponent( id ) }`;
+		return `${ base }index.html?localPack=${ encodeURIComponent( id ) }${ buildCustomPoolQuery() }`;
 
 	}
 
@@ -3809,7 +3840,7 @@ function refreshMovingSpeedUi() {
 		const encoded = encodeCells( getCellsArray() );
 		const mods = encodeMods();
 		const base = window.location.href.replace( /editor\.html.*/, '' );
-		const rawUrl = `${ base }index.html?map=${ encoded }&mods=${ mods }${ buildTestSpawnQuery() }`;
+		const rawUrl = `${ base }index.html?map=${ encoded }&mods=${ mods }${ buildCustomPoolQuery() }${ buildTestSpawnQuery() }`;
 		const shouldForcePacked = customAssets.size > 0;
 		if ( ! shouldForcePacked && rawUrl.length <= 7000 ) return { url: rawUrl, mode: 'raw' };
 		try {

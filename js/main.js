@@ -1053,6 +1053,24 @@ function updateMovingObstacles( state, now, vehicleList ) {
 	}
 }
 
+function decodeCustomPoolParam( str ) {
+
+	if ( ! str ) return null;
+	try {
+
+		const json = decodeURIComponent( escape( atob( str.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
+		const parsed = JSON.parse( json );
+		return parsed && typeof parsed === 'object' ? parsed : null;
+
+	} catch ( error ) {
+
+		console.warn( 'Invalid custom pool parameter, ignoring settings', error );
+		return null;
+
+	}
+
+}
+
 function decodeExtrasParam( str ) {
 
 	if ( ! str ) return null;
@@ -1598,7 +1616,9 @@ async function init() {
 	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
 	let customCells = null;
 	let spawn = null;
-	const extras = decodeExtrasParam( extrasParam );
+	const extras = decodeExtrasParam( extrasParam ) || {};
+	const poolParamSettings = decodeCustomPoolParam( searchParams.get( 'pool' ) );
+	if ( poolParamSettings ) extras.customPool = { ...( extras.customPool || {} ), ...poolParamSettings };
 	const carKeys = Object.keys( CAR_STATS );
 	const deterministicCarSeed = hashTrackSeed( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
 	const pickRandomCarKey = () => {
