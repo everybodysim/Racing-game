@@ -1579,7 +1579,9 @@ async function loadCustomTrackAssets( extras ) {
 
 async function init() {
 
-	setLoadingStatus( 'Booting game systems…', 'boot' );
+    alert("INIT STARTED");
+
+    setLoadingStatus('Booting game systems…', 'boot');
 
 appendLoadingConsole('Before registerAll');
 
