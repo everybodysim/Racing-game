@@ -6,7 +6,7 @@
 (async () => {
   // kill service workers
   const regs = await navigator.serviceWorker.getRegistrations();
-  for (const r of regs) await r.unregister();
+  for (const r of regs) await r.unregister(); 
 
   // kill ALL cached responses
   if (window.caches) {
