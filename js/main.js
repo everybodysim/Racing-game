@@ -1,4 +1,3 @@
-document.body.innerHTML = "<h1 style='color:red'>MAIN JS LOADED</h1>";
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
