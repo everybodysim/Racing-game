@@ -12,7 +12,7 @@
 	<script>
 		(() => {
 			if ( !( 'serviceWorker' in navigator ) ) return;
-			const resetKey = 'racing-sw-reset-v2';
+			const resetKey = 'racing-sw-reset-v3';
 			const clearRacingCaches = async () => {
 				if ( !( 'caches' in window ) ) return;
 				const keys = await caches.keys();
@@ -1135,7 +1135,7 @@
 	
 	<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 	<link rel="preconnect" href="https://esm.sh" crossorigin>
-	<link rel="modulepreload" href="js/main.js?v=20260620-camera-cachefix">
+	<link rel="modulepreload" href="js/main.js?v=20260621-ctrl-r-boot">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/GLTFLoader.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/OBJLoader.js" crossorigin>
@@ -1660,8 +1660,53 @@
 			}, 1500 );
 		} );
 	</script>
-	<script>document.getElementById( 'loading-status' ).textContent = 'Loading game code…';</script>
-	<script type="module" src="js/main.js?v=20260620-camera-cachefix"></script>
+	<script>
+		window.addEventListener( 'error', ( event ) => {
+			const errorEl = document.getElementById( 'loading-error' );
+			const reloadBtn = document.getElementById( 'loading-reload-btn' );
+			if ( ! errorEl ) return;
+			errorEl.textContent = `Error: ${ event.message || 'Game script failed to load.' }`;
+			errorEl.style.display = 'block';
+			if ( reloadBtn ) {
+				reloadBtn.style.display = 'inline-flex';
+				reloadBtn.onclick = () => window.location.reload();
+			}
+		} );
+	</script>
+	<script type="module">
+		const statusEl = document.getElementById( 'loading-status' );
+		if ( statusEl ) statusEl.textContent = 'Loading game code…';
+		const bootWatchdogKey = 'racing-boot-watchdog-v1';
+		const bootWatchdog = window.setTimeout( () => {
+			if ( statusEl?.textContent !== 'Loading game code…' || sessionStorage.getItem( bootWatchdogKey ) ) return;
+			sessionStorage.setItem( bootWatchdogKey, '1' );
+			const retryUrl = new URL( window.location.href );
+			retryUrl.searchParams.set( 'boot-retry', Date.now() );
+			window.location.replace( retryUrl.href );
+		}, 8000 );
+		try {
+			const bootUrl = new URL( './js/main.js', window.location.href );
+			bootUrl.searchParams.set( 'v', '20260621-ctrl-r-boot' );
+			bootUrl.searchParams.set( 'reload', Date.now() );
+			await import( bootUrl.href );
+			window.clearTimeout( bootWatchdog );
+			sessionStorage.removeItem( bootWatchdogKey );
+		} catch ( error ) {
+			window.clearTimeout( bootWatchdog );
+			console.error( 'Failed to load game module', error );
+			const errorEl = document.getElementById( 'loading-error' );
+			const reloadBtn = document.getElementById( 'loading-reload-btn' );
+			if ( statusEl ) statusEl.textContent = 'Loading failed.';
+			if ( errorEl ) {
+				errorEl.textContent = `Error: ${ error?.message || 'Game module failed to load.' }`;
+				errorEl.style.display = 'block';
+			}
+			if ( reloadBtn ) {
+				reloadBtn.style.display = 'inline-flex';
+				reloadBtn.onclick = () => window.location.reload();
+			}
+		}
+	</script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;

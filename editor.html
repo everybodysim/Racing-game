@@ -596,6 +596,8 @@
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:12px;">
     <label style="display:flex;flex-direction:column;gap:3px;">Drag<input id="cp-drag" type="range" min="0.1" max="6" step="0.05" value="1.8"></label>
     <label style="display:flex;flex-direction:column;gap:3px;">Car buoyancy<input id="cp-buoyancy" type="range" min="0.05" max="3" step="0.05" value="0.28"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Drive force<input id="cp-drive" type="range" min="0" max="10" step="0.1" value="3.2"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Max water speed<input id="cp-max-drive-speed" type="range" min="0.5" max="12" step="0.1" value="3.8"></label>
     <label style="display:flex;align-items:center;gap:6px;">Water color<input id="cp-water-color" type="color" value="#1f8fd6" style="flex:1;height:28px;border:none;background:none;cursor:pointer;"></label>
     <label style="display:flex;align-items:center;gap:6px;">Edge color<input id="cp-edge-color" type="color" value="#5cc7ff" style="flex:1;height:28px;border:none;background:none;cursor:pointer;"></label>
     <label style="grid-column:1 / -1;"><input id="cp-transparent" type="checkbox" checked> Partly transparent water textures</label>
@@ -639,7 +641,7 @@
 	const WALL_TOOL = 'overlay-wall';
 	const JUMP_TOOL = 'overlay-jump';
 	const WATER_TOOL = 'water-pool';
-	const CUSTOM_POOL_DEFAULT = { drag: 1.8, buoyancy: 0.28, waterColor: '#1f8fd6', edgeColor: '#5cc7ff', transparent: true };
+	const CUSTOM_POOL_DEFAULT = { drag: 1.8, buoyancy: 0.28, drive: 3.2, maxDriveSpeed: 3.8, waterColor: '#1f8fd6', edgeColor: '#5cc7ff', transparent: true };
 	let customPoolConfig = { ...CUSTOM_POOL_DEFAULT };
 	let worldPreset = 'normal';
 	const MOVING_SLIDE_TOOL = 'moving-slide-block';
@@ -2766,6 +2768,8 @@
 		return {
 			drag: THREE.MathUtils.clamp( Number( next.drag ?? CUSTOM_POOL_DEFAULT.drag ) || CUSTOM_POOL_DEFAULT.drag, 0.1, 6 ),
 			buoyancy: THREE.MathUtils.clamp( Number( next.buoyancy ?? CUSTOM_POOL_DEFAULT.buoyancy ) || CUSTOM_POOL_DEFAULT.buoyancy, 0.05, 3 ),
+			drive: THREE.MathUtils.clamp( Number( next.drive ?? CUSTOM_POOL_DEFAULT.drive ) || CUSTOM_POOL_DEFAULT.drive, 0, 10 ),
+			maxDriveSpeed: THREE.MathUtils.clamp( Number( next.maxDriveSpeed ?? CUSTOM_POOL_DEFAULT.maxDriveSpeed ) || CUSTOM_POOL_DEFAULT.maxDriveSpeed, 0.5, 12 ),
 			waterColor: /^#[0-9a-f]{6}$/i.test( String( next.waterColor || '' ) ) ? next.waterColor : CUSTOM_POOL_DEFAULT.waterColor,
 			edgeColor: /^#[0-9a-f]{6}$/i.test( String( next.edgeColor || '' ) ) ? next.edgeColor : CUSTOM_POOL_DEFAULT.edgeColor,
 			transparent: next.transparent !== false,
@@ -3491,6 +3495,8 @@ function refreshMovingSpeedUi() {
 	document.getElementById( 'btn-custom-pool' )?.addEventListener( 'click', () => {
 		document.getElementById( 'cp-drag' ).value = String( customPoolConfig.drag );
 		document.getElementById( 'cp-buoyancy' ).value = String( customPoolConfig.buoyancy );
+		document.getElementById( 'cp-drive' ).value = String( customPoolConfig.drive );
+		document.getElementById( 'cp-max-drive-speed' ).value = String( customPoolConfig.maxDriveSpeed );
 		document.getElementById( 'cp-water-color' ).value = customPoolConfig.waterColor;
 		document.getElementById( 'cp-edge-color' ).value = customPoolConfig.edgeColor;
 		document.getElementById( 'cp-transparent' ).checked = customPoolConfig.transparent;
@@ -3499,7 +3505,7 @@ function refreshMovingSpeedUi() {
 	document.getElementById( 'cp-close' )?.addEventListener( 'click', () => { customPoolPanel.hidden = true; } );
 	document.getElementById( 'cp-save' )?.addEventListener( 'click', () => {
 		pushHistorySnapshot();
-		customPoolConfig = normalizeCustomPoolConfig( { drag: document.getElementById( 'cp-drag' ).value, buoyancy: document.getElementById( 'cp-buoyancy' ).value, waterColor: document.getElementById( 'cp-water-color' ).value, edgeColor: document.getElementById( 'cp-edge-color' ).value, transparent: document.getElementById( 'cp-transparent' ).checked } );
+		customPoolConfig = normalizeCustomPoolConfig( { drag: document.getElementById( 'cp-drag' ).value, buoyancy: document.getElementById( 'cp-buoyancy' ).value, drive: document.getElementById( 'cp-drive' ).value, maxDriveSpeed: document.getElementById( 'cp-max-drive-speed' ).value, waterColor: document.getElementById( 'cp-water-color' ).value, edgeColor: document.getElementById( 'cp-edge-color' ).value, transparent: document.getElementById( 'cp-transparent' ).checked } );
 		for ( const [ key, cell ] of grid ) if ( cell.water ) { const [ gx, gz ] = key.split( ',' ).map( Number ); placeOverlayMesh( gx, gz, cell ); }
 		save(); customPoolPanel.hidden = true; showToast( 'Custom pool saved' );
 	} );
