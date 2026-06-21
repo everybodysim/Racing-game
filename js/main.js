@@ -1435,8 +1435,8 @@ function toRuntimeMod( loadedModule, modId ) {
 
 async function loadRuntimeMods() {
 
-	//const installed = readInstalledRuntimeMods();
-	const installed = [];
+	const installed = readInstalledRuntimeMods();
+
 	if ( installed.length === 0 ) return [];
 	const runtimes = [];
 	for ( const mod of installed ) {
