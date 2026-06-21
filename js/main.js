@@ -8449,6 +8449,7 @@ function completeCampaignStage() {
 init().then( () => {
 
 	setLoadingStatus( 'Ready to race!', 'ready' );
+	window.__racingGameBooting = false;
 	hideLoadingOverlay();
 
 } ).catch( ( error ) => {

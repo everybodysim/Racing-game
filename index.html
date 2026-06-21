@@ -1651,7 +1651,45 @@
 			}, 1500 );
 		} );
 	</script>
-	<script>document.getElementById( 'loading-status' ).textContent = 'Loading game code…';</script>
+	<script>
+		window.__racingGameBooting = true;
+		document.getElementById( 'loading-status' ).textContent = 'Loading game code…';
+		window.addEventListener( 'error', ( event ) => {
+			if ( window.__racingGameBooting !== true ) return;
+
+			const loadingScreen = document.getElementById( 'loading-screen' );
+			if ( ! loadingScreen || loadingScreen.classList.contains( 'hidden' ) ) return;
+
+			const filename = event.filename || '';
+			if ( filename ) {
+				let isLocalGameScript = false;
+				try {
+					const scriptUrl = new URL( filename, window.location.href );
+					isLocalGameScript = scriptUrl.origin === window.location.origin && scriptUrl.pathname.includes( '/js/' );
+				} catch ( err ) {
+					isLocalGameScript = filename.includes( 'js/' );
+				}
+				if ( ! isLocalGameScript ) return;
+			}
+
+			const spinner = document.getElementById( 'loading-spinner' );
+			const progress = document.getElementById( 'loading-progress' );
+			const statusEl = document.getElementById( 'loading-status' );
+			const errorEl = document.getElementById( 'loading-error' );
+			const reloadBtn = document.getElementById( 'loading-reload-btn' );
+			if ( spinner ) spinner.style.display = 'none';
+			if ( progress ) progress.style.display = 'none';
+			if ( statusEl ) statusEl.textContent = 'Loading failed.';
+			if ( errorEl ) {
+				errorEl.textContent = `Error: ${ event.message || 'Unknown startup error.' }`;
+				errorEl.style.display = 'block';
+			}
+			if ( reloadBtn ) {
+				reloadBtn.style.display = 'inline-flex';
+				reloadBtn.onclick = () => window.location.reload();
+			}
+		} );
+	</script>
 	<script type="module" src="js/main.js?v=20260620-reloadfix"></script>
   <style>
     body {
