@@ -1,19 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	<script>
+	
+<script>
 (async () => {
+  // kill service workers
   const regs = await navigator.serviceWorker.getRegistrations();
-  for (const r of regs) {
-    await r.unregister();
-  }
+  for (const r of regs) await r.unregister();
 
+  // kill ALL cached responses
   if (window.caches) {
     const keys = await caches.keys();
-    for (const k of keys) {
-      await caches.delete(k);
-    }
+    await Promise.all(keys.map(k => caches.delete(k)));
   }
+
+  console.log("SW + Cache fully cleared");
+	alert("SW + Cache fully cleared");
 })();
 </script>
 	<meta charset="utf-8">
