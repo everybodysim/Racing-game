@@ -1,6 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+	<script>
+(async () => {
+  const regs = await navigator.serviceWorker.getRegistrations();
+  for (const r of regs) {
+    await r.unregister();
+  }
+
+  if (window.caches) {
+    const keys = await caches.keys();
+    for (const k of keys) {
+      await caches.delete(k);
+    }
+  }
+})();
+</script>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 	<title>Racing</title>
