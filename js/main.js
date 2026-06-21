@@ -1578,22 +1578,36 @@ async function loadCustomTrackAssets( extras ) {
 
 async function init() {
 
- 
+	setLoadingStatus( 'Booting game systems…', 'boot' );
 
-    setLoadingStatus('Booting game systems…', 'boot');
+	appendLoadingConsole( 'Before registerAll' );
 
-appendLoadingConsole('Before registerAll');
+	registerAll();
 
-registerAll();
+	appendLoadingConsole( 'After registerAll' );
 
-appendLoadingConsole('After registerAll');
+	setLoadingStatus( 'Resolving track data…', 'track' );
 
-setLoadingStatus( 'Resolving track data…', 'track' );
+	appendLoadingConsole( 'Before loadRuntimeMods' );
+
 	const runtimeModsPromise = loadRuntimeMods();
 
+	appendLoadingConsole( 'After loadRuntimeMods' );
+
+	appendLoadingConsole( 'Before URLSearchParams' );
+
 	const searchParams = new URLSearchParams( window.location.search );
+
+	appendLoadingConsole( 'After URLSearchParams' );
+
+	appendLoadingConsole( 'Before resolvePackedTrackParams' );
+
 	const { mapParam, extrasParam } = await resolvePackedTrackParams( searchParams );
+
+	appendLoadingConsole( 'After resolvePackedTrackParams' );
+
 	updateDocumentTitleFromTrackBoard( searchParams, mapParam, extrasParam );
+
 	const isSplitScreen = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1';
 	const editorQuickTestEnabled = searchParams.get( 'editorQuickTest' ) === '1';
 	const replayViewerMode = searchParams.get( 'replayViewer' ) === '1';
@@ -1602,13 +1616,17 @@ setLoadingStatus( 'Resolving track data…', 'track' );
 	const QUICK_TEST_GHOST_KEY = 'racing-editor-quicktest-ghost-v1';
 	const QUICK_TEST_GHOST_MAP_KEY = 'racing-editor-quicktest-map-v1';
 	const ghostEnabled = ! isSplitScreen;
+
 	if ( replayViewerMode ) document.body.classList.add( 'replay-viewer-mode' );
 	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
+
 	let customCells = null;
 	let spawn = null;
+
 	const extras = decodeExtrasParam( extrasParam );
 	const carKeys = Object.keys( CAR_STATS );
 	const deterministicCarSeed = hashTrackSeed( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
+
 	const pickRandomCarKey = () => {
 
 		const slice = deterministicCarSeed.slice( 0, 8 );
