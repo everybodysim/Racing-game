@@ -2099,8 +2099,9 @@ document.getElementById('loading-status').textContent =
   }
   let seen = new Set(); // prevent duplicates
   let hasUnreadMessages = false;
-  const baseDocumentTitle = document.title;
-  const FLASH_TITLES = [ baseDocumentTitle, "🟥", "🟥🟥", "🟥🟥🟥" ];
+  const baseDocumentTitle = "Racing";
+  document.title = baseDocumentTitle;
+  const FLASH_TITLES = [ baseDocumentTitle ];
   let flashTitleTimer = null;
   let flashTitleFrame = 0;
 

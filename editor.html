@@ -181,6 +181,22 @@
 			z-index: 20;
 		}
 		#toast.show { opacity: 1; }
+		#offgrid-dev-banner {
+			position: absolute;
+			top: 82px;
+			left: 50%;
+			transform: translateX(-50%);
+			max-width: min(520px, calc(100vw - 24px));
+			padding: 10px 16px;
+			border-radius: 12px;
+			border: 1px solid rgba(255, 210, 120, 0.55);
+			background: rgba(70, 48, 10, 0.92);
+			color: #fff3cf;
+			font: 700 13px/1.35 sans-serif;
+			text-align: center;
+			box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+			z-index: 22;
+		}
 		#custom-surface-panel {
 			position: absolute;
 			right: 12px;
@@ -519,18 +535,6 @@
 				<option value="pad-custom-b">Custom Pad B</option>
 				<option value="pad-custom-c">Custom Pad C</option>
 			</select>
-			<select id="effect-select" aria-label="Effect picker">
-				<option value="">Effects…</option>
-				<option value="pad-trick-yaw-1">Yaw Flip ×1</option>
-				<option value="pad-trick-pitch-1">Pitch Flip ×1</option>
-				<option value="pad-trick-roll-1">Roll Flip ×1</option>
-				<option value="pad-trick-yaw-pitch-1">Yaw+Pitch ×1</option>
-				<option value="pad-trick-yaw-roll-1">Yaw+Roll ×1</option>
-				<option value="pad-trick-pitch-roll-1">Pitch+Roll ×1</option>
-				<option value="pad-trick-yaw-pitch-roll-1">Yaw+Pitch+Roll ×1</option>
-				<option value="pad-trick-yaw-roll-pitch">Yaw+Roll+Pitch</option>
-				<option value="pad-trick-pitch-yaw-roll">Pitch+Yaw+Roll</option>
-			</select>
 			<button id="btn-surface-custom-a">Custom A</button>
 			<button id="btn-surface-custom-b">Custom B</button>
 			<button id="btn-surface-custom-c">Custom C</button>
@@ -571,6 +575,7 @@
 	</div>
 
 	<div id="toast"></div>
+	<div id="offgrid-dev-banner" hidden>Off-grid placement is still in development — expect rough edges while it gets fixed.</div>
 	<div id="custom-surface-panel" hidden>
 		<h3 id="custom-surface-title">Custom Surface</h3>
 		<div class="custom-surface-grid">
@@ -3202,8 +3207,8 @@ function refreshMovingSpeedUi() {
 	const gateSelect = document.getElementById( 'gate-select' );
 	const surfaceSelect = document.getElementById( 'surface-select' );
 	const padSelect = document.getElementById( 'pad-select' );
-	const effectSelect = document.getElementById( 'effect-select' );
 	const overlapToggleBtn = document.getElementById( 'btn-overlap-toggle' );
+	const offGridDevBanner = document.getElementById( 'offgrid-dev-banner' );
 	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
 	const customSurfaceTitle = document.getElementById( 'custom-surface-title' );
 	const customSurfaceInputs = {
@@ -3296,8 +3301,7 @@ function refreshMovingSpeedUi() {
 
 		}
 		if ( surfaceSelect ) surfaceSelect.value = SURFACE_TYPES.includes( selectedType ) ? selectedType : '';
-		if ( padSelect ) padSelect.value = selectedType.startsWith( 'pad-' ) ? selectedType : '';
-		if ( effectSelect ) effectSelect.value = selectedType.startsWith( 'pad-trick-' ) ? selectedType : '';
+		if ( padSelect ) padSelect.value = selectedType.startsWith( 'pad-' ) && ! selectedType.startsWith( 'pad-trick-' ) ? selectedType : '';
 		if ( overlapToggleBtn ) {
 
 			overlapToggleBtn.classList.toggle( 'active', allowSurfaceOverlap );
@@ -3469,13 +3473,6 @@ function refreshMovingSpeedUi() {
 		selectTileType( padSelect.value );
 		if ( CUSTOM_PAD_TYPES.includes( padSelect.value ) ) openCustomSurfaceEditor( padSelect.value );
 		showToast( `Pad: ${ padSelect.options[ padSelect.selectedIndex ]?.textContent || padSelect.value }` );
-
-	} );
-	effectSelect?.addEventListener( 'change', () => {
-
-		if ( ! effectSelect.value ) return;
-		selectTileType( effectSelect.value );
-		showToast( `Effect: ${ effectSelect.options[ effectSelect.selectedIndex ]?.textContent || effectSelect.value }` );
 
 	} );
 	overlapToggleBtn?.addEventListener( 'click', () => {
@@ -3651,6 +3648,7 @@ function refreshMovingSpeedUi() {
 		if ( ! offGridToggleBtn ) return;
 		offGridToggleBtn.textContent = placeOffGrid ? 'Snap: Off' : 'Snap: Grid';
 		offGridToggleBtn.classList.toggle( 'active', placeOffGrid );
+		if ( offGridDevBanner ) offGridDevBanner.hidden = ! placeOffGrid;
 
 	}
 
@@ -3658,7 +3656,7 @@ function refreshMovingSpeedUi() {
 
 		placeOffGrid = ! placeOffGrid;
 		syncPlacementUi();
-		showToast( placeOffGrid ? 'Off-grid placement enabled' : 'Grid snap enabled' );
+		showToast( placeOffGrid ? 'Off-grid placement enabled — in development' : 'Grid snap enabled' );
 
 	} );
 
