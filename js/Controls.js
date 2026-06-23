@@ -36,13 +36,13 @@ export class Controls {
 		css.textContent = `
 			.touch-controls { position: absolute; bottom: 0; left: 0; right: 0; height: 50%; pointer-events: none; z-index: 10; }
 			.steer-zone { position: absolute; left: 0; top: 0; bottom: 0; width: 45%; pointer-events: auto; touch-action: none; }
-			.steer-base { position: absolute; bottom: 24px; left: 24px; width: 140px; height: 140px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2); }
-			.steer-knob { position: absolute; top: 50%; left: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 50%; background: rgba(255,255,255,0.35); transition: transform 0.05s; }
-			.btn-zone { position: absolute; right: 24px; bottom: 24px; pointer-events: auto; touch-action: none; }
-			.touch-btn { width: 76px; height: 76px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.25); color: rgba(255,255,255,0.5); font: bold 13px -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; user-select: none; -webkit-user-select: none; touch-action: none; position: absolute; }
-			.touch-btn.gas { background: rgba(80,180,80,0.25); right: 0; bottom: 80px; }
+			.steer-base { position: absolute; bottom: 28px; left: 28px; width: 190px; height: 190px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2); }
+			.steer-knob { position: absolute; top: 50%; left: 50%; width: 82px; height: 82px; margin: -41px 0 0 -41px; border-radius: 50%; background: rgba(255,255,255,0.35); transition: transform 0.05s; }
+			.btn-zone { position: absolute; right: 28px; bottom: 28px; pointer-events: auto; touch-action: none; }
+			.touch-btn { width: 106px; height: 106px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.25); color: rgba(255,255,255,0.5); font: bold 16px -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; user-select: none; -webkit-user-select: none; touch-action: none; position: absolute; }
+			.touch-btn.gas { background: rgba(80,180,80,0.25); right: 0; bottom: 116px; }
 			.touch-btn.gas.active { background: rgba(80,180,80,0.5); border-color: rgba(80,180,80,0.6); }
-			.touch-btn.brake { background: rgba(200,80,80,0.25); right: 80px; bottom: 0; }
+			.touch-btn.brake { background: rgba(200,80,80,0.25); right: 116px; bottom: 0; }
 			.touch-btn.brake.active { background: rgba(200,80,80,0.5); border-color: rgba(200,80,80,0.6); }
 		`;
 		document.head.appendChild( css );
@@ -82,7 +82,7 @@ export class Controls {
 		document.body.appendChild( container );
 
 		// Steering: drag left/right anywhere in the left half
-		const steerRange = 60;
+		const steerRange = 82;
 
 		steerZone.addEventListener( 'pointerdown', ( e ) => {
 
@@ -99,7 +99,7 @@ export class Controls {
 			if ( e.pointerId !== this.steerPointerId ) return;
 			const dx = e.clientX - this.steerStartX;
 			this.touchSteer = Math.max( - 1, Math.min( 1, dx / steerRange ) );
-			knob.style.transform = `translateX(${ this.touchSteer * 40 }px)`;
+			knob.style.transform = `translateX(${ this.touchSteer * 54 }px)`;
 
 		} );
 

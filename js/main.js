@@ -3716,6 +3716,7 @@ async function init() {
 
 		modeMenuOpen = open;
 		if ( modeMenu ) modeMenu.style.display = open ? 'block' : 'none';
+		document.body.classList.toggle( 'mode-menu-open', modeMenuOpen );
 
 	}
 
@@ -7093,7 +7094,16 @@ function completeCampaignStage() {
 	modeMenuBtn?.addEventListener( 'click', ( e ) => {
 
 		e.preventDefault();
+		e.stopPropagation();
 		setModeMenuOpen( ! modeMenuOpen );
+
+	} );
+	document.addEventListener( 'click', ( e ) => {
+
+		if ( ! modeMenuOpen || ! modeMenu ) return;
+		const target = e.target;
+		if ( modeMenu.contains( target ) || modeMenuBtn?.contains( target ) || target?.closest?.( '[data-mobile-click="mode-menu-btn"]' ) ) return;
+		setModeMenuOpen( false );
 
 	} );
 	pauseToggleBtn?.addEventListener( 'click', () => togglePaused() );

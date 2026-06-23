@@ -1154,7 +1154,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link,
 			#replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link,
 			#share-time-btn, #export-ghost-btn, #import-ghost-btn { display: none !important; }
-			#mobile-actions-menu { display: none !important; }
+			#mobile-actions-menu, #mp-panel { display: none !important; }
 			#car-select, #lap-hud, #economy-hud {
 				position: fixed;
 				top: calc(8px + env(safe-area-inset-top, 0px));
@@ -1175,7 +1175,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				display: flex;
 				position: fixed;
 				left: 50%;
-				bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+				bottom: calc(230px + env(safe-area-inset-bottom, 0px));
 				transform: translateX(-50%);
 				z-index: 35;
 				gap: 6px;
@@ -1188,6 +1188,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			}
 			#mobile-action-dock button { min-width: 78px; min-height: 44px; border: 0; border-radius: 999px; background: rgba(255,255,255,0.12); color: #fff; font: 900 18px/1 system-ui, sans-serif; }
 			#mobile-action-dock span { display: block; margin-top: 2px; font-size: 10px; font-weight: 800; }
+			body.mode-menu-open #mobile-action-dock { display: none; }
+			#mode-menu { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 45; width: min(360px, calc(100vw - 28px)); max-height: min(70vh, 620px); padding: 12px; border-radius: 18px; background: rgba(10,17,29,0.92); box-shadow: 0 18px 42px rgba(0,0,0,0.38); }
 			#mobile-overlay-backdrop.open { display: block; position: fixed; inset: 0; z-index: 38; background: rgba(0,0,0,0.34); }
 			#mobile-menu-sheet { display: block; position: fixed; left: 10px; right: 10px; bottom: 0; z-index: 39; padding: 8px 10px calc(16px + env(safe-area-inset-bottom, 0px)); border-radius: 22px 22px 0 0; border: 1px solid rgba(218,238,255,0.22); background: rgba(10,17,29,0.88); color: #fff; transform: translateY(110%); transition: transform 180ms ease; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 			#mobile-menu-sheet.open { transform: translateY(0); }
@@ -1639,9 +1641,11 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
 		const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
 		document.querySelectorAll( '[data-mobile-click]' ).forEach( ( btn ) => {
-			btn.addEventListener( 'click', () => {
+			btn.addEventListener( 'click', ( event ) => {
 				const target = document.getElementById( btn.dataset.mobileClick );
 				if ( target && ! target.disabled ) target.click();
+				// Keep the centered mode menu open after launching it from the mobile sheet.
+				if ( btn.dataset.mobileClick === 'mode-menu-btn' ) event.stopPropagation();
 			} );
 		} );
 
