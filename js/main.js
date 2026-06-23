@@ -1476,6 +1476,8 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 	if ( extras?.worldPreset !== 'pool-filled' ) {
 		required.add( 'decoration-empty' );
 		required.add( 'decoration-forest' );
+		// Default tracks include hand-authored tent decoration cells, so load that model too.
+		if ( ! customCells ) required.add( 'decoration-tents' );
 	}
 	if ( Array.isArray( extras?.bumps ) && extras.bumps.length ) required.add( 'track-bump' );
 	if ( Array.isArray( extras?.decorations ) ) {

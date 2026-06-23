@@ -1852,29 +1852,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
-	<script type="module">
-	// Index-only boot shim: patches the default-track model list so hand-authored tents load without touching non-index game files.
-	const mainResponse = await fetch( 'js/main.js?v=999969&cachebust=1' );
-	let mainSource = await mainResponse.text();
-	const trackResponse = await fetch( 'js/Track.js?v=999969&cachebust=1' );
-	let trackSource = await trackResponse.text();
-	trackSource = trackSource.replace(
-		"required.add( 'decoration-forest' );",
-		"required.add( 'decoration-forest' );\n\trequired.add( 'decoration-tents' );"
-	);
-	const trackUrl = URL.createObjectURL( new Blob( [ trackSource ], { type: 'text/javascript' } ) );
-	mainSource = mainSource.replaceAll( "'./Vehicle.js'", JSON.stringify( new URL( 'js/Vehicle.js', window.location.href ).href ) );
-	mainSource = mainSource.replaceAll( "'./Camera.js'", JSON.stringify( new URL( 'js/Camera.js', window.location.href ).href ) );
-	mainSource = mainSource.replaceAll( "'./Controls.js'", JSON.stringify( new URL( 'js/Controls.js', window.location.href ).href ) );
-	mainSource = mainSource.replaceAll( "'./Track.js'", JSON.stringify( trackUrl ) );
-	mainSource = mainSource.replaceAll( "'./Physics.js'", JSON.stringify( new URL( 'js/Physics.js', window.location.href ).href ) );
-	mainSource = mainSource.replaceAll( "'./Particles.js'", JSON.stringify( new URL( 'js/Particles.js', window.location.href ).href ) );
-	mainSource = mainSource.replaceAll( "'./Audio.js'", JSON.stringify( new URL( 'js/Audio.js', window.location.href ).href ) );
-	mainSource = mainSource.replaceAll( "'./tas-core.js'", JSON.stringify( new URL( 'js/tas-core.js', window.location.href ).href ) );
-	mainSource = mainSource.replaceAll( "'./Advancements.js'", JSON.stringify( new URL( 'js/Advancements.js', window.location.href ).href ) );
-	mainSource = mainSource.replaceAll( "'./FirebaseMultiplayer.js'", JSON.stringify( new URL( 'js/FirebaseMultiplayer.js', window.location.href ).href ) );
-	await import( URL.createObjectURL( new Blob( [ mainSource ], { type: 'text/javascript' } ) ) );
-</script>
+	<script type="module" src="js/main.js?v=999969&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
