@@ -332,8 +332,18 @@
 		}
 	}
 	</script>
+
+	<style>
+		/* Mobile editor placeholder only; desktop editor remains unchanged. */
+		#mobile-editor-under-construction { display: none; }
+		@media (pointer: coarse) {
+			body > :not(#mobile-editor-under-construction) { display: none !important; }
+			#mobile-editor-under-construction { display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; background: radial-gradient(circle at 20% 18%, rgba(83,212,255,.26), transparent 42%), linear-gradient(160deg, #08101d, #05070c); color: #eef6ff; font: 900 24px/1.25 system-ui, sans-serif; text-align: center; }
+		}
+	</style>
 </head>
 <body>
+	<div id="mobile-editor-under-construction">Mobile edition editor under construction</div>
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content">
 	<div id="settings-bar">

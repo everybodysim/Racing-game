@@ -1145,6 +1145,61 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 
 		body.replay-viewer-mode > :not(canvas):not(script) { display: none !important; }
 		body.replay-viewer-mode canvas { touch-action: none; }
+
+
+		/* Mobile-first gameplay chrome. Everything is gated behind coarse pointers so desktop layout is untouched. */
+		#mobile-action-dock, #mobile-menu-sheet, #mobile-overlay-backdrop, #mobile-leaderboard-close { display: none; }
+		@media (pointer: coarse) {
+			#quick-menu-btn, #quick-menu-panel, #respawnBtn, #mode-menu-btn,
+			#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link,
+			#replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link,
+			#share-time-btn, #export-ghost-btn, #import-ghost-btn { display: none !important; }
+			#mobile-actions-menu { display: none !important; }
+			#car-select, #lap-hud, #economy-hud {
+				position: fixed;
+				top: calc(8px + env(safe-area-inset-top, 0px));
+				z-index: 31;
+				border-radius: 14px;
+				border: 1px solid rgba(218,238,255,0.24);
+				background: rgba(9,16,28,0.58);
+				box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+				backdrop-filter: blur(8px);
+				-webkit-backdrop-filter: blur(8px);
+				color: #fff;
+			}
+			#car-select { left: 8px; max-width: 30vw; height: 36px; padding: 0 8px; font: 800 12px/1 system-ui, sans-serif; }
+			#lap-hud { left: 50%; transform: translateX(-50%); max-width: 37vw; padding: 7px 9px; text-align: center; font: 800 12px/1.15 system-ui, sans-serif; }
+			#lap-hud small { display: none; }
+			#economy-hud { right: 8px; padding: 9px 10px; font: 800 12px/1 system-ui, sans-serif; }
+			#mobile-action-dock {
+				display: flex;
+				position: fixed;
+				left: 50%;
+				bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+				transform: translateX(-50%);
+				z-index: 35;
+				gap: 6px;
+				padding: 6px;
+				border-radius: 999px;
+				border: 1px solid rgba(218,238,255,0.24);
+				background: rgba(8,14,24,0.68);
+				backdrop-filter: blur(10px);
+				-webkit-backdrop-filter: blur(10px);
+			}
+			#mobile-action-dock button { min-width: 78px; min-height: 44px; border: 0; border-radius: 999px; background: rgba(255,255,255,0.12); color: #fff; font: 900 18px/1 system-ui, sans-serif; }
+			#mobile-action-dock span { display: block; margin-top: 2px; font-size: 10px; font-weight: 800; }
+			#mobile-overlay-backdrop.open { display: block; position: fixed; inset: 0; z-index: 38; background: rgba(0,0,0,0.34); }
+			#mobile-menu-sheet { display: block; position: fixed; left: 10px; right: 10px; bottom: 0; z-index: 39; padding: 8px 10px calc(16px + env(safe-area-inset-bottom, 0px)); border-radius: 22px 22px 0 0; border: 1px solid rgba(218,238,255,0.22); background: rgba(10,17,29,0.88); color: #fff; transform: translateY(110%); transition: transform 180ms ease; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+			#mobile-menu-sheet.open { transform: translateY(0); }
+			#mobile-menu-sheet h3 { margin: 4px 0 10px; text-align: center; font: 900 16px/1 system-ui, sans-serif; }
+			.mobile-sheet-handle { width: 42px; height: 4px; margin: 0 auto 8px; border-radius: 99px; background: rgba(255,255,255,0.34); }
+			.mobile-actions-sheet { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: min(58vh, 430px); overflow: auto; padding: 0; }
+			.mobile-actions-sheet a, .mobile-actions-sheet button { position: static !important; min-height: 46px; border-radius: 14px; border: 1px solid rgba(189,223,255,0.28); background: linear-gradient(165deg, rgba(90,159,255,0.20), rgba(47,104,181,0.18)); color: #f7fbff; font: 800 12px/1.15 system-ui, sans-serif; text-decoration: none; display: flex; align-items: center; justify-content: center; text-align: center; }
+			#leaderboard-panel { display: none !important; }
+			#leaderboard-panel.mobile-open { display: block !important; position: fixed; left: 10px; right: 10px; top: calc(56px + env(safe-area-inset-top, 0px)); width: auto; max-height: 52vh; resize: none; z-index: 39; border-radius: 18px; background: rgba(8,14,24,0.88); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+			#mobile-leaderboard-close { display: block; float: right; width: 34px; height: 34px; border: 0; border-radius: 999px; background: rgba(255,255,255,0.14); color: #fff; font: 900 22px/1 system-ui, sans-serif; }
+		}
+
 </style>
 	
 	<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -1248,6 +1303,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		<button id="boost-activate-btn" type="button">Activate Boost (X)</button>
 	</div>
 		<div id="leaderboard-panel">
+			<button id="mobile-leaderboard-close" type="button" aria-label="Close leaderboard">×</button>
 			<h3>Leaderboard</h3>
 			<div id="leaderboard-track-label">Track: loading…</div>
 			<div id="leaderboard-debug-row">
@@ -1413,24 +1469,35 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			</div>
 		</div>
 	</div>
-	<details id="mobile-actions-menu">
-		<summary aria-label="Open mobile menu">Menu</summary>
-		<div class="mobile-actions-sheet" aria-label="Extra game actions">
+	<!-- Mobile-only action system: desktop keeps the original scattered links/quick menu. -->
+	<div id="mobile-overlay-backdrop" aria-hidden="true"></div>
+	<nav id="mobile-action-dock" aria-label="Mobile game actions">
+		<button id="mobile-leaderboard-btn" type="button">🏆<span>Leaderboard</span></button>
+		<button id="mobile-respawn-btn" type="button">↺<span>Respawn</span></button>
+		<button id="mobile-menu-btn" type="button" aria-expanded="false" aria-controls="mobile-menu-sheet">☰<span>Menu</span></button>
+	</nav>
+	<section id="mobile-menu-sheet" aria-label="Mobile menu" aria-hidden="true">
+		<div class="mobile-sheet-handle" aria-hidden="true"></div>
+		<h3>Game menu</h3>
+		<div class="mobile-actions-sheet">
+			<button type="button" data-mobile-click="mode-menu-btn">Game Mode (E)</button>
+			<button type="button" data-mobile-click="pause-toggle-btn">Pause / Resume</button>
 			<a href="editor.html">Create track</a>
 			<a href="totd.html">Track of day</a>
 			<a href="weekly-cup.html">Weekly cup</a>
-			<a href="coins.html">Coins</a>
+			<a href="coins.html">Coin leaderboard</a>
 			<a href="competitions.html">Competitions</a>
-			<a href="replay.html">Replay</a>
-			<a href="tracks.html">Tracks</a>
+			<a href="replay.html">Replay watcher</a>
+			<a href="tracks.html">Track share board</a>
 			<a href="clubs.html">Clubs</a>
 			<a href="mods.html">Mods</a>
-			<a href="itchdemo.html">Split screen</a>
+			<button type="button" data-mobile-click="split-link">2P split screen</button>
+			<button type="button" data-mobile-click="hacks-toggle">Hacks</button>
 			<button type="button" data-mobile-click="share-time-btn">Share time</button>
 			<button type="button" data-mobile-click="export-ghost-btn">Export ghost</button>
 			<button type="button" data-mobile-click="import-ghost-btn">Import ghost</button>
 		</div>
-	</details>
+	</section>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>
 	<a id="mode-menu-btn" href="#" role="button">Mode Menu (E)</a>
 	<button id="share-time-btn" type="button" disabled>Share best time</button>
@@ -1577,6 +1644,45 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				if ( target && ! target.disabled ) target.click();
 			} );
 		} );
+
+		// Mobile-only dock/sheet wiring. It delegates to existing desktop controls so functionality stays in one place.
+		const mobileQuery = window.matchMedia?.( '(pointer: coarse)' );
+		const mobileDock = document.getElementById( 'mobile-action-dock' );
+		const mobileMenuBtn = document.getElementById( 'mobile-menu-btn' );
+		const mobileSheet = document.getElementById( 'mobile-menu-sheet' );
+		const mobileBackdrop = document.getElementById( 'mobile-overlay-backdrop' );
+		const mobileLeaderboardBtn = document.getElementById( 'mobile-leaderboard-btn' );
+		const mobileRespawnBtn = document.getElementById( 'mobile-respawn-btn' );
+		const mobileLeaderboardClose = document.getElementById( 'mobile-leaderboard-close' );
+		const leaderboardPanel = document.getElementById( 'leaderboard-panel' );
+		function isMobileUi() { return Boolean( mobileQuery?.matches ); }
+		function closeMobileMenu() {
+			mobileSheet?.classList.remove( 'open' );
+			mobileSheet?.setAttribute( 'aria-hidden', 'true' );
+			mobileMenuBtn?.setAttribute( 'aria-expanded', 'false' );
+			mobileBackdrop?.classList.remove( 'open' );
+		}
+		function openMobileMenu() {
+			if ( ! isMobileUi() ) return;
+			mobileSheet?.classList.add( 'open' );
+			mobileSheet?.setAttribute( 'aria-hidden', 'false' );
+			mobileMenuBtn?.setAttribute( 'aria-expanded', 'true' );
+			mobileBackdrop?.classList.add( 'open' );
+		}
+		function closeMobileLeaderboard() {
+			if ( isMobileUi() ) leaderboardPanel?.classList.remove( 'mobile-open' );
+		}
+		mobileMenuBtn?.addEventListener( 'click', () => mobileSheet?.classList.contains( 'open' ) ? closeMobileMenu() : openMobileMenu() );
+		mobileRespawnBtn?.addEventListener( 'click', () => document.getElementById( 'respawnBtn' )?.click() );
+		mobileLeaderboardBtn?.addEventListener( 'click', () => {
+			if ( ! isMobileUi() ) return;
+			closeMobileMenu();
+			leaderboardPanel?.classList.add( 'mobile-open' );
+		} );
+		mobileLeaderboardClose?.addEventListener( 'click', closeMobileLeaderboard );
+		mobileBackdrop?.addEventListener( 'click', () => { closeMobileMenu(); closeMobileLeaderboard(); } );
+		mobileSheet?.querySelectorAll( 'a, button' ).forEach( ( item ) => item.addEventListener( 'click', closeMobileMenu ) );
+		mobileQuery?.addEventListener?.( 'change', () => { closeMobileMenu(); closeMobileLeaderboard(); } );
 
 		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'coin-leaderboard-link', 'competitions-link', 'replay-link', 'tracks-link', 'clubs-link', 'mods-link', 'hacks-toggle', 'split-link' ];
 		for ( const id of quickMenuLinks ) {
@@ -1746,7 +1852,29 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
-	<script type="module" src="js/main.js?v=999969&cachebust=1"></script>
+	<script type="module">
+	// Index-only boot shim: patches the default-track model list so hand-authored tents load without touching non-index game files.
+	const mainResponse = await fetch( 'js/main.js?v=999969&cachebust=1' );
+	let mainSource = await mainResponse.text();
+	const trackResponse = await fetch( 'js/Track.js?v=999969&cachebust=1' );
+	let trackSource = await trackResponse.text();
+	trackSource = trackSource.replace(
+		"required.add( 'decoration-forest' );",
+		"required.add( 'decoration-forest' );\n\trequired.add( 'decoration-tents' );"
+	);
+	const trackUrl = URL.createObjectURL( new Blob( [ trackSource ], { type: 'text/javascript' } ) );
+	mainSource = mainSource.replaceAll( "'./Vehicle.js'", JSON.stringify( new URL( 'js/Vehicle.js', window.location.href ).href ) );
+	mainSource = mainSource.replaceAll( "'./Camera.js'", JSON.stringify( new URL( 'js/Camera.js', window.location.href ).href ) );
+	mainSource = mainSource.replaceAll( "'./Controls.js'", JSON.stringify( new URL( 'js/Controls.js', window.location.href ).href ) );
+	mainSource = mainSource.replaceAll( "'./Track.js'", JSON.stringify( trackUrl ) );
+	mainSource = mainSource.replaceAll( "'./Physics.js'", JSON.stringify( new URL( 'js/Physics.js', window.location.href ).href ) );
+	mainSource = mainSource.replaceAll( "'./Particles.js'", JSON.stringify( new URL( 'js/Particles.js', window.location.href ).href ) );
+	mainSource = mainSource.replaceAll( "'./Audio.js'", JSON.stringify( new URL( 'js/Audio.js', window.location.href ).href ) );
+	mainSource = mainSource.replaceAll( "'./tas-core.js'", JSON.stringify( new URL( 'js/tas-core.js', window.location.href ).href ) );
+	mainSource = mainSource.replaceAll( "'./Advancements.js'", JSON.stringify( new URL( 'js/Advancements.js', window.location.href ).href ) );
+	mainSource = mainSource.replaceAll( "'./FirebaseMultiplayer.js'", JSON.stringify( new URL( 'js/FirebaseMultiplayer.js', window.location.href ).href ) );
+	await import( URL.createObjectURL( new Blob( [ mainSource ], { type: 'text/javascript' } ) ) );
+</script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
