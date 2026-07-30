@@ -4096,8 +4096,20 @@ async function init() {
 			garageViewer.pointer.set( ( ( event.clientX - rect.left ) / rect.width ) * 2 - 1, - ( ( event.clientY - rect.top ) / rect.height ) * 2 + 1 );
 			garageViewer.raycaster.setFromCamera( garageViewer.pointer, camera );
 			const hit = garageViewer.raycaster.intersectObjects( carRoot.children, true ).find( ( item ) => item.object?.isMesh );
-			const material = Array.isArray( hit?.object?.material ) ? hit.object.material[ hit.face?.materialIndex || 0 ] : hit?.object?.material;
-			const hex = sampleTextureHexAtUv( material?.map, hit?.uv ) || ( material?.color ? `#${ material.color.getHexString() }` : '' );
+			if ( ! hit ) {
+
+				selectedGarageSourceHex = '';
+				updateGaragePaintControls();
+				refreshGarageViewer();
+				setGarageMappingStatus( 'Selection cleared. Click directly on the car to pick a paint area.' );
+				return;
+
+			}
+			const materialIndex = hit.face?.materialIndex || 0;
+			const liveMaterial = Array.isArray( hit.object.material ) ? hit.object.material[ materialIndex ] : hit.object.material;
+			const baseMaterial = Array.isArray( hit.object.userData.baseMaterial ) ? hit.object.userData.baseMaterial[ materialIndex ] : null;
+			const material = baseMaterial || liveMaterial;
+			const hex = sampleTextureHexAtUv( material?.map, hit.uv ) || ( material?.color ? `#${ material.color.getHexString() }` : '' );
 			if ( /^#[0-9a-fA-F]{6}$/.test( hex ) ) {
 
 				selectedGarageSourceHex = hex.toLowerCase();
@@ -4204,8 +4216,10 @@ async function init() {
 			removeBtn.type = 'button';
 			removeBtn.textContent = 'Remove';
 			removeBtn.style.marginLeft = '6px';
-			removeBtn.addEventListener( 'click', () => {
+			removeBtn.addEventListener( 'click', ( event ) => {
 
+				event.preventDefault();
+				event.stopPropagation();
 				mappings.splice( index, 1 );
 				saveGarageMods();
 				updateGarageMappingsUi();
@@ -4380,24 +4394,55 @@ async function init() {
 
 	}
 
-	function textureContainsColor( texture, sourceHex, tolerance = GARAGE_COLOR_PICK_TOLERANCE ) {
+	function createHighlightedTexture( texture, sourceHex, tolerance = GARAGE_COLOR_PICK_TOLERANCE ) {
 
-		if ( ! /^#[0-9a-fA-F]{6}$/.test( sourceHex || '' ) ) return false;
+		if ( ! /^#[0-9a-fA-F]{6}$/.test( sourceHex || '' ) || ! texture ) return null;
 		const source = getTextureSourcePixels( texture );
 		const target = hexToRgbBytes( sourceHex );
-		if ( ! source || ! target ) return false;
+		if ( ! source || ! target ) return null;
 		const toleranceSq = tolerance * tolerance;
-		for ( let i = 0; i < source.data.length; i += 16 ) {
+		const output = new Uint8ClampedArray( source.data );
+		let matched = false;
+		for ( let i = 0; i < output.length; i += 4 ) {
 
 			const dr = source.data[ i ] - target.r;
 			const dg = source.data[ i + 1 ] - target.g;
 			const db = source.data[ i + 2 ] - target.b;
-			if ( dr * dr + dg * dg + db * db <= toleranceSq ) return true;
+			if ( dr * dr + dg * dg + db * db <= toleranceSq ) {
+
+				output[ i ] = Math.min( 255, Math.round( output[ i ] * 0.45 + 255 * 0.55 ) );
+				output[ i + 1 ] = Math.min( 255, Math.round( output[ i + 1 ] * 0.45 + 230 * 0.55 ) );
+				output[ i + 2 ] = Math.round( output[ i + 2 ] * 0.35 );
+				matched = true;
+
+			}
 
 		}
-		return false;
+		if ( ! matched ) return null;
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = source.width;
+		canvas.height = source.height;
+		const ctx = canvas.getContext( '2d', { willReadFrequently: true } );
+		if ( ! ctx ) return null;
+		ctx.putImageData( new ImageData( output, source.width, source.height ), 0, 0 );
+		const nextTexture = new THREE.CanvasTexture( canvas );
+		nextTexture.colorSpace = texture.colorSpace;
+		nextTexture.flipY = texture.flipY;
+		nextTexture.wrapS = texture.wrapS;
+		nextTexture.wrapT = texture.wrapT;
+		nextTexture.repeat.copy( texture.repeat );
+		nextTexture.offset.copy( texture.offset );
+		nextTexture.rotation = texture.rotation;
+		nextTexture.center.copy( texture.center );
+		nextTexture.minFilter = texture.minFilter;
+		nextTexture.magFilter = texture.magFilter;
+		nextTexture.generateMipmaps = texture.generateMipmaps;
+		nextTexture.anisotropy = texture.anisotropy;
+		nextTexture.needsUpdate = true;
+		return nextTexture;
 
 	}
+
 
 	function applyCarCustomizationToObject( root, carKey, highlightHex = '' ) {
 
@@ -4447,18 +4492,12 @@ async function init() {
 				if ( material.map ) {
 
 					const remapped = recolorTexture( material.map, resolvedMappings );
-						material.map = remapped.texture;
-						if ( textureContainsColor( baseMaterial.map, highlightHex ) ) {
+					material.map = createHighlightedTexture( baseMaterial.map, highlightHex ) || remapped.texture;
+					if ( remapped.hasShiny ) {
 
-							if ( material.emissive ) material.emissive.set( 0xffe66d );
-							if ( typeof material.emissiveIntensity === 'number' ) material.emissiveIntensity = Math.max( material.emissiveIntensity || 0, 0.75 );
+						applyShinyFinish( material );
 
-						}
-						if ( remapped.hasShiny ) {
-
-							applyShinyFinish( material );
-
-						}
+					}
 
 				}
 				material.needsUpdate = true;
