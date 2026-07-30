@@ -3245,6 +3245,7 @@ async function init() {
 	const GARAGE_DEFAULT_PAINT_UNLOCKS = new Set( [ GARAGE_STANDARD_PALETTE[ 0 ]?.id, GARAGE_STANDARD_PALETTE[ 1 ]?.id, GARAGE_STANDARD_PALETTE[ 11 ]?.id ].filter( Boolean ) );
 	let selectedPaintColorId = GARAGE_PAINT_PALETTE[ 0 ]?.id || '';
 	let selectedGarageSourceHex = '';
+	let hoveredGarageSourceHex = '';
 	let garageViewer = null;
 	let garageCosmetics = normalizeGarageCosmetics( null );
 	const recolorTextureSourceCache = new WeakMap();
@@ -4016,7 +4017,7 @@ async function init() {
 		if ( garageSelectionChip ) {
 
 			garageSelectionChip.innerHTML = hasSelection
-				? `Selected area: <strong>${ selectedGarageSourceHex }</strong><br>Matching painted parts are highlighted in the viewer.`
+				? `Selected area: <strong>${ selectedGarageSourceHex }</strong><br>Matching painted parts are highlighted green. Hovered parts highlight yellow.`
 				: 'No car color selected yet. Click the car in the viewer to choose a paint area.';
 
 		}
@@ -4078,6 +4079,38 @@ async function init() {
 
 	}
 
+
+	function getGarageViewerHit( event ) {
+
+		if ( ! garageViewer?.raycaster || ! garageViewer?.carRoot ) return null;
+		const rect = garageViewerCanvas.getBoundingClientRect();
+		garageViewer.pointer.set( ( ( event.clientX - rect.left ) / rect.width ) * 2 - 1, - ( ( event.clientY - rect.top ) / rect.height ) * 2 + 1 );
+		garageViewer.raycaster.setFromCamera( garageViewer.pointer, garageViewer.camera );
+		return garageViewer.raycaster.intersectObjects( garageViewer.carRoot.children, true ).find( ( item ) => item.object?.isMesh ) || null;
+
+	}
+
+	function getGarageRemapHexFromHit( hit ) {
+
+		const materialIndex = hit?.face?.materialIndex || 0;
+		const liveMaterial = Array.isArray( hit?.object?.material ) ? hit.object.material[ materialIndex ] : hit?.object?.material;
+		const baseMaterial = Array.isArray( hit?.object?.userData?.baseMaterial ) ? hit.object.userData.baseMaterial[ materialIndex ] : null;
+		const material = baseMaterial || liveMaterial;
+		return ( sampleTextureHexAtUv( material?.map, hit?.uv ) || ( material?.color ? `#${ material.color.getHexString() }` : '' ) ).toLowerCase();
+
+	}
+
+	function updateGarageHoverFromEvent( event ) {
+
+		if ( ! garageViewer || garageViewer.dragging ) return;
+		const hit = getGarageViewerHit( event );
+		const nextHex = hit ? getGarageRemapHexFromHit( hit ) : '';
+		if ( nextHex === hoveredGarageSourceHex ) return;
+		hoveredGarageSourceHex = /^#[0-9a-fA-F]{6}$/.test( nextHex ) ? nextHex : '';
+		refreshGarageViewer();
+
+	}
+
 	function refreshGarageViewer() {
 
 		if ( ! garageViewer?.carRoot ) return;
@@ -4089,7 +4122,7 @@ async function init() {
 		const clone = source.clone( true );
 		clone.rotation.y = Math.PI;
 		garageViewer.carRoot.add( clone );
-		applyCarCustomizationToObject( clone, carKey, selectedGarageSourceHex, true );
+		applyCarCustomizationToObject( clone, carKey, selectedGarageSourceHex, true, hoveredGarageSourceHex );
 		garageViewer.pickerRoot?.add( makeGaragePickerClone( source ) );
 
 	}
@@ -4136,31 +4169,27 @@ async function init() {
 
 		};
 		garageViewerCanvas.addEventListener( 'pointerdown', ( event ) => { garageViewer.dragging = true; garageViewer.moved = false; garageViewer.sx = event.clientX; garageViewerCanvas.classList.add( 'dragging' ); garageViewerCanvas.setPointerCapture?.( event.pointerId ); } );
-		garageViewerCanvas.addEventListener( 'pointermove', ( event ) => { if ( ! garageViewer.dragging ) return; const dx = event.clientX - garageViewer.sx; if ( Math.abs( dx ) > 2 ) garageViewer.moved = true; garageViewer.yaw += dx * 0.01; garageViewer.sx = event.clientX; } );
+		garageViewerCanvas.addEventListener( 'pointermove', ( event ) => { if ( garageViewer.dragging ) { const dx = event.clientX - garageViewer.sx; if ( Math.abs( dx ) > 2 ) garageViewer.moved = true; garageViewer.yaw += dx * 0.01; garageViewer.sx = event.clientX; return; } updateGarageHoverFromEvent( event ); } );
+		garageViewerCanvas.addEventListener( 'pointerleave', () => { if ( hoveredGarageSourceHex ) { hoveredGarageSourceHex = ''; refreshGarageViewer(); } } );
 		garageViewerCanvas.addEventListener( 'pointerup', ( event ) => {
 
 			garageViewer.dragging = false;
 			garageViewerCanvas.classList.remove( 'dragging' );
 			if ( garageViewer.moved ) return;
-			const rect = garageViewerCanvas.getBoundingClientRect();
-			garageViewer.pointer.set( ( ( event.clientX - rect.left ) / rect.width ) * 2 - 1, - ( ( event.clientY - rect.top ) / rect.height ) * 2 + 1 );
-			garageViewer.raycaster.setFromCamera( garageViewer.pointer, camera );
-			const hit = garageViewer.raycaster.intersectObjects( carRoot.children, true ).find( ( item ) => item.object?.isMesh );
+			const hit = getGarageViewerHit( event );
 			if ( ! hit ) {
 
 				selectedGarageSourceHex = '';
+				hoveredGarageSourceHex = '';
 				updateGaragePaintControls();
 				refreshGarageViewer();
 				setGarageMappingStatus( 'Selection cleared. Click directly on the car to pick a paint area.' );
 				return;
 
 			}
-			const materialIndex = hit.face?.materialIndex || 0;
-			const liveMaterial = Array.isArray( hit.object.material ) ? hit.object.material[ materialIndex ] : hit.object.material;
-			const baseMaterial = Array.isArray( hit.object.userData.baseMaterial ) ? hit.object.userData.baseMaterial[ materialIndex ] : null;
-			const material = baseMaterial || liveMaterial;
 			const pickerHex = readGaragePickerHex( event );
-			const hex = ( /^#[0-9a-fA-F]{6}$/.test( pickerHex ) ? pickerHex : '' ) || sampleTextureHexAtUv( material?.map, hit.uv ) || ( material?.color ? `#${ material.color.getHexString() }` : '' );
+			const remapHex = getGarageRemapHexFromHit( hit );
+			const hex = /^#[0-9a-fA-F]{6}$/.test( remapHex ) ? remapHex : pickerHex;
 			if ( /^#[0-9a-fA-F]{6}$/.test( hex ) ) {
 
 				selectedGarageSourceHex = hex.toLowerCase();
@@ -4445,25 +4474,42 @@ async function init() {
 
 	}
 
-	function createHighlightedTexture( texture, sourceHex, tolerance = GARAGE_COLOR_PICK_TOLERANCE ) {
+	function createHighlightedTexture( texture, selectedHex, hoverHex = '', tolerance = GARAGE_COLOR_PICK_TOLERANCE ) {
 
-		if ( ! /^#[0-9a-fA-F]{6}$/.test( sourceHex || '' ) || ! texture ) return null;
+		const hasSelected = /^#[0-9a-fA-F]{6}$/.test( selectedHex || '' );
+		const hasHover = /^#[0-9a-fA-F]{6}$/.test( hoverHex || '' );
+		if ( ! texture || ( ! hasSelected && ! hasHover ) ) return null;
 		const source = getTextureSourcePixels( texture );
-		const target = hexToRgbBytes( sourceHex );
-		if ( ! source || ! target ) return null;
+		const selected = hasSelected ? hexToRgbBytes( selectedHex ) : null;
+		const hover = hasHover ? hexToRgbBytes( hoverHex ) : null;
+		if ( ! source || ( hasSelected && ! selected ) || ( hasHover && ! hover ) ) return null;
 		const toleranceSq = tolerance * tolerance;
 		const output = new Uint8ClampedArray( source.data );
 		let matched = false;
 		for ( let i = 0; i < output.length; i += 4 ) {
 
-			const dr = source.data[ i ] - target.r;
-			const dg = source.data[ i + 1 ] - target.g;
-			const db = source.data[ i + 2 ] - target.b;
-			if ( dr * dr + dg * dg + db * db <= toleranceSq ) {
+			let color = null;
+			if ( selected ) {
 
-				output[ i ] = Math.min( 255, Math.round( output[ i ] * 0.45 + 255 * 0.55 ) );
-				output[ i + 1 ] = Math.min( 255, Math.round( output[ i + 1 ] * 0.45 + 230 * 0.55 ) );
-				output[ i + 2 ] = Math.round( output[ i + 2 ] * 0.35 );
+				const dr = source.data[ i ] - selected.r;
+				const dg = source.data[ i + 1 ] - selected.g;
+				const db = source.data[ i + 2 ] - selected.b;
+				if ( dr * dr + dg * dg + db * db <= toleranceSq ) color = { r: 80, g: 255, b: 120 };
+
+			}
+			if ( ! color && hover ) {
+
+				const dr = source.data[ i ] - hover.r;
+				const dg = source.data[ i + 1 ] - hover.g;
+				const db = source.data[ i + 2 ] - hover.b;
+				if ( dr * dr + dg * dg + db * db <= toleranceSq ) color = { r: 255, g: 230, b: 60 };
+
+			}
+			if ( color ) {
+
+				output[ i ] = Math.min( 255, Math.round( output[ i ] * 0.35 + color.r * 0.65 ) );
+				output[ i + 1 ] = Math.min( 255, Math.round( output[ i + 1 ] * 0.35 + color.g * 0.65 ) );
+				output[ i + 2 ] = Math.min( 255, Math.round( output[ i + 2 ] * 0.35 + color.b * 0.65 ) );
 				matched = true;
 
 			}
@@ -4495,7 +4541,7 @@ async function init() {
 	}
 
 
-	function applyCarCustomizationToObject( root, carKey, highlightHex = '', previewUnlit = false ) {
+	function applyCarCustomizationToObject( root, carKey, highlightHex = '', previewUnlit = false, hoverHex = '' ) {
 
 		if ( ! root ) return;
 		const carData = getGarageCosmeticCar( carKey );
@@ -4527,12 +4573,15 @@ async function init() {
 					const baseRgb = hexToRgbBytes( `#${ baseMaterial.color.getHexString() }` );
 					const mappedSolid = baseRgb ? pickMappedColor( baseRgb, resolvedMappings ) : null;
 					if ( mappedSolid ) material.color.setRGB( mappedSolid.r / 255, mappedSolid.g / 255, mappedSolid.b / 255 );
-					if ( /^#[0-9a-fA-F]{6}$/.test( highlightHex || '' ) && colorDistanceSqHex( `#${ baseMaterial.color.getHexString() }`, highlightHex ) <= GARAGE_COLOR_PICK_TOLERANCE * GARAGE_COLOR_PICK_TOLERANCE ) {
+					const baseHex = `#${ baseMaterial.color.getHexString() }`;
+					const selectedSolid = /^#[0-9a-fA-F]{6}$/.test( highlightHex || '' ) && colorDistanceSqHex( baseHex, highlightHex ) <= GARAGE_COLOR_PICK_TOLERANCE * GARAGE_COLOR_PICK_TOLERANCE;
+					const hoverSolid = ! selectedSolid && /^#[0-9a-fA-F]{6}$/.test( hoverHex || '' ) && colorDistanceSqHex( baseHex, hoverHex ) <= GARAGE_COLOR_PICK_TOLERANCE * GARAGE_COLOR_PICK_TOLERANCE;
+					if ( selectedSolid || hoverSolid ) {
 
-						if ( previewUnlit ) material.color.set( 0xffe66d );
+						if ( previewUnlit ) material.color.set( selectedSolid ? 0x50ff78 : 0xffe63c );
 						else {
 
-							if ( material.emissive ) material.emissive.set( 0xffe66d );
+							if ( material.emissive ) material.emissive.set( selectedSolid ? 0x50ff78 : 0xffe63c );
 							if ( typeof material.emissiveIntensity === 'number' ) material.emissiveIntensity = Math.max( material.emissiveIntensity || 0, 0.75 );
 
 						}
@@ -4548,7 +4597,7 @@ async function init() {
 				if ( material.map ) {
 
 					const remapped = recolorTexture( material.map, resolvedMappings );
-					material.map = createHighlightedTexture( baseMaterial.map, highlightHex ) || remapped.texture;
+					material.map = createHighlightedTexture( baseMaterial.map, highlightHex, hoverHex ) || remapped.texture;
 					if ( remapped.hasShiny ) {
 
 						applyShinyFinish( material );
