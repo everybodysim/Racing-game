@@ -4010,7 +4010,7 @@ async function init() {
 
 	function getGarageRepaintTolerance() {
 
-		return THREE.MathUtils.clamp( Number( garageRepaintToleranceInput?.value ) || GARAGE_COLOR_PICK_TOLERANCE, 4, 120 );
+		return THREE.MathUtils.clamp( Number( garageRepaintToleranceInput?.value ) || GARAGE_COLOR_PICK_TOLERANCE, 4, 180 );
 
 	}
 
