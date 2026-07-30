@@ -819,46 +819,71 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#quick-menu-btn {
 			position: absolute;
 			right: 16px;
-			bottom: 12px;
-			z-index: 16;
+			top: 16px;
+			bottom: auto;
+			z-index: 32;
 			color: #fff;
-			font: 600 12px sans-serif;
-			background: rgba(0,0,0,0.62);
-			padding: 6px 9px;
-			border-radius: 7px;
-			border: 1px solid rgba(255,255,255,0.22);
+			font: 800 13px/1 system-ui, sans-serif;
+			background: linear-gradient(135deg, rgba(20,29,44,0.82), rgba(14,18,28,0.74));
+			padding: 10px 14px;
+			border-radius: 999px;
+			border: 1px solid rgba(255,255,255,0.28);
+			box-shadow: 0 8px 24px rgba(0,0,0,0.28);
 			cursor: pointer;
 		}
 		#quick-menu-panel {
-			position: absolute;
-			right: 16px;
-			bottom: 44px;
-			z-index: 16;
+			position: fixed;
+			inset: 0;
+			z-index: 220;
 			display: none;
-			flex-direction: column;
-			gap: 4px;
-			background: rgba(0,0,0,0.62);
-			padding: 5px;
-			border-radius: 9px;
-			border: 1px solid rgba(255,255,255,0.2);
-			min-width: 148px;
+			align-items: center;
+			justify-content: center;
+			background: radial-gradient(circle at 50% 22%, rgba(60,94,140,0.42), rgba(3,6,12,0.82) 72%);
+			padding: 20px;
+			box-sizing: border-box;
+			backdrop-filter: blur(8px);
+			-webkit-backdrop-filter: blur(8px);
 		}
+		#quick-menu-panel.open { display: flex; }
+		.quick-menu-card {
+			width: min(760px, calc(100vw - 28px));
+			max-height: min(760px, calc(100vh - 28px));
+			overflow: auto;
+			border: 1px solid rgba(255,255,255,0.22);
+			border-radius: 24px;
+			background: linear-gradient(155deg, rgba(11,17,28,0.96), rgba(20,31,48,0.92));
+			box-shadow: 0 28px 80px rgba(0,0,0,0.58);
+			padding: 20px;
+			color: #fff;
+			font-family: system-ui, sans-serif;
+		}
+		.quick-menu-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+		.quick-menu-kicker { margin: 0 0 4px; color: #8fd9ff; font: 800 12px/1 system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
+		.quick-menu-header h2 { margin: 0; font: 900 clamp(28px, 6vw, 52px)/.95 system-ui, sans-serif; }
+		.quick-menu-header p { margin: 8px 0 0; color: #cfe1f8; font: 600 14px/1.35 system-ui, sans-serif; }
+		#quick-menu-close { width: 40px; height: 40px; border-radius: 999px; flex: 0 0 auto; text-align: center; }
+		.quick-menu-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+		.quick-menu-tab[aria-selected="true"] { background: linear-gradient(135deg, rgba(111,226,255,0.34), rgba(124,243,163,0.2)); border-color: rgba(143,217,255,0.65); }
+		.quick-menu-page { display: none; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+		.quick-menu-page.active { display: grid; }
 		#quick-menu-panel a, #quick-menu-panel button {
 			position: static !important;
 			display: block;
 			box-sizing: border-box;
 			width: 100%;
+			min-height: 44px;
 			background: rgba(255,255,255,0.1);
 			color: #fff;
-			padding: 5px 7px;
-			border-radius: 6px;
+			padding: 11px 12px;
+			border-radius: 12px;
 			border: 1px solid rgba(255,255,255,0.16);
-			font: 600 11px sans-serif;
+			font: 800 13px/1.2 system-ui, sans-serif;
 			text-align: left;
+			text-decoration: none;
 			cursor: pointer;
 		}
+		#quick-menu-panel a:hover, #quick-menu-panel button:hover { background: rgba(255,255,255,0.18); }
 		#quick-menu-panel button:disabled { opacity: 0.55; cursor: not-allowed; }
-		#quick-menu-panel.open { display: flex; }
 
 		
 		#hacks-panel {
@@ -1268,19 +1293,48 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	</section>
 	<div id="top-message" aria-live="polite"></div>
 	<div id="effect-message" aria-live="polite"></div>
-	<a id="editor-link" href="editor.html">Create your own track</a>
-	<a id="totd-link" href="totd.html">Track of the day</a>
-	<a id="weekly-cup-link" href="weekly-cup.html">Weekly cup</a>
-	<a id="coin-leaderboard-link" href="coins.html">Coin leaderboard</a> 
-	<a id="competitions-link" href="competitions.html">Competitions</a>
-	<a id="replay-link" href="replay.html">Replay watcher</a>
-	<a id="tracks-link" href="tracks.html">Track share board</a> 
-	<a id="clubs-link" class="club-notify-target" href="clubs.html">Clubs</a>
-	<a id="mods-link" href="mods.html">Mods</a>
-	<a id="hacks-toggle" href="#" style="display:none;">Hacks</a>
-	<a id="split-link" href="#">2P split screen</a>
-	<button id="quick-menu-btn" type="button" aria-expanded="false">Menu ▾</button>
-	<div id="quick-menu-panel"><button id="pause-toggle-btn" type="button">Pause</button></div>
+	<button id="quick-menu-btn" type="button" aria-expanded="false" aria-controls="quick-menu-panel">Menu</button>
+	<div id="quick-menu-panel" role="dialog" aria-modal="true" aria-labelledby="quick-menu-title" aria-hidden="true">
+		<div class="quick-menu-card">
+			<div class="quick-menu-header">
+				<div><p class="quick-menu-kicker">Race paused</p><h2 id="quick-menu-title">Pit Menu</h2><p>Keep the track view clean while racing; jump to tools, events, and garage options from here.</p></div>
+				<button id="quick-menu-close" type="button" aria-label="Close menu">×</button>
+			</div>
+			<div class="quick-menu-tabs" role="tablist" aria-label="Pit menu sections">
+				<button class="quick-menu-tab" type="button" data-menu-page="race" aria-selected="true">Race</button>
+				<button class="quick-menu-tab" type="button" data-menu-page="garage">Garage</button>
+				<button class="quick-menu-tab" type="button" data-menu-page="create">Create</button>
+				<button class="quick-menu-tab" type="button" data-menu-page="events">Events</button>
+			</div>
+			<div class="quick-menu-page active" data-menu-page-panel="race">
+				<button id="pause-toggle-btn" type="button">Resume</button>
+				<button id="restart-race-btn" type="button">Restart</button>
+				<a id="respawnBtn" href="#" role="button">Respawn</a>
+				<a id="mode-menu-btn" href="#" role="button">Change vehicle</a>
+				<button id="share-time-btn" type="button" disabled>Share best time</button>
+				<button id="export-ghost-btn" type="button">Export ghost</button>
+				<button id="import-ghost-btn" type="button">Import ghost</button>
+			</div>
+			<div class="quick-menu-page" data-menu-page-panel="garage">
+				<button id="garage-menu-btn" type="button">Garage</button>
+				<a id="mods-link" href="mods.html">Mods</a>
+				<a id="hacks-toggle" href="#" style="display:none;">Hacks</a>
+			</div>
+			<div class="quick-menu-page" data-menu-page-panel="create">
+				<a id="tracks-link" href="tracks.html">Track Browser</a>
+				<a id="editor-link" href="editor.html">Editor</a>
+				<a id="replay-link" href="replay.html">Replays</a>
+				<a id="clubs-link" class="club-notify-target" href="clubs.html">Clubs</a>
+				<a id="coin-leaderboard-link" href="coins.html">Coin leaderboard</a>
+				<a id="split-link" href="#">2P split screen</a>
+			</div>
+			<div class="quick-menu-page" data-menu-page-panel="events">
+				<a id="competitions-link" href="competitions.html">Competitions</a>
+				<a id="totd-link" href="totd.html">Track of the day</a>
+				<a id="weekly-cup-link" href="weekly-cup.html">Weekly cup</a>
+			</div>
+		</div>
+	</div>
 	<select id="car-select" aria-label="Select car">
 		<option value="vehicle-truck-yellow">Yellow</option>
 		<option value="vehicle-truck-green">Green</option>
@@ -1499,11 +1553,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<button type="button" data-mobile-click="import-ghost-btn">Import ghost</button>
 		</div>
 	</section>
-	<a id="respawnBtn" href="#" role="button">Respawn</a>
-	<a id="mode-menu-btn" href="#" role="button">Mode Menu (E)</a>
-	<button id="share-time-btn" type="button" disabled>Share best time</button>
-	<button id="export-ghost-btn" type="button">Export ghost</button>
-	<button id="import-ghost-btn" type="button">Import ghost</button>
 	<div id="mp-panel" aria-label="Multiplayer">
 		<div id="mp-panel-title">Multiplayer</div>
 		<div id="mp-actions">
@@ -1639,6 +1688,19 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		} );
 		const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
 		const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
+		const quickMenuClose = document.getElementById( 'quick-menu-close' );
+		const quickMenuTabs = [ ...document.querySelectorAll( '.quick-menu-tab' ) ];
+		const quickMenuPages = [ ...document.querySelectorAll( '.quick-menu-page' ) ];
+		function setQuickMenuOpen( open ) {
+			quickMenuPanel?.classList.toggle( 'open', open );
+			quickMenuPanel?.setAttribute( 'aria-hidden', open ? 'false' : 'true' );
+			quickMenuBtn?.setAttribute( 'aria-expanded', String( open ) );
+			if ( quickMenuBtn ) quickMenuBtn.textContent = open ? 'Close menu' : 'Menu';
+		}
+		function setQuickMenuPage( page ) {
+			quickMenuTabs.forEach( ( tab ) => tab.setAttribute( 'aria-selected', String( tab.dataset.menuPage === page ) ) );
+			quickMenuPages.forEach( ( panel ) => panel.classList.toggle( 'active', panel.dataset.menuPagePanel === page ) );
+		}
 		document.querySelectorAll( '[data-mobile-click]' ).forEach( ( btn ) => {
 			btn.addEventListener( 'click', ( event ) => {
 				const target = document.getElementById( btn.dataset.mobileClick );
@@ -1687,22 +1749,17 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		mobileSheet?.querySelectorAll( 'a, button' ).forEach( ( item ) => item.addEventListener( 'click', closeMobileMenu ) );
 		mobileQuery?.addEventListener?.( 'change', () => { closeMobileMenu(); closeMobileLeaderboard(); } );
 
-		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'coin-leaderboard-link', 'competitions-link', 'replay-link', 'tracks-link', 'clubs-link', 'mods-link', 'hacks-toggle', 'split-link' ];
-		for ( const id of quickMenuLinks ) {
-			const node = document.getElementById( id );
-			if ( node ) quickMenuPanel.appendChild( node );
-		}
-		quickMenuBtn?.addEventListener( 'click', () => {
-			const open = quickMenuPanel.classList.toggle( 'open' );
-			quickMenuBtn.setAttribute( 'aria-expanded', String( open ) );
-			quickMenuBtn.textContent = open ? 'Menu ▴' : 'Menu ▾';
+		quickMenuTabs.forEach( ( tab ) => tab.addEventListener( 'click', () => setQuickMenuPage( tab.dataset.menuPage ) ) );
+		quickMenuBtn?.addEventListener( 'click', () => setQuickMenuOpen( ! quickMenuPanel?.classList.contains( 'open' ) ) );
+		quickMenuClose?.addEventListener( 'click', () => setQuickMenuOpen( false ) );
+		quickMenuPanel?.addEventListener( 'click', ( event ) => {
+			if ( event.target === quickMenuPanel ) setQuickMenuOpen( false );
 		} );
-		document.addEventListener( 'click', ( event ) => {
-			if ( ! quickMenuPanel.classList.contains( 'open' ) ) return;
-			if ( quickMenuPanel.contains( event.target ) || quickMenuBtn.contains( event.target ) ) return;
-			quickMenuPanel.classList.remove( 'open' );
-			quickMenuBtn.setAttribute( 'aria-expanded', 'false' );
-			quickMenuBtn.textContent = 'Menu ▾';
+		document.addEventListener( 'keydown', ( event ) => {
+			if ( event.key === 'Escape' && quickMenuPanel?.classList.contains( 'open' ) ) setQuickMenuOpen( false );
+		} );
+		quickMenuPanel?.querySelectorAll( 'a[href]:not([href="#"])' ).forEach( ( link ) => {
+			link.addEventListener( 'click', () => setQuickMenuOpen( false ) );
 		} );
 
 		async function readLeaderboardNameFromPage( pageUrl, selector, fallbackLabel ) {

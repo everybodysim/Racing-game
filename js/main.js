@@ -3014,6 +3014,10 @@ async function init() {
 	const leaderboardPanel = document.getElementById( 'leaderboard-panel' );
 	const leaderboardToggleBtn = document.getElementById( 'leaderboard-toggle-btn' );
 	const pauseToggleBtn = document.getElementById( 'pause-toggle-btn' );
+	const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
+	const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
+	const restartRaceBtn = document.getElementById( 'restart-race-btn' );
+	const garageMenuBtn = document.getElementById( 'garage-menu-btn' );
 	if ( leaderboardPanel && ! leaderboardPercentileLabel ) {
 
 		leaderboardPercentileLabel = document.createElement( 'div' );
@@ -7091,6 +7095,11 @@ function completeCampaignStage() {
 		dispatchRuntimeModEvent( 'onRespawn', { type: 'respawn', source: 'respawn_button' } );
 
 	} );
+	quickMenuBtn?.addEventListener( 'click', () => {
+
+		if ( quickMenuPanel?.classList.contains( 'open' ) ) setPaused( true );
+
+	} );
 	modeMenuBtn?.addEventListener( 'click', ( e ) => {
 
 		e.preventDefault();
@@ -7106,7 +7115,39 @@ function completeCampaignStage() {
 		setModeMenuOpen( false );
 
 	} );
-	pauseToggleBtn?.addEventListener( 'click', () => togglePaused() );
+	pauseToggleBtn?.addEventListener( 'click', () => {
+
+		togglePaused();
+		if ( ! paused ) {
+
+			quickMenuPanel?.classList.remove( 'open' );
+			quickMenuPanel?.setAttribute( 'aria-hidden', 'true' );
+			quickMenuBtn?.setAttribute( 'aria-expanded', 'false' );
+			if ( quickMenuBtn ) quickMenuBtn.textContent = 'Menu';
+
+		}
+
+	} );
+	restartRaceBtn?.addEventListener( 'click', () => {
+
+		if ( paused ) setPaused( false );
+		respawnVehicle();
+		quickMenuPanel?.classList.remove( 'open' );
+		quickMenuPanel?.setAttribute( 'aria-hidden', 'true' );
+		quickMenuBtn?.setAttribute( 'aria-expanded', 'false' );
+		if ( quickMenuBtn ) quickMenuBtn.textContent = 'Menu';
+
+	} );
+	garageMenuBtn?.addEventListener( 'click', () => {
+
+		setModeMenuOpen( true );
+		document.getElementById( 'mode-tab-garage' )?.click();
+		quickMenuPanel?.classList.remove( 'open' );
+		quickMenuPanel?.setAttribute( 'aria-hidden', 'true' );
+		quickMenuBtn?.setAttribute( 'aria-expanded', 'false' );
+		if ( quickMenuBtn ) quickMenuBtn.textContent = 'Menu';
+
+	} );
 	hacksToggleLink?.addEventListener( 'click', ( e ) => {
 
 		e.preventDefault();
