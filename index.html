@@ -476,6 +476,24 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		.mode-tab-btn:hover { background: rgba(255,255,255,0.16); }
 		.mode-tab-panel { display: none; }
 		.mode-tab-panel.active { display: block; }
+		#mode-menu.garage-fullscreen {
+			left: 50%;
+			right: auto;
+			top: 50%;
+			width: min(1120px, calc(100vw - 28px));
+			max-height: min(860px, calc(100vh - 28px));
+			transform: translate(-50%, -50%);
+			overflow: auto;
+			z-index: 30;
+		}
+		body.mode-menu-open:has(#mode-menu.garage-fullscreen)::before {
+			content: '';
+			position: fixed;
+			inset: 0;
+			background: rgba(1, 8, 18, 0.72);
+			backdrop-filter: blur(6px);
+			z-index: 29;
+		}
 		#garage-panel { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.12); }
 		#garage-panel h4 { margin: 0 0 8px; font: 700 12px/1.2 sans-serif; color: #b5d8ff; }
 		.garage-row { display: grid; grid-template-columns: 88px 1fr auto auto; gap: 6px; align-items: center; margin-bottom: 8px; }
@@ -483,6 +501,15 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		.garage-row input[type="range"] { width: 100%; }
 		.garage-row button { padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; font: 600 11px/1 sans-serif; }
 		.garage-row button:disabled { opacity: 0.55; cursor: default; }
+		#garage-vehicle-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 10px 0 12px; }
+		.garage-vehicle-card { text-align: left; padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; }
+		.garage-vehicle-card.active { outline: 2px solid #fff; border-color: var(--garage-accent, #9ed8ff); box-shadow: 0 0 18px color-mix(in srgb, var(--garage-accent, #9ed8ff) 45%, transparent); }
+		.garage-vehicle-card h5 { margin: 0 0 6px; font: 800 13px/1.2 sans-serif; }
+		.garage-vehicle-card dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; margin: 0; font: 700 11px/1.2 sans-serif; }
+		.garage-vehicle-card dt { color: #bde6ff; }
+		.garage-vehicle-card dd { margin: 0; color: #fff; }
+		.garage-vehicle-status { display: block; margin-top: 7px; color: #ffdca8; font: 800 11px/1.2 sans-serif; }
+		@media (max-width: 820px) { #garage-vehicle-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 		#garage-car-select, #garage-source-color {
 			width: 100%;
 			margin-top: 6px;
@@ -1252,6 +1279,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<div id="home-main-grid">
 				<a class="home-main-link play-link" href="index.html?play=1">Play now<em>Launch the game immediately</em></a>
 				<a class="home-main-link" href="tracks.html">Track shares<em>Discover and copy community maps</em></a>
+				<a class="home-main-link" href="index.html?play=1&garage=1">Garage<em>Upgrade trucks, unlock paint, and export your profile</em></a>
 				<a class="home-main-link" href="editor.html">Create your own track<em>Build and test original circuits</em></a>
 				<a class="home-main-link" href="weekly-cup.html"><span class="home-record-chip" data-record-badge="weekly"><span class="record-label">Weekly leader</span><span class="record-name">Loading…</span></span>Weekly cup<em>Competitive rotating event</em></a>
 				<a class="home-main-link club-notify-target" href="clubs.html">Clubs<em>Create and manage your racing communities</em></a>
@@ -1261,6 +1289,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<div id="home-secondary">
 				<a class="home-secondary-link" href="replay.html">Replay watcher</a>
 				<a class="home-secondary-link" href="mods.html">Mods</a>
+				<a class="home-secondary-link" href="index.html?play=1&garage=1">Garage</a>
 				<a class="home-secondary-link" href="index.html?play=1&multiplayer=1">2P split screen</a>
 			<!--	<a class="home-secondary-link" href="campaign.html">Campaign guide</a> -->
 			</div>
@@ -1359,6 +1388,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		<div class="mode-tab-panel" id="mode-panel-garage">
 		<div id="garage-panel">
 			<h4>Garage (mod packs)</h4>
+			<p id="garage-summary">Choose a truck card to preview readable stats, upgrade status, paint mappings, and profile tools.</p>
+			<div id="garage-vehicle-cards" aria-label="Garage vehicles"></div>
 			<label for="garage-car-select">Garage car selection</label>
 			<select id="garage-car-select">
 				<option value="vehicle-truck-yellow">Yellow truck</option>

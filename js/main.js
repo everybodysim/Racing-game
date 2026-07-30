@@ -3114,6 +3114,7 @@ async function init() {
 	const modePanelAccount = document.getElementById( 'mode-panel-account' );
 	const campaignProgressLabel = document.getElementById( 'campaign-progress' );
 	const stuntPointsHud = document.getElementById( 'stunt-points' );
+	const garageVehicleCards = document.getElementById( 'garage-vehicle-cards' );
 	const garageCarSelect = document.getElementById( 'garage-car-select' );
 	const garageGripSlider = document.getElementById( 'garage-grip' );
 	const garageAccelSlider = document.getElementById( 'garage-accel' );
@@ -3832,6 +3833,7 @@ async function init() {
 		modePanelGameplay?.classList.toggle( 'active', tab === 'gameplay' );
 		modePanelGarage?.classList.toggle( 'active', tab === 'garage' );
 		modePanelAccount?.classList.toggle( 'active', tab === 'account' );
+		modeMenu?.classList.toggle( 'garage-fullscreen', tab === 'garage' );
 
 	}
 
@@ -3963,6 +3965,7 @@ async function init() {
 		if ( garageAccelStatus ) garageAccelStatus.textContent = unlocks.accel ? 'Pack active' : 'Buy to activate slider';
 		if ( garageDriveStatus ) garageDriveStatus.textContent = unlocks.drive ? 'Pack active' : 'Buy to activate slider';
 		if ( garageCarSelect ) garageCarSelect.value = getSelectedGarageCarKey();
+		renderGarageVehicleCards();
 		updateGaragePaletteUi();
 		updateGarageMappingsUi();
 
@@ -4036,6 +4039,73 @@ async function init() {
 		};
 		renderPalette( garageColorGrid, GARAGE_STANDARD_PALETTE );
 		renderPalette( garageShinyGrid, GARAGE_SHINY_PALETTE );
+
+	}
+
+
+	function garageUpgradeSummary() {
+
+		const unlocks = getGarageUnlocks();
+		return [
+			`Handling ${ unlocks.grip ? `x${ garageMods.grip.toFixed( 2 ) }` : 'locked' }`,
+			`Power ${ unlocks.accel ? `x${ garageMods.accel.toFixed( 2 ) }` : 'locked' }`,
+			`Traction ${ unlocks.drive ? `x${ garageMods.drive.toFixed( 2 ) }` : 'locked' }`,
+		].join( ' • ' );
+
+	}
+
+	function renderGarageVehicleCards() {
+
+		if ( ! garageVehicleCards ) return;
+		const selectedKey = getSelectedGarageCarKey();
+		garageVehicleCards.innerHTML = '';
+		for ( const carKey of modelNames.filter( ( key ) => CAR_STATS[ key ] ) ) {
+
+			const stats = CAR_STATS[ carKey ];
+			const style = CAR_SELECT_STYLES[ carKey ] || {};
+			const perf = stats.perf || {};
+			const mappings = getGarageCosmeticCar( carKey ).mappings.length;
+			const button = document.createElement( 'button' );
+			button.type = 'button';
+			button.className = `garage-vehicle-card${ carKey === selectedKey ? ' active' : '' }`;
+			button.style.setProperty( '--garage-accent', style.border || '#9ed8ff' );
+			button.innerHTML = `
+				<h5>${ stats.name } truck</h5>
+				<dl>
+					<dt>Speed</dt><dd>${ stats.speed } / 10</dd>
+					<dt>Acceleration</dt><dd>${ stats.accel } / 10</dd>
+					<dt>Handling</dt><dd>${ ( garageMods.grip * 100 ).toFixed( 0 ) }%</dd>
+					<dt>Traction</dt><dd>${ ( garageMods.drive * 100 ).toFixed( 0 ) }%</dd>
+					<dt>Top speed</dt><dd>${ Number( perf.topSpeed || 0 ).toFixed( 2 ) }</dd>
+					<dt>Power</dt><dd>${ Number( perf.driveForce || 0 ).toFixed( 0 ) }</dd>
+					<dt>Paint maps</dt><dd>${ mappings }</dd>
+				</dl>
+				<span class="garage-vehicle-status">${ garageUpgradeSummary() }</span>`;
+			button.addEventListener( 'click', () => selectGarageCar( carKey ) );
+			garageVehicleCards.appendChild( button );
+
+		}
+
+	}
+
+	function selectGarageCar( selectedKey ) {
+
+		if ( ! CAR_STATS[ selectedKey ] ) return;
+		if ( garageCarSelect ) garageCarSelect.value = selectedKey;
+		if ( carSelect ) carSelect.value = selectedKey;
+		updateCarSelectColor();
+		if ( models[ selectedKey ] ) {
+
+			vehicle.setModel( models[ selectedKey ] );
+			applyCarCustomization( vehicle );
+			applyHitboxHackVisuals( true );
+
+		}
+		updateGarageMappingsUi();
+		renderGarageVehicleCards();
+		setGarageMappingStatus( `Now editing mappings for ${ CAR_STATS[ selectedKey ]?.name || 'selected car' }.` );
+		applyVehiclePerformance();
+		saveGarageMods();
 
 	}
 
@@ -7175,6 +7245,7 @@ function completeCampaignStage() {
 
 		}
 		updateGarageMappingsUi();
+		renderGarageVehicleCards();
 		setGarageMappingStatus( `Now editing mappings for ${ CAR_STATS[ selectedKey ]?.name || 'selected car' }.` );
 		applyVehiclePerformance();
 
@@ -7182,20 +7253,7 @@ function completeCampaignStage() {
 
 	garageCarSelect?.addEventListener( 'change', () => {
 
-		const selectedKey = garageCarSelect.value;
-		if ( carSelect ) carSelect.value = selectedKey;
-		updateCarSelectColor();
-		if ( models[ selectedKey ] ) {
-
-			vehicle.setModel( models[ selectedKey ] );
-			applyCarCustomization( vehicle );
-			applyHitboxHackVisuals( true );
-
-		}
-		updateGarageMappingsUi();
-		setGarageMappingStatus( `Now editing mappings for ${ CAR_STATS[ selectedKey ]?.name || 'selected car' }.` );
-		applyVehiclePerformance();
-		saveGarageMods();
+		selectGarageCar( garageCarSelect.value );
 
 	} );
 
@@ -7527,7 +7585,9 @@ function completeCampaignStage() {
 	loadStuntStats();
 	loadGarageMods();
 	loadCampaignState();
-	setModeTab( 'gameplay' );
+	const garageParamEnabled = new URLSearchParams( window.location.search ).get( 'garage' ) === '1';
+	setModeTab( garageParamEnabled ? 'garage' : 'gameplay' );
+	if ( garageParamEnabled ) setModeMenuOpen( true );
 	if ( garageCarSelect ) garageCarSelect.value = currentCarKey();
 	updateCarSelectColor();
 	updateGarageUi();
