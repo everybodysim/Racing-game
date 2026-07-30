@@ -7681,6 +7681,8 @@ function completeCampaignStage() {
 		saveEconomy();
 		saveGarageMods();
 		updateEconomyHud();
+		selectedGarageSourceHex = '';
+		hoveredGarageSourceHex = '';
 		updateGarageMappingsUi();
 		updateGaragePaintControls();
 		applyCarCustomization( vehicle );
