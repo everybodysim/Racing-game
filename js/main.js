@@ -4034,17 +4034,63 @@ async function init() {
 
 	}
 
+
+	function makeGaragePickerClone( source ) {
+
+		const clone = source.clone( true );
+		clone.rotation.y = Math.PI;
+		clone.traverse( ( child ) => {
+
+			if ( ! child.isMesh || ! child.material ) return;
+			const sourceMaterials = Array.isArray( child.material ) ? child.material : [ child.material ];
+			const pickerMaterials = sourceMaterials.map( ( material ) => new THREE.MeshBasicMaterial( {
+				color: material.color ? material.color.clone() : new THREE.Color( 0xffffff ),
+				map: material.map || null,
+				transparent: Boolean( material.transparent ),
+				opacity: Number.isFinite( material.opacity ) ? material.opacity : 1,
+				alphaTest: Number.isFinite( material.alphaTest ) ? material.alphaTest : 0,
+				side: material.side,
+			} ) );
+			child.material = Array.isArray( child.material ) ? pickerMaterials : pickerMaterials[ 0 ];
+
+		} );
+		return clone;
+
+	}
+
+	function readGaragePickerHex( event ) {
+
+		if ( ! garageViewer?.pickerRoot || ! garageViewer?.pickerTarget ) return '';
+		const rect = garageViewerCanvas.getBoundingClientRect();
+		const pixelRatio = Math.min( window.devicePixelRatio || 1, 1.5 );
+		const width = Math.max( 1, Math.floor( rect.width * pixelRatio ) );
+		const height = Math.max( 1, Math.floor( rect.height * pixelRatio ) );
+		if ( garageViewer.pickerTarget.width !== width || garageViewer.pickerTarget.height !== height ) garageViewer.pickerTarget.setSize( width, height );
+		garageViewer.pickerRoot.rotation.y = garageViewer.yaw;
+		garageViewer.renderer.setRenderTarget( garageViewer.pickerTarget );
+		garageViewer.renderer.render( garageViewer.pickerScene, garageViewer.camera );
+		const pixel = new Uint8Array( 4 );
+		const x = THREE.MathUtils.clamp( Math.floor( ( event.clientX - rect.left ) * pixelRatio ), 0, width - 1 );
+		const y = THREE.MathUtils.clamp( Math.floor( height - ( event.clientY - rect.top ) * pixelRatio ), 0, height - 1 );
+		garageViewer.renderer.readRenderTargetPixels( garageViewer.pickerTarget, x, y, 1, 1, pixel );
+		garageViewer.renderer.setRenderTarget( null );
+		return `#${ [ pixel[ 0 ], pixel[ 1 ], pixel[ 2 ] ].map( ( v ) => v.toString( 16 ).padStart( 2, '0' ) ).join( '' ) }`;
+
+	}
+
 	function refreshGarageViewer() {
 
 		if ( ! garageViewer?.carRoot ) return;
 		const carKey = getSelectedGarageCarKey();
 		garageViewer.carRoot.clear();
+		garageViewer.pickerRoot?.clear();
 		const source = models[ carKey ];
 		if ( ! source ) return;
 		const clone = source.clone( true );
 		clone.rotation.y = Math.PI;
 		garageViewer.carRoot.add( clone );
 		applyCarCustomizationToObject( clone, carKey, selectedGarageSourceHex, true );
+		garageViewer.pickerRoot?.add( makeGaragePickerClone( source ) );
 
 	}
 
@@ -4060,7 +4106,12 @@ async function init() {
 		scene.add( new THREE.AmbientLight( 0xffffff, 3.0 ) );
 		const carRoot = new THREE.Group();
 		scene.add( carRoot );
-		garageViewer = { renderer, scene, camera, carRoot, yaw: 0, dragging: false, moved: false, sx: 0, raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
+		const pickerScene = new THREE.Scene();
+		pickerScene.background = new THREE.Color( 0xffffff );
+		const pickerRoot = new THREE.Group();
+		pickerScene.add( pickerRoot );
+		const pickerTarget = new THREE.WebGLRenderTarget( 1, 1, { depthBuffer: true, stencilBuffer: false } );
+		garageViewer = { renderer, scene, camera, carRoot, pickerScene, pickerRoot, pickerTarget, yaw: 0, dragging: false, moved: false, sx: 0, raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
 		const resize = () => {
 
 			const rect = garageViewerCanvas.getBoundingClientRect();
@@ -4077,6 +4128,7 @@ async function init() {
 
 				resize();
 				carRoot.rotation.y = garageViewer.yaw;
+				if ( garageViewer.pickerRoot ) garageViewer.pickerRoot.rotation.y = garageViewer.yaw;
 				renderer.render( scene, camera );
 				requestAnimationFrame( animate );
 
@@ -4107,7 +4159,8 @@ async function init() {
 			const liveMaterial = Array.isArray( hit.object.material ) ? hit.object.material[ materialIndex ] : hit.object.material;
 			const baseMaterial = Array.isArray( hit.object.userData.baseMaterial ) ? hit.object.userData.baseMaterial[ materialIndex ] : null;
 			const material = baseMaterial || liveMaterial;
-			const hex = sampleTextureHexAtUv( material?.map, hit.uv ) || ( material?.color ? `#${ material.color.getHexString() }` : '' );
+			const pickerHex = readGaragePickerHex( event );
+			const hex = ( /^#[0-9a-fA-F]{6}$/.test( pickerHex ) ? pickerHex : '' ) || sampleTextureHexAtUv( material?.map, hit.uv ) || ( material?.color ? `#${ material.color.getHexString() }` : '' );
 			if ( /^#[0-9a-fA-F]{6}$/.test( hex ) ) {
 
 				selectedGarageSourceHex = hex.toLowerCase();
