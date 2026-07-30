@@ -2454,7 +2454,7 @@ async function init() {
 			const incomingMaterials = Array.isArray( child.material ) ? child.material : [ child.material ];
 			const builtMaterials = incomingMaterials.map( ( baseMaterial ) => {
 
-				const material = baseMaterial.clone();
+				let material = baseMaterial.clone();
 				if ( resolvedMappings.length > 0 && material.color ) {
 
 					const baseRgb = hexToRgbBytes( `#${ baseMaterial.color.getHexString() }` );
@@ -4044,7 +4044,7 @@ async function init() {
 		const clone = source.clone( true );
 		clone.rotation.y = Math.PI;
 		garageViewer.carRoot.add( clone );
-		applyCarCustomizationToObject( clone, carKey, selectedGarageSourceHex );
+		applyCarCustomizationToObject( clone, carKey, selectedGarageSourceHex, true );
 
 	}
 
@@ -4056,10 +4056,8 @@ async function init() {
 		const scene = new THREE.Scene();
 		const camera = new THREE.PerspectiveCamera( 38, 1, 0.1, 100 );
 		camera.position.set( 0, 1.25, 5.2 );
-		scene.add( new THREE.HemisphereLight( 0xffffff, 0x223344, 2.2 ) );
-		const key = new THREE.DirectionalLight( 0xffffff, 2.3 );
-		key.position.set( 4, 5, 3 );
-		scene.add( key );
+		scene.background = new THREE.Color( 0xf7fbff );
+		scene.add( new THREE.AmbientLight( 0xffffff, 3.0 ) );
 		const carRoot = new THREE.Group();
 		scene.add( carRoot );
 		garageViewer = { renderer, scene, camera, carRoot, yaw: 0, dragging: false, moved: false, sx: 0, raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
@@ -4444,7 +4442,7 @@ async function init() {
 	}
 
 
-	function applyCarCustomizationToObject( root, carKey, highlightHex = '' ) {
+	function applyCarCustomizationToObject( root, carKey, highlightHex = '', previewUnlit = false ) {
 
 		if ( ! root ) return;
 		const carData = getGarageCosmeticCar( carKey );
@@ -4470,7 +4468,7 @@ async function init() {
 
 			const builtMaterials = child.userData.baseMaterial.map( ( baseMaterial ) => {
 
-				const material = baseMaterial.clone();
+				let material = baseMaterial.clone();
 				if ( material.color ) {
 
 					const baseRgb = hexToRgbBytes( `#${ baseMaterial.color.getHexString() }` );
@@ -4478,8 +4476,13 @@ async function init() {
 					if ( mappedSolid ) material.color.setRGB( mappedSolid.r / 255, mappedSolid.g / 255, mappedSolid.b / 255 );
 					if ( /^#[0-9a-fA-F]{6}$/.test( highlightHex || '' ) && colorDistanceSqHex( `#${ baseMaterial.color.getHexString() }`, highlightHex ) <= GARAGE_COLOR_PICK_TOLERANCE * GARAGE_COLOR_PICK_TOLERANCE ) {
 
-						if ( material.emissive ) material.emissive.set( 0xffe66d );
-						if ( typeof material.emissiveIntensity === 'number' ) material.emissiveIntensity = Math.max( material.emissiveIntensity || 0, 0.75 );
+						if ( previewUnlit ) material.color.set( 0xffe66d );
+						else {
+
+							if ( material.emissive ) material.emissive.set( 0xffe66d );
+							if ( typeof material.emissiveIntensity === 'number' ) material.emissiveIntensity = Math.max( material.emissiveIntensity || 0, 0.75 );
+
+						}
 
 					}
 					if ( mappedSolid?.finish === 'shiny' ) {
@@ -4498,6 +4501,20 @@ async function init() {
 						applyShinyFinish( material );
 
 					}
+
+				}
+				if ( previewUnlit ) {
+
+					const unlit = new THREE.MeshBasicMaterial( {
+						color: material.color ? material.color.clone() : new THREE.Color( 0xffffff ),
+						map: material.map || null,
+						transparent: Boolean( material.transparent ),
+						opacity: Number.isFinite( material.opacity ) ? material.opacity : 1,
+						alphaTest: Number.isFinite( material.alphaTest ) ? material.alphaTest : 0,
+						side: material.side,
+					} );
+					material.dispose?.();
+					material = unlit;
 
 				}
 				material.needsUpdate = true;
