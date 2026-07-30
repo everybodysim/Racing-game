@@ -3128,12 +3128,10 @@ async function init() {
 	const garageGripUnlockBtn = document.getElementById( 'garage-grip-unlock' );
 	const garageAccelUnlockBtn = document.getElementById( 'garage-accel-unlock' );
 	const garageDriveUnlockBtn = document.getElementById( 'garage-drive-unlock' );
-	const garageColorGrid = document.getElementById( 'garage-color-grid' );
-	const garageShinyGrid = document.getElementById( 'garage-shiny-grid' );
-	const garageSourceColorInput = document.getElementById( 'garage-source-color' );
-	const garageSourceToleranceInput = document.getElementById( 'garage-source-tolerance' );
-	const garageSourceToleranceValue = document.getElementById( 'garage-source-tolerance-value' );
-	const garageAddMappingBtn = document.getElementById( 'garage-add-mapping-btn' );
+	const garageViewerCanvas = document.getElementById( 'garage-viewer' );
+	const garageTargetColorInput = document.getElementById( 'garage-target-color' );
+	const garageApplyPaintBtn = document.getElementById( 'garage-apply-paint-btn' );
+	const garageSelectionChip = document.getElementById( 'garage-selection-chip' );
 	const garageMappingStatus = document.getElementById( 'garage-mapping-status' );
 	const garageMappingsList = document.getElementById( 'garage-mappings-list' );
 	const profileExportBtn = document.getElementById( 'profile-export-btn' );
@@ -3226,6 +3224,8 @@ async function init() {
 	const campaignStoreKey = 'racing-campaign-v1';
 	let garageMods = { grip: 1.0, accel: 1.0, drive: 1.0 };
 	let garageUnlocked = { grip: false, accel: false, drive: false };
+	const GARAGE_REPAINT_COST = 300;
+	const GARAGE_COLOR_PICK_TOLERANCE = 34;
 	const GARAGE_COLOR_UNLOCK_COST = 90;
 	const GARAGE_SHINY_UNLOCK_COST = 1000;
 	const GARAGE_STANDARD_PALETTE = buildGaragePaintPalette();
@@ -3244,6 +3244,8 @@ async function init() {
 	};
 	const GARAGE_DEFAULT_PAINT_UNLOCKS = new Set( [ GARAGE_STANDARD_PALETTE[ 0 ]?.id, GARAGE_STANDARD_PALETTE[ 1 ]?.id, GARAGE_STANDARD_PALETTE[ 11 ]?.id ].filter( Boolean ) );
 	let selectedPaintColorId = GARAGE_PAINT_PALETTE[ 0 ]?.id || '';
+	let selectedGarageSourceHex = '';
+	let garageViewer = null;
 	let garageCosmetics = normalizeGarageCosmetics( null );
 	const recolorTextureSourceCache = new WeakMap();
 	if ( lapHud2 ) lapHud2.style.display = isSplitScreen ? 'block' : 'none';
@@ -3778,6 +3780,15 @@ async function init() {
 			if ( unlocked ) unlockedPaints[ entry.id ] = true;
 
 		}
+		if ( next?.unlockedPaints && typeof next.unlockedPaints === 'object' ) {
+
+			for ( const paintId of Object.keys( next.unlockedPaints ) ) {
+
+				if ( /^custom-[0-9a-fA-F]{6}$/.test( paintId ) ) unlockedPaints[ paintId.toLowerCase() ] = true;
+
+			}
+
+		}
 
 		const cars = {};
 		if ( next?.cars && typeof next.cars === 'object' ) {
@@ -3966,14 +3977,22 @@ async function init() {
 		if ( garageDriveStatus ) garageDriveStatus.textContent = unlocks.drive ? 'Pack active' : 'Buy to activate slider';
 		if ( garageCarSelect ) garageCarSelect.value = getSelectedGarageCarKey();
 		renderGarageVehicleCards();
-		updateGaragePaletteUi();
+		updateGaragePaintControls();
 		updateGarageMappingsUi();
+		refreshGarageViewer();
 
 	}
 
 	function getPaintColorById( colorId ) {
 
-		return GARAGE_PAINT_PALETTE.find( ( color ) => color.id === colorId ) || null;
+		const found = GARAGE_PAINT_PALETTE.find( ( color ) => color.id === colorId );
+		if ( found ) return found;
+		if ( /^custom-[0-9a-fA-F]{6}$/.test( String( colorId || '' ) ) ) {
+
+			return { id: String( colorId ).toLowerCase(), hex: `#${ String( colorId ).slice( 7 ).toLowerCase() }`, unlockCost: 0, finish: 'matte' };
+
+		}
+		return null;
 
 	}
 
@@ -3985,60 +4004,112 @@ async function init() {
 
 	}
 
-	function updateGaragePaletteUi() {
+	function updateGaragePaintControls() {
 
-		if ( ! garageColorGrid ) return;
-		const unlockedPaints = garageCosmetics?.unlockedPaints || {};
-		if ( ! unlockedPaints[ selectedPaintColorId ] ) {
+		const hasSelection = /^#[0-9a-fA-F]{6}$/.test( selectedGarageSourceHex );
+		if ( garageApplyPaintBtn ) {
 
-			const fallback = GARAGE_PAINT_PALETTE.find( ( entry ) => unlockedPaints[ entry.id ] );
-			selectedPaintColorId = fallback?.id || '';
+			garageApplyPaintBtn.disabled = ! hasSelection || coins < GARAGE_REPAINT_COST;
+			garageApplyPaintBtn.textContent = hasSelection ? `Apply repaint (${ GARAGE_REPAINT_COST } coins)` : 'Select a car color first';
 
 		}
-		const renderPalette = ( container, entries ) => {
+		if ( garageSelectionChip ) {
 
-			if ( ! container ) return;
-			container.innerHTML = '';
-			for ( const entry of entries ) {
+			garageSelectionChip.innerHTML = hasSelection
+				? `Selected area: <strong>${ selectedGarageSourceHex }</strong><br>Matching painted parts are highlighted in the viewer.`
+				: 'No car color selected yet. Click the car in the viewer to choose a paint area.';
 
-				const button = document.createElement( 'button' );
-				button.type = 'button';
-				button.className = `garage-dot${ unlockedPaints[ entry.id ] ? '' : ' locked' }${ selectedPaintColorId === entry.id ? ' selected' : '' }`;
-				button.style.background = entry.hex;
-				button.title = unlockedPaints[ entry.id ] ? `Select ${ entry.hex }` : `Unlock ${ entry.hex } (${ entry.unlockCost } coins)`;
-				button.addEventListener( 'click', () => {
+		}
 
-					if ( unlockedPaints[ entry.id ] ) {
+	}
 
-						selectedPaintColorId = entry.id;
-						updateGaragePaletteUi();
-						setGarageMappingStatus( `Selected ${ entry.finish === 'shiny' ? 'shiny' : 'paint' } ${ entry.hex }.` );
-						return;
+	function sampleTextureHexAtUv( texture, uv ) {
 
-					}
-					if ( coins < entry.unlockCost ) {
+		const source = getTextureSourcePixels( texture );
+		if ( ! source || ! uv ) return null;
+		const x = THREE.MathUtils.clamp( Math.floor( uv.x * source.width ), 0, source.width - 1 );
+		const y = THREE.MathUtils.clamp( Math.floor( ( 1 - uv.y ) * source.height ), 0, source.height - 1 );
+		const i = ( y * source.width + x ) * 4;
+		return `#${ [ source.data[ i ], source.data[ i + 1 ], source.data[ i + 2 ] ].map( ( v ) => v.toString( 16 ).padStart( 2, '0' ) ).join( '' ) }`;
 
-						setGarageMappingStatus( `Need ${ entry.unlockCost } coins to unlock this ${ entry.finish === 'shiny' ? 'shiny paint' : 'paint' }.`, true );
-						return;
+	}
 
-					}
-					coins -= entry.unlockCost;
-					garageCosmetics.unlockedPaints[ entry.id ] = true;
-					selectedPaintColorId = entry.id;
-					saveEconomy();
-					saveGarageMods();
-					updateEconomyHud();
-					updateGarageUi();
-					setGarageMappingStatus( `Unlocked ${ entry.finish === 'shiny' ? 'shiny paint' : 'paint' } ${ entry.hex }.` );
+	function refreshGarageViewer() {
 
-				} );
-				container.appendChild( button );
+		if ( ! garageViewer?.carRoot ) return;
+		const carKey = getSelectedGarageCarKey();
+		garageViewer.carRoot.clear();
+		const source = models[ carKey ];
+		if ( ! source ) return;
+		const clone = source.clone( true );
+		clone.rotation.y = Math.PI;
+		garageViewer.carRoot.add( clone );
+		applyCarCustomizationToObject( clone, carKey, selectedGarageSourceHex );
+
+	}
+
+	function initGarageViewer() {
+
+		if ( garageViewer || ! garageViewerCanvas ) return;
+		const renderer = new THREE.WebGLRenderer( { canvas: garageViewerCanvas, antialias: true, alpha: true } );
+		renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, 1.5 ) );
+		const scene = new THREE.Scene();
+		const camera = new THREE.PerspectiveCamera( 38, 1, 0.1, 100 );
+		camera.position.set( 0, 1.25, 5.2 );
+		scene.add( new THREE.HemisphereLight( 0xffffff, 0x223344, 2.2 ) );
+		const key = new THREE.DirectionalLight( 0xffffff, 2.3 );
+		key.position.set( 4, 5, 3 );
+		scene.add( key );
+		const carRoot = new THREE.Group();
+		scene.add( carRoot );
+		garageViewer = { renderer, scene, camera, carRoot, yaw: 0, dragging: false, moved: false, sx: 0, raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
+		const resize = () => {
+
+			const rect = garageViewerCanvas.getBoundingClientRect();
+			const w = Math.max( 1, Math.floor( rect.width ) );
+			const h = Math.max( 1, Math.floor( rect.height ) );
+			renderer.setSize( w, h, false );
+			camera.aspect = w / h;
+			camera.updateProjectionMatrix();
+
+		};
+		const animate = () => {
+
+			if ( garageViewer ) {
+
+				resize();
+				carRoot.rotation.y = garageViewer.yaw;
+				renderer.render( scene, camera );
+				requestAnimationFrame( animate );
 
 			}
 
 		};
-		renderPalette( garageColorGrid, GARAGE_STANDARD_PALETTE );
-		renderPalette( garageShinyGrid, GARAGE_SHINY_PALETTE );
+		garageViewerCanvas.addEventListener( 'pointerdown', ( event ) => { garageViewer.dragging = true; garageViewer.moved = false; garageViewer.sx = event.clientX; garageViewerCanvas.classList.add( 'dragging' ); garageViewerCanvas.setPointerCapture?.( event.pointerId ); } );
+		garageViewerCanvas.addEventListener( 'pointermove', ( event ) => { if ( ! garageViewer.dragging ) return; const dx = event.clientX - garageViewer.sx; if ( Math.abs( dx ) > 2 ) garageViewer.moved = true; garageViewer.yaw += dx * 0.01; garageViewer.sx = event.clientX; } );
+		garageViewerCanvas.addEventListener( 'pointerup', ( event ) => {
+
+			garageViewer.dragging = false;
+			garageViewerCanvas.classList.remove( 'dragging' );
+			if ( garageViewer.moved ) return;
+			const rect = garageViewerCanvas.getBoundingClientRect();
+			garageViewer.pointer.set( ( ( event.clientX - rect.left ) / rect.width ) * 2 - 1, - ( ( event.clientY - rect.top ) / rect.height ) * 2 + 1 );
+			garageViewer.raycaster.setFromCamera( garageViewer.pointer, camera );
+			const hit = garageViewer.raycaster.intersectObjects( carRoot.children, true ).find( ( item ) => item.object?.isMesh );
+			const material = Array.isArray( hit?.object?.material ) ? hit.object.material[ hit.face?.materialIndex || 0 ] : hit?.object?.material;
+			const hex = sampleTextureHexAtUv( material?.map, hit?.uv ) || ( material?.color ? `#${ material.color.getHexString() }` : '' );
+			if ( /^#[0-9a-fA-F]{6}$/.test( hex ) ) {
+
+				selectedGarageSourceHex = hex.toLowerCase();
+				updateGaragePaintControls();
+				refreshGarageViewer();
+				setGarageMappingStatus( `Selected ${ selectedGarageSourceHex }. Choose a new color and apply repaint.` );
+
+			}
+
+		} );
+		refreshGarageViewer();
+		animate();
 
 	}
 
@@ -4102,6 +4173,7 @@ async function init() {
 
 		}
 		updateGarageMappingsUi();
+		refreshGarageViewer();
 		renderGarageVehicleCards();
 		setGarageMappingStatus( `Now editing mappings for ${ CAR_STATS[ selectedKey ]?.name || 'selected car' }.` );
 		applyVehiclePerformance();
@@ -4299,14 +4371,41 @@ async function init() {
 
 	}
 
-	function applyCarCustomization( targetVehicle ) {
+	function colorDistanceSqHex( aHex, bHex ) {
 
-		if ( ! targetVehicle?.container ) return;
-		const carKey = currentCarKey();
+		const a = hexToRgbBytes( aHex );
+		const b = hexToRgbBytes( bHex );
+		if ( ! a || ! b ) return Number.POSITIVE_INFINITY;
+		return ( a.r - b.r ) ** 2 + ( a.g - b.g ) ** 2 + ( a.b - b.b ) ** 2;
+
+	}
+
+	function textureContainsColor( texture, sourceHex, tolerance = GARAGE_COLOR_PICK_TOLERANCE ) {
+
+		if ( ! /^#[0-9a-fA-F]{6}$/.test( sourceHex || '' ) ) return false;
+		const source = getTextureSourcePixels( texture );
+		const target = hexToRgbBytes( sourceHex );
+		if ( ! source || ! target ) return false;
+		const toleranceSq = tolerance * tolerance;
+		for ( let i = 0; i < source.data.length; i += 16 ) {
+
+			const dr = source.data[ i ] - target.r;
+			const dg = source.data[ i + 1 ] - target.g;
+			const db = source.data[ i + 2 ] - target.b;
+			if ( dr * dr + dg * dg + db * db <= toleranceSq ) return true;
+
+		}
+		return false;
+
+	}
+
+	function applyCarCustomizationToObject( root, carKey, highlightHex = '' ) {
+
+		if ( ! root ) return;
 		const carData = getGarageCosmeticCar( carKey );
 		const mappings = Array.isArray( carData?.mappings ) ? carData.mappings : [];
 		const resolvedMappings = buildResolvedMappings( mappings );
-		targetVehicle.container.traverse( ( child ) => {
+		root.traverse( ( child ) => {
 
 			if ( ! child.isMesh || ! child.material ) return;
 			const incomingMaterials = Array.isArray( child.material ) ? child.material : [ child.material ];
@@ -4332,6 +4431,12 @@ async function init() {
 					const baseRgb = hexToRgbBytes( `#${ baseMaterial.color.getHexString() }` );
 					const mappedSolid = baseRgb ? pickMappedColor( baseRgb, resolvedMappings ) : null;
 					if ( mappedSolid ) material.color.setRGB( mappedSolid.r / 255, mappedSolid.g / 255, mappedSolid.b / 255 );
+					if ( /^#[0-9a-fA-F]{6}$/.test( highlightHex || '' ) && colorDistanceSqHex( `#${ baseMaterial.color.getHexString() }`, highlightHex ) <= GARAGE_COLOR_PICK_TOLERANCE * GARAGE_COLOR_PICK_TOLERANCE ) {
+
+						if ( material.emissive ) material.emissive.set( 0xffe66d );
+						if ( typeof material.emissiveIntensity === 'number' ) material.emissiveIntensity = Math.max( material.emissiveIntensity || 0, 0.75 );
+
+					}
 					if ( mappedSolid?.finish === 'shiny' ) {
 
 						applyShinyFinish( material, mappedSolid );
@@ -4343,6 +4448,12 @@ async function init() {
 
 					const remapped = recolorTexture( material.map, resolvedMappings );
 						material.map = remapped.texture;
+						if ( textureContainsColor( baseMaterial.map, highlightHex ) ) {
+
+							if ( material.emissive ) material.emissive.set( 0xffe66d );
+							if ( typeof material.emissiveIntensity === 'number' ) material.emissiveIntensity = Math.max( material.emissiveIntensity || 0, 0.75 );
+
+						}
 						if ( remapped.hasShiny ) {
 
 							applyShinyFinish( material );
@@ -4358,6 +4469,13 @@ async function init() {
 			child.material = Array.isArray( child.material ) ? builtMaterials : builtMaterials[ 0 ];
 
 		} );
+
+	}
+
+	function applyCarCustomization( targetVehicle ) {
+
+		if ( ! targetVehicle?.container ) return;
+		applyCarCustomizationToObject( targetVehicle.container, currentCarKey() );
 
 	}
 
@@ -7322,33 +7440,59 @@ function completeCampaignStage() {
 		updateFpsHudVisibility();
 
 	} );
-	garageSourceToleranceInput?.addEventListener( 'input', () => {
-
-		if ( garageSourceToleranceValue ) garageSourceToleranceValue.textContent = String( Math.round( Number( garageSourceToleranceInput.value ) || 40 ) );
-
-	} );
-	garageAddMappingBtn?.addEventListener( 'click', () => {
+	garageTargetColorInput?.addEventListener( 'input', updateGaragePaintControls );
+	garageApplyPaintBtn?.addEventListener( 'click', () => {
 
 		const carKey = getSelectedGarageCarKey();
-		const sourceHex = String( garageSourceColorInput?.value || '#ff0000' );
-		const tolerance = THREE.MathUtils.clamp( Number( garageSourceToleranceInput?.value ) || 40, 8, 180 );
-		const targetColor = getPaintColorById( selectedPaintColorId );
-		if ( ! targetColor || ! garageCosmetics?.unlockedPaints?.[ targetColor.id ] ) {
+		const sourceHex = selectedGarageSourceHex;
+		const targetHex = String( garageTargetColorInput?.value || '#00aaff' ).toLowerCase();
+		if ( ! /^#[0-9a-fA-F]{6}$/.test( sourceHex ) ) {
 
-			setGarageMappingStatus( 'Select an unlocked paint dot first.', true );
+			setGarageMappingStatus( 'Click a color area on the car first.', true );
 			return;
 
 		}
+		if ( ! /^#[0-9a-fA-F]{6}$/.test( targetHex ) ) return;
+		if ( coins < GARAGE_REPAINT_COST ) {
+
+			setGarageMappingStatus( `Need ${ GARAGE_REPAINT_COST } coins to repaint.`, true );
+			return;
+
+		}
+		const customPaintId = `custom-${ targetHex.slice( 1 ) }`;
+		if ( ! GARAGE_PAINT_PALETTE.some( ( paint ) => paint.id === customPaintId ) ) {
+
+			GARAGE_PAINT_PALETTE.push( { id: customPaintId, hex: targetHex, unlockCost: 0, finish: 'matte' } );
+
+		}
+		garageCosmetics.unlockedPaints[ customPaintId ] = true;
 		const carData = getGarageCosmeticCar( carKey );
-		carData.mappings.push( { sourceHex, targetColorId: targetColor.id, tolerance } );
+		const existing = carData.mappings.find( ( mapping ) => colorDistanceSqHex( mapping.sourceHex, sourceHex ) <= GARAGE_COLOR_PICK_TOLERANCE * GARAGE_COLOR_PICK_TOLERANCE );
+		if ( existing ) {
+
+			existing.sourceHex = sourceHex;
+			existing.targetColorId = customPaintId;
+			existing.tolerance = GARAGE_COLOR_PICK_TOLERANCE;
+
+		} else {
+
+			carData.mappings.push( { sourceHex, targetColorId: customPaintId, tolerance: GARAGE_COLOR_PICK_TOLERANCE } );
+
+		}
 		if ( carData.mappings.length > 48 ) carData.mappings.shift();
+		coins -= GARAGE_REPAINT_COST;
+		saveEconomy();
 		saveGarageMods();
+		updateEconomyHud();
 		updateGarageMappingsUi();
+		updateGaragePaintControls();
 		applyCarCustomization( vehicle );
-		setGarageMappingStatus( `Mapped ${ sourceHex } to ${ targetColor.hex }.` );
+		refreshGarageViewer();
+		setGarageMappingStatus( `Repainted ${ sourceHex } to ${ targetHex } for ${ GARAGE_REPAINT_COST } coins.` );
 		if ( gameMode === 'campaign' ) incrementCampaignProgress( 'customize-car' );
 
 	} );
+
 
 	shareTimeBtn?.addEventListener( 'click', () => {
 
@@ -7587,6 +7731,7 @@ function completeCampaignStage() {
 	loadCampaignState();
 	const garageParamEnabled = new URLSearchParams( window.location.search ).get( 'garage' ) === '1';
 	setModeTab( garageParamEnabled ? 'garage' : 'gameplay' );
+	initGarageViewer();
 	if ( garageParamEnabled ) setModeMenuOpen( true );
 	if ( garageCarSelect ) garageCarSelect.value = currentCarKey();
 	updateCarSelectColor();
