@@ -525,6 +525,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#garage-paint-tools { padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.14); background: rgba(0,0,0,0.18); }
 		#garage-paint-tools label { display: block; margin-top: 8px; color: #cfe0ff; font: 800 11px/1.2 sans-serif; }
 		#garage-target-color { height: 42px; }
+		#garage-repaint-tolerance { width: 100%; margin-top: 6px; }
 		#garage-viewer-wrap { position: relative; min-height: 320px; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: radial-gradient(circle at 50% 35%, rgba(100,170,255,0.22), rgba(4,8,14,0.96) 70%); }
 		#garage-viewer { width: 100%; height: 360px; display: block; cursor: grab; touch-action: none; }
 		#garage-viewer.dragging { cursor: grabbing; }
@@ -1377,6 +1378,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<div id="garage-paint-tools">
 					<label for="garage-target-color">New paint color</label>
 					<input id="garage-target-color" type="color" value="#00aaff">
+					<label for="garage-repaint-tolerance">Tolerance: <span id="garage-repaint-tolerance-value">34</span></label>
+					<input id="garage-repaint-tolerance" type="range" min="4" max="120" step="1" value="34">
 					<button id="garage-apply-paint-btn" type="button" disabled>Apply repaint (300 coins)</button>
 					<div id="garage-selection-chip">No car color selected yet.</div>
 					<div id="garage-mapping-status"></div>

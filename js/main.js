@@ -3131,6 +3131,8 @@ async function init() {
 	const garageViewerCanvas = document.getElementById( 'garage-viewer' );
 	const garageTargetColorInput = document.getElementById( 'garage-target-color' );
 	const garageApplyPaintBtn = document.getElementById( 'garage-apply-paint-btn' );
+	const garageRepaintToleranceInput = document.getElementById( 'garage-repaint-tolerance' );
+	const garageRepaintToleranceValue = document.getElementById( 'garage-repaint-tolerance-value' );
 	const garageSelectionChip = document.getElementById( 'garage-selection-chip' );
 	const garageMappingStatus = document.getElementById( 'garage-mapping-status' );
 	const garageMappingsList = document.getElementById( 'garage-mappings-list' );
@@ -4006,6 +4008,12 @@ async function init() {
 
 	}
 
+	function getGarageRepaintTolerance() {
+
+		return THREE.MathUtils.clamp( Number( garageRepaintToleranceInput?.value ) || GARAGE_COLOR_PICK_TOLERANCE, 4, 120 );
+
+	}
+
 	function updateGaragePaintControls() {
 
 		const hasSelection = /^#[0-9a-fA-F]{6}$/.test( selectedGarageSourceHex );
@@ -4015,6 +4023,7 @@ async function init() {
 			garageApplyPaintBtn.textContent = hasSelection ? `Apply repaint (${ GARAGE_REPAINT_COST } coins)` : 'Select a car color first';
 
 		}
+		if ( garageRepaintToleranceValue ) garageRepaintToleranceValue.textContent = String( Math.round( getGarageRepaintTolerance() ) );
 		if ( garageSelectionChip ) {
 
 			garageSelectionChip.innerHTML = hasSelection
@@ -4229,7 +4238,7 @@ async function init() {
 		const clone = source.clone( true );
 		clone.rotation.y = Math.PI;
 		garageViewer.carRoot.add( clone );
-		applyCarCustomizationToObject( clone, carKey, selectedGarageSourceHex, true, hoveredGarageSourceHex );
+		applyCarCustomizationToObject( clone, carKey, selectedGarageSourceHex, true, hoveredGarageSourceHex, getGarageRepaintTolerance() );
 		garageViewer.pickerRoot?.add( makeGaragePickerClone( source ) );
 
 	}
@@ -4648,7 +4657,7 @@ async function init() {
 	}
 
 
-	function applyCarCustomizationToObject( root, carKey, highlightHex = '', previewUnlit = false, hoverHex = '' ) {
+	function applyCarCustomizationToObject( root, carKey, highlightHex = '', previewUnlit = false, hoverHex = '', highlightTolerance = GARAGE_COLOR_PICK_TOLERANCE ) {
 
 		if ( ! root ) return;
 		const carData = getGarageCosmeticCar( carKey );
@@ -4681,8 +4690,8 @@ async function init() {
 					const mappedSolid = baseRgb ? pickMappedColor( baseRgb, resolvedMappings ) : null;
 					if ( mappedSolid ) material.color.setRGB( mappedSolid.r / 255, mappedSolid.g / 255, mappedSolid.b / 255 );
 					const baseHex = `#${ baseMaterial.color.getHexString() }`;
-					const selectedSolid = /^#[0-9a-fA-F]{6}$/.test( highlightHex || '' ) && colorDistanceSqHex( baseHex, highlightHex ) <= GARAGE_COLOR_PICK_TOLERANCE * GARAGE_COLOR_PICK_TOLERANCE;
-					const hoverSolid = ! selectedSolid && /^#[0-9a-fA-F]{6}$/.test( hoverHex || '' ) && colorDistanceSqHex( baseHex, hoverHex ) <= GARAGE_COLOR_PICK_TOLERANCE * GARAGE_COLOR_PICK_TOLERANCE;
+					const selectedSolid = /^#[0-9a-fA-F]{6}$/.test( highlightHex || '' ) && colorDistanceSqHex( baseHex, highlightHex ) <= highlightTolerance * highlightTolerance;
+					const hoverSolid = ! selectedSolid && /^#[0-9a-fA-F]{6}$/.test( hoverHex || '' ) && colorDistanceSqHex( baseHex, hoverHex ) <= highlightTolerance * highlightTolerance;
 					if ( selectedSolid || hoverSolid ) {
 
 						if ( previewUnlit ) material.color.set( selectedSolid ? 0x50ff78 : 0xffe63c );
@@ -4704,7 +4713,7 @@ async function init() {
 				if ( material.map ) {
 
 					const remapped = recolorTexture( material.map, resolvedMappings );
-					material.map = createHighlightedTexture( baseMaterial.map, highlightHex, hoverHex ) || remapped.texture;
+					material.map = createHighlightedTexture( baseMaterial.map, highlightHex, hoverHex, highlightTolerance ) || remapped.texture;
 					if ( remapped.hasShiny ) {
 
 						applyShinyFinish( material );
@@ -7706,11 +7715,13 @@ function completeCampaignStage() {
 
 	} );
 	garageTargetColorInput?.addEventListener( 'input', updateGaragePaintControls );
+	garageRepaintToleranceInput?.addEventListener( 'input', () => { updateGaragePaintControls(); refreshGarageViewer(); } );
 	garageApplyPaintBtn?.addEventListener( 'click', () => {
 
 		const carKey = getSelectedGarageCarKey();
 		const sourceHex = selectedGarageSourceHex;
 		const targetHex = String( garageTargetColorInput?.value || '#00aaff' ).toLowerCase();
+		const tolerance = getGarageRepaintTolerance();
 		if ( ! /^#[0-9a-fA-F]{6}$/.test( sourceHex ) ) {
 
 			setGarageMappingStatus( 'Click a color area on the car first.', true );
@@ -7732,16 +7743,16 @@ function completeCampaignStage() {
 		}
 		garageCosmetics.unlockedPaints[ customPaintId ] = true;
 		const carData = getGarageCosmeticCar( carKey );
-		const existing = carData.mappings.find( ( mapping ) => colorDistanceSqHex( mapping.sourceHex, sourceHex ) <= GARAGE_COLOR_PICK_TOLERANCE * GARAGE_COLOR_PICK_TOLERANCE );
+		const existing = carData.mappings.find( ( mapping ) => colorDistanceSqHex( mapping.sourceHex, sourceHex ) <= tolerance * tolerance );
 		if ( existing ) {
 
 			existing.sourceHex = sourceHex;
 			existing.targetColorId = customPaintId;
-			existing.tolerance = GARAGE_COLOR_PICK_TOLERANCE;
+			existing.tolerance = tolerance;
 
 		} else {
 
-			carData.mappings.push( { sourceHex, targetColorId: customPaintId, tolerance: GARAGE_COLOR_PICK_TOLERANCE } );
+			carData.mappings.push( { sourceHex, targetColorId: customPaintId, tolerance } );
 
 		}
 		if ( carData.mappings.length > 48 ) carData.mappings.shift();
