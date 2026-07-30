@@ -14,6 +14,8 @@ export class GameAudio {
 		this.engineSound = null;
 		this.skidSound = null;
 		this.impactBuffer = null;
+		this.musicSound = null;
+		this.musicEnabled = new URLSearchParams( window.location.search ).get( 'play' ) === '1';
 		this.impactPool = [];
 		this.impactIndex = 0;
 		this.ready = false;
@@ -30,6 +32,7 @@ export class GameAudio {
 
 		this.engineSound = new THREE.Audio( this.listener );
 		this.skidSound = new THREE.Audio( this.listener );
+		this.musicSound = new THREE.Audio( this.listener );
 
 		loader.load( 'audio/engine.ogg', ( buffer ) => {
 
@@ -48,6 +51,19 @@ export class GameAudio {
 			this.checkReady();
 
 		} );
+
+		if ( this.musicEnabled ) {
+
+			loader.load( 'audio/music.mp3', ( buffer ) => {
+
+				this.musicSound.setBuffer( buffer );
+				this.musicSound.setLoop( true );
+				this.musicSound.setVolume( 0.28 );
+				this.checkReady();
+
+			} );
+
+		}
 
 		loader.load( 'audio/impact.ogg', ( buffer ) => {
 
@@ -93,7 +109,9 @@ export class GameAudio {
 
 	checkReady() {
 
-		if ( this.engineSound.buffer && this.skidSound.buffer ) {
+		const musicReady = ! this.musicEnabled || Boolean( this.musicSound?.buffer );
+
+		if ( this.engineSound.buffer && this.skidSound.buffer && musicReady ) {
 
 			this.ready = true;
 
@@ -109,6 +127,7 @@ export class GameAudio {
 
 		if ( ! this.engineSound.isPlaying ) this.engineSound.play();
 		if ( ! this.skidSound.isPlaying ) this.skidSound.play();
+		if ( this.musicEnabled && this.musicSound?.buffer && ! this.musicSound.isPlaying ) this.musicSound.play();
 
 	}
 
