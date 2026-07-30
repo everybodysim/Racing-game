@@ -3,139 +3,26 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Track Shares</title>
+	<title>Track Browser</title>
 	<style>
-.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
-.skip-link:focus{top:12px}
-
-		:root { color-scheme: dark; }
-		body { margin: 0; font: 14px/1.45 Inter, system-ui, sans-serif; background: linear-gradient(160deg, #0b1220, #121826); color: #e6edf7; }
-		.wrap { max-width: 980px; margin: 0 auto; padding: 22px 14px 40px; }
-		h1 { margin: 0 0 4px; font-size: 30px; }
-		p.sub { margin: 0 0 18px; color: #b9c6dd; }
-		.panel { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
-		label { display: block; margin: 8px 0 6px; font-weight: 600; color: #cfe0ff; }
-		input, textarea { width: 100%; box-sizing: border-box; border: 1px solid rgba(255,255,255,0.22); background: rgba(8,10,16,0.85); color: #e6edf7; border-radius: 8px; padding: 10px; font: inherit; }
-		textarea { min-height: 94px; resize: vertical; }
-		.row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-		button, .linkbtn { border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.12); color: #fff; border-radius: 8px; padding: 9px 12px; cursor: pointer; font: 600 13px sans-serif; text-decoration: none; }
-		button:hover, .linkbtn:hover { background: rgba(255,255,255,0.2); }
-		#status { min-height: 18px; margin-top: 8px; color: #93f4b7; }
-		#leaderboard-progress-wrap { margin-top: 8px; display: none; }
-		#leaderboard-progress-wrap.visible { display: block; }
-		#leaderboard-progress-label { font-size: 12px; color: #b5c2da; margin-bottom: 4px; }
-		#leaderboard-progress-bar { width: 100%; height: 8px; border-radius: 999px; background: rgba(255,255,255,0.15); overflow: hidden; }
-		#leaderboard-progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #5ac8ff, #77f3b1); transition: width 0.15s ease; }
-		#grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-top: 12px; }
-		.card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 11px; }
-		.card h3 { margin: 0 0 6px; font-size: 17px; }
-		.preview-canvas { width: 100%; height: auto; display: block; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); background: #0d1118; margin: 8px 0; }
-		.meta { color: #b5c2da; font-size: 12px; margin-bottom: 8px; }
-		.record-holder { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); background: linear-gradient(130deg, rgba(50,72,120,0.45), rgba(48,170,128,0.18)); }
-		.record-holder .label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #d7e5ff; opacity: 0.86; }
-		.record-holder .value { font-size: 15px; font-weight: 700; color: #f7fbff; }
-		.record-holder .time { color: #9be7bf; font-size: 12px; font-weight: 600; }
-		.records-board h2 { margin: 0 0 10px; font-size: 18px; }
-		.records-board .sub { margin-bottom: 10px; font-size: 12px; }
-		.records-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
-		.record-chip { border-radius: 9px; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.04); padding: 8px; }
-		.record-chip .name { font-size: 14px; font-weight: 700; color: #f3f8ff; }
-		.record-chip .count { margin-top: 3px; color: #9be7bf; font-size: 12px; }
-		.records-empty { color: #b5c2da; font-size: 12px; }
-		.badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-		.badge { font-size: 11px; border-radius: 999px; padding: 3px 7px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); }
-		.card a { color: #9fe8ff; text-decoration: none; font-weight: 600; }
-		.card a:hover { text-decoration: underline; }
-		.play-map-btn {
-			display: inline-flex;
-			align-items: center;
-			justify-content: center;
-			gap: 6px;
-			border-color: rgba(132,245,172,0.72);
-			background: linear-gradient(135deg, rgba(48,198,119,0.95), rgba(48,151,255,0.85));
-			color: #04130b !important;
-			box-shadow: 0 0 18px rgba(77, 232, 152, 0.26);
-			font-weight: 800 !important;
-			letter-spacing: 0.01em;
-		}
-		.play-map-btn:hover {
-			background: linear-gradient(135deg, rgba(87,255,165,1), rgba(97,190,255,0.96));
-			text-decoration: none !important;
-		}
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}.skip-link:focus{top:12px}:root{color-scheme:dark;--panel:rgba(255,255,255,.07);--line:rgba(255,255,255,.13);--muted:#b5c2da;--accent:#77f3b1}body{margin:0;font:14px/1.45 Inter,system-ui,sans-serif;background:radial-gradient(circle at top left,rgba(74,163,255,.22),transparent 32rem),linear-gradient(160deg,#07101e,#121826 55%,#0b1420);color:#e6edf7}.wrap{max-width:1180px;margin:0 auto;padding:26px 16px 46px}.hero,.section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px}h1{margin:0 0 4px;font-size:clamp(32px,5vw,58px);line-height:.95;letter-spacing:-.05em}h2{margin:0;font-size:22px}p.sub,.sub{margin:0;color:var(--muted)}.panel,.browser-section{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:16px;box-shadow:0 18px 50px rgba(0,0,0,.16)}.section-kicker{color:var(--accent);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.12em}label{display:block;margin:8px 0 6px;font-weight:700;color:#cfe0ff}input,textarea,select{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.22);background:rgba(8,10,16,.85);color:#e6edf7;border-radius:10px;padding:10px;font:inherit}select{max-width:190px}textarea{min-height:94px;resize:vertical}.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}button,.linkbtn,summary{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:9px 12px;cursor:pointer;font:700 13px sans-serif;text-decoration:none}button:hover,.linkbtn:hover,summary:hover{background:rgba(255,255,255,.2)}#status{min-height:18px;margin-top:8px;color:#93f4b7}#leaderboard-progress-wrap{margin-top:8px;display:none}#leaderboard-progress-wrap.visible{display:block}#leaderboard-progress-label{font-size:12px;color:var(--muted);margin-bottom:4px}#leaderboard-progress-bar{width:100%;height:8px;border-radius:999px;background:rgba(255,255,255,.15);overflow:hidden}#leaderboard-progress-fill{height:100%;width:0%;background:linear-gradient(90deg,#5ac8ff,#77f3b1);transition:width .15s ease}#grid,.track-row,.records-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}#grid{margin-top:12px}.featured-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.card{position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.085),rgba(255,255,255,.045));border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:12px}.card.featured{border-color:rgba(119,243,177,.35);box-shadow:inset 0 1px rgba(255,255,255,.08),0 0 40px rgba(80,200,140,.13)}.card h3{margin:0 0 7px;font-size:18px}.preview-canvas{width:100%;aspect-ratio:5/3;object-fit:cover;display:block;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0d1118;margin:10px 0}.meta{color:var(--muted);font-size:12px;margin-bottom:8px}.stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:8px 0}.stat{border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);border-radius:10px;padding:8px}.stat b{display:block;color:#fff;font-size:14px}.stat span{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}.badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.badge{font-size:11px;border-radius:999px;padding:3px 7px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08)}.play-map-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-color:rgba(132,245,172,.72);background:linear-gradient(135deg,rgba(48,198,119,.95),rgba(48,151,255,.85));color:#04130b!important;box-shadow:0 0 18px rgba(77,232,152,.26);font-weight:900!important;flex:1}.drawer-panel{margin-top:10px;border-radius:14px;border:1px dashed rgba(255,255,255,.2);padding:12px;background:rgba(0,0,0,.16)}.admin-strip{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}.admin-strip #adminTokenInput{max-width:260px}@media(max-width:760px){.hero,.section-head{align-items:flex-start;flex-direction:column}select{max-width:none}}
 	</style>
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content">
 	<div class="wrap">
-		<h1>Track Share Board</h1>
-		<p class="sub">Paste ghost codes, name tracks, and keep a shareable list of race links.</p>
-		<br>
-		<input id="adminTokenInput" placeholder="Admin password" type="password">
-			<div class="panel">
-			<label for="track-name">Track name</label>
-			<input id="track-name" placeholder="e.g. Forest Sprint" />
-			<label for="ghost-code">Ghost code</label>
-			<textarea id="ghost-code" placeholder="Paste export ghost code here..."></textarea>
-			<label for="track-description">Description (optional)</label>
-			<textarea id="track-description" placeholder="Add notes, style, and tips..."></textarea>
-			<label for="track-thumbnail">Thumbnail image (optional)</label>
-			<input id="track-thumbnail" type="file" accept="image/*" />
-				<div class="row">
-					<button id="add-btn" type="button">Add to board</button>
-				<button id="export-board-btn" type="button">Export board code</button>
-				<button id="import-board-btn" type="button">Import board code</button>
-				<button id="copy-link-btn" type="button">Copy share link</button>
-				<a class="linkbtn" href="index.html">Back to game</a>
-				</div>
-				<div id="status"></div>
-				<div id="leaderboard-progress-wrap" aria-live="polite">
-					<div id="leaderboard-progress-label">Loading leaderboard data…</div>
-					<div id="leaderboard-progress-bar"><div id="leaderboard-progress-fill"></div></div>
-				</div>
-			</div>
-			<div class="panel">
-				<div class="row" style="margin-top:0">
-					<input id="search-input" placeholder="Search track name..." style="max-width:320px" />
-					<select id="size-filter">
-						<option value="all">All sizes</option>
-						<option value="small">Small</option>
-						<option value="medium">Medium</option>
-						<option value="large">Large</option>
-					</select>
-					<select id="sort-filter">
-						<option value="newest">Newest</option>
-						<option value="popular">Most popular</option>
-						<option value="most-liked">Most liked</option>
-						<option value="best-time">Best lap time</option>
-					</select>
-					<button id="random-track-btn" type="button">Random track</button>
-				</div>
-			</div>
-			<div class="panel records-board">
-				<h2>Track Share Record Board</h2>
-				<p class="sub">Drivers ranked by how many unique shared tracks they currently hold #1 on.</p>
-				<div id="records-board-list" class="records-list"></div>
-				<h2 style="margin-top:16px">Global Placement Rating</h2>
-				<p class="sub">Cross-track rating from placement points (1st/2nd/3rd…) across all shared tracks.</p>
-				<div id="placement-rating-list" class="records-list"></div>
-			</div>
-			<div class="panel">
-				<details id="new-week-section">
-					<summary style="cursor:pointer;font-weight:700;">New this week</summary>
-					<div id="new-week-list" class="records-list" style="margin-top:8px;"></div>
-				</details>
-				<details id="trending-section" style="margin-top:10px;">
-					<summary style="cursor:pointer;font-weight:700;">Trending (recent plays)</summary>
-					<div id="trending-list" class="records-list" style="margin-top:8px;"></div>
-				</details>
-				<details id="recent-likes-section" style="margin-top:10px;">
-					<summary style="cursor:pointer;font-weight:700;">Most recent likes</summary>
-					<div id="recent-likes-list" class="records-list" style="margin-top:8px;"></div>
-				</details>
-			</div>
-			<div id="grid"></div>
-		</div>
+		<div class="hero"><div><div class="section-kicker">Community tracks</div><h1>Track Browser</h1><p class="sub">Find a fast new favorite, chase records, and jump straight into racing.</p></div><div class="row"><button id="random-track-btn" type="button">🎲 Random track</button><a class="linkbtn" href="index.html">Back to game</a></div></div>
+		<div class="panel admin-strip"><input id="adminTokenInput" placeholder="Admin password" type="password"><div class="row" style="margin-top:0"><button id="export-board-btn" type="button">Export board code</button><button id="import-board-btn" type="button">Import board code</button><button id="copy-link-btn" type="button">Copy share link</button></div></div>
+		<details class="panel" id="publish-drawer"><summary>Publish Track</summary><div class="drawer-panel"><p class="sub">Publishing is tucked away so browsing and playing stay front and center.</p><label for="track-name">Track name</label><input id="track-name" placeholder="e.g. Forest Sprint" /><label for="ghost-code">Ghost code or board import/export code</label><textarea id="ghost-code" placeholder="Paste export ghost code here..."></textarea><label for="track-description">Description (optional)</label><textarea id="track-description" placeholder="Add notes, style, and tips..."></textarea><label for="track-thumbnail">Thumbnail image (optional)</label><input id="track-thumbnail" type="file" accept="image/*" /><div class="row"><button id="add-btn" type="button">Publish to board</button></div><div id="status"></div><div id="leaderboard-progress-wrap" aria-live="polite"><div id="leaderboard-progress-label">Loading leaderboard data…</div><div id="leaderboard-progress-bar"><div id="leaderboard-progress-fill"></div></div></div></div></details>
+		<div class="panel"><div class="row" style="margin-top:0"><input id="search-input" placeholder="Search track name..." style="max-width:360px" /><select id="size-filter"><option value="all">All sizes</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select><select id="sort-filter"><option value="newest">Newest</option><option value="popular">Most popular</option><option value="most-liked">Most liked</option><option value="best-time">Best lap time</option></select></div></div>
+		<section class="browser-section"><div class="section-head"><div><div class="section-kicker">Editor's algorithmic pick</div><h2>Featured Track</h2></div><p class="sub">Newer than average with above-average play activity.</p></div><div id="featured-track" class="featured-layout"></div></section>
+		<section class="browser-section"><div class="section-head"><div><div class="section-kicker">Hot right now</div><h2>Trending Tracks</h2></div></div><div id="trending-list" class="track-row"></div></section>
+		<section class="browser-section"><div class="section-head"><div><div class="section-kicker">Fresh uploads</div><h2>New This Week</h2></div></div><div id="new-week-list" class="track-row"></div></section>
+		<section class="browser-section"><div class="section-head"><div><div class="section-kicker">Community favorites</div><h2>Top Rated</h2></div></div><div id="top-rated-list" class="track-row"></div></section>
+		<section class="browser-section"><div class="section-head"><div><div class="section-kicker">Record chasers</div><h2>Fastest Records</h2></div></div><div id="fastest-records-list" class="track-row"></div></section>
+		<div class="panel records-board"><h2>Track Share Record Board</h2><p class="sub">Drivers ranked by how many unique shared tracks they currently hold #1 on.</p><div id="records-board-list" class="records-list"></div><h2 style="margin-top:16px">Global Placement Rating</h2><p class="sub">Cross-track rating from placement points (1st/2nd/3rd…) across all shared tracks.</p><div id="placement-rating-list" class="records-list"></div></div>
+		<section class="browser-section"><div class="section-head"><div><div class="section-kicker">Full library</div><h2>All Tracks</h2></div></div><div id="grid"></div></section>
 		<script>
 			const API_BASE = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
 			const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
@@ -155,7 +42,9 @@
 			const placementRatingList = document.getElementById( 'placement-rating-list' );
 			const newWeekList = document.getElementById( 'new-week-list' );
 			const trendingList = document.getElementById( 'trending-list' );
-			const recentLikesList = document.getElementById( 'recent-likes-list' );
+			const featuredTrack = document.getElementById( 'featured-track' );
+			const topRatedList = document.getElementById( 'top-rated-list' );
+			const fastestRecordsList = document.getElementById( 'fastest-records-list' );
 			const statusEl = document.getElementById( 'status' );
 			const leaderboardProgressWrap = document.getElementById( 'leaderboard-progress-wrap' );
 			const leaderboardProgressLabel = document.getElementById( 'leaderboard-progress-label' );
@@ -566,42 +455,83 @@
 				.join( '' );
 		}
 
-		function renderHighlights() {
+		function getTrackStats( entry ) {
+			const trackId = getTrackIdFromPlayUrl( entry.playUrl );
+			const topRow = topByTrackId.get( trackId ) || null;
+			const previewData = parseTrackLayoutFromUrl( entry.playUrl );
+			const best = Number( topRow?.timeSeconds ?? entry.bestLapSeconds );
+			return {
+				trackId,
+				topRow,
+				previewData,
+				sizeTag: inferTrackSize( entry ),
+				styleTag: classifyTrackStyle( previewData?.cells || [], previewData?.mods || {} ),
+				plays: Number( entry.viewCount ) || 0,
+				likes: Number( entry.thumbsUp ) || 0,
+				dislikes: Number( entry.thumbsDown ) || 0,
+				bestTime: Number.isFinite( best ) ? best : Infinity,
+				createdAt: Number( entry.createdAt ) || 0,
+			};
+		}
 
+		function createTrackCard( entry, options = {} ) {
+			const stats = getTrackStats( entry );
+			const card = document.createElement( 'div' );
+			card.className = `card${ options.featured ? ' featured' : '' }`;
+			card.innerHTML = `<h3>${ entry.name }</h3>
+				<div class="badges">
+					<span class="badge">▶ ${ stats.plays } plays</span>
+					<span class="badge">👍 ${ stats.likes }</span>
+					<span class="badge">🏁 ${ stats.sizeTag }</span>
+					<span class="badge">🧭 ${ stats.styleTag }</span>
+				</div>
+				${ entry.thumbnailDataUrl ? `<img class="preview-canvas" src="${ entry.thumbnailDataUrl }" alt="Track thumbnail for ${ entry.name }">` : `<canvas class="preview-canvas" width="300" height="180" aria-label="Track preview for ${ entry.name }"></canvas>` }
+				<div class="stat-grid">
+					<div class="stat"><span>Best time</span><b>${ stats.bestTime === Infinity ? '--.--' : formatSeconds( stats.bestTime ) }</b></div>
+					<div class="stat"><span>Record holder</span><b>${ stats.topRow ? stats.topRow.name : 'Open' }</b></div>
+					<div class="stat"><span>Popularity</span><b>${ stats.plays } plays</b></div>
+					<div class="stat"><span>Rating</span><b>${ stats.likes } 👍 / ${ stats.dislikes } 👎</b></div>
+				</div>
+				<div class="meta">${ entry.description ? entry.description : 'No description.' }</div>
+				<div class="row" style="margin-top:0">
+					<a class="linkbtn play-map-btn" href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play</a>
+					<button data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
+					<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
+					<button data-id="${ entry.id }" type="button">Remove</button>
+				</div>`;
+			if ( ! entry.thumbnailDataUrl && stats.previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), stats.previewData.cells, stats.previewData.mods );
+			return card;
+		}
+
+		function renderTrackList( container, items, emptyText, options = {} ) {
+			if ( ! container ) return;
+			container.innerHTML = '';
+			if ( items.length === 0 ) {
+				container.innerHTML = `<div class="card"><h3>Nothing here yet</h3><div class="meta">${ emptyText }</div></div>`;
+				return;
+			}
+			items.forEach( ( entry ) => container.appendChild( createTrackCard( entry, options ) ) );
+		}
+
+		function renderHighlights() {
 			const now = Date.now();
 			const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-			const newWeek = entries
-				.filter( ( entry ) => Number( entry?.createdAt ) >= weekAgo )
-				.sort( ( a, b ) => Number( b.createdAt ) - Number( a.createdAt ) )
+			const averagePlays = entries.reduce( ( total, entry ) => total + ( Number( entry.viewCount ) || 0 ), 0 ) / Math.max( 1, entries.length );
+			const newestFirst = [ ...entries ].sort( ( a, b ) => ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) );
+			const featured = newestFirst
+				.filter( ( entry ) => ( Number( entry.viewCount ) || 0 ) >= averagePlays )
+				.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )[ 0 ] || newestFirst[ 0 ];
+			const trending = [ ...entries ]
+				.sort( ( a, b ) => ( ( Number( b.viewCount ) || 0 ) * 2 + ( Number( b.thumbsUp ) || 0 ) + ( Number( b.createdAt ) >= weekAgo ? 5 : 0 ) ) - ( ( Number( a.viewCount ) || 0 ) * 2 + ( Number( a.thumbsUp ) || 0 ) + ( Number( a.createdAt ) >= weekAgo ? 5 : 0 ) ) )
 				.slice( 0, 6 );
-			const trending = entries
-				.filter( ( entry ) => Number( entry?.createdAt ) >= weekAgo )
-				.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) )
-				.slice( 0, 6 );
-			const recentLikes = entries
-				.filter( ( entry ) => Number( entry?.lastLikedAt ) > 0 )
-				.sort( ( a, b ) => Number( b.lastLikedAt ) - Number( a.lastLikedAt ) )
-				.slice( 0, 6 );
-				if ( newWeekList ) {
-
-					newWeekList.innerHTML = newWeek.length
-						? newWeek.map( ( entry ) => `<div class="record-chip"><div class="name">${ entry.name }</div><div class="count">${ new Date( entry.createdAt || Date.now() ).toLocaleDateString() }</div><a href="${ entry.playUrl }" target="_blank" rel="noopener noreferrer">Play</a></div>` ).join( '' )
-						: '<div class="records-empty">No new tracks in the past 7 days.</div>';
-
-			}
-			if ( recentLikesList ) {
-				recentLikesList.innerHTML = recentLikes.length
-					? recentLikes.map( ( entry ) => `<div class="record-chip"><div class="name">${ entry.name }</div><div class="count">${ Number( entry.thumbsUp ) || 0 } 👍 • last like ${ new Date( entry.lastLikedAt ).toLocaleDateString() }</div><a href="${ entry.playUrl }" target="_blank" rel="noopener noreferrer">Play</a></div>` ).join( '' )
-					: '<div class="records-empty">No likes yet.</div>';
-			}
-				if ( trendingList ) {
-
-					trendingList.innerHTML = trending.length
-						? trending.map( ( entry ) => `<div class="record-chip"><div class="name">${ entry.name }</div><div class="count">${ Number( entry.viewCount ) || 0 } recent plays</div><a href="${ entry.playUrl }" target="_blank" rel="noopener noreferrer">Play</a></div>` ).join( '' )
-						: '<div class="records-empty">No trending data yet.</div>';
-
-			}
-
+			const newWeek = newestFirst.filter( ( entry ) => Number( entry?.createdAt ) >= weekAgo ).slice( 0, 6 );
+			const topRated = [ ...entries ].sort( ( a, b ) => ( Number( b.thumbsUp ) || 0 ) - ( Number( a.thumbsUp ) || 0 ) || ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) ).slice( 0, 6 );
+			const fastest = [ ...entries ].filter( ( entry ) => getTrackStats( entry ).bestTime < Infinity ).sort( ( a, b ) => getTrackStats( a ).bestTime - getTrackStats( b ).bestTime ).slice( 0, 6 );
+			renderTrackList( featuredTrack, featured ? [ featured ] : [], 'No tracks have been published yet.', { featured: true } );
+			renderTrackList( trendingList, trending, 'Play counts will surface trending tracks once people start racing.' );
+			renderTrackList( newWeekList, newWeek, 'No new tracks were published in the past 7 days.' );
+			renderTrackList( topRatedList, topRated, 'Likes and plays will determine top rated tracks.' );
+			renderTrackList( fastestRecordsList, fastest, 'No best times are available yet.' );
 		}
 
 		function inferTrackSize( entry ) {
@@ -658,38 +588,7 @@
 			}
 
 			for ( const entry of filtered ) {
-				const card = document.createElement( 'div' );
-				card.className = 'card';
-				const sizeTag = inferTrackSize( entry );
-				const trackId = getTrackIdFromPlayUrl( entry.playUrl );
-				const topRow = topByTrackId.get( trackId ) || null;
-				const previewData = parseTrackLayoutFromUrl( entry.playUrl );
-				const styleTag = classifyTrackStyle( previewData?.cells || [], previewData?.mods || {} );
-				card.innerHTML = `<h3>${ entry.name }</h3>
-					<div class="badges">
-						<span class="badge">👁️ ${ Number( entry.viewCount ) || 0 } views</span>
-						<span class="badge">🏁 ${ sizeTag }</span>
-						<span class="badge">🧭 ${ styleTag }</span>
-					</div>
-					<div class="record-holder">
-						<div>
-							<div class="label">Current record holder</div>
-							<div class="value">${ topRow ? topRow.name : 'No leaderboard times yet' }</div>
-						</div>
-						<div class="time">${ topRow ? formatSeconds( Number( topRow.timeSeconds ) ) : '' }</div>
-					</div>
-					${ entry.thumbnailDataUrl ? `<img class="preview-canvas" src="${ entry.thumbnailDataUrl }" alt="Track thumbnail for ${ entry.name }">` : `<canvas class="preview-canvas" width="300" height="180" aria-label="Track preview for ${ entry.name }"></canvas>` }
-					<div class="meta">${ entry.description ? entry.description : 'No description.' }</div>
-					<div class="meta">Best: ${ formatSeconds( entry.bestLapSeconds ) } • Samples: ${ entry.sampleCount || 0 }</div>
-					<div class="meta">👍 ${ Number( entry.thumbsUp ) || 0 } • 👎 ${ Number( entry.thumbsDown ) || 0 }</div>
-					<div class="row" style="margin-top:0">
-						<a class="linkbtn play-map-btn" href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play this map</a>
-							<button data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
-							<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
-						<button data-id="${ entry.id }" type="button">Remove</button>
-					</div>`;
-				if ( ! entry.thumbnailDataUrl && previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), previewData.cells, previewData.mods );
-				grid.appendChild( card );
+				grid.appendChild( createTrackCard( entry ) );
 			}
 		}
 
@@ -753,7 +652,7 @@
 		addBtn.addEventListener( 'click', () => {
 			addEntryFromGhostCode().catch( () => setStatus( 'Failed to add entry.', true ) );
 		} );
-			grid.addEventListener('click', async (e) => {
+			document.addEventListener('click', async (e) => {
   const openLink = e.target.closest( 'a[data-action="open-track"]' );
   if ( openLink ) {
     if ( useRemoteBoard ) {
@@ -773,6 +672,7 @@
   if (e.target.tagName !== 'BUTTON') return;
 
   const id = e.target.getAttribute('data-id');
+  if ( ! id ) return;
   const vote = Number( e.target.getAttribute( 'data-vote' ) );
 	  if ( vote === 1 || vote === -1 ) {
 		const voteKey = `${ id }:${ vote }`;
