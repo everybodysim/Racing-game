@@ -3249,6 +3249,7 @@ async function init() {
 	let garageViewer = null;
 	let garageCosmetics = normalizeGarageCosmetics( null );
 	const recolorTextureSourceCache = new WeakMap();
+	const garageTexturePaletteCache = new WeakMap();
 	if ( lapHud2 ) lapHud2.style.display = isSplitScreen ? 'block' : 'none';
 	if ( isSplitScreen ) {
 
@@ -4024,6 +4025,58 @@ async function init() {
 
 	}
 
+	function getGarageTexturePalette( texture ) {
+
+		if ( ! texture ) return [];
+		if ( garageTexturePaletteCache.has( texture ) ) return garageTexturePaletteCache.get( texture );
+		const source = getTextureSourcePixels( texture );
+		if ( ! source ) return [];
+		const counts = new Map();
+		for ( let i = 0; i < source.data.length; i += 4 ) {
+
+			if ( source.data[ i + 3 ] < 16 ) continue;
+			const key = `${ source.data[ i ] },${ source.data[ i + 1 ] },${ source.data[ i + 2 ] }`;
+			counts.set( key, ( counts.get( key ) || 0 ) + 1 );
+
+		}
+		const palette = [ ...counts.entries() ].map( ( [ key, count ] ) => {
+
+			const [ r, g, b ] = key.split( ',' ).map( Number );
+			return { r, g, b, hex: `#${ [ r, g, b ].map( ( v ) => v.toString( 16 ).padStart( 2, '0' ) ).join( '' ) }`, count, isBlack: r + g + b <= 24 };
+
+		} ).sort( ( a, b ) => b.count - a.count );
+		garageTexturePaletteCache.set( texture, palette );
+		return palette;
+
+	}
+
+	function snapHexToTexturePalette( texture, hex, allowBlack = false ) {
+
+		const rgb = hexToRgbBytes( hex );
+		if ( ! rgb ) return '';
+		const palette = getGarageTexturePalette( texture );
+		let best = null;
+		let bestScore = Number.POSITIVE_INFINITY;
+		for ( const color of palette ) {
+
+			if ( color.isBlack && ! allowBlack ) continue;
+			const dr = rgb.r - color.r;
+			const dg = rgb.g - color.g;
+			const db = rgb.b - color.b;
+			const distSq = dr * dr + dg * dg + db * db;
+			const score = distSq - Math.min( color.count, 10000 ) * 0.002;
+			if ( score < bestScore ) {
+
+				best = color;
+				bestScore = score;
+
+			}
+
+		}
+		return best?.hex || '';
+
+	}
+
 	function sampleTextureHexAtUv( texture, uv ) {
 
 		const source = getTextureSourcePixels( texture );
@@ -4129,21 +4182,36 @@ async function init() {
 
 	}
 
-	function getGarageRemapHexFromHit( hit ) {
+	function getGarageRemapHexFromHit( hit, renderedHex = '' ) {
 
 		const materialIndex = hit?.face?.materialIndex || 0;
 		const liveMaterial = Array.isArray( hit?.object?.material ) ? hit.object.material[ materialIndex ] : hit?.object?.material;
 		const baseMaterial = Array.isArray( hit?.object?.userData?.baseMaterial ) ? hit.object.userData.baseMaterial[ materialIndex ] : null;
 		const material = baseMaterial || liveMaterial;
-		return ( sampleTextureHexAtUv( material?.map, hit?.uv ) || ( material?.color ? `#${ material.color.getHexString() }` : '' ) ).toLowerCase();
+		const sampledHex = ( sampleTextureHexAtUv( material?.map, hit?.uv ) || ( material?.color ? `#${ material.color.getHexString() }` : '' ) ).toLowerCase();
+		const renderedIsUseful = /^#[0-9a-fA-F]{6}$/.test( renderedHex ) && colorDistanceSqHex( renderedHex, '#000000' ) > 24 * 24;
+		if ( material?.map && ( sampledHex === '#000000' || ! /^#[0-9a-fA-F]{6}$/.test( sampledHex ) ) && renderedIsUseful ) {
+
+			return snapHexToTexturePalette( material.map, renderedHex, false ) || sampledHex;
+
+		}
+		if ( material?.map && renderedIsUseful ) {
+
+			const snappedRendered = snapHexToTexturePalette( material.map, renderedHex, false );
+			if ( snappedRendered && colorDistanceSqHex( sampledHex, '#000000' ) <= 24 * 24 ) return snappedRendered;
+
+		}
+		return sampledHex;
 
 	}
+
 
 	function updateGarageHoverFromEvent( event ) {
 
 		if ( ! garageViewer || garageViewer.dragging ) return;
 		const hit = getGarageViewerHit( event );
-		const nextHex = hit ? getGarageRemapHexFromHit( hit ) : '';
+		const pickerHex = hit ? readGaragePickerHex( event ) : '';
+		const nextHex = hit ? getGarageRemapHexFromHit( hit, pickerHex ) : '';
 		if ( nextHex === hoveredGarageSourceHex ) return;
 		hoveredGarageSourceHex = /^#[0-9a-fA-F]{6}$/.test( nextHex ) ? nextHex : '';
 		refreshGarageViewer();
@@ -4227,7 +4295,7 @@ async function init() {
 
 			}
 			const pickerHex = readGaragePickerHex( event );
-			const remapHex = getGarageRemapHexFromHit( hit );
+			const remapHex = getGarageRemapHexFromHit( hit, pickerHex );
 			const hex = /^#[0-9a-fA-F]{6}$/.test( remapHex ) ? remapHex : pickerHex;
 			if ( /^#[0-9a-fA-F]{6}$/.test( hex ) ) {
 
