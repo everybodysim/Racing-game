@@ -4028,10 +4028,49 @@ async function init() {
 
 		const source = getTextureSourcePixels( texture );
 		if ( ! source || ! uv ) return null;
-		const x = THREE.MathUtils.clamp( Math.floor( uv.x * source.width ), 0, source.width - 1 );
-		const y = THREE.MathUtils.clamp( Math.floor( ( 1 - uv.y ) * source.height ), 0, source.height - 1 );
-		const i = ( y * source.width + x ) * 4;
-		return `#${ [ source.data[ i ], source.data[ i + 1 ], source.data[ i + 2 ] ].map( ( v ) => v.toString( 16 ).padStart( 2, '0' ) ).join( '' ) }`;
+		const centerX = THREE.MathUtils.clamp( Math.floor( uv.x * source.width ), 0, source.width - 1 );
+		const centerY = THREE.MathUtils.clamp( Math.floor( ( 1 - uv.y ) * source.height ), 0, source.height - 1 );
+		const counts = new Map();
+		const blackCounts = new Map();
+		const radius = 6;
+		for ( let py = centerY - radius; py <= centerY + radius; py ++ ) {
+
+			if ( py < 0 || py >= source.height ) continue;
+			for ( let px = centerX - radius; px <= centerX + radius; px ++ ) {
+
+				if ( px < 0 || px >= source.width ) continue;
+				const i = ( py * source.width + px ) * 4;
+				if ( source.data[ i + 3 ] < 16 ) continue;
+				const r = source.data[ i ];
+				const g = source.data[ i + 1 ];
+				const b = source.data[ i + 2 ];
+				const key = `${ r },${ g },${ b }`;
+				const bucket = ( r + g + b <= 24 ) ? blackCounts : counts;
+				bucket.set( key, ( bucket.get( key ) || 0 ) + 1 );
+
+			}
+
+		}
+		const choose = ( map ) => {
+
+			let best = '';
+			let bestCount = 0;
+			for ( const [ key, count ] of map ) {
+
+				if ( count > bestCount ) {
+
+					best = key;
+					bestCount = count;
+
+				}
+
+			}
+			return best;
+
+		};
+		const best = choose( counts ) || choose( blackCounts );
+		if ( ! best ) return null;
+		return `#${ best.split( ',' ).map( ( v ) => Number( v ).toString( 16 ).padStart( 2, '0' ) ).join( '' ) }`;
 
 	}
 
