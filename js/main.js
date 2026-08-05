@@ -2363,10 +2363,16 @@ async function init() {
 		const modelKey = normalizeMultiplayerCarKey( carKey );
 		const signature = cosmeticsSignature( cosmetics );
 		const existing = remotePlayerVisuals.get( playerId );
-		if ( existing && existing.carKey === modelKey && existing.cosmeticsSignature === signature ) return existing;
+		if ( existing && ( existing.currentCarKey || existing.carKey ) === modelKey && existing.cosmeticsSignature === signature ) return existing;
+		const previousState = existing ? {
+			displayName: existing.displayName || 'Player',
+			targetPos: existing.targetPos?.clone?.() || existing.mesh?.position?.clone?.(),
+			targetRotY: Number.isFinite( existing.targetRotY ) ? existing.targetRotY : existing.mesh?.rotation?.y || 0,
+			lastSeenAt: existing.lastSeenAt || 0,
+		} : null;
 		if ( existing ) removeRemotePlayerVisual( playerId );
 		const model = models[ modelKey ] || models[ 'vehicle-truck-yellow' ];
-		const mesh = createGhostVisualModel( model, 0.42, cosmetics ) || new THREE.Mesh(
+		const mesh = createGhostVisualModel( model, 0.42, cosmetics, false ) || new THREE.Mesh(
 			new THREE.BoxGeometry( 0.95, 0.5, 1.7 ),
 			new THREE.MeshStandardMaterial( { color: 0x53d4ff, transparent: true, opacity: 0.38, depthWrite: false } ),
 		);
@@ -2395,16 +2401,19 @@ async function init() {
 			obj.receiveShadow = true;
 
 		} );
+		if ( previousState?.targetPos ) mesh.position.copy( previousState.targetPos );
+		mesh.rotation.y = previousState?.targetRotY || mesh.rotation.y;
 		scene.add( mesh );
 		const state = {
 			mesh,
 			carKey: modelKey,
+			currentCarKey: modelKey,
 			cosmeticsSignature: signature,
-			displayName: 'Player',
+			displayName: previousState?.displayName || 'Player',
 			nameTag: null,
-			targetPos: mesh.position.clone(),
-			targetRotY: mesh.rotation.y,
-			lastSeenAt: 0,
+			targetPos: previousState?.targetPos || mesh.position.clone(),
+			targetRotY: previousState?.targetRotY || mesh.rotation.y,
+			lastSeenAt: previousState?.lastSeenAt || 0,
 		};
 		remotePlayerVisuals.set( playerId, state );
 		return state;
@@ -2667,8 +2676,8 @@ async function init() {
 		const mappings = [];
 		for ( const entry of sourceMappings.slice( 0, 48 ) ) {
 
-			const sourceHex = typeof entry?.sourceHex === 'string' ? entry.sourceHex.trim() : '';
-			const targetHex = typeof entry?.targetHex === 'string' ? entry.targetHex.trim() : '';
+			const sourceHex = typeof entry?.sourceHex === 'string' ? entry.sourceHex.trim().toLowerCase() : '';
+			const targetHex = typeof entry?.targetHex === 'string' ? entry.targetHex.trim().toLowerCase() : '';
 			if ( ! /^#[0-9a-fA-F]{6}$/.test( sourceHex ) || ! /^#[0-9a-fA-F]{6}$/.test( targetHex ) ) continue;
 			mappings.push( {
 				sourceHex,
@@ -2728,9 +2737,9 @@ async function init() {
 
 	}
 
-	function createGhostVisualModel( model, opacity = 0.35, cosmetics = null ) {
+	function createGhostVisualModel( model, opacity = 0.35, cosmetics = null, requireGhostEnabled = true ) {
 
-		if ( ! ghostEnabled || ! model ) return null;
+		if ( ( requireGhostEnabled && ! ghostEnabled ) || ! model ) return null;
 		const cloned = model.clone();
 		const resolvedMappings = buildResolvedMappingsFromGhostCosmetics( cosmetics );
 		cloned.traverse( ( child ) => {
