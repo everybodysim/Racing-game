@@ -20,4 +20,6 @@ function render(){const list=document.getElementById('stage-list');list.innerHTM
 function renderDetails(){document.getElementById('title').textContent=`Stage ${selected}`;document.getElementById('desc').textContent=STAGES[selected-1];document.getElementById('status').textContent=done(selected)?'✅ Completed':(unlocked(selected)?'🔓 Unlocked':'🔒 Locked');const a=document.getElementById('start');a.href=`index.html?play=1&campaign=1&campaignStage=${selected}`;a.style.display=unlocked(selected)?'inline-block':'none';}
 render();
 </script></main>
+
+<script type="module" src="js/PageMusic.js"></script>
 </body></html>

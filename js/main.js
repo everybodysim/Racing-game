@@ -8195,6 +8195,7 @@ function completeCampaignStage() {
 			const dtBase = Math.min( frameSeconds, 1 / 15 );
 			if ( paused ) {
 
+				audio.updateMusic( realFrameSeconds, false );
 				renderFrame();
 				return;
 
@@ -8496,6 +8497,7 @@ function completeCampaignStage() {
 		}
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
+		audio.updateMusic( dt, ! modeMenuOpen && ! replayViewerMode );
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
 		const speedRatioFx = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), 0, 1.8 );
 		const driftFx = THREE.MathUtils.clamp( vehicle.driftIntensity, 0, 1 );
