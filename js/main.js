@@ -2302,6 +2302,9 @@ async function init() {
 	let multiplayerSyncInFlight = false;
 	async function syncMultiplayerTransforms( options = {} ) {
 
+		// If a PeerJS session or room code exists, do NOT perform Firebase HTTP position polling.
+		if ( multiplayerSessionState.peer || multiplayerSessionState.roomCode ) return;
+
 		const roomCode = multiplayerSessionState.roomCode;
 		if ( ! roomCode || ! hasFirebaseMultiplayerConfig() ) return;
 		if ( multiplayerSyncInFlight ) return;
