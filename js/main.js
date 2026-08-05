@@ -113,6 +113,10 @@ const remoteVisualHandlers = {
 	nameTag: null,
 	remove: null,
 };
+const localMultiplayerStateHandlers = {
+	getCarKey: null,
+	buildCosmetics: null,
+};
 
 initMultiplayerPanel();
 
@@ -699,7 +703,8 @@ function buildLocalPeerStatePacket() {
 	const container = getLocalVehicleContainer();
 	const pos = container?.position || { x: 0, y: 0, z: 0 };
 	const rot = container?.rotation || { y: 0 };
-	const rawCarKey = typeof currentCarKey === 'function' ? currentCarKey() : 'vehicle-truck-yellow';
+	const rawCarKey = typeof localMultiplayerStateHandlers.getCarKey === 'function' ? localMultiplayerStateHandlers.getCarKey() : 'vehicle-truck-yellow';
+	const packetCarKey = typeof normalizeMultiplayerCarKey === 'function' ? normalizeMultiplayerCarKey( rawCarKey ) : rawCarKey;
 
 	return {
 		type: PEER_PACKET_STATE,
@@ -708,8 +713,8 @@ function buildLocalPeerStatePacket() {
 		y: formatPeerPacketNumber( pos.y, 3 ),
 		z: formatPeerPacketNumber( pos.z, 3 ),
 		ry: formatPeerPacketNumber( rot.y, 4 ),
-		carKey: typeof normalizeMultiplayerCarKey === 'function' ? normalizeMultiplayerCarKey( rawCarKey ) : rawCarKey,
-		cosmetics: typeof buildGhostCosmeticsSnapshot === 'function' ? buildGhostCosmeticsSnapshot( rawCarKey ) : {},
+		carKey: packetCarKey,
+		cosmetics: typeof localMultiplayerStateHandlers.buildCosmetics === 'function' ? localMultiplayerStateHandlers.buildCosmetics( packetCarKey ) : null,
 		name: typeof getLocalMultiplayerDisplayName === 'function' ? getLocalMultiplayerDisplayName() : 'Player',
 		updatedAt: Date.now(),
 	};
@@ -2317,7 +2322,7 @@ async function init() {
 
 	}
 	const remotePlayerVisuals = new Map();
-	const REMOTE_PLAYER_STALE_MS = 4000;
+	const REMOTE_PLAYER_STALE_MS = 10000;
 	const REMOTE_SYNC_MS = 220;
 
 	function createRemoteNameTag( displayName ) {
@@ -2474,8 +2479,15 @@ async function init() {
 	function updateRemotePlayerVisualsFrame( dt ) {
 
 		const alpha = THREE.MathUtils.clamp( dt * 12, 0, 1 );
-		for ( const state of remotePlayerVisuals.values() ) {
+		const now = Date.now();
+		for ( const [ playerId, state ] of [ ...remotePlayerVisuals.entries() ] ) {
 
+			if ( state.lastSeenAt && now - state.lastSeenAt > REMOTE_PLAYER_STALE_MS ) {
+
+				removeRemotePlayerVisual( playerId );
+				continue;
+
+			}
 			state.mesh.position.lerp( state.targetPos, alpha );
 			state.mesh.rotation.y = THREE.MathUtils.lerp( state.mesh.rotation.y, state.targetRotY, alpha );
 
@@ -2582,7 +2594,7 @@ async function init() {
 
 				if ( seen.has( existingId ) ) continue;
 				const existing = remotePlayerVisuals.get( existingId );
-				if ( existing && now - ( Number( existing.lastSeenAt ) || 0 ) <= REMOTE_PLAYER_STALE_MS * 2 ) continue;
+				if ( existing && now - ( Number( existing.lastSeenAt ) || 0 ) <= REMOTE_PLAYER_STALE_MS ) continue;
 				removeRemotePlayerVisual( existingId );
 
 			}
@@ -2713,6 +2725,9 @@ async function init() {
 		return resolved.length > 0 ? { mappings: resolved } : null;
 
 	}
+
+	localMultiplayerStateHandlers.getCarKey = currentCarKey;
+	localMultiplayerStateHandlers.buildCosmetics = buildGhostCosmeticsSnapshot;
 
 	function buildResolvedMappingsFromGhostCosmetics( cosmetics ) {
 
@@ -4691,6 +4706,7 @@ async function init() {
 				saveGarageMods();
 				updateGarageMappingsUi();
 				applyCarCustomization( vehicle );
+				broadcastPeerState();
 
 			} );
 			item.appendChild( removeBtn );
@@ -7948,6 +7964,7 @@ function completeCampaignStage() {
 		renderGarageVehicleCards();
 		setGarageMappingStatus( `Now editing mappings for ${ CAR_STATS[ selectedKey ]?.name || 'selected car' }.` );
 		applyVehiclePerformance();
+		broadcastPeerState();
 
 	} );
 
@@ -8075,6 +8092,7 @@ function completeCampaignStage() {
 		updateGaragePaintControls();
 		applyCarCustomization( vehicle );
 		refreshGarageViewer();
+		broadcastPeerState();
 		setGarageMappingStatus( `Repainted ${ sourceHex } to ${ targetHex } for ${ GARAGE_REPAINT_COST } coins.` );
 		if ( gameMode === 'campaign' ) incrementCampaignProgress( 'customize-car' );
 
