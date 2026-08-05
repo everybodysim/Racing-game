@@ -1,13 +1,22 @@
 import * as THREE from 'three';
 
-const POOL_SIZE = 64;
+const DEFAULT_POOL_SIZE = 64;
 const _worldPos = new THREE.Vector3();
+const DEFAULT_PARTICLE_COLOR = new THREE.Color( 0x5E5F6B );
+const BOOST_PARTICLE_COLORS = [
+	new THREE.Color( 0xff4b1f ),
+	new THREE.Color( 0xff9f1c ),
+];
 
 export class SmokeTrails {
 
-	constructor( scene ) {
+	constructor( scene, options = {} ) {
 
+		this.scene = scene;
 		this.particles = [];
+		this.maxParticles = Math.max( 1, Math.floor( Number( options.maxParticles ) || DEFAULT_POOL_SIZE ) );
+		this.emissionStride = Math.max( 1, Math.floor( Number( options.emissionStride ) || 1 ) );
+		this.emitFrame = 0;
 
 		const map = new THREE.TextureLoader().load( 'sprites/smoke.png' );
 		this.material = new THREE.SpriteMaterial( {
@@ -18,36 +27,68 @@ export class SmokeTrails {
 			color: 0x5E5F6B,
 		} );
 
-		for ( let i = 0; i < POOL_SIZE; i ++ ) {
-
-			const sprite = new THREE.Sprite( this.material.clone() );
-			sprite.visible = false;
-			sprite.scale.setScalar( 0.25 );
-			scene.add( sprite );
-
-			this.particles.push( {
-				sprite,
-				life: 0,
-				maxLife: 0,
-				velocity: new THREE.Vector3(),
-				initialScale: 0,
-			} );
-
-		}
+		this.ensurePoolSize( this.maxParticles );
 
 		this.emitIndex = 0;
+		this.boostFxTime = 0;
+
+	}
+
+	createParticle() {
+
+		const sprite = new THREE.Sprite( this.material.clone() );
+		sprite.visible = false;
+		sprite.scale.setScalar( 0.25 );
+		this.scene.add( sprite );
+
+		return {
+			sprite,
+			life: 0,
+			maxLife: 0,
+			velocity: new THREE.Vector3(),
+			initialScale: 0,
+		};
+
+	}
+
+	ensurePoolSize( size ) {
+
+		while ( this.particles.length < size ) this.particles.push( this.createParticle() );
+
+	}
+
+	setQuality( options = {} ) {
+
+		this.maxParticles = Math.max( 1, Math.floor( Number( options.maxParticles ) || this.maxParticles || DEFAULT_POOL_SIZE ) );
+		this.emissionStride = Math.max( 1, Math.floor( Number( options.emissionStride ) || this.emissionStride || 1 ) );
+		this.ensurePoolSize( this.maxParticles );
+		if ( this.emitIndex >= this.maxParticles ) this.emitIndex = 0;
+		for ( let i = this.maxParticles; i < this.particles.length; i ++ ) {
+
+			this.particles[ i ].life = 0;
+			this.particles[ i ].sprite.visible = false;
+
+		}
 
 	}
 
 	update( dt, vehicle ) {
 
-		const shouldEmit = vehicle.driftIntensity > 0.25;
+		this.boostFxTime = Math.max( 0, this.boostFxTime - dt );
+		const boostActive = this.boostFxTime > 0;
+		const speedRatio = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed || 0 ) / Math.max( 0.01, vehicle.topSpeed || 1 ), 0, 1.7 );
+		const shouldEmit = boostActive || ( speedRatio > 0.25 && vehicle.driftIntensity > 0.62 );
 
 		// Emit new particles from back wheel positions
 		if ( shouldEmit ) {
 
-			if ( vehicle.wheelBL ) this.emitAtWheel( vehicle.wheelBL, vehicle );
-			if ( vehicle.wheelBR ) this.emitAtWheel( vehicle.wheelBR, vehicle );
+			this.emitFrame = ( this.emitFrame + 1 ) % this.emissionStride;
+			if ( this.emitFrame === 0 ) {
+
+				if ( vehicle.wheelBL ) this.emitAtWheel( vehicle.wheelBL, vehicle, boostActive );
+				if ( vehicle.wheelBR ) this.emitAtWheel( vehicle.wheelBR, vehicle, boostActive );
+
+			}
 
 		}
 
@@ -95,10 +136,17 @@ export class SmokeTrails {
 
 	}
 
-	emitAtWheel( wheel, vehicle ) {
+	triggerBoostFx( duration = 1 ) {
 
-		const p = this.particles[ this.emitIndex ];
-		this.emitIndex = ( this.emitIndex + 1 ) % POOL_SIZE;
+		this.boostFxTime = Math.max( this.boostFxTime, duration );
+
+	}
+
+	emitAtWheel( wheel, vehicle, boostActive = false ) {
+
+		const poolSize = Math.max( 1, Math.min( this.maxParticles, this.particles.length ) );
+		const p = this.particles[ this.emitIndex % poolSize ];
+		this.emitIndex = ( this.emitIndex + 1 ) % poolSize;
 
 		// Get wheel world position, but use road surface Y
 		wheel.getWorldPosition( _worldPos );
@@ -107,20 +155,27 @@ export class SmokeTrails {
 		p.sprite.position.copy( _worldPos );
 		p.sprite.visible = true;
 		p.sprite.material.opacity = 0;
+		const particleColor = boostActive
+			? BOOST_PARTICLE_COLORS[ Math.random() < 0.5 ? 0 : 1 ]
+			: DEFAULT_PARTICLE_COLOR;
+		p.sprite.material.color.copy( particleColor );
+
+		const speedRatio = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed || 0 ) / Math.max( 0.01, vehicle.topSpeed || 1 ), 0, 1.7 );
 
 		// Godot: scale_min = 0.25, scale_max = 0.5
-		p.initialScale = 0.25 + Math.random() * 0.25;
+		p.initialScale = 0.24 + Math.random() * 0.24 + ( speedRatio * 0.08 );
 		p.sprite.scale.setScalar( p.initialScale * 0.5 );
 
 		// Godot: no gravity, damping = 1.0 — minimal velocity
+		const driftPush = THREE.MathUtils.clamp( vehicle.driftIntensity || 0, 0, 1 );
 		p.velocity.set(
-			( Math.random() - 0.5 ) * 0.2,
-			Math.random() * 0.1,
-			( Math.random() - 0.5 ) * 0.2
+			( Math.random() - 0.5 ) * ( 0.2 + speedRatio * 0.12 ),
+			Math.random() * ( 0.1 + speedRatio * 0.05 ),
+			( Math.random() - 0.5 ) * ( 0.2 + driftPush * 0.2 )
 		);
 
-		// Godot: lifetime = 0.5
-		p.maxLife = 0.5;
+		// Slightly longer at high speed for more readable trails
+		p.maxLife = 0.42 + ( speedRatio * 0.12 );
 		p.life = p.maxLife;
 
 	}

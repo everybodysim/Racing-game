@@ -2,12 +2,18 @@ import * as THREE from 'three';
 import { rigidBody, box, sphere, MotionType, MotionQuality } from 'crashcat';
 import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
 
-const _debugMat = new THREE.MeshBasicMaterial( { color: 0x00ff00, wireframe: true } );
+const _debugMat = new THREE.MeshBasicMaterial( {
+	color: 0x0b2f75,
+	transparent: true,
+	opacity: 0.34,
+	depthWrite: false,
+} );
 
 function addDebugBox( group, halfExtents, position, quaternion ) {
 
 	const geo = new THREE.BoxGeometry( halfExtents[ 0 ] * 2, halfExtents[ 1 ] * 2, halfExtents[ 2 ] * 2 );
 	const mesh = new THREE.Mesh( geo, _debugMat );
+	mesh.userData.isHackHitboxDebug = true;
 	mesh.position.set( position[ 0 ], position[ 1 ], position[ 2 ] );
 	if ( quaternion ) mesh.quaternion.set( quaternion[ 0 ], quaternion[ 1 ], quaternion[ 2 ], quaternion[ 3 ] );
 	group.add( mesh );
@@ -18,25 +24,56 @@ function addDebugSphere( group, radius, position ) {
 
 	const geo = new THREE.SphereGeometry( radius, 16, 12 );
 	const mesh = new THREE.Mesh( geo, _debugMat );
+	mesh.userData.isHackHitboxDebug = true;
 	mesh.position.set( position[ 0 ], position[ 1 ], position[ 2 ] );
 	group.add( mesh );
 
 }
 
-export function buildWallColliders( world, debugGroup, customCells ) {
+export function buildWallColliders( world, debugGroup, customCells, extras = null ) {
 
 	const S = GRID_SCALE;
 	const CELL_HALF = CELL_RAW / 2;
 
 	const WALL_HALF_THICK = 0.25;
 	const WALL_X = 4.75;
-	const WALL_HALF_H = 1.5;
+	const WALL_HALF_H = 0.45;
 
 	const wallY = ( 0.5 + WALL_HALF_H ) * S - 0.5;
 	const hThick = WALL_HALF_THICK * S;
 	const hHeight = WALL_HALF_H * S;
 	const hLen = CELL_HALF * S;
 	const groundY = - 0.125;
+	const jumpRampHalfExtents = [ CELL_HALF * S * 0.36, 0.26 * S, CELL_HALF * S * 0.44 ];
+	const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
+	const JUMP_RAMP_SINK = 0.14;
+	const ELEVATED_HEIGHT = CELL_RAW * 0.5 * S;
+	const SUPPORT_SINK = 0.03 * S;
+	const SUPPORT_HALF_HEIGHT = CELL_HALF * 0.85 * S;
+	const SUPPORT_HALF_EXTENTS = [ CELL_HALF * S, SUPPORT_HALF_HEIGHT, CELL_HALF * S ];
+	const MAGNET_HALF_SIZE = CELL_RAW * S * 0.08;
+	const MAGNET_BASE_Y = ( CELL_RAW * S * 0.08 ) - 0.06;
+	const ELEVATED_SURFACE_HALF_H = 0.12 * S;
+	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S * 1.08;
+	const FLAT_ELEVATED_SURFACE_DROP = 0.06;
+	const SLOPE_SURFACE_DROP = 0.4;
+	const SLOPE_TOP_BLEND_RAISE = 0.05;
+	const SLOPE_LOWER_EDGE_SHIFT = CELL_RAW * S * 0.12;
+	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
+	const ELEVATED_WALL_HALF_H = WALL_HALF_H * S;
+	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
+	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT - FLAT_ELEVATED_SURFACE_DROP;
+	const slopeAngle = Math.atan2( CELL_RAW * 0.5, CELL_RAW );
+	const baseSlopeCenterY = groundY + ( ELEVATED_HEIGHT * 0.5 ) - SLOPE_SURFACE_DROP;
+	const slopeNormalYOffset = Math.cos( slopeAngle ) * ELEVATED_SURFACE_HALF_H;
+	const baseSlopeForwardYOffset = Math.sin( slopeAngle ) * ELEVATED_SURFACE_HALF_XZ;
+	const slopeBottomY = baseSlopeCenterY - baseSlopeForwardYOffset - slopeNormalYOffset;
+	const elevatedSurfaceTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H + SLOPE_TOP_BLEND_RAISE;
+	const slopeTargetCenterY = ( elevatedSurfaceTopY + slopeBottomY ) * 0.5;
+	const slopeTargetHalfLen = Math.max(
+		ELEVATED_SURFACE_HALF_XZ,
+		( ( elevatedSurfaceTopY - slopeBottomY ) * 0.5 - slopeNormalYOffset ) / Math.sin( slopeAngle )
+	);
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
 	const BUMP_RADIUS = 7.5 * S;
@@ -53,15 +90,15 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 	const INNER_SEG = 3;
 	const INNER_SEG_HALF_LEN = ( INNER_R * ( Math.PI / 2 ) / INNER_SEG / 2 ) * S;
 
-	function addArcWall( wcx, wcz, arcStart, radius, numSeg, segHalfLen ) {
+	function addArcWall( wcx, wcz, arcStart, radius, numSeg, segHalfLen, centerY = wallY, wallHalfHeight = hHeight ) {
 
 		for ( let i = 0; i < numSeg; i ++ ) {
 
 			const aMid = arcStart + ( ( i + 0.5 ) / numSeg ) * ARC_SPAN;
-			const halfExtents = [ hThick, hHeight, segHalfLen ];
+			const halfExtents = [ hThick, wallHalfHeight, segHalfLen ];
 			const position = [
 				wcx + radius * Math.cos( aMid ) * S,
-				wallY,
+				centerY,
 				wcz + radius * Math.sin( aMid ) * S
 			];
 			const quaternion = [ 0, Math.sin( - aMid / 2 ), 0, Math.cos( - aMid / 2 ) ];
@@ -73,7 +110,7 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 				position,
 				quaternion,
 				friction: 0.0,
-				restitution: 0.1,
+				restitution: 0.0,
 			} );
 
 			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
@@ -82,7 +119,463 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 
 	}
 
+	function addJumpRampCollider( gx, gz, orient = 0, yOffset = 0 ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const yaw = deg * Math.PI / 180;
+		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( - JUMP_RAMP_ANGLE, yaw, 0, 'YXZ' ) );
+		const position = [ cx, groundY - JUMP_RAMP_SINK + yOffset, cz ];
+		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
+
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: jumpRampHalfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			quaternion,
+			friction: 1.0,
+			restitution: 0.0,
+		} );
+
+		if ( debugGroup ) addDebugBox( debugGroup, jumpRampHalfExtents, position, quaternion );
+
+	}
+
+	function addElevatedSupportCollider( gx, gz ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const supportTopY = groundY + ( CELL_HALF * S ) - SUPPORT_SINK - 0.12;
+		const position = [ cx, supportTopY - SUPPORT_HALF_EXTENTS[ 1 ], cz ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: SUPPORT_HALF_EXTENTS } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 0.95,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, SUPPORT_HALF_EXTENTS, position );
+
+	}
+
+	function addElevatedRoadWalls( gx, gz, orient = 0, centerY = elevatedWallY, wallHalfHeight = ELEVATED_WALL_HALF_H ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const rad = deg * Math.PI / 180;
+		const cr = Math.cos( rad ), sr = Math.sin( rad );
+		for ( const side of [ - 1, 1 ] ) {
+
+			const lx = side * WALL_X;
+			const wx = cx + ( lx * cr ) * S;
+			const wz = cz + ( - lx * sr ) * S;
+			const halfExtents = [ hThick, wallHalfHeight, hLen ];
+			const position = [ wx, centerY, wz ];
+			const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				quaternion,
+				friction: 0.0,
+				restitution: 0.0,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+		}
+
+	}
+
+	function addElevatedCornerWalls( gx, gz, orient = 0, centerY = elevatedWallY, wallHalfHeight = ELEVATED_WALL_HALF_H ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const rad = deg * Math.PI / 180;
+		const cr = Math.cos( rad ), sr = Math.sin( rad );
+		const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S;
+		const wcz = cz + ( - ARC_CENTER_X * sr + ARC_CENTER_Z * cr ) * S;
+		const arcStart = - rad;
+		for ( const [ radius, segCount, segHalfLen ] of [ [ OUTER_R, OUTER_SEG, OUTER_SEG_HALF_LEN ], [ INNER_R, INNER_SEG, INNER_SEG_HALF_LEN ] ] ) {
+
+			for ( let i = 0; i < segCount; i ++ ) {
+
+				const aMid = arcStart + ( ( i + 0.5 ) / segCount ) * ARC_SPAN;
+				const halfExtents = [ hThick, wallHalfHeight, segHalfLen ];
+				const position = [ wcx + radius * Math.cos( aMid ) * S, centerY, wcz + radius * Math.sin( aMid ) * S ];
+				const quaternion = [ 0, Math.sin( - aMid / 2 ), 0, Math.cos( - aMid / 2 ) ];
+				rigidBody.create( world, {
+					shape: box.create( { halfExtents } ),
+					motionType: MotionType.STATIC,
+					objectLayer: world._OL_STATIC,
+					position,
+					quaternion,
+					friction: 0.0,
+					restitution: 0.0,
+				} );
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			}
+
+		}
+
+	}
+
+	function addSlopeSideWalls( gx, gz, orient = 0 ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+		const pitch = slopeAngle;
+		const shiftX = Math.sin( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
+		const shiftZ = Math.cos( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
+		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( pitch, yaw, 0, 'YXZ' ) );
+		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
+
+		for ( const side of [ - 1, 1 ] ) {
+
+			const localX = side * WALL_X * S;
+			const offsetX = localX * Math.cos( yaw );
+			const offsetZ = - localX * Math.sin( yaw );
+			const halfExtents = [ hThick, ELEVATED_WALL_HALF_H, slopeTargetHalfLen ];
+			const position = [ cx + shiftX + offsetX, slopeTargetCenterY, cz + shiftZ + offsetZ ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				quaternion,
+				friction: 0.0,
+				restitution: 0.0,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+		}
+
+	}
+
+	function addSlopeCollider( gx, gz, orient = 0, up = true ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+		const shiftX = Math.sin( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
+		const shiftZ = Math.cos( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
+		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( up ? slopeAngle : - slopeAngle, yaw, 0, 'YXZ' ) );
+		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, slopeTargetHalfLen ];
+		const position = [ cx + shiftX, slopeTargetCenterY, cz + shiftZ ];
+		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			quaternion,
+			friction: 1.0,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+		addSlopeSideWalls( gx, gz, orient );
+
+	}
+
+	function addMergedElevatedSurfaceColliders( elevatedList ) {
+
+		const flatSet = new Set();
+		for ( const entry of elevatedList ) {
+
+			if ( ! Array.isArray( entry ) ) continue;
+			const [ gxRaw, gzRaw, elevatedType ] = entry;
+			const gx = Number( gxRaw );
+			const gz = Number( gzRaw );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-checkpoint' ) continue;
+			flatSet.add( `${ gx },${ gz }` );
+
+		}
+
+		if ( flatSet.size === 0 ) return;
+
+		const rows = new Map();
+		for ( const cellKey of flatSet ) {
+
+			const [ gx, gz ] = cellKey.split( ',' ).map( Number );
+			if ( ! rows.has( gz ) ) rows.set( gz, [] );
+			rows.get( gz ).push( gx );
+
+		}
+
+		const rowKeys = [ ...rows.keys() ].sort( ( a, b ) => a - b );
+		const activeRects = new Map();
+		const finishedRects = [];
+
+		for ( const gz of rowKeys ) {
+
+			const xs = rows.get( gz ).sort( ( a, b ) => a - b );
+			const spans = [];
+			let start = xs[ 0 ];
+			let prev = xs[ 0 ];
+			for ( let i = 1; i < xs.length; i ++ ) {
+
+				const x = xs[ i ];
+				if ( x === prev + 1 ) {
+
+					prev = x;
+					continue;
+
+				}
+				spans.push( [ start, prev ] );
+				start = x;
+				prev = x;
+
+			}
+			spans.push( [ start, prev ] );
+
+			const nextActive = new Map();
+			for ( const [ spanStart, spanEnd ] of spans ) {
+
+				const spanKey = `${ spanStart },${ spanEnd }`;
+				const existing = activeRects.get( spanKey );
+				if ( existing ) {
+
+					existing.maxZ = gz;
+					nextActive.set( spanKey, existing );
+
+				} else {
+
+					nextActive.set( spanKey, { minX: spanStart, maxX: spanEnd, minZ: gz, maxZ: gz } );
+
+				}
+
+			}
+
+			for ( const [ spanKey, rect ] of activeRects ) {
+
+				if ( ! nextActive.has( spanKey ) ) finishedRects.push( rect );
+
+			}
+
+			activeRects.clear();
+			for ( const [ spanKey, rect ] of nextActive ) activeRects.set( spanKey, rect );
+
+		}
+
+		for ( const rect of activeRects.values() ) finishedRects.push( rect );
+
+		const edgeOverhang = CELL_RAW * S * 0.16;
+		for ( const rect of finishedRects ) {
+
+			const spanCellsX = rect.maxX - rect.minX + 1;
+			const spanCellsZ = rect.maxZ - rect.minZ + 1;
+			const fullX = spanCellsX * CELL_RAW * S + edgeOverhang;
+			const fullZ = spanCellsZ * CELL_RAW * S + edgeOverhang;
+			const halfExtents = [ fullX * 0.5, ELEVATED_SURFACE_HALF_H, fullZ * 0.5 ];
+			const centerX = ( ( rect.minX + rect.maxX + 1 ) * 0.5 ) * CELL_RAW * S;
+			const centerZ = ( ( rect.minZ + rect.maxZ + 1 ) * 0.5 ) * CELL_RAW * S;
+			const position = [ centerX, elevatedSurfaceY, centerZ ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				friction: 1.0,
+				restitution: 0.0,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+		}
+
+	}
+
+
 	const cells = customCells || TRACK_CELLS;
+	const bumpSet = new Set();
+	const poleSet = new Set();
+	const cubeSet = new Set();
+	const wallMap = new Map();
+	const jumpMap = new Map();
+	const magnetEntries = extras && Array.isArray( extras.magnets ) ? extras.magnets : [];
+	const elevatedEntries = extras && Array.isArray( extras.elevated ) ? extras.elevated : [];
+	const waterEntries = extras && Array.isArray( extras.water ) ? extras.water : [];
+	const elevatedMap = new Map();
+	const customAssetColliders = extras?.customAssets && typeof extras.customAssets === 'object' ? extras.customAssets : {};
+	const decorationEntries = extras && Array.isArray( extras.decorations ) ? extras.decorations : [];
+	if ( extras && Array.isArray( extras.bumps ) ) {
+
+		for ( const [ gx, gz ] of extras.bumps ) bumpSet.add( gx + ',' + gz );
+
+	}
+	if ( extras && Array.isArray( extras.poles ) ) {
+
+		for ( const [ gx, gz ] of extras.poles ) poleSet.add( `${ gx },${ gz }` );
+
+	}
+	if ( extras && Array.isArray( extras.cubes ) ) {
+
+		for ( const [ gx, gz ] of extras.cubes ) cubeSet.add( `${ gx },${ gz }` );
+
+	}
+	if ( extras && Array.isArray( extras.walls ) ) {
+
+		for ( const [ gx, gz, orient = 0 ] of extras.walls ) wallMap.set( `${ gx },${ gz }`, orient );
+
+	}
+	if ( extras && Array.isArray( extras.jumps ) ) {
+
+		for ( const [ gx, gz, orient = 0 ] of extras.jumps ) jumpMap.set( gx + ',' + gz, orient );
+
+	}
+	for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedEntries ) {
+
+		const key = `${ gx },${ gz }`;
+		if ( elevatedType === 'slope-down' ) elevatedMap.set( key, { type: 'slope-up', orient: ORIENT_180[ orient ] ?? orient } );
+		else elevatedMap.set( key, { type: elevatedType, orient } );
+
+	}
+
+	const waterSet = new Set( waterEntries.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+	const WATER_BEVEL_ANGLE = THREE.MathUtils.degToRad( 1.6 );
+	for ( const [ gx, gz ] of waterEntries ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const floorHalfExtents = [ CELL_HALF * S, 0.04 * S, CELL_HALF * S ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: floorHalfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: [ cx, groundY - CELL_RAW * S * 0.34, cz ],
+			friction: 0.25,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, floorHalfExtents, [ cx, groundY - CELL_RAW * S * 0.34, cz ] );
+		const sides = [ [ 0, - 1, 0, - CELL_HALF * S, 0 ], [ 1, 0, CELL_HALF * S, 0, Math.PI / 2 ], [ 0, 1, 0, CELL_HALF * S, 0 ], [ - 1, 0, - CELL_HALF * S, 0, Math.PI / 2 ] ];
+		for ( const [ dx, dz, ox, oz, yaw ] of sides ) {
+			if ( waterSet.has( `${ gx + dx },${ gz + dz }` ) ) continue;
+			const halfExtents = [ CELL_HALF * S, CELL_RAW * S * 0.19, CELL_RAW * S * 0.04 ];
+			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
+			const position = [ cx + ox, groundY - CELL_RAW * S * 0.16, cz + oz ];
+			rigidBody.create( world, { shape: box.create( { halfExtents } ), motionType: MotionType.STATIC, objectLayer: world._OL_STATIC, position, quaternion, friction: 0.9, restitution: 0.0 } );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			const bevelHalfExtents = [ CELL_HALF * S, 0.012 * S, CELL_RAW * S * 0.09 ];
+			const bevelPitch = ( dx !== 0 ? - dx : dz ) * WATER_BEVEL_ANGLE;
+			const bevelQuatThree = new THREE.Quaternion().setFromEuler( new THREE.Euler( bevelPitch, yaw, 0, 'YXZ' ) );
+			const bevelQuaternion = [ bevelQuatThree.x, bevelQuatThree.y, bevelQuatThree.z, bevelQuatThree.w ];
+			const bevelInset = CELL_RAW * S * 0.075;
+			const bevelPosition = [ cx + ox - dx * bevelInset, groundY + 0.015, cz + oz - dz * bevelInset ];
+			rigidBody.create( world, { shape: box.create( { halfExtents: bevelHalfExtents } ), motionType: MotionType.STATIC, objectLayer: world._OL_STATIC, position: bevelPosition, quaternion: bevelQuaternion, friction: 0.85, restitution: 0.0 } );
+			if ( debugGroup ) addDebugBox( debugGroup, bevelHalfExtents, bevelPosition, bevelQuaternion );
+		}
+
+	}
+
+	function getOverlayHeightOffset( gx, gz ) {
+
+		const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
+		if ( ! elevatedEntry ) return 0;
+		return elevatedEntry.type === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
+
+	}
+
+	for ( const poleKey of poleSet ) {
+
+		const [ gxRaw, gzRaw ] = poleKey.split( ',' );
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const poleRadius = CELL_RAW * S * 0.08;
+		const poleRise = CELL_RAW * S * 0.065;
+		const position = [ cx, groundY + poleRise + getOverlayHeightOffset( gx, gz ), cz ];
+
+		rigidBody.create( world, {
+			shape: sphere.create( { radius: poleRadius } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 1.0,
+			restitution: 0.02,
+		} );
+		if ( debugGroup ) addDebugSphere( debugGroup, poleRadius, position );
+
+	}
+
+	for ( const cubeKey of cubeSet ) {
+
+		const [ gxRaw, gzRaw ] = cubeKey.split( ',' );
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const halfExtents = [ CELL_RAW * S * 0.08, CELL_RAW * S * 0.08, CELL_RAW * S * 0.08 ];
+		const position = [ cx, groundY + halfExtents[ 1 ] + getOverlayHeightOffset( gx, gz ), cz ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 0.9,
+			restitution: 0.02,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+	}
+
+	for ( const [ gxRaw, gzRaw, yGridRaw ] of magnetEntries ) {
+
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const yGrid = THREE.MathUtils.clamp( Number( yGridRaw ) || 0, - 1, 3 );
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const halfExtents = [ MAGNET_HALF_SIZE, MAGNET_HALF_SIZE, MAGNET_HALF_SIZE ];
+		const position = [ cx, groundY + MAGNET_BASE_Y + yGrid * CELL_RAW * S, cz ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 0.8,
+			restitution: 0.02,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position );
+
+	}
+
+	for ( const [ wallKey, orient ] of wallMap ) {
+
+		const [ gxRaw, gzRaw ] = wallKey.split( ',' );
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const halfExtents = [ CELL_RAW * S * 0.31, CELL_RAW * S * 0.075, CELL_RAW * S * 0.04 ];
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+		const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
+		const position = [ cx, groundY + halfExtents[ 1 ] + getOverlayHeightOffset( gx, gz ), cz ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			quaternion,
+			friction: 0.9,
+			restitution: 0.01,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+	}
+
 
 	for ( const [ gx, gz, key, orient ] of cells ) {
 
@@ -93,9 +586,21 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 		const rad = deg * Math.PI / 180;
 		const cr = Math.cos( rad ), sr = Math.sin( rad );
 
-		if ( key === 'track-bump' ) {
+		const hasBump = key === 'track-bump' || bumpSet.has( gx + ',' + gz );
+		if ( hasBump ) bumpSet.delete( gx + ',' + gz );
+		const jumpKey = gx + ',' + gz;
+		if ( jumpMap.has( jumpKey ) ) {
 
-			const position = [ cx, bumpY, cz ];
+			addJumpRampCollider( gx, gz, jumpMap.get( jumpKey ), getOverlayHeightOffset( gx, gz ) );
+			jumpMap.delete( jumpKey );
+
+		}
+
+		const baseKey = key === 'track-bump' ? 'track-straight' : key;
+
+		if ( hasBump ) {
+
+			const position = [ cx, bumpY + getOverlayHeightOffset( gx, gz ), cz ];
 
 			rigidBody.create( world, {
 				shape: sphere.create( { radius: BUMP_RADIUS } ),
@@ -108,7 +613,9 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 
 			if ( debugGroup ) addDebugSphere( debugGroup, BUMP_RADIUS, position );
 
-		} else if ( key === 'track-straight' || key === 'track-finish' ) {
+		}
+
+		if ( baseKey === 'track-straight' || baseKey === 'track-finish' || baseKey === 'track-checkpoint' || baseKey === 'track-start' || baseKey === 'track-start-finish' ) {
 
 			for ( const side of [ - 1, 1 ] ) {
 
@@ -126,14 +633,14 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 					position,
 					quaternion,
 					friction: 0.0,
-					restitution: 0.1,
+					restitution: 0.0,
 				} );
 
 				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
 			}
 
-		} else if ( key === 'track-corner' ) {
+		} else if ( baseKey === 'track-corner' ) {
 
 			const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S;
 			const wcz = cz + ( - ARC_CENTER_X * sr + ARC_CENTER_Z * cr ) * S;
@@ -145,6 +652,106 @@ export function buildWallColliders( world, debugGroup, customCells ) {
 		}
 
 	}
+
+	// Add bump colliders that were placed on empty/grass cells (no base track tile in map data)
+	for ( const key of bumpSet ) {
+
+		const [ gx, gz ] = key.split( ',' ).map( Number );
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const position = [ cx, bumpY + getOverlayHeightOffset( gx, gz ), cz ];
+
+		rigidBody.create( world, {
+			shape: sphere.create( { radius: BUMP_RADIUS } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			friction: 3.0,
+			restitution: 0.0,
+		} );
+
+		if ( debugGroup ) addDebugSphere( debugGroup, BUMP_RADIUS, position );
+
+	}
+
+	for ( const [ key, orient ] of jumpMap ) {
+
+		const [ gx, gz ] = key.split( ',' ).map( Number );
+		addJumpRampCollider( gx, gz, orient, getOverlayHeightOffset( gx, gz ) );
+
+	}
+
+	addMergedElevatedSurfaceColliders( elevatedEntries );
+
+	for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedEntries ) {
+
+		if ( ! Number.isFinite( Number( gx ) ) || ! Number.isFinite( Number( gz ) ) ) continue;
+		const normalizedType = elevatedType === 'slope-down' ? 'slope-up' : elevatedType;
+		const normalizedOrient = elevatedType === 'slope-down' ? ( ORIENT_180[ orient ] ?? orient ) : orient;
+		const nx = Number( gx );
+		const nz = Number( gz );
+		if ( normalizedType !== 'slope-up' ) addElevatedSupportCollider( nx, nz );
+		if ( normalizedType === 'slope-up' ) {
+
+			addSlopeCollider( nx, nz, normalizedOrient, true );
+			continue;
+
+		}
+		if ( normalizedType === 'elevated-straight' || normalizedType === 'elevated-checkpoint' ) {
+
+			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
+			continue;
+
+		}
+		if ( normalizedType === 'elevated-corner' ) {
+
+			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
+
+		}
+
+	}
+
+	for ( const [ gx, gz, decoKey, orient = 0 ] of decorationEntries ) {
+
+		if ( typeof decoKey !== 'string' || ! decoKey.startsWith( 'custom:' ) ) continue;
+		const assetId = decoKey.slice( 'custom:'.length );
+		const colliderBoxes = Array.isArray( customAssetColliders?.[ assetId ]?.colliderBoxes ) ? customAssetColliders[ assetId ].colliderBoxes : [];
+		if ( colliderBoxes.length === 0 ) continue;
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+		const rotQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
+		const cellCenter = new THREE.Vector3( ( gx + 0.5 ) * CELL_RAW * S, 0.01, ( gz + 0.5 ) * CELL_RAW * S );
+		for ( const boxEntry of colliderBoxes.slice( 0, 96 ) ) {
+
+			const localCenter = new THREE.Vector3(
+				Number( boxEntry?.c?.[ 0 ] ) || 0,
+				Number( boxEntry?.c?.[ 1 ] ) || 0,
+				Number( boxEntry?.c?.[ 2 ] ) || 0
+			).multiplyScalar( S );
+			localCenter.applyQuaternion( rotQuat );
+			const worldCenter = cellCenter.clone().add( localCenter );
+			const halfExtents = [
+				Math.max( 0.02, Number( boxEntry?.e?.[ 0 ] ) || 0.02 ) * S,
+				Math.max( 0.02, Number( boxEntry?.e?.[ 1 ] ) || 0.02 ) * S,
+				Math.max( 0.02, Number( boxEntry?.e?.[ 2 ] ) || 0.02 ) * S,
+			];
+			const position = [ worldCenter.x, worldCenter.y, worldCenter.z ];
+			const quaternion = [ rotQuat.x, rotQuat.y, rotQuat.z, rotQuat.w ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				quaternion,
+				friction: 0.7,
+				restitution: 0.05,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+		}
+
+	}
+
+	return [];
 
 }
 

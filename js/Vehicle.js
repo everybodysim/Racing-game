@@ -41,6 +41,7 @@ export class Vehicle {
 
 		this.container = new THREE.Group();
 		this.bodyNode = null;
+		this.modelRoot = null;
 		this.wheels = [];
 		this.wheelFL = null;
 		this.wheelFR = null;
@@ -53,6 +54,28 @@ export class Vehicle {
 		this.driftIntensity = 0;
 		this.spawnPosition = new THREE.Vector3( 3.5, 0.5, 5 );
 		this.spawnAngle = 0;
+		this.topSpeed = 1.0;
+		this.accelRate = 6.0;
+		this.reverseAccelRate = 2.0;
+		this.brakeRate = 8.0;
+		this.driveForce = 100.0;
+		this.gripMultiplier = 1.0;
+		this.dragMultiplier = 1.0;
+		this.accelMultiplier = 1.0;
+		this.driveMultiplier = 1.0;
+		this.slopeTiltPitch = 0;
+		this.slopeTiltRoll = 0;
+
+	}
+
+	setPerformance( perf ) {
+
+		if ( ! perf ) return;
+		this.topSpeed = perf.topSpeed ?? this.topSpeed;
+		this.accelRate = perf.accelRate ?? this.accelRate;
+		this.reverseAccelRate = perf.reverseAccelRate ?? this.reverseAccelRate;
+		this.brakeRate = perf.brakeRate ?? this.brakeRate;
+		this.driveForce = perf.driveForce ?? this.driveForce;
 
 	}
 
@@ -86,9 +109,24 @@ export class Vehicle {
 
 	}
 
-	init( model ) {
+	attachModel( model ) {
+
+		this.wheels = [];
+		this.wheelFL = null;
+		this.wheelFR = null;
+		this.wheelBL = null;
+		this.wheelBR = null;
+		this.bodyNode = null;
+		this.modelRoot = null;
+
+		for ( let i = this.container.children.length - 1; i >= 0; i -- ) {
+
+			this.container.remove( this.container.children[ i ] );
+
+		}
 
 		const vehicleModel = model.clone();
+		this.modelRoot = vehicleModel;
 
 		this.container.add( vehicleModel );
 
@@ -118,10 +156,29 @@ export class Vehicle {
 
 				child.castShadow = true;
 				child.receiveShadow = true;
+				const mat = child.material;
+				if ( mat && mat.isMeshStandardMaterial ) {
+					mat.metalness = Math.max( mat.metalness ?? 0.08, 0.12 );
+					mat.roughness = Math.min( mat.roughness ?? 0.7, 0.56 );
+					mat.envMapIntensity = Math.max( mat.envMapIntensity ?? 1, 1.12 );
+				}
 
 			}
 
 		} );
+
+	}
+
+	init( model ) {
+
+		this.attachModel( model );
+		return this.container;
+
+	}
+
+	setModel( model ) {
+
+		this.attachModel( model );
 
 		return this.container;
 
@@ -135,7 +192,7 @@ export class Vehicle {
 		let direction = Math.sign( this.linearSpeed );
 		if ( direction === 0 ) direction = Math.abs( this.inputZ ) > 0.1 ? Math.sign( this.inputZ ) : 1;
 
-		const steeringGrip = THREE.MathUtils.clamp( Math.abs( this.linearSpeed ), 0.2, 1.0 );
+		const steeringGrip = THREE.MathUtils.clamp( Math.abs( this.linearSpeed ), 0.2, 1.0 ) * this.gripMultiplier;
 
 		const targetAngular = - this.inputX * steeringGrip * 4 * direction;
 		this.angularSpeed = THREE.MathUtils.lerp( this.angularSpeed, targetAngular, dt * 4 );
@@ -151,23 +208,23 @@ export class Vehicle {
 
 		}
 
-		const targetSpeed = this.inputZ;
+		const targetSpeed = this.inputZ * this.topSpeed;
 
 		if ( targetSpeed < 0 && this.linearSpeed > 0.01 ) {
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, 0.0, dt * 8 );
+			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, 0.0, dt * this.brakeRate * this.accelMultiplier );
 
 		} else if ( targetSpeed < 0 ) {
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed / 2, dt * 2 );
+			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed / 2, dt * this.reverseAccelRate * this.accelMultiplier );
 
 		} else {
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed, dt * 6 );
+			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed, dt * this.accelRate * this.accelMultiplier );
 
 		}
 
-		this.linearSpeed *= Math.max( 0, 1 - LINEAR_DAMP * dt );
+		this.linearSpeed *= Math.max( 0, 1 - LINEAR_DAMP * this.dragMultiplier * dt );
 
 		if ( this.rigidBody ) {
 
@@ -180,7 +237,7 @@ export class Vehicle {
 			_right.normalize();
 
 			const angvel = this.rigidBody.motionProperties.angularVelocity;
-			const drive = this.linearSpeed * 100 * dt;
+			const drive = this.linearSpeed * this.driveForce * this.driveMultiplier * dt;
 
 			rigidBody.setAngularVelocity( this.physicsWorld, this.rigidBody, [
 				angvel[ 0 ] + _right.x * drive,
@@ -223,9 +280,40 @@ export class Vehicle {
 
 		this.updateBody( dt );
 		this.updateWheels( dt );
+		this.applySlopeVisualTilt( dt );
 
-		this.driftIntensity = Math.abs( this.linearSpeed - this.acceleration ) +
-			( this.bodyNode ? Math.abs( this.bodyNode.rotation.z ) * 2 : 0 );
+		_forward.set( 0, 0, 1 ).applyQuaternion( this.container.quaternion );
+		_forward.y = 0;
+		_forward.normalize();
+		_right.set( 1, 0, 0 ).applyQuaternion( this.container.quaternion );
+		_right.y = 0;
+		_right.normalize();
+
+		const forwardVelocity = Math.abs( this.modelVelocity.dot( _forward ) );
+		const lateralVelocity = Math.abs( this.modelVelocity.dot( _right ) );
+		const speedForSlip = Math.max( forwardVelocity, Math.abs( this.linearSpeed ) * SPEED_SCALE, 0.01 );
+		const lateralSlip = lateralVelocity / Math.max( speedForSlip, 0.01 );
+		const steeringLoad = Math.abs( this.inputX ) * THREE.MathUtils.clamp( forwardVelocity / Math.max( 0.01, this.topSpeed * SPEED_SCALE ), 0, 1.4 );
+		const throttleLoad = Math.abs( this.inputZ ) > 0.45 ? 0.12 : 0;
+		const bodyRollSlip = this.bodyNode ? Math.max( 0, Math.abs( this.bodyNode.rotation.z ) - 0.08 ) * 1.4 : 0;
+		const targetDriftIntensity = Math.max( 0, lateralSlip * 1.35 + steeringLoad * 0.28 + throttleLoad + bodyRollSlip - 0.28 );
+		this.driftIntensity = THREE.MathUtils.lerp( this.driftIntensity, targetDriftIntensity, Math.min( 1, dt * 8 ) );
+
+	}
+
+	setSlopeVisualTilt( pitch = 0, roll = 0 ) {
+
+		this.slopeTiltPitch = Number.isFinite( pitch ) ? pitch : 0;
+		this.slopeTiltRoll = Number.isFinite( roll ) ? roll : 0;
+
+	}
+
+	applySlopeVisualTilt( dt ) {
+
+		if ( ! this.modelRoot ) return;
+		const blend = 1 - Math.exp( - dt * 10 );
+		this.modelRoot.rotation.x = THREE.MathUtils.lerp( this.modelRoot.rotation.x, this.slopeTiltPitch, blend );
+		this.modelRoot.rotation.z = THREE.MathUtils.lerp( this.modelRoot.rotation.z, this.slopeTiltRoll, blend );
 
 	}
 
@@ -283,3 +371,4 @@ export class Vehicle {
 	}
 
 }
+

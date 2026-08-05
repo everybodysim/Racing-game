@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Skid Circuit — Clubs</title>
+  <style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
+    :root{--bg:#0b1016;--panel:#141b24;--panel2:#1a2431;--text:#e6edf3;--muted:#9fb0c3;--line:#2c3a4d;--accent:#5cc8ff;--ok:#78e08f;--danger:#ff6b6b}
+    body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0b1016,#0d1117);color:var(--text)}
+    .app{display:grid;grid-template-columns:260px 1fr 320px;min-height:100vh}
+    .left,.right,.center{border-right:1px solid var(--line)} .right{border-right:none}
+    .left{background:var(--panel);padding:14px;display:flex;flex-direction:column;gap:10px}
+    .center{background:var(--panel2);display:flex;flex-direction:column}
+    .right{background:var(--panel);padding:12px;overflow:auto}
+    .topbar{display:flex;gap:8px;padding:10px;border-bottom:1px solid var(--line);align-items:center}
+    .btn,input{border:1px solid var(--line);background:#0e151f;color:var(--text);border-radius:8px;padding:8px}
+    .btn{cursor:pointer}.btn:hover{border-color:var(--accent)} .btn.primary{background:#123042}
+    .btn.ok{background:#183524}.btn.danger{background:#3b1d23}
+    .small{font-size:12px;color:var(--muted)}
+    .club-item{width:100%;text-align:left;margin:4px 0}
+    .chat-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:10px;flex:1;min-height:0}
+    .chat-col{display:flex;flex-direction:column;min-height:0}
+    .log{flex:1;min-height:220px;overflow:auto;background:#0b121b;border:1px solid var(--line);border-radius:10px;padding:10px}
+    .msg{display:flex;align-items:flex-start;gap:7px;padding:7px 6px;border-bottom:1px dashed #243244}
+    .msg-user{flex:0 0 auto;max-width:42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 8px;border-radius:9px;border:1px solid rgba(120,245,184,0.45);background:linear-gradient(130deg,rgba(50,72,120,0.72),rgba(48,170,128,0.34));box-shadow:0 0 10px rgba(77,232,152,0.13);color:#f7fbff;font-weight:800;font-size:12px;line-height:1.15}
+    .msg-text{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text);line-height:1.35;padding-top:2px}
+    .controls{display:flex;gap:8px;margin-top:8px}
+    .members{display:flex;flex-wrap:wrap;gap:6px}.tag{background:#0f1824;border:1px solid var(--line);padding:4px 8px;border-radius:999px;font-size:12px}
+    .stack{display:flex;flex-direction:column;gap:8px}
+    @media (max-width:1100px){.app{grid-template-columns:1fr}.left,.right{border-right:none;border-bottom:1px solid var(--line)}}
+  </style>
+<script src="js/PageTransitions.js"></script>
+<link rel="stylesheet" href="ui-theme.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
+<div class="app">
+  <aside class="left">
+    <a class="btn" href="index.html">← Back to game</a>
+    <div class="stack">
+      <div><b>Identity</b></div>
+      <input id="playerName" maxlength="24" placeholder="Account username" disabled>
+      <button class="btn" id="saveName" disabled>Locked</button>
+      <div class="small">Chat username is locked to your signed-in account.</div>
+    </div>
+    <hr style="border-color:var(--line);width:100%">
+    <div><b>Club Browser</b></div>
+    <div class="controls"><button class="btn" id="refreshClubsBtn">Refresh</button><button class="btn" id="newClubFocusBtn">+ New</button></div>
+    <div id="club-list"></div>
+  </aside>
+
+  <main class="center">
+    <div class="topbar">
+      <b id="club-title">No club selected</b>
+      <span class="small" id="club-meta"></span><span class="small" id="ui-status"></span>
+      <button class="btn" id="jumpNormalBtn"># Club chat</button>
+      <button class="btn" id="jumpAnnBtn">📣 Announcements</button>
+    </div>
+    <div style="padding:10px;border-bottom:1px solid var(--line)">
+      <input id="newClubName" placeholder="Create a unique club name"> <button class="btn primary" id="createClubBtn">Create club</button>
+    </div>
+    <div class="chat-wrap">
+      <section class="chat-col">
+        <h3 id="normalHeader"># Club Chat</h3>
+        <div id="chat-log" class="log"></div>
+        <div class="controls"><input id="clubMessageInput" placeholder="Message club" style="flex:1"><button class="btn ok" id="sendClubMsgBtn">Send</button></div>
+      </section>
+      <section class="chat-col">
+        <h3 id="annHeader">📣 Announcements</h3>
+        <div id="ann-log" class="log"></div>
+        <div class="controls"><input id="annMessageInput" placeholder="Owner announcement" style="flex:1"><button class="btn primary" id="sendAnnBtn">Announce</button></div>
+      </section>
+    </div>
+  </main>
+
+  <aside class="right">
+    <h3>Members</h3>
+    <div id="member-list" class="members"></div>
+    <p class="small">Owner controls are hidden if you are not the owner.</p>
+    <div id="owner-tools" style="display:none" class="stack">
+      <h4>Owner controls</h4>
+      <div class="controls"><input id="addMemberInput" placeholder="Add member"><button class="btn ok" id="addMemberBtn">Add</button></div>
+      <div class="controls"><input id="kickMemberInput" placeholder="Kick member"><button class="btn danger" id="kickMemberBtn">Kick</button></div>
+      <div class="controls"><input id="muteMemberInput" placeholder="Mute member"><button class="btn" id="muteMemberBtn">Mute</button></div>
+      <div class="controls"><input id="renameClubInput" placeholder="Rename club"><button class="btn" id="renameClubBtn">Rename</button></div>
+      <div class="controls"><input id="transferOwnerInput" placeholder="Transfer owner"><button class="btn" id="transferOwnerBtn">Transfer</button></div>
+      <button class="btn danger" id="deleteClubBtn">Delete club</button>
+    </div>
+  </aside>
+</div>
+<script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+<script>
+
+const CLUBS_API_BASE='https://racing-clubs-api.ga1010.workers.dev';
+const PLAYER_NAME_KEY='racing-player-name-v1';
+const ably = new Ably.Realtime('kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDmM');
+const channel = ably.channels.get('global-chat');
+function getAccountUsername(){ try{ const raw=localStorage.getItem('racing-account-session-v1'); const parsed=raw?JSON.parse(raw):null; return String(parsed?.username||'').trim(); } catch { return ''; } }
+let me=getAccountUsername();
+function clearClubUnreadForAccount(){
+  const key=`racing-club-unread-v1:${(me||'guest').toLowerCase()}`;
+  try{
+    const parsed=JSON.parse(localStorage.getItem(key)||'{}');
+    localStorage.setItem(key,JSON.stringify({count:0,lastSeenAt:Date.now(),seenKeys:Array.isArray(parsed.seenKeys)?parsed.seenKeys.slice(-250):[]}));
+  }catch{
+    localStorage.setItem(key,JSON.stringify({count:0,lastSeenAt:Date.now(),seenKeys:[]}));
+  }
+}
+clearClubUnreadForAccount();
+let currentClub=null;
+const $=id=>document.getElementById(id);
+$('playerName').value=me||'Not signed in';
+async function ownerAction(path, body){
+  if(!currentClub) return;
+
+  const actor = getAccountUsername();
+  if(!actor){
+    toast('Log in first', true);
+    return;
+  }
+
+  try{
+    await api(`/clubs/${currentClub.clubId}/${path}`,{
+      method:'POST',
+      headers:{
+        'x-actor-username': me
+      },
+      body: JSON.stringify(body)
+    });
+
+    await openClub(currentClub.clubId);
+    toast('Owner action success');
+  }catch(err){
+    toast(err.message || 'Owner action failed', true);
+  }
+}
+
+function parseClubTaggedMessage(text){const v=String(text||'');const o=v.match(/^\[([^\]]+)\]\[owner\]\s+([^:]+):\s([\s\S]*)$/);if(o)return{clubId:o[1],stream:'owner'};const n=v.match(/^\[([^\]]+)\]\s+([^:]+):\s([\s\S]*)$/);if(n)return{clubId:n[1],stream:'normal'};return null;}
+async function api(path,options={}){const res=await fetch(CLUBS_API_BASE+path,{...options,headers:{'content-type':'application/json',...(options.headers||{})}});const json=await res.json();if(!res.ok) throw new Error(json.error||'Request failed');return json;}
+function toast(msg,isErr=false){const el=$('ui-status'); if(!el) return; el.textContent=String(msg||''); el.style.color=isErr?'#ff8b8b':'#9fb0c3'; setTimeout(()=>{ if(el.textContent===String(msg||'')) el.textContent=''; },3500);}
+function renderMembers(list){$('member-list').innerHTML='';(list||[]).forEach(m=>{const s=document.createElement('span');s.className='tag';s.textContent=m;$('member-list').appendChild(s);});}
+function renderLog(id,items){
+  const el=$(id);
+  el.innerHTML='';
+
+  (items||[]).forEach(m=>{
+    const d=document.createElement('div');
+    d.className='msg';
+
+    const name = m.username || 'Unknown';
+    const text = m.content || '';
+
+    const user = document.createElement('span');
+    user.className = 'msg-user';
+    user.textContent = name;
+    const body = document.createElement('span');
+    body.className = 'msg-text';
+    body.textContent = text;
+    d.append(user, body);
+
+    el.appendChild(d);
+  });
+
+  el.scrollTop = el.scrollHeight;
+}
+
+
+async function renderClubs(){const data=await api('/clubs');$('club-list').innerHTML='';(data.clubs||[]).forEach(c=>{const b=document.createElement('button');b.className='btn club-item';b.textContent=`${c.displayName} (${c.members.length})`;b.onclick=()=>openClub(c.clubId);$('club-list').appendChild(b);});}
+async function openClub(clubId){const {club}=await api(`/clubs/${clubId}`);currentClub=club;const isOwner=club.ownerUsername.toLowerCase()===me.toLowerCase();
+const isMember = (club.members || []).some(
+  m => String(m).trim().toLowerCase() === me.trim().toLowerCase()
+);
+
+$('clubMessageInput').disabled = !isMember;
+$('sendClubMsgBtn').disabled = !isMember;$('club-title').textContent=club.displayName;$('club-meta').textContent=`owner: ${club.ownerUsername} · id: ${club.clubId}`;$('owner-tools').style.display=isOwner?'block':'none';$('annMessageInput').disabled=!isOwner;$('sendAnnBtn').disabled=!isOwner;renderMembers(club.members);await renderHistory();}
+async function renderHistory(){
+  if(!currentClub) return;
+
+  const h = await api(`/clubs/${currentClub.clubId}/messages`);
+
+  const normal = [];
+  const ann = [];
+
+  (h.normal || []).forEach(m=>{
+    if((m.content || '').startsWith('[announce]')){
+      ann.push({
+        username: m.username,
+        content: m.content.replace('[announce] ','')
+      });
+    } else {
+      normal.push(m);
+    }
+  });
+
+  renderLog('chat-log', normal);
+  renderLog('ann-log', ann);
+}
+async function sendClub(stream,inputId){
+  if(!currentClub) return;
+
+  const actor = getAccountUsername();
+  if(!actor){
+    toast('Log in first', true);
+    return;
+  }
+
+  const content = $(inputId).value.trim();
+  if(!content) return;
+
+  const isMember = (currentClub.members || [])
+    .some(m => m.toLowerCase() === actor.toLowerCase());
+
+  if(!isMember){
+    toast('You are not a member of this club', true);
+    return;
+  }
+
+  const isAnnounce = stream === 'owner';
+
+  try{
+    await api(`/clubs/${currentClub.clubId}/messages`,{
+      method:'POST',
+      headers:{
+        'x-actor-username': currentClub.ownerUsername
+      },
+      body:JSON.stringify({
+        stream: isAnnounce ? 'normal' : 'normal',
+        username: actor,
+        content: isAnnounce ? `[announce] ${content}` : content
+      })
+    });
+
+    const tag = isAnnounce
+      ? `[${currentClub.clubId}][announce]`
+      : `[${currentClub.clubId}]`;
+
+    channel.publish(
+      'message',
+      `${tag} ${actor}: ${content}`
+    );
+
+    $(inputId).value='';
+    await renderHistory();
+
+  }catch(err){
+    toast(err.message || 'Failed to send message', true);
+  }
+}
+$('saveName').onclick=()=>{};
+$('refreshClubsBtn').onclick=()=>renderClubs();
+$('newClubFocusBtn').onclick=()=>$('newClubName').focus();
+$('createClubBtn').onclick=async()=>{me=getAccountUsername(); if(!me){ alert('Log in to your account to create clubs.'); return; } const name=$('newClubName').value.trim();if(!name)return; try { await api('/clubs',{method:'POST',body:JSON.stringify({displayName:name,ownerUsername:me})}); $('newClubName').value=''; await renderClubs(); toast('Club created'); } catch (err) { toast(err?.message||'Create failed', true); }};
+$('addMemberBtn').onclick=()=>ownerAction('members',{username:$('addMemberInput').value.trim()});
+$('kickMemberBtn').onclick=()=>ownerAction('kick',{username:$('kickMemberInput').value.trim()});
+$('muteMemberBtn').onclick=()=>ownerAction('mute',{username:$('muteMemberInput').value.trim()});
+$('renameClubBtn').onclick=()=>ownerAction('rename',{displayName:$('renameClubInput').value.trim()});
+$('transferOwnerBtn').onclick=()=>ownerAction('transfer',{username:$('transferOwnerInput').value.trim()});
+$('deleteClubBtn').onclick=async()=>{if(!currentClub)return;await api(`/clubs/${currentClub.clubId}`,{method:'DELETE',headers:{'x-actor-username':me}});currentClub=null;$('club-title').textContent='No club selected';$('club-meta').textContent='';$('chat-log').innerHTML='';$('ann-log').innerHTML='';$('member-list').innerHTML='';$('owner-tools').style.display='none';await renderClubs();};
+$('sendClubMsgBtn').onclick=()=>sendClub('normal','clubMessageInput');
+$('sendAnnBtn').onclick=()=>sendClub('owner','annMessageInput');
+$('jumpNormalBtn').onclick=()=>$('normalHeader').scrollIntoView({behavior:'smooth'});
+$('jumpAnnBtn').onclick=()=>$('annHeader').scrollIntoView({behavior:'smooth'});
+channel.subscribe((msg)=>{const p=parseClubTaggedMessage(msg?.data); if(!p||!currentClub||p.clubId!==currentClub.clubId) return; renderHistory();});
+renderClubs();
+</script>
+</main>
+
+<script type="module" src="js/PageMusic.js"></script>
+<script src="js/NavBar.js"></script>
+</body>
+</html>

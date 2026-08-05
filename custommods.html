@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skid Circuit — Custom Mods</title>
+  <script src="https://unpkg.com/blockly/blockly.min.js"></script>
+  <style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
+    body { margin: 0; font-family: Arial, sans-serif; display: flex; flex-direction: column; height: 100vh; background: #0f172a; color: #fff; }
+    #topbar { padding: 10px; background: #111827; color: white; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    #topbar input { padding: 6px 8px; border-radius: 6px; border: 1px solid #334155; background: #020617; color: #fff; }
+    #topbar button { padding: 6px 10px; cursor: pointer; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #fff; }
+    #blocklyDiv { height: calc(100vh - 210px); width: 100%; }
+    #xmlBox { width: 100%; height: 130px; box-sizing: border-box; background: #020617; color: #fff; border: none; border-top: 1px solid #334155; padding: 8px; }
+    a { color: #93c5fd; }
+    #status { margin-left: auto; color: #93c5fd; }
+  </style>
+<script src="js/PageTransitions.js"></script>
+<link rel="stylesheet" href="ui-theme.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
+<div id="topbar">
+  <input id="mod-id" placeholder="mod id (custom-speed)" value="custom-speed">
+  <input id="mod-name" placeholder="mod name" value="Custom Speed">
+  <button id="export-xml" type="button">Export XML</button>
+  <button id="import-xml" type="button">Import XML</button>
+  <button id="export-template" type="button">Generate JS Template</button>
+  <button id="save-draft" type="button">Save Draft</button>
+  <button id="load-draft" type="button">Load Draft</button>
+  <button id="export-share" type="button">Copy Share URL</button>
+  <button id="save-to-manager" type="button">Save to Mod Manager</button>
+  <a href="mods.html">← Back</a>
+  <span id="status">Ready</span>
+</div>
+<div id="blocklyDiv"></div>
+<textarea id="xmlBox" placeholder="Exported XML / generated template appears here..."></textarea>
+
+<xml id="toolbox" style="display:none">
+  <category name="Events" colour="#f59e0b">
+    <block type="event_on_start"></block>
+    <block type="event_on_tick"></block>
+    <block type="event_on_key"></block>
+    <block type="event_on_checkpoint"></block>
+    <block type="event_on_crash"></block>
+    <block type="event_on_lap_finish"></block>
+    <block type="event_on_respawn"></block>
+    <block type="event_on_timer_done"></block>
+  </category>
+  <category name="Vehicle" colour="#06b6d4">
+    <block type="action_set_speed"></block>
+    <block type="action_boost"></block>
+    <block type="action_set_gravity"></block>
+    <block type="action_set_time_scale"></block>
+    <block type="action_set_accel_mult"></block>
+    <block type="action_set_drive_mult"></block>
+    <block type="action_set_grip_mult"></block>
+    <block type="action_force_brake"></block>
+    <block type="action_force_throttle"></block>
+    <block type="action_disable_steering"></block>
+    <block type="action_jump"></block>
+    <block type="action_reset_car"></block>
+  </category>
+  <category name="FX" colour="#0ea5e9">
+    <block type="action_show_message"></block>
+    <block type="action_spawn_particle"></block>
+    <block type="action_camera_shake"></block>
+    <block type="action_set_fog_strength"></block>
+  </category>
+  <category name="Timers & Flow" colour="#14b8a6">
+    <block type="action_start_timer"></block>
+    <block type="action_wait"></block>
+    <block type="action_random_delay"></block>
+  </category>
+  <category name="Variables" colour="#22c55e">
+    <block type="action_var_set"></block>
+    <block type="action_var_add"></block>
+    <block type="value_var_get"></block>
+    <block type="value_speed"></block>
+    <block type="value_lap_time"></block>
+    <block type="value_checkpoint_number"></block>
+    <block type="value_crash_force"></block>
+    <block type="value_random"></block>
+    <block type="math_number"></block>
+    <block type="math_arithmetic"></block>
+  </category>
+  <category name="Logic" colour="#3b82f6">
+    <block type="controls_if"></block>
+    <block type="logic_compare"></block>
+    <block type="logic_operation"></block>
+  </category>
+  <category name="Text" colour="#a855f7">
+    <block type="text"></block>
+  </category>
+</xml>
+
+
+<script type="module" src="js/custom-mods.js"></script>
+</main>
+
+<script type="module" src="js/PageMusic.js"></script>
+<script src="js/NavBar.js"></script>
+</body>
+</html>
