@@ -590,7 +590,31 @@
 		}
 
 		function render() {
+			const hasSearch = ( searchInput?.value || '' ).trim().length > 0;
 			grid.innerHTML = '';
+
+			if ( hasSearch ) {
+				// When searching, hide record board + highlights — only show results
+				if ( recordsBoardList ) recordsBoardList.innerHTML = '';
+				if ( placementRatingList ) placementRatingList.innerHTML = '';
+				if ( featuredTrack ) featuredTrack.innerHTML = '';
+				if ( trendingList ) trendingList.innerHTML = '';
+				if ( newWeekList ) newWeekList.innerHTML = '';
+				if ( topRatedList ) topRatedList.innerHTML = '';
+				if ( fastestRecordsList ) fastestRecordsList.innerHTML = '';
+
+				const filtered = getFilteredEntries();
+				if ( filtered.length === 0 ) {
+					grid.innerHTML = '<div class="card"><h3>No matches</h3><div class="meta">Try a different search or size filter.</div></div>';
+					return;
+				}
+
+				for ( const entry of filtered ) {
+					grid.appendChild( createTrackCard( entry ) );
+				}
+				return;
+			}
+
 			renderRecordBoard();
 			renderHighlights();
 			const filtered = getFilteredEntries();
@@ -783,7 +807,11 @@
 				loadFromHash();
 				hydrateTopLeaderboardRows( entries ).finally( () => render() );
 			} );
-			searchInput.addEventListener( 'input', () => render() );
+			let searchDebounce = null;
+			searchInput.addEventListener( 'input', () => {
+				clearTimeout( searchDebounce );
+				searchDebounce = setTimeout( () => render(), 200 );
+			} );
 			sizeFilter.addEventListener( 'change', () => render() );
 			sortFilter.addEventListener( 'change', () => render() );
 			thumbnailInput.addEventListener( 'change', async () => {
