@@ -1719,10 +1719,6 @@ async function init() {
 	};
 
 	buildTrack( scene, models, customCells, extras );
-
-		hudExtras = new HudExtras( {
-			vehicle, cells: customCells || TRACK_CELLS, camera: cam.camera
-		} );
 	const movingObstacleState = createMovingObstacleState( scene, extras );
 
 
@@ -2842,6 +2838,11 @@ async function init() {
 
 	const cam = new Camera();
 	cam.targetPosition.copy( vehicle.spherePos );
+
+	// ── HUD Extras: speedometer, minimap, shortcuts overlay ──
+	hudExtras = new HudExtras( {
+		vehicle, cells: customCells || TRACK_CELLS, camera: cam.camera
+	} );
 	const cam2 = isSplitScreen ? new Camera() : null;
 	if ( cam2 && vehicle2 ) {
 
