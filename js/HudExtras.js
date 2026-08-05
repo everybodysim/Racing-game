@@ -64,7 +64,7 @@ export class HudExtras {
 				</svg>
 				<div id="speedo-num">0</div>
 			</div>
-			<div id="speedo-label">SPD</div>
+			<div id="speedo-label">MPH</div>
 		`;
 		document.body.appendChild( el );
 		this.speedoEl = el;
@@ -110,26 +110,47 @@ export class HudExtras {
 
 		if ( ! this.speedoEl || ! this.vehicle ) return;
 
-		const speed = Math.abs( this.vehicle.linearSpeed || 0 );
-		const topSpeed = Math.max( 0.01, this.vehicle.topSpeed || 1 );
-		const ratio = Math.min( 1.8, speed / topSpeed );
-		const ratioClamped = Math.min( 1, ratio );
+		// ── Real physical speed ──
+		// modelVelocity is the actual world-space velocity vector (world units / sec).
+		// We take its magnitude and convert to MPH using the track's world scale:
+		//   cellWorld = CELL_RAW * GRID_SCALE = 9.99 * 0.75 = 7.4925 world units per cell
+		//   Assuming each cell ≈ 10 meters (a standard road tile width):
+		//   meters per world unit = 10 / cellWorld
+		//   MPH = (world_units/sec) * (10 / cellWorld) * 2.23694
+		const cellWorld = CELL_RAW * GRID_SCALE; // 7.4925
+		const METERS_PER_CELL = 10;
+		const MS_TO_MPH = 2.23694;
+		const MPH_FACTOR = ( METERS_PER_CELL / cellWorld ) * MS_TO_MPH; // ≈ 2.985
 
-		// Update number (display as integer "speed units")
+		// Use actual measured velocity, fall back to sphereVel if modelVelocity is zero
+		let worldSpeed = 0;
+		if ( this.vehicle.modelVelocity ) {
+			worldSpeed = this.vehicle.modelVelocity.length();
+		} else if ( this.vehicle.sphereVel ) {
+			worldSpeed = this.vehicle.sphereVel.length();
+		}
+
+		const mph = worldSpeed * MPH_FACTOR;
+
+		// Arc max: ~70 MPH covers normal top speed (~42) and boost (~67)
+		const MAX_MPH = 70;
+		const ratio = Math.min( 1, mph / MAX_MPH );
+
+		// Update number (display as integer MPH)
 		if ( this.speedoNumEl ) {
-			this.speedoNumEl.textContent = Math.round( speed * 100 );
+			this.speedoNumEl.textContent = Math.round( mph );
 		}
 
 		// Update arc (263.9 = 2 * PI * 42)
 		if ( this.speedoArcEl ) {
 			const circumference = 263.9;
-			const offset = circumference * ( 1 - ratioClamped );
+			const offset = circumference * ( 1 - ratio );
 			this.speedoArcEl.style.strokeDashoffset = offset.toFixed( 1 );
 
 			// Color shift: green → yellow → orange at high speed
-			if ( ratio > 1.2 ) {
+			if ( mph > 55 ) {
 				this.speedoArcEl.style.stroke = '#ff9f1c';
-			} else if ( ratio > 0.85 ) {
+			} else if ( mph > 35 ) {
 				this.speedoArcEl.style.stroke = '#ffd95a';
 			} else {
 				this.speedoArcEl.style.stroke = '#77f3b1';
