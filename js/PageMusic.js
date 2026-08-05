@@ -1,11 +1,12 @@
 const MENU_MUSIC_SOURCES = [ 'audio/menu.mp3', 'audio/music.mp3' ];
-const MENU_MUSIC_VOLUME = 0.32;
+const MENU_MUSIC_VOLUME = 0.416; // 0.32 × 1.3 — 30% louder, no binary modification
+const AUDIO_CACHE_NAME = 'racing-game-audio-v1';
+
 const pathName = window.location.pathname.split( '/' ).pop() || 'index.html';
 const params = new URLSearchParams( window.location.search );
 const IS_ACTIVE_RACING_INDEX = pathName === 'index.html' && ( params.get( 'play' ) === '1' || params.has( 'map' ) || params.has( 'pack' ) || params.has( 'localPack' ) );
 
 let menuMusic = null;
-let musicButton = null;
 let unlocked = false;
 let primed = false;
 let sourceIndex = 0;
@@ -27,58 +28,45 @@ function addPreloadHint( src = currentSource() ) {
 
 }
 
-function updateButton( playing ) {
+/**
+ * Try to serve the audio file from the Cache API so subsequent page
+ * loads are instant.  On first visit the file is fetched from the
+ * network and stored for next time.  Falls back to the plain URL if
+ * the Cache API is unavailable or the fetch fails.
+ */
+async function getCachedAudioUrl( src ) {
 
-	if ( ! musicButton ) return;
-	musicButton.textContent = playing ? '♪ Music on' : '♪ Play music';
-	musicButton.classList.toggle( 'playing', playing );
+	if ( ! ( 'caches' in window ) ) return src;
 
-}
+	try {
 
-function ensureMusicButton() {
+		const cache = await caches.open( AUDIO_CACHE_NAME );
+		const cached = await cache.match( src );
 
-	if ( IS_ACTIVE_RACING_INDEX || musicButton ) return musicButton;
-	musicButton = document.createElement( 'button' );
-	musicButton.type = 'button';
-	musicButton.id = 'menu-music-toggle';
-	musicButton.textContent = '♪ Play music';
-	musicButton.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:9999;border:1px solid rgba(255,255,255,.28);border-radius:999px;background:rgba(7,12,22,.78);color:#fff;padding:8px 12px;font:800 12px/1 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.26);cursor:pointer;backdrop-filter:blur(8px)';
-	musicButton.addEventListener( 'click', () => {
+		if ( cached ) {
 
-		if ( menuMusic && ! menuMusic.paused ) stopMenuMusic();
-		else unlockMenuMusic();
+			const blob = await cached.blob();
+			return URL.createObjectURL( blob );
 
-	} );
-	document.body.appendChild( musicButton );
-	return musicButton;
+		}
 
-}
+		const response = await fetch( src );
 
-function setSource( src ) {
+		if ( response.ok ) {
 
-	const audio = ensureMenuMusic();
-	if ( audio.getAttribute( 'src' ) === src ) return audio;
-	audio.pause();
-	audio.setAttribute( 'src', src );
-	audio.load();
-	return audio;
+			await cache.put( src, response.clone() );
+			const blob = await response.blob();
+			return URL.createObjectURL( blob );
 
-}
+		}
 
-function tryNextSource() {
+	} catch ( e ) {
 
-	if ( sourceIndex >= MENU_MUSIC_SOURCES.length - 1 ) {
-
-		console.warn( `Menu music could not be loaded from ${ MENU_MUSIC_SOURCES.join( ' or ' ) }. See audio/README.md for asset requirements.` );
-		updateButton( false );
-		return;
+		console.warn( 'Audio cache miss for', src, e );
 
 	}
 
-	sourceIndex ++;
-	addPreloadHint( currentSource() );
-	setSource( currentSource() );
-	if ( unlocked ) playMenuMusic();
+	return src;
 
 }
 
@@ -89,12 +77,37 @@ function ensureMenuMusic() {
 	menuMusic.loop = true;
 	menuMusic.preload = 'auto';
 	menuMusic.volume = MENU_MUSIC_VOLUME;
-	menuMusic.addEventListener( 'playing', () => updateButton( true ) );
-	menuMusic.addEventListener( 'pause', () => updateButton( false ) );
 	menuMusic.addEventListener( 'error', tryNextSource );
-	menuMusic.setAttribute( 'src', currentSource() );
-	menuMusic.load();
 	return menuMusic;
+
+}
+
+function setSource( src ) {
+
+	const audio = ensureMenuMusic();
+	getCachedAudioUrl( src ).then( url => {
+
+		audio.pause();
+		audio.setAttribute( 'src', url );
+		audio.load();
+		if ( unlocked ) playMenuMusic();
+
+	} );
+
+}
+
+function tryNextSource() {
+
+	if ( sourceIndex >= MENU_MUSIC_SOURCES.length - 1 ) {
+
+		console.warn( `Menu music could not be loaded from ${ MENU_MUSIC_SOURCES.join( ' or ' ) }. See audio/README.md for asset requirements.` );
+		return;
+
+	}
+
+	sourceIndex ++;
+	addPreloadHint( currentSource() );
+	setSource( currentSource() );
 
 }
 
@@ -104,8 +117,7 @@ function primeMenuMusic() {
 	primed = true;
 	addPreloadHint( currentSource() );
 	ensureMenuMusic();
-	if ( document.readyState === 'loading' ) document.addEventListener( 'DOMContentLoaded', ensureMusicButton, { once: true } );
-	else ensureMusicButton();
+	setSource( currentSource() );
 
 }
 
@@ -120,7 +132,7 @@ function stopMenuMusic() {
 function playMenuMusic() {
 
 	if ( IS_ACTIVE_RACING_INDEX || document.hidden ) return;
-	ensureMenuMusic().play().then( () => updateButton( true ) ).catch( () => updateButton( false ) );
+	ensureMenuMusic().play().catch( () => {} );
 
 }
 
