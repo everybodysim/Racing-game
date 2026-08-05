@@ -490,31 +490,50 @@ function relayHostPacket( packet, sourcePeerId ) {
 
 function handlePeerPacket( packet, sourcePeerId ) {
 
-	if ( ! packet || typeof packet !== 'object' ) return;
-	const playerId = String( packet.playerId || sourcePeerId || '' );
-	if ( ! playerId || playerId === multiplayerSessionState.clientId ) return;
-	if ( packet.type === PEER_PACKET_LEFT ) {
+	try {
 
-		removeRemotePlayerVisual( playerId );
+		if ( ! packet || typeof packet !== 'object' ) {
+
+			logMpDebug( `[Recv Warn] Ignored invalid packet from ${ sourcePeerId || 'unknown peer' }` );
+			return;
+
+		}
+		const playerId = String( packet.playerId || sourcePeerId || '' );
+		if ( ! playerId ) {
+
+			logMpDebug( `[Recv Warn] Ignored packet without playerId from ${ sourcePeerId || 'unknown peer' }` );
+			return;
+
+		}
+		if ( playerId === multiplayerSessionState.clientId ) return;
+		if ( packet.type === PEER_PACKET_LEFT ) {
+
+			removeRemotePlayerVisual( playerId );
+			relayHostPacket( packet, sourcePeerId );
+			return;
+
+		}
+		if ( packet.type !== PEER_PACKET_STATE ) return;
+		const visualState = ensureRemotePlayerVisualWithCosmetics( playerId, packet.carKey, packet.cosmetics );
+		const isFirstPacket = ! visualState.lastSeenAt;
+		ensureRemoteNameTag( visualState, packet.name || 'Player' );
+		visualState.targetPos.set( Number( packet.x ) || 0, ( Number( packet.y ) || 0 ) - 0.1, Number( packet.z ) || 0 );
+		visualState.targetRotY = Math.PI - ( Number( packet.ry ) || 0 );
+		if ( isFirstPacket ) {
+
+			visualState.mesh.position.copy( visualState.targetPos );
+			visualState.mesh.rotation.y = visualState.targetRotY;
+			logMpDebug( `[PeerJS] Spawned remote vehicle for ${ playerId } (${ visualState.carKey })` );
+
+		}
+		visualState.lastSeenAt = Date.now();
 		relayHostPacket( packet, sourcePeerId );
-		return;
+
+	} catch ( err ) {
+
+		logMpDebug( `[Recv Error] Failed to handle packet from ${ sourcePeerId || 'unknown peer' }: ${ err?.message || err }` );
 
 	}
-	if ( packet.type !== PEER_PACKET_STATE ) return;
-	const visualState = ensureRemotePlayerVisualWithCosmetics( playerId, packet.carKey, packet.cosmetics );
-	const isFirstPacket = ! visualState.lastSeenAt;
-	ensureRemoteNameTag( visualState, packet.name || 'Player' );
-	visualState.targetPos.set( Number( packet.x ) || 0, ( Number( packet.y ) || 0 ) - 0.1, Number( packet.z ) || 0 );
-	visualState.targetRotY = Math.PI - ( Number( packet.ry ) || 0 );
-	if ( isFirstPacket ) {
-
-		visualState.mesh.position.copy( visualState.targetPos );
-		visualState.mesh.rotation.y = visualState.targetRotY;
-		logMpDebug( `[PeerJS] Spawned remote vehicle for ${ playerId } (${ visualState.carKey })` );
-
-	}
-	visualState.lastSeenAt = Date.now();
-	relayHostPacket( packet, sourcePeerId );
 
 }
 
@@ -523,6 +542,24 @@ function registerPeerConnection( connection ) {
 	if ( ! connection ) return;
 	logMpDebug( `[PeerJS] Registered data connection with: ${ connection.peer }` );
 	multiplayerSessionState.connections.set( connection.peer, connection );
+	if ( connection.open ) {
+
+		try {
+
+			connection.send( buildLocalPeerStatePacket() );
+			logMpDebug( `[PeerJS] Sent initial state packet to ${ connection.peer }` );
+
+		} catch ( err ) {
+
+			logMpDebug( `[Send Error] Failed initial state packet to ${ connection.peer }: ${ err?.message || err }` );
+
+		}
+
+	} else {
+
+		logMpDebug( `[Send Warn] Registered data channel to ${ connection.peer } before open (state: ${ connection.readyState })` );
+
+	}
 	connection.on( 'data', ( packet ) => handlePeerPacket( packet, connection.peer ) );
 	connection.on( 'close', () => cleanupPeerConnection( connection.peer ) );
 	connection.on( 'error', ( error ) => {
@@ -606,10 +643,28 @@ function buildLocalPeerStatePacket() {
 function broadcastPeerState() {
 
 	if ( ! multiplayerSessionState.roomCode || ! multiplayerSessionState.peer ) return;
-	const packet = buildLocalPeerStatePacket();
-	for ( const connection of multiplayerSessionState.connections.values() ) {
+	if ( multiplayerSessionState.connections.size === 0 ) return;
 
-		if ( connection?.open ) connection.send( packet );
+	try {
+
+		const packet = buildLocalPeerStatePacket();
+		for ( const [ peerId, connection ] of multiplayerSessionState.connections.entries() ) {
+
+			if ( connection && connection.open ) {
+
+				connection.send( packet );
+
+			} else if ( connection ) {
+
+				logMpDebug( `[Send Warn] Data channel to ${ peerId } not open yet (state: ${ connection.readyState })` );
+
+			}
+
+		}
+
+	} catch ( err ) {
+
+		logMpDebug( `[Send Error] Failed to broadcast packet: ${ err?.message || err }` );
 
 	}
 
