@@ -297,8 +297,7 @@ export class GameAudio {
 		this.skidSound.setPlaybackRate( THREE.MathUtils.lerp( curSkidPitch, skidPitch, 0.1 ) );
 
 	}
-
-	playImpact( impactVelocity ) {
+playImpact( impactVelocity ) {
 
 		if ( ! this.unlocked || this.impactPool.length === 0 ) return;
 
@@ -307,7 +306,8 @@ export class GameAudio {
 
 		if ( sound.isPlaying ) sound.stop();
 
-		const volume = THREE.MathUtils.clamp( remap( impactVelocity, 0, 6, 0.01, 1.0 ), 0.01, 1.0 );
+		// Multiply by 0.25 so the max volume caps at 25% (0.25)
+		const volume = THREE.MathUtils.clamp( remap( impactVelocity, 0, 6, 0.01, 1.0 ), 0.01, 1.0 ) * 0;
 		sound.setVolume( volume );
 		sound.play();
 
