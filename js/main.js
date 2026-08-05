@@ -12,6 +12,7 @@ import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
 import { HudExtras } from './HudExtras.js';
+import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 
 document.title = 'Racing';
@@ -337,6 +338,26 @@ const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
 const INTENSITY_TYPES = new Set( [ 'low', 'medium', 'high' ] );
 const WIND_TYPES = new Set( [ 'none', 'breezy', 'gusty' ] );
 const FIREBASE_ROOM_TIMEOUT_MS = 2200;
+const WEBRTC_SYNC_MS = 33;
+const PEER_ROOM_PREFIX = 'RACE-ROOM-';
+const PEER_PACKET_STATE = 'VEHICLE_STATE';
+const PEER_PACKET_LEFT = 'PLAYER_LEFT';
+const peerConfig = {
+	config: {
+		iceServers: [
+			{ urls: 'stun:stun.l.google.com:19302' },
+			{
+				urls: [
+					'turn:openrelay.metered.ca:80',
+					'turn:openrelay.metered.ca:443',
+					'turn:openrelay.metered.ca:443?transport=tcp',
+				],
+				username: 'openrelay',
+				credential: 'openrelay',
+			},
+		],
+	},
+};
 const LOADING_PROGRESS_BY_STAGE = {
 	boot: 5,
 	models: 28,
@@ -421,6 +442,133 @@ function hasFirebaseMultiplayerConfig() {
 
 }
 
+function getPeerRoomId( roomCode ) {
+
+	return `${ PEER_ROOM_PREFIX }${ String( roomCode || '' ).trim().toUpperCase() }`;
+
+}
+
+function cleanupPeerConnection( peerId ) {
+
+	const connection = multiplayerSessionState.connections.get( peerId );
+	connection?.close?.();
+	multiplayerSessionState.connections.delete( peerId );
+	if ( typeof removeRemotePlayerVisual === 'function' ) removeRemotePlayerVisual( peerId );
+
+}
+
+function closeMultiplayerPeer() {
+
+	for ( const connection of multiplayerSessionState.connections.values() ) {
+
+		try {
+
+			connection.send?.( { type: PEER_PACKET_LEFT, playerId: multiplayerSessionState.clientId } );
+			connection.close?.();
+
+		} catch {}
+
+	}
+	multiplayerSessionState.connections.clear();
+	multiplayerSessionState.peer?.destroy?.();
+	multiplayerSessionState.peer = null;
+
+}
+
+function relayHostPacket( packet, sourcePeerId ) {
+
+	if ( multiplayerSessionState.role !== 'host' ) return;
+	for ( const [ peerId, connection ] of multiplayerSessionState.connections.entries() ) {
+
+		if ( peerId === sourcePeerId || ! connection?.open ) continue;
+		connection.send( packet );
+
+	}
+
+}
+
+function handlePeerPacket( packet, sourcePeerId ) {
+
+	if ( ! packet || typeof packet !== 'object' ) return;
+	const playerId = String( packet.playerId || sourcePeerId || '' );
+	if ( ! playerId || playerId === multiplayerSessionState.clientId ) return;
+	if ( packet.type === PEER_PACKET_LEFT ) {
+
+		removeRemotePlayerVisual( playerId );
+		relayHostPacket( packet, sourcePeerId );
+		return;
+
+	}
+	if ( packet.type !== PEER_PACKET_STATE ) return;
+	const visualState = ensureRemotePlayerVisualWithCosmetics( playerId, packet.carKey, packet.cosmetics );
+	ensureRemoteNameTag( visualState, packet.name || 'Player' );
+	visualState.targetPos.set( Number( packet.x ) || 0, ( Number( packet.y ) || 0 ) - 0.1, Number( packet.z ) || 0 );
+	visualState.targetRotY = Math.PI - ( Number( packet.ry ) || 0 );
+	visualState.lastSeenAt = Date.now();
+	relayHostPacket( packet, sourcePeerId );
+
+}
+
+function registerPeerConnection( connection ) {
+
+	if ( ! connection ) return;
+	multiplayerSessionState.connections.set( connection.peer, connection );
+	connection.on( 'data', ( packet ) => handlePeerPacket( packet, connection.peer ) );
+	connection.on( 'close', () => cleanupPeerConnection( connection.peer ) );
+	connection.on( 'error', () => cleanupPeerConnection( connection.peer ) );
+
+}
+
+function startPeerMultiplayer( roomCode, role ) {
+
+	closeMultiplayerPeer();
+	const peerId = role === 'host' ? getPeerRoomId( roomCode ) : multiplayerSessionState.clientId;
+	const peer = new Peer( peerId, peerConfig );
+	multiplayerSessionState.peer = peer;
+	peer.on( 'open', () => {
+
+		if ( role !== 'host' ) registerPeerConnection( peer.connect( getPeerRoomId( roomCode ), { reliable: false } ) );
+
+	} );
+	peer.on( 'connection', registerPeerConnection );
+	peer.on( 'error', ( error ) => {
+
+		console.warn( 'PeerJS multiplayer error', error );
+		updateMultiplayerStatus( `WebRTC issue for room ${ roomCode }; retry if peers do not appear.` );
+
+	} );
+
+}
+
+function buildLocalPeerStatePacket() {
+
+	return {
+		type: PEER_PACKET_STATE,
+		playerId: multiplayerSessionState.clientId,
+		x: Number( vehicle.container.position.x.toFixed( 3 ) ),
+		y: Number( vehicle.container.position.y.toFixed( 3 ) ),
+		z: Number( vehicle.container.position.z.toFixed( 3 ) ),
+		ry: Number( vehicle.container.rotation.y.toFixed( 4 ) ),
+		carKey: normalizeMultiplayerCarKey( currentCarKey() ),
+		cosmetics: buildGhostCosmeticsSnapshot( currentCarKey() ),
+		name: getLocalMultiplayerDisplayName(),
+		updatedAt: Date.now(),
+	};
+
+}
+
+function broadcastPeerState() {
+
+	if ( ! multiplayerSessionState.roomCode || ! multiplayerSessionState.peer ) return;
+	const packet = buildLocalPeerStatePacket();
+	for ( const connection of multiplayerSessionState.connections.values() ) {
+
+		if ( connection?.open ) connection.send( packet );
+
+	}
+
+}
+
 function updateMultiplayerStatus( text ) {
 
 	const statusEl = document.getElementById( 'mp-status' );
@@ -433,6 +581,8 @@ const multiplayerSessionState = {
 	role: 'none',
 	roomCode: '',
 	clientId: ( globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `p-${ Math.random().toString( 36 ).slice( 2, 10 ) }` ),
+	peer: null,
+	connections: new Map(),
 };
 
 const MULTIPLAYER_ROOM_ROTATE_MS = 120000;
@@ -676,12 +826,8 @@ function initMultiplayerPanel() {
 	const configReady = hasFirebaseMultiplayerConfig();
 	if ( ! configReady ) {
 
-		hostBtn.disabled = true;
-		joinBtn.disabled = true;
-		copyBtn.disabled = true;
-		updateMultiplayerStatus( 'Multiplayer not set up yet. Ask host to add Firebase keys in js/firebase-config.js.' );
+		updateMultiplayerStatus( 'WebRTC multiplayer ready. Firebase leaderboards/map matching are unavailable.' );
 		setMultiplayerLeaderboardVisible( false );
-		return;
 
 	}
 
@@ -694,6 +840,19 @@ function initMultiplayerPanel() {
 		joinBtn.disabled = true;
 		copyBtn.disabled = true;
 		const now = Date.now();
+		if ( ! hasFirebaseMultiplayerConfig() ) {
+
+			updateMultiplayerStatus( `Hosting room ${ code } over WebRTC. Share this code with your friend.` );
+			multiplayerSessionState.role = 'host';
+			multiplayerSessionState.roomCode = code;
+			startPeerMultiplayer( code, 'host' );
+			setMultiplayerLeaderboardVisible( false );
+			hostBtn.disabled = false;
+			joinBtn.disabled = false;
+			copyBtn.disabled = false;
+			return;
+
+		}
 		const roomPayload = {
 			code,
 			mapSignature: getCurrentMapSignature(),
@@ -715,6 +874,7 @@ function initMultiplayerPanel() {
 			updateMultiplayerStatus( `Hosting room ${ code }. Share this code with your friend.` );
 			multiplayerSessionState.role = 'host';
 			multiplayerSessionState.roomCode = code;
+			startPeerMultiplayer( code, 'host' );
 			lastHostRoomRotateAt = Date.now();
 			lastHostRoomMetaSyncAt = 0;
 			setMultiplayerLeaderboardVisible( true );
@@ -757,6 +917,17 @@ function initMultiplayerPanel() {
 		updateMultiplayerStatus( `Trying to join room ${ code }...` );
 		try {
 
+			if ( ! hasFirebaseMultiplayerConfig() ) {
+
+				updateMultiplayerStatus( `Joined room ${ code } over WebRTC.` );
+				multiplayerSessionState.role = 'join';
+				multiplayerSessionState.roomCode = code;
+				startPeerMultiplayer( code, 'join' );
+				setMultiplayerLeaderboardVisible( false );
+				return;
+
+			}
+
 			const room = await firebaseRoomsRequest( code, 'GET' );
 			if ( ! room || typeof room !== 'object' ) {
 
@@ -782,6 +953,7 @@ function initMultiplayerPanel() {
 			updateMultiplayerStatus( `Joined room ${ code }.` );
 			multiplayerSessionState.role = 'join';
 			multiplayerSessionState.roomCode = code;
+			startPeerMultiplayer( code, 'join' );
 			setMultiplayerLeaderboardVisible( true );
 
 		} catch ( error ) {
@@ -2117,7 +2289,7 @@ async function init() {
 
 	function updateRemotePlayerVisualsFrame( dt ) {
 
-		const alpha = THREE.MathUtils.clamp( dt * 10, 0, 1 );
+		const alpha = THREE.MathUtils.clamp( dt * 12, 0, 1 );
 		for ( const state of remotePlayerVisuals.values() ) {
 
 			state.mesh.position.lerp( state.targetPos, alpha );
@@ -2131,7 +2303,7 @@ async function init() {
 	async function syncMultiplayerTransforms( options = {} ) {
 
 		const roomCode = multiplayerSessionState.roomCode;
-		if ( ! roomCode ) return;
+		if ( ! roomCode || ! hasFirebaseMultiplayerConfig() ) return;
 		if ( multiplayerSyncInFlight ) return;
 		const force = Boolean( options?.force );
 		const now = Date.now();
@@ -2241,9 +2413,16 @@ async function init() {
 	}
 
 	setInterval( syncMultiplayerTransforms, REMOTE_SYNC_MS );
+	setInterval( broadcastPeerState, WEBRTC_SYNC_MS );
 	window.addEventListener( 'beforeunload', () => {
 
 		if ( ! multiplayerSessionState.roomCode ) return;
+		for ( const connection of multiplayerSessionState.connections.values() ) {
+
+			try { connection.send?.( { type: PEER_PACKET_LEFT, playerId: multiplayerSessionState.clientId } ); } catch {}
+
+		}
+		if ( ! hasFirebaseMultiplayerConfig() ) return;
 		const roomCode = multiplayerSessionState.roomCode;
 		const playerPath = `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }`;
 		firebaseRoomsRequest( roomCode, 'DELETE', undefined, playerPath ).catch( () => {} );
