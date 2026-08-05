@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Campaign</title>
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Skid Circuit — Campaign</title>
 <style>
 .skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
 .skip-link:focus{top:12px}
@@ -7,7 +7,8 @@
 .layout{display:grid;grid-template-columns:300px 1fr;min-height:100vh}.side{border-right:1px solid rgba(255,255,255,.12);padding:14px;overflow:auto}.main{padding:20px 22px}
 #stage-list{display:grid;gap:6px}.stage-btn{width:100%;text-align:left;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#fff;cursor:pointer}.stage-btn.locked{opacity:.45;cursor:not-allowed}.stage-btn.done{background:rgba(72,191,120,.22);border-color:rgba(129,242,176,.45)}.stage-btn.active{outline:2px solid #6ab4ff}
 .badge{font-size:11px;opacity:.9}a,button{background:#234056;color:#fff;border:1px solid #4f89b5;border-radius:8px;padding:8px 12px;text-decoration:none}
-</style></head><body>
+</style><script src="js/PageTransitions.js"></script>
+</head><body>
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content"><div class="layout"><aside class="side"><h2>Campaign Stages</h2><div id="stage-list"></div></aside><main class="main"><h1 id="title"></h1><p id="desc"></p><p id="status"></p><div><a id="start" href="index.html?play=1&campaign=1">Start stage</a> <a href="index.html">Main menu</a></div><p style="margin-top:12px;color:#9fb7d9">Complete stages in order to unlock the next one. Finished stages are green.</p></main></div>
 <script>

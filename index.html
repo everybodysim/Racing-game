@@ -20,7 +20,7 @@
 </script>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-	<title>Racing</title>
+	<title>Skid Circuit</title>
 	<script>
 navigator.serviceWorker?.getRegistrations?.().then(rs => {
   rs.forEach(r => r.unregister());
@@ -122,6 +122,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#import-ghost-btn { left: 300px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
 		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		/* Hide scattered nav buttons until JS moves them into the quick-menu panel (prevents FOUC) */
+		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link { display: none; }
 		#clubs-link.has-club-unread {
 			animation: club-link-unread-pulse 1.2s ease-in-out infinite;
 			border-color: rgba(255,96,96,0.82);
@@ -803,42 +805,74 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			bottom: 12px;
 			z-index: 16;
 			color: #fff;
-			font: 600 12px sans-serif;
-			background: rgba(0,0,0,0.62);
-			padding: 6px 9px;
-			border-radius: 7px;
+			font: 700 12px sans-serif;
+			background: rgba(6,12,22,0.82);
+			padding: 8px 14px;
+			border-radius: 10px;
 			border: 1px solid rgba(255,255,255,0.22);
 			cursor: pointer;
+			backdrop-filter: blur(8px);
+			-webkit-backdrop-filter: blur(8px);
+			transition: background 0.15s ease;
 		}
+		#quick-menu-btn:hover { background: rgba(20,35,55,0.92); }
 		#quick-menu-panel {
 			position: absolute;
 			right: 16px;
-			bottom: 44px;
+			bottom: 48px;
 			z-index: 16;
 			display: none;
 			flex-direction: column;
-			gap: 4px;
-			background: rgba(0,0,0,0.62);
-			padding: 5px;
-			border-radius: 9px;
+			gap: 2px;
+			background: rgba(6,12,22,0.92);
+			padding: 8px;
+			border-radius: 14px;
 			border: 1px solid rgba(255,255,255,0.2);
-			min-width: 148px;
+			min-width: 180px;
+			max-height: 70vh;
+			overflow-y: auto;
+			backdrop-filter: blur(14px);
+			-webkit-backdrop-filter: blur(14px);
+			box-shadow: 0 10px 40px rgba(0,0,0,0.45);
 		}
 		#quick-menu-panel a, #quick-menu-panel button {
 			position: static !important;
 			display: block;
 			box-sizing: border-box;
 			width: 100%;
-			background: rgba(255,255,255,0.1);
-			color: #fff;
-			padding: 5px 7px;
-			border-radius: 6px;
-			border: 1px solid rgba(255,255,255,0.16);
-			font: 600 11px sans-serif;
+			background: rgba(255,255,255,0.06);
+			color: #e8eef8;
+			padding: 7px 10px;
+			border-radius: 8px;
+			border: 1px solid rgba(255,255,255,0.1);
+			font: 600 12px sans-serif;
 			text-align: left;
 			cursor: pointer;
+			text-decoration: none;
+			transition: background 0.12s ease, border-color 0.12s ease;
+		}
+		#quick-menu-panel a:hover, #quick-menu-panel button:hover {
+			background: rgba(80,150,255,0.18);
+			border-color: rgba(140,190,255,0.35);
 		}
 		#quick-menu-panel button:disabled { opacity: 0.55; cursor: not-allowed; }
+		#quick-menu-panel .qm-section-label {
+			font: 800 10px sans-serif;
+			color: rgba(150,185,230,0.6);
+			text-transform: uppercase;
+			letter-spacing: 0.1em;
+			padding: 6px 4px 3px;
+			border-top: 1px solid rgba(255,255,255,0.08);
+		}
+		#quick-menu-panel .qm-section-label:first-child { border-top: none; }
+		#quick-menu-panel .qm-home-link {
+			background: linear-gradient(135deg, rgba(48,198,119,0.22), rgba(48,151,255,0.18)) !important;
+			border-color: rgba(132,245,172,0.3) !important;
+			font-weight: 800 !important;
+		}
+		#quick-menu-panel .qm-home-link:hover {
+			background: linear-gradient(135deg, rgba(48,198,119,0.38), rgba(48,151,255,0.3)) !important;
+		}
 		#quick-menu-panel.open { display: flex; }
 
 		
@@ -1204,6 +1238,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 	}
 	</script>
+<script src="js/PageTransitions.js"></script>
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -1263,7 +1298,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<a id="hacks-toggle" href="#" style="display:none;">Hacks</a>
 	<a id="split-link" href="#">2P split screen</a>
 	<button id="quick-menu-btn" type="button" aria-expanded="false">Menu ▾</button>
-	<div id="quick-menu-panel"><button id="pause-toggle-btn" type="button">Pause</button></div>
+	<div id="quick-menu-panel"><a class="qm-home-link" href="index.html">← Back to Home</a><div class="qm-section-label">Tools</div><button id="pause-toggle-btn" type="button">Pause</button></div>
 	<select id="car-select" aria-label="Select car">
 		<option value="vehicle-truck-yellow">Yellow</option>
 		<option value="vehicle-truck-green">Green</option>
@@ -1667,6 +1702,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		mobileQuery?.addEventListener?.( 'change', () => { closeMobileMenu(); closeMobileLeaderboard(); } );
 
 		const quickMenuLinks = [ 'editor-link', 'totd-link', 'weekly-cup-link', 'coin-leaderboard-link', 'competitions-link', 'replay-link', 'tracks-link', 'clubs-link', 'mods-link', 'hacks-toggle', 'split-link' ];
+		const navLabel = document.createElement( 'div' );
+		navLabel.className = 'qm-section-label';
+		navLabel.textContent = 'Navigation';
+		quickMenuPanel.appendChild( navLabel );
 		for ( const id of quickMenuLinks ) {
 			const node = document.getElementById( id );
 			if ( node ) quickMenuPanel.appendChild( node );
