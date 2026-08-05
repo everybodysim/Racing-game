@@ -3118,9 +3118,11 @@ async function init() {
 	const modeTabGameplayBtn = document.getElementById( 'mode-tab-gameplay' );
 	const modeTabGarageBtn = document.getElementById( 'mode-tab-garage' );
 	const modeTabAccountBtn = document.getElementById( 'mode-tab-account' );
+	const modeTabNavBtn = document.getElementById( 'mode-tab-nav' );
 	const modePanelGameplay = document.getElementById( 'mode-panel-gameplay' );
 	const modePanelGarage = document.getElementById( 'mode-panel-garage' );
 	const modePanelAccount = document.getElementById( 'mode-panel-account' );
+	const modePanelNav = document.getElementById( 'mode-panel-nav' );
 	const campaignProgressLabel = document.getElementById( 'campaign-progress' );
 	const stuntPointsHud = document.getElementById( 'stunt-points' );
 	const garageVehicleCards = document.getElementById( 'garage-vehicle-cards' );
@@ -3850,13 +3852,15 @@ async function init() {
 
 	function setModeTab( tabName ) {
 
-		const tab = tabName === 'garage' || tabName === 'account' ? tabName : 'gameplay';
+		const tab = tabName === 'garage' || tabName === 'account' || tabName === 'nav' ? tabName : 'gameplay';
 		modeTabGameplayBtn?.classList.toggle( 'active', tab === 'gameplay' );
 		modeTabGarageBtn?.classList.toggle( 'active', tab === 'garage' );
 		modeTabAccountBtn?.classList.toggle( 'active', tab === 'account' );
+		modeTabNavBtn?.classList.toggle( 'active', tab === 'nav' );
 		modePanelGameplay?.classList.toggle( 'active', tab === 'gameplay' );
 		modePanelGarage?.classList.toggle( 'active', tab === 'garage' );
 		modePanelAccount?.classList.toggle( 'active', tab === 'account' );
+		modePanelNav?.classList.toggle( 'active', tab === 'nav' );
 		modeMenu?.classList.toggle( 'garage-fullscreen', tab === 'garage' );
 
 	}
@@ -7696,6 +7700,7 @@ function completeCampaignStage() {
 	modeTabGameplayBtn?.addEventListener( 'click', () => setModeTab( 'gameplay' ) );
 	modeTabGarageBtn?.addEventListener( 'click', () => setModeTab( 'garage' ) );
 	modeTabAccountBtn?.addEventListener( 'click', () => setModeTab( 'account' ) );
+	modeTabNavBtn?.addEventListener( 'click', () => setModeTab( 'nav' ) );
 	for ( const button of graphicsQualityButtons ) {
 
 		button.addEventListener( 'click', () => applyGraphicsQuality( button.dataset.graphicsQuality, true ) );

@@ -76,7 +76,7 @@ export class HudExtras {
 			css.id = 'speedo-css';
 			css.textContent = `
 				#speedo-hud {
-					position: absolute; bottom: 12px; right: 16px; z-index: 10;
+					position: absolute; bottom: 16px; right: 148px; z-index: 10;
 					display: none; flex-direction: column; align-items: center; gap: 2px;
 					pointer-events: none;
 				}
@@ -159,7 +159,7 @@ export class HudExtras {
 			css.id = 'minimap-css';
 			css.textContent = `
 				#minimap-hud {
-					position: absolute; top: 12px; right: 12px; z-index: 9;
+					position: absolute; bottom: 12px; right: 16px; z-index: 9;
 					display: none; border-radius: 10px;
 					background: rgba(6,12,22,0.62);
 					border: 1px solid rgba(255,255,255,0.14);

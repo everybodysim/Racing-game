@@ -882,6 +882,42 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#quick-menu-panel.open { display: flex; }
 
 		
+
+		/* Navigation tab inside mode-menu */
+		#mode-panel-nav { padding: 4px 0; }
+		#nav-panel-content {
+			display: flex; flex-direction: column; gap: 3px;
+		}
+		#nav-panel-content a, #nav-panel-content button {
+			display: block; box-sizing: border-box; width: 100%;
+			background: rgba(255,255,255,0.06); color: #e8eef8;
+			padding: 8px 12px; border-radius: 8px;
+			border: 1px solid rgba(255,255,255,0.1);
+			font: 600 13px sans-serif; text-align: left;
+			cursor: pointer; text-decoration: none;
+			transition: background 0.12s ease, border-color 0.12s ease;
+		}
+		#nav-panel-content a:hover, #nav-panel-content button:hover {
+			background: rgba(80,150,255,0.18);
+			border-color: rgba(140,190,255,0.35);
+		}
+		#nav-panel-content .qm-home-link {
+			background: linear-gradient(135deg, rgba(48,198,119,0.22), rgba(48,151,255,0.18)) !important;
+			border-color: rgba(132,245,172,0.3) !important;
+			font-weight: 800 !important;
+		}
+		#nav-panel-content .qm-home-link:hover {
+			background: linear-gradient(135deg, rgba(48,198,119,0.38), rgba(48,151,255,0.3)) !important;
+		}
+		#nav-panel-content .qm-section-label {
+			font: 800 10px sans-serif;
+			color: rgba(119,243,177,0.7);
+			text-transform: uppercase; letter-spacing: 0.1em;
+			padding: 8px 4px 3px;
+			border-top: 1px solid rgba(255,255,255,0.08);
+		}
+		#nav-panel-content .qm-section-label:first-of-type { border-top: none; padding-top: 4px; }
+
 		#hacks-panel {
 			position: absolute;
 			left: 50%;
@@ -1372,8 +1408,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<a id="mods-link" href="mods.html">Mods</a>
 	<a id="hacks-toggle" href="#" style="display:none;">Hacks</a>
 	<a id="split-link" href="#">2P split screen</a>
-	<button id="quick-menu-btn" type="button" aria-expanded="false">Menu ▾</button>
-	<div id="quick-menu-panel"><a class="qm-home-link" href="index.html">← Back to Home</a></div>
+	<!-- quick-menu-btn moved to Navigation tab in E menu -->
+	<!-- quick-menu-panel moved to Navigation tab in E menu -->
 		<button id="pause-toggle-btn" type="button" style="display:none;">Pause</button>
 	<select id="car-select" aria-label="Select car">
 		<option value="vehicle-truck-yellow">Yellow</option>
@@ -1425,6 +1461,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<button class="mode-tab-btn active" id="mode-tab-gameplay" type="button">Gameplay</button>
 			<button class="mode-tab-btn" id="mode-tab-garage" type="button">Garage</button>
 			<button class="mode-tab-btn" id="mode-tab-account" type="button">Account</button>
+			<button class="mode-tab-btn" id="mode-tab-nav" type="button">Navigation</button>
 		</div>
 		<div class="mode-tab-panel active mode-compact" id="mode-panel-gameplay">
 			<button id="mode-race-btn" type="button">Race Mode</button>
@@ -1523,6 +1560,29 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<button id="account-import-btn" type="button">Import Account</button>
 			<div id="account-status"></div>
 		</div>
+		</div>
+		<div class="mode-tab-panel" id="mode-panel-nav">
+			<div id="nav-panel-content">
+				<a class="qm-home-link" href="index.html">← Back to Home</a>
+				<div class="qm-section-label">Quick Actions</div>
+				<button id="nav-pause-btn" type="button">Pause / Resume</button>
+				<div class="qm-section-label">Play</div>
+				<a id="nav-split-link" href="#">2P Split Screen</a>
+				<div class="qm-section-label">Discover</div>
+				<a id="nav-totd" href="totd.html">Track of the Day</a>
+				<a id="nav-weekly" href="weekly-cup.html">Weekly Cup</a>
+				<a id="nav-competitions" href="competitions.html">Competitions</a>
+				<a id="nav-coins" href="coins.html">Coin Leaderboard</a>
+				<div class="qm-section-label">Community</div>
+				<a id="nav-tracks" href="tracks.html">Track Share Board</a>
+				<a id="nav-clubs" href="clubs.html">Clubs</a>
+				<div class="qm-section-label">Create</div>
+				<a id="nav-editor" href="editor.html">Track Editor</a>
+				<a id="nav-mods" href="mods.html">Mods</a>
+				<a id="nav-hacks" href="#" style="display:none;">Hacks</a>
+				<div class="qm-section-label">Watch</div>
+				<a id="nav-replay" href="replay.html">Replay Watcher</a>
+			</div>
 		</div>
 	</div>
 	<div id="hacks-panel">
@@ -1727,8 +1787,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				openCompetitionsWarning( node.getAttribute( 'href' ) || 'competitions.html' );
 			} );
 		} );
-		const quickMenuBtn = document.getElementById( 'quick-menu-btn' );
-		const quickMenuPanel = document.getElementById( 'quick-menu-panel' );
+		// Quick-menu replaced by Navigation tab in mode-menu
 		document.querySelectorAll( '[data-mobile-click]' ).forEach( ( btn ) => {
 			btn.addEventListener( 'click', ( event ) => {
 				const target = document.getElementById( btn.dataset.mobileClick );
@@ -1777,40 +1836,29 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		mobileSheet?.querySelectorAll( 'a, button' ).forEach( ( item ) => item.addEventListener( 'click', closeMobileMenu ) );
 		mobileQuery?.addEventListener?.( 'change', () => { closeMobileMenu(); closeMobileLeaderboard(); } );
 
-		// Reorganised quick-menu: grouped sections instead of a flat list
-		const quickMenuSections = [
-			{ label: 'Play',       ids: [ 'split-link' ] },
-			{ label: 'Discover',   ids: [ 'totd-link', 'weekly-cup-link', 'competitions-link', 'coin-leaderboard-link' ] },
-			{ label: 'Community',  ids: [ 'tracks-link', 'clubs-link' ] },
-			{ label: 'Create',     ids: [ 'editor-link', 'mods-link', 'hacks-toggle' ] },
-			{ label: 'Watch',      ids: [ 'replay-link' ] },
-		];
-		for ( const section of quickMenuSections ) {
-			const nodes = section.ids
-				.map( ( id ) => document.getElementById( id ) )
-				.filter( ( n ) => n );
-			if ( ! nodes.length ) continue;
-			const label = document.createElement( 'div' );
-			label.className = 'qm-section-label qm-category';
-			label.textContent = section.label;
-			quickMenuPanel.appendChild( label );
-			for ( const node of nodes ) quickMenuPanel.appendChild( node );
+		// Wire navigation tab — copy old link behaviors to new nav-panel links
+		const navPauseBtn = document.getElementById( 'nav-pause-btn' );
+		if ( navPauseBtn ) {
+			navPauseBtn.addEventListener( 'click', () => {
+				if ( typeof togglePaused === 'function' ) togglePaused();
+				else document.getElementById( 'pause-toggle-btn' )?.click();
+			} );
 		}
-		// Tools section at the bottom
-		const toolsLabel = document.createElement("div"); toolsLabel.className = "qm-section-label"; toolsLabel.textContent = "Tools"; quickMenuPanel.appendChild(toolsLabel);
-		const pauseBtn = document.getElementById("pause-toggle-btn"); if (pauseBtn) { pauseBtn.style.display = ""; quickMenuPanel.appendChild(pauseBtn); }
-		quickMenuBtn?.addEventListener( 'click', () => {
-			const open = quickMenuPanel.classList.toggle( 'open' );
-			quickMenuBtn.setAttribute( 'aria-expanded', String( open ) );
-			quickMenuBtn.textContent = open ? 'Menu ▴' : 'Menu ▾';
+		// Split screen link
+		const navSplit = document.getElementById( 'nav-split-link' );
+		if ( navSplit ) navSplit.addEventListener( 'click', ( e ) => {
+			e.preventDefault();
+			document.getElementById( 'split-link' )?.click();
 		} );
-		document.addEventListener( 'click', ( event ) => {
-			if ( ! quickMenuPanel.classList.contains( 'open' ) ) return;
-			if ( quickMenuPanel.contains( event.target ) || quickMenuBtn.contains( event.target ) ) return;
-			quickMenuPanel.classList.remove( 'open' );
-			quickMenuBtn.setAttribute( 'aria-expanded', 'false' );
-			quickMenuBtn.textContent = 'Menu ▾';
+		// Hacks link
+		const navHacks = document.getElementById( 'nav-hacks' );
+		if ( navHacks ) navHacks.addEventListener( 'click', ( e ) => {
+			e.preventDefault();
+			document.getElementById( 'hacks-toggle' )?.click();
 		} );
+		// Club notification badge
+		const navClubs = document.getElementById( 'nav-clubs' );
+		if ( navClubs ) navClubs.classList.add( 'club-notify-target' );
 
 		async function readLeaderboardNameFromPage( pageUrl, selector, fallbackLabel ) {
 			return new Promise( ( resolve ) => {
