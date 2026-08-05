@@ -2251,15 +2251,17 @@ async function init() {
 
 	function ensureRemotePlayerVisualWithCosmetics( playerId, carKey, cosmetics ) {
 
-		const modelKey = normalizeMultiplayerCarKey( carKey );
+		const requestedKey = typeof carKey === 'string' ? carKey.trim() : '';
+		const fallbackModelKey = models[ player1CarKey ] ? player1CarKey : Object.keys( models )[ 0 ];
+		const modelKey = models[ requestedKey ] ? requestedKey : fallbackModelKey;
 		const signature = cosmeticsSignature( cosmetics );
 		const existing = remotePlayerVisuals.get( playerId );
 		if ( existing && existing.carKey === modelKey && existing.cosmeticsSignature === signature ) return existing;
 		if ( existing ) removeRemotePlayerVisual( playerId );
-		const model = models[ modelKey ] || models[ 'vehicle-truck-yellow' ];
+		const model = models[ modelKey ];
 		const mesh = createGhostVisualModel( model, 0.42, cosmetics ) || new THREE.Mesh(
-			new THREE.BoxGeometry( 0.95, 0.5, 1.7 ),
-			new THREE.MeshStandardMaterial( { color: 0x53d4ff, transparent: true, opacity: 0.38, depthWrite: false } ),
+			new THREE.BoxGeometry( 1.8, 1, 3.5 ),
+			new THREE.MeshBasicMaterial( { color: 0xff0000 } ),
 		);
 		mesh.visible = true;
 		mesh.scale.set( 1, 1, 1 );
@@ -2393,7 +2395,7 @@ async function init() {
 		visualState.mesh.scale.set( 1, 1, 1 );
 		ensureRemoteNameTag( visualState, packet.name || 'Player' );
 		const x = Number( packet.x ) || 0;
-		const y = ( Number( packet.y ) || 0 ) - 0.1;
+		const y = Number( packet.y ) || 0;
 		const z = Number( packet.z ) || 0;
 		visualState.targetPos.set( x, y, z );
 		if ( wasUnseen ) visualState.mesh.position.set( x, y, z );
@@ -8370,6 +8372,7 @@ function completeCampaignStage() {
 			const dtBase = Math.min( frameSeconds, 1 / 15 );
 			if ( paused ) {
 
+				updateRemotePlayerVisualsFrame( dtBase );
 				audio.updateMusic( realFrameSeconds, false );
 				renderFrame();
 				return;
