@@ -527,7 +527,7 @@ function startPeerMultiplayer( roomCode, role ) {
 	multiplayerSessionState.peer = peer;
 	peer.on( 'open', () => {
 
-		if ( role !== 'host' ) registerPeerConnection( peer.connect( getPeerRoomId( roomCode ), { reliable: false } ) );
+		if ( role !== 'host' ) registerPeerConnection( peer.connect( getPeerRoomId( roomCode ), { reliable: true } ) );
 
 	} );
 	peer.on( 'connection', registerPeerConnection );
@@ -826,8 +826,12 @@ function initMultiplayerPanel() {
 	const configReady = hasFirebaseMultiplayerConfig();
 	if ( ! configReady ) {
 
-		updateMultiplayerStatus( 'WebRTC multiplayer ready. Firebase leaderboards/map matching are unavailable.' );
+		hostBtn.disabled = true;
+		joinBtn.disabled = true;
+		copyBtn.disabled = true;
+		updateMultiplayerStatus( 'Multiplayer needs Firebase room metadata for PeerJS signaling. Add Firebase keys in js/firebase-config.js.' );
 		setMultiplayerLeaderboardVisible( false );
+		return;
 
 	}
 
@@ -840,25 +844,15 @@ function initMultiplayerPanel() {
 		joinBtn.disabled = true;
 		copyBtn.disabled = true;
 		const now = Date.now();
-		if ( ! hasFirebaseMultiplayerConfig() ) {
-
-			updateMultiplayerStatus( `Hosting room ${ code } over WebRTC. Share this code with your friend.` );
-			multiplayerSessionState.role = 'host';
-			multiplayerSessionState.roomCode = code;
-			startPeerMultiplayer( code, 'host' );
-			setMultiplayerLeaderboardVisible( false );
-			hostBtn.disabled = false;
-			joinBtn.disabled = false;
-			copyBtn.disabled = false;
-			return;
-
-		}
+		multiplayerSessionState.role = 'host';
+		multiplayerSessionState.roomCode = code;
+		startPeerMultiplayer( code, 'host' );
 		const roomPayload = {
 			code,
+			hostId: multiplayerSessionState.clientId,
 			mapSignature: getCurrentMapSignature(),
 			createdAt: now,
 			updatedAt: now,
-			status: 'hosting',
 		};
 		try {
 
@@ -872,9 +866,6 @@ function initMultiplayerPanel() {
 
 			}
 			updateMultiplayerStatus( `Hosting room ${ code }. Share this code with your friend.` );
-			multiplayerSessionState.role = 'host';
-			multiplayerSessionState.roomCode = code;
-			startPeerMultiplayer( code, 'host' );
 			lastHostRoomRotateAt = Date.now();
 			lastHostRoomMetaSyncAt = 0;
 			setMultiplayerLeaderboardVisible( true );
@@ -891,6 +882,7 @@ function initMultiplayerPanel() {
 				updateMultiplayerStatus( 'Failed to create room. Check Firebase Realtime Database rules and databaseURL.' );
 
 			}
+			closeMultiplayerPeer();
 			multiplayerSessionState.role = 'none';
 			multiplayerSessionState.roomCode = '';
 			setMultiplayerLeaderboardVisible( false );
@@ -916,17 +908,6 @@ function initMultiplayerPanel() {
 
 		updateMultiplayerStatus( `Trying to join room ${ code }...` );
 		try {
-
-			if ( ! hasFirebaseMultiplayerConfig() ) {
-
-				updateMultiplayerStatus( `Joined room ${ code } over WebRTC.` );
-				multiplayerSessionState.role = 'join';
-				multiplayerSessionState.roomCode = code;
-				startPeerMultiplayer( code, 'join' );
-				setMultiplayerLeaderboardVisible( false );
-				return;
-
-			}
 
 			const room = await firebaseRoomsRequest( code, 'GET' );
 			if ( ! room || typeof room !== 'object' ) {
