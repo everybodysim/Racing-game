@@ -85,17 +85,45 @@ export class GameAudio {
 
 		} );
 
+		// Centralised start — only runs once the AudioContext is actually 'running'.
+		// Calling play() while the context is suspended makes elements think they're
+		// playing (paused = false) but produces no sound — the root cause of music
+		// not starting until a crash impact "kicked" the context awake.
+		const startWhenRunning = () => {
+
+			const ctx = this.listener.context;
+			if ( ctx.state !== 'running' ) return;
+
+			this.startSounds();
+			this.startMusic();
+
+			// Remove the statechange listener once we've started
+			ctx.removeEventListener( 'statechange', startWhenRunning );
+
+		};
+
+		const resumeContext = () => {
+
+			const ctx = this.listener.context;
+			if ( ctx.state === 'running' ) {
+
+				startWhenRunning();
+
+			} else {
+
+				ctx.resume().then( startWhenRunning ).catch( () => {} );
+				ctx.addEventListener( 'statechange', startWhenRunning );
+
+			}
+
+		};
+
 		const unlock = () => {
 
 			if ( this.unlocked ) return;
 			this.unlocked = true;
 
-			const ctx = this.listener.context;
-
-			if ( ctx.state === 'suspended' ) ctx.resume();
-
-			this.startSounds();
-			this.startMusic();
+			resumeContext();
 
 			window.removeEventListener( 'keydown', unlock );
 			window.removeEventListener( 'click', unlock );
@@ -112,11 +140,13 @@ export class GameAudio {
 		window.addEventListener( 'beforeunload', () => this.stopAll() );
 		document.addEventListener( 'visibilitychange', () => {
 
-			if ( document.hidden ) this.stopAll();
-			else if ( this.unlocked ) {
+			if ( document.hidden ) {
 
-				this.startSounds();
-				this.startMusic();
+				this.stopAll();
+
+			} else if ( this.unlocked ) {
+
+				resumeContext();
 
 			}
 
@@ -130,7 +160,14 @@ export class GameAudio {
 
 			this.ready = true;
 
-			if ( this.unlocked ) this.startSounds();
+			if ( this.unlocked ) {
+
+				const ctx = this.listener.context;
+
+				if ( ctx.state === 'running' ) this.startSounds();
+				// If context isn't running yet, startWhenRunning will call startSounds()
+
+			}
 
 		}
 
@@ -148,7 +185,20 @@ export class GameAudio {
 
 	startMusic() {
 
-		if ( ! this.musicReady || ! this.musicElement || ! this.musicElement.paused ) return;
+		if ( ! this.musicReady || ! this.musicElement ) return;
+
+		const ctx = this.listener?.context;
+
+		// If the element thinks it's playing but the context wasn't running
+		// when it started, it's stuck — pause and restart to get real audio.
+		if ( ! this.musicElement.paused ) {
+
+			if ( ctx && ctx.state === 'running' ) return; // genuinely playing
+			this.musicElement.pause();
+			this.musicElement.currentTime = 0;
+
+		}
+
 		this.musicElement.play().catch( () => {} );
 
 	}
@@ -158,12 +208,7 @@ export class GameAudio {
 		if ( this.engineSound?.isPlaying ) this.engineSound.stop();
 		if ( this.engineTextureSound?.isPlaying ) this.engineTextureSound.stop();
 		if ( this.skidSound?.isPlaying ) this.skidSound.stop();
-		if ( this.musicElement ) {
-
-			this.musicElement.pause();
-			this.musicElement.currentTime = 0;
-
-		}
+		if ( this.musicElement ) this.musicElement.pause();
 
 	}
 

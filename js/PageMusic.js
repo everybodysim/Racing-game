@@ -117,7 +117,13 @@ function playMenuMusic() {
 }
 
 function unlockMenuMusic() {
-	if ( unlocked && menuMusic && ! menuMusic.paused ) return;
+	if ( unlocked ) {
+		// Already unlocked — if music should be playing but isn't, retry
+		if ( menuMusic && menuMusic.paused && ! IS_ACTIVE_RACING_INDEX && ! document.hidden ) {
+			playMenuMusic();
+		}
+		return;
+	}
 	unlocked = true;
 	primeMenuMusic();
 	playMenuMusic();
@@ -127,10 +133,10 @@ function unlockMenuMusic() {
 primeMenuMusic();
 
 // Browsers block autoplay until user interaction — unlock on first gesture
-window.addEventListener( 'pointerdown', unlockMenuMusic, { once: true, capture: true } );
-window.addEventListener( 'mousedown', unlockMenuMusic, { once: true, capture: true } );
-window.addEventListener( 'keydown', unlockMenuMusic, { once: true, capture: true } );
-window.addEventListener( 'touchstart', unlockMenuMusic, { once: true, capture: true } );
+window.addEventListener( 'pointerdown', unlockMenuMusic, { capture: true } );
+window.addEventListener( 'mousedown', unlockMenuMusic, { capture: true } );
+window.addEventListener( 'keydown', unlockMenuMusic, { capture: true } );
+window.addEventListener( 'touchstart', unlockMenuMusic, { capture: true } );
 
 // Stop when leaving, resume when returning
 window.addEventListener( 'pagehide', stopMenuMusic );
