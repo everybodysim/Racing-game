@@ -26,6 +26,7 @@
     code { background:#161a22; padding:2px 6px; border-radius:6px; }
   </style>
 <script src="js/PageTransitions.js"></script>
+<link rel="stylesheet" href="ui-theme.css">
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -48,22 +49,22 @@
   </div>
 
   <div class="card">
-    <div><strong>Base URL:</strong> <code id="baseOut"></code></div>
-    <div><strong>Seed:</strong> <span id="seedOut"></span></div>
-    <div><strong>Map:</strong><textarea id="mapOut" readonly></textarea></div>
-    <div><strong>Mods (bumps + surfaces + scenery):</strong><textarea id="modsOut" readonly></textarea></div>
-    <div><strong>Play URL:</strong><textarea id="urlOut" readonly></textarea></div>
-  </div>
-
-  <div class="card">
-    <strong>Cells JSON</strong>
-    <textarea id="cellsOut" readonly style="min-height:130px"></textarea>
-  </div>
-
-  <div class="card">
     <strong>Preview</strong><br>
     <canvas id="preview" width="640" height="440"></canvas>
   </div>
+
+  <details class="card">
+    <summary style="cursor:pointer;font-weight:700">Advanced — track data & URLs</summary>
+    <div style="margin-top:10px">
+      <div><strong>Base URL:</strong> <code id="baseOut"></code></div>
+      <div><strong>Seed:</strong> <span id="seedOut"></span></div>
+      <div><strong>Map:</strong><textarea id="mapOut" readonly></textarea></div>
+      <div><strong>Mods (bumps + surfaces + scenery):</strong><textarea id="modsOut" readonly></textarea></div>
+      <div><strong>Play URL:</strong><textarea id="urlOut" readonly></textarea></div>
+      <div style="margin-top:10px"><strong>Cells JSON</strong></div>
+      <textarea id="cellsOut" readonly style="min-height:130px"></textarea>
+    </div>
+  </details>
 
 <script>
 (() => {
@@ -567,5 +568,6 @@
 </main>
 
 <script type="module" src="js/PageMusic.js"></script>
+<script src="js/NavBar.js"></script>
 </body>
 </html>
