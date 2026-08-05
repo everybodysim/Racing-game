@@ -1,3 +1,5 @@
+import { CELL_RAW, GRID_SCALE } from './Track.js';
+
 /**
  * HudExtras.js — Speedometer, minimap, and keyboard shortcuts overlay.
  * Imported by main.js during init. All three features are pure HUD overlays
@@ -76,7 +78,7 @@ export class HudExtras {
 			css.id = 'speedo-css';
 			css.textContent = `
 				#speedo-hud {
-					position: absolute; bottom: 16px; right: 148px; z-index: 10;
+					position: absolute; bottom: 20px; right: 168px; z-index: 10;
 					display: none; flex-direction: column; align-items: center; gap: 2px;
 					pointer-events: none;
 				}
@@ -141,18 +143,23 @@ export class HudExtras {
 		}
 	}
 
-	// ─── Minimap ───────────────────────────────────────────────
+	// ─── Minimap (player-centered, rotating) ───────────────────
 
 	_buildMinimap() {
 
 		const canvas = document.createElement( 'canvas' );
 		canvas.id = 'minimap-hud';
-		canvas.width = 120;
-		canvas.height = 120;
+		canvas.width = 140;
+		canvas.height = 140;
 		canvas.setAttribute( 'aria-hidden', 'true' );
 		document.body.appendChild( canvas );
 		this.minimapCanvas = canvas;
 		this.minimapCtx = canvas.getContext( '2d' );
+
+		// World units per cell — correct constant from Track.js
+		this.cellWorld = CELL_RAW * GRID_SCALE;
+		// How many cells of radius to show around the player
+		this.minimapRadius = 7;
 
 		if ( ! document.getElementById( 'minimap-css' ) ) {
 			const css = document.createElement( 'style' );
@@ -160,10 +167,11 @@ export class HudExtras {
 			css.textContent = `
 				#minimap-hud {
 					position: absolute; bottom: 12px; right: 16px; z-index: 9;
-					display: none; border-radius: 10px;
-					background: rgba(6,12,22,0.62);
-					border: 1px solid rgba(255,255,255,0.14);
+					display: none; border-radius: 12px;
+					background: rgba(6,12,22,0.72);
+					border: 1px solid rgba(255,255,255,0.18);
 					pointer-events: none;
+					box-shadow: 0 4px 16px rgba(0,0,0,0.4);
 				}
 				#minimap-hud.visible { display: block; }
 				@media (pointer: coarse) {
@@ -178,42 +186,70 @@ export class HudExtras {
 	}
 
 	_computeMinimapBounds() {
-
-		if ( ! this.cells || this.cells.length === 0 ) {
-			this.minimapBounds = { minX: -5, maxX: 5, minZ: -5, maxZ: 5 };
-			return;
-		}
-
-		let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-		for ( const [ gx, gz ] of this.cells ) {
-			minX = Math.min( minX, gx );
-			maxX = Math.max( maxX, gx );
-			minZ = Math.min( minZ, gz );
-			maxZ = Math.max( maxZ, gz );
-		}
-		// Add 1 cell of padding
-		minX -= 1; maxX += 1; minZ -= 1; maxZ += 1;
-		this.minimapBounds = { minX, maxX, minZ, maxZ };
+		// No longer used — minimap is player-centered now.
+		// Kept as no-op for backwards compat.
+		this.minimapBounds = null;
 	}
 
 	updateMinimap() {
 
 		if ( ! this.minimapCanvas || ! this.minimapCtx || ! this.vehicle ) return;
+		if ( ! this.vehicle.spherePos ) return;
 
 		const ctx = this.minimapCtx;
-		const W = 120, H = 120;
-		const b = this.minimapBounds;
-		const gridW = b.maxX - b.minX;
-		const gridH = b.maxZ - b.minZ;
-		const scale = Math.min( W, H ) / Math.max( gridW, gridH );
+		const W = this.minimapCanvas.width;   // 140
+		const H = this.minimapCanvas.height;  // 140
+		const cx = W / 2;
+		const cy = H / 2;
 
+		// World position of player
+		const px = this.vehicle.spherePos.x;
+		const pz = this.vehicle.spherePos.z;
+
+		// Player heading: forward vector from container quaternion
+		let headingAngle = 0;
+		if ( this.vehicle.container ) {
+			// Forward = (0, 0, 1) applied to container quaternion, flattened to XZ
+			const q = this.vehicle.container.quaternion;
+			// Apply quaternion to (0,0,1): forward = (2*(qx*qz + qw*qy), ..., 1 - 2*(qx^2 + qy^2))
+			// We only need x and z components for 2D heading
+			const fx = 2 * ( q.x * q.z + q.w * q.y );
+			const fz = 1 - 2 * ( q.x * q.x + q.y * q.y );
+			headingAngle = Math.atan2( fx, fz );
+		}
+
+		// Scale: pixels per world unit
+		const worldRadius = this.minimapRadius * this.cellWorld;
+		const scale = ( Math.min( W, H ) / 2 ) / worldRadius;
+
+		// Clear
 		ctx.clearRect( 0, 0, W, H );
 
-		// Draw cells
+		// Save context, translate to center, rotate so player heading is "up"
+		ctx.save();
+		ctx.translate( cx, cy );
+		// Rotate so the player's forward direction points up on the minimap.
+		// In canvas, "up" is -Y. The player's heading angle is measured from +Z.
+		// We want to rotate by -headingAngle so that heading direction maps to -Y (up).
+		ctx.rotate( -headingAngle );
+
+		// Draw track cells relative to player position
 		for ( const [ gx, gz, type ] of this.cells ) {
-			const x = ( gx - b.minX ) * scale;
-			const y = ( gz - b.minZ ) * scale;
-			const s = scale;
+			// Cell center in world coords
+			const cellX = ( gx + 0.5 ) * this.cellWorld;
+			const cellZ = ( gz + 0.5 ) * this.cellWorld;
+
+			// Relative to player
+			const dx = cellX - px;
+			const dz = cellZ - pz;
+
+			// Cull cells outside the minimap view radius
+			if ( Math.abs( dx ) > worldRadius || Math.abs( dz ) > worldRadius ) continue;
+
+			// Convert to minimap coords (canvas Y is flipped: -Z is up)
+			const mx = dx * scale;
+			const my = -dz * scale;  // flip Z so north = up
+			const ms = this.cellWorld * scale;
 
 			if ( type === 'track-finish' || type === 'track-start-finish' ) {
 				ctx.fillStyle = 'rgba(119,243,177,0.85)';
@@ -223,31 +259,26 @@ export class HudExtras {
 				ctx.fillStyle = 'rgba(255,255,255,0.18)';
 			}
 
-			ctx.fillRect( x, y, s, s );
+			ctx.fillRect( mx - ms / 2, my - ms / 2, ms, ms );
 		}
 
-		// Draw player position
-		if ( this.vehicle.spherePos ) {
-			const pos = this.vehicle.spherePos;
-			// Convert world position to grid coords (inverse of cell → world transform)
-			// World: x = (gx + 0.5) * CELL_RAW * GRID_SCALE, z = (gz + 0.5) * CELL_RAW * GRID_SCALE
-			// So: gx = x / (CELL_RAW * GRID_SCALE) - 0.5
-			const CELL_WORLD = 6 * 0.75; // CELL_RAW * GRID_SCALE = 6 * 0.75 = 4.5
-			const playerGx = pos.x / CELL_WORLD - 0.5;
-			const playerGz = pos.z / CELL_WORLD - 0.5;
+		ctx.restore();
 
-			const px = ( playerGx - b.minX ) * scale + scale * 0.5;
-			const py = ( playerGz - b.minZ ) * scale + scale * 0.5;
-
-			// Player dot
-			ctx.beginPath();
-			ctx.arc( px, py, 3.5, 0, Math.PI * 2 );
-			ctx.fillStyle = '#77f3b1';
-			ctx.fill();
-			ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-			ctx.lineWidth = 1.5;
-			ctx.stroke();
-		}
+		// Draw player arrow at center (always pointing up)
+		ctx.save();
+		ctx.translate( cx, cy );
+		ctx.fillStyle = '#77f3b1';
+		ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+		ctx.lineWidth = 1.5;
+		ctx.beginPath();
+		// Triangle pointing up
+		ctx.moveTo( 0, -7 );    // tip
+		ctx.lineTo( 5, 5 );     // bottom right
+		ctx.lineTo( -5, 5 );    // bottom left
+		ctx.closePath();
+		ctx.fill();
+		ctx.stroke();
+		ctx.restore();
 	}
 
 	showMinimap( show ) {
