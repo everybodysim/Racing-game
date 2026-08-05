@@ -26,6 +26,7 @@ export class GameAudio {
 		this.engineGear = 0;
 		this.lastSpeedFactor = 0;
 		this.targetMusicVolume = 0;
+		this.musicStarted = false;
 
 	}
 
@@ -195,19 +196,22 @@ export class GameAudio {
 
 		const ctx = this.listener?.context;
 
-		// Element was pre-started on init — if it's already playing and
-		// the context is now running, we're good (it was buffering while
-		// the context was suspended, now it flows through).
-		if ( ! this.musicElement.paused ) {
+		if ( ctx && ctx.state !== 'running' ) return;
 
-			if ( ctx && ctx.state === 'running' ) return;
-			// Context not running yet — don't restart, just wait for resume
-			return;
+		// Browsers can leave a pre-started media element in paused=false while the
+		// WebAudio context is silent. When gameplay unlocks audio, force a clean
+		// media play so music.mp3 starts without waiting for a sound effect.
+		if ( ! this.musicElement.paused && ! this.musicStarted ) {
+
+			this.musicElement.pause();
 
 		}
 
-		// Element was paused (e.g. after stopAll) — start fresh
-		this.musicElement.play().catch( () => {} );
+		this.musicElement.play().then( () => {
+
+			this.musicStarted = true;
+
+		} ).catch( () => {} );
 
 	}
 
@@ -217,6 +221,7 @@ export class GameAudio {
 		if ( this.engineTextureSound?.isPlaying ) this.engineTextureSound.stop();
 		if ( this.skidSound?.isPlaying ) this.skidSound.stop();
 		if ( this.musicElement ) this.musicElement.pause();
+		this.musicStarted = false;
 
 	}
 
@@ -227,10 +232,10 @@ export class GameAudio {
 
 		// If music should be playing but element is paused (e.g. after tab switch
 		// + return), restart it. The context should already be running.
-		if ( this.unlocked && this.targetMusicVolume > 0 && this.musicElement?.paused ) {
+		if ( this.unlocked && this.targetMusicVolume > 0 ) {
 
 			const ctx = this.listener?.context;
-			if ( ctx && ctx.state === 'running' ) this.startMusic();
+			if ( ctx && ctx.state === 'running' && ( this.musicElement?.paused || ! this.musicStarted ) ) this.startMusic();
 
 		}
 

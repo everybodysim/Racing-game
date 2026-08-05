@@ -91,7 +91,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#loading-error { margin-top: 12px; color: #ffc4c4; display: none; }
 		#loading-reload-btn { margin-top: 10px; display: none; border: 1px solid rgba(255,255,255,0.28); border-radius: 8px; background: rgba(255,255,255,0.12); color: #fff; padding: 7px 11px; cursor: pointer; font: 700 13px/1 sans-serif; }
 		@keyframes loading-spin { to { transform: rotate(360deg); } }
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
+		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #home-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
 			position: absolute;
 			bottom: 12px;
 			color: #fff;
@@ -102,7 +102,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			z-index: 10;
 			border: none;
 		}
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn { text-decoration: none; }
+		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #home-menu-btn { text-decoration: none; }
 		#editor-link { right: 16px; }
 		#totd-link { right: 16px; bottom: 54px; }
 		#weekly-cup-link { right: 16px; bottom: 96px; }
@@ -114,14 +114,17 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#mods-link { right: 16px; bottom: 306px; }
 		#hacks-toggle { right: 16px; bottom: 348px; }
 		#split-link { right: 16px; bottom: 390px; }
-		#respawnBtn { left: 16px; top: 54px; bottom: auto; }
-		#mode-menu-btn { left: 16px; top: 96px; bottom: auto; }
-		#car-select { left: 16px; top: 12px; bottom: auto; }
+		#respawnBtn { right: 16px; bottom: 170px; left: auto; top: auto; }
+		#mode-menu-btn { right: 16px; top: 16px; bottom: auto; left: auto; padding: 12px 18px; border-radius: 12px; border: 1px solid rgba(140,210,255,0.58); background: linear-gradient(145deg, rgba(44,117,210,0.92), rgba(18,44,82,0.9)); box-shadow: 0 8px 24px rgba(0,0,0,0.34); font: 800 14px/1 sans-serif; letter-spacing: 0.02em; }
+		#home-menu-btn { right: 16px; top: 64px; bottom: auto; left: auto; padding: 10px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.32); background: rgba(6,12,22,0.82); box-shadow: 0 6px 18px rgba(0,0,0,0.28); font: 800 13px/1 sans-serif; }
+		#car-select { right: 16px; bottom: 212px; left: auto; top: auto; }
 		#share-time-btn { left: 16px; bottom: 12px; }
 		#export-ghost-btn { left: 16px; bottom: 12px; }
 		#import-ghost-btn { left: 136px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
-		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #home-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#mode-menu-btn:hover { background: linear-gradient(145deg, rgba(65,144,240,0.98), rgba(24,58,104,0.95)); }
+		#home-menu-btn:hover { background: rgba(20,35,55,0.92); }
 		/* Hide scattered nav buttons until JS moves them into the quick-menu panel (prevents FOUC) */
 		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link { display: none; }
 		#clubs-link.has-club-unread {
@@ -588,7 +591,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#leaderboard-toggle-btn:hover { background: rgba(0,0,0,0.78); }
 		#leaderboard-panel {
 			position: absolute;
-			top: 136px;
+			top: 12px;
 			left: 12px;
 			width: 210px;
 			min-width: 22px;
@@ -1347,7 +1350,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				font: 700 12px/1.2 sans-serif;
 			}
 			#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #share-time-btn, #export-ghost-btn, #import-ghost-btn { display: none; }
-			#respawnBtn, #mode-menu-btn, #car-select { z-index: 31; }
+			#respawnBtn, #mode-menu-btn, #home-menu-btn, #car-select { z-index: 31; }
 			#editor-link { bottom: auto; top: 12px; right: 12px; }
 				#totd-link { bottom: auto; top: 54px; right: 12px; }
 				#weekly-cup-link { bottom: auto; top: 96px; right: 12px; }
@@ -1359,9 +1362,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				#mods-link { bottom: auto; top: 306px; right: 12px; }
 			#hacks-toggle { bottom: auto; top: 348px; right: 12px; }
 			#split-link { bottom: auto; top: 390px; right: 12px; }
-			#car-select { top: 12px; left: 12px; }
-				#respawnBtn { top: 54px; left: 12px; }
-				#mode-menu-btn { top: 96px; left: 12px; }
+			#car-select { top: auto; left: auto; right: 12px; bottom: 208px; }
+				#respawnBtn { top: auto; left: auto; right: 12px; bottom: 166px; }
+				#mode-menu-btn { top: 12px; left: auto; right: 12px; }
+				#home-menu-btn { top: 60px; left: auto; right: 12px; }
 				#lap-hud { top: 56px; }
 				
 		#boost-ui {
@@ -1391,7 +1395,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 
 				#economy-hud { top: 108px; right: 12px; }
-				#leaderboard-panel { top: 136px; left: 12px; }
+				#leaderboard-panel { top: 12px; left: 12px; }
 		}
 	
 		body.ui-hidden > :not(canvas):not(script) { display: none !important; }
@@ -1438,7 +1442,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 
 		@media (pointer: coarse) {
-			#quick-menu-btn, #quick-menu-panel, #respawnBtn, #mode-menu-btn,
+			#quick-menu-btn, #quick-menu-panel, #respawnBtn, #mode-menu-btn, #home-menu-btn,
 			#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link,
 			#replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link,
 			#share-time-btn, #export-ghost-btn, #import-ghost-btn { display: none !important; }
@@ -1826,7 +1830,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		</div>
 	</section>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>
-	<a id="mode-menu-btn" href="#" role="button">Mode Menu (E)</a>
+	<a id="mode-menu-btn" href="#" role="button">☰ Menu (E)</a>
+	<a id="home-menu-btn" href="index.html" role="button">Back to Home</a>
 	<button id="export-ghost-btn" type="button">Export ghost</button>
 	<button id="import-ghost-btn" type="button">Import ghost</button>
 	<div id="mp-panel" aria-label="Multiplayer">
