@@ -11,6 +11,7 @@ import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
+import { HudExtras } from './HudExtras.js';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 
 document.title = 'Racing';
@@ -1718,6 +1719,10 @@ async function init() {
 	};
 
 	buildTrack( scene, models, customCells, extras );
+
+		hudExtras = new HudExtras( {
+			vehicle, cells: customCells || TRACK_CELLS, camera: cam.camera
+		} );
 	const movingObstacleState = createMovingObstacleState( scene, extras );
 
 
@@ -1927,6 +1932,9 @@ async function init() {
 	const vehicle = new Vehicle();
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
+
+	// ── HUD Extras: speedometer, minimap, shortcuts overlay ──
+	let hudExtras = null;
 	vehicle.setSpawn( spawn ? spawn.position : [ 3.5, 0.5, 5 ], spawn ? spawn.angle : 0 );
 	vehicle.setPerformance( CAR_STATS[ player1CarKey ].perf );
 
@@ -8104,6 +8112,20 @@ function completeCampaignStage() {
 
 			}
 
+			if ( e.code === 'Slash' && e.shiftKey ) {
+
+				hudExtras?.toggleShortcuts();
+				return;
+
+			}
+
+			if ( e.code === 'Escape' && hudExtras?.shortcutsOpen ) {
+
+				hudExtras.toggleShortcuts( false );
+				return;
+
+			}
+
 			if ( e.code === 'KeyC' ) {
 
 				cam.toggleMode();
@@ -8965,6 +8987,8 @@ function completeCampaignStage() {
 			updateLapHud();
 			updateLapHud2();
 			updateStuntPointsHud();
+			hudExtras?.update();
+			hudExtras?.setVisible( gameMode === 'race' || gameMode === 'stunt' );
 
 		}
 
