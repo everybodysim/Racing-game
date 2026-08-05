@@ -433,6 +433,10 @@ const multiplayerSessionState = {
 	role: 'none',
 	roomCode: '',
 	clientId: ( globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `p-${ Math.random().toString( 36 ).slice( 2, 10 ) }` ),
+	peerId: '',
+	connectedPeers: {},
+	peerJoinOrder: [],
+	hostPeerId: '',
 };
 
 const MULTIPLAYER_ROOM_ROTATE_MS = 120000;
@@ -441,6 +445,77 @@ let lastHostRoomRotateAt = 0;
 let lastHostRoomMetaSyncAt = 0;
 let migrationSwitchInFlight = false;
 
+function getLocalPeerId() {
+
+	if ( ! multiplayerSessionState.peerId ) multiplayerSessionState.peerId = multiplayerSessionState.clientId;
+	return multiplayerSessionState.peerId;
+
+}
+
+function normalizePeerList( peers ) {
+
+	return Array.isArray( peers )
+		? peers.filter( ( peerId ) => typeof peerId === 'string' && peerId.trim() )
+		: [];
+
+}
+
+function trackConnectedPeer( peerId, meta = {} ) {
+
+	const id = typeof peerId === 'string' ? peerId.trim() : '';
+	if ( ! id || id === getLocalPeerId() ) return;
+	multiplayerSessionState.connectedPeers[ id ] = { peer: id, ...meta, updatedAt: Date.now() };
+	if ( ! multiplayerSessionState.peerJoinOrder.includes( id ) ) multiplayerSessionState.peerJoinOrder.push( id );
+
+}
+
+function untrackConnectedPeer( peerId ) {
+
+	const id = typeof peerId === 'string' ? peerId.trim() : '';
+	if ( ! id ) return;
+	delete multiplayerSessionState.connectedPeers[ id ];
+	multiplayerSessionState.peerJoinOrder = multiplayerSessionState.peerJoinOrder.filter( ( existingId ) => existingId !== id );
+
+}
+
+function syncPeerTopologyFromRoom( room ) {
+
+	const peers = room?.peers && typeof room.peers === 'object' ? room.peers : {};
+	const orderedPeers = Object.entries( peers )
+		.map( ( [ peerId, meta ] ) => ( { peerId, joinedAt: Number( meta?.joinedAt ) || 0, active: meta?.active !== false } ) )
+		.filter( ( peer ) => peer.active )
+		.sort( ( a, b ) => a.joinedAt - b.joinedAt || a.peerId.localeCompare( b.peerId ) );
+	multiplayerSessionState.peerJoinOrder = orderedPeers.map( ( peer ) => peer.peerId );
+	multiplayerSessionState.hostPeerId = room?.hostPeerId || orderedPeers[ 0 ]?.peerId || '';
+	multiplayerSessionState.connectedPeers = {};
+	for ( const peer of orderedPeers ) trackConnectedPeer( peer.peerId, { joinedAt: peer.joinedAt } );
+
+}
+
+function buildPlayerLeftPacket( peerId ) {
+
+	return { type: 'PLAYER_LEFT', peerId, senderId: peerId, updatedAt: Date.now() };
+
+}
+
+function buildLocalVehiclePacket( now, mapSignature, vehicleInstance ) {
+
+	return {
+		type: 'VEHICLE_STATE',
+		senderId: getLocalPeerId(),
+		peerId: getLocalPeerId(),
+		x: Number( vehicleInstance.container.position.x.toFixed( 3 ) ),
+		y: Number( vehicleInstance.container.position.y.toFixed( 3 ) ),
+		z: Number( vehicleInstance.container.position.z.toFixed( 3 ) ),
+		ry: Number( vehicleInstance.container.rotation.y.toFixed( 4 ) ),
+		carKey: normalizeMultiplayerCarKey( currentCarKey() ),
+		cosmetics: buildGhostCosmeticsSnapshot( currentCarKey() ),
+		name: getLocalMultiplayerDisplayName(),
+		mapSignature,
+		updatedAt: now,
+	};
+
+}
 
 function setMultiplayerLeaderboardVisible( visible ) {
 
@@ -549,7 +624,7 @@ async function publishMultiplayerBestLap( bestLap ) {
 			time: Number( bestLap ),
 			bestLapSeconds: Number( bestLap ),
 			updatedAt: Date.now(),
-		}, `lapTimes/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
+		}, `lapTimes/${ encodeURIComponent( getLocalPeerId() ) }` );
 
 	} catch ( error ) {
 
@@ -694,12 +769,22 @@ function initMultiplayerPanel() {
 		joinBtn.disabled = true;
 		copyBtn.disabled = true;
 		const now = Date.now();
+		const peerId = getLocalPeerId();
 		const roomPayload = {
 			code,
 			mapSignature: getCurrentMapSignature(),
 			createdAt: now,
 			updatedAt: now,
 			status: 'hosting',
+			hostPeerId: peerId,
+			hostId: peerId,
+			newHostId: peerId,
+			peerJoinOrder: [ peerId ],
+			peers: {
+				[ peerId ]: { peerId, joinedAt: now, active: true },
+			},
+			packets: {},
+			relayedPackets: {},
 		};
 		try {
 
@@ -712,9 +797,12 @@ function initMultiplayerPanel() {
 				return;
 
 			}
-			updateMultiplayerStatus( `Hosting room ${ code }. Share this code with your friend.` );
+			updateMultiplayerStatus( `Hosting room ${ code }. Share this code with your friends.` );
 			multiplayerSessionState.role = 'host';
 			multiplayerSessionState.roomCode = code;
+			multiplayerSessionState.hostPeerId = peerId;
+			multiplayerSessionState.peerJoinOrder = [ peerId ];
+			multiplayerSessionState.connectedPeers = {};
 			lastHostRoomRotateAt = Date.now();
 			lastHostRoomMetaSyncAt = 0;
 			setMultiplayerLeaderboardVisible( true );
@@ -774,11 +862,21 @@ function initMultiplayerPanel() {
 
 			}
 
+			const joinedAt = Date.now();
+			const peerId = getLocalPeerId();
+			const peerJoinOrder = normalizePeerList( room.peerJoinOrder );
+			if ( ! peerJoinOrder.includes( peerId ) ) peerJoinOrder.push( peerId );
 			await firebaseRoomsRequest( code, 'PATCH', {
-				updatedAt: Date.now(),
-				lastJoinAt: Date.now(),
+				updatedAt: joinedAt,
+				lastJoinAt: joinedAt,
 				status: 'joined',
+				hostPeerId: room.hostPeerId || room.hostId || peerJoinOrder[ 0 ],
+				hostId: room.hostPeerId || room.hostId || peerJoinOrder[ 0 ],
+				newHostId: room.hostPeerId || room.hostId || peerJoinOrder[ 0 ],
+				peerJoinOrder,
+				[ `peers/${ peerId }` ]: { peerId, joinedAt, active: true },
 			} );
+			syncPeerTopologyFromRoom( { ...room, peerJoinOrder, hostPeerId: room.hostPeerId || room.hostId || peerJoinOrder[ 0 ], peers: { ...( room.peers || {} ), [ peerId ]: { peerId, joinedAt, active: true } } } );
 			updateMultiplayerStatus( `Joined room ${ code }.` );
 			multiplayerSessionState.role = 'join';
 			multiplayerSessionState.roomCode = code;
@@ -2136,23 +2234,32 @@ async function init() {
 		const force = Boolean( options?.force );
 		const now = Date.now();
 		const mapSignature = getCurrentMapSignature();
-		const localPayload = {
-			x: Number( vehicle.container.position.x.toFixed( 3 ) ),
-			y: Number( vehicle.container.position.y.toFixed( 3 ) ),
-			z: Number( vehicle.container.position.z.toFixed( 3 ) ),
-			ry: Number( vehicle.container.rotation.y.toFixed( 4 ) ),
-			carKey: normalizeMultiplayerCarKey( currentCarKey() ),
-			cosmetics: buildGhostCosmeticsSnapshot( currentCarKey() ),
-			name: getLocalMultiplayerDisplayName(),
-			mapSignature,
-			updatedAt: now,
-		};
+		const localPayload = buildLocalVehiclePacket( now, mapSignature, vehicle );
 
 		try {
 
 			multiplayerSyncInFlight = true;
-			await firebaseRoomsRequest( roomCode, 'PUT', localPayload, `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
-			const room = await firebaseRoomsRequest( roomCode, 'GET' );
+			await firebaseRoomsRequest( roomCode, 'PUT', localPayload, `players/${ encodeURIComponent( getLocalPeerId() ) }` );
+			let room = await firebaseRoomsRequest( roomCode, 'GET' );
+			syncPeerTopologyFromRoom( room );
+			const activePeers = normalizePeerList( multiplayerSessionState.peerJoinOrder );
+			const oldestPeerId = activePeers[ 0 ] || getLocalPeerId();
+			if ( oldestPeerId === getLocalPeerId() && multiplayerSessionState.role !== 'host' ) {
+
+				multiplayerSessionState.role = 'host';
+				multiplayerSessionState.hostPeerId = getLocalPeerId();
+				await firebaseRoomsRequest( roomCode, 'PATCH', {
+					hostPeerId: getLocalPeerId(),
+					hostId: getLocalPeerId(),
+					newHostId: getLocalPeerId(),
+					updatedAt: now,
+					status: 'hosting',
+				} );
+				updateMultiplayerStatus( `Host left. You are now hosting room ${ roomCode }.` );
+				room = { ...room, hostPeerId: getLocalPeerId(), hostId: getLocalPeerId(), newHostId: getLocalPeerId(), status: 'hosting' };
+
+			}
+
 			if ( multiplayerSessionState.role === 'host' ) {
 
 				const shouldSyncRoomMeta = room?.mapSignature !== mapSignature || now - lastHostRoomMetaSyncAt >= HOST_ROOM_META_SYNC_MS;
@@ -2201,21 +2308,49 @@ async function init() {
 
 			}
 			const players = room?.players && typeof room.players === 'object' ? room.players : {};
+			if ( multiplayerSessionState.role === 'host' ) {
+
+				const relayUpdates = {};
+				for ( const [ senderId, packet ] of Object.entries( players ) ) {
+
+					if ( senderId === getLocalPeerId() || packet?.type === 'PLAYER_LEFT' ) continue;
+					trackConnectedPeer( senderId );
+					const exactPacket = { ...packet, senderId: packet?.senderId || senderId };
+					for ( const targetPeerId of Object.keys( multiplayerSessionState.connectedPeers ) ) {
+
+						if ( targetPeerId === exactPacket.senderId ) continue;
+						relayUpdates[ `relayedPackets/${ targetPeerId }/${ exactPacket.senderId }` ] = exactPacket;
+
+					}
+
+				}
+				if ( Object.keys( relayUpdates ).length > 0 ) await firebaseRoomsRequest( roomCode, 'PATCH', relayUpdates );
+
+			}
+
 			renderMultiplayerRoomLeaderboard( room?.lapTimes );
 			maybeSubmitOnlinePersonalBest( room?.lapTimes );
 			const seen = new Set();
 			for ( const [ playerId, playerState ] of Object.entries( players ) ) {
 
-				if ( playerId === multiplayerSessionState.clientId ) continue;
+				const senderId = playerState?.senderId || playerId;
+				if ( senderId === getLocalPeerId() ) continue;
+				if ( playerState?.type === 'PLAYER_LEFT' ) {
+
+					removeRemotePlayerVisual( playerState.peerId || senderId );
+					untrackConnectedPeer( playerState.peerId || senderId );
+					continue;
+
+				}
 				if ( ! canJoinMap( playerState?.mapSignature, mapSignature ) ) continue;
 				const updatedAt = Number( playerState?.updatedAt ) || 0;
 				if ( ! force && now - updatedAt > REMOTE_PLAYER_STALE_MS ) continue;
-				const visualState = ensureRemotePlayerVisualWithCosmetics( playerId, playerState?.carKey, playerState?.cosmetics );
+				const visualState = ensureRemotePlayerVisualWithCosmetics( senderId, playerState?.carKey, playerState?.cosmetics );
 				ensureRemoteNameTag( visualState, playerState?.name || room?.lapTimes?.[ playerId ]?.name || 'Player' );
 				visualState.targetPos.set( Number( playerState?.x ) || 0, ( Number( playerState?.y ) || 0 ) - 0.1, Number( playerState?.z ) || 0 );
 				visualState.targetRotY = Math.PI - ( Number( playerState?.ry ) || 0 );
 				visualState.lastSeenAt = now;
-				seen.add( playerId );
+				seen.add( senderId );
 
 			}
 
@@ -2245,8 +2380,11 @@ async function init() {
 
 		if ( ! multiplayerSessionState.roomCode ) return;
 		const roomCode = multiplayerSessionState.roomCode;
-		const playerPath = `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }`;
-		firebaseRoomsRequest( roomCode, 'DELETE', undefined, playerPath ).catch( () => {} );
+		const peerId = getLocalPeerId();
+		const playerPath = `players/${ encodeURIComponent( peerId ) }`;
+		const peerPath = `peers/${ encodeURIComponent( peerId ) }`;
+		firebaseRoomsRequest( roomCode, 'PUT', buildPlayerLeftPacket( peerId ), playerPath ).catch( () => {} );
+		firebaseRoomsRequest( roomCode, 'PATCH', { active: false, leftAt: Date.now() }, peerPath ).catch( () => {} );
 
 	} );
 	let ghostModel = null;
