@@ -1938,6 +1938,28 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				return String( str || '' ).replace( /&/g, '&amp;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' ).replace( /"/g, '&quot;' );
 			}
 
+			function fnv64Hex( value, start, prime ) {
+				let hash = start;
+				for ( let i = 0; i < value.length; i ++ ) {
+					hash ^= BigInt( value.charCodeAt( i ) );
+					hash = ( hash * prime ) & 0xffffffffffffffffn;
+				}
+				return hash.toString( 16 ).padStart( 16, '0' );
+			}
+
+			function hashTrackSeed( value ) {
+				const hashA = fnv64Hex( value, 0xcbf29ce484222325n, 0x100000001b3n );
+				const hashB = fnv64Hex( value, 0x84222325cbf29cen, 0x100000001c3n );
+				return `${ hashA }${ hashB }`;
+			}
+
+			function normalizeTrackPath( pathValue ) {
+				const raw = String( pathValue || '/' );
+				if ( raw === '/index.html' ) return '/';
+				if ( raw.endsWith( '/index.html' ) ) return `${ raw.slice( 0, -11 ) }/`;
+				return raw;
+			}
+
 			function getTrackId( playUrl ) {
 				try {
 					const u = new URL( playUrl, location.href );
@@ -1946,8 +1968,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					const q = new URLSearchParams();
 					if ( map ) q.set( 'map', map );
 					if ( mods ) q.set( 'mods', mods );
-					const norm = u.pathname.replace( /\/+, '/' ).replace( /^.*\//, '' ) || 'index.html';
-					return `${ norm }${ q.toString() ? '?' + q.toString() : '' }`;
+					const rawUrl = `${ normalizeTrackPath( u.pathname ) }${ q.toString() ? `?${ q.toString() }` : '' }`;
+					return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
 				} catch ( e ) { return ''; }
 			}
 
@@ -2036,24 +2058,23 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					return;
 				}
 
-				// Fetch leaderboards for top 8 most popular tracks (by viewCount)
+				// Fetch leaderboards for the most active tracks with a short homepage timeout.
 				const topTracks = [ ...entries ]
-					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) )
-					.slice( 0, 8 )
+					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.thumbsUp ) || 0 ) - ( Number( a.thumbsUp ) || 0 ) )
+					.slice( 0, 24 )
 					.map( e => ( { id: getTrackId( e.playUrl ), entry: e } ) )
 					.filter( t => t.id );
 
-								const lbTimeout = new Promise( ( resolve ) => setTimeout( () => resolve( [] ), 6000 ) );
-				const lbFetches = topTracks.map( t =>
-					fetchLeaderboard( t.id ).then( rows => ( { trackId: t.id, rows } ) )
-				);
-				const lbResults = await Promise.race( [
-					Promise.allSettled( lbFetches ).then( results =>
-						results.map( r => r.status === 'fulfilled' ? r.value : { trackId: '', rows: [] } )
-					),
-					lbTimeout
-				] ) || [];
-
+				const lbResults = [];
+				const lbFetches = topTracks.map( t => fetchLeaderboard( t.id ).then( rows => {
+					const result = { trackId: t.id, rows };
+					lbResults.push( result );
+					return result;
+				} ).catch( () => ( { trackId: t.id, rows: [] } ) ) );
+				await Promise.race( [
+					Promise.allSettled( lbFetches ),
+					new Promise( ( resolve ) => setTimeout( resolve, 2500 ) )
+				] );
 
 				// Aggregate record holders
 				const winsByDriver = new Map();
