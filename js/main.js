@@ -106,6 +106,13 @@ loadBloomEffect();
 document.body.appendChild( renderer.domElement );
 const speedBlurVignette = document.getElementById( 'speed-blur-vignette' );
 let localPlayerVehicle = null;
+const remoteVisualHandlers = {
+	withCosmetics: null,
+	basic: null,
+	getOrCreate: null,
+	nameTag: null,
+	remove: null,
+};
 
 initMultiplayerPanel();
 
@@ -489,6 +496,48 @@ function relayHostPacket( packet, sourcePeerId ) {
 
 }
 
+function resolveRemoteVisualState( playerId, carKey, cosmetics ) {
+
+	if ( typeof ensureRemotePlayerVisualWithCosmetics === 'function' ) {
+
+		return ensureRemotePlayerVisualWithCosmetics( playerId, carKey, cosmetics );
+
+	}
+	if ( remoteVisualHandlers.withCosmetics ) return remoteVisualHandlers.withCosmetics( playerId, carKey, cosmetics );
+	if ( typeof ensureRemotePlayerVisual === 'function' ) return ensureRemotePlayerVisual( playerId, carKey, cosmetics );
+	if ( remoteVisualHandlers.basic ) return remoteVisualHandlers.basic( playerId, carKey, cosmetics );
+	if ( typeof getOrCreateRemotePlayerVisual === 'function' ) return getOrCreateRemotePlayerVisual( playerId, carKey, cosmetics );
+	if ( remoteVisualHandlers.getOrCreate ) return remoteVisualHandlers.getOrCreate( playerId, carKey, cosmetics );
+
+	logMpDebug( `[Visual Error] No remote visual initializer function found for ${ String( playerId || '' ).slice( 0, 8 ) }` );
+	return null;
+
+}
+
+function applyRemoteNameTag( visualState, displayName ) {
+
+	if ( typeof ensureRemoteNameTag === 'function' ) {
+
+		ensureRemoteNameTag( visualState, displayName );
+		return;
+
+	}
+	if ( remoteVisualHandlers.nameTag ) remoteVisualHandlers.nameTag( visualState, displayName );
+
+}
+
+function removeResolvedRemotePlayerVisual( playerId ) {
+
+	if ( typeof removeRemotePlayerVisual === 'function' ) {
+
+		removeRemotePlayerVisual( playerId );
+		return;
+
+	}
+	if ( remoteVisualHandlers.remove ) remoteVisualHandlers.remove( playerId );
+
+}
+
 function handlePeerPacket( packet, sourcePeerId ) {
 
 	try {
@@ -509,15 +558,16 @@ function handlePeerPacket( packet, sourcePeerId ) {
 		if ( playerId === multiplayerSessionState.clientId ) return;
 		if ( packet.type === PEER_PACKET_LEFT ) {
 
-			removeRemotePlayerVisual( playerId );
+			removeResolvedRemotePlayerVisual( playerId );
 			relayHostPacket( packet, sourcePeerId );
 			return;
 
 		}
 		if ( packet.type !== PEER_PACKET_STATE ) return;
-		const visualState = ensureRemotePlayerVisualWithCosmetics( playerId, packet.carKey, packet.cosmetics );
+		const visualState = resolveRemoteVisualState( playerId, packet.carKey, packet.cosmetics );
+		if ( ! visualState ) return;
 		const isFirstPacket = ! visualState.lastSeenAt;
-		ensureRemoteNameTag( visualState, packet.name || 'Player' );
+		applyRemoteNameTag( visualState, packet.name || 'Player' );
 		visualState.targetPos.set( Number( packet.x ) || 0, ( Number( packet.y ) || 0 ) - 0.1, Number( packet.z ) || 0 );
 		visualState.targetRotY = Math.PI - ( Number( packet.ry ) || 0 );
 		if ( isFirstPacket ) {
@@ -2405,6 +2455,12 @@ async function init() {
 		remotePlayerVisuals.delete( playerId );
 
 	}
+
+	remoteVisualHandlers.withCosmetics = ensureRemotePlayerVisualWithCosmetics;
+	remoteVisualHandlers.basic = ensureRemotePlayerVisual;
+	remoteVisualHandlers.getOrCreate = ensureRemotePlayerVisualWithCosmetics;
+	remoteVisualHandlers.nameTag = ensureRemoteNameTag;
+	remoteVisualHandlers.remove = removeRemotePlayerVisual;
 
 	function updateRemotePlayerVisualsFrame( dt ) {
 
