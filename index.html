@@ -2252,7 +2252,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 
 		function updateHomeRecordBadge( key, winner ) {
-			if ( ! landing?.classList.contains( 'visible' ) ) return;
+			if ( ! document.getElementById('home-landing')?.classList.contains('visible' ) ) return;
 			const chip = document.querySelector( `.home-record-chip[data-record-badge="${ key }"]` );
 			if ( ! chip ) return;
 			const nameEl = chip.querySelector( '.record-name' );
