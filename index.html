@@ -30,6 +30,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<link rel="manifest" href="manifest.webmanifest">
 	<link rel="icon" href="icons/icon-192.png" type="image/png">
 	<link rel="apple-touch-icon" href="icons/icon-192.png">
+	<link rel="preload" href="audio/music.mp3" as="audio">
+	<link rel="preload" href="audio/menu.mp3" as="audio">
 
 <!--	<script>
 		(() => {
@@ -911,14 +913,14 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 		#home-main-grid {
 			display: grid;
-			grid-template-columns: repeat(7, minmax(0, 1fr));
+			grid-template-columns: repeat(4, minmax(0, 1fr));
 			gap: 12px;
 		}
 		.home-main-link {
 			position: relative;
 			display: block;
 			padding: 10px 8px;
-			min-height: 96px;
+			min-height: 88px;
 			border-radius: 13px;
 			text-decoration: none;
 			color: #f7fbff;
@@ -1007,7 +1009,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 
 		@media (max-width: 1180px) {
-			#home-main-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+			#home-main-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 		}
 
 		@media (max-width: 760px) {
@@ -2336,5 +2338,7 @@ document.getElementById('loading-status').textContent =
 </script>
 
 </main>
+
+<script type="module" src="js/PageMusic.js"></script>
 </body>
 </html>

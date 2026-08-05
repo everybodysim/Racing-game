@@ -6,41 +6,25 @@ function remap( value, inMin, inMax, outMin, outMax ) {
 
 }
 
-function makeNoiseBuffer( context, seconds = 1.5 ) {
-
-	const length = Math.max( 1, Math.floor( context.sampleRate * seconds ) );
-	const buffer = context.createBuffer( 1, length, context.sampleRate );
-	const data = buffer.getChannelData( 0 );
-	let last = 0;
-
-	for ( let i = 0; i < length; i ++ ) {
-
-		last = last * 0.82 + ( Math.random() * 2 - 1 ) * 0.18;
-		data[ i ] = last;
-
-	}
-
-	return buffer;
-
-}
-
 export class GameAudio {
 
 	constructor() {
 
 		this.listener = null;
 		this.engineSound = null;
+		this.engineTextureSound = null;
 		this.skidSound = null;
 		this.musicSound = null;
-		this.engineNodes = null;
+		this.musicElement = null;
 		this.impactBuffer = null;
 		this.impactPool = [];
 		this.impactIndex = 0;
 		this.ready = false;
 		this.musicReady = false;
 		this.unlocked = false;
-		this.enginePhase = 0;
-		this.engineFlutter = 0;
+		this.engineTime = 0;
+		this.engineGear = 0;
+		this.lastSpeedFactor = 0;
 		this.targetMusicVolume = 0;
 
 	}
@@ -53,9 +37,30 @@ export class GameAudio {
 		const loader = new THREE.AudioLoader();
 
 		this.engineSound = new THREE.Audio( this.listener );
+		this.engineTextureSound = new THREE.Audio( this.listener );
 		this.skidSound = new THREE.Audio( this.listener );
+		this.musicElement = new Audio( 'audio/music.mp3' );
+		this.musicElement.loop = true;
+		this.musicElement.preload = 'auto';
+		this.musicElement.volume = 1;
+		this.musicElement.load();
 		this.musicSound = new THREE.Audio( this.listener );
-		this.createEngineSynth();
+		this.musicSound.setMediaElementSource( this.musicElement );
+		this.musicSound.setVolume( 0 );
+		this.musicReady = true;
+
+		loader.load( 'audio/engine.ogg', ( buffer ) => {
+
+			this.engineSound.setBuffer( buffer );
+			this.engineSound.setLoop( true );
+			this.engineSound.setVolume( 0 );
+			this.engineTextureSound.setBuffer( buffer );
+			this.engineTextureSound.setLoop( true );
+			this.engineTextureSound.setVolume( 0 );
+			this.engineTextureSound.setPlaybackRate( 0.72 );
+			this.checkReady();
+
+		} );
 
 		loader.load( 'audio/skid.ogg', ( buffer ) => {
 
@@ -80,16 +85,6 @@ export class GameAudio {
 
 		} );
 
-		loader.load( 'audio/music.mp3', ( buffer ) => {
-
-			this.musicSound.setBuffer( buffer );
-			this.musicSound.setLoop( true );
-			this.musicSound.setVolume( 0 );
-			this.musicReady = true;
-			if ( this.unlocked ) this.startMusic();
-
-		} );
-
 		const unlock = () => {
 
 			if ( this.unlocked ) return;
@@ -105,12 +100,14 @@ export class GameAudio {
 			window.removeEventListener( 'keydown', unlock );
 			window.removeEventListener( 'click', unlock );
 			window.removeEventListener( 'touchstart', unlock );
+			window.removeEventListener( 'pointerdown', unlock );
 
 		};
 
 		window.addEventListener( 'keydown', unlock );
 		window.addEventListener( 'click', unlock );
 		window.addEventListener( 'touchstart', unlock );
+		window.addEventListener( 'pointerdown', unlock );
 		window.addEventListener( 'pagehide', () => this.stopAll() );
 		window.addEventListener( 'beforeunload', () => this.stopAll() );
 		document.addEventListener( 'visibilitychange', () => {
@@ -127,49 +124,9 @@ export class GameAudio {
 
 	}
 
-	createEngineSynth() {
-
-		const ctx = this.listener.context;
-		const output = ctx.createGain();
-		const growl = ctx.createOscillator();
-		const pulse = ctx.createOscillator();
-		const raspSource = ctx.createBufferSource();
-		const raspFilter = ctx.createBiquadFilter();
-		const raspGain = ctx.createGain();
-		const compressor = ctx.createDynamicsCompressor();
-
-		growl.type = 'sawtooth';
-		pulse.type = 'square';
-		raspSource.buffer = makeNoiseBuffer( ctx );
-		raspSource.loop = true;
-		raspFilter.type = 'bandpass';
-		raspFilter.frequency.value = 420;
-		raspFilter.Q.value = 3.2;
-		output.gain.value = 0;
-		raspGain.gain.value = 0.08;
-		compressor.threshold.value = - 24;
-		compressor.ratio.value = 8;
-
-		growl.connect( compressor );
-		pulse.connect( compressor );
-		raspSource.connect( raspFilter );
-		raspFilter.connect( raspGain );
-		raspGain.connect( compressor );
-		compressor.connect( output );
-		output.connect( this.listener.getInput() );
-
-		growl.start();
-		pulse.start();
-		raspSource.start();
-
-		this.engineNodes = { growl, pulse, raspFilter, raspGain, output };
-		this.ready = Boolean( this.skidSound?.buffer );
-
-	}
-
 	checkReady() {
 
-		if ( this.engineNodes && this.skidSound.buffer ) {
+		if ( this.engineSound.buffer && this.engineTextureSound.buffer && this.skidSound.buffer ) {
 
 			this.ready = true;
 
@@ -183,31 +140,40 @@ export class GameAudio {
 
 		if ( ! this.ready ) return;
 
+		if ( ! this.engineSound.isPlaying ) this.engineSound.play();
+		if ( ! this.engineTextureSound.isPlaying ) this.engineTextureSound.play();
 		if ( ! this.skidSound.isPlaying ) this.skidSound.play();
 
 	}
 
 	startMusic() {
 
-		if ( this.musicReady && ! this.musicSound.isPlaying ) this.musicSound.play();
+		if ( ! this.musicReady || ! this.musicElement || ! this.musicElement.paused ) return;
+		this.musicElement.play().catch( () => {} );
 
 	}
 
 	stopAll() {
 
-		if ( this.engineNodes ) this.engineNodes.output.gain.value = 0;
+		if ( this.engineSound?.isPlaying ) this.engineSound.stop();
+		if ( this.engineTextureSound?.isPlaying ) this.engineTextureSound.stop();
 		if ( this.skidSound?.isPlaying ) this.skidSound.stop();
-		if ( this.musicSound?.isPlaying ) this.musicSound.stop();
+		if ( this.musicElement ) {
+
+			this.musicElement.pause();
+			this.musicElement.currentTime = 0;
+
+		}
 
 	}
 
 	updateMusic( dt, raceActive ) {
 
-		this.targetMusicVolume = raceActive ? 0.28 : 0;
+		this.targetMusicVolume = raceActive ? 0.34 : 0;
 		if ( ! this.musicReady ) return;
-		if ( this.unlocked && this.targetMusicVolume > 0 && ! this.musicSound.isPlaying ) this.musicSound.play();
+		if ( this.unlocked && this.targetMusicVolume > 0 && this.musicElement?.paused ) this.startMusic();
 		const currentVol = this.musicSound.getVolume();
-		this.musicSound.setVolume( THREE.MathUtils.lerp( currentVol, this.targetMusicVolume, Math.min( 1, dt * 2.5 ) ) );
+		this.musicSound.setVolume( THREE.MathUtils.lerp( currentVol, this.targetMusicVolume, Math.min( 1, dt * 6 ) ) );
 
 	}
 
@@ -215,24 +181,42 @@ export class GameAudio {
 
 		if ( ! this.ready ) return;
 
+		this.engineTime += dt;
 		const speedFactor = THREE.MathUtils.clamp( Math.abs( speed ), 0, 1.8 );
+		const normalizedSpeed = THREE.MathUtils.clamp( speedFactor / 1.8, 0, 1 );
 		const throttleFactor = THREE.MathUtils.clamp( Math.abs( throttle ), 0, 1 );
-		const load = THREE.MathUtils.clamp( speedFactor * 0.55 + throttleFactor * 0.65, 0, 1.6 );
-		this.enginePhase += dt * ( 1.7 + speedFactor * 1.9 );
-		this.engineFlutter = Math.sin( this.enginePhase * 1.73 ) * 0.045 + Math.sin( this.enginePhase * 3.91 ) * 0.025;
+		const accel = THREE.MathUtils.clamp( ( speedFactor - this.lastSpeedFactor ) / Math.max( dt, 0.001 ), - 1.2, 1.2 );
+		this.lastSpeedFactor = speedFactor;
 
-		if ( this.engineNodes ) {
+		const gearCount = 5;
+		const gearPosition = normalizedSpeed * gearCount;
+		const gearIndex = Math.min( gearCount - 1, Math.floor( gearPosition ) );
+		const gearProgress = gearPosition - gearIndex;
+		this.engineGear = THREE.MathUtils.lerp( this.engineGear, gearIndex, Math.min( 1, dt * 4 ) );
 
-			const ctxTime = this.listener.context.currentTime;
-			const rpm = 48 + speedFactor * 92 + throttleFactor * 36 + this.engineFlutter * 42;
-			const volume = remap( load, 0, 1.6, 0.035, 0.34 );
-			this.engineNodes.output.gain.linearRampToValueAtTime( volume, ctxTime + 0.06 );
-			this.engineNodes.growl.frequency.linearRampToValueAtTime( rpm, ctxTime + 0.08 );
-			this.engineNodes.pulse.frequency.linearRampToValueAtTime( rpm * 0.51, ctxTime + 0.08 );
-			this.engineNodes.raspFilter.frequency.linearRampToValueAtTime( 260 + rpm * 6.5, ctxTime + 0.08 );
-			this.engineNodes.raspGain.gain.linearRampToValueAtTime( 0.035 + throttleFactor * 0.09 + speedFactor * 0.02, ctxTime + 0.08 );
+		const revSweep = 0.68 + gearProgress * 0.62;
+		const speedPitch = remap( normalizedSpeed, 0, 1, 0.62, 1.68 );
+		const loadPitch = throttleFactor * 0.18 + accel * 0.035;
+		const topSpeedMovement = normalizedSpeed > 0.82
+			? Math.sin( this.engineTime * 5.7 ) * 0.045 + Math.sin( this.engineTime * 11.3 ) * 0.022
+			: 0;
+		const targetPitch = THREE.MathUtils.clamp( speedPitch * revSweep + loadPitch + topSpeedMovement, 0.55, 2.45 );
+		const currentPitch = this.engineSound.getPlaybackRate();
+		this.engineSound.setPlaybackRate( THREE.MathUtils.lerp( currentPitch, targetPitch, Math.min( 1, dt * 5.5 ) ) );
 
-		}
+		const texturePitch = THREE.MathUtils.clamp( targetPitch * 0.54 + 0.24 + Math.sin( this.engineTime * 2.1 ) * 0.025, 0.52, 1.48 );
+		const currentTexturePitch = this.engineTextureSound.getPlaybackRate();
+		this.engineTextureSound.setPlaybackRate( THREE.MathUtils.lerp( currentTexturePitch, texturePitch, Math.min( 1, dt * 3.5 ) ) );
+
+		const load = THREE.MathUtils.clamp( speedFactor * 0.55 + throttleFactor * 0.75, 0, 1.8 );
+		const pulse = 0.92 + Math.sin( this.engineTime * ( 8 + normalizedSpeed * 12 ) ) * 0.035;
+		const targetVol = remap( load, 0, 1.8, 0.035, 0.46 ) * pulse;
+		const currentVol = this.engineSound.getVolume();
+		this.engineSound.setVolume( THREE.MathUtils.lerp( currentVol, targetVol, Math.min( 1, dt * 7 ) ) );
+
+		const textureVol = ( 0.025 + normalizedSpeed * 0.12 + throttleFactor * 0.045 ) * ( 1 - Math.min( 0.45, driftIntensity * 0.12 ) );
+		const currentTextureVol = this.engineTextureSound.getVolume();
+		this.engineTextureSound.setVolume( THREE.MathUtils.lerp( currentTextureVol, textureVol, Math.min( 1, dt * 5 ) ) );
 
 		const shouldSkid = driftIntensity > 0.25;
 		let skidVol = 0;
