@@ -156,7 +156,8 @@
 		async function loadFromRemote() {
 			const payload = await apiRequest();
 			entries = sanitizeBoardEntries( payload?.entries );
-			await hydrateTopLeaderboardRows( entries );
+			render();
+			hydrateTopLeaderboardRows( entries );
 		}
 
 		function getTrackIdFromPlayUrl( playUrl ) {
@@ -235,10 +236,20 @@
 			return hash.toString( 16 ).padStart( 16, '0' );
 		}
 
+
+		let hydrationRenderScheduled = false;
+		function scheduleHydrationRender() {
+			if ( hydrationRenderScheduled ) return;
+			hydrationRenderScheduled = true;
+			requestAnimationFrame( () => {
+				hydrationRenderScheduled = false;
+				renderRecordBoard();
+			} );
+		}
 		async function hydrateTopLeaderboardRows( sourceEntries ) {
 			const next = new Map();
 			const rowsMap = new Map();
-			const CHUNK_SIZE = 40;
+			const CHUNK_SIZE = 6;
 			const bestRowForTrack = ( rows ) => {
 				if ( ! Array.isArray( rows ) || rows.length === 0 ) return null;
 				return rows.slice().sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ] || null;
@@ -250,9 +261,6 @@
 			} ) ).values() ].filter( Boolean );
 			leaderboardHydrating = true;
 			setLeaderboardProgress( 0, trackRequests.length );
-			topByTrackId = new Map();
-			rowsByTrackId = new Map();
-			render();
 			for ( let i = 0; i < trackRequests.length; i += CHUNK_SIZE ) {
 				const chunk = trackRequests.slice( i, i + CHUNK_SIZE );
 				const tasks = chunk.map( async ( request ) => {
@@ -272,17 +280,18 @@
 						.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
 					rowsMap.set( primaryId, dedupedRows );
 					next.set( primaryId, bestRowForTrack( dedupedRows ) );
+					topByTrackId = new Map( next );
+					rowsByTrackId = new Map( rowsMap );
 					setLeaderboardProgress( next.size, trackRequests.length );
-					renderRecordBoard();
+					scheduleHydrationRender();
 				} );
 				await Promise.all( tasks );
-				topByTrackId = new Map( next );
-				rowsByTrackId = new Map( rowsMap );
+				await new Promise( ( r ) => setTimeout( r, 0 ) );
 			}
-			topByTrackId = next;
-			rowsByTrackId = rowsMap;
 			leaderboardHydrating = false;
 			setLeaderboardProgress( trackRequests.length, trackRequests.length );
+			renderRecordBoard();
+			scheduleCardRefresh();
 		}
 
 		function inferTrackName( url, fallback = 'Shared Track' ) {
@@ -426,16 +435,36 @@
 
 		}
 
+		let cardRefreshScheduled = false;
+		function scheduleCardRefresh() {
+			if ( cardRefreshScheduled ) return;
+			cardRefreshScheduled = true;
+			requestAnimationFrame( () => {
+				cardRefreshScheduled = false;
+				const filtered = getFilteredEntries();
+				const cards = grid.querySelectorAll( '.card' );
+				const featuredCards = featuredTrack.querySelectorAll( '.card' );
+				const allCards = [ ...featuredCards, ...cards ];
+				allCards.forEach( ( card, idx ) => {
+					const entry = filtered[ idx ];
+					if ( ! entry ) return;
+					const stats = getTrackStats( entry );
+					const bestTimeEl = card.querySelector( '.stat-grid .stat:nth-child(1) b' );
+					const recordEl = card.querySelector( '.stat-grid .stat:nth-child(2) b' );
+					if ( bestTimeEl ) bestTimeEl.textContent = stats.bestTime === Infinity ? '--.--' : formatSeconds( stats.bestTime );
+					if ( recordEl ) recordEl.textContent = stats.topRow ? stats.topRow.name : 'Open';
+				} );
+			} );
+		}
+
 		function renderRecordBoard() {
 			if ( ! recordsBoardList ) return;
-			if ( leaderboardHydrating ) {
-				recordsBoardList.innerHTML = '<div class="records-empty">Loading record holders…</div>';
-				if ( placementRatingList ) placementRatingList.innerHTML = '<div class="records-empty">Loading placement ratings…</div>';
-				return;
-			}
 			const leaders = getRecordLeaders();
 			if ( leaders.length === 0 ) {
-				recordsBoardList.innerHTML = '<div class="records-empty">No leaderboard winners yet. Complete a lap to create the first record holder.</div>';
+				recordsBoardList.innerHTML = leaderboardHydrating
+					? '<div class="records-empty">Loading record holders…</div>'
+					: '<div class="records-empty">No leaderboard winners yet. Complete a lap to create the first record holder.</div>';
+				if ( placementRatingList ) placementRatingList.innerHTML = '<div class="records-empty">Loading placement ratings…</div>';
 				return;
 			}
 			recordsBoardList.innerHTML = leaders.slice( 0, 8 )
@@ -642,7 +671,7 @@
 					createdAt: Date.now(),
 				} );
 				saveToHash();
-				await hydrateTopLeaderboardRows( entries );
+				hydrateTopLeaderboardRows( entries );
 
 			}
 			render();
@@ -748,11 +777,9 @@
 					if ( ! Array.isArray( parsed?.entries ) ) throw new Error();
 					entries = sanitizeBoardEntries( parsed.entries );
 					saveToHash();
-					hydrateTopLeaderboardRows( entries )
-						.finally( () => {
-							render();
-							setStatus( `Imported ${ entries.length } shared track entries.` );
-						} );
+					hydrateTopLeaderboardRows( entries );
+					render();
+					setStatus( `Imported ${ entries.length } shared track entries.` );
 				} catch ( e ) {
 					setStatus( 'Invalid board code.', true );
 				}
@@ -771,7 +798,8 @@
 			window.addEventListener( 'hashchange', () => {
 				if ( useRemoteBoard ) return;
 				loadFromHash();
-				hydrateTopLeaderboardRows( entries ).finally( () => render() );
+				hydrateTopLeaderboardRows( entries );
+				render();
 			} );
 			searchInput.addEventListener( 'input', () => render() );
 			sizeFilter.addEventListener( 'change', () => render() );
@@ -815,7 +843,7 @@
 					useRemoteBoard = false;
 					loadFromHash();
 					setStatus( 'Cloud board unavailable. Using local share-link mode.' );
-					await hydrateTopLeaderboardRows( entries );
+					hydrateTopLeaderboardRows( entries );
 
 				}
 				render();

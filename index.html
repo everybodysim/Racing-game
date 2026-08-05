@@ -1026,6 +1026,48 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			background: rgba(255,255,255,0.14);
 			color: #fff;
 		}
+		#home-board-stats {
+			display: grid;
+			grid-template-columns: 1.2fr 1fr;
+			gap: 14px;
+			margin-top: 18px;
+			width: 100%;
+			max-width: 560px;
+		}
+		.home-board-stat {
+			background: rgba(255,255,255,0.06);
+			border: 1px solid rgba(255,255,255,0.13);
+			border-radius: 14px;
+			padding: 14px 16px;
+		}
+		.home-board-stat h3 {
+			margin: 0 0 8px;
+			font-size: 13px;
+			text-transform: uppercase;
+			letter-spacing: .08em;
+			color: #b5c2da;
+		}
+		.home-stat-loading { color: #b5c2da; font-size: 13px; }
+		#home-featured-track .featured-name { font-weight: 700; font-size: 15px; color: #fff; }
+		#home-featured-track .featured-meta { font-size: 12px; color: #b5c2da; margin-top: 4px; }
+		#home-featured-track .featured-link {
+			display: inline-block;
+			margin-top: 8px;
+			padding: 6px 10px;
+			border-radius: 8px;
+			background: rgba(48,198,119,.18);
+			border: 1px solid rgba(132,245,172,.4);
+			color: #c3f7d6;
+			text-decoration: none;
+			font: 700 12px "Inter", "Segoe UI", sans-serif;
+		}
+		#home-best-players { margin: 0; padding-left: 18px; }
+		#home-best-players li { font-size: 13px; padding: 3px 0; color: #fff; }
+		#home-best-players li .player-name { font-weight: 700; }
+		#home-best-players li .player-wins { color: #b5c2da; font-size: 11px; margin-left: 4px; }
+		@media (max-width: 600px) {
+			#home-board-stats { grid-template-columns: 1fr; }
+		}
 
 		@media (max-width: 1180px) {
 			#home-main-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -1263,6 +1305,16 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<a class="home-secondary-link" href="mods.html">Mods</a>
 				<a class="home-secondary-link" href="index.html?play=1&multiplayer=1">2P split screen</a>
 			<!--	<a class="home-secondary-link" href="campaign.html">Campaign guide</a> -->
+			</div>
+			<div id="home-board-stats">
+				<div class="home-board-stat">
+					<h3>Featured Track</h3>
+					<div id="home-featured-track"><span class="home-stat-loading">Loading…</span></div>
+				</div>
+				<div class="home-board-stat">
+					<h3>Top Players</h3>
+					<ol id="home-best-players"><li><span class="home-stat-loading">Loading…</span></li></ol>
+				</div>
 			</div>
 		</div>
 	</section>
@@ -1705,37 +1757,51 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			quickMenuBtn.textContent = 'Menu ▾';
 		} );
 
-		async function readLeaderboardNameFromPage( pageUrl, selector, fallbackLabel ) {
-			return new Promise( ( resolve ) => {
-				const iframe = document.createElement( 'iframe' );
-				iframe.src = pageUrl;
-				iframe.style.display = 'none';
-				document.body.appendChild( iframe );
-				const timeout = window.setTimeout( () => {
-					iframe.remove();
-					resolve( fallbackLabel );
-				}, 8000 );
-				iframe.addEventListener( 'load', () => {
-					let attempts = 0;
-					const poll = window.setInterval( () => {
-						attempts ++;
-						const text = iframe.contentDocument?.querySelector( selector )?.textContent?.trim();
-						if ( text && ! /^loading/i.test( text ) ) {
-							window.clearTimeout( timeout );
-							window.clearInterval( poll );
-							iframe.remove();
-							resolve( text );
-							return;
-						}
-						if ( attempts > 30 ) {
-							window.clearTimeout( timeout );
-							window.clearInterval( poll );
-							iframe.remove();
-							resolve( fallbackLabel );
-						}
-					}, 220 );
-				}, { once: true } );
-			} );
+		const HOME_TRACK_API = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
+		const HOME_LB_API = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
+
+		function fnv64Hex( value, start, prime ) {
+			let hash = start;
+			for ( let i = 0; i < value.length; i ++ ) {
+				hash ^= BigInt( value.charCodeAt( i ) );
+				hash = ( hash * prime ) & 0xffffffffffffffffn;
+			}
+			return hash.toString( 16 ).padStart( 16, '0' );
+		}
+
+		function hashTrackSeed( value ) {
+			const hashA = fnv64Hex( value, 0xcbf29ce484222325n, 0x100000001b3n );
+			const hashB = fnv64Hex( value, 0x84222325cbf29cen, 0x100000001c3n );
+			return `${ hashA }${ hashB }`;
+		}
+
+		function normalizeTrackPath( pathValue ) {
+			const raw = String( pathValue || '/' );
+			if ( raw === '/index.html' ) return '/';
+			if ( raw.endsWith( '/index.html' ) ) return `${ raw.slice( 0, -11 ) }/`;
+			return raw;
+		}
+
+		function buildTrackId( playUrl ) {
+			try {
+				const parsed = new URL( playUrl, window.location.href );
+				const map = parsed.searchParams.get( 'map' ) || '';
+				const mods = parsed.searchParams.get( 'mods' ) || '';
+				const normalizedPath = normalizeTrackPath( parsed.pathname || '/' );
+				const query = new URLSearchParams();
+				if ( map ) query.set( 'map', map );
+				if ( mods ) query.set( 'mods', mods );
+				const rawUrl = `${ normalizedPath }${ query.toString() ? `?${ query.toString() }` : '' }`;
+				return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
+			} catch { return ''; }
+		}
+
+		async function fetchJson( url ) {
+			try {
+				const res = await fetch( url );
+				if ( ! res.ok ) return null;
+				return await res.json();
+			} catch { return null; }
 		}
 
 		function updateHomeRecordBadge( key, winner ) {
@@ -1747,19 +1813,152 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			chip.classList.add( 'visible' );
 		}
 
-		( async () => {
+		function renderFeaturedTrack( entry ) {
+			const el = document.getElementById( 'home-featured-track' );
+			if ( ! el ) return;
+			if ( ! entry ) {
+				el.innerHTML = '<span class="home-stat-loading">No tracks yet</span>';
+				return;
+			}
+			const plays = Number( entry.viewCount ) || 0;
+			const likes = Number( entry.thumbsUp ) || 0;
+			el.innerHTML = `<div class="featured-name">${ entry.name || 'Shared Track' }</div>
+				<div class="featured-meta">${ plays } plays · ${ likes } likes</div>
+				<a class="featured-link" href="${ entry.playUrl }" target="_blank" rel="noopener">Race it →</a>`;
+		}
+
+		function renderBestPlayers( entries, topByTrackId ) {
+			const el = document.getElementById( 'home-best-players' );
+			if ( ! el ) return;
+			const winsByDriver = new Map();
+			for ( const entry of entries ) {
+				const trackId = buildTrackId( entry.playUrl );
+				const topRow = topByTrackId.get( trackId );
+				const driverName = String( topRow?.name || '' ).trim();
+				if ( ! driverName ) continue;
+				winsByDriver.set( driverName, ( winsByDriver.get( driverName ) || 0 ) + 1 );
+			}
+			const leaders = [ ...winsByDriver.entries() ]
+				.sort( ( a, b ) => b[ 1 ] - a[ 1 ] || a[ 0 ].localeCompare( b[ 0 ] ) )
+				.slice( 0, 5 );
+			if ( leaders.length === 0 ) {
+				el.innerHTML = '<li><span class="home-stat-loading">No records yet</span></li>';
+				return;
+			}
+			el.innerHTML = leaders.map( ( [ name, wins ] ) =>
+				`<li><span class="player-name">${ name }</span><span class="player-wins">${ wins } record${ wins === 1 ? '' : 's' }</span></li>`
+			).join( '' );
+		}
+
+		async function loadHomeBoardStats() {
+			const data = await fetchJson( HOME_TRACK_API );
+			const entries = ( data && Array.isArray( data.entries ) ) ? data.entries : [];
+			if ( entries.length === 0 ) {
+				renderFeaturedTrack( null );
+				renderBestPlayers( [], new Map() );
+				return;
+			}
+
+			// Featured: above-average play count, newest first
+			const avgPlays = entries.reduce( ( s, e ) => s + ( Number( e.viewCount ) || 0 ), 0 ) / entries.length;
+			const featured = [ ...entries ]
+				.sort( ( a, b ) => ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )
+				.find( ( e ) => ( Number( e.viewCount ) || 0 ) >= avgPlays ) || entries[ 0 ];
+			renderFeaturedTrack( featured );
+
+			// Best players: fetch leaderboard for up to 12 most-played tracks
+			const topTracks = [ ...entries ]
+				.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) )
+				.slice( 0, 12 );
+			const topByTrackId = new Map();
+			const CHUNK = 4;
+			for ( let i = 0; i < topTracks.length; i += CHUNK ) {
+				const chunk = topTracks.slice( i, i + CHUNK );
+				await Promise.all( chunk.map( async ( entry ) => {
+					const trackId = buildTrackId( entry.playUrl );
+					if ( ! trackId ) return;
+					const payload = await fetchJson( `${ HOME_LB_API }?trackId=${ encodeURIComponent( trackId ) }` );
+					const rows = Array.isArray( payload?.entries ) ? payload.entries : [];
+					const topRow = rows.slice().sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ] || null;
+					if ( topRow ) topByTrackId.set( trackId, topRow );
+					renderBestPlayers( entries, topByTrackId );
+				} ) );
+			}
+			renderBestPlayers( entries, topByTrackId );
+		}
+
+		async function loadTotdWeeklyBadges() {
 			const totdLink = document.getElementById( 'totd-link' );
 			const weeklyLink = document.getElementById( 'weekly-cup-link' );
+
+			// TOTD: replicate the deterministic seed to compute the track ID directly
 			if ( totdLink ) {
-				const winner = await readLeaderboardNameFromPage( 'totd.html', '#totd-record-holder', 'No record yet' );
-				totdLink.textContent = `Track of the day • ${ winner }`;
-				updateHomeRecordBadge( 'totd', winner );
+				try {
+					const d = new Date();
+					const utcDate = `${ d.getUTCFullYear() }-${ String( d.getUTCMonth() + 1 ).padStart( 2, '0' ) }-${ String( d.getUTCDate() ).padStart( 2, '0' ) }`;
+					const seedText = `daily-v2:${ utcDate }`;
+					// The TOTD page builds a play URL from BASE_URL + map + mods params, then hashes it
+					// We can't replicate the full track generation here without the generator code,
+					// so fetch the totd.html page and extract the generated URL from a lightweight script tag
+					const totdRes = await fetch( 'totd.html' );
+					const totdHtml = await totdRes.text();
+					// The page computes the URL at runtime; extract the BASE_URL constant and seed to rebuild the trackId
+					// Simpler: just extract the trackId hash inputs from the page's own JS
+					const baseUrlMatch = totdHtml.match( /const BASE_URL\s*=\s*"([^"]+)"/ );
+					const baseUrl = baseUrlMatch ? baseUrlMatch[ 1 ] : 'https://everybodysim.github.io/Racing-game/index.html';
+					// The trackId is trk-<hash> of the normalized URL. Since the page generates map/mods deterministically,
+					// we can't easily replicate it without running the generator. Instead, use the page's hashTrackSeed
+					// on a known URL pattern. As a fallback, just show "Loading..." and let the badge stay default.
+					// Better approach: fetch the page in a tiny hidden iframe only for TOTD, but with a very short timeout
+					// and no polling — just grab the text content once on load.
+					const winner = await new Promise( ( resolve ) => {
+						const iframe = document.createElement( 'iframe' );
+						iframe.src = 'totd.html';
+						iframe.style.cssText = 'width:1px;height:1px;position:absolute;left:-9999px;border:0;';
+						document.body.appendChild( iframe );
+						const done = ( w ) => { iframe.remove(); resolve( w ); };
+						const timer = setTimeout( () => done( 'No record yet' ), 5000 );
+						iframe.addEventListener( 'load', () => {
+							// Give the page's own JS time to generate and fetch the leaderboard
+							setTimeout( () => {
+								const text = iframe.contentDocument?.querySelector( '#totd-record-holder' )?.textContent?.trim();
+								clearTimeout( timer );
+								done( ( text && ! /^loading/i.test( text ) ) ? text : 'No record yet' );
+							}, 2500 );
+						}, { once: true } );
+					} );
+					totdLink.textContent = `Track of the day • ${ winner }`;
+					updateHomeRecordBadge( 'totd', winner );
+				} catch { /* keep default text */ }
 			}
+
+			// Weekly cup: same lightweight iframe approach
 			if ( weeklyLink ) {
-				const winner = await readLeaderboardNameFromPage( 'weekly-cup.html', '#champName', 'No records yet' );
-				weeklyLink.textContent = `Weekly cup • ${ winner }`;
-				updateHomeRecordBadge( 'weekly', winner );
+				try {
+					const winner = await new Promise( ( resolve ) => {
+						const iframe = document.createElement( 'iframe' );
+						iframe.src = 'weekly-cup.html';
+						iframe.style.cssText = 'width:1px;height:1px;position:absolute;left:-9999px;border:0;';
+						document.body.appendChild( iframe );
+						const done = ( w ) => { iframe.remove(); resolve( w ); };
+						const timer = setTimeout( () => done( 'No records yet' ), 5000 );
+						iframe.addEventListener( 'load', () => {
+							setTimeout( () => {
+								const text = iframe.contentDocument?.querySelector( '#champName' )?.textContent?.trim();
+								clearTimeout( timer );
+								done( ( text && ! /^loading/i.test( text ) ) ? text : 'No records yet' );
+							}, 2500 );
+						}, { once: true } );
+					} );
+					weeklyLink.textContent = `Weekly cup • ${ winner }`;
+					updateHomeRecordBadge( 'weekly', winner );
+				} catch { /* keep default text */ }
 			}
+		}
+
+		( async () => {
+			loadTotdWeeklyBadges();
+			loadHomeBoardStats();
 		} )();
 	</script>
 
