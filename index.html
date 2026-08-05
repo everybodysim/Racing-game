@@ -1884,29 +1884,33 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		</div>
 	</div>
 	<script>
-		// Run landing logic immediately AND on DOMContentLoaded as a fallback
-		(function showLanding() {
-			const map = new URLSearchParams( location.search ).get( 'map' );
-			const pack = new URLSearchParams( location.search ).get( 'pack' );
-			const play = new URLSearchParams( location.search ).get( 'play' );
+		// Shared URL params
+		const map = new URLSearchParams( location.search ).get( 'map' );
+		const pack = new URLSearchParams( location.search ).get( 'pack' );
+		const play = new URLSearchParams( location.search ).get( 'play' );
+		const mods = new URLSearchParams( location.search ).get( 'mods' );
+		const multiplayer = new URLSearchParams( location.search ).get( 'multiplayer' );
+
+		// Show landing immediately if possible
+		( function showLanding() {
 			const landing = document.getElementById( 'home-landing' );
 			const isIndexPath = /(?:^|\/)(?:index\.html)?$/.test( location.pathname );
 			if ( landing && !landing.classList.contains('visible') && isIndexPath && !map && !pack && play !== '1' ) {
 				landing.classList.add( 'visible' );
 				if ( typeof loadHomeCommunityData === 'function' ) loadHomeCommunityData();
 			}
-		})();
+		} )();
+
+		// Fallback: also check on DOMContentLoaded in case the element wasn't ready
 		document.addEventListener( 'DOMContentLoaded', function() {
-			const map = new URLSearchParams( location.search ).get( 'map' );
-			const pack = new URLSearchParams( location.search ).get( 'pack' );
-			const play = new URLSearchParams( location.search ).get( 'play' );
 			const landing = document.getElementById( 'home-landing' );
 			const isIndexPath = /(?:^|\/)(?:index\.html)?$/.test( location.pathname );
 			if ( landing && !landing.classList.contains('visible') && isIndexPath && !map && !pack && play !== '1' ) {
 				landing.classList.add( 'visible' );
 				if ( typeof loadHomeCommunityData === 'function' ) loadHomeCommunityData();
 			}
-		});
+		} );
+
 		if ( map ) {
 			const link = document.getElementById( 'editor-link' );
 			link.href = 'editor.html?map=' + map + ( mods ? '&mods=' + mods : '' );
