@@ -1549,7 +1549,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					</div>
 
 					<div class="home-small-row">
-						<a class="home-small-link" href="index.html?play=1&garage=1">Garage<em>Upgrade & paint</em></a>
+						<a class="home-small-link" href="index.html?play=1&garage=1">Garage<em>Paint & car select</em></a>
 						<a class="home-small-link" href="editor.html">Track editor<em>Build circuits</em></a>
 						<a class="home-small-link" href="competitions.html">Competitions<em>Stake-based tiers</em></a>
 					</div>
@@ -1662,7 +1662,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		</div>
 		<div class="mode-tab-panel active mode-compact" id="mode-panel-gameplay">
 			<button id="mode-race-btn" type="button">Race Mode</button>
-			<button id="mode-advancements-btn" type="button">Advancements</button>
+			<!-- <button id="mode-advancements-btn" type="button">Advancements</button> -->
 			<!-- <button id="campaign-info-btn" type="button">Campaign intro</button> -->
 		<!--	<label id="countdown-setting" for="countdown-toggle">
 				<input id="countdown-toggle" type="checkbox" checked>
@@ -1696,27 +1696,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<option value="vehicle-truck-purple">Purple truck</option>
 				<option value="vehicle-truck-red">Red truck</option>
 			</select>
-			<div class="garage-row">
-				<label for="garage-grip">Handling Pack</label>
-				<input id="garage-grip" type="range" min="0.85" max="1.15" step="0.01" value="1">
-				<span id="garage-grip-value">x1.00</span>
-				<button id="garage-grip-unlock" type="button">Unlock (250)</button>
-				<small id="garage-grip-status">Locked</small>
-			</div>
-			<div class="garage-row">
-				<label for="garage-accel">Power Pack</label>
-				<input id="garage-accel" type="range" min="0.85" max="1.15" step="0.01" value="1">
-				<span id="garage-accel-value">x1.00</span>
-				<button id="garage-accel-unlock" type="button">Unlock (325)</button>
-				<small id="garage-accel-status">Locked</small>
-			</div>
-			<div class="garage-row">
-				<label for="garage-drive">Traction Pack</label>
-				<input id="garage-drive" type="range" min="0.85" max="1.15" step="0.01" value="1">
-				<span id="garage-drive-value">x1.00</span>
-				<button id="garage-drive-unlock" type="button">Unlock (400)</button>
-				<small id="garage-drive-status">Locked</small>
-			</div>
+			<!-- Garage stat tuning is hidden for now; all performance multipliers are fixed at x1.15 in code. -->
 			<button id="profile-export-btn" type="button">Export Profile</button>
 			<button id="profile-import-btn" type="button">Import Profile</button>
 			<h4 style="margin-top:12px;">Paint Shop</h4>

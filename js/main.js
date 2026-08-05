@@ -3048,34 +3048,31 @@ async function init() {
 	}
 	const fxSettings = {
 		recentGhostsEnabled: false,
-		recentGhostPathEnabled: true,
+		recentGhostPathEnabled: false,
 		recentGhostCount: 3,
 	};
 	try {
 
 		const parsed = JSON.parse( localStorage.getItem( FX_SETTINGS_KEY ) || '{}' );
 		if ( typeof parsed?.recentGhostsEnabled === 'boolean' ) fxSettings.recentGhostsEnabled = parsed.recentGhostsEnabled;
-		if ( typeof parsed?.recentGhostPathEnabled === 'boolean' ) fxSettings.recentGhostPathEnabled = parsed.recentGhostPathEnabled;
 		if ( Number.isFinite( Number( parsed?.recentGhostCount ) ) ) fxSettings.recentGhostCount = THREE.MathUtils.clamp( Math.round( Number( parsed.recentGhostCount ) ), 1, 20 );
 
 	} catch {}
 
-	const fxPanel = document.createElement( 'div' );
-	fxPanel.style.position = 'fixed';
-	fxPanel.style.right = '12px';
-	fxPanel.style.top = '12px';
-	fxPanel.style.zIndex = '56';
-	fxPanel.style.background = 'rgba(0,0,0,0.45)';
-	fxPanel.style.color = '#e9f5ff';
-	fxPanel.style.padding = '6px 8px';
-	fxPanel.style.borderRadius = '8px';
-	fxPanel.style.font = '12px/1.3 sans-serif';
-	fxPanel.innerHTML = `<label style="display:block;margin-bottom:4px;"><input id="fx-recent-ghosts" type="checkbox" ${ fxSettings.recentGhostsEnabled ? 'checked' : '' }> Show recent ghosts</label>
-	<label style="display:block;margin-bottom:4px;"><input id="fx-recent-ghost-path" type="checkbox" ${ fxSettings.recentGhostPathEnabled ? 'checked' : '' }> Show ghost spread path</label>
-	<label style="display:block;margin-top:4px;">Recent ghost count <input id="fx-recent-ghost-count" type="number" min="1" max="100" step="1" value="${ fxSettings.recentGhostCount }" style="width:100%;margin-top:3px;background:#0f1520;color:#e9f5ff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:2px 4px;"></label>`;
-	document.body.appendChild( fxPanel );
+	const fxPanel = document.createElement( 'section' );
+	fxPanel.id = 'gameplay-ghost-settings';
+	fxPanel.style.marginTop = '10px';
+	fxPanel.style.padding = '10px';
+	fxPanel.style.border = '1px solid rgba(255,255,255,0.14)';
+	fxPanel.style.borderRadius = '10px';
+	fxPanel.style.background = 'rgba(255,255,255,0.06)';
+	fxPanel.innerHTML = `<h4 style="margin:0 0 8px;font:800 12px/1.2 sans-serif;color:#bde6ff;">Ghosts</h4>
+	<label style="display:block;margin-bottom:6px;"><input id="fx-recent-ghosts" type="checkbox" ${ fxSettings.recentGhostsEnabled ? 'checked' : '' }> Show recent ghosts</label>
+	<label style="display:block;margin-top:4px;">Recent ghost count <input id="fx-recent-ghost-count" type="number" min="1" max="20" step="1" value="${ fxSettings.recentGhostCount }" style="width:100%;margin-top:3px;background:#0f1520;color:#e9f5ff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:4px 6px;"></label>`;
+	const gameplayPanel = document.getElementById( 'mode-panel-gameplay' );
+	const graphicsSection = document.getElementById( 'graphics-section' );
+	if ( gameplayPanel ) gameplayPanel.insertBefore( fxPanel, graphicsSection || null );
 	const fxRecentGhostsInput = fxPanel.querySelector( '#fx-recent-ghosts' );
-	const fxRecentGhostPathInput = fxPanel.querySelector( '#fx-recent-ghost-path' );
 	const fxRecentGhostCountSelect = fxPanel.querySelector( '#fx-recent-ghost-count' );
 	if ( fxRecentGhostCountSelect ) fxRecentGhostCountSelect.value = String( fxSettings.recentGhostCount );
 	const saveFxSettings = () => localStorage.setItem( FX_SETTINGS_KEY, JSON.stringify( fxSettings ) );
@@ -3084,13 +3081,6 @@ async function init() {
 		fxSettings.recentGhostsEnabled = Boolean( fxRecentGhostsInput.checked );
 		saveFxSettings();
 		rebuildRecentGhostVisuals();
-		rebuildGhostSpreadLine();
-
-	} );
-	fxRecentGhostPathInput?.addEventListener( 'change', () => {
-
-		fxSettings.recentGhostPathEnabled = Boolean( fxRecentGhostPathInput.checked );
-		saveFxSettings();
 		rebuildGhostSpreadLine();
 
 	} );
@@ -3196,13 +3186,8 @@ async function init() {
 		state: advancementState,
 		accountDirtyRef,
 		onUnlock: (adv) => {
-			if (!adv) return;
-			if (advToast) {
-				advToast.textContent = `${adv.notify}\n${adv.description}`;
-				advToast.style.display = 'block';
-				setTimeout(() => { if (advToast) advToast.style.display = 'none'; }, 3200);
-			}
-			try { new Audio('audio/unlock.wav').play().catch(()=>{}); } catch {}
+			if ( ! adv ) return;
+			// Achievement notifications are hidden for now, but progress still saves.
 			renderAdvGraph();
 		}
 	});
@@ -3248,8 +3233,9 @@ async function init() {
 	};
 	const garageStoreKey = 'racing-garage-mods-v1';
 	const campaignStoreKey = 'racing-campaign-v1';
-	let garageMods = { grip: 1.0, accel: 1.0, drive: 1.0 };
-	let garageUnlocked = { grip: false, accel: false, drive: false };
+	const GARAGE_FIXED_MULTIPLIER = 1.15;
+	let garageMods = { grip: GARAGE_FIXED_MULTIPLIER, accel: GARAGE_FIXED_MULTIPLIER, drive: GARAGE_FIXED_MULTIPLIER };
+	let garageUnlocked = { grip: true, accel: true, drive: true };
 	const GARAGE_REPAINT_COST = 300;
 	const GARAGE_COLOR_PICK_TOLERANCE = 34;
 	const GARAGE_COLOR_UNLOCK_COST = 90;
@@ -3923,19 +3909,8 @@ async function init() {
 			const raw = localStorage.getItem( garageStoreKey );
 			if ( ! raw ) return;
 			const parsed = JSON.parse( raw );
-			const legacy = parsed && ! parsed.mods;
-			const mods = legacy ? parsed : parsed?.mods;
-			const unlocked = legacy ? null : parsed?.unlocked;
-			garageMods = {
-				grip: clampGarageValue( mods?.grip, 1.0 ),
-				accel: clampGarageValue( mods?.accel, 1.0 ),
-				drive: clampGarageValue( mods?.drive, 1.0 ),
-			};
-			garageUnlocked = {
-				grip: Boolean( unlocked?.grip ),
-				accel: Boolean( unlocked?.accel ),
-				drive: Boolean( unlocked?.drive ),
-			};
+			garageMods = { grip: GARAGE_FIXED_MULTIPLIER, accel: GARAGE_FIXED_MULTIPLIER, drive: GARAGE_FIXED_MULTIPLIER };
+			garageUnlocked = { grip: true, accel: true, drive: true };
 			garageCosmetics = normalizeGarageCosmetics( parsed?.cosmetics );
 
 		} catch ( e ) {
@@ -4379,14 +4354,14 @@ async function init() {
 				<dl>
 					<dt>Speed</dt><dd>${ stats.speed } / 10</dd>
 					<dt>Acceleration</dt><dd>${ stats.accel } / 10</dd>
-					<dt>Handling</dt><dd>${ ( garageMods.grip * 100 ).toFixed( 0 ) }%</dd>
-					<dt>Traction</dt><dd>${ ( garageMods.drive * 100 ).toFixed( 0 ) }%</dd>
+					<dt>Handling</dt><dd>${ ( GARAGE_FIXED_MULTIPLIER * 100 ).toFixed( 0 ) }%</dd>
+					<dt>Traction</dt><dd>${ ( GARAGE_FIXED_MULTIPLIER * 100 ).toFixed( 0 ) }%</dd>
 					<dt>Top speed</dt><dd>${ Number( perf.topSpeed || 0 ).toFixed( 2 ) }</dd>
 					<dt>Power</dt><dd>${ Number( perf.driveForce || 0 ).toFixed( 0 ) }</dd>
 					<dt>Paint maps</dt><dd>${ mappings }</dd>
 				</dl>
 				<span class="garage-vehicle-status">${ garageUpgradeSummary() }</span>`;
-			button.addEventListener( 'click', () => selectGarageCar( carKey ) );
+			button.addEventListener( 'click', ( event ) => { event.preventDefault(); event.stopPropagation(); selectGarageCar( carKey ); } );
 			garageVehicleCards.appendChild( button );
 
 		}
@@ -5157,16 +5132,8 @@ function completeCampaignStage() {
 		}
 		const nextCoins = Number( parsed?.economy?.coins );
 		coins = Number.isFinite( nextCoins ) ? Math.max( 0, Math.floor( nextCoins ) ) : coins;
-		garageMods = {
-			grip: clampGarageValue( parsed?.garage?.mods?.grip, garageMods.grip ),
-			accel: clampGarageValue( parsed?.garage?.mods?.accel, garageMods.accel ),
-			drive: clampGarageValue( parsed?.garage?.mods?.drive, garageMods.drive ),
-		};
-		garageUnlocked = {
-			grip: Boolean( parsed?.garage?.unlocked?.grip ),
-			accel: Boolean( parsed?.garage?.unlocked?.accel ),
-			drive: Boolean( parsed?.garage?.unlocked?.drive ),
-		};
+		garageMods = { grip: GARAGE_FIXED_MULTIPLIER, accel: GARAGE_FIXED_MULTIPLIER, drive: GARAGE_FIXED_MULTIPLIER };
+		garageUnlocked = { grip: true, accel: true, drive: true };
 		garageCosmetics = normalizeGarageCosmetics( parsed?.garage?.cosmetics );
 		if ( parsed?.campaign && typeof parsed.campaign === 'object' ) {
 
@@ -5981,10 +5948,9 @@ function completeCampaignStage() {
 	function applySurfaceGrip( targetVehicle, surfaceType, padEffect = null ) {
 
 		const effect = getSurfaceEffect( surfaceType );
-		const unlocks = getGarageUnlocks();
-		const gripPack = unlocks.grip ? garageMods.grip : 1.0;
-		const accelPack = unlocks.accel ? garageMods.accel : 1.0;
-		const drivePack = unlocks.drive ? garageMods.drive : 1.0;
+		const gripPack = GARAGE_FIXED_MULTIPLIER;
+		const accelPack = GARAGE_FIXED_MULTIPLIER;
+		const drivePack = GARAGE_FIXED_MULTIPLIER;
 		const padGrip = Number.isFinite( padEffect?.grip ) ? padEffect.grip : 1.0;
 		const padDrag = Number.isFinite( padEffect?.drag ) ? padEffect.drag : 1.0;
 		const padAccel = Number.isFinite( padEffect?.accel ) ? padEffect.accel : 1.0;
