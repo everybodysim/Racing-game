@@ -2261,14 +2261,20 @@ async function init() {
 			new THREE.BoxGeometry( 0.95, 0.5, 1.7 ),
 			new THREE.MeshStandardMaterial( { color: 0x53d4ff, transparent: true, opacity: 0.38, depthWrite: false } ),
 		);
+		mesh.visible = true;
+		mesh.scale.set( 1, 1, 1 );
 		mesh.traverse?.( ( obj ) => {
 
-			if ( ! obj?.isMesh ) return;
+			if ( ! obj ) return;
+			obj.visible = true;
+			if ( obj.scale ) obj.scale.set( 1, 1, 1 );
+			if ( ! obj.isMesh ) return;
 			if ( Array.isArray( obj.material ) ) {
 
 				for ( const mat of obj.material ) {
 
 					if ( ! mat ) continue;
+					mat.visible = true;
 					mat.transparent = false;
 					mat.opacity = 1.0;
 					mat.depthWrite = true;
@@ -2277,6 +2283,7 @@ async function init() {
 
 			} else if ( obj.material ) {
 
+				obj.material.visible = true;
 				obj.material.transparent = false;
 				obj.material.opacity = 1.0;
 				obj.material.depthWrite = true;
@@ -2286,7 +2293,7 @@ async function init() {
 			obj.receiveShadow = true;
 
 		} );
-		if ( mesh.parent !== scene ) scene.add( mesh );
+		if ( ! scene.children.includes( mesh ) ) scene.add( mesh );
 		const state = {
 			mesh,
 			carKey: modelKey,
@@ -2380,10 +2387,18 @@ async function init() {
 
 		}
 		const visualState = ensureRemotePlayerVisualWithCosmetics( senderId, packet.carKey, packet.cosmetics );
-		if ( visualState.mesh.parent !== scene ) scene.add( visualState.mesh );
+		const wasUnseen = ! visualState.lastSeenAt;
+		if ( ! scene.children.includes( visualState.mesh ) ) scene.add( visualState.mesh );
+		visualState.mesh.visible = true;
+		visualState.mesh.scale.set( 1, 1, 1 );
 		ensureRemoteNameTag( visualState, packet.name || 'Player' );
-		visualState.targetPos.set( Number( packet.x ) || 0, ( Number( packet.y ) || 0 ) - 0.1, Number( packet.z ) || 0 );
+		const x = Number( packet.x ) || 0;
+		const y = ( Number( packet.y ) || 0 ) - 0.1;
+		const z = Number( packet.z ) || 0;
+		visualState.targetPos.set( x, y, z );
+		if ( wasUnseen ) visualState.mesh.position.set( x, y, z );
 		visualState.targetRotY = Math.PI - ( Number( packet.ry ) || 0 );
+		if ( wasUnseen ) visualState.mesh.rotation.y = visualState.targetRotY;
 		visualState.lastSeenAt = Date.now();
 
 	}
