@@ -14,7 +14,6 @@ export class GameAudio {
 		this.engineSound = null;
 		this.engineTextureSound = null;
 		this.skidSound = null;
-		this.musicSound = null;
 		this.musicElement = null;
 		this.impactBuffer = null;
 		this.impactPool = [];
@@ -26,6 +25,7 @@ export class GameAudio {
 		this.engineGear = 0;
 		this.lastSpeedFactor = 0;
 		this.targetMusicVolume = 0;
+		this.musicVolume = 0;
 		this.musicStarted = false;
 
 	}
@@ -43,18 +43,9 @@ export class GameAudio {
 		this.musicElement = new Audio( 'audio/music.mp3' );
 		this.musicElement.loop = true;
 		this.musicElement.preload = 'auto';
-		this.musicElement.volume = 1;
+		this.musicElement.volume = 0;
 		this.musicElement.load();
-		this.musicSound = new THREE.Audio( this.listener );
-		this.musicSound.setMediaElementSource( this.musicElement );
-		this.musicSound.setVolume( 0 );
 		this.musicReady = true;
-
-		// Pre-start the music element immediately so it buffers while the
-		// AudioContext is still suspended. No sound will come out (context is
-		// suspended + volume is 0) but the element will be ready to play
-		// instantly when the context resumes on first user interaction.
-		this.musicElement.play().catch( () => {} );
 
 		loader.load( 'audio/engine.ogg', ( buffer ) => {
 
@@ -130,6 +121,9 @@ export class GameAudio {
 			if ( this.unlocked ) return;
 			this.unlocked = true;
 
+			// Start music directly inside the user gesture. Waiting for the
+			// AudioContext resume promise can lose autoplay permission in browsers.
+			this.startMusic();
 			resumeContext();
 
 			window.removeEventListener( 'keydown', unlock );
@@ -194,24 +188,19 @@ export class GameAudio {
 
 		if ( ! this.musicReady || ! this.musicElement ) return;
 
-		const ctx = this.listener?.context;
-
-		if ( ctx && ctx.state !== 'running' ) return;
-
-		// Browsers can leave a pre-started media element in paused=false while the
-		// WebAudio context is silent. When gameplay unlocks audio, force a clean
-		// media play so music.mp3 starts without waiting for a sound effect.
-		if ( ! this.musicElement.paused && ! this.musicStarted ) {
-
-			this.musicElement.pause();
-
-		}
-
+		// Keep music as a normal HTMLAudioElement instead of routing it through
+		// WebAudio. The engine/skid/impact sounds use the AudioContext, but music
+		// must be allowed to begin during the player's first driving gesture even
+		// if the context has not finished resuming yet.
 		this.musicElement.play().then( () => {
 
 			this.musicStarted = true;
 
-		} ).catch( () => {} );
+		} ).catch( () => {
+
+			this.musicStarted = false;
+
+		} );
 
 	}
 
@@ -220,7 +209,13 @@ export class GameAudio {
 		if ( this.engineSound?.isPlaying ) this.engineSound.stop();
 		if ( this.engineTextureSound?.isPlaying ) this.engineTextureSound.stop();
 		if ( this.skidSound?.isPlaying ) this.skidSound.stop();
-		if ( this.musicElement ) this.musicElement.pause();
+		if ( this.musicElement ) {
+
+			this.musicElement.pause();
+			this.musicElement.volume = 0;
+
+		}
+		this.musicVolume = 0;
 		this.musicStarted = false;
 
 	}
@@ -230,17 +225,10 @@ export class GameAudio {
 		this.targetMusicVolume = raceActive ? 0.34 : 0;
 		if ( ! this.musicReady ) return;
 
-		// If music should be playing but element is paused (e.g. after tab switch
-		// + return), restart it. The context should already be running.
-		if ( this.unlocked && this.targetMusicVolume > 0 ) {
+		if ( this.unlocked && this.targetMusicVolume > 0 && ( this.musicElement?.paused || ! this.musicStarted ) ) this.startMusic();
 
-			const ctx = this.listener?.context;
-			if ( ctx && ctx.state === 'running' && ( this.musicElement?.paused || ! this.musicStarted ) ) this.startMusic();
-
-		}
-
-		const currentVol = this.musicSound.getVolume();
-		this.musicSound.setVolume( THREE.MathUtils.lerp( currentVol, this.targetMusicVolume, Math.min( 1, dt * 6 ) ) );
+		this.musicVolume = THREE.MathUtils.lerp( this.musicVolume, this.targetMusicVolume, Math.min( 1, dt * 6 ) );
+		if ( this.musicElement ) this.musicElement.volume = THREE.MathUtils.clamp( this.musicVolume, 0, 1 );
 
 	}
 
