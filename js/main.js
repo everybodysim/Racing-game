@@ -522,7 +522,6 @@ async function maybeSubmitOnlinePersonalBest( lapTimes ) {
 	if ( Number.isFinite( lastSyncedOnlineBestLapSeconds ) && bestOnlineTime >= lastSyncedOnlineBestLapSeconds - 1e-6 ) return;
 	bestLapSeconds = bestOnlineTime;
 	shareImageDataUrl = createShareSnapshot( bestLapSeconds );
-	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 	updateLapHud();
 	saveLapStats();
 	if ( ! accountSession?.token ) {
@@ -2708,8 +2707,8 @@ async function init() {
 			if ( state?.model ) scene.remove( state.model );
 
 		}
-		if ( ! ghostEnabled || ! fxSettings.recentGhostsEnabled || ! fxSettings.recentGhostPathEnabled ) return;
-		const targetCount = Math.max( 1, Math.min( 100, fxSettings.recentGhostCount ) );
+		if ( ! ghostEnabled || ! fxSettings.recentGhostsEnabled ) return;
+		const targetCount = Math.max( 1, Math.min( recentGhostHistory.length, fxSettings.recentGhostCount ) );
 		for ( const entry of recentGhostHistory.slice( 0, targetCount ) ) {
 
 			const model = createGhostVisualModel( models[ entry.car || 'vehicle-truck-yellow' ] || models[ 'vehicle-truck-yellow' ], 0.22, entry.cosmetics || null );
@@ -3000,6 +2999,7 @@ async function init() {
 	let effectMessageTimeout = null;
 	const carSelect = document.getElementById( 'car-select' );
 	const coinsLabel = document.getElementById( 'coins-label' );
+	const accountCoinsValue = document.getElementById( 'account-coins-value' );
 	const shareTimeBtn = document.getElementById( 'share-time-btn' );
 	const exportGhostBtn = document.getElementById( 'export-ghost-btn' );
 	const importGhostBtn = document.getElementById( 'import-ghost-btn' );
@@ -3094,12 +3094,6 @@ async function init() {
 		rebuildGhostSpreadLine();
 
 	} );
-	if ( economyHud ) {
-
-		economyHud.style.top = '108px';
-		economyHud.style.right = '12px';
-
-	}
 	const namePopup = document.getElementById( 'name-popup' );
 	const namePopupInput = document.getElementById( 'name-popup-input' );
 	const namePopupSave = document.getElementById( 'name-popup-save' );
@@ -3267,7 +3261,6 @@ async function init() {
 
 		if ( economyHud ) economyHud.style.display = 'none';
 		if ( carSelect ) carSelect.style.display = 'none';
-		if ( shareTimeBtn ) shareTimeBtn.style.display = 'none';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = 'none';
 		if ( importGhostBtn ) importGhostBtn.style.display = 'none';
 	}
@@ -3399,7 +3392,6 @@ async function init() {
 		if ( lapHud ) lapHud.style.display = 'block';
 		if ( lapHud2 ) lapHud2.style.display = isSplitScreen ? 'block' : 'none';
 		if ( economyHud && ! isSplitScreen ) economyHud.style.display = 'block';
-		if ( shareTimeBtn ) shareTimeBtn.style.display = ! isSplitScreen ? 'block' : 'none';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = ! isSplitScreen ? 'block' : 'none';
 			if ( importGhostBtn ) importGhostBtn.style.display = ! isSplitScreen ? 'block' : 'none';
 			if ( hacksToggleLink ) hacksToggleLink.style.display = hacksInstalled && ! isSplitScreen ? 'block' : 'none';
@@ -4933,9 +4925,55 @@ function completeCampaignStage() {
 
 	}
 
+	function saveRecentGhostHistory() {
+
+		try {
+
+			localStorage.setItem( recentGhostStoreKey, JSON.stringify( recentGhostHistory.slice( 0, 12 ) ) );
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to save recent ghosts', e );
+
+		}
+
+	}
+
+	function loadRecentGhostHistory() {
+
+		try {
+
+			const raw = localStorage.getItem( recentGhostStoreKey );
+			if ( ! raw ) return;
+			const parsed = JSON.parse( raw );
+			if ( ! Array.isArray( parsed ) ) return;
+			recentGhostHistory.length = 0;
+			for ( const entry of parsed.slice( 0, 12 ) ) {
+
+				const normalized = extractNormalizedGhostPayload( entry );
+				if ( ! normalized ) continue;
+				recentGhostHistory.push( {
+					samples: normalized.samples,
+					duration: normalized.duration,
+					car: normalized.car || 'vehicle-truck-yellow',
+					cosmetics: normalized.cosmetics || null,
+					checkpointTimes: computeCheckpointCrossTimes( normalized.samples ),
+				} );
+
+			}
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to load recent ghosts', e );
+
+		}
+
+	}
+
 	function updateEconomyHud() {
 
-		if ( coinsLabel ) coinsLabel.textContent = `Coins: ${ coins }`;
+		if ( coinsLabel ) coinsLabel.textContent = `🪙 ${ Math.floor( coins ).toLocaleString() }`;
+		if ( accountCoinsValue ) accountCoinsValue.textContent = Math.floor( coins ).toLocaleString();
 		updateGarageUi();
 
 	}
@@ -5033,6 +5071,7 @@ function completeCampaignStage() {
 	const stuntStoreKey = `racing-stunt-stats:${ mapParam || 'default' }`;
 	const currentTrackUrl = `${ window.location.origin }${ window.location.pathname }${ window.location.search }`;
 	const leaderboardTrackId = getTrackId( mapParam, extrasParam );
+	const recentGhostStoreKey = `racing-recent-ghosts:${ leaderboardTrackId }`;
 	const leaderboardLegacyTrackIds = getLegacyTrackIds( mapParam, extrasParam );
 	const leaderboardTrackName = getTrackLabel( mapParam );
 	const leaderboardTrackApiUrl = `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( leaderboardTrackId ) }`;
@@ -6238,8 +6277,7 @@ function completeCampaignStage() {
 			createGhostModel( models[ normalized.car ], bestGhostCosmetics );
 
 		}
-		if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
-		updateGhostShareButtons();
+			updateGhostShareButtons();
 		return true;
 
 	}
@@ -7765,12 +7803,6 @@ function completeCampaignStage() {
 	} );
 
 
-	shareTimeBtn?.addEventListener( 'click', () => {
-
-		openShareTab();
-
-	} );
-
 	exportGhostBtn?.addEventListener( 'click', async () => {
 
 		const code = createGhostExportCode();
@@ -7810,36 +7842,6 @@ function completeCampaignStage() {
 	} );
 	campaignInfoBtn?.addEventListener( 'click', () => {
 		window.location.href = 'campaign.html';
-	} );
-	profileExportBtn?.addEventListener( 'click', async () => {
-
-		const code = createProfileExportCode();
-		try {
-
-			await navigator.clipboard.writeText( code );
-			window.alert( 'Profile code copied to clipboard.' );
-
-		} catch ( e ) {
-
-			window.prompt( 'Copy your profile code:', code );
-
-		}
-
-	} );
-	profileImportBtn?.addEventListener( 'click', () => {
-
-		const code = window.prompt( 'Paste profile code:' );
-		if ( ! code ) return;
-		try {
-
-			if ( ! applyImportedProfile( code.trim() ) ) window.alert( 'Invalid profile code.' );
-
-		} catch ( e ) {
-
-			window.alert( 'Could not import profile code.' );
-
-		}
-
 	} );
 	accountSignupBtn?.addEventListener( 'click', async () => {
 
@@ -7889,36 +7891,6 @@ function completeCampaignStage() {
 		} catch ( e ) {
 
 			setAccountStatus( e.message || 'Cloud load failed.', true );
-
-		}
-
-	} );
-	accountExportBtn?.addEventListener( 'click', async () => {
-
-		const code = createAccountExportCode();
-		try {
-
-			await navigator.clipboard.writeText( code );
-			window.alert( 'Account code copied to clipboard.' );
-
-		} catch ( e ) {
-
-			window.prompt( 'Copy your account code:', code );
-
-		}
-
-	} );
-	accountImportBtn?.addEventListener( 'click', () => {
-
-		const code = window.prompt( 'Paste account code:' );
-		if ( ! code ) return;
-		try {
-
-			if ( ! applyImportedAccountCode( code.trim() ) ) window.alert( 'Invalid account code.' );
-
-		} catch ( e ) {
-
-			window.alert( 'Could not import account code.' );
 
 		}
 
@@ -7996,6 +7968,7 @@ function completeCampaignStage() {
 	} );
 
 	loadEconomy();
+	loadRecentGhostHistory();
 	loadHacksState();
 	loadStuntStats();
 	loadGarageMods();
@@ -8012,7 +7985,6 @@ function completeCampaignStage() {
 	updateEconomyHud();
 	updateCampaignUi();
 	loadLapStats();
-	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 	updateGhostShareButtons();
 	updateModeHudVisibility();
 	updatePauseUi();
@@ -8688,7 +8660,6 @@ function completeCampaignStage() {
 						bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
 						if ( isNewBest ) publishMultiplayerBestLap( bestLapSeconds );
 						shareImageDataUrl = createShareSnapshot( bestLapSeconds );
-						if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 
 					} else {
 
@@ -8742,6 +8713,7 @@ function completeCampaignStage() {
 						checkpointTimes: computeCheckpointCrossTimes( normalized ),
 					} );
 					if ( recentGhostHistory.length > 12 ) recentGhostHistory.length = 12;
+					saveRecentGhostHistory();
 					rebuildRecentGhostVisuals();
 					rebuildGhostSpreadLine();
 

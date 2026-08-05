@@ -308,7 +308,19 @@ export class GameAudio {
 		if ( sound.isPlaying ) sound.stop();
 
 		const volume = THREE.MathUtils.clamp( remap( impactVelocity, 0, 6, 0.01, 1.0 ), 0.01, 1.0 );
+		const velocityTone = THREE.MathUtils.clamp( remap( impactVelocity, 0.5, 7, -0.08, 0.16 ), -0.08, 0.16 );
+		const randomTone = ( Math.random() - 0.5 ) * 0.18;
+		const playbackRate = THREE.MathUtils.clamp( 1 + velocityTone + randomTone, 0.82, 1.24 );
 		sound.setVolume( volume );
+		if ( typeof sound.setPlaybackRate === 'function' ) {
+
+			sound.setPlaybackRate( playbackRate );
+
+		} else if ( sound.source?.playbackRate ) {
+
+			sound.source.playbackRate.value = playbackRate;
+
+		}
 		sound.play();
 
 	}

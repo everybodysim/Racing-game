@@ -118,8 +118,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#mode-menu-btn { left: 16px; top: 96px; bottom: auto; }
 		#car-select { left: 16px; top: 12px; bottom: auto; }
 		#share-time-btn { left: 16px; bottom: 12px; }
-		#export-ghost-btn { left: 180px; bottom: 12px; }
-		#import-ghost-btn { left: 300px; bottom: 12px; }
+		#export-ghost-btn { left: 16px; bottom: 12px; }
+		#import-ghost-btn { left: 136px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
 		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
 		/* Hide scattered nav buttons until JS moves them into the quick-menu panel (prevents FOUC) */
@@ -360,18 +360,24 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			width: 0%;
 			background: linear-gradient(90deg, #53d4ff, #8dff77);
 		}
+		#economy-hud, #account-coins-card {
+			color: #fff;
+			font: 800 13px/1.35 sans-serif;
+			background: linear-gradient(135deg, rgba(255,211,77,0.2), rgba(255,143,48,0.14));
+			border: 1px solid rgba(255,219,101,0.42);
+			border-radius: 14px;
+			padding: 10px 12px;
+			box-shadow: 0 12px 30px rgba(0,0,0,0.22), inset 0 1px rgba(255,255,255,0.16);
+		}
 		#economy-hud {
 			position: absolute;
-			top: 108px;
 			right: 12px;
-			color: #fff;
-			font: 600 13px/1.35 sans-serif;
-			text-align: right;
-			background: rgba(0,0,0,0.4);
-			border-radius: 8px;
-			padding: 8px 10px;
+			bottom: 54px;
 			z-index: 10;
 		}
+		#account-coins-card { margin-top: 12px; text-align: center; }
+		#account-coins-card .coin-card-label { display:block; color:#ffe7a3; font:900 11px/1.2 sans-serif; letter-spacing:.08em; text-transform:uppercase; }
+		#account-coins-card .coin-card-value { display:block; margin-top:4px; font:900 24px/1.05 sans-serif; }
 		#mode-menu {
 			position: absolute;
 			top: 50%;
@@ -584,7 +590,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			position: absolute;
 			top: 136px;
 			left: 12px;
-			width: min(320px, 42vw);
+			width: 210px;
 			min-width: 22px;
 			min-height: 15px;
 			max-height: 48vh;
@@ -1697,8 +1703,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<option value="vehicle-truck-red">Red truck</option>
 			</select>
 			<!-- Garage stat tuning is hidden for now; all performance multipliers are fixed at x1.15 in code. -->
-			<button id="profile-export-btn" type="button">Export Profile</button>
-			<button id="profile-import-btn" type="button">Import Profile</button>
 			<h4 style="margin-top:12px;">Paint Shop</h4>
 			<div id="garage-color-help">Click a color area on the 3D car, choose a new color, then repaint that highlighted area for 300 coins.</div>
 			<div id="garage-paint-studio">
@@ -1733,9 +1737,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<button id="account-login-btn" type="button">Login</button>
 			<button id="account-cloud-save-btn" type="button">Save profile to cloud</button>
 			<button id="account-cloud-load-btn" type="button">Load profile from cloud</button>
-			<button id="account-export-btn" type="button">Export Account</button>
-			<button id="account-import-btn" type="button">Import Account</button>
 			<div id="account-status"></div>
+			<div id="account-coins-card" aria-live="polite"><span class="coin-card-label">Current coins</span><span class="coin-card-value" id="account-coins-value">0</span></div>
 		</div>
 		</div>
 		<div class="mode-tab-panel" id="mode-panel-nav">
@@ -1821,14 +1824,12 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<a href="mods.html">Mods</a>
 			<button type="button" data-mobile-click="split-link">2P split screen</button>
 			<button type="button" data-mobile-click="hacks-toggle">Hacks</button>
-			<button type="button" data-mobile-click="share-time-btn">Share time</button>
 			<button type="button" data-mobile-click="export-ghost-btn">Export ghost</button>
 			<button type="button" data-mobile-click="import-ghost-btn">Import ghost</button>
 		</div>
 	</section>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>
 	<a id="mode-menu-btn" href="#" role="button">Mode Menu (E)</a>
-	<button id="share-time-btn" type="button" disabled>Share best time</button>
 	<button id="export-ghost-btn" type="button">Export ghost</button>
 	<button id="import-ghost-btn" type="button">Import ghost</button>
 	<div id="mp-panel" aria-label="Multiplayer">
