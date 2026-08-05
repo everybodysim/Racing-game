@@ -128,11 +128,11 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			animation: club-link-unread-pulse 1.2s ease-in-out infinite;
 			border-color: rgba(255,96,96,0.82);
 		}
-		.home-main-link.club-notify-target.has-club-unread {
+		.home-main-link.club-notify-target.has-club-unread, .home-small-link.club-notify-target.has-club-unread {
 			animation: club-home-unread-pulse 1.2s ease-in-out infinite;
 			border-color: rgba(255,96,96,0.82);
 		}
-		#clubs-link.has-club-unread::after, .home-main-link.club-notify-target.has-club-unread::after {
+		#clubs-link.has-club-unread::after, .home-main-link.club-notify-target.has-club-unread::after, .home-small-link.club-notify-target.has-club-unread::after {
 			content: attr(data-club-unread);
 			position: absolute;
 			top: -8px;
@@ -942,78 +942,142 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			display: none;
 			align-items: center;
 			justify-content: center;
-			padding: 20px;
+			padding: 16px;
 			background:
-				radial-gradient(circle at 20% 18%, rgba(83, 212, 255, 0.26), transparent 42%),
-				radial-gradient(circle at 82% 82%, rgba(141, 255, 119, 0.2), transparent 38%),
-				linear-gradient(160deg, rgba(8,14,24,0.96), rgba(8,11,18,0.98));
+				radial-gradient(circle at 15% 12%, rgba(83, 212, 255, 0.28), transparent 42%),
+				radial-gradient(circle at 88% 88%, rgba(141, 255, 119, 0.22), transparent 38%),
+				linear-gradient(160deg, rgba(8,14,24,0.97), rgba(8,11,18,0.99));
 			font-family: "Inter", "Segoe UI", sans-serif;
+			overflow-y: auto;
 		}
 		#home-landing.visible { display: flex; }
 		#home-card {
 			position: relative;
-			width: min(1320px, 100%);
+			width: min(1200px, 100%);
 			border-radius: 22px;
-			padding: clamp(18px, 2.5vw, 34px);
-			background: rgba(11,17,27,0.8);
+			padding: clamp(16px, 2.5vw, 32px);
+			background: rgba(11,17,27,0.82);
 			border: 1px solid rgba(255,255,255,0.16);
 			box-shadow: 0 24px 70px rgba(0,0,0,0.5);
 			color: #eaf2ff;
 		}
 
+		/* ── Header row: title + counter ── */
+		#home-header {
+			display: flex;
+			align-items: flex-start;
+			justify-content: space-between;
+			gap: 12px;
+			margin-bottom: 4px;
+		}
+		#home-card h1 {
+			margin: 0;
+			font: 900 clamp(32px, 5.5vw, 56px)/1.02 "Inter", "Segoe UI", sans-serif;
+			letter-spacing: -0.03em;
+			background: linear-gradient(135deg, #6cc8ff, #77f3b1);
+			-webkit-background-clip: text;
+			-webkit-text-fill-color: transparent;
+			background-clip: text;
+		}
+		#home-tagline {
+			margin: 4px 0 18px;
+			color: #8ba8c9;
+			font: 500 clamp(12px, 1.6vw, 15px)/1.4 "Inter", "Segoe UI", sans-serif;
+		}
 		#home-player-counter {
-			position: absolute;
-			right: clamp(18px, 2.5vw, 34px);
-			top: clamp(18px, 2.5vw, 28px);
-			padding: 8px 10px;
-			border-radius: 10px;
-			background: rgba(5,10,18,0.55);
-			border: 1px solid rgba(255,255,255,0.16);
-			font: 600 11px/1.2 "Inter", "Segoe UI", sans-serif;
+			flex-shrink: 0;
+			padding: 7px 12px;
+			border-radius: 12px;
+			background: rgba(5,10,18,0.6);
+			border: 1px solid rgba(119,243,177,0.25);
+			font: 700 12px/1.3 "Inter", "Segoe UI", sans-serif;
 			color: #d8ebff;
-			min-width: 120px;
-			text-align: right;
+			text-align: center;
+			white-space: nowrap;
+		}
+		#home-player-counter .counter-label {
+			display: block;
+			font-size: 9px;
+			font-weight: 700;
+			letter-spacing: 0.1em;
+			text-transform: uppercase;
+			color: #77f3b1;
+			opacity: 0.85;
 		}
 		#home-player-counter a { color: #9ec6ff; text-decoration: none; font-size: 10px; }
+		#home-player-counter img { display: inline; vertical-align: middle; }
 
-		#home-card h1 {
-			margin: 0 0 8px;
-			font: 800 clamp(30px, 5vw, 54px)/1.04 "Inter", "Segoe UI", sans-serif;
-			letter-spacing: 0.02em;
-		}
-		#home-card p {
-			margin: 0 0 18px;
-			color: #bad0ea;
-			font: 500 clamp(13px, 1.8vw, 18px)/1.45 "Inter", "Segoe UI", sans-serif;
-			max-width: 62ch;
-		}
-		#home-main-grid {
+		/* ── Two-column layout: actions + community ── */
+		#home-body {
 			display: grid;
-			grid-template-columns: repeat(4, minmax(0, 1fr));
-			gap: 12px;
+			grid-template-columns: 1.4fr 1fr;
+			gap: 16px;
+			align-items: stretch;
 		}
-		.home-main-link {
-			position: relative;
+
+		/* ── Left column: buttons ── */
+		#home-actions { display: flex; flex-direction: column; gap: 10px; }
+
+		.home-big-link {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			padding: 16px 20px;
+			border-radius: 16px;
+			text-decoration: none;
+			color: #f7fbff;
+			background: linear-gradient(135deg, rgba(91,236,126,0.35), rgba(34,159,73,0.28));
+			border: 1px solid rgba(168,255,190,0.5);
+			font: 800 clamp(16px, 2.2vw, 22px)/1.2 "Inter", "Segoe UI", sans-serif;
+			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 4px 18px rgba(77,232,152,0.14);
+		}
+		.home-big-link em {
+			font-style: normal;
+			font-weight: 500;
+			font-size: clamp(11px, 1.2vw, 13px);
+			opacity: 0.85;
+		}
+		.home-big-link:hover {
+			transform: translateY(-2px);
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 8px 30px rgba(77,232,152,0.28);
+			background: linear-gradient(135deg, rgba(91,236,126,0.45), rgba(34,159,73,0.38));
+		}
+
+		.home-mid-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+		.home-mid-link {
 			display: block;
-			padding: 10px 8px;
-			min-height: 88px;
+			padding: 12px 14px;
+			min-height: 64px;
 			border-radius: 13px;
 			text-decoration: none;
 			color: #f7fbff;
-			background: linear-gradient(165deg, rgba(90,159,255,0.3), rgba(47,104,181,0.32));
-			border: 1px solid rgba(189,223,255,0.5);
-			font: 700 clamp(12px, 1.35vw, 15px)/1.2 "Inter", "Segoe UI", sans-serif;
+			background: linear-gradient(165deg, rgba(90,159,255,0.28), rgba(47,104,181,0.3));
+			border: 1px solid rgba(189,223,255,0.42);
+			font: 700 clamp(12px, 1.3vw, 15px)/1.2 "Inter", "Segoe UI", sans-serif;
 			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
-			box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
+		}
+		.home-mid-link em {
+			display: block;
+			margin-top: 5px;
+			font-style: normal;
+			font-weight: 500;
+			font-size: 11px;
+			opacity: 0.88;
+		}
+		.home-mid-link:hover {
+			transform: translateY(-2px);
+			box-shadow: 0 8px 22px rgba(30,71,126,0.3);
+			background: linear-gradient(165deg, rgba(118,185,255,0.38), rgba(59,128,212,0.34));
 		}
 		.home-record-chip {
 			display: none;
-			margin: 0 0 8px;
-			padding: 6px 8px;
-			border-radius: 10px;
-			border: 1px solid rgba(120,245,184,0.46);
-			background: linear-gradient(130deg, rgba(50,72,120,0.76), rgba(48,170,128,0.36));
-			box-shadow: 0 0 14px rgba(77,232,152,0.16);
+			margin: 0 0 6px;
+			padding: 5px 7px;
+			border-radius: 8px;
+			border: 1px solid rgba(120,245,184,0.4);
+			background: linear-gradient(130deg, rgba(50,72,120,0.7), rgba(48,170,128,0.32));
 		}
 		.home-record-chip.visible { display: block; }
 		.home-record-chip .record-label {
@@ -1031,65 +1095,158 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			overflow: hidden;
 			text-overflow: ellipsis;
 			white-space: nowrap;
-			font-size: 12px;
+			font-size: 11px;
 			font-weight: 900;
 			color: #f7fbff;
 		}
-		.home-main-link em {
-			display: block;
-			margin-top: 7px;
-			font-style: normal;
-			font-weight: 500;
-			font-size: 12px;
-			opacity: 0.9;
-		}
-		.home-main-link:hover {
-			transform: translateY(-2px);
-			box-shadow: 0 10px 25px rgba(30,71,126,0.35);
-			background: linear-gradient(165deg, rgba(118,185,255,0.4), rgba(59,128,212,0.36));
-		}
 
-		.home-main-link.out-of-order, #competitions-link.out-of-order {
+		.home-small-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+		.home-small-link {
 			position: relative;
-			opacity: 1;
-			pointer-events: auto;
-			background: linear-gradient(165deg, rgba(170,40,40,0.88), rgba(120,24,24,0.92));
-			border-color: rgba(255,180,180,0.65);
+			display: block;
+			padding: 10px 8px;
+			min-height: 52px;
+			border-radius: 11px;
+			text-decoration: none;
+			color: #d6e4f7;
+			background: rgba(255,255,255,0.07);
+			border: 1px solid rgba(255,255,255,0.13);
+			font: 600 clamp(11px, 1.1vw, 13px)/1.25 "Inter", "Segoe UI", sans-serif;
+			text-align: center;
+			transition: transform 0.15s ease, background 0.2s ease;
+		}
+		.home-small-link em {
+			display: block;
+			margin-top: 3px;
+			font-style: normal;
+			font-weight: 400;
+			font-size: 10px;
+			opacity: 0.7;
+		}
+		.home-small-link:hover {
+			transform: translateY(-1px);
+			background: rgba(255,255,255,0.13);
+			color: #fff;
+		}
+		.home-small-link.out-of-order {
+			background: linear-gradient(165deg, rgba(170,40,40,0.78), rgba(120,24,24,0.82));
+			border-color: rgba(255,180,180,0.5);
 			color: #fff3f3;
 		}
-		.home-main-link.out-of-order em {
-			color: #ffd4d4;
-		}
-		.home-main-link.play-link {
-			background: linear-gradient(165deg, rgba(91,236,126,0.33), rgba(34,159,73,0.3));
-			border-color: rgba(168,255,190,0.62);
-		}
+
 		#home-secondary {
-			margin-top: 14px;
 			display: flex;
 			flex-wrap: wrap;
-			gap: 8px;
+			gap: 7px;
+			margin-top: 2px;
 		}
 		.home-secondary-link {
 			text-decoration: none;
-			font: 600 12px/1 "Inter", "Segoe UI", sans-serif;
-			padding: 7px 10px;
+			font: 600 11px/1 "Inter", "Segoe UI", sans-serif;
+			padding: 6px 10px;
 			border-radius: 999px;
 			color: #cfe1f8;
-			background: rgba(255,255,255,0.08);
-			border: 1px solid rgba(255,255,255,0.13);
+			background: rgba(255,255,255,0.06);
+			border: 1px solid rgba(255,255,255,0.11);
+			transition: background 0.2s ease;
 		}
 		.home-secondary-link:hover {
-			background: rgba(255,255,255,0.14);
+			background: rgba(255,255,255,0.13);
 			color: #fff;
 		}
 
-		@media (max-width: 1180px) {
-			#home-main-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+		/* ── Right column: community panel ── */
+		#home-community {
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+			padding: 14px;
+			border-radius: 16px;
+			background: rgba(5,10,18,0.5);
+			border: 1px solid rgba(255,255,255,0.1);
+		}
+		.home-panel-title {
+			font: 800 10px/1 "Inter", "Segoe UI", sans-serif;
+			letter-spacing: 0.12em;
+			text-transform: uppercase;
+			color: #77f3b1;
+		}
+		#home-featured-track {
+			display: flex;
+			flex-direction: column;
+			gap: 6px;
+			padding: 10px;
+			border-radius: 12px;
+			background: linear-gradient(135deg, rgba(50,72,120,0.5), rgba(48,170,128,0.2));
+			border: 1px solid rgba(119,243,177,0.25);
+			text-decoration: none;
+			color: #f7fbff;
+			transition: transform 0.15s ease, box-shadow 0.15s ease;
+		}
+		#home-featured-track:hover {
+			transform: translateY(-2px);
+			box-shadow: 0 8px 24px rgba(77,232,152,0.18);
+		}
+		#home-featured-track .ft-name { font: 800 14px/1.3 "Inter", sans-serif; }
+		#home-featured-track .ft-meta { font: 500 11px/1.3 "Inter", sans-serif; color: #9ab5d4; }
+		#home-featured-track .ft-play {
+			margin-top: 4px;
+			padding: 6px 12px;
+			border-radius: 8px;
+			background: linear-gradient(135deg, rgba(48,198,119,0.9), rgba(48,151,255,0.85));
+			color: #04130b;
+			font: 800 11px/1 "Inter", sans-serif;
+			text-align: center;
 		}
 
-		@media (max-width: 760px) {
-			#home-main-grid { grid-template-columns: 1fr; }
+		.home-leaderboard-list {
+			display: flex;
+			flex-direction: column;
+			gap: 4px;
+		}
+		.home-leader-row {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			padding: 6px 8px;
+			border-radius: 8px;
+			background: rgba(255,255,255,0.05);
+		}
+		.home-leader-rank {
+			flex-shrink: 0;
+			width: 22px;
+			height: 22px;
+			border-radius: 50%;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			font: 800 10px/1 "Inter", sans-serif;
+			color: #04130b;
+		}
+		.home-leader-rank.r1 { background: #ffd700; }
+		.home-leader-rank.r2 { background: #c0c0c0; }
+		.home-leader-rank.r3 { background: #cd7f32; }
+		.home-leader-name {
+			flex: 1;
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			font: 700 12px/1.2 "Inter", sans-serif;
+			color: #eaf2ff;
+		}
+		.home-leader-stat {
+			flex-shrink: 0;
+			font: 600 11px/1 "Inter", sans-serif;
+			color: #8ba8c9;
+		}
+
+		@media (max-width: 900px) {
+			#home-body { grid-template-columns: 1fr; }
+		}
+		@media (max-width: 580px) {
+			.home-mid-row { grid-template-columns: 1fr; }
+			.home-small-row { grid-template-columns: 1fr 1fr; }
 		}
 
 		#mobile-actions-menu { display: none; }
@@ -1368,30 +1525,71 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	</div>
 	<section id="home-landing" aria-label="Home page">
 		<div id="home-card">
-			<h1>Welcome to Skid Circuit</h1>
-
-			<div id="home-player-counter" aria-label="Player counter">
-				 <a href='http://www.freevisitorcounters.com'>Free counter</a> <script type='text/javascript' src='https://www.freevisitorcounters.com/auth.php?id=c80257830c44c29e40d179114f752ab25734e079'></script>
-<script type="text/javascript" src="https://www.freevisitorcounters.com/en/home/counter/1585757/t/0"></script>
+			<div id="home-header">
+				<div>
+					<h1>Skid Circuit</h1>
+				</div>
+				<div id="home-player-counter" aria-label="Visitor counter">
+					<span class="counter-label">Racers</span>
+					<a href='http://www.freevisitorcounters.com'>Visitor counter</a>
+					<script type='text/javascript' src='https://www.freevisitorcounters.com/auth.php?id=c80257830c44c29e40d179114f752ab25734e079'></script>
+					<script type="text/javascript" src="https://www.freevisitorcounters.com/en/home/counter/1585757/t/0"></script>
+				</div>
 			</div>
+			<p id="home-tagline">Race. Build. Share. Compete. — a browser racing game with tracks, clubs, and a live community board.</p>
 
-			<p>Start with a clean launch experience, then jump straight into racing, sharing, and curated events. Choose a destination below.</p>
-			<div id="home-main-grid">
-				<a class="home-main-link play-link" href="index.html?play=1">Play now<em>Launch the game immediately</em></a>
-				<a class="home-main-link" href="tracks.html">Track shares<em>Discover and copy community maps</em></a>
-				<a class="home-main-link" href="index.html?play=1&garage=1">Garage<em>Upgrade trucks, unlock paint, and export your profile</em></a>
-				<a class="home-main-link" href="editor.html">Create your own track<em>Build and test original circuits</em></a>
-				<a class="home-main-link" href="weekly-cup.html"><span class="home-record-chip" data-record-badge="weekly"><span class="record-label">Weekly leader</span><span class="record-name">Loading…</span></span>Weekly cup<em>Competitive rotating event</em></a>
-				<a class="home-main-link club-notify-target" href="clubs.html">Clubs<em>Create and manage your racing communities</em></a>
-				<a class="home-main-link" href="competitions.html">Competitions<em>9 live stake-based tier events</em></a>
-				<a class="home-main-link" href="totd.html"><span class="home-record-chip" data-record-badge="totd"><span class="record-label">Today’s record</span><span class="record-name">Loading…</span></span>Track of the day<em>One featured challenge each day</em></a>
-			</div>
-			<div id="home-secondary">
-				<a class="home-secondary-link" href="replay.html">Replay watcher</a>
-				<a class="home-secondary-link" href="mods.html">Mods</a>
-				<a class="home-secondary-link" href="index.html?play=1&garage=1">Garage</a>
-				<a class="home-secondary-link" href="index.html?play=1&multiplayer=1">2P split screen</a>
-			<!--	<a class="home-secondary-link" href="campaign.html">Campaign guide</a> -->
+			<div id="home-body">
+				<!-- Left: Actions -->
+				<div id="home-actions">
+					<a class="home-big-link" href="index.html?play=1">Play now<em>Jump straight into a race</em></a>
+
+					<div class="home-mid-row">
+						<a class="home-mid-link" href="tracks.html">Track shares<em>Community maps & ghosts</em></a>
+						<a class="home-mid-link" href="weekly-cup.html"><span class="home-record-chip" data-record-badge="weekly"><span class="record-label">Weekly leader</span><span class="record-name">Loading…</span></span>Weekly cup<em>Rotating competitive event</em></a>
+					</div>
+
+					<div class="home-small-row">
+						<a class="home-small-link" href="index.html?play=1&garage=1">Garage<em>Upgrade & paint</em></a>
+						<a class="home-small-link" href="editor.html">Track editor<em>Build circuits</em></a>
+						<a class="home-small-link" href="competitions.html">Competitions<em>Stake-based tiers</em></a>
+					</div>
+
+					<div class="home-small-row">
+						<a class="home-small-link" href="totd.html"><span class="home-record-chip" data-record-badge="totd"><span class="record-label">Today's record</span><span class="record-name">Loading…</span></span>Track of the day<em>Daily challenge</em></a>
+						<a class="home-small-link club-notify-target" href="clubs.html">Clubs<em>Racing communities</em></a>
+						<a class="home-small-link" href="replay.html">Replay watcher<em>Ghost races</em></a>
+					</div>
+
+					<div id="home-secondary">
+						<a class="home-secondary-link" href="mods.html">Mods</a>
+						<a class="home-secondary-link" href="index.html?play=1&multiplayer=1">2P split screen</a>
+						<a class="home-secondary-link" href="tas-viewer.html">TAS viewer</a>
+					</div>
+				</div>
+
+				<!-- Right: Community panel -->
+				<div id="home-community">
+					<div>
+						<div class="home-panel-title">Featured track</div>
+						<a id="home-featured-track" href="tracks.html">
+							<div class="ft-name">Loading community tracks…</div>
+							<div class="ft-meta">Fetching from the track board</div>
+							<div class="ft-play">▶ Play on track board</div>
+						</a>
+					</div>
+					<div>
+						<div class="home-panel-title">Top record holders</div>
+						<div class="home-leaderboard-list" id="home-record-leaders">
+							<div class="home-leader-row"><span class="home-leader-name">Loading…</span></div>
+						</div>
+					</div>
+					<div>
+						<div class="home-panel-title">Placement ratings</div>
+						<div class="home-leaderboard-list" id="home-placement-leaders">
+							<div class="home-leader-row"><span class="home-leader-name">Loading…</span></div>
+						</div>
+					</div>
+				</div>
 			</div>
 		</div>
 	</section>
@@ -1695,6 +1893,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		const isIndexPath = /(?:^|\/)(?:index\.html)?$/.test( location.pathname );
 		if ( landing && isIndexPath && !map && !pack && play !== '1' ) {
 			landing.classList.add( 'visible' );
+			loadHomeCommunityData();
 		}
 		if ( map ) {
 			const link = document.getElementById( 'editor-link' );
@@ -1711,11 +1910,170 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			splitLink.textContent = '2P split screen';
 		}
 		splitLink.href = `${ location.pathname }?${ splitParams.toString() }${ location.hash || '' }`;
+
+		// ── Fetch featured track + leaderboard data for the community panel ──
+		function loadHomeCommunityData() {
+			const BOARD_API = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
+			const LB_API = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
+			const ftEl = document.getElementById( 'home-featured-track' );
+			const recordEl = document.getElementById( 'home-record-leaders' );
+			const placementEl = document.getElementById( 'home-placement-leaders' );
+
+			function escapeHtml( str ) {
+				return String( str || '' ).replace( /&/g, '&amp;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' ).replace( /"/g, '&quot;' );
+			}
+
+			function getTrackId( playUrl ) {
+				try {
+					const u = new URL( playUrl, location.href );
+					const map = u.searchParams.get( 'map' ) || '';
+					const mods = u.searchParams.get( 'mods' ) || '';
+					const q = new URLSearchParams();
+					if ( map ) q.set( 'map', map );
+					if ( mods ) q.set( 'mods', mods );
+					const norm = u.pathname.replace( /\/+, '/' ).replace( /^.*\//, '' ) || 'index.html';
+					return `${ norm }${ q.toString() ? '?' + q.toString() : '' }`;
+				} catch ( e ) { return ''; }
+			}
+
+			async function fetchBoardEntries() {
+				try {
+					const res = await fetch( BOARD_API );
+					if ( ! res.ok ) return [];
+					const data = await res.json();
+					const rows = Array.isArray( data?.entries ) ? data.entries : [];
+					return rows.filter( e => typeof e?.playUrl === 'string' && typeof e?.name === 'string' );
+				} catch ( e ) { return []; }
+			}
+
+			async function fetchLeaderboard( trackId ) {
+				try {
+					const res = await fetch( `${ LB_API }?trackId=${ encodeURIComponent( trackId ) }` );
+					if ( ! res.ok ) return [];
+					const data = await res.json();
+					return Array.isArray( data?.entries ) ? data.entries : [];
+				} catch ( e ) { return []; }
+			}
+
+			function renderFeaturedTrack( entries ) {
+				if ( ! ftEl || entries.length === 0 ) {
+					if ( ftEl ) {
+						ftEl.querySelector( '.ft-name' ).textContent = 'No tracks yet';
+						ftEl.querySelector( '.ft-meta' ).textContent = 'Be the first to publish';
+						ftEl.querySelector( '.ft-play' ).textContent = '▶ Visit track board';
+					}
+					return;
+				}
+				const avgPlays = entries.reduce( ( t, e ) => t + ( Number( e.viewCount ) || 0 ), 0 ) / entries.length;
+				const featured = [ ...entries ]
+					.filter( e => ( Number( e.viewCount ) || 0 ) >= avgPlays )
+					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )[ 0 ]
+					|| entries.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) )[ 0 ];
+				ftEl.href = featured.playUrl;
+				ftEl.target = '_blank';
+				ftEl.rel = 'noopener noreferrer';
+				ftEl.querySelector( '.ft-name' ).textContent = featured.name;
+				const plays = Number( featured.viewCount ) || 0;
+				const likes = Number( featured.thumbsUp ) || 0;
+				ftEl.querySelector( '.ft-meta' ).textContent = `${ plays } plays • ${ likes } likes`;
+				ftEl.querySelector( '.ft-play' ).textContent = '▶ Play this track';
+			}
+
+			function renderLeaders( recordLeaders, placementRatings ) {
+				if ( recordEl ) {
+					if ( recordLeaders.length === 0 ) {
+						recordEl.innerHTML = '<div class="home-leader-row"><span class="home-leader-name" style="color:#7a92ab;font-size:11px">No records yet</span></div>';
+					} else {
+						recordEl.innerHTML = recordLeaders.slice( 0, 3 ).map( ( l, i ) => {
+							const rankCls = [ 'r1', 'r2', 'r3' ][ i ] || '';
+							const badge = i === 0 ? '♛' : ( i + 1 );
+							return `<div class="home-leader-row">
+								<span class="home-leader-rank ${rankCls}">${badge}</span>
+								<span class="home-leader-name">${escapeHtml(l.name)}</span>
+								<span class="home-leader-stat">${l.wins} ${l.wins === 1 ? 'track' : 'tracks'}</span>
+							</div>`;
+						} ).join( '' );
+					}
+				}
+				if ( placementEl ) {
+					if ( placementRatings.length === 0 ) {
+						placementEl.innerHTML = '<div class="home-leader-row"><span class="home-leader-name" style="color:#7a92ab;font-size:11px">No ratings yet</span></div>';
+					} else {
+						placementEl.innerHTML = placementRatings.slice( 0, 3 ).map( ( r, i ) => {
+							const rankCls = [ 'r1', 'r2', 'r3' ][ i ] || '';
+							const badge = i === 0 ? '★' : ( i + 1 );
+							return `<div class="home-leader-row">
+								<span class="home-leader-rank ${rankCls}">${badge}</span>
+								<span class="home-leader-name">${escapeHtml(r.name)}</span>
+								<span class="home-leader-stat">${r.points} pts</span>
+							</div>`;
+						} ).join( '' );
+					}
+				}
+			}
+
+			( async () => {
+				const entries = await fetchBoardEntries();
+				renderFeaturedTrack( entries );
+
+				if ( entries.length === 0 ) {
+					renderLeaders( [], [] );
+					return;
+				}
+
+				// Fetch leaderboards for top 8 most popular tracks (by viewCount)
+				const topTracks = [ ...entries ]
+					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) )
+					.slice( 0, 8 )
+					.map( e => ( { id: getTrackId( e.playUrl ), entry: e } ) )
+					.filter( t => t.id );
+
+				const lbResults = await Promise.all( topTracks.map( t =>
+					fetchLeaderboard( t.id ).then( rows => ( { trackId: t.id, rows } ) )
+				) );
+
+				// Aggregate record holders
+				const winsByDriver = new Map();
+				for ( const { rows } of lbResults ) {
+					if ( ! Array.isArray( rows ) || rows.length === 0 ) continue;
+					const top = [ ...rows ].sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ];
+					const name = String( top?.name || '' ).trim();
+					if ( ! name ) continue;
+					winsByDriver.set( name, ( winsByDriver.get( name ) || 0 ) + 1 );
+				}
+				const recordLeaders = [ ...winsByDriver.entries() ]
+					.map( ( [ name, wins ] ) => ( { name, wins } ) )
+					.sort( ( a, b ) => b.wins - a.wins || a.name.localeCompare( b.name ) );
+
+				// Aggregate placement ratings
+				const POINTS = [ 100, 80, 65, 54, 46, 40, 35, 30, 26, 22 ];
+				const scoreByDriver = new Map();
+				for ( const { rows } of lbResults ) {
+					if ( ! Array.isArray( rows ) || rows.length === 0 ) continue;
+					const sorted = [ ...rows ].sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) );
+					sorted.slice( 0, POINTS.length ).forEach( ( row, idx ) => {
+						const name = String( row?.name || '' ).trim();
+						if ( ! name ) return;
+						const ex = scoreByDriver.get( name ) || { name, points: 0, podiums: 0 };
+						ex.points += POINTS[ idx ] || 0;
+						if ( idx <= 2 ) ex.podiums += 1;
+						scoreByDriver.set( name, ex );
+					} );
+				}
+				const placementRatings = [ ...scoreByDriver.values() ]
+					.sort( ( a, b ) => b.points - a.points || b.podiums - a.podiums || a.name.localeCompare( b.name ) );
+
+				renderLeaders( recordLeaders, placementRatings );
+			} )().catch( () => {
+				if ( ftEl ) ftEl.querySelector( '.ft-name' ).textContent = 'Could not load tracks';
+				renderLeaders( [], [] );
+			} );
+		}
 	</script>
 
 	<script>
 		const competitionsEntryLinks = [
-			document.querySelector( 'a.home-main-link[href="competitions.html"][data-out-of-order="1"]' ),
+			document.querySelector( 'a[href="competitions.html"][data-out-of-order="1"]' ),
 			document.querySelector( '#competitions-link[data-out-of-order="1"]' )
 		].filter( Boolean );
 		const competitionsWarningOverlay = document.getElementById( 'competitions-warning-overlay' );
