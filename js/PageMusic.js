@@ -53,12 +53,17 @@ function ensureMenuMusic() {
 	menuMusic.loop = true;
 	menuMusic.preload = 'auto';
 	menuMusic.volume = MENU_MUSIC_VOLUME;
+	menuMusic.muted = true;  // start muted — browsers allow muted autoplay
 
-	// When the audio can play, kick off playback if we were waiting
+	// When the audio can play, kick off muted playback immediately (autoplay-friendly)
 	menuMusic.addEventListener( 'canplay', () => {
 		sourceReady = true;
-		if ( wantToPlay && unlocked && ! IS_ACTIVE_RACING_INDEX && ! document.hidden ) {
+		if ( ! IS_ACTIVE_RACING_INDEX && ! document.hidden ) {
+			// Start playing muted — will be unmuted on first user interaction
 			menuMusic.play().catch( () => {} );
+		}
+		if ( wantToPlay && unlocked ) {
+			menuMusic.muted = false;
 			wantToPlay = false;
 		}
 	} );
@@ -108,10 +113,9 @@ function playMenuMusic() {
 	if ( IS_ACTIVE_RACING_INDEX || document.hidden ) return;
 	const audio = ensureMenuMusic();
 	if ( sourceReady ) {
-		// Audio is loaded — play directly
 		audio.play().catch( () => {} );
+		if ( unlocked ) audio.muted = false;
 	} else {
-		// Audio isn't ready — set the flag and canplay will trigger playback
 		wantToPlay = true;
 	}
 }
@@ -126,7 +130,13 @@ function unlockMenuMusic() {
 	}
 	unlocked = true;
 	primeMenuMusic();
-	playMenuMusic();
+	// If already playing muted, just unmute — zero delay
+	if ( menuMusic && ! menuMusic.paused ) {
+		menuMusic.muted = false;
+	} else {
+		playMenuMusic();
+		if ( menuMusic ) menuMusic.muted = false;
+	}
 }
 
 // Kick off preloading immediately

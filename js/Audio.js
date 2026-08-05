@@ -49,6 +49,12 @@ export class GameAudio {
 		this.musicSound.setVolume( 0 );
 		this.musicReady = true;
 
+		// Pre-start the music element immediately so it buffers while the
+		// AudioContext is still suspended. No sound will come out (context is
+		// suspended + volume is 0) but the element will be ready to play
+		// instantly when the context resumes on first user interaction.
+		this.musicElement.play().catch( () => {} );
+
 		loader.load( 'audio/engine.ogg', ( buffer ) => {
 
 			this.engineSound.setBuffer( buffer );
@@ -189,16 +195,18 @@ export class GameAudio {
 
 		const ctx = this.listener?.context;
 
-		// If the element thinks it's playing but the context wasn't running
-		// when it started, it's stuck — pause and restart to get real audio.
+		// Element was pre-started on init — if it's already playing and
+		// the context is now running, we're good (it was buffering while
+		// the context was suspended, now it flows through).
 		if ( ! this.musicElement.paused ) {
 
-			if ( ctx && ctx.state === 'running' ) return; // genuinely playing
-			this.musicElement.pause();
-			this.musicElement.currentTime = 0;
+			if ( ctx && ctx.state === 'running' ) return;
+			// Context not running yet — don't restart, just wait for resume
+			return;
 
 		}
 
+		// Element was paused (e.g. after stopAll) — start fresh
 		this.musicElement.play().catch( () => {} );
 
 	}
@@ -216,7 +224,16 @@ export class GameAudio {
 
 		this.targetMusicVolume = raceActive ? 0.34 : 0;
 		if ( ! this.musicReady ) return;
-		if ( this.unlocked && this.targetMusicVolume > 0 && this.musicElement?.paused ) this.startMusic();
+
+		// If music should be playing but element is paused (e.g. after tab switch
+		// + return), restart it. The context should already be running.
+		if ( this.unlocked && this.targetMusicVolume > 0 && this.musicElement?.paused ) {
+
+			const ctx = this.listener?.context;
+			if ( ctx && ctx.state === 'running' ) this.startMusic();
+
+		}
+
 		const currentVol = this.musicSound.getVolume();
 		this.musicSound.setVolume( THREE.MathUtils.lerp( currentVol, this.targetMusicVolume, Math.min( 1, dt * 6 ) ) );
 
