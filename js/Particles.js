@@ -77,7 +77,7 @@ export class SmokeTrails {
 		this.boostFxTime = Math.max( 0, this.boostFxTime - dt );
 		const boostActive = this.boostFxTime > 0;
 		const speedRatio = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed || 0 ) / Math.max( 0.01, vehicle.topSpeed || 1 ), 0, 1.7 );
-		const shouldEmit = vehicle.driftIntensity > 0.22 || speedRatio > 0.9;
+		const shouldEmit = boostActive || ( speedRatio > 0.25 && vehicle.driftIntensity > 0.62 );
 
 		// Emit new particles from back wheel positions
 		if ( shouldEmit ) {
