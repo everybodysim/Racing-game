@@ -228,6 +228,26 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			font: 600 11px/1.35 sans-serif;
 		}
 		#mp-lb-list li { margin: 2px 0; }
+		#mp-debug-overlay {
+			position: fixed;
+			top: 50%;
+			left: 50%;
+			transform: translate(-50%, -50%);
+			width: 80%;
+			max-width: 600px;
+			height: 350px;
+			background: rgba(10, 10, 15, 0.92);
+			border: 2px solid #00f0ff;
+			border-radius: 8px;
+			color: #00ff88;
+			font-family: monospace;
+			font-size: 12px;
+			padding: 12px;
+			overflow-y: auto;
+			z-index: 9999;
+			display: none;
+			box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+		}
 		#competitions-warning-overlay {
 			position: fixed;
 			inset: 0;
@@ -1839,13 +1859,14 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		<div id="mp-actions">
 			<button id="mp-host-btn" type="button">Host</button>
 			<button id="mp-join-btn" type="button">Join</button>
-			<button id="mp-refresh-btn" type="button" title="Force a multiplayer refresh">Refresh Sync</button>
+			<button id="mp-debug-toggle-btn" type="button" title="Toggle multiplayer debug console">Toggle Debug</button>
 		</div>
 		<div id="mp-code-row">
 			<input id="mp-code-input" type="text" maxlength="6" placeholder="ROOM CODE" aria-label="Room code">
 			<button id="mp-copy-btn" type="button">Copy</button>
 		</div>
 		<div id="mp-status" aria-live="polite"></div>
+		<div id="mp-debug-overlay" aria-live="polite" aria-label="Multiplayer debug console"></div>
 		<div id="mp-lb">
 			<div id="mp-lb-title">Online room best laps</div>
 			<ol id="mp-lb-list"></ol>

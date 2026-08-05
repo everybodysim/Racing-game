@@ -450,6 +450,7 @@ function getPeerRoomId( roomCode ) {
 
 function cleanupPeerConnection( peerId ) {
 
+	logMpDebug( `[PeerJS] Connection closed/cleaned up: ${ peerId }` );
 	const connection = multiplayerSessionState.connections.get( peerId );
 	connection?.close?.();
 	multiplayerSessionState.connections.delete( peerId );
@@ -501,9 +502,17 @@ function handlePeerPacket( packet, sourcePeerId ) {
 	}
 	if ( packet.type !== PEER_PACKET_STATE ) return;
 	const visualState = ensureRemotePlayerVisualWithCosmetics( playerId, packet.carKey, packet.cosmetics );
+	const isFirstPacket = ! visualState.lastSeenAt;
 	ensureRemoteNameTag( visualState, packet.name || 'Player' );
 	visualState.targetPos.set( Number( packet.x ) || 0, ( Number( packet.y ) || 0 ) - 0.1, Number( packet.z ) || 0 );
 	visualState.targetRotY = Math.PI - ( Number( packet.ry ) || 0 );
+	if ( isFirstPacket ) {
+
+		visualState.mesh.position.copy( visualState.targetPos );
+		visualState.mesh.rotation.y = visualState.targetRotY;
+		logMpDebug( `[PeerJS] Spawned remote vehicle for ${ playerId } (${ visualState.carKey })` );
+
+	}
 	visualState.lastSeenAt = Date.now();
 	relayHostPacket( packet, sourcePeerId );
 
@@ -512,27 +521,64 @@ function handlePeerPacket( packet, sourcePeerId ) {
 function registerPeerConnection( connection ) {
 
 	if ( ! connection ) return;
+	logMpDebug( `[PeerJS] Registered data connection with: ${ connection.peer }` );
 	multiplayerSessionState.connections.set( connection.peer, connection );
 	connection.on( 'data', ( packet ) => handlePeerPacket( packet, connection.peer ) );
 	connection.on( 'close', () => cleanupPeerConnection( connection.peer ) );
-	connection.on( 'error', () => cleanupPeerConnection( connection.peer ) );
+	connection.on( 'error', ( error ) => {
+
+		logMpDebug( `[PeerJS] Connection error with ${ connection.peer }: ${ error?.message || error }` );
+		cleanupPeerConnection( connection.peer );
+
+	} );
 
 }
 
 function startPeerMultiplayer( roomCode, role ) {
 
 	closeMultiplayerPeer();
+	logMpDebug( `[PeerJS] Initializing ${ role } peer for room: ${ roomCode }...` );
 	const peerId = role === 'host' ? getPeerRoomId( roomCode ) : multiplayerSessionState.clientId;
 	const peer = new Peer( peerId, peerConfig );
 	multiplayerSessionState.peer = peer;
-	peer.on( 'open', () => {
+	peer.on( 'open', ( id ) => {
 
-		if ( role !== 'host' ) registerPeerConnection( peer.connect( getPeerRoomId( roomCode ), { reliable: true } ) );
+		logMpDebug( `[PeerJS] Peer opened with ID: ${ id }` );
+		if ( role !== 'host' ) {
+
+			const targetHostId = getPeerRoomId( roomCode );
+			logMpDebug( `[PeerJS] Connecting guest to host ID: ${ targetHostId }` );
+			const connection = peer.connect( targetHostId, { reliable: true } );
+			connection.on( 'open', () => {
+
+				logMpDebug( `[PeerJS] Data channel OPENED with host: ${ targetHostId }` );
+				registerPeerConnection( connection );
+				broadcastPeerState();
+
+			} );
+			connection.on( 'error', ( error ) => logMpDebug( `[PeerJS] Connection error: ${ error?.message || error }` ) );
+
+		}
 
 	} );
-	peer.on( 'connection', registerPeerConnection );
+	peer.on( 'connection', ( connection ) => {
+
+		logMpDebug( `[PeerJS] Host received connection request from: ${ connection.peer }` );
+		connection.on( 'open', () => {
+
+			logMpDebug( `[PeerJS] Data channel OPENED with guest: ${ connection.peer }` );
+			registerPeerConnection( connection );
+			broadcastPeerState();
+
+		} );
+		connection.on( 'error', ( error ) => logMpDebug( `[PeerJS] Connection error: ${ error?.message || error }` ) );
+
+	} );
+	peer.on( 'disconnected', () => logMpDebug( `[PeerJS] Peer disconnected: ${ peerId }` ) );
+	peer.on( 'close', () => logMpDebug( `[PeerJS] Peer closed: ${ peerId }` ) );
 	peer.on( 'error', ( error ) => {
 
+		logMpDebug( `[PeerJS] Peer error: ${ error?.message || error }` );
 		console.warn( 'PeerJS multiplayer error', error );
 		updateMultiplayerStatus( `WebRTC issue for room ${ roomCode }; retry if peers do not appear.` );
 
@@ -574,6 +620,20 @@ function updateMultiplayerStatus( text ) {
 	const statusEl = document.getElementById( 'mp-status' );
 	if ( ! statusEl ) return;
 	statusEl.textContent = text || '';
+
+}
+
+function logMpDebug( message ) {
+
+	const text = String( message || '' );
+	console.log( text );
+	const overlay = document.getElementById( 'mp-debug-overlay' );
+	if ( ! overlay ) return;
+	const row = document.createElement( 'div' );
+	row.textContent = `[${ new Date().toLocaleTimeString() }] ${ text }`;
+	overlay.appendChild( row );
+	while ( overlay.children.length > 300 ) overlay.removeChild( overlay.firstChild );
+	overlay.scrollTop = overlay.scrollHeight;
 
 }
 
@@ -819,7 +879,7 @@ function initMultiplayerPanel() {
 	const hostBtn = document.getElementById( 'mp-host-btn' );
 	const joinBtn = document.getElementById( 'mp-join-btn' );
 	const copyBtn = document.getElementById( 'mp-copy-btn' );
-	const refreshBtn = document.getElementById( 'mp-refresh-btn' );
+	const debugToggleBtn = document.getElementById( 'mp-debug-toggle-btn' );
 	const codeInput = document.getElementById( 'mp-code-input' );
 	if ( ! hostBtn || ! joinBtn || ! copyBtn || ! codeInput ) return;
 
@@ -981,16 +1041,12 @@ function initMultiplayerPanel() {
 
 	} );
 
-	refreshBtn?.addEventListener( 'click', async () => {
+	debugToggleBtn?.addEventListener( 'click', () => {
 
-		if ( ! multiplayerSessionState.roomCode ) {
-
-			updateMultiplayerStatus( 'Join or host a room first.' );
-			return;
-
-		}
-		updateMultiplayerStatus( `Refreshing room ${ multiplayerSessionState.roomCode } sync...` );
-		await syncMultiplayerTransforms( { force: true } );
+		const overlay = document.getElementById( 'mp-debug-overlay' );
+		if ( ! overlay ) return;
+		overlay.style.display = overlay.style.display === 'block' ? 'none' : 'block';
+		if ( overlay.style.display === 'block' ) logMpDebug( '[PeerJS] Debug console opened.' );
 
 	} );
 
