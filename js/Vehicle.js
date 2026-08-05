@@ -282,8 +282,22 @@ export class Vehicle {
 		this.updateWheels( dt );
 		this.applySlopeVisualTilt( dt );
 
-		this.driftIntensity = Math.abs( this.linearSpeed - this.acceleration ) +
-			( this.bodyNode ? Math.abs( this.bodyNode.rotation.z ) * 2 : 0 );
+		_forward.set( 0, 0, 1 ).applyQuaternion( this.container.quaternion );
+		_forward.y = 0;
+		_forward.normalize();
+		_right.set( 1, 0, 0 ).applyQuaternion( this.container.quaternion );
+		_right.y = 0;
+		_right.normalize();
+
+		const forwardVelocity = Math.abs( this.modelVelocity.dot( _forward ) );
+		const lateralVelocity = Math.abs( this.modelVelocity.dot( _right ) );
+		const speedForSlip = Math.max( forwardVelocity, Math.abs( this.linearSpeed ) * SPEED_SCALE, 0.01 );
+		const lateralSlip = lateralVelocity / Math.max( speedForSlip, 0.01 );
+		const steeringLoad = Math.abs( this.inputX ) * THREE.MathUtils.clamp( forwardVelocity / Math.max( 0.01, this.topSpeed * SPEED_SCALE ), 0, 1.4 );
+		const throttleLoad = Math.abs( this.inputZ ) > 0.45 ? 0.12 : 0;
+		const bodyRollSlip = this.bodyNode ? Math.max( 0, Math.abs( this.bodyNode.rotation.z ) - 0.08 ) * 1.4 : 0;
+		const targetDriftIntensity = Math.max( 0, lateralSlip * 1.35 + steeringLoad * 0.28 + throttleLoad + bodyRollSlip - 0.28 );
+		this.driftIntensity = THREE.MathUtils.lerp( this.driftIntensity, targetDriftIntensity, Math.min( 1, dt * 8 ) );
 
 	}
 

@@ -218,12 +218,12 @@ export class GameAudio {
 		const currentTextureVol = this.engineTextureSound.getVolume();
 		this.engineTextureSound.setVolume( THREE.MathUtils.lerp( currentTextureVol, textureVol, Math.min( 1, dt * 5 ) ) );
 
-		const shouldSkid = driftIntensity > 0.25;
+		const shouldSkid = Math.abs( speed ) > 0.25 && driftIntensity > 0.65;
 		let skidVol = 0;
 
 		if ( shouldSkid ) {
 
-			skidVol = remap( THREE.MathUtils.clamp( driftIntensity, 0.25, 2 ), 0.25, 2, 0.1, 0.6 );
+			skidVol = remap( THREE.MathUtils.clamp( driftIntensity, 0.65, 2.2 ), 0.65, 2.2, 0.08, 0.55 );
 
 		}
 
