@@ -105,6 +105,7 @@ loadBloomEffect();
 
 document.body.appendChild( renderer.domElement );
 const speedBlurVignette = document.getElementById( 'speed-blur-vignette' );
+let localPlayerVehicle = null;
 
 initMultiplayerPanel();
 
@@ -623,18 +624,43 @@ function startPeerMultiplayer( roomCode, role ) {
 
 }
 
+function getLocalVehicleContainer() {
+
+	if ( localPlayerVehicle?.container ) return localPlayerVehicle.container;
+	if ( typeof vehicle !== 'undefined' && vehicle?.container ) return vehicle.container;
+	if ( typeof playerVehicle !== 'undefined' && playerVehicle?.container ) return playerVehicle.container;
+	if ( typeof currentVehicle !== 'undefined' && currentVehicle?.container ) return currentVehicle.container;
+	if ( window.vehicle?.container ) return window.vehicle.container;
+	if ( window.playerVehicle?.container ) return window.playerVehicle.container;
+	if ( window.currentVehicle?.container ) return window.currentVehicle.container;
+	return null;
+
+}
+
+function formatPeerPacketNumber( value, precision ) {
+
+	const numericValue = Number( value );
+	return Number.isFinite( numericValue ) ? Number( numericValue.toFixed( precision ) ) : 0;
+
+}
+
 function buildLocalPeerStatePacket() {
+
+	const container = getLocalVehicleContainer();
+	const pos = container?.position || { x: 0, y: 0, z: 0 };
+	const rot = container?.rotation || { y: 0 };
+	const rawCarKey = typeof currentCarKey === 'function' ? currentCarKey() : 'vehicle-truck-yellow';
 
 	return {
 		type: PEER_PACKET_STATE,
 		playerId: multiplayerSessionState.clientId,
-		x: Number( vehicle.container.position.x.toFixed( 3 ) ),
-		y: Number( vehicle.container.position.y.toFixed( 3 ) ),
-		z: Number( vehicle.container.position.z.toFixed( 3 ) ),
-		ry: Number( vehicle.container.rotation.y.toFixed( 4 ) ),
-		carKey: normalizeMultiplayerCarKey( currentCarKey() ),
-		cosmetics: buildGhostCosmeticsSnapshot( currentCarKey() ),
-		name: getLocalMultiplayerDisplayName(),
+		x: formatPeerPacketNumber( pos.x, 3 ),
+		y: formatPeerPacketNumber( pos.y, 3 ),
+		z: formatPeerPacketNumber( pos.z, 3 ),
+		ry: formatPeerPacketNumber( rot.y, 4 ),
+		carKey: typeof normalizeMultiplayerCarKey === 'function' ? normalizeMultiplayerCarKey( rawCarKey ) : rawCarKey,
+		cosmetics: typeof buildGhostCosmeticsSnapshot === 'function' ? buildGhostCosmeticsSnapshot( rawCarKey ) : {},
+		name: typeof getLocalMultiplayerDisplayName === 'function' ? getLocalMultiplayerDisplayName() : 'Player',
 		updatedAt: Date.now(),
 	};
 
@@ -2202,6 +2228,7 @@ async function init() {
 	const player1CarKey = isSplitScreen ? pickRandomCarKey() : 'vehicle-truck-yellow';
 	const player2CarKey = isSplitScreen ? pickRandomCarKey() : 'vehicle-truck-red';
 	const vehicle = new Vehicle();
+	localPlayerVehicle = vehicle;
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
 
