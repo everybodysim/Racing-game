@@ -379,6 +379,19 @@ function hideLoadingOverlay() {
 	loadingScreen.classList.add( 'hidden' );
 	loadingOverlayDismissed = true;
 
+	// Ensure the landing page is visible on the root path after loading completes
+	const landing = document.getElementById( 'home-landing' );
+	if ( landing && !landing.classList.contains( 'visible' ) ) {
+		const params = new URLSearchParams( location.search );
+		const map = params.get( 'map' );
+		const pack = params.get( 'pack' );
+		const play = params.get( 'play' );
+		const isIndexPath = /(?:^|\/)(?:index\.html)?$/.test( location.pathname );
+		if ( isIndexPath && !map && !pack && play !== '1' ) {
+			landing.classList.add( 'visible' );
+		}
+	}
+
 }
 
 function showLoadingError( error ) {
