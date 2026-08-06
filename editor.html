@@ -251,31 +251,61 @@
 			height: 14px;
 		}
 
-		#side-ui-bar {
+	#side-ui-bar {
 			position: absolute;
 			left: 12px;
 			bottom: 16px;
-			display: grid;
-			grid-template-columns: repeat(2, minmax(0, 1fr));
-			grid-auto-rows: minmax(0, auto);
-			gap: 6px;
 			width: 212px;
 			z-index: 32;
+			background: rgba(15, 18, 24, 0.92);
+			border: 1px solid rgba(255, 255, 255, 0.16);
+			border-left: 3px solid rgba(255, 200, 100, 0.55);
+			border-radius: 10px;
+			box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+			overflow: hidden;
 		}
-		#side-ui-bar button {
+		#side-ui-toggle {
+			padding: 7px 10px;
+			font-size: 11px;
+			font-weight: 700;
+			color: #ffd066;
+			cursor: pointer;
+			user-select: none;
+			list-style: none;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+		#side-ui-toggle::-webkit-details-marker { display: none; }
+		#side-ui-toggle::after {
+			content: '▼';
+			font-size: 8px;
+			opacity: 0.7;
+		}
+		#side-ui-bar:not([open]) #side-ui-toggle::after {
+			content: '▶';
+		}
+		.side-ui-content {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 6px;
+			padding: 8px;
+			border-top: 1px solid rgba(255, 255, 255, 0.08);
+		}
+		.side-ui-content button {
 			padding: 8px 9px;
-			border: 1px solid rgba(255,255,255,0.18);
+			border: 1px solid rgba(255, 255, 255, 0.18);
 			border-radius: 8px;
 			background: rgba(15, 18, 24, 0.88);
 			color: #e8efff;
 			font-size: 11px;
 			cursor: pointer;
 		}
-		#side-ui-bar button:hover { background: rgba(45,55,72,0.92); }
+		.side-ui-content button:hover { background: rgba(45, 55, 72, 0.92); }
 		#arc-link-help {
 			grid-column: 1 / -1;
 			padding: 6px 8px;
-			border: 1px solid rgba(255,255,255,0.14);
+			border: 1px solid rgba(255, 255, 255, 0.14);
 			border-radius: 8px;
 			background: rgba(10, 12, 18, 0.72);
 			color: rgba(233, 242, 255, 0.92);
@@ -473,26 +503,28 @@
 			<div class="mobile-editor-help">Orange/Purple are starts. Green/Yellow are matching endpoints.</div>
 		</div>
 	</details>
-	<div id="side-ui-bar">
-		<button id="btn-magnet-blue">Magnet Blue +</button>
-		<button id="btn-magnet-red">Magnet Red +</button>
-	<!--	<button id="btn-magnet-grapple">Grapple Orb +</button> -->
-		<button id="btn-magnet-up" title="Move selected magnet up by 0.1 grid">Magnet ▲</button>
-		<button id="btn-magnet-down" title="Move selected magnet down by 0.1 grid">Magnet ▼</button>
-		<button id="btn-magnet-strength-up" title="Increase selected magnet strength">Strength +</button>
-		<button id="btn-magnet-strength-down" title="Decrease selected magnet strength">Strength -</button>
-		<button id="btn-magnet-range-up" title="Increase selected magnet range">Range +</button>
-		<button id="btn-magnet-range-down" title="Decrease selected magnet range">Range -</button>
-		<button id="btn-arc-green" title="Green arc is the endpoint only (does not launch)">Arc End (Green) +</button>
-		<button id="btn-portal-yellow" title="Yellow portal is endpoint only (one-way, does not launch)">Portal End (Yellow) +</button>
-		<button id="btn-arc-orange" title="Orange arc is the launch/start point">Arc Start (Orange) +</button>
-		<button id="btn-portal-purple" title="Purple portal is the start point and keeps velocity">Portal Start (Purple) +</button>
-		<button id="btn-portal-up" title="Move selected arc/portal up by 0.1 grid">Arc/Portal ▲</button>
-		<button id="btn-portal-down" title="Move selected arc/portal down by 0.1 grid">Arc/Portal ▼</button>
-		<button id="btn-portal-id-down" title="Decrease selected arc/portal link id">Arc/Portal ID -</button>
-		<button id="btn-portal-id-up" title="Increase selected arc/portal link id">Arc/Portal ID +</button>
-		<div id="arc-link-help">Arc Link flow: <strong>Orange launches</strong> to matching <strong>Green endpoint</strong>. Portal flow: <strong>Purple teleports</strong> to matching <strong>Yellow endpoint</strong> and keeps velocity. Green/Yellow never launch.</div>
-	</div>
+<details id="side-ui-bar" open>
+    <summary id="side-ui-toggle">⚡ Special Parts</summary>
+    <div class="side-ui-content">
+        <button id="btn-magnet-blue">Magnet Blue +</button>
+        <button id="btn-magnet-red">Magnet Red +</button>
+        <button id="btn-magnet-up" title="Move selected magnet up by 0.1 grid">Magnet ▲</button>
+        <button id="btn-magnet-down" title="Move selected magnet down by 0.1 grid">Magnet ▼</button>
+        <button id="btn-magnet-strength-up" title="Increase selected magnet strength">Strength +</button>
+        <button id="btn-magnet-strength-down" title="Decrease selected magnet strength">Strength -</button>
+        <button id="btn-magnet-range-up" title="Increase selected magnet range">Range +</button>
+        <button id="btn-magnet-range-down" title="Decrease selected magnet range">Range -</button>
+        <button id="btn-arc-green" title="Green arc is the endpoint only (does not launch)">Arc End (Green) +</button>
+        <button id="btn-portal-yellow" title="Yellow portal is endpoint only (one-way, does not launch)">Portal End (Yellow) +</button>
+        <button id="btn-arc-orange" title="Orange arc is the launch/start point">Arc Start (Orange) +</button>
+        <button id="btn-portal-purple" title="Purple portal is the start point and keeps velocity">Portal Start (Purple) +</button>
+        <button id="btn-portal-up" title="Move selected arc/portal up by 0.1 grid">Arc/Portal ▲</button>
+        <button id="btn-portal-down" title="Move selected arc/portal down by 0.1 grid">Arc/Portal ▼</button>
+        <button id="btn-portal-id-down" title="Decrease selected arc/portal link id">Arc/Portal ID -</button>
+        <button id="btn-portal-id-up" title="Increase selected arc/portal link id">Arc/Portal ID +</button>
+        <div id="arc-link-help">Arc Link flow: <strong>Orange launches</strong> to matching <strong>Green endpoint</strong>. Portal flow: <strong>Purple teleports</strong> to matching <strong>Yellow endpoint</strong> and keeps velocity. Green/Yellow never launch.</div>
+    </div>
+</details>
 	<div id="panel-overlay" hidden></div>
 	<div id="panel-center" hidden>
 		<div id="flow-panel" class="tool-panel" hidden>
