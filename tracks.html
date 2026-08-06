@@ -347,34 +347,78 @@
 		}
 
 		function drawTrackPreview( canvas, cells, mods = {} ) {
-			if ( ! canvas || ! cells || cells.length === 0 ) return;
+			if ( ! canvas || ! Array.isArray( cells ) || cells.length === 0 ) return;
 			const ctx = canvas.getContext( '2d' );
 			ctx.clearRect( 0, 0, canvas.width, canvas.height );
-			const xs = cells.map( ( c ) => c[ 0 ] );
-			const zs = cells.map( ( c ) => c[ 1 ] );
+
+			const getFiniteCoord = ( value ) => {
+				const numberValue = Number( value );
+				return Number.isFinite( numberValue ) ? numberValue : null;
+			};
+			const previewItems = [];
+			const addItem = ( rawX, rawZ, kind, type = '', orient = 0 ) => {
+				const x = getFiniteCoord( rawX );
+				const z = getFiniteCoord( rawZ );
+				if ( x === null || z === null ) return;
+				previewItems.push( { x, z, kind, type, orient } );
+			};
+			for ( const [ x, z, type, orient ] of cells ) addItem( x, z, 'road', type, orient );
+			const addModItems = ( key, kind ) => {
+				for ( const item of ( Array.isArray( mods?.[ key ] ) ? mods[ key ] : [] ) ) {
+					if ( ! Array.isArray( item ) ) continue;
+					addItem( item[ 0 ], item[ 1 ], kind, item[ 2 ], item[ 3 ] );
+				}
+			};
+			addModItems( 'b', 'bump' );
+			addModItems( 'p', 'pole' );
+			addModItems( 'k', 'cube' );
+			addModItems( 'l', 'wall' );
+			addModItems( 'j', 'jump' );
+			addModItems( 'o', 'moving' );
+			addModItems( 'e', 'elevated' );
+			addModItems( 'u', 'surface' );
+			addModItems( 'd', 'decoration' );
+			addModItems( 'm', 'magnet' );
+			addModItems( 'a', 'arc' );
+			addModItems( 'q', 'water' );
+			if ( previewItems.length === 0 ) return;
+
+			const xs = previewItems.map( ( item ) => item.x );
+			const zs = previewItems.map( ( item ) => item.z );
 			const minX = Math.min( ...xs ) - 1;
 			const maxX = Math.max( ...xs ) + 1;
 			const minZ = Math.min( ...zs ) - 1;
 			const maxZ = Math.max( ...zs ) + 1;
-			const gw = maxX - minX + 1;
-			const gh = maxZ - minZ + 1;
+			const gw = Math.max( 1, maxX - minX + 1 );
+			const gh = Math.max( 1, maxZ - minZ + 1 );
 			const pad = 8;
-			const size = Math.max( 4, Math.floor( Math.min( ( canvas.width - pad * 2 ) / gw, ( canvas.height - pad * 2 ) / gh ) ) );
+			const size = Math.max( 3, Math.min( ( canvas.width - pad * 2 ) / gw, ( canvas.height - pad * 2 ) / gh ) );
 			const toPix = ( x, z ) => [ pad + ( x - minX ) * size, pad + ( z - minZ ) * size ];
-			for ( const [ x, z, type ] of cells ) {
-				const [ px, py ] = toPix( x, z );
-				ctx.fillStyle = type === 'track-finish' ? '#72e39a'
-					: type === 'track-checkpoint' ? '#ffd54f'
-					: type === 'track-corner' ? '#b084ff'
+			const drawCell = ( item ) => {
+				const [ px, py ] = toPix( item.x, item.z );
+				const inset = Math.max( 1, size * 0.08 );
+				ctx.fillStyle = item.type === 'track-finish' ? '#72e39a'
+					: item.type === 'track-checkpoint' ? '#ffd54f'
+					: item.type === 'track-corner' ? '#b084ff'
 					: '#4da3ff';
-				ctx.fillRect( px + 1, py + 1, size - 2, size - 2 );
-			}
-			ctx.strokeStyle = '#ff4d4d';
-			for ( const [ x, z ] of ( mods.b || [] ) ) {
-				const [ px, py ] = toPix( x, z );
+				ctx.fillRect( px + inset, py + inset, Math.max( 2, size - inset * 2 ), Math.max( 2, size - inset * 2 ) );
+			};
+			const drawDot = ( item, color, scale = 0.2 ) => {
+				const [ px, py ] = toPix( item.x, item.z );
+				ctx.fillStyle = color;
 				ctx.beginPath();
-				ctx.arc( px + size / 2, py + size / 2, Math.max( 2, size * 0.22 ), 0, Math.PI * 2 );
-				ctx.stroke();
+				ctx.arc( px + size / 2, py + size / 2, Math.max( 2, size * scale ), 0, Math.PI * 2 );
+				ctx.fill();
+			};
+			previewItems.filter( ( item ) => item.kind === 'surface' || item.kind === 'water' ).forEach( ( item ) => drawDot( item, item.kind === 'water' ? '#4fd9ff' : '#f8e26a', 0.34 ) );
+			previewItems.filter( ( item ) => item.kind === 'road' || item.kind === 'elevated' ).forEach( drawCell );
+			for ( const item of previewItems.filter( ( entry ) => ! [ 'road', 'surface', 'water', 'elevated' ].includes( entry.kind ) ) ) {
+				const color = item.kind === 'bump' ? '#ff4d4d'
+					: item.kind === 'magnet' ? '#59f2ff'
+					: item.kind === 'arc' ? '#57ff8f'
+					: item.kind === 'decoration' ? '#9cff69'
+					: '#ff9f43';
+				drawDot( item, color, item.kind === 'wall' ? 0.26 : 0.2 );
 			}
 		}
 
