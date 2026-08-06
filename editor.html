@@ -4391,10 +4391,6 @@ function refreshMovingSpeedUi() {
 
 	animate();
 
-	</script>
-</main>
-
-<script type="module" src="js/PageMusic.js">
 // ═════════════════════════════════════════════════════════════════
 // FEATURE 1: Collapsible toolbar groups (accordion)
 // ═════════════════════════════════════════════════════════════════
@@ -4875,12 +4871,16 @@ document.addEventListener('pointerdown', (e) => {
 }, true);
 
 // Wire up Select button
-const btnSelect = document.getElementById('btn-select');
-if (btnSelect) btnSelect.addEventListener('click', () => toggleSelectMode());
+document.getElementById('btn-select')?.addEventListener('click', () => toggleSelectMode());
 
 // Keep selection box synced on zoom
 el.addEventListener('wheel', () => { if (selectMode) setTimeout(updateSelectionBox, 0); }, false);
 
+
 	</script>
+</main>
+
+<script type="module" src="js/PageMusic.js"></script>
+
 </body>
 </html>
