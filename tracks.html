@@ -31,6 +31,8 @@
 		<script>
 			const API_BASE = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
 			const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
+			const TRACK_SHARE_API_ROOT = 'https://racing-track-board-api.ga1010.workers.dev';
+			const TRACK_SHARE_API_PREFIXES = [ '/api', '' ];
 			const nameInput = document.getElementById( 'track-name' );
 		const ghostInput = document.getElementById( 'ghost-code' );
 		const descriptionInput = document.getElementById( 'track-description' );
@@ -349,12 +351,48 @@
 			}
 		}
 
+		const previewPackCache = new Map();
+
+		async function resolvePreviewPackPayload( packId ) {
+			const safePackId = String( packId || '' ).trim();
+			if ( ! safePackId ) return null;
+			if ( previewPackCache.has( safePackId ) ) return previewPackCache.get( safePackId );
+			const promise = ( async () => {
+				for ( const prefix of TRACK_SHARE_API_PREFIXES ) {
+					try {
+						const response = await fetch( `${ TRACK_SHARE_API_ROOT }${ prefix }/packs/${ encodeURIComponent( safePackId ) }`, { cache: 'no-store' } );
+						if ( ! response.ok ) continue;
+						const payload = await response.json();
+						if ( payload?.ok ) return payload;
+					} catch ( e ) {}
+				}
+				return null;
+			} )();
+			previewPackCache.set( safePackId, promise );
+			return promise;
+		}
+
+		function normalizePreviewMods( mods ) {
+			return ( mods && typeof mods === 'object' ) ? mods : { b: [], u: [], d: [] };
+		}
+
+		function parseTrackLayoutFromParams( map, mods, ghostPreview = [] ) {
+			if ( map ) {
+				return {
+					cells: decodeCellsFromMap( map ),
+					mods: mods ? decodeModsFromToken( mods ) : { b: [], u: [], d: [] },
+					ghost: ghostPreview,
+				};
+			}
+			return ghostPreview.length > 1 ? { cells: [], mods: {}, ghost: ghostPreview } : { cells: [], mods: {}, ghost: [] };
+		}
+
 		function parseTrackLayoutFromUrl( playUrl ) {
 			let parsed = null;
 			try {
 				parsed = new URL( playUrl, window.location.href );
 			} catch ( e ) {
-				return null;
+				return { cells: [], mods: {}, ghost: [] };
 			}
 			const ghostPreview = parseGhostPreviewFromUrl( parsed ) || [];
 			try {
@@ -366,65 +404,90 @@
 						const packed = JSON.parse( localStorage.getItem( `racing-local-pack:${ localPack }` ) || 'null' );
 						const m = ! map && typeof packed?.map === 'string' ? packed.map : map;
 						const md = ! mods && typeof packed?.mods === 'string' ? packed.mods : mods;
-						if ( m ) return { cells: decodeCellsFromMap( m ), mods: md ? decodeModsFromToken( md ) : { b: [], u: [], d: [] } };
+						return parseTrackLayoutFromParams( m, md, ghostPreview );
 					} catch ( e ) {}
 				}
-				if ( map ) {
-					return {
-						cells: decodeCellsFromMap( map ),
-						mods: mods ? decodeModsFromToken( mods ) : { b: [], u: [], d: [] },
-					};
-				}
+				return parseTrackLayoutFromParams( map, mods, ghostPreview );
 			} catch ( e ) {
-				// Fall through to ghost preview
+				return ghostPreview.length > 1 ? { cells: [], mods: {}, ghost: ghostPreview } : { cells: [], mods: {}, ghost: [] };
 			}
-			return ghostPreview.length > 1 ? { cells: [], mods: {}, ghost: ghostPreview } : null;
+		}
+
+		async function hydrateTrackPreviewFromUrl( playUrl, canvas ) {
+			let parsed = null;
+			try {
+				parsed = new URL( playUrl, window.location.href );
+			} catch ( e ) {
+				drawTrackPreview( canvas, [], {}, [] );
+				return;
+			}
+			let previewData = parseTrackLayoutFromUrl( playUrl );
+			const packId = parsed.searchParams.get( 'pack' ) || parsed.searchParams.get( 'sharedPack' );
+			if ( packId && ( ! previewData.cells.length || ! Object.keys( normalizePreviewMods( previewData.mods ) ).some( ( key ) => Array.isArray( previewData.mods[ key ] ) && previewData.mods[ key ].length ) ) ) {
+				try {
+					const payload = await resolvePreviewPackPayload( packId );
+					if ( payload?.map ) previewData = parseTrackLayoutFromParams( payload.map, payload.mods, previewData.ghost || [] );
+				} catch ( e ) {}
+			}
+			drawTrackPreview( canvas, previewData.cells, previewData.mods, previewData.ghost || [] );
+		}
+
+		function collectPreviewBlocks( cells, mods = {} ) {
+			const blocks = [];
+			const add = ( x, z, color, rank = 0 ) => {
+				const nx = Number( x );
+				const nz = Number( z );
+				if ( Number.isFinite( nx ) && Number.isFinite( nz ) ) blocks.push( { x: nx, z: nz, color, rank } );
+			};
+			for ( const cell of Array.isArray( cells ) ? cells : [] ) {
+				const type = cell?.[ 2 ];
+				add( cell?.[ 0 ], cell?.[ 1 ], type === 'track-finish' ? '#72e39a' : type === 'track-checkpoint' ? '#ffd54f' : type === 'track-corner' ? '#b084ff' : '#4da3ff', 10 );
+			}
+			const modColors = { b: '#ff6b6b', p: '#d6dbe6', k: '#a7f3d0', l: '#f97316', j: '#38bdf8', q: '#2dd4bf', o: '#fb7185', e: '#c084fc', u: '#facc15', d: '#94a3b8', m: '#60a5fa', a: '#f472b6', s: '#22c55e' };
+			for ( const [ key, value ] of Object.entries( normalizePreviewMods( mods ) ) ) {
+				if ( ! Array.isArray( value ) ) continue;
+				for ( const item of value ) {
+					if ( Array.isArray( item ) ) add( item[ 0 ], item[ 1 ], modColors[ key ] || '#e5e7eb', 20 );
+					else if ( item && typeof item === 'object' ) add( item.gx ?? item.x, item.gz ?? item.z, modColors[ key ] || '#e5e7eb', 20 );
+				}
+			}
+			return blocks.sort( ( a, b ) => a.rank - b.rank );
 		}
 
 		function drawTrackPreview( canvas, cells, mods = {}, ghost = [] ) {
 			if ( ! canvas ) return;
-			const hasCells = Array.isArray( cells ) && cells.length > 0;
-			const hasGhost = Array.isArray( ghost ) && ghost.length > 1;
-			if ( ! hasCells && ! hasGhost ) return;
 			const ctx = canvas.getContext( '2d' );
 			ctx.clearRect( 0, 0, canvas.width, canvas.height );
-			const allXs = [ ...( hasCells ? cells.map( ( c ) => c[ 0 ] ) : [] ), ...( hasGhost ? ghost.map( ( g ) => g.x ) : [] ) ];
-			const allZs = [ ...( hasCells ? cells.map( ( c ) => c[ 1 ] ) : [] ), ...( hasGhost ? ghost.map( ( g ) => g.z ) : [] ) ];
-			const minX = Math.min( ...allXs ) - 1;
-			const maxX = Math.max( ...allXs ) + 1;
-			const minZ = Math.min( ...allZs ) - 1;
-			const maxZ = Math.max( ...allZs ) + 1;
-			const gw = maxX - minX + 1;
-			const gh = maxZ - minZ + 1;
-			const pad = 8;
-			const size = Math.max( 4, Math.floor( Math.min( ( canvas.width - pad * 2 ) / gw, ( canvas.height - pad * 2 ) / gh ) ) );
-			const toPix = ( x, z ) => [ pad + ( x - minX ) * size, pad + ( z - minZ ) * size ];
-			for ( const [ x, z, type ] of cells ) {
-				const [ px, py ] = toPix( x, z );
-				ctx.fillStyle = type === 'track-finish' ? '#72e39a'
-					: type === 'track-checkpoint' ? '#ffd54f'
-					: type === 'track-corner' ? '#b084ff'
-					: '#4da3ff';
-				ctx.fillRect( px + 1, py + 1, size - 2, size - 2 );
-			}
-			ctx.strokeStyle = '#ff4d4d';
-			for ( const [ x, z ] of ( mods.b || [] ) ) {
-				const [ px, py ] = toPix( x, z );
-				ctx.beginPath();
-				ctx.arc( px + size / 2, py + size / 2, Math.max( 2, size * 0.22 ), 0, Math.PI * 2 );
-				ctx.stroke();
-			}
-			// Ghost racing line
-			if ( Array.isArray( ghost ) && ghost.length > 1 ) {
-				ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-				ctx.lineWidth = Math.max( 1, size * 0.12 );
-				ctx.beginPath();
-				for ( let i = 0; i < ghost.length; i ++ ) {
-					const [ px, py ] = toPix( ghost[ i ].x, ghost[ i ].z );
-					if ( i === 0 ) ctx.moveTo( px + size / 2, py + size / 2 );
-					else ctx.lineTo( px + size / 2, py + size / 2 );
+			ctx.fillStyle = '#0d1118';
+			ctx.fillRect( 0, 0, canvas.width, canvas.height );
+			const blocks = collectPreviewBlocks( cells, mods );
+			if ( blocks.length === 0 && Array.isArray( ghost ) && ghost.length > 1 ) {
+				for ( const point of ghost ) {
+					const gx = Math.round( Number( point?.x ) );
+					const gz = Math.round( Number( point?.z ) );
+					if ( Number.isFinite( gx ) && Number.isFinite( gz ) && ! blocks.some( ( block ) => block.x === gx && block.z === gz ) ) blocks.push( { x: gx, z: gz, color: '#4da3ff', rank: 5 } );
 				}
-				ctx.stroke();
+			}
+			if ( blocks.length === 0 ) {
+				blocks.push( { x: 0, z: 0, color: '#4da3ff', rank: 1 } );
+			}
+			const xs = blocks.map( ( block ) => block.x );
+			const zs = blocks.map( ( block ) => block.z );
+			const minX = Math.min( ...xs );
+			const maxX = Math.max( ...xs );
+			const minZ = Math.min( ...zs );
+			const maxZ = Math.max( ...zs );
+			const pad = 10;
+			const spanX = Math.max( 1, maxX - minX + 1 );
+			const spanZ = Math.max( 1, maxZ - minZ + 1 );
+			const size = Math.max( 3, Math.min( 26, Math.floor( Math.min( ( canvas.width - pad * 2 ) / spanX, ( canvas.height - pad * 2 ) / spanZ ) ) ) );
+			const offsetX = ( canvas.width - spanX * size ) / 2;
+			const offsetY = ( canvas.height - spanZ * size ) / 2;
+			for ( const block of blocks ) {
+				const px = offsetX + ( block.x - minX ) * size;
+				const py = offsetY + ( block.z - minZ ) * size;
+				ctx.fillStyle = block.color;
+				ctx.fillRect( Math.round( px ) + 1, Math.round( py ) + 1, Math.max( 1, size - 2 ), Math.max( 1, size - 2 ) );
 			}
 		}
 
@@ -550,7 +613,7 @@
 					<span class="badge">🏁 ${ stats.sizeTag }</span>
 					<span class="badge">🧭 ${ stats.styleTag }</span>
 				</div>
-				${ entry.thumbnailDataUrl ? `<img class="preview-canvas" src="${ entry.thumbnailDataUrl }" alt="Track thumbnail for ${ entry.name }">` : `<canvas class="preview-canvas" width="300" height="180" aria-label="Track preview for ${ entry.name }"></canvas>` }
+				<canvas class="preview-canvas" width="300" height="180" aria-label="2D block preview for ${ entry.name }"></canvas>
 				<div class="stat-grid">
 					<div class="stat"><span>Best time</span><b>${ stats.bestTime === Infinity ? '--.--' : formatSeconds( stats.bestTime ) }</b></div>
 					<div class="stat"><span>Record holder</span><b>${ stats.topRow ? stats.topRow.name : 'Open' }</b></div>
@@ -564,7 +627,8 @@
 					<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
 					<button data-id="${ entry.id }" type="button">Remove</button>
 				</div>`;
-			if ( ! entry.thumbnailDataUrl && stats.previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), stats.previewData.cells, stats.previewData.mods, stats.previewData.ghost || [] );
+			drawTrackPreview( card.querySelector( '.preview-canvas' ), stats.previewData?.cells || [], stats.previewData?.mods || {}, stats.previewData?.ghost || [] );
+			hydrateTrackPreviewFromUrl( entry.playUrl, card.querySelector( '.preview-canvas' ) );
 			return card;
 		}
 
