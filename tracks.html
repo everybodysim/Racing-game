@@ -93,12 +93,14 @@
 			_lazyDrawRunning = true;
 			const step = () => {
 				if ( _lazyDrawQueue.length === 0 ) { _lazyDrawRunning = false; return; }
-				_lazyDrawQueue.shift()();
-				if ( 'requestIdleCallback' in window ) requestIdleCallback( step, { timeout: 2000 } );
-				else setTimeout( step, 32 );
+				// Process a batch to finish faster while keeping UI responsive
+				const batch = Math.min( 5, _lazyDrawQueue.length );
+				for ( let i = 0; i < batch; i++ ) _lazyDrawQueue.shift()();
+				if ( 'requestIdleCallback' in window ) requestIdleCallback( step, { timeout: 1500 } );
+				else setTimeout( step, 16 );
 			};
-			if ( 'requestIdleCallback' in window ) requestIdleCallback( step, { timeout: 2000 } );
-			else setTimeout( step, 32 );
+			if ( 'requestIdleCallback' in window ) requestIdleCallback( step, { timeout: 1500 } );
+			else setTimeout( step, 16 );
 		}
 
 		function sanitizeBoardEntries( input ) {
