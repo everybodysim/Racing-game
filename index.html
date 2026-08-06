@@ -1531,9 +1531,9 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				</div>
 				<div id="home-player-counter" aria-label="Visitor counter">
 					<span class="counter-label">Racers</span>
-					<a href='http://www.freevisitorcounters.com'>Free Counters</a>
-					<script type='text/javascript' src='https://www.freevisitorcounters.com/auth.php?id=ff21e51e58b97deedf5915370a3a76eeb39a99fe'></script>
-<script type="text/javascript" src="https://www.freevisitorcounters.com/en/home/counter/1612574/t/0"></script>
+					 <a href='http://www.freevisitorcounters.com'>Free Counters</a> 
+					<script type='text/javascript' src='https://www.freevisitorcounters.com/auth.php?id=8c08ca2085e6e6b39ce58b3360d75f2bbb9e213b'></script>
+<script type="text/javascript" src="https://www.freevisitorcounters.com/en/home/counter/1612582/t/0"></script>
 				</div>
 			</div>
 			<p id="home-tagline">Race. Build. Share. Compete. — a browser racing game with tracks, clubs, and a live community board.</p>
@@ -1569,7 +1569,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<!-- Right: Community panel -->
 				<div id="home-community">
 					<div>
-						<div class="home-panel-title">Featured track</div>
+						<div class="home-panel-title">Featured track (This section is WIP)</div>
 						<a id="home-featured-track" href="tracks.html">
 							<div class="ft-name">Loading community tracks…</div>
 							<div class="ft-meta">Fetching from the track board</div>
@@ -2061,9 +2061,17 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					.map( e => ( { id: getTrackId( e.playUrl ), entry: e } ) )
 					.filter( t => t.id );
 
-				const lbResults = await Promise.all( topTracks.map( t =>
+								const lbTimeout = new Promise( ( resolve ) => setTimeout( () => resolve( [] ), 6000 ) );
+				const lbFetches = topTracks.map( t =>
 					fetchLeaderboard( t.id ).then( rows => ( { trackId: t.id, rows } ) )
-				) );
+				);
+				const lbResults = await Promise.race( [
+					Promise.allSettled( lbFetches ).then( results =>
+						results.map( r => r.status === 'fulfilled' ? r.value : { trackId: '', rows: [] } )
+					),
+					lbTimeout
+				] ) || [];
+
 
 				// Aggregate record holders
 				const winsByDriver = new Map();
@@ -2309,26 +2317,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		} )();
 	</script>
 
-	<script>
-		window.addEventListener( 'load', () => {
-			window.setTimeout( () => {
-				const slot = document.getElementById( 'visitor-counter-slot' );
-				if ( ! slot ) return;
-				const scripts = [
-					'https://www.freevisitorcounters.com/auth.php?id=80aeb0b0a17286f9397ecfd36846075238e35741',
-					'https://www.freevisitorcounters.com/en/home/counter/1550946/t/0'
-				];
-				slot.textContent = '';
-				for ( const src of scripts ) {
-					const script = document.createElement( 'script' );
-					script.src = src;
-					script.async = true;
-					slot.appendChild( script );
-				}
-			}, 1500 );
-		} );
-	</script>
-	<script>
+		<script>
 		window.__racingGameBooting = true;
 		document.getElementById( 'loading-status' ).textContent = 'Loading game code…';
 		window.addEventListener( 'error', ( event ) => {
