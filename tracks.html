@@ -311,6 +311,12 @@
 		}
 
 		function decodeCellsFromMap( mapToken ) {
+			if ( String( mapToken || '' ).startsWith( 'v2.' ) ) {
+				const payload = decodeBase64UrlJson( String( mapToken ).slice( 3 ) );
+				return ( Array.isArray( payload?.cells ) ? payload.cells : [] )
+					.filter( ( cell ) => Array.isArray( cell ) && cell.length >= 4 )
+					.map( ( [ gx, gz, type, orient ] ) => [ Number( gx ), Number( gz ), type, orient ] );
+			}
 			const bytes = decodeBase64Url( mapToken );
 			const typeByIdx = [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-finish' ];
 			const orientByIdx = [ 0, 16, 10, 22 ];
@@ -332,22 +338,54 @@
 		}
 
 		function parseTrackLayoutFromUrl( playUrl ) {
+			let parsed = null;
 			try {
-				const parsed = new URL( playUrl, window.location.href );
-				const map = parsed.searchParams.get( 'map' );
-				const mods = parsed.searchParams.get( 'mods' );
-				if ( ! map ) return null;
-				return {
-					cells: decodeCellsFromMap( map ),
-					mods: mods ? decodeModsFromToken( mods ) : { b: [], u: [], d: [] },
-				};
+				parsed = new URL( playUrl, window.location.href );
+			} catch ( e ) {
+				return null;
+			}
+			const ghostPreview = parseGhostPreviewFromUrl( parsed ) || [];
+			try {
+				let map = parsed.searchParams.get( 'map' );
+				let mods = parsed.searchParams.get( 'mods' );
+				const localPack = parsed.searchParams.get( 'localPack' );
+				if ( ( ! map || ! mods ) && localPack ) {
+					try {
+						const packed = JSON.parse( localStorage.getItem( `racing-local-pack:${ localPack }` ) || 'null' );
+						map = map || ( typeof packed?.map === 'string' ? packed.map : '' );
+						mods = mods || ( typeof packed?.mods === 'string' ? packed.mods : '' );
+					} catch ( e ) {}
+				}
+				if ( map ) {
+					return {
+						cells: decodeCellsFromMap( map ),
+						mods: mods ? decodeModsFromToken( mods ) : { b: [], u: [], d: [] },
+					};
+				}
+			} catch ( e ) {
+				// Fall through to the ghost route preview below. A corrupt/old map token
+				// should not leave the card blank when the shared ghost can still be drawn.
+			}
+			return ghostPreview.length > 1 ? { cells: [], mods: {}, ghost: ghostPreview } : null;
+		}
+
+		function parseGhostPreviewFromUrl( parsedUrl ) {
+			try {
+				const hash = new URLSearchParams( parsedUrl.hash.startsWith( '#' ) ? parsedUrl.hash.slice( 1 ) : parsedUrl.hash );
+				const ghostToken = hash.get( 'ghost' );
+				if ( ! ghostToken ) return null;
+				const payload = decodeBase64UrlJson( ghostToken );
+				const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
+				return samples
+					.map( ( sample ) => ( { x: Number( sample?.x ), z: Number( sample?.z ) } ) )
+					.filter( ( point ) => Number.isFinite( point.x ) && Number.isFinite( point.z ) );
 			} catch ( e ) {
 				return null;
 			}
 		}
 
-		function drawTrackPreview( canvas, cells, mods = {} ) {
-			if ( ! canvas || ! Array.isArray( cells ) || cells.length === 0 ) return;
+		function drawTrackPreview( canvas, cells, mods = {}, ghost = [] ) {
+			if ( ! canvas || ! Array.isArray( cells ) ) return;
 			const ctx = canvas.getContext( '2d' );
 			ctx.clearRect( 0, 0, canvas.width, canvas.height );
 
@@ -363,6 +401,7 @@
 				previewItems.push( { x, z, kind, type, orient } );
 			};
 			for ( const [ x, z, type, orient ] of cells ) addItem( x, z, 'road', type, orient );
+			for ( const point of ( Array.isArray( ghost ) ? ghost : [] ) ) addItem( point?.x, point?.z, 'ghost' );
 			const addModItems = ( key, kind ) => {
 				for ( const item of ( Array.isArray( mods?.[ key ] ) ? mods[ key ] : [] ) ) {
 					if ( ! Array.isArray( item ) ) continue;
@@ -410,9 +449,23 @@
 				ctx.arc( px + size / 2, py + size / 2, Math.max( 2, size * scale ), 0, Math.PI * 2 );
 				ctx.fill();
 			};
+			const ghostItems = previewItems.filter( ( item ) => item.kind === 'ghost' );
+			if ( ghostItems.length > 1 ) {
+				ctx.strokeStyle = 'rgba(255,255,255,0.82)';
+				ctx.lineWidth = Math.max( 1.5, size * 0.08 );
+				ctx.beginPath();
+				ghostItems.forEach( ( item, index ) => {
+					const [ px, py ] = toPix( item.x, item.z );
+					const x = px + size / 2;
+					const y = py + size / 2;
+					if ( index === 0 ) ctx.moveTo( x, y );
+					else ctx.lineTo( x, y );
+				} );
+				ctx.stroke();
+			}
 			previewItems.filter( ( item ) => item.kind === 'surface' || item.kind === 'water' ).forEach( ( item ) => drawDot( item, item.kind === 'water' ? '#4fd9ff' : '#f8e26a', 0.34 ) );
 			previewItems.filter( ( item ) => item.kind === 'road' || item.kind === 'elevated' ).forEach( drawCell );
-			for ( const item of previewItems.filter( ( entry ) => ! [ 'road', 'surface', 'water', 'elevated' ].includes( entry.kind ) ) ) {
+			for ( const item of previewItems.filter( ( entry ) => ! [ 'road', 'surface', 'water', 'elevated', 'ghost' ].includes( entry.kind ) ) ) {
 				const color = item.kind === 'bump' ? '#ff4d4d'
 					: item.kind === 'magnet' ? '#59f2ff'
 					: item.kind === 'arc' ? '#57ff8f'
@@ -558,7 +611,7 @@
 					<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
 					<button data-id="${ entry.id }" type="button">Remove</button>
 				</div>`;
-			if ( ! entry.thumbnailDataUrl && stats.previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), stats.previewData.cells, stats.previewData.mods );
+			if ( ! entry.thumbnailDataUrl && stats.previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), stats.previewData.cells, stats.previewData.mods, stats.previewData.ghost );
 			return card;
 		}
 
