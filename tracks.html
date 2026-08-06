@@ -86,21 +86,23 @@
 			return name.startsWith( '[PACK]' );
 		}
 
-		const _lazyDrawQueue = [];
-		let _lazyDrawRunning = false;
+		// IntersectionObserver: only draw previews when cards scroll into view
+		let _previewObserver = null;
+		function ensurePreviewObserver() {
+			if ( _previewObserver ) return _previewObserver;
+			_previewObserver = new IntersectionObserver( ( entries ) => {
+				for ( const obs of entries ) {
+					if ( obs.isIntersecting ) {
+						_previewObserver.unobserve( obs.target );
+						const draw = obs.target._lazyDraw;
+						if ( draw ) { draw(); delete obs.target._lazyDraw; }
+					}
+				}
+			}, { rootMargin: '200px' } );
+			return _previewObserver;
+		}
 		function processLazyDrawQueue() {
-			if ( _lazyDrawRunning || _lazyDrawQueue.length === 0 ) return;
-			_lazyDrawRunning = true;
-			const step = () => {
-				if ( _lazyDrawQueue.length === 0 ) { _lazyDrawRunning = false; return; }
-				// Process a batch to finish faster while keeping UI responsive
-				const batch = Math.min( 5, _lazyDrawQueue.length );
-				for ( let i = 0; i < batch; i++ ) _lazyDrawQueue.shift()();
-				if ( 'requestIdleCallback' in window ) requestIdleCallback( step, { timeout: 1500 } );
-				else setTimeout( step, 16 );
-			};
-			if ( 'requestIdleCallback' in window ) requestIdleCallback( step, { timeout: 1500 } );
-			else setTimeout( step, 16 );
+			// No-op — previews are drawn on-demand by the IntersectionObserver
 		}
 
 		function sanitizeBoardEntries( input ) {
@@ -557,13 +559,14 @@
 			if ( ! entry.thumbnailDataUrl ) {
 				const canvas = card.querySelector( '.preview-canvas' );
 				const styleBadge = card.querySelector( '.badge:last-child' );
-				_lazyDrawQueue.push( () => {
-					const pd = parseTrackLayoutFromUrl( entry.playUrl );
-					if ( pd ) {
-						drawTrackPreview( canvas, pd.cells, pd.mods );
-						if ( styleBadge ) styleBadge.textContent = `\u{1f9ed} ${ classifyTrackStyle( pd.cells || [], pd.mods || {} ) }`;
-					}
-				} );
+			canvas._lazyDraw = () => {
+				const pd = parseTrackLayoutFromUrl( entry.playUrl );
+				if ( pd ) {
+					drawTrackPreview( canvas, pd.cells, pd.mods );
+					if ( styleBadge ) styleBadge.textContent = `\u{1f9ed} ${ classifyTrackStyle( pd.cells || [], pd.mods || {} ) }`;
+				}
+			};
+				ensurePreviewObserver().observe( canvas );
 			}
 			return card;
 		}
