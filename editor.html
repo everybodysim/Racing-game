@@ -634,7 +634,6 @@
 		</div>
 		<div class="toolbar-group" aria-label="Edit tools" data-cat="edit">
 			<span class="toolbar-group-label">Edit</span>
-			<button id="btn-select">Select</button>
 			<button id="btn-paint" class="active">Paint</button>
 			<button id="btn-erase">Erase</button>
 			<button id="btn-undo" title="Undo (Ctrl/Cmd+Z)" disabled>Undo</button>
@@ -4882,7 +4881,6 @@ window.addEventListener('keydown', (e) => {
         switch (key) {
             case '1': selectTool('paint'); break;
             case '2': selectTool('erase'); break;
-            case '3': if (!selectMode) toggleSelectMode(); break;
             case '4': if (typeof selectedType !== 'undefined') selectTileType('track-straight'); break;
             case '5': if (typeof selectedType !== 'undefined') selectTileType('track-corner'); break;
             case '6': if (typeof selectedType !== 'undefined' && typeof BUMP_TOOL !== 'undefined') selectTileType(BUMP_TOOL); break;
@@ -4903,11 +4901,7 @@ document.addEventListener('pointerdown', (e) => {
     e.preventDefault();
 }, true);
 
-// Wire up Select button
-document.getElementById('btn-select')?.addEventListener('click', () => toggleSelectMode());
 
-// Keep selection box synced on zoom
-el.addEventListener('wheel', () => { if (selectMode) setTimeout(updateSelectionBox, 0); }, false);
 
 
 	</script>
