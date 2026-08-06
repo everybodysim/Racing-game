@@ -4401,22 +4401,20 @@ function refreshMovingSpeedUi() {
 	animate();
 
 // ═════════════════════════════════════════════════════════════════
-// FEATURE 1: Collapsible toolbar groups (accordion)
+// FEATURE 1: Independent, open-by-default toolbar groups
 // ═════════════════════════════════════════════════════════════════
 (function initAccordionToolbar() {
     const groups = document.querySelectorAll('.toolbar-group[data-cat]');
     groups.forEach(g => {
-        if (g.dataset.cat !== 'track') g.classList.add('collapsed');
+        // 1. Keep ALL categories open on load (do not add 'collapsed' class)
+        g.classList.remove('collapsed');
+        
         const label = g.querySelector('.toolbar-group-label');
         if (label) {
             label.addEventListener('click', (e) => {
                 e.preventDefault();
-                if (!g.classList.contains('collapsed')) {
-                    g.classList.add('collapsed');
-                    return;
-                }
-                groups.forEach(other => other.classList.add('collapsed'));
-                g.classList.remove('collapsed');
+                // 2. Toggle ONLY this specific category independently
+                g.classList.toggle('collapsed');
             });
         }
     });
