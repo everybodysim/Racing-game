@@ -1531,9 +1531,9 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				</div>
 				<div id="home-player-counter" aria-label="Visitor counter">
 					<span class="counter-label">Racers</span>
-					<a href='http://www.freevisitorcounters.com'>Visitor counter</a>
-					<script async type='text/javascript' src='https://www.freevisitorcounters.com/auth.php?id=c80257830c44c29e40d179114f752ab25734e079'></script>
-					<script async type="text/javascript" src="https://www.freevisitorcounters.com/en/home/counter/1585757/t/0"></script>
+					<a href='http://www.freevisitorcounters.com'>Free Counters</a>
+					<script type='text/javascript' src='https://www.freevisitorcounters.com/auth.php?id=ff21e51e58b97deedf5915370a3a76eeb39a99fe'></script>
+<script type="text/javascript" src="https://www.freevisitorcounters.com/en/home/counter/1612574/t/0"></script>
 				</div>
 			</div>
 			<p id="home-tagline">Race. Build. Share. Compete. — a browser racing game with tracks, clubs, and a live community board.</p>
@@ -1563,7 +1563,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					<div id="home-secondary">
 						<a class="home-secondary-link" href="mods.html">Mods</a>
 						<a class="home-secondary-link" href="index.html?play=1&multiplayer=1">2P split screen</a>
-						<a class="home-secondary-link" href="tas-viewer.html">TAS viewer</a>
 					</div>
 				</div>
 
@@ -1939,16 +1938,34 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				return String( str || '' ).replace( /&/g, '&amp;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' ).replace( /"/g, '&quot;' );
 			}
 
+			// Must match getTrackId/hashTrackSeed in main.js exactly
+			function fnv64Hex( value, start, prime ) {
+				let hash = start;
+				for ( let i = 0; i < value.length; i ++ ) {
+					hash ^= BigInt( value.charCodeAt( i ) );
+					hash = ( hash * prime ) & 0xffffffffffffffffn;
+				}
+				return hash.toString( 16 ).padStart( 16, '0' );
+			}
+			function hashTrackSeed( value ) {
+				const a = fnv64Hex( value, 0xcbf29ce484222325n, 0x100000001b3n );
+				const b = fnv64Hex( value, 0x84222325cbf29cen, 0x100000001c3n );
+				return a + b;
+			}
 			function getTrackId( playUrl ) {
 				try {
-					const u = new URL( playUrl, location.href );
+					const u = new URL( playUrl, 'https://everybodysim.github.io' );
 					const map = u.searchParams.get( 'map' ) || '';
 					const mods = u.searchParams.get( 'mods' ) || '';
-					const q = new URLSearchParams();
-					if ( map ) q.set( 'map', map );
-					if ( mods ) q.set( 'mods', mods );
-					const norm = u.pathname.replace( /\/+, '/' ).replace( /^.*\//, '' ) || 'index.html';
-					return `${ norm }${ q.toString() ? '?' + q.toString() : '' }`;
+					const params = new URLSearchParams();
+					if ( map ) params.set( 'map', map );
+					if ( mods ) params.set( 'mods', mods );
+					const raw = u.pathname;
+					let normalized = raw;
+					if ( normalized === '/index.html' ) normalized = '/';
+					else if ( normalized.endsWith( '/index.html' ) ) normalized = normalized.slice( 0, -11 ) + '/';
+					const rawUrl = `${ normalized }${ params.toString() ? '?' + params.toString() : '' }`;
+					return `trk-${ hashTrackSeed( 'v4-url|' + rawUrl ) }`;
 				} catch ( e ) { return ''; }
 			}
 
