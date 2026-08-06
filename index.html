@@ -91,7 +91,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#loading-error { margin-top: 12px; color: #ffc4c4; display: none; }
 		#loading-reload-btn { margin-top: 10px; display: none; border: 1px solid rgba(255,255,255,0.28); border-radius: 8px; background: rgba(255,255,255,0.12); color: #fff; padding: 7px 11px; cursor: pointer; font: 700 13px/1 sans-serif; }
 		@keyframes loading-spin { to { transform: rotate(360deg); } }
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
+		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #home-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
 			position: absolute;
 			bottom: 12px;
 			color: #fff;
@@ -102,7 +102,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			z-index: 10;
 			border: none;
 		}
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn { text-decoration: none; }
+		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #home-menu-btn { text-decoration: none; }
 		#editor-link { right: 16px; }
 		#totd-link { right: 16px; bottom: 54px; }
 		#weekly-cup-link { right: 16px; bottom: 96px; }
@@ -114,14 +114,17 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#mods-link { right: 16px; bottom: 306px; }
 		#hacks-toggle { right: 16px; bottom: 348px; }
 		#split-link { right: 16px; bottom: 390px; }
-		#respawnBtn { left: 16px; top: 54px; bottom: auto; }
-		#mode-menu-btn { left: 16px; top: 96px; bottom: auto; }
-		#car-select { left: 16px; top: 12px; bottom: auto; }
+		#respawnBtn { right: 16px; bottom: 170px; left: auto; top: auto; }
+		#mode-menu-btn { right: 16px; top: 16px; bottom: auto; left: auto; padding: 12px 18px; border-radius: 12px; border: 1px solid rgba(140,210,255,0.58); background: linear-gradient(145deg, rgba(44,117,210,0.92), rgba(18,44,82,0.9)); box-shadow: 0 8px 24px rgba(0,0,0,0.34); font: 800 14px/1 sans-serif; letter-spacing: 0.02em; }
+		#home-menu-btn { right: 16px; top: 64px; bottom: auto; left: auto; padding: 10px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.32); background: rgba(6,12,22,0.82); box-shadow: 0 6px 18px rgba(0,0,0,0.28); font: 800 13px/1 sans-serif; }
+		#car-select { right: 16px; bottom: 212px; left: auto; top: auto; }
 		#share-time-btn { left: 16px; bottom: 12px; }
-		#export-ghost-btn { left: 180px; bottom: 12px; }
-		#import-ghost-btn { left: 300px; bottom: 12px; }
+		#export-ghost-btn { left: 16px; bottom: 12px; }
+		#import-ghost-btn { left: 136px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
-		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #home-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#mode-menu-btn:hover { background: linear-gradient(145deg, rgba(65,144,240,0.98), rgba(24,58,104,0.95)); }
+		#home-menu-btn:hover { background: rgba(20,35,55,0.92); }
 		/* Hide scattered nav buttons until JS moves them into the quick-menu panel (prevents FOUC) */
 		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link { display: none; }
 		#clubs-link.has-club-unread {
@@ -225,6 +228,26 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			font: 600 11px/1.35 sans-serif;
 		}
 		#mp-lb-list li { margin: 2px 0; }
+		#mp-debug-overlay {
+			position: fixed;
+			top: 50%;
+			left: 50%;
+			transform: translate(-50%, -50%);
+			width: 80%;
+			max-width: 600px;
+			height: 350px;
+			background: rgba(10, 10, 15, 0.92);
+			border: 2px solid #00f0ff;
+			border-radius: 8px;
+			color: #00ff88;
+			font-family: monospace;
+			font-size: 12px;
+			padding: 12px;
+			overflow-y: auto;
+			z-index: 9999;
+			display: none;
+			box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+		}
 		#competitions-warning-overlay {
 			position: fixed;
 			inset: 0;
@@ -360,18 +383,24 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			width: 0%;
 			background: linear-gradient(90deg, #53d4ff, #8dff77);
 		}
+		#economy-hud, #account-coins-card {
+			color: #fff;
+			font: 800 13px/1.35 sans-serif;
+			background: linear-gradient(135deg, rgba(255,211,77,0.2), rgba(255,143,48,0.14));
+			border: 1px solid rgba(255,219,101,0.42);
+			border-radius: 14px;
+			padding: 10px 12px;
+			box-shadow: 0 12px 30px rgba(0,0,0,0.22), inset 0 1px rgba(255,255,255,0.16);
+		}
 		#economy-hud {
 			position: absolute;
-			top: 108px;
 			right: 12px;
-			color: #fff;
-			font: 600 13px/1.35 sans-serif;
-			text-align: right;
-			background: rgba(0,0,0,0.4);
-			border-radius: 8px;
-			padding: 8px 10px;
+			bottom: 54px;
 			z-index: 10;
 		}
+		#account-coins-card { margin-top: 12px; text-align: center; }
+		#account-coins-card .coin-card-label { display:block; color:#ffe7a3; font:900 11px/1.2 sans-serif; letter-spacing:.08em; text-transform:uppercase; }
+		#account-coins-card .coin-card-value { display:block; margin-top:4px; font:900 24px/1.05 sans-serif; }
 		#mode-menu {
 			position: absolute;
 			top: 50%;
@@ -582,9 +611,9 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#leaderboard-toggle-btn:hover { background: rgba(0,0,0,0.78); }
 		#leaderboard-panel {
 			position: absolute;
-			top: 136px;
+			top: 12px;
 			left: 12px;
-			width: min(320px, 42vw);
+			width: 210px;
 			min-width: 22px;
 			min-height: 15px;
 			max-height: 48vh;
@@ -1341,7 +1370,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				font: 700 12px/1.2 sans-serif;
 			}
 			#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #share-time-btn, #export-ghost-btn, #import-ghost-btn { display: none; }
-			#respawnBtn, #mode-menu-btn, #car-select { z-index: 31; }
+			#respawnBtn, #mode-menu-btn, #home-menu-btn, #car-select { z-index: 31; }
 			#editor-link { bottom: auto; top: 12px; right: 12px; }
 				#totd-link { bottom: auto; top: 54px; right: 12px; }
 				#weekly-cup-link { bottom: auto; top: 96px; right: 12px; }
@@ -1353,9 +1382,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				#mods-link { bottom: auto; top: 306px; right: 12px; }
 			#hacks-toggle { bottom: auto; top: 348px; right: 12px; }
 			#split-link { bottom: auto; top: 390px; right: 12px; }
-			#car-select { top: 12px; left: 12px; }
-				#respawnBtn { top: 54px; left: 12px; }
-				#mode-menu-btn { top: 96px; left: 12px; }
+			#car-select { top: auto; left: auto; right: 12px; bottom: 208px; }
+				#respawnBtn { top: auto; left: auto; right: 12px; bottom: 166px; }
+				#mode-menu-btn { top: 12px; left: auto; right: 12px; }
+				#home-menu-btn { top: 60px; left: auto; right: 12px; }
 				#lap-hud { top: 56px; }
 				
 		#boost-ui {
@@ -1385,7 +1415,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 
 				#economy-hud { top: 108px; right: 12px; }
-				#leaderboard-panel { top: 136px; left: 12px; }
+				#leaderboard-panel { top: 12px; left: 12px; }
 		}
 	
 		body.ui-hidden > :not(canvas):not(script) { display: none !important; }
@@ -1432,7 +1462,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 
 		@media (pointer: coarse) {
-			#quick-menu-btn, #quick-menu-panel, #respawnBtn, #mode-menu-btn,
+			#quick-menu-btn, #quick-menu-panel, #respawnBtn, #mode-menu-btn, #home-menu-btn,
 			#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link,
 			#replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link,
 			#share-time-btn, #export-ghost-btn, #import-ghost-btn { display: none !important; }
@@ -1549,7 +1579,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					</div>
 
 					<div class="home-small-row">
-						<a class="home-small-link" href="index.html?play=1&garage=1">Garage<em>Upgrade & paint</em></a>
+						<a class="home-small-link" href="index.html?play=1&garage=1">Garage<em>Paint & car select</em></a>
 						<a class="home-small-link" href="editor.html">Track editor<em>Build circuits</em></a>
 						<a class="home-small-link" href="competitions.html">Competitions<em>Stake-based tiers</em></a>
 					</div>
@@ -1622,9 +1652,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<h2>Paused</h2>
 			<p>Press Escape or P to resume.</p>
 		</div>
-	<div id="economy-hud">
-		<div id="coins-label">Coins: 0</div>
-	</div>
+	
 	<div id="boost-ui">
 		<div>Arcade Boost</div>
 		<div id="boost-bar"><div id="boost-fill"></div></div>
@@ -1662,7 +1690,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		</div>
 		<div class="mode-tab-panel active mode-compact" id="mode-panel-gameplay">
 			<button id="mode-race-btn" type="button">Race Mode</button>
-			<button id="mode-advancements-btn" type="button">Advancements</button>
+			<!-- <button id="mode-advancements-btn" type="button">Advancements</button> -->
 			<!-- <button id="campaign-info-btn" type="button">Campaign intro</button> -->
 		<!--	<label id="countdown-setting" for="countdown-toggle">
 				<input id="countdown-toggle" type="checkbox" checked>
@@ -1696,29 +1724,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<option value="vehicle-truck-purple">Purple truck</option>
 				<option value="vehicle-truck-red">Red truck</option>
 			</select>
-			<div class="garage-row">
-				<label for="garage-grip">Handling Pack</label>
-				<input id="garage-grip" type="range" min="0.85" max="1.15" step="0.01" value="1">
-				<span id="garage-grip-value">x1.00</span>
-				<button id="garage-grip-unlock" type="button">Unlock (250)</button>
-				<small id="garage-grip-status">Locked</small>
-			</div>
-			<div class="garage-row">
-				<label for="garage-accel">Power Pack</label>
-				<input id="garage-accel" type="range" min="0.85" max="1.15" step="0.01" value="1">
-				<span id="garage-accel-value">x1.00</span>
-				<button id="garage-accel-unlock" type="button">Unlock (325)</button>
-				<small id="garage-accel-status">Locked</small>
-			</div>
-			<div class="garage-row">
-				<label for="garage-drive">Traction Pack</label>
-				<input id="garage-drive" type="range" min="0.85" max="1.15" step="0.01" value="1">
-				<span id="garage-drive-value">x1.00</span>
-				<button id="garage-drive-unlock" type="button">Unlock (400)</button>
-				<small id="garage-drive-status">Locked</small>
-			</div>
-			<button id="profile-export-btn" type="button">Export Profile</button>
-			<button id="profile-import-btn" type="button">Import Profile</button>
+			<!-- Garage stat tuning is hidden for now; all performance multipliers are fixed at x1.15 in code. -->
 			<h4 style="margin-top:12px;">Paint Shop</h4>
 			<div id="garage-color-help">Click a color area on the 3D car, choose a new color, then repaint that highlighted area for 300 coins.</div>
 			<div id="garage-paint-studio">
@@ -1753,9 +1759,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<button id="account-login-btn" type="button">Login</button>
 			<button id="account-cloud-save-btn" type="button">Save profile to cloud</button>
 			<button id="account-cloud-load-btn" type="button">Load profile from cloud</button>
-			<button id="account-export-btn" type="button">Export Account</button>
-			<button id="account-import-btn" type="button">Import Account</button>
 			<div id="account-status"></div>
+			<div id="account-coins-card" aria-live="polite"><span class="coin-card-label">Current coins</span><span class="coin-card-value" id="account-coins-value">0</span></div>
 		</div>
 		</div>
 		<div class="mode-tab-panel" id="mode-panel-nav">
@@ -1785,7 +1790,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<div id="hacks-panel">
 		<h3 style="margin:0 0 8px;">Hacks (Leaderboard disabled)</h3>
 		<label><input id="hack-enable" type="checkbox"> Enable hacks</label>
-		<label><input id="hack-infinite-coins" type="checkbox"> Infinite coins</label>
 		<label><input id="hack-boost-anywhere" type="checkbox"> Boost anywhere (hold B)</label>
 		<label><input id="hack-no-limits" type="checkbox"> Remove car stat limits</label>
 		<label><input id="hack-always-nitro" type="checkbox"> Always nitro forward</label>
@@ -1841,14 +1845,13 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<a href="mods.html">Mods</a>
 			<button type="button" data-mobile-click="split-link">2P split screen</button>
 			<button type="button" data-mobile-click="hacks-toggle">Hacks</button>
-			<button type="button" data-mobile-click="share-time-btn">Share time</button>
 			<button type="button" data-mobile-click="export-ghost-btn">Export ghost</button>
 			<button type="button" data-mobile-click="import-ghost-btn">Import ghost</button>
 		</div>
 	</section>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>
-	<a id="mode-menu-btn" href="#" role="button">Mode Menu (E)</a>
-	<button id="share-time-btn" type="button" disabled>Share best time</button>
+	<a id="mode-menu-btn" href="#" role="button">☰ Menu (E)</a>
+	<a id="home-menu-btn" href="index.html" role="button">Back to Home</a>
 	<button id="export-ghost-btn" type="button">Export ghost</button>
 	<button id="import-ghost-btn" type="button">Import ghost</button>
 	<div id="mp-panel" aria-label="Multiplayer">
@@ -1856,13 +1859,14 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		<div id="mp-actions">
 			<button id="mp-host-btn" type="button">Host</button>
 			<button id="mp-join-btn" type="button">Join</button>
-			<button id="mp-refresh-btn" type="button" title="Force a multiplayer refresh">Refresh Sync</button>
+			<button id="mp-debug-toggle-btn" type="button" title="Toggle multiplayer debug console">Toggle Debug</button>
 		</div>
 		<div id="mp-code-row">
 			<input id="mp-code-input" type="text" maxlength="6" placeholder="ROOM CODE" aria-label="Room code">
 			<button id="mp-copy-btn" type="button">Copy</button>
 		</div>
 		<div id="mp-status" aria-live="polite"></div>
+		<div id="mp-debug-overlay" aria-live="polite" aria-label="Multiplayer debug console"></div>
 		<div id="mp-lb">
 			<div id="mp-lb-title">Online room best laps</div>
 			<ol id="mp-lb-list"></ol>
@@ -1938,7 +1942,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				return String( str || '' ).replace( /&/g, '&amp;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' ).replace( /"/g, '&quot;' );
 			}
 
-			// Must match getTrackId/hashTrackSeed in main.js exactly
 			function fnv64Hex( value, start, prime ) {
 				let hash = start;
 				for ( let i = 0; i < value.length; i ++ ) {
@@ -1947,25 +1950,30 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				}
 				return hash.toString( 16 ).padStart( 16, '0' );
 			}
+
 			function hashTrackSeed( value ) {
-				const a = fnv64Hex( value, 0xcbf29ce484222325n, 0x100000001b3n );
-				const b = fnv64Hex( value, 0x84222325cbf29cen, 0x100000001c3n );
-				return a + b;
+				const hashA = fnv64Hex( value, 0xcbf29ce484222325n, 0x100000001b3n );
+				const hashB = fnv64Hex( value, 0x84222325cbf29cen, 0x100000001c3n );
+				return `${ hashA }${ hashB }`;
 			}
+
+			function normalizeTrackPath( pathValue ) {
+				const raw = String( pathValue || '/' );
+				if ( raw === '/index.html' ) return '/';
+				if ( raw.endsWith( '/index.html' ) ) return `${ raw.slice( 0, -11 ) }/`;
+				return raw;
+			}
+
 			function getTrackId( playUrl ) {
 				try {
 					const u = new URL( playUrl, 'https://everybodysim.github.io' );
 					const map = u.searchParams.get( 'map' ) || '';
 					const mods = u.searchParams.get( 'mods' ) || '';
-					const params = new URLSearchParams();
-					if ( map ) params.set( 'map', map );
-					if ( mods ) params.set( 'mods', mods );
-					const raw = u.pathname;
-					let normalized = raw;
-					if ( normalized === '/index.html' ) normalized = '/';
-					else if ( normalized.endsWith( '/index.html' ) ) normalized = normalized.slice( 0, -11 ) + '/';
-					const rawUrl = `${ normalized }${ params.toString() ? '?' + params.toString() : '' }`;
-					return `trk-${ hashTrackSeed( 'v4-url|' + rawUrl ) }`;
+					const q = new URLSearchParams();
+					if ( map ) q.set( 'map', map );
+					if ( mods ) q.set( 'mods', mods );
+					const rawUrl = `${ normalizeTrackPath( u.pathname ) }${ q.toString() ? `?${ q.toString() }` : '' }`;
+					return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
 				} catch ( e ) { return ''; }
 			}
 
@@ -2054,24 +2062,23 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					return;
 				}
 
-				// Fetch leaderboards for top 8 most popular tracks (by viewCount)
+				// Fetch leaderboards for the most active tracks with a short homepage timeout.
 				const topTracks = [ ...entries ]
-					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) )
-					.slice( 0, 8 )
+					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.thumbsUp ) || 0 ) - ( Number( a.thumbsUp ) || 0 ) )
+					.slice( 0, 24 )
 					.map( e => ( { id: getTrackId( e.playUrl ), entry: e } ) )
 					.filter( t => t.id );
 
-								const lbTimeout = new Promise( ( resolve ) => setTimeout( () => resolve( [] ), 6000 ) );
-				const lbFetches = topTracks.map( t =>
-					fetchLeaderboard( t.id ).then( rows => ( { trackId: t.id, rows } ) )
-				);
-				const lbResults = await Promise.race( [
-					Promise.allSettled( lbFetches ).then( results =>
-						results.map( r => r.status === 'fulfilled' ? r.value : { trackId: '', rows: [] } )
-					),
-					lbTimeout
-				] ) || [];
-
+				const lbResults = [];
+				const lbFetches = topTracks.map( t => fetchLeaderboard( t.id ).then( rows => {
+					const result = { trackId: t.id, rows };
+					lbResults.push( result );
+					return result;
+				} ).catch( () => ( { trackId: t.id, rows: [] } ) ) );
+				await Promise.race( [
+					Promise.allSettled( lbFetches ),
+					new Promise( ( resolve ) => setTimeout( resolve, 2500 ) )
+				] );
 
 				// Aggregate record holders
 				const winsByDriver = new Map();

@@ -14,7 +14,6 @@ export class GameAudio {
 		this.engineSound = null;
 		this.engineTextureSound = null;
 		this.skidSound = null;
-		this.musicSound = null;
 		this.musicElement = null;
 		this.impactBuffer = null;
 		this.impactPool = [];
@@ -26,6 +25,8 @@ export class GameAudio {
 		this.engineGear = 0;
 		this.lastSpeedFactor = 0;
 		this.targetMusicVolume = 0;
+		this.musicVolume = 0;
+		this.musicStarted = false;
 
 	}
 
@@ -42,18 +43,9 @@ export class GameAudio {
 		this.musicElement = new Audio( 'audio/music.mp3' );
 		this.musicElement.loop = true;
 		this.musicElement.preload = 'auto';
-		this.musicElement.volume = 1;
+		this.musicElement.volume = 0;
 		this.musicElement.load();
-		this.musicSound = new THREE.Audio( this.listener );
-		this.musicSound.setMediaElementSource( this.musicElement );
-		this.musicSound.setVolume( 0 );
 		this.musicReady = true;
-
-		// Pre-start the music element immediately so it buffers while the
-		// AudioContext is still suspended. No sound will come out (context is
-		// suspended + volume is 0) but the element will be ready to play
-		// instantly when the context resumes on first user interaction.
-		this.musicElement.play().catch( () => {} );
 
 		loader.load( 'audio/engine.ogg', ( buffer ) => {
 
@@ -129,6 +121,9 @@ export class GameAudio {
 			if ( this.unlocked ) return;
 			this.unlocked = true;
 
+			// Start music directly inside the user gesture. Waiting for the
+			// AudioContext resume promise can lose autoplay permission in browsers.
+			this.startMusic();
 			resumeContext();
 
 			window.removeEventListener( 'keydown', unlock );
@@ -193,21 +188,19 @@ export class GameAudio {
 
 		if ( ! this.musicReady || ! this.musicElement ) return;
 
-		const ctx = this.listener?.context;
+		// Keep music as a normal HTMLAudioElement instead of routing it through
+		// WebAudio. The engine/skid/impact sounds use the AudioContext, but music
+		// must be allowed to begin during the player's first driving gesture even
+		// if the context has not finished resuming yet.
+		this.musicElement.play().then( () => {
 
-		// Element was pre-started on init — if it's already playing and
-		// the context is now running, we're good (it was buffering while
-		// the context was suspended, now it flows through).
-		if ( ! this.musicElement.paused ) {
+			this.musicStarted = true;
 
-			if ( ctx && ctx.state === 'running' ) return;
-			// Context not running yet — don't restart, just wait for resume
-			return;
+		} ).catch( () => {
 
-		}
+			this.musicStarted = false;
 
-		// Element was paused (e.g. after stopAll) — start fresh
-		this.musicElement.play().catch( () => {} );
+		} );
 
 	}
 
@@ -216,7 +209,14 @@ export class GameAudio {
 		if ( this.engineSound?.isPlaying ) this.engineSound.stop();
 		if ( this.engineTextureSound?.isPlaying ) this.engineTextureSound.stop();
 		if ( this.skidSound?.isPlaying ) this.skidSound.stop();
-		if ( this.musicElement ) this.musicElement.pause();
+		if ( this.musicElement ) {
+
+			this.musicElement.pause();
+			this.musicElement.volume = 0;
+
+		}
+		this.musicVolume = 0;
+		this.musicStarted = false;
 
 	}
 
@@ -225,17 +225,10 @@ export class GameAudio {
 		this.targetMusicVolume = raceActive ? 0.34 : 0;
 		if ( ! this.musicReady ) return;
 
-		// If music should be playing but element is paused (e.g. after tab switch
-		// + return), restart it. The context should already be running.
-		if ( this.unlocked && this.targetMusicVolume > 0 && this.musicElement?.paused ) {
+		if ( this.unlocked && this.targetMusicVolume > 0 && ( this.musicElement?.paused || ! this.musicStarted ) ) this.startMusic();
 
-			const ctx = this.listener?.context;
-			if ( ctx && ctx.state === 'running' ) this.startMusic();
-
-		}
-
-		const currentVol = this.musicSound.getVolume();
-		this.musicSound.setVolume( THREE.MathUtils.lerp( currentVol, this.targetMusicVolume, Math.min( 1, dt * 6 ) ) );
+		this.musicVolume = THREE.MathUtils.lerp( this.musicVolume, this.targetMusicVolume, Math.min( 1, dt * 6 ) );
+		if ( this.musicElement ) this.musicElement.volume = THREE.MathUtils.clamp( this.musicVolume, 0, 1 );
 
 	}
 
@@ -298,7 +291,7 @@ export class GameAudio {
 
 	}
 
-	playImpact( impactVelocity ) {
+playImpact( impactVelocity ) {
 
 		if ( ! this.unlocked || this.impactPool.length === 0 ) return;
 
@@ -307,8 +300,24 @@ export class GameAudio {
 
 		if ( sound.isPlaying ) sound.stop();
 
-		const volume = THREE.MathUtils.clamp( remap( impactVelocity, 0, 6, 0.01, 1.0 ), 0.01, 1.0 );
+		// Calculate base volume and multiply by 0.25 to cap it at 25% max volume
+		const volume = THREE.MathUtils.clamp( remap( impactVelocity, 0, 6, 0.01, 1.0 ), 0.01, 1.0 ) * 0.25;
+		const velocityTone = THREE.MathUtils.clamp( remap( impactVelocity, 0.5, 7, -0.08, 0.16 ), -0.08, 0.16 );
+		const randomTone = ( Math.random() - 0.5 ) * 0.18;
+		const playbackRate = THREE.MathUtils.clamp( 1 + velocityTone + randomTone, 0.82, 1.24 );
+		
 		sound.setVolume( volume );
+		
+		if ( typeof sound.setPlaybackRate === 'function' ) {
+
+			sound.setPlaybackRate( playbackRate );
+
+		} else if ( sound.source?.playbackRate ) {
+
+			sound.source.playbackRate.value = playbackRate;
+
+		}
+		
 		sound.play();
 
 	}

@@ -12,6 +12,7 @@ import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
 import { HudExtras } from './HudExtras.js';
+import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 
 document.title = 'Racing';
@@ -104,6 +105,18 @@ loadBloomEffect();
 
 document.body.appendChild( renderer.domElement );
 const speedBlurVignette = document.getElementById( 'speed-blur-vignette' );
+let localPlayerVehicle = null;
+const remoteVisualHandlers = {
+	withCosmetics: null,
+	basic: null,
+	getOrCreate: null,
+	nameTag: null,
+	remove: null,
+};
+const localMultiplayerStateHandlers = {
+	getCarKey: null,
+	buildCosmetics: null,
+};
 
 initMultiplayerPanel();
 
@@ -337,6 +350,26 @@ const PRECIP_TYPES = new Set( [ 'none', 'rain', 'snow' ] );
 const INTENSITY_TYPES = new Set( [ 'low', 'medium', 'high' ] );
 const WIND_TYPES = new Set( [ 'none', 'breezy', 'gusty' ] );
 const FIREBASE_ROOM_TIMEOUT_MS = 2200;
+const WEBRTC_SYNC_MS = 33;
+const PEER_ROOM_PREFIX = 'RACE-ROOM-';
+const PEER_PACKET_STATE = 'VEHICLE_STATE';
+const PEER_PACKET_LEFT = 'PLAYER_LEFT';
+const peerConfig = {
+	config: {
+		iceServers: [
+			{ urls: 'stun:stun.l.google.com:19302' },
+			{
+				urls: [
+					'turn:openrelay.metered.ca:80',
+					'turn:openrelay.metered.ca:443',
+					'turn:openrelay.metered.ca:443?transport=tcp',
+				],
+				username: 'openrelay',
+				credential: 'openrelay',
+			},
+		],
+	},
+};
 const LOADING_PROGRESS_BY_STAGE = {
 	boot: 5,
 	models: 28,
@@ -421,6 +454,303 @@ function hasFirebaseMultiplayerConfig() {
 
 }
 
+function getPeerRoomId( roomCode ) {
+
+	return `${ PEER_ROOM_PREFIX }${ String( roomCode || '' ).trim().toUpperCase() }`;
+
+}
+
+function cleanupPeerConnection( peerId ) {
+
+	logMpDebug( `[PeerJS] Connection closed/cleaned up: ${ peerId }` );
+	const connection = multiplayerSessionState.connections.get( peerId );
+	connection?.close?.();
+	multiplayerSessionState.connections.delete( peerId );
+	if ( typeof removeRemotePlayerVisual === 'function' ) removeRemotePlayerVisual( peerId );
+
+}
+
+function closeMultiplayerPeer() {
+
+	for ( const connection of multiplayerSessionState.connections.values() ) {
+
+		try {
+
+			connection.send?.( { type: PEER_PACKET_LEFT, playerId: multiplayerSessionState.clientId } );
+			connection.close?.();
+
+		} catch {}
+
+	}
+	multiplayerSessionState.connections.clear();
+	multiplayerSessionState.peer?.destroy?.();
+	multiplayerSessionState.peer = null;
+
+}
+
+function relayHostPacket( packet, sourcePeerId ) {
+
+	if ( multiplayerSessionState.role !== 'host' ) return;
+	for ( const [ peerId, connection ] of multiplayerSessionState.connections.entries() ) {
+
+		if ( peerId === sourcePeerId || ! connection?.open ) continue;
+		connection.send( packet );
+
+	}
+
+}
+
+function resolveRemoteVisualState( playerId, carKey, cosmetics ) {
+
+	if ( typeof ensureRemotePlayerVisualWithCosmetics === 'function' ) {
+
+		return ensureRemotePlayerVisualWithCosmetics( playerId, carKey, cosmetics );
+
+	}
+	if ( remoteVisualHandlers.withCosmetics ) return remoteVisualHandlers.withCosmetics( playerId, carKey, cosmetics );
+	if ( typeof ensureRemotePlayerVisual === 'function' ) return ensureRemotePlayerVisual( playerId, carKey, cosmetics );
+	if ( remoteVisualHandlers.basic ) return remoteVisualHandlers.basic( playerId, carKey, cosmetics );
+	if ( typeof getOrCreateRemotePlayerVisual === 'function' ) return getOrCreateRemotePlayerVisual( playerId, carKey, cosmetics );
+	if ( remoteVisualHandlers.getOrCreate ) return remoteVisualHandlers.getOrCreate( playerId, carKey, cosmetics );
+
+	logMpDebug( `[Visual Error] No remote visual initializer function found for ${ String( playerId || '' ).slice( 0, 8 ) }` );
+	return null;
+
+}
+
+function applyRemoteNameTag( visualState, displayName ) {
+
+	if ( typeof ensureRemoteNameTag === 'function' ) {
+
+		ensureRemoteNameTag( visualState, displayName );
+		return;
+
+	}
+	if ( remoteVisualHandlers.nameTag ) remoteVisualHandlers.nameTag( visualState, displayName );
+
+}
+
+function removeResolvedRemotePlayerVisual( playerId ) {
+
+	if ( typeof removeRemotePlayerVisual === 'function' ) {
+
+		removeRemotePlayerVisual( playerId );
+		return;
+
+	}
+	if ( remoteVisualHandlers.remove ) remoteVisualHandlers.remove( playerId );
+
+}
+
+function handlePeerPacket( packet, sourcePeerId ) {
+
+	try {
+
+		if ( ! packet || typeof packet !== 'object' ) {
+
+			logMpDebug( `[Recv Warn] Ignored invalid packet from ${ sourcePeerId || 'unknown peer' }` );
+			return;
+
+		}
+		const playerId = String( packet.playerId || sourcePeerId || '' );
+		if ( ! playerId ) {
+
+			logMpDebug( `[Recv Warn] Ignored packet without playerId from ${ sourcePeerId || 'unknown peer' }` );
+			return;
+
+		}
+		if ( playerId === multiplayerSessionState.clientId ) return;
+		if ( packet.type === PEER_PACKET_LEFT ) {
+
+			removeResolvedRemotePlayerVisual( playerId );
+			relayHostPacket( packet, sourcePeerId );
+			return;
+
+		}
+		if ( packet.type !== PEER_PACKET_STATE ) return;
+		const visualState = resolveRemoteVisualState( playerId, packet.carKey, packet.cosmetics );
+		if ( ! visualState ) return;
+		const isFirstPacket = ! visualState.lastSeenAt;
+		applyRemoteNameTag( visualState, packet.name || 'Player' );
+		visualState.targetPos.set( Number( packet.x ) || 0, ( Number( packet.y ) || 0 ) - 0.1, Number( packet.z ) || 0 );
+		visualState.targetRotY = Math.PI - ( Number( packet.ry ) || 0 );
+		if ( isFirstPacket ) {
+
+			visualState.mesh.position.copy( visualState.targetPos );
+			visualState.mesh.rotation.y = visualState.targetRotY;
+			logMpDebug( `[PeerJS] Spawned remote vehicle for ${ playerId } (${ visualState.carKey })` );
+
+		}
+		visualState.lastSeenAt = Date.now();
+		relayHostPacket( packet, sourcePeerId );
+
+	} catch ( err ) {
+
+		logMpDebug( `[Recv Error] Failed to handle packet from ${ sourcePeerId || 'unknown peer' }: ${ err?.message || err }` );
+
+	}
+
+}
+
+function registerPeerConnection( connection ) {
+
+	if ( ! connection ) return;
+	logMpDebug( `[PeerJS] Registered data connection with: ${ connection.peer }` );
+	multiplayerSessionState.connections.set( connection.peer, connection );
+	if ( connection.open ) {
+
+		try {
+
+			connection.send( buildLocalPeerStatePacket() );
+			logMpDebug( `[PeerJS] Sent initial state packet to ${ connection.peer }` );
+
+		} catch ( err ) {
+
+			logMpDebug( `[Send Error] Failed initial state packet to ${ connection.peer }: ${ err?.message || err }` );
+
+		}
+
+	} else {
+
+		logMpDebug( `[Send Warn] Registered data channel to ${ connection.peer } before open (state: ${ connection.readyState })` );
+
+	}
+	connection.on( 'data', ( packet ) => handlePeerPacket( packet, connection.peer ) );
+	connection.on( 'close', () => cleanupPeerConnection( connection.peer ) );
+	connection.on( 'error', ( error ) => {
+
+		logMpDebug( `[PeerJS] Connection error with ${ connection.peer }: ${ error?.message || error }` );
+		cleanupPeerConnection( connection.peer );
+
+	} );
+
+}
+
+function startPeerMultiplayer( roomCode, role ) {
+
+	closeMultiplayerPeer();
+	logMpDebug( `[PeerJS] Initializing ${ role } peer for room: ${ roomCode }...` );
+	const peerId = role === 'host' ? getPeerRoomId( roomCode ) : multiplayerSessionState.clientId;
+	const peer = new Peer( peerId, peerConfig );
+	multiplayerSessionState.peer = peer;
+	peer.on( 'open', ( id ) => {
+
+		logMpDebug( `[PeerJS] Peer opened with ID: ${ id }` );
+		if ( role !== 'host' ) {
+
+			const targetHostId = getPeerRoomId( roomCode );
+			logMpDebug( `[PeerJS] Connecting guest to host ID: ${ targetHostId }` );
+			const connection = peer.connect( targetHostId, { reliable: true } );
+			connection.on( 'open', () => {
+
+				logMpDebug( `[PeerJS] Data channel OPENED with host: ${ targetHostId }` );
+				registerPeerConnection( connection );
+				broadcastPeerState();
+
+			} );
+			connection.on( 'error', ( error ) => logMpDebug( `[PeerJS] Connection error: ${ error?.message || error }` ) );
+
+		}
+
+	} );
+	peer.on( 'connection', ( connection ) => {
+
+		logMpDebug( `[PeerJS] Host received connection request from: ${ connection.peer }` );
+		connection.on( 'open', () => {
+
+			logMpDebug( `[PeerJS] Data channel OPENED with guest: ${ connection.peer }` );
+			registerPeerConnection( connection );
+			broadcastPeerState();
+
+		} );
+		connection.on( 'error', ( error ) => logMpDebug( `[PeerJS] Connection error: ${ error?.message || error }` ) );
+
+	} );
+	peer.on( 'disconnected', () => logMpDebug( `[PeerJS] Peer disconnected: ${ peerId }` ) );
+	peer.on( 'close', () => logMpDebug( `[PeerJS] Peer closed: ${ peerId }` ) );
+	peer.on( 'error', ( error ) => {
+
+		logMpDebug( `[PeerJS] Peer error: ${ error?.message || error }` );
+		console.warn( 'PeerJS multiplayer error', error );
+		updateMultiplayerStatus( `WebRTC issue for room ${ roomCode }; retry if peers do not appear.` );
+
+	} );
+
+}
+
+function getLocalVehicleContainer() {
+
+	if ( localPlayerVehicle?.container ) return localPlayerVehicle.container;
+	if ( typeof vehicle !== 'undefined' && vehicle?.container ) return vehicle.container;
+	if ( typeof playerVehicle !== 'undefined' && playerVehicle?.container ) return playerVehicle.container;
+	if ( typeof currentVehicle !== 'undefined' && currentVehicle?.container ) return currentVehicle.container;
+	if ( window.vehicle?.container ) return window.vehicle.container;
+	if ( window.playerVehicle?.container ) return window.playerVehicle.container;
+	if ( window.currentVehicle?.container ) return window.currentVehicle.container;
+	return null;
+
+}
+
+function formatPeerPacketNumber( value, precision ) {
+
+	const numericValue = Number( value );
+	return Number.isFinite( numericValue ) ? Number( numericValue.toFixed( precision ) ) : 0;
+
+}
+
+function buildLocalPeerStatePacket() {
+
+	const container = getLocalVehicleContainer();
+	const pos = container?.position || { x: 0, y: 0, z: 0 };
+	const rot = container?.rotation || { y: 0 };
+	const rawCarKey = typeof localMultiplayerStateHandlers.getCarKey === 'function' ? localMultiplayerStateHandlers.getCarKey() : 'vehicle-truck-yellow';
+	const packetCarKey = typeof normalizeMultiplayerCarKey === 'function' ? normalizeMultiplayerCarKey( rawCarKey ) : rawCarKey;
+
+	return {
+		type: PEER_PACKET_STATE,
+		playerId: multiplayerSessionState.clientId,
+		x: formatPeerPacketNumber( pos.x, 3 ),
+		y: formatPeerPacketNumber( pos.y, 3 ),
+		z: formatPeerPacketNumber( pos.z, 3 ),
+		ry: formatPeerPacketNumber( rot.y, 4 ),
+		carKey: packetCarKey,
+		cosmetics: typeof localMultiplayerStateHandlers.buildCosmetics === 'function' ? localMultiplayerStateHandlers.buildCosmetics( packetCarKey ) : null,
+		name: typeof getLocalMultiplayerDisplayName === 'function' ? getLocalMultiplayerDisplayName() : 'Player',
+		updatedAt: Date.now(),
+	};
+
+}
+
+function broadcastPeerState() {
+
+	if ( ! multiplayerSessionState.roomCode || ! multiplayerSessionState.peer ) return;
+	if ( multiplayerSessionState.connections.size === 0 ) return;
+
+	try {
+
+		const packet = buildLocalPeerStatePacket();
+		for ( const [ peerId, connection ] of multiplayerSessionState.connections.entries() ) {
+
+			if ( connection && connection.open ) {
+
+				connection.send( packet );
+
+			} else if ( connection ) {
+
+				logMpDebug( `[Send Warn] Data channel to ${ peerId } not open yet (state: ${ connection.readyState })` );
+
+			}
+
+		}
+
+	} catch ( err ) {
+
+		logMpDebug( `[Send Error] Failed to broadcast packet: ${ err?.message || err }` );
+
+	}
+
+}
+
 function updateMultiplayerStatus( text ) {
 
 	const statusEl = document.getElementById( 'mp-status' );
@@ -429,10 +759,26 @@ function updateMultiplayerStatus( text ) {
 
 }
 
+function logMpDebug( message ) {
+
+	const text = String( message || '' );
+	console.log( text );
+	const overlay = document.getElementById( 'mp-debug-overlay' );
+	if ( ! overlay ) return;
+	const row = document.createElement( 'div' );
+	row.textContent = `[${ new Date().toLocaleTimeString() }] ${ text }`;
+	overlay.appendChild( row );
+	while ( overlay.children.length > 300 ) overlay.removeChild( overlay.firstChild );
+	overlay.scrollTop = overlay.scrollHeight;
+
+}
+
 const multiplayerSessionState = {
 	role: 'none',
 	roomCode: '',
 	clientId: ( globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `p-${ Math.random().toString( 36 ).slice( 2, 10 ) }` ),
+	peer: null,
+	connections: new Map(),
 };
 
 const MULTIPLAYER_ROOM_ROTATE_MS = 120000;
@@ -522,7 +868,6 @@ async function maybeSubmitOnlinePersonalBest( lapTimes ) {
 	if ( Number.isFinite( lastSyncedOnlineBestLapSeconds ) && bestOnlineTime >= lastSyncedOnlineBestLapSeconds - 1e-6 ) return;
 	bestLapSeconds = bestOnlineTime;
 	shareImageDataUrl = createShareSnapshot( bestLapSeconds );
-	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 	updateLapHud();
 	saveLapStats();
 	if ( ! accountSession?.token ) {
@@ -670,7 +1015,7 @@ function initMultiplayerPanel() {
 	const hostBtn = document.getElementById( 'mp-host-btn' );
 	const joinBtn = document.getElementById( 'mp-join-btn' );
 	const copyBtn = document.getElementById( 'mp-copy-btn' );
-	const refreshBtn = document.getElementById( 'mp-refresh-btn' );
+	const debugToggleBtn = document.getElementById( 'mp-debug-toggle-btn' );
 	const codeInput = document.getElementById( 'mp-code-input' );
 	if ( ! hostBtn || ! joinBtn || ! copyBtn || ! codeInput ) return;
 
@@ -680,7 +1025,7 @@ function initMultiplayerPanel() {
 		hostBtn.disabled = true;
 		joinBtn.disabled = true;
 		copyBtn.disabled = true;
-		updateMultiplayerStatus( 'Multiplayer not set up yet. Ask host to add Firebase keys in js/firebase-config.js.' );
+		updateMultiplayerStatus( 'Multiplayer needs Firebase room metadata for PeerJS signaling. Add Firebase keys in js/firebase-config.js.' );
 		setMultiplayerLeaderboardVisible( false );
 		return;
 
@@ -695,12 +1040,15 @@ function initMultiplayerPanel() {
 		joinBtn.disabled = true;
 		copyBtn.disabled = true;
 		const now = Date.now();
+		multiplayerSessionState.role = 'host';
+		multiplayerSessionState.roomCode = code;
+		startPeerMultiplayer( code, 'host' );
 		const roomPayload = {
 			code,
+			hostId: multiplayerSessionState.clientId,
 			mapSignature: getCurrentMapSignature(),
 			createdAt: now,
 			updatedAt: now,
-			status: 'hosting',
 		};
 		try {
 
@@ -714,8 +1062,6 @@ function initMultiplayerPanel() {
 
 			}
 			updateMultiplayerStatus( `Hosting room ${ code }. Share this code with your friend.` );
-			multiplayerSessionState.role = 'host';
-			multiplayerSessionState.roomCode = code;
 			lastHostRoomRotateAt = Date.now();
 			lastHostRoomMetaSyncAt = 0;
 			setMultiplayerLeaderboardVisible( true );
@@ -732,6 +1078,7 @@ function initMultiplayerPanel() {
 				updateMultiplayerStatus( 'Failed to create room. Check Firebase Realtime Database rules and databaseURL.' );
 
 			}
+			closeMultiplayerPeer();
 			multiplayerSessionState.role = 'none';
 			multiplayerSessionState.roomCode = '';
 			setMultiplayerLeaderboardVisible( false );
@@ -783,6 +1130,7 @@ function initMultiplayerPanel() {
 			updateMultiplayerStatus( `Joined room ${ code }.` );
 			multiplayerSessionState.role = 'join';
 			multiplayerSessionState.roomCode = code;
+			startPeerMultiplayer( code, 'join' );
 			setMultiplayerLeaderboardVisible( true );
 
 		} catch ( error ) {
@@ -829,16 +1177,12 @@ function initMultiplayerPanel() {
 
 	} );
 
-	refreshBtn?.addEventListener( 'click', async () => {
+	debugToggleBtn?.addEventListener( 'click', () => {
 
-		if ( ! multiplayerSessionState.roomCode ) {
-
-			updateMultiplayerStatus( 'Join or host a room first.' );
-			return;
-
-		}
-		updateMultiplayerStatus( `Refreshing room ${ multiplayerSessionState.roomCode } sync...` );
-		await syncMultiplayerTransforms( { force: true } );
+		const overlay = document.getElementById( 'mp-debug-overlay' );
+		if ( ! overlay ) return;
+		overlay.style.display = overlay.style.display === 'block' ? 'none' : 'block';
+		if ( overlay.style.display === 'block' ) logMpDebug( '[PeerJS] Debug console opened.' );
 
 	} );
 
@@ -1939,6 +2283,7 @@ async function init() {
 	const player1CarKey = isSplitScreen ? pickRandomCarKey() : 'vehicle-truck-yellow';
 	const player2CarKey = isSplitScreen ? pickRandomCarKey() : 'vehicle-truck-red';
 	const vehicle = new Vehicle();
+	localPlayerVehicle = vehicle;
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
 
@@ -1977,7 +2322,7 @@ async function init() {
 
 	}
 	const remotePlayerVisuals = new Map();
-	const REMOTE_PLAYER_STALE_MS = 4000;
+	const REMOTE_PLAYER_STALE_MS = 10000;
 	const REMOTE_SYNC_MS = 220;
 
 	function createRemoteNameTag( displayName ) {
@@ -2023,10 +2368,16 @@ async function init() {
 		const modelKey = normalizeMultiplayerCarKey( carKey );
 		const signature = cosmeticsSignature( cosmetics );
 		const existing = remotePlayerVisuals.get( playerId );
-		if ( existing && existing.carKey === modelKey && existing.cosmeticsSignature === signature ) return existing;
+		if ( existing && ( existing.currentCarKey || existing.carKey ) === modelKey && existing.cosmeticsSignature === signature ) return existing;
+		const previousState = existing ? {
+			displayName: existing.displayName || 'Player',
+			targetPos: existing.targetPos?.clone?.() || existing.mesh?.position?.clone?.(),
+			targetRotY: Number.isFinite( existing.targetRotY ) ? existing.targetRotY : existing.mesh?.rotation?.y || 0,
+			lastSeenAt: existing.lastSeenAt || 0,
+		} : null;
 		if ( existing ) removeRemotePlayerVisual( playerId );
 		const model = models[ modelKey ] || models[ 'vehicle-truck-yellow' ];
-		const mesh = createGhostVisualModel( model, 0.42, cosmetics ) || new THREE.Mesh(
+		const mesh = createGhostVisualModel( model, 0.42, cosmetics, false ) || new THREE.Mesh(
 			new THREE.BoxGeometry( 0.95, 0.5, 1.7 ),
 			new THREE.MeshStandardMaterial( { color: 0x53d4ff, transparent: true, opacity: 0.38, depthWrite: false } ),
 		);
@@ -2055,16 +2406,19 @@ async function init() {
 			obj.receiveShadow = true;
 
 		} );
+		if ( previousState?.targetPos ) mesh.position.copy( previousState.targetPos );
+		mesh.rotation.y = previousState?.targetRotY || mesh.rotation.y;
 		scene.add( mesh );
 		const state = {
 			mesh,
 			carKey: modelKey,
+			currentCarKey: modelKey,
 			cosmeticsSignature: signature,
-			displayName: 'Player',
+			displayName: previousState?.displayName || 'Player',
 			nameTag: null,
-			targetPos: mesh.position.clone(),
-			targetRotY: mesh.rotation.y,
-			lastSeenAt: 0,
+			targetPos: previousState?.targetPos || mesh.position.clone(),
+			targetRotY: previousState?.targetRotY || mesh.rotation.y,
+			lastSeenAt: previousState?.lastSeenAt || 0,
 		};
 		remotePlayerVisuals.set( playerId, state );
 		return state;
@@ -2116,11 +2470,24 @@ async function init() {
 
 	}
 
+	remoteVisualHandlers.withCosmetics = ensureRemotePlayerVisualWithCosmetics;
+	remoteVisualHandlers.basic = ensureRemotePlayerVisual;
+	remoteVisualHandlers.getOrCreate = ensureRemotePlayerVisualWithCosmetics;
+	remoteVisualHandlers.nameTag = ensureRemoteNameTag;
+	remoteVisualHandlers.remove = removeRemotePlayerVisual;
+
 	function updateRemotePlayerVisualsFrame( dt ) {
 
-		const alpha = THREE.MathUtils.clamp( dt * 10, 0, 1 );
-		for ( const state of remotePlayerVisuals.values() ) {
+		const alpha = THREE.MathUtils.clamp( dt * 12, 0, 1 );
+		const now = Date.now();
+		for ( const [ playerId, state ] of [ ...remotePlayerVisuals.entries() ] ) {
 
+			if ( state.lastSeenAt && now - state.lastSeenAt > REMOTE_PLAYER_STALE_MS ) {
+
+				removeRemotePlayerVisual( playerId );
+				continue;
+
+			}
 			state.mesh.position.lerp( state.targetPos, alpha );
 			state.mesh.rotation.y = THREE.MathUtils.lerp( state.mesh.rotation.y, state.targetRotY, alpha );
 
@@ -2131,8 +2498,11 @@ async function init() {
 	let multiplayerSyncInFlight = false;
 	async function syncMultiplayerTransforms( options = {} ) {
 
+		// If a PeerJS session or room code exists, do NOT perform Firebase HTTP position polling.
+		if ( multiplayerSessionState.peer || multiplayerSessionState.roomCode ) return;
+
 		const roomCode = multiplayerSessionState.roomCode;
-		if ( ! roomCode ) return;
+		if ( ! roomCode || ! hasFirebaseMultiplayerConfig() ) return;
 		if ( multiplayerSyncInFlight ) return;
 		const force = Boolean( options?.force );
 		const now = Date.now();
@@ -2224,7 +2594,7 @@ async function init() {
 
 				if ( seen.has( existingId ) ) continue;
 				const existing = remotePlayerVisuals.get( existingId );
-				if ( existing && now - ( Number( existing.lastSeenAt ) || 0 ) <= REMOTE_PLAYER_STALE_MS * 2 ) continue;
+				if ( existing && now - ( Number( existing.lastSeenAt ) || 0 ) <= REMOTE_PLAYER_STALE_MS ) continue;
 				removeRemotePlayerVisual( existingId );
 
 			}
@@ -2242,9 +2612,16 @@ async function init() {
 	}
 
 	setInterval( syncMultiplayerTransforms, REMOTE_SYNC_MS );
+	setInterval( broadcastPeerState, WEBRTC_SYNC_MS );
 	window.addEventListener( 'beforeunload', () => {
 
 		if ( ! multiplayerSessionState.roomCode ) return;
+		for ( const connection of multiplayerSessionState.connections.values() ) {
+
+			try { connection.send?.( { type: PEER_PACKET_LEFT, playerId: multiplayerSessionState.clientId } ); } catch {}
+
+		}
+		if ( ! hasFirebaseMultiplayerConfig() ) return;
 		const roomCode = multiplayerSessionState.roomCode;
 		const playerPath = `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }`;
 		firebaseRoomsRequest( roomCode, 'DELETE', undefined, playerPath ).catch( () => {} );
@@ -2301,95 +2678,7 @@ async function init() {
 			ghostSpreadLine = null;
 
 		}
-		if ( ! ghostEnabled || ! fxSettings.recentGhostsEnabled ) return;
-		const visibleGhosts = [];
-		if ( bestLapGhostSamples.length >= 2 && Number.isFinite( bestGhostDuration ) && bestGhostDuration > 0 ) {
-
-			visibleGhosts.push( { samples: bestLapGhostSamples, duration: bestGhostDuration } );
-
-		}
-		for ( const state of leaderboardGhostPlayers.values() ) {
-
-			if ( Array.isArray( state?.samples ) && state.samples.length >= 2 && Number.isFinite( state?.duration ) && state.duration > 0 ) visibleGhosts.push( { samples: state.samples, duration: state.duration } );
-
-		}
-		for ( const state of recentGhostPlayers ) {
-
-			if ( Array.isArray( state?.samples ) && state.samples.length >= 2 && Number.isFinite( state?.duration ) && state.duration > 0 ) visibleGhosts.push( { samples: state.samples, duration: state.duration } );
-
-		}
-		if ( visibleGhosts.length < 2 ) return;
-		const avgDuration = visibleGhosts.reduce( ( sum, g ) => sum + g.duration, 0 ) / visibleGhosts.length;
-		const outlierDist = avgDuration <= 5 ? 2 : ( avgDuration >= 6.3 ? 4 : THREE.MathUtils.lerp( 2, 4, ( avgDuration - 5 ) / 1.3 ) );
-		const sampleCount = 120;
-		const centers = [];
-		const spreads = [];
-		for ( let i = 0; i < sampleCount; i ++ ) {
-
-			const normalizedT = i / ( sampleCount - 1 );
-			const cluster = [];
-			for ( const ghost of visibleGhosts ) {
-
-				const p = sampleGhostPositionAtTime( ghost.samples, ghost.duration, normalizedT * ghost.duration );
-				if ( p ) cluster.push( p.clone() );
-
-			}
-			if ( cluster.length < 2 ) continue;
-			let cx = 0;
-			let cy = 0;
-			let cz = 0;
-			for ( const p of cluster ) {
-
-				cx += p.x;
-				cy += p.y;
-				cz += p.z;
-
-			}
-			cx /= cluster.length;
-			cy /= cluster.length;
-			cz /= cluster.length;
-			const filtered = cluster.filter( ( p ) => Math.hypot( p.x - cx, p.z - cz ) <= outlierDist );
-			if ( filtered.length < 2 ) continue;
-			cx = 0;
-			cy = 0;
-			cz = 0;
-			for ( const p of filtered ) {
-
-				cx += p.x;
-				cy += p.y;
-				cz += p.z;
-
-			}
-			cx /= filtered.length;
-			cy /= filtered.length;
-			cz /= filtered.length;
-			let spread = 0;
-			for ( const p of filtered ) spread += Math.hypot( p.x - cx, p.z - cz );
-			spread /= filtered.length;
-			centers.push( new THREE.Vector3( cx, cy + 0.25, cz ) );
-			spreads.push( spread );
-
-		}
-		if ( centers.length < 2 ) return;
-		const maxSpread = Math.max( 0.05, ...spreads );
-		const positions = [];
-		const colors = [];
-		for ( let i = 0; i < centers.length - 1; i ++ ) {
-
-			const a = centers[ i ];
-			const b = centers[ i + 1 ];
-			positions.push( a.x, a.y, a.z, b.x, b.y, b.z );
-			const heat = THREE.MathUtils.clamp( ( ( spreads[ i ] + spreads[ i + 1 ] ) * 0.5 ) / maxSpread, 0, 1 );
-			const color = new THREE.Color().setHSL( 0.33 * ( 1 - heat ), 0.95, 0.5 );
-			colors.push( color.r, color.g, color.b, color.r, color.g, color.b );
-
-		}
-		const geometry = new THREE.BufferGeometry();
-		geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
-		geometry.setAttribute( 'color', new THREE.Float32BufferAttribute( colors, 3 ) );
-		const material = new THREE.LineBasicMaterial( { vertexColors: true, transparent: true, opacity: 0.95 } );
-		ghostSpreadLine = new THREE.LineSegments( geometry, material );
-		scene.add( ghostSpreadLine );
+		// Average multi-ghost path visualization intentionally disabled.
 
 	}
 
@@ -2399,8 +2688,8 @@ async function init() {
 		const mappings = [];
 		for ( const entry of sourceMappings.slice( 0, 48 ) ) {
 
-			const sourceHex = typeof entry?.sourceHex === 'string' ? entry.sourceHex.trim() : '';
-			const targetHex = typeof entry?.targetHex === 'string' ? entry.targetHex.trim() : '';
+			const sourceHex = typeof entry?.sourceHex === 'string' ? entry.sourceHex.trim().toLowerCase() : '';
+			const targetHex = typeof entry?.targetHex === 'string' ? entry.targetHex.trim().toLowerCase() : '';
 			if ( ! /^#[0-9a-fA-F]{6}$/.test( sourceHex ) || ! /^#[0-9a-fA-F]{6}$/.test( targetHex ) ) continue;
 			mappings.push( {
 				sourceHex,
@@ -2437,6 +2726,9 @@ async function init() {
 
 	}
 
+	localMultiplayerStateHandlers.getCarKey = currentCarKey;
+	localMultiplayerStateHandlers.buildCosmetics = buildGhostCosmeticsSnapshot;
+
 	function buildResolvedMappingsFromGhostCosmetics( cosmetics ) {
 
 		const normalized = normalizeGhostCosmeticsPayload( cosmetics );
@@ -2460,9 +2752,9 @@ async function init() {
 
 	}
 
-	function createGhostVisualModel( model, opacity = 0.35, cosmetics = null ) {
+	function createGhostVisualModel( model, opacity = 0.35, cosmetics = null, requireGhostEnabled = true ) {
 
-		if ( ! ghostEnabled || ! model ) return null;
+		if ( ( requireGhostEnabled && ! ghostEnabled ) || ! model ) return null;
 		const cloned = model.clone();
 		const resolvedMappings = buildResolvedMappingsFromGhostCosmetics( cosmetics );
 		cloned.traverse( ( child ) => {
@@ -2708,8 +3000,8 @@ async function init() {
 			if ( state?.model ) scene.remove( state.model );
 
 		}
-		if ( ! ghostEnabled || ! fxSettings.recentGhostsEnabled || ! fxSettings.recentGhostPathEnabled ) return;
-		const targetCount = Math.max( 1, Math.min( 100, fxSettings.recentGhostCount ) );
+		if ( ! ghostEnabled || ! fxSettings.recentGhostsEnabled ) return;
+		const targetCount = Math.max( 1, Math.min( recentGhostHistory.length, fxSettings.recentGhostCount ) );
 		for ( const entry of recentGhostHistory.slice( 0, targetCount ) ) {
 
 			const model = createGhostVisualModel( models[ entry.car || 'vehicle-truck-yellow' ] || models[ 'vehicle-truck-yellow' ], 0.22, entry.cosmetics || null );
@@ -3000,6 +3292,7 @@ async function init() {
 	let effectMessageTimeout = null;
 	const carSelect = document.getElementById( 'car-select' );
 	const coinsLabel = document.getElementById( 'coins-label' );
+	const accountCoinsValue = document.getElementById( 'account-coins-value' );
 	const shareTimeBtn = document.getElementById( 'share-time-btn' );
 	const exportGhostBtn = document.getElementById( 'export-ghost-btn' );
 	const importGhostBtn = document.getElementById( 'import-ghost-btn' );
@@ -3048,34 +3341,31 @@ async function init() {
 	}
 	const fxSettings = {
 		recentGhostsEnabled: false,
-		recentGhostPathEnabled: true,
+		recentGhostPathEnabled: false,
 		recentGhostCount: 3,
 	};
 	try {
 
 		const parsed = JSON.parse( localStorage.getItem( FX_SETTINGS_KEY ) || '{}' );
 		if ( typeof parsed?.recentGhostsEnabled === 'boolean' ) fxSettings.recentGhostsEnabled = parsed.recentGhostsEnabled;
-		if ( typeof parsed?.recentGhostPathEnabled === 'boolean' ) fxSettings.recentGhostPathEnabled = parsed.recentGhostPathEnabled;
 		if ( Number.isFinite( Number( parsed?.recentGhostCount ) ) ) fxSettings.recentGhostCount = THREE.MathUtils.clamp( Math.round( Number( parsed.recentGhostCount ) ), 1, 20 );
 
 	} catch {}
 
-	const fxPanel = document.createElement( 'div' );
-	fxPanel.style.position = 'fixed';
-	fxPanel.style.right = '12px';
-	fxPanel.style.top = '12px';
-	fxPanel.style.zIndex = '56';
-	fxPanel.style.background = 'rgba(0,0,0,0.45)';
-	fxPanel.style.color = '#e9f5ff';
-	fxPanel.style.padding = '6px 8px';
-	fxPanel.style.borderRadius = '8px';
-	fxPanel.style.font = '12px/1.3 sans-serif';
-	fxPanel.innerHTML = `<label style="display:block;margin-bottom:4px;"><input id="fx-recent-ghosts" type="checkbox" ${ fxSettings.recentGhostsEnabled ? 'checked' : '' }> Show recent ghosts</label>
-	<label style="display:block;margin-bottom:4px;"><input id="fx-recent-ghost-path" type="checkbox" ${ fxSettings.recentGhostPathEnabled ? 'checked' : '' }> Show ghost spread path</label>
-	<label style="display:block;margin-top:4px;">Recent ghost count <input id="fx-recent-ghost-count" type="number" min="1" max="100" step="1" value="${ fxSettings.recentGhostCount }" style="width:100%;margin-top:3px;background:#0f1520;color:#e9f5ff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:2px 4px;"></label>`;
-	document.body.appendChild( fxPanel );
+	const fxPanel = document.createElement( 'section' );
+	fxPanel.id = 'gameplay-ghost-settings';
+	fxPanel.style.marginTop = '10px';
+	fxPanel.style.padding = '10px';
+	fxPanel.style.border = '1px solid rgba(255,255,255,0.14)';
+	fxPanel.style.borderRadius = '10px';
+	fxPanel.style.background = 'rgba(255,255,255,0.06)';
+	fxPanel.innerHTML = `<h4 style="margin:0 0 8px;font:800 12px/1.2 sans-serif;color:#bde6ff;">Ghosts</h4>
+	<label style="display:block;margin-bottom:6px;"><input id="fx-recent-ghosts" type="checkbox" ${ fxSettings.recentGhostsEnabled ? 'checked' : '' }> Show recent ghosts</label>
+	<label style="display:block;margin-top:4px;">Recent ghost count <input id="fx-recent-ghost-count" type="number" min="1" max="20" step="1" value="${ fxSettings.recentGhostCount }" style="width:100%;margin-top:3px;background:#0f1520;color:#e9f5ff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:4px 6px;"></label>`;
+	const gameplayPanel = document.getElementById( 'mode-panel-gameplay' );
+	const graphicsSection = document.getElementById( 'graphics-section' );
+	if ( gameplayPanel ) gameplayPanel.insertBefore( fxPanel, graphicsSection || null );
 	const fxRecentGhostsInput = fxPanel.querySelector( '#fx-recent-ghosts' );
-	const fxRecentGhostPathInput = fxPanel.querySelector( '#fx-recent-ghost-path' );
 	const fxRecentGhostCountSelect = fxPanel.querySelector( '#fx-recent-ghost-count' );
 	if ( fxRecentGhostCountSelect ) fxRecentGhostCountSelect.value = String( fxSettings.recentGhostCount );
 	const saveFxSettings = () => localStorage.setItem( FX_SETTINGS_KEY, JSON.stringify( fxSettings ) );
@@ -3084,13 +3374,6 @@ async function init() {
 		fxSettings.recentGhostsEnabled = Boolean( fxRecentGhostsInput.checked );
 		saveFxSettings();
 		rebuildRecentGhostVisuals();
-		rebuildGhostSpreadLine();
-
-	} );
-	fxRecentGhostPathInput?.addEventListener( 'change', () => {
-
-		fxSettings.recentGhostPathEnabled = Boolean( fxRecentGhostPathInput.checked );
-		saveFxSettings();
 		rebuildGhostSpreadLine();
 
 	} );
@@ -3104,12 +3387,6 @@ async function init() {
 		rebuildGhostSpreadLine();
 
 	} );
-	if ( economyHud ) {
-
-		economyHud.style.top = '108px';
-		economyHud.style.right = '12px';
-
-	}
 	const namePopup = document.getElementById( 'name-popup' );
 	const namePopupInput = document.getElementById( 'name-popup-input' );
 	const namePopupSave = document.getElementById( 'name-popup-save' );
@@ -3196,13 +3473,8 @@ async function init() {
 		state: advancementState,
 		accountDirtyRef,
 		onUnlock: (adv) => {
-			if (!adv) return;
-			if (advToast) {
-				advToast.textContent = `${adv.notify}\n${adv.description}`;
-				advToast.style.display = 'block';
-				setTimeout(() => { if (advToast) advToast.style.display = 'none'; }, 3200);
-			}
-			try { new Audio('audio/unlock.wav').play().catch(()=>{}); } catch {}
+			if ( ! adv ) return;
+			// Achievement notifications are hidden for now, but progress still saves.
 			renderAdvGraph();
 		}
 	});
@@ -3248,8 +3520,9 @@ async function init() {
 	};
 	const garageStoreKey = 'racing-garage-mods-v1';
 	const campaignStoreKey = 'racing-campaign-v1';
-	let garageMods = { grip: 1.0, accel: 1.0, drive: 1.0 };
-	let garageUnlocked = { grip: false, accel: false, drive: false };
+	const GARAGE_FIXED_MULTIPLIER = 1.15;
+	let garageMods = { grip: GARAGE_FIXED_MULTIPLIER, accel: GARAGE_FIXED_MULTIPLIER, drive: GARAGE_FIXED_MULTIPLIER };
+	let garageUnlocked = { grip: true, accel: true, drive: true };
 	const GARAGE_REPAINT_COST = 300;
 	const GARAGE_COLOR_PICK_TOLERANCE = 34;
 	const GARAGE_COLOR_UNLOCK_COST = 90;
@@ -3281,7 +3554,6 @@ async function init() {
 
 		if ( economyHud ) economyHud.style.display = 'none';
 		if ( carSelect ) carSelect.style.display = 'none';
-		if ( shareTimeBtn ) shareTimeBtn.style.display = 'none';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = 'none';
 		if ( importGhostBtn ) importGhostBtn.style.display = 'none';
 	}
@@ -3413,7 +3685,6 @@ async function init() {
 		if ( lapHud ) lapHud.style.display = 'block';
 		if ( lapHud2 ) lapHud2.style.display = isSplitScreen ? 'block' : 'none';
 		if ( economyHud && ! isSplitScreen ) economyHud.style.display = 'block';
-		if ( shareTimeBtn ) shareTimeBtn.style.display = ! isSplitScreen ? 'block' : 'none';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = ! isSplitScreen ? 'block' : 'none';
 			if ( importGhostBtn ) importGhostBtn.style.display = ! isSplitScreen ? 'block' : 'none';
 			if ( hacksToggleLink ) hacksToggleLink.style.display = hacksInstalled && ! isSplitScreen ? 'block' : 'none';
@@ -3923,19 +4194,8 @@ async function init() {
 			const raw = localStorage.getItem( garageStoreKey );
 			if ( ! raw ) return;
 			const parsed = JSON.parse( raw );
-			const legacy = parsed && ! parsed.mods;
-			const mods = legacy ? parsed : parsed?.mods;
-			const unlocked = legacy ? null : parsed?.unlocked;
-			garageMods = {
-				grip: clampGarageValue( mods?.grip, 1.0 ),
-				accel: clampGarageValue( mods?.accel, 1.0 ),
-				drive: clampGarageValue( mods?.drive, 1.0 ),
-			};
-			garageUnlocked = {
-				grip: Boolean( unlocked?.grip ),
-				accel: Boolean( unlocked?.accel ),
-				drive: Boolean( unlocked?.drive ),
-			};
+			garageMods = { grip: GARAGE_FIXED_MULTIPLIER, accel: GARAGE_FIXED_MULTIPLIER, drive: GARAGE_FIXED_MULTIPLIER };
+			garageUnlocked = { grip: true, accel: true, drive: true };
 			garageCosmetics = normalizeGarageCosmetics( parsed?.cosmetics );
 
 		} catch ( e ) {
@@ -4379,14 +4639,14 @@ async function init() {
 				<dl>
 					<dt>Speed</dt><dd>${ stats.speed } / 10</dd>
 					<dt>Acceleration</dt><dd>${ stats.accel } / 10</dd>
-					<dt>Handling</dt><dd>${ ( garageMods.grip * 100 ).toFixed( 0 ) }%</dd>
-					<dt>Traction</dt><dd>${ ( garageMods.drive * 100 ).toFixed( 0 ) }%</dd>
+					<dt>Handling</dt><dd>${ ( GARAGE_FIXED_MULTIPLIER * 100 ).toFixed( 0 ) }%</dd>
+					<dt>Traction</dt><dd>${ ( GARAGE_FIXED_MULTIPLIER * 100 ).toFixed( 0 ) }%</dd>
 					<dt>Top speed</dt><dd>${ Number( perf.topSpeed || 0 ).toFixed( 2 ) }</dd>
 					<dt>Power</dt><dd>${ Number( perf.driveForce || 0 ).toFixed( 0 ) }</dd>
 					<dt>Paint maps</dt><dd>${ mappings }</dd>
 				</dl>
 				<span class="garage-vehicle-status">${ garageUpgradeSummary() }</span>`;
-			button.addEventListener( 'click', () => selectGarageCar( carKey ) );
+			button.addEventListener( 'click', ( event ) => { event.preventDefault(); event.stopPropagation(); selectGarageCar( carKey ); } );
 			garageVehicleCards.appendChild( button );
 
 		}
@@ -4446,6 +4706,7 @@ async function init() {
 				saveGarageMods();
 				updateGarageMappingsUi();
 				applyCarCustomization( vehicle );
+				broadcastPeerState();
 
 			} );
 			item.appendChild( removeBtn );
@@ -4958,9 +5219,55 @@ function completeCampaignStage() {
 
 	}
 
+	function saveRecentGhostHistory() {
+
+		try {
+
+			localStorage.setItem( recentGhostStoreKey, JSON.stringify( recentGhostHistory.slice( 0, 12 ) ) );
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to save recent ghosts', e );
+
+		}
+
+	}
+
+	function loadRecentGhostHistory() {
+
+		try {
+
+			const raw = localStorage.getItem( recentGhostStoreKey );
+			if ( ! raw ) return;
+			const parsed = JSON.parse( raw );
+			if ( ! Array.isArray( parsed ) ) return;
+			recentGhostHistory.length = 0;
+			for ( const entry of parsed.slice( 0, 12 ) ) {
+
+				const normalized = extractNormalizedGhostPayload( entry );
+				if ( ! normalized ) continue;
+				recentGhostHistory.push( {
+					samples: normalized.samples,
+					duration: normalized.duration,
+					car: normalized.car || 'vehicle-truck-yellow',
+					cosmetics: normalized.cosmetics || null,
+					checkpointTimes: computeCheckpointCrossTimes( normalized.samples ),
+				} );
+
+			}
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to load recent ghosts', e );
+
+		}
+
+	}
+
 	function updateEconomyHud() {
 
-		if ( coinsLabel ) coinsLabel.textContent = `Coins: ${ coins }`;
+		if ( coinsLabel ) coinsLabel.textContent = `🪙 ${ Math.floor( coins ).toLocaleString() }`;
+		if ( accountCoinsValue ) accountCoinsValue.textContent = Math.floor( coins ).toLocaleString();
 		updateGarageUi();
 
 	}
@@ -5058,6 +5365,7 @@ function completeCampaignStage() {
 	const stuntStoreKey = `racing-stunt-stats:${ mapParam || 'default' }`;
 	const currentTrackUrl = `${ window.location.origin }${ window.location.pathname }${ window.location.search }`;
 	const leaderboardTrackId = getTrackId( mapParam, extrasParam );
+	const recentGhostStoreKey = `racing-recent-ghosts:${ leaderboardTrackId }`;
 	const leaderboardLegacyTrackIds = getLegacyTrackIds( mapParam, extrasParam );
 	const leaderboardTrackName = getTrackLabel( mapParam );
 	const leaderboardTrackApiUrl = `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( leaderboardTrackId ) }`;
@@ -5157,16 +5465,8 @@ function completeCampaignStage() {
 		}
 		const nextCoins = Number( parsed?.economy?.coins );
 		coins = Number.isFinite( nextCoins ) ? Math.max( 0, Math.floor( nextCoins ) ) : coins;
-		garageMods = {
-			grip: clampGarageValue( parsed?.garage?.mods?.grip, garageMods.grip ),
-			accel: clampGarageValue( parsed?.garage?.mods?.accel, garageMods.accel ),
-			drive: clampGarageValue( parsed?.garage?.mods?.drive, garageMods.drive ),
-		};
-		garageUnlocked = {
-			grip: Boolean( parsed?.garage?.unlocked?.grip ),
-			accel: Boolean( parsed?.garage?.unlocked?.accel ),
-			drive: Boolean( parsed?.garage?.unlocked?.drive ),
-		};
+		garageMods = { grip: GARAGE_FIXED_MULTIPLIER, accel: GARAGE_FIXED_MULTIPLIER, drive: GARAGE_FIXED_MULTIPLIER };
+		garageUnlocked = { grip: true, accel: true, drive: true };
 		garageCosmetics = normalizeGarageCosmetics( parsed?.garage?.cosmetics );
 		if ( parsed?.campaign && typeof parsed.campaign === 'object' ) {
 
@@ -5981,10 +6281,9 @@ function completeCampaignStage() {
 	function applySurfaceGrip( targetVehicle, surfaceType, padEffect = null ) {
 
 		const effect = getSurfaceEffect( surfaceType );
-		const unlocks = getGarageUnlocks();
-		const gripPack = unlocks.grip ? garageMods.grip : 1.0;
-		const accelPack = unlocks.accel ? garageMods.accel : 1.0;
-		const drivePack = unlocks.drive ? garageMods.drive : 1.0;
+		const gripPack = GARAGE_FIXED_MULTIPLIER;
+		const accelPack = GARAGE_FIXED_MULTIPLIER;
+		const drivePack = GARAGE_FIXED_MULTIPLIER;
 		const padGrip = Number.isFinite( padEffect?.grip ) ? padEffect.grip : 1.0;
 		const padDrag = Number.isFinite( padEffect?.drag ) ? padEffect.drag : 1.0;
 		const padAccel = Number.isFinite( padEffect?.accel ) ? padEffect.accel : 1.0;
@@ -6272,8 +6571,7 @@ function completeCampaignStage() {
 			createGhostModel( models[ normalized.car ], bestGhostCosmetics );
 
 		}
-		if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
-		updateGhostShareButtons();
+			updateGhostShareButtons();
 		return true;
 
 	}
@@ -7666,6 +7964,7 @@ function completeCampaignStage() {
 		renderGarageVehicleCards();
 		setGarageMappingStatus( `Now editing mappings for ${ CAR_STATS[ selectedKey ]?.name || 'selected car' }.` );
 		applyVehiclePerformance();
+		broadcastPeerState();
 
 	} );
 
@@ -7793,17 +8092,12 @@ function completeCampaignStage() {
 		updateGaragePaintControls();
 		applyCarCustomization( vehicle );
 		refreshGarageViewer();
+		broadcastPeerState();
 		setGarageMappingStatus( `Repainted ${ sourceHex } to ${ targetHex } for ${ GARAGE_REPAINT_COST } coins.` );
 		if ( gameMode === 'campaign' ) incrementCampaignProgress( 'customize-car' );
 
 	} );
 
-
-	shareTimeBtn?.addEventListener( 'click', () => {
-
-		openShareTab();
-
-	} );
 
 	exportGhostBtn?.addEventListener( 'click', async () => {
 
@@ -7844,36 +8138,6 @@ function completeCampaignStage() {
 	} );
 	campaignInfoBtn?.addEventListener( 'click', () => {
 		window.location.href = 'campaign.html';
-	} );
-	profileExportBtn?.addEventListener( 'click', async () => {
-
-		const code = createProfileExportCode();
-		try {
-
-			await navigator.clipboard.writeText( code );
-			window.alert( 'Profile code copied to clipboard.' );
-
-		} catch ( e ) {
-
-			window.prompt( 'Copy your profile code:', code );
-
-		}
-
-	} );
-	profileImportBtn?.addEventListener( 'click', () => {
-
-		const code = window.prompt( 'Paste profile code:' );
-		if ( ! code ) return;
-		try {
-
-			if ( ! applyImportedProfile( code.trim() ) ) window.alert( 'Invalid profile code.' );
-
-		} catch ( e ) {
-
-			window.alert( 'Could not import profile code.' );
-
-		}
-
 	} );
 	accountSignupBtn?.addEventListener( 'click', async () => {
 
@@ -7923,36 +8187,6 @@ function completeCampaignStage() {
 		} catch ( e ) {
 
 			setAccountStatus( e.message || 'Cloud load failed.', true );
-
-		}
-
-	} );
-	accountExportBtn?.addEventListener( 'click', async () => {
-
-		const code = createAccountExportCode();
-		try {
-
-			await navigator.clipboard.writeText( code );
-			window.alert( 'Account code copied to clipboard.' );
-
-		} catch ( e ) {
-
-			window.prompt( 'Copy your account code:', code );
-
-		}
-
-	} );
-	accountImportBtn?.addEventListener( 'click', () => {
-
-		const code = window.prompt( 'Paste account code:' );
-		if ( ! code ) return;
-		try {
-
-			if ( ! applyImportedAccountCode( code.trim() ) ) window.alert( 'Invalid account code.' );
-
-		} catch ( e ) {
-
-			window.alert( 'Could not import account code.' );
 
 		}
 
@@ -8030,6 +8264,7 @@ function completeCampaignStage() {
 	} );
 
 	loadEconomy();
+	loadRecentGhostHistory();
 	loadHacksState();
 	loadStuntStats();
 	loadGarageMods();
@@ -8046,7 +8281,6 @@ function completeCampaignStage() {
 	updateEconomyHud();
 	updateCampaignUi();
 	loadLapStats();
-	if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 	updateGhostShareButtons();
 	updateModeHudVisibility();
 	updatePauseUi();
@@ -8722,7 +8956,6 @@ function completeCampaignStage() {
 						bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
 						if ( isNewBest ) publishMultiplayerBestLap( bestLapSeconds );
 						shareImageDataUrl = createShareSnapshot( bestLapSeconds );
-						if ( shareTimeBtn ) shareTimeBtn.disabled = ! Number.isFinite( bestLapSeconds );
 
 					} else {
 
@@ -8776,6 +9009,7 @@ function completeCampaignStage() {
 						checkpointTimes: computeCheckpointCrossTimes( normalized ),
 					} );
 					if ( recentGhostHistory.length > 12 ) recentGhostHistory.length = 12;
+					saveRecentGhostHistory();
 					rebuildRecentGhostVisuals();
 					rebuildGhostSpreadLine();
 

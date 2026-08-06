@@ -5,8 +5,9 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>Skid Circuit — Track Browser</title>
 	<style>
-.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}.skip-link:focus{top:12px}:root{color-scheme:dark;--panel:rgba(255,255,255,.07);--line:rgba(255,255,255,.13);--muted:#b5c2da;--accent:#77f3b1}body{margin:0;font:14px/1.45 Inter,system-ui,sans-serif;background:radial-gradient(circle at top left,rgba(74,163,255,.22),transparent 32rem),linear-gradient(160deg,#07101e,#121826 55%,#0b1420);color:#e6edf7}.wrap{max-width:1180px;margin:0 auto;padding:26px 16px 46px}.hero,.section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px}h1{margin:0 0 4px;font-size:clamp(32px,5vw,58px);line-height:.95;letter-spacing:-.05em}h2{margin:0;font-size:22px}p.sub,.sub{margin:0;color:var(--muted)}.panel,.browser-section{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:16px;box-shadow:0 18px 50px rgba(0,0,0,.16)}.section-kicker{color:var(--accent);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.12em}label{display:block;margin:8px 0 6px;font-weight:700;color:#cfe0ff}input,textarea,select{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.22);background:rgba(8,10,16,.85);color:#e6edf7;border-radius:10px;padding:10px;font:inherit}select{max-width:190px}textarea{min-height:94px;resize:vertical}.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}button,.linkbtn,summary{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:9px 12px;cursor:pointer;font:700 13px sans-serif;text-decoration:none}button:hover,.linkbtn:hover,summary:hover{background:rgba(255,255,255,.2)}#status{min-height:18px;margin-top:8px;color:#93f4b7}#loading-panel{display:block}#leaderboard-progress-wrap{margin-top:8px;display:none}#leaderboard-progress-wrap.visible{display:block}#leaderboard-progress-label{font-size:12px;color:var(--muted);margin-bottom:4px}#leaderboard-progress-bar{width:100%;height:8px;border-radius:999px;background:rgba(255,255,255,.15);overflow:hidden}#leaderboard-progress-fill{height:100%;width:0%;background:linear-gradient(90deg,#5ac8ff,#77f3b1);transition:width .15s ease}#grid,.track-row,.records-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}#grid{margin-top:12px}.featured-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.card{position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.085),rgba(255,255,255,.045));border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:12px}.card.featured{border-color:rgba(119,243,177,.35);box-shadow:inset 0 1px rgba(255,255,255,.08),0 0 40px rgba(80,200,140,.13)}.card h3{margin:0 0 7px;font-size:18px}.preview-canvas{width:100%;aspect-ratio:5/3;object-fit:cover;display:block;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0d1118;margin:10px 0}.meta{color:var(--muted);font-size:12px;margin-bottom:8px}.stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:8px 0}.stat{border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);border-radius:10px;padding:8px}.stat b{display:block;color:#fff;font-size:14px}.stat span{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}.badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.badge{font-size:11px;border-radius:999px;padding:3px 7px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08)}.play-map-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-color:rgba(132,245,172,.72);background:linear-gradient(135deg,rgba(48,198,119,.95),rgba(48,151,255,.85));color:#04130b!important;box-shadow:0 0 18px rgba(77,232,152,.26);font-weight:900!important;flex:1}.drawer-panel{margin-top:10px;border-radius:14px;border:1px dashed rgba(255,255,255,.2);padding:12px;background:rgba(0,0,0,.16)}.admin-strip{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}.admin-strip #adminTokenInput{max-width:260px}
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}.skip-link:focus{top:12px}:root{color-scheme:dark;--panel:rgba(255,255,255,.07);--line:rgba(255,255,255,.13);--muted:#b5c2da;--accent:#77f3b1}body{margin:0;font:14px/1.45 Inter,system-ui,sans-serif;background:radial-gradient(circle at top left,rgba(74,163,255,.22),transparent 32rem),linear-gradient(160deg,#07101e,#121826 55%,#0b1420);color:#e6edf7}.wrap{max-width:1180px;margin:0 auto;padding:26px 16px 46px}.hero,.section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px}h1{margin:0 0 4px;font-size:clamp(32px,5vw,58px);line-height:.95;letter-spacing:-.05em}h2{margin:0;font-size:22px}p.sub,.sub{margin:0;color:var(--muted)}.panel,.browser-section{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:16px;box-shadow:0 18px 50px rgba(0,0,0,.16)}.section-kicker{color:var(--accent);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.12em}label{display:block;margin:8px 0 6px;font-weight:700;color:#cfe0ff}input,textarea,select{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.22);background:rgba(8,10,16,.85);color:#e6edf7;border-radius:10px;padding:10px;font:inherit}select{max-width:190px}textarea{min-height:94px;resize:vertical}.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}button,.linkbtn,summary{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:9px 12px;cursor:pointer;font:700 13px sans-serif;text-decoration:none}button:hover,.linkbtn:hover,summary:hover{background:rgba(255,255,255,.2)}#status{min-height:18px;margin-top:8px;color:#93f4b7}#loading-panel{display:block;transition:opacity .3s}.loading-done{opacity:.5}#leaderboard-progress-wrap{margin-top:8px;display:none}#leaderboard-progress-wrap.visible{display:block}#leaderboard-progress-label{font-size:12px;color:var(--muted);margin-bottom:4px}#leaderboard-progress-bar{width:100%;height:8px;border-radius:999px;background:rgba(255,255,255,.15);overflow:hidden}#leaderboard-progress-fill{height:100%;width:0%;background:linear-gradient(90deg,#5ac8ff,#77f3b1);transition:width .15s ease}#grid,.track-row,.records-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}#grid{margin-top:12px}.featured-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.card{position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.085),rgba(255,255,255,.045));border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:12px}.card.featured{border-color:rgba(119,243,177,.35);box-shadow:inset 0 1px rgba(255,255,255,.08),0 0 40px rgba(80,200,140,.13)}.card h3{margin:0 0 7px;font-size:18px}.preview-canvas{width:100%;aspect-ratio:5/3;object-fit:cover;display:block;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0d1118;margin:10px 0}.meta{color:var(--muted);font-size:12px;margin-bottom:8px}.stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:8px 0}.stat{border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);border-radius:10px;padding:8px}.stat b{display:block;color:#fff;font-size:14px}.stat span{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}.badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.badge{font-size:11px;border-radius:999px;padding:3px 7px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08)}.play-map-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-color:rgba(132,245,172,.72);background:linear-gradient(135deg,rgba(48,198,119,.95),rgba(48,151,255,.85));color:#04130b!important;box-shadow:0 0 18px rgba(77,232,152,.26);font-weight:900!important;flex:1}.drawer-panel{margin-top:10px;border-radius:14px;border:1px dashed rgba(255,255,255,.2);padding:12px;background:rgba(0,0,0,.16)}.admin-strip{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}.admin-strip #adminTokenInput{max-width:260px}
 .records-board{padding:22px}.records-board h2{font-size:20px;margin-bottom:6px}.records-list{display:flex;flex-direction:column;gap:8px}.record-chip{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;background:linear-gradient(135deg,rgba(255,255,255,.07),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.13);transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}.record-chip:hover{transform:translateX(4px);border-color:rgba(119,243,177,.28);box-shadow:0 4px 20px rgba(80,200,140,.08)}.record-chip .rank-badge{flex-shrink:0;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:900 15px sans-serif;background:rgba(255,255,255,.08);color:var(--muted);border:1px solid rgba(255,255,255,.12)}.record-chip:nth-child(1) .rank-badge{background:linear-gradient(135deg,#ffd95a,#f0b429);color:#1a1300;border-color:#ffd95a;box-shadow:0 0 12px rgba(255,215,0,.25)}.record-chip:nth-child(2) .rank-badge{background:linear-gradient(135deg,#d4d4d4,#a8a8a8);color:#151515;border-color:#d4d4d4}.record-chip:nth-child(3) .rank-badge{background:linear-gradient(135deg,#e09455,#c97f3e);color:#1a0e00;border-color:#e09455}.record-chip .record-info{flex:1;min-width:0}.record-chip .name{font-weight:800;font-size:15px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.record-chip .count{font-size:12px;color:var(--muted);margin-top:2px}.record-chip:nth-child(1){border-color:rgba(255,215,0,.25);background:linear-gradient(135deg,rgba(255,215,0,.08),rgba(255,255,255,.03))}.records-empty{color:var(--muted);font-size:13px;padding:12px;text-align:center}
+.load-more-wrap{display:flex;justify-content:center;padding:18px 0 4px}.load-more-btn{border:1px solid rgba(119,243,177,.4);background:rgba(119,243,177,.12);color:#77f3b1;border-radius:12px;padding:11px 28px;cursor:pointer;font:800 14px sans-serif;letter-spacing:.03em;transition:background .15s,transform .1s}.load-more-btn:hover{background:rgba(119,243,177,.22);transform:scale(1.03)}.load-more-btn:active{transform:scale(.98)}.page-info{text-align:center;color:var(--muted);font-size:12px;margin-top:8px}
 @media(max-width:760px){.hero,.section-head{align-items:flex-start;flex-direction:column}select{max-width:none}}
 	</style>
 <script src="js/PageTransitions.js"></script>
@@ -27,7 +28,7 @@
 		<section class="browser-section" id="section-top-rated"><div class="section-head"><div><div class="section-kicker">Community favorites</div><h2>Top Rated</h2></div></div><div id="top-rated-list" class="track-row"></div></section>
 		<section class="browser-section" id="section-fastest"><div class="section-head"><div><div class="section-kicker">Record chasers</div><h2>Fastest Records</h2></div></div><div id="fastest-records-list" class="track-row"></div></section>
 		<div class="panel records-board" id="section-records"><h2>Track Share Record Board</h2><p class="sub">Drivers ranked by how many unique shared tracks they currently hold #1 on.</p><div id="records-board-list" class="records-list"></div><h2 style="margin-top:16px">Global Placement Rating</h2><p class="sub">Cross-track rating from placement points (1st/2nd/3rd…) across all shared tracks.</p><div id="placement-rating-list" class="records-list"></div></div>
-		<section class="browser-section" id="section-library"><div class="section-head"><div><div class="section-kicker">Full library</div><h2>All Tracks</h2></div></div><div id="grid"></div></section>
+		<section class="browser-section" id="section-library"><div class="section-head"><div><div class="section-kicker">Full library</div><h2>All Tracks</h2></div></div><div id="grid"></div><div id="load-more-wrap" class="load-more-wrap" style="display:none"><button class="load-more-btn" id="load-more-btn" type="button">Load More Tracks</button><div id="page-info" class="page-info"></div></div></section>
 		<script>
 			const API_BASE = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
 			const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
@@ -54,6 +55,9 @@
 			const leaderboardProgressWrap = document.getElementById( 'leaderboard-progress-wrap' );
 			const leaderboardProgressLabel = document.getElementById( 'leaderboard-progress-label' );
 			const leaderboardProgressFill = document.getElementById( 'leaderboard-progress-fill' );
+			const loadMoreWrap = document.getElementById( 'load-more-wrap' );
+			const loadMoreBtn = document.getElementById( 'load-more-btn' );
+			const pageInfo = document.getElementById( 'page-info' );
 			const grid = document.getElementById( 'grid' );
 			let entries = [];
 			let useRemoteBoard = false;
@@ -61,6 +65,8 @@
 			let rowsByTrackId = new Map();
 			let leaderboardHydrating = false;
 			let selectedThumbnailDataUrl = '';
+			const LIBRARY_PAGE_SIZE = 24;
+			let libraryPage = 1;
 			const TRACK_VOTE_SESSION_KEY = 'trackVotes:v1';
 			const votedTrackActions = loadVoteSession();
 
@@ -160,7 +166,6 @@
 		async function loadFromRemote() {
 			const payload = await apiRequest();
 			entries = sanitizeBoardEntries( payload?.entries );
-			await hydrateTopLeaderboardRows( entries );
 		}
 
 		function getTrackIdFromPlayUrl( playUrl ) {
@@ -242,7 +247,7 @@
 		async function hydrateTopLeaderboardRows( sourceEntries ) {
 			const next = new Map();
 			const rowsMap = new Map();
-			const CHUNK_SIZE = 40;
+			const CHUNK_SIZE = 15;
 			const bestRowForTrack = ( rows ) => {
 				if ( ! Array.isArray( rows ) || rows.length === 0 ) return null;
 				return rows.slice().sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ] || null;
@@ -282,6 +287,8 @@
 				await Promise.all( tasks );
 				topByTrackId = new Map( next );
 				rowsByTrackId = new Map( rowsMap );
+				// Progressively update cards with fresh leaderboard data
+				render();
 			}
 			topByTrackId = next;
 			rowsByTrackId = rowsMap;
@@ -311,6 +318,12 @@
 		}
 
 		function decodeCellsFromMap( mapToken ) {
+			if ( String( mapToken || '' ).startsWith( 'v2.' ) ) {
+				const payload = decodeBase64UrlJson( String( mapToken ).slice( 3 ) );
+				return ( Array.isArray( payload?.cells ) ? payload.cells : [] )
+					.filter( ( cell ) => Array.isArray( cell ) && cell.length >= 4 )
+					.map( ( [ gx, gz, type, orient ] ) => [ Number( gx ), Number( gz ), type, orient ] );
+			}
 			const bytes = decodeBase64Url( mapToken );
 			const typeByIdx = [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-finish' ];
 			const orientByIdx = [ 0, 16, 10, 22 ];
@@ -332,50 +345,264 @@
 		}
 
 		function parseTrackLayoutFromUrl( playUrl ) {
+			let parsed = null;
 			try {
-				const parsed = new URL( playUrl, window.location.href );
-				const map = parsed.searchParams.get( 'map' );
-				const mods = parsed.searchParams.get( 'mods' );
-				if ( ! map ) return null;
-				return {
-					cells: decodeCellsFromMap( map ),
-					mods: mods ? decodeModsFromToken( mods ) : { b: [], u: [], d: [] },
-				};
+				parsed = new URL( playUrl, window.location.href );
+			} catch ( e ) {
+				return null;
+			}
+			const ghostPreview = parseGhostPreviewFromUrl( parsed ) || [];
+			try {
+				let map = parsed.searchParams.get( 'map' );
+				let mods = parsed.searchParams.get( 'mods' );
+				const localPack = parsed.searchParams.get( 'localPack' );
+				if ( ( ! map || ! mods ) && localPack ) {
+					try {
+						const packed = JSON.parse( localStorage.getItem( `racing-local-pack:${ localPack }` ) || 'null' );
+						map = map || ( typeof packed?.map === 'string' ? packed.map : '' );
+						mods = mods || ( typeof packed?.mods === 'string' ? packed.mods : '' );
+					} catch ( e ) {}
+				}
+				if ( map ) {
+					return {
+						cells: decodeCellsFromMap( map ),
+						mods: mods ? decodeModsFromToken( mods ) : { b: [], u: [], d: [] },
+					};
+				}
+			} catch ( e ) {
+				// Fall through to the ghost route preview below. A corrupt/old map token
+				// should not leave the card blank when the shared ghost can still be drawn.
+			}
+			return ghostPreview.length > 1 ? { cells: [], mods: {}, ghost: ghostPreview } : null;
+		}
+
+		function parseGhostPreviewFromUrl( parsedUrl ) {
+			try {
+				const hash = new URLSearchParams( parsedUrl.hash.startsWith( '#' ) ? parsedUrl.hash.slice( 1 ) : parsedUrl.hash );
+				const ghostToken = hash.get( 'ghost' );
+				if ( ! ghostToken ) return null;
+				const payload = decodeBase64UrlJson( ghostToken );
+				const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
+				return samples
+					.map( ( sample ) => ( { x: Number( sample?.x ), z: Number( sample?.z ) } ) )
+					.filter( ( point ) => Number.isFinite( point.x ) && Number.isFinite( point.z ) );
 			} catch ( e ) {
 				return null;
 			}
 		}
 
-		function drawTrackPreview( canvas, cells, mods = {} ) {
-			if ( ! canvas || ! cells || cells.length === 0 ) return;
+		// ── Bird's-eye track preview renderer ─────────────────────
+		// Draws a proper top-down track view with grass, asphalt road,
+		// curbs on corners, checkered finish, center dashes, obstacle
+		// markers, ghost racing line, and auto-zoom to fit the full track.
+		function drawTrackPreview( canvas, cells, mods = {}, ghost = [] ) {
+			if ( ! canvas ) return;
 			const ctx = canvas.getContext( '2d' );
-			ctx.clearRect( 0, 0, canvas.width, canvas.height );
-			const xs = cells.map( ( c ) => c[ 0 ] );
-			const zs = cells.map( ( c ) => c[ 1 ] );
-			const minX = Math.min( ...xs ) - 1;
-			const maxX = Math.max( ...xs ) + 1;
-			const minZ = Math.min( ...zs ) - 1;
-			const maxZ = Math.max( ...zs ) + 1;
-			const gw = maxX - minX + 1;
-			const gh = maxZ - minZ + 1;
-			const pad = 8;
-			const size = Math.max( 4, Math.floor( Math.min( ( canvas.width - pad * 2 ) / gw, ( canvas.height - pad * 2 ) / gh ) ) );
-			const toPix = ( x, z ) => [ pad + ( x - minX ) * size, pad + ( z - minZ ) * size ];
-			for ( const [ x, z, type ] of cells ) {
-				const [ px, py ] = toPix( x, z );
-				ctx.fillStyle = type === 'track-finish' ? '#72e39a'
-					: type === 'track-checkpoint' ? '#ffd54f'
-					: type === 'track-corner' ? '#b084ff'
-					: '#4da3ff';
-				ctx.fillRect( px + 1, py + 1, size - 2, size - 2 );
+			const W = canvas.width, H = canvas.height;
+			ctx.clearRect( 0, 0, W, H );
+
+			// Collect all preview items for bounding-box + rendering
+			const fin = v => { const n = Number( v ); return Number.isFinite( n ) ? n : null; };
+			const items = [];
+			const add = ( rx, rz, kind, type, orient ) => {
+				const x = fin( rx ), z = fin( rz );
+				if ( x === null || z === null ) return;
+				items.push( { x, z, kind, type: type || '', orient: orient || 0 } );
+			};
+			for ( const [ x, z, type, orient ] of ( Array.isArray( cells ) ? cells : [] ) )
+				add( x, z, 'road', type, orient );
+			for ( const p of ( Array.isArray( ghost ) ? ghost : [] ) )
+				add( p?.x, p?.z, 'ghost' );
+			const addMods = ( key, kind ) => {
+				for ( const m of ( Array.isArray( mods?.[ key ] ) ? mods[ key ] : [] ) )
+					if ( Array.isArray( m ) ) add( m[0], m[1], kind, m[2], m[3] );
+			};
+			addMods( 'b', 'bump' ); addMods( 'p', 'pole' ); addMods( 'k', 'cube' );
+			addMods( 'l', 'wall' ); addMods( 'j', 'jump' ); addMods( 'o', 'moving' );
+			addMods( 'e', 'elevated' ); addMods( 'u', 'surface' ); addMods( 'd', 'deco' );
+			addMods( 'm', 'magnet' ); addMods( 'a', 'arc' ); addMods( 'q', 'water' );
+			if ( items.length === 0 ) return;
+
+			// Compute bounding box across ALL items
+			const xs = items.map( i => i.x ), zs = items.map( i => i.z );
+			let minX = Math.min( ...xs ), maxX = Math.max( ...xs );
+			let minZ = Math.min( ...zs ), maxZ = Math.max( ...zs );
+			// Pad bounding box by 1.5 cells on each side
+			minX -= 1.5; maxX += 1.5; minZ -= 1.5; maxZ += 1.5;
+			const gw = maxX - minX, gh = maxZ - minZ;
+			const pad = 10;
+			const cell = Math.max( 2, Math.min( ( W - pad * 2 ) / gw, ( H - pad * 2 ) / gh ) );
+			const toPix = ( x, z ) => [
+				pad + ( x - minX ) * cell,
+				pad + ( z - minZ ) * cell,
+			];
+
+			// ── Background: grass ──
+			ctx.fillStyle = '#1a2e1a';
+			ctx.fillRect( 0, 0, W, H );
+			// subtle grass texture dots
+			ctx.fillStyle = 'rgba(40,70,30,0.4)';
+			for ( let i = 0; i < 80; i++ ) {
+				const gx = ( i * 37 + 13 ) % W;
+				const gy = ( i * 53 + 29 ) % H;
+				ctx.fillRect( gx, gy, 2, 2 );
 			}
-			ctx.strokeStyle = '#ff4d4d';
-			for ( const [ x, z ] of ( mods.b || [] ) ) {
-				const [ px, py ] = toPix( x, z );
+
+			// ── Water patches (draw under road) ──
+			for ( const it of items.filter( i => i.kind === 'water' ) ) {
+				const [ px, py ] = toPix( it.x, it.z );
+				ctx.fillStyle = 'rgba(64,170,230,0.55)';
+				ctx.fillRect( px, py, cell, cell );
+			}
+
+			// ── Surface overlays (ice/boost/wood) under road markers ──
+			for ( const it of items.filter( i => i.kind === 'surface' ) ) {
+				const [ px, py ] = toPix( it.x, it.z );
+				if ( it.type === 'surface-ice' ) ctx.fillStyle = 'rgba(180,230,255,0.5)';
+				else if ( it.type === 'surface-boost' ) ctx.fillStyle = 'rgba(255,200,50,0.45)';
+				else if ( it.type === 'surface-wood' ) ctx.fillStyle = 'rgba(160,110,60,0.45)';
+				else ctx.fillStyle = 'rgba(248,226,106,0.35)';
+				ctx.fillRect( px, py, cell, cell );
+			}
+
+			// ── Elevated support pillars (draw first, under road) ──
+			for ( const it of items.filter( i => i.kind === 'elevated' ) ) {
+				const [ px, py ] = toPix( it.x, it.z );
+				ctx.fillStyle = 'rgba(120,120,130,0.3)';
+				ctx.fillRect( px + cell * 0.15, py + cell * 0.15, cell * 0.7, cell * 0.7 );
+			}
+
+			// ── Road cells ──
+			const roadItems = items.filter( i => i.kind === 'road' || i.kind === 'elevated' );
+			// Draw road as slightly overlapping asphalt squares (no gaps)
+			const overlap = cell * 0.04;
+			for ( const it of roadItems ) {
+				const [ px, py ] = toPix( it.x, it.z );
+				const r = px - overlap, b = py - overlap;
+				const s = cell + overlap * 2;
+				// Asphalt base
+				ctx.fillStyle = '#3a3a42';
+				ctx.fillRect( r, b, s, s );
+				// Subtle edge shading
+				ctx.fillStyle = 'rgba(0,0,0,0.15)';
+				ctx.fillRect( r, b + s - overlap, s, overlap );
+			}
+
+			// ── Road type details ──
+			for ( const it of roadItems ) {
+				const [ px, py ] = toPix( it.x, it.z );
+				const cx = px + cell / 2, cy = py + cell / 2;
+
+				if ( it.type === 'track-corner' ) {
+					// Curbs: red/white stripes around the corner
+					ctx.fillStyle = 'rgba(220,60,60,0.7)';
+					const stripeW = Math.max( 2, cell * 0.12 );
+					// Top + bottom curb segments
+					ctx.fillRect( px, py, cell, stripeW );
+					ctx.fillRect( px, py + cell - stripeW, cell, stripeW );
+					// White stripe in between
+					ctx.fillStyle = 'rgba(240,240,240,0.6)';
+					ctx.fillRect( px, py + stripeW, cell, stripeW * 0.6 );
+					ctx.fillRect( px, py + cell - stripeW * 1.6, cell, stripeW * 0.6 );
+				} else if ( it.type === 'track-finish' ) {
+					// Checkered finish line
+					const sq = Math.max( 3, cell / 6 );
+					for ( let cx2 = 0; cx2 < 6; cx2++ ) {
+						for ( let cy2 = 0; cy2 < 2; cy2++ ) {
+							ctx.fillStyle = ( cx2 + cy2 ) % 2 === 0 ? '#f0f0f0' : '#1a1a1a';
+							ctx.fillRect( px + cx2 * sq, py + cy2 * sq, sq, sq );
+							ctx.fillStyle = ( cx2 + cy2 ) % 2 === 1 ? '#f0f0f0' : '#1a1a1a';
+							ctx.fillRect( px + cx2 * sq, py + cell - sq + cy2 * sq, sq, sq );
+						}
+					}
+				} else if ( it.type === 'track-checkpoint' ) {
+					// Yellow checkpoint stripe
+					ctx.fillStyle = 'rgba(255,210,60,0.65)';
+					const sw = Math.max( 2, cell * 0.15 );
+					ctx.fillRect( px, py + cell / 2 - sw / 2, cell, sw );
+				} else {
+					// Straight: dashed center line
+					ctx.fillStyle = 'rgba(255,255,255,0.35)';
+					const dashW = Math.max( 1, cell * 0.08 );
+					const dashL = Math.max( 3, cell * 0.3 );
+					ctx.fillRect( cx - dashL / 2, cy - dashW / 2, dashL, dashW );
+				}
+			}
+
+			// ── Ghost racing line ──
+			const ghostPts = items.filter( i => i.kind === 'ghost' );
+			if ( ghostPts.length > 1 ) {
+				ctx.strokeStyle = 'rgba(120,255,200,0.6)';
+				ctx.lineWidth = Math.max( 1.5, cell * 0.1 );
+				ctx.lineCap = 'round';
+				ctx.lineJoin = 'round';
 				ctx.beginPath();
-				ctx.arc( px + size / 2, py + size / 2, Math.max( 2, size * 0.22 ), 0, Math.PI * 2 );
+				ghostPts.forEach( ( it, idx ) => {
+					const [ px, py ] = toPix( it.x, it.z );
+					const x = px + cell / 2, y = py + cell / 2;
+					if ( idx === 0 ) ctx.moveTo( x, y );
+					else ctx.lineTo( x, y );
+				} );
 				ctx.stroke();
+				// Glowing start dot
+				if ( ghostPts[0] ) {
+					const [ px, py ] = toPix( ghostPts[0].x, ghostPts[0].z );
+					ctx.fillStyle = 'rgba(120,255,200,0.9)';
+					ctx.beginPath();
+					ctx.arc( px + cell / 2, py + cell / 2, Math.max( 2, cell * 0.18 ), 0, Math.PI * 2 );
+					ctx.fill();
+				}
 			}
+
+			// ── Obstacle markers ──
+			for ( const it of items.filter( i =>
+				![ 'road', 'elevated', 'surface', 'water', 'ghost' ].includes( i.kind )
+			) ) {
+				const [ px, py ] = toPix( it.x, it.z );
+				const cx = px + cell / 2, cy = py + cell / 2;
+				const r = Math.max( 2, cell * 0.18 );
+
+				if ( it.kind === 'deco' ) {
+					// Trees: green circles with darker trunk dot
+					ctx.fillStyle = '#2d6e1e';
+					ctx.beginPath(); ctx.arc( cx, cy, r * 1.3, 0, Math.PI * 2 ); ctx.fill();
+					ctx.fillStyle = '#1a4a10';
+					ctx.beginPath(); ctx.arc( cx, cy, r * 0.5, 0, Math.PI * 2 ); ctx.fill();
+				} else if ( it.kind === 'wall' ) {
+					ctx.fillStyle = '#c97832';
+					ctx.fillRect( px + cell * 0.15, py + cell * 0.15, cell * 0.7, cell * 0.7 );
+					ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+					ctx.lineWidth = 1;
+					ctx.strokeRect( px + cell * 0.15, py + cell * 0.15, cell * 0.7, cell * 0.7 );
+				} else if ( it.kind === 'bump' ) {
+					ctx.fillStyle = '#ff4d4d';
+					ctx.beginPath(); ctx.arc( cx, cy, r, 0, Math.PI * 2 ); ctx.fill();
+				} else if ( it.kind === 'jump' ) {
+					// Jump: orange triangle
+					ctx.fillStyle = '#ff9f43';
+					ctx.beginPath();
+					ctx.moveTo( cx, py + cell * 0.2 );
+					ctx.lineTo( px + cell * 0.8, py + cell * 0.8 );
+					ctx.lineTo( px + cell * 0.2, py + cell * 0.8 );
+					ctx.closePath(); ctx.fill();
+				} else if ( it.kind === 'magnet' ) {
+					ctx.fillStyle = '#59f2ff';
+					ctx.beginPath(); ctx.arc( cx, cy, r, 0, Math.PI * 2 ); ctx.fill();
+				} else if ( it.kind === 'arc' ) {
+					ctx.fillStyle = '#57ff8f';
+					ctx.beginPath(); ctx.arc( cx, cy, r * 0.8, 0, Math.PI * 2 ); ctx.fill();
+				} else {
+					ctx.fillStyle = '#ff9f43';
+					ctx.beginPath(); ctx.arc( cx, cy, r, 0, Math.PI * 2 ); ctx.fill();
+				}
+			}
+
+			// ── Vignette for depth ──
+			const grad = ctx.createRadialGradient( W/2, H/2, Math.min( W, H ) * 0.35, W/2, H/2, Math.max( W, H ) * 0.7 );
+			grad.addColorStop( 0, 'rgba(0,0,0,0)' );
+			grad.addColorStop( 1, 'rgba(0,0,0,0.35)' );
+			ctx.fillStyle = grad;
+			ctx.fillRect( 0, 0, W, H );
 		}
 
 		function getRecordLeaders() {
@@ -514,7 +741,7 @@
 					<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
 					<button data-id="${ entry.id }" type="button">Remove</button>
 				</div>`;
-			if ( ! entry.thumbnailDataUrl && stats.previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), stats.previewData.cells, stats.previewData.mods );
+			if ( ! entry.thumbnailDataUrl && stats.previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), stats.previewData.cells, stats.previewData.mods, stats.previewData.ghost );
 			return card;
 		}
 
@@ -560,6 +787,16 @@
 			} catch ( e ) {
 				return 'medium';
 			}
+		}
+
+		function updateLoadMoreButton( totalFiltered ) {
+			if ( ! loadMoreWrap || ! loadMoreBtn || ! pageInfo ) return;
+			const shown = Math.min( libraryPage * LIBRARY_PAGE_SIZE, totalFiltered );
+			const hasMore = shown < totalFiltered;
+			loadMoreWrap.style.display = hasMore ? 'flex' : 'none';
+			if ( hasMore ) pageInfo.textContent = `${ shown } of ${ totalFiltered } tracks`;
+			else if ( totalFiltered > LIBRARY_PAGE_SIZE ) pageInfo.textContent = `All ${ totalFiltered } tracks loaded`;
+			else pageInfo.textContent = '';
 		}
 
 		function getFilteredEntries() {
@@ -614,9 +851,11 @@
 					return;
 				}
 
-				for ( const entry of filtered ) {
+				const pageEntries = filtered.slice( 0, libraryPage * LIBRARY_PAGE_SIZE );
+				for ( const entry of pageEntries ) {
 					grid.appendChild( createTrackCard( entry ) );
 				}
+				updateLoadMoreButton( filtered.length );
 				return;
 			}
 
@@ -645,9 +884,11 @@
 				return;
 			}
 
-			for ( const entry of filtered ) {
+			const pageEntries = filtered.slice( 0, libraryPage * LIBRARY_PAGE_SIZE );
+			for ( const entry of pageEntries ) {
 				grid.appendChild( createTrackCard( entry ) );
 			}
+			updateLoadMoreButton( filtered.length );
 		}
 
 		async function addEntryFromGhostCode() {
@@ -829,10 +1070,16 @@
 			let searchDebounce = null;
 			searchInput.addEventListener( 'input', () => {
 				clearTimeout( searchDebounce );
+				libraryPage = 1;
 				searchDebounce = setTimeout( () => render(), 200 );
 			} );
-			sizeFilter.addEventListener( 'change', () => render() );
-			sortFilter.addEventListener( 'change', () => render() );
+			sizeFilter.addEventListener( 'change', () => { libraryPage = 1; render(); } );
+			sortFilter.addEventListener( 'change', () => { libraryPage = 1; render(); } );
+			if ( loadMoreBtn ) loadMoreBtn.addEventListener( 'click', () => {
+				libraryPage++;
+				render();
+				loadMoreWrap.scrollIntoView( { behavior: 'smooth', block: 'nearest' } );
+			} );
 			thumbnailInput.addEventListener( 'change', async () => {
 				const file = thumbnailInput.files?.[ 0 ];
 				if ( ! file ) {
@@ -867,15 +1114,22 @@
 					importBtn.disabled = true;
 					exportBtn.disabled = true;
 
+					// Render cards immediately — buttons work right away,
+					// leaderboard data fills in progressively in the background.
+					render();
+
+					// Fire leaderboard hydration without blocking the UI.
+					hydrateTopLeaderboardRows( entries ).finally( () => render() );
+
 				} catch ( e ) {
 
 					useRemoteBoard = false;
 					loadFromHash();
 					setStatus( 'Cloud board unavailable. Using local share-link mode.' );
-					await hydrateTopLeaderboardRows( entries );
+					render();
+					hydrateTopLeaderboardRows( entries ).finally( () => render() );
 
 				}
-				render();
 
 			} )();
 		</script>
