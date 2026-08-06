@@ -86,6 +86,21 @@
 			return name.startsWith( '[PACK]' );
 		}
 
+		const _lazyDrawQueue = [];
+		let _lazyDrawRunning = false;
+		function processLazyDrawQueue() {
+			if ( _lazyDrawRunning || _lazyDrawQueue.length === 0 ) return;
+			_lazyDrawRunning = true;
+			const step = () => {
+				if ( _lazyDrawQueue.length === 0 ) { _lazyDrawRunning = false; return; }
+				_lazyDrawQueue.shift()();
+				if ( 'requestIdleCallback' in window ) requestIdleCallback( step, { timeout: 2000 } );
+				else setTimeout( step, 32 );
+			};
+			if ( 'requestIdleCallback' in window ) requestIdleCallback( step, { timeout: 2000 } );
+			else setTimeout( step, 32 );
+		}
+
 		function sanitizeBoardEntries( input ) {
 			const rows = Array.isArray( input ) ? input : [];
 			return rows.filter( ( entry ) => typeof entry?.playUrl === 'string' && typeof entry?.name === 'string' && ! isPackBoardEntry( entry ) );
@@ -158,12 +173,21 @@
 		}
 
 		async function loadFromRemote() {
+			// Show loading state immediately — don't wait for the 20MB fetch
+			const loadingPanel = document.getElementById( 'loading-panel' );
+			if ( loadingPanel ) loadingPanel.hidden = false;
+			if ( leaderboardProgressWrap ) leaderboardProgressWrap.classList.add( 'visible' );
+			if ( leaderboardProgressFill ) leaderboardProgressFill.style.width = '2%';
+			if ( leaderboardProgressLabel ) leaderboardProgressLabel.textContent = 'Connecting to track board\u2026';
 			const payload = await apiRequest();
 			entries = sanitizeBoardEntries( payload?.entries );
 			await hydrateTopLeaderboardRows( entries );
 		}
 
+		const _trackIdCache = new Map();
 		function getTrackIdFromPlayUrl( playUrl ) {
+			if ( _trackIdCache.has( playUrl ) ) return _trackIdCache.get( playUrl );
+			let result;
 			try {
 				const parsed = new URL( playUrl, window.location.href );
 				const normalizedPath = normalizeTrackPath( parsed.pathname );
@@ -173,10 +197,12 @@
 				if ( map ) query.set( 'map', map );
 				if ( mods ) query.set( 'mods', mods );
 				const rawUrl = `${ normalizedPath }${ query.toString() ? `?${ query.toString() }` : '' }`;
-				return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
+				result = `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
 			} catch ( e ) {
-				return '';
+				result = '';
 			}
+			_trackIdCache.set( playUrl, result );
+			return result;
 		}
 
 		function getLegacyTrackIdsFromPlayUrl( playUrl ) {
@@ -488,10 +514,23 @@
 			};
 		}
 
+		function refreshCardStats() {
+			const cards = document.querySelectorAll( '.card[data-entry-id]' );
+			cards.forEach( ( card ) => {
+				const entry = entries.find( ( e ) => e.id === card.dataset.entryId );
+				if ( ! entry ) return;
+				const stats = getTrackStats( entry );
+				const statValues = card.querySelectorAll( '.stat-grid .stat b' );
+				if ( statValues[ 0 ] ) statValues[ 0 ].textContent = stats.bestTime === Infinity ? '--.--' : formatSeconds( stats.bestTime );
+				if ( statValues[ 1 ] ) statValues[ 1 ].textContent = stats.topRow ? stats.topRow.name : 'Open';
+			} );
+		}
+
 		function createTrackCard( entry, options = {} ) {
 			const stats = getTrackStats( entry );
 			const card = document.createElement( 'div' );
 			card.className = `card${ options.featured ? ' featured' : '' }`;
+			card.dataset.entryId = entry.id;
 			card.innerHTML = `<h3>${ entry.name }</h3>
 				<div class="badges">
 					<span class="badge">▶ ${ stats.plays } plays</span>
@@ -516,15 +555,13 @@
 			if ( ! entry.thumbnailDataUrl ) {
 				const canvas = card.querySelector( '.preview-canvas' );
 				const styleBadge = card.querySelector( '.badge:last-child' );
-				const drawLazy = () => {
+				_lazyDrawQueue.push( () => {
 					const pd = parseTrackLayoutFromUrl( entry.playUrl );
 					if ( pd ) {
 						drawTrackPreview( canvas, pd.cells, pd.mods );
 						if ( styleBadge ) styleBadge.textContent = `\u{1f9ed} ${ classifyTrackStyle( pd.cells || [], pd.mods || {} ) }`;
 					}
-				};
-				if ( 'requestIdleCallback' in window ) requestIdleCallback( drawLazy, { timeout: 3000 } );
-				else setTimeout( drawLazy, 16 );
+				} );
 			}
 			return card;
 		}
@@ -537,6 +574,7 @@
 				return;
 			}
 			items.forEach( ( entry ) => container.appendChild( createTrackCard( entry, options ) ) );
+			processLazyDrawQueue();
 		}
 
 		function renderHighlights() {
@@ -552,7 +590,12 @@
 				.slice( 0, 6 );
 			const newWeek = newestFirst.filter( ( entry ) => Number( entry?.createdAt ) >= weekAgo ).slice( 0, 6 );
 			const topRated = [ ...entries ].sort( ( a, b ) => ( Number( b.thumbsUp ) || 0 ) - ( Number( a.thumbsUp ) || 0 ) || ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) ).slice( 0, 6 );
-			const fastest = [ ...entries ].filter( ( entry ) => getTrackStats( entry ).bestTime < Infinity ).sort( ( a, b ) => getTrackStats( a ).bestTime - getTrackStats( b ).bestTime ).slice( 0, 6 );
+			const fastest = [ ...entries ]
+				.map( ( entry ) => ( { entry, best: getTrackStats( entry ).bestTime } ) )
+				.filter( ( x ) => x.best < Infinity )
+				.sort( ( a, b ) => a.best - b.best )
+				.slice( 0, 6 )
+				.map( ( x ) => x.entry );
 			renderTrackList( featuredTrack, featured ? [ featured ] : [], 'No tracks have been published yet.', { featured: true } );
 			renderTrackList( trendingList, trending, 'Play counts will surface trending tracks once people start racing.' );
 			renderTrackList( newWeekList, newWeek, 'No new tracks were published in the past 7 days.' );
@@ -628,6 +671,7 @@
 				for ( const entry of filtered ) {
 					grid.appendChild( createTrackCard( entry ) );
 				}
+				processLazyDrawQueue();
 				return;
 			}
 
@@ -659,6 +703,7 @@
 			for ( const entry of filtered ) {
 				grid.appendChild( createTrackCard( entry ) );
 			}
+			processLazyDrawQueue();
 		}
 
 		async function addEntryFromGhostCode() {
@@ -886,7 +931,9 @@
 					await hydrateTopLeaderboardRows( entries );
 
 				}
-				render();
+				// Lightweight update of existing card stats instead of full re-render
+				refreshCardStats();
+				renderRecordBoard();
 
 			} )();
 		</script>
