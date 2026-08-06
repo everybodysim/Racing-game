@@ -340,6 +340,48 @@
 			font-size: 12px;
 		}
 	</style>
+	
+<style>
+/* ─── Feature 1: Collapsible toolbar groups (accordion) ─── */
+.toolbar-group .toolbar-group-label { cursor: pointer; user-select: none; }
+.toolbar-group .toolbar-group-label::before { content: '\25BC '; font-size: 7px; opacity: 0.6; }
+.toolbar-group.collapsed .toolbar-group-label::before { content: '\25B6 '; }
+.toolbar-group.collapsed > *:not(.toolbar-group-label) { display: none !important; }
+
+/* ─── Feature 10: Color-coded group borders ─── */
+.toolbar-group[data-cat="track"]     { border-left: 3px solid rgba(100, 220, 120, 0.55); }
+.toolbar-group[data-cat="obstacles"] { border-left: 3px solid rgba(255, 160, 60, 0.55); }
+.toolbar-group[data-cat="moving"]    { border-left: 3px solid rgba(255, 100, 100, 0.55); }
+.toolbar-group[data-cat="surfaces"]  { border-left: 3px solid rgba(100, 180, 255, 0.55); }
+.toolbar-group[data-cat="decor"]     { border-left: 3px solid rgba(180, 120, 255, 0.55); }
+.toolbar-group[data-cat="edit"]      { border-left: 3px solid rgba(120, 220, 240, 0.55); }
+.toolbar-group[data-cat="run"]       { border-left: 3px solid rgba(120, 240, 140, 0.55); }
+#side-ui-bar { border-left: 3px solid rgba(255, 200, 100, 0.4); border-radius: 10px; padding-left: 9px; }
+
+/* ─── Feature 8: Collapsible settings bar ─── */
+#settings-bar.collapsed > *:not(#settings-toggle-btn) { display: none !important; }
+#settings-toggle-btn { cursor: pointer; font-weight: 700; color: rgba(180, 210, 255, 0.9); white-space: nowrap; border: none; background: none; padding: 4px 8px; font-size: 12px; }
+#settings-toggle-btn:hover { color: #fff; }
+
+/* ─── Feature 4: Minimap ─── */
+#minimap-wrap { position: absolute; right: 12px; bottom: 62px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
+#minimap-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
+#minimap-label { position: absolute; top: 4px; left: 8px; font: 700 9px sans-serif; color: rgba(255,255,255,0.45); pointer-events: none; text-transform: uppercase; letter-spacing: 0.06em; }
+#minimap-wrap.hidden { display: none; }
+
+/* ─── Feature 2 & 3: Selection box + paste preview ─── */
+#selection-box { position: absolute; border: 2px dashed rgba(120, 200, 255, 0.85); background: rgba(120, 200, 255, 0.12); pointer-events: none; z-index: 12; display: none; border-radius: 4px; }
+#clipboard-hint { position: absolute; bottom: 62px; left: 50%; transform: translateX(-50%); padding: 6px 16px; background: rgba(20, 20, 30, 0.88); backdrop-filter: blur(10px); border-radius: 8px; border: 1px solid rgba(120, 200, 255, 0.3); color: #cde8ff; font: 600 11px sans-serif; z-index: 18; display: none; pointer-events: none; }
+#clipboard-hint.show { display: block; }
+
+/* Quick-access pinned tools row */
+#quick-tools { position: absolute; left: 12px; bottom: 62px; display: flex; gap: 3px; z-index: 14; align-items: center; }
+#quick-tools button { padding: 5px 8px; border: 1px solid rgba(255,255,255,0.18); border-radius: 7px; background: rgba(15, 18, 24, 0.9); color: #e8efff; font: 700 10px sans-serif; cursor: pointer; transition: all 0.15s; }
+#quick-tools button:hover { background: rgba(45,55,72,0.95); }
+#quick-tools button.active { background: rgba(80, 160, 255, 0.3); border-color: rgba(120, 180, 255, 0.6); color: #fff; }
+#quick-tools .qt-label { font: 700 8px sans-serif; color: rgba(190, 210, 240, 0.5); text-transform: uppercase; letter-spacing: 0.06em; padding: 5px 4px; }
+</style>
+
 	<script type="importmap">
 	{
 		"imports": {
@@ -364,6 +406,7 @@
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content">
 	<div id="settings-bar">
+		<button id="settings-toggle-btn" type="button">⚙ Track Settings</button>
 		<label for="weather-preset">Weather</label>
 
 		<select id="weather-preset" aria-label="Weather preset">
@@ -470,7 +513,7 @@
 	</div>
 
 	<div id="toolbar">
-		<div class="toolbar-group" aria-label="Track pieces">
+		<div class="toolbar-group" aria-label="Track pieces" data-cat="track">
 			<span class="toolbar-group-label">Track</span>
 			<button id="btn-straight" class="active">Straight</button>
 			<button id="btn-corner">Corner</button>
@@ -486,7 +529,7 @@
 			<button id="btn-elevated-checkpoint" style="display:none">Elev Checkpoint</button>
 			<button id="btn-slope-up" style="display:none">Slope Up</button>
 		</div>
-		<div class="toolbar-group" aria-label="Obstacles">
+		<div class="toolbar-group" aria-label="Obstacles" data-cat="obstacles">
 			<span class="toolbar-group-label">Obstacles</span>
 			<button id="btn-bump">Bump +</button>
 			<button id="btn-pole">Pole +</button>
@@ -496,7 +539,7 @@
 			<button id="btn-water">Water Pool +</button>
 			<button id="btn-custom-pool">Custom Pool</button>
 		</div>
-		<div class="toolbar-group" aria-label="Moving objects">
+		<div class="toolbar-group" aria-label="Moving objects" data-cat="moving">
 			<span class="toolbar-group-label">Moving</span>
 			<button id="btn-moving-slide">Sliding Block +</button>
 			<button id="btn-moving-spin">Spinning Wall +</button>
@@ -504,7 +547,7 @@
 			<button id="btn-moving-custom">Custom Mover +</button>
 			<label id="moving-speed-wrap" style="display:none;color:#dbe8ff;font-size:11px;">Move Speed <input id="moving-speed" type="range" min="0.25" max="3" step="0.05" value="1"><span id="moving-speed-value">1.00x</span></label>
 		</div>
-		<div class="toolbar-group" aria-label="Surfaces and pads">
+		<div class="toolbar-group" aria-label="Surfaces and pads" data-cat="surfaces">
 			<span class="toolbar-group-label">Surfaces</span>
 			<select id="surface-select" aria-label="Surface picker">
 				<option value="">Surface…</option>
@@ -544,7 +587,7 @@
 			<button id="btn-pad-custom-c">Pad C</button>
 			<button id="btn-overlap-toggle">Overlap: Off</button>
 		</div>
-		<div class="toolbar-group" aria-label="Decor and custom imports">
+		<div class="toolbar-group" aria-label="Decor and custom imports" data-cat="decor">
 			<span class="toolbar-group-label">Decor</span>
 			<button id="btn-deco-forest">Tree</button>
 			<button id="btn-deco-tents">Tent</button>
@@ -554,8 +597,9 @@
 			<input id="custom-model-file" type="file" accept=".glb,.gltf,.obj,model/gltf-binary,model/gltf+json" style="display:none" />
 			<button id="btn-rotate">Rotate: 0°</button>
 		</div>
-		<div class="toolbar-group" aria-label="Edit tools">
+		<div class="toolbar-group" aria-label="Edit tools" data-cat="edit">
 			<span class="toolbar-group-label">Edit</span>
+			<button id="btn-select">Select</button>
 			<button id="btn-paint" class="active">Paint</button>
 			<button id="btn-erase">Erase</button>
 			<button id="btn-undo" title="Undo (Ctrl/Cmd+Z)" disabled>Undo</button>
@@ -563,7 +607,7 @@
 			<button id="btn-flow">Flow: Off</button>
 			<button id="btn-offgrid">Snap: Grid</button>
 		</div>
-		<div class="toolbar-group" aria-label="Testing and sharing">
+		<div class="toolbar-group" aria-label="Testing and sharing" data-cat="run">
 			<span class="toolbar-group-label">Run</span>
 			<button id="btn-play" class="action">Play</button>
 			<button id="btn-quick-test" class="action">Quick Test</button>
@@ -574,6 +618,15 @@
 			<button id="btn-clear" class="danger">Clear</button>
 		</div>
 	</div>
+
+
+	<div id="minimap-wrap" class="hidden">
+		<canvas id="minimap-canvas" width="140" height="140"></canvas>
+		<span id="minimap-label">Map</span>
+	</div>
+	<div id="selection-box"></div>
+	<div id="clipboard-hint"></div>
+	<div id="quick-tools"></div>
 
 	<div id="toast"></div>
 	<div id="offgrid-dev-banner" hidden>Off-grid placement is still in development — expect rough edges while it gets fixed.</div>
@@ -4341,6 +4394,493 @@ function refreshMovingSpeedUi() {
 	</script>
 </main>
 
-<script type="module" src="js/PageMusic.js"></script>
+<script type="module" src="js/PageMusic.js">
+// ═════════════════════════════════════════════════════════════════
+// FEATURE 1: Collapsible toolbar groups (accordion)
+// ═════════════════════════════════════════════════════════════════
+(function initAccordionToolbar() {
+    const groups = document.querySelectorAll('.toolbar-group[data-cat]');
+    groups.forEach(g => {
+        if (g.dataset.cat !== 'track') g.classList.add('collapsed');
+        const label = g.querySelector('.toolbar-group-label');
+        if (label) {
+            label.addEventListener('click', (e) => {
+                e.preventDefault();
+                if (!g.classList.contains('collapsed')) {
+                    g.classList.add('collapsed');
+                    return;
+                }
+                groups.forEach(other => other.classList.add('collapsed'));
+                g.classList.remove('collapsed');
+            });
+        }
+    });
+})();
+
+// ═════════════════════════════════════════════════════════════════
+// FEATURE 8: Collapsible settings bar
+// ═════════════════════════════════════════════════════════════════
+(function initCollapsibleSettings() {
+    const bar = document.getElementById('settings-bar');
+    const toggle = document.getElementById('settings-toggle-btn');
+    if (!bar || !toggle) return;
+    bar.classList.add('collapsed');
+    toggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        bar.classList.toggle('collapsed');
+    });
+})();
+
+// ═════════════════════════════════════════════════════════════════
+// FEATURE 10: Quick-access pinned tools row
+// ═════════════════════════════════════════════════════════════════
+(function initQuickTools() {
+    const qtRow = document.getElementById('quick-tools');
+    if (!qtRow) return;
+    const toolUsage = {};
+    const MAX_QUICK = 7;
+    const DEFAULTS = ['btn-straight', 'btn-corner', 'btn-paint', 'btn-erase', 'btn-undo', 'btn-play'];
+
+    function rebuildQuickTools() {
+        const sorted = Object.entries(toolUsage)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, MAX_QUICK)
+            .map(e => e[0]);
+        for (const d of DEFAULTS) {
+            if (sorted.length >= MAX_QUICK) break;
+            if (!sorted.includes(d)) sorted.push(d);
+        }
+        qtRow.innerHTML = '<span class="qt-label">Pinned</span>';
+        for (const id of sorted.slice(0, MAX_QUICK)) {
+            const src = document.getElementById(id);
+            if (!src) continue;
+            const btn = document.createElement('button');
+            btn.textContent = src.textContent.replace(/\s*\+?\s*$/, '');
+            btn.title = src.title || src.textContent;
+            btn.dataset.targetId = id;
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                src.click();
+            });
+            qtRow.appendChild(btn);
+        }
+    }
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('#toolbar button[id], #side-ui-bar button[id]');
+        if (btn && btn.id) {
+            toolUsage[btn.id] = (toolUsage[btn.id] || 0) + 1;
+            rebuildQuickTools();
+        }
+    });
+    rebuildQuickTools();
+})();
+
+// ═════════════════════════════════════════════════════════════════
+// FEATURE 2 & 3: Multi-select, copy/paste/duplicate with rotation
+// ═════════════════════════════════════════════════════════════════
+let selectMode = false;
+let isSelecting = false;
+let selectionStart = null;
+let selectionEnd = null;
+let selectedCells = [];
+let clipboard = null;
+let pastePreviewOrient = 0;
+let isPasteMode = false;
+
+const selectionBox = document.getElementById('selection-box');
+const clipboardHint = document.getElementById('clipboard-hint');
+
+function toggleSelectMode() {
+    selectMode = !selectMode;
+    const btnSelect = document.getElementById('btn-select');
+    if (btnSelect) btnSelect.classList.toggle('active', selectMode);
+    if (selectMode) {
+        selectTool('paint');
+        showToast('Select mode: drag to select, Del to erase, Ctrl+C/V/D to copy/paste/duplicate');
+    } else {
+        selectedCells = [];
+        selectionBox.style.display = 'none';
+        clipboardHint.classList.remove('show');
+    }
+}
+
+function gridToScreen(gx, gz) {
+    const worldX = (gx + 0.5) * cellWorld;
+    const worldZ = (gz + 0.5) * cellWorld;
+    const vec = new THREE.Vector3(worldX, 0.51, worldZ);
+    vec.project(camera);
+    return {
+        x: (vec.x + 1) / 2 * window.innerWidth,
+        y: (-vec.y + 1) / 2 * window.innerHeight
+    };
+}
+
+function updateSelectionBox() {
+    if (!selectionStart || !selectionEnd) {
+        selectionBox.style.display = 'none';
+        return;
+    }
+    const minGx = Math.min(selectionStart.gx, selectionEnd.gx);
+    const maxGx = Math.max(selectionStart.gx, selectionEnd.gx);
+    const minGz = Math.min(selectionStart.gz, selectionEnd.gz);
+    const maxGz = Math.max(selectionStart.gz, selectionEnd.gz);
+    const s1 = gridToScreen(minGx, minGz);
+    const s2 = gridToScreen(maxGx + 1, maxGz + 1);
+    const left = Math.min(s1.x, s2.x);
+    const top = Math.min(s1.y, s2.y);
+    const w = Math.abs(s2.x - s1.x);
+    const h = Math.abs(s2.y - s1.y);
+    selectionBox.style.display = 'block';
+    selectionBox.style.left = left + 'px';
+    selectionBox.style.top = top + 'px';
+    selectionBox.style.width = w + 'px';
+    selectionBox.style.height = h + 'px';
+}
+
+function collectSelectedCells() {
+    if (!selectionStart || !selectionEnd) return [];
+    const minGx = Math.min(selectionStart.gx, selectionEnd.gx);
+    const maxGx = Math.max(selectionStart.gx, selectionEnd.gx);
+    const minGz = Math.min(selectionStart.gz, selectionEnd.gz);
+    const maxGz = Math.max(selectionStart.gz, selectionEnd.gz);
+    const cells = [];
+    for (let gx = minGx; gx <= maxGx; gx++) {
+        for (let gz = minGz; gz <= maxGz; gz++) {
+            if (grid.has(cellKey(gx, gz))) cells.push({ gx, gz });
+        }
+    }
+    return cells;
+}
+
+function showClipboardHint(text) {
+    clipboardHint.textContent = text;
+    clipboardHint.classList.add('show');
+}
+
+function hideClipboardHint() {
+    clipboardHint.classList.remove('show');
+}
+
+function copySelection() {
+    const cells = selectedCells.length > 0 ? selectedCells : collectSelectedCells();
+    if (cells.length === 0) {
+        showToast('Nothing selected to copy');
+        return;
+    }
+    const minGx = Math.min.apply(null, cells.map(c => c.gx));
+    const minGz = Math.min.apply(null, cells.map(c => c.gz));
+    const maxGx = Math.max.apply(null, cells.map(c => c.gx));
+    const maxGz = Math.max.apply(null, cells.map(c => c.gz));
+    const cellData = [];
+    for (const c of cells) {
+        const key = cellKey(c.gx, c.gz);
+        const cell = grid.get(key);
+        if (!cell) continue;
+        cellData.push({
+            dx: c.gx - minGx, dz: c.gz - minGz,
+            roadPieces: JSON.parse(JSON.stringify(cell.roadPieces || [])),
+            bump: cell.bump || false, pole: cell.pole || false, cube: cell.cube || false,
+            wall: cell.wall || false, wallOrient: cell.wallOrient || 0,
+            jump: cell.jump || false, jumpOrient: cell.jumpOrient || 0,
+            water: cell.water || false,
+            elevatedType: cell.elevatedType || null, elevatedOrient: cell.elevatedOrient || 0,
+            surfaceTypes: [].concat(cell.surfaceTypes || []),
+            decoType: cell.decoType || null, decoOrient: cell.decoOrient || 0,
+            movingObstacle: cell.movingObstacle || null, movingSpeed: cell.movingSpeed || 1,
+            movingCustom: cell.movingCustom || null,
+        });
+    }
+    const magnets = magnetBlocks.filter(m =>
+        m.gx >= minGx && m.gx <= maxGx && m.gz >= minGz && m.gz <= maxGz
+    ).map(m => ({ dx: m.gx - minGx, dz: m.gz - minGz, y: m.y, type: m.type, strength: m.strength, range: m.range }));
+    const arcs = arcBlocks.filter(a =>
+        a.gx >= minGx && a.gx <= maxGx && a.gz >= minGz && a.gz <= maxGz
+    ).map(a => ({ dx: a.gx - minGx, dz: a.gz - minGz, y: a.y, type: a.type, linkId: a.linkId }));
+    clipboard = { cells: cellData, magnets, arcs, orient: 0 };
+    pastePreviewOrient = 0;
+    showClipboardHint('Copied ' + cellData.length + ' cells. Ctrl+V to paste, R to rotate.');
+    showToast('Copied ' + cellData.length + ' cells to clipboard');
+}
+
+function rotateOffset(dx, dz, orient) {
+    const times = ((orient % 4) + 4) % 4;
+    let rx = dx, rz = dz;
+    for (let i = 0; i < times; i++) { const t = rx; rx = -rz; rz = t; }
+    return { dx: rx, dz: rz };
+}
+
+function rotateOrient(baseOrient, delta) {
+    const idx = ORIENTATIONS.indexOf(baseOrient);
+    if (idx < 0) return baseOrient;
+    const newIdx = ((idx + delta) % ORIENTATIONS.length + ORIENTATIONS.length) % ORIENTATIONS.length;
+    return ORIENTATIONS[newIdx];
+}
+
+function pasteClipboard(targetGx, targetGz) {
+    if (!clipboard || !clipboard.cells.length) { showToast('Clipboard is empty'); return; }
+    pushHistorySnapshot();
+    const orient = pastePreviewOrient;
+    for (const item of clipboard.cells) {
+        const rotated = rotateOffset(item.dx, item.dz, orient);
+        const gx = targetGx + rotated.dx;
+        const gz = targetGz + rotated.dz;
+        const key = cellKey(gx, gz);
+        const existing = grid.get(key);
+        if (existing) {
+            for (const m of (existing.roadMeshes||[])) trackGroup.remove(m);
+            if (existing.mesh) trackGroup.remove(existing.mesh);
+            if (existing.bumpMesh) trackGroup.remove(existing.bumpMesh);
+            if (existing.poleMesh) trackGroup.remove(existing.poleMesh);
+            if (existing.cubeMesh) trackGroup.remove(existing.cubeMesh);
+            if (existing.wallMesh) trackGroup.remove(existing.wallMesh);
+            if (existing.jumpMesh) trackGroup.remove(existing.jumpMesh);
+            if (existing.waterMesh) trackGroup.remove(existing.waterMesh);
+            if (existing.elevatedMesh) trackGroup.remove(existing.elevatedMesh);
+            if (existing.elevatedSupportMesh) trackGroup.remove(existing.elevatedSupportMesh);
+            for (const sm of (existing.surfaceMeshes||[])) trackGroup.remove(sm);
+            if (existing.decoMesh) trackGroup.remove(existing.decoMesh);
+        }
+        const cell = makeEmptyCell();
+        if (item.roadPieces && item.roadPieces.length) {
+            cell.roadPieces = item.roadPieces.map(rp => ({
+                type: rp.type, orient: rotateOrient(rp.orient, orient), isFinish: rp.isFinish,
+            }));
+            cell.type = cell.roadPieces[0].type;
+            cell.orient = cell.roadPieces[0].orient;
+            cell.isFinish = cell.roadPieces.some(p => p.isFinish);
+        }
+        if (item.bump) cell.bump = true;
+        if (item.pole) cell.pole = true;
+        if (item.cube) cell.cube = true;
+        if (item.wall) { cell.wall = true; cell.wallOrient = rotateOrient(item.wallOrient||0, orient); }
+        if (item.jump) { cell.jump = true; cell.jumpOrient = rotateOrient(item.jumpOrient||0, orient); }
+        if (item.water) cell.water = true;
+        if (item.elevatedType) { cell.elevatedType = item.elevatedType; cell.elevatedOrient = rotateOrient(item.elevatedOrient||0, orient); }
+        if (item.surfaceTypes) cell.surfaceTypes = [].concat(item.surfaceTypes);
+        if (item.decoType) { cell.decoType = item.decoType; cell.decoOrient = rotateOrient(item.decoOrient||0, orient); }
+        if (item.movingObstacle) { cell.movingObstacle = item.movingObstacle; cell.movingSpeed = item.movingSpeed; cell.movingCustom = item.movingCustom; }
+        grid.set(key, cell);
+        placeMesh(gx, gz, cell);
+        placeOverlayMesh(gx, gz, cell);
+    }
+    for (const m of (clipboard.magnets||[])) {
+        const rotated = rotateOffset(m.dx, m.dz, orient);
+        magnetBlocks.push({ gx: targetGx+rotated.dx, gz: targetGz+rotated.dz, y: m.y, type: m.type, strength: m.strength, range: m.range, mesh: null });
+        rebuildMagnetMeshes();
+    }
+    for (const a of (clipboard.arcs||[])) {
+        const rotated = rotateOffset(a.dx, a.dz, orient);
+        arcBlocks.push({ gx: targetGx+rotated.dx, gz: targetGz+rotated.dz, y: a.y, type: a.type, linkId: a.linkId, mesh: null });
+        rebuildArcMeshes();
+    }
+    save();
+    showToast('Pasted ' + clipboard.cells.length + ' cells (rotation: ' + (orient*90) + '\u00B0)');
+}
+
+function duplicateSelection() {
+    if (selectedCells.length === 0) { showToast('Select something first'); return; }
+    copySelection();
+    const minGx = Math.min.apply(null, selectedCells.map(c => c.gx));
+    const minGz = Math.min.apply(null, selectedCells.map(c => c.gz));
+    const maxGx = Math.max.apply(null, selectedCells.map(c => c.gx));
+    const maxGz = Math.max.apply(null, selectedCells.map(c => c.gz));
+    pasteClipboard(minGx + 2, minGz);
+    selectionStart = { gx: minGx + 2, gz: minGz };
+    selectionEnd = { gx: minGx + 2 + (maxGx - minGx), gz: minGz + (maxGz - minGz) };
+    selectedCells = collectSelectedCells();
+    updateSelectionBox();
+}
+
+function deleteSelection() {
+    const cells = selectedCells.length > 0 ? selectedCells : collectSelectedCells();
+    if (cells.length === 0) { showToast('Nothing selected'); return; }
+    pushHistorySnapshot();
+    for (const c of cells) { eraseRoad(c.gx, c.gz); }
+    selectedCells = [];
+    selectionBox.style.display = 'none';
+    showToast('Deleted ' + cells.length + ' cells');
+}
+
+// Select mode pointer handlers (capture phase, run before existing handlers)
+document.addEventListener('pointerdown', (e) => {
+    if (!selectMode) return;
+    if (e.button !== 0) return;
+    const cell = screenToGrid(e.clientX, e.clientY);
+    if (!cell) return;
+    isSelecting = true;
+    selectionStart = cell;
+    selectionEnd = cell;
+    selectedCells = [];
+    updateSelectionBox();
+    e.stopPropagation();
+}, true);
+
+document.addEventListener('pointermove', (e) => {
+    if (!selectMode || !isSelecting) return;
+    const cell = screenToGrid(e.clientX, e.clientY);
+    if (!cell) return;
+    selectionEnd = cell;
+    updateSelectionBox();
+}, true);
+
+document.addEventListener('pointerup', (e) => {
+    if (!selectMode || !isSelecting) return;
+    isSelecting = false;
+    selectedCells = collectSelectedCells();
+    if (selectedCells.length > 0) {
+        showClipboardHint(selectedCells.length + ' cells selected \u2014 Ctrl+C copy, Ctrl+V paste, Ctrl+D duplicate, Del delete');
+    } else {
+        hideClipboardHint();
+        selectionBox.style.display = 'none';
+    }
+}, true);
+
+// ═════════════════════════════════════════════════════════════════
+// FEATURE 4: Minimap
+// ═════════════════════════════════════════════════════════════════
+const minimapCanvas = document.getElementById('minimap-canvas');
+const minimapWrap = document.getElementById('minimap-wrap');
+let minimapCtx = null;
+let minimapEnabled = false;
+
+function initMinimap() {
+    if (!minimapCanvas) return;
+    minimapCtx = minimapCanvas.getContext('2d');
+    minimapEnabled = true;
+    minimapWrap.classList.remove('hidden');
+    minimapCanvas.addEventListener('click', (e) => {
+        const rect = minimapCanvas.getBoundingClientRect();
+        const mx = (e.clientX - rect.left) / rect.width;
+        const my = (e.clientY - rect.top) / rect.height;
+        const half = gridSize / 2;
+        const gx = (mx - 0.5) * gridSize;
+        const gz = (my - 0.5) * gridSize;
+        camTarget.x = (gx + 0.5) * cellWorld;
+        camTarget.z = (gz + 0.5) * cellWorld;
+        camera.position.x = camTarget.x;
+        camera.position.z = camTarget.z;
+        camera.lookAt(camTarget.x, 0, camTarget.z);
+    });
+}
+
+function renderMinimap() {
+    if (!minimapEnabled || !minimapCtx) return;
+    const ctx = minimapCtx;
+    const W = 140, H = 140;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0d1118';
+    ctx.fillRect(0, 0, W, H);
+    const half = gridSize / 2;
+    const pxPerCell = W / gridSize;
+    for (const [key, cell] of grid) {
+        const [gx, gz] = key.split(',').map(Number);
+        const px = (gx + half) * pxPerCell;
+        const py = (gz + half) * pxPerCell;
+        let color = null;
+        if (cell.roadPieces && cell.roadPieces.length) {
+            const type = cell.roadPieces[0].type;
+            if (type === 'track-start-finish' || type === 'track-finish' || type === 'track-start') color = '#77f3b1';
+            else if (type === 'track-checkpoint') color = '#5ac8ff';
+            else if (type === 'track-corner') color = '#8899aa';
+            else color = '#a0b0c0';
+        }
+        if (cell.water) color = '#1f8fd6';
+        if (cell.bump) color = color || '#ffaa44';
+        if (cell.pole) color = '#ff6644';
+        if (cell.cube) color = '#aa66ff';
+        if (cell.wall) color = '#666677';
+        if (color) { ctx.fillStyle = color; ctx.fillRect(px, py, pxPerCell, pxPerCell); }
+    }
+    for (const m of magnetBlocks) {
+        const px = (m.gx + half) * pxPerCell;
+        const py = (m.gz + half) * pxPerCell;
+        ctx.fillStyle = m.type === 'magnet-red' ? '#ff4444' : '#4488ff';
+        ctx.fillRect(px - 1, py - 1, 3, 3);
+    }
+    for (const a of arcBlocks) {
+        const px = (a.gx + half) * pxPerCell;
+        const py = (a.gz + half) * pxPerCell;
+        ctx.fillStyle = a.type === 'arc-orange' ? '#ff8800' : (a.type === 'portal-purple' ? '#aa44ff' : '#44ff88');
+        ctx.fillRect(px - 1, py - 1, 3, 3);
+    }
+    if (selectionStart && selectionEnd) {
+        const minGx = Math.min(selectionStart.gx, selectionEnd.gx);
+        const maxGx = Math.max(selectionStart.gx, selectionEnd.gx);
+        const minGz = Math.min(selectionStart.gz, selectionEnd.gz);
+        const maxGz = Math.max(selectionStart.gz, selectionEnd.gz);
+        ctx.strokeStyle = 'rgba(120, 200, 255, 0.9)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect((minGx+half)*pxPerCell, (minGz+half)*pxPerCell, (maxGx-minGx+1)*pxPerCell, (maxGz-minGz+1)*pxPerCell);
+    }
+    const camGx = camTarget.x / cellWorld - half;
+    const camGz = camTarget.z / cellWorld - half;
+    const viewHalfW = (frustum * (window.innerWidth / window.innerHeight)) / cellWorld / camera.zoom;
+    const viewHalfD = frustum / cellWorld / camera.zoom;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(
+        Math.max(0, (camGx - viewHalfW + half) * pxPerCell),
+        Math.max(0, (camGz - viewHalfD + half) * pxPerCell),
+        Math.min(W, (viewHalfW * 2) * pxPerCell),
+        Math.min(H, (viewHalfD * 2) * pxPerCell)
+    );
+}
+
+initMinimap();
+setInterval(renderMinimap, 200);
+
+// ═════════════════════════════════════════════════════════════════
+// KEYBOARD SHORTCUTS — extended
+// ═════════════════════════════════════════════════════════════════
+window.addEventListener('keydown', (e) => {
+    const key = e.key.toLowerCase();
+    const modifier = e.ctrlKey || e.metaKey;
+    const target = e.target;
+    const isTypingTarget = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+    if (isTypingTarget) return;
+
+    if (modifier && key === 'c' && selectMode) { e.preventDefault(); copySelection(); return; }
+    if (modifier && key === 'v' && clipboard) { e.preventDefault(); isPasteMode = true; showToast('Paste mode: click to place. R to rotate. Esc to cancel.'); return; }
+    if (modifier && key === 'd' && selectMode) { e.preventDefault(); duplicateSelection(); return; }
+    if ((key === 'delete' || key === 'backspace') && selectMode && selectedCells.length > 0) { e.preventDefault(); deleteSelection(); return; }
+    if (key === 'escape') {
+        if (isPasteMode) { isPasteMode = false; showToast('Paste cancelled'); }
+        if (selectMode) toggleSelectMode();
+        return;
+    }
+    if (key === 'r' && isPasteMode) { e.preventDefault(); pastePreviewOrient = (pastePreviewOrient + 1) % 4; showToast('Paste rotation: ' + (pastePreviewOrient*90) + '\u00B0'); return; }
+    if (!modifier && !e.shiftKey) {
+        switch (key) {
+            case '1': selectTool('paint'); break;
+            case '2': selectTool('erase'); break;
+            case '3': if (!selectMode) toggleSelectMode(); break;
+            case '4': if (typeof selectedType !== 'undefined') selectTileType('track-straight'); break;
+            case '5': if (typeof selectedType !== 'undefined') selectTileType('track-corner'); break;
+            case '6': if (typeof selectedType !== 'undefined' && typeof BUMP_TOOL !== 'undefined') selectTileType(BUMP_TOOL); break;
+            case '7': if (typeof selectedType !== 'undefined' && typeof WALL_TOOL !== 'undefined') selectTileType(WALL_TOOL); break;
+            case '8': if (typeof selectedType !== 'undefined' && typeof WATER_TOOL !== 'undefined') selectTileType(WATER_TOOL); break;
+        }
+    }
+}, true);
+
+// Paste mode click handler
+document.addEventListener('pointerdown', (e) => {
+    if (!isPasteMode) return;
+    if (e.button !== 0) return;
+    const cell = screenToGrid(e.clientX, e.clientY);
+    if (!cell) return;
+    pasteClipboard(cell.gx, cell.gz);
+    e.stopPropagation();
+    e.preventDefault();
+}, true);
+
+// Wire up Select button
+const btnSelect = document.getElementById('btn-select');
+if (btnSelect) btnSelect.addEventListener('click', () => toggleSelectMode());
+
+// Keep selection box synced on zoom
+el.addEventListener('wheel', () => { if (selectMode) setTimeout(updateSelectionBox, 0); }, false);
+
+	</script>
 </body>
 </html>
