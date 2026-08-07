@@ -250,6 +250,39 @@ const SURFACE_EFFECTS = {
 };
 const PAD_RESET_TYPE = 'pad-reset';
 const VEHICLE_BASE_GRAVITY_FACTOR = 1.5;
+
+// Seam bounce suppression state — tracks sphere Y velocity between physics steps
+// to detect and cancel the upward "pop" that happens when the sphere catches on
+// the edge between two adjacent surface colliders.
+const seamSuppress = {
+	prevVy1: 0,
+	prevVy2: 0,
+	initialized: false,
+};
+
+function suppressSeamBounce( veh, prevVyKey ) {
+	if ( ! veh?.rigidBody?.motionProperties ) return;
+	const vel = veh.rigidBody.motionProperties.linearVelocity;
+	const vy = vel[ 1 ];
+	const prevVy = seamSuppress[ prevVyKey ];
+
+	// Detect a seam bounce:
+	// - Current Y velocity is positive (going up) but moderate (< 4.0 m/s)
+	//   Real jumps from ramps give 5+ m/s, so this won't suppress legitimate jumps
+	// - Previous Y velocity was small (car was on a surface, not already flying up)
+	// - The Y velocity suddenly increased (spike from the seam collision)
+	const vyDelta = vy - prevVy;
+	const isSeamBounce = vy > 0.3 && vy < 4.0 && prevVy < 1.0 && vyDelta > 0.5;
+
+	if ( isSeamBounce ) {
+		// Cancel the upward velocity. Gravity will pull the car back to the surface
+		// in the next frame. Forward speed is untouched since we only modify Y.
+		vel[ 1 ] = 0;
+		rigidBody.setLinearVelocity( world, veh.rigidBody, vel );
+	}
+
+	seamSuppress[ prevVyKey ] = vy;
+}
 const PAD_EFFECTS = {
 	'pad-low-gravity': { id: 'low-gravity', gravity: 0.45 },
 	'pad-heavy-gravity': { id: 'heavy-gravity', gravity: 1.7 },
@@ -8507,7 +8540,17 @@ function completeCampaignStage() {
 
 			} else boostPressedLatch = false;
 
+		// Save Y velocity before physics step for seam bounce detection
+		if ( vehicle?.rigidBody?.motionProperties )
+			seamSuppress.prevVy1 = vehicle.rigidBody.motionProperties.linearVelocity[ 1 ];
+		if ( vehicle2?.rigidBody?.motionProperties )
+			seamSuppress.prevVy2 = vehicle2.rigidBody.motionProperties.linearVelocity[ 1 ];
+
 		updateWorld( world, contactListener, dt );
+
+		// Suppress seam bounces: cancel upward velocity spikes from collider edges
+		suppressSeamBounce( vehicle, 'prevVy1' );
+		if ( vehicle2 ) suppressSeamBounce( vehicle2, 'prevVy2' );
 
 			const wasDrifting = vehicle.driftIntensity > 0.25;
 			vehicle.update( dt, padAdjustedInput );

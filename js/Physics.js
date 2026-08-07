@@ -760,7 +760,7 @@ export function createSphereBody( world, spawnPos ) {
 		position: spawnPos || [ 3.5, 0.5, 5 ],
 		mass: 1000.0,
 		friction: 5.0,
-		restitution: 0.1,
+		restitution: 0.0,
 		linearDamping: 0.1,
 		angularDamping: 4.0,
 		gravityFactor: 1.5,
