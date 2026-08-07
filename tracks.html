@@ -165,7 +165,9 @@
 			if ( leaderboardProgressLabel ) leaderboardProgressLabel.textContent = 'Fetching board data\u2026';
 			const payload = await apiRequest();
 			entries = sanitizeBoardEntries( payload?.entries );
-			await hydrateTopLeaderboardRows( entries );
+			// Render tracks immediately, hydrate leaderboard data in background
+			render();
+			hydrateTopLeaderboardRows( entries ).then( () => render() );
 		}
 
 		function getTrackIdFromPlayUrl( playUrl ) {
@@ -247,7 +249,7 @@
 		async function hydrateTopLeaderboardRows( sourceEntries ) {
 			const next = new Map();
 			const rowsMap = new Map();
-			const CHUNK_SIZE = 100;
+			const CHUNK_SIZE = 25;
 			const bestRowForTrack = ( rows ) => {
 				if ( ! Array.isArray( rows ) || rows.length === 0 ) return null;
 				return rows.slice().sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ] || null;
@@ -261,7 +263,6 @@
 			setLeaderboardProgress( 0, trackRequests.length );
 			topByTrackId = new Map();
 			rowsByTrackId = new Map();
-			render();
 			for ( let i = 0; i < trackRequests.length; i += CHUNK_SIZE ) {
 				const chunk = trackRequests.slice( i, i + CHUNK_SIZE );
 				const tasks = chunk.map( async ( request ) => {
@@ -1103,7 +1104,7 @@
 					useRemoteBoard = false;
 					loadFromHash();
 					setStatus( 'Cloud board unavailable. Using local share-link mode.' );
-					await hydrateTopLeaderboardRows( entries );
+					hydrateTopLeaderboardRows( entries ).then( () => render() );
 
 				}
 				render();
