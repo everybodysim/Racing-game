@@ -251,37 +251,39 @@ const SURFACE_EFFECTS = {
 const PAD_RESET_TYPE = 'pad-reset';
 const VEHICLE_BASE_GRAVITY_FACTOR = 1.5;
 
-// Seam bounce suppression state — tracks sphere Y velocity between physics steps
-// to detect and cancel the upward "pop" that happens when the sphere catches on
-// the edge between two adjacent surface colliders.
+// Seam bounce suppression — tracks sphere velocity between physics steps
+// to detect and cancel the upward "pop" + speed loss that happens when the
+// sphere catches on the edge between two adjacent surface colliders.
 const seamSuppress = {
-	prevVy1: 0,
-	prevVy2: 0,
-	initialized: false,
+	vy1: 0,  vel1: null,
+	vy2: 0,  vel2: null,
 };
 
-function suppressSeamBounce( veh, prevVyKey ) {
+function suppressSeamBounce( veh, key ) {
 	if ( ! veh?.rigidBody?.motionProperties ) return;
 	const vel = veh.rigidBody.motionProperties.linearVelocity;
 	const vy = vel[ 1 ];
-	const prevVy = seamSuppress[ prevVyKey ];
+	const prevVy = seamSuppress[ 'vy' + key ];
+	const savedVel = seamSuppress[ 'vel' + key ];
 
 	// Detect a seam bounce:
-	// - Current Y velocity is positive (going up) but moderate (< 4.0 m/s)
-	//   Real jumps from ramps give 5+ m/s, so this won't suppress legitimate jumps
-	// - Previous Y velocity was small (car was on a surface, not already flying up)
-	// - The Y velocity suddenly increased (spike from the seam collision)
+	// - Y velocity is positive (going up) but moderate (< 4.0 m/s)
+	//   Real jumps from ramps produce 5+ m/s — those are NOT suppressed
+	// - Previous Y velocity was small (car was on/near a surface)
+	// - Sudden velocity spike (vyDelta > 0.5 m/s in one step)
 	const vyDelta = vy - prevVy;
 	const isSeamBounce = vy > 0.3 && vy < 4.0 && prevVy < 1.0 && vyDelta > 0.5;
 
-	if ( isSeamBounce ) {
-		// Cancel the upward velocity. Gravity will pull the car back to the surface
-		// in the next frame. Forward speed is untouched since we only modify Y.
-		vel[ 1 ] = 0;
-		rigidBody.setLinearVelocity( world, veh.rigidBody, vel );
+	if ( isSeamBounce && savedVel ) {
+		// Restore the full velocity from before the physics step.
+		// This undoes BOTH the upward bounce AND the forward speed loss
+		// caused by the seam collision. Gravity will pull the car back to
+		// the surface naturally on the next step.
+		rigidBody.setLinearVelocity( world, veh.rigidBody, savedVel );
 	}
 
-	seamSuppress[ prevVyKey ] = vy;
+	seamSuppress[ 'vy' + key ] = vy;
+	seamSuppress[ 'vel' + key ] = [ vel[ 0 ], vel[ 1 ], vel[ 2 ] ];
 }
 const PAD_EFFECTS = {
 	'pad-low-gravity': { id: 'low-gravity', gravity: 0.45 },
@@ -8540,17 +8542,23 @@ function completeCampaignStage() {
 
 			} else boostPressedLatch = false;
 
-		// Save Y velocity before physics step for seam bounce detection
-		if ( vehicle?.rigidBody?.motionProperties )
-			seamSuppress.prevVy1 = vehicle.rigidBody.motionProperties.linearVelocity[ 1 ];
-		if ( vehicle2?.rigidBody?.motionProperties )
-			seamSuppress.prevVy2 = vehicle2.rigidBody.motionProperties.linearVelocity[ 1 ];
+		// Save velocity before physics step for seam bounce detection
+		if ( vehicle?.rigidBody?.motionProperties ) {
+			const v = vehicle.rigidBody.motionProperties.linearVelocity;
+			seamSuppress.vy1 = v[ 1 ];
+			seamSuppress.vel1 = [ v[ 0 ], v[ 1 ], v[ 2 ] ];
+		}
+		if ( vehicle2?.rigidBody?.motionProperties ) {
+			const v2 = vehicle2.rigidBody.motionProperties.linearVelocity;
+			seamSuppress.vy2 = v2[ 1 ];
+			seamSuppress.vel2 = [ v2[ 0 ], v2[ 1 ], v2[ 2 ] ];
+		}
 
 		updateWorld( world, contactListener, dt );
 
-		// Suppress seam bounces: cancel upward velocity spikes from collider edges
-		suppressSeamBounce( vehicle, 'prevVy1' );
-		if ( vehicle2 ) suppressSeamBounce( vehicle2, 'prevVy2' );
+		// Suppress seam bounces: cancel upward velocity spikes + speed loss from collider edges
+		suppressSeamBounce( vehicle, '1' );
+		if ( vehicle2 ) suppressSeamBounce( vehicle2, '2' );
 
 			const wasDrifting = vehicle.driftIntensity > 0.25;
 			vehicle.update( dt, padAdjustedInput );
