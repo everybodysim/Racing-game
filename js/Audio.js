@@ -1,5 +1,41 @@
 import * as THREE from 'three';
 
+const RACE_MUSIC_SOURCES = [ 'audio/music.mp3', 'audio/music2.mp3', 'audio/music3.mp3' ];
+const RACE_MUSIC_LAST_KEY = 'racingGameLastRaceMusic';
+
+function chooseRaceMusicSource() {
+
+	if ( RACE_MUSIC_SOURCES.length === 1 ) return RACE_MUSIC_SOURCES[ 0 ];
+
+	let previousSource = null;
+
+	try {
+
+		previousSource = window.sessionStorage?.getItem( RACE_MUSIC_LAST_KEY ) || null;
+
+	} catch ( error ) {
+
+		previousSource = null;
+
+	}
+
+	const choices = RACE_MUSIC_SOURCES.filter( ( source ) => source !== previousSource );
+	const selectedSource = choices[ Math.floor( Math.random() * choices.length ) ] || RACE_MUSIC_SOURCES[ 0 ];
+
+	try {
+
+		window.sessionStorage?.setItem( RACE_MUSIC_LAST_KEY, selectedSource );
+
+	} catch ( error ) {
+
+		// If storage is unavailable, this reload still gets a random track.
+
+	}
+
+	return selectedSource;
+
+}
+
 function remap( value, inMin, inMax, outMin, outMax ) {
 
 	return outMin + ( outMax - outMin ) * ( ( value - inMin ) / ( inMax - inMin ) );
@@ -15,6 +51,7 @@ export class GameAudio {
 		this.engineTextureSound = null;
 		this.skidSound = null;
 		this.musicElement = null;
+		this.musicSource = chooseRaceMusicSource();
 		this.impactBuffer = null;
 		this.impactPool = [];
 		this.impactIndex = 0;
@@ -27,6 +64,7 @@ export class GameAudio {
 		this.targetMusicVolume = 0;
 		this.musicVolume = 0;
 		this.musicStarted = false;
+		this.retryMusicFromGesture = null;
 
 	}
 
@@ -40,10 +78,16 @@ export class GameAudio {
 		this.engineSound = new THREE.Audio( this.listener );
 		this.engineTextureSound = new THREE.Audio( this.listener );
 		this.skidSound = new THREE.Audio( this.listener );
-		this.musicElement = new Audio( 'audio/music.mp3' );
+		this.musicElement = new Audio( this.musicSource );
 		this.musicElement.loop = true;
 		this.musicElement.preload = 'auto';
 		this.musicElement.volume = 0;
+		this.musicElement.addEventListener( 'ended', () => {
+
+			this.musicElement.currentTime = 0;
+			if ( this.unlocked ) this.startMusic();
+
+		} );
 		this.musicElement.load();
 		this.musicReady = true;
 
@@ -118,7 +162,12 @@ export class GameAudio {
 
 		const unlock = () => {
 
-			if ( this.unlocked ) return;
+			if ( this.unlocked ) {
+
+				if ( ! this.musicStarted ) this.startMusic();
+				return;
+
+			}
 			this.unlocked = true;
 
 			// Start music directly inside the user gesture. Waiting for the
@@ -126,17 +175,24 @@ export class GameAudio {
 			this.startMusic();
 			resumeContext();
 
-			window.removeEventListener( 'keydown', unlock );
-			window.removeEventListener( 'click', unlock );
-			window.removeEventListener( 'touchstart', unlock );
-			window.removeEventListener( 'pointerdown', unlock );
-
 		};
 
 		window.addEventListener( 'keydown', unlock );
 		window.addEventListener( 'click', unlock );
 		window.addEventListener( 'touchstart', unlock );
 		window.addEventListener( 'pointerdown', unlock );
+
+		this.retryMusicFromGesture = () => {
+
+			if ( ! this.unlocked || this.musicStarted ) return;
+			this.startMusic();
+
+		};
+
+		window.addEventListener( 'keydown', this.retryMusicFromGesture );
+		window.addEventListener( 'click', this.retryMusicFromGesture );
+		window.addEventListener( 'touchstart', this.retryMusicFromGesture );
+		window.addEventListener( 'pointerdown', this.retryMusicFromGesture );
 		window.addEventListener( 'pagehide', () => this.stopAll() );
 		window.addEventListener( 'beforeunload', () => this.stopAll() );
 		document.addEventListener( 'visibilitychange', () => {
@@ -195,6 +251,11 @@ export class GameAudio {
 		this.musicElement.play().then( () => {
 
 			this.musicStarted = true;
+
+			window.removeEventListener( 'keydown', this.retryMusicFromGesture );
+			window.removeEventListener( 'click', this.retryMusicFromGesture );
+			window.removeEventListener( 'touchstart', this.retryMusicFromGesture );
+			window.removeEventListener( 'pointerdown', this.retryMusicFromGesture );
 
 		} ).catch( () => {
 
