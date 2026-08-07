@@ -165,8 +165,8 @@
 			if ( leaderboardProgressLabel ) leaderboardProgressLabel.textContent = 'Fetching board data\u2026';
 			const payload = await apiRequest();
 			entries = sanitizeBoardEntries( payload?.entries );
-			// Render tracks immediately, hydrate leaderboard data in background
-			render();
+			// Defer render to next frame so loading panel shows immediately
+			requestAnimationFrame( () => render() );
 			hydrateTopLeaderboardRows( entries ).then( () => render() );
 		}
 
@@ -249,7 +249,7 @@
 		async function hydrateTopLeaderboardRows( sourceEntries ) {
 			const next = new Map();
 			const rowsMap = new Map();
-			const CHUNK_SIZE = 25;
+			const CHUNK_SIZE = 40;
 			const bestRowForTrack = ( rows ) => {
 				if ( ! Array.isArray( rows ) || rows.length === 0 ) return null;
 				return rows.slice().sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ] || null;
@@ -282,12 +282,12 @@
 						.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
 					rowsMap.set( primaryId, dedupedRows );
 					next.set( primaryId, bestRowForTrack( dedupedRows ) );
-					setLeaderboardProgress( next.size, trackRequests.length );
-					renderRecordBoard();
 				} );
 				await Promise.all( tasks );
 				topByTrackId = new Map( next );
 				rowsByTrackId = new Map( rowsMap );
+				setLeaderboardProgress( next.size, trackRequests.length );
+				renderRecordBoard();
 			}
 			topByTrackId = next;
 			rowsByTrackId = rowsMap;
@@ -670,12 +670,14 @@
 				.join( '' );
 		}
 
+		const _statsCache = new Map();
 		function getTrackStats( entry ) {
+			if ( _statsCache.has( entry.id ) ) return _statsCache.get( entry.id );
 			const trackId = getTrackIdFromPlayUrl( entry.playUrl );
 			const topRow = topByTrackId.get( trackId ) || null;
 			const previewData = parseTrackLayoutFromUrl( entry.playUrl );
 			const best = Number( topRow?.timeSeconds ?? entry.bestLapSeconds );
-			return {
+			const result = {
 				trackId,
 				topRow,
 				previewData,
@@ -687,6 +689,8 @@
 				bestTime: Number.isFinite( best ) ? best : Infinity,
 				createdAt: Number( entry.createdAt ) || 0,
 			};
+			_statsCache.set( entry.id, result );
+			return result;
 		}
 
 		// Polyfill requestIdleCallback for Safari
@@ -818,6 +822,7 @@
 		}
 
 		function render() {
+			_statsCache.clear();
 			const hasSearch = ( searchInput?.value || '' ).trim().length > 0;
 			grid.innerHTML = '';
 
