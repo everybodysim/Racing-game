@@ -1780,6 +1780,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<a id="nav-clubs" href="clubs.html">Clubs</a>
 				<div class="qm-section-label">Create</div>
 				<a id="nav-editor" href="editor.html">Track Editor</a>
+				<button id="nav-edit-this-track" type="button">✏️ Edit This Track</button>
 				<a id="nav-mods" href="mods.html">Mods</a>
 				<a id="nav-hacks" href="#" style="display:none;">Hacks</a>
 				<div class="qm-section-label">Watch</div>
@@ -2265,6 +2266,16 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		// Club notification badge
 		const navClubs = document.getElementById( 'nav-clubs' );
 		if ( navClubs ) navClubs.classList.add( 'club-notify-target' );
+		// Edit this track — opens editor with current track data
+		const navEditThis = document.getElementById( 'nav-edit-this-track' );
+		if ( navEditThis ) navEditThis.addEventListener( 'click', () => {
+			const resolved = window.__resolvedTrackParams || {};
+			const editorParams = new URLSearchParams();
+			if ( resolved.map ) editorParams.set( 'map', resolved.map );
+			if ( resolved.mods ) editorParams.set( 'mods', resolved.mods );
+			const queryString = editorParams.toString();
+			window.location.href = 'editor.html' + ( queryString ? '?' + queryString : '' );
+		} );
 
 		async function readLeaderboardNameFromPage( pageUrl, selector, fallbackLabel ) {
 			return new Promise( ( resolve ) => {

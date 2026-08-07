@@ -2006,6 +2006,7 @@ async function init() {
 	appendLoadingConsole( 'Before resolvePackedTrackParams' );
 
 	const { mapParam, extrasParam } = await resolvePackedTrackParams( searchParams );
+	window.__resolvedTrackParams = { map: mapParam || '', mods: extrasParam || '' };
 
 	appendLoadingConsole( 'After resolvePackedTrackParams' );
 
