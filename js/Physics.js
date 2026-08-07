@@ -53,7 +53,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const SUPPORT_HALF_EXTENTS = [ CELL_HALF * S, SUPPORT_HALF_HEIGHT, CELL_HALF * S ];
 	const MAGNET_HALF_SIZE = CELL_RAW * S * 0.08;
 	const MAGNET_BASE_Y = ( CELL_RAW * S * 0.08 ) - 0.06;
-	const ELEVATED_SURFACE_HALF_H = 0.12 * S;
+	const ELEVATED_SURFACE_HALF_H = 0.20 * S;
 	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S * 1.08;
 	const FLAT_ELEVATED_SURFACE_DROP = 0.06;
 	const SLOPE_SURFACE_DROP = 0.4;
@@ -73,7 +73,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const slopeTargetHalfLen = Math.max(
 		ELEVATED_SURFACE_HALF_XZ,
 		( ( elevatedSurfaceTopY - slopeBottomY ) * 0.5 - slopeNormalYOffset ) / Math.sin( slopeAngle )
-	);
+	) * 1.15;
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
 	const BUMP_RADIUS = 7.5 * S;
@@ -367,7 +367,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		for ( const rect of activeRects.values() ) finishedRects.push( rect );
 
-		const edgeOverhang = CELL_RAW * S * 0.16;
+		const edgeOverhang = CELL_RAW * S * 0.25;
 		for ( const rect of finishedRects ) {
 
 			const spanCellsX = rect.maxX - rect.minX + 1;
@@ -459,18 +459,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			if ( waterSet.has( `${ gx + dx },${ gz + dz }` ) ) continue;
 			const halfExtents = [ CELL_HALF * S, CELL_RAW * S * 0.19, CELL_RAW * S * 0.04 ];
 			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
-			const position = [ cx + ox, groundY - CELL_RAW * S * 0.16, cz + oz ];
+			// Lower wall so its top is flush with groundY (below the ground surface),
+			// preventing a lip that catches the sphere. The thick ground collider
+			// (0.5 half-height, top at groundY+0.01) now overlaps this wall top.
+			const position = [ cx + ox, groundY - CELL_RAW * S * 0.19, cz + oz ];
 			rigidBody.create( world, { shape: box.create( { halfExtents } ), motionType: MotionType.STATIC, objectLayer: world._OL_STATIC, position, quaternion, friction: 0.9, restitution: 0.0 } );
 			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
-			const bevelHalfExtents = [ CELL_HALF * S, 0.012 * S, CELL_RAW * S * 0.09 ];
-			const bevelPitch = ( dx !== 0 ? - dx : dz ) * WATER_BEVEL_ANGLE;
-			const bevelQuatThree = new THREE.Quaternion().setFromEuler( new THREE.Euler( bevelPitch, yaw, 0, 'YXZ' ) );
-			const bevelQuaternion = [ bevelQuatThree.x, bevelQuatThree.y, bevelQuatThree.z, bevelQuatThree.w ];
-			const bevelInset = CELL_RAW * S * 0.075;
-			const bevelPosition = [ cx + ox - dx * bevelInset, groundY + 0.015, cz + oz - dz * bevelInset ];
-			rigidBody.create( world, { shape: box.create( { halfExtents: bevelHalfExtents } ), motionType: MotionType.STATIC, objectLayer: world._OL_STATIC, position: bevelPosition, quaternion: bevelQuaternion, friction: 0.85, restitution: 0.0 } );
-			if ( debugGroup ) addDebugBox( debugGroup, bevelHalfExtents, bevelPosition, bevelQuaternion );
+
 		}
 
 	}

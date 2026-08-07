@@ -2173,40 +2173,23 @@ async function init() {
 	}
 	function createGroundSurfaceCollider( halfExtents, position ) {
 
+		// Make ground colliders thick so edges are buried deep below the surface.
+		// Thin colliders (0.01 half-height) let the sphere catch on the top edge;
+		// thick colliders (0.5 half-height) bury that edge well below where the
+		// sphere contacts, eliminating the seam-bounce problem.
+		const GROUND_HALF_H = 0.5;
+		const topY = position[ 1 ] + halfExtents[ 1 ];
+		const thickPosition = [ position[ 0 ], topY - GROUND_HALF_H, position[ 2 ] ];
+		const thickHalfExtents = [ halfExtents[ 0 ], GROUND_HALF_H, halfExtents[ 2 ] ];
+
 		rigidBody.create( world, {
-			shape: box.create( { halfExtents } ),
+			shape: box.create( { halfExtents: thickHalfExtents } ),
 			motionType: MotionType.STATIC,
 			objectLayer: OL_STATIC,
-			position,
+			position: thickPosition,
 			friction: 5.0,
 			restitution: 0.0,
 		} );
-
-		const bevelAngle = THREE.MathUtils.degToRad( 1.6 );
-		const bevelDepth = Math.min( cellWorld * 0.08, Math.max( 0.08, Math.min( halfExtents[ 0 ], halfExtents[ 2 ] ) * 0.35 ) );
-		const bevelHalfHeight = 0.008;
-		const bevelY = position[ 1 ] + halfExtents[ 1 ] - bevelHalfHeight;
-		const edges = [
-			{ x: position[ 0 ], z: position[ 2 ] - halfExtents[ 2 ], yaw: 0, pitch: - bevelAngle, half: [ halfExtents[ 0 ], bevelHalfHeight, bevelDepth ] },
-			{ x: position[ 0 ], z: position[ 2 ] + halfExtents[ 2 ], yaw: 0, pitch: bevelAngle, half: [ halfExtents[ 0 ], bevelHalfHeight, bevelDepth ] },
-			{ x: position[ 0 ] - halfExtents[ 0 ], z: position[ 2 ], yaw: Math.PI / 2, pitch: bevelAngle, half: [ halfExtents[ 2 ], bevelHalfHeight, bevelDepth ] },
-			{ x: position[ 0 ] + halfExtents[ 0 ], z: position[ 2 ], yaw: Math.PI / 2, pitch: - bevelAngle, half: [ halfExtents[ 2 ], bevelHalfHeight, bevelDepth ] },
-		];
-		for ( const edge of edges ) {
-
-			if ( edge.half[ 0 ] < 0.05 ) continue;
-			const edgeQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( edge.pitch, edge.yaw, 0, 'YXZ' ) );
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents: edge.half } ),
-				motionType: MotionType.STATIC,
-				objectLayer: OL_STATIC,
-				position: [ edge.x, bevelY, edge.z ],
-				quaternion: [ edgeQuat.x, edgeQuat.y, edgeQuat.z, edgeQuat.w ],
-				friction: 5.0,
-				restitution: 0.0,
-			} );
-
-		}
 
 	}
 	if ( waterCells.length > 0 ) {
