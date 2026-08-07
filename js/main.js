@@ -260,33 +260,30 @@ const seamSuppress = {
 };
 
 function suppressSeamBounce( veh, key ) {
-	if ( ! veh?.rigidBody?.motionProperties ) return;
+	if ( ! veh?.rigidBody?.motionProperties ) return false;
 	const vel = veh.rigidBody.motionProperties.linearVelocity;
 	const vy = vel[ 1 ];
 	const prevVy = seamSuppress[ 'vy' + key ];
 	const savedVel = seamSuppress[ 'vel' + key ];
 
-	// Detect a seam bounce:
-	// - Y velocity is positive (going up) but moderate (< 4.0 m/s)
-	//   Real jumps from ramps produce 5+ m/s — those are NOT suppressed
-	// - Previous Y velocity was small (car was on/near a surface)
-	// - Sudden velocity spike (vyDelta > 0.5 m/s in one step)
+	// Detect a seam bounce — thresholds lowered to catch tiny annoying bumps:
+	// - vy > 0.15 (was 0.3) — catch smaller upward pops
+	// - vyDelta > 0.2 (was 0.5) — catch smaller velocity spikes
+	// - vy < 4.0 — still allows real jumps (ramps give 5+ m/s)
+	// - prevVy > -0.5 — car was ON a surface, not falling from a jump
+	// - prevVy < 1.0 — car wasn't already flying upward
 	const vyDelta = vy - prevVy;
-	// Key: prevVy > -0.5 ensures the car was ON a surface (not falling from a jump).
-	// Without this, landing from a jump (prevVy = -5, vy = +1) would trigger
-	// and restore the falling velocity — making the car fall through the ground!
-	const isSeamBounce = vy > 0.3 && vy < 4.0 && prevVy > - 0.5 && prevVy < 1.0 && vyDelta > 0.5;
+	const isSeamBounce = vy > 0.15 && vy < 4.0 && prevVy > - 0.5 && prevVy < 1.0 && vyDelta > 0.2;
 
 	if ( isSeamBounce && savedVel ) {
 		// Restore the full velocity from before the physics step.
-		// This undoes BOTH the upward bounce AND the forward speed loss
-		// caused by the seam collision. Gravity will pull the car back to
-		// the surface naturally on the next step.
+		// Undoes BOTH the upward bounce AND the forward speed loss.
 		rigidBody.setLinearVelocity( world, veh.rigidBody, savedVel );
 	}
 
 	seamSuppress[ 'vy' + key ] = vy;
 	seamSuppress[ 'vel' + key ] = [ vel[ 0 ], vel[ 1 ], vel[ 2 ] ];
+	return isSeamBounce;
 }
 const PAD_EFFECTS = {
 	'pad-low-gravity': { id: 'low-gravity', gravity: 0.45 },
@@ -5337,24 +5334,39 @@ function completeCampaignStage() {
 	const _magnetDelta = new THREE.Vector3();
 	const _magnetDir = new THREE.Vector3();
 
+	// Crash detection moved to post-physics step (see after updateWorld).
+	// The contact listener used to fire crash sound + camera shake on EVERY
+	// ground contact because it measured forward SPEED (always high when driving)
+	// not actual impact. Now we only crash-detect when the car loses significant
+	// speed in a physics step — which only real collisions cause.
+	let pendingContactBodies = false;
 	const contactListener = {
 		onContactAdded( bodyA, bodyB ) {
-
 			if ( bodyA !== sphereBody && bodyB !== sphereBody ) return;
-
-			_forward.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
-			_forward.y = 0;
-			_forward.normalize();
-
-			const impactVelocity = Math.abs( vehicle.modelVelocity.dot( _forward ) );
-			advancementEvents.emit('crash_happened', { impactVelocity });
-			crashShakeStrength = Math.max( crashShakeStrength, THREE.MathUtils.clamp( ( impactVelocity - 1.1 ) * 0.12, 0, 0.16 ) );
-			crashShakeTime = Math.max( crashShakeTime, THREE.MathUtils.clamp( impactVelocity * 0.03, 0.05, 0.18 ) );
-			audio.playImpact( impactVelocity );
-			dispatchRuntimeModEvent( 'onCrash', { type: 'crash', impactVelocity } );
-
+			pendingContactBodies = true;
 		}
 	};
+
+	function detectCrashFromSpeedLoss( veh, speedBefore, speedAfter, isSeamBounce ) {
+		if ( ! veh ) return;
+		// Skip if this was a seam bounce — not a real crash
+		if ( isSeamBounce ) { pendingContactBodies = false; return; }
+		// Only crash if significant speed loss AND a new contact happened
+		const speedLoss = speedBefore - speedAfter;
+		if ( speedLoss < 1.5 || ! pendingContactBodies ) { pendingContactBodies = false; return; }
+		pendingContactBodies = false;
+
+		_forward.set( 0, 0, 1 ).applyQuaternion( veh.container.quaternion );
+		_forward.y = 0;
+		_forward.normalize();
+
+		const impactVelocity = Math.min( speedLoss * 2.5, Math.abs( veh.modelVelocity.dot( _forward ) ) );
+		advancementEvents.emit('crash_happened', { impactVelocity });
+		crashShakeStrength = Math.max( crashShakeStrength, THREE.MathUtils.clamp( ( impactVelocity - 1.1 ) * 0.12, 0, 0.16 ) );
+		crashShakeTime = Math.max( crashShakeTime, THREE.MathUtils.clamp( impactVelocity * 0.03, 0.05, 0.18 ) );
+		audio.playImpact( impactVelocity );
+		dispatchRuntimeModEvent( 'onCrash', { type: 'crash', impactVelocity } );
+	}
 
 	const timer = new THREE.Timer();
 	let lastFrameNowMs = performance.now();
@@ -8545,23 +8557,37 @@ function completeCampaignStage() {
 
 			} else boostPressedLatch = false;
 
-		// Save velocity before physics step for seam bounce detection
+		// Save velocity + horizontal speed before physics step
+		let speed1Before = 0, speed2Before = 0;
 		if ( vehicle?.rigidBody?.motionProperties ) {
 			const v = vehicle.rigidBody.motionProperties.linearVelocity;
 			seamSuppress.vy1 = v[ 1 ];
 			seamSuppress.vel1 = [ v[ 0 ], v[ 1 ], v[ 2 ] ];
+			speed1Before = Math.sqrt( v[ 0 ] * v[ 0 ] + v[ 2 ] * v[ 2 ] );
 		}
 		if ( vehicle2?.rigidBody?.motionProperties ) {
 			const v2 = vehicle2.rigidBody.motionProperties.linearVelocity;
 			seamSuppress.vy2 = v2[ 1 ];
 			seamSuppress.vel2 = [ v2[ 0 ], v2[ 1 ], v2[ 2 ] ];
+			speed2Before = Math.sqrt( v2[ 0 ] * v2[ 0 ] + v2[ 2 ] * v2[ 2 ] );
 		}
 
 		updateWorld( world, contactListener, dt );
 
-		// Suppress seam bounces: cancel upward velocity spikes + speed loss from collider edges
-		suppressSeamBounce( vehicle, '1' );
-		if ( vehicle2 ) suppressSeamBounce( vehicle2, '2' );
+		// Suppress seam bounces and detect real crashes based on speed loss
+		const seam1 = suppressSeamBounce( vehicle, '1' );
+		const seam2 = vehicle2 ? suppressSeamBounce( vehicle2, '2' ) : false;
+
+		if ( vehicle?.rigidBody?.motionProperties ) {
+			const v = vehicle.rigidBody.motionProperties.linearVelocity;
+			const speed1After = Math.sqrt( v[ 0 ] * v[ 0 ] + v[ 2 ] * v[ 2 ] );
+			detectCrashFromSpeedLoss( vehicle, speed1Before, speed1After, seam1 );
+		}
+		if ( vehicle2?.rigidBody?.motionProperties ) {
+			const v2 = vehicle2.rigidBody.motionProperties.linearVelocity;
+			const speed2After = Math.sqrt( v2[ 0 ] * v2[ 0 ] + v2[ 2 ] * v2[ 2 ] );
+			detectCrashFromSpeedLoss( vehicle2, speed2Before, speed2After, seam2 );
+		}
 
 			const wasDrifting = vehicle.driftIntensity > 0.25;
 			vehicle.update( dt, padAdjustedInput );
@@ -8585,14 +8611,20 @@ function completeCampaignStage() {
 			if ( vehicle?.rigidBody?.motionProperties ) {
 
 				const waterScale = isCameraTargetInWater( vehicle.spherePos ) ? WATER_GRAVITY_SCALE : 1.0;
-				vehicle.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale1 * customModGravityScale * ( hacksActive ? hacksState.gravity : 1.0 ) * waterScale;
+				// Near-ground gravity boost: 1.4x gravity when |Y velocity| < 1.5
+				// (car is on/near a surface). Only applies near ground, NOT in air.
+				const sphereVy1 = vehicle.rigidBody.motionProperties.linearVelocity[ 1 ];
+				const nearGroundBoost1 = Math.abs( sphereVy1 ) < 1.5 ? 1.4 : 1.0;
+				vehicle.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * nearGroundBoost1 * gravityScale1 * customModGravityScale * ( hacksActive ? hacksState.gravity : 1.0 ) * waterScale;
 				applyWaterPhysicsDamping( vehicle, dt );
 
 			}
 			if ( vehicle2?.rigidBody?.motionProperties ) {
 
 				const waterScale2 = isCameraTargetInWater( vehicle2.spherePos ) ? WATER_GRAVITY_SCALE : 1.0;
-				vehicle2.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * gravityScale2 * ( hacksActive ? hacksState.gravity : 1.0 ) * waterScale2;
+				const sphereVy2 = vehicle2.rigidBody.motionProperties.linearVelocity[ 1 ];
+				const nearGroundBoost2 = Math.abs( sphereVy2 ) < 1.5 ? 1.4 : 1.0;
+				vehicle2.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * nearGroundBoost2 * gravityScale2 * ( hacksActive ? hacksState.gravity : 1.0 ) * waterScale2;
 				applyWaterPhysicsDamping( vehicle2, dt );
 
 			}
