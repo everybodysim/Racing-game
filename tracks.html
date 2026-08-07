@@ -688,6 +688,26 @@
 			};
 		}
 
+		// Polyfill requestIdleCallback for Safari
+		if ( ! window.requestIdleCallback ) {
+			window.requestIdleCallback = ( cb, opts ) => setTimeout( () => cb( { didTimeout: false, timeRemaining: () => 0 } ), opts?.timeout || 50 );
+		}
+
+		// Lazy canvas preview — only draw when scrolled into view
+		const previewObserver = new IntersectionObserver( ( entries ) => {
+			for ( const entry of entries ) {
+				if ( ! entry.isIntersecting ) continue;
+				const canvas = entry.target;
+				previewObserver.unobserve( canvas );
+				const cells = JSON.parse( canvas.dataset.cells || '[]' );
+				const mods = JSON.parse( canvas.dataset.mods || '{}' );
+				drawTrackPreview( canvas, cells, mods );
+				// Defer the async hydrate so visible cards paint first
+				const url = canvas.dataset.playUrl;
+				if ( url ) requestIdleCallback( () => hydrateTrackPreviewFromUrl( url, canvas ), { timeout: 2000 } );
+			}
+		}, { rootMargin: '200px' } );
+
 		function createTrackCard( entry, options = {} ) {
 			const stats = getTrackStats( entry );
 			const card = document.createElement( 'div' );
@@ -715,8 +735,10 @@
 				</div>`;
 			if ( ! entry.thumbnailDataUrl ) {
 				const previewCanvas = card.querySelector( '.preview-canvas' );
-				drawTrackPreview( previewCanvas, stats.previewData?.cells || [], stats.previewData?.mods || {} );
-				hydrateTrackPreviewFromUrl( entry.playUrl, previewCanvas );
+				previewCanvas.dataset.cells = JSON.stringify( stats.previewData?.cells || [] );
+				previewCanvas.dataset.mods = JSON.stringify( stats.previewData?.mods || {} );
+				previewCanvas.dataset.playUrl = entry.playUrl;
+				previewObserver.observe( previewCanvas );
 			}
 			return card;
 		}
@@ -728,7 +750,9 @@
 				container.innerHTML = `<div class="card"><h3>Nothing here yet</h3><div class="meta">${ emptyText }</div></div>`;
 				return;
 			}
-			items.forEach( ( entry ) => container.appendChild( createTrackCard( entry, options ) ) );
+			const frag = document.createDocumentFragment();
+			items.forEach( ( entry ) => frag.appendChild( createTrackCard( entry, options ) ) );
+			container.appendChild( frag );
 		}
 
 		function renderHighlights() {
@@ -817,9 +841,11 @@
 					return;
 				}
 
+				const searchFrag = document.createDocumentFragment();
 				for ( const entry of filtered ) {
-					grid.appendChild( createTrackCard( entry ) );
+					searchFrag.appendChild( createTrackCard( entry ) );
 				}
+				grid.appendChild( searchFrag );
 				return;
 			}
 
@@ -848,9 +874,11 @@
 				return;
 			}
 
+			const gridFrag = document.createDocumentFragment();
 			for ( const entry of filtered ) {
-				grid.appendChild( createTrackCard( entry ) );
+				gridFrag.appendChild( createTrackCard( entry ) );
 			}
+			grid.appendChild( gridFrag );
 		}
 
 		async function addEntryFromGhostCode() {
