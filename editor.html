@@ -4805,30 +4805,57 @@ function renderMinimap() {
         const px = (gx + half) * pxPerCell;
         const py = (gz + half) * pxPerCell;
         let color = null;
+        // Elevated track pieces (lighter, drawn first so overlays show on top)
+        if (cell.elevatedType) {
+            const et = cell.elevatedType;
+            if (et === 'elevated-straight' || et === 'slope-up') color = '#c0d0e0';
+            else if (et === 'elevated-corner') color = '#a0b0c8';
+            else if (et === 'elevated-checkpoint') color = '#7ad8ff';
+        }
+        // Road pieces
         if (cell.roadPieces && cell.roadPieces.length) {
             const type = cell.roadPieces[0].type;
             if (type === 'track-start-finish' || type === 'track-finish' || type === 'track-start') color = '#77f3b1';
             else if (type === 'track-checkpoint') color = '#5ac8ff';
             else if (type === 'track-corner') color = '#8899aa';
+            else if (type === 'elevated-straight' || type === 'slope-up') color = '#c0d0e0';
+            else if (type === 'elevated-corner') color = '#a0b0c8';
+            else if (type === 'elevated-checkpoint') color = '#7ad8ff';
             else color = '#a0b0c0';
         }
+        // Water
         if (cell.water) color = '#1f8fd6';
+        // Surfaces (semi-transparent overlay — keep underlying track color as base)
+        if (cell.surfaceTypes && cell.surfaceTypes.length) {
+            const st = cell.surfaceTypes[0];
+            if (st === 'surface-ice') color = color ? color : '#7ad8ff';
+            else if (st === 'surface-boost') color = '#ff4b4b';
+            else if (st === 'surface-sand') color = '#d7b46a';
+            else if (st === 'surface-bounce') color = '#baff7a';
+            else if (st === 'surface-kick-l') color = '#c683ff';
+            else if (st === 'surface-kick-r') color = '#ff83d0';
+        }
+        // Obstacles override
         if (cell.bump) color = color || '#ffaa44';
+        if (cell.jump) color = '#ffdd44';
         if (cell.pole) color = '#ff6644';
         if (cell.cube) color = '#aa66ff';
         if (cell.wall) color = '#666677';
+        if (cell.movingObstacle) color = '#ff66aa';
+        // Decor (subtle green dot)
+        if (cell.decoType && !color) color = '#2d6e2d';
         if (color) { ctx.fillStyle = color; ctx.fillRect(px, py, pxPerCell, pxPerCell); }
     }
     for (const m of magnetBlocks) {
         const px = (m.gx + half) * pxPerCell;
         const py = (m.gz + half) * pxPerCell;
-        ctx.fillStyle = m.type === 'magnet-red' ? '#ff4444' : '#4488ff';
+        ctx.fillStyle = m.type === 'magnet-red' ? '#ff4444' : (m.type === 'magnet-grapple' ? '#44ff88' : '#4488ff');
         ctx.fillRect(px - 1, py - 1, 3, 3);
     }
     for (const a of arcBlocks) {
         const px = (a.gx + half) * pxPerCell;
         const py = (a.gz + half) * pxPerCell;
-        ctx.fillStyle = a.type === 'arc-orange' ? '#ff8800' : (a.type === 'portal-purple' ? '#aa44ff' : '#44ff88');
+        ctx.fillStyle = a.type === 'arc-orange' ? '#ff8800' : (a.type === 'portal-purple' ? '#aa44ff' : (a.type === 'portal-yellow' ? '#ffee44' : '#44ff88'));
         ctx.fillRect(px - 1, py - 1, 3, 3);
     }
     if (selectionStart && selectionEnd) {

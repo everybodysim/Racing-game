@@ -316,19 +316,42 @@
 		}
 
 		function decodeCellsFromMap( mapToken ) {
-			const bytes = decodeBase64Url( mapToken );
-			const typeByIdx = [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-finish' ];
-			const orientByIdx = [ 0, 16, 10, 22 ];
-			const cells = [];
-			for ( let i = 0; i + 2 < bytes.length; i += 3 ) {
-				const gx = bytes.charCodeAt( i ) - 128;
-				const gz = bytes.charCodeAt( i + 1 ) - 128;
-				const packed = bytes.charCodeAt( i + 2 );
-				const type = typeByIdx[ packed >> 2 ] || 'track-straight';
-				const orient = orientByIdx[ packed & 3 ] ?? 0;
-				cells.push( [ gx, gz, type, orient ] );
+			if ( ! mapToken ) return [];
+			// v2 format: JSON with { v: 2, cells: [[gx, gz, type, orient], ...] }
+			// This handles tracks with types beyond the 4 compact types (start/finish, elevated, etc.)
+			if ( typeof mapToken === 'string' && mapToken.startsWith( 'v2.' ) ) {
+				try {
+					const raw = mapToken.slice( 3 ).replace( /-/g, '+' ).replace( /_/g, '/' );
+					const padded = raw + '==='.slice( ( raw.length + 3 ) % 4 );
+					const payload = decodeURIComponent( escape( atob( padded ) ) );
+					const parsed = JSON.parse( payload );
+					const entries = Array.isArray( parsed?.cells ) ? parsed.cells : [];
+					return entries
+						.filter( ( cell ) => Array.isArray( cell ) && cell.length >= 3 )
+						.map( ( cell ) => [ Number( cell[0] ), Number( cell[1] ), cell[2], cell[3] ?? 0 ] )
+						.filter( ( c ) => Number.isFinite( c[0] ) && Number.isFinite( c[1] ) );
+				} catch ( e ) {
+					return [];
+				}
 			}
-			return cells;
+			// Compact codec: 3 bytes per cell
+			try {
+				const bytes = decodeBase64Url( mapToken );
+				const typeByIdx = [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-finish' ];
+				const orientByIdx = [ 0, 16, 10, 22 ];
+				const cells = [];
+				for ( let i = 0; i + 2 < bytes.length; i += 3 ) {
+					const gx = bytes.charCodeAt( i ) - 128;
+					const gz = bytes.charCodeAt( i + 1 ) - 128;
+					const packed = bytes.charCodeAt( i + 2 );
+					const type = typeByIdx[ packed >> 2 ] || 'track-straight';
+					const orient = orientByIdx[ packed & 3 ] ?? 0;
+					cells.push( [ gx, gz, type, orient ] );
+				}
+				return cells;
+			} catch ( e ) {
+				return [];
+			}
 		}
 
 		function decodeModsFromToken( modsToken ) {
@@ -369,6 +392,22 @@
 			};
 		}
 
+
+		function parseGhostPreviewFromUrl( parsedUrl ) {
+			try {
+				const hash = new URLSearchParams( parsedUrl.hash.startsWith( '#' ) ? parsedUrl.hash.slice( 1 ) : parsedUrl.hash );
+				const ghostToken = hash.get( 'ghost' );
+				if ( ! ghostToken ) return null;
+				const payload = decodeBase64UrlJson( ghostToken );
+				const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
+				return samples
+					.map( ( sample ) => ( { x: Number( sample?.x ), z: Number( sample?.z ) } ) )
+					.filter( ( point ) => Number.isFinite( point.x ) && Number.isFinite( point.z ) );
+			} catch ( e ) {
+				return null;
+			}
+		}
+
 		function parseTrackLayoutFromUrl( playUrl ) {
 			let parsed = null;
 			try {
@@ -376,6 +415,7 @@
 			} catch ( e ) {
 				return { cells: [], mods: {} };
 			}
+			const ghostPreview = parseGhostPreviewFromUrl( parsed ) || [];
 			try {
 				const map = parsed.searchParams.get( 'map' );
 				const mods = parsed.searchParams.get( 'mods' );
@@ -385,12 +425,12 @@
 						const packed = JSON.parse( localStorage.getItem( `racing-local-pack:${ localPack }` ) || 'null' );
 						const m = ! map && typeof packed?.map === 'string' ? packed.map : map;
 						const md = ! mods && typeof packed?.mods === 'string' ? packed.mods : mods;
-						return parseTrackLayoutFromParams( m, md );
+						return { ...parseTrackLayoutFromParams( m, md ), ghost: ghostPreview };
 					} catch ( e ) {}
 				}
-				return parseTrackLayoutFromParams( map, mods );
+				return { ...parseTrackLayoutFromParams( map, mods ), ghost: ghostPreview };
 			} catch ( e ) {
-				return { cells: [], mods: {} };
+				return { cells: [], mods: {}, ghost: ghostPreview };
 			}
 		}
 
@@ -399,10 +439,11 @@
 			try {
 				parsed = new URL( playUrl, window.location.href );
 			} catch ( e ) {
-				drawTrackPreview( canvas, [], {} );
+				drawTrackPreview( canvas, [], {}, [] );
 				return;
 			}
 			let previewData = parseTrackLayoutFromUrl( playUrl );
+			const ghost = previewData.ghost || [];
 			const packId = parsed.searchParams.get( 'pack' ) || parsed.searchParams.get( 'sharedPack' );
 			if ( packId && ( ! previewData.cells.length || ! Object.keys( normalizePreviewMods( previewData.mods ) ).some( ( key ) => Array.isArray( previewData.mods[ key ] ) && previewData.mods[ key ].length ) ) ) {
 				try {
@@ -410,7 +451,7 @@
 					if ( payload?.map || payload?.mods ) previewData = parseTrackLayoutFromParams( payload.map, payload.mods );
 				} catch ( e ) {}
 			}
-			drawTrackPreview( canvas, previewData.cells, previewData.mods );
+			drawTrackPreview( canvas, previewData.cells, previewData.mods, ghost );
 		}
 
 		function getTrackCellPreviewColor( type ) {
@@ -488,37 +529,75 @@
 			return blocks.sort( ( a, b ) => a.rank - b.rank );
 		}
 
-		function drawTrackPreview( canvas, cells, mods = {} ) {
+		function drawTrackPreview( canvas, cells, mods = {}, ghost = [] ) {
 			if ( ! canvas ) return;
 			const ctx = canvas.getContext( '2d' );
 			ctx.clearRect( 0, 0, canvas.width, canvas.height );
 			ctx.fillStyle = '#0d1118';
 			ctx.fillRect( 0, 0, canvas.width, canvas.height );
 			const blocks = collectPreviewBlocks( cells, mods );
+			// Include ghost points in bounds
+			const hasGhost = Array.isArray( ghost ) && ghost.length > 1;
+			if ( hasGhost ) {
+				for ( const g of ghost ) {
+					if ( Number.isFinite( g.x ) && Number.isFinite( g.z ) ) {
+						blocks.push( { x: g.x, z: g.z, color: 'transparent', rank: -1, scale: 0 } );
+					}
+				}
+			}
 			if ( blocks.length === 0 ) {
-				ctx.fillStyle = '#93f4b7';
-				ctx.font = '700 13px sans-serif';
-				ctx.fillText( 'No track blocks found in URL', 24, 36 );
+				// Fallback: draw a simple track icon so the canvas isn't blank
+				ctx.strokeStyle = '#4da3ff';
+				ctx.lineWidth = 3;
+				ctx.beginPath();
+				const cx = canvas.width / 2, cy = canvas.height / 2;
+				const r = Math.min( canvas.width, canvas.height ) * 0.3;
+				ctx.arc( cx, cy, r, 0, Math.PI * 1.5 );
+				ctx.stroke();
+				ctx.beginPath();
+				ctx.arc( cx, cy, r * 0.6, 0, Math.PI * 1.5 );
+				ctx.stroke();
+				ctx.fillStyle = 'rgba(255,255,255,0.35)';
+				ctx.font = '600 12px sans-serif';
+				ctx.textAlign = 'center';
+				ctx.fillText( 'Preview unavailable', cx, cy + r + 18 );
 				return;
 			}
-			const xs = blocks.map( ( block ) => block.x );
-			const zs = blocks.map( ( block ) => block.z );
-			const minX = Math.min( ...xs );
-			const maxX = Math.max( ...xs );
-			const minZ = Math.min( ...zs );
-			const maxZ = Math.max( ...zs );
+			// Loop-based bounds (avoids Math.min(...xs) stack overflow on large tracks)
+			let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+			for ( const b of blocks ) {
+				if ( b.x < minX ) minX = b.x;
+				if ( b.x > maxX ) maxX = b.x;
+				if ( b.z < minZ ) minZ = b.z;
+				if ( b.z > maxZ ) maxZ = b.z;
+			}
 			const pad = 10;
 			const spanX = Math.max( 1, maxX - minX + 1 );
 			const spanZ = Math.max( 1, maxZ - minZ + 1 );
 			const size = Math.max( 3, Math.min( 26, Math.floor( Math.min( ( canvas.width - pad * 2 ) / spanX, ( canvas.height - pad * 2 ) / spanZ ) ) ) );
 			const offsetX = ( canvas.width - spanX * size ) / 2;
 			const offsetY = ( canvas.height - spanZ * size ) / 2;
+			const toPix = ( x, z ) => [ offsetX + ( x - minX ) * size, offsetY + ( z - minZ ) * size ];
+			// Draw blocks (skip transparent ghost-only bounds entries)
 			for ( const block of blocks ) {
+				if ( block.color === 'transparent' ) continue;
 				const px = offsetX + ( block.x - minX ) * size;
 				const py = offsetY + ( block.z - minZ ) * size;
 				ctx.fillStyle = block.color;
 				const blockSize = Math.max( 2, size * ( block.scale || 1 ) );
 				ctx.fillRect( Math.round( px + ( size - blockSize ) / 2 ) + 1, Math.round( py + ( size - blockSize ) / 2 ) + 1, Math.max( 1, blockSize - 2 ), Math.max( 1, blockSize - 2 ) );
+			}
+			// Ghost racing line
+			if ( hasGhost ) {
+				ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+				ctx.lineWidth = Math.max( 1, size * 0.12 );
+				ctx.beginPath();
+				for ( let i = 0; i < ghost.length; i++ ) {
+					const [ px, py ] = toPix( ghost[ i ].x, ghost[ i ].z );
+					if ( i === 0 ) ctx.moveTo( px + size / 2, py + size / 2 );
+					else ctx.lineTo( px + size / 2, py + size / 2 );
+				}
+				ctx.stroke();
 			}
 		}
 
@@ -660,7 +739,7 @@
 				</div>`;
 			if ( ! entry.thumbnailDataUrl ) {
 				const previewCanvas = card.querySelector( '.preview-canvas' );
-				drawTrackPreview( previewCanvas, stats.previewData?.cells || [], stats.previewData?.mods || {} );
+				drawTrackPreview( previewCanvas, stats.previewData?.cells || [], stats.previewData?.mods || {}, stats.previewData?.ghost || [] );
 				hydrateTrackPreviewFromUrl( entry.playUrl, previewCanvas );
 			}
 			return card;
