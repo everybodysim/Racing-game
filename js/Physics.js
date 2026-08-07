@@ -56,26 +56,24 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const ELEVATED_SURFACE_HALF_H = 0.20 * S;
 	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S * 1.08;
 	const FLAT_ELEVATED_SURFACE_DROP = 0.06;
+	const SLOPE_SURFACE_DROP = 0.4;
+	const SLOPE_TOP_BLEND_RAISE = 0.05;
 	const SLOPE_LOWER_EDGE_SHIFT = CELL_RAW * S * 0.12;
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const ELEVATED_WALL_HALF_H = WALL_HALF_H * S;
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
 	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT - FLAT_ELEVATED_SURFACE_DROP;
-	// Perfect slope angle: from ground collider top to elevated surface collider top
-	const groundTopY = groundY + 0.01; // matches createGroundSurfaceCollider top face
-	const elevatedSurfaceTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H; // matches elevated surface collider top face
-	const slopeDy = elevatedSurfaceTopY - groundTopY;
-	const slopeDx = CELL_RAW * S;
-	const slopeAngle = Math.atan2( slopeDy, slopeDx );
-	const slopeLength = Math.sqrt( slopeDy * slopeDy + slopeDx * slopeDx );
-	const slopeTargetHalfLen = Math.max( ELEVATED_SURFACE_HALF_XZ, slopeLength * 0.5 );
-	const slopeSurfaceCenterY = ( groundTopY + elevatedSurfaceTopY ) * 0.5;
+	const slopeAngle = Math.atan2( CELL_RAW * 0.5, CELL_RAW );
+	const baseSlopeCenterY = groundY + ( ELEVATED_HEIGHT * 0.5 ) - SLOPE_SURFACE_DROP;
 	const slopeNormalYOffset = Math.cos( slopeAngle ) * ELEVATED_SURFACE_HALF_H;
-	const slopeTargetCenterY = slopeSurfaceCenterY - slopeNormalYOffset;
-	// Support triangle: tilted box filling the space between slope surface and ground
-	const slopePerpDist = slopeDy * slopeDx / slopeLength;
-	const slopeSupportHalfThickness = Math.ceil( ( slopePerpDist / 2 + ELEVATED_SURFACE_HALF_H ) * 100 ) / 100;
-	const slopeSupportCenterY = slopeSurfaceCenterY - ( ELEVATED_SURFACE_HALF_H + slopeSupportHalfThickness ) * Math.cos( slopeAngle );
+	const baseSlopeForwardYOffset = Math.sin( slopeAngle ) * ELEVATED_SURFACE_HALF_XZ;
+	const slopeBottomY = baseSlopeCenterY - baseSlopeForwardYOffset - slopeNormalYOffset;
+	const elevatedSurfaceTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H + SLOPE_TOP_BLEND_RAISE;
+	const slopeTargetCenterY = ( elevatedSurfaceTopY + slopeBottomY ) * 0.5;
+	const slopeTargetHalfLen = Math.max(
+		ELEVATED_SURFACE_HALF_XZ,
+		( ( elevatedSurfaceTopY - slopeBottomY ) * 0.5 - slopeNormalYOffset ) / Math.sin( slopeAngle )
+	) * 1.15;
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
 	const BUMP_RADIUS = 7.5 * S;
@@ -283,30 +281,6 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 		addSlopeSideWalls( gx, gz, orient );
-
-	}
-
-	function addSlopeSupportCollider( gx, gz, orient = 0 ) {
-
-		const cx = ( gx + 0.5 ) * CELL_RAW * S;
-		const cz = ( gz + 0.5 ) * CELL_RAW * S;
-		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
-		const shiftX = Math.sin( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
-		const shiftZ = Math.cos( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
-		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( slopeAngle, yaw, 0, 'YXZ' ) );
-		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
-		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, slopeSupportHalfThickness, slopeTargetHalfLen ];
-		const position = [ cx + shiftX, slopeSupportCenterY, cz + shiftZ ];
-		rigidBody.create( world, {
-			shape: box.create( { halfExtents } ),
-			motionType: MotionType.STATIC,
-			objectLayer: world._OL_STATIC,
-			position,
-			quaternion,
-			friction: 0.0,
-			restitution: 0.0,
-		} );
-		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
 	}
 
@@ -716,7 +690,6 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		if ( normalizedType === 'slope-up' ) {
 
 			addSlopeCollider( nx, nz, normalizedOrient, true );
-			addSlopeSupportCollider( nx, nz, normalizedOrient );
 			continue;
 
 		}
