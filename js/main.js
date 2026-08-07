@@ -272,7 +272,10 @@ function suppressSeamBounce( veh, key ) {
 	// - Previous Y velocity was small (car was on/near a surface)
 	// - Sudden velocity spike (vyDelta > 0.5 m/s in one step)
 	const vyDelta = vy - prevVy;
-	const isSeamBounce = vy > 0.3 && vy < 4.0 && prevVy < 1.0 && vyDelta > 0.5;
+	// Key: prevVy > -0.5 ensures the car was ON a surface (not falling from a jump).
+	// Without this, landing from a jump (prevVy = -5, vy = +1) would trigger
+	// and restore the falling velocity — making the car fall through the ground!
+	const isSeamBounce = vy > 0.3 && vy < 4.0 && prevVy > - 0.5 && prevVy < 1.0 && vyDelta > 0.5;
 
 	if ( isSeamBounce && savedVel ) {
 		// Restore the full velocity from before the physics step.
