@@ -332,8 +332,34 @@
 		}
 
 		function decodeModsFromToken( modsToken ) {
+			if ( ! modsToken || modsToken === 'none' ) return { b: [], u: [], d: [] };
 			const decoded = decodeBase64Url( modsToken );
 			return JSON.parse( decodeURIComponent( escape( decoded ) ) );
+		}
+
+		const previewPackCache = new Map();
+
+		async function resolvePreviewPackPayload( packId ) {
+			const safePackId = String( packId || '' ).trim();
+			if ( ! safePackId ) return null;
+			if ( previewPackCache.has( safePackId ) ) return previewPackCache.get( safePackId );
+			const promise = ( async () => {
+				for ( const prefix of TRACK_SHARE_API_PREFIXES ) {
+					try {
+						const response = await fetch( `${ TRACK_SHARE_API_ROOT }${ prefix }/packs/${ encodeURIComponent( safePackId ) }`, { cache: 'no-store' } );
+						if ( ! response.ok ) continue;
+						const payload = await response.json();
+						if ( payload?.ok ) return payload;
+					} catch ( e ) {}
+				}
+				return null;
+			} )();
+			previewPackCache.set( safePackId, promise );
+			return promise;
+		}
+
+		function normalizePreviewMods( mods ) {
+			return ( mods && typeof mods === 'object' ) ? mods : { b: [], u: [], d: [] };
 		}
 
 		function parseTrackLayoutFromParams( map, mods ) {
