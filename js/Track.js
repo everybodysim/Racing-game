@@ -766,24 +766,61 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		let minX = Infinity, maxX = - Infinity;
 		let minZ = Infinity, maxZ = - Infinity;
 
-		for ( const [ gx, gz ] of [ ...cells, ...waterCellsForDeco ] ) {
+		// Helper: mark integer grid cells overlapping a (possibly off-grid) cell
+		// as tree-blocked (ground without trees) and expand the coverage bounds.
+		function blockCellForTrees( gx, gz, markOccupied ) {
+			gx = Number( gx );
+			gz = Number( gz );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) return;
 
-			occupied.add( gx + ',' + gz );
 			minX = Math.min( minX, gx );
 			maxX = Math.max( maxX, gx );
 			minZ = Math.min( minZ, gz );
 			maxZ = Math.max( maxZ, gz );
 
+			if ( markOccupied ) occupied.add( gx + ',' + gz );
+
+			// Compute the range of integer grid cells this cell overlaps.
+			// For on-grid cells (integer coords), this is just the cell itself.
+			// For off-grid cells (fractional coords), this covers all integer
+			// cells whose area the cell surface intersects — prevents trees
+			// from spawning under off-grid track pieces.
 			const minBlockX = Math.floor( gx );
 			const maxBlockX = Math.ceil( gx + 1 ) - 1;
 			const minBlockZ = Math.floor( gz );
 			const maxBlockZ = Math.ceil( gz + 1 ) - 1;
 			for ( let bx = minBlockX; bx <= maxBlockX; bx ++ ) {
-
-				for ( let bz = minBlockZ; bz <= maxBlockZ; bz ++ ) treeBlocked.add( bx + ',' + bz );
-
+				for ( let bz = minBlockZ; bz <= maxBlockZ; bz ++ ) {
+					treeBlocked.add( bx + ',' + bz );
+				}
 			}
+		}
 
+		// Track cells + water cells: occupied (skip ground) + tree-blocked
+		for ( const [ gx, gz ] of [ ...cells, ...waterCellsForDeco ] ) {
+			blockCellForTrees( gx, gz, true );
+		}
+
+		// ALL other extras with physical extent: tree-blocked only (ground
+		// still placed underneath, but no trees spawning through them).
+		// This includes elevated surfaces, walls, cubes, bumps, jumps, poles,
+		// decorations, magnets, surfaces, arc links, and moving obstacles —
+		// all of which can be placed off-grid and would cause trees to spawn
+		// through them if not blocked.
+		if ( extras ) {
+			const extraLists = [
+				extras.elevated, extras.walls, extras.cubes, extras.bumps,
+				extras.boosts, extras.jumps, extras.poles, extras.decorations,
+				extras.surfaces, extras.magnets, extras.arcLinks,
+				extras.movingObstacles, extras.customPool,
+			];
+			for ( const list of extraLists ) {
+				if ( ! Array.isArray( list ) ) continue;
+				for ( const entry of list ) {
+					if ( ! Array.isArray( entry ) ) continue;
+					blockCellForTrees( entry[ 0 ], entry[ 1 ], false );
+				}
+			}
 		}
 
 		// Also mark existing decoration cells as occupied
