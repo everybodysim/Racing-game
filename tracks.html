@@ -31,6 +31,8 @@
 		<script>
 			const API_BASE = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
 			const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
+			const TRACK_SHARE_API_ROOT = 'https://racing-track-board-api.ga1010.workers.dev';
+			const TRACK_SHARE_API_PREFIXES = [ '/api', '' ];
 			const nameInput = document.getElementById( 'track-name' );
 		const ghostInput = document.getElementById( 'ghost-code' );
 		const descriptionInput = document.getElementById( 'track-description' );
@@ -330,23 +332,41 @@
 		}
 
 		function decodeModsFromToken( modsToken ) {
+			if ( ! modsToken || modsToken === 'none' ) return { b: [], u: [], d: [] };
 			const decoded = decodeBase64Url( modsToken );
 			return JSON.parse( decodeURIComponent( escape( decoded ) ) );
 		}
 
-		function parseGhostPreviewFromUrl( parsedUrl ) {
-			try {
-				const hash = new URLSearchParams( parsedUrl.hash.startsWith( '#' ) ? parsedUrl.hash.slice( 1 ) : parsedUrl.hash );
-				const ghostToken = hash.get( 'ghost' );
-				if ( ! ghostToken ) return null;
-				const payload = decodeBase64UrlJson( ghostToken );
-				const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
-				return samples
-					.map( ( sample ) => ( { x: Number( sample?.x ), z: Number( sample?.z ) } ) )
-					.filter( ( point ) => Number.isFinite( point.x ) && Number.isFinite( point.z ) );
-			} catch ( e ) {
+		const previewPackCache = new Map();
+
+		async function resolvePreviewPackPayload( packId ) {
+			const safePackId = String( packId || '' ).trim();
+			if ( ! safePackId ) return null;
+			if ( previewPackCache.has( safePackId ) ) return previewPackCache.get( safePackId );
+			const promise = ( async () => {
+				for ( const prefix of TRACK_SHARE_API_PREFIXES ) {
+					try {
+						const response = await fetch( `${ TRACK_SHARE_API_ROOT }${ prefix }/packs/${ encodeURIComponent( safePackId ) }`, { cache: 'no-store' } );
+						if ( ! response.ok ) continue;
+						const payload = await response.json();
+						if ( payload?.ok ) return payload;
+					} catch ( e ) {}
+				}
 				return null;
-			}
+			} )();
+			previewPackCache.set( safePackId, promise );
+			return promise;
+		}
+
+		function normalizePreviewMods( mods ) {
+			return ( mods && typeof mods === 'object' ) ? mods : { b: [], u: [], d: [] };
+		}
+
+		function parseTrackLayoutFromParams( map, mods ) {
+			return {
+				cells: map ? decodeCellsFromMap( map ) : [],
+				mods: mods ? decodeModsFromToken( mods ) : { b: [], u: [], d: [] },
+			};
 		}
 
 		function parseTrackLayoutFromUrl( playUrl ) {
@@ -354,9 +374,8 @@
 			try {
 				parsed = new URL( playUrl, window.location.href );
 			} catch ( e ) {
-				return null;
+				return { cells: [], mods: {} };
 			}
-			const ghostPreview = parseGhostPreviewFromUrl( parsed ) || [];
 			try {
 				const map = parsed.searchParams.get( 'map' );
 				const mods = parsed.searchParams.get( 'mods' );
@@ -366,65 +385,140 @@
 						const packed = JSON.parse( localStorage.getItem( `racing-local-pack:${ localPack }` ) || 'null' );
 						const m = ! map && typeof packed?.map === 'string' ? packed.map : map;
 						const md = ! mods && typeof packed?.mods === 'string' ? packed.mods : mods;
-						if ( m ) return { cells: decodeCellsFromMap( m ), mods: md ? decodeModsFromToken( md ) : { b: [], u: [], d: [] } };
+						return parseTrackLayoutFromParams( m, md );
 					} catch ( e ) {}
 				}
-				if ( map ) {
-					return {
-						cells: decodeCellsFromMap( map ),
-						mods: mods ? decodeModsFromToken( mods ) : { b: [], u: [], d: [] },
-					};
-				}
+				return parseTrackLayoutFromParams( map, mods );
 			} catch ( e ) {
-				// Fall through to ghost preview
+				return { cells: [], mods: {} };
 			}
-			return ghostPreview.length > 1 ? { cells: [], mods: {}, ghost: ghostPreview } : null;
 		}
 
-		function drawTrackPreview( canvas, cells, mods = {}, ghost = [] ) {
+		async function hydrateTrackPreviewFromUrl( playUrl, canvas ) {
+			let parsed = null;
+			try {
+				parsed = new URL( playUrl, window.location.href );
+			} catch ( e ) {
+				drawTrackPreview( canvas, [], {} );
+				return;
+			}
+			let previewData = parseTrackLayoutFromUrl( playUrl );
+			const packId = parsed.searchParams.get( 'pack' ) || parsed.searchParams.get( 'sharedPack' );
+			if ( packId && ( ! previewData.cells.length || ! Object.keys( normalizePreviewMods( previewData.mods ) ).some( ( key ) => Array.isArray( previewData.mods[ key ] ) && previewData.mods[ key ].length ) ) ) {
+				try {
+					const payload = await resolvePreviewPackPayload( packId );
+					if ( payload?.map || payload?.mods ) previewData = parseTrackLayoutFromParams( payload.map, payload.mods );
+				} catch ( e ) {}
+			}
+			drawTrackPreview( canvas, previewData.cells, previewData.mods );
+		}
+
+		function getTrackCellPreviewColor( type ) {
+			if ( type === 'track-finish' || type === 'track-start-finish' || type === 'track-start' ) return '#77f3b1';
+			if ( type === 'track-checkpoint' ) return '#5ac8ff';
+			if ( type === 'track-corner' ) return '#8899aa';
+			return '#a0b0c0';
+		}
+
+		function getSurfacePreviewColor( surfaceType, mods ) {
+			if ( String( surfaceType || '' ).startsWith( 'surface-custom-' ) ) return mods?.c?.[ surfaceType ]?.color || '#9c7bff';
+			if ( String( surfaceType || '' ).startsWith( 'pad-custom-' ) ) return mods?.y?.[ surfaceType ]?.color || '#7fb7ff';
+			if ( surfaceType === 'surface-ice' ) return '#9be7ff';
+			if ( surfaceType === 'surface-boost' ) return '#ffdf5d';
+			if ( surfaceType === 'surface-wood' ) return '#c58b45';
+			if ( surfaceType === 'surface-mud' ) return '#8b5a2b';
+			if ( surfaceType === 'surface-gravel' ) return '#94a3b8';
+			return '#facc15';
+		}
+
+		function getPreviewBlockColor( key, item, mods ) {
+			switch ( key ) {
+				case 'u': return getSurfacePreviewColor( item?.[ 2 ], mods );
+				case 'b': return '#ffaa44';
+				case 'p': return '#ff6644';
+				case 'k': return '#aa66ff';
+				case 'l': return '#666677';
+				case 'j': return '#38bdf8';
+				case 'q': return '#1f8fd6';
+				case 'o': return item?.[ 2 ] === 'moving-custom' && item?.[ 5 ]?.color ? item[ 5 ].color : '#fb7185';
+				case 'e': return '#c084fc';
+				case 'd': return String( item?.[ 2 ] || '' ).startsWith( 'custom:' ) ? '#f472b6' : '#94a3b8';
+				case 'm': return item?.[ 3 ] === 'red' ? '#ff4444' : '#4488ff';
+				case 'a': return item?.[ 3 ] === 'orange' ? '#ff8800' : ( item?.[ 3 ] === 'portal-purple' ? '#aa44ff' : ( item?.[ 3 ] === 'portal-yellow' ? '#facc15' : '#44ff88' ) );
+				case 's': return '#22c55e';
+				default: return '#e5e7eb';
+			}
+		}
+
+		function getPreviewBlockRank( key ) {
+			if ( key === 'u' || key === 's' ) return 5;
+			if ( key === 'q' ) return 15;
+			if ( key === 'b' ) return 25;
+			if ( key === 'j' || key === 'e' ) return 35;
+			if ( key === 'l' || key === 'p' || key === 'k' || key === 'o' || key === 'd' ) return 45;
+			if ( key === 'm' || key === 'a' ) return 55;
+			return 30;
+		}
+
+		function getPreviewItemCoords( item ) {
+			if ( Array.isArray( item ) ) return [ item[ 0 ], item[ 1 ] ];
+			if ( item && typeof item === 'object' ) return [ item.gx ?? item.x, item.gz ?? item.z ];
+			return [ NaN, NaN ];
+		}
+
+		function collectPreviewBlocks( cells, mods = {} ) {
+			const normalizedMods = normalizePreviewMods( mods );
+			const blocks = [];
+			const add = ( x, z, color, rank = 0, scale = 1 ) => {
+				const nx = Number( x );
+				const nz = Number( z );
+				if ( Number.isFinite( nx ) && Number.isFinite( nz ) ) blocks.push( { x: nx, z: nz, color, rank, scale } );
+			};
+			for ( const cell of Array.isArray( cells ) ? cells : [] ) {
+				add( cell?.[ 0 ], cell?.[ 1 ], getTrackCellPreviewColor( cell?.[ 2 ] ), 20 );
+			}
+			for ( const [ key, value ] of Object.entries( normalizedMods ) ) {
+				if ( ! Array.isArray( value ) ) continue;
+				for ( const item of value ) {
+					const [ x, z ] = getPreviewItemCoords( item );
+					const isPin = key === 'm' || key === 'a';
+					add( x, z, getPreviewBlockColor( key, item, normalizedMods ), getPreviewBlockRank( key ), isPin ? 0.42 : 1 );
+				}
+			}
+			return blocks.sort( ( a, b ) => a.rank - b.rank );
+		}
+
+		function drawTrackPreview( canvas, cells, mods = {} ) {
 			if ( ! canvas ) return;
-			const hasCells = Array.isArray( cells ) && cells.length > 0;
-			const hasGhost = Array.isArray( ghost ) && ghost.length > 1;
-			if ( ! hasCells && ! hasGhost ) return;
 			const ctx = canvas.getContext( '2d' );
 			ctx.clearRect( 0, 0, canvas.width, canvas.height );
-			const allXs = [ ...( hasCells ? cells.map( ( c ) => c[ 0 ] ) : [] ), ...( hasGhost ? ghost.map( ( g ) => g.x ) : [] ) ];
-			const allZs = [ ...( hasCells ? cells.map( ( c ) => c[ 1 ] ) : [] ), ...( hasGhost ? ghost.map( ( g ) => g.z ) : [] ) ];
-			const minX = Math.min( ...allXs ) - 1;
-			const maxX = Math.max( ...allXs ) + 1;
-			const minZ = Math.min( ...allZs ) - 1;
-			const maxZ = Math.max( ...allZs ) + 1;
-			const gw = maxX - minX + 1;
-			const gh = maxZ - minZ + 1;
-			const pad = 8;
-			const size = Math.max( 4, Math.floor( Math.min( ( canvas.width - pad * 2 ) / gw, ( canvas.height - pad * 2 ) / gh ) ) );
-			const toPix = ( x, z ) => [ pad + ( x - minX ) * size, pad + ( z - minZ ) * size ];
-			for ( const [ x, z, type ] of cells ) {
-				const [ px, py ] = toPix( x, z );
-				ctx.fillStyle = type === 'track-finish' ? '#72e39a'
-					: type === 'track-checkpoint' ? '#ffd54f'
-					: type === 'track-corner' ? '#b084ff'
-					: '#4da3ff';
-				ctx.fillRect( px + 1, py + 1, size - 2, size - 2 );
+			ctx.fillStyle = '#0d1118';
+			ctx.fillRect( 0, 0, canvas.width, canvas.height );
+			const blocks = collectPreviewBlocks( cells, mods );
+			if ( blocks.length === 0 ) {
+				ctx.fillStyle = '#93f4b7';
+				ctx.font = '700 13px sans-serif';
+				ctx.fillText( 'No track blocks found in URL', 24, 36 );
+				return;
 			}
-			ctx.strokeStyle = '#ff4d4d';
-			for ( const [ x, z ] of ( mods.b || [] ) ) {
-				const [ px, py ] = toPix( x, z );
-				ctx.beginPath();
-				ctx.arc( px + size / 2, py + size / 2, Math.max( 2, size * 0.22 ), 0, Math.PI * 2 );
-				ctx.stroke();
-			}
-			// Ghost racing line
-			if ( Array.isArray( ghost ) && ghost.length > 1 ) {
-				ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-				ctx.lineWidth = Math.max( 1, size * 0.12 );
-				ctx.beginPath();
-				for ( let i = 0; i < ghost.length; i ++ ) {
-					const [ px, py ] = toPix( ghost[ i ].x, ghost[ i ].z );
-					if ( i === 0 ) ctx.moveTo( px + size / 2, py + size / 2 );
-					else ctx.lineTo( px + size / 2, py + size / 2 );
-				}
-				ctx.stroke();
+			const xs = blocks.map( ( block ) => block.x );
+			const zs = blocks.map( ( block ) => block.z );
+			const minX = Math.min( ...xs );
+			const maxX = Math.max( ...xs );
+			const minZ = Math.min( ...zs );
+			const maxZ = Math.max( ...zs );
+			const pad = 10;
+			const spanX = Math.max( 1, maxX - minX + 1 );
+			const spanZ = Math.max( 1, maxZ - minZ + 1 );
+			const size = Math.max( 3, Math.min( 26, Math.floor( Math.min( ( canvas.width - pad * 2 ) / spanX, ( canvas.height - pad * 2 ) / spanZ ) ) ) );
+			const offsetX = ( canvas.width - spanX * size ) / 2;
+			const offsetY = ( canvas.height - spanZ * size ) / 2;
+			for ( const block of blocks ) {
+				const px = offsetX + ( block.x - minX ) * size;
+				const py = offsetY + ( block.z - minZ ) * size;
+				ctx.fillStyle = block.color;
+				const blockSize = Math.max( 2, size * ( block.scale || 1 ) );
+				ctx.fillRect( Math.round( px + ( size - blockSize ) / 2 ) + 1, Math.round( py + ( size - blockSize ) / 2 ) + 1, Math.max( 1, blockSize - 2 ), Math.max( 1, blockSize - 2 ) );
 			}
 		}
 
@@ -550,7 +644,7 @@
 					<span class="badge">🏁 ${ stats.sizeTag }</span>
 					<span class="badge">🧭 ${ stats.styleTag }</span>
 				</div>
-				${ entry.thumbnailDataUrl ? `<img class="preview-canvas" src="${ entry.thumbnailDataUrl }" alt="Track thumbnail for ${ entry.name }">` : `<canvas class="preview-canvas" width="300" height="180" aria-label="Track preview for ${ entry.name }"></canvas>` }
+				${ entry.thumbnailDataUrl ? `<img class="preview-canvas" src="${ entry.thumbnailDataUrl }" alt="Track thumbnail for ${ entry.name }">` : `<canvas class="preview-canvas" width="300" height="180" aria-label="2D block preview for ${ entry.name }"></canvas>` }
 				<div class="stat-grid">
 					<div class="stat"><span>Best time</span><b>${ stats.bestTime === Infinity ? '--.--' : formatSeconds( stats.bestTime ) }</b></div>
 					<div class="stat"><span>Record holder</span><b>${ stats.topRow ? stats.topRow.name : 'Open' }</b></div>
@@ -564,7 +658,11 @@
 					<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
 					<button data-id="${ entry.id }" type="button">Remove</button>
 				</div>`;
-			if ( ! entry.thumbnailDataUrl && stats.previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), stats.previewData.cells, stats.previewData.mods, stats.previewData.ghost || [] );
+			if ( ! entry.thumbnailDataUrl ) {
+				const previewCanvas = card.querySelector( '.preview-canvas' );
+				drawTrackPreview( previewCanvas, stats.previewData?.cells || [], stats.previewData?.mods || {} );
+				hydrateTrackPreviewFromUrl( entry.playUrl, previewCanvas );
+			}
 			return card;
 		}
 
