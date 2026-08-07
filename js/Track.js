@@ -766,8 +766,19 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		let minX = Infinity, maxX = - Infinity;
 		let minZ = Infinity, maxZ = - Infinity;
 
-		// Helper: mark integer grid cells overlapping a (possibly off-grid) cell
-		// as tree-blocked (ground without trees) and expand the coverage bounds.
+		// Helper: mark integer grid cells whose CENTER falls inside a
+		// (possibly off-grid) cell's footprint as tree-blocked, and expand
+		// the coverage bounds so ground fills all gaps.
+		//
+		// A cell at (gx, gz) covers (gx, gz) to (gx+1, gz+1).
+		// Integer cell (cx, cz) has its center at (cx+0.5, cz+0.5).
+		// The center is inside the footprint when:
+		//   gx <= cx+0.5 < gx+1   →   ceil(gx - 0.5) <= cx <= floor(gx + 0.5)
+		//
+		// For on-grid cells (integer gx): exactly one cell matches (itself).
+		// For off-grid cells (fractional gx): typically one cell matches —
+		// the one whose center is closest to the block's center. When the
+		// block sits exactly on a seam (gx = N + 0.5), two cells match.
 		function blockCellForTrees( gx, gz, markOccupied ) {
 			gx = Number( gx );
 			gz = Number( gz );
@@ -780,15 +791,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 			if ( markOccupied ) occupied.add( gx + ',' + gz );
 
-			// Compute the range of integer grid cells this cell overlaps.
-			// For on-grid cells (integer coords), this is just the cell itself.
-			// For off-grid cells (fractional coords), this covers all integer
-			// cells whose area the cell surface intersects — prevents trees
-			// from spawning under off-grid track pieces.
-			const minBlockX = Math.floor( gx );
-			const maxBlockX = Math.ceil( gx + 1 ) - 1;
-			const minBlockZ = Math.floor( gz );
-			const maxBlockZ = Math.ceil( gz + 1 ) - 1;
+			const minBlockX = Math.ceil( gx - 0.5 );
+			const maxBlockX = Math.floor( gx + 0.5 );
+			const minBlockZ = Math.ceil( gz - 0.5 );
+			const maxBlockZ = Math.floor( gz + 0.5 );
 			for ( let bx = minBlockX; bx <= maxBlockX; bx ++ ) {
 				for ( let bz = minBlockZ; bz <= maxBlockZ; bz ++ ) {
 					treeBlocked.add( bx + ',' + bz );
@@ -801,26 +807,35 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			blockCellForTrees( gx, gz, true );
 		}
 
-		// ALL other extras with physical extent: tree-blocked only (ground
-		// still placed underneath, but no trees spawning through them).
-		// This includes elevated surfaces, walls, cubes, bumps, jumps, poles,
-		// decorations, magnets, surfaces, arc links, and moving obstacles —
-		// all of which can be placed off-grid and would cause trees to spawn
-		// through them if not blocked.
+		// Solid extras that should erase trees beneath them (but NOT ramps,
+		// bumps, or other see-through elements per user spec). Tree-blocked
+		// only — ground still placed underneath to avoid visual holes.
 		if ( extras ) {
-			const extraLists = [
-				extras.elevated, extras.walls, extras.cubes, extras.bumps,
-				extras.boosts, extras.jumps, extras.poles, extras.decorations,
-				extras.surfaces, extras.magnets, extras.arcLinks,
-				extras.movingObstacles, extras.customPool,
+			// Elevated: include all solid types except slope-up / slope-down
+			// (ramps are see-through and trees can go through them).
+			if ( Array.isArray( extras.elevated ) ) {
+				for ( const entry of extras.elevated ) {
+					if ( ! Array.isArray( entry ) ) continue;
+					const type = entry[ 2 ];
+					if ( type === 'slope-up' || type === 'slope-down' ) continue;
+					blockCellForTrees( entry[ 0 ], entry[ 1 ], false );
+				}
+			}
+			// Walls, cubes, moving obstacles: solid → erase trees.
+			// Surfaces, water: replace ground → erase trees.
+			const solidLists = [
+				extras.walls, extras.cubes, extras.surfaces,
+				extras.movingObstacles, extras.water, extras.customPool,
 			];
-			for ( const list of extraLists ) {
+			for ( const list of solidLists ) {
 				if ( ! Array.isArray( list ) ) continue;
 				for ( const entry of list ) {
 					if ( ! Array.isArray( entry ) ) continue;
 					blockCellForTrees( entry[ 0 ], entry[ 1 ], false );
 				}
 			}
+			// NOT included (trees can go through these):
+			//   bumps, boosts, jumps, poles, magnets, arcLinks, decorations
 		}
 
 		// Also mark existing decoration cells as occupied
