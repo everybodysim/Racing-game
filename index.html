@@ -495,6 +495,13 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#graphics-quality-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 		#mode-menu #graphics-quality-row button { margin-top: 0; padding: 8px 6px; }
 		#mode-menu #graphics-quality-row button.active { background: rgba(126,181,255,0.32); border-color: rgba(190,220,255,0.8); }
+		#audio-section { margin-bottom: 10px; }
+		#audio-section h4 { margin: 0 0 8px; font: 700 14px sans-serif; }
+		.audio-control-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+		.audio-control-row label { font: 600 12px/1.2 sans-serif; color: #b5d8ff; }
+		.audio-control-row input[type="range"] { width: 100%; accent-color: #5b9cf5; }
+		.audio-control-row select { padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.08); color: #fff; font: 600 12px sans-serif; cursor: pointer; }
+		.audio-control-row select option { background: #1a2332; }
 		#graphics-quality-label { display: block; margin-top: 7px; color: #ffdca8; font: 700 11px/1.2 sans-serif; }
 		#mode-tab-row { display: flex; gap: 6px; margin-bottom: 8px; }
 		.mode-tab-btn {
@@ -1702,6 +1709,26 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<input id="fps-toggle" type="checkbox">
 				<span>Show FPS<small>Displays a small bottom-center frame-rate counter.</small></span>
 			</label>
+			<section id="audio-section" aria-labelledby="audio-section-title">
+				<h4 id="audio-section-title">Audio</h4>
+				<div class="audio-control-row">
+					<label for="sfx-volume-slider">SFX Volume <span id="sfx-volume-value">100%</span></label>
+					<input id="sfx-volume-slider" type="range" min="0" max="100" step="1" value="100">
+				</div>
+				<div class="audio-control-row">
+					<label for="music-volume-slider">Music Volume <span id="music-volume-value">100%</span></label>
+					<input id="music-volume-slider" type="range" min="0" max="100" step="1" value="100">
+				</div>
+				<div class="audio-control-row">
+					<label for="music-track-select">Music Track</label>
+					<select id="music-track-select">
+						<option value="0">Random (default)</option>
+						<option value="1">Track 1</option>
+						<option value="2">Track 2</option>
+						<option value="3">Track 3</option>
+					</select>
+				</div>
+			</section>
 			<section id="graphics-section" aria-labelledby="graphics-section-title">
 				<h4 id="graphics-section-title">Graphics</h4>
 				<p>Performance mode lowers resolution, shadows, particles, and decorative weather effects for smoother play.</p>
@@ -2268,6 +2295,72 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		// Club notification badge
 		const navClubs = document.getElementById( 'nav-clubs' );
 		if ( navClubs ) navClubs.classList.add( 'club-notify-target' );
+		// Audio controls
+		( () => {
+
+			const sfxSlider = document.getElementById( 'sfx-volume-slider' );
+			const sfxValueLabel = document.getElementById( 'sfx-volume-value' );
+			const musicSlider = document.getElementById( 'music-volume-slider' );
+			const musicValueLabel = document.getElementById( 'music-volume-value' );
+			const musicSelect = document.getElementById( 'music-track-select' );
+
+			function getAudio() {
+
+				return window.__gameAudio;
+
+			}
+
+			function syncUIFromSettings() {
+
+				const a = getAudio();
+				if ( ! a || ! a.settings ) return;
+				const sfxPct = Math.round( a.settings.sfxVolume * 100 );
+				const musicPct = Math.round( a.settings.musicVolume * 100 );
+				if ( sfxSlider ) sfxSlider.value = sfxPct;
+				if ( sfxValueLabel ) sfxValueLabel.textContent = sfxPct + '%';
+				if ( musicSlider ) musicSlider.value = musicPct;
+				if ( musicValueLabel ) musicValueLabel.textContent = musicPct + '%';
+				if ( musicSelect ) musicSelect.value = a.settings.musicMode;
+
+			}
+
+			if ( sfxSlider ) sfxSlider.addEventListener( 'input', () => {
+
+				const pct = parseInt( sfxSlider.value, 10 );
+				if ( sfxValueLabel ) sfxValueLabel.textContent = pct + '%';
+				getAudio()?.setSfxVolume( pct / 100 );
+
+			} );
+
+			if ( musicSlider ) musicSlider.addEventListener( 'input', () => {
+
+				const pct = parseInt( musicSlider.value, 10 );
+				if ( musicValueLabel ) musicValueLabel.textContent = pct + '%';
+				getAudio()?.setMusicVolume( pct / 100 );
+
+			} );
+
+			if ( musicSelect ) musicSelect.addEventListener( 'change', () => {
+
+				getAudio()?.setMusicMode( parseInt( musicSelect.value, 10 ) );
+
+			} );
+
+			// Sync UI once audio is ready (poll briefly)
+			let syncAttempts = 0;
+			const syncTimer = setInterval( () => {
+
+				if ( getAudio() || syncAttempts > 50 ) {
+
+					syncUIFromSettings();
+					clearInterval( syncTimer );
+
+				}
+				syncAttempts++;
+
+			}, 100 );
+
+		} )();
 		// Edit this track — opens editor with current track data
 		const navEditThis = document.getElementById( 'nav-edit-this-track' );
 		if ( navEditThis ) navEditThis.addEventListener( 'click', () => {

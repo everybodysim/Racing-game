@@ -2,8 +2,49 @@ import * as THREE from 'three';
 
 const RACE_MUSIC_SOURCES = [ 'audio/music.mp3', 'audio/music2.mp3', 'audio/music3.mp3' ];
 const RACE_MUSIC_LAST_KEY = 'racingGameLastRaceMusic';
+const AUDIO_SETTINGS_KEY = 'racingGameAudioSettings';
 
-function chooseRaceMusicSource() {
+// --- Persistent audio settings ---
+// musicMode: 0 = random (default), 1 = track 1, 2 = track 2, 3 = track 3
+// sfxVolume: 0..1  (multiplier applied to engine/skid/impact)
+// musicVolume: 0..1  (multiplier applied to race music target)
+
+function loadAudioSettings() {
+
+	try {
+
+		const raw = localStorage.getItem( AUDIO_SETTINGS_KEY );
+		if ( raw ) {
+
+			const parsed = JSON.parse( raw );
+			return {
+				musicMode: typeof parsed.musicMode === 'number' ? parsed.musicMode : 0,
+				sfxVolume: typeof parsed.sfxVolume === 'number' ? parsed.sfxVolume : 1,
+				musicVolume: typeof parsed.musicVolume === 'number' ? parsed.musicVolume : 1,
+			};
+
+		}
+
+	} catch ( e ) { /* ignore */ }
+
+	return { musicMode: 0, sfxVolume: 1, musicVolume: 1 };
+
+}
+
+function saveAudioSettings( settings ) {
+
+	try {
+
+		localStorage.setItem( AUDIO_SETTINGS_KEY, JSON.stringify( settings ) );
+
+	} catch ( e ) { /* ignore */ }
+
+}
+
+function chooseRaceMusicSource( musicMode ) {
+
+	if ( musicMode && musicMode >= 1 && musicMode <= RACE_MUSIC_SOURCES.length )
+		return RACE_MUSIC_SOURCES[ musicMode - 1 ];
 
 	if ( RACE_MUSIC_SOURCES.length === 1 ) return RACE_MUSIC_SOURCES[ 0 ];
 
@@ -51,7 +92,8 @@ export class GameAudio {
 		this.engineTextureSound = null;
 		this.skidSound = null;
 		this.musicElement = null;
-		this.musicSource = chooseRaceMusicSource();
+		this.settings = loadAudioSettings();
+		this.musicSource = chooseRaceMusicSource( this.settings.musicMode );
 		this.impactBuffer = null;
 		this.impactPool = [];
 		this.impactIndex = 0;
@@ -65,6 +107,50 @@ export class GameAudio {
 		this.musicVolume = 0;
 		this.musicStarted = false;
 		this.retryMusicFromGesture = null;
+
+	}
+
+	// --- Public setters for UI controls ---
+	setSfxVolume( vol ) {
+
+		this.settings.sfxVolume = THREE.MathUtils.clamp( vol, 0, 1 );
+		saveAudioSettings( this.settings );
+
+	}
+
+	setMusicVolume( vol ) {
+
+		this.settings.musicVolume = THREE.MathUtils.clamp( vol, 0, 1 );
+		saveAudioSettings( this.settings );
+
+	}
+
+	setMusicMode( mode ) {
+
+		this.settings.musicMode = Math.round( mode );
+		saveAudioSettings( this.settings );
+		const newSource = chooseRaceMusicSource( this.settings.musicMode );
+		if ( newSource !== this.musicSource ) {
+
+			this.musicSource = newSource;
+			this._reloadMusic();
+
+		}
+
+	}
+
+	_reloadMusic() {
+
+		const wasPlaying = this.musicElement && ! this.musicElement.paused;
+		if ( this.musicElement ) {
+
+			this.musicElement.pause();
+			this.musicElement.src = this.musicSource;
+			this.musicElement.load();
+
+		}
+		this.musicStarted = false;
+		if ( wasPlaying && this.unlocked ) this.startMusic();
 
 	}
 
@@ -283,7 +369,8 @@ export class GameAudio {
 
 	updateMusic( dt, raceActive ) {
 
-		this.targetMusicVolume = raceActive ? 0.34 : 0;
+		const baseTarget = raceActive ? 0.34 : 0;
+		this.targetMusicVolume = baseTarget * this.settings.musicVolume;
 		if ( ! this.musicReady ) return;
 
 		if ( this.unlocked && this.targetMusicVolume > 0 && ( this.musicElement?.paused || ! this.musicStarted ) ) this.startMusic();
@@ -326,11 +413,11 @@ export class GameAudio {
 
 		const load = THREE.MathUtils.clamp( speedFactor * 0.55 + throttleFactor * 0.75, 0, 1.8 );
 		const pulse = 0.92 + Math.sin( this.engineTime * ( 8 + normalizedSpeed * 12 ) ) * 0.035;
-		const targetVol = remap( load, 0, 1.8, 0.035, 0.46 ) * pulse;
+		const targetVol = remap( load, 0, 1.8, 0.035, 0.46 ) * pulse * this.settings.sfxVolume;
 		const currentVol = this.engineSound.getVolume();
 		this.engineSound.setVolume( THREE.MathUtils.lerp( currentVol, targetVol, Math.min( 1, dt * 7 ) ) );
 
-		const textureVol = ( 0.025 + normalizedSpeed * 0.12 + throttleFactor * 0.045 ) * ( 1 - Math.min( 0.45, driftIntensity * 0.12 ) );
+		const textureVol = ( 0.025 + normalizedSpeed * 0.12 + throttleFactor * 0.045 ) * ( 1 - Math.min( 0.45, driftIntensity * 0.12 ) ) * this.settings.sfxVolume;
 		const currentTextureVol = this.engineTextureSound.getVolume();
 		this.engineTextureSound.setVolume( THREE.MathUtils.lerp( currentTextureVol, textureVol, Math.min( 1, dt * 5 ) ) );
 
@@ -339,7 +426,7 @@ export class GameAudio {
 
 		if ( shouldSkid ) {
 
-			skidVol = remap( THREE.MathUtils.clamp( driftIntensity, 0.65, 2.2 ), 0.65, 2.2, 0.08, 0.55 );
+			skidVol = remap( THREE.MathUtils.clamp( driftIntensity, 0.65, 2.2 ), 0.65, 2.2, 0.08, 0.55 ) * this.settings.sfxVolume;
 
 		}
 
@@ -362,7 +449,7 @@ playImpact( impactVelocity ) {
 		if ( sound.isPlaying ) sound.stop();
 
 		// Calculate base volume and multiply by 0.25 to cap it at 25% max volume
-		const volume = THREE.MathUtils.clamp( remap( impactVelocity, 0, 6, 0.01, 1.0 ), 0.01, 1.0 ) * 0.25;
+		const volume = THREE.MathUtils.clamp( remap( impactVelocity, 0, 6, 0.01, 1.0 ), 0.01, 1.0 ) * 0.25 * this.settings.sfxVolume;
 		const velocityTone = THREE.MathUtils.clamp( remap( impactVelocity, 0.5, 7, -0.08, 0.16 ), -0.08, 0.16 );
 		const randomTone = ( Math.random() - 0.5 ) * 0.18;
 		const playbackRate = THREE.MathUtils.clamp( 1 + velocityTone + randomTone, 0.82, 1.24 );

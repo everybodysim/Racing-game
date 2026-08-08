@@ -5328,6 +5328,7 @@ function completeCampaignStage() {
 	}
 	const audio = new GameAudio();
 	audio.init( cam.camera );
+	window.__gameAudio = audio;
 
 	const _forward = new THREE.Vector3();
 	const _up = new THREE.Vector3( 0, 1, 0 );
