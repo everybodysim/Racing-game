@@ -30,7 +30,11 @@ export class Controls {
 
 	setupTouchUI() {
 
+		// Only show touch controls on actual mobile devices
+		// Touchscreen Chromebooks/desktops should NOT get touch controls
 		if ( ! ( 'ontouchstart' in window ) ) return;
+		const isMobile = document.body.classList.contains( 'mobile' ) || Boolean( window.matchMedia?.( '(pointer: coarse)' )?.matches );
+		if ( ! isMobile ) return;
 
 		const css = document.createElement( 'style' );
 		css.textContent = `

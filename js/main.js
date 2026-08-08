@@ -5379,7 +5379,13 @@ function completeCampaignStage() {
 	let currentLapInvalidatedByPause = false;
 	let countdownActive = false;
 	let countdownEndsAt = 0;
-	let countdownEnabled = localStorage.getItem( COUNTDOWN_SETTINGS_KEY ) !== '0';
+	let countdownEnabled = (() => {
+		const stored = localStorage.getItem( COUNTDOWN_SETTINGS_KEY );
+		if ( stored !== null ) return stored === '1';
+		// Default: ON for mobile (pointer: coarse or body.mobile), OFF for desktop
+		const isMobile = document.body.classList.contains( 'mobile' ) || Boolean( window.matchMedia?.( '(pointer: coarse)' )?.matches );
+		return isMobile;
+	})();
 	let fpsHudVisible = localStorage.getItem( FPS_HUD_SETTINGS_KEY ) === '1';
 	let rollingFps = 0;
 	let fpsHudAccumulator = 0;
@@ -8064,6 +8070,28 @@ function completeCampaignStage() {
 		if ( ! countdownEnabled ) finishCountdown();
 
 	} );
+
+	// Debug: Mobile UI Test toggle — forces body.mobile on/off for testing
+	const mobileTestToggle = document.getElementById( 'mobile-test-toggle' );
+	if ( mobileTestToggle ) {
+		mobileTestToggle.checked = document.body.classList.contains( 'mobile' ) && localStorage.getItem( 'racing-debug-mobile-test' ) === '1';
+		mobileTestToggle.addEventListener( 'change', () => {
+			if ( mobileTestToggle.checked ) {
+				document.body.classList.add( 'mobile' );
+				localStorage.setItem( 'racing-debug-mobile-test', '1' );
+			} else {
+				document.body.classList.remove( 'mobile' );
+				localStorage.removeItem( 'racing-debug-mobile-test' );
+				// Re-detect: add back if actually mobile
+				const isTouch = 'ontouchstart' in window || ( navigator.maxTouchPoints || 0 ) > 0;
+				const isSmallScreen = window.innerWidth <= 760;
+				const isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test( navigator.userAgent );
+				if ( isSmallScreen || isMobileUA || ( isTouch && window.innerWidth <= 1024 ) ) {
+					document.body.classList.add( 'mobile' );
+				}
+			}
+		} );
+	}
 	fpsToggle?.addEventListener( 'change', () => {
 
 		fpsHudVisible = Boolean( fpsToggle.checked );

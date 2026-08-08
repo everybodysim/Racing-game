@@ -119,7 +119,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#respawnBtn { right: 16px; bottom: 170px; left: auto; top: auto; }
 		#mode-menu-btn { right: 16px; top: 16px; bottom: auto; left: auto; padding: 12px 18px; border-radius: 12px; border: 1px solid rgba(140,210,255,0.58); background: linear-gradient(145deg, rgba(44,117,210,0.92), rgba(18,44,82,0.9)); box-shadow: 0 8px 24px rgba(0,0,0,0.34); font: 800 14px/1 sans-serif; letter-spacing: 0.02em; }
 		#home-menu-btn { right: 16px; top: 64px; bottom: auto; left: auto; padding: 10px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.32); background: rgba(6,12,22,0.82); box-shadow: 0 6px 18px rgba(0,0,0,0.28); font: 800 13px/1 sans-serif; }
-		#car-select { right: 16px; bottom: 212px; left: auto; top: auto; }
+		#car-select { right: 16px; bottom: 168px; left: auto; top: auto; }
 		#share-time-btn { left: 16px; bottom: 12px; }
 		#export-ghost-btn { left: 16px; bottom: 12px; }
 		#import-ghost-btn { left: 136px; bottom: 12px; }
@@ -1391,7 +1391,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				#mods-link { bottom: auto; top: 306px; right: 12px; }
 			#hacks-toggle { bottom: auto; top: 348px; right: 12px; }
 			#split-link { bottom: auto; top: 390px; right: 12px; }
-			#car-select { top: auto; left: auto; right: 12px; bottom: 208px; }
+			#car-select { top: auto; left: auto; right: 12px; bottom: 168px; }
 				#respawnBtn { top: auto; left: auto; right: 12px; bottom: 166px; }
 				#mode-menu-btn { top: 12px; left: auto; right: 12px; }
 				#home-menu-btn { top: 60px; left: auto; right: 12px; }
@@ -1526,7 +1526,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	/* ═══════════════════════════════════════════════════════════
 	   MOBILE OPTIMIZATION
 	   body.mobile  → small screens & mobile UAs (layout changes)
-	   body.touch   → touch input devices including touchscreen Chromebooks
+	   Desktop is completely untouched — no mobile classes added on touch laptops/desktops
 	   ═══════════════════════════════════════════════════════════ */
 
 	/* ── Home page ── */
@@ -1594,34 +1594,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	body.mobile #mobile-actions-menu,
 	body.mobile #mp-panel { display: none !important; }
 
-	body.touch #editor-link,
-	body.touch #totd-link,
-	body.touch #weekly-cup-link,
-	body.touch #coin-leaderboard-link,
-	body.touch #competitions-link,
-	body.touch #replay-link,
-	body.touch #tracks-link,
-	body.touch #clubs-link,
-	body.touch #mods-link,
-	body.touch #hacks-toggle,
-	body.touch #split-link,
-	body.touch #share-time-btn,
-	body.touch #export-ghost-btn,
-	body.touch #import-ghost-btn,
-	body.touch #respawnBtn,
-	body.touch #mode-menu-btn,
-	body.touch #home-menu-btn,
-	body.touch #quick-menu-btn,
-	body.touch #quick-menu-panel,
-	body.touch #mobile-actions-menu,
-	body.touch #mp-panel { display: none !important; }
+	/* ── Mobile action dock (show on mobile only) ── */
+	body.mobile #mobile-action-dock { display: flex; }
 
-	/* ── Mobile action dock (show on mobile AND touch) ── */
-	body.mobile #mobile-action-dock,
-	body.touch #mobile-action-dock { display: flex; }
-
-	body.mobile #mobile-action-dock,
-	body.touch #mobile-action-dock {
+	body.mobile #mobile-action-dock {
 		position: fixed;
 		left: 50%;
 		bottom: calc(12px + env(safe-area-inset-bottom, 0px));
@@ -1635,24 +1611,20 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		backdrop-filter: blur(10px);
 		-webkit-backdrop-filter: blur(10px);
 	}
-	body.mobile #mobile-action-dock button,
-	body.touch #mobile-action-dock button {
+	body.mobile #mobile-action-dock button {
 		min-width: 72px; min-height: 44px; border: 0; border-radius: 999px;
 		background: rgba(255,255,255,0.12); color: #fff;
 		font: 900 18px/1 system-ui, sans-serif;
 	}
-	body.mobile #mobile-action-dock span,
-	body.touch #mobile-action-dock span {
+	body.mobile #mobile-action-dock span {
 		display: block; margin-top: 2px; font-size: 10px; font-weight: 800;
 	}
 	body.mode-menu-open #mobile-action-dock { display: none; }
 
 	/* ── Mobile menu sheet ── */
-	body.mobile #mobile-menu-sheet,
-	body.touch #mobile-menu-sheet { display: block; }
+	body.mobile #mobile-menu-sheet { display: block; }
 
-	body.mobile #mobile-menu-sheet,
-	body.touch #mobile-menu-sheet {
+	body.mobile #mobile-menu-sheet {
 		position: fixed; left: 10px; right: 10px; bottom: 0; z-index: 39;
 		padding: 8px 10px calc(16px + env(safe-area-inset-bottom, 0px));
 		border-radius: 22px 22px 0 0;
@@ -1661,21 +1633,15 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		transform: translateY(110%); transition: transform 180ms ease;
 		backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
 	}
-	body.mobile #mobile-menu-sheet.open,
-	body.touch #mobile-menu-sheet.open { transform: translateY(0); }
-	body.mobile #mobile-menu-sheet h3,
-	body.touch #mobile-menu-sheet h3 { margin: 4px 0 10px; text-align: center; font: 900 16px/1 system-ui, sans-serif; }
-	body.mobile .mobile-sheet-handle,
-	body.touch .mobile-sheet-handle { width: 42px; height: 4px; margin: 0 auto 8px; border-radius: 99px; background: rgba(255,255,255,0.34); }
-	body.mobile .mobile-actions-sheet,
-	body.touch .mobile-actions-sheet {
+	body.mobile #mobile-menu-sheet.open { transform: translateY(0); }
+	body.mobile #mobile-menu-sheet h3 { margin: 4px 0 10px; text-align: center; font: 900 16px/1 system-ui, sans-serif; }
+	body.mobile .mobile-sheet-handle { width: 42px; height: 4px; margin: 0 auto 8px; border-radius: 99px; background: rgba(255,255,255,0.34); }
+	body.mobile .mobile-actions-sheet {
 		display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
 		max-height: min(58vh, 430px); overflow: auto; padding: 0;
 	}
 	body.mobile .mobile-actions-sheet a,
-	body.mobile .mobile-actions-sheet button,
-	body.touch .mobile-actions-sheet a,
-	body.touch .mobile-actions-sheet button {
+	body.mobile .mobile-actions-sheet button {
 		position: static !important; min-height: 48px; border-radius: 14px;
 		border: 1px solid rgba(189,223,255,0.28);
 		background: linear-gradient(165deg, rgba(90,159,255,0.20), rgba(47,104,181,0.18));
@@ -1684,8 +1650,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	}
 
 	/* ── Overlay backdrop ── */
-	body.mobile #mobile-overlay-backdrop.open,
-	body.touch #mobile-overlay-backdrop.open {
+	body.mobile #mobile-overlay-backdrop.open {
 		display: block; position: fixed; inset: 0; z-index: 38; background: rgba(0,0,0,0.34);
 	}
 
@@ -1734,18 +1699,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		border-radius: 999px; background: rgba(255,255,255,0.14); color: #fff;
 		font: 900 22px/1 system-ui, sans-serif;
 	}
-	body.touch #leaderboard-panel { display: none !important; }
-	body.touch #leaderboard-panel.mobile-open {
-		display: block !important; position: fixed; left: 10px; right: 10px;
-		top: calc(56px + env(safe-area-inset-top, 0px)); width: auto;
-		max-height: 52vh; resize: none; z-index: 39; border-radius: 18px;
-		background: rgba(8,14,24,0.88); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-	}
-	body.touch #mobile-leaderboard-close {
-		display: block; float: right; width: 34px; height: 34px; border: 0;
-		border-radius: 999px; background: rgba(255,255,255,0.14); color: #fff;
-		font: 900 22px/1 system-ui, sans-serif;
-	}
 
 	/* ── Boost UI ── */
 	body.mobile #boost-ui {
@@ -1755,8 +1708,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 
 	/* ── Chat hidden on mobile ── */
 	body.mobile #chat-btn, body.mobile #chat-box { display: none !important; }
-	body.touch #chat-btn { bottom: 80px; top: auto; right: 16px; transform: none; width: 40px; height: 40px; font-size: 18px; }
-	body.touch #chat-box { right: 60px; top: auto; bottom: 80px; transform: none; width: 260px; height: 320px; }
 
 	/* ── Loading screen ── */
 	body.mobile #loading-card { padding: 16px; border-radius: 14px; }
@@ -1778,15 +1729,15 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	/* ── Competitions warning ── */
 	body.mobile #competitions-warning-dialog { width: calc(100vw - 24px); max-width: none; padding: 16px; }
 
-	/* ── Touch targets: minimum 44px on touch devices ── */
-	body.touch #mode-menu button { min-height: 44px; padding: 10px; }
-	body.touch #mode-tab-row .mode-tab-btn { min-height: 40px; padding: 10px 6px; }
-	body.touch #nav-panel-content a, body.touch #nav-panel-content button { min-height: 44px; padding: 12px; }
-	body.touch .audio-control-row select { min-height: 40px; }
-	body.touch #graphics-quality-row button { min-height: 40px; padding: 10px 6px; }
-	body.touch #leaderboard-refresh-btn { min-height: 40px; }
-	body.touch #hack-reset-btn { min-height: 44px; }
-	body.touch #garage-apply-paint-btn { min-height: 44px; }
+	/* ── Touch targets: minimum 44px on mobile ── */
+	body.mobile #mode-menu button { min-height: 44px; padding: 10px; }
+	body.mobile #mode-tab-row .mode-tab-btn { min-height: 40px; padding: 10px 6px; }
+	body.mobile #nav-panel-content a, body.mobile #nav-panel-content button { min-height: 44px; padding: 12px; }
+	body.mobile .audio-control-row select { min-height: 40px; }
+	body.mobile #graphics-quality-row button { min-height: 40px; padding: 10px 6px; }
+	body.mobile #leaderboard-refresh-btn { min-height: 40px; }
+	body.mobile #hack-reset-btn { min-height: 44px; }
+	body.mobile #garage-apply-paint-btn { min-height: 44px; }
 
 	/* ── FPS / countdown HUD positioning ── */
 	body.mobile #fps-hud { font-size: 10px; bottom: 70px; }
@@ -1824,15 +1775,20 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 <body>
 <script>
 // ── Early mobile detection (prevents FOUC) ──
+// body.mobile = actual mobile devices only (NOT touchscreen laptops/desktops)
+// A debug toggle in gameplay settings can force it on for testing
 (function() {
 	var isTouch = 'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0;
 	var isSmallScreen = window.innerWidth <= 760;
 	var isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+	// Only add 'mobile' for: small screen, mobile UA, or touch device with small-ish screen
+	// Touchscreen Chromebooks with large screens (pointer: fine) do NOT get 'mobile'
 	if (isSmallScreen || isMobileUA || (isTouch && window.innerWidth <= 1024)) {
 		document.body.classList.add('mobile');
 	}
-	if (isTouch) {
-		document.body.classList.add('touch');
+	// Debug override: user can force mobile UI via gameplay settings
+	if (localStorage.getItem('racing-debug-mobile-test') === '1') {
+		document.body.classList.add('mobile');
 	}
 })();
 </script>
@@ -1990,10 +1946,14 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<button id="mode-race-btn" type="button">Race Mode</button>
 			<!-- <button id="mode-advancements-btn" type="button">Advancements</button> -->
 			<!-- <button id="campaign-info-btn" type="button">Campaign intro</button> -->
-		<!--	<label id="countdown-setting" for="countdown-toggle">
-				<input id="countdown-toggle" type="checkbox" checked>
-				<span>Start countdown<small>Disable for instant restarts and advanced time trials.</small></span>
-			</label> -->
+		<label id="countdown-setting" for="countdown-toggle">
+				<input id="countdown-toggle" type="checkbox">
+				<span>Start countdown<small>3-2-1-GO before each race. Default: ON for mobile, OFF for desktop.</small></span>
+			</label>
+			<label id="mobile-test-setting" for="mobile-test-toggle">
+				<input id="mobile-test-toggle" type="checkbox">
+				<span>Debug: Mobile UI Test<small>Force mobile layout on this device for testing.</small></span>
+			</label>
 			<label id="fps-setting" for="fps-toggle">
 				<input id="fps-toggle" type="checkbox">
 				<span>Show FPS<small>Displays a small bottom-center frame-rate counter.</small></span>
@@ -2532,7 +2492,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		const mobileRespawnBtn = document.getElementById( 'mobile-respawn-btn' );
 		const mobileLeaderboardClose = document.getElementById( 'mobile-leaderboard-close' );
 		const leaderboardPanel = document.getElementById( 'leaderboard-panel' );
-		function isMobileUi() { return Boolean( mobileQuery?.matches ) || document.body.classList.contains('touch'); }
+		function isMobileUi() { return Boolean( mobileQuery?.matches ) || document.body.classList.contains('mobile'); }
 		function closeMobileMenu() {
 			mobileSheet?.classList.remove( 'open' );
 			mobileSheet?.setAttribute( 'aria-hidden', 'true' );
