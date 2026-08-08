@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Skid Circuit — Track Browser</title>
+	<style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}.skip-link:focus{top:12px}:root{color-scheme:dark;--panel:rgba(255,255,255,.07);--line:rgba(255,255,255,.13);--muted:#b5c2da;--accent:#77f3b1}body{margin:0;font:14px/1.45 Inter,system-ui,sans-serif;background:radial-gradient(circle at top left,rgba(74,163,255,.22),transparent 32rem),linear-gradient(160deg,#07101e,#121826 55%,#0b1420);color:#e6edf7}.wrap{max-width:1180px;margin:0 auto;padding:26px 16px 46px}.hero,.section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px}h1{margin:0 0 4px;font-size:clamp(32px,5vw,58px);line-height:.95;letter-spacing:-.05em}h2{margin:0;font-size:22px}p.sub,.sub{margin:0;color:var(--muted)}.panel,.browser-section{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:16px;box-shadow:0 18px 50px rgba(0,0,0,.16)}.section-kicker{color:var(--accent);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.12em}label{display:block;margin:8px 0 6px;font-weight:700;color:#cfe0ff}input,textarea,select{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.22);background:rgba(8,10,16,.85);color:#e6edf7;border-radius:10px;padding:10px;font:inherit}select{max-width:190px}textarea{min-height:94px;resize:vertical}.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}button,.linkbtn,summary{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:9px 12px;cursor:pointer;font:700 13px sans-serif;text-decoration:none}button:hover,.linkbtn:hover,summary:hover{background:rgba(255,255,255,.2)}#status{min-height:18px;margin-top:8px;color:#93f4b7}#loading-panel{display:block}#leaderboard-progress-wrap{margin-top:8px;display:none}#leaderboard-progress-wrap.visible{display:block}#leaderboard-progress-label{font-size:12px;color:var(--muted);margin-bottom:4px}#leaderboard-progress-bar{width:100%;height:8px;border-radius:999px;background:rgba(255,255,255,.15);overflow:hidden}#leaderboard-progress-fill{height:100%;width:0%;background:linear-gradient(90deg,#5ac8ff,#77f3b1);transition:width .15s ease}#grid,.track-row,.records-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}#grid{margin-top:12px}.featured-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.card{position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.085),rgba(255,255,255,.045));border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:12px}.card.featured{border-color:rgba(119,243,177,.35);box-shadow:inset 0 1px rgba(255,255,255,.08),0 0 40px rgba(80,200,140,.13)}.card h3{margin:0 0 7px;font-size:18px}.preview-canvas{width:100%;aspect-ratio:5/3;object-fit:cover;display:block;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0d1118;margin:10px 0}.meta{color:var(--muted);font-size:12px;margin-bottom:8px}.stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:8px 0}.stat{border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);border-radius:10px;padding:8px}.stat b{display:block;color:#fff;font-size:14px}.stat span{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}.badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.badge{font-size:11px;border-radius:999px;padding:3px 7px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08)}.play-map-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-color:rgba(132,245,172,.72);background:linear-gradient(135deg,rgba(48,198,119,.95),rgba(48,151,255,.85));color:#04130b!important;box-shadow:0 0 18px rgba(77,232,152,.26);font-weight:900!important;flex:1}.drawer-panel{margin-top:10px;border-radius:14px;border:1px dashed rgba(255,255,255,.2);padding:12px;background:rgba(0,0,0,.16)}.admin-strip{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}.admin-strip #adminTokenInput{max-width:260px}
+.records-board{padding:22px}.records-board h2{font-size:20px;margin-bottom:6px}.records-list{display:flex;flex-direction:column;gap:8px}.record-chip{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;background:linear-gradient(135deg,rgba(255,255,255,.07),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.13);transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}.record-chip:hover{transform:translateX(4px);border-color:rgba(119,243,177,.28);box-shadow:0 4px 20px rgba(80,200,140,.08)}.record-chip .rank-badge{flex-shrink:0;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:900 15px sans-serif;background:rgba(255,255,255,.08);color:var(--muted);border:1px solid rgba(255,255,255,.12)}.record-chip:nth-child(1) .rank-badge{background:linear-gradient(135deg,#ffd95a,#f0b429);color:#1a1300;border-color:#ffd95a;box-shadow:0 0 12px rgba(255,215,0,.25)}.record-chip:nth-child(2) .rank-badge{background:linear-gradient(135deg,#d4d4d4,#a8a8a8);color:#151515;border-color:#d4d4d4}.record-chip:nth-child(3) .rank-badge{background:linear-gradient(135deg,#e09455,#c97f3e);color:#1a0e00;border-color:#e09455}.record-chip .record-info{flex:1;min-width:0}.record-chip .name{font-weight:800;font-size:15px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.record-chip .count{font-size:12px;color:var(--muted);margin-top:2px}.record-chip:nth-child(1){border-color:rgba(255,215,0,.25);background:linear-gradient(135deg,rgba(255,215,0,.08),rgba(255,255,255,.03))}.records-empty{color:var(--muted);font-size:13px;padding:12px;text-align:center}
+@media(max-width:760px){.hero,.section-head{align-items:flex-start;flex-direction:column}select{max-width:none}}
+	</style>
+<script src="js/PageTransitions.js"></script>
+<link rel="stylesheet" href="ui-theme.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
+	<div class="wrap">
+		<div class="hero"><div><div class="section-kicker">Community tracks</div><h1>Track Browser</h1><p class="sub">Find a fast new favorite, chase records, and jump straight into racing.</p></div><div class="row"><button id="random-track-btn" type="button">🎲 Random track</button><a class="linkbtn" href="index.html">Back to game</a></div></div>
+		<div class="panel" id="loading-panel"><div class="section-kicker">Loading track data</div><div id="leaderboard-progress-wrap" aria-live="polite"><div id="leaderboard-progress-label">Loading leaderboard data…</div><div id="leaderboard-progress-bar"><div id="leaderboard-progress-fill"></div></div></div></div>
+		<div class="panel admin-strip"><input id="adminTokenInput" placeholder="Admin password" type="password"><div class="row" style="margin-top:0"><button id="export-board-btn" type="button">Export board code</button><button id="import-board-btn" type="button">Import board code</button><button id="copy-link-btn" type="button">Copy share link</button></div></div>
+		<details class="panel" id="publish-drawer"><summary>Publish Track</summary><div class="drawer-panel"><p class="sub">Publishing is tucked away so browsing and playing stay front and center.</p><label for="track-name">Track name</label><input id="track-name" placeholder="e.g. Forest Sprint" /><label for="ghost-code">Ghost code or board import/export code</label><textarea id="ghost-code" placeholder="Paste export ghost code here..."></textarea><label for="track-description">Description (optional)</label><textarea id="track-description" placeholder="Add notes, style, and tips..."></textarea><label for="track-thumbnail">Thumbnail image (optional)</label><input id="track-thumbnail" type="file" accept="image/*" /><div class="row"><button id="add-btn" type="button">Publish to board</button></div><div id="status"></div></div></details>
+		<div class="panel"><div class="row" style="margin-top:0"><input id="search-input" placeholder="Search track name..." style="max-width:360px" /><select id="size-filter"><option value="all">All sizes</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select><select id="sort-filter"><option value="newest">Newest</option><option value="popular">Most popular</option><option value="most-liked">Most liked</option><option value="best-time">Best lap time</option></select></div></div>
+		<section class="browser-section" id="section-featured"><div class="section-head"><div><div class="section-kicker">Editor's algorithmic pick</div><h2>Featured Track</h2></div><p class="sub">Newer than average with above-average play activity.</p></div><div id="featured-track" class="featured-layout"></div></section>
+		<section class="browser-section" id="section-trending"><div class="section-head"><div><div class="section-kicker">Hot right now</div><h2>Trending Tracks</h2></div></div><div id="trending-list" class="track-row"></div></section>
+		<section class="browser-section" id="section-new-week"><div class="section-head"><div><div class="section-kicker">Fresh uploads</div><h2>New This Week</h2></div></div><div id="new-week-list" class="track-row"></div></section>
+		<section class="browser-section" id="section-top-rated"><div class="section-head"><div><div class="section-kicker">Community favorites</div><h2>Top Rated</h2></div></div><div id="top-rated-list" class="track-row"></div></section>
+		<section class="browser-section" id="section-fastest"><div class="section-head"><div><div class="section-kicker">Record chasers</div><h2>Fastest Records</h2></div></div><div id="fastest-records-list" class="track-row"></div></section>
+		<div class="panel records-board" id="section-records"><h2>Track Share Record Board</h2><p class="sub">Drivers ranked by how many unique shared tracks they currently hold #1 on.</p><div id="records-board-list" class="records-list"></div><h2 style="margin-top:16px">Global Placement Rating</h2><p class="sub">Cross-track rating from placement points (1st/2nd/3rd…) across all shared tracks.</p><div id="placement-rating-list" class="records-list"></div></div>
+		<section class="browser-section" id="section-library"><div class="section-head"><div><div class="section-kicker">Full library</div><h2>All Tracks</h2></div></div><div id="grid"></div></section>
+		<script>
+			const API_BASE = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
+			const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
+			const nameInput = document.getElementById( 'track-name' );
+		const ghostInput = document.getElementById( 'ghost-code' );
+		const descriptionInput = document.getElementById( 'track-description' );
+		const thumbnailInput = document.getElementById( 'track-thumbnail' );
+		const addBtn = document.getElementById( 'add-btn' );
+		const exportBtn = document.getElementById( 'export-board-btn' );
+		const importBtn = document.getElementById( 'import-board-btn' );
+			const copyLinkBtn = document.getElementById( 'copy-link-btn' );
+			const searchInput = document.getElementById( 'search-input' );
+			const sizeFilter = document.getElementById( 'size-filter' );
+			const sortFilter = document.getElementById( 'sort-filter' );
+			const randomTrackBtn = document.getElementById( 'random-track-btn' );
+			const recordsBoardList = document.getElementById( 'records-board-list' );
+			const placementRatingList = document.getElementById( 'placement-rating-list' );
+			const newWeekList = document.getElementById( 'new-week-list' );
+			const trendingList = document.getElementById( 'trending-list' );
+			const featuredTrack = document.getElementById( 'featured-track' );
+			const topRatedList = document.getElementById( 'top-rated-list' );
+			const fastestRecordsList = document.getElementById( 'fastest-records-list' );
+			const statusEl = document.getElementById( 'status' );
+			const leaderboardProgressWrap = document.getElementById( 'leaderboard-progress-wrap' );
+			const leaderboardProgressLabel = document.getElementById( 'leaderboard-progress-label' );
+			const leaderboardProgressFill = document.getElementById( 'leaderboard-progress-fill' );
+			const grid = document.getElementById( 'grid' );
+			let entries = [];
+			let useRemoteBoard = false;
+			let topByTrackId = new Map();
+			let rowsByTrackId = new Map();
+			let leaderboardHydrating = false;
+			let selectedThumbnailDataUrl = '';
+			const TRACK_VOTE_SESSION_KEY = 'trackVotes:v1';
+			const votedTrackActions = loadVoteSession();
+
+		function loadVoteSession() {
+			try {
+				const parsed = JSON.parse( sessionStorage.getItem( TRACK_VOTE_SESSION_KEY ) || '[]' );
+				return new Set( Array.isArray( parsed ) ? parsed.map( ( item ) => String( item ) ) : [] );
+			} catch ( e ) {
+				return new Set();
+			}
+		}
+
+		function saveVoteSession() {
+			try {
+				sessionStorage.setItem( TRACK_VOTE_SESSION_KEY, JSON.stringify( [ ...votedTrackActions ] ) );
+			} catch ( e ) {
+				// ignore storage failures
+			}
+		}
+
+		function isPackBoardEntry( entry ) {
+			const name = String( entry?.name || '' ).trim();
+			return name.startsWith( '[PACK]' );
+		}
+
+		function sanitizeBoardEntries( input ) {
+			const rows = Array.isArray( input ) ? input : [];
+			return rows.filter( ( entry ) => typeof entry?.playUrl === 'string' && typeof entry?.name === 'string' && ! isPackBoardEntry( entry ) );
+		}
+
+		function encodeBase64UrlJson( value ) {
+			return btoa( unescape( encodeURIComponent( JSON.stringify( value ) ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+		}
+
+		function decodeBase64UrlJson( value ) {
+			const normalized = value.replace( /-/g, '+' ).replace( /_/g, '/' );
+			const padded = normalized + '='.repeat( ( 4 - normalized.length % 4 ) % 4 );
+			return JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
+		}
+
+		function setStatus( msg, isError = false ) {
+			statusEl.textContent = msg;
+			statusEl.style.color = isError ? '#ff9fa8' : '#93f4b7';
+		}
+
+		function setLeaderboardProgress( completed, total ) {
+			if ( ! leaderboardProgressWrap || ! leaderboardProgressFill || ! leaderboardProgressLabel ) return;
+			if ( ! leaderboardHydrating || total === 0 ) {
+				leaderboardProgressWrap.classList.remove( 'visible' );
+				const loadingPanel = document.getElementById( 'loading-panel' );
+				if ( loadingPanel ) loadingPanel.hidden = true;
+				leaderboardProgressFill.style.width = '0%';
+				return;
+			}
+			const safeCompleted = Math.min( total, Math.max( 0, completed ) );
+			const percent = Math.floor( ( safeCompleted / total ) * 100 );
+			const loadingPanel = document.getElementById( 'loading-panel' );
+			if ( loadingPanel ) loadingPanel.hidden = false;
+			leaderboardProgressWrap.classList.add( 'visible' );
+			leaderboardProgressFill.style.width = `${ percent }%`;
+			leaderboardProgressLabel.textContent = `Loading leaderboard data… ${ safeCompleted } / ${ total } tracks`;
+		}
+
+		async function apiRequest( path = '', options = {} ) {
+			const res = await fetch( `${ API_BASE }${ path }`, {
+				headers: { 'Content-Type': 'application/json', ...( options.headers || {} ) },
+				...options,
+			} );
+			if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+			return res.json();
+		}
+
+		function saveToHash() {
+			const payload = encodeBase64UrlJson( { v: 1, entries } );
+			const hash = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
+			hash.set( 'board', payload );
+			window.location.hash = hash.toString();
+		}
+
+		function loadFromHash() {
+			try {
+				const hash = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
+				const rawBoard = hash.get( 'board' );
+				if ( ! rawBoard ) {
+
+					entries = [];
+					return;
+
+				}
+				const parsed = decodeBase64UrlJson( rawBoard );
+				entries = sanitizeBoardEntries( parsed?.entries );
+			} catch ( e ) {
+				entries = [];
+			}
+		}
+
+		async function loadFromRemote() {
+			const payload = await apiRequest();
+			entries = sanitizeBoardEntries( payload?.entries );
+			render();
+			hydrateTopLeaderboardRows( entries );
+		}
+
+		function getTrackIdFromPlayUrl( playUrl ) {
+			try {
+				const parsed = new URL( playUrl, window.location.href );
+				const normalizedPath = normalizeTrackPath( parsed.pathname );
+				const query = new URLSearchParams();
+				const map = parsed.searchParams.get( 'map' ) || '';
+				const mods = parsed.searchParams.get( 'mods' ) || '';
+				if ( map ) query.set( 'map', map );
+				if ( mods ) query.set( 'mods', mods );
+				const rawUrl = `${ normalizedPath }${ query.toString() ? `?${ query.toString() }` : '' }`;
+				return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
+			} catch ( e ) {
+				return '';
+			}
+		}
+
+		function getLegacyTrackIdsFromPlayUrl( playUrl ) {
+			return [];
+		}
+
+		function normalizeTrackPath( pathValue ) {
+			const raw = String( pathValue || '/' );
+			if ( raw === '/index.html' ) return '/';
+			if ( raw.endsWith( '/index.html' ) ) return `${ raw.slice( 0, -11 ) }/`;
+			return raw;
+		}
+
+		function decodeExtrasParamToken( str ) {
+			if ( ! str || str === 'none' ) return null;
+			try {
+				const json = decodeURIComponent( escape( atob( str.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
+				const parsed = JSON.parse( json );
+				return {
+					bumps: Array.isArray( parsed.b ) ? parsed.b : [],
+					poles: Array.isArray( parsed.p ) ? parsed.p : [],
+					cubes: Array.isArray( parsed.k ) ? parsed.k : [],
+					walls: Array.isArray( parsed.l ) ? parsed.l : [],
+					boosts: Array.isArray( parsed.s ) ? parsed.s : [],
+					elevated: Array.isArray( parsed.e ) ? parsed.e : [],
+					jumps: Array.isArray( parsed.j ) ? parsed.j : [],
+					decorations: Array.isArray( parsed.d ) ? parsed.d : [],
+					surfaces: Array.isArray( parsed.u ) ? parsed.u : [],
+					customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
+					customAssets: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
+					weather: parsed?.w && typeof parsed.w === 'object' ? parsed.w : { preset: 'sunset', precipitation: 'none', intensity: 'light', lightning: false, wind: 'calm' },
+				};
+			} catch ( e ) {
+				return null;
+			}
+		}
+
+
+		function bumpCampaignCounter( key, amount = 1 ) {
+			const storeKey = `racing-campaign-counter:${ key }`;
+			const next = Math.max( 0, Number( localStorage.getItem( storeKey ) || 0 ) + amount );
+			localStorage.setItem( storeKey, String( next ) );
+		}
+		function encodeBase64Url( value ) {
+			return btoa( value ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
+		}
+
+		function hashTrackSeed( value ) {
+			const hashA = fnv64Hex( value, 0xcbf29ce484222325n, 0x100000001b3n );
+			const hashB = fnv64Hex( value, 0x84222325cbf29cen, 0x100000001c3n );
+			return `${ hashA }${ hashB }`;
+		}
+
+		function fnv64Hex( value, start, prime ) {
+			let hash = start;
+			for ( let i = 0; i < value.length; i ++ ) {
+				hash ^= BigInt( value.charCodeAt( i ) );
+				hash = ( hash * prime ) & 0xffffffffffffffffn;
+			}
+			return hash.toString( 16 ).padStart( 16, '0' );
+		}
+
+		let hydrationRenderScheduled = false;
+		function scheduleHydrationRender() {
+			if ( hydrationRenderScheduled ) return;
+			hydrationRenderScheduled = true;
+			requestAnimationFrame( () => {
+				hydrationRenderScheduled = false;
+				renderRecordBoard();
+				scheduleCardRefresh();
+			} );
+		}
+		let cardRefreshScheduled = false;
+		function scheduleCardRefresh() {
+			if ( cardRefreshScheduled ) return;
+			cardRefreshScheduled = true;
+			requestAnimationFrame( () => {
+				cardRefreshScheduled = false;
+				const filtered = getFilteredEntries();
+				const cards = grid.querySelectorAll( '.card' );
+				const featuredCards = featuredTrack ? featuredTrack.querySelectorAll( '.card' ) : [];
+				const allCards = [ ...featuredCards, ...cards ];
+				allCards.forEach( ( card, idx ) => {
+					const entry = filtered[ idx ];
+					if ( ! entry ) return;
+					const stats = getTrackStats( entry );
+					const bestTimeEl = card.querySelector( '.stat-grid .stat:nth-child(1) b' );
+					const recordEl = card.querySelector( '.stat-grid .stat:nth-child(2) b' );
+					if ( bestTimeEl ) bestTimeEl.textContent = stats.bestTime === Infinity ? '--.--' : formatSeconds( stats.bestTime );
+					if ( recordEl ) recordEl.textContent = stats.topRow ? stats.topRow.name : 'Open';
+				} );
+			} );
+		}
+		async function hydrateTopLeaderboardRows( sourceEntries ) {
+			const next = new Map();
+			const rowsMap = new Map();
+			const CHUNK_SIZE = 6;
+			const bestRowForTrack = ( rows ) => {
+				if ( ! Array.isArray( rows ) || rows.length === 0 ) return null;
+				return rows.slice().sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ] || null;
+			};
+			const trackRequests = [ ...new Map( sourceEntries.map( ( entry ) => {
+				const primaryId = getTrackIdFromPlayUrl( entry.playUrl );
+				if ( ! primaryId ) return [ '', null ];
+				return [ primaryId, { primaryId, candidateIds: [ primaryId, ...getLegacyTrackIdsFromPlayUrl( entry.playUrl ) ] } ];
+			} ) ).values() ].filter( Boolean );
+			leaderboardHydrating = true;
+			setLeaderboardProgress( 0, trackRequests.length );
+			for ( let i = 0; i < trackRequests.length; i += CHUNK_SIZE ) {
+				const chunk = trackRequests.slice( i, i + CHUNK_SIZE );
+				const tasks = chunk.map( async ( request ) => {
+					const { primaryId, candidateIds } = request;
+					const payloads = await Promise.all( candidateIds.map( async ( trackId ) => {
+						try {
+							const res = await fetch( `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( trackId ) }` );
+							if ( ! res.ok ) return null;
+							return res.json();
+						} catch ( e ) {
+							return null;
+						}
+					} ) );
+					const mergedRows = payloads.flatMap( ( payload ) => Array.isArray( payload?.entries ) ? payload.entries : [] );
+					const dedupedRows = [ ...new Map( mergedRows.map( ( row ) => [ `${ String( row?.name || '' ).trim().toLowerCase() }|${ Number( row?.timeSeconds ) || Infinity }`, row ] ) ).values() ]
+						.filter( ( row ) => String( row?.name || '' ).trim() && Number.isFinite( Number( row?.timeSeconds ) ) )
+						.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
+					rowsMap.set( primaryId, dedupedRows );
+					next.set( primaryId, bestRowForTrack( dedupedRows ) );
+					topByTrackId = new Map( next );
+					rowsByTrackId = new Map( rowsMap );
+					setLeaderboardProgress( next.size, trackRequests.length );
+					scheduleHydrationRender();
+				} );
+				await Promise.all( tasks );
+				await new Promise( ( r ) => setTimeout( r, 0 ) );
+			}
+			leaderboardHydrating = false;
+			setLeaderboardProgress( trackRequests.length, trackRequests.length );
+			renderRecordBoard();
+			scheduleCardRefresh();
+		}
+
+		function inferTrackName( url, fallback = 'Shared Track' ) {
+			try {
+				const parsed = new URL( url, window.location.href );
+				const map = parsed.searchParams.get( 'map' );
+				if ( map ) return `Custom Track (${ map.slice( 0, 8 ) }...)`;
+				return parsed.pathname.split( '/' ).pop() || fallback;
+			} catch ( e ) {
+				return fallback;
+			}
+		}
+
+		function formatSeconds( value ) {
+			return Number.isFinite( value ) ? `${ value.toFixed( 2 ) }s` : '--.--';
+		}
+
+		function decodeBase64Url( value ) {
+			const normalized = String( value || '' ).replace( /-/g, '+' ).replace( /_/g, '/' );
+			const padded = normalized + '='.repeat( ( 4 - normalized.length % 4 ) % 4 );
+			return atob( padded );
+		}
+
+		function decodeCellsFromMap( mapToken ) {
+			const bytes = decodeBase64Url( mapToken );
+			const typeByIdx = [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-finish' ];
+			const orientByIdx = [ 0, 16, 10, 22 ];
+			const cells = [];
+			for ( let i = 0; i + 2 < bytes.length; i += 3 ) {
+				const gx = bytes.charCodeAt( i ) - 128;
+				const gz = bytes.charCodeAt( i + 1 ) - 128;
+				const packed = bytes.charCodeAt( i + 2 );
+				const type = typeByIdx[ packed >> 2 ] || 'track-straight';
+				const orient = orientByIdx[ packed & 3 ] ?? 0;
+				cells.push( [ gx, gz, type, orient ] );
+			}
+			return cells;
+		}
+
+		function decodeModsFromToken( modsToken ) {
+			const decoded = decodeBase64Url( modsToken );
+			return JSON.parse( decodeURIComponent( escape( decoded ) ) );
+		}
+
+		function parseTrackLayoutFromUrl( playUrl ) {
+			try {
+				const parsed = new URL( playUrl, window.location.href );
+				const map = parsed.searchParams.get( 'map' );
+				const mods = parsed.searchParams.get( 'mods' );
+				if ( ! map ) return null;
+				return {
+					cells: decodeCellsFromMap( map ),
+					mods: mods ? decodeModsFromToken( mods ) : { b: [], u: [], d: [] },
+				};
+			} catch ( e ) {
+				return null;
+			}
+		}
+
+		function drawTrackPreview( canvas, cells, mods = {} ) {
+			if ( ! canvas || ! cells || cells.length === 0 ) return;
+			const ctx = canvas.getContext( '2d' );
+			ctx.clearRect( 0, 0, canvas.width, canvas.height );
+			const xs = cells.map( ( c ) => c[ 0 ] );
+			const zs = cells.map( ( c ) => c[ 1 ] );
+			const minX = Math.min( ...xs ) - 1;
+			const maxX = Math.max( ...xs ) + 1;
+			const minZ = Math.min( ...zs ) - 1;
+			const maxZ = Math.max( ...zs ) + 1;
+			const gw = maxX - minX + 1;
+			const gh = maxZ - minZ + 1;
+			const pad = 8;
+			const size = Math.max( 4, Math.floor( Math.min( ( canvas.width - pad * 2 ) / gw, ( canvas.height - pad * 2 ) / gh ) ) );
+			const toPix = ( x, z ) => [ pad + ( x - minX ) * size, pad + ( z - minZ ) * size ];
+			for ( const [ x, z, type ] of cells ) {
+				const [ px, py ] = toPix( x, z );
+				ctx.fillStyle = type === 'track-finish' ? '#72e39a'
+					: type === 'track-checkpoint' ? '#ffd54f'
+					: type === 'track-corner' ? '#b084ff'
+					: '#4da3ff';
+				ctx.fillRect( px + 1, py + 1, size - 2, size - 2 );
+			}
+			ctx.strokeStyle = '#ff4d4d';
+			for ( const [ x, z ] of ( mods.b || [] ) ) {
+				const [ px, py ] = toPix( x, z );
+				ctx.beginPath();
+				ctx.arc( px + size / 2, py + size / 2, Math.max( 2, size * 0.22 ), 0, Math.PI * 2 );
+				ctx.stroke();
+			}
+		}
+
+		function getRecordLeaders() {
+			const winsByDriver = new Map();
+			const uniqueTrackIds = [ ...new Set( entries.map( ( entry ) => getTrackIdFromPlayUrl( entry.playUrl ) ).filter( Boolean ) ) ];
+			for ( const trackId of uniqueTrackIds ) {
+				const topRow = topByTrackId.get( trackId );
+				const driverName = String( topRow?.name || '' ).trim();
+				if ( ! driverName ) continue;
+				winsByDriver.set( driverName, ( winsByDriver.get( driverName ) || 0 ) + 1 );
+			}
+			return [ ...winsByDriver.entries() ]
+				.map( ( [ name, wins ] ) => ( { name, wins } ) )
+				.sort( ( a, b ) => b.wins - a.wins || a.name.localeCompare( b.name ) );
+		}
+
+		function getPlacementRatings() {
+			const scoreByDriver = new Map();
+			const POINTS_BY_PLACE = [ 100, 80, 65, 54, 46, 40, 35, 30, 26, 22 ];
+			for ( const rows of rowsByTrackId.values() ) {
+
+				if ( ! Array.isArray( rows ) || rows.length === 0 ) continue;
+				rows.slice( 0, POINTS_BY_PLACE.length ).forEach( ( row, index ) => {
+
+					const name = String( row?.name || '' ).trim();
+					if ( ! name ) return;
+					const points = POINTS_BY_PLACE[ index ] || 0;
+					const existing = scoreByDriver.get( name ) || { name, points: 0, podiums: 0 };
+					existing.points += points;
+					if ( index <= 2 ) existing.podiums += 1;
+					scoreByDriver.set( name, existing );
+
+				} );
+
+			}
+			return [ ...scoreByDriver.values() ]
+				.sort( ( a, b ) => b.points - a.points || b.podiums - a.podiums || a.name.localeCompare( b.name ) );
+		}
+
+		function classifyTrackStyle( cells = [], mods = {} ) {
+			if ( ! Array.isArray( cells ) || cells.length === 0 ) return 'Mixed';
+			const corners = cells.filter( ( cell ) => cell[ 2 ] === 'track-corner' ).length;
+			const straights = cells.filter( ( cell ) => cell[ 2 ] === 'track-straight' || cell[ 2 ] === 'track-finish' || cell[ 2 ] === 'track-checkpoint' ).length;
+			const surfaces = Array.isArray( mods?.u ) ? mods.u.map( ( item ) => item[ 2 ] ) : [];
+			const iceCount = surfaces.filter( ( surface ) => surface === 'surface-ice' ).length;
+			const boostCount = surfaces.filter( ( surface ) => surface === 'surface-boost' || surface === 'surface-wood' ).length;
+			const cornerRatio = corners / Math.max( 1, corners + straights );
+			if ( iceCount >= 2 ) return 'Ice';
+			if ( cornerRatio >= 0.45 ) return 'Tech';
+			if ( boostCount >= 2 || cornerRatio <= 0.22 ) return 'Speed';
+			return 'Mixed';
+
+		}
+
+		function renderRecordBoard() {
+			if ( ! recordsBoardList ) return;
+			const leaders = getRecordLeaders();
+			if ( leaders.length === 0 ) {
+				recordsBoardList.innerHTML = leaderboardHydrating
+					? '<div class="records-empty">Loading record holders…</div>'
+					: '<div class="records-empty">No leaderboard winners yet. Complete a lap to create the first record holder.</div>';
+				if ( placementRatingList ) placementRatingList.innerHTML = '<div class="records-empty">Loading placement ratings…</div>';
+				return;
+			}
+			recordsBoardList.innerHTML = leaders.slice( 0, 8 )
+				.map( ( leader, idx ) => `<div class="record-chip">
+					<div class="rank-badge">${ idx === 0 ? '♛' : ( idx + 1 ) }</div>
+					<div class="record-info">
+						<div class="name">${ leader.name }</div>
+						<div class="count">${ leader.wins } unique track record${ leader.wins === 1 ? '' : 's' }</div>
+					</div>
+				</div>` )
+				.join( '' );
+			if ( ! placementRatingList ) return;
+			const ratings = getPlacementRatings();
+			if ( ratings.length === 0 ) {
+
+				placementRatingList.innerHTML = '<div class="records-empty">No placement ratings yet. Finish laps on shared tracks first.</div>';
+				return;
+
+			}
+			placementRatingList.innerHTML = ratings.slice( 0, 10 )
+				.map( ( row, idx ) => `<div class="record-chip">
+					<div class="rank-badge">${ idx === 0 ? '★' : ( idx + 1 ) }</div>
+					<div class="record-info">
+						<div class="name">${ row.name }</div>
+						<div class="count">${ row.points } pts • ${ row.podiums } podium${ row.podiums === 1 ? '' : 's' }</div>
+					</div>
+				</div>` )
+				.join( '' );
+		}
+
+		function getTrackStats( entry ) {
+			const trackId = getTrackIdFromPlayUrl( entry.playUrl );
+			const topRow = topByTrackId.get( trackId ) || null;
+			const previewData = parseTrackLayoutFromUrl( entry.playUrl );
+			const best = Number( topRow?.timeSeconds ?? entry.bestLapSeconds );
+			return {
+				trackId,
+				topRow,
+				previewData,
+				sizeTag: inferTrackSize( entry ),
+				styleTag: classifyTrackStyle( previewData?.cells || [], previewData?.mods || {} ),
+				plays: Number( entry.viewCount ) || 0,
+				likes: Number( entry.thumbsUp ) || 0,
+				dislikes: Number( entry.thumbsDown ) || 0,
+				bestTime: Number.isFinite( best ) ? best : Infinity,
+				createdAt: Number( entry.createdAt ) || 0,
+			};
+		}
+
+		function createTrackCard( entry, options = {} ) {
+			const stats = getTrackStats( entry );
+			const card = document.createElement( 'div' );
+			card.className = `card${ options.featured ? ' featured' : '' }`;
+			card.innerHTML = `<h3>${ entry.name }</h3>
+				<div class="badges">
+					<span class="badge">▶ ${ stats.plays } plays</span>
+					<span class="badge">👍 ${ stats.likes }</span>
+					<span class="badge">🏁 ${ stats.sizeTag }</span>
+					<span class="badge">🧭 ${ stats.styleTag }</span>
+				</div>
+				${ entry.thumbnailDataUrl ? `<img class="preview-canvas" src="${ entry.thumbnailDataUrl }" alt="Track thumbnail for ${ entry.name }">` : `<canvas class="preview-canvas" width="300" height="180" aria-label="Track preview for ${ entry.name }"></canvas>` }
+				<div class="stat-grid">
+					<div class="stat"><span>Best time</span><b>${ stats.bestTime === Infinity ? '--.--' : formatSeconds( stats.bestTime ) }</b></div>
+					<div class="stat"><span>Record holder</span><b>${ stats.topRow ? stats.topRow.name : 'Open' }</b></div>
+					<div class="stat"><span>Popularity</span><b>${ stats.plays } plays</b></div>
+					<div class="stat"><span>Rating</span><b>${ stats.likes } 👍 / ${ stats.dislikes } 👎</b></div>
+				</div>
+				<div class="meta">${ entry.description ? entry.description : 'No description.' }</div>
+				<div class="row" style="margin-top:0">
+					<a class="linkbtn play-map-btn" href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play</a>
+					<button data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
+					<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
+					<button data-id="${ entry.id }" type="button">Remove</button>
+				</div>`;
+			if ( ! entry.thumbnailDataUrl && stats.previewData ) drawTrackPreview( card.querySelector( '.preview-canvas' ), stats.previewData.cells, stats.previewData.mods );
+			return card;
+		}
+
+		function renderTrackList( container, items, emptyText, options = {} ) {
+			if ( ! container ) return;
+			container.innerHTML = '';
+			if ( items.length === 0 ) {
+				container.innerHTML = `<div class="card"><h3>Nothing here yet</h3><div class="meta">${ emptyText }</div></div>`;
+				return;
+			}
+			items.forEach( ( entry ) => container.appendChild( createTrackCard( entry, options ) ) );
+		}
+
+		function renderHighlights() {
+			const now = Date.now();
+			const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+			const averagePlays = entries.reduce( ( total, entry ) => total + ( Number( entry.viewCount ) || 0 ), 0 ) / Math.max( 1, entries.length );
+			const newestFirst = [ ...entries ].sort( ( a, b ) => ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) );
+			const featured = newestFirst
+				.filter( ( entry ) => ( Number( entry.viewCount ) || 0 ) >= averagePlays )
+				.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )[ 0 ] || newestFirst[ 0 ];
+			const trending = [ ...entries ]
+				.sort( ( a, b ) => ( ( Number( b.viewCount ) || 0 ) * 2 + ( Number( b.thumbsUp ) || 0 ) + ( Number( b.createdAt ) >= weekAgo ? 5 : 0 ) ) - ( ( Number( a.viewCount ) || 0 ) * 2 + ( Number( a.thumbsUp ) || 0 ) + ( Number( a.createdAt ) >= weekAgo ? 5 : 0 ) ) )
+				.slice( 0, 6 );
+			const newWeek = newestFirst.filter( ( entry ) => Number( entry?.createdAt ) >= weekAgo ).slice( 0, 6 );
+			const topRated = [ ...entries ].sort( ( a, b ) => ( Number( b.thumbsUp ) || 0 ) - ( Number( a.thumbsUp ) || 0 ) || ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) ).slice( 0, 6 );
+			const fastest = [ ...entries ].filter( ( entry ) => getTrackStats( entry ).bestTime < Infinity ).sort( ( a, b ) => getTrackStats( a ).bestTime - getTrackStats( b ).bestTime ).slice( 0, 6 );
+			renderTrackList( featuredTrack, featured ? [ featured ] : [], 'No tracks have been published yet.', { featured: true } );
+			renderTrackList( trendingList, trending, 'Play counts will surface trending tracks once people start racing.' );
+			renderTrackList( newWeekList, newWeek, 'No new tracks were published in the past 7 days.' );
+			renderTrackList( topRatedList, topRated, 'Likes and plays will determine top rated tracks.' );
+			renderTrackList( fastestRecordsList, fastest, 'No best times are available yet.' );
+		}
+
+		function inferTrackSize( entry ) {
+			try {
+				const parsed = new URL( entry.playUrl, window.location.href );
+				const map = parsed.searchParams.get( 'map' ) || '';
+				if ( map.length === 0 ) return 'medium';
+				if ( map.length < 90 ) return 'small';
+				if ( map.length < 250 ) return 'medium';
+				return 'large';
+			} catch ( e ) {
+				return 'medium';
+			}
+		}
+
+		function getFilteredEntries() {
+			const search = ( searchInput?.value || '' ).trim().toLowerCase();
+			const size = sizeFilter?.value || 'all';
+			const sortMode = sortFilter?.value || 'newest';
+			const filtered = entries.filter( ( entry ) => {
+				const nameMatch = ! search || String( entry.name || '' ).toLowerCase().includes( search );
+				const sizeMatch = size === 'all' || inferTrackSize( entry ) === size;
+				return nameMatch && sizeMatch;
+			} );
+			if ( sortMode === 'popular' ) {
+				return [ ...filtered ].sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) );
+			}
+			if ( sortMode === 'most-liked' ) {
+				return [ ...filtered ].sort( ( a, b ) => ( Number( b.thumbsUp ) || 0 ) - ( Number( a.thumbsUp ) || 0 ) );
+			}
+			if ( sortMode === 'best-time' ) {
+				return [ ...filtered ].sort( ( a, b ) => ( Number( a.bestLapSeconds ) || Infinity ) - ( Number( b.bestLapSeconds ) || Infinity ) );
+			}
+			return [ ...filtered ].sort( ( a, b ) => ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) );
+		}
+
+		function buildPlayUrl( baseUrl, ghostPayload ) {
+			const ghostBlob = encodeBase64UrlJson( ghostPayload );
+			const separator = baseUrl.includes( '#' ) ? '&' : '#';
+			return `${ baseUrl }${ separator }ghost=${ ghostBlob }`;
+		}
+
+		function render() {
+			const hasSearch = ( searchInput?.value || '' ).trim().length > 0;
+			grid.innerHTML = '';
+
+			if ( hasSearch ) {
+				// Hide all category sections + record board, show only the library
+				document.querySelectorAll( '.browser-section, .records-board' ).forEach( s => {
+					s.style.display = 'none';
+				} );
+				const libSection = document.getElementById( 'section-library' );
+				if ( libSection ) {
+					libSection.style.display = '';
+					// Update heading to show it's search results
+					const kicker = libSection.querySelector( '.section-kicker' );
+					const heading = libSection.querySelector( 'h2' );
+					if ( kicker ) kicker.textContent = 'Search results';
+					if ( heading ) heading.textContent = 'Matching Tracks';
+				}
+
+				const filtered = getFilteredEntries();
+				if ( filtered.length === 0 ) {
+					grid.innerHTML = '<div class="card"><h3>No matches</h3><div class="meta">Try a different search or size filter.</div></div>';
+					return;
+				}
+
+				for ( const entry of filtered ) {
+					grid.appendChild( createTrackCard( entry ) );
+				}
+				return;
+			}
+
+			// Restore all sections when not searching
+			document.querySelectorAll( '.browser-section, .records-board' ).forEach( s => {
+				s.style.display = '';
+			} );
+			{
+				const libSection = document.getElementById( 'section-library' );
+				if ( libSection ) {
+					const kicker = libSection.querySelector( '.section-kicker' );
+					const heading = libSection.querySelector( 'h2' );
+					if ( kicker ) kicker.textContent = 'Full library';
+					if ( heading ) heading.textContent = 'All Tracks';
+				}
+			}
+
+			renderRecordBoard();
+			renderHighlights();
+			const filtered = getFilteredEntries();
+			if ( filtered.length === 0 ) {
+				const hasAny = entries.length > 0;
+				grid.innerHTML = hasAny
+					? '<div class="card"><h3>No matches</h3><div class="meta">Try a different search or size filter.</div></div>'
+					: '<div class="card"><h3>No uploads yet</h3><div class="meta">Add a ghost code to get started.</div></div>';
+				return;
+			}
+
+			for ( const entry of filtered ) {
+				grid.appendChild( createTrackCard( entry ) );
+			}
+		}
+
+		async function addEntryFromGhostCode() {
+			const rawCode = ghostInput.value.trim();
+			if ( ! rawCode ) return setStatus( 'Paste a ghost code first.', true );
+
+			let parsed;
+			try {
+				parsed = decodeBase64UrlJson( rawCode );
+			} catch ( e ) {
+				return setStatus( 'Could not decode ghost code.', true );
+			}
+
+			if ( ! parsed?.url || ! parsed?.ghost?.samples || parsed.ghost.samples.length < 2 ) {
+				return setStatus( 'Ghost code is missing required race data.', true );
+			}
+
+			const name = ( nameInput.value || '' ).trim() || inferTrackName( parsed.url );
+			const description = ( descriptionInput.value || '' ).trim();
+			const playUrl = buildPlayUrl( parsed.url, parsed.ghost );
+			const entryId = `${ Date.now() }:${ entries.length }`;
+			if ( useRemoteBoard ) {
+				bumpCampaignCounter( 'play-share-open', 1 );
+
+				await apiRequest( '', {
+					method: 'POST',
+					body: JSON.stringify( { name, ghostCode: rawCode, description, thumbnailDataUrl: selectedThumbnailDataUrl } ),
+				} );
+				await loadFromRemote();
+
+			} else {
+
+				entries.unshift( {
+					id: entryId,
+					name,
+					playUrl,
+					bestLapSeconds: Number( parsed.ghost.bestLapSeconds ),
+					sampleCount: Array.isArray( parsed.ghost.samples ) ? parsed.ghost.samples.length : 0,
+					viewCount: 0,
+					thumbsUp: 0,
+					thumbsDown: 0,
+					lastLikedAt: 0,
+					description,
+					thumbnailDataUrl: selectedThumbnailDataUrl,
+					createdAt: Date.now(),
+				} );
+				saveToHash();
+					hydrateTopLeaderboardRows( entries );
+
+			}
+			render();
+			bumpCampaignCounter( 'publish-track', 1 );
+			setStatus( `Added "${ name }" to board.` );
+			ghostInput.value = '';
+			descriptionInput.value = '';
+			thumbnailInput.value = '';
+			selectedThumbnailDataUrl = '';
+		}
+
+		addBtn.addEventListener( 'click', () => {
+			addEntryFromGhostCode().catch( () => setStatus( 'Failed to add entry.', true ) );
+		} );
+			document.addEventListener('click', async (e) => {
+  const openLink = e.target.closest( 'a[data-action="open-track"]' );
+  if ( openLink ) {
+    if ( useRemoteBoard ) {
+      const id = openLink.getAttribute( 'data-id' );
+      try {
+        await apiRequest( `/${ id }/view`, { method: 'POST' } );
+        const current = entries.find( ( entry ) => entry.id === id );
+        if ( current ) current.viewCount = ( Number( current.viewCount ) || 0 ) + 1;
+        render();
+      } catch ( err ) {
+        // no-op, link still opens in new tab
+      }
+    }
+    return;
+  }
+
+  if (e.target.tagName !== 'BUTTON') return;
+
+  const id = e.target.getAttribute('data-id');
+  if ( ! id ) return;
+  const vote = Number( e.target.getAttribute( 'data-vote' ) );
+	  if ( vote === 1 || vote === -1 ) {
+		const voteKey = `${ id }:${ vote }`;
+		if ( votedTrackActions.has( voteKey ) ) {
+			setStatus( 'You already used that vote this session.', true );
+			return;
+		}
+	    if ( useRemoteBoard ) {
+	      try {
+	        await apiRequest( `/${ id }/vote`, { method: 'POST', body: JSON.stringify( { vote } ) } );
+	      } catch ( err ) {}
+	    }
+    const current = entries.find( ( entry ) => entry.id === id );
+    if ( current ) {
+      current.thumbsUp = Number( current.thumbsUp ) || 0;
+      current.thumbsDown = Number( current.thumbsDown ) || 0;
+      if ( vote > 0 ) current.thumbsUp += 1;
+      if ( vote < 0 ) current.thumbsDown += 1;
+      current.lastLikedAt = Date.now();
+    }
+	    if ( ! useRemoteBoard ) saveToHash();
+		votedTrackActions.add( voteKey );
+		saveVoteSession();
+	    render();
+	    return;
+	  }
+
+  // 🔑 get password from input
+  const token = document.getElementById("adminTokenInput").value;
+
+  if (useRemoteBoard) {
+    try {
+      await apiRequest(`/${id}`, {
+        method: "DELETE",
+        headers: {
+          "X-Admin-Token": token
+        }
+      });
+
+      // reload from server
+      await loadFromRemote();
+      render();
+      setStatus("Track deleted!");
+
+    } catch (err) {
+      setStatus("Delete failed (wrong password?)", true);
+    }
+
+    return;
+  }
+
+  // local mode (unchanged)
+  entries = entries.filter((entry) => entry.id !== id);
+  saveToHash();
+  render();
+});
+		exportBtn.addEventListener( 'click', () => {
+			const code = encodeBase64UrlJson( { v: 1, entries } );
+			ghostInput.value = code;
+			setStatus( 'Board code generated in the textarea. Share it anywhere.' );
+		} );
+			importBtn.addEventListener( 'click', () => {
+				if ( useRemoteBoard ) return setStatus( 'Import board code is available in local mode only.', true );
+				const raw = ghostInput.value.trim();
+			if ( ! raw ) return setStatus( 'Paste a board code in the textarea first.', true );
+				try {
+					const parsed = decodeBase64UrlJson( raw );
+					if ( ! Array.isArray( parsed?.entries ) ) throw new Error();
+					entries = sanitizeBoardEntries( parsed.entries );
+					saveToHash();
+					hydrateTopLeaderboardRows( entries );
+					render();
+					setStatus( `Imported ${ entries.length } shared track entries.` );
+				} catch ( e ) {
+					setStatus( 'Invalid board code.', true );
+				}
+			} );
+			copyLinkBtn.addEventListener( 'click', async () => {
+				try {
+					const link = useRemoteBoard ? `${ window.location.origin }/tracks.html` : window.location.href;
+					await navigator.clipboard.writeText( link );
+					setStatus( useRemoteBoard
+						? 'Share link copied. All devices will load the same cloud board.'
+						: 'Share link copied. Open it on any device to load this board.' );
+				} catch ( e ) {
+					setStatus( 'Copy failed. Manually copy the URL from your browser.', true );
+				}
+			} );
+			window.addEventListener( 'hashchange', () => {
+				if ( useRemoteBoard ) return;
+				loadFromHash();
+				hydrateTopLeaderboardRows( entries );
+				render();
+			} );
+			let searchDebounce = null;
+			searchInput.addEventListener( 'input', () => {
+				clearTimeout( searchDebounce );
+				searchDebounce = setTimeout( () => render(), 200 );
+			} );
+			sizeFilter.addEventListener( 'change', () => render() );
+			sortFilter.addEventListener( 'change', () => render() );
+			thumbnailInput.addEventListener( 'change', async () => {
+				const file = thumbnailInput.files?.[ 0 ];
+				if ( ! file ) {
+					selectedThumbnailDataUrl = '';
+					return;
+				}
+				const reader = new FileReader();
+				reader.onload = () => {
+					selectedThumbnailDataUrl = String( reader.result || '' );
+					setStatus( 'Thumbnail selected.' );
+				};
+				reader.readAsDataURL( file );
+			} );
+			randomTrackBtn.addEventListener( 'click', () => {
+				const filtered = getFilteredEntries();
+				if ( filtered.length === 0 ) {
+
+					setStatus( 'No tracks match your filters.', true );
+					return;
+
+				}
+				const pick = filtered[ Math.floor( Math.random() * filtered.length ) ];
+				window.open( pick.playUrl, '_blank', 'noopener,noreferrer' );
+			} );
+
+			( async () => {
+				try {
+
+					await loadFromRemote();
+					useRemoteBoard = true;
+					setStatus( 'Connected to cloud board.' );
+					importBtn.disabled = true;
+					exportBtn.disabled = true;
+
+				} catch ( e ) {
+
+					useRemoteBoard = false;
+					loadFromHash();
+					setStatus( 'Cloud board unavailable. Using local share-link mode.' );
+					hydrateTopLeaderboardRows( entries );
+
+				}
+				render();
+
+			} )();
+		</script>
+</main>
+
+<script type="module" src="js/PageMusic.js"></script>
+<script src="js/NavBar.js"></script>
+</body>
+</html>
