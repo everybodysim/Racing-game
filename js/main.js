@@ -8359,6 +8359,7 @@ function completeCampaignStage() {
 	randomizeLapCarIfSinglePlayer();
 	resetLapState( true );
 	resetLapState2( true );
+	startCountdown();
 
 	const hashParams = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
 	const importedGhost = hashParams.get( 'ghost' );
@@ -9161,6 +9162,7 @@ function completeCampaignStage() {
 				}
 				resetPhysicsObstacles();
 				if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle();
+				startCountdown();
 					saveLapStats();
 					rewardCoinsForLap( completedLap );
 					if ( ! lapInvalid && competitionParamEnabled && competitionReturnParam && ! isSplitScreen ) {
