@@ -224,6 +224,9 @@ const BOOST_ACCEL_PER_SECOND = 16.5;
 const FX_SETTINGS_KEY = 'racing-fx-settings-v1';
 const COUNTDOWN_SETTINGS_KEY = 'racing-countdown-enabled-v1';
 const FPS_HUD_SETTINGS_KEY = 'racing-show-fps-v1';
+const SFX_VOLUME_KEY = 'racing-sfx-volume-v1';
+const MUSIC_VOLUME_KEY = 'racing-music-volume-v1';
+const MUSIC_TRACK_KEY = 'racing-music-track-v1';
 const COUNTDOWN_DURATION_SECONDS = 3;
 const ZERO_DRIVE_INPUT = { x: 0, z: 0 };
 const VEHICLE_SURFACE_RADIUS = 0.5;
@@ -5001,6 +5004,11 @@ function completeCampaignStage() {
 		applyVehiclePerformance();
 	}
 	const audio = new GameAudio();
+	audio.sfxVolume = Number( localStorage.getItem( SFX_VOLUME_KEY ) );
+	if ( ! Number.isFinite( audio.sfxVolume ) || audio.sfxVolume < 0 ) audio.sfxVolume = 1;
+	audio.musicVolume = Number( localStorage.getItem( MUSIC_VOLUME_KEY ) );
+	if ( ! Number.isFinite( audio.musicVolume ) || audio.musicVolume < 0 ) audio.musicVolume = 1;
+	audio.musicTrack = localStorage.getItem( MUSIC_TRACK_KEY ) || 'random';
 	audio.init( cam.camera );
 
 	const _forward = new THREE.Vector3();
@@ -7739,6 +7747,39 @@ function completeCampaignStage() {
 
 		}
 		updateFpsHudVisibility();
+
+	} );
+	const sfxVolumeSlider = document.getElementById( 'sfx-volume-slider' );
+	const sfxVolumeValue = document.getElementById( 'sfx-volume-value' );
+	const musicVolumeSlider = document.getElementById( 'music-volume-slider' );
+	const musicVolumeValue = document.getElementById( 'music-volume-value' );
+	const musicTrackSelect = document.getElementById( 'music-track-select' );
+	if ( sfxVolumeSlider ) sfxVolumeSlider.value = audio.sfxVolume;
+	if ( sfxVolumeValue ) sfxVolumeValue.textContent = `${ Math.round( audio.sfxVolume * 100 ) }%`;
+	if ( musicVolumeSlider ) musicVolumeSlider.value = audio.musicVolume;
+	if ( musicVolumeValue ) musicVolumeValue.textContent = `${ Math.round( audio.musicVolume * 100 ) }%`;
+	if ( musicTrackSelect ) musicTrackSelect.value = audio.musicTrack;
+	sfxVolumeSlider?.addEventListener( 'input', () => {
+
+		const v = Number( sfxVolumeSlider.value );
+		audio.setSfxVolume( v );
+		localStorage.setItem( SFX_VOLUME_KEY, String( v ) );
+		if ( sfxVolumeValue ) sfxVolumeValue.textContent = `${ Math.round( v * 100 ) }%`;
+
+	} );
+	musicVolumeSlider?.addEventListener( 'input', () => {
+
+		const v = Number( musicVolumeSlider.value );
+		audio.setMusicVolume( v );
+		localStorage.setItem( MUSIC_VOLUME_KEY, String( v ) );
+		if ( musicVolumeValue ) musicVolumeValue.textContent = `${ Math.round( v * 100 ) }%`;
+
+	} );
+	musicTrackSelect?.addEventListener( 'change', () => {
+
+		const track = musicTrackSelect.value;
+		audio.setMusicTrack( track );
+		localStorage.setItem( MUSIC_TRACK_KEY, track );
 
 	} );
 	garageTargetColorInput?.addEventListener( 'input', updateGaragePaintControls );

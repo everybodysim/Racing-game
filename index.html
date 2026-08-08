@@ -465,6 +465,13 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#mode-menu #graphics-quality-row button { margin-top: 0; padding: 8px 6px; }
 		#mode-menu #graphics-quality-row button.active { background: rgba(126,181,255,0.32); border-color: rgba(190,220,255,0.8); }
 		#graphics-quality-label { display: block; margin-top: 7px; color: #ffdca8; font: 700 11px/1.2 sans-serif; }
+		#audio-section { margin-top: 14px; padding: 12px; border: 1px solid rgba(255,255,255,0.16); border-radius: 10px; background: rgba(30,45,65,0.35); }
+		#audio-section h4 { margin: 0 0 8px; font: 700 12px/1.2 sans-serif; color: #b5d8ff; }
+		.audio-row { display: grid; grid-template-columns: 70px 1fr 36px; gap: 8px; align-items: center; margin-bottom: 8px; }
+		.audio-row label { color: #cfe1f8; font: 600 11px/1.2 sans-serif; }
+		.audio-row input[type="range"] { width: 100%; }
+		.audio-row span { text-align: right; color: #ffdca8; font: 700 11px/1 sans-serif; }
+		.audio-row select { width: 100%; padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.08); color: #fff; font: 600 11px/1 sans-serif; }
 		#mode-tab-row { display: flex; gap: 6px; margin-bottom: 8px; }
 		.mode-tab-btn {
 			flex: 1;
@@ -1682,6 +1689,27 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					<button type="button" data-graphics-quality="high" aria-pressed="false">High</button>
 				</div>
 				<small id="graphics-quality-label">High performance mode</small>
+			</section>
+			<section id="audio-section" aria-labelledby="audio-section-title">
+				<h4 id="audio-section-title">Audio</h4>
+				<div class="audio-row">
+					<label for="sfx-volume-slider">SFX volume</label>
+					<input id="sfx-volume-slider" type="range" min="0" max="1" step="0.01" value="1">
+					<span id="sfx-volume-value">100%</span>
+				</div>
+				<div class="audio-row">
+					<label for="music-volume-slider">Music volume</label>
+					<input id="music-volume-slider" type="range" min="0" max="1" step="0.01" value="1">
+					<span id="music-volume-value">100%</span>
+				</div>
+				<div class="audio-row">
+					<label for="music-track-select">Music track</label>
+					<select id="music-track-select">
+						<option value="random">Random (shuffle on reload)</option>
+						<option value="1">Track 1</option>
+						<option value="2">Track 2</option>
+					</select>
+				</div>
 			</section>
 			<div id="campaign-progress">Campaign Stage 1: Complete 1 lap on default track • 0/1</div>
 		</div>

@@ -26,6 +26,10 @@ export class GameAudio {
 		this.engineGear = 0;
 		this.lastSpeedFactor = 0;
 		this.targetMusicVolume = 0;
+		this.sfxVolume = 1;
+		this.musicVolume = 1;
+		this.musicTrack = 'random';
+		this.tracks = [ 'audio/music.mp3', 'audio/music2.mp3' ];
 
 	}
 
@@ -39,7 +43,10 @@ export class GameAudio {
 		this.engineSound = new THREE.Audio( this.listener );
 		this.engineTextureSound = new THREE.Audio( this.listener );
 		this.skidSound = new THREE.Audio( this.listener );
-		this.musicElement = new Audio( 'audio/music.mp3' );
+		const initialSrc = this.musicTrack === 'random'
+			? this.tracks[ Math.floor( Math.random() * this.tracks.length ) ]
+			: this.resolveMusicTrack( this.musicTrack );
+		this.musicElement = new Audio( initialSrc );
 		this.musicElement.loop = true;
 		this.musicElement.preload = 'auto';
 		this.musicElement.volume = 1;
@@ -235,7 +242,40 @@ export class GameAudio {
 		}
 
 		const currentVol = this.musicSound.getVolume();
-		this.musicSound.setVolume( THREE.MathUtils.lerp( currentVol, this.targetMusicVolume, Math.min( 1, dt * 6 ) ) );
+		this.musicSound.setVolume( THREE.MathUtils.lerp( currentVol, this.targetMusicVolume * this.musicVolume, Math.min( 1, dt * 6 ) ) );
+
+	}
+
+	resolveMusicTrack( track ) {
+
+		if ( track === '1' ) return 'audio/music.mp3';
+		if ( track === '2' ) return 'audio/music2.mp3';
+		return 'audio/music.mp3'; // random falls here; shuffle handled in init
+
+	}
+
+	setSfxVolume( vol ) {
+
+		this.sfxVolume = THREE.MathUtils.clamp( vol, 0, 1 );
+
+	}
+
+	setMusicVolume( vol ) {
+
+		this.musicVolume = THREE.MathUtils.clamp( vol, 0, 1 );
+
+	}
+
+	setMusicTrack( track ) {
+
+		this.musicTrack = track;
+		if ( ! this.musicElement ) return;
+		const src = this.resolveMusicTrack( track );
+		const wasPlaying = ! this.musicElement.paused;
+		this.musicElement.pause();
+		this.musicElement.setAttribute( 'src', src );
+		this.musicElement.load();
+		if ( wasPlaying && this.unlocked ) this.musicElement.play().catch( () => {} );
 
 	}
 
@@ -274,11 +314,11 @@ export class GameAudio {
 		const pulse = 0.92 + Math.sin( this.engineTime * ( 8 + normalizedSpeed * 12 ) ) * 0.035;
 		const targetVol = remap( load, 0, 1.8, 0.035, 0.46 ) * pulse;
 		const currentVol = this.engineSound.getVolume();
-		this.engineSound.setVolume( THREE.MathUtils.lerp( currentVol, targetVol, Math.min( 1, dt * 7 ) ) );
+		this.engineSound.setVolume( THREE.MathUtils.lerp( currentVol, targetVol * this.sfxVolume, Math.min( 1, dt * 7 ) ) );
 
 		const textureVol = ( 0.025 + normalizedSpeed * 0.12 + throttleFactor * 0.045 ) * ( 1 - Math.min( 0.45, driftIntensity * 0.12 ) );
 		const currentTextureVol = this.engineTextureSound.getVolume();
-		this.engineTextureSound.setVolume( THREE.MathUtils.lerp( currentTextureVol, textureVol, Math.min( 1, dt * 5 ) ) );
+		this.engineTextureSound.setVolume( THREE.MathUtils.lerp( currentTextureVol, textureVol * this.sfxVolume, Math.min( 1, dt * 5 ) ) );
 
 		const shouldSkid = Math.abs( speed ) > 0.25 && driftIntensity > 0.65;
 		let skidVol = 0;
@@ -290,7 +330,7 @@ export class GameAudio {
 		}
 
 		const curSkidVol = this.skidSound.getVolume();
-		this.skidSound.setVolume( THREE.MathUtils.lerp( curSkidVol, skidVol, dt * 10 ) );
+		this.skidSound.setVolume( THREE.MathUtils.lerp( curSkidVol, skidVol * this.sfxVolume, dt * 10 ) );
 
 		const skidPitch = THREE.MathUtils.clamp( Math.abs( speed ), 1, 3 );
 		const curSkidPitch = this.skidSound.getPlaybackRate();
@@ -307,7 +347,7 @@ playImpact( impactVelocity ) {
 		if ( sound.isPlaying ) sound.stop();
 
 		// Multiply by 0.25 so the max volume caps at 25% (0.25)
-		const volume = THREE.MathUtils.clamp( remap( impactVelocity, 0, 6, 0.01, 1.0 ), 0.01, 1.0 ) * 0;
+		const volume = THREE.MathUtils.clamp( remap( impactVelocity, 0, 6, 0.01, 1.0 ), 0.01, 1.0 ) * 0 * this.sfxVolume;
 		sound.setVolume( volume );
 		sound.play();
 
