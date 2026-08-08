@@ -3706,7 +3706,9 @@ async function init() {
 		if ( economyHud && ! isSplitScreen ) economyHud.style.display = 'block';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = ! isSplitScreen ? 'block' : 'none';
 			if ( importGhostBtn ) importGhostBtn.style.display = ! isSplitScreen ? 'block' : 'none';
-			if ( hacksToggleLink ) hacksToggleLink.style.display = hacksInstalled && ! isSplitScreen ? 'block' : 'none';
+			if ( hacksToggleLink ) hacksToggleLink.style.display = 'none';
+			const navHacksBtn = document.getElementById( 'nav-hacks' );
+			if ( navHacksBtn ) navHacksBtn.style.display = hacksInstalled && ! isSplitScreen ? '' : 'none';
 			if ( hacksPanel ) hacksPanel.style.display = 'none';
 			updateArcadeBoostUi();
 

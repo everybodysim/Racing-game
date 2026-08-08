@@ -54,26 +54,23 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const MAGNET_HALF_SIZE = CELL_RAW * S * 0.08;
 	const MAGNET_BASE_Y = ( CELL_RAW * S * 0.08 ) - 0.06;
 	const ELEVATED_SURFACE_HALF_H = 0.20 * S;
+	const SLOPE_THICKNESS_BOOST = 0.12 * S;
+	const SLOPE_SURFACE_HALF_H = ELEVATED_SURFACE_HALF_H + SLOPE_THICKNESS_BOOST;
 	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S * 1.08;
 	const FLAT_ELEVATED_SURFACE_DROP = 0.06;
-	const SLOPE_SURFACE_DROP = 0.4;
-	const SLOPE_TOP_BLEND_RAISE = 0.05;
-	const SLOPE_LOWER_EDGE_SHIFT = CELL_RAW * S * 0.12;
+	const SLOPE_LOWER_EDGE_SHIFT = 0;
+	const SEAM_OVERLAP = CELL_RAW * S * 0.02;
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const ELEVATED_WALL_HALF_H = WALL_HALF_H * S;
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
 	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT - FLAT_ELEVATED_SURFACE_DROP;
-	const slopeAngle = Math.atan2( CELL_RAW * 0.5, CELL_RAW );
-	const baseSlopeCenterY = groundY + ( ELEVATED_HEIGHT * 0.5 ) - SLOPE_SURFACE_DROP;
-	const slopeNormalYOffset = Math.cos( slopeAngle ) * ELEVATED_SURFACE_HALF_H;
-	const baseSlopeForwardYOffset = Math.sin( slopeAngle ) * ELEVATED_SURFACE_HALF_XZ;
-	const slopeBottomY = baseSlopeCenterY - baseSlopeForwardYOffset - slopeNormalYOffset;
-	const elevatedSurfaceTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H + SLOPE_TOP_BLEND_RAISE;
-	const slopeTargetCenterY = ( elevatedSurfaceTopY + slopeBottomY ) * 0.5;
-	const slopeTargetHalfLen = Math.max(
-		ELEVATED_SURFACE_HALF_XZ,
-		( ( elevatedSurfaceTopY - slopeBottomY ) * 0.5 - slopeNormalYOffset ) / Math.sin( slopeAngle )
-	) * 1.15;
+	// Exact slope geometry: slope goes from groundY to the top of the elevated surface.
+	const elevatedSurfaceTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H;
+	const slopeAngle = Math.atan2( elevatedSurfaceTopY - groundY, CELL_RAW * S );
+	const exactSlopeHalfLen = ( elevatedSurfaceTopY - groundY ) / ( 2 * Math.sin( slopeAngle ) );
+	const slopeTargetHalfLen = exactSlopeHalfLen + SEAM_OVERLAP;
+	// Center shifted so the driving surface at the upper end is exactly at elevatedSurfaceTopY.
+	const slopeTargetCenterY = ( elevatedSurfaceTopY + groundY ) * 0.5 - SLOPE_SURFACE_HALF_H * Math.cos( slopeAngle ) - SEAM_OVERLAP * Math.sin( slopeAngle );
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
 	const BUMP_RADIUS = 7.5 * S;
@@ -267,7 +264,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const shiftX = Math.sin( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
 		const shiftZ = Math.cos( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
 		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( up ? slopeAngle : - slopeAngle, yaw, 0, 'YXZ' ) );
-		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, slopeTargetHalfLen ];
+		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, SLOPE_SURFACE_HALF_H, slopeTargetHalfLen ];
 		const position = [ cx + shiftX, slopeTargetCenterY, cz + shiftZ ];
 		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
 		rigidBody.create( world, {
@@ -367,7 +364,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		for ( const rect of activeRects.values() ) finishedRects.push( rect );
 
-		const edgeOverhang = CELL_RAW * S * 0.25;
+		const edgeOverhang = CELL_RAW * S * 0.03;
 		for ( const rect of finishedRects ) {
 
 			const spanCellsX = rect.maxX - rect.minX + 1;
