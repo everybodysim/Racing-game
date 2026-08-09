@@ -166,7 +166,9 @@ const skyDome = new THREE.Mesh(
 		}`
 	} )
 );
-scene.add( skyDome );
+const skyGroup = new THREE.Group();
+skyGroup.add( skyDome );
+scene.add( skyGroup );
 
 const dirLight = new THREE.DirectionalLight( 0xffffff, 5 );
 dirLight.position.set( 11.4, 15, -5.3 );
@@ -327,19 +329,28 @@ const MAGNET_MAX_FORCE_PER_SECOND = 64.0;
 	const ARC_LINK_MAX_TIME = 1.6;
 	const AIR_TRICK_DURATION_SECONDS = 0.62;
 const WEATHER_PRESETS = {
-	clear: { bg: 0x7fb6ff, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
-	cloudy: { bg: 0x9aa4b2, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
-	sunset: { bg: 0xc7987d, fogNearMul: 0.28, fogFarMul: 0.6, sun: 4.4, hemi: 1.2, exposure: 1.08 },
-	night: { bg: 0x0b1220, fogNearMul: 0.24, fogFarMul: 0.5, sun: 1.7, hemi: 0.45, exposure: 0.7 },
+	clear: { bg: 0xbfe0ff, fogNearMul: 0.4, fogFarMul: 0.8, sun: 5.0, hemi: 1.5, exposure: 1.0 },
+	cloudy: { bg: 0xaab2ba, fogNearMul: 0.32, fogFarMul: 0.64, sun: 3.8, hemi: 1.3, exposure: 0.95 },
+	sunset: { bg: 0xffb178, fogNearMul: 0.28, fogFarMul: 0.6, sun: 4.4, hemi: 1.2, exposure: 1.08 },
+	night: { bg: 0x0a1730, fogNearMul: 0.24, fogFarMul: 0.5, sun: 1.7, hemi: 0.45, exposure: 0.7 },
 	'dawn-mist': { bg: 0xb6c2cc, fogNearMul: 0.2, fogFarMul: 0.42, sun: 2.9, hemi: 1.1, exposure: 0.88 },
 };
 
 const WEATHER_SKY_GRADIENTS = {
-	clear: { top: '#1f78ff', mid: '#4db2ff', horizon: '#9fd6ff', ground: '#cbe8ff' },
-	cloudy: { top: '#4f77a8', mid: '#7ea2cf', horizon: '#d7dff0', ground: '#a8c0dd' },
-	sunset: { top: '#3751d8', mid: '#d86c8d', horizon: '#ff9a5f', ground: '#ffd095' },
-	night: { top: '#020611', mid: '#0f2145', horizon: '#2a4a80', ground: '#172845' },
+	clear: { top: '#1c5fd6', mid: '#5cb2f2', horizon: '#ffe9c9', ground: '#dcecff' },
+	cloudy: { top: '#5c6b7c', mid: '#8b96a3', horizon: '#c9cfd5', ground: '#aab2ba' },
+	sunset: { top: '#2c1f52', mid: '#c4548f', horizon: '#ff8a4c', ground: '#ffd28a' },
+	night: { top: '#01030b', mid: '#050d24', horizon: '#132244', ground: '#0a1730' },
 	'dawn-mist': { top: '#5f92d0', mid: '#9fc4eb', horizon: '#ffdcb0', ground: '#c5ddf4' },
+};
+
+// Per-preset low-poly cloud / star / moon decorations for the sky group.
+// 'dawn-mist' intentionally has no entry — left exactly as it was.
+const SKY_DECOR_PRESETS = {
+	clear: { clouds: { count: 10, scale: [ 2.4, 3.8 ], elevationRange: [ 10, 30 ], color: 0xffffff, opacity: 0.95 }, stars: 0, moon: false },
+	sunset: { clouds: { count: 9, scale: [ 2.6, 4.0 ], elevationRange: [ 4, 18 ], color: 0xffcfae, opacity: 0.95 }, stars: 0, moon: false },
+	cloudy: { clouds: { count: 13, scale: [ 3.6, 5.4 ], elevationRange: [ 6, 22 ], color: 0x9aa3ad, opacity: 0.92 }, stars: 0, moon: false },
+	night: { clouds: { count: 5, scale: [ 2.0, 3.0 ], elevationRange: [ 15, 35 ], color: 0x2b3a5c, opacity: 0.3 }, stars: 520, moon: true },
 };
 
 const WEATHER_DEFAULT = 'clear';
@@ -1346,6 +1357,142 @@ function applySkyPalette( preset = WEATHER_DEFAULT ) {
 
 }
 
+// ─── Sky decorations: low-poly clouds, stars, moon (follows the vehicle so ───
+// ─── they always stay within the camera's far plane, like a real skybox)  ───
+let skyDecorState = { cloudGroup: null, starPoints: null, moonGroup: null };
+
+function clearSkyDecorations() {
+
+	if ( skyDecorState.cloudGroup ) {
+
+		skyGroup.remove( skyDecorState.cloudGroup );
+		skyDecorState.cloudGroup.traverse( ( obj ) => {
+
+			if ( obj.geometry ) obj.geometry.dispose();
+			if ( obj.material ) obj.material.dispose();
+
+		} );
+
+	}
+	if ( skyDecorState.starPoints ) {
+
+		skyGroup.remove( skyDecorState.starPoints );
+		skyDecorState.starPoints.geometry?.dispose();
+		skyDecorState.starPoints.material?.dispose();
+
+	}
+	if ( skyDecorState.moonGroup ) {
+
+		skyGroup.remove( skyDecorState.moonGroup );
+		skyDecorState.moonGroup.traverse( ( obj ) => {
+
+			if ( obj.geometry ) obj.geometry.dispose();
+			if ( obj.material ) obj.material.dispose();
+
+		} );
+
+	}
+	skyDecorState = { cloudGroup: null, starPoints: null, moonGroup: null };
+
+}
+
+function makeLowPolyCloud( scale, color, opacity ) {
+
+	const cloud = new THREE.Group();
+	const puffCount = 3 + Math.floor( Math.random() * 3 );
+	for ( let i = 0; i < puffCount; i ++ ) {
+
+		const geo = new THREE.IcosahedronGeometry( 0.55 + Math.random() * 0.45, 0 );
+		const mat = new THREE.MeshBasicMaterial( { color, flatShading: true, transparent: opacity < 1, opacity, fog: false } );
+		const mesh = new THREE.Mesh( geo, mat );
+		mesh.position.set( ( Math.random() - 0.5 ) * 1.7, ( Math.random() - 0.5 ) * 0.32, ( Math.random() - 0.5 ) * 1.1 );
+		mesh.scale.set( 1.3 + Math.random() * 0.5, 0.72 + Math.random() * 0.2, 1 );
+		mesh.rotation.y = Math.random() * Math.PI;
+		cloud.add( mesh );
+
+	}
+	cloud.scale.setScalar( scale );
+	return cloud;
+
+}
+
+function buildSkyDecorations( preset ) {
+
+	clearSkyDecorations();
+	const config = SKY_DECOR_PRESETS[ preset ];
+	if ( ! config ) return; // dawn-mist (and any unlisted preset) stays exactly as-is
+
+	const qualityScale = Math.max( 0.4, Math.min( 1, getGraphicsPreset().smokeParticles / 64 ) );
+
+	if ( config.clouds ) {
+
+		const cloudGroup = new THREE.Group();
+		const count = Math.max( 3, Math.round( config.clouds.count * qualityScale ) );
+		for ( let i = 0; i < count; i ++ ) {
+
+			const angle = ( i / count ) * Math.PI * 2 + Math.random() * 0.4;
+			const radius = THREE.MathUtils.randFloat( 24, 32 );
+			const elevation = THREE.MathUtils.randFloat( config.clouds.elevationRange[ 0 ], config.clouds.elevationRange[ 1 ] ) * ( Math.PI / 180 );
+			const horizontalR = radius * Math.cos( elevation );
+			const height = radius * Math.sin( elevation ) + 2;
+			const scale = THREE.MathUtils.randFloat( config.clouds.scale[ 0 ], config.clouds.scale[ 1 ] );
+			const cloud = makeLowPolyCloud( scale, config.clouds.color, config.clouds.opacity );
+			cloud.position.set( Math.cos( angle ) * horizontalR, height, Math.sin( angle ) * horizontalR );
+			cloud.lookAt( 0, height, 0 );
+			cloudGroup.add( cloud );
+
+		}
+		skyGroup.add( cloudGroup );
+		skyDecorState.cloudGroup = cloudGroup;
+
+	}
+
+	if ( config.stars > 0 ) {
+
+		const starCount = Math.max( 80, Math.round( config.stars * qualityScale ) );
+		const positions = new Float32Array( starCount * 3 );
+		for ( let i = 0; i < starCount; i ++ ) {
+
+			const theta = Math.random() * Math.PI * 2;
+			const phi = Math.random() * Math.PI * 0.46;
+			const radius = 34;
+			const idx = i * 3;
+			positions[ idx ] = Math.sin( phi ) * Math.cos( theta ) * radius;
+			positions[ idx + 1 ] = Math.cos( phi ) * radius * 0.9 + 6;
+			positions[ idx + 2 ] = Math.sin( phi ) * Math.sin( theta ) * radius;
+
+		}
+		const geometry = new THREE.BufferGeometry();
+		geometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+		const material = new THREE.PointsMaterial( { color: 0xffffff, size: 0.22, sizeAttenuation: true, transparent: true, opacity: 0.9, depthWrite: false, fog: false } );
+		const starPoints = new THREE.Points( geometry, material );
+		skyGroup.add( starPoints );
+		skyDecorState.starPoints = starPoints;
+
+	}
+
+	if ( config.moon ) {
+
+		const moonGroup = new THREE.Group();
+		const moon = new THREE.Mesh(
+			new THREE.IcosahedronGeometry( 2.2, 1 ),
+			new THREE.MeshBasicMaterial( { color: 0xf3f1e0, fog: false } )
+		);
+		moonGroup.add( moon );
+		const glow = new THREE.Mesh(
+			new THREE.IcosahedronGeometry( 3.4, 1 ),
+			new THREE.MeshBasicMaterial( { color: 0xf3f1e0, transparent: true, opacity: 0.16, depthWrite: false, fog: false } )
+		);
+		moonGroup.add( glow );
+		const moonDir = new THREE.Vector3( -0.55, 0.62, -0.56 ).normalize().multiplyScalar( 29 );
+		moonGroup.position.copy( moonDir );
+		skyGroup.add( moonGroup );
+		skyDecorState.moonGroup = moonGroup;
+
+	}
+
+}
+
 function createMovingObstacleState( scene, extras ) {
 	const entries = Array.isArray( extras?.movingObstacles ) ? extras.movingObstacles : [];
 	const state = { items: [], startTime: 0 };
@@ -2098,6 +2245,7 @@ async function init() {
 	dirLight.shadow.camera.updateProjectionMatrix();
 
 	applySkyPalette( weatherSettings.preset );
+	buildSkyDecorations( weatherSettings.preset );
 	scene.background = new THREE.Color( weatherConfig.bg );
 	const gameplayFog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul, groundSize * weatherConfig.fogFarMul );
 	scene.fog = gameplayFog;
@@ -3420,7 +3568,6 @@ async function init() {
 	const stuntModeBtn = document.getElementById( 'mode-stunt-btn' );
 	const campaignModeBtn = document.getElementById( 'mode-campaign-btn' );
 	const campaignInfoBtn = document.getElementById( 'campaign-info-btn' );
-	const countdownToggle = document.getElementById( 'countdown-toggle' );
 	const fpsToggle = document.getElementById( 'fps-toggle' );
 	const graphicsQualityButtons = Array.from( document.querySelectorAll( '[data-graphics-quality]' ) );
 	const graphicsQualityLabel = document.getElementById( 'graphics-quality-label' );
@@ -7292,12 +7439,6 @@ function completeCampaignStage() {
 
 	}
 
-	function updateCountdownToggle() {
-
-		if ( countdownToggle ) countdownToggle.checked = countdownEnabled;
-
-	}
-
 	function resetLapState( keepRecords = false ) {
 
 		if ( ! keepRecords ) {
@@ -8061,37 +8202,8 @@ function completeCampaignStage() {
 		button.addEventListener( 'click', () => applyGraphicsQuality( button.dataset.graphicsQuality, true ) );
 
 	}
-	updateCountdownToggle();
 	updateFpsHudVisibility();
-	countdownToggle?.addEventListener( 'change', () => {
 
-		countdownEnabled = Boolean( countdownToggle.checked );
-		localStorage.setItem( COUNTDOWN_SETTINGS_KEY, countdownEnabled ? '1' : '0' );
-		if ( ! countdownEnabled ) finishCountdown();
-
-	} );
-
-	// Debug: Mobile UI Test toggle — forces body.mobile on/off for testing
-	const mobileTestToggle = document.getElementById( 'mobile-test-toggle' );
-	if ( mobileTestToggle ) {
-		mobileTestToggle.checked = document.body.classList.contains( 'mobile' ) && localStorage.getItem( 'racing-debug-mobile-test' ) === '1';
-		mobileTestToggle.addEventListener( 'change', () => {
-			if ( mobileTestToggle.checked ) {
-				document.body.classList.add( 'mobile' );
-				localStorage.setItem( 'racing-debug-mobile-test', '1' );
-			} else {
-				document.body.classList.remove( 'mobile' );
-				localStorage.removeItem( 'racing-debug-mobile-test' );
-				// Re-detect: add back if actually mobile
-				const isTouch = 'ontouchstart' in window || ( navigator.maxTouchPoints || 0 ) > 0;
-				const isSmallScreen = window.innerWidth <= 760;
-				const isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test( navigator.userAgent );
-				if ( isSmallScreen || isMobileUA || ( isTouch && window.innerWidth <= 1024 ) ) {
-					document.body.classList.add( 'mobile' );
-				}
-			}
-		} );
-	}
 	fpsToggle?.addEventListener( 'change', () => {
 
 		fpsHudVisible = Boolean( fpsToggle.checked );
@@ -8907,6 +9019,10 @@ function completeCampaignStage() {
 		}
 		skyUniforms.time.value = now;
 		skyUniforms.vibrance.value = THREE.MathUtils.lerp( skyUniforms.vibrance.value, 0.2 + ( speedRatioFx * 0.18 ) + ( driftFx * 0.1 ), Math.min( 1, dt * 2.4 ) );
+		skyGroup.position.set( vehicle.container.position.x, 0, vehicle.container.position.z );
+		if ( skyDecorState.starPoints ) {
+			skyDecorState.starPoints.material.opacity = 0.75 + Math.sin( now * 1.3 ) * 0.12 + Math.sin( now * 2.7 + 1.3 ) * 0.08;
+		}
 		updateWeatherFx( dt, now );
 		crashShakeTime = Math.max( 0, crashShakeTime - dt );
 		if ( crashShakeTime > 0 && crashShakeStrength > 0 ) {
