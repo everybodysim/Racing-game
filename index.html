@@ -28,7 +28,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 </script> -->
 	<meta name="theme-color" content="#2f8f2f">
 	<link rel="manifest" href="manifest.webmanifest">
-	<link rel="icon" href="icons/icon-192.png" type="image/png">
+	<link rel="icon" href="icons/favicon.png" type="image/png">
 	<link rel="apple-touch-icon" href="icons/icon-192.png">
 	<link rel="preload" href="audio/music.mp3" as="audio">
 	<link rel="preload" href="audio/music2.mp3" as="audio">
@@ -77,13 +77,24 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			display: flex;
 			align-items: center;
 			justify-content: center;
-			background: radial-gradient(circle at 30% 20%, #203040, #080b12 65%);
+			background-size: cover;
+			background-position: center;
+			background-repeat: no-repeat;
+			background-color: #080b12;
 			color: #fff;
 			font: 600 14px/1.4 Inter, system-ui, sans-serif;
 		}
+		#loading-screen::before {
+			content: '';
+			position: absolute;
+			inset: 0;
+			background: rgba(6, 10, 16, 0.68);
+			z-index: 0;
+		}
 		#loading-screen.hidden { display: none; }
+		#loading-card { position: relative; z-index: 1; }
+		#loading-logo { display: block; width: min(220px, 60vw); margin: 0 auto 14px; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.5)); }
 		#loading-card { width: min(520px, calc(100vw - 30px)); background: rgba(8,12,22,0.72); border: 1px solid rgba(255,255,255,0.18); border-radius: 14px; padding: 18px; box-sizing: border-box; }
-		#loading-title { margin: 0 0 10px; font: 800 28px/1.2 Inter, system-ui, sans-serif; letter-spacing: 0.02em; }
 		#loading-spinner { width: 26px; height: 26px; border: 3px solid rgba(255,255,255,0.22); border-top-color: #6fe2ff; border-radius: 50%; animation: loading-spin 0.9s linear infinite; margin-bottom: 10px; }
 		#loading-progress { width: 100%; height: 10px; border-radius: 999px; background: rgba(255,255,255,0.12); overflow: hidden; margin-bottom: 10px; }
 		#loading-progress-fill { height: 100%; width: 4%; background: linear-gradient(90deg, #4bc2ff, #7cf3a3); transition: width 0.2s ease; }
@@ -1712,7 +1723,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 
 	/* ── Loading screen ── */
 	body.mobile #loading-card { padding: 16px; border-radius: 14px; }
-	body.mobile #loading-title { font-size: 28px; }
 	body.mobile #loading-tagline { font-size: 12px; }
 	body.mobile #loading-console { font-size: 10px; max-height: 80px; }
 	body.mobile #loading-progress { width: 90%; }
@@ -1797,8 +1807,17 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 <main id="main-content">
 	<div id="speed-blur-vignette" aria-hidden="true"></div>
 	<div id="loading-screen" aria-live="polite">
+		<script>
+			// Pick one of the 5 loading backgrounds at random on each page load
+			(function() {
+				var count = 5;
+				var pick = Math.floor( Math.random() * count ) + 1;
+				var screen = document.getElementById( 'loading-screen' );
+				if ( screen ) screen.style.backgroundImage = "url('backgrounds/loading-bg-" + pick + ".jpg')";
+			})();
+		</script>
 		<div id="loading-card">
-			<h1 id="loading-title">Skid Circuit</h1>
+			<img id="loading-logo" src="branding/logo.png" alt="Skid Circuit">
 			<div id="loading-tagline" style="margin:0 0 10px;font:500 13px/1.3 Inter,system-ui,sans-serif;color:#b5c2da;letter-spacing:0.03em;">Load up. Lock in.</div>
 			<div id="loading-spinner" aria-hidden="true"></div>
 			<div id="loading-progress"><div id="loading-progress-fill"></div></div>
@@ -1811,7 +1830,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<section id="home-landing" aria-label="Home page">
 		<div id="home-card">
 			<div id="home-header">
-				<div>
+				<div style="display:flex; align-items:center; gap:12px;">
+					<img src="branding/logo.png" alt="" aria-hidden="true" style="width:56px; height:auto; flex-shrink:0;">
 					<h1>Skid Circuit</h1>
 				</div>
 				<div id="home-player-counter" aria-label="Visitor counter">
