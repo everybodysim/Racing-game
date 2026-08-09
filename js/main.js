@@ -133,18 +133,19 @@ const skyUniforms = {
 	vibrance: { value: 0.15 },
 };
 const skyDome = new THREE.Mesh(
-	new THREE.SphereGeometry( 220, 24, 16 ),
+	new THREE.SphereGeometry( 50, 32, 24 ),
 	new THREE.ShaderMaterial( {
 		side: THREE.BackSide,
 		depthWrite: false,
+		fog: false,
 		uniforms: skyUniforms,
-		vertexShader: `varying vec3 vWorldPos;
+		vertexShader: `varying vec3 vDir;
 		void main() {
+			vDir = normalize( position );
 			vec4 wp = modelMatrix * vec4( position, 1.0 );
-			vWorldPos = wp.xyz;
 			gl_Position = projectionMatrix * viewMatrix * wp;
 		}`,
-		fragmentShader: `varying vec3 vWorldPos;
+		fragmentShader: `varying vec3 vDir;
 		uniform vec3 topColor;
 		uniform vec3 midColor;
 		uniform vec3 horizonColor;
@@ -152,20 +153,20 @@ const skyDome = new THREE.Mesh(
 		uniform float time;
 		uniform float vibrance;
 		void main() {
-			vec3 dir = normalize( vWorldPos );
-			float h = clamp( dir.y * 0.5 + 0.5, 0.0, 1.0 );
-			float horizonBand = exp( -pow( abs( h - 0.48 ) * 8.0, 2.0 ) );
-			float cloudWave = ( sin( dir.x * 9.0 + time * 0.03 ) * sin( dir.z * 7.0 - time * 0.02 ) );
-			float cloudMask = smoothstep( 0.68, 0.86, cloudWave * 0.5 + 0.5 ) * 0.09;
-			vec3 c = mix( groundColor, midColor, smoothstep( 0.03, 0.48, h ) );
-			c = mix( c, topColor, smoothstep( 0.45, 0.95, h ) );
-			c = mix( c, horizonColor, horizonBand * 0.88 );
+			float h = clamp( vDir.y * 0.5 + 0.5, 0.0, 1.0 );
+			float horizonBand = exp( -pow( abs( h - 0.48 ) * 7.0, 2.0 ) );
+			float cloudWave = ( sin( vDir.x * 9.0 + time * 0.03 ) * sin( vDir.z * 7.0 - time * 0.02 ) );
+			float cloudMask = smoothstep( 0.68, 0.86, cloudWave * 0.5 + 0.5 ) * 0.06;
+			vec3 c = mix( groundColor, midColor, smoothstep( 0.03, 0.42, h ) );
+			c = mix( c, topColor, smoothstep( 0.42, 0.95, h ) );
+			c = mix( c, horizonColor, horizonBand * 0.92 );
 			c += vec3( cloudMask ) * ( 0.24 + vibrance * 0.45 );
 			c = mix( c, c * 1.15, vibrance * 0.5 );
 			gl_FragColor = vec4( c, 1.0 );
 		}`
 	} )
 );
+skyDome.frustumCulled = false;
 const skyGroup = new THREE.Group();
 skyGroup.add( skyDome );
 scene.add( skyGroup );
@@ -347,10 +348,10 @@ const WEATHER_SKY_GRADIENTS = {
 // Per-preset low-poly cloud / star / moon decorations for the sky group.
 // 'dawn-mist' intentionally has no entry — left exactly as it was.
 const SKY_DECOR_PRESETS = {
-	clear: { clouds: { count: 10, scale: [ 2.4, 3.8 ], elevationRange: [ 10, 30 ], color: 0xffffff, opacity: 0.95 }, stars: 0, moon: false },
-	sunset: { clouds: { count: 9, scale: [ 2.6, 4.0 ], elevationRange: [ 4, 18 ], color: 0xffcfae, opacity: 0.95 }, stars: 0, moon: false },
-	cloudy: { clouds: { count: 13, scale: [ 3.6, 5.4 ], elevationRange: [ 6, 22 ], color: 0x9aa3ad, opacity: 0.92 }, stars: 0, moon: false },
-	night: { clouds: { count: 5, scale: [ 2.0, 3.0 ], elevationRange: [ 15, 35 ], color: 0x2b3a5c, opacity: 0.3 }, stars: 520, moon: true },
+	clear: { clouds: { count: 12, scale: [ 3.0, 5.0 ], elevationRange: [ 8, 24 ], color: 0xffffff, opacity: 0.92 }, stars: 0, moon: false },
+	sunset: { clouds: { count: 10, scale: [ 3.2, 5.2 ], elevationRange: [ 6, 18 ], color: 0xffcfae, opacity: 0.93 }, stars: 0, moon: false },
+	cloudy: { clouds: { count: 15, scale: [ 4.5, 7.0 ], elevationRange: [ 5, 18 ], color: 0x9aa3ad, opacity: 0.9 }, stars: 0, moon: false },
+	night: { clouds: { count: 6, scale: [ 2.5, 4.0 ], elevationRange: [ 12, 28 ], color: 0x2b3a5c, opacity: 0.35 }, stars: 600, moon: true },
 };
 
 const WEATHER_DEFAULT = 'clear';
@@ -1399,15 +1400,20 @@ function clearSkyDecorations() {
 function makeLowPolyCloud( scale, color, opacity ) {
 
 	const cloud = new THREE.Group();
-	const puffCount = 3 + Math.floor( Math.random() * 3 );
+	const puffCount = 5 + Math.floor( Math.random() * 4 );
 	for ( let i = 0; i < puffCount; i ++ ) {
 
-		const geo = new THREE.IcosahedronGeometry( 0.55 + Math.random() * 0.45, 0 );
+		const r = 0.4 + Math.random() * 0.55;
+		const geo = new THREE.IcosahedronGeometry( r, 1 );
 		const mat = new THREE.MeshBasicMaterial( { color, flatShading: true, transparent: opacity < 1, opacity, fog: false } );
 		const mesh = new THREE.Mesh( geo, mat );
-		mesh.position.set( ( Math.random() - 0.5 ) * 1.7, ( Math.random() - 0.5 ) * 0.32, ( Math.random() - 0.5 ) * 1.1 );
-		mesh.scale.set( 1.3 + Math.random() * 0.5, 0.72 + Math.random() * 0.2, 1 );
-		mesh.rotation.y = Math.random() * Math.PI;
+		mesh.position.set(
+			( Math.random() - 0.5 ) * 3.2,
+			( Math.random() - 0.5 ) * 0.5,
+			( Math.random() - 0.5 ) * 2.0
+		);
+		mesh.scale.set( 1.5 + Math.random() * 0.7, 0.6 + Math.random() * 0.25, 1.1 + Math.random() * 0.3 );
+		mesh.rotation.set( Math.random() * 0.3, Math.random() * Math.PI, Math.random() * 0.2 );
 		cloud.add( mesh );
 
 	}
@@ -1420,7 +1426,7 @@ function buildSkyDecorations( preset ) {
 
 	clearSkyDecorations();
 	const config = SKY_DECOR_PRESETS[ preset ];
-	if ( ! config ) return; // dawn-mist (and any unlisted preset) stays exactly as-is
+	if ( ! config ) return; // dawn-mist stays exactly as-is
 
 	const qualityScale = Math.max( 0.4, Math.min( 1, getGraphicsPreset().smokeParticles / 64 ) );
 
@@ -1430,11 +1436,12 @@ function buildSkyDecorations( preset ) {
 		const count = Math.max( 3, Math.round( config.clouds.count * qualityScale ) );
 		for ( let i = 0; i < count; i ++ ) {
 
-			const angle = ( i / count ) * Math.PI * 2 + Math.random() * 0.4;
-			const radius = THREE.MathUtils.randFloat( 24, 32 );
-			const elevation = THREE.MathUtils.randFloat( config.clouds.elevationRange[ 0 ], config.clouds.elevationRange[ 1 ] ) * ( Math.PI / 180 );
+			const angle = ( i / count ) * Math.PI * 2 + Math.random() * 0.6;
+			const radius = THREE.MathUtils.randFloat( 32, 38 );
+			const elevationDeg = THREE.MathUtils.randFloat( config.clouds.elevationRange[ 0 ], config.clouds.elevationRange[ 1 ] );
+			const elevation = elevationDeg * ( Math.PI / 180 );
 			const horizontalR = radius * Math.cos( elevation );
-			const height = radius * Math.sin( elevation ) + 2;
+			const height = radius * Math.sin( elevation ) + 1.5;
 			const scale = THREE.MathUtils.randFloat( config.clouds.scale[ 0 ], config.clouds.scale[ 1 ] );
 			const cloud = makeLowPolyCloud( scale, config.clouds.color, config.clouds.opacity );
 			cloud.position.set( Math.cos( angle ) * horizontalR, height, Math.sin( angle ) * horizontalR );
@@ -1454,18 +1461,19 @@ function buildSkyDecorations( preset ) {
 		for ( let i = 0; i < starCount; i ++ ) {
 
 			const theta = Math.random() * Math.PI * 2;
-			const phi = Math.random() * Math.PI * 0.46;
-			const radius = 34;
+			const phi = Math.random() * Math.PI * 0.52;
+			const radius = 36;
 			const idx = i * 3;
 			positions[ idx ] = Math.sin( phi ) * Math.cos( theta ) * radius;
-			positions[ idx + 1 ] = Math.cos( phi ) * radius * 0.9 + 6;
+			positions[ idx + 1 ] = Math.cos( phi ) * radius * 0.85 + 2;
 			positions[ idx + 2 ] = Math.sin( phi ) * Math.sin( theta ) * radius;
 
 		}
 		const geometry = new THREE.BufferGeometry();
 		geometry.setAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
-		const material = new THREE.PointsMaterial( { color: 0xffffff, size: 0.22, sizeAttenuation: true, transparent: true, opacity: 0.9, depthWrite: false, fog: false } );
+		const material = new THREE.PointsMaterial( { color: 0xffffff, size: 0.28, sizeAttenuation: true, transparent: true, opacity: 0.9, depthWrite: false, fog: false } );
 		const starPoints = new THREE.Points( geometry, material );
+		starPoints.frustumCulled = false;
 		skyGroup.add( starPoints );
 		skyDecorState.starPoints = starPoints;
 
@@ -1484,7 +1492,7 @@ function buildSkyDecorations( preset ) {
 			new THREE.MeshBasicMaterial( { color: 0xf3f1e0, transparent: true, opacity: 0.16, depthWrite: false, fog: false } )
 		);
 		moonGroup.add( glow );
-		const moonDir = new THREE.Vector3( -0.55, 0.62, -0.56 ).normalize().multiplyScalar( 29 );
+		const moonDir = new THREE.Vector3( -0.55, 0.62, -0.56 ).normalize().multiplyScalar( 32 );
 		moonGroup.position.copy( moonDir );
 		skyGroup.add( moonGroup );
 		skyDecorState.moonGroup = moonGroup;
