@@ -13,7 +13,7 @@ export class Camera {
 
 	constructor() {
 
-		this.camera = new THREE.PerspectiveCamera( 42, window.innerWidth / window.innerHeight, 0.1, 60 );
+		this.camera = new THREE.PerspectiveCamera( 42, window.innerWidth / window.innerHeight, 0.1, 500 );
 
 		this.offset = new THREE.Vector3( 7.0, 7.1, 7.0 );
 		this.chaseOffset = new THREE.Vector3( 0, 2.3, - 6.6 );
