@@ -221,6 +221,16 @@ const modelNames = [
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
 ];
 
+// Block models whose Godot-authored normals shade flat (faceted). At load time we
+// recompute smooth vertex normals so slopes/curves shade smooth; hard edges
+// (split vertices) stay sharp. Only the elevated/slope blocks plus the ground
+// 3-way and 4-way blocks — everything else keeps its authored normals.
+const SMOOTH_SHADING_MODELS = new Set( [
+	'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope',
+	'elev-track-3-way', 'elev-track-4-way',
+	'track-3-way', 'track-4-way',
+] );
+
 const models = {};
 const CAR_STATS = {
 	'vehicle-truck-yellow': { name: 'Yellow', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
@@ -2060,6 +2070,24 @@ async function loadModels( requiredNames = modelNames ) {
 				gltf.scene.traverse( ( child ) => {
 
 					if ( child.isMesh ) {
+
+						// Godot exports these blocks with per-face (flat) normals, so they
+						// shade faceted. Recompute smooth vertex normals — indexed geometry
+						// averages across shared vertices (hard edges stay sharp, slopes go
+						// smooth). Applies only to elevated/slope blocks and the ground 3-way
+						// and 4-way blocks.
+						if ( SMOOTH_SHADING_MODELS.has( name ) && child.geometry ) {
+
+							child.geometry.computeVertexNormals();
+							child.geometry.computeBoundingSphere();
+							if ( child.material ) {
+
+								child.material.flatShading = false;
+								child.material.needsUpdate = true;
+
+							}
+
+						}
 
 						// Keep DoubleSide for elevated track models (corner walls need to be visible from inside)
 						if ( ! name.startsWith( 'elev-track-' ) ) child.material.side = THREE.FrontSide;
