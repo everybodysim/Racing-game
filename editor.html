@@ -1765,16 +1765,10 @@
 			if ( elevatedSrc ) {
 
 				const elevated = elevatedSrc.clone();
-				const yAdjust = normalizedType === 'slope-up' ? - SLOPE_VISUAL_DROP : 0;
+				const yAdjust = normalizedType === 'elevated-4-way' ? 0.06 : ( normalizedType === 'slope-up' ? 0 : 0 );
 				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
 				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 );
-				if ( normalizedType === 'slope-up' ) {
-
-					elevated.rotation.order = 'YXZ';
-					elevated.rotation.x = - SLOPE_ANGLE;
-					elevated.scale.set( CELL_RAW * 0.5, CELL_RAW * 0.5, CELL_RAW * 0.5 * 1.08 );
-
-				}
+				// Slope model is pre-sloped at the correct size — no rotation or scaling needed
 				elevated.traverse( ( c ) => {
 
 					if ( c.isMesh ) {
@@ -1790,15 +1784,7 @@
 
 			}
 
-			const support = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW, SUPPORT_HEIGHT, CELL_RAW ),
-				new THREE.MeshStandardMaterial( { color: 0x0d0d0d, roughness: 0.95, metalness: 0.0 } )
-			);
-			support.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + SUPPORT_HEIGHT * 0.5, ( gz + 0.5 ) * CELL_RAW );
-			support.castShadow = true;
-			support.receiveShadow = true;
-			trackGroup.add( support );
-			cell.elevatedSupportMesh = support;
+			// Black support box removed — elevated models have built-in supports
 
 		}
 
@@ -2436,6 +2422,7 @@
 						if ( tint && clone.color ) clone.color.lerp( tint, 0.22 );
 						clone.transparent = true;
 						clone.opacity = opacity;
+						clone.depthWrite = false;
 						return clone;
 
 					} );
@@ -2446,6 +2433,7 @@
 					if ( tint && c.material.color ) c.material.color.lerp( tint, 0.22 );
 					c.material.transparent = true;
 					c.material.opacity = opacity;
+					c.material.depthWrite = false;
 
 				}
 

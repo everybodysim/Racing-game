@@ -212,8 +212,8 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
 
 	const piece = models[ modelKey ].clone();
-	let yAdjust = 0;
-	if ( type === 'slope-up' || type === 'slope-down' ) yAdjust = - ( ELEVATED_HEIGHT * 0.5 ) + 0.06;
+	// Slope model is pre-sloped at the correct size — place at ground level, no scaling
+	const yAdjust = ( type === 'slope-up' || type === 'slope-down' ) ? - ELEVATED_HEIGHT : 0;
 	piece.position.set(
 		( gx + 0.5 ) * CELL_RAW,
 		0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust,
@@ -221,14 +221,6 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	);
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
-	if ( type === 'slope-up' || type === 'slope-down' ) {
-
-		piece.rotation.order = 'YXZ';
-		piece.rotation.y = THREE.MathUtils.degToRad( deg + 180 );
-		piece.rotation.x = type === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
-		piece.scale.set( CELL_RAW * 0.5, CELL_RAW * 0.5, CELL_RAW * 0.5 * 1.11 );
-
-	}
 
 	return piece;
 
@@ -572,7 +564,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( ! ELEVATED_TYPES.has( elevatedType ) ) continue;
 			const piece = cloneElevatedPiece( models, elevatedType, orient, gx, gz );
 			if ( piece ) trackPieceGroup.add( piece );
-			trackPieceGroup.add( createElevatedSupport( gx, gz, orient, elevatedType ) );
+			// Black support box removed — elevated models have built-in supports
 
 		}
 

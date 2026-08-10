@@ -231,16 +231,16 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const rad = deg * Math.PI / 180;
 		const cr = Math.cos( rad ), sr = Math.sin( rad );
 
-		// Two inner corner arcs (small radius, like corner block inner arc)
-		// Left inner corner: local center (-CELL_HALF, -CELL_HALF), arcStart offset -PI/2
-		const lcx = cx + ( - CELL_HALF * cr + ( - CELL_HALF ) * sr ) * S;
-		const lcz = cz + ( CELL_HALF * sr + ( - CELL_HALF ) * cr ) * S;
-		addArcWall( lcx, lcz, - rad - Math.PI / 2, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
+		// Two inner corner arcs at the blocked side (+z) corners
+		// Bottom-left inner corner: local center (-CELL_HALF, +CELL_HALF)
+		const lcx = cx + ( - CELL_HALF * cr + CELL_HALF * sr ) * S;
+		const lcz = cz + ( CELL_HALF * sr + CELL_HALF * cr ) * S;
+		addArcWall( lcx, lcz, - rad, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
 
-		// Right inner corner: local center (+CELL_HALF, -CELL_HALF), arcStart offset 0
-		const rcx = cx + ( CELL_HALF * cr + ( - CELL_HALF ) * sr ) * S;
-		const rcz = cz + ( - CELL_HALF * sr + ( - CELL_HALF ) * cr ) * S;
-		addArcWall( rcx, rcz, - rad, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
+		// Bottom-right inner corner: local center (+CELL_HALF, +CELL_HALF)
+		const rcx = cx + ( CELL_HALF * cr + CELL_HALF * sr ) * S;
+		const rcz = cz + ( - CELL_HALF * sr + CELL_HALF * cr ) * S;
+		addArcWall( rcx, rcz, - rad - Math.PI / 2, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
 
 		// Straight wall on the closed side (local +z, i.e. where the 4th road would be)
 		const wx = cx + ( WALL_X * sr ) * S;
@@ -271,10 +271,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		// Four inner corner arcs (small radius) at each cell corner
 		const corners = [
-			{ x: - CELL_HALF, z: - CELL_HALF, offset: - Math.PI / 2 }, // top-left
-			{ x:  CELL_HALF, z: - CELL_HALF, offset: 0 },               // top-right
-			{ x: - CELL_HALF, z:  CELL_HALF, offset: Math.PI },         // bottom-left
-			{ x:  CELL_HALF, z:  CELL_HALF, offset: Math.PI / 2 },      // bottom-right
+			{ x: - CELL_HALF, z:  CELL_HALF, offset: 0 },               // bottom-left
+			{ x:  CELL_HALF, z:  CELL_HALF, offset: - Math.PI / 2 },    // bottom-right
+			{ x:  CELL_HALF, z: - CELL_HALF, offset: Math.PI },         // top-right
+			{ x: - CELL_HALF, z: - CELL_HALF, offset: Math.PI / 2 },   // top-left
 		];
 		for ( const c of corners ) {
 			const wcx = cx + ( c.x * cr + c.z * sr ) * S;
