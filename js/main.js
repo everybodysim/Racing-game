@@ -9,7 +9,7 @@ import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, comp
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
-import { DeterministicPlaybackController } from './tas-core.js';
+import { DeterministicPlaybackController, keysToAxes, parseInputLines, serializeSteps, normalizeStepInput } from './tas-core.js';
 import { FIXED_DT, MAX_STEPS_PER_FRAME, DEFAULT_RNG_SEED, SeededRandom, gameRng, resetGameRng, seedFromString } from './Determinism.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
 import { HudExtras, computeVehicleMph } from './HudExtras.js';
@@ -471,7 +471,7 @@ function hideLoadingOverlay() {
 		const pack = params.get( 'pack' );
 		const play = params.get( 'play' );
 		const isIndexPath = /(?:^|\/)(?:index\.html)?$/.test( location.pathname );
-		if ( isIndexPath && !map && !pack && play !== '1' ) {
+		if ( isIndexPath && !map && !pack && play !== '1' && params.get( 'tas' ) !== '1' ) {
 			landing.classList.add( 'visible' );
 		}
 	}
@@ -2182,6 +2182,12 @@ async function init() {
 	const isSplitScreen = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1';
 	const editorQuickTestEnabled = searchParams.get( 'editorQuickTest' ) === '1';
 	const replayViewerMode = searchParams.get( 'replayViewer' ) === '1';
+	// TAS editor embed mode: when index.html is loaded inside the TAS editor's
+	// iframe with ?tas=1, it runs a barebones single-player race and exposes a
+	// bridge (window.__tasBridge + postMessage) so the editor can record live
+	// inputs, play back edited inputs, and run headless evaluations using the
+	// real, deterministic simulation.
+	const tasEmbedMode = searchParams.get( 'tas' ) === '1';
 	const editorReturnParam = String( searchParams.get( 'editorReturn' ) || '' );
 	const editorGhostMapHash = String( searchParams.get( 'editorGhostMap' ) || '' );
 	const QUICK_TEST_GHOST_KEY = 'racing-editor-quicktest-ghost-v1';
@@ -2189,6 +2195,7 @@ async function init() {
 	const ghostEnabled = ! isSplitScreen;
 
 	if ( replayViewerMode ) document.body.classList.add( 'replay-viewer-mode' );
+	if ( tasEmbedMode ) document.body.classList.add( 'tas-embed-mode' );
 	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
 
 	let customCells = null;
@@ -3819,6 +3826,9 @@ async function init() {
 
 	function getEngineMult() {
 
+		// TAS editor can override the engine multiplier (default: max tier) so
+		// recordings/evaluations use a consistent, editor-chosen performance.
+		if ( tasEmbedMode && Number.isFinite( tasEngineMult ) && tasEngineMult > 0 ) return tasEngineMult;
 		return DEFAULT_ENGINE_MULT;
 
 	}
@@ -5566,9 +5576,32 @@ function completeCampaignStage() {
 	let simStepCount = 0;
 	let paused = false;
 	let currentLapInvalidatedByPause = false;
+
+	// ── TAS editor bridge (only active in ?tas=1 embed mode) ──────────────────
+	// The editor parent drives the iframe through window.__tasBridge / postMessage.
+	// Modes:
+	//   'idle'      — real keyboard controls the car, nothing recorded.
+	//   'record'    — real keyboard controls the car; every substep's raw key
+	//                 state is appended to tasRecordedSteps.
+	//   'playback'  — tasPlaybackController feeds the car's input from loaded
+	//                 steps; keyboard is ignored.
+	//   'eval'      — headless: runSimulationStep is looped synchronously (no
+	//                 render) over the loaded steps until 2 laps or the step cap,
+	//                 then the 2-lap time is reported back and mode returns to idle.
+	const TAS_TARGET_LAPS = 2;
+	const TAS_EVAL_MAX_STEPS = 120 * 180;
+	const tasPlaybackController = new DeterministicPlaybackController();
+	let tasMode = 'idle';            // 'idle' | 'record' | 'playback' | 'eval'
+	let tasRecordedSteps = [];       // captured per-substep key states during 'record'
+	let tasEvalStartTime = 0;        // raceClockSeconds captured at eval start (should be 0)
+	let tasEvalResult = null;        // { time, laps, dnf } posted back when eval finishes
+	let tasReady = false;            // set true once the bridge is wired up
+	let tasEngineMult = 1.0;         // engine multiplier chosen by the TAS editor (default 1)
+
 	let countdownActive = false;
 	let countdownEndsAt = 0;
 	let countdownEnabled = (() => {
+		if ( tasEmbedMode ) return false; // TAS runs have no countdown so inputs map cleanly.
 		const stored = localStorage.getItem( COUNTDOWN_SETTINGS_KEY );
 		if ( stored !== null ) return stored === '1';
 		// Default: ON for mobile (pointer: coarse or body.mobile), OFF for desktop
@@ -8526,6 +8559,152 @@ function completeCampaignStage() {
 	dispatchRuntimeModEvent( 'onRaceStart', { seed: DEFAULT_RNG_SEED } );
 	startCountdown();
 
+	// ── TAS editor bridge wiring (only in ?tas=1 embed mode) ──────────────────
+	// Resets the sim to a fresh run baseline (rewinding lap state, checkpoints,
+	// the vehicle and the shared RNG) so recordings and evaluations start from
+	// an identical state every time.
+	function tasResetRun() {
+		resetGameRng( DEFAULT_RNG_SEED );
+		raceClockSeconds = 0;
+		simAccumulator = 0;
+		simStepCount = 0;
+		lapNumber = 1;
+		lapStartSeconds = 0;
+		lapSeconds = 0;
+		lastLapSeconds = null;
+		bestLapSeconds = null;
+		currentLapInvalidatedByPause = false;
+		hasLeftStartZone = false;
+		hasPrevFinishSample = false;
+		lastLocalX = 0;
+		lastLocalZ = 0;
+		for ( const checkpoint of checkpointStates ) {
+			checkpoint.lastLocalX = 0;
+			checkpoint.lastLocalZ = 0;
+			checkpoint.hasPrevSample = false;
+			checkpoint.passedThisLap = false;
+		}
+		resetMovingObstacles( movingObstacleState, 0 );
+		resetPhysicsObstacles();
+		vehicle.resetToSpawn();
+		cam.targetPosition.copy( vehicle.spherePos );
+		cam.camera.position.addVectors( cam.targetPosition, cam.offset );
+		resetCurrentLapGhost();
+		resetCurrentLapInputs();
+		tasPlaybackController.resetFrame();
+		updateLapHud();
+	}
+
+	// Headless evaluation: replay the loaded steps in a tight synchronous loop
+	// (no rendering) until the target lap count is reached or the step cap is
+	// hit, then return { time, laps, dnf }. Reuses the real simulation, so the
+	// result is exactly what a visible playback would produce.
+	function tasRunEval( steps ) {
+		const prevMode = tasMode;
+		tasMode = 'eval';
+		tasPlaybackController.loadSteps( steps );
+		tasPlaybackController.start();
+		tasResetRun();
+		tasEvalResult = null;
+		let stepped = 0;
+		while ( stepped < TAS_EVAL_MAX_STEPS ) {
+			if ( ! runSimulationStep( FIXED_DT ) ) break;
+			stepped++;
+			if ( tasEvalResult ) break;
+		}
+		const result = tasEvalResult || { time: 999999, laps: lapNumber - 1, dnf: true };
+		tasEvalResult = null;
+		tasPlaybackController.stop();
+		tasMode = prevMode === 'eval' ? 'idle' : prevMode;
+		tasResetRun();
+		return result;
+	}
+
+	function tasPostMessage( payload ) {
+		try { window.parent.postMessage( { source: 'tas-embed', ...payload }, '*' ); } catch ( e ) { /* parent may be gone */ }
+	}
+
+	if ( tasEmbedMode ) {
+		window.__tasBridge = {
+			ready: () => tasReady,
+			getInfo: () => ( {
+				mapParam: mapParam || '',
+				extrasParam: extrasParam || '',
+				lapNumber, lapSeconds, lastLapSeconds, bestLapSeconds,
+				targetLaps: TAS_TARGET_LAPS,
+				mode: tasMode,
+				recordedStepCount: tasRecordedSteps.length,
+			} ),
+			setConfig: ( cfg ) => {
+				if ( ! cfg ) return;
+				if ( Number.isFinite( Number( cfg.engineMult ) ) ) {
+					tasEngineMult = Math.max( 0.1, Number( cfg.engineMult ) );
+				}
+				if ( typeof cfg.carKey === 'string' && CAR_STATS[ cfg.carKey ] && carSelect ) {
+					carSelect.value = cfg.carKey;
+					updateCarSelectColor();
+					if ( models[ cfg.carKey ] ) vehicle.setModel( models[ cfg.carKey ] );
+					applyCarCustomization( vehicle );
+				}
+				applyVehiclePerformance();
+			},
+			setMode: ( next ) => {
+				if ( [ 'idle', 'record', 'playback' ].includes( next ) ) {
+					if ( next === 'record' ) tasRecordedSteps = [];
+					if ( next !== 'playback' ) tasPlaybackController.stop();
+					tasMode = next;
+					tasResetRun();
+					if ( next === 'playback' ) tasPlaybackController.start();
+				}
+			},
+			startRecord: () => window.__tasBridge.setMode( 'record' ),
+			stopRecord: () => { tasMode = 'idle'; tasPostMessage( { type: 'tas-record-stopped', steps: tasRecordedSteps.slice() } ); },
+			getRecordedSteps: () => tasRecordedSteps.slice(),
+			playback: ( steps ) => {
+				tasPlaybackController.loadSteps( steps );
+				tasMode = 'playback';
+				tasPlaybackController.start();
+				tasResetRun();
+			},
+			stopPlayback: () => { tasPlaybackController.stop(); tasMode = 'idle'; tasResetRun(); },
+			reset: () => tasResetRun(),
+			eval: ( steps ) => tasRunEval( steps ),
+			serialize: ( steps ) => serializeSteps( steps ),
+			parse: ( text ) => parseInputLines( text ),
+		};
+
+		window.addEventListener( 'message', ( event ) => {
+			const data = event.data;
+			if ( ! data || data.source === 'tas-embed' || data.type !== 'tas-command' ) return;
+			const t = data.command;
+			const bridge = window.__tasBridge;
+			try {
+				if ( t === 'ready' ) { tasPostMessage( { type: 'tas-ready' } ); return; }
+				if ( t === 'set-config' ) { bridge.setConfig( data.config ); return; }
+				if ( t === 'set-mode' ) { bridge.setMode( data.mode ); return; }
+				if ( t === 'start-record' ) { bridge.startRecord(); return; }
+				if ( t === 'stop-record' ) { bridge.stopRecord(); return; }
+				if ( t === 'get-frames' ) { tasPostMessage( { type: 'tas-frames', steps: bridge.getRecordedSteps() } ); return; }
+				if ( t === 'playback' ) { bridge.playback( data.steps || [] ); return; }
+				if ( t === 'stop-playback' ) { bridge.stopPlayback(); return; }
+				if ( t === 'reset' ) { bridge.reset(); return; }
+				if ( t === 'eval' ) {
+					const result = bridge.eval( data.steps || [] );
+					tasPostMessage( { type: 'tas-eval-result', ...result } );
+					return;
+				}
+			} catch ( error ) {
+				tasPostMessage( { type: 'tas-error', message: String( error?.message || error ) } );
+			}
+		} );
+
+		// The car's stats come from the resolved track's deterministic car seed.
+		// The editor mirrors the chosen car+tier by setting ?car= and ?tier=,
+		// handled by the existing car-selection flow below.
+		tasReady = true;
+		tasPostMessage( { type: 'tas-ready' } );
+	}
+
 	const hashParams = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
 	const importedGhost = hashParams.get( 'ghost' );
 	if ( importedGhost ) {
@@ -8753,9 +8932,20 @@ function completeCampaignStage() {
 		const controlsBlocked = modeMenuOpen || freecamState.active || replayViewerMode || countdownActive;
 		const baseInput = controlsBlocked ? ZERO_DRIVE_INPUT : controls.update();
 		let input = baseInput;
+		// TAS embed override: in playback/eval the car is driven from the loaded
+		// input steps (raw keys → axes) so it reproduces the recorded run exactly.
+		// In record mode we keep the live keyboard input and snapshot its keys below.
+		if ( tasEmbedMode && ( tasMode === 'playback' || tasMode === 'eval' ) ) {
+			const step = tasPlaybackController.nextStep();
+			input = step ? keysToAxes( step.keys ) : ZERO_DRIVE_INPUT;
+			if ( ! step && tasMode === 'playback' ) tasMode = 'idle';
+		}
 		for ( const runtime of runtimeMods ) {
 
 			if ( typeof runtime?.applyFrame !== 'function' ) continue;
+			// In TAS embed mode the bridge owns input feeding (record/playback/eval),
+			// so the in-race TAS runtime mod must not override it with stored steps.
+			if ( tasEmbedMode && runtime?.id === 'tas' ) continue;
 			try {
 
 				const result = runtime.applyFrame( { dt: stepDt, input, controls, vehicle, world, now } );
@@ -8774,7 +8964,20 @@ function completeCampaignStage() {
 		if ( customModNoSteerUntil > now ) padAdjustedInput = { ...padAdjustedInput, x: 0 };
 		if ( customModForceBrakeUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: - 1 };
 		if ( customModForceThrottleUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: 1 };
+		// TAS playback/eval must use the replayed input verbatim (no pad/hack
+		// mutation) so it reproduces the recorded run bit-for-bit.
+		if ( tasEmbedMode && ( tasMode === 'playback' || tasMode === 'eval' ) ) padAdjustedInput = input;
 		const padAdjustedInput2 = input2 ? applyPadInputModifiers( input2, activePadEffect2 ) : null;
+		// Capture per-substep raw key state for the TAS recorder.
+		if ( tasEmbedMode && tasMode === 'record' ) {
+			const k = controls?.keys || {};
+			tasRecordedSteps.push( { keys: {
+				up: Boolean( k.KeyW || k.ArrowUp ),
+				down: Boolean( k.KeyS || k.ArrowDown ),
+				left: Boolean( k.KeyA || k.ArrowLeft ),
+				right: Boolean( k.KeyD || k.ArrowRight ),
+			} } );
+		}
 		recordLapInput( Math.max( 0, now - lapStartSeconds ), padAdjustedInput, controls?.keys );
 		if ( hacksActive && hacksState.infiniteCoins ) coins = Math.max( coins, 9999999 );
 		if ( arcadeBoostInstalled ) {
@@ -9298,6 +9501,15 @@ function completeCampaignStage() {
 
 				}
 				dispatchRuntimeModEvent( 'onLapFinish', { type: 'lapFinish', lapTime: completedLap, bestLapSeconds, lapNumber, isNewBest, lapInvalid } );
+				// Report lap completions back to the TAS editor parent. On the
+				// target lap count, mark an eval complete so the headless loop
+				// can stop and return the time.
+				if ( tasEmbedMode ) {
+					tasPostMessage( { type: 'tas-lap', lapTime: completedLap, lapNumber, totalLaps: TAS_TARGET_LAPS } );
+					if ( tasMode === 'eval' && lapNumber >= TAS_TARGET_LAPS ) {
+						tasEvalResult = { time: now, laps: lapNumber, dnf: false };
+					}
+				}
 				if ( currentLapGhostSamples.length > 1 ) {
 
 					const t0 = currentLapGhostSamples[ 0 ].t;
