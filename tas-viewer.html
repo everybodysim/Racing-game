@@ -3,65 +3,77 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Skid Circuit — TAS Viewer</title>
+  <title>Skid Circuit — TAS Editor</title>
 
   <style>
-.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
-.skip-link:focus{top:12px}
+    .skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+    .skip-link:focus{top:12px}
 
-    body { margin: 0; background: #090d14; color: #fff; font: 13px/1.4 system-ui, sans-serif; }
+    body { margin: 0; background: #090d14; color: #fff; font: 13px/1.45 system-ui, sans-serif; }
 
-    #root {
-      display: grid;
-      grid-template-columns: 1fr 360px;
-      height: 100vh;
-    }
+    #root { display: grid; grid-template-columns: 1fr 380px; height: 100vh; }
 
-    #view {
-      position: relative;
-      min-width: 0;
-    }
+    #view { position: relative; min-width: 0; }
 
     #lap {
-      position: absolute;
-      top: 12px;
-      left: 12px;
-      background: rgba(0,0,0,0.45);
-      padding: 8px 10px;
-      border-radius: 8px;
-      z-index: 2;
+      position: absolute; top: 12px; left: 12px;
+      background: rgba(0,0,0,0.5); padding: 8px 12px;
+      border-radius: 8px; z-index: 2; font-variant-numeric: tabular-nums;
     }
+
+    /* Recording / playback state banner across the viewport */
+    #state-banner {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.6); padding: 10px 16px; border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.18); z-index: 2; text-align: center;
+      max-width: 80%; font: 700 14px/1.3 system-ui, sans-serif;
+    }
+    #state-banner .banner-sub { display:block; margin-top:4px; font: 400 12px/1.3 system-ui, sans-serif; opacity:0.85; }
+
+    /* Accept/reject prompt overlay shown after a recording */
+    #review-prompt {
+      position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%);
+      display: none; gap: 10px; z-index: 3;
+      background: rgba(8,12,22,0.9); border: 1px solid rgba(140,210,255,0.5);
+      border-radius: 12px; padding: 14px 18px; align-items: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    #review-prompt .review-text { font: 700 14px/1.3 system-ui, sans-serif; }
+    #review-prompt button { width: auto; min-width: 96px; margin: 0; font-weight: 700; }
 
     #side {
       border-left: 1px solid rgba(255,255,255,0.15);
-      padding: 12px;
-      overflow: auto;
+      padding: 14px; overflow: auto; box-sizing: border-box;
     }
+    #side h2 { margin: 0 0 10px; font: 800 16px system-ui, sans-serif; }
+    #side h3 { margin: 16px 0 6px; font: 700 13px system-ui, sans-serif; color: #9ec6ff; }
 
-    textarea {
-      width: 100%;
-      min-height: 180px;
-      background: rgba(0,0,0,0.3);
-      color: #fff;
-      border: 1px solid rgba(255,255,255,0.2);
-      border-radius: 8px;
+    label { display:block; margin-top: 8px; font-weight: 600; }
+    textarea, input, button, select {
+      width: 100%; margin-top: 4px; box-sizing: border-box; padding: 8px;
+      border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(0,0,0,0.3); color: #fff; font: 13px/1.4 system-ui, sans-serif;
     }
+    textarea { min-height: 200px; resize: vertical; font: 12px/1.45 ui-monospace, monospace; }
+    button { cursor: pointer; font-weight: 700; }
+    button:hover { background: rgba(255,255,255,0.12); }
+    button.primary { background: linear-gradient(145deg, rgba(44,117,210,0.92), rgba(18,44,82,0.9)); border-color: rgba(140,210,255,0.6); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
 
-    input, button, select {
-      width: 100%;
-      margin-top: 6px;
-      box-sizing: border-box;
-      padding: 8px;
-      border-radius: 8px;
-      border: 1px solid rgba(255,255,255,0.2);
-      background: rgba(0,0,0,0.3);
-      color: #fff;
+    .row { margin-bottom: 10px; }
+    .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    #status { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: rgba(0,0,0,0.3); min-height: 1px; }
+    #run-errors { white-space: pre-wrap; color:#ffb3b3; background: rgba(90,0,0,.22); padding: 8px; border-radius: 8px; margin-top: 8px; }
+
+    .hint { font-size: 11px; opacity: 0.7; margin-top: 4px; }
+    .kbd-hint { margin-top: 10px; font-size: 12px; }
+    kbd { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25); border-radius: 5px; padding: 1px 6px; font: 600 11px ui-monospace, monospace; }
+
+    @media (max-width: 760px) {
+      #root { grid-template-columns: 1fr; grid-template-rows: 60vh 1fr; }
+      #side { border-left: none; border-top: 1px solid rgba(255,255,255,0.15); }
     }
-
-    button { cursor: pointer; }
-
-    .row { margin-bottom: 8px; }
-
   </style>
 
   <script type="importmap">
@@ -82,58 +94,77 @@
 <main id="main-content">
 
   <div id="root">
-    <div id="view"><div id="lap">Lap 1 • 00:00.000 • Last --:--.--- • Best --:--.---</div></div>
+    <div id="view">
+      <div id="lap">Lap 1 • 00:00.000 • Last --:--.--- • Best --:--.---</div>
+      <div id="state-banner">Load a track to begin<span class="banner-sub">Enter a track URL, then start recording.</span></div>
+      <div id="review-prompt">
+        <span class="review-text">Keep this run?</span>
+        <button id="review-yes" class="primary" type="button">Yes — keep</button>
+        <button id="review-no" type="button">No — restart</button>
+      </div>
+    </div>
 
     <aside id="side">
-      <h2>TAS</h2>
+      <h2>TAS Editor <span style="font-size:10px;opacity:.6;font-weight:600;">alpha</span></h2>
 
+      <h3>1 · Track</h3>
       <div class="row">
-        <label>Track URL (map/mods)</label>
+        <label for="track-url">Map URL</label>
         <input id="track-url" placeholder="https://.../index.html?map=...&mods=..." />
-        <button id="load-track-btn">Load Track URL</button>
+        <div class="hint">Paste a track URL (with <code>?map=</code> and optional <code>&amp;mods=</code>). Leave blank for the default track.</div>
+        <button id="load-track-btn" class="primary">Load track</button>
       </div>
 
+      <h3>2 · Car</h3>
       <div class="row">
-        <label>Car config</label>
+        <label for="car-select">Car</label>
         <select id="car-select">
           <option value="vehicle-truck-yellow">Yellow</option>
           <option value="vehicle-truck-green">Green</option>
           <option value="vehicle-truck-purple">Purple</option>
           <option value="vehicle-truck-red">Red</option>
         </select>
-
-        <label>Engine tier</label>
+        <label for="engine-tier">Engine tier</label>
         <input id="engine-tier" type="range" min="0" max="4" step="1" value="0" />
-
-        <label>Garage grip multiplier</label>
-        <input id="garage-grip" type="range" min="0.85" max="1.15" step="0.01" value="1" />
-
-        <label>Garage accel multiplier</label>
-        <input id="garage-accel" type="range" min="0.85" max="1.15" step="0.01" value="1" />
-
-        <label>Garage drive multiplier</label>
-        <input id="garage-drive" type="range" min="0.85" max="1.15" step="0.01" value="1" />
       </div>
 
-      <button id="new-btn">New TAS</button>
-      <button id="run-btn">Run TAS</button>
-      <button id="export-btn">Export Ghost Code</button>
+      <h3>3 · Record</h3>
+      <div class="row">
+        <button id="record-btn" disabled>Record a run (drive 2 laps)</button>
+        <button id="stop-record-btn" disabled>Stop recording</button>
+        <div class="kbd-hint">Drive with <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>. Inputs are captured at the fixed 120 Hz sim rate.</div>
+      </div>
 
-      <label>Inputs (Arrow keys + frames, e.g. ArrowUp+ArrowLeft,30)</label>
-      <textarea id="inputs">ArrowUp,120
+      <h3>4 · Inputs (editable)</h3>
+      <div class="row">
+        <div class="hint">After you accept a recording, the per-frame inputs appear here. Edit freely — one row per key combo, e.g. <code>ArrowUp+ArrowLeft,30</code>.</div>
+        <textarea id="inputs" placeholder="ArrowUp,120
 ArrowUp+ArrowLeft,30
-ArrowUp,120</textarea>
+ArrowUp,120"></textarea>
+        <button id="clear-inputs-btn">Clear inputs</button>
+      </div>
 
-      <label>Brute force: number of inputs to touch</label>
-      <input id="bf-count" type="number" min="1" value="30" />
+      <h3>5 · Run TAS</h3>
+      <div class="row">
+        <button id="run-btn" class="primary" disabled>Run TAS (deterministic)</button>
+        <button id="stop-btn" disabled>Stop</button>
+      </div>
 
-      <label>Brute force reps</label>
-      <input id="bf-reps" type="number" min="1" value="50" />
+      <h3>6 · Brute force</h3>
+      <div class="row">
+        <div class="hint">Mutates <b>3</b> randomly chosen input frames per attempt by a medium amount. Keeps a change only if the 2-lap run gets faster, otherwise reverts and tries again.</div>
+        <label for="bf-reps">Attempts per click</label>
+        <input id="bf-reps" type="number" min="1" value="50" />
+        <button id="bf-btn" disabled>Brute force (3 inputs / attempt)</button>
+      </div>
 
-      <button id="bf-btn">Brute force</button>
+      <h3>Share</h3>
+      <div class="row">
+        <button id="export-btn">Copy ghost code</button>
+      </div>
 
       <div id="status"></div>
-      <pre id="run-errors" style="white-space:pre-wrap;color:#ffb3b3;background:rgba(90,0,0,.22);padding:8px;border-radius:8px;"></pre>
+      <pre id="run-errors"></pre>
     </aside>
   </div>
 

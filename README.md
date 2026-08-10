@@ -18,7 +18,7 @@ A fast, arcade-style browser racing game built with **Three.js**. Race custom tr
 - **Competitions** (`competitions.html`) & **Weekly Cup** (`weekly-cup.html`) — timed events and leaderboards
 - **Coin Leaderboard** (`coins.html`) — track top earners
 - **Custom Mods** (`custommods.html`, `mods.html`) — gameplay/visual mods you can build and load into races
-- **Replay Watcher** (`replay.html`) & **TAS Viewer** (`tas-viewer.html`) — watch ghost replays and frame-perfect TAS runs
+- **Replay Watcher** (`replay.html`) & **TAS Editor** (`tas-viewer.html`) — watch ghost replays and build frame-perfect TAS runs
 - **Ghost data & ghosting** — race against your own or others' best-lap replays
 - Installable as a **PWA** (manifest + icons)
 
@@ -40,7 +40,7 @@ clubs.html             Clubs
 competitions.html / weekly-cup.html    Timed events
 coins.html             Coin leaderboard
 custommods.html / mods.html            Mod tools & browser
-replay.html / tas-viewer.html          Replay & TAS playback
+replay.html / tas-viewer.html          Replay & TAS editor
 
 js/                    Game engine modules (Vehicle, Physics, Track, Camera,
                        Controls, Audio, Particles, FirebaseMultiplayer, ...)

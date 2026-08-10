@@ -35,8 +35,15 @@ feature.
 
 ### Reference architecture
 
-`js/tas-viewer.js` is the standalone reference implementation:
-`FIXED_DT = 1/120`, `seededRng(0x1234abcd)`, `resetRun()` → `stepSimulation()`.
+`js/tas-viewer.js` is the standalone reference implementation (the TAS
+**editor**, opened from the "TAS Editor" nav link when the TAS mod is
+installed): `FIXED_DT = 1/120`, `resetGameRng(DEFAULT_RNG_SEED)` per run,
+`resetRun()` → `stepSimulation()`. It runs an editor state machine
+(IDLE → RECORDING → REVIEW → PLAYBACK → BRUTEFORCE): recording captures one
+input step per substep, playback replays them deterministically, and brute-force
+mutates 3 frames per attempt and keeps a change only if the 2-lap time
+improves. `mods/TAS.js` is the in-game playback-only runtime (no UI) that
+replays the stored inputs during a normal race.
 
 ### What is intentionally non-deterministic (cosmetic only)
 

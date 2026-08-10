@@ -3773,6 +3773,7 @@ async function init() {
 	const practiceStartInstalled = installedMods.some( ( mod ) => mod?.id === 'practice-start' );
 	const stuntModeModInstalled = installedMods.some( ( mod ) => mod?.id === 'stunt-mode' );
 	const freecamInstalled = installedMods.some( ( mod ) => mod?.id === 'freecam' );
+	const tasModInstalled = installedMods.some( ( mod ) => mod?.id === 'tas' );
 	if ( stuntModeBtn ) {
 
 		stuntModeBtn.disabled = ! stuntModeModInstalled;
@@ -3879,6 +3880,10 @@ async function init() {
 			if ( hacksToggleLink ) hacksToggleLink.style.display = 'none';
 			const navHacksBtn = document.getElementById( 'nav-hacks' );
 			if ( navHacksBtn ) navHacksBtn.style.display = hacksInstalled && ! isSplitScreen ? '' : 'none';
+			const navTasBtn = document.getElementById( 'nav-tas' );
+			if ( navTasBtn ) navTasBtn.style.display = tasModInstalled ? '' : 'none';
+			const homeTasLink = document.getElementById( 'home-tas-link' );
+			if ( homeTasLink ) homeTasLink.style.display = tasModInstalled ? '' : 'none';
 			if ( hacksPanel ) hacksPanel.style.display = 'none';
 			updateArcadeBoostUi();
 
