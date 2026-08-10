@@ -56,24 +56,27 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const SUPPORT_HALF_EXTENTS = [ CELL_HALF * S, SUPPORT_HALF_HEIGHT, CELL_HALF * S ];
 	const MAGNET_HALF_SIZE = CELL_RAW * S * 0.08;
 	const MAGNET_BASE_Y = ( CELL_RAW * S * 0.08 ) - 0.06;
-	const ELEVATED_SURFACE_HALF_H = 0.20 * S;
-	const SLOPE_THICKNESS_BOOST = 0.12 * S;
-	const SLOPE_SURFACE_HALF_H = ELEVATED_SURFACE_HALF_H + SLOPE_THICKNESS_BOOST;
-	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S;
+	const ELEVATED_SURFACE_HALF_H = 0.12 * S;
+	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S * 1.08;
 	const FLAT_ELEVATED_SURFACE_DROP = 0.06;
-	const SLOPE_LOWER_EDGE_SHIFT = 0;
-	const SEAM_OVERLAP = CELL_RAW * S * 0.02;
+	const SLOPE_SURFACE_DROP = 0.4;
+	const SLOPE_TOP_BLEND_RAISE = 0.05;
+	const SLOPE_LOWER_EDGE_SHIFT = CELL_RAW * S * 0.12;
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const ELEVATED_WALL_HALF_H = WALL_HALF_H * S;
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
 	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT - FLAT_ELEVATED_SURFACE_DROP;
-	// Exact slope geometry: slope goes from groundY to the top of the elevated surface.
-	const elevatedSurfaceTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H;
-	const slopeAngle = Math.atan2( elevatedSurfaceTopY - groundY, CELL_RAW * S );
-	const exactSlopeHalfLen = ( elevatedSurfaceTopY - groundY ) / ( 2 * Math.sin( slopeAngle ) );
-	const slopeTargetHalfLen = exactSlopeHalfLen + SEAM_OVERLAP;
-	// Center shifted so the driving surface at the upper end is exactly at elevatedSurfaceTopY.
-	const slopeTargetCenterY = ( elevatedSurfaceTopY + groundY ) * 0.5 - SLOPE_SURFACE_HALF_H * Math.cos( slopeAngle ) - SEAM_OVERLAP * Math.sin( slopeAngle );
+	const slopeAngle = Math.atan2( CELL_RAW * 0.5, CELL_RAW );
+	const baseSlopeCenterY = groundY + ( ELEVATED_HEIGHT * 0.5 ) - SLOPE_SURFACE_DROP;
+	const slopeNormalYOffset = Math.cos( slopeAngle ) * ELEVATED_SURFACE_HALF_H;
+	const baseSlopeForwardYOffset = Math.sin( slopeAngle ) * ELEVATED_SURFACE_HALF_XZ;
+	const slopeBottomY = baseSlopeCenterY - baseSlopeForwardYOffset - slopeNormalYOffset;
+	const elevatedSurfaceTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H + SLOPE_TOP_BLEND_RAISE;
+	const slopeTargetCenterY = ( elevatedSurfaceTopY + slopeBottomY ) * 0.5;
+	const slopeTargetHalfLen = Math.max(
+		ELEVATED_SURFACE_HALF_XZ,
+		( ( elevatedSurfaceTopY - slopeBottomY ) * 0.5 - slopeNormalYOffset ) / Math.sin( slopeAngle )
+	);
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
 	const BUMP_RADIUS = 7.5 * S;
@@ -231,7 +234,9 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
 		const deg = ORIENT_DEG[ orient ] ?? 0;
-		const rad = deg * Math.PI / 180;
+		// Rotate the 3-way hitboxes 180° around the block center so the blocked side
+		// and the open T-junction face the correct way for the model.
+		const rad = ( deg * Math.PI / 180 ) + Math.PI;
 		const cr = Math.cos( rad ), sr = Math.sin( rad );
 
 		// Two inner corner arcs at the open T-junction side (-z/north, opposite the wall)
@@ -292,20 +297,19 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
-		const cr = Math.cos( yaw ), sr = Math.sin( yaw );
+		const pitch = slopeAngle;
+		const shiftX = Math.sin( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
+		const shiftZ = Math.cos( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
+		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( pitch, yaw, 0, 'YXZ' ) );
+		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
 
-		// Side walls: vertical (NOT tilted with slope), running along the slope direction.
-		// Tall enough to block the car at the highest point of the slope.
-		const sideWallHalfH = ELEVATED_HEIGHT * S * 0.5;
-		const sideWallY = groundY + sideWallHalfH;
 		for ( const side of [ - 1, 1 ] ) {
 
-			const localX = side * WALL_X;
-			const wx = cx + ( localX * cr ) * S;
-			const wz = cz + ( - localX * sr ) * S;
-			const halfExtents = [ hThick, sideWallHalfH, slopeTargetHalfLen ];
-			const position = [ wx, sideWallY, wz ];
-			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
+			const localX = side * WALL_X * S;
+			const offsetX = localX * Math.cos( yaw );
+			const offsetZ = - localX * Math.sin( yaw );
+			const halfExtents = [ hThick, ELEVATED_WALL_HALF_H, slopeTargetHalfLen ];
+			const position = [ cx + shiftX + offsetX, slopeTargetCenterY, cz + shiftZ + offsetZ ];
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
 				motionType: MotionType.STATIC,
@@ -319,29 +323,6 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		}
 
-		// Third wall at the HIGH end (blocking entry from the tall side of the slope).
-		// High end direction for slope-up at orient=0 with positive pitch is -z (north).
-		// After yaw rotation: high end is at direction (-sin(yaw), 0, -cos(yaw)).
-		const highEndDirX = - sr;
-		const highEndDirZ = - cr;
-		const highEndX = cx + CELL_HALF * highEndDirX * S;
-		const highEndZ = cz + CELL_HALF * highEndDirZ * S;
-		const highWallY = groundY + ELEVATED_HEIGHT * S - ELEVATED_WALL_HALF_H;
-		const highHalfExtents = [ hLen, ELEVATED_WALL_HALF_H, hThick ];
-		const highPosition = [ highEndX, highWallY, highEndZ ];
-		const highWallYaw = yaw + Math.PI / 2;
-		const highQuat = [ 0, Math.sin( highWallYaw / 2 ), 0, Math.cos( highWallYaw / 2 ) ];
-		rigidBody.create( world, {
-			shape: box.create( { halfExtents: highHalfExtents } ),
-			motionType: MotionType.STATIC,
-			objectLayer: world._OL_STATIC,
-			position: highPosition,
-			quaternion: highQuat,
-			friction: 0.0,
-			restitution: 0.0,
-		} );
-		if ( debugGroup ) addDebugBox( debugGroup, highHalfExtents, highPosition, highQuat );
-
 	}
 
 	function addSlopeCollider( gx, gz, orient = 0, up = true ) {
@@ -352,7 +333,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const shiftX = Math.sin( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
 		const shiftZ = Math.cos( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
 		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( up ? slopeAngle : - slopeAngle, yaw, 0, 'YXZ' ) );
-		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, SLOPE_SURFACE_HALF_H, slopeTargetHalfLen ];
+		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, slopeTargetHalfLen ];
 		const position = [ cx + shiftX, slopeTargetCenterY, cz + shiftZ ];
 		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
 		rigidBody.create( world, {
