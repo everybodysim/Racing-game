@@ -63,3 +63,41 @@ To keep determinism, any new gameplay/visual logic must:
    randomness — never `Math.random()`.
 4. Use `raceClockSeconds` for any time comparison — never `Date.now()` /
    `performance.now()` / `timer.getElapsed()`.
+
+## TAS Editor (iframe-embed architecture)
+
+The interactive TAS editor lives on `tas-viewer.html` (opened via the "TAS
+Editor" nav link under **Create** + a home secondary link, both gated on the
+`tas` mod being installed). The editor is a **parent page** that drives the
+real game running in an **iframe** at `index.html?tas=1`:
+
+- `index.html` detects `?tas=1` → `tasEmbedMode`: adds `body.tas-embed-mode`
+  (CSS hides all chrome except the canvas + lap HUD), disables the countdown
+  (so inputs map cleanly to substeps), and exposes `window.__tasBridge` plus a
+  `postMessage` protocol (`{type:'tas-command', command, ...}`).
+- `js/main.js#runSimulationStep` has the TAS embed branches: `record` snapshots
+  raw key state per substep into `tasRecordedSteps`; `playback`/`eval` feed the
+  car from `tasPlaybackController.nextStep()` (one step = one `FIXED_DT`
+  substep) and bypass pad/hack mutation so replay is bit-for-bit.
+- `bridge.eval(steps)` runs a **headless** synchronous eval loop
+  (`tasRunEval`: `runSimulationStep(FIXED_DT)` until 2 laps or the step cap, no
+  render) and returns `{time, laps, dnf}`. `time` = `raceClockSeconds` at lap-2
+  completion (total 2-lap time).
+- **Important:** the in-race `mods/TAS.js` runtime mod's `applyFrame` is
+  skipped inside `tasEmbedMode` (the runtime mod loop checks `runtime.id ===
+  'tas'`) so it cannot override the bridge's recorded/edited input.
+- Recording only works with **keyboard** (arrow keys / WASD). Gamepad/touch
+  move the car but record neutral steps, so playback won't match — the editor
+  hint tells users to use the keyboard.
+- Input serialization format: `ArrowUp+ArrowLeft,30` = hold those keys for 30
+  substeps. One serialized row = N identical `{keys:{up,down,left,right}}`
+  steps. `keysToAxes` round-trips to the same `{x,z}` that `Controls.update()`
+  produces from those keys, so recording ↔ playback are consistent.
+
+### Known determinism limitation (alpha)
+
+Tracks with custom **force-steer / force-brake** mods
+(`customModForceBrakeUntil` etc.) are applied during recording (to the live
+drive input) but bypassed during playback/eval (line ~8966 sets
+`padAdjustedInput = input` verbatim). So TAS playback is not bit-exact for
+such tracks. Plain tracks (the common case) are fully deterministic.
