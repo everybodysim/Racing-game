@@ -1468,6 +1468,19 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		body.replay-viewer-mode > :not(canvas):not(script) { display: none !important; }
 		body.replay-viewer-mode canvas { touch-action: none; }
 
+		/* TAS editor embed: hide all chrome except the canvas + lap HUD so the
+		   editor's iframe shows a clean driving viewport. The editor side panel
+		   owns the controls; the game just simulates. */
+		body.tas-embed-mode #home-landing,
+		body.tas-embed-mode #nav-panel,
+		body.tas-embed-mode #nav-panel-content,
+		body.tas-embed-mode #top-bar,
+		body.tas-embed-mode #hud-extras,
+		body.tas-embed-mode #mobile-action-dock,
+		body.tas-embed-mode #mobile-menu-sheet,
+		body.tas-embed-mode #loading-screen { display: none !important; }
+		body.tas-embed-mode canvas { touch-action: none; }
+
 
 		/* Mobile-first gameplay chrome. Everything is gated behind coarse pointers so desktop layout is untouched. */
 		#mobile-action-dock, #mobile-menu-sheet, #mobile-overlay-backdrop, #mobile-leaderboard-close { display: none; }
@@ -2779,11 +2792,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
   }
 });
 	</script>
-	<script>
-document.getElementById('loading-status').textContent =
-  'HTML TEST 20260621-B';
-</script>
-	<script type="module" src="js/main.js?v=999969&cachebust=1"></script>
+	   <script type="module" src="js/main.js?v=999969&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;

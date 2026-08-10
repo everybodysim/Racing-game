@@ -13,12 +13,14 @@
 
     #root { display: grid; grid-template-columns: 1fr 380px; height: 100vh; }
 
-    #view { position: relative; min-width: 0; }
+    #view { position: relative; min-width: 0; background:#000; }
+    #game-frame { position:absolute; inset:0; width:100%; height:100%; border:0; display:block; }
 
     #lap {
       position: absolute; top: 12px; left: 12px;
       background: rgba(0,0,0,0.5); padding: 8px 12px;
       border-radius: 8px; z-index: 2; font-variant-numeric: tabular-nums;
+      pointer-events: none;
     }
 
     /* Recording / playback state banner across the viewport */
@@ -95,6 +97,7 @@
 
   <div id="root">
     <div id="view">
+      <iframe id="game-frame" title="TAS driving viewport" allow="autoplay; fullscreen; gamepad" allowfullscreen></iframe>
       <div id="lap">Lap 1 • 00:00.000 • Last --:--.--- • Best --:--.---</div>
       <div id="state-banner">Load a track to begin<span class="banner-sub">Enter a track URL, then start recording.</span></div>
       <div id="review-prompt">
@@ -125,7 +128,7 @@
           <option value="vehicle-truck-red">Red</option>
         </select>
         <label for="engine-tier">Engine tier</label>
-        <input id="engine-tier" type="range" min="0" max="4" step="1" value="0" />
+        <input id="engine-tier" type="range" min="0" max="4" step="1" value="4" />
       </div>
 
       <h3>3 · Record</h3>

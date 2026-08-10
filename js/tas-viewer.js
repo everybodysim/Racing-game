@@ -1,804 +1,418 @@
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
-import { Vehicle } from './Vehicle.js';
-import { Camera } from './Camera.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js';
-import { buildWallColliders, createSphereBody } from './Physics.js';
-import { DeterministicPlaybackController, parseInputLines, serializeSteps, keysToAxes } from './tas-core.js';
-import { FIXED_DT, SeededRandom, resetGameRng, DEFAULT_RNG_SEED } from './Determinism.js';
-
 // ─────────────────────────────────────────────────────────────────────────────
-// TAS Editor — deterministic record / playback / brute-force tool.
+// TAS Editor — parent controller (iframe embed architecture).
 //
-// State machine:
-//   IDLE       — no track loaded yet (or loaded, waiting to record)
-//   RECORDING  — user drives; per-substep inputs are captured until 2 laps done
-//   REVIEW     — 2 laps recorded; ask "keep?"; Yes → fill inputs box; No → restart
-//   PLAYBACK   — running the (possibly edited) inputs deterministically
-//   BRUTEFORCE — headless optimization of the inputs (3 mutated frames / attempt)
+// The 3D viewport is the real game running in an iframe at index.html?tas=1.
+// main.js exposes window.__tasBridge (and posts messages) inside that iframe;
+// this file drives it from the parent: load a track, record a 2-lap run, review
+// it, edit the captured inputs, run them back deterministically, and brute-force
+// optimize them (mutate 3 frames per attempt, keep if faster).
 //
-// Determinism contract (see AGENTS.md): every sim step runs at FIXED_DT (1/120s),
-// the shared gameRng is reset at the start of each run, and all gameplay timers
-// use raceClockSeconds. Recording captures one input step per substep so a
-// recorded run replays bit-for-bit.
+// State machine (parent-side):
+//   IDLE       — waiting for the iframe to report tas-ready, or a track to load
+//   READY      — track loaded, can record
+//   RECORDING  — user drives 2 laps; iframe captures per-substep inputs
+//   REVIEW     — 2 laps captured; ask "keep?"; Yes → fill inputs box; No → restart
+//   PLAYBACK   — running the (possibly edited) inputs visibly in the iframe
+//   BRUTEFORCE — headless optimization via the iframe's eval() path
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MAX_STEPS = 120 * 120;            // hard cap on a single headless evaluation
-const TARGET_LAPS = 2;                  // a recording / TAS run is "complete" at 2 laps
-const ENGINE_MULTS = [ 1, 1.025, 1.05, 1.075, 1.1 ];
-const MODELS = [
-  'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
-  'track-straight', 'track-corner', 'track-bump', 'track-finish',
-  'decoration-empty', 'decoration-forest', 'decoration-tents',
-];
-const REQUIRED_VEHICLE_KEYS = [ 'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ];
-const CAR_STATS = {
-  'vehicle-truck-yellow': { topSpeed: 1.0, accelRate: 6.0, driveForce: 100.0 },
-  'vehicle-truck-green': { topSpeed: 0.92, accelRate: 7.8, driveForce: 108.0 },
-  'vehicle-truck-purple': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
-  'vehicle-truck-red': { topSpeed: 1.05, accelRate: 5.5, driveForce: 102.0 },
+import { parseInputLines, serializeSteps } from './tas-core.js';
+
+// Engine tier → engine multiplier (sent to the iframe so its car matches).
+const ENGINE_MULTS = [ 0.6, 0.8, 1.0, 1.1, 1.8 ];
+
+const $ = ( id ) => document.getElementById( id );
+const frame = $( 'game-frame' );
+
+const els = {
+	trackUrl: $( 'track-url' ),
+	loadTrack: $( 'load-track-btn' ),
+	carSelect: $( 'car-select' ),
+	engineTier: $( 'engine-tier' ),
+	record: $( 'record-btn' ),
+	stopRecord: $( 'stop-record-btn' ),
+	inputs: $( 'inputs' ),
+	clearInputs: $( 'clear-inputs-btn' ),
+	run: $( 'run-btn' ),
+	stop: $( 'stop-btn' ),
+	bfReps: $( 'bf-reps' ),
+	bf: $( 'bf-btn' ),
+	exportBtn: $( 'export-btn' ),
+	lap: $( 'lap' ),
+	banner: $( 'state-banner' ),
+	reviewPrompt: $( 'review-prompt' ),
+	reviewYes: $( 'review-yes' ),
+	reviewNo: $( 'review-no' ),
+	status: $( 'status' ),
+	errors: $( 'run-errors' ),
 };
-// Key combos sampled during brute-force mutation ("medium sized" changes).
-const BF_DIRECTIONS = [
-  { up: true, down: false, left: false, right: false },
-  { up: true, down: false, left: true, right: false },
-  { up: true, down: false, left: false, right: true },
-  { up: false, down: false, left: true, right: false },
-  { up: false, down: false, left: false, right: true },
-  { up: false, down: true, left: false, right: false },
-  { up: true, down: false, left: true, right: true },
-  { up: false, down: false, left: false, right: false },
-];
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
-renderer.setSize(200, 200);
-const view = document.getElementById('view');
-view.appendChild(renderer.domElement);
+let state = 'IDLE';            // IDLE | READY | RECORDING | REVIEW | PLAYBACK | BRUTEFORCE
+let iframeReady = false;
+let embedParams = new URLSearchParams(); // params forwarded into the iframe (?map=, ?mods=, ?pack=...)
+let currentSteps = [];          // the accepted/edited inputs (array of {keys:{up,down,left,right}})
+let bestT = null;               // best known 2-lap eval result { time, laps, dnf }
+let lastRecordedSteps = null;  // steps captured during the active recording (awaiting review)
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xadb2ba);
-scene.fog = new THREE.Fog(0xadb2ba, 30, 55);
-
-const dirLight = new THREE.DirectionalLight(0xffffff, 5);
-dirLight.position.set(11.4, 15, -5.3);
-scene.add(dirLight);
-scene.add(new THREE.HemisphereLight(0xc8d8e8, 0x7a8a5a, 1.5));
-
-// DOM handles
-const lapHud = document.getElementById('lap');
-const statusEl = document.getElementById('status');
-const runErrorsEl = document.getElementById('run-errors');
-const inputsEl = document.getElementById('inputs');
-const carSelect = document.getElementById('car-select');
-const trackUrlInput = document.getElementById('track-url');
-const engineTierInput = document.getElementById('engine-tier');
-const stateBanner = document.getElementById('state-banner');
-const reviewPrompt = document.getElementById('review-prompt');
-const recordBtn = document.getElementById('record-btn');
-const stopRecordBtn = document.getElementById('stop-record-btn');
-const clearInputsBtn = document.getElementById('clear-inputs-btn');
-const runBtn = document.getElementById('run-btn');
-const stopBtn = document.getElementById('stop-btn');
-const bfBtn = document.getElementById('bf-btn');
-const bfRepsInput = document.getElementById('bf-reps');
-const exportBtn = document.getElementById('export-btn');
-const loadTrackBtn = document.getElementById('load-track-btn');
-
-// Deterministic RNG for brute-force mutations only (never for the sim itself,
-// which owns gameRng and resets it per run).
-const bfRng = new SeededRandom(DEFAULT_RNG_SEED ^ 0x5a5a5a5a);
-
-// ── Simulation state ──────────────────────────────────────────────────────────
-let models = {};
-let world;
-let vehicle;
-let cameraRig;
-let trackGroup = null;
-let currentCells = null;
-let currentExtras = null;
-let currentTrackUrl = '';
-let steps = [];
-const playbackController = new DeterministicPlaybackController();
-let raceClockSeconds = 0;
-let lapNumber = 1;
-let lapStartSeconds = 0;
-let lapSeconds = 0;
-let lastLapSeconds = null;
-let bestLapSeconds = null;
-let hasPrevFinishSample = false;
-let lastLocalX = 0;
-let lastLocalZ = 0;
-let hasLeftStartZone = false;
-let checkpointStates = [];
-let finishData = null;
-let lapHistory = [];
-let lastFrameNow = performance.now() / 1000;
-let simAccumulator = 0;
-let runtimeReady = false;
-let physicsEnabled = true;
-let runErrorLines = [];
-
-// Editor state machine
-let mode = 'IDLE';        // IDLE | RECORDING | REVIEW | PLAYBACK | BRUTEFORCE
-let recordedSteps = [];   // raw per-substep inputs captured during RECORDING
-let keyboardState = { up: false, down: false, left: false, right: false };
-
-// ── Utilities ─────────────────────────────────────────────────────────────────
-function encodeCode(data) {
-  return btoa(unescape(encodeURIComponent(JSON.stringify(data)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+function formatTime( s ) {
+	if ( ! Number.isFinite( s ) ) return '--:--.---';
+	const m = Math.floor( s / 60 );
+	const sec = s - m * 60;
+	return `${ String( m ).padStart( 2, '0' ) }:${ sec.toFixed( 3 ).padStart( 6, '0' ) }`;
 }
 
-function formatLapTime(totalSeconds) {
-  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '--:--.---';
-  const mins = Math.floor(totalSeconds / 60);
-  const seconds = Math.floor(totalSeconds % 60);
-  const ms = Math.floor((totalSeconds - Math.floor(totalSeconds)) * 1000);
-  return `${String(mins).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+function setStatus( msg ) { if ( els.status ) els.status.textContent = msg || ''; }
+function setError( msg ) { if ( els.errors ) els.errors.textContent = msg || ''; }
+function setBanner( main, sub ) {
+	if ( ! els.banner ) return;
+	els.banner.innerHTML = `${ main }<span class="banner-sub">${ sub || '' }</span>`;
+}
+function setLap( text ) { if ( els.lap ) els.lap.textContent = text; }
+
+function updateButtons() {
+	const trackLoaded = state === 'READY' || state === 'RECORDING' || state === 'REVIEW' || state === 'PLAYBACK' || state === 'BRUTEFORCE';
+	els.record.disabled = ! trackLoaded || state === 'RECORDING' || state === 'PLAYBACK' || state === 'BRUTEFORCE';
+	els.stopRecord.disabled = state !== 'RECORDING';
+	els.run.disabled = state === 'IDLE' || state === 'RECORDING' || state === 'PLAYBACK' || state === 'BRUTEFORCE' || currentSteps.length === 0;
+	els.stop.disabled = state !== 'PLAYBACK';
+	els.bf.disabled = state === 'IDLE' || state === 'RECORDING' || state === 'PLAYBACK' || state === 'BRUTEFORCE' || currentSteps.length === 0;
 }
 
-function setRunErrors(lines) {
-  runErrorLines = Array.isArray(lines) ? lines.slice() : [];
-  runErrorsEl.textContent = runErrorLines.join('\n');
+function setState( next ) {
+	state = next;
+	updateButtons();
+	if ( state === 'IDLE' ) setBanner( 'Load a track to begin', 'Enter a track URL, then start recording.' );
+	else if ( state === 'READY' ) setBanner( 'Ready to record', 'Click "Record a run" and drive 2 laps.' );
+	else if ( state === 'RECORDING' ) setBanner( 'Recording…', 'Drive 2 laps. Click "Stop recording" when done.' );
+	else if ( state === 'REVIEW' ) setBanner( 'Review your run', 'Keep these inputs, or restart?' );
+	else if ( state === 'PLAYBACK' ) setBanner( 'Running TAS…', 'Playing back the edited inputs deterministically.' );
+	else if ( state === 'BRUTEFORCE' ) setBanner( 'Brute-forcing…', 'Mutating 3 inputs per attempt; keeping faster runs.' );
 }
 
-function pushRunError(message) {
-  runErrorLines.push(String(message || ''));
-  runErrorsEl.textContent = runErrorLines.join('\n');
+// ── iframe communication ───────────────────────────────────────────────────
+// Same-origin, so we prefer direct calls on frame.contentWindow.__tasBridge and
+// fall back to postMessage for reliability across load timing.
+function send( command, extra = {} ) {
+	const w = frame.contentWindow;
+	if ( ! w ) return;
+	w.postMessage( { type: 'tas-command', command, ...extra }, '*' );
+}
+function bridge() { return frame.contentWindow?.__tasBridge || null; }
+function callDirect( fnName, ...args ) {
+	const b = bridge();
+	if ( b && typeof b[ fnName ] === 'function' ) {
+		try { return b[ fnName ]( ...args ); } catch ( e ) { setError( `iframe call ${ fnName } failed: ${ e?.message || e }` ); }
+	}
+	return undefined;
 }
 
-function setStatus(text) { if (statusEl) statusEl.textContent = text; }
+window.addEventListener( 'message', ( event ) => {
+	const data = event.data;
+	if ( ! data || data.source !== 'tas-embed' ) return;
+	if ( data.type === 'tas-ready' ) {
+		iframeReady = true;
+		applyConfig();
+		if ( state === 'IDLE' ) setState( 'READY' );
+		setStatus( 'Game viewport ready.' );
+	} else if ( data.type === 'tas-lap' ) {
+		const info = ( () => { try { return bridge()?.getInfo?.(); } catch { return null; } } )() || {};
+		setLap( `Lap ${ data.lapNumber || info.lapNumber || 1 } • ${ formatTime( data.lapTime ) }` );
+		// Auto-stop the recording once the driver completes the target lap count
+		// (default 2): the spec asks to record 2 laps, then prompt for review.
+		const target = Number.isFinite( data.totalLaps ) ? data.totalLaps : info.targetLaps || 2;
+		if ( state === 'RECORDING' && Number( data.lapNumber ) >= target ) {
+			stopRecord();
+		}
+	} else if ( data.type === 'tas-record-stopped' ) {
+		finishRecording( Array.isArray( data.steps ) ? data.steps : [] );
+	} else if ( data.type === 'tas-frames' ) {
+		finishRecording( Array.isArray( data.steps ) ? data.steps : [] );
+	} else if ( data.type === 'tas-eval-result' ) {
+		onEvalResult( data );
+	} else if ( data.type === 'tas-error' ) {
+		setError( data.message || 'iframe reported an error' );
+	}
+} );
 
-function setBanner(main, sub) {
-  if (!stateBanner) return;
-  stateBanner.innerHTML = '';
-  const m = document.createElement('div');
-  m.textContent = main;
-  stateBanner.appendChild(m);
-  if (sub) {
-    const s = document.createElement('span');
-    s.className = 'banner-sub';
-    s.textContent = sub;
-    stateBanner.appendChild(s);
-  }
+// Wait for the iframe load, then ping it until the bridge reports ready.
+frame.addEventListener( 'load', () => {
+	iframeReady = false;
+	const ping = () => {
+		if ( bridge()?.ready?.() ) {
+			iframeReady = true;
+			applyConfig();
+			if ( state === 'IDLE' ) setState( 'READY' );
+			setStatus( 'Game viewport ready.' );
+			return;
+		}
+		send( 'ready' );
+		if ( ! iframeReady ) setTimeout( ping, 200 );
+	};
+	setTimeout( ping, 250 );
+} );
+
+// ── config: tell the iframe which car + engine tier to use ──────────────────
+function applyConfig() {
+	const tier = Number( els.engineTier.value ) || 0;
+	const engineMult = ENGINE_MULTS[ Math.min( ENGINE_MULTS.length - 1, Math.max( 0, tier ) ) ];
+	callDirect( 'setConfig', { carKey: els.carSelect.value, engineMult } );
+	send( 'set-config', { config: { carKey: els.carSelect.value, engineMult } } );
 }
 
-function buildWorld() {
-  const settings = createWorldSettings();
-  const BPL_MOVING = addBroadphaseLayer(settings);
-  const BPL_STATIC = addBroadphaseLayer(settings);
-  const OL_MOVING = addObjectLayer(settings, BPL_MOVING);
-  const OL_STATIC = addObjectLayer(settings, BPL_STATIC);
-  enableCollision(settings, OL_MOVING, OL_STATIC);
-  enableCollision(settings, OL_MOVING, OL_MOVING);
-  const nextWorld = createWorld(settings);
-  nextWorld._OL_MOVING = OL_MOVING;
-  nextWorld._OL_STATIC = OL_STATIC;
-  return nextWorld;
+// ── load track ──────────────────────────────────────────────────────────────
+function buildEmbedUrl() {
+	const p = new URLSearchParams();
+	p.set( 'tas', '1' );
+	for ( const [ k, v ] of embedParams.entries() ) p.set( k, v );
+	return 'index.html?' + p.toString();
+}
+function loadTrack() {
+	setError( '' );
+	const raw = ( els.trackUrl.value || '' ).trim();
+	embedParams = new URLSearchParams();
+	if ( raw ) {
+		try {
+			const u = new URL( raw, window.location.href );
+			const sp = u.searchParams;
+			for ( const k of [ 'map', 'mods', 'pack' ] ) {
+				const v = sp.get( k );
+				if ( v ) embedParams.set( k, v );
+			}
+			if ( ! embedParams.get( 'map' ) && ! embedParams.get( 'pack' ) ) {
+				setError( 'That URL has no ?map= or ?pack= parameter. Leave blank to use the default track.' );
+				return;
+			}
+		} catch ( e ) {
+			setError( 'Could not parse that URL. Leave blank for the default track.' );
+			return;
+		}
+	}
+	iframeReady = false;
+	currentSteps = [];
+	bestT = null;
+	els.inputs.value = '';
+	setState( 'IDLE' );
+	setLap( 'Lap 1 • 00:00.000 • Last --:--.--- • Best --:--.---' );
+	frame.src = buildEmbedUrl();
+	setStatus( 'Loading track…' );
 }
 
-function makeGateData(cell) {
-  if (!cell) return null;
-  const [gx, gz, , orient] = cell;
-  const centerX = (gx + 0.5) * CELL_RAW * GRID_SCALE;
-  const centerZ = (gz + 0.5) * CELL_RAW * GRID_SCALE;
-  const halfExtent = (CELL_RAW * GRID_SCALE) * 0.5;
-  const angle = THREE.MathUtils.degToRad(ORIENT_DEG[orient] || 0);
-  const cosA = Math.cos(angle);
-  const sinA = Math.sin(angle);
-  return { centerX, centerZ, halfExtent, cosA, sinA };
+// ── record ─────────────────────────────────────────────────────────────────
+function startRecord() {
+	if ( ! iframeReady ) { setError( 'Game viewport not ready yet.' ); return; }
+	applyConfig();
+	lastRecordedSteps = null;
+	setState( 'RECORDING' );
+	send( 'start-record' );
+	callDirect( 'startRecord' );
+	setStatus( 'Recording — drive 2 laps.' );
+	frame.focus(); // so keystrokes drive the car inside the iframe
+}
+function stopRecord() {
+	if ( state !== 'RECORDING' ) return;
+	// Prefer a direct pull (synchronous) for snappiness; the message listener
+	// will also fire tas-record-stopped.
+	const info = ( () => { try { return bridge()?.getInfo?.(); } catch { return null; } } )() || {};
+	const direct = callDirect( 'getRecordedSteps' );
+	setStatus( `stopRecord: iframe mode=${ info.mode } steps=${ info.recordedStepCount } direct=${ Array.isArray( direct ) ? direct.length : 'n/a' }` );
+	if ( Array.isArray( direct ) && direct.length ) {
+		finishRecording( direct );
+	} else {
+		send( 'stop-record' );
+	}
+}
+function finishRecording( steps ) {
+	if ( state !== 'RECORDING' ) return;
+	lastRecordedSteps = Array.isArray( steps ) ? steps : [];
+	// Put the iframe back to idle so the car stops moving while reviewing.
+	send( 'set-mode', { mode: 'idle' } );
+	callDirect( 'setMode', 'idle' );
+	if ( lastRecordedSteps.length < 2 ) {
+		setState( 'READY' );
+		setStatus( 'No inputs captured (did you drive?). Try again.' );
+		return;
+	}
+	setState( 'REVIEW' );
+	els.reviewPrompt.style.display = 'flex';
+	setStatus( `Recorded ${ lastRecordedSteps.length } input frames. Review below.` );
 }
 
-function parseExtrasFromUrl(rawUrl) {
-  if (!rawUrl) return null;
-  try {
-    const target = new URL(rawUrl, window.location.href);
-    const modsParam = target.searchParams.get('mods');
-    if (!modsParam) return null;
-    const json = decodeURIComponent(escape(atob(modsParam.replace(/-/g, '+').replace(/_/g, '/'))));
-    const parsed = JSON.parse(json);
-    return {
-      bumps: Array.isArray(parsed.b) ? parsed.b : [],
-      boosts: Array.isArray(parsed.s) ? parsed.s : [],
-      jumps: Array.isArray(parsed.j) ? parsed.j : [],
-      decorations: Array.isArray(parsed.d) ? parsed.d : [],
-      surfaces: Array.isArray(parsed.u) ? parsed.u : [],
-      customSurfaces: parsed?.c && typeof parsed.c === 'object' ? parsed.c : {},
-      customPads: parsed?.y && typeof parsed.y === 'object' ? parsed.y : {},
-    };
-  } catch {
-    return 'parse-error';
-  }
+// ── review ──────────────────────────────────────────────────────────────────
+function acceptRun() {
+	els.reviewPrompt.style.display = 'none';
+	currentSteps = lastRecordedSteps || [];
+	els.inputs.value = serializeSteps( currentSteps );
+	setState( 'READY' );
+	setStatus( `Kept ${ currentSteps.length } frames. Edit above, then Run TAS.` );
+}
+function rejectRun() {
+	els.reviewPrompt.style.display = 'none';
+	lastRecordedSteps = null;
+	setState( 'READY' );
+	send( 'reset' );
+	callDirect( 'reset' );
+	setStatus( 'Recording discarded. Click "Record a run" to try again.' );
 }
 
-function normalizeTrackExtras(extras) {
-  return {
-    bumps: Array.isArray(extras?.bumps) ? extras.bumps : [],
-    boosts: Array.isArray(extras?.boosts) ? extras.boosts : [],
-    jumps: Array.isArray(extras?.jumps) ? extras.jumps : [],
-    decorations: Array.isArray(extras?.decorations) ? extras.decorations : [],
-    surfaces: Array.isArray(extras?.surfaces) ? extras.surfaces : [],
-    customSurfaces: extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {},
-    customPads: extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {},
-  };
+// ── run TAS (visible playback) ──────────────────────────────────────────────
+function runTas() {
+	const steps = parseEditedSteps();
+	if ( ! steps.length ) { setError( 'No inputs to run.' ); return; }
+	if ( ! iframeReady ) { setError( 'Game viewport not ready yet.' ); return; }
+	applyConfig();
+	setState( 'PLAYBACK' );
+	send( 'playback', { steps } );
+	callDirect( 'playback', steps );
+	setStatus( 'Running TAS…' );
+	frame.focus();
+}
+function stopTas() {
+	send( 'stop-playback' );
+	callDirect( 'stopPlayback' );
+	setState( 'READY' );
+	setStatus( 'Stopped.' );
+}
+function parseEditedSteps() {
+	const text = els.inputs.value.trim();
+	if ( ! text ) return currentSteps.slice();
+	try { return parseInputLines( text ); } catch ( e ) { setError( `Parse error: ${ e?.message || e }` ); return []; }
 }
 
-function parseTrackCellsFromUrl(rawUrl) {
-  if (!rawUrl) return null;
-  try {
-    const target = new URL(rawUrl, window.location.href);
-    const mapParam = target.searchParams.get('map');
-    return mapParam ? decodeCells(mapParam) : null;
-  } catch {
-    return null;
-  }
+// ── brute force ─────────────────────────────────────────────────────────────
+// Mutate 3 random frames per attempt by a medium amount; keep the change only
+// if the resulting 2-lap time improves. Uses the iframe's headless eval() so it
+// reuses the real deterministic simulation.
+function cloneSteps( steps ) { return steps.map( ( s ) => ( { keys: { ...s.keys } } ) ); }
+function randomKeyMutate( keys ) {
+	const k = { ...keys };
+	const order = [ 'up', 'down', 'left', 'right' ];
+	const idx = Math.floor( Math.random() * order.length );
+	const keyName = order[ idx ];
+	// "Medium amount": flip the chosen direction (the only meaningful discrete
+	// mutation for key-based inputs). Sometimes also nudge a neighbour.
+	k[ keyName ] = ! k[ keyName ];
+	if ( Math.random() < 0.4 ) {
+		const nIdx = ( idx + 1 ) % order.length;
+		k[ order[ nIdx ] ] = ! k[ order[ nIdx ] ];
+	}
+	return k;
 }
 
-function updateCarConfig() {
-  if (!vehicle) return;
-  const carKey = carSelect.value;
-  const tier = Math.max(0, Math.min(ENGINE_MULTS.length - 1, Number(engineTierInput.value || 0)));
-  const mult = ENGINE_MULTS[tier];
-  if (models[carKey]) vehicle.setModel(models[carKey]);
-  const stats = CAR_STATS[carKey] || CAR_STATS['vehicle-truck-yellow'];
-  vehicle.setPerformance({
-    topSpeed: stats.topSpeed * mult,
-    accelRate: stats.accelRate * mult,
-    driveForce: stats.driveForce * mult,
-  });
-  vehicle.gripMultiplier = 1;
-  vehicle.accelMultiplier = 1;
-  vehicle.driveMultiplier = 1;
+async function bruteForce() {
+	const base = parseEditedSteps();
+	if ( ! base.length ) { setError( 'No inputs to optimize.' ); return; }
+	if ( ! iframeReady ) { setError( 'Game viewport not ready yet.' ); return; }
+	applyConfig();
+	const reps = Math.max( 1, Math.min( 5000, Number( els.bfReps.value ) || 50 ) );
+	setState( 'BRUTEFORCE' );
+	setError( '' );
+
+	// Establish the baseline time for the current inputs.
+	let bestSteps = cloneSteps( base );
+	let best = await evalSteps( bestSteps );
+	setStatus( `Baseline: ${ best.dnf ? 'DNF' : formatTime( best.time ) } (${ bestSteps.length } frames).` );
+	if ( best.dnf ) {
+		setError( 'Baseline run did not finish 2 laps (DNF). Fix inputs before brute-forcing.' );
+		setState( 'READY' );
+		return;
+	}
+
+	let kept = 0;
+	for ( let i = 0; i < reps; i++ ) {
+		if ( state !== 'BRUTEFORCE' ) break; // user navigated away / stopped
+		const candidate = cloneSteps( bestSteps );
+		// Mutate 3 random frames.
+		for ( let m = 0; m < 3; m++ ) {
+			const idx = Math.floor( Math.random() * candidate.length );
+			candidate[ idx ].keys = randomKeyMutate( candidate[ idx ].keys );
+		}
+		const res = await evalSteps( candidate );
+		if ( ! res.dnf && res.time < best.time - 1e-6 ) {
+			bestSteps = candidate;
+			best = res;
+			kept++;
+			els.inputs.value = serializeSteps( bestSteps );
+			currentSteps = bestSteps;
+			setStatus( `Attempt ${ i + 1 }/${ reps }: ${ formatTime( best.time ) } ★ kept (${ kept } improvements)` );
+		} else {
+			if ( i % 5 === 0 ) setStatus( `Attempt ${ i + 1 }/${ reps }: best ${ formatTime( best.time ) } (${ kept } kept)` );
+		}
+		await new Promise( ( r ) => setTimeout( r, 0 ) ); // keep UI responsive
+	}
+	currentSteps = bestSteps;
+	els.inputs.value = serializeSteps( bestSteps );
+	bestT = best;
+	setState( 'READY' );
+	setStatus( `Brute force done: ${ formatTime( best.time ) } (${ kept } improvements over ${ reps } attempts).` );
 }
 
-// Reset the simulation to the start of a run: rewind lap timing, checkpoints,
-// the vehicle, and the shared RNG so a replay is bit-identical to the recording.
-function resetRun(clearErrors = true) {
-  playbackController.resetFrame();
-  raceClockSeconds = 0;
-  lapNumber = 1;
-  lapStartSeconds = 0;
-  lapSeconds = 0;
-  lastLapSeconds = null;
-  bestLapSeconds = null;
-  hasPrevFinishSample = false;
-  lastLocalX = 0;
-  lastLocalZ = 0;
-  hasLeftStartZone = false;
-  lapHistory = [];
-  for (const checkpoint of checkpointStates) {
-    checkpoint.lastLocalX = 0;
-    checkpoint.lastLocalZ = 0;
-    checkpoint.hasPrevSample = false;
-    checkpoint.passedThisLap = false;
-  }
-  vehicle?.resetToSpawn();
-  // Reset the shared RNG at the start of every run so identical inputs produce
-  // identical sim output (determinism contract).
-  resetGameRng(DEFAULT_RNG_SEED);
-  if (clearErrors) setRunErrors([]);
-  updateLapHud();
+// Evaluate a candidate via the iframe. Prefer direct synchronous eval; fall back
+// to postMessage with a promise.
+let evalResolveQueue = [];
+function evalSteps( steps ) {
+	const b = bridge();
+	if ( b && typeof b.eval === 'function' ) {
+		try { return Promise.resolve( b.eval( steps ) ); } catch ( e ) { return Promise.reject( e ); }
+	}
+	return new Promise( ( resolve ) => {
+		evalResolveQueue.push( resolve );
+		send( 'eval', { steps } );
+	} );
+}
+function onEvalResult( data ) {
+	const resolve = evalResolveQueue.shift();
+	if ( resolve ) resolve( { time: data.time, laps: data.laps, dnf: data.dnf } );
 }
 
-function updateLapHud() {
-  lapHud.textContent = `Lap ${lapNumber} • ${formatLapTime(lapSeconds)} • Last ${formatLapTime(lastLapSeconds)} • Best ${formatLapTime(bestLapSeconds)}`;
+// ── export (copy serialized inputs + a shareable URL) ───────────────────────
+function exportRun() {
+	const text = serializeSteps( currentSteps );
+	const url = new URL( window.location.href );
+	if ( embedParams.get( 'map' ) ) url.searchParams.set( 'map', embedParams.get( 'map' ) );
+	if ( embedParams.get( 'mods' ) ) url.searchParams.set( 'mods', embedParams.get( 'mods' ) );
+	const payload = JSON.stringify( { steps: currentSteps, map: embedParams.get( 'map' ) || '', mods: embedParams.get( 'mods' ) || '', time: bestT } );
+	const encoded = btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' );
+	const share = `${ url.origin }${ url.pathname }#tas=${ encoded }`;
+	const out = `${ share }\n\n--- inputs ---\n${ text }`;
+	navigator.clipboard?.writeText( out ).then(
+		() => setStatus( 'Copied share URL + inputs to clipboard.' ),
+		() => { els.inputs.value = text; setStatus( 'Clipboard unavailable; inputs shown in the box.' ); }
+	);
 }
 
-// One deterministic simulation substep. `input` is a normalized step
-// ({ keys: { up, down, left, right } }). Advances physics, lap timing and
-// checkpoints by exactly FIXED_DT.
-function stepSimulation(input) {
-  const axes = keysToAxes(input?.keys);
-  raceClockSeconds += FIXED_DT;
-  lapSeconds = Math.max(0, raceClockSeconds - lapStartSeconds);
-  if (physicsEnabled && world) updateWorld(world, null, FIXED_DT);
-  vehicle.update(FIXED_DT, axes);
-  cameraRig.update(FIXED_DT, vehicle.spherePos, vehicle.container.quaternion);
-
-  if (finishData) {
-    for (const checkpoint of checkpointStates) {
-      const localX = (((vehicle.spherePos.x - checkpoint.centerX) * checkpoint.cosA) + ((vehicle.spherePos.z - checkpoint.centerZ) * checkpoint.sinA));
-      const localZ = ((-(vehicle.spherePos.x - checkpoint.centerX) * checkpoint.sinA) + ((vehicle.spherePos.z - checkpoint.centerZ) * checkpoint.cosA));
-      let crossedCheckpoint = false;
-      if (checkpoint.hasPrevSample) {
-        const z0 = checkpoint.lastLocalZ;
-        const z1 = localZ;
-        const crossedPlane = (z0 < 0 && z1 > 0) || (z0 > 0 && z1 < 0);
-        if (crossedPlane) {
-          const t = z0 / (z0 - z1);
-          const xCross = THREE.MathUtils.lerp(checkpoint.lastLocalX, localX, t);
-          crossedCheckpoint = t >= 0 && t <= 1 && Math.abs(xCross) <= checkpoint.halfExtent;
-        }
-      }
-      if (crossedCheckpoint) checkpoint.passedThisLap = true;
-      checkpoint.lastLocalX = localX;
-      checkpoint.lastLocalZ = localZ;
-      checkpoint.hasPrevSample = true;
-    }
-
-    const localX = (((vehicle.spherePos.x - finishData.centerX) * finishData.cosA) + ((vehicle.spherePos.z - finishData.centerZ) * finishData.sinA));
-    const localZ = ((-(vehicle.spherePos.x - finishData.centerX) * finishData.sinA) + ((vehicle.spherePos.z - finishData.centerZ) * finishData.cosA));
-    const inFinishCell = Math.abs(localX) < finishData.halfExtent && Math.abs(localZ) < finishData.halfExtent;
-    if (!hasLeftStartZone && !inFinishCell) hasLeftStartZone = true;
-
-    let crossedFinish = false;
-    if (hasPrevFinishSample) {
-      const z0 = lastLocalZ;
-      const z1 = localZ;
-      const crossedPlane = (z0 < 0 && z1 > 0) || (z0 > 0 && z1 < 0);
-      if (crossedPlane) {
-        const t = z0 / (z0 - z1);
-        const xCross = THREE.MathUtils.lerp(lastLocalX, localX, t);
-        crossedFinish = t >= 0 && t <= 1 && Math.abs(xCross) <= finishData.halfExtent;
-      }
-    }
-
-    const allCheckpointsPassed = checkpointStates.every((checkpoint) => checkpoint.passedThisLap);
-    if (hasLeftStartZone && allCheckpointsPassed && crossedFinish) {
-      const completedLap = raceClockSeconds - lapStartSeconds;
-      lastLapSeconds = completedLap;
-      bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min(bestLapSeconds, completedLap);
-      lapHistory.push(completedLap);
-      lapNumber += 1;
-      lapStartSeconds = raceClockSeconds;
-      hasLeftStartZone = false;
-      for (const checkpoint of checkpointStates) checkpoint.passedThisLap = false;
-    }
-
-    lastLocalX = localX;
-    lastLocalZ = localZ;
-    hasPrevFinishSample = true;
-  }
-
-  updateLapHud();
+// Restore from #tas= hash on load (shareable runs).
+function restoreFromHash() {
+	const h = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : '' );
+	const tas = h.get( 'tas' );
+	if ( ! tas ) return;
+	try {
+		const json = decodeURIComponent( escape( atob( tas.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
+		const parsed = JSON.parse( json );
+		if ( Array.isArray( parsed.steps ) && parsed.steps.length ) {
+			currentSteps = parsed.steps;
+			els.inputs.value = serializeSteps( currentSteps );
+			if ( parsed.map ) { els.trackUrl.value = `${ window.location.origin }/index.html?map=${ parsed.map }${ parsed.mods ? '&mods=' + parsed.mods : '' }`; }
+		}
+	} catch ( e ) { /* ignore malformed hash */ }
 }
 
-// Headless evaluation: replay `inputSteps` from a fresh reset and return the
-// total time to complete TARGET_LAPS laps (999999 if it never finishes within
-// MAX_STEPS). Used by brute-force to compare runs. Does not render or move the
-// camera beyond what stepSimulation needs.
-function evaluate(inputSteps) {
-  const prevMode = mode;
-  mode = 'BRUTEFORCE';
-  resetRun(false);
-  let completedTime = 999999;
-  for (let i = 0; i < Math.min(MAX_STEPS, inputSteps.length); i++) {
-    stepSimulation(inputSteps[i]);
-    if (lapHistory.length >= TARGET_LAPS) {
-      completedTime = raceClockSeconds;
-      break;
-    }
-  }
-  mode = prevMode;
-  return completedTime;
-}
+// ── wire up ─────────────────────────────────────────────────────────────────
+els.loadTrack.addEventListener( 'click', loadTrack );
+els.engineTier.addEventListener( 'input', applyConfig );
+els.carSelect.addEventListener( 'change', applyConfig );
+els.record.addEventListener( 'click', startRecord );
+els.stopRecord.addEventListener( 'click', stopRecord );
+els.clearInputs.addEventListener( 'click', () => { els.inputs.value = ''; currentSteps = []; updateButtons(); } );
+els.run.addEventListener( 'click', runTas );
+els.stop.addEventListener( 'click', stopTas );
+els.bf.addEventListener( 'click', bruteForce );
+els.exportBtn.addEventListener( 'click', exportRun );
+els.reviewYes.addEventListener( 'click', acceptRun );
+els.reviewNo.addEventListener( 'click', rejectRun );
 
+// Re-parse the inputs box into currentSteps when the user edits it.
+els.inputs.addEventListener( 'input', () => { currentSteps = parseEditedSteps(); updateButtons(); } );
 
-// ── Track build ───────────────────────────────────────────────────────────────
-// (Re)builds the track + physics + vehicle from the current track URL. Called
-// on Load Track and on first init.
-function rebuildTrack() {
-  if (trackGroup) {
-    scene.remove(trackGroup);
-    trackGroup = null;
-  }
-  try {
-    world = buildWorld();
-    physicsEnabled = true;
-  } catch (error) {
-    physicsEnabled = false;
-    world = null;
-    console.warn('TAS physics init failed; running without physics colliders.', error);
-  }
-  currentTrackUrl = trackUrlInput.value.trim();
-  const nextCells = parseTrackCellsFromUrl(currentTrackUrl);
-  const parsedExtras = parseExtrasFromUrl(currentTrackUrl);
-  const extrasParseFailed = parsedExtras === 'parse-error';
-  const nextExtras = normalizeTrackExtras(extrasParseFailed ? null : parsedExtras);
-  currentCells = nextCells;
-  currentExtras = nextExtras;
-  trackGroup = buildTrack(scene, models, nextCells, nextExtras);
-  if (physicsEnabled && world) buildWallColliders(world, null, nextCells, nextExtras);
-  if (extrasParseFailed) pushRunError('Extras parse failed; TAS used default collider data.');
-
-  const spawn = computeSpawnPosition(currentCells);
-  const hasValidSpawnPosition = Array.isArray(spawn?.position) && spawn.position.length === 3
-    && spawn.position.every((v) => Number.isFinite(v));
-  const spawnData = hasValidSpawnPosition
-    ? { position: spawn.position, angle: Number.isFinite(spawn?.angle) ? spawn.angle : 0 }
-    : null;
-  const bounds = computeTrackBounds(currentCells);
-  const groundSize = Math.max(bounds.halfWidth, bounds.halfDepth) * 2 + 20;
-  if (physicsEnabled && world) {
-    rigidBody.create(world, {
-      shape: box.create({ halfExtents: [groundSize / 2, 0.5, groundSize / 2] }),
-      motionType: MotionType.STATIC,
-      objectLayer: world._OL_STATIC,
-      position: [bounds.centerX, -0.5, bounds.centerZ],
-    });
-  }
-
-  if (vehicle?.container) scene.remove(vehicle.container);
-  vehicle = new Vehicle();
-  if (physicsEnabled && world) {
-    vehicle.physicsWorld = world;
-    vehicle.rigidBody = createSphereBody(world, spawnData?.position || null);
-  }
-  vehicle.setSpawn(spawnData?.position || [3.5, 0.5, 5], spawnData?.angle || 0);
-  const [sx, sy, sz] = spawnData?.position || [3.5, 0.5, 5];
-  vehicle.spherePos.set(sx, sy, sz);
-  vehicle.container.position.set(sx, sy - 0.5, sz);
-  vehicle.container.rotation.y = spawnData?.angle || 0;
-  vehicle.prevModelPos.copy(vehicle.container.position);
-  scene.add(vehicle.init(models[carSelect.value] || models['vehicle-truck-yellow']));
-  updateCarConfig();
-
-  const activeCells = currentCells || TRACK_CELLS;
-  const finishCell = activeCells.find((c) => c[2] === 'track-finish')
-    || activeCells.find((c) => c[2] === 'track-start-finish')
-    || activeCells[0];
-  const elevatedCheckpointCells = Array.isArray(currentExtras?.elevated)
-    ? currentExtras.elevated
-      .filter((c) => Array.isArray(c) && c[2] === 'elevated-checkpoint')
-      .map(([gx, gz, , orient = 0]) => [gx, gz, 'track-checkpoint', orient])
-    : [];
-  const checkpointCells = [...activeCells.filter((c) => c[2] === 'track-checkpoint'), ...elevatedCheckpointCells];
-  finishData = makeGateData(finishCell);
-  checkpointStates = checkpointCells.map((cell) => ({
-    ...makeGateData(cell),
-    lastLocalX: 0,
-    lastLocalZ: 0,
-    hasPrevSample: false,
-    passedThisLap: false,
-  }));
-  resetRun();
-}
-
-// ── Editor state-machine helpers ──────────────────────────────────────────────
-function setMode(nextMode) {
-  mode = nextMode;
-  updateModeUi();
-}
-
-function updateModeUi() {
-  const trackLoaded = Boolean(vehicle);
-  const hasInputs = inputsEl.value.trim().length > 0;
-  recordBtn.disabled = !trackLoaded || mode === 'RECORDING' || mode === 'PLAYBACK' || mode === 'BRUTEFORCE';
-  stopRecordBtn.disabled = mode !== 'RECORDING';
-  runBtn.disabled = !trackLoaded || !hasInputs || mode === 'RECORDING' || mode === 'BRUTEFORCE';
-  stopBtn.disabled = mode !== 'PLAYBACK';
-  bfBtn.disabled = !trackLoaded || !hasInputs || mode === 'RECORDING' || mode === 'PLAYBACK';
-  reviewPrompt.style.display = mode === 'REVIEW' ? 'flex' : 'none';
-}
-
-// Snapshot the live keyboard state into a normalized step.
-function currentKeyboardStep() {
-  return { keys: { ...keyboardState } };
-}
-
-// Begin a fresh recording: clear recorded inputs, reset the run, and capture
-// inputs each substep until 2 laps are complete (or the user stops).
-function startRecording() {
-  if (!vehicle) return;
-  recordedSteps = [];
-  playbackController.loadSteps([]);
-  playbackController.stop();
-  resetRun();
-  lastFrameNow = performance.now() / 1000;
-  simAccumulator = 0;
-  setMode('RECORDING');
-  setBanner('Recording — drive 2 laps', 'Your inputs are captured at 120 Hz. Press Stop if you give up.');
-  setStatus('Recording… drive 2 laps.');
-}
-
-function stopRecording() {
-  // If the user stops before 2 laps, still offer what was captured (or restart).
-  if (recordedSteps.length === 0) {
-    setMode('IDLE');
-    setBanner('Track loaded', 'Press "Record a run" to capture inputs.');
-    setStatus('Recording stopped — no inputs captured.');
-    return;
-  }
-  enterReview();
-}
-
-// Recording reached 2 laps (or was stopped with inputs): ask the user whether
-// to keep the run.
-function enterReview() {
-  setMode('REVIEW');
-  const total = lapHistory.reduce((a, b) => a + b, 0);
-  setBanner(
-    'Run captured',
-    `${recordedSteps.length} frames • ${lapHistory.length} lap(s) • total ${formatLapTime(total)}`,
-  );
-  setStatus('Keep this run? Yes loads it into the inputs box; No restarts recording.');
-}
-
-function acceptRecording() {
-  steps = recordedSteps.slice();
-  inputsEl.value = serializeSteps(steps);
-  setMode('IDLE');
-  setBanner('Inputs loaded', 'Edit them below, then "Run TAS" or "Brute force".');
-  setStatus(`Loaded ${steps.length} recorded input frames into the editor.`);
-}
-
-function rejectRecording() {
-  startRecording();
-}
-
-// Run the (possibly hand-edited) inputs deterministically in the viewport.
-function startPlayback() {
-  try {
-    steps = parseInputLines(inputsEl.value);
-  } catch (error) {
-    pushRunError(`Run parse failed: ${error?.message || String(error)}`);
-    setStatus('Could not parse inputs.');
-    return;
-  }
-  if (steps.length === 0) {
-    setStatus('No TAS steps parsed. Use "ArrowUp+ArrowLeft,30" or record a run.');
-    return;
-  }
-  playbackController.loadSteps(steps);
-  playbackController.start();
-  resetRun();
-  lastFrameNow = performance.now() / 1000;
-  simAccumulator = 0;
-  setMode('PLAYBACK');
-  setBanner('Running TAS', `${steps.length} input frames • deterministic 120 Hz playback`);
-  setStatus(`Running ${steps.length} deterministic input frames.`);
-}
-
-function stopPlayback() {
-  playbackController.stop();
-  setMode('IDLE');
-  setBanner('Playback stopped', 'Edit inputs and run again, or brute-force.');
-  setStatus('Playback stopped.');
-}
-
-// Brute-force optimization: each attempt mutates 3 random frames to a randomly
-// chosen direction (a "medium sized" change). Keeps a mutation only if the
-// 2-lap run becomes faster; otherwise reverts. Runs headlessly (evaluate()).
-function runBruteForce() {
-  let working = parseInputLines(inputsEl.value);
-  if (working.length === 0) {
-    setStatus('No inputs to optimize — record or write some first.');
-    return;
-  }
-  const reps = Math.max(1, Math.floor(Number(bfRepsInput.value || 1)));
-  setMode('BRUTEFORCE');
-  setBanner('Brute forcing', `${reps} attempt(s) • 3 mutated frames each • keep if faster`);
-  setStatus('Brute forcing…');
-
-  let best = evaluate(working);
-  let kept = 0;
-  for (let i = 0; i < reps; i++) {
-    // Pick 3 distinct frame indices to mutate.
-    const indices = new Set();
-    let guard = 0;
-    while (indices.size < 3 && guard < 20) {
-      indices.add(Math.floor(bfRng.next() * working.length));
-      guard++;
-    }
-    const snapshot = [];
-    for (const idx of indices) {
-      snapshot.push({ idx, step: working[idx] });
-      working[idx] = { keys: { ...BF_DIRECTIONS[Math.floor(bfRng.next() * BF_DIRECTIONS.length)] } };
-    }
-    const candidate = evaluate(working);
-    if (candidate < best) {
-      best = candidate;
-      kept++;
-    } else {
-      for (const entry of snapshot) working[entry.idx] = entry.step;
-    }
-  }
-
-  steps = working;
-  inputsEl.value = serializeSteps(working);
-  playbackController.loadSteps(working);
-  playbackController.stop();
-  resetRun();
-  setMode('IDLE');
-  setBanner('Brute force complete', `${kept}/${reps} improvements kept • best 2-lap ${formatLapTime(best)}`);
-  setStatus(`Brute force done. ${kept}/${reps} kept. Best 2-lap time: ${best === 999999 ? 'DNF' : formatLapTime(best)}.`);
-}
-
-// ── Render / sim loop ─────────────────────────────────────────────────────────
-function animate() {
-  requestAnimationFrame(animate);
-  if (!runtimeReady) {
-    if (cameraRig?.camera) renderer.render(scene, cameraRig.camera);
-    return;
-  }
-  const now = performance.now() / 1000;
-  const dt = Math.min(0.25, Math.max(0, now - lastFrameNow));
-  lastFrameNow = now;
-  simAccumulator += dt;
-
-  // Fixed-timestep accumulator: one sim substep per FIXED_DT, capped to avoid
-  // the spiral of death. This keeps the sim deterministic regardless of the
-  // display refresh rate (see AGENTS.md).
-  let stepsThisFrame = 0;
-  while (simAccumulator >= FIXED_DT && vehicle && stepsThisFrame < 8) {
-    if (mode === 'RECORDING') {
-      const step = currentKeyboardStep();
-      recordedSteps.push(step);
-      stepSimulation(step);
-      if (lapHistory.length >= TARGET_LAPS) {
-        simAccumulator = 0;
-        enterReview();
-        break;
-      }
-    } else if (mode === 'PLAYBACK') {
-      const step = playbackController.nextStep();
-      if (step) {
-        stepSimulation(step);
-      } else {
-        // Reached the end of the inputs.
-        playbackController.stop();
-        setMode('IDLE');
-        const total = lapHistory.reduce((a, b) => a + b, 0);
-        setBanner(
-          lapHistory.length >= TARGET_LAPS ? 'TAS run complete' : 'TAS run ended',
-          `${lapHistory.length}/${TARGET_LAPS} laps • total ${formatLapTime(total)}`,
-        );
-        setStatus(`Playback finished. ${lapHistory.length}/${TARGET_LAPS} laps, total ${formatLapTime(total)}.`);
-        break;
-      }
-    } else {
-      // IDLE / REVIEW / BRUTEFORCE — don't advance the sim in the render loop.
-      break;
-    }
-    simAccumulator -= FIXED_DT;
-    stepsThisFrame++;
-  }
-  if (cameraRig?.camera) renderer.render(scene, cameraRig.camera);
-}
-
-async function initScene() {
-  setStatus('Loading TAS editor…');
-  registerAll();
-  cameraRig = new Camera();
-  cameraRig.mode = 'overview';
-
-  const loader = new GLTFLoader();
-  const loadOneModel = (name) => new Promise((resolve) => {
-    let settled = false;
-    const done = (result) => { if (!settled) { settled = true; resolve(result); } };
-    const timeout = window.setTimeout(() => {
-      console.warn(`Timed out loading model: ${name}`);
-      done({ name, ok: false, reason: 'timeout' });
-    }, 12000);
-    loader.load(`models/${name}.glb`, (gltf) => {
-      window.clearTimeout(timeout);
-      if (name.startsWith('vehicle-')) gltf.scene.scale.setScalar(0.5);
-      models[name] = gltf.scene;
-      done({ name, ok: true });
-    }, undefined, (error) => {
-      window.clearTimeout(timeout);
-      console.warn(`Failed loading model: ${name}`, error);
-      done({ name, ok: false, reason: 'error' });
-    });
-  });
-  const loadResults = await Promise.all(MODELS.map((name) => loadOneModel(name)));
-  const loadedVehicles = REQUIRED_VEHICLE_KEYS.filter((key) => Boolean(models[key]));
-  if (loadedVehicles.length === 0) {
-    const failed = loadResults.filter((entry) => !entry.ok).map((entry) => entry.name).join(', ');
-    throw new Error(`Could not load any vehicle models. Failed: ${failed || 'unknown'}`);
-  }
-  const activeVehicle = models[carSelect.value] ? carSelect.value : loadedVehicles[0];
-  if (carSelect.value !== activeVehicle) carSelect.value = activeVehicle;
-
-  // Honor ?track=… / ?map=… query params so the editor can deep-link a track.
-  const params = new URLSearchParams(window.location.search);
-  const deepTrack = params.get('track') || params.get('mapUrl') || '';
-  if (deepTrack) trackUrlInput.value = deepTrack;
-
-  rebuildTrack();
-  runtimeReady = true;
-  const failedCount = loadResults.filter((entry) => !entry.ok).length;
-  setMode('IDLE');
-  setBanner('Track loaded', 'Press "Record a run" to drive 2 laps and capture your inputs.');
-  setStatus(failedCount > 0
-    ? `Loaded TAS editor with ${failedCount} missing model(s).`
-    : 'TAS editor ready.');
-  resize();
-}
-
-function resize() {
-  const sidebar = document.getElementById('side');
-  const width = Math.max(240, window.innerWidth - sidebar.offsetWidth);
-  const height = window.innerHeight;
-  renderer.setSize(width, height);
-  renderer.domElement.style.width = '100%';
-  renderer.domElement.style.height = '100%';
-  if (cameraRig?.camera) {
-    cameraRig.camera.aspect = width / height;
-    cameraRig.camera.updateProjectionMatrix();
-  }
-}
-
-// ── Keyboard capture (recording) ──────────────────────────────────────────────
-// We listen directly so the editor is self-contained (no Controls.js touch UI).
-const KEY_MAP = {
-  ArrowUp: 'up', KeyW: 'up',
-  ArrowDown: 'down', KeyS: 'down',
-  ArrowLeft: 'left', KeyA: 'left',
-  ArrowRight: 'right', KeyD: 'right',
-};
-window.addEventListener('keydown', (e) => {
-  const k = KEY_MAP[e.code];
-  if (k) { keyboardState[k] = true; e.preventDefault(); }
-});
-window.addEventListener('keyup', (e) => {
-  const k = KEY_MAP[e.code];
-  if (k) { keyboardState[k] = false; e.preventDefault(); }
-});
-// If the window loses focus mid-recording, release all keys so the car doesn't
-// drive itself forever.
-window.addEventListener('blur', () => { keyboardState = { up: false, down: false, left: false, right: false }; });
-
-// ── Wire up the side-panel controls ───────────────────────────────────────────
-loadTrackBtn?.addEventListener('click', () => {
-  if (!runtimeReady) { setStatus('Still loading models…'); return; }
-  rebuildTrack();
-  setMode('IDLE');
-  setBanner('Track loaded', 'Press "Record a run" to drive 2 laps and capture your inputs.');
-  setStatus('Loaded track data from URL (or default track).');
-});
-
-recordBtn?.addEventListener('click', startRecording);
-stopRecordBtn?.addEventListener('click', stopRecording);
-document.getElementById('review-yes')?.addEventListener('click', acceptRecording);
-document.getElementById('review-no')?.addEventListener('click', rejectRecording);
-
-clearInputsBtn?.addEventListener('click', () => {
-  inputsEl.value = '';
-  steps = [];
-  playbackController.loadSteps([]);
-  playbackController.stop();
-  resetRun();
-  updateModeUi();
-  setStatus('Inputs cleared.');
-});
-
-runBtn?.addEventListener('click', startPlayback);
-stopBtn?.addEventListener('click', stopPlayback);
-bfBtn?.addEventListener('click', runBruteForce);
-
-for (const el of [carSelect, engineTierInput]) {
-  el?.addEventListener('input', () => {
-    updateCarConfig();
-    setStatus('Car config updated. Re-record or re-run for it to take effect.');
-  });
-}
-
-inputsEl?.addEventListener('input', updateModeUi);
-
-exportBtn?.addEventListener('click', async () => {
-  const code = encodeCode({
-    steps: parseInputLines(inputsEl.value),
-    trackUrl: trackUrlInput.value.trim(),
-    car: carSelect.value,
-    engineTier: Number(engineTierInput.value || 0),
-  });
-  try {
-    await navigator.clipboard.writeText(code);
-    setStatus('Ghost code copied to clipboard.');
-  } catch {
-    setStatus('Could not copy; code is still valid.');
-  }
-});
-
-window.addEventListener('resize', resize);
-resize();
-animate();
-
-initScene().catch((error) => {
-  setStatus(error.message);
-  setBanner('Failed to load', error.message);
-  console.error(error);
-});
-
+restoreFromHash();
+setState( 'IDLE' );
+updateButtons();
