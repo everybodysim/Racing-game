@@ -3,9 +3,9 @@ import { rigidBody, box, sphere, MotionType, MotionQuality } from 'crashcat';
 import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
 
 const _debugMat = new THREE.MeshBasicMaterial( {
-	color: 0x00ff44,
+	color: 0x2244ff,
 	transparent: true,
-	opacity: 0.7,
+	opacity: 0.9,
 	depthWrite: false,
 	depthTest: false,
 } );
@@ -234,20 +234,20 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const rad = deg * Math.PI / 180;
 		const cr = Math.cos( rad ), sr = Math.sin( rad );
 
-		// Two inner corner arcs at the open T-junction side (+z/south)
-		// Southwest inner corner: local center (-CELL_HALF, +CELL_HALF)
-		const lcx = cx + ( - CELL_HALF * cr + CELL_HALF * sr ) * S;
-		const lcz = cz + ( CELL_HALF * sr + CELL_HALF * cr ) * S;
-		addArcWall( lcx, lcz, - rad, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
+		// Two inner corner arcs at the open T-junction side (-z/north, opposite the wall)
+		// Northwest inner corner: local center (-CELL_HALF, -CELL_HALF)
+		const lcx = cx + ( - CELL_HALF * cr - CELL_HALF * sr ) * S;
+		const lcz = cz + ( CELL_HALF * sr - CELL_HALF * cr ) * S;
+		addArcWall( lcx, lcz, - rad + Math.PI / 2, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
 
-		// Southeast inner corner: local center (+CELL_HALF, +CELL_HALF)
-		const rcx = cx + ( CELL_HALF * cr + CELL_HALF * sr ) * S;
-		const rcz = cz + ( - CELL_HALF * sr + CELL_HALF * cr ) * S;
-		addArcWall( rcx, rcz, - rad - Math.PI / 2, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
+		// Northeast inner corner: local center (+CELL_HALF, -CELL_HALF)
+		const rcx = cx + ( CELL_HALF * cr - CELL_HALF * sr ) * S;
+		const rcz = cz + ( - CELL_HALF * sr - CELL_HALF * cr ) * S;
+		addArcWall( rcx, rcz, - rad + Math.PI, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
 
-		// Straight wall on the blocked side (local -z/north — opposite of the model's default +z)
-		const wx = cx + ( - WALL_X * sr ) * S;
-		const wz = cz + ( - WALL_X * cr ) * S;
+		// Straight wall on the blocked side (local +z/south — matching the model's wall)
+		const wx = cx + ( WALL_X * sr ) * S;
+		const wz = cz + ( WALL_X * cr ) * S;
 		const halfExtents = [ hLen, wallHalfHeight, hThick ];
 		const position = [ wx, centerY, wz ];
 		const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
@@ -292,19 +292,20 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
-		const pitch = slopeAngle;
-		const shiftX = Math.sin( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
-		const shiftZ = Math.cos( yaw ) * SLOPE_LOWER_EDGE_SHIFT;
-		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( pitch, yaw, 0, 'YXZ' ) );
-		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
+		const cr = Math.cos( yaw ), sr = Math.sin( yaw );
 
+		// Side walls: vertical (NOT tilted with slope), running along the slope direction.
+		// Tall enough to block the car at the highest point of the slope.
+		const sideWallHalfH = ELEVATED_HEIGHT * S * 0.5;
+		const sideWallY = groundY + sideWallHalfH;
 		for ( const side of [ - 1, 1 ] ) {
 
-			const localX = side * WALL_X * S;
-			const offsetX = localX * Math.cos( yaw );
-			const offsetZ = - localX * Math.sin( yaw );
-			const halfExtents = [ hThick, ELEVATED_HEIGHT * S * 0.5, slopeTargetHalfLen ];
-			const position = [ cx + shiftX + offsetX, slopeTargetCenterY, cz + shiftZ + offsetZ ];
+			const localX = side * WALL_X;
+			const wx = cx + ( localX * cr ) * S;
+			const wz = cz + ( - localX * sr ) * S;
+			const halfExtents = [ hThick, sideWallHalfH, slopeTargetHalfLen ];
+			const position = [ wx, sideWallY, wz ];
+			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
 				motionType: MotionType.STATIC,
@@ -317,6 +318,29 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
 		}
+
+		// Third wall at the HIGH end (blocking entry from the tall side of the slope).
+		// High end direction for slope-up at orient=0 with positive pitch is -z (north).
+		// After yaw rotation: high end is at direction (-sin(yaw), 0, -cos(yaw)).
+		const highEndDirX = - sr;
+		const highEndDirZ = - cr;
+		const highEndX = cx + CELL_HALF * highEndDirX * S;
+		const highEndZ = cz + CELL_HALF * highEndDirZ * S;
+		const highWallY = groundY + ELEVATED_HEIGHT * S - ELEVATED_WALL_HALF_H;
+		const highHalfExtents = [ hLen, ELEVATED_WALL_HALF_H, hThick ];
+		const highPosition = [ highEndX, highWallY, highEndZ ];
+		const highWallYaw = yaw + Math.PI / 2;
+		const highQuat = [ 0, Math.sin( highWallYaw / 2 ), 0, Math.cos( highWallYaw / 2 ) ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: highHalfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: highPosition,
+			quaternion: highQuat,
+			friction: 0.0,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, highHalfExtents, highPosition, highQuat );
 
 	}
 

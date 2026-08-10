@@ -1635,7 +1635,7 @@
 
 				const mesh = src.clone();
 				mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + idx * 0.035, ( gz + 0.5 ) * CELL_RAW );
-				mesh.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ roadPiece.orient ] || 0 ) + ( roadPiece.type === 'track-3-way' ? Math.PI : 0 );
+				mesh.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ roadPiece.orient ] || 0 );
 				const gateTint = getGateTintColor( roadPiece.type );
 				mesh.traverse( ( c ) => {
 
@@ -1767,7 +1767,7 @@
 				const elevated = elevatedSrc.clone();
 				const yAdjust = normalizedType === 'elevated-4-way' ? 0.1 : ( normalizedType === 'slope-up' ? 0 : 0 );
 				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
-				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 ) + ( normalizedType === 'elevated-3-way' ? Math.PI : 0 );
+				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 );
 				// Slope model is pre-sloped at the correct size — no rotation or scaling needed
 				elevated.traverse( ( c ) => {
 
@@ -2446,21 +2446,19 @@
 		// Slope direction arrow — bright cone pointing uphill
 		if ( type === 'elev-track-slope' || type === 'slope-up' || type === 'slope-down' ) {
 
-			const arrowHeight = CELL_RAW * 0.35;
 			const arrowGeo = new THREE.ConeGeometry( CELL_RAW * 0.12, CELL_RAW * 0.3, 4 );
+			arrowGeo.rotateX( - Math.PI / 2 ); // Pre-rotate geometry: cone now points -z (uphill for orient 0)
 			const arrowMat = new THREE.MeshBasicMaterial( { color: 0xffff00, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false } );
 			const arrow = new THREE.Mesh( arrowGeo, arrowMat );
 			arrow.renderOrder = 999;
-			// Orient 0: slope goes UP toward -z (north). Arrow points -z (uphill).
 			const arrowDeg = ORIENT_DEG[ orient ] || 0;
+			const arrowRad = THREE.MathUtils.degToRad( arrowDeg );
+			// High end is at (-sin(yaw), 0, -cos(yaw)). Arrow geometry points -z, so rotation.y = yaw gives (-sin, 0, -cos). ✓
+			arrow.rotation.y = arrowRad;
 			arrow.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT * 0.5, ( gz + 0.5 ) * CELL_RAW );
-			// Cone default points +Y. Rotate to point in the -z direction (uphill for orient 0), then apply orient rotation
-			arrow.rotation.x = - Math.PI / 2; // Point cone toward -z
-			arrow.rotation.y = THREE.MathUtils.degToRad( arrowDeg );
-			// Offset arrow forward along the uphill direction
-			const rad = THREE.MathUtils.degToRad( arrowDeg );
-			arrow.position.x -= Math.sin( rad ) * CELL_RAW * 0.25;
-			arrow.position.z -= Math.cos( rad ) * CELL_RAW * 0.25;
+			// Offset arrow toward the uphill direction
+			arrow.position.x -= Math.sin( arrowRad ) * CELL_RAW * 0.25;
+			arrow.position.z -= Math.cos( arrowRad ) * CELL_RAW * 0.25;
 			ghostGroup.add( arrow );
 
 		}
