@@ -1173,7 +1173,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			color: #f7fbff;
 		}
 
-		.home-small-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+		.home-small-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 		.home-small-link {
 			position: relative;
 			display: block;
@@ -1882,16 +1882,12 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					<div class="home-small-row">
 						<a class="home-small-link" href="index.html?play=1&garage=1">Garage<em>Paint & car select</em></a>
 						<a class="home-small-link" href="editor.html">Track editor<em>Build circuits</em></a>
-						<a class="home-small-link" href="competitions.html">Competitions<em>Stake-based tiers</em></a>
-					</div>
-
-					<div class="home-small-row">
 						<a class="home-small-link" href="totd.html"><span class="home-record-chip" data-record-badge="totd"><span class="record-label">Today's record</span><span class="record-name">Loading…</span></span>Track of the day<em>Daily challenge</em></a>
 						<a class="home-small-link club-notify-target" href="clubs.html">Clubs<em>Racing communities</em></a>
-						<a class="home-small-link" href="replay.html">Replay watcher<em>Ghost races</em></a>
 					</div>
 
 					<div id="home-secondary">
+						<a class="home-secondary-link" href="replay.html">Replay watcher</a>
 						<a class="home-secondary-link" href="mods.html">Mods</a>
 						<a class="home-secondary-link" href="index.html?play=1&multiplayer=1">2P split screen</a>
 					</div>
@@ -1928,8 +1924,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<a id="editor-link" href="editor.html">Create your own track</a>
 	<a id="totd-link" href="totd.html">Track of the day</a>
 	<a id="weekly-cup-link" href="weekly-cup.html">Weekly cup</a>
-	<a id="coin-leaderboard-link" href="coins.html">Coin leaderboard</a> 
-	<a id="competitions-link" href="competitions.html">Competitions</a>
 	<a id="replay-link" href="replay.html">Replay watcher</a>
 	<a id="tracks-link" href="tracks.html">Track share board</a> 
 	<a id="clubs-link" class="club-notify-target" href="clubs.html">Clubs</a>
@@ -2090,8 +2084,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<div class="qm-section-label">Discover</div>
 				<a id="nav-totd" href="totd.html">Track of the Day</a>
 				<a id="nav-weekly" href="weekly-cup.html">Weekly Cup</a>
-				<a id="nav-competitions" href="competitions.html">Competitions</a>
-				<a id="nav-coins" href="coins.html">Coin Leaderboard</a>
 				<div class="qm-section-label">Community</div>
 				<a id="nav-tracks" href="tracks.html">Track Share Board</a>
 				<a id="nav-clubs" href="clubs.html">Clubs</a>
@@ -2155,8 +2147,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<a href="editor.html">Create track</a>
 			<a href="totd.html">Track of day</a>
 			<a href="weekly-cup.html">Weekly cup</a>
-			<a href="coins.html">Coin leaderboard</a>
-			<a href="competitions.html">Competitions</a>
 			<a href="replay.html">Replay watcher</a>
 			<a href="tracks.html">Track share board</a>
 			<a href="clubs.html">Clubs</a>
