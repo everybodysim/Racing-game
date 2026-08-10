@@ -3,10 +3,11 @@ import { rigidBody, box, sphere, MotionType, MotionQuality } from 'crashcat';
 import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
 
 const _debugMat = new THREE.MeshBasicMaterial( {
-	color: 0x0b2f75,
+	color: 0x00ff44,
 	transparent: true,
-	opacity: 0.34,
+	opacity: 0.7,
 	depthWrite: false,
+	depthTest: false,
 } );
 
 function addDebugBox( group, halfExtents, position, quaternion ) {
@@ -14,6 +15,7 @@ function addDebugBox( group, halfExtents, position, quaternion ) {
 	const geo = new THREE.BoxGeometry( halfExtents[ 0 ] * 2, halfExtents[ 1 ] * 2, halfExtents[ 2 ] * 2 );
 	const mesh = new THREE.Mesh( geo, _debugMat );
 	mesh.userData.isHackHitboxDebug = true;
+	mesh.renderOrder = 999;
 	mesh.position.set( position[ 0 ], position[ 1 ], position[ 2 ] );
 	if ( quaternion ) mesh.quaternion.set( quaternion[ 0 ], quaternion[ 1 ], quaternion[ 2 ], quaternion[ 3 ] );
 	group.add( mesh );
@@ -25,6 +27,7 @@ function addDebugSphere( group, radius, position ) {
 	const geo = new THREE.SphereGeometry( radius, 16, 12 );
 	const mesh = new THREE.Mesh( geo, _debugMat );
 	mesh.userData.isHackHitboxDebug = true;
+	mesh.renderOrder = 999;
 	mesh.position.set( position[ 0 ], position[ 1 ], position[ 2 ] );
 	group.add( mesh );
 
@@ -56,7 +59,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const ELEVATED_SURFACE_HALF_H = 0.20 * S;
 	const SLOPE_THICKNESS_BOOST = 0.12 * S;
 	const SLOPE_SURFACE_HALF_H = ELEVATED_SURFACE_HALF_H + SLOPE_THICKNESS_BOOST;
-	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S * 1.08;
+	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S;
 	const FLAT_ELEVATED_SURFACE_DROP = 0.06;
 	const SLOPE_LOWER_EDGE_SHIFT = 0;
 	const SEAM_OVERLAP = CELL_RAW * S * 0.02;
@@ -235,12 +238,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		// Southwest inner corner: local center (-CELL_HALF, +CELL_HALF)
 		const lcx = cx + ( - CELL_HALF * cr + CELL_HALF * sr ) * S;
 		const lcz = cz + ( CELL_HALF * sr + CELL_HALF * cr ) * S;
-		addArcWall( lcx, lcz, - rad + Math.PI, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
+		addArcWall( lcx, lcz, - rad, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
 
 		// Southeast inner corner: local center (+CELL_HALF, +CELL_HALF)
 		const rcx = cx + ( CELL_HALF * cr + CELL_HALF * sr ) * S;
 		const rcz = cz + ( - CELL_HALF * sr + CELL_HALF * cr ) * S;
-		addArcWall( rcx, rcz, - rad + Math.PI / 2, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
+		addArcWall( rcx, rcz, - rad - Math.PI / 2, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
 
 		// Straight wall on the blocked side (local -z/north — opposite of the model's default +z)
 		const wx = cx + ( - WALL_X * sr ) * S;
@@ -300,7 +303,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const localX = side * WALL_X * S;
 			const offsetX = localX * Math.cos( yaw );
 			const offsetZ = - localX * Math.sin( yaw );
-			const halfExtents = [ hThick, ELEVATED_WALL_HALF_H, slopeTargetHalfLen ];
+			const halfExtents = [ hThick, ELEVATED_HEIGHT * S * 0.5, slopeTargetHalfLen ];
 			const position = [ cx + shiftX + offsetX, slopeTargetCenterY, cz + shiftZ + offsetZ ];
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
