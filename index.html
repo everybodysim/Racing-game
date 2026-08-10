@@ -1092,6 +1092,30 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 8px 30px rgba(77,232,152,0.28);
 			background: linear-gradient(135deg, rgba(91,236,126,0.45), rgba(34,159,73,0.38));
 		}
+		.home-official-link {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			padding: 9px 18px;
+			border-radius: 13px;
+			text-decoration: none;
+			color: #f7fbff;
+			background: linear-gradient(135deg, rgba(91,236,126,0.16), rgba(34,159,73,0.12));
+			border: 1px solid rgba(168,255,190,0.34);
+			font: 700 clamp(13px, 1.5vw, 16px)/1.2 "Inter", "Segoe UI", sans-serif;
+			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+		}
+		.home-official-link em {
+			font-style: normal;
+			font-weight: 500;
+			font-size: clamp(10px, 1.1vw, 12px);
+			opacity: 0.8;
+		}
+		.home-official-link:hover {
+			transform: translateY(-1px);
+			box-shadow: 0 6px 22px rgba(77,232,152,0.18);
+			background: linear-gradient(135deg, rgba(91,236,126,0.26), rgba(34,159,73,0.2));
+		}
 
 		.home-mid-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 		.home-mid-link {
@@ -1847,6 +1871,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<!-- Left: Actions -->
 				<div id="home-actions">
 					<a class="home-big-link" href="index.html?play=1">Play now<em>Jump straight into a race</em></a>
+
+					<a class="home-official-link" href="official-tracks.html">Official tracks<em>Curated campaign — 15 tracks</em></a>
 
 					<div class="home-mid-row">
 						<a class="home-mid-link" href="tracks.html">Track shares<em>Community maps & ghosts</em></a>

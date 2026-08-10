@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skid Circuit — Official Tracks</title>
+<style>
+:root{color-scheme:dark;--bg:#06101e;--panel:rgba(255,255,255,.06);--line:rgba(255,255,255,.12);--muted:#9fb2cc;--accent:#77f3b1;--gold:#ffd95a;--silver:#d6d6d6;--bronze:#e09455}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 Inter,system-ui,"Segoe UI",sans-serif;background:radial-gradient(circle at 50% -10%,rgba(119,243,177,.14),transparent 40rem),linear-gradient(165deg,#070f1c,#0f1626 55%,#0a1320);color:#e8eef8;min-height:100vh}
+.wrap{max-width:1080px;margin:0 auto;padding:30px 18px 60px}
+a{color:inherit}
+.back-link{display:inline-flex;align-items:center;gap:8px;text-decoration:none;font:700 13px sans-serif;padding:8px 14px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.06);transition:background .18s ease,transform .18s ease}
+.back-link:hover{background:rgba(255,255,255,.13);transform:translateY(-1px)}
+
+.hero{margin:34px 0 8px;text-align:center}
+.kicker{display:inline-block;color:var(--accent);font:800 12px/1 sans-serif;letter-spacing:.16em;text-transform:uppercase;padding:6px 14px;border-radius:999px;border:1px solid rgba(119,243,177,.32);background:rgba(119,243,177,.08)}
+.hero h1{margin:18px 0 10px;font-size:clamp(34px,6vw,64px);line-height:.96;letter-spacing:-.04em;font-weight:900}
+.hero p.sub{margin:0 auto;max-width:560px;color:var(--muted);font-size:clamp(14px,1.6vw,17px)}
+.hero .stats{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:22px}
+.hero .stat-pill{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:96px;padding:12px 16px;border-radius:14px;border:1px solid var(--line);background:var(--panel)}
+.hero .stat-pill b{font:900 22px sans-serif;color:#fff}
+.hero .stat-pill span{font:700 10px sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+
+.progress-bar{height:8px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden;margin:26px auto 0;max-width:420px}
+.progress-fill{height:100%;width:0;background:linear-gradient(90deg,#5ac8ff,#77f3b1);transition:width .2s ease}
+.progress-label{text-align:center;color:var(--muted);font-size:12px;margin-top:8px;min-height:16px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:18px;margin-top:38px}
+.card{position:relative;display:flex;flex-direction:column;overflow:hidden;border-radius:20px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.03));box-shadow:0 16px 44px rgba(0,0,0,.22);transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease}
+.card:hover{transform:translateY(-4px);border-color:rgba(119,243,177,.4);box-shadow:0 22px 60px rgba(80,200,140,.16)}
+.card .num{position:absolute;top:12px;left:12px;z-index:2;font:900 13px sans-serif;min-width:34px;height:34px;padding:0 8px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#04130b;background:linear-gradient(135deg,#5bec7e,#28b85a);border:1px solid rgba(255,255,255,.25);box-shadow:0 4px 12px rgba(0,0,0,.3)}
+.card .thumb{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#0c1118;border-bottom:1px solid var(--line)}
+.card .thumb.ph{display:flex;align-items:center;justify-content:center;color:#445;font:800 14px sans-serif;letter-spacing:.06em;text-transform:uppercase}
+.card .body{padding:16px 16px 18px;display:flex;flex-direction:column;gap:10px;flex:1}
+.card h3{margin:0;font-size:19px;font-weight:800;line-height:1.2}
+.card .desc{margin:0;color:var(--muted);font-size:13px;flex:1}
+.record{display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:13px;border:1px solid var(--line);background:rgba(0,0,0,.2)}
+.record .medal{flex-shrink:0;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:900 16px sans-serif;background:rgba(255,255,255,.08);color:var(--muted);border:1px solid var(--line)}
+.record.has-holder .medal{background:linear-gradient(135deg,#ffd95a,#f0b429);color:#1a1300;border-color:#ffd95a;box-shadow:0 0 12px rgba(255,215,0,.22)}
+.record .holder{flex:1;min-width:0}
+.record .holder .label{display:block;font:700 9px sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.record .holder .name{display:block;font:900 15px sans-serif;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.record .holder .name.empty{color:var(--muted);font-weight:700}
+.record .time{font:900 17px sans-serif;color:var(--accent);white-space:nowrap}
+.record .time.empty{color:var(--muted);font-weight:700}
+.play-row{display:flex;gap:8px;margin-top:2px}
+.play-btn{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;text-decoration:none;padding:12px;border-radius:13px;font:900 15px sans-serif;color:#04130b;background:linear-gradient(135deg,#5bec7e,#28b85a);border:1px solid rgba(255,255,255,.25);box-shadow:0 0 18px rgba(77,232,152,.24);transition:transform .15s ease,box-shadow .15s ease}
+.play-btn:hover{transform:translateY(-1px);box-shadow:0 6px 26px rgba(77,232,152,.34)}
+.play-btn:active{transform:translateY(0)}
+.empty-btn{flex:1;display:inline-flex;align-items:center;justify-content:center;padding:12px;border-radius:13px;font:700 13px sans-serif;color:var(--muted);border:1px dashed var(--line);background:rgba(255,255,255,.03);text-decoration:none}
+
+footer{margin-top:46px;text-align:center;color:var(--muted);font-size:12px}
+@media(max-width:560px){.hero .stats{gap:8px}.hero .stat-pill{min-width:78px;padding:10px}.card .thumb{aspect-ratio:16/10}}
+</style>
+<script src="js/PageTransitions.js"></script>
+<link rel="stylesheet" href="ui-theme.css">
+</head>
+<body>
+<main class="wrap">
+	<a class="back-link" href="index.html">← Back to game</a>
+	<div class="hero">
+		<span class="kicker">Official Campaign</span>
+		<h1>Official Tracks</h1>
+		<p class="sub">A curated championship of hand-picked circuits. Chase the record on each one and etch your name at the top.</p>
+		<div class="stats">
+			<div class="stat-pill"><b id="stat-total">15</b><span>Tracks</span></div>
+			<div class="stat-pill"><b id="stat-held">—</b><span>Records set</span></div>
+			<div class="stat-pill"><b id="stat-open">—</b><span>Open records</span></div>
+		</div>
+		<div class="progress-bar"><div class="progress-fill" id="records-progress"></div></div>
+		<div class="progress-label" id="records-label">Loading records…</div>
+	</div>
+	<div class="grid" id="grid"></div>
+	<footer>Records update live from the global leaderboard.</footer>
+</main>
+
+<script>
+/* =====================================================================
+   OFFICIAL CAMPAIGN TRACKS  —  edit me!
+   ---------------------------------------------------------------------
+   Add or remove tracks in the TRACKS array below. Each entry:
+     name        : display name
+     description : short blurb
+     playUrl     : the track data — paste the full share/play URL
+                   (e.g. "https://…/index.html?map=…&mods=…")
+                   or a relative one ("index.html?map=…&mods=…").
+                   Leave as "" for a not-yet-added slot.
+     image       : a base64 data URL for the track picture
+                   (e.g. "data:image/png;base64,iVBOR…"). Use "" for a
+                   placeholder.
+   Records are fetched automatically from the global leaderboard using
+   the same track id the game computes from playUrl, so just paste the
+   track's real play URL and the record holder shows up on its own.
+   ===================================================================== */
+const TRACKS = [
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+	{ name: "", description: "", playUrl: "", image: "" },
+];
+
+const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
+
+/* ---- track id derivation (matches main.js getTrackId) ----
+   The game derives the leaderboard track id from its OWN page path
+   ("/Racing-game/index.html" -> "/Racing-game/") plus the map+mods
+   params, NOT from whatever URL the share board stores. So we take
+   only map+mods from the pasted play URL and pair them with the
+   canonical game index path (derived from this page's location).
+   This keeps records in sync whether a full or relative URL is pasted. */
+function gameIndexPath() {
+	// this page is at .../official-tracks.html; the game is at .../index.html
+	const here = window.location.pathname;
+	return here.replace( /[^/]+$/, 'index.html' );
+}
+function normalizeTrackPath( pathValue ) {
+	const raw = String( pathValue || '/' );
+	if ( raw === '/index.html' ) return '/';
+	if ( raw.endsWith( '/index.html' ) ) return `${ raw.slice( 0, -11 ) }/`;
+	return raw;
+}
+function fnv64Hex( value, start, prime ) {
+	let hash = start;
+	for ( let i = 0; i < value.length; i ++ ) {
+		hash ^= BigInt( value.charCodeAt( i ) );
+		hash = ( hash * prime ) & 0xffffffffffffffffn;
+	}
+	return hash.toString( 16 ).padStart( 16, '0' );
+}
+function hashTrackSeed( value ) {
+	const hashA = fnv64Hex( value, 0xcbf29ce484222325n, 0x100000001b3n );
+	const hashB = fnv64Hex( value, 0x84222325cbf29cen, 0x100000001c3n );
+	return `${ hashA }${ hashB }`;
+}
+function getTrackIdFromPlayUrl( playUrl ) {
+	try {
+		const parsed = new URL( playUrl, window.location.href );
+		const map = parsed.searchParams.get( 'map' ) || '';
+		const mods = parsed.searchParams.get( 'mods' ) || '';
+		if ( ! map ) return '';
+		const normalizedPath = normalizeTrackPath( gameIndexPath() );
+		const query = new URLSearchParams();
+		query.set( 'map', map );
+		if ( mods ) query.set( 'mods', mods );
+		const rawUrl = `${ normalizedPath }?${ query.toString() }`;
+		return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
+	} catch ( e ) {
+		return '';
+	}
+}
+
+/* ---- build a launch URL that drops straight into a race ---- */
+function buildLaunchUrl( playUrl ) {
+	if ( ! playUrl ) return '';
+	try {
+		const parsed = new URL( playUrl, window.location.href );
+		if ( ! parsed.searchParams.get( 'map' ) ) return playUrl;
+		parsed.searchParams.set( 'play', '1' );
+		// keep the #ghost fragment if present
+		const hash = parsed.hash || '';
+		return `${ parsed.origin }${ parsed.pathname }${ parsed.search ? `?${ parsed.searchParams.toString() }` : '' }${ hash }`;
+	} catch ( e ) {
+		return playUrl;
+	}
+}
+
+function formatSeconds( value ) {
+	return Number.isFinite( value ) ? `${ value.toFixed( 2 ) }s` : '—';
+}
+function escapeHtml( s ) {
+	return String( s || '' ).replace( /[&<>"']/g, ( c ) => ( { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' } )[ c ] );
+}
+
+const grid = document.getElementById( 'grid' );
+const recordsProgress = document.getElementById( 'records-progress' );
+const recordsLabel = document.getElementById( 'records-label' );
+const statTotal = document.getElementById( 'stat-total' );
+const statHeld = document.getElementById( 'stat-held' );
+const statOpen = document.getElementById( 'stat-open' );
+
+statTotal.textContent = String( TRACKS.length );
+
+const slots = TRACKS.map( ( t, i ) => ( {
+	index: i,
+	track: t,
+	trackId: t.playUrl ? getTrackIdFromPlayUrl( t.playUrl ) : '',
+	holder: null,
+} ) );
+
+function render() {
+	grid.innerHTML = '';
+	slots.forEach( ( slot ) => {
+		const t = slot.track;
+		const launch = buildLaunchUrl( t.playUrl );
+		const hasTrack = Boolean( t.playUrl && launch );
+		const holder = slot.holder;
+		const hasHolder = Boolean( holder && holder.name );
+		const card = document.createElement( 'article' );
+		card.className = 'card';
+		const thumb = t.image
+			? `<img class="thumb" src="${ escapeHtml( t.image ) }" alt="Preview of ${ escapeHtml( t.name ) }">`
+			: `<div class="thumb ph">Track ${ slot.index + 1 }</div>`;
+		card.innerHTML = `
+			<div class="num">${ slot.index + 1 }</div>
+			${ thumb }
+			<div class="body">
+				<h3>${ escapeHtml( t.name ) || ( hasTrack ? `Track ${ slot.index + 1 }` : 'Coming soon' ) }</h3>
+				<p class="desc">${ escapeHtml( t.description ) || ( hasTrack ? 'Official circuit.' : 'This track has not been added yet.' ) }</p>
+				<div class="record${ hasHolder ? ' has-holder' : '' }">
+					<div class="medal">★</div>
+					<div class="holder">
+						<span class="label">Record holder</span>
+						<span class="name${ hasHolder ? '' : ' empty' }">${ hasHolder ? escapeHtml( holder.name ) : ( hasTrack ? 'No record yet' : '—' ) }</span>
+					</div>
+					<div class="time${ hasHolder ? '' : ' empty' }">${ hasHolder ? formatSeconds( Number( holder.timeSeconds ) ) : '—' }</div>
+				</div>
+				<div class="play-row">
+					${ hasTrack
+						? `<a class="play-btn" href="${ escapeHtml( launch ) }" target="_blank" rel="noopener noreferrer">▶ Play</a>`
+						: `<span class="empty-btn">Not available</span>` }
+				</div>
+			</div>`;
+		grid.appendChild( card );
+	} );
+
+	const filled = slots.filter( ( s ) => s.track.playUrl ).length;
+	const held = slots.filter( ( s ) => s.holder && s.holder.name ).length;
+	statHeld.textContent = String( held );
+	statOpen.textContent = String( Math.max( 0, filled - held ) );
+}
+
+async function loadRecords() {
+	const toFetch = slots.filter( ( s ) => s.trackId );
+	if ( toFetch.length === 0 ) {
+		recordsLabel.textContent = 'Add track play URLs to load records.';
+		render();
+		return;
+	}
+	let done = 0;
+	recordsProgress.style.width = '0%';
+	recordsLabel.textContent = `Loading records… 0 / ${ toFetch.length }`;
+	await Promise.all( toFetch.map( async ( slot ) => {
+		try {
+			const res = await fetch( `${ LEADERBOARD_API_BASE }?trackId=${ encodeURIComponent( slot.trackId ) }` );
+			if ( res.ok ) {
+				const payload = await res.json();
+				const entries = Array.isArray( payload?.entries ) ? payload.entries : [];
+				const best = entries
+					.filter( ( r ) => String( r?.name || '' ).trim() && Number.isFinite( Number( r?.timeSeconds ) ) )
+					.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) )[ 0 ];
+				if ( best ) slot.holder = { name: String( best.name ).trim(), timeSeconds: Number( best.timeSeconds ) };
+			}
+		} catch ( e ) { /* leave holder null */ }
+		done ++ ;
+		recordsProgress.style.width = `${ Math.round( ( done / toFetch.length ) * 100 ) }%`;
+		recordsLabel.textContent = `Loading records… ${ done } / ${ toFetch.length }`;
+		render();
+	} ) );
+	recordsLabel.textContent = '';
+}
+
+render();
+loadRecords();
+</script>
+</body>
+</html>
