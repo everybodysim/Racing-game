@@ -6,6 +6,36 @@ import { CELL_RAW, GRID_SCALE } from './Track.js';
  * with zero impact on gameplay physics or track logic.
  */
 
+// ── Shared speed conversion ──────────────────────────────────
+// Single source of truth for "how fast is the car really going in MPH".
+// Used by the speedometer HUD and by the engine-sound system (Audio.js)
+// so the engine pitch tracks the real-world speed range instead of the
+// normalized linearSpeed, which plateaus near topSpeed and sounds flat.
+const CELL_WORLD = CELL_RAW * GRID_SCALE; // 7.4925
+const METERS_PER_CELL = 10;
+const MS_TO_MPH = 2.23694;
+const MPH_FACTOR = ( METERS_PER_CELL / CELL_WORLD ) * MS_TO_MPH; // ≈ 2.985
+// Covers normal top speed (~42) and boost (~67) with headroom at the top of the arc.
+export const MAX_MPH = 70;
+
+export function computeVehicleMph( vehicle ) {
+
+	if ( ! vehicle ) return 0;
+	// Prefer the actual measured world velocity; fall back to physics velocity.
+	let worldSpeed = 0;
+	if ( vehicle.modelVelocity ) {
+
+		worldSpeed = vehicle.modelVelocity.length();
+
+	} else if ( vehicle.sphereVel ) {
+
+		worldSpeed = vehicle.sphereVel.length();
+
+	}
+	return worldSpeed * MPH_FACTOR;
+
+}
+
 export class HudExtras {
 
 	/**
@@ -110,30 +140,9 @@ export class HudExtras {
 
 		if ( ! this.speedoEl || ! this.vehicle ) return;
 
-		// ── Real physical speed ──
-		// modelVelocity is the actual world-space velocity vector (world units / sec).
-		// We take its magnitude and convert to MPH using the track's world scale:
-		//   cellWorld = CELL_RAW * GRID_SCALE = 9.99 * 0.75 = 7.4925 world units per cell
-		//   Assuming each cell ≈ 10 meters (a standard road tile width):
-		//   meters per world unit = 10 / cellWorld
-		//   MPH = (world_units/sec) * (10 / cellWorld) * 2.23694
-		const cellWorld = CELL_RAW * GRID_SCALE; // 7.4925
-		const METERS_PER_CELL = 10;
-		const MS_TO_MPH = 2.23694;
-		const MPH_FACTOR = ( METERS_PER_CELL / cellWorld ) * MS_TO_MPH; // ≈ 2.985
-
-		// Use actual measured velocity, fall back to sphereVel if modelVelocity is zero
-		let worldSpeed = 0;
-		if ( this.vehicle.modelVelocity ) {
-			worldSpeed = this.vehicle.modelVelocity.length();
-		} else if ( this.vehicle.sphereVel ) {
-			worldSpeed = this.vehicle.sphereVel.length();
-		}
-
-		const mph = worldSpeed * MPH_FACTOR;
+		const mph = computeVehicleMph( this.vehicle );
 
 		// Arc max: ~70 MPH covers normal top speed (~42) and boost (~67)
-		const MAX_MPH = 70;
 		const ratio = Math.min( 1, mph / MAX_MPH );
 
 		// Update number (display as integer MPH)

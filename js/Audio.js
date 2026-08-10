@@ -380,30 +380,45 @@ export class GameAudio {
 
 	}
 
-	update( dt, speed, throttle, driftIntensity ) {
+	update( dt, mph, throttle, driftIntensity ) {
 
 		if ( ! this.ready ) return;
 
 		this.engineTime += dt;
-		const speedFactor = THREE.MathUtils.clamp( Math.abs( speed ), 0, 1.8 );
-		const normalizedSpeed = THREE.MathUtils.clamp( speedFactor / 1.8, 0, 1 );
+
+		// mph is the real-world speed (same value the speedometer shows), so the
+		// engine pitch sweeps across the full 0..MAX_MPH range instead of the
+		// normalized linearSpeed, which used to plateau at top speed and sound flat.
+		const MAX_MPH = 70;
+		const speedFactor = THREE.MathUtils.clamp( Math.abs( mph ), 0, MAX_MPH );
+		const normalizedSpeed = THREE.MathUtils.clamp( speedFactor / MAX_MPH, 0, 1 );
 		const throttleFactor = THREE.MathUtils.clamp( Math.abs( throttle ), 0, 1 );
-		const accel = THREE.MathUtils.clamp( ( speedFactor - this.lastSpeedFactor ) / Math.max( dt, 0.001 ), - 1.2, 1.2 );
+		const accel = THREE.MathUtils.clamp( ( speedFactor - this.lastSpeedFactor ) / Math.max( dt, 0.001 ), - 80, 80 );
 		this.lastSpeedFactor = speedFactor;
 
+		// Grip loss (drifting/wheelspin) decouples engine revs from ground speed:
+		// the wheels are spinning faster than the car is moving, so the note rises
+		// even when forward speed doesn't. This is what gives a car its character
+		// when you boot it mid-corner instead of sounding nailed to one pitch.
+		const grip = THREE.MathUtils.clamp( 1 - driftIntensity * 0.6, 0.25, 1 );
+		const slipRev = ( 1 - grip ) * 0.45; // up to ~0.45 extra pitch at full slide
+
+		// Gear-like stepped rev cycle: revs climb within a gear then "shift" back
+		// down a step, instead of one long monotonic rise that flattens out at the top.
 		const gearCount = 5;
 		const gearPosition = normalizedSpeed * gearCount;
 		const gearIndex = Math.min( gearCount - 1, Math.floor( gearPosition ) );
 		const gearProgress = gearPosition - gearIndex;
 		this.engineGear = THREE.MathUtils.lerp( this.engineGear, gearIndex, Math.min( 1, dt * 4 ) );
 
-		const revSweep = 0.68 + gearProgress * 0.62;
-		const speedPitch = remap( normalizedSpeed, 0, 1, 0.62, 1.68 );
-		const loadPitch = throttleFactor * 0.18 + accel * 0.035;
+		const revSweep = 0.62 + gearProgress * 0.56;
+		// Idle note (~0.6x) → top of top gear (~1.7x), plus grip-loss revs and load.
+		const speedPitch = remap( normalizedSpeed, 0, 1, 0.6, 1.7 );
+		const loadPitch = throttleFactor * 0.16 + accel * 0.0016;
 		const topSpeedMovement = normalizedSpeed > 0.82
-			? Math.sin( this.engineTime * 5.7 ) * 0.045 + Math.sin( this.engineTime * 11.3 ) * 0.022
+			? Math.sin( this.engineTime * 5.7 ) * 0.04 + Math.sin( this.engineTime * 11.3 ) * 0.02
 			: 0;
-		const targetPitch = THREE.MathUtils.clamp( speedPitch * revSweep + loadPitch + topSpeedMovement, 0.55, 2.45 );
+		const targetPitch = THREE.MathUtils.clamp( speedPitch * revSweep + slipRev + loadPitch + topSpeedMovement, 0.5, 2.4 );
 		const currentPitch = this.engineSound.getPlaybackRate();
 		this.engineSound.setPlaybackRate( THREE.MathUtils.lerp( currentPitch, targetPitch, Math.min( 1, dt * 5.5 ) ) );
 
@@ -411,9 +426,12 @@ export class GameAudio {
 		const currentTexturePitch = this.engineTextureSound.getPlaybackRate();
 		this.engineTextureSound.setPlaybackRate( THREE.MathUtils.lerp( currentTexturePitch, texturePitch, Math.min( 1, dt * 3.5 ) ) );
 
-		const load = THREE.MathUtils.clamp( speedFactor * 0.55 + throttleFactor * 0.75, 0, 1.8 );
+		// Volume rises with both speed and load; grip loss adds a slightly harsher,
+		// louder edge (engine working harder against the sliding tires).
+		const load = THREE.MathUtils.clamp( normalizedSpeed * 0.6 + throttleFactor * 0.75, 0, 1.8 );
 		const pulse = 0.92 + Math.sin( this.engineTime * ( 8 + normalizedSpeed * 12 ) ) * 0.035;
-		const targetVol = remap( load, 0, 1.8, 0.035, 0.46 ) * pulse * this.settings.sfxVolume;
+		const gripVol = 1 + ( 1 - grip ) * 0.18;
+		const targetVol = remap( load, 0, 1.8, 0.035, 0.46 ) * pulse * gripVol * this.settings.sfxVolume;
 		const currentVol = this.engineSound.getVolume();
 		this.engineSound.setVolume( THREE.MathUtils.lerp( currentVol, targetVol, Math.min( 1, dt * 7 ) ) );
 
@@ -421,7 +439,9 @@ export class GameAudio {
 		const currentTextureVol = this.engineTextureSound.getVolume();
 		this.engineTextureSound.setVolume( THREE.MathUtils.lerp( currentTextureVol, textureVol, Math.min( 1, dt * 5 ) ) );
 
-		const shouldSkid = Math.abs( speed ) > 0.25 && driftIntensity > 0.65;
+		// Skid threshold scales with speed so light wheelspin at low speed doesn't
+		// trigger a full tire-squeal, but a high-speed slide does.
+		const shouldSkid = mph > 8 && driftIntensity > 0.65;
 		let skidVol = 0;
 
 		if ( shouldSkid ) {
@@ -433,7 +453,8 @@ export class GameAudio {
 		const curSkidVol = this.skidSound.getVolume();
 		this.skidSound.setVolume( THREE.MathUtils.lerp( curSkidVol, skidVol, dt * 10 ) );
 
-		const skidPitch = THREE.MathUtils.clamp( Math.abs( speed ), 1, 3 );
+		// Skid pitch tracks real speed so the squeal rises as you slide faster.
+		const skidPitch = THREE.MathUtils.clamp( 1 + mph / MAX_MPH * 1.6, 1, 2.6 );
 		const curSkidPitch = this.skidSound.getPlaybackRate();
 		this.skidSound.setPlaybackRate( THREE.MathUtils.lerp( curSkidPitch, skidPitch, 0.1 ) );
 

@@ -11,7 +11,7 @@ import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
-import { HudExtras } from './HudExtras.js';
+import { HudExtras, computeVehicleMph } from './HudExtras.js';
 import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 
@@ -9004,7 +9004,7 @@ function completeCampaignStage() {
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
 		audio.updateMusic( dt, ! document.getElementById( 'home-landing' )?.classList.contains( 'visible' ) && ! modeMenuOpen && ! replayViewerMode );
-		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
+		audio.update( dt, computeVehicleMph( vehicle ), padAdjustedInput.z, vehicle.driftIntensity );
 		const speedRatioFx = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), 0, 1.8 );
 		const driftFx = THREE.MathUtils.clamp( vehicle.driftIntensity, 0, 1 );
 		if ( bloomPass ) {
