@@ -223,6 +223,67 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
+	function add3WayWalls( gx, gz, orient = 0, centerY = wallY, wallHalfHeight = hHeight ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const rad = deg * Math.PI / 180;
+		const cr = Math.cos( rad ), sr = Math.sin( rad );
+
+		// Two inner corner arcs (small radius, like corner block inner arc)
+		// Left inner corner: local center (-CELL_HALF, -CELL_HALF), arcStart offset -PI/2
+		const lcx = cx + ( - CELL_HALF * cr + ( - CELL_HALF ) * sr ) * S;
+		const lcz = cz + ( CELL_HALF * sr + ( - CELL_HALF ) * cr ) * S;
+		addArcWall( lcx, lcz, - rad - Math.PI / 2, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
+
+		// Right inner corner: local center (+CELL_HALF, -CELL_HALF), arcStart offset 0
+		const rcx = cx + ( CELL_HALF * cr + ( - CELL_HALF ) * sr ) * S;
+		const rcz = cz + ( - CELL_HALF * sr + ( - CELL_HALF ) * cr ) * S;
+		addArcWall( rcx, rcz, - rad, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
+
+		// Straight wall on the closed side (local +z, i.e. where the 4th road would be)
+		const wx = cx + ( WALL_X * sr ) * S;
+		const wz = cz + ( WALL_X * cr ) * S;
+		const halfExtents = [ hLen, wallHalfHeight, hThick ];
+		const position = [ wx, centerY, wz ];
+		const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			quaternion,
+			friction: 0.0,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+	}
+
+	function add4WayWalls( gx, gz, orient = 0, centerY = wallY, wallHalfHeight = hHeight ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const rad = deg * Math.PI / 180;
+		const cr = Math.cos( rad ), sr = Math.sin( rad );
+
+		// Four inner corner arcs (small radius) at each cell corner
+		const corners = [
+			{ x: - CELL_HALF, z: - CELL_HALF, offset: - Math.PI / 2 }, // top-left
+			{ x:  CELL_HALF, z: - CELL_HALF, offset: 0 },               // top-right
+			{ x: - CELL_HALF, z:  CELL_HALF, offset: Math.PI },         // bottom-left
+			{ x:  CELL_HALF, z:  CELL_HALF, offset: Math.PI / 2 },      // bottom-right
+		];
+		for ( const c of corners ) {
+			const wcx = cx + ( c.x * cr + c.z * sr ) * S;
+			const wcz = cz + ( - c.x * sr + c.z * cr ) * S;
+			addArcWall( wcx, wcz, - rad + c.offset, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
+		}
+
+	}
+
 	function addSlopeSideWalls( gx, gz, orient = 0 ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
@@ -291,7 +352,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const gx = Number( gxRaw );
 			const gz = Number( gzRaw );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
-			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-checkpoint' ) continue;
+			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-checkpoint' && elevatedType !== 'elevated-3-way' && elevatedType !== 'elevated-4-way' ) continue;
 			flatSet.add( `${ gx },${ gz }` );
 
 		}
@@ -642,6 +703,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			addArcWall( wcx, wcz, arcStart, OUTER_R, OUTER_SEG, OUTER_SEG_HALF_LEN );
 			addArcWall( wcx, wcz, arcStart, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN );
 
+		} else if ( baseKey === 'track-3-way' ) {
+
+			add3WayWalls( gx, gz, orient );
+
+		} else if ( baseKey === 'track-4-way' ) {
+
+			add4WayWalls( gx, gz, orient );
+
 		}
 
 	}
@@ -699,6 +768,18 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		if ( normalizedType === 'elevated-corner' ) {
 
 			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
+			continue;
+
+		}
+		if ( normalizedType === 'elevated-3-way' ) {
+
+			add3WayWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
+			continue;
+
+		}
+		if ( normalizedType === 'elevated-4-way' ) {
+
+			add4WayWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
 
 		}
 

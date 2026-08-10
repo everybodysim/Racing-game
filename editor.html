@@ -559,10 +559,14 @@
 				<option value="track-finish">Place: Finish</option>
 			</select>
 			<button id="btn-checkpoint">Checkpoint</button>
+			<button id="btn-3way">3-Way</button>
+			<button id="btn-4way">4-Way</button>
 			<button id="btn-elevated-straight" style="display:none">Elev Straight</button>
 			<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
 			<button id="btn-elevated-checkpoint" style="display:none">Elev Checkpoint</button>
 			<button id="btn-slope-up" style="display:none">Slope Up</button>
+			<button id="btn-elevated-3way" style="display:none">Elev 3-Way</button>
+			<button id="btn-elevated-4way" style="display:none">Elev 4-Way</button>
 		</div>
 		<div class="toolbar-group" aria-label="Obstacles" data-cat="obstacles">
 			<span class="toolbar-group-label">Obstacles</span>
@@ -735,7 +739,7 @@
 
 	const grid = new Map(); // "gx,gz" → { type, orient, isFinish, mesh }
 	const ORIENTATIONS = [ 0, 16, 10, 22 ];
-	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint', 'track-start', 'track-start-finish' ];
+	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint', 'track-start', 'track-start-finish', 'track-3-way', 'track-4-way' ];
 	const BUMP_TOOL = 'overlay-bump';
 	const POLE_TOOL = 'overlay-pole';
 	const CUBE_TOOL = 'overlay-cube';
@@ -756,7 +760,7 @@
 	const ARC_ORANGE_TOOL = 'arc-orange';
 	const PORTAL_YELLOW_TOOL = 'portal-yellow';
 	const PORTAL_PURPLE_TOOL = 'portal-purple';
-	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up' ];
+	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'elevated-3-way', 'elevated-4-way' ];
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
 	const SUPPORT_HEIGHT = CELL_RAW * 0.5;
 	const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
@@ -1462,7 +1466,7 @@
 
 	const loader = new GLTFLoader();
 	const objLoader = new OBJLoader();
-	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
+	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
 	const models = {};
 	const customAssets = new Map();
 	let customAssetOrder = [];
@@ -1747,8 +1751,16 @@
 			const normalizedType = cell.elevatedType === 'slope-down' ? 'slope-up' : cell.elevatedType;
 			const normalizedOrient = cell.elevatedType === 'slope-down' ? ( ORIENT_180[ cell.elevatedOrient || 0 ] ?? ( cell.elevatedOrient || 0 ) ) : ( cell.elevatedOrient || 0 );
 			const sourceType = ( normalizedType === 'elevated-corner' )
-				? 'track-corner'
-				: ( normalizedType === 'elevated-checkpoint' ? 'track-finish' : 'track-straight' );
+				? 'elev-track-corner'
+				: ( normalizedType === 'elevated-checkpoint'
+					? 'elev-track-checkpoint'
+					: ( normalizedType === 'slope-up'
+						? 'elev-track-slope'
+						: ( normalizedType === 'elevated-3-way'
+							? 'elev-track-3-way'
+							: ( normalizedType === 'elevated-4-way'
+								? 'elev-track-4-way'
+								: 'elev-track-straight' ) ) ) );
 			const elevatedSrc = models[ sourceType ];
 			if ( elevatedSrc ) {
 
@@ -1760,7 +1772,7 @@
 
 					elevated.rotation.order = 'YXZ';
 					elevated.rotation.x = - SLOPE_ANGLE;
-					elevated.scale.z = 1.08;
+					elevated.scale.set( CELL_RAW * 0.5, CELL_RAW * 0.5, CELL_RAW * 0.5 * 1.08 );
 
 				}
 				elevated.traverse( ( c ) => {
@@ -2534,8 +2546,18 @@
 				: ( selectedType === JUMP_TOOL
 					? 'track-straight'
 					: ( selectedType === 'elevated-corner'
-						? 'track-corner'
-						: ( ELEVATED_TYPES.includes( selectedType ) || SURFACE_TYPES.includes( selectedType ) || selectedType === 'elevated-checkpoint' ? 'track-straight' : selectedType ) ) ) );
+						? 'elev-track-corner'
+						: ( selectedType === 'elevated-straight'
+							? 'elev-track-straight'
+							: ( selectedType === 'elevated-checkpoint'
+								? 'elev-track-checkpoint'
+								: ( selectedType === 'slope-up'
+									? 'elev-track-slope'
+									: ( selectedType === 'elevated-3-way'
+										? 'elev-track-3-way'
+										: ( selectedType === 'elevated-4-way'
+											? 'elev-track-4-way'
+											: ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType ) ) ) ) ) ) ) ) ) );
 		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
 
 	}
@@ -3282,6 +3304,10 @@ function refreshMovingSpeedUi() {
 		'elevated-corner': document.getElementById( 'btn-elevated-corner' ),
 		'elevated-checkpoint': document.getElementById( 'btn-elevated-checkpoint' ),
 		'slope-up': document.getElementById( 'btn-slope-up' ),
+		'elevated-3-way': document.getElementById( 'btn-elevated-3way' ),
+		'elevated-4-way': document.getElementById( 'btn-elevated-4way' ),
+		'track-3-way': document.getElementById( 'btn-3way' ),
+		'track-4-way': document.getElementById( 'btn-4way' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
@@ -3533,7 +3559,7 @@ function refreshMovingSpeedUi() {
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-3-way', 'track-4-way', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 
@@ -4811,6 +4837,7 @@ function renderMinimap() {
             if (et === 'elevated-straight' || et === 'slope-up') color = '#c0d0e0';
             else if (et === 'elevated-corner') color = '#a0b0c8';
             else if (et === 'elevated-checkpoint') color = '#7ad8ff';
+            else if (et === 'elevated-3-way' || et === 'elevated-4-way') color = '#b0c0d8';
         }
         // Road pieces
         if (cell.roadPieces && cell.roadPieces.length) {
@@ -4818,6 +4845,7 @@ function renderMinimap() {
             if (type === 'track-start-finish' || type === 'track-finish' || type === 'track-start') color = '#77f3b1';
             else if (type === 'track-checkpoint') color = '#5ac8ff';
             else if (type === 'track-corner') color = '#8899aa';
+            else if (type === 'track-3-way' || type === 'track-4-way') color = '#99aabb';
             else if (type === 'elevated-straight' || type === 'slope-up') color = '#c0d0e0';
             else if (type === 'elevated-corner') color = '#a0b0c8';
             else if (type === 'elevated-checkpoint') color = '#7ad8ff';

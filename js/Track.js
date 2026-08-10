@@ -123,7 +123,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 
 }
 
-const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down' ] );
+const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way' ] );
 
 function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 
@@ -203,9 +203,12 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	}
 
 	let modelKey = null;
-	if ( type === 'elevated-straight' || type === 'slope-up' || type === 'slope-down' ) modelKey = 'track-straight';
-	else if ( type === 'elevated-corner' ) modelKey = 'track-corner';
-	else if ( type === 'elevated-checkpoint' ) modelKey = 'track-finish';
+	if ( type === 'elevated-straight' ) modelKey = 'elev-track-straight';
+	else if ( type === 'elevated-corner' ) modelKey = 'elev-track-corner';
+	else if ( type === 'elevated-checkpoint' ) modelKey = 'elev-track-checkpoint';
+	else if ( type === 'slope-up' || type === 'slope-down' ) modelKey = 'elev-track-slope';
+	else if ( type === 'elevated-3-way' ) modelKey = 'elev-track-3-way';
+	else if ( type === 'elevated-4-way' ) modelKey = 'elev-track-4-way';
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
 
 	const piece = models[ modelKey ].clone();
@@ -220,14 +223,12 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
 	if ( type === 'slope-up' || type === 'slope-down' ) {
 
-    piece.rotation.order = 'YXZ';
+		piece.rotation.order = 'YXZ';
+		piece.rotation.y = THREE.MathUtils.degToRad( deg + 180 );
+		piece.rotation.x = type === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
+		piece.scale.set( CELL_RAW * 0.5, CELL_RAW * 0.5, CELL_RAW * 0.5 * 1.11 );
 
-piece.rotation.y = THREE.MathUtils.degToRad( deg + 180 );
-		
-    piece.rotation.x = type === 'slope-up' ? - SLOPE_ANGLE : SLOPE_ANGLE;
-    piece.scale.z = 1.11;
-
-}
+	}
 
 	return piece;
 

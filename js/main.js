@@ -215,6 +215,9 @@ const objLoader = new OBJLoader();
 const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
+	'track-3-way', 'track-4-way',
+	'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope',
+	'elev-track-3-way', 'elev-track-4-way',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
 ];
 
@@ -2033,8 +2036,13 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 	}
 	if ( Array.isArray( extras?.elevated ) ) {
 		for ( const entry of extras.elevated ) {
-			if ( entry?.[ 2 ] === 'elevated-corner' ) required.add( 'track-corner' );
-			else if ( entry?.[ 2 ] === 'elevated-checkpoint' ) required.add( 'track-finish' );
+			const et = entry?.[ 2 ];
+			if ( et === 'elevated-straight' ) required.add( 'elev-track-straight' );
+			else if ( et === 'slope-up' || et === 'slope-down' ) required.add( 'elev-track-slope' );
+			else if ( et === 'elevated-corner' ) required.add( 'elev-track-corner' );
+			else if ( et === 'elevated-checkpoint' ) required.add( 'elev-track-checkpoint' );
+			else if ( et === 'elevated-3-way' ) required.add( 'elev-track-3-way' );
+			else if ( et === 'elevated-4-way' ) required.add( 'elev-track-4-way' );
 			else required.add( 'track-straight' );
 		}
 	}
