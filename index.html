@@ -1468,17 +1468,16 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		body.replay-viewer-mode > :not(canvas):not(script) { display: none !important; }
 		body.replay-viewer-mode canvas { touch-action: none; }
 
-		/* TAS editor embed: hide all chrome except the canvas + lap HUD so the
-		   editor's iframe shows a clean driving viewport. The editor side panel
-		   owns the controls; the game just simulates. */
-		body.tas-embed-mode #home-landing,
-		body.tas-embed-mode #nav-panel,
-		body.tas-embed-mode #nav-panel-content,
-		body.tas-embed-mode #top-bar,
-		body.tas-embed-mode #hud-extras,
-		body.tas-embed-mode #mobile-action-dock,
-		body.tas-embed-mode #mobile-menu-sheet,
-		body.tas-embed-mode #loading-screen { display: none !important; }
+		/* TAS editor embed: hide all chrome (like the in-game H toggle, but by
+		   default) so the iframe shows a clean driving viewport. The editor side
+		   panel owns the controls; the game just simulates. The 3-2-1 countdown
+		   overlay (#countdown-hud) is kept visible. */
+		body.tas-embed-mode {
+			overflow: hidden;
+			height: 100vh;
+			margin: 0;
+		}
+		body.tas-embed-mode > :not(canvas):not(script):not(#countdown-hud) { display: none !important; }
 		body.tas-embed-mode canvas { touch-action: none; }
 
 

@@ -72,17 +72,35 @@ Editor" nav link under **Create** + a home secondary link, both gated on the
 real game running in an **iframe** at `index.html?tas=1`:
 
 - `index.html` detects `?tas=1` → `tasEmbedMode`: adds `body.tas-embed-mode`
-  (CSS hides all chrome except the canvas + lap HUD), disables the countdown
-  (so inputs map cleanly to substeps), and exposes `window.__tasBridge` plus a
+  (CSS hides ALL chrome except the canvas + the `#countdown-hud` overlay — like
+  pressing H), locks the iframe to `overflow:hidden` (no arrow-key scroll),
+  keeps the fixed-timestep simulation, and exposes `window.__tasBridge` plus a
   `postMessage` protocol (`{type:'tas-command', command, ...}`).
+- The TAS editor uses **normal gameplay car stats** (no engine-tier override)
+  so recordings match a real race.
 - `js/main.js#runSimulationStep` has the TAS embed branches: `record` snapshots
   raw key state per substep into `tasRecordedSteps`; `playback`/`eval` feed the
   car from `tasPlaybackController.nextStep()` (one step = one `FIXED_DT`
   substep) and bypass pad/hack mutation so replay is bit-for-bit.
+- **Record countdown:** pressing Record in the editor triggers a 3-2-1 inside
+  the iframe (`startRecord` sets `countdownActive` + `tasPendingRecord`;
+  `countdownEnabled` stays false for everyone else). The car + lap timer are
+  frozen (input forced to `ZERO_DRIVE_INPUT`, `lapStartSeconds` set when the
+  countdown ends) but the sim keeps rendering. When it ends, the sim flips to
+  `record` mode and posts `tas-record-start`.
+- **Lap-2 / prefix architecture:** combined start/finish tracks record 2 laps;
+  only lap 2's inputs are editable. Lap 1 is kept as a hidden **prefix**
+  (`prefixSteps`) replayed (headless during eval, visible during playback)
+  before the target lap so the car carries the correct start-of-lap-2 speed.
+  Tracks with separate start AND finish blocks (`shouldAutoRespawnAfterLap`)
+  respawn after finishing, so they only need 1 lap (`tasTargetLaps = 1`).
+  `tasLap2StartIndex` (set in the lap-finish handler when lap 1 completes) marks
+  the split; `bridgeRecordingSplit()` returns `{prefix, lap2, targetLaps}`.
 - `bridge.eval(steps)` runs a **headless** synchronous eval loop
-  (`tasRunEval`: `runSimulationStep(FIXED_DT)` until 2 laps or the step cap, no
-  render) and returns `{time, laps, dnf}`. `time` = `raceClockSeconds` at lap-2
-  completion (total 2-lap time).
+  (`tasRunEval`: `runSimulationStep(FIXED_DT)` until the target lap or the step
+  cap, no render) and returns `{time, laps, dnf}`. `time` = `completedLap` of
+  the target lap (lap-2 duration for 2-lap tracks, lap-1 duration for 1-lap
+  tracks), measured from `lapStartSeconds` at that lap's start.
 - **Important:** the in-race `mods/TAS.js` runtime mod's `applyFrame` is
   skipped inside `tasEmbedMode` (the runtime mod loop checks `runtime.id ===
   'tas'`) so it cannot override the bridge's recorded/edited input.
@@ -93,6 +111,9 @@ real game running in an **iframe** at `index.html?tas=1`:
   substeps. One serialized row = N identical `{keys:{up,down,left,right}}`
   steps. `keysToAxes` round-trips to the same `{x,z}` that `Controls.update()`
   produces from those keys, so recording ↔ playback are consistent.
+- **Brute force** mutates 3 random frames per attempt and keeps a change only
+  if the target-lap eval improves. A **turbo mode** batches evals (no live
+  per-keep display, fewer UI yields) for much faster optimization.
 
 ### Known determinism limitation (alpha)
 

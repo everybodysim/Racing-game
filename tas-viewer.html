@@ -9,7 +9,8 @@
     .skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
     .skip-link:focus{top:12px}
 
-    body { margin: 0; background: #090d14; color: #fff; font: 13px/1.45 system-ui, sans-serif; }
+    body { margin: 0; background: #090d14; color: #fff; font: 13px/1.45 system-ui, sans-serif; overflow: hidden; }
+    html, body { height: 100%; }
 
     #root { display: grid; grid-template-columns: 1fr 380px; height: 100vh; }
 
@@ -32,16 +33,18 @@
     }
     #state-banner .banner-sub { display:block; margin-top:4px; font: 400 12px/1.3 system-ui, sans-serif; opacity:0.85; }
 
-    /* Accept/reject prompt overlay shown after a recording */
+    /* Accept/reject prompt overlay shown after a recording (centered) */
     #review-prompt {
-      position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%);
+      position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
       display: none; gap: 10px; z-index: 3;
-      background: rgba(8,12,22,0.9); border: 1px solid rgba(140,210,255,0.5);
-      border-radius: 12px; padding: 14px 18px; align-items: center;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      background: rgba(8,12,22,0.92); border: 1px solid rgba(140,210,255,0.5);
+      border-radius: 14px; padding: 18px 22px; align-items: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6); text-align: center;
+      flex-direction: column;
     }
-    #review-prompt .review-text { font: 700 14px/1.3 system-ui, sans-serif; }
-    #review-prompt button { width: auto; min-width: 96px; margin: 0; font-weight: 700; }
+    #review-prompt .review-text { font: 800 16px/1.3 system-ui, sans-serif; }
+    #review-prompt .review-buttons { display: flex; gap: 10px; }
+    #review-prompt button { width: auto; min-width: 110px; margin: 0; font-weight: 700; }
 
     #side {
       border-left: 1px solid rgba(255,255,255,0.15);
@@ -64,6 +67,8 @@
 
     .row { margin-bottom: 10px; }
     .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .bf-turbo-label { display:flex; align-items:center; gap:8px; margin-top:8px; font-weight:600; cursor:pointer; }
+    .bf-turbo-label input { width: auto; margin: 0; }
 
     #status { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: rgba(0,0,0,0.3); min-height: 1px; }
     #run-errors { white-space: pre-wrap; color:#ffb3b3; background: rgba(90,0,0,.22); padding: 8px; border-radius: 8px; margin-top: 8px; }
@@ -102,8 +107,10 @@
       <div id="state-banner">Load a track to begin<span class="banner-sub">Enter a track URL, then start recording.</span></div>
       <div id="review-prompt">
         <span class="review-text">Keep this run?</span>
-        <button id="review-yes" class="primary" type="button">Yes — keep</button>
-        <button id="review-no" type="button">No — restart</button>
+        <div class="review-buttons">
+          <button id="review-yes" class="primary" type="button">Yes — keep</button>
+          <button id="review-no" type="button">No — restart</button>
+        </div>
       </div>
     </div>
 
@@ -127,20 +134,19 @@
           <option value="vehicle-truck-purple">Purple</option>
           <option value="vehicle-truck-red">Red</option>
         </select>
-        <label for="engine-tier">Engine tier</label>
-        <input id="engine-tier" type="range" min="0" max="4" step="1" value="4" />
+        <div class="hint">Uses the same car stats as normal gameplay.</div>
       </div>
 
       <h3>3 · Record</h3>
       <div class="row">
-        <button id="record-btn" disabled>Record a run (drive 2 laps)</button>
+        <button id="record-btn" disabled>Record a run</button>
         <button id="stop-record-btn" disabled>Stop recording</button>
-        <div class="kbd-hint">Drive with <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>. Inputs are captured at the fixed 120 Hz sim rate.</div>
+        <div class="kbd-hint">A 3-2-1 countdown starts when you press Record (car &amp; timer frozen), then recording begins. Drive with <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>. <span id="lap-target-hint">Most tracks: drive 2 laps (lap 1 just builds speed; only lap 2 is saved). Tracks with separate start &amp; finish blocks need only 1 lap.</span></div>
       </div>
 
       <h3>4 · Inputs (editable)</h3>
       <div class="row">
-        <div class="hint">After you accept a recording, the per-frame inputs appear here. Edit freely — one row per key combo, e.g. <code>ArrowUp+ArrowLeft,30</code>.</div>
+        <div class="hint">After you accept a recording, the saved lap's per-frame inputs appear here. Edit freely — one row per key combo, e.g. <code>ArrowUp+ArrowLeft,30</code>. The car starts this lap with the speed it carried from the previous lap.</div>
         <textarea id="inputs" placeholder="ArrowUp,120
 ArrowUp+ArrowLeft,30
 ArrowUp,120"></textarea>
@@ -155,9 +161,10 @@ ArrowUp,120"></textarea>
 
       <h3>6 · Brute force</h3>
       <div class="row">
-        <div class="hint">Mutates <b>3</b> randomly chosen input frames per attempt by a medium amount. Keeps a change only if the 2-lap run gets faster, otherwise reverts and tries again.</div>
+        <div class="hint">Mutates <b>3</b> randomly chosen input frames per attempt by a medium amount. Keeps a change only if the run gets faster, otherwise reverts and tries again.</div>
         <label for="bf-reps">Attempts per click</label>
         <input id="bf-reps" type="number" min="1" value="50" />
+        <label class="bf-turbo-label"><input id="bf-turbo" type="checkbox" /> Turbo mode (run calculations as fast as possible, no live display)</label>
         <button id="bf-btn" disabled>Brute force (3 inputs / attempt)</button>
       </div>
 

@@ -10,16 +10,19 @@
 // State machine (parent-side):
 //   IDLE       — waiting for the iframe to report tas-ready, or a track to load
 //   READY      — track loaded, can record
-//   RECORDING  — user drives 2 laps; iframe captures per-substep inputs
-//   REVIEW     — 2 laps captured; ask "keep?"; Yes → fill inputs box; No → restart
-//   PLAYBACK   — running the (possibly edited) inputs visibly in the iframe
+//   COUNTDOWN  — 3-2-1 inside the iframe (car + lap timer frozen); record pending
+//   RECORDING  — user drives the target laps; iframe captures per-substep inputs
+//   REVIEW     — recording captured; ask "keep?"; Yes → fill inputs box; No → restart
+//   PLAYBACK   — running the (prefix + edited) inputs visibly in the iframe
 //   BRUTEFORCE — headless optimization via the iframe's eval() path
+//
+// Lap handling: combined start/finish tracks record 2 laps; only lap 2's inputs
+// are kept (editable), while lap 1 is stored as a hidden "prefix" replayed before
+// the target lap so the car carries the correct start-of-lap-2 speed. Tracks with
+// separate start AND finish blocks respawn after finishing, so they need 1 lap.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { parseInputLines, serializeSteps } from './tas-core.js';
-
-// Engine tier → engine multiplier (sent to the iframe so its car matches).
-const ENGINE_MULTS = [ 0.6, 0.8, 1.0, 1.1, 1.8 ];
 
 const $ = ( id ) => document.getElementById( id );
 const frame = $( 'game-frame' );
@@ -28,7 +31,6 @@ const els = {
 	trackUrl: $( 'track-url' ),
 	loadTrack: $( 'load-track-btn' ),
 	carSelect: $( 'car-select' ),
-	engineTier: $( 'engine-tier' ),
 	record: $( 'record-btn' ),
 	stopRecord: $( 'stop-record-btn' ),
 	inputs: $( 'inputs' ),
@@ -36,6 +38,7 @@ const els = {
 	run: $( 'run-btn' ),
 	stop: $( 'stop-btn' ),
 	bfReps: $( 'bf-reps' ),
+	bfTurbo: $( 'bf-turbo' ),
 	bf: $( 'bf-btn' ),
 	exportBtn: $( 'export-btn' ),
 	lap: $( 'lap' ),
@@ -45,14 +48,17 @@ const els = {
 	reviewNo: $( 'review-no' ),
 	status: $( 'status' ),
 	errors: $( 'run-errors' ),
+	lapTargetHint: $( 'lap-target-hint' ),
 };
 
-let state = 'IDLE';            // IDLE | READY | RECORDING | REVIEW | PLAYBACK | BRUTEFORCE
+let state = 'IDLE';            // IDLE | READY | COUNTDOWN | RECORDING | REVIEW | PLAYBACK | BRUTEFORCE
 let iframeReady = false;
 let embedParams = new URLSearchParams(); // params forwarded into the iframe (?map=, ?mods=, ?pack=...)
-let currentSteps = [];          // the accepted/edited inputs (array of {keys:{up,down,left,right}})
-let bestT = null;               // best known 2-lap eval result { time, laps, dnf }
-let lastRecordedSteps = null;  // steps captured during the active recording (awaiting review)
+let currentSteps = [];          // the accepted/edited TARGET-lap inputs (array of {keys:{up,down,left,right}})
+let prefixSteps = [];          // hidden lap-1 inputs replayed before currentSteps to build start speed
+let bestT = null;               // best known target-lap eval result { time, laps, dnf }
+let lastRecording = null;      // { prefix, lap2, targetLaps } captured during the active recording
+let targetLaps = 2;            // 1 for separate start/finish tracks, else 2
 
 function formatTime( s ) {
 	if ( ! Number.isFinite( s ) ) return '--:--.---';
@@ -70,20 +76,21 @@ function setBanner( main, sub ) {
 function setLap( text ) { if ( els.lap ) els.lap.textContent = text; }
 
 function updateButtons() {
-	const trackLoaded = state === 'READY' || state === 'RECORDING' || state === 'REVIEW' || state === 'PLAYBACK' || state === 'BRUTEFORCE';
-	els.record.disabled = ! trackLoaded || state === 'RECORDING' || state === 'PLAYBACK' || state === 'BRUTEFORCE';
+	const trackLoaded = [ 'READY', 'COUNTDOWN', 'RECORDING', 'REVIEW', 'PLAYBACK', 'BRUTEFORCE' ].includes( state );
+	els.record.disabled = ! trackLoaded || [ 'COUNTDOWN', 'RECORDING', 'PLAYBACK', 'BRUTEFORCE' ].includes( state );
 	els.stopRecord.disabled = state !== 'RECORDING';
-	els.run.disabled = state === 'IDLE' || state === 'RECORDING' || state === 'PLAYBACK' || state === 'BRUTEFORCE' || currentSteps.length === 0;
+	els.run.disabled = [ 'IDLE', 'COUNTDOWN', 'RECORDING', 'PLAYBACK', 'BRUTEFORCE' ].includes( state ) || currentSteps.length === 0;
 	els.stop.disabled = state !== 'PLAYBACK';
-	els.bf.disabled = state === 'IDLE' || state === 'RECORDING' || state === 'PLAYBACK' || state === 'BRUTEFORCE' || currentSteps.length === 0;
+	els.bf.disabled = [ 'IDLE', 'COUNTDOWN', 'RECORDING', 'PLAYBACK', 'BRUTEFORCE' ].includes( state ) || currentSteps.length === 0;
 }
 
 function setState( next ) {
 	state = next;
 	updateButtons();
 	if ( state === 'IDLE' ) setBanner( 'Load a track to begin', 'Enter a track URL, then start recording.' );
-	else if ( state === 'READY' ) setBanner( 'Ready to record', 'Click "Record a run" and drive 2 laps.' );
-	else if ( state === 'RECORDING' ) setBanner( 'Recording…', 'Drive 2 laps. Click "Stop recording" when done.' );
+	else if ( state === 'READY' ) setBanner( 'Ready to record', `Click "Record a run"${ targetLaps > 1 ? ' and drive 2 laps' : ' and drive 1 lap' }.` );
+	else if ( state === 'COUNTDOWN' ) setBanner( 'Get ready…', '3 · 2 · 1 — drive when the countdown ends.' );
+	else if ( state === 'RECORDING' ) setBanner( 'Recording…', `${ targetLaps > 1 ? 'Drive 2 laps' : 'Drive 1 lap' }. Recording stops automatically at the finish.` );
 	else if ( state === 'REVIEW' ) setBanner( 'Review your run', 'Keep these inputs, or restart?' );
 	else if ( state === 'PLAYBACK' ) setBanner( 'Running TAS…', 'Playing back the edited inputs deterministically.' );
 	else if ( state === 'BRUTEFORCE' ) setBanner( 'Brute-forcing…', 'Mutating 3 inputs per attempt; keeping faster runs.' );
@@ -111,22 +118,31 @@ window.addEventListener( 'message', ( event ) => {
 	if ( ! data || data.source !== 'tas-embed' ) return;
 	if ( data.type === 'tas-ready' ) {
 		iframeReady = true;
+		syncTargetLaps();
 		applyConfig();
 		if ( state === 'IDLE' ) setState( 'READY' );
 		setStatus( 'Game viewport ready.' );
+	} else if ( data.type === 'tas-countdown' ) {
+		if ( state === 'RECORDING' || state === 'COUNTDOWN' ) return;
+		setState( 'COUNTDOWN' );
+		setStatus( '3 · 2 · 1 — drive when it hits GO!' );
+	} else if ( data.type === 'tas-record-start' ) {
+		if ( state === 'COUNTDOWN' ) setState( 'RECORDING' );
+		setStatus( 'Recording — drive!' );
 	} else if ( data.type === 'tas-lap' ) {
 		const info = ( () => { try { return bridge()?.getInfo?.(); } catch { return null; } } )() || {};
 		setLap( `Lap ${ data.lapNumber || info.lapNumber || 1 } • ${ formatTime( data.lapTime ) }` );
-		// Auto-stop the recording once the driver completes the target lap count
-		// (default 2): the spec asks to record 2 laps, then prompt for review.
-		const target = Number.isFinite( data.totalLaps ) ? data.totalLaps : info.targetLaps || 2;
+		// Auto-stop the recording once the driver completes the target lap count.
+		const target = Number.isFinite( data.totalLaps ) ? data.totalLaps : ( info.targetLaps || targetLaps || 2 );
 		if ( state === 'RECORDING' && Number( data.lapNumber ) >= target ) {
 			stopRecord();
 		}
 	} else if ( data.type === 'tas-record-stopped' ) {
-		finishRecording( Array.isArray( data.steps ) ? data.steps : [] );
+		finishRecording( data.recording || {} );
 	} else if ( data.type === 'tas-frames' ) {
-		finishRecording( Array.isArray( data.steps ) ? data.steps : [] );
+		finishRecording( data.recording || {} );
+	} else if ( data.type === 'tas-playback-finished' ) {
+		if ( state === 'PLAYBACK' ) { setState( 'READY' ); setStatus( `Run finished: ${ formatTime( data.time ) }` ); }
 	} else if ( data.type === 'tas-eval-result' ) {
 		onEvalResult( data );
 	} else if ( data.type === 'tas-error' ) {
@@ -140,6 +156,7 @@ frame.addEventListener( 'load', () => {
 	const ping = () => {
 		if ( bridge()?.ready?.() ) {
 			iframeReady = true;
+			syncTargetLaps();
 			applyConfig();
 			if ( state === 'IDLE' ) setState( 'READY' );
 			setStatus( 'Game viewport ready.' );
@@ -151,12 +168,24 @@ frame.addEventListener( 'load', () => {
 	setTimeout( ping, 250 );
 } );
 
-// ── config: tell the iframe which car + engine tier to use ──────────────────
+// Pull the track's target lap count (1 for separate start/finish, else 2) from
+// the iframe and update the editor hints/button labels accordingly.
+function syncTargetLaps() {
+	const info = ( () => { try { return bridge()?.getInfo?.(); } catch { return null; } } )() || {};
+	if ( Number.isFinite( info.targetLaps ) ) {
+		targetLaps = info.targetLaps;
+		if ( els.lapTargetHint ) {
+			els.lapTargetHint.textContent = targetLaps > 1
+				? 'Most tracks: drive 2 laps (lap 1 just builds speed; only lap 2 is saved). Tracks with separate start & finish blocks need only 1 lap.'
+				: 'This track has separate start & finish blocks, so only 1 lap is needed.';
+		}
+	}
+}
+
+// ── config: tell the iframe which car to use (normal gameplay stats) ─────────
 function applyConfig() {
-	const tier = Number( els.engineTier.value ) || 0;
-	const engineMult = ENGINE_MULTS[ Math.min( ENGINE_MULTS.length - 1, Math.max( 0, tier ) ) ];
-	callDirect( 'setConfig', { carKey: els.carSelect.value, engineMult } );
-	send( 'set-config', { config: { carKey: els.carSelect.value, engineMult } } );
+	callDirect( 'setConfig', { carKey: els.carSelect.value } );
+	send( 'set-config', { config: { carKey: els.carSelect.value } } );
 }
 
 // ── load track ──────────────────────────────────────────────────────────────
@@ -198,65 +227,79 @@ function loadTrack() {
 }
 
 // ── record ─────────────────────────────────────────────────────────────────
+// Recording starts with a 3-2-1 countdown handled inside the iframe (car + lap
+// timer frozen, sim alive). The iframe posts tas-countdown then tas-record-start.
 function startRecord() {
 	if ( ! iframeReady ) { setError( 'Game viewport not ready yet.' ); return; }
 	applyConfig();
-	lastRecordedSteps = null;
-	setState( 'RECORDING' );
+	lastRecording = null;
+	hideReview();
 	send( 'start-record' );
 	callDirect( 'startRecord' );
-	setStatus( 'Recording — drive 2 laps.' );
+	// The iframe replies with tas-countdown -> COUNTDOWN, then tas-record-start.
 	frame.focus(); // so keystrokes drive the car inside the iframe
 }
 function stopRecord() {
 	if ( state !== 'RECORDING' ) return;
 	// Prefer a direct pull (synchronous) for snappiness; the message listener
-	// will also fire tas-record-stopped.
-	const info = ( () => { try { return bridge()?.getInfo?.(); } catch { return null; } } )() || {};
-	const direct = callDirect( 'getRecordedSteps' );
-	setStatus( `stopRecord: iframe mode=${ info.mode } steps=${ info.recordedStepCount } direct=${ Array.isArray( direct ) ? direct.length : 'n/a' }` );
-	if ( Array.isArray( direct ) && direct.length ) {
+	// will also fire tas-record-stopped with the split recording.
+	const direct = callDirect( 'getRecording' );
+	if ( direct && ( Array.isArray( direct.lap2 ) || Array.isArray( direct.prefix ) ) ) {
 		finishRecording( direct );
 	} else {
 		send( 'stop-record' );
 	}
 }
-function finishRecording( steps ) {
+function finishRecording( recording ) {
 	if ( state !== 'RECORDING' ) return;
-	lastRecordedSteps = Array.isArray( steps ) ? steps : [];
+	const prefix = Array.isArray( recording?.prefix ) ? recording.prefix : [];
+	const lap2 = Array.isArray( recording?.lap2 ) ? recording.lap2 : [];
+	const tl = Number.isFinite( recording?.targetLaps ) ? recording.targetLaps : targetLaps;
+	lastRecording = { prefix, lap2, targetLaps: tl };
 	// Put the iframe back to idle so the car stops moving while reviewing.
 	send( 'set-mode', { mode: 'idle' } );
 	callDirect( 'setMode', 'idle' );
-	if ( lastRecordedSteps.length < 2 ) {
+	if ( lap2.length < 2 ) {
 		setState( 'READY' );
-		setStatus( 'No inputs captured (did you drive?). Try again.' );
+		setStatus( 'No inputs captured for the saved lap (did you drive?). Try again.' );
 		return;
 	}
 	setState( 'REVIEW' );
 	els.reviewPrompt.style.display = 'flex';
-	setStatus( `Recorded ${ lastRecordedSteps.length } input frames. Review below.` );
+	setStatus( `Captured ${ lap2.length } target-lap frames${ prefix.length ? ` (+${ prefix.length } lap-1 prefix)` : '' }. Review below.` );
 }
 
 // ── review ──────────────────────────────────────────────────────────────────
+function hideReview() { if ( els.reviewPrompt ) els.reviewPrompt.style.display = 'none'; }
 function acceptRun() {
-	els.reviewPrompt.style.display = 'none';
-	currentSteps = lastRecordedSteps || [];
+	hideReview();
+	if ( ! lastRecording ) { setState( 'READY' ); return; }
+	prefixSteps = lastRecording.prefix || [];
+	currentSteps = lastRecording.lap2 || [];
 	els.inputs.value = serializeSteps( currentSteps );
 	setState( 'READY' );
-	setStatus( `Kept ${ currentSteps.length } frames. Edit above, then Run TAS.` );
+	setStatus( `Kept ${ currentSteps.length } target-lap frames${ prefixSteps.length ? ` (with ${ prefixSteps.length }-frame speed-build prefix)` : '' }. Edit above, then Run TAS.` );
 }
 function rejectRun() {
-	els.reviewPrompt.style.display = 'none';
-	lastRecordedSteps = null;
+	hideReview();
+	lastRecording = null;
+	prefixSteps = [];
+	currentSteps = [];
+	els.inputs.value = '';
 	setState( 'READY' );
 	send( 'reset' );
 	callDirect( 'reset' );
 	setStatus( 'Recording discarded. Click "Record a run" to try again.' );
 }
 
+// Combine the hidden lap-1 prefix with the edited target-lap inputs. The prefix
+// is replayed (headlessly during eval, visibly during playback) so the car
+// carries the same start-of-lap-2 speed as the original recording.
+function fullSteps() { return [ ...prefixSteps, ...parseEditedSteps() ]; }
+
 // ── run TAS (visible playback) ──────────────────────────────────────────────
 function runTas() {
-	const steps = parseEditedSteps();
+	const steps = fullSteps();
 	if ( ! steps.length ) { setError( 'No inputs to run.' ); return; }
 	if ( ! iframeReady ) { setError( 'Game viewport not ready yet.' ); return; }
 	applyConfig();
@@ -280,8 +323,10 @@ function parseEditedSteps() {
 
 // ── brute force ─────────────────────────────────────────────────────────────
 // Mutate 3 random frames per attempt by a medium amount; keep the change only
-// if the resulting 2-lap time improves. Uses the iframe's headless eval() so it
-// reuses the real deterministic simulation.
+// if the resulting target-lap time improves. Uses the iframe's headless eval()
+// so it reuses the real deterministic simulation. The hidden lap-1 prefix is
+// always replayed before the (mutated) editable lap-2 inputs so the car starts
+// the target lap with the correct carried speed.
 function cloneSteps( steps ) { return steps.map( ( s ) => ( { keys: { ...s.keys } } ) ); }
 function randomKeyMutate( keys ) {
 	const k = { ...keys };
@@ -299,51 +344,59 @@ function randomKeyMutate( keys ) {
 }
 
 async function bruteForce() {
-	const base = parseEditedSteps();
-	if ( ! base.length ) { setError( 'No inputs to optimize.' ); return; }
+	const editable = parseEditedSteps();
+	if ( ! editable.length ) { setError( 'No inputs to optimize.' ); return; }
 	if ( ! iframeReady ) { setError( 'Game viewport not ready yet.' ); return; }
 	applyConfig();
-	const reps = Math.max( 1, Math.min( 5000, Number( els.bfReps.value ) || 50 ) );
+	const turbo = !! els.bfTurbo?.checked;
+	const reps = Math.max( 1, Math.min( turbo ? 50000 : 5000, Number( els.bfReps.value ) || 50 ) );
 	setState( 'BRUTEFORCE' );
 	setError( '' );
 
-	// Establish the baseline time for the current inputs.
-	let bestSteps = cloneSteps( base );
-	let best = await evalSteps( bestSteps );
-	setStatus( `Baseline: ${ best.dnf ? 'DNF' : formatTime( best.time ) } (${ bestSteps.length } frames).` );
+	// bestSteps holds the editable (target-lap) inputs only; the fixed lap-1
+	// prefix is prepended for every eval so start-of-lap speed is preserved.
+	let bestSteps = cloneSteps( editable );
+	let best = await evalSteps( [ ...prefixSteps, ...bestSteps ] );
+	setStatus( `Baseline: ${ best.dnf ? 'DNF' : formatTime( best.time ) } (${ bestSteps.length } frames)${ turbo ? ' · TURBO' : '' }.` );
 	if ( best.dnf ) {
-		setError( 'Baseline run did not finish 2 laps (DNF). Fix inputs before brute-forcing.' );
+		setError( 'Baseline run did not finish the target lap (DNF). Fix inputs before brute-forcing.' );
 		setState( 'READY' );
 		return;
 	}
 
+	// Turbo mode: batch many evals per UI yield and skip per-keep live edits so
+	// the optimizer runs as fast as possible.
+	const yieldEvery = turbo ? 25 : 1;
+	const statusEvery = turbo ? 200 : 5;
 	let kept = 0;
 	for ( let i = 0; i < reps; i++ ) {
-		if ( state !== 'BRUTEFORCE' ) break; // user navigated away / stopped
+		if ( state !== 'BRUTEFORCE' ) break; // user stopped
 		const candidate = cloneSteps( bestSteps );
 		// Mutate 3 random frames.
 		for ( let m = 0; m < 3; m++ ) {
 			const idx = Math.floor( Math.random() * candidate.length );
 			candidate[ idx ].keys = randomKeyMutate( candidate[ idx ].keys );
 		}
-		const res = await evalSteps( candidate );
+		const res = await evalSteps( [ ...prefixSteps, ...candidate ] );
 		if ( ! res.dnf && res.time < best.time - 1e-6 ) {
 			bestSteps = candidate;
 			best = res;
 			kept++;
-			els.inputs.value = serializeSteps( bestSteps );
-			currentSteps = bestSteps;
-			setStatus( `Attempt ${ i + 1 }/${ reps }: ${ formatTime( best.time ) } ★ kept (${ kept } improvements)` );
-		} else {
-			if ( i % 5 === 0 ) setStatus( `Attempt ${ i + 1 }/${ reps }: best ${ formatTime( best.time ) } (${ kept } kept)` );
+			if ( ! turbo ) {
+				els.inputs.value = serializeSteps( bestSteps );
+				currentSteps = bestSteps;
+				setStatus( `Attempt ${ i + 1 }/${ reps }: ${ formatTime( best.time ) } ★ kept (${ kept } improvements)` );
+			}
+		} else if ( i % statusEvery === 0 ) {
+			setStatus( `Attempt ${ i + 1 }/${ reps }: best ${ formatTime( best.time ) } (${ kept } kept)${ turbo ? ' · TURBO' : '' }` );
 		}
-		await new Promise( ( r ) => setTimeout( r, 0 ) ); // keep UI responsive
+		if ( i % yieldEvery === 0 ) await new Promise( ( r ) => setTimeout( r, 0 ) ); // keep UI responsive
 	}
 	currentSteps = bestSteps;
 	els.inputs.value = serializeSteps( bestSteps );
 	bestT = best;
 	setState( 'READY' );
-	setStatus( `Brute force done: ${ formatTime( best.time ) } (${ kept } improvements over ${ reps } attempts).` );
+	setStatus( `Brute force done: ${ formatTime( best.time ) } (${ kept } improvements over ${ reps } attempts)${ turbo ? ' · TURBO' : '' }.` );
 }
 
 // Evaluate a candidate via the iframe. Prefer direct synchronous eval; fall back
@@ -370,7 +423,7 @@ function exportRun() {
 	const url = new URL( window.location.href );
 	if ( embedParams.get( 'map' ) ) url.searchParams.set( 'map', embedParams.get( 'map' ) );
 	if ( embedParams.get( 'mods' ) ) url.searchParams.set( 'mods', embedParams.get( 'mods' ) );
-	const payload = JSON.stringify( { steps: currentSteps, map: embedParams.get( 'map' ) || '', mods: embedParams.get( 'mods' ) || '', time: bestT } );
+	const payload = JSON.stringify( { steps: currentSteps, prefix: prefixSteps, targetLaps, map: embedParams.get( 'map' ) || '', mods: embedParams.get( 'mods' ) || '', time: bestT } );
 	const encoded = btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' );
 	const share = `${ url.origin }${ url.pathname }#tas=${ encoded }`;
 	const out = `${ share }\n\n--- inputs ---\n${ text }`;
@@ -390,15 +443,26 @@ function restoreFromHash() {
 		const parsed = JSON.parse( json );
 		if ( Array.isArray( parsed.steps ) && parsed.steps.length ) {
 			currentSteps = parsed.steps;
+			prefixSteps = Array.isArray( parsed.prefix ) ? parsed.prefix : [];
+			if ( Number.isFinite( parsed.targetLaps ) ) targetLaps = parsed.targetLaps;
 			els.inputs.value = serializeSteps( currentSteps );
 			if ( parsed.map ) { els.trackUrl.value = `${ window.location.origin }/index.html?map=${ parsed.map }${ parsed.mods ? '&mods=' + parsed.mods : '' }`; }
 		}
 	} catch ( e ) { /* ignore malformed hash */ }
 }
 
+// Prevent arrow keys / space / PageUp/Down from scrolling the page while the
+// user is driving inside the iframe. We only suppress keys when the focus is
+// NOT in a text field (so editing the inputs box still works normally).
+const SCROLL_KEYS = new Set( [ 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'PageUp', 'PageDown', 'Home', 'End' ] );
+function isTypingTarget( t ) { return t && ( t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable ); }
+window.addEventListener( 'keydown', ( e ) => {
+	if ( isTypingTarget( e.target ) ) return;
+	if ( SCROLL_KEYS.has( e.key ) ) e.preventDefault();
+} );
+
 // ── wire up ─────────────────────────────────────────────────────────────────
 els.loadTrack.addEventListener( 'click', loadTrack );
-els.engineTier.addEventListener( 'input', applyConfig );
 els.carSelect.addEventListener( 'change', applyConfig );
 els.record.addEventListener( 'click', startRecord );
 els.stopRecord.addEventListener( 'click', stopRecord );

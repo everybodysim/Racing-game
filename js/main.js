@@ -3826,9 +3826,8 @@ async function init() {
 
 	function getEngineMult() {
 
-		// TAS editor can override the engine multiplier (default: max tier) so
-		// recordings/evaluations use a consistent, editor-chosen performance.
-		if ( tasEmbedMode && Number.isFinite( tasEngineMult ) && tasEngineMult > 0 ) return tasEngineMult;
+		// Normal gameplay engine multiplier. The TAS editor uses the same car stats
+		// as a normal race (no override), so determinism matches real gameplay.
 		return DEFAULT_ENGINE_MULT;
 
 	}
@@ -5586,17 +5585,21 @@ function completeCampaignStage() {
 	//   'playback'  — tasPlaybackController feeds the car's input from loaded
 	//                 steps; keyboard is ignored.
 	//   'eval'      — headless: runSimulationStep is looped synchronously (no
-	//                 render) over the loaded steps until 2 laps or the step cap,
-	//                 then the 2-lap time is reported back and mode returns to idle.
-	const TAS_TARGET_LAPS = 2;
+	//                 render) over the loaded steps until the target lap is
+	//                 reached or the step cap, then the target-lap time is
+	//                 reported back and mode returns to idle.
+	// Target laps: combined start/finish tracks race 2 laps (lap 1 only builds
+	// speed; only lap 2's inputs are kept). Tracks with separate start AND
+	// finish blocks respawn after finishing, so they only need 1 lap.
 	const TAS_EVAL_MAX_STEPS = 120 * 180;
 	const tasPlaybackController = new DeterministicPlaybackController();
 	let tasMode = 'idle';            // 'idle' | 'record' | 'playback' | 'eval'
 	let tasRecordedSteps = [];       // captured per-substep key states during 'record'
-	let tasEvalStartTime = 0;        // raceClockSeconds captured at eval start (should be 0)
 	let tasEvalResult = null;        // { time, laps, dnf } posted back when eval finishes
 	let tasReady = false;            // set true once the bridge is wired up
-	let tasEngineMult = 1.0;         // engine multiplier chosen by the TAS editor (default 1)
+	let tasTargetLaps = 2;           // 1 for separate start/finish tracks, else 2
+	let tasLap2StartIndex = 0;       // recorded-step index where lap 2 begins (combined tracks)
+	let tasPendingRecord = false;    // true while the 3-2-1 countdown runs before recording
 
 	let countdownActive = false;
 	let countdownEndsAt = 0;
@@ -5615,6 +5618,10 @@ function completeCampaignStage() {
 	const hasSeparateStartCell = activeCells.some( ( c ) => c[ 2 ] === 'track-start' );
 	const hasSeparateFinishCell = activeCells.some( ( c ) => c[ 2 ] === 'track-finish' );
 	const shouldAutoRespawnAfterLap = hasSeparateStartCell && hasSeparateFinishCell;
+	// TAS: separate start/finish tracks respawn after each finish (no continuous
+	// race), so they only need 1 lap. Combined start/finish tracks need 2 laps
+	// (lap 1 builds speed; only lap 2's inputs are kept).
+	if ( tasEmbedMode ) tasTargetLaps = shouldAutoRespawnAfterLap ? 1 : 2;
 	const startCell = activeCells.find( ( c ) => c[ 2 ] === 'track-start' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || null;
 	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || activeCells[ 0 ];
 	const elevatedCheckpointCells = Array.isArray( extras?.elevated )
@@ -8578,6 +8585,8 @@ function completeCampaignStage() {
 		hasPrevFinishSample = false;
 		lastLocalX = 0;
 		lastLocalZ = 0;
+		tasLap2StartIndex = 0;
+		tasPendingRecord = false;
 		for ( const checkpoint of checkpointStates ) {
 			checkpoint.lastLocalX = 0;
 			checkpoint.lastLocalZ = 0;
@@ -8631,15 +8640,15 @@ function completeCampaignStage() {
 				mapParam: mapParam || '',
 				extrasParam: extrasParam || '',
 				lapNumber, lapSeconds, lastLapSeconds, bestLapSeconds,
-				targetLaps: TAS_TARGET_LAPS,
+				targetLaps: tasTargetLaps,
 				mode: tasMode,
 				recordedStepCount: tasRecordedSteps.length,
+				lap2StartIndex: tasLap2StartIndex,
 			} ),
 			setConfig: ( cfg ) => {
 				if ( ! cfg ) return;
-				if ( Number.isFinite( Number( cfg.engineMult ) ) ) {
-					tasEngineMult = Math.max( 0.1, Number( cfg.engineMult ) );
-				}
+				// Car only — the TAS editor uses normal gameplay car stats (no
+				// engine-tier override) so recordings match a real race.
 				if ( typeof cfg.carKey === 'string' && CAR_STATS[ cfg.carKey ] && carSelect ) {
 					carSelect.value = cfg.carKey;
 					updateCarSelectColor();
@@ -8650,15 +8659,38 @@ function completeCampaignStage() {
 			},
 			setMode: ( next ) => {
 				if ( [ 'idle', 'record', 'playback' ].includes( next ) ) {
-					if ( next === 'record' ) tasRecordedSteps = [];
+					if ( next === 'record' ) return; // record always goes through startRecord (countdown)
 					if ( next !== 'playback' ) tasPlaybackController.stop();
+					tasPendingRecord = false;
 					tasMode = next;
 					tasResetRun();
 					if ( next === 'playback' ) tasPlaybackController.start();
 				}
 			},
-			startRecord: () => window.__tasBridge.setMode( 'record' ),
-			stopRecord: () => { tasMode = 'idle'; tasPostMessage( { type: 'tas-record-stopped', steps: tasRecordedSteps.slice() } ); },
+			// Record begins with a 3-2-1 countdown (freeze car + lap timer, but
+			// keep the sim alive). Recording only starts once the countdown ends.
+			startRecord: () => {
+				tasRecordedSteps = [];
+				tasLap2StartIndex = 0;
+				tasPlaybackController.stop();
+				tasMode = 'idle';
+				tasPendingRecord = true;
+				tasResetRun();
+				countdownActive = true;
+				countdownEndsAt = raceClockSeconds + COUNTDOWN_DURATION_SECONDS;
+				updateCountdownHud( raceClockSeconds );
+				tasPostMessage( { type: 'tas-countdown' } );
+			},
+			stopRecord: () => {
+				tasPendingRecord = false;
+				tasMode = 'idle';
+				tasPostMessage( { type: 'tas-record-stopped', recording: bridgeRecordingSplit() } );
+			},
+			// Returns { prefix, lap2, targetLaps }: prefix = lap-1 inputs (kept
+			// hidden, replayed to build speed into lap 2), lap2 = the editable
+			// target-lap inputs. For 1-lap (separate start/finish) tracks, prefix
+			// is empty and lap2 holds the whole run.
+			getRecording: () => bridgeRecordingSplit(),
 			getRecordedSteps: () => tasRecordedSteps.slice(),
 			playback: ( steps ) => {
 				tasPlaybackController.loadSteps( steps );
@@ -8673,6 +8705,16 @@ function completeCampaignStage() {
 			parse: ( text ) => parseInputLines( text ),
 		};
 
+		// Split the raw recording into the lap-1 prefix (kept hidden) and the
+		// editable target-lap inputs (lap 2 for combined tracks, the whole run
+		// for separate start/finish tracks).
+		function bridgeRecordingSplit() {
+			const all = tasRecordedSteps.slice();
+			if ( tasTargetLaps <= 1 ) return { prefix: [], lap2: all, targetLaps: tasTargetLaps };
+			const split = Math.min( tasLap2StartIndex, all.length );
+			return { prefix: all.slice( 0, split ), lap2: all.slice( split ), targetLaps: tasTargetLaps };
+		}
+
 		window.addEventListener( 'message', ( event ) => {
 			const data = event.data;
 			if ( ! data || data.source === 'tas-embed' || data.type !== 'tas-command' ) return;
@@ -8684,7 +8726,7 @@ function completeCampaignStage() {
 				if ( t === 'set-mode' ) { bridge.setMode( data.mode ); return; }
 				if ( t === 'start-record' ) { bridge.startRecord(); return; }
 				if ( t === 'stop-record' ) { bridge.stopRecord(); return; }
-				if ( t === 'get-frames' ) { tasPostMessage( { type: 'tas-frames', steps: bridge.getRecordedSteps() } ); return; }
+				if ( t === 'get-frames' ) { tasPostMessage( { type: 'tas-frames', recording: bridge.getRecording() } ); return; }
 				if ( t === 'playback' ) { bridge.playback( data.steps || [] ); return; }
 				if ( t === 'stop-playback' ) { bridge.stopPlayback(); return; }
 				if ( t === 'reset' ) { bridge.reset(); return; }
@@ -8699,8 +8741,7 @@ function completeCampaignStage() {
 		} );
 
 		// The car's stats come from the resolved track's deterministic car seed.
-		// The editor mirrors the chosen car+tier by setting ?car= and ?tier=,
-		// handled by the existing car-selection flow below.
+		// The editor mirrors the chosen car via the existing car-selection flow.
 		tasReady = true;
 		tasPostMessage( { type: 'tas-ready' } );
 	}
@@ -8929,6 +8970,15 @@ function completeCampaignStage() {
 		const now = raceClockSeconds;
 
 		updateCountdownState( now );
+		// TAS record countdown: once the 3-2-1 ends, switch into record mode and
+		// (re)start the lap timer so the recorded lap time excludes the countdown.
+		if ( tasEmbedMode && tasPendingRecord && ! countdownActive ) {
+			tasPendingRecord = false;
+			tasMode = 'record';
+			lapStartSeconds = now;
+			lapSeconds = 0;
+			tasPostMessage( { type: 'tas-record-start' } );
+		}
 		const controlsBlocked = modeMenuOpen || freecamState.active || replayViewerMode || countdownActive;
 		const baseInput = controlsBlocked ? ZERO_DRIVE_INPUT : controls.update();
 		let input = baseInput;
@@ -9502,12 +9552,23 @@ function completeCampaignStage() {
 				}
 				dispatchRuntimeModEvent( 'onLapFinish', { type: 'lapFinish', lapTime: completedLap, bestLapSeconds, lapNumber, isNewBest, lapInvalid } );
 				// Report lap completions back to the TAS editor parent. On the
-				// target lap count, mark an eval complete so the headless loop
-				// can stop and return the time.
+				// target lap, mark an eval complete so the headless loop can stop
+				// and return the target-lap time (completedLap = now - lapStart).
 				if ( tasEmbedMode ) {
-					tasPostMessage( { type: 'tas-lap', lapTime: completedLap, lapNumber, totalLaps: TAS_TARGET_LAPS } );
-					if ( tasMode === 'eval' && lapNumber >= TAS_TARGET_LAPS ) {
-						tasEvalResult = { time: now, laps: lapNumber, dnf: false };
+					// Mark where lap 2 begins so the recording can be split into a
+					// hidden lap-1 prefix (builds speed) + the editable lap-2 inputs.
+					if ( tasMode === 'record' && tasTargetLaps > 1 && lapNumber === tasTargetLaps - 1 ) {
+						tasLap2StartIndex = tasRecordedSteps.length;
+					}
+					tasPostMessage( { type: 'tas-lap', lapTime: completedLap, lapNumber, totalLaps: tasTargetLaps } );
+					if ( tasMode === 'eval' && lapNumber >= tasTargetLaps ) {
+						tasEvalResult = { time: completedLap, laps: lapNumber, dnf: false };
+					}
+					// Stop visible playback once the target lap completes.
+					if ( tasMode === 'playback' && lapNumber >= tasTargetLaps ) {
+						tasPlaybackController.stop();
+						tasMode = 'idle';
+						tasPostMessage( { type: 'tas-playback-finished', time: completedLap, laps: lapNumber } );
 					}
 				}
 				if ( currentLapGhostSamples.length > 1 ) {
