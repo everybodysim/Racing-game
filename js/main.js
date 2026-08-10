@@ -10,6 +10,7 @@ import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
+import { FIXED_DT, MAX_STEPS_PER_FRAME, DEFAULT_RNG_SEED, SeededRandom, gameRng, resetGameRng, seedFromString } from './Determinism.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
 import { HudExtras, computeVehicleMph } from './HudExtras.js';
 import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
@@ -1400,23 +1401,23 @@ function clearSkyDecorations() {
 
 }
 
-function makeLowPolyCloud( scale, color, opacity ) {
+function makeLowPolyCloud( scale, color, opacity, rng = gameRng ) {
 
 	const cloud = new THREE.Group();
-	const puffCount = 5 + Math.floor( Math.random() * 4 );
+	const puffCount = 5 + Math.floor( rng.next() * 4 );
 	for ( let i = 0; i < puffCount; i ++ ) {
 
-		const r = 0.4 + Math.random() * 0.55;
+		const r = 0.4 + rng.next() * 0.55;
 		const geo = new THREE.IcosahedronGeometry( r, 1 );
 		const mat = new THREE.MeshBasicMaterial( { color, flatShading: true, transparent: opacity < 1, opacity, fog: false } );
 		const mesh = new THREE.Mesh( geo, mat );
 		mesh.position.set(
-			( Math.random() - 0.5 ) * 3.2,
-			( Math.random() - 0.5 ) * 0.5,
-			( Math.random() - 0.5 ) * 2.0
+			( rng.next() - 0.5 ) * 3.2,
+			( rng.next() - 0.5 ) * 0.5,
+			( rng.next() - 0.5 ) * 2.0
 		);
-		mesh.scale.set( 1.5 + Math.random() * 0.7, 0.6 + Math.random() * 0.25, 1.1 + Math.random() * 0.3 );
-		mesh.rotation.set( Math.random() * 0.3, Math.random() * Math.PI, Math.random() * 0.2 );
+		mesh.scale.set( 1.5 + rng.next() * 0.7, 0.6 + rng.next() * 0.25, 1.1 + rng.next() * 0.3 );
+		mesh.rotation.set( rng.next() * 0.3, rng.next() * Math.PI, rng.next() * 0.2 );
 		cloud.add( mesh );
 
 	}
@@ -1432,6 +1433,8 @@ function buildSkyDecorations( preset ) {
 	if ( ! config ) return; // dawn-mist stays exactly as-is
 
 	const qualityScale = Math.max( 0.4, Math.min( 1, getGraphicsPreset().smokeParticles / 64 ) );
+	// Seeded so sky decorations are reproducible for a given track/weather combo.
+	const skyRng = new SeededRandom( seedFromString( `sky|${ preset }` ) );
 
 	if ( config.clouds ) {
 
@@ -1439,14 +1442,14 @@ function buildSkyDecorations( preset ) {
 		const count = Math.max( 3, Math.round( config.clouds.count * qualityScale ) );
 		for ( let i = 0; i < count; i ++ ) {
 
-			const angle = ( i / count ) * Math.PI * 2 + Math.random() * 0.6;
-			const radius = THREE.MathUtils.randFloat( 32, 38 );
-			const elevationDeg = THREE.MathUtils.randFloat( config.clouds.elevationRange[ 0 ], config.clouds.elevationRange[ 1 ] );
+			const angle = ( i / count ) * Math.PI * 2 + skyRng.next() * 0.6;
+			const radius = skyRng.range( 32, 38 );
+			const elevationDeg = skyRng.range( config.clouds.elevationRange[ 0 ], config.clouds.elevationRange[ 1 ] );
 			const elevation = elevationDeg * ( Math.PI / 180 );
 			const horizontalR = radius * Math.cos( elevation );
 			const height = radius * Math.sin( elevation ) + 1.5;
-			const scale = THREE.MathUtils.randFloat( config.clouds.scale[ 0 ], config.clouds.scale[ 1 ] );
-			const cloud = makeLowPolyCloud( scale, config.clouds.color, config.clouds.opacity );
+			const scale = skyRng.range( config.clouds.scale[ 0 ], config.clouds.scale[ 1 ] );
+			const cloud = makeLowPolyCloud( scale, config.clouds.color, config.clouds.opacity, skyRng );
 			cloud.position.set( Math.cos( angle ) * horizontalR, height, Math.sin( angle ) * horizontalR );
 			cloud.lookAt( 0, height, 0 );
 			cloudGroup.add( cloud );
@@ -1463,8 +1466,8 @@ function buildSkyDecorations( preset ) {
 		const positions = new Float32Array( starCount * 3 );
 		for ( let i = 0; i < starCount; i ++ ) {
 
-			const theta = Math.random() * Math.PI * 2;
-			const phi = Math.random() * Math.PI * 0.52;
+			const theta = skyRng.next() * Math.PI * 2;
+			const phi = skyRng.next() * Math.PI * 0.52;
 			const radius = 36;
 			const idx = i * 3;
 			positions[ idx ] = Math.sin( phi ) * Math.cos( theta ) * radius;
@@ -3655,6 +3658,9 @@ async function init() {
 	const advManager = new AdvancementManager( advancementEvents, {
 		state: advancementState,
 		accountDirtyRef,
+		// Use the deterministic race clock (seconds) for drift-duration tracking
+		// so advancement triggers are reproducible in TAS runs.
+		now: () => raceClockSeconds,
 		onUnlock: (adv) => {
 			if ( ! adv ) return;
 			// Achievement notifications are hidden for now, but progress still saves.
@@ -5369,7 +5375,10 @@ function completeCampaignStage() {
 				return;
 
 			}
-			const pick = pool[ Math.floor( Math.random() * pool.length ) ];
+			// Deterministic track pick keyed on the campaign stage so the same
+			// stage always selects the same track from the pool.
+			const campaignPickRng = new SeededRandom( seedFromString( `campaign|${ campaignState?.stage ?? '' }` ) );
+			const pick = pool[ Math.floor( campaignPickRng.next() * pool.length ) ];
 			if ( ! pick?.playUrl ) return;
 			window.location.href = buildCampaignUrl( pick.playUrl, pick );
 			return;
@@ -5476,10 +5485,16 @@ function completeCampaignStage() {
 	} );
 
 
+	// Deterministic car selection: derive a stable index from the track seed so
+	// each map always picks the same "random" car. The seed advances with the
+	// lap number so successive laps can rotate cars deterministically.
+	let lapCarSeed = seedFromString( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
+
 	function pickRandomOwnedCarKey() {
 		const available = Object.keys( CAR_STATS ).filter( ( key ) => models[ key ] );
 		if ( available.length === 0 ) return currentCarKey();
-		return available[ Math.floor( Math.random() * available.length ) ];
+		const rng = new SeededRandom( lapCarSeed );
+		return available[ Math.floor( rng.next() * available.length ) ];
 	}
 
 	function randomizeLapCarIfSinglePlayer() {
@@ -5539,6 +5554,11 @@ function completeCampaignStage() {
 	const timer = new THREE.Timer();
 	let lastFrameNowMs = performance.now();
 	let raceClockSeconds = 0;
+	// Fixed-timestep accumulator. The simulation always advances in FIXED_DT
+	// chunks so identical inputs produce identical state regardless of the
+	// display refresh rate. See js/Determinism.js.
+	let simAccumulator = 0;
+	let simStepCount = 0;
 	let paused = false;
 	let currentLapInvalidatedByPause = false;
 	let countdownActive = false;
@@ -5944,7 +5964,7 @@ function completeCampaignStage() {
 	const WEATHER_FX_DENSITY_MULTIPLIER = 3;
 	const WIND_SPEED = { none: 0, breezy: 2.0, gusty: 4.5 };
 	let weatherFx = null;
-	let lightningCooldown = THREE.MathUtils.randFloat( 2.2, 6.2 );
+	let lightningCooldown = gameRng.range( 2.2, 6.2 );
 	let lightningFlashTime = 0;
 	let lightningFlashDuration = 0.12;
 	let lightningFlashStrength = 0;
@@ -5971,12 +5991,12 @@ function completeCampaignStage() {
 		for ( let i = 0; i < count; i ++ ) {
 
 			const index = i * 3;
-			positions[ index ] = centerX + THREE.MathUtils.randFloatSpread( spread );
-			positions[ index + 1 ] = THREE.MathUtils.randFloat( 3, 30 );
-			positions[ index + 2 ] = centerZ + THREE.MathUtils.randFloatSpread( spread );
+			positions[ index ] = centerX + gameRng.range( - spread, spread );
+			positions[ index + 1 ] = gameRng.range( 3, 30 );
+			positions[ index + 2 ] = centerZ + gameRng.range( - spread, spread );
 			speeds[ i ] = precip === 'rain'
-				? THREE.MathUtils.randFloat( 18, 32 )
-				: THREE.MathUtils.randFloat( 2.2, 5.1 );
+				? gameRng.range( 18, 32 )
+				: gameRng.range( 2.2, 5.1 );
 
 		}
 		const geometry = new THREE.BufferGeometry();
@@ -6016,14 +6036,14 @@ function completeCampaignStage() {
 				positions[ p ] += ( wind + Math.sin( now * 0.8 + i ) * sway ) * dt;
 				if ( positions[ p + 1 ] < 0.2 ) {
 
-					positions[ p ] = centerX + THREE.MathUtils.randFloatSpread( 65 );
-					positions[ p + 1 ] = THREE.MathUtils.randFloat( 16, 34 );
-					positions[ p + 2 ] = centerZ + THREE.MathUtils.randFloatSpread( 65 );
+					positions[ p ] = centerX + gameRng.range( -65, 65 );
+					positions[ p + 1 ] = gameRng.range( 16, 34 );
+					positions[ p + 2 ] = centerZ + gameRng.range( -65, 65 );
 
 				} else if ( Math.abs( positions[ p ] - centerX ) > 55 || Math.abs( positions[ p + 2 ] - centerZ ) > 55 ) {
 
-					positions[ p ] = centerX + THREE.MathUtils.randFloatSpread( 52 );
-					positions[ p + 2 ] = centerZ + THREE.MathUtils.randFloatSpread( 52 );
+					positions[ p ] = centerX + gameRng.range( -52, 52 );
+					positions[ p + 2 ] = centerZ + gameRng.range( -52, 52 );
 
 				}
 
@@ -6050,10 +6070,10 @@ function completeCampaignStage() {
 				renderer.toneMappingExposure = baseWeatherLight.exposure;
 				if ( lightningCooldown <= 0 ) {
 
-					lightningFlashDuration = THREE.MathUtils.randFloat( 0.07, 0.2 );
+					lightningFlashDuration = gameRng.range( 0.07, 0.2 );
 					lightningFlashTime = lightningFlashDuration;
-					lightningFlashStrength = THREE.MathUtils.randFloat( 3.6, 7.2 );
-					lightningCooldown = THREE.MathUtils.randFloat( 2.6, 8.5 );
+					lightningFlashStrength = gameRng.range( 3.6, 7.2 );
+					lightningCooldown = gameRng.range( 2.6, 8.5 );
 
 				}
 
@@ -7699,7 +7719,7 @@ function completeCampaignStage() {
 
 			boostActiveUntil = value;
 
-		}, particles );
+		}, particles, raceClockSeconds );
 		updateArcadeBoostUi();
 		return true;
 
@@ -8486,8 +8506,19 @@ function completeCampaignStage() {
 	}, 480000 );
 	if ( campaignParamEnabled ) setGameMode( 'campaign' );
 	randomizeLapCarIfSinglePlayer();
+	// Reset the shared RNG + simulation counters so every race starts from the
+	// same deterministic baseline (required for TAS reproducibility).
+	resetGameRng( DEFAULT_RNG_SEED );
+	raceClockSeconds = 0;
+	simAccumulator = 0;
+	simStepCount = 0;
+	inputRecordFrame = 0;
+	ghostRecordFrame = 0;
 	resetLapState( true );
 	resetLapState2( true );
+	// Notify mods (e.g. TAS) that a fresh run is starting so they can reset
+	// their per-run frame counters and replay state.
+	dispatchRuntimeModEvent( 'onRaceStart', { seed: DEFAULT_RNG_SEED } );
 	startCountdown();
 
 	const hashParams = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
@@ -8660,9 +8691,7 @@ function completeCampaignStage() {
 			const nowMs = performance.now();
 			const realFrameSeconds = Math.max( 1 / 1000, ( nowMs - lastFrameNowMs ) / 1000 );
 			lastFrameNowMs = nowMs;
-			const frameSeconds = timer.getDelta();
 			updateFpsHud( realFrameSeconds );
-			const dtBase = Math.min( frameSeconds, 1 / 15 );
 			if ( paused ) {
 
 				audio.updateMusic( realFrameSeconds, false );
@@ -8670,54 +8699,88 @@ function completeCampaignStage() {
 				return;
 
 			}
-			const hacksActive = hacksInstalled && hacksState.enabled;
-			const hackTimeScale = hacksActive ? hacksState.timeScale : 1;
-			const padScale1 = Number( activePadTimeScale ) || 1;
-			const padScale2 = Number( activePadTimeScale2 ) || 1;
-			const padTimeScale = ( padScale1 < 1 || padScale2 < 1 )
-				? Math.min( padScale1, padScale2 )
-				: Math.max( padScale1, padScale2 );
-			const dt = dtBase * hackTimeScale * padTimeScale * customModTimeScale;
-			raceClockSeconds += dt;
-			const now = raceClockSeconds;
 
-			updateCountdownState( now );
-			const controlsBlocked = modeMenuOpen || freecamState.active || replayViewerMode || countdownActive;
-			const baseInput = controlsBlocked ? ZERO_DRIVE_INPUT : controls.update();
-			let input = baseInput;
-			for ( const runtime of runtimeMods ) {
+			// Advance the fixed-timestep accumulator. The simulation always steps
+			// in FIXED_DT chunks so identical inputs yield identical state. The
+			// previous variable-dt path (timer.getDelta clamped to 1/15) let
+			// frame-rate jitter leak into physics, breaking TAS reproducibility.
+			simAccumulator = Math.min( simAccumulator + realFrameSeconds, MAX_STEPS_PER_FRAME * FIXED_DT );
+			if ( simAccumulator < FIXED_DT ) {
 
-				if ( typeof runtime?.applyFrame !== 'function' ) continue;
-				try {
-
-					const result = runtime.applyFrame( { dt, input, controls, vehicle, world, now } );
-					if ( result?.input ) input = result.input;
-
-				} catch ( error ) {
-
-					console.warn( `Mod applyFrame failed: ${ runtime?.id || 'unknown' }`, error );
-
-				}
+				audio.updateMusic( realFrameSeconds, ! document.getElementById( 'home-landing' )?.classList.contains( 'visible' ) && ! modeMenuOpen && ! replayViewerMode );
+				renderFrame();
+				return;
 
 			}
-			if ( countdownActive ) input = ZERO_DRIVE_INPUT;
-			const input2 = controls2 ? ( modeMenuOpen || replayViewerMode || countdownActive ? ZERO_DRIVE_INPUT : controls2.update() ) : null;
-			let padAdjustedInput = applyPadInputModifiers( input, activePadEffect );
-			if ( customModNoSteerUntil > now ) padAdjustedInput = { ...padAdjustedInput, x: 0 };
-			if ( customModForceBrakeUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: - 1 };
-			if ( customModForceThrottleUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: 1 };
-			const padAdjustedInput2 = input2 ? applyPadInputModifiers( input2, activePadEffect2 ) : null;
-			recordLapInput( Math.max( 0, now - lapStartSeconds ), padAdjustedInput, controls?.keys );
-			if ( hacksActive && hacksState.infiniteCoins ) coins = Math.max( coins, 9999999 );
-			if ( arcadeBoostInstalled ) {
 
-				boostMeter = Math.min( BOOST_METER_MAX, boostMeter + dt * ( 7 + Math.abs( vehicle.linearSpeed ) * 14 ) );
-				const boostKeyPressed = Boolean( controls?.keys?.KeyX );
-				if ( boostKeyPressed && ! boostPressedLatch ) tryActivateArcadeBoost();
-				boostPressedLatch = boostKeyPressed;
-				updateArcadeBoostUi();
+			while ( simAccumulator >= FIXED_DT ) {
 
-			} else boostPressedLatch = false;
+				simAccumulator -= FIXED_DT;
+				simStepCount += 1;
+				if ( ! runSimulationStep( FIXED_DT ) ) break;
+
+			}
+
+			// Audio is output-only; drive it from real frame time so it stays
+			// smooth and does not affect the deterministic simulation.
+			audio.updateMusic( realFrameSeconds, ! document.getElementById( 'home-landing' )?.classList.contains( 'visible' ) && ! modeMenuOpen && ! replayViewerMode );
+			renderFrame();
+
+	}
+
+	// One deterministic simulation step. Runs all physics + gameplay + visual
+	// logic at the fixed FIXED_DT. Returns false if the frame should stop
+	// stepping (e.g. a lap completion redirected the page).
+	function runSimulationStep( dt ) {
+
+		const hacksActive = hacksInstalled && hacksState.enabled;
+		const hackTimeScale = hacksActive ? hacksState.timeScale : 1;
+		const padScale1 = Number( activePadTimeScale ) || 1;
+		const padScale2 = Number( activePadTimeScale2 ) || 1;
+		const padTimeScale = ( padScale1 < 1 || padScale2 < 1 )
+			? Math.min( padScale1, padScale2 )
+			: Math.max( padScale1, padScale2 );
+		const stepDt = dt * hackTimeScale * padTimeScale * customModTimeScale;
+		raceClockSeconds += stepDt;
+		const now = raceClockSeconds;
+
+		updateCountdownState( now );
+		const controlsBlocked = modeMenuOpen || freecamState.active || replayViewerMode || countdownActive;
+		const baseInput = controlsBlocked ? ZERO_DRIVE_INPUT : controls.update();
+		let input = baseInput;
+		for ( const runtime of runtimeMods ) {
+
+			if ( typeof runtime?.applyFrame !== 'function' ) continue;
+			try {
+
+				const result = runtime.applyFrame( { dt: stepDt, input, controls, vehicle, world, now } );
+				if ( result?.input ) input = result.input;
+
+			} catch ( error ) {
+
+				console.warn( `Mod applyFrame failed: ${ runtime?.id || 'unknown' }`, error );
+
+			}
+
+		}
+		if ( countdownActive ) input = ZERO_DRIVE_INPUT;
+		const input2 = controls2 ? ( modeMenuOpen || replayViewerMode || countdownActive ? ZERO_DRIVE_INPUT : controls2.update() ) : null;
+		let padAdjustedInput = applyPadInputModifiers( input, activePadEffect );
+		if ( customModNoSteerUntil > now ) padAdjustedInput = { ...padAdjustedInput, x: 0 };
+		if ( customModForceBrakeUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: - 1 };
+		if ( customModForceThrottleUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: 1 };
+		const padAdjustedInput2 = input2 ? applyPadInputModifiers( input2, activePadEffect2 ) : null;
+		recordLapInput( Math.max( 0, now - lapStartSeconds ), padAdjustedInput, controls?.keys );
+		if ( hacksActive && hacksState.infiniteCoins ) coins = Math.max( coins, 9999999 );
+		if ( arcadeBoostInstalled ) {
+
+			boostMeter = Math.min( BOOST_METER_MAX, boostMeter + stepDt * ( 7 + Math.abs( vehicle.linearSpeed ) * 14 ) );
+			const boostKeyPressed = Boolean( controls?.keys?.KeyX );
+			if ( boostKeyPressed && ! boostPressedLatch ) tryActivateArcadeBoost();
+			boostPressedLatch = boostKeyPressed;
+			updateArcadeBoostUi();
+
+		} else boostPressedLatch = false;
 
 		// Save velocity + horizontal speed before physics step
 		let speed1Before = 0, speed2Before = 0;
@@ -8734,7 +8797,7 @@ function completeCampaignStage() {
 			speed2Before = Math.sqrt( v2[ 0 ] * v2[ 0 ] + v2[ 2 ] * v2[ 2 ] );
 		}
 
-		updateWorld( world, contactListener, dt );
+		updateWorld( world, contactListener, stepDt );
 
 		// Suppress seam bounces and detect real crashes based on speed loss
 		const seam1 = suppressSeamBounce( vehicle, '1' );
@@ -8752,22 +8815,22 @@ function completeCampaignStage() {
 		}
 
 			const wasDrifting = vehicle.driftIntensity > 0.25;
-			vehicle.update( dt, padAdjustedInput );
+			vehicle.update( stepDt, padAdjustedInput );
 			const isDrifting = vehicle.driftIntensity > 0.25;
 			if (!wasDrifting && isDrifting) advancementEvents.emit('drift_started', {});
 			if (wasDrifting && !isDrifting) advancementEvents.emit('drift_ended', {});
 			const speedDisplay = Math.abs(vehicle.linearSpeed) * 150;
 			if (speedDisplay > (window.__advTopSpeed || 0)) { window.__advTopSpeed = speedDisplay; advancementEvents.emit('top_speed_updated', { speed: speedDisplay }); }
-			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
+			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( stepDt, padAdjustedInput2 );
 			applySlopeConformVisual( vehicle );
 			if ( vehicle2 ) applySlopeConformVisual( vehicle2 );
 			if ( carHitboxMesh.visible ) carHitboxMesh.position.set( vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z );
-			applyMagnetForceFor( vehicle, dt );
-			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
-			applyGrappleSwingFor( vehicle, controls?.keys, dt );
+			applyMagnetForceFor( vehicle, stepDt );
+			if ( vehicle2 ) applyMagnetForceFor( vehicle2, stepDt );
+			applyGrappleSwingFor( vehicle, controls?.keys, stepDt );
 			arcLinkState = applyArcLinkFor( vehicle, arcLinkState );
 			if ( vehicle2 ) arcLinkState2 = applyArcLinkFor( vehicle2, arcLinkState2 );
-			updateRemotePlayerVisualsFrame( dt );
+			updateRemotePlayerVisualsFrame( stepDt );
 			const gravityScale1 = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
 			const gravityScale2 = Number.isFinite( activePadEffect2?.gravity ) ? activePadEffect2.gravity : 1.0;
 			if ( vehicle?.rigidBody?.motionProperties ) {
@@ -8778,7 +8841,7 @@ function completeCampaignStage() {
 				const sphereVy1 = vehicle.rigidBody.motionProperties.linearVelocity[ 1 ];
 				const nearGroundBoost1 = Math.abs( sphereVy1 ) < 1.5 ? 1.4 : 1.0;
 				vehicle.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * nearGroundBoost1 * gravityScale1 * customModGravityScale * ( hacksActive ? hacksState.gravity : 1.0 ) * waterScale;
-				applyWaterPhysicsDamping( vehicle, dt );
+				applyWaterPhysicsDamping( vehicle, stepDt );
 
 			}
 			if ( vehicle2?.rigidBody?.motionProperties ) {
@@ -8787,7 +8850,7 @@ function completeCampaignStage() {
 				const sphereVy2 = vehicle2.rigidBody.motionProperties.linearVelocity[ 1 ];
 				const nearGroundBoost2 = Math.abs( sphereVy2 ) < 1.5 ? 1.4 : 1.0;
 				vehicle2.rigidBody.motionProperties.gravityFactor = VEHICLE_BASE_GRAVITY_FACTOR * nearGroundBoost2 * gravityScale2 * ( hacksActive ? hacksState.gravity : 1.0 ) * waterScale2;
-				applyWaterPhysicsDamping( vehicle2, dt );
+				applyWaterPhysicsDamping( vehicle2, stepDt );
 
 			}
 			if ( hacksActive ) {
@@ -8848,7 +8911,7 @@ function completeCampaignStage() {
 
 			}, () => activePadEffect ) || null;
 			activeSurfaceType = findActiveSurfaceTypeFor( vehicle );
-			updateAirTrickStateFor( vehicle, activePadEffect, airTrickState, dt, () => {
+			updateAirTrickStateFor( vehicle, activePadEffect, airTrickState, stepDt, () => {
 
 				if ( ! activePadEffect?.trick ) return;
 				const { trick, ...rest } = activePadEffect;
@@ -8873,7 +8936,7 @@ function completeCampaignStage() {
 
 			}, () => activePadEffect2 ) || null;
 			activeSurfaceType2 = findActiveSurfaceTypeFor( vehicle2 );
-				updateAirTrickStateFor( vehicle2, activePadEffect2, airTrickState2, dt, () => {
+				updateAirTrickStateFor( vehicle2, activePadEffect2, airTrickState2, stepDt, () => {
 
 					if ( ! activePadEffect2?.trick ) return;
 					const { trick, ...rest } = activePadEffect2;
@@ -8886,8 +8949,8 @@ function completeCampaignStage() {
 			lastSurfaceNotifyType2 = activeSurfaceType2;
 
 		}
-		updateActiveBoost( vehicle, boostActiveUntil, dt, now );
-		if ( vehicle2 ) updateActiveBoost( vehicle2, boostActiveUntil2, dt, now );
+		updateActiveBoost( vehicle, boostActiveUntil, stepDt, now );
+		if ( vehicle2 ) updateActiveBoost( vehicle2, boostActiveUntil2, stepDt, now );
 		const activeBoostContactKey = findLegacyBoostContactKeyFor( vehicle ) || findBoostSurfaceContactKeyFor( vehicle );
 		if ( activeBoostContactKey ) {
 
@@ -8950,7 +9013,7 @@ function completeCampaignStage() {
 
 		if ( freecamState.active ) scene.fog = null;
 		else if ( scene.fog !== gameplayFog ) scene.fog = gameplayFog;
-		if ( freecamState.active ) updateFreecam( dt );
+		if ( freecamState.active ) updateFreecam( stepDt );
 		else if ( ! replayViewerMode ) {
 
 			const shouldLockYaw = airTrickState.active && isVehicleAirborne( vehicle );
@@ -8964,12 +9027,12 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat.setFromEuler( camYawLockEuler.set( 0, camYawLockValue, 0, 'YXZ' ) );
-				cam.update( dt, vehicle.spherePos, camYawLockQuat, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt ) } );
+				cam.update( stepDt, vehicle.spherePos, camYawLockQuat, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState1, vehicle.spherePos, stepDt ) } );
 
 			} else {
 
 				camYawLockActive = false;
-				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt ) } );
+				cam.update( stepDt, vehicle.spherePos, vehicle.container.quaternion, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState1, vehicle.spherePos, stepDt ) } );
 
 			}
 
@@ -8987,12 +9050,12 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat2.setFromEuler( camYawLockEuler2.set( 0, camYawLockValue2, 0, 'YXZ' ) );
-				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt ) } );
+				cam2.update( stepDt, vehicle2.spherePos, camYawLockQuat2, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState2, vehicle2.spherePos, stepDt ) } );
 
 			} else {
 
 				camYawLockActive2 = false;
-				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt ) } );
+				cam2.update( stepDt, vehicle2.spherePos, vehicle2.container.quaternion, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState2, vehicle2.spherePos, stepDt ) } );
 
 			}
 
@@ -9001,22 +9064,21 @@ function completeCampaignStage() {
 			particles?.triggerBoostFx?.( customModParticleBurstSeconds );
 			customModParticleBurstSeconds = 0;
 		}
-		particles.update( dt, vehicle );
-		particles2?.update( dt, vehicle2 );
-		audio.updateMusic( dt, ! document.getElementById( 'home-landing' )?.classList.contains( 'visible' ) && ! modeMenuOpen && ! replayViewerMode );
-		audio.update( dt, computeVehicleMph( vehicle ), padAdjustedInput.z, vehicle.driftIntensity );
+		particles.update( stepDt, vehicle );
+		particles2?.update( stepDt, vehicle2 );
+		audio.update( stepDt, computeVehicleMph( vehicle ), padAdjustedInput.z, vehicle.driftIntensity );
 		const speedRatioFx = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), 0, 1.8 );
 		const driftFx = THREE.MathUtils.clamp( vehicle.driftIntensity, 0, 1 );
 		if ( bloomPass ) {
 			bloomPass.strength = getGraphicsPreset().bloomStrength + ( speedRatioFx * 0.01 ) + ( driftFx * 0.005 );
 			bloomPass.radius = getGraphicsPreset().bloomRadius + ( speedRatioFx * 0.01 );
 		}
-		renderer.toneMappingExposure = THREE.MathUtils.lerp( renderer.toneMappingExposure, baseWeatherLight.exposure + ( speedRatioFx * 0.045 ), Math.min( 1, dt * 2.8 ) );
+		renderer.toneMappingExposure = THREE.MathUtils.lerp( renderer.toneMappingExposure, baseWeatherLight.exposure + ( speedRatioFx * 0.045 ), Math.min( 1, stepDt * 2.8 ) );
 		if ( scene.fog ) {
 			const nearBase = groundSize * weatherConfig.fogNearMul;
 			const farBase = groundSize * weatherConfig.fogFarMul;
-			scene.fog.near = THREE.MathUtils.lerp( scene.fog.near, nearBase * customModFogStrength * ( 1 - speedRatioFx * 0.08 ), Math.min( 1, dt * 3 ) );
-			scene.fog.far = THREE.MathUtils.lerp( scene.fog.far, farBase * customModFogStrength * ( 1 + speedRatioFx * 0.06 ), Math.min( 1, dt * 3 ) );
+			scene.fog.near = THREE.MathUtils.lerp( scene.fog.near, nearBase * customModFogStrength * ( 1 - speedRatioFx * 0.08 ), Math.min( 1, stepDt * 3 ) );
+			scene.fog.far = THREE.MathUtils.lerp( scene.fog.far, farBase * customModFogStrength * ( 1 + speedRatioFx * 0.06 ), Math.min( 1, stepDt * 3 ) );
 		}
 		const motionBlurPx = getGraphicsPreset().label === 'High'
 			? Math.max( 0, ( speedRatioFx - 0.8 ) * 1.05 )
@@ -9035,25 +9097,25 @@ function completeCampaignStage() {
 			speedBlurVignette.style.webkitBackdropFilter = `blur(${ blurVignette.toFixed( 3 ) }px)`;
 		}
 		skyUniforms.time.value = now;
-		skyUniforms.vibrance.value = THREE.MathUtils.lerp( skyUniforms.vibrance.value, 0.2 + ( speedRatioFx * 0.18 ) + ( driftFx * 0.1 ), Math.min( 1, dt * 2.4 ) );
+		skyUniforms.vibrance.value = THREE.MathUtils.lerp( skyUniforms.vibrance.value, 0.2 + ( speedRatioFx * 0.18 ) + ( driftFx * 0.1 ), Math.min( 1, stepDt * 2.4 ) );
 		skyGroup.position.set( vehicle.container.position.x, 0, vehicle.container.position.z );
 		if ( skyDecorState.starPoints ) {
 			skyDecorState.starPoints.material.opacity = 0.75 + Math.sin( now * 1.3 ) * 0.12 + Math.sin( now * 2.7 + 1.3 ) * 0.08;
 		}
-		updateWeatherFx( dt, now );
-		crashShakeTime = Math.max( 0, crashShakeTime - dt );
+		updateWeatherFx( stepDt, now );
+		crashShakeTime = Math.max( 0, crashShakeTime - stepDt );
 		if ( crashShakeTime > 0 && crashShakeStrength > 0 ) {
 			const impactEnvelope = crashShakeTime / 0.18;
 			const impulse = crashShakeStrength * impactEnvelope;
-			cam.camera.position.x += ( Math.random() - 0.5 ) * impulse;
-			cam.camera.position.y += ( Math.random() - 0.5 ) * impulse * 0.7;
-			cam.camera.rotation.z += ( Math.random() - 0.5 ) * impulse * 0.08;
-			crashShakeStrength = Math.max( 0, crashShakeStrength - dt * 0.6 );
+			cam.camera.position.x += ( gameRng.next() - 0.5 ) * impulse;
+			cam.camera.position.y += ( gameRng.next() - 0.5 ) * impulse * 0.7;
+			cam.camera.rotation.z += ( gameRng.next() - 0.5 ) * impulse * 0.08;
+			crashShakeStrength = Math.max( 0, crashShakeStrength - stepDt * 0.6 );
 		}
 		if ( customModShakeUntil > now && customModShakeIntensity > 0 ) {
 			const shake = Math.min( 0.28, customModShakeIntensity * 0.025 );
-			cam.camera.position.x += ( Math.random() - 0.5 ) * shake;
-			cam.camera.position.y += ( Math.random() - 0.5 ) * shake;
+			cam.camera.position.x += ( gameRng.next() - 0.5 ) * shake;
+			cam.camera.position.y += ( gameRng.next() - 0.5 ) * shake;
 		}
 		if ( customModShakeUntil <= now ) customModShakeIntensity = 0;
 
@@ -9418,13 +9480,13 @@ function completeCampaignStage() {
 			const hardTurn = Math.abs( input.x ) > 0.35 && speedRatio > 0.6;
 			const drifting = vehicle.driftIntensity > 0.45;
 			const activeTrick = drifting || ( overspeed && hasBoostSource ) || isAirborne || hardTurn;
-			if ( drifting ) addStuntPoints( ( vehicle.driftIntensity - 0.45 ) * 46 * dt, 'Drift' );
-			if ( overspeed && hasBoostSource ) addStuntPoints( 38 * dt, 'Speed burst' );
-			if ( hardTurn ) addStuntPoints( 18 * dt, 'Corner carve' );
+			if ( drifting ) addStuntPoints( ( vehicle.driftIntensity - 0.45 ) * 46 * stepDt, 'Drift' );
+			if ( overspeed && hasBoostSource ) addStuntPoints( 38 * stepDt, 'Speed burst' );
+			if ( hardTurn ) addStuntPoints( 18 * stepDt, 'Corner carve' );
 			if ( isAirborne ) {
 
-				stuntAirTime += dt;
-				addStuntPoints( 40 * dt, vehicle.spherePos.y > 1.35 ? 'Big jump' : 'Air' );
+				stuntAirTime += stepDt;
+				addStuntPoints( 40 * stepDt, vehicle.spherePos.y > 1.35 ? 'Big jump' : 'Air' );
 
 			} else if ( stuntAirTime > 0.2 ) {
 
@@ -9440,13 +9502,13 @@ function completeCampaignStage() {
 
 			if ( activeTrick ) {
 
-				stuntComboTimer = Math.min( 2.4, stuntComboTimer + dt * 1.2 );
-				stuntCombo = Math.min( 3.0, stuntCombo + dt * 0.35 );
+				stuntComboTimer = Math.min( 2.4, stuntComboTimer + stepDt * 1.2 );
+				stuntCombo = Math.min( 3.0, stuntCombo + stepDt * 0.35 );
 
 			} else {
 
-				stuntComboTimer = Math.max( 0, stuntComboTimer - dt );
-				if ( stuntComboTimer === 0 ) stuntCombo = Math.max( 1, stuntCombo - dt * 0.8 );
+				stuntComboTimer = Math.max( 0, stuntComboTimer - stepDt );
+				if ( stuntComboTimer === 0 ) stuntCombo = Math.max( 1, stuntCombo - stepDt * 0.8 );
 
 			}
 
@@ -9465,11 +9527,11 @@ function completeCampaignStage() {
 		}
 		if ( stuntReasonTimer > 0 ) {
 
-			stuntReasonTimer = Math.max( 0, stuntReasonTimer - dt );
+			stuntReasonTimer = Math.max( 0, stuntReasonTimer - stepDt );
 			if ( stuntReasonTimer === 0 ) stuntReasonText = '--';
 
 		}
-		hudUpdateAccumulator += dt;
+		hudUpdateAccumulator += stepDt;
 		if ( hudUpdateAccumulator >= 0.08 ) {
 
 			hudUpdateAccumulator = 0;
@@ -9481,7 +9543,7 @@ function completeCampaignStage() {
 
 		}
 
-		renderFrame();
+		return true;
 
 	}
 

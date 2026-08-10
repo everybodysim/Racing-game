@@ -148,6 +148,14 @@ export const TAS_MOD = {
 		return { input: nextInput };
 
 	},
+	onRaceStart() {
+
+		// A fresh run is starting: rewind the playback cursor to the beginning
+		// so the TAS replays from step 0 against the freshly reset sim state.
+		this.controller.resetFrame();
+		if ( this.statusEl ) this.updateStatus();
+
+	},
 	updateStatus() {
 
 		if ( ! this.statusEl ) return;

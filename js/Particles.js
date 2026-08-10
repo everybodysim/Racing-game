@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { gameRng } from './Determinism.js';
 
 const DEFAULT_POOL_SIZE = 64;
 const _worldPos = new THREE.Vector3();
@@ -156,22 +157,22 @@ export class SmokeTrails {
 		p.sprite.visible = true;
 		p.sprite.material.opacity = 0;
 		const particleColor = boostActive
-			? BOOST_PARTICLE_COLORS[ Math.random() < 0.5 ? 0 : 1 ]
+			? BOOST_PARTICLE_COLORS[ gameRng.next() < 0.5 ? 0 : 1 ]
 			: DEFAULT_PARTICLE_COLOR;
 		p.sprite.material.color.copy( particleColor );
 
 		const speedRatio = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed || 0 ) / Math.max( 0.01, vehicle.topSpeed || 1 ), 0, 1.7 );
 
 		// Godot: scale_min = 0.25, scale_max = 0.5
-		p.initialScale = 0.24 + Math.random() * 0.24 + ( speedRatio * 0.08 );
+		p.initialScale = 0.24 + gameRng.next() * 0.24 + ( speedRatio * 0.08 );
 		p.sprite.scale.setScalar( p.initialScale * 0.5 );
 
 		// Godot: no gravity, damping = 1.0 — minimal velocity
 		const driftPush = THREE.MathUtils.clamp( vehicle.driftIntensity || 0, 0, 1 );
 		p.velocity.set(
-			( Math.random() - 0.5 ) * ( 0.2 + speedRatio * 0.12 ),
-			Math.random() * ( 0.1 + speedRatio * 0.05 ),
-			( Math.random() - 0.5 ) * ( 0.2 + driftPush * 0.2 )
+			( gameRng.next() - 0.5 ) * ( 0.2 + speedRatio * 0.12 ),
+			gameRng.next() * ( 0.1 + speedRatio * 0.05 ),
+			( gameRng.next() - 0.5 ) * ( 0.2 + driftPush * 0.2 )
 		);
 
 		// Slightly longer at high speed for more readable trails

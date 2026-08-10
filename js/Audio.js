@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SeededRandom, seedFromString } from './Determinism.js';
 
 const RACE_MUSIC_SOURCES = [ 'audio/music.mp3', 'audio/music2.mp3', 'audio/music3.mp3' ];
 const RACE_MUSIC_LAST_KEY = 'racingGameLastRaceMusic';
@@ -61,7 +62,11 @@ function chooseRaceMusicSource( musicMode ) {
 	}
 
 	const choices = RACE_MUSIC_SOURCES.filter( ( source ) => source !== previousSource );
-	const selectedSource = choices[ Math.floor( Math.random() * choices.length ) ] || RACE_MUSIC_SOURCES[ 0 ];
+	// Deterministic music selection so each page load picks the same track for
+	// a given session. Seeded from the last-source string for variety across
+	// reloads while remaining reproducible for a fixed session state.
+	const musicRng = new SeededRandom( seedFromString( `music|${ previousSource || '' }` ) );
+	const selectedSource = choices[ Math.floor( musicRng.next() * choices.length ) ] || RACE_MUSIC_SOURCES[ 0 ];
 
 	try {
 
@@ -97,6 +102,9 @@ export class GameAudio {
 		this.impactBuffer = null;
 		this.impactPool = [];
 		this.impactIndex = 0;
+		// Seeded RNG for impact-tone variation so the audio experience is
+		// reproducible for a given crash sequence.
+		this.impactRng = new SeededRandom( seedFromString( 'impact-tone' ) );
 		this.ready = false;
 		this.musicReady = false;
 		this.unlocked = false;
@@ -472,7 +480,7 @@ playImpact( impactVelocity ) {
 		// Calculate base volume and multiply by 0.25 to cap it at 25% max volume
 		const volume = THREE.MathUtils.clamp( remap( impactVelocity, 0, 6, 0.01, 1.0 ), 0.01, 1.0 ) * 0.25 * this.settings.sfxVolume;
 		const velocityTone = THREE.MathUtils.clamp( remap( impactVelocity, 0.5, 7, -0.08, 0.16 ), -0.08, 0.16 );
-		const randomTone = ( Math.random() - 0.5 ) * 0.18;
+		const randomTone = ( this.impactRng.next() - 0.5 ) * 0.18;
 		const playbackRate = THREE.MathUtils.clamp( 1 + velocityTone + randomTone, 0.82, 1.24 );
 		
 		sound.setVolume( volume );
