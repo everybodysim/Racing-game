@@ -2061,7 +2061,8 @@ async function loadModels( requiredNames = modelNames ) {
 
 					if ( child.isMesh ) {
 
-						child.material.side = THREE.FrontSide;
+						// Keep DoubleSide for elevated track models (corner walls need to be visible from inside)
+						if ( ! name.startsWith( 'elev-track-' ) ) child.material.side = THREE.FrontSide;
 
 					}
 

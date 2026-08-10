@@ -231,20 +231,20 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const rad = deg * Math.PI / 180;
 		const cr = Math.cos( rad ), sr = Math.sin( rad );
 
-		// Two inner corner arcs at the blocked side (+z) corners
-		// Bottom-left inner corner: local center (-CELL_HALF, +CELL_HALF)
+		// Two inner corner arcs at the open T-junction side (+z/south)
+		// Southwest inner corner: local center (-CELL_HALF, +CELL_HALF)
 		const lcx = cx + ( - CELL_HALF * cr + CELL_HALF * sr ) * S;
 		const lcz = cz + ( CELL_HALF * sr + CELL_HALF * cr ) * S;
-		addArcWall( lcx, lcz, - rad, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
+		addArcWall( lcx, lcz, - rad + Math.PI, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
 
-		// Bottom-right inner corner: local center (+CELL_HALF, +CELL_HALF)
+		// Southeast inner corner: local center (+CELL_HALF, +CELL_HALF)
 		const rcx = cx + ( CELL_HALF * cr + CELL_HALF * sr ) * S;
 		const rcz = cz + ( - CELL_HALF * sr + CELL_HALF * cr ) * S;
-		addArcWall( rcx, rcz, - rad - Math.PI / 2, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
+		addArcWall( rcx, rcz, - rad + Math.PI / 2, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
 
-		// Straight wall on the closed side (local +z, i.e. where the 4th road would be)
-		const wx = cx + ( WALL_X * sr ) * S;
-		const wz = cz + ( WALL_X * cr ) * S;
+		// Straight wall on the blocked side (local -z/north — opposite of the model's default +z)
+		const wx = cx + ( - WALL_X * sr ) * S;
+		const wz = cz + ( - WALL_X * cr ) * S;
 		const halfExtents = [ hLen, wallHalfHeight, hThick ];
 		const position = [ wx, centerY, wz ];
 		const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];

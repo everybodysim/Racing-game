@@ -1635,7 +1635,7 @@
 
 				const mesh = src.clone();
 				mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + idx * 0.035, ( gz + 0.5 ) * CELL_RAW );
-				mesh.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ roadPiece.orient ] || 0 );
+				mesh.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ roadPiece.orient ] || 0 ) + ( roadPiece.type === 'track-3-way' ? Math.PI : 0 );
 				const gateTint = getGateTintColor( roadPiece.type );
 				mesh.traverse( ( c ) => {
 
@@ -1767,7 +1767,7 @@
 				const elevated = elevatedSrc.clone();
 				const yAdjust = normalizedType === 'elevated-4-way' ? 0.06 : ( normalizedType === 'slope-up' ? 0 : 0 );
 				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
-				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 );
+				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 ) + ( normalizedType === 'elevated-3-way' ? Math.PI : 0 );
 				// Slope model is pre-sloped at the correct size — no rotation or scaling needed
 				elevated.traverse( ( c ) => {
 

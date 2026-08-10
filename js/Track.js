@@ -220,7 +220,7 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 		( gz + 0.5 ) * CELL_RAW
 	);
 	const deg = ORIENT_DEG[ orient ] ?? 0;
-	piece.rotation.y = THREE.MathUtils.degToRad( deg );
+	piece.rotation.y = THREE.MathUtils.degToRad( deg ) + ( type === 'elevated-3-way' ? Math.PI : 0 );
 
 	return piece;
 
@@ -991,7 +991,7 @@ export function placePiece( models, key, gx, gz, orient ) {
 	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
-	piece.rotation.y = THREE.MathUtils.degToRad( deg );
+	piece.rotation.y = THREE.MathUtils.degToRad( deg ) + ( key === 'track-3-way' ? Math.PI : 0 );
 	const tintColor = key === 'track-start'
 		? new THREE.Color( 0x66cc66 )
 		: ( key === 'track-finish' ? new THREE.Color( 0xcc6666 ) : ( key === 'track-start-finish' ? new THREE.Color( 0xcc9955 ) : null ) );
