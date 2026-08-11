@@ -2049,6 +2049,8 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 			else required.add( 'track-straight' );
 		}
 	}
+	// Pool slopes reuse the elev-track-slope GLB, so ensure it's loaded.
+	if ( Array.isArray( extras?.poolSlopes ) && extras.poolSlopes.length ) required.add( 'elev-track-slope' );
 	return modelNames.filter( ( name ) => required.has( name ) );
 
 }
