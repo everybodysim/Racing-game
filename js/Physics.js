@@ -364,11 +364,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
-		// Orient maps to a downhill direction; orient 0 → +z. slope-down uses the
-		// 180°-flipped yaw so the high end sits at the near edge (ground level).
-		const flipOrient = ORIENT_180[ orient ] ?? orient;
-		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ flipOrient ] ?? 0 );
-		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( - poolSlopeAngle, yaw, 0, 'YXZ' ) );
+		// Match the visible ramp: yaw by orient, then tilt around the yaw-rotated
+		// X axis so the +z end drops into the pool. orient 0 → downhill toward +z.
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+		const qYaw = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1,0 ), yaw );
+		const qTilt = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 1,0,0 ).applyQuaternion( qYaw ), - poolSlopeAngle );
+		const quat = qYaw.clone().multiply( qTilt );
 		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, poolSlopeHalfLen ];
 		const position = [ cx, poolSlopeCenterY, cz ];
 		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];

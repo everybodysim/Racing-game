@@ -554,16 +554,26 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			const gx = Number( gxRaw );
 			const gz = Number( gzRaw );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
-			const slopeSrc = models[ 'elev-track-slope' ];
-			if ( ! slopeSrc ) continue;
-			const slope = slopeSrc.clone();
-			// Scale Y so the slope's rise matches the pool depth.
-			slope.scale.y = WATER_DEPTH / ELEVATED_HEIGHT;
-			slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
-			// Flip orientation so the slope descends into the pool.
-			slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ ORIENT_180[ orient ] ?? orient ] ?? 0 );
-			slope.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; } } );
-			trackPieceGroup.add( slope );
+			// Visible ramp: tilted box from the ground surface down to the pool
+			// floor. A primitive box is more reliable than reusing the elevated
+			// slope model whose origin/scaling doesn't map onto the pool depth.
+			const drop = WATER_DEPTH;
+			const rampLen = CELL_RAW;
+			const rampThick = CELL_RAW * 0.06;
+			const angle = Math.atan2( drop, rampLen );
+			const centerDrop = drop * 0.5;
+			const ramp = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.92, rampThick, rampLen ),
+				new THREE.MeshStandardMaterial( { color: 0x6f7783, roughness: 0.7, metalness: 0.1 } )
+			);
+			const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+			ramp.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET - centerDrop, ( gz + 0.5 ) * CELL_RAW );
+			const qYaw = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), yaw );
+			const qTilt = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 1, 0, 0 ).applyQuaternion( qYaw ), - angle );
+			ramp.quaternion.copy( qYaw ).multiply( qTilt );
+			ramp.castShadow = true;
+			ramp.receiveShadow = true;
+			trackPieceGroup.add( ramp );
 
 		}
 

@@ -1798,24 +1798,31 @@
 
 		if ( cell.poolSlope ) {
 
-			const slopeSrc = models[ 'elev-track-slope' ];
-			if ( slopeSrc ) {
-
-				// Pool slope: reuse the elevated slope model but drop it down into the pool
-				// so its low end meets the pool floor and its high end meets the ground.
-				const slope = slopeSrc.clone();
-				// Model spans CELL_RAW in z and rises ELEVATED_HEIGHT. The pool is only
-				// POOL_SLOPE_DEPTH deep, so scale Y so the rise matches the pool depth.
-				const yScale = POOL_SLOPE_DEPTH / ELEVATED_HEIGHT;
-				slope.scale.y = yScale;
-				slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
-				// Slope-down orientation: flip the slope so it descends into the pool.
-				slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ ORIENT_180[ cell.poolSlopeOrient || 0 ] ?? 0 ] || 0 );
-				slope.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; } } );
-				trackGroup.add( slope );
-				cell.poolSlopeMesh = slope;
-
-			}
+			// Visible ramp: a tilted box descending from the ground surface down
+			// to the pool floor so the car can drive in/out. Built from a simple
+			// box (the elevated slope model's origin/scaling doesn't map cleanly
+			// onto the pool depth, so a primitive ramp is more reliable).
+			const drop = POOL_SLOPE_DEPTH;
+			const rampLen = CELL_RAW; // spans one cell
+			const rampHalfLen = rampLen * 0.5;
+			const rampThick = CELL_RAW * 0.06;
+			const angle = Math.atan2( drop, rampLen );
+			const centerDrop = drop * 0.5;
+			const ramp = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.92, rampThick, rampLen ),
+				new THREE.MeshStandardMaterial( { color: 0x6f7783, roughness: 0.7, metalness: 0.1 } )
+			);
+			// Orient 0 → ramp descends toward +z. Rotate around Y by the slope
+			// orientation, then tilt around X so the +z end drops into the pool.
+			const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.poolSlopeOrient || 0 ] ?? 0 );
+			ramp.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET - centerDrop, ( gz + 0.5 ) * CELL_RAW );
+			const qYaw = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), yaw );
+			const qTilt = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 1, 0, 0 ).applyQuaternion( qYaw ), - angle );
+			ramp.quaternion.copy( qYaw ).multiply( qTilt );
+			ramp.castShadow = true;
+			ramp.receiveShadow = true;
+			trackGroup.add( ramp );
+			cell.poolSlopeMesh = ramp;
 
 		}
 
