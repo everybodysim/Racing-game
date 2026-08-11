@@ -333,6 +333,18 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			pointer-events: none;
 		}
 		#countdown-hud.visible { display: block; }
+		#countdown-hud.tick { animation: countdown-pop 0.45s cubic-bezier(0.2,0.8,0.3,1.2) both; }
+		#countdown-hud.go { animation: countdown-go 0.6s ease-out both; color: #ffe27a; }
+		@keyframes countdown-pop {
+			0%   { opacity: 0; transform: translate(-50%, -50%) scale(2.2); }
+			45%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+			100% { opacity: 0.92; transform: translate(-50%, -50%) scale(1); }
+		}
+		@keyframes countdown-go {
+			0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.6) rotate(-6deg); letter-spacing: 0.4em; }
+			40%  { opacity: 1; transform: translate(-50%, -50%) scale(1.25) rotate(0deg); letter-spacing: 0.1em; }
+			100% { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0deg); letter-spacing: normal; }
+		}
 		#pause-panel {
 			position: absolute;
 			left: 50%;

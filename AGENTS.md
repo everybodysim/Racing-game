@@ -88,6 +88,11 @@ real game running in an **iframe** at `index.html?tas=1`:
   frozen (input forced to `ZERO_DRIVE_INPUT`, `lapStartSeconds` set when the
   countdown ends) but the sim keeps rendering. When it ends, the sim flips to
   `record` mode and posts `tas-record-start`.
+  **IMPORTANT ordering:** `tasPendingRecord = true` MUST be set AFTER
+  `tasResetRun()` (which clears it) — otherwise the countdown→record handoff
+  in `runSimulationStep` (`if (tasPendingRecord && !countdownActive)`) never
+  fires and no inputs are captured. The countdown HUD now animates per digit
+  via the `tick`/`go` CSS classes re-triggered in `updateCountdownHud`.
 - **Lap-2 / prefix architecture:** combined start/finish tracks record 2 laps;
   only lap 2's inputs are editable. Lap 1 is kept as a hidden **prefix**
   (`prefixSteps`) replayed (headless during eval, visible during playback)
@@ -96,6 +101,9 @@ real game running in an **iframe** at `index.html?tas=1`:
   respawn after finishing, so they only need 1 lap (`tasTargetLaps = 1`).
   `tasLap2StartIndex` (set in the lap-finish handler when lap 1 completes) marks
   the split; `bridgeRecordingSplit()` returns `{prefix, lap2, targetLaps}`.
+  When the target lap completes during `record`, the lap-finish handler also
+  proactively posts `tas-record-stopped` (with `lapTime`) so the REVIEW
+  prompt appears even if the parent's `tas-lap` → `stopRecord` path is missed.
 - `bridge.eval(steps)` runs a **headless** synchronous eval loop
   (`tasRunEval`: `runSimulationStep(FIXED_DT)` until the target lap or the step
   cap, no render) and returns `{time, laps, dnf}`. `time` = `completedLap` of

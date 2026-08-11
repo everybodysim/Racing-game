@@ -46,6 +46,7 @@ const els = {
 	reviewPrompt: $( 'review-prompt' ),
 	reviewYes: $( 'review-yes' ),
 	reviewNo: $( 'review-no' ),
+	reviewTime: $( 'review-time' ),
 	status: $( 'status' ),
 	errors: $( 'run-errors' ),
 	lapTargetHint: $( 'lap-target-hint' ),
@@ -255,7 +256,8 @@ function finishRecording( recording ) {
 	const prefix = Array.isArray( recording?.prefix ) ? recording.prefix : [];
 	const lap2 = Array.isArray( recording?.lap2 ) ? recording.lap2 : [];
 	const tl = Number.isFinite( recording?.targetLaps ) ? recording.targetLaps : targetLaps;
-	lastRecording = { prefix, lap2, targetLaps: tl };
+	const lapTime = Number.isFinite( recording?.lapTime ) ? recording.lapTime : null;
+	lastRecording = { prefix, lap2, targetLaps: tl, lapTime };
 	// Put the iframe back to idle so the car stops moving while reviewing.
 	send( 'set-mode', { mode: 'idle' } );
 	callDirect( 'setMode', 'idle' );
@@ -265,8 +267,14 @@ function finishRecording( recording ) {
 		return;
 	}
 	setState( 'REVIEW' );
+	const timeStr = lapTime != null ? ` — ${ formatTime( lapTime ) }` : '';
 	els.reviewPrompt.style.display = 'flex';
-	setStatus( `Captured ${ lap2.length } target-lap frames${ prefix.length ? ` (+${ prefix.length } lap-1 prefix)` : '' }. Review below.` );
+	if ( els.reviewTime ) els.reviewTime.textContent = timeStr ? `Target-lap time: ${ formatTime( lapTime ) }` : '';
+	// Replay the pop animation each time the prompt reappears.
+	els.reviewPrompt.classList.remove( 'pop' );
+	void els.reviewPrompt.offsetWidth;
+	els.reviewPrompt.classList.add( 'pop' );
+	setStatus( `Captured ${ lap2.length } target-lap frames${ prefix.length ? ` (+${ prefix.length } lap-1 prefix)` : '' }${ timeStr }. Review below.` );
 }
 
 // ── review ──────────────────────────────────────────────────────────────────

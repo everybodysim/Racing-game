@@ -7463,19 +7463,30 @@ function completeCampaignStage() {
 
 	}
 
+	let countdownDisplayedText = '';
 	function updateCountdownHud( now = raceClockSeconds ) {
 
 		if ( ! countdownHud ) return;
 		if ( ! countdownActive ) {
 
 			countdownHud.classList.remove( 'visible' );
+			countdownHud.classList.remove( 'tick', 'go' );
 			countdownHud.textContent = '';
+			countdownDisplayedText = '';
 			return;
 
 		}
 		const remaining = Math.max( 0, countdownEndsAt - now );
-		countdownHud.textContent = remaining > 0.35 ? String( Math.ceil( remaining ) ) : 'GO!';
+		const text = remaining > 0.35 ? String( Math.ceil( remaining ) ) : 'GO!';
+		countdownHud.textContent = text;
 		countdownHud.classList.add( 'visible' );
+		// Re-trigger the pop/GO animation whenever the displayed number changes.
+		if ( text !== countdownDisplayedText ) {
+			countdownDisplayedText = text;
+			countdownHud.classList.remove( 'tick', 'go' );
+			void countdownHud.offsetWidth; // force reflow so the animation restarts
+			countdownHud.classList.add( text === 'GO!' ? 'go' : 'tick' );
+		}
 
 	}
 
@@ -8685,8 +8696,9 @@ function completeCampaignStage() {
 				tasLap2StartIndex = 0;
 				tasPlaybackController.stop();
 				tasMode = 'idle';
-				tasPendingRecord = true;
-				tasResetRun();
+				tasResetRun();           // resets tasPendingRecord=false among other state
+				tasPendingRecord = true; // must be set AFTER tasResetRun or the countdown
+				                         // → record handoff (line ~8986) never fires.
 				countdownActive = true;
 				countdownEndsAt = raceClockSeconds + COUNTDOWN_DURATION_SECONDS;
 				updateCountdownHud( raceClockSeconds );
@@ -9580,6 +9592,13 @@ function completeCampaignStage() {
 						tasPlaybackController.stop();
 						tasMode = 'idle';
 						tasPostMessage( { type: 'tas-playback-finished', time: completedLap, laps: lapNumber } );
+					}
+					// Auto-stop recording once the target lap completes: post the
+					// split recording to the parent so the REVIEW prompt appears.
+					if ( tasMode === 'record' && lapNumber >= tasTargetLaps ) {
+						tasMode = 'idle';
+						tasPendingRecord = false;
+						tasPostMessage( { type: 'tas-record-stopped', recording: bridgeRecordingSplit(), lapTime: completedLap } );
 					}
 				}
 				if ( currentLapGhostSamples.length > 1 ) {
