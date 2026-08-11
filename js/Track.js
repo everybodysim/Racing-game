@@ -548,14 +548,20 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		// Pool slope: the normal elev-track-slope GLB, same as a slope-down piece.
+		// Pool slope: the normal elev-track-slope GLB placed at ground/block
+		// level facing the slope's orient (no 180 flip, no elevation offset).
 		for ( const [ gxRaw, gzRaw, orient = 0 ] of poolSlopeCells ) {
 
 			const gx = Number( gxRaw );
 			const gz = Number( gzRaw );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
-			const piece = cloneElevatedPiece( models, 'slope-down', orient, gx, gz );
-			if ( piece ) trackPieceGroup.add( piece );
+			const slopeSrc = models[ 'elev-track-slope' ];
+			if ( ! slopeSrc ) continue;
+			const slope = slopeSrc.clone();
+			slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
+			slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+			slope.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; } } );
+			trackPieceGroup.add( slope );
 
 		}
 
