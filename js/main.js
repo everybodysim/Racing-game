@@ -4160,7 +4160,7 @@ async function init() {
 			freecamState.yaw = Math.atan2( freecamForward.x, freecamForward.z );
 			freecamState.pitch = Math.atan2( freecamForward.y, Math.max( xzLen, 1e-4 ) );
 			renderer.domElement.requestPointerLock?.();
-			showTopMessage( 'Freecam enabled (WASD + mouse • Shift = fast • F to exit).', false, 2000 );
+			showTopMessage( 'Freecam enabled (Arrows + mouse to move cam • WASD to drive • F to exit).', false, 2000 );
 
 		} else {
 
@@ -4184,20 +4184,34 @@ async function init() {
 		).normalize();
 		freecamRight.set( Math.cos( freecamState.yaw ), 0, - Math.sin( freecamState.yaw ) ).normalize();
 		freecamMove.set( 0, 0, 0 );
-		if ( keys.KeyW ) freecamMove.add( freecamForward );
-		if ( keys.KeyS ) freecamMove.sub( freecamForward );
-		if ( keys.KeyD ) freecamMove.sub( freecamRight );
-		if ( keys.KeyA ) freecamMove.add( freecamRight );
+		// Arrow keys move the freecam; WASD is reserved for driving the car while in freecam.
+		if ( keys.ArrowUp ) freecamMove.add( freecamForward );
+		if ( keys.ArrowDown ) freecamMove.sub( freecamForward );
+		if ( keys.ArrowRight ) freecamMove.sub( freecamRight );
+		if ( keys.ArrowLeft ) freecamMove.add( freecamRight );
 		if ( keys.Space ) freecamMove.y += 1;
 		if ( keys.ControlLeft || keys.ControlRight ) freecamMove.y -= 1;
 		if ( freecamMove.lengthSq() > 1e-6 ) {
 
-			const speed = freecamState.moveSpeed * ( keys.ShiftLeft || keys.ShiftRight ? freecamState.sprintMultiplier : 1 );
-			cam.camera.position.addScaledVector( freecamMove.normalize(), speed * dt );
+			cam.camera.position.addScaledVector( freecamMove.normalize(), freecamState.moveSpeed * dt );
 
 		}
 		cam.lookTarget.copy( cam.camera.position ).add( freecamForward );
 		cam.camera.lookAt( cam.lookTarget );
+
+	}
+
+	function readFreecamCarInput() {
+
+		// While freecam is active, WASD drives the car and arrow keys move the camera.
+		const keys = controls?.keys || {};
+		let x = 0, z = 0;
+		if ( keys.KeyA ) x -= 1;
+		if ( keys.KeyD ) x += 1;
+		if ( keys.KeyW ) z += 1;
+		if ( keys.KeyS ) z -= 1;
+		if ( keys.ShiftLeft || keys.ShiftRight ) z = Math.max( z, 1 );
+		return { x, z };
 
 	}
 
@@ -6856,7 +6870,7 @@ function completeCampaignStage() {
 		const controlsHints = [];
 		if ( checkpointRespawnInstalled ) controlsHints.push( 'Checkpoint respawn: T' );
 		if ( practiceStartInstalled ) controlsHints.push( 'Save/Load practice: Y / Shift+Y' );
-		if ( freecamInstalled ) controlsHints.push( 'Freecam: F (WASD + mouse)' );
+		if ( freecamInstalled ) controlsHints.push( 'Freecam: F (Arrows=cam, WASD=drive)' );
 		const controlsLine = controlsHints.length ? `<br><small>${ controlsHints.join( ' • ' ) }</small>` : '';
 		const checkpointDeltaLine = checkpointDeltaText ? `<br><small>Checkpoint Δ: ${ checkpointDeltaText }</small>` : '';
 		const invalidLine = currentLapInvalidatedByPause ? '<br><small>Paused: leaderboard invalid</small>' : '';
@@ -8668,6 +8682,7 @@ function completeCampaignStage() {
 			if ( paused ) {
 
 				audio.updateMusic( realFrameSeconds, false );
+				if ( freecamState.active ) updateFreecam( realFrameSeconds );
 				renderFrame();
 				return;
 
@@ -8684,8 +8699,11 @@ function completeCampaignStage() {
 			const now = raceClockSeconds;
 
 			updateCountdownState( now );
-			const controlsBlocked = modeMenuOpen || freecamState.active || replayViewerMode || countdownActive;
-			const baseInput = controlsBlocked ? ZERO_DRIVE_INPUT : controls.update();
+			const controlsBlocked = modeMenuOpen || replayViewerMode || countdownActive;
+			let baseInput;
+			if ( controlsBlocked ) baseInput = ZERO_DRIVE_INPUT;
+			else if ( freecamState.active ) baseInput = readFreecamCarInput();
+			else baseInput = controls.update();
 			let input = baseInput;
 			for ( const runtime of runtimeMods ) {
 
