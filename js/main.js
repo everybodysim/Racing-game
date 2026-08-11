@@ -177,6 +177,8 @@ dirLight.castShadow = getGraphicsPreset().shadows;
 dirLight.shadow.mapSize.setScalar( getGraphicsPreset().shadowMapSize );
 dirLight.shadow.camera.near = 0.5;
 dirLight.shadow.camera.far = 60;
+dirLight.shadow.bias = -0.0004;
+dirLight.shadow.normalBias = 0.04;
 scene.add( dirLight );
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
