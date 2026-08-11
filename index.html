@@ -1471,13 +1471,18 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		/* TAS editor embed: hide all chrome (like the in-game H toggle, but by
 		   default) so the iframe shows a clean driving viewport. The editor side
 		   panel owns the controls; the game just simulates. The 3-2-1 countdown
-		   overlay (#countdown-hud) is kept visible. */
+		   overlay (#countdown-hud) is kept visible. The canvas is a direct child
+		   of <body>; #countdown-hud lives inside #main-content, so we keep
+		   #main-content but hide every element it contains except the countdown. */
 		body.tas-embed-mode {
 			overflow: hidden;
 			height: 100vh;
 			margin: 0;
 		}
-		body.tas-embed-mode > :not(canvas):not(script):not(#countdown-hud) { display: none !important; }
+		body.tas-embed-mode > :not(canvas):not(script):not(#main-content) { display: none !important; }
+		body.tas-embed-mode #main-content > :not(#countdown-hud) { display: none !important; }
+		body.tas-embed-mode #countdown-hud { display: none; position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+		body.tas-embed-mode #countdown-hud.visible { display: block; }
 		body.tas-embed-mode canvas { touch-action: none; }
 
 

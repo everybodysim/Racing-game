@@ -903,6 +903,7 @@ function normalizeMultiplayerCarKey( value ) {
 
 async function maybeSubmitOnlinePersonalBest( lapTimes ) {
 
+	if ( tasEmbedMode ) return;
 	if ( ! lapTimes || typeof lapTimes !== 'object' ) return;
 	const localName = sanitizePlayerName( playerNameInput?.value || localStorage.getItem( PLAYER_NAME_KEY ) || '' );
 	if ( ! localName ) return;
@@ -3763,7 +3764,10 @@ async function init() {
 
 			const parsed = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
 			const list = Array.isArray( parsed ) ? parsed : [];
+			// Freecam + TAS are always-available tools (they don't alter gameplay
+			// unless explicitly engaged), so install them by default like built-ins.
 			if ( ! list.some( ( mod ) => mod?.id === 'freecam' ) ) list.push( { id: 'freecam', name: 'Freecam', entry: 'mods/Freecam.js' } );
+			if ( ! list.some( ( mod ) => mod?.id === 'tas' ) ) list.push( { id: 'tas', name: 'TAS', entry: 'mods/TAS.js' } );
 			return list;
 
 		} catch {
@@ -3775,7 +3779,7 @@ async function init() {
 	})();
 	const hacksInstalled = installedMods.some( ( mod ) => mod?.id === 'hacks' );
 	const arcadeBoostInstalled = installedMods.some( ( mod ) => mod?.id === 'arcade-boost' );
-	const nonFreecamModsInstalled = installedMods.some( ( mod ) => mod?.id && mod.id !== 'freecam' );
+	const nonFreecamModsInstalled = installedMods.some( ( mod ) => mod?.id && mod.id !== 'freecam' && mod.id !== 'tas' );
 	const checkpointRespawnInstalled = installedMods.some( ( mod ) => mod?.id === 'checkpoint-respawn' );
 	const practiceStartInstalled = installedMods.some( ( mod ) => mod?.id === 'practice-start' );
 	const stuntModeModInstalled = installedMods.some( ( mod ) => mod?.id === 'stunt-mode' );
@@ -7137,6 +7141,10 @@ function completeCampaignStage() {
 
 	async function submitLeaderboardTime( lapTimeSeconds, forcedName = '' ) {
 
+		// The TAS editor (?tas=1) records/optimizes inputs — never let it pollute
+		// the global leaderboard. This is a hard gate, checked first.
+		if ( tasEmbedMode ) return false;
+
 		if ( currentLapInvalidatedByPause ) {
 
 			showTopMessage( 'Leaderboard submission skipped: paused runs are invalid.', true, 2400 );
@@ -8596,6 +8604,9 @@ function completeCampaignStage() {
 		resetMovingObstacles( movingObstacleState, 0 );
 		resetPhysicsObstacles();
 		vehicle.resetToSpawn();
+		// Re-apply the full car-stat stack (engine mult + any surface/garage
+		// multipliers already live) so a freshly reset run matches a real race.
+		applyVehiclePerformance();
 		cam.targetPosition.copy( vehicle.spherePos );
 		cam.camera.position.addVectors( cam.targetPosition, cam.offset );
 		resetCurrentLapGhost();
