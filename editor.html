@@ -2001,9 +2001,11 @@
 		water.position.y = 0.515;
 		water.userData.waterSurface = true;
 		group.add( water );
-		// If this pool tile has a pool slope, skip the edge lip on the side the
-		// ramp exits toward so the car can drive up/down without catching it.
+		// If this pool tile has a pool slope, skip the wall + edge lip on the
+		// side the ramp exits toward (high end meets ground level there) so the
+		// car can drive up/down without a wall or lip blocking it.
 		const slopeCell = grid.get( cellKey( gx, gz ) );
+		const exitSide = slopeCell?.poolSlope ? getPoolSlopeFacingOffset( slopeCell.poolSlopeOrient ?? 0 ) : null;
 		const sides = [
 			{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
 			{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
@@ -2012,14 +2014,13 @@
 		];
 		for ( const side of sides ) {
 			if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
+			if ( exitSide && exitSide.dx === side.dx && exitSide.dz === side.dz ) continue;
 			const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.38, CELL_RAW * 0.08 ), wallMat );
 			wall.position.set( side.x, - CELL_RAW * 0.16, side.z );
 			wall.rotation.y = side.ry;
 			wall.castShadow = true;
 			wall.receiveShadow = true;
 			group.add( wall );
-			const exitSide = slopeCell?.poolSlope && getPoolSlopeFacingOffset( slopeCell.poolSlopeOrient ?? 0 );
-			if ( exitSide && exitSide.dx === side.dx && exitSide.dz === side.dz ) continue;
 			const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), edgeMat );
 			edge.position.set( side.x, 0.535, side.z );
 			edge.rotation.y = side.ry;
@@ -2039,15 +2040,15 @@
 
 	}
 
-	// Map slope orientation to the world direction the "downhill" end of the
-	// ramp faces. A slope-up at orient 0 has its high end toward -z, so the
-	// downhill/exit side is +z. We remove that pool edge so the car can leave.
+	// Map slope orientation to the world direction the HIGH end of the ramp
+	// faces — that's where the ramp meets ground level and the car exits the
+	// pool. We remove that pool edge + wall so the car can pass. The slope-up
+	// model's low end points toward +z at orient 0, so the high end is -z.
 	function getPoolSlopeFacingOffset( orient ) {
 
 		const deg = ORIENT_DEG[ orient ] ?? 0;
 		const rad = THREE.MathUtils.degToRad( deg );
-		// Downhill points toward +z locally; rotate by yaw.
-		return { dx: Math.round( Math.sin( rad ) ), dz: Math.round( Math.cos( rad ) ) };
+		return { dx: - Math.round( Math.sin( rad ) ), dz: - Math.round( Math.cos( rad ) ) };
 
 	}
 

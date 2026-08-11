@@ -517,12 +517,14 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			floor.position.y = - WATER_DEPTH;
 			floor.receiveShadow = true;
 			pool.add( floor );
-			// If this pool tile has a pool slope, omit the edge lip on the exit side.
+			// If this pool tile has a pool slope, omit the wall + edge lip on the
+			// exit side (where the ramp's high end meets ground level).
 			const slopeOrient = poolSlopeOrientByCell.get( `${ gx },${ gz }` );
 			let exitSide = null;
 			if ( slopeOrient !== undefined ) {
 				const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeOrient ] ?? 0 );
-				exitSide = `${ Math.round( Math.sin( rad ) ) },${ Math.round( Math.cos( rad ) ) }`;
+				// High end is opposite the low end (+z at orient 0).
+				exitSide = `${ - Math.round( Math.sin( rad ) ) },${ - Math.round( Math.cos( rad ) ) }`;
 			}
 			const sides = [
 				{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
@@ -532,13 +534,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			];
 			for ( const side of sides ) {
 				if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
+				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
 				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { color: 0x20312e, roughness: 0.9, metalness: 0.0 } ) );
 				wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
 				wall.rotation.y = side.ry;
 				wall.castShadow = true;
 				wall.receiveShadow = true;
 				pool.add( wall );
-				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
 				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: 0.28, roughness: 0.4 } ) );
 				edge.position.set( side.x, 0.515, side.z );
 				edge.rotation.y = side.ry;

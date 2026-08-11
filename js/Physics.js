@@ -544,8 +544,9 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	if ( Array.isArray( extras?.poolSlopes ) ) {
 		for ( const [ gx, gz, orient = 0 ] of extras.poolSlopes ) {
 			const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
-			const dx = Math.round( Math.sin( rad ) );
-			const dz = Math.round( Math.cos( rad ) );
+			// Exit side = high end of the ramp (opposite the low end at +z).
+			const dx = - Math.round( Math.sin( rad ) );
+			const dz = - Math.round( Math.cos( rad ) );
 			poolSlopeExit.set( `${ Number( gx ) },${ Number( gz ) }`, `${ dx },${ dz }` );
 		}
 	}
