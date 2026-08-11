@@ -565,6 +565,7 @@
 			<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
 			<button id="btn-elevated-checkpoint" style="display:none">Elev Checkpoint</button>
 			<button id="btn-slope-up" style="display:none">Slope Up</button>
+			<button id="btn-pool-slope" style="display:none">Pool Slope</button>
 			<button id="btn-elevated-3way" style="display:none">Elev 3-Way</button>
 			<button id="btn-elevated-4way" style="display:none">Elev 4-Way</button>
 		</div>
@@ -761,6 +762,8 @@
 	const PORTAL_YELLOW_TOOL = 'portal-yellow';
 	const PORTAL_PURPLE_TOOL = 'portal-purple';
 	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'elevated-3-way', 'elevated-4-way' ];
+	const POOL_SLOPE_TOOL = 'pool-slope';
+	const POOL_SLOPE_DEPTH = CELL_RAW * 0.34; // matches pool floor depth
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
 	const SUPPORT_HEIGHT = CELL_RAW * 0.5;
 	const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
@@ -1220,6 +1223,9 @@
 			elevatedOrient: 0,
 			elevatedMesh: null,
 			elevatedSupportMesh: null,
+			poolSlope: false,
+			poolSlopeOrient: 0,
+			poolSlopeMesh: null,
 			surfaceTypes: [],
 			surfaceMeshes: [],
 			decoType: null,
@@ -1241,7 +1247,7 @@
 		if ( ! cell ) return hasStandaloneObjectAtCell( gx, gz );
 		return Boolean(
 			cell.roadPieces?.length || cell.type || cell.bump || cell.pole || cell.cube || cell.wall || cell.jump
-			|| cell.movingObstacle || cell.elevatedType || cell.decoType || cell.surfaceTypes?.length
+			|| cell.movingObstacle || cell.elevatedType || cell.poolSlope || cell.decoType || cell.surfaceTypes?.length
 			|| hasStandaloneObjectAtCell( gx, gz )
 		);
 
@@ -1685,6 +1691,7 @@
 				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
 		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
 		if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
+		if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
 		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		cell.bumpMesh = null;
@@ -1695,6 +1702,7 @@
 		cell.waterMesh = null;
 		cell.elevatedMesh = null;
 		cell.elevatedSupportMesh = null;
+		cell.poolSlopeMesh = null;
 		cell.surfaceMeshes = [];
 		cell.decoMesh = null;
 
@@ -1785,6 +1793,29 @@
 			}
 
 			// Black support box removed — elevated models have built-in supports
+
+		}
+
+		if ( cell.poolSlope ) {
+
+			const slopeSrc = models[ 'elev-track-slope' ];
+			if ( slopeSrc ) {
+
+				// Pool slope: reuse the elevated slope model but drop it down into the pool
+				// so its low end meets the pool floor and its high end meets the ground.
+				const slope = slopeSrc.clone();
+				// Model spans CELL_RAW in z and rises ELEVATED_HEIGHT. The pool is only
+				// POOL_SLOPE_DEPTH deep, so scale Y so the rise matches the pool depth.
+				const yScale = POOL_SLOPE_DEPTH / ELEVATED_HEIGHT;
+				slope.scale.y = yScale;
+				slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
+				// Slope-down orientation: flip the slope so it descends into the pool.
+				slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ ORIENT_180[ cell.poolSlopeOrient || 0 ] ?? 0 ] || 0 );
+				slope.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; } } );
+				trackGroup.add( slope );
+				cell.poolSlopeMesh = slope;
+
+			}
 
 		}
 
@@ -1975,6 +2006,9 @@
 		water.position.y = 0.515;
 		water.userData.waterSurface = true;
 		group.add( water );
+		// If this pool tile has a pool slope, skip the edge lip on the side the
+		// ramp exits toward so the car can drive up/down without catching it.
+		const slopeCell = grid.get( cellKey( gx, gz ) );
 		const sides = [
 			{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
 			{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
@@ -1989,6 +2023,8 @@
 			wall.castShadow = true;
 			wall.receiveShadow = true;
 			group.add( wall );
+			const exitSide = slopeCell?.poolSlope && getPoolSlopeFacingOffset( slopeCell.poolSlopeOrient ?? 0 );
+			if ( exitSide && exitSide.dx === side.dx && exitSide.dz === side.dz ) continue;
 			const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), edgeMat );
 			edge.position.set( side.x, 0.535, side.z );
 			edge.rotation.y = side.ry;
@@ -2005,6 +2041,27 @@
 			const cell = grid.get( cellKey( nx, nz ) );
 			if ( cell?.water ) placeOverlayMesh( nx, nz, cell );
 		}
+
+	}
+
+	// Map slope orientation to the world direction the "downhill" end of the
+	// ramp faces. A slope-up at orient 0 has its high end toward -z, so the
+	// downhill/exit side is +z. We remove that pool edge so the car can leave.
+	function getPoolSlopeFacingOffset( orient ) {
+
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const rad = THREE.MathUtils.degToRad( deg );
+		// Downhill points toward +z locally; rotate by yaw.
+		return { dx: Math.round( Math.sin( rad ) ), dz: Math.round( Math.cos( rad ) ) };
+
+	}
+
+	function removePoolEdgeInFacingDirection( gx, gz, orient ) {
+
+		const { dx, dz } = getPoolSlopeFacingOffset( orient );
+		const neighborKey = cellKey( gx + dx, gz + dz );
+		const neighbor = grid.get( neighborKey );
+		if ( neighbor?.water ) placeOverlayMesh( gx + dx, gz + dz, neighbor );
 
 	}
 
@@ -2074,6 +2131,32 @@
 
 			}
 			rebuildArcMeshes();
+
+		} else if ( selectedType === POOL_SLOPE_TOOL ) {
+
+			// Pool slope: only placeable on-grid, on top of an existing pool tile.
+			if ( placeOffGrid ) {
+
+				showToast( 'Pool Slope cannot be placed off-grid' );
+				return;
+
+			}
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			if ( ! cell.water ) {
+
+				showToast( 'Pool Slope can only be placed on a pool tile' );
+				return;
+
+			}
+			grid.set( key, cell );
+			// Toggle: clicking again removes the slope (but keeps the pool).
+			cell.poolSlope = ! cell.poolSlope;
+			cell.poolSlopeOrient = selectedOrient;
+			// Remove the pool edge on the side the slope faces so the car isn't
+			// caught on the lip while driving up/down the ramp.
+			removePoolEdgeInFacingDirection( gx, gz, selectedOrient );
+			placeOverlayMesh( gx, gz, cell );
 
 		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || selectedType === WATER_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || MOVING_CUSTOM_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
 
@@ -2145,7 +2228,7 @@
 				}
 
 			}
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				grid.delete( key );
 
@@ -2173,7 +2256,7 @@
 
 			}
 
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				grid.delete( key );
 
@@ -2260,6 +2343,7 @@
 				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
 		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
 		if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
+		if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
 		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		grid.delete( key );
@@ -2284,6 +2368,7 @@
 				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
 				if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
 				if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
+				if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
 				for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 
@@ -2553,19 +2638,21 @@
 				? 'track-straight'
 				: ( selectedType === JUMP_TOOL
 					? 'track-straight'
-					: ( selectedType === 'elevated-corner'
-						? 'elev-track-corner'
-						: ( selectedType === 'elevated-straight'
-							? 'elev-track-straight'
-							: ( selectedType === 'elevated-checkpoint'
-								? 'elev-track-checkpoint'
-								: ( selectedType === 'slope-up'
-									? 'elev-track-slope'
-									: ( selectedType === 'elevated-3-way'
-										? 'elev-track-3-way'
-										: ( selectedType === 'elevated-4-way'
-											? 'elev-track-4-way'
-											: ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType ) ) ) ) ) ) ) ) );
+					: ( selectedType === POOL_SLOPE_TOOL
+						? 'elev-track-slope'
+						: ( selectedType === 'elevated-corner'
+							? 'elev-track-corner'
+							: ( selectedType === 'elevated-straight'
+								? 'elev-track-straight'
+								: ( selectedType === 'elevated-checkpoint'
+									? 'elev-track-checkpoint'
+									: ( selectedType === 'slope-up'
+										? 'elev-track-slope'
+										: ( selectedType === 'elevated-3-way'
+											? 'elev-track-3-way'
+											: ( selectedType === 'elevated-4-way'
+												? 'elev-track-4-way'
+												: ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType ) ) ) ) ) ) ) ) ) );
 		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
 
 	}
@@ -2658,7 +2745,7 @@
 
 		let gx = hit.x / cellWorld;
 		let gz = hit.z / cellWorld;
-		if ( selectedType === WATER_TOOL ) {
+		if ( selectedType === WATER_TOOL || selectedType === POOL_SLOPE_TOOL ) {
 
 			gx = Math.floor( gx );
 			gz = Math.floor( gz );
@@ -2828,6 +2915,7 @@
 		const arcs = [];
 		const movingObstacles = [];
 		const water = [];
+		const poolSlopes = [];
 
 		for ( const [ key, cell ] of grid ) {
 
@@ -2838,6 +2926,7 @@
 				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0 ] );
 				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
 				if ( cell.water && worldPreset !== 'pool-filled' ) water.push( [ gx, gz ] );
+				if ( cell.poolSlope ) poolSlopes.push( [ gx, gz, cell.poolSlopeOrient || 0 ] );
 				if ( cell.movingObstacle ) movingObstacles.push( [ gx, gz, cell.movingObstacle, cell.wallOrient || 0, Number.isFinite( Number( cell.movingSpeed ) ) ? Number( cell.movingSpeed ) : 1, cell.movingCustom && typeof cell.movingCustom === 'object' ? cell.movingCustom : null ] );
 				if ( cell.elevatedType ) {
 
@@ -2889,7 +2978,7 @@
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload, z: poolSlopes } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
@@ -2907,7 +2996,7 @@
 
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], t: 'normal', w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [] };
+		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], t: 'normal', w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [], z: [] };
 
 		try {
 
@@ -2932,12 +3021,13 @@
 						x: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
 						r: normalizeCustomPoolConfig( parsed?.r ),
 						q: Array.isArray( parsed.q ) ? parsed.q : [],
+						z: Array.isArray( parsed.z ) ? parsed.z : [],
 					};
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-				return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], t: 'normal', w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [] };
+				return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], t: 'normal', w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [], z: [] };
 
 		}
 
@@ -3155,6 +3245,19 @@
 
 			}
 
+			for ( const [ gx, gz, slopeOrient ] of mods.z || [] ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				// Pool slope only makes sense on a water tile; skip if absent.
+				if ( ! cell.water ) continue;
+				cell.poolSlope = true;
+				cell.poolSlopeOrient = slopeOrient || 0;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
 			for ( const [ gx, gz, surfaceType ] of mods.u ) {
 
 				const key = cellKey( gx, gz );
@@ -3312,6 +3415,7 @@ function refreshMovingSpeedUi() {
 		'elevated-corner': document.getElementById( 'btn-elevated-corner' ),
 		'elevated-checkpoint': document.getElementById( 'btn-elevated-checkpoint' ),
 		'slope-up': document.getElementById( 'btn-slope-up' ),
+		[ POOL_SLOPE_TOOL ]: document.getElementById( 'btn-pool-slope' ),
 		'elevated-3-way': document.getElementById( 'btn-elevated-3way' ),
 		'elevated-4-way': document.getElementById( 'btn-elevated-4way' ),
 		'track-3-way': document.getElementById( 'btn-3way' ),
@@ -3370,7 +3474,9 @@ function refreshMovingSpeedUi() {
 			btn.style.display = slopesModInstalled ? '' : 'none';
 
 		}
-		if ( ! slopesModInstalled && ELEVATED_TYPES.includes( selectedType ) ) selectTileType( 'track-straight' );
+		const poolSlopeBtn = tileButtons[ POOL_SLOPE_TOOL ];
+		if ( poolSlopeBtn ) poolSlopeBtn.style.display = slopesModInstalled ? '' : 'none';
+		if ( ! slopesModInstalled && ( ELEVATED_TYPES.includes( selectedType ) || selectedType === POOL_SLOPE_TOOL ) ) selectTileType( 'track-straight' );
 
 	}
 	const btnRotate = document.getElementById( 'btn-rotate' );
@@ -3409,7 +3515,7 @@ function refreshMovingSpeedUi() {
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
@@ -3567,7 +3673,7 @@ function refreshMovingSpeedUi() {
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-3-way', 'track-4-way', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-3-way', 'track-4-way', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 

@@ -350,6 +350,41 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
+	// Pool slope: a ramp that descends from the ground surface down to the pool
+	// floor so the car can drive in/out. It reuses the slope collider shape but
+	// is centered around the pool floor depth and scaled to match the pool.
+	const POOL_FLOOR_DROP = CELL_RAW * S * 0.34;
+	const poolSlopeAngle = Math.atan2( POOL_FLOOR_DROP, CELL_RAW * S );
+	const poolSlopeHalfLen = Math.max(
+		ELEVATED_SURFACE_HALF_XZ,
+		( ( Math.abs( POOL_FLOOR_DROP ) * 0.5 ) / Math.sin( poolSlopeAngle ) )
+	);
+	const poolSlopeCenterY = groundY - POOL_FLOOR_DROP * 0.5;
+	function addPoolSlopeCollider( gx, gz, orient = 0 ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		// Orient maps to a downhill direction; orient 0 → +z. slope-down uses the
+		// 180°-flipped yaw so the high end sits at the near edge (ground level).
+		const flipOrient = ORIENT_180[ orient ] ?? orient;
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ flipOrient ] ?? 0 );
+		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( - poolSlopeAngle, yaw, 0, 'YXZ' ) );
+		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, poolSlopeHalfLen ];
+		const position = [ cx, poolSlopeCenterY, cz ];
+		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			quaternion,
+			friction: 1.0,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+	}
+
 	function addMergedElevatedSurfaceColliders( elevatedList ) {
 
 		const flatSet = new Set();
@@ -505,6 +540,17 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	}
 
 	const waterSet = new Set( waterEntries.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+	// Map each pool-slope cell to the (dx,dz) side it exits toward, so the
+	// corresponding pool wall can be skipped (otherwise it blocks the car).
+	const poolSlopeExit = new Map();
+	if ( Array.isArray( extras?.poolSlopes ) ) {
+		for ( const [ gx, gz, orient = 0 ] of extras.poolSlopes ) {
+			const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+			const dx = Math.round( Math.sin( rad ) );
+			const dz = Math.round( Math.cos( rad ) );
+			poolSlopeExit.set( `${ Number( gx ) },${ Number( gz ) }`, `${ dx },${ dz }` );
+		}
+	}
 	const WATER_BEVEL_ANGLE = THREE.MathUtils.degToRad( 1.6 );
 	for ( const [ gx, gz ] of waterEntries ) {
 
@@ -520,9 +566,11 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			restitution: 0.0,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, floorHalfExtents, [ cx, groundY - CELL_RAW * S * 0.34, cz ] );
+		const exitSide = poolSlopeExit.get( `${ gx },${ gz }` );
 		const sides = [ [ 0, - 1, 0, - CELL_HALF * S, 0 ], [ 1, 0, CELL_HALF * S, 0, Math.PI / 2 ], [ 0, 1, 0, CELL_HALF * S, 0 ], [ - 1, 0, - CELL_HALF * S, 0, Math.PI / 2 ] ];
 		for ( const [ dx, dz, ox, oz, yaw ] of sides ) {
 			if ( waterSet.has( `${ gx + dx },${ gz + dz }` ) ) continue;
+			if ( exitSide === `${ dx },${ dz }` ) continue;
 			const halfExtents = [ CELL_HALF * S, CELL_RAW * S * 0.19, CELL_RAW * S * 0.04 ];
 			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
 			// Lower wall so its top is flush with groundY (below the ground surface),
@@ -790,6 +838,16 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			add4WayWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
 
 		}
+
+	}
+
+	const poolSlopeEntries = extras && Array.isArray( extras.poolSlopes ) ? extras.poolSlopes : [];
+	for ( const [ gxRaw, gzRaw, orient = 0 ] of poolSlopeEntries ) {
+
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		addPoolSlopeCollider( gx, gz, orient );
 
 	}
 

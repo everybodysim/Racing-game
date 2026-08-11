@@ -1638,6 +1638,7 @@ function decodeExtrasParam( str ) {
 			movingObstacles: Array.isArray( parsed.o ) ? parsed.o : [],
 			worldPreset: parsed.t === 'pool-filled' ? 'pool-filled' : 'normal',
 			water: Array.isArray( parsed.q ) ? parsed.q : [],
+			poolSlopes: Array.isArray( parsed.z ) ? parsed.z : [],
 			customPool: parsed?.r && typeof parsed.r === 'object' ? parsed.r : {},
 			weather: normalizeWeatherDetails( parsed?.w ),
 		};

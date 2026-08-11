@@ -461,6 +461,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const magnets = Array.isArray( extras.magnets ) ? extras.magnets : [];
 		const arcLinks = Array.isArray( extras.arcLinks ) ? extras.arcLinks : [];
 		const waterCells = Array.isArray( extras.water ) ? extras.water : [];
+		const poolSlopeCells = Array.isArray( extras.poolSlopes ) ? extras.poolSlopes : [];
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
 		const customPads = extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {};
 		const poolVisuals = normalizePoolVisuals( extras );
@@ -474,6 +475,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		const waterSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 		const isWaterCell = ( gx, gz ) => waterSet.has( `${ gx },${ gz }` );
+		// Build a quick lookup of pool slope orientation per cell for edge removal.
+		const poolSlopeOrientByCell = new Map();
+		for ( const [ gx, gz, orient = 0 ] of poolSlopeCells ) {
+
+			poolSlopeOrientByCell.set( `${ Number( gx ) },${ Number( gz ) }`, orient || 0 );
+
+		}
 		if ( waterCells.length > 0 ) {
 
 			let minWaterGx = Infinity, maxWaterGx = - Infinity, minWaterGz = Infinity, maxWaterGz = - Infinity;
@@ -509,6 +517,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			floor.position.y = - WATER_DEPTH;
 			floor.receiveShadow = true;
 			pool.add( floor );
+			// If this pool tile has a pool slope, omit the edge lip on the exit side.
+			const slopeOrient = poolSlopeOrientByCell.get( `${ gx },${ gz }` );
+			let exitSide = null;
+			if ( slopeOrient !== undefined ) {
+				const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeOrient ] ?? 0 );
+				exitSide = `${ Math.round( Math.sin( rad ) ) },${ Math.round( Math.cos( rad ) ) }`;
+			}
 			const sides = [
 				{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
 				{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
@@ -523,12 +538,32 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				wall.castShadow = true;
 				wall.receiveShadow = true;
 				pool.add( wall );
+				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
 				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: 0.28, roughness: 0.4 } ) );
 				edge.position.set( side.x, 0.515, side.z );
 				edge.rotation.y = side.ry;
 				pool.add( edge );
 			}
 			trackPieceGroup.add( pool );
+
+		}
+
+		// Pool slope ramps: descend from ground level into the pool floor.
+		for ( const [ gxRaw, gzRaw, orient = 0 ] of poolSlopeCells ) {
+
+			const gx = Number( gxRaw );
+			const gz = Number( gzRaw );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+			const slopeSrc = models[ 'elev-track-slope' ];
+			if ( ! slopeSrc ) continue;
+			const slope = slopeSrc.clone();
+			// Scale Y so the slope's rise matches the pool depth.
+			slope.scale.y = WATER_DEPTH / ELEVATED_HEIGHT;
+			slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
+			// Flip orientation so the slope descends into the pool.
+			slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ ORIENT_180[ orient ] ?? orient ] ?? 0 );
+			slope.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; } } );
+			trackPieceGroup.add( slope );
 
 		}
 
