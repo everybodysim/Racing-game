@@ -47,6 +47,7 @@ const els = {
 	reviewYes: $( 'review-yes' ),
 	reviewNo: $( 'review-no' ),
 	reviewTime: $( 'review-time' ),
+	countdown: $( 'tas-countdown' ),
 	status: $( 'status' ),
 	errors: $( 'run-errors' ),
 	lapTargetHint: $( 'lap-target-hint' ),
@@ -76,6 +77,43 @@ function setBanner( main, sub ) {
 }
 function setLap( text ) { if ( els.lap ) els.lap.textContent = text; }
 
+// ── animated 3-2-1 countdown over the viewport ──────────────────────────────
+// Driven from the parent so it is big, obvious, and never hidden behind the
+// iframe canvas. The iframe still freezes the car during this window.
+let countdownTimer = null;
+function stopCountdown() {
+	if ( countdownTimer ) { clearTimeout( countdownTimer ); countdownTimer = null; }
+	const el = els.countdown;
+	if ( ! el ) return;
+	el.classList.remove( 'show', 'go' );
+	el.textContent = '';
+}
+function runCountdown( onDone ) {
+	stopCountdown();
+	const el = els.countdown;
+	if ( ! el ) { onDone(); return; }
+	let n = 3;
+	const tick = () => {
+		if ( n > 0 ) {
+			el.textContent = String( n );
+			el.classList.remove( 'go' );
+			el.classList.remove( 'show' );
+			// force reflow so the transition replays each number
+			void el.offsetWidth;
+			el.classList.add( 'show' );
+			n--;
+			countdownTimer = setTimeout( tick, 1000 );
+		} else {
+			el.textContent = 'GO!';
+			el.classList.remove( 'show' );
+			void el.offsetWidth;
+			el.classList.add( 'show', 'go' );
+			countdownTimer = setTimeout( () => { stopCountdown(); onDone(); }, 700 );
+		}
+	};
+	tick();
+}
+
 function updateButtons() {
 	const trackLoaded = [ 'READY', 'COUNTDOWN', 'RECORDING', 'REVIEW', 'PLAYBACK', 'BRUTEFORCE' ].includes( state );
 	els.record.disabled = ! trackLoaded || [ 'COUNTDOWN', 'RECORDING', 'PLAYBACK', 'BRUTEFORCE' ].includes( state );
@@ -88,6 +126,8 @@ function updateButtons() {
 function setState( next ) {
 	state = next;
 	updateButtons();
+	if ( state !== 'REVIEW' ) hideReview();
+	if ( state !== 'COUNTDOWN' ) stopCountdown();
 	if ( state === 'IDLE' ) setBanner( 'Load a track to begin', 'Enter a track URL, then start recording.' );
 	else if ( state === 'READY' ) setBanner( 'Ready to record', `Click "Record a run"${ targetLaps > 1 ? ' and drive 2 laps' : ' and drive 1 lap' }.` );
 	else if ( state === 'COUNTDOWN' ) setBanner( 'Get ready…', '3 · 2 · 1 — drive when the countdown ends.' );
@@ -124,12 +164,9 @@ window.addEventListener( 'message', ( event ) => {
 		if ( state === 'IDLE' ) setState( 'READY' );
 		setStatus( 'Game viewport ready.' );
 	} else if ( data.type === 'tas-countdown' ) {
-		if ( state === 'RECORDING' || state === 'COUNTDOWN' ) return;
-		setState( 'COUNTDOWN' );
-		setStatus( '3 · 2 · 1 — drive when it hits GO!' );
+		// Parent drives the countdown now; ignore the iframe's echo.
 	} else if ( data.type === 'tas-record-start' ) {
-		if ( state === 'COUNTDOWN' ) setState( 'RECORDING' );
-		setStatus( 'Recording — drive!' );
+		// Parent flips to RECORDING itself after its countdown; ignore the echo.
 	} else if ( data.type === 'tas-lap' ) {
 		const info = ( () => { try { return bridge()?.getInfo?.(); } catch { return null; } } )() || {};
 		setLap( `Lap ${ data.lapNumber || info.lapNumber || 1 } • ${ formatTime( data.lapTime ) }` );
@@ -228,17 +265,27 @@ function loadTrack() {
 }
 
 // ── record ─────────────────────────────────────────────────────────────────
-// Recording starts with a 3-2-1 countdown handled inside the iframe (car + lap
-// timer frozen, sim alive). The iframe posts tas-countdown then tas-record-start.
+// The parent owns the 3-2-1 countdown (big animated overlay over the viewport)
+// so it is always visible. The iframe keeps the car + lap timer frozen during
+// the countdown, then begins capturing per-substep inputs when we tell it to.
 function startRecord() {
 	if ( ! iframeReady ) { setError( 'Game viewport not ready yet.' ); return; }
 	applyConfig();
 	lastRecording = null;
 	hideReview();
+	// Freeze the car in the iframe and arm recording; it waits for our GO.
 	send( 'start-record' );
 	callDirect( 'startRecord' );
-	// The iframe replies with tas-countdown -> COUNTDOWN, then tas-record-start.
+	setState( 'COUNTDOWN' );
 	frame.focus(); // so keystrokes drive the car inside the iframe
+	// Run the animated countdown, then tell the iframe to actually begin.
+	runCountdown( () => {
+		if ( state !== 'COUNTDOWN' ) return; // user cancelled
+		send( 'begin-record' );
+		callDirect( 'beginRecord' );
+		setState( 'RECORDING' );
+		setStatus( 'Recording — drive!' );
+	} );
 }
 function stopRecord() {
 	if ( state !== 'RECORDING' ) return;
@@ -268,7 +315,7 @@ function finishRecording( recording ) {
 	}
 	setState( 'REVIEW' );
 	const timeStr = lapTime != null ? ` — ${ formatTime( lapTime ) }` : '';
-	els.reviewPrompt.style.display = 'flex';
+	showReview();
 	if ( els.reviewTime ) els.reviewTime.textContent = timeStr ? `Target-lap time: ${ formatTime( lapTime ) }` : '';
 	// Replay the pop animation each time the prompt reappears.
 	els.reviewPrompt.classList.remove( 'pop' );
@@ -278,7 +325,12 @@ function finishRecording( recording ) {
 }
 
 // ── review ──────────────────────────────────────────────────────────────────
-function hideReview() { if ( els.reviewPrompt ) els.reviewPrompt.style.display = 'none'; }
+function showReview() {
+	if ( ! els.reviewPrompt ) return;
+	els.reviewPrompt.style.display = 'flex';
+	els.reviewPrompt.classList.add( 'show' );
+}
+function hideReview() { if ( els.reviewPrompt ) { els.reviewPrompt.style.display = 'none'; els.reviewPrompt.classList.remove( 'show' ); } }
 function acceptRun() {
 	hideReview();
 	if ( ! lastRecording ) { setState( 'READY' ); return; }

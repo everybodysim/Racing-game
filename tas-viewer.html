@@ -33,20 +33,36 @@
     }
     #state-banner .banner-sub { display:block; margin-top:4px; font: 400 12px/1.3 system-ui, sans-serif; opacity:0.85; }
 
-    /* Accept/reject prompt overlay shown after a recording (centered) */
+    /* Animated 3-2-1 countdown over the viewport (parent side, big & obvious) */
+    #tas-countdown {
+      position: absolute; left: 50%; top: 50%;
+      transform: translate(-50%, -50%) scale(0.4);
+      display: none; z-index: 9;
+      font: 800 clamp(80px, 22vw, 220px)/1 system-ui, sans-serif;
+      color: #fff; text-align: center;
+      text-shadow: 0 0 30px rgba(120,200,255,0.9), 0 6px 24px rgba(0,0,0,0.85);
+      pointer-events: none; opacity: 0;
+      transition: transform 0.45s cubic-bezier(0.2,1.4,0.4,1), opacity 0.45s ease;
+    }
+    #tas-countdown.show { display: block; opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    #tas-countdown.go { color: #7fffa0; text-shadow: 0 0 40px rgba(120,255,160,0.95), 0 6px 24px rgba(0,0,0,0.85); }
+
+    /* Accept/reject prompt overlay shown after a recording (centered, hard-guaranteed visible) */
     #review-prompt {
       position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-      display: none; gap: 10px; z-index: 3;
-      background: rgba(8,12,22,0.94); border: 1px solid rgba(140,210,255,0.5);
-      border-radius: 14px; padding: 22px 26px; align-items: center;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.7), 0 0 0 4px rgba(140,210,255,0.08); text-align: center;
-      flex-direction: column; min-width: 260px;
+      display: none; gap: 12px; z-index: 10;
+      background: rgba(8,12,22,0.94); border: 2px solid rgba(140,210,255,0.7);
+      border-radius: 16px; padding: 22px 28px; align-items: center;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.75), 0 0 0 4px rgba(140,210,255,0.08); text-align: center;
+      flex-direction: column; min-width: 260px; max-width: 88vw;
     }
+    #review-prompt.show { display: flex !important; }
     #review-prompt.pop { animation: tas-pop 0.32s cubic-bezier(0.18,0.9,0.3,1.3) both; }
-    #review-prompt .review-text { font: 800 18px/1.3 system-ui, sans-serif; }
+    #review-prompt .review-text { font: 800 20px/1.3 system-ui, sans-serif; }
     #review-prompt .review-time { font: 700 14px/1.3 ui-monospace, monospace; color: #8cd6ff; font-variant-numeric: tabular-nums; }
-    #review-prompt .review-buttons { display: flex; gap: 10px; }
-    #review-prompt button { width: auto; min-width: 120px; margin: 0; font-weight: 700; }
+    #review-prompt .review-sub { font: 400 13px/1.3 system-ui, sans-serif; color: #9ec6ff; }
+    #review-prompt .review-buttons { display: flex; gap: 12px; }
+    #review-prompt button { width: auto; min-width: 130px; margin: 0; font-weight: 700; padding: 10px 18px; }
     @keyframes tas-pop {
       0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.7); }
       60%  { opacity: 1; transform: translate(-50%, -50%) scale(1.06); }
@@ -112,9 +128,11 @@
       <iframe id="game-frame" title="TAS driving viewport" allow="autoplay; fullscreen; gamepad" allowfullscreen></iframe>
       <div id="lap">Lap 1 • 00:00.000 • Last --:--.--- • Best --:--.---</div>
       <div id="state-banner">Load a track to begin<span class="banner-sub">Enter a track URL, then start recording.</span></div>
+      <div id="tas-countdown" aria-live="polite"></div>
       <div id="review-prompt">
-        <span class="review-text">Keep this run?</span>
+        <span class="review-text">Is this run good enough?</span>
         <span class="review-time" id="review-time"></span>
+        <span class="review-sub">Keep it to edit &amp; optimize, or restart and try again.</span>
         <div class="review-buttons">
           <button id="review-yes" class="primary" type="button">Yes — keep</button>
           <button id="review-no" type="button">No — restart</button>

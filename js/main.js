@@ -8689,8 +8689,9 @@ function completeCampaignStage() {
 					if ( next === 'playback' ) tasPlaybackController.start();
 				}
 			},
-			// Record begins with a 3-2-1 countdown (freeze car + lap timer, but
-			// keep the sim alive). Recording only starts once the countdown ends.
+			// Recording is armed by startRecord (car + lap timer frozen while the
+			// PARENT runs its visible 3-2-1 countdown), then beginRecord flips into
+			// record mode and zeroes the lap timer so it excludes the countdown.
 			startRecord: () => {
 				tasRecordedSteps = [];
 				tasLap2StartIndex = 0;
@@ -8702,7 +8703,14 @@ function completeCampaignStage() {
 				countdownActive = true;
 				countdownEndsAt = raceClockSeconds + COUNTDOWN_DURATION_SECONDS;
 				updateCountdownHud( raceClockSeconds );
-				tasPostMessage( { type: 'tas-countdown' } );
+			},
+			beginRecord: () => {
+				// Countdown finished (parent-side): finish the countdown (resets lap
+				// timer + ghost while countdownActive is still true), then enter record.
+				finishCountdown();
+				tasPendingRecord = false;
+				tasMode = 'record';
+				tasPostMessage( { type: 'tas-record-start' } );
 			},
 			stopRecord: () => {
 				tasPendingRecord = false;
@@ -8748,6 +8756,7 @@ function completeCampaignStage() {
 				if ( t === 'set-config' ) { bridge.setConfig( data.config ); return; }
 				if ( t === 'set-mode' ) { bridge.setMode( data.mode ); return; }
 				if ( t === 'start-record' ) { bridge.startRecord(); return; }
+				if ( t === 'begin-record' ) { bridge.beginRecord(); return; }
 				if ( t === 'stop-record' ) { bridge.stopRecord(); return; }
 				if ( t === 'get-frames' ) { tasPostMessage( { type: 'tas-frames', recording: bridge.getRecording() } ); return; }
 				if ( t === 'playback' ) { bridge.playback( data.steps || [] ); return; }
@@ -8993,16 +9002,13 @@ function completeCampaignStage() {
 		const now = raceClockSeconds;
 
 		updateCountdownState( now );
-		// TAS record countdown: once the 3-2-1 ends, switch into record mode and
-		// (re)start the lap timer so the recorded lap time excludes the countdown.
-		if ( tasEmbedMode && tasPendingRecord && ! countdownActive ) {
-			tasPendingRecord = false;
-			tasMode = 'record';
-			lapStartSeconds = now;
-			lapSeconds = 0;
-			tasPostMessage( { type: 'tas-record-start' } );
-		}
-		const controlsBlocked = modeMenuOpen || freecamState.active || replayViewerMode || countdownActive;
+		// TAS record countdown is driven by the PARENT (animated overlay). The
+		// iframe's internal countdown only freezes the car; beginRecord() (called
+		// by the parent at GO) is what flips into record mode, so no auto-transition
+		// here.
+		// Car stays frozen while the parent's countdown runs (tasPendingRecord),
+		// even after the iframe's internal countdown timer expires, until beginRecord.
+		const controlsBlocked = modeMenuOpen || freecamState.active || replayViewerMode || countdownActive || ( tasEmbedMode && tasPendingRecord );
 		const baseInput = controlsBlocked ? ZERO_DRIVE_INPUT : controls.update();
 		let input = baseInput;
 		// TAS embed override: in playback/eval the car is driven from the loaded
