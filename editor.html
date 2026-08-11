@@ -1798,14 +1798,15 @@
 
 		if ( cell.poolSlope ) {
 
-			// Pool slope: just the normal slope mesh placed at ground/block level
-			// (no scaling, no elevation offset), flipped to descend into the pool.
+			// Pool slope: the normal elev-track-slope GLB placed exactly like a
+			// slope-down elevated piece (no scaling, no custom geometry).
 			const slopeSrc = models[ 'elev-track-slope' ];
 			if ( slopeSrc ) {
 
 				const slope = slopeSrc.clone();
-				slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
-				slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ ORIENT_180[ cell.poolSlopeOrient || 0 ] ?? 0 ] || 0 );
+				const orient = ORIENT_180[ cell.poolSlopeOrient || 0 ] ?? ( cell.poolSlopeOrient || 0 );
+				slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT, ( gz + 0.5 ) * CELL_RAW );
+				slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
 				slope.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; } } );
 				trackGroup.add( slope );
 				cell.poolSlopeMesh = slope;

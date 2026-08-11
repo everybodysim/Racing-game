@@ -350,11 +350,36 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	// Pool slope: just the normal slope collider (slope-down) placed at block
-	// level, matching the visible slope mesh. No custom scaling/depth math.
+	// Pool slope: a ramp that descends from the ground surface down to the pool
+	// floor so the car can drive in/out. It reuses the slope collider shape but
+	// is centered around the pool floor depth and scaled to match the pool.
+	const POOL_FLOOR_DROP = CELL_RAW * S * 0.34;
+	const poolSlopeAngle = Math.atan2( POOL_FLOOR_DROP, CELL_RAW * S );
+	const poolSlopeHalfLen = Math.max(
+		ELEVATED_SURFACE_HALF_XZ,
+		( ( Math.abs( POOL_FLOOR_DROP ) * 0.5 ) / Math.sin( poolSlopeAngle ) )
+	);
+	const poolSlopeCenterY = groundY - POOL_FLOOR_DROP * 0.5;
 	function addPoolSlopeCollider( gx, gz, orient = 0 ) {
 
-		addSlopeCollider( gx, gz, orient, false );
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const flipOrient = ORIENT_180[ orient ] ?? orient;
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ flipOrient ] ?? 0 );
+		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( - poolSlopeAngle, yaw, 0, 'YXZ' ) );
+		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, poolSlopeHalfLen ];
+		const position = [ cx, poolSlopeCenterY, cz ];
+		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			quaternion,
+			friction: 1.0,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
 	}
 
