@@ -5604,6 +5604,10 @@ function completeCampaignStage() {
 	let tasTargetLaps = 2;           // 1 for separate start/finish tracks, else 2
 	let tasLap2StartIndex = 0;       // recorded-step index where lap 2 begins (combined tracks)
 	let tasPendingRecord = false;    // true while the 3-2-1 countdown runs before recording
+	// When true, runSimulationStep skips all cosmetic/visual/audio/ghost/HUD work
+	// and keeps only physics + lap detection. Used by the headless eval loop so
+	// brute-force turbo runs ~50x faster with identical physics results.
+	let tasFastSimStep = false;
 
 	let countdownActive = false;
 	let countdownEndsAt = 0;
@@ -8632,7 +8636,9 @@ function completeCampaignStage() {
 	// result is exactly what a visible playback would produce.
 	function tasRunEval( steps ) {
 		const prevMode = tasMode;
+		const prevFast = tasFastSimStep;
 		tasMode = 'eval';
+		tasFastSimStep = true; // skip cosmetic/audio/visual work → ~50x faster, identical physics
 		tasPlaybackController.loadSteps( steps );
 		tasPlaybackController.start();
 		tasResetRun();
@@ -8647,8 +8653,44 @@ function completeCampaignStage() {
 		tasEvalResult = null;
 		tasPlaybackController.stop();
 		tasMode = prevMode === 'eval' ? 'idle' : prevMode;
+		tasFastSimStep = prevFast;
 		tasResetRun();
 		return result;
+	}
+
+	// Snapshot/restore the car's full physics state (position, rotation, linear
+	// + angular velocity) so a 2-lap eval can skip replaying lap 1 and resume
+	// directly from the start-of-lap-2 state. Used by the brute-force optimizer.
+	function tasSnapshotCarState() {
+		const rb = vehicle?.rigidBody;
+		if ( ! rb || ! rb.motionProperties ) return null;
+		const pos = rb.position;
+		const lin = rb.motionProperties.linearVelocity;
+		const ang = rb.motionProperties.angularVelocity;
+		const q = vehicle.container.quaternion;
+		return {
+			position: [ pos[ 0 ], pos[ 1 ], pos[ 2 ] ],
+			linearVelocity: [ lin[ 0 ], lin[ 1 ], lin[ 2 ] ],
+			angularVelocity: [ ang[ 0 ], ang[ 1 ], ang[ 2 ] ],
+			quaternion: [ q.x, q.y, q.z, q.w ],
+			spherePos: vehicle.spherePos.toArray(),
+			sphereVel: vehicle.sphereVel.toArray(),
+			linearSpeed: vehicle.linearSpeed,
+			angularSpeed: vehicle.angularSpeed,
+		};
+	}
+	function tasRestoreCarState( snap ) {
+		if ( ! snap || ! vehicle?.rigidBody ) return;
+		rigidBody.setPosition( world, vehicle.rigidBody, snap.position, false );
+		rigidBody.setLinearVelocity( world, vehicle.rigidBody, snap.linearVelocity );
+		rigidBody.setAngularVelocity( world, vehicle.rigidBody, snap.angularVelocity );
+		vehicle.spherePos.fromArray( snap.spherePos );
+		vehicle.sphereVel.fromArray( snap.sphereVel );
+		vehicle.linearSpeed = snap.linearSpeed;
+		vehicle.angularSpeed = snap.angularSpeed;
+		vehicle.container.quaternion.set( snap.quaternion[ 0 ], snap.quaternion[ 1 ], snap.quaternion[ 2 ], snap.quaternion[ 3 ] );
+		vehicle.container.position.set( snap.spherePos[ 0 ], snap.spherePos[ 1 ] - 0.5, snap.spherePos[ 2 ] );
+		vehicle.prevModelPos.copy( vehicle.container.position );
 	}
 
 	function tasPostMessage( payload ) {
@@ -8732,6 +8774,77 @@ function completeCampaignStage() {
 			stopPlayback: () => { tasPlaybackController.stop(); tasMode = 'idle'; tasResetRun(); },
 			reset: () => tasResetRun(),
 			eval: ( steps ) => tasRunEval( steps ),
+			// Run the prefix (lap 1) once to build the start-of-lap-2 car state,
+			// snapshot it, then return the snapshot so the parent can replay only
+			// the editable lap-2 inputs against it for every brute-force attempt.
+			// Returns { snapshot, time, dnf, lapNumber }.
+			computePrefixSnapshot: ( prefixSteps ) => {
+				const prevMode = tasMode;
+				const prevFast = tasFastSimStep;
+				tasMode = 'eval';
+				tasFastSimStep = true;
+				tasPlaybackController.loadSteps( prefixSteps );
+				tasPlaybackController.start();
+				tasResetRun();
+				tasEvalResult = null;
+				let stepped = 0;
+				// Run until the prefix steps run out (lap 1 done) OR the target-lap-1
+				// finish is detected (tasEvalResult set when lapNumber reaches targetLaps).
+				while ( stepped < TAS_EVAL_MAX_STEPS ) {
+					if ( ! runSimulationStep( FIXED_DT ) ) break;
+					stepped++;
+					if ( tasEvalResult ) break;
+					if ( ! tasPlaybackController.running ) break;
+				}
+				const snap = tasSnapshotCarState();
+				const result = tasEvalResult || { time: 0, laps: lapNumber - 1, dnf: ! tasPlaybackController.running && stepped === 0 };
+				tasEvalResult = null;
+				tasPlaybackController.stop();
+				tasMode = prevMode === 'eval' ? 'idle' : prevMode;
+				tasFastSimStep = prevFast;
+				tasResetRun();
+				return { snapshot: snap, time: result.time, dnf: !! result.dnf, lapNumber: result.laps + 1 };
+			},
+			// Eval only the target lap starting from a previously snapshotted car
+			// state (skips replaying lap 1). The lap timer is seeded so the
+			// returned time is the target-lap duration, matching tasRunEval.
+			evalFromSnapshot: ( snapshot, lap2Steps ) => {
+				if ( ! snapshot ) return tasRunEval( lap2Steps );
+				const prevMode = tasMode;
+				const prevFast = tasFastSimStep;
+				tasMode = 'eval';
+				tasFastSimStep = true;
+				tasPlaybackController.loadSteps( lap2Steps );
+				tasPlaybackController.start();
+				tasResetRun();
+				tasRestoreCarState( snapshot );
+				// Seed lap state so the finish-line crossing measures the target lap.
+				lapNumber = tasTargetLaps; // we're already on the target lap
+				lapStartSeconds = 0;
+				raceClockSeconds = 0;
+				hasLeftStartZone = true; // car is past the start gate at lap-2 start
+				hasPrevFinishSample = false; // require a fresh finish crossing
+				for ( const checkpoint of checkpointStates ) {
+					checkpoint.passedThisLap = true; // assume lap-1 checkpoints were passed
+					checkpoint.hasPrevSample = false;
+				}
+				tasEvalResult = null;
+				let stepped = 0;
+				while ( stepped < TAS_EVAL_MAX_STEPS ) {
+					if ( ! runSimulationStep( FIXED_DT ) ) break;
+					stepped++;
+					if ( tasEvalResult ) break;
+				}
+				const result = tasEvalResult || { time: 999999, laps: lapNumber - 1, dnf: true };
+				tasEvalResult = null;
+				tasPlaybackController.stop();
+				tasMode = prevMode === 'eval' ? 'idle' : prevMode;
+				tasFastSimStep = prevFast;
+				tasResetRun();
+				return result;
+			},
+			snapshotCarState: () => tasSnapshotCarState(),
+			restoreCarState: ( snap ) => tasRestoreCarState( snap ),
 			serialize: ( steps ) => serializeSteps( steps ),
 			parse: ( text ) => parseInputLines( text ),
 		};
@@ -9298,6 +9411,8 @@ function completeCampaignStage() {
 			vehicle.spherePos.z - 5.3
 		);
 
+		if ( ! tasFastSimStep ) {
+		// ── Cosmetic / visual / audio / ghost / HUD (skipped during fast eval) ──
 		if ( freecamState.active ) scene.fog = null;
 		else if ( scene.fog !== gameplayFog ) scene.fog = gameplayFog;
 		if ( freecamState.active ) updateFreecam( stepDt );
@@ -9405,6 +9520,7 @@ function completeCampaignStage() {
 			cam.camera.position.y += ( gameRng.next() - 0.5 ) * shake;
 		}
 		if ( customModShakeUntil <= now ) customModShakeIntensity = 0;
+		} // end cosmetic block (tasFastSimStep skip)
 
 		for ( let checkpointIndex = 0; checkpointIndex < checkpointStates.length; checkpointIndex ++ ) {
 
@@ -9780,82 +9896,84 @@ function completeCampaignStage() {
 		lapSeconds = countdownActive ? 0 : now - lapStartSeconds;
 		if ( vehicle2 ) lapSeconds2 = countdownActive ? 0 : now - lapStartSeconds2;
 		updateMovingObstacles( movingObstacleState, now, [ vehicle, vehicle2 ] );
-		recordGhostSample( lapSeconds );
-		updateGhostPlayback( lapSeconds );
-		updateLeaderboardGhostPlayback( lapSeconds );
-		updateRecentGhostPlayback( lapSeconds );
-		const stuntScoringActive = gameMode === 'stunt' || ( gameMode === 'campaign' && campaignState?.stageType === 'stunt-score' );
-		if ( stuntScoringActive ) {
+		if ( ! tasFastSimStep ) {
+			recordGhostSample( lapSeconds );
+			updateGhostPlayback( lapSeconds );
+			updateLeaderboardGhostPlayback( lapSeconds );
+			updateRecentGhostPlayback( lapSeconds );
+			const stuntScoringActive = gameMode === 'stunt' || ( gameMode === 'campaign' && campaignState?.stageType === 'stunt-score' );
+			if ( stuntScoringActive ) {
 
-			const speedRatio = vehicle.topSpeed > 0 ? Math.abs( vehicle.linearSpeed ) / vehicle.topSpeed : 0;
-			const overspeed = speedRatio > 1.0;
-			const hasBoostSource = activeSurfaceType === 'surface-wood' || activeSurfaceType === 'surface-boost' || now < boostActiveUntil;
-			const isAirborne = vehicle.spherePos.y > 0.78 || Math.abs( vehicle.sphereVel.y ) > 1.1;
-			const hardTurn = Math.abs( input.x ) > 0.35 && speedRatio > 0.6;
-			const drifting = vehicle.driftIntensity > 0.45;
-			const activeTrick = drifting || ( overspeed && hasBoostSource ) || isAirborne || hardTurn;
-			if ( drifting ) addStuntPoints( ( vehicle.driftIntensity - 0.45 ) * 46 * stepDt, 'Drift' );
-			if ( overspeed && hasBoostSource ) addStuntPoints( 38 * stepDt, 'Speed burst' );
-			if ( hardTurn ) addStuntPoints( 18 * stepDt, 'Corner carve' );
-			if ( isAirborne ) {
+				const speedRatio = vehicle.topSpeed > 0 ? Math.abs( vehicle.linearSpeed ) / vehicle.topSpeed : 0;
+				const overspeed = speedRatio > 1.0;
+				const hasBoostSource = activeSurfaceType === 'surface-wood' || activeSurfaceType === 'surface-boost' || now < boostActiveUntil;
+				const isAirborne = vehicle.spherePos.y > 0.78 || Math.abs( vehicle.sphereVel.y ) > 1.1;
+				const hardTurn = Math.abs( input.x ) > 0.35 && speedRatio > 0.6;
+				const drifting = vehicle.driftIntensity > 0.45;
+				const activeTrick = drifting || ( overspeed && hasBoostSource ) || isAirborne || hardTurn;
+				if ( drifting ) addStuntPoints( ( vehicle.driftIntensity - 0.45 ) * 46 * stepDt, 'Drift' );
+				if ( overspeed && hasBoostSource ) addStuntPoints( 38 * stepDt, 'Speed burst' );
+				if ( hardTurn ) addStuntPoints( 18 * stepDt, 'Corner carve' );
+				if ( isAirborne ) {
 
-				stuntAirTime += stepDt;
-				addStuntPoints( 40 * stepDt, vehicle.spherePos.y > 1.35 ? 'Big jump' : 'Air' );
+					stuntAirTime += stepDt;
+					addStuntPoints( 40 * stepDt, vehicle.spherePos.y > 1.35 ? 'Big jump' : 'Air' );
 
-			} else if ( stuntAirTime > 0.2 ) {
+				} else if ( stuntAirTime > 0.2 ) {
 
-				const landingBonus = 14 + Math.min( 80, stuntAirTime * 55 );
-				addStuntPoints( landingBonus, 'Landing');
-				stuntAirTime = 0;
+					const landingBonus = 14 + Math.min( 80, stuntAirTime * 55 );
+					addStuntPoints( landingBonus, 'Landing');
+					stuntAirTime = 0;
 
-			} else {
+				} else {
 
-				stuntAirTime = 0;
+					stuntAirTime = 0;
+
+				}
+
+				if ( activeTrick ) {
+
+					stuntComboTimer = Math.min( 2.4, stuntComboTimer + stepDt * 1.2 );
+					stuntCombo = Math.min( 3.0, stuntCombo + stepDt * 0.35 );
+
+				} else {
+
+					stuntComboTimer = Math.max( 0, stuntComboTimer - stepDt );
+					if ( stuntComboTimer === 0 ) stuntCombo = Math.max( 1, stuntCombo - stepDt * 0.8 );
+
+				}
 
 			}
+			if ( gameMode === 'campaign' && campaignState?.stageType === 'stunt-score' && stuntPoints >= campaignState.goal ) {
 
-			if ( activeTrick ) {
-
-				stuntComboTimer = Math.min( 2.4, stuntComboTimer + stepDt * 1.2 );
-				stuntCombo = Math.min( 3.0, stuntCombo + stepDt * 0.35 );
-
-			} else {
-
-				stuntComboTimer = Math.max( 0, stuntComboTimer - stepDt );
-				if ( stuntComboTimer === 0 ) stuntCombo = Math.max( 1, stuntCombo - stepDt * 0.8 );
+				campaignState.progress = campaignState.goal;
+				saveCampaignState();
+				completeCampaignStage();
+				updateCampaignUi();
+				stuntPoints = 0;
+				stuntReasonText = '--';
+				stuntReasonTimer = 0;
+				resetStuntChain();
 
 			}
+			if ( stuntReasonTimer > 0 ) {
 
-		}
-		if ( gameMode === 'campaign' && campaignState?.stageType === 'stunt-score' && stuntPoints >= campaignState.goal ) {
+				stuntReasonTimer = Math.max( 0, stuntReasonTimer - stepDt );
+				if ( stuntReasonTimer === 0 ) stuntReasonText = '--';
 
-			campaignState.progress = campaignState.goal;
-			saveCampaignState();
-			completeCampaignStage();
-			updateCampaignUi();
-			stuntPoints = 0;
-			stuntReasonText = '--';
-			stuntReasonTimer = 0;
-			resetStuntChain();
+			}
+			hudUpdateAccumulator += stepDt;
+			if ( hudUpdateAccumulator >= 0.08 ) {
 
-		}
-		if ( stuntReasonTimer > 0 ) {
+				hudUpdateAccumulator = 0;
+				updateLapHud();
+				updateLapHud2();
+				updateStuntPointsHud();
+				hudExtras?.update();
+				hudExtras?.setVisible( gameMode === 'race' || gameMode === 'stunt' );
 
-			stuntReasonTimer = Math.max( 0, stuntReasonTimer - stepDt );
-			if ( stuntReasonTimer === 0 ) stuntReasonText = '--';
-
-		}
-		hudUpdateAccumulator += stepDt;
-		if ( hudUpdateAccumulator >= 0.08 ) {
-
-			hudUpdateAccumulator = 0;
-			updateLapHud();
-			updateLapHud2();
-			updateStuntPointsHud();
-			hudExtras?.update();
-			hudExtras?.setVisible( gameMode === 'race' || gameMode === 'stunt' );
-
-		}
+			}
+		} // end non-fast cosmetic block
 
 		return true;
 

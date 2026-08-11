@@ -416,6 +416,54 @@ async function bruteForce() {
 	// bestSteps holds the editable (target-lap) inputs only; the fixed lap-1
 	// prefix is prepended for every eval so start-of-lap speed is preserved.
 	let bestSteps = cloneSteps( editable );
+
+	// In turbo mode on 2-lap tracks, compute the start-of-lap-2 car snapshot
+	// ONCE from the prefix, then eval only the editable lap-2 inputs against it
+	// for every attempt. This skips re-simulating lap 1 each time (~2x fewer
+	// steps) and uses the fast headless sim path — huge speedup.
+	const useSnapshot = turbo && prefixSteps.length > 0 && targetLaps > 1;
+	let prefixSnapshot = null;
+	if ( useSnapshot ) {
+		const snapRes = await callBridge( 'computePrefixSnapshot', prefixSteps );
+		if ( snapRes && snapRes.snapshot ) {
+			prefixSnapshot = snapRes.snapshot;
+			// Baseline = eval the editable lap-2 inputs from the snapshot.
+			let best = await evalFromSnapshot( prefixSnapshot, bestSteps );
+			setStatus( `Baseline: ${ best.dnf ? 'DNF' : formatTime( best.time ) } (${ bestSteps.length } frames) · TURBO · snapshot mode.` );
+			if ( best.dnf ) {
+				setError( 'Baseline run did not finish the target lap (DNF). Fix inputs before brute-forcing.' );
+				setState( 'READY' );
+				return;
+			}
+			const yieldEvery = 25;
+			const statusEvery = 200;
+			let kept = 0;
+			for ( let i = 0; i < reps; i++ ) {
+				if ( state !== 'BRUTEFORCE' ) break;
+				const candidate = cloneSteps( bestSteps );
+				for ( let m = 0; m < 3; m++ ) {
+					const idx = Math.floor( Math.random() * candidate.length );
+					candidate[ idx ].keys = randomKeyMutate( candidate[ idx ].keys );
+				}
+				const res = await evalFromSnapshot( prefixSnapshot, candidate );
+				if ( ! res.dnf && res.time < best.time - 1e-6 ) {
+					bestSteps = candidate;
+					best = res;
+					kept++;
+				} else if ( i % statusEvery === 0 ) {
+					setStatus( `Attempt ${ i + 1 }/${ reps }: best ${ formatTime( best.time ) } (${ kept } kept) · TURBO` );
+				}
+				if ( i % yieldEvery === 0 ) await new Promise( ( r ) => setTimeout( r, 0 ) );
+			}
+			currentSteps = bestSteps;
+			els.inputs.value = serializeSteps( bestSteps );
+			bestT = best;
+			setState( 'READY' );
+			setStatus( `Brute force done: ${ formatTime( best.time ) } (${ kept } improvements over ${ reps } attempts) · TURBO · snapshot mode.` );
+			return;
+		}
+	}
+
 	let best = await evalSteps( [ ...prefixSteps, ...bestSteps ] );
 	setStatus( `Baseline: ${ best.dnf ? 'DNF' : formatTime( best.time ) } (${ bestSteps.length } frames)${ turbo ? ' · TURBO' : '' }.` );
 	if ( best.dnf ) {
@@ -457,6 +505,25 @@ async function bruteForce() {
 	bestT = best;
 	setState( 'READY' );
 	setStatus( `Brute force done: ${ formatTime( best.time ) } (${ kept } improvements over ${ reps } attempts)${ turbo ? ' · TURBO' : '' }.` );
+}
+
+// Call a bridge method directly (sync) and return its result.
+function callBridge( fnName, ...args ) {
+	const b = bridge();
+	if ( b && typeof b[ fnName ] === 'function' ) {
+		try { return Promise.resolve( b[ fnName ]( ...args ) ); } catch ( e ) { setError( `iframe call ${ fnName } failed: ${ e?.message || e }` ); }
+	}
+	return Promise.resolve( undefined );
+}
+
+// Evaluate only the target-lap inputs starting from a snapshotted car state.
+async function evalFromSnapshot( snapshot, lap2Steps ) {
+	const b = bridge();
+	if ( b && typeof b.evalFromSnapshot === 'function' ) {
+		try { return Promise.resolve( b.evalFromSnapshot( snapshot, lap2Steps ) ); } catch ( e ) { return Promise.reject( e ); }
+	}
+	// Fallback: full eval (prefix + lap2) if the bridge lacks the snapshot path.
+	return evalSteps( [ ...prefixSteps, ...lap2Steps ] );
 }
 
 // Evaluate a candidate via the iframe. Prefer direct synchronous eval; fall back
