@@ -558,7 +558,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			const slopeSrc = models[ 'elev-track-slope' ];
 			if ( ! slopeSrc ) continue;
 			const slope = slopeSrc.clone();
-			slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
+			slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET - 5, ( gz + 0.5 ) * CELL_RAW );
 			slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 			slope.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; } } );
 			trackPieceGroup.add( slope );
