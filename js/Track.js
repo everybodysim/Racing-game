@@ -844,21 +844,6 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					treeBlocked.add( bx + ',' + bz );
 				}
 			}
-
-			// Off-grid pieces (fractional coords) straddle cell seams. To
-			// guarantee that no automatically-placed forest tree ever touches an
-			// off-grid track section, also erase a full 1-cell ring AROUND the
-			// piece's footprint. This leaves a hole under/around the off-grid
-			// piece (filled later) but ensures the off-grid part never touches an
-			// on-grid tree decoration.
-			const offGrid = ! Number.isInteger( gx ) || ! Number.isInteger( gz );
-			if ( offGrid ) {
-				for ( let bx = minBlockX - 1; bx <= maxBlockX + 1; bx ++ ) {
-					for ( let bz = minBlockZ - 1; bz <= maxBlockZ + 1; bz ++ ) {
-						treeBlocked.add( bx + ',' + bz );
-					}
-				}
-			}
 		}
 
 		// Track cells + water cells: occupied (skip ground) + tree-blocked
@@ -923,7 +908,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		// tree whose world center falls within OFFGRID_CLEAR cells of an
 		// off-grid piece's world center. This is a distance-based safety net
 		// independent of integer cell keying.
-		const OFFGRID_CLEAR = 3; // cells of clearance around off-grid pieces
+		const OFFGRID_CLEAR = 1; // cells of clearance around off-grid pieces
 		const offGridCenters = [];
 		for ( const [ cgx, cgz ] of cells ) {
 			if ( ! Number.isInteger( Number( cgx ) ) || ! Number.isInteger( Number( cgz ) ) ) {
