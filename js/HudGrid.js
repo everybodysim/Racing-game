@@ -2,30 +2,45 @@
 // Layout = 4 rows of widgets. Players add/remove/reorder widgets and the
 // arrangement is persisted to localStorage and to the cloud profile snapshot.
 
-const HUD_LAYOUT_KEY = 'racing-hud-layout-v1';
-const HUD_NUM_ROWS = 4;
+const HUD_LAYOUT_KEY = 'racing-hud-layout-v2';
+const HUD_NUM_ROWS = 2;
 
 // A widget "type" knows how to render its innerHTML given live game state.
 // `state` is refreshed every frame by updateHudGrid() from main.js globals.
 const HUD_WIDGETS = {
-	lap:       { label: 'Lap',       cls: 'hw-lap',        render: s => `<span class="hw-label">Lap</span><span class="hw-value">${ s.lapNumber }</span>` },
-	time:      { label: 'Time',      cls: 'hw-time',       render: s => `<span class="hw-label">Time</span><span class="hw-value">${ s.lapTime }</span>` },
-	last:      { label: 'Last Lap',  cls: 'hw-last',       render: s => `<span class="hw-label">Last</span><span class="hw-value">${ s.lastLap }</span>` },
-	best:      { label: 'Best Lap',  cls: 'hw-best',       render: s => `<span class="hw-label">Best</span><span class="hw-value">${ s.bestLap }</span>` },
-	checkpoints:{ label: 'Checkpoints', cls: 'hw-checkpoints', render: s => `<span class="hw-label">Checkpoints</span><span class="hw-value">${ s.checkpoints }</span>` },
-	speed:     { label: 'Speed',     cls: 'hw-speed',      render: s => `<span class="hw-label">Speed</span><span class="hw-value">${ s.speed }</span>` },
-	fps:       { label: 'FPS',       cls: 'hw-fps',        render: s => `<span class="hw-label">FPS</span><span class="hw-value">${ s.fps }</span>` },
-	controls:  { label: 'Controls',  cls: 'hw-controls',   render: s => `<span class="hw-label">Controls</span><span class="hw-sub">${ s.controls }</span>` },
-	p2:        { label: 'Player 2',  cls: 'hw-p2',         render: s => `<span class="hw-label">P2</span><span class="hw-value">${ s.p2Lap }</span><span class="hw-sub">${ s.p2Time }</span>` },
+	lap:        { label: 'Lap',         cls: 'hw-lap',        render: s => `<span class="hw-label">Lap</span><span class="hw-value">${ s.lapNumber }</span>` },
+	time:       { label: 'Time',        cls: 'hw-time',       render: s => `<span class="hw-label">Time</span><span class="hw-value">${ s.lapTime }</span>` },
+	last:       { label: 'Last Lap',     cls: 'hw-last',       render: s => `<span class="hw-label">Last</span><span class="hw-value">${ s.lastLap }</span>` },
+	best:       { label: 'Best Lap',     cls: 'hw-best',       render: s => `<span class="hw-label">Best</span><span class="hw-value">${ s.bestLap }</span>` },
+	checkpoints:{ label: 'Checkpoints',  cls: 'hw-checkpoints',render: s => `<span class="hw-label">Checkpoints</span><span class="hw-value">${ s.checkpoints }</span>` },
+	speed:      { label: 'Speed',        cls: 'hw-speed',      render: s => `<span class="hw-label">Speed</span><span class="hw-value">${ s.speed }</span><span class="hw-sub">km/h</span>` },
+	fps:        { label: 'FPS',          cls: 'hw-fps',        render: s => `<span class="hw-label">FPS</span><span class="hw-value">${ s.fps }</span>` },
+	controls:   { label: 'Controls',     cls: 'hw-controls',   render: s => `<span class="hw-label">Controls</span><span class="hw-sub">${ s.controls || '—' }</span>` },
+	p2:         { label: 'Player 2',     cls: 'hw-p2',         render: s => `<span class="hw-label">P2</span><span class="hw-value">${ s.p2Lap }</span><span class="hw-sub">${ s.p2Time }</span>` },
+	coins:      { label: 'Coins',        cls: 'hw-coins',      render: s => `<span class="hw-label">Coins</span><span class="hw-value">${ s.coins }</span>` },
+	name:       { label: 'Player Name',  cls: 'hw-name',       render: s => `<span class="hw-label">Player</span><span class="hw-value">${ s.name || '—' }</span>` },
+	boost:      { label: 'Boost',         cls: 'hw-boost',      render: s => `<span class="hw-label">Boost</span><span class="hw-value">${ s.boost }</span>` },
+	stunt:      { label: 'Stunt Points',  cls: 'hw-stunt',      render: s => `<span class="hw-label">Stunt</span><span class="hw-value">${ s.stuntPoints }</span>` },
+	stuntCombo: { label: 'Stunt Combo',   cls: 'hw-stunt',      render: s => `<span class="hw-label">Combo</span><span class="hw-value">x${ s.stuntCombo }</span>` },
+	stuntBest:  { label: 'Best Stunt',    cls: 'hw-stunt',      render: s => `<span class="hw-label">Best Stunt</span><span class="hw-value">${ s.stuntBest }</span>` },
+	posX:       { label: 'Position X',    cls: 'hw-pos',        render: s => `<span class="hw-label">Pos X</span><span class="hw-value">${ s.posX }</span>` },
+	posY:       { label: 'Position Y',    cls: 'hw-pos',        render: s => `<span class="hw-label">Pos Y</span><span class="hw-value">${ s.posY }</span>` },
+	posZ:       { label: 'Position Z',    cls: 'hw-pos',        render: s => `<span class="hw-label">Pos Z</span><span class="hw-value">${ s.posZ }</span>` },
 };
 
-const HUD_DEFAULT_LAYOUT = [ [ 'lap', 'time', 'last', 'best', 'checkpoints' ], [], [], [] ];
+// Default layout spread across 2 rows.
+const HUD_DEFAULT_LAYOUT = [
+	[ 'lap', 'time', 'last', 'best', 'checkpoints' ],
+	[ 'speed', 'fps', 'coins', 'boost' ],
+];
 
 let hudLayout = loadHudLayout();
 let hudEditing = false;
 let hudState = {
 	lapNumber: 1, lapTime: '00:00.000', lastLap: '--:--.---', bestLap: '--:--.---',
 	checkpoints: '0 / 0', speed: '0', fps: '--', controls: '', p2Lap: 'Lap 1', p2Time: '00:00.000',
+	coins: '0', name: '', boost: '0%', stuntPoints: '0', stuntCombo: '1.00', stuntBest: '0',
+	posX: '0', posY: '0', posZ: '0',
 };
 
 // kept in sync so main.js's existing references still work

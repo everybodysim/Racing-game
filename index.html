@@ -488,6 +488,11 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		.hud-widget.hw-fps .hw-value { color: #c9b6ff; }
 		.hud-widget.hw-controls .hw-sub { color: #ffd76b; }
 		.hud-widget.hw-p2 .hw-value { color: #ff9ed0; }
+		.hud-widget.hw-coins .hw-value { color: #ffd76b; }
+		.hud-widget.hw-name .hw-value { color: #8fd7ff; }
+		.hud-widget.hw-boost .hw-value { color: #ff8a4d; }
+		.hud-widget.hw-stunt .hw-value { color: #ff7ee0; }
+		.hud-widget.hw-pos .hw-value { color: #9ad0a8; font-variant-numeric: tabular-nums; font-size: 15px; }
 		.hud-widget.dragging { opacity: .45; }
 		.hud-widget.drag-over { box-shadow: 0 0 0 2px #53d4ff, 0 6px 16px rgba(0,0,0,0.28); }
 		.hud-widget .hw-remove {
@@ -2171,13 +2176,9 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<button id="hud-edit-toggle" type="button" title="Customize HUD" aria-label="Customize HUD">✎</button>
 			<div class="hud-row" data-row="0"></div>
 			<div class="hud-row" data-row="1"></div>
-			<div class="hud-row" data-row="2"></div>
-			<div class="hud-row" data-row="3"></div>
 			<button id="hud-add-btn" type="button" title="Add widget" aria-label="Add widget">+</button>
 		</div>
 		<div id="hud-add-menu" role="menu"></div>
-		<div id="lap-hud" style="display:none" aria-hidden="true"></div>
-		<div id="lap-hud-2" style="display:none" aria-hidden="true"></div>
 		<div id="countdown-hud" aria-live="polite"></div>
 		<div id="fps-hud" aria-hidden="true">FPS: --</div>
 		<div id="pause-panel" role="status" aria-live="polite" aria-hidden="true">
@@ -3018,8 +3019,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
-	         <script src="js/HudGrid.js?v=999972&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=999972&cachebust=1"></script>
+	         <script src="js/HudGrid.js?v=999973&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=999973&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
