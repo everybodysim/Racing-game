@@ -914,13 +914,11 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const emptyPositions = [];
 		const forestPositions = [];
 
-		// World-space clearance for off-grid pieces. In addition to the
-		// cell-based treeBlocked set, suppress any forest tree whose world
-		// center falls within OFFGRID_CLEAR cells of an off-grid piece's
-		// world center. This is a fundamentally distance-based safety net that
-		// does not depend on integer cell keying, so it catches trees that the
-		// cell-ring logic might miss due to float/edge effects.
-		const OFFGRID_CLEAR = 1.5; // cells (piece footprint is 1 cell → 0.5 + 1.0 ring)
+		// World-space clearance for off-grid pieces. Suppress any forest
+		// tree whose world center falls within OFFGRID_CLEAR cells of an
+		// off-grid piece's world center. This is a distance-based safety net
+		// independent of integer cell keying.
+		const OFFGRID_CLEAR = 2; // cells of clearance around off-grid pieces
 		const offGridCenters = [];
 		for ( const [ cgx, cgz ] of cells ) {
 			if ( ! Number.isInteger( Number( cgx ) ) || ! Number.isInteger( Number( cgz ) ) ) {
@@ -984,6 +982,27 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
+		// Final hard guarantee: strip any forest tree whose position is
+		// within OFFGRID_CLEAR of an off-grid piece, moving it to empty.
+		// Runs after all other placement logic so it cannot be defeated by
+		// earlier cell-keying edge cases.
+		if ( offGridCenters.length > 0 && forestPositions.length > 0 ) {
+			const keptForest = [];
+			for ( let i = 0; i < forestPositions.length; i += 2 ) {
+				const fx = forestPositions[ i ];
+				const fz = forestPositions[ i + 1 ];
+				const cgx = fx / CELL_RAW - 0.5;
+				const cgz = fz / CELL_RAW - 0.5;
+				if ( nearOffGridPiece( cgx, cgz ) ) {
+					emptyPositions.push( fx, fz );
+				} else {
+					keptForest.push( fx, fz );
+				}
+			}
+			forestPositions.length = 0;
+			forestPositions.push( ...keptForest );
+		}
+
 		function createInstances( src, positions ) {
 
 			if ( positions.length === 0 || ! src ) return;
@@ -1014,6 +1033,20 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		createInstances( models[ 'decoration-empty' ], emptyPositions );
 		createInstances( models[ 'decoration-forest' ], forestPositions );
+
+		if ( typeof window !== 'undefined' ) {
+			window.__TREE_DEBUG = {
+				cells: cells.map( c => [ c[ 0 ], c[ 1 ], c[ 2 ] ] ),
+				treeBlocked: [ ...treeBlocked ].sort(),
+				forestCount: forestPositions.length / 2,
+				emptyCount: emptyPositions.length / 2,
+				forestPositions,
+				offGridCenters,
+			};
+			try {
+				document.title = 'TDBG|tb=' + treeBlocked.size + '|f=' + ( forestPositions.length / 2 ) + '|og=' + offGridCenters.length;
+			} catch {}
+		}
 
 	}
 

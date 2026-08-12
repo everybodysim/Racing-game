@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Tree Isolation Test</title>
+<script type="importmap">
+{ "imports": { "three": "./js/three.local.js" } }
+</script>
+</head>
+<body>
+<pre id="out">running...</pre>
+<script type="module">
+import * as THREE from './js/three.local.js';
+import { buildTrack } from './js/Track.js?v=999978';
+
+const out = document.getElementById('out');
+function log(s){ out.textContent += '\n' + s; }
+
+// Mock models: empty groups (no meshes) so createInstances is a no-op,
+// but the decoration loop still computes forestPositions/emptyPositions.
+function mockModel(){ const g = new THREE.Group(); return g; }
+const models = {};
+['track-straight','track-corner','track-start-finish','track-finish',
+ 'decoration-empty','decoration-forest','decoration-tents'].forEach(k=>{ models[k]=mockModel(); });
+
+const mapParam = 'v2.eyJ2IjoyLCJjZWxscyI6W1swLDEsInRyYWNrLXN0YXJ0LWZpbmlzaCIsMF0sWzAuMjUsMiwidHJhY2stc3RyYWlnaHQiLDBdLFstMC41LDMuMjUsInRyYWNrLXN0cmFpZ2h0IiwwXSxbLTEuNSw0LCJ0cmFjay1zdHJhaWdodCIsMF0sWzAsMy43NSwidHJhY2stY29ybmVyIiwwXSxbMS43NSwyLjUsInRyYWNrLWNvcm5lciIsMF0sWzQuNSw0LCJ0cmFjay1jb3JuZXIiLDBdXX0';
+
+function decodeCells(str){
+  const raw = str.slice(3).replace(/-/g,'+').replace(/_/g,'/');
+  const padded = raw + '==='.slice((raw.length+3)%4);
+  const payload = decodeURIComponent(escape(atob(padded)));
+  const parsed = JSON.parse(payload);
+  const entries = Array.isArray(parsed?.cells)?parsed.cells:[];
+  return entries.filter(c=>Array.isArray(c)&&c.length>=4).map(([gx,gz,name,orient])=>[Number(gx),Number(gz),name,orient]);
+}
+
+const cells = decodeCells(mapParam);
+log('cells:'); cells.forEach(c=>log('  '+JSON.stringify(c)));
+
+const scene = new THREE.Scene();
+try {
+  const trackGroup = buildTrack(scene, models, cells, null);
+  log('buildTrack returned, trackGroup children: ' + trackGroup.children.length);
+} catch(e){
+  log('BUILDTRACK THREW: ' + e.message + '\n' + e.stack);
+}
+
+log('window.__TREE_DEBUG: ' + JSON.stringify(window.__TREE_DEBUG || 'none'));
+</script>
+</body>
+</html>
