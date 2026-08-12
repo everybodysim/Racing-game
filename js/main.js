@@ -3872,6 +3872,8 @@ async function init() {
 		if ( stuntPointsHud ) stuntPointsHud.style.display = inStunt ? 'block' : 'none';
 		if ( lapHud ) lapHud.style.display = 'block';
 		if ( lapHud2 ) lapHud2.style.display = isSplitScreen ? 'block' : 'none';
+		const hudGridEl = document.getElementById( 'hud-grid' );
+		if ( hudGridEl ) hudGridEl.style.display = 'flex';
 		if ( economyHud && ! isSplitScreen ) economyHud.style.display = 'block';
 		if ( exportGhostBtn ) exportGhostBtn.style.display = ! isSplitScreen ? 'block' : 'none';
 			if ( importGhostBtn ) importGhostBtn.style.display = ! isSplitScreen ? 'block' : 'none';
@@ -5634,6 +5636,7 @@ function completeCampaignStage() {
 			garage: { mods: garageMods, unlocked: garageUnlocked, cosmetics: garageCosmetics },
 			campaign: campaignState,
 			carKey: currentCarKey(),
+			hud: window.__hudGrid ? window.__hudGrid.getLayoutSnapshot() : undefined,
 		};
 
 	}
@@ -5728,6 +5731,7 @@ function completeCampaignStage() {
 		updateGarageUi();
 		applyCarCustomization( vehicle );
 		updateCampaignUi();
+		if ( parsed?.hud && window.__hudGrid ) window.__hudGrid.applyLayoutSnapshot( parsed.hud );
 		return true;
 
 	}
@@ -6879,6 +6883,19 @@ function completeCampaignStage() {
 		const invalidLine = currentLapInvalidatedByPause ? '<br><small>Paused: leaderboard invalid</small>' : '';
 		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ checkpointDeltaLine }${ invalidLine }${ controlsLine }`;
 
+		// mirror into the customizable HUD grid
+		if ( window.__hudGrid ) {
+			window.__hudGrid.setState( {
+				lapNumber,
+				lapTime: formatLapTime( lapSeconds ),
+				lastLap: formatLapTime( lastLapSeconds ),
+				bestLap: formatLapTime( bestLapSeconds ),
+				checkpoints: totalCheckpoints > 0 ? `${ passedCheckpoints } / ${ totalCheckpoints }` : '—',
+				controls: controlsHints.join( ' • ' ),
+			} );
+			window.__hudGrid.update();
+		}
+
 	}
 
 	function updateLapHud2() {
@@ -6890,6 +6907,14 @@ function completeCampaignStage() {
 			? `<br><small>Checkpoints: ${ passedCheckpoints } / ${ totalCheckpoints }</small>`
 			: '';
 		lapHud2.innerHTML = `P2 • Lap ${ lapNumber2 } • ${ formatLapTime( lapSeconds2 ) }<br><small>Last: ${ formatLapTime( lastLapSeconds2 ) } • Best: ${ formatLapTime( bestLapSeconds2 ) }</small>${ checkpointLine }<br><small>Keys: Arrows • Respawn: P</small>`;
+
+		if ( window.__hudGrid ) {
+			window.__hudGrid.setState( {
+				p2Lap: `Lap ${ lapNumber2 }`,
+				p2Time: formatLapTime( lapSeconds2 ),
+			} );
+			window.__hudGrid.update();
+		}
 
 	}
 
@@ -7351,6 +7376,16 @@ function completeCampaignStage() {
 		if ( fpsHudAccumulator < 0.18 ) return;
 		fpsHudAccumulator = 0;
 		fpsHud.textContent = `FPS: ${ Math.round( rollingFps ) }`;
+
+		// feed fps into the customizable HUD grid
+		if ( window.__hudGrid ) {
+			let spd = 0;
+			if ( vehicle?.rigidBody?.motionProperties ) {
+				const v = vehicle.rigidBody.motionProperties.linearVelocity;
+				spd = Math.sqrt( v[ 0 ] * v[ 0 ] + v[ 2 ] * v[ 2 ] );
+			}
+			window.__hudGrid.setState( { speed: String( Math.round( spd * 3.6 ) ), fps: String( Math.round( rollingFps ) ) } );
+		}
 
 	}
 
