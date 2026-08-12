@@ -38,43 +38,31 @@
   <input id="mod-name" placeholder="mod name" value="Custom Speed">
   <button id="export-xml" type="button">Export XML</button>
   <button id="import-xml" type="button">Import XML</button>
+  <button id="export-template" type="button">Generate JS Template</button>
   <button id="save-draft" type="button">Save Draft</button>
   <button id="load-draft" type="button">Load Draft</button>
   <button id="export-share" type="button">Copy Share URL</button>
   <button id="save-to-manager" type="button">Save to Mod Manager</button>
-  <button id="export-template" type="button">Generate JS Template</button>
   <a href="mods.html">← Back</a>
   <span id="status">Ready</span>
 </div>
 <div id="blocklyDiv"></div>
-<textarea id="xmlBox" placeholder="Exported XML / share URL appears here. Paste Blockly XML or a share URL here to import."></textarea>
+<textarea id="xmlBox" placeholder="Exported XML / generated template appears here..."></textarea>
 
 <xml id="toolbox" style="display:none">
   <category name="Events" colour="#f59e0b">
     <block type="event_on_start"></block>
     <block type="event_on_tick"></block>
     <block type="event_on_key"></block>
-    <block type="event_on_key_hold"></block>
     <block type="event_on_checkpoint"></block>
     <block type="event_on_crash"></block>
     <block type="event_on_lap_finish"></block>
     <block type="event_on_respawn"></block>
     <block type="event_on_timer_done"></block>
-    <block type="event_on_speed_threshold"></block>
-    <block type="event_on_low_speed"></block>
-    <block type="event_on_air"></block>
-    <block type="event_on_ground"></block>
-    <block type="event_on_drift"></block>
   </category>
   <category name="Vehicle" colour="#06b6d4">
     <block type="action_set_speed"></block>
     <block type="action_boost"></block>
-    <block type="action_set_top_speed"></block>
-    <block type="action_set_accel_rate"></block>
-    <block type="action_set_brake_rate"></block>
-    <block type="action_set_drive_force"></block>
-    <block type="action_set_drag"></block>
-    <block type="action_set_reverse_accel"></block>
     <block type="action_set_gravity"></block>
     <block type="action_set_time_scale"></block>
     <block type="action_set_accel_mult"></block>
@@ -85,123 +73,37 @@
     <block type="action_disable_steering"></block>
     <block type="action_jump"></block>
     <block type="action_reset_car"></block>
-    <block type="action_teleport"></block>
-    <block type="action_apply_impulse"></block>
-    <block type="action_angular_impulse"></block>
-    <block type="action_set_vehicle_spin"></block>
-    <block type="action_set_vehicle_scale"></block>
-    <block type="action_set_vehicle_visible"></block>
-    <block type="action_set_drift"></block>
-    <block type="action_set_vehicle_model"></block>
   </category>
-  <category name="Camera" colour="#8b5cf6">
-    <block type="action_camera_shake"></block>
-    <block type="action_set_camera_fov"></block>
-    <block type="action_set_camera_mode"></block>
-  </category>
-  <category name="FX / Visuals" colour="#0ea5e9">
+  <category name="FX" colour="#0ea5e9">
     <block type="action_show_message"></block>
     <block type="action_spawn_particle"></block>
-    <block type="action_spawn_particle_burst"></block>
-    <block type="action_set_particle_color"></block>
-    <block type="action_flash_screen"></block>
+    <block type="action_camera_shake"></block>
     <block type="action_set_fog_strength"></block>
-    <block type="action_set_fog_density"></block>
-    <block type="action_set_fog_color"></block>
-    <block type="action_set_background_color"></block>
-    <block type="action_set_sky_color"></block>
-    <block type="action_set_horizon_color"></block>
-    <block type="action_set_sky_vibrance"></block>
-    <block type="action_set_sky_palette"></block>
-    <block type="action_set_sun_intensity"></block>
-    <block type="action_set_hemi_intensity"></block>
-    <block type="action_set_exposure"></block>
-    <block type="action_set_pixel_ratio"></block>
-    <block type="action_set_shadows"></block>
-  </category>
-  <category name="Audio" colour="#f43f5e">
-    <block type="action_set_engine_volume"></block>
-    <block type="action_set_music_volume"></block>
-    <block type="action_play_impact"></block>
-  </category>
-  <category name="HUD & Game" colour="#eab308">
-    <block type="action_set_hud_text"></block>
-    <block type="action_set_effect_message"></block>
-    <block type="action_set_fps_counter"></block>
-    <block type="action_add_stunt_points"></block>
-    <block type="action_add_stunt_points_reason"></block>
-    <block type="action_add_coins"></block>
   </category>
   <category name="Timers & Flow" colour="#14b8a6">
     <block type="action_start_timer"></block>
-    <block type="action_start_named_timer"></block>
     <block type="action_wait"></block>
     <block type="action_random_delay"></block>
-    <block type="action_repeat"></block>
-    <block type="action_loop_forever"></block>
   </category>
   <category name="Variables" colour="#22c55e">
     <block type="action_var_set"></block>
     <block type="action_var_add"></block>
-    <block type="action_var_set_text"></block>
     <block type="value_var_get"></block>
-    <block type="value_text_var_get"></block>
-  </category>
-  <category name="Values" colour="#22c55e">
     <block type="value_speed"></block>
     <block type="value_lap_time"></block>
-    <block type="value_race_time"></block>
     <block type="value_checkpoint_number"></block>
     <block type="value_crash_force"></block>
     <block type="value_random"></block>
-    <block type="value_coins"></block>
-    <block type="value_lap_number"></block>
-    <block type="value_best_lap"></block>
-    <block type="value_last_lap"></block>
-    <block type="value_stunt_points"></block>
-    <block type="value_stunt_combo"></block>
-    <block type="value_drift"></block>
-    <block type="value_angular_speed"></block>
-    <block type="value_top_speed"></block>
-    <block type="value_accel_rate"></block>
-    <block type="value_drive_force"></block>
-    <block type="value_grip_mult"></block>
-    <block type="value_pos_x"></block>
-    <block type="value_pos_y"></block>
-    <block type="value_pos_z"></block>
-    <block type="value_game_mode"></block>
+    <block type="math_number"></block>
+    <block type="math_arithmetic"></block>
   </category>
   <category name="Logic" colour="#3b82f6">
     <block type="controls_if"></block>
-    <block type="controls_if_else"></block>
     <block type="logic_compare"></block>
     <block type="logic_operation"></block>
-    <block type="logic_negate"></block>
-    <block type="logic_is_airborne"></block>
-    <block type="logic_is_drifting"></block>
-    <block type="logic_key_down"></block>
-    <block type="value_true"></block>
-    <block type="value_false"></block>
-  </category>
-  <category name="Math" colour="#6366f1">
-    <block type="math_number"></block>
-    <block type="math_arithmetic"></block>
-    <block type="math_single"></block>
-    <block type="math_clamp"></block>
-    <block type="math_min_max"></block>
-    <block type="math_pi"></block>
-    <block type="math_deg_to_rad"></block>
-    <block type="math_rad_to_deg"></block>
   </category>
   <category name="Text" colour="#a855f7">
     <block type="text"></block>
-    <block type="text_join"></block>
-    <block type="text_to_string"></block>
-    <block type="text_round_num"></block>
-  </category>
-  <category name="Lists" colour="#ec4899">
-    <block type="lists_create"></block>
-    <block type="lists_length"></block>
   </category>
 </xml>
 

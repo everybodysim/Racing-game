@@ -31,6 +31,7 @@ export class SmokeTrails {
 
 		this.emitIndex = 0;
 		this.boostFxTime = 0;
+		this.customColor = null;
 
 	}
 
@@ -157,7 +158,7 @@ export class SmokeTrails {
 		p.sprite.material.opacity = 0;
 		const particleColor = boostActive
 			? BOOST_PARTICLE_COLORS[ Math.random() < 0.5 ? 0 : 1 ]
-			: DEFAULT_PARTICLE_COLOR;
+			: ( this.customColor || DEFAULT_PARTICLE_COLOR );
 		p.sprite.material.color.copy( particleColor );
 
 		const speedRatio = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed || 0 ) / Math.max( 0.01, vehicle.topSpeed || 1 ), 0, 1.7 );
