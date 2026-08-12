@@ -194,6 +194,45 @@ Blockly.Blocks.text_round_num = { init() { this.appendValueInput( 'VALUE' ).setC
 Blockly.Blocks.lists_create = { init() { this.appendDummyInput().appendField( 'create list' ); this.setOutput( true, 'Array' ); this.setColour( LIST ); } };
 Blockly.Blocks.lists_length = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( 'length of' ); this.setOutput( true, 'Number' ); this.setColour( LIST ); } };
 
+// ============ UI BUILDER (sandboxed overlay) ============
+const UI_COLOR = '#f97316';
+Blockly.Blocks.ui_create_panel = { init() { this.appendValueInput( 'X' ).setCheck( 'Number' ).appendField( 'create panel at X' ); this.appendValueInput( 'Y' ).setCheck( 'Number' ).appendField( 'Y' ); this.appendValueInput( 'TITLE' ).setCheck( 'String' ).appendField( 'title' ); this.appendDummyInput().appendField( 'store as' ).appendField( new Blockly.FieldTextInput( 'panel' ), 'NAME' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_create_button = { init() { this.appendValueInput( 'LABEL' ).setCheck( 'String' ).appendField( 'create button labelled' ); this.appendDummyInput().appendField( 'store as' ).appendField( new Blockly.FieldTextInput( 'btn' ), 'NAME' ); this.appendStatementInput( 'DO' ).appendField( 'on click' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_create_label = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'create label' ); this.appendDummyInput().appendField( 'store as' ).appendField( new Blockly.FieldTextInput( 'lbl' ), 'NAME' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_create_slider = { init() { this.appendValueInput( 'LABEL' ).setCheck( 'String' ).appendField( 'create slider labelled' ); this.appendValueInput( 'MIN' ).setCheck( 'Number' ).appendField( 'min' ); this.appendValueInput( 'MAX' ).setCheck( 'Number' ).appendField( 'max' ); this.appendValueInput( 'VALUE' ).setCheck( 'Number' ).appendField( 'start' ); this.appendDummyInput().appendField( 'store value in' ).appendField( new Blockly.FieldTextInput( 'sliderVal' ), 'NAME' ); this.appendStatementInput( 'DO' ).appendField( 'on change' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_set_text = { init() { this.appendDummyInput().appendField( 'set text of' ).appendField( new Blockly.FieldTextInput( 'lbl' ), 'NAME' ); this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'to' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_set_style = { init() { this.appendDummyInput().appendField( 'set style of' ).appendField( new Blockly.FieldTextInput( 'lbl' ), 'NAME' ); this.appendValueInput( 'PROP' ).setCheck( 'String' ).appendField( 'property' ); this.appendValueInput( 'VALUE' ).setCheck( 'String' ).appendField( 'to' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_append = { init() { this.appendDummyInput().appendField( 'put' ).appendField( new Blockly.FieldTextInput( 'btn' ), 'CHILD' ).appendField( 'inside' ).appendField( new Blockly.FieldTextInput( 'panel' ), 'PARENT' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_remove = { init() { this.appendDummyInput().appendField( 'remove element' ).appendField( new Blockly.FieldTextInput( 'lbl' ), 'NAME' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_clear = { init() { this.appendDummyInput().appendField( 'clear all mod UI' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_show = { init() { this.appendDummyInput().appendField( 'show element' ).appendField( new Blockly.FieldTextInput( 'panel' ), 'NAME' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_hide = { init() { this.appendDummyInput().appendField( 'hide element' ).appendField( new Blockly.FieldTextInput( 'panel' ), 'NAME' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.value_ui_element_text = { init() { this.appendDummyInput().appendField( 'text of element' ).appendField( new Blockly.FieldTextInput( 'lbl' ), 'NAME' ); this.setOutput( true, 'String' ); this.setColour( UI_COLOR ); } };
+
+// ============ STORAGE (namespaced, capped) ============
+const STO_COLOR = '#84cc16';
+Blockly.Blocks.storage_set = { init() { this.appendValueInput( 'KEY' ).setCheck( 'String' ).appendField( 'store' ); this.appendValueInput( 'VALUE' ).appendField( 'value under key' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( STO_COLOR ); } };
+Blockly.Blocks.storage_set_num = { init() { this.appendValueInput( 'KEY' ).setCheck( 'String' ).appendField( 'store number' ); this.appendValueInput( 'VALUE' ).setCheck( 'Number' ).appendField( 'under key' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( STO_COLOR ); } };
+Blockly.Blocks.storage_get = { init() { this.appendValueInput( 'KEY' ).setCheck( 'String' ).appendField( 'get value under key' ); this.appendValueInput( 'DEFAULT' ).appendField( 'or default' ); this.setOutput( true, null ); this.setColour( STO_COLOR ); } };
+Blockly.Blocks.storage_remove = { init() { this.appendValueInput( 'KEY' ).setCheck( 'String' ).appendField( 'delete key' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( STO_COLOR ); } };
+Blockly.Blocks.storage_clear = { init() { this.appendDummyInput().appendField( 'clear all stored mod data' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( STO_COLOR ); } };
+Blockly.Blocks.storage_has = { init() { this.appendValueInput( 'KEY' ).setCheck( 'String' ).appendField( 'has key' ); this.setOutput( true, 'Boolean' ); this.setColour( STO_COLOR ); } };
+
+// ============ GAME CONTROL (safe) ============
+Blockly.Blocks.action_respawn = { init() { this.appendDummyInput().appendField( 'trigger respawn' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( FLOW ); } };
+Blockly.Blocks.action_pause = { init() { this.appendDummyInput().appendField( 'pause game' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( FLOW ); } };
+Blockly.Blocks.action_resume = { init() { this.appendDummyInput().appendField( 'resume game' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( FLOW ); } };
+Blockly.Blocks.value_is_paused = { init() { this.appendDummyInput().appendField( 'is paused' ); this.setOutput( true, 'Boolean' ); this.setColour( LOGIC ); } };
+Blockly.Blocks.value_fps = { init() { this.appendDummyInput().appendField( 'FPS' ); this.setOutput( true, 'Number' ); this.setColour( VAR ); } };
+Blockly.Blocks.value_dt = { init() { this.appendDummyInput().appendField( 'frame delta time' ); this.setOutput( true, 'Number' ); this.setColour( VAR ); } };
+
+// ============ STRING / COLOR VALUES ============
+Blockly.Blocks.value_color = { init() { this.appendDummyInput().appendField( 'color' ).appendField( new Blockly.FieldColour( '#ff4b1f' ), 'COLOR' ); this.setOutput( true, 'String' ); this.setColour( FX ); } };
+Blockly.Blocks.text_length = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'length of text' ); this.setOutput( true, 'Number' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_contains = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'text' ); this.appendValueInput( 'SUB' ).setCheck( 'String' ).appendField( 'contains' ); this.setInputsInline( true ); this.setOutput( true, 'Boolean' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_upper = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'uppercase' ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_lower = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'lowercase' ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+
 // Register built-in Blockly blocks that may be missing in the min build.
 if ( ! Blockly.Blocks.math_number ) Blockly.Blocks.math_number = { init() { this.appendDummyInput().appendField( new Blockly.FieldNumber( 0 ), 'NUM' ); this.setOutput( true, 'Number' ); this.setColour( MATH ); } };
 
@@ -251,6 +290,18 @@ function parseValueBlock( block ) {
 	if ( type === 'logic_key_down' ) return { kind: 'keydown', key: block.getFieldValue( 'KEY' ) };
 	if ( type === 'value_true' ) return { kind: 'const', value: true };
 	if ( type === 'value_false' ) return { kind: 'const', value: false };
+	// New value getters
+	if ( type === 'value_color' ) return { kind: 'const', value: block.getFieldValue( 'COLOR' ) || '#ff4b1f' };
+	if ( type === 'value_ui_element_text' ) return { kind: 'element_text', name: safeId( block.getFieldValue( 'NAME' ) || 'lbl' ) };
+	if ( type === 'storage_get' ) return { kind: 'storage_get', key: parseValueBlock( block.getInputTargetBlock( 'KEY' ) ) ?? '', fallback: parseValueBlock( block.getInputTargetBlock( 'DEFAULT' ) ) };
+	if ( type === 'storage_has' ) return { kind: 'storage_has', key: parseValueBlock( block.getInputTargetBlock( 'KEY' ) ) ?? '' };
+	if ( type === 'value_is_paused' ) return { kind: 'runtime', name: 'isPaused' };
+	if ( type === 'value_fps' ) return { kind: 'runtime', name: 'fps' };
+	if ( type === 'value_dt' ) return { kind: 'runtime', name: 'dt' };
+	if ( type === 'text_length' ) return { kind: 'text_length', value: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '' };
+	if ( type === 'text_contains' ) return { kind: 'text_contains', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', sub: parseValueBlock( block.getInputTargetBlock( 'SUB' ) ) ?? '' };
+	if ( type === 'text_upper' ) return { kind: 'text_case', value: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', upper: true };
+	if ( type === 'text_lower' ) return { kind: 'text_case', value: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', upper: false };
 	return null;
 }
 
@@ -337,6 +388,27 @@ function parseActionStatement( block ) {
 	// Conditionals (controls_if / controls_if_else)
 	if ( type === 'controls_if' ) return { type: 'if', cond: parseValueBlock( block.getInputTargetBlock( 'IF0' ) ), body: parseStatementChain( block.getInputTargetBlock( 'DO0' ) ) };
 	if ( type === 'controls_if_else' ) return { type: 'ifelse', cond: parseValueBlock( block.getInputTargetBlock( 'IF0' ) ), body: parseStatementChain( block.getInputTargetBlock( 'DO0' ) ), elseBody: parseStatementChain( block.getInputTargetBlock( 'ELSE' ) ) };
+	// UI builder
+	if ( type === 'ui_create_panel' ) return { type: 'ui_panel', x: v( 'X', 12 ), y: v( 'Y', 12 ), title: v( 'TITLE', '' ), name: safeId( field( 'NAME', 'panel' ) ) };
+	if ( type === 'ui_create_button' ) return { type: 'ui_button', label: v( 'LABEL', 'Button' ), name: safeId( field( 'NAME', 'btn' ) ), body: parseStatementChain( block.getInputTargetBlock( 'DO' ) ) };
+	if ( type === 'ui_create_label' ) return { type: 'ui_label', text: v( 'TEXT', '' ), name: safeId( field( 'NAME', 'lbl' ) ) };
+	if ( type === 'ui_create_slider' ) return { type: 'ui_slider', label: v( 'LABEL', '' ), min: v( 'MIN', 0 ), max: v( 'MAX', 100 ), value: v( 'VALUE', 50 ), name: safeId( field( 'NAME', 'sliderVal' ) ), body: parseStatementChain( block.getInputTargetBlock( 'DO' ) ) };
+	if ( type === 'ui_set_text' ) return { type: 'ui_set_text', name: safeId( field( 'NAME', 'lbl' ) ), text: v( 'TEXT', '' ) };
+	if ( type === 'ui_set_style' ) return { type: 'ui_set_style', name: safeId( field( 'NAME', 'lbl' ) ), prop: v( 'PROP', '' ), value: v( 'VALUE', '' ) };
+	if ( type === 'ui_append' ) return { type: 'ui_append', child: safeId( field( 'CHILD', 'btn' ) ), parent: safeId( field( 'PARENT', 'panel' ) ) };
+	if ( type === 'ui_remove' ) return { type: 'ui_remove', name: safeId( field( 'NAME', 'lbl' ) ) };
+	if ( type === 'ui_clear' ) return { type: 'ui_clear' };
+	if ( type === 'ui_show' ) return { type: 'ui_show', name: safeId( field( 'NAME', 'panel' ) ) };
+	if ( type === 'ui_hide' ) return { type: 'ui_hide', name: safeId( field( 'NAME', 'panel' ) ) };
+	// Storage
+	if ( type === 'storage_set' ) return { type: 'storage_set', key: v( 'KEY', '' ), value: v( 'VALUE', null ) };
+	if ( type === 'storage_set_num' ) return { type: 'storage_set', key: v( 'KEY', '' ), value: v( 'VALUE', 0 ) };
+	if ( type === 'storage_remove' ) return { type: 'storage_remove', key: v( 'KEY', '' ) };
+	if ( type === 'storage_clear' ) return { type: 'storage_clear' };
+	// Game control
+	if ( type === 'action_respawn' ) return { type: 'respawn' };
+	if ( type === 'action_pause' ) return { type: 'pause' };
+	if ( type === 'action_resume' ) return { type: 'resume' };
 	return null;
 }
 
@@ -410,11 +482,20 @@ function resolveValue( value, ctx, event ) {
         case 'gameMode': return String( s.gameMode ?? 'race' );
         case 'isAirborne': return Boolean( event.airborne ?? false );
         case 'isDrifting': return Boolean( s.driftIntensity && s.driftIntensity > 0.6 );
+        case 'isPaused': return Boolean( s.paused );
+        case 'fps': return Number( s.fps ?? 0 ) || 0;
+        case 'dt': return Number( event.dt ?? 0 ) || 0;
       }
     }
     if ( k === 'var' ) return Number( ctx.state.vars[ value.name ] ) || 0;
     if ( k === 'textvar' ) return String( ctx.state.textvars[ value.name ] ?? '' );
     if ( k === 'const' ) return value.value;
+    if ( k === 'element_text' ) { const el = ctx.state.elements && ctx.state.elements[ value.name ]; return el ? String( el.textContent ?? '' ) : ''; }
+    if ( k === 'storage_get' ) { const store = ctx.storage; if ( ! store ) return resolveValue( value.fallback, ctx, event ); const key = String( resolveValue( value.key, ctx, event ) ?? '' ); const v = store.get( key ); return v == null ? resolveValue( value.fallback, ctx, event ) : v; }
+    if ( k === 'storage_has' ) { const store = ctx.storage; if ( ! store ) return false; const key = String( resolveValue( value.key, ctx, event ) ?? '' ); return store.get( key ) != null; }
+    if ( k === 'text_length' ) { const t = String( resolveValue( value.value, ctx, event ) ?? '' ); return t.length; }
+    if ( k === 'text_contains' ) { const t = String( resolveValue( value.text, ctx, event ) ?? '' ); const sub = String( resolveValue( value.sub, ctx, event ) ?? '' ); return t.includes( sub ); }
+    if ( k === 'text_case' ) { const t = String( resolveValue( value.value, ctx, event ) ?? '' ); return value.upper ? t.toUpperCase() : t.toLowerCase(); }
     if ( k === 'math' ) {
       const a = Number( resolveValue( value.a, ctx, event ) ) || 0;
       const b = Number( resolveValue( value.b, ctx, event ) ) || 0;
@@ -454,7 +535,7 @@ function resolveValue( value, ctx, event ) {
 function runActions( actions, ctx, event ) {
   event = event || {};
   const api = ( ctx && ctx.api ) || {};
-  if ( ! ctx.state ) ctx.state = { vars: {}, textvars: {}, timers: [], waits: [] };
+  if ( ! ctx.state ) ctx.state = { vars: {}, textvars: {}, timers: [], waits: [], elements: {} };
   for ( const action of actions || [] ) {
     if ( ! action || ! action.type ) continue;
     const value = resolveValue( action.value, ctx, event );
@@ -524,6 +605,26 @@ function runActions( actions, ctx, event ) {
       case 'textvar_set': ctx.state.textvars[ action.name ] = String( value ?? '' ); break;
       case 'if': if ( resolveValue( action.cond, ctx, event ) ) runActions( action.body || [], ctx, event ); break;
       case 'ifelse': if ( resolveValue( action.cond, ctx, event ) ) runActions( action.body || [], ctx, event ); else runActions( action.elseBody || [], ctx, event ); break;
+      // UI builder
+      case 'ui_panel': { const ui = ctx.ui; if ( ui ) { const p = ui.panel( { title: String( resolveValue( action.title, ctx, event ) ?? '' ), x: Number( resolveValue( action.x, ctx, event ) ) || 12, y: Number( resolveValue( action.y, ctx, event ) ) || 12 } ); ctx.state.elements[ action.name ] = p; } break; }
+      case 'ui_button': { const ui = ctx.ui; if ( ui ) { const el = ui.button( String( resolveValue( action.label, ctx, event ) ?? 'Button' ), () => runActions( action.body || [], ctx, { type: 'click' } ) ); ctx.state.elements[ action.name ] = el; } break; }
+      case 'ui_label': { const ui = ctx.ui; if ( ui ) ctx.state.elements[ action.name ] = ui.label( String( resolveValue( action.text, ctx, event ) ?? '' ) ); break; }
+      case 'ui_slider': { const ui = ctx.ui; if ( ui ) { const el = ui.slider( String( resolveValue( action.label, ctx, event ) ?? '' ), Number( resolveValue( action.min, ctx, event ) ) || 0, Number( resolveValue( action.max, ctx, event ) ) || 100, Number( resolveValue( action.value, ctx, event ) ) || 0, ( val ) => { ctx.state.vars[ action.name ] = Number( val ) || 0; runActions( action.body || [], ctx, { type: 'slider', value: Number( val ) || 0 } ); } ); ctx.state.elements[ action.name ] = el; } break; }
+      case 'ui_set_text': { const el = ctx.state.elements && ctx.state.elements[ action.name ]; if ( el && ctx.ui ) ctx.ui.setText( el, String( resolveValue( action.text, ctx, event ) ?? '' ) ); break; }
+      case 'ui_set_style': { const el = ctx.state.elements && ctx.state.elements[ action.name ]; if ( el && ctx.ui ) { const prop = String( resolveValue( action.prop, ctx, event ) ?? '' ); const val = String( resolveValue( action.value, ctx, event ) ?? '' ); ctx.ui.setStyle( el, { [ prop ]: val } ); } break; }
+      case 'ui_append': { const parent = ctx.state.elements && ctx.state.elements[ action.parent ]; const child = ctx.state.elements && ctx.state.elements[ action.child ]; if ( parent && child && ctx.ui ) ctx.ui.append( parent, child ); break; }
+      case 'ui_remove': { const el = ctx.state.elements && ctx.state.elements[ action.name ]; if ( el && ctx.ui ) { ctx.ui.remove( el ); delete ctx.state.elements[ action.name ]; } break; }
+      case 'ui_clear': { if ( ctx.ui ) ctx.ui.clear(); ctx.state.elements = {}; break; }
+      case 'ui_show': { const el = ctx.state.elements && ctx.state.elements[ action.name ]; if ( el ) el.style.display = ''; break; }
+      case 'ui_hide': { const el = ctx.state.elements && ctx.state.elements[ action.name ]; if ( el ) el.style.display = 'none'; break; }
+      // Storage
+      case 'storage_set': { const store = ctx.storage; if ( store ) { const key = String( resolveValue( action.key, ctx, event ) ?? '' ); store.set( key, resolveValue( action.value, ctx, event ) ); } break; }
+      case 'storage_remove': { const store = ctx.storage; if ( store ) store.remove( String( resolveValue( action.key, ctx, event ) ?? '' ) ); break; }
+      case 'storage_clear': { const store = ctx.storage; if ( store ) store.clear(); break; }
+      // Game control
+      case 'respawn': { const api = ctx.api; if ( api && typeof api.respawn === 'function' ) api.respawn(); break; }
+      case 'pause': { const api = ctx.api; if ( api && typeof api.setPaused === 'function' ) api.setPaused( true ); break; }
+      case 'resume': { const api = ctx.api; if ( api && typeof api.setPaused === 'function' ) api.setPaused( false ); break; }
     }
   }
 }
@@ -534,7 +635,7 @@ function generateTemplate() {
 	const id = safeId( document.getElementById( 'mod-id' )?.value ) || `custom-${ Date.now() }`;
 	const name = ( document.getElementById( 'mod-name' )?.value || 'Custom Mod' ).trim();
 	const spec = buildRuntimeSpec();
-	return `// ${ name }\nconst SPEC = ${ JSON.stringify( spec, null, 2 ) };\n${ renderActionsRuntimeCode() }\nexport default {\n  id: ${ JSON.stringify( id ) },\n  init( context ) { this.ctx = context; this.state = { vars: {}, textvars: {}, timers: [], waits: [] }; this.keyLatch = Object.create( null ); this.wasAirborne = false; this.wasDrifting = false; runActions( SPEC.onStart, this.ctx, { type: 'start' } ); },\n  applyFrame( { controls, vehicle, world, dt, now } ) { const ctx = this.ctx || { vehicle, world, controls }; ctx.state = this.state; const st = ( typeof ctx.getState === 'function' ) ? ctx.getState() : {}; const ev = { type: 'tick', dt, now, airborne: Boolean( st.airborne ), lapTime: st.lapTime, raceTime: st.raceTime };\n    runActions( SPEC.onTick, ctx, ev );\n    for ( const [ key, actions ] of Object.entries( SPEC.onKey || {} ) ) { const down = Boolean( controls && controls.keys && controls.keys[ key ] ); if ( down && ! this.keyLatch[ key ] ) runActions( actions, ctx, { type: 'key', key, dt, now } ); this.keyLatch[ key ] = down; }\n    for ( const [ key, actions ] of Object.entries( SPEC.onKeyHold || {} ) ) { if ( controls && controls.keys && controls.keys[ key ] ) runActions( actions, ctx, { type: 'keyhold', key, dt, now } ); }\n    const speed = Math.abs( Number( st.linearSpeed ) || 0 ); for ( const t of ( SPEC.onSpeedThreshold || [] ) ) { const th = Number( resolveValue( t.threshold, ctx, ev ) ) || 0; if ( speed > th ) runActions( t.body, ctx, { type: 'speed_threshold', speed, threshold: th, dt, now } ); } for ( const t of ( SPEC.onLowSpeed || [] ) ) { const th = Number( resolveValue( t.threshold, ctx, ev ) ) || 0; if ( speed < th ) runActions( t.body, ctx, { type: 'low_speed', speed, threshold: th, dt, now } ); }\n    const airborne = Boolean( ev.airborne ); if ( airborne && ! this.wasAirborne ) runActions( SPEC.onAir, ctx, { type: 'air', dt, now } ); if ( ! airborne && this.wasAirborne ) runActions( SPEC.onGround, ctx, { type: 'ground', dt, now } ); this.wasAirborne = airborne;\n    const drifting = Boolean( st.driftIntensity && st.driftIntensity > 0.6 ); if ( drifting && ! this.wasDrifting ) runActions( SPEC.onDrift, ctx, { type: 'drift', dt, now } ); this.wasDrifting = drifting;\n    if ( Array.isArray( this.state.timers ) ) { for ( const t of this.state.timers ) t.remaining -= dt; const done = this.state.timers.filter( ( t ) => t.remaining <= 0 ); this.state.timers = this.state.timers.filter( ( t ) => t.remaining > 0 ); for ( const t of done ) runActions( ( SPEC.onTimerDone && SPEC.onTimerDone[ t.id ] ) || [], ctx, { type: 'timer_done', id: t.id, now } ); }\n    return null;\n  },\n  onCheckpoint( event ) { runActions( SPEC.onCheckpoint, this.ctx, { type: 'checkpoint', ...( event || {} ) } ); },\n  onCrash( event ) { runActions( SPEC.onCrash, this.ctx, { type: 'crash', ...( event || {} ) } ); },\n  onRespawn( event ) { runActions( SPEC.onRespawn, this.ctx, { type: 'respawn', ...( event || {} ) } ); },\n  onLapFinish( event ) { runActions( SPEC.onLapFinish, this.ctx, { type: 'lapFinish', ...( event || {} ) } ); },\n  dispose() { this.ctx = null; this.state = null; this.keyLatch = Object.create( null ); }\n};\n`;
+	return `// ${ name }\nconst SPEC = ${ JSON.stringify( spec, null, 2 ) };\n${ renderActionsRuntimeCode() }\nexport default {\n  id: ${ JSON.stringify( id ) },\n  init( context ) { this.ctx = context; this.state = { vars: {}, textvars: {}, timers: [], waits: [], elements: {} }; this.keyLatch = Object.create( null ); this.wasAirborne = false; this.wasDrifting = false; runActions( SPEC.onStart, this.ctx, { type: 'start' } ); },\n  applyFrame( { controls, vehicle, world, dt, now } ) { const ctx = this.ctx || { vehicle, world, controls }; ctx.state = this.state; const st = ( typeof ctx.getState === 'function' ) ? ctx.getState() : {}; const ev = { type: 'tick', dt, now, airborne: Boolean( st.airborne ), lapTime: st.lapTime, raceTime: st.raceTime };\n    runActions( SPEC.onTick, ctx, ev );\n    for ( const [ key, actions ] of Object.entries( SPEC.onKey || {} ) ) { const down = Boolean( controls && controls.keys && controls.keys[ key ] ); if ( down && ! this.keyLatch[ key ] ) runActions( actions, ctx, { type: 'key', key, dt, now } ); this.keyLatch[ key ] = down; }\n    for ( const [ key, actions ] of Object.entries( SPEC.onKeyHold || {} ) ) { if ( controls && controls.keys && controls.keys[ key ] ) runActions( actions, ctx, { type: 'keyhold', key, dt, now } ); }\n    const speed = Math.abs( Number( st.linearSpeed ) || 0 ); for ( const t of ( SPEC.onSpeedThreshold || [] ) ) { const th = Number( resolveValue( t.threshold, ctx, ev ) ) || 0; if ( speed > th ) runActions( t.body, ctx, { type: 'speed_threshold', speed, threshold: th, dt, now } ); } for ( const t of ( SPEC.onLowSpeed || [] ) ) { const th = Number( resolveValue( t.threshold, ctx, ev ) ) || 0; if ( speed < th ) runActions( t.body, ctx, { type: 'low_speed', speed, threshold: th, dt, now } ); }\n    const airborne = Boolean( ev.airborne ); if ( airborne && ! this.wasAirborne ) runActions( SPEC.onAir, ctx, { type: 'air', dt, now } ); if ( ! airborne && this.wasAirborne ) runActions( SPEC.onGround, ctx, { type: 'ground', dt, now } ); this.wasAirborne = airborne;\n    const drifting = Boolean( st.driftIntensity && st.driftIntensity > 0.6 ); if ( drifting && ! this.wasDrifting ) runActions( SPEC.onDrift, ctx, { type: 'drift', dt, now } ); this.wasDrifting = drifting;\n    if ( Array.isArray( this.state.timers ) ) { for ( const t of this.state.timers ) t.remaining -= dt; const done = this.state.timers.filter( ( t ) => t.remaining <= 0 ); this.state.timers = this.state.timers.filter( ( t ) => t.remaining > 0 ); for ( const t of done ) runActions( ( SPEC.onTimerDone && SPEC.onTimerDone[ t.id ] ) || [], ctx, { type: 'timer_done', id: t.id, now } ); }\n    return null;\n  },\n  onCheckpoint( event ) { runActions( SPEC.onCheckpoint, this.ctx, { type: 'checkpoint', ...( event || {} ) } ); },\n  onCrash( event ) { runActions( SPEC.onCrash, this.ctx, { type: 'crash', ...( event || {} ) } ); },\n  onRespawn( event ) { runActions( SPEC.onRespawn, this.ctx, { type: 'respawn', ...( event || {} ) } ); },\n  onLapFinish( event ) { runActions( SPEC.onLapFinish, this.ctx, { type: 'lapFinish', ...( event || {} ) } ); },\n  dispose() { try { this.ctx?.ui?.clear?.(); } catch {} this.ctx = null; this.state = null; this.keyLatch = Object.create( null ); }\n};\n`;
 }
 
 // ============ SHARING ============
@@ -639,6 +740,80 @@ document.getElementById( 'save-to-manager' )?.addEventListener( 'click', () => {
 	localStorage.setItem( SHARED_KEY, JSON.stringify( arr ) );
 	setStatus( `Saved "${ payload.modName }" to Mod Manager — install it from the Mods page` );
 } );
+
+// A ready-made demo mod that shows off the new UI / storage / game-control blocks.
+// Loads straight into the canvas so modders can study and remix it.
+const SAMPLE_MOD = {
+	modId: 'custom-demo-hud',
+	modName: 'Demo: HUD + Save + Nitro',
+	xml: `<xml xmlns="https://developers.google.com/blockly/xml">
+  <block type="event_on_start" id="s1" x="20" y="20">
+    <statement name="DO">
+      <block type="ui_create_panel" id="p1">
+        <value name="X"><block type="math_number"><field name="NUM">12</field></block></value>
+        <value name="Y"><block type="math_number"><field name="NUM">12</field></block></value>
+        <value name="TITLE"><block type="text"><field name="TEXT">Nitro Mod</field></block></value>
+        <field name="NAME">panel</field>
+        <next>
+          <block type="ui_create_label" id="l1">
+            <value name="TEXT"><block type="text"><field name="TEXT">Press R for nitro</field></block></value>
+            <field name="NAME">hint</field>
+            <next>
+              <block type="ui_create_button" id="b1">
+                <value name="LABEL"><block type="text"><field name="TEXT">Reset save</field></block></value>
+                <field name="NAME">resetBtn</field>
+                <statement name="DO">
+                  <block type="storage_clear" id="sc1"></block>
+                </statement>
+              </block>
+            </next>
+          </block>
+        </next>
+      </block>
+    </statement>
+  </block>
+  <block type="event_on_key" id="k1" x="20" y="260">
+    <field name="KEY">KeyR</field>
+    <statement name="DO">
+      <block type="action_boost" id="bs1">
+        <value name="AMOUNT"><block type="math_number"><field name="NUM">12</field></block></value>
+        <next>
+          <block type="action_spawn_particle_burst" id="pb1">
+            <value name="SECS"><block type="math_number"><field name="NUM">0.6</field></block></value>
+            <next>
+              <block type="storage_set_num" id="ss1">
+                <value name="KEY"><block type="text"><field name="TEXT">nitroUses</field></block></value>
+                <value name="VALUE"><block type="math_arithmetic"><field name="OP">ADD</field><value name="A"><block type="storage_get"><value name="KEY"><block type="text"><field name="TEXT">nitroUses</field></block></value><value name="DEFAULT"><block type="math_number"><field name="NUM">0</field></block></value></block></value><value name="B"><block type="math_number"><field name="NUM">1</field></block></value></block></value>
+              </block>
+            </next>
+          </block>
+        </next>
+      </block>
+    </statement>
+  </block>
+  <block type="event_on_tick" id="t1" x="20" y="440">
+    <statement name="DO">
+      <block type="ui_set_text" id="ut1">
+        <field name="NAME">hint</field>
+        <value name="TEXT"><block type="text_join"><value name="A"><block type="text"><field name="TEXT">Nitro uses: </field></block></value><value name="B"><block type="storage_get"><value name="KEY"><block type="text"><field name="TEXT">nitroUses</field></block></value><value name="DEFAULT"><block type="math_number"><field name="NUM">0</field></block></value></block></value></block></value>
+      </block>
+    </statement>
+  </block>
+</xml>`,
+};
+
+document.getElementById( 'load-sample' )?.addEventListener( 'click', () => {
+	try {
+		document.getElementById( 'mod-id' ).value = SAMPLE_MOD.modId;
+		document.getElementById( 'mod-name' ).value = SAMPLE_MOD.modName;
+		loadXmlText( SAMPLE_MOD.xml );
+		document.getElementById( 'xmlBox' ).value = SAMPLE_MOD.xml;
+		setStatus( `Loaded sample "${ SAMPLE_MOD.modName }" — tweak it, then Save to Mod Manager` );
+	} catch ( e ) {
+		setStatus( 'Could not load sample mod' );
+	}
+} );
+
 
 // Auto-load shared mod from URL, or restore last draft.
 const shareParam = new URLSearchParams( location.search ).get( 'share' );

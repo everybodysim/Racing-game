@@ -36,13 +36,14 @@
 <div id="topbar">
   <input id="mod-id" placeholder="mod id (custom-speed)" value="custom-speed">
   <input id="mod-name" placeholder="mod name" value="Custom Speed">
+  <button id="load-sample" type="button" title="Load a ready-made demo mod into the canvas to explore">Load Sample Mod</button>
   <button id="export-xml" type="button">Export XML</button>
   <button id="import-xml" type="button">Import XML</button>
   <button id="save-draft" type="button">Save Draft</button>
   <button id="load-draft" type="button">Load Draft</button>
   <button id="export-share" type="button">Copy Share URL</button>
   <button id="save-to-manager" type="button">Save to Mod Manager</button>
-  <button id="export-template" type="button">Generate JS Template</button>
+  <button id="export-template" type="button" title="Show the generated JS runtime (advanced)">Generate JS Template</button>
   <a href="mods.html">← Back</a>
   <span id="status">Ready</span>
 </div>
@@ -198,10 +199,45 @@
     <block type="text_join"></block>
     <block type="text_to_string"></block>
     <block type="text_round_num"></block>
+    <block type="text_length"></block>
+    <block type="text_contains"></block>
+    <block type="text_upper"></block>
+    <block type="text_lower"></block>
   </category>
   <category name="Lists" colour="#ec4899">
     <block type="lists_create"></block>
     <block type="lists_length"></block>
+  </category>
+  <category name="UI Builder" colour="#f97316">
+    <block type="ui_create_panel"></block>
+    <block type="ui_create_button"></block>
+    <block type="ui_create_label"></block>
+    <block type="ui_create_slider"></block>
+    <block type="ui_set_text"></block>
+    <block type="ui_set_style"></block>
+    <block type="ui_append"></block>
+    <block type="ui_remove"></block>
+    <block type="ui_show"></block>
+    <block type="ui_hide"></block>
+    <block type="ui_clear"></block>
+    <block type="value_ui_element_text"></block>
+  </category>
+  <category name="Storage" colour="#84cc16">
+    <block type="storage_set"></block>
+    <block type="storage_set_num"></block>
+    <block type="storage_get"></block>
+    <block type="storage_has"></block>
+    <block type="storage_remove"></block>
+    <block type="storage_clear"></block>
+  </category>
+  <category name="Game Control" colour="#14b8a6">
+    <block type="action_respawn"></block>
+    <block type="action_pause"></block>
+    <block type="action_resume"></block>
+    <block type="value_is_paused"></block>
+    <block type="value_fps"></block>
+    <block type="value_dt"></block>
+    <block type="value_color"></block>
   </category>
 </xml>
 

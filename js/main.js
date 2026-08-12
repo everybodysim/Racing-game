@@ -2148,6 +2148,186 @@ async function loadCustomTrackAssets( extras ) {
 
 }
 
+// --- Sandboxed Custom-Mod UI + Storage helpers (module scope) ---
+// These give mods a safe, isolated way to build their own interface and persist
+// data without ever touching the game's real DOM or localStorage keys directly.
+
+const MOD_UI_LAYER_ID = 'custom-mod-ui-layer';
+const MOD_STORAGE_PREFIX = 'racing-mod-store:';
+const MOD_STORAGE_MAX_BYTES = 256 * 1024; // 256 KB cap per mod
+
+function ensureModUiLayer() {
+	let layer = document.getElementById( MOD_UI_LAYER_ID );
+	if ( ! layer ) {
+		layer = document.createElement( 'div' );
+		layer.id = MOD_UI_LAYER_ID;
+		// A high, but below-modal, z-index stacking context. pointer-events:none on
+		// the layer itself so it never blocks the game; created elements opt back in.
+		layer.style.cssText = 'position:fixed;inset:0;z-index:40;pointer-events:none;';
+		document.body.appendChild( layer );
+	}
+	return layer;
+}
+
+// Escape any user-provided text before it becomes element content.
+function escapeModText( value ) {
+	return String( value ?? '' ).replace( /[&<>"']/g, ( ch ) => ( { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } )[ ch ] );
+}
+
+// Clamp a CSS length to a sane pixel range to avoid layout blow-ups.
+function clampPx( value, fallback ) {
+	const n = parseFloat( value );
+	return Number.isFinite( n ) ? `${ Math.max( -2000, Math.min( 4000, n ) ) }px` : fallback;
+}
+
+function applyModElementStyle( el, styleObj ) {
+	if ( ! el || ! styleObj || typeof styleObj !== 'object' ) return;
+	for ( const [ prop, val ] of Object.entries( styleObj ) ) {
+		// Restrict to a safe allow-list of CSS properties; ignore anything else so
+		// mods can't smuggle in url()/expression()/javascript: via arbitrary CSS.
+		const p = String( prop );
+		const v = String( val );
+		if ( ! /^[a-z-]+$/.test( p ) ) continue;
+		if ( /url\(|expression|javascript:|@import|behavior:/i.test( v ) ) continue;
+		try { el.style[ p ] = v; } catch { /* ignore unsupported property */ }
+	}
+}
+
+function createModUiLayer() {
+	const layer = ensureModUiLayer();
+	const owned = new Set();
+	// Track listeners so ui.clear() can fully detach them.
+	const listeners = [];
+
+	function track( el ) { owned.add( el ); return el; }
+	function on( el, type, handler ) {
+		el.addEventListener( type, handler );
+		listeners.push( { el, type, handler } );
+	}
+
+	const api = {
+		// Create an element inside the sandbox layer. tag is restricted to safe tags.
+		create( tag = 'div', opts = {} ) {
+			const allowed = [ 'div', 'span', 'button', 'label', 'p', 'h1', 'h2', 'h3', 'input', 'select', 'option', 'canvas', 'img', 'progress', 'meter' ];
+			const t = allowed.includes( tag ) ? tag : 'div';
+			const el = document.createElement( t );
+			if ( opts.id ) el.id = `mod-el-${ escapeModText( opts.id ) }`;
+			if ( opts.text != null ) el.textContent = String( opts.text );
+			if ( opts.html != null ) el.textContent = String( opts.html ); // always escaped; no raw innerHTML
+			if ( opts.className ) el.className = String( opts.className ).slice( 0, 80 );
+			if ( opts.style ) applyModElementStyle( el, opts.style );
+			if ( opts.attrs && typeof opts.attrs === 'object' ) {
+				for ( const [ k, v ] of Object.entries( opts.attrs ) ) {
+					if ( ! /^[a-zA-Z-]+$/.test( k ) ) continue;
+					try { el.setAttribute( k, String( v ).slice( 0, 200 ) ); } catch { /* ignore */ }
+				}
+			}
+			// Created elements opt back into pointer events; the layer stays pass-through.
+			el.style.pointerEvents = 'auto';
+			layer.appendChild( el );
+			return track( el );
+		},
+		// Convenience: create a panel (positioned div) with a title.
+		panel( opts = {} ) {
+			const el = api.create( 'div', { className: 'mod-panel', style: { position: 'absolute', padding: '10px', background: 'rgba(15,20,30,0.8)', color: '#fff', borderRadius: '8px', fontFamily: 'system-ui,sans-serif', fontSize: '14px', border: '1px solid rgba(255,255,255,0.18)', ...( opts.style || {} ) } } );
+			if ( opts.title ) { const h = api.create( 'div', { text: opts.title, style: { fontWeight: '700', marginBottom: '6px' } } ); el.appendChild( h ); }
+			if ( opts.x != null ) el.style.left = clampPx( opts.x, '12px' );
+			if ( opts.y != null ) el.style.top = clampPx( opts.y, '12px' );
+			return el;
+		},
+		// Convenience: create a button that calls a callback when clicked.
+		button( label, onClick, opts = {} ) {
+			const el = api.create( 'button', { text: label, style: { padding: '6px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.25)', background: 'rgba(60,120,200,0.7)', color: '#fff', cursor: 'pointer', fontFamily: 'system-ui,sans-serif', ...( opts.style || {} ) } } );
+			if ( typeof onClick === 'function' ) on( el, 'click', () => { try { onClick(); } catch ( e ) { console.warn( 'mod button handler error', e ); } } );
+			return el;
+		},
+		// Convenience: create a labeled slider that reports its value via callback.
+		slider( label, min, max, value, onInput, opts = {} ) {
+			const wrap = api.create( 'div', { style: { display: 'flex', flexDirection: 'column', gap: '2px', ...( opts.style || {} ) } } );
+			const lab = api.create( 'label', { text: `${ label }: ${ value }` } );
+			const input = api.create( 'input', { attrs: { type: 'range' } } );
+			input.min = String( Number( min ) || 0 );
+			input.max = String( Number( max ) || 100 );
+			input.value = String( Number( value ) || 0 );
+			if ( opts.step ) input.step = String( Number( opts.step ) || 1 );
+			if ( typeof onInput === 'function' ) on( input, 'input', () => { try { lab.textContent = `${ label }: ${ input.value }`; onInput( Number( input.value ) ); } catch ( e ) { console.warn( 'mod slider handler error', e ); } } );
+			wrap.appendChild( lab );
+			wrap.appendChild( input );
+			return wrap;
+		},
+		// Convenience: create a text label you can update later.
+		label( text, opts = {} ) {
+			return api.create( 'div', { text, style: { color: '#fff', fontFamily: 'system-ui,sans-serif', fontSize: '14px', ...( opts.style || {} ) } } );
+		},
+		// Append one created element inside another created element.
+		append( parent, child ) {
+			if ( parent && child && owned.has( parent ) && owned.has( child ) ) parent.appendChild( child );
+			return parent;
+		},
+		// Remove a single created element.
+		remove( el ) {
+			if ( el && owned.has( el ) ) { el.remove(); owned.delete( el ); }
+		},
+		// Update text of a created element safely.
+		setText( el, text ) {
+			if ( el && owned.has( el ) ) el.textContent = String( text ?? '' );
+		},
+		// Update styles of a created element safely.
+		setStyle( el, styleObj ) {
+			if ( el && owned.has( el ) ) applyModElementStyle( el, styleObj );
+		},
+		// Listen to a safe event on a created element.
+		on( el, type, handler ) {
+			const safe = [ 'click', 'input', 'change', 'mousedown', 'mouseup', 'mouseenter', 'mouseleave' ];
+			if ( el && owned.has( el ) && safe.includes( type ) && typeof handler === 'function' ) on( el, type, handler );
+		},
+		// Tear down EVERYTHING this mod created. Call from dispose().
+		clear() {
+			for ( const { el, type, handler } of listeners ) { try { el.removeEventListener( type, handler ); } catch { /* ignore */ } }
+			listeners.length = 0;
+			for ( const el of owned ) { try { el.remove(); } catch { /* ignore */ } }
+			owned.clear();
+		},
+	};
+	return api;
+}
+
+function createModStorage( namespace ) {
+	const prefix = `${ MOD_STORAGE_PREFIX }${ namespace }:`;
+	function rawKey( key ) { return prefix + String( key || '' ).slice( 0, 64 ); }
+	function totalBytes() {
+		let bytes = 0;
+		for ( let i = 0; i < localStorage.length; i ++ ) {
+			const k = localStorage.key( i );
+			if ( k && k.startsWith( prefix ) ) bytes += ( localStorage.getItem( k ) || '' ).length;
+		}
+		return bytes;
+	}
+	return {
+		get( key, fallback = null ) {
+			try {
+				const raw = localStorage.getItem( rawKey( key ) );
+				return raw == null ? fallback : JSON.parse( raw );
+			} catch { return fallback; }
+		},
+		set( key, value ) {
+			try {
+				const raw = JSON.stringify( value );
+				// Enforce per-mod size cap; refuse writes that would blow the budget.
+				if ( totalBytes() + raw.length > MOD_STORAGE_MAX_BYTES ) return false;
+				localStorage.setItem( rawKey( key ), raw );
+				return true;
+			} catch { return false; }
+		},
+		remove( key ) { try { localStorage.removeItem( rawKey( key ) ); } catch { /* ignore */ } },
+		clear() {
+			const keys = [];
+			for ( let i = 0; i < localStorage.length; i ++ ) { const k = localStorage.key( i ); if ( k && k.startsWith( prefix ) ) keys.push( k ); }
+			for ( const k of keys ) { try { localStorage.removeItem( k ); } catch { /* ignore */ } }
+		},
+	};
+}
+
 async function init() {
 
 	setLoadingStatus( 'Booting game systems…', 'boot' );
@@ -3391,6 +3571,7 @@ async function init() {
 			gameMode,
 			isSplitScreen,
 			paused,
+			fps: rollingFps || 0,
 			x: Number( vehicle?.spherePos?.x ) || 0,
 			y: Number( vehicle?.spherePos?.y ) || 0,
 			z: Number( vehicle?.spherePos?.z ) || 0,
@@ -3564,13 +3745,31 @@ async function init() {
 				vehicle.setModel( models[ key ] );
 				applyVehiclePerformance();
 			},
+			respawn: () => { try { respawnVehicle(); } catch { /* ignore */ } },
+			setPaused: ( next = true ) => { try { setPaused( !! next ); } catch { /* ignore */ } },
 		},
+		// --- Sandboxed UI builder: lets mods create their own buttons, panels,
+		// labels, sliders, etc. inside an isolated overlay, without ever being
+		// able to touch the game's own DOM. Everything created here is tracked
+		// so ui.clear() (call from dispose()) tears it down cleanly. ---
+		ui: createModUiLayer(),
+		// --- Namespaced, size-capped persistent storage for mod data. Keys are
+		// automatically prefixed with the mod id and values are JSON-serialised. ---
+		storage: createModStorage( 'mod' ),
 	};
 	for ( const runtime of runtimeMods ) {
 
 		try {
 
-			runtime.init( runtimeModContext );
+			// Give each mod its own sandboxed UI layer + storage namespace so one
+			// mod's ui.clear()/storage.clear() can never affect another mod.
+			const modId = String( runtime?.id || 'mod' ).replace( /[^a-z0-9_-]/gi, '-' ).slice( 0, 40 ) || 'mod';
+			const scopedContext = Object.create( runtimeModContext );
+			scopedContext.ui = createModUiLayer();
+			scopedContext.storage = createModStorage( modId );
+			runtime._modId = modId;
+			runtime._scopedContext = scopedContext;
+			runtime.init( scopedContext );
 
 		} catch ( error ) {
 
@@ -3583,16 +3782,20 @@ async function init() {
 
 		for ( const runtime of runtimeMods ) {
 
-			if ( typeof runtime?.dispose !== 'function' ) continue;
-			try {
+			if ( typeof runtime?.dispose === 'function' ) {
+				try {
 
-				runtime.dispose();
+					runtime.dispose();
 
-			} catch ( error ) {
+				} catch ( error ) {
 
-				console.warn( `Mod dispose failed: ${ runtime?.id || 'unknown' }`, error );
+					console.warn( `Mod dispose failed: ${ runtime?.id || 'unknown' }`, error );
 
+				}
 			}
+			// Safety net: always tear down any UI the mod created, even if its
+			// dispose() forgot to call ui.clear().
+			try { runtime?._scopedContext?.ui?.clear?.(); } catch { /* ignore */ }
 
 		}
 
