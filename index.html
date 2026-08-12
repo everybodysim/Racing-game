@@ -1405,41 +1405,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			flex: 1; min-width: 0;
 		}
 
-		/* Global error toast — surfaces uncaught errors / crashed Promises
-		   with a friendly message. Styled as an amber-toned sibling of the
-		   advancement toast so it reads as "heads-up" rather than panic. */
-		#global-error-toast {
-			position: fixed; top: 16px; left: 50%; z-index: 260;
-			display: flex; align-items: flex-start; gap: 10px;
-			background: linear-gradient(135deg, rgba(42,26,16,0.96), rgba(28,16,8,0.96));
-			border: 1px solid rgba(243,177,119,0.4);
-			border-radius: 14px;
-			padding: 12px 16px;
-			box-shadow: 0 8px 32px rgba(0,0,0,0.45), 0 0 24px rgba(243,177,119,0.1);
-			color: #ffe9d6;
-			font: 700 13px/1.35 sans-serif;
-			max-width: min(420px, calc(100vw - 32px));
-			white-space: pre-line;
-			pointer-events: none;
-			transform: translateX(-50%) translateY(-100px);
-			opacity: 0;
-			transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
-		}
-		#global-error-toast.global-error-toast-visible {
-			transform: translateX(-50%) translateY(0);
-			opacity: 1;
-		}
-		#global-error-toast.global-error-toast-hidden {
-			transform: translateX(-50%) translateY(-100px);
-			opacity: 0;
-		}
-		.global-error-toast-icon {
-			font-size: 20px; line-height: 1; flex-shrink: 0;
-		}
-		.global-error-toast-text {
-			flex: 1; min-width: 0;
-		}
-
 		@media (pointer: coarse) {
 			#mobile-actions-menu {
 				display: block;
@@ -2058,7 +2023,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	  </div>
 	</div>
 	<div id="adv-toast" class="adv-toast-hidden"><div id="adv-toast-icon">🏆</div><div id="adv-toast-text"></div></div>
-        <div id="global-error-toast" class="global-error-toast-hidden"><div class="global-error-toast-icon">⚠️</div><div class="global-error-toast-text"></div></div>
 
 	<div id="mode-menu">
 		<h3>Game Mode (E)</h3>
@@ -2833,10 +2797,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			}
 		} );
 		window.addEventListener( 'unhandledrejection', ( event ) => {
-		// Only surface the fatal loading screen during boot; once the game is
-		// running, post-load rejections are handled by the friendly toast in
-		// main.js instead of hijacking the (already hidden) loading screen.
-		if ( window.__racingGameBooting !== true ) return;
 	const spinner = document.getElementById( 'loading-spinner' );
 	const progress = document.getElementById( 'loading-progress' );
 	const statusEl = document.getElementById( 'loading-status' );
