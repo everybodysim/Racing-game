@@ -918,7 +918,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		// tree whose world center falls within OFFGRID_CLEAR cells of an
 		// off-grid piece's world center. This is a distance-based safety net
 		// independent of integer cell keying.
-		const OFFGRID_CLEAR = 2; // cells of clearance around off-grid pieces
+		const OFFGRID_CLEAR = 3; // cells of clearance around off-grid pieces
 		const offGridCenters = [];
 		for ( const [ cgx, cgz ] of cells ) {
 			if ( ! Number.isInteger( Number( cgx ) ) || ! Number.isInteger( Number( cgz ) ) ) {
@@ -1040,12 +1040,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				treeBlocked: [ ...treeBlocked ].sort(),
 				forestCount: forestPositions.length / 2,
 				emptyCount: emptyPositions.length / 2,
-				forestPositions,
 				offGridCenters,
 			};
-			try {
-				document.title = 'TDBG|tb=' + treeBlocked.size + '|f=' + ( forestPositions.length / 2 ) + '|og=' + offGridCenters.length;
-			} catch {}
 		}
 
 	}
