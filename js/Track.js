@@ -847,14 +847,6 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					blockCellForTrees( entry[ 0 ], entry[ 1 ], false );
 				}
 			}
-			// Pool slopes reuse the same elev-track-slope model, so trees
-			// would clip through them too — block their cells as well.
-			if ( Array.isArray( extras.poolSlopes ) ) {
-				for ( const entry of extras.poolSlopes ) {
-					if ( ! Array.isArray( entry ) ) continue;
-					blockCellForTrees( entry[ 0 ], entry[ 1 ], false );
-				}
-			}
 			// Walls, cubes, moving obstacles: solid → erase trees.
 			// Surfaces, water: replace ground → erase trees.
 			const solidLists = [
