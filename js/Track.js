@@ -898,30 +898,42 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const pad = 3;
 		const emptyPositions = [];
 		const forestPositions = [];
-		// Cells too close to an off-grid piece are left completely empty (no
-		// forest AND no empty-deco instance) so there is a true hole under the
-		// off-grid piece. NOTE: decoration-empty is itself a bush/small-tree
-		// mesh, so placing it would still read as "trees under the piece".
-		const offGridHolePositions = [];
+		// Cells that should get flat grass (empty-deco-grass) instead of a
+		// bush/tree mesh: (a) cells straddled by an off-grid piece — these are
+		// the only cells an off-grid piece actually touches, so this is the
+		// minimal hole (2 or 4 cells, no front/back buffer); (b) on-grid slope
+		// cells, which previously showed bushes ("trees") under the slope.
+		const grassPositions = [];
 
-		// World-space clearance for off-grid pieces. Suppress any forest
-		// tree whose world center falls within OFFGRID_CLEAR cells of an
-		// off-grid piece's world center. This is a distance-based safety net
-		// independent of integer cell keying.
-		const OFFGRID_CLEAR = 1; // cells of clearance around off-grid pieces
-		const offGridCenters = [];
+		// Exact set of integer cells an off-grid piece straddles (its footprint).
+		const offGridCellSet = new Set();
+		for ( const [ cgx, cgz ] of cells ) {
+			const fx = Number( cgx ), fz = Number( cgz );
+			if ( Number.isInteger( fx ) && Number.isInteger( fz ) ) continue;
+			const minBx = Math.floor( fx ), maxBx = Math.ceil( fx + 1 ) - 1;
+			const minBz = Math.floor( fz ), maxBz = Math.ceil( fz + 1 ) - 1;
+			for ( let bx = minBx; bx <= maxBx; bx ++ )
+				for ( let bz = minBz; bz <= maxBz; bz ++ )
+					offGridCellSet.add( bx + ',' + bz );
+		}
+
+		// On-grid slope cells (extras.elevated of type slope-up / slope-down):
+		// erase bushes/trees beneath them, fill with flat grass instead.
+		const slopeCellSet = new Set();
+		if ( extras && Array.isArray( extras.elevated ) ) {
+			for ( const entry of extras.elevated ) {
+				if ( ! Array.isArray( entry ) ) continue;
+				const t = entry[ 2 ];
+				if ( t === 'slope-up' || t === 'slope-down' ) {
+					slopeCellSet.add( Number( entry[ 0 ] ) + ',' + Number( entry[ 1 ] ) );
+				}
+			}
+		}
+		const offGridCenters = []; // kept for debug only
 		for ( const [ cgx, cgz ] of cells ) {
 			if ( ! Number.isInteger( Number( cgx ) ) || ! Number.isInteger( Number( cgz ) ) ) {
 				offGridCenters.push( [ Number( cgx ) + 0.5, Number( cgz ) + 0.5 ] );
 			}
-		}
-		function nearOffGridPiece( cgx, cgz ) {
-			for ( let i = 0; i < offGridCenters.length; i ++ ) {
-				const dx = cgx - offGridCenters[ i ][ 0 ];
-				const dz = cgz - offGridCenters[ i ][ 1 ];
-				if ( Math.max( Math.abs( dx ), Math.abs( dz ) ) <= OFFGRID_CLEAR ) return true;
-			}
-			return false;
 		}
 
 		// Simple hash for deterministic pseudo-random placement
@@ -951,11 +963,21 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				const x = ( gx + 0.5 ) * CELL_RAW;
 				const z = ( gz + 0.5 ) * CELL_RAW;
 
-				if ( treeBlocked.has( gx + ',' + gz ) || nearOffGridPiece( gx + 0.5, gz + 0.5 ) ) {
+				const key = gx + ',' + gz;
 
-					// True hole: place no decoration instance at all so the
-					// off-grid piece sits over clear ground.
-					offGridHolePositions.push( x, z );
+				if ( offGridCellSet.has( key ) || slopeCellSet.has( key ) ) {
+
+					// Minimal hole under an off-grid piece / slope: flat grass.
+					grassPositions.push( x, z );
+					continue;
+
+				}
+
+				if ( treeBlocked.has( key ) ) {
+
+					// On-grid solid blocks (track, walls, water/pools, …):
+					// preserve original behaviour — bushy empty deco underneath.
+					emptyPositions.push( x, z );
 					continue;
 
 				}
@@ -972,27 +994,6 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 			}
 
-		}
-
-		// Final hard guarantee: drop any forest tree whose position is within
-		// OFFGRID_CLEAR of an off-grid piece entirely (no replacement instance),
-		// so a true hole remains. Runs after all other placement logic so it
-		// cannot be defeated by earlier cell-keying edge cases.
-		if ( offGridCenters.length > 0 && forestPositions.length > 0 ) {
-			const keptForest = [];
-			for ( let i = 0; i < forestPositions.length; i += 2 ) {
-				const fx = forestPositions[ i ];
-				const fz = forestPositions[ i + 1 ];
-				const cgx = fx / CELL_RAW - 0.5;
-				const cgz = fz / CELL_RAW - 0.5;
-				if ( nearOffGridPiece( cgx, cgz ) ) {
-					offGridHolePositions.push( fx, fz );
-				} else {
-					keptForest.push( fx, fz );
-				}
-			}
-			forestPositions.length = 0;
-			forestPositions.push( ...keptForest );
 		}
 
 		function createInstances( src, positions ) {
@@ -1025,6 +1026,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		createInstances( models[ 'decoration-empty' ], emptyPositions );
 		createInstances( models[ 'decoration-forest' ], forestPositions );
+		createInstances( models[ 'empty-deco-grass' ], grassPositions );
 
 		if ( typeof window !== 'undefined' ) {
 			window.__TREE_DEBUG = {
@@ -1032,7 +1034,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				treeBlocked: [ ...treeBlocked ].sort(),
 				forestCount: forestPositions.length / 2,
 				emptyCount: emptyPositions.length / 2,
-				holeCount: offGridHolePositions.length / 2,
+				grassCount: grassPositions.length / 2,
+				offGridCells: [ ...offGridCellSet ].sort(),
+				slopeCells: [ ...slopeCellSet ].sort(),
 				offGridCenters,
 			};
 		}

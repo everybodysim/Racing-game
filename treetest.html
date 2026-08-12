@@ -9,7 +9,7 @@
 <pre id="out">running...</pre>
 <script type="module">
 import * as THREE from './js/three.local.js';
-import { buildTrack } from './js/Track.js?v=999981';
+import { buildTrack } from './js/Track.js?v=999982';
 
 const out = document.getElementById('out');
 function log(s){ out.textContent += '\n' + s; }
@@ -19,7 +19,7 @@ function log(s){ out.textContent += '\n' + s; }
 function mockModel(){ const g = new THREE.Group(); return g; }
 const models = {};
 ['track-straight','track-corner','track-start-finish','track-finish',
- 'decoration-empty','decoration-forest','decoration-tents'].forEach(k=>{ models[k]=mockModel(); });
+ 'decoration-empty','decoration-forest','decoration-tents','empty-deco-grass'].forEach(k=>{ models[k]=mockModel(); });
 
 const mapParam = 'v2.eyJ2IjoyLCJjZWxscyI6W1swLDEsInRyYWNrLXN0YXJ0LWZpbmlzaCIsMF0sWzAuMjUsMiwidHJhY2stc3RyYWlnaHQiLDBdLFstMC41LDMuMjUsInRyYWNrLXN0cmFpZ2h0IiwwXSxbLTEuNSw0LCJ0cmFjay1zdHJhaWdodCIsMF0sWzAsMy43NSwidHJhY2stY29ybmVyIiwwXSxbMS43NSwyLjUsInRyYWNrLWNvcm5lciIsMF0sWzQuNSw0LCJ0cmFjay1jb3JuZXIiLDBdXX0';
 

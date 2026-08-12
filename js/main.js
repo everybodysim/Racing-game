@@ -5,7 +5,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999981&cachebust=1';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999982&cachebust=1';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
@@ -221,6 +221,7 @@ const modelNames = [
 	'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope',
 	'elev-track-3-way', 'elev-track-4-way',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
+	'empty-deco-grass',
 ];
 
 const models = {};
@@ -2051,6 +2052,15 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 	}
 	// Pool slopes reuse the elev-track-slope GLB, so ensure it's loaded.
 	if ( Array.isArray( extras?.poolSlopes ) && extras.poolSlopes.length ) required.add( 'elev-track-slope' );
+
+	// Flat grass fills the minimal hole under off-grid pieces and slopes.
+	if ( Array.isArray( customCells ) && customCells.some( c => ! Number.isInteger( Number( c[ 0 ] ) ) || ! Number.isInteger( Number( c[ 1 ] ) ) ) ) {
+		required.add( 'empty-deco-grass' );
+	}
+	if ( Array.isArray( extras?.elevated ) && extras.elevated.some( e => e?.[ 2 ] === 'slope-up' || e?.[ 2 ] === 'slope-down' ) ) {
+		required.add( 'empty-deco-grass' );
+	}
+
 	return modelNames.filter( ( name ) => required.has( name ) );
 
 }
