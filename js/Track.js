@@ -914,6 +914,28 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const emptyPositions = [];
 		const forestPositions = [];
 
+		// World-space clearance for off-grid pieces. In addition to the
+		// cell-based treeBlocked set, suppress any forest tree whose world
+		// center falls within OFFGRID_CLEAR cells of an off-grid piece's
+		// world center. This is a fundamentally distance-based safety net that
+		// does not depend on integer cell keying, so it catches trees that the
+		// cell-ring logic might miss due to float/edge effects.
+		const OFFGRID_CLEAR = 1.5; // cells (piece footprint is 1 cell → 0.5 + 1.0 ring)
+		const offGridCenters = [];
+		for ( const [ cgx, cgz ] of cells ) {
+			if ( ! Number.isInteger( Number( cgx ) ) || ! Number.isInteger( Number( cgz ) ) ) {
+				offGridCenters.push( [ Number( cgx ) + 0.5, Number( cgz ) + 0.5 ] );
+			}
+		}
+		function nearOffGridPiece( cgx, cgz ) {
+			for ( let i = 0; i < offGridCenters.length; i ++ ) {
+				const dx = cgx - offGridCenters[ i ][ 0 ];
+				const dz = cgz - offGridCenters[ i ][ 1 ];
+				if ( Math.max( Math.abs( dx ), Math.abs( dz ) ) <= OFFGRID_CLEAR ) return true;
+			}
+			return false;
+		}
+
 		// Simple hash for deterministic pseudo-random placement
 		function hash( gx, gz ) {
 
@@ -941,7 +963,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				const x = ( gx + 0.5 ) * CELL_RAW;
 				const z = ( gz + 0.5 ) * CELL_RAW;
 
-				if ( treeBlocked.has( gx + ',' + gz ) ) {
+				if ( treeBlocked.has( gx + ',' + gz ) || nearOffGridPiece( gx + 0.5, gz + 0.5 ) ) {
 
 					emptyPositions.push( x, z );
 					continue;
