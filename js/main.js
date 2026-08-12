@@ -17,100 +17,6 @@ import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultip
 
 document.title = 'Racing';
 
-// Gated by the ?debug URL parameter; defaults to off in production so the
-// console stays quiet without changing any gameplay behavior.
-const DEBUG = new URLSearchParams( window.location.search ).has( 'debug' );
-
-// Global error handler — catches uncaught synchronous errors (window.onerror)
-// and crashed async Promises (unhandledrejection), then shows a single,
-// non-spammy user-friendly toast. Gameplay itself is untouched: this only
-// surfaces crashes that previously failed silently. Dedupes repeat errors
-// within a short window so a tight error loop can't flood the screen.
-// During initial boot the loading screen already presents a full reload
-// prompt, so we defer to it there and only show the lightweight toast once
-// the game is up and running.
-( () => {
-
-	let activeToast = null;
-	let activeTimer = null;
-	let lastMessage = '';
-	let lastMessageAt = 0;
-	const DEDUPE_MS = 3000;
-
-	const FRIENDLY = {
-		'NetworkError': 'A network connection failed — check your internet and retry.',
-		'SyntaxError': 'A script failed to load — try reloading the page.',
-		'AbortError': 'A request was interrupted — please try again.',
-		'SecurityError': 'A security restriction blocked the action.',
-	};
-
-	function describeError( error ) {
-
-		const name = error?.name || '';
-		if ( FRIENDLY[ name ] ) return FRIENDLY[ name ];
-		const msg = ( error?.message || String( error || 'Something went wrong.' ) ).trim();
-		return msg.length > 140 ? `${ msg.slice( 0, 137 ) }…` : msg;
-	}
-
-	function isBooting() {
-
-		if ( window.__racingGameBooting ) return true;
-		const loadingScreen = document.getElementById( 'loading-screen' );
-		return Boolean( loadingScreen && !loadingScreen.classList.contains( 'hidden' ) );
-
-	}
-
-	function showErrorToast( message ) {
-
-		if ( isBooting() ) return;
-		const now = performance.now();
-		if ( message === lastMessage && now - lastMessageAt < DEDUPE_MS ) return;
-		lastMessage = message;
-		lastMessageAt = now;
-
-		activeToast = activeToast || document.getElementById( 'global-error-toast' );
-		if ( ! activeToast ) {
-			activeToast = document.createElement( 'div' );
-			activeToast.id = 'global-error-toast';
-			activeToast.className = 'global-error-toast-hidden';
-			activeToast.innerHTML = '<div class="global-error-toast-icon">⚠️</div><div class="global-error-toast-text"></div>';
-			document.body?.appendChild( activeToast );
-		}
-
-		const textEl = activeToast.querySelector( '.global-error-toast-text' );
-		if ( textEl ) textEl.textContent = message;
-
-		activeToast.classList.remove( 'global-error-toast-hidden' );
-		activeToast.classList.add( 'global-error-toast-visible' );
-
-		if ( activeTimer ) clearTimeout( activeTimer );
-		activeTimer = setTimeout( () => {
-
-			if ( ! activeToast ) return;
-			activeToast.classList.remove( 'global-error-toast-visible' );
-			activeToast.classList.add( 'global-error-toast-hidden' );
-
-		}, 6000 );
-	}
-
-	window.addEventListener( 'error', ( event ) => {
-
-		const error = event.error || event;
-		DEBUG && console.warn( '[global error]', error );
-		showErrorToast( describeError( error ) );
-
-	} );
-
-	window.addEventListener( 'unhandledrejection', ( event ) => {
-
-		const error = event.reason instanceof Error ? event.reason : event.reason;
-		DEBUG && console.warn( '[unhandled rejection]', error );
-		showErrorToast( describeError( error ) );
-
-	} );
-
-} )();
-
 setTimeout(() => {
 	const status = document.getElementById('loading-status');
 	if (status) status.textContent = 'MAINJS STARTED';
@@ -189,7 +95,7 @@ async function loadBloomEffect() {
 
 	} catch ( error ) {
 
-		DEBUG && console.warn( 'Bloom effect unavailable; continuing without postprocessing.', error );
+		console.warn( 'Bloom effect unavailable; continuing without postprocessing.', error );
 
 	}
 
@@ -817,7 +723,7 @@ function startPeerMultiplayer( roomCode, role ) {
 	peer.on( 'error', ( error ) => {
 
 		logMpDebug( `[PeerJS] Peer error: ${ error?.message || error }` );
-		DEBUG && console.warn( 'PeerJS multiplayer error', error );
+		console.warn( 'PeerJS multiplayer error', error );
 		updateMultiplayerStatus( `WebRTC issue for room ${ roomCode }; retry if peers do not appear.` );
 
 	} );
@@ -908,7 +814,7 @@ function updateMultiplayerStatus( text ) {
 function logMpDebug( message ) {
 
 	const text = String( message || '' );
-	DEBUG && console.log( text );
+	console.log( text );
 	const overlay = document.getElementById( 'mp-debug-overlay' );
 	if ( ! overlay ) return;
 	const row = document.createElement( 'div' );
@@ -1045,7 +951,7 @@ async function publishMultiplayerBestLap( bestLap ) {
 
 	} catch ( error ) {
 
-		DEBUG && console.warn( 'Failed to publish multiplayer best lap', error );
+		console.warn( 'Failed to publish multiplayer best lap', error );
 
 	}
 
@@ -1214,7 +1120,7 @@ function initMultiplayerPanel() {
 
 		} catch ( error ) {
 
-			DEBUG && console.warn( 'Failed to create multiplayer room', error );
+			console.warn( 'Failed to create multiplayer room', error );
 			codeInput.value = '';
 			if ( isFirebasePermissionError( error ) ) {
 
@@ -1281,7 +1187,7 @@ function initMultiplayerPanel() {
 
 		} catch ( error ) {
 
-			DEBUG && console.warn( 'Failed to join multiplayer room', error );
+			console.warn( 'Failed to join multiplayer room', error );
 			if ( isFirebasePermissionError( error ) ) {
 
 				updateMultiplayerStatus( 'Firebase denied read access. Publish RTDB rules for /racing-rooms first.' );
@@ -1381,7 +1287,7 @@ async function hostRotateRoomCode( currentRoomCode, mapSignature ) {
 
 	} catch ( error ) {
 
-		DEBUG && console.warn( 'Failed to rotate multiplayer room code', error );
+		console.warn( 'Failed to rotate multiplayer room code', error );
 		return currentRoomCode;
 
 	} finally {
@@ -1739,7 +1645,7 @@ function decodeExtrasParam( str ) {
 
 	} catch ( e ) {
 
-		DEBUG && console.warn( 'Invalid mods parameter, ignoring extras' );
+		console.warn( 'Invalid mods parameter, ignoring extras' );
 		return null;
 
 	}
@@ -1766,7 +1672,7 @@ async function resolvePackedTrackParams( params ) {
 
 		} catch ( error ) {
 
-			DEBUG && console.warn( 'Failed to load local packed track payload', error );
+			console.warn( 'Failed to load local packed track payload', error );
 
 		}
 
@@ -1823,7 +1729,7 @@ async function resolvePackedTrackParams( params ) {
 
 	} catch ( error ) {
 
-		DEBUG && console.warn( 'Failed to load packed track payload', error );
+		console.warn( 'Failed to load packed track payload', error );
 		return { mapParam: params.get( 'map' ), extrasParam: params.get( 'mods' ) };
 
 	}
@@ -1851,7 +1757,7 @@ async function fetchTrackBoardEntries() {
 
 		} catch ( error ) {
 
-			DEBUG && console.warn( 'Failed to fetch track share board entries', error );
+			console.warn( 'Failed to fetch track share board entries', error );
 
 		}
 
@@ -1928,7 +1834,7 @@ if ( trackName ) {
 }
 	} catch ( error ) {
 
-		DEBUG && console.warn( 'Failed to update document title from track share board', error );
+		console.warn( 'Failed to update document title from track share board', error );
 
 	}
 
@@ -1953,7 +1859,7 @@ async function resolveTrackBoardSharedPack( sharedPackId ) {
 
 	} catch ( error ) {
 
-		DEBUG && console.warn( 'Failed to resolve sharedPack from track board', error );
+		console.warn( 'Failed to resolve sharedPack from track board', error );
 		return null;
 
 	}
@@ -2106,7 +2012,7 @@ async function loadRuntimeMods() {
 
 		} catch ( error ) {
 
-			DEBUG && console.warn( `Failed to load mod runtime: ${ mod?.id || 'unknown' }`, error );
+			console.warn( `Failed to load mod runtime: ${ mod?.id || 'unknown' }`, error );
 
 		}
 
@@ -2234,7 +2140,7 @@ async function loadCustomTrackAssets( extras ) {
 
 		} catch ( error ) {
 
-			DEBUG && console.warn( 'Failed to load custom track asset', id, error );
+			console.warn( 'Failed to load custom track asset', id, error );
 
 		}
 
@@ -2311,7 +2217,7 @@ async function init() {
 
 		} catch ( e ) {
 
-			DEBUG && console.warn( 'Invalid map parameter, using default track' );
+			console.warn( 'Invalid map parameter, using default track' );
 
 		}
 
@@ -2884,7 +2790,7 @@ async function init() {
 
 		} catch ( error ) {
 
-			DEBUG && console.warn( 'Multiplayer transform sync failed', error );
+			console.warn( 'Multiplayer transform sync failed', error );
 
 		} finally {
 
@@ -3526,7 +3432,7 @@ async function init() {
 
 		} catch ( error ) {
 
-			DEBUG && console.warn( `Mod init failed: ${ runtime?.id || 'unknown' }`, error );
+			console.warn( `Mod init failed: ${ runtime?.id || 'unknown' }`, error );
 
 		}
 
@@ -3542,7 +3448,7 @@ async function init() {
 
 			} catch ( error ) {
 
-				DEBUG && console.warn( `Mod dispose failed: ${ runtime?.id || 'unknown' }`, error );
+				console.warn( `Mod dispose failed: ${ runtime?.id || 'unknown' }`, error );
 
 			}
 
@@ -3556,7 +3462,7 @@ async function init() {
 			try {
 				runtime[ hookName ]( { ...payload, vehicle, world, controls, now: raceClockSeconds } );
 			} catch ( error ) {
-				DEBUG && console.warn( `Mod ${ hookName } failed: ${ runtime?.id || 'unknown' }`, error );
+				console.warn( `Mod ${ hookName } failed: ${ runtime?.id || 'unknown' }`, error );
 			}
 		}
 	}
@@ -4166,7 +4072,7 @@ async function init() {
 
 		} catch ( e ) {
 
-			DEBUG && console.warn( 'Failed to load stunt stats', e );
+			console.warn( 'Failed to load stunt stats', e );
 
 		}
 
@@ -4498,7 +4404,7 @@ async function init() {
 
 		} catch ( e ) {
 
-			DEBUG && console.warn( 'Failed to load garage mods', e );
+			console.warn( 'Failed to load garage mods', e );
 
 		}
 
@@ -5511,7 +5417,7 @@ function completeCampaignStage() {
 
 		} catch ( e ) {
 
-			DEBUG && console.warn( 'Failed to load economy', e );
+			console.warn( 'Failed to load economy', e );
 
 		}
 
@@ -5525,7 +5431,7 @@ function completeCampaignStage() {
 
 		} catch ( e ) {
 
-			DEBUG && console.warn( 'Failed to save recent ghosts', e );
+			console.warn( 'Failed to save recent ghosts', e );
 
 		}
 
@@ -5556,7 +5462,7 @@ function completeCampaignStage() {
 
 		} catch ( e ) {
 
-			DEBUG && console.warn( 'Failed to load recent ghosts', e );
+			console.warn( 'Failed to load recent ghosts', e );
 
 		}
 
@@ -6735,7 +6641,7 @@ function completeCampaignStage() {
 
 		} catch ( e ) {
 
-			DEBUG && console.warn( 'Failed to create share snapshot', e );
+			console.warn( 'Failed to create share snapshot', e );
 			return createTimeCardImage( bestSeconds );
 
 		}
@@ -6758,7 +6664,7 @@ function completeCampaignStage() {
 
 			} catch ( e ) {
 
-				DEBUG && console.warn( 'Failed to build track ghost URL from export code', e );
+				console.warn( 'Failed to build track ghost URL from export code', e );
 
 			}
 
@@ -7113,7 +7019,7 @@ function completeCampaignStage() {
 
 		} catch ( e ) {
 
-			DEBUG && console.warn( 'Failed to fetch leaderboard', e );
+			console.warn( 'Failed to fetch leaderboard', e );
 			leaderboardList.hidden = true;
 			leaderboardEmpty.hidden = false;
 			leaderboardEmpty.textContent = 'Leaderboard unavailable (check Cloudflare setup).';
@@ -7232,7 +7138,7 @@ function completeCampaignStage() {
 
 			} catch ( e ) {
 
-				DEBUG && console.warn( 'Leaderboard POST response was not JSON', e );
+				console.warn( 'Leaderboard POST response was not JSON', e );
 
 			}
 			if ( submittedGhost ) {
@@ -7268,7 +7174,7 @@ function completeCampaignStage() {
 
 		} catch ( e ) {
 
-			DEBUG && console.warn( 'Failed to submit leaderboard time', e );
+			console.warn( 'Failed to submit leaderboard time', e );
 			return false;
 
 		}
@@ -7308,7 +7214,7 @@ function completeCampaignStage() {
 
 		} catch ( loadError ) {
 
-			DEBUG && console.warn( 'Auto cloud profile load after login failed', loadError );
+			console.warn( 'Auto cloud profile load after login failed', loadError );
 			setAccountStatus( `Logged in as ${ payload.username } (auto-load failed, use "Load profile from cloud").`, true );
 
 		}
@@ -7417,7 +7323,7 @@ function completeCampaignStage() {
 
 		} catch ( e ) {
 
-			DEBUG && console.warn( 'Failed to load lap stats', e );
+			console.warn( 'Failed to load lap stats', e );
 
 		}
 
@@ -8618,7 +8524,7 @@ function completeCampaignStage() {
 
 		} catch ( e ) {
 
-			DEBUG && console.warn( 'Failed to import ghost from URL hash', e );
+			console.warn( 'Failed to import ghost from URL hash', e );
 
 		}
 
@@ -8812,7 +8718,7 @@ function completeCampaignStage() {
 
 				} catch ( error ) {
 
-					DEBUG && console.warn( `Mod applyFrame failed: ${ runtime?.id || 'unknown' }`, error );
+					console.warn( `Mod applyFrame failed: ${ runtime?.id || 'unknown' }`, error );
 
 				}
 
@@ -9386,7 +9292,7 @@ function completeCampaignStage() {
 
 					} catch ( error ) {
 
-						DEBUG && console.warn( 'Failed to persist quick-test ghost', error );
+						console.warn( 'Failed to persist quick-test ghost', error );
 
 					}
 					window.location.href = editorReturnParam;
