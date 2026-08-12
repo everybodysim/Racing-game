@@ -472,6 +472,19 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			elevatedMap.set( `${ gx },${ gz }`, normalizeElevatedEntry( elevatedType, orient ) );
 
 		}
+		// Cells covered by a slope block (slope-up / slope-down). Trees must
+		// not spawn under a slope, so both auto-forest and hand-placed
+		// decorations skip these cells.
+		const slopeCells = new Set();
+		for ( const [ gx, gz, elevatedType ] of elevatedCells ) {
+
+			if ( elevatedType === 'slope-up' || elevatedType === 'slope-down' ) {
+
+				slopeCells.add( `${ Number( gx ) },${ Number( gz ) }` );
+
+			}
+
+		}
 
 		const waterSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 		const isWaterCell = ( gx, gz ) => waterSet.has( `${ gx },${ gz }` );
@@ -740,6 +753,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz, key, orient ] of decorations ) {
 
 			if ( waterSet.has( `${ gx },${ gz }` ) ) continue;
+			// Don't place a decoration tree under a slope block.
+			if ( slopeCells.has( `${ Number( gx ) },${ Number( gz ) }` ) ) continue;
 			const piece = placePiece( models, key, gx, gz, orient || 0 );
 			if ( piece ) decoGroup.add( piece );
 
