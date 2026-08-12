@@ -809,19 +809,20 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		let minX = Infinity, maxX = - Infinity;
 		let minZ = Infinity, maxZ = - Infinity;
 
-		// Helper: mark integer grid cells whose CENTER falls inside a
-		// (possibly off-grid) cell's footprint as tree-blocked, and expand
-		// the coverage bounds so ground fills all gaps.
+		// Helper: mark integer grid cells whose footprint overlaps a
+		// (possibly off-grid) cell as tree-blocked, and expand the coverage
+		// bounds so ground fills all gaps.
 		//
-		// A cell at (gx, gz) covers (gx, gz) to (gx+1, gz+1).
-		// Integer cell (cx, cz) has its center at (cx+0.5, cz+0.5).
-		// The center is inside the footprint when:
-		//   gx <= cx+0.5 < gx+1   →   ceil(gx - 0.5) <= cx <= floor(gx + 0.5)
+		// A cell at (gx, gz) covers the box [gx, gx+1] x [gz, gz+1].
+		// An integer cell (cx, cz) covers [cx, cx+1] x [cz, cz+1].
+		// Two unit boxes overlap when their integer ranges overlap, i.e. when
+		//   floor(gx) <= cx <= ceil(gx+1)-1  and  floor(gz) <= cz <= ceil(gz+1)-1
 		//
-		// For on-grid cells (integer gx): exactly one cell matches (itself).
-		// For off-grid cells (fractional gx): typically one cell matches —
-		// the one whose center is closest to the block's center. When the
-		// block sits exactly on a seam (gx = N + 0.5), two cells match.
+		// For on-grid cells (integer gx): only one cell overlaps (itself),
+		// so no neighbors lose their trees. For off-grid cells (fractional
+		// gx): the footprint straddles a seam and overlaps up to 4 integer
+		// cells — all of them are erased so an off-grid track section never
+		// touches the surrounding auto-placed forest decorations.
 		function blockCellForTrees( gx, gz, markOccupied ) {
 			gx = Number( gx );
 			gz = Number( gz );
@@ -834,10 +835,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 			if ( markOccupied ) occupied.add( gx + ',' + gz );
 
-			const minBlockX = Math.ceil( gx - 0.5 );
-			const maxBlockX = Math.floor( gx + 0.5 );
-			const minBlockZ = Math.ceil( gz - 0.5 );
-			const maxBlockZ = Math.floor( gz + 0.5 );
+			const minBlockX = Math.floor( gx );
+			const maxBlockX = Math.ceil( gx + 1 ) - 1;
+			const minBlockZ = Math.floor( gz );
+			const maxBlockZ = Math.ceil( gz + 1 ) - 1;
 			for ( let bx = minBlockX; bx <= maxBlockX; bx ++ ) {
 				for ( let bz = minBlockZ; bz <= maxBlockZ; bz ++ ) {
 					treeBlocked.add( bx + ',' + bz );
