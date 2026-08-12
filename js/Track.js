@@ -839,18 +839,25 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		// bumps, or other see-through elements per user spec). Tree-blocked
 		// only — ground still placed underneath to avoid visual holes.
 		if ( extras ) {
-			// Elevated: include all solid types. On-grid slopes (ramps) are
-			// see-through visually, but trees spawning under them clip badly,
-			// so block on-grid slopes too. Off-grid slopes are left as-is.
+			// Elevated: include all solid types except slope-up / slope-down
+			// (ramps are see-through and trees can go through them).
 			if ( Array.isArray( extras.elevated ) ) {
 				for ( const entry of extras.elevated ) {
 					if ( ! Array.isArray( entry ) ) continue;
 					const type = entry[ 2 ];
-					const isSlope = type === 'slope-up' || type === 'slope-down';
+					if ( type === 'slope-up' || type === 'slope-down' ) continue;
+					blockCellForTrees( entry[ 0 ], entry[ 1 ], false );
+				}
+			}
+			// Pool slopes (elev-track-slope placed at ground level): trees clip
+			// through them, so block on-grid slope cells. Off-grid slopes are
+			// left as-is for now (handling them risks breaking placement).
+			if ( Array.isArray( extras.poolSlopes ) ) {
+				for ( const entry of extras.poolSlopes ) {
+					if ( ! Array.isArray( entry ) ) continue;
 					const gx = Number( entry[ 0 ] );
 					const gz = Number( entry[ 1 ] );
-					const onGrid = Number.isInteger( gx ) && Number.isInteger( gz );
-					if ( isSlope && ! onGrid ) continue;
+					if ( ! Number.isInteger( gx ) || ! Number.isInteger( gz ) ) continue;
 					blockCellForTrees( entry[ 0 ], entry[ 1 ], false );
 				}
 			}
