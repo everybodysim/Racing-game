@@ -361,7 +361,7 @@ const seamSuppress = {
 	vy2: 0,  vel2: null,
 };
 
-function suppressSeamBounce( veh, key ) {
+function suppressSeamBounce( world, veh, key ) {
 	if ( ! veh?.rigidBody?.motionProperties ) return false;
 	const vel = veh.rigidBody.motionProperties.linearVelocity;
 	const vy = vel[ 1 ];
@@ -8854,8 +8854,8 @@ function completeCampaignStage() {
 		updateWorld( world, contactListener, dt );
 
 		// Suppress seam bounces and detect real crashes based on speed loss
-		const seam1 = suppressSeamBounce( vehicle, '1' );
-		const seam2 = vehicle2 ? suppressSeamBounce( vehicle2, '2' ) : false;
+		const seam1 = suppressSeamBounce( world, vehicle, '1' );
+		const seam2 = vehicle2 ? suppressSeamBounce( world, vehicle2, '2' ) : false;
 
 		if ( vehicle?.rigidBody?.motionProperties ) {
 			const v = vehicle.rigidBody.motionProperties.linearVelocity;
