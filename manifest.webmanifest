@@ -1,7 +1,7 @@
 {
-  "name": "Racing Game",
-  "short_name": "Racing",
-  "description": "A fast arcade-style racing game with custom track editing.",
+  "name": "Skid Circuit",
+  "short_name": "Skid Circuit",
+  "description": "Skid Circuit — a free 3D browser racing game where you can race, drift, build custom tracks, and compete for fast times.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
