@@ -6868,22 +6868,14 @@ function completeCampaignStage() {
 
 	function updateLapHud() {
 
-		if ( ! lapHud ) return;
 		const totalCheckpoints = checkpointStates.length;
 		const passedCheckpoints = checkpointStates.reduce( ( count, checkpoint ) => count + ( checkpoint.passedThisLap ? 1 : 0 ), 0 );
-		const checkpointLine = totalCheckpoints > 0
-			? `<br><small>Checkpoints: ${ passedCheckpoints } / ${ totalCheckpoints }</small>`
-			: '';
 		const controlsHints = [];
 		if ( checkpointRespawnInstalled ) controlsHints.push( 'Checkpoint respawn: T' );
 		if ( practiceStartInstalled ) controlsHints.push( 'Save/Load practice: Y / Shift+Y' );
 		if ( freecamInstalled ) controlsHints.push( 'Freecam: F (WASD=cam, Arrows=drive)' );
-		const controlsLine = controlsHints.length ? `<br><small>${ controlsHints.join( ' • ' ) }</small>` : '';
-		const checkpointDeltaLine = checkpointDeltaText ? `<br><small>Checkpoint Δ: ${ checkpointDeltaText }</small>` : '';
-		const invalidLine = currentLapInvalidatedByPause ? '<br><small>Paused: leaderboard invalid</small>' : '';
-		lapHud.innerHTML = `Lap ${ lapNumber } • ${ formatLapTime( lapSeconds ) }<br><small>Last: ${ formatLapTime( lastLapSeconds ) } • Best: ${ formatLapTime( bestLapSeconds ) }</small>${ checkpointLine }${ checkpointDeltaLine }${ invalidLine }${ controlsLine }`;
 
-		// mirror into the customizable HUD grid
+		// mirror into the customizable HUD grid (the old overlay is gone)
 		if ( window.__hudGrid ) {
 			window.__hudGrid.setState( {
 				lapNumber,
@@ -6900,13 +6892,7 @@ function completeCampaignStage() {
 
 	function updateLapHud2() {
 
-		if ( ! lapHud2 || ! isSplitScreen ) return;
-		const totalCheckpoints = checkpointStates2.length;
-		const passedCheckpoints = checkpointStates2.reduce( ( count, checkpoint ) => count + ( checkpoint.passedThisLap ? 1 : 0 ), 0 );
-		const checkpointLine = totalCheckpoints > 0
-			? `<br><small>Checkpoints: ${ passedCheckpoints } / ${ totalCheckpoints }</small>`
-			: '';
-		lapHud2.innerHTML = `P2 • Lap ${ lapNumber2 } • ${ formatLapTime( lapSeconds2 ) }<br><small>Last: ${ formatLapTime( lastLapSeconds2 ) } • Best: ${ formatLapTime( bestLapSeconds2 ) }</small>${ checkpointLine }<br><small>Keys: Arrows • Respawn: P</small>`;
+		if ( ! isSplitScreen ) return;
 
 		if ( window.__hudGrid ) {
 			window.__hudGrid.setState( {
@@ -7384,7 +7370,25 @@ function completeCampaignStage() {
 				const v = vehicle.rigidBody.motionProperties.linearVelocity;
 				spd = Math.sqrt( v[ 0 ] * v[ 0 ] + v[ 2 ] * v[ 2 ] );
 			}
-			window.__hudGrid.setState( { speed: String( Math.round( spd * 3.6 ) ), fps: String( Math.round( rollingFps ) ) } );
+			let px = 0, py = 0, pz = 0;
+			if ( vehicle?.container?.position ) {
+				px = vehicle.container.position.x;
+				py = vehicle.container.position.y;
+				pz = vehicle.container.position.z;
+			}
+			window.__hudGrid.setState( {
+				speed: String( Math.round( spd * 3.6 ) ),
+				fps: String( Math.round( rollingFps ) ),
+				posX: px.toFixed( 1 ),
+				posY: py.toFixed( 1 ),
+				posZ: pz.toFixed( 1 ),
+				coins: Math.floor( coins ).toLocaleString(),
+				name: sanitizePlayerName( playerNameInput?.value || localStorage.getItem( PLAYER_NAME_KEY ) || '' ),
+				boost: arcadeBoostInstalled ? `${ Math.round( THREE.MathUtils.clamp( boostMeter / BOOST_METER_MAX, 0, 1 ) * 100 ) }%` : 'off',
+				stuntPoints: Math.floor( stuntPoints ).toLocaleString(),
+				stuntCombo: stuntCombo.toFixed( 2 ),
+				stuntBest: Math.floor( bestStuntPoints ).toLocaleString(),
+			} );
 		}
 
 	}
