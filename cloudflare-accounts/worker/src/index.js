@@ -205,7 +205,25 @@ function sanitizeProfile( value ) {
 		},
 		campaign: profile?.campaign && typeof profile.campaign === 'object' ? profile.campaign : null,
 		carKey: typeof profile?.carKey === 'string' ? profile.carKey : '',
+		hud: sanitizeHudLayout( profile?.hud ),
 	};
+}
+
+// HUD layout = array of rows of widget type strings (see js/HudGrid.js).
+// Persist it verbatim once validated so the player's HUD customizations round-trip
+// to the cloud account instead of being silently dropped on save.
+function sanitizeHudLayout( value ) {
+	if ( ! Array.isArray( value ) ) return undefined;
+	const MAX_ROWS = 8;
+	const MAX_PER_ROW = 8;
+	const MAX_TYPE_LEN = 32;
+	const rows = value.slice( 0, MAX_ROWS ).map( ( row ) => {
+		if ( ! Array.isArray( row ) ) return [];
+		return row.slice( 0, MAX_PER_ROW ).filter( ( t ) => {
+			return typeof t === 'string' && t.length > 0 && t.length <= MAX_TYPE_LEN;
+		} );
+	} );
+	return rows;
 }
 
 function sanitizeGarageCosmetics( value ) {

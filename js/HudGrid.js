@@ -28,11 +28,30 @@ const HUD_WIDGETS = {
 	posZ:       { label: 'Position Z',    cls: 'hw-pos',        render: s => `<span class="hw-label">Pos Z</span><span class="hw-value">${ s.posZ }</span>` },
 };
 
-// Default layout spread across 2 rows.
+// Default layout: top row of race widgets, second row left empty for the
+// player to fill in. Both rows always exist (the .hud-row containers in
+// index.html are fixed), so the empty second row can still receive widgets.
 const HUD_DEFAULT_LAYOUT = [
 	[ 'lap', 'time', 'last', 'best', 'checkpoints' ],
-	[ 'speed', 'fps', 'coins', 'boost' ],
+	[],
 ];
+
+// Widgets that only make sense (and are only offered in the add menu) while
+// the Stunt Mode mod is installed.
+const STUNT_GATED_TYPES = new Set( [ 'boost', 'stunt', 'stuntCombo', 'stuntBest' ] );
+
+function isStuntModeEnabled() {
+	try {
+		const parsed = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
+		return Array.isArray( parsed ) && parsed.some( ( m ) => m?.id === 'stunt-mode' );
+	} catch {
+		return false;
+	}
+}
+
+function isHudWidgetAllowed( type ) {
+	return ! STUNT_GATED_TYPES.has( type ) || isStuntModeEnabled();
+}
 
 let hudLayout = loadHudLayout();
 let hudEditing = false;
@@ -60,7 +79,9 @@ function loadHudLayout() {
 		if ( ! Array.isArray( parsed ) ) return JSON.parse( JSON.stringify( HUD_DEFAULT_LAYOUT ) );
 		const rows = [];
 		for ( let i = 0; i < HUD_NUM_ROWS; i++ ) {
-			const r = Array.isArray( parsed[ i ] ) ? parsed[ i ].filter( t => HUD_WIDGETS[ t ] ) : [];
+			const r = Array.isArray( parsed[ i ] )
+				? parsed[ i ].filter( t => HUD_WIDGETS[ t ] && isHudWidgetAllowed( t ) )
+				: [];
 			rows.push( r );
 		}
 		return rows;
@@ -71,6 +92,7 @@ function loadHudLayout() {
 
 function saveHudLayout() {
 	localStorage.setItem( HUD_LAYOUT_KEY, JSON.stringify( hudLayout ) );
+	if ( typeof onHudLayoutChange === 'function' ) onHudLayoutChange();
 }
 
 function getHudLayoutSnapshot() {
@@ -81,7 +103,9 @@ function applyHudLayoutSnapshot( snap ) {
 	if ( ! Array.isArray( snap ) ) return;
 	const rows = [];
 	for ( let i = 0; i < HUD_NUM_ROWS; i++ ) {
-		const r = Array.isArray( snap[ i ] ) ? snap[ i ].filter( t => HUD_WIDGETS[ t ] ) : [];
+		const r = Array.isArray( snap[ i ] )
+			? snap[ i ].filter( t => HUD_WIDGETS[ t ] && isHudWidgetAllowed( t ) )
+			: [];
 		rows.push( r );
 	}
 	hudLayout = rows;
@@ -146,7 +170,17 @@ function removeHudWidget( el ) {
 }
 
 function addHudWidget( type ) {
-	// add to the first non-full row (cap 6 per row); fall back to first row
+	if ( ! isHudWidgetAllowed( type ) ) return;
+	// prefer the first empty row (e.g. the default-empty second row), then the
+	// first non-full row (cap 6 per row); fall back to the first row
+	for ( let i = 0; i < HUD_NUM_ROWS; i++ ) {
+		if ( hudLayout[ i ].length === 0 ) {
+			hudLayout[ i ].push( type );
+			saveHudLayout();
+			renderHudGrid();
+			return;
+		}
+	}
 	for ( let i = 0; i < HUD_NUM_ROWS; i++ ) {
 		if ( hudLayout[ i ].length < 6 ) {
 			hudLayout[ i ].push( type );
@@ -176,6 +210,7 @@ function toggleHudEditMode() {
 function buildHudAddMenu() {
 	hudAddMenu.innerHTML = '';
 	for ( const type of Object.keys( HUD_WIDGETS ) ) {
+		if ( ! isHudWidgetAllowed( type ) ) continue;
 		const cfg = HUD_WIDGETS[ type ];
 		const count = hudLayout.reduce( ( n, r ) => n + r.filter( t => t === type ).length, 0 );
 		const btn = document.createElement( 'button' );
@@ -299,9 +334,11 @@ attachHudRowDnd();
 renderHudGrid();
 
 // expose for main.js
+let onHudLayoutChange = null;
 window.__hudGrid = {
 	update: updateHudGrid,
 	setState: ( s ) => { hudState = { ...hudState, ...s }; },
 	getLayoutSnapshot: getHudLayoutSnapshot,
 	applyLayoutSnapshot: applyHudLayoutSnapshot,
+	setOnLayoutChange: ( fn ) => { onHudLayoutChange = typeof fn === 'function' ? fn : null; },
 };

@@ -7243,6 +7243,30 @@ function completeCampaignStage() {
 
 	}
 
+	// Debounced HUD layout -> cloud sync. Triggered by js/HudGrid.js whenever the
+	// player adds/removes/reorders a widget (saveHudLayout -> onHudLayoutChange).
+	// No-op when not signed in; the layout still persists to localStorage.
+	let hudCloudSyncTimer = null;
+	async function syncHudLayoutToCloud() {
+
+		if ( ! accountSession?.token ) return;
+		if ( hudCloudSyncTimer ) clearTimeout( hudCloudSyncTimer );
+		hudCloudSyncTimer = setTimeout( async () => {
+			hudCloudSyncTimer = null;
+			try {
+				await accountApiRequest( '/profile', {
+					method: 'POST',
+					body: JSON.stringify( { token: accountSession.token, profile: getCurrentProfileSnapshot() } ),
+				} );
+			} catch ( err ) {
+				console.warn( 'HUD cloud sync failed', err );
+			}
+		}, 1500 );
+
+	}
+
+	if ( window.__hudGrid?.setOnLayoutChange ) window.__hudGrid.setOnLayoutChange( syncHudLayoutToCloud );
+
 	async function cloudLoadProfile() {
 
 		if ( ! accountSession?.token ) throw new Error( 'Log in first.' );
