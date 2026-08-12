@@ -913,6 +913,11 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const pad = 3;
 		const emptyPositions = [];
 		const forestPositions = [];
+		// Cells too close to an off-grid piece are left completely empty (no
+		// forest AND no empty-deco instance) so there is a true hole under the
+		// off-grid piece. NOTE: decoration-empty is itself a bush/small-tree
+		// mesh, so placing it would still read as "trees under the piece".
+		const offGridHolePositions = [];
 
 		// World-space clearance for off-grid pieces. Suppress any forest
 		// tree whose world center falls within OFFGRID_CLEAR cells of an
@@ -963,7 +968,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 				if ( treeBlocked.has( gx + ',' + gz ) || nearOffGridPiece( gx + 0.5, gz + 0.5 ) ) {
 
-					emptyPositions.push( x, z );
+					// True hole: place no decoration instance at all so the
+					// off-grid piece sits over clear ground.
+					offGridHolePositions.push( x, z );
 					continue;
 
 				}
@@ -982,10 +989,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		// Final hard guarantee: strip any forest tree whose position is
-		// within OFFGRID_CLEAR of an off-grid piece, moving it to empty.
-		// Runs after all other placement logic so it cannot be defeated by
-		// earlier cell-keying edge cases.
+		// Final hard guarantee: drop any forest tree whose position is within
+		// OFFGRID_CLEAR of an off-grid piece entirely (no replacement instance),
+		// so a true hole remains. Runs after all other placement logic so it
+		// cannot be defeated by earlier cell-keying edge cases.
 		if ( offGridCenters.length > 0 && forestPositions.length > 0 ) {
 			const keptForest = [];
 			for ( let i = 0; i < forestPositions.length; i += 2 ) {
@@ -994,7 +1001,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				const cgx = fx / CELL_RAW - 0.5;
 				const cgz = fz / CELL_RAW - 0.5;
 				if ( nearOffGridPiece( cgx, cgz ) ) {
-					emptyPositions.push( fx, fz );
+					offGridHolePositions.push( fx, fz );
 				} else {
 					keptForest.push( fx, fz );
 				}
@@ -1040,6 +1047,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				treeBlocked: [ ...treeBlocked ].sort(),
 				forestCount: forestPositions.length / 2,
 				emptyCount: emptyPositions.length / 2,
+				holeCount: offGridHolePositions.length / 2,
 				offGridCenters,
 			};
 		}
