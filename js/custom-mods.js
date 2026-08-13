@@ -36,6 +36,10 @@
 
 const DRAFT_KEY = 'racing-custom-mods-workspace-v3';
 const SHARED_KEY = 'racing-shared-custom-mods-v1';
+// The same key js/mods-manager.js and js/main.js read to load mods at boot.
+// "Save to Mod Manager" writes the generated runtime here so the mod is
+// actually installed (survives reload, runs in index.html) — not just listed.
+const INSTALLED_MODS_KEY = 'racing-installed-mods-v1';
 
 function setStatus( message ) { const el = document.getElementById( 'status' ); if ( el ) el.textContent = message; }
 function safeId( value ) { return String( value || '' ).trim().toLowerCase().replace( /[^a-z0-9-_]/g, '-' ).replace( /-+/g, '-' ); }
@@ -1078,6 +1082,10 @@ function generateTemplate() {
 // ============ SHARING ============
 function toBase64Url( str ) { const bytes = new TextEncoder().encode( str ); let bin = ''; bytes.forEach( ( b ) => { bin += String.fromCharCode( b ); } ); return btoa( bin ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' ); }
 function fromBase64Url( raw ) { const norm = String( raw || '' ).replace( /-/g, '+' ).replace( /_/g, '/' ); const padded = norm + '==='.slice( ( norm.length + 3 ) % 4 ); const bin = atob( padded ); const bytes = Uint8Array.from( bin, ( c ) => c.charCodeAt( 0 ) ); return new TextDecoder().decode( bytes ); }
+// Build a `data:text/javascript;base64,...` URL for the generated runtime so the
+// mod can be imported via dynamic import() at boot. Mirrors the helper in
+// js/mods-manager.js used by the shared-mod Install button.
+function toJsDataUrl( code ) { const bytes = new TextEncoder().encode( String( code || '' ) ); let bin = ''; bytes.forEach( ( b ) => { bin += String.fromCharCode( b ); } ); return `data:text/javascript;base64,${ btoa( bin ) }`; }
 
 function getSharePayload() {
 	return {
@@ -1173,6 +1181,8 @@ document.getElementById( 'export-share' )?.addEventListener( 'click', async () =
 document.getElementById( 'save-to-manager' )?.addEventListener( 'click', () => {
 	try {
 		const payload = getSharePayload();
+		// 1) Keep the mod in the shared-mods list so it shows up in the Mods page
+		//    (Import Shared / Install / Copy JSON) for re-installation or sharing.
 		let arr = JSON.parse( localStorage.getItem( SHARED_KEY ) || '[]' );
 		if ( ! Array.isArray( arr ) ) arr = [];
 		arr = arr.filter( ( x ) => x.modId !== payload.modId );
@@ -1182,7 +1192,27 @@ document.getElementById( 'save-to-manager' )?.addEventListener( 'click', () => {
 			try { localStorage.setItem( SHARED_KEY, JSON.stringify( arr ) ); break; }
 			catch ( e ) { arr.shift(); }
 		}
-		setStatus( `Saved "${ payload.modName }" to Mod Manager — install it from the Mods page` );
+		// 2) ACTUALLY INSTALL the generated runtime so the mod runs in index.html on
+		//    the next load and survives reload. This writes the same shape
+		//    ({id,name,entry}) js/main.js loadRuntimeMods() imports at boot. Replace
+		//    any previously-installed custom-* mod so installing a new one swaps it
+		//    in instead of stacking (matches the shared-mod Install button).
+		const installedRaw = JSON.parse( localStorage.getItem( INSTALLED_MODS_KEY ) || '[]' );
+		const installedList = Array.isArray( installedRaw ) ? installedRaw : [];
+		const installId = `custom-${ payload.modId }`;
+		const code = String( payload.template || '' ).trim() || `const SPEC = {};\nexport default { id: ${ JSON.stringify( installId ) }, init(){}, applyFrame(){ return null; } };\n`;
+		const next = installedList.filter( ( m ) => ! ( typeof m?.id === 'string' && m.id.startsWith( 'custom-' ) ) );
+		next.push( { id: installId, name: payload.modName || payload.modId || 'Custom Mod', entry: toJsDataUrl( code ) } );
+		// Quota-safe: if the data URL blows localStorage, drop older custom-* entries.
+		for ( let attempt = next.length - 1; attempt >= 0; attempt -- ) {
+			try { localStorage.setItem( INSTALLED_MODS_KEY, JSON.stringify( next ) ); break; }
+			catch ( e ) {
+				const idx = next.findIndex( ( m ) => typeof m?.id === 'string' && m.id.startsWith( 'custom-' ) && m.id !== installId );
+				if ( idx < 0 ) throw e;
+				next.splice( idx, 1 );
+			}
+		}
+		setStatus( `Installed "${ payload.modName }" — it will run next time you load the game (reload index.html).` );
 	} catch ( e ) {
 		setStatus( `Could not save to Mod Manager: ${ e.message || e }` );
 	}
