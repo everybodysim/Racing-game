@@ -14,6 +14,11 @@
 <meta property="og:url" content="https://everybodysim.github.io/Racing-game/custommods.html">
 <meta property="og:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
   <script src="https://unpkg.com/blockly/blockly.min.js"></script>
+  <!-- Blockly >=11 ships FieldColour as a separate package. The colour blocks in
+       the FX, UI, and Game Control categories call `new Blockly.FieldColour()`,
+       which is undefined in blockly.min.js, so loading this UMD build restores the
+       constructor and stops the toolbox flyout from freezing on those categories. -->
+  <script src="https://unpkg.com/@blockly/field-colour/dist/index.js"></script>
   <style>
 .skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
 .skip-link:focus{top:12px}

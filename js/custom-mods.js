@@ -1,6 +1,39 @@
 // Custom Mods Lab — block definitions, parser, and runtime template generator.
 // Keeps the visual editor compact while exposing a rich, safe modding surface.
 
+// Blockly >=11 no longer ships FieldColour in blockly.min.js. The FX, UI and Game
+// Control categories use `new Blockly.FieldColour(...)`, which previously threw a
+// TypeError during block init() and froze the toolbox flyout on those categories.
+// The @blockly/field-colour UMD build (loaded in custommods.html) exports the class
+// onto the global as `FieldColour` (and registers it with Blockly's field registry);
+// bridge it back onto `Blockly.FieldColour` so the existing block defs keep working.
+// If, for any reason, the package fails to load, fall back to a tiny text-input field
+// so colour blocks still render instead of breaking the whole category.
+( () => {
+
+	if ( typeof Blockly === 'undefined' ) return;
+	if ( Blockly.FieldColour ) return;
+	if ( typeof window !== 'undefined' && typeof window.FieldColour === 'function' ) {
+
+		Blockly.FieldColour = window.FieldColour;
+		try { if ( typeof window.registerFieldColour === 'function' ) window.registerFieldColour(); } catch { /* ignore */ }
+		return;
+
+	}
+	// Minimal fallback: a hex-colour text field. Not a picker, but it keeps the
+	// category usable when the colour package is unavailable.
+	Blockly.FieldColour = class FieldColourFallback extends Blockly.FieldTextInput {
+
+		constructor( value, validator, config ) {
+
+			super( String( value || '#ff4b1f' ), validator, config );
+
+		}
+
+	};
+
+} )();
+
 const DRAFT_KEY = 'racing-custom-mods-workspace-v3';
 const SHARED_KEY = 'racing-shared-custom-mods-v1';
 
@@ -297,7 +330,12 @@ Blockly.Blocks.text_char_code = { init() { this.appendValueInput( 'TEXT' ).setCh
 Blockly.Blocks.text_from_char_code = { init() { this.appendValueInput( 'NUM' ).setCheck( 'Number' ).appendField( 'character from code' ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
 
 // ---- LISTS (fixed + extended) — lists carry value-specs, resolved at eval time ----
-Blockly.Blocks.lists_create_with = { init() { this.appendDummyInput().appendField( 'create list with' ); this.appendValueInput( 'ADD0' ).setCheck( null ).appendField( 'item' ); this.appendValueInput( 'ADD1' ).setCheck( null ).appendField( 'item' ); this.setOutput( true, 'Array' ); this.setColour( LIST ); this.setMutator( new Blockly.Mutator( [ 'lists_item' ] ) ); this.itemCount_ = 2; }, mutationToDom() { const c = document.createElement( 'mutation' ); c.setAttribute( 'items', this.itemCount_ ); return c; }, domToMutation( x ) { this.itemCount_ = parseInt( x.getAttribute( 'items' ), 10 ) || 0; this.updateShape_(); }, decompose( ws ) { const t = ws.newBlock( 'lists_item' ); t.initSvg(); let p = t; for ( let i = 1; i < this.itemCount_; i ++ ) { const b = ws.newBlock( 'lists_item' ); b.initSvg(); p.next = b; b.previous = p; p = b; } return t; }, compose( t ) { let n = 0; let p = t; while ( p ) { n ++; p = p.next; } this.itemCount_ = n; this.updateShape_(); }, updateShape_() { let i = 0; while ( this.getInput( 'ADD' + i ) ) { this.removeInput( 'ADD' + i ); i ++; } for ( let k = 0; k < this.itemCount_; k ++ ) { this.appendValueInput( 'ADD' + k ).setCheck( null ).appendField( 'item' ); } } };
+// NOTE: lists_create_with is intentionally a fixed-size block. The previous version
+// called `new Blockly.Mutator(...)`, but Blockly >=11 no longer exports `Blockly.Mutator`
+// from blockly.min.js, so that constructor threw a TypeError during init() and froze the
+// entire Lists toolbox flyout. A mutator is not needed for mod use; a 3-item list is plenty.
+Blockly.Blocks.lists_create_with = { init() { this.appendDummyInput().appendField( 'create list with' ); this.appendValueInput( 'ADD0' ).setCheck( null ).appendField( 'item' ); this.appendValueInput( 'ADD1' ).setCheck( null ).appendField( 'item' ); this.appendValueInput( 'ADD2' ).setCheck( null ).appendField( 'item' ); this.setOutput( true, 'Array' ); this.setColour( LIST ); } };
+// Kept so older saved XML that references lists_item still loads instead of breaking the canvas.
 Blockly.Blocks.lists_item = { init() { this.appendDummyInput().appendField( 'item' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( LIST ); } };
 Blockly.Blocks.lists_get_index = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( 'in list' ); this.appendValueInput( 'INDEX' ).setCheck( 'Number' ).appendField( 'get item' ); this.setInputsInline( true ); this.setOutput( true, null ); this.setColour( LIST ); } };
 Blockly.Blocks.lists_contains = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( 'list' ); this.appendValueInput( 'VALUE' ).appendField( 'has' ); this.setInputsInline( true ); this.setOutput( true, 'Boolean' ); this.setColour( LIST ); } };

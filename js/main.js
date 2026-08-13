@@ -3566,7 +3566,11 @@ async function init() {
 	let customModForceThrottleUntil = 0;
 	let customModNoSteerUntil = 0;
 	let customModFogStrength = 1;
-	let customModParticleColor = new THREE.Color( 0xff4b1f );
+	// Default to null so that, with NO custom mod installed, drift particles fall back to
+	// the normal grey DEFAULT_PARTICLE_COLOR in Particles.js (this.customColor || default).
+	// Previously this defaulted to a red THREE.Color, so drift particles were always red
+	// even with zero mods installed. Only a mod calling api.setParticleColor() sets this.
+	let customModParticleColor = null;
 	let customModFlashColor = new THREE.Color( 0xffffff );
 	let customModFlashUntil = 0;
 	let customModFlashOverlay = null;
@@ -7517,7 +7521,10 @@ function completeCampaignStage() {
 
 		if ( nonFreecamModsInstalled ) {
 
-			showTopMessage( 'Leaderboard submitting is disabled when gameplay mods are installed.', true, 2200 );
+			const anyCustomModInstalled = installedMods.some( ( mod ) => typeof mod?.id === 'string' && mod.id.startsWith( 'custom-' ) );
+			showTopMessage( anyCustomModInstalled
+				? 'Leaderboard is disabled while a custom mod is installed. Remove it in the Mod Manager to upload times.'
+				: 'Leaderboard submission is disabled when gameplay mods are installed.', true, 2600 );
 			return false;
 
 		}
@@ -9490,13 +9497,19 @@ function completeCampaignStage() {
 
 		}
 		if ( customModParticleBurstSeconds > 0 ) {
-			if ( particles ) particles.customColor = customModParticleColor;
-			if ( particles2 ) particles2.customColor = customModParticleColor;
+			if ( particles && customModParticleColor ) particles.customColor = customModParticleColor;
+			if ( particles2 && customModParticleColor ) particles2.customColor = customModParticleColor;
 			particles?.triggerBoostFx?.( customModParticleBurstSeconds );
 			customModParticleBurstSeconds = 0;
-		} else {
+		} else if ( customModParticleColor ) {
+			// Only override the default grey drift particles when a mod has actually
+			// set a custom particle color; otherwise leave particles.customColor at
+			// its default null so Particles.js uses DEFAULT_PARTICLE_COLOR.
 			if ( particles ) particles.customColor = customModParticleColor;
 			if ( particles2 ) particles2.customColor = customModParticleColor;
+		} else {
+			if ( particles ) particles.customColor = null;
+			if ( particles2 ) particles2.customColor = null;
 		}
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
