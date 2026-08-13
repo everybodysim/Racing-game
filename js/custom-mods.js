@@ -175,7 +175,9 @@ Blockly.Blocks.math_deg_to_rad = { init() { this.appendValueInput( 'DEG' ).setCh
 Blockly.Blocks.math_rad_to_deg = { init() { this.appendValueInput( 'RAD' ).setCheck( 'Number' ).appendField( 'radians' ).appendField( '→ degrees' ); this.setInputsInline( true ); this.setOutput( true, 'Number' ); this.setColour( MATH ); } };
 
 // ============ LOGIC ============
-Blockly.Blocks.controls_if = { init() { this.appendValueInput( 'IF0' ).setCheck( 'Boolean' ).appendField( 'if' ); this.appendStatementInput( 'DO0' ).appendField( 'then' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( LOGIC ); } };
+// NOTE: `controls_if` is intentionally NOT redefined — the official Blockly mutator
+// version is kept so the flyout never desyncs. The parser reads IF0/DO0, which the
+// official block exposes in its default single-branch state.
 Blockly.Blocks.controls_if_else = { init() { this.appendValueInput( 'IF0' ).setCheck( 'Boolean' ).appendField( 'if' ); this.appendStatementInput( 'DO0' ).appendField( 'then' ); this.appendStatementInput( 'ELSE' ).appendField( 'else' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( LOGIC ); } };
 Blockly.Blocks.logic_compare = { init() { this.appendValueInput( 'A' ).appendField( '' ); this.appendValueInput( 'B' ).appendField( new Blockly.FieldDropdown( [ [ '=', 'EQ' ], [ '≠', 'NEQ' ], [ '<', 'LT' ], [ '≤', 'LTE' ], [ '>', 'GT' ], [ '≥', 'GTE' ] ] ), 'OP' ); this.setInputsInline( true ); this.setOutput( true, 'Boolean' ); this.setColour( LOGIC ); } };
 Blockly.Blocks.logic_operation = { init() { this.appendValueInput( 'A' ).setCheck( 'Boolean' ); this.appendValueInput( 'B' ).setCheck( 'Boolean' ).appendField( new Blockly.FieldDropdown( [ [ 'and', 'AND' ], [ 'or', 'OR' ] ] ), 'OP' ); this.setInputsInline( true ); this.setOutput( true, 'Boolean' ); this.setColour( LOGIC ); } };
@@ -186,7 +188,7 @@ Blockly.Blocks.logic_key_down = { init() { this.appendDummyInput().appendField( 
 
 // ============ TEXT ============
 Blockly.Blocks.text = { init() { this.appendDummyInput().appendField( new Blockly.FieldTextInput( '' ), 'TEXT' ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
-Blockly.Blocks.text_join = { init() { this.appendValueInput( 'A' ).setCheck( [ 'String', 'Number' ] ).appendField( 'join' ); this.appendValueInput( 'B' ).setCheck( [ 'String', 'Number' ] ).appendField( 'with' ); this.setInputsInline( true ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_combine = { init() { this.appendValueInput( 'A' ).setCheck( [ 'String', 'Number' ] ).appendField( 'join' ); this.appendValueInput( 'B' ).setCheck( [ 'String', 'Number' ] ).appendField( 'with' ); this.setInputsInline( true ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
 Blockly.Blocks.text_to_string = { init() { this.appendValueInput( 'VALUE' ).appendField( 'to text' ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
 Blockly.Blocks.text_round_num = { init() { this.appendValueInput( 'VALUE' ).setCheck( 'Number' ).appendField( 'round' ).appendField( new Blockly.FieldNumber( 0, 0, 10 ), 'PLACES' ).appendField( 'places' ); this.setInputsInline( true ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
 
@@ -240,7 +242,21 @@ if ( ! Blockly.Blocks.math_number ) Blockly.Blocks.math_number = { init() { this
 const workspace = Blockly.inject( 'blocklyDiv', { toolbox: document.getElementById( 'toolbox' ), trashcan: true, zoom: { controls: true, wheel: true, startScale: 0.95 } } );
 const textToDom = ( text ) => ( Blockly.utils?.xml?.textToDom ? Blockly.utils.xml.textToDom( text ) : Blockly.Xml.textToDom( text ) );
 function exportXmlPretty() { return Blockly.Xml.domToPrettyText( Blockly.Xml.workspaceToDom( workspace ) ); }
-function loadXmlText( text ) { Blockly.Xml.clearWorkspaceAndLoadFromXml( textToDom( text ), workspace ); }
+// Loading XML into the workspace is wrapped so a malformed/partial mod can never leave
+// the editor in a half-rendered state where the toolbox flyout refuses to open. The
+// flyout is closed before loading (so it isn't re-rendering against a mutating tree) and
+// the toolbox is re-synced afterwards; any error is surfaced without breaking the UI.
+function loadXmlText( text ) {
+	const dom = textToDom( text );
+	try {
+		if ( workspace.toolbox_ ) workspace.toolbox_.clearSelection();
+		Blockly.Xml.clearWorkspaceAndLoadFromXml( dom, workspace );
+	} catch ( e ) {
+		try { workspace.clear(); } catch {}
+		setStatus( 'Could not load that XML — cleared the canvas' );
+		throw e;
+	}
+}
 
 // ============ PARSER ============
 function parseValueBlock( block ) {
@@ -279,7 +295,7 @@ function parseValueBlock( block ) {
 	if ( type === 'value_game_mode' ) return { kind: 'runtime', name: 'gameMode' };
 	if ( type === 'value_var_get' ) return { kind: 'var', name: safeId( block.getFieldValue( 'NAME' ) || 'var' ) };
 	if ( type === 'value_text_var_get' ) return { kind: 'textvar', name: safeId( block.getFieldValue( 'NAME' ) || 'var' ) };
-	if ( type === 'text_join' ) return { kind: 'join', a: parseValueBlock( block.getInputTargetBlock( 'A' ) ) ?? '', b: parseValueBlock( block.getInputTargetBlock( 'B' ) ) ?? '' };
+	if ( type === 'text_combine' ) return { kind: 'join', a: parseValueBlock( block.getInputTargetBlock( 'A' ) ) ?? '', b: parseValueBlock( block.getInputTargetBlock( 'B' ) ) ?? '' };
 	if ( type === 'text_to_string' ) return { kind: 'tostring', value: parseValueBlock( block.getInputTargetBlock( 'VALUE' ) ) ?? '' };
 	if ( type === 'text_round_num' ) return { kind: 'roundstr', value: parseValueBlock( block.getInputTargetBlock( 'VALUE' ) ) ?? 0, places: Number( block.getFieldValue( 'PLACES' ) ) || 0 };
 	if ( type === 'logic_compare' ) return { kind: 'compare', op: block.getFieldValue( 'OP' ), a: parseValueBlock( block.getInputTargetBlock( 'A' ) ) ?? 0, b: parseValueBlock( block.getInputTargetBlock( 'B' ) ) ?? 0 };
@@ -795,7 +811,7 @@ const SAMPLE_MOD = {
     <statement name="DO">
       <block type="ui_set_text" id="ut1">
         <field name="NAME">hint</field>
-        <value name="TEXT"><block type="text_join"><value name="A"><block type="text"><field name="TEXT">Nitro uses: </field></block></value><value name="B"><block type="storage_get"><value name="KEY"><block type="text"><field name="TEXT">nitroUses</field></block></value><value name="DEFAULT"><block type="math_number"><field name="NUM">0</field></block></value></block></value></block></value>
+        <value name="TEXT"><block type="text_combine"><value name="A"><block type="text"><field name="TEXT">Nitro uses: </field></block></value><value name="B"><block type="storage_get"><value name="KEY"><block type="text"><field name="TEXT">nitroUses</field></block></value><value name="DEFAULT"><block type="math_number"><field name="NUM">0</field></block></value></block></value></block></value>
       </block>
     </statement>
   </block>
