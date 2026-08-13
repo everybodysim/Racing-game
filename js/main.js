@@ -12,10 +12,21 @@ import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
 import { HudExtras } from './HudExtras.js';
+import { createRuntime as _createModRuntime } from './mod-runtime.js';
 import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 
 document.title = 'Racing';
+
+// Expose the shared custom-mod runtime on the global object BEFORE any mod is
+// loaded. Compact generated mods (stored as a tiny `const SPEC = {...}; ...
+// window.__RACING_MOD_RUNTIME__.createRuntime(id, SPEC)` data URL) read this at
+// import time. Old inlined mods are unaffected (they ship their own copy).
+// This must be synchronous and run before loadRuntimeMods() so the global is in
+// place when the first mod module is imported.
+window.__RACING_MOD_RUNTIME__ = Object.assign( window.__RACING_MOD_RUNTIME__ || {}, {
+	createRuntime: _createModRuntime,
+} );
 
 setTimeout(() => {
 	const status = document.getElementById('loading-status');
