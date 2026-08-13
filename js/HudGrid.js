@@ -145,9 +145,16 @@ function refreshHudValues() {
 	for ( const el of hudGrid.querySelectorAll( '.hud-widget' ) ) {
 		const cfg = HUD_WIDGETS[ el.dataset.type ];
 		if ( cfg ) {
+			const html = cfg.render( hudState );
+			// Skip the DOM rewrite when nothing changed since last refresh — most
+			// HUD values (lap number, best lap, etc.) stay constant for long
+			// stretches, so reassigning innerHTML every refresh forces needless
+			// parse/layout work each time.
+			if ( html === el.dataset.lastHud ) continue;
+			el.dataset.lastHud = html;
 			// preserve the remove button
 			const rm = el.querySelector( '.hw-remove' );
-			el.innerHTML = cfg.render( hudState );
+			el.innerHTML = html;
 			if ( rm ) el.appendChild( rm );
 		}
 	}

@@ -26,6 +26,9 @@ export class HudExtras {
 		this.speedoNumEl = null;
 		this.speedoRingEl = null;
 		this.speedoLabelEl = null;
+		this._lastSpeedoNum = - 1;
+		this._lastSpeedoOffset = '';
+		this._lastSpeedoStroke = '';
 
 		// Minimap
 		this.minimapCanvas = null;
@@ -136,24 +139,31 @@ export class HudExtras {
 		const MAX_MPH = 70;
 		const ratio = Math.min( 1, mph / MAX_MPH );
 
-		// Update number (display as integer MPH)
+		// Update number (display as integer MPH) only when it changes — avoids a
+		// textContent write + layout every frame at constant speed.
 		if ( this.speedoNumEl ) {
-			this.speedoNumEl.textContent = Math.round( mph );
+			const num = Math.round( mph );
+			if ( num !== this._lastSpeedoNum ) {
+				this.speedoNumEl.textContent = num;
+				this._lastSpeedoNum = num;
+			}
 		}
 
 		// Update arc (263.9 = 2 * PI * 42)
 		if ( this.speedoArcEl ) {
 			const circumference = 263.9;
 			const offset = circumference * ( 1 - ratio );
-			this.speedoArcEl.style.strokeDashoffset = offset.toFixed( 1 );
+			const offsetStr = offset.toFixed( 1 );
+			if ( offsetStr !== this._lastSpeedoOffset ) {
+				this.speedoArcEl.style.strokeDashoffset = offsetStr;
+				this._lastSpeedoOffset = offsetStr;
+			}
 
 			// Color shift: green → yellow → orange at high speed
-			if ( mph > 55 ) {
-				this.speedoArcEl.style.stroke = '#ff9f1c';
-			} else if ( mph > 35 ) {
-				this.speedoArcEl.style.stroke = '#ffd95a';
-			} else {
-				this.speedoArcEl.style.stroke = '#77f3b1';
+			const stroke = mph > 55 ? '#ff9f1c' : ( mph > 35 ? '#ffd95a' : '#77f3b1' );
+			if ( stroke !== this._lastSpeedoStroke ) {
+				this.speedoArcEl.style.stroke = stroke;
+				this._lastSpeedoStroke = stroke;
 			}
 		}
 	}

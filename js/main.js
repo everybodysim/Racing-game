@@ -63,9 +63,14 @@ function normalizeGraphicsQuality( value ) {
 
 let graphicsQuality = normalizeGraphicsQuality( localStorage.getItem( GRAPHICS_QUALITY_KEY ) );
 
+// Cached preset reference — updated whenever graphicsQuality changes. The render loop
+// reads preset fields several times per frame; a cached lookup avoids repeated object
+// property accesses and keeps the hot path allocation-free.
+let cachedGraphicsPreset = GRAPHICS_QUALITY_PRESETS[ graphicsQuality ] || GRAPHICS_QUALITY_PRESETS[ getDefaultGraphicsQuality() ];
+
 function getGraphicsPreset() {
 
-	return GRAPHICS_QUALITY_PRESETS[ graphicsQuality ] || GRAPHICS_QUALITY_PRESETS[ getDefaultGraphicsQuality() ];
+	return cachedGraphicsPreset;
 
 }
 
@@ -76,7 +81,7 @@ function getGraphicsParticleOptions() {
 
 }
 
-const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true } );
+const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true, powerPreference: 'high-performance' } );
 renderer.setSize( window.innerWidth, window.innerHeight );
 renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, getGraphicsPreset().maxPixelRatio ) );
 renderer.shadowMap.enabled = getGraphicsPreset().shadows;
@@ -273,9 +278,11 @@ const VEHICLE_BASE_GRAVITY_FACTOR = 1.5;
 // Seam bounce suppression — tracks sphere velocity between physics steps
 // to detect and cancel the upward "pop" + speed loss that happens when the
 // sphere catches on the edge between two adjacent surface colliders.
+const _seamVel1 = [ 0, 0, 0 ];
+const _seamVel2 = [ 0, 0, 0 ];
 const seamSuppress = {
-	vy1: 0,  vel1: null,
-	vy2: 0,  vel2: null,
+	vy1: 0,  vel1: _seamVel1,
+	vy2: 0,  vel2: _seamVel2,
 };
 
 function suppressSeamBounce( world, veh, key ) {
@@ -301,7 +308,8 @@ function suppressSeamBounce( world, veh, key ) {
 	}
 
 	seamSuppress[ 'vy' + key ] = vy;
-	seamSuppress[ 'vel' + key ] = [ vel[ 0 ], vel[ 1 ], vel[ 2 ] ];
+	const bucket = seamSuppress[ 'vel' + key ];
+	if ( bucket ) { bucket[ 0 ] = vel[ 0 ]; bucket[ 1 ] = vel[ 1 ]; bucket[ 2 ] = vel[ 2 ]; }
 	return isSeamBounce;
 }
 const PAD_EFFECTS = {
@@ -3043,6 +3051,7 @@ async function init() {
 	let currentLapInputFrames = [];
 	let inputRecordFrame = 0;
 	let bestGhostDuration = 0;
+	const ghostPlaybackCursor = { _cursor: 1 };
 	let bestGhostCarKey = 'vehicle-truck-yellow';
 	let bestGhostCosmetics = null;
 	let ghostRecordFrame = 0;
@@ -3073,6 +3082,34 @@ async function init() {
 			THREE.MathUtils.lerp( sampleA.z, sampleB.z, alpha )
 		);
 		return out;
+
+	}
+
+	// Find the first sample whose t >= wrapped using a per-state cached cursor.
+	// Samples are sorted ascending by t and playback time is monotonic (mod duration),
+	// so the cursor advances forward each frame instead of scanning the whole array
+	// (O(n) -> O(1) amortised). On wrap (wrapped resets to a small value) it falls back
+	// to a single scan from the start, keeping behaviour identical to findIndex().
+	function findGhostSampleIndex( samples, wrapped, state ) {
+
+		const len = samples.length;
+		let nextIndex = ( state && Number.isFinite( state._cursor ) ) ? state._cursor : 1;
+		if ( nextIndex < 1 || nextIndex >= len ) nextIndex = 1;
+		if ( samples[ nextIndex - 1 ].t > wrapped ) {
+
+			// Wrapped past the end: locate the first sample at/after the small wrapped t.
+			nextIndex = 1;
+			while ( nextIndex < len && samples[ nextIndex ].t < wrapped ) nextIndex ++;
+
+		} else {
+
+			while ( nextIndex < len && samples[ nextIndex ].t < wrapped ) nextIndex ++;
+
+		}
+		if ( nextIndex <= 0 ) nextIndex = 1;
+		if ( nextIndex >= len ) nextIndex = len - 1;
+		if ( state ) state._cursor = nextIndex;
+		return nextIndex;
 
 	}
 
@@ -3297,8 +3334,7 @@ async function init() {
 		ghostModel.visible = true;
 		const t = ( ( lapElapsed % bestGhostDuration ) + bestGhostDuration ) % bestGhostDuration;
 
-		let nextIndex = bestLapGhostSamples.findIndex( ( sample ) => sample.t >= t );
-		if ( nextIndex <= 0 ) nextIndex = 1;
+		let nextIndex = findGhostSampleIndex( bestLapGhostSamples, t, ghostPlaybackCursor );
 
 		const sampleA = bestLapGhostSamples[ nextIndex - 1 ];
 		const sampleB = bestLapGhostSamples[ nextIndex ];
@@ -3487,8 +3523,7 @@ async function init() {
 			}
 			state.model.visible = true;
 			const t = ( ( lapElapsed % state.duration ) + state.duration ) % state.duration;
-			let nextIndex = state.samples.findIndex( ( sample ) => sample.t >= t );
-			if ( nextIndex <= 0 ) nextIndex = 1;
+			let nextIndex = findGhostSampleIndex( state.samples, t, state );
 			const sampleA = state.samples[ nextIndex - 1 ];
 			const sampleB = state.samples[ nextIndex ];
 			const span = Math.max( 1e-4, sampleB.t - sampleA.t );
@@ -3522,8 +3557,7 @@ async function init() {
 			}
 			state.model.visible = true;
 			const t = ( ( lapElapsed % state.duration ) + state.duration ) % state.duration;
-			let nextIndex = state.samples.findIndex( ( sample ) => sample.t >= t );
-			if ( nextIndex <= 0 ) nextIndex = 1;
+			let nextIndex = findGhostSampleIndex( state.samples, t, state );
 			const sampleA = state.samples[ nextIndex - 1 ];
 			const sampleB = state.samples[ nextIndex ];
 			const span = Math.max( 1e-4, sampleB.t - sampleA.t );
@@ -3557,6 +3591,12 @@ async function init() {
 		vehicle, cells: customCells || TRACK_CELLS, camera: cam.camera
 	} );
 	const cam2 = isSplitScreen ? new Camera() : null;
+	// Reused each frame for cam.update() dynamics to avoid allocating an options
+	// object on every camera update (up to 4 calls/frame). cam.update only reads the
+	// fields, it never retains the reference.
+	const _camDynamics1 = { speedRatio: 0, driftIntensity: 0, underwaterCamera: false };
+	const _camDynamics2 = { speedRatio: 0, driftIntensity: 0, underwaterCamera: false };
+
 	if ( cam2 && vehicle2 ) {
 
 		cam2.targetPosition.copy( vehicle2.spherePos );
@@ -4079,6 +4119,9 @@ async function init() {
 	let stuntComboTimer = 0;
 	let stuntAirTime = 0;
 	let modeMenuOpen = false;
+	// Cached landing-page element read once and reused in the per-frame music update
+	// to avoid a getElementById lookup every animation frame.
+	let homeLandingEl = document.getElementById( 'home-landing' );
 	let topMessageTimer = 0;
 	let pendingLeaderboardRecord = null;
 	let leaderboardVisible = true;
@@ -4805,6 +4848,7 @@ async function init() {
 	function applyGraphicsQuality( nextQuality, save = false ) {
 
 		graphicsQuality = normalizeGraphicsQuality( nextQuality );
+		cachedGraphicsPreset = GRAPHICS_QUALITY_PRESETS[ graphicsQuality ] || GRAPHICS_QUALITY_PRESETS[ getDefaultGraphicsQuality() ];
 		if ( save ) localStorage.setItem( GRAPHICS_QUALITY_KEY, graphicsQuality );
 		applyGraphicsPresetToRenderer();
 		particles.setQuality( getGraphicsParticleOptions() );
@@ -6283,11 +6327,30 @@ function completeCampaignStage() {
 		centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
 	} ) );
 	const padEntries = surfaceEntries.filter( ( entry ) => entry.type === PAD_RESET_TYPE || PAD_EFFECTS[ entry.type ] || CUSTOM_PAD_TYPES.includes( entry.type ) );
+	// Cell-keyed lookups (gx,gz -> entry) so the per-frame surface/pad/boost contact
+	// scans are O(1) over a 3x3 neighbourhood instead of scanning the full surface list.
+	// Any surface the vehicle can overlap (halfExtent + vehicle radius < one cell) lies
+	// within the 3x3 block around its current cell, so this is behaviour-identical to
+	// the previous full-array scan.
+	const surfaceEntryByCell = new Map();
+	const padEntryByCell = new Map();
+	const boostSurfaceEntryByCell = new Map();
+	const CELL_UNIT = CELL_RAW * GRID_SCALE;
+	for ( const entry of surfaceEntries ) {
+
+		const key = entry.gx + ',' + entry.gz;
+		surfaceEntryByCell.set( key, entry );
+		if ( entry.type === PAD_RESET_TYPE || PAD_EFFECTS[ entry.type ] || CUSTOM_PAD_TYPES.includes( entry.type ) ) padEntryByCell.set( key, entry );
+		if ( entry.type === 'surface-boost' ) boostSurfaceEntryByCell.set( key, entry );
+
+	}
+
 	const legacyBoostEntries = boostCells.map( ( [ gx, gz ] ) => ( {
 		gx, gz,
 		centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
 		centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
 	} ) );
+	const legacyBoostEntryByCell = new Map( legacyBoostEntries.map( ( entry ) => [ entry.gx + ',' + entry.gz, entry ] ) );
 	const magnetCells = Array.isArray( extras?.magnets ) ? extras.magnets : [];
 	const arcLinkCells = Array.isArray( extras?.arcLinks ) ? extras.arcLinks : [];
 	const magnetFullStrengthDistance = CELL_RAW * GRID_SCALE * MAGNET_FULL_STRENGTH_BLOCKS;
@@ -6488,7 +6551,7 @@ function completeCampaignStage() {
 
 		}
 
-		if ( weatherSettings.lightning && getGraphicsPreset().weatherParticleScale > 0 ) {
+		if ( weatherSettings.lightning && cachedGraphicsPreset.weatherParticleScale > 0 ) {
 
 			if ( lightningFlashTime > 0 ) {
 
@@ -6587,12 +6650,30 @@ function completeCampaignStage() {
 
 	}
 
+	// Collect surface entries overlapping a vehicle's 3x3 cell neighbourhood into the
+	// provided bucket. Returns false if none found, else true (bucket filled).
+	function collectNearbyEntries( targetVehicle, byCellMap, bucket ) {
+
+		const cx = Math.floor( targetVehicle.spherePos.x / CELL_UNIT );
+		const cz = Math.floor( targetVehicle.spherePos.z / CELL_UNIT );
+		bucket.length = 0;
+		for ( let dz = - 1; dz <= 1; dz ++ ) {
+			for ( let dx = - 1; dx <= 1; dx ++ ) {
+				const entry = byCellMap.get( ( cx + dx ) + ',' + ( cz + dz ) );
+				if ( entry ) bucket.push( entry );
+			}
+		}
+		return bucket.length > 0;
+
+	}
+
+	const _surfaceNeighbourhood = [];
 	function findActiveSurfaceTypeFor( targetVehicle ) {
 
-		for ( let i = surfaceEntries.length - 1; i >= 0; i -- ) {
+		if ( ! collectNearbyEntries( targetVehicle, surfaceEntryByCell, _surfaceNeighbourhood ) ) return null;
+		for ( let i = _surfaceNeighbourhood.length - 1; i >= 0; i -- ) {
 
-			const entry = surfaceEntries[ i ];
-			if ( overlapsSurfaceEntry( targetVehicle, entry ) ) return entry.type;
+			if ( overlapsSurfaceEntry( targetVehicle, _surfaceNeighbourhood[ i ] ) ) return _surfaceNeighbourhood[ i ].type;
 
 		}
 
@@ -6600,12 +6681,14 @@ function completeCampaignStage() {
 
 	}
 
+	const _boostSurfaceNeighbourhood = [];
 	function findBoostSurfaceContactKeyFor( targetVehicle ) {
 
-		for ( let i = surfaceEntries.length - 1; i >= 0; i -- ) {
+		if ( ! collectNearbyEntries( targetVehicle, boostSurfaceEntryByCell, _boostSurfaceNeighbourhood ) ) return null;
+		for ( let i = _boostSurfaceNeighbourhood.length - 1; i >= 0; i -- ) {
 
-			const entry = surfaceEntries[ i ];
-			if ( entry.type === 'surface-boost' && overlapsSurfaceEntry( targetVehicle, entry ) ) return `surface:${ entry.gx },${ entry.gz }`;
+			const entry = _boostSurfaceNeighbourhood[ i ];
+			if ( overlapsSurfaceEntry( targetVehicle, entry ) ) return `surface:${ entry.gx },${ entry.gz }`;
 
 		}
 
@@ -6615,9 +6698,10 @@ function completeCampaignStage() {
 
 	function findSurfaceContactKeyForType( targetVehicle, surfaceType ) {
 
-		for ( let i = surfaceEntries.length - 1; i >= 0; i -- ) {
+		if ( ! collectNearbyEntries( targetVehicle, surfaceEntryByCell, _surfaceNeighbourhood ) ) return null;
+		for ( let i = _surfaceNeighbourhood.length - 1; i >= 0; i -- ) {
 
-			const entry = surfaceEntries[ i ];
+			const entry = _surfaceNeighbourhood[ i ];
 			if ( entry.type === surfaceType && overlapsSurfaceEntry( targetVehicle, entry ) ) return `surface:${ entry.gx },${ entry.gz }`;
 
 		}
@@ -6626,10 +6710,13 @@ function completeCampaignStage() {
 
 	}
 
+	const _legacyBoostNeighbourhood = [];
 	function findLegacyBoostContactKeyFor( targetVehicle ) {
 
-		for ( const entry of legacyBoostEntries ) {
+		if ( ! collectNearbyEntries( targetVehicle, legacyBoostEntryByCell, _legacyBoostNeighbourhood ) ) return null;
+		for ( let i = _legacyBoostNeighbourhood.length - 1; i >= 0; i -- ) {
 
+			const entry = _legacyBoostNeighbourhood[ i ];
 			if ( overlapsSurfaceEntry( targetVehicle, entry, legacyBoostHalfExtent ) ) return `boost:${ entry.gx },${ entry.gz }`;
 
 		}
@@ -6638,11 +6725,13 @@ function completeCampaignStage() {
 
 	}
 
+	const _padNeighbourhood = [];
 	function findPadContactFor( targetVehicle ) {
 
-		for ( let i = padEntries.length - 1; i >= 0; i -- ) {
+		if ( ! collectNearbyEntries( targetVehicle, padEntryByCell, _padNeighbourhood ) ) return null;
+		for ( let i = _padNeighbourhood.length - 1; i >= 0; i -- ) {
 
-			const entry = padEntries[ i ];
+			const entry = _padNeighbourhood[ i ];
 			if ( overlapsPadEntry( targetVehicle, entry ) ) {
 
 				return {
@@ -7763,6 +7852,7 @@ function completeCampaignStage() {
 					bestLapGhostSamples.length = 0;
 					bestLapInputFrames = [];
 					latestLapInputFrames = [];
+					ghostPlaybackCursor._cursor = 1;
 				if ( Array.isArray( parsed.bestLapGhostSamples ) ) {
 
 				for ( const sample of parsed.bestLapGhostSamples ) {
@@ -8552,11 +8642,17 @@ function completeCampaignStage() {
 		'surface-kick-r': ( targetVehicle ) => applySurfaceKickFor( targetVehicle, 1 ),
 	};
 
+	// Built once: SPECIAL_SURFACE_HANDLERS and customSurfaceConfigs are both set at
+	// load time, so the list of surface types to scan each frame is constant. Caching it
+	// avoids Object.keys()/filter()/spread allocations every frame per vehicle.
+	const SPECIAL_SURFACE_TYPES = [
+		...Object.keys( SPECIAL_SURFACE_HANDLERS ),
+		...Object.keys( customSurfaceConfigs || {} ).filter( ( key ) => key.startsWith( 'surface-custom-' ) ),
+	];
+
 	function applySpecialSurfacesFor( targetVehicle, contactState ) {
 
-		const customTypes = Object.keys( customSurfaceConfigs || {} ).filter( ( key ) => key.startsWith( 'surface-custom-' ) );
-		const specialTypes = [ ...Object.keys( SPECIAL_SURFACE_HANDLERS ), ...customTypes ];
-		for ( const surfaceType of specialTypes ) {
+		for ( const surfaceType of SPECIAL_SURFACE_TYPES ) {
 
 			const currentKey = findSurfaceContactKeyForType( targetVehicle, surfaceType );
 			const previousKey = contactState.get( surfaceType ) || null;
@@ -9170,6 +9266,16 @@ function completeCampaignStage() {
 
 	}
 
+	// Reused temporaries for the per-frame speed-blur vignette projection so the
+	// hot loop stays allocation-free.
+	const _vignetteProjected = new THREE.Vector3();
+	let _cssEffectAccumulator = 0;
+	let _lastCanvasFilter = '';
+	let _lastVignetteOpacity = '';
+	let _lastVignetteBackdrop = '';
+	let _lastVignetteX = '';
+	let _lastVignetteY = '';
+
 	function animate() {
 
 		requestAnimationFrame( animate );
@@ -9246,13 +9352,13 @@ function completeCampaignStage() {
 		if ( vehicle?.rigidBody?.motionProperties ) {
 			const v = vehicle.rigidBody.motionProperties.linearVelocity;
 			seamSuppress.vy1 = v[ 1 ];
-			seamSuppress.vel1 = [ v[ 0 ], v[ 1 ], v[ 2 ] ];
+			_seamVel1[ 0 ] = v[ 0 ]; _seamVel1[ 1 ] = v[ 1 ]; _seamVel1[ 2 ] = v[ 2 ];
 			speed1Before = Math.sqrt( v[ 0 ] * v[ 0 ] + v[ 2 ] * v[ 2 ] );
 		}
 		if ( vehicle2?.rigidBody?.motionProperties ) {
 			const v2 = vehicle2.rigidBody.motionProperties.linearVelocity;
 			seamSuppress.vy2 = v2[ 1 ];
-			seamSuppress.vel2 = [ v2[ 0 ], v2[ 1 ], v2[ 2 ] ];
+			_seamVel2[ 0 ] = v2[ 0 ]; _seamVel2[ 1 ] = v2[ 1 ]; _seamVel2[ 2 ] = v2[ 2 ];
 			speed2Before = Math.sqrt( v2[ 0 ] * v2[ 0 ] + v2[ 2 ] * v2[ 2 ] );
 		}
 
@@ -9486,12 +9592,14 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat.setFromEuler( camYawLockEuler.set( 0, camYawLockValue, 0, 'YXZ' ) );
-				cam.update( dt, vehicle.spherePos, camYawLockQuat, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt ) } );
+				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt );
+				cam.update( dt, vehicle.spherePos, camYawLockQuat, _camDynamics1 );
 
 			} else {
 
 				camYawLockActive = false;
-				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, { speedRatio: Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), driftIntensity: vehicle.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt ) } );
+				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt );
+				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, _camDynamics1 );
 
 			}
 
@@ -9509,12 +9617,14 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat2.setFromEuler( camYawLockEuler2.set( 0, camYawLockValue2, 0, 'YXZ' ) );
-				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt ) } );
+				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt );
+				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2, _camDynamics2 );
 
 			} else {
 
 				camYawLockActive2 = false;
-				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion, { speedRatio: Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ), driftIntensity: vehicle2.driftIntensity, underwaterCamera: updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt ) } );
+				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt );
+				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion, _camDynamics2 );
 
 			}
 
@@ -9536,13 +9646,14 @@ function completeCampaignStage() {
 		}
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
-		audio.updateMusic( dt, ! document.getElementById( 'home-landing' )?.classList.contains( 'visible' ) && ! modeMenuOpen && ! replayViewerMode );
+		if ( ! homeLandingEl ) homeLandingEl = document.getElementById( 'home-landing' );
+		audio.updateMusic( dt, ! homeLandingEl?.classList.contains( 'visible' ) && ! modeMenuOpen && ! replayViewerMode );
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
 		const speedRatioFx = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ), 0, 1.8 );
 		const driftFx = THREE.MathUtils.clamp( vehicle.driftIntensity, 0, 1 );
 		if ( bloomPass ) {
-			bloomPass.strength = getGraphicsPreset().bloomStrength + ( speedRatioFx * 0.01 ) + ( driftFx * 0.005 );
-			bloomPass.radius = getGraphicsPreset().bloomRadius + ( speedRatioFx * 0.01 );
+			bloomPass.strength = cachedGraphicsPreset.bloomStrength + ( speedRatioFx * 0.01 ) + ( driftFx * 0.005 );
+			bloomPass.radius = cachedGraphicsPreset.bloomRadius + ( speedRatioFx * 0.01 );
 		}
 		renderer.toneMappingExposure = THREE.MathUtils.lerp( renderer.toneMappingExposure, baseWeatherLight.exposure + ( speedRatioFx * 0.045 ), Math.min( 1, dt * 2.8 ) );
 		if ( scene.fog ) {
@@ -9551,21 +9662,61 @@ function completeCampaignStage() {
 			scene.fog.near = THREE.MathUtils.lerp( scene.fog.near, nearBase * customModFogStrength * ( 1 - speedRatioFx * 0.08 ), Math.min( 1, dt * 3 ) );
 			scene.fog.far = THREE.MathUtils.lerp( scene.fog.far, farBase * customModFogStrength * ( 1 + speedRatioFx * 0.06 ), Math.min( 1, dt * 3 ) );
 		}
-		const motionBlurPx = getGraphicsPreset().label === 'High'
+		const motionBlurPx = cachedGraphicsPreset.label === 'High'
 			? Math.max( 0, ( speedRatioFx - 0.8 ) * 1.05 )
 			: Math.max( 0, ( speedRatioFx - 0.96 ) * 0.7 );
 		const vibrance = 1.08 + ( driftFx * 0.04 ) + ( speedRatioFx * 0.025 );
-		renderer.domElement.style.filter = `saturate(${ vibrance.toFixed( 3 ) }) contrast(1.07)`;
+		// The speed-driven saturation/contrast + vignette effects ramp smoothly with
+		// velocity, so refreshing them ~12x/sec is visually identical to every-frame
+		// but skips per-frame style invalidation and string formatting on the hot path.
+		_cssEffectAccumulator += dt;
+		const refreshCssEffects = _cssEffectAccumulator >= 0.08;
+		if ( refreshCssEffects ) _cssEffectAccumulator = 0;
+		if ( refreshCssEffects ) {
+			const canvasFilter = `saturate(${ vibrance.toFixed( 3 ) }) contrast(1.07)`;
+			if ( canvasFilter !== _lastCanvasFilter ) {
+
+				renderer.domElement.style.filter = canvasFilter;
+				_lastCanvasFilter = canvasFilter;
+
+			}
+		}
 		if ( speedBlurVignette ) {
-			const projected = vehicle.spherePos.clone().project( cam.camera );
+			const projected = _vignetteProjected.copy( vehicle.spherePos ).project( cam.camera );
 			const px = ( projected.x * 0.5 + 0.5 ) * 100;
 			const py = ( - projected.y * 0.5 + 0.5 ) * 100;
-			speedBlurVignette.style.setProperty( '--car-x', `${ THREE.MathUtils.clamp( px, 8, 92 ).toFixed( 2 ) }%` );
-			speedBlurVignette.style.setProperty( '--car-y', `${ THREE.MathUtils.clamp( py, 12, 88 ).toFixed( 2 ) }%` );
-			speedBlurVignette.style.opacity = motionBlurPx > 0.02 ? '1' : '0';
-			const blurVignette = Math.min( 0.65, motionBlurPx );
-			speedBlurVignette.style.backdropFilter = `blur(${ blurVignette.toFixed( 3 ) }px)`;
-			speedBlurVignette.style.webkitBackdropFilter = `blur(${ blurVignette.toFixed( 3 ) }px)`;
+			if ( refreshCssEffects ) {
+				const xPct = `${ THREE.MathUtils.clamp( px, 8, 92 ).toFixed( 2 ) }%`;
+				const yPct = `${ THREE.MathUtils.clamp( py, 12, 88 ).toFixed( 2 ) }%`;
+				if ( xPct !== _lastVignetteX ) {
+
+					speedBlurVignette.style.setProperty( '--car-x', xPct );
+					_lastVignetteX = xPct;
+
+				}
+				if ( yPct !== _lastVignetteY ) {
+
+					speedBlurVignette.style.setProperty( '--car-y', yPct );
+					_lastVignetteY = yPct;
+
+				}
+				const opacity = motionBlurPx > 0.02 ? '1' : '0';
+				if ( opacity !== _lastVignetteOpacity ) {
+
+					speedBlurVignette.style.opacity = opacity;
+					_lastVignetteOpacity = opacity;
+
+				}
+				const blurVignette = Math.min( 0.65, motionBlurPx );
+				const backdrop = `blur(${ blurVignette.toFixed( 3 ) }px)`;
+				if ( backdrop !== _lastVignetteBackdrop ) {
+
+					speedBlurVignette.style.backdropFilter = backdrop;
+					speedBlurVignette.style.webkitBackdropFilter = backdrop;
+					_lastVignetteBackdrop = backdrop;
+
+				}
+			}
 		}
 		skyUniforms.time.value = now;
 		skyUniforms.vibrance.value = THREE.MathUtils.lerp( skyUniforms.vibrance.value, 0.2 + ( speedRatioFx * 0.18 ) + ( driftFx * 0.1 ), Math.min( 1, dt * 2.4 ) );
@@ -9756,6 +9907,7 @@ function completeCampaignStage() {
 				if ( isNewBest && currentLapGhostSamples.length > 1 ) {
 
 					bestLapGhostSamples.length = 0;
+					ghostPlaybackCursor._cursor = 1;
 					const t0 = currentLapGhostSamples[ 0 ].t;
 					for ( const sample of currentLapGhostSamples ) bestLapGhostSamples.push( { ...sample, t: sample.t - t0 } );
 					bestGhostDuration = Math.max( 1e-4, completedLap - t0 );
