@@ -21,9 +21,41 @@ function fromBase64Url(raw) {
 
 async function loadCatalog() { const r = await fetch('./mods/mods.json', { cache: 'no-store' }); if (!r.ok) throw new Error('Failed to load mod catalog'); const p = await r.json(); return Array.isArray(p?.mods) ? p.mods : []; }
 function readInstalled() { try { const p = JSON.parse(localStorage.getItem(INSTALLED_MODS_KEY) || '[]'); const list = Array.isArray(p) ? p : []; if (!list.some((m) => m?.id === 'freecam')) list.push({ id: 'freecam', name: 'Freecam', entry: 'mods/Freecam.js' }); return list; } catch { return []; } }
-function saveInstalled(mods) { localStorage.setItem(INSTALLED_MODS_KEY, JSON.stringify(mods)); }
+function saveInstalled(mods) {
+  // localStorage has a small per-origin quota. Custom Blockly mods store their
+  // full generated runtime as a base64 data URL, so a few of them can blow the
+  // budget. If we hit a quota error, evict the OLDEST bulky custom-* entries
+  // (always reinstallable from the Shared Mods list) one at a time, keeping
+  // newer installs, until it fits. If even the newest custom mod can't fit
+  // alongside the tiny builtin mods, surface a clear error to the user.
+  let list = Array.isArray(mods) ? mods.slice() : [];
+  for (;;) {
+    try { localStorage.setItem(INSTALLED_MODS_KEY, JSON.stringify(list)); return; }
+    catch (e) {
+      // Keep only bulky custom data-URL mods that are candidates for eviction.
+      const idxs = [];
+      for (let i = 0; i < list.length; i++) {
+        const m = list[i];
+        if (m?.id && String(m.id).startsWith('custom-') && typeof m?.entry === 'string' && m.entry.startsWith('data:')) idxs.push(i);
+      }
+      if (!idxs.length) throw e; // nothing left to evict — genuine overflow
+      // Drop the oldest bulky custom mod (lowest index), keep newer ones.
+      list.splice(idxs[0], 1);
+    }
+  }
+}
 function readSharedMods() { try { const p = JSON.parse(localStorage.getItem(SHARED_KEY) || '[]'); return Array.isArray(p) ? p : []; } catch { return []; } }
-function saveSharedMods(mods) { localStorage.setItem(SHARED_KEY, JSON.stringify(mods)); }
+function saveSharedMods(mods) {
+  // Same quota protection as saveInstalled: evict oldest shared payloads on overflow.
+  let list = Array.isArray(mods) ? mods.slice() : [];
+  for (;;) {
+    try { localStorage.setItem(SHARED_KEY, JSON.stringify(list)); return; }
+    catch (e) {
+      if (!list.length) throw e;
+      list.shift();
+    }
+  }
+}
 
 function renderInstalled(mods) { const list = document.getElementById('installed-list'); list.innerHTML=''; for (const mod of mods){ const li=document.createElement('li'); li.textContent=mod.name; const b=document.createElement('button'); b.textContent='Remove'; b.style.marginLeft='8px'; b.onclick=()=>{const n=readInstalled().filter((x)=>x.id!==mod.id); saveInstalled(n); renderInstalled(n); renderCatalog(currentCatalog,n);}; li.appendChild(b); list.appendChild(li);} }
 function renderCatalog(catalog, installed) { const list=document.getElementById('catalog-list'); if(!list) return; list.innerHTML=''; for(const mod of catalog){ const li=document.createElement('li'); li.textContent=`${mod.name}${installed.some((e)=>e.id===mod.id)?' — Installed':''}`; list.appendChild(li);} }
