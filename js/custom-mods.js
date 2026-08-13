@@ -1133,11 +1133,21 @@ document.getElementById( 'export-share' )?.addEventListener( 'click', async () =
 } );
 
 document.getElementById( 'save-to-manager' )?.addEventListener( 'click', () => {
-	const payload = getSharePayload();
-	const arr = JSON.parse( localStorage.getItem( SHARED_KEY ) || '[]' ).filter( ( x ) => x.modId !== payload.modId );
-	arr.push( payload );
-	localStorage.setItem( SHARED_KEY, JSON.stringify( arr ) );
-	setStatus( `Saved "${ payload.modName }" to Mod Manager — install it from the Mods page` );
+	try {
+		const payload = getSharePayload();
+		let arr = JSON.parse( localStorage.getItem( SHARED_KEY ) || '[]' );
+		if ( ! Array.isArray( arr ) ) arr = [];
+		arr = arr.filter( ( x ) => x.modId !== payload.modId );
+		arr.push( payload );
+		// Quota-safe: evict oldest shared payloads on overflow so the save never throws.
+		while ( arr.length ) {
+			try { localStorage.setItem( SHARED_KEY, JSON.stringify( arr ) ); break; }
+			catch ( e ) { arr.shift(); }
+		}
+		setStatus( `Saved "${ payload.modName }" to Mod Manager — install it from the Mods page` );
+	} catch ( e ) {
+		setStatus( `Could not save to Mod Manager: ${ e.message || e }` );
+	}
 } );
 
 // A ready-made demo mod that shows off the new UI / storage / game-control blocks.
