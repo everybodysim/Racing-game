@@ -47,3 +47,60 @@
   `Blockly.Blocks.name=` or via `actionDef`/`valueDef`/`uiDef`/`storageDef` factories)
   and an exact parser case (`if (type === '...')`). Lists / UI & Storage /
   Game Control / FX categories have 0 undefined blocks and 0 unhandled parser cases.
+
+## Hot render-loop performance (`js/main.js` + `js/HudExtras.js` + `js/HudGrid.js`)
+
+### Architecture of the animate loop
+- The whole game runs inside one `async init()`; the per-frame work is the `animate()`
+  closure (search `function animate()`), driven by `requestAnimationFrame`. Each frame
+  updates physics (`updateWorld`), input, cameras, particles, audio, FX (bloom/fog/CSS
+  vignette), HUD (~12 Hz throttled via `hudUpdateAccumulator`), then renders.
+- The previous hot loop had O(n) scans + allocations every frame per vehicle; PR #387
+  (`perf-optimize-main-loop`) eliminated these WITHOUT changing gameplay/visuals.
+
+### Cell-keyed spatial lookups (replaced linear surface scans)
+- Track surfaces are stored as `surfaceEntries` with `gx,gz` grid coords. The contact
+  functions (`findActiveSurfaceTypeFor`, `findPadContactFor`, `findBoostSurfaceContactKeyFor`,
+  `findSurfaceContactKeyForType`, `findLegacyBoostContactKeyFor`) used to scan the WHOLE
+  array every frame. Now cell-keyed `Map`s (`surfaceEntryByCell`, `padEntryByCell`,
+  `boostSurfaceEntryByCell`, `legacyBoostEntryByCell`) are built once at track load
+  (next to `padEntries`/`legacyBoostEntries` construction) and `collectNearbyEntries()`
+  gathers a 3x3 neighbourhood around the vehicle's current cell.
+- `CELL_UNIT = CELL_RAW * GRID_SCALE` is the world size of one cell. Vehicle overlap
+  radius < one cell, so 3x3 is behaviour-identical to the full scan. Reusable buckets
+  (`_surfaceNeighbourhood`, `_padNeighbourhood`, etc.) avoid per-call allocations.
+
+### Ghost playback cursor
+- Ghost samples (`bestLapGhostSamples`, replay states) are sorted ascending by `t`.
+  `findGhostSampleIndex(samples, wrapped, state)` keeps a cached `state._cursor` that
+  advances forward each frame (O(1) amortised) instead of `Array.findIndex` (O(n)).
+  On time-wrap it rescans from index 1. `ghostPlaybackCursor` is the shared cursor for
+  the best-lap ghost; replay states use their own `state._cursor`. Cursor must be reset
+  to 1 at every site that repopulates samples (3 sites: import payload, parsed import,
+  new best lap).
+
+### Per-frame allocation elimination
+- `seamSuppress.vel1/vel2`: reuse `_seamVel1/_seamVel2` arrays (was a fresh `[x,y,z]`
+  twice per vehicle per frame). `rigidBody.setLinearVelocity` reads synchronously so
+  overwriting the shared array after the restore is safe.
+- `cam.update(...)` dynamics: reuse `_camDynamics1/_camDynamics2` objects (was a fresh
+  options object up to 4x/frame). `Camera.update` only READS the fields, never retains.
+- Vignette projection: `_vignetteProjected` Vector3 reused (was `spherePos.clone()`).
+- `cachedGraphicsPreset` caches `getGraphicsPreset()` (refreshed in `applyGraphicsQuality`);
+  bloom/weather hot-path reads use it. Non-hot callers still call the getter directly.
+
+### Style/DOM churn reduction
+- Speed-blur CSS effects (canvas `filter`, vignette `--car-x/--car-y/opacity/backdropFilter`)
+  throttled to ~12 Hz (`_cssEffectAccumulator >= 0.08`) with last-value change detection
+  (`_lastCanvasFilter`, `_lastVignetteX/Y/Opacity/Backdrop`). Visually identical since
+  effects ramp smoothly with velocity.
+- `refreshHudValues()` (HudGrid.js) skips `innerHTML` rewrite when rendered HTML
+  unchanged (cached in `el.dataset.lastHud`).
+- Speedometer (HudExtras.js) writes `textContent`/`strokeDashoffset`/`stroke` only on
+  change (`_lastSpeedoNum/_lastSpeedoOffset/_lastSpeedoStroke`).
+
+### What was deliberately NOT changed (preserve visuals/gameplay)
+- Shadow map size, pixel ratio, AA, tone mapping, bloom thresholds — all per quality
+  preset, untouched. `powerPreference: 'high-performance'` added to WebGLRenderer (hint
+  only, no visual change). Particles already pooled. Physics step essential. Magnet scan
+  left linear (few entries, long range).
