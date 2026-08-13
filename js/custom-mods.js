@@ -2,35 +2,108 @@
 // Keeps the visual editor compact while exposing a rich, safe modding surface.
 
 // Blockly >=11 no longer ships FieldColour in blockly.min.js. The FX, UI and Game
-// Control categories use `new Blockly.FieldColour(...)`, which previously threw a
-// TypeError during block init() and froze the toolbox flyout on those categories.
-// The @blockly/field-colour UMD build (loaded in custommods.html) exports the class
-// onto the global as `FieldColour` (and registers it with Blockly's field registry);
-// bridge it back onto `Blockly.FieldColour` so the existing block defs keep working.
-// If, for any reason, the package fails to load, fall back to a tiny text-input field
-// so colour blocks still render instead of breaking the whole category.
+// Control categories use `new Blockly.FieldColour(...)`. Previously this threw during
+// block init() and froze the toolbox flyout on those categories (clicking Lists /
+// UI & Storage / Game Control hung the sidebar until reload and leaked half-rendered
+// blocks into other categories). The external `@blockly/field-colour` CDN script was
+// unreliable (its UMD is built for module loaders and does not always attach to the
+// global Blockly in a plain <script> setup), so we ship a self-contained colour field
+// here instead — no network dependency, works offline, and renders a native colour
+// picker. It is exposed as `Blockly.FieldColour` for the existing `new
+// Blockly.FieldColour(...)` calls and registered with the field registry so
+// deserialised XML round-trips.
 ( () => {
 
-	if ( typeof Blockly === 'undefined' ) return;
-	if ( Blockly.FieldColour ) return;
-	if ( typeof window !== 'undefined' && typeof window.FieldColour === 'function' ) {
+    if ( typeof Blockly === 'undefined' ) return;
+    // If a real FieldColour is already present (e.g. a future Blockly build bundles it
+    // again, or the CDN package did load), keep it — never override a working picker.
+    if ( Blockly.FieldColour && ! Blockly.FieldColour._racingSelfHosted ) return;
 
-		Blockly.FieldColour = window.FieldColour;
-		try { if ( typeof window.registerFieldColour === 'function' ) window.registerFieldColour(); } catch { /* ignore */ }
-		return;
+    const Field = Blockly.Field;
+    const FieldTextInput = Blockly.FieldTextInput;
+    if ( ! Field || ! FieldTextInput ) return;
 
-	}
-	// Minimal fallback: a hex-colour text field. Not a picker, but it keeps the
-	// category usable when the colour package is unavailable.
-	Blockly.FieldColour = class FieldColourFallback extends Blockly.FieldTextInput {
+    const COLOUR_REGEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+    function toHex( value ) {
+        const s = String( value || '' ).trim();
+        if ( COLOUR_REGEX.test( s ) ) return s.toLowerCase();
+        return '#ff4b1f';
+    }
 
-		constructor( value, validator, config ) {
+    class RacingFieldColour extends FieldTextInput {
+        constructor( value, validator, config ) {
+            super( toHex( value ), validator, config );
+        }
+        initView() {
+            super.initView();
+            try {
+                if ( this.fieldGroup_ && ! this.colourSwatch_ ) {
+                    const sw = document.createElement( 'span' );
+                    sw.style.display = 'inline-block';
+                    sw.style.width = '10px';
+                    sw.style.height = '10px';
+                    sw.style.marginLeft = '4px';
+                    sw.style.border = '1px solid rgba(255,255,255,0.5)';
+                    sw.style.borderRadius = '2px';
+                    sw.style.verticalAlign = 'middle';
+                    this.fieldGroup_.appendChild( sw );
+                    this.colourSwatch_ = sw;
+                }
+                if ( this.colourSwatch_ ) this.colourSwatch_.style.background = toHex( this.getValue() );
+            } catch { /* ignore */ }
+        }
+        doValueUpdate_( newValue ) {
+            super.doValueUpdate_( newValue );
+            try { if ( this.colourSwatch_ ) this.colourSwatch_.style.background = toHex( this.getValue() ); } catch { /* ignore */ }
+        }
+        // Open a native HTML colour picker instead of a text editor.
+        showEditor_( _e ) {
+            try {
+                const input = document.createElement( 'input' );
+                input.type = 'color';
+                input.value = toHex( this.getValue() );
+                input.style.width = '46px';
+                input.style.height = '30px';
+                input.style.padding = '0';
+                input.style.border = '1px solid rgba(255,255,255,0.4)';
+                input.style.borderRadius = '4px';
+                input.style.background = 'transparent';
+                input.style.cursor = 'pointer';
 
-			super( String( value || '#ff4b1f' ), validator, config );
+                const editor = document.createElement( 'div' );
+                editor.style.position = 'absolute';
+                editor.style.zIndex = '100000';
+                editor.appendChild( input );
+                document.body.appendChild( editor );
+                let placed = false;
+                try {
+                    const block = this.getSourceBlock ? this.getSourceBlock() : null;
+                    const rect = block && block.getBoundingRectangle ? block.getBoundingRectangle() : null;
+                    if ( rect ) { editor.style.left = `${ rect.left }px`; editor.style.top = `${ rect.top + 24 }px`; placed = true; }
+                } catch { /* ignore */ }
+                if ( ! placed ) { editor.style.left = `${ window.innerWidth / 2 - 23 }px`; editor.style.top = `${ window.innerHeight / 2 }px`; }
 
-		}
+                let closed = false;
+                const close = () => { if ( closed ) return; closed = true; editor.remove(); };
+                input.addEventListener( 'input', () => this.setValue( toHex( input.value ) ) );
+                input.addEventListener( 'change', () => { this.setValue( toHex( input.value ) ); close(); } );
+                input.addEventListener( 'blur', close );
+                input.focus();
+                try { if ( typeof input.showPicker === 'function' ) input.showPicker(); } catch { /* needs a gesture on some browsers */ }
+                return;
+            } catch ( error ) {
+                return super.showEditor_( _e );
+            }
+        }
+    }
 
-	};
+    RacingFieldColour._racingSelfHosted = true;
+    Blockly.FieldColour = RacingFieldColour;
+
+    try {
+        const registry = Blockly.fieldRegistry || Blockly.registry;
+        if ( registry && typeof registry.register === 'function' ) registry.register( 'field_colour', RacingFieldColour );
+    } catch { /* prior registration is fine */ }
 
 } )();
 
