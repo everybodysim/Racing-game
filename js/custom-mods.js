@@ -84,10 +84,15 @@
                 if ( ! placed ) { editor.style.left = `${ window.innerWidth / 2 - 23 }px`; editor.style.top = `${ window.innerHeight / 2 }px`; }
 
                 let closed = false;
-                const close = () => { if ( closed ) return; closed = true; editor.remove(); };
+                const close = () => { if ( closed ) return; closed = true; editor.remove(); document.removeEventListener( 'pointerdown', onOutside, true ); };
+                const onOutside = ( ev ) => { if ( editor.contains && ! editor.contains( ev.target ) ) close(); };
                 input.addEventListener( 'input', () => this.setValue( toHex( input.value ) ) );
                 input.addEventListener( 'change', () => { this.setValue( toHex( input.value ) ); close(); } );
                 input.addEventListener( 'blur', close );
+                // Close the picker (and release the flyout) when the user clicks
+                // anywhere else — without this the colour editor can stay open over
+                // the toolbox and make category clicks feel "frozen".
+                document.addEventListener( 'pointerdown', onOutside, true );
                 input.focus();
                 try { if ( typeof input.showPicker === 'function' ) input.showPicker(); } catch { /* needs a gesture on some browsers */ }
                 return;
@@ -1266,26 +1271,38 @@ document.getElementById( 'save-to-manager' )?.addEventListener( 'click', () => {
 			catch ( e ) { arr.shift(); }
 		}
 		// 2) ACTUALLY INSTALL the generated runtime so the mod runs in index.html on
-		//    the next load and survives reload. This writes the same shape
-		//    ({id,name,entry}) js/main.js loadRuntimeMods() imports at boot. Replace
-		//    any previously-installed custom-* mod so installing a new one swaps it
-		//    in instead of stacking (matches the shared-mod Install button).
+		//    the next load and survives reload. Upserts by id (installing a new mod
+		//    KEEPS other custom mods instead of replacing them all). On a quota error,
+		//    evict OLDER custom-* mods (never the one being installed). If even this
+		//    mod alone can't fit, surface a clear error — never silently list a mod
+		//    that didn't persist (that caused "installed but gone after reload").
 		const installedRaw = JSON.parse( localStorage.getItem( INSTALLED_MODS_KEY ) || '[]' );
-		const installedList = Array.isArray( installedRaw ) ? installedRaw : [];
-		const installId = `custom-${ payload.modId }`;
+		let installedList = Array.isArray( installedRaw ) ? installedRaw : [];
+		const installId = payload.modId && String( payload.modId ).startsWith( 'custom-' ) ? String( payload.modId ) : `custom-${ payload.modId }`;
 		const code = String( payload.template || '' ).trim() || `const SPEC = {};\nexport default { id: ${ JSON.stringify( installId ) }, init(){}, applyFrame(){ return null; } };\n`;
-		const next = installedList.filter( ( m ) => ! ( typeof m?.id === 'string' && m.id.startsWith( 'custom-' ) ) );
-		next.push( { id: installId, name: payload.modName || payload.modId || 'Custom Mod', entry: toJsDataUrl( code ) } );
-		// Quota-safe: if the data URL blows localStorage, drop older custom-* entries.
-		for ( let attempt = next.length - 1; attempt >= 0; attempt -- ) {
-			try { localStorage.setItem( INSTALLED_MODS_KEY, JSON.stringify( next ) ); break; }
-			catch ( e ) {
-				const idx = next.findIndex( ( m ) => typeof m?.id === 'string' && m.id.startsWith( 'custom-' ) && m.id !== installId );
-				if ( idx < 0 ) throw e;
-				next.splice( idx, 1 );
+		const entry = toJsDataUrl( code );
+		installedList = installedList.filter( ( m ) => m?.id !== installId );
+		installedList.push( { id: installId, name: payload.modName || payload.modId || 'Custom Mod', entry } );
+		let savedOk = false;
+		try { localStorage.setItem( INSTALLED_MODS_KEY, JSON.stringify( installedList ) ); savedOk = true; }
+		catch ( e ) {
+			for ( let i = 0; i < installedList.length; ) {
+				const m = installedList[ i ];
+				const isOtherCustom = m && m.id !== installId
+					&& typeof m.id === 'string' && m.id.startsWith( 'custom-' )
+					&& typeof m.entry === 'string' && m.entry.startsWith( 'data:' );
+				if ( isOtherCustom ) {
+					installedList.splice( i, 1 );
+					try { localStorage.setItem( INSTALLED_MODS_KEY, JSON.stringify( installedList ) ); savedOk = true; break; }
+					catch { /* keep evicting */ }
+				} else { i++; }
 			}
 		}
-		setStatus( `Installed "${ payload.modName }" — it will run next time you load the game (reload index.html).` );
+		if ( savedOk ) {
+			setStatus( `Installed "${ payload.modName }" — it will run next time you load the game (reload index.html).` );
+		} else {
+			setStatus( `Could not install "${ payload.modName }": not enough browser storage. Remove other installed/shared mods in the Mod Manager and try again.` );
+		}
 	} catch ( e ) {
 		setStatus( `Could not save to Mod Manager: ${ e.message || e }` );
 	}

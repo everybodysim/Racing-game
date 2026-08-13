@@ -9716,7 +9716,14 @@ function completeCampaignStage() {
 			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
 
 					const completedLap = now - lapStartSeconds;
-					const lapInvalid = currentLapInvalidatedByPause;
+					// Gameplay mods (any non-freecam installed mod, including every custom-*
+					// Blockly mod) change physics/handling, so a lap driven under one can never
+					// be a fair leaderboard entry. Treat it as invalid: do NOT update the local
+					// PB, ghost, or input recording, and skip multiplayer publish + leaderboard
+					// upload. The mod still receives onLapFinish so it can react; the lap is
+					// never recorded as a record.
+					const moddedRun = nonFreecamModsInstalled;
+					const lapInvalid = currentLapInvalidatedByPause || moddedRun;
 					const previousBestLap = bestLapSeconds;
 					const isNewBest = ! lapInvalid && ( bestLapSeconds === null || completedLap < bestLapSeconds );
 					lastLapSeconds = completedLap;
@@ -9725,6 +9732,10 @@ function completeCampaignStage() {
 						bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
 						if ( isNewBest ) publishMultiplayerBestLap( bestLapSeconds );
 						shareImageDataUrl = createShareSnapshot( bestLapSeconds );
+
+					} else if ( moddedRun ) {
+
+						showTopMessage( 'Mod active \u2014 lap not counted for the leaderboard. Remove the mod in the Mod Manager to record times.', true, 2600 );
 
 					} else {
 
