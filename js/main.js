@@ -2436,6 +2436,11 @@ async function init() {
 	await Promise.all( [ loadModels( requiredModelNames ), loadCustomTrackAssets( extras ) ] );
 	setLoadingStatus( 'Loading track and mods…', 'track' );
 	const runtimeMods = await runtimeModsPromise;
+	// Surface installed runtime mods in the boot console so players can confirm their
+	// custom mod actually loaded (a mod that says "installed" but never runs is the most
+	// common confusion — this line makes the load step visible and debuggable).
+	const loadedRuntimeModIds = runtimeMods.map( ( m ) => m?.id || 'unknown' );
+	appendLoadingConsole( `Runtime mods loaded: ${ loadedRuntimeModIds.length ? loadedRuntimeModIds.join( ', ' ) : 'none' }` );
 	const testSpawnRaw = String( searchParams.get( 'testSpawn' ) || '' ).trim();
 	if ( testSpawnRaw ) {
 
@@ -3836,6 +3841,13 @@ async function init() {
 			runtime._modId = modId;
 			runtime._scopedContext = scopedContext;
 			runtime.init( scopedContext );
+			// Make the mod's activation unmistakable: custom-* mods (Blockly custom mods)
+			// announce themselves so the player knows the installed mod is live and will
+			// affect gameplay (and that leaderboard is disabled while it runs).
+			if ( modId.startsWith( 'custom-' ) ) {
+				appendLoadingConsole( `Custom mod active: ${ modId }` );
+				window.setTimeout( () => showTopMessage( `Custom mod active: ${ modId }. Leaderboard is disabled while it runs.`, false, 3200 ), 600 );
+			}
 
 		} catch ( error ) {
 
