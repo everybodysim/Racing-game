@@ -30,6 +30,11 @@ export class Camera {
 		this.chaseYaw = 0;
 		this.hasChaseYaw = false;
 		this.underwaterBlend = 0;
+		// User-tunable camera params (set by mod api). Defaults preserve original feel.
+		this.userDistance = null;
+		this.userHeight = null;
+		this.userPitch = 0;
+		this.userLagScale = 1;
 
 		this.camera.position.copy( this.offset );
 		this.camera.lookAt( 0, 0, 0 );
@@ -90,12 +95,16 @@ export class Camera {
 			}
 
 			this._rotatedOffset.copy( this.chaseOffset ).lerp( this.underwaterChaseOffset, underwaterLift ).applyAxisAngle( this._upAxis, this.chaseYaw );
+			// Apply mod-tunable distance / height / pitch on top of the base offset.
+			if ( this.userDistance != null ) { const len = this._rotatedOffset.length() || 6.6; this._rotatedOffset.multiplyScalar( Math.max( 0.2, this.userDistance ) / len ); }
+			if ( this.userHeight != null ) this._rotatedOffset.y = this.userHeight;
+			if ( this.userPitch ) this._rotatedOffset.applyAxisAngle( new THREE.Vector3( 1, 0, 0 ), this.userPitch );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
 			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) );
 			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift );
 
-			const chaseLag = THREE.MathUtils.lerp( 10, 7.2, Math.min( 1, speedRatio * 0.8 + driftAmount * 0.4 ) );
+			const chaseLag = THREE.MathUtils.lerp( 10, 7.2, Math.min( 1, speedRatio * 0.8 + driftAmount * 0.4 ) ) * this.userLagScale;
 			this.camera.position.lerp( this._desiredPos, dt * chaseLag );
 			this.lookTarget.lerp( this._desiredLook, dt * 8 );
 			const targetFov = 42 + ( speedRatio * 6.5 ) + ( driftAmount * 1.5 );

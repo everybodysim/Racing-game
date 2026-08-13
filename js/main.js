@@ -2325,6 +2325,11 @@ function createModStorage( namespace ) {
 			for ( let i = 0; i < localStorage.length; i ++ ) { const k = localStorage.key( i ); if ( k && k.startsWith( prefix ) ) keys.push( k ); }
 			for ( const k of keys ) { try { localStorage.removeItem( k ); } catch { /* ignore */ } }
 		},
+		count() {
+			let n = 0;
+			for ( let i = 0; i < localStorage.length; i ++ ) { const k = localStorage.key( i ); if ( k && k.startsWith( prefix ) ) n ++; }
+			return n;
+		},
 	};
 }
 
@@ -3547,6 +3552,8 @@ async function init() {
 	let customModFlashColor = new THREE.Color( 0xffffff );
 	let customModFlashUntil = 0;
 	let customModFlashOverlay = null;
+	let customModSnowIntensity = 0;
+	let customModRainIntensity = 0;
 	const runtimeModContext = {
 		vehicle,
 		world,
@@ -3582,6 +3589,12 @@ async function init() {
 			dragMultiplier: Number( vehicle?.dragMultiplier ) || 1,
 			accelMultiplier: Number( vehicle?.accelMultiplier ) || 1,
 			driveMultiplier: Number( vehicle?.driveMultiplier ) || 1,
+			heading: ( ( Number( vehicle?.container?.rotation?.y ) || 0 ) * 180 / Math.PI ) % 360,
+			velocityX: Number( vehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 0 ] ) || 0,
+			velocityY: Number( vehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] ) || 0,
+			velocityZ: Number( vehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 2 ] ) || 0,
+			timeScale: Number( customModTimeScale ) || 1,
+			gravity: Number( customModGravityScale ) * 9.81,
 		} ),
 		api: {
 			showMessage: ( message, event = {} ) => window.setTimeout( () => showTopMessage( String( message || '' ), false, event?.durationMs || 1600 ), 0 ),
@@ -3744,6 +3757,37 @@ async function init() {
 				if ( ! CAR_STATS[ key ] || ! models[ key ] ) return;
 				vehicle.setModel( models[ key ] );
 				applyVehiclePerformance();
+			},
+			// --- Extended custom-mod API (added for the expanded block set) ---
+			// All numeric inputs are clamped to safe, non-exploitable ranges.
+			setCameraDistance: ( value = 8 ) => { if ( cam ) { cam.userDistance = THREE.MathUtils.clamp( Number( value ) || 8, 2, 30 ); } },
+			setCameraHeight: ( value = 3 ) => { if ( cam ) { cam.userHeight = THREE.MathUtils.clamp( Number( value ) || 3, 0, 20 ); } },
+			setCameraLag: ( value = 1 ) => { if ( cam ) { cam.userLagScale = THREE.MathUtils.clamp( Number( value ) || 1, 0.1, 1 ); } },
+			setCameraPitch: ( value = 0 ) => { if ( cam ) { cam.userPitch = THREE.MathUtils.clamp( Number( value ) || 0, -45, 45 ) * Math.PI / 180; } },
+			setSunPosition: ( value = 45 ) => { if ( dirLight ) { const a = THREE.MathUtils.clamp( Number( value ) || 45, 0, 360 ) * Math.PI / 180; const r = dirLight.position.length() || 60; dirLight.position.set( Math.cos( a ) * r, Math.sin( a ) * r + 10, Math.sin( a ) * r ); } },
+			setSnowIntensity: ( value = 0 ) => {
+				const v = THREE.MathUtils.clamp( Number( value ) || 0, 0, 1 );
+				try {
+					weatherSettings.precipitation = v > 0 ? 'snow' : 'none';
+					weatherSettings.intensity = v < 0.34 ? 'low' : ( v < 0.67 ? 'medium' : 'high' );
+					clearWeatherFx(); setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
+				} catch { customModSnowIntensity = v; }
+			},
+			setRainIntensity: ( value = 0 ) => {
+				const v = THREE.MathUtils.clamp( Number( value ) || 0, 0, 1 );
+				try {
+					weatherSettings.precipitation = v > 0 ? 'rain' : 'none';
+					weatherSettings.intensity = v < 0.34 ? 'low' : ( v < 0.67 ? 'medium' : 'high' );
+					clearWeatherFx(); setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
+				} catch { customModRainIntensity = v; }
+			},
+			playCue: ( name = 'click' ) => {
+				const a = window.__gameAudio;
+				if ( ! a || typeof a.playImpact !== 'function' ) return;
+				// Map every cue to the existing impact sound pool with a cue-specific
+				// velocity so each option produces a distinct, audible sound.
+				const vel = { boost: 6, checkpoint: 4, crash: 7, lap: 3, coin: 1.5, click: 0.8 }[ name ] || 3;
+				try { a.playImpact( vel ); } catch { /* ignore */ }
 			},
 			respawn: () => { try { respawnVehicle(); } catch { /* ignore */ } },
 			setPaused: ( next = true ) => { try { setPaused( !! next ); } catch { /* ignore */ } },

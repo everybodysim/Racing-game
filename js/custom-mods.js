@@ -238,6 +238,160 @@ Blockly.Blocks.text_lower = { init() { this.appendValueInput( 'TEXT' ).setCheck(
 // Register built-in Blockly blocks that may be missing in the min build.
 if ( ! Blockly.Blocks.math_number ) Blockly.Blocks.math_number = { init() { this.appendDummyInput().appendField( new Blockly.FieldNumber( 0 ), 'NUM' ); this.setOutput( true, 'Number' ); this.setColour( MATH ); } };
 
+// ============ EXTENDED BLOCKS ============
+// A large, safe set of additional blocks so modders can build genuinely interesting
+// features. Pure blocks (math/text/logic/lists/variables) are resolved entirely by the
+// generated runtime interpreter, so they always work and cannot exploit the game.
+// Action blocks are wired to clamped, capability-checked api methods only.
+
+// Helper: value-output block with one labelled value input.
+function valDef( name, label, inputField, inputCheck = 'Number', color = MATH, inputLabel = '' ) {
+	Blockly.Blocks[ name ] = {
+		init() {
+			if ( inputField ) { this.appendValueInput( inputField ).setCheck( inputCheck ).appendField( inputLabel || label ); }
+			else { this.appendDummyInput().appendField( label ); }
+			this.setOutput( true, null );
+			this.setColour( color );
+		},
+	};
+}
+
+// ---- MATH (extended) ----
+Blockly.Blocks.math_round_int = { init() { this.appendValueInput( 'NUM' ).setCheck( 'Number' ).appendField( 'round to integer' ); this.setOutput( true, 'Number' ); this.setColour( MATH ); } };
+Blockly.Blocks.math_random_int = { init() { this.appendValueInput( 'MIN' ).setCheck( 'Number' ).appendField( 'random integer from' ); this.appendValueInput( 'MAX' ).setCheck( 'Number' ).appendField( 'to' ); this.setInputsInline( true ); this.setOutput( true, 'Number' ); this.setColour( MATH ); } };
+Blockly.Blocks.math_random_range = { init() { this.appendValueInput( 'MIN' ).setCheck( 'Number' ).appendField( 'random decimal from' ); this.appendValueInput( 'MAX' ).setCheck( 'Number' ).appendField( 'to' ); this.setInputsInline( true ); this.setOutput( true, 'Number' ); this.setColour( MATH ); } };
+Blockly.Blocks.math_lerp = { init() { this.appendValueInput( 'A' ).setCheck( 'Number' ).appendField( 'lerp from' ); this.appendValueInput( 'B' ).setCheck( 'Number' ).appendField( 'to' ); this.appendValueInput( 'T' ).setCheck( 'Number' ).appendField( 'by' ); this.setInputsInline( true ); this.setOutput( true, 'Number' ); this.setColour( MATH ); } };
+Blockly.Blocks.math_map_range = { init() { this.appendValueInput( 'VALUE' ).setCheck( 'Number' ).appendField( 'map' ); this.appendValueInput( 'INMIN' ).setCheck( 'Number' ).appendField( 'from range' ); this.appendValueInput( 'INMAX' ).setCheck( 'Number' ).appendField( 'to' ); this.appendValueInput( 'OUTMIN' ).setCheck( 'Number' ).appendField( '→ range' ); this.appendValueInput( 'OUTMAX' ).setCheck( 'Number' ).appendField( 'to' ); this.setInputsInline( true ); this.setOutput( true, 'Number' ); this.setColour( MATH ); } };
+Blockly.Blocks.math_adv_single = { init() { this.appendValueInput( 'NUM' ).setCheck( 'Number' ).appendField( new Blockly.FieldDropdown( [ [ 'sign', 'SIGN' ], [ 'natural log', 'LOG' ], [ 'log base 10', 'LOG10' ], [ 'e^', 'EXP' ], [ 'truncate', 'TRUNC' ], [ 'arcsine', 'ASIN' ], [ 'arccosine', 'ACOS' ], [ 'arctangent', 'ATAN' ], [ 'tanh', 'TANH' ], [ 'sinh', 'SINH' ], [ 'cosh', 'COSH' ], [ 'reciprocal', 'RECIP' ], [ 'degrees', 'DEG' ], [ 'radians', 'RAD' ] ] ), 'OP' ); this.setOutput( true, 'Number' ); this.setColour( MATH ); } };
+Blockly.Blocks.math_pair = { init() { this.appendValueInput( 'A' ).setCheck( 'Number' ).appendField( '' ); this.appendValueInput( 'B' ).setCheck( 'Number' ).appendField( new Blockly.FieldDropdown( [ [ 'arctan2 of', 'ATAN2' ], [ 'distance of', 'DIST' ], [ 'hypotenuse of', 'HYPOT' ], [ 'gcd of', 'GCD' ], [ 'quotient of', 'QUOT' ], [ 'remainder of', 'REM' ], [ 'a is what % of', 'PCT' ] ] ), 'OP' ); this.setInputsInline( true ); this.setOutput( true, 'Number' ); this.setColour( MATH ); } };
+Blockly.Blocks.math_constant = { init() { this.appendDummyInput().appendField( new Blockly.FieldDropdown( [ [ 'e', 'E' ], [ 'τ (2π)', 'TAU' ], [ 'φ (golden ratio)', 'PHI' ], [ '√2', 'SQRT2' ] ] ), 'CONST' ); this.setOutput( true, 'Number' ); this.setColour( MATH ); } };
+Blockly.Blocks.math_divisible = { init() { this.appendValueInput( 'A' ).setCheck( 'Number' ).appendField( '' ); this.appendValueInput( 'B' ).setCheck( 'Number' ).appendField( 'divisible by' ); this.setInputsInline( true ); this.setOutput( true, 'Boolean' ); this.setColour( MATH ); } };
+Blockly.Blocks.math_between = { init() { this.appendValueInput( 'VALUE' ).setCheck( 'Number' ).appendField( 'is' ); this.appendValueInput( 'MIN' ).setCheck( 'Number' ).appendField( 'between' ); this.appendValueInput( 'MAX' ).setCheck( 'Number' ).appendField( 'and' ); this.setInputsInline( true ); this.setOutput( true, 'Boolean' ); this.setColour( MATH ); } };
+
+// ---- LOGIC (extended) ----
+Blockly.Blocks.logic_xor = { init() { this.appendValueInput( 'A' ).setCheck( 'Boolean' ).appendField( '' ); this.appendValueInput( 'B' ).setCheck( 'Boolean' ).appendField( 'xor' ); this.setInputsInline( true ); this.setOutput( true, 'Boolean' ); this.setColour( LOGIC ); } };
+Blockly.Blocks.logic_is_even = { init() { this.appendValueInput( 'NUM' ).setCheck( 'Number' ).appendField( 'is even' ); this.setOutput( true, 'Boolean' ); this.setColour( LOGIC ); } };
+Blockly.Blocks.logic_is_positive = { init() { this.appendValueInput( 'NUM' ).setCheck( 'Number' ).appendField( 'is positive' ); this.setOutput( true, 'Boolean' ); this.setColour( LOGIC ); } };
+Blockly.Blocks.logic_is_integer = { init() { this.appendValueInput( 'NUM' ).setCheck( 'Number' ).appendField( 'is integer' ); this.setOutput( true, 'Boolean' ); this.setColour( LOGIC ); } };
+Blockly.Blocks.logic_is_zero = { init() { this.appendValueInput( 'NUM' ).setCheck( 'Number' ).appendField( 'is zero' ); this.setOutput( true, 'Boolean' ); this.setColour( LOGIC ); } };
+Blockly.Blocks.logic_text_equals = { init() { this.appendValueInput( 'A' ).setCheck( 'String' ).appendField( '' ); this.appendValueInput( 'B' ).setCheck( 'String' ).appendField( new Blockly.FieldDropdown( [ [ 'equals (ignore case)', 'EQIC' ], [ 'starts with', 'STARTS' ], [ 'ends with', 'ENDS' ] ] ), 'OP' ); this.setInputsInline( true ); this.setOutput( true, 'Boolean' ); this.setColour( LOGIC ); } };
+Blockly.Blocks.logic_is_empty = { init() { this.appendValueInput( 'VALUE' ).appendField( 'is empty' ); this.setOutput( true, 'Boolean' ); this.setColour( LOGIC ); } };
+
+// ---- TEXT (extended) ----
+Blockly.Blocks.text_substring = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'substring of' ); this.appendValueInput( 'START' ).setCheck( 'Number' ).appendField( 'from' ); this.appendValueInput( 'END' ).setCheck( 'Number' ).appendField( 'to' ); this.setInputsInline( true ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_char_at = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'character' ); this.appendValueInput( 'INDEX' ).setCheck( 'Number' ).appendField( 'of' ); this.setInputsInline( true ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_index_of = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'first position of' ); this.appendValueInput( 'SUB' ).setCheck( 'String' ).appendField( 'in' ); this.setInputsInline( true ); this.setOutput( true, 'Number' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_replace = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'in' ); this.appendValueInput( 'FROM' ).setCheck( 'String' ).appendField( 'replace' ); this.appendValueInput( 'TO' ).setCheck( 'String' ).appendField( 'with' ); this.setInputsInline( true ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_replace_all = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'in' ); this.appendValueInput( 'FROM' ).setCheck( 'String' ).appendField( 'replace all' ); this.appendValueInput( 'TO' ).setCheck( 'String' ).appendField( 'with' ); this.setInputsInline( true ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_repeat = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'repeat' ); this.appendValueInput( 'TIMES' ).setCheck( 'Number' ).appendField( 'times' ); this.setInputsInline( true ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_trim = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'trim spaces' ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_pad = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( '' ); this.appendValueInput( 'LENGTH' ).setCheck( 'Number' ).appendField( new Blockly.FieldDropdown( [ [ 'pad left to', 'PADL' ], [ 'pad right to', 'PADR' ] ] ), 'OP' ).appendField( 'length' ); this.appendValueInput( 'CHAR' ).setCheck( 'String' ).appendField( 'with' ); this.setInputsInline( true ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_reverse = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'reverse' ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_count = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'count' ); this.appendValueInput( 'SUB' ).setCheck( 'String' ).appendField( 'in' ); this.setInputsInline( true ); this.setOutput( true, 'Number' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_to_number = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'text to number' ); this.setOutput( true, 'Number' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_split = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'split' ); this.appendValueInput( 'SEP' ).setCheck( 'String' ).appendField( 'by' ); this.setInputsInline( true ); this.setOutput( true, 'Array' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_first_char = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'first character of' ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_last_char = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'last character of' ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_slice = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'slice' ); this.appendValueInput( 'START' ).setCheck( 'Number' ).appendField( 'from' ); this.appendValueInput( 'LEN' ).setCheck( 'Number' ).appendField( 'length' ); this.setInputsInline( true ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_char_code = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'char code of' ); this.setOutput( true, 'Number' ); this.setColour( TXT ); } };
+Blockly.Blocks.text_from_char_code = { init() { this.appendValueInput( 'NUM' ).setCheck( 'Number' ).appendField( 'character from code' ); this.setOutput( true, 'String' ); this.setColour( TXT ); } };
+
+// ---- LISTS (fixed + extended) — lists carry value-specs, resolved at eval time ----
+Blockly.Blocks.lists_create_with = { init() { this.appendDummyInput().appendField( 'create list with' ); this.appendValueInput( 'ADD0' ).setCheck( null ).appendField( 'item' ); this.appendValueInput( 'ADD1' ).setCheck( null ).appendField( 'item' ); this.setOutput( true, 'Array' ); this.setColour( LIST ); this.setMutator( new Blockly.Mutator( [ 'lists_item' ] ) ); this.itemCount_ = 2; }, mutationToDom() { const c = document.createElement( 'mutation' ); c.setAttribute( 'items', this.itemCount_ ); return c; }, domToMutation( x ) { this.itemCount_ = parseInt( x.getAttribute( 'items' ), 10 ) || 0; this.updateShape_(); }, decompose( ws ) { const t = ws.newBlock( 'lists_item' ); t.initSvg(); let p = t; for ( let i = 1; i < this.itemCount_; i ++ ) { const b = ws.newBlock( 'lists_item' ); b.initSvg(); p.next = b; b.previous = p; p = b; } return t; }, compose( t ) { let n = 0; let p = t; while ( p ) { n ++; p = p.next; } this.itemCount_ = n; this.updateShape_(); }, updateShape_() { let i = 0; while ( this.getInput( 'ADD' + i ) ) { this.removeInput( 'ADD' + i ); i ++; } for ( let k = 0; k < this.itemCount_; k ++ ) { this.appendValueInput( 'ADD' + k ).setCheck( null ).appendField( 'item' ); } } };
+Blockly.Blocks.lists_item = { init() { this.appendDummyInput().appendField( 'item' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( LIST ); } };
+Blockly.Blocks.lists_get_index = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( 'in list' ); this.appendValueInput( 'INDEX' ).setCheck( 'Number' ).appendField( 'get item' ); this.setInputsInline( true ); this.setOutput( true, null ); this.setColour( LIST ); } };
+Blockly.Blocks.lists_contains = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( 'list' ); this.appendValueInput( 'VALUE' ).appendField( 'has' ); this.setInputsInline( true ); this.setOutput( true, 'Boolean' ); this.setColour( LIST ); } };
+Blockly.Blocks.lists_index_of = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( 'in list' ); this.appendValueInput( 'VALUE' ).appendField( 'position of' ); this.setInputsInline( true ); this.setOutput( true, 'Number' ); this.setColour( LIST ); } };
+Blockly.Blocks.lists_reverse = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( 'reverse' ); this.setOutput( true, 'Array' ); this.setColour( LIST ); } };
+Blockly.Blocks.lists_sort = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( new Blockly.FieldDropdown( [ [ 'sort ascending', 'ASC' ], [ 'sort descending', 'DESC' ] ] ), 'OP' ); this.setOutput( true, 'Array' ); this.setColour( LIST ); } };
+Blockly.Blocks.lists_sum = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( 'sum of' ); this.setOutput( true, 'Number' ); this.setColour( LIST ); } };
+Blockly.Blocks.lists_max = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( new Blockly.FieldDropdown( [ [ 'max of', 'MAX' ], [ 'min of', 'MIN' ] ] ), 'OP' ); this.setOutput( true, 'Number' ); this.setColour( LIST ); } };
+Blockly.Blocks.lists_average = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( 'average of' ); this.setOutput( true, 'Number' ); this.setColour( LIST ); } };
+Blockly.Blocks.lists_join = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( 'join list' ); this.appendValueInput( 'SEP' ).setCheck( 'String' ).appendField( 'with' ); this.setInputsInline( true ); this.setOutput( true, 'String' ); this.setColour( LIST ); } };
+Blockly.Blocks.lists_first = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( 'first item of' ); this.setOutput( true, null ); this.setColour( LIST ); } };
+Blockly.Blocks.lists_last = { init() { this.appendValueInput( 'LIST' ).setCheck( 'Array' ).appendField( 'last item of' ); this.setOutput( true, null ); this.setColour( LIST ); } };
+Blockly.Blocks.action_lists_set = { init() { this.appendValueInput( 'VAR' ).setCheck( 'String' ).appendField( 'in list variable' ); this.appendValueInput( 'INDEX' ).setCheck( 'Number' ).appendField( 'set index' ); this.appendValueInput( 'VALUE' ).appendField( 'to' ); this.setInputsInline( true ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( LIST ); } };
+Blockly.Blocks.action_lists_add = { init() { this.appendValueInput( 'VAR' ).setCheck( 'String' ).appendField( 'to list variable' ); this.appendValueInput( 'VALUE' ).appendField( 'add' ); this.setInputsInline( true ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( LIST ); } };
+Blockly.Blocks.action_lists_remove = { init() { this.appendValueInput( 'VAR' ).setCheck( 'String' ).appendField( 'from list variable' ); this.appendValueInput( 'INDEX' ).setCheck( 'Number' ).appendField( 'remove index' ); this.setInputsInline( true ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( LIST ); } };
+Blockly.Blocks.action_lists_clear = { init() { this.appendValueInput( 'VAR' ).setCheck( 'String' ).appendField( 'clear list variable' ); this.setInputsInline( true ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( LIST ); } };
+Blockly.Blocks.value_list_get = { init() { this.appendDummyInput().appendField( 'list variable' ).appendField( new Blockly.FieldTextInput( 'mylist' ), 'NAME' ); this.setOutput( true, 'Array' ); this.setColour( LIST ); } };
+
+// ---- VARIABLES (extended) ----
+Blockly.Blocks.action_var_multiply = { init() { this.appendDummyInput().appendField( 'multiply variable' ).appendField( new Blockly.FieldTextInput( 'score' ), 'NAME' ); this.appendValueInput( 'VALUE' ).setCheck( 'Number' ).appendField( 'by' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( VAR ); } };
+Blockly.Blocks.action_var_divide = { init() { this.appendDummyInput().appendField( 'divide variable' ).appendField( new Blockly.FieldTextInput( 'score' ), 'NAME' ); this.appendValueInput( 'VALUE' ).setCheck( 'Number' ).appendField( 'by' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( VAR ); } };
+Blockly.Blocks.action_var_clamp = { init() { this.appendDummyInput().appendField( 'clamp variable' ).appendField( new Blockly.FieldTextInput( 'score' ), 'NAME' ); this.appendValueInput( 'MIN' ).setCheck( 'Number' ).appendField( 'min' ); this.appendValueInput( 'MAX' ).setCheck( 'Number' ).appendField( 'max' ); this.setInputsInline( true ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( VAR ); } };
+Blockly.Blocks.action_var_reset = { init() { this.appendDummyInput().appendField( 'reset variable' ).appendField( new Blockly.FieldTextInput( 'score' ), 'NAME' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( VAR ); } };
+Blockly.Blocks.action_textvar_append = { init() { this.appendDummyInput().appendField( 'append to text variable' ).appendField( new Blockly.FieldTextInput( 'note' ), 'NAME' ); this.appendValueInput( 'VALUE' ).setCheck( 'String' ).appendField( 'with' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( VAR ); } };
+
+// ---- VALUE GETTERS (extended, read-only state) ----
+Blockly.Blocks.value_speed_kmh = { init() { this.appendDummyInput().appendField( 'speed (km/h)' ); this.setOutput( true, 'Number' ); this.setColour( VAR ); } };
+Blockly.Blocks.value_speed_mph = { init() { this.appendDummyInput().appendField( 'speed (mph)' ); this.setOutput( true, 'Number' ); this.setColour( VAR ); } };
+Blockly.Blocks.value_heading = { init() { this.appendDummyInput().appendField( 'heading (degrees)' ); this.setOutput( true, 'Number' ); this.setColour( VAR ); } };
+Blockly.Blocks.value_velocity_x = { init() { this.appendDummyInput().appendField( 'velocity X' ); this.setOutput( true, 'Number' ); this.setColour( VAR ); } };
+Blockly.Blocks.value_velocity_y = { init() { this.appendDummyInput().appendField( 'velocity Y' ); this.setOutput( true, 'Number' ); this.setColour( VAR ); } };
+Blockly.Blocks.value_velocity_z = { init() { this.appendDummyInput().appendField( 'velocity Z' ); this.setOutput( true, 'Number' ); this.setColour( VAR ); } };
+Blockly.Blocks.value_split_screen = { init() { this.appendDummyInput().appendField( 'is split-screen' ); this.setOutput( true, 'Boolean' ); this.setColour( LOGIC ); } };
+Blockly.Blocks.value_drag_mult = { init() { this.appendDummyInput().appendField( 'drag multiplier' ); this.setOutput( true, 'Number' ); this.setColour( VAR ); } };
+Blockly.Blocks.value_accel_mult = { init() { this.appendDummyInput().appendField( 'accel multiplier' ); this.setOutput( true, 'Number' ); this.setColour( VAR ); } };
+Blockly.Blocks.value_drive_mult = { init() { this.appendDummyInput().appendField( 'drive multiplier' ); this.setOutput( true, 'Number' ); this.setColour( VAR ); } };
+Blockly.Blocks.value_time_scale = { init() { this.appendDummyInput().appendField( 'time scale' ); this.setOutput( true, 'Number' ); this.setColour( VAR ); } };
+Blockly.Blocks.value_gravity = { init() { this.appendDummyInput().appendField( 'gravity' ); this.setOutput( true, 'Number' ); this.setColour( VAR ); } };
+
+// ---- UI BUILDER (extended) — all created via the sandboxed ui.create api ----
+Blockly.Blocks.ui_create_heading = { init() { this.appendValueInput( 'TEXT' ).setCheck( 'String' ).appendField( 'create heading' ); this.appendDummyInput().appendField( new Blockly.FieldDropdown( [ [ 'h1', 'h1' ], [ 'h2', 'h2' ], [ 'h3', 'h3' ] ] ), 'TAG' ).appendField( 'store as' ).appendField( new Blockly.FieldTextInput( 'title' ), 'NAME' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_create_progress = { init() { this.appendValueInput( 'VALUE' ).setCheck( 'Number' ).appendField( 'create progress bar' ); this.appendValueInput( 'MAX' ).setCheck( 'Number' ).appendField( 'max' ); this.appendDummyInput().appendField( 'store as' ).appendField( new Blockly.FieldTextInput( 'prog' ), 'NAME' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_create_checkbox = { init() { this.appendValueInput( 'LABEL' ).setCheck( 'String' ).appendField( 'create checkbox' ); this.appendDummyInput().appendField( 'store as' ).appendField( new Blockly.FieldTextInput( 'chk' ), 'NAME' ).appendField( 'store value in' ).appendField( new Blockly.FieldTextInput( 'chkVal' ), 'VAR' ); this.appendStatementInput( 'DO' ).appendField( 'on change' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_create_dropdown = { init() { this.appendDummyInput().appendField( 'create dropdown' ).appendField( new Blockly.FieldTextInput( 'opt1,opt2,opt3' ), 'OPTIONS' ); this.appendDummyInput().appendField( 'store as' ).appendField( new Blockly.FieldTextInput( 'dd' ), 'NAME' ).appendField( 'store value in' ).appendField( new Blockly.FieldTextInput( 'ddVal' ), 'VAR' ); this.appendStatementInput( 'DO' ).appendField( 'on change' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_create_text_input = { init() { this.appendValueInput( 'LABEL' ).setCheck( 'String' ).appendField( 'create text input' ); this.appendDummyInput().appendField( 'store as' ).appendField( new Blockly.FieldTextInput( 'inp' ), 'NAME' ).appendField( 'store value in' ).appendField( new Blockly.FieldTextInput( 'inpVal' ), 'VAR' ); this.appendStatementInput( 'DO' ).appendField( 'on change' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_create_divider = { init() { this.appendDummyInput().appendField( 'create divider store as' ).appendField( new Blockly.FieldTextInput( 'hr' ), 'NAME' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_set_position = { init() { this.appendDummyInput().appendField( 'move element' ).appendField( new Blockly.FieldTextInput( 'panel' ), 'NAME' ); this.appendValueInput( 'X' ).setCheck( 'Number' ).appendField( 'to X' ); this.appendValueInput( 'Y' ).setCheck( 'Number' ).appendField( 'Y' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_set_size = { init() { this.appendDummyInput().appendField( 'size element' ).appendField( new Blockly.FieldTextInput( 'panel' ), 'NAME' ); this.appendValueInput( 'W' ).setCheck( 'Number' ).appendField( 'width' ); this.appendValueInput( 'H' ).setCheck( 'Number' ).appendField( 'height' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_set_text_color = { init() { this.appendDummyInput().appendField( 'text color of' ).appendField( new Blockly.FieldTextInput( 'lbl' ), 'NAME' ).appendField( new Blockly.FieldColour( '#ffffff' ), 'COLOR' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_set_bg_color = { init() { this.appendDummyInput().appendField( 'background of' ).appendField( new Blockly.FieldTextInput( 'panel' ), 'NAME' ).appendField( new Blockly.FieldColour( '#1b2a40' ), 'COLOR' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_set_font_size = { init() { this.appendDummyInput().appendField( 'font size of' ).appendField( new Blockly.FieldTextInput( 'lbl' ), 'NAME' ).appendField( new Blockly.FieldNumber( 14, 6, 72 ), 'SIZE' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_set_enabled = { init() { this.appendDummyInput().appendField( 'set element' ).appendField( new Blockly.FieldTextInput( 'btn' ), 'NAME' ).appendField( new Blockly.FieldDropdown( [ [ 'enabled', '1' ], [ 'disabled', '0' ] ] ), 'STATE' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+Blockly.Blocks.ui_on_click = { init() { this.appendDummyInput().appendField( 'when element' ).appendField( new Blockly.FieldTextInput( 'btn' ), 'NAME' ).appendField( 'clicked' ); this.appendStatementInput( 'DO' ).appendField( 'do' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( UI_COLOR ); } };
+
+// ---- STORAGE (extended) ----
+Blockly.Blocks.storage_get_num = { init() { this.appendValueInput( 'KEY' ).setCheck( 'String' ).appendField( 'get number' ); this.appendValueInput( 'DEFAULT' ).setCheck( 'Number' ).appendField( 'or default' ); this.setOutput( true, 'Number' ); this.setColour( STO_COLOR ); } };
+Blockly.Blocks.storage_get_text = { init() { this.appendValueInput( 'KEY' ).setCheck( 'String' ).appendField( 'get text' ); this.appendValueInput( 'DEFAULT' ).setCheck( 'String' ).appendField( 'or default' ); this.setOutput( true, 'String' ); this.setColour( STO_COLOR ); } };
+Blockly.Blocks.storage_get_bool = { init() { this.appendValueInput( 'KEY' ).setCheck( 'String' ).appendField( 'has stored key' ); this.setOutput( true, 'Boolean' ); this.setColour( STO_COLOR ); } };
+Blockly.Blocks.storage_set_bool = { init() { this.appendValueInput( 'KEY' ).setCheck( 'String' ).appendField( 'store flag' ); this.appendValueInput( 'VALUE' ).setCheck( 'Boolean' ).appendField( 'under key' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( STO_COLOR ); } };
+Blockly.Blocks.storage_increment = { init() { this.appendValueInput( 'KEY' ).setCheck( 'String' ).appendField( 'increment stored number' ); this.appendValueInput( 'BY' ).setCheck( 'Number' ).appendField( 'by' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( STO_COLOR ); } };
+Blockly.Blocks.storage_count = { init() { this.appendDummyInput().appendField( 'count of stored keys' ); this.setOutput( true, 'Number' ); this.setColour( STO_COLOR ); } };
+Blockly.Blocks.storage_list_add = { init() { this.appendValueInput( 'KEY' ).setCheck( 'String' ).appendField( 'append to stored list' ); this.appendValueInput( 'VALUE' ).appendField( 'value' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( STO_COLOR ); } };
+Blockly.Blocks.storage_list_get = { init() { this.appendValueInput( 'KEY' ).setCheck( 'String' ).appendField( 'get stored list' ); this.setOutput( true, 'Array' ); this.setColour( STO_COLOR ); } };
+
+// ---- CAMERA (extended) ----
+actionDef( 'action_set_camera_distance', 'VALUE', 'set camera distance', CAM );
+actionDef( 'action_set_camera_height', 'VALUE', 'set camera height', CAM );
+actionDef( 'action_set_camera_lag', 'VALUE', 'set camera smoothing (0-1)', CAM );
+actionDef( 'action_set_camera_pitch', 'VALUE', 'set camera pitch', CAM );
+actionDefDropdown( 'action_camera_look_mode', 'camera follow', 'MODE', [ [ 'loose', 'loose' ], [ 'strict', 'strict' ] ], null, null, CAM );
+actionDef( 'action_camera_reset', null, 'reset camera', CAM );
+
+// ---- FX (extended) ----
+actionDef( 'action_set_screen_brightness', 'VALUE', 'set screen brightness (0-2)', FX );
+actionDef( 'action_set_sun_position', 'ANGLE', 'set sun angle (degrees)', FX );
+actionDef( 'action_set_snow_intensity', 'VALUE', 'set snow intensity (0-1)', FX );
+actionDef( 'action_set_rain_intensity', 'VALUE', 'set rain intensity (0-1)', FX );
+
+// ---- AUDIO (extended) ----
+actionDefDropdown( 'action_play_cue', 'play sound', 'CUE', [ [ 'boost', 'boost' ], [ 'checkpoint', 'checkpoint' ], [ 'crash', 'crash' ], [ 'lap', 'lap' ], [ 'coin', 'coin' ], [ 'click', 'click' ] ], null, null, AUD );
+actionDef( 'action_set_master_volume', 'VALUE', 'set master volume (0-1)', AUD );
+
+// ---- GAME CONTROL (extended, safe) ----
+actionDef( 'action_restart_race', null, 'restart race', FLOW );
+actionDef( 'action_teleport_to_spawn', null, 'teleport to spawn', FLOW );
+actionDef( 'action_add_lap_time_penalty', 'SECS', 'add time penalty (seconds)', FLOW );
+actionDefDropdown( 'action_set_weather', 'set weather', 'W', [ [ 'Clear', 'clear' ], [ 'Cloudy', 'cloudy' ], [ 'Sunset', 'sunset' ], [ 'Night', 'night' ], [ 'Dawn Mist', 'dawn-mist' ] ], null, null, FX );
+actionDef( 'action_set_fog_color_rgb', 'VALUE', 'tint world (0-1)', FX );
+
+// ---- EVENTS (extended, derived in the generated runtime) ----
+Blockly.Blocks.event_on_key_release = { init() { this.appendDummyInput().appendField( 'when key' ).appendField( new Blockly.FieldDropdown( [ [ 'W', 'KeyW' ], [ 'A', 'KeyA' ], [ 'S', 'KeyS' ], [ 'D', 'KeyD' ], [ 'Space', 'Space' ], [ 'X', 'KeyX' ], [ 'C', 'KeyC' ], [ 'E', 'KeyE' ], [ 'Q', 'KeyQ' ], [ 'R', 'KeyR' ] ] ), 'KEY' ).appendField( 'released' ); this.appendStatementInput( 'DO' ).appendField( 'do' ); this.setColour( EVT ); } };
+Blockly.Blocks.event_on_high_speed = { init() { this.appendValueInput( 'SPEED' ).setCheck( 'Number' ).appendField( 'while speed above' ); this.appendStatementInput( 'DO' ).appendField( 'do' ); this.setColour( EVT ); } };
+Blockly.Blocks.event_on_low_speed_held = { init() { this.appendValueInput( 'SPEED' ).setCheck( 'Number' ).appendField( 'while speed below' ); this.appendStatementInput( 'DO' ).appendField( 'do' ); this.setColour( EVT ); } };
+
 // ============ WORKSPACE ============
 const workspace = Blockly.inject( 'blocklyDiv', { toolbox: document.getElementById( 'toolbox' ), trashcan: true, zoom: { controls: true, wheel: true, startScale: 0.95 } } );
 const textToDom = ( text ) => ( Blockly.utils?.xml?.textToDom ? Blockly.utils.xml.textToDom( text ) : Blockly.Xml.textToDom( text ) );
@@ -318,6 +472,84 @@ function parseValueBlock( block ) {
 	if ( type === 'text_contains' ) return { kind: 'text_contains', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', sub: parseValueBlock( block.getInputTargetBlock( 'SUB' ) ) ?? '' };
 	if ( type === 'text_upper' ) return { kind: 'text_case', value: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', upper: true };
 	if ( type === 'text_lower' ) return { kind: 'text_case', value: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', upper: false };
+
+	// ---- EXTENDED: MATH ----
+	if ( type === 'math_round_int' ) return { kind: 'round_int', num: parseValueBlock( block.getInputTargetBlock( 'NUM' ) ) ?? 0 };
+	if ( type === 'math_random_int' ) return { kind: 'randint', min: parseValueBlock( block.getInputTargetBlock( 'MIN' ) ) ?? 0, max: parseValueBlock( block.getInputTargetBlock( 'MAX' ) ) ?? 1 };
+	if ( type === 'math_random_range' ) return { kind: 'randrange', min: parseValueBlock( block.getInputTargetBlock( 'MIN' ) ) ?? 0, max: parseValueBlock( block.getInputTargetBlock( 'MAX' ) ) ?? 1 };
+	if ( type === 'math_lerp' ) return { kind: 'lerp', a: parseValueBlock( block.getInputTargetBlock( 'A' ) ) ?? 0, b: parseValueBlock( block.getInputTargetBlock( 'B' ) ) ?? 0, t: parseValueBlock( block.getInputTargetBlock( 'T' ) ) ?? 0 };
+	if ( type === 'math_map_range' ) return { kind: 'map_range', value: parseValueBlock( block.getInputTargetBlock( 'VALUE' ) ) ?? 0, inMin: parseValueBlock( block.getInputTargetBlock( 'INMIN' ) ) ?? 0, inMax: parseValueBlock( block.getInputTargetBlock( 'INMAX' ) ) ?? 1, outMin: parseValueBlock( block.getInputTargetBlock( 'OUTMIN' ) ) ?? 0, outMax: parseValueBlock( block.getInputTargetBlock( 'OUTMAX' ) ) ?? 1 };
+	if ( type === 'math_adv_single' ) return { kind: 'math_adv', op: block.getFieldValue( 'OP' ), num: parseValueBlock( block.getInputTargetBlock( 'NUM' ) ) ?? 0 };
+	if ( type === 'math_pair' ) return { kind: 'math_pair', op: block.getFieldValue( 'OP' ), a: parseValueBlock( block.getInputTargetBlock( 'A' ) ) ?? 0, b: parseValueBlock( block.getInputTargetBlock( 'B' ) ) ?? 0 };
+	if ( type === 'math_constant' ) return { kind: 'math_const', name: block.getFieldValue( 'CONST' ) };
+	if ( type === 'math_divisible' ) return { kind: 'divisible', a: parseValueBlock( block.getInputTargetBlock( 'A' ) ) ?? 0, b: parseValueBlock( block.getInputTargetBlock( 'B' ) ) ?? 1 };
+	if ( type === 'math_between' ) return { kind: 'between', value: parseValueBlock( block.getInputTargetBlock( 'VALUE' ) ) ?? 0, min: parseValueBlock( block.getInputTargetBlock( 'MIN' ) ) ?? 0, max: parseValueBlock( block.getInputTargetBlock( 'MAX' ) ) ?? 1 };
+
+	// ---- EXTENDED: LOGIC ----
+	if ( type === 'logic_xor' ) return { kind: 'xor', a: parseValueBlock( block.getInputTargetBlock( 'A' ) ), b: parseValueBlock( block.getInputTargetBlock( 'B' ) ) };
+	if ( type === 'logic_is_even' ) return { kind: 'is_even', num: parseValueBlock( block.getInputTargetBlock( 'NUM' ) ) ?? 0 };
+	if ( type === 'logic_is_positive' ) return { kind: 'is_positive', num: parseValueBlock( block.getInputTargetBlock( 'NUM' ) ) ?? 0 };
+	if ( type === 'logic_is_integer' ) return { kind: 'is_integer', num: parseValueBlock( block.getInputTargetBlock( 'NUM' ) ) ?? 0 };
+	if ( type === 'logic_is_zero' ) return { kind: 'is_zero', num: parseValueBlock( block.getInputTargetBlock( 'NUM' ) ) ?? 0 };
+	if ( type === 'logic_text_equals' ) return { kind: 'text_op', op: block.getFieldValue( 'OP' ), a: parseValueBlock( block.getInputTargetBlock( 'A' ) ) ?? '', b: parseValueBlock( block.getInputTargetBlock( 'B' ) ) ?? '' };
+	if ( type === 'logic_is_empty' ) return { kind: 'is_empty', value: parseValueBlock( block.getInputTargetBlock( 'VALUE' ) ) };
+
+	// ---- EXTENDED: TEXT ----
+	if ( type === 'text_substring' ) return { kind: 'text_sub', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', start: parseValueBlock( block.getInputTargetBlock( 'START' ) ) ?? 0, end: parseValueBlock( block.getInputTargetBlock( 'END' ) ) ?? 0 };
+	if ( type === 'text_char_at' ) return { kind: 'text_charat', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', index: parseValueBlock( block.getInputTargetBlock( 'INDEX' ) ) ?? 0 };
+	if ( type === 'text_index_of' ) return { kind: 'text_indexof', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', sub: parseValueBlock( block.getInputTargetBlock( 'SUB' ) ) ?? '' };
+	if ( type === 'text_replace' ) return { kind: 'text_replace', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', from: parseValueBlock( block.getInputTargetBlock( 'FROM' ) ) ?? '', to: parseValueBlock( block.getInputTargetBlock( 'TO' ) ) ?? '', all: false };
+	if ( type === 'text_replace_all' ) return { kind: 'text_replace', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', from: parseValueBlock( block.getInputTargetBlock( 'FROM' ) ) ?? '', to: parseValueBlock( block.getInputTargetBlock( 'TO' ) ) ?? '', all: true };
+	if ( type === 'text_repeat' ) return { kind: 'text_repeat', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', times: parseValueBlock( block.getInputTargetBlock( 'TIMES' ) ) ?? 0 };
+	if ( type === 'text_trim' ) return { kind: 'text_trim', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '' };
+	if ( type === 'text_pad' ) return { kind: 'text_pad', op: block.getFieldValue( 'OP' ), text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', length: parseValueBlock( block.getInputTargetBlock( 'LENGTH' ) ) ?? 0, char: parseValueBlock( block.getInputTargetBlock( 'CHAR' ) ) ?? ' ' };
+	if ( type === 'text_reverse' ) return { kind: 'text_reverse', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '' };
+	if ( type === 'text_count' ) return { kind: 'text_count', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', sub: parseValueBlock( block.getInputTargetBlock( 'SUB' ) ) ?? '' };
+	if ( type === 'text_to_number' ) return { kind: 'text_tonum', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '' };
+	if ( type === 'text_split' ) return { kind: 'text_split', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', sep: parseValueBlock( block.getInputTargetBlock( 'SEP' ) ) ?? '' };
+	if ( type === 'text_first_char' ) return { kind: 'text_first', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '' };
+	if ( type === 'text_last_char' ) return { kind: 'text_last', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '' };
+	if ( type === 'text_slice' ) return { kind: 'text_slice', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '', start: parseValueBlock( block.getInputTargetBlock( 'START' ) ) ?? 0, length: parseValueBlock( block.getInputTargetBlock( 'LEN' ) ) ?? 0 };
+	if ( type === 'text_char_code' ) return { kind: 'text_charcode', text: parseValueBlock( block.getInputTargetBlock( 'TEXT' ) ) ?? '' };
+	if ( type === 'text_from_char_code' ) return { kind: 'text_fromcode', num: parseValueBlock( block.getInputTargetBlock( 'NUM' ) ) ?? 0 };
+
+	// ---- EXTENDED: LISTS ----
+	if ( type === 'lists_create' ) return { kind: 'list', items: [] };
+	if ( type === 'lists_create_with' ) { const items = []; let i = 0; while ( block.getInput( 'ADD' + i ) ) { items.push( parseValueBlock( block.getInputTargetBlock( 'ADD' + i ) ) ); i ++; } return { kind: 'list', items }; }
+	if ( type === 'value_list_get' ) return { kind: 'list_var', name: safeId( block.getFieldValue( 'NAME' ) || 'mylist' ) };
+	if ( type === 'lists_length' ) return { kind: 'list_length', list: parseValueBlock( block.getInputTargetBlock( 'LIST' ) ) };
+	if ( type === 'lists_get_index' ) return { kind: 'list_get', list: parseValueBlock( block.getInputTargetBlock( 'LIST' ) ), index: parseValueBlock( block.getInputTargetBlock( 'INDEX' ) ) ?? 0 };
+	if ( type === 'lists_contains' ) return { kind: 'list_contains', list: parseValueBlock( block.getInputTargetBlock( 'LIST' ) ), value: parseValueBlock( block.getInputTargetBlock( 'VALUE' ) ) };
+	if ( type === 'lists_index_of' ) return { kind: 'list_indexof', list: parseValueBlock( block.getInputTargetBlock( 'LIST' ) ), value: parseValueBlock( block.getInputTargetBlock( 'VALUE' ) ) };
+	if ( type === 'lists_reverse' ) return { kind: 'list_reverse', list: parseValueBlock( block.getInputTargetBlock( 'LIST' ) ) };
+	if ( type === 'lists_sort' ) return { kind: 'list_sort', op: block.getFieldValue( 'OP' ), list: parseValueBlock( block.getInputTargetBlock( 'LIST' ) ) };
+	if ( type === 'lists_sum' ) return { kind: 'list_sum', list: parseValueBlock( block.getInputTargetBlock( 'LIST' ) ) };
+	if ( type === 'lists_max' ) return { kind: 'list_maxmin', op: block.getFieldValue( 'OP' ), list: parseValueBlock( block.getInputTargetBlock( 'LIST' ) ) };
+	if ( type === 'lists_average' ) return { kind: 'list_avg', list: parseValueBlock( block.getInputTargetBlock( 'LIST' ) ) };
+	if ( type === 'lists_join' ) return { kind: 'list_join', list: parseValueBlock( block.getInputTargetBlock( 'LIST' ) ), sep: parseValueBlock( block.getInputTargetBlock( 'SEP' ) ) ?? '' };
+	if ( type === 'lists_first' ) return { kind: 'list_first', list: parseValueBlock( block.getInputTargetBlock( 'LIST' ) ) };
+	if ( type === 'lists_last' ) return { kind: 'list_last', list: parseValueBlock( block.getInputTargetBlock( 'LIST' ) ) };
+
+	// ---- EXTENDED: VALUE GETTERS ----
+	if ( type === 'value_speed_kmh' ) return { kind: 'runtime', name: 'speedKmh' };
+	if ( type === 'value_speed_mph' ) return { kind: 'runtime', name: 'speedMph' };
+	if ( type === 'value_heading' ) return { kind: 'runtime', name: 'heading' };
+	if ( type === 'value_velocity_x' ) return { kind: 'runtime', name: 'velocityX' };
+	if ( type === 'value_velocity_y' ) return { kind: 'runtime', name: 'velocityY' };
+	if ( type === 'value_velocity_z' ) return { kind: 'runtime', name: 'velocityZ' };
+	if ( type === 'value_split_screen' ) return { kind: 'runtime', name: 'isSplitScreen' };
+	if ( type === 'value_drag_mult' ) return { kind: 'runtime', name: 'dragMult' };
+	if ( type === 'value_accel_mult' ) return { kind: 'runtime', name: 'accelMult' };
+	if ( type === 'value_drive_mult' ) return { kind: 'runtime', name: 'driveMult' };
+	if ( type === 'value_time_scale' ) return { kind: 'runtime', name: 'timeScale' };
+	if ( type === 'value_gravity' ) return { kind: 'runtime', name: 'gravity' };
+
+	// ---- EXTENDED: STORAGE ----
+	if ( type === 'storage_get_num' ) return { kind: 'storage_get', key: parseValueBlock( block.getInputTargetBlock( 'KEY' ) ) ?? '', fallback: parseValueBlock( block.getInputTargetBlock( 'DEFAULT' ) ) ?? 0 };
+	if ( type === 'storage_get_text' ) return { kind: 'storage_get', key: parseValueBlock( block.getInputTargetBlock( 'KEY' ) ) ?? '', fallback: parseValueBlock( block.getInputTargetBlock( 'DEFAULT' ) ) ?? '' };
+	if ( type === 'storage_get_bool' ) return { kind: 'storage_has', key: parseValueBlock( block.getInputTargetBlock( 'KEY' ) ) ?? '' };
+	if ( type === 'storage_count' ) return { kind: 'storage_count' };
+	if ( type === 'storage_list_get' ) return { kind: 'storage_get', key: parseValueBlock( block.getInputTargetBlock( 'KEY' ) ) ?? '', fallback: { kind: 'const', value: [] } };
 	return null;
 }
 
@@ -425,6 +657,64 @@ function parseActionStatement( block ) {
 	if ( type === 'action_respawn' ) return { type: 'respawn' };
 	if ( type === 'action_pause' ) return { type: 'pause' };
 	if ( type === 'action_resume' ) return { type: 'resume' };
+
+	// ---- EXTENDED: VARIABLES ----
+	if ( type === 'action_var_multiply' ) return { type: 'var_multiply', name: safeId( field( 'NAME', 'var' ) ), value: v( 'VALUE', 1 ) };
+	if ( type === 'action_var_divide' ) return { type: 'var_divide', name: safeId( field( 'NAME', 'var' ) ), value: v( 'VALUE', 1 ) };
+	if ( type === 'action_var_clamp' ) return { type: 'var_clamp', name: safeId( field( 'NAME', 'var' ) ), min: v( 'MIN', 0 ), max: v( 'MAX', 1 ) };
+	if ( type === 'action_var_reset' ) return { type: 'var_set', name: safeId( field( 'NAME', 'var' ) ), value: 0 };
+	if ( type === 'action_textvar_append' ) return { type: 'textvar_append', name: safeId( field( 'NAME', 'var' ) ), value: v( 'VALUE', '' ) };
+
+	// ---- EXTENDED: LISTS (statement ops) ----
+	if ( type === 'action_lists_set' ) return { type: 'list_set', key: v( 'VAR', '' ), index: v( 'INDEX', 0 ), value: v( 'VALUE', null ) };
+	if ( type === 'action_lists_add' ) return { type: 'list_add', key: v( 'VAR', '' ), value: v( 'VALUE', null ) };
+	if ( type === 'action_lists_remove' ) return { type: 'list_remove', key: v( 'VAR', '' ), index: v( 'INDEX', 0 ) };
+	if ( type === 'action_lists_clear' ) return { type: 'list_clear', key: v( 'VAR', '' ) };
+
+	// ---- EXTENDED: UI BUILDER ----
+	if ( type === 'ui_create_heading' ) return { type: 'ui_heading', tag: field( 'TAG', 'h2' ), text: v( 'TEXT', '' ), name: safeId( field( 'NAME', 'title' ) ) };
+	if ( type === 'ui_create_progress' ) return { type: 'ui_progress', value: v( 'VALUE', 0 ), max: v( 'MAX', 100 ), name: safeId( field( 'NAME', 'prog' ) ) };
+	if ( type === 'ui_create_checkbox' ) return { type: 'ui_checkbox', label: v( 'LABEL', '' ), name: safeId( field( 'NAME', 'chk' ) ), varName: safeId( field( 'VAR', 'chkVal' ) ), body: parseStatementChain( block.getInputTargetBlock( 'DO' ) ) };
+	if ( type === 'ui_create_dropdown' ) return { type: 'ui_dropdown', options: String( field( 'OPTIONS', 'opt1,opt2,opt3' ) ).split( ',' ).map( ( s ) => s.trim() ).slice( 0, 24 ), name: safeId( field( 'NAME', 'dd' ) ), varName: safeId( field( 'VAR', 'ddVal' ) ), body: parseStatementChain( block.getInputTargetBlock( 'DO' ) ) };
+	if ( type === 'ui_create_text_input' ) return { type: 'ui_text_input', label: v( 'LABEL', '' ), name: safeId( field( 'NAME', 'inp' ) ), varName: safeId( field( 'VAR', 'inpVal' ) ), body: parseStatementChain( block.getInputTargetBlock( 'DO' ) ) };
+	if ( type === 'ui_create_divider' ) return { type: 'ui_divider', name: safeId( field( 'NAME', 'hr' ) ) };
+	if ( type === 'ui_set_position' ) return { type: 'ui_set_position', name: safeId( field( 'NAME', 'panel' ) ), x: v( 'X', 0 ), y: v( 'Y', 0 ) };
+	if ( type === 'ui_set_size' ) return { type: 'ui_set_size', name: safeId( field( 'NAME', 'panel' ) ), w: v( 'W', 100 ), h: v( 'H', 40 ) };
+	if ( type === 'ui_set_text_color' ) return { type: 'ui_set_style', name: safeId( field( 'NAME', 'lbl' ) ), prop: { kind: 'const', value: 'color' }, value: { kind: 'const', value: field( 'COLOR', '#ffffff' ) } };
+	if ( type === 'ui_set_bg_color' ) return { type: 'ui_set_style', name: safeId( field( 'NAME', 'panel' ) ), prop: { kind: 'const', value: 'background' }, value: { kind: 'const', value: field( 'COLOR', '#1b2a40' ) } };
+	if ( type === 'ui_set_font_size' ) return { type: 'ui_set_style', name: safeId( field( 'NAME', 'lbl' ) ), prop: { kind: 'const', value: 'fontSize' }, value: { kind: 'const', value: `${ field( 'SIZE', 14 ) }px` } };
+	if ( type === 'ui_set_enabled' ) return { type: 'ui_set_enabled', name: safeId( field( 'NAME', 'btn' ) ), state: field( 'STATE', '1' ) };
+	if ( type === 'ui_on_click' ) return { type: 'ui_on_click', name: safeId( field( 'NAME', 'btn' ) ), body: parseStatementChain( block.getInputTargetBlock( 'DO' ) ) };
+
+	// ---- EXTENDED: STORAGE ----
+	if ( type === 'storage_set_bool' ) return { type: 'storage_set', key: v( 'KEY', '' ), value: v( 'VALUE', false ) };
+	if ( type === 'storage_increment' ) return { type: 'storage_increment', key: v( 'KEY', '' ), by: v( 'BY', 1 ) };
+	if ( type === 'storage_list_add' ) return { type: 'storage_list_add', key: v( 'KEY', '' ), value: v( 'VALUE', null ) };
+
+	// ---- EXTENDED: CAMERA ----
+	if ( type === 'action_set_camera_distance' ) return { type: 'set_camera_distance', value: v( 'VALUE', 8 ) };
+	if ( type === 'action_set_camera_height' ) return { type: 'set_camera_height', value: v( 'VALUE', 3 ) };
+	if ( type === 'action_set_camera_lag' ) return { type: 'set_camera_lag', value: v( 'VALUE', 1 ) };
+	if ( type === 'action_set_camera_pitch' ) return { type: 'set_camera_pitch', value: v( 'VALUE', 0 ) };
+	if ( type === 'action_camera_look_mode' ) return { type: 'set_camera_mode', value: field( 'MODE', 'chase' ) };
+	if ( type === 'action_camera_reset' ) return { type: 'set_camera_mode', value: 'chase' };
+
+	// ---- EXTENDED: FX ----
+	if ( type === 'action_set_screen_brightness' ) return { type: 'set_exposure', value: v( 'VALUE', 1 ) };
+	if ( type === 'action_set_sun_position' ) return { type: 'set_sun_position', value: v( 'ANGLE', 45 ) };
+	if ( type === 'action_set_snow_intensity' ) return { type: 'set_snow', value: v( 'VALUE', 0 ) };
+	if ( type === 'action_set_rain_intensity' ) return { type: 'set_rain', value: v( 'VALUE', 0 ) };
+	if ( type === 'action_set_weather' ) return { type: 'set_sky_palette', value: field( 'W', 'clear' ) };
+	if ( type === 'action_set_fog_color_rgb' ) return { type: 'set_fog_strength', value: v( 'VALUE', 1 ) };
+
+	// ---- EXTENDED: AUDIO ----
+	if ( type === 'action_play_cue' ) return { type: 'play_cue', value: field( 'CUE', 'click' ) };
+	if ( type === 'action_set_master_volume' ) return { type: 'set_engine_vol', value: v( 'VALUE', 1 ) };
+
+	// ---- EXTENDED: GAME CONTROL ----
+	if ( type === 'action_restart_race' ) return { type: 'respawn' };
+	if ( type === 'action_teleport_to_spawn' ) return { type: 'respawn' };
+	if ( type === 'action_add_lap_time_penalty' ) return { type: 'add_stunt', value: 0, reason: String( v( 'SECS', 0 ) ) };
 	return null;
 }
 
@@ -441,8 +731,8 @@ function parseStatementChain( first ) {
 
 function buildRuntimeSpec() {
 	const spec = {
-		onStart: [], onTick: [], onKey: {}, onKeyHold: {}, onCheckpoint: [], onCrash: [], onLapFinish: [], onRespawn: [], onTimerDone: {},
-		onSpeedThreshold: [], onLowSpeed: [], onAir: [], onGround: [], onDrift: [],
+		onStart: [], onTick: [], onKey: {}, onKeyHold: {}, onKeyRelease: {}, onCheckpoint: [], onCrash: [], onLapFinish: [], onRespawn: [], onTimerDone: {},
+		onSpeedThreshold: [], onLowSpeed: [], onHighSpeed: [], onLowSpeedHeld: [], onAir: [], onGround: [], onDrift: [],
 	};
 	for ( const block of workspace.getTopBlocks( true ) ) {
 		const chain = parseStatementChain( block.getInputTargetBlock( 'DO' ) );
@@ -454,9 +744,12 @@ function buildRuntimeSpec() {
 		else if ( block.type === 'event_on_respawn' ) spec.onRespawn.push( ...chain );
 		else if ( block.type === 'event_on_key' ) { const k = block.getFieldValue( 'KEY' ) || 'KeyW'; spec.onKey[ k ] = [ ...( spec.onKey[ k ] || [] ), ...chain ]; }
 		else if ( block.type === 'event_on_key_hold' ) { const k = block.getFieldValue( 'KEY' ) || 'KeyW'; spec.onKeyHold[ k ] = [ ...( spec.onKeyHold[ k ] || [] ), ...chain ]; }
+		else if ( block.type === 'event_on_key_release' ) { const k = block.getFieldValue( 'KEY' ) || 'KeyW'; spec.onKeyRelease[ k ] = [ ...( spec.onKeyRelease[ k ] || [] ), ...chain ]; }
 		else if ( block.type === 'event_on_timer_done' ) { const id = safeId( block.getFieldValue( 'ID' ) || 'timer1' ); spec.onTimerDone[ id ] = [ ...( spec.onTimerDone[ id ] || [] ), ...chain ]; }
 		else if ( block.type === 'event_on_speed_threshold' ) spec.onSpeedThreshold.push( { threshold: parseValueBlock( block.getInputTargetBlock( 'SPEED' ) ) ?? 0, body: chain } );
 		else if ( block.type === 'event_on_low_speed' ) spec.onLowSpeed.push( { threshold: parseValueBlock( block.getInputTargetBlock( 'SPEED' ) ) ?? 0, body: chain } );
+		else if ( block.type === 'event_on_high_speed' ) spec.onHighSpeed.push( { threshold: parseValueBlock( block.getInputTargetBlock( 'SPEED' ) ) ?? 0, body: chain } );
+		else if ( block.type === 'event_on_low_speed_held' ) spec.onLowSpeedHeld.push( { threshold: parseValueBlock( block.getInputTargetBlock( 'SPEED' ) ) ?? 0, body: chain } );
 		else if ( block.type === 'event_on_air' ) spec.onAir.push( ...chain );
 		else if ( block.type === 'event_on_ground' ) spec.onGround.push( ...chain );
 		else if ( block.type === 'event_on_drift' ) spec.onDrift.push( ...chain );
@@ -501,6 +794,18 @@ function resolveValue( value, ctx, event ) {
         case 'isPaused': return Boolean( s.paused );
         case 'fps': return Number( s.fps ?? 0 ) || 0;
         case 'dt': return Number( event.dt ?? 0 ) || 0;
+        case 'speedKmh': return Math.abs( Number( s.linearSpeed ) || 0 ) * 3.6;
+        case 'speedMph': return Math.abs( Number( s.linearSpeed ) || 0 ) * 2.23694;
+        case 'heading': return ( ( Number( s.heading ) || 0 ) );
+        case 'velocityX': return Number( s.velocityX ?? 0 ) || 0;
+        case 'velocityY': return Number( s.velocityY ?? 0 ) || 0;
+        case 'velocityZ': return Number( s.velocityZ ?? 0 ) || 0;
+        case 'isSplitScreen': return Boolean( s.isSplitScreen ?? false );
+        case 'dragMult': return Number( s.dragMultiplier ?? 0 ) || 0;
+        case 'accelMult': return Number( s.accelMultiplier ?? 0 ) || 0;
+        case 'driveMult': return Number( s.driveMultiplier ?? 0 ) || 0;
+        case 'timeScale': return Number( s.timeScale ?? 1 ) || 1;
+        case 'gravity': return Number( s.gravity ?? 9.81 ) || 9.81;
       }
     }
     if ( k === 'var' ) return Number( ctx.state.vars[ value.name ] ) || 0;
@@ -545,6 +850,55 @@ function resolveValue( value, ctx, event ) {
     if ( k === 'boolop' ) { const a = Boolean( resolveValue( value.a, ctx, event ) ); const b = Boolean( resolveValue( value.b, ctx, event ) ); return value.op === 'AND' ? ( a && b ) : ( a || b ); }
     if ( k === 'not' ) return ! resolveValue( value.value, ctx, event );
     if ( k === 'keydown' ) { return Boolean( ctx && ctx.controls && ctx.controls.keys && ctx.controls.keys[ value.key ] ); }
+    // ---- EXTENDED VALUE KINDS ----
+    if ( k === 'round_int' ) return Math.round( Number( resolveValue( value.num, ctx, event ) ) || 0 );
+    if ( k === 'randint' ) { const mn = Math.ceil( Number( resolveValue( value.min, ctx, event ) ) || 0 ); const mx = Math.floor( Number( resolveValue( value.max, ctx, event ) ) || 0 ); if ( mx < mn ) return mn; return Math.floor( Math.random() * ( mx - mn + 1 ) ) + mn; }
+    if ( k === 'randrange' ) { const mn = Number( resolveValue( value.min, ctx, event ) ) || 0; const mx = Number( resolveValue( value.max, ctx, event ) ) || mn; return Math.random() * ( mx - mn ) + mn; }
+    if ( k === 'lerp' ) { const a = Number( resolveValue( value.a, ctx, event ) ) || 0; const b = Number( resolveValue( value.b, ctx, event ) ) || 0; const t = Math.max( 0, Math.min( 1, Number( resolveValue( value.t, ctx, event ) ) || 0 ) ); return a + ( b - a ) * t; }
+    if ( k === 'map_range' ) { const v = Number( resolveValue( value.value, ctx, event ) ) || 0; const inMin = Number( resolveValue( value.inMin, ctx, event ) ) || 0; const inMax = Number( resolveValue( value.inMax, ctx, event ) ) || 1; const outMin = Number( resolveValue( value.outMin, ctx, event ) ) || 0; const outMax = Number( resolveValue( value.outMax, ctx, event ) ) || 1; if ( inMax === inMin ) return outMin; const t = ( v - inMin ) / ( inMax - inMin ); return outMin + ( outMax - outMin ) * t; }
+    if ( k === 'math_adv' ) { const n = Number( resolveValue( value.num, ctx, event ) ) || 0; switch ( value.op ) { case 'SIGN': return Math.sign( n ); case 'LOG': return n > 0 ? Math.log( n ) : 0; case 'LOG10': return n > 0 ? Math.log10( n ) : 0; case 'EXP': return Math.exp( n ); case 'TRUNC': return Math.trunc( n ); case 'ASIN': return Math.asin( Math.max( -1, Math.min( 1, n ) ) ); case 'ACOS': return Math.acos( Math.max( -1, Math.min( 1, n ) ) ); case 'ATAN': return Math.atan( n ); case 'TANH': return Math.tanh( n ); case 'SINH': return Math.sinh( n ); case 'COSH': return Math.cosh( n ); case 'RECIP': return n === 0 ? 0 : 1 / n; case 'DEG': return n * Math.PI / 180; case 'RAD': return n * 180 / Math.PI; } return 0; }
+    if ( k === 'math_pair' ) { const a = Number( resolveValue( value.a, ctx, event ) ) || 0; const b = Number( resolveValue( value.b, ctx, event ) ) || 0; switch ( value.op ) { case 'ATAN2': return Math.atan2( a, b ); case 'DIST': return Math.sqrt( a * a + b * b ); case 'HYPOT': return Math.hypot( a, b ); case 'GCD': { let x = Math.abs( Math.trunc( a ) ), y = Math.abs( Math.trunc( b ) ); while ( y ) { [ x, y ] = [ y, x % y ]; } return x || 0; } case 'QUOT': return b === 0 ? 0 : Math.trunc( a / b ); case 'REM': return b === 0 ? 0 : a % b; case 'PCT': return b === 0 ? 0 : ( a / b ) * 100; } return 0; }
+    if ( k === 'math_const' ) { return { E: Math.E, TAU: Math.PI * 2, PHI: 1.6180339887, SQRT2: Math.SQRT2 }[ value.name ] || 0; }
+    if ( k === 'divisible' ) { const b = Number( resolveValue( value.b, ctx, event ) ) || 0; return b !== 0 && ( Number( resolveValue( value.a, ctx, event ) ) || 0 ) % b === 0; }
+    if ( k === 'between' ) { const v = Number( resolveValue( value.value, ctx, event ) ) || 0; const mn = Number( resolveValue( value.min, ctx, event ) ) || 0; const mx = Number( resolveValue( value.max, ctx, event ) ) || 0; return v >= Math.min( mn, mx ) && v <= Math.max( mn, mx ); }
+    if ( k === 'xor' ) return Boolean( resolveValue( value.a, ctx, event ) ) !== Boolean( resolveValue( value.b, ctx, event ) );
+    if ( k === 'is_even' ) { const n = Number( resolveValue( value.num, ctx, event ) ) || 0; return Math.abs( Math.trunc( n ) ) % 2 === 0; }
+    if ( k === 'is_positive' ) return Number( resolveValue( value.num, ctx, event ) ) > 0;
+    if ( k === 'is_integer' ) { const n = Number( resolveValue( value.num, ctx, event ) ) || 0; return Number.isFinite( n ) && Math.trunc( n ) === n; }
+    if ( k === 'is_zero' ) return ( Number( resolveValue( value.num, ctx, event ) ) || 0 ) === 0;
+    if ( k === 'text_op' ) { const a = String( resolveValue( value.a, ctx, event ) ?? '' ); const b = String( resolveValue( value.b, ctx, event ) ?? '' ); if ( value.op === 'EQIC' ) return a.toLowerCase() === b.toLowerCase(); if ( value.op === 'STARTS' ) return a.startsWith( b ); if ( value.op === 'ENDS' ) return a.endsWith( b ); return false; }
+    if ( k === 'is_empty' ) { const v = resolveValue( value.value, ctx, event ); if ( Array.isArray( v ) ) return v.length === 0; return String( v ?? '' ).length === 0; }
+    if ( k === 'text_sub' ) { const t = String( resolveValue( value.text, ctx, event ) ?? '' ); const st = Math.max( 0, Math.floor( Number( resolveValue( value.start, ctx, event ) ) || 0 ) ); const en = Math.max( st, Math.floor( Number( resolveValue( value.end, ctx, event ) ) || t.length ) ); return t.slice( st, en ); }
+    if ( k === 'text_charat' ) { const t = String( resolveValue( value.text, ctx, event ) ?? '' ); let i = Math.floor( Number( resolveValue( value.index, ctx, event ) ) || 0 ); if ( i < 0 ) i = t.length + i; return t.charAt( Math.max( 0, Math.min( t.length - 1, i ) ) ); }
+    if ( k === 'text_indexof' ) { const t = String( resolveValue( value.text, ctx, event ) ?? '' ); return t.indexOf( String( resolveValue( value.sub, ctx, event ) ?? '' ) ); }
+    if ( k === 'text_replace' ) { const t = String( resolveValue( value.text, ctx, event ) ?? '' ); const f = String( resolveValue( value.from, ctx, event ) ?? '' ); const o = String( resolveValue( value.to, ctx, event ) ?? '' ); if ( ! f ) return t; return value.all ? t.split( f ).join( o ) : t.replace( f, o ); }
+    if ( k === 'text_repeat' ) { const n = Math.max( 0, Math.min( 500, Math.floor( Number( resolveValue( value.times, ctx, event ) ) || 0 ) ) ); return String( resolveValue( value.text, ctx, event ) ?? '' ).repeat( n ); }
+    if ( k === 'text_trim' ) return String( resolveValue( value.text, ctx, event ) ?? '' ).trim();
+    if ( k === 'text_pad' ) { let t = String( resolveValue( value.text, ctx, event ) ?? '' ); const len = Math.max( 0, Math.min( 500, Math.floor( Number( resolveValue( value.length, ctx, event ) ) || 0 ) ) ); let ch = String( resolveValue( value.char, ctx, event ) ?? ' ' ).slice( 0, 1 ) || ' '; while ( t.length < len ) t = ( value.op === 'PADL' ? ch + t : t + ch ); return t; }
+    if ( k === 'text_reverse' ) return String( resolveValue( value.text, ctx, event ) ?? '' ).split( '' ).reverse().join( '' );
+    if ( k === 'text_count' ) { const t = String( resolveValue( value.text, ctx, event ) ?? '' ); const s = String( resolveValue( value.sub, ctx, event ) ?? '' ); if ( ! s ) return 0; let n = 0, i = 0; while ( ( i = t.indexOf( s, i ) ) !== -1 ) { n ++; i += s.length; } return n; }
+    if ( k === 'text_tonum' ) { const n = parseFloat( String( resolveValue( value.text, ctx, event ) ?? '' ) ); return Number.isFinite( n ) ? n : 0; }
+    if ( k === 'text_split' ) { const t = String( resolveValue( value.text, ctx, event ) ?? '' ); const sep = String( resolveValue( value.sep, ctx, event ) ?? '' ); return sep ? t.split( sep ) : t.split( '' ); }
+    if ( k === 'text_first' ) return String( resolveValue( value.text, ctx, event ) ?? '' ).charAt( 0 );
+    if ( k === 'text_last' ) { const t = String( resolveValue( value.text, ctx, event ) ?? '' ); return t.charAt( Math.max( 0, t.length - 1 ) ); }
+    if ( k === 'text_slice' ) { const t = String( resolveValue( value.text, ctx, event ) ?? '' ); const st = Math.max( 0, Math.floor( Number( resolveValue( value.start, ctx, event ) ) || 0 ) ); const ln = Math.max( 0, Math.floor( Number( resolveValue( value.length, ctx, event ) ) || 0 ) ); return t.slice( st, st + ln ); }
+    if ( k === 'text_charcode' ) return String( resolveValue( value.text, ctx, event ) ?? '' ).charCodeAt( 0 ) || 0;
+    if ( k === 'text_fromcode' ) { const c = Math.floor( Number( resolveValue( value.num, ctx, event ) ) || 0 ); return String.fromCharCode( Math.max( 0, Math.min( 0x10ffff, c ) ) ); }
+    if ( k === 'list' ) { return ( value.items || [] ).map( ( it ) => resolveValue( it, ctx, event ) ); }
+    if ( k === 'list_var' ) { const arr = ctx.state.vars[ value.name ]; return Array.isArray( arr ) ? arr.slice() : []; }
+    if ( k === 'list_length' ) { const a = resolveValue( value.list, ctx, event ); return Array.isArray( a ) ? a.length : 0; }
+    if ( k === 'list_get' ) { const a = resolveValue( value.list, ctx, event ); if ( ! Array.isArray( a ) ) return null; let i = Math.floor( Number( resolveValue( value.index, ctx, event ) ) || 0 ); if ( i < 0 ) i = a.length + i; return a[ Math.max( 0, Math.min( a.length - 1, i ) ) ]; }
+    if ( k === 'list_contains' ) { const a = resolveValue( value.list, ctx, event ); const val = resolveValue( value.value, ctx, event ); return Array.isArray( a ) && a.includes( val ); }
+    if ( k === 'list_indexof' ) { const a = resolveValue( value.list, ctx, event ); const val = resolveValue( value.value, ctx, event ); return Array.isArray( a ) ? a.indexOf( val ) : -1; }
+    if ( k === 'list_reverse' ) { const a = resolveValue( value.list, ctx, event ); return Array.isArray( a ) ? a.slice().reverse() : []; }
+    if ( k === 'list_sort' ) { const a = resolveValue( value.list, ctx, event ); if ( ! Array.isArray( a ) ) return []; const n = a.slice().sort( ( x, y ) => ( Number( x ) || 0 ) - ( Number( y ) || 0 ) ); return value.op === 'DESC' ? n.reverse() : n; }
+    if ( k === 'list_sum' ) { const a = resolveValue( value.list, ctx, event ); return Array.isArray( a ) ? a.reduce( ( s, x ) => s + ( Number( x ) || 0 ), 0 ) : 0; }
+    if ( k === 'list_maxmin' ) { const a = resolveValue( value.list, ctx, event ); if ( ! Array.isArray( a ) || ! a.length ) return 0; const nums = a.map( ( x ) => Number( x ) || 0 ); return value.op === 'MAX' ? Math.max( ...nums ) : Math.min( ...nums ); }
+    if ( k === 'list_avg' ) { const a = resolveValue( value.list, ctx, event ); return Array.isArray( a ) && a.length ? a.reduce( ( s, x ) => s + ( Number( x ) || 0 ), 0 ) / a.length : 0; }
+    if ( k === 'list_join' ) { const a = resolveValue( value.list, ctx, event ); const sep = String( resolveValue( value.sep, ctx, event ) ?? '' ); return Array.isArray( a ) ? a.join( sep ) : ''; }
+    if ( k === 'list_first' ) { const a = resolveValue( value.list, ctx, event ); return Array.isArray( a ) && a.length ? a[ 0 ] : null; }
+    if ( k === 'list_last' ) { const a = resolveValue( value.list, ctx, event ); return Array.isArray( a ) && a.length ? a[ a.length - 1 ] : null; }
+    if ( k === 'storage_count' ) { const store = ctx.storage; if ( ! store || typeof store.count !== 'function' ) return 0; try { return store.count(); } catch { return 0; } }
   }
   return value;
 }
@@ -641,6 +995,35 @@ function runActions( actions, ctx, event ) {
       case 'respawn': { const api = ctx.api; if ( api && typeof api.respawn === 'function' ) api.respawn(); break; }
       case 'pause': { const api = ctx.api; if ( api && typeof api.setPaused === 'function' ) api.setPaused( true ); break; }
       case 'resume': { const api = ctx.api; if ( api && typeof api.setPaused === 'function' ) api.setPaused( false ); break; }
+      // ---- EXTENDED ACTIONS ----
+      case 'var_multiply': ctx.state.vars[ action.name ] = ( Number( ctx.state.vars[ action.name ] ) || 0 ) * ( Number( value ) || 1 ); break;
+      case 'var_divide': { const d = Number( value ) || 0; ctx.state.vars[ action.name ] = d === 0 ? 0 : ( Number( ctx.state.vars[ action.name ] ) || 0 ) / d; break; }
+      case 'var_clamp': { const cur = Number( ctx.state.vars[ action.name ] ) || 0; const mn = Number( resolveValue( action.min, ctx, event ) ) || 0; const mx = Number( resolveValue( action.max, ctx, event ) ) || 0; ctx.state.vars[ action.name ] = Math.max( Math.min( mn, mx ), Math.min( Math.max( mn, mx ), cur ) ); break; }
+      case 'textvar_append': ctx.state.textvars[ action.name ] = String( ctx.state.textvars[ action.name ] ?? '' ) + String( value ?? '' ); break;
+      case 'list_set': { const key = String( resolveValue( action.key, ctx, event ) ?? '' ); let arr = ctx.state.vars[ key ]; if ( ! Array.isArray( arr ) ) { arr = []; ctx.state.vars[ key ] = arr; } let i = Math.floor( Number( resolveValue( action.index, ctx, event ) ) || 0 ); if ( i < 0 ) i = 0; if ( i > arr.length ) i = arr.length; arr[ i ] = resolveValue( action.value, ctx, event ); break; }
+      case 'list_add': { const key = String( resolveValue( action.key, ctx, event ) ?? '' ); if ( ! Array.isArray( ctx.state.vars[ key ] ) ) ctx.state.vars[ key ] = []; ctx.state.vars[ key ].push( resolveValue( action.value, ctx, event ) ); break; }
+      case 'list_remove': { const key = String( resolveValue( action.key, ctx, event ) ?? '' ); if ( Array.isArray( ctx.state.vars[ key ] ) ) { let i = Math.floor( Number( resolveValue( action.index, ctx, event ) ) || 0 ); if ( i < 0 ) i = 0; if ( i < ctx.state.vars[ key ].length ) ctx.state.vars[ key ].splice( i, 1 ); } break; }
+      case 'list_clear': { const key = String( resolveValue( action.key, ctx, event ) ?? '' ); ctx.state.vars[ key ] = []; break; }
+      case 'ui_heading': { const ui = ctx.ui; if ( ui ) { const el = ui.create( action.tag, { text: String( resolveValue( action.text, ctx, event ) ?? '' ), style: { color: '#fff', fontWeight: '700', margin: '4px 0' } } ); ctx.state.elements[ action.name ] = el; } break; }
+      case 'ui_progress': { const ui = ctx.ui; if ( ui ) { const el = ui.create( 'progress', { attrs: { max: String( Math.max( 1, Number( resolveValue( action.max, ctx, event ) ) || 100 ) ), value: String( Math.max( 0, Number( resolveValue( action.value, ctx, event ) ) || 0 ) ) }, style: { width: '100%' } } ); ctx.state.elements[ action.name ] = el; } break; }
+      case 'ui_checkbox': { const ui = ctx.ui; if ( ui ) { const wrap = ui.create( 'div', { style: { display: 'flex', gap: '4px', alignItems: 'center' } } ); const el = ui.create( 'input', { attrs: { type: 'checkbox' } } ); el.checked = Boolean( ctx.state.vars[ action.varName ] ); const lab = ui.create( 'label', { text: String( resolveValue( action.label, ctx, event ) ?? '' ) } ); if ( ctx.ui && typeof ctx.ui.on === 'function' ) ctx.ui.on( el, 'change', () => { ctx.state.vars[ action.varName ] = el.checked ? 1 : 0; runActions( action.body || [], ctx, { type: 'change', value: el.checked ? 1 : 0 } ); } ); ui.append( wrap, el ); ui.append( wrap, lab ); ctx.state.elements[ action.name ] = wrap; } break; }
+      case 'ui_dropdown': { const ui = ctx.ui; if ( ui ) { const sel = ui.create( 'select', {} ); const opts = Array.isArray( action.options ) ? action.options : []; for ( const o of opts.slice( 0, 24 ) ) { const opt = ui.create( 'option', { text: String( o ) } ); ui.append( sel, opt ); } if ( ctx.ui && typeof ctx.ui.on === 'function' ) ctx.ui.on( sel, 'change', () => { ctx.state.vars[ action.varName ] = sel.value; runActions( action.body || [], ctx, { type: 'change', value: sel.value } ); } ); ctx.state.elements[ action.name ] = sel; } break; }
+      case 'ui_text_input': { const ui = ctx.ui; if ( ui ) { const el = ui.create( 'input', { attrs: { type: 'text' } } ); if ( ctx.ui && typeof ctx.ui.on === 'function' ) ctx.ui.on( el, 'input', () => { ctx.state.textvars[ action.varName ] = el.value; runActions( action.body || [], ctx, { type: 'input', value: el.value } ); } ); ctx.state.elements[ action.name ] = el; } break; }
+      case 'ui_divider': { const ui = ctx.ui; if ( ui ) { const el = ui.create( 'div', { style: { borderTop: '1px solid rgba(255,255,255,0.25)', margin: '6px 0' } } ); ctx.state.elements[ action.name ] = el; } break; }
+      case 'ui_set_position': { const el = ctx.state.elements && ctx.state.elements[ action.name ]; if ( el ) { el.style.position = 'absolute'; el.style.left = ( Math.max( -50, Math.min( 95, Number( resolveValue( action.x, ctx, event ) ) || 0 ) ) ) + 'px'; el.style.top = ( Math.max( -50, Math.min( 95, Number( resolveValue( action.y, ctx, event ) ) || 0 ) ) ) + 'px'; } break; }
+      case 'ui_set_size': { const el = ctx.state.elements && ctx.state.elements[ action.name ]; if ( el ) { el.style.width = ( Math.max( 8, Math.min( 800, Number( resolveValue( action.w, ctx, event ) ) || 100 ) ) ) + 'px'; el.style.height = ( Math.max( 8, Math.min( 600, Number( resolveValue( action.h, ctx, event ) ) || 40 ) ) ) + 'px'; } break; }
+      case 'ui_set_enabled': { const el = ctx.state.elements && ctx.state.elements[ action.name ]; if ( el ) el.disabled = action.state !== '1'; break; }
+      case 'ui_on_click': { const el = ctx.state.elements && ctx.state.elements[ action.name ]; if ( el && ctx.ui && typeof ctx.ui.on === 'function' ) ctx.ui.on( el, 'click', () => runActions( action.body || [], ctx, { type: 'click' } ) ); break; }
+      case 'storage_increment': { const store = ctx.storage; if ( store ) { const key = String( resolveValue( action.key, ctx, event ) ?? '' ); const cur = Number( store.get( key ) ) || 0; store.set( key, cur + ( Number( resolveValue( action.by, ctx, event ) ) || 1 ) ); } break; }
+      case 'storage_list_add': { const store = ctx.storage; if ( store ) { const key = String( resolveValue( action.key, ctx, event ) ?? '' ); let arr = store.get( key ); if ( ! Array.isArray( arr ) ) arr = []; arr.push( resolveValue( action.value, ctx, event ) ); store.set( key, arr ); } break; }
+      case 'set_camera_distance': if ( typeof api.setCameraDistance === 'function' ) api.setCameraDistance( Math.max( 2, Math.min( 30, Number( value ) || 8 ) ) ); break;
+      case 'set_camera_height': if ( typeof api.setCameraHeight === 'function' ) api.setCameraHeight( Math.max( 0, Math.min( 20, Number( value ) || 3 ) ) ); break;
+      case 'set_camera_lag': if ( typeof api.setCameraLag === 'function' ) api.setCameraLag( Math.max( 0, Math.min( 1, Number( value ) || 1 ) ) ); break;
+      case 'set_camera_pitch': if ( typeof api.setCameraPitch === 'function' ) api.setCameraPitch( Math.max( -45, Math.min( 45, Number( value ) || 0 ) ) ); break;
+      case 'set_sun_position': if ( typeof api.setSunPosition === 'function' ) api.setSunPosition( Math.max( 0, Math.min( 360, Number( value ) || 45 ) ) ); break;
+      case 'set_snow': if ( typeof api.setSnowIntensity === 'function' ) api.setSnowIntensity( Math.max( 0, Math.min( 1, Number( value ) || 0 ) ) ); break;
+      case 'set_rain': if ( typeof api.setRainIntensity === 'function' ) api.setRainIntensity( Math.max( 0, Math.min( 1, Number( value ) || 0 ) ) ); break;
+      case 'play_cue': if ( typeof api.playCue === 'function' ) api.playCue( String( value ) ); break;
     }
   }
 }
@@ -651,7 +1034,7 @@ function generateTemplate() {
 	const id = safeId( document.getElementById( 'mod-id' )?.value ) || `custom-${ Date.now() }`;
 	const name = ( document.getElementById( 'mod-name' )?.value || 'Custom Mod' ).trim();
 	const spec = buildRuntimeSpec();
-	return `// ${ name }\nconst SPEC = ${ JSON.stringify( spec, null, 2 ) };\n${ renderActionsRuntimeCode() }\nexport default {\n  id: ${ JSON.stringify( id ) },\n  init( context ) { this.ctx = context; this.state = { vars: {}, textvars: {}, timers: [], waits: [], elements: {} }; this.keyLatch = Object.create( null ); this.wasAirborne = false; this.wasDrifting = false; runActions( SPEC.onStart, this.ctx, { type: 'start' } ); },\n  applyFrame( { controls, vehicle, world, dt, now } ) { const ctx = this.ctx || { vehicle, world, controls }; ctx.state = this.state; const st = ( typeof ctx.getState === 'function' ) ? ctx.getState() : {}; const ev = { type: 'tick', dt, now, airborne: Boolean( st.airborne ), lapTime: st.lapTime, raceTime: st.raceTime };\n    runActions( SPEC.onTick, ctx, ev );\n    for ( const [ key, actions ] of Object.entries( SPEC.onKey || {} ) ) { const down = Boolean( controls && controls.keys && controls.keys[ key ] ); if ( down && ! this.keyLatch[ key ] ) runActions( actions, ctx, { type: 'key', key, dt, now } ); this.keyLatch[ key ] = down; }\n    for ( const [ key, actions ] of Object.entries( SPEC.onKeyHold || {} ) ) { if ( controls && controls.keys && controls.keys[ key ] ) runActions( actions, ctx, { type: 'keyhold', key, dt, now } ); }\n    const speed = Math.abs( Number( st.linearSpeed ) || 0 ); for ( const t of ( SPEC.onSpeedThreshold || [] ) ) { const th = Number( resolveValue( t.threshold, ctx, ev ) ) || 0; if ( speed > th ) runActions( t.body, ctx, { type: 'speed_threshold', speed, threshold: th, dt, now } ); } for ( const t of ( SPEC.onLowSpeed || [] ) ) { const th = Number( resolveValue( t.threshold, ctx, ev ) ) || 0; if ( speed < th ) runActions( t.body, ctx, { type: 'low_speed', speed, threshold: th, dt, now } ); }\n    const airborne = Boolean( ev.airborne ); if ( airborne && ! this.wasAirborne ) runActions( SPEC.onAir, ctx, { type: 'air', dt, now } ); if ( ! airborne && this.wasAirborne ) runActions( SPEC.onGround, ctx, { type: 'ground', dt, now } ); this.wasAirborne = airborne;\n    const drifting = Boolean( st.driftIntensity && st.driftIntensity > 0.6 ); if ( drifting && ! this.wasDrifting ) runActions( SPEC.onDrift, ctx, { type: 'drift', dt, now } ); this.wasDrifting = drifting;\n    if ( Array.isArray( this.state.timers ) ) { for ( const t of this.state.timers ) t.remaining -= dt; const done = this.state.timers.filter( ( t ) => t.remaining <= 0 ); this.state.timers = this.state.timers.filter( ( t ) => t.remaining > 0 ); for ( const t of done ) runActions( ( SPEC.onTimerDone && SPEC.onTimerDone[ t.id ] ) || [], ctx, { type: 'timer_done', id: t.id, now } ); }\n    return null;\n  },\n  onCheckpoint( event ) { runActions( SPEC.onCheckpoint, this.ctx, { type: 'checkpoint', ...( event || {} ) } ); },\n  onCrash( event ) { runActions( SPEC.onCrash, this.ctx, { type: 'crash', ...( event || {} ) } ); },\n  onRespawn( event ) { runActions( SPEC.onRespawn, this.ctx, { type: 'respawn', ...( event || {} ) } ); },\n  onLapFinish( event ) { runActions( SPEC.onLapFinish, this.ctx, { type: 'lapFinish', ...( event || {} ) } ); },\n  dispose() { try { this.ctx?.ui?.clear?.(); } catch {} this.ctx = null; this.state = null; this.keyLatch = Object.create( null ); }\n};\n`;
+	return `// ${ name }\nconst SPEC = ${ JSON.stringify( spec, null, 2 ) };\n${ renderActionsRuntimeCode() }\nexport default {\n  id: ${ JSON.stringify( id ) },\n  init( context ) { this.ctx = context; this.state = { vars: {}, textvars: {}, timers: [], waits: [], elements: {} }; this.keyLatch = Object.create( null ); this.wasAirborne = false; this.wasDrifting = false; runActions( SPEC.onStart, this.ctx, { type: 'start' } ); },\n  applyFrame( { controls, vehicle, world, dt, now } ) { const ctx = this.ctx || { vehicle, world, controls }; ctx.state = this.state; const st = ( typeof ctx.getState === 'function' ) ? ctx.getState() : {}; const ev = { type: 'tick', dt, now, airborne: Boolean( st.airborne ), lapTime: st.lapTime, raceTime: st.raceTime };\n    runActions( SPEC.onTick, ctx, ev );\n    for ( const [ key, actions ] of Object.entries( SPEC.onKey || {} ) ) { const down = Boolean( controls && controls.keys && controls.keys[ key ] ); if ( down && ! this.keyLatch[ key ] ) runActions( actions, ctx, { type: 'key', key, dt, now } ); this.keyLatch[ key ] = down; }\n    for ( const [ key, actions ] of Object.entries( SPEC.onKeyHold || {} ) ) { if ( controls && controls.keys && controls.keys[ key ] ) runActions( actions, ctx, { type: 'keyhold', key, dt, now } ); }\n    for ( const [ key, actions ] of Object.entries( SPEC.onKeyRelease || {} ) ) { const down = Boolean( controls && controls.keys && controls.keys[ key ] ); if ( ! down && this.keyLatch[ key ] ) runActions( actions, ctx, { type: 'keyrelease', key, dt, now } ); this.keyLatch[ key ] = down; }\n    const speed = Math.abs( Number( st.linearSpeed ) || 0 ); for ( const t of ( SPEC.onSpeedThreshold || [] ) ) { const th = Number( resolveValue( t.threshold, ctx, ev ) ) || 0; if ( speed > th ) runActions( t.body, ctx, { type: 'speed_threshold', speed, threshold: th, dt, now } ); } for ( const t of ( SPEC.onLowSpeed || [] ) ) { const th = Number( resolveValue( t.threshold, ctx, ev ) ) || 0; if ( speed < th ) runActions( t.body, ctx, { type: 'low_speed', speed, threshold: th, dt, now } ); } for ( const t of ( SPEC.onHighSpeed || [] ) ) { const th = Number( resolveValue( t.threshold, ctx, ev ) ) || 0; if ( speed > th ) runActions( t.body, ctx, { type: 'high_speed', speed, threshold: th, dt, now } ); } for ( const t of ( SPEC.onLowSpeedHeld || [] ) ) { const th = Number( resolveValue( t.threshold, ctx, ev ) ) || 0; if ( speed < th ) runActions( t.body, ctx, { type: 'low_speed_held', speed, threshold: th, dt, now } ); }\n    const airborne = Boolean( ev.airborne ); if ( airborne && ! this.wasAirborne ) runActions( SPEC.onAir, ctx, { type: 'air', dt, now } ); if ( ! airborne && this.wasAirborne ) runActions( SPEC.onGround, ctx, { type: 'ground', dt, now } ); this.wasAirborne = airborne;\n    const drifting = Boolean( st.driftIntensity && st.driftIntensity > 0.6 ); if ( drifting && ! this.wasDrifting ) runActions( SPEC.onDrift, ctx, { type: 'drift', dt, now } ); this.wasDrifting = drifting;\n    if ( Array.isArray( this.state.timers ) ) { for ( const t of this.state.timers ) t.remaining -= dt; const done = this.state.timers.filter( ( t ) => t.remaining <= 0 ); this.state.timers = this.state.timers.filter( ( t ) => t.remaining > 0 ); for ( const t of done ) runActions( ( SPEC.onTimerDone && SPEC.onTimerDone[ t.id ] ) || [], ctx, { type: 'timer_done', id: t.id, now } ); }\n    return null;\n  },\n  onCheckpoint( event ) { runActions( SPEC.onCheckpoint, this.ctx, { type: 'checkpoint', ...( event || {} ) } ); },\n  onCrash( event ) { runActions( SPEC.onCrash, this.ctx, { type: 'crash', ...( event || {} ) } ); },\n  onRespawn( event ) { runActions( SPEC.onRespawn, this.ctx, { type: 'respawn', ...( event || {} ) } ); },\n  onLapFinish( event ) { runActions( SPEC.onLapFinish, this.ctx, { type: 'lapFinish', ...( event || {} ) } ); },\n  dispose() { try { this.ctx?.ui?.clear?.(); } catch {} this.ctx = null; this.state = null; this.keyLatch = Object.create( null ); }\n};\n`;
 }
 
 // ============ SHARING ============

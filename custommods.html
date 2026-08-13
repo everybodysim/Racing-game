@@ -56,13 +56,16 @@
     <block type="event_on_tick"></block>
     <block type="event_on_key"></block>
     <block type="event_on_key_hold"></block>
+    <block type="event_on_key_release"></block>
     <block type="event_on_checkpoint"></block>
     <block type="event_on_crash"></block>
     <block type="event_on_lap_finish"></block>
     <block type="event_on_respawn"></block>
     <block type="event_on_timer_done"></block>
     <block type="event_on_speed_threshold"></block>
+    <block type="event_on_high_speed"></block>
     <block type="event_on_low_speed"></block>
+    <block type="event_on_low_speed_held"></block>
     <block type="event_on_air"></block>
     <block type="event_on_ground"></block>
     <block type="event_on_drift"></block>
@@ -99,6 +102,12 @@
     <block type="action_camera_shake"></block>
     <block type="action_set_camera_fov"></block>
     <block type="action_set_camera_mode"></block>
+    <block type="action_set_camera_distance"></block>
+    <block type="action_set_camera_height"></block>
+    <block type="action_set_camera_lag"></block>
+    <block type="action_set_camera_pitch"></block>
+    <block type="action_camera_look_mode"></block>
+    <block type="action_camera_reset"></block>
   </category>
   <category name="FX / Visuals" colour="#0ea5e9">
     <block type="action_show_message"></block>
@@ -119,11 +128,19 @@
     <block type="action_set_exposure"></block>
     <block type="action_set_pixel_ratio"></block>
     <block type="action_set_shadows"></block>
+    <block type="action_set_screen_brightness"></block>
+    <block type="action_set_sun_position"></block>
+    <block type="action_set_snow_intensity"></block>
+    <block type="action_set_rain_intensity"></block>
+    <block type="action_set_weather"></block>
+    <block type="action_set_fog_color_rgb"></block>
   </category>
   <category name="Audio" colour="#f43f5e">
     <block type="action_set_engine_volume"></block>
     <block type="action_set_music_volume"></block>
+    <block type="action_set_master_volume"></block>
     <block type="action_play_impact"></block>
+    <block type="action_play_cue"></block>
   </category>
   <category name="HUD & Game" colour="#eab308">
     <block type="action_set_hud_text"></block>
@@ -144,7 +161,12 @@
   <category name="Variables" colour="#22c55e">
     <block type="action_var_set"></block>
     <block type="action_var_add"></block>
+    <block type="action_var_multiply"></block>
+    <block type="action_var_divide"></block>
+    <block type="action_var_clamp"></block>
+    <block type="action_var_reset"></block>
     <block type="action_var_set_text"></block>
+    <block type="action_textvar_append"></block>
     <block type="value_var_get"></block>
     <block type="value_text_var_get"></block>
   </category>
@@ -170,6 +192,18 @@
     <block type="value_pos_x"></block>
     <block type="value_pos_y"></block>
     <block type="value_pos_z"></block>
+    <block type="value_speed_kmh"></block>
+    <block type="value_speed_mph"></block>
+    <block type="value_heading"></block>
+    <block type="value_velocity_x"></block>
+    <block type="value_velocity_y"></block>
+    <block type="value_velocity_z"></block>
+    <block type="value_split_screen"></block>
+    <block type="value_drag_mult"></block>
+    <block type="value_accel_mult"></block>
+    <block type="value_drive_mult"></block>
+    <block type="value_time_scale"></block>
+    <block type="value_gravity"></block>
     <block type="value_game_mode"></block>
   </category>
   <category name="Logic" colour="#3b82f6">
@@ -178,9 +212,16 @@
     <block type="logic_compare"></block>
     <block type="logic_operation"></block>
     <block type="logic_negate"></block>
+    <block type="logic_xor"></block>
     <block type="logic_is_airborne"></block>
     <block type="logic_is_drifting"></block>
     <block type="logic_key_down"></block>
+    <block type="logic_is_even"></block>
+    <block type="logic_is_positive"></block>
+    <block type="logic_is_integer"></block>
+    <block type="logic_is_zero"></block>
+    <block type="logic_text_equals"></block>
+    <block type="logic_is_empty"></block>
     <block type="value_true"></block>
     <block type="value_false"></block>
   </category>
@@ -188,9 +229,19 @@
     <block type="math_number"></block>
     <block type="math_arithmetic"></block>
     <block type="math_single"></block>
+    <block type="math_adv_single"></block>
+    <block type="math_pair"></block>
     <block type="math_clamp"></block>
     <block type="math_min_max"></block>
+    <block type="math_round_int"></block>
+    <block type="math_random_int"></block>
+    <block type="math_random_range"></block>
+    <block type="math_lerp"></block>
+    <block type="math_map_range"></block>
     <block type="math_pi"></block>
+    <block type="math_constant"></block>
+    <block type="math_divisible"></block>
+    <block type="math_between"></block>
     <block type="math_deg_to_rad"></block>
     <block type="math_rad_to_deg"></block>
   </category>
@@ -198,42 +249,100 @@
     <block type="text"></block>
     <block type="text_combine"></block>
     <block type="text_to_string"></block>
+    <block type="text_to_number"></block>
     <block type="text_round_num"></block>
     <block type="text_length"></block>
     <block type="text_contains"></block>
+    <block type="text_substring"></block>
+    <block type="text_slice"></block>
+    <block type="text_char_at"></block>
+    <block type="text_first_char"></block>
+    <block type="text_last_char"></block>
+    <block type="text_index_of"></block>
+    <block type="text_count"></block>
+    <block type="text_replace"></block>
+    <block type="text_replace_all"></block>
+    <block type="text_repeat"></block>
+    <block type="text_reverse"></block>
+    <block type="text_trim"></block>
+    <block type="text_pad"></block>
     <block type="text_upper"></block>
     <block type="text_lower"></block>
+    <block type="text_split"></block>
+    <block type="text_char_code"></block>
+    <block type="text_from_char_code"></block>
   </category>
   <category name="Lists" colour="#ec4899">
     <block type="lists_create"></block>
+    <block type="lists_create_with"></block>
+    <block type="value_list_get"></block>
     <block type="lists_length"></block>
+    <block type="lists_get_index"></block>
+    <block type="lists_first"></block>
+    <block type="lists_last"></block>
+    <block type="lists_contains"></block>
+    <block type="lists_index_of"></block>
+    <block type="lists_reverse"></block>
+    <block type="lists_sort"></block>
+    <block type="lists_sum"></block>
+    <block type="lists_max"></block>
+    <block type="lists_average"></block>
+    <block type="lists_join"></block>
+    <block type="action_lists_set"></block>
+    <block type="action_lists_add"></block>
+    <block type="action_lists_remove"></block>
+    <block type="action_lists_clear"></block>
   </category>
   <category name="UI Builder" colour="#f97316">
     <block type="ui_create_panel"></block>
     <block type="ui_create_button"></block>
     <block type="ui_create_label"></block>
+    <block type="ui_create_heading"></block>
     <block type="ui_create_slider"></block>
+    <block type="ui_create_progress"></block>
+    <block type="ui_create_checkbox"></block>
+    <block type="ui_create_dropdown"></block>
+    <block type="ui_create_text_input"></block>
+    <block type="ui_create_divider"></block>
     <block type="ui_set_text"></block>
     <block type="ui_set_style"></block>
+    <block type="ui_set_position"></block>
+    <block type="ui_set_size"></block>
+    <block type="ui_set_text_color"></block>
+    <block type="ui_set_bg_color"></block>
+    <block type="ui_set_font_size"></block>
+    <block type="ui_set_enabled"></block>
     <block type="ui_append"></block>
     <block type="ui_remove"></block>
     <block type="ui_show"></block>
     <block type="ui_hide"></block>
+    <block type="ui_on_click"></block>
     <block type="ui_clear"></block>
     <block type="value_ui_element_text"></block>
   </category>
   <category name="Storage" colour="#84cc16">
     <block type="storage_set"></block>
     <block type="storage_set_num"></block>
+    <block type="storage_set_bool"></block>
     <block type="storage_get"></block>
+    <block type="storage_get_num"></block>
+    <block type="storage_get_text"></block>
+    <block type="storage_get_bool"></block>
     <block type="storage_has"></block>
+    <block type="storage_increment"></block>
+    <block type="storage_list_add"></block>
+    <block type="storage_list_get"></block>
+    <block type="storage_count"></block>
     <block type="storage_remove"></block>
     <block type="storage_clear"></block>
   </category>
   <category name="Game Control" colour="#14b8a6">
     <block type="action_respawn"></block>
+    <block type="action_restart_race"></block>
+    <block type="action_teleport_to_spawn"></block>
     <block type="action_pause"></block>
     <block type="action_resume"></block>
+    <block type="action_add_lap_time_penalty"></block>
     <block type="value_is_paused"></block>
     <block type="value_fps"></block>
     <block type="value_dt"></block>
