@@ -22,8 +22,12 @@
     #topbar { padding: 10px; background: #111827; color: white; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     #topbar input { padding: 6px 8px; border-radius: 6px; border: 1px solid #334155; background: #020617; color: #fff; }
     #topbar button { padding: 6px 10px; cursor: pointer; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #fff; }
-    #blocklyDiv { height: calc(100vh - 210px); width: 100%; }
-    #xmlBox { width: 100%; height: 130px; box-sizing: border-box; background: #020617; color: #fff; border: none; border-top: 1px solid #334155; padding: 8px; }
+    #blocklyDiv { height: calc(100vh - 165px); min-height: 320px; width: 100%; }
+    #xmlBox { width: 100%; height: 70px; box-sizing: border-box; background: #020617; color: #fff; border: none; border-top: 1px solid #334155; padding: 6px; resize: vertical; }
+    /* The Blockly toolbox must be able to scroll independently when there are
+       more categories than fit vertically, otherwise the last tabs get clipped
+       and become unclickable. */
+    .blocklyToolboxDiv, .blocklyTreeRoot { overflow-y: auto !important; max-height: 100% !important; }
     a { color: #93c5fd; }
     #status { margin-left: auto; color: #93c5fd; }
   </style>
@@ -293,7 +297,7 @@
     <block type="action_lists_remove"></block>
     <block type="action_lists_clear"></block>
   </category>
-  <category name="UI Builder" colour="#f97316">
+  <category name="UI &amp; Storage" colour="#f97316">
     <block type="ui_create_panel"></block>
     <block type="ui_create_button"></block>
     <block type="ui_create_label"></block>
@@ -319,8 +323,6 @@
     <block type="ui_on_click"></block>
     <block type="ui_clear"></block>
     <block type="value_ui_element_text"></block>
-  </category>
-  <category name="Storage" colour="#84cc16">
     <block type="storage_set"></block>
     <block type="storage_set_num"></block>
     <block type="storage_set_bool"></block>

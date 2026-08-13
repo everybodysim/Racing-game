@@ -1942,7 +1942,6 @@ function readInstalledRuntimeMods() {
 
 		const parsed = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
 		const list = Array.isArray( parsed ) ? parsed : [];
-		if ( ! list.some( ( mod ) => mod?.id === 'freecam' ) ) list.push( { id: 'freecam', name: 'Freecam', entry: 'mods/Freecam.js' } );
 		return list;
 
 	} catch {
@@ -1950,6 +1949,24 @@ function readInstalledRuntimeMods() {
 		return [];
 
 	}
+
+}
+
+// Seed the default Freecam mod into a FRESH install exactly once, so a brand-new
+// player still gets freecam without it being force-re-injected on every read
+// (which previously made Freecam impossible to remove and made the Mod Manager
+// always claim a mod was installed even after the user removed everything).
+function ensureDefaultFreecamSeeded() {
+
+	try {
+
+		if ( localStorage.getItem( 'racing-installed-mods-v1' ) === null ) {
+			localStorage.setItem( 'racing-installed-mods-v1', JSON.stringify( [
+				{ id: 'freecam', name: 'Freecam', entry: 'mods/Freecam.js' },
+			] ) );
+		}
+
+	} catch { /* ignore */ }
 
 }
 
@@ -2347,6 +2364,7 @@ async function init() {
 
 	appendLoadingConsole( 'Before loadRuntimeMods' );
 
+	ensureDefaultFreecamSeeded();
 	const runtimeModsPromise = loadRuntimeMods();
 
 	appendLoadingConsole( 'After loadRuntimeMods' );
@@ -4144,7 +4162,6 @@ async function init() {
 
 			const parsed = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' );
 			const list = Array.isArray( parsed ) ? parsed : [];
-			if ( ! list.some( ( mod ) => mod?.id === 'freecam' ) ) list.push( { id: 'freecam', name: 'Freecam', entry: 'mods/Freecam.js' } );
 			return list;
 
 		} catch {
