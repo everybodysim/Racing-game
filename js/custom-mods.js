@@ -210,7 +210,7 @@ actionDef( 'action_set_vehicle_spin', 'RAD', 'set vehicle Y rotation (rad)' );
 actionDef( 'action_set_vehicle_scale', 'VALUE', 'set vehicle size scale' );
 actionDefDropdown( 'action_set_vehicle_visible', 'set vehicle visible', 'VIS', [ [ 'visible', '1' ], [ 'hidden', '0' ] ], null, null, VEH );
 actionDef( 'action_set_drift', 'VALUE', 'set drift intensity (0-2)' );
-actionDefDropdown( 'action_set_vehicle_model', 'set vehicle model', 'MODEL', [ [ 'Yellow', 'vehicle-truck-yellow' ], [ 'Green', 'vehicle-truck-green' ], [ 'Purple', 'vehicle-truck-purple' ], [ 'Red', 'vehicle-truck-red' ] ], null, null, VEH );
+actionDefDropdown( 'action_set_vehicle_model', 'set vehicle model', 'MODEL', [ [ 'Yellow', 'vehicle-truck-yellow' ], [ 'Green', 'vehicle-truck-green' ], [ 'Purple', 'vehicle-truck-purple' ], [ 'Red', 'vehicle-truck-red' ], [ 'Hatchback', 'vehicle-hatchback-green' ], [ 'Sedan', 'vehicle-sedan-orange' ] ], null, null, VEH );
 
 // ============ CAMERA ============
 actionDef( 'action_camera_shake', 'INT', 'camera shake intensity' );

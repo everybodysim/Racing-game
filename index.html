@@ -2171,6 +2171,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		<option value="vehicle-truck-green">Green</option>
 		<option value="vehicle-truck-purple">Purple</option>
 		<option value="vehicle-truck-red">Red</option>
+		<option value="vehicle-hatchback-green">Hatchback</option>
+		<option value="vehicle-sedan-orange">Sedan</option>
 	</select>
 		<div id="hud-grid">
 			<button id="hud-edit-toggle" type="button" title="Customize HUD" aria-label="Customize HUD">✎</button>
@@ -2264,7 +2266,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		<div class="mode-tab-panel" id="mode-panel-garage">
 		<div id="garage-panel">
 			<h4>Garage (mod packs)</h4>
-			<p id="garage-summary">Choose a truck card to preview readable stats, upgrade status, paint mappings, and profile tools.</p>
+							<p id="garage-summary">Choose a vehicle card to preview readable stats, upgrade status, paint mappings, and profile tools.</p>
 			<div id="garage-vehicle-cards" aria-label="Garage vehicles"></div>
 			<label for="garage-car-select">Garage car selection</label>
 			<select id="garage-car-select">
@@ -2272,6 +2274,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<option value="vehicle-truck-green">Green truck</option>
 				<option value="vehicle-truck-purple">Purple truck</option>
 				<option value="vehicle-truck-red">Red truck</option>
+				<option value="vehicle-hatchback-green">Green hatchback</option>
+				<option value="vehicle-sedan-orange">Orange sedan</option>
 			</select>
 			<!-- Garage stat tuning is hidden for now; all performance multipliers are fixed at x1.15 in code. -->
 			<h4 style="margin-top:12px;">Paint Shop</h4>

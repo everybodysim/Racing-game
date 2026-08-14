@@ -233,6 +233,7 @@ const loader = new GLTFLoader( loadingManager );
 const objLoader = new OBJLoader();
 const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
+	'vehicle-hatchback-green', 'vehicle-sedan-orange',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'track-3-way', 'track-4-way',
 	'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope',
@@ -242,16 +243,20 @@ const modelNames = [
 
 const models = {};
 const CAR_STATS = {
-	'vehicle-truck-yellow': { name: 'Yellow', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-green': { name: 'Green', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-purple': { name: 'Purple', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-red': { name: 'Red', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-yellow': { name: 'Yellow', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-green': { name: 'Green', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-purple': { name: 'Purple', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-red': { name: 'Red', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-hatchback-green': { name: 'Green', bodyStyle: 'hatchback', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-sedan-orange': { name: 'Orange', bodyStyle: 'sedan', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 };
 const CAR_SELECT_STYLES = {
 	'vehicle-truck-yellow': { background: '#f2c94c', border: '#ffe082', color: '#1b1606' },
 	'vehicle-truck-green': { background: '#2f9e44', border: '#69db7c', color: '#f0fff4' },
 	'vehicle-truck-purple': { background: '#7b2cbf', border: '#c77dff', color: '#fff3ff' },
 	'vehicle-truck-red': { background: '#c92a2a', border: '#ff8787', color: '#fff5f5' },
+	'vehicle-hatchback-green': { background: '#0ca678', border: '#38d9a9', color: '#e6fcf5' },
+	'vehicle-sedan-orange': { background: '#e8590c', border: '#ffa94d', color: '#fff4e6' },
 };
 const DEFAULT_ENGINE_MULT = 1.1;
 const MAX_EFFECTIVE_TOP_SPEED = 1.8;
@@ -917,6 +922,8 @@ function normalizeMultiplayerCarKey( value ) {
 		green: 'vehicle-truck-green',
 		purple: 'vehicle-truck-purple',
 		red: 'vehicle-truck-red',
+		hatchback: 'vehicle-hatchback-green',
+		sedan: 'vehicle-sedan-orange',
 	};
 	return fallbackByName[ lower ] || 'vehicle-truck-yellow';
 
@@ -5334,7 +5341,7 @@ async function init() {
 			button.className = `garage-vehicle-card${ carKey === selectedKey ? ' active' : '' }`;
 			button.style.setProperty( '--garage-accent', style.border || '#9ed8ff' );
 			button.innerHTML = `
-				<h5>${ stats.name } truck</h5>
+				<h5>${ stats.name } ${ stats.bodyStyle || 'truck' }</h5>
 				<dl>
 					<dt>Speed</dt><dd>${ stats.speed } / 10</dd>
 					<dt>Acceleration</dt><dd>${ stats.accel } / 10</dd>

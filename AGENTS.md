@@ -1,5 +1,52 @@
 # Racing-game — agent memory
 
+## Adding a new car (vehicle model)
+
+### Model requirements (the GLB itself)
+- Node names matter: the `Vehicle.attachModel()` traverse looks for `body` and any node
+  whose name contains `wheel` (+ `front`/`back` + `left`/`right`) to bind steering/roll.
+  Both existing trucks AND the new `vehicle-hatchback-green.glb` / `vehicle-sedan-orange.glb`
+  use: `body`, `underside`, `wheel-front-left/right`, `wheel-back-left/right`.
+- Single material named `colormap` with a `baseColorTexture` (the paint shop reads it).
+- Truck models reference an EXTERNAL texture `Textures/colormap.png` (resolved at
+  `models/Textures/colormap.png`); the hatchback/sedan EMBED their PNG in the GLB. The
+  paint shop's `getTextureSourcePixels()` reads `texture.image` (an HTMLImageElement in
+  both cases) so external vs embedded makes no difference to cosmetics.
+- All `vehicle-*` models are auto-scaled to 0.5 in `loadModels()` (matches Godot root_scale).
+- The collider is always a fixed crashcat sphere radius 0.5 (`VEHICLE_SURFACE_RADIUS`,
+  `createSphereBody`) — NOT derived from the model. Wheelbase/size differences are visual only.
+
+### Code touchpoints to register a new car (search `vehicle-truck-yellow` as the template)
+1. `index.html` `<select id="car-select">` — add `<option value="vehicle-…">Name</option>`.
+2. `index.html` `<select id="garage-car-select">` — add `<option value="vehicle-…">Name truck</option>`.
+3. `js/main.js` `modelNames[]` (line ~234) — add the model base name (no `.glb`).
+4. `js/main.js` `CAR_STATS` (line ~244) — add `{ name, speed, accel, perf: { topSpeed, accelRate, driveForce } }`.
+   `perf` drives `Vehicle.setPerformance()`; `speed`/`accel` are the 0-10 garage card display.
+5. `js/main.js` `CAR_SELECT_STYLES` (line ~250) — add `{ background, border, color }` hex theme.
+6. `js/main.js` `normalizeMultiplayerCarKey()` `fallbackByName` (line ~915) — optional friendly-name alias.
+7. `js/tas-viewer.js` `MODELS`, `REQUIRED_VEHICLE_KEYS`, `CAR_STATS` (lines ~13-24) — mirror main.js stats.
+8. `js/tas-viewer.html` `<select>` (line ~108) — add option (parallel to tas-viewer.js).
+9. `js/custom-mods.js` `action_set_vehicle_model` dropdown (line ~213) — add `[ 'Name', 'vehicle-…' ]`.
+10. (Optional) `js/Track.js` `NPC_TRUCKS` (line ~379) — parked decorative cars on the default track.
+
+### What does NOT need changing per car
+- Audio: `audio/engine.ogg` is shared (no per-car engine sound).
+- Physics body: fixed sphere, created once per vehicle; `setPerformance()` only tunes
+  topSpeed/accelRate/driveForce.
+- Paint shop / cosmetics: generic over `material.map` + `material.color`; keyed by carKey in
+  `garageCosmetics.cars[carKey]` (localStorage `racing-garage-mods-v1`), auto-creates per car.
+- Ghost/replay: stores `car` key in the payload; `createGhostVisualModel(models[entry.car])`
+  falls back to yellow. `bestGhostCarKey` defaults to yellow.
+- Split-screen: `pickRandomCarKey()` picks from `Object.keys(CAR_STATS)` automatically.
+- `renderGarageVehicleCards()` iterates `modelNames.filter(k => CAR_STATS[k])` — auto-includes.
+
+### Car-key persistence across systems
+- Player's chosen car: `carSelect.value` / `currentCarKey()` (default `vehicle-truck-yellow`).
+- Multiplayer packets carry `carKey` + `cosmetics`; `normalizeMultiplayerCarKey()` validates
+  against `CAR_STATS[key] && models[key]` else falls back to yellow.
+- Ghost/replay payloads carry `car`; imported ghosts normalize and re-render the matching model.
+- Custom mods can call `api.setVehicleModel(key)` (validates against CAR_STATS + models).
+
 ## Custom Mods Lab (`custommods.html` + `js/custom-mods.js`)
 
 ### Blockly field-colour (freeze fix)

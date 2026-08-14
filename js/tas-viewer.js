@@ -12,15 +12,18 @@ const MAX_STEPS = 120 * 120;
 const ENGINE_MULTS = [ 1, 1.025, 1.05, 1.075, 1.1 ];
 const MODELS = [
   'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
+  'vehicle-hatchback-green', 'vehicle-sedan-orange',
   'track-straight', 'track-corner', 'track-bump', 'track-finish',
   'decoration-empty', 'decoration-forest', 'decoration-tents'
 ];
-const REQUIRED_VEHICLE_KEYS = [ 'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red' ];
+const REQUIRED_VEHICLE_KEYS = [ 'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red', 'vehicle-hatchback-green', 'vehicle-sedan-orange' ];
 const CAR_STATS = {
   'vehicle-truck-yellow': { topSpeed: 1.0, accelRate: 6.0, driveForce: 100.0 },
   'vehicle-truck-green': { topSpeed: 0.92, accelRate: 7.8, driveForce: 108.0 },
   'vehicle-truck-purple': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
   'vehicle-truck-red': { topSpeed: 1.05, accelRate: 5.5, driveForce: 102.0 },
+  'vehicle-hatchback-green': { topSpeed: 1.0, accelRate: 6.0, driveForce: 100.0 },
+  'vehicle-sedan-orange': { topSpeed: 1.05, accelRate: 5.5, driveForce: 102.0 },
 };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
