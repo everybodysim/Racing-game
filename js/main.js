@@ -234,6 +234,7 @@ const objLoader = new OBJLoader();
 const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
 	'vehicle-hatchback-green', 'vehicle-sedan-orange',
+	'vehicle-car-police', 'vehicle-delivery-yellow', 'vehicle-flatbed-purple', 'vehicle-van-blue',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'track-3-way', 'track-4-way',
 	'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope',
@@ -249,6 +250,10 @@ const CAR_STATS = {
 	'vehicle-truck-red': { name: 'Red Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 	'vehicle-hatchback-green': { name: 'Green Hatchback', bodyStyle: 'hatchback', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 	'vehicle-sedan-orange': { name: 'Orange Sedan', bodyStyle: 'sedan', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-car-police': { name: 'Police Car', bodyStyle: 'car', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-delivery-yellow': { name: 'Yellow Delivery', bodyStyle: 'delivery', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-flatbed-purple': { name: 'Purple Flatbed', bodyStyle: 'flatbed', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-van-blue': { name: 'Blue Van', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 };
 const CAR_SELECT_STYLES = {
 	'vehicle-truck-yellow': { background: '#f2c94c', border: '#ffe082', color: '#1b1606' },
@@ -257,6 +262,10 @@ const CAR_SELECT_STYLES = {
 	'vehicle-truck-red': { background: '#c92a2a', border: '#ff8787', color: '#fff5f5' },
 	'vehicle-hatchback-green': { background: '#0ca678', border: '#38d9a9', color: '#e6fcf5' },
 	'vehicle-sedan-orange': { background: '#e8590c', border: '#ffa94d', color: '#fff4e6' },
+	'vehicle-car-police': { background: '#1c7ed6', border: '#74c0fc', color: '#e7f5ff' },
+	'vehicle-delivery-yellow': { background: '#f59f00', border: '#ffe066', color: '#fff9db' },
+	'vehicle-flatbed-purple': { background: '#9c36b5', border: '#da77f2', color: '#f8f0fc' },
+	'vehicle-van-blue': { background: '#1864ab', border: '#339af0', color: '#e8f3ff' },
 };
 const DEFAULT_ENGINE_MULT = 1.1;
 const MAX_EFFECTIVE_TOP_SPEED = 1.8;
@@ -924,6 +933,10 @@ function normalizeMultiplayerCarKey( value ) {
 		red: 'vehicle-truck-red',
 		hatchback: 'vehicle-hatchback-green',
 		sedan: 'vehicle-sedan-orange',
+		police: 'vehicle-car-police',
+		delivery: 'vehicle-delivery-yellow',
+		flatbed: 'vehicle-flatbed-purple',
+		blue: 'vehicle-van-blue',
 	};
 	return fallbackByName[ lower ] || 'vehicle-truck-yellow';
 

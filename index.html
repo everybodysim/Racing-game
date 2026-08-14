@@ -785,7 +785,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		.garage-row input[type="range"] { width: 100%; }
 		.garage-row button { padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; font: 600 11px/1 sans-serif; }
 		.garage-row button:disabled { opacity: 0.55; cursor: default; }
-		#garage-vehicle-cards { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 10px 0 12px; }
+		#garage-vehicle-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 10px 0 12px; }
 		.garage-vehicle-card { text-align: left; padding: 8px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; min-width: 0; }
 		.garage-vehicle-card.active { outline: 2px solid #fff; border-color: var(--garage-accent, #9ed8ff); box-shadow: 0 0 18px color-mix(in srgb, var(--garage-accent, #9ed8ff) 45%, transparent); }
 		.garage-vehicle-card h5 { margin: 0 0 5px; font: 800 12px/1.2 sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -793,8 +793,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		.garage-vehicle-card dt { color: #bde6ff; }
 		.garage-vehicle-card dd { margin: 0; color: #fff; }
 		.garage-vehicle-status { display: block; margin-top: 6px; color: #ffdca8; font: 800 10px/1.2 sans-serif; }
-		@media (max-width: 1100px) { #garage-vehicle-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-		@media (max-width: 640px) { #garage-vehicle-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+		@media (max-width: 1200px) { #garage-vehicle-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+		@media (max-width: 720px) { #garage-vehicle-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 		#garage-car-select, #garage-target-color {
 			width: 100%;
 			margin-top: 6px;
@@ -2174,6 +2174,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		<option value="vehicle-truck-red">Red Truck</option>
 		<option value="vehicle-hatchback-green">Green Hatchback</option>
 		<option value="vehicle-sedan-orange">Orange Sedan</option>
+		<option value="vehicle-car-police">Police Car</option>
+		<option value="vehicle-delivery-yellow">Yellow Delivery</option>
+		<option value="vehicle-flatbed-purple">Purple Flatbed</option>
+		<option value="vehicle-van-blue">Blue Van</option>
 	</select>
 		<div id="hud-grid">
 			<button id="hud-edit-toggle" type="button" title="Customize HUD" aria-label="Customize HUD">✎</button>
@@ -2277,6 +2281,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<option value="vehicle-truck-red">Red Truck</option>
 				<option value="vehicle-hatchback-green">Green Hatchback</option>
 				<option value="vehicle-sedan-orange">Orange Sedan</option>
+				<option value="vehicle-car-police">Police Car</option>
+				<option value="vehicle-delivery-yellow">Yellow Delivery</option>
+				<option value="vehicle-flatbed-purple">Purple Flatbed</option>
+				<option value="vehicle-van-blue">Blue Van</option>
 			</select>
 			<!-- Garage stat tuning is hidden for now; all performance multipliers are fixed at x1.15 in code. -->
 			<h4 style="margin-top:12px;">Paint Shop</h4>

@@ -13,10 +13,11 @@ const ENGINE_MULTS = [ 1, 1.025, 1.05, 1.075, 1.1 ];
 const MODELS = [
   'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
   'vehicle-hatchback-green', 'vehicle-sedan-orange',
+  'vehicle-car-police', 'vehicle-delivery-yellow', 'vehicle-flatbed-purple', 'vehicle-van-blue',
   'track-straight', 'track-corner', 'track-bump', 'track-finish',
   'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass'
 ];
-const REQUIRED_VEHICLE_KEYS = [ 'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red', 'vehicle-hatchback-green', 'vehicle-sedan-orange' ];
+const REQUIRED_VEHICLE_KEYS = [ 'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red', 'vehicle-hatchback-green', 'vehicle-sedan-orange', 'vehicle-car-police', 'vehicle-delivery-yellow', 'vehicle-flatbed-purple', 'vehicle-van-blue' ];
 const CAR_STATS = {
   'vehicle-truck-yellow': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
   'vehicle-truck-green': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
@@ -24,6 +25,10 @@ const CAR_STATS = {
   'vehicle-truck-red': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
   'vehicle-hatchback-green': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
   'vehicle-sedan-orange': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
+  'vehicle-car-police': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
+  'vehicle-delivery-yellow': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
+  'vehicle-flatbed-purple': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
+  'vehicle-van-blue': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
 };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
