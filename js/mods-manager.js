@@ -7,7 +7,7 @@ let currentCatalog = [];
 // Worker URL (see cloudflare-mods/README.md). When left as the placeholder or
 // unreachable, the board panel shows a friendly "not connected yet" message and the
 // rest of the Mod Manager keeps working normally.
-const MODS_API_BASE = 'https://REPLACE_WITH_YOUR_WORKER_URL/api/mods';
+const MODS_API_BASE = 'https://racing-mods-board-api.ga1010.workers.dev/api/mods';
 const BOARD_VOTE_SESSION_KEY = 'modBoardVotes:v1';
 
 import { compressString, compressJson, decompressJson } from './Storage.js';
