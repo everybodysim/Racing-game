@@ -809,19 +809,21 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		let minX = Infinity, maxX = - Infinity;
 		let minZ = Infinity, maxZ = - Infinity;
 
-		// Helper: mark integer grid cells whose CENTER falls inside a
+		// Helper: mark every integer grid cell whose footprint overlaps a
 		// (possibly off-grid) cell's footprint as tree-blocked, and expand
 		// the coverage bounds so ground fills all gaps.
 		//
 		// A cell at (gx, gz) covers (gx, gz) to (gx+1, gz+1).
-		// Integer cell (cx, cz) has its center at (cx+0.5, cz+0.5).
-		// The center is inside the footprint when:
-		//   gx <= cx+0.5 < gx+1   →   ceil(gx - 0.5) <= cx <= floor(gx + 0.5)
+		// Integer cell (cx, cz) covers (cx, cz) to (cx+1, cz+1).
+		// The two footprints overlap (with non-zero area) when:
+		//   gx < cx+1  AND  cx < gx+1   →   floor(gx) <= cx <= ceil(gx)
 		//
-		// For on-grid cells (integer gx): exactly one cell matches (itself).
-		// For off-grid cells (fractional gx): typically one cell matches —
-		// the one whose center is closest to the block's center. When the
-		// block sits exactly on a seam (gx = N + 0.5), two cells match.
+		// For on-grid cells (integer gx): floor(gx) == ceil(gx), so exactly
+		// one cell matches (itself) — same as before.
+		// For off-grid cells (fractional gx): the piece straddles a grid seam,
+		// so BOTH neighbouring integer cells overlap it and must be cleared of
+		// trees. (The old center-based math missed the far-side cell, leaving
+		// trees poking through off-grid roads.)
 		function blockCellForTrees( gx, gz, markOccupied ) {
 			gx = Number( gx );
 			gz = Number( gz );
@@ -834,10 +836,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 			if ( markOccupied ) occupied.add( gx + ',' + gz );
 
-			const minBlockX = Math.ceil( gx - 0.5 );
-			const maxBlockX = Math.floor( gx + 0.5 );
-			const minBlockZ = Math.ceil( gz - 0.5 );
-			const maxBlockZ = Math.floor( gz + 0.5 );
+			const minBlockX = Math.floor( gx );
+			const maxBlockX = Math.ceil( gx );
+			const minBlockZ = Math.floor( gz );
+			const maxBlockZ = Math.ceil( gz );
 			for ( let bx = minBlockX; bx <= maxBlockX; bx ++ ) {
 				for ( let bz = minBlockZ; bz <= maxBlockZ; bz ++ ) {
 					treeBlocked.add( bx + ',' + bz );
@@ -896,6 +898,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		const pad = 3;
 		const emptyPositions = [];
+		const grassPositions = [];   // cells cleared of trees by a road/wall/etc. footprint
 		const forestPositions = [];
 
 		// Simple hash for deterministic pseudo-random placement
@@ -927,7 +930,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 				if ( treeBlocked.has( gx + ',' + gz ) ) {
 
-					emptyPositions.push( x, z );
+					grassPositions.push( x, z );
 					continue;
 
 				}
@@ -975,6 +978,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		}
 
 		createInstances( models[ 'decoration-empty' ], emptyPositions );
+		createInstances( models[ 'empty-deco-grass' ], grassPositions );
 		createInstances( models[ 'decoration-forest' ], forestPositions );
 
 	}

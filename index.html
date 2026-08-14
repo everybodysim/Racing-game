@@ -785,15 +785,16 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		.garage-row input[type="range"] { width: 100%; }
 		.garage-row button { padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; font: 600 11px/1 sans-serif; }
 		.garage-row button:disabled { opacity: 0.55; cursor: default; }
-		#garage-vehicle-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 10px 0 12px; }
-		.garage-vehicle-card { text-align: left; padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; }
+		#garage-vehicle-cards { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 10px 0 12px; }
+		.garage-vehicle-card { text-align: left; padding: 8px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; min-width: 0; }
 		.garage-vehicle-card.active { outline: 2px solid #fff; border-color: var(--garage-accent, #9ed8ff); box-shadow: 0 0 18px color-mix(in srgb, var(--garage-accent, #9ed8ff) 45%, transparent); }
-		.garage-vehicle-card h5 { margin: 0 0 6px; font: 800 13px/1.2 sans-serif; }
-		.garage-vehicle-card dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; margin: 0; font: 700 11px/1.2 sans-serif; }
+		.garage-vehicle-card h5 { margin: 0 0 5px; font: 800 12px/1.2 sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+		.garage-vehicle-card dl { display: grid; grid-template-columns: 1fr auto; gap: 3px 6px; margin: 0; font: 700 10px/1.2 sans-serif; }
 		.garage-vehicle-card dt { color: #bde6ff; }
 		.garage-vehicle-card dd { margin: 0; color: #fff; }
-		.garage-vehicle-status { display: block; margin-top: 7px; color: #ffdca8; font: 800 11px/1.2 sans-serif; }
-		@media (max-width: 820px) { #garage-vehicle-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+		.garage-vehicle-status { display: block; margin-top: 6px; color: #ffdca8; font: 800 10px/1.2 sans-serif; }
+		@media (max-width: 1100px) { #garage-vehicle-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+		@media (max-width: 640px) { #garage-vehicle-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 		#garage-car-select, #garage-target-color {
 			width: 100%;
 			margin-top: 6px;
@@ -2167,12 +2168,12 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<!-- quick-menu-panel moved to Navigation tab in E menu -->
 		<button id="pause-toggle-btn" type="button" style="display:none;">Pause</button>
 	<select id="car-select" aria-label="Select car">
-		<option value="vehicle-truck-yellow">Bumblebee</option>
-		<option value="vehicle-truck-green">Forest</option>
-		<option value="vehicle-truck-purple">Grape</option>
-		<option value="vehicle-truck-red">Cherry</option>
-		<option value="vehicle-hatchback-green">Lime</option>
-		<option value="vehicle-sedan-orange">Ember</option>
+		<option value="vehicle-truck-yellow">Yellow Truck</option>
+		<option value="vehicle-truck-green">Green Truck</option>
+		<option value="vehicle-truck-purple">Purple Van</option>
+		<option value="vehicle-truck-red">Red Truck</option>
+		<option value="vehicle-hatchback-green">Green Hatchback</option>
+		<option value="vehicle-sedan-orange">Orange Sedan</option>
 	</select>
 		<div id="hud-grid">
 			<button id="hud-edit-toggle" type="button" title="Customize HUD" aria-label="Customize HUD">✎</button>
@@ -2270,12 +2271,12 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<div id="garage-vehicle-cards" aria-label="Garage vehicles"></div>
 			<label for="garage-car-select">Garage car selection</label>
 			<select id="garage-car-select">
-				<option value="vehicle-truck-yellow">Bumblebee (truck)</option>
-				<option value="vehicle-truck-green">Forest (truck)</option>
-				<option value="vehicle-truck-purple">Grape (van)</option>
-				<option value="vehicle-truck-red">Cherry (truck)</option>
-				<option value="vehicle-hatchback-green">Lime (hatchback)</option>
-				<option value="vehicle-sedan-orange">Ember (sedan)</option>
+				<option value="vehicle-truck-yellow">Yellow Truck</option>
+				<option value="vehicle-truck-green">Green Truck</option>
+				<option value="vehicle-truck-purple">Purple Van</option>
+				<option value="vehicle-truck-red">Red Truck</option>
+				<option value="vehicle-hatchback-green">Green Hatchback</option>
+				<option value="vehicle-sedan-orange">Orange Sedan</option>
 			</select>
 			<!-- Garage stat tuning is hidden for now; all performance multipliers are fixed at x1.15 in code. -->
 			<h4 style="margin-top:12px;">Paint Shop</h4>

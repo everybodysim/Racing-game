@@ -14,7 +14,7 @@ const MODELS = [
   'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
   'vehicle-hatchback-green', 'vehicle-sedan-orange',
   'track-straight', 'track-corner', 'track-bump', 'track-finish',
-  'decoration-empty', 'decoration-forest', 'decoration-tents'
+  'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass'
 ];
 const REQUIRED_VEHICLE_KEYS = [ 'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red', 'vehicle-hatchback-green', 'vehicle-sedan-orange' ];
 const CAR_STATS = {

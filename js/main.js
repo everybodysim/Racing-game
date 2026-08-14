@@ -238,17 +238,17 @@ const modelNames = [
 	'track-3-way', 'track-4-way',
 	'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope',
 	'elev-track-3-way', 'elev-track-4-way',
-	'decoration-empty', 'decoration-forest', 'decoration-tents',
+	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
 ];
 
 const models = {};
 const CAR_STATS = {
-	'vehicle-truck-yellow': { name: 'Bumblebee', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-green': { name: 'Forest', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-purple': { name: 'Grape', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-red': { name: 'Cherry', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-hatchback-green': { name: 'Lime', bodyStyle: 'hatchback', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-sedan-orange': { name: 'Ember', bodyStyle: 'sedan', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-yellow': { name: 'Yellow Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-green': { name: 'Green Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-purple': { name: 'Purple Van', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-red': { name: 'Red Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-hatchback-green': { name: 'Green Hatchback', bodyStyle: 'hatchback', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-sedan-orange': { name: 'Orange Sedan', bodyStyle: 'sedan', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 };
 const CAR_SELECT_STYLES = {
 	'vehicle-truck-yellow': { background: '#f2c94c', border: '#ffe082', color: '#1b1606' },
@@ -2089,6 +2089,8 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 	if ( extras?.worldPreset !== 'pool-filled' ) {
 		required.add( 'decoration-empty' );
 		required.add( 'decoration-forest' );
+		// Flat grass used to replace auto-forest trees that sit under (off-grid) roads.
+		required.add( 'empty-deco-grass' );
 		// Default tracks include hand-authored tent decoration cells, so load that model too.
 		if ( ! customCells ) required.add( 'decoration-tents' );
 	}
@@ -5341,7 +5343,7 @@ async function init() {
 			button.className = `garage-vehicle-card${ carKey === selectedKey ? ' active' : '' }`;
 			button.style.setProperty( '--garage-accent', style.border || '#9ed8ff' );
 			button.innerHTML = `
-				<h5>${ stats.name } ${ stats.bodyStyle || 'truck' }</h5>
+				<h5>${ stats.name }</h5>
 				<dl>
 					<dt>Speed</dt><dd>${ stats.speed } / 10</dd>
 					<dt>Acceleration</dt><dd>${ stats.accel } / 10</dd>
