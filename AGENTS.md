@@ -63,13 +63,14 @@
 ## Decoration trees (`js/Track.js`)
 
 ### Tree rotation (breaks up grid pattern)
-- `createInstances(src, positions, randomY)` accepts a `randomY` flag. Only
-  `decoration-forest` passes `true`; `decoration-empty` and `empty-deco-grass` keep
-  rotation 0 (flat quads — randomizing would change their visual footprint).
-- Each forest instance gets a per-instance Y rotation derived from a stable hash of its
-  cell coords: `frac(sin(gx*12.9898 + gz*78.233) * 43758.5453) * 2π`. Same cell → same
-  angle every reload (no reshuffle when the track rebuilds). Trees are radially symmetric
-  so rotation doesn't change their look, only breaks the repetitive aligned-grid pattern.
+- `createInstances(src, positions, randomY)` accepts a `randomY` flag. Both 3D auto-placed
+  tree meshes — `decoration-forest` (tall trees) AND `decoration-empty` (buffer-zone
+  bushes/shrubs near the track) — pass `true`. `empty-deco-grass` (flat grass quad) keeps
+  rotation 0 (rotating a flat quad would change its visual footprint).
+- Each instance gets a Y rotation limited to **90° intervals** (0, 90, 180, 270) derived
+  from a stable hash of its cell coords. No odd tilts — only the four cardinal angles.
+  Same cell → same angle every reload (no reshuffle when the track rebuilds). Trees/bushes
+  are roughly symmetric so rotation only breaks the repetitive aligned-grid pattern.
 
 ### Off-grid tree blocking (`blockCellForTrees`)
 - A track cell at (gx,gz) covers [gx,gx+1]×[gz,gz+1]. An integer decoration cell (cx,cz)
