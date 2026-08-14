@@ -243,12 +243,12 @@ const modelNames = [
 
 const models = {};
 const CAR_STATS = {
-	'vehicle-truck-yellow': { name: 'Yellow', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-green': { name: 'Green', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-purple': { name: 'Purple', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-red': { name: 'Red', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-hatchback-green': { name: 'Green', bodyStyle: 'hatchback', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-sedan-orange': { name: 'Orange', bodyStyle: 'sedan', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-yellow': { name: 'Bumblebee', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-green': { name: 'Forest', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-purple': { name: 'Grape', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-red': { name: 'Cherry', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-hatchback-green': { name: 'Lime', bodyStyle: 'hatchback', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-sedan-orange': { name: 'Ember', bodyStyle: 'sedan', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 };
 const CAR_SELECT_STYLES = {
 	'vehicle-truck-yellow': { background: '#f2c94c', border: '#ffe082', color: '#1b1606' },
