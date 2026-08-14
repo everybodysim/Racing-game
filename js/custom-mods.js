@@ -1334,7 +1334,7 @@ document.getElementById( 'save-to-manager' )?.addEventListener( 'click', () => {
 // Community Custom Mods board API. Replace the host with your deployed Cloudflare
 // Worker URL (see cloudflare-mods/README.md). When left as the placeholder or
 // unreachable, the Publish to Community Board button shows a friendly message.
-const MODS_API_BASE = 'https://REPLACE_WITH_YOUR_WORKER_URL/api/mods';
+const MODS_API_BASE = 'https://racing-mods-board-api.ga1010.workers.dev/api/mods';
 
 function boardReady() {
 	return typeof MODS_API_BASE === 'string' && !/REPLACE_WITH_YOUR_WORKER_URL/.test( MODS_API_BASE );
