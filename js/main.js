@@ -2718,6 +2718,7 @@ async function init() {
 	localPlayerVehicle = vehicle;
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
+	vehicle.__baseHitboxRadius = VEHICLE_SURFACE_RADIUS;
 
 	// ── HUD Extras: speedometer, minimap, shortcuts overlay ──
 	let hudExtras = null;
@@ -2747,6 +2748,7 @@ async function init() {
 		vehicle2 = new Vehicle();
 		vehicle2.rigidBody = sphereBody2;
 		vehicle2.physicsWorld = world;
+		vehicle2.__baseHitboxRadius = VEHICLE_SURFACE_RADIUS;
 		vehicle2.setSpawn( spawnPos2, spawnAngle );
 		vehicle2.setPerformance( CAR_STATS[ player2CarKey ].perf );
 		const vehicleGroup2 = vehicle2.init( models[ player2CarKey ] );
@@ -6909,6 +6911,24 @@ function completeCampaignStage() {
 		targetVehicle.container.scale.setScalar( nextScale );
 		targetVehicle.__padScale = nextScale;
 		if ( targetHitboxMesh ) targetHitboxMesh.scale.setScalar( nextScale );
+
+		// Scale the physics hitbox to match the visual mesh exactly, so big/small/normal
+		// pads change collisions instead of only the rendered car. crashcat stores the
+		// sphere radius on body.shape; updateShape() recomputes the AABB, inertia and
+		// broadphase entry from the new radius (mass is preserved since it was given).
+		const body = targetVehicle?.rigidBody;
+		const physWorld = targetVehicle?.physicsWorld;
+		if ( body?.shape && physWorld && typeof rigidBody.updateShape === 'function' ) {
+
+			const baseRadius = Number.isFinite( targetVehicle.__baseHitboxRadius )
+				? targetVehicle.__baseHitboxRadius
+				: ( Number.isFinite( body.shape.radius ) && body.shape.radius > 0 ? body.shape.radius : VEHICLE_SURFACE_RADIUS );
+			targetVehicle.__baseHitboxRadius = baseRadius;
+			body.shape.radius = Math.max( 0.05, baseRadius * nextScale );
+			rigidBody.updateShape( physWorld, body );
+
+		}
+
 		if ( nextScale > prevScale && nextScale > 1.01 && targetVehicle?.spherePos && targetVehicle?.rigidBody ) {
 
 			const lift = 0.24 * ( nextScale - prevScale );
