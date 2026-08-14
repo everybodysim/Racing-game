@@ -17,15 +17,52 @@
 .skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
 .skip-link:focus{top:12px}
 
-    body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: #111722; color: #fff; }
-    main { max-width: 860px; margin: 24px auto; padding: 0 16px; }
-    .panel { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
-    input, button { padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: #fff; }
-    button { cursor: pointer; }
-    ul { margin: 8px 0 0; padding-left: 20px; }
-    a { color: #8dc7ff; }
+    body { margin: 0; font: 15px/1.5 var(--skid-font, system-ui), sans-serif; background: radial-gradient(1200px 600px at 50% -120px, #18243a 0%, #07101e 60%); color: var(--skid-text, #e6edf7); min-height: 100vh; }
+    main { max-width: 940px; margin: 22px auto; padding: 0 18px 40px; }
+    .page-head { display:flex; align-items:flex-end; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:18px; }
+    .page-head h1 { margin:0; font-size:28px; font-weight:800; letter-spacing:.01em; }
+    .page-head p { margin:6px 0 0; color:var(--skid-muted,#b5c2da); font-size:14px; }
+    .back-link { color:var(--skid-accent2,#5ac8ff); text-decoration:none; font-weight:600; font-size:14px; }
+    .back-link:hover { text-decoration:underline; }
+
+    .layout { display:grid; grid-template-columns: 1fr 1fr; gap:16px; align-items:start; }
+    @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
+    .col { display:flex; flex-direction:column; gap:14px; min-width:0; }
+
+    .panel { background: var(--skid-panel, rgba(255,255,255,0.06)); border: 1px solid var(--skid-line, rgba(255,255,255,0.13)); border-radius: var(--skid-radius, 14px); padding: 16px 16px 14px; }
+    .panel h2 { margin:0 0 4px; font-size:15px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; color:var(--skid-text,#e6edf7); display:flex; align-items:center; gap:8px; }
+    .panel h2 .dot { width:8px; height:8px; border-radius:50%; background:var(--skid-accent,#77f3b1); box-shadow:0 0 10px rgba(119,243,177,.5); flex-shrink:0; }
+    .panel .hint { margin:2px 0 12px; color:var(--skid-muted,#b5c2da); font-size:13px; }
+    .panel code { background:rgba(255,255,255,.08); padding:1px 5px; border-radius:5px; font-size:12px; }
+
     .row { display: flex; gap: 8px; flex-wrap: wrap; }
-    .notice { margin-top: 10px; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,183,77,0.55); background: rgba(255,183,77,0.14); color: #ffd79a; }
+    input { padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.32); color: #fff; font: inherit; }
+    input::placeholder { color: rgba(255,255,255,.4); }
+    input:focus { outline:none; border-color:var(--skid-accent2,#5ac8ff); box-shadow:0 0 0 3px rgba(90,200,255,.16); }
+    button { padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.08); color: #fff; font: inherit; font-weight:600; cursor: pointer; transition: background .12s ease, border-color .12s ease, transform .05s ease; }
+    button:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.3); }
+    button:active { transform: translateY(1px); }
+    button.primary { background: linear-gradient(135deg, var(--skid-accent,#77f3b1), var(--skid-accent2,#5ac8ff)); color:#06121f; border:none; }
+    button.primary:hover { filter:brightness(1.08); }
+    button.danger { background: rgba(255,95,95,0.16); border-color: rgba(255,95,95,0.4); color:#ffb3b3; }
+    button.danger:hover { background: rgba(255,95,95,0.26); }
+    button:disabled { opacity:.5; cursor:default; }
+
+    .status { margin-top:12px; min-height:20px; font-size:13px; color:var(--skid-muted,#b5c2da); }
+    .status.ok { color:var(--skid-accent,#77f3b1); }
+    .status.err { color:#ff9d9d; }
+
+    .list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+    .item { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; background:rgba(0,0,0,0.22); border:1px solid rgba(255,255,255,0.08); }
+    .item .name { font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+    .item .badge { font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; background:rgba(119,243,177,.16); color:var(--skid-accent,#77f3b1); border:1px solid rgba(119,243,177,.3); white-space:nowrap; }
+    .item .actions { display:flex; gap:6px; flex-shrink:0; }
+    .item button { padding:6px 10px; font-size:13px; }
+    .empty { color:var(--skid-muted,#b5c2da); font-size:13px; font-style:italic; padding:6px 2px; }
+
+    .hero-link { display:inline-flex; align-items:center; gap:8px; text-decoration:none; color:#06121f; font-weight:700; background:linear-gradient(135deg, var(--skid-accent,#77f3b1), var(--skid-accent2,#5ac8ff)); padding:10px 16px; border-radius:11px; transition:filter .12s ease; margin-top:6px; }
+    .hero-link:hover { filter:brightness(1.08); }
+    .notice { margin-top: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,183,77,0.55); background: rgba(255,183,77,0.14); color: #ffd79a; font-size:13px; }
   </style>
 <script src="js/PageTransitions.js"></script>
 <link rel="stylesheet" href="ui-theme.css">
@@ -33,42 +70,61 @@
 <body>
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content">
-  <main>
-    <h1>Mod Manager</h1>
-    <div class="panel">
-      <p>Install by typing mod name (example: <code>TAS</code>).</p>
-      <div class="row">
-        <input id="mod-name" placeholder="Mod name" />
-        <button id="install-btn" type="button">Install</button>
-      </div>
-      <div id="install-status"></div>
+  <div class="page-head">
+    <div>
+      <h1>Mod Manager</h1>
+      <p>Install, manage, and share mods. Changes apply after reloading the game.</p>
     </div>
-    <div class="panel">
-      <h2>Installed mods</h2>
-      <ul id="installed-list"></ul>
-    </div>
-    <div class="panel">
-      <h2>Build your own mod</h2>
-      <p>Custom Mods Lab is enabled. Build Blockly mods, save them to the manager, then install them here.</p>
-      <p><a href="custommods.html">Open Custom Mods Lab (Preview)</a></p>
-     
+    <a class="back-link" href="index.html">← Back to game</a>
+  </div>
+
+  <div class="layout">
+    <div class="col">
+
+      <section class="panel">
+        <h2><span class="dot"></span>Install a mod</h2>
+        <p class="hint">Type a mod name from the catalog (example: <code>TAS</code>) and install it.</p>
+        <div class="row">
+          <input id="mod-name" placeholder="Mod name" style="flex:1; min-width:180px;" />
+          <button id="install-btn" class="primary" type="button">Install</button>
+        </div>
+        <div id="install-status" class="status"></div>
+      </section>
+
+      <section class="panel">
+        <h2><span class="dot"></span>Installed mods</h2>
+        <p class="hint">Active mods are loaded the next time you open the game.</p>
+        <ul id="installed-list" class="list"></ul>
+      </section>
+
     </div>
 
-    <div class="panel">
-      <h2>Import shared custom mod</h2>
-      <p>Paste a share URL or share payload JSON from Custom Mods Lab.</p>
-      <div class="row">
-        <input id="shared-mod-input" placeholder="https://...custommods.html?share=... or JSON" style="min-width: 320px; flex: 1;" />
-        <button id="import-shared-btn" type="button">Import Shared</button>
-      </div>
-      <ul id="shared-mods-list"></ul>
+    <div class="col">
+
+      <section class="panel">
+        <h2><span class="dot"></span>Build your own mod</h2>
+        <p class="hint">Use the visual Blockly editor to build mods, save them to the manager, then install them here.</p>
+        <a class="hero-link" href="custommods.html">Open Custom Mods Lab (Preview) →</a>
+      </section>
+
+      <section class="panel">
+        <h2><span class="dot"></span>Import shared custom mod</h2>
+        <p class="hint">Paste a share URL or share-payload JSON from Custom Mods Lab.</p>
+        <div class="row">
+          <input id="shared-mod-input" placeholder="https://...custommods.html?share=... or JSON" style="min-width: 240px; flex: 1;" />
+          <button id="import-shared-btn" class="primary" type="button">Import</button>
+        </div>
+        <ul id="shared-mods-list" class="list" style="margin-top:12px;"></ul>
+      </section>
+
+      <section class="panel">
+        <h2><span class="dot"></span>All available mods</h2>
+        <p class="hint">The full catalog of built-in mods you can install by name.</p>
+        <ul id="catalog-list" class="list"></ul>
+      </section>
+
     </div>
-    <div class="panel">
-      <h2>All available mods</h2>
-      <ul id="catalog-list"></ul>
-    </div>
-    <p><a href="index.html">← Back to game</a></p>
-  </main>
+  </div>
   <script type="module" src="js/mods-manager.js"></script>
 </main>
 

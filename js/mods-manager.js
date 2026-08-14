@@ -69,11 +69,119 @@ function saveSharedMods(mods) {
   }
 }
 
-function renderInstalled(mods) { const list = document.getElementById('installed-list'); list.innerHTML=''; for (const mod of mods){ const li=document.createElement('li'); li.textContent=mod.name; const b=document.createElement('button'); b.textContent='Remove'; b.style.marginLeft='8px'; b.onclick=()=>{const n=readInstalled().filter((x)=>x.id!==mod.id); saveInstalled(n); renderInstalled(n); renderCatalog(currentCatalog,n);}; li.appendChild(b); list.appendChild(li);} }
-function renderCatalog(catalog, installed) { const list=document.getElementById('catalog-list'); if(!list) return; list.innerHTML=''; for(const mod of catalog){ const li=document.createElement('li'); li.textContent=`${mod.name}${installed.some((e)=>e.id===mod.id)?' — Installed':''}`; list.appendChild(li);} }
-function renderShared(mods) { const list=document.getElementById('shared-mods-list'); if(!list) return; list.innerHTML=''; for(const mod of mods){ const li=document.createElement('li'); li.textContent=`${mod.modName||mod.modId} (${mod.modId})`; const install=document.createElement('button'); install.textContent='Install'; install.style.marginLeft='8px'; install.disabled=false; install.title='Install this custom mod into the game'; install.onclick=()=>{ const baseId = mod.modId || `custom-${Date.now()}`; const id = String(baseId).startsWith('custom-') ? String(baseId) : `custom-${baseId}`; let code = String(mod.template||''); if(!code.trim()){ code = `const SPEC = {};\nexport default { id: ${JSON.stringify(id)}, init(){}, applyFrame(){ return null; }, onCheckpoint(){}, onCrash(){}, onRespawn(){}, onLapFinish(){}, dispose(){} };\n`; } const res = installMod({ id, name: mod.modName||mod.modId||'Custom Shared Mod', entry: toBase64JsDataUrl(code) }); // Always re-render from localStorage (source of truth) so the UI can never
- // list a mod that didn't actually persist.
- const actual = readInstalled(); renderInstalled(actual); renderCatalog(currentCatalog,actual); const st=document.getElementById('install-status'); if(st) st.textContent = res.ok ? `Installed "${mod.modName||mod.modId}". Reload the game to activate it.` : `Install failed: ${res.error||'could not save to storage'}`; }; const copy=document.createElement('button'); copy.textContent='Copy JSON'; copy.style.marginLeft='8px'; copy.onclick=()=>navigator.clipboard?.writeText(JSON.stringify(mod)); const rm=document.createElement('button'); rm.textContent='Delete'; rm.style.marginLeft='8px'; rm.onclick=()=>{const n=readSharedMods().filter((x)=>x.modId!==mod.modId); saveSharedMods(n); renderShared(n);}; li.append(install,copy,rm); list.appendChild(li);} }
+function setInstallStatus(msg, kind) {
+  const st = document.getElementById('install-status');
+  if (!st) return;
+  st.textContent = msg || '';
+  st.classList.remove('ok', 'err');
+  if (kind === 'ok') st.classList.add('ok');
+  else if (kind === 'err') st.classList.add('err');
+}
+function emptyHint(text) {
+  const li = document.createElement('li');
+  li.className = 'empty';
+  li.textContent = text;
+  return li;
+}
+function renderInstalled(mods) {
+  const list = document.getElementById('installed-list');
+  list.innerHTML = '';
+  if (!mods.length) { list.appendChild(emptyHint('No mods installed yet.')); return; }
+  for (const mod of mods) {
+    const li = document.createElement('li');
+    li.className = 'item';
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = mod.name;
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const b = document.createElement('button');
+    b.textContent = 'Remove';
+    b.className = 'danger';
+    b.onclick = () => { const n = readInstalled().filter((x) => x.id !== mod.id); saveInstalled(n); renderInstalled(n); renderCatalog(currentCatalog, n); };
+    actions.appendChild(b);
+    li.append(name, actions);
+    list.appendChild(li);
+  }
+}
+function renderCatalog(catalog, installed) {
+  const list = document.getElementById('catalog-list');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!catalog.length) { list.appendChild(emptyHint('Could not load the mod catalog.')); return; }
+  for (const mod of catalog) {
+    const isInstalled = installed.some((e) => e.id === mod.id);
+    const li = document.createElement('li');
+    li.className = 'item';
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = mod.name;
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    if (isInstalled) {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = 'Installed';
+      actions.appendChild(badge);
+    } else {
+      const inst = document.createElement('button');
+      inst.textContent = 'Install';
+      inst.className = 'primary';
+      inst.onclick = () => { const res = installMod(mod); const actual = readInstalled(); renderInstalled(actual); renderCatalog(currentCatalog, actual); setInstallStatus(res.ok ? `${mod.name} installed.` : `Install failed: ${res.error || 'could not save to storage'}`, res.ok ? 'ok' : 'err'); };
+      actions.appendChild(inst);
+    }
+    li.append(name, actions);
+    list.appendChild(li);
+  }
+}
+function renderShared(mods) {
+  const list = document.getElementById('shared-mods-list');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!mods.length) { list.appendChild(emptyHint('No shared mods imported yet.')); return; }
+  for (const mod of mods) {
+    const li = document.createElement('li');
+    li.className = 'item';
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = `${mod.modName || mod.modId} (${mod.modId})`;
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+
+    const install = document.createElement('button');
+    install.textContent = 'Install';
+    install.className = 'primary';
+    install.title = 'Install this custom mod into the game';
+    install.onclick = () => {
+      const baseId = mod.modId || `custom-${Date.now()}`;
+      const id = String(baseId).startsWith('custom-') ? String(baseId) : `custom-${baseId}`;
+      let code = String(mod.template || '');
+      if (!code.trim()) {
+        code = `const SPEC = {};\nexport default { id: ${JSON.stringify(id)}, init(){}, applyFrame(){ return null; }, onCheckpoint(){}, onCrash(){}, onRespawn(){}, onLapFinish(){}, dispose(){} };\n`;
+      }
+      const res = installMod({ id, name: mod.modName || mod.modId || 'Custom Shared Mod', entry: toBase64JsDataUrl(code) });
+      // Always re-render from localStorage (source of truth) so the UI can never
+      // list a mod that didn't actually persist.
+      const actual = readInstalled();
+      renderInstalled(actual);
+      renderCatalog(currentCatalog, actual);
+      setInstallStatus(res.ok ? `Installed "${mod.modName || mod.modId}". Reload the game to activate it.` : `Install failed: ${res.error || 'could not save to storage'}`, res.ok ? 'ok' : 'err');
+    };
+
+    const copy = document.createElement('button');
+    copy.textContent = 'Copy JSON';
+    copy.onclick = () => navigator.clipboard?.writeText(JSON.stringify(mod));
+
+    const rm = document.createElement('button');
+    rm.textContent = 'Delete';
+    rm.className = 'danger';
+    rm.onclick = () => { const n = readSharedMods().filter((x) => x.modId !== mod.modId); saveSharedMods(n); renderShared(n); };
+
+    actions.append(install, copy, rm);
+    li.append(name, actions);
+    list.appendChild(li);
+  }
+}
 function findModByName(catalog, query) { const q=String(query||'').trim().toLowerCase(); if(!q) return null; return catalog.find((e)=>[e.name,e.id,e.folder].filter(Boolean).some((v)=>String(v).toLowerCase()===q))||null; }
 
 function parseSharedInput(raw) {
@@ -87,10 +195,11 @@ function parseSharedInput(raw) {
 }
 
 (async function init(){
-  const installBtn=document.getElementById('install-btn'); const nameInput=document.getElementById('mod-name'); const status=document.getElementById('install-status');
-  if (CUSTOM_MODS_ENABLED) status.textContent='Custom mods are enabled. Import or install a shared Blockly mod to use it in-game.';
-  let catalog=[]; try{catalog=await loadCatalog(); currentCatalog=catalog;}catch(e){status.textContent=e.message;}
+  const installBtn=document.getElementById('install-btn'); const nameInput=document.getElementById('mod-name');
+  if (CUSTOM_MODS_ENABLED) setInstallStatus('Custom mods are enabled. Import or install a shared Blockly mod to use it in-game.');
+  let catalog=[]; try{catalog=await loadCatalog(); currentCatalog=catalog;}catch(e){ setInstallStatus(e.message, 'err'); }
   let installed=readInstalled(); renderInstalled(installed); renderCatalog(catalog,installed); renderShared(readSharedMods());
-  installBtn?.addEventListener('click',()=>{ const mod=findModByName(catalog,nameInput?.value); if(!mod) return status.textContent='Mod not found.'; const res=installMod(mod); installed=readInstalled(); renderInstalled(installed); renderCatalog(catalog,installed); status.textContent = res.ok ? `${mod.name} installed.` : `Install failed: ${res.error||'could not save to storage'}`; });
-  document.getElementById('import-shared-btn')?.addEventListener('click',()=>{ try{ const payload=parseSharedInput(document.getElementById('shared-mod-input')?.value); if(payload.type!=='racing-custom-mod-share-v1') throw new Error('Invalid payload type'); const all=readSharedMods().filter((x)=>x.modId!==payload.modId); all.push(payload); saveSharedMods(all); renderShared(all); status.textContent=`Imported shared mod ${payload.modName||payload.modId}`;}catch(e){ status.textContent=`Import failed: ${e.message}`; }});
+  installBtn?.addEventListener('click',()=>{ const mod=findModByName(catalog,nameInput?.value); if(!mod) return setInstallStatus('Mod not found. Type a name from the catalog below.', 'err'); const res=installMod(mod); installed=readInstalled(); renderInstalled(installed); renderCatalog(catalog,installed); setInstallStatus(res.ok ? `${mod.name} installed.` : `Install failed: ${res.error||'could not save to storage'}`, res.ok ? 'ok' : 'err'); });
+  document.getElementById('import-shared-btn')?.addEventListener('click',()=>{ try{ const payload=parseSharedInput(document.getElementById('shared-mod-input')?.value); if(payload.type!=='racing-custom-mod-share-v1') throw new Error('Invalid payload type'); const all=readSharedMods().filter((x)=>x.modId!==payload.modId); all.push(payload); saveSharedMods(all); renderShared(all); setInstallStatus(`Imported shared mod ${payload.modName||payload.modId}`, 'ok'); }catch(e){ setInstallStatus(`Import failed: ${e.message}`, 'err'); }});
+  nameInput?.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ e.preventDefault(); installBtn?.click(); } });
 })();
