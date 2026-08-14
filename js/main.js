@@ -15,6 +15,7 @@ import { HudExtras } from './HudExtras.js';
 import { createRuntime as _createModRuntime } from './mod-runtime.js';
 import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
+import { Storage } from './Storage.js';
 
 document.title = 'Racing';
 
@@ -1992,6 +1993,21 @@ function ensureDefaultFreecamSeeded() {
 function normalizeModEntryPath( entryPath ) {
 
 	if ( ! entryPath || typeof entryPath !== 'string' ) return null;
+	// Compressed custom-mod source (written by custom-mods.js / mods-manager.js
+	// to save localStorage). Decode the LZW-compressed JS and rebuild the
+	// importable `data:` URL at load time. Legacy `data:text/javascript;base64,...`
+	// entries and file paths keep working unchanged.
+	if ( entryPath.indexOf( 'zjs:' ) === 0 ) {
+		try {
+			const code = Storage.decompressString( entryPath.slice( 4 ) );
+			const bytes = new TextEncoder().encode( String( code || '' ) );
+			let bin = '';
+			bytes.forEach( ( b ) => { bin += String.fromCharCode( b ); } );
+			return `data:text/javascript;base64,${ btoa( bin ) }`;
+		} catch ( e ) {
+			return null;
+		}
+	}
 	if ( entryPath.startsWith( 'data:text/javascript' ) ) return entryPath;
 	if ( entryPath.startsWith( './' ) ) return `../${ entryPath.slice( 2 ) }`;
 	if ( entryPath.startsWith( '/' ) ) return entryPath;

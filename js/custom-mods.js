@@ -1,6 +1,20 @@
 // Custom Mods Lab — block definitions, parser, and runtime template generator.
 // Keeps the visual editor compact while exposing a rich, safe modding surface.
 
+import { compressString, compressJson, decompressJson } from './Storage.js';
+
+// Build a localStorage-compact custom-mod entry. Instead of a 33%-inflated
+// base64 `data:` URL, we store the LZW-compressed JS source prefixed `zjs:`;
+// js/main.js rebuilds the importable `data:` URL at load time. Legacy base64
+// entries keep working (main.js handles both). This drastically cuts the
+// localStorage footprint so tiny mods no longer hit the quota.
+function toCompressedJsEntry( code ) {
+	return `zjs:${ compressString( String( code || '' ) ) }`;
+}
+
+// Legacy helper kept for share/export paths that still need a real data URL.
+function toJsDataUrl( code ) { const bytes = new TextEncoder().encode( String( code || '' ) ); let bin = ''; bytes.forEach( ( b ) => { bin += String.fromCharCode( b ); } ); return `data:text/javascript;base64,${ btoa( bin ) }`; }
+
 // Blockly >=11 no longer ships FieldColour in blockly.min.js. The FX, UI and Game
 // Control categories use `new Blockly.FieldColour(...)`. Previously this threw during
 // block init() and froze the toolbox flyout on those categories (clicking Lists /
@@ -1171,10 +1185,7 @@ function generateVerboseTemplate() {
 // ============ SHARING ============
 function toBase64Url( str ) { const bytes = new TextEncoder().encode( str ); let bin = ''; bytes.forEach( ( b ) => { bin += String.fromCharCode( b ); } ); return btoa( bin ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' ); }
 function fromBase64Url( raw ) { const norm = String( raw || '' ).replace( /-/g, '+' ).replace( /_/g, '/' ); const padded = norm + '==='.slice( ( norm.length + 3 ) % 4 ); const bin = atob( padded ); const bytes = Uint8Array.from( bin, ( c ) => c.charCodeAt( 0 ) ); return new TextDecoder().decode( bytes ); }
-// Build a `data:text/javascript;base64,...` URL for the generated runtime so the
-// mod can be imported via dynamic import() at boot. Mirrors the helper in
-// js/mods-manager.js used by the shared-mod Install button.
-function toJsDataUrl( code ) { const bytes = new TextEncoder().encode( String( code || '' ) ); let bin = ''; bytes.forEach( ( b ) => { bin += String.fromCharCode( b ); } ); return `data:text/javascript;base64,${ btoa( bin ) }`; }
+// toJsDataUrl() and toCompressedJsEntry() are defined at the top of this file.
 
 function getSharePayload() {
 	return {
@@ -1232,7 +1243,7 @@ document.getElementById( 'export-template' )?.addEventListener( 'click', () => {
 } );
 
 document.getElementById( 'save-draft' )?.addEventListener( 'click', () => {
-	localStorage.setItem( DRAFT_KEY, JSON.stringify( {
+	localStorage.setItem( DRAFT_KEY, compressJson( {
 		modId: document.getElementById( 'mod-id' ).value,
 		modName: document.getElementById( 'mod-name' ).value,
 		xml: exportXmlPretty(),
@@ -1245,7 +1256,8 @@ document.getElementById( 'load-draft' )?.addEventListener( 'click', () => {
 	const raw = localStorage.getItem( DRAFT_KEY );
 	if ( ! raw ) return setStatus( 'No draft found' );
 	try {
-		const p = JSON.parse( raw );
+		const p = decompressJson( raw, null );
+		if ( ! p ) return setStatus( 'Could not load draft' );
 		document.getElementById( 'mod-id' ).value = p.modId || '';
 		document.getElementById( 'mod-name' ).value = p.modName || '';
 		if ( p.xml ) { loadXmlText( p.xml ); document.getElementById( 'xmlBox' ).value = p.xml; }
@@ -1272,13 +1284,13 @@ document.getElementById( 'save-to-manager' )?.addEventListener( 'click', () => {
 		const payload = getSharePayload();
 		// 1) Keep the mod in the shared-mods list so it shows up in the Mods page
 		//    (Import Shared / Install / Copy JSON) for re-installation or sharing.
-		let arr = JSON.parse( localStorage.getItem( SHARED_KEY ) || '[]' );
+		let arr = decompressJson( localStorage.getItem( SHARED_KEY ) || '[]', [] );
 		if ( ! Array.isArray( arr ) ) arr = [];
 		arr = arr.filter( ( x ) => x.modId !== payload.modId );
 		arr.push( payload );
 		// Quota-safe: evict oldest shared payloads on overflow so the save never throws.
 		while ( arr.length ) {
-			try { localStorage.setItem( SHARED_KEY, JSON.stringify( arr ) ); break; }
+			try { localStorage.setItem( SHARED_KEY, compressJson( arr ) ); break; }
 			catch ( e ) { arr.shift(); }
 		}
 		// 2) ACTUALLY INSTALL the generated runtime so the mod runs in index.html on
@@ -1291,7 +1303,7 @@ document.getElementById( 'save-to-manager' )?.addEventListener( 'click', () => {
 		let installedList = Array.isArray( installedRaw ) ? installedRaw : [];
 		const installId = payload.modId && String( payload.modId ).startsWith( 'custom-' ) ? String( payload.modId ) : `custom-${ payload.modId }`;
 		const code = String( payload.template || '' ).trim() || `const SPEC = {};\nexport default { id: ${ JSON.stringify( installId ) }, init(){}, applyFrame(){ return null; } };\n`;
-		const entry = toJsDataUrl( code );
+		const entry = toCompressedJsEntry( code );
 		installedList = installedList.filter( ( m ) => m?.id !== installId );
 		installedList.push( { id: installId, name: payload.modName || payload.modId || 'Custom Mod', entry } );
 		let savedOk = false;
@@ -1301,7 +1313,7 @@ document.getElementById( 'save-to-manager' )?.addEventListener( 'click', () => {
 				const m = installedList[ i ];
 				const isOtherCustom = m && m.id !== installId
 					&& typeof m.id === 'string' && m.id.startsWith( 'custom-' )
-					&& typeof m.entry === 'string' && m.entry.startsWith( 'data:' );
+					&& typeof m.entry === 'string' && ( m.entry.startsWith( 'data:' ) || m.entry.startsWith( 'zjs:' ) );
 				if ( isOtherCustom ) {
 					installedList.splice( i, 1 );
 					try { localStorage.setItem( INSTALLED_MODS_KEY, JSON.stringify( installedList ) ); savedOk = true; break; }
@@ -1402,11 +1414,13 @@ if ( shareParam ) {
 	const raw = localStorage.getItem( DRAFT_KEY );
 	if ( raw ) {
 		try {
-			const p = JSON.parse( raw );
-			document.getElementById( 'mod-id' ).value = p.modId || document.getElementById( 'mod-id' ).value;
-			document.getElementById( 'mod-name' ).value = p.modName || document.getElementById( 'mod-name' ).value;
-			if ( p.xml ) loadXmlText( p.xml );
-			setStatus( 'Restored last draft' );
+			const p = decompressJson( raw, null );
+			if ( p ) {
+				document.getElementById( 'mod-id' ).value = p.modId || document.getElementById( 'mod-id' ).value;
+				document.getElementById( 'mod-name' ).value = p.modName || document.getElementById( 'mod-name' ).value;
+				if ( p.xml ) loadXmlText( p.xml );
+				setStatus( 'Restored last draft' );
+			} else setStatus( 'Workspace loaded' );
 		} catch { setStatus( 'Workspace loaded' ); }
 	} else setStatus( 'Workspace loaded' );
 }

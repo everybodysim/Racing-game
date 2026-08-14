@@ -112,7 +112,7 @@
 /* === Shared page polish (low specificity, easily overridden by page styles) === */
 
 /* Nicer default link colors for pages that don't style them */
-a:not(.skid-nav-brand):not(.skid-nav-link):not(.home-main-link):not(.home-secondary-link):not(.skip-link) {
+a:not(.skid-nav-brand):not(.skid-nav-link):not(.home-main-link):not(.home-secondary-link):not(.skip-link):not(.hero-link):not(.back-link) {
   color: var(--skid-accent2, #5ac8ff);
 }
 

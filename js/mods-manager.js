@@ -3,6 +3,15 @@ const SHARED_KEY = 'racing-shared-custom-mods-v1';
 const CUSTOM_MODS_ENABLED = true;
 let currentCatalog = [];
 
+import { compressString, compressJson, decompressJson } from './Storage.js';
+
+// localStorage-compact custom-mod entry: LZW-compressed JS source prefixed `zjs:`.
+// js/main.js rebuilds the importable `data:` URL at load time. Legacy base64
+// `data:` entries keep working, so existing installs are never broken.
+function toCompressedJsEntry(code) {
+  return `zjs:${compressString(String(code || ''))}`;
+}
+
 function toBase64JsDataUrl(code) {
   const bytes = new TextEncoder().encode(String(code || ''));
   let bin = '';
@@ -46,7 +55,7 @@ function installMod(mod) {
     for (let i = 0; i < list.length; ) {
       const m = list[i];
       const isOtherCustom = m && m.id !== mod.id && String(m.id).startsWith('custom-')
-        && typeof m.entry === 'string' && m.entry.startsWith('data:');
+        && typeof m.entry === 'string' && (m.entry.startsWith('data:') || m.entry.startsWith('zjs:'));
       if (isOtherCustom) {
         list.splice(i, 1);
         try { localStorage.setItem(INSTALLED_MODS_KEY, JSON.stringify(list)); return { ok: true }; }
@@ -56,12 +65,12 @@ function installMod(mod) {
     return { ok: false, error: 'Not enough browser storage for this mod. Remove other installed/shared mods and try again.' };
   }
 }
-function readSharedMods() { try { const p = JSON.parse(localStorage.getItem(SHARED_KEY) || '[]'); return Array.isArray(p) ? p : []; } catch { return []; } }
+function readSharedMods() { try { const p = decompressJson(localStorage.getItem(SHARED_KEY) || '[]', []); return Array.isArray(p) ? p : []; } catch { return []; } }
 function saveSharedMods(mods) {
   // Same quota protection as saveInstalled: evict oldest shared payloads on overflow.
   let list = Array.isArray(mods) ? mods.slice() : [];
   for (;;) {
-    try { localStorage.setItem(SHARED_KEY, JSON.stringify(list)); return; }
+    try { localStorage.setItem(SHARED_KEY, compressJson(list)); return; }
     catch (e) {
       if (!list.length) throw e;
       list.shift();
@@ -159,7 +168,7 @@ function renderShared(mods) {
       if (!code.trim()) {
         code = `const SPEC = {};\nexport default { id: ${JSON.stringify(id)}, init(){}, applyFrame(){ return null; }, onCheckpoint(){}, onCrash(){}, onRespawn(){}, onLapFinish(){}, dispose(){} };\n`;
       }
-      const res = installMod({ id, name: mod.modName || mod.modId || 'Custom Shared Mod', entry: toBase64JsDataUrl(code) });
+      const res = installMod({ id, name: mod.modName || mod.modId || 'Custom Shared Mod', entry: toCompressedJsEntry(code) });
       // Always re-render from localStorage (source of truth) so the UI can never
       // list a mod that didn't actually persist.
       const actual = readInstalled();
