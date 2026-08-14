@@ -48,6 +48,30 @@
   and an exact parser case (`if (type === '...')`). Lists / UI & Storage /
   Game Control / FX categories have 0 undefined blocks and 0 unhandled parser cases.
 
+### Community Custom Mods board (`cloudflare-mods/` + `js/mods-manager.js` + `js/custom-mods.js`)
+- A Cloudflare Worker + KV store for publishing/installing community custom mods,
+  modeled on the Track Share Board worker (`cloudflare/worker/src/index.js`).
+- Folder: `cloudflare-mods/worker/{src/index.js,wrangler.toml,package.json}` +
+  beginner README `cloudflare-mods/README.md` (dashboard-only AND wrangler-CLI paths).
+- Worker endpoints: `GET /api/mods` (list summaries), `POST /api/mods` (publish full
+  share payload), `GET /api/mods/:id` (full mod + view bump), `POST /api/mods/:id/install`
+  (install count), `POST /api/mods/:id/vote` (thumbs up=1/down=-1), `DELETE /api/mods/:id`
+  (admin `X-Admin-Token`). KV keys `mods:index` (cap 300) + `mod:<id>` (cap 1.5MB).
+- Share payload shape is the existing `racing-custom-mod-share-v1` from
+  `getSharePayload()` in custom-mods.js: `{type,modId,modName,xml,template,createdAt}`.
+  Publish adds `author` + `description`.
+- Frontend config: `MODS_API_BASE = 'https://REPLACE_WITH_YOUR_WORKER_URL/api/mods'`
+  constant in BOTH `js/mods-manager.js` (board panel) and `js/custom-mods.js`
+  (Publish to Community Board button). Replace placeholder with deployed worker URL.
+- `boardReady()` returns false while the placeholder is in place, so the board panel
+  and publish button show a friendly "not connected yet" message and the rest of the
+  Mod Manager / Custom Mods Lab keep working normally.
+- `mods.html` "Custom Mods Community Board" panel: publish from saved mods OR paste
+  share URL/JSON, search, refresh, install (reuses `installMod`+`toCompressedJsEntry`),
+  vote (sessionStorage dedupe `modBoardVotes:v1`). Install counter bump is fire-and-forget.
+- Verified: 18 worker assertions pass (`test-mods-board.mjs`); pages render with no
+  console errors; existing `test-storage.mjs` (15) and `test-mod-flow.mjs` (10) pass.
+
 ## Hot render-loop performance (`js/main.js` + `js/HudExtras.js` + `js/HudGrid.js`)
 
 ### Architecture of the animate loop

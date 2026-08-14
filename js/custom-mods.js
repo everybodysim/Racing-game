@@ -1331,6 +1331,44 @@ document.getElementById( 'save-to-manager' )?.addEventListener( 'click', () => {
 	}
 } );
 
+// Community Custom Mods board API. Replace the host with your deployed Cloudflare
+// Worker URL (see cloudflare-mods/README.md). When left as the placeholder or
+// unreachable, the Publish to Community Board button shows a friendly message.
+const MODS_API_BASE = 'https://REPLACE_WITH_YOUR_WORKER_URL/api/mods';
+
+function boardReady() {
+	return typeof MODS_API_BASE === 'string' && !/REPLACE_WITH_YOUR_WORKER_URL/.test( MODS_API_BASE );
+}
+
+async function publishToCommunityBoard() {
+	if ( ! boardReady() ) {
+		setStatus( 'Community board not connected yet. See cloudflare-mods/README.md to set it up.' );
+		return;
+	}
+	const payload = getSharePayload();
+	const author = String( window.prompt( 'Your name (shown as author on the board):', '' ) || '' ).trim().slice( 0, 40 );
+	if ( author === null ) return; // prompt cancelled returns null
+	const description = String( window.prompt( 'Short description (optional):', '' ) || '' ).trim().slice( 0, 600 );
+	setStatus( 'Publishing to community board…' );
+	try {
+		const body = { ...payload, author, description };
+		const res = await fetch( MODS_API_BASE, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify( body ),
+		} );
+		const text = await res.text();
+		let data = {};
+		try { data = text ? JSON.parse( text ) : {}; } catch { /* ignore */ }
+		if ( ! res.ok ) throw new Error( data?.error || `HTTP ${ res.status }` );
+		setStatus( `Published "${ data?.entry?.modName || payload.modName }" to the community board! Open the Mod Manager to see it.` );
+	} catch ( e ) {
+		setStatus( `Could not publish: ${ e.message || e }` );
+	}
+}
+
+document.getElementById( 'publish-board' )?.addEventListener( 'click', () => publishToCommunityBoard() );
+
 // A ready-made demo mod that shows off the new UI / storage / game-control blocks.
 // Loads straight into the canvas so modders can study and remix it.
 const SAMPLE_MOD = {

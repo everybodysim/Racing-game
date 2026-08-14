@@ -65,6 +65,17 @@
     .hero-link { display:inline-flex; align-items:center; gap:8px; text-decoration:none; color:#06121f; font-weight:700; background:linear-gradient(135deg, var(--skid-accent,#77f3b1), var(--skid-accent2,#5ac8ff)); padding:10px 16px; border-radius:11px; transition:filter .12s ease; margin-top:6px; }
     .hero-link:hover { filter:brightness(1.08); }
     .notice { margin-top: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,183,77,0.55); background: rgba(255,183,77,0.14); color: #ffd79a; font-size:13px; }
+    .board-publish { margin: 6px 0 12px; border:1px solid var(--skid-line, rgba(255,255,255,0.13)); border-radius:10px; background:rgba(0,0,0,0.18); }
+    .board-publish summary { cursor:pointer; padding:10px 12px; font-weight:600; font-size:14px; }
+    .board-panel { padding: 4px 12px 12px; }
+    .board-panel .row { margin-bottom: 2px; }
+    select { padding:10px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.2); background:rgba(0,0,0,0.32); color:#fff; font:inherit; }
+    .item .meta { font-size:11px; color:var(--skid-muted,#b5c2da); margin-top:2px; }
+    .item .desc { font-size:12px; color:var(--skid-muted,#b5c2da); margin-top:3px; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+    .item .votes { font-size:12px; font-weight:600; white-space:nowrap; display:flex; gap:8px; align-items:center; }
+    .item .votes button { padding:3px 8px; font-size:12px; }
+    .item .count-pill { font-size:11px; padding:2px 8px; border-radius:999px; background:rgba(90,200,255,.14); color:var(--skid-accent2,#5ac8ff); border:1px solid rgba(90,200,255,.3); white-space:nowrap; }
+    .board-empty { color:var(--skid-muted,#b5c2da); font-size:13px; font-style:italic; padding:10px 4px; }
   </style>
 <script src="js/PageTransitions.js"></script>
 <link rel="stylesheet" href="ui-theme.css">
@@ -112,6 +123,34 @@
         <button id="import-shared-btn" class="primary" type="button">Import</button>
       </div>
       <ul id="shared-mods-list" class="list" style="margin-top:12px;"></ul>
+    </section>
+
+    <section class="panel" style="grid-column:1 / -1;">
+      <h2><span class="dot"></span>Custom Mods Community Board</h2>
+      <p class="hint">Browse and install custom mods made by other players, or publish your own from the Custom Mods Lab.</p>
+      <details class="board-publish">
+        <summary>Publish a mod to the board</summary>
+        <div class="board-panel">
+          <p class="hint">Pick one of your saved mods, or paste a share URL / share-payload JSON from Custom Mods Lab.</p>
+          <div class="row">
+            <select id="board-publish-source" style="min-width:200px; flex:1;">
+              <option value="">— Your saved mods —</option>
+            </select>
+            <input id="board-paste" placeholder="…or paste share URL / JSON" style="min-width:240px; flex:1;" />
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <input id="board-author" placeholder="Your name (author)" style="max-width:200px;" />
+            <input id="board-desc" placeholder="Short description (optional)" style="flex:1; min-width:200px;" />
+            <button id="board-publish-btn" class="primary" type="button">Publish</button>
+          </div>
+          <div id="board-status" class="status"></div>
+        </div>
+      </details>
+      <div class="row" style="margin: 10px 0;">
+        <input id="board-search" placeholder="Search mods by name or author..." style="max-width:360px; flex:1;" />
+        <button id="board-refresh" type="button">Refresh</button>
+      </div>
+      <ul id="board-list" class="list scroll-list" style="max-height:360px;"></ul>
     </section>
 
     <section class="panel" style="grid-column:1 / -1;">
