@@ -29,6 +29,7 @@
     @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
     .layout > .panel { margin:0; display:flex; flex-direction:column; }
     .layout > .panel > .list { flex:1; }
+    .scroll-list { max-height: 280px; overflow-y: auto; padding-right: 4px; }
 
     .panel { background: var(--skid-panel, rgba(255,255,255,0.06)); border: 1px solid var(--skid-line, rgba(255,255,255,0.13)); border-radius: var(--skid-radius, 14px); padding: 16px 16px 14px; }
     .panel h2 { margin:0 0 4px; font-size:15px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; color:var(--skid-text,#e6edf7); display:flex; align-items:center; gap:8px; }
@@ -114,9 +115,9 @@
     </section>
 
     <section class="panel" style="grid-column:1 / -1;">
-      <h2><span class="dot"></span>All available mods</h2>
-      <p class="hint">The full catalog of built-in mods you can install by name.</p>
-      <ul id="catalog-list" class="list"></ul>
+      <h2><span class="dot"></span>All official mods</h2>
+      <p class="hint">Built-in mods you can install by name.</p>
+      <ul id="catalog-list" class="list scroll-list"></ul>
     </section>
 
   </div>
