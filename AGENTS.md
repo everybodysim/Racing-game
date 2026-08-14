@@ -18,7 +18,7 @@
 
 ### Code touchpoints to register a new car (search `vehicle-truck-yellow` as the template)
 1. `index.html` `<select id="car-select">` — add `<option value="vehicle-…">Name</option>`.
-2. `index.html` `<select id="garage-car-select">` — add `<option value="vehicle-…">Name truck</option>`.
+2. `index.html` `<select id="garage-car-select">` — add `<option value="vehicle-…">Name</option>` (no body-style suffix; the garage card title uses `stats.name` only).
 3. `js/main.js` `modelNames[]` (line ~234) — add the model base name (no `.glb`).
 4. `js/main.js` `CAR_STATS` (line ~244) — add `{ name, speed, accel, perf: { topSpeed, accelRate, driveForce } }`.
    `perf` drives `Vehicle.setPerformance()`; `speed`/`accel` are the 0-10 garage card display.
@@ -46,6 +46,40 @@
   against `CAR_STATS[key] && models[key]` else falls back to yellow.
 - Ghost/replay payloads carry `car`; imported ghosts normalize and re-render the matching model.
 - Custom mods can call `api.setVehicleModel(key)` (validates against CAR_STATS + models).
+
+### Current car roster (10 cars, all unified stats)
+- Original 4: `vehicle-truck-yellow` (Yellow Truck), `vehicle-truck-green` (Green Truck),
+  `vehicle-truck-purple` (Purple Van), `vehicle-truck-red` (Red Truck).
+- Batch 2: `vehicle-hatchback-green` (Green Hatchback), `vehicle-sedan-orange` (Orange Sedan).
+- Batch 3: `vehicle-car-police` (Police Car), `vehicle-delivery-yellow` (Yellow Delivery),
+  `vehicle-flatbed-purple` (Purple Flatbed), `vehicle-van-blue` (Blue Van).
+- Naming convention: `[Color] [Model]` (e.g. "Yellow Truck", "Purple Van", "Police Car").
+  Police Car has no color prefix (it's a distinct livery). All share identical perf
+  (topSpeed 1.12, accelRate 4.8, driveForce 95.0). The `car-select` dropdown options are
+  overridden at runtime to `stats.name` (main.js ~line 5997), so HTML option text is a fallback.
+- Garage card grid: `repeat(5, minmax(0,1fr))` → 2×5 grid for 10 cars. Responsive: 3 cols
+  <1200px, 2 cols <720px. Mobile forces 2 cols.
+
+## Decoration trees (`js/Track.js`)
+
+### Tree rotation (breaks up grid pattern)
+- `createInstances(src, positions, randomY)` accepts a `randomY` flag. Only
+  `decoration-forest` passes `true`; `decoration-empty` and `empty-deco-grass` keep
+  rotation 0 (flat quads — randomizing would change their visual footprint).
+- Each forest instance gets a per-instance Y rotation derived from a stable hash of its
+  cell coords: `frac(sin(gx*12.9898 + gz*78.233) * 43758.5453) * 2π`. Same cell → same
+  angle every reload (no reshuffle when the track rebuilds). Trees are radially symmetric
+  so rotation doesn't change their look, only breaks the repetitive aligned-grid pattern.
+
+### Off-grid tree blocking (`blockCellForTrees`)
+- A track cell at (gx,gz) covers [gx,gx+1]×[gz,gz+1]. An integer decoration cell (cx,cz)
+  covers [cx,cx+1]×[cz,cz+1]. A tree is "under the road" when footprints overlap.
+- Blocking range = `floor(gx)..ceil(gx)` per axis. On-grid (integer gx): 1 cell. Off-grid:
+  2 per axis (4 total). OLD center-based math (`ceil(gx-0.5)..floor(gx+0.5)`) missed the
+  far-side cell for fractional gx → trees poked through off-grid roads. Fixed + tested in
+  `test-offgrid-trees.mjs` (12 assertions).
+- Tree-blocked cells render as `empty-deco-grass` (flat grass quad); buffer-zone cells
+  keep `decoration-empty` (bushes). `empty-deco-grass.glb` loaded in main.js + tas-viewer.js.
 
 ## Custom Mods Lab (`custommods.html` + `js/custom-mods.js`)
 
