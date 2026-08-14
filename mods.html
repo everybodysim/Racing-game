@@ -25,9 +25,10 @@
     .back-link { color:var(--skid-accent2,#5ac8ff); text-decoration:none; font-weight:600; font-size:14px; }
     .back-link:hover { text-decoration:underline; }
 
-    .layout { display:grid; grid-template-columns: 1fr 1fr; gap:16px; align-items:start; }
+    .layout { display:grid; grid-template-columns: 1fr 1fr; gap:16px; align-items:stretch; }
     @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
-    .col { display:flex; flex-direction:column; gap:14px; min-width:0; }
+    .layout > .panel { margin:0; display:flex; flex-direction:column; }
+    .layout > .panel > .list { flex:1; }
 
     .panel { background: var(--skid-panel, rgba(255,255,255,0.06)); border: 1px solid var(--skid-line, rgba(255,255,255,0.13)); border-radius: var(--skid-radius, 14px); padding: 16px 16px 14px; }
     .panel h2 { margin:0 0 4px; font-size:15px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; color:var(--skid-text,#e6edf7); display:flex; align-items:center; gap:8px; }
@@ -79,51 +80,45 @@
   </div>
 
   <div class="layout">
-    <div class="col">
 
-      <section class="panel">
-        <h2><span class="dot"></span>Install a mod</h2>
-        <p class="hint">Type a mod name from the catalog (example: <code>TAS</code>) and install it.</p>
-        <div class="row">
-          <input id="mod-name" placeholder="Mod name" style="flex:1; min-width:180px;" />
-          <button id="install-btn" class="primary" type="button">Install</button>
-        </div>
-        <div id="install-status" class="status"></div>
-      </section>
+    <section class="panel" style="grid-column:1;">
+      <h2><span class="dot"></span>Install a mod</h2>
+      <p class="hint">Type a mod name from the catalog (example: <code>TAS</code>) and install it.</p>
+      <div class="row">
+        <input id="mod-name" placeholder="Mod name" style="flex:1; min-width:180px;" />
+        <button id="install-btn" class="primary" type="button">Install</button>
+      </div>
+      <div id="install-status" class="status"></div>
+    </section>
 
-      <section class="panel">
-        <h2><span class="dot"></span>Installed mods</h2>
-        <p class="hint">Active mods are loaded the next time you open the game.</p>
-        <ul id="installed-list" class="list"></ul>
-      </section>
+    <section class="panel" style="grid-column:2;">
+      <h2><span class="dot"></span>Installed mods</h2>
+      <p class="hint">Active mods are loaded the next time you open the game.</p>
+      <ul id="installed-list" class="list"></ul>
+    </section>
 
-    </div>
+    <section class="panel" style="grid-column:1;">
+      <h2><span class="dot"></span>Build your own mod</h2>
+      <p class="hint">Use the visual Blockly editor to build mods, save them to the manager, then install them here.</p>
+      <a class="hero-link" href="custommods.html">Open Custom Mods Lab (Preview) →</a>
+    </section>
 
-    <div class="col">
+    <section class="panel" style="grid-column:2;">
+      <h2><span class="dot"></span>Import shared custom mod</h2>
+      <p class="hint">Paste a share URL or share-payload JSON from Custom Mods Lab.</p>
+      <div class="row">
+        <input id="shared-mod-input" placeholder="https://...custommods.html?share=... or JSON" style="min-width: 240px; flex: 1;" />
+        <button id="import-shared-btn" class="primary" type="button">Import</button>
+      </div>
+      <ul id="shared-mods-list" class="list" style="margin-top:12px;"></ul>
+    </section>
 
-      <section class="panel">
-        <h2><span class="dot"></span>Build your own mod</h2>
-        <p class="hint">Use the visual Blockly editor to build mods, save them to the manager, then install them here.</p>
-        <a class="hero-link" href="custommods.html">Open Custom Mods Lab (Preview) →</a>
-      </section>
+    <section class="panel" style="grid-column:1 / -1;">
+      <h2><span class="dot"></span>All available mods</h2>
+      <p class="hint">The full catalog of built-in mods you can install by name.</p>
+      <ul id="catalog-list" class="list"></ul>
+    </section>
 
-      <section class="panel">
-        <h2><span class="dot"></span>Import shared custom mod</h2>
-        <p class="hint">Paste a share URL or share-payload JSON from Custom Mods Lab.</p>
-        <div class="row">
-          <input id="shared-mod-input" placeholder="https://...custommods.html?share=... or JSON" style="min-width: 240px; flex: 1;" />
-          <button id="import-shared-btn" class="primary" type="button">Import</button>
-        </div>
-        <ul id="shared-mods-list" class="list" style="margin-top:12px;"></ul>
-      </section>
-
-      <section class="panel">
-        <h2><span class="dot"></span>All available mods</h2>
-        <p class="hint">The full catalog of built-in mods you can install by name.</p>
-        <ul id="catalog-list" class="list"></ul>
-      </section>
-
-    </div>
   </div>
   <script type="module" src="js/mods-manager.js"></script>
 </main>
