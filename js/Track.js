@@ -966,14 +966,17 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				for ( let i = 0; i < count; i ++ ) {
 
 					_dummy.position.set( positions[ i * 2 ], 0.5, positions[ i * 2 + 1 ] );
-					// Per-instance random Y rotation for forest trees breaks up the
-					// repetitive grid pattern. Uses a stable hash of cell coords so the
-					// angle doesn't reshuffle if the track is rebuilt (same cell → same angle).
+					// Per-instance Y rotation for 3D trees/bushes (decoration-forest +
+					// decoration-empty) breaks up the repetitive grid pattern. Limited to
+					// 90° intervals (0, 90, 180, 270) so nothing looks oddly tilted.
+					// Stable hash of cell coords → same angle every reload (no reshuffle).
+					// Flat grass quads (empty-deco-grass) keep rotation 0.
 					if ( randomY ) {
-						const gx = positions[ i * 2 ];
-						const gz = positions[ i * 2 + 1 ];
-						const h = Math.sin( ( gx * 12.9898 + gz * 78.233 ) ) * 43758.5453;
-						_dummy.rotation.y = ( h - Math.floor( h ) ) * Math.PI * 2;
+						const px = positions[ i * 2 ];
+						const pz = positions[ i * 2 + 1 ];
+						const frac = Math.sin( px * 12.9898 + pz * 78.233 ) * 43758.5453 % 1;
+						const idx = Math.floor( Math.abs( frac ) * 4 ) % 4;
+						_dummy.rotation.y = idx * ( Math.PI / 2 );
 					} else {
 						_dummy.rotation.y = 0;
 					}
@@ -988,7 +991,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		createInstances( models[ 'decoration-empty' ], emptyPositions );
+		createInstances( models[ 'decoration-empty' ], emptyPositions, true );
 		createInstances( models[ 'empty-deco-grass' ], grassPositions );
 		createInstances( models[ 'decoration-forest' ], forestPositions, true );
 
