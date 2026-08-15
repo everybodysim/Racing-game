@@ -60,6 +60,42 @@
 - Garage card grid: `repeat(5, minmax(0,1fr))` → 2×5 grid for 10 cars. Responsive: 3 cols
   <1200px, 2 cols <720px. Mobile forces 2 cols.
 
+## Physics: car is a rolling sphere (`js/Physics.js` + `js/Vehicle.js`)
+
+### Drive model (critical for surface friction tuning)
+- The car is a single crashcat sphere (radius `VEHICLE_SURFACE_RADIUS` 0.5, friction 5.0).
+- It moves by ROLLING: `Vehicle.update()` applies ANGULAR velocity around the right
+  axis (`rigidBody.setAngularVelocity(... angvel + _right * drive)`). Surface friction
+  converts that rolling into linear (forward) motion.
+- Consequence: on a tilted surface going UPHILL, the sphere needs grip to convert
+  roll→translation against gravity. Low surface friction → sphere slips/spins in place
+  → car "glides with zero friction" and can't accelerate uphill. On FLAT surfaces
+  low friction is tolerable (no uphill gravity component), which is why flat
+  elevated roads (friction 1.0) work but slopes did not.
+
+### Surface friction values (Physics.js)
+- Ground surface (`createGroundSurfaceCollider` in main.js): **5.0** (matches sphere).
+- Slope driving surface (`addSlopeCollider`): **5.0** (was 1.0 — caused the "can't grip
+  uphill" bug; raised to match ground). Pool slope (`addPoolSlopeCollider`): **5.0**.
+- Slope side walls (`addSlopeSideWalls`): **0.0** (frictionless guide rails — keep low
+  so the car slides along them instead of gripping/flipping).
+- Flat elevated surface (`addMergedElevatedSurfaceColliders`): **1.0** (flat, OK).
+- Jump ramp: **1.0** (low friction intentional — launches the car). Bump dome: **3.0**.
+- Walls/poles/cubes: 0.0–0.9. Water floor: 0.25 (slick). Custom asset colliders: 0.7.
+- Rule of thumb: any NEW tilted/drivable ramp should use friction 5.0 so the rolling
+  sphere can grip uphill. Frictionless rails/launch surfaces stay low.
+
+### Slope collider geometry (rotationally symmetric)
+- `addSlopeCollider(gx, gz, orient, up)`: a tilted box, halfExtents
+  `[ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, slopeTargetHalfLen]`, pitched by
+  `slopeAngle` (atan2(CELL_RAW*0.5, CELL_RAW) ≈ 26.565°) around the yaw axis (Euler
+  'YXZ'). The rise (high-end Y − low-end Y) is `2*halfLen*sin(slopeAngle)` and is
+  INDEPENDENT of orientation/yaw — all slopes have identical shape, just rotated.
+  slope-down is normalized to slope-up via ORIENT_180 + `up=false`→flipped orient.
+- High end meets the flat elevated surface (elevatedSurfaceTopY); low end blends into
+  the ground (slightly buried). So a slope's collider is correct for ALL orientations —
+  if a slope "doesn't work", suspect friction or adjacency, NOT the hitbox shape.
+
 ## Decoration trees (`js/Track.js`)
 
 ### Tree rotation (breaks up grid pattern)
