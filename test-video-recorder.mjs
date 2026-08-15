@@ -49,10 +49,26 @@ function makeEl( id ) {
 		querySelectorAll: () => [],
 	};
 }
+// A 2D-canvas stub for the relay: getContext('2d') returns a drawImage-capable
+// ctx, captureStream returns a stream with a (optionally) requestFrame-capable
+// video track. Set relayHasRequestFrame=false to simulate Firefox (auto mode).
+let relayHasRequestFrame = true;
+function makeRelayCanvas() {
+	const videoTrack = relayHasRequestFrame
+		? { stop() {}, requestFrame() { relayFrames++; }, readyState: 'live', frameRate: 60 }
+		: { stop() {}, readyState: 'live', frameRate: 60 };
+	return {
+		width: 1280, height: 720, style: {}, dataset: {},
+		getContext: () => ( { drawImage() { relayDraws++; } } ),
+		captureStream: () => ( { getTracks: () => [ videoTrack ], getVideoTracks: () => [ videoTrack ], getAudioTracks: () => [], addTrack() {} } ),
+	};
+}
+let relayDraws = 0;
+let relayFrames = 0;
 const _els = new Map();
 globalThis.document = {
 	querySelectorAll: ( sel ) => ( _els.has( sel ) ? [ _els.get( sel ) ] : [] ),
-	createElement: ( tag ) => makeEl( tag ),
+	createElement: ( tag ) => ( tag === 'canvas' ? makeRelayCanvas() : makeEl( tag ) ),
 	body: { appendChild() {}, removeChild() {} },
 };
 
@@ -104,22 +120,10 @@ for ( const g of UI_TOGGLE_GROUPS ) {
 	ok( Array.isArray( g.selectors ) && g.selectors.length > 0, `group ${ g.key } has selectors` );
 }
 
-// 7) VideoRecorder lifecycle: start/stop with a stub canvas + stream.
+// 7) VideoRecorder lifecycle: start/stop via the 2D relay canvas.
 _store.clear();
-let captureCalls = 0;
-let requestFrameCalls = 0;
-const videoTrack = { stop() {}, requestFrame() { requestFrameCalls++; } };
-const stubCanvas = {
-	captureStream: ( fps ) => {
-		captureCalls++;
-		return {
-			getTracks: () => [ videoTrack ],
-			getVideoTracks: () => [ videoTrack ],
-			getAudioTracks: () => [],
-			addTrack() {},
-		};
-	},
-};
+relayDraws = 0; relayFrames = 0;
+const stubCanvas = { width: 1280, height: 720, clientWidth: 1280, clientHeight: 720 };
 const rec = new VideoRecorder( {
 	canvas: stubCanvas,
 	getAudioContext: () => null, // skip audio path for this test
@@ -131,26 +135,31 @@ ok( typeof rec.captureFrame === 'function', 'has captureFrame' );
 const started = await rec.start();
 ok( started === true, 'start returns true' );
 ok( rec.isRecording() === true, 'isRecording true after start' );
-ok( captureCalls >= 1, 'captureStream called' );
-// Manual frame mode detected because the stub track has requestFrame.
-ok( rec._manualFrames === true, 'manual frame mode detected' );
-// start() pushes an initial frame immediately.
-ok( requestFrameCalls >= 1, 'first frame pushed on start' );
-const before = requestFrameCalls;
+ok( rec.relayCanvas !== null, 'relay 2D canvas created' );
+ok( rec._manualFrames === true, 'manual frame mode detected on relay track' );
+// start() primes + pushes an initial frame (drawImage + requestFrame).
+ok( relayDraws >= 1, 'relay drawImage called on start' );
+ok( relayFrames >= 1, 'first frame pushed on start' );
+const beforeFrames = relayFrames;
+const beforeDraws = relayDraws;
 // captureFrame is throttled to the configured FPS, so an immediate call
 // right after start() is intentionally skipped.
 rec.captureFrame();
-ok( requestFrameCalls === before, 'captureFrame throttled back-to-back calls' );
+ok( relayFrames === beforeFrames, 'captureFrame throttled back-to-back calls' );
 // Simulate elapsed time beyond the min gap; now a frame should be pushed.
 rec.lastFrameMs = 0;
 rec.captureFrame();
-ok( requestFrameCalls === before + 1, 'captureFrame pushes a frame after gap' );
+ok( relayDraws === beforeDraws + 1, 'captureFrame drawImage after gap' );
+ok( relayFrames === beforeFrames + 1, 'captureFrame requestFrame after gap' );
 // captureFrame is a no-op when not recording.
 rec.stop();
 ok( rec.isRecording() === false, 'isRecording false after stop' );
-const afterStop = requestFrameCalls;
+const afterStop = relayFrames;
 rec.captureFrame();
-ok( requestFrameCalls === afterStop, 'captureFrame no-op when not recording' );
+ok( relayFrames === afterStop, 'captureFrame no-op when not recording' );
+// Debug log captured key events.
+ok( rec.getDebugLog().includes( 'start() called' ), 'debug log has start() called' );
+ok( rec.getDebugLog().includes( 'relay 2D canvas' ), 'debug log has relay canvas info' );
 
 // 8) updateSettings persists.
 rec.updateSettings( { fps: 120 } );
@@ -162,15 +171,13 @@ const bad = await noCanvas.start();
 ok( bad === false, 'start fails without canvas' );
 
 // 10) Auto-capture fallback when the track has no requestFrame (Firefox-like).
-let autoFps = null;
-const autoCanvas = {
-	captureStream: ( fps ) => { autoFps = fps; return { getTracks: () => [ { stop() {} } ], getVideoTracks: () => [ { stop() {} } ], getAudioTracks: () => [], addTrack() {} }; },
-};
-const autoRec = new VideoRecorder( { canvas: autoCanvas, getAudioContext: () => null, getMessage: () => {} } );
+relayHasRequestFrame = false;
+const autoRec = new VideoRecorder( { canvas: { width: 1280, height: 720 }, getAudioContext: () => null, getMessage: () => {} } );
 const autoStarted = await autoRec.start();
 ok( autoStarted === true, 'auto-capture start returns true' );
 ok( autoRec._manualFrames === false, 'no requestFrame -> auto mode' );
 autoRec.stop();
+relayHasRequestFrame = true;
 
 console.log( `\n${ passed } passed, ${ failed } failed` );
 process.exit( failed ? 1 : 0 );

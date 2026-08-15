@@ -93,6 +93,7 @@ export class VideoRecorder {
 		this.getAudioContext = options.getAudioContext || null; // () => AudioContext | null
 		this.getMusicElement = options.getMusicElement || null; // () => HTMLMediaElement | null
 		this.getMessage = options.getMessage || ( ( () => {} ) );
+		this.onDebug = options.onDebug || null; // (lineText) => void  -- appends to the debug panel
 		this.settings = loadSettings();
 		this.mediaRecorder = null;
 		this.chunks = [];
@@ -106,6 +107,15 @@ export class VideoRecorder {
 		this.startTime = 0;
 		this.mimeType = '';
 		this.tickHandle = null;
+		// Relay 2D canvas: we copy the WebGL canvas onto this RGBA8 2D canvas each
+		// frame and captureStream() IT. The main renderer uses a half-float
+		// drawing buffer (outputBufferType: HalfFloatType) for HDR tone mapping;
+		// capturing that buffer directly yields grey/empty video because video
+		// encoders expect RGBA8. The 2D relay always produces capturable frames.
+		this.relayCanvas = null;
+		this.relayCtx = null;
+		this.frameCount = 0;
+		this._debugLines = [];
 	}
 
 	isRecording() { return this.recording; }
@@ -118,6 +128,18 @@ export class VideoRecorder {
 	_updateStatus( text ) {
 		if ( typeof this.getMessage === 'function' ) this.getMessage( text );
 	}
+
+	// Append a timestamped line to the debug panel (and console). Always logged
+	// so the user can see exactly what the recorder did on stop/download.
+	log( msg ) {
+		const t = ( ( performance.now() - ( this.startTime || performance.now() ) ) / 1000 ).toFixed( 2 );
+		const line = `[${ t }s] ${ msg }`;
+		this._debugLines.push( line );
+		try { if ( typeof this.onDebug === 'function' ) this.onDebug( line ); } catch { /* ignore */ }
+		try { console.log( '[VideoRecorder] ' + line ); } catch { /* ignore */ }
+	}
+
+	getDebugLog() { return this._debugLines.join( '\n' ); }
 
 	// Build the audio part of the capture stream. Returns a MediaStream (audio
 	// only) or null if audio capture isn't available / disabled.
@@ -213,71 +235,94 @@ export class VideoRecorder {
 	async start() {
 		if ( this.recording ) return false;
 		if ( ! this.canvas ) { this._updateStatus( 'Recorder: no canvas available.' ); return false; }
-		if ( ! ( typeof MediaRecorder === 'function' && typeof this.canvas.captureStream === 'function' ) ) {
-			this._updateStatus( 'Your browser does not support in-game recording (MediaRecorder/captureStream).' );
+		this._debugLines = [];
+		this.frameCount = 0;
+		this.startTime = performance.now();
+		this.log( 'start() called' );
+		this.log( `canvas size = ${ this.canvas.width }x${ this.canvas.height } (client ${ this.canvas.clientWidth }x${ this.canvas.clientHeight })` );
+		if ( ! ( typeof MediaRecorder === 'function' ) ) {
+			this.log( 'FAIL: MediaRecorder not supported' );
+			this._updateStatus( 'Your browser does not support in-game recording (MediaRecorder).' );
 			return false;
 		}
 
 		try {
 			const fps = Math.max( 10, Math.min( 120, Number( this.settings.fps ) || 60 ) );
-			// Capture the canvas as a MediaStream. We prefer MANUAL frame mode
-			// (captureStream() with no/auto frame rate) and push a frame each
-			// game render via captureFrame(). This is the reliable way to record
-			// a WebGL canvas: with an explicit frameRate some browsers ship an
-			// empty/grey track until requestFrame() is called, which produces a
-			// 0-second grey file. Falling back to captureStream(fps) auto-capture
-			// when requestFrame is unavailable keeps Firefox happy.
-			let stream;
-			try { stream = this.canvas.captureStream(); }
-			catch { try { stream = this.canvas.captureStream( fps ); } catch { throw new Error( 'canvas.captureStream is not supported by this browser' ); } }
-			this.stream = stream;
-			const vTracks = stream.getVideoTracks ? stream.getVideoTracks() : [];
-			this.videoTrack = vTracks[ 0 ] || null;
-			// If the track can't be driven manually, switch to auto-rate capture.
-			this._manualFrames = Boolean( this.videoTrack && typeof this.videoTrack.requestFrame === 'function' );
-			if ( ! this._manualFrames && this.canvas.captureStream ) {
-				try { stream = this.canvas.captureStream( fps ); this.stream = stream; this.videoTrack = ( stream.getVideoTracks?.() || [] )[ 0 ] || null; } catch { /* keep prior */ }
-			}
+			this.log( `target fps = ${ fps }` );
 
+			// --- Relay 2D canvas -------------------------------------------------
+			// Copy the WebGL canvas onto an RGBA8 2D canvas and capture that.
+			// This sidesteps the half-float drawing buffer (grey/empty capture).
+			this.relayCanvas = document.createElement( 'canvas' );
+			this.relayCanvas.width = this.canvas.width || this.canvas.clientWidth || 1280;
+			this.relayCanvas.height = this.canvas.height || this.canvas.clientHeight || 720;
+			this.relayCtx = this.relayCanvas.getContext( '2d' );
+			this.log( `relay 2D canvas = ${ this.relayCanvas.width }x${ this.relayCanvas.height }` );
+
+			let stream;
+			try { stream = this.relayCanvas.captureStream( fps ); }
+			catch { try { stream = this.relayCanvas.captureStream(); } catch { throw new Error( 'captureStream not supported' ); } }
+			this.stream = stream;
+			this.videoTrack = ( stream.getVideoTracks?.() || [] )[ 0 ] || null;
+			this._manualFrames = Boolean( this.videoTrack && typeof this.videoTrack.requestFrame === 'function' );
+			this.log( `video track readyState=${ this.videoTrack?.readyState } frameRate=${ this.videoTrack?.frameRate } requestFrame=${ this._manualFrames }` );
+
+			// Prime the relay with one frame so the track isn't empty at start.
+			try { this.relayCtx.drawImage( this.canvas, 0, 0 ); } catch ( e ) { this.log( `prime drawImage error: ${ e.message }` ); }
+			if ( this._manualFrames ) { try { this.videoTrack.requestFrame(); } catch { /* ignore */ } }
+
+			// --- Audio -----------------------------------------------------------
 			const audioStream = this._buildAudioStream();
 			if ( audioStream ) {
-				audioStream.getAudioTracks().forEach( ( t ) => stream.addTrack( t ) );
+				const at = audioStream.getAudioTracks?.() || [];
+				at.forEach( ( t ) => stream.addTrack( t ) );
+				this.log( `audio tracks added: ${ at.length }` );
+			} else {
+				this.log( 'audio: none (disabled or unavailable)' );
 			}
 
+			// --- MediaRecorder ---------------------------------------------------
 			this.mimeType = pickMimeType( this.settings.mimeType );
+			this.log( `mimeType = ${ this.mimeType || '(default)' }` );
 			const recorderOpts = {
 				videoBitsPerSecond: Math.max( 500_000, Number( this.settings.bitrate ) || 12_000_000 ),
 			};
 			if ( this.settings.audioBitrate ) recorderOpts.audioBitsPerSecond = Number( this.settings.audioBitrate );
 			if ( this.mimeType ) recorderOpts.mimeType = this.mimeType;
+			this.log( `recorder opts = ${ JSON.stringify( recorderOpts ) }` );
 
 			this.mediaRecorder = new MediaRecorder( stream, recorderOpts );
 			this.chunks = [];
+			let totalBytes = 0;
 			this.mediaRecorder.ondataavailable = ( e ) => {
-				if ( e.data && e.data.size > 0 ) this.chunks.push( e.data );
+				if ( e.data && e.data.size > 0 ) {
+					this.chunks.push( e.data );
+					totalBytes += e.data.size;
+					this.frameCount++;
+					this.log( `dataavailable: ${ ( e.data.size / 1024 ).toFixed( 1 ) } KB (total ${( totalBytes / 1024 ).toFixed( 1 ) } KB, ${ this.frameCount } chunks)` );
+				}
 			};
-			this.mediaRecorder.onstop = () => this._finalize();
+			this.mediaRecorder.onstop = () => {
+				this.log( `onstop: state=${ this.mediaRecorder?.state } chunks=${ this.chunks.length } bytes=${ totalBytes }` );
+				this._finalize( totalBytes );
+			};
 			this.mediaRecorder.onerror = ( e ) => {
-				console.warn( 'VideoRecorder error', e );
-				this._updateStatus( 'Recording error — see console.' );
+				this.log( `onerror: ${ e?.error?.name || e?.name || 'unknown' }: ${ e?.error?.message || e?.message || '' }` );
+				this._updateStatus( 'Recording error — see debug.' );
 			};
 
-			// Timeslice so dataavailable fires periodically (guards the final
-			// blob against a single-segment loss). captureFrame() also pushes
-			// fresh frames each render in manual mode.
 			this.mediaRecorder.start( 1000 );
 			this.recording = true;
-			this.startTime = performance.now();
-			this.lastFrameMs = 0;
+			this.log( `MediaRecorder.start() -> state=${ this.mediaRecorder.state }` );
 			this._applyHideGroups();
 			this._startTicker();
-			// Push the very first frame immediately so the track is non-empty
-			// right away (avoids a brief grey lead-in).
 			this.captureFrame();
 			const withAudio = audioStream ? ' + audio' : '';
 			this._updateStatus( `Recording started (${fps}fps${ withAudio }).` );
+			this.log( 'start() success' );
 			return true;
 		} catch ( err ) {
+			this.log( `start FAILED: ${ err.message || err }` );
 			console.error( 'VideoRecorder start failed', err );
 			this._updateStatus( `Could not start recording: ${ err.message || err }` );
 			this._cleanupStream();
@@ -286,27 +331,37 @@ export class VideoRecorder {
 	}
 
 	// Called from the game's animate loop after renderer.render() each frame.
-	// Throttles to the configured FPS in manual mode and pushes the freshly
-	// rendered canvas frame into the recording stream.
+	// Copies the freshly rendered WebGL canvas onto the RGBA8 relay canvas and
+	// pushes a frame into the recording stream (throttled to the configured FPS).
 	captureFrame() {
-		if ( ! this.recording || ! this.videoTrack ) return;
-		if ( this._manualFrames ) {
-			const now = performance.now();
-			const minGap = 1000 / Math.max( 10, Math.min( 120, Number( this.settings.fps ) || 60 ) );
-			if ( now - this.lastFrameMs < minGap ) return;
-			this.lastFrameMs = now;
-			try { this.videoTrack.requestFrame(); } catch { /* ignore */ }
+		if ( ! this.recording || ! this.videoTrack || ! this.relayCtx || ! this.canvas ) return;
+		const now = performance.now();
+		const minGap = 1000 / Math.max( 10, Math.min( 120, Number( this.settings.fps ) || 60 ) );
+		if ( now - this.lastFrameMs < minGap ) return;
+		this.lastFrameMs = now;
+		// Keep the relay canvas sized to the WebGL drawing buffer.
+		if ( this.relayCanvas.width !== this.canvas.width || this.relayCanvas.height !== this.canvas.height ) {
+			this.relayCanvas.width = this.canvas.width;
+			this.relayCanvas.height = this.canvas.height;
+			this.log( `relay resized to ${ this.relayCanvas.width }x${ this.relayCanvas.height }` );
 		}
+		try {
+			this.relayCtx.drawImage( this.canvas, 0, 0 );
+		} catch ( e ) {
+			this.log( `drawImage error: ${ e.message }` );
+			return;
+		}
+		if ( this._manualFrames ) { try { this.videoTrack.requestFrame(); } catch { /* ignore */ } }
 	}
 
 	stop() {
 		if ( ! this.recording || ! this.mediaRecorder ) return false;
-		// Flush any in-flight frame before stopping so the final segment isn't lost.
+		this.log( 'stop() called' );
 		this.captureFrame();
-		try { if ( typeof this.mediaRecorder.requestData === 'function' ) this.mediaRecorder.requestData(); } catch { /* ignore */ }
+		try { if ( typeof this.mediaRecorder.requestData === 'function' ) { this.mediaRecorder.requestData(); this.log( 'requestData() sent' ); } } catch ( e ) { this.log( `requestData error: ${ e.message }` ); }
 		try {
 			if ( this.mediaRecorder.state !== 'inactive' ) this.mediaRecorder.stop();
-		} catch { /* ignore */ }
+		} catch ( e ) { this.log( `stop error: ${ e.message }` ); }
 		this.recording = false;
 		this._stopTicker();
 		this._restoreHideGroups();
@@ -314,13 +369,19 @@ export class VideoRecorder {
 		return true;
 	}
 
-	_finalize() {
+	_finalize( totalBytesIn ) {
 		const secs = ( ( performance.now() - this.startTime ) / 1000 ).toFixed( 1 );
 		const type = this.mimeType || '';
+		const totalBytes = totalBytesIn || this.chunks.reduce( ( a, c ) => a + ( c.size || 0 ), 0 );
 		const blob = new Blob( this.chunks, { type: type || 'video/webm' } );
+		this.log( `finalize: blob size=${ blob.size } bytes (${ ( blob.size / 1024 / 1024 ).toFixed( 2 ) } MB) type=${ blob.type } frames pushed=${ this.frameCount } elapsed=${ secs }s` );
 		this.chunks = [];
 		this._cleanupStream();
-		if ( blob.size === 0 ) { this._updateStatus( 'Recording was empty — nothing to save.' ); return; }
+		if ( blob.size === 0 ) {
+			this.log( 'RESULT: empty blob — no data was captured. Likely the video track produced no frames.' );
+			this._updateStatus( 'Recording was empty — nothing to save. See debug.' );
+			return;
+		}
 
 		const ext = type.includes( 'mp4' ) ? 'mp4' : 'webm';
 		const stamp = new Date();
@@ -328,16 +389,30 @@ export class VideoRecorder {
 		const name = `${ this.settings.filenamePrefix || 'racing-gameplay' }-${ stamp.getFullYear() }${ pad( stamp.getMonth() + 1 ) }${ pad( stamp.getDate() ) }-${ pad( stamp.getHours() ) }${ pad( stamp.getMinutes() ) }${ pad( stamp.getSeconds() ) }.${ ext }`;
 
 		const url = URL.createObjectURL( blob );
+		this.lastBlobUrl = url;
+		this.lastBlobName = name;
+		this.log( `blob URL: ${ url }` );
+
+		// Open the recording in a new tab so the user can play/verify it directly.
+		try {
+			const w = window.open( url, '_blank' );
+			if ( ! w ) this.log( 'window.open was blocked — download will still fire' );
+			else this.log( 'opened recording in a new tab' );
+		} catch ( e ) { this.log( `window.open error: ${ e.message }` ); }
+
+		// Also trigger a normal download.
 		const a = document.createElement( 'a' );
 		a.href = url;
 		a.download = name;
 		document.body.appendChild( a );
 		a.click();
 		a.remove();
-		setTimeout( () => URL.revokeObjectURL( url ), 30_000 );
+		this.log( `download triggered: ${ name }` );
+		setTimeout( () => URL.revokeObjectURL( url ), 60_000 );
 
 		const sizeMb = ( blob.size / ( 1024 * 1024 ) ).toFixed( 1 );
 		this._updateStatus( `Saved ${ name } (${ sizeMb } MB, ${ secs }s).` );
+		this.log( 'finalize done' );
 	}
 
 	_cleanupStream() {
@@ -346,6 +421,8 @@ export class VideoRecorder {
 		} catch { /* ignore */ }
 		this.stream = null;
 		this.videoTrack = null;
+		this.relayCanvas = null;
+		this.relayCtx = null;
 		try {
 			if ( this.audioNodes ) {
 				const { ctx, mixer, sources, sfxTap, listenerInput, musicSrc } = this.audioNodes;

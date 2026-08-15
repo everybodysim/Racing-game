@@ -1256,6 +1256,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#vr-close-btn { flex: 0 0 auto; background: rgba(60,60,70,0.85) !important; }
 		#vr-status { margin-top: 10px; padding: 6px 8px; border-radius: 6px; background: rgba(0,0,0,0.35); font-size: 11px; min-height: 18px; }
 		#vr-status.live { color: #ff8a8a; }
+		#vr-debug { margin-top: 6px; max-height: 180px; overflow: auto; background: rgba(0,0,0,0.55); color: #b9f6ca; font-size: 10px; line-height: 1.35; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 8px; border-radius: 6px; white-space: pre-wrap; word-break: break-word; }
 		#home-landing {
 			position: fixed;
 			inset: 0;
@@ -2461,6 +2462,12 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<button id="vr-close-btn" type="button" aria-label="Close">✕</button>
 		</div>
 		<div id="vr-status">Ready.</div>
+		<div class="vr-sub" style="margin-top:10px;display:flex;align-items:center;gap:8px;">
+			<span>Debug log</span>
+			<button id="vr-copy-debug-btn" type="button" style="font-size:10px;padding:2px 8px;">Copy</button>
+			<button id="vr-clear-debug-btn" type="button" style="font-size:10px;padding:2px 8px;">Clear</button>
+		</div>
+		<pre id="vr-debug" aria-label="Video recorder debug log"></pre>
 	</div>
 	<div id="name-popup" role="dialog" aria-modal="true" aria-labelledby="name-popup-title">
 		<div class="panel">

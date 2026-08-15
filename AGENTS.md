@@ -396,24 +396,40 @@
   + restores the prior value). Default hides hud/lapHud/countdown/boost/topMsg/vignette;
   nav/garage/hacks/mp default off.
 
-### Frame capture (why the recorder actually records, not grey/0s)
-- The recorder prefers MANUAL frame mode: `canvas.captureStream()` (no/auto frame
-  rate) returns a `CanvasCaptureMediaStreamTrack` with a `requestFrame()` method
-  (Chrome). The game's `animate()` loop calls `videoRecorder.captureFrame()` right
-  after `renderer.render()` each frame, which calls `track.requestFrame()` to push
-  the freshly rendered canvas into the stream, throttled to the configured FPS.
-- This is the reliable way to record a WebGL canvas: with an explicit frameRate,
-  some browsers ship an empty/grey track until requestFrame() is called, producing
-  a 0-second grey file. Manual mode guarantees real frames.
-- Firefox fallback: if the track has no `requestFrame`, the recorder switches to
-  `captureStream(fps)` auto-capture (`_manualFrames === false`); `captureFrame()`
-  is a no-op in that mode.
-- `start()` pushes an immediate first frame; `stop()` calls `requestData()` before
-  `stop()` to flush the final segment. Timeslice `start(1000)` keeps long recordings
-  from accumulating one huge blob and guards the final blob.
-- The renderer is created with `preserveDrawingBuffer: true` (main.js line ~86), so
-  the captured frame is the rendered content, not a cleared (grey) buffer. Do NOT
-  set that to false or recordings go grey.
+### Frame capture — the 2D-canvas relay (fixes grey/empty video)
+- The main renderer is created with `outputBufferType: THREE.HalfFloatType` (HDR
+  tone mapping). Capturing that half-float drawing buffer directly via
+  `canvas.captureStream()` yields grey/empty video because video encoders expect
+  RGBA8 frames — the compositor displays it fine, but MediaRecorder can't encode it.
+- FIX: the recorder does NOT capture the WebGL canvas directly. Instead it creates
+  an offscreen RGBA8 2D canvas (`relayCanvas`), and each frame `captureFrame()`
+  does `relayCtx.drawImage(webglCanvas, 0, 0)` (reads the preserved frame buffer —
+  `preserveDrawingBuffer: true` makes this work) then `videoTrack.requestFrame()`
+  to push that RGBA8 frame into the recording stream. `captureStream(fps)` is called
+  on the RELAY canvas, not the WebGL canvas. The 2D canvas is always RGBA8, so
+  encoding always works. The relay auto-resizes to match the WebGL drawing buffer.
+- `captureFrame()` is called from the game's `animate()` loop right after
+  `renderer.render()`, throttled to the configured FPS. `start()` primes one frame
+  immediately; `stop()` calls `requestData()` before `stop()` to flush the final
+  segment. Timeslice `start(1000)` keeps chunks flowing.
+- Firefox fallback: if the relay track has no `requestFrame`, `_manualFrames=false`
+  and `captureFrame()` still does the `drawImage` (auto-capture pulls from the
+  relay canvas at its frame rate).
+
+### Debug log + open-in-new-tab (diagnostics)
+- The recorder has a `log(msg)` method that appends a timestamped line to an
+  internal buffer (`getDebugLog()`), the `#vr-debug` `<pre>` panel (via the
+  `onDebug` callback wired in main.js), and `console.log`. It logs: canvas size,
+  relay canvas size, video track readyState/frameRate/requestFrame availability,
+  audio track count, mimeType, recorder opts, each `dataavailable` event (size +
+  running total + chunk count), `onstop`, finalize blob size/type/frame count,
+  blob URL, window.open result, download trigger.
+- On stop, `_finalize()` opens the blob in a NEW TAB (`window.open(url, '_blank')`)
+  so the user can play/verify the recording directly in-browser, AND triggers a
+  normal download. The panel reopens on stop so the debug log is visible.
+- `#vr-copy-debug-btn` copies the log to clipboard; `#vr-clear-debug-btn` clears it.
+- If the video is still blank, the debug log tells you exactly why: e.g. "dataavailable:
+  0 KB" (no frames captured) vs large chunks but grey (encoding issue) vs empty blob.
 
 ### UI visibility gotcha (CSS display:none + inline style)
 - `#video-recorder-btn`, `#vr-start-btn`, `#vr-stop-btn` all have `display: none` in
@@ -430,7 +446,8 @@
   (`getMessage`) in the panel also updates.
 
 ### Tests
-- `test-video-recorder.mjs` (42 assertions): MIME picking, settings round-trip,
-  `UI_TOGGLE_GROUPS` shape, the start/stop lifecycle, manual-frame `captureFrame()`
-  (throttle + no-op-when-not-recording), and the auto-capture fallback. Stubs
-  browser globals (no jsdom). Run: `node test-video-recorder.mjs`.
+- `test-video-recorder.mjs` (46 assertions): MIME picking, settings round-trip,
+  `UI_TOGGLE_GROUPS` shape, the start/stop lifecycle via the 2D relay canvas,
+  `captureFrame()` (drawImage + requestFrame, throttle, no-op when not recording),
+  the debug log, and the auto-capture fallback. Stubs browser globals (no jsdom).
+  Run: `node test-video-recorder.mjs`.

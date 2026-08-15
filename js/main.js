@@ -8838,6 +8838,9 @@ function completeCampaignStage() {
 	const vrAudioInput = document.getElementById( 'vr-audio' );
 	const vrHideUiInput = document.getElementById( 'vr-hide-ui' );
 	const vrHideGroupsEl = document.getElementById( 'vr-hide-groups' );
+	const vrDebugEl = document.getElementById( 'vr-debug' );
+	const vrCopyDebugBtn = document.getElementById( 'vr-copy-debug-btn' );
+	const vrClearDebugBtn = document.getElementById( 'vr-clear-debug-btn' );
 
 	let videoRecorder = null;
 	if ( videoRecorderInstalled ) {
@@ -8847,6 +8850,11 @@ function completeCampaignStage() {
 			getMusicElement: () => window.__gameAudio?.musicElement || null,
 			getMessage: ( text, live ) => {
 				if ( vrStatus ) { vrStatus.textContent = String( text || '' ); vrStatus.classList.toggle( 'live', Boolean( live ) ); }
+			},
+			onDebug: ( line ) => {
+				if ( ! vrDebugEl ) return;
+				vrDebugEl.textContent += ( vrDebugEl.textContent ? '\n' : '' ) + line;
+				vrDebugEl.scrollTop = vrDebugEl.scrollHeight;
 			},
 		} );
 		if ( vrBtn ) vrBtn.style.display = 'block'; // CSS default is display:none; '' would revert to hidden
@@ -8912,9 +8920,21 @@ function completeCampaignStage() {
 		vrRefreshButtonState();
 	} );
 	vrCloseBtn?.addEventListener( 'click', () => { if ( vrPanel ) vrPanel.style.display = 'none'; } );
+	vrCopyDebugBtn?.addEventListener( 'click', () => {
+		const text = videoRecorder ? videoRecorder.getDebugLog() : ( vrDebugEl?.textContent || '' );
+		try {
+			if ( navigator.clipboard?.writeText ) navigator.clipboard.writeText( text ).then( () => showTopMessage( 'Debug log copied to clipboard', false, 1500 ) );
+			else { const ta = document.createElement( 'textarea' ); ta.value = text; document.body.appendChild( ta ); ta.select(); document.execCommand( 'copy' ); ta.remove(); showTopMessage( 'Debug log copied', false, 1500 ); }
+		} catch { showTopMessage( 'Could not copy debug log', true, 1500 ); }
+	} );
+	vrClearDebugBtn?.addEventListener( 'click', () => {
+		if ( videoRecorder ) videoRecorder._debugLines = [];
+		if ( vrDebugEl ) vrDebugEl.textContent = '';
+	} );
 	vrStartBtn?.addEventListener( 'click', async () => {
 		if ( ! videoRecorder ) return;
 		vrSyncSettings();
+		if ( vrDebugEl ) vrDebugEl.textContent = ''; // fresh log per recording
 		const ok = await videoRecorder.start();
 		vrRefreshButtonState();
 		if ( ok ) {
@@ -8922,6 +8942,8 @@ function completeCampaignStage() {
 			showTopMessage( '⏺ Recording started (Alt+R to stop)', false, 2200 );
 		} else {
 			showTopMessage( 'Recording failed to start', true, 2600 );
+			// Reopen the panel so the user can read the debug log on failure.
+			if ( vrPanel ) vrPanel.style.display = 'block';
 		}
 	} );
 	vrStopBtn?.addEventListener( 'click', () => {
@@ -8929,6 +8951,8 @@ function completeCampaignStage() {
 		videoRecorder.stop();
 		vrRefreshButtonState();
 		showTopMessage( '⏹ Stopping recording… preparing download', false, 2200 );
+		// Reopen the panel so the debug log (capture details + download) is visible.
+		if ( vrPanel ) vrPanel.style.display = 'block';
 	} );
 	// Keyboard shortcut for the recorder is registered in the main keydown
 	// handler (below) so it shares the same "don't fire while typing in an
