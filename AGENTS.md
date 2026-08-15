@@ -396,8 +396,41 @@
   + restores the prior value). Default hides hud/lapHud/countdown/boost/topMsg/vignette;
   nav/garage/hacks/mp default off.
 
+### Frame capture (why the recorder actually records, not grey/0s)
+- The recorder prefers MANUAL frame mode: `canvas.captureStream()` (no/auto frame
+  rate) returns a `CanvasCaptureMediaStreamTrack` with a `requestFrame()` method
+  (Chrome). The game's `animate()` loop calls `videoRecorder.captureFrame()` right
+  after `renderer.render()` each frame, which calls `track.requestFrame()` to push
+  the freshly rendered canvas into the stream, throttled to the configured FPS.
+- This is the reliable way to record a WebGL canvas: with an explicit frameRate,
+  some browsers ship an empty/grey track until requestFrame() is called, producing
+  a 0-second grey file. Manual mode guarantees real frames.
+- Firefox fallback: if the track has no `requestFrame`, the recorder switches to
+  `captureStream(fps)` auto-capture (`_manualFrames === false`); `captureFrame()`
+  is a no-op in that mode.
+- `start()` pushes an immediate first frame; `stop()` calls `requestData()` before
+  `stop()` to flush the final segment. Timeslice `start(1000)` keeps long recordings
+  from accumulating one huge blob and guards the final blob.
+- The renderer is created with `preserveDrawingBuffer: true` (main.js line ~86), so
+  the captured frame is the rendered content, not a cleared (grey) buffer. Do NOT
+  set that to false or recordings go grey.
+
+### UI visibility gotcha (CSS display:none + inline style)
+- `#video-recorder-btn`, `#vr-start-btn`, `#vr-stop-btn` all have `display: none` in
+  their CSS rules. The wiring MUST set `el.style.display = 'block'` (NOT `''`) to
+  show them — setting inline `''` reverts to the stylesheet's `display: none`. This
+  bit us once (button never appeared even though the mod was installed and Alt+R
+  worked). `vrRefreshButtonState()` uses explicit `'block'`/`'none'` for the same
+  reason.
+
+### Start/stop notifications
+- Start and stop both surface a `showTopMessage(...)` toast (e.g. "⏺ Recording
+  started (Alt+R to stop)", "⏹ Stopping recording… preparing download") from the
+  button handlers and the `Alt+R` keydown handler. The recorder's own status line
+  (`getMessage`) in the panel also updates.
+
 ### Tests
-- `test-video-recorder.mjs` (34 assertions): MIME picking, settings round-trip,
-  `UI_TOGGLE_GROUPS` shape, and the start/stop lifecycle with stubbed
-  `MediaRecorder`/`captureStream`. Stubs browser globals (no jsdom needed). Run:
-  `node test-video-recorder.mjs`.
+- `test-video-recorder.mjs` (42 assertions): MIME picking, settings round-trip,
+  `UI_TOGGLE_GROUPS` shape, the start/stop lifecycle, manual-frame `captureFrame()`
+  (throttle + no-op-when-not-recording), and the auto-capture fallback. Stubs
+  browser globals (no jsdom). Run: `node test-video-recorder.mjs`.

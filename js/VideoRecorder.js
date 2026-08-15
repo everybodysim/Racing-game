@@ -97,6 +97,9 @@ export class VideoRecorder {
 		this.mediaRecorder = null;
 		this.chunks = [];
 		this.stream = null;
+		this.videoTrack = null;
+		this._manualFrames = false;
+		this.lastFrameMs = 0;
 		this.audioNodes = null;
 		this.hiddenElements = []; // [{ el, prevDisplay }]
 		this.recording = false;
@@ -217,10 +220,24 @@ export class VideoRecorder {
 
 		try {
 			const fps = Math.max( 10, Math.min( 120, Number( this.settings.fps ) || 60 ) );
+			// Capture the canvas as a MediaStream. We prefer MANUAL frame mode
+			// (captureStream() with no/auto frame rate) and push a frame each
+			// game render via captureFrame(). This is the reliable way to record
+			// a WebGL canvas: with an explicit frameRate some browsers ship an
+			// empty/grey track until requestFrame() is called, which produces a
+			// 0-second grey file. Falling back to captureStream(fps) auto-capture
+			// when requestFrame is unavailable keeps Firefox happy.
 			let stream;
-			try { stream = this.canvas.captureStream( fps ); }
-			catch { stream = this.canvas.captureStream(); }
+			try { stream = this.canvas.captureStream(); }
+			catch { try { stream = this.canvas.captureStream( fps ); } catch { throw new Error( 'canvas.captureStream is not supported by this browser' ); } }
 			this.stream = stream;
+			const vTracks = stream.getVideoTracks ? stream.getVideoTracks() : [];
+			this.videoTrack = vTracks[ 0 ] || null;
+			// If the track can't be driven manually, switch to auto-rate capture.
+			this._manualFrames = Boolean( this.videoTrack && typeof this.videoTrack.requestFrame === 'function' );
+			if ( ! this._manualFrames && this.canvas.captureStream ) {
+				try { stream = this.canvas.captureStream( fps ); this.stream = stream; this.videoTrack = ( stream.getVideoTracks?.() || [] )[ 0 ] || null; } catch { /* keep prior */ }
+			}
 
 			const audioStream = this._buildAudioStream();
 			if ( audioStream ) {
@@ -245,12 +262,18 @@ export class VideoRecorder {
 				this._updateStatus( 'Recording error — see console.' );
 			};
 
-			// Request periodic data so long recordings don't accumulate one huge blob.
+			// Timeslice so dataavailable fires periodically (guards the final
+			// blob against a single-segment loss). captureFrame() also pushes
+			// fresh frames each render in manual mode.
 			this.mediaRecorder.start( 1000 );
 			this.recording = true;
 			this.startTime = performance.now();
+			this.lastFrameMs = 0;
 			this._applyHideGroups();
 			this._startTicker();
+			// Push the very first frame immediately so the track is non-empty
+			// right away (avoids a brief grey lead-in).
+			this.captureFrame();
 			const withAudio = audioStream ? ' + audio' : '';
 			this._updateStatus( `Recording started (${fps}fps${ withAudio }).` );
 			return true;
@@ -262,8 +285,25 @@ export class VideoRecorder {
 		}
 	}
 
+	// Called from the game's animate loop after renderer.render() each frame.
+	// Throttles to the configured FPS in manual mode and pushes the freshly
+	// rendered canvas frame into the recording stream.
+	captureFrame() {
+		if ( ! this.recording || ! this.videoTrack ) return;
+		if ( this._manualFrames ) {
+			const now = performance.now();
+			const minGap = 1000 / Math.max( 10, Math.min( 120, Number( this.settings.fps ) || 60 ) );
+			if ( now - this.lastFrameMs < minGap ) return;
+			this.lastFrameMs = now;
+			try { this.videoTrack.requestFrame(); } catch { /* ignore */ }
+		}
+	}
+
 	stop() {
 		if ( ! this.recording || ! this.mediaRecorder ) return false;
+		// Flush any in-flight frame before stopping so the final segment isn't lost.
+		this.captureFrame();
+		try { if ( typeof this.mediaRecorder.requestData === 'function' ) this.mediaRecorder.requestData(); } catch { /* ignore */ }
 		try {
 			if ( this.mediaRecorder.state !== 'inactive' ) this.mediaRecorder.stop();
 		} catch { /* ignore */ }
@@ -305,6 +345,7 @@ export class VideoRecorder {
 			if ( this.stream ) this.stream.getTracks().forEach( ( t ) => { try { t.stop(); } catch { /* ignore */ } } );
 		} catch { /* ignore */ }
 		this.stream = null;
+		this.videoTrack = null;
 		try {
 			if ( this.audioNodes ) {
 				const { ctx, mixer, sources, sfxTap, listenerInput, musicSrc } = this.audioNodes;

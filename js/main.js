@@ -8849,7 +8849,7 @@ function completeCampaignStage() {
 				if ( vrStatus ) { vrStatus.textContent = String( text || '' ); vrStatus.classList.toggle( 'live', Boolean( live ) ); }
 			},
 		} );
-		if ( vrBtn ) vrBtn.style.display = '';
+		if ( vrBtn ) vrBtn.style.display = 'block'; // CSS default is display:none; '' would revert to hidden
 		// Build the "UI to hide" checkboxes from the shared group list.
 		if ( vrHideGroupsEl ) {
 			vrHideGroupsEl.innerHTML = '';
@@ -8900,8 +8900,10 @@ function completeCampaignStage() {
 		const rec = videoRecorder.isRecording();
 		vrBtn.classList.toggle( 'recording', rec );
 		vrBtn.textContent = rec ? '⏹ Recording…' : '⏺ Recorder';
-		if ( vrStartBtn ) vrStartBtn.style.display = rec ? 'none' : '';
-		if ( vrStopBtn ) vrStopBtn.style.display = rec ? '' : 'none';
+		// Use explicit display values: these buttons have CSS display:none
+		// defaults, so setting '' would revert them to hidden.
+		if ( vrStartBtn ) vrStartBtn.style.display = rec ? 'none' : 'block';
+		if ( vrStopBtn ) vrStopBtn.style.display = rec ? 'block' : 'none';
 	}
 	vrBtn?.addEventListener( 'click', () => {
 		if ( ! videoRecorder ) return;
@@ -8915,12 +8917,18 @@ function completeCampaignStage() {
 		vrSyncSettings();
 		const ok = await videoRecorder.start();
 		vrRefreshButtonState();
-		if ( ok && vrPanel ) vrPanel.style.display = 'none'; // hide panel so it isn't in the video
+		if ( ok ) {
+			if ( vrPanel ) vrPanel.style.display = 'none'; // hide panel so it isn't in the video
+			showTopMessage( '⏺ Recording started (Alt+R to stop)', false, 2200 );
+		} else {
+			showTopMessage( 'Recording failed to start', true, 2600 );
+		}
 	} );
 	vrStopBtn?.addEventListener( 'click', () => {
 		if ( ! videoRecorder ) return;
 		videoRecorder.stop();
 		vrRefreshButtonState();
+		showTopMessage( '⏹ Stopping recording… preparing download', false, 2200 );
 	} );
 	// Keyboard shortcut for the recorder is registered in the main keydown
 	// handler (below) so it shares the same "don't fire while typing in an
@@ -9366,8 +9374,14 @@ function completeCampaignStage() {
 			if ( videoRecorderInstalled && e.altKey && e.code === 'KeyR' ) {
 
 				e.preventDefault();
-				if ( videoRecorder.isRecording() ) { videoRecorder.stop(); showTopMessage( 'Stopping recording…', false, 1500 ); }
-				else { void videoRecorder.start(); }
+				if ( videoRecorder.isRecording() ) {
+					videoRecorder.stop();
+					showTopMessage( '⏹ Stopping recording… preparing download', false, 2200 );
+				} else {
+					void videoRecorder.start().then( ( ok ) => {
+						showTopMessage( ok ? '⏺ Recording started (Alt+R to stop)' : 'Recording failed to start', ! ok, 2200 );
+					} );
+				}
 				vrRefreshButtonState();
 				return;
 
@@ -10372,6 +10386,11 @@ function completeCampaignStage() {
 		}
 
 		renderFrame();
+
+		// Video Recorder: push the freshly rendered canvas frame into the
+		// recording stream each render (manual frame mode). No-op when not
+		// recording or in auto-capture mode.
+		if ( videoRecorderInstalled && videoRecorder?.isRecording() ) videoRecorder.captureFrame();
 
 	}
 

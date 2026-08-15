@@ -107,8 +107,18 @@ for ( const g of UI_TOGGLE_GROUPS ) {
 // 7) VideoRecorder lifecycle: start/stop with a stub canvas + stream.
 _store.clear();
 let captureCalls = 0;
+let requestFrameCalls = 0;
+const videoTrack = { stop() {}, requestFrame() { requestFrameCalls++; } };
 const stubCanvas = {
-	captureStream: ( fps ) => { captureCalls++; return { getTracks: () => [ { stop() {} } ], getAudioTracks: () => [], addTrack() {} }; },
+	captureStream: ( fps ) => {
+		captureCalls++;
+		return {
+			getTracks: () => [ videoTrack ],
+			getVideoTracks: () => [ videoTrack ],
+			getAudioTracks: () => [],
+			addTrack() {},
+		};
+	},
 };
 const rec = new VideoRecorder( {
 	canvas: stubCanvas,
@@ -117,12 +127,30 @@ const rec = new VideoRecorder( {
 } );
 ok( rec.isRecording() === false, 'starts not recording' );
 ok( typeof rec.start === 'function' && typeof rec.stop === 'function', 'has start/stop' );
+ok( typeof rec.captureFrame === 'function', 'has captureFrame' );
 const started = await rec.start();
 ok( started === true, 'start returns true' );
 ok( rec.isRecording() === true, 'isRecording true after start' );
-ok( captureCalls === 1, 'captureStream called once' );
+ok( captureCalls >= 1, 'captureStream called' );
+// Manual frame mode detected because the stub track has requestFrame.
+ok( rec._manualFrames === true, 'manual frame mode detected' );
+// start() pushes an initial frame immediately.
+ok( requestFrameCalls >= 1, 'first frame pushed on start' );
+const before = requestFrameCalls;
+// captureFrame is throttled to the configured FPS, so an immediate call
+// right after start() is intentionally skipped.
+rec.captureFrame();
+ok( requestFrameCalls === before, 'captureFrame throttled back-to-back calls' );
+// Simulate elapsed time beyond the min gap; now a frame should be pushed.
+rec.lastFrameMs = 0;
+rec.captureFrame();
+ok( requestFrameCalls === before + 1, 'captureFrame pushes a frame after gap' );
+// captureFrame is a no-op when not recording.
 rec.stop();
 ok( rec.isRecording() === false, 'isRecording false after stop' );
+const afterStop = requestFrameCalls;
+rec.captureFrame();
+ok( requestFrameCalls === afterStop, 'captureFrame no-op when not recording' );
 
 // 8) updateSettings persists.
 rec.updateSettings( { fps: 120 } );
@@ -132,6 +160,17 @@ ok( loadSettings().fps === 120, 'updateSettings persists fps' );
 const noCanvas = new VideoRecorder( { canvas: null, getMessage: () => {} } );
 const bad = await noCanvas.start();
 ok( bad === false, 'start fails without canvas' );
+
+// 10) Auto-capture fallback when the track has no requestFrame (Firefox-like).
+let autoFps = null;
+const autoCanvas = {
+	captureStream: ( fps ) => { autoFps = fps; return { getTracks: () => [ { stop() {} } ], getVideoTracks: () => [ { stop() {} } ], getAudioTracks: () => [], addTrack() {} }; },
+};
+const autoRec = new VideoRecorder( { canvas: autoCanvas, getAudioContext: () => null, getMessage: () => {} } );
+const autoStarted = await autoRec.start();
+ok( autoStarted === true, 'auto-capture start returns true' );
+ok( autoRec._manualFrames === false, 'no requestFrame -> auto mode' );
+autoRec.stop();
 
 console.log( `\n${ passed } passed, ${ failed } failed` );
 process.exit( failed ? 1 : 0 );
