@@ -96,6 +96,23 @@
   the ground (slightly buried). So a slope's collider is correct for ALL orientations —
   if a slope "doesn't work", suspect friction or adjacency, NOT the hitbox shape.
 
+### Seam-bounce suppression vs slopes (the intermittent grip-loss glitch)
+- `suppressSeamBounce(world, veh, key, onSlope)` cancels the upward "pop" + speed loss
+  when the sphere catches on an edge between two FLAT surface colliders. It does this by
+  RESTORING THE ENTIRE PRE-STEP VELOCITY (`rigidBody.setLinearVelocity(savedVel)`).
+- BUG (fixed): on a slope the car legitimately gains upward velocity (vy>0) while
+  climbing. That tripped the detection thresholds (vy 0.15–4.0, vyDelta>0.2, prevVy<1.0)
+  and restored the pre-step velocity — freezing the car's velocity and undoing the
+  physics step. Result: car slid around with stale velocity, ignoring physics, unable to
+  grip/accelerate. Intermittent because it depended on exact per-frame vy values.
+- FIX: `suppressSeamBounce` takes an `onSlope` flag; when true it skips the velocity
+  restore (and returns false so crash-detection isn't skipped). `isVehicleOnSlopeCell()`
+  (uses `slopeCellMap`, same cell math as `applySlopeConformVisual`) computes the flag in
+  the main loop before the call. Flat-ground suppression is unchanged (onSlope=false).
+- The slope is one continuous tilted collider (no internal seam) and its high end meets
+  the elevated surface flush, so suppression isn't needed on slope cells. Do NOT remove
+  the onSlope bypass — reintroducing it brings back the grip-loss glitch.
+
 ## Decoration trees (`js/Track.js`)
 
 ### Tree rotation (breaks up grid pattern)
