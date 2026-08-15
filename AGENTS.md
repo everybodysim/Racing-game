@@ -85,6 +85,31 @@
 - Rule of thumb: any NEW tilted/drivable ramp should use friction 5.0 so the rolling
   sphere can grip uphill. Frictionless rails/launch surfaces stay low.
 
+### Elevated corner support pillar (Physics.js `addElevatedCornerSupport`)
+- The corner mesh is a curved quarter-annulus, NOT a square block. The generic
+  full-square `addElevatedSupportCollider(gx,gz)` is therefore SKIPPED for
+  `elevated-corner` (the dispatch guards `normalizedType !== 'elevated-corner'`)
+  and rebuilt as a curved footprint by `addElevatedCornerSupport(gx,gz,orient)`:
+  - Two straight L-arm boxes fill the region under the two road stubs (the two
+    sides adjacent to the tight inside corner at local (-CELL_HALF,+CELL_HALF)).
+    Arm A runs along +z (north stub), arm B along -x (west stub). Each spans the
+    road half-width `CELL_HALF - WALL_HALF_THICK` along its edge and reaches from
+    the edge in to the block center (`armDepth = CELL_HALF`).
+  - The OUTER corner arc (the 8 longer wall segments from `addElevatedCornerWalls`)
+    is duplicated at the SUPPORT height (centerY = supportTopY - SUPPORT_HALF_HEIGHT,
+    halfHeight = SUPPORT_HALF_HEIGHT) — same XZ position/rotation as the road-level
+    outer walls, only Y/halfHeight differ. This "expands" the rounded outer edge
+    downward so a car below the elevated block still collides with a curved surface
+    matching the mesh.
+- Vertical extent matches the OLD support box exactly (top = supportTopY ≈ 3.479 <
+  road surface elevatedSurfaceY ≈ 3.561), so the road deck above is NEVER blocked.
+  Verified: arm boxes meet the outer-arc endpoints exactly (dist 0.0) for all 4
+  orientations, support top stays below road for all 4.
+- The road-level `addElevatedCornerWalls` (INNER 3-seg tight arc + OUTER 8-seg long
+  arc rails) is unchanged and still called for corners.
+- Other elevated types (straight/checkpoint/3-way/4-way) still use the full-square
+  `addElevatedSupportCollider`.
+
 ### Slope collider geometry (rotationally symmetric)
 - `addSlopeCollider(gx, gz, orient, up)`: a tilted box, halfExtents
   `[ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, slopeTargetHalfLen]`, pitched by

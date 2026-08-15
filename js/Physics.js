@@ -229,6 +229,80 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
+	function addElevatedCornerSupport( gx, gz, orient = 0 ) {
+
+		// Replaces the old full-square support box for elevated corners. The corner
+		// mesh is curved (quarter-annulus), so the support pillar below must match:
+		// two straight arm boxes fill the L under the two road stubs (the sides
+		// adjacent to the tight inside corner), and the outer-corner arc segments
+		// are duplicated at the support height so the rounded outer edge still
+		// reads as a curve even below the elevated block. The vertical extent
+		// matches the old support box so the road deck above is never blocked.
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const rad = deg * Math.PI / 180;
+		const cr = Math.cos( rad ), sr = Math.sin( rad );
+		const supportTopY = groundY + ( CELL_HALF * S ) - SUPPORT_SINK - 0.12;
+		const centerY = supportTopY - SUPPORT_HALF_HEIGHT;
+		const halfHeight = SUPPORT_HALF_HEIGHT;
+		const armHalfLen = CELL_HALF - WALL_HALF_THICK; // road half-width where the stubs meet the edges
+		const armDepth = CELL_HALF; // each arm reaches from its edge in to the block center
+
+		// Two L arms (local space, then yaw-rotated by `rad`). For orient 0 the
+		// inside corner sits at (-CELL_HALF, +CELL_HALF): arm A runs along +z
+		// (the north stub), arm B runs along -x (the west stub).
+		const arms = [
+			{ lx: 0,                       lz: CELL_HALF / 2, hx: armHalfLen, hz: armDepth / 2 },
+			{ lx: - CELL_HALF / 2,         lz: 0,              hx: armDepth / 2, hz: armHalfLen },
+		];
+		const yawQuat = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
+		for ( const a of arms ) {
+
+			const wx = cx + ( a.lx * cr + a.lz * sr ) * S;
+			const wz = cz + ( - a.lx * sr + a.lz * cr ) * S;
+			const halfExtents = [ a.hx * S, halfHeight, a.hz * S ];
+			const position = [ wx, centerY, wz ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				quaternion: yawQuat,
+				friction: 0.95,
+				restitution: 0.0,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, yawQuat );
+
+		}
+
+		// Outer corner arc, lowered to the support height. Same XZ position and
+		// rotation as the road-level outer walls — only the Y center / half-height
+		// change, expanding the rounded outer edge downward to match the mesh.
+		const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S;
+		const wcz = cz + ( - ARC_CENTER_X * sr + ARC_CENTER_Z * cr ) * S;
+		const arcStart = - rad;
+		for ( let i = 0; i < OUTER_SEG; i ++ ) {
+
+			const aMid = arcStart + ( ( i + 0.5 ) / OUTER_SEG ) * ARC_SPAN;
+			const halfExtents = [ hThick, halfHeight, OUTER_SEG_HALF_LEN ];
+			const position = [ wcx + OUTER_R * Math.cos( aMid ) * S, centerY, wcz + OUTER_R * Math.sin( aMid ) * S ];
+			const quaternion = [ 0, Math.sin( - aMid / 2 ), 0, Math.cos( - aMid / 2 ) ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				quaternion,
+				friction: 0.0,
+				restitution: 0.0,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+		}
+
+	}
+
 	function add3WayWalls( gx, gz, orient = 0, centerY = wallY, wallHalfHeight = hHeight ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
@@ -812,7 +886,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const normalizedOrient = elevatedType === 'slope-down' ? ( ORIENT_180[ orient ] ?? orient ) : orient;
 		const nx = Number( gx );
 		const nz = Number( gz );
-		if ( normalizedType !== 'slope-up' ) addElevatedSupportCollider( nx, nz );
+		// The elevated-corner support pillar is curved (matching the corner mesh),
+		// so the generic full-square support box is skipped for corners and rebuilt
+		// by addElevatedCornerSupport() as an L-shaped + outer-arc footprint below.
+		if ( normalizedType !== 'slope-up' && normalizedType !== 'elevated-corner' ) addElevatedSupportCollider( nx, nz );
 		if ( normalizedType === 'slope-up' ) {
 
 			addSlopeCollider( nx, nz, normalizedOrient, true );
@@ -827,6 +904,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		}
 		if ( normalizedType === 'elevated-corner' ) {
 
+			addElevatedCornerSupport( nx, nz, normalizedOrient );
 			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
 			continue;
 
