@@ -342,7 +342,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			objectLayer: world._OL_STATIC,
 			position,
 			quaternion,
-			friction: 1.0,
+			// The car is a sphere that drives by rolling — friction converts angular
+			// velocity into forward motion. Low friction (1.0) makes the sphere slip
+			// and spin in place on the incline, so the car can't grip/accelerate
+			// uphill (it "glides"). Match the ground surface (5.0) so the slope grips
+			// like the flat road. Side walls below stay frictionless (rails).
+			friction: 5.0,
 			restitution: 0.0,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
@@ -376,7 +381,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			objectLayer: world._OL_STATIC,
 			position,
 			quaternion,
-			friction: 1.0,
+			friction: 5.0,
 			restitution: 0.0,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
