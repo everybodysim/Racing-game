@@ -48,7 +48,11 @@ const DEFAULT_SETTINGS = {
 	mimeType: 'auto',   // 'auto' = pick the best supported
 	captureAudio: true,
 	hideUiWhileRecording: false,
-	hideGroups: { hud: true, lapHud: true, countdown: true, boost: true, topMsg: true, vignette: true },
+	// All hide-groups default OFF. Earlier defaults pre-checked 6 groups, so the
+	// moment "Hide selected UI" was enabled most of the screen vanished — which
+	// looked like "it always hides everything." Now nothing hides unless the user
+	// explicitly checks a group, so the selection is respected.
+	hideGroups: { hud: false, lapHud: false, countdown: false, boost: false, topMsg: false, vignette: false, nav: false, garage: false, hacks: false, mp: false },
 	filenamePrefix: 'racing-gameplay',
 };
 
@@ -204,11 +208,16 @@ export class VideoRecorder {
 	}
 
 	_applyHideGroups() {
-		if ( ! this.settings.hideUiWhileRecording ) return;
+		if ( ! this.settings.hideUiWhileRecording ) {
+			this.log( 'hide UI: master toggle OFF — nothing hidden' );
+			return;
+		}
 		this.hiddenElements = [];
 		const groups = this.settings.hideGroups || {};
+		const applied = [];
 		for ( const group of UI_TOGGLE_GROUPS ) {
 			if ( ! groups[ group.key ] ) continue;
+			let n = 0;
 			for ( const sel of group.selectors ) {
 				let els;
 				try { els = document.querySelectorAll( sel ); } catch { continue; }
@@ -218,12 +227,16 @@ export class VideoRecorder {
 					el.dataset.vrHidden = '1';
 					el.style.display = 'none';
 					this.hiddenElements.push( { el, prev } );
+					n++;
 				} );
 			}
+			applied.push( `${ group.key }(${ n } el)` );
 		}
+		this.log( `hide UI: applied groups = [ ${ applied.join( ', ' ) || 'none' } ]` );
 	}
 
 	_restoreHideGroups() {
+		this.log( `restore UI: ${ this.hiddenElements.length } elements restored` );
 		for ( const { el, prev } of this.hiddenElements ) {
 			if ( ! el ) continue;
 			delete el.dataset.vrHidden;
@@ -394,25 +407,38 @@ export class VideoRecorder {
 		this.log( `blob URL: ${ url }` );
 
 		// Open the recording in a new tab so the user can play/verify it directly.
+		// This is the only automatic navigation we do, and it targets _blank so the
+		// game page (and this debug log) stays put.
 		try {
 			const w = window.open( url, '_blank' );
-			if ( ! w ) this.log( 'window.open was blocked — download will still fire' );
+			if ( ! w ) this.log( 'window.open was blocked — use the Download button in the panel' );
 			else this.log( 'opened recording in a new tab' );
 		} catch ( e ) { this.log( `window.open error: ${ e.message }` ); }
 
-		// Also trigger a normal download.
-		const a = document.createElement( 'a' );
-		a.href = url;
-		a.download = name;
-		document.body.appendChild( a );
-		a.click();
-		a.remove();
-		this.log( `download triggered: ${ name }` );
-		setTimeout( () => URL.revokeObjectURL( url ), 60_000 );
+		// NOTE: we do NOT auto-trigger an <a download> click here. That click runs
+		// inside the async onstop callback (outside a user gesture), so some
+		// browsers ignore the `download` attribute and NAVIGATE the current tab to
+		// the blob URL instead of downloading — which throws away the debug log.
+		// Instead the panel shows a "Download recording" button (see main.js) that
+		// performs the download from a real user click.
+		this._updateStatus( `Ready: ${ name } (${ ( blob.size / 1024 / 1024 ).toFixed( 1 ) } MB, ${ secs }s). Opened in new tab; use Download to save.` );
+		this.log( 'finalize done — waiting for user to click Download (or save from the new tab)' );
+	}
 
-		const sizeMb = ( blob.size / ( 1024 * 1024 ) ).toFixed( 1 );
-		this._updateStatus( `Saved ${ name } (${ sizeMb } MB, ${ secs }s).` );
-		this.log( 'finalize done' );
+	// Triggered from the panel's Download button (a real user gesture), so the
+	// `download` attribute is honored and the current tab is NOT navigated away.
+	downloadLast() {
+		if ( ! this.lastBlobUrl ) { this.log( 'downloadLast: no recording available' ); return false; }
+		try {
+			const a = document.createElement( 'a' );
+			a.href = this.lastBlobUrl;
+			a.download = this.lastBlobName || 'racing-gameplay.webm';
+			document.body.appendChild( a );
+			a.click();
+			a.remove();
+			this.log( `download triggered (user gesture): ${ a.download }` );
+			return true;
+		} catch ( e ) { this.log( `download error: ${ e.message }` ); return false; }
 	}
 
 	_cleanupStream() {

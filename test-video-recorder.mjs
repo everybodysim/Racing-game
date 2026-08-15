@@ -42,11 +42,12 @@ globalThis.localStorage = {
 	clear: () => _store.clear(),
 };
 
-// Minimal DOM stub supporting querySelectorAll + style + dataset.
+// Minimal DOM stub supporting querySelectorAll + style + dataset + click/remove.
 function makeEl( id ) {
 	return {
 		id, style: { display: '' }, dataset: {},
 		querySelectorAll: () => [],
+		click() {}, remove() {}, appendChild() {},
 	};
 }
 // A 2D-canvas stub for the relay: getContext('2d') returns a drawImage-capable
@@ -95,7 +96,7 @@ ok( pickMimeType( 'video/x-random' ) === 'video/webm;codecs=vp9,opus', 'pickMime
 ok( DEFAULT_SETTINGS.fps === 60, 'default fps 60' );
 ok( DEFAULT_SETTINGS.captureAudio === true, 'default captureAudio true' );
 ok( typeof DEFAULT_SETTINGS.hideGroups === 'object', 'default hideGroups object' );
-ok( DEFAULT_SETTINGS.hideGroups.hud === true, 'default hides hud' );
+ok( DEFAULT_SETTINGS.hideGroups.hud === false, 'default hideGroups all off (selection respected)' );
 
 // 4) Settings persist round-trip.
 _store.clear();
@@ -105,13 +106,13 @@ ok( reloaded.fps === 90, 'persisted fps' );
 ok( reloaded.bitrate === 20_000_000, 'persisted bitrate' );
 ok( reloaded.hideGroups.hud === false, 'persisted hideGroups.hud override' );
 ok( reloaded.hideGroups.boost === true, 'persisted hideGroups.boost new' );
-ok( reloaded.hideGroups.lapHud === true, 'persisted hideGroups keeps untouched defaults' );
+ok( reloaded.hideGroups.lapHud === false, 'persisted hideGroups keeps untouched defaults' );
 
 // 5) loadSettings with no storage returns defaults.
 _store.clear();
 const fresh = loadSettings();
 ok( fresh.fps === 60, 'no-storage fps default' );
-ok( fresh.hideGroups.hud === true, 'no-storage hideGroups default' );
+ok( fresh.hideGroups.hud === false, 'no-storage hideGroups default off' );
 
 // 6) UI_TOGGLE_GROUPS covers the key UI pieces for clean recordings.
 const keys = UI_TOGGLE_GROUPS.map( ( g ) => g.key );
@@ -178,6 +179,62 @@ ok( autoStarted === true, 'auto-capture start returns true' );
 ok( autoRec._manualFrames === false, 'no requestFrame -> auto mode' );
 autoRec.stop();
 relayHasRequestFrame = true;
+
+// 11) _applyHideGroups only hides SELECTED groups (not everything).
+// Register a stub element for every selector across all groups.
+const hideEls = new Map(); // selector -> el
+for ( const group of UI_TOGGLE_GROUPS ) {
+	for ( const sel of group.selectors ) {
+		if ( ! hideEls.has( sel ) ) {
+			const el = { style: { display: '' }, dataset: {} };
+			hideEls.set( sel, el );
+			_els.set( sel, el );
+		}
+	}
+}
+const hideRec = new VideoRecorder( { canvas: { width: 1280, height: 720 }, getAudioContext: () => null, getMessage: () => {} } );
+// Only 'hud' and 'nav' selected; everything else off.
+hideRec.updateSettings( {
+	hideUiWhileRecording: true,
+	hideGroups: Object.fromEntries( UI_TOGGLE_GROUPS.map( ( g ) => [ g.key, ( g.key === 'hud' || g.key === 'nav' ) ] ) ),
+} );
+hideRec._applyHideGroups();
+let hiddenCount = 0, visibleCount = 0;
+for ( const group of UI_TOGGLE_GROUPS ) {
+	for ( const sel of group.selectors ) {
+		const el = hideEls.get( sel );
+		if ( el.style.display === 'none' ) hiddenCount++; else visibleCount++;
+		// A selector's group must match its expected hidden/visible state.
+		const expectHidden = ( group.key === 'hud' || group.key === 'nav' );
+		ok( el.style.display === ( expectHidden ? 'none' : '' ), `group ${ group.key } (${ sel }) ${ expectHidden ? 'hidden' : 'visible' } as selected` );
+	}
+}
+ok( hiddenCount > 0 && visibleCount > 0, 'hide-groups: some hidden, some visible (selection respected)' );
+ok( hiddenCount === UI_TOGGLE_GROUPS.find( g => g.key === 'hud' ).selectors.length + UI_TOGGLE_GROUPS.find( g => g.key === 'nav' ).selectors.length, 'hide-groups: exactly the selected groups hidden' );
+// Restore brings them all back.
+hideRec._restoreHideGroups();
+let allRestored = true;
+for ( const el of hideEls.values() ) { if ( el.style.display === 'none' ) allRestored = false; }
+ok( allRestored, 'restoreHideGroups brings all elements back' );
+// Master toggle off -> nothing hidden.
+hideRec.updateSettings( { hideUiWhileRecording: false } );
+hideRec._applyHideGroups();
+let noneHidden = true;
+for ( const el of hideEls.values() ) { if ( el.style.display === 'none' ) noneHidden = false; }
+ok( noneHidden, 'master toggle off -> nothing hidden' );
+// Clean up the registered selectors so later tests aren't affected.
+for ( const sel of hideEls.keys() ) _els.delete( sel );
+
+// 12) downloadLast() requires a finished recording (no navigation side-effect test here,
+// just the guard + that it sets lastBlobName). A real <a download> click is exercised
+// only in-browser; here we verify the no-recording guard returns false and that after a
+// finalized recording it returns true.
+const dlRec = new VideoRecorder( { canvas: { width: 1280, height: 720 }, getAudioContext: () => null, getMessage: () => {} } );
+ok( dlRec.downloadLast() === false, 'downloadLast: false when no recording available' );
+// Simulate a finalized recording by populating the fields the finalize path sets.
+dlRec.lastBlobUrl = 'blob:fake';
+dlRec.lastBlobName = 'racing-gameplay-test.webm';
+ok( dlRec.downloadLast() === true, 'downloadLast: true when a recording is available' );
 
 console.log( `\n${ passed } passed, ${ failed } failed` );
 process.exit( failed ? 1 : 0 );

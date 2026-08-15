@@ -8841,6 +8841,7 @@ function completeCampaignStage() {
 	const vrDebugEl = document.getElementById( 'vr-debug' );
 	const vrCopyDebugBtn = document.getElementById( 'vr-copy-debug-btn' );
 	const vrClearDebugBtn = document.getElementById( 'vr-clear-debug-btn' );
+	const vrDownloadBtn = document.getElementById( 'vr-download-btn' );
 
 	let videoRecorder = null;
 	if ( videoRecorderInstalled ) {
@@ -8850,6 +8851,9 @@ function completeCampaignStage() {
 			getMusicElement: () => window.__gameAudio?.musicElement || null,
 			getMessage: ( text, live ) => {
 				if ( vrStatus ) { vrStatus.textContent = String( text || '' ); vrStatus.classList.toggle( 'live', Boolean( live ) ); }
+				// finalize() updates status after the async onstop fires; refresh
+				// button states so the Download button appears once a recording is ready.
+				if ( ! live ) vrRefreshButtonState?.();
 			},
 			onDebug: ( line ) => {
 				if ( ! vrDebugEl ) return;
@@ -8912,6 +8916,8 @@ function completeCampaignStage() {
 		// defaults, so setting '' would revert them to hidden.
 		if ( vrStartBtn ) vrStartBtn.style.display = rec ? 'none' : 'block';
 		if ( vrStopBtn ) vrStopBtn.style.display = rec ? 'block' : 'none';
+		// Show the Download button only when a finished recording is available.
+		if ( vrDownloadBtn ) vrDownloadBtn.style.display = ( ! rec && videoRecorder.lastBlobUrl ) ? 'block' : 'none';
 	}
 	vrBtn?.addEventListener( 'click', () => {
 		if ( ! videoRecorder ) return;
@@ -8930,6 +8936,11 @@ function completeCampaignStage() {
 	vrClearDebugBtn?.addEventListener( 'click', () => {
 		if ( videoRecorder ) videoRecorder._debugLines = [];
 		if ( vrDebugEl ) vrDebugEl.textContent = '';
+	} );
+	vrDownloadBtn?.addEventListener( 'click', () => {
+		if ( ! videoRecorder ) return;
+		const ok = videoRecorder.downloadLast();
+		showTopMessage( ok ? 'Recording download started' : 'No recording to download yet', ! ok, 1800 );
 	} );
 	vrStartBtn?.addEventListener( 'click', async () => {
 		if ( ! videoRecorder ) return;
@@ -8950,8 +8961,8 @@ function completeCampaignStage() {
 		if ( ! videoRecorder ) return;
 		videoRecorder.stop();
 		vrRefreshButtonState();
-		showTopMessage( '⏹ Stopping recording… preparing download', false, 2200 );
-		// Reopen the panel so the debug log (capture details + download) is visible.
+		showTopMessage( '⏹ Stopping… preparing video (see panel)', false, 2200 );
+		// Reopen the panel so the debug log + Download button are visible.
 		if ( vrPanel ) vrPanel.style.display = 'block';
 	} );
 	// Keyboard shortcut for the recorder is registered in the main keydown
@@ -9400,8 +9411,10 @@ function completeCampaignStage() {
 				e.preventDefault();
 				if ( videoRecorder.isRecording() ) {
 					videoRecorder.stop();
-					showTopMessage( '⏹ Stopping recording… preparing download', false, 2200 );
+					showTopMessage( '⏹ Stopping… preparing video (see panel)', false, 2200 );
 				} else {
+					vrSyncSettings(); // apply current checkbox/setting state before recording
+					if ( vrDebugEl ) vrDebugEl.textContent = '';
 					void videoRecorder.start().then( ( ok ) => {
 						showTopMessage( ok ? '⏺ Recording started (Alt+R to stop)' : 'Recording failed to start', ! ok, 2200 );
 					} );

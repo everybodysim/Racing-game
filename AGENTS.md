@@ -423,13 +423,38 @@
   relay canvas size, video track readyState/frameRate/requestFrame availability,
   audio track count, mimeType, recorder opts, each `dataavailable` event (size +
   running total + chunk count), `onstop`, finalize blob size/type/frame count,
-  blob URL, window.open result, download trigger.
-- On stop, `_finalize()` opens the blob in a NEW TAB (`window.open(url, '_blank')`)
-  so the user can play/verify the recording directly in-browser, AND triggers a
-  normal download. The panel reopens on stop so the debug log is visible.
+  blob URL, window.open result, AND the hide-groups applied (`hide UI: applied
+  groups = [ hud(3 el), nav(2 el) ]`) + restore count.
+- On stop, `_finalize()` opens the recording in a NEW TAB (`window.open(url, '_blank')`)
+  so the user can play/verify it in-browser. It does NOT auto-download — see below.
 - `#vr-copy-debug-btn` copies the log to clipboard; `#vr-clear-debug-btn` clears it.
-- If the video is still blank, the debug log tells you exactly why: e.g. "dataavailable:
-  0 KB" (no frames captured) vs large chunks but grey (encoding issue) vs empty blob.
+
+### Download is a button, not auto (fixes "old page navigates to broken blob")
+- The old auto `<a download>.click()` ran inside the ASYNC `onstop` callback,
+  outside a user gesture, so some browsers ignored the `download` attribute and
+  NAVIGATED the current tab to the blob URL (broken page, debug log lost).
+- Now: the panel has a `#vr-download-btn` ("⬇ Download recording") that calls
+  `videoRecorder.downloadLast()`. Because it fires from a real user click, the
+  `download` attribute is honored → the file downloads, the game page stays put.
+  The button appears (`vrRefreshButtonState`) only when a finished recording
+  exists (`videoRecorder.lastBlobUrl`). The new-tab preview still opens automatically.
+- `lastBlobUrl`/`lastBlobName` are retained on the recorder; revoke is NOT auto
+  (kept so the Download button + new tab keep working). They're overwritten on the
+  next recording.
+
+### Hide-UI groups default ALL OFF (fixes "always hides everything")
+- `DEFAULT_SETTINGS.hideGroups` previously pre-checked 6 groups (hud, lapHud,
+  countdown, boost, topMsg, vignette). The instant "Hide selected UI" was enabled,
+  most of the screen vanished — looked like "it hides everything regardless of
+  selection." Now every group defaults OFF; nothing hides unless the user
+  explicitly checks it, so the selection is always respected.
+- `_applyHideGroups` skips any group whose `hideGroups[key]` is falsy, and now
+  logs exactly which groups it hid (with element counts) + logs "master toggle
+  OFF" when the master toggle is off. If something hides unexpectedly, the debug
+  log shows the precise list.
+- Alt+R (keyboard start) now calls `vrSyncSettings()` before `start()` so a
+  keyboard-started recording respects the current checkbox state (previously only
+  the panel Start button synced settings).
 
 ### UI visibility gotcha (CSS display:none + inline style)
 - `#video-recorder-btn`, `#vr-start-btn`, `#vr-stop-btn` all have `display: none` in
@@ -446,8 +471,10 @@
   (`getMessage`) in the panel also updates.
 
 ### Tests
-- `test-video-recorder.mjs` (46 assertions): MIME picking, settings round-trip,
+- `test-video-recorder.mjs` (73 assertions): MIME picking, settings round-trip,
   `UI_TOGGLE_GROUPS` shape, the start/stop lifecycle via the 2D relay canvas,
   `captureFrame()` (drawImage + requestFrame, throttle, no-op when not recording),
-  the debug log, and the auto-capture fallback. Stubs browser globals (no jsdom).
+  the debug log, `_applyHideGroups` selection (only checked groups hide, master
+  toggle off hides nothing, restore works), `downloadLast()` guard, and the
+  auto-capture fallback. Stubs browser globals (no jsdom).
   Run: `node test-video-recorder.mjs`.

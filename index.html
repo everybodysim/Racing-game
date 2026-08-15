@@ -1254,6 +1254,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#vr-stop-btn { background: rgba(30,120,60,0.85) !important; border-color: rgba(120,255,160,0.5) !important; display: none; }
 		#vr-stop-btn:hover { background: rgba(40,150,80,0.95) !important; }
 		#vr-close-btn { flex: 0 0 auto; background: rgba(60,60,70,0.85) !important; }
+		#vr-download-btn { width: 100%; margin-top: 8px; background: rgba(30,120,60,0.85) !important; border-color: rgba(120,255,160,0.5) !important; }
+		#vr-download-btn:hover { background: rgba(40,150,80,0.95) !important; }
 		#vr-status { margin-top: 10px; padding: 6px 8px; border-radius: 6px; background: rgba(0,0,0,0.35); font-size: 11px; min-height: 18px; }
 		#vr-status.live { color: #ff8a8a; }
 		#vr-debug { margin-top: 6px; max-height: 180px; overflow: auto; background: rgba(0,0,0,0.55); color: #b9f6ca; font-size: 10px; line-height: 1.35; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 8px; border-radius: 6px; white-space: pre-wrap; word-break: break-word; }
@@ -2458,10 +2460,11 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		<div id="vr-hide-groups" class="vr-checks"></div>
 		<div class="vr-actions">
 			<button id="vr-start-btn" type="button">⏺ Start recording</button>
-			<button id="vr-stop-btn" type="button">⏹ Stop & download</button>
+							<button id="vr-stop-btn" type="button">⏹ Stop</button>
 			<button id="vr-close-btn" type="button" aria-label="Close">✕</button>
 		</div>
 		<div id="vr-status">Ready.</div>
+		<button id="vr-download-btn" type="button" style="display:none;">⬇ Download recording</button>
 		<div class="vr-sub" style="margin-top:10px;display:flex;align-items:center;gap:8px;">
 			<span>Debug log</span>
 			<button id="vr-copy-debug-btn" type="button" style="font-size:10px;padding:2px 8px;">Copy</button>
