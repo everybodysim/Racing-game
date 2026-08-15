@@ -1739,9 +1739,13 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	
 		body.ui-hidden > :not(canvas):not(script) { display: none !important; }
 		body.ui-hidden canvas { touch-action: none; }
+		/* The minimap is a <canvas> appended to <body>, so the :not(canvas) rule
+		   above spares it. Hide it explicitly with the rest of the UI (H key). */
+		body.ui-hidden #minimap-hud { display: none !important; }
 
 		body.replay-viewer-mode > :not(canvas):not(script) { display: none !important; }
 		body.replay-viewer-mode canvas { touch-action: none; }
+		body.replay-viewer-mode #minimap-hud { display: none !important; }
 
 
 		/* Mobile-first gameplay chrome. Everything is gated behind coarse pointers so desktop layout is untouched. */
