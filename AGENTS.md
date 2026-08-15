@@ -396,25 +396,43 @@
   + restores the prior value). Default hides hud/lapHud/countdown/boost/topMsg/vignette;
   nav/garage/hacks/mp default off.
 
-### Frame capture — the 2D-canvas relay (fixes grey/empty video)
-- The main renderer is created with `outputBufferType: THREE.HalfFloatType` (HDR
-  tone mapping). Capturing that half-float drawing buffer directly via
-  `canvas.captureStream()` yields grey/empty video because video encoders expect
-  RGBA8 frames — the compositor displays it fine, but MediaRecorder can't encode it.
-- FIX: the recorder does NOT capture the WebGL canvas directly. Instead it creates
-  an offscreen RGBA8 2D canvas (`relayCanvas`), and each frame `captureFrame()`
-  does `relayCtx.drawImage(webglCanvas, 0, 0)` (reads the preserved frame buffer —
-  `preserveDrawingBuffer: true` makes this work) then `videoTrack.requestFrame()`
-  to push that RGBA8 frame into the recording stream. `captureStream(fps)` is called
-  on the RELAY canvas, not the WebGL canvas. The 2D canvas is always RGBA8, so
-  encoding always works. The relay auto-resizes to match the WebGL drawing buffer.
-- `captureFrame()` is called from the game's `animate()` loop right after
-  `renderer.render()`, throttled to the configured FPS. `start()` primes one frame
-  immediately; `stop()` calls `requestData()` before `stop()` to flush the final
-  segment. Timeslice `start(1000)` keeps chunks flowing.
-- Firefox fallback: if the relay track has no `requestFrame`, `_manualFrames=false`
-  and `captureFrame()` still does the `drawImage` (auto-capture pulls from the
-  relay canvas at its frame rate).
+### Frame capture — display capture (includes HTML UI) vs relay canvas
+- The recording MUST show the on-screen UI (HUD, lap timer, speedometer, buttons),
+  not just the 3D scene. Those UI elements are HTML/CSS overlays on top of the
+  WebGL canvas — they are NOT canvas pixels, so capturing only `renderer.domElement`
+  (relay canvas) yields a video with the 3D scene but NO UI.
+- PRIMARY capture path: `navigator.mediaDevices.getDisplayMedia({ video:{ frameRate, displaySurface:'tab' }, audio:false })`.
+  This captures the COMPOSITED tab — WebGL + every HTML UI overlay — because it
+  records what the user sees. `captureMode = 'display'`. In display mode the
+  browser captures automatically; `captureFrame()` is a no-op (returns early when
+  `captureMode !== 'relay'`). Audio is still mixed via the WebAudio path below and
+  added as tracks (getDisplayMedia `audio:true` is unreliable across browsers, so
+  we pass `audio:false` and mix ourselves).
+- The user must approve a tab-share prompt once per recording (pick "this tab").
+  `preferCurrentTab`/`displaySurface:'tab'` hints steer Chrome to the current tab.
+  If the user picks a window/screen instead of a tab, UI may not appear — logged.
+- If the user clicks the browser's native "Stop sharing" button, the display video
+  track fires `ended`; we listen for it and call `stop()` so the file is finalized
+  + opened in a new tab instead of silently dropped.
+- FALLBACK (`captureMode = 'relay'`): if `getDisplayMedia` is unavailable/denied,
+  the recorder creates an offscreen RGBA8 2D canvas (`relayCanvas`), and each frame
+  `captureFrame()` does `relayCtx.drawImage(webglCanvas, 0, 0)` (reads the preserved
+  frame buffer — `preserveDrawingBuffer: true`) then `videoTrack.requestFrame()`.
+  `captureStream(fps)` is called on the RELAY canvas. This sidesteps the half-float
+  drawing buffer (grey/empty) BUT captures only the 3D scene — HTML UI is NOT
+  included. The status message + debug log say "canvas only — UI hidden" so the
+  user knows to approve the tab-share prompt to get UI.
+- `captureFrame()` is called from the game's `animate()` loop after `renderer.render()`.
+  Timeslice `start(1000)` keeps chunks flowing; `stop()` calls `requestData()` first.
+
+### Audio mixing (both modes)
+- Engine/skid/impact sounds live in the WebAudio graph (THREE.AudioListener ->
+  AudioContext.destination). Music plays through an HTMLMediaElement. `_buildAudioStream()`
+  taps both via a MediaStreamDestination + Gain mixer: a gain tap off
+  `listener.getInput()` (SFX) + a cached `createMediaElementSource` (music, routed to
+  BOTH speakers and the mixer). Returns an audio-only MediaStream added to the
+  capture stream. `createMediaElementSource` is cached on the element (`__vrMediaSource`)
+  because it can only be called once per element.
 
 ### Debug log + open-in-new-tab (diagnostics)
 - The recorder has a `log(msg)` method that appends a timestamped line to an
@@ -431,16 +449,20 @@
 
 ### Download is a button, not auto (fixes "old page navigates to broken blob")
 - The old auto `<a download>.click()` ran inside the ASYNC `onstop` callback,
-  outside a user gesture, so some browsers ignored the `download` attribute and
+  outside a user gesture, so browsers ignored the `download` attribute and
   NAVIGATED the current tab to the blob URL (broken page, debug log lost).
-- Now: the panel has a `#vr-download-btn` ("⬇ Download recording") that calls
-  `videoRecorder.downloadLast()`. Because it fires from a real user click, the
-  `download` attribute is honored → the file downloads, the game page stays put.
-  The button appears (`vrRefreshButtonState`) only when a finished recording
-  exists (`videoRecorder.lastBlobUrl`). The new-tab preview still opens automatically.
-- `lastBlobUrl`/`lastBlobName` are retained on the recorder; revoke is NOT auto
-  (kept so the Download button + new tab keep working). They're overwritten on the
-  next recording.
+- Now: `_finalize()` opens the recording in a NEW TAB only (`window.open(url, '_blank')`,
+  which the user confirmed works perfectly). It also retains the actual Blob as
+  `this.lastBlob`. The panel's `#vr-download-btn` calls `videoRecorder.downloadLast()`,
+  which mints a FRESH `URL.createObjectURL(this.lastBlob)` (re-using the URL already
+  opened in the new tab can confuse some browsers into navigating) and keeps the `<a>`
+  in the DOM for 4s before removing it + revoking — removing the anchor synchronously
+  can abort the download in Chrome and fall back to navigating the current tab.
+  Because it fires from a real user click, the `download` attribute is honored → the
+  file downloads, the game page stays put. The button appears (`vrRefreshButtonState`,
+  keyed off `lastBlob`) only when a finished recording exists.
+- `lastBlob`/`lastBlobUrl`/`lastBlobName` are retained; revoked 4s after a download.
+  They're overwritten on the next recording.
 
 ### Hide-UI groups default ALL OFF (fixes "always hides everything")
 - `DEFAULT_SETTINGS.hideGroups` previously pre-checked 6 groups (hud, lapHud,
@@ -471,10 +493,12 @@
   (`getMessage`) in the panel also updates.
 
 ### Tests
-- `test-video-recorder.mjs` (73 assertions): MIME picking, settings round-trip,
-  `UI_TOGGLE_GROUPS` shape, the start/stop lifecycle via the 2D relay canvas,
-  `captureFrame()` (drawImage + requestFrame, throttle, no-op when not recording),
-  the debug log, `_applyHideGroups` selection (only checked groups hide, master
-  toggle off hides nothing, restore works), `downloadLast()` guard, and the
-  auto-capture fallback. Stubs browser globals (no jsdom).
+- `test-video-recorder.mjs` (78 assertions): MIME picking, settings round-trip,
+  `UI_TOGGLE_GROUPS` shape, the relay-canvas start/stop lifecycle, `captureFrame()`
+  (drawImage + requestFrame, throttle, no-op when not recording / display mode),
+  the display-mode path (getDisplayMedia success → captureMode='display', no relay,
+  captureFrame no-op), the debug log, `_applyHideGroups` selection (only checked
+  groups hide, master toggle off hides nothing, restore works, exact-count check),
+  `downloadLast()` guard (lastBlob-based), and the auto-capture fallback.
+  Stubs browser globals incl. a swappable `navigator.mediaDevices.getDisplayMedia`.
   Run: `node test-video-recorder.mjs`.

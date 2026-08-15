@@ -74,11 +74,14 @@ globalThis.document = {
 };
 
 globalThis.performance = { now: () => Date.now() };
-globalThis.window = { __gameAudio: null };
+globalThis.window = { __gameAudio: null, open: () => ( { } ) };
 globalThis.URL = { createObjectURL: () => 'blob:x', revokeObjectURL() {} };
 globalThis.Blob = class { constructor( parts ) { this.size = parts.reduce( ( a, p ) => a + ( p.size || 0 ), 0 ); } };
-globalThis.setTimeout = ( fn ) => { return 0; };
+globalThis.setTimeout = ( fn ) => { try { if ( typeof fn === 'function' ) fn(); } catch { /* ignore */ } return 0; };
 globalThis.clearTimeout = () => {};
+// No getDisplayMedia in the test env -> recorder falls back to the relay-canvas
+// path, which is what the existing lifecycle/captureFrame tests exercise.
+try { Object.defineProperty( globalThis.navigator, 'mediaDevices', { value: {}, configurable: true } ); } catch { /* navigator read-only is fine; getDisplayMedia check is typeof-safe */ }
 
 // ---- Load the module -------------------------------------------------------
 const { VideoRecorder, UI_TOGGLE_GROUPS, DEFAULT_SETTINGS, pickMimeType, loadSettings, saveSettings } = await import( './js/VideoRecorder.js' );
@@ -225,16 +228,33 @@ ok( noneHidden, 'master toggle off -> nothing hidden' );
 // Clean up the registered selectors so later tests aren't affected.
 for ( const sel of hideEls.keys() ) _els.delete( sel );
 
-// 12) downloadLast() requires a finished recording (no navigation side-effect test here,
-// just the guard + that it sets lastBlobName). A real <a download> click is exercised
-// only in-browser; here we verify the no-recording guard returns false and that after a
-// finalized recording it returns true.
+// 12) downloadLast() requires a finished recording. downloadLast now mints a
+// fresh URL from the retained Blob (this.lastBlob), so the guard checks lastBlob.
 const dlRec = new VideoRecorder( { canvas: { width: 1280, height: 720 }, getAudioContext: () => null, getMessage: () => {} } );
 ok( dlRec.downloadLast() === false, 'downloadLast: false when no recording available' );
 // Simulate a finalized recording by populating the fields the finalize path sets.
-dlRec.lastBlobUrl = 'blob:fake';
+dlRec.lastBlob = { size: 12345 };
 dlRec.lastBlobName = 'racing-gameplay-test.webm';
 ok( dlRec.downloadLast() === true, 'downloadLast: true when a recording is available' );
+
+// 13) getDisplayMedia success -> display mode (UI composited), no relay canvas.
+// Install a getDisplayMedia stub that returns a fake display stream, then verify
+// captureMode === 'display' and that no relay canvas was created.
+const fakeDisplayTrack = { stop() {}, getSettings: () => ( { displaySurface: 'tab', frameRate: 60 } ), addEventListener() {}, readyState: 'live', frameRate: 60 };
+const fakeDisplayStream = { getVideoTracks: () => [ fakeDisplayTrack ], getAudioTracks: () => [], getTracks: () => [ fakeDisplayTrack ], addTrack() {} };
+try { Object.defineProperty( globalThis.navigator, 'mediaDevices', { value: { getDisplayMedia: async () => fakeDisplayStream }, configurable: true } ); } catch { /* ignore */ }
+const dispRec = new VideoRecorder( { canvas: { width: 1280, height: 720 }, getAudioContext: () => null, getMessage: () => {} } );
+const dispStarted = await dispRec.start();
+ok( dispStarted === true, 'display mode: start returns true' );
+ok( dispRec.captureMode === 'display', 'display mode: captureMode === display' );
+ok( dispRec.relayCanvas === null, 'display mode: no relay canvas created' );
+ok( dispRec._manualFrames === false, 'display mode: manual frames off (browser captures)' );
+// captureFrame is a no-op in display mode (no relay work, no errors).
+dispRec.captureFrame();
+ok( dispRec.relayCanvas === null, 'display mode: captureFrame does not create relay' );
+dispRec.stop();
+// Restore: remove getDisplayMedia so nothing downstream depends on it.
+try { Object.defineProperty( globalThis.navigator, 'mediaDevices', { value: {}, configurable: true } ); } catch { /* ignore */ }
 
 console.log( `\n${ passed } passed, ${ failed } failed` );
 process.exit( failed ? 1 : 0 );

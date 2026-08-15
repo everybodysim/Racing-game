@@ -118,6 +118,7 @@ export class VideoRecorder {
 		// encoders expect RGBA8. The 2D relay always produces capturable frames.
 		this.relayCanvas = null;
 		this.relayCtx = null;
+		this.captureMode = 'relay'; // 'display' (tab capture, includes HTML UI) or 'relay' (canvas only)
 		this.frameCount = 0;
 		this._debugLines = [];
 	}
@@ -263,26 +264,62 @@ export class VideoRecorder {
 			const fps = Math.max( 10, Math.min( 120, Number( this.settings.fps ) || 60 ) );
 			this.log( `target fps = ${ fps }` );
 
-			// --- Relay 2D canvas -------------------------------------------------
-			// Copy the WebGL canvas onto an RGBA8 2D canvas and capture that.
-			// This sidesteps the half-float drawing buffer (grey/empty capture).
-			this.relayCanvas = document.createElement( 'canvas' );
-			this.relayCanvas.width = this.canvas.width || this.canvas.clientWidth || 1280;
-			this.relayCanvas.height = this.canvas.height || this.canvas.clientHeight || 720;
-			this.relayCtx = this.relayCanvas.getContext( '2d' );
-			this.log( `relay 2D canvas = ${ this.relayCanvas.width }x${ this.relayCanvas.height }` );
+			// --- Capture source --------------------------------------------------
+			// PRIMARY: getDisplayMedia (tab capture). This captures the COMPOSITED
+			// tab — the WebGL canvas AND every HTML/CSS UI overlay (HUD, lap timer,
+			// speedometer, buttons) — because it records what the user actually sees.
+			// The relay-canvas fallback only captures the raw WebGL canvas (3D scene,
+			// no HTML UI), so we only use it if the user denies tab capture.
+			let stream = null;
+			this.captureMode = 'relay'; // default fallback
+			if ( typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function' ) {
+				try {
+					const dm = await navigator.mediaDevices.getDisplayMedia( {
+						video: {
+							frameRate: { ideal: fps, max: fps },
+							displaySurface: 'tab',
+						},
+						audio: false, // we mix audio ourselves below for reliability
+					} );
+					if ( dm && dm.getVideoTracks?.().length ) {
+						stream = dm;
+						this.captureMode = 'display';
+						this.log( 'capture source: getDisplayMedia (tab) — WebGL + HTML UI composited' );
+						// If the user picked a window/screen instead of a tab, warn (UI
+						// may not be captured as expected).
+						const vt = dm.getVideoTracks()[ 0 ];
+						const surf = vt.getSettings?.()?.displaySurface;
+						this.log( `display track surface=${ surf || '?' } frameRate=${ vt.getSettings?.()?.frameRate || '?' }` );
+					}
+				} catch ( e ) {
+					this.log( `getDisplayMedia denied/failed: ${ e?.name || e?.message || e } — falling back to canvas-only (no HTML UI)` );
+				}
+			} else {
+				this.log( 'getDisplayMedia not available — using canvas-only capture (no HTML UI)' );
+			}
 
-			let stream;
-			try { stream = this.relayCanvas.captureStream( fps ); }
-			catch { try { stream = this.relayCanvas.captureStream(); } catch { throw new Error( 'captureStream not supported' ); } }
+			// FALLBACK: relay 2D canvas (WebGL 3D scene only — HTML UI NOT included).
+			if ( ! stream ) {
+				this.captureMode = 'relay';
+				this.relayCanvas = document.createElement( 'canvas' );
+				this.relayCanvas.width = this.canvas.width || this.canvas.clientWidth || 1280;
+				this.relayCanvas.height = this.canvas.height || this.canvas.clientHeight || 720;
+				this.relayCtx = this.relayCanvas.getContext( '2d' );
+				this.log( `relay 2D canvas = ${ this.relayCanvas.width }x${ this.relayCanvas.height } (UI will NOT appear in this mode)` );
+				try { stream = this.relayCanvas.captureStream( fps ); }
+				catch { try { stream = this.relayCanvas.captureStream(); } catch { throw new Error( 'captureStream not supported' ); } }
+			}
+
 			this.stream = stream;
 			this.videoTrack = ( stream.getVideoTracks?.() || [] )[ 0 ] || null;
-			this._manualFrames = Boolean( this.videoTrack && typeof this.videoTrack.requestFrame === 'function' );
-			this.log( `video track readyState=${ this.videoTrack?.readyState } frameRate=${ this.videoTrack?.frameRate } requestFrame=${ this._manualFrames }` );
+			this._manualFrames = this.captureMode === 'relay' && Boolean( this.videoTrack && typeof this.videoTrack.requestFrame === 'function' );
+			this.log( `video track readyState=${ this.videoTrack?.readyState } frameRate=${ this.videoTrack?.frameRate } requestFrame=${ this._manualFrames } (mode=${ this.captureMode })` );
 
-			// Prime the relay with one frame so the track isn't empty at start.
-			try { this.relayCtx.drawImage( this.canvas, 0, 0 ); } catch ( e ) { this.log( `prime drawImage error: ${ e.message }` ); }
-			if ( this._manualFrames ) { try { this.videoTrack.requestFrame(); } catch { /* ignore */ } }
+			// Prime the relay with one frame (display mode captures live, no prime needed).
+			if ( this.captureMode === 'relay' ) {
+				try { this.relayCtx.drawImage( this.canvas, 0, 0 ); } catch ( e ) { this.log( `prime drawImage error: ${ e.message }` ); }
+				if ( this._manualFrames ) { try { this.videoTrack.requestFrame(); } catch { /* ignore */ } }
+			}
 
 			// --- Audio -----------------------------------------------------------
 			const audioStream = this._buildAudioStream();
@@ -324,6 +361,16 @@ export class VideoRecorder {
 				this._updateStatus( 'Recording error — see debug.' );
 			};
 
+			// In display mode, if the user clicks the browser's native "Stop sharing"
+			// button, the video track ends. Treat that as a normal stop so the file
+			// is finalized + opened in a new tab, instead of silently dropping it.
+			if ( this.captureMode === 'display' && this.videoTrack ) {
+				this.videoTrack.addEventListener( 'ended', () => {
+					this.log( 'display track ended (user stopped sharing via browser UI)' );
+					if ( this.recording ) this.stop();
+				} );
+			}
+
 			this.mediaRecorder.start( 1000 );
 			this.recording = true;
 			this.log( `MediaRecorder.start() -> state=${ this.mediaRecorder.state }` );
@@ -344,10 +391,12 @@ export class VideoRecorder {
 	}
 
 	// Called from the game's animate loop after renderer.render() each frame.
-	// Copies the freshly rendered WebGL canvas onto the RGBA8 relay canvas and
-	// pushes a frame into the recording stream (throttled to the configured FPS).
+	// Only the relay-canvas mode needs per-frame work (copy WebGL -> relay, push a
+	// frame). In display mode the browser captures the composited tab itself.
 	captureFrame() {
-		if ( ! this.recording || ! this.videoTrack || ! this.relayCtx || ! this.canvas ) return;
+		if ( ! this.recording ) return;
+		if ( this.captureMode !== 'relay' ) return;
+		if ( ! this.videoTrack || ! this.relayCtx || ! this.canvas ) return;
 		const now = performance.now();
 		const minGap = 1000 / Math.max( 10, Math.min( 120, Number( this.settings.fps ) || 60 ) );
 		if ( now - this.lastFrameMs < minGap ) return;
@@ -402,41 +451,43 @@ export class VideoRecorder {
 		const name = `${ this.settings.filenamePrefix || 'racing-gameplay' }-${ stamp.getFullYear() }${ pad( stamp.getMonth() + 1 ) }${ pad( stamp.getDate() ) }-${ pad( stamp.getHours() ) }${ pad( stamp.getMinutes() ) }${ pad( stamp.getSeconds() ) }.${ ext }`;
 
 		const url = URL.createObjectURL( blob );
+		this.lastBlob = blob; // retain the actual Blob so downloadLast can mint a fresh URL
 		this.lastBlobUrl = url;
 		this.lastBlobName = name;
 		this.log( `blob URL: ${ url }` );
 
 		// Open the recording in a new tab so the user can play/verify it directly.
-		// This is the only automatic navigation we do, and it targets _blank so the
-		// game page (and this debug log) stays put.
+		// This targets _blank so the game page (and this debug log) stays put.
 		try {
 			const w = window.open( url, '_blank' );
 			if ( ! w ) this.log( 'window.open was blocked — use the Download button in the panel' );
 			else this.log( 'opened recording in a new tab' );
 		} catch ( e ) { this.log( `window.open error: ${ e.message }` ); }
 
-		// NOTE: we do NOT auto-trigger an <a download> click here. That click runs
-		// inside the async onstop callback (outside a user gesture), so some
-		// browsers ignore the `download` attribute and NAVIGATE the current tab to
-		// the blob URL instead of downloading — which throws away the debug log.
-		// Instead the panel shows a "Download recording" button (see main.js) that
-		// performs the download from a real user click.
-		this._updateStatus( `Ready: ${ name } (${ ( blob.size / 1024 / 1024 ).toFixed( 1 ) } MB, ${ secs }s). Opened in new tab; use Download to save.` );
-		this.log( 'finalize done — waiting for user to click Download (or save from the new tab)' );
+		this._updateStatus( `Ready: ${ name } (${ ( blob.size / 1024 / 1024 ).toFixed( 1 ) } MB, ${ secs }s, ${ this.captureMode }). Opened in new tab; use Download to save.` );
+		this.log( 'finalize done — click Download to save the file' );
 	}
 
-	// Triggered from the panel's Download button (a real user gesture), so the
-	// `download` attribute is honored and the current tab is NOT navigated away.
+	// Triggered from the panel's Download button (a real user gesture). Mints a
+	// FRESH blob URL from the retained Blob (re-using the URL already opened in the
+	// new tab can confuse some browsers into navigating instead of downloading) and
+	// keeps the <a> in the DOM briefly so Chrome doesn't cancel the download.
 	downloadLast() {
-		if ( ! this.lastBlobUrl ) { this.log( 'downloadLast: no recording available' ); return false; }
+		if ( ! this.lastBlob ) { this.log( 'downloadLast: no recording available' ); return false; }
 		try {
+			const url = URL.createObjectURL( this.lastBlob );
 			const a = document.createElement( 'a' );
-			a.href = this.lastBlobUrl;
+			a.href = url;
 			a.download = this.lastBlobName || 'racing-gameplay.webm';
+			a.style.display = 'none';
+			a.rel = 'noopener';
 			document.body.appendChild( a );
 			a.click();
-			a.remove();
 			this.log( `download triggered (user gesture): ${ a.download }` );
+			// Delay removal + revoke so the browser finishes the download (removing
+			// the anchor synchronously can abort the download and fall back to
+			// navigating the current tab to the blob URL).
+			setTimeout( () => { try { a.remove(); } catch { /* ignore */ } try { URL.revokeObjectURL( url ); } catch { /* ignore */ } }, 4000 );
 			return true;
 		} catch ( e ) { this.log( `download error: ${ e.message }` ); return false; }
 	}

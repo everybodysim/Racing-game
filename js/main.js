@@ -8917,7 +8917,7 @@ function completeCampaignStage() {
 		if ( vrStartBtn ) vrStartBtn.style.display = rec ? 'none' : 'block';
 		if ( vrStopBtn ) vrStopBtn.style.display = rec ? 'block' : 'none';
 		// Show the Download button only when a finished recording is available.
-		if ( vrDownloadBtn ) vrDownloadBtn.style.display = ( ! rec && videoRecorder.lastBlobUrl ) ? 'block' : 'none';
+		if ( vrDownloadBtn ) vrDownloadBtn.style.display = ( ! rec && videoRecorder.lastBlob ) ? 'block' : 'none';
 	}
 	vrBtn?.addEventListener( 'click', () => {
 		if ( ! videoRecorder ) return;
@@ -8946,13 +8946,16 @@ function completeCampaignStage() {
 		if ( ! videoRecorder ) return;
 		vrSyncSettings();
 		if ( vrDebugEl ) vrDebugEl.textContent = ''; // fresh log per recording
+		showTopMessage( 'Pick this tab in the share prompt to capture the game + UI', false, 4000 );
 		const ok = await videoRecorder.start();
 		vrRefreshButtonState();
 		if ( ok ) {
 			if ( vrPanel ) vrPanel.style.display = 'none'; // hide panel so it isn't in the video
-			showTopMessage( '⏺ Recording started (Alt+R to stop)', false, 2200 );
+			showTopMessage( videoRecorder.captureMode === 'display'
+				? '⏺ Recording (tab + UI). Alt+R / Stop to finish'
+				: '⏺ Recording (canvas only — UI hidden). Alt+R to stop', false, 2600 );
 		} else {
-			showTopMessage( 'Recording failed to start', true, 2600 );
+			showTopMessage( 'Recording failed to start — see panel', true, 3000 );
 			// Reopen the panel so the user can read the debug log on failure.
 			if ( vrPanel ) vrPanel.style.display = 'block';
 		}
@@ -9415,6 +9418,7 @@ function completeCampaignStage() {
 				} else {
 					vrSyncSettings(); // apply current checkbox/setting state before recording
 					if ( vrDebugEl ) vrDebugEl.textContent = '';
+					showTopMessage( 'Pick this tab in the share prompt to capture the game + UI', false, 4000 );
 					void videoRecorder.start().then( ( ok ) => {
 						showTopMessage( ok ? '⏺ Recording started (Alt+R to stop)' : 'Recording failed to start', ! ok, 2200 );
 					} );
