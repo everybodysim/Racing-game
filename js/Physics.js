@@ -5,7 +5,7 @@ import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
 const _debugMat = new THREE.MeshBasicMaterial( {
 	color: 0x2244ff,
 	transparent: true,
-	opacity: 0.9,
+	opacity: 0.5,
 	depthWrite: false,
 	depthTest: false,
 } );
@@ -246,15 +246,19 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const supportTopY = groundY + ( CELL_HALF * S ) - SUPPORT_SINK - 0.12;
 		const centerY = supportTopY - SUPPORT_HALF_HEIGHT;
 		const halfHeight = SUPPORT_HALF_HEIGHT;
-		const armHalfLen = CELL_HALF - WALL_HALF_THICK; // road half-width where the stubs meet the edges
-		const armDepth = CELL_HALF; // each arm reaches from its edge in to the block center
+		const armHalfLen = CELL_HALF - WALL_HALF_THICK; // road half-width along the stub edge
+		// The arms are thin walls flush with the block's two stub edges (the sides
+		// nearest the inside corner), NOT solid blocks reaching toward the center —
+		// the corner's below-deck mesh is a curved shell, so the support matches it.
+		const armHalfThick = WALL_HALF_THICK;
 
 		// Two L arms (local space, then yaw-rotated by `rad`). For orient 0 the
 		// inside corner sits at (-CELL_HALF, +CELL_HALF): arm A runs along +z
-		// (the north stub), arm B runs along -x (the west stub).
+		// (the north stub edge), arm B along -x (the west stub edge). Each is a
+		// thin wall spanning the road width along its edge, flush with the face.
 		const arms = [
-			{ lx: 0,                       lz: CELL_HALF / 2, hx: armHalfLen, hz: armDepth / 2 },
-			{ lx: - CELL_HALF / 2,         lz: 0,              hx: armDepth / 2, hz: armHalfLen },
+			{ lx: 0,                              lz: CELL_HALF - armHalfThick, hx: armHalfLen,   hz: armHalfThick },
+			{ lx: - ( CELL_HALF - armHalfThick ), lz: 0,                         hx: armHalfThick, hz: armHalfLen },
 		];
 		const yawQuat = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
 		for ( const a of arms ) {

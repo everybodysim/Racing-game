@@ -358,8 +358,8 @@ const PAD_EFFECTS = {
 	'pad-trick-yaw-roll-pitch': { id: 'trick-yaw-roll-pitch', trick: { yaw: 1, roll: 1, pitch: -1 } },
 	'pad-trick-pitch-yaw-roll': { id: 'trick-pitch-yaw-roll', trick: { pitch: 1, yaw: -1, roll: 1 } },
 };
-const HACK_HITBOX_OPACITY = 0.34;
-const HACK_WORLD_OPACITY = 0.2;
+const HACK_HITBOX_OPACITY = 0.5;
+const HACK_WORLD_OPACITY = 0.9;
 const SIZE_PAD_TYPES = new Set( [ 'pad-size-small', 'pad-size-normal', 'pad-size-mega' ] );
 const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 const BOUNCE_VERTICAL_DELTA = 7.2;

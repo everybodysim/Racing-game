@@ -92,9 +92,13 @@
   and rebuilt as a curved footprint by `addElevatedCornerSupport(gx,gz,orient)`:
   - Two straight L-arm boxes fill the region under the two road stubs (the two
     sides adjacent to the tight inside corner at local (-CELL_HALF,+CELL_HALF)).
-    Arm A runs along +z (north stub), arm B along -x (west stub). Each spans the
-    road half-width `CELL_HALF - WALL_HALF_THICK` along its edge and reaches from
-    the edge in to the block center (`armDepth = CELL_HALF`).
+    Arm A runs along +z (north stub edge), arm B along -x (west stub edge). The
+    arms are THIN WALLS flush with the stub edges (depth half-thickness =
+    WALL_HALF_THICK), spanning the road half-width `CELL_HALF - WALL_HALF_THICK`
+    along the edge — NOT solid blocks reaching toward the center. The corner's
+    below-deck mesh is a curved shell (the outer wall extends down), so the
+    support is a thin shell too: N-edge wall + W-edge wall + outer arc. The
+    thin arms still meet the outer-arc endpoints exactly (dist 0.0).
   - The OUTER corner arc (the 8 longer wall segments from `addElevatedCornerWalls`)
     is duplicated at the SUPPORT height (centerY = supportTopY - SUPPORT_HALF_HEIGHT,
     halfHeight = SUPPORT_HALF_HEIGHT) — same XZ position/rotation as the road-level
@@ -109,6 +113,17 @@
   arc rails) is unchanged and still called for corners.
 - Other elevated types (straight/checkpoint/3-way/4-way) still use the full-square
   `addElevatedSupportCollider`.
+
+### Show-hitboxes debug visuals (main.js + Physics.js)
+- `HACK_HITBOX_OPACITY = 0.5` (hitboxes 50% transparent) and `HACK_WORLD_OPACITY = 0.9`
+  (world 10% transparent, full color). The world must stay near-opaque so it reads
+  in full color; the hitboxes overlay as semi-transparent blue on top.
+- The wall/box debug material is `_debugMat` in Physics.js (MeshBasicMaterial,
+  color 0x2244ff, opacity 0.5, depthWrite:false, depthTest:false so it always draws
+  on top). The car sphere hitbox uses `carHitboxMaterial` (HACK_HITBOX_OPACITY).
+- `setHackMeshTransparencyEnabled` traverses the scene, saves each material's
+  original transparent/opacity/depthWrite, then sets transparent=true, opacity=min
+  (current, HACK_WORLD_OPACITY), depthWrite=true. Restored on disable.
 
 ### Slope collider geometry (rotationally symmetric)
 - `addSlopeCollider(gx, gz, orient, up)`: a tilted box, halfExtents
