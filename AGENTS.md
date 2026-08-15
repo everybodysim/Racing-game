@@ -509,7 +509,10 @@
 - A standalone **Settings page** (`settings.html`) separate from `index.html`,
   accessible from the main menu (home-secondary link), the in-game Nav tab
   (Configure section → Settings), and NavBar (`PAGE_NAMES['settings.html']`).
-- 6 tabs: Graphics, Audio, Gameplay, Controls, Accessibility, Cloud Sync.
+- 4 tabs: Graphics, Audio, Gameplay, Cloud Sync. (Controls + Accessibility tabs
+  were REMOVED because their fields weren't wired to the engine — kept in the
+  GameSettings schema for a future re-enable, just no UI. Shadow map size slider
+  also removed — see below.)
 - One shared ES module `js/GameSettings.js` is the single source of truth; both
   `index.html` (the game) and `settings.html` import it.
 
@@ -530,18 +533,21 @@
     GameSettings — only the settings-page option was removed.
 - Defaults: graphics preset `high` on desktop / `low` on mobile (via
   `window.matchMedia` + `navigator.deviceMemory` heuristic); null = "follow
-  preset/default" for tri-state fields (maxPixelRatio, shadows, shadowMapSize,
-  bloom*, smokeParticles, cameraDistance, cameraHeight). `shadows` defaults
-  null → presets default shadows ON, so the game looks high-quality normally.
+  preset/default" for tri-state fields (maxPixelRatio, shadows, bloom*,
+  smokeParticles, cameraDistance, cameraHeight). `shadows` defaults null →
+  presets default shadows ON, so the game looks high-quality normally.
 - Graphics preset model (Phase 2): `preset` ∈ {low,medium,high,custom}.
   `basePreset` always holds the last REAL preset (low/medium/high). Customizing
   ANY advanced slider/checkbox flips `preset='custom'` (keeping `basePreset`);
   returning all overrides to null snaps `preset` back to `basePreset`. The
   effective graphics = base of `basePreset` (when custom) or `preset`,
-  overlaid with non-null overrides. See `normalizeGraphics()`.
-- `normalizeSettings()` clamps every field (e.g. bloom 0–0.1, shadowMapSize
-  256–8192, recentGhostCount 1–20, steerSmoothing 0.2–1, colorblindFilter ∈
-  off/protan/deutan/tritan). Unknown → fallback. `custom` preset accepted.
+  overlaid with non-null overrides. See `normalizeGraphics()`. The override
+  fields that count toward "custom" are: maxPixelRatio, smokeParticles,
+  bloomStrength, bloomRadius, shadows (NOT shadowMapSize — it has no slider).
+- `normalizeSettings()` clamps every field (e.g. bloom 0–0.1, recentGhostCount
+  1–20, steerSmoothing 0.2–1, colorblindFilter ∈ off/protan/deutan/tritan).
+  `shadowMapSize` is force-set to null (control removed). Unknown → fallback.
+  `custom` preset accepted.
 - API: `getSettings`, `saveSettings`, `patchSettings` (deep-merge + normalize +
   persist + applyLegacyKeys), `resetToDefaults`, `refresh`, `applyLive` (no-op
   unless the game loaded `window.__gameSettingsApplyLive`), `isSignedIn`,
@@ -639,14 +645,21 @@
 
 ### Per-section field reference
 - graphics: preset (low/medium/high/custom), basePreset (low/medium/high),
-  maxPixelRatio, shadows, shadowMapSize, bloomStrength, bloomRadius,
-  smokeParticles (all nullable → follow preset; shadows defaults null → ON),
+  maxPixelRatio, shadows, bloomStrength, bloomRadius, smokeParticles (all
+  nullable → follow preset; shadows defaults null → ON), shadowMapSize (ALWAYS
+  null — control removed because it was broken; the field is force-set to null
+  in normalizeGraphics + worker sanitizeSettings so it always follows the active
+  preset's map size, i.e. "always normal"; kept in schema for a future re-enable),
   antialias (bool, needs reload), reduceMotion (bool, disables bloom+weather).
 - audio: sfxVolume, musicVolume (0–1), musicMode (0–3).
 - gameplay: showFps, showBestGhost (default true; toggles personal-best ghost
   rendering), recentGhostsEnabled, recentGhostCount (1–20),
   cameraDistance/cameraHeight (nullable), cameraLag (0.1–1), autoRespawn.
   (countdownEnabled was REMOVED from the settings schema in Phase 2.)
-- controls: invertSteer, keyboardOnly, steerSmoothing (0.2–1).
+- controls: invertSteer, keyboardOnly, steerSmoothing (0.2–1). STILL in the
+  schema but NO settings-page UI (Controls tab removed — fields not wired to
+  the engine yet). Safe to re-add the tab later.
 - accessibility: highContrastHud, largeHud, screenShake (default true),
-  colorblindFilter (off/protan/deutan/tritan — preview only, full shader TBD).
+  colorblindFilter (off/protan/deutan/tritan). STILL in the schema but NO
+  settings-page UI (Accessibility tab removed — none of these are wired to the
+  engine yet). Safe to re-add the tab later.

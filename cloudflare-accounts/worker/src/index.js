@@ -235,7 +235,8 @@ function sanitizeSettings( value ) {
 			basePreset: pick( g.basePreset, [ 'low', 'medium', 'high' ], pick( g.preset, [ 'low', 'medium', 'high' ], 'high' ) ),
 			maxPixelRatio: maybeClamp( g.maxPixelRatio, 0.5, 2 ),
 			shadows: g.shadows == null ? null : Boolean( g.shadows ),
-			shadowMapSize: g.shadowMapSize == null ? null : Math.round( clamp( g.shadowMapSize, 256, 8192, 2048 ) ),
+			// shadowMapSize control removed (broken); always preset-driven. Field kept for future re-enable.
+			shadowMapSize: null,
 			bloomStrength: maybeClamp( g.bloomStrength, 0, 0.1 ),
 			bloomRadius: maybeClamp( g.bloomRadius, 0, 0.2 ),
 			smokeParticles: g.smokeParticles == null ? null : Math.round( clamp( g.smokeParticles, 0, 128, 64 ) ),

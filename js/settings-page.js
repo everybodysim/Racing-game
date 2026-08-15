@@ -73,7 +73,7 @@ import GameSettings from './GameSettings.js';
 		const g = s.graphics;
 
 		// Preset segmented control — Custom lights up only when overrides exist.
-		const overrides = g.maxPixelRatio != null || g.shadowMapSize != null || g.smokeParticles != null
+		const overrides = g.maxPixelRatio != null || g.smokeParticles != null
 			|| g.bloomStrength != null || g.bloomRadius != null || g.shadows != null;
 		const customBtn = $( 'gfx-custom-btn' );
 		if ( customBtn ) customBtn.disabled = ! overrides;
@@ -87,7 +87,6 @@ import GameSettings from './GameSettings.js';
 		}
 
 		setSlider( $( 'gfx-maxPixelRatio' ), g.maxPixelRatio, $( 'val-maxPixelRatio' ), ( v ) => v.toFixed( 2 ) + 'x' );
-		setSlider( $( 'gfx-shadowMapSize' ), g.shadowMapSize, $( 'val-shadowMapSize' ), ( v ) => String( v ) );
 		setSlider( $( 'gfx-smokeParticles' ), g.smokeParticles, $( 'val-smokeParticles' ), ( v ) => String( v ) );
 		setSlider( $( 'gfx-bloomStrength' ), g.bloomStrength, $( 'val-bloomStrength' ), ( v ) => v.toFixed( 3 ) );
 		setSlider( $( 'gfx-bloomRadius' ), g.bloomRadius, $( 'val-bloomRadius' ), ( v ) => v.toFixed( 3 ) );
@@ -110,19 +109,6 @@ import GameSettings from './GameSettings.js';
 		setSlider( $( 'gp-cameraDistance' ), gp.cameraDistance, $( 'val-cameraDistance' ), ( v ) => v.toFixed( 1 ) );
 		setSlider( $( 'gp-cameraHeight' ), gp.cameraHeight, $( 'val-cameraHeight' ), ( v ) => v.toFixed( 1 ) );
 		setSlider( $( 'gp-cameraLag' ), gp.cameraLag, $( 'val-cameraLag' ), ( v ) => Math.round( v * 100 ) + '%' );
-
-		// Controls
-		const c = s.controls;
-		$( 'ctrl-invertSteer' ).checked = c.invertSteer;
-		$( 'ctrl-keyboardOnly' ).checked = c.keyboardOnly;
-		setSlider( $( 'ctrl-steerSmoothing' ), c.steerSmoothing, $( 'val-steerSmoothing' ), ( v ) => Math.round( v * 100 ) + '%' );
-
-		// Accessibility
-		const ac = s.accessibility;
-		$( 'acc-highContrastHud' ).checked = ac.highContrastHud;
-		$( 'acc-largeHud' ).checked = ac.largeHud;
-		$( 'acc-screenShake' ).checked = ac.screenShake;
-		$( 'acc-colorblindFilter' ).value = ac.colorblindFilter;
 	}
 
 	// ---- Wire controls ----
@@ -135,7 +121,7 @@ import GameSettings from './GameSettings.js';
 		if ( REAL_PRESETS.indexOf( preset ) >= 0 ) {
 			patchAndApply( { graphics: {
 				preset, basePreset: preset,
-				maxPixelRatio: null, shadows: null, shadowMapSize: null,
+				maxPixelRatio: null, shadows: null,
 				bloomStrength: null, bloomRadius: null, smokeParticles: null,
 			} } );
 		}
@@ -148,6 +134,7 @@ import GameSettings from './GameSettings.js';
 	// Graphics sliders (null-capable). Customizing ANY slider switches the preset
 	// to "custom" (keeping the last real preset as basePreset) so the Custom
 	// button lights up and the other untouched fields still follow basePreset.
+	// (shadowMapSize has no slider — it's always preset-driven / "normal".)
 	function bindGfxSlider( id, field, valueId, fmt ) {
 		const el = $( id );
 		const label = $( valueId );
@@ -160,10 +147,10 @@ import GameSettings from './GameSettings.js';
 			// Moving a slider to "auto" doesn't force custom by itself; only a real
 			// override value flips to custom. If ALL overrides become null again,
 			// snap back to the real preset.
-			const overrideFields = [ 'maxPixelRatio', 'shadowMapSize', 'smokeParticles', 'bloomStrength', 'bloomRadius', 'shadows' ];
+			const overrideFields = [ 'maxPixelRatio', 'smokeParticles', 'bloomStrength', 'bloomRadius', 'shadows' ];
 			const nextOverrides = Object.assign(
 				{},
-				{ maxPixelRatio: cur.maxPixelRatio, shadowMapSize: cur.shadowMapSize, smokeParticles: cur.smokeParticles, bloomStrength: cur.bloomStrength, bloomRadius: cur.bloomRadius, shadows: cur.shadows },
+				{ maxPixelRatio: cur.maxPixelRatio, smokeParticles: cur.smokeParticles, bloomStrength: cur.bloomStrength, bloomRadius: cur.bloomRadius, shadows: cur.shadows },
 				{ [ field ]: v }
 			);
 			const anyOverride = overrideFields.some( ( f ) => nextOverrides[ f ] != null );
@@ -180,7 +167,6 @@ import GameSettings from './GameSettings.js';
 		} );
 	}
 	bindGfxSlider( 'gfx-maxPixelRatio', 'maxPixelRatio', 'val-maxPixelRatio', ( v ) => v.toFixed( 2 ) + 'x' );
-	bindGfxSlider( 'gfx-shadowMapSize', 'shadowMapSize', 'val-shadowMapSize', ( v ) => String( v ) );
 	bindGfxSlider( 'gfx-smokeParticles', 'smokeParticles', 'val-smokeParticles', ( v ) => String( v ) );
 	bindGfxSlider( 'gfx-bloomStrength', 'bloomStrength', 'val-bloomStrength', ( v ) => v.toFixed( 3 ) );
 	bindGfxSlider( 'gfx-bloomRadius', 'bloomRadius', 'val-bloomRadius', ( v ) => v.toFixed( 3 ) );
@@ -197,10 +183,10 @@ import GameSettings from './GameSettings.js';
 			else if ( cur.shadows === true ) next = false; // on -> off
 			else next = null;                              // off -> auto
 			const patch = { graphics: { shadows: next } };
-			const overrideFields = [ 'maxPixelRatio', 'shadowMapSize', 'smokeParticles', 'bloomStrength', 'bloomRadius' ];
+			const overrideFields = [ 'maxPixelRatio', 'smokeParticles', 'bloomStrength', 'bloomRadius' ];
 			const nextOverrides = Object.assign(
 				{},
-				{ maxPixelRatio: cur.maxPixelRatio, shadowMapSize: cur.shadowMapSize, smokeParticles: cur.smokeParticles, bloomStrength: cur.bloomStrength, bloomRadius: cur.bloomRadius },
+				{ maxPixelRatio: cur.maxPixelRatio, smokeParticles: cur.smokeParticles, bloomStrength: cur.bloomStrength, bloomRadius: cur.bloomRadius },
 				{ shadows: next }
 			);
 			const anyOverride = overrideFields.some( ( f ) => nextOverrides[ f ] != null ) || next != null;
@@ -266,22 +252,6 @@ import GameSettings from './GameSettings.js';
 		} );
 	}
 
-	// Controls
-	$( 'ctrl-invertSteer' )?.addEventListener( 'change', ( e ) => patchAndApply( { controls: { invertSteer: e.target.checked } } ) );
-	$( 'ctrl-keyboardOnly' )?.addEventListener( 'change', ( e ) => patchAndApply( { controls: { keyboardOnly: e.target.checked } } ) );
-	{
-		const el = $( 'ctrl-steerSmoothing' ), label = $( 'val-steerSmoothing' );
-		el?.addEventListener( 'input', () => {
-			label.textContent = Math.round( Number( el.value ) * 100 ) + '%';
-			patchAndApply( { controls: { steerSmoothing: Number( el.value ) } } );
-		} );
-	}
-
-	// Accessibility
-	$( 'acc-highContrastHud' )?.addEventListener( 'change', ( e ) => patchAndApply( { accessibility: { highContrastHud: e.target.checked } } ) );
-	$( 'acc-largeHud' )?.addEventListener( 'change', ( e ) => patchAndApply( { accessibility: { largeHud: e.target.checked } } ) );
-	$( 'acc-screenShake' )?.addEventListener( 'change', ( e ) => patchAndApply( { accessibility: { screenShake: e.target.checked } } ) );
-	$( 'acc-colorblindFilter' )?.addEventListener( 'change', ( e ) => patchAndApply( { accessibility: { colorblindFilter: e.target.value } } ) );
 
 	// ---- Cloud sync ----
 	function refreshCloud() {

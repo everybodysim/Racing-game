@@ -133,7 +133,11 @@ function normalizeGraphics( src ) {
 		basePreset,
 		maxPixelRatio: maybeClamp( src.maxPixelRatio, 0.5, 2 ),
 		shadows: maybeBool( src.shadows ),
-		shadowMapSize: src.shadowMapSize == null ? null : Math.round( clampNum( src.shadowMapSize, 256, 8192, 2048 ) ),
+		// shadowMapSize is NOT user-tunable (the control was removed because it
+		// was broken). Always null → follows the active preset, so shadows always
+		// render at the preset's normal map size. The field stays in the schema
+		// for a future re-enable; a stale stored/cloud value is ignored here.
+		shadowMapSize: null,
 		bloomStrength: maybeClamp( src.bloomStrength, 0, 0.1 ),
 		bloomRadius: maybeClamp( src.bloomRadius, 0, 0.2 ),
 		smokeParticles: src.smokeParticles == null ? null : Math.round( clampNum( src.smokeParticles, 0, 128, 64 ) ),

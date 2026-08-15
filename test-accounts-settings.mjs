@@ -103,7 +103,7 @@ const b = bad.json.profile.settings;
 assert.equal( b.graphics.preset, 'high', 'bad preset falls back to high' );
 assert.equal( b.graphics.basePreset, 'high', 'bad basePreset falls back to high' );
 assert.equal( b.graphics.bloomStrength, 0.1, 'bloom clamped to max' );
-assert.equal( b.graphics.shadowMapSize, 256, 'shadow map clamped to min' );
+assert.equal( b.graphics.shadowMapSize, null, 'shadow map forced null (control removed, always preset-driven)' );
 assert.equal( b.graphics.maxPixelRatio, 2, 'pixel ratio clamped' );
 assert.equal( b.graphics.smokeParticles, 0, 'smoke clamped to min' );
 assert.equal( b.audio.sfxVolume, 1, 'sfx clamped' );

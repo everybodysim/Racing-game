@@ -115,8 +115,6 @@ input[type="color"] { width:44px; height:34px; padding:0; border:1px solid rgba(
     <button class="tab-btn active" role="tab" data-tab="graphics" aria-selected="true">🖥️ Graphics</button>
     <button class="tab-btn" role="tab" data-tab="audio" aria-selected="false">🔊 Audio</button>
     <button class="tab-btn" role="tab" data-tab="gameplay" aria-selected="false">🎮 Gameplay</button>
-    <button class="tab-btn" role="tab" data-tab="controls" aria-selected="false">⌨️ Controls</button>
-    <button class="tab-btn" role="tab" data-tab="accessibility" aria-selected="false">♿ Accessibility</button>
     <button class="tab-btn" role="tab" data-tab="cloud" aria-selected="false">☁️ Cloud Sync</button>
   </div>
 
@@ -132,7 +130,7 @@ input[type="color"] { width:44px; height:34px; padding:0; border:1px solid rgba(
         <button type="button" data-preset="custom" id="gfx-custom-btn" disabled>Custom</button>
       </div>
       <div class="status" id="gfx-preset-status">Follows the selected preset.</div>
-      <div class="note">Low disables shadows, weather particles, and bloom for maximum FPS. High enables 4K shadow maps, full particles, and bloom. Medium is a balanced middle ground. "Custom" appears once you tweak any advanced slider — it keeps your overrides while basing the rest on the last real preset you picked.</div>
+      <div class="note">Low disables shadows, weather particles, and bloom for maximum FPS. High enables full shadows, particles, and bloom. Medium is a balanced middle ground. "Custom" appears once you tweak any advanced slider — it keeps your overrides while basing the rest on the last real preset you picked.</div>
     </div>
 
     <div class="panel">
@@ -143,12 +141,6 @@ input[type="color"] { width:44px; height:34px; padding:0; border:1px solid rgba(
         <div class="field-row"><span class="field-label">Resolution scale <span class="field-value" id="val-maxPixelRatio">auto</span></span></div>
         <input type="range" id="gfx-maxPixelRatio" min="0.5" max="2" step="0.05" data-null-text="auto">
         <div class="field-desc">Caps the rendering resolution. Lower = sharper performance, higher = crisper image. "auto" follows the preset.</div>
-      </div>
-
-      <div class="field">
-        <div class="field-row"><span class="field-label">Shadow map size <span class="field-value" id="val-shadowMapSize">auto</span></span></div>
-        <input type="range" id="gfx-shadowMapSize" min="256" max="8192" step="256" data-null-text="auto">
-        <div class="field-desc">Higher shadow maps = sharper shadows but cost more GPU. "auto" follows the preset.</div>
       </div>
 
       <div class="field">
@@ -279,83 +271,6 @@ input[type="color"] { width:44px; height:34px; padding:0; border:1px solid rgba(
         <div class="field-row"><span class="field-label">Camera responsiveness <span class="field-value" id="val-cameraLag">100%</span></span></div>
         <input type="range" id="gp-cameraLag" min="0.1" max="1" step="0.05">
         <div class="field-desc">100% = snappy follow, lower = smoother, looser trailing.</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===================== CONTROLS ===================== -->
-  <section class="tab-panel" id="tab-controls" role="tabpanel">
-    <div class="panel">
-      <h2><span class="dot"></span>Steering</h2>
-
-      <div class="field">
-        <div class="field-row">
-          <span><span class="field-label">Invert steering</span><div class="field-desc">Flips left/right input direction.</div></span>
-          <label class="switch"><input type="checkbox" id="ctrl-invertSteer"><span class="slider"></span></label>
-        </div>
-      </div>
-
-      <div class="field">
-        <div class="field-row">
-          <span><span class="field-label">Keyboard only</span><div class="field-desc">Ignore pointer/touch steering; use arrows / WASD only.</div></span>
-          <label class="switch"><input type="checkbox" id="ctrl-keyboardOnly"><span class="slider"></span></label>
-        </div>
-      </div>
-
-      <div class="field">
-        <div class="field-row"><span class="field-label">Steer responsiveness <span class="field-value" id="val-steerSmoothing">100%</span></span></div>
-        <input type="range" id="ctrl-steerSmoothing" min="0.2" max="1" step="0.05">
-        <div class="field-desc">100% = instant steering, lower = gentler ramp for smoother turns.</div>
-      </div>
-    </div>
-
-    <div class="panel">
-      <h2><span class="dot"></span>Key bindings</h2>
-      <p class="hint">The default racing controls. (Rebinding coming soon.)</p>
-      <div class="field"><div class="field-row"><span class="field-label">Accelerate</span><span><span class="kbd">W</span> / <span class="kbd">↑</span></span></div></div>
-      <div class="field"><div class="field-row"><span class="field-label">Brake / Reverse</span><span><span class="kbd">S</span> / <span class="kbd">↓</span></span></div></div>
-      <div class="field"><div class="field-row"><span class="field-label">Steer left / right</span><span><span class="kbd">A</span> <span class="kbd">D</span> / <span class="kbd">←</span> <span class="kbd">→</span></span></div></div>
-      <div class="field"><div class="field-row"><span class="field-label">Boost</span><span><span class="kbd">B</span> / <span class="kbd">Shift</span></span></div></div>
-      <div class="field"><div class="field-row"><span class="field-label">Menu</span><span><span class="kbd">E</span></span></div></div>
-      <div class="field"><div class="field-row"><span class="field-label">Respawn</span><span><span class="kbd">R</span></span></div></div>
-    </div>
-  </section>
-
-  <!-- ===================== ACCESSIBILITY ===================== -->
-  <section class="tab-panel" id="tab-accessibility" role="tabpanel">
-    <div class="panel">
-      <h2><span class="dot"></span>Display</h2>
-
-      <div class="field">
-        <div class="field-row">
-          <span><span class="field-label">High-contrast HUD</span><div class="field-desc">Boosts HUD element contrast against the scene.</div></span>
-          <label class="switch"><input type="checkbox" id="acc-highContrastHud"><span class="slider"></span></label>
-        </div>
-      </div>
-
-      <div class="field">
-        <div class="field-row">
-          <span><span class="field-label">Larger HUD text</span><div class="field-desc">Increases the size of lap timer, speedometer, and HUD readouts.</div></span>
-          <label class="switch"><input type="checkbox" id="acc-largeHud"><span class="slider"></span></label>
-        </div>
-      </div>
-
-      <div class="field">
-        <div class="field-row">
-          <span><span class="field-label">Screen shake</span><div class="field-desc">Camera shake on impacts and boosts. Turn off to reduce motion.</div></span>
-          <label class="switch"><input type="checkbox" id="acc-screenShake"><span class="slider"></span></label>
-        </div>
-      </div>
-
-      <div class="field">
-        <div class="field-row"><span class="field-label">Colorblind filter</span></div>
-        <select id="acc-colorblindFilter">
-          <option value="off">Off</option>
-          <option value="protan">Protanopia (red-blind)</option>
-          <option value="deutan">Deuteranopia (green-blind)</option>
-          <option value="tritan">Tritanopia (blue-blind)</option>
-        </select>
-        <div class="field-desc">Applies a daltonization tint to help distinguish track colors. (Preview only — full shader support is in development.)</div>
       </div>
     </div>
   </section>

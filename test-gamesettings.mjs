@@ -54,9 +54,11 @@ G.patchSettings( { graphics: { preset: 'ultra' } } );
 eq( 'bad preset falls back to high', G.getSettings().graphics.preset, 'high' );
 
 // ---- Clamping ----
+// shadowMapSize is NOT user-tunable (control removed / broken) — it is always
+// forced to null (follows the active preset) even when a stale value is sent.
 G.patchSettings( { graphics: { bloomStrength: 999, shadowMapSize: 50, maxPixelRatio: 5 } } );
 eq( 'bloom clamped', G.getSettings().graphics.bloomStrength, 0.1 );
-eq( 'shadowMapSize clamped', G.getSettings().graphics.shadowMapSize, 256 );
+eq( 'shadowMapSize forced null (always preset-driven)', G.getSettings().graphics.shadowMapSize, null );
 eq( 'maxPixelRatio clamped', G.getSettings().graphics.maxPixelRatio, 2 );
 G.patchSettings( { gameplay: { recentGhostCount: 999, cameraLag: 0 } } );
 eq( 'recentGhostCount clamped', G.getSettings().gameplay.recentGhostCount, 20 );
