@@ -338,3 +338,66 @@
   preset, untouched. `powerPreference: 'high-performance'` added to WebGLRenderer (hint
   only, no visual change). Particles already pooled. Physics step essential. Magnet scan
   left linear (few entries, long range).
+
+## Video Recorder official mod (`mods/VideoRecorder.js` + `js/VideoRecorder.js`)
+
+### What it is
+- An official (catalog) mod, NOT a community/custom mod. Registered in `mods/mods.json`
+  alongside freecam/hacks/etc. Install/uninstall via Mod Manager (`mods.html`).
+- Records high-FPS, high-quality gameplay video (with game audio) straight from the
+  WebGL canvas and downloads a WebM/MP4 to the player's browser on stop. Purpose:
+  capturing gameplay for YouTube.
+
+### Why the engine is wired in main.js, not the mod runtime
+- The recorder needs the renderer canvas (`renderer.domElement`) and the game's
+  AudioContext (`window.__gameAudio.listener.context`) + music element. The sandboxed
+  custom-mod runtime can't reach those, so `js/VideoRecorder.js` (the engine) is
+  imported and instantiated directly in `js/main.js`, gated on `videoRecorderInstalled`.
+  `mods/VideoRecorder.js` is just metadata so the mod appears in the Mod Manager catalog
+  and follows the same install lifecycle as other official mods.
+
+### Code touchpoints (search `video-recorder` / `VideoRecorder`)
+1. `mods/mods.json` — registry entry `{ id: 'video-recorder', name, entry: 'mods/VideoRecorder.js' }`.
+2. `mods/VideoRecorder.js` — metadata export `VIDEO_RECORDER_MOD` (id/name/description).
+3. `js/VideoRecorder.js` — the `VideoRecorder` class + `UI_TOGGLE_GROUPS` + settings
+   helpers. Uses `canvas.captureStream(fps)` + `MediaRecorder`. Settings persist to
+   localStorage key `racing-video-recorder-settings-v1`.
+4. `index.html` — `<button id="video-recorder-btn">` (above `#car-select`, `display:none`
+   until mod installed) + `<div id="video-recorder-panel">` (settings: fps, bitrate,
+   format, filename prefix, capture-audio toggle, hide-UI-while-recording + per-group
+   checkboxes built from `UI_TOGGLE_GROUPS`, start/stop/close, status line). CSS near
+   `#hacks-panel`.
+5. `js/main.js` import + `videoRecorderInstalled` flag (next to other `*Installed` flags)
+   + the wiring block after `boostActivateBtn` listener: builds the recorder, populates
+   controls from persisted settings, `vrSyncSettings()`, `vrRefreshButtonState()`, and
+   the start/stop/click handlers. The `Alt+R` shortcut is in the main keydown handler
+   (shares the "don't fire while typing" guard). `beforeunload` stops a live recording.
+
+### Leaderboard gating (important)
+- `nonFreecamModsInstalled` EXCLUDES `video-recorder` (alongside `freecam`), because the
+  recorder is a non-gameplay utility. Installing it does NOT disable the leaderboard.
+  Do NOT add `video-recorder` back into that `.some()` filter — it would wrongly block
+  legitimate lap submissions just because someone is recording.
+
+### Audio capture approach
+- SFX: `window.__gameAudio.listener.getInput()` (THREE.AudioListener input GainNode,
+  r140+) is tapped via a parallel Gain into a `MediaStreamAudioDestinationNode`. Does
+  NOT disturb the listener's own -> ctx.destination routing.
+- Music: `createMediaElementSource(musicEl)` is called ONCE and cached on
+  `musicEl.__vrMediaSource` (calling it twice per element throws). The source is routed
+  to BOTH ctx.destination (player still hears it) and the recording mixer. On cleanup
+  we keep the music->destination connection.
+
+### Hide-UI-while-recording
+- `UI_TOGGLE_GROUPS` maps a setting key (hud/lapHud/countdown/boost/topMsg/vignette/nav/
+  garage/hacks/mp) to DOM selectors. When `hideUiWhileRecording` is on, `start()` sets
+  `data-vr-hidden` + `display:none` on matching elements and `stop()`/cleanup restores
+  the previous `display`. The recorder never clobbers the game's own show/hide (it saves
+  + restores the prior value). Default hides hud/lapHud/countdown/boost/topMsg/vignette;
+  nav/garage/hacks/mp default off.
+
+### Tests
+- `test-video-recorder.mjs` (34 assertions): MIME picking, settings round-trip,
+  `UI_TOGGLE_GROUPS` shape, and the start/stop lifecycle with stubbed
+  `MediaRecorder`/`captureStream`. Stubs browser globals (no jsdom needed). Run:
+  `node test-video-recorder.mjs`.

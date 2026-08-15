@@ -151,7 +151,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#loading-error { margin-top: 12px; color: #ffc4c4; display: none; }
 		#loading-reload-btn { margin-top: 10px; display: none; border: 1px solid rgba(255,255,255,0.28); border-radius: 8px; background: rgba(255,255,255,0.12); color: #fff; padding: 7px 11px; cursor: pointer; font: 700 13px/1 sans-serif; }
 		@keyframes loading-spin { to { transform: rotate(360deg); } }
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #home-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn {
+		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #home-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn, #video-recorder-btn {
 			position: absolute;
 			bottom: 12px;
 			color: #fff;
@@ -178,11 +178,14 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#mode-menu-btn { right: 16px; top: 16px; bottom: auto; left: auto; padding: 12px 18px; border-radius: 12px; border: 1px solid rgba(140,210,255,0.58); background: linear-gradient(145deg, rgba(44,117,210,0.92), rgba(18,44,82,0.9)); box-shadow: 0 8px 24px rgba(0,0,0,0.34); font: 800 14px/1 sans-serif; letter-spacing: 0.02em; }
 		#home-menu-btn { right: 16px; top: 64px; bottom: auto; left: auto; padding: 10px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.32); background: rgba(6,12,22,0.82); box-shadow: 0 6px 18px rgba(0,0,0,0.28); font: 800 13px/1 sans-serif; }
 		#car-select { right: 16px; bottom: 212px; left: auto; top: auto; }
+		#video-recorder-btn { right: 16px; bottom: 254px; left: auto; top: auto; display: none; cursor: pointer; border: 1px solid rgba(255,80,80,0.45); }
+		#video-recorder-btn.recording { background: rgba(200,30,30,0.78); border-color: rgba(255,120,120,0.8); animation: vr-rec-pulse 1.1s ease-in-out infinite; }
+		@keyframes vr-rec-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,40,40,0.0); } 50% { box-shadow: 0 0 14px 2px rgba(255,40,40,0.55); } }
 		#share-time-btn { left: 16px; bottom: 12px; }
 		#export-ghost-btn { left: 16px; bottom: 12px; }
 		#import-ghost-btn { left: 136px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
-		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #home-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover { background: rgba(0,0,0,0.7); }
+		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #home-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover, #video-recorder-btn:hover { background: rgba(0,0,0,0.7); }
 		#mode-menu-btn:hover { background: linear-gradient(145deg, rgba(65,144,240,0.98), rgba(24,58,104,0.95)); }
 		#home-menu-btn:hover { background: rgba(20,35,55,0.92); }
 		/* Hide scattered nav buttons until JS moves them into the quick-menu panel (prevents FOUC) */
@@ -1216,6 +1219,43 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 		#hacks-panel input[type="range"] { width: 100%; }
 		#hacks-panel label { display: block; margin-top: 8px; }
+
+		#video-recorder-panel {
+			position: absolute;
+			left: 50%;
+			top: 50%;
+			transform: translate(-50%, -50%);
+			width: min(420px, calc(100vw - 20px));
+			max-height: calc(100vh - 40px);
+			overflow-y: auto;
+			background: rgba(12,16,26,0.96);
+			border: 1px solid rgba(255,80,80,0.35);
+			border-radius: 12px;
+			padding: 12px 14px;
+			z-index: 30;
+			display: none;
+			color: #fff;
+			font: 600 12px/1.4 sans-serif;
+		}
+		#video-recorder-panel h3 { margin: 0 0 4px; font-size: 15px; }
+		#video-recorder-panel .vr-sub { color: rgba(255,255,255,0.6); margin: 0 0 10px; font-size: 11px; }
+		#video-recorder-panel .vr-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+		#video-recorder-panel .vr-row > label { margin: 0; flex: 1 1 120px; }
+		#video-recorder-panel select, #video-recorder-panel input[type="number"], #video-recorder-panel input[type="text"] {
+			flex: 0 1 140px; padding: 5px 7px; background: rgba(0,0,0,0.4); color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; font: inherit;
+		}
+		#video-recorder-panel .vr-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 8px; }
+		#video-recorder-panel .vr-checks label { display: flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; }
+		#video-recorder-panel .vr-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+		#video-recorder-panel button { flex: 1 1 auto; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.25); background: rgba(40,70,120,0.85); color: #fff; font: 700 13px/1 sans-serif; cursor: pointer; }
+		#video-recorder-panel button:hover { background: rgba(60,100,170,0.95); }
+		#vr-start-btn { background: rgba(190,40,40,0.85) !important; border-color: rgba(255,120,120,0.6) !important; }
+		#vr-start-btn:hover { background: rgba(220,60,60,0.95) !important; }
+		#vr-stop-btn { background: rgba(30,120,60,0.85) !important; border-color: rgba(120,255,160,0.5) !important; display: none; }
+		#vr-stop-btn:hover { background: rgba(40,150,80,0.95) !important; }
+		#vr-close-btn { flex: 0 0 auto; background: rgba(60,60,70,0.85) !important; }
+		#vr-status { margin-top: 10px; padding: 6px 8px; border-radius: 6px; background: rgba(0,0,0,0.35); font-size: 11px; min-height: 18px; }
+		#vr-status.live { color: #ff8a8a; }
 		#home-landing {
 			position: fixed;
 			inset: 0;
@@ -2162,7 +2202,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<a id="tracks-link" href="tracks.html">Track share board</a> 
 	<a id="clubs-link" class="club-notify-target" href="clubs.html">Clubs</a>
 	<a id="mods-link" href="mods.html">Mods</a>
-	<a id="hacks-toggle" href="#" style="display:none;">Hacks</a>
+			<a id="hacks-toggle" href="#" style="display:none;">Hacks</a>
+		<button id="video-recorder-btn" type="button" aria-label="Open video recorder" title="Video recorder">⏺ Recorder</button>
 	<a id="split-link" href="#">2P split screen</a>
 	<!-- quick-menu-btn moved to Navigation tab in E menu -->
 	<!-- quick-menu-panel moved to Navigation tab in E menu -->
@@ -2370,6 +2411,56 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<input id="hack-road-grip" type="range" min="0.5" max="3" step="0.05" value="1">
 		</label>
 		<button id="hack-reset-btn" type="button">Reset Hacks</button>
+	</div>
+	<div id="video-recorder-panel" role="dialog" aria-label="Video recorder">
+		<h3>🎬 Video Recorder</h3>
+		<p class="vr-sub">Record high-quality gameplay with game audio. Files download to your browser when you stop.</p>
+		<div class="vr-row">
+			<label for="vr-fps">Frame rate</label>
+			<select id="vr-fps">
+				<option value="30">30 FPS</option>
+				<option value="60">60 FPS</option>
+				<option value="90">90 FPS</option>
+				<option value="120">120 FPS</option>
+			</select>
+		</div>
+		<div class="vr-row">
+			<label for="vr-quality">Quality (bitrate)</label>
+			<select id="vr-quality">
+				<option value="6000000">Standard (6 Mbps)</option>
+				<option value="12000000">High (12 Mbps)</option>
+				<option value="20000000">Very high (20 Mbps)</option>
+				<option value="40000000">Max (40 Mbps)</option>
+			</select>
+		</div>
+		<div class="vr-row">
+			<label for="vr-format">Format</label>
+			<select id="vr-format">
+				<option value="auto">Auto (best available)</option>
+				<option value="video/webm;codecs=vp9,opus">WebM VP9</option>
+				<option value="video/webm;codecs=vp8,opus">WebM VP8</option>
+				<option value="video/webm;codecs=h264,opus">WebM H264</option>
+				<option value="video/mp4">MP4 (if supported)</option>
+			</select>
+		</div>
+		<div class="vr-row">
+			<label for="vr-prefix">Filename prefix</label>
+			<input id="vr-prefix" type="text" maxlength="40" placeholder="racing-gameplay" />
+		</div>
+		<div class="vr-row">
+			<label><input id="vr-audio" type="checkbox" checked> Capture game audio</label>
+		</div>
+		<div class="vr-row">
+			<label><input id="vr-hide-ui" type="checkbox"> Hide selected UI while recording</label>
+		</div>
+		<div class="vr-sub" style="margin-top:10px;">UI to hide while recording:</div>
+		<div id="vr-hide-groups" class="vr-checks"></div>
+		<div class="vr-actions">
+			<button id="vr-start-btn" type="button">⏺ Start recording</button>
+			<button id="vr-stop-btn" type="button">⏹ Stop & download</button>
+			<button id="vr-close-btn" type="button" aria-label="Close">✕</button>
+		</div>
+		<div id="vr-status">Ready.</div>
 	</div>
 	<div id="name-popup" role="dialog" aria-modal="true" aria-labelledby="name-popup-title">
 		<div class="panel">

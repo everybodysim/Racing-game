@@ -49,6 +49,13 @@
       "folder": "mods",
       "entry": "mods/Freecam.js",
       "viewerPage": "index.html"
+    },
+    {
+      "id": "video-recorder",
+      "name": "Video Recorder",
+      "folder": "mods",
+      "entry": "mods/VideoRecorder.js",
+      "viewerPage": "index.html"
     }
   ]
 }

@@ -16,6 +16,7 @@ import { createRuntime as _createModRuntime } from './mod-runtime.js';
 import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 import { Storage } from './Storage.js';
+import { VideoRecorder, UI_TOGGLE_GROUPS } from './VideoRecorder.js';
 
 document.title = 'Racing';
 
@@ -4288,11 +4289,12 @@ async function init() {
 	})();
 	const hacksInstalled = installedMods.some( ( mod ) => mod?.id === 'hacks' );
 	const arcadeBoostInstalled = installedMods.some( ( mod ) => mod?.id === 'arcade-boost' );
-	const nonFreecamModsInstalled = installedMods.some( ( mod ) => mod?.id && mod.id !== 'freecam' );
+	const nonFreecamModsInstalled = installedMods.some( ( mod ) => mod?.id && mod.id !== 'freecam' && mod.id !== 'video-recorder' );
 	const checkpointRespawnInstalled = installedMods.some( ( mod ) => mod?.id === 'checkpoint-respawn' );
 	const practiceStartInstalled = installedMods.some( ( mod ) => mod?.id === 'practice-start' );
 	const stuntModeModInstalled = installedMods.some( ( mod ) => mod?.id === 'stunt-mode' );
 	const freecamInstalled = installedMods.some( ( mod ) => mod?.id === 'freecam' );
+	const videoRecorderInstalled = installedMods.some( ( mod ) => mod?.id === 'video-recorder' );
 	if ( stuntModeBtn ) {
 
 		stuntModeBtn.disabled = ! stuntModeModInstalled;
@@ -8819,6 +8821,114 @@ function completeCampaignStage() {
 	hackResetBtn?.addEventListener( 'click', () => resetHacksState() );
 	boostActivateBtn?.addEventListener( 'click', () => tryActivateArcadeBoost() );
 
+	// ---- Video Recorder (official mod) -------------------------------------
+	// Only the recorder UI is gated on `videoRecorderInstalled`; the recorder
+	// engine itself (js/VideoRecorder.js) needs the renderer canvas + AudioContext
+	// so it's wired here directly rather than run through the sandboxed mod runtime.
+	const vrBtn = document.getElementById( 'video-recorder-btn' );
+	const vrPanel = document.getElementById( 'video-recorder-panel' );
+	const vrStatus = document.getElementById( 'vr-status' );
+	const vrStartBtn = document.getElementById( 'vr-start-btn' );
+	const vrStopBtn = document.getElementById( 'vr-stop-btn' );
+	const vrCloseBtn = document.getElementById( 'vr-close-btn' );
+	const vrFpsSel = document.getElementById( 'vr-fps' );
+	const vrQualitySel = document.getElementById( 'vr-quality' );
+	const vrFormatSel = document.getElementById( 'vr-format' );
+	const vrPrefixInput = document.getElementById( 'vr-prefix' );
+	const vrAudioInput = document.getElementById( 'vr-audio' );
+	const vrHideUiInput = document.getElementById( 'vr-hide-ui' );
+	const vrHideGroupsEl = document.getElementById( 'vr-hide-groups' );
+
+	let videoRecorder = null;
+	if ( videoRecorderInstalled ) {
+		videoRecorder = new VideoRecorder( {
+			canvas: renderer.domElement,
+			getAudioContext: () => window.__gameAudio?.listener?.context || null,
+			getMusicElement: () => window.__gameAudio?.musicElement || null,
+			getMessage: ( text, live ) => {
+				if ( vrStatus ) { vrStatus.textContent = String( text || '' ); vrStatus.classList.toggle( 'live', Boolean( live ) ); }
+			},
+		} );
+		if ( vrBtn ) vrBtn.style.display = '';
+		// Build the "UI to hide" checkboxes from the shared group list.
+		if ( vrHideGroupsEl ) {
+			vrHideGroupsEl.innerHTML = '';
+			for ( const group of UI_TOGGLE_GROUPS ) {
+				const lab = document.createElement( 'label' );
+				const cb = document.createElement( 'input' );
+				cb.type = 'checkbox';
+				cb.value = group.key;
+				cb.checked = Boolean( videoRecorder.settings.hideGroups[ group.key ] );
+				lab.appendChild( cb );
+				lab.appendChild( document.createTextNode( group.label ) );
+				vrHideGroupsEl.appendChild( lab );
+			}
+		}
+		// Populate controls from persisted settings.
+		if ( vrFpsSel ) vrFpsSel.value = String( videoRecorder.settings.fps );
+		if ( vrQualitySel ) vrQualitySel.value = String( videoRecorder.settings.bitrate );
+		if ( vrFormatSel ) vrFormatSel.value = String( videoRecorder.settings.mimeType );
+		if ( vrPrefixInput ) vrPrefixInput.value = String( videoRecorder.settings.filenamePrefix || '' );
+		if ( vrAudioInput ) vrAudioInput.checked = Boolean( videoRecorder.settings.captureAudio );
+		if ( vrHideUiInput ) vrHideUiInput.checked = Boolean( videoRecorder.settings.hideUiWhileRecording );
+	}
+
+	function vrSyncSettings() {
+		if ( ! videoRecorder ) return;
+		const hideGroups = {};
+		vrHideGroupsEl?.querySelectorAll( 'input[type="checkbox"]' ).forEach( ( cb ) => {
+			hideGroups[ cb.value ] = cb.checked;
+		} );
+		videoRecorder.updateSettings( {
+			fps: Number( vrFpsSel?.value ) || 60,
+			bitrate: Number( vrQualitySel?.value ) || 12_000_000,
+			mimeType: vrFormatSel?.value || 'auto',
+			filenamePrefix: ( vrPrefixInput?.value || 'racing-gameplay' ).trim() || 'racing-gameplay',
+			captureAudio: Boolean( vrAudioInput?.checked ),
+			hideUiWhileRecording: Boolean( vrHideUiInput?.checked ),
+			hideGroups,
+		} );
+	}
+	[ vrFpsSel, vrQualitySel, vrFormatSel, vrPrefixInput, vrAudioInput, vrHideUiInput ].forEach( ( el ) => {
+		el?.addEventListener( 'change', vrSyncSettings );
+		el?.addEventListener( 'input', vrSyncSettings );
+	} );
+	vrHideGroupsEl?.addEventListener( 'change', vrSyncSettings );
+
+	function vrRefreshButtonState() {
+		if ( ! videoRecorder || ! vrBtn ) return;
+		const rec = videoRecorder.isRecording();
+		vrBtn.classList.toggle( 'recording', rec );
+		vrBtn.textContent = rec ? '⏹ Recording…' : '⏺ Recorder';
+		if ( vrStartBtn ) vrStartBtn.style.display = rec ? 'none' : '';
+		if ( vrStopBtn ) vrStopBtn.style.display = rec ? '' : 'none';
+	}
+	vrBtn?.addEventListener( 'click', () => {
+		if ( ! videoRecorder ) return;
+		if ( ! vrPanel ) return;
+		vrPanel.style.display = vrPanel.style.display === 'block' ? 'none' : 'block';
+		vrRefreshButtonState();
+	} );
+	vrCloseBtn?.addEventListener( 'click', () => { if ( vrPanel ) vrPanel.style.display = 'none'; } );
+	vrStartBtn?.addEventListener( 'click', async () => {
+		if ( ! videoRecorder ) return;
+		vrSyncSettings();
+		const ok = await videoRecorder.start();
+		vrRefreshButtonState();
+		if ( ok && vrPanel ) vrPanel.style.display = 'none'; // hide panel so it isn't in the video
+	} );
+	vrStopBtn?.addEventListener( 'click', () => {
+		if ( ! videoRecorder ) return;
+		videoRecorder.stop();
+		vrRefreshButtonState();
+	} );
+	// Keyboard shortcut for the recorder is registered in the main keydown
+	// handler (below) so it shares the same "don't fire while typing in an
+	// input" guard as the other game shortcuts.
+	// Stop recording if the page is about to unload so the file is finalized.
+	window.addEventListener( 'beforeunload', () => { videoRecorder?.stop(); } );
+	// End Video Recorder -----------------------------------------------------
+
 	carSelect?.addEventListener( 'change', () => {
 
 		const selectedKey = carSelect.value;
@@ -9247,6 +9357,18 @@ function completeCampaignStage() {
 			if ( e.code === 'KeyC' ) {
 
 				cam.toggleMode();
+				return;
+
+			}
+
+			// Video Recorder toggle (only when the mod is installed). Alt+R keeps
+			// it clear of the plain R = respawn shortcut and the browser reload.
+			if ( videoRecorderInstalled && e.altKey && e.code === 'KeyR' ) {
+
+				e.preventDefault();
+				if ( videoRecorder.isRecording() ) { videoRecorder.stop(); showTopMessage( 'Stopping recording…', false, 1500 ); }
+				else { void videoRecorder.start(); }
+				vrRefreshButtonState();
 				return;
 
 			}
