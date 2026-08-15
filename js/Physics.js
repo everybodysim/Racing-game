@@ -59,24 +59,24 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const ELEVATED_SURFACE_HALF_H = 0.12 * S;
 	const ELEVATED_SURFACE_HALF_XZ = CELL_HALF * S * 1.08;
 	const FLAT_ELEVATED_SURFACE_DROP = 0.06;
-	const SLOPE_SURFACE_DROP = 0.4;
-	const SLOPE_TOP_BLEND_RAISE = 0.05;
-	const SLOPE_LOWER_EDGE_SHIFT = CELL_RAW * S * 0.12;
+	// The slope box stays centred on its cell; its top face is positioned to
+	// meet the adjacent flat surfaces EXACTLY (no shift/fudge needed).
+	const SLOPE_LOWER_EDGE_SHIFT = 0;
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const ELEVATED_WALL_HALF_H = WALL_HALF_H * S;
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
 	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT - FLAT_ELEVATED_SURFACE_DROP;
 	const slopeAngle = Math.atan2( CELL_RAW * 0.5, CELL_RAW );
-	const baseSlopeCenterY = groundY + ( ELEVATED_HEIGHT * 0.5 ) - SLOPE_SURFACE_DROP;
-	const slopeNormalYOffset = Math.cos( slopeAngle ) * ELEVATED_SURFACE_HALF_H;
-	const baseSlopeForwardYOffset = Math.sin( slopeAngle ) * ELEVATED_SURFACE_HALF_XZ;
-	const slopeBottomY = baseSlopeCenterY - baseSlopeForwardYOffset - slopeNormalYOffset;
-	const elevatedSurfaceTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H + SLOPE_TOP_BLEND_RAISE;
-	const slopeTargetCenterY = ( elevatedSurfaceTopY + slopeBottomY ) * 0.5;
-	const slopeTargetHalfLen = Math.max(
-		ELEVATED_SURFACE_HALF_XZ,
-		( ( elevatedSurfaceTopY - slopeBottomY ) * 0.5 - slopeNormalYOffset ) / Math.sin( slopeAngle )
-	);
+	// Slope driving surface = the TOP face of the tilted box (half-thickness hy,
+	// pitched by slopeAngle). Its end-Y values are centerY + hy*cos ∓ hl*sin.
+	// Forcing the low end onto the ground road surface (groundY) and the high
+	// end onto the flat elevated deck top (elevatedSurfaceY + hy) and solving
+	// both equations yields an exact center + half-length, eliminating the seam
+	// step that caused clipping at the top and bottom of the slope.
+	const slopeDeckTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H;
+	const slopeTargetHalfLen = ( slopeDeckTopY - groundY ) / ( 2 * Math.sin( slopeAngle ) );
+	const slopeTargetCenterY = ( groundY + slopeDeckTopY ) * 0.5
+		- ELEVATED_SURFACE_HALF_H * Math.cos( slopeAngle );
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
 	const BUMP_RADIUS = 7.5 * S;

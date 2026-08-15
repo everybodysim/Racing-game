@@ -125,16 +125,29 @@
   original transparent/opacity/depthWrite, then sets transparent=true, opacity=min
   (current, HACK_WORLD_OPACITY), depthWrite=true. Restored on disable.
 
-### Slope collider geometry (rotationally symmetric)
+### Slope collider geometry (rotationally symmetric, seam-exact)
 - `addSlopeCollider(gx, gz, orient, up)`: a tilted box, halfExtents
   `[ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, slopeTargetHalfLen]`, pitched by
   `slopeAngle` (atan2(CELL_RAW*0.5, CELL_RAW) ≈ 26.565°) around the yaw axis (Euler
-  'YXZ'). The rise (high-end Y − low-end Y) is `2*halfLen*sin(slopeAngle)` and is
-  INDEPENDENT of orientation/yaw — all slopes have identical shape, just rotated.
-  slope-down is normalized to slope-up via ORIENT_180 + `up=false`→flipped orient.
-- High end meets the flat elevated surface (elevatedSurfaceTopY); low end blends into
-  the ground (slightly buried). So a slope's collider is correct for ALL orientations —
-  if a slope "doesn't work", suspect friction or adjacency, NOT the hitbox shape.
+  'YXZ'). slope-down is normalized to slope-up via ORIENT_180 + `up=false`→flipped orient.
+- The box's TOP face IS the driving surface. `slopeTargetHalfLen` / `slopeTargetCenterY`
+  are derived so the top face meets the adjacent flat surfaces EXACTLY at both seams
+  (no step → no clipping):
+  - low end top Y  = `groundY` (ground road surface)
+  - high end top Y = `elevatedSurfaceY + ELEVATED_SURFACE_HALF_H` (flat elevated deck top)
+  - `slopeDeckTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H`
+  - `slopeTargetHalfLen  = (slopeDeckTopY - groundY) / (2*sin(slopeAngle))`
+  - `slopeTargetCenterY  = (groundY + slopeDeckTopY)/2 - ELEVATED_SURFACE_HALF_H*cos(slopeAngle)`
+  - Solving `centerY + hy*cos ∓ hl*sin = {groundY, deckTopY}`. Valid for ANY slopeAngle;
+    the rise = `2*hl*sin` = deckTopY − groundY, independent of orientation/yaw — all
+    slopes have identical shape, just rotated. The half-run (`hl*cos` ≈ 3.776) slightly
+    exceeds the cell half-width (≈3.746), so the ends overlap the neighbouring cells
+    (good — guarantees no gap). `SLOPE_LOWER_EDGE_SHIFT = 0` (old 0.9 fudge removed).
+- The old fudge constants (SLOPE_SURFACE_DROP=0.4, SLOPE_TOP_BLEND_RAISE=0.05,
+  baseSlopeCenterY, slopeNormalYOffset, baseSlopeForwardYOffset, slopeBottomY,
+  elevatedSurfaceTopY) were REMOVED — they left a 0.05 bump at the top seam and a
+  0.256 drop at the bottom seam (clipping). If a slope "doesn't work", suspect
+  friction or adjacency, NOT the hitbox shape.
 
 ### Seam-bounce suppression vs slopes (the intermittent grip-loss glitch)
 - `suppressSeamBounce(world, veh, key, onSlope)` cancels the upward "pop" + speed loss
