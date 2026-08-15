@@ -59,10 +59,12 @@ function defaultGraphicsPreset() {
 }
 
 function defaultSettings() {
+	const dp = defaultGraphicsPreset();
 	return {
 		v: SCHEMA_VERSION,
 		graphics: {
-			preset: defaultGraphicsPreset(),
+			preset: dp,
+			basePreset: dp,
 			maxPixelRatio: null,
 			shadows: null,
 			shadowMapSize: null,
@@ -79,7 +81,7 @@ function defaultSettings() {
 		},
 		gameplay: {
 			showFps: false,
-			countdownEnabled: null,
+			showBestGhost: true,
 			recentGhostsEnabled: false,
 			recentGhostCount: 3,
 			cameraDistance: null,
@@ -120,8 +122,15 @@ function maybeBool( v ) {
 
 function normalizeGraphics( src ) {
 	src = src && typeof src === 'object' ? src : {};
+	const dp = defaultGraphicsPreset();
+	const preset = pick( src.preset, [ 'low', 'medium', 'high', 'custom' ], dp );
+	// basePreset tracks the last real preset (low/medium/high) the custom
+	// settings are based on, so the settings page can label "Custom (based on High)".
+	const baseFallback = preset === 'custom' ? dp : preset;
+	const basePreset = pick( src.basePreset, [ 'low', 'medium', 'high' ], baseFallback );
 	return {
-		preset: pick( src.preset, [ 'low', 'medium', 'high' ], defaultGraphicsPreset() ),
+		preset,
+		basePreset,
 		maxPixelRatio: maybeClamp( src.maxPixelRatio, 0.5, 2 ),
 		shadows: maybeBool( src.shadows ),
 		shadowMapSize: src.shadowMapSize == null ? null : Math.round( clampNum( src.shadowMapSize, 256, 8192, 2048 ) ),
@@ -144,7 +153,7 @@ function normalizeGameplay( src ) {
 	src = src && typeof src === 'object' ? src : {};
 	return {
 		showFps: Boolean( src.showFps ),
-		countdownEnabled: src.countdownEnabled == null ? null : Boolean( src.countdownEnabled ),
+		showBestGhost: src.showBestGhost == null ? true : Boolean( src.showBestGhost ),
 		recentGhostsEnabled: Boolean( src.recentGhostsEnabled ),
 		recentGhostCount: Math.round( clampNum( src.recentGhostCount, 1, 20, 3 ) ),
 		cameraDistance: maybeClamp( src.cameraDistance, 2, 30 ),
@@ -201,10 +210,6 @@ function migrateFromLegacy() {
 	} catch ( e ) {}
 	try { s.gameplay.showFps = localStorage.getItem( LEGACY.fps ) === '1'; } catch ( e ) {}
 	try {
-		const cd = localStorage.getItem( LEGACY.countdown );
-		if ( cd !== null ) s.gameplay.countdownEnabled = cd === '1';
-	} catch ( e ) {}
-	try {
 		const fxRaw = localStorage.getItem( LEGACY.fx );
 		if ( fxRaw ) {
 			const fx = JSON.parse( fxRaw );
@@ -217,14 +222,11 @@ function migrateFromLegacy() {
 
 // ---- Write the per-subsystem legacy keys so main.js picks them up ----
 function applyLegacyKeys( s ) {
-	try { localStorage.setItem( LEGACY.graphicsQuality, s.graphics.preset ); } catch ( e ) {}
+	try { localStorage.setItem( LEGACY.graphicsQuality, s.graphics.preset === 'custom' ? ( s.graphics.basePreset || 'high' ) : s.graphics.preset ); } catch ( e ) {}
 	try { localStorage.setItem( LEGACY.audio, JSON.stringify( {
 		musicMode: s.audio.musicMode, sfxVolume: s.audio.sfxVolume, musicVolume: s.audio.musicVolume,
 	} ) ); } catch ( e ) {}
 	try { localStorage.setItem( LEGACY.fps, s.gameplay.showFps ? '1' : '0' ); } catch ( e ) {}
-	try {
-		if ( s.gameplay.countdownEnabled != null ) localStorage.setItem( LEGACY.countdown, s.gameplay.countdownEnabled ? '1' : '0' );
-	} catch ( e ) {}
 	try { localStorage.setItem( LEGACY.fx, JSON.stringify( {
 		recentGhostsEnabled: s.gameplay.recentGhostsEnabled, recentGhostCount: s.gameplay.recentGhostCount,
 	} ) ); } catch ( e ) {}
@@ -287,6 +289,68 @@ function refresh() {
 	return getSettings();
 }
 
+// Pull live values that the in-game controls (graphics buttons, audio sliders,
+// FPS toggle, FX-ghosts panel) wrote DIRECTLY to the legacy keys back into the
+// unified settings. The in-game UI bypasses GameSettings, so without this the
+// unified slice (and therefore the cloud save) goes stale whenever a player
+// tweaks something inside the game rather than on settings.html. Call this
+// before any cloud save so the cloud always reflects what the player actually
+// has right now.
+function syncFromLegacy() {
+	const s = getSettings();
+	let changed = false;
+	try {
+		const gq = localStorage.getItem( LEGACY.graphicsQuality );
+		// Legacy key holds the real preset (custom maps back to basePreset).
+		if ( gq === 'low' || gq === 'medium' || gq === 'high' ) {
+			if ( s.graphics.preset !== 'custom' && s.graphics.preset !== gq ) { s.graphics.preset = gq; s.graphics.basePreset = gq; changed = true; }
+			else if ( s.graphics.preset === 'custom' && s.graphics.basePreset !== gq ) { s.graphics.basePreset = gq; changed = true; }
+		}
+	} catch ( e ) {}
+	try {
+		const raw = localStorage.getItem( LEGACY.audio );
+		if ( raw ) {
+			const a = JSON.parse( raw );
+			if ( typeof a.sfxVolume === 'number' && a.sfxVolume !== s.audio.sfxVolume ) { s.audio.sfxVolume = clampNum( a.sfxVolume, 0, 1, 1 ); changed = true; }
+			if ( typeof a.musicVolume === 'number' && a.musicVolume !== s.audio.musicVolume ) { s.audio.musicVolume = clampNum( a.musicVolume, 0, 1, 1 ); changed = true; }
+			if ( typeof a.musicMode === 'number' && a.musicMode !== s.audio.musicMode ) { s.audio.musicMode = Math.round( clampNum( a.musicMode, 0, 3, 0 ) ); changed = true; }
+		}
+	} catch ( e ) {}
+	try {
+		const fps = localStorage.getItem( LEGACY.fps );
+		const want = fps === '1';
+		if ( s.gameplay.showFps !== want ) { s.gameplay.showFps = want; changed = true; }
+	} catch ( e ) {}
+	try {
+		const fxRaw = localStorage.getItem( LEGACY.fx );
+		if ( fxRaw ) {
+			const fx = JSON.parse( fxRaw );
+			if ( typeof fx.recentGhostsEnabled === 'boolean' && fx.recentGhostsEnabled !== s.gameplay.recentGhostsEnabled ) { s.gameplay.recentGhostsEnabled = fx.recentGhostsEnabled; changed = true; }
+			if ( typeof fx.recentGhostCount === 'number' ) {
+				const c = Math.round( clampNum( fx.recentGhostCount, 1, 20, 3 ) );
+				if ( c !== s.gameplay.recentGhostCount ) { s.gameplay.recentGhostCount = c; changed = true; }
+			}
+		}
+	} catch ( e ) {}
+	if ( changed ) saveSettings( s );
+	return s;
+}
+
+// Clear every racing-* localStorage key the game owns. Returns the list removed.
+// Used by the settings page's "Clear local storage" button.
+function clearLocalStorage() {
+	const removed = [];
+	const prefixes = [ 'racing-', 'racingGame', 'racingGameLastRaceMusic' ];
+	for ( let i = localStorage.length - 1; i >= 0; i-- ) {
+		const key = localStorage.key( i );
+		if ( ! key ) continue;
+		const hit = prefixes.some( ( p ) => key.startsWith( p ) );
+		if ( hit ) { removed.push( key ); localStorage.removeItem( key ); }
+	}
+	cache = null;
+	return removed;
+}
+
 // ---- Cloud sync (accounts worker) ----
 function getSession() {
 	try {
@@ -319,6 +383,9 @@ async function accountRequest( path, options ) {
 async function saveSettingsToCloud() {
 	const session = getSession();
 	if ( ! session ) throw new Error( 'Not signed in. Log in from the game\'s Account tab first.' );
+	// Pull live values the in-game controls wrote directly to legacy keys back
+	// into the unified slice so the cloud save matches the player's actual state.
+	syncFromLegacy();
 	// Round-trip the full profile so we don't clobber coins/garage/etc.
 	const get = await accountRequest( '/profile?token=' + encodeURIComponent( session.token ) );
 	const profile = get.profile || {};
@@ -334,7 +401,7 @@ async function loadSettingsFromCloud() {
 	const session = getSession();
 	if ( ! session ) throw new Error( 'Not signed in. Log in from the game\'s Account tab first.' );
 	const get = await accountRequest( '/profile?token=' + encodeURIComponent( session.token ) );
-	if ( ! get.profile || ! get.profile.settings ) throw new Error( 'No saved settings found in your cloud account.' );
+	if ( ! get.profile || ! get.profile.settings ) throw new Error( 'No saved settings found in your cloud account. Save first (or the deployed accounts worker may not support settings yet).' );
 	const local = getSettings();
 	const cloud = get.profile.settings;
 	const merged = normalizeSettings( Object.assign( {}, local, cloud ) );
@@ -369,6 +436,8 @@ const api = {
 	patchSettings,
 	resetToDefaults,
 	applyLegacyKeys,
+	syncFromLegacy,
+	clearLocalStorage,
 	refresh,
 	isSignedIn,
 	getCloudStatus,

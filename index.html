@@ -2962,6 +2962,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				const pct = parseInt( sfxSlider.value, 10 );
 				if ( sfxValueLabel ) sfxValueLabel.textContent = pct + '%';
 				getAudio()?.setSfxVolume( pct / 100 );
+				if ( window.GameSettings ) window.GameSettings.patchSettings( { audio: { sfxVolume: pct / 100 } } );
 
 			} );
 
@@ -2970,12 +2971,14 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				const pct = parseInt( musicSlider.value, 10 );
 				if ( musicValueLabel ) musicValueLabel.textContent = pct + '%';
 				getAudio()?.setMusicVolume( pct / 100 );
+				if ( window.GameSettings ) window.GameSettings.patchSettings( { audio: { musicVolume: pct / 100 } } );
 
 			} );
 
 			if ( musicSelect ) musicSelect.addEventListener( 'change', () => {
 
 				getAudio()?.setMusicMode( parseInt( musicSelect.value, 10 ) );
+				if ( window.GameSettings ) window.GameSettings.patchSettings( { audio: { musicMode: parseInt( musicSelect.value, 10 ) } } );
 
 			} );
 

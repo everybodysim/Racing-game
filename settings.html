@@ -124,13 +124,15 @@ input[type="color"] { width:44px; height:34px; padding:0; border:1px solid rgba(
   <section class="tab-panel active" id="tab-graphics" role="tabpanel">
     <div class="panel">
       <h2><span class="dot"></span>Graphics preset</h2>
-      <p class="hint">Quick overall quality. Advanced sliders below override individual parts of the active preset.</p>
+      <p class="hint">Quick overall quality. Advanced sliders below override individual parts of the active preset. Customizing any slider switches to "Custom".</p>
       <div class="segmented" id="gfx-preset-row">
         <button type="button" data-preset="low">Low</button>
         <button type="button" data-preset="medium">Medium</button>
         <button type="button" data-preset="high">High</button>
+        <button type="button" data-preset="custom" id="gfx-custom-btn" disabled>Custom</button>
       </div>
-      <div class="note">Low disables shadows, weather particles, and bloom for maximum FPS. High enables 4K shadow maps, full particles, and bloom. Medium is a balanced middle ground.</div>
+      <div class="status" id="gfx-preset-status">Follows the selected preset.</div>
+      <div class="note">Low disables shadows, weather particles, and bloom for maximum FPS. High enables 4K shadow maps, full particles, and bloom. Medium is a balanced middle ground. "Custom" appears once you tweak any advanced slider — it keeps your overrides while basing the rest on the last real preset you picked.</div>
     </div>
 
     <div class="panel">
@@ -232,18 +234,17 @@ input[type="color"] { width:44px; height:34px; padding:0; border:1px solid rgba(
           <label class="switch"><input type="checkbox" id="gp-showFps"><span class="slider"></span></label>
         </div>
       </div>
-
-      <div class="field">
-        <div class="field-row">
-          <span><span class="field-label">Race countdown</span><div class="field-desc">3-2-1 countdown before each race start.</div></span>
-          <label class="switch"><input type="checkbox" id="gp-countdown" data-tri="1"><span class="slider"></span></label>
-        </div>
-        <div class="status" id="gp-countdown-state">auto (device default)</div>
-      </div>
     </div>
 
     <div class="panel">
       <h2><span class="dot"></span>Ghosts</h2>
+
+      <div class="field">
+        <div class="field-row">
+          <span><span class="field-label">Show personal best ghost</span><div class="field-desc">Replays your best lap as a translucent ghost to race against. Turn off to hide it.</div></span>
+          <label class="switch"><input type="checkbox" id="gp-showBestGhost" checked><span class="slider"></span></label>
+        </div>
+      </div>
 
       <div class="field">
         <div class="field-row">
@@ -387,6 +388,14 @@ input[type="color"] { width:44px; height:34px; padding:0; border:1px solid rgba(
         <button class="btn" id="export-btn" type="button">⤓ Export settings (copy JSON)</button>
       </div>
       <div class="status" id="local-status"></div>
+
+      <hr style="border:none;border-top:1px solid rgba(255,255,255,.12);margin:18px 0;">
+      <h2 style="color:#ff9ea2;"><span class="dot" style="background:#ff9ea2;"></span>Danger zone</h2>
+      <p class="hint">Wipes <strong>all</strong> Skid Circuit data stored in this browser — settings, coins, garage, campaign, ghosts, account session, installed mods, the lot. Cloud saves are not affected. The game reloads afterwards.</p>
+      <div class="btn-row">
+        <button class="btn" id="clear-local-btn" type="button" style="border-color:rgba(255,158,162,.5);color:#ff9ea2;">🗑 Clear all local storage</button>
+      </div>
+      <div class="status" id="clear-status"></div>
     </div>
 
     <div class="panel">

@@ -231,7 +231,8 @@ function sanitizeSettings( value ) {
 	return {
 		v: Number.isFinite( Number( s.v ) ) ? Number( s.v ) : 1,
 		graphics: {
-			preset: pick( g.preset, [ 'low', 'medium', 'high' ], 'high' ),
+			preset: pick( g.preset, [ 'low', 'medium', 'high', 'custom' ], 'high' ),
+			basePreset: pick( g.basePreset, [ 'low', 'medium', 'high' ], pick( g.preset, [ 'low', 'medium', 'high' ], 'high' ) ),
 			maxPixelRatio: maybeClamp( g.maxPixelRatio, 0.5, 2 ),
 			shadows: g.shadows == null ? null : Boolean( g.shadows ),
 			shadowMapSize: g.shadowMapSize == null ? null : Math.round( clamp( g.shadowMapSize, 256, 8192, 2048 ) ),
@@ -248,7 +249,7 @@ function sanitizeSettings( value ) {
 		},
 		gameplay: {
 			showFps: Boolean( gp.showFps ),
-			countdownEnabled: gp.countdownEnabled == null ? null : Boolean( gp.countdownEnabled ),
+			showBestGhost: gp.showBestGhost == null ? true : Boolean( gp.showBestGhost ),
 			recentGhostsEnabled: Boolean( gp.recentGhostsEnabled ),
 			recentGhostCount: Math.round( clamp( gp.recentGhostCount, 1, 20, 3 ) ),
 			cameraDistance: maybeClamp( gp.cameraDistance, 2, 30 ),

@@ -518,64 +518,110 @@
   gameplay, controls, accessibility }`. Cached in-module; `refresh()` clears the
   cache (used by storage-event cross-tab sync).
 - ALSO writes the legacy per-subsystem keys so existing code keeps working:
-  - `racing-graphics-quality` (preset: low/medium/high)
+  - `racing-graphics-quality` (preset: low/medium/high; for a `custom` preset
+    the legacy key stores `basePreset` so the game picks the right base)
   - `racingGameAudioSettings` (JSON: sfxVolume/musicVolume/musicMode)
   - `racing-show-fps-v1` ('1'/'0')
-  - `racing-countdown-enabled-v1` (only when not null/auto)
-  - `racing-fx-settings-v1` (recentGhostsEnabled)
+  - `racing-fx-settings-v1` (recentGhostsEnabled/recentGhostCount)
   - `racing-player-name-v1` (playerName — not a settings field but mirrored)
+  - NOTE: the countdown setting was REMOVED from the settings schema in Phase 2.
+    The in-game countdown still works via its own legacy key
+    (`COUNTDOWN_SETTINGS_KEY`, mobile-ON/desktop-OFF default), independent of
+    GameSettings — only the settings-page option was removed.
 - Defaults: graphics preset `high` on desktop / `low` on mobile (via
   `window.matchMedia` + `navigator.deviceMemory` heuristic); null = "follow
   preset/default" for tri-state fields (maxPixelRatio, shadows, shadowMapSize,
-  bloom*, smokeParticles, cameraDistance, cameraHeight, countdownEnabled).
+  bloom*, smokeParticles, cameraDistance, cameraHeight). `shadows` defaults
+  null → presets default shadows ON, so the game looks high-quality normally.
+- Graphics preset model (Phase 2): `preset` ∈ {low,medium,high,custom}.
+  `basePreset` always holds the last REAL preset (low/medium/high). Customizing
+  ANY advanced slider/checkbox flips `preset='custom'` (keeping `basePreset`);
+  returning all overrides to null snaps `preset` back to `basePreset`. The
+  effective graphics = base of `basePreset` (when custom) or `preset`,
+  overlaid with non-null overrides. See `normalizeGraphics()`.
 - `normalizeSettings()` clamps every field (e.g. bloom 0–0.1, shadowMapSize
   256–8192, recentGhostCount 1–20, steerSmoothing 0.2–1, colorblindFilter ∈
-  off/protan/deutan/tritan). Unknown → fallback.
+  off/protan/deutan/tritan). Unknown → fallback. `custom` preset accepted.
 - API: `getSettings`, `saveSettings`, `patchSettings` (deep-merge + normalize +
   persist + applyLegacyKeys), `resetToDefaults`, `refresh`, `applyLive` (no-op
   unless the game loaded `window.__gameSettingsApplyLive`), `isSignedIn`,
-  `getCloudStatus`, `saveSettingsToCloud`, `loadSettingsFromCloud`, `UNIFIED_KEY`.
+  `getCloudStatus`, `saveSettingsToCloud`, `loadSettingsFromCloud`,
+  `syncFromLegacy`, `clearLocalStorage`, `UNIFIED_KEY`.
+- `syncFromLegacy()` (Phase 2 cloud-sync fix): pulls LIVE values the in-game
+  controls (graphics buttons, audio sliders, FPS toggle, FX-ghost panel) wrote
+  DIRECTLY to the legacy keys back into the unified slice. The in-game UI
+  bypasses GameSettings, so without this the unified slice (and therefore the
+  cloud save) goes stale. `saveSettingsToCloud()` AND main.js
+  `getCurrentProfileSnapshot()` BOTH call `syncFromLegacy()` first → cloud
+  always reflects the player's actual current state. Also called via the
+  settings-page `storage` listener indirectly (legacy-key writes fire a
+  unified-key write that the other tab picks up).
+- `clearLocalStorage()` wipes every `racing-*` / `racingGame*` localStorage key
+  (settings, coins, garage, campaign, ghosts, account session, mods, etc.).
+  Returns the removed-key list. Used by the settings page Danger-zone button.
 - Cloud sync: reads session token from `racing-account-session-v1`; sends the
   settings slice as `profile.settings` to the accounts worker
   (`POST /api/accounts/profile`); load merges server settings over local.
-- Tested by `/tmp/test-gamesettings.mjs`-style suite (22 assertions: defaults,
-  patch+persist, clamp, reset, cloud-status). The worker side is tested by
+  IMPORTANT: the DEPLOYED live worker must be re-deployed (see
+  `cloudflare-accounts/worker/`) for the new `custom`/`basePreset`/`showBestGhost`
+  fields to survive sanitization — the old deployed build strips unknown fields.
+- Tested by `test-gamesettings.mjs` (38 assertions: defaults incl. showBestGhost
+  + no countdown + shadows-null, custom-preset behaviour, clamp, syncFromLegacy,
+  clearLocalStorage, reset, cloud-status). The worker side is tested by
   `test-accounts-settings.mjs` (round-trip + sanitization + null + defaults +
-  no-clobber of coins).
+  no-clobber of coins + custom/basePreset/showBestGhost).
 
 ### settings.html (`js/settings-page.js`)
 - Sliders: null-capable sliders treat the leftmost (min) position as "auto"
-  (null); the value label shows `data-null-text` ("auto"). Tri-state checkboxes
-  (shadows, countdown) CYCLE on click: auto(indeterminate) → on → off → auto.
+  (null); the value label shows `data-null-text` ("auto"). Tri-state checkbox
+  (shadows only — countdown was removed in Phase 2) CYCLES on click:
+  auto(indeterminate) → on → off → auto.
+- Graphics preset row has 4 buttons: Low / Medium / High / **Custom**. Custom is
+  `disabled` until an advanced override exists; customizing ANY slider flips to
+  `preset='custom'` (keeping the last real preset as `basePreset`) and lights up
+  Custom. Clicking Low/Med/High resets ALL advanced overrides to null (auto) and
+  sets `preset=basePreset=<that>`. A `#gfx-preset-status` line describes the
+  current state. Moving all overrides back to auto snaps custom → base preset.
 - `patchAndApply()` = `GameSettings.patchSettings(patch); GameSettings.applyLive();`
   on every control change → persists instantly + pushes to a running game.
 - Cross-tab: `storage` event on `UNIFIED_KEY` → `GameSettings.refresh()` +
   re-sync UI (so changes made in the game's own graphics buttons update here).
 - Cloud tab shows sign-in status from `getCloudStatus()`; Save/Load buttons call
-  `saveSettingsToCloud()`/`loadSettingsFromCloud()`. Last-opened tab persists to
-  `racing-settings-tab-v1`.
+  `saveSettingsToCloud()`/`loadSettingsFromCloud()` (Save now syncs from legacy
+  first). Last-opened tab persists to `racing-settings-tab-v1`.
+- Local data panel: Reset to defaults + Export JSON. A **Danger zone** section has
+  a "Clear all local storage" button → `GameSettings.clearLocalStorage()` then
+  reloads to `index.html`. Cloud saves are not affected.
 
 ### main.js integration (the live bridge)
 - `import GameSettings from './GameSettings.js'` at top.
 - `applyLiveGameSettings(settings)` (defined next to `applyGraphicsQuality`):
-  builds an EFFECTIVE graphics preset = `{ ...GRAPHICS_QUALITY_PRESETS[preset] }`
-  overlaid with non-null advanced overrides + reduceMotion (forces bloom=0,
+  builds an EFFECTIVE graphics preset = `{ ...GRAPHICS_QUALITY_PRESETS[presetKey] }`
+  where `presetKey = (preset==='custom' ? basePreset : preset)`, overlaid with
+  non-null advanced overrides + reduceMotion (forces bloom=0,
   weatherParticleScale=0), sets `cachedGraphicsPreset`, calls
   `applyGraphicsPresetToRenderer()` + `particles.setQuality()` +
   `setupWeatherFx()` + `updateGraphicsQualityUi()`. Then audio
   (`window.__gameAudio.setSfxVolume/setMusicVolume/setMusicMode`), camera
-  (`cam.userDistance/userHeight/userLagScale`), and FPS HUD (`fpsHudVisible`
-  + `updateFpsHudVisibility()` + legacy key). Countdown + recent-ghost rebuild
-  persist for the next race (not toggled live).
+  (`cam.userDistance/userHeight/userLagScale`), FPS HUD (`fpsHudVisible`
+  + `updateFpsHudVisibility()` + legacy key), and personal-best ghost visibility
+  (`showBestGhost` runtime flag → hides `ghostModel` when false + early-returns
+  `updateGhostPlayback`). Countdown + recent-ghost rebuild persist for the next
+  race (not toggled live).
+- In-game controls now write THROUGH GameSettings too (Phase 2 cloud-sync fix):
+  `applyGraphicsQuality(save=true)` calls `GameSettings.patchSettings` with the
+  preset + null overrides; the audio sliders + music select + FPS toggle + FX
+  ghost panel handlers all `GameSettings.patchSettings(...)`. So the unified slice
+  stays fresh even when the player uses the in-game UI rather than settings.html.
 - At boot (right after `window.__gameAudio = audio`): `applyLiveGameSettings(
   GameSettings.getSettings() )` so settings.html changes take effect on load.
 - `window.__gameSettingsApplyLive` exposed = the live-apply entry point the
   settings page's `applyLive()` calls. `storage` listener on `UNIFIED_KEY`
   re-applies live when another tab saves.
-- Cloud profile: `getCurrentProfileSnapshot()` includes `settings:
-  GameSettings.getSettings()`; `applyImportedProfile()` does
-  `GameSettings.saveSettings(parsed.settings)` + `applyLiveGameSettings()` so a
-  loaded cloud profile restores settings too.
+- Cloud profile: `getCurrentProfileSnapshot()` calls `GameSettings.syncFromLegacy()`
+  FIRST then includes `settings: GameSettings.getSettings()`; `applyImportedProfile()`
+  does `GameSettings.saveSettings(parsed.settings)` + `applyLiveGameSettings()` so
+  a loaded cloud profile restores settings too.
 
 ### Accounts worker (`cloudflare-accounts/worker/src/index.js`)
 - `sanitizeProfile()` now includes `settings: sanitizeSettings(profile.settings)`.
@@ -583,18 +629,24 @@
   fallbacks + null handling) so settings round-trip through the cloud safely.
   Bad values are clamped, not rejected. Missing settings → full defaults object
   (never undefined). Sending only `settings` does NOT clobber coins/garage.
+  Accepts `preset` ∈ {low,medium,high,custom}; `basePreset` defaults to preset
+  (or high if preset is custom); `gameplay.showBestGhost` defaults true.
 - Tested by `test-accounts-settings.mjs` (signup → save with settings →
   getProfile round-trip; clamp test; null round-trip; missing→defaults;
-  coins-preserved-when-only-settings).
+  coins-preserved-when-only-settings; custom/basePreset/showBestGhost).
+- IMPORTANT: the DEPLOYED live worker must be re-deployed (`wrangler deploy` in
+  `cloudflare-accounts/worker/`) for the new fields to survive sanitization.
 
 ### Per-section field reference
-- graphics: preset, maxPixelRatio, shadows, shadowMapSize, bloomStrength,
-  bloomRadius, smokeParticles (all nullable → follow preset), antialias (bool,
-  needs reload), reduceMotion (bool, disables bloom+weather).
+- graphics: preset (low/medium/high/custom), basePreset (low/medium/high),
+  maxPixelRatio, shadows, shadowMapSize, bloomStrength, bloomRadius,
+  smokeParticles (all nullable → follow preset; shadows defaults null → ON),
+  antialias (bool, needs reload), reduceMotion (bool, disables bloom+weather).
 - audio: sfxVolume, musicVolume (0–1), musicMode (0–3).
-- gameplay: showFps, countdownEnabled (nullable), recentGhostsEnabled,
-  recentGhostCount (1–20), cameraDistance/cameraHeight (nullable),
-  cameraLag (0.1–1), autoRespawn.
+- gameplay: showFps, showBestGhost (default true; toggles personal-best ghost
+  rendering), recentGhostsEnabled, recentGhostCount (1–20),
+  cameraDistance/cameraHeight (nullable), cameraLag (0.1–1), autoRespawn.
+  (countdownEnabled was REMOVED from the settings schema in Phase 2.)
 - controls: invertSteer, keyboardOnly, steerSmoothing (0.2–1).
 - accessibility: highContrastHud, largeHud, screenShake (default true),
   colorblindFilter (off/protan/deutan/tritan — preview only, full shader TBD).

@@ -53,15 +53,16 @@ const token = signup.json.token;
 
 // save profile WITH a settings slice
 const settingsPayload = {
-	graphics: { preset: 'low', bloomStrength: 0.08, shadows: false, maxPixelRatio: 1.5, smokeParticles: 12, antialias: false, reduceMotion: true },
+	graphics: { preset: 'custom', basePreset: 'high', bloomStrength: 0.08, shadows: false, maxPixelRatio: 1.5, smokeParticles: 12, antialias: false, reduceMotion: true },
 	audio: { sfxVolume: 0.5, musicVolume: 0.25, musicMode: 2 },
-	gameplay: { showFps: true, countdownEnabled: true, recentGhostsEnabled: true, recentGhostCount: 7, cameraDistance: 12, cameraHeight: 4, cameraLag: 0.6, autoRespawn: true },
+	gameplay: { showFps: true, showBestGhost: false, recentGhostsEnabled: true, recentGhostCount: 7, cameraDistance: 12, cameraHeight: 4, cameraLag: 0.6, autoRespawn: true },
 	controls: { invertSteer: true, keyboardOnly: true, steerSmoothing: 0.4 },
 	accessibility: { highContrastHud: true, largeHud: true, screenShake: false, colorblindFilter: 'deutan' },
 };
 const save = await call( '/api/accounts/profile', 'POST', { token, profile: { settings: settingsPayload } } );
 assert.equal( save.json.ok, true );
-assert.equal( save.json.profile.settings.graphics.preset, 'low' );
+assert.equal( save.json.profile.settings.graphics.preset, 'custom' );
+assert.equal( save.json.profile.settings.graphics.basePreset, 'high' );
 assert.equal( save.json.profile.settings.graphics.bloomStrength, 0.08 );
 assert.equal( save.json.profile.settings.audio.sfxVolume, 0.5 );
 assert.equal( save.json.profile.settings.gameplay.cameraDistance, 12 );
@@ -72,7 +73,8 @@ assert.equal( save.json.profile.settings.accessibility.colorblindFilter, 'deutan
 const get = await call( '/api/accounts/profile?token=' + encodeURIComponent( token ), 'GET' );
 assert.equal( get.json.ok, true );
 const s = get.json.profile.settings;
-assert.equal( s.graphics.preset, 'low' );
+assert.equal( s.graphics.preset, 'custom' );
+assert.equal( s.graphics.basePreset, 'high' );
 assert.equal( s.graphics.shadows, false );
 assert.equal( s.graphics.maxPixelRatio, 1.5 );
 assert.equal( s.graphics.smokeParticles, 12 );
@@ -81,7 +83,7 @@ assert.equal( s.graphics.reduceMotion, true );
 assert.equal( s.audio.musicMode, 2 );
 assert.equal( s.audio.musicVolume, 0.25 );
 assert.equal( s.gameplay.showFps, true );
-assert.equal( s.gameplay.countdownEnabled, true );
+assert.equal( s.gameplay.showBestGhost, false );
 assert.equal( s.gameplay.recentGhostCount, 7 );
 assert.equal( s.gameplay.cameraLag, 0.6 );
 assert.equal( s.controls.steerSmoothing, 0.4 );
@@ -91,7 +93,7 @@ assert.equal( s.accessibility.screenShake, false );
 
 // sanitization clamps bad values
 const bad = await call( '/api/accounts/profile', 'POST', { token, profile: { settings: {
-	graphics: { preset: 'ultra', bloomStrength: 999, shadowMapSize: 5, maxPixelRatio: 50, smokeParticles: -10 },
+	graphics: { preset: 'ultra', basePreset: 'ultra', bloomStrength: 999, shadowMapSize: 5, maxPixelRatio: 50, smokeParticles: -10 },
 	audio: { sfxVolume: 5, musicMode: 99 },
 	gameplay: { recentGhostCount: 999, cameraLag: 0, cameraDistance: 999 },
 	controls: { steerSmoothing: 5 },
@@ -99,6 +101,7 @@ const bad = await call( '/api/accounts/profile', 'POST', { token, profile: { set
 } } } );
 const b = bad.json.profile.settings;
 assert.equal( b.graphics.preset, 'high', 'bad preset falls back to high' );
+assert.equal( b.graphics.basePreset, 'high', 'bad basePreset falls back to high' );
 assert.equal( b.graphics.bloomStrength, 0.1, 'bloom clamped to max' );
 assert.equal( b.graphics.shadowMapSize, 256, 'shadow map clamped to min' );
 assert.equal( b.graphics.maxPixelRatio, 2, 'pixel ratio clamped' );
@@ -124,10 +127,12 @@ const ns = none.json.profile.settings;
 assert.ok( ns && ns.graphics && ns.audio && ns.gameplay && ns.controls && ns.accessibility, 'missing settings yields defaults object' );
 assert.equal( ns.graphics.antialias, true, 'default antialias true' );
 assert.equal( ns.accessibility.screenShake, true, 'default screenShake true' );
+assert.equal( ns.gameplay.showBestGhost, true, 'default showBestGhost true' );
 
 // existing profile fields (coins/garage) are NOT clobbered when only settings sent
 const coinsSave = await call( '/api/accounts/profile', 'POST', { token, profile: { economy: { coins: 1234 }, settings: { graphics: { preset: 'medium' } } } } );
 assert.equal( coinsSave.json.profile.economy.coins, 1234, 'coins preserved' );
 assert.equal( coinsSave.json.profile.settings.graphics.preset, 'medium', 'settings applied' );
+assert.equal( coinsSave.json.profile.settings.graphics.basePreset, 'medium', 'basePreset follows preset' );
 
 console.log( 'PASS: accounts worker settings round-trip + sanitization (', 0, 'failures )' );

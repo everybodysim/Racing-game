@@ -2458,6 +2458,9 @@ async function init() {
 	const QUICK_TEST_GHOST_KEY = 'racing-editor-quicktest-ghost-v1';
 	const QUICK_TEST_GHOST_MAP_KEY = 'racing-editor-quicktest-map-v1';
 	const ghostEnabled = ! isSplitScreen;
+	// Runtime flag for whether the personal-best (best-lap) ghost is shown.
+	// Defaults true; applyLiveGameSettings() updates it from GameSettings.gameplay.showBestGhost.
+	let showBestGhost = true;
 
 	if ( replayViewerMode ) document.body.classList.add( 'replay-viewer-mode' );
 	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
@@ -3370,6 +3373,7 @@ async function init() {
 	function updateGhostPlayback( lapElapsed ) {
 
 		if ( ! ghostEnabled ) return;
+		if ( ! showBestGhost ) { if ( ghostModel ) ghostModel.visible = false; return; }
 		if ( ! ghostModel ) return;
 		if ( bestLapGhostSamples.length < 2 || bestGhostDuration <= 0 ) {
 
@@ -4078,7 +4082,13 @@ async function init() {
 	const fxRecentGhostsInput = fxPanel.querySelector( '#fx-recent-ghosts' );
 	const fxRecentGhostCountSelect = fxPanel.querySelector( '#fx-recent-ghost-count' );
 	if ( fxRecentGhostCountSelect ) fxRecentGhostCountSelect.value = String( fxSettings.recentGhostCount );
-	const saveFxSettings = () => localStorage.setItem( FX_SETTINGS_KEY, JSON.stringify( fxSettings ) );
+	const saveFxSettings = () => {
+		localStorage.setItem( FX_SETTINGS_KEY, JSON.stringify( fxSettings ) );
+		try { GameSettings.patchSettings( { gameplay: {
+			recentGhostsEnabled: fxSettings.recentGhostsEnabled,
+			recentGhostCount: fxSettings.recentGhostCount,
+		} } ); } catch ( e ) {}
+	};
 	fxRecentGhostsInput?.addEventListener( 'change', () => {
 
 		fxSettings.recentGhostsEnabled = Boolean( fxRecentGhostsInput.checked );
@@ -4897,7 +4907,19 @@ async function init() {
 
 		graphicsQuality = normalizeGraphicsQuality( nextQuality );
 		cachedGraphicsPreset = GRAPHICS_QUALITY_PRESETS[ graphicsQuality ] || GRAPHICS_QUALITY_PRESETS[ getDefaultGraphicsQuality() ];
-		if ( save ) localStorage.setItem( GRAPHICS_QUALITY_KEY, graphicsQuality );
+		if ( save ) {
+			localStorage.setItem( GRAPHICS_QUALITY_KEY, graphicsQuality );
+			// Keep the unified GameSettings slice in sync so a cloud save
+			// reflects the in-game choice. Selecting a preset resets advanced
+			// overrides to "auto" (null) and clears any custom state.
+			try {
+				GameSettings.patchSettings( { graphics: {
+					preset: graphicsQuality, basePreset: graphicsQuality,
+					maxPixelRatio: null, shadows: null, shadowMapSize: null,
+					bloomStrength: null, bloomRadius: null, smokeParticles: null,
+				} } );
+			} catch ( e ) {}
+		}
 		applyGraphicsPresetToRenderer();
 		particles.setQuality( getGraphicsParticleOptions() );
 		particles2?.setQuality( getGraphicsParticleOptions() );
@@ -4916,7 +4938,9 @@ async function init() {
 
 		if ( ! settings ) return;
 		const g = settings.graphics || {};
-		const base = GRAPHICS_QUALITY_PRESETS[ g.preset ] || GRAPHICS_QUALITY_PRESETS[ getDefaultGraphicsQuality() ];
+		// For 'custom' preset the base is basePreset (low/medium/high); otherwise the preset itself.
+		const presetKey = ( g.preset === 'custom' ? g.basePreset : g.preset ) || getDefaultGraphicsQuality();
+		const base = GRAPHICS_QUALITY_PRESETS[ presetKey ] || GRAPHICS_QUALITY_PRESETS[ getDefaultGraphicsQuality() ];
 		const effective = Object.assign( {}, base );
 		if ( g.maxPixelRatio != null ) effective.maxPixelRatio = g.maxPixelRatio;
 		if ( g.shadows != null ) effective.shadows = g.shadows;
@@ -4925,7 +4949,7 @@ async function init() {
 		if ( g.bloomStrength != null ) effective.bloomStrength = g.bloomStrength;
 		if ( g.bloomRadius != null ) effective.bloomRadius = g.bloomRadius;
 		if ( g.reduceMotion ) { effective.bloomStrength = 0; effective.bloomRadius = 0; effective.weatherParticleScale = 0; }
-		graphicsQuality = normalizeGraphicsQuality( g.preset );
+		graphicsQuality = normalizeGraphicsQuality( presetKey );
 		cachedGraphicsPreset = effective;
 		applyGraphicsPresetToRenderer();
 		particles.setQuality( getGraphicsParticleOptions() );
@@ -4954,6 +4978,10 @@ async function init() {
 		fpsHudVisible = Boolean( gp.showFps );
 		try { localStorage.setItem( FPS_HUD_SETTINGS_KEY, fpsHudVisible ? '1' : '0' ); } catch ( e ) {}
 		updateFpsHudVisibility();
+
+		// Personal best ghost visibility
+		showBestGhost = gp.showBestGhost != null ? Boolean( gp.showBestGhost ) : true;
+		if ( ! showBestGhost && ghostModel ) ghostModel.visible = false;
 
 	}
 
@@ -6219,6 +6247,11 @@ function completeCampaignStage() {
 
 	function getCurrentProfileSnapshot() {
 
+		// The in-game graphics/audio/FPS controls write DIRECTLY to the legacy
+		// localStorage keys, bypassing GameSettings. Sync those live values back
+		// into the unified settings before snapshotting so the cloud save (and
+		// the settings page) always reflect what the player actually has right now.
+		GameSettings.syncFromLegacy();
 		return {
 			v: 2,
 			playerName: sanitizePlayerName( playerNameInput?.value || '' ),
@@ -9122,6 +9155,7 @@ function completeCampaignStage() {
 
 		fpsHudVisible = Boolean( fpsToggle.checked );
 		localStorage.setItem( FPS_HUD_SETTINGS_KEY, fpsHudVisible ? '1' : '0' );
+		try { GameSettings.patchSettings( { gameplay: { showFps: fpsHudVisible } } ); } catch ( e ) {}
 		if ( fpsHudVisible ) {
 
 			rollingFps = 0;

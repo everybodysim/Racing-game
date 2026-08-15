@@ -72,10 +72,19 @@ import GameSettings from './GameSettings.js';
 		const s = GameSettings.getSettings();
 		const g = s.graphics;
 
-		// Preset segmented control
+		// Preset segmented control — Custom lights up only when overrides exist.
+		const overrides = g.maxPixelRatio != null || g.shadowMapSize != null || g.smokeParticles != null
+			|| g.bloomStrength != null || g.bloomRadius != null || g.shadows != null;
+		const customBtn = $( 'gfx-custom-btn' );
+		if ( customBtn ) customBtn.disabled = ! overrides;
 		document.querySelectorAll( '#gfx-preset-row button' ).forEach( ( b ) => {
 			b.classList.toggle( 'active', b.dataset.preset === g.preset );
 		} );
+		const statusEl = $( 'gfx-preset-status' );
+		if ( statusEl ) {
+			if ( g.preset === 'custom' ) statusEl.textContent = 'Custom (based on ' + ( g.basePreset || 'high' ) + '). Tweak any slider to adjust.';
+			else statusEl.textContent = 'Follows the ' + g.preset + ' preset. All advanced options are auto.';
+		}
 
 		setSlider( $( 'gfx-maxPixelRatio' ), g.maxPixelRatio, $( 'val-maxPixelRatio' ), ( v ) => v.toFixed( 2 ) + 'x' );
 		setSlider( $( 'gfx-shadowMapSize' ), g.shadowMapSize, $( 'val-shadowMapSize' ), ( v ) => String( v ) );
@@ -95,7 +104,7 @@ import GameSettings from './GameSettings.js';
 		// Gameplay
 		const gp = s.gameplay;
 		$( 'gp-showFps' ).checked = gp.showFps;
-		triState( $( 'gp-countdown' ), gp.countdownEnabled, $( 'gp-countdown-state' ), 'on', 'off' );
+		$( 'gp-showBestGhost' ).checked = gp.showBestGhost != null ? Boolean( gp.showBestGhost ) : true;
 		$( 'gp-recentGhosts' ).checked = gp.recentGhostsEnabled;
 		setSlider( $( 'gp-recentGhostCount' ), gp.recentGhostCount, $( 'val-recentGhostCount' ), ( v ) => String( v ) );
 		setSlider( $( 'gp-cameraDistance' ), gp.cameraDistance, $( 'val-cameraDistance' ), ( v ) => v.toFixed( 1 ) );
@@ -117,15 +126,28 @@ import GameSettings from './GameSettings.js';
 	}
 
 	// ---- Wire controls ----
-	// Graphics preset buttons
+	// Graphics preset buttons: clicking Low/Medium/High resets ALL advanced
+	// overrides back to "auto" (null) so the chosen preset is followed fully.
+	// The Custom button is only enabled once a slider has been tweaked; clicking
+	// it just re-applies the existing custom state (a no-op reassurance).
+	const REAL_PRESETS = [ 'low', 'medium', 'high' ];
+	function selectPreset( preset ) {
+		if ( REAL_PRESETS.indexOf( preset ) >= 0 ) {
+			patchAndApply( { graphics: {
+				preset, basePreset: preset,
+				maxPixelRatio: null, shadows: null, shadowMapSize: null,
+				bloomStrength: null, bloomRadius: null, smokeParticles: null,
+			} } );
+		}
+		syncUiFromSettings();
+	}
 	document.querySelectorAll( '#gfx-preset-row button' ).forEach( ( b ) => {
-		b.addEventListener( 'click', () => {
-			patchAndApply( { graphics: { preset: b.dataset.preset } } );
-			syncUiFromSettings();
-		} );
+		b.addEventListener( 'click', () => selectPreset( b.dataset.preset ) );
 	} );
 
-	// Graphics sliders (null-capable)
+	// Graphics sliders (null-capable). Customizing ANY slider switches the preset
+	// to "custom" (keeping the last real preset as basePreset) so the Custom
+	// button lights up and the other untouched fields still follow basePreset.
 	function bindGfxSlider( id, field, valueId, fmt ) {
 		const el = $( id );
 		const label = $( valueId );
@@ -133,7 +155,28 @@ import GameSettings from './GameSettings.js';
 		el.addEventListener( 'input', () => {
 			const v = sliderValueOrNull( el );
 			if ( label ) label.textContent = v == null ? ( el.dataset.nullText || 'auto' ) : ( fmt ? fmt( v ) : String( v ) );
-			patchAndApply( { graphics: { [ field ]: v } } );
+			const cur = GameSettings.getSettings().graphics;
+			const patch = { graphics: { [ field ]: v } };
+			// Moving a slider to "auto" doesn't force custom by itself; only a real
+			// override value flips to custom. If ALL overrides become null again,
+			// snap back to the real preset.
+			const overrideFields = [ 'maxPixelRatio', 'shadowMapSize', 'smokeParticles', 'bloomStrength', 'bloomRadius', 'shadows' ];
+			const nextOverrides = Object.assign(
+				{},
+				{ maxPixelRatio: cur.maxPixelRatio, shadowMapSize: cur.shadowMapSize, smokeParticles: cur.smokeParticles, bloomStrength: cur.bloomStrength, bloomRadius: cur.bloomRadius, shadows: cur.shadows },
+				{ [ field ]: v }
+			);
+			const anyOverride = overrideFields.some( ( f ) => nextOverrides[ f ] != null );
+			if ( anyOverride ) {
+				patch.graphics.preset = 'custom';
+				patch.graphics.basePreset = REAL_PRESETS.indexOf( cur.preset ) >= 0 ? cur.preset : ( cur.basePreset || 'high' );
+			} else if ( cur.preset === 'custom' ) {
+				// All overrides cleared -> restore to the base real preset.
+				patch.graphics.preset = cur.basePreset || 'high';
+				patch.graphics.basePreset = cur.basePreset || 'high';
+			}
+			patchAndApply( patch );
+			syncUiFromSettings();
 		} );
 	}
 	bindGfxSlider( 'gfx-maxPixelRatio', 'maxPixelRatio', 'val-maxPixelRatio', ( v ) => v.toFixed( 2 ) + 'x' );
@@ -142,20 +185,33 @@ import GameSettings from './GameSettings.js';
 	bindGfxSlider( 'gfx-bloomStrength', 'bloomStrength', 'val-bloomStrength', ( v ) => v.toFixed( 3 ) );
 	bindGfxSlider( 'gfx-bloomRadius', 'bloomRadius', 'val-bloomRadius', ( v ) => v.toFixed( 3 ) );
 
-	// Tri-state shadows checkbox: click cycles off -> on -> auto.
+	// Tri-state shadows checkbox: click cycles off -> on -> auto. Like sliders,
+	// setting a real value (on/off) switches to custom; returning to auto may
+	// snap back to the real preset if no other overrides remain.
 	const shadowsBox = $( 'gfx-shadows' );
 	if ( shadowsBox ) {
 		shadowsBox.addEventListener( 'click', () => {
-			const cur = GameSettings.getSettings().graphics.shadows;
-			// indeterminate(auto) -> click sets checked=true(on) per browser, but we
-			// want cycle: auto -> on -> off -> auto. Handle manually.
-			// After the click, .checked reflects the new visual state. Map it:
+			const cur = GameSettings.getSettings().graphics;
 			let next;
-			if ( cur == null ) next = true;       // auto -> on
-			else if ( cur === true ) next = false; // on -> off
-			else next = null;                      // off -> auto
-			// Prevent the browser from also toggling: set explicitly.
-			patchAndApply( { graphics: { shadows: next } } );
+			if ( cur.shadows == null ) next = true;       // auto -> on
+			else if ( cur.shadows === true ) next = false; // on -> off
+			else next = null;                              // off -> auto
+			const patch = { graphics: { shadows: next } };
+			const overrideFields = [ 'maxPixelRatio', 'shadowMapSize', 'smokeParticles', 'bloomStrength', 'bloomRadius' ];
+			const nextOverrides = Object.assign(
+				{},
+				{ maxPixelRatio: cur.maxPixelRatio, shadowMapSize: cur.shadowMapSize, smokeParticles: cur.smokeParticles, bloomStrength: cur.bloomStrength, bloomRadius: cur.bloomRadius },
+				{ shadows: next }
+			);
+			const anyOverride = overrideFields.some( ( f ) => nextOverrides[ f ] != null ) || next != null;
+			if ( anyOverride ) {
+				patch.graphics.preset = 'custom';
+				patch.graphics.basePreset = REAL_PRESETS.indexOf( cur.preset ) >= 0 ? cur.preset : ( cur.basePreset || 'high' );
+			} else if ( cur.preset === 'custom' ) {
+				patch.graphics.preset = cur.basePreset || 'high';
+				patch.graphics.basePreset = cur.basePreset || 'high';
+			}
+			patchAndApply( patch );
 			syncUiFromSettings();
 		} );
 	}
@@ -183,18 +239,7 @@ import GameSettings from './GameSettings.js';
 
 	// Gameplay
 	$( 'gp-showFps' )?.addEventListener( 'change', ( e ) => patchAndApply( { gameplay: { showFps: e.target.checked } } ) );
-	const countdownBox = $( 'gp-countdown' );
-	if ( countdownBox ) {
-		countdownBox.addEventListener( 'click', () => {
-			const cur = GameSettings.getSettings().gameplay.countdownEnabled;
-			let next;
-			if ( cur == null ) next = true;
-			else if ( cur === true ) next = false;
-			else next = null;
-			patchAndApply( { gameplay: { countdownEnabled: next } } );
-			syncUiFromSettings();
-		} );
-	}
+	$( 'gp-showBestGhost' )?.addEventListener( 'change', ( e ) => patchAndApply( { gameplay: { showBestGhost: e.target.checked } } ) );
 	$( 'gp-recentGhosts' )?.addEventListener( 'change', ( e ) => patchAndApply( { gameplay: { recentGhostsEnabled: e.target.checked } } ) );
 	const rgc = $( 'gp-recentGhostCount' );
 	if ( rgc ) {
@@ -315,6 +360,30 @@ import GameSettings from './GameSettings.js';
 		el.textContent = msg || '';
 		el.className = 'status ' + ( kind || '' );
 	}
+
+	function setClearStatus( msg, kind ) {
+		const el = $( 'clear-status' );
+		el.textContent = msg || '';
+		el.className = 'status ' + ( kind || '' );
+	}
+
+	$( 'clear-local-btn' )?.addEventListener( 'click', () => {
+		const ok = confirm(
+			'This will erase ALL Skid Circuit data in this browser:\n' +
+			'settings, coins, garage, campaign, ghosts, account session,\n' +
+			'installed mods, track shares — everything. Cloud saves are NOT affected.\n\n' +
+			'The game will reload afterwards. Continue?'
+		);
+		if ( ! ok ) return;
+		setClearStatus( 'Clearing local storage…', '' );
+		try {
+			const removed = GameSettings.clearLocalStorage();
+			setClearStatus( 'Cleared ' + removed.length + ' local storage key(s). Reloading…', 'ok' );
+			setTimeout( () => { window.location.href = 'index.html'; }, 900 );
+		} catch ( err ) {
+			setClearStatus( 'Failed: ' + ( err && err.message ? err.message : err ), 'err' );
+		}
+	} );
 
 	$( 'apply-live-btn' )?.addEventListener( 'click', () => {
 		GameSettings.applyLive();
