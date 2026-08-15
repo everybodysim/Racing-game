@@ -502,3 +502,99 @@
   `downloadLast()` guard (lastBlob-based), and the auto-capture fallback.
   Stubs browser globals incl. a swappable `navigator.mediaDevices.getDisplayMedia`.
   Run: `node test-video-recorder.mjs`.
+
+## Settings system (`js/GameSettings.js` + `settings.html` + `js/settings-page.js`)
+
+### What it is
+- A standalone **Settings page** (`settings.html`) separate from `index.html`,
+  accessible from the main menu (home-secondary link), the in-game Nav tab
+  (Configure section → Settings), and NavBar (`PAGE_NAMES['settings.html']`).
+- 6 tabs: Graphics, Audio, Gameplay, Controls, Accessibility, Cloud Sync.
+- One shared ES module `js/GameSettings.js` is the single source of truth; both
+  `index.html` (the game) and `settings.html` import it.
+
+### GameSettings module (`js/GameSettings.js`) — single source of truth
+- Unified schema key: `racing-game-settings-v1` = `{ v:1, graphics, audio,
+  gameplay, controls, accessibility }`. Cached in-module; `refresh()` clears the
+  cache (used by storage-event cross-tab sync).
+- ALSO writes the legacy per-subsystem keys so existing code keeps working:
+  - `racing-graphics-quality` (preset: low/medium/high)
+  - `racingGameAudioSettings` (JSON: sfxVolume/musicVolume/musicMode)
+  - `racing-show-fps-v1` ('1'/'0')
+  - `racing-countdown-enabled-v1` (only when not null/auto)
+  - `racing-fx-settings-v1` (recentGhostsEnabled)
+  - `racing-player-name-v1` (playerName — not a settings field but mirrored)
+- Defaults: graphics preset `high` on desktop / `low` on mobile (via
+  `window.matchMedia` + `navigator.deviceMemory` heuristic); null = "follow
+  preset/default" for tri-state fields (maxPixelRatio, shadows, shadowMapSize,
+  bloom*, smokeParticles, cameraDistance, cameraHeight, countdownEnabled).
+- `normalizeSettings()` clamps every field (e.g. bloom 0–0.1, shadowMapSize
+  256–8192, recentGhostCount 1–20, steerSmoothing 0.2–1, colorblindFilter ∈
+  off/protan/deutan/tritan). Unknown → fallback.
+- API: `getSettings`, `saveSettings`, `patchSettings` (deep-merge + normalize +
+  persist + applyLegacyKeys), `resetToDefaults`, `refresh`, `applyLive` (no-op
+  unless the game loaded `window.__gameSettingsApplyLive`), `isSignedIn`,
+  `getCloudStatus`, `saveSettingsToCloud`, `loadSettingsFromCloud`, `UNIFIED_KEY`.
+- Cloud sync: reads session token from `racing-account-session-v1`; sends the
+  settings slice as `profile.settings` to the accounts worker
+  (`POST /api/accounts/profile`); load merges server settings over local.
+- Tested by `/tmp/test-gamesettings.mjs`-style suite (22 assertions: defaults,
+  patch+persist, clamp, reset, cloud-status). The worker side is tested by
+  `test-accounts-settings.mjs` (round-trip + sanitization + null + defaults +
+  no-clobber of coins).
+
+### settings.html (`js/settings-page.js`)
+- Sliders: null-capable sliders treat the leftmost (min) position as "auto"
+  (null); the value label shows `data-null-text` ("auto"). Tri-state checkboxes
+  (shadows, countdown) CYCLE on click: auto(indeterminate) → on → off → auto.
+- `patchAndApply()` = `GameSettings.patchSettings(patch); GameSettings.applyLive();`
+  on every control change → persists instantly + pushes to a running game.
+- Cross-tab: `storage` event on `UNIFIED_KEY` → `GameSettings.refresh()` +
+  re-sync UI (so changes made in the game's own graphics buttons update here).
+- Cloud tab shows sign-in status from `getCloudStatus()`; Save/Load buttons call
+  `saveSettingsToCloud()`/`loadSettingsFromCloud()`. Last-opened tab persists to
+  `racing-settings-tab-v1`.
+
+### main.js integration (the live bridge)
+- `import GameSettings from './GameSettings.js'` at top.
+- `applyLiveGameSettings(settings)` (defined next to `applyGraphicsQuality`):
+  builds an EFFECTIVE graphics preset = `{ ...GRAPHICS_QUALITY_PRESETS[preset] }`
+  overlaid with non-null advanced overrides + reduceMotion (forces bloom=0,
+  weatherParticleScale=0), sets `cachedGraphicsPreset`, calls
+  `applyGraphicsPresetToRenderer()` + `particles.setQuality()` +
+  `setupWeatherFx()` + `updateGraphicsQualityUi()`. Then audio
+  (`window.__gameAudio.setSfxVolume/setMusicVolume/setMusicMode`), camera
+  (`cam.userDistance/userHeight/userLagScale`), and FPS HUD (`fpsHudVisible`
+  + `updateFpsHudVisibility()` + legacy key). Countdown + recent-ghost rebuild
+  persist for the next race (not toggled live).
+- At boot (right after `window.__gameAudio = audio`): `applyLiveGameSettings(
+  GameSettings.getSettings() )` so settings.html changes take effect on load.
+- `window.__gameSettingsApplyLive` exposed = the live-apply entry point the
+  settings page's `applyLive()` calls. `storage` listener on `UNIFIED_KEY`
+  re-applies live when another tab saves.
+- Cloud profile: `getCurrentProfileSnapshot()` includes `settings:
+  GameSettings.getSettings()`; `applyImportedProfile()` does
+  `GameSettings.saveSettings(parsed.settings)` + `applyLiveGameSettings()` so a
+  loaded cloud profile restores settings too.
+
+### Accounts worker (`cloudflare-accounts/worker/src/index.js`)
+- `sanitizeProfile()` now includes `settings: sanitizeSettings(profile.settings)`.
+- `sanitizeSettings()` MIRRORS `GameSettings.normalizeSettings()` (same clamps +
+  fallbacks + null handling) so settings round-trip through the cloud safely.
+  Bad values are clamped, not rejected. Missing settings → full defaults object
+  (never undefined). Sending only `settings` does NOT clobber coins/garage.
+- Tested by `test-accounts-settings.mjs` (signup → save with settings →
+  getProfile round-trip; clamp test; null round-trip; missing→defaults;
+  coins-preserved-when-only-settings).
+
+### Per-section field reference
+- graphics: preset, maxPixelRatio, shadows, shadowMapSize, bloomStrength,
+  bloomRadius, smokeParticles (all nullable → follow preset), antialias (bool,
+  needs reload), reduceMotion (bool, disables bloom+weather).
+- audio: sfxVolume, musicVolume (0–1), musicMode (0–3).
+- gameplay: showFps, countdownEnabled (nullable), recentGhostsEnabled,
+  recentGhostCount (1–20), cameraDistance/cameraHeight (nullable),
+  cameraLag (0.1–1), autoRespawn.
+- controls: invertSteer, keyboardOnly, steerSmoothing (0.2–1).
+- accessibility: highContrastHud, largeHud, screenShake (default true),
+  colorblindFilter (off/protan/deutan/tritan — preview only, full shader TBD).

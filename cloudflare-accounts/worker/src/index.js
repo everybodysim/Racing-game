@@ -206,6 +206,67 @@ function sanitizeProfile( value ) {
 		campaign: profile?.campaign && typeof profile.campaign === 'object' ? profile.campaign : null,
 		carKey: typeof profile?.carKey === 'string' ? profile.carKey : '',
 		hud: sanitizeHudLayout( profile?.hud ),
+		settings: sanitizeSettings( profile?.settings ),
+	};
+}
+
+// Game settings slice (mirrors js/GameSettings.js normalizeSettings). Persisted
+// verbatim once validated so the player's graphics/audio/gameplay/controls/
+// accessibility preferences round-trip to the cloud account. Every field is
+// optional; null means "follow the preset/default" (see GameSettings defaults).
+function sanitizeSettings( value ) {
+	const s = value && typeof value === 'object' ? value : {};
+	const g = s.graphics && typeof s.graphics === 'object' ? s.graphics : {};
+	const a = s.audio && typeof s.audio === 'object' ? s.audio : {};
+	const gp = s.gameplay && typeof s.gameplay === 'object' ? s.gameplay : {};
+	const c = s.controls && typeof s.controls === 'object' ? s.controls : {};
+	const ac = s.accessibility && typeof s.accessibility === 'object' ? s.accessibility : {};
+	const clamp = ( v, min, max, fb ) => {
+		const n = Number( v );
+		if ( ! Number.isFinite( n ) ) return fb;
+		return Math.max( min, Math.min( max, n ) );
+	};
+	const maybeClamp = ( v, min, max ) => ( v == null ? null : clamp( v, min, max, null ) );
+	const pick = ( v, allowed, fb ) => ( allowed.indexOf( v ) >= 0 ? v : fb );
+	return {
+		v: Number.isFinite( Number( s.v ) ) ? Number( s.v ) : 1,
+		graphics: {
+			preset: pick( g.preset, [ 'low', 'medium', 'high' ], 'high' ),
+			maxPixelRatio: maybeClamp( g.maxPixelRatio, 0.5, 2 ),
+			shadows: g.shadows == null ? null : Boolean( g.shadows ),
+			shadowMapSize: g.shadowMapSize == null ? null : Math.round( clamp( g.shadowMapSize, 256, 8192, 2048 ) ),
+			bloomStrength: maybeClamp( g.bloomStrength, 0, 0.1 ),
+			bloomRadius: maybeClamp( g.bloomRadius, 0, 0.2 ),
+			smokeParticles: g.smokeParticles == null ? null : Math.round( clamp( g.smokeParticles, 0, 128, 64 ) ),
+			antialias: g.antialias == null ? true : Boolean( g.antialias ),
+			reduceMotion: Boolean( g.reduceMotion ),
+		},
+		audio: {
+			sfxVolume: clamp( a.sfxVolume, 0, 1, 1 ),
+			musicVolume: clamp( a.musicVolume, 0, 1, 1 ),
+			musicMode: Math.round( clamp( a.musicMode, 0, 3, 0 ) ),
+		},
+		gameplay: {
+			showFps: Boolean( gp.showFps ),
+			countdownEnabled: gp.countdownEnabled == null ? null : Boolean( gp.countdownEnabled ),
+			recentGhostsEnabled: Boolean( gp.recentGhostsEnabled ),
+			recentGhostCount: Math.round( clamp( gp.recentGhostCount, 1, 20, 3 ) ),
+			cameraDistance: maybeClamp( gp.cameraDistance, 2, 30 ),
+			cameraHeight: maybeClamp( gp.cameraHeight, 0, 20 ),
+			cameraLag: clamp( gp.cameraLag, 0.1, 1, 1 ),
+			autoRespawn: Boolean( gp.autoRespawn ),
+		},
+		controls: {
+			invertSteer: Boolean( c.invertSteer ),
+			keyboardOnly: Boolean( c.keyboardOnly ),
+			steerSmoothing: clamp( c.steerSmoothing, 0.2, 1, 1 ),
+		},
+		accessibility: {
+			highContrastHud: Boolean( ac.highContrastHud ),
+			largeHud: Boolean( ac.largeHud ),
+			screenShake: ac.screenShake == null ? true : Boolean( ac.screenShake ),
+			colorblindFilter: pick( ac.colorblindFilter, [ 'off', 'protan', 'deutan', 'tritan' ], 'off' ),
+		},
 	};
 }
 

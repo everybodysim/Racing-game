@@ -17,6 +17,7 @@ import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 import { Storage } from './Storage.js';
 import { VideoRecorder, UI_TOGGLE_GROUPS } from './VideoRecorder.js';
+import GameSettings from './GameSettings.js';
 
 document.title = 'Racing';
 
@@ -4905,6 +4906,57 @@ async function init() {
 
 	}
 
+	// Apply the unified GameSettings slice live. Used both at boot (to honour
+	// settings made on settings.html) and on demand via window.__gameSettingsApplyLive
+	// so the settings page can push changes into a running game in another tab.
+	// Graphics: overlays advanced overrides + reduce-motion onto the active preset.
+	// Audio / camera / fps apply immediately. Gameplay items that need a reload
+	// (countdown, recent-ghost rebuild) persist for the next race.
+	function applyLiveGameSettings( settings ) {
+
+		if ( ! settings ) return;
+		const g = settings.graphics || {};
+		const base = GRAPHICS_QUALITY_PRESETS[ g.preset ] || GRAPHICS_QUALITY_PRESETS[ getDefaultGraphicsQuality() ];
+		const effective = Object.assign( {}, base );
+		if ( g.maxPixelRatio != null ) effective.maxPixelRatio = g.maxPixelRatio;
+		if ( g.shadows != null ) effective.shadows = g.shadows;
+		if ( g.shadowMapSize != null ) effective.shadowMapSize = g.shadowMapSize;
+		if ( g.smokeParticles != null ) effective.smokeParticles = g.smokeParticles;
+		if ( g.bloomStrength != null ) effective.bloomStrength = g.bloomStrength;
+		if ( g.bloomRadius != null ) effective.bloomRadius = g.bloomRadius;
+		if ( g.reduceMotion ) { effective.bloomStrength = 0; effective.bloomRadius = 0; effective.weatherParticleScale = 0; }
+		graphicsQuality = normalizeGraphicsQuality( g.preset );
+		cachedGraphicsPreset = effective;
+		applyGraphicsPresetToRenderer();
+		particles.setQuality( getGraphicsParticleOptions() );
+		particles2?.setQuality( getGraphicsParticleOptions() );
+		setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
+		updateGraphicsQualityUi();
+
+		// Audio
+		const aud = window.__gameAudio;
+		if ( aud ) {
+			const a = settings.audio || {};
+			if ( a.sfxVolume != null ) aud.setSfxVolume?.( a.sfxVolume );
+			if ( a.musicVolume != null ) aud.setMusicVolume?.( a.musicVolume );
+			if ( a.musicMode != null ) aud.setMusicMode?.( a.musicMode );
+		}
+
+		// Camera
+		const gp = settings.gameplay || {};
+		if ( cam ) {
+			if ( gp.cameraDistance != null ) cam.userDistance = gp.cameraDistance;
+			if ( gp.cameraHeight != null ) cam.userHeight = gp.cameraHeight;
+			if ( gp.cameraLag != null ) cam.userLagScale = gp.cameraLag;
+		}
+
+		// FPS HUD
+		fpsHudVisible = Boolean( gp.showFps );
+		try { localStorage.setItem( FPS_HUD_SETTINGS_KEY, fpsHudVisible ? '1' : '0' ); } catch ( e ) {}
+		updateFpsHudVisibility();
+
+	}
+
 	function getGarageUnlocks() {
 
 		return { ...garageUnlocked };
@@ -6041,6 +6093,20 @@ function completeCampaignStage() {
 	audio.init( cam.camera );
 	window.__gameAudio = audio;
 
+	// Apply the unified settings (graphics preset + advanced overrides, audio
+	// volumes, camera params, FPS HUD) so changes made on settings.html take
+	// effect. Expose the live-apply entry point so the settings page can push
+	// updates into this running game from another tab.
+	try { applyLiveGameSettings( GameSettings.getSettings() ); } catch ( e ) { console.warn( 'GameSettings live-apply failed', e ); }
+	window.__gameSettingsApplyLive = function () { applyLiveGameSettings( GameSettings.getSettings() ); };
+	// Cross-tab: react to settings saved from another tab/page.
+	window.addEventListener( 'storage', ( e ) => {
+		if ( e.key === GameSettings.UNIFIED_KEY ) {
+			GameSettings.refresh();
+			try { applyLiveGameSettings( GameSettings.getSettings() ); } catch ( err ) {}
+		}
+	} );
+
 	const _forward = new THREE.Vector3();
 	const _up = new THREE.Vector3( 0, 1, 0 );
 	const _boostForward = new THREE.Vector3();
@@ -6161,6 +6227,7 @@ function completeCampaignStage() {
 			campaign: campaignState,
 			carKey: currentCarKey(),
 			hud: window.__hudGrid ? window.__hudGrid.getLayoutSnapshot() : undefined,
+			settings: GameSettings.getSettings(),
 		};
 
 	}
@@ -6256,6 +6323,10 @@ function completeCampaignStage() {
 		applyCarCustomization( vehicle );
 		updateCampaignUi();
 		if ( parsed?.hud && window.__hudGrid ) window.__hudGrid.applyLayoutSnapshot( parsed.hud );
+		if ( parsed?.settings ) {
+			GameSettings.saveSettings( parsed.settings );
+			applyLiveGameSettings( GameSettings.getSettings() );
+		}
 		return true;
 
 	}

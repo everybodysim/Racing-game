@@ -15,6 +15,7 @@
 		'editor.html': 'Track Editor',
 		'mods.html': 'Mod Manager',
 		'replay.html': 'Replay Watcher',
+		'settings.html': 'Settings',
 		'share.html': 'Share Time',
 		'tas-viewer.html': 'TAS Viewer',
 		'totd.html': 'Track of the Day',
