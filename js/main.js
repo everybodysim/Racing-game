@@ -300,7 +300,7 @@ const seamSuppress = {
 	vy2: 0,  vel2: _seamVel2,
 };
 
-function suppressSeamBounce( world, veh, key ) {
+function suppressSeamBounce( world, veh, key, onSlope = false ) {
 	if ( ! veh?.rigidBody?.motionProperties ) return false;
 	const vel = veh.rigidBody.motionProperties.linearVelocity;
 	const vy = vel[ 1 ];
@@ -316,7 +316,12 @@ function suppressSeamBounce( world, veh, key ) {
 	const vyDelta = vy - prevVy;
 	const isSeamBounce = vy > 0.15 && vy < 4.0 && prevVy > - 0.5 && prevVy < 1.0 && vyDelta > 0.2;
 
-	if ( isSeamBounce && savedVel ) {
+	// On a slope the car legitimately gains upward velocity as it climbs, which
+	// trips the seam-bounce thresholds and would freeze the car's velocity
+	// (undoing the whole physics step) — the intermittent "can't grip / slides
+	// around ignoring physics" glitch. Skip the restore while on a slope cell;
+	// the slope is one continuous tilted collider with no internal seam to pop on.
+	if ( isSeamBounce && ! onSlope && savedVel ) {
 		// Restore the full velocity from before the physics step.
 		// Undoes BOTH the upward bounce AND the forward speed loss.
 		rigidBody.setLinearVelocity( world, veh.rigidBody, savedVel );
@@ -325,7 +330,9 @@ function suppressSeamBounce( world, veh, key ) {
 	seamSuppress[ 'vy' + key ] = vy;
 	const bucket = seamSuppress[ 'vel' + key ];
 	if ( bucket ) { bucket[ 0 ] = vel[ 0 ]; bucket[ 1 ] = vel[ 1 ]; bucket[ 2 ] = vel[ 2 ]; }
-	return isSeamBounce;
+	// Still report a "bounce" for crash-detection purposes only when we actually
+	// suppressed one (restored velocity). On a slope we did not, so return false.
+	return isSeamBounce && ! onSlope;
 }
 const PAD_EFFECTS = {
 	'pad-low-gravity': { id: 'low-gravity', gravity: 0.45 },
@@ -6358,6 +6365,17 @@ function completeCampaignStage() {
 		slopeCellMap.set( `${ gx },${ gz }`, { gx, gz, type, orient } );
 
 	}
+	// True when the vehicle's current grid cell is a slope. Uses the same cell
+	// math as applySlopeConformVisual. Used to bypass seam-bounce suppression on
+	// slopes (uphill driving legitimately gains upward velocity).
+	function isVehicleOnSlopeCell( targetVehicle ) {
+
+		if ( ! targetVehicle?.spherePos || slopeCellMap.size === 0 ) return false;
+		const gx = Math.floor( targetVehicle.spherePos.x / cellWorldSize );
+		const gz = Math.floor( targetVehicle.spherePos.z / cellWorldSize );
+		return slopeCellMap.has( `${ gx },${ gz }` );
+
+	}
 	const legacyBoostHalfExtent = CELL_RAW * GRID_SCALE * 0.5;
 	const surfaceEntries = surfaceCells.map( ( [ gx, gz, type ] ) => ( {
 		gx, gz, type,
@@ -9402,9 +9420,13 @@ function completeCampaignStage() {
 
 		updateWorld( world, contactListener, dt );
 
-		// Suppress seam bounces and detect real crashes based on speed loss
-		const seam1 = suppressSeamBounce( world, vehicle, '1' );
-		const seam2 = vehicle2 ? suppressSeamBounce( world, vehicle2, '2' ) : false;
+		// Suppress seam bounces and detect real crashes based on speed loss.
+		// Skip seam suppression while the car is on a slope cell: uphill driving
+		// legitimately produces upward velocity that would otherwise trip the
+		// seam-bounce detector and freeze the car (the grip-loss glitch).
+		const onSlope1 = isVehicleOnSlopeCell( vehicle );
+		const seam1 = suppressSeamBounce( world, vehicle, '1', onSlope1 );
+		const seam2 = vehicle2 ? suppressSeamBounce( world, vehicle2, '2', isVehicleOnSlopeCell( vehicle2 ) ) : false;
 
 		if ( vehicle?.rigidBody?.motionProperties ) {
 			const v = vehicle.rigidBody.motionProperties.linearVelocity;
