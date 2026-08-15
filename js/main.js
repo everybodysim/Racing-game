@@ -4937,7 +4937,24 @@ async function init() {
 	function applyLiveGameSettings( settings ) {
 
 		if ( ! settings ) return;
-		const g = settings.graphics || {};
+		const gp = settings.gameplay || {};
+
+		// Each subsystem is applied in its own try/catch so that a failure in one
+		// (e.g. the renderer not being ready during an early boot call) cannot
+		// silently skip the others. Without this, an exception thrown by the
+		// graphics section would abort the function before the camera / FPS / ghost
+		// sections ran, and the outer try/catch at the call site would swallow it —
+		// leaving those settings unapplied with no visible error. That is the exact
+		// "setting doesn't take effect after reload" symptom this guards against.
+		try { applyGraphicsSettings( settings.graphics || {} ); } catch ( e ) { console.warn( 'GameSettings graphics apply failed', e ); }
+		try { applyAudioSettings( settings.audio || {} ); } catch ( e ) { console.warn( 'GameSettings audio apply failed', e ); }
+		try { applyCameraSettings( gp ); } catch ( e ) { console.warn( 'GameSettings camera apply failed', e ); }
+		try { applyFpsSettings( gp ); } catch ( e ) { console.warn( 'GameSettings fps apply failed', e ); }
+		try { applyGhostSettings( gp ); } catch ( e ) { console.warn( 'GameSettings ghost apply failed', e ); }
+
+	}
+
+	function applyGraphicsSettings( g ) {
 		// For 'custom' preset the base is basePreset (low/medium/high); otherwise the preset itself.
 		const presetKey = ( g.preset === 'custom' ? g.basePreset : g.preset ) || getDefaultGraphicsQuality();
 		const base = GRAPHICS_QUALITY_PRESETS[ presetKey ] || GRAPHICS_QUALITY_PRESETS[ getDefaultGraphicsQuality() ];
@@ -4956,33 +4973,36 @@ async function init() {
 		particles2?.setQuality( getGraphicsParticleOptions() );
 		setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
 		updateGraphicsQualityUi();
+	}
 
-		// Audio
+	function applyAudioSettings( a ) {
 		const aud = window.__gameAudio;
-		if ( aud ) {
-			const a = settings.audio || {};
-			if ( a.sfxVolume != null ) aud.setSfxVolume?.( a.sfxVolume );
-			if ( a.musicVolume != null ) aud.setMusicVolume?.( a.musicVolume );
-			if ( a.musicMode != null ) aud.setMusicMode?.( a.musicMode );
-		}
+		if ( ! aud ) return;
+		if ( a.sfxVolume != null ) aud.setSfxVolume?.( a.sfxVolume );
+		if ( a.musicVolume != null ) aud.setMusicVolume?.( a.musicVolume );
+		if ( a.musicMode != null ) aud.setMusicMode?.( a.musicMode );
+	}
 
-		// Camera
-		const gp = settings.gameplay || {};
-		if ( cam ) {
-			if ( gp.cameraDistance != null ) cam.userDistance = gp.cameraDistance;
-			if ( gp.cameraHeight != null ) cam.userHeight = gp.cameraHeight;
-			if ( gp.cameraLag != null ) cam.userLagScale = gp.cameraLag;
+	function applyCameraSettings( gp ) {
+		// Apply to BOTH cameras so split-screen P2 honours the same camera prefs
+		// as P1 (previously only `cam` was updated, so cam2 ignored settings).
+		for ( const c of [ cam, cam2 ] ) {
+			if ( ! c ) continue;
+			if ( gp.cameraDistance != null ) c.userDistance = gp.cameraDistance;
+			if ( gp.cameraHeight != null ) c.userHeight = gp.cameraHeight;
+			if ( gp.cameraLag != null ) c.userLagScale = gp.cameraLag;
 		}
+	}
 
-		// FPS HUD
+	function applyFpsSettings( gp ) {
 		fpsHudVisible = Boolean( gp.showFps );
 		try { localStorage.setItem( FPS_HUD_SETTINGS_KEY, fpsHudVisible ? '1' : '0' ); } catch ( e ) {}
 		updateFpsHudVisibility();
+	}
 
-		// Personal best ghost visibility
+	function applyGhostSettings( gp ) {
 		showBestGhost = gp.showBestGhost != null ? Boolean( gp.showBestGhost ) : true;
 		if ( ! showBestGhost && ghostModel ) ghostModel.visible = false;
-
 	}
 
 	function getGarageUnlocks() {
@@ -9614,9 +9634,20 @@ function completeCampaignStage() {
 	let _lastVignetteX = '';
 	let _lastVignetteY = '';
 
+	let settingsAppliedThisBoot = false;
 	function animate() {
 
 		requestAnimationFrame( animate );
+
+			// Safety net: re-apply persisted settings on the first render frame. The
+			// boot call (applyLiveGameSettings at init) runs before the first frame,
+			// but if any subsystem threw there the per-section guards let the others
+			// through — this re-apply on the first live frame catches anything that
+			// was skipped because an engine dependency wasn't ready at boot time.
+			if ( ! settingsAppliedThisBoot ) {
+				settingsAppliedThisBoot = true;
+				try { applyLiveGameSettings( GameSettings.getSettings() ); } catch ( e ) {}
+			}
 
 			timer.update();
 			const nowMs = performance.now();

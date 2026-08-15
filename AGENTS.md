@@ -601,19 +601,32 @@
 
 ### main.js integration (the live bridge)
 - `import GameSettings from './GameSettings.js'` at top.
-- `applyLiveGameSettings(settings)` (defined next to `applyGraphicsQuality`):
-  builds an EFFECTIVE graphics preset = `{ ...GRAPHICS_QUALITY_PRESETS[presetKey] }`
-  where `presetKey = (preset==='custom' ? basePreset : preset)`, overlaid with
-  non-null advanced overrides + reduceMotion (forces bloom=0,
-  weatherParticleScale=0), sets `cachedGraphicsPreset`, calls
-  `applyGraphicsPresetToRenderer()` + `particles.setQuality()` +
-  `setupWeatherFx()` + `updateGraphicsQualityUi()`. Then audio
-  (`window.__gameAudio.setSfxVolume/setMusicVolume/setMusicMode`), camera
-  (`cam.userDistance/userHeight/userLagScale`), FPS HUD (`fpsHudVisible`
-  + `updateFpsHudVisibility()` + legacy key), and personal-best ghost visibility
-  (`showBestGhost` runtime flag → hides `ghostModel` when false + early-returns
-  `updateGhostPlayback`). Countdown + recent-ghost rebuild persist for the next
-  race (not toggled live).
+- `applyLiveGameSettings(settings)` (defined next to `applyGraphicsQuality`) is
+  an ORCHESTRATOR that calls five per-subsystem helpers, each in its OWN
+  try/catch: `applyGraphicsSettings`, `applyAudioSettings`, `applyCameraSettings`,
+  `applyFpsSettings`, `applyGhostSettings`. The per-section isolation is critical:
+  previously the whole body ran under one try/catch at the call site, so a throw
+  in the graphics section (e.g. renderer/particles not ready during an early boot
+  call) silently aborted the function BEFORE camera/audio/fps/ghost ran — the
+  exact "setting doesn't take effect after reload" symptom. Now a failing section
+  logs a console.warn and the rest still apply.
+  - `applyGraphicsSettings`: effective preset = `{ ...GRAPHICS_QUALITY_PRESETS[presetKey] }`
+    where `presetKey = (preset==='custom' ? basePreset : preset)`, overlaid with
+    non-null advanced overrides + reduceMotion (forces bloom=0,
+    weatherParticleScale=0), sets `cachedGraphicsPreset`, calls
+    `applyGraphicsPresetToRenderer()` + `particles.setQuality()` +
+    `setupWeatherFx()` + `updateGraphicsQualityUi()`.
+  - `applyCameraSettings`: applies `cameraDistance/Height/Lag` to BOTH `cam` AND
+    `cam2` (split-screen P2 previously ignored camera settings). Null values
+    (auto/follow-preset) are skipped so defaults are preserved.
+  - `applyFpsSettings`: `fpsHudVisible` + `updateFpsHudVisibility()` + legacy key.
+  - `applyGhostSettings`: `showBestGhost` flag → hides `ghostModel` when false.
+  - Countdown + recent-ghost rebuild persist for the next race (not toggled live).
+- First-frame safety net: `animate()` re-calls `applyLiveGameSettings(
+  GameSettings.getSettings() )` once on the first render frame
+  (`settingsAppliedThisBoot` guard). The boot call runs before the first frame,
+  but this re-apply catches any subsystem that was skipped because an engine
+  dependency wasn't ready at boot time. Idempotent on a normal boot.
 - In-game controls now write THROUGH GameSettings too (Phase 2 cloud-sync fix):
   `applyGraphicsQuality(save=true)` calls `GameSettings.patchSettings` with the
   preset + null overrides; the audio sliders + music select + FPS toggle + FX
