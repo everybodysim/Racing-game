@@ -1864,6 +1864,17 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		body.mobile .home-small-row { grid-template-columns: 1fr !important; }
 	}
 
+	/* ── Force the normal (desktop) main-menu layout in ALL cases ──
+	   Temporary: keeps the two-column main menu even on narrow screens
+	   / mobile detection (e.g. inside a narrow CrazyGames iframe) so it
+	   never collapses to the vertical mobile layout. In-game HUD untouched. */
+	#home-body { grid-template-columns: 1.4fr 1fr !important; }
+	.home-mid-row { grid-template-columns: 1fr 1fr !important; }
+	.home-small-row { grid-template-columns: repeat(2, 1fr) !important; }
+	body.mobile #home-body { grid-template-columns: 1.4fr 1fr !important; }
+	body.mobile .home-mid-row { grid-template-columns: 1fr 1fr !important; }
+	body.mobile .home-small-row { grid-template-columns: repeat(2, 1fr) !important; }
+
 	/* ── In-game HUD: top bar ── */
 	body.mobile #car-select,
 	body.mobile #hud-grid,
