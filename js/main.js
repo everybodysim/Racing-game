@@ -8849,6 +8849,42 @@ function completeCampaignStage() {
 			canvas: renderer.domElement,
 			getAudioContext: () => window.__gameAudio?.listener?.context || null,
 			getMusicElement: () => window.__gameAudio?.musicElement || null,
+			// Live HUD state for the recording overlay. Reads the SAME values the
+			// on-screen HUD shows so the video matches the game. The minimap is the
+			// real canvas (hudExtras.minimapCanvas) → composited as real pixels.
+			getOverlayState: () => {
+				const cellWorld = CELL_RAW * GRID_SCALE; // 7.4925
+				const MPH_FACTOR = ( 10 / cellWorld ) * 2.23694; // ≈ 2.985 (matches HudExtras)
+				let speedMph = 0;
+				const v = vehicle;
+				if ( v ) {
+					let ws = 0;
+					if ( v.modelVelocity ) ws = v.modelVelocity.length();
+					else if ( v.sphereVel ) ws = v.sphereVel.length();
+					speedMph = ws * MPH_FACTOR;
+				}
+				let countdown = null;
+				if ( countdownHud && countdownHud.classList.contains( 'visible' ) && countdownHud.textContent ) countdown = countdownHud.textContent;
+				let topMessage = null;
+				if ( topMessage && topMessage.classList.contains( 'show' ) && topMessage.textContent ) topMessage = topMessage.textContent;
+				let effectMessage = null;
+				if ( effectMessage && effectMessage.classList.contains( 'show' ) && effectMessage.textContent ) effectMessage = effectMessage.textContent;
+				const state = {
+					minimap: hudExtras?.minimapCanvas || null,
+					lap: lapNumber,
+					lapTime: lapSeconds,
+					bestTime: bestLapSeconds,
+					totalLaps: 0, // no total-laps value exists in main.js; overlay shows LAP n
+					speedMph,
+					countdown,
+					topMessage,
+					effectMessage,
+				};
+				if ( isSplitScreen ) {
+					state.split = { lap: lapNumber2, lapTime: lapSeconds2, bestTime: bestLapSeconds2 };
+				}
+				return state;
+			},
 			getMessage: ( text, live ) => {
 				if ( vrStatus ) { vrStatus.textContent = String( text || '' ); vrStatus.classList.toggle( 'live', Boolean( live ) ); }
 				// finalize() updates status after the async onstop fires; refresh
@@ -8940,7 +8976,7 @@ function completeCampaignStage() {
 	vrDownloadBtn?.addEventListener( 'click', () => {
 		if ( ! videoRecorder ) return;
 		const ok = videoRecorder.downloadLast();
-		showTopMessage( ok ? 'Recording download started' : 'No recording to download yet', ! ok, 1800 );
+		showTopMessage( ok ? 'Recording opened in a new tab' : 'No recording to open yet', ! ok, 1800 );
 	} );
 	vrStartBtn?.addEventListener( 'click', async () => {
 		if ( ! videoRecorder ) return;

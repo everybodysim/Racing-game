@@ -396,7 +396,7 @@
   + restores the prior value). Default hides hud/lapHud/countdown/boost/topMsg/vignette;
   nav/garage/hacks/mp default off.
 
-### Frame capture — the 2D-canvas relay (fixes grey/empty video)
+### Frame capture — the 2D-canvas relay + composited HUD overlay (Option C)
 - The main renderer is created with `outputBufferType: THREE.HalfFloatType` (HDR
   tone mapping). Capturing that half-float drawing buffer directly via
   `canvas.captureStream()` yields grey/empty video because video encoders expect
@@ -404,17 +404,51 @@
 - FIX: the recorder does NOT capture the WebGL canvas directly. Instead it creates
   an offscreen RGBA8 2D canvas (`relayCanvas`), and each frame `captureFrame()`
   does `relayCtx.drawImage(webglCanvas, 0, 0)` (reads the preserved frame buffer —
-  `preserveDrawingBuffer: true` makes this work) then `videoTrack.requestFrame()`
+  `preserveDrawingBuffer: true` makes this work) to get the 3D scene, THEN calls
+  `_drawOverlay()` to composite the HUD on top, then `videoTrack.requestFrame()`
   to push that RGBA8 frame into the recording stream. `captureStream(fps)` is called
   on the RELAY canvas, not the WebGL canvas. The 2D canvas is always RGBA8, so
   encoding always works. The relay auto-resizes to match the WebGL drawing buffer.
+- WHY an overlay (not the real HTML): the on-screen HUD (speedo, lap-hud, minimap,
+  messages) is HTML/CSS/SVG overlays on top of the WebGL canvas — NOT canvas pixels —
+  so `drawImage(webglCanvas)` only grabs the 3D scene. There is NO browser API to
+  paint real DOM pixels onto a canvas synchronously at 60 FPS (SVG foreignObject is
+  async + breaks on images/CORS), and `getDisplayMedia` screen capture is too slow
+  (~2 FPS) and was rejected. So the recording composites a canvas-drawn HUD that
+  MATCHES the real HUD. The minimap is the EXCEPTION: it IS a real canvas
+  (`hudExtras.minimapCanvas`), so `_drawOverlay` does `drawImage(state.minimap)`
+  → real minimap pixels in the video (pixel-accurate).
+- `_drawOverlay()` draws onto the relay canvas with the 2D API, using the SAME
+  colors/fonts/positions/arc geometry as the live HTML HUD (matched from index.html
+  CSS + HudExtras._buildSpeedometer):
+  - minimap (top-left, 140×140 at 12,12): real canvas pixels via drawImage.
+  - lap HUD (top-center): `#lap-hud` style — font 600 14px sans-serif #fff, bg
+    rgba(0,0,0,0.4), border-radius 8px, padding 8px 12px, text-shadow. Two lines:
+    "LAP n / total" + "time   BEST time".
+  - speedometer (bottom-right): `#speedo-hud`/`#speedo-ring` — ring r=42 (scaled to
+    64px), arc stroke-dasharray 263.9, rotate(-90), colors >55 #ff9f1c / >35 #ffd95a
+    / else #77f3b1; #speedo-num 800 18px #fff; #speedo-label 700 9px #b5c2da.
+  - split-screen player-2 lap (center-lower): `#lap-hud-2` style.
+  - countdown (center): `#countdown-hud` style — 800 96px, bg rgba(0,0,0,0.52).
+  - top-message / effect-message: toasts matching #top-message/#effect-message.
+  - Overlay is scaled by `W/1280` so it matches at any capture resolution.
+  - Honors hide-groups: a piece is skipped when `hideUiWhileRecording` (master) is
+    ON and that group's checkbox is checked — so "hide selected UI" works in video.
+- `getOverlayState` (wired in main.js, passed to the VideoRecorder ctor) reads LIVE
+  values: `hudExtras.minimapCanvas`, `lapNumber`, `lapSeconds` (current lap time),
+  `bestLapSeconds`, `speedMph` (same `modelVelocity.length() * MPH_FACTOR` as
+  HudExtras — `(10/(CELL_RAW*GRID_SCALE))*2.23694`), `countdownHud` text (when
+  `.visible`), `topMessage`/`effectMessage` (when `.show`), and `lapNumber2`/
+  `lapSeconds2`/`bestLapSeconds2` for split-screen. No total-laps value exists in
+  main.js, so `totalLaps` is 0 and the overlay shows `LAP n` (not `n/total`).
+  ALL existing HTML HUD is left UNTOUCHED (zero breakage to play/customization).
 - `captureFrame()` is called from the game's `animate()` loop right after
   `renderer.render()`, throttled to the configured FPS. `start()` primes one frame
   immediately; `stop()` calls `requestData()` before `stop()` to flush the final
   segment. Timeslice `start(1000)` keeps chunks flowing.
 - Firefox fallback: if the relay track has no `requestFrame`, `_manualFrames=false`
-  and `captureFrame()` still does the `drawImage` (auto-capture pulls from the
-  relay canvas at its frame rate).
+  and `captureFrame()` still does the `drawImage` + overlay (auto-capture pulls
+  from the relay canvas at its frame rate).
 
 ### Debug log + open-in-new-tab (diagnostics)
 - The recorder has a `log(msg)` method that appends a timestamped line to an
@@ -429,18 +463,18 @@
   so the user can play/verify it in-browser. It does NOT auto-download — see below.
 - `#vr-copy-debug-btn` copies the log to clipboard; `#vr-clear-debug-btn` clears it.
 
-### Download is a button, not auto (fixes "old page navigates to broken blob")
-- The old auto `<a download>.click()` ran inside the ASYNC `onstop` callback,
-  outside a user gesture, so some browsers ignored the `download` attribute and
-  NAVIGATED the current tab to the blob URL (broken page, debug log lost).
-- Now: the panel has a `#vr-download-btn` ("⬇ Download recording") that calls
-  `videoRecorder.downloadLast()`. Because it fires from a real user click, the
-  `download` attribute is honored → the file downloads, the game page stays put.
-  The button appears (`vrRefreshButtonState`) only when a finished recording
-  exists (`videoRecorder.lastBlobUrl`). The new-tab preview still opens automatically.
-- `lastBlobUrl`/`lastBlobName` are retained on the recorder; revoke is NOT auto
-  (kept so the Download button + new tab keep working). They're overwritten on the
-  next recording.
+### Download button opens a NEW TAB (fixes "broken video in same tab")
+- `<a download>.click()` with a blob URL navigated the current tab to a broken blob
+  page in some browsers, no matter the timing. So the Download button does NOT use
+  `<a download>` — `downloadLast()` opens `this.lastBlobUrl` with
+  `window.open(url, '_blank')` — the SAME proven mechanism as the auto-open-on-stop.
+  The button label is "▶ Open recording in new tab". The user saves the file from the
+  new tab (right-click → Save Video As). If a popup blocker fires, the status says so.
+- `_finalize()` retains `lastBlobUrl`/`lastBlobName` (revoke is NOT auto, so the new
+  tab + re-open keep working; overwritten on the next recording). The auto-open-on-stop
+  (`window.open(url,'_blank')`) is kept — it opens the working video the moment
+  recording finishes. The Download button re-opens it. The button appears
+  (`vrRefreshButtonState`, keyed off `lastBlobUrl`) only when a recording is ready.
 
 ### Hide-UI groups default ALL OFF (fixes "always hides everything")
 - `DEFAULT_SETTINGS.hideGroups` previously pre-checked 6 groups (hud, lapHud,
@@ -471,10 +505,12 @@
   (`getMessage`) in the panel also updates.
 
 ### Tests
-- `test-video-recorder.mjs` (73 assertions): MIME picking, settings round-trip,
+- `test-video-recorder.mjs` (76 assertions): MIME picking, settings round-trip,
   `UI_TOGGLE_GROUPS` shape, the start/stop lifecycle via the 2D relay canvas,
   `captureFrame()` (drawImage + requestFrame, throttle, no-op when not recording),
-  the debug log, `_applyHideGroups` selection (only checked groups hide, master
-  toggle off hides nothing, restore works), `downloadLast()` guard, and the
-  auto-capture fallback. Stubs browser globals (no jsdom).
+  overlay compositing (`_drawOverlay` runs without throwing + draws HUD text via an
+  enriched 2D-ctx stub with the canvas methods), the debug log, `_applyHideGroups`
+  selection (only checked groups hide, master toggle off hides nothing, restore
+  works), `downloadLast()` guard (lastBlobUrl-based, opens new tab via window.open),
+  and the auto-capture fallback. Stubs browser globals incl. `window.open`.
   Run: `node test-video-recorder.mjs`.

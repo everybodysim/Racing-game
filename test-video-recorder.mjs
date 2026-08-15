@@ -58,14 +58,27 @@ function makeRelayCanvas() {
 	const videoTrack = relayHasRequestFrame
 		? { stop() {}, requestFrame() { relayFrames++; }, readyState: 'live', frameRate: 60 }
 		: { stop() {}, readyState: 'live', frameRate: 60 };
+	// A 2D-context stub with the methods _drawOverlay uses, so the overlay path
+	// runs fully (not just throws + caught). Counts fillText/stroke calls.
+	const ctx2d = {
+		drawImage() { relayDraws++; },
+		save() {}, restore() {}, scale() {}, translate() {}, rotate() {},
+		beginPath() {}, moveTo() {}, arc() {}, arcTo() {}, closePath() {},
+		fill() {}, stroke() {},
+		fillText() { relayText++; }, measureText: () => ( { width: 40 } ),
+		font: '', textAlign: '', textBaseline: '',
+		fillStyle: '', strokeStyle: '', lineWidth: 0, lineCap: '',
+		shadowColor: '', shadowBlur: 0, shadowOffsetY: 0,
+	};
 	return {
 		width: 1280, height: 720, style: {}, dataset: {},
-		getContext: () => ( { drawImage() { relayDraws++; } } ),
+		getContext: () => ctx2d,
 		captureStream: () => ( { getTracks: () => [ videoTrack ], getVideoTracks: () => [ videoTrack ], getAudioTracks: () => [], addTrack() {} } ),
 	};
 }
 let relayDraws = 0;
 let relayFrames = 0;
+let relayText = 0;
 const _els = new Map();
 globalThis.document = {
 	querySelectorAll: ( sel ) => ( _els.has( sel ) ? [ _els.get( sel ) ] : [] ),
@@ -74,7 +87,9 @@ globalThis.document = {
 };
 
 globalThis.performance = { now: () => Date.now() };
-globalThis.window = { __gameAudio: null };
+// window stub: window.open is used by _finalize (auto-open) + downloadLast (new tab).
+// Return a truthy object so the "opened successfully" path runs.
+globalThis.window = { __gameAudio: null, open: () => ( { closed: false } ) };
 globalThis.URL = { createObjectURL: () => 'blob:x', revokeObjectURL() {} };
 globalThis.Blob = class { constructor( parts ) { this.size = parts.reduce( ( a, p ) => a + ( p.size || 0 ), 0 ); } };
 globalThis.setTimeout = ( fn ) => { return 0; };
@@ -225,16 +240,41 @@ ok( noneHidden, 'master toggle off -> nothing hidden' );
 // Clean up the registered selectors so later tests aren't affected.
 for ( const sel of hideEls.keys() ) _els.delete( sel );
 
-// 12) downloadLast() requires a finished recording (no navigation side-effect test here,
-// just the guard + that it sets lastBlobName). A real <a download> click is exercised
-// only in-browser; here we verify the no-recording guard returns false and that after a
-// finalized recording it returns true.
+// 12) downloadLast() opens the recording in a NEW TAB (window.open) instead of
+// <a download>.click() (which navigated the current tab to a broken blob). The
+// guard checks lastBlobUrl; success returns true.
 const dlRec = new VideoRecorder( { canvas: { width: 1280, height: 720 }, getAudioContext: () => null, getMessage: () => {} } );
 ok( dlRec.downloadLast() === false, 'downloadLast: false when no recording available' );
 // Simulate a finalized recording by populating the fields the finalize path sets.
 dlRec.lastBlobUrl = 'blob:fake';
 dlRec.lastBlobName = 'racing-gameplay-test.webm';
-ok( dlRec.downloadLast() === true, 'downloadLast: true when a recording is available' );
+ok( dlRec.downloadLast() === true, 'downloadLast: true when a recording is available (opens new tab)' );
+
+// 13) Overlay compositing: _drawOverlay composites the HUD (minimap + lap/speedo/
+// messages) onto the relay canvas from getOverlayState. The minimap is drawn from
+// REAL canvas pixels (drawImage); the rest is drawn with the 2D API matching the
+// live HTML HUD styling. Verify _drawOverlay runs without throwing + draws HUD text.
+const overlayRec = new VideoRecorder( {
+	canvas: makeRelayCanvas(),
+	getAudioContext: () => null,
+	getMessage: () => {},
+	getOverlayState: () => ( {
+		minimap: makeRelayCanvas(), // a real canvas we can drawImage
+		lap: 2, lapTime: 12.345, bestTime: 11.0, totalLaps: 3, speedMph: 42,
+		countdown: null, topMessage: 'LAP 2/3', effectMessage: null, split: null,
+	} ),
+} );
+await overlayRec.start();
+overlayRec.lastFrameMs = 0; // bypass the per-frame throttle so this captureFrame runs
+// Run _drawOverlay directly to surface any error (captureFrame swallows it).
+let overlayErr = null;
+try { overlayRec._drawOverlay(); } catch ( e ) { overlayErr = e; }
+ok( overlayErr === null, 'overlay: _drawOverlay does not throw (' + ( overlayErr && overlayErr.message ) + ')' );
+overlayRec.captureFrame();
+ok( overlayRec.recording === true, 'overlay: recording stays on after captureFrame+drawOverlay' );
+ok( relayText > 0, 'overlay: _drawOverlay drew HUD text (fillText called)' );
+overlayRec.stop();
+
 
 console.log( `\n${ passed } passed, ${ failed } failed` );
 process.exit( failed ? 1 : 0 );

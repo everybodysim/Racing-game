@@ -41,6 +41,41 @@ const UI_TOGGLE_GROUPS = [
 	{ key: 'mp',         label: 'Multiplayer panel',    selectors: [ '#mp-panel' ] },
 ];
 
+// ── HUD overlay helpers (canvas-drawn, styled to match the on-screen HUD) ──
+// The recording composites these onto the relay canvas each frame so the video
+// includes a HUD. The minimap is composited from the REAL minimap canvas pixels
+// (drawImage), so it is pixel-accurate; the speedo/lap/messages are drawn with
+// the 2D API using the SAME colors/fonts/positions/arc geometry as the live HTML
+// HUD (#speedo-hud, #lap-hud, #countdown-hud, top/effect messages). Reads live
+// game values via getOverlayState() (wired in main.js).
+
+// Format seconds as MM:SS.mmm (matches main.js formatLapTime).
+function fmtTime( totalSeconds ) {
+	if ( totalSeconds === null || ! Number.isFinite( totalSeconds ) ) return '--:--.---';
+	const m = Math.floor( totalSeconds / 60 );
+	const s = Math.floor( totalSeconds % 60 );
+	const ms = Math.floor( ( totalSeconds % 1 ) * 1000 );
+	return `${ String( m ).padStart( 2, '0' ) }:${ String( s ).padStart( 2, '0' ) }.${ String( ms ).padStart( 3, '0' ) }`;
+}
+
+// Rounded-corner pill (matches #lap-hud border-radius 8px / #countdown 16px).
+function pill( ctx, x, y, w, h, r, fill ) {
+	ctx.beginPath();
+	ctx.moveTo( x + r, y );
+	ctx.arcTo( x + w, y, x + w, y + h, r );
+	ctx.arcTo( x + w, y + h, x, y + h, r );
+	ctx.arcTo( x, y + h, x, y, r );
+	ctx.arcTo( x, y, x + w, y, r );
+	ctx.closePath();
+	ctx.fillStyle = fill;
+	ctx.fill();
+}
+
+// Text-shadow helpers (matches the HUD text-shadow: 0 1px 3px rgba(0,0,0,0.7)).
+function shadowOn( ctx ) { ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 3; ctx.shadowOffsetY = 1; }
+function shadowOff( ctx ) { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0; }
+
+
 const DEFAULT_SETTINGS = {
 	fps: 60,            // target capture FPS (captureStream frame rate)
 	bitrate: 12_000_000, // video bits-per-second (high quality)
@@ -96,6 +131,7 @@ export class VideoRecorder {
 		this.canvas = options.canvas || null;
 		this.getAudioContext = options.getAudioContext || null; // () => AudioContext | null
 		this.getMusicElement = options.getMusicElement || null; // () => HTMLMediaElement | null
+		this.getOverlayState = options.getOverlayState || null; // () => HUD state for _drawOverlay (see below)
 		this.getMessage = options.getMessage || ( ( () => {} ) );
 		this.onDebug = options.onDebug || null; // (lineText) => void  -- appends to the debug panel
 		this.settings = loadSettings();
@@ -344,7 +380,8 @@ export class VideoRecorder {
 	}
 
 	// Called from the game's animate loop after renderer.render() each frame.
-	// Copies the freshly rendered WebGL canvas onto the RGBA8 relay canvas and
+	// Copies the freshly rendered WebGL canvas onto the RGBA8 relay canvas, then
+	// composites the HUD overlay on top (so the recording includes the UI), then
 	// pushes a frame into the recording stream (throttled to the configured FPS).
 	captureFrame() {
 		if ( ! this.recording || ! this.videoTrack || ! this.relayCtx || ! this.canvas ) return;
@@ -364,7 +401,185 @@ export class VideoRecorder {
 			this.log( `drawImage error: ${ e.message }` );
 			return;
 		}
+		// Composite the HUD overlay (minimap + speedo + lap + messages) on top so the
+		// recording shows the UI. Wrapped so an overlay error never stops recording.
+		try { this._drawOverlay(); } catch ( e ) { /* keep recording */ }
 		if ( this._manualFrames ) { try { this.videoTrack.requestFrame(); } catch { /* ignore */ } }
+	}
+
+	// Draw the HUD onto the relay canvas. The minimap is composited from the REAL
+	// minimap canvas pixels (drawImage); the speedo/lap/messages are drawn with the
+	// 2D API using the SAME colors/fonts/positions/arc geometry as the live HTML HUD.
+	// State comes from this.getOverlayState() (wired in main.js): {
+	//   minimap: HTMLCanvasElement|null,
+	//   lap, lapTime (sec), bestTime (sec|null), totalLaps (0 if unknown),
+	//   speedMph (number),
+	//   countdown: string|null,            // big centered countdown text (#countdown-hud)
+	//   topMessage: string|null,          // #top-message (warn shown)
+	//   effectMessage: string|null,       // #effect-message (brief toast)
+	//   split: { lap, lapTime, bestTime }|null,
+	// }
+	// Honors hide-groups: a piece is skipped when hideUiWhileRecording (master) is ON
+	// and that group's checkbox is checked — so "hide selected UI" works in the video.
+	_drawOverlay() {
+		if ( typeof this.getOverlayState !== 'function' ) return;
+		const st = this.getOverlayState();
+		if ( ! st ) return;
+		const ctx = this.relayCtx;
+		const W = this.relayCanvas.width;
+		const hg = this.settings.hideGroups || {};
+		const hideOn = this.settings.hideUiWhileRecording; // master toggle
+		const hidden = ( key ) => Boolean( hideOn ) && Boolean( hg[ key ] );
+		// The on-screen HUD is laid out for a 1280-wide stage; scale so it matches at
+		// any capture resolution. (CSS uses px positions assuming a ~1280 viewport.)
+		const s = W / 1280;
+		ctx.save();
+		ctx.scale( s, s );
+		ctx.textBaseline = 'alphabetic';
+		const baseW = 1280, baseH = 720;
+
+		// ── Minimap (top-left) — REAL canvas pixels, not redrawn ──
+		// #minimap-hud is 140×140 at top:12px;left:12px (see HudExtras._buildMinimap).
+		if ( ! hidden( 'nav' ) && st.minimap ) {
+			try { ctx.drawImage( st.minimap, 12, 12, 140, 140 ); } catch { /* minimap not ready */ }
+		}
+
+		// ── Lap HUD (top-center) — matches #lap-hud ──
+		// position:absolute; top:12px; left:50%; transform:translateX(-50%);
+		// font: 600 14px/1.4 sans-serif; color:#fff; text-shadow 0 1px 3px rgba(0,0,0,.7);
+		// background: rgba(0,0,0,0.4); border-radius:8px; padding:8px 12px.
+		if ( ! hidden( 'lapHud' ) ) {
+			const lap = st.lap != null ? st.lap : 1;
+			const total = st.totalLaps != null ? st.totalLaps : 0;
+			const lapLine = total ? `LAP ${ lap } / ${ total }` : `LAP ${ lap }`;
+			const lapTimeStr = fmtTime( st.lapTime );
+			const bestStr = st.bestTime != null ? fmtTime( st.bestTime ) : '--:--.---';
+			// Two lines: "LAP n / total" (bold-ish) and "time · BEST time".
+			ctx.font = '600 14px sans-serif';
+			const w1 = ctx.measureText( lapLine ).width;
+			ctx.font = '600 12px sans-serif';
+			const w2 = ctx.measureText( lapTimeStr + '   BEST ' + bestStr ).width;
+			const pw = Math.max( w1, w2 ) + 24; // padding 12 each side
+			const ph = 44; // two lines + padding 8*2
+			const px = baseW / 2 - pw / 2;
+			const py = 12;
+			pill( ctx, px, py, pw, ph, 8, 'rgba(0,0,0,0.4)' );
+			ctx.fillStyle = '#fff';
+			ctx.textAlign = 'center';
+			ctx.font = '600 14px sans-serif';
+			shadowOn( ctx );
+			ctx.fillText( lapLine, baseW / 2, py + 18 );
+			ctx.font = '600 12px sans-serif';
+			ctx.fillStyle = '#cfe1f8';
+			ctx.fillText( lapTimeStr + '   BEST ' + bestStr, baseW / 2, py + 34 );
+			shadowOff( ctx );
+		}
+
+		// ── Speedometer (bottom-right) — matches #speedo-hud / #speedo-ring ──
+		// #speedo-hud: bottom:20px; right:168px. SVG ring r=42, viewBox 100×100,
+		// width 64. arc stroke-dasharray 263.9 (=2π·42), rotate(-90). #speedo-num
+		// font 800 18px #fff; #speedo-label 700 9px #b5c2da. Colors: >55 #ff9f1c,
+		// >35 #ffd95a, else #77f3b1.
+		if ( ! hidden( 'speedo' ) ) {
+			const mph = st.speedMph || 0;
+			const MAX_MPH = 70;
+			const ratio = Math.min( 1, mph / MAX_MPH );
+			const ringSize = 64;
+			const cx = baseW - 168 - ringSize / 2;
+			const cy = baseH - 20 - ringSize / 2;
+			// SVG is 64×64 but the 100×100 viewBox means scale 0.64; r=42 → 26.88px radius.
+			const r = 42 * ( ringSize / 100 );
+			const circ = 2 * Math.PI * r;
+			ctx.save();
+			ctx.translate( cx, cy );
+			// track ring (full circle, faint)
+			ctx.beginPath();
+			ctx.arc( 0, 0, r, 0, Math.PI * 2 );
+			ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+			ctx.lineWidth = 6 * ( ringSize / 100 );
+			ctx.stroke();
+			// value arc, starts at top (rotate -90), grows clockwise
+			ctx.beginPath();
+			ctx.arc( 0, 0, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio );
+			const stroke = mph > 55 ? '#ff9f1c' : ( mph > 35 ? '#ffd95a' : '#77f3b1' );
+			ctx.strokeStyle = stroke;
+			ctx.lineCap = 'round';
+			ctx.lineWidth = 6 * ( ringSize / 100 );
+			ctx.stroke();
+			ctx.restore();
+			// number + label
+			ctx.textAlign = 'center';
+			shadowOn( ctx );
+			ctx.fillStyle = '#fff';
+			ctx.font = '800 18px sans-serif';
+			ctx.fillText( String( Math.round( mph ) ), cx, cy + 6 );
+			ctx.fillStyle = '#b5c2da';
+			ctx.font = '700 9px sans-serif';
+			ctx.fillText( 'MPH', cx, cy + 20 );
+			shadowOff( ctx );
+		}
+
+		// ── Split-screen player-2 lap (center-lower) — matches #lap-hud-2 ──
+		// left:50%; top:calc(50% + 12px); transform:translateX(-50%); font 600 14px;
+		// background rgba(0,0,0,0.4); border-radius:8px; padding 8px 12px.
+		if ( st.split && ! hidden( 'lapHud' ) ) {
+			const sp = st.split;
+			const line = `LAP ${ sp.lap }   ${ fmtTime( sp.lapTime ) }`;
+			ctx.font = '600 14px sans-serif';
+			const pw = ctx.measureText( line ).width + 24;
+			const ph = 30;
+			const px = baseW / 2 - pw / 2;
+			const py = baseH / 2 + 12;
+			pill( ctx, px, py, pw, ph, 8, 'rgba(0,0,0,0.4)' );
+			ctx.fillStyle = '#fff';
+			ctx.textAlign = 'center';
+			shadowOn( ctx );
+			ctx.fillText( line, baseW / 2, py + 20 );
+			shadowOff( ctx );
+		}
+
+		// ── Countdown (big, centered) — matches #countdown-hud ──
+		// font 800 clamp(48px,10vw,112px); centered; background rgba(0,0,0,0.52);
+		// border-radius 16px; padding 18px 26px.
+		if ( st.countdown && ! hidden( 'countdown' ) ) {
+			const txt = String( st.countdown );
+			ctx.font = '800 96px sans-serif';
+			const w = ctx.measureText( txt ).width;
+			const pw = w + 52, ph = 140;
+			pill( ctx, baseW / 2 - pw / 2, baseH / 2 - ph / 2, pw, ph, 16, 'rgba(0,0,0,0.52)' );
+			ctx.fillStyle = '#fff';
+			ctx.textAlign = 'center';
+			shadowOn( ctx );
+			ctx.fillText( txt, baseW / 2, baseH / 2 + 32 );
+			shadowOff( ctx );
+		}
+
+		// ── Transient messages — match #top-message (warn) / #effect-message ──
+		// Both are centered-ish toasts with a dark pill + white text + shadow.
+		if ( st.topMessage && ! hidden( 'topMsg' ) ) {
+			const msg = String( st.topMessage );
+			ctx.font = '700 18px sans-serif';
+			const w = ctx.measureText( msg ).width;
+			pill( ctx, baseW / 2 - w / 2 - 14, 60, w + 28, 34, 8, 'rgba(200,30,30,0.78)' );
+			ctx.fillStyle = '#fff';
+			ctx.textAlign = 'center';
+			shadowOn( ctx );
+			ctx.fillText( msg, baseW / 2, 82 );
+			shadowOff( ctx );
+		}
+		if ( st.effectMessage && ! hidden( 'topMsg' ) ) {
+			const msg = String( st.effectMessage );
+			ctx.font = '700 20px sans-serif';
+			const w = ctx.measureText( msg ).width;
+			pill( ctx, baseW / 2 - w / 2 - 14, 110, w + 28, 36, 8, 'rgba(0,0,0,0.6)' );
+			ctx.fillStyle = '#fff';
+			ctx.textAlign = 'center';
+			shadowOn( ctx );
+			ctx.fillText( msg, baseW / 2, 134 );
+			shadowOff( ctx );
+		}
+
+		ctx.restore();
 	}
 
 	stop() {
@@ -425,20 +640,25 @@ export class VideoRecorder {
 		this.log( 'finalize done — waiting for user to click Download (or save from the new tab)' );
 	}
 
-	// Triggered from the panel's Download button (a real user gesture), so the
-	// `download` attribute is honored and the current tab is NOT navigated away.
+	// Triggered from the panel's Download button (a real user gesture). Opens the
+	// recording in a NEW TAB — the same proven mechanism as the auto-open on stop —
+	// so the user can play + save it (right-click → Save Video As). The
+	// <a download>.click() approach navigated the current tab to a broken blob URL
+	// in some browsers, so we deliberately avoid it. A fresh URL is minted from the
+	// retained blob url each call (kept alive for the new tab to load).
 	downloadLast() {
 		if ( ! this.lastBlobUrl ) { this.log( 'downloadLast: no recording available' ); return false; }
 		try {
-			const a = document.createElement( 'a' );
-			a.href = this.lastBlobUrl;
-			a.download = this.lastBlobName || 'racing-gameplay.webm';
-			document.body.appendChild( a );
-			a.click();
-			a.remove();
-			this.log( `download triggered (user gesture): ${ a.download }` );
+			const w = window.open( this.lastBlobUrl, '_blank' );
+			if ( ! w ) {
+				this.log( 'downloadLast: window.open was blocked by the browser' );
+				this._updateStatus( 'Popup blocked — allow popups, then click Download again.' );
+				return false;
+			}
+			this.log( `downloadLast: opened recording in a new tab (${ this.lastBlobName })` );
+			this._updateStatus( `Opened ${ this.lastBlobName } in a new tab — right-click → Save Video As to download.` );
 			return true;
-		} catch ( e ) { this.log( `download error: ${ e.message }` ); return false; }
+		} catch ( e ) { this.log( `downloadLast error: ${ e.message }` ); return false; }
 	}
 
 	_cleanupStream() {
