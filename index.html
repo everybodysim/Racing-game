@@ -1633,7 +1633,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			flex: 1; min-width: 0;
 		}
 
-		@media (pointer: coarse) {
+		@media (pointer: coarse) and (pointer: fine) { /* TEMPORARY: impossible query — mobile (pointer:coarse) UI disabled (force standard layout everywhere). Revert to `@media (pointer: coarse) {` to re-enable. */
 			#mobile-actions-menu {
 				display: block;
 				position: absolute;
@@ -1784,7 +1784,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			flex: 1; min-width: 0;
 		}
 
-		@media (pointer: coarse) {
+		@media (pointer: coarse) and (pointer: fine) { /* TEMPORARY: impossible query — mobile (pointer:coarse) UI disabled (force standard layout everywhere). Revert to `@media (pointer: coarse) {` to re-enable. */
 			#quick-menu-btn, #quick-menu-panel, #respawnBtn, #mode-menu-btn, #home-menu-btn,
 			#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link,
 			#replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link,
@@ -2101,16 +2101,26 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 // ── Early mobile detection (prevents FOUC) ──
 // body.mobile = actual mobile devices only (NOT touchscreen laptops/desktops)
 // A debug toggle in gameplay settings can force it on for testing
+//
+// TEMPORARY: mobile UI is disabled — the standard (desktop) layout is shown
+// everywhere (incl. narrow CrazyGames iframes). The IIFE below returns early so
+// the 'mobile' class is never added, and the @media (pointer: coarse) mobile
+// blocks use an impossible query. Revert both to re-enable mobile UI later.
 (function() {
+	// TEMPORARY: mobile UI disabled — the standard (desktop) layout is force-locked
+	// everywhere. The `mobile` class is NOT added (so all body.mobile CSS rules are
+	// inert) and the @media (pointer: coarse) mobile blocks use an impossible query
+	// (see the `and (pointer: fine)` additions). The existing two-column main-menu
+	// block below keeps the home layout from collapsing on narrow screens.
+	// To re-enable mobile UI later: restore this IIFE body (remove the early return)
+	// and revert the @media (pointer: coarse) queries.
+	return;
 	var isTouch = 'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0;
 	var isSmallScreen = window.innerWidth <= 760;
 	var isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-	// Only add 'mobile' for: small screen, mobile UA, or touch device with small-ish screen
-	// Touchscreen Chromebooks with large screens (pointer: fine) do NOT get 'mobile'
 	if (isSmallScreen || isMobileUA || (isTouch && window.innerWidth <= 1024)) {
 		document.body.classList.add('mobile');
 	}
-	// Debug override: user can force mobile UI via gameplay settings
 	if (localStorage.getItem('racing-debug-mobile-test') === '1') {
 		document.body.classList.add('mobile');
 	}

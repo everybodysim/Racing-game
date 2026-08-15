@@ -734,3 +734,61 @@
   + all `<a target="_blank">`) without touching them, and automatically cover
   future ones. Only PageTransitions.js needs to change if the policy changes.
 
+
+
+## Mobile UI force-disabled (temporary — standard layout everywhere)
+
+### What & why
+- The game was switching to the mobile UI (vertical home, mobile action dock,
+  hidden desktop buttons, mobile menu sheet) when run inside a narrow CrazyGames
+  iframe (small screen / touch detection). The user wants the standard (desktop)
+  layout locked everywhere for now; the mobile-switching logic will be
+  re-evaluated later.
+
+### How it's disabled (`index.html` only — no JS/CSS file changes)
+The mobile UI had two independent triggers; BOTH are neutralized:
+1. **`body.mobile` class** — set by the early inline detection IIFE at the top of
+   `<body>`. The IIFE now `return`s immediately so `classList.add('mobile')` is
+   never called. Every `body.mobile ...` CSS rule is therefore inert. The dead
+   detection code is kept below the `return` for easy re-enable.
+2. **`@media (pointer: coarse)` blocks** — two CSS blocks (one for the
+   mobile-actions-menu/positioning, one for the mobile-action-dock/menu-sheet +
+   repositioned HUD) that fired on touch devices regardless of the `mobile`
+   class. Both media queries are changed from `@media (pointer: coarse) {` to
+   `@media (pointer: coarse) and (pointer: fine) {` — an impossible query (a
+   pointer can't be both coarse AND fine), so the blocks never apply. An inline
+   comment on each line explains the revert.
+
+### What is NOT changed
+- The existing "Force the normal (desktop) main-menu layout in ALL cases" block
+  (CSS near `body.mobile #home-body`) stays — it keeps the two-column home from
+  collapsing on narrow screens even if `body.mobile` were re-enabled.
+- **Touch input overlay** (`js/Controls.js` `setupTouchUI()`): still shows on
+  touch devices (`matchMedia('(pointer: coarse)')`). This is gameplay INPUT, not
+  the "mobile UI" layout, and is needed to play on a touch device. Left as-is.
+- `isMobileUi()` (`index.html` ~line 2904) still reads `mobileQuery.matches`
+  (pointer: coarse) — its mobile-menu/leaderboard handlers still run on touch,
+  but the elements they toggle (`#mobile-action-dock`, `#mobile-menu-sheet`,
+  `.mobile-open`) are hidden by the disabled `@media` blocks, so there's no
+  visible effect. No breakage.
+- `countdownEnabled` default in main.js reads `body.mobile`/`pointer: coarse`;
+  with `body.mobile` never set it defaults OFF on desktop (unchanged) and still
+  ON on touch (because `pointer: coarse` matches). Acceptable.
+
+### To re-enable mobile UI later
+1. In the detection IIFE: remove the early `return;` (restore the `add('mobile')`
+   lines).
+2. Revert both `@media (pointer: coarse) and (pointer: fine) {` back to
+   `@media (pointer: coarse) {` (drop the `and (pointer: fine)` + comment).
+3. Optionally remove the now-redundant "Force the normal desktop main-menu" block
+   if the mobile layout should fully take over again.
+
+### Verified
+- Narrow iframe sim (420x300, CrazyGames-like): mobile chrome
+  (`#mobile-action-dock`, `#mobile-menu-sheet`, `#mobile-actions-menu`,
+  `#mobile-leaderboard-close`) is hidden; all desktop buttons (`#editor-link`,
+  `#totd-link`, `#tracks-link`, `#mods-link`, etc.) are visible; home shows the
+  two-column desktop layout with the community sidebar.
+- Normal desktop load: home page renders identically to before (full desktop
+  layout, all buttons). No regressions.
+- CSS braces balanced (519/519 excl. comments); detection IIFE braces balanced.
