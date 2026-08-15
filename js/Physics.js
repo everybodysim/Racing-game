@@ -77,6 +77,9 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const slopeTargetHalfLen = ( slopeDeckTopY - groundY ) / ( 2 * Math.sin( slopeAngle ) );
 	const slopeTargetCenterY = ( groundY + slopeDeckTopY ) * 0.5
 		- ELEVATED_SURFACE_HALF_H * Math.cos( slopeAngle );
+	// The two pitched side rails were centred on the slope box and sat too low;
+	// raise them by half their own height so they read as a proper kerb.
+	const SLOPE_SIDE_WALL_RAISE = ELEVATED_WALL_HALF_H;
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
 	const BUMP_RADIUS = 7.5 * S;
@@ -387,7 +390,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const offsetX = localX * Math.cos( yaw );
 			const offsetZ = - localX * Math.sin( yaw );
 			const halfExtents = [ hThick, ELEVATED_WALL_HALF_H, slopeTargetHalfLen ];
-			const position = [ cx + shiftX + offsetX, slopeTargetCenterY, cz + shiftZ + offsetZ ];
+			const position = [ cx + shiftX + offsetX, slopeTargetCenterY + SLOPE_SIDE_WALL_RAISE, cz + shiftZ + offsetZ ];
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
 				motionType: MotionType.STATIC,
@@ -430,6 +433,66 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 		addSlopeSideWalls( gx, gz, orient );
+		addSlopeGroundWalls( gx, gz, orient );
+
+	}
+
+	// Ground-level U of road walls sealing the open space under/around the
+	// slope wedge. The slope collider only covers the pitched driving surface;
+	// below it the solid mesh is un-collided, so a car on the ground could clip
+	// in through the sides or the tall high end. Add three straight-road-style
+	// walls at ground level: two arms running along the slope (local z, at the
+	// road edges) + one cross wall capping the HIGH end. The HIGH end is local
+	// -z: the slope pitches up toward -z (top-face Y = centerY + hy*cos ∓ hl*sin
+	// is maximal at lz = -hl), so the deck-meeting end is always local -z for a
+	// normalized slope-up. The low end (local +z) stays open as the ramp mouth.
+	function addSlopeGroundWalls( gx, gz, orient = 0 ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+		const cr = Math.cos( rad ), sr = Math.sin( rad );
+		const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
+
+		// Two arms — identical to straight road walls: lateral offset ±WALL_X,
+		// run along the slope length (local z), full cell long.
+		for ( const side of [ - 1, 1 ] ) {
+
+			const lx = side * WALL_X;
+			const wx = cx + ( lx * cr ) * S;
+			const wz = cz + ( - lx * sr ) * S;
+			const halfExtents = [ hThick, hHeight, hLen ];
+			const position = [ wx, wallY, wz ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				quaternion,
+				friction: 0.0,
+				restitution: 0.0,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+		}
+
+		// Cross wall at the HIGH end (local -z). local z offset = -CELL_HALF
+		// (cell units) -> world dx = -hLen*sr, dz = -hLen*cr. Spans across the
+		// road (local x), full cell wide.
+		const hx = cx - hLen * sr;
+		const hz = cz - hLen * cr;
+		const crossHalfExtents = [ hLen, hHeight, hThick ];
+		const crossPosition = [ hx, wallY, hz ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: crossHalfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: crossPosition,
+			quaternion,
+			friction: 0.0,
+			restitution: 0.0,
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, crossHalfExtents, crossPosition, quaternion );
 
 	}
 

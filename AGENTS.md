@@ -149,6 +149,28 @@
   0.256 drop at the bottom seam (clipping). If a slope "doesn't work", suspect
   friction or adjacency, NOT the hitbox shape.
 
+### Slope side rails + ground U-walls (addSlopeSideWalls + addSlopeGroundWalls)
+- `addSlopeSideWalls`: the two PITCHED frictionless rails along the ramp edges
+  (halfExtents `[hThick, ELEVATED_WALL_HALF_H, slopeTargetHalfLen]`, same yaw+pitch
+  quaternion as the slope box, lateral offset ±WALL_X*S). Their center Y is
+  `slopeTargetCenterY + SLOPE_SIDE_WALL_RAISE` where `SLOPE_SIDE_WALL_RAISE =
+  ELEVATED_WALL_HALF_H` (raised by half their own height — they used to sit too
+  low). Called from `addSlopeCollider`.
+- `addSlopeGroundWalls`: a ground-level U of three straight-road-style walls
+  sealing the un-collided space under/around the solid slope wedge so a ground
+  car can't clip in through the sides or the tall high end. All three use road
+  wall dims (`halfExtents` arms `[hThick, hHeight, hLen]`, cross `[hLen, hHeight,
+  hThick]`), center `wallY`, friction 0.0, yaw quaternion.
+  - HIGH end is ALWAYS local -z for a normalized slope-up: the pitched top face
+    Y = centerY + hy*cos ∓ hl*sin is maximal at lz = -hl. So the cross wall caps
+    local -z (world offset `(-hLen*sr, -hLen*cr)` from cell center) and the low
+    end (local +z) stays open as the ramp mouth.
+  - Arms: lateral offset ±WALL_X (cell units), run along the slope length
+    (local z), full cell long — identical to `addElevatedRoadWalls`/straight road
+    walls. Cross wall spans across the road (local x), full cell wide.
+  - Works for all 4 orientations (verified: cross wall lands on the high side,
+    arms stay lateral, for orient 0/10/16/22).
+
 ### Seam-bounce suppression vs slopes (the intermittent grip-loss glitch)
 - `suppressSeamBounce(world, veh, key, onSlope)` cancels the upward "pop" + speed loss
   when the sphere catches on an edge between two FLAT surface colliders. It does this by
