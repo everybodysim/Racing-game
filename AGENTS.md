@@ -677,3 +677,60 @@
   colorblindFilter (off/protan/deutan/tritan). STILL in the schema but NO
   settings-page UI (Accessibility tab removed — none of these are wired to the
   engine yet). Safe to re-add the tab later.
+
+## Embedded / CrazyGames navigation (`js/PageTransitions.js`)
+
+### What it is
+- CrazyGames (and itch.io / other game portals) load the game inside an iframe.
+  Opening the game in a new tab from inside that iframe escapes the portal
+  (the player ends up on the raw game URL outside CrazyGames). So when the game
+  detects it is embedded, every same-origin game-page navigation is redirected
+  to the CURRENT tab (replace, not new tab). Standalone gameplay is unchanged.
+
+### Detection
+- `isEmbedded = (window.self !== window.top)` (try/catch — cross-origin parent
+  access throws, which is treated as embedded). This is the CrazyGames iframe
+  signal; there is no CrazyGames SDK loaded. Exposed as `window.SkidNav.isEmbedded`.
+- Logic lives in `js/PageTransitions.js`, which is ALREADY loaded in `<head>` of
+  every page (campaign/clubs/coins/competitions/custommods/editor/index/itchdemo/
+  mods/official-tracks/replay/settings/share/tas-viewer/totd/tracks/weekly-cup).
+  So NO per-page edits are required — one file, one script tag per page already
+  present.
+
+### Behavior when embedded (iframe)
+- `window.open` is monkey-patched: if the url is a same-origin http(s)/relative
+  game page (share.html, replay.html, track play URLs, editor.html, etc.) it is
+  redirected to `window.location.href` (same-tab, via the fade transition) and
+  returns `null`. Callers that do `if (!tab) return;` (main.js share/replay
+  exporters) simply stop after the redirect — fine.
+- Content URLs that are NOT game pages are left as real popups: `blob:`,
+  `data:`, `about:blank`, `mailto:`, `tel:`, `javascript:`, and external
+  http(s) origins. This preserves: the VideoRecorder's open-recording-in-new-tab
+  (blob:), the raw-ghost-code `about:blank` document.write popup, and external
+  links.
+- `<a target="_blank">` clicks: same-origin relative links are converted to
+  same-tab fade navigation; external `target="_blank"` links keep native
+  new-tab behavior. (All in-repo `target="_blank"` play links — tracks.html,
+  official-tracks.html, weekly-cup.html, share.html — are same-origin
+  relative, so they convert.)
+- Plain same-origin `<a>` (no target) clicks keep the existing fade-transition
+  same-tab behavior (unchanged).
+
+### Behavior when standalone (not in iframe) — UNCHANGED
+- `window.open` is NOT patched (native). All `window.open(..., '_blank')` calls
+  open real new tabs exactly as before. `target="_blank"` links open new tabs.
+  This is normal gameplay / the GitHub-pages standalone deployment.
+
+### URL classifier
+- `isSameOriginPageUrl(raw)`: false for empty/`#`/mailto/tel/javascript/blob/
+  data/about; otherwise resolves via `new URL(raw, location.href)` and returns
+  true only for http/https with `origin === location.origin`. Exposed as
+  `window.SkidNav.isSameOriginPageUrl`. `window.SkidNav.open(url,target,features)`
+  is a thin pass-through to the (possibly patched) `window.open`.
+
+### Why NOT to edit individual call sites
+- The `window.open` patch + click handler cover ALL current call sites
+  (main.js, VideoRecorder.js, replay.html, totd.html, editor.html, tracks.html,
+  + all `<a target="_blank">`) without touching them, and automatically cover
+  future ones. Only PageTransitions.js needs to change if the policy changes.
+
