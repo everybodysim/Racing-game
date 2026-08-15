@@ -501,7 +501,8 @@
   groups hide, master toggle off hides nothing, restore works, exact-count check),
   `downloadLast()` guard (lastBlob-based), and the auto-capture fallback.
   Stubs browser globals incl. a swappable `navigator.mediaDevices.getDisplayMedia`.
-  Run: `node test-video-recorder.mjs`.
+  (NOTE: the `test-*.mjs` node suite was removed from the repo for the public
+  CrazyGames submission; the assertions above describe what was verified.)
 
 ## Settings system (`js/GameSettings.js` + `settings.html` + `js/settings-page.js`)
 
