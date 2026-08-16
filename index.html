@@ -789,13 +789,12 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		.garage-row button { padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; font: 600 11px/1 sans-serif; }
 		.garage-row button:disabled { opacity: 0.55; cursor: default; }
 		#garage-vehicle-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 10px 0 12px; }
-		.garage-vehicle-card { text-align: left; padding: 8px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; min-width: 0; }
+		.garage-vehicle-card { text-align: left; padding: 6px 8px 8px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.08); color: #fff; cursor: pointer; min-width: 0; }
 		.garage-vehicle-card.active { outline: 2px solid #fff; border-color: var(--garage-accent, #9ed8ff); box-shadow: 0 0 18px color-mix(in srgb, var(--garage-accent, #9ed8ff) 45%, transparent); }
-		.garage-vehicle-card h5 { margin: 0 0 5px; font: 800 12px/1.2 sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-		.garage-vehicle-card dl { display: grid; grid-template-columns: 1fr auto; gap: 3px 6px; margin: 0; font: 700 10px/1.2 sans-serif; }
-		.garage-vehicle-card dt { color: #bde6ff; }
-		.garage-vehicle-card dd { margin: 0; color: #fff; }
-		.garage-vehicle-status { display: block; margin-top: 6px; color: #ffdca8; font: 800 10px/1.2 sans-serif; }
+		.garage-vehicle-card h5 { margin: 0 0 4px; font: 800 12px/1.2 sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+		.garage-card-preview { display: block; width: 100%; height: 72px; border-radius: 8px; background: #0e1622; margin-bottom: 5px; touch-action: none; }
+		.garage-vehicle-meta { display: flex; justify-content: space-between; gap: 6px; font: 700 10px/1.2 sans-serif; color: #bde6ff; }
+		.garage-vehicle-meta .garage-vehicle-status { color: #ffdca8; }
 		@media (max-width: 1200px) { #garage-vehicle-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 		@media (max-width: 720px) { #garage-vehicle-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 		#garage-car-select, #garage-target-color {
@@ -2346,7 +2345,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		<div class="mode-tab-panel" id="mode-panel-garage">
 		<div id="garage-panel">
 			<h4>Garage (mod packs)</h4>
-							<p id="garage-summary">Choose a vehicle card to preview readable stats, upgrade status, paint mappings, and profile tools.</p>
+							<p id="garage-summary">Choose a vehicle card to preview it with its current paint, edit paint mappings, and apply mods.</p>
 			<div id="garage-vehicle-cards" aria-label="Garage vehicles"></div>
 			<label for="garage-car-select">Garage car selection</label>
 			<select id="garage-car-select">

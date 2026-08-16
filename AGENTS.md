@@ -163,6 +163,65 @@
 - `GARAGE_REPAINT_COST` (300), `GARAGE_PAINT_PALETTE`, paint unlocks, coins.
 - `getGarageTexturePalette()` is UNUSED (kept as harmless dead code).
 
+## Garage vehicle-card mini 3D previews (`js/main.js` + `index.html`)
+
+### What & why
+- The garage car-selection cards used to show a `<dl>` of identical stats
+  (speed/accel/handling/traction/topSpeed/power all uniform across cars because
+  all packs are fixed at x1.15) plus an identical `x1.15` upgrade status — i.e.
+  useless info. Replaced each card's stat block with a small **spinning 3D
+  preview** of that car wearing its current paint, so the card grid is now a
+  visual roster of the player's painted cars (the original user request).
+- Each card now shows: the car name, a 72px-tall `<canvas class="garage-card-preview">`
+  mini viewer, and a one-line meta row (upgrade summary + "Paint maps: N").
+
+### Implementation (per-card renderer, single shared rAF loop)
+- `garageCardCanvasByKey` (carKey→canvas) is rebuilt by `renderGarageVehicleCards()`.
+  `garageCardPreviews` (Map carKey→{renderer,scene,camera,carRoot,yaw}) holds the
+  lightweight `THREE.WebGLRenderer` per card.
+- `ensureGarageCardPreviews()`: creates one renderer per card that doesn't have
+  one yet (alpha:true, no preserveDrawingBuffer). Scene = ambient(3.0)+dir light;
+  camera = PerspectiveCamera(34°, ...) at (0,0.85,3.5) — CLOSER than the paint
+  viewer (z 5.2) per the "more zoomed in" request. Car clone added at rotation.y=π.
+- `refreshGarageCardPreviewPaint(carKey)`: clears carRoot, re-clones `models[carKey]`,
+  `applyCarCustomizationToObject(clone, carKey, '', true, '', tol, null, '')`
+  (previewUnlit=true → MeshBasicMaterial, no selection preview → persisted paint only).
+- `startGarageCardPreviews()`: ONE `requestAnimationFrame` loop ticks ALL previews
+  (`yaw += 0.012` slow spin, re-render). Guards: no-op if size 0; self-requeues only
+  while previews exist. `stopGarageCardPreviews()` cancels the rAF.
+- `disposeGarageCardPreviews()`: cancels loop + `renderer.dispose()`s every card
+  renderer + clears the Map. Called at the top of `renderGarageVehicleCards()` because
+  `innerHTML=''` destroys the old canvases — the old renderers (bound to detached
+  canvases) MUST be dropped and rebound to the fresh canvases, not reused.
+
+### Lifecycle / when it runs (avoid 10 idle WebGL contexts at boot)
+- Renderers are created LAZILY, only when the garage tab is actually visible — NOT
+  at boot. `renderGarageVehicleCards()` only builds the card DOM + canvases; it does
+  NOT create renderers. `activateGarageCardPreviews()` (ensureGarageCardPreviews +
+  refreshGarageCardPreviewsPaint + startGarageCardPreviews) is the entry point and is
+  called from `setModeTab('garage')` and `setModeMenuOpen(true)` ONLY when
+  `modeTab==='garage' && modeMenuOpen`. Closing the menu / switching tabs calls
+  `stopGarageCardPreviews()` (rAF stops → no rendering, no CPU; renderers stay alive
+  for instant resume on reopen).
+- A new module-level `modeTab` (default 'gameplay') tracks the active tab; set inside
+  `setModeTab()`. `setModeMenuOpen` reads `modeTab` to decide start/stop.
+- Context count while the garage is open: main game renderer + paint viewer + 10 mini
+  = 12 (under the ~16 browser WebGL context limit). The game is paused behind the
+  modal, so the cost is bounded. Renderers are NOT created when the user never opens
+  the garage.
+
+### Keep paint in sync
+- The Apply-paint handler calls `refreshGarageCardPreviewPaint(carKey)` +
+  `updateGarageCardMeta(carKey)` so the just-painted car's card updates its preview
+  and its "Paint maps: N" count immediately (no full re-render of all cards).
+
+### CSS (`index.html`)
+- `.garage-card-preview`: 100% width × 72px, radius 8, bg `#0e1622` (shows behind
+  transparent WebGL alpha before first frame / if context lost), `touch-action:none`.
+- `.garage-vehicle-meta`: flex row, upgrade summary (orange) + paint-maps count (blue).
+- The old `.garage-vehicle-card dl/dt/dd` and standalone `.garage-vehicle-status`
+  rules were removed (no longer emitted by `renderGarageVehicleCards`).
+
 ## Physics: car is a rolling sphere (`js/Physics.js` + `js/Vehicle.js`)
 
 ### Drive model (critical for surface friction tuning)

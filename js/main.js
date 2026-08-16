@@ -4177,6 +4177,7 @@ async function init() {
 	let stuntComboTimer = 0;
 	let stuntAirTime = 0;
 	let modeMenuOpen = false;
+	let modeTab = 'gameplay';
 	// Cached landing-page element read once and reused in the per-frame music update
 	// to avoid a getElementById lookup every animation frame.
 	let homeLandingEl = document.getElementById( 'home-landing' );
@@ -4276,6 +4277,10 @@ async function init() {
 	let garageSelectionMask = null; // Uint8Array(length) over the active texture's pixels, 1 = selected
 	let garageSelectionTexture = null; // THREE.Texture currently being edited
 	let garageSelectionSource = null; // { width, height, data } from getTextureSourcePixels
+	// Garage vehicle-card mini 3D previews (spinning painted clones).
+	let garageCardCanvasByKey = {}; // carKey -> <canvas>
+	let garageCardPreviews = new Map(); // carKey -> { renderer, scene, camera, carRoot, yaw }
+	let garageCardPreviewsRaf = 0; // rAF id of the shared animation loop (0 when idle)
 	if ( lapHud2 ) lapHud2.style.display = isSplitScreen ? 'block' : 'none';
 	if ( isSplitScreen ) {
 
@@ -4764,6 +4769,9 @@ async function init() {
 		modeMenuOpen = open;
 		if ( modeMenu ) modeMenu.style.display = open ? 'block' : 'none';
 		document.body.classList.toggle( 'mode-menu-open', modeMenuOpen );
+		// Spin the garage card previews only while the garage panel is actually visible.
+		if ( open && modeTab === 'garage' ) activateGarageCardPreviews();
+		else stopGarageCardPreviews();
 
 	}
 
@@ -4885,6 +4893,7 @@ async function init() {
 	function setModeTab( tabName ) {
 
 		const tab = tabName === 'garage' || tabName === 'account' || tabName === 'nav' ? tabName : 'gameplay';
+		modeTab = tab;
 		modeTabGameplayBtn?.classList.toggle( 'active', tab === 'gameplay' );
 		modeTabGarageBtn?.classList.toggle( 'active', tab === 'garage' );
 		modeTabAccountBtn?.classList.toggle( 'active', tab === 'account' );
@@ -4901,6 +4910,9 @@ async function init() {
 			refreshGarageViewer();
 
 		}
+		// Only spin the garage card previews while the garage tab is open & menu visible.
+		if ( modeMenuOpen && tab === 'garage' ) activateGarageCardPreviews();
+		else stopGarageCardPreviews();
 
 	}
 
@@ -5582,11 +5594,12 @@ async function init() {
 		if ( ! garageVehicleCards ) return;
 		const selectedKey = getSelectedGarageCarKey();
 		garageVehicleCards.innerHTML = '';
+		garageCardCanvasByKey = {};
+		disposeGarageCardPreviews(); // old canvases are gone → drop their renderers, rebind to fresh ones
 		for ( const carKey of modelNames.filter( ( key ) => CAR_STATS[ key ] ) ) {
 
 			const stats = CAR_STATS[ carKey ];
 			const style = CAR_SELECT_STYLES[ carKey ] || {};
-			const perf = stats.perf || {};
 			const mappings = getGarageCosmeticCar( carKey ).mappings.length;
 			const button = document.createElement( 'button' );
 			button.type = 'button';
@@ -5594,20 +5607,143 @@ async function init() {
 			button.style.setProperty( '--garage-accent', style.border || '#9ed8ff' );
 			button.innerHTML = `
 				<h5>${ stats.name }</h5>
-				<dl>
-					<dt>Speed</dt><dd>${ stats.speed } / 10</dd>
-					<dt>Acceleration</dt><dd>${ stats.accel } / 10</dd>
-					<dt>Handling</dt><dd>${ ( GARAGE_FIXED_MULTIPLIER * 100 ).toFixed( 0 ) }%</dd>
-					<dt>Traction</dt><dd>${ ( GARAGE_FIXED_MULTIPLIER * 100 ).toFixed( 0 ) }%</dd>
-					<dt>Top speed</dt><dd>${ Number( perf.topSpeed || 0 ).toFixed( 2 ) }</dd>
-					<dt>Power</dt><dd>${ Number( perf.driveForce || 0 ).toFixed( 0 ) }</dd>
-					<dt>Paint maps</dt><dd>${ mappings }</dd>
-				</dl>
-				<span class="garage-vehicle-status">${ garageUpgradeSummary() }</span>`;
+				<canvas class="garage-card-preview" aria-label="${ stats.name } preview"></canvas>
+				<div class="garage-vehicle-meta">
+					<span class="garage-vehicle-status">${ garageUpgradeSummary() }</span>
+					<span>Paint maps: ${ mappings }</span>
+				</div>`;
+			const canvas = button.querySelector( '.garage-card-preview' );
+			garageCardCanvasByKey[ carKey ] = canvas;
 			button.addEventListener( 'click', ( event ) => { event.preventDefault(); event.stopPropagation(); selectGarageCar( carKey ); } );
 			garageVehicleCards.appendChild( button );
 
 		}
+
+	}
+
+	// Build/refresh the mini 3D previews for the current card canvases and start the shared
+	// spin loop. Called when the garage tab becomes visible. (No-op if models aren't loaded yet.)
+	function activateGarageCardPreviews() {
+
+		ensureGarageCardPreviews();
+		refreshGarageCardPreviewsPaint();
+		startGarageCardPreviews();
+
+	}
+
+	// --- Garage vehicle-card mini 3D previews -------------------------------------
+	// One lightweight WebGLRenderer per card, sharing a SINGLE requestAnimationFrame loop that
+	// only runs while the garage menu is open. Each preview is a slowly-spinning, zoomed-in clone
+	// of the car wearing its current paint (applyCarCustomizationToObject, no selection preview).
+	// Renderers are created lazily on first garage open (not at boot) to avoid 10 idle WebGL contexts.
+	function ensureGarageCardPreviews() {
+
+		for ( const carKey of Object.keys( garageCardCanvasByKey ) ) {
+
+			if ( garageCardPreviews.has( carKey ) ) continue;
+			if ( ! models[ carKey ] ) continue;
+			const canvas = garageCardCanvasByKey[ carKey ];
+			if ( ! canvas ) continue;
+			const renderer = new THREE.WebGLRenderer( { canvas, antialias: true, alpha: true, preserveDrawingBuffer: false } );
+			renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, 1.25 ) );
+			const scene = new THREE.Scene();
+			scene.add( new THREE.AmbientLight( 0xffffff, 3.0 ) );
+			const dir = new THREE.DirectionalLight( 0xffffff, 1.2 );
+			dir.position.set( 2, 3, 2 );
+			scene.add( dir );
+			const camera = new THREE.PerspectiveCamera( 34, 1, 0.1, 100 );
+			camera.position.set( 0, 0.85, 3.5 ); // closer than the paint viewer (z 5.2) → "more zoomed in"
+			camera.lookAt( 0, 0.1, 0 );
+			const carRoot = new THREE.Group();
+			scene.add( carRoot );
+			garageCardPreviews.set( carKey, { renderer, scene, camera, carRoot, yaw: 0 } );
+			refreshGarageCardPreviewPaint( carKey );
+			resizeGarageCardPreview( carKey );
+
+		}
+
+	}
+
+	function resizeGarageCardPreview( carKey ) {
+
+		const p = garageCardPreviews.get( carKey );
+		if ( ! p ) return;
+		const canvas = p.renderer.domElement;
+		const rect = canvas.getBoundingClientRect();
+		const w = Math.max( 1, Math.floor( rect.width ) );
+		const h = Math.max( 1, Math.floor( rect.height ) );
+		p.renderer.setSize( w, h, false );
+		p.camera.aspect = w / h;
+		p.camera.updateProjectionMatrix();
+
+	}
+
+	function refreshGarageCardPreviewPaint( carKey ) {
+
+		const p = garageCardPreviews.get( carKey );
+		if ( ! p || ! models[ carKey ] ) return;
+		p.carRoot.clear();
+		const clone = models[ carKey ].clone( true );
+		clone.rotation.y = Math.PI;
+		p.carRoot.add( clone );
+		applyCarCustomizationToObject( clone, carKey, '', true, '', getGarageRepaintTolerance(), null, '' );
+
+	}
+
+	function refreshGarageCardPreviewsPaint() {
+
+		for ( const carKey of garageCardPreviews.keys() ) refreshGarageCardPreviewPaint( carKey );
+
+	}
+
+	function updateGarageCardMeta( carKey ) {
+
+		const canvas = garageCardCanvasByKey[ carKey ];
+		if ( ! canvas ) return;
+		const meta = canvas.parentElement?.querySelector( '.garage-vehicle-meta > span:last-child' );
+		if ( meta ) meta.textContent = `Paint maps: ${ getGarageCosmeticCar( carKey ).mappings.length }`;
+
+	}
+
+	function startGarageCardPreviews() {
+
+		if ( garageCardPreviewsRaf ) return;
+		if ( garageCardPreviews.size === 0 ) return;
+		const loop = () => {
+
+			garageCardPreviewsRaf = 0;
+			for ( const [ carKey, p ] of garageCardPreviews ) {
+
+				if ( ! garageCardCanvasByKey[ carKey ]?.isConnected ) continue;
+				resizeGarageCardPreview( carKey );
+				p.yaw += 0.012; // slow spin
+				p.carRoot.rotation.y = p.yaw;
+				p.renderer.render( p.scene, p.camera );
+
+			}
+			if ( garageCardPreviews.size ) garageCardPreviewsRaf = requestAnimationFrame( loop );
+
+		};
+		garageCardPreviewsRaf = requestAnimationFrame( loop );
+
+	}
+
+	function stopGarageCardPreviews() {
+
+		if ( garageCardPreviewsRaf ) { cancelAnimationFrame( garageCardPreviewsRaf ); garageCardPreviewsRaf = 0; }
+
+	}
+
+	function disposeGarageCardPreviews() {
+
+		stopGarageCardPreviews();
+		for ( const p of garageCardPreviews.values() ) {
+
+			p.carRoot.clear();
+			p.renderer.dispose();
+
+		}
+		garageCardPreviews.clear();
 
 	}
 
@@ -9424,6 +9560,8 @@ function completeCampaignStage() {
 		updateGaragePaintControls();
 		applyCarCustomization( vehicle );
 		refreshGarageViewer();
+		refreshGarageCardPreviewPaint( carKey );
+		updateGarageCardMeta( carKey );
 		broadcastPeerState();
 		setGarageMappingStatus( `Painted ${ desc.count.toLocaleString() } pixels ${ targetHex } for ${ GARAGE_REPAINT_COST } coins.` );
 		if ( gameMode === 'campaign' ) incrementCampaignProgress( 'customize-car' );
