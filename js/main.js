@@ -26,7 +26,8 @@ import {
 	submitServerLap as publicSubmitLap,
 	setServerTrack as publicSetServerTrack,
 	leaveServer as publicLeaveServer,
-	fetchRandomTrackPlayUrl,
+	fetchTrackList,
+	pickTrackForCycle,
 	mapSignatureFromPlayUrl,
 	buildServerTrackRedirectUrl,
 } from './PublicServers.js';
@@ -927,6 +928,9 @@ const publicServerState = {
 	skippedLapSeconds: Infinity, // best lap already submitted this round
 	serverNowOffsetMs: 0,    // server.now - Date.now() (clock-skew correction)
 	lastFetchAt: 0,          // local time of last successful poll (for countdown)
+	trackListCache: null,    // cached community-track list (for deterministic picking)
+	trackListCacheAt: 0,     // local time the cache was fetched
+	resolveInProgress: {},   // cycleIndex -> Promise, in-flight track resolution
 };
 
 // sessionStorage key recording the roundId whose track we already redirected to
@@ -1200,6 +1204,21 @@ function buildPublicServerButtons() {
 
 	}
 
+	// Wire the Leave button (shown/hidden via updatePublicServerButtonStates).
+	const leaveBtn = document.getElementById( 'mp-public-leave-btn' );
+	if ( leaveBtn && ! leaveBtn.dataset.wired ) {
+
+		leaveBtn.dataset.wired = '1';
+		leaveBtn.addEventListener( 'click', () => {
+
+			const name = publicServerName() || 'public server';
+			leavePublicServer();
+			updateMultiplayerStatus( `Left ${ name }.` );
+
+		} );
+
+	}
+
 }
 
 function updatePublicServerButtonStates() {
@@ -1213,6 +1232,9 @@ function updatePublicServerButtonStates() {
 		btn.textContent = isThis ? `✓ ${ findPublicServer( id )?.name || '' }` : `${ findPublicServer( id )?.name || '' }`;
 
 	} );
+	// Show the Leave button only while connected to a public server.
+	const leaveBtn = document.getElementById( 'mp-public-leave-btn' );
+	if ( leaveBtn ) leaveBtn.style.display = isPublicServerActive() ? 'block' : 'none';
 
 }
 
@@ -1253,6 +1275,9 @@ async function joinPublicServer( serverId ) {
 	publicServerState.skippedLapSeconds = Infinity;
 	publicServerState.serverNowOffsetMs = 0;
 	publicServerState.lastFetchAt = 0;
+	publicServerState.trackListCache = null;
+	publicServerState.trackListCacheAt = 0;
+	publicServerState.resolveInProgress = {};
 	updatePublicServerButtonStates();
 
 	try {
@@ -1310,6 +1335,18 @@ async function leavePublicServer() {
 	const serverId = publicServerState.serverId;
 	const clientId = multiplayerSessionState.clientId;
 	try { await publicLeaveServer( serverId, clientId ); } catch {}
+	// Tear down the PeerJS room connection so we actually leave the WebRTC mesh
+	// (not just the worker-side membership). Mirrors the Host/Join teardown path.
+	if ( multiplayerSessionState.peer || multiplayerSessionState.roomCode ) {
+
+		closeMultiplayerPeer();
+		multiplayerSessionState.role = 'none';
+		multiplayerSessionState.roomCode = '';
+		const codeInput = document.getElementById( 'mp-code-input' );
+		if ( codeInput ) codeInput.value = '';
+		setMultiplayerLeaderboardVisible( false );
+
+	}
 	await resetPublicServerState();
 
 }
@@ -1328,6 +1365,9 @@ async function resetPublicServerState() {
 	publicServerState.skippedLapSeconds = Infinity;
 	publicServerState.serverNowOffsetMs = 0;
 	publicServerState.lastFetchAt = 0;
+	publicServerState.trackListCache = null;
+	publicServerState.trackListCacheAt = 0;
+	publicServerState.resolveInProgress = {};
 	clearLoadedRoundIdFromStorage();
 	updatePublicServerButtonStates();
 
@@ -1337,7 +1377,13 @@ function startPublicServerLoops() {
 
 	stopPublicServerLoops();
 	publicServerState.pollTimer = setInterval( refreshPublicServerState, 1000 );
-	publicServerState.heartbeatTimer = setInterval( publicServerHeartbeat, 4000 );
+	// Heartbeats keep our membership + (hidden) host seat alive. The worker only
+	// PERSISTS a heartbeat when state actually changed or liveness is getting
+	// stale (coalescing), so this interval can be comfortably longer than the old
+	// 4s without risking a prune (MEMBER_STALE_MS is 120s on the worker). A longer
+	// interval means far fewer KV writes — the old 4s heartbeat was the main cause
+	// of blowing through the Cloudflare KV free-plan daily write quota.
+	publicServerState.heartbeatTimer = setInterval( publicServerHeartbeat, 12000 );
 	// A 250ms local tick re-renders the countdown from the synced server clock
 	// so the timer stays smooth and NEVER freezes — even if a poll is slow or
 	// fails, the countdown keeps updating off the last known server time.
@@ -1485,10 +1531,11 @@ function handlePublicServerRound( server ) {
 
 	}
 
-	// During the rankings window, ANY player (not just the host) picks a random
-	// track for the NEXT cycle if one hasn't been set yet. First-writer-wins on
-	// the worker, so concurrent attempts are harmless. This keeps the rotation
-	// working even if the hidden host peer disappeared.
+	// During the rankings window, pre-cache the NEXT cycle's track so the
+	// rotation is seamless. The pick is deterministic (see pickTrackForCycle), so
+	// every player computes the same next track; set-track is first-writer-wins so
+	// only ONE write happens per cycle across all clients. Guarded per cycle so we
+	// don't fire on every 1s poll.
 	const nextRound = server.nextRound || {};
 	const nextCycleIndex = Number( nextRound.cycleIndex ) || 0;
 	if ( inRankings && ! nextRound.hasTrack && publicServerState.trackSetForCycleIndex !== nextCycleIndex ) {
@@ -1497,27 +1544,30 @@ function handlePublicServerRound( server ) {
 		maybePickNextTrack( nextCycleIndex ).catch( ( e ) => console.warn( 'pick next track failed', e ) );
 
 	}
-	// If the next track got set (by us or anyone), reset our guard so we can
-	// try again next rankings window if needed.
 	if ( nextRound.hasTrack && publicServerState.trackSetForCycleIndex === nextCycleIndex ) {
 
 		publicServerState.trackSetForCycleIndex = -1;
 
 	}
 
-	// --- Round-redirect (anti-loop, host-independent) ---------------------
-	// Redirect everyone to the current round's track, but ONLY for a round we
-	// have NOT already loaded. `loadedRoundId` is persisted in sessionStorage
-	// (PUBSRV_LOADED_ROUND_KEY) so it survives the reload that follows a redirect.
-	//
-	// This is the hard anti-loop guarantee: after we redirect for round N and
-	// the page reloads, `loadedRoundId` (recovered from sessionStorage) == N, so
-	// we do NOT redirect again for round N — even if a signature-string
-	// comparison would otherwise mismatch (the old bug). A redirect can only
-	// fire for a round we genuinely haven't loaded yet (a fresh join onto the
-	// wrong map, or a round that advanced while we were connected).
+	// --- Track resolution (deterministic, host-independent) ----------------
+	// The track for each cycle is chosen DETERMINISTICALLY from the cycle index
+	// (which is itself derived from wall-clock UTC — a single global timezone, so
+	// every player computes the same cycleIndex and therefore the same track).
+	// See pickTrackForCycle() in PublicServers.js. This means:
+	//   • No coordination write is needed to AGREE on a track — everyone computes
+	//     the same answer. The worker's set-track endpoint is only used as a CACHE
+	//     so late joiners can read the already-picked track without re-fetching
+	//     the board (one first-writer-wins write per cycle, vs. every player
+	//     writing every rankings window under the old random scheme).
+	//   • FIRST JOIN navigates to the correct track immediately: even if no one
+	//     has cached the track for the current cycle yet, this client computes it
+	//     and redirects. The old code only picked a track during the rankings
+	//     window, so a fresh join onto a cycle with no cached track left you
+	//     stranded on the default map.
 	const sig = String( round.trackMapSignature || 'default|none' );
 	const hasTrack = Boolean( round.trackPlayUrl ) && sig !== 'default|none';
+	const currentCycleIndex = Number( round.cycleIndex ) || 0;
 	if ( hasTrack && roundId !== publicServerState.loadedRoundId ) {
 
 		// Already on the right map (e.g. we just reloaded onto the track we
@@ -1544,30 +1594,114 @@ function handlePublicServerRound( server ) {
 
 		}
 
+	} else if ( ! hasTrack && roundId !== publicServerState.loadedRoundId ) {
+
+		// No cached track for the current cycle yet. Resolve it deterministically
+		// (compute + cache via set-track, first-writer-wins) and redirect. This is
+		// the first-join fix: we don't wait for a rankings window — we navigate to
+		// the correct track right away. In-flight resolution is de-duplicated per
+		// cycle so the 1s poll can't kick off duplicate fetches.
+		ensureTrackForCycle( currentCycleIndex ).catch( ( e ) => console.warn( 'resolve track failed', e ) );
+
 	}
 
 }
 
-// Any player picks a random community track and sets it for the given (next)
-// cycle index. First-writer-wins on the worker. No host privilege involved.
+// Cached fetch of the community-track list (sorted by a stable key in
+// PublicServers.fetchTrackList). Cached for 60s so the 1s poll doesn't hammer
+// the track board. Returns [] on failure (caller treats "no tracks" gracefully).
+async function getCachedTrackList() {
+
+	const now = Date.now();
+	if ( publicServerState.trackListCache && ( now - publicServerState.trackListCacheAt ) < 60000 ) {
+		return publicServerState.trackListCache;
+	}
+	const list = await fetchTrackList();
+	publicServerState.trackListCache = list;
+	publicServerState.trackListCacheAt = now;
+	return list;
+
+}
+
+// Resolve the deterministic track for a cycle: compute it locally (so it's
+// identical for every player), cache it on the worker via set-track (first-
+// writer-wins, so only ONE write happens per cycle across all clients), then
+// redirect to it. De-duplicated per cycleIndex so repeated polls don't fire
+// concurrent fetches.
+async function ensureTrackForCycle( cycleIndex ) {
+
+	if ( ! isPublicServerActive() ) return;
+	const inflight = publicServerState.resolveInProgress[ cycleIndex ];
+	if ( inflight ) return inflight;
+	const promise = ( async () => {
+
+		try {
+
+			const list = await getCachedTrackList();
+			const entry = pickTrackForCycle( cycleIndex, publicServerState.serverId, list );
+			if ( ! entry || ! entry.playUrl ) return;
+			const sig = mapSignatureFromPlayUrl( entry.playUrl );
+			// Cache on the worker so late joiners read it directly. First-writer-wins:
+			// if someone already set it we get alreadySet:true and ignore the result.
+			// We still redirect off our own deterministic answer (which matches what
+			// the other player cached, since the pick is deterministic).
+			try {
+				await publicSetServerTrack( publicServerState.serverId, multiplayerSessionState.clientId, cycleIndex, entry.playUrl, sig );
+			} catch ( e ) {
+				console.warn( 'set-track cache failed (non-fatal — pick is deterministic)', e );
+			}
+			if ( ! isPublicServerActive() ) return;
+			const roundId = publicServerState.lastRoundId;
+			// Only redirect if we haven't already loaded this round's track and we're
+			// not already on it (avoid a redundant reload / loop).
+			const alreadyOnTrack = ( sig === getCurrentMapSignature() );
+			const alreadyLoadedThisRound = ( getLoadedRoundIdFromStorage() === roundId );
+			if ( alreadyOnTrack || alreadyLoadedThisRound ) {
+				publicServerState.loadedRoundId = roundId;
+				setLoadedRoundIdInStorage( roundId );
+				return;
+			}
+			setLoadedRoundIdInStorage( roundId );
+			publicServerState.loadedRoundId = roundId;
+			const url = buildServerTrackRedirectUrl( entry.playUrl, publicServerState.serverId );
+			updateMultiplayerStatus( `Loading next track for ${ publicServerName() }…` );
+			window.location.href = url;
+
+		} finally {
+
+			delete publicServerState.resolveInProgress[ cycleIndex ];
+
+		}
+
+	} )();
+	publicServerState.resolveInProgress[ cycleIndex ] = promise;
+	return promise;
+
+}
+
+// During the rankings window, pre-resolve + cache the NEXT cycle's track so the
+// rotation is seamless. This is a best-effort optimization — the next cycle's
+// track will also be resolved on demand if a joiner lands on it first. Uses the
+// deterministic picker so it matches what everyone else computes.
 async function maybePickNextTrack( nextCycleIndex ) {
 
 	if ( ! isPublicServerActive() ) return;
-	const playUrl = await fetchRandomTrackPlayUrl();
-	if ( ! playUrl ) {
-
-		// No community tracks available yet — reset our guard so we retry next
-		// poll during the rankings window. The current map keeps running; the
-		// round still advances on the wall-clock boundary, players just stay on
-		// the current track until a track becomes available.
-		publicServerState.trackSetForCycleIndex = -1;
-		return;
-
-	}
-	const sig = mapSignatureFromPlayUrl( playUrl );
 	try {
 
-		await publicSetServerTrack( publicServerState.serverId, multiplayerSessionState.clientId, nextCycleIndex, playUrl, sig );
+		const list = await getCachedTrackList();
+		const entry = pickTrackForCycle( nextCycleIndex, publicServerState.serverId, list );
+		if ( ! entry || ! entry.playUrl ) {
+
+			// No community tracks available yet — reset our guard so we retry next
+			// rankings window. The current map keeps running; the round still
+			// advances on the wall-clock boundary.
+			publicServerState.trackSetForCycleIndex = -1;
+			return;
+
+		}
+		const sig = mapSignatureFromPlayUrl( entry.playUrl );
+		// Cache on the worker (first-writer-wins). Harmless if already set.
+		await publicSetServerTrack( publicServerState.serverId, multiplayerSessionState.clientId, nextCycleIndex, entry.playUrl, sig );
 
 	} catch ( error ) {
 

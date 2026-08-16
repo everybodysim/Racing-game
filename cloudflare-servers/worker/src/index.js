@@ -5,8 +5,12 @@
 //
 // KV binding: SERVERS_KV
 // KV keys:
-//   servers:index        → JSON array of { id, name, code, memberCount }
 //   server:<id>          → JSON full server state (members, host, laps, tracks)
+//
+// (There is no `servers:index` key — the summary list is built live by
+// listServers() from each server's state, which it reads anyway. Rewriting an
+// index on every save used to double the write count and was a major cause of
+// blowing through the Cloudflare KV free-plan daily write quota.)
 //
 // Public servers are predefined (see PREDEFINED_SERVERS). They are lazily
 // initialized on first access via ensureServer().
@@ -20,7 +24,6 @@
 // disappears.
 
 const KV_SERVER_PREFIX = 'server:';
-const KV_INDEX = 'servers:index';
 
 // A cycle = 5 minutes of play + 5 seconds of rankings, then the next cycle.
 const PLAY_DURATION_MS = 5 * 60 * 1000;    // 5 minutes of racing.
@@ -32,9 +35,18 @@ const CYCLE_MS = PLAY_DURATION_MS + RANKINGS_WINDOW_MS; // 305000 ms per cycle.
 // when they joined. (Uses UTC — a single global timezone, as requested.)
 const ROUND_EPOCH = Date.UTC( 2026, 0, 1, 0, 0, 0 ); // 2026-01-01T00:00:00Z
 
-const HOST_STALE_MS = 15 * 1000;            // host heartbeat staleness threshold.
-const MEMBER_STALE_MS = 30 * 1000;          // members pruned after this.
+const HOST_STALE_MS = 45 * 1000;            // host heartbeat staleness threshold.
+const MEMBER_STALE_MS = 120 * 1000;         // members pruned after this.
 const MAX_TRACK_CYCLES = 24;                // cap stored per-cycle tracks.
+// Coalesce windows: a heartbeat only PERSISTS the member's lastSeenAt / the
+// host's hostHeartbeatAt when the previously-stored value is older than this.
+// This is the key write-amplification fix — without it every 4–12s heartbeat
+// wrote a fresh KV put (≈1800 puts/hour/player) and exhausted the Cloudflare KV
+// free-plan daily write quota (1000/day) in well under a day. With coalescing a
+// single idle player writes roughly once a minute, and only when state actually
+// changed (host reclaim / member prune / stale liveness refresh).
+const MEMBER_LASTSEEN_REFRESH_MS = 60 * 1000;   // refresh lastSeenAt when > this old.
+const HOST_HEARTBEAT_REFRESH_MS = 30 * 1000;    // refresh hostHeartbeatAt when > this old.
 
 // The fixed public servers. `code` is the shared 6-char PeerJS room code
 // (matches /^[A-Z0-9]{6}$/) — every player in a server connects to the same
@@ -167,12 +179,18 @@ function initServer( def ) {
 	};
 }
 
+// Persist a server state. This is the ONLY place a `server:<id>` KV put for
+// full-state happens. NOTE: there is intentionally NO `refreshIndex()` here —
+// the `servers:index` summary used to be rewritten on every save (doubling the
+// write count for every operation), but `listServers()` already builds the
+// summaries live by reading each server, so the index key is redundant. Dropping
+// it HALVES the total KV writes and was a major contributor to blowing through
+// the Cloudflare KV free-plan daily write quota (1000/day).
 async function saveServer( state, env ) {
 	state.updatedAt = Date.now();
 	// Prune old per-cycle laps/tracks so the stored blob stays bounded.
 	pruneCycleData( state );
 	await env.SERVERS_KV.put( KV_SERVER_PREFIX + state.id, JSON.stringify( state ) );
-	await refreshIndex( env );
 	return state;
 }
 
@@ -193,19 +211,6 @@ function pruneCycleData( state ) {
 		}
 	}
 
-}
-
-async function refreshIndex( env ) {
-	const summaries = [];
-	for ( const def of PREDEFINED_SERVERS ) {
-		const raw = await env.SERVERS_KV.get( KV_SERVER_PREFIX + def.id );
-		let memberCount = 0;
-		if ( raw ) {
-			try { memberCount = Object.keys( JSON.parse( raw ).members || {} ).length; } catch {}
-		}
-		summaries.push( { id: def.id, name: def.name, code: def.code, memberCount } );
-	}
-	await env.SERVERS_KV.put( KV_INDEX, JSON.stringify( summaries ) );
 }
 
 function pruneMembers( state, now ) {
@@ -287,17 +292,23 @@ async function claimHost( id, request, env ) {
 	const clientId = cleanId( payload?.clientId );
 	if ( ! clientId ) return json( { ok: false, error: 'clientId required' }, 400 );
 	const now = Date.now();
-	pruneMembers( state, now );
+	const pruned = pruneMembers( state, now );
 	if ( ! state.members[ clientId ] ) state.members[ clientId ] = { name: cleanName( payload?.name ), lastSeenAt: now };
 	let isHost = false;
+	let hostChanged = false;
 	if ( ! isHostFresh( state, now ) ) {
 		state.hostId = clientId;
 		state.hostHeartbeatAt = now;
 		isHost = true;
+		hostChanged = true;
 	} else {
 		isHost = state.hostId === clientId;
 	}
-	await saveServer( state, env );
+	// Only persist if the host seat actually changed or members were pruned.
+	// If we're already the fresh host and nothing else changed, this is a no-op.
+	if ( hostChanged || pruned ) {
+		await saveServer( state, env );
+	}
 	return json( { ok: true, server: publicView( state, now ), isHost } );
 }
 
@@ -308,17 +319,36 @@ async function heartbeat( id, request, env ) {
 	const clientId = cleanId( payload?.clientId );
 	if ( ! clientId ) return json( { ok: false, error: 'clientId required' }, 400 );
 	const now = Date.now();
-	pruneMembers( state, now );
+	const pruned = pruneMembers( state, now );
+	const prevMember = state.members[ clientId ];
+	const prevLastSeen = Number( prevMember?.lastSeenAt ) || 0;
 	state.members[ clientId ] = { name: cleanName( payload?.name ), lastSeenAt: now };
 	// If no live host, this heartbeat claims the seat so the server is never
 	// host-less (keeps the PeerJS host peer alive for joiners). No privileges.
+	let hostChanged = false;
+	const prevHostHeartbeat = Number( state.hostHeartbeatAt ) || 0;
 	if ( ! isHostFresh( state, now ) ) {
 		state.hostId = clientId;
 		state.hostHeartbeatAt = now;
+		hostChanged = true;
 	} else if ( state.hostId === clientId ) {
+		// We are the host — refresh hostHeartbeatAt, but only persist when it is
+		// getting close to stale (coalescing). The in-memory view always reflects
+		// `now`; only the KV-stored value is throttled.
+		if ( now - prevHostHeartbeat > HOST_HEARTBEAT_REFRESH_MS ) hostChanged = true;
 		state.hostHeartbeatAt = now;
 	}
-	await saveServer( state, env );
+	// Decide whether this heartbeat needs to persist. Writing on EVERY heartbeat
+	// (the old behaviour) blew through the KV free-plan write quota in hours.
+	// We persist only when something material changed:
+	//   - the host seat flipped (claimed/reclaimed), or
+	//   - members were pruned, or
+	//   - this member's persisted lastSeenAt is getting stale (> refresh window),
+	//     so it won't be wrongly pruned before the next heartbeat.
+	const memberLivenessStale = ( now - prevLastSeen ) > MEMBER_LASTSEEN_REFRESH_MS;
+	if ( hostChanged || pruned || memberLivenessStale ) {
+		await saveServer( state, env );
+	}
 	return json( { ok: true, server: publicView( state, now ), isHost: state.hostId === clientId } );
 }
 
@@ -331,7 +361,7 @@ async function submitLap( id, request, env ) {
 	const name = cleanName( payload?.name );
 	if ( ! clientId || ! Number.isFinite( time ) || time < 0 ) return json( { ok: false, error: 'invalid lap' }, 400 );
 	const now = Date.now();
-	pruneMembers( state, now );
+	const pruned = pruneMembers( state, now );
 	// Store the lap under the CURRENT cycle index (wall-clock derived). This
 	// means laps are always scoped to the right round even if a client's clock
 	// drifted slightly — the worker's clock is authoritative.
@@ -339,10 +369,17 @@ async function submitLap( id, request, env ) {
 	if ( ! state.laps ) state.laps = {};
 	const cycleLaps = state.laps[ info.cycleIndex ] || ( state.laps[ info.cycleIndex ] = {} );
 	const existing = cycleLaps[ clientId ];
+	let improved = false;
 	if ( ! existing || time < Number( existing.time ) ) {
 		cycleLaps[ clientId ] = { name, time, updatedAt: now };
+		improved = true;
 	}
-	await saveServer( state, env );
+	// Only persist when the lap actually improved OR members were pruned. The old
+	// code unconditionally saved on every lap submission (even no-improvement
+	// pings), burning a KV write each time.
+	if ( improved || pruned ) {
+		await saveServer( state, env );
+	}
 	return json( { ok: true, server: publicView( state, now ), isHost: state.hostId === clientId } );
 }
 

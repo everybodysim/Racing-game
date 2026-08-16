@@ -127,6 +127,18 @@ export async function leaveServer( serverId, clientId ) {
 
 export async function fetchRandomTrackPlayUrl() {
 
+	const list = await fetchTrackList();
+	return list.length ? list[ Math.floor( Math.random() * list.length ) ].playUrl : null;
+
+}
+
+// Fetch the full community-track list from the board (sorted by a stable key so
+// the deterministic picker below is reproducible across clients). Each entry is
+// { id, name, playUrl, ... }. We sort by `id` (a stable uuid set at publish
+// time) and fall back to `playUrl` so the order is identical for every client
+// regardless of insertion order or KV iteration order.
+export async function fetchTrackList() {
+
 	const controller = new AbortController();
 	const timeoutId = setTimeout( () => controller.abort(), 6000 );
 	try {
@@ -136,14 +148,69 @@ export async function fetchRandomTrackPlayUrl() {
 		const data = await response.json();
 		const entries = Array.isArray( data?.entries ) ? data.entries : [];
 		const usable = entries.filter( ( e ) => typeof e?.playUrl === 'string' && e.playUrl );
-		if ( usable.length === 0 ) return null;
-		return usable[ Math.floor( Math.random() * usable.length ) ].playUrl;
+		usable.sort( ( a, b ) => {
+			const ka = String( a.id || a.playUrl );
+			const kb = String( b.id || b.playUrl );
+			return ka < kb ? -1 : ka > kb ? 1 : 0;
+		} );
+		return usable;
 
 	} finally {
 
 		clearTimeout( timeoutId );
 
 	}
+
+}
+
+// Deterministic seeded PRNG (mulberry32). Given the same seed it always produces
+// the same sequence, so every client picking a track for the same cycle gets the
+// SAME result — no worker write needed to agree on a track.
+function mulberry32( seed ) {
+
+	let a = seed >>> 0;
+	return function () {
+
+		a |= 0; a = ( a + 0x6D2B79F5 ) | 0;
+		let t = Math.imul( a ^ ( a >>> 15 ), 1 | a );
+		t = ( t + Math.imul( t ^ ( t >>> 7 ), 61 | t ) ) ^ t;
+		return ( ( t ^ ( t >>> 14 ) ) >>> 0 ) / 4294967296;
+
+	};
+
+}
+
+// Hash a string into a 32-bit int (FNV-1a-ish). Used to fold the server id into
+// the seed so different public servers get different track sequences for the
+// same cycle (more variety), while still being fully deterministic.
+function hashString( str ) {
+
+	let h = 2166136261 >>> 0;
+	for ( let i = 0; i < str.length; i++ ) {
+
+		h ^= str.charCodeAt( i );
+		h = Math.imul( h, 16777619 );
+
+	}
+	return h >>> 0;
+
+}
+
+// Pick the track for a given cycle deterministically. The cycle index is derived
+// from wall-clock UTC (see the worker's ROUND_EPOCH / CYCLE_MS), so this is the
+// "seed from a single world timezone" approach: every player computes the same
+// cycleIndex and therefore the same track, with no coordination write. The
+// server id is folded into the seed so the three public servers don't all race
+// the same track on the same cycle. Returns the chosen entry, or null if the
+// list is empty.
+export function pickTrackForCycle( cycleIndex, serverId, trackList ) {
+
+	if ( ! Array.isArray( trackList ) || trackList.length === 0 ) return null;
+	let seed = ( Math.imul( Number( cycleIndex ) || 0, 2654435761 ) ) >>> 0;
+	seed = ( seed ^ hashString( String( serverId || '' ) ) ) >>> 0;
+	const rng = mulberry32( seed );
+	const idx = Math.floor( rng() * trackList.length );
+	return trackList[ idx ] || null;
 
 }
 

@@ -327,6 +327,16 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 		#mp-public-buttons button:hover { background: rgba(83,212,255,0.34); }
 		#mp-public-buttons button:disabled { opacity: 0.5; cursor: default; }
+		#mp-public-leave-btn {
+			border: none;
+			border-radius: 6px;
+			background: rgba(255,92,120,0.20);
+			color: #ffd6dc;
+			padding: 6px 8px;
+			font: 600 11px/1 sans-serif;
+			cursor: pointer;
+		}
+		#mp-public-leave-btn:hover { background: rgba(255,92,120,0.36); }
 		#mp-server-timer {
 			display: none;
 			margin-top: 4px;
@@ -2621,6 +2631,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		<div id="mp-public-row">
 			<div class="mp-public-label">Public servers</div>
 			<div id="mp-public-buttons"></div>
+			<button id="mp-public-leave-btn" type="button" style="display:none;">Leave server</button>
 		</div>
 		<div id="mp-actions">
 			<button id="mp-host-btn" type="button">Host</button>

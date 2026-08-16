@@ -1058,6 +1058,74 @@ The mobile UI had two independent triggers; BOTH are neutralized:
   via the buttons or `?pubServer=` boot param). No `pubServer` param = no
   public-server code runs at all.
 
+### KV write budget (CRITICAL — Cloudflare free plan is 1000 writes/day)
+- The KV free plan allows only **1,000 put()s per day**. The original worker blew
+  through this in a few hours with a SINGLE player because every heartbeat wrote.
+  The fixes below brought a 3-hour single-player session from ~5400 puts to ~317
+  (verified by `test-public-servers-fixes.mjs`). Do NOT regress these:
+  1. **No `refreshIndex()`.** `saveServer()` used to call `refreshIndex()` which
+     wrote a redundant `servers:index` key on EVERY save (doubling all writes).
+     The index is built LIVE by `listServers()` (which reads all 3 servers
+     anyway), so the index key was deleted entirely. `KV_INDEX` constant removed.
+  2. **Heartbeat write-coalescing.** `heartbeat()` only persists when something
+     material changed: host seat flipped (`hostChanged`), members pruned
+     (`pruned`), OR the member's persisted `lastSeenAt` is getting stale
+     (`now - prevLastSeen > MEMBER_LASTSEEN_REFRESH_MS` = 60s). The in-memory
+     view always reflects `now`; only the KV-stored value is throttled. The host
+     refreshes `hostHeartbeatAt` only when `now - prevHostHeartbeat >
+     HOST_HEARTBEAT_REFRESH_MS` (30s). Constants: `MEMBER_STALE_MS=120s`,
+     `HOST_STALE_MS=45s`, `MEMBER_LASTSEEN_REFRESH_MS=60s`,
+     `HOST_HEARTBEAT_REFRESH_MS=30s`.
+  3. **`submitLap` only writes when the lap improved** (`improved`) or members
+     were pruned — not on every lap ping.
+  4. **`claimHost` only writes when the host seat changed or members pruned.**
+  5. **Client heartbeat interval = 12s** (was 4s). Safe under the 120s prune.
+- `getServer` (GET) and `listServers` (GET) are READ-ONLY (they call
+  `pruneMembers` for the response view but do NOT `saveServer`). Keep it that way.
+- Edge case: a single player idling 24/7 would still eventually approach the
+  limit (~1 host write per 30s = 2880/day). Free plan can't sustain true 24/7
+  presence; the fixes make NORMAL play (hours) safe. Upgrade for 24/7.
+
+### Deterministic track rotation (the "seed from UTC" approach)
+- The track for each cycle is chosen DETERMINISTICALLY from the cycle index, NOT
+  randomly per player. `pickTrackForCycle(cycleIndex, serverId, trackList)` in
+  `PublicServers.js` uses a mulberry32 PRNG seeded from
+  `cycleIndex * 2654435761 ^ hashString(serverId)`. The cycleIndex is derived
+  from wall-clock UTC (the worker's `ROUND_EPOCH`/`CYCLE_MS`), so this is the
+  "seed from a single global timezone" the user asked for — every player
+  computes the SAME track for the same cycle with zero coordination.
+- `fetchTrackList()` fetches the full community-track board and SORTS it by a
+  stable key (`id`, falling back to `playUrl`) so the deterministic pick is
+  reproducible across clients regardless of insertion/KV-iteration order.
+- The worker's `set-track` endpoint is now only a CACHE (first-writer-wins): the
+  first client to resolve a cycle caches it so late joiners read it directly.
+  Because the pick is deterministic, every client agrees — only ONE set-track
+  write happens per cycle across all clients (was: every player wrote every
+  rankings window under the old random scheme).
+- **First-join fix.** `handlePublicServerRound` now resolves the current cycle's
+  track ON JOIN (not only during the rankings window). If the worker has a cached
+  track → redirect to it. If NOT → `ensureTrackForCycle(cycleIndex)` computes it
+  deterministically, caches via set-track, and redirects. This fixes the old bug
+  where a fresh join onto a cycle with no cached track stranded you on the
+  default map. In-flight resolution is de-duplicated per cycleIndex
+  (`resolveInProgress`) so the 1s poll can't fire duplicate fetches.
+- `maybePickNextTrack` (rankings-window) now uses the deterministic picker too —
+  it pre-caches the NEXT cycle's track so rotation is seamless. Best-effort; the
+  next cycle also resolves on demand if a joiner lands first.
+- Track-list is cached client-side for 60s (`trackListCache`/`trackListCacheAt`)
+  via `getCachedTrackList()` so the 1s poll doesn't hammer the track board.
+- `fetchRandomTrackPlayUrl` is still exported (kept for compatibility) but no
+  longer used by main.js — the deterministic `fetchTrackList` +
+  `pickTrackForCycle` replaced it.
+
+### Leave Server button
+- `#mp-public-leave-btn` in `#mp-public-row` (index.html), shown only while
+  `isPublicServerActive()` via `updatePublicServerButtonStates()`. Click handler
+  wired once in `buildPublicServerButtons()` (guarded by `dataset.wired`).
+- Calls `leavePublicServer()`, which now ALSO tears down the PeerJS peer
+  (`closeMultiplayerPeer()` + clears `roomCode`/`role`/code input) so the player
+  actually leaves the WebRTC mesh, not just the worker-side membership.
+
 ### Architecture (why a separate worker, no Firebase changes)
 - The synced round timer + round rotation + per-round rankings must be IDENTICAL
   for every player. Firebase RTDB (which backs PeerJS room metadata) **cannot be
