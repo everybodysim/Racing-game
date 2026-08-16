@@ -311,6 +311,32 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			display: none;
 			box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
 		}
+		/* ---- Multiplayer quick panel + current-server card ---- */
+		#mp-panel.expanded { min-width: 230px; max-width: 260px; }
+		.mp-hub-link {
+			display: block;
+			text-align: center;
+			text-decoration: none;
+			border-radius: 6px;
+			padding: 6px 8px;
+			margin-bottom: 8px;
+			background: rgba(83,212,255,0.22);
+			color: #eaf6ff;
+			font: 700 11px/1 sans-serif;
+			border: 1px solid rgba(83,212,255,0.4);
+		}
+		.mp-hub-link:hover { background: rgba(83,212,255,0.38); }
+		.mp-current-server {
+			background: rgba(83,212,255,0.16); border: 1px solid rgba(83,212,255,0.4);
+			border-radius: 6px; padding: 6px 7px; margin-bottom: 8px;
+		}
+		.mp-current-server .mp-cs-name { font: 700 12px/1.2 sans-serif; word-break: break-word; }
+		.mp-current-server .mp-cs-meta { font: 600 10px/1.3 sans-serif; opacity: 0.85; margin-top: 2px; }
+		.mp-current-server .mp-cs-players { font: 600 10px/1.4 sans-serif; margin-top: 4px; opacity: 0.9; }
+		.mp-current-server .mp-cs-actions { display: flex; gap: 4px; margin-top: 5px; }
+		.mp-current-server .mp-cs-actions button { border: none; border-radius: 5px; cursor: pointer; padding: 4px 8px; font: 600 10px/1 sans-serif; }
+		.mp-current-server .mp-cs-leave { background: rgba(255,80,80,0.3); color: #fff; }
+		.mp-current-server .mp-cs-leave:hover { background: rgba(255,80,80,0.5); }
 		#competitions-warning-overlay {
 			position: fixed;
 			inset: 0;
@@ -2190,6 +2216,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					</div>
 
 					<div id="home-secondary">
+						<a class="home-secondary-link" href="multiplayer.html">Multiplayer servers</a>
 						<a class="home-secondary-link" href="replay.html">Replay watcher</a>
 						<a class="home-secondary-link" href="mods.html">Mods</a>
 						<a class="home-secondary-link" href="custommods.html">Custom mods</a>
@@ -2551,10 +2578,24 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<button id="import-ghost-btn" type="button">Import ghost</button>
 	<div id="mp-panel" aria-label="Multiplayer">
 		<div id="mp-panel-title">Multiplayer</div>
+
+		<!-- Current server summary (only shown while inside a server) -->
+		<div id="mp-current-server" class="mp-current-server" style="display:none">
+			<div class="mp-cs-name" id="mp-cs-name"></div>
+			<div class="mp-cs-meta" id="mp-cs-meta"></div>
+			<div class="mp-cs-players" id="mp-cs-players"></div>
+			<div class="mp-cs-actions">
+				<button id="mp-change-track-btn" class="mp-cs-track" type="button" style="background:rgba(90,200,255,0.3);color:#fff">Change Track</button>
+				<button id="mp-leave-server-btn" class="mp-cs-leave" type="button">Leave Server</button>
+			</div>
+		</div>
+
+		<!-- Quick multiplayer: classic Host / Join / Copy + a link to the full hub -->
+		<a id="mp-hub-link" class="mp-hub-link" href="multiplayer.html" target="_blank" rel="noopener">Open Multiplayer Hub →</a>
 		<div id="mp-actions">
 			<button id="mp-host-btn" type="button">Host</button>
 			<button id="mp-join-btn" type="button">Join</button>
-			<button id="mp-debug-toggle-btn" type="button" title="Toggle multiplayer debug console">Toggle Debug</button>
+			<button id="mp-debug-toggle-btn" type="button" title="Toggle multiplayer debug console">Debug</button>
 		</div>
 		<div id="mp-code-row">
 			<input id="mp-code-input" type="text" maxlength="6" placeholder="ROOM CODE" aria-label="Room code">
@@ -3388,8 +3429,15 @@ document.getElementById('loading-status').textContent =
 <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
 
 <script>
+  // ---- Chat system: global (default) + server-scoped contexts ----
+  // One Ably connection is shared. When the player joins a multiplayer server,
+  // main.js calls window.SkidChat.setServerContext(serverId, serverName) to
+  // switch to that server's chat channel; leaving calls clearServerContext() to
+  // restore the global chat. Global chat behavior is identical to before when no
+  // server is joined. See js/ServerChat.js docs and cloudflare-servers worker.
   const ably = new Ably.Realtime("kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDmM");
-  const channel = ably.channels.get("global-chat");
+  const GLOBAL_CHAT_CHANNEL = "global-chat";
+  const channel = ably.channels.get(GLOBAL_CHAT_CHANNEL);
 
   const chatBox = document.getElementById("chat");
   const chatWindow = document.getElementById("chat-box");
@@ -3583,39 +3631,162 @@ document.getElementById('loading-status').textContent =
   updateClubUnreadButtons();
   loadMyClubIds().then(hydrateMissedClubMessages);
 
-  function addMessage(text) {
-    if (isClubTaggedMessage(text)) return;
-    if (seen.has(text)) return;
-    seen.add(text);
+  // ---- Chat context: global (default) or server-scoped ----
+  // currentChatContext drives which channel messages are sent to / received
+  // from. Switching contexts clears the on-screen messages + dedupe set so chat
+  // history never leaks between servers, then re-subscribes + reloads history
+  // for the new context. Only one context is active at a time per player.
+  const GLOBAL_CONTEXT = { type: 'global', channel, name: 'Global', serverId: null, serverName: null };
+  let currentChatContext = GLOBAL_CONTEXT;
+  const serverChannelByName = new Map(); // channel name -> Ably channel (reused across switches)
 
-    const div = document.createElement("div");
-    div.className = "msg";
+  function getServerChannel( serverId ) {
+    const name = `skidcircuit:server:${ Number( serverId ) }:chat`;
+    let ch = serverChannelByName.get( name );
+    if ( ! ch ) {
+      ch = ably.channels.get( name );
+      serverChannelByName.set( name, ch );
+    }
+    return ch;
+  }
+
+  function getRoomChannel( roomCode ) {
+    const name = `skidcircuit:room:${ String( roomCode ).toUpperCase() }:chat`;
+    let ch = serverChannelByName.get( name );
+    if ( ! ch ) {
+      ch = ably.channels.get( name );
+      serverChannelByName.set( name, ch );
+    }
+    return ch;
+  }
+
+  function renderContextHeader() {
+    const header = document.getElementById( 'chat-header' );
+    if ( ! header ) return;
+    if ( currentChatContext.type === 'server' ) {
+      header.textContent = `Server Chat — ${ currentChatContext.serverName || ( '#' + currentChatContext.serverId ) }`;
+    } else if ( currentChatContext.type === 'room' ) {
+      header.textContent = `Room Chat — ${ currentChatContext.roomCode }`;
+    } else {
+      header.textContent = 'Live Chat';
+    }
+  }
+
+  function clearChatBox() {
+    seen.clear();
+    if ( chatBox ) chatBox.innerHTML = '';
+  }
+
+  function addMessage( text, opts = {} ) {
+    // Club-tagged messages only matter in the GLOBAL context (they're filtered
+    // out of the visible chat and counted toward club unread). In a server/room
+    // context a message may legitimately start with "[Server N]" / "[Room CODE]"
+    // (the publisher-side prefix) and must still render.
+    if ( currentChatContext.type === 'global' && isClubTaggedMessage( text ) ) return;
+    if ( seen.has( text ) ) return;
+    seen.add( text );
+    const div = document.createElement( 'div' );
+    div.className = 'msg';
+    // Server/room messages already arrive tagged by the publisher (see sendMsg /
+    // ServerChat). We render verbatim with innerText (never innerHTML) so no
+    // HTML/script injection is possible regardless of content.
     div.innerText = text;
-    chatBox.appendChild(div);
+    chatBox.appendChild( div );
     chatBox.scrollTop = chatBox.scrollHeight;
   }
+
+  function loadHistoryCurrent() {
+    if ( ! chatBox || chatBox.childElementCount > 0 ) return;
+    currentChatContext.channel.history( { limit: 100 }, ( err, result ) => {
+      if ( err ) {
+        console.error( err );
+        return;
+      }
+      const messages = ( result.items || [] ).reverse(); // oldest → newest
+      messages.forEach( ( msg ) => addMessage( msg.data ) );
+    } );
+  }
+
+  function subscribeCurrent() {
+    // Detach any previous live listener for THIS context first (idempotent —
+    // prevents duplicate subscriptions if called twice).
+    unsubscribeCurrent();
+    const handler = ( msg ) => {
+      if ( currentChatContext.type === 'global' && isClubTaggedMessage( msg.data ) ) {
+        incrementClubUnread( msg );
+        return;
+      }
+      addMessage( msg.data );
+      if ( chatWindow.style.display !== 'flex' || document.hidden ) {
+        setUnreadIndicator( true );
+      }
+      maybeSendMessageNotification( msg.data );
+    };
+    currentChatContext._handler = handler;
+    currentChatContext.channel.subscribe( handler );
+  }
+
+  function unsubscribeCurrent() {
+    if ( currentChatContext._handler ) {
+      try { currentChatContext.channel.unsubscribe( currentChatContext._handler ); } catch {}
+      currentChatContext._handler = null;
+    }
+  }
+
+  function switchChatContext( nextContext ) {
+    if ( nextContext === currentChatContext ) return;
+    unsubscribeCurrent();
+    currentChatContext = nextContext;
+    clearChatBox();
+    renderContextHeader();
+    subscribeCurrent();
+    loadHistoryCurrent();
+  }
+
+  // Public bridge called by main.js (js/main.js server join/leave handlers).
+  window.SkidChat = {
+    setServerContext( serverId, serverName ) {
+      const id = Number( serverId );
+      if ( ! Number.isFinite( id ) || id <= 0 ) return;
+      switchChatContext( {
+        type: 'server',
+        channel: getServerChannel( id ),
+        name: `skidcircuit:server:${ id }:chat`,
+        serverId: id,
+        serverName: serverName || null,
+      } );
+    },
+    // Room-code-scoped chat (legacy join-by-code sessions, which have no server
+    // record). Isolates chat to just the players in that room code so a
+    // join-by-code session does NOT broadcast to the global audience.
+    setRoomContext( roomCode ) {
+      const code = String( roomCode || '' ).trim().toUpperCase();
+      if ( ! /^[A-Z0-9]{6}$/.test( code ) ) return;
+      switchChatContext( {
+        type: 'room',
+        channel: getRoomChannel( code ),
+        name: `skidcircuit:room:${ code }:chat`,
+        roomCode: code,
+      } );
+    },
+    clearServerContext() {
+      switchChatContext( GLOBAL_CONTEXT );
+    },
+    isInServerContext() {
+      return currentChatContext.type === 'server' || currentChatContext.type === 'room';
+    },
+    getCurrentServerId() {
+      return currentChatContext.serverId;
+    },
+  };
 
   // Toggle chat
   chatButton.onclick = () => {
     const opening = chatWindow.style.display !== "flex";
-
     chatWindow.style.display = opening ? "flex" : "none";
-
-    if (opening) {
-      setUnreadIndicator(false);
-    }
-
-    // Load history ONLY when opening (so it doesn’t reload every time)
-    if (opening && chatBox.childElementCount === 0) {
-      channel.history({ limit: 100 }, (err, result) => {
-        if (err) {
-          console.error(err);
-          return;
-        }
-
-        const messages = result.items.reverse(); // oldest → newest
-        messages.forEach(msg => addMessage(msg.data));
-      });
+    if ( opening ) {
+      setUnreadIndicator( false );
+      loadHistoryCurrent();
     }
   };
 
@@ -3637,29 +3808,28 @@ document.getElementById('loading-status').textContent =
   if (!userName && nameInput) nameInput.placeholder = "Log in to an account to chat";
   if (setBtn) setBtn.title = "Username is your account username";
 
-  // Live messages
-  channel.subscribe(msg => {
-    if (isClubTaggedMessage(msg.data)) {
-      incrementClubUnread(msg);
-      return;
-    }
-    addMessage(msg.data);
-    if (chatWindow.style.display !== "flex" || document.hidden) {
-      setUnreadIndicator(true);
-    }
-    maybeSendMessageNotification(msg.data);
-  });
+  // Start subscribed to the global chat (default context).
+  subscribeCurrent();
 
-  // Send message
+  // Send message — publishes to whichever context is active (global or server).
   function sendMsg() {
     const input = document.getElementById("msg");
     if (!input.value.trim()) return;
 
     const name = getAccountUsername();
     if (!name) { alert("Log in to your account to use chat."); return; }
-    const message = name + ": " + input.value;
+    const raw = input.value.trim();
+    // Server messages are tagged with the server id so other players in the
+    // same server channel can render them with a prefix. Global messages keep
+    // the exact original wire format ("username: text") so the existing global
+    // audience is unaffected.
+    const message = currentChatContext.type === 'server'
+      ? `[Server ${ currentChatContext.serverId }] ${ name }: ${ raw }`
+      : currentChatContext.type === 'room'
+        ? `[Room ${ currentChatContext.roomCode }] ${ name }: ${ raw }`
+        : `${ name }: ${ raw }`;
 
-    channel.publish("message", message);
+    currentChatContext.channel.publish("message", message);
     input.value = "";
   }
 

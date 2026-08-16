@@ -162,6 +162,14 @@ function buildLaunchUrl( playUrl ) {
 		const parsed = new URL( playUrl, window.location.href );
 		if ( ! parsed.searchParams.get( 'map' ) ) return playUrl;
 		parsed.searchParams.set( 'play', '1' );
+		// Preserve a host/server intent: if this page was opened with ?host=<id>
+		// (the host clicked "Change Track" in-game), re-enter the game as the host
+		// of that server so the chosen track becomes the new server map.
+		const hostId = new URLSearchParams( window.location.search ).get( 'host' );
+		if ( hostId && /^\d+$/.test( hostId ) ) {
+			parsed.searchParams.set( 'server', hostId );
+			parsed.searchParams.set( 'host', '1' );
+		}
 		// keep the #ghost fragment if present
 		const hash = parsed.hash || '';
 		return `${ parsed.origin }${ parsed.pathname }${ parsed.search ? `?${ parsed.searchParams.toString() }` : '' }${ hash }`;
@@ -183,6 +191,19 @@ const recordsLabel = document.getElementById( 'records-label' );
 const statTotal = document.getElementById( 'stat-total' );
 const statHeld = document.getElementById( 'stat-held' );
 const statOpen = document.getElementById( 'stat-open' );
+
+// If opened via "Change Track" from a multiplayer server, show a banner so the
+// host knows picking a track will move their server to it.
+( function hostPickBanner() {
+	const hostId = new URLSearchParams( window.location.search ).get( 'host' );
+	if ( ! hostId || ! /^\d+$/.test( hostId ) ) return;
+	const wrap = document.querySelector( '.wrap' );
+	if ( ! wrap ) return;
+	const banner = document.createElement( 'div' );
+	banner.style.cssText = 'margin:14px 0 0;padding:12px 16px;border-radius:13px;border:1px solid rgba(90,200,255,.4);background:rgba(90,200,255,.1);font:700 13px sans-serif;color:#bfe6ff';
+	banner.innerHTML = `🏁 <b>Changing track for server #${ escapeHtml( hostId ) }</b> — pick a track below to move your server (and its players) to it. <a href="index.html?play=1&server=${ encodeURIComponent( hostId ) }" style="color:#fff;text-decoration:underline">Cancel</a>`;
+	wrap.insertBefore( banner, wrap.firstChild.nextSibling );
+} )();
 
 statTotal.textContent = String( TRACKS.length );
 
