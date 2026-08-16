@@ -60,6 +60,222 @@
 - Garage card grid: `repeat(5, minmax(0,1fr))` → 2×5 grid for 10 cars. Responsive: 3 cols
   <1200px, 2 cols <720px. Mobile forces 2 cols.
 
+## Car painter / Paint Shop (garage) — 3D click-to-fill (`js/main.js` + `index.html`)
+
+### What it is now (simplified)
+- A simple, new-player-friendly 3D painter. You **click a color directly on the
+  3D car** in the viewer, the whole connected region of that color gets selected,
+  you pick a new paint color, and Apply (300 coins). That's it — no tools, no
+  brushes, no 2D sheet. Drag to rotate the car; a click (no drag) selects.
+- The selection is **flood-filled** (4-neighbourhood, connected) using **redmean
+  color distance** so it grabs one panel/region — NOT scattered chunks of similar
+  color elsewhere (the old "only selects chunks" bug). Redmean also fixes the old
+  "white selects everything" and "black is buggy" problems (perceptually weighted
+  by redness, white/black no longer collapse onto every color).
+- The live 3D preview shows the selected region in your chosen NEW color before
+  you commit, so you see exactly how it'll look.
+- Selections persist as compact RLE pixel masks per mapping, so repaints are
+  region-accurate (the exact pixels you clicked-on's region, not a global re-match).
+
+### History (why this exists)
+- v1 (original): click 3D car → global color-distance re-match. Bugs: chunky
+  selection (disconnected similar-color pixels), white grabbed everything, black
+  grabbed nothing.
+- v2 (over-engineered): 2D "paint sheet" + Wand/Brush/Eraser tools. Too complex
+  for new players; too much freedom for inappropriate content.
+- v3 (current): 3D click-to-fill. Keeps v2's flood-fill + redmean + RLE-mask
+  infrastructure (which fixed the v1 bugs) but drives it from a single 3D click.
+  No 2D sheet, no tool buttons, no brush.
+
+### Layout (`index.html` `#garage-paint-studio`)
+- 2-column grid: `#garage-paint-tools` (left, narrow ~280px) | `#garage-viewer-wrap`
+  3D canvas (right, the PRIMARY interaction surface — click the car here).
+- Controls (minimal): `#garage-target-color` (new paint color picker),
+  `#garage-repaint-tolerance` range 4–180 ("Color match" slider, default 40),
+  `#garage-clear-selection-btn`, `#garage-apply-paint-btn`, `#garage-selection-chip`
+  (status), `#garage-mapping-status`, `#garage-mappings-list`.
+- `#garage-viewer` is a `<canvas>` (WebGL). cursor:pointer; .dragging cursor:grabbing.
+
+### Core functions (search `garageRedmeanDistanceSq` as the anchor)
+- `garageRedmeanDistanceSq(r1,g1,b1,r2,g2,b2)`: perceptual color distance (redmean).
+- `getGarageActiveTexture()`: finds the selected car model's first `material.map`.
+- `ensureGarageSelectionSource()`: binds the selected car's colormap pixels to
+  selection state (caches via `garageSelectionTexture`/`garageSelectionSource`);
+  called from `updateGarageUi()`, `setModeTab('garage')`, `selectGarageCar()`,
+  `garageSelectFromViewerClick()`. Re-binds on car switch; resets the mask.
+- `getGarageViewerHit(event)`: raycasts the 3D viewer canvas → first mesh hit + uv.
+- `sampleTextureHexAtUv(texture, uv)`: most-common color in a 3px radius around a
+  UV (flipY-aware: v = texture.flipY ? 1-uv.y : uv.y). Used to be the main picker;
+  now `garagePixelHex` (single pixel) is used for the seed, but this is kept.
+- `garagePixelHex(x,y)`: hex of one texture pixel (image-data space, row 0 = top).
+- `garageSelectFromViewerClick(event)`: THE entry point. raycast → uv → seed pixel
+  → `garagePixelHex` → `garageFloodFill` → set `selectedGarageSourceHex` →
+  `refreshGarageViewer()` (live preview in target color) → `updateGaragePaintControls()`.
+- `garageFloodFill(x,y,tol)`: 4-neighbourhood flood-fill SEEDING a fresh mask (each
+  click re-seeds — a new click replaces the selection). Redmean tolerance.
+- `describeGarageSelection()`: returns `{hex, tolerance, count}` — most common
+  selected color as sourceHex + derived tolerance for the global fallback.
+- `encodeSelectionMaskRle`/`decodeSelectionMaskRle`: base64 RLE of [start,len]
+  Uint32 runs. Local-only (NOT sent to ghosts/multiplayer).
+
+### Click-vs-drag (`initGarageViewer`)
+- pointerdown sets dragging=true, moved=false, records sx/sy.
+- pointermove: if dragging, accumulates yaw; if |dx|+|dy|>4 sets moved=true.
+- pointerup: dragging=false; if !moved (a click, not a drag) → `garageSelectFromViewerClick`.
+  This is how a single click selects while a drag just rotates. Threshold 4px.
+
+### State vars (near the garage state block ~line 4275)
+- `garageSelectionMask` (Uint8Array over active texture pixels, 1=selected),
+  `garageSelectionTexture`, `garageSelectionSource` ({width,height,data}).
+- `selectedGarageSourceHex`/`hoveredGarageSourceHex` kept for legacy paths but
+  `garageSelectionMask` is now the source of truth.
+- REMOVED (v2 leftovers): garagePaintTool, garagePaintSheetCtx, garagePaintSheetImage,
+  garagePaintDragging, garagePaintLastPx, garageBrushSize*, garageToolBtns,
+  garagePaintSheetCanvas. Do NOT re-add — the 2D sheet is gone.
+
+### Persistence & apply
+- `normalizeGarageCosmetics()` preserves `mask` (RLE string), `maskW`, `maskH`
+  per mapping. Max 48 mappings per car (unchanged).
+- `buildResolvedMappings()` carries `mask/maskW/maskH/maskRle`; masks are lazily
+  decoded + cached via `getResolvedMappingMask(mapping, total)`.
+- `recolorTexture()`: prefers an EXACT region mask match over global color-distance.
+  Ghost mappings have no mask → fall back to `pickMappedColor` (backward compat).
+- `applyCarCustomizationToObject(root, carKey, highlightHex='', previewUnlit=false,
+  hoverHex='', highlightTolerance, previewMask=null, previewTargetHex='')`:
+  when previewMask + previewTargetHex set (live preview), folds the in-progress
+  selection into a transient mapping so the 3D clone previews the repaint. The
+  actual in-game vehicle call passes neither → persisted mappings only.
+- Apply handler: derives `describeGarageSelection`, encodes the mask, upserts the
+  mapping (matches existing by `mapping.mask` OR color proximity), charges 300
+  coins, clears the in-progress mask, refreshes.
+
+### init wiring
+- `initGarageViewer()` called once at boot (creates the WebGL viewer + attaches
+  pointer listeners including the click→select handler).
+- `ensureGarageSelectionSource()` called from `updateGarageUi()` (after models
+  load), `setModeTab('garage')`, `selectGarageCar()`, `garageSelectFromViewerClick()`,
+  and the `?garage=1` boot. There is NO `initGaragePaintSheet` anymore (removed).
+
+### What does NOT need changing
+- Ghost/replay/multiplayer cosmetics: unchanged shape (sourceHex/targetHex/
+  tolerance); masks are local-only. `buildResolvedMappingsFromGhostCosmetics`
+  produces maskless mappings that fall back to color-distance.
+- `GARAGE_REPAINT_COST` (300), `GARAGE_PAINT_PALETTE`, paint unlocks, coins.
+- `getGarageTexturePalette()` is UNUSED (kept as harmless dead code).
+
+## Garage vehicle-card mini 3D previews (`js/main.js` + `index.html`)
+
+### What & why
+- The garage car-selection cards used to show a `<dl>` of identical stats
+  (speed/accel/handling/traction/topSpeed/power all uniform across cars because
+  all packs are fixed at x1.15) plus an identical `x1.15` upgrade status — i.e.
+  useless info. Replaced each card's stat block with a small **spinning 3D
+  preview** of that car wearing its current paint, so the card grid is now a
+  visual roster of the player's painted cars (the original user request).
+- Each card now shows: the car name, a 72px-tall `<canvas class="garage-card-preview">`
+  mini viewer, and a one-line meta row ("Paint maps: N", centered). The
+  `garageUpgradeSummary()` "Handling x1.15 • Power x1.15 • Traction x1.15"
+  line was REMOVED entirely (always-identical, useless) — the function itself
+  was deleted; do not re-add it unless the upgrade packs become variable again.
+
+### Implementation (ONE shared renderer for all cards, single rAF loop)
+- `garageCardCanvasByKey` (carKey→canvas) is rebuilt by `renderGarageVehicleCards()`.
+  `garageCardPreviews` (Map carKey→{scene,camera,carRoot,yaw,ctx2d}) holds each card's
+  cheap scene graph — NO per-card WebGLRenderer.
+- `garageCardSharedRenderer`: a SINGLE `THREE.WebGLRenderer` on one offscreen canvas
+  (`alpha:true, preserveDrawingBuffer:true`) shared by ALL cards. Created lazily in
+  `ensureGarageCardPreviews()`. Each card's canvas is a plain 2D canvas (`getContext('2d')`);
+  the loop renders each card's scene to the shared renderer (resizing it to the card's px
+  size), then blits `renderer.domElement` → card 2D canvas via `drawImage`. `preserveDrawingBuffer`
+  is required for the drawImage readback. The cards still spin.
+- WHY one shared renderer: the previous design made one WebGLRenderer PER card → 10 contexts
+  (12 with main + paint viewer). Browsers cap ~16 WebGL contexts; under the memory churn of
+  paint-apply the MAIN game renderer (oldest/largest) was dropped first → black screen. One
+  shared context drops the total to 3 (main + viewer + 1 shared card renderer), eliminating
+  the loss. This is the real fix for the "apply paint → black screen" bug.
+- `ensureGarageCardPreviews()`: creates the shared renderer (once) + a scene/camera/carRoot
+  per card that lacks one. Scene = ambient(3.0)+dir light; camera = PerspectiveCamera(34°,
+  ...) at (0,0.85,3.5) — CLOSER than the paint viewer (z 5.2) per the "more zoomed in"
+  request. Car clone added at rotation.y=π.
+- `refreshGarageCardPreviewPaint(carKey)`: clears carRoot, re-clones `models[carKey]`,
+  `applyCarCustomizationToObject(clone, carKey, '', true, '', tol, null, '')`
+  (previewUnlit=true → MeshBasicMaterial, no selection preview → persisted paint only).
+- `startGarageCardPreviews()`: ONE `requestAnimationFrame` loop ticks ALL previews
+  (`yaw += 0.012` slow spin, re-render, drawImage blit). Guards: no-op if size 0 or no
+  shared renderer; self-requeues only while previews exist. `stopGarageCardPreviews()` cancels
+  the rAF.
+- `disposeGarageCardPreviews()`: cancels loop + `disposeGarageCloneMaterials` each carRoot +
+  clears the Map + `garageCardSharedRenderer.dispose()` (sets it back to null so it's recreated
+  on next open). Called at the top of `renderGarageVehicleCards()` because `innerHTML=''`
+  destroys the old canvases — the old 2D contexts are gone, so rebuild rebinds to fresh ones.
+
+### Lifecycle / when it runs (avoid idle WebGL contexts at boot)
+- The shared renderer + scenes are created LAZILY, only when the garage tab is actually
+  visible — NOT at boot. `renderGarageVehicleCards()` only builds the card DOM + canvases; it
+  does NOT create the renderer. `activateGarageCardPreviews()` (ensureGarageCardPreviews +
+  refreshGarageCardPreviewsPaint + startGarageCardPreviews) is the entry point and is called
+  from `setModeTab('garage')` and `setModeMenuOpen(true)` ONLY when `modeTab==='garage' &&
+  modeMenuOpen`. Closing the menu / switching tabs calls `disposeGarageCardPreviews()` (drops
+  the shared renderer + clones → 0 card WebGL resources while closed).
+- A new module-level `modeTab` (default 'gameplay') tracks the active tab; set inside
+  `setModeTab()`. `setModeMenuOpen` reads `modeTab` to decide activate/dispose.
+- Context count while the garage is open: main game renderer + paint viewer + 1 shared card
+  renderer = 3 (was 12). The game is paused behind the modal, so the cost is bounded.
+
+### Keep paint in sync
+- The Apply-paint handler calls `refreshGarageCardPreviewPaint(carKey)` +
+  `updateGarageCardMeta(carKey)` so the just-painted car's card updates its preview
+  and its "Paint maps: N" count immediately (no full re-render of all cards).
+
+### Clicking a card must NOT rebuild the grid (the "cars disappear" bug)
+- `selectGarageCar()` toggles the `.active` outline via `updateGarageCardActiveState()`
+  (querySelectorAll cards, compare `card.dataset.carKey` to the selected key) — it does
+  NOT call `renderGarageVehicleCards()`. A full rebuild would run
+  `disposeGarageCardPreviews()` (because `innerHTML=''` destroys the canvases) and, on
+  the click path, the renderers are NOT recreated → every preview goes blank.
+- `renderGarageVehicleCards()` is only for genuine rebuilds (boot, paint-apply refresh
+  of the grid). It sets `button.dataset.carKey` so `updateGarageCardActiveState` can
+  match, and calls `activateGarageCardPreviews()` when the garage is visible so a
+  rebuild (re)creates the renderers for the fresh canvases.
+- Do NOT re-add a `renderGarageCardPreviews()` call inside `selectGarageCar()`.
+
+### GPU-memory leak + WebGL context loss (the "apply paint → black screen" bug)
+- Symptom: sometimes applying paint made the whole 3D canvas go black while the HTML UI
+  kept running. That's WebGL context loss on the MAIN game renderer, caused by GPU-memory
+  pressure from leaked textures.
+- Root leak: `applyCarCustomizationToObject` builds fresh materials (with per-mapping
+  `CanvasTexture` maps) and stashes them on `mesh.userData.customMaterial`. The garage
+  viewer (`refreshGarageViewer`) and card previews (`refreshGarageCardPreviewPaint`) throw
+  the whole clone away with `carRoot.clear()` — which only UNLINKS children; it does NOT
+  dispose those materials/textures. WebGL resources are NOT auto-freed by JS GC, so every
+  refresh leaked one `CanvasTexture` + material per mesh. Over a paint session the pressure
+  tripped context loss on the main (largest) renderer.
+- Fix layer 1 (stop the leak): `disposeGarageCloneMaterials(root)` traverses a clone and
+  disposes each `userData.customMaterial` + its `.map` (only when the map isn't the shared
+  base GLB texture). Called BEFORE `carRoot.clear()` in `refreshGarageViewer`,
+  `refreshGarageCardPreviewPaint`, and `disposeGarageCardPreviews`. The LIVE in-game
+  vehicle does NOT leak (it's the same object re-applied; `applyCarCustomizationToObject`
+  disposes its own previous customMaterial in place).
+- Fix layer 2 (cut context count — the decisive fix): the previous design created one
+  WebGLRenderer PER card → 10 contexts (12 with main + viewer). That alone tripped context
+  loss on paint-apply. Now ALL card previews share ONE `garageCardSharedRenderer`
+  (see "Implementation" above): total contexts while open = 3 (main + viewer + 1 shared card
+  renderer). `disposeGarageCardPreviews()` (called on menu close / tab switch / grid rebuild)
+  fully disposes the shared renderer + clones → 0 card WebGL resources while closed. They're
+  recreated lazily on reopen (`ensureGarageCardPreviews`). `setModeMenuOpen(false)` and
+  `setModeTab(non-garage)` both call `disposeGarageCardPreviews()`.
+- NOTE: do NOT add a `webglcontextlost` → `window.location.reload()` handler. It was tried
+  and it fired proactively during normal painting, reloading the page mid-paint and making
+  the garage unusable. The leak fix (layer 1) + context reduction (layer 2) are the correct
+  fix; if a loss ever still occurs the player can refresh manually.
+
+### CSS (`index.html`)
+- `.garage-card-preview`: 100% width × 72px, radius 8, bg `#0e1622` (shows behind
+  transparent WebGL alpha before first frame / if context lost), `touch-action:none`.
+- `.garage-vehicle-meta`: centered single-line "Paint maps: N" (blue).
+- The old `.garage-vehicle-card dl/dt/dd` and `.garage-vehicle-status` rules were
+  removed (no longer emitted by `renderGarageVehicleCards`).
+
 ## Physics: car is a rolling sphere (`js/Physics.js` + `js/Vehicle.js`)
 
 ### Drive model (critical for surface friction tuning)
@@ -677,3 +893,118 @@
   colorblindFilter (off/protan/deutan/tritan). STILL in the schema but NO
   settings-page UI (Accessibility tab removed — none of these are wired to the
   engine yet). Safe to re-add the tab later.
+
+## Embedded / CrazyGames navigation (`js/PageTransitions.js`)
+
+### What it is
+- CrazyGames (and itch.io / other game portals) load the game inside an iframe.
+  Opening the game in a new tab from inside that iframe escapes the portal
+  (the player ends up on the raw game URL outside CrazyGames). So when the game
+  detects it is embedded, every same-origin game-page navigation is redirected
+  to the CURRENT tab (replace, not new tab). Standalone gameplay is unchanged.
+
+### Detection
+- `isEmbedded = (window.self !== window.top)` (try/catch — cross-origin parent
+  access throws, which is treated as embedded). This is the CrazyGames iframe
+  signal; there is no CrazyGames SDK loaded. Exposed as `window.SkidNav.isEmbedded`.
+- Logic lives in `js/PageTransitions.js`, which is ALREADY loaded in `<head>` of
+  every page (campaign/clubs/coins/competitions/custommods/editor/index/itchdemo/
+  mods/official-tracks/replay/settings/share/tas-viewer/totd/tracks/weekly-cup).
+  So NO per-page edits are required — one file, one script tag per page already
+  present.
+
+### Behavior when embedded (iframe)
+- `window.open` is monkey-patched: if the url is a same-origin http(s)/relative
+  game page (share.html, replay.html, track play URLs, editor.html, etc.) it is
+  redirected to `window.location.href` (same-tab, via the fade transition) and
+  returns `null`. Callers that do `if (!tab) return;` (main.js share/replay
+  exporters) simply stop after the redirect — fine.
+- Content URLs that are NOT game pages are left as real popups: `blob:`,
+  `data:`, `about:blank`, `mailto:`, `tel:`, `javascript:`, and external
+  http(s) origins. This preserves: the VideoRecorder's open-recording-in-new-tab
+  (blob:), the raw-ghost-code `about:blank` document.write popup, and external
+  links.
+- `<a target="_blank">` clicks: same-origin relative links are converted to
+  same-tab fade navigation; external `target="_blank"` links keep native
+  new-tab behavior. (All in-repo `target="_blank"` play links — tracks.html,
+  official-tracks.html, weekly-cup.html, share.html — are same-origin
+  relative, so they convert.)
+- Plain same-origin `<a>` (no target) clicks keep the existing fade-transition
+  same-tab behavior (unchanged).
+
+### Behavior when standalone (not in iframe) — UNCHANGED
+- `window.open` is NOT patched (native). All `window.open(..., '_blank')` calls
+  open real new tabs exactly as before. `target="_blank"` links open new tabs.
+  This is normal gameplay / the GitHub-pages standalone deployment.
+
+### URL classifier
+- `isSameOriginPageUrl(raw)`: false for empty/`#`/mailto/tel/javascript/blob/
+  data/about; otherwise resolves via `new URL(raw, location.href)` and returns
+  true only for http/https with `origin === location.origin`. Exposed as
+  `window.SkidNav.isSameOriginPageUrl`. `window.SkidNav.open(url,target,features)`
+  is a thin pass-through to the (possibly patched) `window.open`.
+
+### Why NOT to edit individual call sites
+- The `window.open` patch + click handler cover ALL current call sites
+  (main.js, VideoRecorder.js, replay.html, totd.html, editor.html, tracks.html,
+  + all `<a target="_blank">`) without touching them, and automatically cover
+  future ones. Only PageTransitions.js needs to change if the policy changes.
+
+
+
+## Mobile UI force-disabled (temporary — standard layout everywhere)
+
+### What & why
+- The game was switching to the mobile UI (vertical home, mobile action dock,
+  hidden desktop buttons, mobile menu sheet) when run inside a narrow CrazyGames
+  iframe (small screen / touch detection). The user wants the standard (desktop)
+  layout locked everywhere for now; the mobile-switching logic will be
+  re-evaluated later.
+
+### How it's disabled (`index.html` only — no JS/CSS file changes)
+The mobile UI had two independent triggers; BOTH are neutralized:
+1. **`body.mobile` class** — set by the early inline detection IIFE at the top of
+   `<body>`. The IIFE now `return`s immediately so `classList.add('mobile')` is
+   never called. Every `body.mobile ...` CSS rule is therefore inert. The dead
+   detection code is kept below the `return` for easy re-enable.
+2. **`@media (pointer: coarse)` blocks** — two CSS blocks (one for the
+   mobile-actions-menu/positioning, one for the mobile-action-dock/menu-sheet +
+   repositioned HUD) that fired on touch devices regardless of the `mobile`
+   class. Both media queries are changed from `@media (pointer: coarse) {` to
+   `@media (pointer: coarse) and (pointer: fine) {` — an impossible query (a
+   pointer can't be both coarse AND fine), so the blocks never apply. An inline
+   comment on each line explains the revert.
+
+### What is NOT changed
+- The existing "Force the normal (desktop) main-menu layout in ALL cases" block
+  (CSS near `body.mobile #home-body`) stays — it keeps the two-column home from
+  collapsing on narrow screens even if `body.mobile` were re-enabled.
+- **Touch input overlay** (`js/Controls.js` `setupTouchUI()`): still shows on
+  touch devices (`matchMedia('(pointer: coarse)')`). This is gameplay INPUT, not
+  the "mobile UI" layout, and is needed to play on a touch device. Left as-is.
+- `isMobileUi()` (`index.html` ~line 2904) still reads `mobileQuery.matches`
+  (pointer: coarse) — its mobile-menu/leaderboard handlers still run on touch,
+  but the elements they toggle (`#mobile-action-dock`, `#mobile-menu-sheet`,
+  `.mobile-open`) are hidden by the disabled `@media` blocks, so there's no
+  visible effect. No breakage.
+- `countdownEnabled` default in main.js reads `body.mobile`/`pointer: coarse`;
+  with `body.mobile` never set it defaults OFF on desktop (unchanged) and still
+  ON on touch (because `pointer: coarse` matches). Acceptable.
+
+### To re-enable mobile UI later
+1. In the detection IIFE: remove the early `return;` (restore the `add('mobile')`
+   lines).
+2. Revert both `@media (pointer: coarse) and (pointer: fine) {` back to
+   `@media (pointer: coarse) {` (drop the `and (pointer: fine)` + comment).
+3. Optionally remove the now-redundant "Force the normal desktop main-menu" block
+   if the mobile layout should fully take over again.
+
+### Verified
+- Narrow iframe sim (420x300, CrazyGames-like): mobile chrome
+  (`#mobile-action-dock`, `#mobile-menu-sheet`, `#mobile-actions-menu`,
+  `#mobile-leaderboard-close`) is hidden; all desktop buttons (`#editor-link`,
+  `#totd-link`, `#tracks-link`, `#mods-link`, etc.) are visible; home shows the
+  two-column desktop layout with the community sidebar.
+- Normal desktop load: home page renders identically to before (full desktop
+  layout, all buttons). No regressions.
+- CSS braces balanced (519/519 excl. comments); detection IIFE braces balanced.
