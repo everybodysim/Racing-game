@@ -228,7 +228,35 @@
   of the grid). It sets `button.dataset.carKey` so `updateGarageCardActiveState` can
   match, and calls `activateGarageCardPreviews()` when the garage is visible so a
   rebuild (re)creates the renderers for the fresh canvases.
-- Do NOT re-add a `renderGarageVehicleCards()` call inside `selectGarageCar()`.
+- Do NOT re-add a `renderGarageCardPreviews()` call inside `selectGarageCar()`.
+
+### GPU-memory leak + WebGL context loss (the "apply paint → black screen" bug)
+- Symptom: sometimes applying paint made the whole 3D canvas go black while the HTML UI
+  kept running. That's WebGL context loss on the MAIN game renderer, caused by GPU-memory
+  pressure from leaked textures.
+- Root leak: `applyCarCustomizationToObject` builds fresh materials (with per-mapping
+  `CanvasTexture` maps) and stashes them on `mesh.userData.customMaterial`. The garage
+  viewer (`refreshGarageViewer`) and card previews (`refreshGarageCardPreviewPaint`) throw
+  the whole clone away with `carRoot.clear()` — which only UNLINKS children; it does NOT
+  dispose those materials/textures. WebGL resources are NOT auto-freed by JS GC, so every
+  refresh leaked one `CanvasTexture` + material per mesh. Over a paint session the pressure
+  tripped context loss on the main (largest) renderer.
+- Fix layer 1 (stop the leak): `disposeGarageCloneMaterials(root)` traverses a clone and
+  disposes each `userData.customMaterial` + its `.map` (only when the map isn't the shared
+  base GLB texture). Called BEFORE `carRoot.clear()` in `refreshGarageViewer`,
+  `refreshGarageCardPreviewPaint`, and `disposeGarageCardPreviews`. The LIVE in-game
+  vehicle does NOT leak (it's the same object re-applied; `applyCarCustomizationToObject`
+  disposes its own previous customMaterial in place).
+- Fix layer 2 (cut context count): while the garage is open we run ~12 WebGL contexts
+  (main + viewer + 10 cards). On menu close / tab switch we now FULLY dispose the card
+  renderers (`disposeGarageCardPreviews`, not just `stopGarageCardPreviews`) to drop back
+  to ~2 contexts and relieve steady-state pressure. They're recreated lazily on reopen
+  (`ensureGarageCardPreviews`). `setModeMenuOpen(false)` and `setModeTab(non-garage)` both
+  call `disposeGarageCardPreviews()`.
+- Fix layer 3 (safety net): the main renderer listens for `webglcontextlost` →
+  `preventDefault()` + a guarded `window.location.reload()` (state is in localStorage, so
+  it reliably restores). This guarantees the player is never stuck on a permanent black
+  screen if memory pressure still wins. Do NOT remove — it's the last-resort recovery.
 
 ### CSS (`index.html`)
 - `.garage-card-preview`: 100% width × 72px, radius 8, bg `#0e1622` (shows behind

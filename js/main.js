@@ -91,6 +91,22 @@ renderer.shadowMap.enabled = getGraphicsPreset().shadows;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
+// Safety net: if the main WebGL context is lost (GPU memory pressure from a long paint
+// session, too many simultaneous contexts, driver resets, etc.) the 3D canvas would go
+// permanently black while the HTML UI keeps running. preventDefault lets the browser
+// restore the context; rather than attempt a fragile partial recovery we reload, which
+// (state is in localStorage) reliably brings everything back. Guarded against repeat firing.
+let _contextLostReloading = false;
+renderer.domElement.addEventListener( 'webglcontextlost', ( event ) => {
+
+	event.preventDefault();
+	if ( _contextLostReloading ) return;
+	_contextLostReloading = true;
+	try { showTopMessage?.( 'Graphics context lost — reloading…', true, 4000 ); } catch ( e ) {}
+	setTimeout( () => { window.location.reload(); }, 600 );
+
+} );
+
 let bloomPass = null;
 
 function applyBloomPreset() {
@@ -4769,9 +4785,13 @@ async function init() {
 		modeMenuOpen = open;
 		if ( modeMenu ) modeMenu.style.display = open ? 'block' : 'none';
 		document.body.classList.toggle( 'mode-menu-open', modeMenuOpen );
-		// Spin the garage card previews only while the garage panel is actually visible.
+		// Spin the garage card previews only while the garage panel is actually visible. While open
+		// the 10 card renderers + main game + garage viewer coexist (~12 WebGL contexts), so on close
+		// we fully DISPOSE the card renderers (not just stop the rAF) to drop back to ~2 contexts and
+		// avoid GPU-memory pressure that can lose the main game's context. They're recreated lazily
+		// (ensureGarageCardPreviews) on the next garage open.
 		if ( open && modeTab === 'garage' ) activateGarageCardPreviews();
-		else stopGarageCardPreviews();
+		else disposeGarageCardPreviews();
 
 	}
 
@@ -4910,9 +4930,10 @@ async function init() {
 			refreshGarageViewer();
 
 		}
-		// Only spin the garage card previews while the garage tab is open & menu visible.
+		// Only keep the garage card preview renderers alive while the garage tab is open & menu
+		// visible; otherwise dispose them to free the ~10 WebGL contexts (see setModeMenuOpen).
 		if ( modeMenuOpen && tab === 'garage' ) activateGarageCardPreviews();
-		else stopGarageCardPreviews();
+		else disposeGarageCardPreviews();
 
 	}
 
@@ -5507,14 +5528,43 @@ async function init() {
 	function refreshGarageViewer() {
 
 		if ( ! garageViewer?.carRoot ) return;
-		const carKey = getSelectedGarageCarKey();
+		disposeGarageCloneMaterials( garageViewer.carRoot );
 		garageViewer.carRoot.clear();
+		const carKey = getSelectedGarageCarKey();
 		const source = models[ carKey ];
 		if ( ! source ) return;
 		const clone = source.clone( true );
 		clone.rotation.y = Math.PI;
 		garageViewer.carRoot.add( clone );
 		applyCarCustomizationToObject( clone, carKey, '', true, '', getGarageRepaintTolerance(), garageSelectionMask, garageTargetColorInput?.value || '' );
+
+	}
+
+	// Free the GPU resources of a thrown-away garage preview clone. applyCarCustomizationToObject
+	// stashes the freshly-built materials (with CanvasTexture maps recolored per paint mapping) on
+	// mesh.userData.customMaterial. carRoot.clear() only unlinks the children — it does NOT dispose
+	// those materials/textures, so every refresh leaked one CanvasTexture + material per mesh.
+	// Under a painting session that GPU-memory pressure trips WebGL context loss on the main game
+	// renderer (the whole 3D canvas goes black while the HTML UI stays). Disposing here stops the leak.
+	// Base materials / the original GLB texture are shared + cached, so they are left alone.
+	function disposeGarageCloneMaterials( root ) {
+
+		if ( ! root ) return;
+		root.traverse( ( child ) => {
+
+			if ( ! child.isMesh ) return;
+			const custom = child.userData?.customMaterial;
+			if ( ! custom ) return;
+			const list = Array.isArray( custom ) ? custom : [ custom ];
+			for ( const material of list ) {
+
+				if ( material?.map && material.map !== child.userData?.baseMaterial?.[ 0 ]?.map ) material.map.dispose();
+				material?.dispose?.();
+
+			}
+			child.userData.customMaterial = null;
+
+		} );
 
 	}
 
@@ -5686,6 +5736,7 @@ async function init() {
 
 		const p = garageCardPreviews.get( carKey );
 		if ( ! p || ! models[ carKey ] ) return;
+		disposeGarageCloneMaterials( p.carRoot );
 		p.carRoot.clear();
 		const clone = models[ carKey ].clone( true );
 		clone.rotation.y = Math.PI;
@@ -5743,6 +5794,7 @@ async function init() {
 		stopGarageCardPreviews();
 		for ( const p of garageCardPreviews.values() ) {
 
+			disposeGarageCloneMaterials( p.carRoot );
 			p.carRoot.clear();
 			p.renderer.dispose();
 
