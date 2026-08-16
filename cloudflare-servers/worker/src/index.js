@@ -6,29 +6,66 @@
 // KV binding: SERVERS_KV
 // KV keys:
 //   servers:index        → JSON array of { id, name, code, memberCount }
-//   server:<id>          → JSON full server state (round, members, laps, host)
+//   server:<id>          → JSON full server state (members, host, laps, tracks)
 //
 // Public servers are predefined (see PREDEFINED_SERVERS). They are lazily
 // initialized on first access via ensureServer().
+//
+// ROUND TIMING IS HOST-INDEPENDENT AND ALWAYS RUNNING.
+// The round/cycle boundary is derived PURELY from wall-clock UTC time, split
+// into fixed chunks anchored to ROUND_EPOCH. No host "starts" a round, no
+// client advances it — the boundary is math, so it can never freeze or get
+// stuck. Any player (not just the host) may set the track for an upcoming
+// cycle (first-writer-wins), so the rotation keeps working even if the host
+// disappears.
 
 const KV_SERVER_PREFIX = 'server:';
 const KV_INDEX = 'servers:index';
 
-const ROUND_DURATION_MS = 5 * 60 * 1000;   // 5 minutes per round.
-const RANKINGS_WINDOW_MS = 5 * 1000;        // 5 seconds of rankings before rotate.
+// A cycle = 5 minutes of play + 5 seconds of rankings, then the next cycle.
+const PLAY_DURATION_MS = 5 * 60 * 1000;    // 5 minutes of racing.
+const RANKINGS_WINDOW_MS = 5 * 1000;       // 5 seconds of rankings before rotate.
+const CYCLE_MS = PLAY_DURATION_MS + RANKINGS_WINDOW_MS; // 305000 ms per cycle.
+
+// Fixed anchor in the past. All cycle boundaries are computed relative to this,
+// so the timer is deterministic and identical for every player regardless of
+// when they joined. (Uses UTC — a single global timezone, as requested.)
+const ROUND_EPOCH = Date.UTC( 2026, 0, 1, 0, 0, 0 ); // 2026-01-01T00:00:00Z
+
 const HOST_STALE_MS = 15 * 1000;            // host heartbeat staleness threshold.
 const MEMBER_STALE_MS = 30 * 1000;          // members pruned after this.
+const MAX_TRACK_CYCLES = 24;                // cap stored per-cycle tracks.
 
 // The fixed public servers. `code` is the shared 6-char PeerJS room code
 // (matches /^[A-Z0-9]{6}$/) — every player in a server connects to the same
 // PeerJS room (host peer id `RACE-ROOM-<code>`).
 const PREDEFINED_SERVERS = [
-	{ id: 'na-1', name: 'North America', code: 'PUBNA1' },
-	{ id: 'eu-1', name: 'Europe', code: 'PUBEU1' },
-	{ id: 'as-1', name: 'Asia', code: 'PUBAS1' },
+	{ id: 'server-1', name: 'Server 1', code: 'PUBSV1' },
+	{ id: 'server-2', name: 'Server 2', code: 'PUBSV2' },
+	{ id: 'server-3', name: 'Server 3', code: 'PUBSV3' },
 ];
 
 const SERVER_BY_ID = new Map( PREDEFINED_SERVERS.map( ( s ) => [ s.id, s ] ) );
+
+// Compute the cycle timing for a given wall-clock `now`. Pure function — no
+// state, no host, no KV. The timer can never freeze because it is just math
+// against the real clock.
+function cycleInfo( now ) {
+
+	const sinceEpoch = now - ROUND_EPOCH;
+	const cycleIndex = Math.floor( sinceEpoch / CYCLE_MS );
+	const cycleStart = ROUND_EPOCH + cycleIndex * CYCLE_MS;
+	const playEnd = cycleStart + PLAY_DURATION_MS;
+	const cycleEnd = cycleStart + CYCLE_MS;
+	// roundId is the cycle index (stable, monotonic, identical for everyone).
+	const roundId = cycleIndex;
+	// inRankings = the 5s window after play ends, before the next cycle.
+	const inRankings = now >= playEnd && now < cycleEnd;
+	// roundOver = the next cycle has begun (a new round is active).
+	const roundOver = now >= cycleEnd;
+	return { roundId, cycleIndex, cycleStart, playEnd, cycleEnd, inRankings, roundOver };
+
+}
 
 export default {
 	async fetch( request, env ) {
@@ -67,9 +104,13 @@ export default {
 				return withCors( await submitLap( decodeURIComponent( lapMatch[ 1 ] ), request, env ) );
 			}
 
-			const nextMatch = url.pathname.match( /^\/api\/servers\/([^/]+)\/next-round$/ );
-			if ( nextMatch && request.method === 'POST' ) {
-				return withCors( await nextRound( decodeURIComponent( nextMatch[ 1 ] ), request, env ) );
+			// Any player may set the track for a cycle (first-writer-wins). This is
+			// NOT a host-only action — it keeps the rotation working even if the
+			// (hidden) host peer disappears. `cycleIndex` selects which cycle the
+			// track applies to (typically the NEXT one, set during rankings).
+			const setTrackMatch = url.pathname.match( /^\/api\/servers\/([^/]+)\/set-track$/ );
+			if ( setTrackMatch && request.method === 'POST' ) {
+				return withCors( await setTrack( decodeURIComponent( setTrackMatch[ 1 ] ), request, env ) );
 			}
 
 			const leaveMatch = url.pathname.match( /^\/api\/servers\/([^/]+)\/leave$/ );
@@ -118,23 +159,40 @@ function initServer( def ) {
 		hostId: '',
 		hostHeartbeatAt: 0,
 		members: {},
-		round: {
-			roundId: 1,
-			startAt: now,
-			durationMs: ROUND_DURATION_MS,
-			trackPlayUrl: '',
-			trackMapSignature: 'default|none',
-			laps: {},
-		},
+		// Laps keyed by cycle index: { [cycleIndex]: { [clientId]: {name,time} } }.
+		// Tracks keyed by cycle index: { [cycleIndex]: {playUrl,sig,setAt} }.
+		laps: {},
+		tracks: {},
 		updatedAt: now,
 	};
 }
 
 async function saveServer( state, env ) {
 	state.updatedAt = Date.now();
+	// Prune old per-cycle laps/tracks so the stored blob stays bounded.
+	pruneCycleData( state );
 	await env.SERVERS_KV.put( KV_SERVER_PREFIX + state.id, JSON.stringify( state ) );
 	await refreshIndex( env );
 	return state;
+}
+
+// Keep only the most recent MAX_TRACK_CYCLES cycles of laps + tracks. The
+// current cycle is always retained (computed from wall-clock).
+function pruneCycleData( state ) {
+
+	const info = cycleInfo( Date.now() );
+	const keepFrom = info.cycleIndex - MAX_TRACK_CYCLES;
+	if ( state.laps ) {
+		for ( const k of Object.keys( state.laps ) ) {
+			if ( Number( k ) < keepFrom ) delete state.laps[ k ];
+		}
+	}
+	if ( state.tracks ) {
+		for ( const k of Object.keys( state.tracks ) ) {
+			if ( Number( k ) < keepFrom ) delete state.tracks[ k ];
+		}
+	}
+
 }
 
 async function refreshIndex( env ) {
@@ -179,12 +237,14 @@ async function listServers( env ) {
 		const state = await loadServer( def.id, env );
 		const now = Date.now();
 		pruneMembers( state, now );
+		const info = cycleInfo( now );
 		out.push( {
 			id: state.id,
 			name: state.name,
 			code: state.code,
 			memberCount: Object.keys( state.members ).length,
-			roundEndAt: Number( state.round.startAt ) + Number( state.round.durationMs ),
+			roundEndAt: info.playEnd,
+			inRankings: info.inRankings,
 		} );
 	}
 	return json( { ok: true, servers: out } );
@@ -208,7 +268,8 @@ async function joinServer( id, request, env ) {
 	const now = Date.now();
 	pruneMembers( state, now );
 	state.members[ clientId ] = { name, lastSeenAt: now };
-	// If no live host, this joiner claims host.
+	// If no live host, this joiner claims host (purely for PeerJS peer-id
+	// election — it grants NO extra privileges; everyone is an equal player).
 	let claimedHost = false;
 	if ( ! isHostFresh( state, now ) ) {
 		state.hostId = clientId;
@@ -250,7 +311,7 @@ async function heartbeat( id, request, env ) {
 	pruneMembers( state, now );
 	state.members[ clientId ] = { name: cleanName( payload?.name ), lastSeenAt: now };
 	// If no live host, this heartbeat claims the seat so the server is never
-	// host-less (keeps the PeerJS host peer alive for joiners).
+	// host-less (keeps the PeerJS host peer alive for joiners). No privileges.
 	if ( ! isHostFresh( state, now ) ) {
 		state.hostId = clientId;
 		state.hostHeartbeatAt = now;
@@ -271,41 +332,45 @@ async function submitLap( id, request, env ) {
 	if ( ! clientId || ! Number.isFinite( time ) || time < 0 ) return json( { ok: false, error: 'invalid lap' }, 400 );
 	const now = Date.now();
 	pruneMembers( state, now );
-	const laps = state.round.laps || ( state.round.laps = {} );
-	const existing = laps[ clientId ];
+	// Store the lap under the CURRENT cycle index (wall-clock derived). This
+	// means laps are always scoped to the right round even if a client's clock
+	// drifted slightly — the worker's clock is authoritative.
+	const info = cycleInfo( now );
+	if ( ! state.laps ) state.laps = {};
+	const cycleLaps = state.laps[ info.cycleIndex ] || ( state.laps[ info.cycleIndex ] = {} );
+	const existing = cycleLaps[ clientId ];
 	if ( ! existing || time < Number( existing.time ) ) {
-		laps[ clientId ] = { name, time, updatedAt: now };
+		cycleLaps[ clientId ] = { name, time, updatedAt: now };
 	}
 	await saveServer( state, env );
 	return json( { ok: true, server: publicView( state, now ), isHost: state.hostId === clientId } );
 }
 
-async function nextRound( id, request, env ) {
+// Any player may set the track for a cycle (first-writer-wins). This replaces
+// the old host-only "next-round" advance: because round timing is wall-clock
+// based, a round begins automatically — someone just needs to have picked a
+// track for it. The first player to set it wins; later attempts are ignored
+// (200 ok, alreadySet=true) so there's no conflict/race.
+async function setTrack( id, request, env ) {
 	const state = await loadServer( id, env );
 	if ( ! state ) return json( { ok: false, error: 'Unknown server' }, 404 );
 	const payload = await readJson( request );
 	const clientId = cleanId( payload?.clientId );
+	const cycleIndex = Number( payload?.cycleIndex );
+	const playUrl = String( payload?.trackPlayUrl || '' ).slice( 0, 2000 );
+	const sig = String( payload?.trackMapSignature || 'default|none' ).slice( 0, 200 );
 	if ( ! clientId ) return json( { ok: false, error: 'clientId required' }, 400 );
+	if ( ! Number.isFinite( cycleIndex ) ) return json( { ok: false, error: 'invalid cycleIndex' }, 400 );
+	if ( ! playUrl ) return json( { ok: false, error: 'trackPlayUrl required' }, 400 );
 	const now = Date.now();
 	pruneMembers( state, now );
-	if ( state.hostId !== clientId ) return json( { ok: false, error: 'only host can advance round' }, 403 );
-	// Only allow advancement once the round + rankings window have elapsed.
-	const roundEndAt = Number( state.round.startAt ) + Number( state.round.durationMs );
-	if ( now < roundEndAt + RANKINGS_WINDOW_MS - 500 ) {
-		return json( { ok: false, error: 'round not over yet', roundEndAt, now }, 409 );
+	if ( ! state.tracks ) state.tracks = {};
+	let alreadySet = Boolean( state.tracks[ cycleIndex ] );
+	if ( ! alreadySet ) {
+		state.tracks[ cycleIndex ] = { playUrl, sig, setAt: now, setBy: clientId };
+		await saveServer( state, env );
 	}
-	const trackPlayUrl = String( payload?.trackPlayUrl || '' ).slice( 0, 2000 );
-	const trackMapSignature = String( payload?.trackMapSignature || 'default|none' ).slice( 0, 200 );
-	state.round = {
-		roundId: Number( state.round.roundId || 1 ) + 1,
-		startAt: now,
-		durationMs: ROUND_DURATION_MS,
-		trackPlayUrl,
-		trackMapSignature,
-		laps: {},
-	};
-	await saveServer( state, env );
-	return json( { ok: true, server: publicView( state, now ), isHost: true } );
+	return json( { ok: true, server: publicView( state, now ), alreadySet } );
 }
 
 async function leaveServer( id, request, env ) {
@@ -325,11 +390,19 @@ async function leaveServer( id, request, env ) {
 	return json( { ok: true } );
 }
 
+// Build the client-facing view. Timing is computed from wall-clock UTC (via
+// cycleInfo) so every client sees identical round boundaries regardless of
+// host state or join time. `round` exposes the current cycle's track + laps,
+// and `nextRound` exposes the upcoming cycle's track (set during rankings).
 function publicView( state, now ) {
-	const round = state.round || {};
-	const roundEndAt = Number( round.startAt ) + Number( round.durationMs );
-	const inRankings = now >= roundEndAt && now < roundEndAt + RANKINGS_WINDOW_MS;
-	const roundOver = now >= roundEndAt + RANKINGS_WINDOW_MS;
+
+	const info = cycleInfo( now );
+	const tracks = state.tracks || {};
+	const laps = state.laps || {};
+	const currentTrack = tracks[ info.cycleIndex ] || null;
+	const nextCycleIndex = info.cycleIndex + 1;
+	const nextTrack = tracks[ nextCycleIndex ] || null;
+	const currentLaps = laps[ info.cycleIndex ] || {};
 	return {
 		id: state.id,
 		name: state.name,
@@ -338,20 +411,31 @@ function publicView( state, now ) {
 		hostHeartbeatAt: state.hostHeartbeatAt,
 		members: state.members,
 		memberCount: Object.keys( state.members ).length,
-		round: {
-			roundId: round.roundId,
-			startAt: round.startAt,
-			durationMs: round.durationMs,
-			trackPlayUrl: round.trackPlayUrl,
-			trackMapSignature: round.trackMapSignature,
-			laps: round.laps || {},
-		},
-		roundEndAt,
-		inRankings,
-		roundOver,
-		rankingsEndAt: roundEndAt + RANKINGS_WINDOW_MS,
 		now,
+		round: {
+			roundId: info.roundId,
+			cycleIndex: info.cycleIndex,
+			trackPlayUrl: currentTrack?.playUrl || '',
+			trackMapSignature: currentTrack?.sig || 'default|none',
+			laps: currentLaps,
+		},
+		nextRound: {
+			cycleIndex: nextCycleIndex,
+			trackPlayUrl: nextTrack?.playUrl || '',
+			trackMapSignature: nextTrack?.sig || 'default|none',
+			hasTrack: Boolean( nextTrack ),
+		},
+		// Timing (authoritative — clients should display against these, not their
+		// own clock, to stay perfectly in sync).
+		cycleStart: info.cycleStart,
+		playEnd: info.playEnd,       // == roundEndAt (end of the 5-min play).
+		cycleEnd: info.cycleEnd,     // end of the 5s rankings window.
+		roundEndAt: info.playEnd,
+		rankingsEndAt: info.cycleEnd,
+		inRankings: info.inRankings,
+		roundOver: info.roundOver,
 	};
+
 }
 
 async function readJson( request ) {

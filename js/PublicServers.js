@@ -9,20 +9,27 @@
 // round rotation, and per-round best-lap rankings.
 export const SERVERS_API_BASE = 'https://racing-servers-api.ga1010.workers.dev/api/servers';
 
-// The shared track-share board (used by the host to pick a random next track).
+// The shared track-share board. Any player in a public server picks a random
+// track from here for the next cycle during the rankings window (first-writer-
+// wins on the worker). It is NOT a host-only action.
 export const TRACK_BOARD_API = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
 
-// 5 minutes per round, 5 seconds of rankings before rotating (mirror the worker).
-export const ROUND_DURATION_MS = 5 * 60 * 1000;
+// 5 minutes of play per round + 5 seconds of rankings before rotating
+// (mirrors the worker). The timer is anchored to wall-clock UTC (see the
+// worker's ROUND_EPOCH / CYCLE_MS), so it is always running and can never
+// freeze — it does not depend on a host or on when players joined.
+export const PLAY_DURATION_MS = 5 * 60 * 1000;
 export const RANKINGS_WINDOW_MS = 5 * 1000;
+export const CYCLE_MS = PLAY_DURATION_MS + RANKINGS_WINDOW_MS;
 
-// The fixed public servers. `code` is the shared PeerJS room code
-// (host peer id `RACE-ROOM-<code>`). Keep in sync with the worker's
-// PREDEFINED_SERVERS list (same ids/codes/names).
+// The fixed public servers. They are NOT locational — they are just three
+// parallel rooms so players can spread out if one is full. `code` is the shared
+// PeerJS room code (host peer id `RACE-ROOM-<code>`). Keep in sync with the
+// worker's PREDEFINED_SERVERS list (same ids/codes/names).
 export const PUBLIC_SERVERS = [
-	{ id: 'na-1', name: 'North America', code: 'PUBNA1' },
-	{ id: 'eu-1', name: 'Europe', code: 'PUBEU1' },
-	{ id: 'as-1', name: 'Asia', code: 'PUBAS1' },
+	{ id: 'server-1', name: 'Server 1', code: 'PUBSV1' },
+	{ id: 'server-2', name: 'Server 2', code: 'PUBSV2' },
+	{ id: 'server-3', name: 'Server 3', code: 'PUBSV3' },
 ];
 
 export function findPublicServer( id ) {
@@ -97,10 +104,15 @@ export async function submitServerLap( serverId, clientId, name, time ) {
 
 }
 
-export async function advanceServerRound( serverId, clientId, trackPlayUrl, trackMapSignature ) {
+// Set the track for a specific cycle index (first-writer-wins). ANY player may
+// call this — it is not host-gated. Typically called during the rankings
+// window to set the NEXT cycle's track so the rotation keeps going even if the
+// (hidden) host peer disappears.
+export async function setServerTrack( serverId, clientId, cycleIndex, trackPlayUrl, trackMapSignature ) {
 
-	return serverRequest( `/${ encodeURIComponent( serverId ) }/next-round`, 'POST', {
+	return serverRequest( `/${ encodeURIComponent( serverId ) }/set-track`, 'POST', {
 		clientId,
+		cycleIndex,
 		trackPlayUrl,
 		trackMapSignature,
 	} );

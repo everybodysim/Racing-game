@@ -20,21 +20,36 @@ state lives here (Cloudflare KV), and the client polls it ~once per second.
   per server. PeerJS uses its own default cloud signalling server; Firebase is
   only read/written through the existing `firebaseRoomsRequest` helpers (no rule
   changes needed).
-- **Round state, members, host-claim, and round-scoped rankings** live in this
-  worker (KV), so they are server-authoritative and sync across all players.
+- **Round timing is PURE wall-clock math.** The round boundary is derived from
+  UTC time split into fixed 5-minute (+5s rankings) chunks anchored to a fixed
+  epoch (2026-01-01T00:00:00Z). It does **not** depend on a host or on when the
+  first player joined — it is always running and can never freeze. Every client
+  computes the same round boundaries from the worker's `now`.
+- **No host privileges.** The first live player claims a "host" seat purely for
+  PeerJS peer-id election (so joiners can connect), but this grants **no**
+  in-game privileges and is never shown to players. Anyone can pick the next
+  track (first-writer-wins) during the rankings window, so the rotation keeps
+  working even if the host disappears.
 
 ## Endpoints
 
-- `GET /api/servers` → list of public server summaries (id, name, code, memberCount).
-- `GET /api/servers/:id` → full server state (round, members, laps, host, timing).
-- `POST /api/servers/:id/join` `{ clientId, name }` → register as a member; auto-claims host if none is live. Returns `{ server, isHost, claimedHost }`.
-- `POST /api/servers/:id/claim-host` `{ clientId, name }` → claim host if the seat is free.
-- `POST /api/servers/:id/heartbeat` `{ clientId, name }` → keep membership alive; refreshes host heartbeat if you are host.
-- `POST /api/servers/:id/lap` `{ clientId, name, time }` → submit a best lap for the current round (keeps the minimum).
-- `POST /api/servers/:id/next-round` `{ clientId, trackPlayUrl, trackMapSignature }` → host-only; advances to a new round (new track, reset laps) once the round + 5s rankings window have elapsed.
+- `GET /api/servers` → list of public server summaries (id, name, code, memberCount, roundEndAt, inRankings).
+- `GET /api/servers/:id` → full server state (round, nextRound, members, laps, timing: playEnd/cycleEnd/inRankings/roundOver, now).
+- `POST /api/servers/:id/join` `{ clientId, name }` → register as a member; auto-claims the (hidden, privilege-less) host seat if none is live. Returns `{ server, isHost, claimedHost }`.
+- `POST /api/servers/:id/claim-host` `{ clientId, name }` → claim the host seat if free (PeerJS election only).
+- `POST /api/servers/:id/heartbeat` `{ clientId, name }` → keep membership alive; refreshes host heartbeat if you are host; re-claims host if the seat is stale.
+- `POST /api/servers/:id/lap` `{ clientId, name, time }` → submit a best lap for the CURRENT cycle (keeps the minimum per client per cycle).
+- `POST /api/servers/:id/set-track` `{ clientId, cycleIndex, trackPlayUrl, trackMapSignature }` → **any player** sets the track for a cycle; first-writer-wins (later attempts return `alreadySet:true` and are ignored). Replaces the old host-only `next-round`.
 - `POST /api/servers/:id/leave` `{ clientId }` → leave; releases host if you were host.
 
-KV keys: `servers:index` (summaries) and `server:<id>` (full state).
+KV keys: `servers:index` (summaries) and `server:<id>` (full state: members, host, laps keyed by cycleIndex, tracks keyed by cycleIndex).
+
+## Timing constants (in the worker)
+
+- `PLAY_DURATION_MS = 5 * 60 * 1000` (5 min of racing)
+- `RANKINGS_WINDOW_MS = 5 * 1000` (5 s of rankings)
+- `CYCLE_MS = PLAY_DURATION_MS + RANKINGS_WINDOW_MS` (305 s per cycle)
+- `ROUND_EPOCH = Date.UTC(2026,0,1)` — the anchor; cycles are `floor((now-epoch)/CYCLE_MS)`.
 
 ## Deploy (Wrangler CLI)
 
