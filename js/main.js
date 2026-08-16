@@ -15,6 +15,7 @@ import { HudExtras } from './HudExtras.js';
 import { createRuntime as _createModRuntime } from './mod-runtime.js';
 import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
+import * as Servers from './MultiplayerServers.js';
 import { Storage } from './Storage.js';
 import { VideoRecorder, UI_TOGGLE_GROUPS } from './VideoRecorder.js';
 import GameSettings from './GameSettings.js';
@@ -874,6 +875,16 @@ const multiplayerSessionState = {
 	clientId: ( globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `p-${ Math.random().toString( 36 ).slice( 2, 10 ) }` ),
 	peer: null,
 	connections: new Map(),
+	// --- Multiplayer server-browser layer (sits on top of the PeerJS+Firebase
+	// networking above). When serverId is set, the player is inside a server and
+	// chat is server-scoped (see window.SkidChat). When null, behavior is exactly
+	// the original join-by-code multiplayer. ---
+	serverId: null,
+	serverName: '',
+	serverType: '',
+	serverMaxPlayers: 8,
+	serverHeartbeatTimer: null,
+	serverListRefreshTimer: null,
 };
 
 const MULTIPLAYER_ROOM_ROTATE_MS = 120000;
@@ -1134,6 +1145,10 @@ function initMultiplayerPanel() {
 
 	hostBtn.addEventListener( 'click', async () => {
 
+		if ( multiplayerSessionState.serverId ) {
+			updateMultiplayerStatus( 'Leave your current server before using join-by-code.' );
+			return;
+		}
 		const code = createHostCode();
 		codeInput.value = code;
 		updateMultiplayerStatus( `Creating room ${ code }...` );
@@ -1195,6 +1210,10 @@ function initMultiplayerPanel() {
 
 	joinBtn.addEventListener( 'click', async () => {
 
+		if ( multiplayerSessionState.serverId ) {
+			updateMultiplayerStatus( 'Leave your current server before using join-by-code.' );
+			return;
+		}
 		const code = codeInput.value.trim().toUpperCase();
 		if ( ! /^[A-Z0-9]{6}$/.test( code ) ) {
 
@@ -1299,6 +1318,524 @@ function initMultiplayerPanel() {
 
 	}
 
+	initMultiplayerServerHub();
+	// ?server=<id> deep link: open the hub and attempt to join that server.
+	const serverParam = String( new URLSearchParams( window.location.search ).get( 'server' ) || '' ).trim();
+	if ( serverParam && /^\d+$/.test( serverParam ) ) {
+		const params = new URLSearchParams( window.location.search );
+		params.delete( 'server' );
+		const nextQuery = params.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ nextQuery ? `?${ nextQuery }` : '' }${ window.location.hash }` );
+		setTimeout( () => joinServerById( Number( serverParam ) ).catch( ( err ) => {
+			updateMultiplayerStatus( err?.message || 'Could not join that server.' );
+		} ), 0 );
+	}
+
+}
+
+// ===========================================================================
+// Multiplayer server-browser hub
+// ===========================================================================
+//
+// A discovery + ownership + chat-scoping LAYER on top of the existing PeerJS
+// (WebRTC) + Firebase Realtime Database room networking. It does NOT replace
+// the peer connection — joining a server resolves a room code + map signature
+// from the servers worker, then runs the SAME startPeerMultiplayer() + Firebase
+// room join as join-by-code. Single-player is completely unaffected (no server
+// joined → behavior identical to today).
+
+const SERVER_HEARTBEAT_INTERVAL_MS = 15000;
+const SERVER_LIST_REFRESH_MS = 12000;
+let serverHubReady = false;
+
+// Read the live account session (declared inside init() — exposed via
+// window.__mpGetAccountSession) so the module-top-level server hub can check
+// login/ownership without duplicating auth state.
+function mpAccount() {
+	return ( typeof window.__mpGetAccountSession === 'function' ) ? ( window.__mpGetAccountSession() || null ) : null;
+}
+
+function initMultiplayerServerHub() {
+
+	const panel = document.getElementById( 'mp-panel' );
+	if ( ! panel ) return;
+	if ( Servers.serversReady() ) {
+		panel.classList.add( 'expanded' );
+		serverHubReady = true;
+		// Auto-refresh the active tab's list on a gentle interval.
+		if ( ! multiplayerSessionState.serverListRefreshTimer ) {
+			multiplayerSessionState.serverListRefreshTimer = setInterval( refreshActiveServerList, SERVER_LIST_REFRESH_MS );
+		}
+		refreshActiveServerList();
+	} else {
+		serverHubReady = false;
+	}
+
+	// Tab switching.
+	const tabs = panel.querySelectorAll( '.mp-hub-tab' );
+	tabs.forEach( ( tab ) => {
+		tab.addEventListener( 'click', () => {
+			tabs.forEach( ( t ) => t.classList.remove( 'active' ) );
+			tab.classList.add( 'active' );
+			const target = tab.dataset.mpTab;
+			panel.querySelectorAll( '.mp-hub-panel' ).forEach( ( p ) => {
+				p.classList.toggle( 'active', p.dataset.mpPanel === target );
+			} );
+			if ( target === 'temporary' ) refreshTemporaryServerList();
+			else if ( target === 'permanent' ) refreshPermanentServerList();
+		} );
+	} );
+
+	document.getElementById( 'mp-refresh-temp-btn' )?.addEventListener( 'click', refreshTemporaryServerList );
+	document.getElementById( 'mp-refresh-perm-btn' )?.addEventListener( 'click', refreshPermanentServerList );
+
+	document.getElementById( 'mp-create-temp-btn' )?.addEventListener( 'click', () => createTemporaryServerFromForm() );
+	document.getElementById( 'mp-create-perm-btn' )?.addEventListener( 'click', () => createPermanentServerFromForm() );
+	document.getElementById( 'mp-leave-server-btn' )?.addEventListener( 'click', () => leaveCurrentServer() );
+
+	updateCreatePermanentAuthNote();
+}
+
+function refreshActiveServerList() {
+	const active = document.querySelector( '.mp-hub-tab.active' )?.dataset.mpTab;
+	if ( active === 'temporary' ) refreshTemporaryServerList();
+	else if ( active === 'permanent' ) refreshPermanentServerList();
+}
+
+function updateCreatePermanentAuthNote() {
+	const note = document.getElementById( 'mp-create-perm-auth-note' );
+	if ( ! note ) return;
+	if ( ! serverHubReady ) {
+		note.textContent = 'Servers backend is not connected yet. Deploy the Cloudflare worker (see cloudflare-servers/README.md).';
+		note.style.display = 'block';
+		return;
+	}
+	const loggedIn = Boolean( mpAccount()?.token );
+	note.textContent = loggedIn ? '' : 'Log in to an account to create a permanent server.';
+	note.style.display = loggedIn ? 'none' : 'block';
+}
+
+function escapeServerNameForDisplay( name ) {
+	// Display only — we render with textContent, so this is belt-and-suspenders.
+	return String( name || '' );
+}
+
+function renderServerCard( server, options = {} ) {
+	const card = document.createElement( 'div' );
+	card.className = 'mp-server-card';
+	const count = Number( server.playerCount ) || 0;
+	const max = Number( server.maxPlayers ) || 8;
+	const isFull = count >= max;
+	if ( isFull ) card.classList.add( 'full' );
+
+	const nameEl = document.createElement( 'div' );
+	nameEl.className = 'mp-server-name';
+	nameEl.textContent = escapeServerNameForDisplay( server.name || 'Untitled Server' );
+	card.appendChild( nameEl );
+
+	const metaEl = document.createElement( 'div' );
+	metaEl.className = 'mp-server-meta';
+	const status = server.online === false || count === 0 ? 'Offline' : ( isFull ? 'Full' : 'Open' );
+	let meta = `Server #${ Number( server.serverId ) || 0 } — Players: ${ count }/${ max } — ${ status }`;
+	if ( server.type === 'permanent' && server.ownerUsername ) meta += ` — Owner: ${ server.ownerUsername }`;
+	if ( server.type === 'temporary' && server.hostUsername ) meta += ` — Host: ${ server.hostUsername }`;
+	metaEl.textContent = meta;
+	card.appendChild( metaEl );
+
+	const actions = document.createElement( 'div' );
+	actions.className = 'mp-server-actions';
+
+	const joinBtn = document.createElement( 'button' );
+	joinBtn.type = 'button';
+	joinBtn.textContent = isFull ? 'Full' : ( server.online === false ? 'Start' : 'Join' );
+	joinBtn.disabled = isFull;
+	joinBtn.addEventListener( 'click', () => {
+		joinServerById( Number( server.serverId ) ).catch( ( err ) => {
+			updateMultiplayerStatus( err?.message || 'Could not join that server.' );
+			refreshActiveServerList();
+		} );
+	} );
+	actions.appendChild( joinBtn );
+
+	// Owner-only management (permanent servers).
+	const isOwner = server.type === 'permanent' && server.ownerUsername
+		&& mpAccount()?.username
+		&& String( server.ownerUsername ).toLowerCase() === String( mpAccount().username ).toLowerCase();
+	if ( isOwner ) {
+		const renameBtn = document.createElement( 'button' );
+		renameBtn.type = 'button';
+		renameBtn.textContent = 'Rename';
+		renameBtn.addEventListener( 'click', () => renameServerPrompt( Number( server.serverId ) ) );
+		actions.appendChild( renameBtn );
+
+		const delBtn = document.createElement( 'button' );
+		delBtn.type = 'button';
+		delBtn.className = 'danger';
+		delBtn.textContent = 'Delete';
+		delBtn.addEventListener( 'click', () => deleteServerPrompt( Number( server.serverId ), server.name || '' ) );
+		actions.appendChild( delBtn );
+	}
+
+	card.appendChild( actions );
+	return card;
+}
+
+async function refreshTemporaryServerList() {
+	if ( ! serverHubReady ) return;
+	const listEl = document.getElementById( 'mp-temp-list' );
+	if ( ! listEl ) return;
+	try {
+		const servers = await Servers.listTemporaryServers();
+		listEl.innerHTML = '';
+		if ( servers.length === 0 ) {
+			const note = document.createElement( 'div' );
+			note.className = 'mp-empty-note';
+			note.textContent = 'No active temporary servers. Create one to get started!';
+			listEl.appendChild( note );
+			return;
+		}
+		for ( const server of servers ) listEl.appendChild( renderServerCard( server ) );
+	} catch ( err ) {
+		updateMultiplayerStatus( err?.message || 'Failed to load temporary servers.' );
+	}
+}
+
+async function refreshPermanentServerList() {
+	if ( ! serverHubReady ) return;
+	const listEl = document.getElementById( 'mp-perm-list' );
+	if ( ! listEl ) return;
+	try {
+		const servers = await Servers.listPermanentServers();
+		listEl.innerHTML = '';
+		if ( servers.length === 0 ) {
+			const note = document.createElement( 'div' );
+			note.className = 'mp-empty-note';
+			note.textContent = 'No permanent servers yet. Create one to keep it around!';
+			listEl.appendChild( note );
+			return;
+		}
+		for ( const server of servers ) listEl.appendChild( renderServerCard( server ) );
+	} catch ( err ) {
+		updateMultiplayerStatus( err?.message || 'Failed to load permanent servers.' );
+	}
+}
+
+function readMaxPlayersFromInput( inputId ) {
+	const el = document.getElementById( inputId );
+	if ( ! el ) return 8;
+	const n = Math.floor( Number( el.value ) );
+	el.value = '';
+	if ( ! Number.isFinite( n ) || n < 2 ) return 8;
+	return Math.min( n, 16 );
+}
+
+async function createTemporaryServerFromForm() {
+	if ( ! serverHubReady ) {
+		updateMultiplayerStatus( 'Servers backend is not connected yet.' );
+		return;
+	}
+	if ( multiplayerSessionState.serverId ) {
+		updateMultiplayerStatus( 'Leave your current server before creating a new one.' );
+		return;
+	}
+	const nameInput = document.getElementById( 'mp-create-temp-name' );
+	const name = String( nameInput?.value || '' ).trim();
+	if ( ! name ) {
+		updateMultiplayerStatus( 'Enter a server name first.' );
+		return;
+	}
+	const maxPlayers = readMaxPlayersFromInput( 'mp-create-temp-max' );
+	if ( ! hasFirebaseMultiplayerConfig() ) {
+		updateMultiplayerStatus( 'Multiplayer needs Firebase keys in js/firebase-config.js to host.' );
+		return;
+	}
+
+	// Reuse the existing host flow: generate a room code, start PeerJS host,
+	// register the Firebase room — then ALSO register an active server session.
+	const code = createHostCode();
+	const codeInput = document.getElementById( 'mp-code-input' );
+	if ( codeInput ) codeInput.value = code;
+	updateMultiplayerStatus( `Creating temporary server "${ name }"...` );
+
+	try {
+		multiplayerSessionState.role = 'host';
+		multiplayerSessionState.roomCode = code;
+		startPeerMultiplayer( code, 'host' );
+		const now = Date.now();
+		const roomPayload = {
+			code,
+			hostId: multiplayerSessionState.clientId,
+			mapSignature: getCurrentMapSignature(),
+			createdAt: now,
+			updatedAt: now,
+		};
+		await firebaseRoomsRequest( code, 'PUT', roomPayload );
+		// Register the active server session (server-authoritative id allocation).
+		const server = await Servers.createTemporaryServer( {
+			name,
+			roomCode: code,
+			mapSignature: getCurrentMapSignature(),
+			hostUsername: getLocalMultiplayerDisplayName(),
+			hostClientId: multiplayerSessionState.clientId,
+			settings: { maxPlayers },
+		} );
+		enterServer( server );
+		lastHostRoomRotateAt = Date.now();
+		setMultiplayerLeaderboardVisible( true );
+		nameInput.value = '';
+	} catch ( err ) {
+		console.warn( 'Failed to create temporary server', err );
+		updateMultiplayerStatus( err?.message || 'Failed to create temporary server.' );
+		closeMultiplayerPeer();
+		multiplayerSessionState.role = 'none';
+		multiplayerSessionState.roomCode = '';
+		setMultiplayerLeaderboardVisible( false );
+	}
+}
+
+async function createPermanentServerFromForm() {
+	if ( ! serverHubReady ) {
+		updateMultiplayerStatus( 'Servers backend is not connected yet.' );
+		return;
+	}
+	if ( ! mpAccount()?.token ) {
+		updateMultiplayerStatus( 'Log in to an account to create a permanent server.' );
+		if ( window.__mpOpenAccountPanel ) window.__mpOpenAccountPanel();
+		return;
+	}
+	const nameInput = document.getElementById( 'mp-create-perm-name' );
+	const name = String( nameInput?.value || '' ).trim();
+	if ( ! name ) {
+		updateMultiplayerStatus( 'Enter a server name first.' );
+		return;
+	}
+	const maxPlayers = readMaxPlayersFromInput( 'mp-create-perm-max' );
+	updateMultiplayerStatus( `Creating permanent server "${ name }"...` );
+	try {
+		const server = await Servers.createPermanentServer( {
+			token: mpAccount().token,
+			name,
+			settings: { maxPlayers },
+		} );
+		updateMultiplayerStatus( `Created permanent server "${ server.name }" (Server #${ server.serverId }).` );
+		nameInput.value = '';
+		await refreshPermanentServerList();
+	} catch ( err ) {
+		console.warn( 'Failed to create permanent server', err );
+		updateMultiplayerStatus( err?.message || 'Failed to create permanent server.' );
+	}
+}
+
+async function renameServerPrompt( serverId ) {
+	if ( ! mpAccount()?.token ) {
+		updateMultiplayerStatus( 'Log in to rename your server.' );
+		return;
+	}
+	const newName = window.prompt( 'New server name (1-40 chars):' );
+	if ( newName == null ) return;
+	const trimmed = String( newName ).trim();
+	if ( ! trimmed ) {
+		updateMultiplayerStatus( 'Rename cancelled: name was empty.' );
+		return;
+	}
+	try {
+		const server = await Servers.renamePermanentServer( serverId, { token: mpAccount().token, name: trimmed } );
+		updateMultiplayerStatus( `Renamed to "${ server.name }".` );
+		await refreshPermanentServerList();
+	} catch ( err ) {
+		updateMultiplayerStatus( err?.message || 'Rename failed.' );
+	}
+}
+
+async function deleteServerPrompt( serverId, currentName ) {
+	if ( ! mpAccount()?.token ) {
+		updateMultiplayerStatus( 'Log in to delete your server.' );
+		return;
+	}
+	if ( ! window.confirm( `Delete permanent server "${ currentName }"? This cannot be undone.` ) ) return;
+	try {
+		await Servers.deletePermanentServer( serverId, { token: mpAccount().token } );
+		updateMultiplayerStatus( `Deleted server "${ currentName }".` );
+		// If we were inside it, leave locally.
+		if ( multiplayerSessionState.serverId === serverId ) await leaveCurrentServer();
+		await refreshPermanentServerList();
+	} catch ( err ) {
+		updateMultiplayerStatus( err?.message || 'Delete failed.' );
+	}
+}
+
+// Join a server by id. Resolves the active session (or, for an offline
+// permanent server, tells the caller to start it). Then runs the EXISTING
+// join-by-code networking path with the session's room code + map signature.
+async function joinServerById( serverId ) {
+	if ( ! serverHubReady ) {
+		updateMultiplayerStatus( 'Servers backend is not connected yet.' );
+		return;
+	}
+	if ( multiplayerSessionState.serverId ) {
+		updateMultiplayerStatus( 'Leave your current server before joining another.' );
+		return;
+	}
+	if ( ! hasFirebaseMultiplayerConfig() ) {
+		updateMultiplayerStatus( 'Multiplayer needs Firebase keys in js/firebase-config.js.' );
+		return;
+	}
+	const id = Number( serverId );
+	if ( ! Number.isFinite( id ) || id <= 0 ) throw new Error( 'Invalid server id.' );
+
+	updateMultiplayerStatus( `Joining server #${ id }...` );
+
+	// Fetch the server definition first (so we know its name / type even if
+	// there is no active session yet).
+	let def;
+	try {
+		def = await Servers.getServer( id );
+	} catch ( err ) {
+		throw new Error( err?.message || 'That server is no longer available.' );
+	}
+
+	// If the permanent server has no active session, the caller (host) can start
+	// one. We treat "Start" the same as create-temporary but bound to the
+	// permanent server id is NOT possible with the current worker (sessions are
+	// created with fresh ids). Instead, for an offline permanent server we ask
+	// the player to start it via a temporary session that reuses the permanent
+	// name — simplest compatible path. For now, guide them:
+	if ( def && def.online === false ) {
+		throw new Error( `Server "${ def.name }" is currently offline. The owner must start it (create a temporary session) for others to join.` );
+	}
+
+	// Join the active session (capacity checked server-side).
+	const session = await Servers.joinServer( id, {
+		username: getLocalMultiplayerDisplayName(),
+		clientId: multiplayerSessionState.clientId,
+	} );
+
+	const joinMap = getCurrentMapSignature();
+	if ( ! canJoinMap( session.mapSignature, joinMap ) ) {
+		// Switch to the host's map, preserving the server join intent.
+		updateMultiplayerStatus( `Switching to host map for server #${ id }...` );
+		const params = new URLSearchParams( window.location.search );
+		const parsed = parseMapSignature( session.mapSignature );
+		params.set( 'map', parsed.map );
+		if ( parsed.mods === 'none' ) params.delete( 'mods' ); else params.set( 'mods', parsed.mods );
+		params.set( 'server', String( id ) );
+		window.location.search = params.toString();
+		return;
+	}
+
+	// Record the join in the existing Firebase room (legacy clients in the same
+	// room code still see this player).
+	await firebaseRoomsRequest( session.roomCode, 'PATCH', {
+		updatedAt: Date.now(),
+		lastJoinAt: Date.now(),
+		status: 'joined',
+	} ).catch( () => {} );
+
+	multiplayerSessionState.role = 'join';
+	multiplayerSessionState.roomCode = session.roomCode;
+	startPeerMultiplayer( session.roomCode, 'join' );
+	setMultiplayerLeaderboardVisible( true );
+	enterServer( session );
+}
+
+// Mark the player as inside a server: set state, switch chat to server context,
+// render the current-server card, start the heartbeat.
+function enterServer( server ) {
+	multiplayerSessionState.serverId = Number( server.serverId );
+	multiplayerSessionState.serverName = server.name || '';
+	multiplayerSessionState.serverType = server.type || '';
+	multiplayerSessionState.serverMaxPlayers = Number( server.maxPlayers ) || 8;
+	renderCurrentServerCard( server );
+
+	// Switch chat from global to this server's scoped channel.
+	if ( window.SkidChat?.setServerContext ) {
+		window.SkidChat.setServerContext( multiplayerSessionState.serverId, multiplayerSessionState.serverName );
+	}
+
+	startServerHeartbeat();
+}
+
+function renderCurrentServerCard( server ) {
+	const card = document.getElementById( 'mp-current-server' );
+	if ( ! card ) return;
+	const inside = Boolean( multiplayerSessionState.serverId );
+	card.style.display = inside ? 'block' : 'none';
+	if ( ! inside ) return;
+	const nameEl = document.getElementById( 'mp-cs-name' );
+	const metaEl = document.getElementById( 'mp-cs-meta' );
+	const playersEl = document.getElementById( 'mp-cs-players' );
+	if ( nameEl ) nameEl.textContent = server?.name || multiplayerSessionState.serverName || 'Server';
+	const count = Number( server?.playerCount ) || 0;
+	const max = Number( server?.maxPlayers ) || multiplayerSessionState.serverMaxPlayers || 8;
+	if ( metaEl ) {
+		const label = multiplayerSessionState.serverType === 'permanent' ? 'Permanent' : 'Temporary';
+		let meta = `Server #${ multiplayerSessionState.serverId } — ${ label } — Players: ${ count }/${ max }`;
+		if ( server?.hostUsername ) meta += ` — Host: ${ server.hostUsername }`;
+		metaEl.textContent = meta;
+	}
+	if ( playersEl ) {
+		const players = Array.isArray( server?.players ) ? server.players : [];
+		playersEl.textContent = players.length
+			? 'In server: ' + players.map( ( p ) => `${ p.username || 'Player' }${ p.isHost ? ' ★' : '' }` ).join( ', ' )
+			: 'Loading player list...';
+	}
+}
+
+function startServerHeartbeat() {
+	stopServerHeartbeat();
+	if ( ! multiplayerSessionState.serverId ) return;
+	const beat = async () => {
+		if ( ! multiplayerSessionState.serverId ) return;
+		try {
+			const server = await Servers.heartbeatServer( multiplayerSessionState.serverId, {
+				username: getLocalMultiplayerDisplayName(),
+				clientId: multiplayerSessionState.clientId,
+			} );
+			renderCurrentServerCard( server );
+		} catch ( err ) {
+			// Server disappeared (host left + TTL expired, or deleted). Notify
+			// the player and return them to the browser.
+			console.warn( 'Server heartbeat failed', err );
+			const msg = err?.message || 'This server is no longer available.';
+			updateMultiplayerStatus( msg );
+			leaveCurrentServer( true );
+		}
+	};
+	multiplayerSessionState.serverHeartbeatTimer = setInterval( beat, SERVER_HEARTBEAT_INTERVAL_MS );
+}
+
+function stopServerHeartbeat() {
+	if ( multiplayerSessionState.serverHeartbeatTimer ) {
+		clearInterval( multiplayerSessionState.serverHeartbeatTimer );
+		multiplayerSessionState.serverHeartbeatTimer = null;
+	}
+}
+
+// Leave the current server. `silent` skips the status toast (used when the
+// server already vanished). Tears down the existing peer + Firebase cleanup +
+// restores global chat. Single-player state is restored.
+async function leaveCurrentServer( silent = false ) {
+	const serverId = multiplayerSessionState.serverId;
+	stopServerHeartbeat();
+	if ( serverId ) {
+		await Servers.leaveServer( serverId, { clientId: multiplayerSessionState.clientId } );
+	}
+	multiplayerSessionState.serverId = null;
+	multiplayerSessionState.serverName = '';
+	multiplayerSessionState.serverType = '';
+	renderCurrentServerCard( null );
+	// Restore global chat context.
+	if ( window.SkidChat?.clearServerContext ) {
+		window.SkidChat.clearServerContext();
+	}
+	// Tear down the existing PeerJS + Firebase session (same as the original
+	// leave path — we do NOT touch single-player physics/tracks).
+	closeMultiplayerPeer();
+	multiplayerSessionState.role = 'none';
+	multiplayerSessionState.roomCode = '';
+	setMultiplayerLeaderboardVisible( false );
+	if ( ! silent ) updateMultiplayerStatus( 'Left the server. Back to global chat.' );
+	refreshActiveServerList();
 }
 
 async function hostRotateRoomCode( currentRoomCode, mapSignature ) {
@@ -3081,6 +3618,18 @@ async function init() {
 	setInterval( broadcastPeerState, WEBRTC_SYNC_MS );
 	window.addEventListener( 'beforeunload', () => {
 
+		// Best-effort server-browser leave so the session presence clears even on
+		// browser close / crash. The worker's heartbeat TTL is the true backstop.
+		if ( multiplayerSessionState.serverId && Servers.serversReady() ) {
+			try {
+				fetch( `${ Servers.SERVERS_API_BASE }/${ multiplayerSessionState.serverId }/leave`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify( { clientId: multiplayerSessionState.clientId } ),
+					keepalive: true,
+				} ).catch( () => {} );
+			} catch {}
+		}
 		if ( ! multiplayerSessionState.roomCode ) return;
 		for ( const connection of multiplayerSessionState.connections.values() ) {
 
@@ -4184,6 +4733,11 @@ async function init() {
 	let leaderboardVisible = true;
 	let uiHidden = false;
 	let accountSession = null;
+	// Expose account session + mode-menu helpers to the module-top-level
+	// multiplayer server hub (which can't close over this init() scope). These
+	// are read-only accessors; assignment still happens only here.
+	window.__mpGetAccountSession = () => accountSession;
+	window.__mpOpenAccountPanel = () => { setModeMenuOpen( true ); setModeTab( 'account' ); };
 
 	const advancementEvents = new AdvancementEvents();
 	const accountDirtyRef = { value: false };
@@ -6299,6 +6853,9 @@ function completeCampaignStage() {
 		setAccountStatus( accountSession?.token ? `Signed in as ${ accountSession.username }` : 'Not signed in' );
 		if ( accountCloudSaveBtn ) accountCloudSaveBtn.disabled = ! accountSession?.token;
 		if ( accountCloudLoadBtn ) accountCloudLoadBtn.disabled = ! accountSession?.token;
+		// Refresh the permanent-server create panel auth note + owner controls.
+		if ( typeof updateCreatePermanentAuthNote === 'function' ) updateCreatePermanentAuthNote();
+		if ( typeof refreshActiveServerList === 'function' ) refreshActiveServerList();
 
 	}
 

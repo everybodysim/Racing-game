@@ -792,3 +792,191 @@ The mobile UI had two independent triggers; BOTH are neutralized:
 - Normal desktop load: home page renders identically to before (full desktop
   layout, all buttons). No regressions.
 - CSS braces balanced (519/519 excl. comments); detection IIFE braces balanced.
+
+## Multiplayer server-browser system (`cloudflare-servers/` + `js/MultiplayerServers.js` + main.js + index.html)
+
+### What it is
+- A discovery + ownership + chat-scoping LAYER on top of the existing PeerJS
+  (WebRTC) + Firebase Realtime Database room networking. It does NOT replace
+  the peer connection — joining a server resolves a room code + map signature
+  from the servers worker, then runs the SAME `startPeerMultiplayer()` + Firebase
+  room join as join-by-code. Single-player is completely unaffected (no server
+  joined → behavior identical to today; the legacy Host/Join/Copy/Debug controls
+  are preserved verbatim under the "Join by Code" tab).
+- New 5-tab multiplayer hub (`#mp-panel`, class `expanded`): Temporary Servers /
+  Permanent Servers / Create Temporary / Create Permanent / Join by Code.
+
+### Two server types (kept distinct)
+- TEMPORARY: created for a session, NOT persisted in Cloudflare. Exists only
+  while active. Disappears after all players leave + heartbeat TTL expiry
+  (`SESSION_TTL_MS`, default 45s; `SESSION_HEARTBEAT_INTERVAL_MS` client 15s).
+  Its id may be reused later. Backed by the SESSIONS index (KV).
+- PERMANENT: a persistent SERVER DEFINITION stored in Cloudflare KV
+  (`server:<id>` + `SERVERS_INDEX_KEY` + owner index `owner:<usernameKey>`).
+  Has a permanent owner account, a permanent numeric id, survives players
+  leaving. Renamable/deletable by owner only. Does NOT keep a WebRTC connection
+  alive — an active SESSION is created when players join.
+
+### Server IDs (server-authoritative, never client-chosen)
+- Numeric, sequential, globally unique across temp + permanent (shared counter
+  `SERVERS_COUNTER_KEY`). First server → 1, next free → 2, 3, ...
+- `allocateNextServerId()` does probe-and-claim with a bounded retry loop
+  (MAX_ATTEMPTS 64): read counter → candidate = counter+1 → check
+  `server:<id>` AND `session:<id>` are BOTH absent → if taken, bump counter
+  past collision + retry. `advanceCounterPast()` advances the counter after a
+  successful write. Cloudflare KV lacks true CAS, so this is the same
+  best-effort atomicity the existing accounts/clubs workers use; indices are
+  dedup-keyed by id so a race only overwrites an index entry, never corrupts data.
+- The client NEVER submits a server id on create. `POST /permanent` body is
+  `{ token, name, settings }`; the worker allocates + returns the id.
+- Discovery is a SINGLE list fetch (`GET /temporary`, `GET /permanent`), NOT a
+  1,2,3,... probe. The browser displays numeric ids but discovery is backend-driven.
+
+### Backend (`cloudflare-servers/worker/src/index.js`)
+- KV-backed Cloudflare Worker, modeled on the accounts/clubs/leaderboard workers.
+- KV keys: `SERVER_KEY_PREFIX` `server:` (permanent defs), `SESSION_KEY_PREFIX`
+  `session:` (active sessions), `SERVERS_INDEX_KEY` (permanent id set),
+  `SESSIONS_INDEX_KEY` (active session id set), `SERVERS_COUNTER_KEY` (counter),
+  `owner:<usernameKey>` (owner→server-id set, for "my servers" + ownership).
+- Endpoints (all CORS, all JSON):
+  - `GET  /temporary` — list active temp sessions (summarized).
+  - `GET  /permanent` — list permanent server defs (+ active session summary).
+  - `GET  /:id` — single server def + active session (if any).
+  - `POST /temporary` — create temp session (host). Body: name, roomCode,
+    mapSignature, hostUsername, hostClientId, settings. Returns server+id.
+  - `POST /permanent` — create permanent (auth: token). Allocates id.
+  - `POST /:id/join` — join active session (server-side capacity check, 409 if
+    full). Idempotent on clientId (re-join doesn't double-count). Returns session.
+  - `POST /:id/heartbeat` — refresh presence (updates player `lastSeen` +
+    session `lastHeartbeat`), returns updated player list.
+  - `POST /:id/leave` — remove a player; if 0 players remain, session ends +
+    is pruned from the SESSIONS index (temp servers die here).
+  - `POST /:id/rename` — permanent, owner-only (token-verified). Sanitizes name.
+  - `DELETE /:id` — permanent, owner-only. Removes def + index + owner index.
+    Active session (if any) is ended so new joins 404.
+  - `GET  /:id/chat` — server-scoped chat history (capped `CHAT_HISTORY_CAP`).
+  - `POST /:id/chat` — post a server-scoped message. Membership-enforced: only
+    players currently in the active session's player list may post (403 otherwise).
+- Auth: `resolveAccountUsername(token)` calls the EXISTING accounts worker
+  (`ACCOUNTS_PROFILE_URL`) — single auth system, no new credentials. Token is
+  NEVER trusted from a client-supplied userId; ownership is derived server-side
+  from the verified username.
+- Sanitization: `sanitizeServerName` strips control chars, collapses whitespace,
+  truncates to 40 chars, rejects empty. Rendered via `textContent` on the client
+  (no innerHTML) so no XSS. `sanitizeServerSettings` clamps `maxPlayers` 2–16.
+- TTL/pruning: `pruneSession()` (called on every session read) removes players
+  whose `lastSeen` is older than `SESSION_TTL_MS`; if 0 players remain, the
+  session is marked ended + removed from the SESSIONS index. This is the
+  backstop for browser crashes / network loss (not just "host clicked Leave").
+  IMPORTANT: the host player is created with `lastSeen: now` (otherwise the
+  first prune would kill the host immediately — this was a bug, now fixed + tested).
+
+### Client (`js/MultiplayerServers.js`)
+- Thin API wrapper mirroring the `mods-manager.js` placeholder-ready pattern.
+- `SERVERS_API_BASE = 'https://racing-servers-api.ga1010.workers.dev/api/servers'`
+  (matches the repo's `ga1010.workers.dev` deployment convention; replace with
+  your deployed worker URL). `serversReady()` returns true when the base is a
+  real URL (not the `REPLACE_WITH_YOUR_WORKER_URL` placeholder), so the hub UI
+  lights up once configured.
+- Exports: `listTemporaryServers`, `listPermanentServers`, `getServer`,
+  `createTemporaryServer`, `createPermanentServer`, `joinServer`, `heartbeatServer`,
+  `leaveServer`, `renamePermanentServer`, `deletePermanentServer`, `getServerChat`,
+  `postServerChat`. All throw on non-2xx with the worker's error message.
+
+### main.js integration (the live bridge)
+- `import * as Servers from './MultiplayerServers.js'`.
+- `multiplayerSessionState` extended with `serverId`, `serverName`, `serverType`,
+  `serverMaxPlayers`, `serverHeartbeatTimer`, `serverListRefreshTimer`. When
+  `serverId` is null → exactly the original join-by-code behavior.
+- `initMultiplayerServerHub()` (called from `initMultiplayerPanel`) wires tab
+  switching, refresh buttons, create/leave handlers, and a 12s auto-refresh
+  interval of the active tab's list.
+- `createTemporaryServerFromForm()`: reuses the EXISTING host flow —
+  `createHostCode()` + `startPeerMultiplayer(code,'host')` + Firebase room PUT —
+  then ALSO registers an active server session via `Servers.createTemporaryServer`.
+- `joinServerById(id)`: fetches the server def, joins the active session
+  (capacity checked server-side), switches map if `canJoinMap` fails (preserves
+  `?server=<id>` for re-join after reload), records the join in Firebase, then
+  runs the EXISTING `startPeerMultiplayer(roomCode,'join')`.
+- `enterServer()` / `leaveCurrentServer()`: set/clear server state, switch chat
+  context via `window.SkidChat`, start/stop a 15s heartbeat. Heartbeat failure
+  (server vanished) auto-leaves with a clear message.
+- `beforeunload`: best-effort `POST /:id/leave` with `keepalive:true` + the
+  existing Firebase player DELETE. Worker TTL is the true backstop.
+- Legacy Host/Join buttons are guarded: if `serverId` is set, they tell the
+  player to leave the server first (prevents dual-context confusion).
+- `?server=<id>` deep link: parsed at boot, joins that server (handles
+  unavailable/deleted gracefully with a status message). Existing `?joinRoom=`
+  deep link unchanged.
+- Owner-only rename/delete buttons appear on permanent server cards only when
+  `server.ownerUsername` matches the live `accountSession.username` (read via
+  `window.__mpGetAccountSession`, exposed from `init()` since the server-hub
+  functions are module-top-level and can't close over `init()` scope).
+- `updateAccountUi()` refreshes the create-permanent auth note + server list on
+  login/logout so owner controls appear/disappear immediately.
+
+### Chat context system (`window.SkidChat` in index.html inline script)
+- The existing inline Ably chat was refactored into a context switcher. There is
+  ONE Ably connection + `channel` (preserved). `currentChatContext =
+  { type:'global'|'server', channel, name, serverId, serverName }`.
+- GLOBAL (default, outside any server): the original channel `skid-circuit-chat`
+  (or whatever the existing global channel was) + the original `addMessage`/
+  `sendMsg` semantics + the original message format. NO server prefix. Same
+  audience as before. Backwards-compatible.
+- SERVER: `setServerContext(serverId, serverName)` switches to
+  `skidcircuit:server:<id>:chat`, clears the visible message list (no leak),
+  unsubscribes the old channel listener, subscribes the new one. Messages render
+  with a `[Server #id]` prefix (display only). `clearServerContext()` restores
+  global. Leaving/joining another server always clears first → no stale/dup
+  subscriptions, no cross-server leak.
+- Security: the client can only publish to the channel of the server it actually
+  joined (serverId comes from `enterServer`, not user input). The worker's
+  `POST /:id/chat` additionally enforces session membership server-side (403 for
+  non-members), so even a tampered client can't post to a server it isn't in.
+  Messages rendered via `textContent` (sanitized). Ably's own per-client rate
+  limits apply.
+
+### Deep links
+- `?joinRoom=XXXXXX` — existing join-by-code deep link (unchanged).
+- `?server=<numericId>` — new server deep link. Both are stripped from the URL
+  after handling (so reload doesn't re-trigger).
+
+### Data model (minimal, non-duplicated)
+- Permanent server def (`server:<id>`): `{ serverId, type:'permanent', name,
+  ownerUsername, ownerUsernameKey, createdAt, settings:{maxPlayers} }`.
+- Active session (`session:<id>`, temp OR permanent): `{ serverId, type, name,
+  roomCode, mapSignature, hostUsername, hostClientId, playerCount, maxPlayers,
+  players:[{username,clientId,isHost,lastSeen}], lastHeartbeat, createdAt,
+  updatedAt, ended? }`. The session is the live WebRTC-room binding; it is NOT
+  stored permanently for temp servers.
+- Chat (`chat:<id>`): `{ messages:[{messageId,username,content,timestamp}] }`,
+  capped. Server-scoped only.
+- Player membership: derived from `session.players` (the source of truth for
+  capacity, player list, chat authorization). No separate membership store.
+
+### Deployment
+- Deploy the worker: `cd cloudflare-servers/worker && wrangler deploy` (see
+  `cloudflare-servers/README.md`). Set `SERVERS_API_BASE` in
+  `js/MultiplayerServers.js` to the deployed URL if different from the default.
+- Until deployed, the hub shows a "Servers backend is not connected" note and
+  fetches fail gracefully with clear status messages — single-player and global
+  chat are fully unaffected.
+
+### What is NOT changed (regression surface)
+- Single-player physics/tracks/cars/mods/campaign/accounts/cloud-saves: untouched.
+- Existing PeerJS WebRTC + TURN + Firebase room networking: untouched (servers
+  reuse it).
+- Existing global Ably chat outside servers: untouched (same channel, format,
+  audience).
+- Existing `?joinRoom=` deep link + join-by-code UI: preserved under the
+  "Join by Code" tab.
+- clubs.html chat (separate file, same Ably pattern): untouched.
+
+### Tests
+- `test-servers-worker.mjs` (27 assertions): empty list, create permanent (auth
+  required + id allocation 1→2), empty/overlong/whitespace-name handling,
+  duplicate names allowed, temp creation + player count, join idempotency,
+  capacity 409 on full, heartbeat player list, leave, rename owner-only,
+  delete owner-only + list removal, chat membership enforcement (403 outsider /
+  200 member) + history, join non-existent 404, non-numeric id 404. Run with
+  `node test-servers-worker.mjs` (stubs KV + accounts-worker fetch; no deploy needed).

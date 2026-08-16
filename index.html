@@ -311,6 +311,72 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			display: none;
 			box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
 		}
+		/* ---- Multiplayer server hub (5-tab) ---- */
+		#mp-hub-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+		.mp-hub-tab {
+			border: none;
+			border-radius: 6px;
+			background: rgba(255,255,255,0.10);
+			color: #cfe3ff;
+			padding: 5px 7px;
+			font: 600 11px/1 sans-serif;
+			cursor: pointer;
+		}
+		.mp-hub-tab.active { background: rgba(126,181,255,0.42); color: #fff; }
+		.mp-hub-tab:hover { background: rgba(255,255,255,0.22); }
+		.mp-hub-panel { display: none; max-height: 320px; overflow-y: auto; }
+		.mp-hub-panel.active { display: block; }
+		#mp-panel.expanded { min-width: 280px; max-width: 320px; }
+		.mp-server-list { display: flex; flex-direction: column; gap: 5px; }
+		.mp-server-card {
+			background: rgba(255,255,255,0.08);
+			border: 1px solid rgba(255,255,255,0.16);
+			border-radius: 6px;
+			padding: 6px 7px;
+		}
+		.mp-server-card .mp-server-name { font: 700 12px/1.2 sans-serif; word-break: break-word; }
+		.mp-server-card .mp-server-meta { font: 600 10px/1.3 sans-serif; opacity: 0.85; margin-top: 3px; }
+		.mp-server-card .mp-server-actions { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
+		.mp-server-card button {
+			border: none; border-radius: 5px; cursor: pointer;
+			background: rgba(83,212,255,0.28); color: #fff;
+			padding: 3px 7px; font: 600 10px/1 sans-serif;
+		}
+		.mp-server-card button:hover { background: rgba(83,212,255,0.5); }
+		.mp-server-card button.danger { background: rgba(255,80,80,0.32); }
+		.mp-server-card button.danger:hover { background: rgba(255,80,80,0.55); }
+		.mp-server-card.full { opacity: 0.6; }
+		.mp-empty-note { font: 600 11px/1.3 sans-serif; opacity: 0.7; padding: 6px 2px; }
+		.mp-field-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+		.mp-field-row label { font: 600 10px/1 sans-serif; opacity: 0.85; }
+		.mp-field-row input {
+			border-radius: 6px; border: 1px solid rgba(255,255,255,0.24);
+			background: rgba(20,20,20,0.45); color: #fff;
+			padding: 6px 8px; font: 600 12px/1 sans-serif;
+		}
+		.mp-create-actions { display: flex; gap: 6px; }
+		.mp-create-actions button { flex: 1; border: none; border-radius: 6px; cursor: pointer; padding: 7px; font: 700 12px/1 sans-serif; }
+		.mp-create-actions .mp-go { background: rgba(80,200,120,0.4); color: #fff; }
+		.mp-create-actions .mp-go:hover { background: rgba(80,200,120,0.6); }
+		.mp-create-actions .mp-cancel { background: rgba(255,255,255,0.16); color: #fff; }
+		.mp-current-server {
+			background: rgba(83,212,255,0.16); border: 1px solid rgba(83,212,255,0.4);
+			border-radius: 6px; padding: 6px 7px; margin-bottom: 8px;
+		}
+		.mp-current-server .mp-cs-name { font: 700 12px/1.2 sans-serif; word-break: break-word; }
+		.mp-current-server .mp-cs-meta { font: 600 10px/1.3 sans-serif; opacity: 0.85; margin-top: 2px; }
+		.mp-current-server .mp-cs-players { font: 600 10px/1.4 sans-serif; margin-top: 4px; opacity: 0.9; }
+		.mp-current-server .mp-cs-actions { display: flex; gap: 4px; margin-top: 5px; }
+		.mp-current-server .mp-cs-actions button { border: none; border-radius: 5px; cursor: pointer; padding: 4px 8px; font: 600 10px/1 sans-serif; }
+		.mp-current-server .mp-cs-leave { background: rgba(255,80,80,0.3); color: #fff; }
+		.mp-current-server .mp-cs-leave:hover { background: rgba(255,80,80,0.5); }
+		.mp-refresh-btn {
+			border: none; border-radius: 5px; cursor: pointer;
+			background: rgba(255,255,255,0.14); color: #cfe3ff;
+			padding: 4px 8px; font: 600 10px/1 sans-serif; margin-bottom: 6px;
+		}
+		.mp-refresh-btn:hover { background: rgba(255,255,255,0.26); }
+		.mp-hub-back { margin-bottom: 6px; }
 		#competitions-warning-overlay {
 			position: fixed;
 			inset: 0;
@@ -2545,15 +2611,82 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<button id="import-ghost-btn" type="button">Import ghost</button>
 	<div id="mp-panel" aria-label="Multiplayer">
 		<div id="mp-panel-title">Multiplayer</div>
-		<div id="mp-actions">
-			<button id="mp-host-btn" type="button">Host</button>
-			<button id="mp-join-btn" type="button">Join</button>
-			<button id="mp-debug-toggle-btn" type="button" title="Toggle multiplayer debug console">Toggle Debug</button>
+
+		<!-- Current server summary (only shown while inside a server) -->
+		<div id="mp-current-server" class="mp-current-server" style="display:none">
+			<div class="mp-cs-name" id="mp-cs-name"></div>
+			<div class="mp-cs-meta" id="mp-cs-meta"></div>
+			<div class="mp-cs-players" id="mp-cs-players"></div>
+			<div class="mp-cs-actions">
+				<button id="mp-leave-server-btn" class="mp-cs-leave" type="button">Leave Server</button>
+			</div>
 		</div>
-		<div id="mp-code-row">
-			<input id="mp-code-input" type="text" maxlength="6" placeholder="ROOM CODE" aria-label="Room code">
-			<button id="mp-copy-btn" type="button">Copy</button>
+
+		<!-- 5-tab hub -->
+		<div id="mp-hub-tabs">
+			<button class="mp-hub-tab active" data-mp-tab="temporary" type="button">Temporary</button>
+			<button class="mp-hub-tab" data-mp-tab="permanent" type="button">Permanent</button>
+			<button class="mp-hub-tab" data-mp-tab="create-temp" type="button">Create Temp</button>
+			<button class="mp-hub-tab" data-mp-tab="create-perm" type="button">Create Perm</button>
+			<button class="mp-hub-tab" data-mp-tab="join-code" type="button">Join by Code</button>
 		</div>
+
+		<!-- Temporary servers browser -->
+		<div class="mp-hub-panel active" data-mp-panel="temporary">
+			<button class="mp-refresh-btn" id="mp-refresh-temp-btn" type="button">Refresh</button>
+			<div class="mp-server-list" id="mp-temp-list"><div class="mp-empty-note">No active temporary servers.</div></div>
+		</div>
+
+		<!-- Permanent servers browser -->
+		<div class="mp-hub-panel" data-mp-panel="permanent">
+			<button class="mp-refresh-btn" id="mp-refresh-perm-btn" type="button">Refresh</button>
+			<div class="mp-server-list" id="mp-perm-list"><div class="mp-empty-note">No permanent servers yet.</div></div>
+		</div>
+
+		<!-- Create temporary server -->
+		<div class="mp-hub-panel" data-mp-panel="create-temp">
+			<div class="mp-field-row">
+				<label for="mp-create-temp-name">Server name</label>
+				<input id="mp-create-temp-name" type="text" maxlength="40" placeholder="e.g. Drift Kings" />
+			</div>
+			<div class="mp-field-row">
+				<label for="mp-create-temp-max">Max players (2-16, default 8)</label>
+				<input id="mp-create-temp-max" type="number" min="2" max="16" placeholder="8" />
+			</div>
+			<div class="mp-create-actions">
+				<button class="mp-go" id="mp-create-temp-btn" type="button">Create &amp; Host</button>
+			</div>
+		</div>
+
+		<!-- Create permanent server -->
+		<div class="mp-hub-panel" data-mp-panel="create-perm">
+			<div class="mp-empty-note" id="mp-create-perm-auth-note">Log in to an account to create a permanent server.</div>
+			<div class="mp-field-row">
+				<label for="mp-create-perm-name">Server name</label>
+				<input id="mp-create-perm-name" type="text" maxlength="40" placeholder="e.g. Drift Kings" />
+			</div>
+			<div class="mp-field-row">
+				<label for="mp-create-perm-max">Max players (2-16, default 8)</label>
+				<input id="mp-create-perm-max" type="number" min="2" max="16" placeholder="8" />
+			</div>
+			<div class="mp-create-actions">
+				<button class="mp-go" id="mp-create-perm-btn" type="button">Create</button>
+			</div>
+		</div>
+
+		<!-- Join by Code (the ORIGINAL multiplayer flow, preserved) -->
+		<div class="mp-hub-panel" data-mp-panel="join-code">
+			<div id="mp-actions">
+				<button id="mp-host-btn" type="button">Host</button>
+				<button id="mp-join-btn" type="button">Join</button>
+				<button id="mp-debug-toggle-btn" type="button" title="Toggle multiplayer debug console">Debug</button>
+			</div>
+			<div id="mp-code-row">
+				<input id="mp-code-input" type="text" maxlength="6" placeholder="ROOM CODE" aria-label="Room code">
+				<button id="mp-copy-btn" type="button">Copy</button>
+			</div>
+		</div>
+
 		<div id="mp-status" aria-live="polite"></div>
 		<div id="mp-debug-overlay" aria-live="polite" aria-label="Multiplayer debug console"></div>
 		<div id="mp-lb">
@@ -3382,8 +3515,15 @@ document.getElementById('loading-status').textContent =
 <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
 
 <script>
+  // ---- Chat system: global (default) + server-scoped contexts ----
+  // One Ably connection is shared. When the player joins a multiplayer server,
+  // main.js calls window.SkidChat.setServerContext(serverId, serverName) to
+  // switch to that server's chat channel; leaving calls clearServerContext() to
+  // restore the global chat. Global chat behavior is identical to before when no
+  // server is joined. See js/ServerChat.js docs and cloudflare-servers worker.
   const ably = new Ably.Realtime("kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDmM");
-  const channel = ably.channels.get("global-chat");
+  const GLOBAL_CHAT_CHANNEL = "global-chat";
+  const channel = ably.channels.get(GLOBAL_CHAT_CHANNEL);
 
   const chatBox = document.getElementById("chat");
   const chatWindow = document.getElementById("chat-box");
@@ -3577,39 +3717,131 @@ document.getElementById('loading-status').textContent =
   updateClubUnreadButtons();
   loadMyClubIds().then(hydrateMissedClubMessages);
 
-  function addMessage(text) {
-    if (isClubTaggedMessage(text)) return;
-    if (seen.has(text)) return;
-    seen.add(text);
+  // ---- Chat context: global (default) or server-scoped ----
+  // currentChatContext drives which channel messages are sent to / received
+  // from. Switching contexts clears the on-screen messages + dedupe set so chat
+  // history never leaks between servers, then re-subscribes + reloads history
+  // for the new context. Only one context is active at a time per player.
+  const GLOBAL_CONTEXT = { type: 'global', channel, name: 'Global', serverId: null, serverName: null };
+  let currentChatContext = GLOBAL_CONTEXT;
+  const serverChannelByName = new Map(); // channel name -> Ably channel (reused across switches)
 
-    const div = document.createElement("div");
-    div.className = "msg";
+  function getServerChannel( serverId ) {
+    const name = `skidcircuit:server:${ Number( serverId ) }:chat`;
+    let ch = serverChannelByName.get( name );
+    if ( ! ch ) {
+      ch = ably.channels.get( name );
+      serverChannelByName.set( name, ch );
+    }
+    return ch;
+  }
+
+  function renderContextHeader() {
+    const header = document.getElementById( 'chat-header' );
+    if ( ! header ) return;
+    header.textContent = currentChatContext.type === 'server'
+      ? `Server Chat — ${ currentChatContext.serverName || ( '#' + currentChatContext.serverId ) }`
+      : 'Live Chat';
+  }
+
+  function clearChatBox() {
+    seen.clear();
+    if ( chatBox ) chatBox.innerHTML = '';
+  }
+
+  function addMessage( text, opts = {} ) {
+    if ( isClubTaggedMessage( text ) ) return;
+    if ( seen.has( text ) ) return;
+    seen.add( text );
+    const div = document.createElement( 'div' );
+    div.className = 'msg';
+    // Server messages already arrive tagged by the publisher (see sendMsg /
+    // ServerChat). We render verbatim with innerText (never innerHTML) so no
+    // HTML/script injection is possible regardless of content.
     div.innerText = text;
-    chatBox.appendChild(div);
+    chatBox.appendChild( div );
     chatBox.scrollTop = chatBox.scrollHeight;
   }
+
+  function loadHistoryCurrent() {
+    if ( ! chatBox || chatBox.childElementCount > 0 ) return;
+    currentChatContext.channel.history( { limit: 100 }, ( err, result ) => {
+      if ( err ) {
+        console.error( err );
+        return;
+      }
+      const messages = ( result.items || [] ).reverse(); // oldest → newest
+      messages.forEach( ( msg ) => addMessage( msg.data ) );
+    } );
+  }
+
+  function subscribeCurrent() {
+    // Detach any previous live listener for THIS context first (idempotent —
+    // prevents duplicate subscriptions if called twice).
+    unsubscribeCurrent();
+    const handler = ( msg ) => {
+      if ( currentChatContext.type === 'global' && isClubTaggedMessage( msg.data ) ) {
+        incrementClubUnread( msg );
+        return;
+      }
+      addMessage( msg.data );
+      if ( chatWindow.style.display !== 'flex' || document.hidden ) {
+        setUnreadIndicator( true );
+      }
+      maybeSendMessageNotification( msg.data );
+    };
+    currentChatContext._handler = handler;
+    currentChatContext.channel.subscribe( handler );
+  }
+
+  function unsubscribeCurrent() {
+    if ( currentChatContext._handler ) {
+      try { currentChatContext.channel.unsubscribe( currentChatContext._handler ); } catch {}
+      currentChatContext._handler = null;
+    }
+  }
+
+  function switchChatContext( nextContext ) {
+    if ( nextContext === currentChatContext ) return;
+    unsubscribeCurrent();
+    currentChatContext = nextContext;
+    clearChatBox();
+    renderContextHeader();
+    subscribeCurrent();
+    loadHistoryCurrent();
+  }
+
+  // Public bridge called by main.js (js/main.js server join/leave handlers).
+  window.SkidChat = {
+    setServerContext( serverId, serverName ) {
+      const id = Number( serverId );
+      if ( ! Number.isFinite( id ) || id <= 0 ) return;
+      switchChatContext( {
+        type: 'server',
+        channel: getServerChannel( id ),
+        name: `skidcircuit:server:${ id }:chat`,
+        serverId: id,
+        serverName: serverName || null,
+      } );
+    },
+    clearServerContext() {
+      switchChatContext( GLOBAL_CONTEXT );
+    },
+    isInServerContext() {
+      return currentChatContext.type === 'server';
+    },
+    getCurrentServerId() {
+      return currentChatContext.serverId;
+    },
+  };
 
   // Toggle chat
   chatButton.onclick = () => {
     const opening = chatWindow.style.display !== "flex";
-
     chatWindow.style.display = opening ? "flex" : "none";
-
-    if (opening) {
-      setUnreadIndicator(false);
-    }
-
-    // Load history ONLY when opening (so it doesn’t reload every time)
-    if (opening && chatBox.childElementCount === 0) {
-      channel.history({ limit: 100 }, (err, result) => {
-        if (err) {
-          console.error(err);
-          return;
-        }
-
-        const messages = result.items.reverse(); // oldest → newest
-        messages.forEach(msg => addMessage(msg.data));
-      });
+    if ( opening ) {
+      setUnreadIndicator( false );
+      loadHistoryCurrent();
     }
   };
 
@@ -3631,29 +3863,26 @@ document.getElementById('loading-status').textContent =
   if (!userName && nameInput) nameInput.placeholder = "Log in to an account to chat";
   if (setBtn) setBtn.title = "Username is your account username";
 
-  // Live messages
-  channel.subscribe(msg => {
-    if (isClubTaggedMessage(msg.data)) {
-      incrementClubUnread(msg);
-      return;
-    }
-    addMessage(msg.data);
-    if (chatWindow.style.display !== "flex" || document.hidden) {
-      setUnreadIndicator(true);
-    }
-    maybeSendMessageNotification(msg.data);
-  });
+  // Start subscribed to the global chat (default context).
+  subscribeCurrent();
 
-  // Send message
+  // Send message — publishes to whichever context is active (global or server).
   function sendMsg() {
     const input = document.getElementById("msg");
     if (!input.value.trim()) return;
 
     const name = getAccountUsername();
     if (!name) { alert("Log in to your account to use chat."); return; }
-    const message = name + ": " + input.value;
+    const raw = input.value.trim();
+    // Server messages are tagged with the server id so other players in the
+    // same server channel can render them with a prefix. Global messages keep
+    // the exact original wire format ("username: text") so the existing global
+    // audience is unaffected.
+    const message = currentChatContext.type === 'server'
+      ? `[Server ${ currentChatContext.serverId }] ${ name }: ${ raw }`
+      : `${ name }: ${ raw }`;
 
-    channel.publish("message", message);
+    currentChatContext.channel.publish("message", message);
     input.value = "";
   }
 

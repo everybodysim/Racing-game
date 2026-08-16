@@ -1,0 +1,7 @@
+name = "racing-servers-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "SERVERS_KV"
+id = "REPLACE_WITH_SERVERS_KV_NAMESPACE_ID"
