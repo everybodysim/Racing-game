@@ -961,6 +961,59 @@ The mobile UI had two independent triggers; BOTH are neutralized:
 - Until deployed, the hub shows a "Servers backend is not connected" note and
   fetches fail gracefully with clear status messages — single-player and global
   chat are fully unaffected.
+- IMPORTANT: the worker must be REDEPLOYED for the `rehost` endpoint
+  (`POST /:id/rehost`) + the optional `serverId` binding in `POST /temporary`
+  (used by host track-change / starting an offline permanent server) to be live.
+  The previously-deployed build predates these; without a redeploy, host
+  track-change falls back to creating a fresh temp server (new id) instead of
+  rehosting the existing server id.
+
+### Multiplayer hub page (`multiplayer.html` + `js/multiplayer-hub.js`)
+- A STANDALONE server-browser page (does not run the 3D game). 5 tabs:
+  Temporary Servers, Permanent Servers, Create Temporary, Create Permanent,
+  Join by Code. Reachable from the home menu ("Multiplayer servers" link).
+- Talks to the servers worker via `js/MultiplayerServers.js`. "Join" navigates
+  to `index.html?server=<id>` (the existing deep link). "Create Temporary"
+  navigates to `index.html?createtemp=1&name=&max=` which main.js picks up and
+  runs `createTemporaryServerFromForm()`. "Start Session" on an offline perm
+  navigates to `index.html?server=<id>&host=1` (host rehost path).
+- Shows a GLOBAL Ably chat preview (same `global-chat` channel as index.html).
+  Server-scoped chat happens inside the game once a server is joined.
+- Owner actions (rename/delete) call the worker with the account token from
+  `racing-account-session-v1`. The "Sign in" button deep-links to
+  `index.html?openaccount=1`.
+
+### Host track-change / rehost (`?host=1&server=<id>`)
+- The host clicks "Change Track" (in-game current-server card, host-only) →
+  navigates to `official-tracks.html?host=<serverId>`. official-tracks.html
+  shows a banner + appends `&server=<id>&host=1` to every Play link
+  (`buildLaunchUrl()`).
+- Selecting a track navigates to `index.html?map=<track>&server=<id>&host=1`.
+  main.js deep-link block detects `host=1&server=<id>` → calls
+  `rehostExistingServer(id)`: creates a fresh PeerJS room with the NEW map,
+  PUTs the Firebase room, then `Servers.rehostServer(id, {clientId, roomCode,
+  mapSignature})` to update the session. If rehost 404s (no session yet, e.g.
+  offline permanent), falls back to `createTemporaryServer({serverId: id, ...})`
+  which the worker binds to the existing permanent id.
+- Clients follow automatically: `startServerHeartbeat`'s beat() checks whether
+  the session's `roomCode`/`mapSignature` changed (host moved). If so, it
+  navigates to `?map=<newmap>&server=<id>` (join path) → re-joins the new room.
+
+### Chat contexts (global / server / room)
+- One Ably connection, three context types in `index.html` chat script:
+  - `global` → `global-chat` (default; unchanged wire format `name: text`).
+  - `server` → `skidcircuit:server:<id>:chat` (set via `SkidChat.setServerContext`).
+  - `room` → `skidcircuit:room:<CODE>:chat` (set via `SkidChat.setRoomContext`,
+    used by legacy join-by-code so its chat is NOT broadcast globally).
+- `switchChatContext` unsubscribes the old, clears the on-screen messages +
+  dedupe set (no leak between servers/rooms), subscribes + loads history for
+  the new context. `addMessage` only applies the club-tag filter in the GLOBAL
+  context (server/room messages legitimately start with `[Server N]` /
+  `[Room CODE]` and must render).
+- `closeMultiplayerPeer` restores global chat if a room context was active and
+  no server session is active (covers legacy host/join leave paths).
+- Joining a server → server chat; leaving → global chat. Joining by code →
+  room chat; leaving → global chat. Global chat format + audience unchanged.
 
 ### What is NOT changed (regression surface)
 - Single-player physics/tracks/cars/mods/campaign/accounts/cloud-saves: untouched.

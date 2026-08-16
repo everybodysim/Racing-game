@@ -2253,6 +2253,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					</div>
 
 					<div id="home-secondary">
+						<a class="home-secondary-link" href="multiplayer.html">Multiplayer servers</a>
 						<a class="home-secondary-link" href="replay.html">Replay watcher</a>
 						<a class="home-secondary-link" href="mods.html">Mods</a>
 						<a class="home-secondary-link" href="custommods.html">Custom mods</a>
@@ -2618,6 +2619,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<div class="mp-cs-meta" id="mp-cs-meta"></div>
 			<div class="mp-cs-players" id="mp-cs-players"></div>
 			<div class="mp-cs-actions">
+				<button id="mp-change-track-btn" class="mp-cs-track" type="button" style="background:rgba(90,200,255,0.3);color:#fff">Change Track</button>
 				<button id="mp-leave-server-btn" class="mp-cs-leave" type="button">Leave Server</button>
 			</div>
 		</div>
@@ -3736,12 +3738,26 @@ document.getElementById('loading-status').textContent =
     return ch;
   }
 
+  function getRoomChannel( roomCode ) {
+    const name = `skidcircuit:room:${ String( roomCode ).toUpperCase() }:chat`;
+    let ch = serverChannelByName.get( name );
+    if ( ! ch ) {
+      ch = ably.channels.get( name );
+      serverChannelByName.set( name, ch );
+    }
+    return ch;
+  }
+
   function renderContextHeader() {
     const header = document.getElementById( 'chat-header' );
     if ( ! header ) return;
-    header.textContent = currentChatContext.type === 'server'
-      ? `Server Chat — ${ currentChatContext.serverName || ( '#' + currentChatContext.serverId ) }`
-      : 'Live Chat';
+    if ( currentChatContext.type === 'server' ) {
+      header.textContent = `Server Chat — ${ currentChatContext.serverName || ( '#' + currentChatContext.serverId ) }`;
+    } else if ( currentChatContext.type === 'room' ) {
+      header.textContent = `Room Chat — ${ currentChatContext.roomCode }`;
+    } else {
+      header.textContent = 'Live Chat';
+    }
   }
 
   function clearChatBox() {
@@ -3750,12 +3766,16 @@ document.getElementById('loading-status').textContent =
   }
 
   function addMessage( text, opts = {} ) {
-    if ( isClubTaggedMessage( text ) ) return;
+    // Club-tagged messages only matter in the GLOBAL context (they're filtered
+    // out of the visible chat and counted toward club unread). In a server/room
+    // context a message may legitimately start with "[Server N]" / "[Room CODE]"
+    // (the publisher-side prefix) and must still render.
+    if ( currentChatContext.type === 'global' && isClubTaggedMessage( text ) ) return;
     if ( seen.has( text ) ) return;
     seen.add( text );
     const div = document.createElement( 'div' );
     div.className = 'msg';
-    // Server messages already arrive tagged by the publisher (see sendMsg /
+    // Server/room messages already arrive tagged by the publisher (see sendMsg /
     // ServerChat). We render verbatim with innerText (never innerHTML) so no
     // HTML/script injection is possible regardless of content.
     div.innerText = text;
@@ -3824,11 +3844,24 @@ document.getElementById('loading-status').textContent =
         serverName: serverName || null,
       } );
     },
+    // Room-code-scoped chat (legacy join-by-code sessions, which have no server
+    // record). Isolates chat to just the players in that room code so a
+    // join-by-code session does NOT broadcast to the global audience.
+    setRoomContext( roomCode ) {
+      const code = String( roomCode || '' ).trim().toUpperCase();
+      if ( ! /^[A-Z0-9]{6}$/.test( code ) ) return;
+      switchChatContext( {
+        type: 'room',
+        channel: getRoomChannel( code ),
+        name: `skidcircuit:room:${ code }:chat`,
+        roomCode: code,
+      } );
+    },
     clearServerContext() {
       switchChatContext( GLOBAL_CONTEXT );
     },
     isInServerContext() {
-      return currentChatContext.type === 'server';
+      return currentChatContext.type === 'server' || currentChatContext.type === 'room';
     },
     getCurrentServerId() {
       return currentChatContext.serverId;
@@ -3880,7 +3913,9 @@ document.getElementById('loading-status').textContent =
     // audience is unaffected.
     const message = currentChatContext.type === 'server'
       ? `[Server ${ currentChatContext.serverId }] ${ name }: ${ raw }`
-      : `${ name }: ${ raw }`;
+      : currentChatContext.type === 'room'
+        ? `[Room ${ currentChatContext.roomCode }] ${ name }: ${ raw }`
+        : `${ name }: ${ raw }`;
 
     currentChatContext.channel.publish("message", message);
     input.value = "";

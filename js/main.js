@@ -581,6 +581,12 @@ function closeMultiplayerPeer() {
 	multiplayerSessionState.connections.clear();
 	multiplayerSessionState.peer?.destroy?.();
 	multiplayerSessionState.peer = null;
+	// If we were in a room-code (join-by-code) chat context, restore global chat.
+	// (Server-scoped chat is restored by leaveCurrentServer; this covers the
+	// legacy host/join paths that don't go through leaveCurrentServer.)
+	if ( window.SkidChat?.isInServerContext?.() && ! multiplayerSessionState.serverId ) {
+		if ( window.SkidChat?.clearServerContext ) window.SkidChat.clearServerContext();
+	}
 
 }
 
@@ -1181,6 +1187,9 @@ function initMultiplayerPanel() {
 			lastHostRoomRotateAt = Date.now();
 			lastHostRoomMetaSyncAt = 0;
 			setMultiplayerLeaderboardVisible( true );
+			// Scope chat to this room code (NOT global) so join-by-code chat is
+			// private to the players in this room.
+			if ( window.SkidChat?.setRoomContext ) window.SkidChat.setRoomContext( code );
 
 		} catch ( error ) {
 
@@ -1252,6 +1261,8 @@ function initMultiplayerPanel() {
 			multiplayerSessionState.roomCode = code;
 			startPeerMultiplayer( code, 'join' );
 			setMultiplayerLeaderboardVisible( true );
+			// Scope chat to this room code (NOT global).
+			if ( window.SkidChat?.setRoomContext ) window.SkidChat.setRoomContext( code );
 
 		} catch ( error ) {
 
@@ -1347,16 +1358,65 @@ function mpAccount() {
 }
 
 // Now that the server-hub declarations above are initialized, wire up the hub
-// UI + the ?server=<id> deep link. (This must run AFTER the let/const above to
+// UI + the server deep links. (This must run AFTER the let/const above to
 // avoid the temporal dead zone; initMultiplayerPanel() runs at module load.)
 initMultiplayerServerHub();
 {
-	const serverParam = String( new URLSearchParams( window.location.search ).get( 'server' ) || '' ).trim();
-	if ( serverParam && /^\d+$/.test( serverParam ) ) {
-		const params = new URLSearchParams( window.location.search );
+	const params = new URLSearchParams( window.location.search );
+
+	// ?openaccount=1 -> open the account panel (e.g. from the hub's "Sign in").
+	if ( params.get( 'openaccount' ) === '1' ) {
+		params.delete( 'openaccount' );
+		const q = params.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ q ? `?${ q }` : '' }${ window.location.hash }` );
+		setTimeout( () => { if ( window.__mpOpenAccountPanel ) window.__mpOpenAccountPanel(); }, 0 );
+	}
+
+	// ?openmp=1 -> expand the in-game multiplayer panel (e.g. from the hub).
+	if ( params.get( 'openmp' ) === '1' ) {
+		params.delete( 'openmp' );
+		const q = params.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ q ? `?${ q }` : '' }${ window.location.hash }` );
+		setTimeout( () => {
+			const panel = document.getElementById( 'mp-panel' );
+			if ( panel ) panel.classList.add( 'expanded' );
+		}, 0 );
+	}
+
+	// ?createtemp=1&name=&max= -> create a temporary server + host (from the hub).
+	if ( params.get( 'createtemp' ) === '1' ) {
+		const name = String( params.get( 'name' ) || '' ).trim();
+		const max = Number( params.get( 'max' ) ) || 8;
+		// Pre-fill the in-game create form + trigger it once the panel is ready.
+		setTimeout( () => {
+			const ni = document.getElementById( 'mp-create-temp-name' );
+			const mi = document.getElementById( 'mp-create-temp-max' );
+			if ( ni ) ni.value = name;
+			if ( mi ) mi.value = String( max );
+			// Switch to the create-temp tab so the player sees what's happening.
+			document.querySelector( '.mp-hub-tab[data-mp-tab="create-temp"]' )?.click();
+			createTemporaryServerFromForm();
+		}, 600 );
+	}
+
+	// ?host=1&server=<id> -> re-host an existing server (host changed track OR
+	// starts an offline permanent server). The host creates a fresh room + updates
+	// the server session's roomCode/mapSignature so joiners follow.
+	const hostParam = params.get( 'host' );
+	const serverParam = String( params.get( 'server' ) || '' ).trim();
+	if ( hostParam === '1' && serverParam && /^\d+$/.test( serverParam ) ) {
+		params.delete( 'host' );
 		params.delete( 'server' );
-		const nextQuery = params.toString();
-		history.replaceState( null, '', `${ window.location.pathname }${ nextQuery ? `?${ nextQuery }` : '' }${ window.location.hash }` );
+		const q = params.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ q ? `?${ q }` : '' }${ window.location.hash }` );
+		setTimeout( () => rehostExistingServer( Number( serverParam ) ).catch( ( err ) => {
+			updateMultiplayerStatus( err?.message || 'Could not start/host that server.' );
+		} ), 0 );
+	} else if ( serverParam && /^\d+$/.test( serverParam ) ) {
+		// ?server=<id> (join) -> join that server as a client.
+		params.delete( 'server' );
+		const q = params.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ q ? `?${ q }` : '' }${ window.location.hash }` );
 		setTimeout( () => joinServerById( Number( serverParam ) ).catch( ( err ) => {
 			updateMultiplayerStatus( err?.message || 'Could not join that server.' );
 		} ), 0 );
@@ -1400,6 +1460,15 @@ function initMultiplayerServerHub() {
 	document.getElementById( 'mp-create-temp-btn' )?.addEventListener( 'click', () => createTemporaryServerFromForm() );
 	document.getElementById( 'mp-create-perm-btn' )?.addEventListener( 'click', () => createPermanentServerFromForm() );
 	document.getElementById( 'mp-leave-server-btn' )?.addEventListener( 'click', () => leaveCurrentServer() );
+	document.getElementById( 'mp-change-track-btn' )?.addEventListener( 'click', () => {
+		if ( multiplayerSessionState.role !== 'host' || ! multiplayerSessionState.serverId ) {
+			updateMultiplayerStatus( 'Only the host can change the track.' );
+			return;
+		}
+		// Go to the official tracks picker; selecting one returns with
+		// ?map=...&server=<id>&host=1, which rehosts on load.
+		window.location.href = `official-tracks.html?host=${ multiplayerSessionState.serverId }`;
+	} );
 
 	updateCreatePermanentAuthNote();
 }
@@ -1763,6 +1832,77 @@ function enterServer( server ) {
 	startServerHeartbeat();
 }
 
+// Host (re-)starts an existing server session: creates a fresh PeerJS room with
+// the CURRENT map, registers/updates the server session's roomCode+mapSignature
+// via rehostServer so joiners + existing players follow the host to this map.
+// Used by ?host=1&server=<id> (host changed track or starts an offline perm).
+async function rehostExistingServer( serverId ) {
+	if ( ! serverHubReady ) {
+		updateMultiplayerStatus( 'Servers backend is not connected yet.' );
+		return;
+	}
+	if ( multiplayerSessionState.serverId ) {
+		updateMultiplayerStatus( 'Leave your current server before starting another.' );
+		return;
+	}
+	if ( ! hasFirebaseMultiplayerConfig() ) {
+		updateMultiplayerStatus( 'Multiplayer needs Firebase keys in js/firebase-config.js to host.' );
+		return;
+	}
+	const id = Number( serverId );
+	if ( ! Number.isFinite( id ) || id <= 0 ) throw new Error( 'Invalid server id.' );
+
+	// Fetch the server definition (so we know its name, esp. for permanent).
+	let def;
+	try { def = await Servers.getServer( id ); }
+	catch ( err ) { throw new Error( err?.message || 'That server is no longer available.' ); }
+
+	updateMultiplayerStatus( `Starting server #${ id } "${ def.name || '' }"…` );
+
+	// Create a fresh room as host (reuse the existing host flow).
+	const code = createHostCode();
+	const codeInput = document.getElementById( 'mp-code-input' );
+	if ( codeInput ) codeInput.value = code;
+	multiplayerSessionState.role = 'host';
+	multiplayerSessionState.roomCode = code;
+	startPeerMultiplayer( code, 'host' );
+	const now = Date.now();
+	const mapSig = getCurrentMapSignature();
+	await firebaseRoomsRequest( code, 'PUT', {
+		code, hostId: multiplayerSessionState.clientId, mapSignature: mapSig, createdAt: now, updatedAt: now,
+	} );
+
+	// Update (or create) the active session bound to this server id.
+	try {
+		await Servers.rehostServer( id, {
+			clientId: multiplayerSessionState.clientId,
+			roomCode: code,
+			mapSignature: mapSig,
+		} );
+	} catch ( err ) {
+		// rehost fails if no session exists yet (offline permanent / fresh). In that
+		// case create a temporary-style session bound to this id via the worker.
+		await Servers.createTemporaryServer( {
+			name: def.name || `Server #${ id }`,
+			serverId: id,
+			roomCode: code,
+			mapSignature: mapSig,
+			hostUsername: getLocalMultiplayerDisplayName(),
+			hostClientId: multiplayerSessionState.clientId,
+		} );
+	}
+
+	// Join our own server session so the player list + chat reflect us.
+	const session = await Servers.joinServer( id, {
+		username: getLocalMultiplayerDisplayName(),
+		clientId: multiplayerSessionState.clientId,
+	} );
+	enterServer( session );
+	lastHostRoomRotateAt = Date.now();
+	setMultiplayerLeaderboardVisible( true );
+	updateMultiplayerStatus( `Hosting server #${ id }. Other players can join from the hub.` );
+}
+
 function renderCurrentServerCard( server ) {
 	const card = document.getElementById( 'mp-current-server' );
 	if ( ! card ) return;
@@ -1787,6 +1927,8 @@ function renderCurrentServerCard( server ) {
 			? 'In server: ' + players.map( ( p ) => `${ p.username || 'Player' }${ p.isHost ? ' ★' : '' }` ).join( ', ' )
 			: 'Loading player list...';
 	}
+	const trackBtn = document.getElementById( 'mp-change-track-btn' );
+	if ( trackBtn ) trackBtn.style.display = ( multiplayerSessionState.role === 'host' ) ? 'inline-block' : 'none';
 }
 
 function startServerHeartbeat() {
@@ -1800,6 +1942,21 @@ function startServerHeartbeat() {
 				clientId: multiplayerSessionState.clientId,
 			} );
 			renderCurrentServerCard( server );
+			// If we're a client and the host moved to a new room/map, follow them.
+			if ( multiplayerSessionState.role !== 'host' && server ) {
+				const movedRoom = server.roomCode && server.roomCode !== multiplayerSessionState.roomCode;
+				const movedMap = server.mapSignature && ! canJoinMap( server.mapSignature, getCurrentMapSignature() );
+				if ( movedRoom || movedMap ) {
+					updateMultiplayerStatus( `Host moved to a new track. Following…` );
+					const parsed = parseMapSignature( server.mapSignature );
+					const p = new URLSearchParams( window.location.search );
+					p.set( 'map', parsed.map );
+					if ( parsed.mods === 'none' ) p.delete( 'mods' ); else p.set( 'mods', parsed.mods );
+					p.set( 'server', String( multiplayerSessionState.serverId ) );
+					window.location.search = p.toString();
+					return;
+				}
+			}
 		} catch ( err ) {
 			// Server disappeared (host left + TTL expired, or deleted). Notify
 			// the player and return them to the browser.

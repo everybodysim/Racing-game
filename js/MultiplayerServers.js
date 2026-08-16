@@ -129,6 +129,16 @@ export async function leaveServer( serverId, { clientId } ) {
 	return true;
 }
 
+// Host moved the server to a new track: updates the session roomCode +
+// mapSignature so joiners + existing players follow the host.
+export async function rehostServer( serverId, { clientId, roomCode, mapSignature } ) {
+	const payload = await serversRequest( `/${ Number( serverId ) }/rehost`, {
+		method: 'POST',
+		body: JSON.stringify( { clientId, roomCode, mapSignature } ),
+	} );
+	return payload.server;
+}
+
 // ---- Server chat history (live delivery is Ably via ServerChat.js) ----
 
 export async function getServerChat( serverId ) {

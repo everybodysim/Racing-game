@@ -89,6 +89,7 @@ export default {
 				if ( request.method === 'POST' && action === 'join' ) return withCors( await joinSession( request, env, serverId ) );
 				if ( request.method === 'POST' && action === 'heartbeat' ) return withCors( await heartbeatSession( request, env, serverId ) );
 				if ( request.method === 'POST' && action === 'leave' ) return withCors( await leaveSession( request, env, serverId ) );
+				if ( request.method === 'POST' && action === 'rehost' ) return withCors( await rehostSession( request, env, serverId ) );
 				if ( request.method === 'POST' && action === 'rename' ) return withCors( await renamePermanentServer( request, env, serverId ) );
 				if ( request.method === 'DELETE' && action === '' ) return withCors( await deletePermanentServer( request, env, serverId ) );
 				if ( request.method === 'GET' && action === 'chat' ) return withCors( await getServerChat( env, serverId ) );
@@ -155,9 +156,11 @@ async function createPermanentServer( request, env ) {
 
 async function getServer( env, serverId ) {
 	const def = await loadServerDef( env, serverId );
-	if ( ! def ) return json( { ok: false, error: 'Server not found' }, 404 );
 	const session = await loadSession( env, serverId );
-	return json( { ok: true, server: summarizeServer( def, session ) } );
+	if ( ! def && ! session ) return json( { ok: false, error: 'Server not found' }, 404 );
+	if ( def ) return json( { ok: true, server: summarizeServer( def, session ) } );
+	// Temporary servers have no permanent def — summarize from the live session.
+	return json( { ok: true, server: summarizeSession( session, null ) } );
 }
 
 async function renamePermanentServer( request, env, serverId ) {
@@ -277,11 +280,27 @@ async function createTemporarySession( request, env ) {
 	const hostClientId = String( body.value?.hostClientId || '' ).slice( 0, 64 );
 	const maxPlayers = clampMaxPlayers( settings.maxPlayers );
 
-	const serverId = await allocateNextServerId( env );
+	// Optional: bind this session to an EXISTING server id (e.g. starting an
+	// offline permanent server). The id must already exist as a permanent def OR
+	// be free. This keeps the permanent server's id stable across sessions.
+	let serverId = null;
+	let boundPermanent = false;
+	const requestedId = Number( body.value?.serverId );
+	if ( Number.isFinite( requestedId ) && requestedId > 0 ) {
+		const existingDef = await env.SERVERS_KV.get( `${ SERVER_KEY_PREFIX }${ requestedId }` );
+		const existingSession = await env.SERVERS_KV.get( `${ SESSION_KEY_PREFIX }${ requestedId }` );
+		if ( existingDef && ! existingSession ) {
+			serverId = requestedId; // bind to the existing permanent server (now online)
+			boundPermanent = true;
+		} else if ( existingSession ) {
+			return json( { ok: false, error: 'That server already has an active session' }, 409 );
+		}
+	}
+	if ( ! serverId ) serverId = await allocateNextServerId( env );
 	const now = Date.now();
 	const session = {
 		serverId,
-		type: 'temporary',
+		type: boundPermanent ? 'permanent' : 'temporary',
 		name,
 		roomCode,
 		mapSignature,
@@ -372,6 +391,30 @@ async function heartbeatSession( request, env, serverId ) {
 	await saveJson( env, `${ SESSION_KEY_PREFIX }${ serverId }`, session );
 
 	// Return the fresh player list so the caller can render it.
+	return json( { ok: true, server: summarizeSession( session, null ) } );
+}
+
+// Host moved the server to a new track/room. Updates the session's roomCode +
+// mapSignature so joiners + existing players (via heartbeat) follow the host to
+// the new map. Only the current session host may rehost.
+async function rehostSession( request, env, serverId ) {
+	const body = await parseJsonBody( request );
+	if ( ! body.ok ) return body.response;
+	const session = await loadSession( env, serverId );
+	if ( ! session ) return json( { ok: false, error: 'Session expired' }, 404 );
+	const clientId = String( body.value?.clientId || '' ).slice( 0, 64 );
+	const host = session.players.find( ( p ) => p.isHost );
+	if ( ! host || host.clientId !== clientId ) {
+		return json( { ok: false, error: 'Only the host can change the track' }, 403 );
+	}
+	const roomCode = String( body.value?.roomCode || '' ).slice( 0, 16 ).toUpperCase();
+	const mapSignature = String( body.value?.mapSignature || '' ).slice( 0, 120 );
+	if ( ! roomCode || ! mapSignature ) return json( { ok: false, error: 'roomCode and mapSignature are required' }, 400 );
+	session.roomCode = roomCode;
+	session.mapSignature = mapSignature;
+	session.lastHeartbeat = Date.now();
+	session.updatedAt = Date.now();
+	await saveJson( env, `${ SESSION_KEY_PREFIX }${ serverId }`, session );
 	return json( { ok: true, server: summarizeSession( session, null ) } );
 }
 

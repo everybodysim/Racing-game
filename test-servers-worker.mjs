@@ -132,6 +132,20 @@ async function main() {
 	r = await call( env, 'GET', '/notanumber' );
 	check( r.status === 404, 'non-numeric id returns 404' );
 
+	// 17. getServer works for a temporary (session-only, no def) server.
+	r = await call( env, 'GET', `/${ tId }` );
+	check( r.status === 200 && r.json.server.serverId === tId && r.json.server.roomCode === 'ABC123', 'getServer returns temp session (no def)' );
+
+	// 18. Host can rehost (change track) — non-host cannot.
+	r = await call( env, 'POST', `/${ tId }/rehost`, { clientId: 'c2', roomCode: 'ROOM2B', mapSignature: 'mapB|sig' } );
+	check( r.status === 403, 'non-host cannot rehost' );
+	r = await call( env, 'POST', `/${ tId }/rehost`, { clientId: 'c1', roomCode: 'ROOM2B', mapSignature: 'mapB|sig' } );
+	check( r.status === 200 && r.json.server.roomCode === 'ROOM2B' && r.json.server.mapSignature === 'mapB|sig', 'host rehost updates room + map' );
+	r = await call( env, 'GET', `/${ tId }` );
+	check( r.json.server.roomCode === 'ROOM2B', 'rehosted room visible to getServer' );
+	r = await call( env, 'POST', `/${ tId }/rehost`, { clientId: 'c1', roomCode: '', mapSignature: '' } );
+	check( r.status === 400, 'rehost rejects empty room/map' );
+
 	console.log( `\n${ pass } passed, ${ fail } failed` );
 	process.exit( fail ? 1 : 0 );
 }

@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skid Circuit — Multiplayer Hub</title>
+<link rel="canonical" href="https://everybodysim.github.io/Racing-game/multiplayer.html">
+<meta name="description" content="Browse, create and join Skid Circuit multiplayer servers — temporary and permanent — with server-scoped chat and live player lists.">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Skid Circuit">
+<meta property="og:title" content="Skid Circuit — Multiplayer Hub">
+<meta property="og:description" content="Browse, create and join Skid Circuit multiplayer servers — temporary and permanent — with server-scoped chat and live player lists.">
+<meta property="og:url" content="https://everybodysim.github.io/Racing-game/multiplayer.html">
+<meta property="og:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
+<style>
+:root{color-scheme:dark;--bg:#06101e;--panel:rgba(255,255,255,.06);--line:rgba(255,255,255,.12);--muted:#9fb2cc;--accent:#77f3b1;--gold:#ffd95a;--blue:#5ac8ff;--red:#ff6b6b;--temp:#5ac8ff;--perm:#ffd95a}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 Inter,system-ui,"Segoe UI",sans-serif;background:radial-gradient(circle at 50% -10%,rgba(119,243,177,.14),transparent 40rem),linear-gradient(165deg,#070f1c,#0f1626 55%,#0a1320);color:#e8eef8;min-height:vh}
+img{max-width:100%}
+.wrap{max-width:1120px;margin:0 auto;padding:26px 18px 70px}
+a{color:inherit}
+.back-link{display:inline-flex;align-items:center;gap:8px;text-decoration:none;font:700 13px sans-serif;padding:8px 14px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.06);transition:background .18s ease,transform .18s ease}
+.back-link:hover{background:rgba(255,255,255,.13);transform:translateY(-1px)}
+
+.hero{margin:30px 0 6px;text-align:center}
+.kicker{display:inline-block;color:var(--accent);font:800 12px/1 sans-serif;letter-spacing:.16em;text-transform:uppercase;padding:6px 14px;border-radius:999px;border:1px solid rgba(119,243,177,.32);background:rgba(119,243,177,.08)}
+.hero h1{margin:16px 0 8px;font-size:clamp(32px,6vw,58px);line-height:.96;letter-spacing:-.04em;font-weight:900}
+.hero p.sub{margin:0 auto;max-width:580px;color:var(--muted);font-size:clamp(14px,1.6vw,17px)}
+.hero .me{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center}
+.hero .me .chip{font:700 12px sans-serif;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--muted)}
+.hero .me .chip b{color:#fff}
+.hero .me .login-btn{font:800 12px sans-serif;padding:7px 14px;border-radius:999px;border:none;cursor:pointer;color:#04130b;background:linear-gradient(135deg,#5bec7e,#28b85a)}
+
+.tabs{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:30px 0 24px}
+.tab{font:800 13px sans-serif;padding:11px 18px;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer;transition:all .15s ease}
+.tab:hover{color:#fff;border-color:rgba(255,255,255,.25)}
+.tab.active{color:#04130b;background:linear-gradient(135deg,#5bec7e,#28b85a);border-color:transparent}
+.tab .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.tab[data-kind=temp] .dot{background:var(--temp)}
+.tab[data-kind=perm] .dot{background:var(--perm)}
+
+.panel{display:none}
+.panel.active{display:block}
+
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.toolbar h2{margin:0;font-size:20px;font-weight:800}
+.toolbar .grow{flex:1}
+.toolbar .status{font:700 12px sans-serif;color:var(--muted)}
+.btn{font:800 13px sans-serif;padding:9px 16px;border-radius:11px;border:1px solid var(--line);background:var(--panel);color:#fff;cursor:pointer;transition:all .15s ease}
+.btn:hover{background:rgba(255,255,255,.13)}
+.btn.primary{color:#04130b;background:linear-gradient(135deg,#5bec7e,#28b85a);border-color:transparent}
+.btn.danger{color:#fff;background:linear-gradient(135deg,#ff6b6b,#d94f4f);border-color:transparent}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+.list{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.srv{display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:16px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.03))}
+.srv .name{font:900 17px sans-serif;color:#fff;word-break:break-word}
+.srv .meta{font:700 11px sans-serif;color:var(--muted);letter-spacing:.04em}
+.srv .id{display:inline-block;font:900 12px sans-serif;color:#04130b;background:rgba(255,255,255,.85);padding:2px 8px;border-radius:7px;margin-left:6px}
+.srv .players{font:800 14px sans-serif;color:var(--accent)}
+.srv .players.full{color:var(--red)}
+.srv .players.empty{color:var(--muted)}
+.srv .tag{font:700 10px sans-serif;padding:3px 8px;border-radius:6px;letter-spacing:.06em;text-transform:uppercase}
+.srv .tag.temp{color:var(--temp);border:1px solid rgba(90,200,255,.4);background:rgba(90,200,255,.1)}
+.srv .tag.perm{color:var(--perm);border:1px solid rgba(255,217,90,.4);background:rgba(255,217,90,.1)}
+.srv .tag.offline{color:var(--muted);border:1px solid var(--line);background:rgba(255,255,255,.04)}
+.srv .owner{font:700 11px sans-serif;color:var(--muted)}
+.srv .owner.you{color:var(--gold)}
+.srv .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+.srv .host-note{font:700 11px sans-serif;color:var(--gold)}
+
+.empty-note{padding:40px 18px;text-align:center;color:var(--muted);font:700 14px sans-serif;border:1px dashed var(--line);border-radius:16px}
+
+.form{max-width:560px;margin:0 auto;padding:24px;border-radius:18px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.03))}
+.form .field{margin-bottom:16px}
+.form label{display:block;font:800 12px sans-serif;color:var(--muted);margin-bottom:6px;letter-spacing:.04em;text-transform:uppercase}
+.form input[type=text],.form input[type=number]{width:100%;padding:11px 13px;border-radius:11px;border:1px solid var(--line);background:rgba(0,0,0,.25);color:#fff;font:600 15px sans-serif}
+.form input:focus{outline:none;border-color:var(--accent)}
+.form .actions{display:flex;gap:10px;margin-top:6px}
+.form .auth-note{font:700 13px sans-serif;color:var(--gold);padding:12px 14px;border-radius:11px;border:1px solid rgba(255,217,90,.3);background:rgba(255,217,90,.08);margin-bottom:16px}
+.form .hint{font:700 11px sans-serif;color:var(--muted);margin-top:6px}
+
+.joincode{max-width:480px;margin:0 auto;padding:24px;border-radius:18px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.03));text-align:center}
+.joincode .row{display:flex;gap:10px;margin-top:6px}
+.joincode input{flex:1;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(0,0,0,.25);color:#fff;font:900 18px sans-serif;letter-spacing:.18em;text-align:center;text-transform:uppercase}
+.joincode input:focus{outline:none;border-color:var(--accent)}
+.joincode p{color:var(--muted);font-size:13px;margin:14px 0 0}
+
+.chat-wrap{margin-top:26px;border-radius:18px;border:1px solid var(--line);background:rgba(0,0,0,.22);overflow:hidden}
+.chat-head{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.04)}
+.chat-head h3{margin:0;font:900 15px sans-serif;flex:1}
+.chat-head .ctx{font:700 11px sans-serif;color:var(--accent);padding:4px 10px;border-radius:999px;border:1px solid rgba(119,243,177,.3);background:rgba(119,243,177,.08)}
+.chat-box{height:240px;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:6px}
+.chat-msg{font:600 13px/1.4 sans-serif;word-break:break-word}
+.chat-msg .who{color:var(--blue);font-weight:800}
+.chat-input{display:flex;gap:8px;padding:10px 16px;border-top:1px solid var(--line)}
+.chat-input input{flex:1;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:rgba(0,0,0,.25);color:#fff;font:600 14px sans-serif}
+.chat-input button{padding:10px 16px;border-radius:10px;border:none;cursor:pointer;font:800 13px sans-serif;color:#04130b;background:linear-gradient(135deg,#5bec7e,#28b85a)}
+.chat-input button:disabled{opacity:.4;cursor:not-allowed}
+.chat-locked{padding:30px;text-align:center;color:var(--muted);font:700 13px sans-serif}
+
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);max-width:90vw;padding:13px 20px;border-radius:13px;font:800 13px sans-serif;color:#fff;background:rgba(20,28,46,.96);border:1px solid var(--line);box-shadow:0 12px 40px rgba(0,0,0,.4);z-index:50;opacity:0;pointer-events:none;transition:opacity .2s ease}
+.toast.show{opacity:1}
+.toast.err{border-color:rgba(255,107,107,.5)}
+.toast.ok{border-color:rgba(119,243,177,.5)}
+
+footer{margin-top:46px;text-align:center;color:var(--muted);font-size:12px}
+@media(max-width:620px){.list{grid-template-columns:1fr}.tabs{gap:6px}.tab{padding:9px 12px;font-size:12px}}
+</style>
+<script src="js/PageTransitions.js"></script>
+<script type="module" src="js/PageMusic.js"></script>
+<link rel="stylesheet" href="ui-theme.css">
+</head>
+<body>
+<main class="wrap">
+  <a class="back-link" href="index.html">← Back to game</a>
+  <div class="hero">
+    <span class="kicker">Multiplayer Hub</span>
+    <h1>Servers</h1>
+    <p class="sub">Browse live races, spin up your own server, or jump straight in with a room code. Server chat is isolated — what happens in a server stays in that server.</p>
+    <div class="me" id="me-bar">
+      <span class="chip" id="me-name">Not signed in</span>
+      <button class="login-btn" id="me-login">Sign in / Create account</button>
+    </div>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="temp" data-kind="temp" role="tab"><span class="dot"></span>Temporary Servers</button>
+    <button class="tab" data-tab="perm" data-kind="perm" role="tab"><span class="dot"></span>Permanent Servers</button>
+    <button class="tab" data-tab="create-temp" role="tab">Create Temporary</button>
+    <button class="tab" data-tab="create-perm" role="tab">Create Permanent</button>
+    <button class="tab" data-tab="join-code" role="tab">Join by Code</button>
+  </div>
+
+  <!-- Temporary -->
+  <section class="panel active" id="panel-temp">
+    <div class="toolbar">
+      <h2>Temporary Servers</h2>
+      <span class="grow"></span>
+      <span class="status" id="temp-status"></span>
+      <button class="btn" id="temp-refresh">Refresh</button>
+    </div>
+    <div class="list" id="temp-list"><div class="empty-note">No active temporary servers.</div></div>
+  </section>
+
+  <!-- Permanent -->
+  <section class="panel" id="panel-perm">
+    <div class="toolbar">
+      <h2>Permanent Servers</h2>
+      <span class="grow"></span>
+      <span class="status" id="perm-status"></span>
+      <button class="btn" id="perm-refresh">Refresh</button>
+    </div>
+    <div class="list" id="perm-list"><div class="empty-note">No permanent servers yet.</div></div>
+  </section>
+
+  <!-- Create temp -->
+  <section class="panel" id="panel-create-temp">
+    <div class="form">
+      <h2 style="margin:0 0 6px">Create a Temporary Server</h2>
+      <p class="hint" style="margin:0 0 16px;color:var(--muted)">A temporary server lives only while players are in it and disappears when everyone leaves. You become the host.</p>
+      <div class="field">
+        <label for="ct-name">Server name</label>
+        <input id="ct-name" type="text" maxlength="40" placeholder="e.g. Drift Kings" />
+      </div>
+      <div class="field">
+        <label for="ct-max">Max players (2–16, default 8)</label>
+        <input id="ct-max" type="number" min="2" max="16" placeholder="8" />
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="ct-go">Create &amp; Host</button>
+        <a class="btn" href="index.html">Cancel</a>
+      </div>
+      <p class="hint" id="ct-note">Hosting launches the game in a new tab with you as host.</p>
+    </div>
+  </section>
+
+  <!-- Create perm -->
+  <section class="panel" id="panel-create-perm">
+    <div class="form">
+      <h2 style="margin:0 0 6px">Create a Permanent Server</h2>
+      <p class="hint" style="margin:0 0 16px;color:var(--muted)">A permanent server is stored against your account, keeps its ID + name, and can be joined again later — even when empty.</p>
+      <div class="auth-note" id="cp-auth-note">Sign in to an account to create a permanent server.</div>
+      <div class="field">
+        <label for="cp-name">Server name</label>
+        <input id="cp-name" type="text" maxlength="40" placeholder="e.g. Drift Kings" />
+      </div>
+      <div class="field">
+        <label for="cp-max">Max players (2–16, default 8)</label>
+        <input id="cp-max" type="number" min="2" max="16" placeholder="8" />
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="cp-go">Create</button>
+        <a class="btn" href="index.html">Cancel</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Join by code -->
+  <section class="panel" id="panel-join-code">
+    <div class="joincode">
+      <h2 style="margin:0 0 6px">Join by Code</h2>
+      <p class="hint" style="margin:0;color:var(--muted)">Have a 6-character room code? Enter it to jump straight into that session.</p>
+      <div class="row">
+        <input id="jc-input" type="text" maxlength="6" placeholder="ABC123" autocomplete="off" />
+        <button class="btn primary" id="jc-go">Join</button>
+      </div>
+      <p>Want to host by code? <a href="index.html?openmp=1" style="color:var(--accent)">Open the game's multiplayer panel</a> and click Host.</p>
+    </div>
+  </section>
+
+  <!-- Chat preview (global, so the hub feels alive) -->
+  <div class="chat-wrap" id="hub-chat" style="display:none">
+    <div class="chat-head"><h3>Live Chat</h3><span class="ctx" id="chat-ctx">Global</span></div>
+    <div class="chat-box" id="chat-messages"></div>
+    <div class="chat-input">
+      <input id="chat-input" placeholder="Sign in to chat…" disabled />
+      <button id="chat-send" disabled>Send</button>
+    </div>
+  </div>
+
+  <footer>Skid Circuit multiplayer — server-browser layer over the existing PeerJS + Firebase networking.</footer>
+</main>
+<div class="toast" id="toast"></div>
+<script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+<script type="module" src="js/multiplayer-hub.js"></script>
+</body>
+</html>
