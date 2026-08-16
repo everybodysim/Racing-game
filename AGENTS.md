@@ -1008,3 +1008,110 @@ The mobile UI had two independent triggers; BOTH are neutralized:
 - Normal desktop load: home page renders identically to before (full desktop
   layout, all buttons). No regressions.
 - CSS braces balanced (519/519 excl. comments); detection IIFE braces balanced.
+
+## Public multiplayer servers (`js/PublicServers.js` + `cloudflare-servers/worker/` + `js/main.js` + `index.html`)
+
+### What it is
+- 3 fixed public servers in the multiplayer widget (`#mp-panel`): North America
+  (`na-1`, code `PUBNA1`), Europe (`eu-1`, code `PUBEUR1`), Asia (`as-1`, code
+  `PUBAS1`). Anyone can join; they see everyone else on the same server.
+- A synced **5-minute round timer** appears automatically in the widget when you
+  join. Everyone races the current map for 5 minutes.
+- When the round ends, a **rankings overlay** (`#mp-server-rankings`) shows the
+  best-lap standings for that round for ~5 seconds.
+- Then the **host** picks a random community track from the track share board and
+  advances the round; everyone is redirected to that track (rejoining the same
+  server) for another 5-minute round. Loop forever.
+
+### Architecture (why a separate worker, no Firebase changes)
+- The synced round timer + round rotation + per-round rankings must be IDENTICAL
+  for every player. Firebase RTDB (which backs PeerJS room metadata) **cannot be
+  modified**, so authoritative round/members/host/rankings state lives in a NEW
+  Cloudflare Worker + KV (`cloudflare-servers/worker`, binding `SERVERS_KV`,
+  live URL `https://racing-servers-api.ga1010.workers.dev/`). Client polls ~1/sec.
+- PeerJS / WebRTC (car positions, best-lap signalling) is UNCHANGED: public
+  servers reuse the existing PeerJS room mechanism with a fixed 6-char room code
+  per server (`RACE-ROOM-<code>`). PeerJS uses its default cloud signalling;
+  Firebase is only touched through the existing `firebaseRoomsRequest` helpers
+  (no rule changes). Public servers work even WITHOUT Firebase config.
+
+### Cloudflare Worker (`cloudflare-servers/worker/src/index.js`) — MUST BE DEPLOYED
+- Deploy name: `racing-servers-api` (matches the live URL). KV binding
+  `SERVERS_KV`. See `cloudflare-servers/README.md` (wrangler CLI + dashboard).
+  The deployed worker is currently a stub returning 404 — deploy
+  `worker/src/index.js` to activate it.
+- KV keys: `servers:index` (summary list) + `server:<id>` (full state per server).
+- Endpoints (under `/api/servers`):
+  - `GET /` -> `{ ok, servers:[{id,name,code,memberCount}] }` (lazy-inits the 3 servers).
+  - `GET /:id` -> `{ ok, server }` (full view: `round`, `roundOver`, `inRankings`, `roundEndAt`, `memberCount`, `hostId`).
+  - `POST /:id/join {clientId,name}` -> register member; auto-claims host if none live. `{ ok, server, isHost, claimedHost }`.
+  - `POST /:id/claim-host {clientId,name}` -> claim host if seat free.
+  - `POST /:id/heartbeat {clientId,name}` -> keep membership alive; ALSO claims host if the host seat is stale (server is never host-less).
+  - `POST /:id/lap {clientId,name,time}` -> round-scoped best lap (keeps MINIMUM per client per round).
+  - `POST /:id/next-round {clientId,trackPlayUrl,trackMapSignature}` -> HOST-ONLY; 403 non-host, 409 if before round+rankings window; else new round (roundId+1, reset laps, new track).
+  - `POST /:id/leave {clientId}` -> leave; releases host if you were host.
+- Timing: `ROUND_DURATION_MS = 5*60*1000`, `RANKINGS_WINDOW_MS = 5*1000`.
+  `roundOver` = now > start+DUR. `inRankings` = now in [start+DUR, start+DUR+RANK].
+  `publicView()` computes these per-read for consistent timing.
+- `HOST_STALE_MS = 15000`; `MEMBER_TTL_MS = 30000`. A stale/missing host is
+  re-claimed on the next join OR heartbeat (self-healing).
+
+### Client module (`js/PublicServers.js`)
+- `SERVERS_API_BASE` = `https://racing-servers-api.ga1010.workers.dev/api/servers`.
+- `TRACK_BOARD_API` = existing track share board worker (`.../api/tracks`).
+- `PUBLIC_SERVERS` = 3 fixed servers. `findPublicServer(id)`, `isPublicServerConfigured()`.
+- API wrappers: `fetchServerState`, `joinServer`, `claimServerHost`, `heartbeatServer`,
+  `submitServerLap`, `advanceServerRound`, `leaveServer`.
+- `fetchRandomTrackPlayUrl()` -> GETs the track board (`{ ok, entries:[{...,playUrl}] }`),
+  picks a random `playUrl`. Returns null if none (host retries next cycle).
+- `mapSignatureFromPlayUrl(url)` -> `"map|mods"`. `buildServerTrackRedirectUrl(playUrl,
+  serverId)` -> same-tab URL adding `?pubServer=<id>&play=1` (preserves `#ghost=`).
+
+### main.js integration
+- `publicServerState` block (next to `multiplayerSessionState`): `active`,
+  `serverId`, `server`, `isHost`, `claimedHost`, `pollTimer`, `heartbeatTimer`,
+  `lastRoundId`, `lastMapSignature`, `rankingsShownForRoundId`,
+  `advancedForRoundId`, `skippedLapSeconds`.
+- `isPublicServerActive()`, `publicServerRoomCode()`, `publicServerName()`.
+- `buildPublicServerButtons()` fills `#mp-public-buttons`; called from
+  `initMultiplayerPanel()` BEFORE the Firebase-config early-return (public servers
+  don't need Firebase).
+- `joinPublicServer(serverId)` -> leave any session, POST join, set
+  `roomCode=def.code`, `startPeerMultiplayer(code, role)`, hide private leaderboard,
+  show timer, start poll(1s)+heartbeat(4s) loops.
+- `publicServerHeartbeat()` -> POST heartbeat; if `isHost` flipped, restart PeerJS
+  in the new role (host takes the `RACE-ROOM-<code>` peer id).
+- `handlePublicServerRound(server)` (1s poll): round change -> reset laps + hide
+  rankings; `renderPublicServerTimer()`; `inRankings` -> show rankings once/round;
+  host + `roundOver` -> `advancePublicServerRound()` once/round; track signature
+  changed -> `window.location.href = buildServerTrackRedirectUrl(...)`.
+- `advancePublicServerRound()` -> `fetchRandomTrackPlayUrl()`; null -> reset guard +
+  retry (no stuck state); else POST next-round.
+- `publishMultiplayerBestLap(bestLap)` ALSO pushes to the worker
+  (`publicSubmitLap`) when `isPublicServerActive()` (only improved times, via
+  `skippedLapSeconds`). Independent of the Firebase write.
+- `hostRotateRoomCode()` early-returns when `isPublicServerActive()` (skips the
+  private-room 2-min rotation; public servers use the worker 5-min rotation).
+- `beforeunload` -> `fetch(..., { keepalive: true })` POST leave (frees host seat).
+- Host/Join button handlers `await leavePublicServer()` first.
+- `?pubServer=<id>` param -> auto-join on boot (handled before the Firebase
+  early-return; works without Firebase).
+
+### Self-healing / edge cases (verified by tests)
+- First joiner becomes host (worker auto-claims). Joiners connect to the host peer.
+- If the host disappears, the next heartbeat from any joiner claims the host seat
+  and that joiner restarts PeerJS as host. Two simultaneous claimers resolve via
+  PeerJS rejecting the duplicate peer id; the loser re-evaluates next heartbeat (4s).
+- Round advancement fires once per roundId (`advancedForRoundId`), host-only;
+  non-hosts follow the track-signature change -> redirect.
+- No community tracks -> host does NOT advance (resets guard, retries); current
+  map keeps running.
+
+### Verified
+- Worker logic: 26 assertions (list/get/join/host-claim/lap-min/next-round
+  auth+timing/leave/CORS/404 + host-promotion-on-heartbeat).
+- Client helpers: 15 assertions (server list, find, configured, signature
+  parsing, redirect URL preserves map+mods+ghost+pubServer+play).
+- Round advancement after the time window (8 assertions).
+- All files syntax-check; CSS braces balanced; clean page boot (modules load 200,
+  "MAINJS STARTED", multiplayer panel + "Public servers" render).
