@@ -5458,7 +5458,22 @@ async function init() {
 		ensureGarageSelectionSource();
 		if ( ! garageSelectionSource || ! garageSelectionTexture ) return;
 		const hit = getGarageViewerHit( event );
-		if ( ! hit || ! hit.uv ) { setGarageMappingStatus( 'Missed the car — try clicking directly on a colored part.', true ); return; }
+		// Clicking empty space (missing the car) clears the current selection.
+		if ( ! hit || ! hit.uv ) {
+
+			if ( garageSelectionMask ) {
+
+				garageSelectionMask = null;
+				selectedGarageSourceHex = '';
+				hoveredGarageSourceHex = '';
+				refreshGarageViewer();
+				updateGaragePaintControls();
+				setGarageMappingStatus( 'Selection cleared. Click a color on the car to pick a new area.' );
+
+			}
+			return;
+
+		}
 		const texture = garageSelectionTexture;
 		const flipY = texture.flipY;
 		const u = hit.uv.x, v = flipY ? ( 1 - hit.uv.y ) : hit.uv.y;
