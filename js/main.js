@@ -91,22 +91,6 @@ renderer.shadowMap.enabled = getGraphicsPreset().shadows;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
-// Safety net: if the main WebGL context is lost (GPU memory pressure from a long paint
-// session, too many simultaneous contexts, driver resets, etc.) the 3D canvas would go
-// permanently black while the HTML UI keeps running. preventDefault lets the browser
-// restore the context; rather than attempt a fragile partial recovery we reload, which
-// (state is in localStorage) reliably brings everything back. Guarded against repeat firing.
-let _contextLostReloading = false;
-renderer.domElement.addEventListener( 'webglcontextlost', ( event ) => {
-
-	event.preventDefault();
-	if ( _contextLostReloading ) return;
-	_contextLostReloading = true;
-	try { showTopMessage?.( 'Graphics context lost — reloading…', true, 4000 ); } catch ( e ) {}
-	setTimeout( () => { window.location.reload(); }, 600 );
-
-} );
-
 let bloomPass = null;
 
 function applyBloomPreset() {
@@ -5555,10 +5539,13 @@ async function init() {
 			if ( ! child.isMesh ) return;
 			const custom = child.userData?.customMaterial;
 			if ( ! custom ) return;
+			const bases = child.userData?.baseMaterial;
 			const list = Array.isArray( custom ) ? custom : [ custom ];
-			for ( const material of list ) {
+			for ( let i = 0; i < list.length; i ++ ) {
 
-				if ( material?.map && material.map !== child.userData?.baseMaterial?.[ 0 ]?.map ) material.map.dispose();
+				const material = list[ i ];
+				const baseMap = Array.isArray( bases ) ? bases[ i ]?.map : bases?.map;
+				if ( material?.map && material.map !== baseMap ) material.map.dispose();
 				material?.dispose?.();
 
 			}
