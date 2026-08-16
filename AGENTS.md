@@ -178,40 +178,49 @@
   line was REMOVED entirely (always-identical, useless) — the function itself
   was deleted; do not re-add it unless the upgrade packs become variable again.
 
-### Implementation (per-card renderer, single shared rAF loop)
+### Implementation (ONE shared renderer for all cards, single rAF loop)
 - `garageCardCanvasByKey` (carKey→canvas) is rebuilt by `renderGarageVehicleCards()`.
-  `garageCardPreviews` (Map carKey→{renderer,scene,camera,carRoot,yaw}) holds the
-  lightweight `THREE.WebGLRenderer` per card.
-- `ensureGarageCardPreviews()`: creates one renderer per card that doesn't have
-  one yet (alpha:true, no preserveDrawingBuffer). Scene = ambient(3.0)+dir light;
-  camera = PerspectiveCamera(34°, ...) at (0,0.85,3.5) — CLOSER than the paint
-  viewer (z 5.2) per the "more zoomed in" request. Car clone added at rotation.y=π.
+  `garageCardPreviews` (Map carKey→{scene,camera,carRoot,yaw,ctx2d}) holds each card's
+  cheap scene graph — NO per-card WebGLRenderer.
+- `garageCardSharedRenderer`: a SINGLE `THREE.WebGLRenderer` on one offscreen canvas
+  (`alpha:true, preserveDrawingBuffer:true`) shared by ALL cards. Created lazily in
+  `ensureGarageCardPreviews()`. Each card's canvas is a plain 2D canvas (`getContext('2d')`);
+  the loop renders each card's scene to the shared renderer (resizing it to the card's px
+  size), then blits `renderer.domElement` → card 2D canvas via `drawImage`. `preserveDrawingBuffer`
+  is required for the drawImage readback. The cards still spin.
+- WHY one shared renderer: the previous design made one WebGLRenderer PER card → 10 contexts
+  (12 with main + paint viewer). Browsers cap ~16 WebGL contexts; under the memory churn of
+  paint-apply the MAIN game renderer (oldest/largest) was dropped first → black screen. One
+  shared context drops the total to 3 (main + viewer + 1 shared card renderer), eliminating
+  the loss. This is the real fix for the "apply paint → black screen" bug.
+- `ensureGarageCardPreviews()`: creates the shared renderer (once) + a scene/camera/carRoot
+  per card that lacks one. Scene = ambient(3.0)+dir light; camera = PerspectiveCamera(34°,
+  ...) at (0,0.85,3.5) — CLOSER than the paint viewer (z 5.2) per the "more zoomed in"
+  request. Car clone added at rotation.y=π.
 - `refreshGarageCardPreviewPaint(carKey)`: clears carRoot, re-clones `models[carKey]`,
   `applyCarCustomizationToObject(clone, carKey, '', true, '', tol, null, '')`
   (previewUnlit=true → MeshBasicMaterial, no selection preview → persisted paint only).
 - `startGarageCardPreviews()`: ONE `requestAnimationFrame` loop ticks ALL previews
-  (`yaw += 0.012` slow spin, re-render). Guards: no-op if size 0; self-requeues only
-  while previews exist. `stopGarageCardPreviews()` cancels the rAF.
-- `disposeGarageCardPreviews()`: cancels loop + `renderer.dispose()`s every card
-  renderer + clears the Map. Called at the top of `renderGarageVehicleCards()` because
-  `innerHTML=''` destroys the old canvases — the old renderers (bound to detached
-  canvases) MUST be dropped and rebound to the fresh canvases, not reused.
+  (`yaw += 0.012` slow spin, re-render, drawImage blit). Guards: no-op if size 0 or no
+  shared renderer; self-requeues only while previews exist. `stopGarageCardPreviews()` cancels
+  the rAF.
+- `disposeGarageCardPreviews()`: cancels loop + `disposeGarageCloneMaterials` each carRoot +
+  clears the Map + `garageCardSharedRenderer.dispose()` (sets it back to null so it's recreated
+  on next open). Called at the top of `renderGarageVehicleCards()` because `innerHTML=''`
+  destroys the old canvases — the old 2D contexts are gone, so rebuild rebinds to fresh ones.
 
-### Lifecycle / when it runs (avoid 10 idle WebGL contexts at boot)
-- Renderers are created LAZILY, only when the garage tab is actually visible — NOT
-  at boot. `renderGarageVehicleCards()` only builds the card DOM + canvases; it does
-  NOT create renderers. `activateGarageCardPreviews()` (ensureGarageCardPreviews +
-  refreshGarageCardPreviewsPaint + startGarageCardPreviews) is the entry point and is
-  called from `setModeTab('garage')` and `setModeMenuOpen(true)` ONLY when
-  `modeTab==='garage' && modeMenuOpen`. Closing the menu / switching tabs calls
-  `stopGarageCardPreviews()` (rAF stops → no rendering, no CPU; renderers stay alive
-  for instant resume on reopen).
+### Lifecycle / when it runs (avoid idle WebGL contexts at boot)
+- The shared renderer + scenes are created LAZILY, only when the garage tab is actually
+  visible — NOT at boot. `renderGarageVehicleCards()` only builds the card DOM + canvases; it
+  does NOT create the renderer. `activateGarageCardPreviews()` (ensureGarageCardPreviews +
+  refreshGarageCardPreviewsPaint + startGarageCardPreviews) is the entry point and is called
+  from `setModeTab('garage')` and `setModeMenuOpen(true)` ONLY when `modeTab==='garage' &&
+  modeMenuOpen`. Closing the menu / switching tabs calls `disposeGarageCardPreviews()` (drops
+  the shared renderer + clones → 0 card WebGL resources while closed).
 - A new module-level `modeTab` (default 'gameplay') tracks the active tab; set inside
-  `setModeTab()`. `setModeMenuOpen` reads `modeTab` to decide start/stop.
-- Context count while the garage is open: main game renderer + paint viewer + 10 mini
-  = 12 (under the ~16 browser WebGL context limit). The game is paused behind the
-  modal, so the cost is bounded. Renderers are NOT created when the user never opens
-  the garage.
+  `setModeTab()`. `setModeMenuOpen` reads `modeTab` to decide activate/dispose.
+- Context count while the garage is open: main game renderer + paint viewer + 1 shared card
+  renderer = 3 (was 12). The game is paused behind the modal, so the cost is bounded.
 
 ### Keep paint in sync
 - The Apply-paint handler calls `refreshGarageCardPreviewPaint(carKey)` +
@@ -247,12 +256,14 @@
   `refreshGarageCardPreviewPaint`, and `disposeGarageCardPreviews`. The LIVE in-game
   vehicle does NOT leak (it's the same object re-applied; `applyCarCustomizationToObject`
   disposes its own previous customMaterial in place).
-- Fix layer 2 (cut context count): while the garage is open we run ~12 WebGL contexts
-  (main + viewer + 10 cards). On menu close / tab switch we now FULLY dispose the card
-  renderers (`disposeGarageCardPreviews`, not just `stopGarageCardPreviews`) to drop back
-  to ~2 contexts and relieve steady-state pressure. They're recreated lazily on reopen
-  (`ensureGarageCardPreviews`). `setModeMenuOpen(false)` and `setModeTab(non-garage)` both
-  call `disposeGarageCardPreviews()`.
+- Fix layer 2 (cut context count — the decisive fix): the previous design created one
+  WebGLRenderer PER card → 10 contexts (12 with main + viewer). That alone tripped context
+  loss on paint-apply. Now ALL card previews share ONE `garageCardSharedRenderer`
+  (see "Implementation" above): total contexts while open = 3 (main + viewer + 1 shared card
+  renderer). `disposeGarageCardPreviews()` (called on menu close / tab switch / grid rebuild)
+  fully disposes the shared renderer + clones → 0 card WebGL resources while closed. They're
+  recreated lazily on reopen (`ensureGarageCardPreviews`). `setModeMenuOpen(false)` and
+  `setModeTab(non-garage)` both call `disposeGarageCardPreviews()`.
 - NOTE: do NOT add a `webglcontextlost` → `window.location.reload()` handler. It was tried
   and it fired proactively during normal painting, reloading the page mid-paint and making
   the garage unusable. The leak fix (layer 1) + context reduction (layer 2) are the correct

@@ -4279,8 +4279,9 @@ async function init() {
 	let garageSelectionSource = null; // { width, height, data } from getTextureSourcePixels
 	// Garage vehicle-card mini 3D previews (spinning painted clones).
 	let garageCardCanvasByKey = {}; // carKey -> <canvas>
-	let garageCardPreviews = new Map(); // carKey -> { renderer, scene, camera, carRoot, yaw }
+	let garageCardPreviews = new Map(); // carKey -> { scene, camera, carRoot, yaw, ctx2d }
 	let garageCardPreviewsRaf = 0; // rAF id of the shared animation loop (0 when idle)
+	let garageCardSharedRenderer = null; // ONE WebGLRenderer shared by all card previews (avoids 10 simultaneous WebGL contexts, which caused context loss on paint-apply)
 	if ( lapHud2 ) lapHud2.style.display = isSplitScreen ? 'block' : 'none';
 	if ( isSplitScreen ) {
 
@@ -5673,20 +5674,29 @@ async function init() {
 	}
 
 	// --- Garage vehicle-card mini 3D previews -------------------------------------
-	// One lightweight WebGLRenderer per card, sharing a SINGLE requestAnimationFrame loop that
-	// only runs while the garage menu is open. Each preview is a slowly-spinning, zoomed-in clone
-	// of the car wearing its current paint (applyCarCustomizationToObject, no selection preview).
-	// Renderers are created lazily on first garage open (not at boot) to avoid 10 idle WebGL contexts.
+	// All card previews share a SINGLE lightweight WebGLRenderer (rendered to an offscreen canvas,
+	// then blitted onto each card's 2D canvas). Previously each card had its own WebGLRenderer → 10
+	// simultaneous contexts (12 with the main game + paint viewer), which tripped WebGL context loss
+	// on the main renderer whenever the player applied paint (the whole 3D canvas went black). One
+	// shared context eliminates that. The cards still spin. Renderers are created lazily on first
+	// garage open (not at boot) and disposed when the garage closes.
 	function ensureGarageCardPreviews() {
 
+		if ( ! garageCardSharedRenderer ) {
+
+			const off = document.createElement( 'canvas' );
+			off.width = 128; off.height = 96;
+			garageCardSharedRenderer = new THREE.WebGLRenderer( { canvas: off, antialias: true, alpha: true, preserveDrawingBuffer: true } );
+			garageCardSharedRenderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, 1.25 ) );
+
+		}
 		for ( const carKey of Object.keys( garageCardCanvasByKey ) ) {
 
 			if ( garageCardPreviews.has( carKey ) ) continue;
 			if ( ! models[ carKey ] ) continue;
 			const canvas = garageCardCanvasByKey[ carKey ];
 			if ( ! canvas ) continue;
-			const renderer = new THREE.WebGLRenderer( { canvas, antialias: true, alpha: true, preserveDrawingBuffer: false } );
-			renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, 1.25 ) );
+			const ctx2d = canvas.getContext( '2d' );
 			const scene = new THREE.Scene();
 			scene.add( new THREE.AmbientLight( 0xffffff, 3.0 ) );
 			const dir = new THREE.DirectionalLight( 0xffffff, 1.2 );
@@ -5697,7 +5707,7 @@ async function init() {
 			camera.lookAt( 0, 0.1, 0 );
 			const carRoot = new THREE.Group();
 			scene.add( carRoot );
-			garageCardPreviews.set( carKey, { renderer, scene, camera, carRoot, yaw: 0 } );
+			garageCardPreviews.set( carKey, { scene, camera, carRoot, yaw: 0, ctx2d } );
 			refreshGarageCardPreviewPaint( carKey );
 			resizeGarageCardPreview( carKey );
 
@@ -5709,11 +5719,17 @@ async function init() {
 
 		const p = garageCardPreviews.get( carKey );
 		if ( ! p ) return;
-		const canvas = p.renderer.domElement;
+		const canvas = garageCardCanvasByKey[ carKey ];
+		if ( ! canvas ) return;
 		const rect = canvas.getBoundingClientRect();
 		const w = Math.max( 1, Math.floor( rect.width ) );
 		const h = Math.max( 1, Math.floor( rect.height ) );
-		p.renderer.setSize( w, h, false );
+		if ( canvas.width !== w || canvas.height !== h ) {
+
+			canvas.width = w;
+			canvas.height = h;
+
+		}
 		p.camera.aspect = w / h;
 		p.camera.updateProjectionMatrix();
 
@@ -5750,17 +5766,22 @@ async function init() {
 	function startGarageCardPreviews() {
 
 		if ( garageCardPreviewsRaf ) return;
-		if ( garageCardPreviews.size === 0 ) return;
+		if ( garageCardPreviews.size === 0 || ! garageCardSharedRenderer ) return;
 		const loop = () => {
 
 			garageCardPreviewsRaf = 0;
+			const r = garageCardSharedRenderer;
+			const src = r.domElement;
 			for ( const [ carKey, p ] of garageCardPreviews ) {
 
-				if ( ! garageCardCanvasByKey[ carKey ]?.isConnected ) continue;
+				const canvas = garageCardCanvasByKey[ carKey ];
+				if ( ! canvas?.isConnected ) continue;
 				resizeGarageCardPreview( carKey );
 				p.yaw += 0.012; // slow spin
 				p.carRoot.rotation.y = p.yaw;
-				p.renderer.render( p.scene, p.camera );
+				r.setSize( canvas.width, canvas.height, false );
+				r.render( p.scene, p.camera );
+				if ( p.ctx2d ) p.ctx2d.drawImage( src, 0, 0, canvas.width, canvas.height );
 
 			}
 			if ( garageCardPreviews.size ) garageCardPreviewsRaf = requestAnimationFrame( loop );
@@ -5783,10 +5804,15 @@ async function init() {
 
 			disposeGarageCloneMaterials( p.carRoot );
 			p.carRoot.clear();
-			p.renderer.dispose();
 
 		}
 		garageCardPreviews.clear();
+		if ( garageCardSharedRenderer ) {
+
+			garageCardSharedRenderer.dispose();
+			garageCardSharedRenderer = null;
+
+		}
 
 	}
 
