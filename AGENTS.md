@@ -60,6 +60,90 @@
 - Garage card grid: `repeat(5, minmax(0,1fr))` → 2×5 grid for 10 cars. Responsive: 3 cols
   <1200px, 2 cols <720px. Mobile forces 2 cols.
 
+## Car painter / Paint Shop (garage) — mask-based region selection (`js/main.js` + `index.html`)
+
+### What changed & why
+- The OLD painter made you click a color on the 3D car model, then globally
+  re-matched every texture pixel within a tolerance to that source hex. Two bugs:
+  (1) it "only selected chunks" because the click hit a single UV island and the
+  global match grabbed disconnected pixels of similar color elsewhere; (2) white
+  selected almost everything (white is near every light color in RGB distance)
+  and black was buggy (black is far from everything in naive distance).
+- The NEW painter is a 2D "paint sheet": the car's colormap texture laid flat.
+  You select the EXACT region to repaint with three tools (Wand / Brush / Eraser),
+  see the selection highlighted green on both the 2D sheet and the live 3D clone,
+  pick a new color, and Apply. Selections are stored as compact RLE pixel masks
+  per mapping, so repaints are region-accurate (no global color re-match).
+
+### Layout (`index.html` `#garage-paint-studio`)
+- 3-column grid: `#garage-paint-tools` (left) | `#garage-paint-sheet-wrap`+canvas
+  (center, the PRIMARY interaction surface) | `#garage-viewer` 3D + mappings (right).
+- Tools: `.garage-tool-btn[data-garage-tool="wand|brush|eraser"]` (Wand default
+  active). `#garage-brush-size` range 2–60, `#garage-brush-size-value` label.
+  `#garage-clear-selection-btn`. `#garage-repaint-tolerance` (wand tolerance).
+  `#garage-target-color` (new paint color), `#garage-apply-paint-btn`.
+- `#garage-paint-sheet` is a `<canvas>` whose backing store IS the texture size
+  (512×512) shown scaled via CSS (`image-rendering: pixelated`).
+
+### Core functions (search `garageRedmeanDistanceSq` as the anchor)
+- `garageRedmeanDistanceSq(r1,g1,b1,r2,g2,b2)`: perceptual color distance.
+  Weighted by mean redness — fixes white-selects-everything & black-buggy.
+- `getGarageActiveTexture()`: finds the selected car model's `material.map`.
+- `ensureGaragePaintSheet()`: binds the 2D sheet to the active car's texture
+  (caches via `garageSelectionTexture`/`garageSelectionSource`); called from
+  `updateGarageUi()`, `setModeTab('garage')`, `selectGarageCar()`. Re-binds
+  when the texture changes (car switch). Resets the mask on rebind.
+- `renderGaragePaintSheet()`: blits source pixels + tints selected ones green.
+- `garageFloodFillAdd(x,y,tol)`: 4-neighbourhood flood fill ADDING to the mask
+  (tolerance is redmean distance). Wand re-seeds (clears mask) per click.
+- `garageBrushStamp(x,y,radius,erase)`: circular brush add/erase into the mask.
+- `describeGarageSelection()`: returns `{hex, tolerance, count}` — picks the
+  MOST COMMON actual selected color as the representative sourceHex (stable),
+  and derives a tolerance = ceil(sqrt(maxRedmeanDist))+8 clamped 8–180, so the
+  persisted global fallback covers the selected region's color spread.
+- `encodeSelectionMaskRle`/`decodeSelectionMaskRle`: base64 RLE of [start,len]
+  Uint32 runs. ~262k-pixel masks compress to a few KB. Local-only (NOT sent to
+  ghosts/multiplayer — those still use sourceHex+tolerance color-distance).
+
+### State vars (near the garage state block ~line 4280)
+- `garagePaintTool` ('wand'|'brush'|'eraser'), `garageSelectionMask` (Uint8Array
+  over active texture pixels, 1=selected), `garageSelectionTexture`,
+  `garageSelectionSource` ({width,height,data}), `garagePaintSheetCtx`,
+  `garagePaintSheetImage` (mutable ImageData copy), `garagePaintDragging`,
+  `garagePaintLastPx`. `selectedGarageSourceHex`/`hoveredGarageSourceHex` kept
+  in sync for legacy paths but are no longer the source of truth.
+
+### Persistence & apply
+- `normalizeGarageCosmetics()` now preserves `mask` (RLE string), `maskW`,
+  `maskH` per mapping (clamped). Max 48 mappings per car (unchanged).
+- `buildResolvedMappings()` carries `mask/maskW/maskH/maskRle`; masks are lazily
+  decoded + cached via `getResolvedMappingMask(mapping, total)`.
+- `recolorTexture()`: for each pixel, prefers an EXACT region mask match (if any
+  mapping's mask covers that pixel) over the global color-distance fallback.
+  Ghost mappings have no mask → fall back to `pickMappedColor` (backward compat).
+- `applyCarCustomizationToObject()` gained `previewMask` + `previewTargetHex`
+  params: when set (live preview), folds the in-progress selection into a
+  transient mapping so the 3D clone previews the repaint before commit. The
+  actual in-game vehicle call passes neither → uses persisted mappings only.
+- Apply handler (`garageApplyPaintBtn` click): derives `describeGarageSelection`,
+  encodes the mask, upserts the mapping (matches existing by `mapping.mask` OR
+  color proximity), charges 300 coins, clears the in-progress mask, refreshes.
+
+### init wiring
+- `initGaragePaintSheet()` (attaches pointer listeners) called once at boot.
+- `ensureGaragePaintSheet()` called from `updateGarageUi()` (runs after models
+  load), `setModeTab('garage')`, `selectGarageCar()`, and the `?garage=1` boot.
+- `initGarageViewer()` unchanged structurally (3D clone + drag-rotate); now also
+  calls `applyCarCustomizationToObject(..., garageSelectionMask)` for live preview.
+
+### What does NOT need changing
+- Ghost/replay/multiplayer cosmetics: unchanged shape (sourceHex/targetHex/
+  tolerance); masks are local-only. `buildResolvedMappingsFromGhostCosmetics`
+  produces maskless mappings that fall back to color-distance.
+- `GARAGE_REPAINT_COST` (300), `GARAGE_PAINT_PALETTE`, paint unlocks, coins.
+- `getGarageTexturePalette()` is now UNUSED (kept as harmless dead code; the
+  new painter doesn't snap to a palette — it works on raw pixels).
+
 ## Physics: car is a rolling sphere (`js/Physics.js` + `js/Vehicle.js`)
 
 ### Drive model (critical for surface friction tuning)
