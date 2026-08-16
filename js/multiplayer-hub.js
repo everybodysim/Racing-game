@@ -1,9 +1,9 @@
 // Multiplayer hub page logic (multiplayer.html).
 // Server-browser UI that talks to the cloudflare-servers worker via
-// js/MultiplayerServers.js. Joining a server navigates to index.html?server=<id>,
-// which the game picks up via the existing deep-link handler. The hub also hosts
-// a global Ably chat preview so the page feels live (server-scoped chat happens
-// inside the game once a server is joined).
+// js/MultiplayerServers.js. Joining a server navigates to
+// index.html?play=1&server=<id>, which the game picks up via the existing
+// deep-link handler. The hub itself has NO chat — chat lives in index.html and
+// auto-switches to the server's scoped channel when a server is joined.
 
 import * as Servers from './MultiplayerServers.js';
 
@@ -21,6 +21,26 @@ function readSession() {
 	} catch { return null; }
 }
 let session = readSession();
+
+// Verify the stored token is still valid server-side. Returns true if valid,
+// false otherwise (and clears the stale session so the UI updates).
+async function verifySessionFresh() {
+	if ( ! session?.token ) return false;
+	try {
+		const res = await fetch( `${ ACCOUNTS_API_BASE }/profile?token=${ encodeURIComponent( session.token ) }` );
+		if ( ! res.ok ) { clearStaleSession(); return false; }
+		const payload = await res.json();
+		if ( ! payload?.ok ) { clearStaleSession(); return false; }
+		return true;
+	} catch { return false; } // network error — don't clear, just deny this op
+}
+
+function clearStaleSession() {
+	try { localStorage.removeItem( SESSION_KEY ); } catch {}
+	session = null;
+	renderMeBar();
+	refreshCreatePermAuth();
+}
 
 function el( id ) { return document.getElementById( id ); }
 
@@ -42,6 +62,14 @@ function statusText( id, txt ) {
 	if ( s ) s.textContent = txt || '';
 }
 
+// Build a game URL that ALWAYS enters play mode (play=1) so the home menu does
+// not cover the screen and the deep-link action is visible.
+function gameUrl( params ) {
+	const q = new URLSearchParams( params );
+	q.set( 'play', '1' );
+	return 'index.html?' + q.toString();
+}
+
 // ---- tabs ----
 const tabs = [ ...document.querySelectorAll( '.tab' ) ];
 const panels = [ ...document.querySelectorAll( '.panel' ) ];
@@ -61,7 +89,8 @@ function playerLabel( server ) {
 }
 
 function joinUrl( server ) {
-	return `index.html?server=${ encodeURIComponent( server.serverId ) }`;
+	// Always play=1 so the game scene is visible + the join deep-link fires.
+	return gameUrl( { server: String( server.serverId ) } );
 }
 
 function renderTempList( servers ) {
@@ -72,15 +101,19 @@ function renderTempList( servers ) {
 		list.innerHTML = '<div class="empty-note">No active temporary servers. Create one to get started.</div>';
 		return;
 	}
-	list.innerHTML = items.map( ( s ) => `
+	list.innerHTML = items.map( ( s ) => {
+		const full = ( Number( s.playerCount ) || 0 ) >= ( Number( s.maxPlayers ) || 8 );
+		const join = full
+			? '<button class="btn" disabled>Full</button>'
+			: `<a class="btn primary" href="${ joinUrl( s ) }">Join</a>`;
+		return `
 		<div class="srv">
 			<div><span class="tag temp">Temporary</span></div>
 			<div class="name">${ esc( s.name ) }<span class="id">#${ s.serverId }</span></div>
 			<div class="meta">${ playerLabel( s ) }${ s.hostUsername ? ` • Host: ${ esc( s.hostUsername ) }` : '' }</div>
-			<div class="actions">
-				<a class="btn primary" href="${ joinUrl( s ) }">Join</a>
-			</div>
-		</div>` ).join( '' );
+			<div class="actions">${ join }</div>
+		</div>`;
+	} ).join( '' );
 }
 
 function renderPermList( servers ) {
@@ -105,9 +138,14 @@ function renderPermList( servers ) {
 		const manage = mine ? `
 			<button class="btn" data-rename="${ s.serverId }">Rename</button>
 			<button class="btn danger" data-delete="${ s.serverId }" data-name="${ esc( s.name ) }">Delete</button>` : '';
-		const join = online
-			? `<a class="btn primary" href="${ joinUrl( s ) }">Join</a>`
-			: `<button class="btn" data-start="${ s.serverId }" data-name="${ esc( s.name ) }">Start Session</button>`;
+		const full = online && ( Number( s.playerCount ) || 0 ) >= ( Number( s.maxPlayers ) || 8 );
+		const join = ! online
+			? ( mine
+				? `<button class="btn primary" data-start="${ s.serverId }" data-name="${ esc( s.name ) }">Start Session</button>`
+				: '<span class="hint" style="font:700 12px sans-serif;color:var(--muted)">Offline — owner must start it</span>' )
+			: ( full
+				? '<button class="btn" disabled>Full</button>'
+				: `<a class="btn primary" href="${ joinUrl( s ) }">Join</a>` );
 		return `
 		<div class="srv">
 			<div>${ tag }<span class="tag perm" style="margin-left:6px">Permanent</span></div>
@@ -166,11 +204,7 @@ el( 'ct-go' )?.addEventListener( 'click', () => {
 	const max = clampMax( el( 'ct-max' )?.value );
 	// The actual room creation happens in the game (needs PeerJS + Firebase).
 	// Navigate to the game with create intent; main.js picks up ?createtemp.
-	const params = new URLSearchParams();
-	params.set( 'createtemp', '1' );
-	params.set( 'name', name );
-	params.set( 'max', String( max ) );
-	window.location.href = 'index.html?' + params.toString();
+	window.location.href = gameUrl( { createtemp: '1', name, max: String( max ) } );
 } );
 
 // ---- create permanent ----
@@ -193,13 +227,28 @@ el( 'cp-go' )?.addEventListener( 'click', async () => {
 	const btn = el( 'cp-go' );
 	btn.disabled = true; btn.textContent = 'Creating…';
 	try {
+		// Verify the token is still valid before hitting the servers worker
+		// (which would otherwise return a vague "Authentication required").
+		const fresh = await verifySessionFresh();
+		if ( ! fresh ) {
+			toast( 'Your session has expired. Please sign in again, then retry.', 'err' );
+			window.location.href = 'settings.html';
+			return;
+		}
 		const server = await Servers.createPermanentServer( { token: session.token, name, settings: { maxPlayers: max } } );
 		toast( `Created "${ server.name }" — Server #${ server.serverId }`, 'ok' );
 		el( 'cp-name' ).value = '';
 		activateTab( 'perm' );
 		await refreshActiveList( 'perm' );
 	} catch ( err ) {
-		toast( err?.message || 'Failed to create server.', 'err' );
+		const msg = String( err?.message || '' );
+		if ( /authentication required/i.test( msg ) ) {
+			toast( 'Authentication failed. Your session may have expired — signing you back in…', 'err' );
+			clearStaleSession();
+			setTimeout( () => { window.location.href = 'settings.html'; }, 1200 );
+		} else {
+			toast( msg || 'Failed to create server.', 'err' );
+		}
 	} finally {
 		btn.disabled = false; btn.textContent = 'Create';
 	}
@@ -211,6 +260,7 @@ async function renameServer( serverId ) {
 	if ( newName == null ) return;
 	const trimmed = String( newName ).trim();
 	if ( ! trimmed ) { toast( 'Name was empty.', 'err' ); return; }
+	if ( ! ( await ensureFreshSession() ) ) return;
 	try {
 		await Servers.renamePermanentServer( serverId, { token: session.token, name: trimmed } );
 		toast( 'Renamed.', 'ok' );
@@ -220,6 +270,7 @@ async function renameServer( serverId ) {
 
 async function deleteServer( serverId, name ) {
 	if ( ! window.confirm( `Delete permanent server "${ name }" (#${ serverId })? This cannot be undone.` ) ) return;
+	if ( ! ( await ensureFreshSession() ) ) return;
 	try {
 		await Servers.deletePermanentServer( serverId, { token: session.token } );
 		toast( 'Server deleted.', 'ok' );
@@ -227,22 +278,73 @@ async function deleteServer( serverId, name ) {
 	} catch ( err ) { toast( err?.message || 'Delete failed.', 'err' ); }
 }
 
-// Start a live session on an offline permanent server (host flow in-game).
-function startPermSession( serverId, name ) {
-	const params = new URLSearchParams();
-	params.set( 'server', String( serverId ) );
-	params.set( 'host', '1' );
-	params.set( 'name', name || '' );
-	window.location.href = 'index.html?' + params.toString();
+// Common guard: verify the session is still valid before an owner-only op.
+// Returns true if ok, false (and redirects to sign-in) if expired.
+async function ensureFreshSession() {
+	if ( ! session?.token ) { toast( 'Sign in first.', 'err' ); window.location.href = 'settings.html'; return false; }
+	const fresh = await verifySessionFresh();
+	if ( ! fresh ) {
+		toast( 'Your session has expired. Please sign in again.', 'err' );
+		window.location.href = 'settings.html';
+		return false;
+	}
+	return true;
 }
 
-// ---- join by code ----
+// Start a live session on an offline permanent server (host flow in-game).
+function startPermSession( serverId, name ) {
+	// play=1 + host=1 so the game enters play mode and rehosts the server.
+	window.location.href = gameUrl( { server: String( serverId ), host: '1', name: name || '' } );
+}
+
+// ---- join by code (existing flow, preserved) ----
 el( 'jc-go' )?.addEventListener( 'click', () => {
 	const code = String( el( 'jc-input' )?.value || '' ).trim().toUpperCase();
 	if ( ! /^[A-Z0-9]{6}$/.test( code ) ) { toast( 'Enter a valid 6-character code.', 'err' ); return; }
-	window.location.href = 'index.html?joinRoom=' + encodeURIComponent( code );
+	// play=1 so the game loads + the join deep-link fires visibly.
+	window.location.href = gameUrl( { joinRoom: code } );
 } );
 el( 'jc-input' )?.addEventListener( 'keypress', ( e ) => { if ( e.key === 'Enter' ) el( 'jc-go' ).click(); } );
+
+// ---- host by code (classic host flow, now on the hub) ----
+el( 'hc-go' )?.addEventListener( 'click', () => {
+	const name = String( el( 'hc-name' )?.value || '' ).trim();
+	// hostcode=1 triggers the classic Host flow in main.js (generates a room
+	// code, starts PeerJS host). play=1 so the game is visible.
+	const params = { hostcode: '1' };
+	if ( name ) params.name = name;
+	window.location.href = gameUrl( params );
+} );
+
+// ---- switch map (host launches game on a specific track) ----
+el( 'sm-go' )?.addEventListener( 'click', () => {
+	const raw = String( el( 'sm-input' )?.value || '' ).trim();
+	if ( ! raw ) { toast( 'Paste a track URL or share code first.', 'err' ); return; }
+	const params = parseTrackInput( raw );
+	if ( ! params ) { toast( 'Could not read that track URL/code.', 'err' ); return; }
+	// Host a fresh room on this map. hostcode=1 + map so the game hosts on load.
+	params.hostcode = '1';
+	window.location.href = gameUrl( params );
+} );
+
+// Accept a full URL (extract its map/mods/pack params) or a bare share code.
+function parseTrackInput( raw ) {
+	try {
+		// Full URL?
+		if ( /https?:\/\//i.test( raw ) ) {
+			const u = new URL( raw );
+			const out = {};
+			for ( const k of [ 'map', 'mods', 'pack', 'localPack', 'sharedPack' ] ) {
+				const v = u.searchParams.get( k );
+				if ( v ) out[ k ] = v;
+			}
+			if ( out.map ) return out;
+		}
+		// Bare share code (track-board short code) -> let the game resolve it.
+		if ( /^[A-Za-z0-9_-]{4,32}$/.test( raw ) ) return { map: raw };
+	} catch { /* fall through */ }
+	return null;
+}
 
 function clampMax( v ) {
 	let n = Number( v );
@@ -263,79 +365,31 @@ function renderMeBar() {
 		if ( login ) login.textContent = 'Sign in / Create account';
 	}
 }
-el( 'me-login' )?.addEventListener( 'click', () => { window.location.href = 'index.html?openaccount=1'; } );
+// Account management lives in the game (mode-menu account tab) or settings.html.
+// We deep-link there and dismiss the home menu via play=1 is NOT used (that
+// starts a race); instead we go to settings.html which has its own account UI.
+el( 'me-login' )?.addEventListener( 'click', () => {
+	if ( session?.username ) {
+		// Switch account -> the account panel in-game.
+		window.location.href = 'index.html?openaccount=1&play=1';
+	} else {
+		// Sign in -> settings.html cloud tab (has the full account UI).
+		window.location.href = 'settings.html';
+	}
+} );
 
 // Cross-tab: if the user signs in/out in another tab, refresh.
 window.addEventListener( 'storage', ( e ) => {
 	if ( e.key === SESSION_KEY ) { session = readSession(); renderMeBar(); refreshCreatePermAuth(); }
 } );
 
-// ---- global chat preview (Ably) ----
-// The hub shows the existing GLOBAL chat only (server chat lives in the game).
-// Reuses the same channel as index.html so messages are shared.
-const ABLY_KEY = 'kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDm';
-const GLOBAL_CHAT_CHANNEL = 'global-chat';
-let ably = null;
-let chatChannel = null;
-
-function setupChat() {
-	if ( typeof Ably === 'undefined' ) return;
-	const wrap = el( 'hub-chat' );
-	if ( wrap ) wrap.style.display = 'block';
-	try {
-		ably = new Ably.Realtime( ABLY_KEY );
-		chatChannel = ably.channels.get( GLOBAL_CHAT_CHANNEL );
-		chatChannel.subscribe( ( msg ) => addChatMessage( msg.data ) );
-		chatChannel.history( { limit: 30 }, ( err, result ) => {
-			if ( err ) return;
-			( result.items || [] ).reverse().forEach( ( m ) => addChatMessage( m.data ) );
-		} );
-	} catch ( err ) { console.warn( 'Hub chat init failed', err ); }
-}
-
-function addChatMessage( text ) {
-	const box = el( 'chat-messages' );
-	if ( ! box ) return;
-	text = String( text || '' );
-	// Skip club-tagged messages (same convention as index.html).
-	if ( /^\[[^\]]+\](?:\[(?:owner|announce)\])?\s/.test( text ) ) return;
-	const div = document.createElement( 'div' );
-	div.className = 'chat-msg';
-	div.innerText = text;
-	box.appendChild( div );
-	box.scrollTop = box.scrollHeight;
-	while ( box.childElementCount > 80 ) box.removeChild( box.firstChild );
-}
-
-function enableChatInput() {
-	const input = el( 'chat-input' );
-	const send = el( 'chat-send' );
-	if ( ! input || ! send ) return;
-	if ( session?.username ) {
-		input.disabled = false; send.disabled = false;
-		input.placeholder = 'Type a message…';
-	}
-	send.addEventListener( 'click', sendChat );
-	input.addEventListener( 'keypress', ( e ) => { if ( e.key === 'Enter' ) sendChat(); } );
-}
-
-function sendChat() {
-	const input = el( 'chat-input' );
-	if ( ! input || ! input.value.trim() ) return;
-	if ( ! session?.username ) { toast( 'Sign in to chat.', 'err' ); return; }
-	const msg = `${ session.username }: ${ input.value.trim() }`;
-	chatChannel.publish( 'message', msg );
-	input.value = '';
-}
-
 // ---- deep links the hub itself responds to ----
 // ?server=<id>      -> jump to game (handy if someone lands on the hub)
-// ?picktrack=<id>    -> (reserved for host track picker; future)
 (function applyDeepLinks() {
 	const params = new URLSearchParams( window.location.search );
 	const sv = params.get( 'server' );
 	if ( sv && /^\d+$/.test( sv ) ) {
-		window.location.replace( 'index.html?server=' + encodeURIComponent( sv ) );
+		window.location.replace( gameUrl( { server: sv } ) );
 		return;
 	}
 	const tab = params.get( 'tab' );
@@ -347,8 +401,6 @@ function sendChat() {
 // ---- boot ----
 renderMeBar();
 refreshCreatePermAuth();
-setupChat();
-enableChatInput();
 refreshActiveList( 'temp' );
 // Gentle auto-refresh of the visible list.
 setInterval( () => {

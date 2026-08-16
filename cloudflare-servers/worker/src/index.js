@@ -127,7 +127,7 @@ async function createPermanentServer( request, env ) {
 	if ( ! body.ok ) return body.response;
 	const token = String( body.value?.token || '' ).trim();
 	const owner = await resolveAccountUsername( token );
-	if ( ! owner.usernameKey ) return json( { ok: false, error: 'Authentication required to create a permanent server' }, 401 );
+	if ( ! owner.usernameKey ) return json( { ok: false, error: `Authentication required to create a permanent server (${ owner.reason || 'unknown' })` }, 401 );
 
 	const name = sanitizeServerName( body.value?.name );
 	if ( ! name ) return json( { ok: false, error: 'A server name is required (1-40 chars)' }, 400 );
@@ -168,7 +168,7 @@ async function renamePermanentServer( request, env, serverId ) {
 	if ( ! body.ok ) return body.response;
 	const token = String( body.value?.token || '' ).trim();
 	const owner = await resolveAccountUsername( token );
-	if ( ! owner.usernameKey ) return json( { ok: false, error: 'Authentication required' }, 401 );
+	if ( ! owner.usernameKey ) return json( { ok: false, error: `Authentication required (${ owner.reason || 'unknown' })` }, 401 );
 
 	const def = await loadServerDef( env, serverId );
 	if ( ! def ) return json( { ok: false, error: 'Server not found' }, 404 );
@@ -202,7 +202,7 @@ async function deletePermanentServer( request, env, serverId ) {
 	if ( ! body.ok ) return body.response;
 	const token = String( body.value?.token || '' ).trim();
 	const owner = await resolveAccountUsername( token );
-	if ( ! owner.usernameKey ) return json( { ok: false, error: 'Authentication required' }, 401 );
+	if ( ! owner.usernameKey ) return json( { ok: false, error: `Authentication required (${ owner.reason || 'unknown' })` }, 401 );
 
 	const def = await loadServerDef( env, serverId );
 	if ( ! def ) return json( { ok: false, error: 'Server not found' }, 404 );
@@ -545,18 +545,19 @@ async function advanceCounterPast( env, serverId ) {
 // ===========================================================================
 
 async function resolveAccountUsername( token ) {
-	if ( ! token ) return { username: '', usernameKey: '' };
+	if ( ! token ) return { username: '', usernameKey: '', reason: 'no-token' };
 	try {
 		const res = await fetch( `${ ACCOUNTS_PROFILE_URL }?token=${ encodeURIComponent( token ) }`, {
 			headers: { 'Content-Type': 'application/json' },
 		} );
-		if ( ! res.ok ) return { username: '', usernameKey: '' };
+		if ( ! res.ok ) return { username: '', usernameKey: '', reason: `profile-http-${ res.status }` };
 		const payload = await res.json();
-		if ( ! payload?.ok ) return { username: '', usernameKey: '' };
+		if ( ! payload?.ok ) return { username: '', usernameKey: '', reason: `profile-not-ok:${ payload?.error || '' }` };
 		const username = sanitizeUsername( payload.username );
-		return { username, usernameKey: username.toLowerCase() };
-	} catch {
-		return { username: '', usernameKey: '' };
+		if ( ! username ) return { username: '', usernameKey: '', reason: 'sanitize-empty' };
+		return { username, usernameKey: username.toLowerCase(), reason: '' };
+	} catch ( err ) {
+		return { username: '', usernameKey: '', reason: `fetch-err:${ String( err?.message || err ).slice( 0, 80 ) }` };
 	}
 }
 

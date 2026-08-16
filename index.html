@@ -311,54 +311,21 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			display: none;
 			box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
 		}
-		/* ---- Multiplayer server hub (5-tab) ---- */
-		#mp-hub-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
-		.mp-hub-tab {
-			border: none;
+		/* ---- Multiplayer quick panel + current-server card ---- */
+		#mp-panel.expanded { min-width: 230px; max-width: 260px; }
+		.mp-hub-link {
+			display: block;
+			text-align: center;
+			text-decoration: none;
 			border-radius: 6px;
-			background: rgba(255,255,255,0.10);
-			color: #cfe3ff;
-			padding: 5px 7px;
-			font: 600 11px/1 sans-serif;
-			cursor: pointer;
+			padding: 6px 8px;
+			margin-bottom: 8px;
+			background: rgba(83,212,255,0.22);
+			color: #eaf6ff;
+			font: 700 11px/1 sans-serif;
+			border: 1px solid rgba(83,212,255,0.4);
 		}
-		.mp-hub-tab.active { background: rgba(126,181,255,0.42); color: #fff; }
-		.mp-hub-tab:hover { background: rgba(255,255,255,0.22); }
-		.mp-hub-panel { display: none; max-height: 320px; overflow-y: auto; }
-		.mp-hub-panel.active { display: block; }
-		#mp-panel.expanded { min-width: 280px; max-width: 320px; }
-		.mp-server-list { display: flex; flex-direction: column; gap: 5px; }
-		.mp-server-card {
-			background: rgba(255,255,255,0.08);
-			border: 1px solid rgba(255,255,255,0.16);
-			border-radius: 6px;
-			padding: 6px 7px;
-		}
-		.mp-server-card .mp-server-name { font: 700 12px/1.2 sans-serif; word-break: break-word; }
-		.mp-server-card .mp-server-meta { font: 600 10px/1.3 sans-serif; opacity: 0.85; margin-top: 3px; }
-		.mp-server-card .mp-server-actions { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
-		.mp-server-card button {
-			border: none; border-radius: 5px; cursor: pointer;
-			background: rgba(83,212,255,0.28); color: #fff;
-			padding: 3px 7px; font: 600 10px/1 sans-serif;
-		}
-		.mp-server-card button:hover { background: rgba(83,212,255,0.5); }
-		.mp-server-card button.danger { background: rgba(255,80,80,0.32); }
-		.mp-server-card button.danger:hover { background: rgba(255,80,80,0.55); }
-		.mp-server-card.full { opacity: 0.6; }
-		.mp-empty-note { font: 600 11px/1.3 sans-serif; opacity: 0.7; padding: 6px 2px; }
-		.mp-field-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
-		.mp-field-row label { font: 600 10px/1 sans-serif; opacity: 0.85; }
-		.mp-field-row input {
-			border-radius: 6px; border: 1px solid rgba(255,255,255,0.24);
-			background: rgba(20,20,20,0.45); color: #fff;
-			padding: 6px 8px; font: 600 12px/1 sans-serif;
-		}
-		.mp-create-actions { display: flex; gap: 6px; }
-		.mp-create-actions button { flex: 1; border: none; border-radius: 6px; cursor: pointer; padding: 7px; font: 700 12px/1 sans-serif; }
-		.mp-create-actions .mp-go { background: rgba(80,200,120,0.4); color: #fff; }
-		.mp-create-actions .mp-go:hover { background: rgba(80,200,120,0.6); }
-		.mp-create-actions .mp-cancel { background: rgba(255,255,255,0.16); color: #fff; }
+		.mp-hub-link:hover { background: rgba(83,212,255,0.38); }
 		.mp-current-server {
 			background: rgba(83,212,255,0.16); border: 1px solid rgba(83,212,255,0.4);
 			border-radius: 6px; padding: 6px 7px; margin-bottom: 8px;
@@ -370,13 +337,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		.mp-current-server .mp-cs-actions button { border: none; border-radius: 5px; cursor: pointer; padding: 4px 8px; font: 600 10px/1 sans-serif; }
 		.mp-current-server .mp-cs-leave { background: rgba(255,80,80,0.3); color: #fff; }
 		.mp-current-server .mp-cs-leave:hover { background: rgba(255,80,80,0.5); }
-		.mp-refresh-btn {
-			border: none; border-radius: 5px; cursor: pointer;
-			background: rgba(255,255,255,0.14); color: #cfe3ff;
-			padding: 4px 8px; font: 600 10px/1 sans-serif; margin-bottom: 6px;
-		}
-		.mp-refresh-btn:hover { background: rgba(255,255,255,0.26); }
-		.mp-hub-back { margin-bottom: 6px; }
 		#competitions-warning-overlay {
 			position: fixed;
 			inset: 0;
@@ -2624,71 +2584,17 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			</div>
 		</div>
 
-		<!-- 5-tab hub -->
-		<div id="mp-hub-tabs">
-			<button class="mp-hub-tab active" data-mp-tab="temporary" type="button">Temporary</button>
-			<button class="mp-hub-tab" data-mp-tab="permanent" type="button">Permanent</button>
-			<button class="mp-hub-tab" data-mp-tab="create-temp" type="button">Create Temp</button>
-			<button class="mp-hub-tab" data-mp-tab="create-perm" type="button">Create Perm</button>
-			<button class="mp-hub-tab" data-mp-tab="join-code" type="button">Join by Code</button>
+		<!-- Quick multiplayer: classic Host / Join / Copy + a link to the full hub -->
+		<a id="mp-hub-link" class="mp-hub-link" href="multiplayer.html" target="_blank" rel="noopener">Open Multiplayer Hub →</a>
+		<div id="mp-actions">
+			<button id="mp-host-btn" type="button">Host</button>
+			<button id="mp-join-btn" type="button">Join</button>
+			<button id="mp-debug-toggle-btn" type="button" title="Toggle multiplayer debug console">Debug</button>
 		</div>
-
-		<!-- Temporary servers browser -->
-		<div class="mp-hub-panel active" data-mp-panel="temporary">
-			<button class="mp-refresh-btn" id="mp-refresh-temp-btn" type="button">Refresh</button>
-			<div class="mp-server-list" id="mp-temp-list"><div class="mp-empty-note">No active temporary servers.</div></div>
+		<div id="mp-code-row">
+			<input id="mp-code-input" type="text" maxlength="6" placeholder="ROOM CODE" aria-label="Room code">
+			<button id="mp-copy-btn" type="button">Copy</button>
 		</div>
-
-		<!-- Permanent servers browser -->
-		<div class="mp-hub-panel" data-mp-panel="permanent">
-			<button class="mp-refresh-btn" id="mp-refresh-perm-btn" type="button">Refresh</button>
-			<div class="mp-server-list" id="mp-perm-list"><div class="mp-empty-note">No permanent servers yet.</div></div>
-		</div>
-
-		<!-- Create temporary server -->
-		<div class="mp-hub-panel" data-mp-panel="create-temp">
-			<div class="mp-field-row">
-				<label for="mp-create-temp-name">Server name</label>
-				<input id="mp-create-temp-name" type="text" maxlength="40" placeholder="e.g. Drift Kings" />
-			</div>
-			<div class="mp-field-row">
-				<label for="mp-create-temp-max">Max players (2-16, default 8)</label>
-				<input id="mp-create-temp-max" type="number" min="2" max="16" placeholder="8" />
-			</div>
-			<div class="mp-create-actions">
-				<button class="mp-go" id="mp-create-temp-btn" type="button">Create &amp; Host</button>
-			</div>
-		</div>
-
-		<!-- Create permanent server -->
-		<div class="mp-hub-panel" data-mp-panel="create-perm">
-			<div class="mp-empty-note" id="mp-create-perm-auth-note">Log in to an account to create a permanent server.</div>
-			<div class="mp-field-row">
-				<label for="mp-create-perm-name">Server name</label>
-				<input id="mp-create-perm-name" type="text" maxlength="40" placeholder="e.g. Drift Kings" />
-			</div>
-			<div class="mp-field-row">
-				<label for="mp-create-perm-max">Max players (2-16, default 8)</label>
-				<input id="mp-create-perm-max" type="number" min="2" max="16" placeholder="8" />
-			</div>
-			<div class="mp-create-actions">
-				<button class="mp-go" id="mp-create-perm-btn" type="button">Create</button>
-			</div>
-		</div>
-
-		<!-- Join by Code (the ORIGINAL multiplayer flow, preserved) -->
-		<div class="mp-hub-panel" data-mp-panel="join-code">
-			<div id="mp-actions">
-				<button id="mp-host-btn" type="button">Host</button>
-				<button id="mp-join-btn" type="button">Join</button>
-				<button id="mp-debug-toggle-btn" type="button" title="Toggle multiplayer debug console">Debug</button>
-			</div>
-			<div id="mp-code-row">
-				<input id="mp-code-input" type="text" maxlength="6" placeholder="ROOM CODE" aria-label="Room code">
-				<button id="mp-copy-btn" type="button">Copy</button>
-			</div>
-		</div>
-
 		<div id="mp-status" aria-live="polite"></div>
 		<div id="mp-debug-overlay" aria-live="polite" aria-label="Multiplayer debug console"></div>
 		<div id="mp-lb">

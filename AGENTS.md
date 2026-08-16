@@ -1033,3 +1033,67 @@ The mobile UI had two independent triggers; BOTH are neutralized:
   delete owner-only + list removal, chat membership enforcement (403 outsider /
   200 member) + history, join non-existent 404, non-numeric id 404. Run with
   `node test-servers-worker.mjs` (stubs KV + accounts-worker fetch; no deploy needed).
+
+### In-game mp-panel is "quick multiplayer" (server browser lives on multiplayer.html)
+- The `#mp-panel` in `index.html` is the LIGHTWEIGHT in-game overlay: classic
+  Host/Join/Debug buttons + room-code input/Copy + room best-laps leaderboard +
+  an "Open Multiplayer Hub →" link to `multiplayer.html`. The 5-tab server
+  browser that was briefly inlined here was REMOVED — browsing/creating servers
+  happens on the dedicated hub page.
+- `#mp-current-server` card (name/meta/players + Change Track / Leave Server)
+  still renders in-game when `multiplayerSessionState.serverId` is set; its
+  controls are wired in `initMultiplayerServerHub()`.
+- `initMultiplayerServerHub()` no longer sets up tab switching or an
+  auto-refresh `setInterval` (the server lists are gone from this panel). It
+  only marks `serverHubReady` + wires Leave/Change-Track + the auth note.
+  `refreshActiveServerList()` is kept as a no-op for backward-compat callers.
+- `createTemporaryServerFromForm(overrides)` accepts `{name,max}` overrides so
+  the `?createtemp=1&name=&max=` deep-link (from the hub) works WITHOUT the
+  in-game create form inputs (which were removed). The `?createtemp` handler
+  passes the URL params directly instead of pre-filling removed elements.
+
+### Hub → game deep links all carry `?play=1`
+- The hub (`js/multiplayer-hub.js`) builds every game URL with a `gameUrl()`
+  helper that always sets `play=1`. The `index.html` inline IIFE shows the
+  home-landing overlay ONLY when `isIndexPath && !map && !pack && play !== '1'`,
+  so any hub action that opens the game (`?server=`, `?createtemp=1`,
+  `?hostcode=1`, `?joinRoom=`, `?server=&host=1`) skips the landing and goes
+  straight into play. `official-tracks.html`'s `buildLaunchUrl()` + Cancel link
+  also set `play=1`.
+- Deep-link handlers in `js/main.js` (run early, ~line 1370): `?createtemp=1`
+  → `createTemporaryServerFromForm({name,max})`; `?hostcode=1` → clicks
+  `#mp-host-btn` (classic PeerJS host); `?server=<id>[&host=1]` → join/rehost
+  existing server; `?joinRoom=CODE` (in `initMultiplayerPanel`) → fills code +
+  clicks Join.
+
+### Hub host-by-code + switch-map (no server record needed)
+- "Host by Code" (`#hc-go`): generates a random 6-char code client-side, then
+  navigates to `index.html?play=1&hostcode=1`. The game's `?hostcode` handler
+  clicks `#mp-host-btn` → `createHostCode()` (the SAME code is regenerated; the
+  hub's chosen code is display-only) → `startPeerMultiplayer()`. This is the
+  classic join-by-code host flow — it does NOT create a server record in
+  Cloudflare (intentional: it's a quick ad-hoc room, not a browsable server).
+- "Switch Map" (`#sm-go`): `parseTrackInput(raw)` accepts a full track URL
+  (extracts `map`/`mods`/`pack`/`localPack`/`sharedPack` params) OR a bare
+  share-code, then navigates to `index.html?play=1&map=...&hostcode=1`. Launches
+  the game on that track as host of a fresh room. There's also an "official
+  tracks" link to the picker.
+
+### Hub account-token freshness check (fixes vague "Authentication required")
+- The hub's `readSession()` reads `racing-account-session-v1` from localStorage.
+  But localStorage presence ≠ token validity (tokens expire server-side after
+  30 days). The servers worker's `resolveAccountUsername` re-validates the token
+  against the accounts worker and returns "Authentication required..." on
+  failure — which looked mysterious because the hub UI said "signed in".
+- `verifySessionFresh()` does a client-side `GET /profile?token=...` BEFORE
+  calling create-permanent / rename / delete. If the token is expired it calls
+  `clearStaleSession()` (removes the localStorage session + re-renders) and
+  redirects to `settings.html` to re-sign-in, with a clear toast.
+- `ensureFreshSession()` is the shared guard for owner-only ops. The create-perm
+  flow also re-checks on a caught "Authentication required" error and clears the
+  stale session. The worker's `resolveAccountUsername` now returns a `reason`
+  field (no-token / profile-http-NNN / profile-not-ok / sanitize-empty /
+  fetch-err) surfaced in the error message — redeploy the servers worker to see
+  it. NOTE: worker-to-worker `fetch()` to the accounts worker is expected to
+  work (accounts worker has no origin restrictions); if it fails, `reason` will
+  be `fetch-err:...`.

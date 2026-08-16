@@ -1364,6 +1364,19 @@ initMultiplayerServerHub();
 {
 	const params = new URLSearchParams( window.location.search );
 
+	// Any of these action params means the player should land IN the game, not
+	// on the home menu. Dismiss the home-landing overlay so the deep-link action
+	// is visible. (play=1 in the URL already prevents it from showing, but some
+	// entry points arrive without play=1, so we dismiss it defensively too.)
+	const hasActionParam = params.get( 'server' ) || params.get( 'host' ) === '1' ||
+		params.get( 'createtemp' ) === '1' || params.get( 'hostcode' ) === '1' ||
+		params.get( 'joinRoom' ) || params.get( 'openmp' ) === '1' ||
+		params.get( 'openaccount' ) === '1';
+	if ( hasActionParam ) {
+		const landing = document.getElementById( 'home-landing' );
+		if ( landing ) landing.classList.remove( 'visible' );
+	}
+
 	// ?openaccount=1 -> open the account panel (e.g. from the hub's "Sign in").
 	if ( params.get( 'openaccount' ) === '1' ) {
 		params.delete( 'openaccount' );
@@ -1387,15 +1400,21 @@ initMultiplayerServerHub();
 	if ( params.get( 'createtemp' ) === '1' ) {
 		const name = String( params.get( 'name' ) || '' ).trim();
 		const max = Number( params.get( 'max' ) ) || 8;
-		// Pre-fill the in-game create form + trigger it once the panel is ready.
 		setTimeout( () => {
-			const ni = document.getElementById( 'mp-create-temp-name' );
-			const mi = document.getElementById( 'mp-create-temp-max' );
-			if ( ni ) ni.value = name;
-			if ( mi ) mi.value = String( max );
-			// Switch to the create-temp tab so the player sees what's happening.
-			document.querySelector( '.mp-hub-tab[data-mp-tab="create-temp"]' )?.click();
-			createTemporaryServerFromForm();
+			createTemporaryServerFromForm( { name, max } );
+		}, 600 );
+	}
+
+	// ?hostcode=1[&name=] -> classic Host flow (generate a room code + start
+	// PeerJS host). Used by the hub's "Host by Code" and "Switch Map" actions.
+	if ( params.get( 'hostcode' ) === '1' ) {
+		params.delete( 'hostcode' );
+		params.delete( 'name' );
+		const q = params.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ q ? `?${ q }` : '' }${ window.location.hash }` );
+		setTimeout( () => {
+			const hostBtn = document.getElementById( 'mp-host-btn' );
+			if ( hostBtn ) hostBtn.click();
 		}, 600 );
 	}
 
@@ -1430,35 +1449,14 @@ function initMultiplayerServerHub() {
 	if ( Servers.serversReady() ) {
 		panel.classList.add( 'expanded' );
 		serverHubReady = true;
-		// Auto-refresh the active tab's list on a gentle interval.
-		if ( ! multiplayerSessionState.serverListRefreshTimer ) {
-			multiplayerSessionState.serverListRefreshTimer = setInterval( refreshActiveServerList, SERVER_LIST_REFRESH_MS );
-		}
-		refreshActiveServerList();
 	} else {
 		serverHubReady = false;
 	}
 
-	// Tab switching.
-	const tabs = panel.querySelectorAll( '.mp-hub-tab' );
-	tabs.forEach( ( tab ) => {
-		tab.addEventListener( 'click', () => {
-			tabs.forEach( ( t ) => t.classList.remove( 'active' ) );
-			tab.classList.add( 'active' );
-			const target = tab.dataset.mpTab;
-			panel.querySelectorAll( '.mp-hub-panel' ).forEach( ( p ) => {
-				p.classList.toggle( 'active', p.dataset.mpPanel === target );
-			} );
-			if ( target === 'temporary' ) refreshTemporaryServerList();
-			else if ( target === 'permanent' ) refreshPermanentServerList();
-		} );
-	} );
-
-	document.getElementById( 'mp-refresh-temp-btn' )?.addEventListener( 'click', refreshTemporaryServerList );
-	document.getElementById( 'mp-refresh-perm-btn' )?.addEventListener( 'click', refreshPermanentServerList );
-
-	document.getElementById( 'mp-create-temp-btn' )?.addEventListener( 'click', () => createTemporaryServerFromForm() );
-	document.getElementById( 'mp-create-perm-btn' )?.addEventListener( 'click', () => createPermanentServerFromForm() );
+	// The in-game panel is now "quick multiplayer" (Host/Join/Copy + room
+	// leaderboard). Server browsing/creation happens on the multiplayer.html
+	// hub, linked via #mp-hub-link. We still wire the current-server controls
+	// (Change Track / Leave) shown while inside a server.
 	document.getElementById( 'mp-leave-server-btn' )?.addEventListener( 'click', () => leaveCurrentServer() );
 	document.getElementById( 'mp-change-track-btn' )?.addEventListener( 'click', () => {
 		if ( multiplayerSessionState.role !== 'host' || ! multiplayerSessionState.serverId ) {
@@ -1474,9 +1472,8 @@ function initMultiplayerServerHub() {
 }
 
 function refreshActiveServerList() {
-	const active = document.querySelector( '.mp-hub-tab.active' )?.dataset.mpTab;
-	if ( active === 'temporary' ) refreshTemporaryServerList();
-	else if ( active === 'permanent' ) refreshPermanentServerList();
+	// The in-game panel no longer hosts server lists (moved to multiplayer.html).
+	// Kept as a no-op so any existing callers don't throw.
 }
 
 function updateCreatePermanentAuthNote() {
@@ -1606,7 +1603,7 @@ function readMaxPlayersFromInput( inputId ) {
 	return Math.min( n, 16 );
 }
 
-async function createTemporaryServerFromForm() {
+async function createTemporaryServerFromForm( overrides = {} ) {
 	if ( ! serverHubReady ) {
 		updateMultiplayerStatus( 'Servers backend is not connected yet.' );
 		return;
@@ -1615,13 +1612,21 @@ async function createTemporaryServerFromForm() {
 		updateMultiplayerStatus( 'Leave your current server before creating a new one.' );
 		return;
 	}
+	// name/max come from the in-game form (removed — now only the hub) OR from
+	// overrides passed by the ?createtemp deep-link handler.
 	const nameInput = document.getElementById( 'mp-create-temp-name' );
-	const name = String( nameInput?.value || '' ).trim();
+	const name = String( overrides.name ?? nameInput?.value ?? '' ).trim();
 	if ( ! name ) {
 		updateMultiplayerStatus( 'Enter a server name first.' );
 		return;
 	}
-	const maxPlayers = readMaxPlayersFromInput( 'mp-create-temp-max' );
+	let maxPlayers;
+	if ( overrides.max != null ) {
+		const n = Math.floor( Number( overrides.max ) );
+		maxPlayers = ( Number.isFinite( n ) && n >= 2 ) ? Math.min( n, 16 ) : 8;
+	} else {
+		maxPlayers = readMaxPlayersFromInput( 'mp-create-temp-max' );
+	}
 	if ( ! hasFirebaseMultiplayerConfig() ) {
 		updateMultiplayerStatus( 'Multiplayer needs Firebase keys in js/firebase-config.js to host.' );
 		return;

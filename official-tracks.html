@@ -201,7 +201,7 @@ const statOpen = document.getElementById( 'stat-open' );
 	if ( ! wrap ) return;
 	const banner = document.createElement( 'div' );
 	banner.style.cssText = 'margin:14px 0 0;padding:12px 16px;border-radius:13px;border:1px solid rgba(90,200,255,.4);background:rgba(90,200,255,.1);font:700 13px sans-serif;color:#bfe6ff';
-	banner.innerHTML = `🏁 <b>Changing track for server #${ escapeHtml( hostId ) }</b> — pick a track below to move your server (and its players) to it. <a href="index.html?server=${ encodeURIComponent( hostId ) }" style="color:#fff;text-decoration:underline">Cancel</a>`;
+	banner.innerHTML = `🏁 <b>Changing track for server #${ escapeHtml( hostId ) }</b> — pick a track below to move your server (and its players) to it. <a href="index.html?play=1&server=${ encodeURIComponent( hostId ) }" style="color:#fff;text-decoration:underline">Cancel</a>`;
 	wrap.insertBefore( banner, wrap.firstChild.nextSibling );
 } )();
 
