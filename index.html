@@ -338,6 +338,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		.mp-current-server .mp-cs-actions button { border: none; border-radius: 5px; cursor: pointer; padding: 4px 8px; font: 600 10px/1 sans-serif; }
 		.mp-current-server .mp-cs-leave { background: rgba(255,80,80,0.3); color: #fff; }
 		.mp-current-server .mp-cs-leave:hover { background: rgba(255,80,80,0.5); }
+		.mp-cs-switch { display: flex; gap: 4px; margin-top: 5px; }
+		.mp-cs-switch input { flex: 1; min-width: 0; border-radius: 5px; border: 1px solid rgba(83,212,255,0.4); background: rgba(10,18,30,0.7); color: #fff; padding: 4px 6px; font: 600 10px/1.2 sans-serif; }
+		.mp-cs-switch button { border: none; border-radius: 5px; cursor: pointer; padding: 4px 8px; font: 600 10px/1 sans-serif; background: rgba(90,200,255,0.3); color: #fff; }
+		.mp-cs-switch button:hover { background: rgba(90,200,255,0.5); }
 		#competitions-warning-overlay {
 			position: fixed;
 			inset: 0;
@@ -2590,8 +2594,12 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<div class="mp-cs-name" id="mp-cs-name"></div>
 			<div class="mp-cs-meta" id="mp-cs-meta"></div>
 			<div class="mp-cs-players" id="mp-cs-players"></div>
+			<div id="mp-cs-switch" class="mp-cs-switch" style="display:none">
+				<input id="mp-cs-switch-input" type="text" maxlength="400" placeholder="Paste track URL / share code to bring everyone" aria-label="Switch track URL" />
+				<button id="mp-cs-switch-btn" type="button">Switch Track</button>
+			</div>
 			<div class="mp-cs-actions">
-				<button id="mp-change-track-btn" class="mp-cs-track" type="button" style="background:rgba(90,200,255,0.3);color:#fff">Change Track</button>
+				<button id="mp-change-track-btn" class="mp-cs-track" type="button" style="background:rgba(90,200,255,0.3);color:#fff">Pick Track</button>
 				<button id="mp-leave-server-btn" class="mp-cs-leave" type="button">Leave Server</button>
 			</div>
 		</div>
@@ -3218,8 +3226,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
-	         <script src="js/HudGrid.js?v=999973&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=999973&cachebust=1"></script>
+	                                             <script src="js/HudGrid.js?v=999980&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=999980&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;

@@ -65,10 +65,12 @@ export async function getServer( serverId ) {
 
 // ---- Temporary server lifecycle ----
 
-export async function createTemporaryServer( { name, roomCode, mapSignature, hostUsername, hostClientId, settings } ) {
+export async function createTemporaryServer( { name, roomCode, mapSignature, hostUsername, hostClientId, settings, serverId } ) {
+	const body = { name, roomCode, mapSignature, hostUsername, hostClientId, settings };
+	if ( serverId ) body.serverId = Number( serverId );
 	const payload = await serversRequest( '/temporary', {
 		method: 'POST',
-		body: JSON.stringify( { name, roomCode, mapSignature, hostUsername, hostClientId, settings } ),
+		body: JSON.stringify( body ),
 	} );
 	return payload.server;
 }

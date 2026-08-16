@@ -728,29 +728,65 @@ function registerPeerConnection( connection ) {
 
 }
 
-function startPeerMultiplayer( roomCode, role ) {
+// Track whether the current peer successfully opened + has at least one live
+// data connection, so peer.on('error') can distinguish a fatal failure (never
+// opened, no peers) from a recoverable signaling hiccup (already connected).
+let peerOpenedThisSession = false;
+
+function startPeerMultiplayer( roomCode, role, attempt = 0 ) {
 
 	closeMultiplayerPeer();
-	logMpDebug( `[PeerJS] Initializing ${ role } peer for room: ${ roomCode }...` );
+	peerOpenedThisSession = false;
+	logMpDebug( `[PeerJS] Initializing ${ role } peer for room: ${ roomCode } (attempt ${ attempt + 1 })...` );
+	// Host peer id is deterministic from the room code so joiners can find it.
+	// We never suffix it — joiners always connect to RACE-ROOM-<code>. On an
+	// "ID is taken" error (a previous host didn't cleanly disconnect from the
+	// signaling server), we retry with the SAME id after a delay; the stale
+	// registration times out on the PeerJS server and the retry succeeds.
 	const peerId = role === 'host' ? getPeerRoomId( roomCode ) : multiplayerSessionState.clientId;
 	const peer = new Peer( peerId, peerConfig );
 	multiplayerSessionState.peer = peer;
 	peer.on( 'open', ( id ) => {
 
+		peerOpenedThisSession = true;
 		logMpDebug( `[PeerJS] Peer opened with ID: ${ id }` );
+		if ( attempt > 0 ) {
+			updateMultiplayerStatus( `Connected to room ${ roomCode }.` );
+		}
 		if ( role !== 'host' ) {
 
+			// Guests connect to the host's deterministic peer id. The host may
+			// still be initializing (or retrying after a stale "ID taken"), so
+			// retry the connect attempt a few times with a short backoff instead
+			// of showing a scary "WebRTC issue" on the first miss.
 			const targetHostId = getPeerRoomId( roomCode );
-			logMpDebug( `[PeerJS] Connecting guest to host ID: ${ targetHostId }` );
-			const connection = peer.connect( targetHostId, { reliable: true } );
-			connection.on( 'open', () => {
+			let guestConnectAttempts = 0;
+			const tryConnectToHost = () => {
+				if ( peer.destroyed || ! peer.open ) return;
+				if ( multiplayerSessionState.connections.has( targetHostId ) ) return;
+				logMpDebug( `[PeerJS] Connecting guest to host ID: ${ targetHostId } (attempt ${ guestConnectAttempts + 1 })` );
+				const connection = peer.connect( targetHostId, { reliable: true } );
+				connection.on( 'open', () => {
 
-				logMpDebug( `[PeerJS] Data channel OPENED with host: ${ targetHostId }` );
-				registerPeerConnection( connection );
-				broadcastPeerState();
+					logMpDebug( `[PeerJS] Data channel OPENED with host: ${ targetHostId }` );
+					registerPeerConnection( connection );
+					broadcastPeerState();
 
-			} );
-			connection.on( 'error', ( error ) => logMpDebug( `[PeerJS] Connection error: ${ error?.message || error }` ) );
+				} );
+				connection.on( 'error', ( error ) => {
+					const msg = String( error?.message || error || '' );
+					logMpDebug( `[PeerJS] Connection error: ${ msg }` );
+					// "peer-unavailable" = host not registered yet; retry.
+					if ( /peer-unavailable|not found|unavailable/i.test( msg ) && guestConnectAttempts < 10 && ! peer.destroyed ) {
+						guestConnectAttempts++;
+						updateMultiplayerStatus( `Looking for host in room ${ roomCode } (${ guestConnectAttempts }/10)...` );
+						setTimeout( tryConnectToHost, 800 + guestConnectAttempts * 500 );
+					} else if ( multiplayerSessionState.connections.size === 0 ) {
+						updateMultiplayerStatus( `Could not reach the host in room ${ roomCode }. They may have left — try rejoining from the server list.` );
+					}
+				} );
+			};
+			tryConnectToHost();
 
 		}
 
@@ -768,13 +804,37 @@ function startPeerMultiplayer( roomCode, role ) {
 		connection.on( 'error', ( error ) => logMpDebug( `[PeerJS] Connection error: ${ error?.message || error }` ) );
 
 	} );
-	peer.on( 'disconnected', () => logMpDebug( `[PeerJS] Peer disconnected: ${ peerId }` ) );
+	peer.on( 'disconnected', () => {
+		logMpDebug( `[PeerJS] Peer disconnected: ${ peerId }` );
+		// Transient signaling-server disconnects can be recovered by reconnecting
+		// without tearing down the data channels. Try once; if it fails the
+		// 'error'/'close' handlers take over.
+		try { if ( ! peer.destroyed ) peer.reconnect(); } catch {}
+	} );
 	peer.on( 'close', () => logMpDebug( `[PeerJS] Peer closed: ${ peerId }` ) );
 	peer.on( 'error', ( error ) => {
 
-		logMpDebug( `[PeerJS] Peer error: ${ error?.message || error }` );
+		const errMsg = String( error?.message || error || '' );
+		logMpDebug( `[PeerJS] Peer error: ${ errMsg }` );
 		console.warn( 'PeerJS multiplayer error', error );
-		updateMultiplayerStatus( `WebRTC issue for room ${ roomCode }; retry if peers do not appear.` );
+
+		// "ID is taken" happens when a previous host for this room code did not
+		// cleanly disconnect from the signaling server. Retry with a suffixed id
+		// a few times before giving up. Only the host uses a room-derived id.
+		if ( /unavailable-id|id.{0,8}taken|taken/i.test( errMsg ) && role === 'host' && attempt < 5 ) {
+			updateMultiplayerStatus( `Room slot busy, retrying (${ attempt + 1 }/5)...` );
+			setTimeout( () => startPeerMultiplayer( roomCode, role, attempt + 1 ), 700 + attempt * 500 );
+			return;
+		}
+
+		// Only show the alarming "WebRTC issue" status if the peer never opened
+		// AND we have no live connections — i.e. multiplayer is actually broken.
+		// Otherwise the error is a recoverable hiccup on an already-working link.
+		if ( ! peerOpenedThisSession && multiplayerSessionState.connections.size === 0 ) {
+			updateMultiplayerStatus( `WebRTC issue for room ${ roomCode } (${ errMsg || 'signaling' }); retry if peers do not appear.` );
+		} else {
+			logMpDebug( `[PeerJS] Recoverable error on live session: ${ errMsg }` );
+		}
 
 	} );
 
@@ -875,10 +935,25 @@ function logMpDebug( message ) {
 
 }
 
+// Stable client id persisted across reloads. A fresh random id per reload
+// broke host rehost auth (the worker matches the session host by clientId) and
+// left stale duplicate player entries. Persisting it keeps the host the host
+// across track switches and lets idempotent re-joins work.
+const MP_CLIENT_ID_KEY = 'racing-mp-client-id-v1';
+function readPersistentClientId() {
+	try {
+		const stored = localStorage.getItem( MP_CLIENT_ID_KEY );
+		if ( stored && /^[A-Za-z0-9_-]{6,64}$/.test( stored ) ) return stored;
+	} catch {}
+	const fresh = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `p-${ Math.random().toString( 36 ).slice( 2, 10 ) }`;
+	try { localStorage.setItem( MP_CLIENT_ID_KEY, fresh ); } catch {}
+	return fresh;
+}
+
 const multiplayerSessionState = {
 	role: 'none',
 	roomCode: '',
-	clientId: ( globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `p-${ Math.random().toString( 36 ).slice( 2, 10 ) }` ),
+	clientId: readPersistentClientId(),
 	peer: null,
 	connections: new Map(),
 	// --- Multiplayer server-browser layer (sits on top of the PeerJS+Firebase
@@ -891,9 +966,22 @@ const multiplayerSessionState = {
 	serverMaxPlayers: 8,
 	serverHeartbeatTimer: null,
 	serverListRefreshTimer: null,
+	// Set by enterServer/heartbeat when the current player is the session host
+	// (clientId matches the session's hostClientId OR their player entry has
+	// isHost=true). More reliable than `role` across reloads: a host who reloads
+	// via ?server=<id> (no host=1) rejoins as a client role, but the session still
+	// recognises them as host by clientId — this flag lets the track-switch UI
+	// stay correct even then.
+	isHostOfServer: false,
 };
 
-const MULTIPLAYER_ROOM_ROTATE_MS = 120000;
+// Guards against the client re-triggering the "follow host to new map" reload
+// in a loop while the navigation is in flight. Set true when we initiate a
+// follow; the page reload resets it (module re-evaluates). Cleared on
+// enter/leave so a fresh join can follow again if needed.
+let serverFollowInFlight = false;
+
+const MULTIPLAYER_ROOM_ROTATE_MS = 600000;
 const HOST_ROOM_META_SYNC_MS = 1500;
 let lastHostRoomRotateAt = 0;
 let lastHostRoomMetaSyncAt = 0;
@@ -1040,6 +1128,29 @@ function parseMapSignature( mapSignature ) {
 		map: raw.slice( 0, splitAt ) || 'default',
 		mods: raw.slice( splitAt + 1 ) || 'none',
 	};
+
+}
+
+// Parse a pasted track URL or bare share code into { map, mods }.
+// Accepts full game URLs (https://.../index.html?map=...&mods=...) or a bare
+// track-board share code (the game resolves it via ?map=<code>).
+function parseTrackUrlOrCode( raw ) {
+
+	const text = String( raw || '' ).trim();
+	if ( ! text ) return null;
+	try {
+		if ( /https?:\/\//i.test( text ) ) {
+			const u = new URL( text );
+			const out = {};
+			for ( const k of [ 'map', 'mods', 'pack', 'localPack', 'sharedPack' ] ) {
+				const v = u.searchParams.get( k );
+				if ( v ) out[ k ] = v;
+			}
+			if ( out.map ) return { map: out.map, mods: out.mods || 'none' };
+		}
+		if ( /^[A-Za-z0-9_-]{4,32}$/.test( text ) ) return { map: text, mods: 'none' };
+	} catch { /* fall through */ }
+	return null;
 
 }
 
@@ -1396,12 +1507,23 @@ initMultiplayerServerHub();
 		}, 0 );
 	}
 
-	// ?createtemp=1&name=&max= -> create a temporary server + host (from the hub).
+	// ?createtemp=1&name=&max=&map=&mods= -> create a temporary server + host (from the hub).
 	if ( params.get( 'createtemp' ) === '1' ) {
 		const name = String( params.get( 'name' ) || '' ).trim();
 		const max = Number( params.get( 'max' ) ) || 8;
+		const map = String( params.get( 'map' ) || '' ).trim();
+		const mods = String( params.get( 'mods' ) || '' ).trim();
+		// Strip the create intent so a reload doesn't re-create a duplicate server.
+		params.delete( 'createtemp' );
+		params.delete( 'name' );
+		params.delete( 'max' );
+		const q = params.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ q ? `?${ q }` : '' }${ window.location.hash }` );
+		const overrides = { name, max };
+		if ( map && map !== 'default' ) overrides.map = map;
+		if ( mods && mods !== 'none' ) overrides.mods = mods;
 		setTimeout( () => {
-			createTemporaryServerFromForm( { name, max } );
+			createTemporaryServerFromForm( overrides );
 		}, 600 );
 	}
 
@@ -1456,16 +1578,43 @@ function initMultiplayerServerHub() {
 	// The in-game panel is now "quick multiplayer" (Host/Join/Copy + room
 	// leaderboard). Server browsing/creation happens on the multiplayer.html
 	// hub, linked via #mp-hub-link. We still wire the current-server controls
-	// (Change Track / Leave) shown while inside a server.
+	// (Switch Track / Pick Track / Leave) shown while inside a server.
 	document.getElementById( 'mp-leave-server-btn' )?.addEventListener( 'click', () => leaveCurrentServer() );
 	document.getElementById( 'mp-change-track-btn' )?.addEventListener( 'click', () => {
-		if ( multiplayerSessionState.role !== 'host' || ! multiplayerSessionState.serverId ) {
+		if ( ! multiplayerSessionState.isHostOfServer || ! multiplayerSessionState.serverId ) {
 			updateMultiplayerStatus( 'Only the host can change the track.' );
 			return;
 		}
 		// Go to the official tracks picker; selecting one returns with
 		// ?map=...&server=<id>&host=1, which rehosts on load.
 		window.location.href = `official-tracks.html?host=${ multiplayerSessionState.serverId }`;
+	} );
+	document.getElementById( 'mp-cs-switch-btn' )?.addEventListener( 'click', () => {
+		if ( ! multiplayerSessionState.isHostOfServer || ! multiplayerSessionState.serverId ) {
+			updateMultiplayerStatus( 'Only the host can switch the track.' );
+			return;
+		}
+		const input = document.getElementById( 'mp-cs-switch-input' );
+		const raw = String( input?.value || '' ).trim();
+		if ( ! raw ) {
+			updateMultiplayerStatus( 'Paste a track URL or share code to switch the track.' );
+			return;
+		}
+		const parsed = parseTrackUrlOrCode( raw );
+		if ( ! parsed || ! parsed.map ) {
+			updateMultiplayerStatus( 'Could not read that track URL/code.' );
+			return;
+		}
+		// Navigate to the new track as host of this server. On load,
+		// rehostExistingServer() creates a fresh room + updates the session's
+		// roomCode/mapSignature so clients follow via their heartbeat.
+		const p = new URLSearchParams( window.location.search );
+		p.set( 'map', parsed.map );
+		if ( parsed.mods && parsed.mods !== 'none' ) p.set( 'mods', parsed.mods ); else p.delete( 'mods' );
+		p.set( 'server', String( multiplayerSessionState.serverId ) );
+		p.set( 'host', '1' );
+		updateMultiplayerStatus( `Switching server to track "${ parsed.map }". Bringing everyone along…` );
+		window.location.search = p.toString();
 	} );
 
 	updateCreatePermanentAuthNote();
@@ -1612,8 +1761,9 @@ async function createTemporaryServerFromForm( overrides = {} ) {
 		updateMultiplayerStatus( 'Leave your current server before creating a new one.' );
 		return;
 	}
-	// name/max come from the in-game form (removed — now only the hub) OR from
-	// overrides passed by the ?createtemp deep-link handler.
+	// name/max come from overrides passed by the ?createtemp deep-link handler
+	// (the in-game form was removed; creation happens via the hub). The optional
+	// track input lets the host pick a track at creation time.
 	const nameInput = document.getElementById( 'mp-create-temp-name' );
 	const name = String( overrides.name ?? nameInput?.value ?? '' ).trim();
 	if ( ! name ) {
@@ -1632,6 +1782,25 @@ async function createTemporaryServerFromForm( overrides = {} ) {
 		return;
 	}
 
+	// If the host chose a track AND it isn't the currently-loaded one, navigate
+	// to it first (preserving the create intent) so the server session is
+	// registered with the correct mapSignature. This prevents the "host moved to
+	// a new track" false positive that happened when the session was registered
+	// against the default map and then the host loaded a different one. If the
+	// desired track is already loaded, fall through and register the session now.
+	if ( overrides.map && overrides.map !== 'default' && overrides.map !== getCurrentMapSignature().split( '|' )[ 0 ] ) {
+		const targetParams = new URLSearchParams( window.location.search );
+		targetParams.set( 'map', overrides.map );
+		if ( overrides.mods && overrides.mods !== 'none' ) targetParams.set( 'mods', overrides.mods );
+		else targetParams.delete( 'mods' );
+		targetParams.set( 'createtemp', '1' );
+		targetParams.set( 'name', name );
+		targetParams.set( 'max', String( maxPlayers ) );
+		updateMultiplayerStatus( `Loading track "${ overrides.map }" to host "${ name }"...` );
+		window.location.search = targetParams.toString();
+		return;
+	}
+
 	// Reuse the existing host flow: generate a room code, start PeerJS host,
 	// register the Firebase room — then ALSO register an active server session.
 	const code = createHostCode();
@@ -1639,6 +1808,7 @@ async function createTemporaryServerFromForm( overrides = {} ) {
 	if ( codeInput ) codeInput.value = code;
 	updateMultiplayerStatus( `Creating temporary server "${ name }"...` );
 
+	const mapSignature = getCurrentMapSignature();
 	try {
 		multiplayerSessionState.role = 'host';
 		multiplayerSessionState.roomCode = code;
@@ -1647,7 +1817,7 @@ async function createTemporaryServerFromForm( overrides = {} ) {
 		const roomPayload = {
 			code,
 			hostId: multiplayerSessionState.clientId,
-			mapSignature: getCurrentMapSignature(),
+			mapSignature,
 			createdAt: now,
 			updatedAt: now,
 		};
@@ -1656,7 +1826,7 @@ async function createTemporaryServerFromForm( overrides = {} ) {
 		const server = await Servers.createTemporaryServer( {
 			name,
 			roomCode: code,
-			mapSignature: getCurrentMapSignature(),
+			mapSignature,
 			hostUsername: getLocalMultiplayerDisplayName(),
 			hostClientId: multiplayerSessionState.clientId,
 			settings: { maxPlayers },
@@ -1664,7 +1834,7 @@ async function createTemporaryServerFromForm( overrides = {} ) {
 		enterServer( server );
 		lastHostRoomRotateAt = Date.now();
 		setMultiplayerLeaderboardVisible( true );
-		nameInput.value = '';
+		if ( nameInput ) nameInput.value = '';
 	} catch ( err ) {
 		console.warn( 'Failed to create temporary server', err );
 		updateMultiplayerStatus( err?.message || 'Failed to create temporary server.' );
@@ -1700,11 +1870,31 @@ async function createPermanentServerFromForm() {
 			settings: { maxPlayers },
 		} );
 		updateMultiplayerStatus( `Created permanent server "${ server.name }" (Server #${ server.serverId }).` );
-		nameInput.value = '';
+		if ( nameInput ) nameInput.value = '';
 		await refreshPermanentServerList();
 	} catch ( err ) {
 		console.warn( 'Failed to create permanent server', err );
-		updateMultiplayerStatus( err?.message || 'Failed to create permanent server.' );
+		const msg = String( err?.message || '' );
+		if ( /authentication required/i.test( msg ) ) {
+			// Re-verify the token directly against the accounts worker. If it's
+			// STILL valid, the servers backend is failing to verify worker-to-worker
+			// (a deployed-worker issue) — do NOT log the user out, just inform them.
+			const token = mpAccount()?.token;
+			let stillValid = false;
+			if ( token ) {
+				try {
+					const res = await fetch( `https://racing-account-api.ga1010.workers.dev/api/accounts/profile?token=${ encodeURIComponent( token ) }` );
+					stillValid = res.ok && ( await res.json() )?.ok;
+				} catch {}
+			}
+			if ( stillValid ) {
+				updateMultiplayerStatus( 'You are signed in, but the servers backend could not verify your account just now. Please try again in a moment.' );
+			} else {
+				updateMultiplayerStatus( 'Your session has expired. Please sign in again to create a permanent server.' );
+			}
+		} else {
+			updateMultiplayerStatus( msg || 'Failed to create permanent server.' );
+		}
 	}
 }
 
@@ -1820,14 +2010,69 @@ async function joinServerById( serverId ) {
 	enterServer( session );
 }
 
+// Determine whether the LOCAL player is the host of a server session, based on
+// the session data rather than the (reload-fragile) `role` field. True if the
+// local clientId matches the session's hostClientId, OR the local player's entry
+// in the players list has isHost=true. The `role`-based fallback covers the
+// initial host (before the first heartbeat round-trips).
+function computeIsHostOfServer( server ) {
+	if ( ! server ) return false;
+	if ( multiplayerSessionState.role === 'host' ) return true;
+	const myClient = multiplayerSessionState.clientId;
+	if ( server.hostClientId && server.hostClientId === myClient ) return true;
+	const players = Array.isArray( server.players ) ? server.players : [];
+	const me = players.find( ( p ) => p && p.clientId === myClient );
+	if ( me && me.isHost ) return true;
+	// Fallback: the deployed worker may not include hostClientId/clientId in the
+	// session summary (stale deploy). Check the sessionStorage cache that
+	// enterServer writes when it first detects we are the host — this survives
+	// page reloads so the host can still switch tracks after a reload.
+	try {
+		const cached = sessionStorage.getItem( `mp-host-${ server.serverId }` );
+		if ( cached === myClient ) return true;
+	} catch {}
+	return false;
+}
+
 // Mark the player as inside a server: set state, switch chat to server context,
-// render the current-server card, start the heartbeat.
+// render the current-server card, start the heartbeat. Also persists the server
+// id (+ host flag) in the URL so a page reload rejoins the same server instead
+// of silently dropping the player (which caused the reload-loop + "new temp
+// server shows up" symptoms).
 function enterServer( server ) {
 	multiplayerSessionState.serverId = Number( server.serverId );
 	multiplayerSessionState.serverName = server.name || '';
 	multiplayerSessionState.serverType = server.type || '';
 	multiplayerSessionState.serverMaxPlayers = Number( server.maxPlayers ) || 8;
+	multiplayerSessionState.isHostOfServer = computeIsHostOfServer( server );
+
+	// Cache host status in sessionStorage (keyed by serverId + clientId) so it
+	// survives page reloads. The deployed worker may not echo hostClientId/
+	// clientId in the session summary, so without this cache a reloaded host
+	// can't be recognised and loses the ability to switch tracks.
+	if ( multiplayerSessionState.isHostOfServer || multiplayerSessionState.role === 'host' ) {
+		try { sessionStorage.setItem( `mp-host-${ multiplayerSessionState.serverId }`, multiplayerSessionState.clientId ); } catch {}
+	} else {
+		try { sessionStorage.removeItem( `mp-host-${ multiplayerSessionState.serverId }` ); } catch {}
+	}
+
+	serverFollowInFlight = false;
 	renderCurrentServerCard( server );
+
+	// Persist the server membership in the URL so a reload rejoins. Hosts keep
+	// host=1 so rehostExistingServer re-binds them as host; clients just keep
+	// server=<id> so joinServerById rejoins as a client.
+	try {
+		const p = new URLSearchParams( window.location.search );
+		p.set( 'server', String( multiplayerSessionState.serverId ) );
+		if ( multiplayerSessionState.isHostOfServer || multiplayerSessionState.role === 'host' ) {
+			p.set( 'host', '1' );
+		} else {
+			p.delete( 'host' );
+		}
+		const q = p.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ q ? `?${ q }` : '' }${ window.location.hash }` );
+	} catch ( e ) { /* replaceState can fail on file:// etc. — non-fatal */ }
 
 	// Switch chat from global to this server's scoped channel.
 	if ( window.SkidChat?.setServerContext ) {
@@ -1877,7 +2122,10 @@ async function rehostExistingServer( serverId ) {
 		code, hostId: multiplayerSessionState.clientId, mapSignature: mapSig, createdAt: now, updatedAt: now,
 	} );
 
-	// Update (or create) the active session bound to this server id.
+	// Update the active session bound to this server id. The worker's rehost
+	// endpoint verifies the caller's clientId matches the session host — so the
+	// persistent clientId (stable across reloads) is what makes this work.
+	let activeServerId = id;
 	try {
 		await Servers.rehostServer( id, {
 			clientId: multiplayerSessionState.clientId,
@@ -1885,9 +2133,20 @@ async function rehostExistingServer( serverId ) {
 			mapSignature: mapSig,
 		} );
 	} catch ( err ) {
-		// rehost fails if no session exists yet (offline permanent / fresh). In that
-		// case create a temporary-style session bound to this id via the worker.
-		await Servers.createTemporaryServer( {
+		// Only fall back to creating a fresh session if there is NO session yet
+		// (offline permanent server / first start). If a session exists but
+		// rehost failed for another reason (e.g. clientId mismatch, 409), surface
+		// the error instead of creating a DUPLICATE temp server.
+		const msg = String( err?.message || '' );
+		const noSession = /session expired|no longer available|not found|404/i.test( msg );
+		if ( ! noSession ) {
+			throw new Error( `Could not switch this server's track: ${ msg || 'rehost failed' }. Make sure you are still the host.` );
+		}
+		// The session expired (host was away longer than the TTL). Create a fresh
+		// temporary session. The deployed worker may not support serverId binding,
+		// in which case a NEW server id is allocated — we adopt it so clients
+		// following the hub list find the new session instead of a dead one.
+		const fresh = await Servers.createTemporaryServer( {
 			name: def.name || `Server #${ id }`,
 			serverId: id,
 			roomCode: code,
@@ -1895,17 +2154,18 @@ async function rehostExistingServer( serverId ) {
 			hostUsername: getLocalMultiplayerDisplayName(),
 			hostClientId: multiplayerSessionState.clientId,
 		} );
+		activeServerId = Number( fresh.serverId ) || id;
 	}
 
 	// Join our own server session so the player list + chat reflect us.
-	const session = await Servers.joinServer( id, {
+	const session = await Servers.joinServer( activeServerId, {
 		username: getLocalMultiplayerDisplayName(),
 		clientId: multiplayerSessionState.clientId,
 	} );
 	enterServer( session );
 	lastHostRoomRotateAt = Date.now();
 	setMultiplayerLeaderboardVisible( true );
-	updateMultiplayerStatus( `Hosting server #${ id }. Other players can join from the hub.` );
+	updateMultiplayerStatus( `Hosting server #${ activeServerId }. Other players can join from the hub.` );
 }
 
 function renderCurrentServerCard( server ) {
@@ -1933,7 +2193,9 @@ function renderCurrentServerCard( server ) {
 			: 'Loading player list...';
 	}
 	const trackBtn = document.getElementById( 'mp-change-track-btn' );
-	if ( trackBtn ) trackBtn.style.display = ( multiplayerSessionState.role === 'host' ) ? 'inline-block' : 'none';
+	if ( trackBtn ) trackBtn.style.display = multiplayerSessionState.isHostOfServer ? 'inline-block' : 'none';
+	const switchRow = document.getElementById( 'mp-cs-switch' );
+	if ( switchRow ) switchRow.style.display = multiplayerSessionState.isHostOfServer ? 'flex' : 'none';
 }
 
 function startServerHeartbeat() {
@@ -1946,21 +2208,47 @@ function startServerHeartbeat() {
 				username: getLocalMultiplayerDisplayName(),
 				clientId: multiplayerSessionState.clientId,
 			} );
+			multiplayerSessionState.isHostOfServer = computeIsHostOfServer( server );
 			renderCurrentServerCard( server );
-			// If we're a client and the host moved to a new room/map, follow them.
-			if ( multiplayerSessionState.role !== 'host' && server ) {
-				const movedRoom = server.roomCode && server.roomCode !== multiplayerSessionState.roomCode;
-				const movedMap = server.mapSignature && ! canJoinMap( server.mapSignature, getCurrentMapSignature() );
-				if ( movedRoom || movedMap ) {
-					updateMultiplayerStatus( `Host moved to a new track. Following…` );
-					const parsed = parseMapSignature( server.mapSignature );
-					const p = new URLSearchParams( window.location.search );
-					p.set( 'map', parsed.map );
-					if ( parsed.mods === 'none' ) p.delete( 'mods' ); else p.set( 'mods', parsed.mods );
-					p.set( 'server', String( multiplayerSessionState.serverId ) );
-					window.location.search = p.toString();
-					return;
+			// Use the clientId-based isHostOfServer flag (not `role`, which resets
+			// to 'none' after a reload) to decide host vs client behaviour. This
+			// prevents the false "host moved to a new track" + reload-loop that
+			// happened when a host reloaded and `role` was 'none'.
+			const amHost = multiplayerSessionState.isHostOfServer;
+			// Keep our roomCode in sync with the session's (the host may have
+			// rehosted to a fresh room code on the SAME map — follow without reload).
+			if ( server?.roomCode && server.roomCode !== multiplayerSessionState.roomCode ) {
+				if ( amHost ) {
+					// Host: adopt the session's room code if it drifted (e.g. after a
+					// rehost we triggered). Never reload the host off its own session.
+					multiplayerSessionState.roomCode = server.roomCode;
+					const codeInput = document.getElementById( 'mp-code-input' );
+					if ( codeInput ) codeInput.value = server.roomCode;
+				} else if ( canJoinMap( server.mapSignature, getCurrentMapSignature() ) ) {
+					// Client: same map, just a new room code -> switch rooms in place.
+					multiplayerSessionState.roomCode = server.roomCode;
+					startPeerMultiplayer( server.roomCode, 'join' );
+					const codeInput = document.getElementById( 'mp-code-input' );
+					if ( codeInput ) codeInput.value = server.roomCode;
+					updateMultiplayerStatus( `Host switched room to ${ server.roomCode }. Reconnecting…` );
 				}
+			}
+			// If we're a client and the host moved to a new MAP, follow them (once).
+			// The follow navigates to the host's map; on reload joinServerById runs
+			// and, because the map now matches, will NOT re-trigger this branch.
+			// Hosts NEVER follow (they ARE the host) — guarded by amHost.
+			if ( ! amHost && server?.mapSignature
+				&& ! canJoinMap( server.mapSignature, getCurrentMapSignature() )
+				&& ! serverFollowInFlight ) {
+				serverFollowInFlight = true;
+				updateMultiplayerStatus( `Host moved to a new track. Following…` );
+				const parsed = parseMapSignature( server.mapSignature );
+				const p = new URLSearchParams( window.location.search );
+				p.set( 'map', parsed.map );
+				if ( parsed.mods === 'none' ) p.delete( 'mods' ); else p.set( 'mods', parsed.mods );
+				p.set( 'server', String( multiplayerSessionState.serverId ) );
+				window.location.search = p.toString();
+				return;
 			}
 		} catch ( err ) {
 			// Server disappeared (host left + TTL expired, or deleted). Notify
@@ -1972,7 +2260,27 @@ function startServerHeartbeat() {
 		}
 	};
 	multiplayerSessionState.serverHeartbeatTimer = setInterval( beat, SERVER_HEARTBEAT_INTERVAL_MS );
+	currentServerBeat = beat;
+	// Fire an immediate heartbeat so the guest picks up the host's current
+	// roomCode/mapSignature right away (the host may have rotated the room code
+	// between the guest's join-server call and now). Without this, the guest can
+	// sit on a stale room code for up to 15s and show "WebRTC issue".
+	setTimeout( beat, 1500 );
+	// Fire a heartbeat immediately when the tab becomes visible again. Backgrounded
+	// tabs throttle setInterval (sometimes to ~1/min), which can let the 90s server
+	// session TTL expire and prune the host — causing the "new temp server shows up"
+	// + reload-loop symptoms. An immediate beat on refocus refreshes presence before
+	// the TTL lapses.
+	if ( ! serverVisibilityHandler ) {
+		serverVisibilityHandler = () => {
+			if ( document.visibilityState === 'visible' && multiplayerSessionState.serverId && currentServerBeat ) currentServerBeat();
+		};
+		document.addEventListener( 'visibilitychange', serverVisibilityHandler );
+	}
 }
+
+let serverVisibilityHandler = null;
+let currentServerBeat = null;
 
 function stopServerHeartbeat() {
 	if ( multiplayerSessionState.serverHeartbeatTimer ) {
@@ -1987,13 +2295,25 @@ function stopServerHeartbeat() {
 async function leaveCurrentServer( silent = false ) {
 	const serverId = multiplayerSessionState.serverId;
 	stopServerHeartbeat();
+	serverFollowInFlight = false;
 	if ( serverId ) {
 		await Servers.leaveServer( serverId, { clientId: multiplayerSessionState.clientId } );
+		try { sessionStorage.removeItem( `mp-host-${ serverId }` ); } catch {}
 	}
 	multiplayerSessionState.serverId = null;
 	multiplayerSessionState.serverName = '';
 	multiplayerSessionState.serverType = '';
+	multiplayerSessionState.isHostOfServer = false;
 	renderCurrentServerCard( null );
+	// Strip the server/host params from the URL so a reload does NOT silently
+	// rejoin the server we just left (which would re-create a duplicate session).
+	try {
+		const p = new URLSearchParams( window.location.search );
+		p.delete( 'server' );
+		p.delete( 'host' );
+		const q = p.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ q ? `?${ q }` : '' }${ window.location.hash }` );
+	} catch ( e ) {}
 	// Restore global chat context.
 	if ( window.SkidChat?.clearServerContext ) {
 		window.SkidChat.clearServerContext();
@@ -2034,6 +2354,21 @@ async function hostRotateRoomCode( currentRoomCode, mapSignature ) {
 			},
 			status: 'migrating',
 		} );
+		// Keep the server session's roomCode in sync so guests joining via the
+		// hub (and existing clients via heartbeat) follow to the new room code.
+		// Without this, the session's roomCode goes stale and new joiners get a
+		// "WebRTC issue" because they connect to the old (now-dead) room.
+		if ( multiplayerSessionState.serverId ) {
+			try {
+				await Servers.rehostServer( multiplayerSessionState.serverId, {
+					clientId: multiplayerSessionState.clientId,
+					roomCode: nextCode,
+					mapSignature,
+				} );
+			} catch ( err ) {
+				console.warn( 'Failed to update server session roomCode during rotate', err );
+			}
+		}
 		multiplayerSessionState.roomCode = nextCode;
 		const codeInput = document.getElementById( 'mp-code-input' );
 		if ( codeInput ) codeInput.value = nextCode;

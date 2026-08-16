@@ -28,9 +28,9 @@ async function verifySessionFresh() {
 	if ( ! session?.token ) return false;
 	try {
 		const res = await fetch( `${ ACCOUNTS_API_BASE }/profile?token=${ encodeURIComponent( session.token ) }` );
-		if ( ! res.ok ) { clearStaleSession(); return false; }
+		if ( ! res.ok ) return false;
 		const payload = await res.json();
-		if ( ! payload?.ok ) { clearStaleSession(); return false; }
+		if ( ! payload?.ok ) return false;
 		return true;
 	} catch { return false; } // network error — don't clear, just deny this op
 }
@@ -41,6 +41,24 @@ function clearStaleSession() {
 	renderMeBar();
 	refreshCreatePermAuth();
 }
+
+// Pick up sign-in/sign-out from another tab (e.g. the user signed in on
+// index.html or settings.html while the hub was open). Without this, the hub's
+// "Sign in to create a permanent server" note stays stale.
+window.addEventListener( 'storage', ( e ) => {
+	if ( e.key === SESSION_KEY ) {
+		session = readSession();
+		renderMeBar();
+		refreshCreatePermAuth();
+	}
+} );
+// Re-read the session when the hub regains focus (sign-in may have happened in
+// another tab that doesn't fire a same-tab storage event).
+window.addEventListener( 'focus', () => {
+	session = readSession();
+	renderMeBar();
+	refreshCreatePermAuth();
+} );
 
 function el( id ) { return document.getElementById( id ); }
 
@@ -202,9 +220,17 @@ el( 'ct-go' )?.addEventListener( 'click', () => {
 	const name = String( el( 'ct-name' )?.value || '' ).trim();
 	if ( ! name ) { toast( 'Enter a server name first.', 'err' ); return; }
 	const max = clampMax( el( 'ct-max' )?.value );
+	// Optional track: parse a URL or share code the same way "Switch Map" does.
+	const trackRaw = String( el( 'ct-track' )?.value || '' ).trim();
+	const params = { createtemp: '1', name, max: String( max ) };
+	if ( trackRaw ) {
+		const parsed = parseTrackInput( trackRaw );
+		if ( ! parsed ) { toast( 'Could not read that track URL/code. Leave blank for the default track.', 'err' ); return; }
+		Object.assign( params, parsed );
+	}
 	// The actual room creation happens in the game (needs PeerJS + Firebase).
 	// Navigate to the game with create intent; main.js picks up ?createtemp.
-	window.location.href = gameUrl( { createtemp: '1', name, max: String( max ) } );
+	window.location.href = gameUrl( params );
 } );
 
 // ---- create permanent ----
@@ -228,24 +254,36 @@ el( 'cp-go' )?.addEventListener( 'click', async () => {
 	btn.disabled = true; btn.textContent = 'Creating…';
 	try {
 		// Verify the token is still valid before hitting the servers worker
-		// (which would otherwise return a vague "Authentication required").
+		// (which would otherwise return a vague "Authentication required"). But
+		// only treat an explicit accounts-worker rejection (not a network error)
+		// as expired — a transient fetch failure should NOT log the user out.
 		const fresh = await verifySessionFresh();
 		if ( ! fresh ) {
-			toast( 'Your session has expired. Please sign in again, then retry.', 'err' );
-			window.location.href = 'settings.html';
+			toast( 'Your session may have expired, or the network is unreachable. Please check your connection and sign in again if needed, then retry.', 'err' );
 			return;
 		}
 		const server = await Servers.createPermanentServer( { token: session.token, name, settings: { maxPlayers: max } } );
 		toast( `Created "${ server.name }" — Server #${ server.serverId }`, 'ok' );
-		el( 'cp-name' ).value = '';
+		const cpName = el( 'cp-name' );
+		if ( cpName ) cpName.value = '';
 		activateTab( 'perm' );
 		await refreshActiveList( 'perm' );
 	} catch ( err ) {
 		const msg = String( err?.message || '' );
 		if ( /authentication required/i.test( msg ) ) {
-			toast( 'Authentication failed. Your session may have expired — signing you back in…', 'err' );
-			clearStaleSession();
-			setTimeout( () => { window.location.href = 'settings.html'; }, 1200 );
+			// The servers worker rejected the token. Re-check it directly against
+			// the accounts worker: if it's STILL valid there, the servers backend
+			// is failing to verify it worker-to-worker (a deployed-worker issue),
+			// NOT an expired session — so do NOT log the user out. Only clear the
+			// session + redirect if the direct accounts verify also fails.
+			const stillValid = await verifySessionFresh();
+			if ( stillValid ) {
+				toast( 'You are signed in, but the servers backend could not verify your account just now. Please try again in a moment.', 'err' );
+			} else {
+				toast( 'Your session has expired. Please sign in again.', 'err' );
+				clearStaleSession();
+				setTimeout( () => { window.location.href = 'settings.html'; }, 1200 );
+			}
 		} else {
 			toast( msg || 'Failed to create server.', 'err' );
 		}
@@ -255,6 +293,23 @@ el( 'cp-go' )?.addEventListener( 'click', async () => {
 } );
 
 // ---- owner rename / delete ----
+// If a servers-worker owner op fails with "Authentication required" but the
+// token still verifies directly against the accounts worker, it's a
+// deployed-servers-backend issue — surface a clear message WITHOUT logging
+// the user out. (Only the expired-token case logs out, handled by
+// ensureFreshSession's pre-check.)
+async function ownerAuthErrorHandler( err ) {
+	const msg = String( err?.message || '' );
+	if ( /authentication required/i.test( msg ) ) {
+		const stillValid = await verifySessionFresh();
+		if ( stillValid ) {
+			toast( 'You are signed in, but the servers backend could not verify your account just now. Please try again in a moment.', 'err' );
+			return;
+		}
+	}
+	toast( msg || 'Operation failed.', 'err' );
+}
+
 async function renameServer( serverId ) {
 	const newName = window.prompt( 'New server name (1–40 chars):' );
 	if ( newName == null ) return;
@@ -265,7 +320,7 @@ async function renameServer( serverId ) {
 		await Servers.renamePermanentServer( serverId, { token: session.token, name: trimmed } );
 		toast( 'Renamed.', 'ok' );
 		await refreshActiveList( 'perm' );
-	} catch ( err ) { toast( err?.message || 'Rename failed.', 'err' ); }
+	} catch ( err ) { await ownerAuthErrorHandler( err ); }
 }
 
 async function deleteServer( serverId, name ) {
@@ -275,17 +330,19 @@ async function deleteServer( serverId, name ) {
 		await Servers.deletePermanentServer( serverId, { token: session.token } );
 		toast( 'Server deleted.', 'ok' );
 		await refreshActiveList( 'perm' );
-	} catch ( err ) { toast( err?.message || 'Delete failed.', 'err' ); }
+	} catch ( err ) { await ownerAuthErrorHandler( err ); }
 }
 
 // Common guard: verify the session is still valid before an owner-only op.
-// Returns true if ok, false (and redirects to sign-in) if expired.
+// Returns true if ok, false (with a message) if expired/unreachable. Does NOT
+// auto-redirect or log the user out — a transient network failure should not
+// kick the player to the sign-in page. The ownerAuthErrorHandler in the catch
+// block does the explicit expired-token handling.
 async function ensureFreshSession() {
-	if ( ! session?.token ) { toast( 'Sign in first.', 'err' ); window.location.href = 'settings.html'; return false; }
+	if ( ! session?.token ) { toast( 'Sign in first.', 'err' ); return false; }
 	const fresh = await verifySessionFresh();
 	if ( ! fresh ) {
-		toast( 'Your session has expired. Please sign in again.', 'err' );
-		window.location.href = 'settings.html';
+		toast( 'Your session may have expired, or the network is unreachable. Please check your connection and sign in again if needed, then retry.', 'err' );
 		return false;
 	}
 	return true;
@@ -304,7 +361,7 @@ el( 'jc-go' )?.addEventListener( 'click', () => {
 	// play=1 so the game loads + the join deep-link fires visibly.
 	window.location.href = gameUrl( { joinRoom: code } );
 } );
-el( 'jc-input' )?.addEventListener( 'keypress', ( e ) => { if ( e.key === 'Enter' ) el( 'jc-go' ).click(); } );
+el( 'jc-input' )?.addEventListener( 'keypress', ( e ) => { if ( e.key === 'Enter' ) el( 'jc-go' )?.click(); } );
 
 // ---- host by code (classic host flow, now on the hub) ----
 el( 'hc-go' )?.addEventListener( 'click', () => {
@@ -316,18 +373,12 @@ el( 'hc-go' )?.addEventListener( 'click', () => {
 	window.location.href = gameUrl( params );
 } );
 
-// ---- switch map (host launches game on a specific track) ----
-el( 'sm-go' )?.addEventListener( 'click', () => {
-	const raw = String( el( 'sm-input' )?.value || '' ).trim();
-	if ( ! raw ) { toast( 'Paste a track URL or share code first.', 'err' ); return; }
-	const params = parseTrackInput( raw );
-	if ( ! params ) { toast( 'Could not read that track URL/code.', 'err' ); return; }
-	// Host a fresh room on this map. hostcode=1 + map so the game hosts on load.
-	params.hostcode = '1';
-	window.location.href = gameUrl( params );
-} );
+// Track switching for a hosted server is done IN-GAME via the host-only
+// "Switch Track" box in the multiplayer panel (it rehosts the server so
+// clients follow). The hub no longer hosts a "Switch Map" action.
 
 // Accept a full URL (extract its map/mods/pack params) or a bare share code.
+// Used by the create-temporary track picker.
 function parseTrackInput( raw ) {
 	try {
 		// Full URL?

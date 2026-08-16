@@ -1242,13 +1242,17 @@ The mobile UI had two independent triggers; BOTH are neutralized:
 - clubs.html chat (separate file, same Ably pattern): untouched.
 
 ### Tests
-- `test-servers-worker.mjs` (27 assertions): empty list, create permanent (auth
+- `test-servers-worker.mjs` (36 assertions): empty list, create permanent (auth
   required + id allocation 1→2), empty/overlong/whitespace-name handling,
   duplicate names allowed, temp creation + player count, join idempotency,
   capacity 409 on full, heartbeat player list, leave, rename owner-only,
   delete owner-only + list removal, chat membership enforcement (403 outsider /
-  200 member) + history, join non-existent 404, non-numeric id 404. Run with
-  `node test-servers-worker.mjs` (stubs KV + accounts-worker fetch; no deploy needed).
+  200 member) + history, join non-existent 404, non-numeric id 404, rehost
+  owner-only + room/map update, `summarizeSession` includes hostClientId +
+  player clientIds (host recognition after reload), `createTemporary` with
+  `serverId` reuses a FREE id (no duplicate temp server) + rejects an active
+  session id (409). Run with `node test-servers-worker.mjs` (stubs KV +
+  accounts-worker fetch; no deploy needed).
 
 ### In-game mp-panel is "quick multiplayer" (server browser lives on multiplayer.html)
 - The `#mp-panel` in `index.html` is the LIGHTWEIGHT in-game overlay: classic
@@ -1263,10 +1267,13 @@ The mobile UI had two independent triggers; BOTH are neutralized:
   auto-refresh `setInterval` (the server lists are gone from this panel). It
   only marks `serverHubReady` + wires Leave/Change-Track + the auth note.
   `refreshActiveServerList()` is kept as a no-op for backward-compat callers.
-- `createTemporaryServerFromForm(overrides)` accepts `{name,max}` overrides so
-  the `?createtemp=1&name=&max=` deep-link (from the hub) works WITHOUT the
+- `createTemporaryServerFromForm(overrides)` accepts `{name,max,map,mods}` overrides so
+  the `?createtemp=1&name=&max=&map=&mods=` deep-link (from the hub) works WITHOUT the
   in-game create form inputs (which were removed). The `?createtemp` handler
-  passes the URL params directly instead of pre-filling removed elements.
+  passes the URL params directly instead of pre-filling removed elements. If the
+  host chose a track AND it isn't the currently-loaded one, the form navigates to
+  it first (preserving the create intent) so the session is registered with the
+  correct mapSignature (prevents the false "host moved to a new track").
 
 ### Hub → game deep links all carry `?play=1`
 - The hub (`js/multiplayer-hub.js`) builds every game URL with a `gameUrl()`
@@ -1347,3 +1354,74 @@ The mobile UI had two independent triggers; BOTH are neutralized:
 - Mods board: https://racing-mods-board-api.ga1010.workers.dev/api/mods
 - Leaderboard: https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard
 - Track share: https://racing-track-board-api.ga1010.workers.dev
+
+## Multiplayer comprehensive bug-fix pass (host recognition, auth, room sync)
+
+### Host recognition after page reload (the "clicking change track says you have to be the host" bug)
+- ROOT CAUSE: `computeIsHostOfServer(server)` relied on `server.hostClientId === myClient` or
+  `players.find(p => p.clientId === myClient).isHost`. But the deployed worker's
+  `summarizeSession` did NOT include `hostClientId` OR player `clientId` in the summary — only
+  `username` + `isHost`. So after a reload (role='none'), the client could NOT determine it was
+  the host → the host-only "Switch Track" / "Pick Track" buttons were hidden + the click handler
+  rejected with "Only the host can change the track."
+- FIX (worker): `summarizeSession` now includes `hostClientId` + each player's `clientId`
+  (cloudflare-servers/worker/src/index.js). Requires a worker REDEPLOY to take effect.
+- FIX (client, works with stale deployed worker): `enterServer` caches host status in
+  `sessionStorage` keyed by `mp-host-<serverId>` = clientId. `computeIsHostOfServer` falls back
+  to this cache when the server summary lacks hostClientId/clientId. `leaveCurrentServer` clears
+  it. This survives page reloads so the host can always switch tracks.
+- The `mp-cs-switch` row (paste track URL + "Switch Track" button) + `mp-change-track-btn`
+  ("Pick Track") in `#mp-current-server` are shown/hidden via `renderCurrentServerCard` based on
+  `isHostOfServer`. Host-only by design.
+
+### Room-code rotation now syncs the server session (the "WebRTC issue for room XXX" bug)
+- ROOT CAUSE: `hostRotateRoomCode` (fires every `MULTIPLAYER_ROOM_ROTATE_MS`) updated Firebase +
+  the local roomCode but did NOT call `rehostServer` to update the server session's roomCode.
+  So the session's roomCode went stale. Guests joining via the hub got the OLD roomCode,
+  connected to `getPeerRoomId(oldCode)`, but the host was on `getPeerRoomId(newCode)` →
+  "peer-unavailable" → "WebRTC issue for room <oldCode>".
+- FIX: `hostRotateRoomCode` now calls `Servers.rehostServer(serverId, {clientId, roomCode: nextCode, mapSignature})`
+  to keep the session's roomCode in sync. Clients following via heartbeat pick up the new code.
+- Also raised `MULTIPLAYER_ROOM_ROTATE_MS` from 120s to 600s (10 min) — 120s was far too
+  disruptive for a small game (tears down + rebuilds all peer connections every 2 min).
+- Also fixed a `code` → `roomCode` typo in the guest connect-retry status messages (was showing
+  "room undefined").
+- Also increased guest connect retries from 6 to 10 and the heartbeat fires an immediate beat
+  1.5s after `enterServer` (so a guest picks up the host's current roomCode right away instead
+  of waiting up to 15s).
+
+### Duplicate temp server on rehost fallback (the "new temp server shows up" bug)
+- ROOT CAUSE: `rehostExistingServer`'s fallback (when rehost 404s because the session expired)
+  called `createTemporaryServer({serverId: id, ...})`. But `MultiplayerServers.createTemporaryServer`
+  did NOT pass `serverId` in the body (it wasn't in the destructure). And the worker's
+  `createTemporarySession` only bound to an existing PERMANENT def — a free id (no def, no session)
+  fell through to `allocateNextServerId`, allocating a brand-new id. Result: a duplicate temp
+  server with a new id appeared in the hub list.
+- FIX (client): `createTemporaryServer` now destructures + passes `serverId` in the body.
+- FIX (worker): `createTemporarySession` now reuses a FREE id (no def AND no session) when
+  `serverId` is requested, instead of only binding to existing permanent defs. Still rejects
+  (409) if the id has an active session. Requires a worker REDEPLOY.
+
+### Permanent server auth: don't log the user out on stale-worker rejection
+- ROOT CAUSE: `verifySessionFresh` (hub) called `clearStaleSession()` (removes localStorage
+  session = logs out) on ANY non-200 from the accounts worker, including transient network
+  errors. And the create-permanent pre-check auto-redirected to settings.html on `!fresh`.
+  Combined with the stale deployed servers worker (which can't verify a valid token
+  worker-to-worker), a signed-in user trying to create a permanent server got "Authentication
+  required" → logged out + redirected.
+- FIX: `verifySessionFresh` no longer clears the session — it just returns true/false. The
+  create-permanent catch block re-verifies directly against the accounts worker: if the token
+  is STILL valid there, it shows "You are signed in, but the servers backend could not verify
+  your account just now" and does NOT log out. Only a genuinely expired token (accounts worker
+  confirms invalid) clears + redirects.
+- FIX: `ensureFreshSession` (rename/delete guard) no longer auto-redirects on `!fresh` — it
+  shows a message and returns false. The `ownerAuthErrorHandler` in the catch block does the
+  explicit expired-token handling.
+- FIX (in-game): `createPermanentServerFromForm` (main.js) now has the same verify-against-
+  accounts-worker logic in its catch block (the in-game panel previously just showed the raw
+  error with no re-verify).
+- The deployed servers worker is STALE (returns "Authentication required" without the `(reason)`
+  suffix the source adds). A REDEPLOY is needed for the `reason` field + the `summarizeSession`
+  hostClientId/clientId + the `createTemporary` serverId-reuse fixes to go live. Until then,
+  the client-side sessionStorage cache + the verify-against-accounts-worker fallback keep
+  things working.

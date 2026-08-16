@@ -146,6 +146,27 @@ async function main() {
 	r = await call( env, 'POST', `/${ tId }/rehost`, { clientId: 'c1', roomCode: '', mapSignature: '' } );
 	check( r.status === 400, 'rehost rejects empty room/map' );
 
+	// 19. summarizeSession includes hostClientId + player clientIds (needed for
+	// the client to recognise host status after a page reload).
+	r = await call( env, 'GET', `/${ tId }` );
+	check( typeof r.json.server.hostClientId === 'string' && r.json.server.hostClientId === 'c1', 'session summary includes hostClientId' );
+	check( Array.isArray( r.json.server.players ) && r.json.server.players.some( ( p ) => p.clientId === 'c1' && p.isHost ), 'session summary includes player clientIds + isHost' );
+
+	// 20. createTemporary with serverId reuses a FREE id (no def, no session).
+	// This is the rehost-fallback path: the prior session expired (rehost 404'd),
+	// so the host re-creates a temp session bound to the SAME id so clients
+	// following the hub list find it instead of a brand-new duplicate.
+	const freeId = tId; // tId's session is still alive — kill it first
+	await call( env, 'POST', `/${ freeId }/leave`, { clientId: 'c1' } ); // host leaves
+	// After host leaves + the session has 0 alive players, temp dies.
+	// Now re-create with the same id:
+	r = await call( env, 'POST', '/temporary', { name: 'Reborn', roomCode: 'REBORN', mapSignature: 'default|none', hostClientId: 'c1', serverId: freeId } );
+	check( r.status === 201 && r.json.server.serverId === freeId, 'createTemporary reuses a free serverId (no duplicate)' );
+
+	// 21. createTemporary with serverId that has an ACTIVE session is rejected.
+	r = await call( env, 'POST', '/temporary', { name: 'Dup', roomCode: 'DUP001', mapSignature: 'default|none', hostClientId: 'c9', serverId: freeId } );
+	check( r.status === 409, 'createTemporary with an active session id is rejected (409)' );
+
 	console.log( `\n${ pass } passed, ${ fail } failed` );
 	process.exit( fail ? 1 : 0 );
 }

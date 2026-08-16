@@ -165,11 +165,15 @@ footer{margin-top:46px;text-align:center;color:var(--muted);font-size:12px}
         <label for="ct-max">Max players (2–16, default 8)</label>
         <input id="ct-max" type="number" min="2" max="16" placeholder="8" />
       </div>
+      <div class="field">
+        <label for="ct-track">Track URL or share code (optional — defaults to the current track)</label>
+        <input id="ct-track" type="text" maxlength="400" placeholder="Leave blank for the default track, or paste a track URL / share code" />
+      </div>
       <div class="actions">
         <button class="btn primary" id="ct-go">Create &amp; Host</button>
         <a class="btn" href="multiplayer.html">Cancel</a>
       </div>
-      <p class="hint" id="ct-note">Hosting launches the game in a new tab with you as host.</p>
+      <p class="hint" id="ct-note">Hosting launches the game with you as host. Pick a track above to start on it.</p>
     </div>
   </section>
 
@@ -216,25 +220,13 @@ footer{margin-top:46px;text-align:center;color:var(--muted);font-size:12px}
         <button class="btn primary" id="hc-go">Host &amp; Play</button>
         <a class="btn" href="multiplayer.html">Cancel</a>
       </div>
-    </div>
-
-    <div class="form" style="margin-top:22px">
-      <h2 style="margin:0 0 6px">Switch Map (Host)</h2>
-      <p class="hint" style="margin:0 0 16px;color:var(--muted)">Paste a track URL or share code to launch the game on that track. You'll start as host of a fresh room.</p>
-      <div class="field">
-        <label for="sm-input">Track URL or share code</label>
-        <input id="sm-input" type="text" maxlength="400" placeholder="https://everybodysim.github.io/Racing-game/index.html?map=...  or  a share code" />
-      </div>
-      <div class="actions">
-        <button class="btn primary" id="sm-go">Launch on this track</button>
-      </div>
-      <p class="hint">Tip: you can also pick from the <a href="official-tracks.html" style="color:var(--accent)">official tracks</a>.</p>
+      <p class="hint">Tip: once you're hosting in-game, use the in-game multiplayer panel's <b>Switch Track</b> box (host only) to change the track and bring your players along. You can also pick from the <a href="official-tracks.html" style="color:var(--accent)">official tracks</a>.</p>
     </div>
   </section>
 
   <footer>Skid Circuit multiplayer — server-browser layer over the existing PeerJS + Firebase networking.</footer>
 </main>
 <div class="toast" id="toast"></div>
-<script type="module" src="js/multiplayer-hub.js"></script>
+<script type="module" src="js/multiplayer-hub.js?v=999975&cachebust=1"></script>
 </body>
 </html>

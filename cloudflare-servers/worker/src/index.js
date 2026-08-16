@@ -38,7 +38,7 @@ const SESSIONS_INDEX_KEY = 'sessions:index';
 const OWNER_KEY_PREFIX = 'servers:owner:';
 const SERVER_CHAT_KEY_PREFIX = 'server:chat:';
 
-const SESSION_HEARTBEAT_TTL_MS = 60 * 1000;          // a session is stale after 60s without a heartbeat
+const SESSION_HEARTBEAT_TTL_MS = 90 * 1000;          // a session is stale after 90s without a heartbeat (raised from 60s so a briefly-backgrounded tab's throttled 15s heartbeat interval doesn't prune a live host)
 const SESSION_GC_PROBABILITY = 0.25;                  // opportunistically GC stale sessions on list/join
 const MAX_SERVER_NAME_LENGTH = 40;
 const MIN_SERVER_NAME_LENGTH = 1;
@@ -281,8 +281,11 @@ async function createTemporarySession( request, env ) {
 	const maxPlayers = clampMaxPlayers( settings.maxPlayers );
 
 	// Optional: bind this session to an EXISTING server id (e.g. starting an
-	// offline permanent server). The id must already exist as a permanent def OR
-	// be free. This keeps the permanent server's id stable across sessions.
+	// offline permanent server, or re-creating a temp session after its prior
+	// session expired). The id must be free (no def, no session) OR be an
+	// existing permanent def with no live session. This keeps server ids stable
+	// across sessions so clients following the hub list find the re-created
+	// session instead of a brand-new one (fixes "duplicate temp server shows up").
 	let serverId = null;
 	let boundPermanent = false;
 	const requestedId = Number( body.value?.serverId );
@@ -294,6 +297,10 @@ async function createTemporarySession( request, env ) {
 			boundPermanent = true;
 		} else if ( existingSession ) {
 			return json( { ok: false, error: 'That server already has an active session' }, 409 );
+		} else {
+			// No def and no session: the id is free. Reuse it (e.g. re-creating a
+			// temp session whose prior session expired) so the id stays stable.
+			serverId = requestedId;
 		}
 	}
 	if ( ! serverId ) serverId = await allocateNextServerId( env );
@@ -639,9 +646,10 @@ function summarizeSession( session, def ) {
 		roomCode: session.roomCode,
 		mapSignature: session.mapSignature,
 		hostUsername: session.hostUsername,
+		hostClientId: session.hostClientId || '',
 		playerCount: session.playerCount,
 		maxPlayers: session.maxPlayers,
-		players: session.players.map( ( p ) => ( { username: p.username, isHost: Boolean( p.isHost ) } ) ),
+		players: session.players.map( ( p ) => ( { username: p.username, clientId: p.clientId || '', isHost: Boolean( p.isHost ) } ) ),
 		online: true,
 		createdAt: session.createdAt,
 		updatedAt: session.updatedAt,
