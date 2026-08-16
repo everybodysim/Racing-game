@@ -1313,3 +1313,37 @@ The mobile UI had two independent triggers; BOTH are neutralized:
   it. NOTE: worker-to-worker `fetch()` to the accounts worker is expected to
   work (accounts worker has no origin restrictions); if it fails, `reason` will
   be `fetch-err:...`.
+
+
+## Multiplayer hub navigation + merged branch (branch multiplayer-garage-merged, PR 392)
+
+### Branch lineage
+- multiplayer-garage-merged = embedded-crazygames-nav (commit 08ee6c2, garage/painter fixes) + multiplayer-server-redesign (4 commits, server-browser redesign) merged in. Auto-merge succeeded with no conflicts. Keeps the live Pages branch (embedded-crazygames-nav) untouched as a fallback.
+- Backup tags (all pushed): backup-before-merge-v3, backup-embedded-before-merge-v3, backup-before-mp-rework-v2, backup-pre-server-redesign.
+
+### Multiplayer nav button locations (all present on the merged branch)
+1. Home page: a.home-secondary-link href multiplayer.html 'Multiplayer servers' (index.html ~line 2222).
+2. E-menu Navigation tab (the REAL in-game nav, #mode-panel-nav -> #nav-panel-content): a#nav-multiplayer href multiplayer.html 'Multiplayer Hub' under the Play section (~line 2442). This is the one players actually see.
+3. Mobile game-menu sheet: a href multiplayer.html 'Multiplayer Hub' (~line 2573).
+4. In-game quick multiplayer panel: #mp-hub-link -> multiplayer.html (~line 2600).
+5. js/NavBar.js PAGE_NAMES: multiplayer.html -> 'Multiplayer Hub' so the NavBar highlights/labels it correctly.
+
+### Scattered nav links are LEGACY/hidden (do not expect them to render)
+- The #editor-link, #totd-link, #mods-link, #multiplayer-link, #hacks-toggle, #split-link etc. anchors (index.html ~line 2262-2268) are display:none by a FOUC-prevention rule (~line 193) and are NEVER shown by any JS/CSS in the current codebase. The comment says 'until JS moves them into the quick-menu panel' but that JS no longer exists; the real nav is the E-menu Navigation tab. Keep them wired into the CSS rule sets for consistency, but they are not user-visible. Do NOT try to make #multiplayer-link appear; use #nav-multiplayer instead.
+- index.html brace count is naturally +2 open vs close (834/832) due to curly braces inside JS template literals/strings; this is PRE-EXISTING (832/830 pre-merge) and not a real imbalance. Do not fix it.
+
+### Cloudflare workers -- already deployed, auth works (NO update needed)
+- Accounts worker https://racing-account-api.ga1010.workers.dev/api/accounts/profile responds ok:false error 'token is required' when called bare (correct).
+- Servers worker https://racing-servers-api.ga1010.workers.dev/api/servers/sessions and /permanent both respond ok:true servers:[] (correct, empty).
+- Cross-worker auth verified: POST /api/servers/permanent with a bogus token returns ok:false error 'Authentication required to create a permanent server'. The servers worker resolveAccountUsername(token) fetches the accounts worker profile endpoint with ?token= and that path is live. So the 'do I need to update any workers?' concern is resolved: NO.
+
+### GitHub Pages -- token CANNOT switch the source branch
+- The GITHUB_TOKEN here has NO OAuth scopes (x-oauth-scopes header empty); it is a scoped installation token. It CAN push branches and open PRs but CANNOT administer Pages (PUT /repos/:owner/:repo/pages returns 403 Resource not accessible by integration). Switching Pages to multiplayer-garage-merged must be done by the repo owner via Settings -> Pages -> Source -> branch: multiplayer-garage-merged.
+- If a push ever hangs on a 'Password for' prompt, the remote URL token expired; fix with git remote set-url origin https://GITHUB_TOKEN@github.com/everybodysim/Racing-game.git
+
+### API base URLs (deployed)
+- Accounts: https://racing-account-api.ga1010.workers.dev/api/accounts
+- Servers:  https://racing-servers-api.ga1010.workers.dev/api/servers
+- Mods board: https://racing-mods-board-api.ga1010.workers.dev/api/mods
+- Leaderboard: https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard
+- Track share: https://racing-track-board-api.ga1010.workers.dev
