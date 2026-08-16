@@ -1,9 +1,24 @@
 # Public Racing Servers (Cloudflare Worker + KV)
 
-This folder is the backend for the **public multiplayer servers** feature in the
-multiplayer widget (`index.html`). It is a Cloudflare Worker that stores the
-**synced 5-minute round timer, round rotation, and per-round best-lap rankings**
-for each public server.
+> **STATUS (2026-08): This worker is no longer used by the game.**
+> Public servers were reworked to use **zero** racing-servers-api calls: the
+> synced 5-minute round timer + track rotation are pure wall-clock UTC math
+> (see `cycleInfo` / `pickTrackForCycle` in `js/PublicServers.js`), and the
+> per-round rankings + member count + host election are distributed over the
+> existing PeerJS mesh (see the public-server helpers in `js/main.js`). The only
+> Cloudflare dependency left is the **read-only** track share board
+> (`cloudflare/worker`, `GET /api/tracks`), which costs zero KV writes and so
+> never trips the free-plan daily write quota.
+>
+> The worker code below is kept for reference/history. You can safely **delete
+> or disable** the `racing-servers-api` worker + its `SERVERS_KV` namespace —
+> no client calls it anymore. No redeploy is required for the rework to take
+> effect (it's a client-side change in `js/PublicServers.js` + `js/main.js`).
+
+This folder is the **former** backend for the **public multiplayer servers**
+feature in the multiplayer widget (`index.html`). It was a Cloudflare Worker
+that stored the **synced 5-minute round timer, round rotation, and per-round
+best-lap rankings** for each public server.
 
 > The live worker URL is **https://racing-servers-api.ga1010.workers.dev/** and the
 > KV binding is **`SERVERS_KV`**. The code to deploy is in `worker/src/index.js`.

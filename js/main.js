@@ -17,15 +17,13 @@ import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 import {
 	PUBLIC_SERVERS,
-	SERVERS_API_BASE,
 	findPublicServer,
 	isPublicServerConfigured,
-	fetchServerState,
-	joinServer as publicJoinServer,
-	heartbeatServer as publicHeartbeat,
-	submitServerLap as publicSubmitLap,
-	setServerTrack as publicSetServerTrack,
-	leaveServer as publicLeaveServer,
+	cycleInfo as publicServerCycleInfo,
+	ROUND_EPOCH as PUBLIC_SERVER_ROUND_EPOCH,
+	PLAY_DURATION_MS as PUBLIC_SERVER_PLAY_DURATION_MS,
+	RANKINGS_WINDOW_MS as PUBLIC_SERVER_RANKINGS_WINDOW_MS,
+	CYCLE_MS as PUBLIC_SERVER_CYCLE_MS,
 	fetchTrackList,
 	pickTrackForCycle,
 	mapSignatureFromPlayUrl,
@@ -465,6 +463,12 @@ const WEBRTC_SYNC_MS = 33;
 const PEER_ROOM_PREFIX = 'RACE-ROOM-';
 const PEER_PACKET_STATE = 'VEHICLE_STATE';
 const PEER_PACKET_LEFT = 'PLAYER_LEFT';
+// Public-server-only packets, distributed over the PeerJS mesh (no worker):
+//   LAP  — a player's best lap for the current round (sent on improvement).
+//   META — host-only: round/member-count snapshot so joiners see an accurate
+//          "N players online" count without polling a backend.
+const PEER_PACKET_LAP = 'PUBLIC_LAP';
+const PEER_PACKET_META = 'PUBLIC_META';
 const peerConfig = {
 	config: {
 		iceServers: [
@@ -675,6 +679,25 @@ function handlePeerPacket( packet, sourcePeerId ) {
 
 			removeResolvedRemotePlayerVisual( playerId );
 			relayHostPacket( packet, sourcePeerId );
+			return;
+
+		}
+		// Public-server LAP packet: a peer's best lap for the current round.
+		// Collected into the local round-laps map (so the rankings overlay shows
+		// everyone) and relayed by the host so all peers see it. No worker.
+		if ( packet.type === PEER_PACKET_LAP ) {
+
+			ingestPublicServerPeerLap( playerId, packet );
+			relayHostPacket( packet, sourcePeerId );
+			return;
+
+		}
+		// Public-server META packet: host's view of the round + player count, so
+		// joiners can display an accurate "N players online" without a backend.
+		if ( packet.type === PEER_PACKET_META ) {
+
+			ingestPublicServerPeerMeta( packet );
+			// META is host→joiners only; do not relay (host already sent to all).
 			return;
 
 		}
@@ -900,37 +923,50 @@ let migrationSwitchInFlight = false;
 
 // --- Public servers state -------------------------------------------------
 // A public server is a fixed PeerJS room (code, e.g. PUBSV1) whose synced
-// 5-minute round timer + rankings live in the Cloudflare worker
-// (SERVERS_API_BASE). The timer is anchored to wall-clock UTC and is ALWAYS
-// RUNNING — it does not depend on a host or on when players join, so it can
-// never freeze.
+// 5-minute round timer + track rotation + rankings are now derived ENTIRELY
+// locally (no Cloudflare worker for round/rotation/rankings state):
+//   • The round timer is wall-clock UTC math (cycleInfo in PublicServers.js),
+//     anchored to ROUND_EPOCH — ALWAYS RUNNING, never freezes, identical for
+//     every player regardless of join time. No host, no backend.
+//   • The track for each cycle is picked DETERMINISTICALLY by pickTrackForCycle
+//     (seeded from the cycle index + server id), so every player computes the
+//     same track with zero coordination. No set-track write.
+//   • Per-round best-lap rankings are distributed P2P: each player broadcasts a
+//     LAP packet on improvement; the host relays so all peers see everyone.
+//   • The "N players online" count comes from the PeerJS mesh (the host knows
+//     connections.size + 1 and broadcasts a META packet; joiners use it).
+//   • Host election is PeerJS-native: the first player to claim the
+//     RACE-ROOM-<code> peer id becomes the host; joiners connect to it. If the
+//     host disappears, a joiner detects the dead connection and reclaims the id
+//     (self-healing — no worker host-seat bookkeeping).
+// The only Cloudflare dependency left is the read-only track share board
+// (GET /api/tracks), which costs zero KV writes.
 //
-// The first live player claims the "host" seat and becomes the PeerJS host
-// peer (RACE-ROOM-<code>) — but this grants NO extra privileges. In public
-// servers everyone is an equal player: the host role is hidden from the UI and
-// gates nothing. Any player picks the next track (first-writer-wins on the
-// worker) during the rankings window.
+// The "host" role grants NO extra privileges — it is hidden from the UI and
+// gates nothing except acting as the PeerJS relay + sending the META packet.
 const publicServerState = {
 	active: false,          // currently connected to a public server?
 	serverId: '',           // 'server-1' | 'server-2' | 'server-3'
-	server: null,           // last fetched server view from the worker
+	server: null,           // last locally-built server view (mirrors the old worker shape)
 	isHost: false,          // are we the PeerJS host peer? (hidden; no privileges)
 	claimedHost: false,     // have we successfully claimed host this session?
-	pollTimer: null,
-	heartbeatTimer: null,
-	tickTimer: null,        // local countdown tick (keeps the timer alive between polls)
+	roundTimer: null,       // local round loop (replaces the 1s worker poll)
+	peerMaintainTimer: null, // slow loop that restarts a dead PeerJS peer
+	tickTimer: null,        // local countdown tick (keeps the timer smooth)
 	lastRoundId: 0,         // detect round changes to reset local laps
 	loadedRoundId: 0,       // the roundId whose track we have ALREADY loaded/redirected to
 		// (persisted in sessionStorage so a redirect can NEVER fire twice for the
 		// same round — this is the hard anti-loop guarantee; see handlePublicServerRound)
 	rankingsShownForRoundId: 0,  // rankings overlay shown for this round
-	trackSetForCycleIndex: -1,   // we already tried to set the next cycle's track
-	skippedLapSeconds: Infinity, // best lap already submitted this round
-	serverNowOffsetMs: 0,    // server.now - Date.now() (clock-skew correction)
-	lastFetchAt: 0,          // local time of last successful poll (for countdown)
+	resolveScheduledForCycle: -1, // we already scheduled track resolution for this cycle
+	skippedLapSeconds: Infinity, // best lap already broadcast this round
 	trackListCache: null,    // cached community-track list (for deterministic picking)
 	trackListCacheAt: 0,     // local time the cache was fetched
 	resolveInProgress: {},   // cycleIndex -> Promise, in-flight track resolution
+	peerLaps: {},            // roundId -> { [playerId]: { name, time } } (P2P rankings)
+	hostPeerCount: 0,        // member count reported by the host's META packet (joiners only)
+	lastMetaSentAt: 0,       // host: when we last broadcast a META packet
+	hostClaimInFlight: false, // guard against concurrent host-claim attempts
 };
 
 // sessionStorage key recording the roundId whose track we already redirected to
@@ -1087,16 +1123,17 @@ async function publishMultiplayerBestLap( bestLap ) {
 	if ( ! Number.isFinite( bestLap ) ) return;
 	const displayName = getLocalMultiplayerDisplayName();
 
-	// Public servers: also push the round-scoped best lap to the worker so the
-	// synced rankings (shown at round end) include everyone. This is independent
-	// of the Firebase lap-time write below and needs no Firebase changes.
+	// Public servers: broadcast the round-scoped best lap over the PeerJS mesh
+	// (LAP packet) so the synced rankings (shown at round end) include everyone.
+	// This replaces the old worker lap-submit write — no backend, no KV writes.
+	// The host relays the packet so all peers see it even if not directly
+	// connected. Only broadcast an improved time for the current round.
 	if ( isPublicServerActive() ) {
 
 		try {
 
-			// Only submit an improved time for the current round.
 			if ( bestLap < publicServerState.skippedLapSeconds ) {
-				await publicSubmitLap( publicServerState.serverId, multiplayerSessionState.clientId, displayName, bestLap );
+				broadcastPublicServerLap( bestLap, displayName );
 				publicServerState.skippedLapSeconds = bestLap;
 			}
 
@@ -1105,6 +1142,10 @@ async function publishMultiplayerBestLap( bestLap ) {
 			console.warn( 'Failed to publish public-server lap', error );
 
 		}
+
+		// Public servers use the P2P LAP packet for rankings — skip the Firebase
+		// private-room lap-time write below (there is no private room).
+		return;
 
 	}
 
@@ -1199,7 +1240,7 @@ function buildPublicServerButtons() {
 
 		const note = document.createElement( 'div' );
 		note.style.cssText = 'font:600 10px/1.3 sans-serif;opacity:0.7;width:100%;';
-		note.textContent = 'Public servers connect to the racing-servers-api worker.';
+		note.textContent = 'Public servers need the track share board + PeerJS signalling.';
 		container.appendChild( note );
 
 	}
@@ -1240,12 +1281,6 @@ function updatePublicServerButtonStates() {
 
 async function joinPublicServer( serverId ) {
 
-	if ( ! isPublicServerConfigured() ) {
-
-		updateMultiplayerStatus( 'Public servers are not connected yet.' );
-		return;
-
-	}
 	const def = findPublicServer( serverId );
 	if ( ! def ) return;
 
@@ -1271,37 +1306,29 @@ async function joinPublicServer( serverId ) {
 	// for the current round, we will NOT redirect again for it.
 	publicServerState.loadedRoundId = getLoadedRoundIdFromStorage();
 	publicServerState.rankingsShownForRoundId = 0;
-	publicServerState.trackSetForCycleIndex = -1;
+	publicServerState.resolveScheduledForCycle = -1;
 	publicServerState.skippedLapSeconds = Infinity;
-	publicServerState.serverNowOffsetMs = 0;
-	publicServerState.lastFetchAt = 0;
 	publicServerState.trackListCache = null;
 	publicServerState.trackListCacheAt = 0;
 	publicServerState.resolveInProgress = {};
+	publicServerState.peerLaps = {};
+	publicServerState.hostPeerCount = 0;
+	publicServerState.lastMetaSentAt = 0;
+	publicServerState.hostClaimInFlight = false;
 	updatePublicServerButtonStates();
 
 	try {
 
-		const displayName = getLocalMultiplayerDisplayName();
-		const res = await publicJoinServer( serverId, multiplayerSessionState.clientId, displayName );
-		if ( ! res?.ok ) throw new Error( res?.error || 'join-failed' );
-		publicServerState.server = res.server;
-		publicServerState.isHost = Boolean( res.isHost );
-		publicServerState.claimedHost = Boolean( res.claimedHost );
-		publicServerState.lastRoundId = Number( res.server?.round?.roundId ) || 0;
-		if ( res.server?.now ) {
-			publicServerState.serverNowOffsetMs = Number( res.server.now ) - Date.now();
-			publicServerState.lastFetchAt = Date.now();
-		}
-
 		// Reuse the existing PeerJS room mechanism with the fixed server code.
-		// The "host" here is only the PeerJS peer-id owner (for WebRTC
-		// signalling) — it grants NO in-game privileges and is never shown.
+		// The host peer owns the RACE-ROOM-<code> id; joiners connect to it. Host
+		// election is PeerJS-native (see startPublicServerPeer) — no worker.
 		multiplayerSessionState.roomCode = def.code;
 		const codeInput = document.getElementById( 'mp-code-input' );
 		if ( codeInput ) codeInput.value = def.code;
-		multiplayerSessionState.role = publicServerState.isHost ? 'host' : 'join';
-		startPeerMultiplayer( def.code, publicServerState.isHost ? 'host' : 'join' );
+
+		// Try to claim the host seat first; if the id is taken we fall back to
+		// joiner. Either way we end up in the same PeerJS room.
+		await startPublicServerPeer( def.code );
 
 		// The private-room leaderboard is unused in public servers (PeerJS mode
 		// never refreshes it); hide it and show the synced timer instead.
@@ -1309,12 +1336,12 @@ async function joinPublicServer( serverId ) {
 		showPublicServerTimer( true );
 
 		updateMultiplayerStatus( `In ${ def.name }. Round timer synced.` );
-		logMpDebug( `[PublicServer] Joined ${ def.name } (code ${ def.code })` );
+		logMpDebug( `[PublicServer] Joined ${ def.name } (code ${ def.code }) as ${ publicServerState.isHost ? 'host' : 'joiner' }` );
 
 		startPublicServerLoops();
 
-		// Immediately render the current round state.
-		await refreshPublicServerState();
+		// Immediately render the current round state (locally derived — no fetch).
+		tickPublicServerRound();
 
 	} catch ( error ) {
 
@@ -1332,11 +1359,8 @@ async function leavePublicServer() {
 	stopPublicServerLoops();
 	getPublicServerRankingsEl()?.classList.remove( 'visible' );
 	showPublicServerTimer( false );
-	const serverId = publicServerState.serverId;
-	const clientId = multiplayerSessionState.clientId;
-	try { await publicLeaveServer( serverId, clientId ); } catch {}
-	// Tear down the PeerJS room connection so we actually leave the WebRTC mesh
-	// (not just the worker-side membership). Mirrors the Host/Join teardown path.
+	// Tell peers we left (PeerJS LEFT packet) + tear down the WebRTC mesh. There
+	// is no worker membership to clear — leaving is purely a PeerJS action now.
 	if ( multiplayerSessionState.peer || multiplayerSessionState.roomCode ) {
 
 		closeMultiplayerPeer();
@@ -1361,13 +1385,15 @@ async function resetPublicServerState() {
 	publicServerState.lastRoundId = 0;
 	publicServerState.loadedRoundId = 0;
 	publicServerState.rankingsShownForRoundId = 0;
-	publicServerState.trackSetForCycleIndex = -1;
+	publicServerState.resolveScheduledForCycle = -1;
 	publicServerState.skippedLapSeconds = Infinity;
-	publicServerState.serverNowOffsetMs = 0;
-	publicServerState.lastFetchAt = 0;
 	publicServerState.trackListCache = null;
 	publicServerState.trackListCacheAt = 0;
 	publicServerState.resolveInProgress = {};
+	publicServerState.peerLaps = {};
+	publicServerState.hostPeerCount = 0;
+	publicServerState.lastMetaSentAt = 0;
+	publicServerState.hostClaimInFlight = false;
 	clearLoadedRoundIdFromStorage();
 	updatePublicServerButtonStates();
 
@@ -1376,117 +1402,173 @@ async function resetPublicServerState() {
 function startPublicServerLoops() {
 
 	stopPublicServerLoops();
-	publicServerState.pollTimer = setInterval( refreshPublicServerState, 1000 );
-	// Heartbeats keep our membership + (hidden) host seat alive. The worker only
-	// PERSISTS a heartbeat when state actually changed or liveness is getting
-	// stale (coalescing), so this interval can be comfortably longer than the old
-	// 4s without risking a prune (MEMBER_STALE_MS is 120s on the worker). A longer
-	// interval means far fewer KV writes — the old 4s heartbeat was the main cause
-	// of blowing through the Cloudflare KV free-plan daily write quota.
-	publicServerState.heartbeatTimer = setInterval( publicServerHeartbeat, 12000 );
-	// A 250ms local tick re-renders the countdown from the synced server clock
-	// so the timer stays smooth and NEVER freezes — even if a poll is slow or
-	// fails, the countdown keeps updating off the last known server time.
+	// The round loop derives the current cycle from wall-clock UTC and rebuilds
+	// the server view locally (no network). 1s is plenty — the 250ms tick below
+	// keeps the countdown smooth between iterations.
+	publicServerState.roundTimer = setInterval( tickPublicServerRound, 1000 );
+	// A slow loop that restarts the PeerJS peer if it died (PeerJS cloud
+	// signalling can drop the peer occasionally). This is the only "maintenance"
+	// left — it does no backend writes. 10s is frequent enough to recover quickly
+	// but doesn't churn the PeerJS cloud server.
+	publicServerState.peerMaintainTimer = setInterval( maintainPublicServerPeer, 10000 );
+	// A 250ms local tick re-renders the countdown from wall-clock UTC so the timer
+	// stays smooth and NEVER freezes — it's pure local math, not dependent on any
+	// request succeeding.
 	publicServerState.tickTimer = setInterval( tickPublicServerTimer, 250 );
 
 }
 
 function stopPublicServerLoops() {
 
-	if ( publicServerState.pollTimer ) { clearInterval( publicServerState.pollTimer ); publicServerState.pollTimer = null; }
-	if ( publicServerState.heartbeatTimer ) { clearInterval( publicServerState.heartbeatTimer ); publicServerState.heartbeatTimer = null; }
+	if ( publicServerState.roundTimer ) { clearInterval( publicServerState.roundTimer ); publicServerState.roundTimer = null; }
+	if ( publicServerState.peerMaintainTimer ) { clearInterval( publicServerState.peerMaintainTimer ); publicServerState.peerMaintainTimer = null; }
 	if ( publicServerState.tickTimer ) { clearInterval( publicServerState.tickTimer ); publicServerState.tickTimer = null; }
 
 }
 
-// Local re-render of the countdown between polls. Derives remaining time from
-// the authoritative server clock (publicServerNow) + the last server view, so
-// it keeps ticking smoothly even when the network poll hasn't returned. This is
-// what makes the timer "impossible to freeze": it's pure local math against a
-// known server-clock anchor, not dependent on any request succeeding.
+// Local re-render of the countdown. Derives remaining time from wall-clock UTC
+// (via cycleInfo) + the last locally-built server view, so it keeps ticking
+// smoothly with zero network. This is what makes the timer "impossible to
+// freeze": it's pure local math against the real clock.
 function tickPublicServerTimer() {
 
 	if ( ! isPublicServerActive() ) return;
 	const server = publicServerState.server;
 	if ( ! server ) return;
 	const now = publicServerNow();
-	const playEnd = Number( server.playEnd ) || Number( server.roundEndAt ) || now;
-	const cycleEnd = Number( server.cycleEnd ) || Number( server.rankingsEndAt ) || playEnd;
+	const playEnd = Number( server.playEnd ) || now;
+	const cycleEnd = Number( server.cycleEnd ) || playEnd;
 	const inRankings = now >= playEnd && now < cycleEnd;
 	const remainingMs = Math.max( 0, ( inRankings ? cycleEnd : playEnd ) - now );
 	renderPublicServerTimer( server, remainingMs, inRankings );
 
 }
 
-async function publicServerHeartbeat() {
+// Build the current server view LOCALLY from wall-clock UTC + the deterministic
+// track pick + the P2P-collected laps + the PeerJS-derived member count. This
+// replaces the old 1s worker poll — same data shape, no network, no KV writes.
+function tickPublicServerRound() {
 
 	if ( ! isPublicServerActive() ) return;
-	const displayName = getLocalMultiplayerDisplayName();
-	try {
 
-		const res = await publicHeartbeat( publicServerState.serverId, multiplayerSessionState.clientId, displayName );
-		if ( res?.ok && res.server ) {
+	const now = publicServerNow();
+	const info = publicServerCycleInfo( now );
 
-			publicServerState.server = res.server;
-			if ( res.server?.now ) {
-				publicServerState.serverNowOffsetMs = Number( res.server.now ) - Date.now();
-				publicServerState.lastFetchAt = Date.now();
-			}
-			// If the hidden PeerJS host seat changed (we lost or gained it),
-			// restart the peer in the new role so the host takes the
-			// RACE-ROOM-<code> peer id (joiners connect to it). This is purely
-			// networking — it grants no in-game privileges and is never shown.
-			const nowHost = Boolean( res.isHost );
-			if ( nowHost !== publicServerState.isHost ) {
+	// The track for the current cycle is picked DETERMINISTICALLY (no write). If
+	// we haven't resolved it yet this session, schedule an async resolve (fetch
+	// the track list once, then compute). Resolved tracks are cached in
+	// publicServerState.resolvedTracksByCycle so we don't recompute each tick.
+	const currentCycleIndex = info.cycleIndex;
+	let currentTrack = publicServerState.resolvedTracksByCycle?.[ currentCycleIndex ] || null;
+	if ( ! currentTrack && publicServerState.resolveScheduledForCycle !== currentCycleIndex ) {
 
-				publicServerState.isHost = nowHost;
-				publicServerState.claimedHost = nowHost;
-				multiplayerSessionState.role = nowHost ? 'host' : 'join';
-				startPeerMultiplayer( publicServerRoomCode(), nowHost ? 'host' : 'join' );
-
-			}
-
-		}
-
-	} catch ( error ) {
-
-		console.warn( 'Public server heartbeat failed', error );
+		publicServerState.resolveScheduledForCycle = currentCycleIndex;
+		ensureTrackForCycle( currentCycleIndex ).catch( ( e ) => console.warn( 'resolve track failed', e ) );
 
 	}
 
-}
+	// Member count: the host sees connections.size + 1 directly; joiners use the
+	// count reported by the host's META packet. Fallback to connections + 1.
+	const memberCount = computePublicServerMemberCount();
 
-async function refreshPublicServerState() {
+	// Per-round laps are collected P2P (LAP packets relayed by the host) plus our
+	// own best lap for this round.
+	const roundLaps = collectPublicServerRoundLaps( info.roundId );
 
-	if ( ! isPublicServerActive() ) return;
-	try {
+	// The host periodically broadcasts a META packet so joiners see an accurate
+	// member count + current round. Throttled to ~2s.
+	if ( publicServerState.isHost && now - publicServerState.lastMetaSentAt > 2000 ) {
 
-		const res = await fetchServerState( publicServerState.serverId );
-		if ( ! res?.ok || ! res.server ) return;
-		publicServerState.server = res.server;
-		if ( res.server?.now ) {
-			publicServerState.serverNowOffsetMs = Number( res.server.now ) - Date.now();
-			publicServerState.lastFetchAt = Date.now();
-		}
-		handlePublicServerRound( res.server );
-
-	} catch ( error ) {
-
-		// Transient network issues are fine; the loop keeps trying. The timer
-		// keeps ticking locally off the last known server time (see
-		// tickPublicServerTimer) so it never freezes during a failed poll.
-		console.warn( 'Public server poll failed', error );
+		publicServerState.lastMetaSentAt = now;
+		broadcastPublicServerMeta( info, memberCount );
 
 	}
 
+	const server = {
+		id: publicServerState.serverId,
+		name: publicServerName(),
+		code: publicServerRoomCode(),
+		now,
+		memberCount,
+		round: {
+			roundId: info.roundId,
+			cycleIndex: info.cycleIndex,
+			trackPlayUrl: currentTrack?.playUrl || '',
+			trackMapSignature: currentTrack?.sig || 'default|none',
+			laps: roundLaps,
+		},
+		nextRound: {
+			cycleIndex: info.cycleIndex + 1,
+			trackPlayUrl: '',
+			trackMapSignature: 'default|none',
+			hasTrack: false,
+		},
+		cycleStart: info.cycleStart,
+		playEnd: info.playEnd,
+		cycleEnd: info.cycleEnd,
+		roundEndAt: info.playEnd,
+		rankingsEndAt: info.cycleEnd,
+		inRankings: info.inRankings,
+		roundOver: info.roundOver,
+	};
+	publicServerState.server = server;
+	handlePublicServerRound( server );
+
 }
 
-// The synced server time = Date.now() + the measured offset between the
-// worker's clock and ours. This keeps the countdown perfectly in sync with the
-// (authoritative) worker clock even if the player's device clock drifts.
+// The synced "server time" is just wall-clock UTC (cycleInfo is anchored to a
+// UTC epoch, so using Date.now() directly keeps every client on the same cycle
+// boundaries without any clock-skew correction from a backend). Kept as a
+// function so the old call sites stay readable.
 function publicServerNow() {
 
-	return Date.now() + publicServerState.serverNowOffsetMs;
+	return Date.now();
+
+}
+
+// Member count from the PeerJS mesh. The host owns all the connections, so it
+// knows the real count (connections + itself). Joiners only have their single
+// connection to the host, so they use the count the host reports in its META
+// packet (falling back to 1 if no META has arrived yet).
+function computePublicServerMemberCount() {
+
+	if ( publicServerState.isHost ) {
+
+		return multiplayerSessionState.connections.size + 1;
+
+	}
+	return Math.max( 1, publicServerState.hostPeerCount || ( multiplayerSessionState.connections.size > 0 ? 2 : 1 ) );
+
+}
+
+// Collect the per-round best laps for the rankings overlay. Combines laps
+// received from peers (P2P, keyed by roundId) with our own best lap this round.
+function collectPublicServerRoundLaps( roundId ) {
+
+	const out = {};
+	const peerLaps = publicServerState.peerLaps[ roundId ];
+	if ( peerLaps ) {
+
+		for ( const [ pid, row ] of Object.entries( peerLaps ) ) {
+
+			if ( pid === multiplayerSessionState.clientId ) continue;
+			const time = Number( row?.time );
+			if ( ! Number.isFinite( time ) ) continue;
+			out[ pid ] = { name: row?.name || 'Player', time };
+
+		}
+
+	}
+	// Include our own best lap for this round.
+	if ( Number.isFinite( publicServerState.skippedLapSeconds ) ) {
+
+		out[ multiplayerSessionState.clientId ] = {
+			name: getLocalMultiplayerDisplayName(),
+			time: publicServerState.skippedLapSeconds,
+		};
+
+	}
+	return out;
 
 }
 
@@ -1495,8 +1577,8 @@ function handlePublicServerRound( server ) {
 	const round = server.round || {};
 	const roundId = Number( round.roundId ) || 0;
 	const now = publicServerNow();
-	const playEnd = Number( server.playEnd ) || Number( server.roundEndAt ) || now;
-	const cycleEnd = Number( server.cycleEnd ) || Number( server.rankingsEndAt ) || playEnd;
+	const playEnd = Number( server.playEnd ) || now;
+	const cycleEnd = Number( server.cycleEnd ) || playEnd;
 	const remainingMs = Math.max( 0, Math.min( playEnd, cycleEnd ) - now );
 	const inRankings = Boolean( server.inRankings );
 
@@ -1511,15 +1593,22 @@ function handlePublicServerRound( server ) {
 
 		}
 		publicServerState.lastRoundId = roundId;
+		// Reset the track-resolution guard so the new round's track resolves.
+		publicServerState.resolveScheduledForCycle = -1;
 
 	}
 
 	renderPublicServerTimer( server, remainingMs, inRankings );
 
-	// Show rankings for ~5s when the round's play window ends.
-	if ( inRankings && publicServerState.rankingsShownForRoundId !== roundId ) {
+	// Show rankings for ~5s when the round's play window ends. Re-render each
+	// tick while visible so late-arriving P2P laps appear.
+	if ( inRankings ) {
 
-		publicServerState.rankingsShownForRoundId = roundId;
+		if ( publicServerState.rankingsShownForRoundId !== roundId ) {
+
+			publicServerState.rankingsShownForRoundId = roundId;
+
+		}
 		renderPublicServerRankings( server );
 		getPublicServerRankingsEl()?.classList.add( 'visible' );
 
@@ -1531,43 +1620,16 @@ function handlePublicServerRound( server ) {
 
 	}
 
-	// During the rankings window, pre-cache the NEXT cycle's track so the
-	// rotation is seamless. The pick is deterministic (see pickTrackForCycle), so
-	// every player computes the same next track; set-track is first-writer-wins so
-	// only ONE write happens per cycle across all clients. Guarded per cycle so we
-	// don't fire on every 1s poll.
-	const nextRound = server.nextRound || {};
-	const nextCycleIndex = Number( nextRound.cycleIndex ) || 0;
-	if ( inRankings && ! nextRound.hasTrack && publicServerState.trackSetForCycleIndex !== nextCycleIndex ) {
-
-		publicServerState.trackSetForCycleIndex = nextCycleIndex;
-		maybePickNextTrack( nextCycleIndex ).catch( ( e ) => console.warn( 'pick next track failed', e ) );
-
-	}
-	if ( nextRound.hasTrack && publicServerState.trackSetForCycleIndex === nextCycleIndex ) {
-
-		publicServerState.trackSetForCycleIndex = -1;
-
-	}
-
 	// --- Track resolution (deterministic, host-independent) ----------------
 	// The track for each cycle is chosen DETERMINISTICALLY from the cycle index
 	// (which is itself derived from wall-clock UTC — a single global timezone, so
 	// every player computes the same cycleIndex and therefore the same track).
-	// See pickTrackForCycle() in PublicServers.js. This means:
-	//   • No coordination write is needed to AGREE on a track — everyone computes
-	//     the same answer. The worker's set-track endpoint is only used as a CACHE
-	//     so late joiners can read the already-picked track without re-fetching
-	//     the board (one first-writer-wins write per cycle, vs. every player
-	//     writing every rankings window under the old random scheme).
-	//   • FIRST JOIN navigates to the correct track immediately: even if no one
-	//     has cached the track for the current cycle yet, this client computes it
-	//     and redirects. The old code only picked a track during the rankings
-	//     window, so a fresh join onto a cycle with no cached track left you
-	//     stranded on the default map.
+	// See pickTrackForCycle() in PublicServers.js. No coordination write is needed
+	// to AGREE on a track — everyone computes the same answer. FIRST JOIN
+	// navigates to the correct track immediately: even on a fresh join, this
+	// client computes it and redirects.
 	const sig = String( round.trackMapSignature || 'default|none' );
 	const hasTrack = Boolean( round.trackPlayUrl ) && sig !== 'default|none';
-	const currentCycleIndex = Number( round.cycleIndex ) || 0;
 	if ( hasTrack && roundId !== publicServerState.loadedRoundId ) {
 
 		// Already on the right map (e.g. we just reloaded onto the track we
@@ -1594,22 +1656,15 @@ function handlePublicServerRound( server ) {
 
 		}
 
-	} else if ( ! hasTrack && roundId !== publicServerState.loadedRoundId ) {
-
-		// No cached track for the current cycle yet. Resolve it deterministically
-		// (compute + cache via set-track, first-writer-wins) and redirect. This is
-		// the first-join fix: we don't wait for a rankings window — we navigate to
-		// the correct track right away. In-flight resolution is de-duplicated per
-		// cycle so the 1s poll can't kick off duplicate fetches.
-		ensureTrackForCycle( currentCycleIndex ).catch( ( e ) => console.warn( 'resolve track failed', e ) );
-
 	}
 
 }
 
 // Cached fetch of the community-track list (sorted by a stable key in
-// PublicServers.fetchTrackList). Cached for 60s so the 1s poll doesn't hammer
-// the track board. Returns [] on failure (caller treats "no tracks" gracefully).
+// PublicServers.fetchTrackList). Cached for 60s so the round loop doesn't
+// hammer the track board. Returns [] on failure (caller treats "no tracks"
+// gracefully). This is a READ-ONLY GET to the track share board — zero KV
+// writes, so it never counts against the Cloudflare free-plan daily quota.
 async function getCachedTrackList() {
 
 	const now = Date.now();
@@ -1623,11 +1678,11 @@ async function getCachedTrackList() {
 
 }
 
-// Resolve the deterministic track for a cycle: compute it locally (so it's
-// identical for every player), cache it on the worker via set-track (first-
-// writer-wins, so only ONE write happens per cycle across all clients), then
-// redirect to it. De-duplicated per cycleIndex so repeated polls don't fire
-// concurrent fetches.
+// Resolve the deterministic track for a cycle: compute it locally (identical
+// for every player) and cache the result in-process for the rest of the round,
+// then redirect to it if we aren't already on it. No worker write — the pick is
+// deterministic so agreement is free. De-duplicated per cycleIndex so repeated
+// ticks don't fire concurrent fetches.
 async function ensureTrackForCycle( cycleIndex ) {
 
 	if ( ! isPublicServerActive() ) return;
@@ -1639,19 +1694,21 @@ async function ensureTrackForCycle( cycleIndex ) {
 
 			const list = await getCachedTrackList();
 			const entry = pickTrackForCycle( cycleIndex, publicServerState.serverId, list );
-			if ( ! entry || ! entry.playUrl ) return;
-			const sig = mapSignatureFromPlayUrl( entry.playUrl );
-			// Cache on the worker so late joiners read it directly. First-writer-wins:
-			// if someone already set it we get alreadySet:true and ignore the result.
-			// We still redirect off our own deterministic answer (which matches what
-			// the other player cached, since the pick is deterministic).
-			try {
-				await publicSetServerTrack( publicServerState.serverId, multiplayerSessionState.clientId, cycleIndex, entry.playUrl, sig );
-			} catch ( e ) {
-				console.warn( 'set-track cache failed (non-fatal — pick is deterministic)', e );
+			if ( ! entry || ! entry.playUrl ) {
+
+				// No community tracks available yet — reset the guard so we retry
+				// next tick. The current map keeps running; the round still
+				// advances on the wall-clock boundary.
+				publicServerState.resolveScheduledForCycle = -1;
+				return;
+
 			}
+			const sig = mapSignatureFromPlayUrl( entry.playUrl );
+			// Cache the resolved track in-process so future ticks read it directly.
+			if ( ! publicServerState.resolvedTracksByCycle ) publicServerState.resolvedTracksByCycle = {};
+			publicServerState.resolvedTracksByCycle[ cycleIndex ] = { playUrl: entry.playUrl, sig };
 			if ( ! isPublicServerActive() ) return;
-			const roundId = publicServerState.lastRoundId;
+			const roundId = publicServerState.lastRoundId || publicServerCycleInfo( publicServerNow() ).roundId;
 			// Only redirect if we haven't already loaded this round's track and we're
 			// not already on it (avoid a redundant reload / loop).
 			const alreadyOnTrack = ( sig === getCurrentMapSignature() );
@@ -1679,35 +1736,315 @@ async function ensureTrackForCycle( cycleIndex ) {
 
 }
 
-// During the rankings window, pre-resolve + cache the NEXT cycle's track so the
-// rotation is seamless. This is a best-effort optimization — the next cycle's
-// track will also be resolved on demand if a joiner lands on it first. Uses the
-// deterministic picker so it matches what everyone else computes.
-async function maybePickNextTrack( nextCycleIndex ) {
+// --- PeerJS-native host election + P2P packet helpers ---------------------
+//
+// Host election without a backend: the first player to claim the
+// RACE-ROOM-<code> peer id becomes the host; joiners connect to it. If the id
+// is already taken (another player is host), PeerJS fires an 'unavailable-id'
+// error → we become a joiner instead. If the host later disappears, joiners
+// detect their dead connection to the host and reclaim the id (self-healing).
+// This grants NO in-game privileges — the host is just the PeerJS relay + the
+// one that broadcasts the META packet.
+
+// Try to claim the host peer id; if taken, fall back to joiner. Resolves once
+// the peer is open (host) or once we've started connecting to the host (joiner).
+function startPublicServerPeer( roomCode ) {
+
+	return new Promise( ( resolve ) => {
+
+		if ( ! isPublicServerActive() ) { resolve(); return; }
+		const hostPeerId = getPeerRoomId( roomCode );
+		closeMultiplayerPeer();
+		logMpDebug( `[PublicServer] Trying to claim host peer id ${ hostPeerId }…` );
+		const peer = new Peer( hostPeerId, peerConfig );
+		multiplayerSessionState.peer = peer;
+		let settled = false;
+		const becomeHost = () => {
+
+			if ( settled ) return;
+			settled = true;
+			publicServerState.isHost = true;
+			publicServerState.claimedHost = true;
+			publicServerState.hostPeerCount = 0;
+			multiplayerSessionState.role = 'host';
+			applyPublicServerRoleToConnections( roomCode, 'host' );
+			resolve();
+
+		};
+		const becomeJoiner = () => {
+
+			if ( settled ) return;
+			settled = true;
+			// Re-create the peer with our own client id (the host-id claim failed).
+			closeMultiplayerPeer();
+			publicServerState.isHost = false;
+			multiplayerSessionState.role = 'join';
+			applyPublicServerRoleToConnections( roomCode, 'join' );
+			resolve();
+
+		};
+
+		peer.on( 'open', ( id ) => {
+
+			// We got the host id → we are the host.
+			if ( id === hostPeerId ) {
+
+				logMpDebug( `[PublicServer] Claimed host peer id ${ hostPeerId }` );
+				becomeHost();
+				return;
+
+			}
+			// PeerJS assigned us a different id (shouldn't happen when we request a
+			// specific id, but handle it) → treat as joiner.
+			becomeJoiner();
+
+		} );
+		peer.on( 'connection', ( connection ) => {
+
+			// A joiner connected to us (host). Register + relay their packets.
+			logMpDebug( `[PublicServer] Host received connection from ${ connection.peer }` );
+			connection.on( 'open', () => {
+
+				registerPeerConnection( connection );
+				broadcastPeerState();
+
+			} );
+			connection.on( 'error', ( error ) => logMpDebug( `[PublicServer] Connection error: ${ error?.message || error }` ) );
+
+		} );
+		peer.on( 'error', ( error ) => {
+
+			const type = error?.type || '';
+			// 'unavailable-id' = someone else already owns RACE-ROOM-<code> → join.
+			if ( type === 'unavailable-id' ) {
+
+				logMpDebug( `[PublicServer] Host id taken — joining as guest` );
+				becomeJoiner();
+				return;
+
+			}
+			logMpDebug( `[PublicServer] Peer error: ${ type } ${ error?.message || '' }` );
+			// For other errors, if we haven't settled yet, fall back to joiner so the
+			// player still gets into the room (the maintenance loop will keep trying).
+			if ( ! settled ) becomeJoiner();
+
+		} );
+		peer.on( 'disconnected', () => logMpDebug( `[PublicServer] Peer disconnected: ${ hostPeerId }` ) );
+		peer.on( 'close', () => logMpDebug( `[PublicServer] Peer closed: ${ hostPeerId }` ) );
+
+		// Safety: if neither 'open' nor 'unavailable-id' fires in 6s, assume joiner.
+		setTimeout( () => { if ( ! settled ) becomeJoiner(); }, 6000 );
+
+	} );
+
+}
+
+// Apply the resolved role (host/joiner) by setting up the PeerJS connections.
+// For a joiner this connects to the host peer id; for a host it just waits for
+// incoming connections (already wired in startPublicServerPeer). Reuses the
+// existing startPeerMultiplayer infra for the joiner path so packet handling is
+// identical to private rooms.
+function applyPublicServerRoleToConnections( roomCode, role ) {
+
+	if ( role === 'host' ) {
+
+		// Host already listens for incoming connections in startPublicServerPeer.
+		// Nothing more to do — registerPeerConnection handles joiners as they arrive.
+		return;
+
+	}
+	// Joiner: connect to the host peer id. Reuse startPeerMultiplayer's joiner
+	// path so the data-channel + packet handling is identical to private rooms.
+	startPeerMultiplayer( roomCode, 'join' );
+
+}
+
+// If our PeerJS peer died (PeerJS cloud signalling drops happen), restart it in
+// the current role. This is the only "maintenance" left and does no backend
+// writes. For a joiner whose host disappeared, attempt to reclaim the host id
+// (self-healing). Debounced via hostClaimInFlight.
+function maintainPublicServerPeer() {
 
 	if ( ! isPublicServerActive() ) return;
-	try {
+	const roomCode = publicServerRoomCode();
+	if ( ! roomCode ) return;
+	const peer = multiplayerSessionState.peer;
+	// Peer still alive → nothing to do.
+	if ( peer && ! peer.destroyed && ! peer.disconnected ) {
 
-		const list = await getCachedTrackList();
-		const entry = pickTrackForCycle( nextCycleIndex, publicServerState.serverId, list );
-		if ( ! entry || ! entry.playUrl ) {
+		// Joiner self-heal: if we lost our connection to the host, try to reclaim
+		// the host id so other joiners can find us.
+		if ( ! publicServerState.isHost && publicServerState.hostClaimInFlight ) return;
+		if ( ! publicServerState.isHost && multiplayerSessionState.connections.size === 0 ) {
 
-			// No community tracks available yet — reset our guard so we retry next
-			// rankings window. The current map keeps running; the round still
-			// advances on the wall-clock boundary.
-			publicServerState.trackSetForCycleIndex = -1;
-			return;
+			maybeReclaimPublicServerHost( roomCode );
 
 		}
-		const sig = mapSignatureFromPlayUrl( entry.playUrl );
-		// Cache on the worker (first-writer-wins). Harmless if already set.
-		await publicSetServerTrack( publicServerState.serverId, multiplayerSessionState.clientId, nextCycleIndex, entry.playUrl, sig );
+		return;
 
-	} catch ( error ) {
+	}
+	// Peer is gone/disconnected — restart in the current role.
+	logMpDebug( `[PublicServer] Peer down, restarting as ${ publicServerState.isHost ? 'host' : 'joiner' }` );
+	if ( publicServerState.isHost ) {
 
-		// Allow retry on the next poll.
-		publicServerState.trackSetForCycleIndex = -1;
-		console.warn( 'Failed to set next public-server track', error );
+		// Re-claim the host id.
+		startPublicServerPeer( roomCode ).catch( ( e ) => console.warn( 'public server host restart failed', e ) );
+
+	} else {
+
+		applyPublicServerRoleToConnections( roomCode, 'join' );
+
+	}
+
+}
+
+// A joiner that lost its host connection tries to claim the RACE-ROOM-<code> id.
+// If it succeeds it becomes the new host (self-healing); if the id is still
+// taken (someone else became host first) it stays a joiner and reconnects.
+function maybeReclaimPublicServerHost( roomCode ) {
+
+	if ( publicServerState.hostClaimInFlight ) return;
+	publicServerState.hostClaimInFlight = true;
+	const hostPeerId = getPeerRoomId( roomCode );
+	logMpDebug( `[PublicServer] Attempting to reclaim host id ${ hostPeerId }` );
+	const probe = new Peer( hostPeerId, peerConfig );
+	let resolved = false;
+	const finish = ( becameHost ) => {
+
+		if ( resolved ) return;
+		resolved = true;
+		publicServerState.hostClaimInFlight = false;
+		if ( becameHost ) {
+
+			logMpDebug( `[PublicServer] Reclaimed host id — becoming host` );
+			// Swap our dead peer for the reclaimed host peer.
+			closeMultiplayerPeer();
+			multiplayerSessionState.peer = probe;
+			publicServerState.isHost = true;
+			publicServerState.claimedHost = true;
+			publicServerState.hostPeerCount = 0;
+			multiplayerSessionState.role = 'host';
+			probe.on( 'connection', ( connection ) => {
+
+				connection.on( 'open', () => {
+
+					registerPeerConnection( connection );
+					broadcastPeerState();
+
+				} );
+				connection.on( 'error', () => {} );
+
+			} );
+
+		} else {
+
+			// Someone else is host — destroy the probe + reconnect as joiner.
+			try { probe.destroy(); } catch {}
+			applyPublicServerRoleToConnections( roomCode, 'join' );
+
+		}
+
+	};
+	probe.on( 'open', ( id ) => { if ( id === hostPeerId ) finish( true ); } );
+	probe.on( 'error', ( error ) => {
+
+		if ( error?.type === 'unavailable-id' ) finish( false );
+		// Other errors: give up the claim, stay joiner.
+		else finish( false );
+
+	} );
+	setTimeout( () => finish( false ), 5000 );
+
+}
+
+// Broadcast our best lap for the current round to the PeerJS mesh. The host
+// relays it so all peers see it (not just directly-connected ones). Each peer
+// keeps the minimum per playerId per round.
+function broadcastPublicServerLap( bestLap, displayName ) {
+
+	if ( ! isPublicServerActive() ) return;
+	if ( ! multiplayerSessionState.peer || multiplayerSessionState.connections.size === 0 ) {
+
+		// No peers yet — still record our own lap locally so it shows in our rankings.
+		ingestPublicServerPeerLap( multiplayerSessionState.clientId, { time: bestLap, name: displayName } );
+		return;
+
+	}
+	const info = publicServerCycleInfo( publicServerNow() );
+	const packet = {
+		type: PEER_PACKET_LAP,
+		playerId: multiplayerSessionState.clientId,
+		roundId: info.roundId,
+		time: Number( bestLap ),
+		name: displayName,
+	};
+	// Record our own lap locally too.
+	ingestPublicServerPeerLap( multiplayerSessionState.clientId, packet );
+	for ( const connection of multiplayerSessionState.connections.values() ) {
+
+		if ( connection?.open ) {
+
+			try { connection.send( packet ); } catch {}
+
+		}
+
+	}
+
+}
+
+// Ingest a peer's (or our own) LAP packet into the local round-laps map. Keeps
+// the minimum time per playerId per round so the rankings show each player's best.
+function ingestPublicServerPeerLap( playerId, packet ) {
+
+	if ( ! isPublicServerActive() ) return;
+	const pid = String( playerId || packet?.playerId || '' );
+	if ( ! pid ) return;
+	const roundId = Number( packet?.roundId );
+	if ( ! Number.isFinite( roundId ) ) return;
+	const time = Number( packet?.time );
+	if ( ! Number.isFinite( time ) || time < 0 ) return;
+	if ( ! publicServerState.peerLaps[ roundId ] ) publicServerState.peerLaps[ roundId ] = {};
+	const existing = publicServerState.peerLaps[ roundId ][ pid ];
+	if ( ! existing || time < Number( existing.time ) ) {
+
+		publicServerState.peerLaps[ roundId ][ pid ] = { name: packet?.name || existing?.name || 'Player', time };
+
+	}
+
+}
+
+// Host-only: broadcast a META packet with the current round + member count so
+// joiners can display an accurate "N players online" without a backend.
+function broadcastPublicServerMeta( info, memberCount ) {
+
+	if ( ! isPublicServerActive() || ! publicServerState.isHost ) return;
+	if ( ! multiplayerSessionState.peer || multiplayerSessionState.connections.size === 0 ) return;
+	const packet = {
+		type: PEER_PACKET_META,
+		roundId: info.roundId,
+		cycleIndex: info.cycleIndex,
+		memberCount,
+	};
+	for ( const connection of multiplayerSessionState.connections.values() ) {
+
+		if ( connection?.open ) {
+
+			try { connection.send( packet ); } catch {}
+
+		}
+
+	}
+
+}
+
+// Joiner-side: ingest the host's META packet to update the member-count display.
+function ingestPublicServerPeerMeta( packet ) {
+
+	if ( ! isPublicServerActive() ) return;
+	const count = Number( packet?.memberCount );
+	if ( Number.isFinite( count ) && count > 0 ) {
+
+		publicServerState.hostPeerCount = count;
 
 	}
 
@@ -1769,8 +2106,8 @@ function renderPublicServerRankings( server ) {
 	rows.sort( ( a, b ) => a.time - b.time );
 
 	subEl.textContent = `${ publicServerName() } • round ${ server?.round?.roundId || '' }`;
-	// No host mention — picking the next track is a shared, automatic action.
-	nextEl.textContent = 'Loading a random community track for the next round…';
+	// No host mention — the next track is picked deterministically for everyone.
+	nextEl.textContent = 'Loading the next community track for the new round…';
 
 	listEl.innerHTML = '';
 	if ( rows.length === 0 ) {
@@ -1879,9 +2216,10 @@ function initMultiplayerPanel() {
 
 	const configReady = hasFirebaseMultiplayerConfig();
 
-	// Public servers are wired up regardless of Firebase config: they use the
-	// Cloudflare servers worker for synced round state and PeerJS's default
-	// cloud signalling for the WebRTC peer connections (no Firebase needed).
+	// Public servers are wired up regardless of Firebase config: their synced
+	// round timer + track rotation are pure wall-clock UTC math, and their
+	// rankings/member-count/host-election are distributed over PeerJS's default
+	// cloud signalling (no Firebase, no servers worker needed).
 	buildPublicServerButtons();
 
 	// Auto-join a public server on boot via ?pubServer=<id> (used after a round
@@ -3864,23 +4202,10 @@ async function init() {
 	setInterval( broadcastPeerState, WEBRTC_SYNC_MS );
 	window.addEventListener( 'beforeunload', () => {
 
-		if ( isPublicServerActive() ) {
-
-			// Best-effort leave so the host seat is freed quickly. Use sendBeacon
-			// style fire-and-forget (fetch keepalive) so it survives navigation.
-			const url = `${ SERVERS_API_BASE }/${ encodeURIComponent( publicServerState.serverId ) }/leave`;
-			try {
-
-				fetch( url, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify( { clientId: multiplayerSessionState.clientId } ),
-					keepalive: true,
-				} ).catch( () => {} );
-
-			} catch {}
-
-		}
+		// Public servers no longer have a backend membership to clear — leaving is
+		// purely a PeerJS action (the LEFT packet + peer destroy below handle it).
+		// If we were the host, the maintenance loop on a surviving joiner will
+		// reclaim the host id (self-healing), so no leave fetch is needed.
 		if ( ! multiplayerSessionState.roomCode ) return;
 		for ( const connection of multiplayerSessionState.connections.values() ) {
 

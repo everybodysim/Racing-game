@@ -1,31 +1,43 @@
 // Public multiplayer servers client helper.
 //
-// Provides the predefined public-server list, the worker API base, and thin
-// fetch wrappers. The actual UI/loop wiring lives in js/main.js (it reuses the
-// existing PeerJS multiplayer session state + DOM).
+// Provides the predefined public-server list, the deterministic round-timer
+// math, the track-share board fetch, and the deterministic track picker. The
+// actual UI/loop wiring lives in js/main.js (it reuses the existing PeerJS
+// multiplayer session state + DOM).
+//
+// NOTE: public servers no longer use the racing-servers-api Cloudflare Worker
+// for round/rotation/rankings state — all of that is now derived locally from
+// wall-clock UTC (the round timer + track rotation are deterministic) or
+// distributed peer-to-peer over the existing PeerJS mesh (rankings + member
+// count + host election). The only Cloudflare dependency left is the track
+// share board worker, which is read-only (GET /api/tracks) and costs zero KV
+// writes, so it never trips the free-plan daily write quota.
 
-// Deployed worker URL (see cloudflare-servers/worker). The KV binding is
-// SERVERS_KV. This is the source of truth for the synced 5-minute round timer,
-// round rotation, and per-round best-lap rankings.
-export const SERVERS_API_BASE = 'https://racing-servers-api.ga1010.workers.dev/api/servers';
-
-// The shared track-share board. Any player in a public server picks a random
-// track from here for the next cycle during the rankings window (first-writer-
-// wins on the worker). It is NOT a host-only action.
+// The shared track-share board. The deterministic track picker reads this list
+// so every player on a given public server computes the SAME track for the same
+// cycle. Read-only from the public servers' point of view — it never writes, so
+// it costs zero KV writes against the Cloudflare free-plan daily quota.
 export const TRACK_BOARD_API = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
 
-// 5 minutes of play per round + 5 seconds of rankings before rotating
-// (mirrors the worker). The timer is anchored to wall-clock UTC (see the
-// worker's ROUND_EPOCH / CYCLE_MS), so it is always running and can never
-// freeze — it does not depend on a host or on when players joined.
+// 5 minutes of play per round + 5 seconds of rankings before rotating. The
+// timer is anchored to wall-clock UTC (see ROUND_EPOCH / CYCLE_MS below), so it
+// is always running and can never freeze — it does not depend on a host or on
+// when players joined. Because every client derives the cycle from the same
+// UTC epoch, the round boundaries are identical for everyone with no
+// coordination at all.
 export const PLAY_DURATION_MS = 5 * 60 * 1000;
 export const RANKINGS_WINDOW_MS = 5 * 1000;
 export const CYCLE_MS = PLAY_DURATION_MS + RANKINGS_WINDOW_MS;
 
+// Fixed anchor in the past. All cycle boundaries are computed relative to this,
+// so the timer is deterministic and identical for every player regardless of
+// when they joined. (Uses UTC — a single global timezone.) Must match the value
+// in main.js (it is mirrored there so the local round loop is self-contained).
+export const ROUND_EPOCH = Date.UTC( 2026, 0, 1, 0, 0, 0 ); // 2026-01-01T00:00:00Z
+
 // The fixed public servers. They are NOT locational — they are just three
 // parallel rooms so players can spread out if one is full. `code` is the shared
-// PeerJS room code (host peer id `RACE-ROOM-<code>`). Keep in sync with the
-// worker's PREDEFINED_SERVERS list (same ids/codes/names).
+// PeerJS room code (host peer id `RACE-ROOM-<code>`).
 export const PUBLIC_SERVERS = [
 	{ id: 'server-1', name: 'Server 1', code: 'PUBSV1' },
 	{ id: 'server-2', name: 'Server 2', code: 'PUBSV2' },
@@ -38,97 +50,34 @@ export function findPublicServer( id ) {
 
 }
 
+// Public servers are always "configured" now — they need no backend worker of
+// their own. They only need the read-only track share board (which costs zero
+// KV writes) and PeerJS's default cloud signalling (free). Kept as a function
+// so existing call sites keep compiling.
 export function isPublicServerConfigured() {
 
-	return Boolean( SERVERS_API_BASE && ! SERVERS_API_BASE.includes( 'REPLACE_WITH' ) );
+	return true;
 
 }
 
-async function serverRequest( path, method = 'GET', payload = undefined ) {
+// Compute the cycle timing for a given wall-clock `now` (ms since epoch,
+// ideally UTC-derived). Pure function — no state, no host, no network. The
+// timer can never freeze because it is just math against the real clock. Every
+// client calling this with the same `now` gets the same round boundaries.
+export function cycleInfo( now ) {
 
-	const controller = new AbortController();
-	const timeoutId = setTimeout( () => controller.abort(), 6000 );
-	try {
-
-		const response = await fetch( `${ SERVERS_API_BASE }${ path }`, {
-			method,
-			headers: payload !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-			body: payload !== undefined ? JSON.stringify( payload ) : undefined,
-			cache: 'no-store',
-			signal: controller.signal,
-		} );
-		if ( ! response.ok ) {
-
-			let detail = '';
-			try { detail = await response.text(); } catch { detail = ''; }
-			throw new Error( `server-http-${ response.status }${ detail ? `:${ detail.slice( 0, 200 ) }` : '' }` );
-
-		}
-		return await response.json();
-
-	} finally {
-
-		clearTimeout( timeoutId );
-
-	}
-
-}
-
-export async function fetchServerState( serverId ) {
-
-	return serverRequest( `/${ encodeURIComponent( serverId ) }`, 'GET' );
-
-}
-
-export async function joinServer( serverId, clientId, name ) {
-
-	return serverRequest( `/${ encodeURIComponent( serverId ) }/join`, 'POST', { clientId, name } );
-
-}
-
-export async function claimServerHost( serverId, clientId, name ) {
-
-	return serverRequest( `/${ encodeURIComponent( serverId ) }/claim-host`, 'POST', { clientId, name } );
-
-}
-
-export async function heartbeatServer( serverId, clientId, name ) {
-
-	return serverRequest( `/${ encodeURIComponent( serverId ) }/heartbeat`, 'POST', { clientId, name } );
-
-}
-
-export async function submitServerLap( serverId, clientId, name, time ) {
-
-	return serverRequest( `/${ encodeURIComponent( serverId ) }/lap`, 'POST', { clientId, name, time } );
-
-}
-
-// Set the track for a specific cycle index (first-writer-wins). ANY player may
-// call this — it is not host-gated. Typically called during the rankings
-// window to set the NEXT cycle's track so the rotation keeps going even if the
-// (hidden) host peer disappears.
-export async function setServerTrack( serverId, clientId, cycleIndex, trackPlayUrl, trackMapSignature ) {
-
-	return serverRequest( `/${ encodeURIComponent( serverId ) }/set-track`, 'POST', {
-		clientId,
-		cycleIndex,
-		trackPlayUrl,
-		trackMapSignature,
-	} );
-
-}
-
-export async function leaveServer( serverId, clientId ) {
-
-	return serverRequest( `/${ encodeURIComponent( serverId ) }/leave`, 'POST', { clientId } );
-
-}
-
-export async function fetchRandomTrackPlayUrl() {
-
-	const list = await fetchTrackList();
-	return list.length ? list[ Math.floor( Math.random() * list.length ) ].playUrl : null;
+	const sinceEpoch = now - ROUND_EPOCH;
+	const cycleIndex = Math.floor( sinceEpoch / CYCLE_MS );
+	const cycleStart = ROUND_EPOCH + cycleIndex * CYCLE_MS;
+	const playEnd = cycleStart + PLAY_DURATION_MS;
+	const cycleEnd = cycleStart + CYCLE_MS;
+	// roundId is the cycle index (stable, monotonic, identical for everyone).
+	const roundId = cycleIndex;
+	// inRankings = the 5s window after play ends, before the next cycle.
+	const inRankings = now >= playEnd && now < cycleEnd;
+	// roundOver = the next cycle has begun (a new round is active).
+	const roundOver = now >= cycleEnd;
+	return { roundId, cycleIndex, cycleStart, playEnd, cycleEnd, inRankings, roundOver };
 
 }
 
@@ -160,6 +109,16 @@ export async function fetchTrackList() {
 		clearTimeout( timeoutId );
 
 	}
+
+}
+
+// Random track helper (kept for compatibility). Public servers use the
+// deterministic pickTrackForCycle so every player agrees without coordination;
+// this random helper is only used by other call sites that want a random track.
+export async function fetchRandomTrackPlayUrl() {
+
+	const list = await fetchTrackList();
+	return list.length ? list[ Math.floor( Math.random() * list.length ) ].playUrl : null;
 
 }
 
@@ -197,7 +156,7 @@ function hashString( str ) {
 }
 
 // Pick the track for a given cycle deterministically. The cycle index is derived
-// from wall-clock UTC (see the worker's ROUND_EPOCH / CYCLE_MS), so this is the
+// from wall-clock UTC (see ROUND_EPOCH / cycleInfo), so this is the
 // "seed from a single world timezone" approach: every player computes the same
 // cycleIndex and therefore the same track, with no coordination write. The
 // server id is folded into the seed so the three public servers don't all race

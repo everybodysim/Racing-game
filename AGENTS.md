@@ -1009,7 +1009,7 @@ The mobile UI had two independent triggers; BOTH are neutralized:
   layout, all buttons). No regressions.
 - CSS braces balanced (519/519 excl. comments); detection IIFE braces balanced.
 
-## Public multiplayer servers (`js/PublicServers.js` + `cloudflare-servers/worker/` + `js/main.js` + `index.html`)
+## Public multiplayer servers (`js/PublicServers.js` + `js/main.js` + `index.html`)
 
 ### What it is
 - 3 fixed public servers in the multiplayer widget (`#mp-panel`): **Server 1**
@@ -1021,25 +1021,71 @@ The mobile UI had two independent triggers; BOTH are neutralized:
   join. Everyone races the current map for 5 minutes.
 - When the round ends, a **rankings overlay** (`#mp-server-rankings`) shows the
   best-lap standings for that round for ~5 seconds.
-- Then **any player** (not just a host) picks a random community track from the
-  track share board (first-writer-wins on the worker) and everyone is redirected
-  to that track (rejoining the same server) for another 5-minute round. Loop forever.
+- Then everyone is redirected to the **deterministically-chosen** community
+  track for the next cycle (rejoining the same server) for another 5-minute
+  round. Loop forever.
+
+### NO Cloudflare servers worker (the 2026-08 rework — KV quota fix)
+- Public servers used to store round/rotation/rankings state in a Cloudflare
+  Worker + KV (`cloudflare-servers/worker`, `racing-servers-api`). Even with
+  write-coalescing it blew through the KV free-plan daily write quota
+  (1000/day) under normal play → "KV put() limit exceeded for the day" →
+  `Could not join Server 1: server-http-500`. The rework removes that worker
+  ENTIRELY from the public-servers path: **public servers now make ZERO calls
+  to `racing-servers-api`**. The worker code is kept only for history (see the
+  STATUS notice at the top of `cloudflare-servers/README.md`); it can be
+  deleted/disabled. **No worker redeploy is required** for the rework — it's a
+  client-side change.
+- How each piece moved off the worker:
+  1. **Round timer** — was wall-clock math already; `cycleInfo(now)` now lives
+     in `PublicServers.js` (exported) and is called locally in `tickPublicServerRound`.
+     No `serverNowOffsetMs` / clock-skew correction needed (UTC epoch is global).
+  2. **Track rotation** — was already deterministic via `pickTrackForCycle`;
+     the `set-track` worker cache was removed. Each client computes the track
+     for the current cycle locally in `ensureTrackForCycle` (caches the result
+     in-process in `publicServerState.resolvedTracksByCycle`) and redirects.
+     No write. The only network call is the read-only `fetchTrackList`
+     (GET /api/tracks on the track share board — zero KV writes).
+  3. **Per-round rankings** — were `laps[cycleIndex][clientId]` in KV. Now
+     distributed P2P: each player broadcasts a `PEER_PACKET_LAP` on improvement
+     (`broadcastPublicServerLap`); the host relays so all peers see it
+     (`relayHostPacket`); each peer keeps the min per playerId per round
+     (`ingestPublicServerPeerLap` → `publicServerState.peerLaps[roundId]`).
+     `collectPublicServerRoundLaps` merges peer laps + our own into the
+     `server.round.laps` shape the rankings overlay reads.
+  4. **Member count** — was `Object.keys(members).length` in KV. Now derived
+     from the PeerJS mesh: the host knows `connections.size + 1` directly and
+     broadcasts it in a `PEER_PACKET_META` (~2s throttle, host-only); joiners
+     use `publicServerState.hostPeerCount` from that packet
+     (`ingestPublicServerPeerMeta`). `computePublicServerMemberCount` picks
+     the right source.
+  5. **Host election** — was `hostId`/`hostHeartbeatAt` in KV with self-healing
+     re-claim. Now PeerJS-native: `startPublicServerPeer` tries to claim the
+     `RACE-ROOM-<code>` peer id; if PeerJS fires `unavailable-id` (someone else
+     owns it) the client becomes a joiner (connects to that id). If the host
+     disappears, `maintainPublicServerPeer` (10s loop) detects the dead
+     connection and `maybeReclaimPublicServerHost` re-claims the id
+     (self-healing, debounced via `hostClaimInFlight`). No backend.
+- Result: the only remaining Cloudflare dependency is the read-only track share
+  board (`cloudflare/worker`), which never writes from the public-servers path.
 
 ### CRITICAL design rules (do not regress)
 - **The timer is ABSOLUTELY host-independent and always running.** Round
   boundaries are PURE wall-clock math (UTC, split into 5-min + 5-s chunks anchored
-  to `ROUND_EPOCH` = 2026-01-01T00:00:00Z). The timer does NOT depend on a host,
-  does NOT start when the first player joins, and can NEVER freeze. It is derived
-  from the worker's authoritative `now` (clients correct their own clock skew with
-  `serverNowOffsetMs`).
-- **No host privileges.** The first live player claims a "host" seat purely for
-  PeerJS peer-id election (so joiners can connect to `RACE-ROOM-<code>`), but it
-  grants NO in-game privileges and is NEVER shown in the UI. Everyone is an equal
-  "player". Do NOT add any `if (publicServerState.isHost)` gate that affects
-  gameplay/rotation/visibility — the only thing isHost gates is the PeerJS peer role.
+  to `ROUND_EPOCH` = 2026-01-01T00:00:00Z, via `cycleInfo` in `PublicServers.js`).
+  The timer does NOT depend on a host, does NOT start when the first player
+  joins, and can NEVER freeze. `publicServerNow()` is just `Date.now()` (UTC
+  epoch is global, so no skew correction is needed).
+- **No host privileges.** The first live player claims the `RACE-ROOM-<code>`
+  peer id (PeerJS-native host election) so joiners can connect, but it grants NO
+  in-game privileges and is NEVER shown in the UI. Everyone is an equal
+  "player". The only things `isHost` gates are: PeerJS relaying
+  (`relayHostPacket`), the META packet broadcast (`broadcastPublicServerMeta`),
+  and the direct member-count read (`connections.size + 1`). Do NOT add any
+  `if (publicServerState.isHost)` gate that affects gameplay/rotation/visibility.
 - **Anti-loop on round redirect (the reload-loop bug fix).** A redirect fires at
-  most ONCE per round, decided by `loadedRoundId` — the roundId whose track we have
-  already loaded — NOT by comparing map-signature strings. `loadedRoundId` is
+  most ONCE per round, decided by `loadedRoundId` — the roundId whose track we
+  have already loaded — NOT by comparing map-signature strings. `loadedRoundId` is
   persisted in `sessionStorage` (`PUBSRV_LOADED_ROUND_KEY` = `pubsrv_loaded_round`),
   which survives the reload that follows a redirect. On the reloaded page, the
   client recovers `loadedRoundId` from sessionStorage; since it equals the current
@@ -1058,62 +1104,27 @@ The mobile UI had two independent triggers; BOTH are neutralized:
   via the buttons or `?pubServer=` boot param). No `pubServer` param = no
   public-server code runs at all.
 
-### KV write budget (CRITICAL — Cloudflare free plan is 1000 writes/day)
-- The KV free plan allows only **1,000 put()s per day**. The original worker blew
-  through this in a few hours with a SINGLE player because every heartbeat wrote.
-  The fixes below brought a 3-hour single-player session from ~5400 puts to ~317
-  (verified by `test-public-servers-fixes.mjs`). Do NOT regress these:
-  1. **No `refreshIndex()`.** `saveServer()` used to call `refreshIndex()` which
-     wrote a redundant `servers:index` key on EVERY save (doubling all writes).
-     The index is built LIVE by `listServers()` (which reads all 3 servers
-     anyway), so the index key was deleted entirely. `KV_INDEX` constant removed.
-  2. **Heartbeat write-coalescing.** `heartbeat()` only persists when something
-     material changed: host seat flipped (`hostChanged`), members pruned
-     (`pruned`), OR the member's persisted `lastSeenAt` is getting stale
-     (`now - prevLastSeen > MEMBER_LASTSEEN_REFRESH_MS` = 60s). The in-memory
-     view always reflects `now`; only the KV-stored value is throttled. The host
-     refreshes `hostHeartbeatAt` only when `now - prevHostHeartbeat >
-     HOST_HEARTBEAT_REFRESH_MS` (30s). Constants: `MEMBER_STALE_MS=120s`,
-     `HOST_STALE_MS=45s`, `MEMBER_LASTSEEN_REFRESH_MS=60s`,
-     `HOST_HEARTBEAT_REFRESH_MS=30s`.
-  3. **`submitLap` only writes when the lap improved** (`improved`) or members
-     were pruned — not on every lap ping.
-  4. **`claimHost` only writes when the host seat changed or members pruned.**
-  5. **Client heartbeat interval = 12s** (was 4s). Safe under the 120s prune.
-- `getServer` (GET) and `listServers` (GET) are READ-ONLY (they call
-  `pruneMembers` for the response view but do NOT `saveServer`). Keep it that way.
-- Edge case: a single player idling 24/7 would still eventually approach the
-  limit (~1 host write per 30s = 2880/day). Free plan can't sustain true 24/7
-  presence; the fixes make NORMAL play (hours) safe. Upgrade for 24/7.
-
 ### Deterministic track rotation (the "seed from UTC" approach)
 - The track for each cycle is chosen DETERMINISTICALLY from the cycle index, NOT
   randomly per player. `pickTrackForCycle(cycleIndex, serverId, trackList)` in
   `PublicServers.js` uses a mulberry32 PRNG seeded from
   `cycleIndex * 2654435761 ^ hashString(serverId)`. The cycleIndex is derived
-  from wall-clock UTC (the worker's `ROUND_EPOCH`/`CYCLE_MS`), so this is the
-  "seed from a single global timezone" the user asked for — every player
-  computes the SAME track for the same cycle with zero coordination.
+  from wall-clock UTC (`ROUND_EPOCH`/`CYCLE_MS` via `cycleInfo`), so every player
+  computes the SAME track for the same cycle with zero coordination — no write.
 - `fetchTrackList()` fetches the full community-track board and SORTS it by a
   stable key (`id`, falling back to `playUrl`) so the deterministic pick is
-  reproducible across clients regardless of insertion/KV-iteration order.
-- The worker's `set-track` endpoint is now only a CACHE (first-writer-wins): the
-  first client to resolve a cycle caches it so late joiners read it directly.
-  Because the pick is deterministic, every client agrees — only ONE set-track
-  write happens per cycle across all clients (was: every player wrote every
-  rankings window under the old random scheme).
-- **First-join fix.** `handlePublicServerRound` now resolves the current cycle's
-  track ON JOIN (not only during the rankings window). If the worker has a cached
-  track → redirect to it. If NOT → `ensureTrackForCycle(cycleIndex)` computes it
-  deterministically, caches via set-track, and redirects. This fixes the old bug
-  where a fresh join onto a cycle with no cached track stranded you on the
-  default map. In-flight resolution is de-duplicated per cycleIndex
-  (`resolveInProgress`) so the 1s poll can't fire duplicate fetches.
-- `maybePickNextTrack` (rankings-window) now uses the deterministic picker too —
-  it pre-caches the NEXT cycle's track so rotation is seamless. Best-effort; the
-  next cycle also resolves on demand if a joiner lands first.
+  reproducible across clients regardless of insertion/KV-iteration order. This
+  is a READ-ONLY GET to the track share board — zero KV writes.
+- `ensureTrackForCycle(cycleIndex)` computes the track locally, caches the
+  result in-process (`publicServerState.resolvedTracksByCycle[cycleIndex]`), and
+  redirects if not already on it. No worker write. De-duplicated per cycleIndex
+  via `resolveInProgress` so repeated ticks don't fire concurrent fetches.
+- **First-join fix.** `tickPublicServerRound` resolves the current cycle's track
+  on join (not only during the rankings window) — if not yet resolved,
+  `ensureTrackForCycle` computes + redirects. This fixes the old bug where a
+  fresh join stranded you on the default map.
 - Track-list is cached client-side for 60s (`trackListCache`/`trackListCacheAt`)
-  via `getCachedTrackList()` so the 1s poll doesn't hammer the track board.
+  via `getCachedTrackList()` so the 1s round loop doesn't hammer the track board.
 - `fetchRandomTrackPlayUrl` is still exported (kept for compatibility) but no
   longer used by main.js — the deterministic `fetchTrackList` +
   `pickTrackForCycle` replaced it.
@@ -1122,103 +1133,88 @@ The mobile UI had two independent triggers; BOTH are neutralized:
 - `#mp-public-leave-btn` in `#mp-public-row` (index.html), shown only while
   `isPublicServerActive()` via `updatePublicServerButtonStates()`. Click handler
   wired once in `buildPublicServerButtons()` (guarded by `dataset.wired`).
-- Calls `leavePublicServer()`, which now ALSO tears down the PeerJS peer
+- Calls `leavePublicServer()`, which tears down the PeerJS peer
   (`closeMultiplayerPeer()` + clears `roomCode`/`role`/code input) so the player
-  actually leaves the WebRTC mesh, not just the worker-side membership.
+  leaves the WebRTC mesh. There is no backend membership to clear.
 
-### Architecture (why a separate worker, no Firebase changes)
-- The synced round timer + round rotation + per-round rankings must be IDENTICAL
-  for every player. Firebase RTDB (which backs PeerJS room metadata) **cannot be
-  modified**, so authoritative round/members/host/rankings state lives in a NEW
-  Cloudflare Worker + KV (`cloudflare-servers/worker`, binding `SERVERS_KV`,
-  live URL `https://racing-servers-api.ga1010.workers.dev/`). Client polls ~1/sec.
-- PeerJS / WebRTC (car positions, best-lap signalling) is UNCHANGED: public
-  servers reuse the existing PeerJS room mechanism with a fixed 6-char room code
-  per server (`RACE-ROOM-<code>`). PeerJS uses its default cloud signalling;
-  Firebase is only touched through the existing `firebaseRoomsRequest` helpers
-  (no rule changes). Public servers work even WITHOUT Firebase config.
-
-### Cloudflare Worker (`cloudflare-servers/worker/src/index.js`) — MUST BE DEPLOYED
-- Deploy name: `racing-servers-api` (matches the live URL). KV binding
-  `SERVERS_KV`. See `cloudflare-servers/README.md` (wrangler CLI + dashboard).
-  The deployed worker is currently a stub returning 404 — deploy
-  `worker/src/index.js` to activate it. **You must re-deploy this file whenever
-  you change the worker code.**
-- KV keys: `servers:index` (summary list) + `server:<id>` (full state per server:
-  members, host, laps keyed by cycleIndex, tracks keyed by cycleIndex).
-- Timing constants: `PLAY_DURATION_MS = 5*60*1000`, `RANKINGS_WINDOW_MS = 5*1000`,
-  `CYCLE_MS = PLAY_DURATION_MS + RANKINGS_WINDOW_MS` (305000), `ROUND_EPOCH =
-  Date.UTC(2026,0,1)`. `cycleInfo(now)` is a PURE function:
-  `cycleIndex = floor((now-epoch)/CYCLE_MS)`; `roundId = cycleIndex`;
-  `inRankings` = now in [playEnd, cycleEnd); `roundOver` = now >= cycleEnd.
-- Endpoints (under `/api/servers`):
-  - `GET /` -> `{ ok, servers:[{id,name,code,memberCount,roundEndAt,inRankings}] }`.
-  - `GET /:id` -> `{ ok, server }` (full view: `round`{roundId,cycleIndex,trackPlayUrl,trackMapSignature,laps},
-    `nextRound`{cycleIndex,trackPlayUrl,trackMapSignature,hasTrack}, `playEnd`,
-    `cycleEnd`, `roundEndAt`, `rankingsEndAt`, `inRankings`, `roundOver`, `now`, members, hostId).
-  - `POST /:id/join {clientId,name}` -> register member; auto-claims the hidden host seat if none live. `{ ok, server, isHost, claimedHost }`.
-  - `POST /:id/claim-host {clientId,name}` -> claim host if seat free (PeerJS election only).
-  - `POST /:id/heartbeat {clientId,name}` -> keep membership alive; refreshes host heartbeat if you are host; re-claims host if the seat is stale (server is never host-less).
-  - `POST /:id/lap {clientId,name,time}` -> CURRENT-cycle-scoped best lap (keeps MINIMUM per client per cycle; cycle derived from worker wall-clock).
-  - `POST /:id/set-track {clientId,cycleIndex,trackPlayUrl,trackMapSignature}` -> ANY player sets the track for a cycle; FIRST-WRITER-WINS (later attempts return `alreadySet:true` and are ignored). Replaces the old host-only `next-round`.
-  - `POST /:id/leave {clientId}` -> leave; releases host if you were host.
-- `pruneCycleData()` keeps only the most recent `MAX_TRACK_CYCLES` (24) cycles of
-  laps/tracks so the stored blob stays bounded. `HOST_STALE_MS = 15000`;
-  `MEMBER_STALE_MS = 30000`. A stale/missing host is re-claimed on the next join
-  OR heartbeat (self-healing).
+### Architecture (no servers worker; PeerJS mesh only)
+- The synced round timer + track rotation are PURE wall-clock UTC math
+  (`cycleInfo`), identical for every player with no coordination. Per-round
+  rankings + member count + host election are distributed over the existing
+  PeerJS mesh (`RACE-ROOM-<code>` room). Firebase RTDB is NOT used by public
+  servers (PeerJS uses its default cloud signalling; the existing
+  `firebaseRoomsRequest` helpers are only for private rooms). Public servers
+  work even WITHOUT Firebase config.
+- The old `cloudflare-servers/worker` (`racing-servers-api`) is no longer called
+  by any client. It can be deleted/disabled (see the STATUS notice in
+  `cloudflare-servers/README.md`). No redeploy is required.
 
 ### Client module (`js/PublicServers.js`)
-- `SERVERS_API_BASE` = `https://racing-servers-api.ga1010.workers.dev/api/servers`.
-- `TRACK_BOARD_API` = existing track share board worker (`.../api/tracks`).
-- `PUBLIC_SERVERS` = 3 fixed servers. `findPublicServer(id)`, `isPublicServerConfigured()`.
-- API wrappers: `fetchServerState`, `joinServer`, `claimServerHost`, `heartbeatServer`,
-  `submitServerLap`, `setServerTrack`, `leaveServer`. (`advanceServerRound` /
-  `next-round` were REMOVED — rotation is now wall-clock + set-track.)
-- `fetchRandomTrackPlayUrl()` -> GETs the track board (`{ ok, entries:[{...,playUrl}] }`),
-  picks a random `playUrl`. Returns null if none (any player retries next poll).
+- `TRACK_BOARD_API` = existing track share board worker (`.../api/tracks`,
+  read-only).
+- `PUBLIC_SERVERS` = 3 fixed servers. `findPublicServer(id)`,
+  `isPublicServerConfigured()` (always true now — no backend needed).
+- `cycleInfo(now)` = pure wall-clock cycle math (exported; mirrored in main.js
+  via the `publicServerCycleInfo` import). `ROUND_EPOCH`, `PLAY_DURATION_MS`,
+  `RANKINGS_WINDOW_MS`, `CYCLE_MS` are exported too.
+- `fetchTrackList()` -> GETs the track board (`{ ok, entries:[{...,playUrl}] }`),
+  sorted by stable key. `fetchRandomTrackPlayUrl()` kept for compatibility.
+- `pickTrackForCycle(cycleIndex, serverId, trackList)` -> deterministic pick.
 - `mapSignatureFromPlayUrl(url)` -> `"map|mods"`. `buildServerTrackRedirectUrl(playUrl,
   serverId)` -> same-tab URL adding `?pubServer=<id>&play=1` (preserves `#ghost=`).
-- Constants mirror the worker: `PLAY_DURATION_MS`, `RANKINGS_WINDOW_MS`, `CYCLE_MS`.
+- REMOVED (no longer exported): `SERVERS_API_BASE`, `fetchServerState`,
+  `joinServer`, `claimServerHost`, `heartbeatServer`, `submitServerLap`,
+  `setServerTrack`, `leaveServer`. Do NOT re-add — public servers no longer use
+  the racing-servers-api worker.
 
 ### main.js integration
 - `publicServerState` block (next to `multiplayerSessionState`): `active`,
   `serverId`, `server`, `isHost` (hidden; no privileges), `claimedHost`,
-  `pollTimer`, `heartbeatTimer`, `tickTimer`, `lastRoundId`, `loadedRoundId`
+  `roundTimer`, `peerMaintainTimer`, `tickTimer`, `lastRoundId`, `loadedRoundId`
   (the anti-loop anchor; persisted to sessionStorage `pubsrv_loaded_round`),
-  `rankingsShownForRoundId`, `trackSetForCycleIndex`, `skippedLapSeconds`,
-  `serverNowOffsetMs`, `lastFetchAt`.
+  `rankingsShownForRoundId`, `resolveScheduledForCycle`, `skippedLapSeconds`,
+  `trackListCache`/`trackListCacheAt`, `resolveInProgress`, `peerLaps`
+  (roundId -> {playerId -> {name,time}}), `hostPeerCount`, `lastMetaSentAt`,
+  `hostClaimInFlight`. (`resolvedTracksByCycle` is lazily initialized.)
 - `PUBSRV_LOADED_ROUND_KEY` + `getLoadedRoundIdFromStorage` /
   `setLoadedRoundIdInStorage` / `clearLoadedRoundIdFromStorage` wrap the
   sessionStorage round-tracking used to break the reload loop.
-- `publicServerNow()` = `Date.now() + serverNowOffsetMs` (synced server clock).
+- `publicServerNow()` = `Date.now()` (UTC epoch is global; no skew correction).
 - `isPublicServerActive()`, `publicServerRoomCode()`, `publicServerName()`.
 - `buildPublicServerButtons()` fills `#mp-public-buttons` with the 3 servers;
   called from `initMultiplayerPanel()` BEFORE the Firebase-config early-return.
-- `joinPublicServer(serverId)` -> leave any session, POST join, recover
-  `loadedRoundId` from sessionStorage, set `roomCode=def.code`,
-  `startPeerMultiplayer(code, role)` (host role is purely PeerJS), hide private
-  leaderboard, show timer, start poll(1s)+heartbeat(4s)+tick(250ms) loops.
-- `publicServerHeartbeat()` -> POST heartbeat; refreshes server clock offset; if
-  `isHost` flipped, restart PeerJS in the new role (host takes the `RACE-ROOM-<code>`
-  peer id). No status/log mentions "host".
-- `handlePublicServerRound(server)` (1s poll): round change -> reset laps + hide
-  rankings; `renderPublicServerTimer()`; `inRankings` -> show rankings once/round;
-  during rankings, ANY player whose `trackSetForCycleIndex != nextCycle` calls
-  `maybePickNextTrack(nextCycle)` (first-writer-wins on the worker); the
-  anti-loop redirect block (see "CRITICAL design rules") fires at most once per
-  round via `loadedRoundId`.
-- `maybePickNextTrack(nextCycleIndex)` -> `fetchRandomTrackPlayUrl()`; null ->
-  reset guard + retry next poll (current map keeps running, round still advances);
-  else POST set-track for that cycle.
-- `tickPublicServerTimer()` (250ms local): re-renders the countdown from the
-  synced server clock + last server view. This is what makes the timer impossible
-  to freeze — it ticks locally off a known server-clock anchor even if polls fail.
-- `publishMultiplayerBestLap(bestLap)` ALSO pushes to the worker
-  (`publicSubmitLap`) when `isPublicServerActive()` (only improved times, via
-  `skippedLapSeconds`). Independent of the Firebase write.
+- `joinPublicServer(serverId)` -> leave any session, recover `loadedRoundId`
+  from sessionStorage, set `roomCode=def.code`, `startPublicServerPeer(code)`
+  (PeerJS-native host election), hide private leaderboard, show timer, start
+  round(1s)+peerMaintain(10s)+tick(250ms) loops, then `tickPublicServerRound()`.
+- `startPublicServerPeer(roomCode)` -> tries to claim `RACE-ROOM-<code>` peer id;
+  on `unavailable-id` becomes a joiner (connects via `startPeerMultiplayer(code,'join')`).
+  6s safety timeout falls back to joiner.
+- `maintainPublicServerPeer()` (10s) -> restarts a dead PeerJS peer in the
+  current role; for a joiner with no connections, calls
+  `maybeReclaimPublicServerHost` (self-healing host election).
+- `tickPublicServerRound()` (1s) -> builds the server view LOCALLY from
+  `cycleInfo(now)` + resolved track + P2P laps + member count, then
+  `handlePublicServerRound(server)`. Host also broadcasts a META packet (~2s throttle).
+- `tickPublicServerTimer()` (250ms local): re-renders the countdown from
+  wall-clock UTC + last server view. This is what makes the timer impossible to
+  freeze — it ticks locally off the real clock even with zero network.
+- `handlePublicServerRound(server)`: round change -> reset laps + hide rankings
+  + reset `resolveScheduledForCycle`; `renderPublicServerTimer()`; `inRankings`
+  -> show rankings (re-rendered each tick for late P2P laps); the anti-loop
+  redirect block (see "CRITICAL design rules") fires at most once per round via
+  `loadedRoundId`.
+- `publishMultiplayerBestLap(bestLap)` -> when `isPublicServerActive()`,
+  broadcasts a `PEER_PACKET_LAP` (`broadcastPublicServerLap`, only improved
+  times via `skippedLapSeconds`) and RETURNS (skips the Firebase private-room
+  write). `ingestPublicServerPeerLap` keeps the min per playerId per round;
+  `relayHostPacket` relays so all peers see it.
+- `PEER_PACKET_LAP` / `PEER_PACKET_META` handled in `handlePeerPacket` (alongside
+  STATE/LEFT). META is host→joiners only (not relayed).
 - `hostRotateRoomCode()` early-returns when `isPublicServerActive()` (skips the
   private-room 2-min rotation; public servers use the wall-clock 5-min rotation).
-- `beforeunload` -> `fetch(..., { keepalive: true })` POST leave (frees host seat).
+- `beforeunload` -> no worker leave fetch; the PeerJS LEFT packet + peer destroy
+  handle it. If we were host, a surviving joiner's maintenance loop reclaims the id.
 - Host/Join button handlers `await leavePublicServer()` first.
 - `?pubServer=<id>` param -> auto-join on boot (handled before the Firebase
   early-return; works without Firebase). After a round redirect the URL carries
@@ -1230,32 +1226,24 @@ The mobile UI had two independent triggers; BOTH are neutralized:
 - **The round-end redirect cannot loop.** `loadedRoundId` (sessionStorage) records
   the round we already loaded; after a redirect+reload it equals the current
   roundId, so we never re-redirect for the same round — even if signature strings
-  mismatch (the original loop). Verified by the anti-loop simulation (Scenario B
-  reproduces the exact bug and the flag breaks it).
-- Any player can set the next track (first-writer-wins); if the hidden host peer
-  disappears the rotation still works — whoever is online during rankings sets it.
-- First joiner becomes host (worker auto-claims). Joiners connect to the host peer.
-- If the host disappears, the next heartbeat from any joiner claims the host seat
-  and that joiner restarts PeerJS as host. Two simultaneous claimers resolve via
-  PeerJS rejecting the duplicate peer id; the loser re-evaluates next heartbeat (4s).
-- No community tracks -> no track is set for the cycle; the round still advances on
-  the wall-clock boundary but players stay on the current track until one becomes
-  available (the `trackSetForCycleIndex` guard resets so it retries next rankings window).
+  mismatch (the original loop).
+- Host election is PeerJS-native + self-healing: the first player to claim the
+  `RACE-ROOM-<code>` id is host; joiners connect to it. If the host disappears,
+  a joiner's `maintainPublicServerPeer` loop detects the dead connection and
+  `maybeReclaimPublicServerHost` re-claims the id. Two simultaneous claimers
+  resolve via PeerJS rejecting the duplicate id; the loser stays a joiner.
+- No community tracks -> no track resolves for the cycle; the round still
+  advances on the wall-clock boundary but players stay on the current track
+  until one becomes available (`resolveScheduledForCycle` resets so it retries).
 - Leaving a public server clears the sessionStorage round flag, so rejoining
   re-syncs to the current round's track.
 
 ### Verified
-- Anti-loop redirect logic: 17 assertions (round-end redirect+reload, the
-  signature-MISMATCH loop case, live round advance, fresh-join sync, no-track,
-  leave/rejoin re-sync).
-- Worker cycle-timing logic: 6 assertions (deterministic, host-independent,
-  exact 5-min play + 5-s rankings chunks, join-time-independent).
-- Worker endpoints: 10 assertions (list/get/join, set-track first-writer-wins by
-  non-host + nextRound reflects it, lap min-keeping, leave releases host + survivor
-  re-claims on heartbeat, 404).
-- Client helpers: 8 assertions (server list Server 1/2/3, find, signature
-  parsing, redirect URL preserves map+mods+ghost+pubServer+play).
+- `test-public-servers-fixes.mjs`: deterministic track picker, wall-clock cycle
+  timing (host-independent, never freezes, exact 5-min play + 5-s rankings
+  chunks, join-time-independent), P2P lap collection (min per player per round,
+  round-scoped, invalid-lap rejection), PeerJS-native host election +
+  self-healing, and the no-servers-worker dependency (all fetch wrappers removed).
 - All files syntax-check; clean page boot (modules load 200, "MAINJS STARTED",
-  multiplayer panel + "Public servers" render; `?pubServer=` boot path degrades
-  gracefully with no loop when the worker is unreachable; singleplayer unaffected
-  with no `pubServer` param).
+  multiplayer panel + "Public servers" render; singleplayer unaffected with no
+  `pubServer` param).

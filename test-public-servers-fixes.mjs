@@ -1,31 +1,16 @@
-// Verifies the public-server fixes: deterministic track picking, and that the
-// worker write-coalescing actually reduces KV puts.
+// Verifies the public-server no-worker rework: deterministic track picking,
+// the wall-clock cycle timing math, P2P lap collection, and the host-election
+// state machine. Public servers now make ZERO calls to the racing-servers-api
+// worker (round/rotation/rankings are all derived locally or P2P), so this
+// test no longer simulates KV writes — it asserts the local math instead.
 import { strict as assert } from 'node:assert';
 
-// --- Deterministic picker (mirrors js/PublicServers.js) ---
-function mulberry32( seed ) {
-	let a = seed >>> 0;
-	return function () {
-		a |= 0; a = ( a + 0x6D2B79F5 ) | 0;
-		let t = Math.imul( a ^ ( a >>> 15 ), 1 | a );
-		t = ( t + Math.imul( t ^ ( t >>> 7 ), 61 | t ) ) ^ t;
-		return ( ( t ^ ( t >>> 14 ) ) >>> 0 ) / 4294967296;
-	};
-}
-function hashString( str ) {
-	let h = 2166136261 >>> 0;
-	for ( let i = 0; i < str.length; i++ ) { h ^= str.charCodeAt( i ); h = Math.imul( h, 16777619 ); }
-	return h >>> 0;
-}
-function pickTrackForCycle( cycleIndex, serverId, trackList ) {
-	if ( ! Array.isArray( trackList ) || trackList.length === 0 ) return null;
-	let seed = ( Math.imul( Number( cycleIndex ) || 0, 2654435761 ) ) >>> 0;
-	seed = ( seed ^ hashString( String( serverId || '' ) ) ) >>> 0;
-	const rng = mulberry32( seed );
-	const idx = Math.floor( rng() * trackList.length );
-	return trackList[ idx ] || null;
-}
+// Import the real module (it has no browser-only top-level code besides the
+// fetchTrackList fetch, which we don't call here).
+const mod = await import( './js/PublicServers.js' );
+const { pickTrackForCycle, cycleInfo, ROUND_EPOCH, CYCLE_MS, PLAY_DURATION_MS, RANKINGS_WINDOW_MS } = mod;
 
+// --- Deterministic picker (from the real module) ---
 const tracks = [ 'a', 'b', 'c', 'd', 'e' ].map( ( id ) => ( { id, playUrl: `index.html?map=${ id }` } ) );
 
 // Determinism: same cycle + server -> same track, always.
@@ -34,7 +19,6 @@ const t2 = pickTrackForCycle( 1000, 'server-1', tracks );
 assert.equal( t1.id, t2.id, 'same cycle+server picks same track across calls' );
 
 // Different servers get different sequences (variety), but each is deterministic.
-// Check across several cycles — at least some cycle should differ between servers.
 let anyDiffer = false;
 for ( let c = 0; c < 20; c++ ) {
 	const a = pickTrackForCycle( c, 'server-1', tracks ).id;
@@ -44,9 +28,7 @@ for ( let c = 0; c < 20; c++ ) {
 }
 assert.ok( anyDiffer, 'servers should vary on at least some cycles' );
 
-// Stability across cycle progression: changing the list size only affects picks
-// from cycles AFTER the change for the appended entry (sort-stable by id). The
-// key invariant: for a FIXED list, the pick for a given cycle never changes.
+// Stability: for a FIXED list, the pick for a given cycle never changes.
 for ( let c = 0; c < 50; c++ ) {
 	const a = pickTrackForCycle( c, 'server-1', tracks ).id;
 	const b = pickTrackForCycle( c, 'server-1', tracks ).id;
@@ -66,122 +48,146 @@ for ( let c = 0; c < 500; c++ ) {
 for ( const id of [ 'a', 'b', 'c', 'd', 'e' ] ) {
 	assert.ok( counts[ id ] > 0, `track ${ id } never picked over 500 cycles` );
 }
+console.log( 'PASS: deterministic track picker' );
 
-// --- Worker write-coalescing simulation ---
-// Minimal in-process KV + worker state to count puts and verify the coalescing.
-const HOST_STALE_MS = 45000;
-const MEMBER_STALE_MS = 120000;
-const MEMBER_LASTSEEN_REFRESH_MS = 60000;
-const HOST_HEARTBEAT_REFRESH_MS = 30000;
+// --- Wall-clock cycle timing (the synced round timer, no backend) ---
+// The timer is PURE math against UTC — it can never freeze and is identical for
+// every player regardless of join time. cycleIndex = floor((now-epoch)/CYCLE_MS).
+assert.equal( CYCLE_MS, PLAY_DURATION_MS + RANKINGS_WINDOW_MS, 'CYCLE_MS = play + rankings' );
+assert.equal( PLAY_DURATION_MS, 5 * 60 * 1000, '5 min play' );
+assert.equal( RANKINGS_WINDOW_MS, 5 * 1000, '5 s rankings' );
 
-function cycleInfo( now, epoch, cycleMs ) {
-	const cycleIndex = Math.floor( ( now - epoch ) / cycleMs );
-	return { cycleIndex };
+// At the exact epoch, cycleIndex is 0, not in rankings.
+const info0 = cycleInfo( ROUND_EPOCH );
+assert.equal( info0.cycleIndex, 0, 'epoch -> cycle 0' );
+assert.equal( info0.roundId, 0, 'epoch -> roundId 0' );
+assert.equal( info0.inRankings, false, 'epoch not in rankings' );
+assert.equal( info0.playEnd, ROUND_EPOCH + PLAY_DURATION_MS, 'playEnd correct' );
+assert.equal( info0.cycleEnd, ROUND_EPOCH + CYCLE_MS, 'cycleEnd correct' );
+
+// 1ms before playEnd -> still playing, not in rankings.
+const info1 = cycleInfo( ROUND_EPOCH + PLAY_DURATION_MS - 1 );
+assert.equal( info1.inRankings, false, '1ms before playEnd not in rankings' );
+assert.equal( info1.cycleIndex, 0, 'still cycle 0' );
+
+// Exactly at playEnd -> in rankings window.
+const info2 = cycleInfo( ROUND_EPOCH + PLAY_DURATION_MS );
+assert.equal( info2.inRankings, true, 'at playEnd -> in rankings' );
+assert.equal( info2.cycleIndex, 0, 'still cycle 0 during rankings' );
+
+// 1ms before cycleEnd -> still in rankings.
+const info3 = cycleInfo( ROUND_EPOCH + CYCLE_MS - 1 );
+assert.equal( info3.inRankings, true, '1ms before cycleEnd still in rankings' );
+assert.equal( info3.cycleIndex, 0, 'still cycle 0' );
+
+// At cycleEnd -> next cycle begins. The cycleIndex/roundId increment (this is
+// the actual "round over" signal the client uses via roundId !== lastRoundId).
+// `roundOver` is a vestigial field that's always false under floor-based cycle
+// math (now is always < the current cycle's cycleEnd), so we don't assert it.
+const info4 = cycleInfo( ROUND_EPOCH + CYCLE_MS );
+assert.equal( info4.cycleIndex, 1, 'cycleEnd -> cycle 1' );
+assert.equal( info4.roundId, 1, 'cycleEnd -> roundId 1' );
+assert.equal( info4.inRankings, false, 'new cycle not in rankings' );
+
+// Join-time independence: two players joining at very different times within the
+// same cycle see the SAME roundId. (The cycle is derived from the clock, not
+// from join time, so this is what makes the timer host-independent.)
+const earlyJoin = cycleInfo( ROUND_EPOCH + 10_000 ); // 10s into cycle 0
+const lateJoin = cycleInfo( ROUND_EPOCH + 4 * 60 * 1000 ); // 4min into cycle 0
+assert.equal( earlyJoin.roundId, lateJoin.roundId, 'join-time-independent roundId' );
+assert.equal( earlyJoin.cycleIndex, 0, 'early join cycle 0' );
+assert.equal( lateJoin.cycleIndex, 0, 'late join cycle 0' );
+console.log( 'PASS: wall-clock cycle timing (host-independent, never freezes)' );
+
+// --- P2P lap collection (replaces the worker lap-submit write) ---
+// Each peer keeps the MINIMUM lap time per playerId per round. Mirrors the
+// ingestPublicServerPeerLap logic in main.js.
+function makeLapStore() {
+	const byRound = {};
+	function ingest( playerId, packet ) {
+		const pid = String( playerId || packet?.playerId || '' );
+		if ( ! pid ) return;
+		const roundId = Number( packet?.roundId );
+		if ( ! Number.isFinite( roundId ) ) return;
+		const time = Number( packet?.time );
+		if ( ! Number.isFinite( time ) || time < 0 ) return;
+		if ( ! byRound[ roundId ] ) byRound[ roundId ] = {};
+		const existing = byRound[ roundId ][ pid ];
+		if ( ! existing || time < Number( existing.time ) ) {
+			byRound[ roundId ][ pid ] = { name: packet?.name || existing?.name || 'Player', time };
+		}
+	}
+	return { ingest, byRound };
 }
+const store = makeLapStore();
+store.ingest( 'p1', { roundId: 5, time: 60.0, name: 'Alice' } );
+store.ingest( 'p1', { roundId: 5, time: 58.5, name: 'Alice' } ); // improvement
+store.ingest( 'p1', { roundId: 5, time: 61.0, name: 'Alice' } ); // slower — ignored
+store.ingest( 'p2', { roundId: 5, time: 55.0, name: 'Bob' } );
+assert.equal( store.byRound[ 5 ].p1.time, 58.5, 'keeps minimum per player' );
+assert.equal( store.byRound[ 5 ].p2.time, 55.0, 'separate player separate entry' );
 
-function makeWorker() {
-	const kv = new Map();
-	let puts = 0;
-	const env = {
-		SERVERS_KV: {
-			get: async ( k ) => kv.get( k ) || null,
-			put: async ( k, v ) => { puts++; kv.set( k, v ); },
-		},
-	};
-	const EPOCH = Date.UTC( 2026, 0, 1 );
-	const CYCLE_MS = 305000;
-	function initServer( id ) {
-		return { id, name: id, code: id.toUpperCase(), hostId: '', hostHeartbeatAt: 0, members: {}, laps: {}, tracks: {}, updatedAt: 0 };
+// Laps are scoped per round: a lap in round 6 doesn't overwrite round 5.
+store.ingest( 'p1', { roundId: 6, time: 57.0, name: 'Alice' } );
+assert.equal( store.byRound[ 5 ].p1.time, 58.5, 'round 5 untouched by round 6 lap' );
+assert.equal( store.byRound[ 6 ].p1.time, 57.0, 'round 6 lap recorded' );
+
+// Invalid laps are ignored.
+store.ingest( 'p3', { roundId: 5, time: NaN } );
+store.ingest( 'p3', { roundId: 5, time: -1 } );
+assert.ok( ! store.byRound[ 5 ].p3, 'invalid laps ignored' );
+console.log( 'PASS: P2P lap collection (min per player per round, no worker)' );
+
+// --- Host-election state machine (PeerJS-native, no worker) ---
+// Mirrors the startPublicServerPeer logic: claiming the RACE-ROOM-<code> id
+// succeeds (host) or fails with 'unavailable-id' (joiner). Self-healing: a
+// joiner that loses the host reclaims the id.
+function makeHostElection() {
+	const ownedIds = new Set();
+	let role = null;
+	function claimHost( id ) {
+		// Simulate PeerJS: if the id is already owned, it's 'unavailable-id'.
+		if ( ownedIds.has( id ) ) return { ok: false, error: 'unavailable-id' };
+		ownedIds.add( id );
+		role = 'host';
+		return { ok: true };
 	}
-	async function load( id ) {
-		const raw = kv.get( 'server:' + id );
-		if ( raw ) return JSON.parse( raw );
-		return initServer( id );
-	}
-	function pruneMembers( s, now ) {
-		let changed = false;
-		for ( const [ cid, m ] of Object.entries( s.members ) ) {
-			if ( now - ( Number( m.lastSeenAt ) || 0 ) > MEMBER_STALE_MS ) { delete s.members[ cid ]; changed = true; }
-		}
-		if ( s.hostId && ( ! s.members[ s.hostId ] || now - ( Number( s.hostHeartbeatAt ) || 0 ) > HOST_STALE_MS ) ) {
-			s.hostId = ''; s.hostHeartbeatAt = 0; changed = true;
-		}
-		return changed;
-	}
-	const isHostFresh = ( s, now ) => Boolean( s.hostId ) && s.members[ s.hostId ] && ( now - ( Number( s.hostHeartbeatAt ) || 0 ) <= HOST_STALE_MS );
-	async function save( s ) { s.updatedAt = Date.now(); kv.set( 'server:' + s.id, JSON.stringify( s ) ); puts++; }
-	async function heartbeat( id, clientId, now ) {
-		const s = await load( id );
-		const pruned = pruneMembers( s, now );
-		const prevLastSeen = Number( s.members[ clientId ]?.lastSeenAt ) || 0;
-		s.members[ clientId ] = { name: 'P', lastSeenAt: now };
-		let hostChanged = false;
-		const prevHostHb = Number( s.hostHeartbeatAt ) || 0;
-		if ( ! isHostFresh( s, now ) ) { s.hostId = clientId; s.hostHeartbeatAt = now; hostChanged = true; }
-		else if ( s.hostId === clientId ) { if ( now - prevHostHb > HOST_HEARTBEAT_REFRESH_MS ) hostChanged = true; s.hostHeartbeatAt = now; }
-		const stale = ( now - prevLastSeen ) > MEMBER_LASTSEEN_REFRESH_MS;
-		if ( hostChanged || pruned || stale ) await save( s );
-		return { isHost: s.hostId === clientId };
-	}
-	async function submitLap( id, clientId, time, now ) {
-		const s = await load( id );
-		const pruned = pruneMembers( s, now );
-		const info = cycleInfo( now, EPOCH, CYCLE_MS );
-		s.laps[ info.cycleIndex ] = s.laps[ info.cycleIndex ] || {};
-		const ex = s.laps[ info.cycleIndex ][ clientId ];
-		let improved = false;
-		if ( ! ex || time < Number( ex.time ) ) { s.laps[ info.cycleIndex ][ clientId ] = { name: 'P', time, updatedAt: now }; improved = true; }
-		if ( improved || pruned ) await save( s );
-	}
-	return { env, heartbeat, submitLap, getPuts: () => puts };
+	function releaseHost( id ) { ownedIds.delete( id ); role = null; }
+	function join() { role = 'join'; }
+	function currentRole() { return role; }
+	return { claimHost, releaseHost, join, currentRole, isOwned: ( id ) => ownedIds.has( id ) };
 }
+const elect = makeHostElection();
+// First player claims host.
+assert.equal( elect.claimHost( 'RACE-ROOM-PUBSV1' ).ok, true, 'first claim succeeds -> host' );
+assert.equal( elect.currentRole(), 'host', 'first player is host' );
+// Second player's claim fails (id taken) -> becomes joiner.
+assert.equal( elect.claimHost( 'RACE-ROOM-PUBSV1' ).ok, false, 'second claim fails (unavailable-id)' );
+elect.join();
+assert.equal( elect.currentRole(), 'join', 'second player is joiner' );
+// Host leaves -> id released. Joiner can now reclaim (self-healing).
+elect.releaseHost( 'RACE-ROOM-PUBSV1' );
+assert.equal( elect.isOwned( 'RACE-ROOM-PUBSV1' ), false, 'host id released on leave' );
+assert.equal( elect.claimHost( 'RACE-ROOM-PUBSV1' ).ok, true, 'joiner reclaims host id (self-healing)' );
+assert.equal( elect.currentRole(), 'host', 'reclaimed joiner is now host' );
+console.log( 'PASS: PeerJS-native host election + self-healing' );
 
-// Simulate the OLD behaviour vs NEW for a single player idling 3 hours with
-// 12s heartbeats, plus a few laps.
-(async () => {
-	const w = makeWorker();
-	const start = Date.UTC( 2026, 5, 1, 12, 0, 0 );
-	const cid = 'client-A';
-	// join (1 put)
-	await w.heartbeat( 'server-1', cid, start ); // first heartbeat == join-ish
-	let t = start;
-	const threeHours = 3 * 60 * 60 * 1000;
-	let lapTime = 60;
-	while ( t < start + threeHours ) {
-		await w.heartbeat( 'server-1', cid, t );
-		// a lap improvement roughly every 10 minutes
-		if ( ( ( t - start ) % ( 10 * 60 * 1000 ) ) === 0 && t > start ) {
-			lapTime -= 0.5;
-			await w.submitLap( 'server-1', cid, lapTime, t );
-		}
-		t += 12000; // 12s heartbeat
-	}
-	const puts = w.getPuts();
-	// OLD code would have written ~2 puts per heartbeat (server + index) every
-	// 4s = ~5400 puts in 3h. NEW code must be WELL under the 1000/day limit.
-	// Host writes ~every 30s + member refresh ~every 60s -> ~180 host writes +
-	// ~90 liveness writes + ~18 laps = ~300. Allow generous headroom.
-	assert.ok( puts < 1000, `3h idle should be well under 1000 puts (got ${ puts })` );
-	console.log( `PASS: 3h single-player idle = ${ puts } KV puts (old code ~5400)` );
+// --- No worker dependency: the module exports NO server-fetch wrappers ---
+// (fetchServerState/joinServer/heartbeatServer/submitServerLap/setServerTrack/
+// leaveServer/claimServerHost/SERVERS_API_BASE were all removed.) The only
+// network call left is fetchTrackList (read-only GET to the track board, zero
+// KV writes).
+assert.equal( typeof mod.fetchTrackList, 'function', 'fetchTrackList still exported (read-only board)' );
+assert.equal( mod.SERVERS_API_BASE, undefined, 'SERVERS_API_BASE removed (no servers worker)' );
+assert.equal( typeof mod.fetchServerState, 'undefined', 'fetchServerState removed' );
+assert.equal( typeof mod.joinServer, 'undefined', 'joinServer removed' );
+assert.equal( typeof mod.heartbeatServer, 'undefined', 'heartbeatServer removed' );
+assert.equal( typeof mod.submitServerLap, 'undefined', 'submitServerLap removed' );
+assert.equal( typeof mod.setServerTrack, 'undefined', 'setServerTrack removed' );
+assert.equal( typeof mod.leaveServer, 'undefined', 'leaveServer removed' );
+assert.equal( typeof mod.claimServerHost, 'undefined', 'claimServerHost removed' );
+assert.equal( typeof mod.isPublicServerConfigured, 'function', 'isPublicServerConfigured kept' );
+assert.equal( mod.isPublicServerConfigured(), true, 'public servers always configured (no backend needed)' );
+console.log( 'PASS: no servers-worker dependency in PublicServers.js' );
 
-	// Verify a no-op heartbeat shortly after a persisting one writes nothing.
-	// First force a persisting heartbeat by making the member's lastSeen stale.
-	const staleT = t + 70000; // > MEMBER_LASTSEEN_REFRESH_MS since last persist
-	await w.heartbeat( 'server-1', cid, staleT ); // persists (liveness stale)
-	const before = w.getPuts();
-	await w.heartbeat( 'server-1', cid, staleT + 5000 ); // 5s later, inside all coalesce windows
-	const after = w.getPuts();
-	assert.equal( after, before, `back-to-back heartbeat must not write (before=${ before }, after=${ after })` );
-	console.log( 'PASS: back-to-back heartbeat writes nothing' );
-
-	// Non-improving lap must not write. First establish a best lap in this cycle
-	// (writes once), then submit a slower time in the SAME cycle (must NOT write).
-	await w.submitLap( 'server-1', cid, 55.0, staleT + 1000 ); // establishes best -> writes
-	const before2 = w.getPuts();
-	await w.submitLap( 'server-1', cid, 60.0, staleT + 2000 ); // slower, same cycle -> no improve
-	const after2 = w.getPuts();
-	assert.equal( after2, before2, 'non-improving lap must not write' );
-	console.log( 'PASS: non-improving lap writes nothing' );
-
-	console.log( '\\nAll public-server fix assertions passed.' );
-} )();
+console.log( '\nAll public-server no-worker assertions passed.' );
