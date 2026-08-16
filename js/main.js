@@ -4149,15 +4149,11 @@ async function init() {
 	const garageAccelUnlockBtn = document.getElementById( 'garage-accel-unlock' );
 	const garageDriveUnlockBtn = document.getElementById( 'garage-drive-unlock' );
 	const garageViewerCanvas = document.getElementById( 'garage-viewer' );
-	const garagePaintSheetCanvas = document.getElementById( 'garage-paint-sheet' );
 	const garageTargetColorInput = document.getElementById( 'garage-target-color' );
 	const garageApplyPaintBtn = document.getElementById( 'garage-apply-paint-btn' );
 	const garageClearSelectionBtn = document.getElementById( 'garage-clear-selection-btn' );
 	const garageRepaintToleranceInput = document.getElementById( 'garage-repaint-tolerance' );
 	const garageRepaintToleranceValue = document.getElementById( 'garage-repaint-tolerance-value' );
-	const garageBrushSizeInput = document.getElementById( 'garage-brush-size' );
-	const garageBrushSizeValue = document.getElementById( 'garage-brush-size-value' );
-	const garageToolBtns = document.querySelectorAll( '.garage-tool-btn[data-garage-tool]' );
 	const garageSelectionChip = document.getElementById( 'garage-selection-chip' );
 	const garageMappingStatus = document.getElementById( 'garage-mapping-status' );
 	const garageMappingsList = document.getElementById( 'garage-mappings-list' );
@@ -4276,15 +4272,10 @@ async function init() {
 	let garageCosmetics = normalizeGarageCosmetics( null );
 	const recolorTextureSourceCache = new WeakMap();
 	const garageTexturePaletteCache = new WeakMap();
-	// Paint Shop selection state (region-based magic-wand / brush editor)
-	let garagePaintTool = 'wand'; // 'wand' | 'brush' | 'eraser'
+	// Paint Shop selection state (3D click-to-fill: click a color on the car to select its region)
 	let garageSelectionMask = null; // Uint8Array(length) over the active texture's pixels, 1 = selected
-	let garageSelectionTexture = null; // THREE.Texture currently being edited on the 2D sheet
+	let garageSelectionTexture = null; // THREE.Texture currently being edited
 	let garageSelectionSource = null; // { width, height, data } from getTextureSourcePixels
-	let garagePaintSheetCtx = null; // 2D canvas context for the paint sheet
-	let garagePaintSheetImage = null; // ImageData copy of the source texture for fast redraw
-	let garagePaintDragging = false;
-	let garagePaintLastPx = null; // { x, y } last painted pixel during a drag
 	if ( lapHud2 ) lapHud2.style.display = isSplitScreen ? 'block' : 'none';
 	if ( isSplitScreen ) {
 
@@ -4905,7 +4896,7 @@ async function init() {
 		modeMenu?.classList.toggle( 'garage-fullscreen', tab === 'garage' );
 		if ( tab === 'garage' ) {
 
-			ensureGaragePaintSheet();
+			ensureGarageSelectionSource();
 			if ( ! garageViewer ) initGarageViewer();
 			refreshGarageViewer();
 
@@ -5121,7 +5112,7 @@ async function init() {
 		if ( garageDriveStatus ) garageDriveStatus.textContent = unlocks.drive ? 'Pack active' : 'Buy to activate slider';
 		if ( garageCarSelect ) garageCarSelect.value = getSelectedGarageCarKey();
 		renderGarageVehicleCards();
-		ensureGaragePaintSheet();
+		ensureGarageSelectionSource();
 		updateGaragePaintControls();
 		updateGarageMappingsUi();
 		refreshGarageViewer();
@@ -5176,12 +5167,11 @@ async function init() {
 		}
 		if ( garageClearSelectionBtn ) garageClearSelectionBtn.disabled = ! hasSelection;
 		if ( garageRepaintToleranceValue ) garageRepaintToleranceValue.textContent = String( Math.round( getGarageRepaintTolerance() ) );
-		if ( garageBrushSizeValue ) garageBrushSizeValue.textContent = String( Math.round( Number( garageBrushSizeInput?.value ) || 12 ) );
 		if ( garageSelectionChip ) {
 
 			garageSelectionChip.innerHTML = hasSelection
-				? `${ selectedCount.toLocaleString() } pixels selected (green on the color sheet &amp; 3D preview). Pick a new color and Apply paint.`
-				: 'No area selected yet. Use the Wand on the color sheet to grab a whole panel, or the Brush to paint a selection.';
+				? `${ selectedCount.toLocaleString() } pixels selected — shown in your new color on the car. Pick a color and Apply paint.`
+				: 'No area selected yet. Click a color on the car to choose what to repaint.';
 
 		}
 
@@ -5246,8 +5236,8 @@ async function init() {
 
 	}
 
-	// Ensure the 2D paint sheet is bound to the selected car's colormap texture.
-	function ensureGaragePaintSheet() {
+	// Bind (or re-bind) the selected car's colormap pixels to the selection state.
+	function ensureGarageSelectionSource() {
 
 		const texture = getGarageActiveTexture();
 		if ( texture === garageSelectionTexture && garageSelectionSource ) return;
@@ -5256,38 +5246,7 @@ async function init() {
 		garageSelectionMask = null;
 		selectedGarageSourceHex = '';
 		hoveredGarageSourceHex = '';
-		if ( ! garagePaintSheetCanvas || ! garageSelectionSource ) { garagePaintSheetImage = null; return; }
-		const src = garageSelectionSource;
-		garagePaintSheetImage = new ImageData( new Uint8ClampedArray( src.data ), src.width, src.height );
-		garagePaintSheetCanvas.width = src.width;
-		garagePaintSheetCanvas.height = src.height;
-		garagePaintSheetCtx = garagePaintSheetCanvas.getContext( '2d' );
-		garagePaintSheetCtx.imageSmoothingEnabled = false;
-		renderGaragePaintSheet();
 		updateGaragePaintControls();
-
-	}
-
-	function renderGaragePaintSheet() {
-
-		if ( ! garagePaintSheetCtx || ! garageSelectionSource || ! garagePaintSheetImage ) return;
-		const src = garageSelectionSource;
-		const out = garagePaintSheetImage.data;
-		const mask = garageSelectionMask;
-		out.set( src.data );
-		if ( mask ) {
-
-			for ( let i = 0, p = 0; i < mask.length; i ++, p += 4 ) {
-
-				if ( ! mask[ i ] ) continue;
-				out[ p ] = Math.min( 255, Math.round( out[ p ] * 0.3 + 80 * 0.7 ) );
-				out[ p + 1 ] = Math.min( 255, Math.round( out[ p + 1 ] * 0.3 + 255 * 0.7 ) );
-				out[ p + 2 ] = Math.min( 255, Math.round( out[ p + 2 ] * 0.3 + 120 * 0.7 ) );
-
-			}
-
-		}
-		garagePaintSheetCtx.putImageData( garagePaintSheetImage, 0, 0 );
 
 	}
 
@@ -5297,21 +5256,20 @@ async function init() {
 		garageSelectionMask = null;
 		selectedGarageSourceHex = '';
 		hoveredGarageSourceHex = '';
-		renderGaragePaintSheet();
 		refreshGarageViewer();
 		updateGaragePaintControls();
-		setGarageMappingStatus( 'Selection cleared. Use the Wand or Brush on the color sheet to pick a new area.' );
+		setGarageMappingStatus( 'Selection cleared. Click a color on the car to pick a new area.' );
 
 	}
 
-	// Flood-fill (magic wand) from a seed pixel, adding matching pixels to the selection.
-	function garageFloodFillAdd( x, y, tolerance ) {
+	// Flood-fill (magic wand) from a seed pixel. Returns the number of pixels added.
+	function garageFloodFill( x, y, tolerance ) {
 
 		if ( ! garageSelectionSource ) return 0;
 		const src = garageSelectionSource;
 		const w = src.width, h = src.height;
 		const data = src.data;
-		if ( ! garageSelectionMask || garageSelectionMask.length !== w * h ) garageSelectionMask = new Uint8Array( w * h );
+		garageSelectionMask = new Uint8Array( w * h );
 		const mask = garageSelectionMask;
 		const tolSq = tolerance * tolerance;
 		const seed = ( y * w + x ) * 4;
@@ -5330,7 +5288,8 @@ async function init() {
 			if ( data[ p + 3 ] < 16 ) continue;
 			const dist = garageRedmeanDistanceSq( sr, sg, sb, data[ p ], data[ p + 1 ], data[ p + 2 ] );
 			if ( dist > tolSq ) continue;
-			if ( ! mask[ idx ] ) { mask[ idx ] = 1; added ++; }
+			mask[ idx ] = 1;
+			added ++;
 			if ( cx > 0 && ! visited[ idx - 1 ] ) stack.push( cx - 1, cy );
 			if ( cx < w - 1 && ! visited[ idx + 1 ] ) stack.push( cx + 1, cy );
 			if ( cy > 0 && ! visited[ idx - w ] ) stack.push( cx, cy - 1 );
@@ -5341,47 +5300,58 @@ async function init() {
 
 	}
 
-	function garageBrushStamp( x, y, radius, erase ) {
+	// Sample the most common non-transparent color in a small radius around a UV on the texture.
+	function sampleTextureHexAtUv( texture, uv ) {
 
-		if ( ! garageSelectionSource ) return 0;
-		const src = garageSelectionSource;
-		const w = src.width, h = src.height;
-		const data = src.data;
-		if ( ! garageSelectionMask || garageSelectionMask.length !== w * h ) garageSelectionMask = new Uint8Array( w * h );
-		const mask = garageSelectionMask;
-		const r2 = radius * radius;
-		let changed = 0;
-		const x0 = Math.max( 0, Math.floor( x - radius ) );
-		const x1 = Math.min( w - 1, Math.ceil( x + radius ) );
-		const y0 = Math.max( 0, Math.floor( y - radius ) );
-		const y1 = Math.min( h - 1, Math.ceil( y + radius ) );
-		for ( let py = y0; py <= y1; py ++ ) {
+		const source = texture ? getTextureSourcePixels( texture ) : garageSelectionSource;
+		if ( ! source || ! uv ) return '';
+		const flipY = texture ? texture.flipY : true;
+		const u = uv.x, v = flipY ? ( 1 - uv.y ) : uv.y;
+		const centerX = THREE.MathUtils.clamp( Math.floor( u * source.width ), 0, source.width - 1 );
+		const centerY = THREE.MathUtils.clamp( Math.floor( v * source.height ), 0, source.height - 1 );
+		const counts = new Map();
+		const radius = 3;
+		for ( let py = centerY - radius; py <= centerY + radius; py ++ ) {
 
-			for ( let px = x0; px <= x1; px ++ ) {
+			if ( py < 0 || py >= source.height ) continue;
+			for ( let px = centerX - radius; px <= centerX + radius; px ++ ) {
 
-				const dx = px - x, dy = py - y;
-				if ( dx * dx + dy * dy > r2 ) continue;
-				const idx = py * w + px;
-				if ( data[ idx * 4 + 3 ] < 16 ) continue;
-				const want = erase ? 0 : 1;
-				if ( mask[ idx ] !== want ) { mask[ idx ] = want; changed ++; }
+				if ( px < 0 || px >= source.width ) continue;
+				const i = ( py * source.width + px ) * 4;
+				if ( source.data[ i + 3 ] < 16 ) continue;
+				const key = `${ source.data[ i ] },${ source.data[ i + 1 ] },${ source.data[ i + 2 ] }`;
+				counts.set( key, ( counts.get( key ) || 0 ) + 1 );
 
 			}
 
 		}
-		return changed;
+		let bestKey = '', bestCount = 0;
+		for ( const [ key, count ] of counts ) if ( count > bestCount ) { bestKey = key; bestCount = count; }
+		if ( ! bestKey ) return '';
+		const [ r, g, b ] = bestKey.split( ',' ).map( Number );
+		return `#${ [ r, g, b ].map( ( v ) => v.toString( 16 ).padStart( 2, '0' ) ).join( '' ) }`;
 
 	}
 
-	// Derive a representative source hex + tolerance for the persisted global mapping.
+	// Convert a pixel coordinate on the texture to its hex color.
+	function garagePixelHex( x, y ) {
+
+		if ( ! garageSelectionSource ) return '';
+		const src = garageSelectionSource;
+		const i = ( y * src.width + x ) * 4;
+		if ( src.data[ i + 3 ] < 16 ) return '';
+		const r = src.data[ i ], g = src.data[ i + 1 ], b = src.data[ i + 2 ];
+		return `#${ [ r, g, b ].map( ( v ) => v.toString( 16 ).padStart( 2, '0' ) ).join( '' ) }`;
+
+	}
+
 	function describeGarageSelection() {
 
 		if ( ! garageSelectionMask || ! garageSelectionSource ) return null;
 		const src = garageSelectionSource;
 		const data = src.data;
 		const mask = garageSelectionMask;
-		let n = 0;
-		let maxD = 0;
+		let n = 0, maxD = 0;
 		const acc = new Map();
 		for ( let i = 0, p = 0; i < mask.length; i ++, p += 4 ) {
 
@@ -5482,6 +5452,31 @@ async function init() {
 
 	}
 
+	// Click on the 3D car: raycast, sample the UV's color, flood-fill that connected region.
+	function garageSelectFromViewerClick( event ) {
+
+		ensureGarageSelectionSource();
+		if ( ! garageSelectionSource || ! garageSelectionTexture ) return;
+		const hit = getGarageViewerHit( event );
+		if ( ! hit || ! hit.uv ) { setGarageMappingStatus( 'Missed the car — try clicking directly on a colored part.', true ); return; }
+		const texture = garageSelectionTexture;
+		const flipY = texture.flipY;
+		const u = hit.uv.x, v = flipY ? ( 1 - hit.uv.y ) : hit.uv.y;
+		const w = garageSelectionSource.width, h = garageSelectionSource.height;
+		const seedX = THREE.MathUtils.clamp( Math.floor( u * w ), 0, w - 1 );
+		const seedY = THREE.MathUtils.clamp( Math.floor( v * h ), 0, h - 1 );
+		const seedHex = garagePixelHex( seedX, seedY );
+		if ( ! seedHex ) { setGarageMappingStatus( 'That spot has no color to select. Try a solid painted area.', true ); return; }
+		const tol = getGarageRepaintTolerance();
+		const added = garageFloodFill( seedX, seedY, tol );
+		if ( added === 0 ) { setGarageMappingStatus( 'Could not select that area. Try raising the Color match slider.', true ); return; }
+		selectedGarageSourceHex = seedHex.toLowerCase();
+		refreshGarageViewer();
+		updateGaragePaintControls();
+		setGarageMappingStatus( `Selected ${ added.toLocaleString() } pixels (${ seedHex }). Pick a new color and Apply paint.` );
+
+	}
+
 	function refreshGarageViewer() {
 
 		if ( ! garageViewer?.carRoot ) return;
@@ -5492,7 +5487,7 @@ async function init() {
 		const clone = source.clone( true );
 		clone.rotation.y = Math.PI;
 		garageViewer.carRoot.add( clone );
-		applyCarCustomizationToObject( clone, carKey, '', true, '', getGarageRepaintTolerance(), garageSelectionMask );
+		applyCarCustomizationToObject( clone, carKey, '', true, '', getGarageRepaintTolerance(), garageSelectionMask, garageTargetColorInput?.value || '' );
 
 	}
 
@@ -5508,7 +5503,7 @@ async function init() {
 		scene.add( new THREE.AmbientLight( 0xffffff, 3.0 ) );
 		const carRoot = new THREE.Group();
 		scene.add( carRoot );
-		garageViewer = { renderer, scene, camera, carRoot, yaw: 0, dragging: false, moved: false, sx: 0, raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
+		garageViewer = { renderer, scene, camera, carRoot, yaw: 0, dragging: false, moved: false, sx: 0, sy: 0, raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
 		const resize = () => {
 
 			const rect = garageViewerCanvas.getBoundingClientRect();
@@ -5531,101 +5526,30 @@ async function init() {
 			}
 
 		};
-		garageViewerCanvas.addEventListener( 'pointerdown', ( event ) => { garageViewer.dragging = true; garageViewer.moved = false; garageViewer.sx = event.clientX; garageViewerCanvas.classList.add( 'dragging' ); garageViewerCanvas.setPointerCapture?.( event.pointerId ); } );
-		garageViewerCanvas.addEventListener( 'pointermove', ( event ) => { if ( garageViewer.dragging ) { const dx = event.clientX - garageViewer.sx; if ( Math.abs( dx ) > 2 ) garageViewer.moved = true; garageViewer.yaw += dx * 0.01; garageViewer.sx = event.clientX; return; } } );
-		garageViewerCanvas.addEventListener( 'pointerup', () => { garageViewer.dragging = false; garageViewerCanvas.classList.remove( 'dragging' ); } );
+		// Drag to rotate; a click (no significant drag) selects the color under the cursor.
+		garageViewerCanvas.addEventListener( 'pointerdown', ( event ) => { garageViewer.dragging = true; garageViewer.moved = false; garageViewer.sx = event.clientX; garageViewer.sy = event.clientY; garageViewerCanvas.classList.add( 'dragging' ); garageViewerCanvas.setPointerCapture?.( event.pointerId ); } );
+		garageViewerCanvas.addEventListener( 'pointermove', ( event ) => {
+
+			if ( ! garageViewer.dragging ) return;
+			const dx = event.clientX - garageViewer.sx;
+			const dy = event.clientY - garageViewer.sy;
+			if ( Math.abs( dx ) + Math.abs( dy ) > 4 ) garageViewer.moved = true;
+			garageViewer.yaw += dx * 0.01;
+			garageViewer.sx = event.clientX;
+			garageViewer.sy = event.clientY;
+
+		} );
+		garageViewerCanvas.addEventListener( 'pointerup', ( event ) => {
+
+			garageViewer.dragging = false;
+			garageViewerCanvas.classList.remove( 'dragging' );
+			if ( ! garageViewer.moved ) garageSelectFromViewerClick( event );
+
+		} );
 		refreshGarageViewer();
 		animate();
 
 	}
-
-	function garagePaintSheetPixelFromEvent( event ) {
-
-		if ( ! garagePaintSheetCanvas || ! garageSelectionSource ) return null;
-		const rect = garagePaintSheetCanvas.getBoundingClientRect();
-		const w = garageSelectionSource.width;
-		const h = garageSelectionSource.height;
-		const x = THREE.MathUtils.clamp( Math.floor( ( ( event.clientX - rect.left ) / rect.width ) * w ), 0, w - 1 );
-		const y = THREE.MathUtils.clamp( Math.floor( ( ( event.clientY - rect.top ) / rect.height ) * h ), 0, h - 1 );
-		return { x, y };
-
-	}
-
-	function applyGaragePaintToolAt( px, py ) {
-
-		if ( ! garageSelectionSource ) return;
-		const radius = Math.max( 1, ( Math.round( Number( garageBrushSizeInput?.value ) || 12 ) ) / 2 );
-		if ( garagePaintTool === 'wand' ) {
-
-			const tol = getGarageRepaintTolerance();
-			const added = garageFloodFillAdd( px, py, tol );
-			if ( added > 0 ) setGarageMappingStatus( `Wand added ${ added.toLocaleString() } pixels to the selection.` );
-
-		} else {
-
-			const changed = garageBrushStamp( px, py, radius, garagePaintTool === 'eraser' );
-			if ( changed > 0 ) setGarageMappingStatus( `${ garagePaintTool === 'eraser' ? 'Erased' : 'Brushed' } ${ changed.toLocaleString() } pixels.` );
-
-		}
-
-	}
-
-	function initGaragePaintSheet() {
-
-		if ( ! garagePaintSheetCanvas ) return;
-		garagePaintSheetCanvas.addEventListener( 'pointerdown', ( event ) => {
-
-			if ( ! garageSelectionSource ) return;
-			garagePaintDragging = true;
-			garagePaintSheetCanvas.classList.add( 'dragging' );
-			garagePaintSheetCanvas.setPointerCapture?.( event.pointerId );
-			const px = garagePaintSheetPixelFromEvent( event );
-			if ( ! px ) return;
-			if ( garagePaintTool === 'wand' ) garageSelectionMask = null;
-			applyGaragePaintToolAt( px.x, px.y );
-			garagePaintLastPx = px;
-			renderGaragePaintSheet();
-			refreshGarageViewer();
-			updateGaragePaintControls();
-			const desc = describeGarageSelection();
-			selectedGarageSourceHex = desc ? desc.hex : '';
-
-		} );
-		garagePaintSheetCanvas.addEventListener( 'pointermove', ( event ) => {
-
-			if ( ! garagePaintDragging || ! garageSelectionSource ) return;
-			const px = garagePaintSheetPixelFromEvent( event );
-			if ( ! px ) return;
-			if ( garagePaintTool === 'wand' ) return;
-			const last = garagePaintLastPx || px;
-			const dx = px.x - last.x, dy = px.y - last.y;
-			const steps = Math.max( Math.abs( dx ), Math.abs( dy ) );
-			for ( let s = 0; s <= steps; s ++ ) {
-
-				const t = steps === 0 ? 0 : s / steps;
-				applyGaragePaintToolAt( Math.round( last.x + dx * t ), Math.round( last.y + dy * t ) );
-
-			}
-			garagePaintLastPx = px;
-			renderGaragePaintSheet();
-			refreshGarageViewer();
-			updateGaragePaintControls();
-			const desc = describeGarageSelection();
-			selectedGarageSourceHex = desc ? desc.hex : '';
-
-		} );
-		const endDrag = () => {
-
-			garagePaintDragging = false;
-			garagePaintLastPx = null;
-			garagePaintSheetCanvas.classList.remove( 'dragging' );
-
-		};
-		garagePaintSheetCanvas.addEventListener( 'pointerup', endDrag );
-		garagePaintSheetCanvas.addEventListener( 'pointerleave', endDrag );
-
-	}
-
 
 	function garageUpgradeSummary() {
 
@@ -5686,7 +5610,7 @@ async function init() {
 
 		}
 		updateGarageMappingsUi();
-		ensureGaragePaintSheet();
+		ensureGarageSelectionSource();
 		refreshGarageViewer();
 		renderGarageVehicleCards();
 		setGarageMappingStatus( `Now editing mappings for ${ CAR_STATS[ selectedKey ]?.name || 'selected car' }.` );
@@ -9425,14 +9349,6 @@ function completeCampaignStage() {
 	} );
 	garageTargetColorInput?.addEventListener( 'input', () => { updateGaragePaintControls(); refreshGarageViewer(); } );
 	garageRepaintToleranceInput?.addEventListener( 'input', () => { updateGaragePaintControls(); } );
-	garageBrushSizeInput?.addEventListener( 'input', updateGaragePaintControls );
-	garageToolBtns.forEach( ( btn ) => btn.addEventListener( 'click', () => {
-
-		garagePaintTool = btn.dataset.garageTool || 'wand';
-		garageToolBtns.forEach( ( b ) => b.classList.toggle( 'active', b === btn ) );
-		if ( garagePaintSheetCanvas ) garagePaintSheetCanvas.style.cursor = garagePaintTool === 'wand' ? 'crosshair' : 'cell';
-
-	} ) );
 	garageClearSelectionBtn?.addEventListener( 'click', clearGarageSelection );
 	garageApplyPaintBtn?.addEventListener( 'click', () => {
 
@@ -9442,7 +9358,7 @@ function completeCampaignStage() {
 		const desc = describeGarageSelection();
 		if ( ! desc || desc.count === 0 ) {
 
-			setGarageMappingStatus( 'Select an area on the color sheet first (use the Wand or Brush).', true );
+			setGarageMappingStatus( 'Select an area first by clicking a color on the car.', true );
 			return;
 
 		}
@@ -9489,7 +9405,6 @@ function completeCampaignStage() {
 		selectedGarageSourceHex = '';
 		hoveredGarageSourceHex = '';
 		garageSelectionMask = null;
-		renderGaragePaintSheet();
 		updateGarageMappingsUi();
 		updateGaragePaintControls();
 		applyCarCustomization( vehicle );
@@ -9674,8 +9589,7 @@ function completeCampaignStage() {
 	const garageParamEnabled = new URLSearchParams( window.location.search ).get( 'garage' ) === '1';
 	setModeTab( garageParamEnabled ? 'garage' : 'gameplay' );
 	initGarageViewer();
-	initGaragePaintSheet();
-	if ( garageParamEnabled ) { setModeMenuOpen( true ); ensureGaragePaintSheet(); }
+	if ( garageParamEnabled ) { setModeMenuOpen( true ); ensureGarageSelectionSource(); }
 	if ( garageCarSelect ) garageCarSelect.value = currentCarKey();
 	updateCarSelectColor();
 	updateGarageUi();

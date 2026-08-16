@@ -60,89 +60,108 @@
 - Garage card grid: `repeat(5, minmax(0,1fr))` → 2×5 grid for 10 cars. Responsive: 3 cols
   <1200px, 2 cols <720px. Mobile forces 2 cols.
 
-## Car painter / Paint Shop (garage) — mask-based region selection (`js/main.js` + `index.html`)
+## Car painter / Paint Shop (garage) — 3D click-to-fill (`js/main.js` + `index.html`)
 
-### What changed & why
-- The OLD painter made you click a color on the 3D car model, then globally
-  re-matched every texture pixel within a tolerance to that source hex. Two bugs:
-  (1) it "only selected chunks" because the click hit a single UV island and the
-  global match grabbed disconnected pixels of similar color elsewhere; (2) white
-  selected almost everything (white is near every light color in RGB distance)
-  and black was buggy (black is far from everything in naive distance).
-- The NEW painter is a 2D "paint sheet": the car's colormap texture laid flat.
-  You select the EXACT region to repaint with three tools (Wand / Brush / Eraser),
-  see the selection highlighted green on both the 2D sheet and the live 3D clone,
-  pick a new color, and Apply. Selections are stored as compact RLE pixel masks
-  per mapping, so repaints are region-accurate (no global color re-match).
+### What it is now (simplified)
+- A simple, new-player-friendly 3D painter. You **click a color directly on the
+  3D car** in the viewer, the whole connected region of that color gets selected,
+  you pick a new paint color, and Apply (300 coins). That's it — no tools, no
+  brushes, no 2D sheet. Drag to rotate the car; a click (no drag) selects.
+- The selection is **flood-filled** (4-neighbourhood, connected) using **redmean
+  color distance** so it grabs one panel/region — NOT scattered chunks of similar
+  color elsewhere (the old "only selects chunks" bug). Redmean also fixes the old
+  "white selects everything" and "black is buggy" problems (perceptually weighted
+  by redness, white/black no longer collapse onto every color).
+- The live 3D preview shows the selected region in your chosen NEW color before
+  you commit, so you see exactly how it'll look.
+- Selections persist as compact RLE pixel masks per mapping, so repaints are
+  region-accurate (the exact pixels you clicked-on's region, not a global re-match).
+
+### History (why this exists)
+- v1 (original): click 3D car → global color-distance re-match. Bugs: chunky
+  selection (disconnected similar-color pixels), white grabbed everything, black
+  grabbed nothing.
+- v2 (over-engineered): 2D "paint sheet" + Wand/Brush/Eraser tools. Too complex
+  for new players; too much freedom for inappropriate content.
+- v3 (current): 3D click-to-fill. Keeps v2's flood-fill + redmean + RLE-mask
+  infrastructure (which fixed the v1 bugs) but drives it from a single 3D click.
+  No 2D sheet, no tool buttons, no brush.
 
 ### Layout (`index.html` `#garage-paint-studio`)
-- 3-column grid: `#garage-paint-tools` (left) | `#garage-paint-sheet-wrap`+canvas
-  (center, the PRIMARY interaction surface) | `#garage-viewer` 3D + mappings (right).
-- Tools: `.garage-tool-btn[data-garage-tool="wand|brush|eraser"]` (Wand default
-  active). `#garage-brush-size` range 2–60, `#garage-brush-size-value` label.
-  `#garage-clear-selection-btn`. `#garage-repaint-tolerance` (wand tolerance).
-  `#garage-target-color` (new paint color), `#garage-apply-paint-btn`.
-- `#garage-paint-sheet` is a `<canvas>` whose backing store IS the texture size
-  (512×512) shown scaled via CSS (`image-rendering: pixelated`).
+- 2-column grid: `#garage-paint-tools` (left, narrow ~280px) | `#garage-viewer-wrap`
+  3D canvas (right, the PRIMARY interaction surface — click the car here).
+- Controls (minimal): `#garage-target-color` (new paint color picker),
+  `#garage-repaint-tolerance` range 4–180 ("Color match" slider, default 40),
+  `#garage-clear-selection-btn`, `#garage-apply-paint-btn`, `#garage-selection-chip`
+  (status), `#garage-mapping-status`, `#garage-mappings-list`.
+- `#garage-viewer` is a `<canvas>` (WebGL). cursor:pointer; .dragging cursor:grabbing.
 
 ### Core functions (search `garageRedmeanDistanceSq` as the anchor)
-- `garageRedmeanDistanceSq(r1,g1,b1,r2,g2,b2)`: perceptual color distance.
-  Weighted by mean redness — fixes white-selects-everything & black-buggy.
-- `getGarageActiveTexture()`: finds the selected car model's `material.map`.
-- `ensureGaragePaintSheet()`: binds the 2D sheet to the active car's texture
-  (caches via `garageSelectionTexture`/`garageSelectionSource`); called from
-  `updateGarageUi()`, `setModeTab('garage')`, `selectGarageCar()`. Re-binds
-  when the texture changes (car switch). Resets the mask on rebind.
-- `renderGaragePaintSheet()`: blits source pixels + tints selected ones green.
-- `garageFloodFillAdd(x,y,tol)`: 4-neighbourhood flood fill ADDING to the mask
-  (tolerance is redmean distance). Wand re-seeds (clears mask) per click.
-- `garageBrushStamp(x,y,radius,erase)`: circular brush add/erase into the mask.
-- `describeGarageSelection()`: returns `{hex, tolerance, count}` — picks the
-  MOST COMMON actual selected color as the representative sourceHex (stable),
-  and derives a tolerance = ceil(sqrt(maxRedmeanDist))+8 clamped 8–180, so the
-  persisted global fallback covers the selected region's color spread.
+- `garageRedmeanDistanceSq(r1,g1,b1,r2,g2,b2)`: perceptual color distance (redmean).
+- `getGarageActiveTexture()`: finds the selected car model's first `material.map`.
+- `ensureGarageSelectionSource()`: binds the selected car's colormap pixels to
+  selection state (caches via `garageSelectionTexture`/`garageSelectionSource`);
+  called from `updateGarageUi()`, `setModeTab('garage')`, `selectGarageCar()`,
+  `garageSelectFromViewerClick()`. Re-binds on car switch; resets the mask.
+- `getGarageViewerHit(event)`: raycasts the 3D viewer canvas → first mesh hit + uv.
+- `sampleTextureHexAtUv(texture, uv)`: most-common color in a 3px radius around a
+  UV (flipY-aware: v = texture.flipY ? 1-uv.y : uv.y). Used to be the main picker;
+  now `garagePixelHex` (single pixel) is used for the seed, but this is kept.
+- `garagePixelHex(x,y)`: hex of one texture pixel (image-data space, row 0 = top).
+- `garageSelectFromViewerClick(event)`: THE entry point. raycast → uv → seed pixel
+  → `garagePixelHex` → `garageFloodFill` → set `selectedGarageSourceHex` →
+  `refreshGarageViewer()` (live preview in target color) → `updateGaragePaintControls()`.
+- `garageFloodFill(x,y,tol)`: 4-neighbourhood flood-fill SEEDING a fresh mask (each
+  click re-seeds — a new click replaces the selection). Redmean tolerance.
+- `describeGarageSelection()`: returns `{hex, tolerance, count}` — most common
+  selected color as sourceHex + derived tolerance for the global fallback.
 - `encodeSelectionMaskRle`/`decodeSelectionMaskRle`: base64 RLE of [start,len]
-  Uint32 runs. ~262k-pixel masks compress to a few KB. Local-only (NOT sent to
-  ghosts/multiplayer — those still use sourceHex+tolerance color-distance).
+  Uint32 runs. Local-only (NOT sent to ghosts/multiplayer).
 
-### State vars (near the garage state block ~line 4280)
-- `garagePaintTool` ('wand'|'brush'|'eraser'), `garageSelectionMask` (Uint8Array
-  over active texture pixels, 1=selected), `garageSelectionTexture`,
-  `garageSelectionSource` ({width,height,data}), `garagePaintSheetCtx`,
-  `garagePaintSheetImage` (mutable ImageData copy), `garagePaintDragging`,
-  `garagePaintLastPx`. `selectedGarageSourceHex`/`hoveredGarageSourceHex` kept
-  in sync for legacy paths but are no longer the source of truth.
+### Click-vs-drag (`initGarageViewer`)
+- pointerdown sets dragging=true, moved=false, records sx/sy.
+- pointermove: if dragging, accumulates yaw; if |dx|+|dy|>4 sets moved=true.
+- pointerup: dragging=false; if !moved (a click, not a drag) → `garageSelectFromViewerClick`.
+  This is how a single click selects while a drag just rotates. Threshold 4px.
+
+### State vars (near the garage state block ~line 4275)
+- `garageSelectionMask` (Uint8Array over active texture pixels, 1=selected),
+  `garageSelectionTexture`, `garageSelectionSource` ({width,height,data}).
+- `selectedGarageSourceHex`/`hoveredGarageSourceHex` kept for legacy paths but
+  `garageSelectionMask` is now the source of truth.
+- REMOVED (v2 leftovers): garagePaintTool, garagePaintSheetCtx, garagePaintSheetImage,
+  garagePaintDragging, garagePaintLastPx, garageBrushSize*, garageToolBtns,
+  garagePaintSheetCanvas. Do NOT re-add — the 2D sheet is gone.
 
 ### Persistence & apply
-- `normalizeGarageCosmetics()` now preserves `mask` (RLE string), `maskW`,
-  `maskH` per mapping (clamped). Max 48 mappings per car (unchanged).
+- `normalizeGarageCosmetics()` preserves `mask` (RLE string), `maskW`, `maskH`
+  per mapping. Max 48 mappings per car (unchanged).
 - `buildResolvedMappings()` carries `mask/maskW/maskH/maskRle`; masks are lazily
   decoded + cached via `getResolvedMappingMask(mapping, total)`.
-- `recolorTexture()`: for each pixel, prefers an EXACT region mask match (if any
-  mapping's mask covers that pixel) over the global color-distance fallback.
+- `recolorTexture()`: prefers an EXACT region mask match over global color-distance.
   Ghost mappings have no mask → fall back to `pickMappedColor` (backward compat).
-- `applyCarCustomizationToObject()` gained `previewMask` + `previewTargetHex`
-  params: when set (live preview), folds the in-progress selection into a
-  transient mapping so the 3D clone previews the repaint before commit. The
-  actual in-game vehicle call passes neither → uses persisted mappings only.
-- Apply handler (`garageApplyPaintBtn` click): derives `describeGarageSelection`,
-  encodes the mask, upserts the mapping (matches existing by `mapping.mask` OR
-  color proximity), charges 300 coins, clears the in-progress mask, refreshes.
+- `applyCarCustomizationToObject(root, carKey, highlightHex='', previewUnlit=false,
+  hoverHex='', highlightTolerance, previewMask=null, previewTargetHex='')`:
+  when previewMask + previewTargetHex set (live preview), folds the in-progress
+  selection into a transient mapping so the 3D clone previews the repaint. The
+  actual in-game vehicle call passes neither → persisted mappings only.
+- Apply handler: derives `describeGarageSelection`, encodes the mask, upserts the
+  mapping (matches existing by `mapping.mask` OR color proximity), charges 300
+  coins, clears the in-progress mask, refreshes.
 
 ### init wiring
-- `initGaragePaintSheet()` (attaches pointer listeners) called once at boot.
-- `ensureGaragePaintSheet()` called from `updateGarageUi()` (runs after models
-  load), `setModeTab('garage')`, `selectGarageCar()`, and the `?garage=1` boot.
-- `initGarageViewer()` unchanged structurally (3D clone + drag-rotate); now also
-  calls `applyCarCustomizationToObject(..., garageSelectionMask)` for live preview.
+- `initGarageViewer()` called once at boot (creates the WebGL viewer + attaches
+  pointer listeners including the click→select handler).
+- `ensureGarageSelectionSource()` called from `updateGarageUi()` (after models
+  load), `setModeTab('garage')`, `selectGarageCar()`, `garageSelectFromViewerClick()`,
+  and the `?garage=1` boot. There is NO `initGaragePaintSheet` anymore (removed).
 
 ### What does NOT need changing
 - Ghost/replay/multiplayer cosmetics: unchanged shape (sourceHex/targetHex/
   tolerance); masks are local-only. `buildResolvedMappingsFromGhostCosmetics`
   produces maskless mappings that fall back to color-distance.
 - `GARAGE_REPAINT_COST` (300), `GARAGE_PAINT_PALETTE`, paint unlocks, coins.
-- `getGarageTexturePalette()` is now UNUSED (kept as harmless dead code; the
-  new painter doesn't snap to a palette — it works on raw pixels).
+- `getGarageTexturePalette()` is UNUSED (kept as harmless dead code).
 
 ## Physics: car is a rolling sphere (`js/Physics.js` + `js/Vehicle.js`)
 
