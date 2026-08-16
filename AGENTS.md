@@ -1037,10 +1037,22 @@ The mobile UI had two independent triggers; BOTH are neutralized:
   grants NO in-game privileges and is NEVER shown in the UI. Everyone is an equal
   "player". Do NOT add any `if (publicServerState.isHost)` gate that affects
   gameplay/rotation/visibility — the only thing isHost gates is the PeerJS peer role.
-- **Anti-loop on round redirect.** A redirect fires exactly ONCE per roundId
-  (`redirectedForRoundId`), only when a track is actually set for the current
-  round AND it differs from the loaded map. Without this guard the page reloads
-  forever on round end (the old bug).
+- **Anti-loop on round redirect (the reload-loop bug fix).** A redirect fires at
+  most ONCE per round, decided by `loadedRoundId` — the roundId whose track we have
+  already loaded — NOT by comparing map-signature strings. `loadedRoundId` is
+  persisted in `sessionStorage` (`PUBSRV_LOADED_ROUND_KEY` = `pubsrv_loaded_round`),
+  which survives the reload that follows a redirect. On the reloaded page, the
+  client recovers `loadedRoundId` from sessionStorage; since it equals the current
+  roundId, it does NOT redirect again for that round — even if a signature-string
+  comparison would otherwise mismatch (the old bug, which looped: "timer UI loads →
+  redirect to the same track → reload → redirect again…"). The redirect block only
+  fires for a round we genuinely haven't loaded yet (a fresh join onto the wrong
+  map, or a round that advanced while we were connected). `resetPublicServerState`
+  / leave clears the sessionStorage key so rejoining re-syncs. Do NOT replace this
+  with a signature-equality check (`sig !== getCurrentMapSignature()` alone) — that
+  is exactly what looped. The `alreadyOnTrack` (sig match) path is only an
+  optimization to skip a redundant reload; the sessionStorage flag is the hard
+  loop-breaker.
 - **Normal singleplayer is unchanged.** All public-server code is gated behind
   `isPublicServerActive()` (only true after `joinPublicServer`, which only runs
   via the buttons or `?pubServer=` boot param). No `pubServer` param = no
@@ -1103,25 +1115,30 @@ The mobile UI had two independent triggers; BOTH are neutralized:
 ### main.js integration
 - `publicServerState` block (next to `multiplayerSessionState`): `active`,
   `serverId`, `server`, `isHost` (hidden; no privileges), `claimedHost`,
-  `pollTimer`, `heartbeatTimer`, `tickTimer`, `lastRoundId`, `lastMapSignature`,
-  `rankingsShownForRoundId`, `trackSetForCycleIndex`, `redirectedForRoundId`,
-  `skippedLapSeconds`, `serverNowOffsetMs`, `lastFetchAt`.
+  `pollTimer`, `heartbeatTimer`, `tickTimer`, `lastRoundId`, `loadedRoundId`
+  (the anti-loop anchor; persisted to sessionStorage `pubsrv_loaded_round`),
+  `rankingsShownForRoundId`, `trackSetForCycleIndex`, `skippedLapSeconds`,
+  `serverNowOffsetMs`, `lastFetchAt`.
+- `PUBSRV_LOADED_ROUND_KEY` + `getLoadedRoundIdFromStorage` /
+  `setLoadedRoundIdInStorage` / `clearLoadedRoundIdFromStorage` wrap the
+  sessionStorage round-tracking used to break the reload loop.
 - `publicServerNow()` = `Date.now() + serverNowOffsetMs` (synced server clock).
 - `isPublicServerActive()`, `publicServerRoomCode()`, `publicServerName()`.
 - `buildPublicServerButtons()` fills `#mp-public-buttons` with the 3 servers;
   called from `initMultiplayerPanel()` BEFORE the Firebase-config early-return.
-- `joinPublicServer(serverId)` -> leave any session, POST join, set
-  `roomCode=def.code`, `startPeerMultiplayer(code, role)` (host role is purely
-  PeerJS), hide private leaderboard, show timer, start poll(1s)+heartbeat(4s)+tick(250ms) loops.
+- `joinPublicServer(serverId)` -> leave any session, POST join, recover
+  `loadedRoundId` from sessionStorage, set `roomCode=def.code`,
+  `startPeerMultiplayer(code, role)` (host role is purely PeerJS), hide private
+  leaderboard, show timer, start poll(1s)+heartbeat(4s)+tick(250ms) loops.
 - `publicServerHeartbeat()` -> POST heartbeat; refreshes server clock offset; if
   `isHost` flipped, restart PeerJS in the new role (host takes the `RACE-ROOM-<code>`
   peer id). No status/log mentions "host".
 - `handlePublicServerRound(server)` (1s poll): round change -> reset laps + hide
-  rankings + clear `redirectedForRoundId`; `renderPublicServerTimer()`; `inRankings`
-  -> show rankings once/round; during rankings, ANY player whose
-  `trackSetForCycleIndex != nextCycle` calls `maybePickNextTrack(nextCycle)`
-  (first-writer-wins on the worker); when the round advances + a track is set +
-  sig differs from loaded map -> redirect ONCE (`redirectedForRoundId` guard).
+  rankings; `renderPublicServerTimer()`; `inRankings` -> show rankings once/round;
+  during rankings, ANY player whose `trackSetForCycleIndex != nextCycle` calls
+  `maybePickNextTrack(nextCycle)` (first-writer-wins on the worker); the
+  anti-loop redirect block (see "CRITICAL design rules") fires at most once per
+  round via `loadedRoundId`.
 - `maybePickNextTrack(nextCycleIndex)` -> `fetchRandomTrackPlayUrl()`; null ->
   reset guard + retry next poll (current map keeps running, round still advances);
   else POST set-track for that cycle.
@@ -1142,6 +1159,11 @@ The mobile UI had two independent triggers; BOTH are neutralized:
 ### Self-healing / edge cases (verified by tests)
 - The timer always runs: cycle boundaries are pure wall-clock math, identical for
   every player regardless of join time. It cannot freeze.
+- **The round-end redirect cannot loop.** `loadedRoundId` (sessionStorage) records
+  the round we already loaded; after a redirect+reload it equals the current
+  roundId, so we never re-redirect for the same round — even if signature strings
+  mismatch (the original loop). Verified by the anti-loop simulation (Scenario B
+  reproduces the exact bug and the flag breaks it).
 - Any player can set the next track (first-writer-wins); if the hidden host peer
   disappears the rotation still works — whoever is online during rankings sets it.
 - First joiner becomes host (worker auto-claims). Joiners connect to the host peer.
@@ -1151,16 +1173,21 @@ The mobile UI had two independent triggers; BOTH are neutralized:
 - No community tracks -> no track is set for the cycle; the round still advances on
   the wall-clock boundary but players stay on the current track until one becomes
   available (the `trackSetForCycleIndex` guard resets so it retries next rankings window).
-- Redirect is once-per-roundId; cannot loop.
+- Leaving a public server clears the sessionStorage round flag, so rejoining
+  re-syncs to the current round's track.
 
 ### Verified
-- Worker cycle-timing logic: 17 assertions (deterministic, host-independent,
-  monotonic, exact 5-min play + 5-s rankings chunks, join-time-independent).
-- Worker endpoints: 28 assertions (list/get/join, set-track first-writer-wins by
-  non-host, lap cycle-scoping + min-keeping, leave releases host + survivor
-  re-claims on heartbeat, CORS, 404).
-- Client helpers: 15 assertions (server list Server 1/2/3, find, configured,
-  signature parsing, redirect URL preserves map+mods+ghost+pubServer+play).
+- Anti-loop redirect logic: 17 assertions (round-end redirect+reload, the
+  signature-MISMATCH loop case, live round advance, fresh-join sync, no-track,
+  leave/rejoin re-sync).
+- Worker cycle-timing logic: 6 assertions (deterministic, host-independent,
+  exact 5-min play + 5-s rankings chunks, join-time-independent).
+- Worker endpoints: 10 assertions (list/get/join, set-track first-writer-wins by
+  non-host + nextRound reflects it, lap min-keeping, leave releases host + survivor
+  re-claims on heartbeat, 404).
+- Client helpers: 8 assertions (server list Server 1/2/3, find, signature
+  parsing, redirect URL preserves map+mods+ghost+pubServer+play).
 - All files syntax-check; clean page boot (modules load 200, "MAINJS STARTED",
-  multiplayer panel + "Public servers" render; singleplayer unaffected with no
-  `pubServer` param).
+  multiplayer panel + "Public servers" render; `?pubServer=` boot path degrades
+  gracefully with no loop when the worker is unreachable; singleplayer unaffected
+  with no `pubServer` param).

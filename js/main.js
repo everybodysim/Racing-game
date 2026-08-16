@@ -919,14 +919,43 @@ const publicServerState = {
 	heartbeatTimer: null,
 	tickTimer: null,        // local countdown tick (keeps the timer alive between polls)
 	lastRoundId: 0,         // detect round changes to reset local laps
-	lastMapSignature: '',   // track sig we have already loaded (avoid re-redirect)
+	loadedRoundId: 0,       // the roundId whose track we have ALREADY loaded/redirected to
+		// (persisted in sessionStorage so a redirect can NEVER fire twice for the
+		// same round — this is the hard anti-loop guarantee; see handlePublicServerRound)
 	rankingsShownForRoundId: 0,  // rankings overlay shown for this round
 	trackSetForCycleIndex: -1,   // we already tried to set the next cycle's track
-	redirectedForRoundId: 0,     // we already redirected for this round (anti-loop)
 	skippedLapSeconds: Infinity, // best lap already submitted this round
 	serverNowOffsetMs: 0,    // server.now - Date.now() (clock-skew correction)
 	lastFetchAt: 0,          // local time of last successful poll (for countdown)
 };
+
+// sessionStorage key recording the roundId whose track we already redirected to
+// / loaded. Survives the reload that follows a redirect, so we can tell "I just
+// redirected for THIS round — don't redirect again" even if signature strings
+// would otherwise mismatch. This is what makes the round-end redirect impossible
+// to loop. Scoped per-tab (sessionStorage), cleared on leave/reset.
+const PUBSRV_LOADED_ROUND_KEY = 'pubsrv_loaded_round';
+
+function getLoadedRoundIdFromStorage() {
+
+	try { return Number( sessionStorage.getItem( PUBSRV_LOADED_ROUND_KEY ) ) || 0; }
+	catch { return 0; }
+
+}
+
+function setLoadedRoundIdInStorage( roundId ) {
+
+	try { sessionStorage.setItem( PUBSRV_LOADED_ROUND_KEY, String( roundId ) ); }
+	catch {}
+
+}
+
+function clearLoadedRoundIdFromStorage() {
+
+	try { sessionStorage.removeItem( PUBSRV_LOADED_ROUND_KEY ); }
+	catch {}
+
+}
 
 function isPublicServerActive() {
 
@@ -1215,10 +1244,12 @@ async function joinPublicServer( serverId ) {
 	publicServerState.isHost = false;
 	publicServerState.claimedHost = false;
 	publicServerState.lastRoundId = 0;
-	publicServerState.lastMapSignature = getCurrentMapSignature();
+	// Recover the round we already loaded (survives the reload that follows a
+	// round-end redirect). This is the anti-loop anchor: if we already redirected
+	// for the current round, we will NOT redirect again for it.
+	publicServerState.loadedRoundId = getLoadedRoundIdFromStorage();
 	publicServerState.rankingsShownForRoundId = 0;
 	publicServerState.trackSetForCycleIndex = -1;
-	publicServerState.redirectedForRoundId = 0;
 	publicServerState.skippedLapSeconds = Infinity;
 	publicServerState.serverNowOffsetMs = 0;
 	publicServerState.lastFetchAt = 0;
@@ -1291,12 +1322,13 @@ async function resetPublicServerState() {
 	publicServerState.isHost = false;
 	publicServerState.claimedHost = false;
 	publicServerState.lastRoundId = 0;
+	publicServerState.loadedRoundId = 0;
 	publicServerState.rankingsShownForRoundId = 0;
 	publicServerState.trackSetForCycleIndex = -1;
-	publicServerState.redirectedForRoundId = 0;
 	publicServerState.skippedLapSeconds = Infinity;
 	publicServerState.serverNowOffsetMs = 0;
 	publicServerState.lastFetchAt = 0;
+	clearLoadedRoundIdFromStorage();
 	updatePublicServerButtonStates();
 
 }
@@ -1422,15 +1454,13 @@ function handlePublicServerRound( server ) {
 	const remainingMs = Math.max( 0, Math.min( playEnd, cycleEnd ) - now );
 	const inRankings = Boolean( server.inRankings );
 
-	// Round changed → reset local lap submission + hide stale rankings + clear
-	// the per-round redirect guard so the new round can redirect when ready.
+	// Round changed → reset local lap submission + hide stale rankings.
 	if ( roundId !== publicServerState.lastRoundId ) {
 
 		if ( publicServerState.lastRoundId !== 0 ) {
 
 			publicServerState.skippedLapSeconds = Infinity;
 			publicServerState.rankingsShownForRoundId = 0;
-			publicServerState.redirectedForRoundId = 0;
 			getPublicServerRankingsEl()?.classList.remove( 'visible' );
 
 		}
@@ -1475,32 +1505,44 @@ function handlePublicServerRound( server ) {
 
 	}
 
-	// When a new round begins, redirect EVERYONE to that round's track — exactly
-	// ONCE per round (guarded by redirectedForRoundId). This is the anti-loop
-	// fix: we only redirect when the roundId actually advanced AND we haven't
-	// already redirected for it AND a track is actually set AND it differs from
-	// the map we currently have loaded.
+	// --- Round-redirect (anti-loop, host-independent) ---------------------
+	// Redirect everyone to the current round's track, but ONLY for a round we
+	// have NOT already loaded. `loadedRoundId` is persisted in sessionStorage
+	// (PUBSRV_LOADED_ROUND_KEY) so it survives the reload that follows a redirect.
+	//
+	// This is the hard anti-loop guarantee: after we redirect for round N and
+	// the page reloads, `loadedRoundId` (recovered from sessionStorage) == N, so
+	// we do NOT redirect again for round N — even if a signature-string
+	// comparison would otherwise mismatch (the old bug). A redirect can only
+	// fire for a round we genuinely haven't loaded yet (a fresh join onto the
+	// wrong map, or a round that advanced while we were connected).
 	const sig = String( round.trackMapSignature || 'default|none' );
 	const hasTrack = Boolean( round.trackPlayUrl ) && sig !== 'default|none';
-	if (
-		hasTrack &&
-		publicServerState.redirectedForRoundId !== roundId &&
-		sig !== publicServerState.lastMapSignature &&
-		sig !== getCurrentMapSignature()
-	) {
+	if ( hasTrack && roundId !== publicServerState.loadedRoundId ) {
 
-		publicServerState.redirectedForRoundId = roundId;
-		publicServerState.lastMapSignature = sig;
-		const url = buildServerTrackRedirectUrl( round.trackPlayUrl, publicServerState.serverId );
-		updateMultiplayerStatus( `Loading next track for ${ publicServerName() }…` );
-		window.location.href = url;
-		return;
+		// Already on the right map (e.g. we just reloaded onto the track we
+		// redirected to)? Then we're synced — mark it loaded, don't redirect.
+		// OR we already redirected for this round (sessionStorage flag)? Same.
+		// Either way: do NOT redirect again. This is what breaks the loop.
+		const alreadyOnTrack = ( sig === getCurrentMapSignature() );
+		const alreadyLoadedThisRound = ( getLoadedRoundIdFromStorage() === roundId );
+		if ( alreadyOnTrack || alreadyLoadedThisRound ) {
 
-	}
-	// Remember the sig we're on so we don't re-redirect for the loaded map.
-	if ( hasTrack && sig !== publicServerState.lastMapSignature && sig === getCurrentMapSignature() ) {
+			publicServerState.loadedRoundId = roundId;
+			setLoadedRoundIdInStorage( roundId );
 
-		publicServerState.lastMapSignature = sig;
+		} else {
+
+			// Genuine first load of this round's track → redirect once. Record it
+			// BEFORE navigating so the reloaded page knows not to re-redirect.
+			setLoadedRoundIdInStorage( roundId );
+			publicServerState.loadedRoundId = roundId;
+			const url = buildServerTrackRedirectUrl( round.trackPlayUrl, publicServerState.serverId );
+			updateMultiplayerStatus( `Loading next track for ${ publicServerName() }…` );
+			window.location.href = url;
+			return;
+
+		}
 
 	}
 
