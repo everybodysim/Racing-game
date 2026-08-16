@@ -5781,7 +5781,12 @@ async function init() {
 				p.carRoot.rotation.y = p.yaw;
 				r.setSize( canvas.width, canvas.height, false );
 				r.render( p.scene, p.camera );
-				if ( p.ctx2d ) p.ctx2d.drawImage( src, 0, 0, canvas.width, canvas.height );
+				if ( p.ctx2d ) {
+					// Clear the previous frame before blitting, otherwise the spinning car
+					// leaves a smeared collage of every prior frame stacked on top.
+					p.ctx2d.clearRect( 0, 0, canvas.width, canvas.height );
+					p.ctx2d.drawImage( src, 0, 0, canvas.width, canvas.height );
+				}
 
 			}
 			if ( garageCardPreviews.size ) garageCardPreviewsRaf = requestAnimationFrame( loop );
@@ -5878,6 +5883,8 @@ async function init() {
 				updateGarageMappingsUi();
 				applyCarCustomization( vehicle );
 				refreshGarageViewer();
+				refreshGarageCardPreviewPaint( carKey );
+				updateGarageCardMeta( carKey );
 				broadcastPeerState();
 
 			} );
