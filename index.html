@@ -151,7 +151,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#loading-error { margin-top: 12px; color: #ffc4c4; display: none; }
 		#loading-reload-btn { margin-top: 10px; display: none; border: 1px solid rgba(255,255,255,0.28); border-radius: 8px; background: rgba(255,255,255,0.12); color: #fff; padding: 7px 11px; cursor: pointer; font: 700 13px/1 sans-serif; }
 		@keyframes loading-spin { to { transform: rotate(360deg); } }
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #home-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn, #video-recorder-btn {
+		            #editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #multiplayer-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #home-menu-btn, #car-select, #share-time-btn, #export-ghost-btn, #import-ghost-btn, #video-recorder-btn {
 			position: absolute;
 			bottom: 12px;
 			color: #fff;
@@ -162,7 +162,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			z-index: 10;
 			border: none;
 		}
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #home-menu-btn { text-decoration: none; }
+		            #editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #multiplayer-link, #hacks-toggle, #split-link, #respawnBtn, #mode-menu-btn, #home-menu-btn { text-decoration: none; }
 		#editor-link { right: 16px; }
 		#totd-link { right: 16px; bottom: 54px; }
 		#weekly-cup-link { right: 16px; bottom: 96px; }
@@ -172,8 +172,9 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#tracks-link { right: 16px; bottom: 264px; }
 		#clubs-link { right: 16px; bottom: 222px; }
 		#mods-link { right: 16px; bottom: 306px; }
-		#hacks-toggle { right: 16px; bottom: 348px; }
-		#split-link { right: 16px; bottom: 390px; }
+		#multiplayer-link { right: 16px; bottom: 348px; }
+		#hacks-toggle { right: 16px; bottom: 390px; }
+		#split-link { right: 16px; bottom: 432px; }
 		#respawnBtn { right: 16px; bottom: 170px; left: auto; top: auto; }
 		#mode-menu-btn { right: 16px; top: 16px; bottom: auto; left: auto; padding: 12px 18px; border-radius: 12px; border: 1px solid rgba(140,210,255,0.58); background: linear-gradient(145deg, rgba(44,117,210,0.92), rgba(18,44,82,0.9)); box-shadow: 0 8px 24px rgba(0,0,0,0.34); font: 800 14px/1 sans-serif; letter-spacing: 0.02em; }
 		#home-menu-btn { right: 16px; top: 64px; bottom: auto; left: auto; padding: 10px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.32); background: rgba(6,12,22,0.82); box-shadow: 0 6px 18px rgba(0,0,0,0.28); font: 800 13px/1 sans-serif; }
@@ -185,11 +186,11 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#export-ghost-btn { left: 16px; bottom: 12px; }
 		#import-ghost-btn { left: 136px; bottom: 12px; }
 		#share-time-btn, #export-ghost-btn, #import-ghost-btn { cursor: pointer; }
-		#editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #home-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover, #video-recorder-btn:hover { background: rgba(0,0,0,0.7); }
+		            #editor-link:hover, #totd-link:hover, #weekly-cup-link:hover, #coin-leaderboard-link:hover, #competitions-link:hover, #replay-link:hover, #tracks-link:hover, #clubs-link:hover, #mods-link:hover, #multiplayer-link:hover, #hacks-toggle:hover, #split-link:hover, #respawnBtn:hover, #mode-menu-btn:hover, #home-menu-btn:hover, #car-select:hover, #share-time-btn:hover, #export-ghost-btn:hover, #import-ghost-btn:hover, #video-recorder-btn:hover { background: rgba(0,0,0,0.7); }
 		#mode-menu-btn:hover { background: linear-gradient(145deg, rgba(65,144,240,0.98), rgba(24,58,104,0.95)); }
 		#home-menu-btn:hover { background: rgba(20,35,55,0.92); }
 		/* Hide scattered nav buttons until JS moves them into the quick-menu panel (prevents FOUC) */
-		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link { display: none; }
+		#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #multiplayer-link, #hacks-toggle, #split-link { display: none; }
 		#clubs-link.has-club-unread {
 			animation: club-link-unread-pulse 1.2s ease-in-out infinite;
 			border-color: rgba(255,96,96,0.82);
@@ -311,6 +312,36 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			display: none;
 			box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
 		}
+		/* ---- Multiplayer quick panel + current-server card ---- */
+		#mp-panel.expanded { min-width: 230px; max-width: 260px; }
+		.mp-hub-link {
+			display: block;
+			text-align: center;
+			text-decoration: none;
+			border-radius: 6px;
+			padding: 6px 8px;
+			margin-bottom: 8px;
+			background: rgba(83,212,255,0.22);
+			color: #eaf6ff;
+			font: 700 11px/1 sans-serif;
+			border: 1px solid rgba(83,212,255,0.4);
+		}
+		.mp-hub-link:hover { background: rgba(83,212,255,0.38); }
+		.mp-current-server {
+			background: rgba(83,212,255,0.16); border: 1px solid rgba(83,212,255,0.4);
+			border-radius: 6px; padding: 6px 7px; margin-bottom: 8px;
+		}
+		.mp-current-server .mp-cs-name { font: 700 12px/1.2 sans-serif; word-break: break-word; }
+		.mp-current-server .mp-cs-meta { font: 600 10px/1.3 sans-serif; opacity: 0.85; margin-top: 2px; }
+		.mp-current-server .mp-cs-players { font: 600 10px/1.4 sans-serif; margin-top: 4px; opacity: 0.9; }
+		.mp-current-server .mp-cs-actions { display: flex; gap: 4px; margin-top: 5px; }
+		.mp-current-server .mp-cs-actions button { border: none; border-radius: 5px; cursor: pointer; padding: 4px 8px; font: 600 10px/1 sans-serif; }
+		.mp-current-server .mp-cs-leave { background: rgba(255,80,80,0.3); color: #fff; }
+		.mp-current-server .mp-cs-leave:hover { background: rgba(255,80,80,0.5); }
+		.mp-cs-switch { display: flex; gap: 4px; margin-top: 5px; }
+		.mp-cs-switch input { flex: 1; min-width: 0; border-radius: 5px; border: 1px solid rgba(83,212,255,0.4); background: rgba(10,18,30,0.7); color: #fff; padding: 4px 6px; font: 600 10px/1.2 sans-serif; }
+		.mp-cs-switch button { border: none; border-radius: 5px; cursor: pointer; padding: 4px 8px; font: 600 10px/1 sans-serif; background: rgba(90,200,255,0.3); color: #fff; }
+		.mp-cs-switch button:hover { background: rgba(90,200,255,0.5); }
 		#competitions-warning-overlay {
 			position: fixed;
 			inset: 0;
@@ -1690,7 +1721,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				text-decoration: none;
 				font: 700 12px/1.2 sans-serif;
 			}
-			#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #nav-hacks, #split-link, #share-time-btn, #export-ghost-btn, #import-ghost-btn { display: none; }
+			                   #editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link, #multiplayer-link, #hacks-toggle, #nav-hacks, #split-link, #share-time-btn, #export-ghost-btn, #import-ghost-btn { display: none; }
 			#respawnBtn, #mode-menu-btn, #home-menu-btn, #car-select { z-index: 31; }
 			#editor-link { bottom: auto; top: 12px; right: 12px; }
 				#totd-link { bottom: auto; top: 54px; right: 12px; }
@@ -1701,8 +1732,9 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				#tracks-link { bottom: auto; top: 264px; right: 12px; }
 				#clubs-link { bottom: auto; top: 222px; right: 12px; }
 				#mods-link { bottom: auto; top: 306px; right: 12px; }
-			#hacks-toggle { bottom: auto; top: 348px; right: 12px; }
-			#split-link { bottom: auto; top: 390px; right: 12px; }
+				#multiplayer-link { bottom: auto; top: 348px; right: 12px; }
+			#hacks-toggle { bottom: auto; top: 390px; right: 12px; }
+			#split-link { bottom: auto; top: 432px; right: 12px; }
 			#car-select { top: auto; left: auto; right: 12px; bottom: 208px; }
 				#respawnBtn { top: auto; left: auto; right: 12px; bottom: 166px; }
 				#mode-menu-btn { top: 12px; left: auto; right: 12px; }
@@ -1789,7 +1821,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		@media (pointer: coarse) and (pointer: fine) { /* TEMPORARY: impossible query — mobile (pointer:coarse) UI disabled (force standard layout everywhere). Revert to `@media (pointer: coarse) {` to re-enable. */
 			#quick-menu-btn, #quick-menu-panel, #respawnBtn, #mode-menu-btn, #home-menu-btn,
 			#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link,
-			#replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link,
+			#replay-link, #tracks-link, #clubs-link, #mods-link, #multiplayer-link, #hacks-toggle, #split-link,
 			#share-time-btn, #export-ghost-btn, #import-ghost-btn { display: none !important; }
 			#mobile-actions-menu, #mp-panel { display: none !important; }
 			#car-select, #lap-hud, #economy-hud {
@@ -1907,6 +1939,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	body.mobile #tracks-link,
 	body.mobile #clubs-link,
 	body.mobile #mods-link,
+	body.mobile #multiplayer-link,
 	body.mobile #hacks-toggle,
 	body.mobile #nav-hacks,
 	body.mobile #split-link,
@@ -2190,6 +2223,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					</div>
 
 					<div id="home-secondary">
+						<a class="home-secondary-link" href="multiplayer.html">Multiplayer servers</a>
 						<a class="home-secondary-link" href="replay.html">Replay watcher</a>
 						<a class="home-secondary-link" href="mods.html">Mods</a>
 						<a class="home-secondary-link" href="custommods.html">Custom mods</a>
@@ -2234,6 +2268,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<a id="tracks-link" href="tracks.html">Track share board</a> 
 	<a id="clubs-link" class="club-notify-target" href="clubs.html">Clubs</a>
 	<a id="mods-link" href="mods.html">Mods</a>
+	<a id="multiplayer-link" href="multiplayer.html">Multiplayer</a>
 			<a id="hacks-toggle" href="#" style="display:none;">Hacks</a>
 		<button id="video-recorder-btn" type="button" aria-label="Open video recorder" title="Video recorder">⏺ Recorder</button>
 	<a id="split-link" href="#">2P split screen</a>
@@ -2408,6 +2443,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<button id="nav-pause-btn" type="button">Pause / Resume</button>
 				<div class="qm-section-label">Play</div>
 				<a id="nav-split-link" href="#">2P Split Screen</a>
+				<a id="nav-multiplayer" href="multiplayer.html">Multiplayer Hub</a>
 				<a id="nav-official" href="official-tracks.html">Official Tracks</a>
 				<div class="qm-section-label">Discover</div>
 				<a id="nav-totd" href="totd.html">Track of the Day</a>
@@ -2538,6 +2574,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<a href="tracks.html">Track share board</a>
 			<a href="clubs.html">Clubs</a>
 			<a href="mods.html">Mods</a>
+			<a href="multiplayer.html">Multiplayer Hub</a>
 			<button type="button" data-mobile-click="split-link">2P split screen</button>
 			<button type="button" data-mobile-click="hacks-toggle">Hacks</button>
 			<button type="button" data-mobile-click="export-ghost-btn">Export ghost</button>
@@ -2551,10 +2588,28 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<button id="import-ghost-btn" type="button">Import ghost</button>
 	<div id="mp-panel" aria-label="Multiplayer">
 		<div id="mp-panel-title">Multiplayer</div>
+
+		<!-- Current server summary (only shown while inside a server) -->
+		<div id="mp-current-server" class="mp-current-server" style="display:none">
+			<div class="mp-cs-name" id="mp-cs-name"></div>
+			<div class="mp-cs-meta" id="mp-cs-meta"></div>
+			<div class="mp-cs-players" id="mp-cs-players"></div>
+			<div id="mp-cs-switch" class="mp-cs-switch" style="display:none">
+				<input id="mp-cs-switch-input" type="text" maxlength="400" placeholder="Paste track URL / share code to bring everyone" aria-label="Switch track URL" />
+				<button id="mp-cs-switch-btn" type="button">Switch Track</button>
+			</div>
+			<div class="mp-cs-actions">
+				<button id="mp-change-track-btn" class="mp-cs-track" type="button" style="background:rgba(90,200,255,0.3);color:#fff">Pick Track</button>
+				<button id="mp-leave-server-btn" class="mp-cs-leave" type="button">Leave Server</button>
+			</div>
+		</div>
+
+		<!-- Quick multiplayer: classic Host / Join / Copy + a link to the full hub -->
+		<a id="mp-hub-link" class="mp-hub-link" href="multiplayer.html" target="_blank" rel="noopener">Open Multiplayer Hub →</a>
 		<div id="mp-actions">
 			<button id="mp-host-btn" type="button">Host</button>
 			<button id="mp-join-btn" type="button">Join</button>
-			<button id="mp-debug-toggle-btn" type="button" title="Toggle multiplayer debug console">Toggle Debug</button>
+			<button id="mp-debug-toggle-btn" type="button" title="Toggle multiplayer debug console">Debug</button>
 		</div>
 		<div id="mp-code-row">
 			<input id="mp-code-input" type="text" maxlength="6" placeholder="ROOM CODE" aria-label="Room code">
@@ -3171,8 +3226,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
-	         <script src="js/HudGrid.js?v=999973&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=999973&cachebust=1"></script>
+	                                             <script src="js/HudGrid.js?v=999980&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=999980&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
@@ -3388,8 +3443,15 @@ document.getElementById('loading-status').textContent =
 <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
 
 <script>
+  // ---- Chat system: global (default) + server-scoped contexts ----
+  // One Ably connection is shared. When the player joins a multiplayer server,
+  // main.js calls window.SkidChat.setServerContext(serverId, serverName) to
+  // switch to that server's chat channel; leaving calls clearServerContext() to
+  // restore the global chat. Global chat behavior is identical to before when no
+  // server is joined. See js/ServerChat.js docs and cloudflare-servers worker.
   const ably = new Ably.Realtime("kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDmM");
-  const channel = ably.channels.get("global-chat");
+  const GLOBAL_CHAT_CHANNEL = "global-chat";
+  const channel = ably.channels.get(GLOBAL_CHAT_CHANNEL);
 
   const chatBox = document.getElementById("chat");
   const chatWindow = document.getElementById("chat-box");
@@ -3583,39 +3645,162 @@ document.getElementById('loading-status').textContent =
   updateClubUnreadButtons();
   loadMyClubIds().then(hydrateMissedClubMessages);
 
-  function addMessage(text) {
-    if (isClubTaggedMessage(text)) return;
-    if (seen.has(text)) return;
-    seen.add(text);
+  // ---- Chat context: global (default) or server-scoped ----
+  // currentChatContext drives which channel messages are sent to / received
+  // from. Switching contexts clears the on-screen messages + dedupe set so chat
+  // history never leaks between servers, then re-subscribes + reloads history
+  // for the new context. Only one context is active at a time per player.
+  const GLOBAL_CONTEXT = { type: 'global', channel, name: 'Global', serverId: null, serverName: null };
+  let currentChatContext = GLOBAL_CONTEXT;
+  const serverChannelByName = new Map(); // channel name -> Ably channel (reused across switches)
 
-    const div = document.createElement("div");
-    div.className = "msg";
+  function getServerChannel( serverId ) {
+    const name = `skidcircuit:server:${ Number( serverId ) }:chat`;
+    let ch = serverChannelByName.get( name );
+    if ( ! ch ) {
+      ch = ably.channels.get( name );
+      serverChannelByName.set( name, ch );
+    }
+    return ch;
+  }
+
+  function getRoomChannel( roomCode ) {
+    const name = `skidcircuit:room:${ String( roomCode ).toUpperCase() }:chat`;
+    let ch = serverChannelByName.get( name );
+    if ( ! ch ) {
+      ch = ably.channels.get( name );
+      serverChannelByName.set( name, ch );
+    }
+    return ch;
+  }
+
+  function renderContextHeader() {
+    const header = document.getElementById( 'chat-header' );
+    if ( ! header ) return;
+    if ( currentChatContext.type === 'server' ) {
+      header.textContent = `Server Chat — ${ currentChatContext.serverName || ( '#' + currentChatContext.serverId ) }`;
+    } else if ( currentChatContext.type === 'room' ) {
+      header.textContent = `Room Chat — ${ currentChatContext.roomCode }`;
+    } else {
+      header.textContent = 'Live Chat';
+    }
+  }
+
+  function clearChatBox() {
+    seen.clear();
+    if ( chatBox ) chatBox.innerHTML = '';
+  }
+
+  function addMessage( text, opts = {} ) {
+    // Club-tagged messages only matter in the GLOBAL context (they're filtered
+    // out of the visible chat and counted toward club unread). In a server/room
+    // context a message may legitimately start with "[Server N]" / "[Room CODE]"
+    // (the publisher-side prefix) and must still render.
+    if ( currentChatContext.type === 'global' && isClubTaggedMessage( text ) ) return;
+    if ( seen.has( text ) ) return;
+    seen.add( text );
+    const div = document.createElement( 'div' );
+    div.className = 'msg';
+    // Server/room messages already arrive tagged by the publisher (see sendMsg /
+    // ServerChat). We render verbatim with innerText (never innerHTML) so no
+    // HTML/script injection is possible regardless of content.
     div.innerText = text;
-    chatBox.appendChild(div);
+    chatBox.appendChild( div );
     chatBox.scrollTop = chatBox.scrollHeight;
   }
+
+  function loadHistoryCurrent() {
+    if ( ! chatBox || chatBox.childElementCount > 0 ) return;
+    currentChatContext.channel.history( { limit: 100 }, ( err, result ) => {
+      if ( err ) {
+        console.error( err );
+        return;
+      }
+      const messages = ( result.items || [] ).reverse(); // oldest → newest
+      messages.forEach( ( msg ) => addMessage( msg.data ) );
+    } );
+  }
+
+  function subscribeCurrent() {
+    // Detach any previous live listener for THIS context first (idempotent —
+    // prevents duplicate subscriptions if called twice).
+    unsubscribeCurrent();
+    const handler = ( msg ) => {
+      if ( currentChatContext.type === 'global' && isClubTaggedMessage( msg.data ) ) {
+        incrementClubUnread( msg );
+        return;
+      }
+      addMessage( msg.data );
+      if ( chatWindow.style.display !== 'flex' || document.hidden ) {
+        setUnreadIndicator( true );
+      }
+      maybeSendMessageNotification( msg.data );
+    };
+    currentChatContext._handler = handler;
+    currentChatContext.channel.subscribe( handler );
+  }
+
+  function unsubscribeCurrent() {
+    if ( currentChatContext._handler ) {
+      try { currentChatContext.channel.unsubscribe( currentChatContext._handler ); } catch {}
+      currentChatContext._handler = null;
+    }
+  }
+
+  function switchChatContext( nextContext ) {
+    if ( nextContext === currentChatContext ) return;
+    unsubscribeCurrent();
+    currentChatContext = nextContext;
+    clearChatBox();
+    renderContextHeader();
+    subscribeCurrent();
+    loadHistoryCurrent();
+  }
+
+  // Public bridge called by main.js (js/main.js server join/leave handlers).
+  window.SkidChat = {
+    setServerContext( serverId, serverName ) {
+      const id = Number( serverId );
+      if ( ! Number.isFinite( id ) || id <= 0 ) return;
+      switchChatContext( {
+        type: 'server',
+        channel: getServerChannel( id ),
+        name: `skidcircuit:server:${ id }:chat`,
+        serverId: id,
+        serverName: serverName || null,
+      } );
+    },
+    // Room-code-scoped chat (legacy join-by-code sessions, which have no server
+    // record). Isolates chat to just the players in that room code so a
+    // join-by-code session does NOT broadcast to the global audience.
+    setRoomContext( roomCode ) {
+      const code = String( roomCode || '' ).trim().toUpperCase();
+      if ( ! /^[A-Z0-9]{6}$/.test( code ) ) return;
+      switchChatContext( {
+        type: 'room',
+        channel: getRoomChannel( code ),
+        name: `skidcircuit:room:${ code }:chat`,
+        roomCode: code,
+      } );
+    },
+    clearServerContext() {
+      switchChatContext( GLOBAL_CONTEXT );
+    },
+    isInServerContext() {
+      return currentChatContext.type === 'server' || currentChatContext.type === 'room';
+    },
+    getCurrentServerId() {
+      return currentChatContext.serverId;
+    },
+  };
 
   // Toggle chat
   chatButton.onclick = () => {
     const opening = chatWindow.style.display !== "flex";
-
     chatWindow.style.display = opening ? "flex" : "none";
-
-    if (opening) {
-      setUnreadIndicator(false);
-    }
-
-    // Load history ONLY when opening (so it doesn’t reload every time)
-    if (opening && chatBox.childElementCount === 0) {
-      channel.history({ limit: 100 }, (err, result) => {
-        if (err) {
-          console.error(err);
-          return;
-        }
-
-        const messages = result.items.reverse(); // oldest → newest
-        messages.forEach(msg => addMessage(msg.data));
-      });
+    if ( opening ) {
+      setUnreadIndicator( false );
+      loadHistoryCurrent();
     }
   };
 
@@ -3637,29 +3822,28 @@ document.getElementById('loading-status').textContent =
   if (!userName && nameInput) nameInput.placeholder = "Log in to an account to chat";
   if (setBtn) setBtn.title = "Username is your account username";
 
-  // Live messages
-  channel.subscribe(msg => {
-    if (isClubTaggedMessage(msg.data)) {
-      incrementClubUnread(msg);
-      return;
-    }
-    addMessage(msg.data);
-    if (chatWindow.style.display !== "flex" || document.hidden) {
-      setUnreadIndicator(true);
-    }
-    maybeSendMessageNotification(msg.data);
-  });
+  // Start subscribed to the global chat (default context).
+  subscribeCurrent();
 
-  // Send message
+  // Send message — publishes to whichever context is active (global or server).
   function sendMsg() {
     const input = document.getElementById("msg");
     if (!input.value.trim()) return;
 
     const name = getAccountUsername();
     if (!name) { alert("Log in to your account to use chat."); return; }
-    const message = name + ": " + input.value;
+    const raw = input.value.trim();
+    // Server messages are tagged with the server id so other players in the
+    // same server channel can render them with a prefix. Global messages keep
+    // the exact original wire format ("username: text") so the existing global
+    // audience is unaffected.
+    const message = currentChatContext.type === 'server'
+      ? `[Server ${ currentChatContext.serverId }] ${ name }: ${ raw }`
+      : currentChatContext.type === 'room'
+        ? `[Room ${ currentChatContext.roomCode }] ${ name }: ${ raw }`
+        : `${ name }: ${ raw }`;
 
-    channel.publish("message", message);
+    currentChatContext.channel.publish("message", message);
     input.value = "";
   }
 

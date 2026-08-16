@@ -14,6 +14,7 @@
 		'custommods.html': 'Custom Mods Lab',
 		'editor.html': 'Track Editor',
 		'mods.html': 'Mod Manager',
+		'multiplayer.html': 'Multiplayer Hub',
 		'replay.html': 'Replay Watcher',
 		'settings.html': 'Settings',
 		'share.html': 'Share Time',
