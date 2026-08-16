@@ -15,6 +15,24 @@ import { HudExtras } from './HudExtras.js';
 import { createRuntime as _createModRuntime } from './mod-runtime.js';
 import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
+import {
+	PUBLIC_SERVERS,
+	SERVERS_API_BASE,
+	findPublicServer,
+	isPublicServerConfigured,
+	fetchServerState,
+	joinServer as publicJoinServer,
+	claimServerHost as publicClaimHost,
+	heartbeatServer as publicHeartbeat,
+	submitServerLap as publicSubmitLap,
+	advanceServerRound as publicAdvanceRound,
+	leaveServer as publicLeaveServer,
+	fetchRandomTrackPlayUrl,
+	mapSignatureFromPlayUrl,
+	buildServerTrackRedirectUrl,
+	ROUND_DURATION_MS as SERVER_ROUND_DURATION_MS,
+	RANKINGS_WINDOW_MS as SERVER_RANKINGS_WINDOW_MS,
+} from './PublicServers.js';
 import { Storage } from './Storage.js';
 import { VideoRecorder, UI_TOGGLE_GROUPS } from './VideoRecorder.js';
 import GameSettings from './GameSettings.js';
@@ -882,6 +900,46 @@ let lastHostRoomRotateAt = 0;
 let lastHostRoomMetaSyncAt = 0;
 let migrationSwitchInFlight = false;
 
+// --- Public servers state -------------------------------------------------
+// A public server is a fixed PeerJS room (code, e.g. PUBNA1) whose synced
+// 5-minute round timer + rankings live in the Cloudflare worker
+// (SERVERS_API_BASE). The first live player claims the "host" seat and becomes
+// the PeerJS host peer (RACE-ROOM-<code>); the host advances rounds.
+const publicServerState = {
+	active: false,          // currently connected to a public server?
+	serverId: '',           // 'na-1' | 'eu-1' | 'as-1'
+	server: null,           // last fetched server view from the worker
+	isHost: false,          // are we the host peer for this server?
+	claimedHost: false,     // have we successfully claimed host this session?
+	pollTimer: null,
+	heartbeatTimer: null,
+	lastRoundId: 0,         // detect round changes to reset local laps
+	lastMapSignature: '',   // detect track changes → redirect
+	rankingsShownForRoundId: 0,
+	advancedForRoundId: 0,
+	skippedLapSeconds: Infinity, // best lap already submitted this round
+};
+
+function isPublicServerActive() {
+
+	return Boolean( publicServerState.active && publicServerState.serverId );
+
+}
+
+function publicServerRoomCode() {
+
+	const def = findPublicServer( publicServerState.serverId );
+	return def ? def.code : '';
+
+}
+
+function publicServerName() {
+
+	const def = findPublicServer( publicServerState.serverId );
+	return def ? def.name : 'Public server';
+
+}
+
 
 function setMultiplayerLeaderboardVisible( visible ) {
 
@@ -986,9 +1044,31 @@ async function maybeSubmitOnlinePersonalBest( lapTimes ) {
 async function publishMultiplayerBestLap( bestLap ) {
 
 	if ( ! Number.isFinite( bestLap ) ) return;
+	const displayName = getLocalMultiplayerDisplayName();
+
+	// Public servers: also push the round-scoped best lap to the worker so the
+	// synced rankings (shown at round end) include everyone. This is independent
+	// of the Firebase lap-time write below and needs no Firebase changes.
+	if ( isPublicServerActive() ) {
+
+		try {
+
+			// Only submit an improved time for the current round.
+			if ( bestLap < publicServerState.skippedLapSeconds ) {
+				await publicSubmitLap( publicServerState.serverId, multiplayerSessionState.clientId, displayName, bestLap );
+				publicServerState.skippedLapSeconds = bestLap;
+			}
+
+		} catch ( error ) {
+
+			console.warn( 'Failed to publish public-server lap', error );
+
+		}
+
+	}
+
 	const roomCode = multiplayerSessionState.roomCode;
 	if ( ! roomCode ) return;
-	const displayName = getLocalMultiplayerDisplayName();
 	try {
 
 		await firebaseRoomsRequest( roomCode, 'PUT', {
@@ -1042,6 +1122,428 @@ function redirectToRoomMap( roomCode, mapSignature ) {
 	}
 	params.set( 'joinRoom', String( roomCode || '' ).trim().toUpperCase() );
 	window.location.search = params.toString();
+
+}
+
+
+// --- Public server join / rotation ---------------------------------------
+
+function getPublicServerTimerEl() { return document.getElementById( 'mp-server-timer' ); }
+function getPublicServerRankingsEl() { return document.getElementById( 'mp-server-rankings' ); }
+
+function buildPublicServerButtons() {
+
+	const container = document.getElementById( 'mp-public-buttons' );
+	if ( ! container ) return;
+	container.innerHTML = '';
+	const configured = isPublicServerConfigured();
+	for ( const server of PUBLIC_SERVERS ) {
+
+		const btn = document.createElement( 'button' );
+		btn.type = 'button';
+		btn.dataset.serverId = server.id;
+		btn.textContent = `${ server.name }`;
+		btn.title = `Join the ${ server.name } public server`;
+		if ( ! configured ) {
+
+			btn.disabled = true;
+			btn.title = 'Public servers are not connected yet.';
+
+		}
+		btn.addEventListener( 'click', () => joinPublicServer( server.id ) );
+		container.appendChild( btn );
+
+	}
+	if ( ! configured ) {
+
+		const note = document.createElement( 'div' );
+		note.style.cssText = 'font:600 10px/1.3 sans-serif;opacity:0.7;width:100%;';
+		note.textContent = 'Public servers connect to the racing-servers-api worker.';
+		container.appendChild( note );
+
+	}
+
+}
+
+function updatePublicServerButtonStates() {
+
+	const buttons = document.querySelectorAll( '#mp-public-buttons button[data-server-id]' );
+	buttons.forEach( ( btn ) => {
+
+		const id = btn.dataset.serverId;
+		const isThis = isPublicServerActive() && publicServerState.serverId === id;
+		btn.disabled = isPublicServerActive() && ! isThis;
+		btn.textContent = isThis ? `✓ ${ findPublicServer( id )?.name || '' }` : `${ findPublicServer( id )?.name || '' }`;
+
+	} );
+
+}
+
+async function joinPublicServer( serverId ) {
+
+	if ( ! isPublicServerConfigured() ) {
+
+		updateMultiplayerStatus( 'Public servers are not connected yet.' );
+		return;
+
+	}
+	const def = findPublicServer( serverId );
+	if ( ! def ) return;
+
+	// Leave any existing session (public or private) first.
+	await leavePublicServer();
+	if ( multiplayerSessionState.peer || multiplayerSessionState.roomCode ) {
+
+		closeMultiplayerPeer();
+		multiplayerSessionState.role = 'none';
+		multiplayerSessionState.roomCode = '';
+
+	}
+
+	updateMultiplayerStatus( `Joining ${ def.name } public server…` );
+	publicServerState.active = true;
+	publicServerState.serverId = serverId;
+	publicServerState.server = null;
+	publicServerState.isHost = false;
+	publicServerState.claimedHost = false;
+	publicServerState.lastRoundId = 0;
+	publicServerState.lastMapSignature = getCurrentMapSignature();
+	publicServerState.rankingsShownForRoundId = 0;
+	publicServerState.advancedForRoundId = 0;
+	publicServerState.skippedLapSeconds = Infinity;
+	updatePublicServerButtonStates();
+
+	try {
+
+		const displayName = getLocalMultiplayerDisplayName();
+		const res = await publicJoinServer( serverId, multiplayerSessionState.clientId, displayName );
+		if ( ! res?.ok ) throw new Error( res?.error || 'join-failed' );
+		publicServerState.server = res.server;
+		publicServerState.isHost = Boolean( res.isHost );
+		publicServerState.claimedHost = Boolean( res.claimedHost );
+		publicServerState.lastRoundId = Number( res.server?.round?.roundId ) || 0;
+
+		// Reuse the existing PeerJS room mechanism with the fixed server code.
+		multiplayerSessionState.roomCode = def.code;
+		const codeInput = document.getElementById( 'mp-code-input' );
+		if ( codeInput ) codeInput.value = def.code;
+		multiplayerSessionState.role = publicServerState.isHost ? 'host' : 'join';
+		startPeerMultiplayer( def.code, publicServerState.isHost ? 'host' : 'join' );
+
+		// The private-room leaderboard is unused in public servers (PeerJS mode
+		// never refreshes it); hide it and show the synced timer instead.
+		setMultiplayerLeaderboardVisible( false );
+		showPublicServerTimer( true );
+
+		updateMultiplayerStatus(
+			`In ${ def.name } public server${ publicServerState.isHost ? ' (host)' : '' }. Round timer synced.`
+		);
+		logMpDebug( `[PublicServer] Joined ${ def.name } (code ${ def.code }) as ${ publicServerState.isHost ? 'host' : 'join' }` );
+
+		startPublicServerLoops();
+
+		// Immediately render the current round state.
+		await refreshPublicServerState();
+
+	} catch ( error ) {
+
+		console.warn( 'Failed to join public server', error );
+		updateMultiplayerStatus( `Could not join ${ def.name }: ${ error?.message || error }` );
+		await resetPublicServerState();
+
+	}
+
+}
+
+async function leavePublicServer() {
+
+	if ( ! isPublicServerActive() ) return;
+	stopPublicServerLoops();
+	getPublicServerRankingsEl()?.classList.remove( 'visible' );
+	showPublicServerTimer( false );
+	const serverId = publicServerState.serverId;
+	const clientId = multiplayerSessionState.clientId;
+	try { await publicLeaveServer( serverId, clientId ); } catch {}
+	await resetPublicServerState();
+
+}
+
+async function resetPublicServerState() {
+
+	publicServerState.active = false;
+	publicServerState.serverId = '';
+	publicServerState.server = null;
+	publicServerState.isHost = false;
+	publicServerState.claimedHost = false;
+	publicServerState.lastRoundId = 0;
+	publicServerState.rankingsShownForRoundId = 0;
+	publicServerState.advancedForRoundId = 0;
+	publicServerState.skippedLapSeconds = Infinity;
+	updatePublicServerButtonStates();
+
+}
+
+function startPublicServerLoops() {
+
+	stopPublicServerLoops();
+	publicServerState.pollTimer = setInterval( refreshPublicServerState, 1000 );
+	publicServerState.heartbeatTimer = setInterval( publicServerHeartbeat, 4000 );
+
+}
+
+function stopPublicServerLoops() {
+
+	if ( publicServerState.pollTimer ) { clearInterval( publicServerState.pollTimer ); publicServerState.pollTimer = null; }
+	if ( publicServerState.heartbeatTimer ) { clearInterval( publicServerState.heartbeatTimer ); publicServerState.heartbeatTimer = null; }
+
+}
+
+async function publicServerHeartbeat() {
+
+	if ( ! isPublicServerActive() ) return;
+	const displayName = getLocalMultiplayerDisplayName();
+	try {
+
+		const res = await publicHeartbeat( publicServerState.serverId, multiplayerSessionState.clientId, displayName );
+		if ( res?.ok && res.server ) {
+
+			publicServerState.server = res.server;
+			// If we lost host (or gained it), re-evaluate the PeerJS role.
+			const nowHost = Boolean( res.isHost );
+			if ( nowHost !== publicServerState.isHost ) {
+
+				logMpDebug( `[PublicServer] host seat changed → now ${ nowHost ? 'host' : 'join' }` );
+				publicServerState.isHost = nowHost;
+				publicServerState.claimedHost = nowHost;
+				multiplayerSessionState.role = nowHost ? 'host' : 'join';
+				// Restart the PeerJS peer in the new role so the host takes the
+				// RACE-ROOM-<code> peer id (joiners connect to it).
+				startPeerMultiplayer( publicServerRoomCode(), nowHost ? 'host' : 'join' );
+
+			}
+
+		}
+
+	} catch ( error ) {
+
+		console.warn( 'Public server heartbeat failed', error );
+
+	}
+
+}
+
+async function refreshPublicServerState() {
+
+	if ( ! isPublicServerActive() ) return;
+	try {
+
+		const res = await fetchServerState( publicServerState.serverId );
+		if ( ! res?.ok || ! res.server ) return;
+		publicServerState.server = res.server;
+		handlePublicServerRound( res.server );
+
+	} catch ( error ) {
+
+		// Transient network issues are fine; the loop keeps trying.
+		console.warn( 'Public server poll failed', error );
+
+	}
+
+}
+
+function handlePublicServerRound( server ) {
+
+	const round = server.round || {};
+	const roundId = Number( round.roundId ) || 0;
+	const now = Date.now();
+	const roundEndAt = Number( server.roundEndAt ) || now;
+	const remainingMs = Math.max( 0, roundEndAt - now );
+	const inRankings = Boolean( server.inRankings );
+
+	// Round changed → reset local lap submission + hide stale rankings.
+	if ( roundId !== publicServerState.lastRoundId ) {
+
+		if ( publicServerState.lastRoundId !== 0 ) {
+
+			publicServerState.skippedLapSeconds = Infinity;
+			publicServerState.rankingsShownForRoundId = 0;
+			publicServerState.advancedForRoundId = 0;
+			getPublicServerRankingsEl()?.classList.remove( 'visible' );
+
+		}
+		publicServerState.lastRoundId = roundId;
+
+	}
+
+	renderPublicServerTimer( server, remainingMs, inRankings );
+
+	// Show rankings for ~5s when the round ends.
+	if ( inRankings && publicServerState.rankingsShownForRoundId !== roundId ) {
+
+		publicServerState.rankingsShownForRoundId = roundId;
+		renderPublicServerRankings( server );
+		getPublicServerRankingsEl()?.classList.add( 'visible' );
+		logMpDebug( `[PublicServer] Round ${ roundId } over — showing rankings` );
+
+	}
+	// Hide rankings once the rankings window closes.
+	if ( ! inRankings && publicServerState.rankingsShownForRoundId === roundId ) {
+
+		getPublicServerRankingsEl()?.classList.remove( 'visible' );
+
+	}
+
+	// Host advances the round (pick a random track) once the round + rankings
+	// window have elapsed.
+	if ( publicServerState.isHost && server.roundOver && publicServerState.advancedForRoundId !== roundId ) {
+
+		publicServerState.advancedForRoundId = roundId;
+		advancePublicServerRound().catch( ( e ) => console.warn( 'advance round failed', e ) );
+
+	}
+
+	// Everyone: if the server's track changed away from our loaded map, redirect
+	// to it (rejoining the same public server via ?pubServer=).
+	const sig = String( round.trackMapSignature || 'default|none' );
+	if ( sig && sig !== 'default|none' && sig !== publicServerState.lastMapSignature ) {
+
+		if ( sig !== getCurrentMapSignature() && round.trackPlayUrl ) {
+
+			const url = buildServerTrackRedirectUrl( round.trackPlayUrl, publicServerState.serverId );
+			logMpDebug( `[PublicServer] Redirecting to new round track: ${ sig }` );
+			updateMultiplayerStatus( `Loading next track for ${ publicServerName() }…` );
+			window.location.href = url;
+			return;
+
+		}
+		publicServerState.lastMapSignature = sig;
+
+	}
+
+}
+
+async function advancePublicServerRound() {
+
+	if ( ! isPublicServerActive() || ! publicServerState.isHost ) return;
+	const playUrl = await fetchRandomTrackPlayUrl();
+	if ( ! playUrl ) {
+
+		// No tracks available yet — restart the same round timer so the server
+		// doesn't get stuck. Keep the current map.
+		publicServerState.advancedForRoundId = 0;
+		updateMultiplayerStatus( 'No community tracks available to rotate to yet.' );
+		return;
+
+	}
+	const sig = mapSignatureFromPlayUrl( playUrl );
+	try {
+
+		const res = await publicAdvanceRound( publicServerState.serverId, multiplayerSessionState.clientId, playUrl, sig );
+		if ( ! res?.ok ) {
+
+			publicServerState.advancedForRoundId = 0;
+			return;
+
+		}
+		publicServerState.server = res.server;
+		logMpDebug( `[PublicServer] Advanced to round ${ res.server?.round?.roundId } on ${ sig }` );
+
+	} catch ( error ) {
+
+		publicServerState.advancedForRoundId = 0;
+		console.warn( 'Failed to advance public server round', error );
+
+	}
+
+}
+
+function formatCountdown( ms ) {
+
+	const total = Math.max( 0, Math.floor( ms / 1000 ) );
+	const m = Math.floor( total / 60 );
+	const s = total % 60;
+	return `${ m }:${ String( s ).padStart( 2, '0' ) }`;
+
+}
+
+function showPublicServerTimer( visible ) {
+
+	const el = getPublicServerTimerEl();
+	if ( el ) el.style.display = visible ? 'block' : 'none';
+
+}
+
+function renderPublicServerTimer( server, remainingMs, inRankings ) {
+
+	const el = getPublicServerTimerEl();
+	if ( ! el ) return;
+	const memberCount = Number( server.memberCount ) || 0;
+	const role = publicServerState.isHost ? 'host' : 'join';
+	if ( inRankings ) {
+
+		el.innerHTML =
+			`<div class="mp-timer-line mp-timer-big">Round over</div>` +
+			`<div class="mp-timer-line mp-timer-sub">Showing rankings — next track loading…</div>` +
+			`<div class="mp-timer-line mp-timer-role">${ publicServerName() } • ${ memberCount } player${ memberCount === 1 ? '' : 's' } • you: ${ role }</div>`;
+
+	} else {
+
+		el.innerHTML =
+			`<div class="mp-timer-line mp-timer-sub">${ publicServerName() } • round ends in</div>` +
+			`<div class="mp-timer-line mp-timer-big">${ formatCountdown( remainingMs ) }</div>` +
+			`<div class="mp-timer-line mp-timer-role">${ memberCount } player${ memberCount === 1 ? '' : 's' } online • you: ${ role }</div>`;
+
+	}
+
+}
+
+function renderPublicServerRankings( server ) {
+
+	const listEl = document.getElementById( 'mp-server-rankings-list' );
+	const emptyEl = document.getElementById( 'mp-server-rankings-empty' );
+	const subEl = document.getElementById( 'mp-server-rankings-sub' );
+	const nextEl = document.getElementById( 'mp-server-rankings-next' );
+	if ( ! listEl || ! emptyEl || ! subEl || ! nextEl ) return;
+	const laps = server?.round?.laps || {};
+	const rows = Object.entries( laps ).map( ( [ id, row ] ) => ( {
+		id,
+		name: typeof row?.name === 'string' && row.name ? row.name : `Player ${ String( id ).slice( 0, 4 ).toUpperCase() }`,
+		time: Number( row?.time ),
+	} ) ).filter( ( r ) => Number.isFinite( r.time ) );
+	rows.sort( ( a, b ) => a.time - b.time );
+
+	subEl.textContent = `${ publicServerName() } • round ${ server?.round?.roundId || '' }`;
+	nextEl.textContent = publicServerState.isHost
+		? 'Picking a random community track for the next round…'
+		: 'The host is picking a random community track for the next round…';
+
+	listEl.innerHTML = '';
+	if ( rows.length === 0 ) {
+
+		emptyEl.style.display = 'block';
+		return;
+
+	}
+	emptyEl.style.display = 'none';
+	rows.slice( 0, 12 ).forEach( ( row, i ) => {
+
+		const li = document.createElement( 'li' );
+		if ( row.id === multiplayerSessionState.clientId ) li.classList.add( 'you' );
+		const pos = document.createElement( 'span' );
+		pos.className = 'rk-pos';
+		pos.textContent = `${ i + 1 }.`;
+		const name = document.createElement( 'span' );
+		name.className = 'rk-name';
+		name.textContent = row.name;
+		const time = document.createElement( 'span' );
+		time.className = 'rk-time';
+		time.textContent = formatLapTime( row.time );
+		li.appendChild( pos );
+		li.appendChild( name );
+		li.appendChild( time );
+		listEl.appendChild( li );
+
+	} );
 
 }
 
@@ -1121,12 +1623,32 @@ function initMultiplayerPanel() {
 	if ( ! hostBtn || ! joinBtn || ! copyBtn || ! codeInput ) return;
 
 	const configReady = hasFirebaseMultiplayerConfig();
+
+	// Public servers are wired up regardless of Firebase config: they use the
+	// Cloudflare servers worker for synced round state and PeerJS's default
+	// cloud signalling for the WebRTC peer connections (no Firebase needed).
+	buildPublicServerButtons();
+
+	// Auto-join a public server on boot via ?pubServer=<id> (used after a round
+	// rotation redirect so players rejoin the same server on the new track).
+	const pubServerParam = String( new URLSearchParams( window.location.search ).get( 'pubServer' ) || '' ).trim().toLowerCase();
+	if ( pubServerParam && findPublicServer( pubServerParam ) ) {
+
+		const params = new URLSearchParams( window.location.search );
+		params.delete( 'pubServer' );
+		const nextQuery = params.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ nextQuery ? `?${ nextQuery }` : '' }${ window.location.hash }` );
+		// Wait briefly for the boot sequence, then join (tolerant of late load).
+		setTimeout( () => joinPublicServer( pubServerParam ), 350 );
+
+	}
+
 	if ( ! configReady ) {
 
 		hostBtn.disabled = true;
 		joinBtn.disabled = true;
 		copyBtn.disabled = true;
-		updateMultiplayerStatus( 'Multiplayer needs Firebase room metadata for PeerJS signaling. Add Firebase keys in js/firebase-config.js.' );
+		updateMultiplayerStatus( 'Private rooms need Firebase room metadata. Public servers (above) still work.' );
 		setMultiplayerLeaderboardVisible( false );
 		return;
 
@@ -1134,6 +1656,7 @@ function initMultiplayerPanel() {
 
 	hostBtn.addEventListener( 'click', async () => {
 
+		await leavePublicServer();
 		const code = createHostCode();
 		codeInput.value = code;
 		updateMultiplayerStatus( `Creating room ${ code }...` );
@@ -1195,6 +1718,7 @@ function initMultiplayerPanel() {
 
 	joinBtn.addEventListener( 'click', async () => {
 
+		await leavePublicServer();
 		const code = codeInput.value.trim().toUpperCase();
 		if ( ! /^[A-Z0-9]{6}$/.test( code ) ) {
 
@@ -1304,6 +1828,10 @@ function initMultiplayerPanel() {
 async function hostRotateRoomCode( currentRoomCode, mapSignature ) {
 
 	if ( ! currentRoomCode || multiplayerSessionState.role !== 'host' || migrationSwitchInFlight ) return currentRoomCode;
+	// Never rotate the room code on a public server — the fixed code (e.g.
+	// PUBNA1) is how everyone finds the same PeerJS room. Rotation is handled by
+	// the public-server round/track loop instead.
+	if ( isPublicServerActive() ) return currentRoomCode;
 	const nextCode = createHostCode();
 	if ( nextCode === currentRoomCode ) return currentRoomCode;
 	migrationSwitchInFlight = true;
@@ -3081,6 +3609,23 @@ async function init() {
 	setInterval( broadcastPeerState, WEBRTC_SYNC_MS );
 	window.addEventListener( 'beforeunload', () => {
 
+		if ( isPublicServerActive() ) {
+
+			// Best-effort leave so the host seat is freed quickly. Use sendBeacon
+			// style fire-and-forget (fetch keepalive) so it survives navigation.
+			const url = `${ SERVERS_API_BASE }/${ encodeURIComponent( publicServerState.serverId ) }/leave`;
+			try {
+
+				fetch( url, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify( { clientId: multiplayerSessionState.clientId } ),
+					keepalive: true,
+				} ).catch( () => {} );
+
+			} catch {}
+
+		}
 		if ( ! multiplayerSessionState.roomCode ) return;
 		for ( const connection of multiplayerSessionState.connections.values() ) {
 
