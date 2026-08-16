@@ -259,6 +259,17 @@
 			width: 14px;
 			height: 14px;
 		}
+		#settings-bar .back-home {
+			text-decoration: none;
+			font: 700 12px sans-serif;
+			padding: 5px 10px;
+			border-radius: 7px;
+			border: 1px solid rgba(140,210,255,0.5);
+			background: rgba(29,78,216,0.85);
+			color: #fff;
+			white-space: nowrap;
+		}
+		#settings-bar .back-home:hover { background: rgba(37,99,235,1); }
 
 	#side-ui-bar {
 			position: absolute;
@@ -448,6 +459,7 @@
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content">
 	<div id="settings-bar">
+		<a class="back-home" href="index.html">← Home</a>
 		<button id="settings-toggle-btn" type="button">⚙ Track Settings</button>
 		<label for="weather-preset">Weather</label>
 
