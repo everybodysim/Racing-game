@@ -1318,18 +1318,9 @@ function initMultiplayerPanel() {
 
 	}
 
-	initMultiplayerServerHub();
-	// ?server=<id> deep link: open the hub and attempt to join that server.
-	const serverParam = String( new URLSearchParams( window.location.search ).get( 'server' ) || '' ).trim();
-	if ( serverParam && /^\d+$/.test( serverParam ) ) {
-		const params = new URLSearchParams( window.location.search );
-		params.delete( 'server' );
-		const nextQuery = params.toString();
-		history.replaceState( null, '', `${ window.location.pathname }${ nextQuery ? `?${ nextQuery }` : '' }${ window.location.hash }` );
-		setTimeout( () => joinServerById( Number( serverParam ) ).catch( ( err ) => {
-			updateMultiplayerStatus( err?.message || 'Could not join that server.' );
-		} ), 0 );
-	}
+	// Multiplayer server-hub init + ?server= deep link are wired after the
+	// server-hub declarations (further below) to avoid referencing let/const
+	// in the temporal dead zone — initMultiplayerPanel() runs at module load.
 
 }
 
@@ -1353,6 +1344,23 @@ let serverHubReady = false;
 // login/ownership without duplicating auth state.
 function mpAccount() {
 	return ( typeof window.__mpGetAccountSession === 'function' ) ? ( window.__mpGetAccountSession() || null ) : null;
+}
+
+// Now that the server-hub declarations above are initialized, wire up the hub
+// UI + the ?server=<id> deep link. (This must run AFTER the let/const above to
+// avoid the temporal dead zone; initMultiplayerPanel() runs at module load.)
+initMultiplayerServerHub();
+{
+	const serverParam = String( new URLSearchParams( window.location.search ).get( 'server' ) || '' ).trim();
+	if ( serverParam && /^\d+$/.test( serverParam ) ) {
+		const params = new URLSearchParams( window.location.search );
+		params.delete( 'server' );
+		const nextQuery = params.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ nextQuery ? `?${ nextQuery }` : '' }${ window.location.hash }` );
+		setTimeout( () => joinServerById( Number( serverParam ) ).catch( ( err ) => {
+			updateMultiplayerStatus( err?.message || 'Could not join that server.' );
+		} ), 0 );
+	}
 }
 
 function initMultiplayerServerHub() {
