@@ -5578,17 +5578,6 @@ async function init() {
 
 	}
 
-	function garageUpgradeSummary() {
-
-		const unlocks = getGarageUnlocks();
-		return [
-			`Handling ${ unlocks.grip ? `x${ garageMods.grip.toFixed( 2 ) }` : 'locked' }`,
-			`Power ${ unlocks.accel ? `x${ garageMods.accel.toFixed( 2 ) }` : 'locked' }`,
-			`Traction ${ unlocks.drive ? `x${ garageMods.drive.toFixed( 2 ) }` : 'locked' }`,
-		].join( ' • ' );
-
-	}
-
 	function renderGarageVehicleCards() {
 
 		if ( ! garageVehicleCards ) return;
@@ -5604,12 +5593,12 @@ async function init() {
 			const button = document.createElement( 'button' );
 			button.type = 'button';
 			button.className = `garage-vehicle-card${ carKey === selectedKey ? ' active' : '' }`;
+			button.dataset.carKey = carKey;
 			button.style.setProperty( '--garage-accent', style.border || '#9ed8ff' );
 			button.innerHTML = `
 				<h5>${ stats.name }</h5>
 				<canvas class="garage-card-preview" aria-label="${ stats.name } preview"></canvas>
 				<div class="garage-vehicle-meta">
-					<span class="garage-vehicle-status">${ garageUpgradeSummary() }</span>
 					<span>Paint maps: ${ mappings }</span>
 				</div>`;
 			const canvas = button.querySelector( '.garage-card-preview' );
@@ -5618,6 +5607,21 @@ async function init() {
 			garageVehicleCards.appendChild( button );
 
 		}
+		updateGarageCardActiveState();
+		if ( modeMenuOpen && modeTab === 'garage' ) activateGarageCardPreviews();
+
+	}
+
+	// Toggle the .active outline on the cards without rebuilding them (a rebuild would dispose
+	// every preview renderer and blank the cars). Called from selectGarageCar on every card click.
+	function updateGarageCardActiveState() {
+
+		const selectedKey = getSelectedGarageCarKey();
+		garageVehicleCards?.querySelectorAll( '.garage-vehicle-card' ).forEach( ( card ) => {
+
+			card.classList.toggle( 'active', card.dataset.carKey === selectedKey );
+
+		} );
 
 	}
 
@@ -5763,7 +5767,7 @@ async function init() {
 		updateGarageMappingsUi();
 		ensureGarageSelectionSource();
 		refreshGarageViewer();
-		renderGarageVehicleCards();
+		updateGarageCardActiveState();
 		setGarageMappingStatus( `Now editing mappings for ${ CAR_STATS[ selectedKey ]?.name || 'selected car' }.` );
 		applyVehiclePerformance();
 		saveGarageMods();

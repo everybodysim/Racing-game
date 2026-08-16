@@ -173,7 +173,10 @@
   preview** of that car wearing its current paint, so the card grid is now a
   visual roster of the player's painted cars (the original user request).
 - Each card now shows: the car name, a 72px-tall `<canvas class="garage-card-preview">`
-  mini viewer, and a one-line meta row (upgrade summary + "Paint maps: N").
+  mini viewer, and a one-line meta row ("Paint maps: N", centered). The
+  `garageUpgradeSummary()` "Handling x1.15 • Power x1.15 • Traction x1.15"
+  line was REMOVED entirely (always-identical, useless) — the function itself
+  was deleted; do not re-add it unless the upgrade packs become variable again.
 
 ### Implementation (per-card renderer, single shared rAF loop)
 - `garageCardCanvasByKey` (carKey→canvas) is rebuilt by `renderGarageVehicleCards()`.
@@ -215,12 +218,24 @@
   `updateGarageCardMeta(carKey)` so the just-painted car's card updates its preview
   and its "Paint maps: N" count immediately (no full re-render of all cards).
 
+### Clicking a card must NOT rebuild the grid (the "cars disappear" bug)
+- `selectGarageCar()` toggles the `.active` outline via `updateGarageCardActiveState()`
+  (querySelectorAll cards, compare `card.dataset.carKey` to the selected key) — it does
+  NOT call `renderGarageVehicleCards()`. A full rebuild would run
+  `disposeGarageCardPreviews()` (because `innerHTML=''` destroys the canvases) and, on
+  the click path, the renderers are NOT recreated → every preview goes blank.
+- `renderGarageVehicleCards()` is only for genuine rebuilds (boot, paint-apply refresh
+  of the grid). It sets `button.dataset.carKey` so `updateGarageCardActiveState` can
+  match, and calls `activateGarageCardPreviews()` when the garage is visible so a
+  rebuild (re)creates the renderers for the fresh canvases.
+- Do NOT re-add a `renderGarageVehicleCards()` call inside `selectGarageCar()`.
+
 ### CSS (`index.html`)
 - `.garage-card-preview`: 100% width × 72px, radius 8, bg `#0e1622` (shows behind
   transparent WebGL alpha before first frame / if context lost), `touch-action:none`.
-- `.garage-vehicle-meta`: flex row, upgrade summary (orange) + paint-maps count (blue).
-- The old `.garage-vehicle-card dl/dt/dd` and standalone `.garage-vehicle-status`
-  rules were removed (no longer emitted by `renderGarageVehicleCards`).
+- `.garage-vehicle-meta`: centered single-line "Paint maps: N" (blue).
+- The old `.garage-vehicle-card dl/dt/dd` and `.garage-vehicle-status` rules were
+  removed (no longer emitted by `renderGarageVehicleCards`).
 
 ## Physics: car is a rolling sphere (`js/Physics.js` + `js/Vehicle.js`)
 
