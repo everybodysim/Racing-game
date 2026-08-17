@@ -11835,7 +11835,22 @@ function completeCampaignStage() {
 					if ( ! lapInvalid ) {
 
 						bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
-						if ( isNewBest ) publishMultiplayerBestLap( bestLapSeconds );
+						// Public servers rank the BEST lap each player completes within the
+						// 5-minute round — NOT vs their all-time personal best or an author
+						// time. So publish EVERY valid completed lap to the round rankings
+						// (the publish helper's internal round-best guard only actually
+						// broadcasts when it improves this round's best, so slower laps
+						// don't spam the mesh). Private rooms keep the isNewBest gate below
+						// since they compare against the session best.
+						if ( isPublicServerActive() ) {
+
+							publishMultiplayerBestLap( completedLap );
+
+						} else if ( isNewBest ) {
+
+							publishMultiplayerBestLap( bestLapSeconds );
+
+						}
 						shareImageDataUrl = createShareSnapshot( bestLapSeconds );
 
 					} else if ( moddedRun ) {
