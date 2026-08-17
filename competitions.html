@@ -84,6 +84,28 @@
 (() => {
   const API = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
   const COMP_API = (localStorage.getItem('racing-competitions-api-base') || 'https://racing-competitions-api.ga1010.workers.dev').replace(/\/$/, '');
+
+  // The track board worker returns a transient Cloudflare 503 ("error code:
+  // 1102") on most single requests; retrying makes a 200 effectively guaranteed.
+  async function fetchBoardWithRetry(url, { attempts = 8, timeoutMs = 8000, backoffMs = 350 } = {}) {
+    let lastError = null;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { cache: 'no-store', signal: controller.signal });
+        if (res.ok) return await res.json();
+        lastError = new Error(`HTTP ${res.status}`);
+        if (res.status >= 400 && res.status < 500 && res.status !== 429) throw lastError;
+      } catch (error) {
+        lastError = error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+      if (attempt < attempts - 1) await new Promise((r) => setTimeout(r, backoffMs));
+    }
+    throw lastError || new Error('board-fetch-failed');
+  }
   const ECON = 'racing-economy-v1';
   const COMP = 'racing-competitions-v4';
   const PLAYER = 'racing-player-name-v1';
@@ -390,8 +412,7 @@
     document.getElementById('weekDate').addEventListener('change', (event) => setCompetitionWeek(event.target.value));
     status('Loading track share board tracks...');
     try {
-      const res = await fetch(API);
-      const data = await res.json();
+      const data = await fetchBoardWithRetry(API);
       tracks = Array.isArray(data?.entries) ? data.entries : [];
       status(`Loaded ${tracks.length} shared tracks.`);
     } catch (e) {

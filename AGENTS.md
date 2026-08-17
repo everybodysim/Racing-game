@@ -1025,6 +1025,60 @@ The mobile UI had two independent triggers; BOTH are neutralized:
   track for the next cycle (rejoining the same server) for another 5-minute
   round. Loop forever.
 
+### Track board 503 retry fix (`fetchTrackBoardWithRetry` — THE public-servers fix)
+- ROOT CAUSE of "public servers broken / track share board unavailable / popup
+  + redirect don't work": the track share board worker
+  (`racing-track-board-api.ga1010.workers.dev/api/tracks`) is FLAKY. Its single
+  GET returns a ~21 MB JSON payload (274 community tracks; `playUrl` alone totals
+  ~20.7 MB because each carries a base64 ghost-samples blob). Serializing/sending
+  21 MB intermittently trips Cloudflare's worker resource limit → HTTP 503 with
+  body `error code: 1102` on ~60% of single requests; the other ~40% return 200
+  in <1s. A single-shot `fetch` therefore failed most of the time.
+- WHY this broke EVERYTHING: public servers need `fetchTrackList()` to resolve a
+  community track for the current cycle (`ensureTrackForCycle` →
+  `pickTrackForCycle`). With the board flaky, `fetchTrackList` threw → no track
+  resolved → `handlePublicServerRound` never had `hasTrack` → **no redirect on
+  join** (player stuck on default track), **no next-track redirect after the
+  round**, and the round still advanced on wall-clock so the rankings popup fired
+  against a track nobody was racing (looked "broken"). The popup/redirect/timer
+  logic itself was always correct — only the board fetch was unreliable.
+- THE FIX: `fetchTrackBoardWithRetry(url, { attempts=8, timeoutMs=8000,
+  backoffMs=350 })` in `js/PublicServers.js` — a GET loop that retries on 5xx
+  AND on network TypeErrors (a 503 from Cloudflare carries NO CORS headers, so
+  the browser surfaces it as `TypeError: Failed to fetch`, NOT a 503 status —
+  the helper must catch the throw, not just check `response.status`). 8 attempts
+  with 350 ms backoff → empirically 100% success (a 200 lands within 1-2 tries).
+  4xx (except 429) bail immediately (permanent). `fetchTrackList()` now routes
+  through it.
+- ALL track-board READ call sites now retry (the user asked to also fix affected
+  non-MP features):
+  1. `js/PublicServers.js` `fetchTrackList()` (public servers track rotation).
+  2. `js/main.js` `fetchTrackBoardEntries()` (shared-track title resolution).
+  3. `js/main.js` `fetchCampaignTracks()` (campaign board read).
+  4. `js/main.js` `resolvePackedTrackParams()` pack fetch (packed-track load).
+  5. `tracks.html` `apiRequest()` + `resolvePreviewPackPayload()` (board grid +
+     previews) — standalone inline `fetchWithRetry` helper (tracks.html is a
+     plain page, not a module).
+  6. `competitions.html` `init()` board fetch — inline `fetchBoardWithRetry`.
+  7. `index.html` `loadHomeCommunityData()` `fetchBoardEntries()` (home featured
+     track panel) — inline `fetchBoardWithRetry`.
+- NOT retried (intentional): `editor.html` POST `/packs` (a WRITE — retrying
+  writes could create duplicate packed tracks; it already has a prefix-loop
+  fallback). Leaderboard / clubs / accounts / mods APIs are DIFFERENT workers
+  and are reliable (verified), so out of scope.
+- VERIFIED in-browser: a plain `fetchTrackList()` call against the live board
+  reliably returned 274 tracks (after 1-2 retries) and `pickTrackForCycle` +
+  `buildServerTrackRedirectUrl` produced a correct same-pathname redirect URL
+  (`/index.html?map=...&mods=...&pubServer=server-1&play=1`) that strips the
+  21 MB `#ghost=...` fragment. The home community panel now reliably renders a
+  featured track. The full in-game redirect can't be exercised in the headless
+  test browser (no WebGL → `new THREE.WebGLRenderer` at main.js line 102 throws
+  before `initMultiplayerPanel` at line 155 runs), but the redirect code path is
+  `?pubServer=` → `joinPublicServer` → `tickPublicServerRound` →
+  `ensureTrackForCycle` (retries) → `handlePublicServerRound` →
+  `window.location.href = buildServerTrackRedirectUrl(...)`, gated once-per-round
+  by `loadedRoundId` (sessionStorage anti-loop).
+
 ### NO Cloudflare servers worker (the 2026-08 rework — KV quota fix)
 - Public servers used to store round/rotation/rankings state in a Cloudflare
   Worker + KV (`cloudflare-servers/worker`, `racing-servers-api`). Even with

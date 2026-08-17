@@ -2725,6 +2725,29 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			const recordEl = document.getElementById( 'home-record-leaders' );
 			const placementEl = document.getElementById( 'home-placement-leaders' );
 
+			// The track board worker returns a transient Cloudflare 503 ("error
+			// code: 1102") on most single requests; retrying makes a 200 effectively
+			// guaranteed so the home community panel reliably shows a featured track.
+			async function fetchBoardWithRetry( url, { attempts = 8, timeoutMs = 8000, backoffMs = 350 } = {} ) {
+				let lastError = null;
+				for ( let attempt = 0; attempt < attempts; attempt ++ ) {
+					const controller = new AbortController();
+					const timeoutId = setTimeout( () => controller.abort(), timeoutMs );
+					try {
+						const res = await fetch( url, { cache: 'no-store', signal: controller.signal } );
+						if ( res.ok ) return await res.json();
+						lastError = new Error( `HTTP ${ res.status }` );
+						if ( res.status >= 400 && res.status < 500 && res.status !== 429 ) throw lastError;
+					} catch ( error ) {
+						lastError = error;
+					} finally {
+						clearTimeout( timeoutId );
+					}
+					if ( attempt < attempts - 1 ) await new Promise( ( r ) => setTimeout( r, backoffMs ) );
+				}
+				throw lastError || new Error( 'board-fetch-failed' );
+			}
+
 			function escapeHtml( str ) {
 				return String( str || '' ).replace( /&/g, '&amp;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' ).replace( /"/g, '&quot;' );
 			}
@@ -2766,9 +2789,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 
 			async function fetchBoardEntries() {
 				try {
-					const res = await fetch( BOARD_API );
-					if ( ! res.ok ) return [];
-					const data = await res.json();
+					const data = await fetchBoardWithRetry( BOARD_API );
 					const rows = Array.isArray( data?.entries ) ? data.entries : [];
 					return rows.filter( e => typeof e?.playUrl === 'string' && typeof e?.name === 'string' );
 				} catch ( e ) { return []; }

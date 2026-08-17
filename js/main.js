@@ -25,6 +25,7 @@ import {
 	RANKINGS_WINDOW_MS as PUBLIC_SERVER_RANKINGS_WINDOW_MS,
 	CYCLE_MS as PUBLIC_SERVER_CYCLE_MS,
 	fetchTrackList,
+	fetchTrackBoardWithRetry,
 	pickTrackForCycle,
 	mapSignatureFromPlayUrl,
 	buildServerTrackRedirectUrl,
@@ -2974,14 +2975,8 @@ async function resolvePackedTrackParams( params ) {
 			const endpoint = `${ TRACK_SHARE_API_ROOT }${ prefix }/packs/${ encodeURIComponent( packId ) }`;
 			try {
 
-				const response = await fetch( endpoint, { cache: 'no-store' } );
-				if ( ! response.ok ) {
-
-					lastError = new Error( `pack-http-${ response.status }@${ endpoint }` );
-					continue;
-
-				}
-				const parsed = await response.json();
+				// Retry so a transient Cloudflare 503 doesn't fail a packed-track load.
+				const parsed = await fetchTrackBoardWithRetry( endpoint );
 				if ( ! parsed?.ok ) {
 
 					lastError = new Error( `pack-invalid-response@${ endpoint }` );
@@ -3023,13 +3018,15 @@ function decodeBase64UrlJsonLoose( value ) {
 
 async function fetchTrackBoardEntries() {
 
+	// Route through the shared retry helper (PublicServers.fetchTrackBoardWithRetry)
+	// so a transient Cloudflare 503 ("error code: 1102") doesn't leave this
+	// non-multiplayer path (shared-track title resolution, board lookup) empty.
+	// Both prefixes are tried; the first one that returns a usable payload wins.
 	for ( const prefix of TRACK_SHARE_API_PREFIXES ) {
 
 		try {
 
-			const response = await fetch( `${ TRACK_SHARE_API_ROOT }${ prefix }/tracks`, { cache: 'no-store' } );
-			if ( ! response.ok ) continue;
-			const data = await response.json();
+			const data = await fetchTrackBoardWithRetry( `${ TRACK_SHARE_API_ROOT }${ prefix }/tracks` );
 			return Array.isArray( data?.entries ) ? data.entries : [];
 
 		} catch ( error ) {
@@ -7594,9 +7591,7 @@ function completeCampaignStage() {
 
 			for ( const prefix of TRACK_SHARE_API_PREFIXES ) {
 
-				const response = await fetch( `${ TRACK_SHARE_API_ROOT }${ prefix }/tracks` );
-				if ( ! response.ok ) continue;
-				const data = await response.json();
+				const data = await fetchTrackBoardWithRetry( `${ TRACK_SHARE_API_ROOT }${ prefix }/tracks` );
 				return Array.isArray( data?.entries ) ? data.entries.filter( ( entry ) => Number.isFinite( Number( entry?.bestLapSeconds ) ) && typeof entry?.playUrl === 'string' ) : [];
 
 			}

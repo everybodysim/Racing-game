@@ -135,15 +135,67 @@
 			leaderboardProgressLabel.textContent = `Loading leaderboard data… ${ safeCompleted } / ${ total } tracks`;
 		}
 
+		// Generic retrying GET for the track share board. The board returns a
+		// transient Cloudflare 503 ("error code: 1102") on most single requests;
+		// retrying makes a 200 effectively guaranteed. Used by apiRequest (board
+		// list) and resolvePreviewPackPayload (pack previews).
+		async function fetchWithRetry( url, { attempts = 8, timeoutMs = 8000, backoffMs = 350 } = {} ) {
+			let lastError = null;
+			for ( let attempt = 0; attempt < attempts; attempt ++ ) {
+				const controller = new AbortController();
+				const timeoutId = setTimeout( () => controller.abort(), timeoutMs );
+				try {
+					const res = await fetch( url, { cache: 'no-store', signal: controller.signal } );
+					if ( res.ok ) return await res.json();
+					lastError = new Error( `HTTP ${ res.status }` );
+					if ( res.status >= 400 && res.status < 500 && res.status !== 429 ) throw lastError;
+				} catch ( error ) {
+					lastError = error;
+				} finally {
+					clearTimeout( timeoutId );
+				}
+				if ( attempt < attempts - 1 ) await new Promise( ( r ) => setTimeout( r, backoffMs ) );
+			}
+			throw lastError || new Error( 'board-fetch-failed' );
+		}
+
 		async function apiRequest( path = '', options = {} ) {
-			const res = await fetch( `${ API_BASE }${ path }`, {
-				headers: { 'Content-Type': 'application/json', ...( options.headers || {} ) },
-				...options,
-			} );
-			if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
-			// Use .text() + JSON.parse for faster parsing of large payloads
-			const text = await res.text();
-			return JSON.parse( text );
+			// The board worker is read-only but flaky: it returns a Cloudflare 503
+			// ("error code: 1102") on roughly 60% of single requests, the rest 200.
+			// A single-shot fetch therefore failed most of the time, showing
+			// "Cloud board unavailable. Using local share-link mode." Retrying a
+			// handful of times makes a 200 effectively guaranteed (empirically 8
+			// attempts -> 100% success), so the board page reliably connects.
+			const isWrite = options.method && options.method !== 'GET';
+			const attempts = isWrite ? 1 : 8;
+			let lastError = null;
+			for ( let attempt = 0; attempt < attempts; attempt ++ ) {
+				const controller = new AbortController();
+				const timeoutId = setTimeout( () => controller.abort(), 8000 );
+				try {
+					const res = await fetch( `${ API_BASE }${ path }`, {
+						headers: { 'Content-Type': 'application/json', ...( options.headers || {} ) },
+						cache: 'no-store',
+						signal: controller.signal,
+						...options,
+					} );
+					if ( res.ok ) {
+						// Use .text() + JSON.parse for faster parsing of large payloads
+						const text = await res.text();
+						return JSON.parse( text );
+					}
+					lastError = new Error( `HTTP ${ res.status }` );
+					// 4xx (except 429) is permanent -- stop retrying.
+					if ( res.status >= 400 && res.status < 500 && res.status !== 429 ) throw lastError;
+				} catch ( error ) {
+					lastError = error;
+					if ( isWrite ) throw lastError;
+				} finally {
+					clearTimeout( timeoutId );
+				}
+				if ( attempt < attempts - 1 ) await new Promise( ( r ) => setTimeout( r, 350 ) );
+			}
+			throw lastError || new Error( 'board-fetch-failed' );
 		}
 
 		function saveToHash() {
@@ -379,9 +431,9 @@
 			const promise = ( async () => {
 				for ( const prefix of TRACK_SHARE_API_PREFIXES ) {
 					try {
-						const response = await fetch( `${ TRACK_SHARE_API_ROOT }${ prefix }/packs/${ encodeURIComponent( safePackId ) }`, { cache: 'no-store' } );
-						if ( ! response.ok ) continue;
-						const payload = await response.json();
+						// Retry so a transient 503 doesn't blank a track preview.
+						const url = `${ TRACK_SHARE_API_ROOT }${ prefix }/packs/${ encodeURIComponent( safePackId ) }`;
+						const payload = await fetchWithRetry( url );
 						if ( payload?.ok ) return payload;
 					} catch ( e ) {}
 				}

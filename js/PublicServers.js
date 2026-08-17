@@ -81,34 +81,72 @@ export function cycleInfo( now ) {
 
 }
 
+// Robust GET against the track share board with RETRIES.
+//
+// The board worker is read-only (zero KV writes) but it is flaky: it returns a
+// Cloudflare 503 ("error code: 1102" — transient worker invocation failure) on
+// roughly 60% of single requests, while the other ~40% succeed. A single-shot
+// fetch therefore fails most of the time, which broke the public servers (no
+// track resolved → no join redirect, no rankings popup) AND made the tracks.html
+// board page say "Cloud board unavailable". Retrying a handful of times makes a
+// 200 effectively guaranteed (empirically 8 attempts → 100% success), so the
+// community track list reliably loads. This is the fix for the "track share
+// board unavailable / public servers broken" reports.
+//
+// Exported so the game (main.js) and the board page (tracks.html) reuse the
+// SAME retry path for their own track-board reads (campaign, shared-track title
+// resolution, the board grid), keeping every affected feature working — not just
+// multiplayer.
+export async function fetchTrackBoardWithRetry( url, { attempts = 8, timeoutMs = 8000, backoffMs = 350 } = {} ) {
+
+	let lastError = null;
+	for ( let attempt = 0; attempt < attempts; attempt ++ ) {
+
+		const controller = new AbortController();
+		const timeoutId = setTimeout( () => controller.abort(), timeoutMs );
+		try {
+
+			const response = await fetch( url, { cache: 'no-store', signal: controller.signal } );
+			if ( response.ok ) return await response.json();
+			// 503 / 5xx are transient — retry. 4xx (e.g. 404) are permanent — bail.
+			lastError = new Error( `tracks-http-${ response.status }` );
+			if ( response.status >= 400 && response.status < 500 && response.status !== 429 ) break;
+
+		} catch ( error ) {
+
+			lastError = error;
+
+		} finally {
+
+			clearTimeout( timeoutId );
+
+		}
+		// Brief backoff before the next attempt (skip the delay after the last try).
+		if ( attempt < attempts - 1 ) await new Promise( ( r ) => setTimeout( r, backoffMs ) );
+
+	}
+	throw lastError || new Error( 'tracks-fetch-failed' );
+
+}
+
 // Fetch the full community-track list from the board (sorted by a stable key so
 // the deterministic picker below is reproducible across clients). Each entry is
 // { id, name, playUrl, ... }. We sort by `id` (a stable uuid set at publish
 // time) and fall back to `playUrl` so the order is identical for every client
-// regardless of insertion order or KV iteration order.
+// regardless of insertion order or KV iteration order. Retries via
+// fetchTrackBoardWithRetry so a transient 503 never leaves the public servers
+// without a track to race.
 export async function fetchTrackList() {
 
-	const controller = new AbortController();
-	const timeoutId = setTimeout( () => controller.abort(), 6000 );
-	try {
-
-		const response = await fetch( TRACK_BOARD_API, { cache: 'no-store', signal: controller.signal } );
-		if ( ! response.ok ) throw new Error( `tracks-http-${ response.status }` );
-		const data = await response.json();
-		const entries = Array.isArray( data?.entries ) ? data.entries : [];
-		const usable = entries.filter( ( e ) => typeof e?.playUrl === 'string' && e.playUrl );
-		usable.sort( ( a, b ) => {
-			const ka = String( a.id || a.playUrl );
-			const kb = String( b.id || b.playUrl );
-			return ka < kb ? -1 : ka > kb ? 1 : 0;
-		} );
-		return usable;
-
-	} finally {
-
-		clearTimeout( timeoutId );
-
-	}
+	const data = await fetchTrackBoardWithRetry( TRACK_BOARD_API );
+	const entries = Array.isArray( data?.entries ) ? data.entries : [];
+	const usable = entries.filter( ( e ) => typeof e?.playUrl === 'string' && e.playUrl );
+	usable.sort( ( a, b ) => {
+		const ka = String( a.id || a.playUrl );
+		const kb = String( b.id || b.playUrl );
+		return ka < kb ? -1 : ka > kb ? 1 : 0;
+	} );
+	return usable;
 
 }
 
