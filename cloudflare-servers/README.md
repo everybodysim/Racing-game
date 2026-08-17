@@ -1,19 +1,24 @@
 # Public Racing Servers (Cloudflare Worker + KV)
 
 > **STATUS (2026-08): This worker is no longer used by the game.**
-> Public servers were reworked to use **zero** racing-servers-api calls: the
-> synced 5-minute round timer + track rotation are pure wall-clock UTC math
-> (see `cycleInfo` / `pickTrackForCycle` in `js/PublicServers.js`), and the
-> per-round rankings + member count + host election are distributed over the
-> existing PeerJS mesh (see the public-server helpers in `js/main.js`). The only
-> Cloudflare dependency left is the **read-only** track share board
-> (`cloudflare/worker`, `GET /api/tracks`), which costs zero KV writes and so
-> never trips the free-plan daily write quota.
+> Public servers were simplified to a bare-minimum PeerJS (WebRTC) mesh with
+> **zero** backend calls: everyone who joins a server is connected over WebRTC
+> (PeerJS uses the TURN server in `peerConfig`), the host relays peer packets,
+> and a MAP_SYNC packet makes joiners load the same map everyone else is on. Map
+> switching is driven by a **peer vote** — a player pastes a track URL, the
+> read-only track share board is searched for its name, everyone votes Yes/No,
+> and after 30s a >60% Yes majority switches the track (the initiator redirects
+> first and broadcasts a VOTE_RESULT so everyone else follows). See the
+> public-server helpers in `js/main.js` + `findTrackByPlayUrl` in
+> `js/PublicServers.js`. The only Cloudflare dependency left is the
+> **read-only** track share board (`cloudflare/worker`, `GET /api/tracks`),
+> which costs zero KV writes and so never trips the free-plan daily write
+> quota.
 >
 > The worker code below is kept for reference/history. You can safely **delete
 > or disable** the `racing-servers-api` worker + its `SERVERS_KV` namespace —
-> no client calls it anymore. No redeploy is required for the rework to take
-> effect (it's a client-side change in `js/PublicServers.js` + `js/main.js`).
+> no client calls it anymore. No redeploy is required for the simplification to
+> take effect (it's a client-side change in `js/PublicServers.js` + `js/main.js`).
 
 This folder is the **former** backend for the **public multiplayer servers**
 feature in the multiplayer widget (`index.html`). It was a Cloudflare Worker

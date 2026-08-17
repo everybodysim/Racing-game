@@ -19,14 +19,9 @@ import {
 	PUBLIC_SERVERS,
 	findPublicServer,
 	isPublicServerConfigured,
-	cycleInfo as publicServerCycleInfo,
-	ROUND_EPOCH as PUBLIC_SERVER_ROUND_EPOCH,
-	PLAY_DURATION_MS as PUBLIC_SERVER_PLAY_DURATION_MS,
-	RANKINGS_WINDOW_MS as PUBLIC_SERVER_RANKINGS_WINDOW_MS,
-	CYCLE_MS as PUBLIC_SERVER_CYCLE_MS,
 	fetchTrackList,
 	fetchTrackBoardWithRetry,
-	pickTrackForCycle,
+	findTrackByPlayUrl,
 	mapSignatureFromPlayUrl,
 	buildServerTrackRedirectUrl,
 } from './PublicServers.js';
@@ -464,12 +459,19 @@ const WEBRTC_SYNC_MS = 33;
 const PEER_ROOM_PREFIX = 'RACE-ROOM-';
 const PEER_PACKET_STATE = 'VEHICLE_STATE';
 const PEER_PACKET_LEFT = 'PLAYER_LEFT';
-// Public-server-only packets, distributed over the PeerJS mesh (no worker):
-//   LAP  — a player's best lap for the current round (sent on improvement).
-//   META — host-only: round/member-count snapshot so joiners see an accurate
-//          "N players online" count without polling a backend.
-const PEER_PACKET_LAP = 'PUBLIC_LAP';
-const PEER_PACKET_META = 'PUBLIC_META';
+// Public-server-only packets, distributed over the PeerJS mesh (WebRTC data
+// channels; PeerJS uses the TURN server configured in `peerConfig`):
+//   MAP_SYNC   — host→joiner on connect (and host→all on a map switch): carries
+//                the host's current mapSignature so joiners redirect to the same
+//                map everyone else is on.
+//   VOTE_START — a player proposed a map switch; everyone shows the vote prompt.
+//   VOTE       — a player's Yes/No vote for an active vote.
+//   VOTE_RESULT— the initiator's authoritative result after 30s (passed? + the
+//                target playUrl); if passed everyone redirects to the new map.
+const PEER_PACKET_MAP_SYNC = 'PUBLIC_MAP_SYNC';
+const PEER_PACKET_VOTE_START = 'PUBLIC_VOTE_START';
+const PEER_PACKET_VOTE = 'PUBLIC_VOTE';
+const PEER_PACKET_VOTE_RESULT = 'PUBLIC_VOTE_RESULT';
 const peerConfig = {
 	config: {
 		iceServers: [
@@ -683,22 +685,35 @@ function handlePeerPacket( packet, sourcePeerId ) {
 			return;
 
 		}
-		// Public-server LAP packet: a peer's best lap for the current round.
-		// Collected into the local round-laps map (so the rankings overlay shows
-		// everyone) and relayed by the host so all peers see it. No worker.
-		if ( packet.type === PEER_PACKET_LAP ) {
+		// Public-server map sync: the host tells us which map everyone is on.
+		// If we're not on it, redirect to it (the redirect rejoins the server).
+		if ( packet.type === PEER_PACKET_MAP_SYNC ) {
 
-			ingestPublicServerPeerLap( playerId, packet );
+			onPublicServerMapSync( packet );
+			// MAP_SYNC is host→joiner (and host→all on a switch); do not relay.
+			return;
+
+		}
+		// Public-server map-vote packets. Each is collected locally and relayed
+		// by the host so every peer sees it (not just directly-connected ones).
+		if ( packet.type === PEER_PACKET_VOTE_START ) {
+
+			onPublicServerVoteStart( packet );
 			relayHostPacket( packet, sourcePeerId );
 			return;
 
 		}
-		// Public-server META packet: host's view of the round + player count, so
-		// joiners can display an accurate "N players online" without a backend.
-		if ( packet.type === PEER_PACKET_META ) {
+		if ( packet.type === PEER_PACKET_VOTE ) {
 
-			ingestPublicServerPeerMeta( packet );
-			// META is host→joiners only; do not relay (host already sent to all).
+			onPublicServerVote( packet );
+			relayHostPacket( packet, sourcePeerId );
+			return;
+
+		}
+		if ( packet.type === PEER_PACKET_VOTE_RESULT ) {
+
+			onPublicServerVoteResult( packet );
+			relayHostPacket( packet, sourcePeerId );
 			return;
 
 		}
@@ -738,6 +753,15 @@ function registerPeerConnection( connection ) {
 
 			connection.send( buildLocalPeerStatePacket() );
 			logMpDebug( `[PeerJS] Sent initial state packet to ${ connection.peer }` );
+			// Host: tell the just-connected joiner which map everyone is on so they
+			// redirect to it (the host owns the RACE-ROOM-<code> peer id). This is
+			// what makes a public-server joiner "load the same map everyone else
+			// is on". The joiner ignores it if already on that map.
+			if ( isPublicServerActive() && publicServerState.isHost ) {
+
+				broadcastPublicServerMapSync( connection );
+
+			}
 
 		} catch ( err ) {
 
@@ -923,79 +947,58 @@ let lastHostRoomMetaSyncAt = 0;
 let migrationSwitchInFlight = false;
 
 // --- Public servers state -------------------------------------------------
-// A public server is a fixed PeerJS room (code, e.g. PUBSV1) whose synced
-// 5-minute round timer + track rotation + rankings are now derived ENTIRELY
-// locally (no Cloudflare worker for round/rotation/rankings state):
-//   • The round timer is wall-clock UTC math (cycleInfo in PublicServers.js),
-//     anchored to ROUND_EPOCH — ALWAYS RUNNING, never freezes, identical for
-//     every player regardless of join time. No host, no backend.
-//   • The track for each cycle is picked DETERMINISTICALLY by pickTrackForCycle
-//     (seeded from the cycle index + server id), so every player computes the
-//     same track with zero coordination. No set-track write.
-//   • Per-round best-lap rankings are distributed P2P: each player broadcasts a
-//     LAP packet on improvement; the host relays so all peers see everyone.
-//   • The "N players online" count comes from the PeerJS mesh (the host knows
-//     connections.size + 1 and broadcasts a META packet; joiners use it).
+// A public server is a fixed PeerJS room (code, e.g. PUBSV1). Everyone who
+// joins is connected over WebRTC (PeerJS uses the TURN server in `peerConfig`)
+// and shares the host's current map:
 //   • Host election is PeerJS-native: the first player to claim the
 //     RACE-ROOM-<code> peer id becomes the host; joiners connect to it. If the
 //     host disappears, a joiner detects the dead connection and reclaims the id
-//     (self-healing — no worker host-seat bookkeeping).
-// The only Cloudflare dependency left is the read-only track share board
-// (GET /api/tracks), which costs zero KV writes.
-//
-// The "host" role grants NO extra privileges — it is hidden from the UI and
-// gates nothing except acting as the PeerJS relay + sending the META packet.
+//     (self-healing).
+//   • The host grants NO in-game privileges — it only relays peer packets (so
+//     everyone sees everyone) and sends a MAP_SYNC packet so joiners redirect to
+//     the map everyone else is on. It is hidden from the UI.
+//   • There is NO round timer, NO deterministic track rotation, NO rankings, and
+//     NO backend worker. The only network dependency is the read-only track
+//     share board (GET /api/tracks), used by the map-vote to look up a pasted
+//     track URL's name.
+//   • Map switching is driven by a peer vote: a player pastes a track URL, the
+//     board is searched for its name, everyone votes Yes/No, and after 30s a
+//     >60% Yes majority switches the track (the initiator redirects first and
+//     broadcasts a VOTE_RESULT so everyone else follows).
 const publicServerState = {
 	active: false,          // currently connected to a public server?
 	serverId: '',           // 'server-1' | 'server-2' | 'server-3'
-	server: null,           // last locally-built server view (mirrors the old worker shape)
 	isHost: false,          // are we the PeerJS host peer? (hidden; no privileges)
 	claimedHost: false,     // have we successfully claimed host this session?
-	roundTimer: null,       // local round loop (replaces the 1s worker poll)
 	peerMaintainTimer: null, // slow loop that restarts a dead PeerJS peer
-	tickTimer: null,        // local countdown tick (keeps the timer smooth)
-	lastRoundId: 0,         // detect round changes to reset local laps
-	loadedRoundId: 0,       // the roundId whose track we have ALREADY loaded/redirected to
-		// (persisted in sessionStorage so a redirect can NEVER fire twice for the
-		// same round — this is the hard anti-loop guarantee; see handlePublicServerRound)
-	rankingsShownForRoundId: 0,  // rankings overlay shown for this round
-	resolveScheduledForCycle: -1, // we already scheduled track resolution for this cycle
-	resolveScheduledForNextCycle: -1, // we already scheduled pre-resolution of the NEXT cycle
-	skippedLapSeconds: Infinity, // best lap already broadcast this round
-	trackListCache: null,    // cached community-track list (for deterministic picking)
-	trackListCacheAt: 0,     // local time the cache was fetched
-	resolveInProgress: {},   // cycleIndex -> Promise, in-flight track resolution
-	peerLaps: {},            // roundId -> { [playerId]: { name, time } } (P2P rankings)
-	hostPeerCount: 0,        // member count reported by the host's META packet (joiners only)
-	lastMetaSentAt: 0,       // host: when we last broadcast a META packet
 	hostClaimInFlight: false, // guard against concurrent host-claim attempts
-	visibilityHandler: null, // visibilitychange listener (catches up on tab refocus)
+	trackListCache: null,    // cached community-track list (for the vote lookup)
+	trackListCacheAt: 0,     // local time the cache was fetched
+	loadedMapSignature: '',  // mapSignature we redirected onto (anti-loop guard)
 };
 
-// sessionStorage key recording the roundId whose track we already redirected to
-// / loaded. Survives the reload that follows a redirect, so we can tell "I just
-// redirected for THIS round — don't redirect again" even if signature strings
-// would otherwise mismatch. This is what makes the round-end redirect impossible
-// to loop. Scoped per-tab (sessionStorage), cleared on leave/reset.
-const PUBSRV_LOADED_ROUND_KEY = 'pubsrv_loaded_round';
+// sessionStorage key recording the mapSignature we already redirected onto. It
+// survives the reload that follows a redirect so we can tell "I'm already on
+// the host's map — don't redirect again" and avoid a redirect loop.
+const PUBSRV_LOADED_MAP_KEY = 'pubsrv_loaded_map';
 
-function getLoadedRoundIdFromStorage() {
+function getLoadedPublicServerMapFromStorage() {
 
-	try { return Number( sessionStorage.getItem( PUBSRV_LOADED_ROUND_KEY ) ) || 0; }
-	catch { return 0; }
+	try { return String( sessionStorage.getItem( PUBSRV_LOADED_MAP_KEY ) || '' ); }
+	catch { return ''; }
 
 }
 
-function setLoadedRoundIdInStorage( roundId ) {
+function setLoadedPublicServerMapInStorage( sig ) {
 
-	try { sessionStorage.setItem( PUBSRV_LOADED_ROUND_KEY, String( roundId ) ); }
+	try { sessionStorage.setItem( PUBSRV_LOADED_MAP_KEY, String( sig || '' ) ); }
 	catch {}
 
 }
 
-function clearLoadedRoundIdFromStorage() {
+function clearLoadedPublicServerMapFromStorage() {
 
-	try { sessionStorage.removeItem( PUBSRV_LOADED_ROUND_KEY ); }
+	try { sessionStorage.removeItem( PUBSRV_LOADED_MAP_KEY ); }
 	catch {}
 
 }
@@ -1126,34 +1129,12 @@ async function publishMultiplayerBestLap( bestLap ) {
 	if ( ! Number.isFinite( bestLap ) ) return;
 	const displayName = getLocalMultiplayerDisplayName();
 
-	// Public servers: broadcast the round-scoped best lap over the PeerJS mesh
-	// (LAP packet) so the synced rankings (shown at round end) include everyone.
-	// This replaces the old worker lap-submit write — no backend, no KV writes.
-	// The host relays the packet so all peers see it even if not directly
-	// connected. Only broadcast an improved time for the current round.
-	if ( isPublicServerActive() ) {
-
-		try {
-
-			if ( bestLap < publicServerState.skippedLapSeconds ) {
-				broadcastPublicServerLap( bestLap, displayName );
-				publicServerState.skippedLapSeconds = bestLap;
-			}
-
-		} catch ( error ) {
-
-			console.warn( 'Failed to publish public-server lap', error );
-
-		}
-
-		// Public servers use the P2P LAP packet for rankings — skip the Firebase
-		// private-room lap-time write below (there is no private room).
-		return;
-
-	}
-
+	// Public servers have no private-room lap-time store, so on a public server
+	// this is a no-op (a world record still submits to the OFFICIAL leaderboard
+	// via the isNewBest path in the lap-finish handler — submitLeaderboardTime is
+	// independent of this). Normal host/join private rooms write to Firebase.
 	const roomCode = multiplayerSessionState.roomCode;
-	if ( ! roomCode ) return;
+	if ( ! roomCode || isPublicServerActive() ) return;
 	try {
 
 		await firebaseRoomsRequest( roomCode, 'PUT', {
@@ -1211,10 +1192,15 @@ function redirectToRoomMap( roomCode, mapSignature ) {
 }
 
 
-// --- Public server join / rotation ---------------------------------------
+// --- Public server join / map-vote ---------------------------------------
 
-function getPublicServerTimerEl() { return document.getElementById( 'mp-server-timer' ); }
-function getPublicServerRankingsEl() { return document.getElementById( 'mp-server-rankings' ); }
+// How long (ms) the vote stays open on the initiator's device before the
+// result is tallied and broadcast. Everyone's prompt hides on the initiator's
+// VOTE_RESULT packet (or a local fallback timeout if it never arrives).
+const PUBLIC_SERVER_VOTE_DURATION_MS = 30000;
+// A vote passes if strictly more than 60% of the cast votes are "yes" (and at
+// least one vote was cast). Otherwise the track is not switched.
+const PUBLIC_SERVER_VOTE_PASS_RATIO = 0.60;
 
 function buildPublicServerButtons() {
 
@@ -1263,6 +1249,33 @@ function buildPublicServerButtons() {
 
 	}
 
+	// Wire the "Select track" propose-vote row (shown only while on a public
+	// server, via updatePublicServerButtonStates).
+	const proposeBtn = document.getElementById( 'mp-pubtrack-btn' );
+	if ( proposeBtn && ! proposeBtn.dataset.wired ) {
+
+		proposeBtn.dataset.wired = '1';
+		proposeBtn.addEventListener( 'click', () => startPublicServerVoteFromInput() );
+
+	}
+
+	// Wire the vote-prompt Yes/No buttons (created once here; the prompt is
+	// shown/hidden as votes start/end).
+	const voteYesBtn = document.getElementById( 'mp-vote-yes' );
+	const voteNoBtn = document.getElementById( 'mp-vote-no' );
+	if ( voteYesBtn && ! voteYesBtn.dataset.wired ) {
+
+		voteYesBtn.dataset.wired = '1';
+		voteYesBtn.addEventListener( 'click', () => castPublicServerVote( 'yes' ) );
+
+	}
+	if ( voteNoBtn && ! voteNoBtn.dataset.wired ) {
+
+		voteNoBtn.dataset.wired = '1';
+		voteNoBtn.addEventListener( 'click', () => castPublicServerVote( 'no' ) );
+
+	}
+
 }
 
 function updatePublicServerButtonStates() {
@@ -1279,6 +1292,9 @@ function updatePublicServerButtonStates() {
 	// Show the Leave button only while connected to a public server.
 	const leaveBtn = document.getElementById( 'mp-public-leave-btn' );
 	if ( leaveBtn ) leaveBtn.style.display = isPublicServerActive() ? 'block' : 'none';
+	// Show the propose-vote row only while connected to a public server.
+	const pubTrackRow = document.getElementById( 'mp-pubtrack-row' );
+	if ( pubTrackRow ) pubTrackRow.style.display = isPublicServerActive() ? 'flex' : 'none';
 
 }
 
@@ -1300,25 +1316,13 @@ async function joinPublicServer( serverId ) {
 	updateMultiplayerStatus( `Joining ${ def.name }…` );
 	publicServerState.active = true;
 	publicServerState.serverId = serverId;
-	publicServerState.server = null;
 	publicServerState.isHost = false;
 	publicServerState.claimedHost = false;
-	publicServerState.lastRoundId = 0;
-	// Recover the round we already loaded (survives the reload that follows a
-	// round-end redirect). This is the anti-loop anchor: if we already redirected
-	// for the current round, we will NOT redirect again for it.
-	publicServerState.loadedRoundId = getLoadedRoundIdFromStorage();
-	publicServerState.rankingsShownForRoundId = 0;
-	publicServerState.resolveScheduledForCycle = -1;
-	publicServerState.resolveScheduledForNextCycle = -1;
-	publicServerState.skippedLapSeconds = Infinity;
+	publicServerState.hostClaimInFlight = false;
 	publicServerState.trackListCache = null;
 	publicServerState.trackListCacheAt = 0;
-	publicServerState.resolveInProgress = {};
-	publicServerState.peerLaps = {};
-	publicServerState.hostPeerCount = 0;
-	publicServerState.lastMetaSentAt = 0;
-	publicServerState.hostClaimInFlight = false;
+	publicServerState.loadedMapSignature = getLoadedPublicServerMapFromStorage();
+	resetPublicServerVoteState();
 	updatePublicServerButtonStates();
 
 	try {
@@ -1334,18 +1338,15 @@ async function joinPublicServer( serverId ) {
 		// joiner. Either way we end up in the same PeerJS room.
 		await startPublicServerPeer( def.code );
 
-		// The private-room leaderboard is unused in public servers (PeerJS mode
-		// never refreshes it); hide it and show the synced timer instead.
+		// The private-room leaderboard is unused in public servers.
 		setMultiplayerLeaderboardVisible( false );
-		showPublicServerTimer( true );
 
-		updateMultiplayerStatus( `In ${ def.name }. Round timer synced.` );
+		updateMultiplayerStatus( `In ${ def.name }. You'll load the map everyone is on.` );
 		logMpDebug( `[PublicServer] Joined ${ def.name } (code ${ def.code }) as ${ publicServerState.isHost ? 'host' : 'joiner' }` );
 
-		startPublicServerLoops();
-
-		// Immediately render the current round state (locally derived — no fetch).
-		tickPublicServerRound();
+		// Slow maintenance loop: restart a dead PeerJS peer + self-heal host.
+		stopPublicServerMaintainLoop();
+		publicServerState.peerMaintainTimer = setInterval( maintainPublicServerPeer, 10000 );
 
 	} catch ( error ) {
 
@@ -1360,11 +1361,11 @@ async function joinPublicServer( serverId ) {
 async function leavePublicServer() {
 
 	if ( ! isPublicServerActive() ) return;
-	stopPublicServerLoops();
-	getPublicServerRankingsEl()?.classList.remove( 'visible' );
-	showPublicServerTimer( false );
+	stopPublicServerMaintainLoop();
+	hidePublicServerVotePrompt();
+	resetPublicServerVoteState();
 	// Tell peers we left (PeerJS LEFT packet) + tear down the WebRTC mesh. There
-	// is no worker membership to clear — leaving is purely a PeerJS action now.
+	// is no backend membership to clear — leaving is purely a PeerJS action.
 	if ( multiplayerSessionState.peer || multiplayerSessionState.roomCode ) {
 
 		closeMultiplayerPeer();
@@ -1383,536 +1384,104 @@ async function resetPublicServerState() {
 
 	publicServerState.active = false;
 	publicServerState.serverId = '';
-	publicServerState.server = null;
 	publicServerState.isHost = false;
 	publicServerState.claimedHost = false;
-	publicServerState.lastRoundId = 0;
-	publicServerState.loadedRoundId = 0;
-	publicServerState.rankingsShownForRoundId = 0;
-	publicServerState.resolveScheduledForCycle = -1;
-	publicServerState.resolveScheduledForNextCycle = -1;
-	publicServerState.skippedLapSeconds = Infinity;
+	publicServerState.hostClaimInFlight = false;
 	publicServerState.trackListCache = null;
 	publicServerState.trackListCacheAt = 0;
-	publicServerState.resolveInProgress = {};
-	publicServerState.peerLaps = {};
-	publicServerState.hostPeerCount = 0;
-	publicServerState.lastMetaSentAt = 0;
-	publicServerState.hostClaimInFlight = false;
-	clearLoadedRoundIdFromStorage();
+	publicServerState.loadedMapSignature = '';
+	clearLoadedPublicServerMapFromStorage();
 	updatePublicServerButtonStates();
 
 }
 
-function startPublicServerLoops() {
+function stopPublicServerMaintainLoop() {
 
-	stopPublicServerLoops();
-	// The round loop derives the current cycle from wall-clock UTC and rebuilds
-	// the server view locally (no network). 1s is plenty — the 250ms tick below
-	// keeps the countdown smooth between iterations.
-	publicServerState.roundTimer = setInterval( tickPublicServerRound, 1000 );
-	// A slow loop that restarts the PeerJS peer if it died (PeerJS cloud
-	// signalling can drop the peer occasionally). This is the only "maintenance"
-	// left — it does no backend writes. 10s is frequent enough to recover quickly
-	// but doesn't churn the PeerJS cloud server.
-	publicServerState.peerMaintainTimer = setInterval( maintainPublicServerPeer, 10000 );
-	// A 250ms local tick re-renders the countdown from wall-clock UTC so the timer
-	// stays smooth and NEVER freezes — it's pure local math, not dependent on any
-	// request succeeding. It also drives the rankings overlay so the 5s window is
-	// never missed (see updatePublicServerRankingsVisibility).
-	publicServerState.tickTimer = setInterval( tickPublicServerTimer, 250 );
-	// Background tabs throttle setInterval to ~1/min (or worse), which can make
-	// the 5-second rankings window vanish entirely while the player is tabbed
-	// away. Catch up the instant the tab is refocused so the timer + rankings
-	// reflect the real current cycle. The handler is idempotent and cheap.
-	if ( ! publicServerState.visibilityHandler ) {
+	if ( publicServerState.peerMaintainTimer ) {
 
-		publicServerState.visibilityHandler = () => {
-			if ( ! document.hidden ) tickPublicServerRound();
-		};
-		document.addEventListener( 'visibilitychange', publicServerState.visibilityHandler );
+		clearInterval( publicServerState.peerMaintainTimer );
+		publicServerState.peerMaintainTimer = null;
 
 	}
 
 }
 
-function stopPublicServerLoops() {
-
-	if ( publicServerState.roundTimer ) { clearInterval( publicServerState.roundTimer ); publicServerState.roundTimer = null; }
-	if ( publicServerState.peerMaintainTimer ) { clearInterval( publicServerState.peerMaintainTimer ); publicServerState.peerMaintainTimer = null; }
-	if ( publicServerState.tickTimer ) { clearInterval( publicServerState.tickTimer ); publicServerState.tickTimer = null; }
-	if ( publicServerState.visibilityHandler ) {
-
-		document.removeEventListener( 'visibilitychange', publicServerState.visibilityHandler );
-		publicServerState.visibilityHandler = null;
-
-	}
-
-}
-
-// Local re-render of the countdown. Derives remaining time from wall-clock UTC
-// (via cycleInfo) so it keeps ticking smoothly with zero network. This is what
-// makes the timer "impossible to freeze": it's pure local math against the real
-// clock.
+// --- Map sync (host tells joiners which map everyone is on) ---------------
 //
-// SELF-SUFFICIENT: this 250ms tick is the heartbeat that drives BOTH the timer
-// AND the rankings overlay. It computes cycleInfo(now) itself and builds a
-// lightweight local server view (fresh each tick), so it does NOT depend on
-// the 1s round tick having run. This is critical: background-throttled tabs
-// can drop the 1s setInterval, but the rankings window is only 5s, so the
-// 250ms tick must be able to show/hide the overlay on its own. It still reads
-// the P2P-collected laps + cached track from publicServerState (populated by
-// the 1s tick + peer packet handlers), so the data is fresh even if the 1s
-// tick is momentarily stalled.
-function tickPublicServerTimer() {
+// When a joiner connects, the host sends a MAP_SYNC packet with its current
+// mapSignature. The joiner redirects to it (rejoining the server) if it differs
+// from the map they're on. The host also broadcasts MAP_SYNC after its own map
+// changes (e.g. a winning vote) so everyone follows. There is no loop: after a
+// redirect the page reloads on the host's map, so sig === current → no redirect.
+// The sessionStorage flag is a belt-and-braces guard against re-redirecting.
 
-	if ( ! isPublicServerActive() ) return;
-	const now = publicServerNow();
-	const info = publicServerCycleInfo( now );
-	const inRankings = info.inRankings;
-	const remainingMs = Math.max( 0, ( inRankings ? info.cycleEnd : info.playEnd ) - now );
-	// Build a lightweight local view from the current cycle info + cached track +
-	// P2P laps. This mirrors the heavier view built by the 1s tick but is pure
-	// local math, so the timer + rankings keep working even if the 1s tick is
-	// throttled (background tab) or momentarily stalled.
-	const currentCycle = info.cycleIndex;
-	const currentTrack = publicServerState.resolvedTracksByCycle?.[ currentCycle ] || null;
-	// Schedule the current cycle's track resolution from this fast tick too (the
-	// 1s tick also does), so a backgrounded/throttled tab still makes progress on
-	// resolving the track and can redirect promptly once it's known.
-	if ( ! currentTrack && publicServerState.resolveScheduledForCycle !== currentCycle ) {
+function broadcastPublicServerMapSync( onlyConnection = null ) {
 
-		publicServerState.resolveScheduledForCycle = currentCycle;
-		ensureTrackForCycle( currentCycle ).catch( ( e ) => console.warn( 'resolve track failed (timer tick)', e ) );
-
-	}
-	const memberCount = computePublicServerMemberCount();
-	// Pre-resolve the NEXT cycle's track so the redirect at round rollover is
-	// instant (mirrors the 1s tick; kept here for throttled-tab robustness).
-	const nextCycleIndex = info.cycleIndex + 1;
-	if ( ! publicServerState.resolvedTracksByCycle?.[ nextCycleIndex ] &&
-		publicServerState.resolveScheduledForNextCycle !== nextCycleIndex ) {
-
-		publicServerState.resolveScheduledForNextCycle = nextCycleIndex;
-		ensureTrackForCycle( nextCycleIndex ).catch( () => {} ).finally( () => {
-
-			publicServerState.resolveScheduledForNextCycle = -1;
-
-		} );
-
-	}
-	const roundLaps = collectPublicServerRoundLaps( info.roundId );
-	const server = {
-		id: publicServerState.serverId,
-		name: publicServerName(),
-		code: publicServerRoomCode(),
-		now,
-		memberCount,
-		round: {
-			roundId: info.roundId,
-			cycleIndex: info.cycleIndex,
-			trackPlayUrl: currentTrack?.playUrl || '',
-			trackMapSignature: currentTrack?.sig || 'default|none',
-			laps: roundLaps,
-		},
-		cycleStart: info.cycleStart,
-		playEnd: info.playEnd,
-		cycleEnd: info.cycleEnd,
-		roundEndAt: info.playEnd,
-		rankingsEndAt: info.cycleEnd,
-		inRankings: info.inRankings,
-		roundOver: info.roundOver,
+	if ( ! isPublicServerActive() || ! publicServerState.isHost ) return;
+	if ( ! multiplayerSessionState.peer ) return;
+	const packet = {
+		type: PEER_PACKET_MAP_SYNC,
+		playerId: multiplayerSessionState.clientId,
+		mapSignature: getCurrentMapSignature(),
 	};
-	// Update the shared view so handlePublicServerRound's redirect logic (run by
-	// the 1s tick) + the rankings helper see the freshest data. Storing it is
-	// safe: tickPublicServerRound overwrites it with the full view on its next
-	// iteration, and this lightweight view has the same shape it reads.
-	publicServerState.server = server;
-	// Round-change bookkeeping must run on this fast tick too, otherwise a
-	// backgrounded tab (1s tick stalled) would never reset laps when the round
-	// rolls over. We do NOT hide the rankings popup here on purpose: the round
-	// rolls over at cycleEnd (the END of the 5s rankings window), and the
-	// next-round redirect (handlePublicServerRound, 1s tick) navigates the page
-	// away. Hiding the popup the instant the new round starts would let it flash
-	// off for up to ~1s before the reload — so we leave it up and let the reload
-	// (or the visibility helper for the new round) clear it.
-	if ( info.roundId !== publicServerState.lastRoundId ) {
+	const targets = onlyConnection ? [ onlyConnection ] : [ ...multiplayerSessionState.connections.values() ];
+	for ( const connection of targets ) {
 
-		if ( publicServerState.lastRoundId !== 0 ) {
+		if ( connection && connection.open ) {
 
-			publicServerState.skippedLapSeconds = Infinity;
-			publicServerState.rankingsShownForRoundId = 0;
+			try { connection.send( packet ); } catch {}
 
 		}
-		publicServerState.lastRoundId = info.roundId;
-		publicServerState.resolveScheduledForCycle = -1;
 
 	}
-	renderPublicServerTimer( server, remainingMs, inRankings );
-	updatePublicServerRankingsVisibility();
-	// Also drive the redirect logic from this fast (250ms) tick — not just the 1s
-	// tick — so that the moment a new round starts and its track is resolved we
-	// redirect within a quarter second (instead of up to ~1s). This is the "keep
-	// re-sending the redirect signal" robustness: even if the 1s round tick is
-	// throttled (background tab), this fast tick still catches the rollover. It's
-	// safe because the redirect guard (roundId !== loadedRoundId, plus the
-	// sessionStorage anti-loop flag) prevents ever re-redirecting for a round we
-	// already loaded — and during the 5s rankings window roundId === loadedRoundId,
-	// so the popup is never pre-empted by a redirect.
-	handlePublicServerRound( server );
 
 }
 
-// Build the current server view LOCALLY from wall-clock UTC + the deterministic
-// track pick + the P2P-collected laps + the PeerJS-derived member count. This
-// replaces the old 1s worker poll — same data shape, no network, no KV writes.
-function tickPublicServerRound() {
+function onPublicServerMapSync( packet ) {
 
 	if ( ! isPublicServerActive() ) return;
-
-	const now = publicServerNow();
-	const info = publicServerCycleInfo( now );
-
-	// The track for the current cycle is picked DETERMINISTICALLY (no write). If
-	// we haven't resolved it yet this session, schedule an async resolve (fetch
-	// the track list once, then compute). Resolved tracks are cached in
-	// publicServerState.resolvedTracksByCycle so we don't recompute each tick.
-	const currentCycleIndex = info.cycleIndex;
-	let currentTrack = publicServerState.resolvedTracksByCycle?.[ currentCycleIndex ] || null;
-	if ( ! currentTrack && publicServerState.resolveScheduledForCycle !== currentCycleIndex ) {
-
-		publicServerState.resolveScheduledForCycle = currentCycleIndex;
-		ensureTrackForCycle( currentCycleIndex ).catch( ( e ) => console.warn( 'resolve track failed', e ) );
-
-	}
-	// Pre-resolve the NEXT cycle's track so that when the round ends and the new
-	// cycle begins, the redirect is INSTANT (the resolution is already cached —
-	// no fetch wait). This is what fixes "takes forever to switch after the
-	// timer hits 0": the next track is ready before the round even ends.
-	const nextCycleIndex = currentCycleIndex + 1;
-	if ( ! publicServerState.resolvedTracksByCycle?.[ nextCycleIndex ] &&
-		publicServerState.resolveScheduledForNextCycle !== nextCycleIndex ) {
-
-		publicServerState.resolveScheduledForNextCycle = nextCycleIndex;
-		ensureTrackForCycle( nextCycleIndex ).catch( () => {} ).finally( () => {
-
-			publicServerState.resolveScheduledForNextCycle = -1;
-
-		} );
-
-	}
-
-	// Member count: the host sees connections.size + 1 directly; joiners use the
-	// count reported by the host's META packet. Fallback to connections + 1.
-	const memberCount = computePublicServerMemberCount();
-
-	// Per-round laps are collected P2P (LAP packets relayed by the host) plus our
-	// own best lap for this round.
-	const roundLaps = collectPublicServerRoundLaps( info.roundId );
-
-	// The host periodically broadcasts a META packet so joiners see an accurate
-	// member count + current round. Throttled to ~2s.
-	if ( publicServerState.isHost && now - publicServerState.lastMetaSentAt > 2000 ) {
-
-		publicServerState.lastMetaSentAt = now;
-		broadcastPublicServerMeta( info, memberCount );
-
-	}
-
-	const server = {
-		id: publicServerState.serverId,
-		name: publicServerName(),
-		code: publicServerRoomCode(),
-		now,
-		memberCount,
-		round: {
-			roundId: info.roundId,
-			cycleIndex: info.cycleIndex,
-			trackPlayUrl: currentTrack?.playUrl || '',
-			trackMapSignature: currentTrack?.sig || 'default|none',
-			laps: roundLaps,
-		},
-		nextRound: {
-			cycleIndex: info.cycleIndex + 1,
-			trackPlayUrl: '',
-			trackMapSignature: 'default|none',
-			hasTrack: false,
-		},
-		cycleStart: info.cycleStart,
-		playEnd: info.playEnd,
-		cycleEnd: info.cycleEnd,
-		roundEndAt: info.playEnd,
-		rankingsEndAt: info.cycleEnd,
-		inRankings: info.inRankings,
-		roundOver: info.roundOver,
-	};
-	publicServerState.server = server;
-	handlePublicServerRound( server );
-	// Also drive the rankings overlay from the 1s tick (the 250ms tick already
-	// does) so a throttled background interval can't miss the 5s window. This is
-	// what makes the round-end rankings popup reliable.
-	updatePublicServerRankingsVisibility();
+	const sig = String( packet?.mapSignature || '' );
+	if ( ! sig || sig === 'default|none' ) return;
+	redirectPublicServerToMap( sig, 'host' );
 
 }
 
-// The synced "server time" is just wall-clock UTC (cycleInfo is anchored to a
-// UTC epoch, so using Date.now() directly keeps every client on the same cycle
-// boundaries without any clock-skew correction from a backend). Kept as a
-// function so the old call sites stay readable.
-function publicServerNow() {
-
-	return Date.now();
-
-}
-
-// Member count from the PeerJS mesh. The host owns all the connections, so it
-// knows the real count (connections + itself). Joiners only have their single
-// connection to the host, so they use the count the host reports in its META
-// packet (falling back to 1 if no META has arrived yet).
-function computePublicServerMemberCount() {
-
-	if ( publicServerState.isHost ) {
-
-		return multiplayerSessionState.connections.size + 1;
-
-	}
-	return Math.max( 1, publicServerState.hostPeerCount || ( multiplayerSessionState.connections.size > 0 ? 2 : 1 ) );
-
-}
-
-// Collect the per-round best laps for the rankings overlay. Combines laps
-// received from peers (P2P, keyed by roundId) with our own best lap this round.
-function collectPublicServerRoundLaps( roundId ) {
-
-	const out = {};
-	const peerLaps = publicServerState.peerLaps[ roundId ];
-	if ( peerLaps ) {
-
-		for ( const [ pid, row ] of Object.entries( peerLaps ) ) {
-
-			if ( pid === multiplayerSessionState.clientId ) continue;
-			const time = Number( row?.time );
-			if ( ! Number.isFinite( time ) ) continue;
-			out[ pid ] = { name: row?.name || 'Player', time };
-
-		}
-
-	}
-	// Include our own best lap for this round.
-	if ( Number.isFinite( publicServerState.skippedLapSeconds ) ) {
-
-		out[ multiplayerSessionState.clientId ] = {
-			name: getLocalMultiplayerDisplayName(),
-			time: publicServerState.skippedLapSeconds,
-		};
-
-	}
-	return out;
-
-}
-
-// Drive the rankings overlay visibility. Called from BOTH the 1s round tick
-// (which builds a fresh server view) AND the 250ms countdown tick (which
-// re-derives inRankings from the last server view). Running it on the fast tick
-// is what makes the popup reliable: the rankings window is only 5s, so a 1s
-// poll (or worse, a background-throttled interval) can easily skip it entirely.
-// The 250ms tick guarantees we notice the window within a quarter second and
-// keep it rendered (so late-arriving P2P laps appear) for its whole duration.
-function updatePublicServerRankingsVisibility() {
+// Redirect THIS client to `sig` on the public server (rejoining via ?pubServer).
+// Skipped if we're already on that map, or if we already redirected onto it
+// (sessionStorage guard) — this is the anti-loop guarantee.
+function redirectPublicServerToMap( sig, reason = 'host' ) {
 
 	if ( ! isPublicServerActive() ) return;
-	const server = publicServerState.server;
-	if ( ! server ) return;
-	const now = publicServerNow();
-	const playEnd = Number( server.playEnd ) || now;
-	const cycleEnd = Number( server.cycleEnd ) || playEnd;
-	const inRankings = now >= playEnd && now < cycleEnd;
-	const roundId = Number( server.round?.roundId ) || 0;
-	const el = getPublicServerRankingsEl();
+	if ( ! sig || sig === 'default|none' ) return;
+	if ( sig === getCurrentMapSignature() ) {
 
-	if ( inRankings ) {
-
-		// Mark this round as "shown" and render. Re-rendering each tick is cheap
-		// and lets late-arriving P2P laps appear live during the window.
-		if ( publicServerState.rankingsShownForRoundId !== roundId ) {
-
-			publicServerState.rankingsShownForRoundId = roundId;
-
-		}
-		renderPublicServerRankings( server );
-		if ( el ) el.classList.add( 'visible' );
-
-	} else if ( publicServerState.rankingsShownForRoundId === roundId ) {
-
-		// The window just closed for the round we were showing. Keep the overlay
-		// up — the next-round redirect (handlePublicServerRound) will navigate
-		// away momentarily, so hiding here only to immediately reload would let
-		// the popup flash off then back. The round-change reset in
-		// handlePublicServerRound hides it for the new round.
-
-	} else if ( ! inRankings && roundId !== publicServerState.rankingsShownForRoundId ) {
-
-		// Belonging to a different round than the one we showed → make sure it's hidden.
-		if ( el ) el.classList.remove( 'visible' );
+		publicServerState.loadedMapSignature = sig;
+		setLoadedPublicServerMapInStorage( sig );
+		return;
 
 	}
+	if ( publicServerState.loadedMapSignature === sig ) return;
+	setLoadedPublicServerMapInStorage( sig );
+	publicServerState.loadedMapSignature = sig;
+	const playUrl = new URL( window.location.href );
+	playUrl.searchParams.set( 'map', ( sig.split( '|' )[ 0 ] || 'default' ) );
+	const mods = sig.split( '|' )[ 1 ] || 'none';
+	if ( mods && mods !== 'none' ) playUrl.searchParams.set( 'mods', mods );
+	const url = buildServerTrackRedirectUrl( playUrl.toString(), publicServerState.serverId );
+	updateMultiplayerStatus( `Loading the ${ reason } map for ${ publicServerName() }…` );
+	window.location.href = url;
 
 }
 
-function handlePublicServerRound( server ) {
-
-	const round = server.round || {};
-	const roundId = Number( round.roundId ) || 0;
-	const now = publicServerNow();
-	const playEnd = Number( server.playEnd ) || now;
-	const cycleEnd = Number( server.cycleEnd ) || playEnd;
-	const remainingMs = Math.max( 0, Math.min( playEnd, cycleEnd ) - now );
-	const inRankings = Boolean( server.inRankings );
-
-	// Round changed → reset local lap submission + hide stale rankings.
-	if ( roundId !== publicServerState.lastRoundId ) {
-
-		if ( publicServerState.lastRoundId !== 0 ) {
-
-			publicServerState.skippedLapSeconds = Infinity;
-			publicServerState.rankingsShownForRoundId = 0;
-			getPublicServerRankingsEl()?.classList.remove( 'visible' );
-
-		}
-		publicServerState.lastRoundId = roundId;
-		// Reset the track-resolution guard so the new round's track resolves.
-		publicServerState.resolveScheduledForCycle = -1;
-
-	}
-
-	renderPublicServerTimer( server, remainingMs, inRankings );
-
-	// --- Track resolution (deterministic, host-independent) ----------------
-	// The track for each cycle is chosen DETERMINISTICALLY from the cycle index
-	// (which is itself derived from wall-clock UTC — a single global timezone, so
-	// every player computes the same cycleIndex and therefore the same track).
-	// See pickTrackForCycle() in PublicServers.js. No coordination write is needed
-	// to AGREE on a track — everyone computes the same answer. FIRST JOIN
-	// navigates to the correct track immediately: even on a fresh join, this
-	// client computes it and redirects.
-	const sig = String( round.trackMapSignature || 'default|none' );
-	const hasTrack = Boolean( round.trackPlayUrl ) && sig !== 'default|none';
-	if ( hasTrack && roundId !== publicServerState.loadedRoundId ) {
-
-		// Already on the right map (e.g. we just reloaded onto the track we
-		// redirected to)? Then we're synced — mark it loaded, don't redirect.
-		// OR we already redirected for this round (sessionStorage flag)? Same.
-		// Either way: do NOT redirect again. This is what breaks the loop.
-		const alreadyOnTrack = ( sig === getCurrentMapSignature() );
-		const alreadyLoadedThisRound = ( getLoadedRoundIdFromStorage() === roundId );
-		if ( alreadyOnTrack || alreadyLoadedThisRound ) {
-
-			publicServerState.loadedRoundId = roundId;
-			setLoadedRoundIdInStorage( roundId );
-
-		} else {
-
-			// Genuine first load of this round's track → redirect once. Record it
-			// BEFORE navigating so the reloaded page knows not to re-redirect.
-			setLoadedRoundIdInStorage( roundId );
-			publicServerState.loadedRoundId = roundId;
-			const url = buildServerTrackRedirectUrl( round.trackPlayUrl, publicServerState.serverId );
-			updateMultiplayerStatus( `Loading next track for ${ publicServerName() }…` );
-			window.location.href = url;
-			return;
-
-		}
-
-	}
-
-}
-
-// Cached fetch of the community-track list (sorted by a stable key in
-// PublicServers.fetchTrackList). Cached for 60s so the round loop doesn't
-// hammer the track board. Returns [] on failure (caller treats "no tracks"
-// gracefully). This is a READ-ONLY GET to the track share board — zero KV
-// writes, so it never counts against the Cloudflare free-plan daily quota.
-async function getCachedTrackList() {
-
-	const now = Date.now();
-	if ( publicServerState.trackListCache && ( now - publicServerState.trackListCacheAt ) < 60000 ) {
-		return publicServerState.trackListCache;
-	}
-	const list = await fetchTrackList();
-	publicServerState.trackListCache = list;
-	publicServerState.trackListCacheAt = now;
-	return list;
-
-}
-
-// Resolve the deterministic track for a cycle: compute it locally (identical
-// for every player) and cache the result in-process for the rest of the round.
-// No worker write — the pick is deterministic so agreement is free. This ONLY
-// resolves + caches; it does NOT navigate. The redirect is handled separately
-// by handlePublicServerRound once the resolution lands, so we can safely
-// pre-resolve the NEXT cycle's track during the current round without
-// triggering an early page reload. De-duplicated per cycleIndex so repeated
-// ticks don't fire concurrent fetches.
-async function ensureTrackForCycle( cycleIndex ) {
-
-	if ( ! isPublicServerActive() ) return;
-	const inflight = publicServerState.resolveInProgress[ cycleIndex ];
-	if ( inflight ) return inflight;
-	// Already resolved this cycle earlier? Nothing to do.
-	if ( publicServerState.resolvedTracksByCycle?.[ cycleIndex ] ) return;
-	const promise = ( async () => {
-
-		try {
-
-			const list = await getCachedTrackList();
-			const entry = pickTrackForCycle( cycleIndex, publicServerState.serverId, list );
-			if ( ! entry || ! entry.playUrl ) {
-
-				// No community tracks available yet — reset the guard so we retry
-				// next tick. The current map keeps running; the round still
-				// advances on the wall-clock boundary.
-				publicServerState.resolveScheduledForCycle = -1;
-				return;
-
-			}
-			const sig = mapSignatureFromPlayUrl( entry.playUrl );
-			// Cache the resolved track in-process so future ticks read it directly.
-			if ( ! publicServerState.resolvedTracksByCycle ) publicServerState.resolvedTracksByCycle = {};
-			publicServerState.resolvedTracksByCycle[ cycleIndex ] = { playUrl: entry.playUrl, sig };
-
-		} catch ( err ) {
-
-			// Board fetch failed (all retries exhausted — flaky worker / network).
-			// Reset the guard so the next tick re-attempts resolution; otherwise we
-			// would be stuck on the current track FOREVER (this was the
-			// "sometimes the player doesn't switch tracks" bug). Also bust the
-			// track-list cache so the retry actually hits the network again.
-			console.warn( `ensureTrackForCycle(${ cycleIndex }) failed; will retry next tick.`, err );
-			publicServerState.resolveScheduledForCycle = -1;
-			publicServerState.trackListCache = null;
-			publicServerState.trackListCacheAt = 0;
-
-		} finally {
-
-			delete publicServerState.resolveInProgress[ cycleIndex ];
-
-		}
-
-	} )();
-	publicServerState.resolveInProgress[ cycleIndex ] = promise;
-	return promise;
-
-}
-
-// --- PeerJS-native host election + P2P packet helpers ---------------------
+// --- PeerJS-native host election + P2P mesh ------------------------------
 //
 // Host election without a backend: the first player to claim the
 // RACE-ROOM-<code> peer id becomes the host; joiners connect to it. If the id
 // is already taken (another player is host), PeerJS fires an 'unavailable-id'
 // error → we become a joiner instead. If the host later disappears, joiners
 // detect their dead connection to the host and reclaim the id (self-healing).
-// This grants NO in-game privileges — the host is just the PeerJS relay + the
-// one that broadcasts the META packet.
+// The host grants NO in-game privileges — it only relays peer packets (so all
+// peers see each other) and sends the MAP_SYNC packet.
 
 // Try to claim the host peer id; if taken, fall back to joiner. Resolves once
 // the peer is open (host) or once we've started connecting to the host (joiner).
@@ -1933,7 +1502,6 @@ function startPublicServerPeer( roomCode ) {
 			settled = true;
 			publicServerState.isHost = true;
 			publicServerState.claimedHost = true;
-			publicServerState.hostPeerCount = 0;
 			multiplayerSessionState.role = 'host';
 			applyPublicServerRoleToConnections( roomCode, 'host' );
 			resolve();
@@ -1969,12 +1537,14 @@ function startPublicServerPeer( roomCode ) {
 		} );
 		peer.on( 'connection', ( connection ) => {
 
-			// A joiner connected to us (host). Register + relay their packets.
+			// A joiner connected to us (host). Register + relay their packets, and
+			// immediately tell them which map everyone is on (MAP_SYNC).
 			logMpDebug( `[PublicServer] Host received connection from ${ connection.peer }` );
 			connection.on( 'open', () => {
 
 				registerPeerConnection( connection );
 				broadcastPeerState();
+				broadcastPublicServerMapSync( connection );
 
 			} );
 			connection.on( 'error', ( error ) => logMpDebug( `[PublicServer] Connection error: ${ error?.message || error }` ) );
@@ -2028,9 +1598,8 @@ function applyPublicServerRoleToConnections( roomCode, role ) {
 }
 
 // If our PeerJS peer died (PeerJS cloud signalling drops happen), restart it in
-// the current role. This is the only "maintenance" left and does no backend
-// writes. For a joiner whose host disappeared, attempt to reclaim the host id
-// (self-healing). Debounced via hostClaimInFlight.
+// the current role. For a joiner whose host disappeared, attempt to reclaim the
+// host id (self-healing). Debounced via hostClaimInFlight.
 function maintainPublicServerPeer() {
 
 	if ( ! isPublicServerActive() ) return;
@@ -2090,7 +1659,6 @@ function maybeReclaimPublicServerHost( roomCode ) {
 			multiplayerSessionState.peer = probe;
 			publicServerState.isHost = true;
 			publicServerState.claimedHost = true;
-			publicServerState.hostPeerCount = 0;
 			multiplayerSessionState.role = 'host';
 			probe.on( 'connection', ( connection ) => {
 
@@ -2098,6 +1666,7 @@ function maybeReclaimPublicServerHost( roomCode ) {
 
 					registerPeerConnection( connection );
 					broadcastPeerState();
+					broadcastPublicServerMapSync( connection );
 
 				} );
 				connection.on( 'error', () => {} );
@@ -2125,189 +1694,363 @@ function maybeReclaimPublicServerHost( roomCode ) {
 
 }
 
-// Broadcast our best lap for the current round to the PeerJS mesh. The host
-// relays it so all peers see it (not just directly-connected ones). Each peer
-// keeps the minimum per playerId per round.
-function broadcastPublicServerLap( bestLap, displayName ) {
+// --- Map vote ------------------------------------------------------------
+//
+// Active vote state. Only ONE vote is active at a time per server; a new
+// VOTE_START while one is active is ignored (the initiator's vote wins). The
+// initiator runs the authoritative 30s timer and broadcasts VOTE_RESULT.
+// Non-initiators show the prompt on VOTE_START and hide on VOTE_RESULT (with a
+// local fallback timeout in case the initiator's result never arrives).
+const publicServerVoteState = {
+	active: false,            // is a vote prompt currently shown?
+	voteId: '',                // id of the active vote (initiatorId + startedAt)
+	playUrl: '',               // proposed track playUrl
+	trackName: '',             // proposed track display name
+	initiatorId: '',           // who started the vote
+	ourVote: '',               // 'yes' | 'no' | '' (our cast vote)
+	votes: {},                 // { [playerId]: 'yes'|'no' } (peers' + our votes)
+	isInitiator: false,        // are we running the 30s timer?
+	endsAt: 0,                 // initiator: when the vote ends (ms); fallback for others
+	timer: null,               // initiator 30s timer (or non-initiator fallback timer)
+	fallbackTimer: null,       // non-initiator hide-on-timeout guard
+};
+
+function resetPublicServerVoteState() {
+
+	if ( publicServerVoteState.timer ) { clearTimeout( publicServerVoteState.timer ); publicServerVoteState.timer = null; }
+	if ( publicServerVoteState.fallbackTimer ) { clearTimeout( publicServerVoteState.fallbackTimer ); publicServerVoteState.fallbackTimer = null; }
+	publicServerVoteState.active = false;
+	publicServerVoteState.voteId = '';
+	publicServerVoteState.playUrl = '';
+	publicServerVoteState.trackName = '';
+	publicServerVoteState.initiatorId = '';
+	publicServerVoteState.ourVote = '';
+	publicServerVoteState.votes = {};
+	publicServerVoteState.isInitiator = false;
+	publicServerVoteState.endsAt = 0;
+
+}
+
+// Cached fetch of the community-track list (sorted by a stable key in
+// PublicServers.fetchTrackList). Cached for 60s so repeated vote proposals don't
+// hammer the board. Returns [] on failure.
+async function getCachedPublicServerTrackList() {
+
+	const now = Date.now();
+	if ( publicServerState.trackListCache && ( now - publicServerState.trackListCacheAt ) < 60000 ) {
+
+		return publicServerState.trackListCache;
+
+	}
+	const list = await fetchTrackList();
+	publicServerState.trackListCache = list;
+	publicServerState.trackListCacheAt = now;
+	return list;
+
+}
+
+// Entry point from the "Select track" button: read the pasted URL, search the
+// board for its name, then start the vote.
+async function startPublicServerVoteFromInput() {
 
 	if ( ! isPublicServerActive() ) return;
-	const info = publicServerCycleInfo( publicServerNow() );
-	if ( ! multiplayerSessionState.peer || multiplayerSessionState.connections.size === 0 ) {
+	if ( publicServerVoteState.active ) {
 
-		// No peers yet — still record our own lap locally so it shows in our rankings.
-		// MUST include roundId or ingestPublicServerPeerLap rejects the packet.
-		ingestPublicServerPeerLap( multiplayerSessionState.clientId, { roundId: info.roundId, time: bestLap, name: displayName } );
+		updateMultiplayerStatus( 'A map vote is already in progress.' );
 		return;
 
 	}
+	const input = document.getElementById( 'mp-pubtrack-input' );
+	const rawUrl = String( input?.value || '' ).trim();
+	if ( ! rawUrl ) {
+
+		updateMultiplayerStatus( 'Paste a track share URL, then click Select track.' );
+		return;
+
+	}
+
+	updateMultiplayerStatus( 'Looking up track on the share board…' );
+	let track = null;
+	try {
+
+		const list = await getCachedPublicServerTrackList();
+		track = findTrackByPlayUrl( rawUrl, list );
+
+	} catch ( error ) {
+
+		console.warn( 'Public-server vote track lookup failed', error );
+		updateMultiplayerStatus( 'Could not reach the track share board. Try again.' );
+		return;
+
+	}
+	if ( ! track || ! track.playUrl ) {
+
+		updateMultiplayerStatus( 'Track not found on the share board. Paste the track's share URL.' );
+		return;
+
+	}
+	if ( input ) input.value = '';
+	startPublicServerVote( track.playUrl, track.name );
+
+}
+
+// Initiate a vote: record it locally, broadcast VOTE_START to peers, show the
+// prompt, and start the authoritative 30s timer on THIS (the initiator) device.
+function startPublicServerVote( playUrl, trackName ) {
+
+	if ( ! isPublicServerActive() ) return;
+	resetPublicServerVoteState();
+	const startedAt = Date.now();
+	const voteId = `${ multiplayerSessionState.clientId }-${ startedAt }`;
+	publicServerVoteState.active = true;
+	publicServerVoteState.voteId = voteId;
+	publicServerVoteState.playUrl = String( playUrl || '' );
+	publicServerVoteState.trackName = String( trackName || 'Shared track' );
+	publicServerVoteState.initiatorId = multiplayerSessionState.clientId;
+	publicServerVoteState.isInitiator = true;
+	publicServerVoteState.endsAt = startedAt + PUBLIC_SERVER_VOTE_DURATION_MS;
+	publicServerVoteState.votes = {};
+
+	// Auto-vote yes for the initiator (counts toward the tally immediately).
+	publicServerVoteState.ourVote = 'yes';
+	publicServerVoteState.votes[ multiplayerSessionState.clientId ] = 'yes';
+
+	showPublicServerVotePrompt();
+	updatePublicServerVoteCounts();
+
 	const packet = {
-		type: PEER_PACKET_LAP,
+		type: PEER_PACKET_VOTE_START,
 		playerId: multiplayerSessionState.clientId,
-		roundId: info.roundId,
-		time: Number( bestLap ),
-		name: displayName,
+		voteId,
+		playUrl: publicServerVoteState.playUrl,
+		trackName: publicServerVoteState.trackName,
+		initiatorId: multiplayerSessionState.clientId,
+		startedAt,
 	};
-	// Record our own lap locally too.
-	ingestPublicServerPeerLap( multiplayerSessionState.clientId, packet );
-	for ( const connection of multiplayerSessionState.connections.values() ) {
+	sendPublicServerPacket( packet );
 
-		if ( connection?.open ) {
-
-			try { connection.send( packet ); } catch {}
-
-		}
-
-	}
+	// The initiator's device counts the 30s and tallies the result.
+	publicServerVoteState.timer = setTimeout( () => endPublicServerVote( true ), PUBLIC_SERVER_VOTE_DURATION_MS );
+	logMpDebug( `[PublicServer] Started map vote ${ voteId } for "${ trackName }"` );
 
 }
 
-// Ingest a peer's (or our own) LAP packet into the local round-laps map. Keeps
-// the minimum time per playerId per round so the rankings show each player's best.
-function ingestPublicServerPeerLap( playerId, packet ) {
+// Received a VOTE_START from a peer: show the prompt + start a fallback timeout
+// (in case the initiator's VOTE_RESULT never arrives we still hide eventually).
+function onPublicServerVoteStart( packet ) {
 
 	if ( ! isPublicServerActive() ) return;
-	const pid = String( playerId || packet?.playerId || '' );
+	const pid = String( packet?.initiatorId || packet?.playerId || '' );
 	if ( ! pid ) return;
-	const roundId = Number( packet?.roundId );
-	if ( ! Number.isFinite( roundId ) ) return;
-	const time = Number( packet?.time );
-	if ( ! Number.isFinite( time ) || time < 0 ) return;
-	if ( ! publicServerState.peerLaps[ roundId ] ) publicServerState.peerLaps[ roundId ] = {};
-	const existing = publicServerState.peerLaps[ roundId ][ pid ];
-	if ( ! existing || time < Number( existing.time ) ) {
+	// Ignore a new vote while one is already active (the existing one wins).
+	if ( publicServerVoteState.active ) return;
+	const voteId = String( packet?.voteId || '' );
+	if ( ! voteId ) return;
+	const startedAt = Number( packet?.startedAt ) || Date.now();
+	publicServerVoteState.active = true;
+	publicServerVoteState.voteId = voteId;
+	publicServerVoteState.playUrl = String( packet?.playUrl || '' );
+	publicServerVoteState.trackName = String( packet?.trackName || 'Shared track' );
+	publicServerVoteState.initiatorId = pid;
+	publicServerVoteState.isInitiator = false;
+	publicServerVoteState.endsAt = startedAt + PUBLIC_SERVER_VOTE_DURATION_MS;
+	publicServerVoteState.votes = {};
+	publicServerVoteState.ourVote = '';
+	showPublicServerVotePrompt();
+	updatePublicServerVoteCounts();
+	// Fallback: if the initiator's VOTE_RESULT never arrives, hide the prompt a
+	// little after the vote would have ended (+5s slack for relay delay).
+	const remaining = Math.max( 0, publicServerVoteState.endsAt - Date.now() ) + 5000;
+	publicServerVoteState.fallbackTimer = setTimeout( () => {
 
-		publicServerState.peerLaps[ roundId ][ pid ] = { name: packet?.name || existing?.name || 'Player', time };
+		if ( publicServerVoteState.active && ! publicServerVoteState.isInitiator ) hidePublicServerVotePrompt();
 
-	}
+	}, remaining + 1000 );
+	logMpDebug( `[PublicServer] Vote ${ voteId } started by ${ pid } for "${ publicServerVoteState.trackName }"` );
 
 }
 
-// Host-only: broadcast a META packet with the current round + member count so
-// joiners can display an accurate "N players online" without a backend.
-function broadcastPublicServerMeta( info, memberCount ) {
+// Cast our vote (Yes/No) for the active vote and broadcast it to peers.
+function castPublicServerVote( choice ) {
 
-	if ( ! isPublicServerActive() || ! publicServerState.isHost ) return;
-	if ( ! multiplayerSessionState.peer || multiplayerSessionState.connections.size === 0 ) return;
+	if ( ! isPublicServerActive() || ! publicServerVoteState.active ) return;
+	const vote = choice === 'yes' ? 'yes' : 'no';
+	if ( publicServerVoteState.ourVote === vote ) return;
+	publicServerVoteState.ourVote = vote;
+	publicServerVoteState.votes[ multiplayerSessionState.clientId ] = vote;
+	updatePublicServerVoteCounts();
 	const packet = {
-		type: PEER_PACKET_META,
-		roundId: info.roundId,
-		cycleIndex: info.cycleIndex,
-		memberCount,
+		type: PEER_PACKET_VOTE,
+		playerId: multiplayerSessionState.clientId,
+		voteId: publicServerVoteState.voteId,
+		vote,
 	};
-	for ( const connection of multiplayerSessionState.connections.values() ) {
-
-		if ( connection?.open ) {
-
-			try { connection.send( packet ); } catch {}
-
-		}
-
-	}
+	sendPublicServerPacket( packet );
 
 }
 
-// Joiner-side: ingest the host's META packet to update the member-count display.
-function ingestPublicServerPeerMeta( packet ) {
+// Received a peer's vote: record it and refresh the counts.
+function onPublicServerVote( packet ) {
 
-	if ( ! isPublicServerActive() ) return;
-	const count = Number( packet?.memberCount );
-	if ( Number.isFinite( count ) && count > 0 ) {
-
-		publicServerState.hostPeerCount = count;
-
-	}
-
-}
-
-function formatCountdown( ms ) {
-
-	const total = Math.max( 0, Math.floor( ms / 1000 ) );
-	const m = Math.floor( total / 60 );
-	const s = total % 60;
-	return `${ m }:${ String( s ).padStart( 2, '0' ) }`;
+	if ( ! isPublicServerActive() || ! publicServerVoteState.active ) return;
+	if ( String( packet?.voteId || '' ) !== publicServerVoteState.voteId ) return;
+	const pid = String( packet?.playerId || '' );
+	if ( ! pid ) return;
+	const vote = packet?.vote === 'yes' ? 'yes' : 'no';
+	publicServerVoteState.votes[ pid ] = vote;
+	updatePublicServerVoteCounts();
 
 }
 
-function showPublicServerTimer( visible ) {
+// The initiator's 30s elapsed: tally the votes, and if >60% yes (with ≥1 vote),
+// switch the track on THIS client first, then broadcast VOTE_RESULT so everyone
+// else follows. Hides the prompt locally regardless of the outcome.
+function endPublicServerVote( asInitiator ) {
 
-	const el = getPublicServerTimerEl();
-	if ( el ) el.style.display = visible ? 'block' : 'none';
+	if ( ! publicServerVoteState.active ) return;
+	if ( publicServerVoteState.timer ) { clearTimeout( publicServerVoteState.timer ); publicServerVoteState.timer = null; }
+	const tally = tallyPublicServerVotes();
+	const passed = tally.total > 0 && ( tally.yes / tally.total ) > PUBLIC_SERVER_VOTE_PASS_RATIO;
+	const packet = {
+		type: PEER_PACKET_VOTE_RESULT,
+		playerId: multiplayerSessionState.clientId,
+		voteId: publicServerVoteState.voteId,
+		passed: Boolean( passed ),
+		playUrl: publicServerVoteState.playUrl,
+		trackName: publicServerVoteState.trackName,
+	};
+	if ( asInitiator ) sendPublicServerPacket( packet );
 
-}
+	if ( passed && publicServerVoteState.playUrl ) {
 
-function renderPublicServerTimer( server, remainingMs, inRankings ) {
-
-	const el = getPublicServerTimerEl();
-	if ( ! el ) return;
-	const memberCount = Number( server.memberCount ) || 0;
-	// In public servers everyone is an equal player — never reveal the host role.
-	if ( inRankings ) {
-
-		el.innerHTML =
-			`<div class="mp-timer-line mp-timer-big">Round over</div>` +
-			`<div class="mp-timer-line mp-timer-sub">Showing rankings — next track loading…</div>` +
-			`<div class="mp-timer-line mp-timer-role">${ publicServerName() } • ${ memberCount } player${ memberCount === 1 ? '' : 's' }</div>`;
+		// Switch on the initiator's device first (it just broadcast the result);
+		// the redirect rejoins the server on the new map.
+		const name = publicServerVoteState.trackName || 'the voted track';
+		updateMultiplayerStatus( `Vote passed — switching to ${ name }…` );
+		redirectPublicServerToTrack( publicServerVoteState.playUrl, 'voted' );
 
 	} else {
 
-		el.innerHTML =
-			`<div class="mp-timer-line mp-timer-sub">${ publicServerName() } • round ends in</div>` +
-			`<div class="mp-timer-line mp-timer-big">${ formatCountdown( remainingMs ) }</div>` +
-			`<div class="mp-timer-line mp-timer-role">${ memberCount } player${ memberCount === 1 ? '' : 's' } online</div>`;
+		updateMultiplayerStatus( 'Map vote did not pass.' );
+
+	}
+	hidePublicServerVotePrompt();
+	resetPublicServerVoteState();
+
+}
+
+// Received the initiator's VOTE_RESULT: if it passed, redirect to the track.
+function onPublicServerVoteResult( packet ) {
+
+	if ( ! isPublicServerActive() ) return;
+	if ( ! publicServerVoteState.active ) return;
+	if ( String( packet?.voteId || '' ) !== publicServerVoteState.voteId ) return;
+	// Only the initiator sends the result; ignore our own (it looped back).
+	if ( String( packet?.playerId || '' ) === multiplayerSessionState.clientId ) return;
+	const passed = Boolean( packet?.passed );
+	if ( passed && packet?.playUrl ) {
+
+		const name = String( packet?.trackName || 'the voted track' );
+		updateMultiplayerStatus( `Vote passed — switching to ${ name }…` );
+		redirectPublicServerToTrack( String( packet.playUrl ), 'voted' );
+
+	} else {
+
+		updateMultiplayerStatus( 'Map vote did not pass.' );
+
+	}
+	hidePublicServerVotePrompt();
+	resetPublicServerVoteState();
+
+}
+
+// Tally the votes recorded so far.
+function tallyPublicServerVotes() {
+
+	let yes = 0, no = 0;
+	for ( const v of Object.values( publicServerVoteState.votes ) ) {
+
+		if ( v === 'yes' ) yes ++; else if ( v === 'no' ) no ++;
+
+	}
+	return { yes, no, total: yes + no };
+
+}
+
+// Redirect THIS client to a track board playUrl on the public server. The
+// redirect URL keeps the pubServer param so we rejoin the same server on the
+// new map (see buildServerTrackRedirectUrl). Records the target mapSignature as
+// "loaded" so a subsequent MAP_SYNC from the host (now also on the new map)
+// doesn't re-redirect.
+function redirectPublicServerToTrack( playUrl, reason = 'voted' ) {
+
+	if ( ! isPublicServerActive() || ! playUrl ) return;
+	const sig = mapSignatureFromPlayUrl( playUrl );
+	if ( sig === getCurrentMapSignature() ) return;
+	setLoadedPublicServerMapInStorage( sig );
+	publicServerState.loadedMapSignature = sig;
+	const url = buildServerTrackRedirectUrl( playUrl, publicServerState.serverId );
+	updateMultiplayerStatus( `Loading ${ reason } map for ${ publicServerName() }…` );
+	window.location.href = url;
+
+}
+
+// Send a public-server packet to all peers (and have the host relay it so
+// indirectly-connected peers also receive it).
+function sendPublicServerPacket( packet ) {
+
+	if ( ! isPublicServerActive() ) return;
+	if ( ! multiplayerSessionState.peer || multiplayerSessionState.connections.size === 0 ) return;
+	for ( const connection of multiplayerSessionState.connections.values() ) {
+
+		if ( connection && connection.open ) {
+
+			try { connection.send( packet ); } catch {}
+
+		}
 
 	}
 
 }
 
-function renderPublicServerRankings( server ) {
+// --- Vote prompt DOM -----------------------------------------------------
 
-	const listEl = document.getElementById( 'mp-server-rankings-list' );
-	const emptyEl = document.getElementById( 'mp-server-rankings-empty' );
-	const subEl = document.getElementById( 'mp-server-rankings-sub' );
-	const nextEl = document.getElementById( 'mp-server-rankings-next' );
-	if ( ! listEl || ! emptyEl || ! subEl || ! nextEl ) return;
-	const laps = server?.round?.laps || {};
-	const rows = Object.entries( laps ).map( ( [ id, row ] ) => ( {
-		id,
-		name: typeof row?.name === 'string' && row.name ? row.name : `Player ${ String( id ).slice( 0, 4 ).toUpperCase() }`,
-		time: Number( row?.time ),
-	} ) ).filter( ( r ) => Number.isFinite( r.time ) );
-	rows.sort( ( a, b ) => a.time - b.time );
+function showPublicServerVotePrompt() {
 
-	subEl.textContent = `${ publicServerName() } • round ${ server?.round?.roundId || '' }`;
-	// No host mention — the next track is picked deterministically for everyone.
-	nextEl.textContent = 'Loading the next community track for the new round…';
-
-	listEl.innerHTML = '';
-	if ( rows.length === 0 ) {
-
-		emptyEl.style.display = 'block';
-		return;
-
-	}
-	emptyEl.style.display = 'none';
-	rows.slice( 0, 12 ).forEach( ( row, i ) => {
-
-		const li = document.createElement( 'li' );
-		if ( row.id === multiplayerSessionState.clientId ) li.classList.add( 'you' );
-		const pos = document.createElement( 'span' );
-		pos.className = 'rk-pos';
-		pos.textContent = `${ i + 1 }.`;
-		const name = document.createElement( 'span' );
-		name.className = 'rk-name';
-		name.textContent = row.name;
-		const time = document.createElement( 'span' );
-		time.className = 'rk-time';
-		time.textContent = formatLapTime( row.time );
-		li.appendChild( pos );
-		li.appendChild( name );
-		li.appendChild( time );
-		listEl.appendChild( li );
-
-	} );
+	const el = document.getElementById( 'mp-vote-prompt' );
+	if ( ! el ) return;
+	const nameEl = document.getElementById( 'mp-vote-track-name' );
+	if ( nameEl ) nameEl.textContent = publicServerVoteState.trackName || 'Shared track';
+	const yesBtn = document.getElementById( 'mp-vote-yes' );
+	const noBtn = document.getElementById( 'mp-vote-no' );
+	if ( yesBtn ) yesBtn.disabled = false;
+	if ( noBtn ) noBtn.disabled = false;
+	el.classList.add( 'visible' );
 
 }
 
+function hidePublicServerVotePrompt() {
+
+	const el = document.getElementById( 'mp-vote-prompt' );
+	if ( el ) el.classList.remove( 'visible' );
+
+}
+
+function updatePublicServerVoteCounts() {
+
+	const yesEl = document.getElementById( 'mp-vote-yes-count' );
+	const noEl = document.getElementById( 'mp-vote-no-count' );
+	const tally = tallyPublicServerVotes();
+	if ( yesEl ) yesEl.textContent = String( tally.yes );
+	if ( noEl ) noEl.textContent = String( tally.no );
+	// Disable the button matching our cast vote so we can't vote twice.
+	const ourVote = publicServerVoteState.ourVote;
+	const yesBtn = document.getElementById( 'mp-vote-yes' );
+	const noBtn = document.getElementById( 'mp-vote-no' );
+	if ( yesBtn ) yesBtn.disabled = Boolean( ourVote && ourVote !== 'no' );
+	if ( noBtn ) noBtn.disabled = Boolean( ourVote && ourVote !== 'yes' );
+
+}
 
 function getFirebaseRoomsBaseUrl() {
 
@@ -2385,14 +2128,14 @@ function initMultiplayerPanel() {
 
 	const configReady = hasFirebaseMultiplayerConfig();
 
-	// Public servers are wired up regardless of Firebase config: their synced
-	// round timer + track rotation are pure wall-clock UTC math, and their
-	// rankings/member-count/host-election are distributed over PeerJS's default
-	// cloud signalling (no Firebase, no servers worker needed).
+	// Public servers are wired up regardless of Firebase config: they only need
+	// PeerJS's default cloud signalling (WebRTC, via the TURN server in
+	// peerConfig) and the read-only track share board — no Firebase, no servers
+	// worker.
 	buildPublicServerButtons();
 
-	// Auto-join a public server on boot via ?pubServer=<id> (used after a round
-	// rotation redirect so players rejoin the same server on the new track).
+	// Auto-join a public server on boot via ?pubServer=<id>. Used after a
+	// map-switch redirect so players rejoin the same server on the new map.
 	const pubServerParam = String( new URLSearchParams( window.location.search ).get( 'pubServer' ) || '' ).trim().toLowerCase();
 	if ( pubServerParam && findPublicServer( pubServerParam ) ) {
 
@@ -2591,8 +2334,8 @@ async function hostRotateRoomCode( currentRoomCode, mapSignature ) {
 
 	if ( ! currentRoomCode || multiplayerSessionState.role !== 'host' || migrationSwitchInFlight ) return currentRoomCode;
 	// Never rotate the room code on a public server — the fixed code (e.g.
-	// PUBSV1) is how everyone finds the same PeerJS room. Rotation is handled by
-	// the public-server round/track loop instead.
+	// PUBSV1) is how everyone finds the same PeerJS room. Map changes on a
+	// public server are driven by the vote feature, not room-code rotation.
 	if ( isPublicServerActive() ) return currentRoomCode;
 	const nextCode = createHostCode();
 	if ( nextCode === currentRoomCode ) return currentRoomCode;
@@ -4367,17 +4110,17 @@ async function init() {
 	setInterval( broadcastPeerState, WEBRTC_SYNC_MS );
 	window.addEventListener( 'beforeunload', () => {
 
-		// Public servers no longer have a backend membership to clear — leaving is
-		// purely a PeerJS action (the LEFT packet + peer destroy below handle it).
-		// If we were the host, the maintenance loop on a surviving joiner will
-		// reclaim the host id (self-healing), so no leave fetch is needed.
+		// On a public server leaving is purely a PeerJS action (the LEFT packet +
+		// peer destroy below handle it; if we were host a surviving joiner's
+		// maintenance loop reclaims the host id). On a private room we also clear our
+		// Firebase presence. The roomCode check skips the no-op when not in a room.
 		if ( ! multiplayerSessionState.roomCode ) return;
 		for ( const connection of multiplayerSessionState.connections.values() ) {
 
 			try { connection.send?.( { type: PEER_PACKET_LEFT, playerId: multiplayerSessionState.clientId } ); } catch {}
 
 		}
-		if ( ! hasFirebaseMultiplayerConfig() ) return;
+		if ( isPublicServerActive() || ! hasFirebaseMultiplayerConfig() ) return;
 		const roomCode = multiplayerSessionState.roomCode;
 		const playerPath = `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }`;
 		firebaseRoomsRequest( roomCode, 'DELETE', undefined, playerPath ).catch( () => {} );
@@ -11954,18 +11697,12 @@ function completeCampaignStage() {
 					if ( ! lapInvalid ) {
 
 						bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
-						// Public servers rank the BEST lap each player completes within the
-						// 5-minute round — NOT vs their all-time personal best or an author
-						// time. So publish EVERY valid completed lap to the round rankings
-						// (the publish helper's internal round-best guard only actually
-						// broadcasts when it improves this round's best, so slower laps
-						// don't spam the mesh). Private rooms keep the isNewBest gate below
-						// since they compare against the session best.
-						if ( isPublicServerActive() ) {
-
-							publishMultiplayerBestLap( completedLap );
-
-						} else if ( isNewBest ) {
+						// On a public server publishMultiplayerBestLap is a no-op (there's
+						// no private-room lap store); a world record still submits to the
+						// OFFICIAL leaderboard via the isNewBest submitLeaderboardTime path
+						// below. Private rooms publish to their Firebase lap store on a new
+						// session best.
+						if ( isNewBest ) {
 
 							publishMultiplayerBestLap( bestLapSeconds );
 
@@ -12035,11 +11772,10 @@ function completeCampaignStage() {
 
 				}
 				// Submit to the OFFICIAL leaderboard on any new personal best. This is
-				// what lets a world record set during a public-server round land on the
-				// real leaderboard (a WR is always a new local best, so it submits here).
+				// what lets a world record set on a public server land on the real
+				// leaderboard (a WR is always a new local best, so it submits here).
 				// Slower laps that don't beat the PB are NOT submitted (the worker keeps
-				// the min anyway, but there's no point POSTing them) — they still count
-				// for the round's temporary multiplayer rankings via publishMultiplayerBestLap.
+				// the min anyway, but there's no point POSTing them).
 				if ( isNewBest && ! isSplitScreen ) submitLeaderboardTime( completedLap );
 				if ( ! lapInvalid && editorQuickTestEnabled && editorReturnParam && ! isSplitScreen && currentLapGhostSamples.length > 1 ) {
 

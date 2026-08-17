@@ -1,39 +1,22 @@
 // Public multiplayer servers client helper.
 //
-// Provides the predefined public-server list, the deterministic round-timer
-// math, the track-share board fetch, and the deterministic track picker. The
-// actual UI/loop wiring lives in js/main.js (it reuses the existing PeerJS
-// multiplayer session state + DOM).
+// Provides the predefined public-server list, the read-only track-share board
+// fetch (with retries), and the map-signature / redirect-URL helpers. A public
+// server is just a fixed PeerJS room (code, e.g. PUBSV1): everyone who joins is
+// connected over WebRTC (PeerJS uses the TURN server configured in main.js) and
+// shares the host's current map. There is NO round timer, NO deterministic track
+// rotation, NO rankings, and NO backend worker — the only network dependency is
+// the read-only track share board (GET /api/tracks), used by the map-vote feature
+// to look up a pasted track URL's name.
 //
-// NOTE: public servers no longer use the racing-servers-api Cloudflare Worker
-// for round/rotation/rankings state — all of that is now derived locally from
-// wall-clock UTC (the round timer + track rotation are deterministic) or
-// distributed peer-to-peer over the existing PeerJS mesh (rankings + member
-// count + host election). The only Cloudflare dependency left is the track
-// share board worker, which is read-only (GET /api/tracks) and costs zero KV
-// writes, so it never trips the free-plan daily write quota.
+// Map switching on a public server is driven by a peer vote (see main.js):
+// a player pastes a track URL, the board is searched for its name, everyone
+// votes Yes/No, and after 30s a >60% Yes majority switches the track.
 
-// The shared track-share board. The deterministic track picker reads this list
-// so every player on a given public server computes the SAME track for the same
-// cycle. Read-only from the public servers' point of view — it never writes, so
-// it costs zero KV writes against the Cloudflare free-plan daily quota.
+// The shared track-share board. Read-only from the public servers' point of
+// view — the map-vote lookup only GETs the list, so it costs zero KV writes
+// against the Cloudflare free-plan daily quota.
 export const TRACK_BOARD_API = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
-
-// 5 minutes of play per round + 5 seconds of rankings before rotating. The
-// timer is anchored to wall-clock UTC (see ROUND_EPOCH / CYCLE_MS below), so it
-// is always running and can never freeze — it does not depend on a host or on
-// when players joined. Because every client derives the cycle from the same
-// UTC epoch, the round boundaries are identical for everyone with no
-// coordination at all.
-export const PLAY_DURATION_MS = 5 * 60 * 1000;
-export const RANKINGS_WINDOW_MS = 5 * 1000;
-export const CYCLE_MS = PLAY_DURATION_MS + RANKINGS_WINDOW_MS;
-
-// Fixed anchor in the past. All cycle boundaries are computed relative to this,
-// so the timer is deterministic and identical for every player regardless of
-// when they joined. (Uses UTC — a single global timezone.) Must match the value
-// in main.js (it is mirrored there so the local round loop is self-contained).
-export const ROUND_EPOCH = Date.UTC( 2026, 0, 1, 0, 0, 0 ); // 2026-01-01T00:00:00Z
 
 // The fixed public servers. They are NOT locational — they are just three
 // parallel rooms so players can spread out if one is full. `code` is the shared
@@ -50,34 +33,13 @@ export function findPublicServer( id ) {
 
 }
 
-// Public servers are always "configured" now — they need no backend worker of
-// their own. They only need the read-only track share board (which costs zero
-// KV writes) and PeerJS's default cloud signalling (free). Kept as a function
-// so existing call sites keep compiling.
+// Public servers are always "configured" — they need no backend worker of
+// their own. They only need the read-only track share board and PeerJS's default
+// cloud signalling (free). Kept as a function so existing call sites keep
+// compiling.
 export function isPublicServerConfigured() {
 
 	return true;
-
-}
-
-// Compute the cycle timing for a given wall-clock `now` (ms since epoch,
-// ideally UTC-derived). Pure function — no state, no host, no network. The
-// timer can never freeze because it is just math against the real clock. Every
-// client calling this with the same `now` gets the same round boundaries.
-export function cycleInfo( now ) {
-
-	const sinceEpoch = now - ROUND_EPOCH;
-	const cycleIndex = Math.floor( sinceEpoch / CYCLE_MS );
-	const cycleStart = ROUND_EPOCH + cycleIndex * CYCLE_MS;
-	const playEnd = cycleStart + PLAY_DURATION_MS;
-	const cycleEnd = cycleStart + CYCLE_MS;
-	// roundId is the cycle index (stable, monotonic, identical for everyone).
-	const roundId = cycleIndex;
-	// inRankings = the 5s window after play ends, before the next cycle.
-	const inRankings = now >= playEnd && now < cycleEnd;
-	// roundOver = the next cycle has begun (a new round is active).
-	const roundOver = now >= cycleEnd;
-	return { roundId, cycleIndex, cycleStart, playEnd, cycleEnd, inRankings, roundOver };
 
 }
 
@@ -150,69 +112,54 @@ export async function fetchTrackList() {
 
 }
 
-// Random track helper (kept for compatibility). Public servers use the
-// deterministic pickTrackForCycle so every player agrees without coordination;
-// this random helper is only used by other call sites that want a random track.
-export async function fetchRandomTrackPlayUrl() {
+// Search the fetched track list for an entry whose playUrl matches `url` and
+// return it (with a clean name), or null. Used by the public-server map-vote:
+// a player pastes a track URL, the board is searched, and the track's name is
+// shown on everyone's vote prompt. Matching is by the playUrl string (the board
+// stores absolute playUrls), normalized so a trailing fragment / query-order
+// difference doesn't defeat the lookup.
+export function findTrackByPlayUrl( url, trackList ) {
 
-	const list = await fetchTrackList();
-	return list.length ? list[ Math.floor( Math.random() * list.length ) ].playUrl : null;
+	const target = normalizePlayUrlForMatch( url );
+	if ( ! target ) return null;
+	const list = Array.isArray( trackList ) ? trackList : [];
+	for ( const entry of list ) {
 
-}
+		if ( ! entry || typeof entry.playUrl !== 'string' ) continue;
+		if ( normalizePlayUrlForMatch( entry.playUrl ) === target ) {
 
-// Deterministic seeded PRNG (mulberry32). Given the same seed it always produces
-// the same sequence, so every client picking a track for the same cycle gets the
-// SAME result — no worker write needed to agree on a track.
-function mulberry32( seed ) {
+			const name = typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : 'Shared track';
+			return { name, playUrl: entry.playUrl };
 
-	let a = seed >>> 0;
-	return function () {
-
-		a |= 0; a = ( a + 0x6D2B79F5 ) | 0;
-		let t = Math.imul( a ^ ( a >>> 15 ), 1 | a );
-		t = ( t + Math.imul( t ^ ( t >>> 7 ), 61 | t ) ) ^ t;
-		return ( ( t ^ ( t >>> 14 ) ) >>> 0 ) / 4294967296;
-
-	};
-
-}
-
-// Hash a string into a 32-bit int (FNV-1a-ish). Used to fold the server id into
-// the seed so different public servers get different track sequences for the
-// same cycle (more variety), while still being fully deterministic.
-function hashString( str ) {
-
-	let h = 2166136261 >>> 0;
-	for ( let i = 0; i < str.length; i++ ) {
-
-		h ^= str.charCodeAt( i );
-		h = Math.imul( h, 16777619 );
+		}
 
 	}
-	return h >>> 0;
+	return null;
 
 }
 
-// Pick the track for a given cycle deterministically. The cycle index is derived
-// from wall-clock UTC (see ROUND_EPOCH / cycleInfo), so this is the
-// "seed from a single world timezone" approach: every player computes the same
-// cycleIndex and therefore the same track, with no coordination write. The
-// server id is folded into the seed so the three public servers don't all race
-// the same track on the same cycle. Returns the chosen entry, or null if the
-// list is empty.
-export function pickTrackForCycle( cycleIndex, serverId, trackList ) {
+// Normalize a playUrl for equality comparison: strip the hash (the board stores
+// a base64 ghost blob there which is huge and irrelevant to identity), and sort
+// the query params so different insertion orders don't defeat the match.
+function normalizePlayUrlForMatch( url ) {
 
-	if ( ! Array.isArray( trackList ) || trackList.length === 0 ) return null;
-	let seed = ( Math.imul( Number( cycleIndex ) || 0, 2654435761 ) ) >>> 0;
-	seed = ( seed ^ hashString( String( serverId || '' ) ) ) >>> 0;
-	const rng = mulberry32( seed );
-	const idx = Math.floor( rng() * trackList.length );
-	return trackList[ idx ] || null;
+	try {
+
+		const parsed = new URL( String( url || '' ), window.location.href );
+		const params = [ ...parsed.searchParams.entries() ].sort( ( a, b ) => a[ 0 ] < b[ 0 ] ? -1 : a[ 0 ] > b[ 0 ] ? 1 : 0 );
+		const qs = new URLSearchParams( params ).toString();
+		return `${ parsed.origin }${ parsed.pathname }${ qs ? `?${ qs }` : '' }`;
+
+	} catch {
+
+		return '';
+
+	}
 
 }
 
 // Build the mapSignature ("map|mods") from a track playUrl so clients can tell
-// when the server's round track differs from their currently-loaded map.
+// when a public server's current map differs from their own.
 export function mapSignatureFromPlayUrl( playUrl ) {
 
 	try {
@@ -235,9 +182,9 @@ export function mapSignatureFromPlayUrl( playUrl ) {
 // from the board is an ABSOLUTE URL (e.g. https://everybodysim.github.io/...).
 // We must NOT use its origin/pathname — the game may be running on a different
 // host (CrazyGames iframe, localhost, a custom domain) where that path doesn't
-// exist (→ 404 → track never loads → "stays on the same map"). Instead we keep
-// the CURRENT page's pathname and carry over ONLY the map + mods query params
-// from the playUrl, then add pubServer + play. This works on every deployment.
+// exist (→ 404 → track never loads). Instead we keep the CURRENT page's pathname
+// and carry over ONLY the map + mods query params from the playUrl, then add
+// pubServer + play. This works on every deployment.
 export function buildServerTrackRedirectUrl( playUrl, serverId ) {
 
 	try {

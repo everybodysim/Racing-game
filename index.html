@@ -337,57 +337,68 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			cursor: pointer;
 		}
 		#mp-public-leave-btn:hover { background: rgba(255,92,120,0.36); }
-		#mp-server-timer {
-			display: none;
-			margin-top: 4px;
-			padding: 8px 10px;
-			border-radius: 8px;
-			background: rgba(83,212,255,0.12);
-			border: 1px solid rgba(83,212,255,0.4);
-			font: 700 13px/1.3 sans-serif;
-			color: #d6f3ff;
-			text-align: center;
+		/* Propose-a-map-vote row: shown only while connected to a public server
+		   (toggled to display:flex / none by updatePublicServerButtonStates). */
+		#mp-pubtrack-row { display: none; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.18); }
+		#mp-pubtrack-row > .mp-public-label { font: 700 11px/1 sans-serif; opacity: 0.9; }
+		#mp-pubtrack-input-wrap { display: flex; gap: 6px; align-items: center; }
+		#mp-pubtrack-input {
+			flex: 1; min-width: 0;
+			border-radius: 6px;
+			border: 1px solid rgba(255,255,255,0.24);
+			background: rgba(20,20,20,0.45);
+			color: #fff;
+			padding: 6px 8px;
+			font: 600 11px/1.2 sans-serif;
 		}
-		#mp-server-timer .mp-timer-line { margin: 2px 0; }
-		#mp-server-timer .mp-timer-big { font: 800 18px/1 monospace; color: #fff; }
-		#mp-server-timer .mp-timer-sub { font: 600 11px/1.2 sans-serif; opacity: 0.85; }
-		#mp-server-timer .mp-timer-role { font: 600 10px/1.2 sans-serif; opacity: 0.7; }
-		#mp-server-rankings {
+		#mp-pubtrack-btn {
+			border: none; border-radius: 6px;
+			background: rgba(83,212,255,0.25); color: #fff;
+			padding: 6px 10px; font: 700 11px/1 sans-serif; cursor: pointer;
+			white-space: nowrap;
+		}
+		#mp-pubtrack-btn:hover { background: rgba(83,212,255,0.4); }
+		/* Map-vote prompt: a bottom-of-screen overlay shown to everyone on the
+		   public server while a vote is active. */
+		#mp-vote-prompt {
 			position: fixed;
-			inset: 0;
-			z-index: 260;
+			left: 50%;
+			bottom: 18px;
+			transform: translateX(-50%);
+			z-index: 258;
 			display: none;
+			flex-direction: column;
 			align-items: center;
-			justify-content: center;
-			background: rgba(0,0,0,0.78);
-			padding: 16px;
-		}
-		#mp-server-rankings.visible { display: flex; }
-		#mp-server-rankings-dialog {
-			width: min(520px, 100%);
-			background: rgba(15,18,24,0.97);
-			border: 1px solid rgba(83,212,255,0.5);
+			gap: 10px;
+			padding: 14px 20px;
 			border-radius: 14px;
-			padding: 20px;
+			background: rgba(15,18,24,0.96);
+			border: 1px solid rgba(83,212,255,0.5);
 			color: #fff;
 			font: 600 14px/1.4 sans-serif;
-			box-shadow: 0 14px 40px rgba(0,0,0,0.5);
-			text-align: center;
+			box-shadow: 0 14px 40px rgba(0,0,0,0.55);
+			min-width: 280px;
+			max-width: min(560px, calc(100vw - 24px));
 		}
-		#mp-server-rankings-dialog h2 { margin: 0 0 4px; font: 800 22px/1.2 sans-serif; }
-		#mp-server-rankings-sub { margin: 0 0 14px; color: #bde6ff; font: 600 12px/1.3 sans-serif; }
-		#mp-server-rankings-list { list-style: none; margin: 0; padding: 0; text-align: left; }
-		#mp-server-rankings-list li {
-			display: flex; align-items: center; justify-content: space-between; gap: 10px;
-			padding: 7px 10px; margin: 4px 0; border-radius: 8px;
-			background: rgba(255,255,255,0.06); font: 700 14px/1.2 sans-serif;
+		#mp-vote-prompt.visible { display: flex; }
+		#mp-vote-title { margin: 0; font: 800 16px/1.2 sans-serif; }
+		#mp-vote-track-name { margin: 0; color: #bde6ff; font: 700 14px/1.3 sans-serif; text-align: center; word-break: break-word; }
+		#mp-vote-buttons { display: flex; gap: 10px; align-items: center; }
+		#mp-vote-yes, #mp-vote-no {
+			border: none; border-radius: 8px;
+			padding: 8px 18px;
+			font: 800 14px/1 sans-serif;
+			cursor: pointer;
+			color: #04130a;
 		}
-		#mp-server-rankings-list li.you { background: rgba(83,212,255,0.22); border: 1px solid rgba(83,212,255,0.5); }
-		#mp-server-rankings-list li .rk-pos { opacity: 0.7; font-weight: 700; min-width: 28px; }
-		#mp-server-rankings-list li .rk-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-		#mp-server-rankings-list li .rk-time { font-family: monospace; color: #ffd76b; }
-		#mp-server-rankings-empty { color: #bde6ff; font: 600 13px/1.4 sans-serif; }
-		#mp-server-rankings-next { margin-top: 14px; color: #9fe9ff; font: 700 12px/1.3 sans-serif; }
+		#mp-vote-yes { background: #4ade80; }
+		#mp-vote-yes:hover:not(:disabled) { background: #6ee39a; }
+		#mp-vote-no { background: #fb7185; color: #1a0608; }
+		#mp-vote-no:hover:not(:disabled) { background: #ff8a9d; }
+		#mp-vote-yes:disabled, #mp-vote-no:disabled { opacity: 0.45; cursor: default; }
+		#mp-vote-counts { display: flex; gap: 16px; font: 700 13px/1 sans-serif; opacity: 0.95; }
+		#mp-vote-yes-count { color: #86efac; }
+		#mp-vote-no-count { color: #fda4af; }
 		#competitions-warning-overlay {
 			position: fixed;
 			inset: 0;
@@ -2643,20 +2654,29 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<button id="mp-copy-btn" type="button">Copy</button>
 		</div>
 		<div id="mp-status" aria-live="polite"></div>
-		<div id="mp-server-timer" aria-live="polite"></div>
+		<div id="mp-pubtrack-row">
+			<div class="mp-public-label">Propose a map vote</div>
+			<div id="mp-pubtrack-input-wrap">
+				<input id="mp-pubtrack-input" type="text" placeholder="Paste a track share URL" aria-label="Track share URL">
+				<button id="mp-pubtrack-btn" type="button">Select track</button>
+			</div>
+		</div>
 		<div id="mp-debug-overlay" aria-live="polite" aria-label="Multiplayer debug console"></div>
 		<div id="mp-lb">
 			<div id="mp-lb-title">Online room best laps</div>
 			<ol id="mp-lb-list"></ol>
 		</div>
 	</div>
-	<div id="mp-server-rankings" role="dialog" aria-modal="true" aria-labelledby="mp-server-rankings-title">
-		<div id="mp-server-rankings-dialog">
-			<h2 id="mp-server-rankings-title">Round over — rankings</h2>
-			<p id="mp-server-rankings-sub"></p>
-			<ol id="mp-server-rankings-list"></ol>
-			<div id="mp-server-rankings-empty" style="display:none;">No lap times this round.</div>
-			<div id="mp-server-rankings-next"></div>
+	<div id="mp-vote-prompt" role="dialog" aria-modal="false" aria-labelledby="mp-vote-title">
+		<h2 id="mp-vote-title">Switch map?</h2>
+		<p id="mp-vote-track-name">Shared track</p>
+		<div id="mp-vote-buttons">
+			<button id="mp-vote-yes" type="button">Yes</button>
+			<button id="mp-vote-no" type="button">No</button>
+		</div>
+		<div id="mp-vote-counts">
+			<span>Yes: <span id="mp-vote-yes-count">0</span></span>
+			<span>No: <span id="mp-vote-no-count">0</span></span>
 		</div>
 	</div>
 	<div id="competitions-warning-overlay" role="presentation" aria-hidden="true">
