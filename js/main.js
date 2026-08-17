@@ -967,6 +967,7 @@ const publicServerState = {
 	hostPeerCount: 0,        // member count reported by the host's META packet (joiners only)
 	lastMetaSentAt: 0,       // host: when we last broadcast a META packet
 	hostClaimInFlight: false, // guard against concurrent host-claim attempts
+	visibilityHandler: null, // visibilitychange listener (catches up on tab refocus)
 };
 
 // sessionStorage key recording the roundId whose track we already redirected to
@@ -1413,8 +1414,21 @@ function startPublicServerLoops() {
 	publicServerState.peerMaintainTimer = setInterval( maintainPublicServerPeer, 10000 );
 	// A 250ms local tick re-renders the countdown from wall-clock UTC so the timer
 	// stays smooth and NEVER freezes — it's pure local math, not dependent on any
-	// request succeeding.
+	// request succeeding. It also drives the rankings overlay so the 5s window is
+	// never missed (see updatePublicServerRankingsVisibility).
 	publicServerState.tickTimer = setInterval( tickPublicServerTimer, 250 );
+	// Background tabs throttle setInterval to ~1/min (or worse), which can make
+	// the 5-second rankings window vanish entirely while the player is tabbed
+	// away. Catch up the instant the tab is refocused so the timer + rankings
+	// reflect the real current cycle. The handler is idempotent and cheap.
+	if ( ! publicServerState.visibilityHandler ) {
+
+		publicServerState.visibilityHandler = () => {
+			if ( ! document.hidden ) tickPublicServerRound();
+		};
+		document.addEventListener( 'visibilitychange', publicServerState.visibilityHandler );
+
+	}
 
 }
 
@@ -1423,13 +1437,22 @@ function stopPublicServerLoops() {
 	if ( publicServerState.roundTimer ) { clearInterval( publicServerState.roundTimer ); publicServerState.roundTimer = null; }
 	if ( publicServerState.peerMaintainTimer ) { clearInterval( publicServerState.peerMaintainTimer ); publicServerState.peerMaintainTimer = null; }
 	if ( publicServerState.tickTimer ) { clearInterval( publicServerState.tickTimer ); publicServerState.tickTimer = null; }
+	if ( publicServerState.visibilityHandler ) {
+
+		document.removeEventListener( 'visibilitychange', publicServerState.visibilityHandler );
+		publicServerState.visibilityHandler = null;
+
+	}
 
 }
 
 // Local re-render of the countdown. Derives remaining time from wall-clock UTC
 // (via cycleInfo) + the last locally-built server view, so it keeps ticking
 // smoothly with zero network. This is what makes the timer "impossible to
-// freeze": it's pure local math against the real clock.
+// freeze": it's pure local math against the real clock. It ALSO drives the
+// rankings overlay visibility on this fast tick (see
+// updatePublicServerRankingsVisibility) so the 5s rankings window is never
+// missed by a slow/background-throttled 1s round tick.
 function tickPublicServerTimer() {
 
 	if ( ! isPublicServerActive() ) return;
@@ -1441,6 +1464,7 @@ function tickPublicServerTimer() {
 	const inRankings = now >= playEnd && now < cycleEnd;
 	const remainingMs = Math.max( 0, ( inRankings ? cycleEnd : playEnd ) - now );
 	renderPublicServerTimer( server, remainingMs, inRankings );
+	updatePublicServerRankingsVisibility();
 
 }
 
@@ -1572,6 +1596,46 @@ function collectPublicServerRoundLaps( roundId ) {
 
 }
 
+// Drive the rankings overlay visibility. Called from BOTH the 1s round tick
+// (which builds a fresh server view) AND the 250ms countdown tick (which
+// re-derives inRankings from the last server view). Running it on the fast tick
+// is what makes the popup reliable: the rankings window is only 5s, so a 1s
+// poll (or worse, a background-throttled interval) can easily skip it entirely.
+// The 250ms tick guarantees we notice the window within a quarter second and
+// keep it rendered (so late-arriving P2P laps appear) for its whole duration.
+function updatePublicServerRankingsVisibility() {
+
+	if ( ! isPublicServerActive() ) return;
+	const server = publicServerState.server;
+	if ( ! server ) return;
+	const now = publicServerNow();
+	const playEnd = Number( server.playEnd ) || now;
+	const cycleEnd = Number( server.cycleEnd ) || playEnd;
+	const inRankings = now >= playEnd && now < cycleEnd;
+	const roundId = Number( server.round?.roundId ) || 0;
+	const el = getPublicServerRankingsEl();
+
+	if ( inRankings ) {
+
+		// Mark this round as "shown" and render. Re-rendering each tick is cheap
+		// and lets late-arriving P2P laps appear live during the window.
+		if ( publicServerState.rankingsShownForRoundId !== roundId ) {
+
+			publicServerState.rankingsShownForRoundId = roundId;
+
+		}
+		renderPublicServerRankings( server );
+		if ( el ) el.classList.add( 'visible' );
+
+	} else if ( publicServerState.rankingsShownForRoundId === roundId ) {
+
+		// The window just closed for the round we were showing — hide it.
+		if ( el ) el.classList.remove( 'visible' );
+
+	}
+
+}
+
 function handlePublicServerRound( server ) {
 
 	const round = server.round || {};
@@ -1599,26 +1663,6 @@ function handlePublicServerRound( server ) {
 	}
 
 	renderPublicServerTimer( server, remainingMs, inRankings );
-
-	// Show rankings for ~5s when the round's play window ends. Re-render each
-	// tick while visible so late-arriving P2P laps appear.
-	if ( inRankings ) {
-
-		if ( publicServerState.rankingsShownForRoundId !== roundId ) {
-
-			publicServerState.rankingsShownForRoundId = roundId;
-
-		}
-		renderPublicServerRankings( server );
-		getPublicServerRankingsEl()?.classList.add( 'visible' );
-
-	}
-	// Hide rankings once the rankings window closes.
-	if ( ! inRankings && publicServerState.rankingsShownForRoundId === roundId ) {
-
-		getPublicServerRankingsEl()?.classList.remove( 'visible' );
-
-	}
 
 	// --- Track resolution (deterministic, host-independent) ----------------
 	// The track for each cycle is chosen DETERMINISTICALLY from the cycle index
