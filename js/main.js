@@ -959,6 +959,7 @@ const publicServerState = {
 		// same round — this is the hard anti-loop guarantee; see handlePublicServerRound)
 	rankingsShownForRoundId: 0,  // rankings overlay shown for this round
 	resolveScheduledForCycle: -1, // we already scheduled track resolution for this cycle
+	resolveScheduledForNextCycle: -1, // we already scheduled pre-resolution of the NEXT cycle
 	skippedLapSeconds: Infinity, // best lap already broadcast this round
 	trackListCache: null,    // cached community-track list (for deterministic picking)
 	trackListCacheAt: 0,     // local time the cache was fetched
@@ -1308,6 +1309,7 @@ async function joinPublicServer( serverId ) {
 	publicServerState.loadedRoundId = getLoadedRoundIdFromStorage();
 	publicServerState.rankingsShownForRoundId = 0;
 	publicServerState.resolveScheduledForCycle = -1;
+	publicServerState.resolveScheduledForNextCycle = -1;
 	publicServerState.skippedLapSeconds = Infinity;
 	publicServerState.trackListCache = null;
 	publicServerState.trackListCacheAt = 0;
@@ -1387,6 +1389,7 @@ async function resetPublicServerState() {
 	publicServerState.loadedRoundId = 0;
 	publicServerState.rankingsShownForRoundId = 0;
 	publicServerState.resolveScheduledForCycle = -1;
+	publicServerState.resolveScheduledForNextCycle = -1;
 	publicServerState.skippedLapSeconds = Infinity;
 	publicServerState.trackListCache = null;
 	publicServerState.trackListCacheAt = 0;
@@ -1447,22 +1450,76 @@ function stopPublicServerLoops() {
 }
 
 // Local re-render of the countdown. Derives remaining time from wall-clock UTC
-// (via cycleInfo) + the last locally-built server view, so it keeps ticking
-// smoothly with zero network. This is what makes the timer "impossible to
-// freeze": it's pure local math against the real clock. It ALSO drives the
-// rankings overlay visibility on this fast tick (see
-// updatePublicServerRankingsVisibility) so the 5s rankings window is never
-// missed by a slow/background-throttled 1s round tick.
+// (via cycleInfo) so it keeps ticking smoothly with zero network. This is what
+// makes the timer "impossible to freeze": it's pure local math against the real
+// clock.
+//
+// SELF-SUFFICIENT: this 250ms tick is the heartbeat that drives BOTH the timer
+// AND the rankings overlay. It computes cycleInfo(now) itself and builds a
+// lightweight local server view (fresh each tick), so it does NOT depend on
+// the 1s round tick having run. This is critical: background-throttled tabs
+// can drop the 1s setInterval, but the rankings window is only 5s, so the
+// 250ms tick must be able to show/hide the overlay on its own. It still reads
+// the P2P-collected laps + cached track from publicServerState (populated by
+// the 1s tick + peer packet handlers), so the data is fresh even if the 1s
+// tick is momentarily stalled.
 function tickPublicServerTimer() {
 
 	if ( ! isPublicServerActive() ) return;
-	const server = publicServerState.server;
-	if ( ! server ) return;
 	const now = publicServerNow();
-	const playEnd = Number( server.playEnd ) || now;
-	const cycleEnd = Number( server.cycleEnd ) || playEnd;
-	const inRankings = now >= playEnd && now < cycleEnd;
-	const remainingMs = Math.max( 0, ( inRankings ? cycleEnd : playEnd ) - now );
+	const info = publicServerCycleInfo( now );
+	const inRankings = info.inRankings;
+	const remainingMs = Math.max( 0, ( inRankings ? info.cycleEnd : info.playEnd ) - now );
+	// Build a lightweight local view from the current cycle info + cached track +
+	// P2P laps. This mirrors the heavier view built by the 1s tick but is pure
+	// local math, so the timer + rankings keep working even if the 1s tick is
+	// throttled (background tab) or momentarily stalled.
+	const currentCycle = info.cycleIndex;
+	const currentTrack = publicServerState.resolvedTracksByCycle?.[ currentCycle ] || null;
+	const memberCount = computePublicServerMemberCount();
+	const roundLaps = collectPublicServerRoundLaps( info.roundId );
+	const server = {
+		id: publicServerState.serverId,
+		name: publicServerName(),
+		code: publicServerRoomCode(),
+		now,
+		memberCount,
+		round: {
+			roundId: info.roundId,
+			cycleIndex: info.cycleIndex,
+			trackPlayUrl: currentTrack?.playUrl || '',
+			trackMapSignature: currentTrack?.sig || 'default|none',
+			laps: roundLaps,
+		},
+		cycleStart: info.cycleStart,
+		playEnd: info.playEnd,
+		cycleEnd: info.cycleEnd,
+		roundEndAt: info.playEnd,
+		rankingsEndAt: info.cycleEnd,
+		inRankings: info.inRankings,
+		roundOver: info.roundOver,
+	};
+	// Update the shared view so handlePublicServerRound's redirect logic (run by
+	// the 1s tick) + the rankings helper see the freshest data. Storing it is
+	// safe: tickPublicServerRound overwrites it with the full view on its next
+	// iteration, and this lightweight view has the same shape it reads.
+	publicServerState.server = server;
+	// Round-change bookkeeping must run on this fast tick too, otherwise a
+	// backgrounded tab (1s tick stalled) would never reset laps / hide stale
+	// rankings when the round rolls over.
+	if ( info.roundId !== publicServerState.lastRoundId ) {
+
+		if ( publicServerState.lastRoundId !== 0 ) {
+
+			publicServerState.skippedLapSeconds = Infinity;
+			publicServerState.rankingsShownForRoundId = 0;
+			getPublicServerRankingsEl()?.classList.remove( 'visible' );
+
+		}
+		publicServerState.lastRoundId = info.roundId;
+		publicServerState.resolveScheduledForCycle = -1;
+
+	}
 	renderPublicServerTimer( server, remainingMs, inRankings );
 	updatePublicServerRankingsVisibility();
 
@@ -1488,6 +1545,22 @@ function tickPublicServerRound() {
 
 		publicServerState.resolveScheduledForCycle = currentCycleIndex;
 		ensureTrackForCycle( currentCycleIndex ).catch( ( e ) => console.warn( 'resolve track failed', e ) );
+
+	}
+	// Pre-resolve the NEXT cycle's track so that when the round ends and the new
+	// cycle begins, the redirect is INSTANT (the resolution is already cached —
+	// no fetch wait). This is what fixes "takes forever to switch after the
+	// timer hits 0": the next track is ready before the round even ends.
+	const nextCycleIndex = currentCycleIndex + 1;
+	if ( ! publicServerState.resolvedTracksByCycle?.[ nextCycleIndex ] &&
+		publicServerState.resolveScheduledForNextCycle !== nextCycleIndex ) {
+
+		publicServerState.resolveScheduledForNextCycle = nextCycleIndex;
+		ensureTrackForCycle( nextCycleIndex ).catch( () => {} ).finally( () => {
+
+			publicServerState.resolveScheduledForNextCycle = -1;
+
+		} );
 
 	}
 
@@ -1723,15 +1796,20 @@ async function getCachedTrackList() {
 }
 
 // Resolve the deterministic track for a cycle: compute it locally (identical
-// for every player) and cache the result in-process for the rest of the round,
-// then redirect to it if we aren't already on it. No worker write — the pick is
-// deterministic so agreement is free. De-duplicated per cycleIndex so repeated
+// for every player) and cache the result in-process for the rest of the round.
+// No worker write — the pick is deterministic so agreement is free. This ONLY
+// resolves + caches; it does NOT navigate. The redirect is handled separately
+// by handlePublicServerRound once the resolution lands, so we can safely
+// pre-resolve the NEXT cycle's track during the current round without
+// triggering an early page reload. De-duplicated per cycleIndex so repeated
 // ticks don't fire concurrent fetches.
 async function ensureTrackForCycle( cycleIndex ) {
 
 	if ( ! isPublicServerActive() ) return;
 	const inflight = publicServerState.resolveInProgress[ cycleIndex ];
 	if ( inflight ) return inflight;
+	// Already resolved this cycle earlier? Nothing to do.
+	if ( publicServerState.resolvedTracksByCycle?.[ cycleIndex ] ) return;
 	const promise = ( async () => {
 
 		try {
@@ -1751,22 +1829,6 @@ async function ensureTrackForCycle( cycleIndex ) {
 			// Cache the resolved track in-process so future ticks read it directly.
 			if ( ! publicServerState.resolvedTracksByCycle ) publicServerState.resolvedTracksByCycle = {};
 			publicServerState.resolvedTracksByCycle[ cycleIndex ] = { playUrl: entry.playUrl, sig };
-			if ( ! isPublicServerActive() ) return;
-			const roundId = publicServerState.lastRoundId || publicServerCycleInfo( publicServerNow() ).roundId;
-			// Only redirect if we haven't already loaded this round's track and we're
-			// not already on it (avoid a redundant reload / loop).
-			const alreadyOnTrack = ( sig === getCurrentMapSignature() );
-			const alreadyLoadedThisRound = ( getLoadedRoundIdFromStorage() === roundId );
-			if ( alreadyOnTrack || alreadyLoadedThisRound ) {
-				publicServerState.loadedRoundId = roundId;
-				setLoadedRoundIdInStorage( roundId );
-				return;
-			}
-			setLoadedRoundIdInStorage( roundId );
-			publicServerState.loadedRoundId = roundId;
-			const url = buildServerTrackRedirectUrl( entry.playUrl, publicServerState.serverId );
-			updateMultiplayerStatus( `Loading next track for ${ publicServerName() }…` );
-			window.location.href = url;
 
 		} finally {
 
