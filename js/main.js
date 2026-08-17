@@ -971,7 +971,8 @@ const publicServerState = {
 	serverId: '',           // 'server-1' | 'server-2' | 'server-3'
 	isHost: false,          // are we the PeerJS host peer? (hidden; no privileges)
 	claimedHost: false,     // have we successfully claimed host this session?
-	peerMaintainTimer: null, // slow loop that restarts a dead PeerJS peer
+	peerMaintainTimer: null, // loop (5s) that restarts a dead PeerJS peer + self-heals host
+	joinerConnectWatch: null, // one-shot timeout that proactively recovers a stuck joiner connect
 	hostClaimInFlight: false, // guard against concurrent host-claim attempts
 	trackListCache: null,    // cached community-track list (for the vote lookup)
 	trackListCacheAt: 0,     // local time the cache was fetched
@@ -1345,9 +1346,18 @@ async function joinPublicServer( serverId ) {
 		updateMultiplayerStatus( `In ${ def.name }. You'll load the map everyone is on.` );
 		logMpDebug( `[PublicServer] Joined ${ def.name } (code ${ def.code }) as ${ publicServerState.isHost ? 'host' : 'joiner' }` );
 
-		// Slow maintenance loop: restart a dead PeerJS peer + self-heal host.
+		// Maintenance loop: restart a dead PeerJS peer + self-heal host. Runs every
+		// 5s (was 10s) so a joiner whose connection never opened — e.g. the host
+		// peer id was briefly reserved on the PeerJS cloud by a player who then
+		// left, leaving a "ghost" host — recovers (reclaims host or retries the
+		// connect) within a few seconds instead of hanging for 10s.
 		stopPublicServerMaintainLoop();
-		publicServerState.peerMaintainTimer = setInterval( maintainPublicServerPeer, 10000 );
+		publicServerState.peerMaintainTimer = setInterval( maintainPublicServerPeer, 5000 );
+		// Proactive joiner connect-watch: if WE are a joiner and our first
+		// connection to the host hasn't opened ~5s after join (PeerJS cloud
+		// signalling can be slow, or the host id was a ghost), don't wait for the
+		// next 5s maintenance tick — recover immediately.
+		schedulePublicServerJoinerConnectWatch();
 
 	} catch ( error ) {
 
@@ -1404,6 +1414,34 @@ function stopPublicServerMaintainLoop() {
 		publicServerState.peerMaintainTimer = null;
 
 	}
+	if ( publicServerState.joinerConnectWatch ) {
+
+		clearTimeout( publicServerState.joinerConnectWatch );
+		publicServerState.joinerConnectWatch = null;
+
+	}
+
+}
+
+// Proactive joiner connect-watch: ~5s after joining as a joiner, if we still
+// have zero open connections (the host's MAP_SYNC / state never arrived — PeerJS
+// cloud signalling was slow, or the host peer id was a ghost left behind by a
+// player who departed), run the maintenance recovery immediately instead of
+// waiting for the next 5s tick. The maintenance loop either reclaims the host id
+// (if no host exists) or retries the joiner connect. This is what makes a join
+// that would otherwise "take forever" recover in a few seconds.
+function schedulePublicServerJoinerConnectWatch() {
+
+	if ( publicServerState.joinerConnectWatch ) clearTimeout( publicServerState.joinerConnectWatch );
+	publicServerState.joinerConnectWatch = setTimeout( () => {
+
+		publicServerState.joinerConnectWatch = null;
+		if ( ! isPublicServerActive() || publicServerState.isHost ) return;
+		if ( multiplayerSessionState.connections.size > 0 ) return;
+		logMpDebug( '[PublicServer] Joiner has no connection after 5s — recovering' );
+		maintainPublicServerPeer();
+
+	}, 5000 );
 
 }
 
@@ -1571,8 +1609,10 @@ function startPublicServerPeer( roomCode ) {
 		peer.on( 'disconnected', () => logMpDebug( `[PublicServer] Peer disconnected: ${ hostPeerId }` ) );
 		peer.on( 'close', () => logMpDebug( `[PublicServer] Peer closed: ${ hostPeerId }` ) );
 
-		// Safety: if neither 'open' nor 'unavailable-id' fires in 6s, assume joiner.
-		setTimeout( () => { if ( ! settled ) becomeJoiner(); }, 6000 );
+		// Safety: if neither 'open' nor 'unavailable-id' fires in 4s (PeerJS cloud
+		// signalling can be slow), assume the host id is taken and become a joiner
+		// (the joiner connect-watch + maintenance loop will recover if wrong).
+		setTimeout( () => { if ( ! settled ) becomeJoiner(); }, 4000 );
 
 	} );
 
@@ -1691,7 +1731,7 @@ function maybeReclaimPublicServerHost( roomCode ) {
 		else finish( false );
 
 	} );
-	setTimeout( () => finish( false ), 5000 );
+	setTimeout( () => finish( false ), 4000 );
 
 }
 
@@ -1852,6 +1892,12 @@ function startPublicServerVote( playUrl, trackName ) {
 		trackName: publicServerVoteState.trackName,
 		initiatorId: multiplayerSessionState.clientId,
 		startedAt,
+		// The initiator auto-votes yes. Carrying it in VOTE_START (rather than a
+		// separate VOTE packet) guarantees every peer seeds the initiator's vote
+		// immediately and consistently, so the live Yes count matches on every
+		// screen — otherwise peers never saw the initiator's auto-yes and the
+		// initiator saw one more vote than everyone else.
+		initiatorVote: 'yes',
 	};
 	sendPublicServerPacket( packet );
 
@@ -1880,8 +1926,19 @@ function onPublicServerVoteStart( packet ) {
 	publicServerVoteState.initiatorId = pid;
 	publicServerVoteState.isInitiator = false;
 	publicServerVoteState.endsAt = startedAt + PUBLIC_SERVER_VOTE_DURATION_MS;
-	publicServerVoteState.votes = {};
 	publicServerVoteState.ourVote = '';
+	publicServerVoteState.votes = {};
+	// Seed the initiator's own auto-yes vote (carried in VOTE_START) so the live
+	// Yes count on peers matches the initiator's from the first frame.
+	if ( packet?.initiatorVote === 'yes' || packet?.initiatorVote === 'no' ) {
+
+		publicServerVoteState.votes[ pid ] = packet.initiatorVote;
+
+	} else {
+
+		publicServerVoteState.votes[ pid ] = 'yes';
+
+	}
 	showPublicServerVotePrompt();
 	updatePublicServerVoteCounts();
 	startPublicServerVoteCountdown();
