@@ -1785,7 +1785,7 @@ async function startPublicServerVoteFromInput() {
 	}
 	if ( ! track || ! track.playUrl ) {
 
-		updateMultiplayerStatus( 'Track not found on the share board. Paste the track's share URL.' );
+		updateMultiplayerStatus( 'Track not found on the share board. Paste the track share URL.' );
 		return;
 
 	}
