@@ -1025,6 +1025,41 @@ The mobile UI had two independent triggers; BOTH are neutralized:
   track for the next cycle (rejoining the same server) for another 5-minute
   round. Loop forever.
 
+### Public-server UX: "finding your track" loading UI + reliable rankings popup
+- **Loading/searching state.** Clicking a server (or being redirected onto a new
+  round's track) takes ~1-2s while the community track list fetches (with the
+  retry helper). During that gap `publicServerState.searching` is true; the timer
+  area shows `renderPublicServerSearching()` — a "Finding your track…" title +
+  an animated indeterminate progress bar (`#mp-server-timer .mp-searching-bar` +
+  `@keyframes mp-searching-slide`) + an elapsed-seconds counter — instead of a
+  meaningless stale countdown. The countdown timer is NOT rendered until the
+  player is actually on the correct round track. `searching` is set true in
+  `joinPublicServer`, cleared in `handlePublicServerRound` when
+  `alreadyOnTrack || alreadyLoadedThisRound`, and reset in
+  `resetPublicServerState`. While searching, `updatePublicServerRankingsVisibility`
+  is suppressed (no empty popup before the player has even raced).
+- **Reliable rankings popup.** `updatePublicServerRankingsVisibility()` now runs
+  from BOTH the 250ms tick (`tickPublicServerTimer`) AND the 1s tick
+  (`tickPublicServerRound`) so a throttled background interval can't miss the
+  5-second rankings window. Once the overlay is shown for a round it stays up
+  until the next-round redirect fires (the round-change reset in
+  `handlePublicServerRound`/`tickPublicServerTimer` hides it for the new round),
+  rather than flashing off the instant `cycleEnd` passes. The overlay is a
+  center-screen dialog (`#mp-server-rankings`, z-index 260) listing each player's
+  best lap set DURING the 5-minute round (not their all-time PB).
+- **Round lap recording vs official leaderboard.** On public servers EVERY valid
+  completed lap is published to the round rankings via `publishMultiplayerBestLap`
+  (it only actually broadcasts when the lap improves the round-best, tracked by
+  `publicServerState.skippedLapSeconds`, so slower laps don't spam the mesh). The
+  round rankings therefore show the fastest lap each player set in the 5 minutes,
+  regardless of their personal best. A world record set in multiplayer still
+  submits to the OFFICIAL leaderboard (a WR is always a new local best, so the
+  `if ( isNewBest ) submitLeaderboardTime(...)` gate catches it); slower-than-PB
+  laps are NOT POSTed to the official board (the worker keeps the min anyway, but
+  there's no point) — they only count for the temporary round rankings.
+- These changes are ALL gated behind `isPublicServerActive()`; normal host/join
+  private-room code is untouched.
+
 ### Track board 503 retry fix (`fetchTrackBoardWithRetry` — THE public-servers fix)
 - ROOT CAUSE of "public servers broken / track share board unavailable / popup
   + redirect don't work": the track share board worker

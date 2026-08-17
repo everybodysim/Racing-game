@@ -970,6 +970,8 @@ const publicServerState = {
 	lastMetaSentAt: 0,       // host: when we last broadcast a META packet
 	hostClaimInFlight: false, // guard against concurrent host-claim attempts
 	visibilityHandler: null, // visibilitychange listener (catches up on tab refocus)
+	searching: false,       // joined but not yet on the correct round track → show loading UI
+	searchStartedAt: 0,     // when the search began (for the loading-bar animation)
 };
 
 // sessionStorage key recording the roundId whose track we already redirected to
@@ -1319,6 +1321,8 @@ async function joinPublicServer( serverId ) {
 	publicServerState.hostPeerCount = 0;
 	publicServerState.lastMetaSentAt = 0;
 	publicServerState.hostClaimInFlight = false;
+	publicServerState.searching = true;
+	publicServerState.searchStartedAt = publicServerNow();
 	updatePublicServerButtonStates();
 
 	try {
@@ -1399,6 +1403,8 @@ async function resetPublicServerState() {
 	publicServerState.hostPeerCount = 0;
 	publicServerState.lastMetaSentAt = 0;
 	publicServerState.hostClaimInFlight = false;
+	publicServerState.searching = false;
+	publicServerState.searchStartedAt = 0;
 	clearLoadedRoundIdFromStorage();
 	updatePublicServerButtonStates();
 
@@ -1522,7 +1528,11 @@ function tickPublicServerTimer() {
 
 	}
 	renderPublicServerTimer( server, remainingMs, inRankings );
-	updatePublicServerRankingsVisibility();
+	// Don't show the rankings overlay until we're actually on the round's track
+	// (during the initial "finding your track" search the round may already be in
+	// its rankings window, but we haven't even raced yet — showing an empty popup
+	// would be confusing).
+	if ( ! publicServerState.searching ) updatePublicServerRankingsVisibility();
 
 }
 
@@ -1611,6 +1621,10 @@ function tickPublicServerRound() {
 	};
 	publicServerState.server = server;
 	handlePublicServerRound( server );
+	// Also drive the rankings overlay from the 1s tick (the 250ms tick already
+	// does) so a throttled background interval can't miss the 5s window. This is
+	// what makes the round-end rankings popup reliable.
+	if ( ! publicServerState.searching ) updatePublicServerRankingsVisibility();
 
 }
 
@@ -1703,7 +1717,15 @@ function updatePublicServerRankingsVisibility() {
 
 	} else if ( publicServerState.rankingsShownForRoundId === roundId ) {
 
-		// The window just closed for the round we were showing — hide it.
+		// The window just closed for the round we were showing. Keep the overlay
+		// up — the next-round redirect (handlePublicServerRound) will navigate
+		// away momentarily, so hiding here only to immediately reload would let
+		// the popup flash off then back. The round-change reset in
+		// handlePublicServerRound hides it for the new round.
+
+	} else if ( ! inRankings && roundId !== publicServerState.rankingsShownForRoundId ) {
+
+		// Belonging to a different round than the one we showed → make sure it's hidden.
 		if ( el ) el.classList.remove( 'visible' );
 
 	}
@@ -1760,6 +1782,13 @@ function handlePublicServerRound( server ) {
 
 			publicServerState.loadedRoundId = roundId;
 			setLoadedRoundIdInStorage( roundId );
+			// We're on the correct track for this round — stop showing the loading UI.
+			if ( publicServerState.searching ) {
+
+				publicServerState.searching = false;
+				publicServerState.searchStartedAt = 0;
+
+			}
 
 		} else {
 
@@ -1773,6 +1802,12 @@ function handlePublicServerRound( server ) {
 			return;
 
 		}
+
+	} else if ( publicServerState.searching ) {
+
+		// Still resolving the round's track (board fetch in flight). Keep the
+		// loading UI up; don't render the countdown timer yet.
+		renderPublicServerSearching();
 
 	}
 
@@ -2178,6 +2213,10 @@ function renderPublicServerTimer( server, remainingMs, inRankings ) {
 
 	const el = getPublicServerTimerEl();
 	if ( ! el ) return;
+	// While we're still searching for / loading the correct round track, the
+	// countdown timer is meaningless — show the loading UI instead (see
+	// renderPublicServerSearching). This runs on the 250ms + 1s ticks.
+	if ( publicServerState.searching ) { renderPublicServerSearching(); return; }
 	const memberCount = Number( server.memberCount ) || 0;
 	// In public servers everyone is an equal player — never reveal the host role.
 	if ( inRankings ) {
@@ -2195,6 +2234,25 @@ function renderPublicServerTimer( server, remainingMs, inRankings ) {
 			`<div class="mp-timer-line mp-timer-role">${ memberCount } player${ memberCount === 1 ? '' : 's' } online</div>`;
 
 	}
+
+}
+
+// Loading UI shown in the timer area while the round's community track is being
+// resolved (the board fetch with retries takes ~1-2s) and the page hasn't
+// redirected to it yet. An indeterminate animated bar makes it obvious something
+// is happening — rather than a stale "round ends in 5:00" that's meaningless
+// before we're on the right track.
+function renderPublicServerSearching() {
+
+	const el = getPublicServerTimerEl();
+	if ( ! el ) return;
+	const elapsed = publicServerState.searchStartedAt ? Math.max( 0, publicServerNow() - publicServerState.searchStartedAt ) : 0;
+	const secs = ( elapsed / 1000 ).toFixed( 1 );
+	el.innerHTML =
+		`<div class="mp-timer-line mp-timer-big mp-searching-title">Finding your track…</div>` +
+		`<div class="mp-timer-line mp-searching-bar"><span class="mp-searching-bar-fill"></span></div>` +
+		`<div class="mp-timer-line mp-timer-sub">${ publicServerName() } • searching community tracks</div>` +
+		`<div class="mp-timer-line mp-timer-role">loading… ${ secs }s</div>`;
 
 }
 
@@ -11973,6 +12031,12 @@ function completeCampaignStage() {
 					rebuildGhostSpreadLine();
 
 				}
+				// Submit to the OFFICIAL leaderboard on any new personal best. This is
+				// what lets a world record set during a public-server round land on the
+				// real leaderboard (a WR is always a new local best, so it submits here).
+				// Slower laps that don't beat the PB are NOT submitted (the worker keeps
+				// the min anyway, but there's no point POSTing them) — they still count
+				// for the round's temporary multiplayer rankings via publishMultiplayerBestLap.
 				if ( isNewBest && ! isSplitScreen ) submitLeaderboardTime( completedLap );
 				if ( ! lapInvalid && editorQuickTestEnabled && editorReturnParam && ! isSplitScreen && currentLapGhostSamples.length > 1 ) {
 
