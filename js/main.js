@@ -970,8 +970,6 @@ const publicServerState = {
 	lastMetaSentAt: 0,       // host: when we last broadcast a META packet
 	hostClaimInFlight: false, // guard against concurrent host-claim attempts
 	visibilityHandler: null, // visibilitychange listener (catches up on tab refocus)
-	searching: false,       // joined but not yet on the correct round track → show loading UI
-	searchStartedAt: 0,     // when the search began (for the loading-bar animation)
 };
 
 // sessionStorage key recording the roundId whose track we already redirected to
@@ -1321,8 +1319,6 @@ async function joinPublicServer( serverId ) {
 	publicServerState.hostPeerCount = 0;
 	publicServerState.lastMetaSentAt = 0;
 	publicServerState.hostClaimInFlight = false;
-	publicServerState.searching = true;
-	publicServerState.searchStartedAt = publicServerNow();
 	updatePublicServerButtonStates();
 
 	try {
@@ -1403,8 +1399,6 @@ async function resetPublicServerState() {
 	publicServerState.hostPeerCount = 0;
 	publicServerState.lastMetaSentAt = 0;
 	publicServerState.hostClaimInFlight = false;
-	publicServerState.searching = false;
-	publicServerState.searchStartedAt = 0;
 	clearLoadedRoundIdFromStorage();
 	updatePublicServerButtonStates();
 
@@ -1483,7 +1477,30 @@ function tickPublicServerTimer() {
 	// throttled (background tab) or momentarily stalled.
 	const currentCycle = info.cycleIndex;
 	const currentTrack = publicServerState.resolvedTracksByCycle?.[ currentCycle ] || null;
+	// Schedule the current cycle's track resolution from this fast tick too (the
+	// 1s tick also does), so a backgrounded/throttled tab still makes progress on
+	// resolving the track and can redirect promptly once it's known.
+	if ( ! currentTrack && publicServerState.resolveScheduledForCycle !== currentCycle ) {
+
+		publicServerState.resolveScheduledForCycle = currentCycle;
+		ensureTrackForCycle( currentCycle ).catch( ( e ) => console.warn( 'resolve track failed (timer tick)', e ) );
+
+	}
 	const memberCount = computePublicServerMemberCount();
+	// Pre-resolve the NEXT cycle's track so the redirect at round rollover is
+	// instant (mirrors the 1s tick; kept here for throttled-tab robustness).
+	const nextCycleIndex = info.cycleIndex + 1;
+	if ( ! publicServerState.resolvedTracksByCycle?.[ nextCycleIndex ] &&
+		publicServerState.resolveScheduledForNextCycle !== nextCycleIndex ) {
+
+		publicServerState.resolveScheduledForNextCycle = nextCycleIndex;
+		ensureTrackForCycle( nextCycleIndex ).catch( () => {} ).finally( () => {
+
+			publicServerState.resolveScheduledForNextCycle = -1;
+
+		} );
+
+	}
 	const roundLaps = collectPublicServerRoundLaps( info.roundId );
 	const server = {
 		id: publicServerState.serverId,
@@ -1512,15 +1529,19 @@ function tickPublicServerTimer() {
 	// iteration, and this lightweight view has the same shape it reads.
 	publicServerState.server = server;
 	// Round-change bookkeeping must run on this fast tick too, otherwise a
-	// backgrounded tab (1s tick stalled) would never reset laps / hide stale
-	// rankings when the round rolls over.
+	// backgrounded tab (1s tick stalled) would never reset laps when the round
+	// rolls over. We do NOT hide the rankings popup here on purpose: the round
+	// rolls over at cycleEnd (the END of the 5s rankings window), and the
+	// next-round redirect (handlePublicServerRound, 1s tick) navigates the page
+	// away. Hiding the popup the instant the new round starts would let it flash
+	// off for up to ~1s before the reload — so we leave it up and let the reload
+	// (or the visibility helper for the new round) clear it.
 	if ( info.roundId !== publicServerState.lastRoundId ) {
 
 		if ( publicServerState.lastRoundId !== 0 ) {
 
 			publicServerState.skippedLapSeconds = Infinity;
 			publicServerState.rankingsShownForRoundId = 0;
-			getPublicServerRankingsEl()?.classList.remove( 'visible' );
 
 		}
 		publicServerState.lastRoundId = info.roundId;
@@ -1528,11 +1549,17 @@ function tickPublicServerTimer() {
 
 	}
 	renderPublicServerTimer( server, remainingMs, inRankings );
-	// Don't show the rankings overlay until we're actually on the round's track
-	// (during the initial "finding your track" search the round may already be in
-	// its rankings window, but we haven't even raced yet — showing an empty popup
-	// would be confusing).
-	if ( ! publicServerState.searching ) updatePublicServerRankingsVisibility();
+	updatePublicServerRankingsVisibility();
+	// Also drive the redirect logic from this fast (250ms) tick — not just the 1s
+	// tick — so that the moment a new round starts and its track is resolved we
+	// redirect within a quarter second (instead of up to ~1s). This is the "keep
+	// re-sending the redirect signal" robustness: even if the 1s round tick is
+	// throttled (background tab), this fast tick still catches the rollover. It's
+	// safe because the redirect guard (roundId !== loadedRoundId, plus the
+	// sessionStorage anti-loop flag) prevents ever re-redirecting for a round we
+	// already loaded — and during the 5s rankings window roundId === loadedRoundId,
+	// so the popup is never pre-empted by a redirect.
+	handlePublicServerRound( server );
 
 }
 
@@ -1624,7 +1651,7 @@ function tickPublicServerRound() {
 	// Also drive the rankings overlay from the 1s tick (the 250ms tick already
 	// does) so a throttled background interval can't miss the 5s window. This is
 	// what makes the round-end rankings popup reliable.
-	if ( ! publicServerState.searching ) updatePublicServerRankingsVisibility();
+	updatePublicServerRankingsVisibility();
 
 }
 
@@ -1782,13 +1809,6 @@ function handlePublicServerRound( server ) {
 
 			publicServerState.loadedRoundId = roundId;
 			setLoadedRoundIdInStorage( roundId );
-			// We're on the correct track for this round — stop showing the loading UI.
-			if ( publicServerState.searching ) {
-
-				publicServerState.searching = false;
-				publicServerState.searchStartedAt = 0;
-
-			}
 
 		} else {
 
@@ -1802,12 +1822,6 @@ function handlePublicServerRound( server ) {
 			return;
 
 		}
-
-	} else if ( publicServerState.searching ) {
-
-		// Still resolving the round's track (board fetch in flight). Keep the
-		// loading UI up; don't render the countdown timer yet.
-		renderPublicServerSearching();
 
 	}
 
@@ -1865,6 +1879,18 @@ async function ensureTrackForCycle( cycleIndex ) {
 			// Cache the resolved track in-process so future ticks read it directly.
 			if ( ! publicServerState.resolvedTracksByCycle ) publicServerState.resolvedTracksByCycle = {};
 			publicServerState.resolvedTracksByCycle[ cycleIndex ] = { playUrl: entry.playUrl, sig };
+
+		} catch ( err ) {
+
+			// Board fetch failed (all retries exhausted — flaky worker / network).
+			// Reset the guard so the next tick re-attempts resolution; otherwise we
+			// would be stuck on the current track FOREVER (this was the
+			// "sometimes the player doesn't switch tracks" bug). Also bust the
+			// track-list cache so the retry actually hits the network again.
+			console.warn( `ensureTrackForCycle(${ cycleIndex }) failed; will retry next tick.`, err );
+			publicServerState.resolveScheduledForCycle = -1;
+			publicServerState.trackListCache = null;
+			publicServerState.trackListCacheAt = 0;
 
 		} finally {
 
@@ -2213,10 +2239,6 @@ function renderPublicServerTimer( server, remainingMs, inRankings ) {
 
 	const el = getPublicServerTimerEl();
 	if ( ! el ) return;
-	// While we're still searching for / loading the correct round track, the
-	// countdown timer is meaningless — show the loading UI instead (see
-	// renderPublicServerSearching). This runs on the 250ms + 1s ticks.
-	if ( publicServerState.searching ) { renderPublicServerSearching(); return; }
 	const memberCount = Number( server.memberCount ) || 0;
 	// In public servers everyone is an equal player — never reveal the host role.
 	if ( inRankings ) {
@@ -2234,25 +2256,6 @@ function renderPublicServerTimer( server, remainingMs, inRankings ) {
 			`<div class="mp-timer-line mp-timer-role">${ memberCount } player${ memberCount === 1 ? '' : 's' } online</div>`;
 
 	}
-
-}
-
-// Loading UI shown in the timer area while the round's community track is being
-// resolved (the board fetch with retries takes ~1-2s) and the page hasn't
-// redirected to it yet. An indeterminate animated bar makes it obvious something
-// is happening — rather than a stale "round ends in 5:00" that's meaningless
-// before we're on the right track.
-function renderPublicServerSearching() {
-
-	const el = getPublicServerTimerEl();
-	if ( ! el ) return;
-	const elapsed = publicServerState.searchStartedAt ? Math.max( 0, publicServerNow() - publicServerState.searchStartedAt ) : 0;
-	const secs = ( elapsed / 1000 ).toFixed( 1 );
-	el.innerHTML =
-		`<div class="mp-timer-line mp-timer-big mp-searching-title">Finding your track…</div>` +
-		`<div class="mp-timer-line mp-searching-bar"><span class="mp-searching-bar-fill"></span></div>` +
-		`<div class="mp-timer-line mp-timer-sub">${ publicServerName() } • searching community tracks</div>` +
-		`<div class="mp-timer-line mp-timer-role">loading… ${ secs }s</div>`;
 
 }
 

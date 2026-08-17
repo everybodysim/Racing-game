@@ -1025,28 +1025,35 @@ The mobile UI had two independent triggers; BOTH are neutralized:
   track for the next cycle (rejoining the same server) for another 5-minute
   round. Loop forever.
 
-### Public-server UX: "finding your track" loading UI + reliable rankings popup
-- **Loading/searching state.** Clicking a server (or being redirected onto a new
-  round's track) takes ~1-2s while the community track list fetches (with the
-  retry helper). During that gap `publicServerState.searching` is true; the timer
-  area shows `renderPublicServerSearching()` — a "Finding your track…" title +
-  an animated indeterminate progress bar (`#mp-server-timer .mp-searching-bar` +
-  `@keyframes mp-searching-slide`) + an elapsed-seconds counter — instead of a
-  meaningless stale countdown. The countdown timer is NOT rendered until the
-  player is actually on the correct round track. `searching` is set true in
-  `joinPublicServer`, cleared in `handlePublicServerRound` when
-  `alreadyOnTrack || alreadyLoadedThisRound`, and reset in
-  `resetPublicServerState`. While searching, `updatePublicServerRankingsVisibility`
-  is suppressed (no empty popup before the player has even raced).
-- **Reliable rankings popup.** `updatePublicServerRankingsVisibility()` now runs
-  from BOTH the 250ms tick (`tickPublicServerTimer`) AND the 1s tick
-  (`tickPublicServerRound`) so a throttled background interval can't miss the
-  5-second rankings window. Once the overlay is shown for a round it stays up
-  until the next-round redirect fires (the round-change reset in
-  `handlePublicServerRound`/`tickPublicServerTimer` hides it for the new round),
-  rather than flashing off the instant `cycleEnd` passes. The overlay is a
-  center-screen dialog (`#mp-server-rankings`, z-index 260) listing each player's
-  best lap set DURING the 5-minute round (not their all-time PB).
+### Public-server UX: reliable rankings popup + robust track switching
+- **Reliable rankings popup.** When a 5-minute round ends, the standings overlay
+  (`#mp-server-rankings`, center-screen dialog, z-index 260, `display:none` →
+  `.visible { display:flex }`) shows the best lap each player set DURING that
+  round for the 5-second rankings window, then everyone is redirected to the
+  next track. `updatePublicServerRankingsVisibility()` runs from BOTH the 250ms
+  tick (`tickPublicServerTimer`) AND the 1s tick (`tickPublicServerRound`) so a
+  throttled background interval can't miss the 5s window. The popup is NOT
+  hidden the instant the new round starts (the round-change reset no longer
+  calls `classList.remove('visible')` from the 250ms tick) — it stays up until
+  the next-round redirect (`handlePublicServerRound`) navigates the page away,
+  so it never flashes off before the reload. There is NO "searching/loading" gate
+  on the popup: an earlier `publicServerState.searching` flag suppressed it and
+  got stuck true (the `roundId === loadedRoundId` join path never cleared it),
+  which is why the menu never appeared — it was REMOVED. The timer renders
+  immediately on join (a stale "round ends in 5:00" for ~1-2s while the board
+  fetches is acceptable and less broken than the loading UI that never cleared).
+- **Robust track switching ("doesn't switch tracks" fix).** Two root causes were
+  fixed: (1) `ensureTrackForCycle` had NO catch — if `getCachedTrackList()` threw
+  (all board-fetch retries exhausted — the flaky 503/error-1102 worker), the
+  `resolveScheduledForCycle` guard was NEVER reset, so the tick never re-scheduled
+  resolution → the player was stuck on the old track FOREVER. Now there's a catch
+  that resets `resolveScheduledForCycle = -1` AND busts the track-list cache so
+  the next tick retries against the network. (2) The redirect + track resolution
+  now also run from the 250ms tick (`tickPublicServerTimer`), not just the 1s
+  tick, so even a backgrounded/throttled tab catches the round rollover within a
+  quarter second and redirects promptly once the track is resolved. The
+  anti-loop guarantee (`loadedRoundId` + sessionStorage `pubsrv_loaded_round`)
+  is unchanged — a redirect still fires at most once per round.
 - **Round lap recording vs official leaderboard.** On public servers EVERY valid
   completed lap is published to the round rankings via `publishMultiplayerBestLap`
   (it only actually broadcasts when the lap improves the round-best, tracked by
