@@ -2069,14 +2069,15 @@ function maybeReclaimPublicServerHost( roomCode ) {
 function broadcastPublicServerLap( bestLap, displayName ) {
 
 	if ( ! isPublicServerActive() ) return;
+	const info = publicServerCycleInfo( publicServerNow() );
 	if ( ! multiplayerSessionState.peer || multiplayerSessionState.connections.size === 0 ) {
 
 		// No peers yet — still record our own lap locally so it shows in our rankings.
-		ingestPublicServerPeerLap( multiplayerSessionState.clientId, { time: bestLap, name: displayName } );
+		// MUST include roundId or ingestPublicServerPeerLap rejects the packet.
+		ingestPublicServerPeerLap( multiplayerSessionState.clientId, { roundId: info.roundId, time: bestLap, name: displayName } );
 		return;
 
 	}
-	const info = publicServerCycleInfo( publicServerNow() );
 	const packet = {
 		type: PEER_PACKET_LAP,
 		playerId: multiplayerSessionState.clientId,

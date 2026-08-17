@@ -194,16 +194,27 @@ export function mapSignatureFromPlayUrl( playUrl ) {
 
 // Turn a track board playUrl into a same-tab navigation URL that rejoins the
 // public server after the redirect (preserves the pubServer param). The playUrl
-// is a relative index.html URL like `index.html?map=...&mods=...#ghost=...`.
+// from the board is an ABSOLUTE URL (e.g. https://everybodysim.github.io/...).
+// We must NOT use its origin/pathname — the game may be running on a different
+// host (CrazyGames iframe, localhost, a custom domain) where that path doesn't
+// exist (→ 404 → track never loads → "stays on the same map"). Instead we keep
+// the CURRENT page's pathname and carry over ONLY the map + mods query params
+// from the playUrl, then add pubServer + play. This works on every deployment.
 export function buildServerTrackRedirectUrl( playUrl, serverId ) {
 
 	try {
 
-		const parsed = new URL( playUrl, window.location.href );
-		parsed.searchParams.set( 'pubServer', serverId );
-		parsed.searchParams.set( 'play', '1' );
-		// Keep the hash (ghost=...) intact.
-		return `${ parsed.pathname }${ parsed.search }${ parsed.hash }`;
+		const src = new URL( playUrl, window.location.href );
+		const map = src.searchParams.get( 'map' ) || '';
+		const mods = src.searchParams.get( 'mods' ) || '';
+		const out = new URL( window.location.href );
+		// Reset query: keep only what we set.
+		const params = new URLSearchParams();
+		if ( map ) params.set( 'map', map );
+		if ( mods && mods !== 'none' ) params.set( 'mods', mods );
+		params.set( 'pubServer', String( serverId || '' ) );
+		params.set( 'play', '1' );
+		return `${ window.location.pathname }?${ params.toString() }${ window.location.hash || ( src.hash || '' ) }`;
 
 	} catch {
 

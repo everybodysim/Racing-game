@@ -1161,7 +1161,16 @@ The mobile UI had two independent triggers; BOTH are neutralized:
   sorted by stable key. `fetchRandomTrackPlayUrl()` kept for compatibility.
 - `pickTrackForCycle(cycleIndex, serverId, trackList)` -> deterministic pick.
 - `mapSignatureFromPlayUrl(url)` -> `"map|mods"`. `buildServerTrackRedirectUrl(playUrl,
-  serverId)` -> same-tab URL adding `?pubServer=<id>&play=1` (preserves `#ghost=`).
+  serverId)` -> same-tab URL adding `?pubServer=<id>&play=1`. CRITICAL: the track
+  board stores playUrls as ABSOLUTE URLs (e.g. `https://everybodysim.github.io/Racing-game/index.html?map=...`).
+  The redirect builder must NOT use the playUrl's pathname/origin (that path
+  doesn't exist on other deployments → 404 → track never loads → "stays on same
+  map"). It extracts ONLY `map`+`mods` from the playUrl and applies them to the
+  CURRENT page's pathname (`window.location.pathname`). Filters `mods=none`.
+- `broadcastPublicServerLap(bestLap, displayName)`: the no-peers fallback (solo
+  player) MUST include `roundId` in the packet passed to `ingestPublicServerPeerLap`
+  — otherwise the lap is rejected (roundId=NaN) and the solo player's own lap
+  never appears in the rankings. The with-peers path already included it.
 - REMOVED (no longer exported): `SERVERS_API_BASE`, `fetchServerState`,
   `joinServer`, `claimServerHost`, `heartbeatServer`, `submitServerLap`,
   `setServerTrack`, `leaveServer`. Do NOT re-add — public servers no longer use
