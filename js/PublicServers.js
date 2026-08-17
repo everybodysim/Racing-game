@@ -138,6 +138,27 @@ export function findTrackByPlayUrl( url, trackList ) {
 
 }
 
+// Is `url` a playable racing-game track URL? It must parse as a URL and carry a
+// non-empty `map` query param (the track data the game loads). Used by the
+// public-server map-vote to allow a pasted URL that isn't on the share board
+// (a private/unlisted track) — the vote still proceeds, just labelled "Custom
+// track".
+export function isRacingGameTrackUrl( url ) {
+
+	try {
+
+		const parsed = new URL( String( url || '' ), window.location.href );
+		const map = parsed.searchParams.get( 'map' );
+		return Boolean( map && map.trim() );
+
+	} catch {
+
+		return false;
+
+	}
+
+}
+
 // Normalize a playUrl for equality comparison: strip the hash (the board stores
 // a base64 ghost blob there which is huge and irrelevant to identity), and sort
 // the query params so different insertion orders don't defeat the match.

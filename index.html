@@ -381,7 +381,16 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			max-width: min(560px, calc(100vw - 24px));
 		}
 		#mp-vote-prompt.visible { display: flex; }
+		#mp-vote-header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; width: 100%; }
 		#mp-vote-title { margin: 0; font: 800 16px/1.2 sans-serif; }
+		#mp-vote-timer {
+			font: 800 18px/1 monospace;
+			color: #bde6ff;
+			min-width: 2.4em;
+			text-align: right;
+			white-space: nowrap;
+		}
+		#mp-vote-timer.urgent { color: #ff6b81; }
 		#mp-vote-track-name { margin: 0; color: #bde6ff; font: 700 14px/1.3 sans-serif; text-align: center; word-break: break-word; }
 		#mp-vote-buttons { display: flex; gap: 10px; align-items: center; }
 		#mp-vote-yes, #mp-vote-no {
@@ -2668,7 +2677,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		</div>
 	</div>
 	<div id="mp-vote-prompt" role="dialog" aria-modal="false" aria-labelledby="mp-vote-title">
-		<h2 id="mp-vote-title">Switch map?</h2>
+		<div id="mp-vote-header">
+			<h2 id="mp-vote-title">Switch map?</h2>
+			<span id="mp-vote-timer" aria-live="off">30s</span>
+		</div>
 		<p id="mp-vote-track-name">Shared track</p>
 		<div id="mp-vote-buttons">
 			<button id="mp-vote-yes" type="button">Yes</button>

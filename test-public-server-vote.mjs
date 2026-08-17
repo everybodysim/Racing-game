@@ -6,7 +6,7 @@
 // PeerJS/DOM) so they aren't unit-testable here; this covers the pure helpers
 // that ARE unit-testable. Run: `node test-public-server-vote.mjs`.
 
-import { findTrackByPlayUrl, mapSignatureFromPlayUrl, buildServerTrackRedirectUrl } from './js/PublicServers.js';
+import { findTrackByPlayUrl, mapSignatureFromPlayUrl, buildServerTrackRedirectUrl, isRacingGameTrackUrl } from './js/PublicServers.js';
 
 let pass = 0, fail = 0;
 function assert( name, cond ) {
@@ -43,6 +43,15 @@ assert( 'findTrackByPlayUrl returns null on empty list', findTrackByPlayUrl( tra
 // A missing/blank name falls back to "Shared track".
 const c = findTrackByPlayUrl( 'https://everybodysim.github.io/Racing-game/index.html?map=GHI', tracks );
 assert( 'findTrackByPlayUrl falls back to "Shared track" for blank name', c && c.name === 'Shared track' );
+
+// --- isRacingGameTrackUrl (custom-track fallback) -----------------------
+
+assert( 'isRacingGameTrackUrl true for a URL with map=', isRacingGameTrackUrl( 'index.html?map=ABC&mods=cool' ) === true );
+assert( 'isRacingGameTrackUrl true for an absolute URL with map=', isRacingGameTrackUrl( 'https://everybodysim.github.io/Racing-game/index.html?map=ABC' ) === true );
+assert( 'isRacingGameTrackUrl false when map is missing', isRacingGameTrackUrl( 'index.html?mods=cool' ) === false );
+assert( 'isRacingGameTrackUrl false when map is empty', isRacingGameTrackUrl( 'index.html?map=' ) === false );
+assert( 'isRacingGameTrackUrl false for a non-url', isRacingGameTrackUrl( 'not a url' ) === false );
+assert( 'isRacingGameTrackUrl false for empty', isRacingGameTrackUrl( '' ) === false );
 
 // --- mapSignatureFromPlayUrl -------------------------------------------
 

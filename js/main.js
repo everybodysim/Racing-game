@@ -22,6 +22,7 @@ import {
 	fetchTrackList,
 	fetchTrackBoardWithRetry,
 	findTrackByPlayUrl,
+	isRacingGameTrackUrl,
 	mapSignatureFromPlayUrl,
 	buildServerTrackRedirectUrl,
 } from './PublicServers.js';
@@ -1710,15 +1711,19 @@ const publicServerVoteState = {
 	ourVote: '',               // 'yes' | 'no' | '' (our cast vote)
 	votes: {},                 // { [playerId]: 'yes'|'no' } (peers' + our votes)
 	isInitiator: false,        // are we running the 30s timer?
-	endsAt: 0,                 // initiator: when the vote ends (ms); fallback for others
-	timer: null,               // initiator 30s timer (or non-initiator fallback timer)
+	endsAt: 0,                 // when the vote ends (ms); derived from startedAt + 30s
+		// — identical for every player (startedAt is sent in VOTE_START), so the
+		// countdown is consistent across clients.
+	timer: null,               // initiator 30s end timer (or non-initiator fallback timer)
 	fallbackTimer: null,       // non-initiator hide-on-timeout guard
+	countdownTimer: null,      // 250ms interval that updates the live countdown text
 };
 
 function resetPublicServerVoteState() {
 
 	if ( publicServerVoteState.timer ) { clearTimeout( publicServerVoteState.timer ); publicServerVoteState.timer = null; }
 	if ( publicServerVoteState.fallbackTimer ) { clearTimeout( publicServerVoteState.fallbackTimer ); publicServerVoteState.fallbackTimer = null; }
+	stopPublicServerVoteCountdown();
 	publicServerVoteState.active = false;
 	publicServerVoteState.voteId = '';
 	publicServerVoteState.playUrl = '';
@@ -1770,27 +1775,47 @@ async function startPublicServerVoteFromInput() {
 	}
 
 	updateMultiplayerStatus( 'Looking up track on the share board…' );
-	let track = null;
+	let playUrl = '';
+	let trackName = '';
 	try {
 
 		const list = await getCachedPublicServerTrackList();
-		track = findTrackByPlayUrl( rawUrl, list );
+		const track = findTrackByPlayUrl( rawUrl, list );
+		if ( track && track.playUrl ) {
+
+			playUrl = track.playUrl;
+			trackName = track.name;
+
+		}
 
 	} catch ( error ) {
 
+		// Board unreachable — fall through to the custom-track path below if the
+		// URL is still a playable racing-game URL, so a flaky board never blocks a
+		// vote on a pasted track.
 		console.warn( 'Public-server vote track lookup failed', error );
-		updateMultiplayerStatus( 'Could not reach the track share board. Try again.' );
-		return;
 
 	}
-	if ( ! track || ! track.playUrl ) {
 
-		updateMultiplayerStatus( 'Track not found on the share board. Paste the track share URL.' );
-		return;
+	// Allow a pasted URL that isn't on the share board (a private/unlisted track)
+	// as long as it's a playable racing-game URL (it carries a `map` param). The
+	// vote proceeds with the name "Custom track". The redirect builder extracts
+	// the map+mods from the pasted URL directly.
+	if ( ! playUrl ) {
+
+		if ( ! isRacingGameTrackUrl( rawUrl ) ) {
+
+			updateMultiplayerStatus( 'Not a track URL. Paste a Racing-game track share URL (it must contain ?map=...).' );
+			return;
+
+		}
+		playUrl = rawUrl;
+		trackName = 'Custom track';
 
 	}
+
 	if ( input ) input.value = '';
-	startPublicServerVote( track.playUrl, track.name );
+	startPublicServerVote( playUrl, trackName );
 
 }
 
@@ -1817,6 +1842,7 @@ function startPublicServerVote( playUrl, trackName ) {
 
 	showPublicServerVotePrompt();
 	updatePublicServerVoteCounts();
+	startPublicServerVoteCountdown();
 
 	const packet = {
 		type: PEER_PACKET_VOTE_START,
@@ -1858,6 +1884,7 @@ function onPublicServerVoteStart( packet ) {
 	publicServerVoteState.ourVote = '';
 	showPublicServerVotePrompt();
 	updatePublicServerVoteCounts();
+	startPublicServerVoteCountdown();
 	// Fallback: if the initiator's VOTE_RESULT never arrives, hide the prompt a
 	// little after the vote would have ended (+5s slack for relay delay).
 	const remaining = Math.max( 0, publicServerVoteState.endsAt - Date.now() ) + 5000;
@@ -1904,7 +1931,11 @@ function onPublicServerVote( packet ) {
 
 // The initiator's 30s elapsed: tally the votes, and if >60% yes (with ≥1 vote),
 // switch the track on THIS client first, then broadcast VOTE_RESULT so everyone
-// else follows. Hides the prompt locally regardless of the outcome.
+// else follows. Hides the prompt locally regardless of the outcome. The result
+// packet carries the AUTHORITATIVE final tally (yes/no/total) so every peer sees
+// the same final numbers — live counts during the vote are best-effort (peers
+// receive VOTE packets at slightly different times via the relay), but the
+// outcome everyone acts on is the initiator's, not their own local tally.
 function endPublicServerVote( asInitiator ) {
 
 	if ( ! publicServerVoteState.active ) return;
@@ -1918,6 +1949,9 @@ function endPublicServerVote( asInitiator ) {
 		passed: Boolean( passed ),
 		playUrl: publicServerVoteState.playUrl,
 		trackName: publicServerVoteState.trackName,
+		yes: tally.yes,
+		no: tally.no,
+		total: tally.total,
 	};
 	if ( asInitiator ) sendPublicServerPacket( packet );
 
@@ -1940,6 +1974,10 @@ function endPublicServerVote( asInitiator ) {
 }
 
 // Received the initiator's VOTE_RESULT: if it passed, redirect to the track.
+// The packet carries the authoritative final tally — sync our display to it so
+// every peer shows the SAME final Yes/No numbers (our locally-collected votes
+// may differ slightly due to relay timing; the initiator's tally is the source
+// of truth for the outcome).
 function onPublicServerVoteResult( packet ) {
 
 	if ( ! isPublicServerActive() ) return;
@@ -1947,6 +1985,14 @@ function onPublicServerVoteResult( packet ) {
 	if ( String( packet?.voteId || '' ) !== publicServerVoteState.voteId ) return;
 	// Only the initiator sends the result; ignore our own (it looped back).
 	if ( String( packet?.playerId || '' ) === multiplayerSessionState.clientId ) return;
+	// Adopt the initiator's authoritative final tally for the display.
+	const finalYes = Math.max( 0, Number( packet?.yes ) || 0 );
+	const finalNo = Math.max( 0, Number( packet?.no ) || 0 );
+	const yesEl = document.getElementById( 'mp-vote-yes-count' );
+	const noEl = document.getElementById( 'mp-vote-no-count' );
+	if ( yesEl ) yesEl.textContent = String( finalYes );
+	if ( noEl ) noEl.textContent = String( finalNo );
+
 	const passed = Boolean( packet?.passed );
 	if ( passed && packet?.playUrl ) {
 
@@ -2049,6 +2095,42 @@ function updatePublicServerVoteCounts() {
 	const noBtn = document.getElementById( 'mp-vote-no' );
 	if ( yesBtn ) yesBtn.disabled = Boolean( ourVote && ourVote !== 'no' );
 	if ( noBtn ) noBtn.disabled = Boolean( ourVote && ourVote !== 'yes' );
+
+}
+
+// --- Live countdown -----------------------------------------------------
+//
+// `endsAt` is derived from the initiator's `startedAt` (+30s), which is sent
+// in VOTE_START, so every client computes the SAME end time — the countdown is
+// consistent across peers regardless of network latency. A 250ms interval
+// re-renders the remaining seconds; it self-stops at 0 and is cleared on reset.
+function startPublicServerVoteCountdown() {
+
+	stopPublicServerVoteCountdown();
+	renderPublicServerVoteCountdown();
+	publicServerVoteState.countdownTimer = setInterval( renderPublicServerVoteCountdown, 250 );
+
+}
+
+function stopPublicServerVoteCountdown() {
+
+	if ( publicServerVoteState.countdownTimer ) {
+
+		clearInterval( publicServerVoteState.countdownTimer );
+		publicServerVoteState.countdownTimer = null;
+
+	}
+
+}
+
+function renderPublicServerVoteCountdown() {
+
+	const el = document.getElementById( 'mp-vote-timer' );
+	if ( ! el || ! publicServerVoteState.active ) return;
+	const remainingMs = Math.max( 0, publicServerVoteState.endsAt - Date.now() );
+	const secs = Math.ceil( remainingMs / 1000 );
+	el.textContent = `${ secs }s`;
+	el.classList.toggle( 'urgent', secs <= 5 );
 
 }
 
