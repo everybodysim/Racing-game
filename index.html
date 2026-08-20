@@ -2967,6 +2967,11 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				renderLeaders( [], [] );
 			} );
 		}
+
+		// The showLanding() IIFE above runs before this function is defined, so it
+		// cannot start the community fetch itself — kick it off here once the
+		// function exists (only when the landing page is actually shown).
+		if ( document.getElementById( 'home-landing' )?.classList.contains( 'visible' ) ) loadHomeCommunityData();
 	</script>
 
 	<script>
