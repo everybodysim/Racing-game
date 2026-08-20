@@ -2850,7 +2850,12 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					.filter( e => ( Number( e.viewCount ) || 0 ) >= avgPlays )
 					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )[ 0 ]
 					|| entries.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) )[ 0 ];
-				ftEl.href = featured.playUrl;
+				try {
+								const u = new URL( featured.playUrl, window.location.href );
+								ftEl.href = `index.html${ u.search }${ u.hash || '' }`;
+							} catch {
+								ftEl.href = featured.playUrl;
+							}
 				ftEl.target = '_blank';
 				ftEl.rel = 'noopener noreferrer';
 				ftEl.querySelector( '.ft-name' ).textContent = featured.name;

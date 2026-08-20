@@ -231,6 +231,17 @@
 			hydrateTopLeaderboardRows( entries ).then( () => render() );
 		}
 
+		function resolvePlayUrl( playUrl ) {
+			// Board entries may store absolute URLs from an older deployment origin.
+			// Rebuild the link on the current origin so Play always lands on this site.
+			try {
+				const parsed = new URL( playUrl, window.location.href );
+				return `index.html${ parsed.search }${ parsed.hash || '' }`;
+			} catch {
+				return playUrl;
+			}
+		}
+
 		function getTrackIdFromPlayUrl( playUrl ) {
 			try {
 				const parsed = new URL( playUrl, window.location.href );
@@ -794,7 +805,7 @@
 				</div>
 				<div class="meta">${ entry.description ? entry.description : 'No description.' }</div>
 				<div class="row" style="margin-top:0">
-					<a class="linkbtn play-map-btn" href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play</a>
+					<a class="linkbtn play-map-btn" href="${ resolvePlayUrl( entry.playUrl ) }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play</a>
 					<button data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
 					<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
 					<button data-id="${ entry.id }" type="button">Remove</button>
