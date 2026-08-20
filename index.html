@@ -131,6 +131,36 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			color: #fff;
 			font: 600 14px/1.4 Inter, system-ui, sans-serif;
 		}
+		/* Mobile "not supported" block — shown only when html.mobile-blocked is set by
+		   the early detection script (UA-based; never fires on desktop/Chromebook). */
+		#mobile-block-overlay {
+			position: fixed;
+			inset: 0;
+			z-index: 999999;
+			display: none;
+			align-items: center;
+			justify-content: center;
+			padding: 24px;
+			box-sizing: border-box;
+			background: radial-gradient(circle at 50% 30%, #12203a, #070b14 70%);
+			color: #fff;
+			font: 600 14px/1.4 Inter, system-ui, sans-serif;
+			touch-action: none;
+			overscroll-behavior: none;
+		}
+		html.mobile-blocked #mobile-block-overlay { display: flex; }
+		#mobile-block-card {
+			max-width: 420px;
+			text-align: center;
+			background: rgba(255,255,255,0.06);
+			border: 1px solid rgba(255,255,255,0.14);
+			border-radius: 20px;
+			padding: 28px 24px;
+			box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+		}
+		#mobile-block-card img { width: 130px; height: auto; margin-bottom: 14px; }
+		#mobile-block-card h1 { margin: 0 0 10px; font-size: 20px; line-height: 1.3; }
+		#mobile-block-card p { margin: 0; color: #b5c2da; font-weight: 500; }
 		#loading-screen::before {
 			content: '';
 			position: absolute;
@@ -2198,34 +2228,39 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 </head>
 <body>
 <script>
-// ── Early mobile detection (prevents FOUC) ──
-// body.mobile = actual mobile devices only (NOT touchscreen laptops/desktops)
-// A debug toggle in gameplay settings can force it on for testing
+// ── Early mobile block (prevents FOUC) ──
+// Mobile devices get a full-screen "not supported" overlay and the game loop is
+// hard-paused (window.__mobileUnsupported, checked in js/main.js animate()).
 //
-// TEMPORARY: mobile UI is disabled — the standard (desktop) layout is shown
-// everywhere (incl. narrow CrazyGames iframes). The IIFE below returns early so
-// the 'mobile' class is never added, and the @media (pointer: coarse) mobile
-// blocks use an impossible query. Revert both to re-enable mobile UI later.
+// Detection is USER-AGENT ONLY — deliberately NOT based on screen size, touch
+// support, or pointer type, so touchscreen laptops, small desktop windows, and
+// Chromebooks are NEVER misdetected as phones:
+//  - Desktop Chrome/Firefox/Safari/Edge UAs never contain a mobile token.
+//  - ChromeOS ("CrOS") UAs never contain a mobile token either (excluded twice
+//    for safety), so Chromebooks always get the full game.
+//  - iPadOS 13+ reports a Macintosh UA; the ONLY reliable tell is the
+//    MacIntel-platform + multi-touch combo, which no real Mac (no touchscreen
+//    Macs exist) can match.
+// Test override: append ?block-mobile-test=1 to the URL to force the overlay.
 (function() {
-	// TEMPORARY: mobile UI disabled — the standard (desktop) layout is force-locked
-	// everywhere. The `mobile` class is NOT added (so all body.mobile CSS rules are
-	// inert) and the @media (pointer: coarse) mobile blocks use an impossible query
-	// (see the `and (pointer: fine)` additions). The existing two-column main-menu
-	// block below keeps the home layout from collapsing on narrow screens.
-	// To re-enable mobile UI later: restore this IIFE body (remove the early return)
-	// and revert the @media (pointer: coarse) queries.
-	return;
-	var isTouch = 'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0;
-	var isSmallScreen = window.innerWidth <= 760;
-	var isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-	if (isSmallScreen || isMobileUA || (isTouch && window.innerWidth <= 1024)) {
-		document.body.classList.add('mobile');
-	}
-	if (localStorage.getItem('racing-debug-mobile-test') === '1') {
-		document.body.classList.add('mobile');
+	var ua = navigator.userAgent || '';
+	var isMobileUA = /Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini|Opera Mobi|Windows Phone|Mobile/i.test(ua);
+	var isChromeOS = /CrOS/i.test(ua);
+	var isIPadOS = navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1;
+	var testOverride = new URLSearchParams(location.search).get('block-mobile-test') === '1';
+	if (((isMobileUA && !isChromeOS) || isIPadOS || testOverride)) {
+		window.__mobileUnsupported = true;
+		document.documentElement.classList.add('mobile-blocked');
 	}
 })();
 </script>
+<div id="mobile-block-overlay" role="alertdialog" aria-modal="true" aria-label="Mobile not supported">
+	<div id="mobile-block-card">
+		<img src="branding/logo.png" alt="Skid Circuit">
+		<h1>Sorry, this game does not currently support mobile.</h1>
+		<p>Skid Circuit needs a keyboard to play. Please visit this page on a desktop, laptop, or Chromebook instead.</p>
+	</div>
+</div>
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content">
 	<div id="speed-blur-vignette" aria-hidden="true"></div>

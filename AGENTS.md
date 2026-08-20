@@ -952,6 +952,31 @@
 
 
 
+## Mobile devices hard-blocked (`index.html` early script + `js/main.js`)
+
+### What it is
+- Mobile devices get a full-screen `#mobile-block-overlay` ("Sorry, this game
+  does not currently support mobile.") shown immediately on page load, and the
+  game loop is hard-paused behind it. The game still boots (loading screen runs
+  underneath), but `animate()` never advances gameplay.
+
+### Detection (UA-ONLY — never misdetects desktop/Chromebook)
+- The early inline IIFE at the top of `<body>` checks ONLY the user agent:
+  mobile tokens (Android/webOS/iPhone/iPod/BlackBerry/IEMobile/Opera Mini|Mobi/
+  Windows Phone/Mobile), explicitly excluding `CrOS` (Chromebooks), PLUS the
+  iPadOS-13+ masquerade (`navigator.platform === 'MacIntel' && maxTouchPoints > 1`
+  — no touchscreen Mac exists, so no Mac false-positive).
+- Deliberately NO screen-size, touch, or `pointer: coarse` checks — those would
+  hit touchscreen laptops, small desktop windows, and narrow iframes.
+- On match it sets `window.__mobileUnsupported = true` and adds
+  `html.mobile-blocked` (which displays `#mobile-block-overlay`, z-index 999999).
+- Test override: `?block-mobile-test=1` URL param forces the block on desktop.
+
+### Pause wiring
+- `js/main.js` `animate()`: the paused branch reads
+  `if ( paused || window.__mobileUnsupported )` — a hard gate that works even in
+  multiplayer/split-screen/replay (where `setPaused` is disallowed).
+
 ## Mobile UI force-disabled (temporary — standard layout everywhere)
 
 ### What & why
@@ -963,10 +988,10 @@
 
 ### How it's disabled (`index.html` only — no JS/CSS file changes)
 The mobile UI had two independent triggers; BOTH are neutralized:
-1. **`body.mobile` class** — set by the early inline detection IIFE at the top of
-   `<body>`. The IIFE now `return`s immediately so `classList.add('mobile')` is
-   never called. Every `body.mobile ...` CSS rule is therefore inert. The dead
-   detection code is kept below the `return` for easy re-enable.
+1. **`body.mobile` class** — never added. The old early detection IIFE was
+   REPLACED by the mobile-block IIFE (see "Mobile devices hard-blocked" above),
+   which only adds `html.mobile-blocked`. Every `body.mobile ...` CSS rule is
+   therefore inert.
 2. **`@media (pointer: coarse)` blocks** — two CSS blocks (one for the
    mobile-actions-menu/positioning, one for the mobile-action-dock/menu-sheet +
    repositioned HUD) that fired on touch devices regardless of the `mobile`

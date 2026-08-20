@@ -11227,7 +11227,10 @@ function completeCampaignStage() {
 			const frameSeconds = timer.getDelta();
 			updateFpsHud( realFrameSeconds );
 			const dtBase = Math.min( frameSeconds, 1 / 15 );
-			if ( paused ) {
+			// window.__mobileUnsupported is set by the early mobile-block script in
+			// index.html (UA-only detection); the game stays hard-paused behind the
+			// "mobile not supported" overlay.
+			if ( paused || window.__mobileUnsupported ) {
 
 				audio.updateMusic( realFrameSeconds, false );
 				if ( freecamState.active ) updateFreecam( realFrameSeconds );
