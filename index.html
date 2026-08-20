@@ -2845,11 +2845,16 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					}
 					return;
 				}
-				const avgPlays = entries.reduce( ( t, e ) => t + ( Number( e.viewCount ) || 0 ), 0 ) / entries.length;
-				const featured = [ ...entries ]
-					.filter( e => ( Number( e.viewCount ) || 0 ) >= avgPlays )
-					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )[ 0 ]
-					|| entries.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) )[ 0 ];
+				// Daily-rotating featured pick: top 5 by plays, then hash today's UTC
+				// date to choose one. Changes once per day, identical for every
+				// visitor on the same day.
+				const top5 = [ ...entries ]
+					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )
+					.slice( 0, 5 );
+				const today = new Date();
+				const dateSeed = `${ today.getUTCFullYear() }-${ today.getUTCMonth() + 1 }-${ today.getUTCDate() }`;
+				const seedHash = Number( BigInt( '0x' + hashTrackSeed( `featured|${ dateSeed }` ).slice( 0, 13 ) ) % BigInt( top5.length ) );
+				const featured = top5[ seedHash ] || top5[ 0 ];
 				ftEl.href = featured.playUrl;
 				ftEl.target = '_blank';
 				ftEl.rel = 'noopener noreferrer';
