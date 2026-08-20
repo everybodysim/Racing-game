@@ -2853,7 +2853,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					.slice( 0, 5 );
 				const today = new Date();
 				const dateSeed = `${ today.getUTCFullYear() }-${ today.getUTCMonth() + 1 }-${ today.getUTCDate() }`;
-				const seedHash = Number( BigInt( '0x' + hashTrackSeed( `featured|${ dateSeed }` ).slice( 0, 13 ) ) % BigInt( top5.length ) );
+				const seedHash = Number( BigInt( '0x' + hashTrackSeed( `featured-v2|${ dateSeed }` ).slice( 0, 13 ) ) % BigInt( top5.length ) );
 				const featured = top5[ seedHash ] || top5[ 0 ];
 				ftEl.href = featured.playUrl;
 				ftEl.target = '_blank';

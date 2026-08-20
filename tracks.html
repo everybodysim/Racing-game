@@ -833,7 +833,7 @@
 				.slice( 0, 5 );
 			const today = new Date();
 			const dateSeed = `${ today.getUTCFullYear() }-${ today.getUTCMonth() + 1 }-${ today.getUTCDate() }`;
-			const seedHash = Number( BigInt( '0x' + hashTrackSeed( `featured|${ dateSeed }` ).slice( 0, 13 ) ) % BigInt( Math.max( 1, top5.length ) ) );
+			const seedHash = Number( BigInt( '0x' + hashTrackSeed( `featured-v2|${ dateSeed }` ).slice( 0, 13 ) ) % BigInt( Math.max( 1, top5.length ) ) );
 			const featured = top5[ seedHash ] || top5[ 0 ] || newestFirst[ 0 ];
 			const trending = [ ...entries ]
 				.sort( ( a, b ) => ( ( Number( b.viewCount ) || 0 ) * 2 + ( Number( b.thumbsUp ) || 0 ) + ( Number( b.createdAt ) >= weekAgo ? 5 : 0 ) ) - ( ( Number( a.viewCount ) || 0 ) * 2 + ( Number( a.thumbsUp ) || 0 ) + ( Number( a.createdAt ) >= weekAgo ? 5 : 0 ) ) )
