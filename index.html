@@ -2806,7 +2806,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				return raw;
 			}
 
-			function getTrackId( playUrl ) {
+			function getTrackIdCandidates( playUrl ) {
 				try {
 					const u = new URL( playUrl, window.location.href );
 					const map = u.searchParams.get( 'map' ) || '';
@@ -2814,9 +2814,16 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					const q = new URLSearchParams();
 					if ( map ) q.set( 'map', map );
 					if ( mods ) q.set( 'mods', mods );
-					const rawUrl = q.toString() ? `?${ q.toString() }` : '';
-					return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
-				} catch ( e ) { return ''; }
+					const query = q.toString() ? `?${ q.toString() }` : '';
+					// Records were written under two key schemes over time: older
+					// boards are keyed by the full normalized path, newer ones are
+					// path-agnostic. Query both so the home panel matches the
+					// track share board.
+					return [
+						`trk-${ hashTrackSeed( `v4-url|${ normalizeTrackPath( u.pathname ) }${ query }` ) }`,
+						`trk-${ hashTrackSeed( `v4-url|${ query }` ) }`,
+					];
+				} catch ( e ) { return []; }
 			}
 
 			async function fetchBoardEntries() {
@@ -2827,13 +2834,19 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				} catch ( e ) { return []; }
 			}
 
-			async function fetchLeaderboard( trackId ) {
-				try {
-					const res = await fetch( `${ LB_API }?trackId=${ encodeURIComponent( trackId ) }` );
-					if ( ! res.ok ) return [];
-					const data = await res.json();
-					return Array.isArray( data?.entries ) ? data.entries : [];
-				} catch ( e ) { return []; }
+			async function fetchLeaderboardRows( trackIds ) {
+				const payloads = await Promise.all( trackIds.map( async ( trackId ) => {
+					try {
+						const res = await fetch( `${ LB_API }?trackId=${ encodeURIComponent( trackId ) }` );
+						if ( ! res.ok ) return [];
+						const data = await res.json();
+						return Array.isArray( data?.entries ) ? data.entries : [];
+					} catch ( e ) { return []; }
+				} ) );
+				const merged = payloads.flat();
+				return [ ...new Map( merged.map( ( row ) => [ `${ String( row?.name || '' ).trim().toLowerCase() }|${ Number( row?.timeSeconds ) || Infinity }`, row ] ) ).values() ]
+					.filter( ( row ) => String( row?.name || '' ).trim() && Number.isFinite( Number( row?.timeSeconds ) ) )
+					.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
 			}
 
 			function renderFeaturedTrack( entries ) {
@@ -2853,7 +2866,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					.slice( 0, 5 );
 				const today = new Date();
 				const dateSeed = `${ today.getUTCFullYear() }-${ today.getUTCMonth() + 1 }-${ today.getUTCDate() }`;
-				const seedHash = Number( BigInt( '0x' + hashTrackSeed( `featured-v2|${ dateSeed }` ).slice( 0, 13 ) ) % BigInt( top5.length ) );
+				const seedHash = Number( BigInt( '0x' + hashTrackSeed( `featured-v3|${ dateSeed }` ).slice( 0, 13 ) ) % BigInt( top5.length ) );
 				const featured = top5[ seedHash ] || top5[ 0 ];
 				try {
 					const u = new URL( featured.playUrl, window.location.href );
@@ -2912,56 +2925,61 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					return;
 				}
 
-				// Fetch leaderboards for the most active tracks with a short homepage timeout.
-				const topTracks = [ ...entries ]
-					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.thumbsUp ) || 0 ) - ( Number( a.thumbsUp ) || 0 ) )
-					.slice( 0, 60 )
-					.map( e => ( { id: getTrackId( e.playUrl ), entry: e } ) )
-					.filter( t => t.id );
-
-				const lbResults = [];
-				const lbFetches = topTracks.map( t => fetchLeaderboard( t.id ).then( rows => {
-					const result = { trackId: t.id, rows };
-					lbResults.push( result );
-					return result;
-				} ).catch( () => ( { trackId: t.id, rows: [] } ) ) );
-				await Promise.race( [
-					Promise.allSettled( lbFetches ),
-					new Promise( ( resolve ) => setTimeout( resolve, 2500 ) )
-				] );
-
-				// Aggregate record holders
-				const winsByDriver = new Map();
-				for ( const { rows } of lbResults ) {
-					if ( ! Array.isArray( rows ) || rows.length === 0 ) continue;
-					const top = [ ...rows ].sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ];
-					const name = String( top?.name || '' ).trim();
-					if ( ! name ) continue;
-					winsByDriver.set( name, ( winsByDriver.get( name ) || 0 ) + 1 );
+				// Fetch every shared track's leaderboard in small chunks, re-rendering
+				// the top-3 panels as results stream in (same approach as tracks.html).
+				// Old records live under path-keyed ids and newer ones under
+				// path-agnostic ids, so each track queries both schemes.
+				const seenTrackIds = new Set();
+				const trackRequests = [];
+				for ( const entry of entries ) {
+					const ids = getTrackIdCandidates( entry.playUrl );
+					if ( ids.length === 0 || seenTrackIds.has( ids[0] ) ) continue;
+					seenTrackIds.add( ids[0] );
+					trackRequests.push( ids );
 				}
-				const recordLeaders = [ ...winsByDriver.entries() ]
-					.map( ( [ name, wins ] ) => ( { name, wins } ) )
-					.sort( ( a, b ) => b.wins - a.wins || a.name.localeCompare( b.name ) );
 
-				// Aggregate placement ratings
 				const POINTS = [ 100, 80, 65, 54, 46, 40, 35, 30, 26, 22 ];
-				const scoreByDriver = new Map();
-				for ( const { rows } of lbResults ) {
-					if ( ! Array.isArray( rows ) || rows.length === 0 ) continue;
-					const sorted = [ ...rows ].sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) );
-					sorted.slice( 0, POINTS.length ).forEach( ( row, idx ) => {
-						const name = String( row?.name || '' ).trim();
-						if ( ! name ) return;
-						const ex = scoreByDriver.get( name ) || { name, points: 0, podiums: 0 };
-						ex.points += POINTS[ idx ] || 0;
-						if ( idx <= 2 ) ex.podiums += 1;
-						scoreByDriver.set( name, ex );
-					} );
-				}
-				const placementRatings = [ ...scoreByDriver.values() ]
-					.sort( ( a, b ) => b.points - a.points || b.podiums - a.podiums || a.name.localeCompare( b.name ) );
+				const lbResults = [];
+				const renderPartial = () => {
+					// Aggregate record holders
+					const winsByDriver = new Map();
+					for ( const { rows } of lbResults ) {
+						if ( rows.length === 0 ) continue;
+						const name = String( rows[0]?.name || '' ).trim();
+						if ( ! name ) continue;
+						winsByDriver.set( name, ( winsByDriver.get( name ) || 0 ) + 1 );
+					}
+					const recordLeaders = [ ...winsByDriver.entries() ]
+						.map( ( [ name, wins ] ) => ( { name, wins } ) )
+						.sort( ( a, b ) => b.wins - a.wins || a.name.localeCompare( b.name ) );
 
-				renderLeaders( recordLeaders, placementRatings );
+					// Aggregate placement ratings
+					const scoreByDriver = new Map();
+					for ( const { rows } of lbResults ) {
+						rows.slice( 0, POINTS.length ).forEach( ( row, idx ) => {
+							const name = String( row?.name || '' ).trim();
+							if ( ! name ) return;
+							const ex = scoreByDriver.get( name ) || { name, points: 0, podiums: 0 };
+							ex.points += POINTS[ idx ] || 0;
+							if ( idx <= 2 ) ex.podiums += 1;
+							scoreByDriver.set( name, ex );
+						} );
+					}
+					const placementRatings = [ ...scoreByDriver.values() ]
+						.sort( ( a, b ) => b.points - a.points || b.podiums - a.podiums || a.name.localeCompare( b.name ) );
+
+					renderLeaders( recordLeaders, placementRatings );
+				};
+
+				const startedAt = Date.now();
+				for ( let i = 0; i < trackRequests.length; i += 12 ) {
+					const chunk = trackRequests.slice( i, i + 12 );
+					const rowsList = await Promise.all( chunk.map( ( ids ) => fetchLeaderboardRows( ids ) ) );
+					rowsList.forEach( ( rows ) => lbResults.push( { rows } ) );
+					renderPartial();
+					// Soft cap: if the worker is being slow, keep what we have.
+					if ( Date.now() - startedAt > 15000 ) break;
+				}
 			} )().catch( () => {
 				if ( ftEl ) ftEl.querySelector( '.ft-name' ).textContent = 'Could not load tracks';
 				renderLeaders( [], [] );

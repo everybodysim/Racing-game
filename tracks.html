@@ -259,7 +259,20 @@
 		}
 
 		function getLegacyTrackIdsFromPlayUrl( playUrl ) {
-			return [];
+			// Newer records are written under the path-agnostic id scheme;
+			// include it as a candidate so those boards are read too.
+			try {
+				const parsed = new URL( playUrl, window.location.href );
+				const query = new URLSearchParams();
+				const map = parsed.searchParams.get( 'map' ) || '';
+				const mods = parsed.searchParams.get( 'mods' ) || '';
+				if ( map ) query.set( 'map', map );
+				if ( mods ) query.set( 'mods', mods );
+				const rawUrl = query.toString() ? `?${ query.toString() }` : '';
+				return [ `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }` ];
+			} catch ( e ) {
+				return [];
+			}
 		}
 
 		function normalizeTrackPath( pathValue ) {
@@ -844,7 +857,7 @@
 				.slice( 0, 5 );
 			const today = new Date();
 			const dateSeed = `${ today.getUTCFullYear() }-${ today.getUTCMonth() + 1 }-${ today.getUTCDate() }`;
-			const seedHash = Number( BigInt( '0x' + hashTrackSeed( `featured-v2|${ dateSeed }` ).slice( 0, 13 ) ) % BigInt( Math.max( 1, top5.length ) ) );
+			const seedHash = Number( BigInt( '0x' + hashTrackSeed( `featured-v3|${ dateSeed }` ).slice( 0, 13 ) ) % BigInt( Math.max( 1, top5.length ) ) );
 			const featured = top5[ seedHash ] || top5[ 0 ] || newestFirst[ 0 ];
 			const trending = [ ...entries ]
 				.sort( ( a, b ) => ( ( Number( b.viewCount ) || 0 ) * 2 + ( Number( b.thumbsUp ) || 0 ) + ( Number( b.createdAt ) >= weekAgo ? 5 : 0 ) ) - ( ( Number( a.viewCount ) || 0 ) * 2 + ( Number( a.thumbsUp ) || 0 ) + ( Number( a.createdAt ) >= weekAgo ? 5 : 0 ) ) )
