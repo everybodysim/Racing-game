@@ -30,19 +30,19 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<link rel="manifest" href="manifest.webmanifest">
 	<link rel="icon" href="icons/favicon.png" type="image/png">
 	<link rel="apple-touch-icon" href="icons/icon-192.png">
-	<link rel="canonical" href="https://everybodysim.github.io/Racing-game/">
+	<link rel="canonical" href="">
 	<meta name="description" content="Play Skid Circuit, a free 3D browser racing game. Race, drift, build custom tracks, compete for fast times, and play with the Skid Circuit community.">
 	<meta name="robots" content="index, follow">
 	<meta property="og:type" content="website">
 	<meta property="og:site_name" content="Skid Circuit">
 	<meta property="og:title" content="Skid Circuit — Free Browser Racing Game">
 	<meta property="og:description" content="Play Skid Circuit, a free 3D browser racing game. Race, drift, build custom tracks, compete for fast times, and play with the Skid Circuit community.">
-	<meta property="og:url" content="https://everybodysim.github.io/Racing-game/">
-	<meta property="og:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
+	<meta property="og:url" content="">
+	<meta property="og:image" content="branding/logo.png">
 	<meta name="twitter:card" content="summary_large_image">
 	<meta name="twitter:title" content="Skid Circuit — Free Browser Racing Game">
 	<meta name="twitter:description" content="Play Skid Circuit, a free 3D browser racing game. Race, drift, build custom tracks, compete for fast times, and play with the Skid Circuit community.">
-	<meta name="twitter:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
+	<meta name="twitter:image" content="branding/logo.png">
 	<script type="application/ld+json">
 	{
 		"@context": "https://schema.org",
@@ -50,18 +50,18 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			{
 				"@type": "WebSite",
 				"name": "Skid Circuit",
-				"url": "https://everybodysim.github.io/Racing-game/",
+				"url": "./",
 				"description": "A free 3D browser racing game where you can race, drift, compete for fast times, build custom tracks, and play with the community.",
 				"potentialAction": {
 					"@type": "PlayAction",
-					"target": "https://everybodysim.github.io/Racing-game/?play=1",
+					"target": "./?play=1",
 					"name": "Play Skid Circuit"
 				}
 			},
 			{
 				"@type": "VideoGame",
 				"name": "Skid Circuit",
-				"url": "https://everybodysim.github.io/Racing-game/",
+				"url": "./",
 				"genre": ["Racing", "Sports"],
 				"gamePlatform": ["Web Browser"],
 				"applicationCategory": "Game",
@@ -2808,13 +2808,13 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 
 			function getTrackId( playUrl ) {
 				try {
-					const u = new URL( playUrl, 'https://everybodysim.github.io' );
+					const u = new URL( playUrl, window.location.href );
 					const map = u.searchParams.get( 'map' ) || '';
 					const mods = u.searchParams.get( 'mods' ) || '';
 					const q = new URLSearchParams();
 					if ( map ) q.set( 'map', map );
 					if ( mods ) q.set( 'mods', mods );
-					const rawUrl = `${ normalizeTrackPath( u.pathname ) }${ q.toString() ? `?${ q.toString() }` : '' }`;
+					const rawUrl = q.toString() ? `?${ q.toString() }` : '';
 					return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
 				} catch ( e ) { return ''; }
 			}
