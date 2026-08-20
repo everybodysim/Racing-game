@@ -2910,7 +2910,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				// Fetch leaderboards for the most active tracks with a short homepage timeout.
 				const topTracks = [ ...entries ]
 					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.thumbsUp ) || 0 ) - ( Number( a.thumbsUp ) || 0 ) )
-					.slice( 0, 24 )
+					.slice( 0, 60 )
 					.map( e => ( { id: getTrackId( e.playUrl ), entry: e } ) )
 					.filter( t => t.id );
 
