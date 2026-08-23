@@ -243,6 +243,29 @@
 		}
 
 		function getTrackIdFromPlayUrl( playUrl ) {
+			// Must match the game's getTrackId (path-agnostic: hashes ONLY
+			// the map+mods params). A path-based id misses every record the
+			// game actually stores, and the playUrl's own pathname varies by
+			// which deployment the track was shared from, so records would
+			// split across different buckets.
+			try {
+				const parsed = new URL( playUrl, window.location.href );
+				const query = new URLSearchParams();
+				const map = parsed.searchParams.get( 'map' ) || '';
+				const mods = parsed.searchParams.get( 'mods' ) || '';
+				if ( map ) query.set( 'map', map );
+				if ( mods ) query.set( 'mods', mods );
+				const rawUrl = query.toString() ? `?${ query.toString() }` : '';
+				return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
+			} catch ( e ) {
+				return '';
+			}
+		}
+
+		function getLegacyTrackIdsFromPlayUrl( playUrl ) {
+			// Records may also have been written under the OLD path-based id
+			// scheme (hashing the stored playUrl's own pathname). Keep that as
+			// a candidate so those boards still load.
 			try {
 				const parsed = new URL( playUrl, window.location.href );
 				const normalizedPath = normalizeTrackPath( parsed.pathname );
@@ -252,23 +275,6 @@
 				if ( map ) query.set( 'map', map );
 				if ( mods ) query.set( 'mods', mods );
 				const rawUrl = `${ normalizedPath }${ query.toString() ? `?${ query.toString() }` : '' }`;
-				return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
-			} catch ( e ) {
-				return '';
-			}
-		}
-
-		function getLegacyTrackIdsFromPlayUrl( playUrl ) {
-			// Newer records are written under the path-agnostic id scheme;
-			// include it as a candidate so those boards are read too.
-			try {
-				const parsed = new URL( playUrl, window.location.href );
-				const query = new URLSearchParams();
-				const map = parsed.searchParams.get( 'map' ) || '';
-				const mods = parsed.searchParams.get( 'mods' ) || '';
-				if ( map ) query.set( 'map', map );
-				if ( mods ) query.set( 'mods', mods );
-				const rawUrl = query.toString() ? `?${ query.toString() }` : '';
 				return [ `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }` ];
 			} catch ( e ) {
 				return [];
