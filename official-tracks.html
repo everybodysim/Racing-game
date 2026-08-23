@@ -108,9 +108,23 @@ const TRACKS = [
 const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
 
 /* ---- track id derivation (matches main.js getTrackId) ----
-   The game's getTrackId is path-agnostic: it hashes ONLY the map+mods
-   params. So we take just map+mods from the track's play URL, which
-   makes the id identical no matter where the game is hosted. */
+   The game derives the leaderboard track id from its OWN page path
+   ("/Racing-game/index.html" -> "/Racing-game/") plus the map+mods
+   params, NOT from whatever URL the share board stores. So we take
+   only map+mods from the pasted play URL and pair them with the
+   canonical game index path (derived from this page's location).
+   This keeps records in sync whether a full or relative URL is pasted. */
+function gameIndexPath() {
+	// this page is at .../official-tracks.html; the game is at .../index.html
+	const here = window.location.pathname;
+	return here.replace( /[^/]+$/, 'index.html' );
+}
+function normalizeTrackPath( pathValue ) {
+	const raw = String( pathValue || '/' );
+	if ( raw === '/index.html' ) return '/';
+	if ( raw.endsWith( '/index.html' ) ) return `${ raw.slice( 0, -11 ) }/`;
+	return raw;
+}
 function fnv64Hex( value, start, prime ) {
 	let hash = start;
 	for ( let i = 0; i < value.length; i ++ ) {
@@ -130,10 +144,12 @@ function getTrackIdFromPlayUrl( playUrl ) {
 		const map = parsed.searchParams.get( 'map' ) || '';
 		const mods = parsed.searchParams.get( 'mods' ) || '';
 		if ( ! map ) return '';
+		const normalizedPath = normalizeTrackPath( gameIndexPath() );
 		const query = new URLSearchParams();
 		query.set( 'map', map );
 		if ( mods ) query.set( 'mods', mods );
-		return `trk-${ hashTrackSeed( `v4-url|?${ query.toString() }` ) }`;
+		const rawUrl = `${ normalizedPath }?${ query.toString() }`;
+		return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
 	} catch ( e ) {
 		return '';
 	}
