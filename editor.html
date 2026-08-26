@@ -653,6 +653,11 @@
 			<button id="btn-deco-forest">Tree</button>
 			<button id="btn-deco-tents">Tent</button>
 			<button id="btn-deco-empty">Prop</button>
+			<button id="btn-building-small-a">Small A</button>
+			<button id="btn-building-small-b">Small B</button>
+			<button id="btn-building-small-c">Small C</button>
+			<button id="btn-building-small-d">Small D</button>
+			<button id="btn-building-garage">Garage</button>
 			<button id="btn-custom-import">Import 3D</button>
 			<button id="btn-custom-cycle">Custom: none</button>
 			<input id="custom-model-file" type="file" accept=".glb,.gltf,.obj,model/gltf-binary,model/gltf+json" style="display:none" />
@@ -801,7 +806,8 @@
 		'pad-custom-a', 'pad-custom-b', 'pad-custom-c',
 		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
 	];
-	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
+	    const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
+    const BUILDING_TYPES = [ 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d', 'building-garage' ];
 	const CUSTOM_MODEL_KEY_PREFIX = 'custom:';
 	const TRACK_SHARE_API_ROOT = 'https://racing-track-board-api.ga1010.workers.dev';
 	const TRACK_SHARE_API_PREFIXES = [ '/api', '' ];
@@ -1493,7 +1499,7 @@
 
 	const loader = new GLTFLoader();
 	const objLoader = new OBJLoader();
-	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
+	  const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d', 'building-garage' ];
 	const models = {};
 	const customAssets = new Map();
 	let customAssetOrder = [];
@@ -1625,6 +1631,9 @@
 						if ( child.isMesh ) child.material.side = THREE.FrontSide;
 
 					} );
+
+					// Buildings are authored at 1x1 units — scale to one-cell size.
+					if ( name.startsWith( 'building-' ) ) gltf.scene.scale.setScalar( 10 );
 
 					models[ name ] = gltf.scene;
 					resolve();
@@ -2283,7 +2292,7 @@
 
 			}
 
-		} else if ( DECO_TYPES.includes( selectedType ) || selectedType.startsWith( CUSTOM_MODEL_KEY_PREFIX ) ) {
+		} else if ( DECO_TYPES.includes( selectedType ) || BUILDING_TYPES.includes( selectedType ) || selectedType.startsWith( CUSTOM_MODEL_KEY_PREFIX ) ) {
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
@@ -3440,6 +3449,11 @@ function refreshMovingSpeedUi() {
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
+		'building-small-a': document.getElementById( 'btn-building-small-a' ),
+		'building-small-b': document.getElementById( 'btn-building-small-b' ),
+		'building-small-c': document.getElementById( 'btn-building-small-c' ),
+		'building-small-d': document.getElementById( 'btn-building-small-d' ),
+		'building-garage': document.getElementById( 'btn-building-garage' ),
 		'surface-custom-a': document.getElementById( 'btn-surface-custom-a' ),
 		'surface-custom-b': document.getElementById( 'btn-surface-custom-b' ),
 		'surface-custom-c': document.getElementById( 'btn-surface-custom-c' ),
@@ -3532,7 +3546,7 @@ function refreshMovingSpeedUi() {
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...BUILDING_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
@@ -3690,7 +3704,7 @@ function refreshMovingSpeedUi() {
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-3-way', 'track-4-way', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-3-way', 'track-4-way', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...BUILDING_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 

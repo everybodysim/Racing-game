@@ -33,6 +33,18 @@ function addDebugSphere( group, radius, position ) {
 
 }
 
+// Building decorations get a single centered box collider. Half extents are in
+// RAW track units (i.e. after the fixed 10x model scale, before GRID_SCALE).
+// Footprint = 0.8 x the mesh footprint; height = the mesh height measured from
+// the GLBs, so the box hugs the visual.
+const BUILDING_COLLIDERS = {
+	'building-small-a': { halfX: 4, halfZ: 4, halfHeight: 4.75 },
+	'building-small-b': { halfX: 4, halfZ: 4, halfHeight: 8.13 },
+	'building-small-c': { halfX: 4, halfZ: 4, halfHeight: 8.75 },
+	'building-small-d': { halfX: 4, halfZ: 4.2, halfHeight: 5 },
+	'building-garage': { halfX: 4, halfZ: 4, halfHeight: 2.75 },
+};
+
 export function buildWallColliders( world, debugGroup, customCells, extras = null ) {
 
 	const S = GRID_SCALE;
@@ -1002,11 +1014,39 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	for ( const [ gx, gz, decoKey, orient = 0 ] of decorationEntries ) {
 
-		if ( typeof decoKey !== 'string' || ! decoKey.startsWith( 'custom:' ) ) continue;
+		if ( typeof decoKey !== 'string' ) continue;
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+
+		if ( decoKey.startsWith( 'building-' ) ) {
+
+			const spec = BUILDING_COLLIDERS[ decoKey ];
+			if ( ! spec ) continue;
+			const rotQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
+			const halfExtents = [ spec.halfX * S, spec.halfHeight * S, spec.halfZ * S ];
+			const position = [
+				( gx + 0.5 ) * CELL_RAW * S,
+				groundY + halfExtents[ 1 ],
+				( gz + 0.5 ) * CELL_RAW * S,
+			];
+			const quaternion = [ rotQuat.x, rotQuat.y, rotQuat.z, rotQuat.w ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				quaternion,
+				friction: 0.7,
+				restitution: 0.05,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+			continue;
+
+		}
+
+		if ( ! decoKey.startsWith( 'custom:' ) ) continue;
 		const assetId = decoKey.slice( 'custom:'.length );
 		const colliderBoxes = Array.isArray( customAssetColliders?.[ assetId ]?.colliderBoxes ) ? customAssetColliders[ assetId ].colliderBoxes : [];
 		if ( colliderBoxes.length === 0 ) continue;
-		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 		const rotQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( 0, yaw, 0 ) );
 		const cellCenter = new THREE.Vector3( ( gx + 0.5 ) * CELL_RAW * S, 0.01, ( gz + 0.5 ) * CELL_RAW * S );
 		for ( const boxEntry of colliderBoxes.slice( 0, 96 ) ) {

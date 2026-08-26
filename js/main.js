@@ -253,6 +253,7 @@ const modelNames = [
 	'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope',
 	'elev-track-3-way', 'elev-track-4-way',
 	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
+	'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d', 'building-garage',
 ];
 
 const models = {};
@@ -3328,6 +3329,14 @@ async function loadModels( requiredNames = modelNames ) {
 				if ( name.startsWith( 'vehicle-' ) ) {
 
 					gltf.scene.scale.setScalar( 0.5 );
+
+				}
+
+				// Building GLBs are authored at 1x1 units — blow them up to
+				// one-cell size (10 raw units, matching the other decorations).
+				if ( name.startsWith( 'building-' ) ) {
+
+					gltf.scene.scale.setScalar( 10 );
 
 				}
 
