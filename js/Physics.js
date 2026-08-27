@@ -5,8 +5,8 @@ import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
 // Building model definitions. The game's loadModels() scales every 'building-*'
 // model up 10x (see js/main.js); the editor renders the same models at 10x too.
 // The hitbox for each building is a single cube centered on the cell:
-//   - footprint = 0.8 of the rescaled mesh = 0.8 * 10 = 8 world units per side
-//     (half-extent 4 before the grid scale S), and
+//   - footprint = 0.9 of the rescaled mesh = 0.9 * 10 = 9 world units per side
+//     (half-extent 4.5 before the grid scale S), and
 //   - height = the actual 10x mesh height (so the collider seals the building),
 //     so the user can fine-tune heights later by editing BUILDING_HITBOX_FRACTIONS.
 // These are LOCAL glb heights (as authored); the 10x scale is applied here.
@@ -1058,7 +1058,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	}
 
 	// Building decorations (built-in models) get a single centering cube:
-	// footprint 8x8 (0.8 of the 10x-rescaled mesh) and height = the 10x mesh
+	// footprint 9x9 (0.9 of the 10x-rescaled mesh) and height = the 10x mesh
 	// height so the collider seals the whole building.
 	for ( const [ gx, gz, decoKey, orient = 0 ] of decorationEntries ) {
 
@@ -1072,9 +1072,9 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		// Half-extents in world units: footprint half = 0.4 * 10 * S = 4 * S;
 		// height half = 0.5 * (localHeight * 10) * S.
 		const halfExtents = [
-			4 * S,
+			4.5 * S,
 			0.5 * localHeight * 10 * S,
-			4 * S,
+			4.5 * S,
 		];
 		// Base the collider at world Y 0, which is where the building's
 		// visual base lands after Track.js's -0.5 group offset and 0.75

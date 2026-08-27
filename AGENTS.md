@@ -11,14 +11,21 @@
   `building-small-c`, `building-small-d` (all in `models/`).
 
 ### 10x scale
+### Building colormap
+- Building GLBs reference an EXTERNAL texture `Textures/buildingscolormap.png`
+  (the dedicated building palette, keyed by the user as `buildingscolormap.png`).
+  Other blocks use the shared `Textures/colormap.png`. Do NOT point buildings at
+  `colormap.png`; swap `Textures/buildingscolormap.png` if the building colors need
+  changing.
+
 - Building GLBs are authored tiny (~1 cell). Both `js/main.js` `loadModels()` and
   `editor.html` `loadModels()` scale every `building-*` model up 10x
   (`gltf.scene.scale.setScalar(10)`). It's gated on `name.startsWith('building-')`,
   the same pattern as the vehicle 0.5 auto-scale. Do NOT scale boxes/gates/etc.
 
 ### Physics hitboxes (`js/Physics.js` `buildWallColliders`)
-- One centering cube per building decoration (footprint 0.8 of the 10x-rescaled
-  mesh = 8×8 world units before the 0.75 grid scale; height = the 10x mesh height
+- One centering cube per building decoration (footprint 0.9 of the 10x-rescaled
+  mesh = 9×9 world units before the 0.75 grid scale; height = the 10x mesh height
   so the hitbox seals the whole building). The cube is a static rigidBody box with
   friction 0.9.
 - Heights are driven by `BUILDING_HITBOX_FRACTIONS` (a map of LOCAL glb heights,
