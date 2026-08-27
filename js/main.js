@@ -253,6 +253,7 @@ const modelNames = [
 	'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope',
 	'elev-track-3-way', 'elev-track-4-way',
 	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
+	'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d',
 ];
 
 const models = {};
@@ -3328,6 +3329,15 @@ async function loadModels( requiredNames = modelNames ) {
 				if ( name.startsWith( 'vehicle-' ) ) {
 
 					gltf.scene.scale.setScalar( 0.5 );
+
+				}
+
+				// Building models are authored tiny (~1 cell). Scale them up 10x
+				// so they read as proper buildings. Hitbox colliders are derived
+				// from this same 10x scale.
+				if ( name.startsWith( 'building-' ) ) {
+
+					gltf.scene.scale.setScalar( 10 );
 
 				}
 

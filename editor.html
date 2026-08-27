@@ -653,6 +653,11 @@
 			<button id="btn-deco-forest">Tree</button>
 			<button id="btn-deco-tents">Tent</button>
 			<button id="btn-deco-empty">Prop</button>
+			<button id="btn-building-garage">Garage</button>
+			<button id="btn-building-small-a">Bldg A</button>
+			<button id="btn-building-small-b">Bldg B</button>
+			<button id="btn-building-small-c">Bldg C</button>
+			<button id="btn-building-small-d">Bldg D</button>
 			<button id="btn-custom-import">Import 3D</button>
 			<button id="btn-custom-cycle">Custom: none</button>
 			<input id="custom-model-file" type="file" accept=".glb,.gltf,.obj,model/gltf-binary,model/gltf+json" style="display:none" />
@@ -801,7 +806,8 @@
 		'pad-custom-a', 'pad-custom-b', 'pad-custom-c',
 		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
 	];
-	const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
+	const BUILDING_TYPES = [ 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
+        const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty', ...BUILDING_TYPES ];
 	const CUSTOM_MODEL_KEY_PREFIX = 'custom:';
 	const TRACK_SHARE_API_ROOT = 'https://racing-track-board-api.ga1010.workers.dev';
 	const TRACK_SHARE_API_PREFIXES = [ '/api', '' ];
@@ -1493,7 +1499,7 @@
 
 	const loader = new GLTFLoader();
 	const objLoader = new OBJLoader();
-	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'decoration-forest', 'decoration-tents', 'decoration-empty' ];
+	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
 	const models = {};
 	const customAssets = new Map();
 	let customAssetOrder = [];
@@ -1625,6 +1631,10 @@
 						if ( child.isMesh ) child.material.side = THREE.FrontSide;
 
 					} );
+
+					// Building models are authored tiny; scale them 10x to match
+					// the gameplay rendering (see js/main.js loadModels).
+					if ( name.startsWith( 'building-' ) ) gltf.scene.scale.setScalar( 10 );
 
 					models[ name ] = gltf.scene;
 					resolve();
@@ -3440,6 +3450,11 @@ function refreshMovingSpeedUi() {
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
+		'building-garage': document.getElementById( 'btn-building-garage' ),
+		'building-small-a': document.getElementById( 'btn-building-small-a' ),
+		'building-small-b': document.getElementById( 'btn-building-small-b' ),
+		'building-small-c': document.getElementById( 'btn-building-small-c' ),
+		'building-small-d': document.getElementById( 'btn-building-small-d' ),
 		'surface-custom-a': document.getElementById( 'btn-surface-custom-a' ),
 		'surface-custom-b': document.getElementById( 'btn-surface-custom-b' ),
 		'surface-custom-c': document.getElementById( 'btn-surface-custom-c' ),

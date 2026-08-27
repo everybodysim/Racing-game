@@ -1053,7 +1053,7 @@ export function placePiece( models, key, gx, gz, orient ) {
 	if ( ! src ) return null;
 
 	const piece = src.clone();
-	const yOffset = String( key || '' ).startsWith( 'decoration-' ) ? DECORATION_HEIGHT_OFFSET : VISUAL_HEIGHT_OFFSET;
+	const yOffset = ( String( key || '' ).startsWith( 'decoration-' ) || String( key || '' ).startsWith( 'building-' ) ) ? DECORATION_HEIGHT_OFFSET : VISUAL_HEIGHT_OFFSET;
 	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;

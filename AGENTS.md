@@ -1,5 +1,63 @@
 # Racing-game — agent memory
 
+## Building decorations (editor + physics)
+
+### What they are
+- 5 built-in decoration models usable in the level editor and serialized in the
+  track `d:` (deco) array exactly like other decorations:
+  `[gx, gz, decoKey, orient]`. Game + editor + URL-save all route them through the
+  existing generic decoration pipeline.
+- Models: `building-garage`, `building-small-a`, `building-small-b`,
+  `building-small-c`, `building-small-d` (all in `models/`).
+
+### 10x scale
+### Building colormap
+- Building GLBs reference an EXTERNAL texture `Textures/buildingscolormap.png`
+  (the dedicated building palette, keyed by the user as `buildingscolormap.png`).
+  Other blocks use the shared `Textures/colormap.png`. Do NOT point buildings at
+  `colormap.png`; swap `Textures/buildingscolormap.png` if the building colors need
+  changing.
+
+- Building GLBs are authored tiny (~1 cell). Both `js/main.js` `loadModels()` and
+  `editor.html` `loadModels()` scale every `building-*` model up 10x
+  (`gltf.scene.scale.setScalar(10)`). It's gated on `name.startsWith('building-')`,
+  the same pattern as the vehicle 0.5 auto-scale. Do NOT scale boxes/gates/etc.
+
+### Physics hitboxes (`js/Physics.js` `buildWallColliders`)
+- One centering cube per building decoration (footprint 0.9 of the 10x-rescaled
+  mesh = 9×9 world units before the 0.75 grid scale; height = the 10x mesh height
+  so the hitbox seals the whole building). The cube is a static rigidBody box with
+  friction 0.9.
+- Heights are driven by `BUILDING_HITBOX_FRACTIONS` (a map of LOCAL glb heights,
+  before the 10x scale), near the top of Physics.js. **These are placeholders that
+  should be re-measured/redone later** — the user flagged heights as needing a
+  rework. To fix a building's hitbox height, edit the fraction; the cube's
+  half-height = `0.5 * fraction * 10 * S` and its position y = that half-height
+  (base tables at world Y 0).
+- Current placeholder fractions: garage 0.55, small-a 0.95, small-b 1.6265,
+  small-c 1.75, small-d 1.0.
+- If you can inspect the GLB mesh bounds, replace these with accurate mesh heights
+  (`mesh.boundingBox` / a GLB Triangulated getSize call) so the cube matches the
+  actual building.
+
+### Editor wiring
+- `editor.html`:
+  - Toolbar buttons `#btn-building-garage` (Garage) + `#btn-building-small-*`
+    (Bldg A/B/C/D) after the Tree/Tent/Prop buttons.
+  - `BUILDING_TYPES` array + folded into `DECO_TYPES` (so placement routing,
+    active-button highlight loop, click wiring, and rotate handling all include
+    buildings automatically — no per-type code needed).
+  - `modelNames` includes all 5 building models, and its `loadModels()` applies the
+    same 10x scale.
+- `js/Track.js` `placePiece()`: `building-*` decorations use the same height offset
+  as `decoration-*` (DECORATION_HEIGHT_OFFSET), matching the editor's deco render.
+- Save/load is fully generic via `cell.decoType` → `d:` array; no new save code.
+
+### To redo hitbox heights later
+1. Open each building GLB, get its true bounding height (locally scaled).
+2. Update `BUILDING_HITBOX_FRACTIONS` in Physics.js to the local height.
+3. No other code changes needed — footprint/centering/rotation are already generic.
+
 ## Adding a new car (vehicle model)
 
 ### Model requirements (the GLB itself)
