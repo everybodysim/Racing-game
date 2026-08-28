@@ -200,7 +200,7 @@ export function mapSignatureFromPlayUrl( playUrl ) {
 
 // Turn a track board playUrl into a same-tab navigation URL that rejoins the
 // public server after the redirect (preserves the pubServer param). The playUrl
-// from the board is an ABSOLUTE URL (e.g. https://everybodysim.github.io/...).
+// from the board is an ABSOLUTE URL.
 // We must NOT use its origin/pathname — the game may be running on a different
 // host (CrazyGames iframe, localhost, a custom domain) where that path doesn't
 // exist (→ 404 → track never loads). Instead we keep the CURRENT page's pathname

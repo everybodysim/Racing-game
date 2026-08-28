@@ -30,19 +30,19 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<link rel="manifest" href="manifest.webmanifest">
 	<link rel="icon" href="icons/favicon.png" type="image/png">
 	<link rel="apple-touch-icon" href="icons/icon-192.png">
-	<link rel="canonical" href="https://everybodysim.github.io/Racing-game/">
+	<link rel="canonical" href="./">
 	<meta name="description" content="Play Skid Circuit, a free 3D browser racing game. Race, drift, build custom tracks, compete for fast times, and play with the Skid Circuit community.">
 	<meta name="robots" content="index, follow">
 	<meta property="og:type" content="website">
 	<meta property="og:site_name" content="Skid Circuit">
 	<meta property="og:title" content="Skid Circuit — Free Browser Racing Game">
 	<meta property="og:description" content="Play Skid Circuit, a free 3D browser racing game. Race, drift, build custom tracks, compete for fast times, and play with the Skid Circuit community.">
-	<meta property="og:url" content="https://everybodysim.github.io/Racing-game/">
-	<meta property="og:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
+	<meta property="og:url" content="./">
+	<meta property="og:image" content="branding/logo.png">
 	<meta name="twitter:card" content="summary_large_image">
 	<meta name="twitter:title" content="Skid Circuit — Free Browser Racing Game">
 	<meta name="twitter:description" content="Play Skid Circuit, a free 3D browser racing game. Race, drift, build custom tracks, compete for fast times, and play with the Skid Circuit community.">
-	<meta name="twitter:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
+	<meta name="twitter:image" content="branding/logo.png">
 	<script type="application/ld+json">
 	{
 		"@context": "https://schema.org",
@@ -50,18 +50,18 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			{
 				"@type": "WebSite",
 				"name": "Skid Circuit",
-				"url": "https://everybodysim.github.io/Racing-game/",
+				"url": "./",
 				"description": "A free 3D browser racing game where you can race, drift, compete for fast times, build custom tracks, and play with the community.",
 				"potentialAction": {
 					"@type": "PlayAction",
-					"target": "https://everybodysim.github.io/Racing-game/?play=1",
+					"target": "./?play=1",
 					"name": "Play Skid Circuit"
 				}
 			},
 			{
 				"@type": "VideoGame",
 				"name": "Skid Circuit",
-				"url": "https://everybodysim.github.io/Racing-game/",
+				"url": "./",
 				"genre": ["Racing", "Sports"],
 				"gamePlatform": ["Web Browser"],
 				"applicationCategory": "Game",
@@ -131,6 +131,36 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			color: #fff;
 			font: 600 14px/1.4 Inter, system-ui, sans-serif;
 		}
+		/* Mobile "not supported" block — shown only when html.mobile-blocked is set by
+		   the early detection script (UA-based; never fires on desktop/Chromebook). */
+		#mobile-block-overlay {
+			position: fixed;
+			inset: 0;
+			z-index: 999999;
+			display: none;
+			align-items: center;
+			justify-content: center;
+			padding: 24px;
+			box-sizing: border-box;
+			background: radial-gradient(circle at 50% 30%, #12203a, #070b14 70%);
+			color: #fff;
+			font: 600 14px/1.4 Inter, system-ui, sans-serif;
+			touch-action: none;
+			overscroll-behavior: none;
+		}
+		html.mobile-blocked #mobile-block-overlay { display: flex; }
+		#mobile-block-card {
+			max-width: 420px;
+			text-align: center;
+			background: rgba(255,255,255,0.06);
+			border: 1px solid rgba(255,255,255,0.14);
+			border-radius: 20px;
+			padding: 28px 24px;
+			box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+		}
+		#mobile-block-card img { width: 130px; height: auto; margin-bottom: 14px; }
+		#mobile-block-card h1 { margin: 0 0 10px; font-size: 20px; line-height: 1.3; }
+		#mobile-block-card p { margin: 0; color: #b5c2da; font-weight: 500; }
 		#loading-screen::before {
 			content: '';
 			position: absolute;
@@ -2198,34 +2228,39 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 </head>
 <body>
 <script>
-// ── Early mobile detection (prevents FOUC) ──
-// body.mobile = actual mobile devices only (NOT touchscreen laptops/desktops)
-// A debug toggle in gameplay settings can force it on for testing
+// ── Early mobile block (prevents FOUC) ──
+// Mobile devices get a full-screen "not supported" overlay and the game loop is
+// hard-paused (window.__mobileUnsupported, checked in js/main.js animate()).
 //
-// TEMPORARY: mobile UI is disabled — the standard (desktop) layout is shown
-// everywhere (incl. narrow CrazyGames iframes). The IIFE below returns early so
-// the 'mobile' class is never added, and the @media (pointer: coarse) mobile
-// blocks use an impossible query. Revert both to re-enable mobile UI later.
+// Detection is USER-AGENT ONLY — deliberately NOT based on screen size, touch
+// support, or pointer type, so touchscreen laptops, small desktop windows, and
+// Chromebooks are NEVER misdetected as phones:
+//  - Desktop Chrome/Firefox/Safari/Edge UAs never contain a mobile token.
+//  - ChromeOS ("CrOS") UAs never contain a mobile token either (excluded twice
+//    for safety), so Chromebooks always get the full game.
+//  - iPadOS 13+ reports a Macintosh UA; the ONLY reliable tell is the
+//    MacIntel-platform + multi-touch combo, which no real Mac (no touchscreen
+//    Macs exist) can match.
+// Test override: append ?block-mobile-test=1 to the URL to force the overlay.
 (function() {
-	// TEMPORARY: mobile UI disabled — the standard (desktop) layout is force-locked
-	// everywhere. The `mobile` class is NOT added (so all body.mobile CSS rules are
-	// inert) and the @media (pointer: coarse) mobile blocks use an impossible query
-	// (see the `and (pointer: fine)` additions). The existing two-column main-menu
-	// block below keeps the home layout from collapsing on narrow screens.
-	// To re-enable mobile UI later: restore this IIFE body (remove the early return)
-	// and revert the @media (pointer: coarse) queries.
-	return;
-	var isTouch = 'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0;
-	var isSmallScreen = window.innerWidth <= 760;
-	var isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-	if (isSmallScreen || isMobileUA || (isTouch && window.innerWidth <= 1024)) {
-		document.body.classList.add('mobile');
-	}
-	if (localStorage.getItem('racing-debug-mobile-test') === '1') {
-		document.body.classList.add('mobile');
+	var ua = navigator.userAgent || '';
+	var isMobileUA = /Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini|Opera Mobi|Windows Phone|Mobile/i.test(ua);
+	var isChromeOS = /CrOS/i.test(ua);
+	var isIPadOS = navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1;
+	var testOverride = new URLSearchParams(location.search).get('block-mobile-test') === '1';
+	if (((isMobileUA && !isChromeOS) || isIPadOS || testOverride)) {
+		window.__mobileUnsupported = true;
+		document.documentElement.classList.add('mobile-blocked');
 	}
 })();
 </script>
+<div id="mobile-block-overlay" role="alertdialog" aria-modal="true" aria-label="Mobile not supported">
+	<div id="mobile-block-card">
+		<img src="branding/logo.png" alt="Skid Circuit">
+		<h1>Sorry, this game does not currently support mobile.</h1>
+		<p>Skid Circuit needs a keyboard to play. Please visit this page on a desktop, laptop, or Chromebook instead.</p>
+	</div>
+</div>
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content">
 	<div id="speed-blur-vignette" aria-hidden="true"></div>
@@ -2299,7 +2334,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<!-- Right: Community panel -->
 				<div id="home-community">
 					<div>
-						<div class="home-panel-title">Featured track (This section is WIP)</div>
+						<div class="home-panel-title">Featured track</div>
 						<a id="home-featured-track" href="tracks.html">
 							<div class="ft-name">Loading community tracks…</div>
 							<div class="ft-meta">Fetching from the track board</div>
@@ -2806,17 +2841,24 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				return raw;
 			}
 
-			function getTrackId( playUrl ) {
+			function getTrackIdCandidates( playUrl ) {
 				try {
-					const u = new URL( playUrl, 'https://everybodysim.github.io' );
+					const u = new URL( playUrl, window.location.href );
 					const map = u.searchParams.get( 'map' ) || '';
 					const mods = u.searchParams.get( 'mods' ) || '';
 					const q = new URLSearchParams();
 					if ( map ) q.set( 'map', map );
 					if ( mods ) q.set( 'mods', mods );
-					const rawUrl = `${ normalizeTrackPath( u.pathname ) }${ q.toString() ? `?${ q.toString() }` : '' }`;
-					return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
-				} catch ( e ) { return ''; }
+					const query = q.toString() ? `?${ q.toString() }` : '';
+					// Records were written under two key schemes over time: older
+					// boards are keyed by the full normalized path, newer ones are
+					// path-agnostic. Query both so the home panel matches the
+					// track share board.
+					return [
+						`trk-${ hashTrackSeed( `v4-url|${ normalizeTrackPath( u.pathname ) }${ query }` ) }`,
+						`trk-${ hashTrackSeed( `v4-url|${ query }` ) }`,
+					];
+				} catch ( e ) { return []; }
 			}
 
 			async function fetchBoardEntries() {
@@ -2827,13 +2869,19 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				} catch ( e ) { return []; }
 			}
 
-			async function fetchLeaderboard( trackId ) {
-				try {
-					const res = await fetch( `${ LB_API }?trackId=${ encodeURIComponent( trackId ) }` );
-					if ( ! res.ok ) return [];
-					const data = await res.json();
-					return Array.isArray( data?.entries ) ? data.entries : [];
-				} catch ( e ) { return []; }
+			async function fetchLeaderboardRows( trackIds ) {
+				const payloads = await Promise.all( trackIds.map( async ( trackId ) => {
+					try {
+						const res = await fetch( `${ LB_API }?trackId=${ encodeURIComponent( trackId ) }` );
+						if ( ! res.ok ) return [];
+						const data = await res.json();
+						return Array.isArray( data?.entries ) ? data.entries : [];
+					} catch ( e ) { return []; }
+				} ) );
+				const merged = payloads.flat();
+				return [ ...new Map( merged.map( ( row ) => [ `${ String( row?.name || '' ).trim().toLowerCase() }|${ Number( row?.timeSeconds ) || Infinity }`, row ] ) ).values() ]
+					.filter( ( row ) => String( row?.name || '' ).trim() && Number.isFinite( Number( row?.timeSeconds ) ) )
+					.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
 			}
 
 			function renderFeaturedTrack( entries ) {
@@ -2845,12 +2893,22 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					}
 					return;
 				}
-				const avgPlays = entries.reduce( ( t, e ) => t + ( Number( e.viewCount ) || 0 ), 0 ) / entries.length;
-				const featured = [ ...entries ]
-					.filter( e => ( Number( e.viewCount ) || 0 ) >= avgPlays )
-					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )[ 0 ]
-					|| entries.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) )[ 0 ];
-				ftEl.href = featured.playUrl;
+				// Daily-rotating featured pick: top 5 by plays, then hash today's UTC
+				// date to choose one. Changes once per day, identical for every
+				// visitor on the same day.
+				const top5 = [ ...entries ]
+					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )
+					.slice( 0, 5 );
+				const today = new Date();
+				const dateSeed = `${ today.getUTCFullYear() }-${ today.getUTCMonth() + 1 }-${ today.getUTCDate() }`;
+				const seedHash = Number( BigInt( '0x' + hashTrackSeed( `featured-v3|${ dateSeed }` ).slice( 0, 13 ) ) % BigInt( top5.length ) );
+				const featured = top5[ seedHash ] || top5[ 0 ];
+				try {
+					const u = new URL( featured.playUrl, window.location.href );
+					ftEl.href = `index.html${ u.search }${ u.hash || '' }`;
+				} catch {
+					ftEl.href = featured.playUrl;
+				}
 				ftEl.target = '_blank';
 				ftEl.rel = 'noopener noreferrer';
 				ftEl.querySelector( '.ft-name' ).textContent = featured.name;
@@ -2902,61 +2960,71 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					return;
 				}
 
-				// Fetch leaderboards for the most active tracks with a short homepage timeout.
-				const topTracks = [ ...entries ]
-					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.thumbsUp ) || 0 ) - ( Number( a.thumbsUp ) || 0 ) )
-					.slice( 0, 24 )
-					.map( e => ( { id: getTrackId( e.playUrl ), entry: e } ) )
-					.filter( t => t.id );
-
-				const lbResults = [];
-				const lbFetches = topTracks.map( t => fetchLeaderboard( t.id ).then( rows => {
-					const result = { trackId: t.id, rows };
-					lbResults.push( result );
-					return result;
-				} ).catch( () => ( { trackId: t.id, rows: [] } ) ) );
-				await Promise.race( [
-					Promise.allSettled( lbFetches ),
-					new Promise( ( resolve ) => setTimeout( resolve, 2500 ) )
-				] );
-
-				// Aggregate record holders
-				const winsByDriver = new Map();
-				for ( const { rows } of lbResults ) {
-					if ( ! Array.isArray( rows ) || rows.length === 0 ) continue;
-					const top = [ ...rows ].sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) )[ 0 ];
-					const name = String( top?.name || '' ).trim();
-					if ( ! name ) continue;
-					winsByDriver.set( name, ( winsByDriver.get( name ) || 0 ) + 1 );
+				// Fetch every shared track's leaderboard in small chunks, re-rendering
+				// the top-3 panels as results stream in (same approach as tracks.html).
+				// Old records live under path-keyed ids and newer ones under
+				// path-agnostic ids, so each track queries both schemes.
+				const seenTrackIds = new Set();
+				const trackRequests = [];
+				for ( const entry of entries ) {
+					const ids = getTrackIdCandidates( entry.playUrl );
+					if ( ids.length === 0 || seenTrackIds.has( ids[0] ) ) continue;
+					seenTrackIds.add( ids[0] );
+					trackRequests.push( ids );
 				}
-				const recordLeaders = [ ...winsByDriver.entries() ]
-					.map( ( [ name, wins ] ) => ( { name, wins } ) )
-					.sort( ( a, b ) => b.wins - a.wins || a.name.localeCompare( b.name ) );
 
-				// Aggregate placement ratings
 				const POINTS = [ 100, 80, 65, 54, 46, 40, 35, 30, 26, 22 ];
-				const scoreByDriver = new Map();
-				for ( const { rows } of lbResults ) {
-					if ( ! Array.isArray( rows ) || rows.length === 0 ) continue;
-					const sorted = [ ...rows ].sort( ( a, b ) => Number( a?.timeSeconds ) - Number( b?.timeSeconds ) );
-					sorted.slice( 0, POINTS.length ).forEach( ( row, idx ) => {
-						const name = String( row?.name || '' ).trim();
-						if ( ! name ) return;
-						const ex = scoreByDriver.get( name ) || { name, points: 0, podiums: 0 };
-						ex.points += POINTS[ idx ] || 0;
-						if ( idx <= 2 ) ex.podiums += 1;
-						scoreByDriver.set( name, ex );
-					} );
-				}
-				const placementRatings = [ ...scoreByDriver.values() ]
-					.sort( ( a, b ) => b.points - a.points || b.podiums - a.podiums || a.name.localeCompare( b.name ) );
+				const lbResults = [];
+				const renderPartial = () => {
+					// Aggregate record holders
+					const winsByDriver = new Map();
+					for ( const { rows } of lbResults ) {
+						if ( rows.length === 0 ) continue;
+						const name = String( rows[0]?.name || '' ).trim();
+						if ( ! name ) continue;
+						winsByDriver.set( name, ( winsByDriver.get( name ) || 0 ) + 1 );
+					}
+					const recordLeaders = [ ...winsByDriver.entries() ]
+						.map( ( [ name, wins ] ) => ( { name, wins } ) )
+						.sort( ( a, b ) => b.wins - a.wins || a.name.localeCompare( b.name ) );
 
-				renderLeaders( recordLeaders, placementRatings );
+					// Aggregate placement ratings
+					const scoreByDriver = new Map();
+					for ( const { rows } of lbResults ) {
+						rows.slice( 0, POINTS.length ).forEach( ( row, idx ) => {
+							const name = String( row?.name || '' ).trim();
+							if ( ! name ) return;
+							const ex = scoreByDriver.get( name ) || { name, points: 0, podiums: 0 };
+							ex.points += POINTS[ idx ] || 0;
+							if ( idx <= 2 ) ex.podiums += 1;
+							scoreByDriver.set( name, ex );
+						} );
+					}
+					const placementRatings = [ ...scoreByDriver.values() ]
+						.sort( ( a, b ) => b.points - a.points || b.podiums - a.podiums || a.name.localeCompare( b.name ) );
+
+					renderLeaders( recordLeaders, placementRatings );
+				};
+
+				const startedAt = Date.now();
+				for ( let i = 0; i < trackRequests.length; i += 12 ) {
+					const chunk = trackRequests.slice( i, i + 12 );
+					const rowsList = await Promise.all( chunk.map( ( ids ) => fetchLeaderboardRows( ids ) ) );
+					rowsList.forEach( ( rows ) => lbResults.push( { rows } ) );
+					renderPartial();
+					// Soft cap: if the worker is being slow, keep what we have.
+					if ( Date.now() - startedAt > 15000 ) break;
+				}
 			} )().catch( () => {
 				if ( ftEl ) ftEl.querySelector( '.ft-name' ).textContent = 'Could not load tracks';
 				renderLeaders( [], [] );
 			} );
 		}
+
+		// The showLanding() IIFE above runs before this function is defined, so it
+		// cannot start the community fetch itself — kick it off here once the
+		// function exists (only when the landing page is actually shown).
+		if ( document.getElementById( 'home-landing' )?.classList.contains( 'visible' ) ) loadHomeCommunityData();
 	</script>
 
 	<script>

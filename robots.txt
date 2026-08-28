@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://everybodysim.github.io/Racing-game/sitemap.xml
+Sitemap: https://skidcircuit.github.io/sitemap.xml
