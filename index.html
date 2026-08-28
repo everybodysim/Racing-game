@@ -311,6 +311,103 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			display: none;
 			box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
 		}
+		#mp-public-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.18); }
+		#mp-public-row > .mp-public-label { font: 700 11px/1 sans-serif; opacity: 0.9; }
+		#mp-public-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+		#mp-public-buttons button {
+			flex: 1 1 auto;
+			min-width: 0;
+			border: none;
+			border-radius: 6px;
+			background: rgba(83,212,255,0.18);
+			color: #fff;
+			padding: 6px 7px;
+			font: 600 11px/1 sans-serif;
+			cursor: pointer;
+		}
+		#mp-public-buttons button:hover { background: rgba(83,212,255,0.34); }
+		#mp-public-buttons button:disabled { opacity: 0.5; cursor: default; }
+		#mp-public-leave-btn {
+			border: none;
+			border-radius: 6px;
+			background: rgba(255,92,120,0.20);
+			color: #ffd6dc;
+			padding: 6px 8px;
+			font: 600 11px/1 sans-serif;
+			cursor: pointer;
+		}
+		#mp-public-leave-btn:hover { background: rgba(255,92,120,0.36); }
+		/* Propose-a-map-vote row: shown only while connected to a public server
+		   (toggled to display:flex / none by updatePublicServerButtonStates). */
+		#mp-pubtrack-row { display: none; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.18); }
+		#mp-pubtrack-row > .mp-public-label { font: 700 11px/1 sans-serif; opacity: 0.9; }
+		#mp-pubtrack-input-wrap { display: flex; gap: 6px; align-items: center; }
+		#mp-pubtrack-input {
+			flex: 1; min-width: 0;
+			border-radius: 6px;
+			border: 1px solid rgba(255,255,255,0.24);
+			background: rgba(20,20,20,0.45);
+			color: #fff;
+			padding: 6px 8px;
+			font: 600 11px/1.2 sans-serif;
+		}
+		#mp-pubtrack-btn {
+			border: none; border-radius: 6px;
+			background: rgba(83,212,255,0.25); color: #fff;
+			padding: 6px 10px; font: 700 11px/1 sans-serif; cursor: pointer;
+			white-space: nowrap;
+		}
+		#mp-pubtrack-btn:hover { background: rgba(83,212,255,0.4); }
+		/* Map-vote prompt: a bottom-of-screen overlay shown to everyone on the
+		   public server while a vote is active. */
+		#mp-vote-prompt {
+			position: fixed;
+			left: 50%;
+			bottom: 18px;
+			transform: translateX(-50%);
+			z-index: 258;
+			display: none;
+			flex-direction: column;
+			align-items: center;
+			gap: 10px;
+			padding: 14px 20px;
+			border-radius: 14px;
+			background: rgba(15,18,24,0.96);
+			border: 1px solid rgba(83,212,255,0.5);
+			color: #fff;
+			font: 600 14px/1.4 sans-serif;
+			box-shadow: 0 14px 40px rgba(0,0,0,0.55);
+			min-width: 280px;
+			max-width: min(560px, calc(100vw - 24px));
+		}
+		#mp-vote-prompt.visible { display: flex; }
+		#mp-vote-header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; width: 100%; }
+		#mp-vote-title { margin: 0; font: 800 16px/1.2 sans-serif; }
+		#mp-vote-timer {
+			font: 800 18px/1 monospace;
+			color: #bde6ff;
+			min-width: 2.4em;
+			text-align: right;
+			white-space: nowrap;
+		}
+		#mp-vote-timer.urgent { color: #ff6b81; }
+		#mp-vote-track-name { margin: 0; color: #bde6ff; font: 700 14px/1.3 sans-serif; text-align: center; word-break: break-word; }
+		#mp-vote-buttons { display: flex; gap: 10px; align-items: center; }
+		#mp-vote-yes, #mp-vote-no {
+			border: none; border-radius: 8px;
+			padding: 8px 18px;
+			font: 800 14px/1 sans-serif;
+			cursor: pointer;
+			color: #04130a;
+		}
+		#mp-vote-yes { background: #4ade80; }
+		#mp-vote-yes:hover:not(:disabled) { background: #6ee39a; }
+		#mp-vote-no { background: #fb7185; color: #1a0608; }
+		#mp-vote-no:hover:not(:disabled) { background: #ff8a9d; }
+		#mp-vote-yes:disabled, #mp-vote-no:disabled { opacity: 0.45; cursor: default; }
+		#mp-vote-counts { display: flex; gap: 16px; font: 700 13px/1 sans-serif; opacity: 0.95; }
+		#mp-vote-yes-count { color: #86efac; }
+		#mp-vote-no-count { color: #fda4af; }
 		#competitions-warning-overlay {
 			position: fixed;
 			inset: 0;
@@ -2551,6 +2648,11 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<button id="import-ghost-btn" type="button">Import ghost</button>
 	<div id="mp-panel" aria-label="Multiplayer">
 		<div id="mp-panel-title">Multiplayer</div>
+		<div id="mp-public-row">
+			<div class="mp-public-label">Public servers</div>
+			<div id="mp-public-buttons"></div>
+			<button id="mp-public-leave-btn" type="button" style="display:none;">Leave server</button>
+		</div>
 		<div id="mp-actions">
 			<button id="mp-host-btn" type="button">Host</button>
 			<button id="mp-join-btn" type="button">Join</button>
@@ -2561,10 +2663,32 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<button id="mp-copy-btn" type="button">Copy</button>
 		</div>
 		<div id="mp-status" aria-live="polite"></div>
+		<div id="mp-pubtrack-row">
+			<div class="mp-public-label">Propose a map vote</div>
+			<div id="mp-pubtrack-input-wrap">
+				<input id="mp-pubtrack-input" type="text" placeholder="Paste a track share URL" aria-label="Track share URL">
+				<button id="mp-pubtrack-btn" type="button">Select track</button>
+			</div>
+		</div>
 		<div id="mp-debug-overlay" aria-live="polite" aria-label="Multiplayer debug console"></div>
 		<div id="mp-lb">
 			<div id="mp-lb-title">Online room best laps</div>
 			<ol id="mp-lb-list"></ol>
+		</div>
+	</div>
+	<div id="mp-vote-prompt" role="dialog" aria-modal="false" aria-labelledby="mp-vote-title">
+		<div id="mp-vote-header">
+			<h2 id="mp-vote-title">Switch map?</h2>
+			<span id="mp-vote-timer" aria-live="off">30s</span>
+		</div>
+		<p id="mp-vote-track-name">Shared track</p>
+		<div id="mp-vote-buttons">
+			<button id="mp-vote-yes" type="button">Yes</button>
+			<button id="mp-vote-no" type="button">No</button>
+		</div>
+		<div id="mp-vote-counts">
+			<span>Yes: <span id="mp-vote-yes-count">0</span></span>
+			<span>No: <span id="mp-vote-no-count">0</span></span>
 		</div>
 	</div>
 	<div id="competitions-warning-overlay" role="presentation" aria-hidden="true">
@@ -2633,6 +2757,29 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			const recordEl = document.getElementById( 'home-record-leaders' );
 			const placementEl = document.getElementById( 'home-placement-leaders' );
 
+			// The track board worker returns a transient Cloudflare 503 ("error
+			// code: 1102") on most single requests; retrying makes a 200 effectively
+			// guaranteed so the home community panel reliably shows a featured track.
+			async function fetchBoardWithRetry( url, { attempts = 8, timeoutMs = 8000, backoffMs = 350 } = {} ) {
+				let lastError = null;
+				for ( let attempt = 0; attempt < attempts; attempt ++ ) {
+					const controller = new AbortController();
+					const timeoutId = setTimeout( () => controller.abort(), timeoutMs );
+					try {
+						const res = await fetch( url, { cache: 'no-store', signal: controller.signal } );
+						if ( res.ok ) return await res.json();
+						lastError = new Error( `HTTP ${ res.status }` );
+						if ( res.status >= 400 && res.status < 500 && res.status !== 429 ) throw lastError;
+					} catch ( error ) {
+						lastError = error;
+					} finally {
+						clearTimeout( timeoutId );
+					}
+					if ( attempt < attempts - 1 ) await new Promise( ( r ) => setTimeout( r, backoffMs ) );
+				}
+				throw lastError || new Error( 'board-fetch-failed' );
+			}
+
 			function escapeHtml( str ) {
 				return String( str || '' ).replace( /&/g, '&amp;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' ).replace( /"/g, '&quot;' );
 			}
@@ -2674,9 +2821,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 
 			async function fetchBoardEntries() {
 				try {
-					const res = await fetch( BOARD_API );
-					if ( ! res.ok ) return [];
-					const data = await res.json();
+					const data = await fetchBoardWithRetry( BOARD_API );
 					const rows = Array.isArray( data?.entries ) ? data.entries : [];
 					return rows.filter( e => typeof e?.playUrl === 'string' && typeof e?.name === 'string' );
 				} catch ( e ) { return []; }

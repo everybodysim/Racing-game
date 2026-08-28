@@ -1008,3 +1008,221 @@ The mobile UI had two independent triggers; BOTH are neutralized:
 - Normal desktop load: home page renders identically to before (full desktop
   layout, all buttons). No regressions.
 - CSS braces balanced (519/519 excl. comments); detection IIFE braces balanced.
+
+
+## Public multiplayer servers (`js/PublicServers.js` + `js/main.js` + `index.html`)
+
+### What it is
+- 3 fixed public servers in the multiplayer widget (`#mp-panel`): **Server 1**
+  (`server-1`, code `PUBSV1`), **Server 2** (`server-2`, code `PUBSV2`),
+  **Server 3** (`server-3`, code `PUBSV3`). They are NOT locational — they're
+  just 3 parallel PeerJS rooms so players can spread out if one is full. Anyone
+  can join; they see everyone else on the same server.
+- There is NO round timer, NO rankings overlay, NO deterministic track rotation,
+  and NO backend worker. A public server is a bare-minimum PeerJS (WebRTC) mesh:
+  the buttons join you into the server with everyone else, and the host tells
+  joiners which map everyone is on (MAP_SYNC) so you redirect onto it. That's it.
+- The **crucial new feature** is a map-vote UI that appears in the multiplayer
+  panel when you're in a server: a text input + a "Select track" button. A player
+  pastes a track URL and submits; their game searches the track share board for
+  the URL and gets the name. Then on EVERYONE's screen a bottom-of-screen prompt
+  appears ("Switch map?" + the track name + Yes/No buttons) that updates in real
+  time showing how many voted Yes/No. After 30s (counted on the initiator's
+  device) the UI hides for everyone and the votes are tallied; if >60% are "yes"
+  (with at least one vote) the track is switched — the initiator's game redirects
+  first and sends a VOTE_RESULT signal to move everyone else over too.
+- **Normal multiplayer with host/join codes is UNCHANGED.** All public-server code
+  is gated behind `isPublicServerActive()` (only true after `joinPublicServer`,
+  via the buttons or the `?pubServer=` boot param). No `pubServer` param = no
+  public-server code runs at all.
+
+### Architecture (PeerJS / WebRTC mesh only — no backend worker)
+- PeerJS connects players over WebRTC. `peerConfig` includes a TURN server, so
+  the connection works even through symmetric NATs. There is NO Cloudflare
+  servers worker on the public-servers path: **public servers make ZERO calls
+  to `racing-servers-api`**. The old `cloudflare-servers/worker` is kept only for
+  history (see the STATUS notice in `cloudflare-servers/README.md`); it can be
+  deleted/disabled. **No worker redeploy is required** — it's a client-side
+  change.
+- The only network dependency is the **read-only** track share board
+  (`cloudflare/worker`, `GET /api/tracks`), used by the vote to look up a pasted
+  track URL's name (`fetchTrackList` + `findTrackByPlayUrl`). Zero KV writes.
+- Host election is PeerJS-native: the first player to claim the
+  `RACE-ROOM-<code>` peer id becomes the host; joiners connect to it. If the host
+  disappears, a joiner detects the dead connection and reclaims the id
+  (self-healing, via `maintainPublicServerPeer` + `maybeReclaimPublicServerHost`).
+- The "host" role grants NO in-game privileges — it is hidden from the UI and
+  gates nothing except: acting as the PeerJS relay (so all peers see each other)
+  and sending the MAP_SYNC packet (so joiners load the right map). Do NOT add any
+  `if (publicServerState.isHost)` gate that affects gameplay/visibility.
+
+### Join / map sync (host tells joiners which map everyone is on)
+- `joinPublicServer(serverId)` leaves any session, sets the roomCode to the
+  fixed server code, and `startPublicServerPeer(code)` tries to claim the
+  `RACE-ROOM-<code>` peer id. If PeerJS fires `unavailable-id` (someone else owns
+  it) the client becomes a joiner (connects via `applyPublicServerRoleToConnections`
+  → `startPeerMultiplayer(code,'join')`); 6s safety timeout falls back to joiner.
+- When a joiner connects, the host sends a `PEER_PACKET_MAP_SYNC` with its
+  current `mapSignature` (from `getCurrentMapSignature()`) — see
+  `broadcastPublicServerMapSync` (called from `registerPeerConnection` on the
+  host side). The joiner's `onPublicServerMapSync` calls
+  `redirectPublicServerToMap(sig,'host')`, which redirects (rejoining via
+  `?pubServer=<id>&play=1&map=...`) if the signature differs from the map they're
+  on.
+- Anti-loop: after a redirect the page reloads on the host's map, so
+  `sig === getCurrentMapSignature()` → no re-redirect. A sessionStorage flag
+  (`pubsrv_loaded_map`, via `getLoadedPublicServerMapFromStorage` /
+  `setLoadedPublicServerMapInStorage` / `clearLoadedPublicServerMapFromStorage`)
+  is a belt-and-braces guard against re-redirecting.
+- `buildServerTrackRedirectUrl(playUrl, serverId)` (PublicServers.js) extracts
+  ONLY `map`+`mods` from the playUrl and applies them to the CURRENT page's
+  pathname (`window.location.pathname`) + adds `?pubServer=<id>&play=1`. It does
+  NOT use the playUrl's origin/pathname (that path doesn't exist on other
+  deployments → 404). It filters `mods=none`. This is the same redirect builder
+  the vote uses.
+- Leave: `leavePublicServer()` tears down the PeerJS peer (the LEFT packet + peer
+  destroy handle departure; if we were host a surviving joiner's maintenance loop
+  reclaims the id). `?pubServer=<id>` on the redirect URL re-joins the same server
+  on the new map.
+
+### Map vote (the new feature)
+- **UI** (`index.html`): `#mp-pubtrack-row` (input `#mp-pubtrack-input` + button
+  `#mp-pubtrack-btn` "Select track") inside `#mp-panel`, shown only while on a
+  public server (toggled to `display:flex`/`none` by
+  `updatePublicServerButtonStates`). `#mp-vote-prompt` is a fixed bottom-of-screen
+  overlay (`z-index: 258`, `display:none` → `.visible { display:flex }`) with
+  `#mp-vote-title` ("Switch map?"), `#mp-vote-track-name`, Yes/No buttons
+  (`#mp-vote-yes`/`#mp-vote-no`), and live counts (`#mp-vote-yes-count`/
+  `#mp-vote-no-count`).
+- **Packets** (main.js, defined near the other `PEER_PACKET_*` constants):
+  - `PEER_PACKET_MAP_SYNC` — host → joiner: `{type, playerId, mapSignature}`.
+  - `PEER_PACKET_VOTE_START` — initiator → all: `{type, playerId, voteId, playUrl,
+    trackName, initiatorId, startedAt}`.
+  - `PEER_PACKET_VOTE` — any voter → all: `{type, playerId, voteId, vote:'yes'|'no'}`.
+  - `PEER_PACKET_VOTE_RESULT` — initiator → all: `{type, playerId, voteId,
+    passed:bool, playUrl, trackName}`.
+  - The host relays every packet (in `relayHostPacket`) so indirectly-connected
+    peers also receive it. `handlePeerPacket` dispatches each type.
+- **Flow** (in `main.js`, the `publicServerVoteState` block):
+  1. A player pastes a URL + clicks "Select track" → `startPublicServerVoteFromInput`
+     → `getCachedPublicServerTrackList()` (60s-cached `fetchTrackList`) →
+     `findTrackByPlayUrl(rawUrl, list)` (PublicServers.js) finds the track + name.
+  2. `startPublicServerVote(playUrl, trackName)` records the vote locally
+     (`publicServerVoteState`), auto-votes "yes" for the initiator, broadcasts
+     `PEER_PACKET_VOTE_START`, shows the prompt, and starts the authoritative
+     30s timer on the initiator's device (`PUBLIC_SERVER_VOTE_DURATION_MS` 30000).
+  3. Peers' `onPublicServerVoteStart` shows the prompt + starts a fallback timeout
+     (the vote duration + slack) in case the initiator's VOTE_RESULT never
+     arrives. A new VOTE_START while one is active is ignored (the existing one
+     wins). Only ONE vote is active at a time per server.
+  4. Each `castPublicServerVote('yes'|'no')` records the vote, updates the live
+     counts via `updatePublicServerVoteCounts`, and broadcasts
+     `PEER_PACKET_VOTE`. `onPublicServerVote` records peers' votes + refreshes
+     counts. Your own vote disables its button so you can't vote twice.
+  5. After 30s the initiator's `endPublicServerVote(true)` tallies
+     (`tallyPublicServerVotes`): passes if `total > 0 && (yes/total) >
+     PUBLIC_SERVER_VOTE_PASS_RATIO (0.60)` — strictly more than 60% yes. It
+     broadcasts `PEER_PACKET_VOTE_RESULT` (passed + playUrl + trackName). If
+     passed, the **initiator redirects first** (`redirectPublicServerToTrack`),
+     which rejoins the server on the new map. Hides the prompt locally.
+  6. Peers' `onPublicServerVoteResult` (ignoring their own looped-back result):
+     if passed, redirect to the track; hide the prompt. So the vote result
+     "moves everyone else over" via the VOTE_RESULT signal — the initiator's
+     redirect is the trigger and the packet is the follow signal.
+- **Vote prompt DOM helpers**: `showPublicServerVotePrompt` /
+  `hidePublicServerVotePrompt` / `updatePublicServerVoteCounts` (writes the
+  Yes/No counts + disables the button matching our cast vote).
+- `resetPublicServerVoteState()` clears the timers + state; called on join,
+  leave, and after a vote ends.
+
+### Client module (`js/PublicServers.js`) — simplified
+- `PUBLIC_SERVERS` = 3 fixed servers. `findPublicServer(id)`,
+  `isPublicServerConfigured()` (always true — no backend needed).
+- `fetchTrackList()` → GETs the track board (`{ ok, entries:[{...,playUrl}] }`),
+  sorted by a stable key, via `fetchTrackBoardWithRetry` (retries the flaky 503/
+  error-1102 worker — a 503 carries NO CORS headers so the browser surfaces it as
+  a `TypeError: Failed to fetch`; the helper catches the throw, not just status).
+- `findTrackByPlayUrl(url, trackList)` → matches by `map`+`mods` query params
+  (order-independent, hash-ignored) and returns `{ name (trimmed; 'Shared track'
+  fallback), playUrl }`, or null. This is the vote's board lookup.
+- `mapSignatureFromPlayUrl(url)` → `"map|mods"` (defaults `default`/`none`).
+- `buildServerTrackRedirectUrl(playUrl, serverId)` → same-tab URL adding
+  `?pubServer=<id>&play=1` on the CURRENT page's pathname. Filters `mods=none`.
+- REMOVED (no longer exported): `cycleInfo`, `ROUND_EPOCH`, `CYCLE_MS`,
+  `PLAY_DURATION_MS`, `RANKINGS_WINDOW_MS`, `pickTrackForCycle`,
+  `fetchRandomTrackPlayUrl`, `SERVERS_API_BASE`, `fetchServerState`,
+  `joinServer`, `claimServerHost`, `heartbeatServer`, `submitServerLap`,
+  `setServerTrack`, `leaveServer`. Do NOT re-add — public servers no longer use
+  the racing-servers-api worker or the round/rotation/rankings model.
+
+### main.js integration (the bits that changed)
+- `publicServerState` block (next to `multiplayerSessionState`): `active`,
+  `serverId`, `isHost` (hidden; no privileges), `claimedHost`,
+  `peerMaintainTimer`, `hostClaimInFlight`, `trackListCache`/`trackListCacheAt`,
+  `loadedMapSignature` (anti-loop guard). MUCH smaller than before (no
+  round/timer/rankings/lap/meta/cycle/resolve fields).
+- `publicServerVoteState` block: `active`, `voteId`, `playUrl`, `trackName`,
+  `initiatorId`, `ourVote`, `votes`, `isInitiator`, `endsAt`, `timer`,
+  `fallbackTimer`.
+- `PUBSRV_LOADED_MAP_KEY` (`pubsrv_loaded_map`, sessionStorage) +
+  `getLoadedPublicServerMapFromStorage` / `setLoadedPublicServerMapInStorage` /
+  `clearLoadedPublicServerMapFromStorage` (replaces the old
+  `PUBSRV_LOADED_ROUND_KEY` round-tracking).
+- `isPublicServerActive()`, `publicServerRoomCode()`, `publicServerName()`.
+- `buildPublicServerButtons()` fills `#mp-public-buttons` + wires the Leave
+  button, the `#mp-pubtrack-btn`, and the vote Yes/No buttons. Called from
+  `initMultiplayerPanel()` BEFORE the Firebase-config early-return.
+- `updatePublicServerButtonStates()` toggles the server buttons + Leave button +
+  `#mp-pubtrack-row` visibility.
+- `joinPublicServer` / `leavePublicServer` / `resetPublicServerState` /
+  `stopPublicServerMaintainLoop` (one 10s maintenance loop, replacing the old
+  round/tick/visibility loops).
+- `startPublicServerPeer` / `applyPublicServerRoleToConnections` /
+  `maintainPublicServerPeer` / `maybeReclaimPublicServerHost` (PeerJS-native host
+  election + self-healing).
+- `broadcastPublicServerMapSync` / `onPublicServerMapSync` /
+  `redirectPublicServerToMap` / `redirectPublicServerToTrack` (map sync +
+  redirect; redirect builder is in PublicServers.js).
+- The vote feature: `startPublicServerVoteFromInput` /
+  `getCachedPublicServerTrackList` / `startPublicServerVote` /
+  `onPublicServerVoteStart` / `castPublicServerVote` / `onPublicServerVote` /
+  `endPublicServerVote` / `onPublicServerVoteResult` / `tallyPublicServerVotes` /
+  `sendPublicServerPacket` + the DOM helpers.
+- `handlePeerPacket` handles MAP_SYNC / VOTE_START / VOTE / VOTE_RESULT (alongside
+  STATE/LEFT). `registerPeerConnection` sends MAP_SYNC from the host side on
+  joiner connect.
+- `publishMultiplayerBestLap` is a no-op on public servers (there's no
+  private-room lap store); a world record still submits to the OFFICIAL
+  leaderboard via the `isNewBest` → `submitLeaderboardTime` path in the
+  lap-finish handler (independent of this). Private rooms keep the Firebase write.
+- `beforeunload` → on a public server, no Firebase leave fetch (PeerJS LEFT +
+  peer destroy handle it); on a private room, the Firebase presence clear runs.
+- `hostRotateRoomCode()` early-returns when `isPublicServerActive()` (public
+  servers use the fixed code + vote-driven map changes, not room-code rotation).
+- `?pubServer=<id>` param → auto-join on boot (handled before the Firebase
+  early-return; works without Firebase).
+
+### What was deliberately removed (do not re-add)
+- The 5-minute round timer, the `cycleInfo`/`ROUND_EPOCH`/`CYCLE_MS` wall-clock
+  math, the `tickPublicServerRound`/`tickPublicServerTimer` loops, the
+  `#mp-server-timer` countdown widget, the rankings overlay
+  (`#mp-server-rankings` + `renderPublicServerRankings` +
+  `updatePublicServerRankingsVisibility` + `collectPublicServerRoundLaps`), the
+  P2P lap packets (`PEER_PACKET_LAP`/`broadcastPublicServerLap`/
+  `ingestPublicServerPeerLap`) + META packets (`PEER_PACKET_META`/
+  `broadcastPublicServerMeta`/`ingestPublicServerPeerMeta`), the member-count
+  helper (`computePublicServerMemberCount`), the deterministic track picker
+  (`pickTrackForCycle` + `ensureTrackForCycle` + `getCachedTrackList` +
+  `resolvedTracksByCycle`), and the `loadedRoundId`/`pubsrv_loaded_round`
+  round-tracking. Public servers are now a minimal join + map-sync + vote model.
+
+### Tests
+- `test-public-server-vote.mjs`: `findTrackByPlayUrl` (match by map+mods
+  ignoring hash/order, null on no-match/empty, blank-name → "Shared track"
+  fallback), `mapSignatureFromPlayUrl` (defaults), `buildServerTrackRedirectUrl`
+  (uses current pathname, carries map+mods+pubServer+play, filters mods=none,
+  no playUrl origin), and the vote tally pass-gate math (>60% yes strictly, >=1
+  vote, initiator-alone passes). 27 assertions. (The old
+  `test-public-servers-fixes.mjs` / `test-pubsrv-logic.mjs` /
+  `test-pubsrv-round-flow.mjs` tested the removed round/rotation/rankings model
+  and were deleted.)

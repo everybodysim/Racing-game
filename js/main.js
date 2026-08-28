@@ -15,6 +15,17 @@ import { HudExtras } from './HudExtras.js';
 import { createRuntime as _createModRuntime } from './mod-runtime.js';
 import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
+import {
+	PUBLIC_SERVERS,
+	findPublicServer,
+	isPublicServerConfigured,
+	fetchTrackList,
+	fetchTrackBoardWithRetry,
+	findTrackByPlayUrl,
+	isRacingGameTrackUrl,
+	mapSignatureFromPlayUrl,
+	buildServerTrackRedirectUrl,
+} from './PublicServers.js';
 import { Storage } from './Storage.js';
 import { VideoRecorder, UI_TOGGLE_GROUPS } from './VideoRecorder.js';
 import GameSettings from './GameSettings.js';
@@ -449,6 +460,19 @@ const WEBRTC_SYNC_MS = 33;
 const PEER_ROOM_PREFIX = 'RACE-ROOM-';
 const PEER_PACKET_STATE = 'VEHICLE_STATE';
 const PEER_PACKET_LEFT = 'PLAYER_LEFT';
+// Public-server-only packets, distributed over the PeerJS mesh (WebRTC data
+// channels; PeerJS uses the TURN server configured in `peerConfig`):
+//   MAP_SYNC   — host→joiner on connect (and host→all on a map switch): carries
+//                the host's current mapSignature so joiners redirect to the same
+//                map everyone else is on.
+//   VOTE_START — a player proposed a map switch; everyone shows the vote prompt.
+//   VOTE       — a player's Yes/No vote for an active vote.
+//   VOTE_RESULT— the initiator's authoritative result after 30s (passed? + the
+//                target playUrl); if passed everyone redirects to the new map.
+const PEER_PACKET_MAP_SYNC = 'PUBLIC_MAP_SYNC';
+const PEER_PACKET_VOTE_START = 'PUBLIC_VOTE_START';
+const PEER_PACKET_VOTE = 'PUBLIC_VOTE';
+const PEER_PACKET_VOTE_RESULT = 'PUBLIC_VOTE_RESULT';
 const peerConfig = {
 	config: {
 		iceServers: [
@@ -662,6 +686,38 @@ function handlePeerPacket( packet, sourcePeerId ) {
 			return;
 
 		}
+		// Public-server map sync: the host tells us which map everyone is on.
+		// If we're not on it, redirect to it (the redirect rejoins the server).
+		if ( packet.type === PEER_PACKET_MAP_SYNC ) {
+
+			onPublicServerMapSync( packet );
+			// MAP_SYNC is host→joiner (and host→all on a switch); do not relay.
+			return;
+
+		}
+		// Public-server map-vote packets. Each is collected locally and relayed
+		// by the host so every peer sees it (not just directly-connected ones).
+		if ( packet.type === PEER_PACKET_VOTE_START ) {
+
+			onPublicServerVoteStart( packet );
+			relayHostPacket( packet, sourcePeerId );
+			return;
+
+		}
+		if ( packet.type === PEER_PACKET_VOTE ) {
+
+			onPublicServerVote( packet );
+			relayHostPacket( packet, sourcePeerId );
+			return;
+
+		}
+		if ( packet.type === PEER_PACKET_VOTE_RESULT ) {
+
+			onPublicServerVoteResult( packet );
+			relayHostPacket( packet, sourcePeerId );
+			return;
+
+		}
 		if ( packet.type !== PEER_PACKET_STATE ) return;
 		const visualState = resolveRemoteVisualState( playerId, packet.carKey, packet.cosmetics );
 		if ( ! visualState ) return;
@@ -698,6 +754,15 @@ function registerPeerConnection( connection ) {
 
 			connection.send( buildLocalPeerStatePacket() );
 			logMpDebug( `[PeerJS] Sent initial state packet to ${ connection.peer }` );
+			// Host: tell the just-connected joiner which map everyone is on so they
+			// redirect to it (the host owns the RACE-ROOM-<code> peer id). This is
+			// what makes a public-server joiner "load the same map everyone else
+			// is on". The joiner ignores it if already on that map.
+			if ( isPublicServerActive() && publicServerState.isHost ) {
+
+				broadcastPublicServerMapSync( connection );
+
+			}
 
 		} catch ( err ) {
 
@@ -882,6 +947,84 @@ let lastHostRoomRotateAt = 0;
 let lastHostRoomMetaSyncAt = 0;
 let migrationSwitchInFlight = false;
 
+// --- Public servers state -------------------------------------------------
+// A public server is a fixed PeerJS room (code, e.g. PUBSV1). Everyone who
+// joins is connected over WebRTC (PeerJS uses the TURN server in `peerConfig`)
+// and shares the host's current map:
+//   • Host election is PeerJS-native: the first player to claim the
+//     RACE-ROOM-<code> peer id becomes the host; joiners connect to it. If the
+//     host disappears, a joiner detects the dead connection and reclaims the id
+//     (self-healing).
+//   • The host grants NO in-game privileges — it only relays peer packets (so
+//     everyone sees everyone) and sends a MAP_SYNC packet so joiners redirect to
+//     the map everyone else is on. It is hidden from the UI.
+//   • There is NO round timer, NO deterministic track rotation, NO rankings, and
+//     NO backend worker. The only network dependency is the read-only track
+//     share board (GET /api/tracks), used by the map-vote to look up a pasted
+//     track URL's name.
+//   • Map switching is driven by a peer vote: a player pastes a track URL, the
+//     board is searched for its name, everyone votes Yes/No, and after 30s a
+//     >60% Yes majority switches the track (the initiator redirects first and
+//     broadcasts a VOTE_RESULT so everyone else follows).
+const publicServerState = {
+	active: false,          // currently connected to a public server?
+	serverId: '',           // 'server-1' | 'server-2' | 'server-3'
+	isHost: false,          // are we the PeerJS host peer? (hidden; no privileges)
+	claimedHost: false,     // have we successfully claimed host this session?
+	peerMaintainTimer: null, // loop (5s) that restarts a dead PeerJS peer + self-heals host
+	joinerConnectWatch: null, // one-shot timeout that proactively recovers a stuck joiner connect
+	hostClaimInFlight: false, // guard against concurrent host-claim attempts
+	trackListCache: null,    // cached community-track list (for the vote lookup)
+	trackListCacheAt: 0,     // local time the cache was fetched
+	loadedMapSignature: '',  // mapSignature we redirected onto (anti-loop guard)
+};
+
+// sessionStorage key recording the mapSignature we already redirected onto. It
+// survives the reload that follows a redirect so we can tell "I'm already on
+// the host's map — don't redirect again" and avoid a redirect loop.
+const PUBSRV_LOADED_MAP_KEY = 'pubsrv_loaded_map';
+
+function getLoadedPublicServerMapFromStorage() {
+
+	try { return String( sessionStorage.getItem( PUBSRV_LOADED_MAP_KEY ) || '' ); }
+	catch { return ''; }
+
+}
+
+function setLoadedPublicServerMapInStorage( sig ) {
+
+	try { sessionStorage.setItem( PUBSRV_LOADED_MAP_KEY, String( sig || '' ) ); }
+	catch {}
+
+}
+
+function clearLoadedPublicServerMapFromStorage() {
+
+	try { sessionStorage.removeItem( PUBSRV_LOADED_MAP_KEY ); }
+	catch {}
+
+}
+
+function isPublicServerActive() {
+
+	return Boolean( publicServerState.active && publicServerState.serverId );
+
+}
+
+function publicServerRoomCode() {
+
+	const def = findPublicServer( publicServerState.serverId );
+	return def ? def.code : '';
+
+}
+
+function publicServerName() {
+
+	const def = findPublicServer( publicServerState.serverId );
+	return def ? def.name : 'Public server';
+
+}
+
 
 function setMultiplayerLeaderboardVisible( visible ) {
 
@@ -986,9 +1129,14 @@ async function maybeSubmitOnlinePersonalBest( lapTimes ) {
 async function publishMultiplayerBestLap( bestLap ) {
 
 	if ( ! Number.isFinite( bestLap ) ) return;
-	const roomCode = multiplayerSessionState.roomCode;
-	if ( ! roomCode ) return;
 	const displayName = getLocalMultiplayerDisplayName();
+
+	// Public servers have no private-room lap-time store, so on a public server
+	// this is a no-op (a world record still submits to the OFFICIAL leaderboard
+	// via the isNewBest path in the lap-finish handler — submitLeaderboardTime is
+	// independent of this). Normal host/join private rooms write to Firebase.
+	const roomCode = multiplayerSessionState.roomCode;
+	if ( ! roomCode || isPublicServerActive() ) return;
 	try {
 
 		await firebaseRoomsRequest( roomCode, 'PUT', {
@@ -1045,6 +1193,1003 @@ function redirectToRoomMap( roomCode, mapSignature ) {
 
 }
 
+
+// --- Public server join / map-vote ---------------------------------------
+
+// How long (ms) the vote stays open on the initiator's device before the
+// result is tallied and broadcast. Everyone's prompt hides on the initiator's
+// VOTE_RESULT packet (or a local fallback timeout if it never arrives).
+const PUBLIC_SERVER_VOTE_DURATION_MS = 30000;
+// A vote passes if strictly more than 60% of the cast votes are "yes" (and at
+// least one vote was cast). Otherwise the track is not switched.
+const PUBLIC_SERVER_VOTE_PASS_RATIO = 0.60;
+
+function buildPublicServerButtons() {
+
+	const container = document.getElementById( 'mp-public-buttons' );
+	if ( ! container ) return;
+	container.innerHTML = '';
+	const configured = isPublicServerConfigured();
+	for ( const server of PUBLIC_SERVERS ) {
+
+		const btn = document.createElement( 'button' );
+		btn.type = 'button';
+		btn.dataset.serverId = server.id;
+		btn.textContent = `${ server.name }`;
+		btn.title = `Join the ${ server.name } public server`;
+		if ( ! configured ) {
+
+			btn.disabled = true;
+			btn.title = 'Public servers are not connected yet.';
+
+		}
+		btn.addEventListener( 'click', () => joinPublicServer( server.id ) );
+		container.appendChild( btn );
+
+	}
+	if ( ! configured ) {
+
+		const note = document.createElement( 'div' );
+		note.style.cssText = 'font:600 10px/1.3 sans-serif;opacity:0.7;width:100%;';
+		note.textContent = 'Public servers need the track share board + PeerJS signalling.';
+		container.appendChild( note );
+
+	}
+
+	// Wire the Leave button (shown/hidden via updatePublicServerButtonStates).
+	const leaveBtn = document.getElementById( 'mp-public-leave-btn' );
+	if ( leaveBtn && ! leaveBtn.dataset.wired ) {
+
+		leaveBtn.dataset.wired = '1';
+		leaveBtn.addEventListener( 'click', () => {
+
+			const name = publicServerName() || 'public server';
+			leavePublicServer();
+			updateMultiplayerStatus( `Left ${ name }.` );
+
+		} );
+
+	}
+
+	// Wire the "Select track" propose-vote row (shown only while on a public
+	// server, via updatePublicServerButtonStates).
+	const proposeBtn = document.getElementById( 'mp-pubtrack-btn' );
+	if ( proposeBtn && ! proposeBtn.dataset.wired ) {
+
+		proposeBtn.dataset.wired = '1';
+		proposeBtn.addEventListener( 'click', () => startPublicServerVoteFromInput() );
+
+	}
+
+	// Wire the vote-prompt Yes/No buttons (created once here; the prompt is
+	// shown/hidden as votes start/end).
+	const voteYesBtn = document.getElementById( 'mp-vote-yes' );
+	const voteNoBtn = document.getElementById( 'mp-vote-no' );
+	if ( voteYesBtn && ! voteYesBtn.dataset.wired ) {
+
+		voteYesBtn.dataset.wired = '1';
+		voteYesBtn.addEventListener( 'click', () => castPublicServerVote( 'yes' ) );
+
+	}
+	if ( voteNoBtn && ! voteNoBtn.dataset.wired ) {
+
+		voteNoBtn.dataset.wired = '1';
+		voteNoBtn.addEventListener( 'click', () => castPublicServerVote( 'no' ) );
+
+	}
+
+}
+
+function updatePublicServerButtonStates() {
+
+	const buttons = document.querySelectorAll( '#mp-public-buttons button[data-server-id]' );
+	buttons.forEach( ( btn ) => {
+
+		const id = btn.dataset.serverId;
+		const isThis = isPublicServerActive() && publicServerState.serverId === id;
+		btn.disabled = isPublicServerActive() && ! isThis;
+		btn.textContent = isThis ? `✓ ${ findPublicServer( id )?.name || '' }` : `${ findPublicServer( id )?.name || '' }`;
+
+	} );
+	// Show the Leave button only while connected to a public server.
+	const leaveBtn = document.getElementById( 'mp-public-leave-btn' );
+	if ( leaveBtn ) leaveBtn.style.display = isPublicServerActive() ? 'block' : 'none';
+	// Show the propose-vote row only while connected to a public server.
+	const pubTrackRow = document.getElementById( 'mp-pubtrack-row' );
+	if ( pubTrackRow ) pubTrackRow.style.display = isPublicServerActive() ? 'flex' : 'none';
+
+}
+
+async function joinPublicServer( serverId ) {
+
+	const def = findPublicServer( serverId );
+	if ( ! def ) return;
+
+	// Leave any existing session (public or private) first.
+	await leavePublicServer();
+	if ( multiplayerSessionState.peer || multiplayerSessionState.roomCode ) {
+
+		closeMultiplayerPeer();
+		multiplayerSessionState.role = 'none';
+		multiplayerSessionState.roomCode = '';
+
+	}
+
+	updateMultiplayerStatus( `Joining ${ def.name }…` );
+	publicServerState.active = true;
+	publicServerState.serverId = serverId;
+	publicServerState.isHost = false;
+	publicServerState.claimedHost = false;
+	publicServerState.hostClaimInFlight = false;
+	publicServerState.trackListCache = null;
+	publicServerState.trackListCacheAt = 0;
+	publicServerState.loadedMapSignature = getLoadedPublicServerMapFromStorage();
+	resetPublicServerVoteState();
+	updatePublicServerButtonStates();
+
+	try {
+
+		// Reuse the existing PeerJS room mechanism with the fixed server code.
+		// The host peer owns the RACE-ROOM-<code> id; joiners connect to it. Host
+		// election is PeerJS-native (see startPublicServerPeer) — no worker.
+		multiplayerSessionState.roomCode = def.code;
+		const codeInput = document.getElementById( 'mp-code-input' );
+		if ( codeInput ) codeInput.value = def.code;
+
+		// Try to claim the host seat first; if the id is taken we fall back to
+		// joiner. Either way we end up in the same PeerJS room.
+		await startPublicServerPeer( def.code );
+
+		// The private-room leaderboard is unused in public servers.
+		setMultiplayerLeaderboardVisible( false );
+
+		updateMultiplayerStatus( `In ${ def.name }. You'll load the map everyone is on.` );
+		logMpDebug( `[PublicServer] Joined ${ def.name } (code ${ def.code }) as ${ publicServerState.isHost ? 'host' : 'joiner' }` );
+
+		// Maintenance loop: restart a dead PeerJS peer + self-heal host. Runs every
+		// 5s (was 10s) so a joiner whose connection never opened — e.g. the host
+		// peer id was briefly reserved on the PeerJS cloud by a player who then
+		// left, leaving a "ghost" host — recovers (reclaims host or retries the
+		// connect) within a few seconds instead of hanging for 10s.
+		stopPublicServerMaintainLoop();
+		publicServerState.peerMaintainTimer = setInterval( maintainPublicServerPeer, 5000 );
+		// Proactive joiner connect-watch: if WE are a joiner and our first
+		// connection to the host hasn't opened ~5s after join (PeerJS cloud
+		// signalling can be slow, or the host id was a ghost), don't wait for the
+		// next 5s maintenance tick — recover immediately.
+		schedulePublicServerJoinerConnectWatch();
+
+	} catch ( error ) {
+
+		console.warn( 'Failed to join public server', error );
+		updateMultiplayerStatus( `Could not join ${ def.name }: ${ error?.message || error }` );
+		await resetPublicServerState();
+
+	}
+
+}
+
+async function leavePublicServer() {
+
+	if ( ! isPublicServerActive() ) return;
+	stopPublicServerMaintainLoop();
+	hidePublicServerVotePrompt();
+	resetPublicServerVoteState();
+	// Tell peers we left (PeerJS LEFT packet) + tear down the WebRTC mesh. There
+	// is no backend membership to clear — leaving is purely a PeerJS action.
+	if ( multiplayerSessionState.peer || multiplayerSessionState.roomCode ) {
+
+		closeMultiplayerPeer();
+		multiplayerSessionState.role = 'none';
+		multiplayerSessionState.roomCode = '';
+		const codeInput = document.getElementById( 'mp-code-input' );
+		if ( codeInput ) codeInput.value = '';
+		setMultiplayerLeaderboardVisible( false );
+
+	}
+	await resetPublicServerState();
+
+}
+
+async function resetPublicServerState() {
+
+	publicServerState.active = false;
+	publicServerState.serverId = '';
+	publicServerState.isHost = false;
+	publicServerState.claimedHost = false;
+	publicServerState.hostClaimInFlight = false;
+	publicServerState.trackListCache = null;
+	publicServerState.trackListCacheAt = 0;
+	publicServerState.loadedMapSignature = '';
+	clearLoadedPublicServerMapFromStorage();
+	updatePublicServerButtonStates();
+
+}
+
+function stopPublicServerMaintainLoop() {
+
+	if ( publicServerState.peerMaintainTimer ) {
+
+		clearInterval( publicServerState.peerMaintainTimer );
+		publicServerState.peerMaintainTimer = null;
+
+	}
+	if ( publicServerState.joinerConnectWatch ) {
+
+		clearTimeout( publicServerState.joinerConnectWatch );
+		publicServerState.joinerConnectWatch = null;
+
+	}
+
+}
+
+// Proactive joiner connect-watch: ~5s after joining as a joiner, if we still
+// have zero open connections (the host's MAP_SYNC / state never arrived — PeerJS
+// cloud signalling was slow, or the host peer id was a ghost left behind by a
+// player who departed), run the maintenance recovery immediately instead of
+// waiting for the next 5s tick. The maintenance loop either reclaims the host id
+// (if no host exists) or retries the joiner connect. This is what makes a join
+// that would otherwise "take forever" recover in a few seconds.
+function schedulePublicServerJoinerConnectWatch() {
+
+	if ( publicServerState.joinerConnectWatch ) clearTimeout( publicServerState.joinerConnectWatch );
+	publicServerState.joinerConnectWatch = setTimeout( () => {
+
+		publicServerState.joinerConnectWatch = null;
+		if ( ! isPublicServerActive() || publicServerState.isHost ) return;
+		if ( multiplayerSessionState.connections.size > 0 ) return;
+		logMpDebug( '[PublicServer] Joiner has no connection after 5s — recovering' );
+		maintainPublicServerPeer();
+
+	}, 5000 );
+
+}
+
+// --- Map sync (host tells joiners which map everyone is on) ---------------
+//
+// When a joiner connects, the host sends a MAP_SYNC packet with its current
+// mapSignature. The joiner redirects to it (rejoining the server) if it differs
+// from the map they're on. The host also broadcasts MAP_SYNC after its own map
+// changes (e.g. a winning vote) so everyone follows. There is no loop: after a
+// redirect the page reloads on the host's map, so sig === current → no redirect.
+// The sessionStorage flag is a belt-and-braces guard against re-redirecting.
+
+function broadcastPublicServerMapSync( onlyConnection = null ) {
+
+	if ( ! isPublicServerActive() || ! publicServerState.isHost ) return;
+	if ( ! multiplayerSessionState.peer ) return;
+	const packet = {
+		type: PEER_PACKET_MAP_SYNC,
+		playerId: multiplayerSessionState.clientId,
+		mapSignature: getCurrentMapSignature(),
+	};
+	const targets = onlyConnection ? [ onlyConnection ] : [ ...multiplayerSessionState.connections.values() ];
+	for ( const connection of targets ) {
+
+		if ( connection && connection.open ) {
+
+			try { connection.send( packet ); } catch {}
+
+		}
+
+	}
+
+}
+
+function onPublicServerMapSync( packet ) {
+
+	if ( ! isPublicServerActive() ) return;
+	const sig = String( packet?.mapSignature || '' );
+	if ( ! sig || sig === 'default|none' ) return;
+	redirectPublicServerToMap( sig, 'host' );
+
+}
+
+// Redirect THIS client to `sig` on the public server (rejoining via ?pubServer).
+// Skipped if we're already on that map, or if we already redirected onto it
+// (sessionStorage guard) — this is the anti-loop guarantee.
+function redirectPublicServerToMap( sig, reason = 'host' ) {
+
+	if ( ! isPublicServerActive() ) return;
+	if ( ! sig || sig === 'default|none' ) return;
+	if ( sig === getCurrentMapSignature() ) {
+
+		publicServerState.loadedMapSignature = sig;
+		setLoadedPublicServerMapInStorage( sig );
+		return;
+
+	}
+	if ( publicServerState.loadedMapSignature === sig ) return;
+	setLoadedPublicServerMapInStorage( sig );
+	publicServerState.loadedMapSignature = sig;
+	const playUrl = new URL( window.location.href );
+	playUrl.searchParams.set( 'map', ( sig.split( '|' )[ 0 ] || 'default' ) );
+	const mods = sig.split( '|' )[ 1 ] || 'none';
+	if ( mods && mods !== 'none' ) playUrl.searchParams.set( 'mods', mods );
+	const url = buildServerTrackRedirectUrl( playUrl.toString(), publicServerState.serverId );
+	updateMultiplayerStatus( `Loading the ${ reason } map for ${ publicServerName() }…` );
+	window.location.href = url;
+
+}
+
+// --- PeerJS-native host election + P2P mesh ------------------------------
+//
+// Host election without a backend: the first player to claim the
+// RACE-ROOM-<code> peer id becomes the host; joiners connect to it. If the id
+// is already taken (another player is host), PeerJS fires an 'unavailable-id'
+// error → we become a joiner instead. If the host later disappears, joiners
+// detect their dead connection to the host and reclaim the id (self-healing).
+// The host grants NO in-game privileges — it only relays peer packets (so all
+// peers see each other) and sends the MAP_SYNC packet.
+
+// Try to claim the host peer id; if taken, fall back to joiner. Resolves once
+// the peer is open (host) or once we've started connecting to the host (joiner).
+function startPublicServerPeer( roomCode ) {
+
+	return new Promise( ( resolve ) => {
+
+		if ( ! isPublicServerActive() ) { resolve(); return; }
+		const hostPeerId = getPeerRoomId( roomCode );
+		closeMultiplayerPeer();
+		logMpDebug( `[PublicServer] Trying to claim host peer id ${ hostPeerId }…` );
+		const peer = new Peer( hostPeerId, peerConfig );
+		multiplayerSessionState.peer = peer;
+		let settled = false;
+		const becomeHost = () => {
+
+			if ( settled ) return;
+			settled = true;
+			publicServerState.isHost = true;
+			publicServerState.claimedHost = true;
+			multiplayerSessionState.role = 'host';
+			applyPublicServerRoleToConnections( roomCode, 'host' );
+			resolve();
+
+		};
+		const becomeJoiner = () => {
+
+			if ( settled ) return;
+			settled = true;
+			// Re-create the peer with our own client id (the host-id claim failed).
+			closeMultiplayerPeer();
+			publicServerState.isHost = false;
+			multiplayerSessionState.role = 'join';
+			applyPublicServerRoleToConnections( roomCode, 'join' );
+			resolve();
+
+		};
+
+		peer.on( 'open', ( id ) => {
+
+			// We got the host id → we are the host.
+			if ( id === hostPeerId ) {
+
+				logMpDebug( `[PublicServer] Claimed host peer id ${ hostPeerId }` );
+				becomeHost();
+				return;
+
+			}
+			// PeerJS assigned us a different id (shouldn't happen when we request a
+			// specific id, but handle it) → treat as joiner.
+			becomeJoiner();
+
+		} );
+		peer.on( 'connection', ( connection ) => {
+
+			// A joiner connected to us (host). Register + relay their packets, and
+			// immediately tell them which map everyone is on (MAP_SYNC).
+			logMpDebug( `[PublicServer] Host received connection from ${ connection.peer }` );
+			connection.on( 'open', () => {
+
+				registerPeerConnection( connection );
+				broadcastPeerState();
+				broadcastPublicServerMapSync( connection );
+
+			} );
+			connection.on( 'error', ( error ) => logMpDebug( `[PublicServer] Connection error: ${ error?.message || error }` ) );
+
+		} );
+		peer.on( 'error', ( error ) => {
+
+			const type = error?.type || '';
+			// 'unavailable-id' = someone else already owns RACE-ROOM-<code> → join.
+			if ( type === 'unavailable-id' ) {
+
+				logMpDebug( `[PublicServer] Host id taken — joining as guest` );
+				becomeJoiner();
+				return;
+
+			}
+			logMpDebug( `[PublicServer] Peer error: ${ type } ${ error?.message || '' }` );
+			// For other errors, if we haven't settled yet, fall back to joiner so the
+			// player still gets into the room (the maintenance loop will keep trying).
+			if ( ! settled ) becomeJoiner();
+
+		} );
+		peer.on( 'disconnected', () => logMpDebug( `[PublicServer] Peer disconnected: ${ hostPeerId }` ) );
+		peer.on( 'close', () => logMpDebug( `[PublicServer] Peer closed: ${ hostPeerId }` ) );
+
+		// Safety: if neither 'open' nor 'unavailable-id' fires in 4s (PeerJS cloud
+		// signalling can be slow), assume the host id is taken and become a joiner
+		// (the joiner connect-watch + maintenance loop will recover if wrong).
+		setTimeout( () => { if ( ! settled ) becomeJoiner(); }, 4000 );
+
+	} );
+
+}
+
+// Apply the resolved role (host/joiner) by setting up the PeerJS connections.
+// For a joiner this connects to the host peer id; for a host it just waits for
+// incoming connections (already wired in startPublicServerPeer). Reuses the
+// existing startPeerMultiplayer infra for the joiner path so packet handling is
+// identical to private rooms.
+function applyPublicServerRoleToConnections( roomCode, role ) {
+
+	if ( role === 'host' ) {
+
+		// Host already listens for incoming connections in startPublicServerPeer.
+		// Nothing more to do — registerPeerConnection handles joiners as they arrive.
+		return;
+
+	}
+	// Joiner: connect to the host peer id. Reuse startPeerMultiplayer's joiner
+	// path so the data-channel + packet handling is identical to private rooms.
+	startPeerMultiplayer( roomCode, 'join' );
+
+}
+
+// If our PeerJS peer died (PeerJS cloud signalling drops happen), restart it in
+// the current role. For a joiner whose host disappeared, attempt to reclaim the
+// host id (self-healing). Debounced via hostClaimInFlight.
+function maintainPublicServerPeer() {
+
+	if ( ! isPublicServerActive() ) return;
+	const roomCode = publicServerRoomCode();
+	if ( ! roomCode ) return;
+	const peer = multiplayerSessionState.peer;
+	// Peer still alive → nothing to do.
+	if ( peer && ! peer.destroyed && ! peer.disconnected ) {
+
+		// Joiner self-heal: if we lost our connection to the host, try to reclaim
+		// the host id so other joiners can find us.
+		if ( ! publicServerState.isHost && publicServerState.hostClaimInFlight ) return;
+		if ( ! publicServerState.isHost && multiplayerSessionState.connections.size === 0 ) {
+
+			maybeReclaimPublicServerHost( roomCode );
+
+		}
+		return;
+
+	}
+	// Peer is gone/disconnected — restart in the current role.
+	logMpDebug( `[PublicServer] Peer down, restarting as ${ publicServerState.isHost ? 'host' : 'joiner' }` );
+	if ( publicServerState.isHost ) {
+
+		// Re-claim the host id.
+		startPublicServerPeer( roomCode ).catch( ( e ) => console.warn( 'public server host restart failed', e ) );
+
+	} else {
+
+		applyPublicServerRoleToConnections( roomCode, 'join' );
+
+	}
+
+}
+
+// A joiner that lost its host connection tries to claim the RACE-ROOM-<code> id.
+// If it succeeds it becomes the new host (self-healing); if the id is still
+// taken (someone else became host first) it stays a joiner and reconnects.
+function maybeReclaimPublicServerHost( roomCode ) {
+
+	if ( publicServerState.hostClaimInFlight ) return;
+	publicServerState.hostClaimInFlight = true;
+	const hostPeerId = getPeerRoomId( roomCode );
+	logMpDebug( `[PublicServer] Attempting to reclaim host id ${ hostPeerId }` );
+	const probe = new Peer( hostPeerId, peerConfig );
+	let resolved = false;
+	const finish = ( becameHost ) => {
+
+		if ( resolved ) return;
+		resolved = true;
+		publicServerState.hostClaimInFlight = false;
+		if ( becameHost ) {
+
+			logMpDebug( `[PublicServer] Reclaimed host id — becoming host` );
+			// Swap our dead peer for the reclaimed host peer.
+			closeMultiplayerPeer();
+			multiplayerSessionState.peer = probe;
+			publicServerState.isHost = true;
+			publicServerState.claimedHost = true;
+			multiplayerSessionState.role = 'host';
+			probe.on( 'connection', ( connection ) => {
+
+				connection.on( 'open', () => {
+
+					registerPeerConnection( connection );
+					broadcastPeerState();
+					broadcastPublicServerMapSync( connection );
+
+				} );
+				connection.on( 'error', () => {} );
+
+			} );
+
+		} else {
+
+			// Someone else is host — destroy the probe + reconnect as joiner.
+			try { probe.destroy(); } catch {}
+			applyPublicServerRoleToConnections( roomCode, 'join' );
+
+		}
+
+	};
+	probe.on( 'open', ( id ) => { if ( id === hostPeerId ) finish( true ); } );
+	probe.on( 'error', ( error ) => {
+
+		if ( error?.type === 'unavailable-id' ) finish( false );
+		// Other errors: give up the claim, stay joiner.
+		else finish( false );
+
+	} );
+	setTimeout( () => finish( false ), 4000 );
+
+}
+
+// --- Map vote ------------------------------------------------------------
+//
+// Active vote state. Only ONE vote is active at a time per server; a new
+// VOTE_START while one is active is ignored (the initiator's vote wins). The
+// initiator runs the authoritative 30s timer and broadcasts VOTE_RESULT.
+// Non-initiators show the prompt on VOTE_START and hide on VOTE_RESULT (with a
+// local fallback timeout in case the initiator's result never arrives).
+const publicServerVoteState = {
+	active: false,            // is a vote prompt currently shown?
+	voteId: '',                // id of the active vote (initiatorId + startedAt)
+	playUrl: '',               // proposed track playUrl
+	trackName: '',             // proposed track display name
+	initiatorId: '',           // who started the vote
+	ourVote: '',               // 'yes' | 'no' | '' (our cast vote)
+	votes: {},                 // { [playerId]: 'yes'|'no' } (peers' + our votes)
+	isInitiator: false,        // are we running the 30s timer?
+	endsAt: 0,                 // when the vote ends (ms); derived from startedAt + 30s
+		// — identical for every player (startedAt is sent in VOTE_START), so the
+		// countdown is consistent across clients.
+	timer: null,               // initiator 30s end timer (or non-initiator fallback timer)
+	fallbackTimer: null,       // non-initiator hide-on-timeout guard
+	countdownTimer: null,      // 250ms interval that updates the live countdown text
+};
+
+function resetPublicServerVoteState() {
+
+	if ( publicServerVoteState.timer ) { clearTimeout( publicServerVoteState.timer ); publicServerVoteState.timer = null; }
+	if ( publicServerVoteState.fallbackTimer ) { clearTimeout( publicServerVoteState.fallbackTimer ); publicServerVoteState.fallbackTimer = null; }
+	stopPublicServerVoteCountdown();
+	publicServerVoteState.active = false;
+	publicServerVoteState.voteId = '';
+	publicServerVoteState.playUrl = '';
+	publicServerVoteState.trackName = '';
+	publicServerVoteState.initiatorId = '';
+	publicServerVoteState.ourVote = '';
+	publicServerVoteState.votes = {};
+	publicServerVoteState.isInitiator = false;
+	publicServerVoteState.endsAt = 0;
+
+}
+
+// Cached fetch of the community-track list (sorted by a stable key in
+// PublicServers.fetchTrackList). Cached for 60s so repeated vote proposals don't
+// hammer the board. Returns [] on failure.
+async function getCachedPublicServerTrackList() {
+
+	const now = Date.now();
+	if ( publicServerState.trackListCache && ( now - publicServerState.trackListCacheAt ) < 60000 ) {
+
+		return publicServerState.trackListCache;
+
+	}
+	const list = await fetchTrackList();
+	publicServerState.trackListCache = list;
+	publicServerState.trackListCacheAt = now;
+	return list;
+
+}
+
+// Entry point from the "Select track" button: read the pasted URL, search the
+// board for its name, then start the vote.
+async function startPublicServerVoteFromInput() {
+
+	if ( ! isPublicServerActive() ) return;
+	if ( publicServerVoteState.active ) {
+
+		updateMultiplayerStatus( 'A map vote is already in progress.' );
+		return;
+
+	}
+	const input = document.getElementById( 'mp-pubtrack-input' );
+	const rawUrl = String( input?.value || '' ).trim();
+	if ( ! rawUrl ) {
+
+		updateMultiplayerStatus( 'Paste a track share URL, then click Select track.' );
+		return;
+
+	}
+
+	updateMultiplayerStatus( 'Looking up track on the share board…' );
+	let playUrl = '';
+	let trackName = '';
+	try {
+
+		const list = await getCachedPublicServerTrackList();
+		const track = findTrackByPlayUrl( rawUrl, list );
+		if ( track && track.playUrl ) {
+
+			playUrl = track.playUrl;
+			trackName = track.name;
+
+		}
+
+	} catch ( error ) {
+
+		// Board unreachable — fall through to the custom-track path below if the
+		// URL is still a playable racing-game URL, so a flaky board never blocks a
+		// vote on a pasted track.
+		console.warn( 'Public-server vote track lookup failed', error );
+
+	}
+
+	// Allow a pasted URL that isn't on the share board (a private/unlisted track)
+	// as long as it's a playable racing-game URL (it carries a `map` param). The
+	// vote proceeds with the name "Custom track". The redirect builder extracts
+	// the map+mods from the pasted URL directly.
+	if ( ! playUrl ) {
+
+		if ( ! isRacingGameTrackUrl( rawUrl ) ) {
+
+			updateMultiplayerStatus( 'Not a track URL. Paste a Racing-game track share URL (it must contain ?map=...).' );
+			return;
+
+		}
+		playUrl = rawUrl;
+		trackName = 'Custom track';
+
+	}
+
+	if ( input ) input.value = '';
+	startPublicServerVote( playUrl, trackName );
+
+}
+
+// Initiate a vote: record it locally, broadcast VOTE_START to peers, show the
+// prompt, and start the authoritative 30s timer on THIS (the initiator) device.
+function startPublicServerVote( playUrl, trackName ) {
+
+	if ( ! isPublicServerActive() ) return;
+	resetPublicServerVoteState();
+	const startedAt = Date.now();
+	const voteId = `${ multiplayerSessionState.clientId }-${ startedAt }`;
+	publicServerVoteState.active = true;
+	publicServerVoteState.voteId = voteId;
+	publicServerVoteState.playUrl = String( playUrl || '' );
+	publicServerVoteState.trackName = String( trackName || 'Shared track' );
+	publicServerVoteState.initiatorId = multiplayerSessionState.clientId;
+	publicServerVoteState.isInitiator = true;
+	publicServerVoteState.endsAt = startedAt + PUBLIC_SERVER_VOTE_DURATION_MS;
+	publicServerVoteState.votes = {};
+
+	// Auto-vote yes for the initiator (counts toward the tally immediately).
+	publicServerVoteState.ourVote = 'yes';
+	publicServerVoteState.votes[ multiplayerSessionState.clientId ] = 'yes';
+
+	showPublicServerVotePrompt();
+	updatePublicServerVoteCounts();
+	startPublicServerVoteCountdown();
+
+	const packet = {
+		type: PEER_PACKET_VOTE_START,
+		playerId: multiplayerSessionState.clientId,
+		voteId,
+		playUrl: publicServerVoteState.playUrl,
+		trackName: publicServerVoteState.trackName,
+		initiatorId: multiplayerSessionState.clientId,
+		startedAt,
+		// The initiator auto-votes yes. Carrying it in VOTE_START (rather than a
+		// separate VOTE packet) guarantees every peer seeds the initiator's vote
+		// immediately and consistently, so the live Yes count matches on every
+		// screen — otherwise peers never saw the initiator's auto-yes and the
+		// initiator saw one more vote than everyone else.
+		initiatorVote: 'yes',
+	};
+	sendPublicServerPacket( packet );
+
+	// The initiator's device counts the 30s and tallies the result.
+	publicServerVoteState.timer = setTimeout( () => endPublicServerVote( true ), PUBLIC_SERVER_VOTE_DURATION_MS );
+	logMpDebug( `[PublicServer] Started map vote ${ voteId } for "${ trackName }"` );
+
+}
+
+// Received a VOTE_START from a peer: show the prompt + start a fallback timeout
+// (in case the initiator's VOTE_RESULT never arrives we still hide eventually).
+function onPublicServerVoteStart( packet ) {
+
+	if ( ! isPublicServerActive() ) return;
+	const pid = String( packet?.initiatorId || packet?.playerId || '' );
+	if ( ! pid ) return;
+	// Ignore a new vote while one is already active (the existing one wins).
+	if ( publicServerVoteState.active ) return;
+	const voteId = String( packet?.voteId || '' );
+	if ( ! voteId ) return;
+	const startedAt = Number( packet?.startedAt ) || Date.now();
+	publicServerVoteState.active = true;
+	publicServerVoteState.voteId = voteId;
+	publicServerVoteState.playUrl = String( packet?.playUrl || '' );
+	publicServerVoteState.trackName = String( packet?.trackName || 'Shared track' );
+	publicServerVoteState.initiatorId = pid;
+	publicServerVoteState.isInitiator = false;
+	publicServerVoteState.endsAt = startedAt + PUBLIC_SERVER_VOTE_DURATION_MS;
+	publicServerVoteState.ourVote = '';
+	publicServerVoteState.votes = {};
+	// Seed the initiator's own auto-yes vote (carried in VOTE_START) so the live
+	// Yes count on peers matches the initiator's from the first frame.
+	if ( packet?.initiatorVote === 'yes' || packet?.initiatorVote === 'no' ) {
+
+		publicServerVoteState.votes[ pid ] = packet.initiatorVote;
+
+	} else {
+
+		publicServerVoteState.votes[ pid ] = 'yes';
+
+	}
+	showPublicServerVotePrompt();
+	updatePublicServerVoteCounts();
+	startPublicServerVoteCountdown();
+	// Fallback: if the initiator's VOTE_RESULT never arrives, hide the prompt a
+	// little after the vote would have ended (+5s slack for relay delay).
+	const remaining = Math.max( 0, publicServerVoteState.endsAt - Date.now() ) + 5000;
+	publicServerVoteState.fallbackTimer = setTimeout( () => {
+
+		if ( publicServerVoteState.active && ! publicServerVoteState.isInitiator ) hidePublicServerVotePrompt();
+
+	}, remaining + 1000 );
+	logMpDebug( `[PublicServer] Vote ${ voteId } started by ${ pid } for "${ publicServerVoteState.trackName }"` );
+
+}
+
+// Cast our vote (Yes/No) for the active vote and broadcast it to peers.
+function castPublicServerVote( choice ) {
+
+	if ( ! isPublicServerActive() || ! publicServerVoteState.active ) return;
+	const vote = choice === 'yes' ? 'yes' : 'no';
+	if ( publicServerVoteState.ourVote === vote ) return;
+	publicServerVoteState.ourVote = vote;
+	publicServerVoteState.votes[ multiplayerSessionState.clientId ] = vote;
+	updatePublicServerVoteCounts();
+	const packet = {
+		type: PEER_PACKET_VOTE,
+		playerId: multiplayerSessionState.clientId,
+		voteId: publicServerVoteState.voteId,
+		vote,
+	};
+	sendPublicServerPacket( packet );
+
+}
+
+// Received a peer's vote: record it and refresh the counts.
+function onPublicServerVote( packet ) {
+
+	if ( ! isPublicServerActive() || ! publicServerVoteState.active ) return;
+	if ( String( packet?.voteId || '' ) !== publicServerVoteState.voteId ) return;
+	const pid = String( packet?.playerId || '' );
+	if ( ! pid ) return;
+	const vote = packet?.vote === 'yes' ? 'yes' : 'no';
+	publicServerVoteState.votes[ pid ] = vote;
+	updatePublicServerVoteCounts();
+
+}
+
+// The initiator's 30s elapsed: tally the votes, and if >60% yes (with ≥1 vote),
+// switch the track on THIS client first, then broadcast VOTE_RESULT so everyone
+// else follows. Hides the prompt locally regardless of the outcome. The result
+// packet carries the AUTHORITATIVE final tally (yes/no/total) so every peer sees
+// the same final numbers — live counts during the vote are best-effort (peers
+// receive VOTE packets at slightly different times via the relay), but the
+// outcome everyone acts on is the initiator's, not their own local tally.
+function endPublicServerVote( asInitiator ) {
+
+	if ( ! publicServerVoteState.active ) return;
+	if ( publicServerVoteState.timer ) { clearTimeout( publicServerVoteState.timer ); publicServerVoteState.timer = null; }
+	const tally = tallyPublicServerVotes();
+	const passed = tally.total > 0 && ( tally.yes / tally.total ) > PUBLIC_SERVER_VOTE_PASS_RATIO;
+	const packet = {
+		type: PEER_PACKET_VOTE_RESULT,
+		playerId: multiplayerSessionState.clientId,
+		voteId: publicServerVoteState.voteId,
+		passed: Boolean( passed ),
+		playUrl: publicServerVoteState.playUrl,
+		trackName: publicServerVoteState.trackName,
+		yes: tally.yes,
+		no: tally.no,
+		total: tally.total,
+	};
+	if ( asInitiator ) sendPublicServerPacket( packet );
+
+	if ( passed && publicServerVoteState.playUrl ) {
+
+		// Switch on the initiator's device first (it just broadcast the result);
+		// the redirect rejoins the server on the new map.
+		const name = publicServerVoteState.trackName || 'the voted track';
+		updateMultiplayerStatus( `Vote passed — switching to ${ name }…` );
+		redirectPublicServerToTrack( publicServerVoteState.playUrl, 'voted' );
+
+	} else {
+
+		updateMultiplayerStatus( 'Map vote did not pass.' );
+
+	}
+	hidePublicServerVotePrompt();
+	resetPublicServerVoteState();
+
+}
+
+// Received the initiator's VOTE_RESULT: if it passed, redirect to the track.
+// The packet carries the authoritative final tally — sync our display to it so
+// every peer shows the SAME final Yes/No numbers (our locally-collected votes
+// may differ slightly due to relay timing; the initiator's tally is the source
+// of truth for the outcome).
+function onPublicServerVoteResult( packet ) {
+
+	if ( ! isPublicServerActive() ) return;
+	if ( ! publicServerVoteState.active ) return;
+	if ( String( packet?.voteId || '' ) !== publicServerVoteState.voteId ) return;
+	// Only the initiator sends the result; ignore our own (it looped back).
+	if ( String( packet?.playerId || '' ) === multiplayerSessionState.clientId ) return;
+	// Adopt the initiator's authoritative final tally for the display.
+	const finalYes = Math.max( 0, Number( packet?.yes ) || 0 );
+	const finalNo = Math.max( 0, Number( packet?.no ) || 0 );
+	const yesEl = document.getElementById( 'mp-vote-yes-count' );
+	const noEl = document.getElementById( 'mp-vote-no-count' );
+	if ( yesEl ) yesEl.textContent = String( finalYes );
+	if ( noEl ) noEl.textContent = String( finalNo );
+
+	const passed = Boolean( packet?.passed );
+	if ( passed && packet?.playUrl ) {
+
+		const name = String( packet?.trackName || 'the voted track' );
+		updateMultiplayerStatus( `Vote passed — switching to ${ name }…` );
+		redirectPublicServerToTrack( String( packet.playUrl ), 'voted' );
+
+	} else {
+
+		updateMultiplayerStatus( 'Map vote did not pass.' );
+
+	}
+	hidePublicServerVotePrompt();
+	resetPublicServerVoteState();
+
+}
+
+// Tally the votes recorded so far.
+function tallyPublicServerVotes() {
+
+	let yes = 0, no = 0;
+	for ( const v of Object.values( publicServerVoteState.votes ) ) {
+
+		if ( v === 'yes' ) yes ++; else if ( v === 'no' ) no ++;
+
+	}
+	return { yes, no, total: yes + no };
+
+}
+
+// Redirect THIS client to a track board playUrl on the public server. The
+// redirect URL keeps the pubServer param so we rejoin the same server on the
+// new map (see buildServerTrackRedirectUrl). Records the target mapSignature as
+// "loaded" so a subsequent MAP_SYNC from the host (now also on the new map)
+// doesn't re-redirect.
+function redirectPublicServerToTrack( playUrl, reason = 'voted' ) {
+
+	if ( ! isPublicServerActive() || ! playUrl ) return;
+	const sig = mapSignatureFromPlayUrl( playUrl );
+	if ( sig === getCurrentMapSignature() ) return;
+	setLoadedPublicServerMapInStorage( sig );
+	publicServerState.loadedMapSignature = sig;
+	const url = buildServerTrackRedirectUrl( playUrl, publicServerState.serverId );
+	updateMultiplayerStatus( `Loading ${ reason } map for ${ publicServerName() }…` );
+	window.location.href = url;
+
+}
+
+// Send a public-server packet to all peers (and have the host relay it so
+// indirectly-connected peers also receive it).
+function sendPublicServerPacket( packet ) {
+
+	if ( ! isPublicServerActive() ) return;
+	if ( ! multiplayerSessionState.peer || multiplayerSessionState.connections.size === 0 ) return;
+	for ( const connection of multiplayerSessionState.connections.values() ) {
+
+		if ( connection && connection.open ) {
+
+			try { connection.send( packet ); } catch {}
+
+		}
+
+	}
+
+}
+
+// --- Vote prompt DOM -----------------------------------------------------
+
+function showPublicServerVotePrompt() {
+
+	const el = document.getElementById( 'mp-vote-prompt' );
+	if ( ! el ) return;
+	const nameEl = document.getElementById( 'mp-vote-track-name' );
+	if ( nameEl ) nameEl.textContent = publicServerVoteState.trackName || 'Shared track';
+	const yesBtn = document.getElementById( 'mp-vote-yes' );
+	const noBtn = document.getElementById( 'mp-vote-no' );
+	if ( yesBtn ) yesBtn.disabled = false;
+	if ( noBtn ) noBtn.disabled = false;
+	el.classList.add( 'visible' );
+
+}
+
+function hidePublicServerVotePrompt() {
+
+	const el = document.getElementById( 'mp-vote-prompt' );
+	if ( el ) el.classList.remove( 'visible' );
+
+}
+
+function updatePublicServerVoteCounts() {
+
+	const yesEl = document.getElementById( 'mp-vote-yes-count' );
+	const noEl = document.getElementById( 'mp-vote-no-count' );
+	const tally = tallyPublicServerVotes();
+	if ( yesEl ) yesEl.textContent = String( tally.yes );
+	if ( noEl ) noEl.textContent = String( tally.no );
+	// Disable the button matching our cast vote so we can't vote twice.
+	const ourVote = publicServerVoteState.ourVote;
+	const yesBtn = document.getElementById( 'mp-vote-yes' );
+	const noBtn = document.getElementById( 'mp-vote-no' );
+	if ( yesBtn ) yesBtn.disabled = Boolean( ourVote && ourVote !== 'no' );
+	if ( noBtn ) noBtn.disabled = Boolean( ourVote && ourVote !== 'yes' );
+
+}
+
+// --- Live countdown -----------------------------------------------------
+//
+// `endsAt` is derived from the initiator's `startedAt` (+30s), which is sent
+// in VOTE_START, so every client computes the SAME end time — the countdown is
+// consistent across peers regardless of network latency. A 250ms interval
+// re-renders the remaining seconds; it self-stops at 0 and is cleared on reset.
+function startPublicServerVoteCountdown() {
+
+	stopPublicServerVoteCountdown();
+	renderPublicServerVoteCountdown();
+	publicServerVoteState.countdownTimer = setInterval( renderPublicServerVoteCountdown, 250 );
+
+}
+
+function stopPublicServerVoteCountdown() {
+
+	if ( publicServerVoteState.countdownTimer ) {
+
+		clearInterval( publicServerVoteState.countdownTimer );
+		publicServerVoteState.countdownTimer = null;
+
+	}
+
+}
+
+function renderPublicServerVoteCountdown() {
+
+	const el = document.getElementById( 'mp-vote-timer' );
+	if ( ! el || ! publicServerVoteState.active ) return;
+	const remainingMs = Math.max( 0, publicServerVoteState.endsAt - Date.now() );
+	const secs = Math.ceil( remainingMs / 1000 );
+	el.textContent = `${ secs }s`;
+	el.classList.toggle( 'urgent', secs <= 5 );
+
+}
 
 function getFirebaseRoomsBaseUrl() {
 
@@ -1121,12 +2266,33 @@ function initMultiplayerPanel() {
 	if ( ! hostBtn || ! joinBtn || ! copyBtn || ! codeInput ) return;
 
 	const configReady = hasFirebaseMultiplayerConfig();
+
+	// Public servers are wired up regardless of Firebase config: they only need
+	// PeerJS's default cloud signalling (WebRTC, via the TURN server in
+	// peerConfig) and the read-only track share board — no Firebase, no servers
+	// worker.
+	buildPublicServerButtons();
+
+	// Auto-join a public server on boot via ?pubServer=<id>. Used after a
+	// map-switch redirect so players rejoin the same server on the new map.
+	const pubServerParam = String( new URLSearchParams( window.location.search ).get( 'pubServer' ) || '' ).trim().toLowerCase();
+	if ( pubServerParam && findPublicServer( pubServerParam ) ) {
+
+		const params = new URLSearchParams( window.location.search );
+		params.delete( 'pubServer' );
+		const nextQuery = params.toString();
+		history.replaceState( null, '', `${ window.location.pathname }${ nextQuery ? `?${ nextQuery }` : '' }${ window.location.hash }` );
+		// Wait briefly for the boot sequence, then join (tolerant of late load).
+		setTimeout( () => joinPublicServer( pubServerParam ), 350 );
+
+	}
+
 	if ( ! configReady ) {
 
 		hostBtn.disabled = true;
 		joinBtn.disabled = true;
 		copyBtn.disabled = true;
-		updateMultiplayerStatus( 'Multiplayer needs Firebase room metadata for PeerJS signaling. Add Firebase keys in js/firebase-config.js.' );
+		updateMultiplayerStatus( 'Private rooms need Firebase room metadata. Public servers (above) still work.' );
 		setMultiplayerLeaderboardVisible( false );
 		return;
 
@@ -1134,6 +2300,7 @@ function initMultiplayerPanel() {
 
 	hostBtn.addEventListener( 'click', async () => {
 
+		await leavePublicServer();
 		const code = createHostCode();
 		codeInput.value = code;
 		updateMultiplayerStatus( `Creating room ${ code }...` );
@@ -1195,6 +2362,7 @@ function initMultiplayerPanel() {
 
 	joinBtn.addEventListener( 'click', async () => {
 
+		await leavePublicServer();
 		const code = codeInput.value.trim().toUpperCase();
 		if ( ! /^[A-Z0-9]{6}$/.test( code ) ) {
 
@@ -1304,6 +2472,10 @@ function initMultiplayerPanel() {
 async function hostRotateRoomCode( currentRoomCode, mapSignature ) {
 
 	if ( ! currentRoomCode || multiplayerSessionState.role !== 'host' || migrationSwitchInFlight ) return currentRoomCode;
+	// Never rotate the room code on a public server — the fixed code (e.g.
+	// PUBSV1) is how everyone finds the same PeerJS room. Map changes on a
+	// public server are driven by the vote feature, not room-code rotation.
+	if ( isPublicServerActive() ) return currentRoomCode;
 	const nextCode = createHostCode();
 	if ( nextCode === currentRoomCode ) return currentRoomCode;
 	migrationSwitchInFlight = true;
@@ -1746,14 +2918,8 @@ async function resolvePackedTrackParams( params ) {
 			const endpoint = `${ TRACK_SHARE_API_ROOT }${ prefix }/packs/${ encodeURIComponent( packId ) }`;
 			try {
 
-				const response = await fetch( endpoint, { cache: 'no-store' } );
-				if ( ! response.ok ) {
-
-					lastError = new Error( `pack-http-${ response.status }@${ endpoint }` );
-					continue;
-
-				}
-				const parsed = await response.json();
+				// Retry so a transient Cloudflare 503 doesn't fail a packed-track load.
+				const parsed = await fetchTrackBoardWithRetry( endpoint );
 				if ( ! parsed?.ok ) {
 
 					lastError = new Error( `pack-invalid-response@${ endpoint }` );
@@ -1795,13 +2961,15 @@ function decodeBase64UrlJsonLoose( value ) {
 
 async function fetchTrackBoardEntries() {
 
+	// Route through the shared retry helper (PublicServers.fetchTrackBoardWithRetry)
+	// so a transient Cloudflare 503 ("error code: 1102") doesn't leave this
+	// non-multiplayer path (shared-track title resolution, board lookup) empty.
+	// Both prefixes are tried; the first one that returns a usable payload wins.
 	for ( const prefix of TRACK_SHARE_API_PREFIXES ) {
 
 		try {
 
-			const response = await fetch( `${ TRACK_SHARE_API_ROOT }${ prefix }/tracks`, { cache: 'no-store' } );
-			if ( ! response.ok ) continue;
-			const data = await response.json();
+			const data = await fetchTrackBoardWithRetry( `${ TRACK_SHARE_API_ROOT }${ prefix }/tracks` );
 			return Array.isArray( data?.entries ) ? data.entries : [];
 
 		} catch ( error ) {
@@ -3081,13 +4249,17 @@ async function init() {
 	setInterval( broadcastPeerState, WEBRTC_SYNC_MS );
 	window.addEventListener( 'beforeunload', () => {
 
+		// On a public server leaving is purely a PeerJS action (the LEFT packet +
+		// peer destroy below handle it; if we were host a surviving joiner's
+		// maintenance loop reclaims the host id). On a private room we also clear our
+		// Firebase presence. The roomCode check skips the no-op when not in a room.
 		if ( ! multiplayerSessionState.roomCode ) return;
 		for ( const connection of multiplayerSessionState.connections.values() ) {
 
 			try { connection.send?.( { type: PEER_PACKET_LEFT, playerId: multiplayerSessionState.clientId } ); } catch {}
 
 		}
-		if ( ! hasFirebaseMultiplayerConfig() ) return;
+		if ( isPublicServerActive() || ! hasFirebaseMultiplayerConfig() ) return;
 		const roomCode = multiplayerSessionState.roomCode;
 		const playerPath = `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }`;
 		firebaseRoomsRequest( roomCode, 'DELETE', undefined, playerPath ).catch( () => {} );
@@ -6362,9 +7534,7 @@ function completeCampaignStage() {
 
 			for ( const prefix of TRACK_SHARE_API_PREFIXES ) {
 
-				const response = await fetch( `${ TRACK_SHARE_API_ROOT }${ prefix }/tracks` );
-				if ( ! response.ok ) continue;
-				const data = await response.json();
+				const data = await fetchTrackBoardWithRetry( `${ TRACK_SHARE_API_ROOT }${ prefix }/tracks` );
 				return Array.isArray( data?.entries ) ? data.entries.filter( ( entry ) => Number.isFinite( Number( entry?.bestLapSeconds ) ) && typeof entry?.playUrl === 'string' ) : [];
 
 			}
@@ -10666,7 +11836,16 @@ function completeCampaignStage() {
 					if ( ! lapInvalid ) {
 
 						bestLapSeconds = bestLapSeconds === null ? completedLap : Math.min( bestLapSeconds, completedLap );
-						if ( isNewBest ) publishMultiplayerBestLap( bestLapSeconds );
+						// On a public server publishMultiplayerBestLap is a no-op (there's
+						// no private-room lap store); a world record still submits to the
+						// OFFICIAL leaderboard via the isNewBest submitLeaderboardTime path
+						// below. Private rooms publish to their Firebase lap store on a new
+						// session best.
+						if ( isNewBest ) {
+
+							publishMultiplayerBestLap( bestLapSeconds );
+
+						}
 						shareImageDataUrl = createShareSnapshot( bestLapSeconds );
 
 					} else if ( moddedRun ) {
@@ -10731,6 +11910,11 @@ function completeCampaignStage() {
 					rebuildGhostSpreadLine();
 
 				}
+				// Submit to the OFFICIAL leaderboard on any new personal best. This is
+				// what lets a world record set on a public server land on the real
+				// leaderboard (a WR is always a new local best, so it submits here).
+				// Slower laps that don't beat the PB are NOT submitted (the worker keeps
+				// the min anyway, but there's no point POSTing them).
 				if ( isNewBest && ! isSplitScreen ) submitLeaderboardTime( completedLap );
 				if ( ! lapInvalid && editorQuickTestEnabled && editorReturnParam && ! isSplitScreen && currentLapGhostSamples.length > 1 ) {
 
