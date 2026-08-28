@@ -52,6 +52,10 @@
 - `js/Track.js` `placePiece()`: `building-*` decorations use the same height offset
   as `decoration-*` (DECORATION_HEIGHT_OFFSET), matching the editor's deco render.
 - Save/load is fully generic via `cell.decoType` → `d:` array; no new save code.
+- `js/tas-viewer.js` also lists the 5 building models in `MODELS` and applies the
+  10x scale in its loader (mirrors main.js).
+- Editor overlay (deco render in `editor.html`): buildings are placed at base Y 0.5
+  (no `DECO_HEIGHT_OFFSET`) so their footprint sits on the road like gameplay.
 
 ### To redo hitbox heights later
 1. Open each building GLB, get its true bounding height (locally scaled).
