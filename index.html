@@ -337,6 +337,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			cursor: pointer;
 		}
 		#mp-public-leave-btn:hover { background: rgba(255,92,120,0.36); }
+		#mp-player-count { font: 600 11px/1 sans-serif; color: #9be8ff; opacity: 0.9; margin: 4px 0; }
 		/* Propose-a-map-vote row: shown only while connected to a public server
 		   (toggled to display:flex / none by updatePublicServerButtonStates). */
 		#mp-pubtrack-row { display: none; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.18); }
@@ -2651,6 +2652,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		<div id="mp-public-row">
 			<div class="mp-public-label">Public servers</div>
 			<div id="mp-public-buttons"></div>
+			<div id="mp-player-count" style="display:none;"></div>
 			<button id="mp-public-leave-btn" type="button" style="display:none;">Leave server</button>
 		</div>
 		<div id="mp-actions">

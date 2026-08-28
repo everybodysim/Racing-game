@@ -471,6 +471,9 @@ const PEER_PACKET_LEFT = 'PLAYER_LEFT';
 //   VOTE_RESULT— the initiator's authoritative result after 30s (passed? + the
 //                target playUrl); if passed everyone redirects to the new map.
 const PEER_PACKET_MAP_SYNC = 'PUBLIC_MAP_SYNC';
+//   MAP_SYNC_REQ — joiner→host: asked on the joiner's data channel opening so
+//                a lost/dropped initial MAP_SYNC gets re-sent instead of hanging.
+const PEER_PACKET_MAP_SYNC_REQ = 'PUBLIC_MAP_SYNC_REQ';
 const PEER_PACKET_VOTE_START = 'PUBLIC_VOTE_START';
 const PEER_PACKET_VOTE = 'PUBLIC_VOTE';
 const PEER_PACKET_VOTE_RESULT = 'PUBLIC_VOTE_RESULT';
@@ -680,9 +683,11 @@ function handlePeerPacket( packet, sourcePeerId ) {
 
 		}
 		if ( playerId === multiplayerSessionState.clientId ) return;
+		touchPublicServerPlayer( playerId );
 		if ( packet.type === PEER_PACKET_LEFT ) {
 
 			removeResolvedRemotePlayerVisual( playerId );
+			forgetPublicServerPlayer( playerId );
 			relayHostPacket( packet, sourcePeerId );
 			return;
 
@@ -705,13 +710,31 @@ function handlePeerPacket( packet, sourcePeerId ) {
 			return;
 
 		}
-		if ( packet.type === PEER_PACKET_VOTE ) {
+		// A joiner whose initial MAP_SYNC never arrived asks the host to re-send it.
+			// Only the host answers; joiner→host, do not relay. That doubles the
+			// chance the redirect happens promptly instead of waiting for the next
+			// maintenance tick / the host's next broadcast.
 
-			onPublicServerVote( packet );
-			relayHostPacket( packet, sourcePeerId );
-			return;
+			if ( packet.type === PEER_PACKET_MAP_SYNC_REQ ) {
 
-		}
+				if ( publicServerState.isHost && isPublicServerActive() ) {
+
+					// Only answer the requesting peer, not broadcast — that would
+					// spam every joiner with an otherwise-identical packet.
+					const conn = multiplayerSessionState.connections.get( sourcePeerId );
+					if ( conn?.open ) broadcastPublicServerMapSync( conn );
+
+				}
+				return;
+
+			}
+			if ( packet.type === PEER_PACKET_VOTE ) {
+
+				onPublicServerVote( packet );
+				relayHostPacket( packet, sourcePeerId );
+				return;
+
+			}
 		if ( packet.type === PEER_PACKET_VOTE_RESULT ) {
 
 			onPublicServerVoteResult( packet );
@@ -807,6 +830,14 @@ function startPeerMultiplayer( roomCode, role ) {
 				logMpDebug( `[PeerJS] Data channel OPENED with host: ${ targetHostId }` );
 				registerPeerConnection( connection );
 				broadcastPeerState();
+				// Public-server joiners: ask the host to re-send the map sync so we
+				// redirect promptly even if their first MAP_SYNC got dropped.
+
+				if ( isPublicServerActive() && ! publicServerState.isHost ) {
+
+					try { connection.send( { type: PEER_PACKET_MAP_SYNC_REQ, playerId: multiplayerSessionState.clientId } ); } catch {}
+
+				}
 
 			} );
 			connection.on( 'error', ( error ) => logMpDebug( `[PeerJS] Connection error: ${ error?.message || error }` ) );
@@ -1003,6 +1034,80 @@ function clearLoadedPublicServerMapFromStorage() {
 
 	try { sessionStorage.removeItem( PUBSRV_LOADED_MAP_KEY ); }
 	catch {}
+
+}
+
+// --- Public-server player count ---------------------------------------------
+//
+// There is no backend worker, so the "players in the server" count is derived
+// from the PeerJS mesh itself: every peer we've heard a packet from (playerId
+// in STATE / VOTE / etc.) counts, plus ourselves. Player ids age out after
+// PLAYER_PRESENCE_MS of silence (dropped peers, crshed tabs) so the number
+// trends toward the current population instead of ratcheting up forever. The
+// count refreshes on each change and on the 5s maintenance tick.
+
+const publicServerPlayers = new Map();   // playerId -> lastSeenAt (ms)
+const PLAYER_PRESENCE_MS = 15000;
+
+function touchPublicServerPlayer( playerId ) {
+
+		const id = String( playerId || '' );
+		if ( ! id || ! isPublicServerActive() ) return;
+		publicServerPlayers.set( id, Date.now() );
+		updatePublicServerPlayerCount();
+
+}
+
+function forgetPublicServerPlayer( playerId ) {
+
+		if ( publicServerPlayers.delete( String( playerId || '' ) ) ) updatePublicServerPlayerCount();
+
+}
+
+// Drop players we haven't heard from in PLAYER_PRESENCE_MS. Called from the
+// 5s maintenance tick and after every touch (cheap sweep).
+function cullPublicServerPlayers() {
+
+		if ( publicServerPlayers.size === 0 ) return;
+		const now = Date.now();
+		let changed = false;
+		for ( const [ id, last ] of publicServerPlayers ) {
+
+				if ( now - last > PLAYER_PRESENCE_MS ) {
+
+						publicServerPlayers.delete( id );
+						changed = true;
+
+				}
+
+		}
+		if ( changed ) updatePublicServerPlayerCount();
+
+}
+
+function resetPublicServerPlayers() {
+
+		publicServerPlayers.clear();
+		updatePublicServerPlayerCount();
+
+}
+
+function updatePublicServerPlayerCount() {
+
+		const el = document.getElementById( 'mp-player-count' );
+		if ( ! el ) return;
+		if ( ! isPublicServerActive() ) {
+
+				el.style.display = 'none';
+				return;
+
+		}
+		let n = publicServerPlayers.size;
+		// Include ourselves.
+		const ourId = multiplayerSessionState.clientId;
+		if ( ourId && ! publicServerPlayers.has( ourId ) ) n += 1;
+		el.textContent = `Players: ${ n }`;
+		el.style.display = 'block';
 
 }
 
@@ -1319,6 +1424,8 @@ async function joinPublicServer( serverId ) {
 	updateMultiplayerStatus( `Joining ${ def.name }…` );
 	publicServerState.active = true;
 	publicServerState.serverId = serverId;
+	resetPublicServerPlayers();
+	touchPublicServerPlayer( multiplayerSessionState.clientId );
 	publicServerState.isHost = false;
 	publicServerState.claimedHost = false;
 	publicServerState.hostClaimInFlight = false;
@@ -1403,6 +1510,7 @@ async function resetPublicServerState() {
 	publicServerState.trackListCacheAt = 0;
 	publicServerState.loadedMapSignature = '';
 	clearLoadedPublicServerMapFromStorage();
+	resetPublicServerPlayers();
 	updatePublicServerButtonStates();
 
 }
@@ -1481,7 +1589,7 @@ function onPublicServerMapSync( packet ) {
 
 	if ( ! isPublicServerActive() ) return;
 	const sig = String( packet?.mapSignature || '' );
-	if ( ! sig || sig === 'default|none' ) return;
+	if ( ! sig ) return;
 	redirectPublicServerToMap( sig, 'host' );
 
 }
@@ -1492,7 +1600,7 @@ function onPublicServerMapSync( packet ) {
 function redirectPublicServerToMap( sig, reason = 'host' ) {
 
 	if ( ! isPublicServerActive() ) return;
-	if ( ! sig || sig === 'default|none' ) return;
+	if ( ! sig ) return;
 	if ( sig === getCurrentMapSignature() ) {
 
 		publicServerState.loadedMapSignature = sig;
@@ -1645,6 +1753,7 @@ function applyPublicServerRoleToConnections( roomCode, role ) {
 function maintainPublicServerPeer() {
 
 	if ( ! isPublicServerActive() ) return;
+	cullPublicServerPlayers();
 	const roomCode = publicServerRoomCode();
 	if ( ! roomCode ) return;
 	const peer = multiplayerSessionState.peer;

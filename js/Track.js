@@ -877,6 +877,16 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					blockCellForTrees( entry[ 0 ], entry[ 1 ], false );
 				}
 			}
+			// Buildings are solid too — they erase trees beneath them using the exact same
+			// off-grid-aware footprint math as the blocks above. (Other decorations — tents, trees,
+			// bushes — stay see-through.)
+			if ( Array.isArray( extras.decorations ) ) {
+				for ( const entry of extras.decorations ) {
+					if ( ! Array.isArray( entry ) ) continue;
+					const decoKey = String( entry[ 2 ] || '' );
+					if ( decoKey.startsWith( 'building-' ) ) blockCellForTrees( entry[ 0 ], entry[ 1 ], false );
+				}
+			}
 			// NOT included (trees can go through these):
 			//   bumps, boosts, jumps, poles, magnets, arcLinks, decorations
 		}
