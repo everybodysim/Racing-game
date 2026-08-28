@@ -824,11 +824,17 @@
 		function renderHighlights() {
 			const now = Date.now();
 			const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-			const averagePlays = entries.reduce( ( total, entry ) => total + ( Number( entry.viewCount ) || 0 ), 0 ) / Math.max( 1, entries.length );
 			const newestFirst = [ ...entries ].sort( ( a, b ) => ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) );
-			const featured = newestFirst
-				.filter( ( entry ) => ( Number( entry.viewCount ) || 0 ) >= averagePlays )
-				.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )[ 0 ] || newestFirst[ 0 ];
+			// Daily-rotating featured pick: top 5 by plays, then hash today's
+			// UTC date to choose one. Changes once per day, identical for
+			// every visitor on the same day.
+			const top5 = [ ...entries ]
+				.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )
+				.slice( 0, 5 );
+			const today = new Date();
+			const dateSeed = `${ today.getUTCFullYear() }-${ today.getUTCMonth() + 1 }-${ today.getUTCDate() }`;
+			const seedHash = Number( BigInt( '0x' + hashTrackSeed( `featured-v2|${ dateSeed }` ).slice( 0, 13 ) ) % BigInt( Math.max( 1, top5.length ) ) );
+			const featured = top5[ seedHash ] || top5[ 0 ] || newestFirst[ 0 ];
 			const trending = [ ...entries ]
 				.sort( ( a, b ) => ( ( Number( b.viewCount ) || 0 ) * 2 + ( Number( b.thumbsUp ) || 0 ) + ( Number( b.createdAt ) >= weekAgo ? 5 : 0 ) ) - ( ( Number( a.viewCount ) || 0 ) * 2 + ( Number( a.thumbsUp ) || 0 ) + ( Number( a.createdAt ) >= weekAgo ? 5 : 0 ) ) )
 				.slice( 0, 6 );
