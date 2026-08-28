@@ -15,7 +15,8 @@ const MODELS = [
   'vehicle-hatchback-green', 'vehicle-sedan-orange',
   'vehicle-car-police', 'vehicle-delivery-yellow', 'vehicle-flatbed-purple', 'vehicle-van-blue',
   'track-straight', 'track-corner', 'track-bump', 'track-finish',
-  'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass'
+  'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
+  'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d', 'building-garage'
 ];
 const REQUIRED_VEHICLE_KEYS = [ 'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red', 'vehicle-hatchback-green', 'vehicle-sedan-orange', 'vehicle-car-police', 'vehicle-delivery-yellow', 'vehicle-flatbed-purple', 'vehicle-van-blue' ];
 const CAR_STATS = {
@@ -440,6 +441,7 @@ async function initScene() {
     loader.load(`models/${name}.glb`, (gltf) => {
       window.clearTimeout(timeout);
       if (name.startsWith('vehicle-')) gltf.scene.scale.setScalar(0.5);
+      if (name.startsWith('building-')) gltf.scene.scale.setScalar(10);
       models[name] = gltf.scene;
       done({ name, ok: true });
     }, undefined, (error) => {
