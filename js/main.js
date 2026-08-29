@@ -4434,7 +4434,7 @@ async function init() {
 
 
 			while ( targetY - state.mesh.rotation.y > Math.PI ) targetY -= Math.PI * 2;
-			while ( targetY - state.mesh.rotation.y < -Math.PI ) targetY += Math.PI *  ́2;
+			while ( targetY - state.mesh.rotation.y < -Math.PI ) targetY += Math.PI * 2;
 
 
 			state.mesh.rotation.y = THREE.MathUtils.lerp( state.mesh.rotation.y, targetY, alpha );
