@@ -591,6 +591,20 @@ function cleanupPeerConnection( peerId ) {
 	// Keep the remote car visual alive across that race: only remove it when the
 	// player actually left (PLAYER_LEFT) or the endpoint is no longer in our session.
 	const connection = multiplayerSessionState.connections.get( peerId );
+	// The public-server host alias (see aliasPublicServerConnection) holds the host's
+	// uuid -> the same connection object. Remove BOTH keys when the underlying
+	// connection closes so `connections.size` can reach 0 — the maintenance tick's
+	// `if ( connections.size === 0 )` recover gate must fire (a stale alias would
+	// make a dead host look "still connected" forever and the joiner never self-heals).
+	if ( connection ) {
+
+		for ( const [ key, value ] of [ ...multiplayerSessionState.connections.entries() ] ) {
+
+			if ( key !== peerId && value === connection ) multiplayerSessionState.connections.delete( key );
+
+		}
+
+	}
 	const peerClosed = ! connection || ! multiplayerSessionState.connections.has( peerId );
 	connection?.close?.();
 	multiplayerSessionState.connections.delete( peerId );
@@ -670,6 +684,34 @@ function removeResolvedRemotePlayerVisual( playerId ) {
 
 }
 
+function aliasPublicServerConnection( playerId, sourcePeerId ) {
+
+        // Public-server peers are identified by their random UUID `playerId` in
+        // packets, but the host's connection is keyed by the room peer id
+        // (`RACE-ROOM-<code>`) in `multiplayerSessionState.connections` — the
+        // JOINFER side never resolves `connections.get(playerId)` for the host. That
+        // breaks the remote-vehicle stream guard (`packetStreamId === conn?.peer`),
+        // forces paint/cosmetic changes to re-create the mesh, and (via
+        // `cleanupPeerConnection`) can leave a stale alias behind so the maintenance
+        // loop never sees `connections.size === 0` → the joiner never recovers a
+        // dead host. Alias the host's uuid -> the same connection object, ONCE per
+        // connection. Removed in cleanupPeerConnection, and broadcastPeerState
+        // dedupes per-round so we never double-send.
+
+        if ( ! isPublicServerActive() ) return;
+        if ( publicServerState.isHost ) return;
+        if ( ! sourcePeerId ) return;
+        if ( ! String( sourcePeerId ).startsWith( PEER_ROOM_PREFIX ) ) return;
+        if ( String( playerId ).startsWith( PEER_ROOM_PREFIX ) ) return;
+        if ( playerId === multiplayerSessionState.clientId ) return;
+        const conn = multiplayerSessionState.connections.get( sourcePeerId );
+        if ( ! conn ) return;
+        if ( multiplayerSessionState.connections.get( playerId ) === conn ) return;
+        multiplayerSessionState.connections.set( playerId, conn );
+        logMpDebug( `[PublicServer] Alias host connection ${ String( playerId ).slice( 0,  8 ) } -> ${ sourcePeerId }` );
+
+}
+
 function handlePeerPacket( packet, sourcePeerId ) {
 
 	try {
@@ -688,6 +730,7 @@ function handlePeerPacket( packet, sourcePeerId ) {
 
 		}
 		if ( playerId === multiplayerSessionState.clientId ) return;
+		aliasPublicServerConnection( playerId, sourcePeerId );
 		touchPublicServerPlayer( playerId );
 		if ( packet.type === PEER_PACKET_LEFT ) {
 
@@ -933,13 +976,20 @@ function broadcastPeerState() {
 	try {
 
 		const packet = buildLocalPeerStatePacket();
+		// Public-server alias entries (see aliasPublicServerConnection) make the
+		// host uuid + the room id point to the SAME connection object. Send each
+		// unique connection only once per round so we don't double-send to one peer.
+		const sent = new Set();
 		for ( const [ peerId, connection ] of multiplayerSessionState.connections.entries() ) {
 
-			if ( connection && connection.open ) {
+			if ( ! connection ) continue;
+			if ( sent.has( connection ) ) continue;
+			sent.add( connection );
+			if ( connection.open ) {
 
 				connection.send( packet );
 
-			} else if ( connection ) {
+			} else {
 
 				logMpDebug( `[Send Warn] Data channel to ${ peerId } not open yet (state: ${ connection.readyState })` );
 
