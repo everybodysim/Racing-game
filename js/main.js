@@ -1006,6 +1006,7 @@ const publicServerState = {
 	peerMaintainTimer: null, // loop (5s) that restarts a dead PeerJS peer + self-heals host
 	joinerConnectWatch: null, // one-shot timeout that proactively recovers a stuck joiner connect
 	hostClaimInFlight: false, // guard against concurrent host-claim attempts
+	joinerConnectSince: 0,  // ms timestamp we last started a joiner connect (grace window)
 	trackListCache: null,    // cached community-track list (for the vote lookup)
 	trackListCacheAt: 0,     // local time the cache was fetched
 	loadedMapSignature: '',  // mapSignature we redirected onto (anti-loop guard)
@@ -1306,6 +1307,12 @@ function redirectToRoomMap( roomCode, mapSignature ) {
 // result is tallied and broadcast. Everyone's prompt hides on the initiator's
 // VOTE_RESULT packet (or a local fallback timeout if it never arrives).
 const PUBLIC_SERVER_VOTE_DURATION_MS = 30000;
+// How long (ms) we let a joiner's data-channel connect attempt breathe before
+// the maintenance loop considers the host dead and tries to reclaim the host id.
+// WebRTC/ICE through TURN can take 10-20s on strict/slow networks; killing the
+// attempt every 5s (the old behaviour) restarted ICE from scratch forever, so
+// joining only ever worked on fast networks where P2P completes quickly.
+const JOIN_CONNECT_GRACE_MS = 12000;
 // A vote passes if strictly more than 60% of the cast votes are "yes" (and at
 // least one vote was cast). Otherwise the track is not switched.
 const PUBLIC_SERVER_VOTE_PASS_RATIO = 0.60;
@@ -1429,6 +1436,7 @@ async function joinPublicServer( serverId ) {
 	publicServerState.isHost = false;
 	publicServerState.claimedHost = false;
 	publicServerState.hostClaimInFlight = false;
+	publicServerState.joinerConnectSince = 0;
 	publicServerState.trackListCache = null;
 	publicServerState.trackListCacheAt = 0;
 	publicServerState.loadedMapSignature = getLoadedPublicServerMapFromStorage();
@@ -1506,6 +1514,7 @@ async function resetPublicServerState() {
 	publicServerState.isHost = false;
 	publicServerState.claimedHost = false;
 	publicServerState.hostClaimInFlight = false;
+	publicServerState.joinerConnectSince = 0;
 	publicServerState.trackListCache = null;
 	publicServerState.trackListCacheAt = 0;
 	publicServerState.loadedMapSignature = '';
@@ -1743,6 +1752,11 @@ function applyPublicServerRoleToConnections( roomCode, role ) {
 	}
 	// Joiner: connect to the host peer id. Reuse startPeerMultiplayer's joiner
 	// path so the data-channel + packet handling is identical to private rooms.
+	// Start the 12s grace window for this connect attempt (public servers only).
+	// The maintenance loop won't try to reclaim the host id until this expires, so
+	// a slow ICE/TURN handshake gets a real chance instead of being killed every
+	// 5s and restarted from scratch forever.
+	if ( isPublicServerActive() ) publicServerState.joinerConnectSince = Date.now();
 	startPeerMultiplayer( roomCode, 'join' );
 
 }
@@ -1764,9 +1778,12 @@ function maintainPublicServerPeer() {
 		// the host id so other joiners can find us.
 		if ( ! publicServerState.isHost && publicServerState.hostClaimInFlight ) return;
 		if ( ! publicServerState.isHost && multiplayerSessionState.connections.size === 0 ) {
+			const joinGraceRemaining = ( publicServerState.joinerConnectSince || 0 ) + JOIN_CONNECT_GRACE_MS - Date.now();
+			if ( joinGraceRemaining <= 0 ) {
 
-			maybeReclaimPublicServerHost( roomCode );
+				maybeReclaimPublicServerHost( roomCode );
 
+			}
 		}
 		return;
 
@@ -1826,9 +1843,14 @@ function maybeReclaimPublicServerHost( roomCode ) {
 
 		} else {
 
-			// Someone else is host — destroy the probe + reconnect as joiner.
+			// Someone else holds the host id (or its reservation lingers on the
+			// PeerJS cloud after the real host left). Destroy just the claim probe — do
+			// NOT tear down our own joiner peer/data channel. The maintenance loop
+			// (gated by JOIN_CONNECT_GRACE_MS) retries the claim later; our in-flight
+			// WebRTC handshake to the current host keeps trying meanwhile, instead of
+			// being destroyed and restarted from scratch every 5s forever (what made
+			// joining/hosting only work on fast networks).
 			try { probe.destroy(); } catch {}
-			applyPublicServerRoleToConnections( roomCode, 'join' );
 
 		}
 
