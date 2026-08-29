@@ -1721,10 +1721,23 @@ function redirectPublicServerToMap( sig, reason = 'host' ) {
 
 	if ( ! isPublicServerActive() ) return;
 	if ( ! sig ) return;
+	// The MAP_SYNC alone doesn't carry the other players' locations — those
+	// arrive as ordinary VEHICLE_STATE packets over the data channel within
+	// seconds of joining. Already on this map? Nothing to redirect for —
+	// skip the reload entirely so the remote cars we've just started receiving
+	// continue uninterruptedly. This fixes the "joined the server but never got
+	// redirected / sees no other player" symptom (the old eager-reload path in
+	// startPeerMultiplayer would reload the page the moment the channel opened,
+	// dropping our peer and the mesh right as the first state packets were about to
+	// flow; then the rebuild spawned us as a fresh peer and the cycle repeated —
+	// a join-churn loop that kept tearing down the WebRTC mesh every few seconds,
+	// so remote cars could never stay alive long enough to be seen).
 	if ( sig === getCurrentMapSignature() ) {
 
 		publicServerState.loadedMapSignature = sig;
+
 		setLoadedPublicServerMapInStorage( sig );
+
 		return;
 
 	}
@@ -1907,20 +1920,25 @@ function maintainPublicServerPeer() {
 			// restarted a fresh PeerJS peer every 5s tick, starving a slow connect
 			// forever (the exact "works only on some computers" bug). The 15s real
 			// timeout in markPublicServerJoinerConnect clears the guard and re-runs us..
-			if ( publicServerState.joinerConnectInFlight ) return;
-			if ( publicServerState.hostClaimInFlight ) return;
-			const now = Date.now();
-			if ( now - publicServerState.lastReclaimAt < PUBLIC_SERVER_RECLAIM_BACKOFF_STEP_MS ) return;
-			// Back off reclaim probes: an unavailable-id means SOMEONE (live or
-			// dead) owns the host id; hammering it every 5s spams the PeerJS cloud
-			// and never gives a dead holder's reservation time to expire (and the vertex:
-			// an endless unavailable-id churn). Growth is applied on each failed claim..
-			publicServerState.reclaimBackoffMs = Math.min(
-				publicServerState.reclaimBackoffMs || PUBLIC_SERVER_RECLAIM_BACKOFF_STEP_MS,
-				PUBLIC_SERVER_RECLAIM_BACKOFF_MAX_MS
-			);
-			publicServerState.lastReclaimAt = now;
-			maybeReclaimPublicServerHost( roomCode );
+			// If a data channel to the host is ALREADY open, there's nothing to
+			// heal — a host-claim probe would race the healthy connection and spam
+			// the PeerJS cloud with unusable RACE-ROOM ids. Skip (cold path).
+			if ( multiplayerSessionState.connections.size === 0 && ! publicServerState.joinerConnectInFlight && ! publicServerState.hostClaimInFlight ) {
+
+				const now = Date.now();
+				if ( now - publicServerState.lastReclaimAt < PUBLIC_SERVER_RECLAIM_BACKOFF_STEP_MS ) return;
+				// Back off reclaim probes: an unavailable-id means SOMEONE (live or
+				// dead) owns the host id; hammering it every 5s spams the PeerJS cloud
+				// and never gives a dead holder's reservation time to expire (and the vertex:
+				// an endless unavailable-id churn). Growth is applied on each failed claim..
+				publicServerState.reclaimBackoffMs = Math.min(
+					publicServerState.reclaimBackoffMs || PUBLIC_SERVER_RECLAIM_BACKOFF_STEP_MS,
+					PUBLIC_SERVER_RECLAIM_BACKOFF_MAX_MS
+				);
+				publicServerState.lastReclaimAt = now;
+				maybeReclaimPublicServerHost( roomCode );
+
+			}
 
 		}
 		return;
