@@ -586,10 +586,15 @@ function getPeerRoomId( roomCode ) {
 function cleanupPeerConnection( peerId ) {
 
 	logMpDebug( `[PeerJS] Connection closed/cleaned up: ${ peerId }` );
+	// A PeerJS-level reconnect can deliver the NEXT data packet before the
+	// old connection's close event fires here (and drop-'n-'recreate spam the vehicle).
+	// Keep the remote car visual alive across that race: only remove it when the
+	// player actually left (PLAYER_LEFT) or the endpoint is no longer in our session.
 	const connection = multiplayerSessionState.connections.get( peerId );
+	const peerClosed = ! connection || ! multiplayerSessionState.connections.has( peerId );
 	connection?.close?.();
 	multiplayerSessionState.connections.delete( peerId );
-	if ( typeof removeRemotePlayerVisual === 'function' ) removeRemotePlayerVisual( peerId );
+	if ( peerClosed && typeof removeRemotePlayerVisual === 'function' ) removeRemotePlayerVisual( peerId );
 
 }
 
@@ -4417,10 +4422,22 @@ async function init() {
 
 			}
 			state.mesh.position.lerp( state.targetPos, alpha );
-			// Yaw lives on the real-number line and crosses the ±π seam (e.g. a car
-			// turning through 180°) so plain lerp would drag it the long way around /
-			// backwards for half a rotation. lerpAngle wraps the delta shortest-way.
-			state.mesh.rotation.y = lerpAngle( state.mesh.rotation.y, state.targetRotY, alpha );
+			// Yaw lives on the real-number line; as the mesh approaches the ±π
+			// seam the next heading often canonicalizes(e.g. from +3.14 to -3.13
+			// — same direction, opposite sign). lerping that on the raw number line
+			// drags the car the unwrapped way round (a full 2π lap) — the "wrong
+			// direction past 180°" bug. Each frame we re-canonicalize the TARGET into a
+			// ±π window around the current heading so the interpolator only ever
+			// moves across the short arc — stateless,and velocity through past-180°
+			// turns is preserved(no jerky-wrap, no long-way spin-back).
+			const targetY = state.targetRotY;
+
+
+			while ( targetY - state.mesh.rotation.y > Math.PI ) targetY -= Math.PI * 2;
+			while ( targetY - state.mesh.rotation.y < -Math.PI ) targetY += Math.PI *  ́2;
+
+
+			state.mesh.rotation.y = THREE.MathUtils.lerp( state.mesh.rotation.y, targetY, alpha );
 
 		}
 
