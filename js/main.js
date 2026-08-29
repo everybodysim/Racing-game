@@ -748,7 +748,11 @@ function handlePeerPacket( packet, sourcePeerId ) {
 		const isFirstPacket = ! visualState.lastSeenAt;
 		applyRemoteNameTag( visualState, packet.name || 'Player' );
 		visualState.targetPos.set( Number( packet.x ) || 0, ( Number( packet.y ) || 0 ) - 0.1, Number( packet.z ) || 0 );
-		visualState.targetRotY = Math.PI - ( Number( packet.ry ) || 0 );
+		// The GLB car models' front faces +Z in model space — same yaw
+		// convention as the local container.rotation.y and the ghost yaw samples,
+		// so the remote heading is ry directly (no inversion; π-ry mirrors
+		// the car backwards and flips its steering direction).
+		visualState.targetRotY = Number( packet.ry ) || 0;
 		if ( isFirstPacket ) {
 
 			visualState.mesh.position.copy( visualState.targetPos );
@@ -4494,7 +4498,7 @@ async function init() {
 				const visualState = ensureRemotePlayerVisualWithCosmetics( playerId, playerState?.carKey, playerState?.cosmetics );
 				ensureRemoteNameTag( visualState, playerState?.name || room?.lapTimes?.[ playerId ]?.name || 'Player' );
 				visualState.targetPos.set( Number( playerState?.x ) || 0, ( Number( playerState?.y ) || 0 ) - 0.1, Number( playerState?.z ) || 0 );
-				visualState.targetRotY = Math.PI - ( Number( playerState?.ry ) || 0 );
+				visualState.targetRotY = Number( playerState?.ry ) || 0;
 				visualState.lastSeenAt = now;
 				seen.add( playerId );
 
