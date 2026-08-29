@@ -1315,6 +1315,11 @@ function redirectToRoomMap( roomCode, mapSignature ) {
 		params.set( 'mods', target.mods );
 
 	}
+	// play=1 keeps the game booting straight into a race — without it (e.g.
+	// when redirecting to the default map, which has no map param) the landing/
+	// main-menu overlay would appear after load and the auto-join would break.
+
+	params.set( 'play', '1' );
 	params.set( 'joinRoom', String( roomCode || '' ).trim().toUpperCase() );
 	window.location.search = params.toString();
 
