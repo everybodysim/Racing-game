@@ -215,8 +215,11 @@ export function buildServerTrackRedirectUrl( playUrl, serverId ) {
 		const mods = src.searchParams.get( 'mods' ) || '';
 		const out = new URL( window.location.href );
 		// Reset query: keep only what we set.
+		// 'default' is the standard map, loaded when `map` is absent — putting it in
+		// the URL would make the track loader decode the word as a cell payload and
+		// build an empty map (just start/finish blocks).
 		const params = new URLSearchParams();
-		if ( map ) params.set( 'map', map );
+		if ( map && map !== 'default' ) params.set( 'map', map );
 		if ( mods && mods !== 'none' ) params.set( 'mods', mods );
 		params.set( 'pubServer', String( serverId || '' ) );
 		params.set( 'play', '1' );

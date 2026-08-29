@@ -81,6 +81,18 @@ const redirNone = buildServerTrackRedirectUrl( 'https://x/index.html?map=ABC&mod
 assert( 'redirect filters mods=none', ! /mods=/.test( redirNone ) );
 assert( 'redirect keeps pubServer for mods=none', redirNone.includes( 'pubServer=server-2' ) );
 
+// A track URL with map=default (e.g. a MAP_SYNC signature of "default|none")
+// must build a redirect WITHOUT map= param — the game loads the default track
+// when `map` is absent; `map=default` would decode as a cell payload and render
+// an empty map with just start/finish blocks.
+const redirDefault = buildServerTrackRedirectUrl( 'https://x/index.html?map=default&pubServer=server-3', 'server-3' );
+assert( 'redirect filters map=default', ! /map=/.test( redirDefault ) );
+assert( 'redirect keeps pubServer for map=default', redirDefault.includes( 'pubServer=server-3' ) );
+
+// A genuinely custom map still carries its map param.
+const redirCustom = buildServerTrackRedirectUrl( 'https://x/index.html?map=v2.AAAA', 'server-1' );
+assert( 'redirect keeps a real custom map param', redirCustom.includes( 'map=v2.AAAA' ) );
+
 // --- Vote tally math (mirrors main.js tallyPublicServerVotes + the pass gate) ---
 // A vote passes if strictly more than 60% of the cast votes are "yes" AND at
 // least one vote was cast. This mirrors the logic in main.js endPublicServerVote.

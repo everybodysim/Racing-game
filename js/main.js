@@ -1297,7 +1297,15 @@ function redirectToRoomMap( roomCode, mapSignature ) {
 
 	const target = parseMapSignature( mapSignature );
 	const params = new URLSearchParams( window.location.search );
-	params.set( 'map', target.map );
+	if ( target.map && target.map !== 'default' ) {
+
+		params.set( 'map', target.map );
+
+	} else {
+
+		params.delete( 'map' );
+
+	}
 	if ( target.mods === 'none' ) {
 
 		params.delete( 'mods' );
@@ -1710,7 +1718,16 @@ function redirectPublicServerToMap( sig, reason = 'host' ) {
 	setLoadedPublicServerMapInStorage( sig );
 	publicServerState.loadedMapSignature = sig;
 	const playUrl = new URL( window.location.href );
-	playUrl.searchParams.set( 'map', ( sig.split( '|' )[ 0 ] || 'default' ) );
+	const mapPart = sig.split( '|' )[ 0 ] || '';
+	if ( mapPart && mapPart !== 'default' ) {
+
+		playUrl.searchParams.set( 'map', mapPart );
+
+	} else {
+
+		playUrl.searchParams.delete( 'map' );
+
+	}
 	const mods = sig.split( '|' )[ 1 ] || 'none';
 	if ( mods && mods !== 'none' ) playUrl.searchParams.set( 'mods', mods );
 	const url = buildServerTrackRedirectUrl( playUrl.toString(), publicServerState.serverId );
@@ -3902,7 +3919,7 @@ async function init() {
 
 	};
 
-	if ( mapParam ) {
+	if ( mapParam && mapParam !== 'default' ) {
 
 		try {
 
