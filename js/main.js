@@ -828,6 +828,9 @@ function startPeerMultiplayer( roomCode, role ) {
 			connection.on( 'open', () => {
 
 				logMpDebug( `[PeerJS] Data channel OPENED with host: ${ targetHostId }` );
+				// Public-server joiner: the connect finally opened — the in-flight guard
+				// is done.
+				clearPublicServerJoinerConnect();
 				registerPeerConnection( connection );
 				broadcastPeerState();
 				// Public-server joiners: ask the host to re-send the map sync so we
@@ -1004,11 +1007,21 @@ const publicServerState = {
 	isHost: false,          // are we the PeerJS host peer? (hidden; no privileges)
 	claimedHost: false,     // have we successfully claimed host this session?
 	peerMaintainTimer: null, // loop (5s) that restarts a dead PeerJS peer + self-heals host
-	joinerConnectWatch: null, // one-shot timeout that proactively recovers a stuck joiner connect
+		joinerConnectWatch: null, // one-shot timeout that proactively recovers a stuck joiner connect
 	hostClaimInFlight: false, // guard against concurrent host-claim attempts
+	// Connect-in-flight guard + reclaim backoff: when a joiner's connect to the
+	// host never opens (PeerJS cloud raced our 5s maintenance tickand killed the
+	// pending attempt every tick — that's what made joins work on some machines but
+	// starve forever on others). This flag makes us leave a pending connect alone
+	// until it either opens or hits a real timeout, and backs off reclaim probes so
+	// a dead/gone host id has time to be released by the cloud instead of being
+	// hammered every 5s (creating an never-ending unavailable-id churn).
+	joinerConnectInFlight: false, // a joiner connect attempt is currently pending (don't kill it
+	joinerConnectAt: 0,         // when that attempt started (ms)
+	lastReclaimAt: 0,           // when we last probed for the host id
+	reclaimBackoffMs: 0,         // current backoff before the next reclaim probe (grows, cap.
+	joinerConnectTimer: null,        // real timeout that clears the in-flight flag
 	trackListCache: null,    // cached community-track list (for the vote lookup)
-	trackListCacheAt: 0,     // local time the cache was fetched
-	loadedMapSignature: '',  // mapSignature we redirected onto (anti-loop guard)
 };
 
 // sessionStorage key recording the mapSignature we already redirected onto. It
@@ -1303,9 +1316,29 @@ function redirectToRoomMap( roomCode, mapSignature ) {
 // --- Public server join / map-vote ---------------------------------------
 
 // How long (ms) the vote stays open on the initiator's device before the
-// result is tallied and broadcast. Everyone's prompt hides on the initiator's
+// result is talliedand broadcast. Everyone's prompt hides on the initiator's
 // VOTE_RESULT packet (or a local fallback timeout if it never arrives).
-const PUBLIC_SERVER_VOTE_DURATION_MS = 30000;
+
+// How long (ms) a client waits in the host-id claim before giving up and
+// becoming a joiner. Raised from 4s: on a slow PeerJS cloud the id may still
+// be registering when the old timeout fired, destroying the host peer while its
+// reservation was settling — leaving a "ghost" id that later reclaim probes see as
+// unavailable-id forever. 10s gives the registration time to complete.
+
+// How long (ms) a joiner connect attempt may stay pending before we give up on it.
+// The prev code killed a still-pending connect every 5s maintenance tick —
+// restaging a fresh PeerJS peer each time so the connect never got a chance to
+// open (the exact churn seen in the broken-device logs). 15s covers slow
+// signalling + the PeerJS connect timeout.
+
+// Reclaim-probe backoff: after a failed host-id claim we wait before probing again..
+// An unavailable-id means SOMEONE (live or dead) owns the id; hammering it every
+// 5s (the old behaviour) spams the PeerJS cloud and never gives a dead holder's
+// reservation time to expire. Backoff starts at 5s and doubles up to this cap..
+const PUBLIC_SERVER_HOST_CLAIM_TIMEOUT_MS =10000;
+const PUBLIC_SERVER_JOINER_CONNECT_TIMEOUT_MS =15000;
+const PUBLIC_SERVER_RECLAIM_BACKOFF_MAX_MS =45000;
+const PUBLIC_SERVER_RECLAIM_BACKOFF_STEP_MS =5000;
 // A vote passes if strictly more than 60% of the cast votes are "yes" (and at
 // least one vote was cast). Otherwise the track is not switched.
 const PUBLIC_SERVER_VOTE_PASS_RATIO = 0.60;
@@ -1429,6 +1462,9 @@ async function joinPublicServer( serverId ) {
 	publicServerState.isHost = false;
 	publicServerState.claimedHost = false;
 	publicServerState.hostClaimInFlight = false;
+	resetPublicServerJoinerConnectState();
+	publicServerState.lastReclaimAt = 0;
+	publicServerState.reclaimBackoffMs = 0;
 	publicServerState.trackListCache = null;
 	publicServerState.trackListCacheAt = 0;
 	publicServerState.loadedMapSignature = getLoadedPublicServerMapFromStorage();
@@ -1506,12 +1542,68 @@ async function resetPublicServerState() {
 	publicServerState.isHost = false;
 	publicServerState.claimedHost = false;
 	publicServerState.hostClaimInFlight = false;
+	resetPublicServerJoinerConnectState();
+	publicServerState.lastReclaimAt = 0;
+	publicServerState.reclaimBackoffMs = 0;
 	publicServerState.trackListCache = null;
 	publicServerState.trackListCacheAt = 0;
 	publicServerState.loadedMapSignature = '';
 	clearLoadedPublicServerMapFromStorage();
 	resetPublicServerPlayers();
 	updatePublicServerButtonStates();
+
+}
+
+
+function resetPublicServerJoinerConnectState() {
+
+	publicServerState.joinerConnectInFlight = false;
+	publicServerState.joinerConnectAt = 0;
+	if ( publicServerState.joinerConnectWatch ) {
+
+		clearTimeout( publicServerState.joinerConnectWatch );
+		publicServerState.joinerConnectWatch = null;
+
+	}
+	if ( publicServerState.joinerConnectTimer ) {
+
+		clearTimeout( publicServerState.joinerConnectTimer );
+		publicServerState.joinerConnectTimer = null;
+
+	}
+
+}
+
+function markPublicServerJoinerConnect() {
+
+	publicServerState.joinerConnectInFlight = true;
+	publicServerState.joinerConnectAt = 0;
+	if ( publicServerState.joinerConnectTimer ) clearTimeout( publicServerState.joinerConnectTimer );
+	// Real timeout: if a join connect never opens (ghost host id,, dead holder,
+	// or quantum PeerJS cloud just being slow), clear the guard so the maintenance loop
+	// can reclaim/reconnect. This is what bounds how long we keep one attempt alive..
+	publicServerState.joinerConnectTimer = setTimeout( () => {
+
+		clearPublicServerJoinerConnect();
+		if ( ! isPublicServerActive() || publicServerState.isHost ) return;
+		if ( multiplayerSessionState.connections.size > 0 ) return;
+		logMpDebug( '[PublicServer] Joiner connect timed out — recovering' );
+		maintainPublicServerPeer();
+
+	}, PUBLIC_SERVER_JOINER_CONNECT_TIMEOUT_MS );
+
+}
+
+function clearPublicServerJoinerConnect() {
+
+	publicServerState.joinerConnectInFlight = false;
+	publicServerState.joinerConnectAt = 0;
+	if ( publicServerState.joinerConnectTimer ) {
+
+		clearTimeout( publicServerState.joinerConnectTimer );
+		publicServerState.joinerConnectTimer = null;
+
+	}
 
 }
 
@@ -1527,6 +1619,12 @@ function stopPublicServerMaintainLoop() {
 
 		clearTimeout( publicServerState.joinerConnectWatch );
 		publicServerState.joinerConnectWatch = null;
+
+	}
+	if ( publicServerState.joinerConnectTimer ) {
+
+		clearTimeout( publicServerState.joinerConnectTimer );
+		publicServerState.joinerConnectTimer = null;
 
 	}
 
@@ -1718,10 +1816,10 @@ function startPublicServerPeer( roomCode ) {
 		peer.on( 'disconnected', () => logMpDebug( `[PublicServer] Peer disconnected: ${ hostPeerId }` ) );
 		peer.on( 'close', () => logMpDebug( `[PublicServer] Peer closed: ${ hostPeerId }` ) );
 
-		// Safety: if neither 'open' nor 'unavailable-id' fires in 4s (PeerJS cloud
+		// Safety: if neither 'open' nor 'unavailable-id' fires in time (PeerJS cloud
 		// signalling can be slow), assume the host id is taken and become a joiner
 		// (the joiner connect-watch + maintenance loop will recover if wrong).
-		setTimeout( () => { if ( ! settled ) becomeJoiner(); }, 4000 );
+		setTimeout( () => { if ( ! settled ) becomeJoiner(); }, PUBLIC_SERVER_HOST_CLAIM_TIMEOUT_MS );
 
 	} );
 
@@ -1745,6 +1843,15 @@ function applyPublicServerRoleToConnections( roomCode, role ) {
 	// path so the data-channel + packet handling is identical to private rooms.
 	startPeerMultiplayer( roomCode, 'join' );
 
+	// Mark the joiner connect as in-flight so the 5s maintenance tick
+	// doesn't kill it mid-handshake (the old code restarted a fresh
+	// PeerJS peer every 5s, starving a slow connect forever — worky
+	// only on machines where the first connect opened quickly). We clear
+	// the flag when the data channel opens (in startPeerMultiplayer) or after
+	// PUBLIC_SERVER_JOINER_CONNECT_TIMEOUT_MS (below) so a truly dead
+	// host still recovers in bounded time.
+	markPublicServerJoinerConnect();
+
 }
 
 // If our PeerJS peer died (PeerJS cloud signalling drops happen), restart it in
@@ -1757,35 +1864,53 @@ function maintainPublicServerPeer() {
 	const roomCode = publicServerRoomCode();
 	if ( ! roomCode ) return;
 	const peer = multiplayerSessionState.peer;
+
 	// Peer still alive → nothing to do.
 	if ( peer && ! peer.destroyed && ! peer.disconnected ) {
 
 		// Joiner self-heal: if we lost our connection to the host, try to reclaim
-		// the host id so other joiners can find us.
-		if ( ! publicServerState.isHost && publicServerState.hostClaimInFlight ) return;
-		if ( ! publicServerState.isHost && multiplayerSessionState.connections.size === 0 ) {
+		// the host id so other joiners can find us..
+		if ( ! publicServerState.isHost ) {
 
+			// If a connect attempt is still pending don't kill it — the old code
+			// restarted a fresh PeerJS peer every 5s tick, starving a slow connect
+			// forever (the exact "works only on some computers" bug). The 15s real
+			// timeout in markPublicServerJoinerConnect clears the guard and re-runs us..
+			if ( publicServerState.joinerConnectInFlight ) return;
+			if ( publicServerState.hostClaimInFlight ) return;
+			const now = Date.now();
+			if ( now - publicServerState.lastReclaimAt < PUBLIC_SERVER_RECLAIM_BACKOFF_STEP_MS ) return;
+			// Back off reclaim probes: an unavailable-id means SOMEONE (live or
+			// dead) owns the host id; hammering it every 5s spams the PeerJS cloud
+			// and never gives a dead holder's reservation time to expire (and the vertex:
+			// an endless unavailable-id churn). Growth is applied on each failed claim..
+			publicServerState.reclaimBackoffMs = Math.min(
+				publicServerState.reclaimBackoffMs || PUBLIC_SERVER_RECLAIM_BACKOFF_STEP_MS,
+				PUBLIC_SERVER_RECLAIM_BACKOFF_MAX_MS
+			);
+			publicServerState.lastReclaimAt = now;
 			maybeReclaimPublicServerHost( roomCode );
 
 		}
 		return;
 
 	}
-	// Peer is gone/disconnected — restart in the current role.
+	// Peer is gone/disconnected — restart in the current role..
 	logMpDebug( `[PublicServer] Peer down, restarting as ${ publicServerState.isHost ? 'host' : 'joiner' }` );
 	if ( publicServerState.isHost ) {
 
-		// Re-claim the host id.
+		// Re-claim the host id..
 		startPublicServerPeer( roomCode ).catch( ( e ) => console.warn( 'public server host restart failed', e ) );
 
 	} else {
 
+		// Restarting a dead joiner peer is only safe if we're NOT mid-connect..
+		if ( publicServerState.joinerConnectInFlight ) return;
 		applyPublicServerRoleToConnections( roomCode, 'join' );
 
 	}
 
 }
-
 // A joiner that lost its host connection tries to claim the RACE-ROOM-<code> id.
 // If it succeeds it becomes the new host (self-healing); if the id is still
 // taken (someone else became host first) it stays a joiner and reconnects.
@@ -1805,11 +1930,12 @@ function maybeReclaimPublicServerHost( roomCode ) {
 		if ( becameHost ) {
 
 			logMpDebug( `[PublicServer] Reclaimed host id — becoming host` );
-			// Swap our dead peer for the reclaimed host peer.
+			// Swap our dead peer for the reclaimed host peer..
 			closeMultiplayerPeer();
 			multiplayerSessionState.peer = probe;
 			publicServerState.isHost = true;
 			publicServerState.claimedHost = true;
+			publicServerState.reclaimBackoffMs = 0;
 			multiplayerSessionState.role = 'host';
 			probe.on( 'connection', ( connection ) => {
 
@@ -1826,9 +1952,17 @@ function maybeReclaimPublicServerHost( roomCode ) {
 
 		} else {
 
-			// Someone else is host — destroy the probe + reconnect as joiner.
+			// Someone else (live or dead) owns owns the host id — destroy only the probe..
+			// Do NOT restart the joiner connection here: if one is still pending it
+			// must be given a chance to open (the 5s tick previously killed it,
+			// creating the churn loop); if none is pending the next maintenance tick
+			// (backoff-gated) will start a fresh one..
 			try { probe.destroy(); } catch {}
-			applyPublicServerRoleToConnections( roomCode, 'join' );
+			if ( ! publicServerState.joinerConnectInFlight ) {
+
+				applyPublicServerRoleToConnections( roomCode, 'join' );
+
+			}
 
 		}
 
@@ -1837,14 +1971,15 @@ function maybeReclaimPublicServerHost( roomCode ) {
 	probe.on( 'error', ( error ) => {
 
 		if ( error?.type === 'unavailable-id' ) finish( false );
-		// Other errors: give up the claim, stay joiner.
+		// Other errors: give up the claim, stay joiner..
 		else finish( false );
 
 	} );
-	setTimeout( () => finish( false ), 4000 );
+	// Claim probes are backoff-gated by maintainPublicServerPeer; this 10s cap only
+	// bounds a single probe so it can't hang forever..
+	setTimeout( () => finish( false ), PUBLIC_SERVER_HOST_CLAIM_TIMEOUT_MS );
 
 }
-
 // --- Map vote ------------------------------------------------------------
 //
 // Active vote state. Only ONE vote is active at a time per server; a new
