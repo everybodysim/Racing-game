@@ -4281,8 +4281,21 @@ async function init() {
 
 		const modelKey = normalizeMultiplayerCarKey( carKey );
 		const signature = cosmeticsSignature( cosmetics );
+		const newConnection = multiplayerSessionState.connections.get( playerId );
 		const existing = remotePlayerVisuals.get( playerId );
-		if ( existing && ( existing.currentCarKey || existing.carKey ) === modelKey && existing.cosmeticsSignature === signature ) return existing;
+		if ( existing && existing.lastSeenAt && ( ( existing.currentCarKey || existing.carKey ) === modelKey || ( existing.cosmeticsSignature === signature && existing.packetStreamId === newConnection?.peer ) ) ) {
+
+			// Same car (or a signature-equal repeat from the SAME connection — right after
+			// spawn or a custom-mod paint change the sender's cosmetics can briefly read
+			// blank/older values). A mismatch here would recreate the mesh, dropping it
+			// from the scene for the recreate window — the intermittent flicker. The
+			// connection stream is the source of truth for "is this the same car", not
+			// every cosmetic signature quirk.
+			existing.packetStreamId = newConnection?.peer;
+			return existing;
+
+		}
+
 		const previousState = existing ? {
 			displayName: existing.displayName || 'Player',
 			targetPos: existing.targetPos?.clone?.() || existing.mesh?.position?.clone?.(),
@@ -4328,6 +4341,7 @@ async function init() {
 			carKey: modelKey,
 			currentCarKey: modelKey,
 			cosmeticsSignature: signature,
+			packetStreamId: newConnection?.peer,
 			displayName: previousState?.displayName || 'Player',
 			nameTag: null,
 			targetPos: previousState?.targetPos || mesh.position.clone(),
@@ -4403,7 +4417,10 @@ async function init() {
 
 			}
 			state.mesh.position.lerp( state.targetPos, alpha );
-			state.mesh.rotation.y = THREE.MathUtils.lerp( state.mesh.rotation.y, state.targetRotY, alpha );
+			// Yaw lives on the real-number line and crosses the ±π seam (e.g. a car
+			// turning through 180°) so plain lerp would drag it the long way around /
+			// backwards for half a rotation. lerpAngle wraps the delta shortest-way.
+			state.mesh.rotation.y = lerpAngle( state.mesh.rotation.y, state.targetRotY, alpha );
 
 		}
 
