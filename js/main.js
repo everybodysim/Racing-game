@@ -10469,9 +10469,21 @@ function completeCampaignStage() {
 			targetVehicle.spherePos.set( pair.centerX, pair.centerY, pair.centerZ );
 			targetVehicle.container.position.set( targetVehicle.spherePos.x, targetVehicle.spherePos.y - 0.5, targetVehicle.spherePos.z );
 			setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: purple portal → ${ pair.color } endpoint (velocity kept)` );
+				hasPrevFinishSample = false;
+				lastLocalX = 0;
+				lastLocalZ = 0;
+				hasPrevFinishSample2 = false;
+				lastLocalX2 = 0;
+				lastLocalZ2 = 0;
 			return { contactKey: nextContactKey, lockUntilExit: true };
 
 		}
+				hasPrevFinishSample = false;
+				lastLocalX = 0;
+				lastLocalZ = 0;
+				hasPrevFinishSample2 = false;
+				lastLocalX2 = 0;
+				lastLocalZ2 =  0;
 		const tx = pair.centerX - targetVehicle.spherePos.x;
 		const ty = pair.centerY - targetVehicle.spherePos.y;
 		const tz = pair.centerZ - targetVehicle.spherePos.z;
@@ -11912,6 +11924,7 @@ function completeCampaignStage() {
 			const startLocalX = ( ( vehicle.spherePos.x - startGateData.centerX ) * startGateData.cosA ) + ( ( vehicle.spherePos.z - startGateData.centerZ ) * startGateData.sinA );
 			const startLocalZ = ( - ( vehicle.spherePos.x - startGateData.centerX ) * startGateData.sinA ) + ( ( vehicle.spherePos.z - startGateData.centerZ ) * startGateData.cosA );
 			const inStartCell = Math.abs( startLocalX ) < startGateData.halfExtent && Math.abs( startLocalZ ) < startGateData.halfExtent;
+			const inFinishCell = Math.abs( localX ) < finishData.halfExtent && Math.abs( localZ ) < finishData.halfExtent;
 
 			if ( ! hasLeftStartZone && ! inStartCell ) {
 
@@ -12073,6 +12086,9 @@ function completeCampaignStage() {
 					updateLeaderboardGhostPlayback( 0 );
 					updateRecentGhostPlayback( 0 );
 				hasLeftStartZone = false;
+				hasPrevFinishSample = false;
+				lastLocalX = 0;
+				lastLocalZ = 0;
 				for ( const checkpoint of checkpointStates ) {
 
 					checkpoint.passedThisLap = false;
@@ -12133,9 +12149,11 @@ function completeCampaignStage() {
 
 				}
 
-			lastLocalX = localX;
-			lastLocalZ = localZ;
-			hasPrevFinishSample = true;
+			if ( ! inFinishCell ) {
+				lastLocalX = localX;
+				lastLocalZ = localZ;
+				hasPrevFinishSample = true;
+			}
 
 		}
 
@@ -12146,6 +12164,7 @@ function completeCampaignStage() {
 			const startLocalX = ( ( vehicle2.spherePos.x - startGateData.centerX ) * startGateData.cosA ) + ( ( vehicle2.spherePos.z - startGateData.centerZ ) * startGateData.sinA );
 			const startLocalZ = ( - ( vehicle2.spherePos.x - startGateData.centerX ) * startGateData.sinA ) + ( ( vehicle2.spherePos.z - startGateData.centerZ ) * startGateData.cosA );
 			const inStartCell = Math.abs( startLocalX ) < startGateData.halfExtent && Math.abs( startLocalZ ) < startGateData.halfExtent;
+			const inFinishCell = Math.abs( localX ) < finishData.halfExtent && Math.abs( localZ ) < finishData.halfExtent;
 
 			if ( ! hasLeftStartZone2 && ! inStartCell ) hasLeftStartZone2 = true;
 
@@ -12174,15 +12193,20 @@ function completeCampaignStage() {
 				lapNumber2 ++;
 				lapStartSeconds2 = now;
 				hasLeftStartZone2 = false;
+				hasPrevFinishSample2 = false;
+				lastLocalX2 = 0;
+				lastLocalZ2 = 0;
 				for ( const checkpoint of checkpointStates2 ) checkpoint.passedThisLap = false;
 				resetPhysicsObstacles();
 				if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle2();
 
 			}
 
-			lastLocalX2 = localX;
-			lastLocalZ2 = localZ;
-			hasPrevFinishSample2 = true;
+			if ( ! inFinishCell ) {
+				lastLocalX2 = localX;
+				lastLocalZ2 = localZ;
+				hasPrevFinishSample2 = true;
+			}
 
 		}
 
