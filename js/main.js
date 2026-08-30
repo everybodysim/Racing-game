@@ -10217,7 +10217,7 @@ function completeCampaignStage() {
 
 		if ( ! targetVehicle?.rigidBody ) return;
 		if ( now >= boostActiveUntil ) {
-                targetVehicle.setWheelieActive?( false );
+                targetVehicle.setWheelieActive?.( false );
                 return;
             }
 		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
