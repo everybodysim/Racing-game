@@ -2176,22 +2176,22 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 
 </style>
 	
-	<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 	<link rel="preconnect" href="https://esm.sh" crossorigin>
-<!--	<link rel="modulepreload" href="js/main.js?v=999970">
-	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js" crossorigin>
-	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/GLTFLoader.js" crossorigin>
-	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/OBJLoader.js" crossorigin>
-	<link rel="modulepreload" href="https://esm.sh/crashcat@0.0.2" crossorigin>
+	<link rel="preconnect" href="https://esm.sh" crossorigin>
+<!--	<link rel="modulepreload" href="js/main.js?v=999990">
+	<link rel="modulepreload" href="vendor/three.module.js" crossorigin>
+	<link rel="modulepreload" href="vendor/jsm/loaders/GLTFLoader.js" crossorigin>
+	<link rel="modulepreload" href="vendor/jsm/loaders/OBJLoader.js" crossorigin>
+	<link rel="modulepreload" href="vendor/crashcat.mjs" crossorigin>
 	<link rel="modulepreload" href="js/Track.js">
 	<link rel="modulepreload" href="js/Physics.js">
 	<link rel="modulepreload" href="js/Vehicle.js"> -->
 	<script type="importmap">
 	{
 		"imports": {
-			"three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
-			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/",
-			"crashcat": "https://esm.sh/crashcat@0.0.2"
+			"three": "./vendor/three.module.js",
+			"three/addons/": "./vendor/jsm/",
+			"crashcat": "./vendor/crashcat.mjs"
 		}
 	}
 	</script>
@@ -3318,8 +3318,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
-	         <script src="js/HudGrid.js?v=999973&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=999973&cachebust=1"></script>
+	         <script src="js/HudGrid.js?v=999993&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=999993&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;

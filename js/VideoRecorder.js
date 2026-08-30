@@ -471,7 +471,7 @@ export class VideoRecorder {
 	// Triggered from the panel's Download button (a real user gesture). Mints a
 	// FRESH blob URL from the retained Blob (re-using the URL already opened in the
 	// new tab can confuse some browsers into navigating instead of downloading) and
-	// keeps the <a> in the DOM briefly so Chrome doesn't cancel the download.
+	// keeps the anchor in the DOM briefly so Chrome doesn't cancel the download.
 	downloadLast() {
 		if ( ! this.lastBlob ) { this.log( 'downloadLast: no recording available' ); return false; }
 		try {
