@@ -481,11 +481,16 @@ const peerConfig = {
 	config: {
 		iceServers: [
 			{ urls: 'stun:stun.l.google.com:19302' },
+			{ urls: 'stun:stun1.l.google.com:19302' },
+			{ urls: 'stun:stun.services.mozilla.com' },
 			{
 				urls: [
 					'turn:openrelay.metered.ca:80',
+					'turn:openrelay.metered.ca:80?transport=tcp',
 					'turn:openrelay.metered.ca:443',
 					'turn:openrelay.metered.ca:443?transport=tcp',
+					'turn:openrelay.metered.ca:4443',
+					'turn:openrelay.metered.ca:4443?transport=tcp',
 				],
 				username: 'openrelay',
 				credential: 'openrelay',
@@ -820,6 +825,7 @@ function startPeerMultiplayer( roomCode, role ) {
 	peer.on( 'open', ( id ) => {
 
 		logMpDebug( `[PeerJS] Peer opened with ID: ${ id }` );
+		publicServerState.peerBornAt = performance.now();
 		if ( role !== 'host' ) {
 
 			const targetHostId = getPeerRoomId( roomCode );
@@ -1003,6 +1009,7 @@ const publicServerState = {
 	serverId: '',           // 'server-1' | 'server-2' | 'server-3'
 	isHost: false,          // are we the PeerJS host peer? (hidden; no privileges)
 	claimedHost: false,     // have we successfully claimed host this session?
+	peerBornAt: 0,         // performance.now() of the current PeerJS peer; guards against reclaim-loop thrash
 	peerMaintainTimer: null, // loop (5s) that restarts a dead PeerJS peer + self-heals host
 	joinerConnectWatch: null, // one-shot timeout that proactively recovers a stuck joiner connect
 	hostClaimInFlight: false, // guard against concurrent host-claim attempts
@@ -1429,6 +1436,7 @@ async function joinPublicServer( serverId ) {
 	publicServerState.isHost = false;
 	publicServerState.claimedHost = false;
 	publicServerState.hostClaimInFlight = false;
+	publicServerState.peerBornAt = 0;
 	publicServerState.trackListCache = null;
 	publicServerState.trackListCacheAt = 0;
 	publicServerState.loadedMapSignature = getLoadedPublicServerMapFromStorage();
@@ -1743,6 +1751,9 @@ function applyPublicServerRoleToConnections( roomCode, role ) {
 	}
 	// Joiner: connect to the host peer id. Reuse startPeerMultiplayer's joiner
 	// path so the data-channel + packet handling is identical to private rooms.
+	// Reset the proactive watch too, so a re-connect after a failed reclaim
+	// attempt gets its own fresh 5s window instead of re-triggering the reclaim loop.
+	schedulePublicServerJoinerConnectWatch();
 	startPeerMultiplayer( roomCode, 'join' );
 
 }
@@ -1792,6 +1803,14 @@ function maintainPublicServerPeer() {
 function maybeReclaimPublicServerHost( roomCode ) {
 
 	if ( publicServerState.hostClaimInFlight ) return;
+	// Grace period: only start the host reclaim once the current joiner attempt has
+	// had a fair chance (its data channel can still open late). Reclaiming right after
+	// every failed data-channel-open destroys our healthy join peer andre-creates it
+	// (closeMultiplayerPeer in the joiner path), which is the "Joiner has no connection
+	// after 5s" rejoin loop seen on devices whose signalling reaches PeerJS cloud but
+	// whose WebRTC data channel can't get through — the maintenance loop still
+	// recovers a genuinely-dead peer via the peer-down path.
+	if ( performance.now() - publicServerState.peerBornAt ) < 15000 ) return;
 	publicServerState.hostClaimInFlight = true;
 	const hostPeerId = getPeerRoomId( roomCode );
 	logMpDebug( `[PublicServer] Attempting to reclaim host id ${ hostPeerId }` );
