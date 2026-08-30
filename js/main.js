@@ -9956,6 +9956,7 @@ function completeCampaignStage() {
 		lapSeconds = 0;
 		currentLapInvalidatedByPause = false;
 		boostActiveUntil = 0;
+		vehicle.setWheelieActive?.( false );
 		boostContactCell = null;
 		arcLinkState = { contactKey: null, lockUntilExit: false };
 		activePadEffect = null;
@@ -10002,6 +10003,7 @@ function completeCampaignStage() {
 		lapStartSeconds2 = raceClockSeconds;
 		lapSeconds2 = 0;
 		boostActiveUntil2 = 0;
+                vehicle2.setWheelieActive?.( false );
 		boostContactCell2 = null;
 		arcLinkState2 = { contactKey: null, lockUntilExit: false };
 		activePadEffect2 = null;
@@ -10207,13 +10209,17 @@ function completeCampaignStage() {
 		] );
 		setBoostActiveUntil( now + BOOST_FORCE_SECONDS );
 		targetParticles?.triggerBoostFx( Math.max( BOOST_EFFECT_SECONDS, BOOST_FORCE_SECONDS ) );
+                targetVehicle.setWheelieActive?.( true );
 
 	}
 
 	function updateActiveBoost( targetVehicle, boostActiveUntil, dt, now = timer.getElapsed() ) {
 
 		if ( ! targetVehicle?.rigidBody ) return;
-		if ( now >= boostActiveUntil ) return;
+		if ( now >= boostActiveUntil ) {
+                targetVehicle.setWheelieActive?( false );
+                return;
+            }
 		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
 		_boostForward.y = 0;
 		const boostLenSq = _boostForward.lengthSq();

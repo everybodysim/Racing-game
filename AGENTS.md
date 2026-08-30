@@ -340,10 +340,31 @@
 - The old `.garage-vehicle-card dl/dt/dd` and `.garage-vehicle-status` rules were
   removed (no longer emitted by `renderGarageVehicleCards`).
 
-## Physics: car is a rolling sphere (`js/Physics.js` + `js/Vehicle.js`)
+## Boost wheelie animation (`js/Vehicle.js` + `js/main.js`)
 
-### Drive model (critical for surface friction tuning)
-- The car is a single crashcat sphere (radius `VEHICLE_SURFACE_RADIUS` 0.5, friction 5.0).
+- When a boost is applied (arcade-boost button, boost pads, wood surfaces`applyBoostFor`),the
+  car pitches up about its rear axle like a wheelie. `applyBoostFor()` calls
+  `targetVehicle.setWheelieActive?.( true )`; `updateActiveBoost()` calls
+  `.setWheelieActive?.( false )` when the boost elapses (now >= boostActiveUntil). Respawn/
+  lap-reset sites zere boostActiveUntil also call `.setWheelieActive?.( false )` so the
+  car doesn't stay popped.
+
+### Vehicle.js side
+- Constructor fields:`wheelieNode` / `wheelieAmount` / `wheelieActive`
+  (defaults null / 0 / false).
+- `attachModel()` builds the wheelie pivot: a `THREE.Group` positioned at the REAR
+  axle z (`( wheelBL.position.z + wheelBR.position.z ) / 2`, computed at runtime from
+  the wheel node translations — NO per-car table. The cloned modelRoot is re-parented
+  under the pivot and its position.z shifte the opposite way (-rearZ, so the whole car
+  visually stays exactly in place (identity net transform when not wheeling).
+- `updateWheelie( dt )` lerps `wheelieAmount` → 1 (fast, 6.5/s) when active /
+  → 0 (slow, 3.5/s) when not,and applies `-wheelieAmount * 0.55` pitch to
+  `wheelieNode.rotation.x` (so the car lifts its nose off the ground about its back wheels.
+.
+- `update()` calls `this.updateWheelie( dt )` after `updateWheels( dt )`.
+- Wired generically for ALL vehicles (the pivot math uses each vehicle's own rear wheels),
+  including the 5 newest (ambulance, firetruck, taxi, tractor, trash truck.
+- The car is a single crashcat sphere(radius `VEHICLE_SURFACE_RADIUS` 0.5, friction  5.0).
 - It moves by ROLLING: `Vehicle.update()` applies ANGULAR velocity around the right
   axis (`rigidBody.setAngularVelocity(... angvel + _right * drive)`). Surface friction
   converts that rolling into linear (forward) motion.
