@@ -14,11 +14,12 @@ const MODELS = [
   'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
   'vehicle-hatchback-green', 'vehicle-sedan-orange',
   'vehicle-car-police', 'vehicle-delivery-yellow', 'vehicle-flatbed-purple', 'vehicle-van-blue',
+  'vehicle-ambulance-red', 'vehicle-firetruck-red', 'vehicle-taxi-yellow', 'vehicle-tractor-yellow', 'vehicle-trash-green',
   'track-straight', 'track-corner', 'track-bump', 'track-finish',
   'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
   'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d', 'building-garage'
 ];
-const REQUIRED_VEHICLE_KEYS = [ 'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red', 'vehicle-hatchback-green', 'vehicle-sedan-orange', 'vehicle-car-police', 'vehicle-delivery-yellow', 'vehicle-flatbed-purple', 'vehicle-van-blue' ];
+const REQUIRED_VEHICLE_KEYS = [ 'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red', 'vehicle-hatchback-green', 'vehicle-sedan-orange', 'vehicle-car-police', 'vehicle-delivery-yellow', 'vehicle-flatbed-purple', 'vehicle-van-blue', 'vehicle-ambulance-red', 'vehicle-firetruck-red', 'vehicle-taxi-yellow', 'vehicle-tractor-yellow', 'vehicle-trash-green' ];
 const CAR_STATS = {
   'vehicle-truck-yellow': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
   'vehicle-truck-green': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
@@ -30,6 +31,11 @@ const CAR_STATS = {
   'vehicle-delivery-yellow': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
   'vehicle-flatbed-purple': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
   'vehicle-van-blue': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
+  'vehicle-ambulance-red': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
+  'vehicle-firetruck-red': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
+  'vehicle-taxi-yellow': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
+  'vehicle-tractor-yellow': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
+  'vehicle-trash-green': { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 },
 };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });

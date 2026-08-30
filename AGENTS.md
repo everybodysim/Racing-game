@@ -109,17 +109,19 @@
 - Ghost/replay payloads carry `car`; imported ghosts normalize and re-render the matching model.
 - Custom mods can call `api.setVehicleModel(key)` (validates against CAR_STATS + models).
 
-### Current car roster (10 cars, all unified stats)
+### Current car roster (15 cars, all unified stats)
 - Original 4: `vehicle-truck-yellow` (Yellow Truck), `vehicle-truck-green` (Green Truck),
   `vehicle-truck-purple` (Purple Van), `vehicle-truck-red` (Red Truck).
 - Batch 2: `vehicle-hatchback-green` (Green Hatchback), `vehicle-sedan-orange` (Orange Sedan).
 - Batch 3: `vehicle-car-police` (Police Car), `vehicle-delivery-yellow` (Yellow Delivery),
   `vehicle-flatbed-purple` (Purple Flatbed), `vehicle-van-blue` (Blue Van).
+- Batch 4: `vehicle-ambulance-red` (Ambulance), `vehicle-firetruck-red` (Fire Truck},
+  `vehicle-taxi-yellow` (Taxi), `vehicle-tractor-yellow` (Tractor), `vehicle-trash-green` (Trash Truck}.
 - Naming convention: `[Color] [Model]` (e.g. "Yellow Truck", "Purple Van", "Police Car").
   Police Car has no color prefix (it's a distinct livery). All share identical perf
   (topSpeed 1.12, accelRate 4.8, driveForce 95.0). The `car-select` dropdown options are
   overridden at runtime to `stats.name` (main.js ~line 5997), so HTML option text is a fallback.
-- Garage card grid: `repeat(5, minmax(0,1fr))` → 2×5 grid for 10 cars. Responsive: 3 cols
+- Garage card grid: `repeat(5, minmax(0,1fr))` → 3×5 grid for 15 cars. Responsive: 3 cols
   <1200px, 2 cols <720px. Mobile forces 2 cols.
 
 ## Car painter / Paint Shop (garage) — 3D click-to-fill (`js/main.js` + `index.html`)
