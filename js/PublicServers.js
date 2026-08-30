@@ -20,7 +20,7 @@ export const TRACK_BOARD_API = 'https://racing-track-board-api.ga1010.workers.de
 
 // The fixed public servers. They are NOT locational — they are just three
 // parallel rooms so players can spread out if one is full. `code` is the shared
-// PeerJS room code (host peer id `RACE-ROOM-<code>`).
+// PeerJS room code (host peer id `RACE-ROOM-CODE`).
 export const PUBLIC_SERVERS = [
 	{ id: 'server-1', name: 'Server 1', code: 'PUBSV1' },
 	{ id: 'server-2', name: 'Server 2', code: 'PUBSV2' },

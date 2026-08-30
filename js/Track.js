@@ -816,7 +816,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		// A cell at (gx, gz) covers (gx, gz) to (gx+1, gz+1).
 		// Integer cell (cx, cz) covers (cx, cz) to (cx+1, cz+1).
 		// The two footprints overlap (with non-zero area) when:
-		//   gx < cx+1  AND  cx < gx+1   →   floor(gx) <= cx <= ceil(gx)
+		//   gx below cx+1  AND  cx below gx+1   →   floor(gx) <= cx <= ceil(gx)
 		//
 		// For on-grid cells (integer gx): floor(gx) == ceil(gx), so exactly
 		// one cell matches (itself) — same as before.

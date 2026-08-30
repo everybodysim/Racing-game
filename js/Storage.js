@@ -30,7 +30,7 @@
 
 var MARKER = 'ZC1:';
 
-// ---- UTF-8 <-> binary string helpers (no unescaped-unicode pitfalls) ----
+// ---- UTF-8 to binary string helpers (no unescaped-unicode pitfalls) ----
 function utf8ToBinary(str) {
   var bytes = new TextEncoder().encode(String(str == null ? '' : str));
   var bin = '';

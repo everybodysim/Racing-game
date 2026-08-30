@@ -5,7 +5,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999971';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999991';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { GameAudio } from './Audio.js';
@@ -324,9 +324,9 @@ function suppressSeamBounce( world, veh, key, onSlope = false ) {
 	// Detect a seam bounce — thresholds lowered to catch tiny annoying bumps:
 	// - vy > 0.15 (was 0.3) — catch smaller upward pops
 	// - vyDelta > 0.2 (was 0.5) — catch smaller velocity spikes
-	// - vy < 4.0 — still allows real jumps (ramps give 5+ m/s)
+	// - vy below 4.0 — still allows real jumps (ramps give 5+ m/s)
 	// - prevVy > -0.5 — car was ON a surface, not falling from a jump
-	// - prevVy < 1.0 — car wasn't already flying upward
+	// - prevVy below 1.0 — car wasn't already flying upward
 	const vyDelta = vy - prevVy;
 	const isSeamBounce = vy > 0.15 && vy < 4.0 && prevVy > - 0.5 && prevVy < 1.0 && vyDelta > 0.2;
 
@@ -784,7 +784,7 @@ function registerPeerConnection( connection ) {
 			connection.send( buildLocalPeerStatePacket() );
 			logMpDebug( `[PeerJS] Sent initial state packet to ${ connection.peer }` );
 			// Host: tell the just-connected joiner which map everyone is on so they
-			// redirect to it (the host owns the RACE-ROOM-<code> peer id). This is
+			// redirect to it (the host owns the RACE-ROOM-CODE peer id). This is
 			// what makes a public-server joiner "load the same map everyone else
 			// is on". The joiner ignores it if already on that map.
 			if ( isPublicServerActive() && publicServerState.isHost ) {
@@ -990,7 +990,7 @@ let migrationSwitchInFlight = false;
 // joins is connected over WebRTC (PeerJS uses the TURN server in `peerConfig`)
 // and shares the host's current map:
 //   • Host election is PeerJS-native: the first player to claim the
-//     RACE-ROOM-<code> peer id becomes the host; joiners connect to it. If the
+//     RACE-ROOM-CODE peer id becomes the host; joiners connect to it. If the
 //     host disappears, a joiner detects the dead connection and reclaims the id
 //     (self-healing).
 //   • The host grants NO in-game privileges — it only relays peer packets (so
@@ -1446,7 +1446,7 @@ async function joinPublicServer( serverId ) {
 	try {
 
 		// Reuse the existing PeerJS room mechanism with the fixed server code.
-		// The host peer owns the RACE-ROOM-<code> id; joiners connect to it. Host
+		// The host peer owns the RACE-ROOM-CODE id; joiners connect to it. Host
 		// election is PeerJS-native (see startPublicServerPeer) — no worker.
 		multiplayerSessionState.roomCode = def.code;
 		const codeInput = document.getElementById( 'mp-code-input' );
@@ -1632,7 +1632,7 @@ function redirectPublicServerToMap( sig, reason = 'host' ) {
 // --- PeerJS-native host election + P2P mesh ------------------------------
 //
 // Host election without a backend: the first player to claim the
-// RACE-ROOM-<code> peer id becomes the host; joiners connect to it. If the id
+// RACE-ROOM-CODE peer id becomes the host; joiners connect to it. If the id
 // is already taken (another player is host), PeerJS fires an 'unavailable-id'
 // error → we become a joiner instead. If the host later disappears, joiners
 // detect their dead connection to the host and reclaim the id (self-healing).
@@ -1709,7 +1709,7 @@ function startPublicServerPeer( roomCode ) {
 		peer.on( 'error', ( error ) => {
 
 			const type = error?.type || '';
-			// 'unavailable-id' = someone else already owns RACE-ROOM-<code> → join.
+			// 'unavailable-id' = someone else already owns RACE-ROOM-CODE → join.
 			if ( type === 'unavailable-id' ) {
 
 				logMpDebug( `[PublicServer] Host id taken — joining as guest` );
@@ -1797,7 +1797,7 @@ function maintainPublicServerPeer() {
 
 }
 
-// A joiner that lost its host connection tries to claim the RACE-ROOM-<code> id.
+// A joiner that lost its host connection tries to claim the RACE-ROOM-CODE id.
 // If it succeeds it becomes the new host (self-healing); if the id is still
 // taken (someone else became host first) it stays a joiner and reconnects.
 function maybeReclaimPublicServerHost( roomCode ) {
@@ -2402,7 +2402,7 @@ function initMultiplayerPanel() {
 	// worker.
 	buildPublicServerButtons();
 
-	// Auto-join a public server on boot via ?pubServer=<id>. Used after a
+	// Auto-join a public server on boot via ?pubServer=id. Used after a
 	// map-switch redirect so players rejoin the same server on the new map.
 	const pubServerParam = String( new URLSearchParams( window.location.search ).get( 'pubServer' ) || '' ).trim().toLowerCase();
 	if ( pubServerParam && findPublicServer( pubServerParam ) ) {
@@ -5588,7 +5588,7 @@ async function init() {
 	let garageSelectionTexture = null; // THREE.Texture currently being edited
 	let garageSelectionSource = null; // { width, height, data } from getTextureSourcePixels
 	// Garage vehicle-card mini 3D previews (spinning painted clones).
-	let garageCardCanvasByKey = {}; // carKey -> <canvas>
+	let garageCardCanvasByKey = {}; // carKey -> canvas element
 	let garageCardPreviews = new Map(); // carKey -> { scene, camera, carRoot, yaw, ctx2d }
 	let garageCardPreviewsRaf = 0; // rAF id of the shared animation loop (0 when idle)
 	let garageCardSharedRenderer = null; // ONE WebGLRenderer shared by all card previews (avoids 10 simultaneous WebGL contexts, which caused context loss on paint-apply)
@@ -8208,7 +8208,7 @@ function completeCampaignStage() {
 	const padEntries = surfaceEntries.filter( ( entry ) => entry.type === PAD_RESET_TYPE || PAD_EFFECTS[ entry.type ] || CUSTOM_PAD_TYPES.includes( entry.type ) );
 	// Cell-keyed lookups (gx,gz -> entry) so the per-frame surface/pad/boost contact
 	// scans are O(1) over a 3x3 neighbourhood instead of scanning the full surface list.
-	// Any surface the vehicle can overlap (halfExtent + vehicle radius < one cell) lies
+	// Any surface the vehicle can overlap (halfExtent + vehicle radius below one cell) lies
 	// within the 3x3 block around its current cell, so this is behaviour-identical to
 	// the previous full-array scan.
 	const surfaceEntryByCell = new Map();
@@ -11483,7 +11483,7 @@ function completeCampaignStage() {
 			if ( vehicle?.rigidBody?.motionProperties ) {
 
 				const waterScale = isCameraTargetInWater( vehicle.spherePos ) ? WATER_GRAVITY_SCALE : 1.0;
-				// Near-ground gravity boost: 1.4x gravity when |Y velocity| < 1.5
+				// Near-ground gravity boost: 1.4x gravity when |Y velocity| below 1.5
 				// (car is on/near a surface). Only applies near ground, NOT in air.
 				const sphereVy1 = vehicle.rigidBody.motionProperties.linearVelocity[ 1 ];
 				const nearGroundBoost1 = Math.abs( sphereVy1 ) < 1.5 ? 1.4 : 1.0;
