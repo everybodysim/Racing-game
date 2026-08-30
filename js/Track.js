@@ -1068,33 +1068,7 @@ export function placePiece( models, key, gx, gz, orient ) {
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
-	const tintColor = key === 'track-start'
-		? new THREE.Color( 0x66cc66 )
-		: ( key === 'track-finish' ? new THREE.Color( 0xcc6666 ) : ( key === 'track-start-finish' ? new THREE.Color( 0xcc9955 ) : null ) );
-	if ( tintColor ) {
-
-		piece.traverse( ( c ) => {
-
-			if ( ! c.isMesh || ! c.material ) return;
-			if ( Array.isArray( c.material ) ) {
-
-				c.material = c.material.map( ( mat ) => {
-
-					const clone = mat.clone();
-					if ( clone.color ) clone.color.lerp( tintColor, 0.22 );
-					return clone;
-
-				} );
-				return;
-
-			}
-			const clone = c.material.clone();
-			if ( clone.color ) clone.color.lerp( tintColor, 0.22 );
-			c.material = clone;
-
-		} );
-
-	}
+        // Start/finish blocks no longer tinted (checkpoint textures read cleanly).
 
 	return piece;
 
