@@ -600,9 +600,17 @@ function cleanupPeerConnection( peerId ) {
 	const connection = multiplayerSessionState.connections.get( peerId );
 	connection?.close?.();
 	multiplayerSessionState.connections.delete( peerId );
-	if ( typeof removeRemotePlayerVisual === 'function' ) removeRemotePlayerVisual( peerId );
 
+	// If this was our still-connecting public-server joiner channel, forget it so
+	// the recovery loop doesn't wait on a ghost reference (and its death can no
+	// longer keep blocking a reclaim/rejoin).
+	if ( publicServerState.connectingDataChannel && publicServerState.connectingDataChannel.peer === peerId ) {
+		publicServerState.connectingDataChannel = null;
+		clearPublicServerIceRetry();
+	}
+	if ( typeof removeRemotePlayerVisual === 'function' ) removeRemotePlayerVisual( peerId );
 }
+
 
 function closeMultiplayerPeer() {
 
@@ -620,7 +628,11 @@ function closeMultiplayerPeer() {
 	multiplayerSessionState.peer?.destroy?.();
 	multiplayerSessionState.peer = null;
 
+	// Any public-server handshake we were keeping alive is gone with this peer.
+	publicServerState.connectingDataChannel = null;
+	clearPublicServerIceRetry();
 }
+
 
 function relayHostPacket( packet, sourcePeerId ) {
 
@@ -836,14 +848,26 @@ function startPeerMultiplayer( roomCode, role ) {
 			const targetHostId = getPeerRoomId( roomCode );
 			logMpDebug( `[PeerJS] Connecting guest to host ID: ${ targetHostId }` );
 			const connection = peer.connect( targetHostId, { reliable: true } );
+			// Public-server joiners: remember the live (possibly unopened) data
+			// channel so the recovery loop can be patient + retry it quietly instead
+			// of destroying it every 5s (which is what made a slow-but-fine
+			// WebRTC handshake loop forever).
+			if ( isPublicServerActive() && ! publicServerState.isHost ) {
+				publicServerState.handshakeStartedAt = Date.now();
+				publicServerState.connectingDataChannel = connection;
+				startPublicServerIceRetry( connection );
+			}
 			connection.on( 'open', () => {
 
 				logMpDebug( `[PeerJS] Data channel OPENED with host: ${ targetHostId }` );
 				registerPeerConnection( connection );
 				broadcastPeerState();
+				if ( isPublicServerActive() && ! publicServerState.isHost ) {
+					publicServerState.connectingDataChannel = null;
+					clearPublicServerIceRetry();
+				}
 				// Public-server joiners: ask the host to re-send the map sync so we
 				// redirect promptly even if their first MAP_SYNC got dropped.
-
 				if ( isPublicServerActive() && ! publicServerState.isHost ) {
 
 					try { connection.send( { type: PEER_PACKET_MAP_SYNC_REQ, playerId: multiplayerSessionState.clientId } ); } catch {}
@@ -1020,16 +1044,29 @@ let migrationSwitchInFlight = false;
 //     >60% Yes majority switches the track (the initiator redirects first and
 //     broadcasts a VOTE_RESULT so everyone else follows).
 const publicServerState = {
-	active: false,          // currently connected to a public server?
-	serverId: '',           // 'server-1' | 'server-2' | 'server-3'
-	isHost: false,          // are we the PeerJS host peer? (hidden; no privileges)
-	claimedHost: false,     // have we successfully claimed host this session?
-	peerMaintainTimer: null, // loop (5s) that restarts a dead PeerJS peer + self-heals host
-	joinerConnectWatch: null, // one-shot timeout that proactively recovers a stuck joiner connect
-	hostClaimInFlight: false, // guard against concurrent host-claim attempts
-	trackListCache: null,    // cached community-track list (for the vote lookup)
-	trackListCacheAt: 0,     // local time the cache was fetched
-	loadedMapSignature: '',  // mapSignature we redirected onto (anti-loop guard)
+	active: false,		// currently connected to a public server?
+	serverId: '',		// 'server-1' | 'server-2' | 'server-3'
+	isHost: false,		//are we the PeerJS host peer? (hidden; no privileges)
+	claimedHost: false,	//have we successfully claimed host this session?
+	peerMaintainTimer: null,	//loop (5s) that restarts a dead PeerJS peer + self-heals host
+	joinerConnectWatch: null,	//one-shot timeout that proactively recovers a stuck joiner connect
+	hostClaimInFlight: false,	//guard against concurrent host-claim attempts
+	trackListCache: null,	//cached community-track list (for the vote lookup)
+	trackListCacheAt: 0,	//local time the cache was fetched
+	loadedMapSignature: '',	//mapSignature we redirected onto (anti-loop guard)
+	// --- joiner handshake persistence (no-backend reliability) ---------
+	// A joiner whose data channel to the host hasn't opened yet must NOT be
+	// destroyed by the recovery loop — killing a live handshake every 5s is
+	// what made a slow-but-fine WebRTC negotiation loop forever. Instead we keep
+	// the connection object, track when it was born, and give it quiet retry
+	// attempts (ICE restart + fresh datachannel) until it opens or truly dies.
+	// `handshakeStartedAt` is the timestamp of the LAST brand-new connect attempt;
+	// `connectingDataChannel` is the live (possibly unopened) Peer.DataConnection
+	// so recovery code can inspect it instead of assuming "no connection = dead".
+	handshakeStartedAt: 0,
+	connectingDataChannel: null,	//live joiner datachannel (open or mid-handshake)
+	iceRetryTimer: null,	//quiet ICE/(re)connect retry timer for ag slow handshake
+	lastReclaimProbeAt: 0,		//throttle host-claim probes; last attempt (ms)
 };
 
 // sessionStorage key recording the mapSignature we already redirected onto. It
@@ -1467,6 +1504,10 @@ async function joinPublicServer( serverId ) {
 	publicServerState.trackListCache = null;
 	publicServerState.trackListCacheAt = 0;
 	publicServerState.loadedMapSignature = getLoadedPublicServerMapFromStorage();
+	publicServerState.handshakeStartedAt = 0;
+	publicServerState.connectingDataChannel = null;
+	publicServerState.lastReclaimProbeAt = 0;
+	clearPublicServerIceRetry();
 	resetPublicServerVoteState();
 	updatePublicServerButtonStates();
 
@@ -1497,9 +1538,11 @@ async function joinPublicServer( serverId ) {
 		stopPublicServerMaintainLoop();
 		publicServerState.peerMaintainTimer = setInterval( maintainPublicServerPeer, 5000 );
 		// Proactive joiner connect-watch: if WE are a joiner and our first
-		// connection to the host hasn't opened ~5s after join (PeerJS cloud
+		// connection to the host hasn't opened after a patient window (PeerJS cloud
 		// signalling can be slow, or the host id was a ghost), don't wait for the
-		// next 5s maintenance tick — recover immediately.
+		// next 5s maintenance tick — run one immediate recovery pass (which,
+		// thanks to findPublicServerLiveJoinerConnection, still never kills a
+		// slow-but-live WebRTC handshake; it only acts when nothing is live).
 		schedulePublicServerJoinerConnectWatch();
 
 	} catch ( error ) {
@@ -1536,6 +1579,7 @@ async function leavePublicServer() {
 
 async function resetPublicServerState() {
 
+	stopPublicServerMaintainLoop();
 	publicServerState.active = false;
 	publicServerState.serverId = '';
 	publicServerState.isHost = false;
@@ -1544,11 +1588,14 @@ async function resetPublicServerState() {
 	publicServerState.trackListCache = null;
 	publicServerState.trackListCacheAt = 0;
 	publicServerState.loadedMapSignature = '';
+	publicServerState.handshakeStartedAt = 0;
+	publicServerState.connectingDataChannel = null;
+	publicServerState.lastReclaimProbeAt = 0;
 	clearLoadedPublicServerMapFromStorage();
 	resetPublicServerPlayers();
 	updatePublicServerButtonStates();
-
 }
+
 
 function stopPublicServerMaintainLoop() {
 
@@ -1564,16 +1611,18 @@ function stopPublicServerMaintainLoop() {
 		publicServerState.joinerConnectWatch = null;
 
 	}
-
+	clearPublicServerIceRetry();
 }
 
-// Proactive joiner connect-watch: ~5s after joining as a joiner, if we still
-// have zero open connections (the host's MAP_SYNC / state never arrived — PeerJS
-// cloud signalling was slow, or the host peer id was a ghost left behind by a
-// player who departed), run the maintenance recovery immediately instead of
-// waiting for the next 5s tick. The maintenance loop either reclaims the host id
-// (if no host exists) or retries the joiner connect. This is what makes a join
-// that would otherwise "take forever" recover in a few seconds.
+
+// Proactive joiner connect-watch: after a patient window (~12s) of a still-
+// connecting data channel, if we still have zero OPEN connections, only then
+// consider recovery. The key fix: a WebRTC handshake that is merely SLOW (tens
+// of seconds, e.g. strict NAT + TURN relay setup) must NEVER be destroyed by
+// this watch —that is what made the original logs loop forever (kill a live
+// handshake every 5s). Instead the quiet ICE retry (startPublicServerIceRetry)
+// keeps poking the same live connection, and only a truly dead peer (no live
+// connecting datachannel / peer destroyed/disconnected) triggers a reclaim/rejoin.
 function schedulePublicServerJoinerConnectWatch() {
 
 	if ( publicServerState.joinerConnectWatch ) clearTimeout( publicServerState.joinerConnectWatch );
@@ -1581,13 +1630,56 @@ function schedulePublicServerJoinerConnectWatch() {
 
 		publicServerState.joinerConnectWatch = null;
 		if ( ! isPublicServerActive() || publicServerState.isHost ) return;
-		if ( multiplayerSessionState.connections.size > 0 ) return;
-		logMpDebug( '[PublicServer] Joiner has no connection after 5s — recovering' );
-		maintainPublicServerPeer();
+		if ( ! findPublicServerLiveJoinerConnection( ) ) {
+			logMpDebug( '[PublicServer] Joiner has no connection after patient window — recovering' );
+			maintainPublicServerPeer();
+		}
 
-	}, 5000 );
-
+	}, 12000 );
 }
+
+// A "live joiner channel" = a Peer.DataConnectionthat has either OPENED (it is
+// in multiplayerSessionState.connections) or is STILL CONNECTING (we hold it in
+// publicServerState.connectingDataChannel). If neither exists, the join is genuinely
+// stalled/dead and recovery is OK to run.
+function findPublicServerLiveJoinerConnection() {
+
+	if ( publicServerState.isHost ) return true;
+	if ( multiplayerSessionState.connections.size > 0 ) return true;
+	const live = publicServerState.connectingDataChannel;
+	return Boolean( live && ! live.closed && ! ( live.peerConnection && live.peerConnection.connectionState === 'failed' ) );
+}
+
+// Quiet ICE retry for ag slow public-server joiner handshake: every retry tick we
+// ask PeerJS/WebRTC to restart ICE (new candidates, new relay attempts, no new
+// backends). If the underlying RTCPeerConnection reports failed/gone we re-issue
+// the retry only while our live channel object still exists — so we never destroy
+// anything else (the recovery loop can still clean up ifthe peer truly died).
+const PUBLIC_SERVER_ICE_RETRY_MS = 10000;
+function startPublicServerIceRetry( connection ) {
+
+	clearPublicServerIceRetry();
+	if ( ! connection ) return;
+	const tick = () => {
+		if ( ! isPublicServerActive() || publicServerState.isHost ) return;
+		if ( connection.closed || ( connection.peerConnection && connection.peerConnection.connectionState === 'failed' ) ) return;
+		if ( ! publicServerState.connectingDataChannel || publicServerState.connectingDataChannel.peer !== connection.peer ) return;
+		logMpDebug( '[PublicServer] Joiner data channel still connecting — restarting ICE' );
+		if ( connection.open ) { clearPublicServerIceRetry(); return; }
+		try { connection.peerConnection?.restartIce?.(); } catch {}
+		publicServerState.iceRetryTimer = setTimeout( tick,PUBLIC_SERVER_ICE_RETRY_MS );
+	};
+	publicServerState.iceRetryTimer = setTimeout( tick,PUBLIC_SERVER_ICE_RETRY_MS );
+}
+
+function clearPublicServerIceRetry() {
+
+	if ( publicServerState.iceRetryTimer ) {
+		clearTimeout( publicServerState.iceRetryTimer );
+		publicServerState.iceRetryTimer = null;
+	}
+}
+
 
 // --- Map sync (host tells joiners which map everyone is on) ---------------
 //
@@ -1782,9 +1874,18 @@ function applyPublicServerRoleToConnections( roomCode, role ) {
 
 }
 
+// If a public-server joiner has a live connecting channel that has been stuck for
+// a LONG time (well past the patient ICE-retry window), the channel is almost
+// certainly wedged at the transport level (e.g. PeerJS cloud dropped the SDP/ICE
+// midway). Give it ONE gentle fresh rejoin — note: ONLY after the channel really
+// has had every chance (35s of quiet ICE restarts, not blink-and-die every 5s).
+const PUBLIC_SERVER_STUCK_CHANNEL_MS = 35000;
 // If our PeerJS peer died (PeerJS cloud signalling drops happen), restart it in
 // the current role. For a joiner whose host disappeared, attempt to reclaim the
-// host id (self-healing). Debounced via hostClaimInFlight.
+// host id (self-healing., debounced via hostClaimInFlight + lastReclaimProbeAt).
+// A live still-connecting datachannel is NEVER destroyed:the watch + reclaim both
+// consult findPublicServerLiveJoinerConnection() first so slow-but-fine WebRTC
+// handshakes get all the time they need to finish (that was the original 5s-kill bug).
 function maintainPublicServerPeer() {
 
 	if ( ! isPublicServerActive() ) return;
@@ -1792,20 +1893,55 @@ function maintainPublicServerPeer() {
 	const roomCode = publicServerRoomCode();
 	if ( ! roomCode ) return;
 	const peer = multiplayerSessionState.peer;
-	// Peer still alive → nothing to do.
-	if ( peer && ! peer.destroyed && ! peer.disconnected ) {
 
-		// Joiner self-heal: if we lost our connection to the host, try to reclaim
-		// the host id so other joiners can find us.
-		if ( ! publicServerState.isHost && publicServerState.hostClaimInFlight ) return;
-		if ( ! publicServerState.isHost && multiplayerSessionState.connections.size === 0 ) {
+	// Patient-but-guaranteed final recovery: if we are a joiner whose live
+	// connecting channel never opened within a HUGE window, drop it ta ONE fresh
+	// rejoin (which re-claims the host id if it's actually free, else reconnects).
+	if ( peer && ! peer.destroyed && ! peer.disconnected && ! publicServerState.isHost ) {
 
-			maybeReclaimPublicServerHost( roomCode );
+		const liveConn = publicServerState.connectingDataChannel;
+		if ( liveConn && ! liveConn.closed && ! multiplayerSessionState.connections.has( liveConn.peer ) && publicServerState.handshakeStartedAt > 0 ) {
+
+			if ( ( Date.now() - publicServerState.handshakeStartedAt ) > PUBLIC_SERVER_STUCK_CHANNEL_MS ) {
+
+				logMpDebug( '[PublicServer] Joiner channel stuck >35s — one fresh rejoin' );
+				closeMultiplayerPeer();
+				publicServerState.handshakeStartedAt = 0;
+				publicServerState.connectingDataChannel = null;
+				clearPublicServerIceRetry();
+				applyPublicServerRoleToConnections( roomCode, 'join' );
+				return;
+
+			}
 
 		}
-		return;
 
 	}
+
+
+	// Peer still alive → nothing to do. But if we're a joiner whose connection to the
+	// host has NOT opened yet AND no live connecting datachannel exists (the host
+	// peer id was a ghost, or the host vanished before ICE finished), only then probe
+	// to reclaim the host id. A live, still-connecting datachannel must be left
+	// alone — destroying it every 5s is exactly what made the original slow
+	// WebRTC handshakes loop forever.
+	if ( peer && ! peer.destroyed && ! peer.disconnected ) {
+
+		if ( ! publicServerState.isHost && publicServerState.hostClaimInFlight ) return;
+		if ( ! publicServerState.isHost && ! findPublicServerLiveJoinerConnection( ) ) {
+
+			// Debounce the reclaim probe to ~ once/20s so we don't hammer the
+			// PeerJS cloud with rejected unavailable-id attempts every 5s.
+			const now = Date.now();
+			const lastProbe = publicServerState.lastReclaimProbeAt || 0;
+			if ( now - lastProbe >= 20000 ) {
+				publicServerState.lastReclaimProbeAt = now;
+				maybeReclaimPublicServerHost( roomCode );
+			}
+		}
+		return;
+	}
+
 	// Peer is gone/disconnected — restart in the current role.
 	logMpDebug( `[PublicServer] Peer down, restarting as ${ publicServerState.isHost ? 'host' : 'joiner' }` );
 	if ( publicServerState.isHost ) {
@@ -1816,9 +1952,7 @@ function maintainPublicServerPeer() {
 	} else {
 
 		applyPublicServerRoleToConnections( roomCode, 'join' );
-
 	}
-
 }
 
 // A joiner that lost its host connection tries to claim the RACE-ROOM-<code> id.
@@ -1861,10 +1995,16 @@ function maybeReclaimPublicServerHost( roomCode ) {
 
 		} else {
 
-			// Someone else is host — destroy the probe + reconnect as joiner.
-			try { probe.destroy(); } catch {}
-			applyPublicServerRoleToConnections( roomCode, 'join' );
+				// Someone else is host — destroy the probe + reconnect as joiner. This
+				// is SAFE — we are only here because maintainPublicServerPeer() probed us
+				// when findPublicServerLiveJoinerConnection() was false, so there is NO live
+				// handshake left for this to kill. The fresh join records a brand-new
+				// handshakeStartedAt + connectingDataChannel (the patient-recovery path), so a
+				// slow-but-fine WebRTC negotiation gets all the quiet ICE-retry time it needs.
+				try { probe.destroy(); } catch {}
+				applyPublicServerRoleToConnections( roomCode, 'join' );
 
+		}
 		}
 
 	};
