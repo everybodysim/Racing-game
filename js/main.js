@@ -759,7 +759,7 @@ function handlePeerPacket( packet, sourcePeerId ) {
 		const isFirstPacket = ! visualState.lastSeenAt;
 		applyRemoteNameTag( visualState, packet.name || 'Player' );
 		visualState.targetPos.set( Number( packet.x ) || 0, ( Number( packet.y ) || 0 ) - 0.1, Number( packet.z ) || 0 );
-		visualState.targetRotY = Math.PI - ( Number( packet.ry ) || 0 );
+		visualState.targetRotY = THREE.MathUtils.degToRad( ( ( Number( packet.ry ) || 0 ) % 360 + 0 ) % 360 ) ;
 		if ( isFirstPacket ) {
 
 			visualState.mesh.position.copy( visualState.targetPos );
@@ -894,6 +894,17 @@ function getLocalVehicleContainer() {
 
 }
 
+const _mpHeadingForward = new THREE.Vector3();
+const _mpHeadingUp = new THREE.Vector3( 0, 1, 0 );
+function getMultiplayerHeadingDegrees( container ) {
+	if ( ! container ) return 0;
+	_mpHeadingForward.set( 0, 0, 1 ).applyQuaternion( container.quaternion );
+	_mpHeadingForward.projectOnPlane( _mpHeadingUp ).normalize();
+	if ( _mpHeadingForward.lengthSq() < 1e-6 ) return 0;
+	const yaw = Math.atan2( _mpHeadingForward.x, _mpHeadingForward.z );
+	return ( ( yaw * 180 / Math.PI ) % 360 + 0 ) % 360;
+}
+
 function formatPeerPacketNumber( value, precision ) {
 
 	const numericValue = Number( value );
@@ -905,7 +916,6 @@ function buildLocalPeerStatePacket() {
 
 	const container = getLocalVehicleContainer();
 	const pos = container?.position || { x: 0, y: 0, z: 0 };
-	const rot = container?.rotation || { y: 0 };
 	const rawCarKey = typeof localMultiplayerStateHandlers.getCarKey === 'function' ? localMultiplayerStateHandlers.getCarKey() : 'vehicle-truck-yellow';
 	const packetCarKey = typeof normalizeMultiplayerCarKey === 'function' ? normalizeMultiplayerCarKey( rawCarKey ) : rawCarKey;
 
@@ -915,7 +925,7 @@ function buildLocalPeerStatePacket() {
 		x: formatPeerPacketNumber( pos.x, 3 ),
 		y: formatPeerPacketNumber( pos.y, 3 ),
 		z: formatPeerPacketNumber( pos.z, 3 ),
-		ry: formatPeerPacketNumber( rot.y, 4 ),
+		ry: Number( getMultiplayerHeadingDegrees( container ).toFixed( 2 ) ),
 		carKey: packetCarKey,
 		cosmetics: typeof localMultiplayerStateHandlers.buildCosmetics === 'function' ? localMultiplayerStateHandlers.buildCosmetics( packetCarKey ) : null,
 		name: typeof getLocalMultiplayerDisplayName === 'function' ? getLocalMultiplayerDisplayName() : 'Player',
@@ -4267,7 +4277,7 @@ async function init() {
 
 			}
 			state.mesh.position.lerp( state.targetPos, alpha );
-			state.mesh.rotation.y = THREE.MathUtils.lerp( state.mesh.rotation.y, state.targetRotY, alpha );
+			state.mesh.rotation.y = lerpAngle( state.mesh.rotation.y, state.targetRotY, alpha );
 
 		}
 
@@ -4289,7 +4299,7 @@ async function init() {
 			x: Number( vehicle.container.position.x.toFixed( 3 ) ),
 			y: Number( vehicle.container.position.y.toFixed( 3 ) ),
 			z: Number( vehicle.container.position.z.toFixed( 3 ) ),
-			ry: Number( vehicle.container.rotation.y.toFixed( 4 ) ),
+			ry: Number( getMultiplayerHeadingDegrees( vehicle.container ).toFixed( 2 ) ),
 			carKey: normalizeMultiplayerCarKey( currentCarKey() ),
 			cosmetics: buildGhostCosmeticsSnapshot( currentCarKey() ),
 			name: getLocalMultiplayerDisplayName(),
@@ -4362,7 +4372,7 @@ async function init() {
 				const visualState = ensureRemotePlayerVisualWithCosmetics( playerId, playerState?.carKey, playerState?.cosmetics );
 				ensureRemoteNameTag( visualState, playerState?.name || room?.lapTimes?.[ playerId ]?.name || 'Player' );
 				visualState.targetPos.set( Number( playerState?.x ) || 0, ( Number( playerState?.y ) || 0 ) - 0.1, Number( playerState?.z ) || 0 );
-				visualState.targetRotY = Math.PI - ( Number( playerState?.ry ) || 0 );
+				visualState.targetRotY = THREE.MathUtils.degToRad( ( ( Number( playerState?.ry ) || 0 ) % 360 + 0 ) % 360 ) ;
 				visualState.lastSeenAt = now;
 				seen.add( playerId );
 
