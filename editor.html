@@ -3701,6 +3701,8 @@ function refreshMovingSpeedUi() {
 		selectedOrient = ORIENTATIONS[ nextIdx ];
 		updateTileToolbar();
 		refreshMovingSpeedUi();
+		// Refresh the hover preview immediately so the orientation change shows without moving the mouse.
+		if ( hoveredCell ) updateGhost( hoveredCell.gx, hoveredCell.gz );
 
 	}
 
