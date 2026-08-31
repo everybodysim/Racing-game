@@ -5700,19 +5700,14 @@ async function init() {
 
 	function updateCarSelectColor() {
 
-		if ( ! carSelect ) return;
-		const style = CAR_SELECT_STYLES[ currentCarKey() ];
-		if ( ! style ) {
+		// Keep the car select styled like the rest of the UI (no per-car color splash).
+		if ( carSelect ) {
 
 			carSelect.style.backgroundColor = '';
 			carSelect.style.borderColor = '';
 			carSelect.style.color = '';
-			return;
 
 		}
-		carSelect.style.backgroundColor = style.background;
-		carSelect.style.borderColor = style.border;
-		carSelect.style.color = style.color;
 
 	}
 
@@ -7825,24 +7820,6 @@ function completeCampaignStage() {
 
 	}
 
-	function applyCarSelectOptionStyles() {
-
-		for ( const select of [ carSelect, garageCarSelect ].filter( Boolean ) ) {
-
-			select.querySelectorAll( 'option' ).forEach( ( option ) => {
-
-				const style = CAR_SELECT_STYLES[ option.value ];
-				if ( ! style ) return;
-				option.style.backgroundColor = style.background;
-				option.style.color = style.color;
-				option.style.borderLeft = `4px solid ${ style.border }`;
-
-			} );
-
-		}
-
-	}
-
 	carSelect?.querySelectorAll( 'option' ).forEach( ( option ) => {
 
 		const stats = CAR_STATS[ option.value ];
@@ -7850,7 +7827,6 @@ function completeCampaignStage() {
 		option.textContent = `${ stats.name }`;
 
 	} );
-	applyCarSelectOptionStyles();
 
 
 	function pickRandomOwnedCarKey() {
