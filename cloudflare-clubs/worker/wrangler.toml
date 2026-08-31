@@ -1,0 +1,9 @@
+name = "racing-clubs-api"
+main = "src/index.js"
+compatibility_date = "2026-05-12"
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "CLUBS_KV"
+id = "0e17b2a279354fbb8f35bfc9b4a1578c"
+preview_id = "0e17b2a279354fbb8f35bfc9b4a1578c"

@@ -1,0 +1,5113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+	<title>Skid Circuit — Track Editor</title>
+<link rel="canonical" href="https://everybodysim.github.io/Racing-game/editor.html">
+<meta name="description" content="Build your own racing circuits with the Skid Circuit track editor — place track pieces, set checkpoints, and test your custom maps instantly.">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Skid Circuit">
+<meta property="og:title" content="Skid Circuit — Track Editor">
+<meta property="og:description" content="Build your own racing circuits with the Skid Circuit track editor — place track pieces, set checkpoints, and test your custom maps instantly.">
+<meta property="og:url" content="https://everybodysim.github.io/Racing-game/editor.html">
+<meta property="og:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
+	<style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
+		* { box-sizing: border-box; }
+		body { margin: 0; overflow: hidden; background: linear-gradient(180deg, #8db7ea 0%, #0f1728 35%, #03070f 100%); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+		canvas { display: block; touch-action: none; }
+
+		#toolbar {
+			position: absolute;
+			bottom: 14px;
+			left: 236px;
+			right: 12px;
+			display: flex;
+			flex-wrap: wrap;
+			justify-content: center;
+			align-items: center;
+			gap: 2px;
+			padding: 5px 6px;
+			max-width: none;
+			background: rgba(20, 20, 30, 0.85);
+			backdrop-filter: blur(12px);
+			-webkit-backdrop-filter: blur(12px);
+			border-radius: 14px;
+			border: 1px solid rgba(255, 255, 255, 0.1);
+			box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+			z-index: 10;
+		}
+
+		#toolbar button {
+			padding: 4px 7px;
+			border: none;
+			border-radius: 8px;
+			background: transparent;
+			color: rgba(255, 255, 255, 0.65);
+			font-size: 10px;
+			font-weight: 500;
+			cursor: pointer;
+			transition: all 0.15s;
+			white-space: nowrap;
+		}
+		#toolbar select {
+			padding: 4px 7px;
+			border: 1px solid rgba(255, 255, 255, 0.18);
+			border-radius: 8px;
+			background: rgba(8, 10, 14, 0.9);
+			color: rgba(255, 255, 255, 0.92);
+			font-size: 10px;
+			font-weight: 500;
+			cursor: pointer;
+			white-space: nowrap;
+		}
+		#toolbar button:hover {
+			background: rgba(255, 255, 255, 0.1);
+			color: #fff;
+		}
+		#toolbar button.active {
+			background: rgba(255, 255, 255, 0.18);
+			color: #fff;
+		}
+
+		.toolbar-group {
+			display: flex;
+			align-items: center;
+			gap: 3px;
+			padding: 4px 5px;
+			border-radius: 10px;
+			border: 1px solid rgba(255, 255, 255, 0.08);
+			background: rgba(6, 10, 16, 0.55);
+		}
+
+		.toolbar-group-label {
+			font-size: 10px;
+			font-weight: 700;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+			color: rgba(190, 210, 240, 0.72);
+			margin-right: 2px;
+			white-space: nowrap;
+		}
+
+		.separator {
+			width: 1px;
+			height: 18px;
+			background: rgba(255, 255, 255, 0.15);
+			margin: 0 1px;
+			flex-shrink: 0;
+		}
+
+		#toolbar button.action {
+			background: rgba(80, 180, 80, 0.25);
+			color: rgba(140, 255, 140, 0.9);
+		}
+		#toolbar button.action:hover {
+			background: rgba(80, 180, 80, 0.4);
+			color: #fff;
+		}
+
+		#toolbar button.danger {
+			color: rgba(255, 255, 255, 0.45);
+		}
+		#toolbar button.danger:hover {
+			background: rgba(220, 80, 80, 0.25);
+			color: rgba(255, 140, 140, 0.9);
+		}
+
+
+		#mobile-editor-drawer { display: none; }
+
+		@media (max-width: 980px) {
+			#toolbar {
+				left: 12px;
+			}
+		}
+
+		@media (pointer: coarse), (max-width: 760px) {
+			#settings-bar {
+				left: 8px;
+				right: 8px;
+				top: calc(8px + env(safe-area-inset-top, 0px));
+				transform: none;
+				overflow-x: auto;
+				justify-content: flex-start;
+				padding: 7px 8px;
+				gap: 6px;
+			}
+			#settings-bar label { white-space: nowrap; }
+			#toolbar {
+				left: 8px;
+				right: 8px;
+				bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+				flex-wrap: nowrap;
+				justify-content: flex-start;
+				overflow-x: auto;
+				overflow-y: hidden;
+				padding: 6px 8px;
+				gap: 6px;
+				max-height: 70px;
+				-webkit-overflow-scrolling: touch;
+			}
+			.toolbar-group { flex: 0 0 auto; }
+			#toolbar button, #toolbar select { min-height: 34px; padding: 7px 9px; font-size: 11px; }
+			#side-ui-bar { display: none; }
+			#mobile-editor-drawer {
+				display: block;
+				position: absolute;
+				left: 8px;
+				bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+				z-index: 36;
+				color: #fff;
+				font: 700 12px/1.2 sans-serif;
+			}
+			#mobile-editor-drawer summary { list-style: none; cursor: pointer; padding: 9px 12px; border-radius: 999px; background: rgba(15,18,24,0.9); border: 1px solid rgba(255,255,255,0.22); }
+			#mobile-editor-drawer summary::-webkit-details-marker { display: none; }
+			.mobile-editor-sheet { width: min(330px, calc(100vw - 16px)); max-height: 42vh; overflow: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 6px; padding: 8px; border-radius: 12px; background: rgba(15,18,24,0.94); border: 1px solid rgba(255,255,255,0.18); }
+			.mobile-editor-sheet button { padding: 9px 7px; border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; background: rgba(255,255,255,0.1); color: #e8efff; font: 700 11px/1.15 sans-serif; }
+			.mobile-editor-help { grid-column: 1 / -1; color: #dbe8ff; font: 600 10px/1.35 sans-serif; }
+		}
+		#toast {
+			position: absolute;
+			bottom: 90px;
+			left: 50%;
+			transform: translateX(-50%);
+			padding: 10px 24px;
+			background: rgba(20, 20, 30, 0.85);
+			backdrop-filter: blur(12px);
+			-webkit-backdrop-filter: blur(12px);
+			color: #fff;
+			border-radius: 10px;
+			border: 1px solid rgba(255, 255, 255, 0.1);
+			font-size: 13px;
+			opacity: 0;
+			transition: opacity 0.3s;
+			pointer-events: none;
+			z-index: 20;
+		}
+		#toast.show { opacity: 1; }
+		#offgrid-dev-banner {
+			position: absolute;
+			top: 82px;
+			left: 50%;
+			transform: translateX(-50%);
+			max-width: min(520px, calc(100vw - 24px));
+			padding: 10px 16px;
+			border-radius: 12px;
+			border: 1px solid rgba(255, 210, 120, 0.55);
+			background: rgba(70, 48, 10, 0.92);
+			color: #fff3cf;
+			font: 700 13px/1.35 sans-serif;
+			text-align: center;
+			box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+			z-index: 22;
+		}
+		#custom-surface-panel {
+			position: absolute;
+			right: 12px;
+			top: 72px;
+			width: min(360px, calc(100vw - 24px));
+			padding: 10px;
+			border-radius: 10px;
+			background: rgba(16, 18, 24, 0.92);
+			border: 1px solid rgba(255,255,255,0.15);
+			color: #eef3ff;
+			z-index: 30;
+		}
+		#custom-surface-panel h3 { margin: 0 0 8px; font-size: 14px; }
+		.custom-surface-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; font-size: 12px; }
+		.custom-surface-grid label { display: flex; align-items: center; gap: 6px; }
+		.custom-surface-grid input[type="number"],
+		.custom-surface-grid input[type="color"] { width: 100%; }
+		.custom-surface-actions { margin-top: 10px; display: flex; gap: 8px; justify-content: flex-end; }
+		.custom-surface-actions button { padding: 6px 10px; }
+
+		#settings-bar {
+			position: absolute;
+			top: 12px;
+			left: 50%;
+			transform: translateX(-50%);
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			padding: 8px 12px;
+			background: rgba(20, 20, 30, 0.82);
+			backdrop-filter: blur(10px);
+			-webkit-backdrop-filter: blur(10px);
+			border-radius: 10px;
+			border: 1px solid rgba(255, 255, 255, 0.12);
+			color: rgba(255, 255, 255, 0.9);
+			font-size: 12px;
+			z-index: 20;
+		}
+
+		#settings-bar select {
+			border: 1px solid rgba(255, 255, 255, 0.2);
+			border-radius: 7px;
+			background: rgba(10, 12, 18, 0.8);
+			color: #e9f1ff;
+			padding: 5px 8px;
+			font-size: 12px;
+		}
+
+		#settings-bar input[type="checkbox"] {
+			accent-color: #7ab8ff;
+			width: 14px;
+			height: 14px;
+		}
+		#settings-bar .back-home {
+			text-decoration: none;
+			font: 700 12px sans-serif;
+			padding: 5px 10px;
+			border-radius: 7px;
+			border: 1px solid rgba(140,210,255,0.5);
+			background: rgba(29,78,216,0.85);
+			color: #fff;
+			white-space: nowrap;
+		}
+		#settings-bar .back-home:hover { background: rgba(37,99,235,1); }
+
+	#side-ui-bar {
+			position: absolute;
+			left: 12px;
+			bottom: 16px;
+			width: 212px;
+			z-index: 32;
+			background: rgba(15, 18, 24, 0.92);
+			border: 1px solid rgba(255, 255, 255, 0.16);
+			border-left: 3px solid rgba(255, 200, 100, 0.55);
+			border-radius: 10px;
+			box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+			overflow: hidden;
+		}
+		#side-ui-toggle {
+			padding: 7px 10px;
+			font-size: 11px;
+			font-weight: 700;
+			color: #ffd066;
+			cursor: pointer;
+			user-select: none;
+			list-style: none;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+		#side-ui-toggle::-webkit-details-marker { display: none; }
+		#side-ui-toggle::after {
+			content: '▼';
+			font-size: 8px;
+			opacity: 0.7;
+		}
+		#side-ui-bar:not([open]) #side-ui-toggle::after {
+			content: '▶';
+		}
+		.side-ui-content {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 6px;
+			padding: 8px;
+			border-top: 1px solid rgba(255, 255, 255, 0.08);
+		}
+		.side-ui-content button {
+			padding: 8px 9px;
+			border: 1px solid rgba(255, 255, 255, 0.18);
+			border-radius: 8px;
+			background: rgba(15, 18, 24, 0.88);
+			color: #e8efff;
+			font-size: 11px;
+			cursor: pointer;
+		}
+		.side-ui-content button:hover { background: rgba(45, 55, 72, 0.92); }
+		#arc-link-help {
+			grid-column: 1 / -1;
+			padding: 6px 8px;
+			border: 1px solid rgba(255, 255, 255, 0.14);
+			border-radius: 8px;
+			background: rgba(10, 12, 18, 0.72);
+			color: rgba(233, 242, 255, 0.92);
+			font-size: 10px;
+			line-height: 1.3;
+		}
+
+		#panel-overlay {
+			position: absolute;
+			inset: 0;
+			background: rgba(0,0,0,0.42);
+			backdrop-filter: blur(2px);
+			z-index: 34;
+		}
+		#panel-overlay[hidden] { display: none; }
+		#panel-center {
+			position: absolute;
+			left: 50%;
+			top: 50%;
+			transform: translate(-50%, -50%);
+			z-index: 35;
+			width: min(620px, calc(100vw - 24px));
+			max-height: min(78vh, 760px);
+			overflow: auto;
+		}
+		#panel-center[hidden] { display: none; }
+		.tool-panel {
+			background: rgba(15, 18, 24, 0.95);
+			border: 1px solid rgba(255,255,255,0.16);
+			border-radius: 12px;
+			padding: 12px;
+			color: #eef3ff;
+		}
+		.tool-panel[hidden] { display: none; }
+		.tool-panel-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			margin-bottom: 10px;
+		}
+		.tool-panel-header h3 {
+			margin: 0;
+			font-size: 15px;
+		}
+		.tool-panel-header button {
+			padding: 5px 8px;
+			border-radius: 7px;
+			border: 1px solid rgba(255,255,255,0.16);
+			background: rgba(255,255,255,0.06);
+			color: #e9f1ff;
+			cursor: pointer;
+		}
+		.panel-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+		.panel-row label { font-size: 12px; color: #cfd8ea; }
+		.panel-row input, .panel-row select, .panel-row button {
+			background: rgba(6, 9, 14, 0.9);
+			color: #eef3ff;
+			border: 1px solid rgba(255,255,255,0.16);
+			border-radius: 8px;
+			padding: 6px 8px;
+			font-size: 12px;
+		}
+	</style>
+	
+<style>
+/* ─── Feature 1: Collapsible toolbar groups (accordion) ─── */
+.toolbar-group .toolbar-group-label { cursor: pointer; user-select: none; }
+.toolbar-group .toolbar-group-label::before { content: '\25BC '; font-size: 7px; opacity: 0.6; }
+.toolbar-group.collapsed .toolbar-group-label::before { content: '\25B6 '; }
+.toolbar-group.collapsed > *:not(.toolbar-group-label) { display: none !important; }
+
+/* ─── Feature 10: Color-coded group borders ─── */
+.toolbar-group[data-cat="track"]     { border-left: 3px solid rgba(100, 220, 120, 0.55); }
+.toolbar-group[data-cat="obstacles"] { border-left: 3px solid rgba(255, 160, 60, 0.55); }
+.toolbar-group[data-cat="moving"]    { border-left: 3px solid rgba(255, 100, 100, 0.55); }
+.toolbar-group[data-cat="surfaces"]  { border-left: 3px solid rgba(100, 180, 255, 0.55); }
+.toolbar-group[data-cat="decor"]     { border-left: 3px solid rgba(180, 120, 255, 0.55); }
+.toolbar-group[data-cat="edit"]      { border-left: 3px solid rgba(120, 220, 240, 0.55); }
+.toolbar-group[data-cat="run"]       { border-left: 3px solid rgba(120, 240, 140, 0.55); }
+#side-ui-bar { border-left: 3px solid rgba(255, 200, 100, 0.4); border-radius: 10px; padding-left: 9px; }
+
+/* ─── Feature 8: Collapsible settings bar ─── */
+#settings-bar.collapsed > *:not(#settings-toggle-btn) { display: none !important; }
+#settings-toggle-btn { cursor: pointer; font-weight: 700; color: rgba(180, 210, 255, 0.9); white-space: nowrap; border: none; background: none; padding: 4px 8px; font-size: 12px; }
+#settings-toggle-btn:hover { color: #fff; }
+
+/* ─── Feature 4: Minimap ─── */
+#minimap-wrap { position: absolute; left: 12px; top: 12px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
+#minimap-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
+#minimap-label { position: absolute; top: 4px; left: 8px; font: 700 9px sans-serif; color: rgba(255,255,255,0.45); pointer-events: none; text-transform: uppercase; letter-spacing: 0.06em; }
+#minimap-wrap.hidden { display: none; }
+
+/* ─── Feature 2 & 3: Selection box + paste preview ─── */
+#selection-box { position: absolute; border: 2px dashed rgba(120, 200, 255, 0.85); background: rgba(120, 200, 255, 0.12); pointer-events: none; z-index: 12; display: none; border-radius: 4px; }
+#clipboard-hint { position: absolute; bottom: 62px; left: 50%; transform: translateX(-50%); padding: 6px 16px; background: rgba(20, 20, 30, 0.88); backdrop-filter: blur(10px); border-radius: 8px; border: 1px solid rgba(120, 200, 255, 0.3); color: #cde8ff; font: 600 11px sans-serif; z-index: 18; display: none; pointer-events: none; }
+#clipboard-hint.show { display: block; }
+
+/* Quick-access pinned tools row */
+/* Quick-access pinned tools row */
+#quick-tools {
+			display: none !important;
+		}
+#quick-tools button { padding: 5px 8px; border: 1px solid rgba(255,255,255,0.18); border-radius: 7px; background: rgba(15, 18, 24, 0.9); color: #e8efff; font: 700 10px sans-serif; cursor: pointer; transition: all 0.15s; }
+#quick-tools button:hover { background: rgba(45,55,72,0.95); }
+#quick-tools button.active { background: rgba(80, 160, 255, 0.3); border-color: rgba(120, 180, 255, 0.6); color: #fff; }
+#quick-tools .qt-label { font: 700 8px sans-serif; color: rgba(190, 210, 240, 0.5); text-transform: uppercase; letter-spacing: 0.06em; padding: 5px 4px; }
+</style>
+
+	<script type="importmap">
+	{
+		"imports": {
+			"three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
+			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/"
+		}
+	}
+	</script>
+
+	<style>
+		/* Mobile editor placeholder only; desktop editor remains unchanged. */
+		#mobile-editor-under-construction { display: none; }
+		@media (pointer: coarse) {
+			body > :not(#mobile-editor-under-construction) { display: none !important; }
+			#mobile-editor-under-construction { display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; background: radial-gradient(circle at 20% 18%, rgba(83,212,255,.26), transparent 42%), linear-gradient(160deg, #08101d, #05070c); color: #eef6ff; font: 900 24px/1.25 system-ui, sans-serif; text-align: center; }
+		}
+	</style>
+<script src="js/PageTransitions.js"></script>
+</head>
+<body>
+	<div id="mobile-editor-under-construction">Mobile edition editor under construction</div>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
+	<div id="settings-bar">
+		<a class="back-home" href="index.html">← Home</a>
+		<button id="settings-toggle-btn" type="button">⚙ Track Settings</button>
+		<label for="weather-preset">Weather</label>
+
+		<select id="weather-preset" aria-label="Weather preset">
+			<option value="clear">Clear</option>
+			<option value="cloudy">Cloudy</option>
+			<option value="sunset">Sunset</option>
+			<option value="night">Night</option>
+			<option value="dawn-mist">Dawn Mist</option>
+		</select>
+		<label for="weather-precip">Precip</label>
+		<select id="weather-precip" aria-label="Precipitation">
+			<option value="none">None</option>
+			<option value="rain">Rain</option>
+			<option value="snow">Snow</option>
+		</select>
+		<label for="weather-intensity">Intensity</label>
+		<select id="weather-intensity" aria-label="Weather intensity">
+			<option value="low">Low</option>
+			<option value="medium" selected>Medium</option>
+			<option value="high">High</option>
+		</select>
+		<label for="weather-wind">Wind</label>
+		<select id="weather-wind" aria-label="Wind">
+			<option value="none">Calm</option>
+			<option value="breezy">Breezy</option>
+			<option value="gusty">Gusty</option>
+		</select>
+		<label for="weather-lightning">Lightning</label>
+		<input id="weather-lightning" type="checkbox" aria-label="Lightning flashes">
+		<label for="map-template-select">Template</label>
+		<select id="map-template-select" aria-label="Map template">
+			<option value="normal">Normal map</option>
+			<option value="pool-filled">Pool filled map</option>
+		</select>
+	</div>
+	<details id="mobile-editor-drawer">
+		<summary aria-label="Open mobile advanced object tools">Objects</summary>
+		<div class="mobile-editor-sheet" aria-label="Advanced editor tools">
+			<button type="button" data-mobile-click="btn-magnet-blue">Magnet Blue +</button>
+			<button type="button" data-mobile-click="btn-magnet-red">Magnet Red +</button>
+			<button type="button" data-mobile-click="btn-magnet-up">Magnet ▲</button>
+			<button type="button" data-mobile-click="btn-magnet-down">Magnet ▼</button>
+			<button type="button" data-mobile-click="btn-magnet-strength-up">Strength +</button>
+			<button type="button" data-mobile-click="btn-magnet-strength-down">Strength -</button>
+			<button type="button" data-mobile-click="btn-magnet-range-up">Range +</button>
+			<button type="button" data-mobile-click="btn-magnet-range-down">Range -</button>
+			<button type="button" data-mobile-click="btn-arc-green">Arc End +</button>
+			<button type="button" data-mobile-click="btn-portal-yellow">Portal End +</button>
+			<button type="button" data-mobile-click="btn-arc-orange">Arc Start +</button>
+			<button type="button" data-mobile-click="btn-portal-purple">Portal Start +</button>
+			<button type="button" data-mobile-click="btn-portal-up">Arc/Portal ▲</button>
+			<button type="button" data-mobile-click="btn-portal-down">Arc/Portal ▼</button>
+			<button type="button" data-mobile-click="btn-portal-id-down">ID -</button>
+			<button type="button" data-mobile-click="btn-portal-id-up">ID +</button>
+			<div class="mobile-editor-help">Orange/Purple are starts. Green/Yellow are matching endpoints.</div>
+		</div>
+	</details>
+<details id="side-ui-bar" open>
+    <summary id="side-ui-toggle">⚡ Special Parts</summary>
+    <div class="side-ui-content">
+        <button id="btn-magnet-blue">Magnet Blue +</button>
+        <button id="btn-magnet-red">Magnet Red +</button>
+        <button id="btn-magnet-up" title="Move selected magnet up by 0.1 grid">Magnet ▲</button>
+        <button id="btn-magnet-down" title="Move selected magnet down by 0.1 grid">Magnet ▼</button>
+        <button id="btn-magnet-strength-up" title="Increase selected magnet strength">Strength +</button>
+        <button id="btn-magnet-strength-down" title="Decrease selected magnet strength">Strength -</button>
+        <button id="btn-magnet-range-up" title="Increase selected magnet range">Range +</button>
+        <button id="btn-magnet-range-down" title="Decrease selected magnet range">Range -</button>
+        <button id="btn-arc-green" title="Green arc is the endpoint only (does not launch)">Arc End (Green) +</button>
+        <button id="btn-portal-yellow" title="Yellow portal is endpoint only (one-way, does not launch)">Portal End (Yellow) +</button>
+        <button id="btn-arc-orange" title="Orange arc is the launch/start point">Arc Start (Orange) +</button>
+        <button id="btn-portal-purple" title="Purple portal is the start point and keeps velocity">Portal Start (Purple) +</button>
+        <button id="btn-portal-up" title="Move selected arc/portal up by 0.1 grid">Arc/Portal ▲</button>
+        <button id="btn-portal-down" title="Move selected arc/portal down by 0.1 grid">Arc/Portal ▼</button>
+        <button id="btn-portal-id-down" title="Decrease selected arc/portal link id">Arc/Portal ID -</button>
+        <button id="btn-portal-id-up" title="Increase selected arc/portal link id">Arc/Portal ID +</button>
+        <div id="arc-link-help">Arc Link flow: <strong>Orange launches</strong> to matching <strong>Green endpoint</strong>. Portal flow: <strong>Purple teleports</strong> to matching <strong>Yellow endpoint</strong> and keeps velocity. Green/Yellow never launch.</div>
+    </div>
+</details>
+	<div id="panel-overlay" hidden></div>
+	<div id="panel-center" hidden>
+		<div id="flow-panel" class="tool-panel" hidden>
+			<div class="tool-panel-header">
+				<h3>Flow Brush</h3>
+				<button data-close-panel>Close</button>
+			</div>
+			<div class="panel-row">
+				<label><input type="checkbox" id="flow-enabled"> Enable flow brush</label>
+			</div>
+			<div class="panel-row">
+				<label for="flow-straight-type">Straight piece</label>
+				<select id="flow-straight-type">
+					<option value="track-straight">Track Straight</option>
+					<option value="track-checkpoint">Checkpoint</option>
+				</select>
+				<label for="flow-corner-type">Corner piece</label>
+				<select id="flow-corner-type">
+					<option value="track-corner">Track Corner</option>
+					<option value="track-checkpoint">Checkpoint</option>
+				</select>
+			</div>
+			<div class="panel-row">
+				<label>Draw with paint tool; release pointer to auto-build path with straights + corners.</label>
+			</div>
+		</div>
+	</div>
+
+	<div id="toolbar">
+		<div class="toolbar-group" aria-label="Track pieces" data-cat="track">
+			<span class="toolbar-group-label">Track</span>
+			<button id="btn-straight" class="active">Straight</button>
+			<button id="btn-corner">Corner</button>
+			<select id="gate-select" aria-label="Gate picker">
+				<option value="">Gate…</option>
+				<option value="track-start-finish">Start/Finish</option>
+				<option value="track-start">Place: Start</option>
+				<option value="track-finish">Place: Finish</option>
+			</select>
+			<button id="btn-checkpoint">Checkpoint</button>
+			<button id="btn-3way">3-Way</button>
+			<button id="btn-4way">4-Way</button>
+			<button id="btn-elevated-straight" style="display:none">Elev Straight</button>
+			<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
+			<button id="btn-elevated-checkpoint" style="display:none">Elev Checkpoint</button>
+			<button id="btn-slope-up" style="display:none">Slope Up</button>
+			<button id="btn-pool-slope" style="display:none">Pool Slope</button>
+			<button id="btn-elevated-3way" style="display:none">Elev 3-Way</button>
+			<button id="btn-elevated-4way" style="display:none">Elev 4-Way</button>
+		</div>
+		<div class="toolbar-group" aria-label="Obstacles" data-cat="obstacles">
+			<span class="toolbar-group-label">Obstacles</span>
+			<button id="btn-bump">Bump +</button>
+			<button id="btn-pole">Pole +</button>
+			<button id="btn-cube">Cube +</button>
+			<button id="btn-wall">Wall +</button>
+			<button id="btn-jump">Jump +</button>
+			<button id="btn-water">Water Pool +</button>
+			<button id="btn-custom-pool">Custom Pool</button>
+		</div>
+		<div class="toolbar-group" aria-label="Moving objects" data-cat="moving">
+			<span class="toolbar-group-label">Moving</span>
+			<button id="btn-moving-slide">Sliding Block +</button>
+			<button id="btn-moving-spin">Spinning Wall +</button>
+			<button id="btn-moving-orbit">Orbit Poles +</button>
+			<button id="btn-moving-custom">Custom Mover +</button>
+			<label id="moving-speed-wrap" style="display:none;color:#dbe8ff;font-size:11px;">Move Speed <input id="moving-speed" type="range" min="0.25" max="3" step="0.05" value="1"><span id="moving-speed-value">1.00x</span></label>
+		</div>
+		<div class="toolbar-group" aria-label="Surfaces and pads" data-cat="surfaces">
+			<span class="toolbar-group-label">Surfaces</span>
+			<select id="surface-select" aria-label="Surface picker">
+				<option value="">Surface…</option>
+				<option value="surface-wood">Wood</option>
+				<option value="surface-ice">Ice</option>
+				<option value="surface-boost">Boost Surface</option>
+				<option value="surface-sand">Sand</option>
+				<option value="surface-bounce">Bounce Plate</option>
+				<option value="surface-kick-l">Kick Left</option>
+				<option value="surface-kick-r">Kick Right</option>
+			</select>
+			<select id="pad-select" aria-label="Pad picker">
+				<option value="">Pads…</option>
+				<option value="pad-reset">Reset Effects</option>
+				<option value="pad-low-gravity">Low Gravity</option>
+				<option value="pad-heavy-gravity">Heavy Gravity</option>
+				<option value="pad-high-grip">High Grip</option>
+				<option value="pad-high-speed">High Speed</option>
+				<option value="pad-no-brakes">No Brakes</option>
+				<option value="pad-no-steering">No Steering</option>
+				<option value="pad-no-acceleration">No Acceleration (Slide)</option>
+				<option value="pad-slow-motion">Slow Motion</option>
+				<option value="pad-fast-motion">Fast Motion</option>
+				<option value="pad-drift">Drift Mode</option>
+				<option value="pad-size-small">Mini Pad (0.5×)</option>
+				<option value="pad-size-normal">Normal Pad (1.0×)</option>
+				<option value="pad-size-mega">Mega Pad (1.8×)</option>
+				<option value="pad-custom-a">Custom Pad A</option>
+				<option value="pad-custom-b">Custom Pad B</option>
+				<option value="pad-custom-c">Custom Pad C</option>
+			</select>
+			<button id="btn-surface-custom-a">Custom A</button>
+			<button id="btn-surface-custom-b">Custom B</button>
+			<button id="btn-surface-custom-c">Custom C</button>
+			<button id="btn-pad-custom-a">Pad A</button>
+			<button id="btn-pad-custom-b">Pad B</button>
+			<button id="btn-pad-custom-c">Pad C</button>
+			<button id="btn-overlap-toggle">Overlap: Off</button>
+		</div>
+		<div class="toolbar-group" aria-label="Decor and custom imports" data-cat="decor">
+			<span class="toolbar-group-label">Decor</span>
+			<button id="btn-deco-forest">Tree</button>
+			<button id="btn-deco-tents">Tent</button>
+			<button id="btn-deco-empty">Prop</button>
+			<button id="btn-building-garage">Garage</button>
+			<button id="btn-building-small-a">Bldg A</button>
+			<button id="btn-building-small-b">Bldg B</button>
+			<button id="btn-building-small-c">Bldg C</button>
+			<button id="btn-building-small-d">Bldg D</button>
+			<button id="btn-custom-import">Import 3D</button>
+			<button id="btn-custom-cycle">Custom: none</button>
+			<input id="custom-model-file" type="file" accept=".glb,.gltf,.obj,model/gltf-binary,model/gltf+json" style="display:none" />
+			<button id="btn-rotate">Rotate: 0°</button>
+		</div>
+		<div class="toolbar-group" aria-label="Edit tools" data-cat="edit">
+			<span class="toolbar-group-label">Edit</span>
+			<button id="btn-paint" class="active">Paint</button>
+			<button id="btn-erase">Erase</button>
+			<button id="btn-undo" title="Undo (Ctrl/Cmd+Z)" disabled>Undo</button>
+			<button id="btn-redo" title="Redo (Ctrl+Y or Cmd+Shift+Z)" disabled>Redo</button>
+			<button id="btn-flow">Flow: Off</button>
+			<button id="btn-offgrid">Snap: Grid</button>
+		</div>
+		<div class="toolbar-group" aria-label="Testing and sharing" data-cat="run">
+			<span class="toolbar-group-label">Run</span>
+			<button id="btn-play" class="action">Play</button>
+			<button id="btn-quick-test" class="action">Quick Test</button>
+		<!--	<button id="btn-select-spawn">Pick Test Spawn</button> -->
+			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;"><input id="autosave-enable" type="checkbox" checked> Auto-save</label>
+			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;">Every <input id="autosave-interval" type="number" min="5" max="600" step="1" value="30" style="width:62px;background:rgba(8,10,14,0.9);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 4px;"> s</label>
+			<button id="btn-share" class="action">Share</button>
+			<button id="btn-clear" class="danger">Clear</button>
+		</div>
+	</div>
+
+
+	<div id="minimap-wrap" class="hidden">
+		<canvas id="minimap-canvas" width="140" height="140"></canvas>
+		<span id="minimap-label">Map</span>
+	</div>
+	<div id="selection-box"></div>
+	<div id="clipboard-hint"></div>
+	<div id="quick-tools"></div>
+
+	<div id="toast"></div>
+	<div id="offgrid-dev-banner" hidden>Off-grid placement is still in development — expect rough edges while it gets fixed.</div>
+	<div id="custom-surface-panel" hidden>
+		<h3 id="custom-surface-title">Custom Surface</h3>
+		<div class="custom-surface-grid">
+			<label><input type="checkbox" id="cs-force-forward"> Force Forward</label>
+			<label><input type="checkbox" id="cs-force-backward"> Force Backward</label>
+			<label><input type="checkbox" id="cs-force-left"> Force Left</label>
+			<label><input type="checkbox" id="cs-force-right"> Force Right</label>
+			<label><input type="checkbox" id="cs-force-up"> Force Up</label>
+			<label>Force Amount <input type="range" id="cs-force-amount" min="-1" max="20" step="0.1" value="4"></label>
+			<label><input type="checkbox" id="cs-no-air"> Don't trigger in air</label>
+			<label><input type="checkbox" id="cs-once-contact"> Trigger once until leave/re-enter</label>
+			<label>Color <input type="color" id="cs-color" value="#9c7bff"></label>
+			<label>Grip <input type="range" id="cs-grip" min="0" max="5" step="0.05" value="1.2"></label>
+			<label>Speed <input type="range" id="cs-speed" min="0" max="5" step="0.05" value="1.05"></label>
+			<label>Gravity <input type="range" id="cs-pad-gravity" min="0.15" max="3" step="0.05" value="1"></label>
+			<label>Drag <input type="range" id="cs-pad-drag" min="0.05" max="5" step="0.05" value="1"></label>
+			<label>Accel <input type="range" id="cs-pad-accel" min="0" max="5" step="0.05" value="1"></label>
+			<label>Drive <input type="range" id="cs-pad-drive" min="0" max="5" step="0.05" value="1"></label>
+			<label>Top Speed <input type="range" id="cs-pad-top-speed" min="0" max="3" step="0.05" value="1"></label>
+			<label>Steering <input type="range" id="cs-pad-steering" min="0" max="3" step="0.05" value="1"></label>
+			<label>Time Scale <input type="range" id="cs-pad-time-scale" min="0.15" max="3" step="0.05" value="1"></label>
+			<label><input type="checkbox" id="cs-pad-no-brakes"> Disable brakes</label>
+			<label><input type="checkbox" id="cs-pad-no-steering"> Disable steering</label>
+			<label><input type="checkbox" id="cs-pad-no-acceleration"> Disable acceleration</label>
+		</div>
+		<div class="custom-surface-actions">
+			<button id="cs-save">Save</button>
+			<button id="cs-close">Close</button>
+		</div>
+	</div>
+<div id="custom-pool-panel" hidden style="position:absolute;right:12px;top:72px;width:min(320px,calc(100vw - 24px));padding:12px;border-radius:10px;background:rgba(16,18,24,0.92);border:1px solid rgba(255,255,255,0.15);color:#eef3ff;z-index:31;">
+  <h3 style="margin:0 0 10px;font-size:14px;">Custom Pool</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:12px;">
+    <label style="display:flex;flex-direction:column;gap:3px;">Drag<input id="cp-drag" type="range" min="0.1" max="6" step="0.05" value="1.8"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Car buoyancy<input id="cp-buoyancy" type="range" min="0.05" max="3" step="0.05" value="0.28"></label>
+    <label style="display:flex;align-items:center;gap:6px;">Water color<input id="cp-water-color" type="color" value="#1f8fd6" style="flex:1;height:28px;border:none;background:none;cursor:pointer;"></label>
+    <label style="display:flex;align-items:center;gap:6px;">Edge color<input id="cp-edge-color" type="color" value="#5cc7ff" style="flex:1;height:28px;border:none;background:none;cursor:pointer;"></label>
+    <label style="grid-column:1 / -1;"><input id="cp-transparent" type="checkbox" checked> Partly transparent water textures</label>
+  </div>
+  <div class="custom-surface-actions"><button id="cp-save">Save</button><button id="cp-close">Close</button></div>
+</div>
+<div id="custom-mover-panel" hidden style="position:absolute;right:12px;top:72px;width:min(320px,calc(100vw - 24px));padding:12px;border-radius:10px;background:rgba(16,18,24,0.92);border:1px solid rgba(255,255,255,0.15);color:#eef3ff;z-index:30;">
+  <h3 style="margin:0 0 10px;font-size:14px;">Custom Mover</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:12px;">
+    <label style="display:flex;align-items:center;gap:6px;">Shape
+      <select id="moving-custom-shape" style="flex:1;background:rgba(8,10,14,0.9);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;padding:3px;">
+        <option value="square">Square</option>
+        <option value="pole">Pole</option>
+      </select>
+    </label>
+    <label style="display:flex;align-items:center;gap:6px;">Color
+      <input id="moving-custom-color" type="color" value="#ff8844" style="flex:1;height:28px;border:none;background:none;cursor:pointer;">
+    </label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Size X<input id="moving-custom-sx" type="range" min="0.3" max="4" step="0.1" value="2"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Size Y<input id="moving-custom-sy" type="range" min="0.2" max="3" step="0.1" value="0.8"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Size Z<input id="moving-custom-sz" type="range" min="0.3" max="4" step="0.1" value="0.8"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Orbit R<input id="moving-custom-orbit" type="range" min="0" max="4" step="0.1" value="0"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Count<input id="moving-custom-count" type="range" min="1" max="8" step="1" value="1"></label>
+    <label style="display:flex;flex-direction:column;gap:3px;">Rotation<input id="moving-custom-rot" type="range" min="-4" max="4" step="0.1" value="1"></label>
+  </div>
+</div>
+	<script type="module">
+	import * as THREE from 'three';
+	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells } from './js/Track.js';
+
+	// ─── State ────────────────────────────────────────────────
+
+	const grid = new Map(); // "gx,gz" → { type, orient, isFinish, mesh }
+	const ORIENTATIONS = [ 0, 16, 10, 22 ];
+	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint', 'track-start', 'track-start-finish', 'track-3-way', 'track-4-way' ];
+	const BUMP_TOOL = 'overlay-bump';
+	const POLE_TOOL = 'overlay-pole';
+	const CUBE_TOOL = 'overlay-cube';
+	const WALL_TOOL = 'overlay-wall';
+	const JUMP_TOOL = 'overlay-jump';
+	const WATER_TOOL = 'water-pool';
+	const CUSTOM_POOL_DEFAULT = { drag: 1.8, buoyancy: 0.28, waterColor: '#1f8fd6', edgeColor: '#5cc7ff', transparent: true };
+	let customPoolConfig = { ...CUSTOM_POOL_DEFAULT };
+	let worldPreset = 'normal';
+	const MOVING_SLIDE_TOOL = 'moving-slide-block';
+	const MOVING_SPIN_TOOL = 'moving-spin-wall';
+	const MOVING_ORBIT_TOOL = 'moving-orbit-poles';
+	const MOVING_CUSTOM_TOOL = 'moving-custom';
+	const MAGNET_BLUE_TOOL = 'magnet-blue';
+	const MAGNET_RED_TOOL = 'magnet-red';
+	const MAGNET_GRAPPLE_TOOL = 'magnet-grapple';
+	const ARC_GREEN_TOOL = 'arc-green';
+	const ARC_ORANGE_TOOL = 'arc-orange';
+	const PORTAL_YELLOW_TOOL = 'portal-yellow';
+	const PORTAL_PURPLE_TOOL = 'portal-purple';
+	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'elevated-3-way', 'elevated-4-way' ];
+	const POOL_SLOPE_TOOL = 'pool-slope';
+	const POOL_SLOPE_DEPTH = CELL_RAW * 0.34; // matches pool floor depth
+	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
+	const SUPPORT_HEIGHT = CELL_RAW * 0.5;
+	const SLOPE_ANGLE = Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
+	const SLOPE_VISUAL_DROP = CELL_RAW * 0.04;
+	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
+	const SURFACE_TYPES = [
+		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
+		'pad-reset', 'pad-low-gravity', 'pad-heavy-gravity', 'pad-high-grip', 'pad-high-speed',
+		'pad-no-brakes', 'pad-no-steering', 'pad-no-acceleration', 'pad-slow-motion', 'pad-fast-motion', 'pad-drift',
+		'pad-size-small', 'pad-size-normal', 'pad-size-mega',
+		'pad-trick-yaw-1', 'pad-trick-pitch-1', 'pad-trick-roll-1',
+		'pad-trick-yaw-pitch-1', 'pad-trick-yaw-roll-1', 'pad-trick-pitch-roll-1', 'pad-trick-yaw-pitch-roll-1',
+		'pad-trick-yaw-roll-pitch', 'pad-trick-pitch-yaw-roll',
+		'pad-custom-a', 'pad-custom-b', 'pad-custom-c',
+		'surface-custom-a', 'surface-custom-b', 'surface-custom-c'
+	];
+	const BUILDING_TYPES = [ 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
+        const DECO_TYPES = [ 'decoration-forest', 'decoration-tents', 'decoration-empty', ...BUILDING_TYPES ];
+	const CUSTOM_MODEL_KEY_PREFIX = 'custom:';
+	const TRACK_SHARE_API_ROOT = 'https://racing-track-board-api.ga1010.workers.dev';
+	const TRACK_SHARE_API_PREFIXES = [ '/api', '' ];
+	const CUSTOM_SURFACE_TYPES = [ 'surface-custom-a', 'surface-custom-b', 'surface-custom-c' ];
+	const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
+	let tool = 'paint'; // 'paint', 'erase'
+	let selectedType = 'track-straight';
+	let selectedOrient = 0;
+	let allowSurfaceOverlap = false;
+	const CUSTOM_SURFACE_DEFAULTS = {
+		'surface-custom-a': { color: '#9c7bff', grip: 1.2, speed: 1.05, forceAmount: 4, force: { forward: true, backward: false, left: false, right: false, up: false }, noAir: true, oncePerContact: true },
+		'surface-custom-b': { color: '#7bffda', grip: 0.55, speed: 0.72, forceAmount: 3, force: { forward: false, backward: true, left: false, right: false, up: false }, noAir: false, oncePerContact: true },
+		'surface-custom-c': { color: '#ffc97b', grip: 0.95, speed: 1.25, forceAmount: 6, force: { forward: false, backward: false, left: true, right: true, up: true }, noAir: true, oncePerContact: false },
+	};
+	let customSurfaceConfigs = JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) );
+	const CUSTOM_PAD_DEFAULTS = {
+		'pad-custom-a': { color: '#7fb7ff', gravity: 1, drag: 1, accel: 1, drive: 1, topSpeed: 1, steering: 1, timeScale: 1, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+		'pad-custom-b': { color: '#a4ffd9', gravity: 0.8, drag: 0.7, accel: 1.25, drive: 1.25, topSpeed: 1.15, steering: 1.1, timeScale: 1.15, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+		'pad-custom-c': { color: '#ffd28e', gravity: 1.35, drag: 1.4, accel: 0.65, drive: 0.7, topSpeed: 0.85, steering: 0.9, timeScale: 0.8, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+	};
+	let customPadConfigs = JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) );
+	let activeCustomSurfaceEditor = null;
+	const FLOW_STRAIGHT_ORIENT = { ns: 0, ew: 22 };
+	const FLOW_CORNER_ORIENT = {
+		'S,E': 16, 'E,S': 16,
+		'S,W': 0, 'W,S': 0,
+		'N,E': 10, 'E,N': 10,
+		'N,W': 22, 'W,N': 22,
+	};
+	let flowBrushEnabled = false;
+	let flowStrokeCells = [];
+	let flowStraightType = 'track-straight';
+	let flowCornerType = 'track-corner';
+	let placeOffGrid = false;
+	const magnetBlocks = [];
+	const arcBlocks = [];
+	let selectedMagnetIndex = -1;
+	let selectedArcIndex = -1;
+	let slopesModInstalled = true;
+	let testSpawnCell = null;
+	let pickTestSpawnMode = false;
+	let autosaveEnabled = true;
+	let autosaveEverySeconds = 30;
+	let autosaveTimer = null;
+	const OFFGRID_STEP = 0.25;
+	const MAGNET_Y_STEP = 0.1;
+	const MAGNET_MIN_Y = -1;
+	const MAGNET_MAX_Y = 3;
+	const MAGNET_DEFAULT_Y = 0;
+	const MAGNET_DEFAULT_STRENGTH = 26;
+	const MAGNET_MIN_STRENGTH = 8;
+	const MAGNET_MAX_STRENGTH = 64;
+	const MAGNET_STRENGTH_STEP = 2;
+	const MAGNET_DEFAULT_RANGE = 1.5;
+	const MAGNET_MIN_RANGE = 0.75;
+	const MAGNET_MAX_RANGE = 2.5;
+	const MAGNET_RANGE_STEP = 0.1;
+	const MAGNET_BASE_Y = ( CELL_RAW * 0.08 ) - 0.06;
+	const MAGNET_SELECT_RADIUS = CELL_RAW * 0.22;
+	const ARC_SELECT_RADIUS = CELL_RAW * 0.22;
+	const ARC_DEFAULT_ID = 1;
+	const ARC_MAX_ID = 999;
+	const BLOCK_HEIGHT_OFFSET = 0.012;
+	const DECO_HEIGHT_OFFSET = BLOCK_HEIGHT_OFFSET * 0.5;
+
+	function clampMagnetGridY( value ) {
+
+		const num = Number( value );
+		if ( ! Number.isFinite( num ) ) return MAGNET_DEFAULT_Y;
+		return Math.round( THREE.MathUtils.clamp( num, MAGNET_MIN_Y, MAGNET_MAX_Y ) * 1000 ) / 1000;
+
+	}
+
+	function getMagnetWorldY( yGrid = MAGNET_DEFAULT_Y ) {
+
+		return MAGNET_BASE_Y + clampMagnetGridY( yGrid ) * CELL_RAW;
+
+	}
+
+	function clampMagnetStrength( value ) {
+
+		const num = Number( value );
+		if ( ! Number.isFinite( num ) ) return MAGNET_DEFAULT_STRENGTH;
+		return Math.round( THREE.MathUtils.clamp( num, MAGNET_MIN_STRENGTH, MAGNET_MAX_STRENGTH ) );
+
+	}
+
+	function clampMagnetRange( value ) {
+
+		const num = Number( value );
+		if ( ! Number.isFinite( num ) ) return MAGNET_DEFAULT_RANGE;
+		return Math.round( THREE.MathUtils.clamp( num, MAGNET_MIN_RANGE, MAGNET_MAX_RANGE ) * 100 ) / 100;
+
+	}
+
+	function findNearestMagnetIndex( gx, gz ) {
+
+		let bestIndex = -1;
+		let bestDistSq = MAGNET_SELECT_RADIUS * MAGNET_SELECT_RADIUS;
+		const wx = ( gx + 0.5 ) * CELL_RAW;
+		const wz = ( gz + 0.5 ) * CELL_RAW;
+		for ( let i = 0; i < magnetBlocks.length; i ++ ) {
+
+			const magnet = magnetBlocks[ i ];
+			const mx = ( magnet.gx + 0.5 ) * CELL_RAW;
+			const mz = ( magnet.gz + 0.5 ) * CELL_RAW;
+			const dx = mx - wx;
+			const dz = mz - wz;
+			const distSq = dx * dx + dz * dz;
+			if ( distSq <= bestDistSq ) {
+
+				bestDistSq = distSq;
+				bestIndex = i;
+
+			}
+
+		}
+		return bestIndex;
+
+	}
+
+	function refreshMagnetSelectionTint() {
+
+		for ( let i = 0; i < magnetBlocks.length; i ++ ) {
+
+			const magnet = magnetBlocks[ i ];
+			if ( ! magnet?.mesh?.material?.emissive ) continue;
+			const isBlue = magnet.type === MAGNET_BLUE_TOOL;
+			const isGrapple = magnet.type === MAGNET_GRAPPLE_TOOL;
+			magnet.mesh.material.emissive.setHex( i === selectedMagnetIndex ? 0xffffff : ( isGrapple ? 0x8a5cff : ( isBlue ? 0x1b45a9 : 0x7a1111 ) ) );
+			magnet.mesh.material.emissiveIntensity = i === selectedMagnetIndex ? 0.38 : 0.2;
+
+		}
+
+	}
+
+	function clearMagnetMeshes() {
+
+		for ( const magnet of magnetBlocks ) {
+
+			if ( magnet.mesh ) trackGroup.remove( magnet.mesh );
+			magnet.mesh = null;
+
+		}
+
+	}
+
+	function rebuildMagnetMeshes() {
+
+		clearMagnetMeshes();
+		for ( const magnet of magnetBlocks ) {
+
+			const isBlue = magnet.type === MAGNET_BLUE_TOOL;
+			const mesh = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
+				new THREE.MeshStandardMaterial( {
+					color: isBlue ? 0x4f96ff : 0xff5d5d,
+					emissive: isBlue ? 0x1b45a9 : 0x7a1111,
+					emissiveIntensity: 0.2,
+					roughness: 0.5,
+					metalness: 0.28
+				} )
+			);
+			mesh.position.set( ( magnet.gx + 0.5 ) * CELL_RAW, getMagnetWorldY( magnet.y ), ( magnet.gz + 0.5 ) * CELL_RAW );
+			mesh.castShadow = true;
+			mesh.receiveShadow = true;
+			trackGroup.add( mesh );
+			magnet.mesh = mesh;
+
+		}
+		if ( selectedMagnetIndex >= magnetBlocks.length ) selectedMagnetIndex = magnetBlocks.length - 1;
+		refreshMagnetSelectionTint();
+
+	}
+
+	function nudgeSelectedMagnet( deltaGridY ) {
+
+		if ( selectedMagnetIndex < 0 || ! magnetBlocks[ selectedMagnetIndex ] ) {
+
+			showToast( 'Select a magnet cube first' );
+			return;
+
+		}
+		const magnet = magnetBlocks[ selectedMagnetIndex ];
+		pushHistorySnapshot();
+		magnet.y = clampMagnetGridY( magnet.y + deltaGridY );
+		if ( magnet.mesh ) magnet.mesh.position.y = getMagnetWorldY( magnet.y );
+		refreshMagnetSelectionTint();
+		save();
+		showToast( `Magnet Y: ${ magnet.y.toFixed( 2 ) }` );
+
+	}
+
+	function nudgeSelectedMagnetStrength( deltaStrength ) {
+
+		if ( selectedMagnetIndex < 0 || ! magnetBlocks[ selectedMagnetIndex ] ) {
+
+			showToast( 'Select a magnet cube first' );
+			return;
+
+		}
+		const magnet = magnetBlocks[ selectedMagnetIndex ];
+		pushHistorySnapshot();
+		magnet.strength = clampMagnetStrength( ( magnet.strength ?? MAGNET_DEFAULT_STRENGTH ) + deltaStrength );
+		save();
+		showToast( `Magnet strength: ${ magnet.strength }` );
+
+	}
+
+	function nudgeSelectedMagnetRange( deltaRange ) {
+
+		if ( selectedMagnetIndex < 0 || ! magnetBlocks[ selectedMagnetIndex ] ) {
+
+			showToast( 'Select a magnet cube first' );
+			return;
+
+		}
+		const magnet = magnetBlocks[ selectedMagnetIndex ];
+		pushHistorySnapshot();
+		magnet.range = clampMagnetRange( ( magnet.range ?? MAGNET_DEFAULT_RANGE ) + deltaRange );
+		save();
+		showToast( `Magnet range: ${ magnet.range.toFixed( 2 ) }` );
+
+	}
+
+
+	function findNearestArcIndex( gx, gz ) {
+
+		let bestIndex = -1;
+		let bestDistSq = ARC_SELECT_RADIUS * ARC_SELECT_RADIUS;
+		const wx = ( gx + 0.5 ) * CELL_RAW;
+		const wz = ( gz + 0.5 ) * CELL_RAW;
+		for ( let i = 0; i < arcBlocks.length; i ++ ) {
+
+			const arc = arcBlocks[ i ];
+			const ax = ( arc.gx + 0.5 ) * CELL_RAW;
+			const az = ( arc.gz + 0.5 ) * CELL_RAW;
+			const dx = ax - wx;
+			const dz = az - wz;
+			const distSq = dx * dx + dz * dz;
+			if ( distSq <= bestDistSq ) {
+
+				bestDistSq = distSq;
+				bestIndex = i;
+
+			}
+
+		}
+		return bestIndex;
+
+	}
+
+	function clampArcLinkId( value ) {
+
+		const num = Math.round( Number( value ) || ARC_DEFAULT_ID );
+		return THREE.MathUtils.clamp( num, 1, ARC_MAX_ID );
+
+	}
+
+	function refreshArcSelectionTint() {
+
+		for ( let i = 0; i < arcBlocks.length; i ++ ) {
+
+			const arc = arcBlocks[ i ];
+			if ( ! arc?.mesh?.material?.emissive ) continue;
+			const tint = arc.type === ARC_ORANGE_TOOL
+				? 0x8c4b00
+				: ( arc.type === PORTAL_PURPLE_TOOL ? 0x4a1677 : ( arc.type === PORTAL_YELLOW_TOOL ? 0x8f7b00 : 0x1f6d1f ) );
+			arc.mesh.material.emissive.setHex( i === selectedArcIndex ? 0xffffff : tint );
+			arc.mesh.material.emissiveIntensity = i === selectedArcIndex ? 0.4 : 0.22;
+
+		}
+
+	}
+
+	function makeArcIdSprite( linkId ) {
+
+		const size = 96;
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = size;
+		canvas.height = size;
+		const ctx = canvas.getContext( '2d' );
+		if ( ! ctx ) return null;
+		ctx.clearRect( 0, 0, size, size );
+		ctx.fillStyle = 'rgba(255,255,255,0.9)';
+		ctx.fillRect( 12, 12, size - 24, size - 24 );
+		ctx.fillStyle = '#000';
+		ctx.font = 'bold 44px sans-serif';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText( String( clampArcLinkId( linkId ) ), size * 0.5, size * 0.54 );
+		const texture = new THREE.CanvasTexture( canvas );
+		texture.needsUpdate = true;
+		const material = new THREE.SpriteMaterial( {
+			map: texture,
+			transparent: true,
+			depthTest: false,
+			depthWrite: false,
+		} );
+		const sprite = new THREE.Sprite( material );
+		sprite.scale.set( CELL_RAW * 0.24, CELL_RAW * 0.24, 1 );
+		sprite.position.set( 0, CELL_RAW * 0.18, 0 );
+		sprite.renderOrder = 5;
+		return sprite;
+
+	}
+
+	function rebuildArcMeshes() {
+
+		clearArcMeshes();
+		for ( const arc of arcBlocks ) {
+
+			const colors = arc.type === ARC_ORANGE_TOOL
+				? { color: 0xffae52, emissive: 0x8c4b00 }
+				: ( arc.type === PORTAL_PURPLE_TOOL
+					? { color: 0xb468ff, emissive: 0x4a1677 }
+					: ( arc.type === PORTAL_YELLOW_TOOL
+						? { color: 0xffef4a, emissive: 0x8f7b00 }
+						: { color: 0x6dff6d, emissive: 0x1f6d1f } ) );
+			const mesh = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
+				new THREE.MeshStandardMaterial( {
+					color: colors.color,
+					emissive: colors.emissive,
+					emissiveIntensity: 0.22,
+					roughness: 0.5,
+					metalness: 0.25,
+				} )
+			);
+			mesh.position.set( ( arc.gx + 0.5 ) * CELL_RAW, getMagnetWorldY( arc.y ), ( arc.gz + 0.5 ) * CELL_RAW );
+			mesh.castShadow = true;
+			mesh.receiveShadow = true;
+			const idSprite = makeArcIdSprite( arc.linkId );
+			if ( idSprite ) mesh.add( idSprite );
+			trackGroup.add( mesh );
+			arc.mesh = mesh;
+			arc.idSprite = idSprite;
+
+		}
+		if ( selectedArcIndex >= arcBlocks.length ) selectedArcIndex = arcBlocks.length - 1;
+		refreshArcSelectionTint();
+
+	}
+
+	function clearArcMeshes() {
+
+		for ( const arc of arcBlocks ) {
+
+			if ( arc.idSprite ) {
+
+				if ( arc.idSprite.material?.map ) arc.idSprite.material.map.dispose();
+				arc.idSprite.material?.dispose?.();
+				arc.idSprite = null;
+
+			}
+			if ( arc.mesh ) trackGroup.remove( arc.mesh );
+			arc.mesh = null;
+
+		}
+
+	}
+
+	function nudgeSelectedArcId( delta ) {
+
+		if ( selectedArcIndex < 0 || ! arcBlocks[ selectedArcIndex ] ) {
+
+			showToast( 'Select an arc block first' );
+			return;
+
+		}
+		const arc = arcBlocks[ selectedArcIndex ];
+		pushHistorySnapshot();
+		arc.linkId = clampArcLinkId( ( arc.linkId ?? ARC_DEFAULT_ID ) + delta );
+		rebuildArcMeshes();
+		save();
+		showToast( `Arc link id: ${ arc.linkId }` );
+
+	}
+
+	function nudgeSelectedArc( deltaGridY ) {
+
+		if ( selectedArcIndex < 0 || ! arcBlocks[ selectedArcIndex ] ) {
+
+			showToast( 'Select an arc block first' );
+			return;
+
+		}
+		const arc = arcBlocks[ selectedArcIndex ];
+		pushHistorySnapshot();
+		arc.y = clampMagnetGridY( arc.y + deltaGridY );
+		if ( arc.mesh ) arc.mesh.position.y = getMagnetWorldY( arc.y );
+		refreshArcSelectionTint();
+		save();
+		showToast( `Arc Y: ${ arc.y.toFixed( 2 ) }` );
+
+	}
+
+	function getOverlayHeightOffset( cell ) {
+
+		if ( ! cell?.elevatedType ) return 0;
+		return cell.elevatedType === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
+
+	}
+
+	function normalizeCoord( value ) {
+
+		const num = Number( value ) || 0;
+		return Math.round( num * 1000 ) / 1000;
+
+	}
+
+	function cellKey( gx, gz ) { return `${ normalizeCoord( gx ) },${ normalizeCoord( gz ) }`; }
+
+	function makeEmptyCell() {
+
+		return {
+			type: null,
+			orient: 0,
+			isFinish: false,
+			mesh: null,
+			roadPieces: [],
+			roadMeshes: [],
+			bump: false,
+			bumpOrient: 0,
+			bumpMesh: null,
+			pole: false,
+			poleMesh: null,
+			cube: false,
+			cubeMesh: null,
+			wall: false,
+			wallOrient: 0,
+			wallMesh: null,
+			jump: false,
+			jumpOrient: 0,
+			movingObstacle: '',
+			movingSpeed: 1,
+			movingCustom: null,
+			jumpMesh: null,
+			elevatedType: null,
+			elevatedOrient: 0,
+			elevatedMesh: null,
+			elevatedSupportMesh: null,
+			poolSlope: false,
+			poolSlopeOrient: 0,
+			poolSlopeMesh: null,
+			surfaceTypes: [],
+			surfaceMeshes: [],
+			decoType: null,
+			decoOrient: 0,
+			decoMesh: null
+		};
+
+	}
+
+	function hasStandaloneObjectAtCell( gx, gz ) {
+
+		return magnetBlocks.some( ( block ) => block.gx === gx && block.gz === gz )
+			|| arcBlocks.some( ( block ) => block.gx === gx && block.gz === gz );
+
+	}
+
+	function cellHasContentOtherThanWater( cell, gx, gz ) {
+
+		if ( ! cell ) return hasStandaloneObjectAtCell( gx, gz );
+		return Boolean(
+			cell.roadPieces?.length || cell.type || cell.bump || cell.pole || cell.cube || cell.wall || cell.jump
+			|| cell.movingObstacle || cell.elevatedType || cell.poolSlope || cell.decoType || cell.surfaceTypes?.length
+			|| hasStandaloneObjectAtCell( gx, gz )
+		);
+
+	}
+
+	function isCellCompletelyEmptyForPool( cell, gx, gz ) {
+
+		return ! cellHasContentOtherThanWater( cell, gx, gz ) && ! cell?.water;
+
+	}
+
+	function removePoolTileAt( gx, gz, cell = null ) {
+
+		const key = cellKey( gx, gz );
+		const targetCell = cell || grid.get( key );
+		if ( ! targetCell?.water ) return false;
+		targetCell.water = false;
+		placeOverlayMesh( gx, gz, targetCell );
+		refreshWaterNeighborhood( gx, gz );
+		return true;
+
+	}
+
+
+	function getSurfaceVisual( surfaceType ) {
+
+		switch ( surfaceType ) {
+
+			case 'surface-ice': return { color: 0x7ad8ff, emissive: 0x1f6f8a, metalness: 0.2, roughness: 0.15 };
+			case 'surface-boost': return { color: 0xff4b4b, emissive: 0xc1121f, metalness: 0.0, roughness: 0.9 };
+			case 'surface-sand': return { color: 0xd7b46a, emissive: 0x6f4f22, metalness: 0.0, roughness: 1.0 };
+			case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
+			case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
+			case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
+			case 'surface-custom-a':
+			case 'surface-custom-b':
+			case 'surface-custom-c': {
+				const colorHex = customSurfaceConfigs?.[ surfaceType ]?.color || '#9c7bff';
+				const color = new THREE.Color( colorHex );
+				return { color: color.getHex(), emissive: color.clone().multiplyScalar( 0.45 ).getHex(), metalness: 0.02, roughness: 0.72 };
+			}
+			case 'pad-reset': return { color: 0xffffff, emissive: 0x557c92, metalness: 0.1, roughness: 0.35 };
+			case 'pad-low-gravity': return { color: 0x9bc2ff, emissive: 0x2e4f9f, metalness: 0.05, roughness: 0.55 };
+			case 'pad-heavy-gravity': return { color: 0x4a5f85, emissive: 0x111b36, metalness: 0.05, roughness: 0.8 };
+			case 'pad-high-grip': return { color: 0x5cff9a, emissive: 0x0d6a39, metalness: 0.02, roughness: 0.95 };
+			case 'pad-high-speed': return { color: 0xffbc4f, emissive: 0x8a4e06, metalness: 0.0, roughness: 0.8 };
+			case 'pad-no-brakes': return { color: 0xff6f6f, emissive: 0x7d1a1a, metalness: 0.0, roughness: 0.82 };
+			case 'pad-no-steering': return { color: 0xff7ed8, emissive: 0x7a1f65, metalness: 0.02, roughness: 0.78 };
+			case 'pad-no-acceleration': return { color: 0x85ffd8, emissive: 0x156e58, metalness: 0.0, roughness: 0.72 };
+			case 'pad-slow-motion': return { color: 0x6ab5ff, emissive: 0x104f88, metalness: 0.05, roughness: 0.68 };
+			case 'pad-fast-motion': return { color: 0xff9f3c, emissive: 0x8a2f00, metalness: 0.02, roughness: 0.7 };
+			case 'pad-drift': return { color: 0xd6ff6a, emissive: 0x5c7a0f, metalness: 0.03, roughness: 0.8 };
+		case 'pad-size-small': return { color: 0x58dcff, emissive: 0x156b8f, metalness: 0.04, roughness: 0.72 };
+		case 'pad-size-normal': return { color: 0xffffff, emissive: 0x4f5f7a, metalness: 0.06, roughness: 0.7 };
+		case 'pad-size-mega': return { color: 0xff8c5a, emissive: 0x7a2f12, metalness: 0.02, roughness: 0.78 };
+			case 'pad-trick-yaw-1':
+			case 'pad-trick-pitch-1':
+			case 'pad-trick-roll-1':
+			case 'pad-trick-yaw-pitch-1':
+			case 'pad-trick-yaw-roll-1':
+			case 'pad-trick-pitch-roll-1':
+			case 'pad-trick-yaw-pitch-roll-1':
+			case 'pad-trick-yaw-roll-pitch':
+			case 'pad-trick-pitch-yaw-roll':
+				return { color: 0x9c7dff, emissive: 0x311c72, metalness: 0.06, roughness: 0.62 };
+			case 'pad-custom-a':
+			case 'pad-custom-b':
+			case 'pad-custom-c': {
+				const colorHex = customPadConfigs?.[ surfaceType ]?.color || '#7fb7ff';
+				const color = new THREE.Color( colorHex );
+				return { color: color.getHex(), emissive: color.clone().multiplyScalar( 0.45 ).getHex(), metalness: 0.04, roughness: 0.72 };
+			}
+			default: return { color: 0xb88657, emissive: 0x4a2b12, metalness: 0.0, roughness: 0.9 };
+
+		}
+
+	}
+
+	// ─── Renderer ─────────────────────────────────────────────
+
+	const renderer = new THREE.WebGLRenderer( { antialias: true } );
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.shadowMap.enabled = true;
+	renderer.toneMapping = THREE.ACESFilmicToneMapping;
+	renderer.toneMappingExposure = 1.0;
+	document.body.appendChild( renderer.domElement );
+
+	// ─── Scene ────────────────────────────────────────────────
+
+	const scene = new THREE.Scene();
+	scene.background = new THREE.Color( 0xadb2ba );
+	scene.fog = new THREE.Fog( 0xadb2ba, 80, 160 );
+
+	const dirLight = new THREE.DirectionalLight( 0xffffff, 5 );
+	dirLight.position.set( 11.4, 15, - 5.3 );
+	dirLight.castShadow = true;
+	dirLight.shadow.mapSize.setScalar( 4096 );
+	dirLight.shadow.camera.near = 0.5;
+	dirLight.shadow.camera.far = 100;
+	dirLight.shadow.camera.left = - 60;
+	dirLight.shadow.camera.right = 60;
+	dirLight.shadow.camera.top = 60;
+	dirLight.shadow.camera.bottom = - 60;
+	scene.add( dirLight );
+
+	const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
+	scene.add( hemiLight );
+
+	// Ground
+	const groundMat = new THREE.MeshStandardMaterial( { color: 0x369069, metalness: 0 } );
+	const ground = new THREE.Mesh( new THREE.PlaneGeometry( 200, 200 ), groundMat );
+	ground.rotation.x = - Math.PI / 2;
+	ground.position.y = - 0.14;
+	ground.receiveShadow = true;
+	scene.add( ground );
+
+	// Grid helper
+	const gridSize = 30;
+	const cellWorld = CELL_RAW * GRID_SCALE;
+	const gridHelper = new THREE.GridHelper( gridSize * cellWorld, gridSize, 0x4a7a2a, 0x4a7a2a );
+	gridHelper.position.y = - 0.49;
+	gridHelper.material.opacity = 0.3;
+	gridHelper.material.transparent = true;
+	scene.add( gridHelper );
+
+	// Track group (mirrors game structure)
+	const trackGroup = new THREE.Group();
+	trackGroup.position.y = - 0.5;
+	trackGroup.scale.setScalar( GRID_SCALE );
+	scene.add( trackGroup );
+
+	// Ghost preview group
+	const ghostGroup = new THREE.Group();
+	ghostGroup.position.y = - 0.5;
+	ghostGroup.scale.setScalar( GRID_SCALE );
+	scene.add( ghostGroup );
+	const quickTestGhostGroup = new THREE.Group();
+	quickTestGhostGroup.position.y = - 0.49;
+	quickTestGhostGroup.scale.setScalar( GRID_SCALE );
+	scene.add( quickTestGhostGroup );
+	const QUICK_TEST_GHOST_KEY = 'racing-editor-quicktest-ghost-v1';
+	const QUICK_TEST_GHOST_MAP_KEY = 'racing-editor-quicktest-map-v1';
+
+	const WEATHER_PRESETS = {
+		clear: { name: 'Clear', bg: 0xadb2ba, fogNear: 80, fogFar: 160, sun: 5, hemi: 1.5, exposure: 1.0, ground: 0x369069 },
+		cloudy: { name: 'Cloudy', bg: 0x9aa4b2, fogNear: 70, fogFar: 130, sun: 3.8, hemi: 1.3, exposure: 0.95, ground: 0x3f835f },
+		sunset: { name: 'Sunset', bg: 0xc7987d, fogNear: 65, fogFar: 120, sun: 4.6, hemi: 1.25, exposure: 1.08, ground: 0x4c7d58 },
+		night: { name: 'Night', bg: 0x0b1220, fogNear: 45, fogFar: 95, sun: 1.6, hemi: 0.45, exposure: 0.7, ground: 0x243745 },
+		'dawn-mist': { name: 'Dawn Mist', bg: 0xb6c2cc, fogNear: 36, fogFar: 78, sun: 2.9, hemi: 1.1, exposure: 0.88, ground: 0x4f7f74 },
+	};
+	const WEATHER_DEFAULT = 'clear';
+	const PRECIP_TYPES = [ 'none', 'rain', 'snow' ];
+	const INTENSITY_TYPES = [ 'low', 'medium', 'high' ];
+	const WIND_TYPES = [ 'none', 'breezy', 'gusty' ];
+	let weatherSettings = {
+		preset: WEATHER_DEFAULT,
+		precipitation: 'none',
+		intensity: 'medium',
+		lightning: false,
+		wind: 'none',
+	};
+
+	function normalizeWeatherPreset( preset ) {
+
+		return WEATHER_PRESETS[ preset ] ? preset : WEATHER_DEFAULT;
+
+	}
+
+	function normalizeWeatherSettings( value ) {
+
+		const next = value || {};
+		return {
+			preset: normalizeWeatherPreset( next.preset ),
+			precipitation: PRECIP_TYPES.includes( next.precipitation ) ? next.precipitation : 'none',
+			intensity: INTENSITY_TYPES.includes( next.intensity ) ? next.intensity : 'medium',
+			lightning: Boolean( next.lightning ),
+			wind: WIND_TYPES.includes( next.wind ) ? next.wind : 'none',
+		};
+
+	}
+
+	function applyWeatherPreset( preset ) {
+
+		weatherSettings.preset = normalizeWeatherPreset( preset );
+		const weather = WEATHER_PRESETS[ weatherSettings.preset ];
+		scene.background = new THREE.Color( weather.bg );
+		scene.fog = new THREE.Fog( weather.bg, weather.fogNear, weather.fogFar );
+		dirLight.intensity = weather.sun;
+		hemiLight.intensity = weather.hemi;
+		groundMat.color.setHex( weather.ground );
+		renderer.toneMappingExposure = weather.exposure;
+
+	}
+
+	// ─── Camera (orthographic, top-down) ──────────────────────
+
+	const frustum = 30;
+	const aspect = window.innerWidth / window.innerHeight;
+	const camera = new THREE.OrthographicCamera(
+		- frustum * aspect, frustum * aspect,
+		frustum, - frustum,
+		0.1, 200
+	);
+	const cellCenter = 0.5 * CELL_RAW * GRID_SCALE;
+	camera.position.set( cellCenter, 50, cellCenter );
+	camera.lookAt( cellCenter, 0, cellCenter );
+
+	const camTarget = new THREE.Vector3( cellCenter, 0, cellCenter );
+
+	window.addEventListener( 'resize', () => {
+
+		const a = window.innerWidth / window.innerHeight;
+		camera.left = - frustum * a;
+		camera.right = frustum * a;
+		camera.updateProjectionMatrix();
+		renderer.setSize( window.innerWidth, window.innerHeight );
+
+	} );
+
+	// ─── Load models ──────────────────────────────────────────
+
+	const loader = new GLTFLoader();
+	const objLoader = new OBJLoader();
+	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
+	const models = {};
+	const customAssets = new Map();
+	let customAssetOrder = [];
+	let selectedCustomAssetId = '';
+
+	function makeCustomAssetId( fileName ) {
+
+		const safe = String( fileName || 'asset' ).toLowerCase().replace( /[^a-z0-9]+/g, '-' ).replace( /^-+|-+$/g, '' ).slice( 0, 24 ) || 'asset';
+		return `${ safe }-${ Math.random().toString( 36 ).slice( 2, 8 ) }`;
+
+	}
+
+	function normalizeImportedObjectToCell( root ) {
+
+		const box = new THREE.Box3().setFromObject( root );
+		const size = new THREE.Vector3();
+		const center = new THREE.Vector3();
+		box.getSize( size );
+		box.getCenter( center );
+		const maxDim = Math.max( size.x, size.z, 1e-4 );
+		const scale = CELL_RAW / maxDim;
+		root.position.sub( center );
+		root.position.y -= box.min.y - center.y;
+		root.scale.multiplyScalar( scale );
+		root.updateMatrixWorld( true );
+
+	}
+
+	function extractImportedColliderBoxes( root ) {
+
+		const out = [];
+		root.updateMatrixWorld( true );
+		root.traverse( ( node ) => {
+
+			if ( ! node?.isMesh || ! node.geometry ) return;
+			const geo = node.geometry.clone();
+			geo.applyMatrix4( node.matrixWorld );
+			const box = new THREE.Box3().setFromBufferAttribute( geo.getAttribute( 'position' ) );
+			const size = new THREE.Vector3();
+			const center = new THREE.Vector3();
+			box.getSize( size );
+			box.getCenter( center );
+			if ( size.lengthSq() < 1e-6 ) return;
+			out.push( {
+				c: [ Number( center.x.toFixed( 4 ) ), Number( center.y.toFixed( 4 ) ), Number( center.z.toFixed( 4 ) ) ],
+				e: [ Number( ( size.x * 0.5 ).toFixed( 4 ) ), Number( ( size.y * 0.5 ).toFixed( 4 ) ), Number( ( size.z * 0.5 ).toFixed( 4 ) ) ],
+				q: [ 0, 0, 0, 1 ],
+			} );
+
+		} );
+		return out.slice( 0, 96 );
+
+	}
+
+	function updateCustomAssetButtonLabel() {
+
+		const btn = document.getElementById( 'btn-custom-cycle' );
+		if ( ! btn ) return;
+		const active = customAssets.get( selectedCustomAssetId );
+		btn.textContent = active ? `Custom: ${ active.name.slice( 0, 12 ) }` : 'Custom: none';
+
+	}
+
+	async function loadImportedAssetFromDataUrl( dataUrl, format ) {
+
+		if ( format === 'obj' ) {
+
+			const text = await ( await fetch( dataUrl ) ).text();
+			return objLoader.parse( text );
+
+		}
+		return new Promise( ( resolve, reject ) => loader.load( dataUrl, ( gltf ) => resolve( gltf.scene ), undefined, reject ) );
+
+	}
+
+	async function importCustomAssetFile( file ) {
+
+		if ( ! file ) return;
+		pushHistorySnapshot();
+		const lower = file.name.toLowerCase();
+		const format = lower.endsWith( '.obj' ) ? 'obj' : 'glb';
+		const dataUrl = await new Promise( ( resolve, reject ) => {
+
+			const reader = new FileReader();
+			reader.onload = () => resolve( String( reader.result || '' ) );
+			reader.onerror = reject;
+			reader.readAsDataURL( file );
+
+		} );
+		const loaded = await loadImportedAssetFromDataUrl( dataUrl, format );
+		normalizeImportedObjectToCell( loaded );
+		loaded.traverse( ( c ) => {
+
+			if ( c.isMesh ) {
+
+				c.castShadow = true;
+				c.receiveShadow = true;
+
+			}
+
+		} );
+		const id = makeCustomAssetId( file.name );
+		const modelKey = `${ CUSTOM_MODEL_KEY_PREFIX }${ id }`;
+		models[ modelKey ] = loaded;
+		customAssets.set( id, {
+			id,
+			name: file.name,
+			format,
+			dataUrl,
+			colliderBoxes: extractImportedColliderBoxes( loaded ),
+		} );
+		customAssetOrder = [ ...customAssets.keys() ];
+		selectedCustomAssetId = id;
+		selectedType = modelKey;
+		updateCustomAssetButtonLabel();
+		showToast( `Imported ${ file.name } as a 10x10 cell block.` );
+
+	}
+
+	async function loadModels() {
+
+		const promises = modelNames.map( ( name ) =>
+			new Promise( ( resolve, reject ) => {
+
+				loader.load( `models/${ name }.glb`, ( gltf ) => {
+
+					gltf.scene.traverse( ( child ) => {
+
+						if ( child.isMesh ) child.material.side = THREE.FrontSide;
+
+					} );
+
+					// Building models are authored tiny; scale them 10x to match
+					// the gameplay rendering (see js/main.js loadModels).
+					if ( name.startsWith( 'building-' ) ) gltf.scene.scale.setScalar( 10 );
+
+					models[ name ] = gltf.scene;
+					resolve();
+
+				}, undefined, reject );
+
+			} )
+		);
+
+		await Promise.all( promises );
+
+	}
+
+	// ─── Tile placement ───────────────────────────────────────
+
+	function placeMesh( gx, gz, cell ) {
+
+		for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
+		if ( cell.mesh ) trackGroup.remove( cell.mesh );
+		cell.mesh = null;
+		cell.roadMeshes = [];
+		if ( ! cell.roadPieces?.length && cell.type ) {
+
+			cell.roadPieces = [ { type: cell.type, orient: cell.orient, isFinish: cell.isFinish } ];
+
+		}
+
+		if ( ! cell.roadPieces?.length ) return;
+
+		cell.roadPieces.forEach( ( roadPiece, idx ) => {
+
+			const modelType = ( roadPiece.type === 'track-checkpoint' || roadPiece.type === 'track-start' || roadPiece.type === 'track-start-finish' ) ? 'track-finish' : roadPiece.type;
+			const src = models[ modelType ];
+			if ( ! src ) return;
+
+				const mesh = src.clone();
+				mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + idx * 0.035, ( gz + 0.5 ) * CELL_RAW );
+				mesh.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ roadPiece.orient ] || 0 );
+				const gateTint = getGateTintColor( roadPiece.type );
+				mesh.traverse( ( c ) => {
+
+					if ( c.isMesh ) {
+
+						if ( gateTint && c.material ) {
+
+							if ( Array.isArray( c.material ) ) {
+
+								c.material = c.material.map( ( mat ) => {
+
+									const clone = mat.clone();
+									if ( clone.color ) clone.color.lerp( gateTint, 0.22 );
+									return clone;
+
+								} );
+
+							} else if ( c.material.color ) {
+
+								c.material = c.material.clone();
+								c.material.color.lerp( gateTint, 0.22 );
+
+							}
+
+						}
+						c.castShadow = true;
+						c.receiveShadow = true;
+
+				}
+
+			} );
+			trackGroup.add( mesh );
+			cell.roadMeshes.push( mesh );
+			cell.mesh = mesh;
+
+		} );
+
+	}
+
+	function placeOverlayMesh( gx, gz, cell ) {
+
+		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+		if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
+		if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
+		if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
+		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
+		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
+		if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
+		if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
+		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
+		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+		cell.bumpMesh = null;
+		cell.poleMesh = null;
+		cell.cubeMesh = null;
+		cell.wallMesh = null;
+		cell.jumpMesh = null;
+		cell.waterMesh = null;
+		cell.elevatedMesh = null;
+		cell.elevatedSupportMesh = null;
+		cell.poolSlopeMesh = null;
+		cell.surfaceMeshes = [];
+		cell.decoMesh = null;
+
+		if ( cell.bump ) {
+
+			const bumpSrc = models[ 'track-bump' ];
+			if ( bumpSrc ) {
+
+				const bump = bumpSrc.clone();
+				const yOffset = getOverlayHeightOffset( cell );
+				bump.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
+				bump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.bumpOrient || 0 ] || 0 );
+				bump.traverse( ( c ) => {
+
+					if ( c.isMesh ) {
+
+						c.castShadow = true;
+						c.receiveShadow = true;
+
+					}
+
+				} );
+				trackGroup.add( bump );
+				cell.bumpMesh = bump;
+
+			}
+
+		}
+
+		if ( cell.jump ) {
+
+			const jump = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.36, CELL_RAW * 0.18, CELL_RAW * 0.36 ),
+				new THREE.MeshStandardMaterial( {
+					color: 0x7f6a58,
+					roughness: 0.85,
+					metalness: 0.02,
+				} )
+			);
+			const yOffset = getOverlayHeightOffset( cell );
+			jump.position.set( ( gx + 0.5 ) * CELL_RAW, 0.24 + BLOCK_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
+			jump.rotation.order = 'YXZ';
+			jump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.jumpOrient || 0 ] || 0 );
+			jump.rotation.x = - THREE.MathUtils.degToRad( 30 );
+			jump.castShadow = true;
+			jump.receiveShadow = true;
+			trackGroup.add( jump );
+			cell.jumpMesh = jump;
+
+		}
+
+		if ( cell.elevatedType ) {
+
+			const normalizedType = cell.elevatedType === 'slope-down' ? 'slope-up' : cell.elevatedType;
+			const normalizedOrient = cell.elevatedType === 'slope-down' ? ( ORIENT_180[ cell.elevatedOrient || 0 ] ?? ( cell.elevatedOrient || 0 ) ) : ( cell.elevatedOrient || 0 );
+			const sourceType = ( normalizedType === 'elevated-corner' )
+				? 'elev-track-corner'
+				: ( normalizedType === 'elevated-checkpoint'
+					? 'elev-track-checkpoint'
+					: ( normalizedType === 'slope-up'
+						? 'elev-track-slope'
+						: ( normalizedType === 'elevated-3-way'
+							? 'elev-track-3-way'
+							: ( normalizedType === 'elevated-4-way'
+								? 'elev-track-4-way'
+								: 'elev-track-straight' ) ) ) );
+			const elevatedSrc = models[ sourceType ];
+			if ( elevatedSrc ) {
+
+				const elevated = elevatedSrc.clone();
+				const yAdjust = normalizedType === 'elevated-4-way' ? 0.1 : ( normalizedType === 'slope-up' ? 0 : 0 );
+				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
+				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 );
+				// Slope model is pre-sloped at the correct size — no rotation or scaling needed
+				elevated.traverse( ( c ) => {
+
+					if ( c.isMesh ) {
+
+						c.castShadow = true;
+						c.receiveShadow = true;
+
+					}
+
+				} );
+				trackGroup.add( elevated );
+				cell.elevatedMesh = elevated;
+
+			}
+
+			// Black support box removed — elevated models have built-in supports
+
+		}
+
+		if ( cell.poolSlope ) {
+
+			// Pool slope: the normal elev-track-slope GLB placed at ground/block
+			// level facing the slope's orient (no 180 flip, no elevation offset).
+			const slopeSrc = models[ 'elev-track-slope' ];
+			if ( slopeSrc ) {
+
+				const slope = slopeSrc.clone();
+				slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET - 5, ( gz + 0.5 ) * CELL_RAW );
+				slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.poolSlopeOrient || 0 ] || 0 );
+				slope.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; } } );
+				trackGroup.add( slope );
+				cell.poolSlopeMesh = slope;
+
+			}
+
+		}
+
+		if ( cell.pole ) {
+
+			const pole = new THREE.Mesh(
+				new THREE.CylinderGeometry( CELL_RAW * 0.08, CELL_RAW * 0.08, CELL_RAW * 0.13, 16 ),
+				new THREE.MeshStandardMaterial( { color: 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
+			);
+			const yOffset = getOverlayHeightOffset( cell );
+			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.065 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+			pole.castShadow = true;
+			pole.receiveShadow = true;
+			trackGroup.add( pole );
+			cell.poleMesh = pole;
+
+		}
+
+		if ( cell.cube ) {
+
+			const cube = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
+				new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
+			);
+			const yOffset = getOverlayHeightOffset( cell );
+			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+			cube.castShadow = true;
+			cube.receiveShadow = true;
+			trackGroup.add( cube );
+			cell.cubeMesh = cube;
+
+		}
+
+		if ( cell.movingObstacle ) {
+
+			const marker = new THREE.Group();
+			if ( cell.movingObstacle === MOVING_SLIDE_TOOL ) {
+
+				const body = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW * 0.42, CELL_RAW * 0.2, CELL_RAW * 0.3 ),
+					new THREE.MeshStandardMaterial( { color: 0x7ec8ff, emissive: 0x2c5f86, emissiveIntensity: 0.65, metalness: 0.25, roughness: 0.45 } )
+				);
+				marker.add( body );
+				const rail = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.04, CELL_RAW * 0.06 ), new THREE.MeshStandardMaterial( { color: 0x9fb9cf } ) );
+				rail.position.y = - CELL_RAW * 0.09;
+				marker.add( rail );
+
+			} else if ( cell.movingObstacle === MOVING_SPIN_TOOL ) {
+
+				const arm = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW * 0.58, CELL_RAW * 0.18, CELL_RAW * 0.08 ),
+					new THREE.MeshStandardMaterial( { color: 0xffa073, emissive: 0x7a2f10, emissiveIntensity: 0.65, metalness: 0.18, roughness: 0.5 } )
+				);
+				marker.add( arm );
+				const hub = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.03, CELL_RAW * 0.03, CELL_RAW * 0.1, 12 ), new THREE.MeshStandardMaterial( { color: 0xcccccc } ) );
+				hub.rotation.z = Math.PI * 0.5;
+				marker.add( hub );
+
+			} else if ( cell.movingObstacle === MOVING_CUSTOM_TOOL ) {
+				const cfg = cell.movingCustom || readCustomMovingUi();
+				const sx = Number( cfg?.sx ) || 2, sy = Number( cfg?.sy ) || 0.8, sz = Number( cfg?.sz ) || 0.8;
+				const cmat = new THREE.MeshStandardMaterial( { color: cfg?.color || '#ff8844', emissive: 0x331100 } );
+				const custom = cfg?.shape === 'pole' ? new THREE.CylinderGeometry( sx * 0.18, sx * 0.18, sy, 12 ) : new THREE.BoxGeometry( sx, sy, sz );
+				marker.add( new THREE.Mesh( custom, cmat ) );
+			} else {
+
+				for ( let i = 0; i < 3; i ++ ) {
+
+					const pole = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.035, CELL_RAW * 0.035, CELL_RAW * 0.22, 10 ), new THREE.MeshStandardMaterial( { color: 0x9b6fdc, emissive: 0x2f1f4f } ) );
+					const a = i * ( Math.PI * 2 / 3 );
+					pole.position.set( Math.cos( a ) * CELL_RAW * 0.18, 0, Math.sin( a ) * CELL_RAW * 0.18 );
+					marker.add( pole );
+
+				}
+
+			}
+
+			marker.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.1 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			marker.traverse( ( child ) => { if ( child.isMesh ) { child.castShadow = true; child.receiveShadow = true; } } );
+			trackGroup.add( marker );
+			cell.cubeMesh = marker;
+
+		}
+
+		if ( cell.wall ) {
+
+			const wall = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
+				new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
+			);
+			const yOffset = getOverlayHeightOffset( cell );
+			wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+			wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.wallOrient || 0 ] || 0 );
+			wall.castShadow = true;
+			wall.receiveShadow = true;
+			trackGroup.add( wall );
+			cell.wallMesh = wall;
+
+		}
+
+		if ( cell.water ) {
+
+			const pool = createWaterPoolMesh( gx, gz );
+			trackGroup.add( pool );
+			cell.waterMesh = pool;
+
+		}
+
+		if ( cell.surfaceTypes?.length ) {
+
+			cell.surfaceTypes.forEach( ( surfaceType, idx ) => {
+
+				const visual = getSurfaceVisual( surfaceType );
+				const isPad = String( surfaceType || '' ).startsWith( 'pad-' );
+				const patch = new THREE.Mesh(
+					isPad ? new THREE.CircleGeometry( CELL_RAW * 0.39, 24 ) : new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
+					new THREE.MeshStandardMaterial( {
+						color: visual.color,
+						emissive: visual.emissive,
+						emissiveIntensity: 0.2,
+						transparent: true,
+						opacity: 0.58,
+						metalness: visual.metalness,
+						roughness: visual.roughness
+					} )
+				);
+				patch.rotation.x = - Math.PI / 2;
+				const yOffset = getOverlayHeightOffset( cell );
+				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
+				patch.receiveShadow = true;
+				trackGroup.add( patch );
+				cell.surfaceMeshes.push( patch );
+
+			} );
+
+		}
+
+		if ( cell.decoType ) {
+
+			const decoSrc = models[ cell.decoType ];
+			if ( decoSrc ) {
+
+				const deco = decoSrc.clone();
+				const decoHeightOffset = cell.decoType.startsWith( 'building-' ) ? 0.5 : 0.5 + DECO_HEIGHT_OFFSET;
+				deco.position.set( ( gx + 0.5 ) * CELL_RAW, decoHeightOffset, ( gz + 0.5 ) * CELL_RAW );
+				deco.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.decoOrient || 0 ] || 0 );
+				deco.traverse( ( c ) => {
+
+					if ( c.isMesh ) {
+
+						c.castShadow = true;
+						c.receiveShadow = true;
+
+					}
+
+				} );
+				trackGroup.add( deco );
+				cell.decoMesh = deco;
+
+			}
+
+		}
+
+	}
+
+
+	function isWaterCell( gx, gz ) {
+
+		return Boolean( grid.get( cellKey( gx, gz ) )?.water );
+
+	}
+
+	function createWaterPoolMesh( gx, gz ) {
+
+		const group = new THREE.Group();
+		group.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
+		const edgeColor = new THREE.Color( customPoolConfig.edgeColor || CUSTOM_POOL_DEFAULT.edgeColor );
+		const waterColor = new THREE.Color( customPoolConfig.waterColor || CUSTOM_POOL_DEFAULT.waterColor );
+		const waterMat = new THREE.MeshStandardMaterial( { color: waterColor, emissive: waterColor, emissiveIntensity: 0.18, roughness: 0.35, metalness: 0.02, transparent: Boolean( customPoolConfig.transparent ), opacity: customPoolConfig.transparent ? 0.72 : 1 } );
+		const floorMat = new THREE.MeshStandardMaterial( { color: 0x31433e, roughness: 0.95, metalness: 0.0 } );
+		const wallMat = new THREE.MeshStandardMaterial( { color: 0x20312e, roughness: 0.9, metalness: 0.0 } );
+		const edgeMat = new THREE.MeshStandardMaterial( { color: edgeColor, emissive: edgeColor, emissiveIntensity: 0.28, roughness: 0.4 } );
+		const floor = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ), floorMat );
+		floor.position.y = - CELL_RAW * 0.34;
+		floor.receiveShadow = true;
+		group.add( floor );
+		const water = new THREE.Mesh( new THREE.PlaneGeometry( CELL_RAW * 0.92, CELL_RAW * 0.92 ), waterMat );
+		water.rotation.x = - Math.PI / 2;
+		water.position.y = 0.515;
+		water.userData.waterSurface = true;
+		group.add( water );
+		// If this pool tile has a pool slope, skip the wall + edge lip on the
+		// side the ramp exits toward (high end meets ground level there) so the
+		// car can drive up/down without a wall or lip blocking it.
+		const slopeCell = grid.get( cellKey( gx, gz ) );
+		const exitSide = slopeCell?.poolSlope ? getPoolSlopeFacingOffset( slopeCell.poolSlopeOrient ?? 0 ) : null;
+		const sides = [
+			{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
+			{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+			{ dx: 0, dz: 1, x: 0, z: CELL_RAW * 0.5, ry: 0 },
+			{ dx: - 1, dz: 0, x: - CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+		];
+		for ( const side of sides ) {
+			if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
+			if ( exitSide && exitSide.dx === side.dx && exitSide.dz === side.dz ) continue;
+			const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.38, CELL_RAW * 0.08 ), wallMat );
+			wall.position.set( side.x, - CELL_RAW * 0.16, side.z );
+			wall.rotation.y = side.ry;
+			wall.castShadow = true;
+			wall.receiveShadow = true;
+			group.add( wall );
+			const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), edgeMat );
+			edge.position.set( side.x, 0.535, side.z );
+			edge.rotation.y = side.ry;
+			group.add( edge );
+		}
+		return group;
+
+	}
+
+	function refreshWaterNeighborhood( gx, gz ) {
+
+		for ( const [ dx, dz ] of [ [ 0, 0 ], [ 1, 0 ], [ - 1, 0 ], [ 0, 1 ], [ 0, - 1 ] ] ) {
+			const nx = gx + dx, nz = gz + dz;
+			const cell = grid.get( cellKey( nx, nz ) );
+			if ( cell?.water ) placeOverlayMesh( nx, nz, cell );
+		}
+
+	}
+
+	// Map slope orientation to the world direction the HIGH end of the ramp
+	// faces — that's where the ramp meets ground level and the car exits the
+	// pool. We remove that pool edge + wall so the car can pass. The slope-up
+	// model's low end points toward +z at orient 0, so the high end is -z.
+	function getPoolSlopeFacingOffset( orient ) {
+
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const rad = THREE.MathUtils.degToRad( deg );
+		return { dx: - Math.round( Math.sin( rad ) ), dz: - Math.round( Math.cos( rad ) ) };
+
+	}
+
+	function removePoolEdgeInFacingDirection( gx, gz, orient ) {
+
+		const { dx, dz } = getPoolSlopeFacingOffset( orient );
+		const neighborKey = cellKey( gx + dx, gz + dz );
+		const neighbor = grid.get( neighborKey );
+		if ( neighbor?.water ) placeOverlayMesh( gx + dx, gz + dz, neighbor );
+
+	}
+
+	function setCell( gx, gz, type, orient ) {
+
+		const key = cellKey( gx, gz );
+		const cell = grid.get( key ) || makeEmptyCell();
+		removePoolTileAt( gx, gz, cell );
+		if ( allowSurfaceOverlap ) {
+
+			cell.roadPieces.push( { type, orient, isFinish: type === 'track-finish' || type === 'track-start-finish' } );
+			cell.type = cell.roadPieces[ cell.roadPieces.length - 1 ].type;
+			cell.orient = cell.roadPieces[ cell.roadPieces.length - 1 ].orient;
+			cell.isFinish = Boolean( cell.roadPieces.find( ( p ) => p.isFinish ) );
+
+		} else {
+
+			cell.roadPieces = [ { type, orient, isFinish: type === 'track-finish' || type === 'track-start-finish' } ];
+			cell.type = type;
+			cell.orient = orient;
+			cell.isFinish = type === 'track-finish' || type === 'track-start-finish';
+
+		}
+		grid.set( key, cell );
+		placeMesh( gx, gz, cell );
+		placeOverlayMesh( gx, gz, cell );
+
+	}
+
+	// ─── Cell operations ──────────────────────────────────────
+
+	function placeSelectedBlock( gx, gz ) {
+
+		pushHistorySnapshot();
+		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL || selectedType === MAGNET_GRAPPLE_TOOL ) {
+
+			removePoolTileAt( gx, gz );
+
+			const existingIndex = findNearestMagnetIndex( gx, gz );
+			if ( existingIndex >= 0 ) {
+
+				selectedMagnetIndex = existingIndex;
+				if ( magnetBlocks[ existingIndex ].type !== selectedType ) magnetBlocks[ existingIndex ].type = selectedType;
+
+			} else {
+
+				magnetBlocks.push( { gx, gz, y: MAGNET_DEFAULT_Y, type: selectedType, strength: MAGNET_DEFAULT_STRENGTH, range: MAGNET_DEFAULT_RANGE, mesh: null } );
+				selectedMagnetIndex = magnetBlocks.length - 1;
+
+			}
+			rebuildMagnetMeshes();
+
+		} else if ( selectedType === ARC_GREEN_TOOL || selectedType === ARC_ORANGE_TOOL || selectedType === PORTAL_YELLOW_TOOL || selectedType === PORTAL_PURPLE_TOOL ) {
+
+			removePoolTileAt( gx, gz );
+
+			const existingIndex = findNearestArcIndex( gx, gz );
+			if ( existingIndex >= 0 ) {
+
+				selectedArcIndex = existingIndex;
+				if ( arcBlocks[ existingIndex ].type !== selectedType ) arcBlocks[ existingIndex ].type = selectedType;
+
+			} else {
+
+				arcBlocks.push( { gx, gz, y: MAGNET_DEFAULT_Y, type: selectedType, linkId: ARC_DEFAULT_ID, mesh: null } );
+				selectedArcIndex = arcBlocks.length - 1;
+
+			}
+			rebuildArcMeshes();
+
+		} else if ( selectedType === POOL_SLOPE_TOOL ) {
+
+			// Pool slope: only placeable on-grid, on top of an existing pool tile.
+			if ( placeOffGrid ) {
+
+				showToast( 'Pool Slope cannot be placed off-grid' );
+				return;
+
+			}
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			if ( ! cell.water ) {
+
+				showToast( 'Pool Slope can only be placed on a pool tile' );
+				return;
+
+			}
+			grid.set( key, cell );
+			// Toggle: clicking again removes the slope (but keeps the pool).
+			cell.poolSlope = ! cell.poolSlope;
+			cell.poolSlopeOrient = selectedOrient;
+			// Remove the pool edge on the side the slope faces so the car isn't
+			// caught on the lip while driving up/down the ramp.
+			removePoolEdgeInFacingDirection( gx, gz, selectedOrient );
+			placeOverlayMesh( gx, gz, cell );
+
+		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || selectedType === WATER_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || MOVING_CUSTOM_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
+
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			if ( selectedType === WATER_TOOL && ! cell.water && ! isCellCompletelyEmptyForPool( cell, gx, gz ) ) {
+				showToast( 'Pool tiles can only be added to empty cells' );
+				return;
+			}
+			if ( selectedType !== WATER_TOOL ) removePoolTileAt( gx, gz, cell );
+			grid.set( key, cell );
+			if ( selectedType === BUMP_TOOL ) {
+
+				cell.bump = ! cell.bump;
+				cell.bumpOrient = selectedOrient;
+
+			} else if ( selectedType === POLE_TOOL ) {
+
+				cell.pole = ! cell.pole;
+
+			} else if ( selectedType === CUBE_TOOL ) {
+
+				cell.cube = ! cell.cube;
+
+			} else if ( selectedType === WALL_TOOL ) {
+
+				cell.wall = ! cell.wall;
+				cell.wallOrient = selectedOrient;
+
+			} else if ( selectedType === JUMP_TOOL ) {
+
+				cell.jump = ! cell.jump;
+				cell.jumpOrient = selectedOrient;
+
+			} else if ( selectedType === WATER_TOOL ) {
+
+				cell.water = ! cell.water;
+				if ( cell.water ) {
+					for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
+					if ( cell.mesh ) trackGroup.remove( cell.mesh );
+					cell.roadMeshes = [];
+					cell.mesh = null;
+					cell.roadPieces = [];
+					cell.type = null;
+					cell.isFinish = false;
+					if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+					cell.decoMesh = null;
+					cell.decoType = null;
+				}
+
+			} else if ( selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL ) {
+
+				cell.movingObstacle = cell.movingObstacle === selectedType ? '' : selectedType;
+				if ( cell.movingObstacle ) cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedInput?.value ) || 1 ) );
+				if ( cell.movingObstacle === MOVING_CUSTOM_TOOL ) cell.movingCustom = readCustomMovingUi();
+
+			} else {
+
+				if ( cell.elevatedType === selectedType ) {
+
+					cell.elevatedType = null;
+					cell.elevatedOrient = 0;
+
+				} else {
+
+					cell.elevatedType = selectedType;
+					cell.elevatedOrient = selectedOrient;
+
+				}
+
+			}
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+
+				grid.delete( key );
+
+			} else {
+
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+			if ( selectedType === WATER_TOOL ) refreshWaterNeighborhood( gx, gz );
+
+		} else if ( SURFACE_TYPES.includes( selectedType ) ) {
+
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			removePoolTileAt( gx, gz, cell );
+			grid.set( key, cell );
+			const hadType = cell.surfaceTypes.includes( selectedType );
+			if ( allowSurfaceOverlap ) {
+
+				cell.surfaceTypes = hadType ? [ ...cell.surfaceTypes ] : [ ...cell.surfaceTypes, selectedType ];
+
+			} else {
+
+				cell.surfaceTypes = hadType ? [] : [ selectedType ];
+
+			}
+
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+
+				grid.delete( key );
+
+			} else {
+
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+		} else if ( DECO_TYPES.includes( selectedType ) || selectedType.startsWith( CUSTOM_MODEL_KEY_PREFIX ) ) {
+
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			removePoolTileAt( gx, gz, cell );
+			grid.set( key, cell );
+
+			cell.decoType = selectedType;
+			cell.decoOrient = selectedOrient;
+			placeOverlayMesh( gx, gz, cell );
+
+		} else {
+
+			setCell( gx, gz, selectedType, selectedOrient );
+
+		}
+
+		save();
+
+	}
+
+	function placeFinish() {
+
+		const cell = makeEmptyCell();
+		cell.type = 'track-start-finish';
+		cell.orient = 0;
+		cell.isFinish = true;
+		cell.roadPieces = [ { type: 'track-start-finish', orient: 0, isFinish: true } ];
+		grid.set( cellKey( 0, 0 ), cell );
+		placeMesh( 0, 0, cell );
+
+	}
+
+	function eraseRoad( gx, gz ) {
+
+		pushHistorySnapshot();
+		const magnetIndex = findNearestMagnetIndex( gx, gz );
+		if ( magnetIndex >= 0 ) {
+
+			const magnet = magnetBlocks[ magnetIndex ];
+			if ( magnet?.mesh ) trackGroup.remove( magnet.mesh );
+			magnetBlocks.splice( magnetIndex, 1 );
+			if ( selectedMagnetIndex === magnetIndex ) selectedMagnetIndex = -1;
+			else if ( selectedMagnetIndex > magnetIndex ) selectedMagnetIndex --;
+			refreshMagnetSelectionTint();
+			save();
+			return;
+
+		}
+		const arcIndex = findNearestArcIndex( gx, gz );
+		if ( arcIndex >= 0 ) {
+
+			const arc = arcBlocks[ arcIndex ];
+			if ( arc?.mesh ) trackGroup.remove( arc.mesh );
+			arcBlocks.splice( arcIndex, 1 );
+			if ( selectedArcIndex === arcIndex ) selectedArcIndex = -1;
+			else if ( selectedArcIndex > arcIndex ) selectedArcIndex --;
+			refreshArcSelectionTint();
+			save();
+			return;
+
+		}
+
+		const key = cellKey( gx, gz );
+		if ( ! grid.has( key ) ) return;
+
+		const cell = grid.get( key );
+		for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
+		if ( cell.mesh ) trackGroup.remove( cell.mesh );
+		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+		if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
+		if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
+		if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
+		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
+		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
+		if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
+		if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
+		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
+		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+		grid.delete( key );
+		refreshWaterNeighborhood( gx, gz );
+		save();
+
+	}
+
+	function clearAll() {
+
+		pushHistorySnapshot();
+		clearGhost();
+		for ( const [ , cell ] of grid ) {
+
+				for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
+				if ( cell.mesh ) trackGroup.remove( cell.mesh );
+				if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+				if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
+				if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
+				if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
+				if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
+				if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
+				if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
+				if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
+				for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
+				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+
+		}
+
+		grid.clear();
+		clearMagnetMeshes();
+		clearArcMeshes();
+		magnetBlocks.length = 0;
+		selectedMagnetIndex = -1;
+		arcBlocks.length = 0;
+		selectedArcIndex = -1;
+		save();
+
+	}
+
+	function getDirection( from, to ) {
+
+		if ( ! from || ! to ) return null;
+		const dx = to.gx - from.gx;
+		const dz = to.gz - from.gz;
+		if ( Math.abs( dx ) + Math.abs( dz ) !== 1 ) return null;
+		if ( dx === 1 ) return 'E';
+		if ( dx === - 1 ) return 'W';
+		if ( dz === 1 ) return 'S';
+		if ( dz === - 1 ) return 'N';
+		return null;
+
+	}
+
+	function getFlowRoadPlacement( prev, current, next ) {
+
+		const inDir = getDirection( current, prev );
+		const outDir = getDirection( current, next );
+		const oneDir = inDir || outDir;
+		if ( ! oneDir ) return { type: flowStraightType, orient: FLOW_STRAIGHT_ORIENT.ns };
+		if ( ! inDir || ! outDir || inDir === outDir || ( inDir === 'N' && outDir === 'S' ) || ( inDir === 'S' && outDir === 'N' ) || ( inDir === 'E' && outDir === 'W' ) || ( inDir === 'W' && outDir === 'E' ) ) {
+
+			return {
+				type: flowStraightType,
+				orient: ( oneDir === 'E' || oneDir === 'W' ) ? FLOW_STRAIGHT_ORIENT.ew : FLOW_STRAIGHT_ORIENT.ns,
+			};
+
+		}
+		const cornerOrient = FLOW_CORNER_ORIENT[ `${ inDir },${ outDir }` ] ?? FLOW_CORNER_ORIENT[ `${ outDir },${ inDir }` ] ?? 0;
+		return { type: flowCornerType, orient: cornerOrient };
+
+	}
+
+	function getDedupedFlowStrokeCells() {
+
+		const deduped = [];
+		const seen = new Set();
+		for ( const cell of flowStrokeCells ) {
+
+			const key = cellKey( cell.gx, cell.gz );
+			if ( seen.has( key ) ) continue;
+			seen.add( key );
+			deduped.push( cell );
+
+		}
+
+		return deduped;
+
+	}
+
+	function renderFlowStrokePreview() {
+
+		if ( ! isDrawing || ! flowBrushEnabled || ! TILE_TYPES.includes( selectedType ) ) return;
+		clearGhost();
+		const deduped = getDedupedFlowStrokeCells();
+		for ( let i = 0; i < deduped.length; i ++ ) {
+
+			const current = deduped[ i ];
+			const prev = i > 0 ? deduped[ i - 1 ] : null;
+			const next = i < deduped.length - 1 ? deduped[ i + 1 ] : null;
+			const piece = getFlowRoadPlacement( prev, current, next );
+			addGhostPiece( piece.type, piece.orient, current.gx, current.gz, 0.28 );
+
+		}
+
+	}
+
+	function applyFlowStroke() {
+
+		if ( flowStrokeCells.length === 0 ) return;
+		pushHistorySnapshot();
+		const deduped = getDedupedFlowStrokeCells();
+		for ( let i = 0; i < deduped.length; i ++ ) {
+
+			const current = deduped[ i ];
+			const prev = i > 0 ? deduped[ i - 1 ] : null;
+			const next = i < deduped.length - 1 ? deduped[ i + 1 ] : null;
+			const piece = getFlowRoadPlacement( prev, current, next );
+			setCell( current.gx, current.gz, piece.type, piece.orient );
+
+		}
+		flowStrokeCells = [];
+		save();
+
+	}
+
+	// ─── Ghost preview ────────────────────────────────────────
+
+	function getGateTintColor( type ) {
+
+		// Start/finish gate tints removed — blocks render with their own textures.
+		return null;
+
+	}
+
+	function addGhostPiece( type, orient, gx, gz, opacity ) {
+
+		const modelType = ( type === 'track-checkpoint' || type === 'track-start' || type === 'track-start-finish' ) ? 'track-finish' : type;
+		const src = models[ modelType ];
+		if ( ! src ) return;
+
+		const mesh = src.clone();
+		mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
+
+		const deg = ORIENT_DEG[ orient ] || 0;
+		mesh.rotation.y = THREE.MathUtils.degToRad( deg );
+
+		mesh.traverse( ( c ) => {
+
+			if ( c.isMesh ) {
+
+				const tint = getGateTintColor( type );
+				if ( Array.isArray( c.material ) ) {
+
+					c.material = c.material.map( ( mat ) => {
+
+						const clone = mat.clone();
+						if ( tint && clone.color ) clone.color.lerp( tint, 0.22 );
+						clone.transparent = true;
+						clone.opacity = opacity;
+						clone.depthWrite = false;
+						return clone;
+
+					} );
+
+				} else {
+
+					c.material = c.material.clone();
+					if ( tint && c.material.color ) c.material.color.lerp( tint, 0.22 );
+					c.material.transparent = true;
+					c.material.opacity = opacity;
+					c.material.depthWrite = false;
+
+				}
+
+			}
+
+		} );
+
+		ghostGroup.add( mesh );
+
+		// Slope direction arrow — bright cone pointing uphill
+		if ( type === 'elev-track-slope' || type === 'slope-up' || type === 'slope-down' ) {
+
+			const arrowGeo = new THREE.ConeGeometry( CELL_RAW * 0.12, CELL_RAW * 0.3, 4 );
+			arrowGeo.rotateX( - Math.PI / 2 ); // Pre-rotate geometry: cone now points -z (uphill for orient 0)
+			const arrowMat = new THREE.MeshBasicMaterial( { color: 0xffff00, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false } );
+			const arrow = new THREE.Mesh( arrowGeo, arrowMat );
+			arrow.renderOrder = 999;
+			const arrowDeg = ORIENT_DEG[ orient ] || 0;
+			const arrowRad = THREE.MathUtils.degToRad( arrowDeg );
+			// High end is at (-sin(yaw), 0, -cos(yaw)). Arrow geometry points -z, so rotation.y = yaw gives (-sin, 0, -cos). ✓
+			arrow.rotation.y = arrowRad;
+			arrow.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT * 0.5, ( gz + 0.5 ) * CELL_RAW );
+			// Offset arrow toward the uphill direction
+			arrow.position.x -= Math.sin( arrowRad ) * CELL_RAW * 0.25;
+			arrow.position.z -= Math.cos( arrowRad ) * CELL_RAW * 0.25;
+			ghostGroup.add( arrow );
+
+		}
+
+	}
+
+	function addGhostMagnetPreview( gx, gz ) {
+
+		const isRed = selectedType === MAGNET_RED_TOOL;
+		let previewGx = gx;
+		let previewGz = gz;
+		let previewY = MAGNET_DEFAULT_Y;
+		const existingIndex = findNearestMagnetIndex( gx, gz );
+		if ( existingIndex >= 0 && magnetBlocks[ existingIndex ] ) {
+
+			selectedMagnetIndex = existingIndex;
+			previewGx = magnetBlocks[ existingIndex ].gx;
+			previewGz = magnetBlocks[ existingIndex ].gz;
+			previewY = clampMagnetGridY( magnetBlocks[ existingIndex ].y );
+			refreshMagnetSelectionTint();
+
+		}
+
+		const preview = new THREE.Mesh(
+			new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
+			new THREE.MeshStandardMaterial( {
+				color: isRed ? 0xff7777 : 0x76abff,
+				emissive: isRed ? 0x7a1111 : 0x1b45a9,
+				emissiveIntensity: 0.32,
+				transparent: true,
+				opacity: 0.5,
+				roughness: 0.55,
+				metalness: 0.22,
+			} )
+		);
+		preview.position.set( ( previewGx + 0.5 ) * CELL_RAW, getMagnetWorldY( previewY ), ( previewGz + 0.5 ) * CELL_RAW );
+		ghostGroup.add( preview );
+
+	}
+
+	function updateGhost( gx, gz ) {
+
+		clearGhost();
+
+		if ( tool === 'erase' ) return;
+		if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL || selectedType === MAGNET_GRAPPLE_TOOL ) {
+
+			addGhostMagnetPreview( gx, gz );
+			return;
+
+		}
+		if ( selectedType === ARC_GREEN_TOOL || selectedType === ARC_ORANGE_TOOL || selectedType === PORTAL_YELLOW_TOOL || selectedType === PORTAL_PURPLE_TOOL ) {
+
+			const colors = selectedType === ARC_ORANGE_TOOL
+				? { color: 0xffae52, emissive: 0x8c4b00 }
+				: ( selectedType === PORTAL_PURPLE_TOOL
+					? { color: 0xb468ff, emissive: 0x4a1677 }
+					: ( selectedType === PORTAL_YELLOW_TOOL
+						? { color: 0xffef4a, emissive: 0x8f7b00 }
+						: { color: 0x6dff6d, emissive: 0x1f6d1f } ) );
+			let previewGx = gx;
+			let previewGz = gz;
+			let previewY = MAGNET_DEFAULT_Y;
+			const existingIndex = findNearestArcIndex( gx, gz );
+			if ( existingIndex >= 0 && arcBlocks[ existingIndex ] ) {
+
+				selectedArcIndex = existingIndex;
+				previewGx = arcBlocks[ existingIndex ].gx;
+				previewGz = arcBlocks[ existingIndex ].gz;
+				previewY = clampMagnetGridY( arcBlocks[ existingIndex ].y );
+				refreshArcSelectionTint();
+
+			}
+			const preview = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
+				new THREE.MeshStandardMaterial( {
+					color: colors.color,
+					emissive: colors.emissive,
+					emissiveIntensity: 0.35,
+					transparent: true,
+					opacity: 0.5,
+				} )
+			);
+			preview.position.set( ( previewGx + 0.5 ) * CELL_RAW, getMagnetWorldY( previewY ), ( previewGz + 0.5 ) * CELL_RAW );
+			ghostGroup.add( preview );
+			return;
+
+		}
+		const ghostType = selectedType === BUMP_TOOL
+			? 'track-bump'
+			: ( selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL
+				? 'track-straight'
+				: ( selectedType === JUMP_TOOL
+					? 'track-straight'
+					: ( selectedType === POOL_SLOPE_TOOL
+						? 'elev-track-slope'
+						: ( selectedType === 'elevated-corner'
+							? 'elev-track-corner'
+							: ( selectedType === 'elevated-straight'
+								? 'elev-track-straight'
+								: ( selectedType === 'elevated-checkpoint'
+									? 'elev-track-checkpoint'
+									: ( selectedType === 'slope-up'
+										? 'elev-track-slope'
+										: ( selectedType === 'elevated-3-way'
+											? 'elev-track-3-way'
+											: ( selectedType === 'elevated-4-way'
+												? 'elev-track-4-way'
+												: ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType ) ) ) ) ) ) ) ) ) );
+		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
+
+	}
+
+	function clearGhost() {
+
+		// Remove all ghost preview meshes
+		while ( ghostGroup.children.length > 0 ) {
+
+			ghostGroup.remove( ghostGroup.children[ 0 ] );
+
+		}
+
+	}
+
+	function clearQuickTestGhost() {
+
+		while ( quickTestGhostGroup.children.length > 0 ) quickTestGhostGroup.remove( quickTestGhostGroup.children[ 0 ] );
+
+	}
+
+	function drawQuickTestGhost( payload ) {
+
+		clearQuickTestGhost();
+		if ( ! payload || ! Array.isArray( payload.samples ) || payload.samples.length < 2 ) return;
+		const points = [];
+		for ( const sample of payload.samples ) {
+
+			const x = Number( sample?.x );
+			const z = Number( sample?.z );
+			if ( ! Number.isFinite( x ) || ! Number.isFinite( z ) ) continue;
+			points.push( new THREE.Vector3( x / GRID_SCALE, 0.06, z / GRID_SCALE ) );
+
+		}
+		if ( points.length < 2 ) return;
+		const geometry = new THREE.BufferGeometry().setFromPoints( points );
+		const line = new THREE.Line( geometry, new THREE.LineBasicMaterial( {
+			color: 0x8efb9a,
+			transparent: true,
+			opacity: 0.85,
+		} ) );
+		quickTestGhostGroup.add( line );
+
+	}
+
+	function maybeLoadQuickTestGhost() {
+
+		const encoded = encodeCells( getCellsArray() );
+		const mapHash = `${ encoded }|${ encodeMods() }`;
+		const expectedHash = localStorage.getItem( QUICK_TEST_GHOST_MAP_KEY ) || '';
+		if ( expectedHash !== mapHash ) {
+
+			localStorage.removeItem( QUICK_TEST_GHOST_KEY );
+			localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
+			clearQuickTestGhost();
+			return;
+
+		}
+		try {
+
+			const parsed = JSON.parse( localStorage.getItem( QUICK_TEST_GHOST_KEY ) || 'null' );
+			drawQuickTestGhost( parsed );
+
+		} catch {
+
+			clearQuickTestGhost();
+
+		}
+
+	}
+
+	// ─── Raycasting ───────────────────────────────────────────
+
+	const raycaster = new THREE.Raycaster();
+	const mouse = new THREE.Vector2();
+	let hoveredCell = null;
+
+	function screenToGrid( clientX, clientY ) {
+
+		mouse.x = ( clientX / window.innerWidth ) * 2 - 1;
+		mouse.y = - ( clientY / window.innerHeight ) * 2 + 1;
+
+		raycaster.setFromCamera( mouse, camera );
+
+		const plane = new THREE.Plane( new THREE.Vector3( 0, 1, 0 ), 0.51 );
+		const hit = new THREE.Vector3();
+		raycaster.ray.intersectPlane( plane, hit );
+
+		if ( ! hit ) return null;
+
+		let gx = hit.x / cellWorld;
+		let gz = hit.z / cellWorld;
+		if ( selectedType === WATER_TOOL || selectedType === POOL_SLOPE_TOOL ) {
+
+			gx = Math.floor( gx );
+			gz = Math.floor( gz );
+
+		} else if ( selectedType === MAGNET_BLUE_TOOL || selectedType === MAGNET_RED_TOOL || selectedType === ARC_GREEN_TOOL || selectedType === ARC_ORANGE_TOOL || selectedType === PORTAL_YELLOW_TOOL || selectedType === PORTAL_PURPLE_TOOL ) {
+
+			gx = normalizeCoord( gx - 0.5 );
+			gz = normalizeCoord( gz - 0.5 );
+
+		} else if ( ! placeOffGrid ) {
+
+			gx = Math.floor( gx );
+			gz = Math.floor( gz );
+
+		} else {
+
+			gx = Math.round( gx / OFFGRID_STEP ) * OFFGRID_STEP;
+			gz = Math.round( gz / OFFGRID_STEP ) * OFFGRID_STEP;
+
+		}
+
+		return { gx: normalizeCoord( gx ), gz: normalizeCoord( gz ) };
+
+	}
+
+	// ─── Persistence ──────────────────────────────────────────
+
+	function save() {
+
+		const arr = getCellsArray();
+
+		const encoded = encodeCells( arr );
+		localStorage.setItem( 'racing-editor-cells', encoded );
+		localStorage.setItem( 'racing-editor-mods', encodeMods() );
+		localStorage.removeItem( QUICK_TEST_GHOST_KEY );
+		localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
+		clearQuickTestGhost();
+
+	}
+
+	const HISTORY_LIMIT = 30;
+	const undoStack = [];
+	const redoStack = [];
+	let isRestoringHistory = false;
+
+	function cloneTestSpawnCell() {
+
+		return testSpawnCell ? { gx: Number( testSpawnCell.gx ), gz: Number( testSpawnCell.gz ), orient: Number( testSpawnCell.orient || 0 ) } : null;
+
+	}
+
+	function createHistorySnapshot() {
+
+		return {
+			cells: encodeCells( getCellsArray() ),
+			mods: encodeMods(),
+			testSpawn: cloneTestSpawnCell(),
+		};
+
+	}
+
+	function historySnapshotsEqual( a, b ) {
+
+		return Boolean( a && b )
+			&& a.cells === b.cells
+			&& a.mods === b.mods
+			&& JSON.stringify( a.testSpawn || null ) === JSON.stringify( b.testSpawn || null );
+
+	}
+
+	function updateHistoryButtons() {
+
+		document.getElementById( 'btn-undo' )?.toggleAttribute( 'disabled', undoStack.length === 0 );
+		document.getElementById( 'btn-redo' )?.toggleAttribute( 'disabled', redoStack.length === 0 );
+
+	}
+
+	function pushHistorySnapshot() {
+
+		if ( isRestoringHistory ) return;
+		const snapshot = createHistorySnapshot();
+		if ( historySnapshotsEqual( undoStack[ undoStack.length - 1 ], snapshot ) ) return;
+		undoStack.push( snapshot );
+		if ( undoStack.length > HISTORY_LIMIT ) undoStack.shift();
+		redoStack.length = 0;
+		updateHistoryButtons();
+
+	}
+
+	async function restoreHistorySnapshot( snapshot ) {
+
+		if ( ! snapshot ) return;
+		isRestoringHistory = true;
+		try {
+
+			await loadEncodedState( snapshot.cells, snapshot.mods );
+			testSpawnCell = snapshot.testSpawn ? { ...snapshot.testSpawn } : null;
+			save();
+
+		} finally {
+
+			isRestoringHistory = false;
+			updateHistoryButtons();
+
+		}
+
+	}
+
+	async function undoEdit() {
+
+		const snapshot = undoStack.pop();
+		if ( ! snapshot ) {
+
+			updateHistoryButtons();
+			showToast( 'Nothing to undo' );
+			return;
+
+		}
+		redoStack.push( createHistorySnapshot() );
+		await restoreHistorySnapshot( snapshot );
+		showToast( 'Undo' );
+
+	}
+
+	async function redoEdit() {
+
+		const snapshot = redoStack.pop();
+		if ( ! snapshot ) {
+
+			updateHistoryButtons();
+			showToast( 'Nothing to redo' );
+			return;
+
+		}
+		undoStack.push( createHistorySnapshot() );
+		if ( undoStack.length > HISTORY_LIMIT ) undoStack.shift();
+		await restoreHistorySnapshot( snapshot );
+		showToast( 'Redo' );
+
+	}
+
+	function restartAutosaveTimer() {
+
+		if ( autosaveTimer ) clearInterval( autosaveTimer );
+		autosaveTimer = null;
+		if ( ! autosaveEnabled ) return;
+		autosaveTimer = setInterval( () => {
+
+			save();
+			showToast( 'Auto-saved editor state' );
+
+		}, Math.max( 5, autosaveEverySeconds ) * 1000 );
+
+	}
+
+	function encodeMods() {
+
+		const bumps = [];
+		const poles = [];
+		const cubes = [];
+		const walls = [];
+		const jumps = [];
+		const elevated = [];
+		const surfaces = [];
+		const deco = [];
+		const magnets = [];
+		const arcs = [];
+		const movingObstacles = [];
+		const water = [];
+		const poolSlopes = [];
+
+		for ( const [ key, cell ] of grid ) {
+
+				const [ gx, gz ] = key.split( ',' ).map( Number );
+				if ( cell.bump ) bumps.push( [ gx, gz ] );
+				if ( cell.pole ) poles.push( [ gx, gz ] );
+				if ( cell.cube ) cubes.push( [ gx, gz ] );
+				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0 ] );
+				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
+				if ( cell.water && worldPreset !== 'pool-filled' ) water.push( [ gx, gz ] );
+				if ( cell.poolSlope ) poolSlopes.push( [ gx, gz, cell.poolSlopeOrient || 0 ] );
+				if ( cell.movingObstacle ) movingObstacles.push( [ gx, gz, cell.movingObstacle, cell.wallOrient || 0, Number.isFinite( Number( cell.movingSpeed ) ) ? Number( cell.movingSpeed ) : 1, cell.movingCustom && typeof cell.movingCustom === 'object' ? cell.movingCustom : null ] );
+				if ( cell.elevatedType ) {
+
+					const typeOut = cell.elevatedType === 'slope-down' ? 'slope-up' : cell.elevatedType;
+					const orientOut = cell.elevatedType === 'slope-down' ? ( ORIENT_180[ cell.elevatedOrient || 0 ] ?? ( cell.elevatedOrient || 0 ) ) : ( cell.elevatedOrient || 0 );
+					elevated.push( [ gx, gz, typeOut, orientOut ] );
+
+				}
+			for ( const surfaceType of ( cell.surfaceTypes || [] ) ) surfaces.push( [ gx, gz, surfaceType ] );
+			if ( cell.decoType && ! cell.water ) deco.push( [ gx, gz, cell.decoType, cell.decoOrient || 0 ] );
+
+		}
+
+		for ( const magnet of magnetBlocks ) {
+
+			magnets.push( [
+				normalizeCoord( magnet.gx ),
+				normalizeCoord( magnet.gz ),
+				clampMagnetGridY( magnet.y ),
+				magnet.type === MAGNET_RED_TOOL ? 'red' : ( magnet.type === MAGNET_GRAPPLE_TOOL ? 'grapple' : 'blue' ),
+				clampMagnetStrength( magnet.strength ),
+				clampMagnetRange( magnet.range ),
+			] );
+
+		}
+
+		for ( const arc of arcBlocks ) {
+
+			arcs.push( [
+				normalizeCoord( arc.gx ),
+				normalizeCoord( arc.gz ),
+				clampMagnetGridY( arc.y ),
+				arc.type === ARC_ORANGE_TOOL
+					? 'orange'
+					: ( arc.type === PORTAL_PURPLE_TOOL ? 'portal-purple' : ( arc.type === PORTAL_YELLOW_TOOL ? 'portal-yellow' : 'green' ) ),
+				clampArcLinkId( arc.linkId ),
+			] );
+
+		}
+
+		const customPayload = {};
+		for ( const [ id, asset ] of customAssets.entries() ) {
+
+			customPayload[ id ] = {
+				name: asset.name,
+				format: asset.format,
+				dataUrl: asset.dataUrl,
+				colliderBoxes: asset.colliderBoxes,
+			};
+
+		}
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload, z: poolSlopes } );
+		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
+
+	}
+
+	function normalizeCustomPoolConfig( value ) {
+		const next = value && typeof value === 'object' ? value : {};
+		return {
+			drag: THREE.MathUtils.clamp( Number( next.drag ?? CUSTOM_POOL_DEFAULT.drag ) || CUSTOM_POOL_DEFAULT.drag, 0.1, 6 ),
+			buoyancy: THREE.MathUtils.clamp( Number( next.buoyancy ?? CUSTOM_POOL_DEFAULT.buoyancy ) || CUSTOM_POOL_DEFAULT.buoyancy, 0.05, 3 ),
+			waterColor: /^#[0-9a-f]{6}$/i.test( String( next.waterColor || '' ) ) ? next.waterColor : CUSTOM_POOL_DEFAULT.waterColor,
+			edgeColor: /^#[0-9a-f]{6}$/i.test( String( next.edgeColor || '' ) ) ? next.edgeColor : CUSTOM_POOL_DEFAULT.edgeColor,
+			transparent: next.transparent !== false,
+		};
+	}
+
+	function decodeMods( modsStr ) {
+
+		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], t: 'normal', w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [], z: [] };
+
+		try {
+
+			const payload = decodeURIComponent( escape( atob( modsStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
+			const parsed = JSON.parse( payload );
+				return {
+					b: Array.isArray( parsed.b ) ? parsed.b : [],
+					p: Array.isArray( parsed.p ) ? parsed.p : [],
+					k: Array.isArray( parsed.k ) ? parsed.k : [],
+					l: Array.isArray( parsed.l ) ? parsed.l : [],
+					j: Array.isArray( parsed.j ) ? parsed.j : [],
+					o: Array.isArray( parsed.o ) ? parsed.o : [],
+					e: Array.isArray( parsed.e ) ? parsed.e : [],
+					u: Array.isArray( parsed.u ) ? parsed.u : [],
+						d: Array.isArray( parsed.d ) ? parsed.d : [],
+					m: Array.isArray( parsed.m ) ? parsed.m : [],
+					a: Array.isArray( parsed.a ) ? parsed.a : [],
+						t: parsed.t === 'pool-filled' ? 'pool-filled' : 'normal',
+						w: normalizeWeatherSettings( parsed?.w ),
+						c: parsed?.c && typeof parsed.c === 'object' ? parsed.c : JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
+						y: parsed?.y && typeof parsed.y === 'object' ? parsed.y : JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ),
+						x: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
+						r: normalizeCustomPoolConfig( parsed?.r ),
+						q: Array.isArray( parsed.q ) ? parsed.q : [],
+						z: Array.isArray( parsed.z ) ? parsed.z : [],
+					};
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to decode mods', e );
+				return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], t: 'normal', w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [], z: [] };
+
+		}
+
+	}
+
+	async function loadCustomAssetsFromMods( assetsPayload ) {
+
+		customAssets.clear();
+		customAssetOrder = [];
+		selectedCustomAssetId = '';
+		const entries = Object.entries( assetsPayload || {} ).slice( 0, 32 );
+		for ( const [ id, asset ] of entries ) {
+
+			if ( ! asset?.dataUrl ) continue;
+			try {
+
+				const loaded = await loadImportedAssetFromDataUrl( asset.dataUrl, asset.format === 'obj' ? 'obj' : 'glb' );
+				normalizeImportedObjectToCell( loaded );
+				const modelKey = `${ CUSTOM_MODEL_KEY_PREFIX }${ id }`;
+				models[ modelKey ] = loaded;
+				customAssets.set( id, {
+					id,
+					name: asset.name || id,
+					format: asset.format === 'obj' ? 'obj' : 'glb',
+					dataUrl: asset.dataUrl,
+					colliderBoxes: Array.isArray( asset.colliderBoxes ) ? asset.colliderBoxes : extractImportedColliderBoxes( loaded ),
+				} );
+
+			} catch ( e ) {
+
+				console.warn( 'Failed to restore custom asset', id, e );
+
+			}
+
+		}
+		customAssetOrder = [ ...customAssets.keys() ];
+		if ( customAssetOrder.length > 0 ) selectedCustomAssetId = customAssetOrder[ 0 ];
+		updateCustomAssetButtonLabel();
+
+	}
+
+	function clearEditorStateForLoad() {
+
+		clearGhost();
+		clearMagnetMeshes();
+		clearArcMeshes();
+		for ( const [ , cell ] of grid ) {
+
+			for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
+			if ( cell.mesh ) trackGroup.remove( cell.mesh );
+			if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+			if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
+			if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
+			if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
+			if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
+			if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
+			if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
+			for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
+			if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+
+		}
+		grid.clear();
+		magnetBlocks.length = 0;
+		selectedMagnetIndex = -1;
+		arcBlocks.length = 0;
+		selectedArcIndex = -1;
+		testSpawnCell = null;
+
+	}
+
+	async function loadEncodedState( encoded, modsEncoded = '' ) {
+
+		if ( encoded == null ) return;
+		clearEditorStateForLoad();
+
+		try {
+
+			const arr = decodeCells( encoded );
+
+				for ( const [ gx, gz, type, orient ] of arr ) {
+
+					const isFinish = ( type === 'track-finish' || type === 'track-start-finish' );
+					const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					cell.roadPieces.push( { type, orient, isFinish } );
+					cell.type = type;
+					cell.orient = orient;
+					cell.isFinish = cell.isFinish || isFinish;
+					placeMesh( gx, gz, cell );
+
+				}
+
+			const mods = decodeMods( modsEncoded );
+			await loadCustomAssetsFromMods( mods.x );
+			customSurfaceConfigs = {
+				...JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
+				...( mods.c || {} )
+			};
+			customPadConfigs = {
+				...JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ),
+				...( mods.y || {} )
+			};
+			customPoolConfig = normalizeCustomPoolConfig( mods.r );
+			worldPreset = mods.t === 'pool-filled' ? 'pool-filled' : 'normal';
+			const templateSelect = document.getElementById( 'map-template-select' );
+			if ( templateSelect ) templateSelect.value = worldPreset === 'pool-filled' ? 'pool-filled' : 'normal';
+			weatherSettings = normalizeWeatherSettings( mods.w );
+			applyWeatherPreset( weatherSettings.preset );
+			const weatherSelect = document.getElementById( 'weather-preset' );
+			const precipitationSelect = document.getElementById( 'weather-precip' );
+			const intensitySelect = document.getElementById( 'weather-intensity' );
+			const windSelect = document.getElementById( 'weather-wind' );
+			const lightningToggle = document.getElementById( 'weather-lightning' );
+			if ( weatherSelect ) weatherSelect.value = weatherSettings.preset;
+			if ( precipitationSelect ) precipitationSelect.value = weatherSettings.precipitation;
+			if ( intensitySelect ) intensitySelect.value = weatherSettings.intensity;
+			if ( windSelect ) windSelect.value = weatherSettings.wind;
+			if ( lightningToggle ) lightningToggle.checked = weatherSettings.lightning;
+			for ( const [ gx, gz ] of mods.b ) {
+
+				const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					cell.bump = true;
+					cell.bumpOrient = 0;
+					placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz ] of mods.p ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.pole = true;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz ] of mods.k ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.cube = true;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz, wallOrient ] of mods.l ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.wall = true;
+				cell.wallOrient = wallOrient || 0;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz, jumpOrient ] of mods.j ) {
+
+				const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					cell.jump = true;
+					cell.jumpOrient = jumpOrient || 0;
+					placeOverlayMesh( gx, gz, cell );
+
+			}
+
+
+			for ( const [ gx, gz ] of mods.q || [] ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! isCellCompletelyEmptyForPool( cell, gx, gz ) ) continue;
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.water = true;
+				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+				cell.decoMesh = null;
+				cell.decoType = null;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+			for ( const [ gx, gz ] of mods.q || [] ) refreshWaterNeighborhood( gx, gz );
+
+			for ( const [ gx, gz, movingType, _orient, movingSpeedRaw, movingCustomRaw ] of mods.o || [] ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				removePoolTileAt( gx, gz, cell );
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				if ( [ MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, MOVING_CUSTOM_TOOL ].includes( movingType ) ) { cell.movingObstacle = movingType; cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedRaw ) || 1 ) ); cell.movingCustom = movingCustomRaw && typeof movingCustomRaw === 'object' ? movingCustomRaw : null; }
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+			for ( const [ gx, gz, elevatedType, elevatedOrient ] of mods.e || [] ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				removePoolTileAt( gx, gz, cell );
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				const normalizedType = elevatedType === 'slope-down' ? 'slope-up' : elevatedType;
+				const normalizedOrient = elevatedType === 'slope-down' ? ( ORIENT_180[ elevatedOrient || 0 ] ?? ( elevatedOrient || 0 ) ) : ( elevatedOrient || 0 );
+				if ( ELEVATED_TYPES.includes( normalizedType ) ) {
+
+					cell.elevatedType = normalizedType;
+					cell.elevatedOrient = normalizedOrient;
+					placeOverlayMesh( gx, gz, cell );
+
+				}
+
+			}
+
+			for ( const [ gx, gz, slopeOrient ] of mods.z || [] ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				// Pool slope only makes sense on a water tile; skip if absent.
+				if ( ! cell.water ) continue;
+				cell.poolSlope = true;
+				cell.poolSlopeOrient = slopeOrient || 0;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz, surfaceType ] of mods.u ) {
+
+				const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					removePoolTileAt( gx, gz, cell );
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					if ( SURFACE_TYPES.includes( surfaceType ) ) cell.surfaceTypes.push( surfaceType );
+					placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz, decoType, decoOrient ] of mods.d ) {
+
+				const key = cellKey( gx, gz );
+					const cell = grid.get( key ) || makeEmptyCell();
+					removePoolTileAt( gx, gz, cell );
+					if ( ! grid.has( key ) ) grid.set( key, cell );
+					cell.decoType = decoType;
+					cell.decoOrient = decoOrient || 0;
+					placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz, yGrid, variant, strengthRaw, rangeRaw ] of mods.m || [] ) {
+
+				removePoolTileAt( normalizeCoord( gx ), normalizeCoord( gz ) );
+				magnetBlocks.push( {
+					gx: normalizeCoord( gx ),
+					gz: normalizeCoord( gz ),
+					y: clampMagnetGridY( yGrid ),
+					type: String( variant ) === 'red' ? MAGNET_RED_TOOL : MAGNET_BLUE_TOOL,
+					strength: clampMagnetStrength( strengthRaw ),
+					range: clampMagnetRange( rangeRaw ),
+					mesh: null,
+				} );
+
+			}
+			rebuildMagnetMeshes();
+
+			for ( const [ gx, gz, yGrid, variant, linkIdRaw ] of mods.a || [] ) {
+
+				removePoolTileAt( normalizeCoord( gx ), normalizeCoord( gz ) );
+				arcBlocks.push( {
+					gx: normalizeCoord( gx ),
+					gz: normalizeCoord( gz ),
+					y: clampMagnetGridY( yGrid ),
+					type: String( variant ) === 'orange'
+						? ARC_ORANGE_TOOL
+						: ( [ 'portal-purple', 'purple' ].includes( String( variant ) ) ? PORTAL_PURPLE_TOOL : ( [ 'portal-yellow', 'yellow' ].includes( String( variant ) ) ? PORTAL_YELLOW_TOOL : ARC_GREEN_TOOL ) ),
+					linkId: clampArcLinkId( linkIdRaw ),
+					mesh: null,
+				} );
+
+			}
+			rebuildArcMeshes();
+			if ( worldPreset === 'pool-filled' ) applyPoolFilledTemplate();
+
+		} catch ( e ) {
+
+			console.warn( 'Failed to load saved map', e );
+
+		}
+
+	}
+
+	async function loadSaved() {
+
+		const params = new URLSearchParams( window.location.search );
+		const mapParam = params.get( 'map' );
+		const modsParam = params.get( 'mods' );
+		const encoded = mapParam || localStorage.getItem( 'racing-editor-cells' );
+		const modsEncoded = modsParam || localStorage.getItem( 'racing-editor-mods' );
+		await loadEncodedState( encoded, modsEncoded );
+
+	}
+
+
+	// ─── Toast ────────────────────────────────────────────────
+
+	let toastTimer = 0;
+
+	function showToast( msg ) {
+
+		const el = document.getElementById( 'toast' );
+		el.textContent = msg;
+		el.classList.add( 'show' );
+		clearTimeout( toastTimer );
+		toastTimer = setTimeout( () => el.classList.remove( 'show' ), 2000 );
+
+	}
+
+	// ─── Toolbar ──────────────────────────────────────────────
+
+
+	const movingSpeedWrap = document.getElementById( 'moving-speed-wrap' );
+	const movingSpeedInput = document.getElementById( 'moving-speed' );
+	const movingSpeedValue = document.getElementById( 'moving-speed-value' );
+	function isMovingObstacleTool( type ) { return type === MOVING_SLIDE_TOOL || type === MOVING_SPIN_TOOL || type === MOVING_ORBIT_TOOL || type === MOVING_CUSTOM_TOOL; }
+
+
+	const movingCustomShape = document.getElementById( 'moving-custom-shape' );
+	const movingCustomSx = document.getElementById( 'moving-custom-sx' );
+	const movingCustomSy = document.getElementById( 'moving-custom-sy' );
+	const movingCustomSz = document.getElementById( 'moving-custom-sz' );
+	const movingCustomOrbit = document.getElementById( 'moving-custom-orbit' );
+	const movingCustomCount = document.getElementById( 'moving-custom-count' );
+	const movingCustomRot = document.getElementById( 'moving-custom-rot' );
+	const movingCustomColor = document.getElementById( 'moving-custom-color' );
+	function readCustomMovingUi() { return { shape: movingCustomShape?.value || 'square', sx: Number( movingCustomSx?.value ) || 2, sy: Number( movingCustomSy?.value ) || 0.8, sz: Number( movingCustomSz?.value ) || 0.8, orbit: Number( movingCustomOrbit?.value ) || 0, count: Math.max( 1, Math.round( Number( movingCustomCount?.value ) || 1 ) ), rot: Number( movingCustomRot?.value ) || 1, color: movingCustomColor?.value || '#ff8844' }; }
+
+
+
+// NEW:
+function refreshMovingSpeedUi() {
+    const visible = isMovingObstacleTool( selectedType );
+    if ( movingSpeedWrap ) movingSpeedWrap.style.display = visible ? 'inline-flex' : 'none';
+    const customMoverPanel = document.getElementById( 'custom-mover-panel' );
+    if ( customMoverPanel ) customMoverPanel.hidden = selectedType !== MOVING_CUSTOM_TOOL;
+    if ( movingSpeedValue ) movingSpeedValue.textContent = `${ Number( movingSpeedInput?.value || 1 ).toFixed( 2 ) }x`;
+}
+	movingSpeedInput?.addEventListener( 'input', () => {
+		refreshMovingSpeedUi();
+		if ( hoveredCell ) {
+			const cell = grid.get( cellKey( hoveredCell.gx, hoveredCell.gz ) );
+			if ( cell?.movingObstacle ) {
+				pushHistorySnapshot();
+				cell.movingSpeed = Math.max( 0.25, Math.min( 3, Number( movingSpeedInput.value ) || 1 ) );
+				placeOverlayMesh( hoveredCell.gx, hoveredCell.gz, cell );
+				save();
+			}
+		}
+	} );
+	const tileButtons = {
+		'track-straight': document.getElementById( 'btn-straight' ),
+		'track-corner': document.getElementById( 'btn-corner' ),
+		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
+		[ POLE_TOOL ]: document.getElementById( 'btn-pole' ),
+		[ CUBE_TOOL ]: document.getElementById( 'btn-cube' ),
+		[ MAGNET_BLUE_TOOL ]: document.getElementById( 'btn-magnet-blue' ),
+		[ MAGNET_RED_TOOL ]: document.getElementById( 'btn-magnet-red' ),
+		[ MAGNET_GRAPPLE_TOOL ]: document.getElementById( 'btn-magnet-grapple' ),
+		[ ARC_GREEN_TOOL ]: document.getElementById( 'btn-arc-green' ),
+		[ ARC_ORANGE_TOOL ]: document.getElementById( 'btn-arc-orange' ),
+		[ PORTAL_YELLOW_TOOL ]: document.getElementById( 'btn-portal-yellow' ),
+		[ PORTAL_PURPLE_TOOL ]: document.getElementById( 'btn-portal-purple' ),
+		[ WALL_TOOL ]: document.getElementById( 'btn-wall' ),
+		[ WATER_TOOL ]: document.getElementById( 'btn-water' ),
+		[ JUMP_TOOL ]: document.getElementById( 'btn-jump' ),
+		[ MOVING_SLIDE_TOOL ]: document.getElementById( 'btn-moving-slide' ),
+		[ MOVING_SPIN_TOOL ]: document.getElementById( 'btn-moving-spin' ),
+		[ MOVING_ORBIT_TOOL ]: document.getElementById( 'btn-moving-orbit' ),
+		[ MOVING_CUSTOM_TOOL ]: document.getElementById( 'btn-moving-custom' ),
+		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
+		'elevated-straight': document.getElementById( 'btn-elevated-straight' ),
+		'elevated-corner': document.getElementById( 'btn-elevated-corner' ),
+		'elevated-checkpoint': document.getElementById( 'btn-elevated-checkpoint' ),
+		'slope-up': document.getElementById( 'btn-slope-up' ),
+		[ POOL_SLOPE_TOOL ]: document.getElementById( 'btn-pool-slope' ),
+		'elevated-3-way': document.getElementById( 'btn-elevated-3way' ),
+		'elevated-4-way': document.getElementById( 'btn-elevated-4way' ),
+		'track-3-way': document.getElementById( 'btn-3way' ),
+		'track-4-way': document.getElementById( 'btn-4way' ),
+		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
+		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
+		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
+		'building-garage': document.getElementById( 'btn-building-garage' ),
+		'building-small-a': document.getElementById( 'btn-building-small-a' ),
+		'building-small-b': document.getElementById( 'btn-building-small-b' ),
+		'building-small-c': document.getElementById( 'btn-building-small-c' ),
+		'building-small-d': document.getElementById( 'btn-building-small-d' ),
+		'surface-custom-a': document.getElementById( 'btn-surface-custom-a' ),
+		'surface-custom-b': document.getElementById( 'btn-surface-custom-b' ),
+		'surface-custom-c': document.getElementById( 'btn-surface-custom-c' ),
+		'pad-custom-a': document.getElementById( 'btn-pad-custom-a' ),
+		'pad-custom-b': document.getElementById( 'btn-pad-custom-b' ),
+		'pad-custom-c': document.getElementById( 'btn-pad-custom-c' ),
+	};
+	const gateSelect = document.getElementById( 'gate-select' );
+	const surfaceSelect = document.getElementById( 'surface-select' );
+	const padSelect = document.getElementById( 'pad-select' );
+	const overlapToggleBtn = document.getElementById( 'btn-overlap-toggle' );
+	const offGridDevBanner = document.getElementById( 'offgrid-dev-banner' );
+	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
+	const customSurfaceTitle = document.getElementById( 'custom-surface-title' );
+	const customSurfaceInputs = {
+		forward: document.getElementById( 'cs-force-forward' ),
+		backward: document.getElementById( 'cs-force-backward' ),
+		left: document.getElementById( 'cs-force-left' ),
+		right: document.getElementById( 'cs-force-right' ),
+		up: document.getElementById( 'cs-force-up' ),
+		forceAmount: document.getElementById( 'cs-force-amount' ),
+		noAir: document.getElementById( 'cs-no-air' ),
+		oncePerContact: document.getElementById( 'cs-once-contact' ),
+		color: document.getElementById( 'cs-color' ),
+		grip: document.getElementById( 'cs-grip' ),
+		speed: document.getElementById( 'cs-speed' ),
+		padGravity: document.getElementById( 'cs-pad-gravity' ),
+		padDrag: document.getElementById( 'cs-pad-drag' ),
+		padAccel: document.getElementById( 'cs-pad-accel' ),
+		padDrive: document.getElementById( 'cs-pad-drive' ),
+		padTopSpeed: document.getElementById( 'cs-pad-top-speed' ),
+		padSteering: document.getElementById( 'cs-pad-steering' ),
+		padTimeScale: document.getElementById( 'cs-pad-time-scale' ),
+		padNoBrakes: document.getElementById( 'cs-pad-no-brakes' ),
+		padNoSteering: document.getElementById( 'cs-pad-no-steering' ),
+		padNoAcceleration: document.getElementById( 'cs-pad-no-acceleration' ),
+		save: document.getElementById( 'cs-save' ),
+		close: document.getElementById( 'cs-close' ),
+	};
+
+	function refreshModTools() {
+
+		slopesModInstalled = true;
+
+		for ( const type of ELEVATED_TYPES ) {
+
+			const btn = tileButtons[ type ];
+			if ( ! btn ) continue;
+			btn.style.display = slopesModInstalled ? '' : 'none';
+
+		}
+		const poolSlopeBtn = tileButtons[ POOL_SLOPE_TOOL ];
+		if ( poolSlopeBtn ) poolSlopeBtn.style.display = slopesModInstalled ? '' : 'none';
+		if ( ! slopesModInstalled && ( ELEVATED_TYPES.includes( selectedType ) || selectedType === POOL_SLOPE_TOOL ) ) selectTileType( 'track-straight' );
+
+	}
+	const btnRotate = document.getElementById( 'btn-rotate' );
+	const btnPaint = document.getElementById( 'btn-paint' );
+	const btnErase = document.getElementById( 'btn-erase' );
+	const panelOverlay = document.getElementById( 'panel-overlay' );
+	const panelCenter = document.getElementById( 'panel-center' );
+	const flowPanel = document.getElementById( 'flow-panel' );
+	const customPoolPanel = document.getElementById( 'custom-pool-panel' );
+	const panels = [ flowPanel ];
+
+	function closePanelCenter() {
+
+		panelOverlay.hidden = true;
+		panelCenter.hidden = true;
+		for ( const panel of panels ) panel.hidden = true;
+
+	}
+
+	function openPanelCenter( panel ) {
+
+		if ( ! panel ) return;
+		panelOverlay.hidden = false;
+		panelCenter.hidden = false;
+		for ( const candidate of panels ) candidate.hidden = candidate !== panel;
+
+	}
+
+	function selectTool( t ) {
+
+		tool = t;
+		btnPaint.classList.toggle( 'active', t === 'paint' );
+		btnErase.classList.toggle( 'active', t === 'erase' );
+
+	}
+
+	function updateTileToolbar() {
+
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+
+			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
+
+		}
+		if ( gateSelect ) gateSelect.value = [ 'track-finish', 'track-start', 'track-start-finish' ].includes( selectedType ) ? selectedType : '';
+		if ( gateSelect ) {
+
+			const tint = getGateTintColor( gateSelect.value );
+			gateSelect.style.borderColor = tint ? `#${ tint.getHexString() }` : 'rgba(255,255,255,0.2)';
+			gateSelect.style.boxShadow = tint ? `0 0 0 1px rgba(${ Math.round( tint.r * 255 ) },${ Math.round( tint.g * 255 ) },${ Math.round( tint.b * 255 ) },0.35) inset` : 'none';
+
+		}
+		if ( surfaceSelect ) surfaceSelect.value = SURFACE_TYPES.includes( selectedType ) ? selectedType : '';
+		if ( padSelect ) padSelect.value = selectedType.startsWith( 'pad-' ) && ! selectedType.startsWith( 'pad-trick-' ) ? selectedType : '';
+		if ( overlapToggleBtn ) {
+
+			overlapToggleBtn.classList.toggle( 'active', allowSurfaceOverlap );
+			overlapToggleBtn.textContent = `Overlap: ${ allowSurfaceOverlap ? 'On' : 'Off' }`;
+
+		}
+
+		const rotIndex = ORIENTATIONS.indexOf( selectedOrient );
+		btnRotate.textContent = `Rotate: ${ Math.max( 0, rotIndex ) * 90 }°`;
+
+	}
+
+	function selectTileType( type ) {
+
+		selectedType = type;
+		selectTool( 'paint' );
+		if ( type === MAGNET_BLUE_TOOL || type === MAGNET_RED_TOOL ) {
+
+			if ( hoveredCell ) {
+
+				const existingIndex = findNearestMagnetIndex( hoveredCell.gx, hoveredCell.gz );
+				if ( existingIndex >= 0 ) selectedMagnetIndex = existingIndex;
+				refreshMagnetSelectionTint();
+
+			}
+
+		}
+		if ( isMovingObstacleTool( type ) && hoveredCell ) {
+			const cell = grid.get( cellKey( hoveredCell.gx, hoveredCell.gz ) );
+			if ( cell?.movingObstacle && movingSpeedInput ) movingSpeedInput.value = String( Math.max( 0.25, Math.min( 3, Number( cell.movingSpeed ) || 1 ) ) );
+		}
+		if ( type === ARC_GREEN_TOOL || type === ARC_ORANGE_TOOL || type === PORTAL_YELLOW_TOOL || type === PORTAL_PURPLE_TOOL ) {
+
+			if ( hoveredCell ) {
+
+				const existingIndex = findNearestArcIndex( hoveredCell.gx, hoveredCell.gz );
+				if ( existingIndex >= 0 ) selectedArcIndex = existingIndex;
+				refreshArcSelectionTint();
+
+			}
+
+		}
+		updateTileToolbar();
+		refreshMovingSpeedUi();
+
+	}
+
+	function openCustomSurfaceEditor( surfaceType ) {
+
+		activeCustomSurfaceEditor = surfaceType;
+		const isPad = surfaceType.startsWith( 'pad-' );
+		const config = isPad
+			? ( customPadConfigs[ surfaceType ] || CUSTOM_PAD_DEFAULTS[ surfaceType ] )
+			: ( customSurfaceConfigs[ surfaceType ] || CUSTOM_SURFACE_DEFAULTS[ surfaceType ] );
+		customSurfaceTitle.textContent = `Edit ${ surfaceType.replace( 'surface-', '' ).replace( 'pad-', 'pad-' ) }`;
+		customSurfaceInputs.forward.checked = Boolean( config.force?.forward );
+		customSurfaceInputs.backward.checked = Boolean( config.force?.backward );
+		customSurfaceInputs.left.checked = Boolean( config.force?.left );
+		customSurfaceInputs.right.checked = Boolean( config.force?.right );
+		customSurfaceInputs.up.checked = Boolean( config.force?.up );
+		customSurfaceInputs.forceAmount.value = String( Number( config.forceAmount ?? 0 ) );
+		customSurfaceInputs.noAir.checked = Boolean( config.noAir );
+		customSurfaceInputs.oncePerContact.checked = Boolean( config.oncePerContact );
+		customSurfaceInputs.color.value = config.color || '#9c7bff';
+		customSurfaceInputs.grip.value = String( Number( config.grip ?? 1 ) );
+		customSurfaceInputs.speed.value = String( Number( config.speed ?? 1 ) );
+		customSurfaceInputs.padGravity.value = String( Number( config.gravity ?? 1 ) );
+		customSurfaceInputs.padDrag.value = String( Number( config.drag ?? 1 ) );
+		customSurfaceInputs.padAccel.value = String( Number( config.accel ?? 1 ) );
+		customSurfaceInputs.padDrive.value = String( Number( config.drive ?? 1 ) );
+		customSurfaceInputs.padTopSpeed.value = String( Number( config.topSpeed ?? 1 ) );
+		customSurfaceInputs.padSteering.value = String( Number( config.steering ?? 1 ) );
+		customSurfaceInputs.padTimeScale.value = String( Number( config.timeScale ?? 1 ) );
+		customSurfaceInputs.padNoBrakes.checked = Boolean( config.disableBrakes );
+		customSurfaceInputs.padNoSteering.checked = Boolean( config.disableSteering );
+		customSurfaceInputs.padNoAcceleration.checked = Boolean( config.disableAcceleration );
+		customSurfacePanel.hidden = false;
+
+	}
+
+	function closeCustomSurfaceEditor() {
+
+		customSurfacePanel.hidden = true;
+		activeCustomSurfaceEditor = null;
+
+	}
+
+	function saveCustomSurfaceEditor() {
+
+		if ( ! activeCustomSurfaceEditor ) return;
+		pushHistorySnapshot();
+		if ( activeCustomSurfaceEditor.startsWith( 'pad-' ) ) {
+
+			customPadConfigs[ activeCustomSurfaceEditor ] = {
+				color: customSurfaceInputs.color.value || '#7fb7ff',
+				gravity: Number( customSurfaceInputs.padGravity.value ) || 1,
+				drag: Number( customSurfaceInputs.padDrag.value ) || 1,
+				accel: Number( customSurfaceInputs.padAccel.value ) || 1,
+				drive: Number( customSurfaceInputs.padDrive.value ) || 1,
+				topSpeed: Number( customSurfaceInputs.padTopSpeed.value ) || 1,
+				steering: Number( customSurfaceInputs.padSteering.value ) || 1,
+				timeScale: Number( customSurfaceInputs.padTimeScale.value ) || 1,
+				disableBrakes: customSurfaceInputs.padNoBrakes.checked,
+				disableSteering: customSurfaceInputs.padNoSteering.checked,
+				disableAcceleration: customSurfaceInputs.padNoAcceleration.checked,
+			};
+
+		} else customSurfaceConfigs[ activeCustomSurfaceEditor ] = {
+			color: customSurfaceInputs.color.value || '#9c7bff',
+			grip: Number( customSurfaceInputs.grip.value ) || 1,
+			speed: Number( customSurfaceInputs.speed.value ) || 1,
+			forceAmount: Math.max( 0, Number( customSurfaceInputs.forceAmount.value ) || 0 ),
+			force: {
+				forward: customSurfaceInputs.forward.checked,
+				backward: customSurfaceInputs.backward.checked,
+				left: customSurfaceInputs.left.checked,
+				right: customSurfaceInputs.right.checked,
+				up: customSurfaceInputs.up.checked,
+			},
+			noAir: customSurfaceInputs.noAir.checked,
+			oncePerContact: customSurfaceInputs.oncePerContact.checked,
+		};
+		save();
+		for ( const [ key, cell ] of grid ) {
+
+			if ( ! cell.surfaceTypes?.includes( activeCustomSurfaceEditor ) ) continue;
+			const [ gx, gz ] = key.split( ',' ).map( Number );
+			placeOverlayMesh( gx, gz, cell );
+
+		}
+		showToast( `${ activeCustomSurfaceEditor } saved` );
+	}
+
+	function rotateSelection() {
+
+		const idx = ORIENTATIONS.indexOf( selectedOrient );
+		const nextIdx = idx >= 0 ? ( idx + 1 ) % ORIENTATIONS.length : 0;
+		selectedOrient = ORIENTATIONS[ nextIdx ];
+		updateTileToolbar();
+		refreshMovingSpeedUi();
+
+	}
+
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-3-way', 'track-4-way', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+
+		tileButtons[ type ]?.addEventListener( 'click', () => {
+
+			selectTileType( type );
+			if ( CUSTOM_SURFACE_TYPES.includes( type ) || CUSTOM_PAD_TYPES.includes( type ) ) openCustomSurfaceEditor( type );
+
+		} );
+
+	}
+	gateSelect?.addEventListener( 'change', () => {
+
+		selectTileType( gateSelect.value || 'track-start-finish' );
+		showToast( `Gate tool: ${ gateSelect.options[ gateSelect.selectedIndex ]?.textContent || 'Start/Finish' }` );
+
+	} );
+	surfaceSelect?.addEventListener( 'change', () => {
+
+		if ( ! surfaceSelect.value ) return;
+		selectTileType( surfaceSelect.value );
+
+	} );
+	padSelect?.addEventListener( 'change', () => {
+
+		if ( ! padSelect.value ) return;
+		selectTileType( padSelect.value );
+		if ( CUSTOM_PAD_TYPES.includes( padSelect.value ) ) openCustomSurfaceEditor( padSelect.value );
+		showToast( `Pad: ${ padSelect.options[ padSelect.selectedIndex ]?.textContent || padSelect.value }` );
+
+	} );
+	overlapToggleBtn?.addEventListener( 'click', () => {
+
+		allowSurfaceOverlap = ! allowSurfaceOverlap;
+		updateTileToolbar();
+		refreshMovingSpeedUi();
+		showToast( `Surface overlap ${ allowSurfaceOverlap ? 'enabled' : 'disabled' }` );
+
+	} );
+	document.getElementById( 'btn-magnet-up' )?.addEventListener( 'click', () => nudgeSelectedMagnet( MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-magnet-down' )?.addEventListener( 'click', () => nudgeSelectedMagnet( - MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-magnet-strength-up' )?.addEventListener( 'click', () => nudgeSelectedMagnetStrength( MAGNET_STRENGTH_STEP ) );
+	document.getElementById( 'btn-magnet-strength-down' )?.addEventListener( 'click', () => nudgeSelectedMagnetStrength( - MAGNET_STRENGTH_STEP ) );
+	document.getElementById( 'btn-magnet-range-up' )?.addEventListener( 'click', () => nudgeSelectedMagnetRange( MAGNET_RANGE_STEP ) );
+	document.getElementById( 'btn-magnet-range-down' )?.addEventListener( 'click', () => nudgeSelectedMagnetRange( - MAGNET_RANGE_STEP ) );
+	document.getElementById( 'btn-portal-up' )?.addEventListener( 'click', () => nudgeSelectedArc( MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-portal-down' )?.addEventListener( 'click', () => nudgeSelectedArc( - MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-portal-id-up' )?.addEventListener( 'click', () => nudgeSelectedArcId( 1 ) );
+	document.getElementById( 'btn-portal-id-down' )?.addEventListener( 'click', () => nudgeSelectedArcId( - 1 ) );
+	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
+	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
+	document.getElementById( 'btn-custom-pool' )?.addEventListener( 'click', () => {
+		document.getElementById( 'cp-drag' ).value = String( customPoolConfig.drag );
+		document.getElementById( 'cp-buoyancy' ).value = String( customPoolConfig.buoyancy );
+		document.getElementById( 'cp-water-color' ).value = customPoolConfig.waterColor;
+		document.getElementById( 'cp-edge-color' ).value = customPoolConfig.edgeColor;
+		document.getElementById( 'cp-transparent' ).checked = customPoolConfig.transparent;
+		customPoolPanel.hidden = false;
+	} );
+	document.getElementById( 'cp-close' )?.addEventListener( 'click', () => { customPoolPanel.hidden = true; } );
+	document.getElementById( 'cp-save' )?.addEventListener( 'click', () => {
+		pushHistorySnapshot();
+		customPoolConfig = normalizeCustomPoolConfig( { drag: document.getElementById( 'cp-drag' ).value, buoyancy: document.getElementById( 'cp-buoyancy' ).value, waterColor: document.getElementById( 'cp-water-color' ).value, edgeColor: document.getElementById( 'cp-edge-color' ).value, transparent: document.getElementById( 'cp-transparent' ).checked } );
+		for ( const [ key, cell ] of grid ) if ( cell.water ) { const [ gx, gz ] = key.split( ',' ).map( Number ); placeOverlayMesh( gx, gz, cell ); }
+		save(); customPoolPanel.hidden = true; showToast( 'Custom pool saved' );
+	} );
+	function getTemplateTrackBounds() {
+		const roadCells = [];
+		for ( const [ key, cell ] of grid ) {
+			if ( cellHasContentOtherThanWater( cell, ...key.split( ',' ).map( Number ) ) ) roadCells.push( key.split( ',' ).map( Number ) );
+		}
+		for ( const block of [ ...magnetBlocks, ...arcBlocks ] ) roadCells.push( [ block.gx, block.gz ] );
+		if ( roadCells.length === 0 ) roadCells.push( [ 0, 0 ] );
+		let minGx = Infinity, maxGx = - Infinity, minGz = Infinity, maxGz = - Infinity;
+		for ( const [ gx, gz ] of roadCells ) {
+			minGx = Math.min( minGx, gx );
+			maxGx = Math.max( maxGx, gx );
+			minGz = Math.min( minGz, gz );
+			maxGz = Math.max( maxGz, gz );
+		}
+		const pad = 12;
+		return { minGx: minGx - pad, maxGx: maxGx + pad, minGz: minGz - pad, maxGz: maxGz + pad };
+	}
+
+	function clearPoolTemplateWater() {
+		const changed = [];
+		for ( const [ key, cell ] of grid ) {
+			if ( ! cell.water ) continue;
+			cell.water = false;
+			const [ gx, gz ] = key.split( ',' ).map( Number );
+			placeOverlayMesh( gx, gz, cell );
+			changed.push( [ gx, gz ] );
+		}
+		for ( const [ gx, gz ] of changed ) refreshWaterNeighborhood( gx, gz );
+	}
+
+	function applyPoolFilledTemplate() {
+		if ( ! [ ...grid.values() ].some( c => c.isFinish ) ) placeFinish();
+		const bounds = getTemplateTrackBounds();
+		for ( let gx = bounds.minGx; gx <= bounds.maxGx; gx ++ ) for ( let gz = bounds.minGz; gz <= bounds.maxGz; gz ++ ) {
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			if ( ! isCellCompletelyEmptyForPool( cell, gx, gz ) ) continue;
+			if ( ! grid.has( key ) ) grid.set( key, cell );
+			cell.water = true;
+			placeOverlayMesh( gx, gz, cell );
+		}
+		for ( let gx = bounds.minGx; gx <= bounds.maxGx; gx ++ ) for ( let gz = bounds.minGz; gz <= bounds.maxGz; gz ++ ) refreshWaterNeighborhood( gx, gz );
+	}
+
+	document.getElementById( 'map-template-select' )?.addEventListener( 'change', ( event ) => {
+		pushHistorySnapshot();
+		if ( event.target.value === 'pool-filled' ) {
+			worldPreset = 'pool-filled';
+			applyPoolFilledTemplate();
+			showToast( 'Pool filled map template applied around the track' );
+		} else {
+			worldPreset = 'normal';
+			clearPoolTemplateWater();
+			showToast( 'Normal map template selected' );
+		}
+		save();
+	} );
+	document.getElementById( 'btn-custom-import' )?.addEventListener( 'click', () => {
+
+		document.getElementById( 'custom-model-file' )?.click();
+
+	} );
+	document.getElementById( 'custom-model-file' )?.addEventListener( 'change', async ( event ) => {
+
+		const file = event.target?.files?.[ 0 ];
+		if ( ! file ) return;
+		try {
+
+			await importCustomAssetFile( file );
+			selectTileType( `${ CUSTOM_MODEL_KEY_PREFIX }${ selectedCustomAssetId }` );
+
+		} catch ( error ) {
+
+			console.warn( 'Failed to import custom model', error );
+			showToast( 'Import failed. Use GLB/OBJ only.' );
+
+		}
+		event.target.value = '';
+
+	} );
+	document.getElementById( 'btn-custom-cycle' )?.addEventListener( 'click', () => {
+
+		if ( customAssetOrder.length === 0 ) {
+
+			showToast( 'No imported custom assets yet.' );
+			return;
+
+		}
+		const index = customAssetOrder.indexOf( selectedCustomAssetId );
+		const nextIndex = ( index + 1 ) % customAssetOrder.length;
+		selectedCustomAssetId = customAssetOrder[ nextIndex ];
+		selectedType = `${ CUSTOM_MODEL_KEY_PREFIX }${ selectedCustomAssetId }`;
+		updateCustomAssetButtonLabel();
+		selectTileType( selectedType );
+		showToast( `Selected ${ customAssets.get( selectedCustomAssetId )?.name || 'custom' }` );
+
+	} );
+	updateCustomAssetButtonLabel();
+	window.__editorDebug = {
+		getCustomAssets: () => [ ...customAssets.values() ],
+		getGridSnapshot: () => getCellsArray(),
+	};
+	panelOverlay?.addEventListener( 'click', closePanelCenter );
+	document.querySelectorAll( '[data-close-panel]' ).forEach( ( btn ) => btn.addEventListener( 'click', closePanelCenter ) );
+	const flowEnabledInput = document.getElementById( 'flow-enabled' );
+	const flowStraightSelect = document.getElementById( 'flow-straight-type' );
+	const flowCornerSelect = document.getElementById( 'flow-corner-type' );
+	flowEnabledInput?.addEventListener( 'change', () => {
+
+		flowBrushEnabled = Boolean( flowEnabledInput.checked );
+		syncFlowUi();
+	syncPlacementUi();
+		showToast( flowBrushEnabled ? 'Flow brush enabled' : 'Flow brush disabled' );
+
+	} );
+	flowStraightSelect?.addEventListener( 'change', () => { flowStraightType = flowStraightSelect.value || 'track-straight'; } );
+	flowCornerSelect?.addEventListener( 'change', () => { flowCornerType = flowCornerSelect.value || 'track-corner'; } );
+
+	const flowToggleBtn = document.getElementById( 'btn-flow' );
+	const offGridToggleBtn = document.getElementById( 'btn-offgrid' );
+
+	function syncFlowUi() {
+
+		if ( flowEnabledInput ) flowEnabledInput.checked = flowBrushEnabled;
+		if ( flowToggleBtn ) {
+
+			flowToggleBtn.textContent = `Flow: ${ flowBrushEnabled ? 'On' : 'Off' }`;
+			flowToggleBtn.classList.toggle( 'active', flowBrushEnabled );
+
+		}
+
+	}
+
+	function syncPlacementUi() {
+
+		if ( ! offGridToggleBtn ) return;
+		offGridToggleBtn.textContent = placeOffGrid ? 'Snap: Off' : 'Snap: Grid';
+		offGridToggleBtn.classList.toggle( 'active', placeOffGrid );
+		if ( offGridDevBanner ) offGridDevBanner.hidden = ! placeOffGrid;
+
+	}
+
+	offGridToggleBtn?.addEventListener( 'click', () => {
+
+		placeOffGrid = ! placeOffGrid;
+		syncPlacementUi();
+		showToast( placeOffGrid ? 'Off-grid placement enabled — in development' : 'Grid snap enabled' );
+
+	} );
+
+
+	flowToggleBtn?.addEventListener( 'click', () => {
+
+		flowBrushEnabled = ! flowBrushEnabled;
+		syncFlowUi();
+		showToast( flowBrushEnabled ? 'Flow brush enabled' : 'Flow brush disabled' );
+
+	} );
+
+	flowToggleBtn?.addEventListener( 'contextmenu', ( e ) => {
+
+		e.preventDefault();
+		openPanelCenter( flowPanel );
+
+	} );
+	syncFlowUi();
+
+	document.getElementById( 'btn-undo' )?.addEventListener( 'click', () => undoEdit() );
+	document.getElementById( 'btn-redo' )?.addEventListener( 'click', () => redoEdit() );
+	updateHistoryButtons();
+	btnRotate.addEventListener( 'click', rotateSelection );
+	btnPaint.addEventListener( 'click', () => selectTool( 'paint' ) );
+	btnErase.addEventListener( 'click', () => selectTool( 'erase' ) );
+	const weatherSelect = document.getElementById( 'weather-preset' );
+	const precipitationSelect = document.getElementById( 'weather-precip' );
+	const intensitySelect = document.getElementById( 'weather-intensity' );
+	const windSelect = document.getElementById( 'weather-wind' );
+	const lightningToggle = document.getElementById( 'weather-lightning' );
+
+	function applyWeatherSettingsFromUi() {
+
+		pushHistorySnapshot();
+		weatherSettings = normalizeWeatherSettings( {
+			preset: weatherSelect.value,
+			precipitation: precipitationSelect.value,
+			intensity: intensitySelect.value,
+			lightning: lightningToggle.checked,
+			wind: windSelect.value,
+		} );
+		applyWeatherPreset( weatherSettings.preset );
+		save();
+		showToast( `Weather: ${ WEATHER_PRESETS[ weatherSettings.preset ].name }` );
+
+	}
+
+	weatherSelect.addEventListener( 'change', applyWeatherSettingsFromUi );
+	precipitationSelect.addEventListener( 'change', applyWeatherSettingsFromUi );
+	intensitySelect.addEventListener( 'change', applyWeatherSettingsFromUi );
+	windSelect.addEventListener( 'change', applyWeatherSettingsFromUi );
+	lightningToggle.addEventListener( 'change', applyWeatherSettingsFromUi );
+	updateTileToolbar();
+
+	function getCellsArray() {
+
+			const arr = [];
+			for ( const [ key, cell ] of grid ) {
+
+				const [ gx, gz ] = key.split( ',' ).map( Number );
+				for ( const roadPiece of ( cell.roadPieces || [] ) ) {
+
+					arr.push( [ gx, gz, roadPiece.type, roadPiece.orient ] );
+
+				}
+
+		}
+
+		return arr;
+
+	}
+
+	async function createPackedTrackUrl( encodedMap, encodedMods ) {
+
+		let payload = null;
+		let lastError = null;
+		for ( const prefix of TRACK_SHARE_API_PREFIXES ) {
+
+			const endpoint = `${ TRACK_SHARE_API_ROOT }${ prefix }/packs`;
+			try {
+
+				const response = await fetch( endpoint, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify( { map: encodedMap, mods: encodedMods } ),
+					} );
+					if ( ! response.ok ) {
+
+						let detail = '';
+						try {
+
+							detail = await response.text();
+
+						} catch {}
+						lastError = new Error( `pack-http-${ response.status }@${ endpoint }${ detail ? `:${ detail }` : '' }` );
+						continue;
+
+					}
+				const parsed = await response.json();
+				if ( ! parsed?.ok || ! parsed?.id ) {
+
+					lastError = new Error( `pack-invalid-response@${ endpoint }` );
+					continue;
+
+				}
+				payload = parsed;
+				break;
+
+			} catch ( error ) {
+
+				lastError = error;
+
+			}
+
+		}
+		if ( ! payload?.id ) throw ( lastError || new Error( 'pack-upload-failed' ) );
+		const base = window.location.href.replace( /editor\.html.*/, '' );
+		return `${ base }index.html?pack=${ encodeURIComponent( payload.id ) }`;
+
+	}
+
+	function createLocalPackId( encodedMap, encodedMods ) {
+
+		const id = `lp-${ Math.random().toString( 36 ).slice( 2, 10 ) }`;
+		const payload = JSON.stringify( { map: encodedMap, mods: encodedMods, createdAt: Date.now() } );
+		localStorage.setItem( `racing-local-pack:${ id }`, payload );
+		return id;
+
+	}
+
+	function createLocalPackedTrackUrl( encodedMap, encodedMods ) {
+
+		const id = createLocalPackId( encodedMap, encodedMods );
+		const base = window.location.href.replace( /editor\.html.*/, '' );
+		return `${ base }index.html?localPack=${ encodeURIComponent( id ) }`;
+
+	}
+
+	function buildTestSpawnQuery() {
+
+		if ( ! testSpawnCell ) return '';
+		const gx = Number( testSpawnCell.gx );
+		const gz = Number( testSpawnCell.gz );
+		const orient = Number( testSpawnCell.orient || 0 );
+		return `&testSpawn=${ encodeURIComponent( `${ gx },${ gz },${ orient }` ) }`;
+
+	}
+
+	async function createPlayableTrackUrl() {
+
+		const encoded = encodeCells( getCellsArray() );
+		const mods = encodeMods();
+		const base = window.location.href.replace( /editor\.html.*/, '' );
+		const rawUrl = `${ base }index.html?map=${ encoded }&mods=${ mods }${ buildTestSpawnQuery() }`;
+		const shouldForcePacked = customAssets.size > 0;
+		if ( ! shouldForcePacked && rawUrl.length <= 7000 ) return { url: rawUrl, mode: 'raw' };
+		try {
+
+			const packed = await createPackedTrackUrl( encoded, mods );
+			return { url: packed, mode: 'remote-pack' };
+
+		} catch ( error ) {
+
+			console.warn( 'Remote pack upload failed; falling back to local pack', error );
+			return { url: createLocalPackedTrackUrl( encoded, mods ), mode: 'local-pack' };
+
+		}
+
+	}
+
+	localStorage.setItem( 'racing-campaign-editor-opened', '1' );
+
+	document.getElementById( 'btn-play' ).addEventListener( 'click', async () => {
+
+		if ( getCellsArray().length === 0 ) {
+
+			showToast( 'Draw some road first!' );
+			return;
+
+		}
+
+		try {
+
+			const result = await createPlayableTrackUrl();
+			localStorage.setItem( 'racing-campaign-editor-played', '1' );
+			window.open( result.url, '_blank' );
+			if ( result.mode === 'local-pack' ) showToast( 'Opened with local pack fallback (same browser/device only).' );
+
+			} catch ( error ) {
+
+				console.warn( 'Failed to create play URL', error );
+				showToast( `Could not build share URL (${ String( error?.message || 'pack upload failed' ).slice( 0, 80 ) }).` );
+
+			}
+
+	} );
+	document.getElementById( 'btn-quick-test' ).addEventListener( 'click', async () => {
+
+		if ( getCellsArray().length === 0 ) {
+
+			showToast( 'Draw some road first!' );
+			return;
+
+		}
+		try {
+
+			const result = await createPlayableTrackUrl();
+			const testUrl = new URL( result.url, window.location.href );
+			testUrl.searchParams.set( 'editorQuickTest', '1' );
+			testUrl.searchParams.set( 'editorReturn', window.location.href.split( '?' )[ 0 ] );
+			testUrl.searchParams.set( 'editorGhostMap', `${ encodeCells( getCellsArray() ) }|${ encodeMods() }` );
+			localStorage.setItem( 'racing-campaign-editor-played', '1' );
+			window.location.href = testUrl.toString();
+			if ( result.mode === 'local-pack' ) showToast( 'Opened with local pack fallback (same browser/device only).' );
+
+		} catch ( error ) {
+
+			console.warn( 'Failed to create quick test URL', error );
+			showToast( `Could not build quick test URL (${ String( error?.message || 'pack upload failed' ).slice( 0, 80 ) }).` );
+
+		}
+
+	} );
+	document.getElementById( 'btn-select-spawn' )?.addEventListener( 'click', () => {
+
+		pickTestSpawnMode = true;
+		showToast( 'Click any tile to set test spawn.' );
+
+	} );
+	const autosaveEnableInput = document.getElementById( 'autosave-enable' );
+	const autosaveIntervalSelect = document.getElementById( 'autosave-interval' );
+	autosaveEnableInput?.addEventListener( 'change', () => {
+
+		autosaveEnabled = Boolean( autosaveEnableInput.checked );
+		restartAutosaveTimer();
+
+	} );
+	autosaveIntervalSelect?.addEventListener( 'change', () => {
+
+		autosaveEverySeconds = Math.max( 5, Number( autosaveIntervalSelect.value ) || 30 );
+		restartAutosaveTimer();
+
+	} );
+	restartAutosaveTimer();
+	maybeLoadQuickTestGhost();
+
+	document.getElementById( 'btn-share' ).addEventListener( 'click', async () => {
+
+		if ( getCellsArray().length === 0 ) {
+
+			showToast( 'Draw some road first!' );
+			return;
+
+		}
+
+		let shareResult = null;
+		try {
+
+			shareResult = await createPlayableTrackUrl();
+
+			} catch ( error ) {
+
+				console.warn( 'Failed to create share URL', error );
+				showToast( `Could not build share URL (${ String( error?.message || 'pack upload failed' ).slice( 0, 80 ) }).` );
+				return;
+
+			}
+		const url = shareResult.url;
+
+		navigator.clipboard.writeText( url ).then( () => {
+
+			showToast( shareResult.mode === 'local-pack' ? 'Local-only link copied (same browser/device).' : 'Link copied to clipboard!' );
+
+		} ).catch( () => {
+
+			showToast( url );
+
+		} );
+
+	} );
+
+	document.getElementById( 'btn-clear' ).addEventListener( 'click', () => {
+
+		clearAll();
+		showToast( 'Track cleared' );
+
+	} );
+
+	// ─── Input (pointer events) ───────────────────────────────
+
+	let isPanning = false;
+	let isDrawing = false;
+	let isErasing = false;
+	let panStart = { x: 0, y: 0 };
+	let camStart = { x: 0, z: 0 };
+	let lastDrawCell = null;
+	let spaceDown = false;
+
+	document.querySelectorAll( '[data-mobile-click]' ).forEach( ( btn ) => {
+		btn.addEventListener( 'click', () => {
+			const target = document.getElementById( btn.dataset.mobileClick );
+			if ( target && ! target.disabled ) target.click();
+		} );
+	} );
+
+	// Track active pointers for multi-touch (pinch/pan)
+	const pointers = new Map();
+	let pinchStartDist = 0;
+	let pinchStartZoom = 1;
+
+	const el = renderer.domElement;
+
+	el.addEventListener( 'contextmenu', ( e ) => e.preventDefault() );
+
+	function handleDraw( clientX, clientY ) {
+
+		const cell = screenToGrid( clientX, clientY );
+		if ( ! cell ) return;
+		if ( pickTestSpawnMode ) {
+
+			pushHistorySnapshot();
+			const key = cellKey( cell.gx, cell.gz );
+			const existing = grid.get( key );
+			testSpawnCell = { gx: cell.gx, gz: cell.gz, orient: existing?.orient || selectedOrient || 0 };
+			pickTestSpawnMode = false;
+			showToast( `Test spawn set: ${ cell.gx }, ${ cell.gz }` );
+			return;
+
+		}
+
+		if ( lastDrawCell && lastDrawCell.gx === cell.gx && lastDrawCell.gz === cell.gz ) return;
+		lastDrawCell = cell;
+
+		if ( isErasing ) {
+
+			eraseRoad( cell.gx, cell.gz );
+
+		} else if ( isDrawing ) {
+
+			const isRoadType = TILE_TYPES.includes( selectedType );
+			if ( flowBrushEnabled && isRoadType ) {
+
+				flowStrokeCells.push( { gx: cell.gx, gz: cell.gz } );
+				renderFlowStrokePreview();
+
+			} else {
+
+				placeSelectedBlock( cell.gx, cell.gz );
+
+			}
+
+		}
+
+	}
+
+	function getPinchDist() {
+
+		const pts = [ ...pointers.values() ];
+		const dx = pts[ 1 ].x - pts[ 0 ].x;
+		const dy = pts[ 1 ].y - pts[ 0 ].y;
+		return Math.sqrt( dx * dx + dy * dy );
+
+	}
+
+	function getPinchMid() {
+
+		const pts = [ ...pointers.values() ];
+		return {
+			x: ( pts[ 0 ].x + pts[ 1 ].x ) / 2,
+			y: ( pts[ 0 ].y + pts[ 1 ].y ) / 2
+		};
+
+	}
+
+	el.addEventListener( 'pointerdown', ( e ) => {
+
+		el.setPointerCapture( e.pointerId );
+		pointers.set( e.pointerId, { x: e.clientX, y: e.clientY } );
+
+		// Two pointers → switch to pan/pinch
+		if ( pointers.size === 2 ) {
+
+			isDrawing = false;
+			isErasing = false;
+			isPanning = true;
+
+			const mid = getPinchMid();
+			panStart.x = mid.x;
+			panStart.y = mid.y;
+			camStart.x = camTarget.x;
+			camStart.z = camTarget.z;
+			pinchStartDist = getPinchDist();
+			pinchStartZoom = camera.zoom;
+			return;
+
+		}
+
+		if ( pointers.size > 2 ) return;
+
+		// Single pointer
+		// Middle mouse, ctrl+click, or space+click → pan
+		if ( e.button === 1 || ( e.button === 0 && ( e.ctrlKey || e.metaKey || spaceDown ) ) ) {
+
+			isPanning = true;
+			panStart.x = e.clientX;
+			panStart.y = e.clientY;
+			camStart.x = camTarget.x;
+			camStart.z = camTarget.z;
+			el.style.cursor = 'grabbing';
+			return;
+
+		}
+
+		if ( e.button === 0 ) {
+
+			if ( tool === 'erase' ) {
+
+				isErasing = true;
+
+			} else {
+
+				isDrawing = true;
+
+			}
+
+			lastDrawCell = null;
+			flowStrokeCells = [];
+			if ( flowBrushEnabled && TILE_TYPES.includes( selectedType ) ) clearGhost();
+
+			// On touch, defer draw until pointermove confirms single-finger gesture
+			if ( e.pointerType !== 'touch' ) handleDraw( e.clientX, e.clientY );
+
+		} else if ( e.button === 2 ) {
+
+			isErasing = true;
+			lastDrawCell = null;
+			handleDraw( e.clientX, e.clientY );
+
+		}
+
+	} );
+
+	el.addEventListener( 'pointermove', ( e ) => {
+
+		pointers.set( e.pointerId, { x: e.clientX, y: e.clientY } );
+
+		// Two-pointer pan + pinch
+		if ( pointers.size === 2 && isPanning ) {
+
+			const mid = getPinchMid();
+			const scale = frustum * 2 / window.innerHeight / camera.zoom;
+			camTarget.x = camStart.x - ( mid.x - panStart.x ) * scale;
+			camTarget.z = camStart.z - ( mid.y - panStart.y ) * scale;
+			camera.position.x = camTarget.x;
+			camera.position.z = camTarget.z;
+			camera.lookAt( camTarget.x, 0, camTarget.z );
+
+			const dist = getPinchDist();
+			camera.zoom = Math.max( 0.1, Math.min( 10, pinchStartZoom * ( dist / pinchStartDist ) ) );
+			camera.updateProjectionMatrix();
+			return;
+
+		}
+
+		// Single-pointer pan
+		if ( isPanning ) {
+
+			const zoom = camera.zoom;
+			const dx = ( e.clientX - panStart.x ) / window.innerWidth * frustum * 2 * ( window.innerWidth / window.innerHeight ) / zoom;
+			const dz = ( e.clientY - panStart.y ) / window.innerHeight * frustum * 2 / zoom;
+			camTarget.x = camStart.x - dx;
+			camTarget.z = camStart.z - dz;
+			camera.position.x = camTarget.x;
+			camera.position.z = camTarget.z;
+			camera.lookAt( camTarget.x, 0, camTarget.z );
+			return;
+
+		}
+
+		if ( isDrawing || isErasing ) {
+
+			handleDraw( e.clientX, e.clientY );
+			return;
+
+		}
+
+		// Hover ghost (mouse only)
+		if ( e.pointerType === 'mouse' ) {
+
+			const cell = screenToGrid( e.clientX, e.clientY );
+			if ( cell ) {
+
+				hoveredCell = cell;
+				updateGhost( cell.gx, cell.gz );
+
+			} else {
+
+				hoveredCell = null;
+				clearGhost();
+
+			}
+
+		}
+
+	} );
+
+	window.addEventListener( 'pointerup', ( e ) => {
+
+		pointers.delete( e.pointerId );
+
+		if ( pointers.size === 0 ) {
+
+			// Touch tap: if we deferred draw and never moved, draw now
+			if ( ( isDrawing || isErasing ) && lastDrawCell === null && ! isPanning ) {
+
+				handleDraw( e.clientX, e.clientY );
+
+			}
+
+			isPanning = false;
+			if ( isDrawing && flowBrushEnabled && TILE_TYPES.includes( selectedType ) ) {
+
+				applyFlowStroke();
+				if ( hoveredCell ) updateGhost( hoveredCell.gx, hoveredCell.gz );
+				else clearGhost();
+
+			}
+			isDrawing = false;
+			isErasing = false;
+			lastDrawCell = null;
+			el.style.cursor = spaceDown ? 'grab' : '';
+
+		}
+
+	} );
+
+	window.addEventListener( 'pointercancel', ( e ) => {
+
+		pointers.delete( e.pointerId );
+
+	} );
+
+	// Trackpad: two-finger scroll → pan, pinch (ctrl+wheel) → zoom
+	el.addEventListener( 'wheel', ( e ) => {
+
+		e.preventDefault();
+
+		if ( e.ctrlKey ) {
+
+			const zoomSpeed = 1.02;
+			camera.zoom *= e.deltaY > 0 ? 1 / zoomSpeed : zoomSpeed;
+			camera.zoom = Math.max( 0.1, Math.min( 10, camera.zoom ) );
+			camera.updateProjectionMatrix();
+
+		} else {
+
+			const scale = frustum * 2 / window.innerHeight / camera.zoom;
+			camTarget.x += e.deltaX * scale;
+			camTarget.z += e.deltaY * scale;
+			camera.position.x = camTarget.x;
+			camera.position.z = camTarget.z;
+			camera.lookAt( camTarget.x, 0, camTarget.z );
+
+		}
+
+	}, { passive: false } );
+
+		window.addEventListener( 'keydown', ( e ) => {
+
+			const panStep = cellWorld * 0.75 / camera.zoom;
+			const key = e.key.toLowerCase();
+			const modifier = e.ctrlKey || e.metaKey;
+			const target = e.target;
+			const isTypingTarget = target && ( target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable );
+			if ( ! isTypingTarget && modifier && key === 'z' ) {
+
+				e.preventDefault();
+				if ( e.shiftKey ) redoEdit();
+				else undoEdit();
+				return;
+
+			}
+			if ( ! isTypingTarget && modifier && key === 'y' ) {
+
+				e.preventDefault();
+				redoEdit();
+				return;
+
+			}
+
+			if ( e.key === ' ' ) {
+
+				if ( ! spaceDown ) {
+
+					spaceDown = true;
+					el.style.cursor = 'grab';
+
+				}
+
+				e.preventDefault();
+
+			} else if ( e.key === '1' ) {
+
+				selectTool( 'paint' );
+
+			} else if ( e.key === '2' ) {
+
+				selectTool( 'erase' );
+
+			} else if ( e.key.toLowerCase() === 'r' ) {
+
+				rotateSelection();
+
+			} else if ( e.key === 'ArrowUp' ) {
+
+				camTarget.z -= panStep;
+				camera.position.z = camTarget.z;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				e.preventDefault();
+
+			} else if ( e.key === 'ArrowDown' ) {
+
+				camTarget.z += panStep;
+				camera.position.z = camTarget.z;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				e.preventDefault();
+
+			} else if ( e.key === 'ArrowLeft' ) {
+
+				camTarget.x -= panStep;
+				camera.position.x = camTarget.x;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				e.preventDefault();
+
+			} else if ( e.key === 'ArrowRight' ) {
+
+				camTarget.x += panStep;
+				camera.position.x = camTarget.x;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				e.preventDefault();
+
+			}
+
+		} );
+
+	window.addEventListener( 'keyup', ( e ) => {
+
+		if ( e.key === ' ' ) {
+
+			spaceDown = false;
+			if ( ! isPanning ) el.style.cursor = '';
+
+		}
+
+	} );
+
+	// ─── Init & render loop ───────────────────────────────────
+
+	refreshModTools();
+	await loadModels();
+	applyWeatherPreset( WEATHER_DEFAULT );
+	await loadSaved();
+
+	// Start with a finish cell if the grid is empty
+	if ( grid.size === 0 ) {
+
+		placeFinish();
+
+	}
+
+	function animate() {
+
+		requestAnimationFrame( animate );
+		renderer.render( scene, camera );
+
+	}
+
+	animate();
+
+// ═════════════════════════════════════════════════════════════════
+// FEATURE 1: Independent, open-by-default toolbar groups
+// ═════════════════════════════════════════════════════════════════
+(function initAccordionToolbar() {
+    const groups = document.querySelectorAll('.toolbar-group[data-cat]');
+    groups.forEach(g => {
+        // 1. Keep ALL categories open on load (do not add 'collapsed' class)
+        g.classList.remove('collapsed');
+        
+        const label = g.querySelector('.toolbar-group-label');
+        if (label) {
+            label.addEventListener('click', (e) => {
+                e.preventDefault();
+                // 2. Toggle ONLY this specific category independently
+                g.classList.toggle('collapsed');
+            });
+        }
+    });
+})();
+
+// ═════════════════════════════════════════════════════════════════
+// FEATURE 8: Collapsible settings bar
+// ═════════════════════════════════════════════════════════════════
+(function initCollapsibleSettings() {
+    const bar = document.getElementById('settings-bar');
+    const toggle = document.getElementById('settings-toggle-btn');
+    if (!bar || !toggle) return;
+    bar.classList.add('collapsed');
+    toggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        bar.classList.toggle('collapsed');
+    });
+})();
+
+// ═════════════════════════════════════════════════════════════════
+// FEATURE 10: Quick-access pinned tools row
+// ═════════════════════════════════════════════════════════════════
+(function initQuickTools() {
+    const qtRow = document.getElementById('quick-tools');
+    if (!qtRow) return;
+    const toolUsage = {};
+    const MAX_QUICK = 7;
+    const DEFAULTS = ['btn-straight', 'btn-corner', 'btn-paint', 'btn-erase', 'btn-undo', 'btn-play'];
+
+    function rebuildQuickTools() {
+        const sorted = Object.entries(toolUsage)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, MAX_QUICK)
+            .map(e => e[0]);
+        for (const d of DEFAULTS) {
+            if (sorted.length >= MAX_QUICK) break;
+            if (!sorted.includes(d)) sorted.push(d);
+        }
+        qtRow.innerHTML = '<span class="qt-label">Pinned</span>';
+        for (const id of sorted.slice(0, MAX_QUICK)) {
+            const src = document.getElementById(id);
+            if (!src) continue;
+            const btn = document.createElement('button');
+            btn.textContent = src.textContent.replace(/\s*\+?\s*$/, '');
+            btn.title = src.title || src.textContent;
+            btn.dataset.targetId = id;
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                src.click();
+            });
+            qtRow.appendChild(btn);
+        }
+    }
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('#toolbar button[id], #side-ui-bar button[id]');
+        if (btn && btn.id) {
+            toolUsage[btn.id] = (toolUsage[btn.id] || 0) + 1;
+            rebuildQuickTools();
+        }
+    });
+    rebuildQuickTools();
+})();
+
+// ═════════════════════════════════════════════════════════════════
+// FEATURE 2 & 3: Multi-select, copy/paste/duplicate with rotation
+// ═════════════════════════════════════════════════════════════════
+let selectMode = false;
+let isSelecting = false;
+let selectionStart = null;
+let selectionEnd = null;
+let selectedCells = [];
+let clipboard = null;
+let pastePreviewOrient = 0;
+let isPasteMode = false;
+
+const selectionBox = document.getElementById('selection-box');
+const clipboardHint = document.getElementById('clipboard-hint');
+
+function toggleSelectMode() {
+    selectMode = !selectMode;
+    const btnSelect = document.getElementById('btn-select');
+    if (btnSelect) btnSelect.classList.toggle('active', selectMode);
+    if (selectMode) {
+        selectTool('paint');
+        showToast('Select mode: drag to select, Del to erase, Ctrl+C/V/D to copy/paste/duplicate');
+    } else {
+        selectedCells = [];
+        selectionBox.style.display = 'none';
+        clipboardHint.classList.remove('show');
+    }
+}
+
+function gridToScreen(gx, gz) {
+    const worldX = (gx + 0.5) * cellWorld;
+    const worldZ = (gz + 0.5) * cellWorld;
+    const vec = new THREE.Vector3(worldX, 0.51, worldZ);
+    vec.project(camera);
+    return {
+        x: (vec.x + 1) / 2 * window.innerWidth,
+        y: (-vec.y + 1) / 2 * window.innerHeight
+    };
+}
+
+function updateSelectionBox() {
+    if (!selectionStart || !selectionEnd) {
+        selectionBox.style.display = 'none';
+        return;
+    }
+    const minGx = Math.min(selectionStart.gx, selectionEnd.gx);
+    const maxGx = Math.max(selectionStart.gx, selectionEnd.gx);
+    const minGz = Math.min(selectionStart.gz, selectionEnd.gz);
+    const maxGz = Math.max(selectionStart.gz, selectionEnd.gz);
+    const s1 = gridToScreen(minGx, minGz);
+    const s2 = gridToScreen(maxGx + 1, maxGz + 1);
+    const left = Math.min(s1.x, s2.x);
+    const top = Math.min(s1.y, s2.y);
+    const w = Math.abs(s2.x - s1.x);
+    const h = Math.abs(s2.y - s1.y);
+    selectionBox.style.display = 'block';
+    selectionBox.style.left = left + 'px';
+    selectionBox.style.top = top + 'px';
+    selectionBox.style.width = w + 'px';
+    selectionBox.style.height = h + 'px';
+}
+
+function collectSelectedCells() {
+    if (!selectionStart || !selectionEnd) return [];
+    const minGx = Math.min(selectionStart.gx, selectionEnd.gx);
+    const maxGx = Math.max(selectionStart.gx, selectionEnd.gx);
+    const minGz = Math.min(selectionStart.gz, selectionEnd.gz);
+    const maxGz = Math.max(selectionStart.gz, selectionEnd.gz);
+    const cells = [];
+    for (let gx = minGx; gx <= maxGx; gx++) {
+        for (let gz = minGz; gz <= maxGz; gz++) {
+            if (grid.has(cellKey(gx, gz))) cells.push({ gx, gz });
+        }
+    }
+    return cells;
+}
+
+function showClipboardHint(text) {
+    clipboardHint.textContent = text;
+    clipboardHint.classList.add('show');
+}
+
+function hideClipboardHint() {
+    clipboardHint.classList.remove('show');
+}
+
+function copySelection() {
+    const cells = selectedCells.length > 0 ? selectedCells : collectSelectedCells();
+    if (cells.length === 0) {
+        showToast('Nothing selected to copy');
+        return;
+    }
+    const minGx = Math.min.apply(null, cells.map(c => c.gx));
+    const minGz = Math.min.apply(null, cells.map(c => c.gz));
+    const maxGx = Math.max.apply(null, cells.map(c => c.gx));
+    const maxGz = Math.max.apply(null, cells.map(c => c.gz));
+    const cellData = [];
+    for (const c of cells) {
+        const key = cellKey(c.gx, c.gz);
+        const cell = grid.get(key);
+        if (!cell) continue;
+        cellData.push({
+            dx: c.gx - minGx, dz: c.gz - minGz,
+            roadPieces: JSON.parse(JSON.stringify(cell.roadPieces || [])),
+            bump: cell.bump || false, pole: cell.pole || false, cube: cell.cube || false,
+            wall: cell.wall || false, wallOrient: cell.wallOrient || 0,
+            jump: cell.jump || false, jumpOrient: cell.jumpOrient || 0,
+            water: cell.water || false,
+            elevatedType: cell.elevatedType || null, elevatedOrient: cell.elevatedOrient || 0,
+            surfaceTypes: [].concat(cell.surfaceTypes || []),
+            decoType: cell.decoType || null, decoOrient: cell.decoOrient || 0,
+            movingObstacle: cell.movingObstacle || null, movingSpeed: cell.movingSpeed || 1,
+            movingCustom: cell.movingCustom || null,
+        });
+    }
+    const magnets = magnetBlocks.filter(m =>
+        m.gx >= minGx && m.gx <= maxGx && m.gz >= minGz && m.gz <= maxGz
+    ).map(m => ({ dx: m.gx - minGx, dz: m.gz - minGz, y: m.y, type: m.type, strength: m.strength, range: m.range }));
+    const arcs = arcBlocks.filter(a =>
+        a.gx >= minGx && a.gx <= maxGx && a.gz >= minGz && a.gz <= maxGz
+    ).map(a => ({ dx: a.gx - minGx, dz: a.gz - minGz, y: a.y, type: a.type, linkId: a.linkId }));
+    clipboard = { cells: cellData, magnets, arcs, orient: 0 };
+    pastePreviewOrient = 0;
+    showClipboardHint('Copied ' + cellData.length + ' cells. Ctrl+V to paste, R to rotate.');
+    showToast('Copied ' + cellData.length + ' cells to clipboard');
+}
+
+function rotateOffset(dx, dz, orient) {
+    const times = ((orient % 4) + 4) % 4;
+    let rx = dx, rz = dz;
+    for (let i = 0; i < times; i++) { const t = rx; rx = -rz; rz = t; }
+    return { dx: rx, dz: rz };
+}
+
+function rotateOrient(baseOrient, delta) {
+    const idx = ORIENTATIONS.indexOf(baseOrient);
+    if (idx < 0) return baseOrient;
+    const newIdx = ((idx + delta) % ORIENTATIONS.length + ORIENTATIONS.length) % ORIENTATIONS.length;
+    return ORIENTATIONS[newIdx];
+}
+
+function pasteClipboard(targetGx, targetGz) {
+    if (!clipboard || !clipboard.cells.length) { showToast('Clipboard is empty'); return; }
+    pushHistorySnapshot();
+    const orient = pastePreviewOrient;
+    for (const item of clipboard.cells) {
+        const rotated = rotateOffset(item.dx, item.dz, orient);
+        const gx = targetGx + rotated.dx;
+        const gz = targetGz + rotated.dz;
+        const key = cellKey(gx, gz);
+        const existing = grid.get(key);
+        if (existing) {
+            for (const m of (existing.roadMeshes||[])) trackGroup.remove(m);
+            if (existing.mesh) trackGroup.remove(existing.mesh);
+            if (existing.bumpMesh) trackGroup.remove(existing.bumpMesh);
+            if (existing.poleMesh) trackGroup.remove(existing.poleMesh);
+            if (existing.cubeMesh) trackGroup.remove(existing.cubeMesh);
+            if (existing.wallMesh) trackGroup.remove(existing.wallMesh);
+            if (existing.jumpMesh) trackGroup.remove(existing.jumpMesh);
+            if (existing.waterMesh) trackGroup.remove(existing.waterMesh);
+            if (existing.elevatedMesh) trackGroup.remove(existing.elevatedMesh);
+            if (existing.elevatedSupportMesh) trackGroup.remove(existing.elevatedSupportMesh);
+            for (const sm of (existing.surfaceMeshes||[])) trackGroup.remove(sm);
+            if (existing.decoMesh) trackGroup.remove(existing.decoMesh);
+        }
+        const cell = makeEmptyCell();
+        if (item.roadPieces && item.roadPieces.length) {
+            cell.roadPieces = item.roadPieces.map(rp => ({
+                type: rp.type, orient: rotateOrient(rp.orient, orient), isFinish: rp.isFinish,
+            }));
+            cell.type = cell.roadPieces[0].type;
+            cell.orient = cell.roadPieces[0].orient;
+            cell.isFinish = cell.roadPieces.some(p => p.isFinish);
+        }
+        if (item.bump) cell.bump = true;
+        if (item.pole) cell.pole = true;
+        if (item.cube) cell.cube = true;
+        if (item.wall) { cell.wall = true; cell.wallOrient = rotateOrient(item.wallOrient||0, orient); }
+        if (item.jump) { cell.jump = true; cell.jumpOrient = rotateOrient(item.jumpOrient||0, orient); }
+        if (item.water) cell.water = true;
+        if (item.elevatedType) { cell.elevatedType = item.elevatedType; cell.elevatedOrient = rotateOrient(item.elevatedOrient||0, orient); }
+        if (item.surfaceTypes) cell.surfaceTypes = [].concat(item.surfaceTypes);
+        if (item.decoType) { cell.decoType = item.decoType; cell.decoOrient = rotateOrient(item.decoOrient||0, orient); }
+        if (item.movingObstacle) { cell.movingObstacle = item.movingObstacle; cell.movingSpeed = item.movingSpeed; cell.movingCustom = item.movingCustom; }
+        grid.set(key, cell);
+        placeMesh(gx, gz, cell);
+        placeOverlayMesh(gx, gz, cell);
+    }
+    for (const m of (clipboard.magnets||[])) {
+        const rotated = rotateOffset(m.dx, m.dz, orient);
+        magnetBlocks.push({ gx: targetGx+rotated.dx, gz: targetGz+rotated.dz, y: m.y, type: m.type, strength: m.strength, range: m.range, mesh: null });
+        rebuildMagnetMeshes();
+    }
+    for (const a of (clipboard.arcs||[])) {
+        const rotated = rotateOffset(a.dx, a.dz, orient);
+        arcBlocks.push({ gx: targetGx+rotated.dx, gz: targetGz+rotated.dz, y: a.y, type: a.type, linkId: a.linkId, mesh: null });
+        rebuildArcMeshes();
+    }
+    save();
+    showToast('Pasted ' + clipboard.cells.length + ' cells (rotation: ' + (orient*90) + '\u00B0)');
+}
+
+function duplicateSelection() {
+    if (selectedCells.length === 0) { showToast('Select something first'); return; }
+    copySelection();
+    const minGx = Math.min.apply(null, selectedCells.map(c => c.gx));
+    const minGz = Math.min.apply(null, selectedCells.map(c => c.gz));
+    const maxGx = Math.max.apply(null, selectedCells.map(c => c.gx));
+    const maxGz = Math.max.apply(null, selectedCells.map(c => c.gz));
+    pasteClipboard(minGx + 2, minGz);
+    selectionStart = { gx: minGx + 2, gz: minGz };
+    selectionEnd = { gx: minGx + 2 + (maxGx - minGx), gz: minGz + (maxGz - minGz) };
+    selectedCells = collectSelectedCells();
+    updateSelectionBox();
+}
+
+function deleteSelection() {
+    const cells = selectedCells.length > 0 ? selectedCells : collectSelectedCells();
+    if (cells.length === 0) { showToast('Nothing selected'); return; }
+    pushHistorySnapshot();
+    for (const c of cells) { eraseRoad(c.gx, c.gz); }
+    selectedCells = [];
+    selectionBox.style.display = 'none';
+    showToast('Deleted ' + cells.length + ' cells');
+}
+
+// Select mode pointer handlers (capture phase, run before existing handlers)
+document.addEventListener('pointerdown', (e) => {
+    if (!selectMode) return;
+    if (e.button !== 0) return;
+    const cell = screenToGrid(e.clientX, e.clientY);
+    if (!cell) return;
+    isSelecting = true;
+    selectionStart = cell;
+    selectionEnd = cell;
+    selectedCells = [];
+    updateSelectionBox();
+    e.stopPropagation();
+}, true);
+
+document.addEventListener('pointermove', (e) => {
+    if (!selectMode || !isSelecting) return;
+    const cell = screenToGrid(e.clientX, e.clientY);
+    if (!cell) return;
+    selectionEnd = cell;
+    updateSelectionBox();
+}, true);
+
+document.addEventListener('pointerup', (e) => {
+    if (!selectMode || !isSelecting) return;
+    isSelecting = false;
+    selectedCells = collectSelectedCells();
+    if (selectedCells.length > 0) {
+        showClipboardHint(selectedCells.length + ' cells selected \u2014 Ctrl+C copy, Ctrl+V paste, Ctrl+D duplicate, Del delete');
+    } else {
+        hideClipboardHint();
+        selectionBox.style.display = 'none';
+    }
+}, true);
+
+// ═════════════════════════════════════════════════════════════════
+// FEATURE 4: Minimap
+// ═════════════════════════════════════════════════════════════════
+const minimapCanvas = document.getElementById('minimap-canvas');
+const minimapWrap = document.getElementById('minimap-wrap');
+let minimapCtx = null;
+let minimapEnabled = false;
+
+function initMinimap() {
+    if (!minimapCanvas) return;
+    minimapCtx = minimapCanvas.getContext('2d');
+    minimapEnabled = true;
+    minimapWrap.classList.remove('hidden');
+    minimapCanvas.addEventListener('click', (e) => {
+        const rect = minimapCanvas.getBoundingClientRect();
+        const mx = (e.clientX - rect.left) / rect.width;
+        const my = (e.clientY - rect.top) / rect.height;
+        const half = gridSize / 2;
+        const gx = (mx - 0.5) * gridSize;
+        const gz = (my - 0.5) * gridSize;
+        camTarget.x = (gx + 0.5) * cellWorld;
+        camTarget.z = (gz + 0.5) * cellWorld;
+        camera.position.x = camTarget.x;
+        camera.position.z = camTarget.z;
+        camera.lookAt(camTarget.x, 0, camTarget.z);
+    });
+}
+
+function renderMinimap() {
+    if (!minimapEnabled || !minimapCtx) return;
+    const ctx = minimapCtx;
+    const W = 140, H = 140;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0d1118';
+    ctx.fillRect(0, 0, W, H);
+    const half = gridSize / 2;
+    const pxPerCell = W / gridSize;
+    for (const [key, cell] of grid) {
+        const [gx, gz] = key.split(',').map(Number);
+        const px = (gx + half) * pxPerCell;
+        const py = (gz + half) * pxPerCell;
+        let color = null;
+        // Elevated track pieces (lighter, drawn first so overlays show on top)
+        if (cell.elevatedType) {
+            const et = cell.elevatedType;
+            if (et === 'elevated-straight' || et === 'slope-up') color = '#c0d0e0';
+            else if (et === 'elevated-corner') color = '#a0b0c8';
+            else if (et === 'elevated-checkpoint') color = '#7ad8ff';
+            else if (et === 'elevated-3-way' || et === 'elevated-4-way') color = '#b0c0d8';
+        }
+        // Road pieces
+        if (cell.roadPieces && cell.roadPieces.length) {
+            const type = cell.roadPieces[0].type;
+            if (type === 'track-start-finish' || type === 'track-finish' || type === 'track-start') color = '#77f3b1';
+            else if (type === 'track-checkpoint') color = '#5ac8ff';
+            else if (type === 'track-corner') color = '#8899aa';
+            else if (type === 'track-3-way' || type === 'track-4-way') color = '#99aabb';
+            else if (type === 'elevated-straight' || type === 'slope-up') color = '#c0d0e0';
+            else if (type === 'elevated-corner') color = '#a0b0c8';
+            else if (type === 'elevated-checkpoint') color = '#7ad8ff';
+            else color = '#a0b0c0';
+        }
+        // Water
+        if (cell.water) color = '#1f8fd6';
+        // Surfaces (semi-transparent overlay — keep underlying track color as base)
+        if (cell.surfaceTypes && cell.surfaceTypes.length) {
+            const st = cell.surfaceTypes[0];
+            if (st === 'surface-ice') color = color ? color : '#7ad8ff';
+            else if (st === 'surface-boost') color = '#ff4b4b';
+            else if (st === 'surface-sand') color = '#d7b46a';
+            else if (st === 'surface-bounce') color = '#baff7a';
+            else if (st === 'surface-kick-l') color = '#c683ff';
+            else if (st === 'surface-kick-r') color = '#ff83d0';
+        }
+        // Obstacles override
+        if (cell.bump) color = color || '#ffaa44';
+        if (cell.jump) color = '#ffdd44';
+        if (cell.pole) color = '#ff6644';
+        if (cell.cube) color = '#aa66ff';
+        if (cell.wall) color = '#666677';
+        if (cell.movingObstacle) color = '#ff66aa';
+        // Decor (subtle green dot)
+        if (cell.decoType && !color) color = '#2d6e2d';
+        if (color) { ctx.fillStyle = color; ctx.fillRect(px, py, pxPerCell, pxPerCell); }
+    }
+    for (const m of magnetBlocks) {
+        const px = (m.gx + half) * pxPerCell;
+        const py = (m.gz + half) * pxPerCell;
+        ctx.fillStyle = m.type === 'magnet-red' ? '#ff4444' : (m.type === 'magnet-grapple' ? '#44ff88' : '#4488ff');
+        ctx.fillRect(px - 1, py - 1, 3, 3);
+    }
+    for (const a of arcBlocks) {
+        const px = (a.gx + half) * pxPerCell;
+        const py = (a.gz + half) * pxPerCell;
+        ctx.fillStyle = a.type === 'arc-orange' ? '#ff8800' : (a.type === 'portal-purple' ? '#aa44ff' : (a.type === 'portal-yellow' ? '#ffee44' : '#44ff88'));
+        ctx.fillRect(px - 1, py - 1, 3, 3);
+    }
+    if (selectionStart && selectionEnd) {
+        const minGx = Math.min(selectionStart.gx, selectionEnd.gx);
+        const maxGx = Math.max(selectionStart.gx, selectionEnd.gx);
+        const minGz = Math.min(selectionStart.gz, selectionEnd.gz);
+        const maxGz = Math.max(selectionStart.gz, selectionEnd.gz);
+        ctx.strokeStyle = 'rgba(120, 200, 255, 0.9)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect((minGx+half)*pxPerCell, (minGz+half)*pxPerCell, (maxGx-minGx+1)*pxPerCell, (maxGz-minGz+1)*pxPerCell);
+    }
+    const camGx = camTarget.x / cellWorld - half;
+    const camGz = camTarget.z / cellWorld - half;
+    const viewHalfW = (frustum * (window.innerWidth / window.innerHeight)) / cellWorld / camera.zoom;
+    const viewHalfD = frustum / cellWorld / camera.zoom;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(
+        Math.max(0, (camGx - viewHalfW + half) * pxPerCell),
+        Math.max(0, (camGz - viewHalfD + half) * pxPerCell),
+        Math.min(W, (viewHalfW * 2) * pxPerCell),
+        Math.min(H, (viewHalfD * 2) * pxPerCell)
+    );
+}
+
+initMinimap();
+setInterval(renderMinimap, 200);
+
+// ═════════════════════════════════════════════════════════════════
+// KEYBOARD SHORTCUTS — extended
+// ═════════════════════════════════════════════════════════════════
+window.addEventListener('keydown', (e) => {
+    const key = e.key.toLowerCase();
+    const modifier = e.ctrlKey || e.metaKey;
+    const target = e.target;
+    const isTypingTarget = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+    if (isTypingTarget) return;
+
+    if (modifier && key === 'c' && selectMode) { e.preventDefault(); copySelection(); return; }
+    if (modifier && key === 'v' && clipboard) { e.preventDefault(); isPasteMode = true; showToast('Paste mode: click to place. R to rotate. Esc to cancel.'); return; }
+    if (modifier && key === 'd' && selectMode) { e.preventDefault(); duplicateSelection(); return; }
+    if ((key === 'delete' || key === 'backspace') && selectMode && selectedCells.length > 0) { e.preventDefault(); deleteSelection(); return; }
+    if (key === 'escape') {
+        if (isPasteMode) { isPasteMode = false; showToast('Paste cancelled'); }
+        if (selectMode) toggleSelectMode();
+        return;
+    }
+    if (key === 'r' && isPasteMode) { e.preventDefault(); pastePreviewOrient = (pastePreviewOrient + 1) % 4; showToast('Paste rotation: ' + (pastePreviewOrient*90) + '\u00B0'); return; }
+    if (!modifier && !e.shiftKey) {
+        switch (key) {
+            case '1': selectTool('paint'); break;
+            case '2': selectTool('erase'); break;
+            case '4': if (typeof selectedType !== 'undefined') selectTileType('track-straight'); break;
+            case '5': if (typeof selectedType !== 'undefined') selectTileType('track-corner'); break;
+            case '6': if (typeof selectedType !== 'undefined' && typeof BUMP_TOOL !== 'undefined') selectTileType(BUMP_TOOL); break;
+            case '7': if (typeof selectedType !== 'undefined' && typeof WALL_TOOL !== 'undefined') selectTileType(WALL_TOOL); break;
+            case '8': if (typeof selectedType !== 'undefined' && typeof WATER_TOOL !== 'undefined') selectTileType(WATER_TOOL); break;
+        }
+    }
+}, true);
+
+// Paste mode click handler
+document.addEventListener('pointerdown', (e) => {
+    if (!isPasteMode) return;
+    if (e.button !== 0) return;
+    const cell = screenToGrid(e.clientX, e.clientY);
+    if (!cell) return;
+    pasteClipboard(cell.gx, cell.gz);
+    e.stopPropagation();
+    e.preventDefault();
+}, true);
+
+
+
+
+	</script>
+</main>
+
+<script type="module" src="js/PageMusic.js"></script>
+
+</body>
+</html>

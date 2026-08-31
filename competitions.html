@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Skid Circuit — Competitions</title>
+<link rel="canonical" href="https://everybodysim.github.io/Racing-game/competitions.html">
+<meta name="description" content="Skid Circuit competitions — competitive racing events with tiers, leaderboards, and weekly results.">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Skid Circuit">
+<meta property="og:title" content="Skid Circuit — Competitions">
+<meta property="og:description" content="Skid Circuit competitions — competitive racing events with tiers, leaderboards, and weekly results.">
+<meta property="og:url" content="https://everybodysim.github.io/Racing-game/competitions.html">
+<meta property="og:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
+  <style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
+    :root { color-scheme: dark; }
+    body { margin: 0; font: 14px/1.4 Inter, system-ui, sans-serif; background: radial-gradient(circle at top, #14243f 0%, #0f1117 40%, #0b0d12 100%); color: #e8ecf1; }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 16px; }
+    .top { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .layout { display: grid; grid-template-columns: 280px 1fr; gap: 12px; margin-top: 12px; }
+    .panel { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 12px; }
+    .tier-btn { width: 100%; text-align: left; margin-bottom: 8px; padding: 9px; border-radius: 8px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.09); color: #fff; cursor: pointer; }
+    .tier-btn.active { background: rgba(95,150,255,.35); }
+    .week-picker { display: inline-flex; gap: 6px; align-items: center; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); }
+    .week-picker input { color: #fff; color-scheme: dark; background: rgba(0,0,0,.22); border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 5px 7px; }
+    canvas { width: 100%; height: 230px; border: 1px solid rgba(255,255,255,.15); border-radius: 10px; background: #0f1522; }
+    .kpi { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-top: 10px; }
+    .kpi div { background: rgba(255,255,255,.05); padding: 8px; border-radius: 8px; }
+    .status { min-height: 18px; margin-top: 8px; }
+    .ok { color: #9be7bf; }
+    .err { color: #ff9fa8; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 7px; border-bottom: 1px solid rgba(255,255,255,.12); }
+    @media (max-width: 920px) { .layout { grid-template-columns: 1fr; } }
+  </style>
+<script src="js/PageTransitions.js"></script>
+<link rel="stylesheet" href="ui-theme.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
+  <div class="wrap">
+    <div class="top">
+      <h1>🏁 Competitions</h1>
+      <a href="index.html">Back to game</a>
+      <label class="week-picker">Week date <input id="weekDate" type="date"></label>
+      <div id="coins"></div>
+      <div id="seed"></div>
+    </div>
+    <div class="layout">
+      <div class="panel"><h3>Tiers</h3><div id="tiers"></div></div>
+      <div>
+        <div class="panel">
+          <h2 id="title"></h2>
+          <div id="trackMeta"></div>
+          <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;align-items:start">
+            <canvas id="preview" width="500" height="230"></canvas>
+            <canvas id="gridPreview" width="380" height="230"></canvas>
+          </div>
+          <div class="kpi">
+            <div>Duration<br><strong id="dur"></strong></div>
+            <div>Entry Fee<br><strong id="fee"></strong></div>
+            <div>Pool<br><strong id="pool"></strong></div>
+            <div>Time Left<br><strong id="left"></strong></div>
+            <div>Track Source<br><strong id="src"></strong></div>
+            <div>Top Prizes<br><strong id="payouts"></strong></div>
+          </div>
+          <button id="unlockBtn">Unlock Tier</button>
+          <button id="enterBtn">Enter Competition</button>
+          <div id="status" class="status"></div>
+        </div>
+        <div class="panel" style="margin-top:12px">
+          <h3>Competition Leaderboard</h3>
+          <table><thead><tr><th>#</th><th>Player</th><th>Time</th><th>Δ</th></tr></thead><tbody id="rows"></tbody></table>
+        </div>
+      </div>
+    </div>
+  </div>
+<script>
+(() => {
+  const API = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
+  const COMP_API = (localStorage.getItem('racing-competitions-api-base') || 'https://racing-competitions-api.ga1010.workers.dev').replace(/\/$/, '');
+
+  // The track board worker returns a transient Cloudflare 503 ("error code:
+  // 1102") on most single requests; retrying makes a 200 effectively guaranteed.
+  async function fetchBoardWithRetry(url, { attempts = 8, timeoutMs = 8000, backoffMs = 350 } = {}) {
+    let lastError = null;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { cache: 'no-store', signal: controller.signal });
+        if (res.ok) return await res.json();
+        lastError = new Error(`HTTP ${res.status}`);
+        if (res.status >= 400 && res.status < 500 && res.status !== 429) throw lastError;
+      } catch (error) {
+        lastError = error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+      if (attempt < attempts - 1) await new Promise((r) => setTimeout(r, backoffMs));
+    }
+    throw lastError || new Error('board-fetch-failed');
+  }
+  const ECON = 'racing-economy-v1';
+  const COMP = 'racing-competitions-v4';
+  const PLAYER = 'racing-player-name-v1';
+  const WEEK_PARAM = 'weekDate';
+  const MS_DAY = 86400000;
+  const tiers = [
+    { tier: 1, min: 5, max: 20, fee: 500 },
+    { tier: 2, min: 8, max: 20, fee: 1500 },
+    { tier: 3, min: 10, max: 20, fee: 5000 },
+    { tier: 4, min: 20, max: 35, fee: 7000 },
+    { tier: 5, min: 30, max: 45, fee: 14000 },
+    { tier: 6, min: 45, max: 60, fee: 25000 },
+    { tier: 7, min: 60, max: 75, fee: 40000 },
+    { tier: 8, min: 75, max: 90, fee: 70000 },
+    { tier: 9, min: 90, max: 99, fee: 99000 },
+  ];
+
+  let selected = 1;
+  let state = load();
+  let tracks = [];
+  let selectedWeekStart = getWeekStartUtc(new URLSearchParams(window.location.search).get(WEEK_PARAM) || new Date());
+  let weeklySeed = seedFromWeekStart(selectedWeekStart);
+
+  function load() { try { return JSON.parse(localStorage.getItem(COMP) || '{}'); } catch { return {}; } }
+  function save() { localStorage.setItem(COMP, JSON.stringify(state)); }
+  function eco() { try { return JSON.parse(localStorage.getItem(ECON) || '{}'); } catch { return {}; } }
+  function setCoins(c) { localStorage.setItem(ECON, JSON.stringify({ coins: c })); }
+  function name() { return (localStorage.getItem(PLAYER) || 'Player').trim() || 'Player'; }
+  const fmt = (n) => Number(n || 0).toLocaleString();
+  const sec = (n) => Number(n).toFixed(2) + 's';
+
+  function status(m, e = false) {
+    const el = document.getElementById('status');
+    el.textContent = m;
+    el.className = 'status ' + (e ? 'err' : 'ok');
+  }
+
+  function parseUtcDate(value) {
+    if (value instanceof Date) return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+    return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  }
+
+  function formatDateUtc(date) {
+    return date.toISOString().slice(0, 10);
+  }
+
+  function getWeekStartUtc(value) {
+    const date = parseUtcDate(value);
+    const day = date.getUTCDay();
+    const mondayOffset = (day + 6) % 7;
+    return new Date(date.getTime() - mondayOffset * MS_DAY);
+  }
+
+  function seedFromWeekStart(weekStart) {
+    return `week-${formatDateUtc(weekStart)}`;
+  }
+
+  function weekNumber(weekStart) {
+    return Math.floor(weekStart.getTime() / (7 * MS_DAY));
+  }
+
+  function hashString(value) {
+    let hash = 2166136261;
+    for (let i = 0; i < value.length; i++) {
+      hash ^= value.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  function eventSeed(tier) {
+    return `${weeklySeed}:tier-${tier}`;
+  }
+
+  function eventKey(tier) {
+    return `${weeklySeed}|${tier}`;
+  }
+
+  function tierUnlocked(t) { return t <= (state.unlockTier || 1); }
+  function unlockCost(t) { return Math.round(t.fee * 1.35); }
+
+  function decodeMapCells(playUrl) {
+    try {
+      const u = new URL(playUrl, window.location.href);
+      const m = u.searchParams.get('map');
+      if (!m) return [];
+      const n = m.replace(/-/g, '+').replace(/_/g, '/');
+      const p = n + '='.repeat((4 - n.length % 4) % 4);
+      const bin = atob(p);
+      const cells = [];
+      for (let i = 0; i + 2 < bin.length; i += 3) cells.push([bin.charCodeAt(i) - 128, bin.charCodeAt(i + 1) - 128]);
+      return cells;
+    } catch {
+      return [];
+    }
+  }
+
+  function canonicalizeTracks(rows) {
+    return [...(Array.isArray(rows) ? rows : [])]
+      .filter((x) => typeof x?.playUrl === 'string')
+      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')) || String(a.playUrl || '').localeCompare(String(b.playUrl || '')) || String(a.name || '').localeCompare(String(b.name || '')));
+  }
+
+  function pickTrack(tier) {
+    const cfg = tiers[tier - 1];
+    const base = canonicalizeTracks(tracks);
+    const pool = base.filter((x) => Number.isFinite(Number(x.bestLapSeconds)) && Number(x.bestLapSeconds) >= cfg.min && Number(x.bestLapSeconds) <= cfg.max);
+    if (!pool.length) return { name: 'No track found for this tier', playUrl: 'index.html?play=1', bestLapSeconds: (cfg.min + cfg.max) / 2 };
+    const index = hashString(`${weeklySeed}|tier-${tier}|${cfg.min}-${cfg.max}|${pool.length}`) % pool.length;
+    return pool[index];
+  }
+
+  function ensureEvent(t) {
+    state.events ??= {};
+    const key = eventKey(t);
+    const current = state.events[key];
+    if (!current || current.seed !== eventSeed(t) || !current.track || String(current.track.name || '').startsWith('No track found')) {
+      state.events[key] = { seed: eventSeed(t), weekStart: formatDateUtc(selectedWeekStart), pool: 0, entries: 0, lb: [], track: pickTrack(t) };
+    }
+    return state.events[key];
+  }
+
+  function drawPreview() {
+    const c = document.getElementById('preview'), ctx = c.getContext('2d');
+    const g = document.getElementById('gridPreview'), gctx = g.getContext('2d');
+    ctx.fillStyle = '#0f1522'; ctx.fillRect(0, 0, c.width, c.height);
+    gctx.fillStyle = '#0f1522'; gctx.fillRect(0, 0, g.width, g.height);
+    const e = ensureEvent(selected);
+    if (!tierUnlocked(selected)) {
+      for (const x of [ctx, gctx]) { x.fillStyle = '#fff'; x.font = 'bold 26px sans-serif'; x.fillText('🔒 Unlock this tier', 20, 115); }
+      return;
+    }
+    ctx.fillStyle = '#8cd3ff'; ctx.font = 'bold 20px sans-serif'; ctx.fillText('Track Share Board selection', 20, 32);
+    ctx.fillStyle = '#cfe6ff'; ctx.fillText(e.track.name || 'Shared Track', 20, 58);
+    ctx.fillStyle = '#9be7bf'; ctx.fillText('Estimated: ' + sec(e.track.bestLapSeconds || 0), 20, 84);
+    ctx.fillStyle = '#aac4dd'; ctx.fillText('Week of ' + formatDateUtc(selectedWeekStart) + ' • Tier ' + selected, 20, 110);
+    ctx.fillStyle = '#bad0ea'; ctx.fillText('Entry fee: ' + fmt(tiers[selected - 1].fee) + ' coins', 20, 145);
+    ctx.fillText('Prize pool grows from all entries.', 20, 170);
+    ctx.fillText('Top 3 split: 60% / 28% / 12%', 20, 195);
+    const cells = decodeMapCells(e.track.playUrl);
+    gctx.fillStyle = '#8cd3ff'; gctx.font = 'bold 16px sans-serif'; gctx.fillText('Track Grid Preview', 14, 24);
+    if (!cells.length) { gctx.fillStyle = '#ffd66b'; gctx.fillText('No map cells found for this shared track.', 14, 54); return; }
+    const xs = cells.map((v) => v[0]), zs = cells.map((v) => v[1]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
+    const w = Math.max(1, maxX - minX + 1), h = Math.max(1, maxZ - minZ + 1);
+    const cell = Math.max(3, Math.floor(Math.min((g.width - 30) / w, (g.height - 50) / h)));
+    const ox = 14, oy = 36;
+    for (const [x, z] of cells) { gctx.fillStyle = 'rgba(130,220,255,0.88)'; gctx.fillRect(ox + (x - minX) * cell, oy + (z - minZ) * cell, cell - 1, cell - 1); }
+    gctx.strokeStyle = 'rgba(255,255,255,0.28)'; gctx.strokeRect(ox - 1, oy - 1, w * cell + 2, h * cell + 2);
+  }
+
+  async function syncEventFromBackend(tier) {
+    const ev = ensureEvent(tier);
+    try {
+      const params = new URLSearchParams({ tier: String(tier), seed: ev.seed, week: String(weekNumber(selectedWeekStart)), weekStart: formatDateUtc(selectedWeekStart) });
+      const res = await fetch(`${COMP_API}/api/competitions/event?${params.toString()}`);
+      const data = await res.json();
+      if (data?.ok && data?.event) {
+        ev.pool = Number(data.event.pool || 0);
+        ev.entries = Number(data.event.entries || 0);
+        ev.lb = Array.isArray(data.event.leaderboard) ? data.event.leaderboard : [];
+        if (data.event?.track && typeof data.event.track?.playUrl === 'string') ev.track = data.event.track;
+        save();
+      }
+    } catch {}
+  }
+
+  async function selectTier(tier) {
+    selected = tier;
+    render();
+    await syncEventFromBackend(selected);
+    render();
+  }
+
+  async function setCompetitionWeek(value) {
+    selectedWeekStart = getWeekStartUtc(value);
+    weeklySeed = seedFromWeekStart(selectedWeekStart);
+    const clean = new URL(window.location.href);
+    clean.searchParams.set(WEEK_PARAM, formatDateUtc(selectedWeekStart));
+    history.replaceState(null, '', clean.toString());
+    document.getElementById('weekDate').value = formatDateUtc(selectedWeekStart);
+    status('Loaded competition week ' + formatDateUtc(selectedWeekStart) + '.');
+    render();
+    await syncEventFromBackend(selected);
+    render();
+  }
+
+  function render() {
+    document.getElementById('coins').textContent = 'Coins: ' + fmt(eco().coins || 0);
+    document.getElementById('seed').textContent = 'Leaderboard: ' + weeklySeed;
+    document.getElementById('weekDate').value = formatDateUtc(selectedWeekStart);
+    const tbox = document.getElementById('tiers');
+    tbox.innerHTML = '';
+    tiers.forEach((t) => {
+      const b = document.createElement('button');
+      b.className = 'tier-btn' + (selected === t.tier ? ' active' : '');
+      const locked = !tierUnlocked(t.tier);
+      b.textContent = `Tier ${t.tier} • ${t.min}-${t.max}s • Fee ${fmt(t.fee)}${locked ? ' • Locked' : ''}`;
+      b.onclick = () => selectTier(t.tier);
+      tbox.appendChild(b);
+    });
+    const cfg = tiers[selected - 1], ev = ensureEvent(selected);
+    document.getElementById('title').textContent = `Tier ${selected} Competition`;
+    document.getElementById('trackMeta').textContent = `Week of ${formatDateUtc(selectedWeekStart)} • Track: ${ev.track.name || 'Shared Track'}`;
+    document.getElementById('dur').textContent = `${cfg.min}-${cfg.max}s`;
+    document.getElementById('fee').textContent = fmt(cfg.fee);
+    document.getElementById('pool').textContent = fmt(ev.pool);
+    document.getElementById('left').textContent = 'Resets weekly';
+    document.getElementById('src').textContent = 'Track Share Board';
+    document.getElementById('payouts').textContent = `${fmt(Math.floor(ev.pool * .6))}/${fmt(Math.floor(ev.pool * .28))}/${fmt(Math.floor(ev.pool * .12))}`;
+    drawPreview();
+    const ub = document.getElementById('unlockBtn');
+    ub.disabled = tierUnlocked(selected) || selected !== (state.unlockTier || 1) + 1;
+    ub.textContent = tierUnlocked(selected) ? 'Unlocked' : `Unlock Tier (${fmt(unlockCost(cfg))})`;
+    const eb = document.getElementById('enterBtn');
+    eb.disabled = !tierUnlocked(selected) || String(ev.track.name || '').startsWith('No track found');
+    const lb = ev.lb.slice().sort((a, b) => a.time - b.time);
+    const lead = lb[0]?.time || null;
+    const rows = document.getElementById('rows');
+    rows.innerHTML = lb.length ? '' : '<tr><td colspan="4">No competition times yet for this week.</td></tr>';
+    lb.forEach((r, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i + 1}</td><td>${r.name}</td><td>${sec(r.time)}</td><td>${lead ? `+${(r.time - lead).toFixed(2)}s` : '--'}</td>`;
+      rows.appendChild(tr);
+    });
+    save();
+  }
+
+  function unlockTier() {
+    const cfg = tiers[selected - 1];
+    const allowed = (state.unlockTier || 1) + 1;
+    if (selected !== allowed) return;
+    let coins = Math.floor(Number(eco().coins) || 0), cost = unlockCost(cfg);
+    if (coins < cost) return status('Not enough coins to unlock tier.', true);
+    coins -= cost;
+    setCoins(coins);
+    state.unlockTier = selected;
+    status('Tier unlocked.');
+    render();
+  }
+
+  async function enterCompetition() {
+    const cfg = tiers[selected - 1], ev = ensureEvent(selected);
+    let coins = Math.floor(Number(eco().coins) || 0);
+    if (coins < cfg.fee) return status('Insufficient coins for entry fee.', true);
+    coins -= cfg.fee;
+    setCoins(coins);
+    try {
+      await fetch(`${COMP_API}/api/competitions/enter`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tier: selected, seed: ev.seed, fee: cfg.fee, week: weekNumber(selectedWeekStart), weekStart: formatDateUtc(selectedWeekStart), track: { name: ev.track.name, playUrl: ev.track.playUrl, bestLapSeconds: Number(ev.track.bestLapSeconds) || null } })
+      });
+    } catch {}
+    await syncEventFromBackend(selected);
+    state.pending = { tier: selected, seed: ev.seed, weekStart: formatDateUtc(selectedWeekStart), playUrl: ev.track.playUrl };
+    save();
+    const returnUrl = new URL('competitions.html', window.location.href);
+    returnUrl.searchParams.set(WEEK_PARAM, formatDateUtc(selectedWeekStart));
+    const url = new URL(ev.track.playUrl, window.location.href);
+    url.searchParams.set('competition', '1');
+    url.searchParams.set('competitionTier', String(selected));
+    url.searchParams.set('competitionSeed', String(ev.seed));
+    url.searchParams.set('competitionReturn', returnUrl.pathname + returnUrl.search);
+    window.location.href = url.toString();
+  }
+
+  async function applyResult() {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('competitionResult') !== '1') return;
+    const resultWeek = p.get(WEEK_PARAM);
+    if (resultWeek) {
+      selectedWeekStart = getWeekStartUtc(resultWeek);
+      weeklySeed = seedFromWeekStart(selectedWeekStart);
+    }
+    const t = Number(p.get('tier')), seed = String(p.get('seed') || ''), time = Number(p.get('time'));
+    if (!Number.isFinite(t) || !Number.isFinite(time) || !seed) return;
+    const me = name();
+    try {
+      await fetch(`${COMP_API}/api/competitions/submit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tier: t, seed, time, player: me, week: weekNumber(selectedWeekStart), weekStart: formatDateUtc(selectedWeekStart) })
+      });
+    } catch {}
+    selected = t;
+    await syncEventFromBackend(t);
+    status(`Competition result recorded: ${sec(time)}`);
+    const clean = new URL(window.location.href);
+    clean.searchParams.delete('competitionResult');
+    clean.searchParams.delete('time');
+    clean.searchParams.delete('tier');
+    clean.searchParams.delete('seed');
+    clean.searchParams.set(WEEK_PARAM, formatDateUtc(selectedWeekStart));
+    history.replaceState(null, '', clean.toString());
+    save();
+  }
+
+  async function init() {
+    state.unlockTier = state.unlockTier || 1;
+    document.getElementById('weekDate').value = formatDateUtc(selectedWeekStart);
+    document.getElementById('weekDate').addEventListener('change', (event) => setCompetitionWeek(event.target.value));
+    status('Loading track share board tracks...');
+    try {
+      const data = await fetchBoardWithRetry(API);
+      tracks = Array.isArray(data?.entries) ? data.entries : [];
+      status(`Loaded ${tracks.length} shared tracks.`);
+    } catch (e) {
+      status('Failed to load track board tracks.', true);
+      tracks = [];
+    }
+    await applyResult();
+    await syncEventFromBackend(selected);
+    render();
+  }
+
+  document.getElementById('unlockBtn').onclick = unlockTier;
+  document.getElementById('enterBtn').onclick = enterCompetition;
+  init();
+})();
+</script>
+</main>
+
+<script type="module" src="js/PageMusic.js"></script>
+<script src="js/NavBar.js"></script>
+</body>
+</html>

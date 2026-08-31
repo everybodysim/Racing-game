@@ -1,0 +1,130 @@
+/**
+ * ui-theme.css — Shared dark theme + nav bar styles for Skid Circuit sub-pages.
+ * Loaded in <head> of every sub-page. Uses skid- prefixed classes to avoid
+ * conflicts with each page's existing inline styles.
+ */
+
+:root {
+  --skid-bg: #07101e;
+  --skid-bg2: #121826;
+  --skid-panel: rgba(255, 255, 255, 0.07);
+  --skid-line: rgba(255, 255, 255, 0.13);
+  --skid-muted: #b5c2da;
+  --skid-accent: #77f3b1;
+  --skid-accent2: #5ac8ff;
+  --skid-text: #e6edf7;
+  --skid-font: Inter, system-ui, -apple-system, sans-serif;
+  --skid-radius: 14px;
+}
+
+/* === Nav Bar === */
+.skid-nav {
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 16px;
+  background: rgba(7, 16, 30, 0.92);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.13);
+  position: sticky;
+  top: 0;
+  z-index: 9000;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font-family: var(--skid-font);
+}
+
+.skid-nav-brand {
+  font: 800 16px/1 var(--skid-font);
+  color: var(--skid-text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  white-space: nowrap;
+}
+
+.skid-nav-brand::before {
+  content: '';
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--skid-accent);
+  box-shadow: 0 0 12px rgba(119, 243, 177, 0.6);
+  flex-shrink: 0;
+}
+
+.skid-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.skid-nav-page {
+  font: 600 12px/1 var(--skid-font);
+  color: var(--skid-muted);
+  padding: 5px 9px;
+  letter-spacing: 0.01em;
+}
+
+.skid-nav-link {
+  color: var(--skid-muted);
+  text-decoration: none;
+  font: 600 13px/1 var(--skid-font);
+  padding: 6px 11px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  white-space: nowrap;
+}
+
+.skid-nav-link:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--skid-text);
+}
+
+.skid-nav-link.skid-nav-back {
+  background: linear-gradient(135deg, rgba(48, 198, 119, 0.16), rgba(48, 151, 255, 0.1));
+  border-color: rgba(132, 245, 172, 0.22);
+  color: #e8eef8;
+  font-weight: 700;
+}
+
+.skid-nav-link.skid-nav-back:hover {
+  background: linear-gradient(135deg, rgba(48, 198, 119, 0.3), rgba(48, 151, 255, 0.2));
+  border-color: rgba(132, 245, 172, 0.4);
+}
+
+@media (max-width: 520px) {
+  .skid-nav {
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box; padding: 8px 12px; }
+  .skid-nav-page { display: none; }
+  .skid-nav-brand { font-size: 14px; }
+}
+
+/* === Shared page polish (low specificity, easily overridden by page styles) === */
+
+/* Nicer default link colors for pages that don't style them */
+a:not(.skid-nav-brand):not(.skid-nav-link):not(.home-main-link):not(.home-secondary-link):not(.skip-link):not(.hero-link):not(.back-link) {
+  color: var(--skid-accent2, #5ac8ff);
+}
+
+/* Smooth scroll for all pages */
+html { scroll-behavior: smooth; }
+
+/* Consistent details/summary styling */
+details > summary { cursor: pointer; user-select: none; }
+details > summary::-webkit-details-marker { opacity: 0.6; }
+
+/* Better scrollbar styling for dark theme */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.25); }

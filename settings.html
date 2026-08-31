@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skid Circuit — Settings</title>
+<link rel="canonical" href="https://everybodysim.github.io/Racing-game/settings.html">
+<meta name="description" content="Customize graphics, audio, gameplay, controls, and accessibility settings for Skid Circuit. Settings save to your browser and cloud account.">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Skid Circuit">
+<meta property="og:title" content="Skid Circuit — Settings">
+<meta property="og:description" content="Customize graphics, audio, gameplay, controls, and accessibility settings for Skid Circuit.">
+<meta property="og:url" content="https://everybodysim.github.io/Racing-game/settings.html">
+<meta property="og:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
+<link rel="icon" href="icons/favicon.png" type="image/png">
+<style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
+body { margin:0; font:15px/1.5 var(--skid-font, system-ui), sans-serif; background: radial-gradient(1200px 600px at 50% -120px, #18243a 0%, #07101e 60%); color: var(--skid-text,#e6edf7); min-height:100vh; }
+main { max-width: 880px; margin: 22px auto; padding: 0 18px 60px; }
+.page-head { display:flex; align-items:flex-end; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:14px; }
+.page-head h1 { margin:0; font-size:28px; font-weight:800; letter-spacing:.01em; }
+.page-head p { margin:6px 0 0; color:var(--skid-muted,#b5c2da); font-size:14px; }
+.back-link { color:var(--skid-accent2,#5ac8ff); text-decoration:none; font-weight:600; font-size:14px; }
+.back-link:hover { text-decoration:underline; }
+
+/* Tabs */
+.tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--skid-line,rgba(255,255,255,.13)); margin-bottom:18px; }
+.tab-btn { appearance:none; border:none; background:transparent; color:var(--skid-muted,#b5c2da); font:700 13px/1 var(--skid-font, system-ui); padding:11px 14px; cursor:pointer; border-bottom:2px solid transparent; border-radius:8px 8px 0 0; transition:color .12s, background .12s, border-color .12s; }
+.tab-btn:hover { color:var(--skid-text,#e6edf7); background:rgba(255,255,255,.05); }
+.tab-btn.active { color:var(--skid-text,#e6edf7); border-bottom-color:var(--skid-accent,#77f3b1); background:rgba(119,243,177,.06); }
+
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
+
+.panel { background: var(--skid-panel,rgba(255,255,255,.06)); border:1px solid var(--skid-line,rgba(255,255,255,.13)); border-radius: var(--skid-radius,14px); padding:18px 18px 16px; margin-bottom:16px; }
+.panel h2 { margin:0 0 4px; font-size:14px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; color:var(--skid-text,#e6edf7); display:flex; align-items:center; gap:8px; }
+.panel h2 .dot { width:8px; height:8px; border-radius:50%; background:var(--skid-accent,#77f3b1); box-shadow:0 0 10px rgba(119,243,177,.5); flex-shrink:0; }
+.panel .hint { margin:2px 0 14px; color:var(--skid-muted,#b5c2da); font-size:13px; }
+
+/* Setting rows */
+.field { display:flex; flex-direction:column; gap:6px; padding:12px 0; border-top:1px solid rgba(255,255,255,.08); }
+.field:first-of-type { border-top:none; padding-top:4px; }
+.field-row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.field-label { font-weight:600; font-size:14px; color:var(--skid-text,#e6edf7); }
+.field-desc { font-size:12px; color:var(--skid-muted,#b5c2da); margin-top:1px; }
+.field-value { font:700 12px/1 var(--skid-font,system-ui); color:var(--skid-accent,#77f3b1); min-width:42px; text-align:right; }
+
+/* Sliders */
+input[type="range"] { -webkit-appearance:none; appearance:none; width:100%; height:6px; border-radius:999px; background:rgba(255,255,255,.14); outline:none; cursor:pointer; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:18px; height:18px; border-radius:50%; background:var(--skid-accent,#77f3b1); border:2px solid #0b1626; box-shadow:0 0 8px rgba(119,243,177,.5); }
+input[type="range"]::-moz-range-thumb { width:18px; height:18px; border-radius:50%; background:var(--skid-accent,#77f3b1); border:2px solid #0b1626; }
+
+/* Toggles */
+.switch { position:relative; display:inline-block; width:46px; height:26px; flex-shrink:0; }
+.switch input { opacity:0; width:0; height:0; }
+.switch .slider { position:absolute; inset:0; background:rgba(255,255,255,.16); border-radius:999px; transition:background .15s; cursor:pointer; }
+.switch .slider::before { content:''; position:absolute; left:3px; top:3px; width:20px; height:20px; border-radius:50%; background:#fff; transition:transform .15s; }
+.switch input:checked + .slider { background:var(--skid-accent,#77f3b1); }
+.switch input:checked + .slider::before { transform:translateX(20px); }
+.switch input:focus-visible + .slider { box-shadow:0 0 0 3px rgba(119,243,177,.4); }
+
+/* Segmented buttons (graphics preset) */
+.segmented { display:flex; gap:6px; flex-wrap:wrap; }
+.segmented button { flex:1; min-width:80px; padding:10px 12px; border-radius:10px; border:1px solid rgba(255,255,255,.18); background:rgba(0,0,0,.28); color:var(--skid-text,#e6edf7); font:700 13px/1 var(--skid-font,system-ui); cursor:pointer; transition:background .12s, border-color .12s, color .12s; }
+.segmented button:hover { background:rgba(255,255,255,.08); }
+.segmented button.active { background:linear-gradient(135deg, rgba(119,243,177,.22), rgba(90,200,255,.14)); border-color:rgba(132,245,172,.5); color:#fff; }
+
+select, input[type="number"], input[type="text"] { padding:10px 12px; border-radius:10px; border:1px solid rgba(255,255,255,.2); background:rgba(0,0,0,.32); color:#fff; font:inherit; min-width:160px; }
+input[type="color"] { width:44px; height:34px; padding:0; border:1px solid rgba(255,255,255,.2); border-radius:8px; background:transparent; cursor:pointer; }
+
+/* Buttons */
+.btn { padding:10px 16px; border-radius:10px; border:1px solid rgba(255,255,255,.2); background:rgba(0,0,0,.28); color:var(--skid-text,#e6edf7); font:700 13px/1 var(--skid-font,system-ui); cursor:pointer; transition:background .12s, border-color .12s; }
+.btn:hover { background:rgba(255,255,255,.1); }
+.btn.primary { background:linear-gradient(135deg, rgba(48,198,119,.9), rgba(48,151,255,.85)); border-color:rgba(132,245,172,.5); color:#fff; }
+.btn.primary:hover { filter:brightness(1.08); }
+.btn:disabled { opacity:.5; cursor:not-allowed; }
+.btn-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:8px; }
+
+.status { font-size:13px; color:var(--skid-muted,#b5c2da); margin-top:10px; min-height:18px; }
+.status.ok { color:var(--skid-accent,#77f3b1); }
+.status.err { color:#ff9ea2; }
+
+.note { font-size:12px; color:var(--skid-muted,#b5c2da); background:rgba(90,200,255,.08); border:1px solid rgba(90,200,255,.18); border-radius:8px; padding:8px 10px; margin-top:10px; }
+.note.reload { background:rgba(255,220,168,.08); border-color:rgba(255,220,168,.22); }
+
+.cloud-card { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-radius:10px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12); margin-bottom:10px; }
+.cloud-card .who { font-weight:700; }
+.cloud-card .who small { display:block; font-weight:400; color:var(--skid-muted,#b5c2da); font-size:12px; }
+
+.kbd { font:600 11px/1 ui-monospace, monospace; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.2); border-bottom-width:2px; border-radius:5px; padding:2px 6px; color:#fff; }
+
+@media (max-width: 560px) {
+  .segmented button { min-width:0; font-size:12px; padding:9px 8px; }
+  .field-value { min-width:36px; }
+}
+</style>
+<script src="js/PageTransitions.js"></script>
+<link rel="stylesheet" href="ui-theme.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
+  <div class="page-head">
+    <div>
+      <h1>Settings</h1>
+      <p>Tune graphics, audio, gameplay, controls, and accessibility. Saved to your browser & cloud account.</p>
+    </div>
+    <a class="back-link" href="index.html">← Back to game</a>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Settings sections">
+    <button class="tab-btn active" role="tab" data-tab="graphics" aria-selected="true">🖥️ Graphics</button>
+    <button class="tab-btn" role="tab" data-tab="audio" aria-selected="false">🔊 Audio</button>
+    <button class="tab-btn" role="tab" data-tab="gameplay" aria-selected="false">🎮 Gameplay</button>
+    <button class="tab-btn" role="tab" data-tab="cloud" aria-selected="false">☁️ Cloud Sync</button>
+  </div>
+
+  <!-- ===================== GRAPHICS ===================== -->
+  <section class="tab-panel active" id="tab-graphics" role="tabpanel">
+    <div class="panel">
+      <h2><span class="dot"></span>Graphics preset</h2>
+      <p class="hint">Quick overall quality. Advanced sliders below override individual parts of the active preset. Customizing any slider switches to "Custom".</p>
+      <div class="segmented" id="gfx-preset-row">
+        <button type="button" data-preset="low">Low</button>
+        <button type="button" data-preset="medium">Medium</button>
+        <button type="button" data-preset="high">High</button>
+        <button type="button" data-preset="custom" id="gfx-custom-btn" disabled>Custom</button>
+      </div>
+      <div class="status" id="gfx-preset-status">Follows the selected preset.</div>
+      <div class="note">Low disables shadows, weather particles, and bloom for maximum FPS. High enables full shadows, particles, and bloom. Medium is a balanced middle ground. "Custom" appears once you tweak any advanced slider — it keeps your overrides while basing the rest on the last real preset you picked.</div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="dot"></span>Advanced graphics</h2>
+      <p class="hint">Each slider overrides the preset for that property. Set a slider fully left/right to match the preset, or pick a custom value.</p>
+
+      <div class="field">
+        <div class="field-row"><span class="field-label">Resolution scale <span class="field-value" id="val-maxPixelRatio">auto</span></span></div>
+        <input type="range" id="gfx-maxPixelRatio" min="0.5" max="2" step="0.05" data-null-text="auto">
+        <div class="field-desc">Caps the rendering resolution. Lower = sharper performance, higher = crisper image. "auto" follows the preset.</div>
+      </div>
+
+      <div class="field">
+        <div class="field-row"><span class="field-label">Smoke / particle count <span class="field-value" id="val-smokeParticles">auto</span></span></div>
+        <input type="range" id="gfx-smokeParticles" min="0" max="128" step="4" data-null-text="auto">
+        <div class="field-desc">Drift smoke trail density. Lower for performance, higher for richer effects.</div>
+      </div>
+
+      <div class="field">
+        <div class="field-row"><span class="field-label">Bloom strength <span class="field-value" id="val-bloomStrength">auto</span></span></div>
+        <input type="range" id="gfx-bloomStrength" min="0" max="0.1" step="0.005" data-null-text="auto">
+        <div class="field-desc">Glow intensity on bright surfaces. 0 disables bloom entirely.</div>
+      </div>
+
+      <div class="field">
+        <div class="field-row"><span class="field-label">Bloom radius <span class="field-value" id="val-bloomRadius">auto</span></span></div>
+        <input type="range" id="gfx-bloomRadius" min="0" max="0.2" step="0.005" data-null-text="auto">
+        <div class="field-desc">How far the bloom glow spreads.</div>
+      </div>
+
+      <div class="field">
+        <div class="field-row">
+          <span><span class="field-label">Shadows</span><div class="field-desc">Casts dynamic shadows from the sun. Off boosts FPS.</div></span>
+          <label class="switch"><input type="checkbox" id="gfx-shadows" data-tri="1"><span class="slider"></span></label>
+        </div>
+        <div class="status" id="gfx-shadows-state">auto (follows preset)</div>
+      </div>
+
+      <div class="field">
+        <div class="field-row">
+          <span><span class="field-label">Antialiasing</span><div class="field-desc">Smooths jagged edges. <strong>Requires a reload</strong> to take effect.</div></span>
+          <label class="switch"><input type="checkbox" id="gfx-antialias"><span class="slider"></span></label>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-row">
+          <span><span class="field-label">Reduce motion</span><div class="field-desc">Disables bloom and decorative weather particles. Keeps the game readable for motion-sensitive players.</div></span>
+          <label class="switch"><input type="checkbox" id="gfx-reduceMotion"><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== AUDIO ===================== -->
+  <section class="tab-panel" id="tab-audio" role="tabpanel">
+    <div class="panel">
+      <h2><span class="dot"></span>Volume</h2>
+      <p class="hint">Volumes apply immediately if the game is running in another tab.</p>
+
+      <div class="field">
+        <div class="field-row"><span class="field-label">SFX volume <span class="field-value" id="val-sfxVolume">100%</span></span></div>
+        <input type="range" id="aud-sfxVolume" min="0" max="1" step="0.01">
+        <div class="field-desc">Engine, skid, and impact sounds.</div>
+      </div>
+
+      <div class="field">
+        <div class="field-row"><span class="field-label">Music volume <span class="field-value" id="val-musicVolume">100%</span></span></div>
+        <input type="range" id="aud-musicVolume" min="0" max="1" step="0.01">
+        <div class="field-desc">Background race music.</div>
+      </div>
+
+      <div class="field">
+        <div class="field-row"><span class="field-label">Music track</span></div>
+        <select id="aud-musicMode">
+          <option value="0">Random (default)</option>
+          <option value="1">Track 1</option>
+          <option value="2">Track 2</option>
+          <option value="3">Track 3</option>
+        </select>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== GAMEPLAY ===================== -->
+  <section class="tab-panel" id="tab-gameplay" role="tabpanel">
+    <div class="panel">
+      <h2><span class="dot"></span>Hud &amp; display</h2>
+
+      <div class="field">
+        <div class="field-row">
+          <span><span class="field-label">Show FPS counter</span><div class="field-desc">Displays a small frame-rate counter while racing.</div></span>
+          <label class="switch"><input type="checkbox" id="gp-showFps"><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="dot"></span>Ghosts</h2>
+
+      <div class="field">
+        <div class="field-row">
+          <span><span class="field-label">Show personal best ghost</span><div class="field-desc">Replays your best lap as a translucent ghost to race against. Turn off to hide it.</div></span>
+          <label class="switch"><input type="checkbox" id="gp-showBestGhost" checked><span class="slider"></span></label>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-row">
+          <span><span class="field-label">Show recent ghosts</span><div class="field-desc">Replays your last few laps as translucent ghosts.</div></span>
+          <label class="switch"><input type="checkbox" id="gp-recentGhosts"><span class="slider"></span></label>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-row"><span class="field-label">Recent ghost count <span class="field-value" id="val-recentGhostCount">3</span></span></div>
+        <input type="range" id="gp-recentGhostCount" min="1" max="20" step="1">
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="dot"></span>Camera</h2>
+      <p class="hint">Tune the chase camera. "auto" uses the default feel.</p>
+
+      <div class="field">
+        <div class="field-row"><span class="field-label">Camera distance <span class="field-value" id="val-cameraDistance">auto</span></span></div>
+        <input type="range" id="gp-cameraDistance" min="2" max="30" step="0.5" data-null-text="auto">
+        <div class="field-desc">How far back the camera sits behind the car.</div>
+      </div>
+
+      <div class="field">
+        <div class="field-row"><span class="field-label">Camera height <span class="field-value" id="val-cameraHeight">auto</span></span></div>
+        <input type="range" id="gp-cameraHeight" min="0" max="20" step="0.5" data-null-text="auto">
+        <div class="field-desc">How high the camera floats above the car.</div>
+      </div>
+
+      <div class="field">
+        <div class="field-row"><span class="field-label">Camera responsiveness <span class="field-value" id="val-cameraLag">100%</span></span></div>
+        <input type="range" id="gp-cameraLag" min="0.1" max="1" step="0.05">
+        <div class="field-desc">100% = snappy follow, lower = smoother, looser trailing.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== CLOUD SYNC ===================== -->
+  <section class="tab-panel" id="tab-cloud" role="tabpanel">
+    <div class="panel">
+      <h2><span class="dot"></span>Cloud account</h2>
+      <p class="hint">Sign in from the game's <strong>Account</strong> tab (press <span class="kbd">E</span> in-game → Account). Then sync your settings here.</p>
+
+      <div class="cloud-card" id="cloud-status-card">
+        <div class="who" id="cloud-who">Not signed in<small>Open the game and log in to enable cloud sync.</small></div>
+        <span class="field-value" id="cloud-state">offline</span>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn primary" id="cloud-save-btn" type="button">↑ Save settings to cloud</button>
+        <button class="btn" id="cloud-load-btn" type="button">↓ Load settings from cloud</button>
+        <button class="btn" id="cloud-refresh-btn" type="button">↻ Refresh status</button>
+      </div>
+      <div class="status" id="cloud-status"></div>
+      <div class="note">Settings sync separately from your coins, garage, and campaign progress (those sync from the Account tab). Only the <strong>settings</strong> slice is managed here.</div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="dot"></span>Local data</h2>
+      <p class="hint">Settings always save to this browser's localStorage instantly on every change.</p>
+      <div class="btn-row">
+        <button class="btn" id="reset-btn" type="button">↺ Reset all settings to defaults</button>
+        <button class="btn" id="export-btn" type="button">⤓ Export settings (copy JSON)</button>
+      </div>
+      <div class="status" id="local-status"></div>
+
+      <hr style="border:none;border-top:1px solid rgba(255,255,255,.12);margin:18px 0;">
+      <h2 style="color:#ff9ea2;"><span class="dot" style="background:#ff9ea2;"></span>Danger zone</h2>
+      <p class="hint">Wipes <strong>all</strong> Skid Circuit data stored in this browser — settings, coins, garage, campaign, ghosts, account session, installed mods, the lot. Cloud saves are not affected. The game reloads afterwards.</p>
+      <div class="btn-row">
+        <button class="btn" id="clear-local-btn" type="button" style="border-color:rgba(255,158,162,.5);color:#ff9ea2;">🗑 Clear all local storage</button>
+      </div>
+      <div class="status" id="clear-status"></div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="dot"></span>Apply changes</h2>
+      <p class="hint">Most changes apply the next time you load the game. If the game is open in another tab, live-applicable settings (graphics preset, audio, camera, FPS) push through immediately.</p>
+      <div class="btn-row">
+        <a class="btn primary" href="index.html?play=1">▶ Back to game</a>
+        <button class="btn" id="apply-live-btn" type="button">⚡ Apply to running game (if open)</button>
+      </div>
+      <div class="status" id="apply-status"></div>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="js/settings-page.js"></script>
+<script type="module" src="js/PageMusic.js"></script>
+<script src="js/NavBar.js"></script>
+</body>
+</html>

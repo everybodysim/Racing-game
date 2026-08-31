@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Skid Circuit — Replay Watcher</title>
+<link rel="canonical" href="https://everybodysim.github.io/Racing-game/replay.html">
+<meta name="description" content="Watch and share Skid Circuit race replays. Load ghost codes and replay your fastest laps.">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Skid Circuit">
+<meta property="og:title" content="Skid Circuit — Replay Watcher">
+<meta property="og:description" content="Watch and share Skid Circuit race replays. Load ghost codes and replay your fastest laps.">
+<meta property="og:url" content="https://everybodysim.github.io/Racing-game/replay.html">
+<meta property="og:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
+	<style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
+		body { margin: 0; background: #0e1118; color: #eaf0ff; font: 14px/1.4 system-ui, sans-serif; }
+		.wrap { max-width: 980px; margin: 18px auto; padding: 0 14px; }
+		.panel { background: #131925; border: 1px solid #273146; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+		.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+		button, textarea { font: inherit; color: #eaf0ff; background: #0e141f; border: 1px solid #2a354a; border-radius: 8px; padding: 8px 10px; }
+		button { cursor: pointer; background: #1d4ed8; border-color: #1d4ed8; }
+		textarea { width: 100%; min-height: 76px; box-sizing: border-box; }
+		.meta { opacity: 0.85; }
+	</style>
+<script src="js/PageTransitions.js"></script>
+<link rel="stylesheet" href="ui-theme.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
+	<div class="wrap">
+		<div class="panel">
+			<div class="controls">
+				<button id="load-code">Load Ghost Code</button>
+				<button id="play-pause">Play</button>
+				<button id="open-race">Open Race URL</button>
+				<div id="status" class="meta">No replay loaded.</div>
+			</div>
+			<div style="margin-top:8px">
+				<textarea id="ghost-code" placeholder="Paste exported ghost code here..."></textarea>
+			</div>
+		</div>
+		<div class="panel">
+			<iframe id="replay-frame" title="Replay renderer" style="width:100%;height:70vh;border:1px solid #2a354a;border-radius:8px;background:#0a0f17;" loading="lazy"></iframe>
+		</div>
+	</div>
+	<script>
+		function decodeBase64UrlJson(value) {
+			const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+			const padLen = (4 - normalized.length % 4) % 4;
+			const padded = normalized + '='.repeat(padLen);
+			return JSON.parse(decodeURIComponent(escape(atob(padded))));
+		}
+		const codeInput = document.getElementById('ghost-code');
+		const loadBtn = document.getElementById('load-code');
+		const playBtn = document.getElementById('play-pause');
+		const openRaceBtn = document.getElementById('open-race');
+		const statusEl = document.getElementById('status');
+		const replayFrame = document.getElementById('replay-frame');
+		let replay = null;
+		let isPlaying = false;
+		function readCodeFromHash() {
+			const hash = new URLSearchParams(location.hash.startsWith('#') ? location.hash.slice(1) : location.hash);
+			return hash.get('code') || '';
+		}
+		function buildReplayUrl(replayData) {
+			if (!replayData?.url || !replayData?.ghost) return null;
+			try {
+				const base = new URL(replayData.url, window.location.href);
+				base.searchParams.set('replayViewer', '1');
+				base.hash = '';
+				const blob = btoa(unescape(encodeURIComponent(JSON.stringify(replayData.ghost)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+				return `${base.toString()}#ghost=${blob}`;
+			} catch { return null; }
+		}
+		function setReplay(parsed) {
+			if (!parsed || !parsed.ghost || !Array.isArray(parsed.ghost.samples) || parsed.ghost.samples.length < 2) {
+				statusEl.textContent = 'Invalid ghost payload.';
+				return false;
+			}
+			replay = parsed;
+			const replayUrl = buildReplayUrl(replay);
+			if (!replayUrl) {
+				statusEl.textContent = 'Replay URL is missing or invalid.';
+				return false;
+			}
+			replayFrame.src = replayUrl;
+			isPlaying = false;
+			playBtn.textContent = 'Play';
+			statusEl.textContent = `Loaded ${replay.ghost.samples.length} samples from ${replay.url || 'unknown URL'}`;
+			return true;
+		}
+		function loadFromTextarea() {
+			try { setReplay(decodeBase64UrlJson(codeInput.value.trim())); }
+			catch { statusEl.textContent = 'Could not decode ghost code.'; }
+		}
+		loadBtn.addEventListener('click', loadFromTextarea);
+		playBtn.addEventListener('click', () => {
+			if (!replay) return void (statusEl.textContent = 'Load a ghost code first.');
+			isPlaying = !isPlaying;
+			playBtn.textContent = isPlaying ? 'Pause' : 'Play';
+			replayFrame.contentWindow?.postMessage({ type: isPlaying ? 'replay-play' : 'replay-pause' }, '*');
+		});
+		openRaceBtn.addEventListener('click', () => {
+			if (!replay) return void (statusEl.textContent = 'Load a ghost code first.');
+			const replayUrl = buildReplayUrl(replay);
+			if (!replayUrl) return void (statusEl.textContent = 'Replay URL is missing or invalid.');
+			window.open(replayUrl, '_blank');
+		});
+		const hashCode = readCodeFromHash();
+		if (hashCode) { codeInput.value = hashCode; loadFromTextarea(); }
+	</script>
+</main>
+
+<script type="module" src="js/PageMusic.js"></script>
+<script src="js/NavBar.js"></script>
+</body>
+</html>

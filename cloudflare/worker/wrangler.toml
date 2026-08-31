@@ -1,0 +1,8 @@
+name = "racing-track-board-api"
+main = "src/index.js"
+compatibility_date = "2026-04-05"
+
+[[kv_namespaces]]
+binding = "TRACKS_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+

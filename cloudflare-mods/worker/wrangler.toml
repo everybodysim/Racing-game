@@ -1,0 +1,8 @@
+name = "racing-mods-board-api"
+main = "src/index.js"
+compatibility_date = "2026-08-14"
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "MODS_KV"
+id = "REPLACE_WITH_MODS_KV_NAMESPACE_ID"

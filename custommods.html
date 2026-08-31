@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skid Circuit — Custom Mods</title>
+<link rel="canonical" href="https://everybodysim.github.io/Racing-game/custommods.html">
+<meta name="description" content="Create custom Skid Circuit mods in the visual Custom Mods Lab and share them with the community.">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Skid Circuit">
+<meta property="og:title" content="Skid Circuit — Custom Mods">
+<meta property="og:description" content="Create custom Skid Circuit mods in the visual Custom Mods Lab and share them with the community.">
+<meta property="og:url" content="https://everybodysim.github.io/Racing-game/custommods.html">
+<meta property="og:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
+  <script src="https://unpkg.com/blockly/blockly.min.js"></script>
+  <!-- The colour-picker field for the FX / UI / Game Control categories used to be
+       loaded here from the @blockly/field-colour CDN, but that UMD bundle is built for
+       module loaders and did not reliably attach to the global Blockly when loaded as a
+       plain global script, which froze the toolbox on those categories. js/custom-mods.js
+       now ships a self-contained colour field instead, so no external field package is
+       needed (and the editor works offline). -->
+  <style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
+    body { margin: 0; font-family: Arial, sans-serif; display: flex; flex-direction: column; height: 100vh; background: #0f172a; color: #fff; }
+    #topbar { padding: 10px; background: #111827; color: white; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    #topbar input { padding: 6px 8px; border-radius: 6px; border: 1px solid #334155; background: #020617; color: #fff; }
+    #topbar button { padding: 6px 10px; cursor: pointer; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #fff; }
+    #blocklyDiv { height: calc(100vh - 165px); min-height: 320px; width: 100%; }
+    #xmlBox { width: 100%; height: 70px; box-sizing: border-box; background: #020617; color: #fff; border: none; border-top: 1px solid #334155; padding: 6px; resize: vertical; }
+    /* The Blockly toolbox must be able to scroll independently when there are
+       more categories than fit vertically, otherwise the last tabs get clipped
+       and become unclickable. Use a concrete viewport-based height (NOT a
+       percentage: `max-height: 100%` can resolve against a flex/absolute parent
+       whose height is itself a percentage, collapsing the toolbox to ~0px in
+       some layouts — that collapses the flyout metrics too and dumps every
+       block on top of itself at (0,0), which is exactly the "clumped pile that
+       won't go away / sidebar freezes until reload" symptom. Matching the
+       workspace area in vh keeps a real pixel height the flyout can measure. */
+    .blocklyToolboxDiv { overflow-y: auto !important; max-height: calc(100vh - 170px) !important; }
+    .blocklyTreeRoot { max-height: none !important; }
+    a { color: #93c5fd; }
+    #status { margin-left: auto; color: #93c5fd; }
+  </style>
+<script src="js/PageTransitions.js"></script>
+<link rel="stylesheet" href="ui-theme.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
+<div id="topbar">
+  <input id="mod-id" placeholder="mod id (custom-speed)" value="custom-speed">
+  <input id="mod-name" placeholder="mod name" value="Custom Speed">
+  <button id="load-sample" type="button" title="Load a ready-made demo mod into the canvas to explore">Load Sample Mod</button>
+  <button id="export-xml" type="button">Export XML</button>
+  <button id="import-xml" type="button">Import XML</button>
+  <button id="save-draft" type="button">Save Draft</button>
+  <button id="load-draft" type="button">Load Draft</button>
+  <button id="export-share" type="button">Copy Share URL</button>
+  <button id="save-to-manager" type="button">Save to Mod Manager</button>
+  <button id="publish-board" type="button" title="Publish this mod to the community board so others can install it">Publish to Community Board</button>
+  <button id="export-template" type="button" title="Show the generated JS runtime (advanced)">Generate JS Template</button>
+  <a href="mods.html">← Back</a>
+  <span id="status">Ready</span>
+</div>
+<div id="blocklyDiv"></div>
+<textarea id="xmlBox" placeholder="Exported XML / share URL appears here. Paste Blockly XML or a share URL here to import."></textarea>
+
+<xml id="toolbox" style="display:none">
+  <category name="Events" colour="#f59e0b">
+    <block type="event_on_start"></block>
+    <block type="event_on_tick"></block>
+    <block type="event_on_key"></block>
+    <block type="event_on_key_hold"></block>
+    <block type="event_on_key_release"></block>
+    <block type="event_on_checkpoint"></block>
+    <block type="event_on_crash"></block>
+    <block type="event_on_lap_finish"></block>
+    <block type="event_on_respawn"></block>
+    <block type="event_on_timer_done"></block>
+    <block type="event_on_speed_threshold"></block>
+    <block type="event_on_high_speed"></block>
+    <block type="event_on_low_speed"></block>
+    <block type="event_on_low_speed_held"></block>
+    <block type="event_on_air"></block>
+    <block type="event_on_ground"></block>
+    <block type="event_on_drift"></block>
+  </category>
+  <category name="Vehicle" colour="#06b6d4">
+    <block type="action_set_speed"></block>
+    <block type="action_boost"></block>
+    <block type="action_set_top_speed"></block>
+    <block type="action_set_accel_rate"></block>
+    <block type="action_set_brake_rate"></block>
+    <block type="action_set_drive_force"></block>
+    <block type="action_set_drag"></block>
+    <block type="action_set_reverse_accel"></block>
+    <block type="action_set_gravity"></block>
+    <block type="action_set_time_scale"></block>
+    <block type="action_set_accel_mult"></block>
+    <block type="action_set_drive_mult"></block>
+    <block type="action_set_grip_mult"></block>
+    <block type="action_force_brake"></block>
+    <block type="action_force_throttle"></block>
+    <block type="action_disable_steering"></block>
+    <block type="action_jump"></block>
+    <block type="action_reset_car"></block>
+    <block type="action_teleport"></block>
+    <block type="action_apply_impulse"></block>
+    <block type="action_angular_impulse"></block>
+    <block type="action_set_vehicle_spin"></block>
+    <block type="action_set_vehicle_scale"></block>
+    <block type="action_set_vehicle_visible"></block>
+    <block type="action_set_drift"></block>
+    <block type="action_set_vehicle_model"></block>
+  </category>
+  <category name="Camera" colour="#8b5cf6">
+    <block type="action_camera_shake"></block>
+    <block type="action_set_camera_fov"></block>
+    <block type="action_set_camera_mode"></block>
+    <block type="action_set_camera_distance"></block>
+    <block type="action_set_camera_height"></block>
+    <block type="action_set_camera_lag"></block>
+    <block type="action_set_camera_pitch"></block>
+    <block type="action_camera_look_mode"></block>
+    <block type="action_camera_reset"></block>
+  </category>
+  <category name="FX / Visuals" colour="#0ea5e9">
+    <block type="action_show_message"></block>
+    <block type="action_spawn_particle"></block>
+    <block type="action_spawn_particle_burst"></block>
+    <block type="action_set_particle_color"></block>
+    <block type="action_flash_screen"></block>
+    <block type="action_set_fog_strength"></block>
+    <block type="action_set_fog_density"></block>
+    <block type="action_set_fog_color"></block>
+    <block type="action_set_background_color"></block>
+    <block type="action_set_sky_color"></block>
+    <block type="action_set_horizon_color"></block>
+    <block type="action_set_sky_vibrance"></block>
+    <block type="action_set_sky_palette"></block>
+    <block type="action_set_sun_intensity"></block>
+    <block type="action_set_hemi_intensity"></block>
+    <block type="action_set_exposure"></block>
+    <block type="action_set_pixel_ratio"></block>
+    <block type="action_set_shadows"></block>
+    <block type="action_set_screen_brightness"></block>
+    <block type="action_set_sun_position"></block>
+    <block type="action_set_snow_intensity"></block>
+    <block type="action_set_rain_intensity"></block>
+    <block type="action_set_weather"></block>
+    <block type="action_set_fog_color_rgb"></block>
+  </category>
+  <category name="Audio" colour="#f43f5e">
+    <block type="action_set_engine_volume"></block>
+    <block type="action_set_music_volume"></block>
+    <block type="action_set_master_volume"></block>
+    <block type="action_play_impact"></block>
+    <block type="action_play_cue"></block>
+  </category>
+  <category name="HUD & Game" colour="#eab308">
+    <block type="action_set_hud_text"></block>
+    <block type="action_set_effect_message"></block>
+    <block type="action_set_fps_counter"></block>
+    <block type="action_add_stunt_points"></block>
+    <block type="action_add_stunt_points_reason"></block>
+    <block type="action_add_coins"></block>
+  </category>
+  <category name="Timers & Flow" colour="#14b8a6">
+    <block type="action_start_timer"></block>
+    <block type="action_start_named_timer"></block>
+    <block type="action_wait"></block>
+    <block type="action_random_delay"></block>
+    <block type="action_repeat"></block>
+    <block type="action_loop_forever"></block>
+  </category>
+  <category name="Variables" colour="#22c55e">
+    <block type="action_var_set"></block>
+    <block type="action_var_add"></block>
+    <block type="action_var_multiply"></block>
+    <block type="action_var_divide"></block>
+    <block type="action_var_clamp"></block>
+    <block type="action_var_reset"></block>
+    <block type="action_var_set_text"></block>
+    <block type="action_textvar_append"></block>
+    <block type="value_var_get"></block>
+    <block type="value_text_var_get"></block>
+  </category>
+  <category name="Values" colour="#22c55e">
+    <block type="value_speed"></block>
+    <block type="value_lap_time"></block>
+    <block type="value_race_time"></block>
+    <block type="value_checkpoint_number"></block>
+    <block type="value_crash_force"></block>
+    <block type="value_random"></block>
+    <block type="value_coins"></block>
+    <block type="value_lap_number"></block>
+    <block type="value_best_lap"></block>
+    <block type="value_last_lap"></block>
+    <block type="value_stunt_points"></block>
+    <block type="value_stunt_combo"></block>
+    <block type="value_drift"></block>
+    <block type="value_angular_speed"></block>
+    <block type="value_top_speed"></block>
+    <block type="value_accel_rate"></block>
+    <block type="value_drive_force"></block>
+    <block type="value_grip_mult"></block>
+    <block type="value_pos_x"></block>
+    <block type="value_pos_y"></block>
+    <block type="value_pos_z"></block>
+    <block type="value_speed_kmh"></block>
+    <block type="value_speed_mph"></block>
+    <block type="value_heading"></block>
+    <block type="value_velocity_x"></block>
+    <block type="value_velocity_y"></block>
+    <block type="value_velocity_z"></block>
+    <block type="value_split_screen"></block>
+    <block type="value_drag_mult"></block>
+    <block type="value_accel_mult"></block>
+    <block type="value_drive_mult"></block>
+    <block type="value_time_scale"></block>
+    <block type="value_gravity"></block>
+    <block type="value_game_mode"></block>
+  </category>
+  <category name="Logic" colour="#3b82f6">
+    <block type="controls_if"></block>
+    <block type="controls_if_else"></block>
+    <block type="logic_compare"></block>
+    <block type="logic_operation"></block>
+    <block type="logic_negate"></block>
+    <block type="logic_xor"></block>
+    <block type="logic_is_airborne"></block>
+    <block type="logic_is_drifting"></block>
+    <block type="logic_key_down"></block>
+    <block type="logic_is_even"></block>
+    <block type="logic_is_positive"></block>
+    <block type="logic_is_integer"></block>
+    <block type="logic_is_zero"></block>
+    <block type="logic_text_equals"></block>
+    <block type="logic_is_empty"></block>
+    <block type="value_true"></block>
+    <block type="value_false"></block>
+  </category>
+  <category name="Math" colour="#6366f1">
+    <block type="math_number"></block>
+    <block type="math_arithmetic"></block>
+    <block type="math_single"></block>
+    <block type="math_adv_single"></block>
+    <block type="math_pair"></block>
+    <block type="math_clamp"></block>
+    <block type="math_min_max"></block>
+    <block type="math_round_int"></block>
+    <block type="math_random_int"></block>
+    <block type="math_random_range"></block>
+    <block type="math_lerp"></block>
+    <block type="math_map_range"></block>
+    <block type="math_pi"></block>
+    <block type="math_constant"></block>
+    <block type="math_divisible"></block>
+    <block type="math_between"></block>
+    <block type="math_deg_to_rad"></block>
+    <block type="math_rad_to_deg"></block>
+  </category>
+  <category name="Text" colour="#a855f7">
+    <block type="text"></block>
+    <block type="text_combine"></block>
+    <block type="text_to_string"></block>
+    <block type="text_to_number"></block>
+    <block type="text_round_num"></block>
+    <block type="text_length"></block>
+    <block type="text_contains"></block>
+    <block type="text_substring"></block>
+    <block type="text_slice"></block>
+    <block type="text_char_at"></block>
+    <block type="text_first_char"></block>
+    <block type="text_last_char"></block>
+    <block type="text_index_of"></block>
+    <block type="text_count"></block>
+    <block type="text_replace"></block>
+    <block type="text_replace_all"></block>
+    <block type="text_repeat"></block>
+    <block type="text_reverse"></block>
+    <block type="text_trim"></block>
+    <block type="text_pad"></block>
+    <block type="text_upper"></block>
+    <block type="text_lower"></block>
+    <block type="text_split"></block>
+    <block type="text_char_code"></block>
+    <block type="text_from_char_code"></block>
+  </category>
+  <category name="Lists" colour="#ec4899">
+    <block type="lists_create"></block>
+    <block type="lists_create_with"></block>
+    <block type="value_list_get"></block>
+    <block type="lists_length"></block>
+    <block type="lists_get_index"></block>
+    <block type="lists_first"></block>
+    <block type="lists_last"></block>
+    <block type="lists_contains"></block>
+    <block type="lists_index_of"></block>
+    <block type="lists_reverse"></block>
+    <block type="lists_sort"></block>
+    <block type="lists_sum"></block>
+    <block type="lists_max"></block>
+    <block type="lists_average"></block>
+    <block type="lists_join"></block>
+    <block type="action_lists_set"></block>
+    <block type="action_lists_add"></block>
+    <block type="action_lists_remove"></block>
+    <block type="action_lists_clear"></block>
+  </category>
+  <category name="UI &amp; Storage" colour="#f97316">
+    <block type="ui_create_panel"></block>
+    <block type="ui_create_button"></block>
+    <block type="ui_create_label"></block>
+    <block type="ui_create_heading"></block>
+    <block type="ui_create_slider"></block>
+    <block type="ui_create_progress"></block>
+    <block type="ui_create_checkbox"></block>
+    <block type="ui_create_dropdown"></block>
+    <block type="ui_create_text_input"></block>
+    <block type="ui_create_divider"></block>
+    <block type="ui_set_text"></block>
+    <block type="ui_set_style"></block>
+    <block type="ui_set_position"></block>
+    <block type="ui_set_size"></block>
+    <block type="ui_set_text_color"></block>
+    <block type="ui_set_bg_color"></block>
+    <block type="ui_set_font_size"></block>
+    <block type="ui_set_enabled"></block>
+    <block type="ui_append"></block>
+    <block type="ui_remove"></block>
+    <block type="ui_show"></block>
+    <block type="ui_hide"></block>
+    <block type="ui_on_click"></block>
+    <block type="ui_clear"></block>
+    <block type="value_ui_element_text"></block>
+    <block type="storage_set"></block>
+    <block type="storage_set_num"></block>
+    <block type="storage_set_bool"></block>
+    <block type="storage_get"></block>
+    <block type="storage_get_num"></block>
+    <block type="storage_get_text"></block>
+    <block type="storage_get_bool"></block>
+    <block type="storage_has"></block>
+    <block type="storage_increment"></block>
+    <block type="storage_list_add"></block>
+    <block type="storage_list_get"></block>
+    <block type="storage_count"></block>
+    <block type="storage_remove"></block>
+    <block type="storage_clear"></block>
+  </category>
+  <category name="Game Control" colour="#14b8a6">
+    <block type="action_respawn"></block>
+    <block type="action_restart_race"></block>
+    <block type="action_teleport_to_spawn"></block>
+    <block type="action_pause"></block>
+    <block type="action_resume"></block>
+    <block type="action_add_lap_time_penalty"></block>
+    <block type="value_is_paused"></block>
+    <block type="value_fps"></block>
+    <block type="value_dt"></block>
+    <block type="value_color"></block>
+  </category>
+</xml>
+
+
+<script type="module" src="js/custom-mods.js"></script>
+</main>
+
+<script type="module" src="js/PageMusic.js"></script>
+<script src="js/NavBar.js"></script>
+</body>
+</html>

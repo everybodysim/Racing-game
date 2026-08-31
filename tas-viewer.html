@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skid Circuit — TAS Viewer</title>
+<link rel="canonical" href="https://everybodysim.github.io/Racing-game/tas-viewer.html">
+<meta name="description" content="Watch Skid Circuit tool-assisted speedrun (TAS) replays frame by frame.">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Skid Circuit">
+<meta property="og:title" content="Skid Circuit — TAS Viewer">
+<meta property="og:description" content="Watch Skid Circuit tool-assisted speedrun (TAS) replays frame by frame.">
+<meta property="og:url" content="https://everybodysim.github.io/Racing-game/tas-viewer.html">
+<meta property="og:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
+
+  <style>
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
+.skip-link:focus{top:12px}
+
+    body { margin: 0; background: #090d14; color: #fff; font: 13px/1.4 system-ui, sans-serif; }
+
+    #root {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      height: 100vh;
+    }
+
+    #view {
+      position: relative;
+      min-width: 0;
+    }
+
+    #lap {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: rgba(0,0,0,0.45);
+      padding: 8px 10px;
+      border-radius: 8px;
+      z-index: 2;
+    }
+
+    #side {
+      border-left: 1px solid rgba(255,255,255,0.15);
+      padding: 12px;
+      overflow: auto;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 180px;
+      background: rgba(0,0,0,0.3);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+    }
+
+    input, button, select {
+      width: 100%;
+      margin-top: 6px;
+      box-sizing: border-box;
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(0,0,0,0.3);
+      color: #fff;
+    }
+
+    button { cursor: pointer; }
+
+    .row { margin-bottom: 8px; }
+
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/",
+      "crashcat": "https://esm.sh/crashcat@0.0.2"
+    }
+  }
+  </script>
+<script src="js/PageTransitions.js"></script>
+<link rel="stylesheet" href="ui-theme.css">
+</head>
+
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<main id="main-content">
+
+  <div id="root">
+    <div id="view"><div id="lap">Lap 1 • 00:00.000 • Last --:--.--- • Best --:--.---</div></div>
+
+    <aside id="side">
+      <h2>TAS</h2>
+
+      <div class="row">
+        <label>Track URL (map/mods)</label>
+        <input id="track-url" placeholder="https://.../index.html?map=...&mods=..." />
+        <button id="load-track-btn">Load Track URL</button>
+      </div>
+
+      <div class="row">
+        <label>Car config</label>
+        <select id="car-select">
+          <option value="vehicle-truck-yellow">Trail Pickup</option>
+          <option value="vehicle-truck-green">Utility Pickup</option>
+          <option value="vehicle-truck-purple">Cargo Van</option>
+          <option value="vehicle-truck-red">Stakebed Truck</option>
+          <option value="vehicle-hatchback-green">Hatchback</option>
+          <option value="vehicle-sedan-orange">Sedan</option>
+          <option value="vehicle-car-police">Police Car</option>
+          <option value="vehicle-delivery-yellow">Delivery</option>
+          <option value="vehicle-flatbed-purple">Flatbed Truck</option>
+          <option value="vehicle-van-blue">Panel Van</option>
+          <option value="vehicle-ambulance-red">Ambulance</option>
+          <option value="vehicle-firetruck-red">Fire Truck</option>
+          <option value="vehicle-taxi-yellow">Taxi</option>
+          <option value="vehicle-tractor-yellow">Tractor</option>
+          <option value="vehicle-trash-green">Trash Truck</option>
+        </select>
+
+        <label>Engine tier</label>
+        <input id="engine-tier" type="range" min="0" max="4" step="1" value="0" />
+
+        <label>Garage grip multiplier</label>
+        <input id="garage-grip" type="range" min="0.85" max="1.15" step="0.01" value="1" />
+
+        <label>Garage accel multiplier</label>
+        <input id="garage-accel" type="range" min="0.85" max="1.15" step="0.01" value="1" />
+
+        <label>Garage drive multiplier</label>
+        <input id="garage-drive" type="range" min="0.85" max="1.15" step="0.01" value="1" />
+      </div>
+
+      <button id="new-btn">New TAS</button>
+      <button id="run-btn">Run TAS</button>
+      <button id="export-btn">Export Ghost Code</button>
+
+      <label>Inputs (Arrow keys + frames, e.g. ArrowUp+ArrowLeft,30)</label>
+      <textarea id="inputs">ArrowUp,120
+ArrowUp+ArrowLeft,30
+ArrowUp,120</textarea>
+
+      <label>Brute force: number of inputs to touch</label>
+      <input id="bf-count" type="number" min="1" value="30" />
+
+      <label>Brute force reps</label>
+      <input id="bf-reps" type="number" min="1" value="50" />
+
+      <button id="bf-btn">Brute force</button>
+
+      <div id="status"></div>
+      <pre id="run-errors" style="white-space:pre-wrap;color:#ffb3b3;background:rgba(90,0,0,.22);padding:8px;border-radius:8px;"></pre>
+    </aside>
+  </div>
+
+  <script type="module" src="js/tas-viewer.js"></script>
+
+</main>
+
+<script type="module" src="js/PageMusic.js"></script>
+<script src="js/NavBar.js"></script>
+</body>
+</html>

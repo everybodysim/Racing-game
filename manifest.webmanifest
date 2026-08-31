@@ -1,0 +1,24 @@
+{
+  "name": "Skid Circuit",
+  "short_name": "Skid Circuit",
+  "description": "Skid Circuit — a free 3D browser racing game where you can race, drift, build custom tracks, and compete for fast times.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#2f8f2f",
+  "theme_color": "#2f8f2f",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
