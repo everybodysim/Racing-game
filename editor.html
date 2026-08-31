@@ -2503,9 +2503,7 @@
 
 	function getGateTintColor( type ) {
 
-		if ( type === 'track-start' ) return new THREE.Color( 0x66cc66 );
-		if ( type === 'track-finish' ) return new THREE.Color( 0xcc6666 );
-		if ( type === 'track-start-finish' ) return new THREE.Color( 0xcc9955 );
+		// Start/finish gate tints removed — blocks render with their own textures.
 		return null;
 
 	}
@@ -3703,6 +3701,8 @@ function refreshMovingSpeedUi() {
 		selectedOrient = ORIENTATIONS[ nextIdx ];
 		updateTileToolbar();
 		refreshMovingSpeedUi();
+		// Refresh the hover preview immediately so the orientation change shows without moving the mouse.
+		if ( hoveredCell ) updateGhost( hoveredCell.gx, hoveredCell.gz );
 
 	}
 

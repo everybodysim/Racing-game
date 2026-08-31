@@ -32,6 +32,10 @@ export class Vehicle {
 
 		this.spherePos = new THREE.Vector3( 3.5, 0.5, 5 );
 		this.sphereVel = new THREE.Vector3();
+		this.wheelieNode = null;
+		this.wheelieAmount = 0;
+		this.wheelieActive = false;
+
 
 		this.rigidBody = null;
 		this.physicsWorld = null;
@@ -166,8 +170,33 @@ export class Vehicle {
 			}
 
 		} );
+		// Wheelie pivot: the rear axle, so boosts pitch the car up about its back wheels.
+		if ( this.wheelBL && this.wheelBR ) {
+			const rearZ = ( this.wheelBL.position.z + this.wheelBR.position.z ) / 2;
+			const pivot = new THREE.Group();
+			pivot.position.set( 0, 0, rearZ );
+			this.modelRoot.position.z += - rearZ;
+			this.wheelieNode = pivot;
+			pivot.add( this.modelRoot );
+			this.container.add( pivot );
+		}
+
 
 	}
+
+		setWheelieActive( active ) {
+			this.wheelieActive = Boolean( active );
+		}
+
+		updateWheelie( dt ) {
+			if ( ! this.modelRoot || ! this.wheelieNode ) return;
+			const target = this.wheelieActive ? 1 : 0;
+			const rate = target > this.wheelieAmount ? 6.5 : 3.5;
+			this.wheelieAmount += ( target - this.wheelieAmount ) * Math.min( 1, dt * rate );
+			const angle = this.wheelieAmount * 0.55;
+			this.wheelieNode.rotation.x = -angle;
+		}
+
 
 	init( model ) {
 
@@ -280,6 +309,7 @@ export class Vehicle {
 
 		this.updateBody( dt );
 		this.updateWheels( dt );
+		this.updateWheelie( dt );
 		this.applySlopeVisualTilt( dt );
 
 		_forward.set( 0, 0, 1 ).applyQuaternion( this.container.quaternion );
@@ -371,4 +401,3 @@ export class Vehicle {
 	}
 
 }
-

@@ -248,6 +248,7 @@ const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-purple', 'vehicle-truck-red',
 	'vehicle-hatchback-green', 'vehicle-sedan-orange',
 	'vehicle-car-police', 'vehicle-delivery-yellow', 'vehicle-flatbed-purple', 'vehicle-van-blue',
+	'vehicle-ambulance-red', 'vehicle-firetruck-red', 'vehicle-taxi-yellow', 'vehicle-tractor-yellow', 'vehicle-trash-green',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'track-3-way', 'track-4-way',
 	'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope',
@@ -258,16 +259,21 @@ const modelNames = [
 
 const models = {};
 const CAR_STATS = {
-	'vehicle-truck-yellow': { name: 'Yellow Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-green': { name: 'Green Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-purple': { name: 'Purple Van', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-red': { name: 'Red Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-hatchback-green': { name: 'Green Hatchback', bodyStyle: 'hatchback', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-sedan-orange': { name: 'Orange Sedan', bodyStyle: 'sedan', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-yellow': { name: 'Trail Pickup', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-green': { name: 'Utility Pickup', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-purple': { name: 'Cargo Van', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-red': { name: 'Stakebed Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-hatchback-green': { name: 'Hatchback', bodyStyle: 'hatchback', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-sedan-orange': { name: 'Sedan', bodyStyle: 'sedan', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 	'vehicle-car-police': { name: 'Police Car', bodyStyle: 'car', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-delivery-yellow': { name: 'Yellow Delivery', bodyStyle: 'delivery', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-flatbed-purple': { name: 'Purple Flatbed', bodyStyle: 'flatbed', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-van-blue': { name: 'Blue Van', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-delivery-yellow': { name: 'Delivery', bodyStyle: 'delivery', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-flatbed-purple': { name: 'Flatbed Truck', bodyStyle: 'flatbed', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-van-blue': { name: 'Panel Van', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-ambulance-red': { name: 'Ambulance', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-firetruck-red': { name: 'Fire Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-taxi-yellow': { name: 'Taxi', bodyStyle: 'car', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-tractor-yellow': { name: 'Tractor', bodyStyle: 'tractor', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-trash-green': { name: 'Trash Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
 };
 const CAR_SELECT_STYLES = {
 	'vehicle-truck-yellow': { background: '#f2c94c', border: '#ffe082', color: '#1b1606' },
@@ -280,6 +286,11 @@ const CAR_SELECT_STYLES = {
 	'vehicle-delivery-yellow': { background: '#f59f00', border: '#ffe066', color: '#fff9db' },
 	'vehicle-flatbed-purple': { background: '#9c36b5', border: '#da77f2', color: '#f8f0fc' },
 	'vehicle-van-blue': { background: '#1864ab', border: '#339af0', color: '#e8f3ff' },
+	'vehicle-ambulance-red': { background: '#c92a2a', border: '#ffa8a8', color: '#fff5f5' },
+	'vehicle-firetruck-red': { background: '#c92a2a', border: '#ff8787', color: '#fff5f5' },
+	'vehicle-taxi-yellow': { background: '#f59f00', border: '#ffd43b', color: '#fff9db' },
+	'vehicle-tractor-yellow': { background: '#e67700', border: '#ffb00f', color: '#fff7e6' },
+	'vehicle-trash-green': { background: '#2f9e44', border: '#69db7c', color: '#f0fff4' },
 };
 const DEFAULT_ENGINE_MULT = 1.1;
 const MAX_EFFECTIVE_TOP_SPEED = 1.8;
@@ -1195,6 +1206,20 @@ function normalizeMultiplayerCarKey( value ) {
 		delivery: 'vehicle-delivery-yellow',
 		flatbed: 'vehicle-flatbed-purple',
 		blue: 'vehicle-van-blue',
+		firetruck: 'vehicle-firetruck-red',
+		'fire truck': 'vehicle-firetruck-red',
+		trash: 'vehicle-trash-green',
+		'trash truck': 'vehicle-trash-green',
+		taxi: 'vehicle-taxi-yellow',
+		ambulance: 'vehicle-ambulance-red',
+		tractor: 'vehicle-tractor-yellow',
+		'trail pickup': 'vehicle-truck-yellow',
+		'utility pickup': 'vehicle-truck-green',
+		'stakebed truck': 'vehicle-truck-red',
+		'stake bed': 'vehicle-truck-red',
+		'cargo van': 'vehicle-truck-purple',
+		'panel van': 'vehicle-van-blue',
+		'flatbed truck': 'vehicle-flatbed-purple',
 	};
 	return fallbackByName[ lower ] || 'vehicle-truck-yellow';
 
@@ -5665,19 +5690,14 @@ async function init() {
 
 	function updateCarSelectColor() {
 
-		if ( ! carSelect ) return;
-		const style = CAR_SELECT_STYLES[ currentCarKey() ];
-		if ( ! style ) {
+		// Keep the car select styled like the rest of the UI (no per-car color splash).
+		if ( carSelect ) {
 
 			carSelect.style.backgroundColor = '';
 			carSelect.style.borderColor = '';
 			carSelect.style.color = '';
-			return;
 
 		}
-		carSelect.style.backgroundColor = style.background;
-		carSelect.style.borderColor = style.border;
-		carSelect.style.color = style.color;
 
 	}
 
@@ -9938,6 +9958,7 @@ function completeCampaignStage() {
 		lapSeconds = 0;
 		currentLapInvalidatedByPause = false;
 		boostActiveUntil = 0;
+		vehicle.setWheelieActive?.( false );
 		boostContactCell = null;
 		arcLinkState = { contactKey: null, lockUntilExit: false };
 		activePadEffect = null;
@@ -9984,6 +10005,7 @@ function completeCampaignStage() {
 		lapStartSeconds2 = raceClockSeconds;
 		lapSeconds2 = 0;
 		boostActiveUntil2 = 0;
+                vehicle2.setWheelieActive?.( false );
 		boostContactCell2 = null;
 		arcLinkState2 = { contactKey: null, lockUntilExit: false };
 		activePadEffect2 = null;
@@ -10189,13 +10211,17 @@ function completeCampaignStage() {
 		] );
 		setBoostActiveUntil( now + BOOST_FORCE_SECONDS );
 		targetParticles?.triggerBoostFx( Math.max( BOOST_EFFECT_SECONDS, BOOST_FORCE_SECONDS ) );
+                targetVehicle.setWheelieActive?.( true );
 
 	}
 
 	function updateActiveBoost( targetVehicle, boostActiveUntil, dt, now = timer.getElapsed() ) {
 
 		if ( ! targetVehicle?.rigidBody ) return;
-		if ( now >= boostActiveUntil ) return;
+		if ( now >= boostActiveUntil ) {
+                targetVehicle.setWheelieActive?.( false );
+                return;
+            }
 		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
 		_boostForward.y = 0;
 		const boostLenSq = _boostForward.lengthSq();

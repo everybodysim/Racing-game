@@ -210,7 +210,7 @@ actionDef( 'action_set_vehicle_spin', 'RAD', 'set vehicle Y rotation (rad)' );
 actionDef( 'action_set_vehicle_scale', 'VALUE', 'set vehicle size scale' );
 actionDefDropdown( 'action_set_vehicle_visible', 'set vehicle visible', 'VIS', [ [ 'visible', '1' ], [ 'hidden', '0' ] ], null, null, VEH );
 actionDef( 'action_set_drift', 'VALUE', 'set drift intensity (0-2)' );
-actionDefDropdown( 'action_set_vehicle_model', 'set vehicle model', 'MODEL', [ [ 'Yellow Truck', 'vehicle-truck-yellow' ], [ 'Green Truck', 'vehicle-truck-green' ], [ 'Purple Van', 'vehicle-truck-purple' ], [ 'Red Truck', 'vehicle-truck-red' ], [ 'Green Hatchback', 'vehicle-hatchback-green' ], [ 'Orange Sedan', 'vehicle-sedan-orange' ], [ 'Police Car', 'vehicle-car-police' ], [ 'Yellow Delivery', 'vehicle-delivery-yellow' ], [ 'Purple Flatbed', 'vehicle-flatbed-purple' ], [ 'Blue Van', 'vehicle-van-blue' ] ], null, null, VEH );
+actionDefDropdown( 'action_set_vehicle_model', 'set vehicle model', 'MODEL', [ [ 'Trail Pickup', 'vehicle-truck-yellow' ], [ 'Utility Pickup', 'vehicle-truck-green' ], [ 'Cargo Van', 'vehicle-truck-purple' ], [ 'Stakebed Truck', 'vehicle-truck-red' ], [ 'Hatchback', 'vehicle-hatchback-green' ], [ 'Sedan', 'vehicle-sedan-orange' ], [ 'Police Car', 'vehicle-car-police' ], [ 'Delivery', 'vehicle-delivery-yellow' ], [ 'Flatbed Truck', 'vehicle-flatbed-purple' ], [ 'Panel Van', 'vehicle-van-blue' ], [ 'Ambulance', 'vehicle-ambulance-red' ], [ 'Fire Truck', 'vehicle-firetruck-red' ], [ 'Taxi', 'vehicle-taxi-yellow' ], [ 'Tractor', 'vehicle-tractor-yellow' ], [ 'Trash Truck', 'vehicle-trash-green' ] ], null, null, VEH );
 
 // ============ CAMERA ============
 actionDef( 'action_camera_shake', 'INT', 'camera shake intensity' );

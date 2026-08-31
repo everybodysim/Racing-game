@@ -109,17 +109,19 @@
 - Ghost/replay payloads carry `car`; imported ghosts normalize and re-render the matching model.
 - Custom mods can call `api.setVehicleModel(key)` (validates against CAR_STATS + models).
 
-### Current car roster (10 cars, all unified stats)
+### Current car roster (15 cars, all unified stats)
 - Original 4: `vehicle-truck-yellow` (Yellow Truck), `vehicle-truck-green` (Green Truck),
   `vehicle-truck-purple` (Purple Van), `vehicle-truck-red` (Red Truck).
 - Batch 2: `vehicle-hatchback-green` (Green Hatchback), `vehicle-sedan-orange` (Orange Sedan).
 - Batch 3: `vehicle-car-police` (Police Car), `vehicle-delivery-yellow` (Yellow Delivery),
   `vehicle-flatbed-purple` (Purple Flatbed), `vehicle-van-blue` (Blue Van).
+- Batch 4: `vehicle-ambulance-red` (Ambulance), `vehicle-firetruck-red` (Fire Truck},
+  `vehicle-taxi-yellow` (Taxi), `vehicle-tractor-yellow` (Tractor), `vehicle-trash-green` (Trash Truck}.
 - Naming convention: `[Color] [Model]` (e.g. "Yellow Truck", "Purple Van", "Police Car").
   Police Car has no color prefix (it's a distinct livery). All share identical perf
   (topSpeed 1.12, accelRate 4.8, driveForce 95.0). The `car-select` dropdown options are
   overridden at runtime to `stats.name` (main.js ~line 5997), so HTML option text is a fallback.
-- Garage card grid: `repeat(5, minmax(0,1fr))` → 2×5 grid for 10 cars. Responsive: 3 cols
+- Garage card grid: `repeat(5, minmax(0,1fr))` → 3×5 grid for 15 cars. Responsive: 3 cols
   <1200px, 2 cols <720px. Mobile forces 2 cols.
 
 ## Car painter / Paint Shop (garage) — 3D click-to-fill (`js/main.js` + `index.html`)
@@ -338,10 +340,31 @@
 - The old `.garage-vehicle-card dl/dt/dd` and `.garage-vehicle-status` rules were
   removed (no longer emitted by `renderGarageVehicleCards`).
 
-## Physics: car is a rolling sphere (`js/Physics.js` + `js/Vehicle.js`)
+## Boost wheelie animation (`js/Vehicle.js` + `js/main.js`)
 
-### Drive model (critical for surface friction tuning)
-- The car is a single crashcat sphere (radius `VEHICLE_SURFACE_RADIUS` 0.5, friction 5.0).
+- When a boost is applied (arcade-boost button, boost pads, wood surfaces`applyBoostFor`),the
+  car pitches up about its rear axle like a wheelie. `applyBoostFor()` calls
+  `targetVehicle.setWheelieActive?.( true )`; `updateActiveBoost()` calls
+  `.setWheelieActive?.( false )` when the boost elapses (now >= boostActiveUntil). Respawn/
+  lap-reset sites zere boostActiveUntil also call `.setWheelieActive?.( false )` so the
+  car doesn't stay popped.
+
+### Vehicle.js side
+- Constructor fields:`wheelieNode` / `wheelieAmount` / `wheelieActive`
+  (defaults null / 0 / false).
+- `attachModel()` builds the wheelie pivot: a `THREE.Group` positioned at the REAR
+  axle z (`( wheelBL.position.z + wheelBR.position.z ) / 2`, computed at runtime from
+  the wheel node translations — NO per-car table. The cloned modelRoot is re-parented
+  under the pivot and its position.z shifte the opposite way (-rearZ, so the whole car
+  visually stays exactly in place (identity net transform when not wheeling).
+- `updateWheelie( dt )` lerps `wheelieAmount` → 1 (fast, 6.5/s) when active /
+  → 0 (slow, 3.5/s) when not,and applies `-wheelieAmount * 0.55` pitch to
+  `wheelieNode.rotation.x` (so the car lifts its nose off the ground about its back wheels.
+.
+- `update()` calls `this.updateWheelie( dt )` after `updateWheels( dt )`.
+- Wired generically for ALL vehicles (the pivot math uses each vehicle's own rear wheels),
+  including the 5 newest (ambulance, firetruck, taxi, tractor, trash truck.
+- The car is a single crashcat sphere(radius `VEHICLE_SURFACE_RADIUS` 0.5, friction  5.0).
 - It moves by ROLLING: `Vehicle.update()` applies ANGULAR velocity around the right
   axis (`rigidBody.setAngularVelocity(... angvel + _right * drive)`). Surface friction
   converts that rolling into linear (forward) motion.
