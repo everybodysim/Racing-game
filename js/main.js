@@ -2007,7 +2007,7 @@ function maybeReclaimPublicServerHost( roomCode ) {
 		}
 		}
 
-	};
+	;
 	probe.on( 'open', ( id ) => { if ( id === hostPeerId ) finish( true ); } );
 	probe.on( 'error', ( error ) => {
 
