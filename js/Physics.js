@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { rigidBody, box, sphere, MotionType, MotionQuality } from 'crashcat';
+import { rigidBody, box, sphere, MotionType, MotionQuality, castRay, filter, createAllCastRayCollector, createDefaultCastRaySettings } from 'crashcat';
 import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
 
 // Building model definitions. The game's loadModels() scales every 'building-*'
@@ -1099,6 +1099,43 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 }
 
+export function createCameraObstacleProbe( world ) {
+
+	const settings = createDefaultCastRaySettings();
+	const collector = createAllCastRayCollector();
+	const worldFilter = world && world.settings ? filter.create( world.settings.layers ) : null;
+	const ignoredBodyIds = new Set();
+	const hits = collector.hits;
+	return {
+
+		probe( origin, direction, maxDistance, isBodyIgnored ) {
+
+			if ( ! world || ! origin || ! direction ) return null;
+			ignoredBodyIds.clear();
+			const bodyCount = world.bodies?.pool?.length || 0;
+			for ( let i = 0; i < bodyCount; i ++ ) {
+
+				const body = world.bodies.pool[ i ];
+				if ( body && ! body._pooled && isBodyIgnored && isBodyIgnored( body ) ) ignoredBodyIds.add( body.id );
+
+			}
+			collector.reset();
+			if ( ! worldFilter ) return null;
+			castRay( world, collector, settings, origin, direction, maxDistance, worldFilter );
+			for ( let n =  0; n < hits.length; n ++ ) {
+
+				const hit = hits[ n ];
+				if ( hit.status !== 1 ) continue; // CastRayStatus.COLLIDING
+				if ( ! ignoredBodyIds.has( hit.bodyIdB ) ) return hit;
+
+			}
+			return null;
+
+		},
+
+	};
+
+}
 export function createSphereBody( world, spawnPos ) {
 
 	const body = rigidBody.create( world, {
