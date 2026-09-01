@@ -165,7 +165,7 @@ export class Camera {
 		const fullDist = Math.max( 0.1, Math.min( Number( this.collisionMaxDistance ) ||  12.5, origin.distanceTo( desiredPos ) ) );
 
 		const rayDist = fullDist - Math.max( 0.2, Number( this.collisionDistanceBuffer ) || 0.5 );
-		const hit = this.obstacleProbe.probe( origin, dir, Math.max( 0.1, rayDist ), isBodyIgnored => {
+		const hit = this.obstacleProbe.probe( origin, dir, Math.max( 0.1, rayDist ), body => {
 
 			if ( ! this.ignoreBodyPredicate ) return false;
 			return this.ignoreBodyPredicate( body );
