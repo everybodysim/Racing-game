@@ -1527,11 +1527,12 @@ const hasFirebase = hasFirebaseMultiplayerConfig();
 			// race,no 4s timeout, no ghost host. Firebase is the single source of truth.
 			const now = Date.now();
 			const ourId = multiplayerSessionState.clientId;
+			const localContainer = getLocalVehicleContainer();
 			const localPayload = {
-				x: Number( ( vehicle.container?.position.x ||0 ).toFixed( 3 ) ),
-				y: Number( ( vehicle.container?.position.y ||0 ).toFixed( 3 ) ),
-				z: Number( ( vehicle.container?.position.z ||0 ).toFixed( 3 ) ),
-				ry: Number( getMultiplayerHeadingDegrees( vehicle.container ).toFixed( 2 ) ),
+				x: Number( ( localContainer?.position.x ||0 ).toFixed( 3 ) ),
+				y: Number( ( localContainer?.position.y ||0 ).toFixed( 3 ) ),
+				z: Number( ( localContainer?.position.z ||0 ).toFixed( 3 ) ),
+				ry: Number( getMultiplayerHeadingDegrees( localContainer ).toFixed( 2 ) ),
 				carKey: normalizeMultiplayerCarKey( currentCarKey() ),
 				cosmetics: buildGhostCosmeticsSnapshot( currentCarKey() ),
 				name: getLocalMultiplayerDisplayName(),
