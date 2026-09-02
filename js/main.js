@@ -1353,12 +1353,12 @@ async function publishMultiplayerBestLap( bestLap ) {
 	if ( ! roomCode || isPublicServerActive() ) return;
 	try {
 
-		await firebaseRoomsRequest( roomCode, 'PUT', {
-			name: displayName,
-			time: Number( bestLap ),
-			bestLapSeconds: Number( bestLap ),
-			updatedAt: Date.now(),
-		}, `lapTimes/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
+		await writeRoomSubkey( roomCode, `lapTimes/${ encodeURIComponent( multiplayerSessionState.clientId ) }`, {
+		name: displayName,
+		time: Number( bestLap ),
+		bestLapSeconds: Number( bestLap ),
+		updatedAt: Date.now(),
+		} );
 
 	} catch ( error ) {
 
@@ -1575,7 +1575,7 @@ const hasFirebase = hasFirebaseMultiplayerConfig();
 				mapSignature: getCurrentMapSignature(),
 				updatedAt: now,
 			};
-			await firebaseRoomsRequest( def.code,'PUT', localPayload,`players/${ encodeURIComponent( ourId ) }` );
+			await writeRoomSubkey( def.code, `players/${ encodeURIComponent( ourId ) }`, localPayload );
 			const room = await firebaseRoomsRequest( def.code,'GET' );
 			const players = room?.players && typeof room.players === 'object' ? room.players : {};
 			let lowestId = ourId;
@@ -1666,7 +1666,10 @@ async function leavePublicServer() {
 		if ( hasFirebaseMultiplayerConfig() && multiplayerSessionState.roomCode ) {
 
 
-			firebaseRoomsRequest( multiplayerSessionState.roomCode, 'DELETE', undefined, `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }` ).catch( () => {} );
+			const leavePatch = { };
+			leavePatch.players = { };
+			leavePatch.players[ String( multiplayerSessionState.clientId ).replace( /[.\/#\$\u005B\u005D\u0000-\u001F\u007F]/g, '_' ) ] = null;
+			firebaseRoomsRequest( multiplayerSessionState.roomCode, 'PATCH', leavePatch ).catch( ( ) => {} );
 
 		}
 		multiplayerSessionState.role = 'none';
@@ -2283,18 +2286,21 @@ function startPublicServerVote( playUrl, trackName ) {
 
 
 		const voteDoc = {
-			voteId,
-			playUrl: publicServerVoteState.playUrl,
-			trackName: publicServerVoteState.trackName,
-			initiatorId: multiplayerSessionState.clientId,
-			startedAt,
-			polledAt: Date.now(),
-			initiatorVote: 'yes',
-			votes: {
-				[ multiplayerSessionState.clientId ]: 'yes',
-			},
+		        voteId,
+		        playUrl: publicServerVoteState.playUrl,
+		        trackName: publicServerVoteState.trackName,
+		        initiatorId: multiplayerSessionState.clientId,
+		        startedAt,
+		        polledAt: Date.now(),
+		        initiatorVote: 'yes',
 		};
-		firebaseRoomsRequest( multiplayerSessionState.roomCode, 'PUT', voteDoc, 'vote' ).catch( ( error ) => console.warn( 'Public-server vote write failed', error ) );
+		firebaseRoomsRequest( multiplayerSessionState.roomCode, 'PUT', voteDoc, 'vote' ).then( ( ) => {
+		        // Bootstrap our auto-yes into the per-voter collection. The live RTDB .validate
+		        // rejects a vote root doc that carries a `votes` child (any value), so we omit
+		        // it above and seed our own vote via the per-voter subpath;the 220ms poll
+		        // merges each writer's vote back into the doc for every client.
+		        return firebaseRoomsRequest( multiplayerSessionState.roomCode, 'PUT', 'yes', `vote/votes/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
+		} ).catch( ( error ) => console.warn( 'Public-server vote write failed', error ) );
 		logMpDebug( `[PublicServer] Started map vote ${ voteId } for "${ trackName }" (Firebase)` );
 
 	} else {
@@ -2732,6 +2738,50 @@ function getFirebaseRoomsBaseUrl() {
 	const config = readFirebaseConfig();
 	if ( ! config?.databaseURL ) return '';
 	return `${ config.databaseURL.replace( /\/+$/, '' ) }/racing-rooms`;
+
+}
+
+// The room-root RTDB rule (.validate) requires the trio {code, mapSignature,
+// updatedAt} to exist on ANY created room, OR a `status === 'joined'` value..
+// A players-only/lapTimes-only first write (which creates the room doc) would fail
+// validation -> room-http-401. Merge the seed fields into every room-root PATCH
+// so the first subkey write boots a valid room; later writes pass via the trio.
+
+function firebaseRoomSeedFields() {
+
+        const now = Date.now();
+        return {
+                code: multiplayerSessionState.roomCode || getCurrentMapSignature(),
+                mapSignature: getCurrentMapSignature(),
+                updatedAt: now,
+                status: 'joined',
+        };
+
+}
+
+
+// Writes a single player/lap-time record by PATCHing AT THE ROOM ROOT
+// (`players/<id>` / `lapTimes/<id>` as the patch's field), never at the subpath
+// directly: RTDB rule setups sometimes allow room-level read/write but lock unknown
+// subpaths (`/racing-rooms/<code>/players/<id>` -> 401 while `/racing-rooms/<code>.json`
+// PATCH with the same nested payload -> 200);the room-root PATCH still replaces just
+// our subkey, never the whole room. The seed fields ride along so a NEW room
+// (e.g. a public server with no pre-seeded doc) passes the .validate trio..
+async function writeRoomSubkey( roomCode, subKey, payload ) {
+
+        const raw = String( subKey || '' ).trim();
+        const parts = raw.split( '/' ).filter( Boolean );
+        const field = parts[ 0 ]; // 'players' or 'lapTimes' (the only collections this codebase writes)
+        const innerRaw = parts.slice( 1 ).join( '/' ) || 'root';
+        if ( ! field || raw.length === 0 ) throw new Error( 'room-subkey-invalid' );
+        // Sanitize the dynamic key the way Firebase REST forbids in path segments -
+        // dots, hashes, dollars, brackets, control chars - since this key becomes a
+        // literal child name in the PATCH body (not a URL path segment).
+        const innerKey = String( innerRaw ).replace( /[.\/#\$\u005B\u005D\u0000-\u001F\u007F]/g, '_' ) || 'root';
+        const patch = { ...firebaseRoomSeedFields() };
+        patch[ field ] = { };
+        patch[ field ][ innerKey ] = payload;
+        await firebaseRoomsRequest( roomCode, 'PATCH', patch );
 
 }
 
@@ -4715,7 +4765,7 @@ async function init() {
 		try {
 
 			multiplayerSyncInFlight = true;
-			await firebaseRoomsRequest( roomCode, 'PUT', localPayload, `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }` );
+			await writeRoomSubkey( roomCode, `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }`, localPayload );
 			const room = await firebaseRoomsRequest( roomCode, 'GET' );
 			if ( multiplayerSessionState.role === 'host' ) {
 
@@ -4855,8 +4905,10 @@ async function init() {
 		// On a public server the DELETE also clears our players/<uid> so the room
 		// roster stays fresh; on a private room we clear presence as before。
 		const roomCode = multiplayerSessionState.roomCode;
-		const playerPath = `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }`;
-		firebaseRoomsRequest( roomCode, 'DELETE', undefined, playerPath ).catch( () => {} );
+		const leavePatch = { };
+		leavePatch.players = { };
+		leavePatch.players[ String( multiplayerSessionState.clientId ).replace( /[.\/#\$\u005B\u005D\u0000-\u001F\u007F]/g, '_' ) ] = null;
+		firebaseRoomsRequest( roomCode, 'PATCH', leavePatch ).catch( ( ) => {} );
 
 	} );
 	let ghostModel = null;
