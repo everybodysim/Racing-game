@@ -148,6 +148,14 @@ const localMultiplayerStateHandlers = {
 	getCarKey: null,
 	buildCosmetics: null,
 };
+// Module-scope fallback for the car key:the <select id="car-select"> lives in the
+// static HTML, so this works even before init() binds the handlers (pre-boot joins
+// used to fall back to yellow)。 currentCarKey() (the init-scoped equivalent) reads
+// the same element, so both return identical values once the scoped fn is in scope。
+function getModuleCarKey() {
+	const el = typeof document !== 'undefined' ? document.getElementById( 'car-select' ) : null;
+	return el?.value || 'vehicle-truck-yellow';
+}
 
 initMultiplayerPanel();
 
@@ -1001,10 +1009,13 @@ function broadcastPeerState() {
 
 }
 
-// NOTE: the public-server poll kick + host-meta heartbeat live INSIDE init() (
+// NOTE:the public-server poll kick + host-meta heartbeat live INSIDE init() (
 // as a local closure named startPublicServerPolling), because the 220ms
 // sync loop (syncMultiplayerTransforms) is init-local. A module-scope copy
-// would ReferenceError on that name (TDZ/undefined) — do not re-add one here.
+// would ReferenceError on that name (TDZ/undefined), so joining a public server
+// from module scope can never call it directly — the kick fires from joinPublicServer's
+// own immediate Firebase PUT (the join payload itself is the poll's first write),
+// then init()'s setInterval+startPublicServerPolling take over once boot completes.
 
 
 function updateMultiplayerStatus( text ) {
@@ -1552,13 +1563,14 @@ const hasFirebase = hasFirebaseMultiplayerConfig();
 			const now = Date.now();
 			const ourId = multiplayerSessionState.clientId;
 			const localContainer = getLocalVehicleContainer();
+			const localCarKey = normalizeMultiplayerCarKey( typeof localMultiplayerStateHandlers.getCarKey === 'function' ? localMultiplayerStateHandlers.getCarKey() : getModuleCarKey() );
 			const localPayload = {
 				x: Number( ( localContainer?.position.x ||0 ).toFixed( 3 ) ),
 				y: Number( ( localContainer?.position.y ||0 ).toFixed( 3 ) ),
 				z: Number( ( localContainer?.position.z ||0 ).toFixed( 3 ) ),
 				ry: Number( getMultiplayerHeadingDegrees( localContainer ).toFixed( 2 ) ),
-				carKey: normalizeMultiplayerCarKey( currentCarKey() ),
-				cosmetics: buildGhostCosmeticsSnapshot( currentCarKey() ),
+				carKey: localCarKey,
+				cosmetics: typeof localMultiplayerStateHandlers.buildCosmetics === 'function' ? localMultiplayerStateHandlers.buildCosmetics( localCarKey ) : null,
 				name: getLocalMultiplayerDisplayName(),
 				mapSignature: getCurrentMapSignature(),
 				updatedAt: now,
@@ -1628,11 +1640,6 @@ const hasFirebase = hasFirebaseMultiplayerConfig();
 		// The 220 ms Firebase poll (syncMultiplayerTransforms, always armed)
 		// now handles: our position mirror,the live player count,host map following,
 		//the map vote doc,and host metadata. There is nothing left for WebRTC to do.
-				if ( hasFirebase && typeof startPublicServerPolling === 'function' ) {
-
-				await startPublicServerPolling().catch( ( ) => { } );
-
-				}
 		} catch ( error ) {
 
 		console.warn( 'Failed to join public server', error );
