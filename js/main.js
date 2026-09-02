@@ -1552,7 +1552,7 @@ const hasFirebase = hasFirebaseMultiplayerConfig();
 					mapSignature: getCurrentMapSignature(),
 					status: 'hosting',
 					updatedAt: now,
-				} };
+				} );
 			} else {
 				multiplayerSessionState.role = 'join';
 				const hostSig = room?.mapSignature || getCurrentMapSignature();
@@ -2515,12 +2515,9 @@ async function pollPublicServerVoteFromFirebase( room ) {
 
 		publicServerVoteState.active = true;
 		publicServerVoteState.voteId = normalized.voteId;
-
 		publicServerVoteState.playUrl = normalized.playUrl;
-
-		publicServerVoteState.trackName = normalized.trackName?
+		publicServerVoteState.trackName = normalized.trackName;
 		publicServerVoteState.initiatorId = normalized.initiatorId;
-
 		publicServerVoteState.endsAt = normalized.endsAt;
 		publicServerVoteState.isInitiator = normalized.initiatorId === multiplayerSessionState.clientId;
 		publicServerVoteState.ourVote = String( normalized.votes[ multiplayerSessionState.clientId ] || '' );
@@ -3735,7 +3732,6 @@ function toRuntimeMod( loadedModule, modId ) {
 
 				if ( typeof disposer === 'function' ) disposer();
 				disposer = null;
-
 			}
 		};
 
