@@ -15,6 +15,7 @@ import { HudExtras } from './HudExtras.js';
 import { createRuntime as _createModRuntime } from './mod-runtime.js';
 import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
+import { normalizeFirebaseVoteDoc, tallyFirebaseVotes, countFreshRoomPlayers } from './multiplayer-firebase-vote.js';
 import {
 	PUBLIC_SERVERS,
 	findPublicServer,
@@ -1512,39 +1513,95 @@ async function joinPublicServer( serverId ) {
 	updatePublicServerButtonStates();
 
 	try {
+const hasFirebase = hasFirebaseMultiplayerConfig();
+		if ( hasFirebase ) {
+			// We deliberately SKIP the PeerJS mesh:the mesh's host-claim race was the
+			// death of half of joiners, and all of its payload modes (position/left/
+			// map/vote) are covered by the Firebase room doc. The 220ms poll
+			// (syncMultiplayerTransforms, ALWAYS armed) handles our position mirror,
+			// remote visuals, live player count, host map following,the map vote doc,
+			// and host metadata — once the roomCode is set below.
 
-		// Reuse the existing PeerJS room mechanism with the fixed server code.
-		// The host peer owns the RACE-ROOM-<code> id; joiners connect to it. Host
-		// election is PeerJS-native (see startPublicServerPeer) — no worker.
-		multiplayerSessionState.roomCode = def.code;
-		const codeInput = document.getElementById( 'mp-code-input' );
-		if ( codeInput ) codeInput.value = def.code;
+			// Deterministic host election over the Firebase room doc:the LOWEST clientId
+			// among players currently in the room (plus us) is the host. No host-claim
+			// race,no 4s timeout, no ghost host. Firebase is the single source of truth.
+			const now = Date.now();
+			const ourId = multiplayerSessionState.clientId;
+			const localPayload = {
+				x: Number( ( vehicle.container?.position.x ||0 ).toFixed( 3 ) ),
+				y: Number( ( vehicle.container?.position.y ||0 ).toFixed( 3 ) ),
+				z: Number( ( vehicle.container?.position.z ||0 ).toFixed( 3 ) ),
+				ry: Number( getMultiplayerHeadingDegrees( vehicle.container ).toFixed( 2 ) ),
+				carKey: normalizeMultiplayerCarKey( currentCarKey() ),
+				cosmetics: buildGhostCosmeticsSnapshot( currentCarKey() ),
+				name: getLocalMultiplayerDisplayName(),
+				mapSignature: getCurrentMapSignature(),
+				updatedAt: now,
+			};
+			await firebaseRoomsRequest( def.code,'PUT', localPayload,`players/${ encodeURIComponent( ourId ) }` );
+			const room = await firebaseRoomsRequest( def.code,'GET' );
+			const players = room?.players && typeof room.players === 'object' ? room.players : {};
+			let lowestId = ourId;
+			for ( const pid of Object.keys( players ) ) {
+				if ( pid < lowestId ) lowestId = pid;
+			}
+			publicServerState.isHost = lowestId === ourId;
+			if ( publicServerState.isHost ) {
+				multiplayerSessionState.role = 'host';
+				await firebaseRoomsRequest( def.code,'PATCH',{
+					mapSignature: getCurrentMapSignature(),
+					status: 'hosting',
+					updatedAt: now,
+				} };
+			} else {
+				multiplayerSessionState.role = 'join';
+				const hostSig = room?.mapSignature || getCurrentMapSignature();
+				if ( ! canJoinMap( hostSig, getCurrentMapSignature() ) ) {
+					updateMultiplayerStatus( `Switching to the host map for ${ def.name }...` );
+					redirectPublicServerToMap( hostSig,'host' );
+					await resetPublicServerState();
+					return;
+				}
+			}
+			const codeInput = document.getElementById( 'mp-code-input' );
+			if ( codeInput ) codeInput.value = def.code;
+			multiplayerSessionState.roomCode = def.code;
+			setMultiplayerLeaderboardVisible( false );
+			updateMultiplayerStatus( `In ${ def.name }. You'll load the map everyone is on.` );
+			logMpDebug( `[PublicServer] Joined ${ def.name } (code ${ def.code }) as ${ publicServerState.isHost ? 'host' : 'joiner' }` );
+		} else {
+			// Reuse the existing PeerJS room mechanism with the fixed server code.
 
-		// Try to claim the host seat first; if the id is taken we fall back to
-		// joiner. Either way we end up in the same PeerJS room.
-		await startPublicServerPeer( def.code );
-
-		// The private-room leaderboard is unused in public servers.
-		setMultiplayerLeaderboardVisible( false );
-
-		updateMultiplayerStatus( `In ${ def.name }. You'll load the map everyone is on.` );
-		logMpDebug( `[PublicServer] Joined ${ def.name } (code ${ def.code }) as ${ publicServerState.isHost ? 'host' : 'joiner' }` );
-
-		// Maintenance loop: restart a dead PeerJS peer + self-heal host. Runs every
-		// 5s (was 10s) so a joiner whose connection never opened — e.g. the host
-		// peer id was briefly reserved on the PeerJS cloud by a player who then
-		// left, leaving a "ghost" host — recovers (reclaims host or retries the
-		// connect) within a few seconds instead of hanging for 10s.
-		stopPublicServerMaintainLoop();
-		publicServerState.peerMaintainTimer = setInterval( maintainPublicServerPeer, 5000 );
-		// Proactive joiner connect-watch: if WE are a joiner and our first
-		// connection to the host hasn't opened after a patient window (PeerJS cloud
-		// signalling can be slow, or the host id was a ghost), don't wait for the
-		// next 5s maintenance tick — run one immediate recovery pass (which,
-		// thanks to findPublicServerLiveJoinerConnection, still never kills a
-		// slow-but-live WebRTC handshake; it only acts when nothing is live).
-		schedulePublicServerJoinerConnectWatch();
-
+			// The host peer owns the RACE-ROOM-<code> id; joiners connect to it. Host
+			// election is PeerJS-native (see startPublicServerPeer) — no worker..
+			multiplayerSessionState.roomCode = def.code;
+			const codeInput = document.getElementById( 'mp-code-input' );
+			if ( codeInput ) codeInput.value = def.code;
+			// Try to claim the host seat first; if the id is taken we fall back to
+			// joiner. Either way we end up in the same PeerJS room。
+			await startPublicServerPeer( def.code );
+			// The private-room leaderboard is unused in public servers。
+			setMultiplayerLeaderboardVisible( false );
+			updateMultiplayerStatus( `In ${ def.name }. You'll load the the map everyone is on.` );
+			logMpDebug( `[PublicServer] Joined ${ def.name } (code ${ def.code }) as ${ publicServerState.isHost ? 'host' : 'joiner' }` );
+			// Maintenance loop: restart a dead PeerJS peer + self-heal host.. Runs every
+			// 5s (was 10s) so a joiner whose connection never opened — e.g.. the host
+			// peer id was briefly reserved on the PeerJS cloud by a player who then
+			// left, leaving a "ghost" host — recovers (reclaims host or retries the
+			// connect) within a few seconds instead of hanging for 10s.
+			stopPublicServerMaintainLoop();
+			publicServerState.peerMaintainTimer = setInterval( maintainPublicServerPeer, 5000 );
+			// Proactive joiner connect-watch: if WE are a joiner and our first
+			// connection to the host hasn't opened after a patient window (PeerJS cloud
+			// signalling can be slow, or the host id was a ghost), don't wait for the
+			// next 5s maintenance tick — run one immediate recovery pass (which,
+			// thanks to findPublicServerLiveJoinerConnection, still never kills a
+			// slow-but-live WebRTC handshake; it only acts when nothing is live)。
+			schedulePublicServerJoinerConnectWatch();
+		}
+		// The 220 ms Firebase poll (syncMultiplayerTransforms, always armed)
+		// now handles: our position mirror,the live player count,host map following,
+		//the map vote doc,and host metadata. There is nothing left for WebRTC to do.
 	} catch ( error ) {
 
 		console.warn( 'Failed to join public server', error );
@@ -1566,6 +1623,14 @@ async function leavePublicServer() {
 	if ( multiplayerSessionState.peer || multiplayerSessionState.roomCode ) {
 
 		closeMultiplayerPeer();
+		// On the Firebase path, clearing our players/<uid> entry keeps the room
+		// roster fresh (the 220ms poll only hides stale MESH visuals, not the db)。
+		if ( hasFirebaseMultiplayerConfig() && multiplayerSessionState.roomCode ) {
+
+
+			firebaseRoomsRequest( multiplayerSessionState.roomCode, 'DELETE', undefined, `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }` ).catch( () => {} );
+
+		}
 		multiplayerSessionState.role = 'none';
 		multiplayerSessionState.roomCode = '';
 		const codeInput = document.getElementById( 'mp-code-input' );
@@ -2144,8 +2209,12 @@ async function startPublicServerVoteFromInput() {
 
 }
 
-// Initiate a vote: record it locally, broadcast VOTE_START to peers, show the
-// prompt, and start the authoritative 30s timer on THIS (the initiator) device.
+// Initiate a vote: record it locally, write the vote doc to Firebase (when
+// configured) so EVERY client (even ones whose PeerJS mesh never connected)
+// sees the same vote via the 220ms poll, showthe prompt, and start the
+// authoritative 30s timer on THIS (the initiator) device. Without Firebase
+// we fall back to the PeerJS VOTE_START broadcast exactly as before.
+
 function startPublicServerVote( playUrl, trackName ) {
 
 	if ( ! isPublicServerActive() ) return;
@@ -2161,7 +2230,7 @@ function startPublicServerVote( playUrl, trackName ) {
 	publicServerVoteState.endsAt = startedAt + PUBLIC_SERVER_VOTE_DURATION_MS;
 	publicServerVoteState.votes = {};
 
-	// Auto-vote yes for the initiator (counts toward the tally immediately).
+	// Auto-vote yes for the initiator (counts toward the tally immediately)。
 	publicServerVoteState.ourVote = 'yes';
 	publicServerVoteState.votes[ multiplayerSessionState.clientId ] = 'yes';
 
@@ -2169,33 +2238,63 @@ function startPublicServerVote( playUrl, trackName ) {
 	updatePublicServerVoteCounts();
 	startPublicServerVoteCountdown();
 
-	const packet = {
-		type: PEER_PACKET_VOTE_START,
-		playerId: multiplayerSessionState.clientId,
-		voteId,
-		playUrl: publicServerVoteState.playUrl,
-		trackName: publicServerVoteState.trackName,
-		initiatorId: multiplayerSessionState.clientId,
-		startedAt,
-		// The initiator auto-votes yes. Carrying it in VOTE_START (rather than a
-		// separate VOTE packet) guarantees every peer seeds the initiator's vote
-		// immediately and consistently, so the live Yes count matches on every
-		// screen — otherwise peers never saw the initiator's auto-yes and the
-		// initiator saw one more vote than everyone else.
-		initiatorVote: 'yes',
-	};
-	sendPublicServerPacket( packet );
+	if ( hasFirebaseMultiplayerConfig() && multiplayerSessionState.roomCode ) {
 
-	// The initiator's device counts the 30s and tallies the result.
+		// One-writer-per-subpath:the initiator writes the vote root; each voter
+		// writes only vote/votes/<own>. Firebase RTDB merges them without clobber.
+
+
+		const voteDoc = {
+			voteId,
+			playUrl: publicServerVoteState.playUrl,
+			trackName: publicServerVoteState.trackName,
+			initiatorId: multiplayerSessionState.clientId,
+			startedAt,
+			polledAt: Date.now(),
+			initiatorVote: 'yes',
+			votes: {
+				[ multiplayerSessionState.clientId ]: 'yes',
+			},
+		};
+		firebaseRoomsRequest( multiplayerSessionState.roomCode, 'PUT', voteDoc, 'vote' ).catch( ( error ) => console.warn( 'Public-server vote write failed', error ) );
+		logMpDebug( `[PublicServer] Started map vote ${ voteId } for "${ trackName }" (Firebase)` );
+
+	} else {
+
+		const packet = {
+			type: PEER_PACKET_VOTE_START,
+			playerId: multiplayerSessionState.clientId,
+			voteId,
+			playUrl: publicServerVoteState.playUrl,
+			trackName: publicServerVoteState.trackName,
+			initiatorId: multiplayerSessionState.clientId,
+			startedAt,
+			// The initiator auto-votes yes. Carrying it in VOTE_START (rather than a
+			// separate VOTE packet) guarantees every peer seeds the initiator's vote
+			// immediatelyand consistently, so the live Yes count matches on every
+			// screen — otherwise peers never saw the initiator's auto-yes and the
+			// initiator saw one more vote than everyone else。
+			initiatorVote: 'yes',
+		};
+		sendPublicServerPacket( packet );
+		logMpDebug( `[PublicServer] Started map vote ${ voteId } for "${ trackName }"` );
+
+	}
+
+	// The initiator's device counts the 30s and tallies the result. With Firebase
+	// the tally is written to vote/result and every client (including those with a
+	// dead PeerJS mesh) adopts it via the poll.
+
 	publicServerVoteState.timer = setTimeout( () => endPublicServerVote( true ), PUBLIC_SERVER_VOTE_DURATION_MS );
-	logMpDebug( `[PublicServer] Started map vote ${ voteId } for "${ trackName }"` );
 
 }
+
 
 // Received a VOTE_START from a peer: show the prompt + start a fallback timeout
 // (in case the initiator's VOTE_RESULT never arrives we still hide eventually).
 function onPublicServerVoteStart( packet ) {
 
+	if ( hasFirebaseMultiplayerConfig() ) return;
 	if ( ! isPublicServerActive() ) return;
 	const pid = String( packet?.initiatorId || packet?.playerId || '' );
 	if ( ! pid ) return;
@@ -2239,7 +2338,10 @@ function onPublicServerVoteStart( packet ) {
 
 }
 
-// Cast our vote (Yes/No) for the active vote and broadcast it to peers.
+// Cast our vote (Yes/No) for the active vote. With Firebase, write it to
+// vote/votes/<uid> (one-writer-per-subpath) so the poll merges it for every
+// client. Without Firebase, broadcast it to peers as before.so
+
 function castPublicServerVote( choice ) {
 
 	if ( ! isPublicServerActive() || ! publicServerVoteState.active ) return;
@@ -2248,19 +2350,33 @@ function castPublicServerVote( choice ) {
 	publicServerVoteState.ourVote = vote;
 	publicServerVoteState.votes[ multiplayerSessionState.clientId ] = vote;
 	updatePublicServerVoteCounts();
-	const packet = {
-		type: PEER_PACKET_VOTE,
-		playerId: multiplayerSessionState.clientId,
-		voteId: publicServerVoteState.voteId,
-		vote,
-	};
-	sendPublicServerPacket( packet );
+
+	if ( hasFirebaseMultiplayerConfig() && multiplayerSessionState.roomCode && publicServerVoteState.voteId ) {
+
+		firebaseRoomsRequest( multiplayerSessionState.roomCode, 'PUT', vote, `vote/votes/${ encodeURIComponent( multiplayerSessionState.clientId ) }` ).catch( ( error ) => console.warn( 'Public-server vote write failed', error ) );
+
+	} else {
+
+		const packet = {
+			type: PEER_PACKET_VOTE,
+			playerId: multiplayerSessionState.clientId,
+			voteId: publicServerVoteState.voteId,
+			vote,
+		};
+		sendPublicServerPacket( packet );
+
+	}
 
 }
 
-// Received a peer's vote: record it and refresh the counts.
+
+// Received a peer's vote: record it and refresh the counts. When Firebase is
+// configured the poll owns the vote state, so a stale PeerJS VOTE packet (from
+// the pre-poll broadcast or a slow relay) must NOT clobber the doc — ignore it.
+
 function onPublicServerVote( packet ) {
 
+	if ( hasFirebaseMultiplayerConfig() ) return;
 	if ( ! isPublicServerActive() || ! publicServerVoteState.active ) return;
 	if ( String( packet?.voteId || '' ) !== publicServerVoteState.voteId ) return;
 	const pid = String( packet?.playerId || '' );
@@ -2271,23 +2387,23 @@ function onPublicServerVote( packet ) {
 
 }
 
+
 // The initiator's 30s elapsed: tally the votes, and if >60% yes (with ≥1 vote),
-// switch the track on THIS client first, then broadcast VOTE_RESULT so everyone
-// else follows. Hides the prompt locally regardless of the outcome. The result
-// packet carries the AUTHORITATIVE final tally (yes/no/total) so every peer sees
-// the same final numbers — live counts during the vote are best-effort (peers
-// receive VOTE packets at slightly different times via the relay), but the
-// outcome everyone acts on is the initiator's, not their own local tally.
+// write the authoritative result to Firebase vote/result (when configured) so
+// EVERY client (even ones whose PeerJS mesh never connected) adopts the SAME
+// outcome via the poll. Without Firebase, broadcast the VOTE_RESULT to peers as
+// before. Either way, if it passed, switch the track on THIS client first, then
+// peers follow (via the poll result or the relayed packet)。 The result carries the
+// AUTHORITATIVE final tally (yes/no/total) so everyone acts on the initiator's,
+// not their own local tally. Hides the prompt locally regardless of the outcome.
+
 function endPublicServerVote( asInitiator ) {
 
 	if ( ! publicServerVoteState.active ) return;
 	if ( publicServerVoteState.timer ) { clearTimeout( publicServerVoteState.timer ); publicServerVoteState.timer = null; }
 	const tally = tallyPublicServerVotes();
 	const passed = tally.total > 0 && ( tally.yes / tally.total ) > PUBLIC_SERVER_VOTE_PASS_RATIO;
-	const packet = {
-		type: PEER_PACKET_VOTE_RESULT,
-		playerId: multiplayerSessionState.clientId,
-		voteId: publicServerVoteState.voteId,
+	const result = {
 		passed: Boolean( passed ),
 		playUrl: publicServerVoteState.playUrl,
 		trackName: publicServerVoteState.trackName,
@@ -2295,11 +2411,32 @@ function endPublicServerVote( asInitiator ) {
 		no: tally.no,
 		total: tally.total,
 	};
-	if ( asInitiator ) sendPublicServerPacket( packet );
+
+	if ( hasFirebaseMultiplayerConfig() && multiplayerSessionState.roomCode && publicServerVoteState.voteId ) {
+
+		firebaseRoomsRequest( multiplayerSessionState.roomCode, 'PUT', result, 'vote/result' ).catch( ( error ) => console.warn( 'Public-server vote result write failed', error ) );
+		logMpDebug( `[PublicServer] Map vote ${ publicServerVoteState.voteId } resolved (Firebase): ${ tally.yes }/${ tally.no } ${ passed ? 'PASS' : 'fail' }` );
+
+	} else if ( asInitiator ) {
+
+		const packet = {
+			type: PEER_PACKET_VOTE_RESULT,
+			playerId: multiplayerSessionState.clientId,
+			voteId: publicServerVoteState.voteId,
+			passed: Boolean( passed ),
+			playUrl: publicServerVoteState.playUrl,
+			trackName: publicServerVoteState.trackName,
+			yes: tally.yes,
+			no: tally.no,
+			total: tally.total,
+		};
+		sendPublicServerPacket( packet );
+
+	}
 
 	if ( passed && publicServerVoteState.playUrl ) {
 
-		// Switch on the initiator's device first (it just broadcast the result);
+		// Switch on the initiator's device first (it just wrote/broadcast the result);
 		// the redirect rejoins the server on the new map.
 		const name = publicServerVoteState.trackName || 'the voted track';
 		updateMultiplayerStatus( `Vote passed — switching to ${ name }…` );
@@ -2315,44 +2452,122 @@ function endPublicServerVote( asInitiator ) {
 
 }
 
+
 // Received the initiator's VOTE_RESULT: if it passed, redirect to the track.
 // The packet carries the authoritative final tally — sync our display to it so
 // every peer shows the SAME final Yes/No numbers (our locally-collected votes
 // may differ slightly due to relay timing; the initiator's tally is the source
-// of truth for the outcome).
+// of truth for the outcome). When Firebase is configured the poll owns the result
+// path, so a stale relayed VOTE_RESULT must NOT clobber — ignore it.
+
 function onPublicServerVoteResult( packet ) {
 
+	if ( hasFirebaseMultiplayerConfig() ) return;
 	if ( ! isPublicServerActive() ) return;
 	if ( ! publicServerVoteState.active ) return;
 	if ( String( packet?.voteId || '' ) !== publicServerVoteState.voteId ) return;
 	// Only the initiator sends the result; ignore our own (it looped back).
 	if ( String( packet?.playerId || '' ) === multiplayerSessionState.clientId ) return;
 	// Adopt the initiator's authoritative final tally for the display.
+
 	const finalYes = Math.max( 0, Number( packet?.yes ) || 0 );
 	const finalNo = Math.max( 0, Number( packet?.no ) || 0 );
 	const yesEl = document.getElementById( 'mp-vote-yes-count' );
 	const noEl = document.getElementById( 'mp-vote-no-count' );
 	if ( yesEl ) yesEl.textContent = String( finalYes );
 	if ( noEl ) noEl.textContent = String( finalNo );
+		const passed = Boolean( packet?.passed );
+		if ( passed && packet?.playUrl ) {
 
-	const passed = Boolean( packet?.passed );
-	if ( passed && packet?.playUrl ) {
+			const name = String( packet?.trackName || 'the voted track' );
+			updateMultiplayerStatus( `Vote passed — switching to ${ name }…` );
+			redirectPublicServerToTrack( String( packet.playUrl ), 'voted' );
 
-		const name = String( packet?.trackName || 'the voted track' );
-		updateMultiplayerStatus( `Vote passed — switching to ${ name }…` );
-		redirectPublicServerToTrack( String( packet.playUrl ), 'voted' );
+		} else {
 
-	} else {
+			updateMultiplayerStatus( 'Map vote did not pass.' );
 
-		updateMultiplayerStatus( 'Map vote did not pass.' );
-
-	}
-	hidePublicServerVotePrompt();
-	resetPublicServerVoteState();
+		}
+		hidePublicServerVotePrompt();
+		resetPublicServerVoteState();
 
 }
 
-// Tally the votes recorded so far.
+
+// Poll-drive the Firebase-backed map vote from the freshly-fetched room doc. Called
+// from the 220ms syncMultiplayerTransforms poll. Adopts the doc's votes for live
+// counts, and when the initiator has written vote/result, acts on it (hides the
+// prompt, resets local state, and redirects if passed). When Firebase is not
+// configured this is never called (the PeerJS broadcast path owns the vote)。
+
+async function pollPublicServerVoteFromFirebase( room ) {
+
+	if ( ! hasFirebaseMultiplayerConfig() || ! isPublicServerActive() ) return;
+	if ( ! publicServerVoteState.active && ! publicServerVoteState.voteId ) return;
+	const doc = room && typeof room === 'object' ? room.vote : null;
+	const normalized = normalizeFirebaseVoteDoc( doc, PUBLIC_SERVER_VOTE_DURATION_MS );
+	if ( ! normalized ) return;
+	if ( publicServerVoteState.active && normalized.voteId !== publicServerVoteState.voteId ) return;
+	// If we haven't started a local vote yet but a doc exists (e.g. we joined
+	// mid-vote), bootstrap the prompt from the doc so late joiners still see it。
+
+	if ( ! publicServerVoteState.active ) {
+
+		publicServerVoteState.active = true;
+		publicServerVoteState.voteId = normalized.voteId;
+
+		publicServerVoteState.playUrl = normalized.playUrl;
+
+		publicServerVoteState.trackName = normalized.trackName?
+		publicServerVoteState.initiatorId = normalized.initiatorId;
+
+		publicServerVoteState.endsAt = normalized.endsAt;
+		publicServerVoteState.isInitiator = normalized.initiatorId === multiplayerSessionState.clientId;
+		publicServerVoteState.ourVote = String( normalized.votes[ multiplayerSessionState.clientId ] || '' );
+		showPublicServerVotePrompt();
+		startPublicServerVoteCountdown();
+
+	} else if ( normalized.result ) {
+
+		// The initiator already resolved the vote. Adopt its authoritative tally aznd act.
+		const tally = tallyFirebaseVotes( normalized.votes, PUBLIC_SERVER_VOTE_PASS_RATIO );
+		const finalYes = normalized.result.yes;
+		const finalNo = normalized.result.no;
+		const yesEl = document.getElementById( 'mp-vote-yes-count' );
+		const noEl = document.getElementById( 'mp-vote-no-count' );
+		if ( yesEl ) yesEl.textContent = String( finalYes );
+		if ( noEl ) noEl.textContent = String( finalNo );
+		hidePublicServerVotePrompt();
+		resetPublicServerVoteState();
+		if ( normalized.result.passed && normalized.result.playUrl ) {
+
+			const name = String( normalized.result.trackName || 'the voted track' );
+			updateMultiplayerStatus( `Vote passed — switching to ${ name }…` );
+			redirectPublicServerToTrack( normalized.result.playUrl, 'voted' );
+
+		} else {
+
+			updateMultiplayerStatus( 'Map vote did not pass.' );
+
+		}
+		return;
+
+	}
+
+	// Merge the doc's votes into the local mirror (they're the source of truth).
+	const ourVoteInDoc = String( normalized.votes[ multiplayerSessionState.clientId ] || '' );
+	if ( ourVoteInDoc ) publicServerVoteState.ourVote = ourVoteInDoc;
+
+	publicServerVoteState.votes = normalized.votes;
+
+	updatePublicServerVoteCounts();
+
+}
+
+// Tally the votes recorded so far. (Pure local mirror;the Firebase poll adopts
+// normalizations + authoritative pass decision from the doc, but the local mirror
+// keeps the live countdown numbers fresh between polls。)
+
 function tallyPublicServerVotes() {
 
 	let yes = 0, no = 0;
@@ -2364,6 +2579,7 @@ function tallyPublicServerVotes() {
 	return { yes, no, total: yes + no };
 
 }
+
 
 // Redirect THIS client to a track board playUrl on the public server. The
 // redirect URL keeps the pubServer param so we rejoin the same server on the
@@ -4426,8 +4642,10 @@ async function init() {
 	let multiplayerSyncInFlight = false;
 	async function syncMultiplayerTransforms( options = {} ) {
 
-		// If a PeerJS session or room code exists, do NOT perform Firebase HTTP position polling.
-		if ( multiplayerSessionState.peer || multiplayerSessionState.roomCode ) return;
+	// HTTPS/Firebase polling is THE transport floor: it ALWAYS runs (whether or not
+	// not WebRTC works) so every room/device that can load the page gets continuous
+	// position sync + host-map following, with zero NAT/STUN/TURN dependencies.
+
 
 		const roomCode = multiplayerSessionState.roomCode;
 		if ( ! roomCode || ! hasFirebaseMultiplayerConfig() ) return;
@@ -4502,6 +4720,7 @@ async function init() {
 			const players = room?.players && typeof room.players === 'object' ? room.players : {};
 			renderMultiplayerRoomLeaderboard( room?.lapTimes );
 			maybeSubmitOnlinePersonalBest( room?.lapTimes );
+				pollPublicServerVoteFromFirebase( room ).catch( ( ) => { } );
 			const seen = new Set();
 			for ( const [ playerId, playerState ] of Object.entries( players ) ) {
 
@@ -4553,7 +4772,9 @@ async function init() {
 			try { connection.send?.( { type: PEER_PACKET_LEFT, playerId: multiplayerSessionState.clientId } ); } catch {}
 
 		}
-		if ( isPublicServerActive() || ! hasFirebaseMultiplayerConfig() ) return;
+		if ( ! hasFirebaseMultiplayerConfig() ) return;
+		// On a public server the DELETE also clears our players/<uid> so the room
+		// roster stays fresh; on a private room we clear presence as before。
 		const roomCode = multiplayerSessionState.roomCode;
 		const playerPath = `players/${ encodeURIComponent( multiplayerSessionState.clientId ) }`;
 		firebaseRoomsRequest( roomCode, 'DELETE', undefined, playerPath ).catch( () => {} );
@@ -12492,3 +12713,4 @@ init().then( () => {
 	showLoadingError( error );
 
 } );
+
