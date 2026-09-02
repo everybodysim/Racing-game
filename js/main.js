@@ -937,32 +937,44 @@ function formatPeerPacketNumber( value, precision ) {
 
 }
 
-function buildLocalPeerStatePacket() {
-
-	const container = getLocalVehicleContainer();
-	const pos = container?.position || { x: 0, y: 0, z: 0 };
-	const rawCarKey = typeof localMultiplayerStateHandlers.getCarKey === 'function' ? localMultiplayerStateHandlers.getCarKey() : 'vehicle-truck-yellow';
-	const packetCarKey = typeof normalizeMultiplayerCarKey === 'function' ? normalizeMultiplayerCarKey( rawCarKey ) : rawCarKey;
-
+function buildRemotePlayerSnapshot() {
+	const container	 = getLocalVehicleContainer();
+	const pos	 = container?.position || { x:	 0,	 y:	 0,	 z:	 0 };
+	const rawCarKey	 = typeof localMultiplayerStateHandlers.getCarKey === 'function' ? localMultiplayerStateHandlers.getCarKey() : 'vehicle-truck-yellow';
+	const packetCarKey	 = typeof normalizeMultiplayerCarKey === 'function' ? normalizeMultiplayerCarKey( rawCarKey ) : rawCarKey;
 	return {
 		type: PEER_PACKET_STATE,
 		playerId: multiplayerSessionState.clientId,
-		x: formatPeerPacketNumber( pos.x, 3 ),
-		y: formatPeerPacketNumber( pos.y, 3 ),
-		z: formatPeerPacketNumber( pos.z, 3 ),
-		ry: Number( getMultiplayerHeadingDegrees( container ).toFixed( 2 ) ),
+		x: formatPeerPacketNumber( pos.x,	 3 ),
+		y: formatPeerPacketNumber( pos.y,	  3 ),
+		z: formatPeerPacketNumber( pos.z,	 3 ),
+		ry	: Number( getMultiplayerHeadingDegrees( container ).toFixed( 2 ) ),
 		carKey: packetCarKey,
 		cosmetics: typeof localMultiplayerStateHandlers.buildCosmetics === 'function' ? localMultiplayerStateHandlers.buildCosmetics( packetCarKey ) : null,
 		name: typeof getLocalMultiplayerDisplayName === 'function' ? getLocalMultiplayerDisplayName() : 'Player',
 		updatedAt: Date.now(),
 	};
-
 }
+function buildLocalPeerStatePacket() {
+		const snap = buildRemotePlayerSnapshot();
+			if ( ! snap ) return null;
+			const { x,	 y,	 z,	 ry,	 carKey,	 cosmetics,	 name,	 updatedAt,	 type,	 playerId } = snap;
+			return { x,	 y,	 z,	 ry,	 carKey,	 cosmetics,	 name,	 updatedAt,	 type,	 playerId };
+			}
 
 function broadcastPeerState() {
 
-	if ( ! multiplayerSessionState.roomCode || ! multiplayerSessionState.peer ) return;
-	if ( multiplayerSessionState.connections.size === 0 ) return;
+		const now = Date.now();
+		if ( ! multiplayerSessionState.roomCode || ! multiplayerSessionState.peer ) return;
+		const snap = buildRemotePlayerSnapshot();
+		if ( ! snap || ! snap.carKey ) return;
+		const bypassFirebase = Boolean( multiplayerSessionState.peer && multiplayerSessionState.connections.size > 0 );
+		const fbGuard = 'peerBroadcastLastFirebaseAt';
+		if ( bypassFirebase ) {
+				const lastFb = Number( multiplayerSessionState[ fbGuard ] ) || 0;
+				if ( now - lastFb < REMOTE_SYNC_MS ) return;
+				multiplayerSessionState[ fbGuard ] = now;
+		}
 
 	try {
 
@@ -988,6 +1000,12 @@ function broadcastPeerState() {
 	}
 
 }
+
+// NOTE: the public-server poll kick + host-meta heartbeat live INSIDE init() (
+// as a local closure named startPublicServerPolling), because the 220ms
+// sync loop (syncMultiplayerTransforms) is init-local. A module-scope copy
+// would ReferenceError on that name (TDZ/undefined) — do not re-add one here.
+
 
 function updateMultiplayerStatus( text ) {
 
@@ -1023,7 +1041,13 @@ const MULTIPLAYER_ROOM_ROTATE_MS = 120000;
 const HOST_ROOM_META_SYNC_MS = 1500;
 let lastHostRoomRotateAt = 0;
 let lastHostRoomMetaSyncAt = 0;
+let lastPublicServerRoomMetaSyncAt = 0;
 let migrationSwitchInFlight = false;
+// Public-server Firebase room: the host ALSO writes room.mapSignature on a
+// periodic cadence (mirroring the private-room HOST_ROOM_META_SYNC_MS above) so a
+// joiner whose 220ms poll lands BEFORE our next poll still sees the host map
+// without depending on a single lucky PATCH. The 220ms poll itself owns the
+// real-time position/cosmetics mirror (see syncMultiplayerTransforms)。
 
 // --- Public servers state -------------------------------------------------
 // A public server is a fixed PeerJS room (code, e.g. PUBSV1). Everyone who
@@ -1554,6 +1578,7 @@ const hasFirebase = hasFirebaseMultiplayerConfig();
 					status: 'hosting',
 					updatedAt: now,
 				} );
+				lastPublicServerRoomMetaSyncAt = now;
 			} else {
 				multiplayerSessionState.role = 'join';
 				const hostSig = room?.mapSignature || getCurrentMapSignature();
@@ -1603,7 +1628,12 @@ const hasFirebase = hasFirebaseMultiplayerConfig();
 		// The 220 ms Firebase poll (syncMultiplayerTransforms, always armed)
 		// now handles: our position mirror,the live player count,host map following,
 		//the map vote doc,and host metadata. There is nothing left for WebRTC to do.
-	} catch ( error ) {
+				if ( hasFirebase && typeof startPublicServerPolling === 'function' ) {
+
+				await startPublicServerPolling().catch( ( ) => { } );
+
+				}
+		} catch ( error ) {
 
 		console.warn( 'Failed to join public server', error );
 		updateMultiplayerStatus( `Could not join ${ def.name }: ${ error?.message || error }` );
@@ -4650,7 +4680,20 @@ async function init() {
 		const force = Boolean( options?.force );
 		const now = Date.now();
 		const mapSignature = getCurrentMapSignature();
-		const localPayload = {
+		const snap = buildRemotePlayerSnapshot();
+		const localPayload = snap ? {
+			type: PEER_PACKET_STATE,
+			playerId: multiplayerSessionState.clientId,
+			x: snap.x,
+			y: snap.y,
+			z: snap.z,
+			ry: snap.ry,
+			carKey: snap.carKey,
+			cosmetics: snap.cosmetics,
+			name: snap.name,
+			mapSignature,
+			updatedAt: now,
+		} : {
 			x: Number( vehicle.container.position.x.toFixed( 3 ) ),
 			y: Number( vehicle.container.position.y.toFixed( 3 ) ),
 			z: Number( vehicle.container.position.z.toFixed( 3 ) ),
@@ -4754,8 +4797,40 @@ async function init() {
 		}
 
 	}
+		async function startPublicServerPolling() {
+			if ( ! multiplayerSessionState.roomCode || ! hasFirebaseMultiplayerConfig() ) return;
+			if ( ! publicServerState.serverId ) return;
+			// Do NOT wait for the find flaky poll tick to race: poll synchronously now。
+			// `force` clears + re-mirrors every remote player, so late joiners or map
+			// votes don't depend on the 220ms interval or a single racing GET。
+			multiplayerSyncInFlight	 = false;
+			await syncMultiplayerTransforms( { force: true } );
+			lastPublicServerRoomMetaSyncAt	 = Date.now();
+			// Host meta heartbeat: write room.mapSignature on a 1.5s cadence (same
+			// cadence as the private-room HOST_ROOM_META_SYNC_MS) instead of only in the
+			// 220ms poll syncing when `now - lastHostRoomMetaSyncAt` happens to pass。 A
+			// fresh host can stamp the room map immediately after its join PATCH，and the
+			// cadence doesn't depend on the game init() snapshot timing。
+			if ( ! publicServerState.isHost ) return;
+			if ( Date.now() - lastPublicServerRoomMetaSyncAt < HOST_ROOM_META_SYNC_MS ) return;
+			try {
+			await firebaseRoomsRequest( multiplayerSessionState.roomCode, 'PATCH',{
+			mapSignature: getCurrentMapSignature(),
+			status: 'hosting',
+			updatedAt: Date.now(),
+			} );
+			lastPublicServerRoomMetaSyncAt	 = Date.now();
+			} catch ( error ) {
+			console.warn( 'Public-server room meta sync failed', error );
+			lastPublicServerRoomMetaSyncAt	 = 0;
+			}
+		}
+
 
 	setInterval( syncMultiplayerTransforms, REMOTE_SYNC_MS );
+	if ( hasFirebaseMultiplayerConfig() && publicServerState.serverId ) {
+		startPublicServerPolling();
+	}
 	setInterval( broadcastPeerState, WEBRTC_SYNC_MS );
 	window.addEventListener( 'beforeunload', () => {
 
@@ -12683,6 +12758,7 @@ function completeCampaignStage() {
 			hudExtras?.setVisible( gameMode === 'race' || gameMode === 'stunt' );
 
 		}
+
 
 		renderFrame();
 
