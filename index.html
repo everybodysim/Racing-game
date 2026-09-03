@@ -2828,7 +2828,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					if ( map ) q.set( 'map', map );
 					if ( mods ) q.set( 'mods', mods );
 					const rawUrl = `${ normalizeTrackPath( u.pathname ) }${ q.toString() ? `?${ q.toString() }` : '' }`;
-					return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
+					return `trk-${ hashTrackSeed( `v5-url|${ rawUrl }` ) }`;
 				} catch ( e ) { return ''; }
 			}
 

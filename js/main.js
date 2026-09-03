@@ -3690,7 +3690,7 @@ function getTrackId( mapParamValue, extrasParamValue ) {
 	if ( extrasParamValue ) params.set( 'mods', extrasParamValue );
 	const normalizedPath = normalizeTrackPath( window.location.pathname );
 	const rawUrl = `${ normalizedPath }${ params.toString() ? `?${ params.toString() }` : '' }`;
-	return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
+	return `trk-${ hashTrackSeed( `v5-url|${ rawUrl }` ) }`;
 
 }
 
