@@ -149,41 +149,36 @@ export class SkidMarks {
 
         if ( replaced ) this._disposeEntry( replaced );
     }
-
     _computeEmit( veh, deltaYaw ) {
         if ( ! veh?.rigidBody || ! veh?.container ) return;
         if ( veh.container?.visible === false ) return;
         // Teleport interlock: the living interlock on the Vehicle (decremented on
-        // their own physics update) covers the two frames of the actual jump. We
-        // ALSO require a short settled-contact window so a brand-new spawn/landing
-        // never seeds an instant mark at the arrival point of a jump line..
+        // their own physics update) covers the two frames of the actual jump. The
+        // contact gate is the caller real collision signal (car rigid body contactCount), so
+        // marks are only placed while genuinely colliding - never from height or settling.
         if ( veh.teleportInterlock > 0 ) return;
-        const settle = veh.__skidSettleTime || 0;
-        if ( settle < SETTLE_TIME ) return;
 
         const drift = veh.driftIntensity || 0;
-        const speedNorm = THREE.MathUtils.clamp( Math.abs( veh.linearSpeed ||  0 ) / Math.max( 0.01, veh.topSpeed ||  1 ), 0, 1.6 );
-
-        // Heading-relative slip: what fraction of the car's world velocity is sideways.
-
-        _fwd.set( 0, 0, 1 ).applyQuaternion( veh.container.quaternion ).setY( 0 ).normalize();
-        _rgt.set( 1, 0, 0 ).applyQuaternion( veh.container.quaternion ).setY( 0 ).normalize();
-        const forwardVel = Math.max( 0.35, Math.abs( veh.modelVelocity?.dot( _fwd ) ||  0 ) ) ;
-        const lateralVel = Math.abs( veh.modelVelocity?.dot( _rgt ) ||  0 );
-        const slipAmount = THREE.MathUtils.clamp( lateralVel / forwardVel *  1.7, 0, 1 );
-
-        // Blend the game's own driftIntensity (steering load usually, body roll, throttle) with
-        // our grip-based slip so proper powerslides AND hard sideways contacts both draw..
+        // Instantaneous world speed of the colliding sphere (NOT smoothed linearSpeed,
+        // which lingers during/after airborne coasting).
+        const speed = Math.hypot(
+            veh.sphereVel?.x ||  0,
+            veh.sphereVel?.y ||  0,
+            veh.sphereVel?.z ||  0
+        );
+        const speedNorm = THREE.MathUtils.clamp( speed / Math.max( 0.01, veh.topSpeed ||  1 ), 0, 1.6 );
+        // Drift gate driven by the game own drift intensity (lateral slide of the
+        // model computed each physics frame from actual motion) - plus steering
+        // load and hard braking while contact. No height / no airborne slip.
         const braking = veh.inputZ < - 0.25 && speedNorm >  0.22 ? Math.min( 1, speedNorm *  1.2 ) :  0;
         const intensity = THREE.MathUtils.clamp(
-            Math.max( drift *  0.9, slipAmount *  0.9 ) + Math.abs( veh.inputX ||  0 ) * speedNorm *  0.18 + braking *  0.45,
+            drift *  0.9 + Math.abs( veh.inputX ||  0 ) * speedNorm *  0.18 + braking *  0.45,
             0,  1
         );
-        if ( intensity < 0.25 || speedNorm <  0.08 ) return;
-
-        // Sprinkle so streaks don't collapse into one solid painted strip..
-        if ( Math.random() > (  0.06 + intensity *  0.68 ) ) return;
-
+        if ( intensity <  0.08 || speedNorm <  0.08 ) return;
+        // Sprinkle so streaks dont collapse into one solid painted strip..
+        if ( Math.random() > (  0.25 + intensity *  0.45 ) ) return;
+        _fwd.set( 0, 0, 1 ).applyQuaternion( veh.container.quaternion ).setY( 0 ).normalize();
         this._rearMidPoint( veh, _tmpPos );
         const yaw = Math.atan2( _fwd.x, _fwd.z ) + ( deltaYaw ||  0 );
         this._emitAt( _tmpPos, yaw, intensity, speedNorm );
@@ -192,9 +187,6 @@ export class SkidMarks {
     _tickCar( veh, contact, deltaYaw, dt ) {
         if ( ! veh?.container ) return;
         if ( veh.container?.visible === false ) return;
-        veh.__skidSettleTime = veh.__skidSettleTime ||  0;
-        if ( contact ) veh.__skidSettleTime += dt;
-        else veh.__skidSettleTime = 0;
         if ( ! contact ) {
             this.emitAccumulator = 0;
             return;

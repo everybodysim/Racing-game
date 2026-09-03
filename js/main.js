@@ -12125,8 +12125,8 @@ function completeCampaignStage() {
 
 		}
 		skidMarks.update( dt, [
-			{ veh: vehicle, contact: Boolean( activeSurfaceType ) },
-			...( vehicle2 ? [ { veh: vehicle2, contact: Boolean( activeSurfaceType2 ) } ] : [] )
+			{ veh: vehicle, contact: Boolean( vehicle.rigidBody?.contactCount ) },
+			...( vehicle2 ? [ { veh: vehicle2, contact: Boolean( vehicle2.rigidBody?.contactCount ) } ] : [] )
 		] );
 		updateActiveBoost( vehicle, boostActiveUntil, dt, now );
 		if ( vehicle2 ) updateActiveBoost( vehicle2, boostActiveUntil2, dt, now );
