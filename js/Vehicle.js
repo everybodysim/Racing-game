@@ -56,6 +56,10 @@ export class Vehicle {
 		this.inputZ = 0;
 
 		this.driftIntensity = 0;
+		// Skid-mark teleport interlock: the first physics update after a
+		// teleport is a genuine position jump (a straight line from the old
+		// spot to the spawn/checkpoint) — never draw skid marks across it.
+		this.teleportInterlock = 0;
 		this.spawnPosition = new THREE.Vector3( 3.5, 0.5, 5 );
 		this.spawnAngle = 0;
 		this.topSpeed = 1.0;
@@ -110,6 +114,12 @@ export class Vehicle {
 		this.container.rotation.set( 0, this.spawnAngle, 0 );
 		this.container.quaternion.setFromEuler( this.container.rotation );
 		this.prevModelPos.copy( this.container.position );
+		// Any teleport (spawn / respawn / falling out of the world) teleports the
+		// sphere through mid-air. Hold the skid-mark interlock just long enough
+		// (two physics update frames) that the jump start position never seeds a
+		// surface-contact skid trail from the old location to the new one.
+
+		this.teleportInterlock = 2;
 
 	}
 
@@ -276,7 +286,7 @@ export class Vehicle {
 
 			const pos = this.rigidBody.position;
 			this.spherePos.set( pos[ 0 ], pos[ 1 ], pos[ 2 ] );
-
+			if ( this.teleportInterlock > 0 ) this.teleportInterlock -= 1;
 			const vel = this.rigidBody.motionProperties.linearVelocity;
 			this.sphereVel.set( vel[ 0 ], vel[ 1 ], vel[ 2 ] );
 
