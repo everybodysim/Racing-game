@@ -287,7 +287,7 @@ export const TRACK_CELLS = [
 	[ -2,  0, 'track-checkpoint', 10 ],
 	[  0,  0, 'track-finish',    0 ],
 	[ -2,  1, 'track-straight', 10 ],
-	[ -1,d  1,'track-checkpoint', 16 ],
+	[ -1,  1,'track-checkpoint', 16 ],
 	[  0,  1, 'track-straight',  0 ],
 	[ -2,  2, 'track-corner',   10 ],
 	[ -1,  2, 'track-straight', 16 ],
