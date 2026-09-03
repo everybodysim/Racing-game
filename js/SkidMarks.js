@@ -10,8 +10,8 @@ const SKID_TEX_SIZE = 64;
 const SKID_LIFE_MIN = 2.2;
 const SKID_LIFE_MAX = 3.6;
 const SKID_FADE_TIME = 0.7;
-const SKID_ALPHA_MIN = 0.10;
-const SKID_ALPHA_MAX = 0.42;
+const SKID_ALPHA_MIN = 0.16;
+const SKID_ALPHA_MAX = 0.60;
 const SETTLE_TIME = 0.05;
 
 function mulberry32( seed ) {
@@ -35,8 +35,8 @@ function makeSkidTexture() {
     const midY = canvas.height / 2;
     const grad = ctx.createLinearGradient( 0, 0, canvas.width, 0 );
     grad.addColorStop( 0, 'rgba(0,0,0,0)' );
-    grad.addColorStop( 0.12,'rgba(22,20,20,1)' );
-    grad.addColorStop( 0.88,'rgba(22,20,20,1)' );
+    grad.addColorStop( 0.12,'rgba(215,210,205,1)' );
+    grad.addColorStop( 0.88,'rgba(215,210,205,1)' );
     grad.addColorStop( 1,'rgba(0,0,0,0)' );
     ctx.fillStyle = grad;
     const bandH = Math.max( 2, Math.floor( canvas.height * 0.38 ) );
@@ -66,6 +66,8 @@ export class SkidMarks {
             polygonOffset: true,
             polygonOffsetFactor: -2,
             polygonOffsetUnits: -4,
+            side: THREE.DoubleSide,
+            renderOrder: 10,
         } );
     }
 
@@ -98,7 +100,7 @@ export class SkidMarks {
             hit = 1;
         }
         if ( ! hit ) out.set( vehicle.spherePos.x, vehicle.container.position.y, vehicle.spherePos.z );
-        out.y = vehicle.container.position.y +  0.02;
+        out.y = vehicle.container.position.y +  0.06;
         return out;
     }
 
