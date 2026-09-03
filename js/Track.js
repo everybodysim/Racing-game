@@ -276,7 +276,7 @@ function createElevatedSupport( gx, gz, orient = 0, elevatedType = 'elevated-str
 
 export const TRACK_CELLS = [
 	[ -3, -3, 'track-corner',   16 ],
-	[ -2, -3, 'track-straight', 22 ],
+	[ -2, -3, 'track-checkpoint', 22 ],
 	[ -1, -3, 'track-straight', 22 ],
 	[  0, -3, 'track-corner',    0 ],
 	[ -3, -2, 'track-straight',  0 ],
