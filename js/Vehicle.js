@@ -338,11 +338,13 @@ export class Vehicle {
 	 * depths below the chassis center where each ray hit (all rays share the
 	 * same origin height), or null when that ray missed / was rejected —
 	 * reconstruct the ground normal in car space and decompose it into
-	 * pitch/roll using the same convention the old grid-cell detection used
-	 * (positive pitch = nose up along an uphill-forward surface).
+	 * pitch/roll that map DIRECTLY onto modelRoot.rotation.x/z.
 	 *
-	 * Sign conventions are locked by test-slope-tilt.mjs against the legacy
-	 * implementation's outputs for canonical slope cases.
+	 * Physical convention (locked by test-slope-tilt.mjs, and confirmed by
+	 * live testing — the legacy grid-cell detection was inverted, which is
+	 * why its convention is NOT replicated here):
+	 *   climbing (surface rises along the car's forward axis) → nose UP
+	 *   surface rising toward the car's right → right side UP
 	 */
 	static computeSlopeTiltFromSamples( samples, halfLength = 1.1, halfWidth = 0.65, maxTilt = 1.0 ) {
 
@@ -371,8 +373,8 @@ export class Vehicle {
 		const inv = 1 / Math.hypot( nx, 1, nz );
 		const ny = inv;
 		return {
-			pitch: THREE.MathUtils.clamp( Math.atan2( - nz * inv, ny ), - maxTilt, maxTilt ),
-			roll: THREE.MathUtils.clamp( Math.atan2( nx * inv, ny ), - maxTilt, maxTilt ),
+			pitch: THREE.MathUtils.clamp( Math.atan2( nz * inv, ny ), - maxTilt, maxTilt ),
+			roll: THREE.MathUtils.clamp( Math.atan2( - nx * inv, ny ), - maxTilt, maxTilt ),
 		};
 
 	}
