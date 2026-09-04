@@ -7,7 +7,7 @@ import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999971';
 import { buildWallColliders, createSphereBody } from './Physics.js';
-import { SmokeTrails } from './Particles.js';
+import { SmokeTrails, WaterSplashFX } from './Particles.js';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
@@ -4372,7 +4372,7 @@ async function init() {
 		return { underwater: false, exitTimer: 0 };
 
 	}
-	function updateWaterCameraState( state, position, deltaSeconds ) {
+	function updateWaterCameraState( state, position, deltaSeconds, onEnter = null ) {
 
 		if ( ! state || ! position ) return false;
 		const gx = Math.floor( position.x / cellWorld );
@@ -4385,6 +4385,7 @@ async function init() {
 
 				state.underwater = true;
 				state.exitTimer = 0;
+				if ( onEnter ) onEnter( position );
 
 			}
 			return state.underwater;
@@ -4421,6 +4422,24 @@ async function init() {
 		return true;
 
 	}
+	// Splash when a car breaks the water surface — scaled by how hard it went in.
+	const WATER_SURFACE_Y = 0.32;
+	let waterSplashFx = null;
+	function triggerWaterSplash( targetVehicle, position ) {
+
+		if ( ! position ) return;
+		const velocity = targetVehicle?.rigidBody?.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+		const dive = Math.abs( Math.min( velocity[ 1 ], 0 ) );
+		const speed = Math.hypot( velocity[ 0 ], velocity[ 1 ], velocity[ 2 ] );
+		// gentle wading in barely plops; a hard dive makes a real splash
+		const intensity = THREE.MathUtils.clamp( dive / 10 + speed / 60, 0.1, 1 );
+		if ( intensity < 0.22 ) return;
+		waterSplashFx ??= new WaterSplashFX( scene );
+		waterSplashFx.burst( position.x, WATER_SURFACE_Y, position.z, intensity );
+		window.__gameAudio?.playSplash?.( intensity );
+
+	}
+
 	function createGroundSurfaceCollider( halfExtents, position ) {
 
 		// Make ground colliders thick so edges are buried deep below the surface.
@@ -12329,13 +12348,13 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat.setFromEuler( camYawLockEuler.set( 0, camYawLockValue, 0, 'YXZ' ) );
-				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt );
+				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) );
 				cam.update( dt, vehicle.spherePos, camYawLockQuat, _camDynamics1 );
 
 			} else {
 
 				camYawLockActive = false;
-				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt );
+				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) );
 				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, _camDynamics1 );
 
 			}
@@ -12354,13 +12373,13 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat2.setFromEuler( camYawLockEuler2.set( 0, camYawLockValue2, 0, 'YXZ' ) );
-				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt );
+				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) );
 				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2, _camDynamics2 );
 
 			} else {
 
 				camYawLockActive2 = false;
-				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt );
+				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) );
 				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion, _camDynamics2 );
 
 			}
@@ -12382,6 +12401,7 @@ function completeCampaignStage() {
 			if ( particles2 ) particles2.customColor = null;
 		}
 		particles.update( dt, vehicle );
+		waterSplashFx?.update( dt );
 		particles2?.update( dt, vehicle2 );
 		skidMarks.update( dt, vehicle );
 		skidMarks.update( dt, vehicle2 );

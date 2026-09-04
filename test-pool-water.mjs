@@ -37,7 +37,9 @@ test( 'finite-difference world normals', /hX1 - hX2/.test( shader ) && /hZ1 - hZ
 test( 'waves evaluated in world space (shared ocean feel)', /world\.xz/.test( shader ) && /world\.y \+= hC/.test( shader ) );
 test( 'refraction onto the pool floor', /refract\(/.test( shader ) && /floorY/.test( shader ) );
 test( 'caustic web', /abs\( n1 - n2 \)/.test( shader ) && /pow\(\s*max\( 0\.0, 1\.0 - web \),\s*30\.0\s*\)/.test( shader ) );
-test( 'ceramic tiles drawn in-shader, grid-aligned', /cellSize \* \$\{ WATER_SHADER_TILE_COLS \}\.0/.test( shader ) );
+test( 'water floor is a soft mottle, NOT ceramic tiles', /floorCol = mix\(/.test( shader ) && ! /grout|cellId/.test( shader ) );
+test( 'small choppy ripples ride the swell', /sin\( wp\.x \* 3\.4 - t \* 1\.4 \)/.test( shader ) );
+test( 'gentler swell than the first pass', /sin\( wp\.x \* 1\.35 \+ t \) \* 0\.032/.test( shader ) );
 test( 'fresnel sky reflection', /fresnel/.test( shader ) && /skyTop/.test( shader ) );
 test( 'sun glint', /pow\(\s*max\( dot\( rDir, lightDir \), 0\.0 \),\s*450\.0/.test( shader ) );
 
@@ -57,7 +59,18 @@ test( 'tile textures deterministic (seeded PRNG)', /createPoolTileCanvas/.test( 
 test( 'default waterColor is a saturated blue', track.includes( "'#1180e6'" ) );
 test( 'shader applies the blue body tint', shader.includes( 'vec3( 0.72, 0.9, 1.14 )' ) );
 
-// 7. customPool API compatibility
+// 7. Splash when the car breaks the surface
+const main = readFileSync( './js/main.js', 'utf8' );
+const particles = readFileSync( './js/Particles.js', 'utf8' );
+const audio = readFileSync( './js/Audio.js', 'utf8' );
+test( 'splash FX class exists (droplet burst + gravity)', /export class WaterSplashFX/.test( particles ) && /burst\(/.test( particles ) && /velocity\.y -= particle\.gravity \* dt/.test( particles ) );
+test( 'splash sound is procedural (no sample file)', /playSplash\(/.test( audio ) && /createBuffer\(/.test( audio ) && ! /splash\.(ogg|mp3|wav)/.test( audio ) );
+test( 'splash triggers on water entry (all 4 camera-state sites)', main.includes( 'triggerWaterSplash' ) && main.split( 'updateWaterCameraState( waterCameraState' ).length === 5 && main.includes( "( pos ) => triggerWaterSplash" ) );
+test( 'splash intensity scales with dive speed', /dive \/ 10 \/ speed \/ 60/.test( main.replace( /Math\.hypot\(|\)/g, '' ) ) || /dive \/ 10/.test( main ) );
+test( 'splash FX updated each frame', /waterSplashFx\?\.update\( dt \)/.test( main ) );
+test( 'pool walls still wear the ceramic tile texture', /map: poolWallTexture/.test( track ) );
+
+// 8. customPool API compatibility
 test( 'customPool waterColor/edgeColor still honored', /isHex\( cfg\.waterColor \)/.test( track ) && /isHex\( cfg\.edgeColor \)/.test( track ) );
 
 console.log( `\n${ passed } passed, ${ failed } failed${ failed ? ' — WITH FAILURES' : '' }` );

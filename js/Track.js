@@ -31,7 +31,7 @@ const WATER_WALL_HEIGHT = CELL_RAW * 0.38;
 // Pool visuals — 100% procedural (no external texture CDNs).
 // Pool block tiles are canvas-generated ceramic tiles; the water is a
 // custom shader port of the classic "tinted clear water" technique:
-// fbm waves, refraction onto a procedural tiled floor, a caustic web,
+// fbm waves with small chop, refraction onto a soft mottled floor, a caustic web,
 // fresnel sky reflection, and a sun glint.
 const WATER_SHADER_TILE_COLS = 8; // ceramic tiles per grid cell (shader + textures stay in sync)
 
@@ -121,8 +121,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 	return new THREE.ShaderMaterial( {
 		uniforms: {
 			time: { value: 0 },
-			waveHeight: { value: CELL_RAW * 0.028 },
-			cellSize: { value: CELL_RAW },
+			waveHeight: { value: CELL_RAW * 0.024 },
 			floorY: { value: - WATER_DEPTH },
 			lightDir: { value: new THREE.Vector3( 0.577, 0.577, 0.577 ).normalize() },
 			shallowColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0xffffff ), 0.24 ) },
@@ -158,8 +157,11 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				return v;
 			}
 			float getWave( vec2 wp, float t ) {
-				float h = sin( wp.x * 1.6 + t ) * 0.05 + cos( wp.y * 1.3 - t * 0.8 ) * 0.04;
-				h += fbm( wp * 2.8, t ) * 0.05;
+				// Gentle swell...
+				float h = sin( wp.x * 1.35 + t ) * 0.032 + cos( wp.y * 1.15 - t * 0.8 ) * 0.026;
+				h += fbm( wp * 3.2, t ) * 0.045;
+				// ...with small choppy ripples riding on top (the "watery" detail)
+				h += sin( wp.x * 3.4 - t * 1.4 ) * 0.016 + sin( ( wp.x + wp.y ) * 5.3 + t * 1.9 ) * 0.011;
 				return h;
 			}
 			void main() {
@@ -180,7 +182,6 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 		`,
 		fragmentShader: `
 			uniform float time;
-			uniform float cellSize;
 			uniform float floorY;
 			uniform vec3 lightDir;
 			uniform vec3 shallowColor;
@@ -205,34 +206,29 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				vec3 refrDir = refract( - viewDir, n, 1.0 / 1.333 );
 				if ( abs( refrDir.y ) < 1e-4 ) refrDir.y = - 1e-4;
 
-				float fresnel = 0.02 + 0.18 * pow( 1.0 - max( dot( n, viewDir ), 0.0 ), 5.0 );
+				float fresnel = 0.03 + 0.24 * pow( 1.0 - max( dot( n, viewDir ), 0.0 ), 5.0 );
 				// Procedural sky (no skybox asset needed)
 				float skyMix = clamp( rDir.y * 0.5 + 0.5, 0.0, 1.0 );
 				vec3 skyColor = mix( skyHorizon, skyTop, skyMix ) * 0.35;
 
-				// Refract down to the pool floor and shade the ceramic tiles
-				// the refracted ray lands on (grid-aligned, like the pool mesh).
+				// Refract down to the pool floor and shade a soft mottled bottom —
+				// deliberately NOT the ceramic tile pattern of the pool walls;
+				// tiled water reads goofy. This reads as water body.
 				float dFloor = max( ( floorY - vWorldPos.y ) / refrDir.y, 0.0 );
 				vec3 fPos = vWorldPos + refrDir * dFloor;
-				vec2 tUV = fPos.xz / cellSize * ${ WATER_SHADER_TILE_COLS }.0;
-				vec2 cellId = floor( tUV );
-				vec2 tf = fract( tUV );
-				float tileVar = hash( cellId );
-				vec3 tileCol = vec3( 0.56, 0.79, 0.93 ) * ( 0.84 + 0.28 * tileVar );
-				tileCol = mix( tileCol, vec3( 0.38, 0.66, 0.86 ), step( 0.9, tileVar ) );
-				float grout = min( min( tf.x, 1.0 - tf.x ), min( tf.y, 1.0 - tf.y ) );
-				tileCol *= mix( 0.45, 1.0, smoothstep( 0.0, 0.05, grout ) );
-				tileCol *= 0.52;
+				float mottle = noise( fPos.xz * 1.4 ) * 0.6 + noise( fPos.xz * 3.7 ) * 0.4;
+				vec3 floorCol = mix( vec3( 0.14, 0.38, 0.5 ), vec3( 0.3, 0.6, 0.7 ), mottle );
+				floorCol *= 0.55;
 
-				// Caustic web rippling across the floor
-				vec2 cUV = fPos.xz * 1.25 + n.xz * 0.35;
+				// Caustic web rippling across the floor (finer, softer)
+				vec2 cUV = fPos.xz * 1.8 + n.xz * 0.35;
 				float ct = time * 2.0;
 				float n1 = noise( cUV + vec2( ct * 0.3, ct * 0.1 ) );
 				float n2 = noise( cUV.yx - vec2( ct * 0.2, - ct * 0.2 ) );
 				float web = abs( n1 - n2 );
-				float caustic = pow( max( 0.0, 1.0 - web ), 30.0 ) * 0.7;
+				float caustic = pow( max( 0.0, 1.0 - web ), 30.0 ) * 0.55;
 
-				vec3 refrColor = tileCol + vec3( caustic * vec3( 0.8, 0.95, 1.1 ) );
+				vec3 refrColor = floorCol + vec3( caustic * vec3( 0.8, 0.95, 1.1 ) );
 				float depthT = clamp( dFloor / ( cellSize * 0.6 ), 0.0, 1.0 );
 				refrColor = mix( refrColor, shallowColor * 0.55, 0.18 );
 				refrColor = mix( refrColor, deepColor, depthT * 0.4 );
