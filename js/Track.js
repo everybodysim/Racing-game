@@ -229,7 +229,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				float caustic = pow( max( 0.0, 1.0 - web ), 30.0 ) * 0.55;
 
 				vec3 refrColor = floorCol + vec3( caustic * vec3( 0.8, 0.95, 1.1 ) );
-				float depthT = clamp( dFloor / ( cellSize * 0.6 ), 0.0, 1.0 );
+				float depthT = clamp( dFloor / ( ${ CELL_RAW } * 0.6 ), 0.0, 1.0 );
 				refrColor = mix( refrColor, shallowColor * 0.55, 0.18 );
 				refrColor = mix( refrColor, deepColor, depthT * 0.4 );
 				// The bluer body tint requested
