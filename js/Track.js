@@ -113,11 +113,62 @@ const _waterPrevViewport = new THREE.Vector4();
 const _waterPrevScissor = new THREE.Vector4();
 const waterRefrRTs = new Map();
 
+// Frame-budget governor. The refraction pass re-renders the whole scene,
+// which is exactly what pools steal from the frame rate. Two gates:
+//  1. FRUSTUM: if no water plane is in the camera's view, skip the pass
+//     entirely (off-screen pools cost nothing).
+//  2. CADENCE: as FPS dips, re-render the RT every 2nd/3rd/4th call instead
+//     of every frame. The wobble animates per-frame IN-SHADER (time
+//     uniform), so a 2-3 frame old refraction sample is imperceptible —
+//     but the frame gets a whole scene-render cheaper.
+const waterLastRefrFrameByCam = new Map();
+const _waterFrustum = new THREE.Frustum();
+const _waterProjScreen = new THREE.Matrix4();
+let waterRefrFrameCounter = 0;
+let waterRefrCadence = 1;
+
+export function updateWaterQuality( rollingFps ) {
+
+	if ( ! Number.isFinite( rollingFps ) || rollingFps <= 0 ) {
+
+		waterRefrCadence = 1; // no signal yet — assume healthy
+		return;
+
+	}
+	waterRefrCadence = rollingFps >= 45 ? 1 : rollingFps >= 28 ? 2 : rollingFps >= 18 ? 3 : 4;
+
+}
+
+function isWaterVisibleToCamera( camera ) {
+
+	if ( WATER_PLANES.length === 0 ) return false;
+	camera.updateMatrixWorld();
+	camera.matrixWorldInverse.copy( camera.matrixWorld ).invert();
+	_waterProjScreen.multiplyMatrices( camera.projectionMatrix, camera.matrixWorldInverse );
+	_waterFrustum.setFromProjectionMatrix( _waterProjScreen );
+	for ( const plane of WATER_PLANES ) {
+
+		// World-space spheres are cached once per plane (planes never move);
+		// no per-frame allocation here.
+		const sphere = plane.userData.waterWorldSphere;
+		if ( ! sphere ) return true; // not cached — be safe, render the pass
+		if ( _waterFrustum.intersectsSphere( sphere ) ) return true;
+
+	}
+	return false;
+
+}
+
 // viewportRect (canvas px, bottom-left origin) mirrors split-screen scissor
 // rects so each camera's water samples ITS OWN view.
 export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0, viewportRect = null ) {
 
 	if ( WATER_PLANES.length === 0 ) return;
+	if ( ! isWaterVisibleToCamera( camera ) ) return;
+	waterRefrFrameCounter ++;
+	const waterLastFrame = waterLastRefrFrameByCam.get( camIndex );
+	if ( waterLastFrame !== undefined && waterRefrFrameCounter - waterLastFrame < waterRefrCadence ) return;
+	waterLastRefrFrameByCam.set( camIndex, waterRefrFrameCounter );
 	const db = renderer.getDrawingBufferSize( _waterDbSize );
 	const w = Math.max( 2, Math.floor( db.x / 2 ) );
 	const h = Math.max( 2, Math.floor( db.y / 2 ) );
@@ -730,6 +781,11 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.12, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
 			waterPlane.userData.waterSurface = true;
 			WATER_PLANES.push( waterPlane );
+			// Cache the world-space bounding sphere once — the frustum gate
+			// tests it every frame, and pool planes never move after this.
+			waterPlane.updateMatrixWorld();
+			waterPlane.geometry.computeBoundingSphere();
+			waterPlane.userData.waterWorldSphere = waterPlane.geometry.boundingSphere.clone().applyMatrix4( waterPlane.matrixWorld );
 			waterPlane.onBeforeRender = () => { waterPlane.material.uniforms.time.value = performance.now() * 0.001; };
 			trackPieceGroup.add( waterPlane );
 
