@@ -8,6 +8,7 @@ import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999971';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
+import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
@@ -5812,6 +5813,8 @@ async function init() {
 
 	const particles = new SmokeTrails( scene, getGraphicsParticleOptions() );
 	const particles2 = isSplitScreen ? new SmokeTrails( scene, getGraphicsParticleOptions() ) : null;
+	// Drift skid marks from both rear tires — one shared ring-buffer pool.
+	const skidMarks = new SkidMarks( scene, { enabled: ( getGraphicsPreset().smokeParticles ?? 64 ) > 0 } );
 	const lapHud = document.getElementById( 'lap-hud' );
 	const lapHud2 = document.getElementById( 'lap-hud-2' );
 	const countdownHud = document.getElementById( 'countdown-hud' );
@@ -6769,6 +6772,7 @@ async function init() {
 		applyGraphicsPresetToRenderer();
 		particles.setQuality( getGraphicsParticleOptions() );
 		particles2?.setQuality( getGraphicsParticleOptions() );
+		skidMarks.setQuality( { maxSegments: ( getGraphicsPreset().smokeParticles ?? 64 ) > 0 ? undefined : 0 } );
 		setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
 		updateGraphicsQualityUi();
 
@@ -6817,6 +6821,7 @@ async function init() {
 		applyGraphicsPresetToRenderer();
 		particles.setQuality( getGraphicsParticleOptions() );
 		particles2?.setQuality( getGraphicsParticleOptions() );
+		skidMarks.setQuality( { maxSegments: ( getGraphicsPreset().smokeParticles ?? 64 ) > 0 ? undefined : 0 } );
 		setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
 		updateGraphicsQualityUi();
 	}
@@ -10458,6 +10463,10 @@ function completeCampaignStage() {
 
 		lapStartSeconds = raceClockSeconds;
 		lapSeconds = 0;
+		// Restart snaps the car back to the start — break any in-progress skid
+		// trails so no line is drawn across the map to the spawn block.
+		skidMarks?.breakVehicleTrail( vehicle );
+		skidMarks?.breakVehicleTrail( vehicle2 );
 		currentLapInvalidatedByPause = false;
 		boostActiveUntil = 0;
 		vehicle.setWheelieActive?.( false );
@@ -12249,6 +12258,8 @@ function completeCampaignStage() {
 		}
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
+		skidMarks.update( dt, vehicle );
+		skidMarks.update( dt, vehicle2 );
 		if ( ! homeLandingEl ) homeLandingEl = document.getElementById( 'home-landing' );
 		audio.updateMusic( dt, ! homeLandingEl?.classList.contains( 'visible' ) && ! modeMenuOpen && ! replayViewerMode );
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
