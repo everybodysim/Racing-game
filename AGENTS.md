@@ -1318,3 +1318,56 @@ The mobile UI had two independent triggers; BOTH are neutralized:
 - `js/main.js` `startPublicServerPolling()` is a local closure declared near the end of `async function init()` (right after `syncMultiplayerTransforms`), because it `await`s that init-local function. A module-scope copy would ReferenceError(TDZ/undefined) — do NOT hoist it out.
 - It is kicked in TWO places: M-bM-^@M-^B at init() tail (`if ( hasFirebaseMultiplayerConfig() && publicServerState.serverId ) startPublicServerPolling();`),M-bM-^@M-^B right after a successful Firebase public-server join (`joinPublicServer()` calls `await startPublicServerPolling().catch(...)` before the try-catch's catch). The kick performs an immediate `syncMultiplayerTransforms({force:true})` so the room roster + host map reach the joiner without waiting for the 220ms interval, and the host meta PATCH fires right away (cadence `lastPublicServerRoomMetaSyncAt`, separate from the private-room `lastHostRoomMetaSyncAt`).
 - `broadcastPeerState()` now skips echoing every 33ms to Firebase when WebRTC data channels are live: it stamps `multiplayerSessionState.peerBroadcastLastFirebaseAt` when `connections.size>0` and Firebase PUTs only every `REMOTE_SYNC_MS`(220ms)。 This cut the lag (zero chatty PUT per frame worried) while keeping the per-frame packets to peers;when no data channel is open the old every-tick Firebase PUT path is preserved so private rooms still sync via the HTTPS floor。
+
+## Multiplayer transport hardening (js/mp-net.js + js/turn-config.js)
+
+### The failure model (why half the devices were broken)
+Every player device falls into one of these classes, and the code must handle all of them:
+- **Normal home network** — WebRTC + STUN works. Was fine before, still fine.
+- **Symmetric NAT / CGNAT / UDP-blocked school** — P2P requires a TURN relay. The old
+  `openrelay`/`openrelay` TURN credentials in `peerConfig` were INVENTED (never valid),
+  metered.ca retired public static creds, and its `turns:` endpoint serves a cert for
+  `*.relay.metered.ca` — so the relay layer silently never worked. These users fell to
+  the 220ms Firebase poll (or nothing when Firebase was also blocked).
+- **PeerJS-cloud-blocked network** — private room joins used to hard-fail on the
+  Firebase room GET; now Firebase metadata is best-effort and the P2P join proceeds.
+- **Firebase-blocked network** — public servers used to hard-fail (Firebase-only join);
+  now they fall back to the PeerJS-native mesh host election automatically.
+- **Everything blocked** — still dead (would need MQTT/nostr signaling; future milestone).
+
+### The rules (do not regress these)
+1. **No transport may hard-block another.** Firebase metadata failures degrade to
+   best-effort (join/host continue over the mesh); Firebase-blocked public servers
+   fall back to the mesh. `isFirebaseNetworkError()` (mp-net.js) distinguishes
+   "unreachable" (fall back) from "denied/absent" (real answer).
+2. **WebRTC packets are never throttled by Firebase cadence.** `broadcastPeerState()`
+   had a guard that clamped P2P sends to REMOTE_SYNC_MS (220ms) — the cause of the
+   "multiplayer is slower now" rubber-banding. P2P runs at WEBRTC_SYNC_MS (33ms);
+   the 220ms Firebase REST poll lives separately in `syncMultiplayerTransforms`.
+3. **Transient PeerJS signalling errors retry** with backoff 1s/2.5s/5s (max 3,
+   `classifyPeerError()`), resetting on success. `peer-unavailable` shows a friendly
+   "room not found" instead of retrying.
+4. **TURN servers with no credentials must not exist.** ICE config comes from
+   `resolveIceServers()` (turn-config.js). Static creds slot: `TURN_STATIC_CREDENTIALS`;
+   rotating creds: `TURN_CREDENTIALS_URL` returning {username, credential, ttlMs}.
+   Both empty by default = STUN-only (Google + Cloudflare). Any failure degrades to
+   STUN-only silently. openrelay.metered.ca is REMOVED — do not re-add (dead creds,
+   broken TLS cert).
+5. **Every P2P connection reports its ICE transport** (direct/srflx/relay + protocol)
+   to the mp-debug overlay via `describeSelectedIcePair()` — bug reports should always
+   include this line.
+6. All three `new Peer()` sites (startPeerMultiplayer, startPublicServerPeer,
+   maybeReclaimPublicServerHost) resolve config via `await getActivePeerConfig()`.
+   Do NOT reintroduce a static `peerConfig` object.
+
+### Tests
+`test-multiplayer-transport.mjs` (node, no deps) covers error classification, backoff,
+Firebase failure classification, ICE stats parsing, and credential fetch/TTL/degradation.
+Run it after touching any of this.
+
+### Pre-push sweep (learned the hard way)
+Before pushing ANY branch: run `node --check` on EVERY `.js` file in the repo
+(`find js -name '*.js' -exec node --check {} +`), not just the files you touched —
+a broken file inherited from the fork point (e.g. a typo in js/Track.js from the
+checkpoint commit) crashes the game at load with an opaque browser SyntaxError
+that never shows in the files you edited. Also run all test-*.mjs files.
