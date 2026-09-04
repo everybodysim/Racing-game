@@ -1318,3 +1318,17 @@ The mobile UI had two independent triggers; BOTH are neutralized:
 - `js/main.js` `startPublicServerPolling()` is a local closure declared near the end of `async function init()` (right after `syncMultiplayerTransforms`), because it `await`s that init-local function. A module-scope copy would ReferenceError(TDZ/undefined) — do NOT hoist it out.
 - It is kicked in TWO places: M-bM-^@M-^B at init() tail (`if ( hasFirebaseMultiplayerConfig() && publicServerState.serverId ) startPublicServerPolling();`),M-bM-^@M-^B right after a successful Firebase public-server join (`joinPublicServer()` calls `await startPublicServerPolling().catch(...)` before the try-catch's catch). The kick performs an immediate `syncMultiplayerTransforms({force:true})` so the room roster + host map reach the joiner without waiting for the 220ms interval, and the host meta PATCH fires right away (cadence `lastPublicServerRoomMetaSyncAt`, separate from the private-room `lastHostRoomMetaSyncAt`).
 - `broadcastPeerState()` now skips echoing every 33ms to Firebase when WebRTC data channels are live: it stamps `multiplayerSessionState.peerBroadcastLastFirebaseAt` when `connections.size>0` and Firebase PUTs only every `REMOTE_SYNC_MS`(220ms)。 This cut the lag (zero chatty PUT per frame worried) while keeping the per-frame packets to peers;when no data channel is open the old every-tick Firebase PUT path is preserved so private rooms still sync via the HTTPS floor。
+
+## Pre-push syntax sweep — MODULE goal, not just node --check
+
+`node --check foo.js` parses in the CommonJS SCRIPT goal, but the browser loads
+every `js/*.js` as an ES MODULE (import map). Some syntax is legal in one goal
+and not the other — `cam2?.prop = x` (optional chaining as assignment target)
+passed `node --check` but crashed the browser with "Invalid left-hand side in
+assignment". ALWAYS sweep in the module goal before pushing:
+
+```bash
+for f in js/*.js mods/*.js; do cp "$f" "/tmp/chk.mjs"; node --check /tmp/chk.mjs || echo "FAIL: $f"; done
+```
+
+(Never use optional chaining on the left side of `=`. `if ( x ) x.prop = v;`.)

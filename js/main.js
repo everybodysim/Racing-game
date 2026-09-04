@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
+import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999971';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
+import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
@@ -3690,7 +3691,11 @@ function getTrackId( mapParamValue, extrasParamValue ) {
 	if ( extrasParamValue ) params.set( 'mods', extrasParamValue );
 	const normalizedPath = normalizeTrackPath( window.location.pathname );
 	const rawUrl = `${ normalizedPath }${ params.toString() ? `?${ params.toString() }` : '' }`;
-	return `trk-${ hashTrackSeed( `v5-url|${ rawUrl }` ) }`;
+	// Only the DEFAULT track (no map, no mods) rides the v5 seed — its
+	// leaderboard was intentionally reset. Every other track keeps the v4
+	// seed so its existing leaderboard id (and records) are untouched.
+	const trackIdSeedVersion = ( mapParamValue || extrasParamValue ) ? 'v4' : 'v5';
+	return `trk-${ hashTrackSeed( `${ trackIdSeedVersion }-url|${ rawUrl }` ) }`;
 
 }
 
@@ -5460,6 +5465,42 @@ async function init() {
 		vehicle, cells: customCells || TRACK_CELLS, camera: cam.camera
 	} );
 	const cam2 = isSplitScreen ? new Camera() : null;
+
+	// Chase-cam hitbox clipping: a REAL physics raycast (crashcat castRay) from
+	// the car toward the camera each frame. Static hitboxes only — walls,
+	// buildings, track pieces; never the car itself or other dynamic bodies.
+	// If the segment is blocked, the camera pulls in front of the hitbox
+	// instead of clipping inside it. Chase cam only; the fixed overview cam
+	// keeps its framing untouched.
+	const camRayCollector = createAnyCastRayCollector();
+	const camRaySettings = createDefaultCastRaySettings();
+	const camRayFilter = ccLayerFilter.forWorld( world );
+	camRayFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
+	const CAM_CLIP_MARGIN = 0.4; // hover distance off hitbox surfaces
+	const CAM_CLIP_MIN = 1.4;     // never closer to the car than this
+	const camRayOrigin = [ 0, 0, 0 ];
+	const camRayDir = [ 0, 0, 0 ];
+	const camClipProbe = ( origin, dir, length ) => {
+
+		camRayOrigin[ 0 ] = origin.x;
+		camRayOrigin[ 1 ] = origin.y;
+		camRayOrigin[ 2 ] = origin.z;
+		camRayDir[ 0 ] = dir.x;
+		camRayDir[ 1 ] = dir.y;
+		camRayDir[ 2 ] = dir.z;
+		// AnyCastRayCollector.addMiss() is a no-op — stale hits linger, so reset() before every cast.
+		camRayCollector.reset();
+		castRay( world, camRayCollector, camRaySettings, camRayOrigin, camRayDir, length, camRayFilter );
+		if ( camRayCollector.hit.status !== CastRayStatus.COLLIDING ) return length;
+		// First hit along the car→camera segment: park the camera just short of it.
+		let freeLen = camRayCollector.hit.fraction * length - CAM_CLIP_MARGIN;
+		freeLen = Math.max( freeLen, Math.min( CAM_CLIP_MIN, length ) );
+		return Math.min( freeLen, length );
+
+	};
+	cam.clipProbe = camClipProbe;
+	if ( cam2 ) cam2.clipProbe = camClipProbe;
+
 	// Reused each frame for cam.update() dynamics to avoid allocating an options
 	// object on every camera update (up to 4 calls/frame). cam.update only reads the
 	// fields, it never retains the reference.
@@ -5812,6 +5853,33 @@ async function init() {
 
 	const particles = new SmokeTrails( scene, getGraphicsParticleOptions() );
 	const particles2 = isSplitScreen ? new SmokeTrails( scene, getGraphicsParticleOptions() ) : null;
+	// Drift skid marks from both rear tires — one shared ring-buffer pool.
+	// Grounded check = a REAL physics raycast through crashcat (castRay) against
+	// the static track colliders only — no height detection, so airborne cars
+	// (jumps, trick pads, flying off slopes) never lay marks.
+	const skidRayCollector = createAnyCastRayCollector();
+	const skidRaySettings = createDefaultCastRaySettings();
+	const skidRayFilter = ccLayerFilter.forWorld( world );
+	skidRayFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
+	const SKID_RAY_LIFT = 0.05;   // cast from just above the tire contact patch
+	const SKID_RAY_REACH = 0.4;   // ground must be within this of the patch
+	const skidRayOrigin = [ 0, 0, 0 ];
+	const skidRayDown = [ 0, - 1, 0 ];
+	const skidGroundRaycast = ( vehicle, contactPoint ) => {
+
+		skidRayOrigin[ 0 ] = contactPoint.x;
+		skidRayOrigin[ 1 ] = contactPoint.y + SKID_RAY_LIFT;
+		skidRayOrigin[ 2 ] = contactPoint.z;
+		// AnyCastRayCollector.addMiss() is a no-op — stale hits linger, so reset() before every cast.
+		skidRayCollector.reset();
+		castRay( world, skidRayCollector, skidRaySettings, skidRayOrigin, skidRayDown, SKID_RAY_LIFT + SKID_RAY_REACH, skidRayFilter );
+		return skidRayCollector.hit.status === CastRayStatus.COLLIDING;
+
+	};
+	const skidMarks = new SkidMarks( scene, {
+		enabled: ( getGraphicsPreset().smokeParticles ?? 64 ) > 0,
+		groundTest: skidGroundRaycast,
+	} );
 	const lapHud = document.getElementById( 'lap-hud' );
 	const lapHud2 = document.getElementById( 'lap-hud-2' );
 	const countdownHud = document.getElementById( 'countdown-hud' );
@@ -6769,6 +6837,7 @@ async function init() {
 		applyGraphicsPresetToRenderer();
 		particles.setQuality( getGraphicsParticleOptions() );
 		particles2?.setQuality( getGraphicsParticleOptions() );
+		skidMarks.setQuality( { maxSegments: ( getGraphicsPreset().smokeParticles ?? 64 ) > 0 ? undefined : 0 } );
 		setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
 		updateGraphicsQualityUi();
 
@@ -6817,6 +6886,7 @@ async function init() {
 		applyGraphicsPresetToRenderer();
 		particles.setQuality( getGraphicsParticleOptions() );
 		particles2?.setQuality( getGraphicsParticleOptions() );
+		skidMarks.setQuality( { maxSegments: ( getGraphicsPreset().smokeParticles ?? 64 ) > 0 ? undefined : 0 } );
 		setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
 		updateGraphicsQualityUi();
 	}
@@ -10458,6 +10528,10 @@ function completeCampaignStage() {
 
 		lapStartSeconds = raceClockSeconds;
 		lapSeconds = 0;
+		// Restart snaps the car back to the start — break any in-progress skid
+		// trails so no line is drawn across the map to the spawn block.
+		skidMarks?.breakVehicleTrail( vehicle );
+		skidMarks?.breakVehicleTrail( vehicle2 );
 		currentLapInvalidatedByPause = false;
 		boostActiveUntil = 0;
 		vehicle.setWheelieActive?.( false );
@@ -12249,6 +12323,8 @@ function completeCampaignStage() {
 		}
 		particles.update( dt, vehicle );
 		particles2?.update( dt, vehicle2 );
+		skidMarks.update( dt, vehicle );
+		skidMarks.update( dt, vehicle2 );
 		if ( ! homeLandingEl ) homeLandingEl = document.getElementById( 'home-landing' );
 		audio.updateMusic( dt, ! homeLandingEl?.classList.contains( 'visible' ) && ! modeMenuOpen && ! replayViewerMode );
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
