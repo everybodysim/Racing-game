@@ -149,7 +149,7 @@ function getTrackIdFromPlayUrl( playUrl ) {
 		query.set( 'map', map );
 		if ( mods ) query.set( 'mods', mods );
 		const rawUrl = `${ normalizedPath }?${ query.toString() }`;
-		return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
+		return `trk-${ hashTrackSeed( `v5-url|${ rawUrl }` ) }`;
 	} catch ( e ) {
 		return '';
 	}
