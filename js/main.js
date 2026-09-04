@@ -330,6 +330,42 @@ const VEHICLE_BASE_GRAVITY_FACTOR = 1.5;
 // sphere catches on the edge between two adjacent surface colliders.
 const _seamVel1 = [ 0, 0, 0 ];
 const _seamVel2 = [ 0, 0, 0 ];
+// --- Car horns (sounds synthesized by tools/make-horns.py) -----------------
+// Each vehicle class honks with its own horn: big vehicles get the air horn,
+// the police car gets the sporty chirp, hatchbacks get the polite meep,
+// everything else gets the classic dual-tone.
+let lastHonkAt = 0;
+const HORN_COOLDOWN_MS = 280;
+const hornHonkCounter = { count: 0 }; // multiplayer: broadcast via VEHICLE_STATE
+function hornVariantForCarKey( carKey ) {
+
+	const style = CAR_STATS?.[ carKey ]?.bodyStyle;
+	if ( style === 'truck' || style === 'van' || style === 'flatbed' || style === 'tractor' ) return 'truck';
+	if ( style === 'hatchback' ) return 'compact';
+	if ( carKey === 'vehicle-car-police' ) return 'sport';
+	return 'classic';
+
+}
+function honkLocalVehicle() {
+
+	const now = Date.now();
+	if ( now - lastHonkAt < HORN_COOLDOWN_MS ) return;
+	lastHonkAt = now;
+	hornHonkCounter.count ++;
+	window.__gameAudio?.playHorn?.( hornVariantForCarKey( typeof getModuleCarKey === 'function' ? getModuleCarKey() : 'vehicle-truck-yellow' ) );
+
+}
+function applyRemoteHonk( visualState, honkValue, carKey ) {
+
+	const value = Number( honkValue ) || 0;
+	if ( value <= 0 ) return;
+	const last = Number( visualState.lastHonk ) || 0;
+	if ( value <= last ) return;
+	visualState.lastHonk = value;
+	window.__gameAudio?.playHorn?.( hornVariantForCarKey( carKey ) );
+
+}
+
 const seamSuppress = {
 	vy1: 0,  vel1: _seamVel1,
 	vy2: 0,  vel2: _seamVel2,
@@ -790,6 +826,7 @@ function handlePeerPacket( packet, sourcePeerId ) {
 
 		}
 		visualState.lastSeenAt = Date.now();
+		applyRemoteHonk( visualState, packet.honk, packet.carKey );
 		relayHostPacket( packet, sourcePeerId );
 
 	} catch ( err ) {
@@ -954,6 +991,7 @@ function buildRemotePlayerSnapshot() {
 	return {
 		type: PEER_PACKET_STATE,
 		playerId: multiplayerSessionState.clientId,
+		honk: hornHonkCounter.count,
 		x: formatPeerPacketNumber( pos.x,	 3 ),
 		y: formatPeerPacketNumber( pos.y,	  3 ),
 		z: formatPeerPacketNumber( pos.z,	 3 ),
@@ -1566,6 +1604,7 @@ const hasFirebase = hasFirebaseMultiplayerConfig();
 			const localContainer = getLocalVehicleContainer();
 			const localCarKey = normalizeMultiplayerCarKey( typeof localMultiplayerStateHandlers.getCarKey === 'function' ? localMultiplayerStateHandlers.getCarKey() : getModuleCarKey() );
 			const localPayload = {
+				honk: hornHonkCounter.count,
 				x: Number( ( localContainer?.position.x ||0 ).toFixed( 3 ) ),
 				y: Number( ( localContainer?.position.y ||0 ).toFixed( 3 ) ),
 				z: Number( ( localContainer?.position.z ||0 ).toFixed( 3 ) ),
@@ -4835,6 +4874,7 @@ async function init() {
 				visualState.targetPos.set( Number( playerState?.x ) || 0, ( Number( playerState?.y ) || 0 ) - 0.1, Number( playerState?.z ) || 0 );
 				visualState.targetRotY = THREE.MathUtils.degToRad( ( ( Number( playerState?.ry ) || 0 ) % 360 + 0 ) % 360 ) ;
 				visualState.lastSeenAt = now;
+				applyRemoteHonk( visualState, playerState?.honk, playerState?.carKey );
 				seen.add( playerId );
 
 			}
@@ -11872,6 +11912,13 @@ function completeCampaignStage() {
 
 				setUiHidden( ! uiHidden );
 				return;
+
+			}
+
+			if ( e.code === 'Space' && ! e.repeat ) {
+
+				e.preventDefault(); // Space also scrolls / clicks focused buttons
+				honkLocalVehicle();
 
 			}
 

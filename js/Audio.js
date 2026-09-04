@@ -97,6 +97,9 @@ export class GameAudio {
 		this.impactBuffer = null;
 		this.impactPool = [];
 		this.impactIndex = 0;
+		this.hornBuffers = {};
+		this.hornPool = [];
+		this.hornIndex = 0;
 		this.ready = false;
 		this.musicReady = false;
 		this.unlocked = false;
@@ -212,6 +215,29 @@ export class GameAudio {
 			}
 
 		} );
+
+		// Car horns — synthesized by tools/make-horns.py (no samples). One
+		// variant per vehicle class; a small pool so rapid honks overlap.
+		const HORN_FILES = {
+			classic: 'audio/horn-classic.ogg',
+			truck: 'audio/horn-truck.ogg',
+			sport: 'audio/horn-sport.ogg',
+			compact: 'audio/horn-compact.ogg',
+		};
+		for ( const [ variant, file ] of Object.entries( HORN_FILES ) ) {
+
+			loader.load( file, ( buffer ) => {
+
+				this.hornBuffers[ variant ] = buffer;
+
+			} );
+
+		}
+		for ( let i = 0; i < 4; i ++ ) {
+
+			this.hornPool.push( new THREE.Audio( this.listener ) );
+
+		}
 
 		// Centralised start — only runs once the AudioContext is actually 'running'.
 		// Calling play() while the context is suspended makes elements think they're
@@ -436,6 +462,25 @@ export class GameAudio {
 		const skidPitch = THREE.MathUtils.clamp( Math.abs( speed ), 1, 3 );
 		const curSkidPitch = this.skidSound.getPlaybackRate();
 		this.skidSound.setPlaybackRate( THREE.MathUtils.lerp( curSkidPitch, skidPitch, 0.1 ) );
+
+	}
+
+	// Honk! variant: 'classic' | 'truck' | 'sport' | 'compact' (falls back to
+	// classic). Slight random detune keeps repeated honks organic.
+	playHorn( variant = 'classic' ) {
+
+		if ( ! this.unlocked || this.hornPool.length === 0 ) return;
+		const buffer = this.hornBuffers[ variant ] || this.hornBuffers.classic;
+		if ( ! buffer ) return;
+
+		const sound = this.hornPool[ this.hornIndex ];
+		this.hornIndex = ( this.hornIndex + 1 ) % this.hornPool.length;
+		if ( sound.isPlaying ) sound.stop();
+
+		sound.setBuffer( buffer );
+		sound.setVolume( 0.65 * this.settings.sfxVolume );
+		sound.setPlaybackRate( 0.97 + Math.random() * 0.06 );
+		sound.play();
 
 	}
 
