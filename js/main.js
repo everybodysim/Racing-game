@@ -5,7 +5,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999971';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999972';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails, WaterSplashFX } from './Particles.js';
 import { SkidMarks } from './SkidMarks.js';
@@ -101,6 +101,7 @@ const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: T
 renderer.setSize( window.innerWidth, window.innerHeight );
 renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, getGraphicsPreset().maxPixelRatio ) );
 renderer.shadowMap.enabled = getGraphicsPreset().shadows;
+renderer.shadowMap.autoUpdate = false; // needsUpdate=true each frame; refraction pass must not recompute shadows
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
@@ -7487,6 +7488,7 @@ async function init() {
 
 				resize();
 				carRoot.rotation.y = garageViewer.yaw;
+				renderer.shadowMap.needsUpdate = true;
 				renderer.render( scene, camera );
 				requestAnimationFrame( animate );
 
@@ -9667,6 +9669,8 @@ function completeCampaignStage() {
 
 		try {
 
+			renderer.shadowMap.needsUpdate = true;
+			prerenderWaterRefraction( renderer, scene, cam.camera );
 			renderer.render( scene, cam.camera );
 			const source = renderer.domElement;
 			if ( ! source || source.width === 0 || source.height === 0 ) return '';
@@ -11984,6 +11988,8 @@ function completeCampaignStage() {
 			const height = window.innerHeight;
 			const halfH = Math.floor( height / 2 );
 
+			renderer.shadowMap.needsUpdate = true;
+			prerenderWaterRefraction( renderer, scene, cam.camera, 0, { x: 0, y: halfH, w: width, h: height - halfH } );
 			renderer.setScissorTest( true );
 			cam.camera.aspect = width / Math.max( 1, halfH );
 			cam.camera.updateProjectionMatrix();
@@ -11995,11 +12001,14 @@ function completeCampaignStage() {
 			cam2.camera.updateProjectionMatrix();
 			renderer.setViewport( 0, 0, width, halfH );
 			renderer.setScissor( 0, 0, width, halfH );
+			prerenderWaterRefraction( renderer, scene, cam2.camera, 1, { x: 0, y: 0, w: width, h: halfH } );
 			renderer.render( scene, cam2.camera );
 			renderer.setScissorTest( false );
 
 		} else {
 
+			renderer.shadowMap.needsUpdate = true;
+			prerenderWaterRefraction( renderer, scene, cam.camera );
 			renderer.render( scene, cam.camera );
 
 		}

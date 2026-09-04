@@ -17,6 +17,9 @@
 import { readFileSync } from 'node:fs';
 
 const track = readFileSync( './js/Track.js', 'utf8' );
+const main = readFileSync( './js/main.js', 'utf8' );
+const particles = readFileSync( './js/Particles.js', 'utf8' );
+const audio = readFileSync( './js/Audio.js', 'utf8' );
 let passed = 0, failed = 0;
 function test( name, cond, detail = '' ) {
 
@@ -37,13 +40,14 @@ test( 'finite-difference world normals', /hX1 - hX2/.test( shader ) && /hZ1 - hZ
 test( 'waves evaluated in world space (shared ocean feel)', /world\.xz/.test( shader ) && /world\.y \+= hC/.test( shader ) );
 test( 'refraction onto the pool floor', /refract\(/.test( shader ) && /floorY/.test( shader ) );
 test( 'caustic web', /abs\( n1 - n2 \)/.test( shader ) && /pow\(\s*max\( 0\.0, 1\.0 - web \),\s*30\.0\s*\)/.test( shader ) );
-test( 'water floor is a soft mottle, NOT ceramic tiles', /floorCol = mix\(/.test( shader ) && ! /grout|cellId/.test( shader ) );
-test( 'water shader references no removed uniforms (compiles)', ! /cellSize/.test( shader ) );
+test( 'water samples the REAL scene, not a drawn floor', /uniform sampler2D tDiffuse/.test( shader ) && /texture2D\( tDiffuse, refrUV \)/.test( shader ) );
+test( 'refraction wobble is animated (the light-bending wiggle)', /noise\( vWorldPos\.xz \* 2\.1/.test( shader ) && /screenUV \+ wobble \* 0\.03/.test( shader ) );
+test( 'water shader references no removed uniforms (compiles)', ! /cellSize|shallowColor/.test( shader ) );
 test( 'choppy ripples ride the swell', /sin\( wp\.x \* 3\.4 - t \* 1\.4 \) \* 0\.03/.test( shader ) );
 test( 'rolling swell amplitudes', /sin\( wp\.x \* 1\.35 \+ t \) \* 0\.055/.test( shader ) );
 test( 'wave scale doubled vs the flat pass', /waveHeight: \{ value: CELL_RAW \* 0\.05 \}/.test( track ) );
 test( 'water level leaves wave headroom below the edge lip', /CELL_RAW, 0\.28,/.test( track ) && 0.28 + 0.22 * 9.99 * 0.05 < 0.515 );
-test( 'splash surface matches the lowered water level', /WATER_SURFACE_Y = 0\.28/.test( readFileSync( './js/main.js', 'utf8' ) ) );
+test( 'splash surface matches the lowered water level', /WATER_SURFACE_Y = 0\.28/.test( main ) );
 test( 'fresnel sky reflection', /fresnel/.test( shader ) && /skyTop/.test( shader ) );
 test( 'sun glint', /pow\(\s*max\( dot\( rDir, lightDir \), 0\.0 \),\s*450\.0/.test( shader ) );
 
@@ -61,12 +65,16 @@ test( 'tile textures deterministic (seeded PRNG)', /createPoolTileCanvas/.test( 
 
 // 6. Bluer
 test( 'default waterColor is a saturated blue', track.includes( "'#1180e6'" ) );
-test( 'shader applies the blue body tint', shader.includes( 'vec3( 0.72, 0.9, 1.14 )' ) );
+test( 'shader applies the blue body tint', shader.includes( 'vec3( 0.86, 0.94, 1.08 )' ) );
+
+// 6b. Screen-space refraction plumbing
+test( 'prerender pass exists (hides water, renders scene to half-res RT)', /export function prerenderWaterRefraction/.test( track ) && /plane\.visible = false/.test( track ) && /db\.x /.test( track ) && /Math\.floor\( db\.x \/ 2 \)/.test( track ) );
+test( 'plane registry resets per track build', track.includes( 'WATER_PLANES.length = 0;' ) && track.includes( 'WATER_PLANES.push( waterPlane );' ) );
+test( 'every render site prerenders refraction (incl. split-screen rects)', main.split( 'prerenderWaterRefraction( renderer, scene' ).length === 5 && main.includes( 'prerenderWaterRefraction( renderer, scene, cam2.camera, 1,' ) );
+test( 'shadows update once per frame, not per render pass', main.includes( 'shadowMap.autoUpdate = false' ) && main.includes( 'renderer.shadowMap.needsUpdate = true' ) );
+test( 'Track.js module cache param bumped (it changed)', main.includes( 'Track.js?v=999972' ) );
 
 // 7. Splash when the car breaks the surface
-const main = readFileSync( './js/main.js', 'utf8' );
-const particles = readFileSync( './js/Particles.js', 'utf8' );
-const audio = readFileSync( './js/Audio.js', 'utf8' );
 test( 'splash FX class exists (droplet burst + gravity)', /export class WaterSplashFX/.test( particles ) && /burst\(/.test( particles ) && /velocity\.y -= particle\.gravity \* dt/.test( particles ) );
 test( 'splash sound is procedural (no sample file)', /playSplash\(/.test( audio ) && /createBuffer\(/.test( audio ) && ! /splash\.(ogg|mp3|wav)/.test( audio ) );
 test( 'splash triggers on water entry (all 4 camera-state sites)', main.includes( 'triggerWaterSplash' ) && main.split( 'updateWaterCameraState( waterCameraState' ).length === 5 && main.includes( "( pos ) => triggerWaterSplash" ) );
