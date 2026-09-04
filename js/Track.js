@@ -121,7 +121,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 	return new THREE.ShaderMaterial( {
 		uniforms: {
 			time: { value: 0 },
-			waveHeight: { value: CELL_RAW * 0.024 },
+			waveHeight: { value: CELL_RAW * 0.05 },
 			floorY: { value: - WATER_DEPTH },
 			lightDir: { value: new THREE.Vector3( 0.577, 0.577, 0.577 ).normalize() },
 			shallowColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0xffffff ), 0.24 ) },
@@ -157,11 +157,11 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				return v;
 			}
 			float getWave( vec2 wp, float t ) {
-				// Gentle swell...
-				float h = sin( wp.x * 1.35 + t ) * 0.032 + cos( wp.y * 1.15 - t * 0.8 ) * 0.026;
-				h += fbm( wp * 3.2, t ) * 0.045;
-				// ...with small choppy ripples riding on top (the "watery" detail)
-				h += sin( wp.x * 3.4 - t * 1.4 ) * 0.016 + sin( ( wp.x + wp.y ) * 5.3 + t * 1.9 ) * 0.011;
+				// Rolling swell...
+				float h = sin( wp.x * 1.35 + t ) * 0.055 + cos( wp.y * 1.15 - t * 0.8 ) * 0.045;
+				h += fbm( wp * 3.2, t ) * 0.07;
+				// ...with choppy ripples riding on top (the "watery" detail)
+				h += sin( wp.x * 3.4 - t * 1.4 ) * 0.03 + sin( ( wp.x + wp.y ) * 5.3 + t * 1.9 ) * 0.02;
 				return h;
 			}
 			void main() {
@@ -639,7 +639,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				createRepositoryWaterMaterial( poolVisuals )
 			);
 			waterPlane.rotation.x = - Math.PI / 2;
-			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.32, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
+			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.28, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
 			waterPlane.userData.waterSurface = true;
 			waterPlane.onBeforeRender = () => { waterPlane.material.uniforms.time.value = performance.now() * 0.001; };
 			trackPieceGroup.add( waterPlane );

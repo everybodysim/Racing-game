@@ -39,8 +39,11 @@ test( 'refraction onto the pool floor', /refract\(/.test( shader ) && /floorY/.t
 test( 'caustic web', /abs\( n1 - n2 \)/.test( shader ) && /pow\(\s*max\( 0\.0, 1\.0 - web \),\s*30\.0\s*\)/.test( shader ) );
 test( 'water floor is a soft mottle, NOT ceramic tiles', /floorCol = mix\(/.test( shader ) && ! /grout|cellId/.test( shader ) );
 test( 'water shader references no removed uniforms (compiles)', ! /cellSize/.test( shader ) );
-test( 'small choppy ripples ride the swell', /sin\( wp\.x \* 3\.4 - t \* 1\.4 \)/.test( shader ) );
-test( 'gentler swell than the first pass', /sin\( wp\.x \* 1\.35 \+ t \) \* 0\.032/.test( shader ) );
+test( 'choppy ripples ride the swell', /sin\( wp\.x \* 3\.4 - t \* 1\.4 \) \* 0\.03/.test( shader ) );
+test( 'rolling swell amplitudes', /sin\( wp\.x \* 1\.35 \+ t \) \* 0\.055/.test( shader ) );
+test( 'wave scale doubled vs the flat pass', /waveHeight: \{ value: CELL_RAW \* 0\.05 \}/.test( track ) );
+test( 'water level leaves wave headroom below the edge lip', /CELL_RAW, 0\.28,/.test( track ) && 0.28 + 0.22 * 9.99 * 0.05 < 0.515 );
+test( 'splash surface matches the lowered water level', /WATER_SURFACE_Y = 0\.28/.test( main ) );
 test( 'fresnel sky reflection', /fresnel/.test( shader ) && /skyTop/.test( shader ) );
 test( 'sun glint', /pow\(\s*max\( dot\( rDir, lightDir \), 0\.0 \),\s*450\.0/.test( shader ) );
 

@@ -4423,7 +4423,7 @@ async function init() {
 
 	}
 	// Splash when a car breaks the water surface — scaled by how hard it went in.
-	const WATER_SURFACE_Y = 0.32;
+	const WATER_SURFACE_Y = 0.28;
 	let waterSplashFx = null;
 	function triggerWaterSplash( targetVehicle, position ) {
 
