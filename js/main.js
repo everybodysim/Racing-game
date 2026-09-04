@@ -3691,7 +3691,11 @@ function getTrackId( mapParamValue, extrasParamValue ) {
 	if ( extrasParamValue ) params.set( 'mods', extrasParamValue );
 	const normalizedPath = normalizeTrackPath( window.location.pathname );
 	const rawUrl = `${ normalizedPath }${ params.toString() ? `?${ params.toString() }` : '' }`;
-	return `trk-${ hashTrackSeed( `v5-url|${ rawUrl }` ) }`;
+	// Only the DEFAULT track (no map, no mods) rides the v5 seed — its
+	// leaderboard was intentionally reset. Every other track keeps the v4
+	// seed so its existing leaderboard id (and records) are untouched.
+	const trackIdSeedVersion = ( mapParamValue || extrasParamValue ) ? 'v4' : 'v5';
+	return `trk-${ hashTrackSeed( `${ trackIdSeedVersion }-url|${ rawUrl }` ) }`;
 
 }
 
