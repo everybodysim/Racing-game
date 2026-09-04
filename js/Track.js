@@ -27,93 +27,221 @@ const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 const WATER_DEPTH = CELL_RAW * 0.34;
 const WATER_WALL_HEIGHT = CELL_RAW * 0.38;
 
-const WATER_SHADER_ASSET_ROOT = 'https://cdn.jsdelivr.net/gh/martinRenou/threejs-water@master/';
-let waterWaveTexture = null;
-let waterTileTexture = null;
-function getWaterTextures() {
-	if ( waterWaveTexture && waterTileTexture ) return { waterWaveTexture, waterTileTexture };
-	const waterTextureLoader = new THREE.TextureLoader();
-	waterTextureLoader.setCrossOrigin( 'anonymous' );
-	waterWaveTexture = waterTextureLoader.load( `${ WATER_SHADER_ASSET_ROOT }water.png`, ( texture ) => {
-		texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-		texture.minFilter = THREE.LinearFilter;
-		texture.magFilter = THREE.LinearFilter;
-	} );
-	waterTileTexture = waterTextureLoader.load( `${ WATER_SHADER_ASSET_ROOT }tiles.jpg`, ( texture ) => {
-		texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-	} );
-	return { waterWaveTexture, waterTileTexture };
+// ---------------------------------------------------------------------------
+// Pool visuals — 100% procedural (no external texture CDNs).
+// Pool block tiles are canvas-generated ceramic tiles; the water is a
+// custom shader port of the classic "tinted clear water" technique:
+// fbm waves, refraction onto a procedural tiled floor, a caustic web,
+// fresnel sky reflection, and a sun glint.
+const WATER_SHADER_TILE_COLS = 8; // ceramic tiles per grid cell (shader + textures stay in sync)
+
+let poolWallTexture = null;
+let poolFloorTexture = null;
+function createPoolTileCanvas( cols, rows ) {
+
+	// Deterministic PRNG so every player sees the same pool.
+	let seed = 1337 ^ ( cols * 7919 ) ^ ( rows * 104729 );
+	const rand = () => {
+
+		seed = ( seed * 1664525 + 1013904223 ) >>> 0;
+		return seed / 4294967296;
+
+	};
+	const tileW = 64;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = cols * tileW;
+	canvas.height = rows * tileW;
+	const ctx = canvas.getContext( '2d' );
+	// grout base
+	ctx.fillStyle = '#2f5a72';
+	ctx.fillRect( 0, 0, canvas.width, canvas.height );
+	for ( let ty = 0; ty < rows; ty ++ ) {
+		for ( let tx = 0; tx < cols; tx ++ ) {
+
+			const x = tx * tileW, y = ty * tileW;
+			const r = rand();
+			const accent = r > 0.9;
+			const light = 58 + rand() * 12;
+			const hue = accent ? 208 : 200 + rand() * 8;
+			const sat = accent ? 62 : 48 + rand() * 10;
+			ctx.fillStyle = `hsl( ${ hue }, ${ sat }%, ${ light }% )`;
+			ctx.fillRect( x + 3, y + 3, tileW - 6, tileW - 6 );
+			// bevel: lighter top-left edge, darker bottom-right
+			ctx.fillStyle = 'rgba( 255, 255, 255, 0.16 )';
+			ctx.fillRect( x + 3, y + 3, tileW - 6, 2 );
+			ctx.fillStyle = 'rgba( 10, 30, 50, 0.18 )';
+			ctx.fillRect( x + 3, y + tileW - 5, tileW - 6, 2 );
+			// speckle
+			for ( let k = 0; k < 6; k ++ ) {
+
+				ctx.fillStyle = `rgba( 255, 255, 255, ${ 0.03 + rand() * 0.05 } )`;
+				ctx.fillRect( x + 4 + rand() * ( tileW - 8 ), y + 4 + rand() * ( tileW - 8 ), 2, 2 );
+
+			}
+
+		}
+	}
+	return canvas;
+
+}
+function getPoolTextures() {
+
+	if ( poolWallTexture && poolFloorTexture ) return { poolWallTexture, poolFloorTexture };
+	const toTexture = ( canvas ) => {
+
+		const tex = new THREE.CanvasTexture( canvas );
+		tex.colorSpace = THREE.SRGBColorSpace;
+		tex.anisotropy = 4;
+		return tex;
+
+	};
+	poolFloorTexture = toTexture( createPoolTileCanvas( WATER_SHADER_TILE_COLS, WATER_SHADER_TILE_COLS ) );
+	poolWallTexture = toTexture( createPoolTileCanvas( WATER_SHADER_TILE_COLS, 3 ) );
+	return { poolWallTexture, poolFloorTexture };
+
 }
 
 function normalizePoolVisuals( extras = null ) {
+
 	const cfg = extras?.customPool && typeof extras.customPool === 'object' ? extras.customPool : {};
 	const isHex = ( value ) => /^#[0-9a-f]{6}$/i.test( String( value || '' ) );
 	return {
-		waterColor: isHex( cfg.waterColor ) ? cfg.waterColor : '#1f8fd6',
+		// Bluer than the old default — the shader body adds a further cool tint.
+		waterColor: isHex( cfg.waterColor ) ? cfg.waterColor : '#1180e6',
 		edgeColor: isHex( cfg.edgeColor ) ? cfg.edgeColor : '#5cc7ff',
-		transparent: cfg.transparent !== false,
+		// Opaque by default (refraction is drawn in-shader like the reference
+		// demo); only tracks that explicitly ask get the see-through alpha.
+		transparent: cfg.transparent === true,
 	};
+
 }
 
 function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 
-	const { waterWaveTexture, waterTileTexture } = getWaterTextures();
 	return new THREE.ShaderMaterial( {
 		uniforms: {
 			time: { value: 0 },
-			waveTex: { value: waterWaveTexture },
-			tileTex: { value: waterTileTexture },
-			lightDir: { value: new THREE.Vector3( 0.62, 0.74, - 0.25 ).normalize() },
-			shallowColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0xffffff ), 0.28 ) },
-			deepColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0x001b2f ), 0.45 ) },
-			waterAlpha: { value: visuals.transparent ? 0.68 : 1.0 },
+			waveHeight: { value: CELL_RAW * 0.028 },
+			cellSize: { value: CELL_RAW },
+			floorY: { value: - WATER_DEPTH },
+			lightDir: { value: new THREE.Vector3( 0.577, 0.577, 0.577 ).normalize() },
+			shallowColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0xffffff ), 0.24 ) },
+			deepColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0x041f3d ), 0.6 ) },
+			skyTop: { value: new THREE.Color( 0x6db3e8 ) },
+			skyHorizon: { value: new THREE.Color( 0xdff3ff ) },
+			waterAlpha: { value: visuals.transparent ? 0.82 : 1.0 },
 		},
+		// Waves: fbm-animated height field with finite-difference world
+		// normals (the demo's technique), evaluated in world space so all
+		// pool planes share one continuous ocean feel.
 		vertexShader: `
-			varying vec2 vUv;
-			varying vec3 vWorldPosition;
-			uniform sampler2D waveTex;
 			uniform float time;
+			uniform float waveHeight;
+			varying vec3 vWorldPos;
+			varying vec3 vWorldNormal;
+
+			float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 ); }
+			float noise( vec2 p ) {
+				vec2 i = floor( p ), f = fract( p );
+				f = f * f * ( 3.0 - 2.0 * f );
+				return mix( mix( hash( i ), hash( i + vec2( 1.0, 0.0 ) ), f.x ),
+					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+			}
+			float fbm( vec2 p, float t ) {
+				float v = 0.0, a = 0.5;
+				mat2 rot = mat2( 0.8, 0.6, -0.6, 0.8 );
+				for ( int i = 0; i < 3; i ++ ) {
+					v += a * noise( p + vec2( t * 0.2, - t * 0.1 ) );
+					p = rot * p * 2.0 + vec2( 100.0 );
+					a *= 0.5;
+				}
+				return v;
+			}
+			float getWave( vec2 wp, float t ) {
+				float h = sin( wp.x * 1.6 + t ) * 0.05 + cos( wp.y * 1.3 - t * 0.8 ) * 0.04;
+				h += fbm( wp * 2.8, t ) * 0.05;
+				return h;
+			}
 			void main() {
-				vUv = uv;
-				vec3 transformed = position;
-				vec2 waveUvA = uv * 3.0 + vec2( time * 0.035, time * 0.022 );
-				vec2 waveUvB = uv * 7.0 + vec2( - time * 0.018, time * 0.031 );
-				float waveA = texture2D( waveTex, waveUvA ).r;
-				float waveB = texture2D( waveTex, waveUvB ).g;
-				transformed.z += ( waveA + waveB - 1.0 ) * 0.045;
-				vec4 worldPosition = modelMatrix * vec4( transformed, 1.0 );
-				vWorldPosition = worldPosition.xyz;
-				gl_Position = projectionMatrix * viewMatrix * worldPosition;
+				float t = time * 1.2;
+				vec4 world = modelMatrix * vec4( position, 1.0 );
+				vec2 wp = world.xz;
+				float d = 0.12;
+				float hC = getWave( wp, t );
+				float hX1 = getWave( wp - vec2( d, 0.0 ), t );
+				float hX2 = getWave( wp + vec2( d, 0.0 ), t );
+				float hZ1 = getWave( wp - vec2( 0.0, d ), t );
+				float hZ2 = getWave( wp + vec2( 0.0, d ), t );
+				world.y += hC * waveHeight;
+				vWorldPos = world.xyz;
+				vWorldNormal = normalize( vec3( hX1 - hX2, 2.0 * d, hZ1 - hZ2 ) );
+				gl_Position = projectionMatrix * viewMatrix * world;
 			}
 		`,
 		fragmentShader: `
-			uniform sampler2D waveTex;
-			uniform sampler2D tileTex;
+			uniform float time;
+			uniform float cellSize;
+			uniform float floorY;
 			uniform vec3 lightDir;
 			uniform vec3 shallowColor;
 			uniform vec3 deepColor;
+			uniform vec3 skyTop;
+			uniform vec3 skyHorizon;
 			uniform float waterAlpha;
-			uniform float time;
-			varying vec2 vUv;
-			varying vec3 vWorldPosition;
+			varying vec3 vWorldPos;
+			varying vec3 vWorldNormal;
+
+			float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 ); }
+			float noise( vec2 p ) {
+				vec2 i = floor( p ), f = fract( p );
+				f = f * f * ( 3.0 - 2.0 * f );
+				return mix( mix( hash( i ), hash( i + vec2( 1.0, 0.0 ) ), f.x ),
+					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+			}
 			void main() {
-				vec2 flowA = vUv * 4.0 + vec2( time * 0.045, - time * 0.025 );
-				vec2 flowB = vUv * 9.0 + vec2( - time * 0.018, time * 0.036 );
-				vec3 waveA = texture2D( waveTex, flowA ).rgb;
-				vec3 waveB = texture2D( waveTex, flowB ).rgb;
-				vec2 ripple = ( waveA.rg + waveB.gb - 1.0 ) * 0.045;
-				float foam = smoothstep( 0.74, 0.99, waveA.b * 0.65 + waveB.r * 0.35 );
-				vec3 tile = texture2D( tileTex, vUv * 2.5 + ripple ).rgb;
-				float caustic = pow( max( max( tile.r, tile.g ), tile.b ), 3.0 );
-				vec3 normal = normalize( vec3( ripple.x * 3.2, 1.0, ripple.y * 3.2 ) );
-				vec3 viewDir = normalize( cameraPosition - vWorldPosition );
-				float fresnel = pow( 1.0 - max( dot( normal, viewDir ), 0.0 ), 3.0 );
-				float sparkle = pow( max( dot( reflect( - lightDir, normal ), viewDir ), 0.0 ), 46.0 );
-				vec3 color = mix( deepColor, shallowColor, 0.52 + 0.18 * waveA.b );
-				color += tile * 0.045 + caustic * vec3( 0.35, 0.95, 1.15 ) * 0.23;
-				color = mix( color, vec3( 0.78, 0.97, 1.0 ), fresnel * 0.62 + foam * 0.2 );
-				color += sparkle * vec3( 1.0, 0.9, 0.62 ) * 1.25;
-				gl_FragColor = vec4( color, waterAlpha );
+				vec3 n = normalize( vWorldNormal );
+				vec3 viewDir = normalize( cameraPosition - vWorldPos );
+				vec3 rDir = reflect( - viewDir, n );
+				vec3 refrDir = refract( - viewDir, n, 1.0 / 1.333 );
+				if ( abs( refrDir.y ) < 1e-4 ) refrDir.y = - 1e-4;
+
+				float fresnel = 0.02 + 0.18 * pow( 1.0 - max( dot( n, viewDir ), 0.0 ), 5.0 );
+				// Procedural sky (no skybox asset needed)
+				float skyMix = clamp( rDir.y * 0.5 + 0.5, 0.0, 1.0 );
+				vec3 skyColor = mix( skyHorizon, skyTop, skyMix ) * 0.35;
+
+				// Refract down to the pool floor and shade the ceramic tiles
+				// the refracted ray lands on (grid-aligned, like the pool mesh).
+				float dFloor = max( ( floorY - vWorldPos.y ) / refrDir.y, 0.0 );
+				vec3 fPos = vWorldPos + refrDir * dFloor;
+				vec2 tUV = fPos.xz / cellSize * ${ WATER_SHADER_TILE_COLS }.0;
+				vec2 cellId = floor( tUV );
+				vec2 tf = fract( tUV );
+				float tileVar = hash( cellId );
+				vec3 tileCol = vec3( 0.56, 0.79, 0.93 ) * ( 0.84 + 0.28 * tileVar );
+				tileCol = mix( tileCol, vec3( 0.38, 0.66, 0.86 ), step( 0.9, tileVar ) );
+				float grout = min( min( tf.x, 1.0 - tf.x ), min( tf.y, 1.0 - tf.y ) );
+				tileCol *= mix( 0.45, 1.0, smoothstep( 0.0, 0.05, grout ) );
+				tileCol *= 0.52;
+
+				// Caustic web rippling across the floor
+				vec2 cUV = fPos.xz * 1.25 + n.xz * 0.35;
+				float ct = time * 2.0;
+				float n1 = noise( cUV + vec2( ct * 0.3, ct * 0.1 ) );
+				float n2 = noise( cUV.yx - vec2( ct * 0.2, - ct * 0.2 ) );
+				float web = abs( n1 - n2 );
+				float caustic = pow( max( 0.0, 1.0 - web ), 30.0 ) * 0.7;
+
+				vec3 refrColor = tileCol + vec3( caustic * vec3( 0.8, 0.95, 1.1 ) );
+				float depthT = clamp( dFloor / ( cellSize * 0.6 ), 0.0, 1.0 );
+				refrColor = mix( refrColor, shallowColor * 0.55, 0.18 );
+				refrColor = mix( refrColor, deepColor, depthT * 0.4 );
+				// The bluer body tint requested
+				refrColor *= vec3( 0.72, 0.9, 1.14 );
+
+				vec3 final = mix( refrColor, skyColor, fresnel );
+				final += vec3( pow( max( dot( rDir, lightDir ), 0.0 ), 450.0 ) * 0.3 );
+				gl_FragColor = vec4( final, waterAlpha );
 			}
 		`,
 		transparent: visuals.transparent,
@@ -508,8 +636,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			}
 			const waterWidth = Math.max( CELL_RAW, ( maxWaterGx - minWaterGx + 2 ) * CELL_RAW );
 			const waterDepth = Math.max( CELL_RAW, ( maxWaterGz - minWaterGz + 2 ) * CELL_RAW );
+			// Subdivided so the vertex-stage wave height field has geometry to bend.
+			const waterSeg = THREE.MathUtils.clamp( Math.round( Math.max( waterWidth, waterDepth ) / CELL_RAW ) * 32, 32, 128 );
 			const waterPlane = new THREE.Mesh(
-				new THREE.PlaneGeometry( waterWidth, waterDepth ),
+				new THREE.PlaneGeometry( waterWidth, waterDepth, waterSeg, waterSeg ),
 				createRepositoryWaterMaterial( poolVisuals )
 			);
 			waterPlane.rotation.x = - Math.PI / 2;
@@ -523,9 +653,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 			const pool = new THREE.Group();
 			pool.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
+			const { poolWallTexture, poolFloorTexture } = getPoolTextures();
 			const floor = new THREE.Mesh(
 				new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ),
-				new THREE.MeshStandardMaterial( { color: 0x31433e, roughness: 0.95, metalness: 0.0 } )
+				new THREE.MeshStandardMaterial( { map: poolFloorTexture, roughness: 0.82, metalness: 0.0 } )
 			);
 			floor.position.y = - WATER_DEPTH;
 			floor.receiveShadow = true;
@@ -548,13 +679,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			for ( const side of sides ) {
 				if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
 				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
-				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { color: 0x20312e, roughness: 0.9, metalness: 0.0 } ) );
+				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { map: poolWallTexture, roughness: 0.7, metalness: 0.0 } ) );
 				wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
 				wall.rotation.y = side.ry;
 				wall.castShadow = true;
 				wall.receiveShadow = true;
 				pool.add( wall );
-				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: 0.28, roughness: 0.4 } ) );
+				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: 0.3, roughness: 0.22, metalness: 0.12 } ) );
 				edge.position.set( side.x, 0.515, side.z );
 				edge.rotation.y = side.ry;
 				pool.add( edge );
