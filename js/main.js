@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
+import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
@@ -5814,7 +5814,32 @@ async function init() {
 	const particles = new SmokeTrails( scene, getGraphicsParticleOptions() );
 	const particles2 = isSplitScreen ? new SmokeTrails( scene, getGraphicsParticleOptions() ) : null;
 	// Drift skid marks from both rear tires — one shared ring-buffer pool.
-	const skidMarks = new SkidMarks( scene, { enabled: ( getGraphicsPreset().smokeParticles ?? 64 ) > 0 } );
+	// Grounded check = a REAL physics raycast through crashcat (castRay) against
+	// the static track colliders only — no height detection, so airborne cars
+	// (jumps, trick pads, flying off slopes) never lay marks.
+	const skidRayCollector = createAnyCastRayCollector();
+	const skidRaySettings = createDefaultCastRaySettings();
+	const skidRayFilter = ccLayerFilter.forWorld( world );
+	skidRayFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
+	const SKID_RAY_LIFT = 0.05;   // cast from just above the tire contact patch
+	const SKID_RAY_REACH = 0.4;   // ground must be within this of the patch
+	const skidRayOrigin = [ 0, 0, 0 ];
+	const skidRayDown = [ 0, - 1, 0 ];
+	const skidGroundRaycast = ( vehicle, contactPoint ) => {
+
+		skidRayOrigin[ 0 ] = contactPoint.x;
+		skidRayOrigin[ 1 ] = contactPoint.y + SKID_RAY_LIFT;
+		skidRayOrigin[ 2 ] = contactPoint.z;
+		// AnyCastRayCollector.addMiss() is a no-op — stale hits linger, so reset() before every cast.
+		skidRayCollector.reset();
+		castRay( world, skidRayCollector, skidRaySettings, skidRayOrigin, skidRayDown, SKID_RAY_LIFT + SKID_RAY_REACH, skidRayFilter );
+		return skidRayCollector.hit.status === CastRayStatus.COLLIDING;
+
+	};
+	const skidMarks = new SkidMarks( scene, {
+		enabled: ( getGraphicsPreset().smokeParticles ?? 64 ) > 0,
+		groundTest: skidGroundRaycast,
+	} );
 	const lapHud = document.getElementById( 'lap-hud' );
 	const lapHud2 = document.getElementById( 'lap-hud-2' );
 	const countdownHud = document.getElementById( 'countdown-hud' );

@@ -18,8 +18,13 @@
  *     the 3D path of the tire (they bank through jumps/slopes) and sit just
  *     above the road via a small lift + polygon offset to avoid z-fighting.
  *
+ *   - Airborne suppression: if a `groundTest( vehicle, contactPoint )` callback
+ *     is supplied, each rear tire also probes for ground contact (the game
+ *     passes a real crashcat physics raycast against the static track — no
+ *     height checks). An airborne tire breaks its trail; landing re-anchors.
+ *
  * Public API:
- *   new SkidMarks( scene, options )   — options: { maxSegments, width, color, opacity }
+ *   new SkidMarks( scene, options )   — options: { maxSegments, width, color, opacity, groundTest }
  *   update( dt, vehicle )             — call once per frame per vehicle
  *   clear()                           — erase all marks (track switch)
  *   setQuality( options )             — { maxSegments } adjusts the budget
@@ -54,6 +59,10 @@ export class SkidMarks {
 		this.width = Math.max( 0.05, Number( options.width ) || 0.32 );
 		this.opacity = THREE.MathUtils.clamp( Number( options.opacity ?? 0.42 ), 0.05, 1 );
 		this.enabled = options.enabled !== false;
+		// Optional grounded probe: ( vehicle, contactPoint ) => boolean.
+		// When provided, marks are only laid while the tire actually touches
+		// ground (real raycast/collision test supplied by the game).
+		this.groundTest = typeof options.groundTest === 'function' ? options.groundTest : null;
 
 		// Flat unit quad: X = strip width, Z = strip length.
 		const geometry = new THREE.PlaneGeometry( 1, 1 );
@@ -235,6 +244,18 @@ export class SkidMarks {
 
 	}
 
+	/**
+	 * Real ground probe for one tire — only paid while actually drifting.
+	 * No height checks: the game supplies a physics raycast against the static
+	 * track, so marks can never be laid while airborne (jumps, trick pads).
+	 */
+	_isGrounded( vehicle, contactPoint ) {
+
+		if ( ! this.groundTest ) return true;
+		return this.groundTest( vehicle, contactPoint ) !== false;
+
+	}
+
 	_updateTire( previousPoint, currentPoint, drifting ) {
 
 		if ( ! drifting ) return null; // trail broken — next drift starts fresh
@@ -270,10 +291,16 @@ export class SkidMarks {
 			&& ( vehicle.driftIntensity || 0 ) > DRIFT_MIN_INTENSITY;
 
 		const state = this._trailState( vehicle );
+
+		// Left rear tire: drift gate, then a real ground probe (if supplied) —
+		// airborne tires never stamp, they break their trail until landing.
 		this._tireContactPoint( vehicle, vehicle.wheelBL, - 1, _tmpVecA );
-		state.left = this._updateTire( state.left, _tmpVecA, drifting );
+		const leftActive = drifting && this._isGrounded( vehicle, _tmpVecA );
+		state.left = this._updateTire( state.left, _tmpVecA, leftActive );
+
 		this._tireContactPoint( vehicle, vehicle.wheelBR, 1, _tmpVecA );
-		state.right = this._updateTire( state.right, _tmpVecA, drifting );
+		const rightActive = drifting && this._isGrounded( vehicle, _tmpVecA );
+		state.right = this._updateTire( state.right, _tmpVecA, rightActive );
 
 	}
 

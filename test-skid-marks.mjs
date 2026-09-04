@@ -12,7 +12,8 @@
 //   5. Ring buffer recycles oldest marks instead of growing unbounded
 //   6. clear() erases, breakVehicleTrail() breaks strips without erasing
 //   7. Quality hook: maxSegments 0 disables, undefined keeps the pool
-//
+//   8. Ground gating (groundTest callback): airborne tires never stamp, the
+//      trail breaks mid-air and re-anchors on landing — no marks in jumps
 // Run: node test-skid-marks.mjs
 
 import { register } from 'node:module';
@@ -222,6 +223,90 @@ console.log( '--- Ring buffer + quality ---' );
 	test( 'maxSegments 0 disables emission', marks.enabled === false );
 	marks.setQuality( {} );
 	test( 'missing budget re-enables with the same pool', marks.enabled === true && marks.maxSegments === 64 );
+
+}
+
+console.log( '--- Ground gating (airborne = no marks) ---' );
+
+{
+	const scene = makeScene();
+	let airborne = false;
+	let probes = 0;
+	// The game supplies a REAL physics raycast here (crashcat castRay against
+	// static track colliders — see main.js skidGroundRaycast). In these tests
+	// it's simulated with a flag; what matters is the SkidMarks gating logic.
+	const marks = new SkidMarks( scene, {
+		groundTest: ( vehicle, contactPoint ) => {
+
+			probes ++;
+			return ! airborne;
+
+		},
+	} );
+	const v = makeVehicle();
+	setDrifting( v );
+
+	// Grounded: marks appear normally.
+	marks.update( 1 / 60, v );
+	moveVehicle( v, 0.5, 0 );
+	marks.update( 1 / 60, v );
+	test( 'grounded drifting lays marks', stampCount( marks ) === 2 );
+
+	// Airborne mid-drift: no marks while flying.
+	airborne = true;
+	const groundedStamps = stampCount( marks );
+	for ( let i = 0; i < 6; i ++ ) {
+
+		moveVehicle( v, 0.4, 0 );
+		marks.update( 1 / 60, v );
+
+	}
+	test( 'airborne drifting lays NO marks', stampCount( marks ) === groundedStamps );
+
+	// Landing: trail re-anchors at touchdown — no segment from the flight path.
+	airborne = false;
+	marks.update( 1 / 60, v ); // touchdown frame
+	const atTouchdown = stampCount( marks );
+	test( 'touchdown frame does not connect to the flight path', atTouchdown === groundedStamps );
+
+	moveVehicle( v, 0.4, 0 );
+	marks.update( 1 / 60, v );
+	test( 'marks resume after landing', stampCount( marks ) === groundedStamps + 2 );
+
+	// Probing only happens while drifting (no rays wasted while cruising).
+	const v2 = makeVehicle();
+	v2.linearSpeed = 3; v2.driftIntensity = 0.1; // not drifting
+	marks.update( 1 / 60, v2 );
+	const probesBefore = probes;
+	moveVehicle( v2, 0.5, 0 );
+	marks.update( 1 / 60, v2 );
+	test( 'no ground rays while not drifting', probes === probesBefore );
+
+	test( 'groundTest receives vehicle + contact point', ( () => {
+
+		let sawVehicle = null, sawPoint = null;
+		const marks3 = new SkidMarks( makeScene(), { groundTest: ( vehicle, point ) => {
+
+			sawVehicle = vehicle;
+			sawPoint = point;
+			return true;
+
+		} } );
+		const v3 = makeVehicle();
+		setDrifting( v3 );
+		marks3.update( 1 / 60, v3 );
+		return sawVehicle === v3 && typeof sawPoint.x === 'number' && typeof sawPoint.y === 'number' && typeof sawPoint.z === 'number';
+
+	} )() );
+
+	// Back-compat: no groundTest supplied = marks always (older behavior).
+	const marks4 = new SkidMarks( makeScene() );
+	const v4 = makeVehicle();
+	setDrifting( v4 );
+	marks4.update( 1 / 60, v4 );
+	moveVehicle( v4, 0.5, 0 );
+	marks4.update( 1 / 60, v4 );
+	test( 'absent groundTest keeps legacy always-grounded behavior', stampCount( marks4 ) === 2 );
 
 }
 
