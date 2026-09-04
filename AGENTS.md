@@ -1364,3 +1364,10 @@ Every player device falls into one of these classes, and the code must handle al
 `test-multiplayer-transport.mjs` (node, no deps) covers error classification, backoff,
 Firebase failure classification, ICE stats parsing, and credential fetch/TTL/degradation.
 Run it after touching any of this.
+
+### Pre-push sweep (learned the hard way)
+Before pushing ANY branch: run `node --check` on EVERY `.js` file in the repo
+(`find js -name '*.js' -exec node --check {} +`), not just the files you touched —
+a broken file inherited from the fork point (e.g. a typo in js/Track.js from the
+checkpoint commit) crashes the game at load with an opaque browser SyntaxError
+that never shows in the files you edited. Also run all test-*.mjs files.
