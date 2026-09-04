@@ -159,6 +159,12 @@ function getModuleCarKey() {
 	return el?.value || 'vehicle-truck-yellow';
 }
 
+// Public servers are currently BROKEN — UI is hidden but the whole
+// implementation (join flow, handshake, map-sync, votes) is kept intact.
+// Flip to true (and unhide #mp-public-row / #mp-pubtrack-row in
+// index.html) to bring it back.
+const PUBLIC_SERVERS_UI_ENABLED = false;
+
 initMultiplayerPanel();
 
 const scene = new THREE.Scene();
@@ -1419,12 +1425,6 @@ const PUBLIC_SERVER_VOTE_DURATION_MS = 30000;
 // A vote passes if strictly more than 60% of the cast votes are "yes" (and at
 // least one vote was cast). Otherwise the track is not switched.
 const PUBLIC_SERVER_VOTE_PASS_RATIO = 0.60;
-
-// Public servers are currently BROKEN — UI is hidden but the whole
-// implementation (join flow, handshake, map-sync, votes) is kept intact.
-// Flip to true (and unhide #mp-public-row / #mp-pubtrack-row in
-// index.html) to bring it back.
-const PUBLIC_SERVERS_UI_ENABLED = false;
 
 function buildPublicServerButtons() {
 

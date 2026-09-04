@@ -44,7 +44,7 @@ test( 'instant FPS still sanity-checked (non-finite skipped)', /if \( Number\.is
 
 // 5. The pass itself is untouched when it does run (visuals preserved)
 test( 'RT sizing + per-plane uniform wiring unchanged', /renderer\.setRenderTarget\( rt \);/.test( track ) && /plane\.material\.uniforms\.tDiffuse\.value = rt\.texture;/.test( track ) );
-test( 'cache bumps present', /Track\.js\?v=999977/.test( main ) && /v=1000207/.test( readFileSync( './index.html', 'utf8' ) ) );
+test( 'cache bumps present', /Track\.js\?v=999977/.test( main ) && /v=1000208/.test( readFileSync( './index.html', 'utf8' ) ) );
 
 console.log( `\n${ passed } passed, ${ failed } failed${ failed ? ' — WITH FAILURES' : '' }` );
 process.exit( failed ? 1 : 0 );

@@ -14,6 +14,7 @@ function test( name, cond ) { if ( cond ) { passed ++; console.log( `  ✓ ${ na
 
 // 1. Single feature flag, default OFF
 test( 'PUBLIC_SERVERS_UI_ENABLED flag exists and is false', /const PUBLIC_SERVERS_UI_ENABLED = false;/.test( main ) );
+test( 'flag declared BEFORE the module-eval-time initMultiplayerPanel() call (no TDZ)', main.indexOf( 'const PUBLIC_SERVERS_UI_ENABLED' ) < main.indexOf( 'initMultiplayerPanel();' ) );
 
 // 2. All public-server UI entry points gated
 test( 'buildPublicServerButtons early-returns when disabled', /function buildPublicServerButtons\(\) \{\s*\n\t*if \( ! PUBLIC_SERVERS_UI_ENABLED \) return;/.test( main ) );
@@ -36,7 +37,7 @@ for ( const fn of [ 'joinPublicServer', 'leavePublicServer', 'onPublicServerMapS
 test( 'PublicServers.js module still imported (not ripped out)', /from '\.\/PublicServers\.js/.test( main ) );
 
 // 6. Cache bumped (main.js changed)
-test( 'index.html cache bumped to 1000207', /v=1000207/.test( html ) );
+test( 'index.html cache bumped to 1000207', /v=1000208/.test( html ) );
 
 console.log( `\n${ passed } passed, ${ failed } failed${ failed ? ' — WITH FAILURES' : '' }` );
 process.exit( failed ? 1 : 0 );
