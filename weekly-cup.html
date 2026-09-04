@@ -339,7 +339,9 @@ function buildTrackId(pathname, mapParam, modsParam) {
   if (mapParam) query.set('map', mapParam);
   if (modsParam) query.set('mods', modsParam);
   const rawUrl = `${pathname}${query.toString() ? `?${query.toString()}` : ''}`;
-  return `trk-${hashTrackSeed(`v5-url|${rawUrl}`)}`;
+  // Default track (no map/mods) keeps the reset v5 id; others keep v4.
+  const seedVersion = (mapParam || modsParam) ? 'v4' : 'v5';
+  return `trk-${hashTrackSeed(`${seedVersion}-url|${rawUrl}`)}`;
 }
 
 function getTrackIds(playUrl) {
