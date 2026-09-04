@@ -35,6 +35,12 @@ export class Camera {
 		this.userHeight = null;
 		this.userPitch = 0;
 		this.userLagScale = 1;
+		// Hitbox clip probe (chase cam only): ( origin, dir, length ) => freeLength.
+		// Supplied by main.js — a real physics raycast through the collision
+		// world. If something with a hitbox blocks the car→camera segment, the
+		// camera pulls in front of it instead of clipping inside. null = off.
+		this.clipProbe = null;
+		this._clipDir = new THREE.Vector3();
 
 		this.camera.position.copy( this.offset );
 		this.camera.lookAt( 0, 0, 0 );
@@ -100,6 +106,28 @@ export class Camera {
 			if ( this.userHeight != null ) this._rotatedOffset.y = this.userHeight;
 			if ( this.userPitch ) this._rotatedOffset.applyAxisAngle( new THREE.Vector3( 1, 0, 0 ), this.userPitch );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
+
+			// Chase-cam hitbox clipping: cast from the car toward the camera.
+			// If a hitbox blocks the segment, pull the camera in front of it.
+			// (Chase cam only — the fixed overview cam keeps its framing.)
+			if ( this.clipProbe ) {
+
+				this._clipDir.subVectors( this._desiredPos, this.targetPosition );
+				const desiredLen = this._clipDir.length();
+				if ( desiredLen > 1e-4 ) {
+
+					this._clipDir.divideScalar( desiredLen );
+					const freeLen = this.clipProbe( this.targetPosition, this._clipDir, desiredLen );
+					if ( freeLen < desiredLen ) {
+
+						this._desiredPos.copy( this.targetPosition ).addScaledVector( this._clipDir, freeLen );
+
+					}
+
+				}
+
+			}
+
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
 			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) );
 			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift );

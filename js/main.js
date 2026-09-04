@@ -5461,6 +5461,42 @@ async function init() {
 		vehicle, cells: customCells || TRACK_CELLS, camera: cam.camera
 	} );
 	const cam2 = isSplitScreen ? new Camera() : null;
+
+	// Chase-cam hitbox clipping: a REAL physics raycast (crashcat castRay) from
+	// the car toward the camera each frame. Static hitboxes only — walls,
+	// buildings, track pieces; never the car itself or other dynamic bodies.
+	// If the segment is blocked, the camera pulls in front of the hitbox
+	// instead of clipping inside it. Chase cam only; the fixed overview cam
+	// keeps its framing untouched.
+	const camRayCollector = createAnyCastRayCollector();
+	const camRaySettings = createDefaultCastRaySettings();
+	const camRayFilter = ccLayerFilter.forWorld( world );
+	camRayFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
+	const CAM_CLIP_MARGIN = 0.4; // hover distance off hitbox surfaces
+	const CAM_CLIP_MIN = 1.4;     // never closer to the car than this
+	const camRayOrigin = [ 0, 0, 0 ];
+	const camRayDir = [ 0, 0, 0 ];
+	const camClipProbe = ( origin, dir, length ) => {
+
+		camRayOrigin[ 0 ] = origin.x;
+		camRayOrigin[ 1 ] = origin.y;
+		camRayOrigin[ 2 ] = origin.z;
+		camRayDir[ 0 ] = dir.x;
+		camRayDir[ 1 ] = dir.y;
+		camRayDir[ 2 ] = dir.z;
+		// AnyCastRayCollector.addMiss() is a no-op — stale hits linger, so reset() before every cast.
+		camRayCollector.reset();
+		castRay( world, camRayCollector, camRaySettings, camRayOrigin, camRayDir, length, camRayFilter );
+		if ( camRayCollector.hit.status !== CastRayStatus.COLLIDING ) return length;
+		// First hit along the car→camera segment: park the camera just short of it.
+		let freeLen = camRayCollector.hit.fraction * length - CAM_CLIP_MARGIN;
+		freeLen = Math.max( freeLen, Math.min( CAM_CLIP_MIN, length ) );
+		return Math.min( freeLen, length );
+
+	};
+	cam.clipProbe = camClipProbe;
+	cam2?.clipProbe = camClipProbe;
+
 	// Reused each frame for cam.update() dynamics to avoid allocating an options
 	// object on every camera update (up to 4 calls/frame). cam.update only reads the
 	// fields, it never retains the reference.

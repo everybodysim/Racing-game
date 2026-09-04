@@ -7,6 +7,7 @@ export const DynamicDrawUsage = 1;
 
 export const MathUtils = {
 	clamp: ( value, min, max ) => Math.min( max, Math.max( min, value ) ),
+	lerp: ( a, b, t ) => a + ( b - a ) * t,
 };
 
 export class Color {
@@ -47,6 +48,44 @@ export class Vector3 {
 
 	}
 	applyQuaternion() { return this; } // identity in tests
+	lerp( v, alpha ) {
+
+		this.x += ( v.x - this.x ) * alpha;
+		this.y += ( v.y - this.y ) * alpha;
+		this.z += ( v.z - this.z ) * alpha;
+		return this;
+
+	}
+	add( v ) { this.x += v.x; this.y += v.y; this.z += v.z; return this; }
+	applyAxisAngle( axis, angle ) {
+
+		// Rodrigues rotation — real math, same as THREE.
+		const cos = Math.cos( angle ), sin = Math.sin( angle );
+		const dot = axis.x * this.x + axis.y * this.y + axis.z * this.z;
+		const cx = axis.y * this.z - axis.z * this.y;
+		const cy = axis.z * this.x - axis.x * this.z;
+		const cz = axis.x * this.y - axis.y * this.x;
+		this.x = this.x * cos + cx * sin + axis.x * dot * ( 1 - cos );
+		this.y = this.y * cos + cy * sin + axis.y * dot * ( 1 - cos );
+		this.z = this.z * cos + cz * sin + axis.z * dot * ( 1 - cos );
+		return this;
+
+	}
+
+}
+
+export class PerspectiveCamera {
+
+	constructor( fov = 50, aspect = 1 ) {
+
+		this.fov = fov;
+		this.aspect = aspect;
+		this.position = new Vector3();
+		this._lookTarget = new Vector3();
+
+	}
+	lookAt( target ) { this._lookTarget.copy( target ); }
+	updateProjectionMatrix() {}
 
 }
 
