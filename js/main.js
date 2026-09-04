@@ -8757,15 +8757,50 @@ function completeCampaignStage() {
 			orient = ORIENT_180[ orient ] ?? orient;
 
 		}
-		slopeCellMap.set( `${ gx },${ gz }`, { gx, gz, type, orient } );
+		// OFF-GRID support: a piece at fractional coords (editor free placement)
+		// spans two cells per axis. Register every cell it touches, not just its
+		// raw key — a fractional key like "12.5,3.7" can never match the integer
+		// cell lookups used at runtime.
+		const cellKeys = ( v ) => Number.isInteger( Number( v ) )
+			? [ Number( v ) ]
+			: [ Math.floor( Number( v ) ), Math.floor( Number( v ) ) + 1 ];
+		for ( const cgx of cellKeys( gx ) ) {
+			for ( const cgz of cellKeys( gz ) ) {
+				slopeCellMap.set( `${ cgx },${ cgz }`, { gx, gz, type, orient } );
+			}
+		}
 
 	}
-	// True when the vehicle's current grid cell is a slope. Uses the same cell
-	// math as applySlopeConformVisual. Used to bypass seam-bounce suppression on
-	// slopes (uphill driving legitimately gains upward velocity).
+	// Pool slopes are real tilted colliders too (they are NOT in extras.elevated),
+	// so register their cells as well.
+	if ( Array.isArray( extras?.poolSlopes ) ) {
+		for ( const entry of extras.poolSlopes ) {
+			const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+			const cellKeys = ( v ) => Number.isInteger( v ) ? [ v ] : [ Math.floor( v ), Math.floor( v ) + 1 ];
+			for ( const cgx of cellKeys( gx ) ) {
+				for ( const cgz of cellKeys( gz ) ) {
+					if ( ! slopeCellMap.has( `${ cgx },${ cgz }` ) ) {
+						slopeCellMap.set( `${ cgx },${ cgz }`, { gx, gz, type: 'pool-slope', orient: entry?.[ 2 ] ?? 0 } );
+					}
+				}
+			}
+		}
+	}
+	// True when the vehicle is on a genuinely sloped surface. Two signals, OR'd:
+	//  1. The grid map (slope pieces incl. off-grid fractional spans + pool slopes)
+	//  2. The vehicle's MEASURED ground tilt from the raycast slope detection —
+	//     physical truth, catches any angled collider regardless of registration.
+	// Used to bypass seam-bounce suppression on slopes: uphill driving
+	// legitimately gains upward velocity, and the restore would otherwise freeze
+	// the car (the "no gravity / can't move / slides on the hitbox" glitch that
+	// hit off-grid slope blocks whose registry key never matched).
+	const SEAM_BYPASS_TILT = 0.1; // rad ≈ 5.7° — below real slopes (≈26°), above noise/bevels (≈2°)
 	function isVehicleOnSlopeCell( targetVehicle ) {
 
-		if ( ! targetVehicle?.spherePos || slopeCellMap.size === 0 ) return false;
+		if ( ! targetVehicle?.spherePos ) return false;
+		if ( ( targetVehicle.lastGroundTilt || 0 ) > SEAM_BYPASS_TILT ) return true;
+		if ( slopeCellMap.size === 0 ) return false;
 		const gx = Math.floor( targetVehicle.spherePos.x / cellWorldSize );
 		const gz = Math.floor( targetVehicle.spherePos.z / cellWorldSize );
 		return slopeCellMap.has( `${ gx },${ gz }` );
@@ -9111,6 +9146,9 @@ function completeCampaignStage() {
 		};
 		const tilt = Vehicle.computeSlopeTiltFromSamples( samples, L, W );
 		targetVehicle.setSlopeVisualTilt( tilt.pitch, tilt.roll );
+		// Physical slope signal for the seam-bounce guard (isVehicleOnSlopeCell):
+		// the measured surface angle, 0 while airborne. Survives across frames.
+		targetVehicle.lastGroundTilt = Math.hypot( tilt.pitch, tilt.roll );
 
 	}
 
