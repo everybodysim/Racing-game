@@ -5,7 +5,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999973';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999974';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails, WaterSplashFX } from './Particles.js';
 import { SkidMarks } from './SkidMarks.js';
@@ -6642,9 +6642,11 @@ async function init() {
 		if ( keys.KeyA ) freecamMove.add( freecamRight );
 		if ( keys.Space ) freecamMove.y += 1;
 		if ( keys.ControlLeft || keys.ControlRight ) freecamMove.y -= 1;
+		// Shift sprints the freecam (declared before, never wired — now it is).
+		const sprinting = keys.ShiftLeft || keys.ShiftRight;
 		if ( freecamMove.lengthSq() > 1e-6 ) {
 
-			cam.camera.position.addScaledVector( freecamMove.normalize(), freecamState.moveSpeed * dt );
+			cam.camera.position.addScaledVector( freecamMove.normalize(), freecamState.moveSpeed * ( sprinting ? freecamState.sprintMultiplier : 1 ) * dt );
 
 		}
 		cam.lookTarget.copy( cam.camera.position ).add( freecamForward );

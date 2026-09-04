@@ -161,47 +161,6 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 
 }
 
-let causticLightTexture = null;
-function getCausticLightTexture() {
-
-	if ( causticLightTexture ) return causticLightTexture;
-	const size = 256;
-	const canvas = document.createElement( 'canvas' );
-	canvas.width = canvas.height = size;
-	const ctx = canvas.getContext( '2d' );
-	const img = ctx.createImageData( size, size );
-	// Same value-noise family as the shader — one-time bake.
-	const hash = ( x, y ) => { const v = Math.sin( x * 127.1 + y * 311.7 ) * 43758.5453123; return v - Math.floor( v ); };
-	const noise = ( x, y ) => {
-
-		const xi = Math.floor( x ), yi = Math.floor( y );
-		let xf = x - xi, yf = y - yi;
-		xf = xf * xf * ( 3 - 2 * xf ); yf = yf * yf * ( 3 - 2 * yf );
-		const a = hash( xi, yi ), b = hash( xi + 1, yi ), c = hash( xi, yi + 1 ), d = hash( xi + 1, yi + 1 );
-		return a + ( b - a ) * xf + ( c - a ) * yf + ( a - b - c + d ) * xf * yf;
-
-	};
-	for ( let y = 0; y < size; y ++ ) {
-		for ( let x = 0; x < size; x ++ ) {
-
-			const u = x / size * 8, v = y / size * 8;
-			const n1 = noise( u, v ), n2 = noise( v + 5.2, u + 1.3 );
-			const web = Math.abs( n1 - n2 );
-			const c = Math.pow( Math.max( 0, 1 - web ), 12 ) * 255;
-			const i = ( y * size + x ) * 4;
-			img.data[ i ] = img.data[ i + 1 ] = img.data[ i + 2 ] = c;
-			img.data[ i + 3 ] = 255;
-
-		}
-	}
-	ctx.putImageData( img, 0, 0 );
-	causticLightTexture = new THREE.CanvasTexture( canvas );
-	causticLightTexture.wrapS = causticLightTexture.wrapT = THREE.RepeatWrapping;
-	causticLightTexture.colorSpace = THREE.SRGBColorSpace;
-	return causticLightTexture;
-
-}
-
 function normalizePoolVisuals( extras = null ) {
 
 	const cfg = extras?.customPool && typeof extras.customPool === 'object' ? extras.customPool : {};
@@ -230,7 +189,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			deepColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0x041f3d ), 0.6 ) },
 			skyTop: { value: new THREE.Color( 0x6db3e8 ) },
 			skyHorizon: { value: new THREE.Color( 0xdff3ff ) },
-			waterAlpha: { value: visuals.transparent ? 0.82 : 1.0 },
+
 		},
 		// Waves: fbm-animated height field with finite-difference world
 		// normals (the demo's technique), evaluated in world space so all
@@ -293,7 +252,6 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			uniform vec3 deepColor;
 			uniform vec3 skyTop;
 			uniform vec3 skyHorizon;
-			uniform float waterAlpha;
 			varying vec3 vWorldPos;
 			varying vec3 vWorldNormal;
 			varying float vWaveH;
@@ -317,11 +275,11 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				float skyMix = clamp( rDir.y * 0.5 + 0.5, 0.0, 1.0 );
 				vec3 skyColor = mix( skyHorizon, skyTop, skyMix ) * 0.35;
 
-				// Refracted ray: how far it travels to the pool floor (for the
-				// depth tint). Caustics now come from the projected caustic
-				// spotlight in the scene — they land on the real pool floor,
-				// walls, and any car that drives under.
+				// Refracted ray: how far it travels to the pool floor — used
+				// both for the depth tint and to project the caustic web onto
+				// where the ray lands.
 				float dFloor = max( ( floorY - vWorldPos.y ) / refrDir.y, 0.0 );
+				vec3 fPos = vWorldPos + refrDir * dFloor;
 
 				// Screen-space refraction: sample the REAL rendered scene (the
 				// car, the actual pool tiles — no fake drawn floor) through an
@@ -339,6 +297,17 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				float depthT = clamp( dFloor / ( ${ CELL_RAW } * 0.6 ), 0.0, 1.0 );
 				refrColor = mix( refrColor, deepColor, depthT * 0.4 );
 
+				// Caustic web projected onto where the refracted ray lands —
+				// since the sample IS the real scene, the light pattern lands
+				// on the actual pool floor AND any car under the surface.
+				vec2 cUV = fPos.xz * 1.8 + n.xz * 0.35;
+				float ct = time * 2.0;
+				float n1 = noise( cUV + vec2( ct * 0.3, ct * 0.1 ) );
+				float n2 = noise( cUV.yx - vec2( ct * 0.2, - ct * 0.2 ) );
+				float web = abs( n1 - n2 );
+				float caustic = pow( max( 0.0, 1.0 - web ), 30.0 ) * 0.6;
+				refrColor += vec3( caustic * vec3( 0.65, 0.8, 0.9 ) );
+
 				// The bluer body tint requested
 				refrColor *= vec3( 0.86, 0.94, 1.08 );
 
@@ -351,11 +320,14 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				final = mix( final, vec3( 0.85, 0.95, 1.0 ), foam * 0.4 );
 				float glint = pow( max( 0.0, noise( vWorldPos.xz * 6.5 + vec2( time * 0.7, - time * 0.4 ) ) - 0.62 ), 3.0 );
 				final += glint * 0.5 * vec3( 0.9, 0.97, 1.0 );
-				gl_FragColor = vec4( final, waterAlpha );
+				gl_FragColor = vec4( final, 1.0 );
 			}
 		`,
-		transparent: visuals.transparent,
-		depthWrite: ! visuals.transparent,
+		// Opaque on purpose: the refraction sample already shows everything
+		// under the surface. Alpha-blending the raw scene back in (the old
+		// "transparent" mode) put an un-wiggled ghost of the pool/car on top.
+		transparent: false,
+		depthWrite: true,
 		side: THREE.DoubleSide,
 	} );
 
@@ -705,7 +677,6 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const poolVisuals = normalizePoolVisuals( extras );
 		// Rebuilt from scratch every track build — drop planes from the previous track.
 		WATER_PLANES.length = 0;
-		let causticLightsThisBuild = 0;
 		const elevatedMap = new Map();
 		for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedCells ) {
 
@@ -759,40 +730,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.12, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
 			waterPlane.userData.waterSurface = true;
 			WATER_PLANES.push( waterPlane );
-			waterPlane.onBeforeRender = () => {
-
-				const t = performance.now() * 0.001;
-				waterPlane.material.uniforms.time.value = t;
-				if ( causticLightTexture ) causticLightTexture.offset.set( ( t * 0.02 ) % 1, ( t * 0.013 ) % 1 );
-
-			};
+			waterPlane.onBeforeRender = () => { waterPlane.material.uniforms.time.value = performance.now() * 0.001; };
 			trackPieceGroup.add( waterPlane );
-
-			// Projected caustics: a spotlight above the pool projects the
-			// caustic web onto real geometry — the pool floor, the walls, and
-			// any car that drives under the surface. Capped for perf.
-			if ( causticLightsThisBuild < 4 ) {
-
-				causticLightsThisBuild += 1;
-				const poolCx = ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW;
-				const poolCz = ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW;
-				const span = Math.max( waterWidth, waterDepth );
-				const lightHeight = 10;
-				const causticLight = new THREE.SpotLight(
-					0xbfe8ff,
-					350,
-					span * 1.6,
-					Math.atan2( span * 0.62, lightHeight ),
-					0.55,
-					2
-				);
-				causticLight.position.set( poolCx, lightHeight, poolCz );
-				causticLight.target.position.set( poolCx, - WATER_DEPTH, poolCz );
-				causticLight.map = getCausticLightTexture();
-				causticLight.castShadow = false;
-				trackPieceGroup.add( causticLight, causticLight.target );
-
-			}
 
 		}
 		for ( const [ gx, gz ] of waterCells ) {
