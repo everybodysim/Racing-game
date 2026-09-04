@@ -172,6 +172,13 @@ const skyUniforms = {
 	groundColor: { value: new THREE.Color( '#bfd9f2' ) },
 	time: { value: 0 },
 	vibrance: { value: 0.15 },
+	// Sun rendering (disc + horizon-hugging glow) and the night Milky Way band
+	sunDir: { value: new THREE.Vector3( 0.58, 0.55, - 0.27 ).normalize() },
+	sunColor: { value: new THREE.Color( '#fff2d8' ) },
+	sunDisc: { value: 0.00012 },
+	sunGlow: { value: 0.22 },
+	milkyWay: { value: 0.0 },
+	mwNormal: { value: new THREE.Vector3( 0.55, 0.28, 0.83 ).normalize() },
 };
 const skyDome = new THREE.Mesh(
 	new THREE.SphereGeometry( 50, 32, 24 ),
@@ -193,16 +200,58 @@ const skyDome = new THREE.Mesh(
 		uniform vec3 groundColor;
 		uniform float time;
 		uniform float vibrance;
+		uniform vec3 sunDir;
+		uniform vec3 sunColor;
+		uniform float sunDisc;
+		uniform float sunGlow;
+		uniform float milkyWay;
+		uniform vec3 mwNormal;
+		float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 ); }
+		float vnoise( vec2 p ) {
+			vec2 i = floor( p );
+			vec2 f = fract( p );
+			f = f * f * ( 3.0 - 2.0 * f );
+			float a = hash( i );
+			float b = hash( i + vec2( 1.0, 0.0 ) );
+			float c = hash( i + vec2( 0.0, 1.0 ) );
+			float d = hash( i + vec2( 1.0, 1.0 ) );
+			return a + ( b - a ) * f.x + ( c - a ) * f.y + ( a - b - c + d ) * f.x * f.y;
+		}
 		void main() {
-			float h = clamp( vDir.y * 0.5 + 0.5, 0.0, 1.0 );
+			vec3 dir = normalize( vDir );
+			float h = clamp( dir.y * 0.5 + 0.5, 0.0, 1.0 );
 			float horizonBand = exp( -pow( abs( h - 0.48 ) * 7.0, 2.0 ) );
-			float cloudWave = ( sin( vDir.x * 9.0 + time * 0.03 ) * sin( vDir.z * 7.0 - time * 0.02 ) );
+			float cloudWave = ( sin( dir.x * 9.0 + time * 0.03 ) * sin( dir.z * 7.0 - time * 0.02 ) );
 			float cloudMask = smoothstep( 0.68, 0.86, cloudWave * 0.5 + 0.5 ) * 0.06;
 			vec3 c = mix( groundColor, midColor, smoothstep( 0.03, 0.42, h ) );
 			c = mix( c, topColor, smoothstep( 0.42, 0.95, h ) );
 			c = mix( c, horizonColor, horizonBand * 0.92 );
 			c += vec3( cloudMask ) * ( 0.24 + vibrance * 0.45 );
+
+			// Sun: a warm bloom wrapping the sky near it plus a soft disc —
+			// on sunset it rides low on the horizon, on clear it hangs high.
+			float sunAmt = max( dot( dir, normalize( sunDir ) ), 0.0 );
+			float glow = pow( sunAmt, 6.0 ) * 0.75 + pow( sunAmt, 32.0 ) * 0.6;
+			c += sunColor * glow * sunGlow;
+			if ( sunDisc > 0.0 ) {
+				float disc = smoothstep( 1.0 - sunDisc * 3.0, 1.0 - sunDisc, sunAmt );
+				c += sunColor * disc * 1.35;
+			}
+
+			// Milky Way: a soft star-cloud band along a tilted great circle,
+			// with darker dust lanes carved through it — night presets only.
+			if ( milkyWay > 0.001 ) {
+				float band = exp( -pow( dot( dir, mwNormal ) * 2.4, 2.0 ) );
+				float starCloud = vnoise( dir.xz * 14.0 + dir.y * 7.0 ) * 0.6 + vnoise( dir.xz * 34.0 - dir.y * 13.0 ) * 0.4;
+				float lanes = 0.55 + 0.45 * vnoise( dir.xz * 22.0 + 4.7 );
+				float mw = band * pow( starCloud, 1.6 ) * lanes;
+				c += vec3( 0.36, 0.44, 0.62 ) * mw * milkyWay;
+				c += vec3( 0.5, 0.42, 0.55 ) * band * milkyWay * 0.05;
+			}
+
 			c = mix( c, c * 1.15, vibrance * 0.5 );
+			// Dither: kills banding on the smooth gradient (crucial on dark nights)
+			c += ( hash( gl_FragCoord.xy ) - 0.5 ) * ( 1.5 / 255.0 );
 			gl_FragColor = vec4( c, 1.0 );
 		}`
 	} )
@@ -415,16 +464,28 @@ const WEATHER_PRESETS = {
 	clear: { bg: 0xbfe0ff, fogNearMul: 3.2, fogFarMul: 6.4, sun: 5.0, hemi: 1.5, exposure: 1.0 },
 	cloudy: { bg: 0xaab2ba, fogNearMul: 2.56, fogFarMul: 5.12, sun: 3.8, hemi: 1.3, exposure: 0.95 },
 	sunset: { bg: 0xffb178, fogNearMul: 2.24, fogFarMul: 4.8, sun: 4.4, hemi: 1.2, exposure: 1.08 },
-	night: { bg: 0x0a1730, fogNearMul: 1.92, fogFarMul: 4.0, sun: 1.7, hemi: 0.45, exposure: 0.7 },
+	night: { bg: 0x0a1730, fogNearMul: 1.92, fogFarMul: 4.0, sun: 1.9, hemi: 0.55, exposure: 0.78 },
+	'night-constellations': { bg: 0x071226, fogNearMul: 1.92, fogFarMul: 4.0, sun: 1.9, hemi: 0.55, exposure: 0.8 },
 	'dawn-mist': { bg: 0xb6c2cc, fogNearMul: 1.6, fogFarMul: 3.36, sun: 2.9, hemi: 1.1, exposure: 0.88 },
 };
 
 const WEATHER_SKY_GRADIENTS = {
 	clear: { top: '#1c5fd6', mid: '#5cb2f2', horizon: '#ffe9c9', ground: '#dcecff' },
 	cloudy: { top: '#5c6b7c', mid: '#8b96a3', horizon: '#c9cfd5', ground: '#aab2ba' },
-	sunset: { top: '#2c1f52', mid: '#c4548f', horizon: '#ff8a4c', ground: '#ffd28a' },
-	night: { top: '#01030b', mid: '#050d24', horizon: '#132244', ground: '#0a1730' },
+	sunset: { top: '#23134d', mid: '#c04a7f', horizon: '#ff7a3d', ground: '#ffc08a' },
+	night: { top: '#01020a', mid: '#040b20', horizon: '#0d1e40', ground: '#081226' },
+	'night-constellations': { top: '#01020a', mid: '#030a1c', horizon: '#0c1c3c', ground: '#071122' },
 	'dawn-mist': { top: '#5f92d0', mid: '#9fc4eb', horizon: '#ffdcb0', ground: '#c5ddf4' },
+};
+
+// Where the dome's sun sits and how it renders, per preset.
+const WEATHER_SKY_FX = {
+	clear: { sunDir: [ 0.58, 0.55, - 0.27 ], sunColor: '#fff2d8', disc: 0.00012, glow: 0.22, milkyWay: 0 },
+	cloudy: { sunDir: [ 0.58, 0.55, - 0.27 ], sunColor: '#e9e5db', disc: 0, glow: 0.1, milkyWay: 0 },
+	sunset: { sunDir: [ 0.74, 0.1, - 0.36 ], sunColor: '#ffb15e', disc: 0.00022, glow: 0.8, milkyWay: 0 },
+	night: { sunDir: [ 0.58, 0.55, - 0.27 ], sunColor: '#000000', disc: 0, glow: 0, milkyWay: 0.5 },
+	'night-constellations': { sunDir: [ 0.58, 0.55, - 0.27 ], sunColor: '#000000', disc: 0, glow: 0, milkyWay: 0.28 },
+	'dawn-mist': { sunDir: [ 0.6, 0.3, - 0.4 ], sunColor: '#ffe9c9', disc: 0, glow: 0.25, milkyWay: 0 },
 };
 
 // Per-preset low-poly cloud / star / moon decorations for the sky group.
@@ -433,7 +494,8 @@ const SKY_DECOR_PRESETS = {
 	clear: { clouds: { count: 12, scale: [ 3.0, 5.0 ], elevationRange: [ 8, 24 ], color: 0xffffff, opacity: 0.92 }, stars: 0, moon: false },
 	sunset: { clouds: { count: 10, scale: [ 3.2, 5.2 ], elevationRange: [ 6, 18 ], color: 0xffcfae, opacity: 0.93 }, stars: 0, moon: false },
 	cloudy: { clouds: { count: 15, scale: [ 4.5, 7.0 ], elevationRange: [ 5, 18 ], color: 0x9aa3ad, opacity: 0.9 }, stars: 0, moon: false },
-	night: { clouds: { count: 6, scale: [ 2.5, 4.0 ], elevationRange: [ 12, 28 ], color: 0x2b3a5c, opacity: 0.35 }, stars: 600, moon: true },
+	night: { clouds: { count: 6, scale: [ 2.5, 4.0 ], elevationRange: [ 12, 28 ], color: 0x2b3a5c, opacity: 0.35 }, stars: 900, moon: true },
+	'night-constellations': { clouds: { count: 4, scale: [ 2.5, 4.0 ], elevationRange: [ 12, 28 ], color: 0x2b3a5c, opacity: 0.22 }, stars: 900, moon: true, constellations: true },
 };
 
 const WEATHER_DEFAULT = 'clear';
@@ -3169,12 +3231,18 @@ function applySkyPalette( preset = WEATHER_DEFAULT ) {
 	skyUniforms.midColor.value.set( palette.mid );
 	skyUniforms.horizonColor.value.set( palette.horizon );
 	skyUniforms.groundColor.value.set( palette.ground );
+	const fx = WEATHER_SKY_FX[ preset ] || WEATHER_SKY_FX[ WEATHER_DEFAULT ];
+	skyUniforms.sunDir.value.set( fx.sunDir[ 0 ], fx.sunDir[ 1 ], fx.sunDir[ 2 ] ).normalize();
+	skyUniforms.sunColor.value.set( fx.sunColor );
+	skyUniforms.sunDisc.value = fx.disc;
+	skyUniforms.sunGlow.value = fx.glow;
+	skyUniforms.milkyWay.value = fx.milkyWay;
 
 }
 
 // ─── Sky decorations: low-poly clouds, stars, moon (follows the vehicle so ───
 // ─── they always stay within the camera's far plane, like a real skybox)  ───
-let skyDecorState = { cloudGroup: null, starPoints: null, moonGroup: null };
+let skyDecorState = { cloudGroup: null, starPoints: null, moonGroup: null, constellationLines: null, constellationNodes: null };
 
 function clearSkyDecorations() {
 
@@ -3207,7 +3275,21 @@ function clearSkyDecorations() {
 		} );
 
 	}
-	skyDecorState = { cloudGroup: null, starPoints: null, moonGroup: null };
+	if ( skyDecorState.constellationLines ) {
+
+		skyGroup.remove( skyDecorState.constellationLines );
+		skyDecorState.constellationLines.geometry?.dispose();
+		skyDecorState.constellationLines.material?.dispose();
+
+	}
+	if ( skyDecorState.constellationNodes ) {
+
+		skyGroup.remove( skyDecorState.constellationNodes );
+		skyDecorState.constellationNodes.geometry?.dispose();
+		skyDecorState.constellationNodes.material?.dispose();
+
+	}
+	skyDecorState = { cloudGroup: null, starPoints: null, moonGroup: null, constellationLines: null, constellationNodes: null };
 
 }
 
@@ -3233,6 +3315,101 @@ function makeLowPolyCloud( scale, color, opacity ) {
 	}
 	cloud.scale.setScalar( scale );
 	return cloud;
+
+}
+
+// Seeded RNG so the star field (and crater layout) is identical every
+// build — constellations need a stable sky to live in.
+function mulberry32( seed = 1337 ) {
+
+	let t = seed >>> 0;
+	return () => {
+
+		t += 0x6D2B79F5;
+		let r = Math.imul( t ^ ( t >>> 15 ), 1 | t );
+		r = ( r + Math.imul( r ^ ( r >>> 7 ), 61 | r ) ) ^ r;
+		return ( ( r >>> 0 ) / 4294967296 );
+
+	};
+
+}
+
+function azElDir( azDeg, elDeg ) {
+
+	const az = azDeg * Math.PI / 180;
+	const el = elDeg * Math.PI / 180;
+	return new THREE.Vector3( Math.sin( az ) * Math.cos( el ), Math.sin( el ), Math.cos( az ) * Math.cos( el ) );
+
+}
+
+// Hand-placed constellations: [ azimuthDeg, elevationDeg ] star positions
+// plus faint connecting lines. Stylized, not astronomically rigorous — but
+// Orion reads as Orion.
+const CONSTELLATIONS = [
+	{ name: 'Orion', stars: [ [ 40, 42 ], [ 52, 44 ], [ 44, 35 ], [ 46.5, 34 ], [ 49, 33 ], [ 44, 25 ], [ 50, 25 ] ], lines: [ [ 0, 1 ], [ 0, 2 ], [ 1, 4 ], [ 2, 3 ], [ 3, 4 ], [ 2, 5 ], [ 4, 6 ] ] },
+	{ name: 'Big Dipper', stars: [ [ 200, 55 ], [ 193, 52 ], [ 191, 45 ], [ 198, 45 ], [ 204, 47 ], [ 210, 49 ], [ 216, 51 ] ], lines: [ [ 0, 1 ], [ 1, 2 ], [ 2, 3 ], [ 3, 4 ], [ 4, 5 ], [ 5, 6 ], [ 3, 0 ] ] },
+	{ name: 'Cassiopeia', stars: [ [ 287, 40 ], [ 292, 42 ], [ 297, 44 ], [ 302, 43 ], [ 307, 41 ] ], lines: [ [ 0, 1 ], [ 1, 2 ], [ 2, 3 ], [ 3, 4 ] ] },
+	{ name: 'Cygnus', stars: [ [ 140, 52 ], [ 144, 44 ], [ 141, 36 ], [ 147, 46 ], [ 152, 38 ] ], lines: [ [ 0, 1 ], [ 1, 2 ], [ 3, 1 ], [ 1, 4 ] ] },
+	{ name: 'Lyra', stars: [ [ 250, 58 ], [ 252, 54 ], [ 256, 53 ], [ 256, 57 ], [ 252, 61 ] ], lines: [ [ 0, 1 ], [ 1, 2 ], [ 2, 3 ], [ 3, 4 ], [ 4, 1 ] ] },
+];
+
+let moonTextureCache = null;
+let moonGlowTextureCache = null;
+
+function getMoonTexture() {
+
+	if ( moonTextureCache ) return moonTextureCache;
+	const size = 128;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = canvas.height = size;
+	const ctx = canvas.getContext( '2d' );
+	const grad = ctx.createRadialGradient( size * 0.42, size * 0.4, size * 0.1, size * 0.5, size * 0.5, size * 0.52 );
+	grad.addColorStop( 0, '#f4f6fa' );
+	grad.addColorStop( 0.7, '#d8dde8' );
+	grad.addColorStop( 1, '#b8bfd0' );
+	ctx.fillStyle = grad;
+	ctx.fillRect( 0, 0, size, size );
+	// Seeded craters so the moon is identical every build
+	const rng = mulberry32( 777 );
+	for ( let i = 0; i < 9; i ++ ) {
+
+		const a = rng() * Math.PI * 2;
+		const d = Math.sqrt( rng() ) * size * 0.34;
+		const cx = size * 0.5 + Math.cos( a ) * d;
+		const cy = size * 0.5 + Math.sin( a ) * d;
+		const r = 3 + rng() * 8;
+		const crater = ctx.createRadialGradient( cx, cy, 1, cx, cy, r );
+		crater.addColorStop( 0, 'rgba( 156, 164, 182, 0.55 )' );
+		crater.addColorStop( 0.8, 'rgba( 156, 164, 182, 0.2 )' );
+		crater.addColorStop( 1, 'rgba( 156, 164, 182, 0 )' );
+		ctx.fillStyle = crater;
+		ctx.beginPath();
+		ctx.arc( cx, cy, r, 0, Math.PI * 2 );
+		ctx.fill();
+
+	}
+	moonTextureCache = new THREE.CanvasTexture( canvas );
+	moonTextureCache.colorSpace = THREE.SRGBColorSpace;
+	return moonTextureCache;
+
+}
+
+function getMoonGlowTexture() {
+
+	if ( moonGlowTextureCache ) return moonGlowTextureCache;
+	const size = 128;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = canvas.height = size;
+	const ctx = canvas.getContext( '2d' );
+	const grad = ctx.createRadialGradient( size * 0.5, size * 0.5, size * 0.12, size * 0.5, size * 0.5, size * 0.5 );
+	grad.addColorStop( 0, 'rgba( 238, 242, 250, 0.9 )' );
+	grad.addColorStop( 0.4, 'rgba( 200, 214, 240, 0.35 )' );
+	grad.addColorStop( 1, 'rgba( 200, 214, 240, 0 )' );
+	ctx.fillStyle = grad;
+	ctx.fillRect( 0, 0, size, size );
+	moonGlowTextureCache = new THREE.CanvasTexture( canvas );
+	moonGlowTextureCache.colorSpace = THREE.SRGBColorSpace;
+	return moonGlowTextureCache;
 
 }
 
@@ -3271,11 +3448,12 @@ function buildSkyDecorations( preset ) {
 	if ( config.stars > 0 ) {
 
 		const starCount = Math.max( 80, Math.round( config.stars * qualityScale ) );
+		const rng = mulberry32( 20260904 );
 		const positions = new Float32Array( starCount * 3 );
 		for ( let i = 0; i < starCount; i ++ ) {
 
-			const theta = Math.random() * Math.PI * 2;
-			const phi = Math.random() * Math.PI * 0.52;
+			const theta = rng() * Math.PI * 2;
+			const phi = rng() * Math.PI * 0.52;
 			const radius = 36;
 			const idx = i * 3;
 			positions[ idx ] = Math.sin( phi ) * Math.cos( theta ) * radius;
@@ -3293,18 +3471,52 @@ function buildSkyDecorations( preset ) {
 
 	}
 
+	if ( config.constellations ) {
+
+		// Faint connecting lines between the constellation stars — a hint
+		// of pattern, NOT a diagram (kept well below full opacity), with the
+		// member stars drawn slightly brighter/bigger so the shapes read.
+		const linePositions = [];
+		const nodePositions = [];
+		for ( const cons of CONSTELLATIONS ) {
+
+			const dirs = cons.stars.map( ( s ) => azElDir( s[ 0 ], s[ 1 ] ).multiplyScalar( 35.4 ) );
+			for ( const [ a, b ] of cons.lines ) linePositions.push( dirs[ a ].x, dirs[ a ].y, dirs[ a ].z, dirs[ b ].x, dirs[ b ].y, dirs[ b ].z );
+			for ( const d of dirs ) nodePositions.push( d.x, d.y, d.z );
+
+		}
+		const lineGeo = new THREE.BufferGeometry();
+		lineGeo.setAttribute( 'position', new THREE.Float32BufferAttribute( linePositions, 3 ) );
+		const lineMat = new THREE.LineBasicMaterial( { color: 0x9fc4ff, transparent: true, opacity: 0.22, depthWrite: false, fog: false } );
+		const lines = new THREE.LineSegments( lineGeo, lineMat );
+		lines.frustumCulled = false;
+		skyGroup.add( lines );
+		skyDecorState.constellationLines = lines;
+
+		const nodeGeo = new THREE.BufferGeometry();
+		nodeGeo.setAttribute( 'position', new THREE.Float32BufferAttribute( nodePositions, 3 ) );
+		const nodeMat = new THREE.PointsMaterial( { color: 0xdfe8ff, size: 0.55, sizeAttenuation: true, transparent: true, opacity: 0.95, depthWrite: false, fog: false } );
+		const nodes = new THREE.Points( nodeGeo, nodeMat );
+		nodes.frustumCulled = false;
+		skyGroup.add( nodes );
+		skyDecorState.constellationNodes = nodes;
+
+	}
+
 	if ( config.moon ) {
 
 		const moonGroup = new THREE.Group();
 		const moon = new THREE.Mesh(
-			new THREE.IcosahedronGeometry( 2.2, 1 ),
-			new THREE.MeshBasicMaterial( { color: 0xf3f1e0, fog: false } )
+			new THREE.CircleGeometry( 2.2, 32 ),
+			new THREE.MeshBasicMaterial( { map: getMoonTexture(), transparent: true, fog: false } )
 		);
+		moon.lookAt( 0, 0, 0 );
 		moonGroup.add( moon );
 		const glow = new THREE.Mesh(
-			new THREE.IcosahedronGeometry( 3.4, 1 ),
-			new THREE.MeshBasicMaterial( { color: 0xf3f1e0, transparent: true, opacity: 0.16, depthWrite: false, fog: false } )
+			new THREE.CircleGeometry( 4.4, 32 ),
+			new THREE.MeshBasicMaterial( { map: getMoonGlowTexture(), transparent: true, opacity: 0.28, depthWrite: false, fog: false } )
 		);
+		glow.lookAt( 0, 0, 0 );
 		moonGroup.add( glow );
 		const moonDir = new THREE.Vector3( -0.55, 0.62, -0.56 ).normalize().multiplyScalar( 32 );
 		moonGroup.position.copy( moonDir );
