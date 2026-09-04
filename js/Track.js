@@ -113,11 +113,62 @@ const _waterPrevViewport = new THREE.Vector4();
 const _waterPrevScissor = new THREE.Vector4();
 const waterRefrRTs = new Map();
 
+// Frame-budget governor. The refraction pass re-renders the whole scene,
+// which is exactly what pools steal from the frame rate. Two gates:
+//  1. FRUSTUM: if no water plane is in the camera's view, skip the pass
+//     entirely (off-screen pools cost nothing).
+//  2. CADENCE: as FPS dips, re-render the RT every 2nd/3rd/4th call instead
+//     of every frame. The wobble animates per-frame IN-SHADER (time
+//     uniform), so a 2-3 frame old refraction sample is imperceptible —
+//     but the frame gets a whole scene-render cheaper.
+const waterLastRefrFrameByCam = new Map();
+const _waterFrustum = new THREE.Frustum();
+const _waterProjScreen = new THREE.Matrix4();
+let waterRefrFrameCounter = 0;
+let waterRefrCadence = 1;
+
+export function updateWaterQuality( rollingFps ) {
+
+	if ( ! Number.isFinite( rollingFps ) || rollingFps <= 0 ) {
+
+		waterRefrCadence = 1; // no signal yet — assume healthy
+		return;
+
+	}
+	waterRefrCadence = rollingFps >= 45 ? 1 : rollingFps >= 28 ? 2 : rollingFps >= 18 ? 3 : 4;
+
+}
+
+function isWaterVisibleToCamera( camera ) {
+
+	if ( WATER_PLANES.length === 0 ) return false;
+	camera.updateMatrixWorld();
+	camera.matrixWorldInverse.copy( camera.matrixWorld ).invert();
+	_waterProjScreen.multiplyMatrices( camera.projectionMatrix, camera.matrixWorldInverse );
+	_waterFrustum.setFromProjectionMatrix( _waterProjScreen );
+	for ( const plane of WATER_PLANES ) {
+
+		// World-space spheres are cached once per plane (planes never move);
+		// no per-frame allocation here.
+		const sphere = plane.userData.waterWorldSphere;
+		if ( ! sphere ) return true; // not cached — be safe, render the pass
+		if ( _waterFrustum.intersectsSphere( sphere ) ) return true;
+
+	}
+	return false;
+
+}
+
 // viewportRect (canvas px, bottom-left origin) mirrors split-screen scissor
 // rects so each camera's water samples ITS OWN view.
 export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0, viewportRect = null ) {
 
 	if ( WATER_PLANES.length === 0 ) return;
+	if ( ! isWaterVisibleToCamera( camera ) ) return;
+	waterRefrFrameCounter ++;
+	const waterLastFrame = waterLastRefrFrameByCam.get( camIndex );
+	if ( waterLastFrame !== undefined && waterRefrFrameCounter - waterLastFrame < waterRefrCadence ) return;
+	waterLastRefrFrameByCam.set( camIndex, waterRefrFrameCounter );
 	const db = renderer.getDrawingBufferSize( _waterDbSize );
 	const w = Math.max( 2, Math.floor( db.x / 2 ) );
 	const h = Math.max( 2, Math.floor( db.y / 2 ) );
@@ -185,6 +236,13 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			floorY: { value: - WATER_DEPTH },
 			tDiffuse: { value: null },
 			resolution: { value: new THREE.Vector2( 1, 1 ) },
+			// Distance fade bands (camera -> fragment). Fed live from scene.fog.far:
+			// far water goes flat + caustic-free instead of shimmering as a tiny
+			// blue noise field at the edge of visibility.
+			waveFadeStart: { value: 45.0 },
+			waveFadeEnd: { value: 75.0 },
+			causticFadeStart: { value: 34.0 },
+			causticFadeEnd: { value: 58.0 },
 			lightDir: { value: new THREE.Vector3( 0.577, 0.577, 0.577 ).normalize() },
 			deepColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0x041f3d ), 0.6 ) },
 			skyTop: { value: new THREE.Color( 0x6db3e8 ) },
@@ -197,9 +255,15 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 		vertexShader: `
 			uniform float time;
 			uniform float waveHeight;
+			uniform float waveFadeStart;
+			uniform float waveFadeEnd;
+			uniform float causticFadeStart;
+			uniform float causticFadeEnd;
 			varying vec3 vWorldPos;
 			varying vec3 vWorldNormal;
 			varying float vWaveH;
+			varying float vWaveDistFade;
+			varying float vCausticDistFade;
 
 			float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 ); }
 			float noise( vec2 p ) {
@@ -229,6 +293,11 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			void main() {
 				float t = time * 1.2;
 				vec4 world = modelMatrix * vec4( position, 1.0 );
+				// Camera-distance fades: past the fade bands the surface
+				// settles into a flat blue plane — no waves, no caustics.
+				float camDist = distance( world.xyz, cameraPosition );
+				vWaveDistFade = 1.0 - smoothstep( waveFadeStart, waveFadeEnd, camDist );
+				vCausticDistFade = 1.0 - smoothstep( causticFadeStart, causticFadeEnd, camDist );
 				vec2 wp = world.xz;
 				float d = 0.12;
 				float hC = getWave( wp, t );
@@ -236,10 +305,10 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				float hX2 = getWave( wp + vec2( d, 0.0 ), t );
 				float hZ1 = getWave( wp - vec2( 0.0, d ), t );
 				float hZ2 = getWave( wp + vec2( 0.0, d ), t );
-				world.y += hC * waveHeight;
-				vWaveH = hC;
+				world.y += hC * waveHeight * vWaveDistFade;
+				vWaveH = hC * vWaveDistFade;
 				vWorldPos = world.xyz;
-				vWorldNormal = normalize( vec3( hX1 - hX2, 2.0 * d, hZ1 - hZ2 ) );
+				vWorldNormal = normalize( vec3( ( hX1 - hX2 ) * vWaveDistFade, 2.0 * d, ( hZ1 - hZ2 ) * vWaveDistFade ) );
 				gl_Position = projectionMatrix * viewMatrix * world;
 			}
 		`,
@@ -255,6 +324,8 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			varying vec3 vWorldPos;
 			varying vec3 vWorldNormal;
 			varying float vWaveH;
+			varying float vWaveDistFade;
+			varying float vCausticDistFade;
 
 			float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 ); }
 			float noise( vec2 p ) {
@@ -305,7 +376,8 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				float n1 = noise( cUV + vec2( ct * 0.3, ct * 0.1 ) );
 				float n2 = noise( cUV.yx - vec2( ct * 0.2, - ct * 0.2 ) );
 				float web = abs( n1 - n2 );
-				float caustic = pow( max( 0.0, 1.0 - web ), 30.0 ) * 0.6;
+				// Caustics fade out with distance instead of popping off
+				float caustic = pow( max( 0.0, 1.0 - web ), 30.0 ) * 0.6 * vCausticDistFade;
 				refrColor += vec3( caustic * vec3( 0.65, 0.8, 0.9 ) );
 
 				// The bluer body tint requested
@@ -318,8 +390,9 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				// glints shimmer across the ripples
 				float foam = smoothstep( 0.13, 0.2, vWaveH );
 				final = mix( final, vec3( 0.85, 0.95, 1.0 ), foam * 0.4 );
+				// Shimmer fades with the waves — far water is a calm blue plane
 				float glint = pow( max( 0.0, noise( vWorldPos.xz * 6.5 + vec2( time * 0.7, - time * 0.4 ) ) - 0.62 ), 3.0 );
-				final += glint * 0.5 * vec3( 0.9, 0.97, 1.0 );
+				final += glint * 0.5 * vWaveDistFade * vec3( 0.9, 0.97, 1.0 );
 				gl_FragColor = vec4( final, 1.0 );
 			}
 		`,
@@ -730,7 +803,24 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.12, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
 			waterPlane.userData.waterSurface = true;
 			WATER_PLANES.push( waterPlane );
-			waterPlane.onBeforeRender = () => { waterPlane.material.uniforms.time.value = performance.now() * 0.001; };
+			// Cache the world-space bounding sphere once — the frustum gate
+			// tests it every frame, and pool planes never move after this.
+			waterPlane.updateMatrixWorld();
+			waterPlane.geometry.computeBoundingSphere();
+			waterPlane.userData.waterWorldSphere = waterPlane.geometry.boundingSphere.clone().applyMatrix4( waterPlane.matrixWorld );
+			waterPlane.onBeforeRender = ( renderer, scene, camera ) => {
+
+				waterPlane.material.uniforms.time.value = performance.now() * 0.001;
+				// Track the live fog distance so the fades follow track size and
+				// weather automatically — water stays lively inside the play
+				// area and settles to flat blue out past it.
+				const fogFar = scene?.fog?.far || 90;
+				waterPlane.material.uniforms.waveFadeStart.value = fogFar * 0.55;
+				waterPlane.material.uniforms.waveFadeEnd.value = fogFar * 0.95;
+				waterPlane.material.uniforms.causticFadeStart.value = fogFar * 0.40;
+				waterPlane.material.uniforms.causticFadeEnd.value = fogFar * 0.75;
+
+			};
 			trackPieceGroup.add( waterPlane );
 
 		}

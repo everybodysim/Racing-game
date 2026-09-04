@@ -5,7 +5,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999974';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999976';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails, WaterSplashFX } from './Particles.js';
 import { SkidMarks } from './SkidMarks.js';
@@ -8742,7 +8742,11 @@ function completeCampaignStage() {
 	let bestLapSeconds = null;
 	let checkpointDeltaText = '';
 	let lastSyncedOnlineBestLapSeconds = null;
-	let autoRespawnTimerId = null;
+	// Pending auto-respawn as a GAME-CLOCK timestamp (not a real-time setTimeout):
+	// at 20 FPS a 500ms real timer fires at a random point in a long frame —
+	// or never fires at all if the lap bookkeeping threw before arming it.
+	// The frame loop fires it the moment the game clock passes the timestamp.
+	let autoRespawnAtSeconds = null;
 	let hasPrevFinishSample = false;
 	let lastLocalX = 0;
 	let lastLocalZ = 0;
@@ -8934,7 +8938,7 @@ function completeCampaignStage() {
 	let lapSeconds2 = 0;
 	let lastLapSeconds2 = null;
 	let bestLapSeconds2 = null;
-	let autoRespawnTimerId2 = null;
+	let autoRespawnAtSeconds2 = null;
 	let hasPrevFinishSample2 = false;
 	let lastLocalX2 = 0;
 	let lastLocalZ2 = 0;
@@ -10441,10 +10445,15 @@ function completeCampaignStage() {
 
 	function updateFpsHud( realFrameSeconds ) {
 
-		if ( ! fpsHudVisible || ! fpsHud ) return;
+		// Rolling FPS tracks every frame even when the HUD is hidden — the
+		// water-quality governor (updateWaterQuality) reads this signal.
 		const instantFps = realFrameSeconds > 0 ? 1 / realFrameSeconds : 0;
-		if ( ! Number.isFinite( instantFps ) || instantFps <= 0 ) return;
-		rollingFps = rollingFps > 0 ? THREE.MathUtils.lerp( rollingFps, instantFps, 0.08 ) : instantFps;
+		if ( Number.isFinite( instantFps ) && instantFps > 0 ) {
+
+			rollingFps = rollingFps > 0 ? THREE.MathUtils.lerp( rollingFps, instantFps, 0.08 ) : instantFps;
+
+		}
+		if ( ! fpsHudVisible || ! fpsHud ) return;
 		fpsHudAccumulator += realFrameSeconds;
 		if ( fpsHudAccumulator < 0.18 ) return;
 		fpsHudAccumulator = 0;
@@ -10694,12 +10703,7 @@ function completeCampaignStage() {
 
 	function respawnVehicle() {
 
-		if ( autoRespawnTimerId ) {
-
-			clearTimeout( autoRespawnTimerId );
-			autoRespawnTimerId = null;
-
-		}
+		autoRespawnAtSeconds = null;
 		vehicle.resetToSpawn();
 		resetMovingObstacles( movingObstacleState, raceClockSeconds );
 		cam.targetPosition.copy( vehicle.spherePos );
@@ -10713,12 +10717,7 @@ function completeCampaignStage() {
 	function respawnVehicle2() {
 
 		if ( ! vehicle2 || ! cam2 ) return;
-		if ( autoRespawnTimerId2 ) {
-
-			clearTimeout( autoRespawnTimerId2 );
-			autoRespawnTimerId2 = null;
-
-		}
+		autoRespawnAtSeconds2 = null;
 		vehicle2.resetToSpawn();
 		cam2.targetPosition.copy( vehicle2.spherePos );
 		cam2.camera.position.addVectors( cam2.targetPosition, cam2.offset );
@@ -10778,25 +10777,13 @@ function completeCampaignStage() {
 
 	function scheduleAutoRespawnVehicle() {
 
-		if ( autoRespawnTimerId ) clearTimeout( autoRespawnTimerId );
-		autoRespawnTimerId = setTimeout( () => {
-
-			autoRespawnTimerId = null;
-			respawnVehicle();
-
-		}, 500 );
+		autoRespawnAtSeconds = raceClockSeconds + 0.5;
 
 	}
 
 	function scheduleAutoRespawnVehicle2() {
 
-		if ( autoRespawnTimerId2 ) clearTimeout( autoRespawnTimerId2 );
-		autoRespawnTimerId2 = setTimeout( () => {
-
-			autoRespawnTimerId2 = null;
-			respawnVehicle2();
-
-		}, 500 );
+		autoRespawnAtSeconds2 = raceClockSeconds + 0.5;
 
 	}
 
@@ -12069,7 +12056,22 @@ function completeCampaignStage() {
 			raceClockSeconds += dt;
 			const now = raceClockSeconds;
 
+			updateWaterQuality( rollingFps );
 			updateCountdownState( now );
+			// Fire due auto-respawns on the game clock — deterministic even at
+			// 20 FPS, where real-time timers fire arbitrarily late or never.
+			if ( autoRespawnAtSeconds !== null && now >= autoRespawnAtSeconds ) {
+
+				autoRespawnAtSeconds = null;
+				respawnVehicle();
+
+			}
+			if ( autoRespawnAtSeconds2 !== null && vehicle2 && now >= autoRespawnAtSeconds2 ) {
+
+				autoRespawnAtSeconds2 = null;
+				respawnVehicle2();
+
+			}
 			const controlsBlocked = modeMenuOpen || replayViewerMode || countdownActive;
 			let baseInput;
 			if ( controlsBlocked ) baseInput = ZERO_DRIVE_INPUT;
@@ -12648,6 +12650,10 @@ function completeCampaignStage() {
 			const allCheckpointsPassed = checkpointStates.every( ( checkpoint ) => checkpoint.passedThisLap );
 			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
 
+					// Schedule the respawn BEFORE the share-snapshot / leaderboard
+					// bookkeeping below — on a laggy frame any of that can throw,
+					// and a throw must never eat the respawn.
+					if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle();
 					const completedLap = now - lapStartSeconds;
 					// Gameplay mods (any non-freecam installed mod, including every custom-*
 					// Blockly mod) change physics/handling, so a lap driven under one can never
@@ -12790,7 +12796,6 @@ function completeCampaignStage() {
 
 				}
 				resetPhysicsObstacles();
-				if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle();
 				startCountdown();
 					saveLapStats();
 					rewardCoinsForLap( completedLap );
@@ -12882,6 +12887,7 @@ function completeCampaignStage() {
 			const allCheckpointsPassed2 = checkpointStates2.every( ( checkpoint ) => checkpoint.passedThisLap );
 			if ( hasLeftStartZone2 && allCheckpointsPassed2 && crossedFinish ) {
 
+				if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle2();
 				const completedLap2 = now - lapStartSeconds2;
 				lastLapSeconds2 = completedLap2;
 				bestLapSeconds2 = bestLapSeconds2 === null ? completedLap2 : Math.min( bestLapSeconds2, completedLap2 );
@@ -12893,7 +12899,6 @@ function completeCampaignStage() {
 				lastLocalZ2 = 0;
 				for ( const checkpoint of checkpointStates2 ) checkpoint.passedThisLap = false;
 				resetPhysicsObstacles();
-				if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle2();
 
 			}
 
