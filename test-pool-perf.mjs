@@ -22,7 +22,7 @@ function test( name, cond ) { if ( cond ) { passed ++; console.log( `  ✓ ${ na
 
 // 1. Quality governor exported, imported, and fed every frame
 test( 'updateWaterQuality exported from Track.js', /export function updateWaterQuality/.test( track ) );
-test( 'main.js imports + calls it with rollingFps', /import \{[^}]*updateWaterQuality[^}]*\} from '\.\/Track\.js\?v=999975'/.test( main ) && /updateWaterQuality\( rollingFps \);/.test( main ) );
+test( 'main.js imports + calls it with rollingFps', /import \{[^}]*updateWaterQuality[^}]*\} from '\.\/Track\.js\?v=999976'/.test( main ) && /updateWaterQuality\( rollingFps \);/.test( main ) );
 test( 'unknown FPS (0/NaN) falls back to full quality', /! Number\.isFinite\( rollingFps \) \|\| rollingFps <= 0 /.test( track ) );
 test( 'cadence tiers: 45+ every frame, 28+ every 2nd, 18+ every 3rd, else 4th', /rollingFps >= 45 \? 1 : rollingFps >= 28 \? 2 : rollingFps >= 18 \? 3 : 4/.test( track ) );
 
@@ -44,7 +44,7 @@ test( 'instant FPS still sanity-checked (non-finite skipped)', /if \( Number\.is
 
 // 5. The pass itself is untouched when it does run (visuals preserved)
 test( 'RT sizing + per-plane uniform wiring unchanged', /renderer\.setRenderTarget\( rt \);/.test( track ) && /plane\.material\.uniforms\.tDiffuse\.value = rt\.texture;/.test( track ) );
-test( 'cache bumps present', /Track\.js\?v=999975/.test( main ) && /v=1000204/.test( readFileSync( './index.html', 'utf8' ) ) );
+test( 'cache bumps present', /Track\.js\?v=999976/.test( main ) && /v=1000205/.test( readFileSync( './index.html', 'utf8' ) ) );
 
 console.log( `\n${ passed } passed, ${ failed } failed${ failed ? ' — WITH FAILURES' : '' }` );
 process.exit( failed ? 1 : 0 );
