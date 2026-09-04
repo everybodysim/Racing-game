@@ -24,6 +24,7 @@ test( '?pubServer= URL auto-join gated behind the flag', /const pubServerParam =
 // 3. UI hidden in the DOM (kept for later, not deleted)
 test( 'mp-public-row kept but hidden', /<div id="mp-public-row" hidden>/.test( html ) );
 test( 'mp-pubtrack-row kept but hidden', /<div id="mp-pubtrack-row" hidden>/.test( html ) );
+test( 'hidden actually hides (explicit display rules beat the hidden attribute)', /#mp-public-row\[hidden\], #mp-pubtrack-row\[hidden\] \{ display: none !important; \}/.test( html ) );
 test( 'hidden rows still present exactly once (code kept for later)', html.split( '<div id="mp-public-row"' ).length - 1 === 1 && html.split( '<div id="mp-pubtrack-row"' ).length - 1 === 1 );
 
 // 4. Private host/join untouched
@@ -37,7 +38,7 @@ for ( const fn of [ 'joinPublicServer', 'leavePublicServer', 'onPublicServerMapS
 test( 'PublicServers.js module still imported (not ripped out)', /from '\.\/PublicServers\.js/.test( main ) );
 
 // 6. Cache bumped (main.js changed)
-test( 'index.html cache bumped to 1000207', /v=1000208/.test( html ) );
+test( 'index.html cache bumped to 1000207', /v=1000209/.test( html ) );
 
 console.log( `\n${ passed } passed, ${ failed } failed${ failed ? ' — WITH FAILURES' : '' }` );
 process.exit( failed ? 1 : 0 );
