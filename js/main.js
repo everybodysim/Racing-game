@@ -3211,30 +3211,84 @@ function clearSkyDecorations() {
 
 }
 
-function makeLowPolyCloud( scale, color, opacity ) {
+// Seeded RNG so every player sees the same cloud shapes.
+function mulberry32( seed = 1337 ) {
+
+	let t = seed >>> 0;
+	return () => {
+
+		t += 0x6D2B79F5;
+		let r = Math.imul( t ^ ( t >>> 15 ), 1 | t );
+		r = ( r + Math.imul( r ^ ( r >>> 7 ), 61 | r ) ) ^ r;
+		return ( ( r >>> 0 ) / 4294967296 );
+
+	};
+
+}
+
+// Stylized lit cumulus: a wide flat base with smaller puffs crowning it,
+// each puff vertex-shaded (bright top -> darker underside) so clouds get
+// real volume from the scene's sun/hemisphere light instead of looking
+// like flat cutouts. Sunset light naturally paints them warm.
+function makeStylizedCloud( scale, color, opacity, rng ) {
 
 	const cloud = new THREE.Group();
-	const puffCount = 5 + Math.floor( Math.random() * 4 );
-	for ( let i = 0; i < puffCount; i ++ ) {
+	const base = new THREE.Color( color );
+	const shade = base.clone().lerp( new THREE.Color( 0x2a3550 ), 0.38 );
+	const mat = new THREE.MeshStandardMaterial( {
+		color: 0xffffff,
+		vertexColors: true,
+		flatShading: true,
+		roughness: 1.0,
+		metalness: 0,
+		transparent: opacity < 1,
+		opacity,
+		fog: false
+	} );
+	const addPuff = ( r, x, y, z, squash ) => {
 
-		const r = 0.4 + Math.random() * 0.55;
 		const geo = new THREE.IcosahedronGeometry( r, 1 );
-		const mat = new THREE.MeshBasicMaterial( { color, flatShading: true, transparent: opacity < 1, opacity, fog: false } );
+		const pos = geo.attributes.position;
+		const colors = new Float32Array( pos.count * 3 );
+		for ( let v = 0; v < pos.count; v ++ ) {
+
+			// Vertical ambient occlusion: puff tops glow, undersides sink
+			// into shade — reads as volume even with flat shading.
+			const t = THREE.MathUtils.clamp( ( pos.getY( v ) + r ) / ( 2 * r ), 0, 1 );
+			const c = shade.clone().lerp( base, Math.pow( t, 0.65 ) );
+			colors[ v * 3 ] = c.r;
+			colors[ v * 3 + 1 ] = c.g;
+			colors[ v * 3 + 2 ] = c.b;
+
+		}
+		geo.setAttribute( 'color', new THREE.BufferAttribute( colors, 3 ) );
 		const mesh = new THREE.Mesh( geo, mat );
-		mesh.position.set(
-			( Math.random() - 0.5 ) * 3.2,
-			( Math.random() - 0.5 ) * 0.5,
-			( Math.random() - 0.5 ) * 2.0
-		);
-		mesh.scale.set( 1.5 + Math.random() * 0.7, 0.6 + Math.random() * 0.25, 1.1 + Math.random() * 0.3 );
-		mesh.rotation.set( Math.random() * 0.3, Math.random() * Math.PI, Math.random() * 0.2 );
+		mesh.position.set( x, y, z );
+		mesh.scale.set( 1.4 + rng() * 0.6, squash, 1.05 + rng() * 0.4 );
+		mesh.rotation.set( rng() * 0.25, rng() * Math.PI * 2, rng() * 0.2 );
 		cloud.add( mesh );
+
+	};
+	// Flat, wide base — the cloud's "anvil"
+	const basePuffs = 3 + Math.floor( rng() * 3 );
+	for ( let i = 0; i < basePuffs; i ++ ) {
+
+		const t = basePuffs === 1 ? 0 : ( i / ( basePuffs - 1 ) - 0.5 );
+		addPuff( 0.55 + rng() * 0.35, t * 2.6, - 0.1 + rng() * 0.12, ( rng() - 0.5 ) * 0.8, 0.52 + rng() * 0.14 );
+
+	}
+	// Crowning puffs stacked on top — the cumulus silhouette
+	const crownPuffs = 2 + Math.floor( rng() * 4 );
+	for ( let i = 0; i < crownPuffs; i ++ ) {
+
+		addPuff( 0.4 + rng() * 0.4, ( rng() - 0.5 ) * 1.9, 0.24 + rng() * 0.4, ( rng() - 0.5 ) * 1.1, 0.72 + rng() * 0.2 );
 
 	}
 	cloud.scale.setScalar( scale );
 	return cloud;
 
 }
+
 
 function buildSkyDecorations( preset ) {
 
@@ -3257,7 +3311,7 @@ function buildSkyDecorations( preset ) {
 			const horizontalR = radius * Math.cos( elevation );
 			const height = radius * Math.sin( elevation ) + 1.5;
 			const scale = THREE.MathUtils.randFloat( config.clouds.scale[ 0 ], config.clouds.scale[ 1 ] );
-			const cloud = makeLowPolyCloud( scale, config.clouds.color, config.clouds.opacity );
+			const cloud = makeStylizedCloud( scale, config.clouds.color, config.clouds.opacity, mulberry32( 4000 + i ) );
 			cloud.position.set( Math.cos( angle ) * horizontalR, height, Math.sin( angle ) * horizontalR );
 			cloud.lookAt( 0, height, 0 );
 			cloudGroup.add( cloud );
