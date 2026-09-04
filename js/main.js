@@ -8745,7 +8745,6 @@ function completeCampaignStage() {
 	const cellWorldSize = CELL_RAW * GRID_SCALE;
 	const cellHalfExtent = cellWorldSize * 0.5;
 	const slopeCellMap = new Map();
-	const SLOPE_CONFORM_ANGLE = Math.atan2( CELL_RAW * 0.5, CELL_RAW );
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	for ( const [ gx, gz, rawType, rawOrient = 0 ] of slopeElevatedCells ) {
 
@@ -9051,44 +9050,67 @@ function completeCampaignStage() {
 
 	}
 
-	const _slopeForward = new THREE.Vector3();
-	const _slopeUp = new THREE.Vector3();
-	const _slopeCarForward = new THREE.Vector3();
-	const _slopeLocalUp = new THREE.Vector3();
-	const _slopeYawOnlyQuat = new THREE.Quaternion();
-	function applySlopeConformVisual( targetVehicle ) {
+	// --- Dynamic slope detection: REAL raycast ground sampling --------------
+	// Replaces the legacy grid-cell slope lookup (applySlopeConformVisual):
+	// four downward physics rays at the chassis frame sample the actual
+	// hitbox surface every frame, so the car conforms to ANY angled collider —
+	// slope pieces, pool slopes, banks, custom geometry — at its TRUE angle,
+	// not a hardcoded 26.57° constant. Ray pairs (front/back, left/right) are
+	// only trusted when both hits land on the SAME collider body, so a sample
+	// point that slips inside a wall while hugging it can never fake a slope.
+	const slopeRayCollector = createAnyCastRayCollector();
+	const slopeRaySettings = createDefaultCastRaySettings();
+	const slopeRayFilter = ccLayerFilter.forWorld( world );
+	slopeRayFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
+	const SLOPE_RAY_REACH = 1.6;              // max ground depth below chassis center
+	const SLOPE_SAMPLE_HALF_LENGTH = 1.1;     // front/back sample offsets
+	const SLOPE_SAMPLE_HALF_WIDTH = 0.65;      // left/right sample offsets
+	const _slopeFwd = new THREE.Vector3();
+	const _slopeSide = new THREE.Vector3();
+	const _slopeRayOrigin = [ 0, 0, 0 ];
+	const _slopeRayDown = [ 0, - 1, 0 ];
+	function sampleGroundDepth( x, y, z ) {
+
+		_slopeRayOrigin[ 0 ] = x;
+		_slopeRayOrigin[ 1 ] = y;
+		_slopeRayOrigin[ 2 ] = z;
+		// AnyCastRayCollector.addMiss() is a no-op — stale hits linger, so reset() before every cast.
+		slopeRayCollector.reset();
+		castRay( world, slopeRayCollector, slopeRaySettings, _slopeRayOrigin, _slopeRayDown, SLOPE_RAY_REACH, slopeRayFilter );
+		if ( slopeRayCollector.hit.status !== CastRayStatus.COLLIDING ) return null;
+		return { depth: slopeRayCollector.hit.fraction * SLOPE_RAY_REACH, bodyId: slopeRayCollector.hit.bodyIdB };
+
+	}
+
+	function applyRaycastSlopeVisual( targetVehicle ) {
 
 		if ( ! targetVehicle?.container ) return;
-		const gx = Math.floor( targetVehicle.spherePos.x / cellWorldSize );
-		const gz = Math.floor( targetVehicle.spherePos.z / cellWorldSize );
-		const slopeCell = slopeCellMap.get( `${ gx },${ gz }` );
-		if ( ! slopeCell ) {
-
-			targetVehicle.setSlopeVisualTilt( 0, 0 );
-			return;
-
-		}
-
-		const centerX = ( slopeCell.gx + 0.5 ) * cellWorldSize;
-		const centerZ = ( slopeCell.gz + 0.5 ) * cellWorldSize;
-		if ( Math.abs( targetVehicle.spherePos.x - centerX ) > cellHalfExtent || Math.abs( targetVehicle.spherePos.z - centerZ ) > cellHalfExtent ) {
-
-			targetVehicle.setSlopeVisualTilt( 0, 0 );
-			return;
-
-		}
-
-		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeCell.orient ] || 0 );
-		_slopeForward.set( 0, 0, 1 ).applyAxisAngle( _up, yaw ).normalize();
-		_slopeUp.copy( _up ).addScaledVector( _slopeForward, - Math.tan( SLOPE_CONFORM_ANGLE ) ).normalize();
-		_slopeCarForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion ).setY( 0 ).normalize();
-		if ( _slopeCarForward.lengthSq() < 1e-6 ) _slopeCarForward.set( 0, 0, 1 );
-		const headingYaw = Math.atan2( _slopeCarForward.x, _slopeCarForward.z );
-		_slopeYawOnlyQuat.setFromAxisAngle( _up, - headingYaw );
-		_slopeLocalUp.copy( _slopeUp ).applyQuaternion( _slopeYawOnlyQuat ).normalize();
-		const pitch = THREE.MathUtils.clamp( Math.atan2( - _slopeLocalUp.z, _slopeLocalUp.y ), - SLOPE_CONFORM_ANGLE, SLOPE_CONFORM_ANGLE );
-		const roll = THREE.MathUtils.clamp( Math.atan2( _slopeLocalUp.x, _slopeLocalUp.y ), - SLOPE_CONFORM_ANGLE, SLOPE_CONFORM_ANGLE );
-		targetVehicle.setSlopeVisualTilt( pitch, roll );
+		_slopeFwd.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+		_slopeFwd.y = 0;
+		if ( _slopeFwd.lengthSq() < 1e-6 ) _slopeFwd.set( 0, 0, 1 );
+		_slopeFwd.normalize();
+		_slopeSide.set( 1, 0, 0 ).applyQuaternion( targetVehicle.container.quaternion );
+		_slopeSide.y = 0;
+		if ( _slopeSide.lengthSq() < 1e-6 ) _slopeSide.set( 1, 0, 0 );
+		_slopeSide.normalize();
+		const px = targetVehicle.spherePos.x;
+		const py = targetVehicle.spherePos.y;
+		const pz = targetVehicle.spherePos.z;
+		const L = SLOPE_SAMPLE_HALF_LENGTH;
+		const W = SLOPE_SAMPLE_HALF_WIDTH;
+		const forward = sampleGroundDepth( px + _slopeFwd.x * L, py, pz + _slopeFwd.z * L );
+		const backward = sampleGroundDepth( px - _slopeFwd.x * L, py, pz - _slopeFwd.z * L );
+		const right = sampleGroundDepth( px + _slopeSide.x * W, py, pz + _slopeSide.z * W );
+		const left = sampleGroundDepth( px - _slopeSide.x * W, py, pz - _slopeSide.z * W );
+		// Pair consistency: only use a pair whose two hits agree on the body.
+		const samples = {
+			forward: forward && backward && forward.bodyId === backward.bodyId ? forward.depth : null,
+			backward: forward && backward && forward.bodyId === backward.bodyId ? backward.depth : null,
+			left: left && right && left.bodyId === right.bodyId ? left.depth : null,
+			right: left && right && left.bodyId === right.bodyId ? right.depth : null,
+		};
+		const tilt = Vehicle.computeSlopeTiltFromSamples( samples, L, W );
+		targetVehicle.setSlopeVisualTilt( tilt.pitch, tilt.roll );
 
 	}
 
@@ -12064,8 +12086,8 @@ function completeCampaignStage() {
 			const speedDisplay = Math.abs(vehicle.linearSpeed) * 150;
 			if (speedDisplay > (window.__advTopSpeed || 0)) { window.__advTopSpeed = speedDisplay; advancementEvents.emit('top_speed_updated', { speed: speedDisplay }); }
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
-			applySlopeConformVisual( vehicle );
-			if ( vehicle2 ) applySlopeConformVisual( vehicle2 );
+			applyRaycastSlopeVisual( vehicle );
+			if ( vehicle2 ) applyRaycastSlopeVisual( vehicle2 );
 			if ( carHitboxMesh.visible ) carHitboxMesh.position.set( vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z );
 			applyMagnetForceFor( vehicle, dt );
 			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );

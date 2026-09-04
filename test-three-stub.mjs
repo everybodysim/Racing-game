@@ -8,6 +8,7 @@ export const DynamicDrawUsage = 1;
 export const MathUtils = {
 	clamp: ( value, min, max ) => Math.min( max, Math.max( min, value ) ),
 	lerp: ( a, b, t ) => a + ( b - a ) * t,
+	degToRad: ( d ) => d * Math.PI / 180,
 };
 
 export class Color {
