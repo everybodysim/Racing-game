@@ -223,6 +223,9 @@ export class GameAudio {
 			truck: 'audio/horn-truck.ogg',
 			sport: 'audio/horn-sport.ogg',
 			compact: 'audio/horn-compact.ogg',
+			police: 'audio/siren-police.ogg',
+			ambulance: 'audio/siren-ambulance.ogg',
+			fire: 'audio/siren-fire.ogg',
 		};
 		for ( const [ variant, file ] of Object.entries( HORN_FILES ) ) {
 
@@ -233,7 +236,7 @@ export class GameAudio {
 			} );
 
 		}
-		for ( let i = 0; i < 4; i ++ ) {
+		for ( let i = 0; i < 6; i ++ ) {
 
 			this.hornPool.push( new THREE.Audio( this.listener ) );
 
@@ -477,8 +480,9 @@ export class GameAudio {
 		this.hornIndex = ( this.hornIndex + 1 ) % this.hornPool.length;
 		if ( sound.isPlaying ) sound.stop();
 
+		const isSiren = variant === 'police' || variant === 'ambulance' || variant === 'fire';
 		sound.setBuffer( buffer );
-		sound.setVolume( 0.65 * this.settings.sfxVolume );
+		sound.setVolume( ( isSiren ? 0.75 : 0.65 ) * this.settings.sfxVolume );
 		sound.setPlaybackRate( 0.97 + Math.random() * 0.06 );
 		sound.play();
 

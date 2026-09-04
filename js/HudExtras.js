@@ -338,7 +338,7 @@ export class HudExtras {
 						<div class="sc-section-title">Driving</div>
 						<div class="sc-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>or arrows — drive</span></div>
 						<div class="sc-row"><kbd>X</kbd><span>Boost (arcade mode)</span></div>
-						<div class="sc-row"><kbd>Space</kbd><span>Honk the horn</span></div>
+						<div class="sc-row"><kbd>Space</kbd><span>Honk / siren (emergency vehicles)</span></div>
 						<div class="sc-row"><kbd>R</kbd><span>Respawn / reset</span></div>
 						<div class="sc-row"><kbd>T</kbd><span>Checkpoint respawn (mod)</span></div>
 						<div class="sc-row"><kbd>Y</kbd><span>Save practice state (mod)</span></div>

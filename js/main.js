@@ -339,20 +339,27 @@ const HORN_COOLDOWN_MS = 280;
 const hornHonkCounter = { count: 0 }; // multiplayer: broadcast via VEHICLE_STATE
 function hornVariantForCarKey( carKey ) {
 
+	// Emergency fleet: sirens (synthesized sweeps, not one-note horns).
+	if ( carKey === 'vehicle-car-police' ) return 'police';
+	if ( carKey === 'vehicle-ambulance-red' ) return 'ambulance';
+	if ( carKey === 'vehicle-firetruck-red' ) return 'fire';
 	const style = CAR_STATS?.[ carKey ]?.bodyStyle;
 	if ( style === 'truck' || style === 'van' || style === 'flatbed' || style === 'tractor' ) return 'truck';
 	if ( style === 'hatchback' ) return 'compact';
-	if ( carKey === 'vehicle-car-police' ) return 'sport';
 	return 'classic';
 
 }
 function honkLocalVehicle() {
 
 	const now = Date.now();
-	if ( now - lastHonkAt < HORN_COOLDOWN_MS ) return;
+	// Sirens are long sweeps — give them a longer cooldown than horn taps so
+	// overlapping sirens don't turn into noise.
+	const variant = hornVariantForCarKey( typeof getModuleCarKey === 'function' ? getModuleCarKey() : 'vehicle-truck-yellow' );
+	const cooldown = ( variant === 'police' || variant === 'ambulance' || variant === 'fire' ) ? 1200 : HORN_COOLDOWN_MS;
+	if ( now - lastHonkAt < cooldown ) return;
 	lastHonkAt = now;
 	hornHonkCounter.count ++;
-	window.__gameAudio?.playHorn?.( hornVariantForCarKey( typeof getModuleCarKey === 'function' ? getModuleCarKey() : 'vehicle-truck-yellow' ) );
+	window.__gameAudio?.playHorn?.( variant );
 
 }
 function applyRemoteHonk( visualState, honkValue, carKey ) {
