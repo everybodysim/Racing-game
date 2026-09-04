@@ -76,7 +76,7 @@ test( 'prerender pass exists (hides water, renders scene to half-res RT)', /expo
 test( 'plane registry resets per track build', track.includes( 'WATER_PLANES.length = 0;' ) && track.includes( 'WATER_PLANES.push( waterPlane );' ) );
 test( 'every render site prerenders refraction (incl. split-screen rects)', main.split( 'prerenderWaterRefraction( renderer, scene' ).length === 5 && main.includes( 'prerenderWaterRefraction( renderer, scene, cam2.camera, 1,' ) );
 test( 'shadows update once per frame, not per render pass', main.includes( 'shadowMap.autoUpdate = false' ) && main.includes( 'renderer.shadowMap.needsUpdate = true' ) );
-test( 'Track.js module cache param bumped (it changed)', main.includes( 'Track.js?v=999976' ) );
+test( 'Track.js module cache param bumped (it changed)', main.includes( 'Track.js?v=999977' ) );
 
 // 7. Splash when the car breaks the surface
 test( 'splash FX class exists (droplet burst + gravity)', /export class WaterSplashFX/.test( particles ) && /burst\(/.test( particles ) && /velocity\.y -= particle\.gravity \* dt/.test( particles ) );

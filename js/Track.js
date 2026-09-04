@@ -236,13 +236,15 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			floorY: { value: - WATER_DEPTH },
 			tDiffuse: { value: null },
 			resolution: { value: new THREE.Vector2( 1, 1 ) },
-			// Distance fade bands (camera -> fragment). Fed live from scene.fog.far:
-			// far water goes flat + caustic-free instead of shimmering as a tiny
-			// blue noise field at the edge of visibility.
-			waveFadeStart: { value: 45.0 },
-			waveFadeEnd: { value: 75.0 },
-			causticFadeStart: { value: 34.0 },
-			causticFadeEnd: { value: 58.0 },
+			// Distance fade bands (camera -> fragment), fixed world-space
+			// distances scaled to cell size — NOT tied to scene.fog.far (fog
+			// here reaches groundSize*6.4, so fog-coupled bands only kicked in
+			// when free-flying far out; in normal play pools never faded).
+			// Roughly: full detail within ~5 cells, fully flat blue by ~12 cells.
+			waveFadeStart: { value: CELL_RAW * 7 },
+			waveFadeEnd: { value: CELL_RAW * 12 },
+			causticFadeStart: { value: CELL_RAW * 5 },
+			causticFadeEnd: { value: CELL_RAW * 9 },
 			lightDir: { value: new THREE.Vector3( 0.577, 0.577, 0.577 ).normalize() },
 			deepColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0x041f3d ), 0.6 ) },
 			skyTop: { value: new THREE.Color( 0x6db3e8 ) },
@@ -808,17 +810,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			waterPlane.updateMatrixWorld();
 			waterPlane.geometry.computeBoundingSphere();
 			waterPlane.userData.waterWorldSphere = waterPlane.geometry.boundingSphere.clone().applyMatrix4( waterPlane.matrixWorld );
-			waterPlane.onBeforeRender = ( renderer, scene, camera ) => {
+			waterPlane.onBeforeRender = () => {
 
 				waterPlane.material.uniforms.time.value = performance.now() * 0.001;
-				// Track the live fog distance so the fades follow track size and
-				// weather automatically — water stays lively inside the play
-				// area and settles to flat blue out past it.
-				const fogFar = scene?.fog?.far || 90;
-				waterPlane.material.uniforms.waveFadeStart.value = fogFar * 0.55;
-				waterPlane.material.uniforms.waveFadeEnd.value = fogFar * 0.95;
-				waterPlane.material.uniforms.causticFadeStart.value = fogFar * 0.40;
-				waterPlane.material.uniforms.causticFadeEnd.value = fogFar * 0.75;
 
 			};
 			trackPieceGroup.add( waterPlane );
