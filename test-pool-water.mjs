@@ -43,7 +43,7 @@ test( 'choppy ripples ride the swell', /sin\( wp\.x \* 3\.4 - t \* 1\.4 \) \* 0\
 test( 'rolling swell amplitudes', /sin\( wp\.x \* 1\.35 \+ t \) \* 0\.055/.test( shader ) );
 test( 'wave scale doubled vs the flat pass', /waveHeight: \{ value: CELL_RAW \* 0\.05 \}/.test( track ) );
 test( 'water level leaves wave headroom below the edge lip', /CELL_RAW, 0\.28,/.test( track ) && 0.28 + 0.22 * 9.99 * 0.05 < 0.515 );
-test( 'splash surface matches the lowered water level', /WATER_SURFACE_Y = 0\.28/.test( main ) );
+test( 'splash surface matches the lowered water level', /WATER_SURFACE_Y = 0\.28/.test( readFileSync( './js/main.js', 'utf8' ) ) );
 test( 'fresnel sky reflection', /fresnel/.test( shader ) && /skyTop/.test( shader ) );
 test( 'sun glint', /pow\(\s*max\( dot\( rDir, lightDir \), 0\.0 \),\s*450\.0/.test( shader ) );
 
