@@ -64,10 +64,9 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const hHeight = WALL_HALF_H * S;
 	const hLen = CELL_HALF * S;
 	const groundY = - 0.125;
-	// EXACT match to the visual jump mesh (js/Track.js):
-	// BoxGeometry( CELL_RAW*0.36, CELL_RAW*0.18, CELL_RAW*0.36 ), half-extents *S.
-	const jumpRampHalfExtents = [ CELL_HALF * S * 0.36, CELL_HALF * S * 0.18, CELL_HALF * S * 0.36 ];
+	const jumpRampHalfExtents = [ CELL_HALF * S * 0.36, 0.26 * S, CELL_HALF * S * 0.44 ];
 	const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
+	const JUMP_RAMP_SINK = 0.14;
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5 * S;
 	const SUPPORT_SINK = 0.03 * S;
 	const SUPPORT_HALF_HEIGHT = CELL_HALF * 0.85 * S;
@@ -150,9 +149,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const deg = ORIENT_DEG[ orient ] ?? 0;
 		const yaw = deg * Math.PI / 180;
 		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( - JUMP_RAMP_ANGLE, yaw, 0, 'YXZ' ) );
-		// Mesh center y in world units: 0.252 = JUMP_RAMP_Y + VISUAL_HEIGHT_OFFSET
-		// (js/Track.js) * S — the hitbox now occupies the mesh 1:1, no sink.
-		const position = [ cx, 0.252 * S + yOffset, cz ];
+		const position = [ cx, groundY - JUMP_RAMP_SINK + yOffset, cz ];
 		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
 
 		rigidBody.create( world, {
