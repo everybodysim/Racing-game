@@ -5495,7 +5495,7 @@ async function init() {
 
 	};
 	cam.clipProbe = camClipProbe;
-	cam2?.clipProbe = camClipProbe;
+	if ( cam2 ) cam2.clipProbe = camClipProbe;
 
 	// Reused each frame for cam.update() dynamics to avoid allocating an options
 	// object on every camera update (up to 4 calls/frame). cam.update only reads the
