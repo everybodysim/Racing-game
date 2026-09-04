@@ -15,6 +15,8 @@ import { HudExtras } from './HudExtras.js';
 import { createRuntime as _createModRuntime } from './mod-runtime.js';
 import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
+import { resolveIceServers } from './turn-config.js';
+import { classifyPeerError, peerRetryDelayMs, isFirebaseNetworkError, describeSelectedIcePair } from './mp-net.js';
 import { normalizeFirebaseVoteDoc, tallyFirebaseVotes, countFreshRoomPlayers } from './multiplayer-firebase-vote.js';
 import {
 	PUBLIC_SERVERS,
@@ -497,22 +499,27 @@ const PEER_PACKET_MAP_SYNC_REQ = 'PUBLIC_MAP_SYNC_REQ';
 const PEER_PACKET_VOTE_START = 'PUBLIC_VOTE_START';
 const PEER_PACKET_VOTE = 'PUBLIC_VOTE';
 const PEER_PACKET_VOTE_RESULT = 'PUBLIC_VOTE_RESULT';
-const peerConfig = {
-	config: {
-		iceServers: [
-			{ urls: 'stun:stun.l.google.com:19302' },
-			{
-				urls: [
-					'turn:openrelay.metered.ca:80',
-					'turn:openrelay.metered.ca:443',
-					'turn:openrelay.metered.ca:443?transport=tcp',
-				],
-				username: 'openrelay',
-				credential: 'openrelay',
-			},
-		],
-	},
-};
+// Async-resolved ICE configuration (STUN + TURN via js/turn-config.js; TURN
+// activates automatically once credentials are configured there). The resolved
+// config is cached by turn-config's TTL; getActivePeerConfig() just shapes it.
+let activePeerConfigPromise = null;
+function getActivePeerConfig() {
+
+	if ( ! activePeerConfigPromise ) {
+
+		activePeerConfigPromise = resolveIceServers()
+			.then( ( iceServers ) => ( {
+				config: {
+					iceServers,
+					iceCandidatePoolSize: 4,
+				},
+			} ) )
+			.catch( () => ( { config: { iceServers: [ { urls: 'stun:stun.l.google.com:19302' } ], iceCandidatePoolSize: 4 } } ) );
+
+	}
+	return activePeerConfigPromise;
+
+}
 const LOADING_PROGRESS_BY_STAGE = {
 	boot: 5,
 	models: 28,
@@ -840,14 +847,41 @@ function registerPeerConnection( connection ) {
 
 	} );
 
+	// ICE transport telemetry: once the connection settles, report which
+	// candidate pair actually carries it (direct / srflx / relay + protocol).
+	// Turns every future "multiplayer doesn't work" report into data.
+	const telemetryPc = connection.peerConnection;
+	if ( telemetryPc && typeof telemetryPc.getStats === 'function' ) {
+
+		setTimeout( async () => {
+
+			try {
+
+				const stats = await telemetryPc.getStats();
+				const pair = describeSelectedIcePair( stats );
+				if ( pair ) {
+
+					connection.userDataIceTransport = pair.kind;
+					logMpDebug( `[ICE] Peer ${ connection.peer }: ${ pair.description }` );
+
+				}
+
+			} catch {}
+
+		}, 2500 );
+
+	}
+
 }
 
-function startPeerMultiplayer( roomCode, role ) {
+const PEER_RETRY_MAX = 3;
+async function startPeerMultiplayer( roomCode, role, attempt = 0 ) {
 
 	closeMultiplayerPeer();
-	logMpDebug( `[PeerJS] Initializing ${ role } peer for room: ${ roomCode }...` );
+	logMpDebug( `[PeerJS] Initializing ${ role } peer for room: ${ roomCode }${ attempt ? ` (attempt ${ attempt + 1 })` : '' }...` );
 	const peerId = role === 'host' ? getPeerRoomId( roomCode ) : multiplayerSessionState.clientId;
-	const peer = new Peer( peerId, peerConfig );
+	const cfg = await getActivePeerConfig();
+	const peer = new Peer( peerId, cfg );
 	multiplayerSessionState.peer = peer;
 	peer.on( 'open', ( id ) => {
 
@@ -906,9 +940,42 @@ function startPeerMultiplayer( roomCode, role ) {
 	peer.on( 'close', () => logMpDebug( `[PeerJS] Peer closed: ${ peerId }` ) );
 	peer.on( 'error', ( error ) => {
 
-		logMpDebug( `[PeerJS] Peer error: ${ error?.message || error }` );
+		const errorKind = classifyPeerError( error );
+		logMpDebug( `[PeerJS] Peer error (${ error?.type || 'unknown' }): ${ error?.message || error } → ${ errorKind }` );
+
+		// Transient signalling failures (cloud hiccup, school network flapping):
+		// retry quietly with backoff instead of leaving the player stranded. The
+		// 220ms Firebase poll keeps syncing positions the whole time, so a retry
+		// can never make the session WORSE than no retry.
+		if ( errorKind === 'retryable' && attempt < PEER_RETRY_MAX && multiplayerSessionState.roomCode === roomCode ) {
+
+			const retryDelay = peerRetryDelayMs( attempt );
+			logMpDebug( `[PeerJS] Transient failure — retry ${ attempt + 1 }/${ PEER_RETRY_MAX } in ${ retryDelay }ms` );
+			try { peer.destroy?.(); } catch {}
+			if ( multiplayerSessionState.peer === peer ) multiplayerSessionState.peer = null;
+			setTimeout( () => {
+
+				// Re-check: the player may have left the room during the backoff.
+				if ( multiplayerSessionState.roomCode !== roomCode || multiplayerSessionState.role !== role ) return;
+				if ( multiplayerSessionState.peer ) return; // something else reconnected already
+				startPeerMultiplayer( roomCode, role, attempt + 1 );
+
+			}, retryDelay );
+			return;
+
+		}
+
+		if ( errorKind === 'unavailable' ) {
+
+			// The room's host peer id doesn't exist on the signalling cloud.
+			updateMultiplayerStatus( `Room ${ roomCode } not found or host is offline. Ask the host to click Host again.` );
+			console.warn( 'PeerJS room not found', error );
+			return;
+
+		}
+
 		console.warn( 'PeerJS multiplayer error', error );
-		updateMultiplayerStatus( `WebRTC issue for room ${ roomCode }; retry if peers do not appear.` );
+		updateMultiplayerStatus( `WebRTC issue for room ${ roomCode }; P2P may be blocked on this network. Firebase sync continues.` );
 
 	} );
 
@@ -976,13 +1043,11 @@ function broadcastPeerState() {
 		if ( ! multiplayerSessionState.roomCode || ! multiplayerSessionState.peer ) return;
 		const snap = buildRemotePlayerSnapshot();
 		if ( ! snap || ! snap.carKey ) return;
-		const bypassFirebase = Boolean( multiplayerSessionState.peer && multiplayerSessionState.connections.size > 0 );
-		const fbGuard = 'peerBroadcastLastFirebaseAt';
-		if ( bypassFirebase ) {
-				const lastFb = Number( multiplayerSessionState[ fbGuard ] ) || 0;
-				if ( now - lastFb < REMOTE_SYNC_MS ) return;
-				multiplayerSessionState[ fbGuard ] = now;
-		}
+		// NOTE: no throttling here — this sends over WebRTC data channels at the
+		// caller's cadence (WEBRTC_SYNC_MS = 33ms). The old bypassFirebase guard
+		// accidentally throttled P2P packets to REMOTE_SYNC_MS (220ms), which is
+		// why remote cars rubber-banded even on perfect connections. Firebase
+		// writes live in syncMultiplayerTransforms on their own 220ms cadence.
 
 	try {
 
@@ -1549,7 +1614,9 @@ async function joinPublicServer( serverId ) {
 
 	try {
 const hasFirebase = hasFirebaseMultiplayerConfig();
+		let firebaseJoinFailed = false;
 		if ( hasFirebase ) {
+		try {
 			// We deliberately SKIP the PeerJS mesh:the mesh's host-claim race was the
 			// death of half of joiners, and all of its payload modes (position/left/
 			// map/vote) are covered by the Firebase room doc. The 220ms poll
@@ -1607,7 +1674,19 @@ const hasFirebase = hasFirebaseMultiplayerConfig();
 			setMultiplayerLeaderboardVisible( false );
 			updateMultiplayerStatus( `In ${ def.name }. You'll load the map everyone is on.` );
 			logMpDebug( `[PublicServer] Joined ${ def.name } (code ${ def.code }) as ${ publicServerState.isHost ? 'host' : 'joiner' }` );
-		} else {
+		} catch ( firebaseError ) {
+
+				// Firebase unreachable (blocked network / outage) ≠ server broken.
+				// Fall back to the PeerJS-native mesh path below instead of failing
+				// the join — the same policy that keeps private rooms alive.
+				if ( ! isFirebaseNetworkError( firebaseError ) ) throw firebaseError;
+				firebaseJoinFailed = true;
+				logMpDebug( `[PublicServer] Firebase unreachable (${ firebaseError?.message || firebaseError }) — falling back to the PeerJS mesh` );
+				updateMultiplayerStatus( `Firebase unreachable — joining ${ def.name } over P2P...` );
+
+		}
+		}
+		if ( ! hasFirebase || firebaseJoinFailed ) {
 			// Reuse the existing PeerJS room mechanism with the fixed server code.
 
 			// The host peer owns the RACE-ROOM-<code> id; joiners connect to it. Host
@@ -1866,15 +1945,16 @@ function redirectPublicServerToMap( sig, reason = 'host' ) {
 
 // Try to claim the host peer id; if taken, fall back to joiner. Resolves once
 // the peer is open (host) or once we've started connecting to the host (joiner).
-function startPublicServerPeer( roomCode ) {
+async function startPublicServerPeer( roomCode ) {
 
+	const cfg = await getActivePeerConfig();
 	return new Promise( ( resolve ) => {
 
 		if ( ! isPublicServerActive() ) { resolve(); return; }
 		const hostPeerId = getPeerRoomId( roomCode );
 		closeMultiplayerPeer();
 		logMpDebug( `[PublicServer] Trying to claim host peer id ${ hostPeerId }…` );
-		const peer = new Peer( hostPeerId, peerConfig );
+		const peer = new Peer( hostPeerId, cfg );
 		multiplayerSessionState.peer = peer;
 		let settled = false;
 		const becomeHost = () => {
@@ -2064,13 +2144,14 @@ function maintainPublicServerPeer() {
 // A joiner that lost its host connection tries to claim the RACE-ROOM-<code> id.
 // If it succeeds it becomes the new host (self-healing); if the id is still
 // taken (someone else became host first) it stays a joiner and reconnects.
-function maybeReclaimPublicServerHost( roomCode ) {
+async function maybeReclaimPublicServerHost( roomCode ) {
 
 	if ( publicServerState.hostClaimInFlight ) return;
 	publicServerState.hostClaimInFlight = true;
 	const hostPeerId = getPeerRoomId( roomCode );
 	logMpDebug( `[PublicServer] Attempting to reclaim host id ${ hostPeerId }` );
-	const probe = new Peer( hostPeerId, peerConfig );
+	const reclaimCfg = await getActivePeerConfig();
+	const probe = new Peer( hostPeerId, reclaimCfg );
 	let resolved = false;
 	const finish = ( becameHost ) => {
 
@@ -2923,19 +3004,29 @@ function initMultiplayerPanel() {
 		} catch ( error ) {
 
 			console.warn( 'Failed to create multiplayer room', error );
-			codeInput.value = '';
-			if ( isFirebasePermissionError( error ) ) {
+			if ( isFirebaseNetworkError( error ) ) {
 
-				updateMultiplayerStatus( 'Firebase denied write access. Publish RTDB rules for /racing-rooms first.' );
+				// Firebase unreachable ≠ room broken. Keep the P2P room alive —
+				// joiners whose own Firebase works still see the room over the
+				// mesh, and our 220ms poll heals itself if Firebase comes back.
+				updateMultiplayerStatus( `Hosting room ${ code } over P2P. Room metadata offline (restricted network?) — players on blocked networks may be unable to find the room.` );
+				lastHostRoomRotateAt = Date.now();
+				setMultiplayerLeaderboardVisible( true );
 			} else {
+				codeInput.value = '';
+				if ( isFirebasePermissionError( error ) ) {
 
-				updateMultiplayerStatus( 'Failed to create room. Check Firebase Realtime Database rules and databaseURL.' );
+					updateMultiplayerStatus( 'Firebase denied write access. Publish RTDB rules for /racing-rooms first.' );
+				} else {
 
+					updateMultiplayerStatus( 'Failed to create room. Check Firebase Realtime Database rules and databaseURL.' );
+
+				}
+				closeMultiplayerPeer();
+				multiplayerSessionState.role = 'none';
+				multiplayerSessionState.roomCode = '';
+				setMultiplayerLeaderboardVisible( false );
 			}
-			closeMultiplayerPeer();
-			multiplayerSessionState.role = 'none';
-			multiplayerSessionState.roomCode = '';
-			setMultiplayerLeaderboardVisible( false );
 		} finally {
 
 			hostBtn.disabled = false;
@@ -2960,33 +3051,75 @@ function initMultiplayerPanel() {
 		updateMultiplayerStatus( `Trying to join room ${ code }...` );
 		try {
 
-			const room = await firebaseRoomsRequest( code, 'GET' );
-			if ( ! room || typeof room !== 'object' ) {
+			// Firebase room metadata is BEST-EFFORT: it drives the map redirect +
+			// room-follow niceties, but a blocked/slow Firebase must never block the
+			// P2P connection itself. If metadata is unreachable we join over the
+			// mesh directly; if the room doc simply doesn't exist we STILL try the
+			// mesh, because the host may be on a network where only P2P works.
+			let room = null;
+			let roomMetaReachable = true;
+			try {
 
-				updateMultiplayerStatus( `Room ${ code } not found. Ask host to click Host first.` );
-				return;
+				room = await firebaseRoomsRequest( code, 'GET' );
+
+			} catch ( metaError ) {
+
+				if ( isFirebasePermissionError( metaError ) ) {
+
+					updateMultiplayerStatus( 'Firebase denied read access. Publish RTDB rules for /racing-rooms first.' );
+					return;
+
+				}
+				roomMetaReachable = false;
+				logMpDebug( `[Join] Room metadata unreachable (${ metaError?.message || metaError }) — continuing over P2P` );
 
 			}
 
-			const joinMap = getCurrentMapSignature();
-			if ( ! canJoinMap( room.mapSignature, joinMap ) ) {
+			if ( room && typeof room === 'object' ) {
 
-				updateMultiplayerStatus( `Switching to host map for room ${ code }...` );
-				redirectToRoomMap( code, room.mapSignature );
-				return;
+				const joinMap = getCurrentMapSignature();
+				if ( ! canJoinMap( room.mapSignature, joinMap ) ) {
+
+					updateMultiplayerStatus( `Switching to host map for room ${ code }...` );
+					redirectToRoomMap( code, room.mapSignature );
+					return;
+
+				}
+
+				// Presence ping — non-fatal: joiners on restricted networks skip it.
+				try {
+
+					await firebaseRoomsRequest( code, 'PATCH', {
+						updatedAt: Date.now(),
+						lastJoinAt: Date.now(),
+						status: 'joined',
+					} );
+
+				} catch ( presenceError ) {
+
+					logMpDebug( `[Join] Presence PATCH failed (${ presenceError?.message || presenceError }) — continuing` );
+
+				}
 
 			}
 
-			await firebaseRoomsRequest( code, 'PATCH', {
-				updatedAt: Date.now(),
-				lastJoinAt: Date.now(),
-				status: 'joined',
-			} );
-			updateMultiplayerStatus( `Joined room ${ code }.` );
 			multiplayerSessionState.role = 'join';
 			multiplayerSessionState.roomCode = code;
 			startPeerMultiplayer( code, 'join' );
 			setMultiplayerLeaderboardVisible( true );
+			if ( room && typeof room === 'object' ) {
+
+				updateMultiplayerStatus( `Joined room ${ code }.` );
+
+			} else if ( ! roomMetaReachable ) {
+
+				updateMultiplayerStatus( `Firebase unreachable — joining room ${ code } over P2P directly...` );
+
+			} else {
+
+				updateMultiplayerStatus( `Room metadata not found — trying P2P room ${ code } directly...` );
+
+			}
 
 		} catch ( error ) {
 
