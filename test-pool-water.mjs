@@ -39,21 +39,24 @@ test( 'fbm wave field in vertex shader', /fbm/.test( shader ) && /getWave/.test(
 test( 'finite-difference world normals', /hX1 - hX2/.test( shader ) && /hZ1 - hZ2/.test( shader ) );
 test( 'waves evaluated in world space (shared ocean feel)', /world\.xz/.test( shader ) && /world\.y \+= hC/.test( shader ) );
 test( 'refraction onto the pool floor', /refract\(/.test( shader ) && /floorY/.test( shader ) );
-test( 'caustic web', /abs\( n1 - n2 \)/.test( shader ) && /pow\(\s*max\( 0\.0, 1\.0 - web \),\s*30\.0\s*\)/.test( shader ) );
+test( 'caustics are a REAL projected spotlight (floor, walls, car)', /export class|getCausticLightTexture/.test( track ) === false ? false : /new THREE\.SpotLight\(/.test( track ) && /causticLight\.map = getCausticLightTexture\(\)/.test( track ) && /causticLightsThisBuild < 4/.test( track ) );
+test( 'water shader no longer paints fake caustics (the light does it)', ! /caustic/.test( shader.replace( /Caustics now come from the projected caustic/, '' ) ) === false ? false : ! /pow\(\s*max\( 0\.0, 1\.0 - web \),\s*30\.0\s*\)/.test( shader ) );
+test( 'foam caps the tallest crests (surface texture)', /smoothstep\( 0\.13, 0\.2, vWaveH \)/.test( shader ) && /vWaveH = hC;/.test( track ) );
+test( 'sun glints shimmer on the ripples', /noise\( vWorldPos\.xz \* 6\.5/.test( shader ) );
 test( 'water samples the REAL scene, not a drawn floor', /uniform sampler2D tDiffuse/.test( shader ) && /texture2D\( tDiffuse, refrUV \)/.test( shader ) );
-test( 'refraction wobble is animated (the light-bending wiggle)', /noise\( vWorldPos\.xz \* 2\.1/.test( shader ) && /screenUV \+ wobble \* 0\.03/.test( shader ) );
+test( 'refraction wobble is animated (the light-bending wiggle)', /noise\( vWorldPos\.xz \* 2\.1/.test( shader ) && /screenUV \+ wobble \* 0\.035/.test( shader ) );
 test( 'water shader references no removed uniforms (compiles)', ! /cellSize|shallowColor/.test( shader ) );
 test( 'choppy ripples ride the swell', /sin\( wp\.x \* 3\.4 - t \* 1\.4 \) \* 0\.03/.test( shader ) );
 test( 'rolling swell amplitudes', /sin\( wp\.x \* 1\.35 \+ t \) \* 0\.055/.test( shader ) );
-test( 'wave scale doubled vs the flat pass', /waveHeight: \{ value: CELL_RAW \* 0\.05 \}/.test( track ) );
-test( 'water level leaves wave headroom below the edge lip', /CELL_RAW, 0\.28,/.test( track ) && 0.28 + 0.22 * 9.99 * 0.05 < 0.515 );
-test( 'splash surface matches the lowered water level', /WATER_SURFACE_Y = 0\.28/.test( main ) );
+test( 'wave scale 3.4x the flat pass', /waveHeight: \{ value: CELL_RAW \* 0\.17 \}/.test( track ) );
+test( 'water level leaves wave headroom below the edge lip', /CELL_RAW, 0\.12,/.test( track ) && 0.12 + 0.22 * 9.99 * 0.17 < 0.515 );
+test( 'splash surface matches the lowered water level', /WATER_SURFACE_Y = 0\.12/.test( main ) );
 test( 'fresnel sky reflection', /fresnel/.test( shader ) && /skyTop/.test( shader ) );
 test( 'sun glint', /pow\(\s*max\( dot\( rDir, lightDir \), 0\.0 \),\s*450\.0/.test( shader ) );
 
 // 3. Animated + subdivided
 test( 'water plane subdivided for the wave field', /PlaneGeometry\(\s*waterWidth,\s*waterDepth,\s*waterSeg,\s*waterSeg\s*\)/.test( track ) );
-test( 'time uniform driven every frame', /onBeforeRender[\s\S]{0,120}uniforms\.time\.value = performance\.now\(\) \* 0\.001/.test( track ) );
+test( 'time uniform driven every frame', /onBeforeRender[\s\S]{0,200}performance\.now\(\) \* 0\.001[\s\S]{0,80}uniforms\.time\.value = t/.test( track ) );
 
 // 4. Pool blocks textured
 test( 'pool floor uses procedural tile texture', /map: poolFloorTexture/.test( track ) );
@@ -72,7 +75,7 @@ test( 'prerender pass exists (hides water, renders scene to half-res RT)', /expo
 test( 'plane registry resets per track build', track.includes( 'WATER_PLANES.length = 0;' ) && track.includes( 'WATER_PLANES.push( waterPlane );' ) );
 test( 'every render site prerenders refraction (incl. split-screen rects)', main.split( 'prerenderWaterRefraction( renderer, scene' ).length === 5 && main.includes( 'prerenderWaterRefraction( renderer, scene, cam2.camera, 1,' ) );
 test( 'shadows update once per frame, not per render pass', main.includes( 'shadowMap.autoUpdate = false' ) && main.includes( 'renderer.shadowMap.needsUpdate = true' ) );
-test( 'Track.js module cache param bumped (it changed)', main.includes( 'Track.js?v=999972' ) );
+test( 'Track.js module cache param bumped (it changed)', main.includes( 'Track.js?v=999973' ) );
 
 // 7. Splash when the car breaks the surface
 test( 'splash FX class exists (droplet burst + gravity)', /export class WaterSplashFX/.test( particles ) && /burst\(/.test( particles ) && /velocity\.y -= particle\.gravity \* dt/.test( particles ) );
