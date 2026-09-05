@@ -89,7 +89,34 @@ test( 'default-car options include Last used + Random + every CAR_STATS car', /'
 test( 'boot: default-car setting overrides the boot randomizer', /applyDefaultCar\( localStorage\.getItem\( DEFAULT_CAR_KEY \) \|\| '__random' \);/.test( main ) );
 test( 'profile snapshot carries defaultCar', main.includes( "defaultCar: localStorage.getItem( DEFAULT_CAR_KEY ) || '__last'," ) );
 test( 'profile import restores the default car', /localStorage\.setItem\( DEFAULT_CAR_KEY, parsed\.defaultCar \);/.test( main ) );
-test( 'index.html cache bumped for the new main.js', /v=1000211/.test( html ) );
+test( 'index.html cache bumped for the new main.js', /v=1000212/.test( html ) );
+
+console.log( '\n9. Underwater package (dive cam + fog + overlay + caustics + bubbles)' );
+const camera = readFileSync( './js/Camera.js', 'utf8' );
+test( 'chase cam dives underwater with the car (no lift offsets)', /underwaterChaseOffset = this\.chaseOffset;/.test( camera ) && /underwaterOverviewOffset = this\.offset;/.test( camera ) );
+test( 'look target no longer collapses underwater', !camera.includes( 'lerp( 4.8, 0.8, underwaterLift )' ) );
+test( 'main.js: camera-underwater state + fog + overlay toggle wired', main.includes( 'const cameraUnderwater = updateCameraUnderwater( cam.camera, dt );' ) );
+test( 'main.js: underwater fog engages before the gameplay fog fallback', main.includes( 'else if ( cameraUnderwater ) scene.fog = underwaterFog;' ) );
+test( 'main.js: underwater fog color + reach', /underwaterFog = new THREE\.Fog\( 0x0e3f55, 0\.9, Math\.max\( 8, cellWorld \* 1\.35 \) \)/.test( main ) );
+test( 'main.js: overlay element toggles via the state edge', main.includes( "underwaterOverlayEl?.classList.toggle( 'active', underwater );" ) );
+test( 'main.js: Track state export imported', main.includes( 'setWaterUnderwaterCameraState' ) );
+test( 'main.js: bubbles spawn from the submerged car (rare, pooled)', main.includes( 'class CarBubblesFX' ) && main.includes( 'spawnTimer = 0.5 + Math.random() * 1.6;' ) );
+test( 'main.js: bubbles capped at 16 sprites', main.includes( '>= 16 ) return;' ) );
+test( 'main.js: bubble FX updated for both players', main.includes( 'carBubblesFx2 ??= new CarBubblesFX( scene );' ) );
+test( 'main.js: barely-there water control constants', main.includes( 'WATER_CONTROL_ACCEL = 2.0' ) && main.includes( 'WATER_CONTROL_STEER = 0.55' ) );
+test( 'main.js: water control applies gentle forward thrust only in water', /if \( inputZ \|\| inputX \) \{[\s\S]{0,400}WATER_CONTROL_ACCEL \* safeDelta;/.test( main ) );
+test( 'Track.js: setWaterUnderwaterCameraState exported', /export function setWaterUnderwaterCameraState\( active \) \{[\s\S]{0,80}WATER_UNDERWATER\.camera = !! active;/.test( track ) );
+test( 'Track.js: water shader renders a shimmering underside from below', track.includes( 'if ( ! gl_FrontFacing ) {' ) && track.includes( 'shimmering water ceiling' ) );
+test( 'Track.js: pool-floor caustics material factory', track.includes( 'function createPoolFloorCausticsMaterial()' ) );
+test( 'Track.js: caustics gain eases toward the camera-underwater flag', /u\.gain\.value = THREE\.MathUtils\.lerp\( u\.gain\.value, targetGain, step \);/.test( track ) );
+test( 'Track.js: caustic overlay attached per pool floor', track.includes( 'const causticOverlay = new THREE.Mesh(' ) );
+test( 'index.html: underwater overlay element present after <body>', /<body>\s*\n\t<div id="underwater-overlay" aria-hidden="true"><\/div>/.test( html ) );
+test( 'index.html: overlay CSS with light-band animation', html.includes( '@keyframes underwater-light-bands' ) );
+test( 'index.html: overlay is pointer-transparent', /#underwater-overlay \{[^}]*pointer-events: none;/.test( html ) );
+test( 'editor.html: Special Parts grouped into Magnets / Arcs & Portals', editor.includes( 'data-group="magnets"' ) && editor.includes( 'data-group="arcs-portals"' ) );
+test( 'editor.html: all 16 special-part button ids survived the reorg', [ 'btn-magnet-blue','btn-magnet-red','btn-magnet-up','btn-magnet-down','btn-magnet-strength-up','btn-magnet-strength-down','btn-magnet-range-up','btn-magnet-range-down','btn-arc-green','btn-portal-yellow','btn-arc-orange','btn-portal-purple','btn-portal-up','btn-portal-down','btn-portal-id-down','btn-portal-id-up' ].every( ( id ) => editor.split( 'id="' + id + '"' ).length === 2 ) );
+test( 'editor.html: arc/portal help text kept', editor.includes( 'Orange launches' ) );
+test( 'Track.js import pin bumped to v=1000212', /Track\.js\?v=1000212'/.test( main ) );
 
 console.log( `\n${ passed } passed, ${ failed } failed${ failed ? ' — WITH FAILURES' : '' }` );
 process.exitCode = failed ? 1 : 0;

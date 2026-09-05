@@ -5,7 +5,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999977';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000212';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails, WaterSplashFX } from './Particles.js';
 import { SkidMarks } from './SkidMarks.js';
@@ -4372,6 +4372,11 @@ async function init() {
 	const WATER_BUOYANCY = THREE.MathUtils.clamp( Number( customPoolSettings.buoyancy ) || 0.28, 0.05, 3 );
 	const WATER_GRAVITY_SCALE = Math.min( WATER_BUOYANCY, 1 );
 	const WATER_VELOCITY_DRAG = THREE.MathUtils.clamp( Number( customPoolSettings.drag ) || 1.8, 0.1, 6 );
+	// Barely-there water control: ~2 m/s^2 of paddle thrust and ~0.55 rad/s of
+	// water steering while buoyant. Deliberately tiny.
+	const WATER_CONTROL_ACCEL = 2.0;
+	const WATER_CONTROL_STEER = 0.55;
+	const _waterControlFwd = new THREE.Vector3();
 	function isCameraTargetInWater( position ) {
 
 		if ( waterCellSet.size === 0 || ! position ) return false;
@@ -4417,6 +4422,109 @@ async function init() {
 	}
 	const waterCameraState1 = createWaterCameraState();
 	const waterCameraState2 = createWaterCameraState();
+	// Camera-underwater detection (separate from the car state above): drives
+	// the underwater fog, the screen overlay, and the pool-floor caustics.
+	const cameraWaterState = createWaterCameraState();
+	const underwaterFog = new THREE.Fog( 0x0e3f55, 0.9, Math.max( 8, cellWorld * 1.35 ) );
+	let underwaterOverlayEl = null;
+	let lastCameraUnderwater = false;
+	function updateCameraUnderwater( activeCamera, deltaSeconds ) {
+
+		const underwater = waterCells.length > 0 && activeCamera
+			? updateWaterCameraState( cameraWaterState, activeCamera.position, deltaSeconds )
+			: false;
+		if ( underwater !== lastCameraUnderwater ) {
+
+			lastCameraUnderwater = underwater;
+			underwaterOverlayEl ??= document.getElementById( 'underwater-overlay' );
+			underwaterOverlayEl?.classList.toggle( 'active', underwater );
+			setWaterUnderwaterCameraState( underwater );
+
+		}
+		return underwater;
+
+	}
+
+	// --- Bubbles: a few rare air bubbles trail off the car while it is
+	// submerged. Pooled sprites, near-zero cost when nobody is in a pool.
+	class CarBubblesFX {
+
+		constructor( targetScene ) {
+
+			this.group = new THREE.Group();
+			this.group.frustumCulled = false;
+			targetScene.add( this.group );
+			this.pool = [];
+			this.spawnTimer = 0;
+			const textureSize = 32;
+			const canvas = document.createElement( 'canvas' );
+			canvas.width = textureSize;
+			canvas.height = textureSize;
+			const ctx = canvas.getContext( '2d' );
+			const grad = ctx.createRadialGradient( textureSize * 0.38, textureSize * 0.34, 1, textureSize * 0.5, textureSize * 0.5, textureSize * 0.48 );
+			grad.addColorStop( 0, 'rgba(235,250,255,0.95)' );
+			grad.addColorStop( 0.65, 'rgba(180,225,255,0.35)' );
+			grad.addColorStop( 1, 'rgba(160,210,255,0)' );
+			ctx.fillStyle = grad;
+			ctx.fillRect( 0, 0, textureSize, textureSize );
+			this.texture = new THREE.CanvasTexture( canvas );
+			this.material = new THREE.SpriteMaterial( { map: this.texture, transparent: true, depthWrite: false, opacity: 0.85 } );
+
+		}
+		spawn( x, y, z ) {
+
+			let sprite = this.pool.find( ( s ) => ! s.visible );
+			if ( ! sprite ) {
+
+				if ( this.group.children.length >= 16 ) return;
+				sprite = new THREE.Sprite( this.material );
+				sprite.visible = false;
+				this.group.add( sprite );
+				this.pool.push( sprite );
+
+			}
+			const scale = 0.05 + Math.random() * 0.11;
+			sprite.position.set( x + ( Math.random() - 0.5 ) * 0.5, y, z + ( Math.random() - 0.5 ) * 0.5 );
+			sprite.scale.setScalar( scale );
+			sprite.userData.riseSpeed = 0.55 + Math.random() * 0.7;
+			sprite.userData.wobblePhase = Math.random() * Math.PI * 2;
+			sprite.userData.maxAge = 2.4 + Math.random() * 1.2;
+			sprite.userData.age = 0;
+			sprite.visible = true;
+
+		}
+		update( deltaSeconds, targetVehicle, submerged ) {
+
+			const safeDelta = Math.max( 0, deltaSeconds );
+			for ( const sprite of this.pool ) {
+
+				if ( ! sprite.visible ) continue;
+				sprite.userData.age += safeDelta;
+				sprite.position.y += sprite.userData.riseSpeed * safeDelta;
+				sprite.position.x += Math.sin( sprite.userData.age * 5 + sprite.userData.wobblePhase ) * 0.14 * safeDelta;
+				sprite.position.z += Math.cos( sprite.userData.age * 4.3 + sprite.userData.wobblePhase ) * 0.14 * safeDelta;
+				if ( sprite.userData.age > sprite.userData.maxAge || sprite.position.y >= WATER_SURFACE_Y - 0.02 ) sprite.visible = false;
+
+			}
+			if ( ! submerged ) {
+
+				this.spawnTimer = Math.max( this.spawnTimer, 0.4 );
+				return;
+
+			}
+			this.spawnTimer -= safeDelta;
+			if ( this.spawnTimer <= 0 ) {
+
+				this.spawnTimer = 0.5 + Math.random() * 1.6; // rare: a few bubbles every so often
+				this.spawn( targetVehicle.spherePos.x, targetVehicle.spherePos.y - 0.1, targetVehicle.spherePos.z );
+
+			}
+
+		}
+
+	}
+	let carBubblesFx = null;
+	let carBubblesFx2 = null;
 
 	function applyWaterPhysicsDamping( targetVehicle, deltaSeconds ) {
 
@@ -4426,10 +4534,42 @@ async function init() {
 		const velocity = targetVehicle.rigidBody.motionProperties.linearVelocity || [ 0, 0, 0 ];
 		const upwardFloatVelocity = Math.max( 0, WATER_BUOYANCY - 1 ) * 12 * safeDelta;
 		const verticalVelocity = THREE.MathUtils.clamp( ( velocity[ 1 ] * Math.sqrt( dragFactor ) ) + upwardFloatVelocity, -18, 8 );
+		let vx = velocity[ 0 ] * dragFactor;
+		let vz = velocity[ 2 ] * dragFactor;
+		// Slight water control (JUST BARELY): a gentle nudge along the car's
+		// facing when throttling, and a whisper of steering — enough to point
+		// the car while it floats, nowhere near water-top racing speed.
+		const inputZ = Number( targetVehicle.inputZ ) || 0;
+		const inputX = Number( targetVehicle.inputX ) || 0;
+		if ( inputZ || inputX ) {
+
+			const fwd = _waterControlFwd.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+			fwd.y = 0;
+			if ( fwd.lengthSq() > 1e-6 ) {
+
+				fwd.normalize();
+				const thrust = inputZ * WATER_CONTROL_ACCEL * safeDelta;
+				vx += fwd.x * thrust;
+				vz += fwd.z * thrust;
+				if ( inputX ) {
+
+					const steer = Math.sign( inputX ) * WATER_CONTROL_STEER * safeDelta;
+					const cos = Math.cos( steer );
+					const sin = Math.sin( steer );
+					const nx = vx * cos - vz * sin;
+					const nz = vx * sin + vz * cos;
+					vx = nx;
+					vz = nz;
+
+				}
+
+			}
+
+		}
 		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
-			velocity[ 0 ] * dragFactor,
+			vx,
 			verticalVelocity,
-			velocity[ 2 ] * dragFactor,
+			vz,
 		], false );
 		targetVehicle.linearSpeed *= dragFactor;
 		return true;
@@ -7707,9 +7847,10 @@ async function init() {
 
 	function updateGarageCardMeta( carKey ) {
 
-		const canvas = garageCardCanvasByKey[ carKey ];
-		if ( ! canvas ) return;
-		const meta = canvas.parentElement?.querySelector( '.garage-vehicle-meta > span:last-child' );
+		// Cards no longer hold preview canvases — find them by data-car-key so the
+		// "Paint maps: N" count updates immediately after every paint/remove.
+		const card = garageVehicleCards?.querySelector( `.garage-vehicle-card[data-car-key="${ carKey }"]` );
+		const meta = card?.querySelector( '.garage-vehicle-meta > span:last-child' );
 		if ( meta ) meta.textContent = `Paint maps: ${ getGarageCosmeticCar( carKey ).mappings.length }`;
 
 	}
@@ -8698,14 +8839,6 @@ function completeCampaignStage() {
 			};
 
 		}
-		if ( typeof parsed?.defaultCar === 'string' ) {
-
-			localStorage.setItem( DEFAULT_CAR_KEY, parsed.defaultCar );
-			const defaultSelect = document.getElementById( 'default-car-select' );
-			if ( defaultSelect ) defaultSelect.value = parsed.defaultCar;
-			applyDefaultCar( parsed.defaultCar );
-
-		}
 		if ( typeof parsed?.carKey === 'string' && carSelect && CAR_STATS[ parsed.carKey ] ) {
 
 			carSelect.value = parsed.carKey;
@@ -8717,6 +8850,16 @@ function completeCampaignStage() {
 				applyCarCustomization( vehicle );
 
 			}
+
+		}
+		// Default-car setting applies LAST so a specific default always wins
+		// over the profile's last-used carKey ('__last' keeps the carKey).
+		if ( typeof parsed?.defaultCar === 'string' ) {
+
+			localStorage.setItem( DEFAULT_CAR_KEY, parsed.defaultCar );
+			const defaultSelect = document.getElementById( 'default-car-select' );
+			if ( defaultSelect ) defaultSelect.value = parsed.defaultCar;
+			applyDefaultCar( parsed.defaultCar );
 
 		}
 		saveEconomy();
@@ -11756,11 +11899,13 @@ function completeCampaignStage() {
 		selectedGarageSourceHex = '';
 		hoveredGarageSourceHex = '';
 		garageSelectionMask = null;
-		updateGarageMappingsUi();
-		updateGaragePaintControls();
 		applyCarCustomization( vehicle );
 		refreshGarageViewer();
 		refreshGarageCardPreviewPaint( carKey );
+		// List + card counts refresh LAST, after every state mutation, so the
+		// new paint map is always visible right away (no card round-trip needed).
+		updateGarageMappingsUi();
+		updateGaragePaintControls();
 		updateGarageCardMeta( carKey );
 		broadcastPeerState();
 		setGarageMappingStatus( `Painted ${ desc.count.toLocaleString() } pixels ${ targetHex } for ${ GARAGE_REPAINT_COST } coins.` );
@@ -12497,7 +12642,9 @@ function completeCampaignStage() {
 			vehicle.spherePos.z - 5.3
 		);
 
+		const cameraUnderwater = updateCameraUnderwater( cam.camera, dt );
 		if ( freecamState.active ) scene.fog = null;
+		else if ( cameraUnderwater ) scene.fog = underwaterFog;
 		else if ( scene.fog !== gameplayFog ) scene.fog = gameplayFog;
 		if ( freecamState.active ) updateFreecam( dt );
 		else if ( ! replayViewerMode ) {
@@ -12523,6 +12670,22 @@ function completeCampaignStage() {
 				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, _camDynamics1 );
 
 			}
+
+		}
+		if ( waterCells.length > 0 ) {
+
+			if ( vehicle && isCameraTargetInWater( vehicle.spherePos ) ) {
+
+				carBubblesFx ??= new CarBubblesFX( scene );
+				carBubblesFx.update( dt, vehicle, true );
+
+			} else carBubblesFx?.update( dt, vehicle, false );
+			if ( vehicle2 && isCameraTargetInWater( vehicle2.spherePos ) ) {
+
+				carBubblesFx2 ??= new CarBubblesFX( scene );
+				carBubblesFx2.update( dt, vehicle2, true );
+
+			} else carBubblesFx2?.update( dt, vehicle2, false );
 
 		}
 		if ( cam2 && vehicle2 ) {

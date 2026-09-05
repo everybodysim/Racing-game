@@ -127,6 +127,16 @@ const _waterProjScreen = new THREE.Matrix4();
 let waterRefrFrameCounter = 0;
 let waterRefrCadence = 1;
 
+// Camera-underwater state shared by every pool material. When the camera is
+// below the surface, the pool floors get their animated caustic overlay and
+// the water surface renders its shimmering underside.
+const WATER_UNDERWATER = { camera: false, gain: 0 };
+export function setWaterUnderwaterCameraState( active ) {
+
+	WATER_UNDERWATER.camera = !! active;
+
+}
+
 export function updateWaterQuality( rollingFps ) {
 
 	if ( ! Number.isFinite( rollingFps ) || rollingFps <= 0 ) {
@@ -389,6 +399,19 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 					noise( vWorldPos.zx * 2.3 - vec2( wt * 0.8, wt ) ) - 0.5
 				);
 				vec2 refrUV = clamp( screenUV + wobble * 0.035, vec2( 0.002 ), vec2( 0.998 ) );
+				// Seen from BELOW the surface (camera underwater), the plane
+				// renders as a shimmering water ceiling instead of the
+				// above-water refraction sample.
+				if ( ! gl_FrontFacing ) {
+
+					vec3 under = texture2D( tDiffuse, clamp( screenUV + wobble * 0.02, vec2( 0.002 ), vec2( 0.998 ) ) ).rgb;
+					under *= vec3( 0.45, 0.72, 0.86 );
+					float shimmer = 0.5 + 0.5 * sin( ( vWorldPos.x + vWorldPos.z ) * 1.7 + time * 2.6 + noise( vWorldPos.xz * 2.6 + vec2( time * 0.9, - time * 0.7 ) ) * 7.0 );
+					under += vec3( 0.22, 0.36, 0.42 ) * shimmer * vWaveDistFade;
+					gl_FragColor = vec4( under, 1.0 );
+					return;
+
+				}
 				vec3 refrColor = texture2D( tDiffuse, refrUV ).rgb;
 
 				// Depth tint along the refracted ray
@@ -430,6 +453,53 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 		transparent: false,
 		depthWrite: true,
 		side: THREE.DoubleSide,
+	} );
+
+}
+
+// Animated caustic overlay projected onto each pool floor. Gain is 0 while
+// the camera is above water (the classic look already carries caustics through
+// the surface refraction) and eases to full ONLY when the camera is underwater.
+function createPoolFloorCausticsMaterial() {
+
+	return new THREE.ShaderMaterial( {
+		uniforms: {
+			time: { value: 0 },
+			gain: { value: 0 },
+			lightDir: { value: new THREE.Vector3( 0.577, 0.577, 0.577 ).normalize() },
+		},
+		transparent: true,
+		depthWrite: false,
+		blending: THREE.AdditiveBlending,
+		vertexShader: `
+			varying vec2 vLocal;
+			void main() {
+				vLocal = position.xy;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+			}
+		`,
+		fragmentShader: `
+			uniform float time;
+			uniform float gain;
+			varying vec2 vLocal;
+			float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 ); }
+			float noise( vec2 p ) {
+				vec2 i = floor( p ), f = fract( p );
+				f = f * f * ( 3.0 - 2.0 * f );
+				return mix( mix( hash( i ), hash( i + vec2( 1.0, 0.0 ) ), f.x ),
+					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+			}
+			void main() {
+				if ( gain <= 0.001 ) discard;
+				vec2 cUV = vLocal * 1.85;
+				float ct = time * 1.9;
+				float n1 = noise( cUV + vec2( ct * 0.32, ct * 0.11 ) );
+				float n2 = noise( cUV.yx - vec2( ct * 0.21, - ct * 0.24 ) );
+				float web = abs( n1 - n2 );
+				float caustic = pow( max( 0.0, 1.0 - web ), 22.0 );
+				gl_FragColor = vec4( vec3( 0.62, 0.82, 0.95 ) * caustic * gain * 0.85, caustic * gain );
+			}
+		`,
 	} );
 
 }
@@ -856,6 +926,27 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			floor.position.y = - WATER_DEPTH;
 			floor.receiveShadow = true;
 			pool.add( floor );
+			// Caustic light layer just above the floor tile — visible only
+			// while the camera is underwater (see createPoolFloorCausticsMaterial).
+			const causticOverlay = new THREE.Mesh(
+				new THREE.PlaneGeometry( CELL_RAW, CELL_RAW ),
+				createPoolFloorCausticsMaterial()
+			);
+			causticOverlay.rotation.x = - Math.PI / 2;
+			causticOverlay.position.y = - WATER_DEPTH + CELL_RAW * 0.028;
+			let causticLastTime = 0;
+			causticOverlay.onBeforeRender = () => {
+
+				const now = performance.now() * 0.001;
+				const u = causticOverlay.material.uniforms;
+				u.time.value = now;
+				const targetGain = WATER_UNDERWATER.camera ? 1 : 0;
+				const step = Math.min( 1, Math.max( 0, now - causticLastTime ) * 3.5 );
+				causticLastTime = now;
+				u.gain.value = THREE.MathUtils.lerp( u.gain.value, targetGain, step );
+
+			};
+			pool.add( causticOverlay );
 			// If this pool tile has a pool slope, omit the wall + edge lip on the
 			// exit side (where the ramp's high end meets ground level).
 			const slopeOrient = poolSlopeOrientByCell.get( `${ gx },${ gz }` );

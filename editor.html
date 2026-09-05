@@ -322,6 +322,9 @@
 			cursor: pointer;
 		}
 		.side-ui-content button:hover { background: rgba(45, 55, 72, 0.92); }
+		.side-ui-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+		.side-ui-group-label { font: 700 10px/1 sans-serif; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75; }
+		.side-ui-row { display: flex; flex-wrap: wrap; gap: 4px; }
 		#arc-link-help {
 			grid-column: 1 / -1;
 			padding: 6px 8px;
@@ -523,23 +526,39 @@
 <details id="side-ui-bar" open>
     <summary id="side-ui-toggle">⚡ Special Parts</summary>
     <div class="side-ui-content">
-        <button id="btn-magnet-blue">Magnet Blue +</button>
-        <button id="btn-magnet-red">Magnet Red +</button>
-        <button id="btn-magnet-up" title="Move selected magnet up by 0.1 grid">Magnet ▲</button>
-        <button id="btn-magnet-down" title="Move selected magnet down by 0.1 grid">Magnet ▼</button>
-        <button id="btn-magnet-strength-up" title="Increase selected magnet strength">Strength +</button>
-        <button id="btn-magnet-strength-down" title="Decrease selected magnet strength">Strength -</button>
-        <button id="btn-magnet-range-up" title="Increase selected magnet range">Range +</button>
-        <button id="btn-magnet-range-down" title="Decrease selected magnet range">Range -</button>
-        <button id="btn-arc-green" title="Green arc is the endpoint only (does not launch)">Arc End (Green) +</button>
-        <button id="btn-portal-yellow" title="Yellow portal is endpoint only (one-way, does not launch)">Portal End (Yellow) +</button>
-        <button id="btn-arc-orange" title="Orange arc is the launch/start point">Arc Start (Orange) +</button>
-        <button id="btn-portal-purple" title="Purple portal is the start point and keeps velocity">Portal Start (Purple) +</button>
-        <button id="btn-portal-up" title="Move selected arc/portal up by 0.1 grid">Arc/Portal ▲</button>
-        <button id="btn-portal-down" title="Move selected arc/portal down by 0.1 grid">Arc/Portal ▼</button>
-        <button id="btn-portal-id-down" title="Decrease selected arc/portal link id">Arc/Portal ID -</button>
-        <button id="btn-portal-id-up" title="Increase selected arc/portal link id">Arc/Portal ID +</button>
-        <div id="arc-link-help">Arc Link flow: <strong>Orange launches</strong> to matching <strong>Green endpoint</strong>. Portal flow: <strong>Purple teleports</strong> to matching <strong>Yellow endpoint</strong> and keeps velocity. Green/Yellow never launch.</div>
+        <div class="side-ui-group" data-group="magnets">
+            <span class="side-ui-group-label">🧲 Magnets</span>
+            <div class="side-ui-row">
+                <button id="btn-magnet-blue">Magnet Blue +</button>
+                <button id="btn-magnet-red">Magnet Red +</button>
+            </div>
+            <div class="side-ui-row">
+                <button id="btn-magnet-up" title="Move selected magnet up by 0.1 grid">▲</button>
+                <button id="btn-magnet-down" title="Move selected magnet down by 0.1 grid">▼</button>
+                <button id="btn-magnet-strength-up" title="Increase selected magnet strength">Strength +</button>
+                <button id="btn-magnet-strength-down" title="Decrease selected magnet strength">Strength -</button>
+                <button id="btn-magnet-range-up" title="Increase selected magnet range">Range +</button>
+                <button id="btn-magnet-range-down" title="Decrease selected magnet range">Range -</button>
+            </div>
+        </div>
+        <div class="side-ui-group" data-group="arcs-portals">
+            <span class="side-ui-group-label">🌀 Arcs &amp; Portals</span>
+            <div class="side-ui-row">
+                <button id="btn-arc-orange" title="Orange arc is the launch/start point">Arc Start (Orange) +</button>
+                <button id="btn-arc-green" title="Green arc is the endpoint only (does not launch)">Arc End (Green) +</button>
+            </div>
+            <div class="side-ui-row">
+                <button id="btn-portal-purple" title="Purple portal is the start point and keeps velocity">Portal Start (Purple) +</button>
+                <button id="btn-portal-yellow" title="Yellow portal is endpoint only (one-way, does not launch)">Portal End (Yellow) +</button>
+            </div>
+            <div class="side-ui-row">
+                <button id="btn-portal-up" title="Move selected arc/portal up by 0.1 grid">Arc/Portal ▲</button>
+                <button id="btn-portal-down" title="Move selected arc/portal down by 0.1 grid">Arc/Portal ▼</button>
+                <button id="btn-portal-id-down" title="Decrease selected arc/portal link id">ID -</button>
+                <button id="btn-portal-id-up" title="Increase selected arc/portal link id">ID +</button>
+            </div>
+            <div id="arc-link-help">Arc Link flow: <strong>Orange launches</strong> to matching <strong>Green endpoint</strong>. Portal flow: <strong>Purple teleports</strong> to matching <strong>Yellow endpoint</strong> and keeps velocity. Green/Yellow never launch.</div>
+        </div>
     </div>
 </details>
 	<div id="panel-overlay" hidden></div>
