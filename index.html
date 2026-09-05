@@ -313,6 +313,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
 		}
 		#mp-public-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.18); }
+		#mp-public-row[hidden], #mp-pubtrack-row[hidden] { display: none !important; }
 		#mp-public-row > .mp-public-label { font: 700 11px/1 sans-serif; opacity: 0.9; }
 		#mp-public-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
 		#mp-public-buttons button {
@@ -2660,7 +2661,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<button id="import-ghost-btn" type="button">Import ghost</button>
 	<div id="mp-panel" aria-label="Multiplayer">
 		<div id="mp-panel-title">Multiplayer</div>
-		<div id="mp-public-row">
+		<div id="mp-public-row" hidden>
 			<div class="mp-public-label">Public servers</div>
 			<div id="mp-public-buttons"></div>
 			<div id="mp-player-count" style="display:none;"></div>
@@ -2676,7 +2677,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<button id="mp-copy-btn" type="button">Copy</button>
 		</div>
 		<div id="mp-status" aria-live="polite"></div>
-		<div id="mp-pubtrack-row">
+		<div id="mp-pubtrack-row" hidden>
 			<div class="mp-public-label">Propose a map vote</div>
 			<div id="mp-pubtrack-input-wrap">
 				<input id="mp-pubtrack-input" type="text" placeholder="Paste a track share URL" aria-label="Track share URL">
@@ -3332,7 +3333,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000205&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000209&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;

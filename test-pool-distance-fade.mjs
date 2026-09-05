@@ -1,6 +1,6 @@
 // Pool distance-fade test suite.
 //
-// Far-away pools used to keep full wave + caustic detail, which reads as a
+// Far-away pools kept full wave + caustic detail, which reads as a
 // shimmering blue noise field at the edge of visibility. js/Track.js now
 // fades water detail with CAMERA DISTANCE, so distant pools settle into a
 // calm flat-blue plane:
@@ -9,8 +9,11 @@
 //     waveFadeStart/waveFadeEnd
 //   - Caustics fade to zero between causticFadeStart/causticFadeEnd
 //   - Sun glints fade with the waves (no sparkle noise on far water)
-//   - Fade bands are fed LIVE from scene.fog.far in onBeforeRender, so they
-//     adapt to any track size, weather, or camera automatically
+//   - Bands are FIXED world-space distances scaled to CELL_RAW — full detail
+//     within ~5 cells, flat blue by ~12 cells. Deliberately NOT tied to
+//     scene.fog.far: fog far here reaches groundSize*6.4 (~1500-2000 units),
+//     so fog-coupled bands only engaged while free-flying far out — in
+//     normal play pools never faded. Fixed bands always apply.
 // Run: node test-pool-distance-fade.mjs
 
 import { readFileSync } from 'node:fs';
@@ -19,8 +22,10 @@ const track = readFileSync( './js/Track.js', 'utf8' );
 let passed = 0, failed = 0;
 function test( name, cond ) { if ( cond ) { passed ++; console.log( `  ✓ ${ name }` ); } else { failed ++; console.log( `  ✗ ${ name }` ); } }
 
-// 1. Fade uniforms + defaults exist
-test( 'wave + caustic fade band uniforms declared with defaults', /waveFadeStart: \{ value: 45\.0 \}/.test( track ) && /waveFadeEnd: \{ value: 75\.0 \}/.test( track ) && /causticFadeStart: \{ value: 34\.0 \}/.test( track ) && /causticFadeEnd: \{ value: 58\.0 \}/.test( track ) );
+// 1. Fixed cell-scaled band uniforms (independent of fog/camera mode)
+test( 'wave fade band fixed at CELL_RAW*7 -> *12', /waveFadeStart: \{ value: CELL_RAW \* 7 \}/.test( track ) && /waveFadeEnd: \{ value: CELL_RAW \* 12 \}/.test( track ) );
+test( 'caustic fade band fixed at CELL_RAW*5 -> *9', /causticFadeStart: \{ value: CELL_RAW \* 5 \}/.test( track ) && /causticFadeEnd: \{ value: CELL_RAW \* 9 \}/.test( track ) );
+test( 'bands are constants — no fog.far coupling in the render hook', ! /fog\?\.far/.test( track.slice( track.indexOf( 'waterPlane.onBeforeRender' ) ) ) );
 
 // 2. Vertex shader: wave displacement scales to zero with camera distance
 test( 'camera distance drives the fades', /float camDist = distance\( world\.xyz, cameraPosition \);/.test( track ) );
@@ -34,17 +39,13 @@ test( 'foam rides the faded height (no foam flicker at distance)', /vWaveH = hC 
 test( 'caustic web fades to zero with distance', /caustic = pow\( max\( 0\.0, 1\.0 - web \), 30\.0 \) \* 0\.6 \* vCausticDistFade;/.test( track ) );
 test( 'sun glints fade with the waves (calm far surface)', /final \+= glint \* 0\.5 \* vWaveDistFade \* vec3\( 0\.9, 0\.97, 1\.0 \);/.test( track ) );
 
-// 4. Fade bands track the live fog distance (per camera render)
-const obr = track.slice( track.indexOf( 'waterPlane.onBeforeRender' ) );
-test( 'onBeforeRender feeds fade bands from scene.fog.far', /fogFar = scene\?\.fog\?\.far \|\| 90;/.test( obr ) && /waveFadeStart\.value = fogFar \* 0\.55;/.test( obr ) && /causticFadeEnd\.value = fogFar \* 0\.75;/.test( obr ) );
+// 4. Band sanity math (CELL_RAW ~ 10 units/cell): full detail within ~50
+//    units of the camera, fully flat by ~120 — engages in NORMAL play, not
+//    just when free-flying far out
+const CELL_RAW = 9.99;
+const waveStart = CELL_RAW * 7, waveEnd = CELL_RAW * 12, causticEnd = CELL_RAW * 9;
+test( 'bands engage within normal gameplay distances (not fog-scale)', waveStart < 80 && causticEnd < waveEnd && waveEnd < 130 );
 test( 'caustics fade out sooner than waves (depth detail first to go)', true );
-test( 'split-screen safe (uniforms set per camera pass)', /onBeforeRender = \( renderer, scene, camera \)/.test( track ) );
-
-// 5. Fade varies with fog.far only smoothly — a fog far of 90 keeps waves
-//    inside ~50 units and flat water beyond ~86 (sanity ratio math)
-const fogFar = 90;
-const waveStart = fogFar * 0.55, waveEnd = fogFar * 0.95, causticEnd = fogFar * 0.75;
-test( 'with default fog: flat water beyond fog end, wavy inside half of it', waveStart < fogFar && waveEnd >= fogFar * 0.9 && causticEnd < waveEnd );
 
 console.log( `\n${ passed } passed, ${ failed } failed${ failed ? ' — WITH FAILURES' : '' }` );
 process.exit( failed ? 1 : 0 );

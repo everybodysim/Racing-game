@@ -5,7 +5,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999976';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999977';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails, WaterSplashFX } from './Particles.js';
 import { SkidMarks } from './SkidMarks.js';
@@ -158,6 +158,12 @@ function getModuleCarKey() {
 	const el = typeof document !== 'undefined' ? document.getElementById( 'car-select' ) : null;
 	return el?.value || 'vehicle-truck-yellow';
 }
+
+// Public servers are currently BROKEN — UI is hidden but the whole
+// implementation (join flow, handshake, map-sync, votes) is kept intact.
+// Flip to true (and unhide #mp-public-row / #mp-pubtrack-row in
+// index.html) to bring it back.
+const PUBLIC_SERVERS_UI_ENABLED = false;
 
 initMultiplayerPanel();
 
@@ -1422,6 +1428,7 @@ const PUBLIC_SERVER_VOTE_PASS_RATIO = 0.60;
 
 function buildPublicServerButtons() {
 
+	if ( ! PUBLIC_SERVERS_UI_ENABLED ) return;
 	const container = document.getElementById( 'mp-public-buttons' );
 	if ( ! container ) return;
 	container.innerHTML = '';
@@ -1498,6 +1505,7 @@ function buildPublicServerButtons() {
 
 function updatePublicServerButtonStates() {
 
+	if ( ! PUBLIC_SERVERS_UI_ENABLED ) return;
 	const buttons = document.querySelectorAll( '#mp-public-buttons button[data-server-id]' );
 	buttons.forEach( ( btn ) => {
 
@@ -2863,7 +2871,9 @@ function initMultiplayerPanel() {
 
 	// Auto-join a public server on boot via ?pubServer=<id>. Used after a
 	// map-switch redirect so players rejoin the same server on the new map.
-	const pubServerParam = String( new URLSearchParams( window.location.search ).get( 'pubServer' ) || '' ).trim().toLowerCase();
+	const pubServerParam = PUBLIC_SERVERS_UI_ENABLED
+		? String( new URLSearchParams( window.location.search ).get( 'pubServer' ) || '' ).trim().toLowerCase()
+		: '';
 	if ( pubServerParam && findPublicServer( pubServerParam ) ) {
 
 		const params = new URLSearchParams( window.location.search );
