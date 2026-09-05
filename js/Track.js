@@ -216,13 +216,18 @@ function normalizePoolVisuals( extras = null ) {
 
 	const cfg = extras?.customPool && typeof extras.customPool === 'object' ? extras.customPool : {};
 	const isHex = ( value ) => /^#[0-9a-f]{6}$/i.test( String( value || '' ) );
+	// Custom colors only apply when the track's editor checkbox opted in
+	// (colorsOn). Without it the pool uses the classic blue — even if the
+	// payload carries old color values — so the toggle is OFF by default.
+	const colorsOn = cfg.colorsOn === true;
 	return {
 		// Bluer than the old default — the shader body adds a further cool tint.
-		waterColor: isHex( cfg.waterColor ) ? cfg.waterColor : '#1180e6',
-		edgeColor: isHex( cfg.edgeColor ) ? cfg.edgeColor : '#5cc7ff',
+		waterColor: colorsOn && isHex( cfg.waterColor ) ? cfg.waterColor : '#1180e6',
+		edgeColor: colorsOn && isHex( cfg.edgeColor ) ? cfg.edgeColor : '#5cc7ff',
 		// Opaque by default (refraction is drawn in-shader like the reference
 		// demo); only tracks that explicitly ask get the see-through alpha.
 		transparent: cfg.transparent === true,
+		isCustom: colorsOn,
 	};
 
 }
@@ -232,7 +237,9 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 	return new THREE.ShaderMaterial( {
 		uniforms: {
 			time: { value: 0 },
-			waveHeight: { value: CELL_RAW * 0.17 },
+			// 3x the original 0.05 (was briefly 0.17/3.4x — the tallest random crests
+			// clipped through the grass surface, so this backs off to 3x).
+			waveHeight: { value: CELL_RAW * 0.15 },
 			floorY: { value: - WATER_DEPTH },
 			tDiffuse: { value: null },
 			resolution: { value: new THREE.Vector2( 1, 1 ) },
@@ -246,7 +253,24 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			causticFadeStart: { value: CELL_RAW * 5 },
 			causticFadeEnd: { value: CELL_RAW * 9 },
 			lightDir: { value: new THREE.Vector3( 0.577, 0.577, 0.577 ).normalize() },
-			deepColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0x041f3d ), 0.6 ) },
+			// Custom pools: push the picked hue hard (saturate x1.5, clamp
+			// lightness into a readable band) and nearly skip the deep-navy
+			// drown so a red pool reads RED. Default pools keep the old look.
+			deepColor: { value: ( () => {
+
+				const c = new THREE.Color( visuals.waterColor );
+				if ( visuals.isCustom ) {
+
+					const hsl = { h: 0, s: 0, l: 0 };
+					c.getHSL( hsl );
+					c.setHSL( hsl.h, Math.min( 1, hsl.s * 1.5 ), THREE.MathUtils.clamp( hsl.l, 0.34, 0.62 ) );
+
+				}
+				return c.lerp( new THREE.Color( 0x041f3d ), visuals.isCustom ? 0.12 : 0.6 );
+
+			} )() },
+			// Neutral tint for custom pools (no blue shift); classic cool tint otherwise.
+			uTint: { value: new THREE.Vector3( visuals.isCustom ? 1 : 0.86, visuals.isCustom ? 1 : 0.94, visuals.isCustom ? 1 : 1.08 ) },
 			skyTop: { value: new THREE.Color( 0x6db3e8 ) },
 			skyHorizon: { value: new THREE.Color( 0xdff3ff ) },
 
@@ -321,6 +345,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			uniform float floorY;
 			uniform vec3 lightDir;
 			uniform vec3 deepColor;
+			uniform vec3 uTint;
 			uniform vec3 skyTop;
 			uniform vec3 skyHorizon;
 			varying vec3 vWorldPos;
@@ -382,8 +407,9 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				float caustic = pow( max( 0.0, 1.0 - web ), 30.0 ) * 0.6 * vCausticDistFade;
 				refrColor += vec3( caustic * vec3( 0.65, 0.8, 0.9 ) );
 
-				// The bluer body tint requested
-				refrColor *= vec3( 0.86, 0.94, 1.08 );
+				// The bluer body tint requested (custom pools stay neutral so the
+				// picked color is not shifted back toward blue)
+				refrColor *= uTint;
 
 				vec3 final = mix( refrColor, skyColor, fresnel );
 				final += vec3( pow( max( dot( rDir, lightDir ), 0.0 ), 450.0 ) * 0.3 );
@@ -854,7 +880,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				wall.castShadow = true;
 				wall.receiveShadow = true;
 				pool.add( wall );
-				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: 0.3, roughness: 0.22, metalness: 0.12 } ) );
+				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: poolVisuals.isCustom ? 0.55 : 0.3, roughness: 0.22, metalness: 0.12 } ) );
 				edge.position.set( side.x, 0.515, side.z );
 				edge.rotation.y = side.ry;
 				pool.add( edge );
@@ -1080,8 +1106,19 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				} )
 			);
 			patch.rotation.x = - Math.PI / 2;
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+			const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
+			const yOffset = getOverlayHeightOffset( elevatedEntry );
 			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
+			// Slope tilt: surfaces and pads placed on a slope block lie flush with
+			// the ramp. The tilt comes from the cell's own elevated entry, so
+			// off-grid (fractional) placements work exactly like on-grid ones.
+			// The ramp rises toward local -Z, so the plane tilts toward local +Z
+			// (downhill) by atan(height / cell).
+			if ( elevatedEntry && elevatedEntry.type === 'slope-up' ) {
+				patch.rotation.order = 'YXZ';
+				patch.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ elevatedEntry.orient ] ?? 0 );
+				patch.rotation.x = - Math.PI / 2 + Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
+			}
 			patch.receiveShadow = true;
 			trackPieceGroup.add( patch );
 

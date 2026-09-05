@@ -416,6 +416,8 @@
 /* ─── Feature 4: Minimap ─── */
 #minimap-wrap { position: absolute; left: 12px; top: 12px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
 #minimap-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
+#btn-custom-pool { display: inline-flex; align-items: center; gap: 6px; }
+#btn-custom-pool #cp-colors-toggle { accent-color: #34d058; width: 14px; height: 14px; margin: 0; cursor: pointer; flex: none; }
 #minimap-label { position: absolute; top: 4px; left: 8px; font: 700 9px sans-serif; color: rgba(255,255,255,0.45); pointer-events: none; text-transform: uppercase; letter-spacing: 0.06em; }
 #minimap-wrap.hidden { display: none; }
 
@@ -598,7 +600,7 @@
 			<button id="btn-wall">Wall +</button>
 			<button id="btn-jump">Jump +</button>
 			<button id="btn-water">Water Pool +</button>
-			<button id="btn-custom-pool">Custom Pool</button>
+			<button id="btn-custom-pool" title="Opens custom pool settings"><input type="checkbox" id="cp-colors-toggle" aria-label="Enable custom pool colors"> Custom Pool</button>
 		</div>
 		<div class="toolbar-group" aria-label="Moving objects" data-cat="moving">
 			<span class="toolbar-group-label">Moving</span>
@@ -775,6 +777,9 @@
 	const WATER_TOOL = 'water-pool';
 	const CUSTOM_POOL_DEFAULT = { drag: 1.8, buoyancy: 0.28, waterColor: '#1f8fd6', edgeColor: '#5cc7ff', transparent: true };
 	let customPoolConfig = { ...CUSTOM_POOL_DEFAULT };
+	// Custom pool COLORS master switch — OFF by default. The checkbox inside the
+	// Custom Pool button toggles it; pool physics (drag/buoyancy) always apply.
+	let customPoolColorsEnabled = false;
 	let worldPreset = 'normal';
 	const MOVING_SLIDE_TOOL = 'moving-slide-block';
 	const MOVING_SPIN_TOOL = 'moving-spin-wall';
@@ -1208,7 +1213,10 @@
 	function getOverlayHeightOffset( cell ) {
 
 		if ( ! cell?.elevatedType ) return 0;
-		return cell.elevatedType === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
+		// Both slope directions ramp ground -> ELEVATED_HEIGHT across the cell,
+		// so their midpoint (cell center) sits at half height either way.
+		if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) return ELEVATED_HEIGHT * 0.5;
+		return ELEVATED_HEIGHT;
 
 	}
 
@@ -1814,6 +1822,20 @@
 
 						c.castShadow = true;
 						c.receiveShadow = true;
+						// GLB materials are single-sided; seen from underneath / behind, the
+						// faces vanish and cast broken shadows. Render every elevated block
+						// double-sided. Materials are shared with the source model, so this
+						// covers all instances (guarded so it only mutates once).
+						if ( c.material && ! c.material.__doubleSided ) {
+
+							( Array.isArray( c.material ) ? c.material : [ c.material ] ).forEach( ( m ) => {
+
+								m.side = THREE.DoubleSide;
+								m.__doubleSided = true;
+
+							} );
+
+						}
 
 					}
 
@@ -1971,6 +1993,16 @@
 				patch.rotation.x = - Math.PI / 2;
 				const yOffset = getOverlayHeightOffset( cell );
 				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
+				// Slope tilt: flush with the ramp, matching the game build. Uses the
+				// cell's own elevated block, so off-grid cells tilt correctly too.
+				if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) {
+					const slopeOrient = cell.elevatedType === 'slope-down'
+						? ( ORIENT_180[ cell.elevatedOrient || 0 ] ?? ( cell.elevatedOrient || 0 ) )
+						: ( cell.elevatedOrient || 0 );
+					patch.rotation.order = 'YXZ';
+					patch.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeOrient ] || 0 );
+					patch.rotation.x = - Math.PI / 2 + Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
+				}
 				patch.receiveShadow = true;
 				trackGroup.add( patch );
 				cell.surfaceMeshes.push( patch );
@@ -2018,12 +2050,20 @@
 
 		const group = new THREE.Group();
 		group.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
-		const edgeColor = new THREE.Color( customPoolConfig.edgeColor || CUSTOM_POOL_DEFAULT.edgeColor );
-		const waterColor = new THREE.Color( customPoolConfig.waterColor || CUSTOM_POOL_DEFAULT.waterColor );
-		const waterMat = new THREE.MeshStandardMaterial( { color: waterColor, emissive: waterColor, emissiveIntensity: 0.18, roughness: 0.35, metalness: 0.02, transparent: Boolean( customPoolConfig.transparent ), opacity: customPoolConfig.transparent ? 0.72 : 1 } );
+		// Mirror the game: colors only when the editor checkbox opted in, and
+		// pushed hard (saturated + glowing) so the custom color reads clearly.
+		const colorsOn = customPoolColorsEnabled === true;
+		const edgeColor = new THREE.Color( colorsOn ? ( customPoolConfig.edgeColor || CUSTOM_POOL_DEFAULT.edgeColor ) : '#5cc7ff' );
+		const waterColor = new THREE.Color( colorsOn ? ( customPoolConfig.waterColor || CUSTOM_POOL_DEFAULT.waterColor ) : '#1180e6' );
+		if ( colorsOn ) {
+			const hsl = { h: 0, s: 0, l: 0 };
+			waterColor.getHSL( hsl );
+			waterColor.setHSL( hsl.h, Math.min( 1, hsl.s * 1.5 ), THREE.MathUtils.clamp( hsl.l, 0.34, 0.62 ) );
+		}
+		const waterMat = new THREE.MeshStandardMaterial( { color: waterColor, emissive: waterColor, emissiveIntensity: colorsOn ? 0.45 : 0.18, roughness: 0.35, metalness: 0.02, transparent: Boolean( customPoolConfig.transparent ), opacity: customPoolConfig.transparent ? 0.72 : 1 } );
 		const floorMat = new THREE.MeshStandardMaterial( { color: 0x31433e, roughness: 0.95, metalness: 0.0 } );
 		const wallMat = new THREE.MeshStandardMaterial( { color: 0x20312e, roughness: 0.9, metalness: 0.0 } );
-		const edgeMat = new THREE.MeshStandardMaterial( { color: edgeColor, emissive: edgeColor, emissiveIntensity: 0.28, roughness: 0.4 } );
+		const edgeMat = new THREE.MeshStandardMaterial( { color: edgeColor, emissive: edgeColor, emissiveIntensity: colorsOn ? 0.55 : 0.28, roughness: 0.4 } );
 		const floor = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ), floorMat );
 		floor.position.y = - CELL_RAW * 0.34;
 		floor.receiveShadow = true;
@@ -3004,7 +3044,7 @@
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload, z: poolSlopes } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig, colorsOn: customPoolColorsEnabled === true }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload, z: poolSlopes } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
@@ -3159,6 +3199,9 @@
 				...( mods.y || {} )
 			};
 			customPoolConfig = normalizeCustomPoolConfig( mods.r );
+			customPoolColorsEnabled = mods?.r?.colorsOn === true;
+			const cpToggle = document.getElementById( 'cp-colors-toggle' );
+			if ( cpToggle ) cpToggle.checked = customPoolColorsEnabled;
 			worldPreset = mods.t === 'pool-filled' ? 'pool-filled' : 'normal';
 			const templateSelect = document.getElementById( 'map-template-select' );
 			if ( templateSelect ) templateSelect.value = worldPreset === 'pool-filled' ? 'pool-filled' : 'normal';
@@ -3756,7 +3799,19 @@ function refreshMovingSpeedUi() {
 	document.getElementById( 'btn-portal-id-down' )?.addEventListener( 'click', () => nudgeSelectedArcId( - 1 ) );
 	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
 	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
-	document.getElementById( 'btn-custom-pool' )?.addEventListener( 'click', () => {
+	// Colors checkbox INSIDE the Custom Pool button — clicking it must not open
+	// (or re-trigger) the settings panel.
+	document.getElementById( 'cp-colors-toggle' )?.addEventListener( 'click', ( event ) => {
+		event.stopPropagation();
+		customPoolColorsEnabled = event.currentTarget.checked;
+		// Re-render every pool so the preview matches what the game will show.
+		for ( const [ key, cell ] of grid ) if ( cell.water ) { const [ gx, gz ] = key.split( ',' ).map( Number ); placeOverlayMesh( gx, gz, cell ); }
+		save();
+		showToast( customPoolColorsEnabled ? 'Custom pool colors enabled' : 'Custom pool colors disabled' );
+	} );
+	document.getElementById( 'btn-custom-pool' )?.addEventListener( 'click', ( event ) => {
+		if ( event.target && event.target.id === 'cp-colors-toggle' ) return;
+		document.getElementById( 'cp-colors-toggle' ).checked = customPoolColorsEnabled;
 		document.getElementById( 'cp-drag' ).value = String( customPoolConfig.drag );
 		document.getElementById( 'cp-buoyancy' ).value = String( customPoolConfig.buoyancy );
 		document.getElementById( 'cp-water-color' ).value = customPoolConfig.waterColor;

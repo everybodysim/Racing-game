@@ -830,6 +830,9 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 		#countdown-setting input, #fps-setting input { margin-top: 2px; }
 		#countdown-setting small, #fps-setting small { display: block; margin-top: 2px; color: #bde6ff; }
+		#default-car-setting { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.14); color: #fff; font: 600 12px/1.3 sans-serif; }
+		#default-car-setting small { display: block; margin-top: 2px; color: #bde6ff; }
+		#default-car-select { margin-left: auto; min-width: 110px; padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.22); background: rgba(0,0,0,0.3); color: #fff; font: 600 12px sans-serif; }
 		#graphics-section {
 			margin-top: 10px;
 			padding-top: 10px;
@@ -2479,6 +2482,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<input id="fps-toggle" type="checkbox">
 				<span>Show FPS<small>Displays a small bottom-center frame-rate counter.</small></span>
 			</label>
+			<label id="default-car-setting" for="default-car-select">
+				<span>Default Car<small>The car every race starts in. Random rolls a new one each race.</small></span>
+				<select id="default-car-select" aria-label="Default car"></select>
+			</label>
 			<section id="audio-section" aria-labelledby="audio-section-title">
 				<h4 id="audio-section-title">Audio</h4>
 				<div class="audio-control-row">
@@ -3401,7 +3408,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000210&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000211&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;

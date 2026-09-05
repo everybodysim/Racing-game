@@ -318,6 +318,8 @@ const BOOST_ACCEL_PER_SECOND = 16.5;
 const FX_SETTINGS_KEY = 'racing-fx-settings-v1';
 const COUNTDOWN_SETTINGS_KEY = 'racing-countdown-enabled-v1';
 const FPS_HUD_SETTINGS_KEY = 'racing-show-fps-v1';
+// Default-car gameplay setting: '__last' (keep last used), '__random', or a CAR_STATS key.
+const DEFAULT_CAR_KEY = 'racing-default-car-v1';
 const COUNTDOWN_DURATION_SECONDS = 3;
 const ZERO_DRIVE_INPUT = { x: 0, z: 0 };
 const VEHICLE_SURFACE_RADIUS = 0.5;
@@ -5921,6 +5923,7 @@ async function init() {
 	const effectMessage = document.getElementById( 'effect-message' );
 	let effectMessageTimeout = null;
 	const carSelect = document.getElementById( 'car-select' );
+	const defaultCarSelect = document.getElementById( 'default-car-select' );
 	const coinsLabel = document.getElementById( 'coins-label' );
 	const accountCoinsValue = document.getElementById( 'account-coins-value' );
 	const shareTimeBtn = document.getElementById( 'share-time-btn' );
@@ -6959,9 +6962,40 @@ async function init() {
 
 	}
 
+	// Paint masks (per-pixel selection RLE) are the only heavy part of garage
+	// storage. Returns the cosmetics as-is when under budget, or a copy with
+	// the OLDEST masks stripped until it fits — keeps localStorage and the
+	// cloud profile small no matter how much someone paints.
+	function compactGarageCosmetics( cosmetics, budget = 200000 ) {
+
+		if ( ! cosmetics ) return cosmetics;
+		let maskTotal = 0;
+		for ( const car of Object.values( cosmetics.cars || {} ) ) {
+			for ( const mapping of car.mappings || [] ) {
+				if ( mapping?.mask ) maskTotal += String( mapping.mask ).length;
+			}
+		}
+		if ( maskTotal <= budget ) return cosmetics;
+		const clone = JSON.parse( JSON.stringify( cosmetics ) );
+		let over = maskTotal - budget;
+		for ( const car of Object.values( clone.cars || {} ) ) {
+			for ( const mapping of car.mappings || [] ) {
+				if ( over <= 0 ) return clone;
+				if ( mapping?.mask ) {
+					over -= String( mapping.mask ).length;
+					mapping.mask = '';
+					mapping.maskW = 0;
+					mapping.maskH = 0;
+				}
+			}
+		}
+		return clone;
+
+	}
+
 	function saveGarageMods() {
 
-		localStorage.setItem( garageStoreKey, JSON.stringify( { mods: garageMods, unlocked: garageUnlocked, cosmetics: garageCosmetics } ) );
+		localStorage.setItem( garageStoreKey, JSON.stringify( { mods: garageMods, unlocked: garageUnlocked, cosmetics: compactGarageCosmetics( garageCosmetics ) } ) );
 
 	}
 
@@ -7549,14 +7583,15 @@ async function init() {
 			button.className = `garage-vehicle-card${ carKey === selectedKey ? ' active' : '' }`;
 			button.dataset.carKey = carKey;
 			button.style.setProperty( '--garage-accent', style.border || '#9ed8ff' );
+			// No per-card spinning 3D previews anymore — with many painted cars
+			// the shared preview renderer repaint (clone + full texture recolor
+			// per car, per frame) tanked the whole page. The big garage viewer
+			// is the one true preview now.
 			button.innerHTML = `
 				<h5>${ stats.name }</h5>
-				<canvas class="garage-card-preview" aria-label="${ stats.name } preview"></canvas>
 				<div class="garage-vehicle-meta">
 					<span>Paint maps: ${ mappings }</span>
 				</div>`;
-			const canvas = button.querySelector( '.garage-card-preview' );
-			garageCardCanvasByKey[ carKey ] = canvas;
 			button.addEventListener( 'click', ( event ) => { event.preventDefault(); event.stopPropagation(); selectGarageCar( carKey ); } );
 			garageVehicleCards.appendChild( button );
 
@@ -7928,6 +7963,11 @@ async function init() {
 		const total = source.width * source.height;
 		// Pre-decode any masks so the hot loop stays cheap.
 		const masks = resolvedMappings.map( ( m ) => getResolvedMappingMask( m, total ) );
+		// Masked mappings are region-accurate: they must ONLY paint inside their
+		// mask. Letting them also color-match globally doubled the effective
+		// tolerance (selected region + a whole-car wash of the same paint).
+		// Legacy / ghost mappings without masks keep the global color match.
+		const globalMappings = resolvedMappings.filter( ( m, idx ) => ! masks[ idx ] );
 		for ( let i = 0, p = 0; i < output.length; i += 4, p ++ ) {
 
 			let mapped = null;
@@ -7944,7 +7984,7 @@ async function init() {
 					r: output[ i ],
 					g: output[ i + 1 ],
 					b: output[ i + 2 ],
-				}, resolvedMappings );
+				}, globalMappings );
 
 			}
 			if ( mapped ) {
@@ -8579,9 +8619,10 @@ function completeCampaignStage() {
 			v: 2,
 			playerName: sanitizePlayerName( playerNameInput?.value || '' ),
 			economy: { coins },
-			garage: { mods: garageMods, unlocked: garageUnlocked, cosmetics: garageCosmetics },
+			garage: { mods: garageMods, unlocked: garageUnlocked, cosmetics: compactGarageCosmetics( garageCosmetics ) },
 			campaign: campaignState,
 			carKey: currentCarKey(),
+			defaultCar: localStorage.getItem( DEFAULT_CAR_KEY ) || '__last',
 			hud: window.__hudGrid ? window.__hudGrid.getLayoutSnapshot() : undefined,
 			settings: GameSettings.getSettings(),
 		};
@@ -8655,6 +8696,14 @@ function completeCampaignStage() {
 				progress: Number.isFinite( parsed.campaign.progress ) ? Math.max( 0, parsed.campaign.progress ) : 0,
 				completedRoadmaps: Number.isFinite( parsed.campaign.completedRoadmaps ) ? Math.max( 0, parsed.campaign.completedRoadmaps ) : 0,
 			};
+
+		}
+		if ( typeof parsed?.defaultCar === 'string' ) {
+
+			localStorage.setItem( DEFAULT_CAR_KEY, parsed.defaultCar );
+			const defaultSelect = document.getElementById( 'default-car-select' );
+			if ( defaultSelect ) defaultSelect.value = parsed.defaultCar;
+			applyDefaultCar( parsed.defaultCar );
 
 		}
 		if ( typeof parsed?.carKey === 'string' && carSelect && CAR_STATS[ parsed.carKey ] ) {
@@ -10319,6 +10368,52 @@ function completeCampaignStage() {
 
 	}
 
+	// Auto-save: every 5 minutes the profile syncs to the accounts backend so a
+	// crash / closed tab never loses more than ~5 minutes of progress. A top
+	// notification (same channel as lap deltas / leaderboard notices) confirms
+	// each save; failures stay quiet in the console.
+	setInterval( async () => {
+
+		if ( ! accountSession?.token ) return;
+		try {
+
+			await cloudSaveProfile();
+			showTopMessage( 'Profile auto-saved to the cloud', false, 1800 );
+
+		} catch ( err ) {
+
+			console.warn( 'Profile auto-save failed', err );
+
+		}
+
+	}, 300000 );
+
+	// Debounced profile cloud sync for small setting changes (default car, etc.).
+	let profileCloudSyncTimer = null;
+	function syncProfileToCloudDebounced() {
+
+		if ( ! accountSession?.token ) return;
+		if ( profileCloudSyncTimer ) clearTimeout( profileCloudSyncTimer );
+		profileCloudSyncTimer = setTimeout( async () => {
+
+			profileCloudSyncTimer = null;
+			try {
+
+				await accountApiRequest( '/profile', {
+					method: 'POST',
+					body: JSON.stringify( { token: accountSession.token, profile: getCurrentProfileSnapshot() } ),
+				} );
+
+			} catch ( err ) {
+
+				console.warn( 'Profile cloud sync failed', err );
+
+			}
+
+		}, 1500 );
+
+	}
+
 	// Debounced HUD layout -> cloud sync. Triggered by js/HudGrid.js whenever the
 	// player adds/removes/reorders a widget (saveHudLayout -> onHudLayoutChange).
 	// No-op when not signed in; the layout still persists to localStorage.
@@ -11559,6 +11654,47 @@ function completeCampaignStage() {
 		updateFpsHudVisibility();
 
 	} );
+
+	// ── Default car setting (Gameplay panel) ─────────────────────────────
+	// '__last' keeps the current behavior (remember the car you drove last),
+	// '__random' rolls a new car every race start, anything else is a CAR_STATS key.
+	function applyDefaultCar( value ) {
+
+		if ( ! value || value === '__last' ) return;
+		if ( value === '__random' ) {
+
+			randomizeLapCarIfSinglePlayer();
+			return;
+
+		}
+		if ( ! CAR_STATS[ value ] ) return;
+		if ( carSelect ) carSelect.value = value;
+		updateCarSelectColor();
+		if ( models[ value ] ) vehicle.setModel( models[ value ] );
+		applyCarCustomization( vehicle );
+		applyVehiclePerformance();
+
+	}
+
+	if ( defaultCarSelect ) {
+
+		const options = [ '<option value="__last">Last used car (default)</option>', '<option value="__random">Random</option>' ];
+		for ( const [ key, stats ] of Object.entries( CAR_STATS ) ) options.push( `<option value="${ key }">${ stats.name }</option>` );
+		defaultCarSelect.innerHTML = options.join( '' );
+		defaultCarSelect.value = localStorage.getItem( DEFAULT_CAR_KEY ) || '__last';
+
+		defaultCarSelect.addEventListener( 'change', () => {
+
+			const value = defaultCarSelect.value || '__last';
+			localStorage.setItem( DEFAULT_CAR_KEY, value );
+			applyDefaultCar( value );
+			showTopMessage( value === '__random' ? 'Default car: random' : ( CAR_STATS[ value ] ? `Default car: ${ CAR_STATS[ value ].name }` : 'Default car: last used' ), false, 1800 );
+			syncProfileToCloudDebounced();
+
+		} );
+
+	}
+
 	garageTargetColorInput?.addEventListener( 'input', () => { updateGaragePaintControls(); refreshGarageViewer(); } );
 	garageRepaintToleranceInput?.addEventListener( 'input', () => { updateGaragePaintControls(); } );
 	garageClearSelectionBtn?.addEventListener( 'click', clearGarageSelection );
@@ -11594,7 +11730,10 @@ function completeCampaignStage() {
 		const maskRle = encodeSelectionMaskRle( garageSelectionMask );
 		const mw = garageSelectionSource ? garageSelectionSource.width : 0;
 		const mh = garageSelectionSource ? garageSelectionSource.height : 0;
-		const existing = carData.mappings.find( ( mapping ) => mapping.mask || colorDistanceSqHex( mapping.sourceHex, sourceHex ) <= tolerance * tolerance );
+		// Only fold into an existing mapping when the CLICKED SOURCE COLOR matches it
+			// (previously "mapping.mask ||" matched any masked mapping first, so every
+			// new masked repaint silently overwrote an older masked region).
+			const existing = carData.mappings.find( ( mapping ) => colorDistanceSqHex( mapping.sourceHex, sourceHex ) <= tolerance * tolerance );
 		if ( existing ) {
 
 			existing.sourceHex = sourceHex;
@@ -11822,7 +11961,10 @@ function completeCampaignStage() {
 
 	}, 480000 );
 	if ( campaignParamEnabled ) setGameMode( 'campaign' );
-	randomizeLapCarIfSinglePlayer();
+	// Default-car setting wins at boot: unset or '__random' rolls a fresh car
+	// (the old boot behavior), a specific car locks it in, '__last' keeps
+	// whatever the profile / page loaded.
+	applyDefaultCar( localStorage.getItem( DEFAULT_CAR_KEY ) || '__random' );
 	resetLapState( true );
 	resetLapState2( true );
 	startCountdown();
@@ -12502,7 +12644,10 @@ function completeCampaignStage() {
 		}
 		skyUniforms.time.value = now;
 		skyUniforms.vibrance.value = THREE.MathUtils.lerp( skyUniforms.vibrance.value, 0.2 + ( speedRatioFx * 0.18 ) + ( driftFx * 0.1 ), Math.min( 1, dt * 2.4 ) );
-		skyGroup.position.set( vehicle.container.position.x, 0, vehicle.container.position.z );
+		// Follow the CAMERA, not the car — in freecam it used to slide with the
+		// vehicle while the camera stood still, which reads very wrong. Keeping y=0
+		// so the horizon line never shifts; x/z track whatever view is active.
+		skyGroup.position.set( cam.camera.position.x, 0, cam.camera.position.z );
 		if ( skyDecorState.starPoints ) {
 			skyDecorState.starPoints.material.opacity = 0.75 + Math.sin( now * 1.3 ) * 0.12 + Math.sin( now * 2.7 + 1.3 ) * 0.08;
 		}
