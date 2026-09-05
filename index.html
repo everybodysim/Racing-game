@@ -2176,6 +2176,75 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	body.mobile #top-message { max-width: calc(100vw - 24px); font-size: 11px; }
 	body.mobile #effect-message { max-width: calc(100vw - 24px); font-size: 11px; bottom: 72px; }
 
+
+	/* ═══════════════════════════════════════════════════════════════
+	   MOBILE UI — ?is-mobile URL PARAM (no auto-detection)
+	   body.mobile is ONLY added by the ?is-mobile URL param (see the
+	   early script in <body>). Every rule below is scoped to it, so
+	   desktop gameplay is completely untouched without the param.
+	   ═══════════════════════════════════════════════════════════════ */
+
+	/* Home page: undo the forced two-column desktop lock when mobile */
+	body.mobile #home-body { grid-template-columns: 1fr !important; }
+	body.mobile .home-mid-row { grid-template-columns: 1fr !important; }
+	body.mobile .home-small-row { grid-template-columns: 1fr 1fr !important; }
+	@media (max-width: 420px) {
+		body.mobile .home-small-row { grid-template-columns: 1fr !important; }
+		body.mobile .home-mid-row { grid-template-columns: 1fr !important; }
+	}
+	body.mobile #home-community { order: 2; margin-top: 12px; }
+
+	/* Desktop-only float chrome hidden on mobile (recorder + HUD editor
+	   are mouse-oriented; their functions live in the menu sheet) */
+	body.mobile #video-recorder-btn,
+	body.mobile #hud-edit-toggle,
+	body.mobile #hud-add-btn { display: none !important; }
+
+	/* Stunt points: tuck above the action dock instead of bottom-center */
+	body.mobile #stunt-points {
+		bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+		font: 700 14px/1.2 sans-serif;
+		text-shadow: 0 2px 8px rgba(0, 0, 0, 0.65);
+		max-width: 72vw;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	/* Top messages: readable width on small screens */
+	body.mobile #top-message, body.mobile #effect-message {
+		width: min(92vw, 480px);
+		font-size: 13px;
+	}
+
+	/* Touch targets in the big panels */
+	body.mobile #mode-menu button,
+	body.mobile #hacks-panel button,
+	body.mobile .mode-tab-btn { min-height: 44px; font-size: 14px; }
+	body.mobile #mode-tab-row { gap: 6px; }
+	body.mobile .mode-tab-btn { padding: 8px 10px; }
+
+	/* Advancements overlay: touch-sized close button */
+	body.mobile #adv-close { min-height: 44px !important; min-width: 44px !important; font-size: 14px !important; padding: 10px 16px !important; }
+
+	/* FPS counter: small + out of the way */
+	body.mobile #fps-hud { font-size: 10px; opacity: 0.75; }
+
+	/* Landscape phones (racing in landscape is common): compact chrome */
+	@media (orientation: landscape) and (max-height: 500px) {
+		body.mobile #mobile-action-dock { bottom: 6px; padding: 4px; gap: 4px; }
+		body.mobile #mobile-action-dock button { min-width: 54px; min-height: 34px; font-size: 13px; }
+		body.mobile #mobile-action-dock span { font-size: 8px; margin-top: 1px; }
+		body.mobile #stunt-points { bottom: 52px; }
+		body.mobile #hud-grid { top: calc(4px + env(safe-area-inset-top, 0px)); transform: translateX(-50%) scale(0.85); transform-origin: top center; }
+		body.mobile #mobile-menu-sheet { max-height: 96vh; }
+		body.mobile .mobile-actions-sheet { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+	}
+
+	/* Sheet grid stays scrollable on short screens */
+	@media (max-height: 620px) {
+		body.mobile .mobile-actions-sheet { max-height: 46vh; }
+	}
 </style>
 	
 	<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -2210,23 +2279,19 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 // the 'mobile' class is never added, and the @media (pointer: coarse) mobile
 // blocks use an impossible query. Revert both to re-enable mobile UI later.
 (function() {
-	// TEMPORARY: mobile UI disabled — the standard (desktop) layout is force-locked
-	// everywhere. The `mobile` class is NOT added (so all body.mobile CSS rules are
-	// inert) and the @media (pointer: coarse) mobile blocks use an impossible query
-	// (see the `and (pointer: fine)` additions). The existing two-column main-menu
-	// block below keeps the home layout from collapsing on narrow screens.
-	// To re-enable mobile UI later: restore this IIFE body (remove the early return)
-	// and revert the @media (pointer: coarse) queries.
-	return;
-	var isTouch = 'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0;
-	var isSmallScreen = window.innerWidth <= 760;
-	var isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-	if (isSmallScreen || isMobileUA || (isTouch && window.innerWidth <= 1024)) {
-		document.body.classList.add('mobile');
+	// Mobile UI is opt-in via the ?is-mobile URL param for now — NO device / UA /
+	// touch auto-detection, so desktop gameplay is pixel-identical without it.
+	// Test with: index.html?play=1&is-mobile (or the bundled mobile-emulator.html).
+	if ( new URLSearchParams( window.location.search ).has( 'is-mobile' ) ) {
+		document.body.classList.add( 'mobile' );
 	}
-	if (localStorage.getItem('racing-debug-mobile-test') === '1') {
-		document.body.classList.add('mobile');
-	}
+	// Future auto-detection (kept commented for when it's wanted again):
+	// var isTouch = 'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0;
+	// var isSmallScreen = window.innerWidth <= 760;
+	// var isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+	// if (isSmallScreen || isMobileUA || (isTouch && window.innerWidth <= 1024)) {
+	// 	document.body.classList.add('mobile');
+	// }
 })();
 </script>
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -2648,10 +2713,13 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<a href="tracks.html">Track share board</a>
 			<a href="clubs.html">Clubs</a>
 			<a href="mods.html">Mods</a>
+			<a href="official-tracks.html">Official tracks</a>
+			<a href="settings.html">Settings</a>
 			<button type="button" data-mobile-click="split-link">2P split screen</button>
 			<button type="button" data-mobile-click="hacks-toggle">Hacks</button>
 			<button type="button" data-mobile-click="export-ghost-btn">Export ghost</button>
 			<button type="button" data-mobile-click="import-ghost-btn">Import ghost</button>
+			<a href="index.html">Back to home</a>
 		</div>
 	</section>
 	<a id="respawnBtn" href="#" role="button">Respawn</a>
@@ -3333,7 +3401,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000209&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000210&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;

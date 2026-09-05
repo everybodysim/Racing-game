@@ -38,7 +38,7 @@ for ( const fn of [ 'joinPublicServer', 'leavePublicServer', 'onPublicServerMapS
 test( 'PublicServers.js module still imported (not ripped out)', /from '\.\/PublicServers\.js/.test( main ) );
 
 // 6. Cache bumped (main.js changed)
-test( 'index.html cache bumped to 1000207', /v=1000209/.test( html ) );
+test( 'index.html cache bumped to 1000210', /v=1000210/.test( html ) );
 
 console.log( `\n${ passed } passed, ${ failed } failed${ failed ? ' — WITH FAILURES' : '' }` );
 process.exit( failed ? 1 : 0 );
