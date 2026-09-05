@@ -260,22 +260,50 @@
 			font-size: 12px;
 		}
 
-		#settings-bar input[type="checkbox"] {
-			accent-color: #7ab8ff;
-			width: 14px;
-			height: 14px;
-		}
-		#settings-bar .back-home {
-			text-decoration: none;
-			font: 700 12px sans-serif;
-			padding: 5px 10px;
+		#settings-bar .weather-lightning-toggle {
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
+			padding: 5px 9px;
+			border: 1px solid rgba( 255, 218, 121, 0.42 );
 			border-radius: 7px;
-			border: 1px solid rgba(140,210,255,0.5);
-			background: rgba(29,78,216,0.85);
-			color: #fff;
+			background: linear-gradient( 135deg, rgba( 111, 82, 18, 0.65 ), rgba( 49, 38, 15, 0.76 ) );
+			color: #fff2bd;
+			font: 700 12px/1 sans-serif;
+			cursor: pointer;
 			white-space: nowrap;
 		}
-		#settings-bar .back-home:hover { background: rgba(37,99,235,1); }
+		#settings-bar .weather-lightning-toggle:hover { background: linear-gradient( 135deg, rgba( 145, 107, 25, 0.78 ), rgba( 66, 49, 16, 0.9 ) ); }
+		#settings-bar .weather-lightning-toggle input { accent-color: #ffd85a; width: 14px; height: 14px; margin: 0; cursor: pointer; }
+
+		/* Docked beside the canvas, clear of the top camera controls and the
+		   bottom tool shelf so chat can remain open while editing. */
+		#editor-chat-panel {
+			position: fixed;
+			right: 12px;
+			top: 112px;
+			width: min( 288px, calc( 100vw - 24px ) );
+			height: min( 390px, calc( 100vh - 258px ) );
+			min-height: 230px;
+			display: flex;
+			flex-direction: column;
+			background: rgba( 16, 18, 24, 0.94 );
+			border: 1px solid rgba( 255, 255, 255, 0.16 );
+			border-radius: 12px;
+			box-shadow: 0 14px 34px rgba( 0, 0, 0, 0.42 );
+			overflow: hidden;
+			z-index: 24;
+		}
+		#editor-chat-header { padding: 9px 11px; border-bottom: 1px solid rgba( 255, 255, 255, 0.1 ); color: #eaf3ff; font: 800 12px/1 sans-serif; }
+		#editor-chat-account { padding: 7px 10px; color: #aebfd5; font: 600 10px/1.25 sans-serif; border-bottom: 1px solid rgba( 255, 255, 255, 0.08 ); }
+		#editor-chat-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; }
+		.editor-chat-message { margin: 5px 0; padding: 7px 8px; border: 1px solid rgba( 255, 255, 255, 0.08 ); border-radius: 8px; background: rgba( 255, 255, 255, 0.06 ); color: #eef5ff; font: 12px/1.3 sans-serif; overflow-wrap: anywhere; }
+		#editor-chat-input-row { display: flex; gap: 6px; padding: 8px; border-top: 1px solid rgba( 255, 255, 255, 0.1 ); }
+		#editor-chat-input { flex: 1; min-width: 0; padding: 7px 8px; border: 1px solid rgba( 255, 255, 255, 0.18 ); border-radius: 7px; background: rgba( 6, 9, 14, 0.9 ); color: #fff; font: 12px sans-serif; }
+		#editor-chat-send { padding: 7px 9px; border: 1px solid rgba( 119, 243, 177, 0.42 ); border-radius: 7px; background: rgba( 48, 151, 96, 0.3 ); color: #c8ffdc; font: 800 11px sans-serif; cursor: pointer; }
+		#editor-chat-send:hover { background: rgba( 48, 151, 96, 0.5 ); }
+		@media ( max-height: 680px ) { #editor-chat-panel { height: calc( 100vh - 258px ); } }
+		@media ( max-width: 760px ), ( pointer: coarse ) { #editor-chat-panel { display: none; } }
 
 	#side-ui-bar {
 			position: absolute;
@@ -437,7 +465,6 @@
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content">
 	<div id="settings-bar">
-		<a class="back-home" href="index.html">← Home</a>
 		<button id="settings-toggle-btn" type="button">⚙ Track Settings</button>
 		<label for="weather-preset">Weather</label>
 
@@ -466,8 +493,7 @@
 			<option value="breezy">Breezy</option>
 			<option value="gusty">Gusty</option>
 		</select>
-		<label for="weather-lightning">Lightning</label>
-		<input id="weather-lightning" type="checkbox" aria-label="Lightning flashes">
+		<label class="weather-lightning-toggle" for="weather-lightning"><input id="weather-lightning" type="checkbox" aria-label="Lightning flashes"><span>⚡ Lightning</span></label>
 		<label for="map-template-select">Template</label>
 		<select id="map-template-select" aria-label="Map template">
 			<option value="normal">Normal map</option>
@@ -679,6 +705,15 @@
 	</select>
 	<button id="btn-respawn-car" title="Respawn the test car at the start line (Shift+R)">Respawn Car</button>
 </div>
+	<aside id="editor-chat-panel" aria-label="Live chat">
+		<div id="editor-chat-header">💬 Live Chat</div>
+		<div id="editor-chat-account">Checking account…</div>
+		<div id="editor-chat-messages" aria-live="polite"></div>
+		<div id="editor-chat-input-row">
+			<input id="editor-chat-input" type="text" maxlength="500" placeholder="Type message…" aria-label="Chat message">
+			<button id="editor-chat-send" type="button">Send</button>
+		</div>
+	</aside>
 	<div id="offgrid-dev-banner" hidden>Off-grid placement is still in development — expect rough edges while it gets fixed.</div>
 	<div id="custom-surface-panel" hidden>
 		<h3 id="custom-surface-title">Custom Surface</h3>
@@ -6743,6 +6778,90 @@ function updateMovingObstacles( state, now, vehicleList ) {
 	</script>
 </main>
 
+<script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+<script>
+	// The editor uses the same global channel as the game, but keeps the chat
+	// docked in its own reserved right-side panel so the build tools stay usable.
+	( () => {
+
+		const messages = document.getElementById( 'editor-chat-messages' );
+		const input = document.getElementById( 'editor-chat-input' );
+		const send = document.getElementById( 'editor-chat-send' );
+		const account = document.getElementById( 'editor-chat-account' );
+		if ( ! messages || ! input || ! send || ! account || ! window.Ably ) return;
+
+		function getAccountUsername() {
+
+			try {
+
+				const session = JSON.parse( localStorage.getItem( 'racing-account-session-v1' ) || 'null' );
+				return String( session?.username || '' ).trim();
+
+			} catch {
+
+				return '';
+
+			}
+
+		}
+
+		const username = getAccountUsername();
+		account.textContent = username ? `Chatting as ${ username }` : 'Log in from the game home screen to send messages.';
+		const seen = new Set();
+		function addMessage( text ) {
+
+			const message = String( text || '' );
+			if ( ! message || seen.has( message ) || /^\[[^\]]+\](?:\[(?:owner|announce)\])?\s/.test( message ) ) return;
+			seen.add( message );
+			const row = document.createElement( 'div' );
+			row.className = 'editor-chat-message';
+			row.textContent = message;
+			messages.appendChild( row );
+			messages.scrollTop = messages.scrollHeight;
+
+		}
+
+		const ably = new Ably.Realtime( 'kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDmM' );
+		const channel = ably.channels.get( 'global-chat' );
+		channel.history( { limit: 50 }, ( error, result ) => {
+
+			if ( error ) return;
+			for ( const entry of ( result?.items || [] ).reverse() ) addMessage( entry.data );
+
+		} );
+		channel.subscribe( ( entry ) => addMessage( entry.data ) );
+
+		function sendMessage() {
+
+			const text = input.value.trim();
+			const name = getAccountUsername();
+			if ( ! text ) return;
+			if ( ! name ) {
+
+				account.textContent = 'Log in from the game home screen to send messages.';
+				input.focus();
+				return;
+
+			}
+			channel.publish( 'message', `${ name }: ${ text }` );
+			input.value = '';
+
+		}
+
+		send.addEventListener( 'click', sendMessage );
+		input.addEventListener( 'keydown', ( event ) => {
+
+			if ( event.key === 'Enter' ) {
+
+				event.preventDefault();
+				sendMessage();
+
+			}
+
+		} );
+
+	} )();
+</script>
 <script type="module" src="js/PageMusic.js"></script>
 
 </body>
