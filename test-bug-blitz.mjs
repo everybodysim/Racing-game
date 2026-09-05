@@ -92,11 +92,11 @@ test( 'profile snapshot carries defaultCar', main.includes( "defaultCar: localSt
 test( 'profile import merges default car (local pick beats stale cloud)', /const nextDefault = localDefault \|\| cloudDefault \|\| '__last';/.test( main ) && /if \( nextDefault !== '__last' \) applyDefaultCar\( nextDefault \);/.test( main ) );
 test( 'index.html cache bumped for the new main.js', /v=1000213/.test( html ) );
 
-console.log( '\n9. Underwater package (dive cam + fog + overlay + caustics + bubbles)' );
+console.log( '\n9. Underwater package (dry pool cam + fog + overlay + caustics + bubbles)' );
 const camera = readFileSync( './js/Camera.js', 'utf8' );
-test( 'chase cam dives underwater with the car (fast blend + dive clamp)', /underwaterChaseOffset = new THREE\.Vector3\( 0, 0\.7, - 5\.2 \);/.test( camera ) && /dt \/ 0\.16/.test( camera ) && /waterY - 0\.42/.test( camera ) && /this\.targetPosition\.y \+ 1\.0/.test( camera ) );
+test( 'chase cam rises above pools with the legacy high-angle framing', /underwaterChaseOffset = new THREE\.Vector3\( 0, 7\.4, - 3\.2 \);/.test( camera ) && /underwaterOverviewOffset = new THREE\.Vector3\( 3\.6, 8\.6, 3\.6 \);/.test( camera ) && /lerp\( 4\.8, 0\.8, underwaterLift \)/.test( camera ) );
+test( 'pool camera has a water-surface safety floor during transitions', /const minimumCameraY = this\.waterSurfaceY \+ 0\.35;/.test( camera ) && /this\.camera\.position\.y = minimumCameraY;/.test( camera ) );
 test( 'main.js feeds the camera the water surface height', main.includes( 'waterSurfaceY: 0.12' ) && main.split( 'waterSurfaceY: 0.12' ).length === 3 );
-test( 'look target no longer collapses underwater', !camera.includes( 'lerp( 4.8, 0.8, underwaterLift )' ) );
 test( 'main.js: camera-underwater state + fog + overlay toggle wired', main.includes( 'const cameraUnderwater = updateCameraUnderwater( cam.camera, dt );' ) );
 test( 'main.js: underwater fog engages before the gameplay fog fallback', main.includes( 'else if ( cameraUnderwater ) scene.fog = underwaterFog;' ) );
 test( 'main.js: underwater fog color + reach', /underwaterFog = new THREE\.Fog\( 0x0e3f55, 0\.9, Math\.max\( 8, cellWorld \* 1\.35 \) \)/.test( main ) );
