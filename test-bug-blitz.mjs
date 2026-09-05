@@ -113,7 +113,7 @@ test( 'Track.js: pool-floor caustics material factory', track.includes( 'functio
 test( 'Track.js: caustics gain eases toward the camera-underwater flag', /u\.gain\.value = THREE\.MathUtils\.lerp\( u\.gain\.value, targetGain, step \);/.test( track ) );
 test( 'Track.js: caustic overlay attached per pool floor', track.includes( 'const causticOverlay = new THREE.Mesh(' ) );
 test( 'index.html: underwater overlay element present after <body>', /<body>\s*\n\t<div id="underwater-overlay" aria-hidden="true"><\/div>/.test( html ) );
-test( 'index.html: overlay CSS with light-band animation', html.includes( '@keyframes underwater-light-bands' ) );
+test( 'index.html: underwater overlay is tint ONLY (no crosshatch bands)', html.includes( 'background: rgba( 14, 63, 85, 0.24 )' ) && ! html.includes( 'underwater-light-bands' ) && ! /#underwater-overlay::(before|after)/.test( html ) );
 test( 'Track.js: sin-hash cross-pattern artifact is GONE (iq hash everywhere)', ! track.includes( 'vec2( 127.1, 311.7 )' ) && track.split( 'p.x * p.y * ( p.x + p.y )' ).length === 5 );
 test( 'Track.js: caustic noise domains rotated so lattices never align', track.split( 'mat2 rotC' ).length === 4 );
 test( 'Track.js: pool WALLS get shaded underwater caustics', track.includes( 'function createPoolWallCausticsMaterial' ) && track.includes( 'attachCausticAnimator( wallCaustic )' ) && track.includes( 'surfaceFade = smoothstep' ) );
