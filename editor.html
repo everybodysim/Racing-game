@@ -281,10 +281,10 @@
 		#editor-chat-panel {
 			position: fixed;
 			right: 12px;
-			top: 112px;
+			top: 94px;
 			width: min( 288px, calc( 100vw - 24px ) );
-			height: min( 390px, calc( 100vh - 258px ) );
-			min-height: 230px;
+			height: min( 300px, calc( 100vh - 238px ) );
+			min-height: 190px;
 			display: flex;
 			flex-direction: column;
 			background: rgba( 16, 18, 24, 0.94 );
@@ -302,7 +302,7 @@
 		#editor-chat-input { flex: 1; min-width: 0; padding: 7px 8px; border: 1px solid rgba( 255, 255, 255, 0.18 ); border-radius: 7px; background: rgba( 6, 9, 14, 0.9 ); color: #fff; font: 12px sans-serif; }
 		#editor-chat-send { padding: 7px 9px; border: 1px solid rgba( 119, 243, 177, 0.42 ); border-radius: 7px; background: rgba( 48, 151, 96, 0.3 ); color: #c8ffdc; font: 800 11px sans-serif; cursor: pointer; }
 		#editor-chat-send:hover { background: rgba( 48, 151, 96, 0.5 ); }
-		@media ( max-height: 680px ) { #editor-chat-panel { height: calc( 100vh - 258px ); } }
+		@media ( max-height: 680px ) { #editor-chat-panel { height: min( 300px, calc( 100vh - 238px ) ); } }
 		@media ( max-width: 760px ), ( pointer: coarse ) { #editor-chat-panel { display: none; } }
 
 	#side-ui-bar {
@@ -4895,6 +4895,7 @@ function refreshMovingSpeedUi() {
 			const modifier = e.ctrlKey || e.metaKey;
 			const target = e.target;
 			const isTypingTarget = target && ( target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable );
+			if ( isTypingTarget ) return;
 			if ( ! isTypingTarget && modifier && key === 'z' ) {
 
 				e.preventDefault();
@@ -6851,6 +6852,9 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		send.addEventListener( 'click', sendMessage );
 		input.addEventListener( 'keydown', ( event ) => {
 
+			// Keep editor shortcuts (space-to-pan, tool keys, drive arrows, etc.)
+			// out of the chat field so every character can be typed normally.
+			event.stopPropagation();
 			if ( event.key === 'Enter' ) {
 
 				event.preventDefault();
@@ -6859,7 +6863,6 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			}
 
 		} );
-
 	} )();
 </script>
 <script type="module" src="js/PageMusic.js"></script>
