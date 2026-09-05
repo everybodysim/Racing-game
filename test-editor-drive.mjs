@@ -77,6 +77,7 @@ test( 'free cam never clips below the floor', ( html.match( /Math\.max\( 0\.6, f
 test( 'Space flies UP and Ctrl flies DOWN in free mode', /flyKeys\.has\( 'KeyE' \) \|\| flyKeys\.has\( 'Space' \) \) move\.y \+= 1;/.test( html ) && /flyKeys\.has\( 'KeyQ' \) \|\| flyKeys\.has\( 'ControlLeft' \)/.test( html ) );
 test( 'space-grab cursor only engages in flat mode', /editorCamMode === 'flat' && ! spaceDown/.test( html ) );
 test( 'Shift+R respawns the car', html.includes( "e.key.toLowerCase() === 'r' ) { e.preventDefault(); respawn(); }" ) );
+test( 'Shift is never a drive input and clears any held drive state', /if \( e\.key === 'Shift' \) \{[\s\S]{0,260}editorDrive\?\.clearDriveKeys\?\.\(\);/.test( html ) && /function clearDriveKeys\(\) \{[\s\S]{0,100}driveKeys\[ key \] = false;/.test( html ) && /if \( e\.shiftKey && ! modifier \) return;/.test( html ) );
 
 console.log( 'Editor drive: physics lifecycle' );
 test( 'hoisted editorDrive handle is var (no TDZ when save() runs first)', html.includes( 'var editorDrive = null; // assigned by the drive section at the bottom' ) );

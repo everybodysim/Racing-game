@@ -4896,6 +4896,15 @@ function refreshMovingSpeedUi() {
 			const target = e.target;
 			const isTypingTarget = target && ( target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable );
 			if ( isTypingTarget ) return;
+			// Shift is reserved as a modifier (not a driving key). In particular,
+			// Shift+ArrowUp must not accidentally leave the test car accelerating.
+			if ( e.key === 'Shift' ) {
+
+				editorDrive?.clearDriveKeys?.();
+				return;
+
+			}
+			if ( e.shiftKey && ! modifier ) return;
 			if ( ! isTypingTarget && modifier && key === 'z' ) {
 
 				e.preventDefault();
@@ -5504,6 +5513,11 @@ document.addEventListener('pointerdown', (e) => {
 
 		const NOOP_CONTACT_LISTENER = { onContactAdded() {} };
 		const driveKeys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+		function clearDriveKeys() {
+
+			for ( const key of Object.keys( driveKeys ) ) driveKeys[ key ] = false;
+
+		}
 		const flyKeys = new Set();
 		let rotating = false, rotLastX = 0, rotLastY = 0;
 		let active = false;          // physics stack finished booting
@@ -6754,6 +6768,13 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			const target = e.target;
 			const isTypingTarget = target && ( target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable );
 			if ( isTypingTarget ) return;
+			if ( e.key === 'Shift' ) {
+
+				clearDriveKeys();
+				return;
+
+			}
+			if ( e.shiftKey && e.key.toLowerCase() !== 'r' ) return;
 			if ( FLY_CODES.includes( e.code ) ) flyKeys.add( e.code );
 			if ( e.shiftKey && e.key.toLowerCase() === 'r' ) { e.preventDefault(); respawn(); }
 
@@ -6770,6 +6791,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			isRotating: () => rotating,
 			dolly,
 			onDriveKey: ( key, down ) => { if ( key in driveKeys ) driveKeys[ key ] = down; },
+			clearDriveKeys,
 			respawn,
 		};
 		init();
