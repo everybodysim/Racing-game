@@ -1381,11 +1381,58 @@
 
 	// Ground
 	const groundMat = new THREE.MeshStandardMaterial( { color: 0x369069, metalness: 0 } );
-	const ground = new THREE.Mesh( new THREE.PlaneGeometry( 200, 200 ), groundMat );
-	ground.rotation.x = - Math.PI / 2;
-	ground.position.y = - 0.14;
-	ground.receiveShadow = true;
-	scene.add( ground );
+	// Ground = static surround frame + a rebuildable 30x30 tile patch over
+	// the editable grid. Water (pool) cells are SKIPPED by the tile patch, so
+	// the sunken pool interior (walls, floor, water) is never covered by the
+	// green ground — the editor equivalent of the game's per-cell ground.
+	const GROUND_HALF = 100;
+	const groundCellWorld = CELL_RAW * GRID_SCALE;
+	const GRID_HALF_CELLS = 15;
+	const groundFrame = new THREE.Group();
+	const frameHalf = GRID_HALF_CELLS * groundCellWorld;
+	const frameDepth = GROUND_HALF - frameHalf;
+	for ( const [ w, d, cx, cz ] of [
+		[ GROUND_HALF * 2, frameDepth, 0, -( frameHalf + frameDepth / 2 ) ],
+		[ GROUND_HALF * 2, frameDepth, 0, frameHalf + frameDepth / 2 ],
+		[ frameDepth, frameHalf * 2, -( frameHalf + frameDepth / 2 ), 0 ],
+		[ frameDepth, frameHalf * 2, frameHalf + frameDepth / 2, 0 ],
+	] ) {
+		const strip = new THREE.Mesh( new THREE.PlaneGeometry( w, d ), groundMat );
+		strip.rotation.x = - Math.PI / 2;
+		strip.position.set( cx, - 0.14, cz );
+		strip.receiveShadow = true;
+		groundFrame.add( strip );
+	}
+	scene.add( groundFrame );
+	const groundTiles = new THREE.Mesh( new THREE.BufferGeometry(), groundMat );
+	groundTiles.position.y = - 0.14;
+	groundTiles.receiveShadow = true;
+	scene.add( groundTiles );
+	let groundTilesDirty = true;
+	function rebuildGroundTiles() {
+
+		const verts = [];
+		const idx = [];
+		let v = 0;
+		for ( let gz = - GRID_HALF_CELLS; gz < GRID_HALF_CELLS; gz ++ ) {
+			for ( let gx = - GRID_HALF_CELLS; gx < GRID_HALF_CELLS; gx ++ ) {
+				// Pool cells get a real hole — the sunken pool shows through.
+				if ( grid.get( cellKey( gx, gz ) )?.water ) continue;
+				const x0 = gx * groundCellWorld, z0 = gz * groundCellWorld;
+				const x1 = x0 + groundCellWorld, z1 = z0 + groundCellWorld;
+				verts.push( x0, 0, z0, x1, 0, z0, x1, 0, z1, x0, 0, z1 );
+				idx.push( v, v + 2, v + 1, v, v + 3, v + 2 );
+				v += 4;
+			}
+		}
+		const geo = new THREE.BufferGeometry();
+		geo.setAttribute( 'position', new THREE.Float32BufferAttribute( verts, 3 ) );
+		geo.setAttribute( 'normal', new THREE.Float32BufferAttribute( new Array( ( verts.length / 3 ) * 3 ).fill( 0 ).map( ( _, i ) => ( i % 3 === 1 ? 1 : 0 ) ), 3 ) );
+		geo.setIndex( idx );
+		groundTiles.geometry.dispose();
+		groundTiles.geometry = geo;
+
+	}
 
 	// Grid helper
 	const gridSize = 30;
@@ -2329,6 +2376,7 @@ function computeCausticShade( normal ) {
 	}
 	function refreshWaterNeighborhood( gx, gz ) {
 
+		groundTilesDirty = true; // water added/removed → recut the ground holes
 		for ( const [ dx, dz ] of [ [ 0, 0 ], [ 1, 0 ], [ - 1, 0 ], [ 0, 1 ], [ 0, - 1 ] ] ) {
 			const nx = gx + dx, nz = gz + dz;
 			const cell = grid.get( cellKey( nx, nz ) );
@@ -4894,6 +4942,7 @@ function refreshMovingSpeedUi() {
 		requestAnimationFrame( animate );
 		const dt = Math.min( 0.033, Math.max( 0, driveClock.getDelta() ) );
 		stepEditorDrive( dt );
+		if ( groundTilesDirty ) { rebuildGroundTiles(); groundTilesDirty = false; }
 		renderer.render( scene, editorActiveCamera() );
 
 	}
