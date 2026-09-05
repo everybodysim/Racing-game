@@ -19,6 +19,7 @@ const track = readFileSync( './js/Track.js', 'utf8' );
 const main = readFileSync( './js/main.js', 'utf8' );
 const hud = readFileSync( './js/HudExtras.js', 'utf8' );
 const html = readFileSync( './index.html', 'utf8' );
+const worker = readFileSync( './cloudflare-accounts/worker/src/index.js', 'utf8' );
 const editor = readFileSync( './editor.html', 'utf8' );
 
 let passed = 0, failed = 0;
@@ -88,7 +89,7 @@ test( 'default-car dropdown in the Gameplay panel', html.includes( '<select id="
 test( 'default-car options include Last used + Random + every CAR_STATS car', /'<option value="__last">Last used car \(default\)<\/option>', '<option value="__random">Random<\/option>'/.test( main ) );
 test( 'boot: default-car setting overrides the boot randomizer', /applyDefaultCar\( localStorage\.getItem\( DEFAULT_CAR_KEY \) \|\| '__random' \);/.test( main ) );
 test( 'profile snapshot carries defaultCar', main.includes( "defaultCar: localStorage.getItem( DEFAULT_CAR_KEY ) || '__last'," ) );
-test( 'profile import restores the default car', /localStorage\.setItem\( DEFAULT_CAR_KEY, parsed\.defaultCar \);/.test( main ) );
+test( 'profile import merges default car (local pick beats stale cloud)', /const nextDefault = localDefault \|\| cloudDefault \|\| '__last';/.test( main ) && /if \( nextDefault !== '__last' \) applyDefaultCar\( nextDefault \);/.test( main ) );
 test( 'index.html cache bumped for the new main.js', /v=1000212/.test( html ) );
 
 console.log( '\n9. Underwater package (dive cam + fog + overlay + caustics + bubbles)' );
@@ -113,8 +114,10 @@ test( 'Track.js: caustic overlay attached per pool floor', track.includes( 'cons
 test( 'index.html: underwater overlay element present after <body>', /<body>\s*\n\t<div id="underwater-overlay" aria-hidden="true"><\/div>/.test( html ) );
 test( 'index.html: overlay CSS with light-band animation', html.includes( '@keyframes underwater-light-bands' ) );
 test( 'index.html: overlay is pointer-transparent', /#underwater-overlay \{[^}]*pointer-events: none;/.test( html ) );
-test( 'editor.html: Special Parts grouped into Magnets / Arcs & Portals', editor.includes( 'data-group="magnets"' ) && editor.includes( 'data-group="arcs-portals"' ) );
-test( 'editor.html: all 16 special-part button ids survived the reorg', [ 'btn-magnet-blue','btn-magnet-red','btn-magnet-up','btn-magnet-down','btn-magnet-strength-up','btn-magnet-strength-down','btn-magnet-range-up','btn-magnet-range-down','btn-arc-green','btn-portal-yellow','btn-arc-orange','btn-portal-purple','btn-portal-up','btn-portal-down','btn-portal-id-down','btn-portal-id-up' ].every( ( id ) => editor.split( 'id="' + id + '"' ).length === 2 ) );
+test( 'editor.html: special parts use ONE merged adjust row (no duplicate height pairs)', /class="side-ui-adjust"/.test( editor ) && editor.split( 'id="btn-portal-up"' ).length === 1 && editor.split( 'Arc/Portal ▲' ).length === 1 );
+test( 'editor.html: all 14 special-part button ids survived the merge', [ 'btn-magnet-blue','btn-magnet-red','btn-magnet-up','btn-magnet-down','btn-magnet-strength-up','btn-magnet-strength-down','btn-magnet-range-up','btn-magnet-range-down','btn-arc-green','btn-portal-yellow','btn-arc-orange','btn-portal-purple','btn-portal-id-down','btn-portal-id-up' ].every( ( id ) => editor.split( 'id="' + id + '"' ).length === 2 ) );
+test( 'editor.html: merged Height buttons nudge BOTH magnets and arcs', editor.includes( 'nudgeSelectedMagnet( MAGNET_Y_STEP ); nudgeSelectedArc( MAGNET_Y_STEP ); } );' ) && editor.includes( 'nudgeSelectedMagnet( - MAGNET_Y_STEP ); nudgeSelectedArc( - MAGNET_Y_STEP ); } );' ) );
+test( 'worker: defaultCar + repaint masks survive sanitizeProfile', ( () => { const w = worker; return w.includes( 'sanitizeDefaultCar' ) && /mask: typeof mapping\?\.mask === 'string' \? mapping\.mask\.slice\( 0, 32000 \) : ''/.test( w ) && /defaultCar: sanitizeDefaultCar\( profile\?\.defaultCar \)/.test( w ); } )() );
 test( 'editor.html: arc/portal help text kept', editor.includes( 'Orange launches' ) );
 test( 'Track.js import pin bumped to v=1000212', /Track\.js\?v=1000212'/.test( main ) );
 

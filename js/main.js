@@ -7651,8 +7651,12 @@ async function init() {
 		const renderer = new THREE.WebGLRenderer( { canvas: garageViewerCanvas, antialias: true, alpha: true } );
 		renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, 1.5 ) );
 		const scene = new THREE.Scene();
-		const camera = new THREE.PerspectiveCamera( 38, 1, 0.1, 100 );
-		camera.position.set( 0, 1.25, 5.2 );
+		const camera = new THREE.PerspectiveCamera( 34, 1, 0.1, 100 );
+		// Frame the car properly: closer in AND pitched down at it. The old
+		// (0, 1.25, 5.2) rig never lookAt-ed the car, so it sat as a tiny
+		// sliver at the very bottom of the frame and clicks could not select.
+		camera.position.set( 0, 1.35, 3.9 );
+		camera.lookAt( 0, 0.45, 0 );
 		scene.background = new THREE.Color( 0xf7fbff );
 		scene.add( new THREE.AmbientLight( 0xffffff, 3.0 ) );
 		const carRoot = new THREE.Group();
@@ -8853,13 +8857,19 @@ function completeCampaignStage() {
 
 		}
 		// Default-car setting applies LAST so a specific default always wins
-		// over the profile's last-used carKey ('__last' keeps the carKey).
-		if ( typeof parsed?.defaultCar === 'string' ) {
+		// over the profile's last-used carKey. A LOCAL pick beats the cloud
+		// copy — the cloud value only lands on machines with no local
+		// preference yet (otherwise a stale cloud profile would resurrect a
+		// setting the user changed on this machine).
+		{
 
-			localStorage.setItem( DEFAULT_CAR_KEY, parsed.defaultCar );
+			const localDefault = localStorage.getItem( DEFAULT_CAR_KEY );
+			const cloudDefault = typeof parsed?.defaultCar === 'string' ? parsed.defaultCar : null;
+			const nextDefault = localDefault || cloudDefault || '__last';
+			localStorage.setItem( DEFAULT_CAR_KEY, nextDefault );
 			const defaultSelect = document.getElementById( 'default-car-select' );
-			if ( defaultSelect ) defaultSelect.value = parsed.defaultCar;
-			applyDefaultCar( parsed.defaultCar );
+			if ( defaultSelect ) defaultSelect.value = nextDefault;
+			if ( nextDefault !== '__last' ) applyDefaultCar( nextDefault );
 
 		}
 		saveEconomy();

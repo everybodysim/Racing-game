@@ -17,9 +17,10 @@ export class Camera {
 
 		this.offset = new THREE.Vector3( 7.0, 7.1, 7.0 );
 		this.chaseOffset = new THREE.Vector3( 0, 2.3, - 6.6 );
-		// The chase cam now dives underwater WITH the car (no more lifting to
-		// stay dry). Underwater visuals are handled by main.js fog/overlay, so
-		// these legacy lift offsets are neutralized to the normal framing.
+		// Underwater framing: the camera simply DIVES WITH THE CAR — no lift
+		// offsets, no special framing. The offsets alias the normal ones so any
+		// distance/height settings still apply underwater, and main.js keeps
+		// the camera below the water plane while submerged.
 		this.underwaterChaseOffset = this.chaseOffset;
 		this.underwaterOverviewOffset = this.offset;
 		this.targetPosition = new THREE.Vector3();
@@ -132,9 +133,21 @@ export class Camera {
 			}
 
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
-			// Normal framing underwater too — the look point stays ahead of the car.
+			// The look point stays ahead of the car; underwater it also drops
+			// so the camera pitches down at the submerged car.
 			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, 4.8 );
-			this._desiredLook.y += 1.0;
+			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.35, underwaterLift );
+			// Keep the chase cam itself submerged while the car is under —
+			// never let it bob back above the water plane mid-dive.
+			if ( underwaterLift > 0.001 ) {
+
+				this._desiredPos.y = THREE.MathUtils.lerp(
+					this._desiredPos.y,
+					Math.min( this._desiredPos.y, - 0.25 ),
+					underwaterLift
+				);
+
+			}
 
 			const chaseLag = THREE.MathUtils.lerp( 10, 7.2, Math.min( 1, speedRatio * 0.8 + driftAmount * 0.4 ) ) * this.userLagScale;
 			this.camera.position.lerp( this._desiredPos, dt * chaseLag );
