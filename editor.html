@@ -281,14 +281,14 @@
 			position: absolute;
 			left: 12px;
 			bottom: 16px;
-			width: 212px;
+			width: 424px;
 			z-index: 32;
 			background: rgba(15, 18, 24, 0.92);
 			border: 1px solid rgba(255, 255, 255, 0.16);
 			border-left: 3px solid rgba(255, 200, 100, 0.55);
 			border-radius: 10px;
 			box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-			overflow: visible;
+			overflow: hidden;
 		}
 		#side-ui-toggle {
 			padding: 7px 10px;
@@ -328,10 +328,7 @@
 			cursor: pointer;
 		}
 		.side-ui-content button:hover { background: rgba(45, 55, 72, 0.92); }
-		/* Controls float double-width under the 212px panel: the 2x4 grid keeps its
-		   layout but each button finally gets room. Escapes the panel via negative
-		   margins (panel overflow is visible). */
-		.side-ui-adjust { display: grid; grid-template-columns: repeat( 2, minmax( 0, 1fr ) ); gap: 6px; margin: 10px -114px 0; padding: 10px; background: rgba( 15, 18, 24, 0.96 ); border: 1px solid rgba( 255, 255, 255, 0.16 ); border-left: 3px solid rgba( 255, 200, 100, 0.55 ); border-radius: 10px; box-shadow: 0 6px 20px rgba( 0, 0, 0, 0.35 ); }
+		.side-ui-adjust { display: grid; grid-template-columns: repeat( 2, minmax( 0, 1fr ) ); gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba( 255, 255, 255, 0.14 ); }
 		#arc-link-help {
 			grid-column: 1 / -1;
 			padding: 6px 8px;
@@ -782,8 +779,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, createPoolCellVisual } from './js/Track.js';
-		import { createMovingObstacleState, resetMovingObstacles, updateMovingObstacles } from './js/MovingObstacles.js';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells } from './js/Track.js';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js';
@@ -1944,8 +1940,56 @@
 
 		}
 
-		// Moving obstacles render as the real animated meshes from
-		// MovingObstacles.js (see the drive section) — no static marker here.
+		if ( cell.movingObstacle ) {
+
+			const marker = new THREE.Group();
+			if ( cell.movingObstacle === MOVING_SLIDE_TOOL ) {
+
+				const body = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW * 0.42, CELL_RAW * 0.2, CELL_RAW * 0.3 ),
+					new THREE.MeshStandardMaterial( { color: 0x7ec8ff, emissive: 0x2c5f86, emissiveIntensity: 0.65, metalness: 0.25, roughness: 0.45 } )
+				);
+				marker.add( body );
+				const rail = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.04, CELL_RAW * 0.06 ), new THREE.MeshStandardMaterial( { color: 0x9fb9cf } ) );
+				rail.position.y = - CELL_RAW * 0.09;
+				marker.add( rail );
+
+			} else if ( cell.movingObstacle === MOVING_SPIN_TOOL ) {
+
+				const arm = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW * 0.58, CELL_RAW * 0.18, CELL_RAW * 0.08 ),
+					new THREE.MeshStandardMaterial( { color: 0xffa073, emissive: 0x7a2f10, emissiveIntensity: 0.65, metalness: 0.18, roughness: 0.5 } )
+				);
+				marker.add( arm );
+				const hub = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.03, CELL_RAW * 0.03, CELL_RAW * 0.1, 12 ), new THREE.MeshStandardMaterial( { color: 0xcccccc } ) );
+				hub.rotation.z = Math.PI * 0.5;
+				marker.add( hub );
+
+			} else if ( cell.movingObstacle === MOVING_CUSTOM_TOOL ) {
+				const cfg = cell.movingCustom || readCustomMovingUi();
+				const sx = Number( cfg?.sx ) || 2, sy = Number( cfg?.sy ) || 0.8, sz = Number( cfg?.sz ) || 0.8;
+				const cmat = new THREE.MeshStandardMaterial( { color: cfg?.color || '#ff8844', emissive: 0x331100 } );
+				const custom = cfg?.shape === 'pole' ? new THREE.CylinderGeometry( sx * 0.18, sx * 0.18, sy, 12 ) : new THREE.BoxGeometry( sx, sy, sz );
+				marker.add( new THREE.Mesh( custom, cmat ) );
+			} else {
+
+				for ( let i = 0; i < 3; i ++ ) {
+
+					const pole = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.035, CELL_RAW * 0.035, CELL_RAW * 0.22, 10 ), new THREE.MeshStandardMaterial( { color: 0x9b6fdc, emissive: 0x2f1f4f } ) );
+					const a = i * ( Math.PI * 2 / 3 );
+					pole.position.set( Math.cos( a ) * CELL_RAW * 0.18, 0, Math.sin( a ) * CELL_RAW * 0.18 );
+					marker.add( pole );
+
+				}
+
+			}
+
+			marker.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.1 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
+			marker.traverse( ( child ) => { if ( child.isMesh ) { child.castShadow = true; child.receiveShadow = true; } } );
+			trackGroup.add( marker );
+			cell.cubeMesh = marker;
+
+		}
 
 		if ( cell.wall ) {
 
@@ -2045,41 +2089,59 @@
 
 	}
 
-		function createWaterPoolMesh( gx, gz ) {
+	function createWaterPoolMesh( gx, gz ) {
 
-		// Real pool visuals — the exact textured walls, floor, caustic light
-		// films, and glowing lip the game renders (shared code in Track.js).
-		const slopeCell = grid.get( cellKey( gx, gz ) );
-		const exit = slopeCell?.poolSlope ? getPoolSlopeFacingOffset( slopeCell.poolSlopeOrient ?? 0 ) : null;
+		const group = new THREE.Group();
+		group.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
+		// Mirror the game: colors only when the editor checkbox opted in, and
+		// pushed hard (saturated + glowing) so the custom color reads clearly.
 		const colorsOn = customPoolColorsEnabled === true;
-		const poolVisuals = {
-			waterColor: colorsOn && customPoolConfig.waterColor ? customPoolConfig.waterColor : '#1180e6',
-			edgeColor: colorsOn && customPoolConfig.edgeColor ? customPoolConfig.edgeColor : '#5cc7ff',
-			transparent: customPoolConfig.transparent === true,
-			isCustom: colorsOn,
-		};
-		const pool = createPoolCellVisual( gx, gz, {
-			isWaterCell,
-			exitSide: exit ? `${ exit.dx },${ exit.dz }` : null,
-			poolVisuals,
-		} );
-		// Editor-only translucent surface at the game's water line (y = 0.12)
-		// so the pool interior stays readable while editing.
-		const waterColor = new THREE.Color( poolVisuals.waterColor );
+		const edgeColor = new THREE.Color( colorsOn ? ( customPoolConfig.edgeColor || CUSTOM_POOL_DEFAULT.edgeColor ) : '#5cc7ff' );
+		const waterColor = new THREE.Color( colorsOn ? ( customPoolConfig.waterColor || CUSTOM_POOL_DEFAULT.waterColor ) : '#1180e6' );
 		if ( colorsOn ) {
 			const hsl = { h: 0, s: 0, l: 0 };
 			waterColor.getHSL( hsl );
 			waterColor.setHSL( hsl.h, Math.min( 1, hsl.s * 1.5 ), THREE.MathUtils.clamp( hsl.l, 0.34, 0.62 ) );
 		}
-		const water = new THREE.Mesh(
-			new THREE.PlaneGeometry( CELL_RAW * 0.98, CELL_RAW * 0.98 ),
-			new THREE.MeshStandardMaterial( { color: waterColor, emissive: waterColor, emissiveIntensity: colorsOn ? 0.45 : 0.18, roughness: 0.35, metalness: 0.02, transparent: true, opacity: poolVisuals.transparent ? 0.72 : 0.55 } )
-		);
+		const waterMat = new THREE.MeshStandardMaterial( { color: waterColor, emissive: waterColor, emissiveIntensity: colorsOn ? 0.45 : 0.18, roughness: 0.35, metalness: 0.02, transparent: Boolean( customPoolConfig.transparent ), opacity: customPoolConfig.transparent ? 0.72 : 1 } );
+		const floorMat = new THREE.MeshStandardMaterial( { color: 0x31433e, roughness: 0.95, metalness: 0.0 } );
+		const wallMat = new THREE.MeshStandardMaterial( { color: 0x20312e, roughness: 0.9, metalness: 0.0 } );
+		const edgeMat = new THREE.MeshStandardMaterial( { color: edgeColor, emissive: edgeColor, emissiveIntensity: colorsOn ? 0.55 : 0.28, roughness: 0.4 } );
+		const floor = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ), floorMat );
+		floor.position.y = - CELL_RAW * 0.34;
+		floor.receiveShadow = true;
+		group.add( floor );
+		const water = new THREE.Mesh( new THREE.PlaneGeometry( CELL_RAW * 0.92, CELL_RAW * 0.92 ), waterMat );
 		water.rotation.x = - Math.PI / 2;
-		water.position.y = 0.12;
+		water.position.y = 0.515;
 		water.userData.waterSurface = true;
-		pool.add( water );
-		return pool;
+		group.add( water );
+		// If this pool tile has a pool slope, skip the wall + edge lip on the
+		// side the ramp exits toward (high end meets ground level there) so the
+		// car can drive up/down without a wall or lip blocking it.
+		const slopeCell = grid.get( cellKey( gx, gz ) );
+		const exitSide = slopeCell?.poolSlope ? getPoolSlopeFacingOffset( slopeCell.poolSlopeOrient ?? 0 ) : null;
+		const sides = [
+			{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
+			{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+			{ dx: 0, dz: 1, x: 0, z: CELL_RAW * 0.5, ry: 0 },
+			{ dx: - 1, dz: 0, x: - CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+		];
+		for ( const side of sides ) {
+			if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
+			if ( exitSide && exitSide.dx === side.dx && exitSide.dz === side.dz ) continue;
+			const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.38, CELL_RAW * 0.08 ), wallMat );
+			wall.position.set( side.x, - CELL_RAW * 0.16, side.z );
+			wall.rotation.y = side.ry;
+			wall.castShadow = true;
+			wall.receiveShadow = true;
+			group.add( wall );
+			const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), edgeMat );
+			edge.position.set( side.x, 0.535, side.z );
+			edge.rotation.y = side.ry;
+			group.add( edge );
+		}
+		return group;
 
 	}
 
@@ -5193,7 +5255,7 @@ document.addEventListener('pointerdown', (e) => {
 				poolSlopes: m.z,
 				water: m.q,
 				customPool: m.r && typeof m.r === 'object' ? m.r : {},
-				movingObstacles: m.o,
+				movingObstacles: [],
 			};
 			// Pool-filled preset floods every non-track cell — same merge the
 			// game does before building physics.
@@ -5326,7 +5388,6 @@ document.addEventListener('pointerdown', (e) => {
 				vehicle.physicsWorld = newWorld;
 				vehicle.linearSpeed = 0;
 				world = newWorld;
-				rebuildMovingState();
 
 			} catch ( err ) {
 
@@ -5357,7 +5418,6 @@ document.addEventListener('pointerdown', (e) => {
 				const carGroup = vehicle.init( gltf.scene );
 				scene.add( carGroup );
 				active = true;
-				rebuildMovingState();
 
 			} catch ( err ) {
 
@@ -5369,26 +5429,8 @@ document.addEventListener('pointerdown', (e) => {
 
 		}
 
-		// Moving obstacles (slide / spin / orbit / custom) — the SAME meshes
-		// and hitboxes the game uses, animated on the editor's own clock (no
-		// game sync needed for editing) and pushing the drive car around.
-		let movingState = null;
-		let driveClock = 0;
-		function rebuildMovingState() {
-
-			if ( movingState ) for ( const it of movingState.items ) scene.remove( it.mesh );
-			movingState = createMovingObstacleState( scene, getPhysicsExtras() );
-			resetMovingObstacles( movingState, 0 );
-
-		}
-
 		function step( dt ) {
 
-			driveClock += dt;
-			// Build movers even if the car model failed to load — the editor
-			// should always show obstacles moving.
-			if ( ! movingState ) rebuildMovingState();
-			updateMovingObstacles( movingState, driveClock, active && vehicle ? [ vehicle ] : [] );
 			if ( active && vehicle ) {
 
 				rebuildColliders( performance.now() * 0.001 );
