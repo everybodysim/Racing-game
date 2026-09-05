@@ -53,7 +53,7 @@ test( 'emulator has phone presets + rotate + zoom', emu.includes( 'iPhone 15 Pro
 test( 'emulator appends ?is-mobile automatically', /searchParams\.set\( 'is-mobile', '1' \)/.test( emu ) );
 
 // 6. Cache bumped
-test( 'index.html cache bumped to 1000212', /v=1000212/.test( html ) );
+test( 'index.html cache bumped to 1000214', /v=1000214/.test( html ) );
 
 console.log( `\n${ passed } passed, ${ failed } failed${ failed ? ' — WITH FAILURES' : '' }` );
 process.exit( failed ? 1 : 0 );

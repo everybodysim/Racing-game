@@ -931,6 +931,79 @@ export function computePoolPresetWaterCells( cells = TRACK_CELLS, extras = null 
 
 }
 
+// Per-cell pool visual — walls, textured floor, caustic light films, and the
+// glowing edge lip. Shared verbatim by buildTrack (the game) and the track
+// editor's pool placeholder so both show the exact same pool.
+export function createPoolCellVisual( gx, gz, { isWaterCell, exitSide = null, poolVisuals } ) {
+
+	const pool = new THREE.Group();
+	pool.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
+	const { poolWallTexture, poolFloorTexture } = getPoolTextures();
+	const floor = new THREE.Mesh(
+		new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ),
+		new THREE.MeshStandardMaterial( { map: poolFloorTexture, roughness: 0.82, metalness: 0.0 } )
+	);
+	floor.position.y = - WATER_DEPTH;
+	floor.receiveShadow = true;
+	pool.add( floor );
+	// Caustic light layer just above the floor tile — visible only
+	// while the camera is underwater (see createPoolFloorCausticsMaterial).
+	const causticOverlay = new THREE.Mesh(
+		new THREE.PlaneGeometry( CELL_RAW, CELL_RAW ),
+		createPoolFloorCausticsMaterial()
+	);
+	causticOverlay.rotation.x = - Math.PI / 2;
+	causticOverlay.position.y = - WATER_DEPTH + CELL_RAW * 0.028;
+	// Floor faces up, so its caustic shade is the sun's own up-term —
+	// any surface the sun can't reach stays dark (shared with walls).
+	causticOverlay.material.uniforms.shade.value = computeCausticShade( _upShadeNormal );
+	attachCausticAnimator( causticOverlay );
+	pool.add( causticOverlay );
+	// If this pool tile has a pool slope, omit the wall + edge lip on the
+	// exit side (where the ramp's high end meets ground level).
+	const sides = [
+		{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
+		{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+		{ dx: 0, dz: 1, x: 0, z: CELL_RAW * 0.5, ry: 0 },
+		{ dx: - 1, dz: 0, x: - CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+	];
+	for ( const side of sides ) {
+		if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
+		if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
+		const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { map: poolWallTexture, roughness: 0.7, metalness: 0.0 } ) );
+		wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
+		wall.rotation.y = side.ry;
+		wall.castShadow = true;
+		wall.receiveShadow = true;
+		pool.add( wall );
+		// Caustic light film on the wall's INNER face — same animated
+		// pattern as the floor, shaded by how directly the wall faces
+		// the sun (walls in shade get none).
+		const wallCaustic = new THREE.Mesh(
+			new THREE.PlaneGeometry( CELL_RAW, WATER_WALL_HEIGHT * 0.94 ),
+			createPoolWallCausticsMaterial()
+		);
+		const inward = new THREE.Vector3( - side.dx, 0, - side.dz );
+		wallCaustic.position.set(
+			side.x + inward.x * CELL_RAW * 0.052,
+			wall.position.y,
+			side.z + inward.z * CELL_RAW * 0.052
+		);
+		wallCaustic.lookAt( wallCaustic.position.clone().add( inward ) );
+		wallCaustic.material.uniforms.shade.value = computeCausticShade( inward );
+		wallCaustic.material.uniforms.centerY.value = wall.position.y;
+		wallCaustic.material.uniforms.waterY.value = 0.12;
+		attachCausticAnimator( wallCaustic );
+		pool.add( wallCaustic );
+		const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: poolVisuals.isCustom ? 0.55 : 0.3, roughness: 0.22, metalness: 0.12 } ) );
+		edge.position.set( side.x, 0.515, side.z );
+		edge.rotation.y = side.ry;
+		pool.add( edge );
+	}
+	return pool;
+
+}
+
 export function buildTrack( scene, models, customCells, extras = null ) {
 
 	const trackGroup = new THREE.Group();
@@ -1037,29 +1110,6 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		}
 		for ( const [ gx, gz ] of waterCells ) {
 
-			const pool = new THREE.Group();
-			pool.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
-			const { poolWallTexture, poolFloorTexture } = getPoolTextures();
-			const floor = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ),
-				new THREE.MeshStandardMaterial( { map: poolFloorTexture, roughness: 0.82, metalness: 0.0 } )
-			);
-			floor.position.y = - WATER_DEPTH;
-			floor.receiveShadow = true;
-			pool.add( floor );
-			// Caustic light layer just above the floor tile — visible only
-			// while the camera is underwater (see createPoolFloorCausticsMaterial).
-			const causticOverlay = new THREE.Mesh(
-				new THREE.PlaneGeometry( CELL_RAW, CELL_RAW ),
-				createPoolFloorCausticsMaterial()
-			);
-			causticOverlay.rotation.x = - Math.PI / 2;
-			causticOverlay.position.y = - WATER_DEPTH + CELL_RAW * 0.028;
-			// Floor faces up, so its caustic shade is the sun's own up-term —
-			// any surface the sun can't reach stays dark (shared with walls).
-			causticOverlay.material.uniforms.shade.value = computeCausticShade( _upShadeNormal );
-			attachCausticAnimator( causticOverlay );
-			pool.add( causticOverlay );
 			// If this pool tile has a pool slope, omit the wall + edge lip on the
 			// exit side (where the ramp's high end meets ground level).
 			const slopeOrient = poolSlopeOrientByCell.get( `${ gx },${ gz }` );
@@ -1069,45 +1119,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				// High end is opposite the low end (+z at orient 0).
 				exitSide = `${ - Math.round( Math.sin( rad ) ) },${ - Math.round( Math.cos( rad ) ) }`;
 			}
-			const sides = [
-				{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
-				{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
-				{ dx: 0, dz: 1, x: 0, z: CELL_RAW * 0.5, ry: 0 },
-				{ dx: - 1, dz: 0, x: - CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
-			];
-			for ( const side of sides ) {
-				if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
-				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
-				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { map: poolWallTexture, roughness: 0.7, metalness: 0.0 } ) );
-				wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
-				wall.rotation.y = side.ry;
-				wall.castShadow = true;
-				wall.receiveShadow = true;
-				pool.add( wall );
-				// Caustic light film on the wall's INNER face — same animated
-				// pattern as the floor, shaded by how directly the wall faces
-				// the sun (walls in shade get none).
-				const wallCaustic = new THREE.Mesh(
-					new THREE.PlaneGeometry( CELL_RAW, WATER_WALL_HEIGHT * 0.94 ),
-					createPoolWallCausticsMaterial()
-				);
-				const inward = new THREE.Vector3( - side.dx, 0, - side.dz );
-				wallCaustic.position.set(
-					side.x + inward.x * CELL_RAW * 0.052,
-					wall.position.y,
-					side.z + inward.z * CELL_RAW * 0.052
-				);
-				wallCaustic.lookAt( wallCaustic.position.clone().add( inward ) );
-				wallCaustic.material.uniforms.shade.value = computeCausticShade( inward );
-				wallCaustic.material.uniforms.centerY.value = wall.position.y;
-				wallCaustic.material.uniforms.waterY.value = 0.12;
-				attachCausticAnimator( wallCaustic );
-				pool.add( wallCaustic );
-				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: poolVisuals.isCustom ? 0.55 : 0.3, roughness: 0.22, metalness: 0.12 } ) );
-				edge.position.set( side.x, 0.515, side.z );
-				edge.rotation.y = side.ry;
-				pool.add( edge );
-			}
+			const pool = createPoolCellVisual( gx, gz, { isWaterCell, exitSide, poolVisuals } );
 			trackPieceGroup.add( pool );
 
 		}

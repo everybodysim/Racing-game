@@ -2,7 +2,8 @@
 // drivable test car (both modes) + Flat Map/Free Cam toggle.
 // Static source checks (same style as the rest of the repo's suites).
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+const main = readFileSync( './js/main.js', 'utf8' );
 
 const html = readFileSync( './editor.html', 'utf8' );
 const physics = readFileSync( './js/Physics.js', 'utf8' );
@@ -22,7 +23,7 @@ test( 'importmap maps crashcat (same pinned version as the game)', html.includes
 test( 'editor imports crashcat world/update functions (incl. box + MotionType for ground)', /import \{ createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType \} from 'crashcat'/.test( html ) );
 test( 'editor imports buildWallColliders + createSphereBody from Physics.js', html.includes( "import { buildWallColliders, createSphereBody } from './js/Physics.js'" ) );
 test( 'editor imports Vehicle from Vehicle.js', html.includes( "import { Vehicle } from './js/Vehicle.js'" ) );
-test( 'editor imports computeSpawnPosition + bounds/pool-preset helpers from Track.js', /computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells \} from '\.\/js\/Track\.js'/.test( html ) );
+test( 'editor imports computeSpawnPosition + bounds/pool-preset helpers from Track.js', /computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, createPoolCellVisual \} from '\.\/js\/Track\.js'/.test( html ) );
 test( 'Physics.js null-safe for a missing debug group', physics.includes( 'if ( debugGroup )' ) );
 
 console.log( 'Editor drive: camera modes' );
@@ -33,11 +34,14 @@ test( 'screenToGrid raycasts from the ACTIVE camera', html.includes( 'raycaster.
 test( 'animate() renders the ACTIVE camera', html.includes( 'renderer.render( scene, editorActiveCamera() )' ) );
 test( 'animate() steps the drive physics every frame', html.includes( 'stepEditorDrive( dt )' ) );
 test( 'resize keeps the free camera aspect in sync', html.includes( 'freeCamera.aspect = a;' ) );
-test( 'View toggle + Respawn Car buttons live in the top-right cluster', html.includes( 'id="btn-cam-mode"' ) && html.includes( 'id="btn-respawn-car"' ) && html.includes( 'id="editor-cam-cluster"' ) );
+test( 'Camera mode is a dropdown (Flat / Free / Follow) + Respawn button, top-right', html.includes( 'id="cam-mode-select"' ) && ( html.match( /<option value="(flat|free|follow)"/g ) || [] ).length === 3 && html.includes( 'id="btn-respawn-car"' ) && html.includes( 'id="editor-cam-cluster"' ) );
+test( 'follow cam chases behind the car using its heading', html.includes( 'function stepFollowCam' ) && /applyQuaternion\( vehicle\.container\.quaternion \)/.test( html ) && /editorCamMode === 'follow' \) \{ stepFollowCam\( dt \); return; \}/.test( html ) );
+test( 'follow mode renders through the perspective free camera', /return \( editorCamMode === 'free' \|\| editorCamMode === 'follow' \) \? freeCamera : camera;/.test( html ) );
+test( 'flat-mode pan/space-grab no longer fire in free or follow mode', /editorCamMode === 'flat' && \( e\.button === 1 \|\|/.test( html ) && /editorCamMode === 'flat' && ! spaceDown/.test( html ) );
 test( 'top-right cluster is fixed-positioned', /#editor-cam-cluster \{ position: fixed; top: 10px; right: 12px;/.test( html ) );
 test( 'buttons no longer clutter the Run toolbar group', ! /btn-cam-mode" class="action"/.test( html ) );
 test( 'drive hint chip exists', html.includes( 'id="drive-hint"' ) );
-test( 'Special Parts panel widened to 424px (2x4 grid kept)', /#side-ui-bar \{[\s\S]*?width: 424px;/.test( html ) && html.includes( 'grid-template-columns: repeat( 2, minmax( 0, 1fr ) ); gap: 4px;' ) );
+test( 'Special Parts panel back to 212px; only the ADJUST group floats double-width', /#side-ui-bar \{[\s\S]*?width: 212px;/.test( html ) && /\.side-ui-adjust \{[^}]*margin: 10px -114px 0;/.test( html ) && html.includes( 'overflow: visible;' ) );
 
 console.log( 'Editor drive: input wiring' );
 test( 'arrow keys no longer pan the flat camera (they drive the car)', ! /ArrowUp' \) \{\s*camTarget\.z -= panStep/.test( html ) );
@@ -45,12 +49,12 @@ test( 'arrow keydown feeds editorDrive.onDriveKey', html.includes( "editorDrive.
 test( 'arrow keyup releases editorDrive.onDriveKey', html.includes( "editorDrive.onDriveKey( e.key, false )" ) );
 test( 'free-mode MIDDLE-drag rotates the camera', /editorCamMode === 'free' && editorDrive && e\.button === 1 \) \{\s*editorDrive\.startRotate/.test( html ) );
 test( 'right-click is NOT captured for rotate (erase keeps working in free mode)', ! /e\.button === 2 \|\| e\.button === 1/.test( html ) );
-test( 'flat pan branch (middle/ctrl/space) is flat-mode only', /editorCamMode !== 'free' && \( e\.button === 1 \|\|/.test( html ) );
+test( 'flat pan branch (middle/ctrl/space) is flat-mode only', /editorCamMode === 'flat' && \( e\.button === 1 \|\|/.test( html ) );
 test( 'pointermove routes to rotation while rotating', html.includes( 'editorDrive.isRotating()' ) );
 test( 'free-mode wheel dollies instead of ortho-zooming', html.includes( 'editorDrive.dolly( e.deltaY )' ) );
 test( 'free cam never clips below the floor', ( html.match( /Math\.max\( 0\.6, freeCamera\.position\.y \)/g ) || [] ).length >= 2 );
 test( 'Space flies UP and Ctrl flies DOWN in free mode', /flyKeys\.has\( 'KeyE' \) \|\| flyKeys\.has\( 'Space' \) \) move\.y \+= 1;/.test( html ) && /flyKeys\.has\( 'KeyQ' \) \|\| flyKeys\.has\( 'ControlLeft' \)/.test( html ) );
-test( 'space-grab cursor only engages in flat mode', /editorCamMode !== 'free' && ! spaceDown/.test( html ) );
+test( 'space-grab cursor only engages in flat mode', /editorCamMode === 'flat' && ! spaceDown/.test( html ) );
 test( 'Shift+R respawns the car', html.includes( "e.key.toLowerCase() === 'r' ) { e.preventDefault(); respawn(); }" ) );
 
 console.log( 'Editor drive: physics lifecycle' );
@@ -83,6 +87,19 @@ test( 'computeSpawnPosition returns { position, angle } used by setSpawn', track
 test( 'respawn resets through Vehicle.resetToSpawn', html.includes( 'vehicle.resetToSpawn();' ) );
 test( 'car init failure degrades gracefully (editing still works)', html.includes( 'Test car failed to load — editing still works' ) );
 test( 'fly keys released on keyup', html.includes( "flyKeys.delete( e.code )" ) );
+test( 'movers: editor uses the game obstacle module', existsSync( './js/MovingObstacles.js' ) && html.includes( "from './js/MovingObstacles.js'" ) && html.includes( 'createMovingObstacleState( scene, getPhysicsExtras() )' ) );
+test( 'movers animate every editor frame and push the drive car', /driveClock \+= dt;[\s\S]*?updateMovingObstacles\( movingState, driveClock, active && vehicle \? \[ vehicle \] : \[\] \)/.test( html ) );
+test( 'movers rebuild with colliders and on init', /world = newWorld;\s*rebuildMovingState\(\);/.test( html ) && /active = true;\s*rebuildMovingState\(\);/.test( html ) );
+test( 'moving obstacle data flows through the physics extras', html.includes( 'movingObstacles: m.o,' ) );
+test( 'static mover markers removed (real animated meshes replace them)', /Moving obstacles render as the real animated meshes/.test( html ) );
+test( 'main.js imports the extracted mover module', /import \{ createMovingObstacleState, resetMovingObstacles, updateMovingObstacles \} from '\.\/MovingObstacles\.js';/.test( main ) && /updateMovingObstacles/.test( main ) );
+test( 'editor pools use the game pool visuals (createPoolCellVisual)', html.includes( 'createPoolCellVisual( gx, gz, {' ) && /exitSide: exit \? `\$\{ exit\.dx \},\$\{ exit\.dz \}` : null,/.test( html ) );
+test( 'editor pool water sits at the game water line (0.12)', /water\.position\.y = 0\.12;/.test( html ) );
+test( 'Track.js exports the shared pool cell builder and buildTrack uses it', track.includes( 'export function createPoolCellVisual' ) && /const pool = createPoolCellVisual\( gx, gz, \{ isWaterCell, exitSide, poolVisuals \} \);/.test( track ) );
+test( 'editor slope-up placed at ground level like the game (-ELEVATED_HEIGHT)', /normalizedType === 'slope-up' \? - ELEVATED_HEIGHT : 0/.test( html ) );
+test( 'ground 4-way nudged up like the elevated 4-way (+0.1)', /roadPiece\.type === 'track-4-way' \? 0\.1 : 0/.test( html ) );
+test( 'respawn recomputes spawn from the live grid (start block wins)', /function respawn\(\) \{[\s\S]*?computeSpawnPosition\( getCellsArray\(\) \);[\s\S]*?vehicle\.setSpawn\( spawn\.position, spawn\.angle \);[\s\S]*?vehicle\.resetToSpawn\(\);/.test( html ) );
+test( 'placing a Start / Start-Finish block respawns the car onto it', /type === 'track-start' \|\| type === 'track-start-finish' \) editorDrive\?\.respawn\(\);/.test( html ) );
 
 console.log( `\n${ pass } passed, ${ fail } failed${ fail > 0 ? ' — WITH FAILURES' : '' }` );
 process.exit( fail > 0 ? 1 : 0 );

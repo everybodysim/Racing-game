@@ -74,7 +74,7 @@ test( 'editor: colors flag defaults to disabled (false)', /let customPoolColorsE
 test( 'editor: payload carries colorsOn', editor.includes( 'r: { ...customPoolConfig, colorsOn: customPoolColorsEnabled === true }' ) );
 test( 'editor: load restores the flag + syncs the checkbox', /customPoolColorsEnabled = mods\?\.r\?\.colorsOn === true;/.test( editor ) );
 test( 'editor: toggling stops propagation (no panel open)', /cp-colors-toggle' \)\?\.addEventListener\( 'click', \( event \) => \{[\s\S]{0,80}event\.stopPropagation\(\);/.test( editor ) );
-test( 'editor: vivid preview only when colors are enabled', /const colorsOn = customPoolColorsEnabled === true;[\s\S]{0,900}colorsOn \? 0\.45 : 0\.18/.test( editor ) );
+test( 'editor: vivid preview only when colors are enabled', /const colorsOn = customPoolColorsEnabled === true;[\s\S]{0,2400}colorsOn \? 0\.45 : 0\.18/.test( editor ) );
 
 console.log( '\n8. Garage + default car' );
 test( 'garage cards: no spinning preview canvas anymore', !main.includes( 'garage-card-preview" aria-label' ) );
@@ -90,7 +90,7 @@ test( 'default-car options include Last used + Random + every CAR_STATS car', /'
 test( 'boot: default-car setting overrides the boot randomizer', /applyDefaultCar\( localStorage\.getItem\( DEFAULT_CAR_KEY \) \|\| '__random' \);/.test( main ) );
 test( 'profile snapshot carries defaultCar', main.includes( "defaultCar: localStorage.getItem( DEFAULT_CAR_KEY ) || '__last'," ) );
 test( 'profile import merges default car (local pick beats stale cloud)', /const nextDefault = localDefault \|\| cloudDefault \|\| '__last';/.test( main ) && /if \( nextDefault !== '__last' \) applyDefaultCar\( nextDefault \);/.test( main ) );
-test( 'index.html cache bumped for the new main.js', /v=1000213/.test( html ) );
+test( 'index.html cache bumped for the new main.js', /v=1000214/.test( html ) );
 
 console.log( '\n9. Underwater package (dive cam + fog + overlay + caustics + bubbles)' );
 const camera = readFileSync( './js/Camera.js', 'utf8' );
@@ -125,7 +125,7 @@ test( 'editor.html: Height dispatcher toasts the RIGHT block value (no clobber)'
 test( 'editor.html: special-block adjust row is a 2x4 grid', /\.side-ui-adjust \{ display: grid; grid-template-columns: repeat\( 2, minmax\( 0, 1fr \) \);/.test( editor ) );
 test( 'worker: defaultCar + repaint masks survive sanitizeProfile', ( () => { const w = worker; return w.includes( 'sanitizeDefaultCar' ) && /mask: typeof mapping\?\.mask === 'string' \? mapping\.mask\.slice\( 0, 32000 \) : ''/.test( w ) && /defaultCar: sanitizeDefaultCar\( profile\?\.defaultCar \)/.test( w ); } )() );
 test( 'editor.html: arc/portal help text kept', editor.includes( 'Orange launches' ) );
-test( 'Track.js import pin bumped to v=1000213', /Track\.js\?v=1000213'/.test( main ) );
+test( 'Track.js import pin bumped to v=1000214', /Track\.js\?v=1000214'/.test( main ) );
 
 console.log( `\n${ passed } passed, ${ failed } failed${ failed ? ' — WITH FAILURES' : '' }` );
 process.exitCode = failed ? 1 : 0;
