@@ -127,6 +127,16 @@ const _waterProjScreen = new THREE.Matrix4();
 let waterRefrFrameCounter = 0;
 let waterRefrCadence = 1;
 
+// Camera-underwater state shared by every pool material. When the camera is
+// below the surface, the pool floors get their animated caustic overlay and
+// the water surface renders its shimmering underside.
+const WATER_UNDERWATER = { camera: false, gain: 0 };
+export function setWaterUnderwaterCameraState( active ) {
+
+	WATER_UNDERWATER.camera = !! active;
+
+}
+
 export function updateWaterQuality( rollingFps ) {
 
 	if ( ! Number.isFinite( rollingFps ) || rollingFps <= 0 ) {
@@ -216,13 +226,18 @@ function normalizePoolVisuals( extras = null ) {
 
 	const cfg = extras?.customPool && typeof extras.customPool === 'object' ? extras.customPool : {};
 	const isHex = ( value ) => /^#[0-9a-f]{6}$/i.test( String( value || '' ) );
+	// Custom colors only apply when the track's editor checkbox opted in
+	// (colorsOn). Without it the pool uses the classic blue — even if the
+	// payload carries old color values — so the toggle is OFF by default.
+	const colorsOn = cfg.colorsOn === true;
 	return {
 		// Bluer than the old default — the shader body adds a further cool tint.
-		waterColor: isHex( cfg.waterColor ) ? cfg.waterColor : '#1180e6',
-		edgeColor: isHex( cfg.edgeColor ) ? cfg.edgeColor : '#5cc7ff',
+		waterColor: colorsOn && isHex( cfg.waterColor ) ? cfg.waterColor : '#1180e6',
+		edgeColor: colorsOn && isHex( cfg.edgeColor ) ? cfg.edgeColor : '#5cc7ff',
 		// Opaque by default (refraction is drawn in-shader like the reference
 		// demo); only tracks that explicitly ask get the see-through alpha.
 		transparent: cfg.transparent === true,
+		isCustom: colorsOn,
 	};
 
 }
@@ -232,7 +247,9 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 	return new THREE.ShaderMaterial( {
 		uniforms: {
 			time: { value: 0 },
-			waveHeight: { value: CELL_RAW * 0.17 },
+			// 3x the original 0.05 (was briefly 0.17/3.4x — the tallest random crests
+			// clipped through the grass surface, so this backs off to 3x).
+			waveHeight: { value: CELL_RAW * 0.15 },
 			floorY: { value: - WATER_DEPTH },
 			tDiffuse: { value: null },
 			resolution: { value: new THREE.Vector2( 1, 1 ) },
@@ -246,7 +263,24 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			causticFadeStart: { value: CELL_RAW * 5 },
 			causticFadeEnd: { value: CELL_RAW * 9 },
 			lightDir: { value: new THREE.Vector3( 0.577, 0.577, 0.577 ).normalize() },
-			deepColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0x041f3d ), 0.6 ) },
+			// Custom pools: push the picked hue hard (saturate x1.5, clamp
+			// lightness into a readable band) and nearly skip the deep-navy
+			// drown so a red pool reads RED. Default pools keep the old look.
+			deepColor: { value: ( () => {
+
+				const c = new THREE.Color( visuals.waterColor );
+				if ( visuals.isCustom ) {
+
+					const hsl = { h: 0, s: 0, l: 0 };
+					c.getHSL( hsl );
+					c.setHSL( hsl.h, Math.min( 1, hsl.s * 1.5 ), THREE.MathUtils.clamp( hsl.l, 0.34, 0.62 ) );
+
+				}
+				return c.lerp( new THREE.Color( 0x041f3d ), visuals.isCustom ? 0.12 : 0.6 );
+
+			} )() },
+			// Neutral tint for custom pools (no blue shift); classic cool tint otherwise.
+			uTint: { value: new THREE.Vector3( visuals.isCustom ? 1 : 0.86, visuals.isCustom ? 1 : 0.94, visuals.isCustom ? 1 : 1.08 ) },
 			skyTop: { value: new THREE.Color( 0x6db3e8 ) },
 			skyHorizon: { value: new THREE.Color( 0xdff3ff ) },
 
@@ -267,7 +301,13 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			varying float vWaveDistFade;
 			varying float vCausticDistFade;
 
-			float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 ); }
+			// Sin-free hash (iq): the old fract(sin(dot)*43758) hash loses precision
+			// on large coords and printed a repeating CROSS/X lattice artifact
+			// across the water. This one stays clean at any distance.
+			float hash( vec2 p ) {
+				p = 50.0 * fract( p * 0.3183099 + vec2( 0.71, 0.113 ) );
+				return fract( p.x * p.y * ( p.x + p.y ) );
+			}
 			float noise( vec2 p ) {
 				vec2 i = floor( p ), f = fract( p );
 				f = f * f * ( 3.0 - 2.0 * f );
@@ -321,6 +361,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			uniform float floorY;
 			uniform vec3 lightDir;
 			uniform vec3 deepColor;
+			uniform vec3 uTint;
 			uniform vec3 skyTop;
 			uniform vec3 skyHorizon;
 			varying vec3 vWorldPos;
@@ -329,7 +370,13 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			varying float vWaveDistFade;
 			varying float vCausticDistFade;
 
-			float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 ); }
+			// Sin-free hash (iq): the old fract(sin(dot)*43758) hash loses precision
+			// on large coords and printed a repeating CROSS/X lattice artifact
+			// across the water. This one stays clean at any distance.
+			float hash( vec2 p ) {
+				p = 50.0 * fract( p * 0.3183099 + vec2( 0.71, 0.113 ) );
+				return fract( p.x * p.y * ( p.x + p.y ) );
+			}
 			float noise( vec2 p ) {
 				vec2 i = floor( p ), f = fract( p );
 				f = f * f * ( 3.0 - 2.0 * f );
@@ -364,6 +411,19 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 					noise( vWorldPos.zx * 2.3 - vec2( wt * 0.8, wt ) ) - 0.5
 				);
 				vec2 refrUV = clamp( screenUV + wobble * 0.035, vec2( 0.002 ), vec2( 0.998 ) );
+				// Seen from BELOW the surface (camera underwater), the plane
+				// renders as a shimmering water ceiling instead of the
+				// above-water refraction sample.
+				if ( ! gl_FrontFacing ) {
+
+					vec3 under = texture2D( tDiffuse, clamp( screenUV + wobble * 0.02, vec2( 0.002 ), vec2( 0.998 ) ) ).rgb;
+					under *= vec3( 0.45, 0.72, 0.86 );
+					float shimmer = 0.5 + 0.5 * sin( ( vWorldPos.x + vWorldPos.z ) * 1.7 + time * 2.6 + noise( vWorldPos.xz * 2.6 + vec2( time * 0.9, - time * 0.7 ) ) * 7.0 );
+					under += vec3( 0.22, 0.36, 0.42 ) * shimmer * vWaveDistFade;
+					gl_FragColor = vec4( under, 1.0 );
+					return;
+
+				}
 				vec3 refrColor = texture2D( tDiffuse, refrUV ).rgb;
 
 				// Depth tint along the refracted ray
@@ -375,15 +435,19 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				// on the actual pool floor AND any car under the surface.
 				vec2 cUV = fPos.xz * 1.8 + n.xz * 0.35;
 				float ct = time * 2.0;
-				float n1 = noise( cUV + vec2( ct * 0.3, ct * 0.1 ) );
-				float n2 = noise( cUV.yx - vec2( ct * 0.2, - ct * 0.2 ) );
+				// Two noise fields on ROTATED, differently-scaled domains —
+				// aligned lattices are what drew the cross/X pattern.
+				mat2 rotC = mat2( 0.84, 0.54, -0.54, 0.84 );
+				float n1 = noise( rotC * cUV * 1.15 + vec2( ct * 0.3, ct * 0.1 ) );
+				float n2 = noise( rotC * cUV * 1.62 + vec2( 37.2, - 11.7 ) - vec2( ct * 0.2, - ct * 0.2 ) );
 				float web = abs( n1 - n2 );
 				// Caustics fade out with distance instead of popping off
 				float caustic = pow( max( 0.0, 1.0 - web ), 30.0 ) * 0.6 * vCausticDistFade;
 				refrColor += vec3( caustic * vec3( 0.65, 0.8, 0.9 ) );
 
-				// The bluer body tint requested
-				refrColor *= vec3( 0.86, 0.94, 1.08 );
+				// The bluer body tint requested (custom pools stay neutral so the
+				// picked color is not shifted back toward blue)
+				refrColor *= uTint;
 
 				vec3 final = mix( refrColor, skyColor, fresnel );
 				final += vec3( pow( max( dot( rDir, lightDir ), 0.0 ), 450.0 ) * 0.3 );
@@ -405,6 +469,159 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 		depthWrite: true,
 		side: THREE.DoubleSide,
 	} );
+
+}
+
+// Animated caustic overlay projected onto each pool floor. Gain is 0 while
+// the camera is above water (the classic look already carries caustics through
+// the surface refraction) and eases to full ONLY when the camera is underwater.
+function createPoolFloorCausticsMaterial() {
+
+	return new THREE.ShaderMaterial( {
+		uniforms: {
+			time: { value: 0 },
+			gain: { value: 0 },
+			shade: { value: 1 },
+			lightDir: { value: new THREE.Vector3( 0.577, 0.577, 0.577 ).normalize() },
+		},
+		transparent: true,
+		depthWrite: false,
+		blending: THREE.AdditiveBlending,
+		vertexShader: `
+			varying vec2 vLocal;
+			void main() {
+				vLocal = position.xy;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+			}
+		`,
+		fragmentShader: `
+			uniform float time;
+			uniform float gain;
+			uniform float shade;
+			varying vec2 vLocal;
+			// Sin-free hash (iq): the old fract(sin(dot)*43758) hash loses precision
+			// on large coords and printed a repeating CROSS/X lattice artifact
+			// across the water. This one stays clean at any distance.
+			float hash( vec2 p ) {
+				p = 50.0 * fract( p * 0.3183099 + vec2( 0.71, 0.113 ) );
+				return fract( p.x * p.y * ( p.x + p.y ) );
+			}
+			float noise( vec2 p ) {
+				vec2 i = floor( p ), f = fract( p );
+				f = f * f * ( 3.0 - 2.0 * f );
+				return mix( mix( hash( i ), hash( i + vec2( 1.0, 0.0 ) ), f.x ),
+					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+			}
+			void main() {
+				if ( gain <= 0.001 ) discard;
+				float ct = time * 1.9;
+				// Rotated + differently-scaled domains so the two integer
+				// lattices never align (aligned ones drew the cross/X pattern).
+				mat2 rotC = mat2( 0.84, 0.54, -0.54, 0.84 );
+				vec2 cUV = rotC * vLocal * 1.85;
+				float n1 = noise( cUV * 1.15 + vec2( ct * 0.32, ct * 0.11 ) );
+				float n2 = noise( cUV * 1.62 + vec2( 37.2, - 11.7 ) - vec2( ct * 0.21, - ct * 0.24 ) );
+				float web = abs( n1 - n2 );
+				// Caustics are LIGHT — the shade uniform (N·L toward the sun)
+				// fades them out on surfaces that sit in shadow.
+				float caustic = pow( max( 0.0, 1.0 - web ), 22.0 ) * shade;
+				gl_FragColor = vec4( vec3( 0.62, 0.82, 0.95 ) * caustic * gain * 0.85, caustic * gain );
+			}
+		`,
+	} );
+
+}
+
+// Caustic film for the INNER pool walls: vertical bands that fade out at the
+// water line (nothing above the surface) and dim with depth. `shade` is the
+// N·L term toward the sun — walls facing away from the light sit in shade and
+// get no caustics, matching the floor overlay's behavior.
+function createPoolWallCausticsMaterial() {
+
+	return new THREE.ShaderMaterial( {
+		uniforms: {
+			time: { value: 0 },
+			gain: { value: 0 },
+			shade: { value: 1 },
+			centerY: { value: 0 },
+			waterY: { value: 0.12 },
+		},
+		transparent: true,
+		depthWrite: false,
+		blending: THREE.AdditiveBlending,
+		vertexShader: `
+			varying vec2 vLocal;
+			void main() {
+				vLocal = position.xy;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+			}
+		`,
+		fragmentShader: `
+			uniform float time;
+			uniform float gain;
+			uniform float shade;
+			uniform float centerY;
+			uniform float waterY;
+			varying vec2 vLocal;
+			float hash( vec2 p ) {
+				p = 50.0 * fract( p * 0.3183099 + vec2( 0.71, 0.113 ) );
+				return fract( p.x * p.y * ( p.x + p.y ) );
+			}
+			float noise( vec2 p ) {
+				vec2 i = floor( p ), f = fract( p );
+				f = f * f * ( 3.0 - 2.0 * f );
+				return mix( mix( hash( i ), hash( i + vec2( 1.0, 0.0 ) ), f.x ),
+					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+			}
+			void main() {
+				if ( gain <= 0.001 ) discard;
+				float ct = time * 1.9;
+				mat2 rotC = mat2( 0.84, 0.54, - 0.54, 0.84 );
+				vec2 cUV = rotC * vec2( vLocal.x * 1.45, vLocal.y * 1.1 );
+				float n1 = noise( cUV * 1.15 + vec2( ct * 0.32, ct * 0.11 ) );
+				float n2 = noise( cUV * 1.62 + vec2( 37.2, - 11.7 ) - vec2( ct * 0.21, - ct * 0.24 ) );
+				float web = abs( n1 - n2 );
+				float caustic = pow( max( 0.0, 1.0 - web ), 22.0 );
+				// Fade to nothing AT the water line (dry wall stays clean) and
+				// dim a little with depth, like real light attenuation.
+				float worldY = centerY + vLocal.y;
+				float surfaceFade = smoothstep( 0.0, 0.07, waterY - worldY );
+				float depthFade = clamp( 0.45 + ( waterY - worldY ) * 0.9, 0.35, 1.0 );
+				caustic *= surfaceFade * depthFade * shade;
+				gl_FragColor = vec4( vec3( 0.62, 0.82, 0.95 ) * caustic * gain * 0.8, caustic * gain );
+			}
+		`,
+	} );
+
+}
+
+// Shared per-frame animation for every caustic overlay (floor + walls): tick
+// the clock and ease the gain toward the underwater camera state. 6/s easing
+// makes the water↔normal transition feel instant.
+function attachCausticAnimator( mesh ) {
+
+	let last = 0;
+	mesh.onBeforeRender = () => {
+
+		const now = performance.now() * 0.001;
+		const u = mesh.material.uniforms;
+		u.time.value = now;
+		const targetGain = WATER_UNDERWATER.camera ? 1 : 0;
+		const step = Math.min( 1, Math.max( 0, now - last ) * 6.0 );
+		last = now;
+		u.gain.value = THREE.MathUtils.lerp( u.gain.value, targetGain, step );
+
+	};
+
+}
+
+// Sun direction matches main.js's shadow-casting directional light
+// (11.4, 15, -5.3) so caustic shading agrees with the scene's shadows.
+const CAUSTIC_SUN_DIR = new THREE.Vector3( 11.4, 15, - 5.3 ).normalize();
+const _upShadeNormal = new THREE.Vector3( 0, 1, 0 );
+function computeCausticShade( normal ) {
+
+	return THREE.MathUtils.smoothstep( THREE.MathUtils.clamp( normal.dot( CAUSTIC_SUN_DIR ), - 1, 1 ), - 0.05, 0.45 );
 
 }
 
@@ -830,6 +1047,19 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			floor.position.y = - WATER_DEPTH;
 			floor.receiveShadow = true;
 			pool.add( floor );
+			// Caustic light layer just above the floor tile — visible only
+			// while the camera is underwater (see createPoolFloorCausticsMaterial).
+			const causticOverlay = new THREE.Mesh(
+				new THREE.PlaneGeometry( CELL_RAW, CELL_RAW ),
+				createPoolFloorCausticsMaterial()
+			);
+			causticOverlay.rotation.x = - Math.PI / 2;
+			causticOverlay.position.y = - WATER_DEPTH + CELL_RAW * 0.028;
+			// Floor faces up, so its caustic shade is the sun's own up-term —
+			// any surface the sun can't reach stays dark (shared with walls).
+			causticOverlay.material.uniforms.shade.value = computeCausticShade( _upShadeNormal );
+			attachCausticAnimator( causticOverlay );
+			pool.add( causticOverlay );
 			// If this pool tile has a pool slope, omit the wall + edge lip on the
 			// exit side (where the ramp's high end meets ground level).
 			const slopeOrient = poolSlopeOrientByCell.get( `${ gx },${ gz }` );
@@ -854,7 +1084,26 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				wall.castShadow = true;
 				wall.receiveShadow = true;
 				pool.add( wall );
-				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: 0.3, roughness: 0.22, metalness: 0.12 } ) );
+				// Caustic light film on the wall's INNER face — same animated
+				// pattern as the floor, shaded by how directly the wall faces
+				// the sun (walls in shade get none).
+				const wallCaustic = new THREE.Mesh(
+					new THREE.PlaneGeometry( CELL_RAW, WATER_WALL_HEIGHT * 0.94 ),
+					createPoolWallCausticsMaterial()
+				);
+				const inward = new THREE.Vector3( - side.dx, 0, - side.dz );
+				wallCaustic.position.set(
+					side.x + inward.x * CELL_RAW * 0.052,
+					wall.position.y,
+					side.z + inward.z * CELL_RAW * 0.052
+				);
+				wallCaustic.lookAt( wallCaustic.position.clone().add( inward ) );
+				wallCaustic.material.uniforms.shade.value = computeCausticShade( inward );
+				wallCaustic.material.uniforms.centerY.value = wall.position.y;
+				wallCaustic.material.uniforms.waterY.value = 0.12;
+				attachCausticAnimator( wallCaustic );
+				pool.add( wallCaustic );
+				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: poolVisuals.isCustom ? 0.55 : 0.3, roughness: 0.22, metalness: 0.12 } ) );
 				edge.position.set( side.x, 0.515, side.z );
 				edge.rotation.y = side.ry;
 				pool.add( edge );
@@ -1080,8 +1329,19 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				} )
 			);
 			patch.rotation.x = - Math.PI / 2;
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+			const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
+			const yOffset = getOverlayHeightOffset( elevatedEntry );
 			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
+			// Slope tilt: surfaces and pads placed on a slope block lie flush with
+			// the ramp. The tilt comes from the cell's own elevated entry, so
+			// off-grid (fractional) placements work exactly like on-grid ones.
+			// The ramp rises toward local -Z, so the plane tilts toward local +Z
+			// (downhill) by atan(height / cell).
+			if ( elevatedEntry && elevatedEntry.type === 'slope-up' ) {
+				patch.rotation.order = 'YXZ';
+				patch.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ elevatedEntry.orient ] ?? 0 );
+				patch.rotation.x = - Math.PI / 2 + Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
+			}
 			patch.receiveShadow = true;
 			trackPieceGroup.add( patch );
 

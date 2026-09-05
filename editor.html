@@ -190,6 +190,12 @@
 			z-index: 20;
 		}
 		#toast.show { opacity: 1; }
+		.drive-hint { position: fixed; top: 52px; right: 12px; z-index: 40; pointer-events: none; font-size: 11px; color: #cfe3ff; background: rgba( 10, 14, 22, 0.72 ); border: 1px solid rgba( 120, 160, 220, 0.25 ); border-radius: 8px; padding: 6px 10px; max-width: 30vw; }
+		#editor-cam-cluster { position: fixed; top: 10px; right: 12px; z-index: 42; display: flex; gap: 8px; }
+		#editor-cam-cluster button { font-size: 12px; font-weight: 600; color: #e8efff; background: rgba( 15, 18, 24, 0.92 ); border: 1px solid rgba( 255, 255, 255, 0.22 ); border-left: 3px solid rgba( 125, 211, 252, 0.55 ); border-radius: 8px; padding: 8px 12px; cursor: pointer; box-shadow: 0 6px 20px rgba( 0, 0, 0, 0.35 ); }
+		#editor-cam-cluster button:hover { background: rgba( 45, 55, 72, 0.95 ); }
+		#editor-cam-cluster select { font-size: 12px; font-weight: 600; color: #e8efff; background: rgba( 15, 18, 24, 0.92 ); border: 1px solid rgba( 255, 255, 255, 0.22 ); border-left: 3px solid rgba( 125, 211, 252, 0.55 ); border-radius: 8px; padding: 8px 10px; cursor: pointer; box-shadow: 0 6px 20px rgba( 0, 0, 0, 0.35 ); }
+		#editor-cam-cluster select:hover { background: rgba( 45, 55, 72, 0.95 ); }
 		#offgrid-dev-banner {
 			position: absolute;
 			top: 82px;
@@ -275,53 +281,23 @@
 			position: absolute;
 			left: 12px;
 			bottom: 16px;
-			width: 212px;
-			z-index: 32;
-			background: rgba(15, 18, 24, 0.92);
-			border: 1px solid rgba(255, 255, 255, 0.16);
-			border-left: 3px solid rgba(255, 200, 100, 0.55);
-			border-radius: 10px;
-			box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-			overflow: hidden;
-		}
-		#side-ui-toggle {
-			padding: 7px 10px;
-			font-size: 11px;
-			font-weight: 700;
-			color: #ffd066;
-			cursor: pointer;
-			user-select: none;
-			list-style: none;
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-		}
-		#side-ui-toggle::-webkit-details-marker { display: none; }
-		#side-ui-toggle::after {
-			content: '▼';
-			font-size: 8px;
-			opacity: 0.7;
-		}
-		#side-ui-bar:not([open]) #side-ui-toggle::after {
-			content: '▶';
-		}
-		.side-ui-content {
 			display: grid;
 			grid-template-columns: repeat(2, minmax(0, 1fr));
+			grid-auto-rows: minmax(0, auto);
 			gap: 6px;
-			padding: 8px;
-			border-top: 1px solid rgba(255, 255, 255, 0.08);
+			width: 212px;
+			z-index: 32;
 		}
-		.side-ui-content button {
+		#side-ui-bar button {
 			padding: 8px 9px;
-			border: 1px solid rgba(255, 255, 255, 0.18);
+			border: 1px solid rgba(255,255,255,0.18);
 			border-radius: 8px;
 			background: rgba(15, 18, 24, 0.88);
 			color: #e8efff;
 			font-size: 11px;
 			cursor: pointer;
 		}
-		.side-ui-content button:hover { background: rgba(45, 55, 72, 0.92); }
+		#side-ui-bar button:hover { background: rgba(45,55,72,0.92); }
 		#arc-link-help {
 			grid-column: 1 / -1;
 			padding: 6px 8px;
@@ -406,7 +382,6 @@
 .toolbar-group[data-cat="decor"]     { border-left: 3px solid rgba(180, 120, 255, 0.55); }
 .toolbar-group[data-cat="edit"]      { border-left: 3px solid rgba(120, 220, 240, 0.55); }
 .toolbar-group[data-cat="run"]       { border-left: 3px solid rgba(120, 240, 140, 0.55); }
-#side-ui-bar { border-left: 3px solid rgba(255, 200, 100, 0.4); border-radius: 10px; padding-left: 9px; }
 
 /* ─── Feature 8: Collapsible settings bar ─── */
 #settings-bar.collapsed > *:not(#settings-toggle-btn) { display: none !important; }
@@ -416,6 +391,8 @@
 /* ─── Feature 4: Minimap ─── */
 #minimap-wrap { position: absolute; left: 12px; top: 12px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
 #minimap-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
+#btn-custom-pool { display: inline-flex; align-items: center; gap: 6px; }
+#btn-custom-pool #cp-colors-toggle { accent-color: #34d058; width: 14px; height: 14px; margin: 0; cursor: pointer; flex: none; }
 #minimap-label { position: absolute; top: 4px; left: 8px; font: 700 9px sans-serif; color: rgba(255,255,255,0.45); pointer-events: none; text-transform: uppercase; letter-spacing: 0.06em; }
 #minimap-wrap.hidden { display: none; }
 
@@ -439,7 +416,8 @@
 	{
 		"imports": {
 			"three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
-			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/"
+			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/",
+			"crashcat": "https://esm.sh/crashcat@0.0.2"
 		}
 	}
 	</script>
@@ -511,35 +489,33 @@
 			<button type="button" data-mobile-click="btn-portal-yellow">Portal End +</button>
 			<button type="button" data-mobile-click="btn-arc-orange">Arc Start +</button>
 			<button type="button" data-mobile-click="btn-portal-purple">Portal Start +</button>
-			<button type="button" data-mobile-click="btn-portal-up">Arc/Portal ▲</button>
-			<button type="button" data-mobile-click="btn-portal-down">Arc/Portal ▼</button>
+			<button type="button" data-mobile-click="btn-magnet-up">Height ▲</button>
+			<button type="button" data-mobile-click="btn-magnet-down">Height ▼</button>
 			<button type="button" data-mobile-click="btn-portal-id-down">ID -</button>
 			<button type="button" data-mobile-click="btn-portal-id-up">ID +</button>
 			<div class="mobile-editor-help">Orange/Purple are starts. Green/Yellow are matching endpoints.</div>
 		</div>
 	</details>
-<details id="side-ui-bar" open>
-    <summary id="side-ui-toggle">⚡ Special Parts</summary>
-    <div class="side-ui-content">
-        <button id="btn-magnet-blue">Magnet Blue +</button>
-        <button id="btn-magnet-red">Magnet Red +</button>
-        <button id="btn-magnet-up" title="Move selected magnet up by 0.1 grid">Magnet ▲</button>
-        <button id="btn-magnet-down" title="Move selected magnet down by 0.1 grid">Magnet ▼</button>
-        <button id="btn-magnet-strength-up" title="Increase selected magnet strength">Strength +</button>
-        <button id="btn-magnet-strength-down" title="Decrease selected magnet strength">Strength -</button>
-        <button id="btn-magnet-range-up" title="Increase selected magnet range">Range +</button>
-        <button id="btn-magnet-range-down" title="Decrease selected magnet range">Range -</button>
-        <button id="btn-arc-green" title="Green arc is the endpoint only (does not launch)">Arc End (Green) +</button>
-        <button id="btn-portal-yellow" title="Yellow portal is endpoint only (one-way, does not launch)">Portal End (Yellow) +</button>
-        <button id="btn-arc-orange" title="Orange arc is the launch/start point">Arc Start (Orange) +</button>
-        <button id="btn-portal-purple" title="Purple portal is the start point and keeps velocity">Portal Start (Purple) +</button>
-        <button id="btn-portal-up" title="Move selected arc/portal up by 0.1 grid">Arc/Portal ▲</button>
-        <button id="btn-portal-down" title="Move selected arc/portal down by 0.1 grid">Arc/Portal ▼</button>
-        <button id="btn-portal-id-down" title="Decrease selected arc/portal link id">Arc/Portal ID -</button>
-        <button id="btn-portal-id-up" title="Increase selected arc/portal link id">Arc/Portal ID +</button>
-        <div id="arc-link-help">Arc Link flow: <strong>Orange launches</strong> to matching <strong>Green endpoint</strong>. Portal flow: <strong>Purple teleports</strong> to matching <strong>Yellow endpoint</strong> and keeps velocity. Green/Yellow never launch.</div>
-    </div>
-</details>
+<div id="side-ui-bar">
+		<button id="btn-magnet-blue">Magnet Blue +</button>
+		<button id="btn-magnet-red">Magnet Red +</button>
+	<!--	<button id="btn-magnet-grapple">Grapple Orb +</button> -->
+		<button id="btn-magnet-up" title="Move selected magnet up by 0.1 grid">Magnet ▲</button>
+		<button id="btn-magnet-down" title="Move selected magnet down by 0.1 grid">Magnet ▼</button>
+		<button id="btn-magnet-strength-up" title="Increase selected magnet strength">Strength +</button>
+		<button id="btn-magnet-strength-down" title="Decrease selected magnet strength">Strength -</button>
+		<button id="btn-magnet-range-up" title="Increase selected magnet range">Range +</button>
+		<button id="btn-magnet-range-down" title="Decrease selected magnet range">Range -</button>
+		<button id="btn-arc-green" title="Green arc is the endpoint only (does not launch)">Arc End (Green) +</button>
+		<button id="btn-portal-yellow" title="Yellow portal is endpoint only (one-way, does not launch)">Portal End (Yellow) +</button>
+		<button id="btn-arc-orange" title="Orange arc is the launch/start point">Arc Start (Orange) +</button>
+		<button id="btn-portal-purple" title="Purple portal is the start point and keeps velocity">Portal Start (Purple) +</button>
+		<button id="btn-portal-up" title="Move selected arc/portal up by 0.1 grid">Arc/Portal ▲</button>
+		<button id="btn-portal-down" title="Move selected arc/portal down by 0.1 grid">Arc/Portal ▼</button>
+		<button id="btn-portal-id-down" title="Decrease selected arc/portal link id">Arc/Portal ID -</button>
+		<button id="btn-portal-id-up" title="Increase selected arc/portal link id">Arc/Portal ID +</button>
+		<div id="arc-link-help">Arc Link flow: <strong>Orange launches</strong> to matching <strong>Green endpoint</strong>. Portal flow: <strong>Purple teleports</strong> to matching <strong>Yellow endpoint</strong> and keeps velocity. Green/Yellow never launch.</div>
+	</div>
 	<div id="panel-overlay" hidden></div>
 	<div id="panel-center" hidden>
 		<div id="flow-panel" class="tool-panel" hidden>
@@ -598,7 +574,7 @@
 			<button id="btn-wall">Wall +</button>
 			<button id="btn-jump">Jump +</button>
 			<button id="btn-water">Water Pool +</button>
-			<button id="btn-custom-pool">Custom Pool</button>
+			<button id="btn-custom-pool" title="Opens custom pool settings"><input type="checkbox" id="cp-colors-toggle" aria-label="Enable custom pool colors"> Custom Pool</button>
 		</div>
 		<div class="toolbar-group" aria-label="Moving objects" data-cat="moving">
 			<span class="toolbar-group-label">Moving</span>
@@ -694,6 +670,15 @@
 	<div id="quick-tools"></div>
 
 	<div id="toast"></div>
+<div id="drive-hint" class="drive-hint">← ↑ ↓ → drive the test car · Shift+R respawn · drag to pan</div>
+<div id="editor-cam-cluster">
+	<select id="cam-mode-select" title="Flat Map = classic top-down editing. Free = rotatable 3D camera you can edit and drive from. Follow = chase camera behind the car, like driving the map normally.">
+		<option value="flat" selected>View: Flat Map</option>
+		<option value="free">View: Free Cam</option>
+		<option value="follow">View: Follow Car</option>
+	</select>
+	<button id="btn-respawn-car" title="Respawn the test car at the start line (Shift+R)">Respawn Car</button>
+</div>
 	<div id="offgrid-dev-banner" hidden>Off-grid placement is still in development — expect rough edges while it gets fixed.</div>
 	<div id="custom-surface-panel" hidden>
 		<h3 id="custom-surface-title">Custom Surface</h3>
@@ -760,7 +745,11 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells } from './js/Track.js';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells } from './js/Track.js';
+	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
+	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js';
+	import { Vehicle } from './js/Vehicle.js';
 
 	// ─── State ────────────────────────────────────────────────
 
@@ -775,6 +764,9 @@
 	const WATER_TOOL = 'water-pool';
 	const CUSTOM_POOL_DEFAULT = { drag: 1.8, buoyancy: 0.28, waterColor: '#1f8fd6', edgeColor: '#5cc7ff', transparent: true };
 	let customPoolConfig = { ...CUSTOM_POOL_DEFAULT };
+	// Custom pool COLORS master switch — OFF by default. The checkbox inside the
+	// Custom Pool button toggles it; pool physics (drag/buoyancy) always apply.
+	let customPoolColorsEnabled = false;
 	let worldPreset = 'normal';
 	const MOVING_SLIDE_TOOL = 'moving-slide-block';
 	const MOVING_SPIN_TOOL = 'moving-spin-wall';
@@ -1183,7 +1175,7 @@
 		arc.linkId = clampArcLinkId( ( arc.linkId ?? ARC_DEFAULT_ID ) + delta );
 		rebuildArcMeshes();
 		save();
-		showToast( `Arc link id: ${ arc.linkId }` );
+		showToast( `${ arc.type === PORTAL_PURPLE_TOOL || arc.type === PORTAL_YELLOW_TOOL ? 'Portal' : 'Arc' } link id: ${ arc.linkId }` );
 
 	}
 
@@ -1201,14 +1193,17 @@
 		if ( arc.mesh ) arc.mesh.position.y = getMagnetWorldY( arc.y );
 		refreshArcSelectionTint();
 		save();
-		showToast( `Arc Y: ${ arc.y.toFixed( 2 ) }` );
+		showToast( `${ arc.type === PORTAL_PURPLE_TOOL || arc.type === PORTAL_YELLOW_TOOL ? 'Portal' : 'Arc' } Y: ${ arc.y.toFixed( 2 ) }` );
 
 	}
 
 	function getOverlayHeightOffset( cell ) {
 
 		if ( ! cell?.elevatedType ) return 0;
-		return cell.elevatedType === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
+		// Both slope directions ramp ground -> ELEVATED_HEIGHT across the cell,
+		// so their midpoint (cell center) sits at half height either way.
+		if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) return ELEVATED_HEIGHT * 0.5;
+		return ELEVATED_HEIGHT;
 
 	}
 
@@ -1386,11 +1381,58 @@
 
 	// Ground
 	const groundMat = new THREE.MeshStandardMaterial( { color: 0x369069, metalness: 0 } );
-	const ground = new THREE.Mesh( new THREE.PlaneGeometry( 200, 200 ), groundMat );
-	ground.rotation.x = - Math.PI / 2;
-	ground.position.y = - 0.14;
-	ground.receiveShadow = true;
-	scene.add( ground );
+	// Ground = static surround frame + a rebuildable 30x30 tile patch over
+	// the editable grid. Water (pool) cells are SKIPPED by the tile patch, so
+	// the sunken pool interior (walls, floor, water) is never covered by the
+	// green ground — the editor equivalent of the game's per-cell ground.
+	const GROUND_HALF = 100;
+	const groundCellWorld = CELL_RAW * GRID_SCALE;
+	const GRID_HALF_CELLS = 15;
+	const groundFrame = new THREE.Group();
+	const frameHalf = GRID_HALF_CELLS * groundCellWorld;
+	const frameDepth = GROUND_HALF - frameHalf;
+	for ( const [ w, d, cx, cz ] of [
+		[ GROUND_HALF * 2, frameDepth, 0, -( frameHalf + frameDepth / 2 ) ],
+		[ GROUND_HALF * 2, frameDepth, 0, frameHalf + frameDepth / 2 ],
+		[ frameDepth, frameHalf * 2, -( frameHalf + frameDepth / 2 ), 0 ],
+		[ frameDepth, frameHalf * 2, frameHalf + frameDepth / 2, 0 ],
+	] ) {
+		const strip = new THREE.Mesh( new THREE.PlaneGeometry( w, d ), groundMat );
+		strip.rotation.x = - Math.PI / 2;
+		strip.position.set( cx, - 0.14, cz );
+		strip.receiveShadow = true;
+		groundFrame.add( strip );
+	}
+	scene.add( groundFrame );
+	const groundTiles = new THREE.Mesh( new THREE.BufferGeometry(), groundMat );
+	groundTiles.position.y = - 0.14;
+	groundTiles.receiveShadow = true;
+	scene.add( groundTiles );
+	let groundTilesDirty = true;
+	function rebuildGroundTiles() {
+
+		const verts = [];
+		const idx = [];
+		let v = 0;
+		for ( let gz = - GRID_HALF_CELLS; gz < GRID_HALF_CELLS; gz ++ ) {
+			for ( let gx = - GRID_HALF_CELLS; gx < GRID_HALF_CELLS; gx ++ ) {
+				// Pool cells get a real hole — the sunken pool shows through.
+				if ( grid.get( cellKey( gx, gz ) )?.water ) continue;
+				const x0 = gx * groundCellWorld, z0 = gz * groundCellWorld;
+				const x1 = x0 + groundCellWorld, z1 = z0 + groundCellWorld;
+				verts.push( x0, 0, z0, x1, 0, z0, x1, 0, z1, x0, 0, z1 );
+				idx.push( v, v + 2, v + 1, v, v + 3, v + 2 );
+				v += 4;
+			}
+		}
+		const geo = new THREE.BufferGeometry();
+		geo.setAttribute( 'position', new THREE.Float32BufferAttribute( verts, 3 ) );
+		geo.setAttribute( 'normal', new THREE.Float32BufferAttribute( new Array( ( verts.length / 3 ) * 3 ).fill( 0 ).map( ( _, i ) => ( i % 3 === 1 ? 1 : 0 ) ), 3 ) );
+		geo.setIndex( idx );
+		groundTiles.geometry.dispose();
+		groundTiles.geometry = geo;
+
+	}
 
 	// Grid helper
 	const gridSize = 30;
@@ -1485,12 +1527,31 @@
 
 	const camTarget = new THREE.Vector3( cellCenter, 0, cellCenter );
 
+	// ─── Editor camera modes: 'flat' (top-down ortho, the classic editor) and
+	// 'free' (perspective freecam you can rotate/dolly while editing). The
+	// test car is drivable in BOTH modes (arrow keys).
+	let editorCamMode = 'flat';
+	var editorDrive = null; // assigned by the drive section at the bottom
+	const freeCamera = new THREE.PerspectiveCamera( 60, aspect, 0.1, 600 );
+	freeCamera.position.set( cellCenter, 18, cellCenter + 14 );
+	freeCamera.lookAt( cellCenter, 0.5, cellCenter );
+	let freeCamYaw = Math.PI;
+	let freeCamPitch = - 0.85;
+
+	function editorActiveCamera() {
+
+		return ( editorCamMode === 'free' || editorCamMode === 'follow' ) ? freeCamera : camera;
+
+	}
+
 	window.addEventListener( 'resize', () => {
 
 		const a = window.innerWidth / window.innerHeight;
 		camera.left = - frustum * a;
 		camera.right = frustum * a;
 		camera.updateProjectionMatrix();
+		freeCamera.aspect = a;
+		freeCamera.updateProjectionMatrix();
 		renderer.setSize( window.innerWidth, window.innerHeight );
 
 	} );
@@ -1671,7 +1732,10 @@
 			if ( ! src ) return;
 
 				const mesh = src.clone();
-				mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + idx * 0.035, ( gz + 0.5 ) * CELL_RAW );
+				// The 4-way's road deck sits a hair below ground level — nudge it
+				// up like the elevated 4-way (same +0.1 the editor already uses).
+				const yNudge = roadPiece.type === 'track-4-way' ? 0.1 : 0;
+				mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + idx * 0.035 + yNudge, ( gz + 0.5 ) * CELL_RAW );
 				mesh.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ roadPiece.orient ] || 0 );
 				const gateTint = getGateTintColor( roadPiece.type );
 				mesh.traverse( ( c ) => {
@@ -1804,7 +1868,7 @@
 			if ( elevatedSrc ) {
 
 				const elevated = elevatedSrc.clone();
-				const yAdjust = normalizedType === 'elevated-4-way' ? 0.1 : ( normalizedType === 'slope-up' ? 0 : 0 );
+				const yAdjust = normalizedType === 'elevated-4-way' ? 0.1 : ( normalizedType === 'slope-up' ? - ELEVATED_HEIGHT : 0 );
 				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
 				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 );
 				// Slope model is pre-sloped at the correct size — no rotation or scaling needed
@@ -1814,6 +1878,20 @@
 
 						c.castShadow = true;
 						c.receiveShadow = true;
+						// GLB materials are single-sided; seen from underneath / behind, the
+						// faces vanish and cast broken shadows. Render every elevated block
+						// double-sided. Materials are shared with the source model, so this
+						// covers all instances (guarded so it only mutates once).
+						if ( c.material && ! c.material.__doubleSided ) {
+
+							( Array.isArray( c.material ) ? c.material : [ c.material ] ).forEach( ( m ) => {
+
+								m.side = THREE.DoubleSide;
+								m.__doubleSided = true;
+
+							} );
+
+						}
 
 					}
 
@@ -1875,57 +1953,8 @@
 
 		}
 
-		if ( cell.movingObstacle ) {
-
-			const marker = new THREE.Group();
-			if ( cell.movingObstacle === MOVING_SLIDE_TOOL ) {
-
-				const body = new THREE.Mesh(
-					new THREE.BoxGeometry( CELL_RAW * 0.42, CELL_RAW * 0.2, CELL_RAW * 0.3 ),
-					new THREE.MeshStandardMaterial( { color: 0x7ec8ff, emissive: 0x2c5f86, emissiveIntensity: 0.65, metalness: 0.25, roughness: 0.45 } )
-				);
-				marker.add( body );
-				const rail = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.04, CELL_RAW * 0.06 ), new THREE.MeshStandardMaterial( { color: 0x9fb9cf } ) );
-				rail.position.y = - CELL_RAW * 0.09;
-				marker.add( rail );
-
-			} else if ( cell.movingObstacle === MOVING_SPIN_TOOL ) {
-
-				const arm = new THREE.Mesh(
-					new THREE.BoxGeometry( CELL_RAW * 0.58, CELL_RAW * 0.18, CELL_RAW * 0.08 ),
-					new THREE.MeshStandardMaterial( { color: 0xffa073, emissive: 0x7a2f10, emissiveIntensity: 0.65, metalness: 0.18, roughness: 0.5 } )
-				);
-				marker.add( arm );
-				const hub = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.03, CELL_RAW * 0.03, CELL_RAW * 0.1, 12 ), new THREE.MeshStandardMaterial( { color: 0xcccccc } ) );
-				hub.rotation.z = Math.PI * 0.5;
-				marker.add( hub );
-
-			} else if ( cell.movingObstacle === MOVING_CUSTOM_TOOL ) {
-				const cfg = cell.movingCustom || readCustomMovingUi();
-				const sx = Number( cfg?.sx ) || 2, sy = Number( cfg?.sy ) || 0.8, sz = Number( cfg?.sz ) || 0.8;
-				const cmat = new THREE.MeshStandardMaterial( { color: cfg?.color || '#ff8844', emissive: 0x331100 } );
-				const custom = cfg?.shape === 'pole' ? new THREE.CylinderGeometry( sx * 0.18, sx * 0.18, sy, 12 ) : new THREE.BoxGeometry( sx, sy, sz );
-				marker.add( new THREE.Mesh( custom, cmat ) );
-			} else {
-
-				for ( let i = 0; i < 3; i ++ ) {
-
-					const pole = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.035, CELL_RAW * 0.035, CELL_RAW * 0.22, 10 ), new THREE.MeshStandardMaterial( { color: 0x9b6fdc, emissive: 0x2f1f4f } ) );
-					const a = i * ( Math.PI * 2 / 3 );
-					pole.position.set( Math.cos( a ) * CELL_RAW * 0.18, 0, Math.sin( a ) * CELL_RAW * 0.18 );
-					marker.add( pole );
-
-				}
-
-			}
-
-			marker.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.1 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
-			marker.traverse( ( child ) => { if ( child.isMesh ) { child.castShadow = true; child.receiveShadow = true; } } );
-			trackGroup.add( marker );
-			cell.cubeMesh = marker;
-
-		}
-
+		// Moving obstacles render as the real animated meshes (see the drive
+		// section's createMovingObstacleState copy) — no static marker needed.
 		if ( cell.wall ) {
 
 			const wall = new THREE.Mesh(
@@ -1971,6 +2000,16 @@
 				patch.rotation.x = - Math.PI / 2;
 				const yOffset = getOverlayHeightOffset( cell );
 				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
+				// Slope tilt: flush with the ramp, matching the game build. Uses the
+				// cell's own elevated block, so off-grid cells tilt correctly too.
+				if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) {
+					const slopeOrient = cell.elevatedType === 'slope-down'
+						? ( ORIENT_180[ cell.elevatedOrient || 0 ] ?? ( cell.elevatedOrient || 0 ) )
+						: ( cell.elevatedOrient || 0 );
+					patch.rotation.order = 'YXZ';
+					patch.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeOrient ] || 0 );
+					patch.rotation.x = - Math.PI / 2 + Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
+				}
 				patch.receiveShadow = true;
 				trackGroup.add( patch );
 				cell.surfaceMeshes.push( patch );
@@ -2014,56 +2053,330 @@
 
 	}
 
-	function createWaterPoolMesh( gx, gz ) {
+	// ─── Pool visuals — editor-local copy of the game's pool renderer ───
+	// Same ceramic-tile walls/floor, animated caustic light films, and glowing
+	// edge lip the game draws, duplicated into the editor namespace so the
+	// core game runtime (Track.js) stays byte-identical.
+	const WATER_SHADER_TILE_COLS = 8;
+	const WATER_DEPTH = CELL_RAW * 0.34;
+	const WATER_WALL_HEIGHT = CELL_RAW * 0.38;
+	let poolWallTexture = null;
+	let poolFloorTexture = null;
+function createPoolTileCanvas( cols, rows ) {
 
-		const group = new THREE.Group();
-		group.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
-		const edgeColor = new THREE.Color( customPoolConfig.edgeColor || CUSTOM_POOL_DEFAULT.edgeColor );
-		const waterColor = new THREE.Color( customPoolConfig.waterColor || CUSTOM_POOL_DEFAULT.waterColor );
-		const waterMat = new THREE.MeshStandardMaterial( { color: waterColor, emissive: waterColor, emissiveIntensity: 0.18, roughness: 0.35, metalness: 0.02, transparent: Boolean( customPoolConfig.transparent ), opacity: customPoolConfig.transparent ? 0.72 : 1 } );
-		const floorMat = new THREE.MeshStandardMaterial( { color: 0x31433e, roughness: 0.95, metalness: 0.0 } );
-		const wallMat = new THREE.MeshStandardMaterial( { color: 0x20312e, roughness: 0.9, metalness: 0.0 } );
-		const edgeMat = new THREE.MeshStandardMaterial( { color: edgeColor, emissive: edgeColor, emissiveIntensity: 0.28, roughness: 0.4 } );
-		const floor = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ), floorMat );
-		floor.position.y = - CELL_RAW * 0.34;
-		floor.receiveShadow = true;
-		group.add( floor );
-		const water = new THREE.Mesh( new THREE.PlaneGeometry( CELL_RAW * 0.92, CELL_RAW * 0.92 ), waterMat );
-		water.rotation.x = - Math.PI / 2;
-		water.position.y = 0.515;
-		water.userData.waterSurface = true;
-		group.add( water );
-		// If this pool tile has a pool slope, skip the wall + edge lip on the
-		// side the ramp exits toward (high end meets ground level there) so the
-		// car can drive up/down without a wall or lip blocking it.
-		const slopeCell = grid.get( cellKey( gx, gz ) );
-		const exitSide = slopeCell?.poolSlope ? getPoolSlopeFacingOffset( slopeCell.poolSlopeOrient ?? 0 ) : null;
-		const sides = [
-			{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
-			{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
-			{ dx: 0, dz: 1, x: 0, z: CELL_RAW * 0.5, ry: 0 },
-			{ dx: - 1, dz: 0, x: - CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
-		];
-		for ( const side of sides ) {
-			if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
-			if ( exitSide && exitSide.dx === side.dx && exitSide.dz === side.dz ) continue;
-			const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.38, CELL_RAW * 0.08 ), wallMat );
-			wall.position.set( side.x, - CELL_RAW * 0.16, side.z );
-			wall.rotation.y = side.ry;
-			wall.castShadow = true;
-			wall.receiveShadow = true;
-			group.add( wall );
-			const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), edgeMat );
-			edge.position.set( side.x, 0.535, side.z );
-			edge.rotation.y = side.ry;
-			group.add( edge );
+	// Deterministic PRNG so every player sees the same pool.
+	let seed = 1337 ^ ( cols * 7919 ) ^ ( rows * 104729 );
+	const rand = () => {
+
+		seed = ( seed * 1664525 + 1013904223 ) >>> 0;
+		return seed / 4294967296;
+
+	};
+	const tileW = 64;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = cols * tileW;
+	canvas.height = rows * tileW;
+	const ctx = canvas.getContext( '2d' );
+	// grout base
+	ctx.fillStyle = '#2f5a72';
+	ctx.fillRect( 0, 0, canvas.width, canvas.height );
+	for ( let ty = 0; ty < rows; ty ++ ) {
+		for ( let tx = 0; tx < cols; tx ++ ) {
+
+			const x = tx * tileW, y = ty * tileW;
+			const r = rand();
+			const accent = r > 0.9;
+			const light = 58 + rand() * 12;
+			const hue = accent ? 208 : 200 + rand() * 8;
+			const sat = accent ? 62 : 48 + rand() * 10;
+			ctx.fillStyle = `hsl( ${ hue }, ${ sat }%, ${ light }% )`;
+			ctx.fillRect( x + 3, y + 3, tileW - 6, tileW - 6 );
+			// bevel: lighter top-left edge, darker bottom-right
+			ctx.fillStyle = 'rgba( 255, 255, 255, 0.16 )';
+			ctx.fillRect( x + 3, y + 3, tileW - 6, 2 );
+			ctx.fillStyle = 'rgba( 10, 30, 50, 0.18 )';
+			ctx.fillRect( x + 3, y + tileW - 5, tileW - 6, 2 );
+			// speckle
+			for ( let k = 0; k < 6; k ++ ) {
+
+				ctx.fillStyle = `rgba( 255, 255, 255, ${ 0.03 + rand() * 0.05 } )`;
+				ctx.fillRect( x + 4 + rand() * ( tileW - 8 ), y + 4 + rand() * ( tileW - 8 ), 2, 2 );
+
+			}
+
 		}
-		return group;
+	}
+	return canvas;
+
+}function getPoolTextures() {
+
+	if ( poolWallTexture && poolFloorTexture ) return { poolWallTexture, poolFloorTexture };
+	const toTexture = ( canvas ) => {
+
+		const tex = new THREE.CanvasTexture( canvas );
+		tex.colorSpace = THREE.SRGBColorSpace;
+		tex.anisotropy = 4;
+		return tex;
+
+	};
+	poolFloorTexture = toTexture( createPoolTileCanvas( WATER_SHADER_TILE_COLS, WATER_SHADER_TILE_COLS ) );
+	poolWallTexture = toTexture( createPoolTileCanvas( WATER_SHADER_TILE_COLS, 3 ) );
+	return { poolWallTexture, poolFloorTexture };
+
+}
+	function createPoolFloorCausticsMaterial() {
+
+	return new THREE.ShaderMaterial( {
+		uniforms: {
+			time: { value: 0 },
+			gain: { value: 0 },
+			shade: { value: 1 },
+			lightDir: { value: new THREE.Vector3( 0.577, 0.577, 0.577 ).normalize() },
+		},
+		transparent: true,
+		depthWrite: false,
+		blending: THREE.AdditiveBlending,
+		vertexShader: `
+			varying vec2 vLocal;
+			void main() {
+				vLocal = position.xy;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+			}
+		`,
+		fragmentShader: `
+			uniform float time;
+			uniform float gain;
+			uniform float shade;
+			varying vec2 vLocal;
+			// Sin-free hash (iq): the old fract(sin(dot)*43758) hash loses precision
+			// on large coords and printed a repeating CROSS/X lattice artifact
+			// across the water. This one stays clean at any distance.
+			float hash( vec2 p ) {
+				p = 50.0 * fract( p * 0.3183099 + vec2( 0.71, 0.113 ) );
+				return fract( p.x * p.y * ( p.x + p.y ) );
+			}
+			float noise( vec2 p ) {
+				vec2 i = floor( p ), f = fract( p );
+				f = f * f * ( 3.0 - 2.0 * f );
+				return mix( mix( hash( i ), hash( i + vec2( 1.0, 0.0 ) ), f.x ),
+					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+			}
+			void main() {
+				if ( gain <= 0.001 ) discard;
+				float ct = time * 1.9;
+				// Rotated + differently-scaled domains so the two integer
+				// lattices never align (aligned ones drew the cross/X pattern).
+				mat2 rotC = mat2( 0.84, 0.54, -0.54, 0.84 );
+				vec2 cUV = rotC * vLocal * 1.85;
+				float n1 = noise( cUV * 1.15 + vec2( ct * 0.32, ct * 0.11 ) );
+				float n2 = noise( cUV * 1.62 + vec2( 37.2, - 11.7 ) - vec2( ct * 0.21, - ct * 0.24 ) );
+				float web = abs( n1 - n2 );
+				// Caustics are LIGHT — the shade uniform (N·L toward the sun)
+				// fades them out on surfaces that sit in shadow.
+				float caustic = pow( max( 0.0, 1.0 - web ), 22.0 ) * shade;
+				gl_FragColor = vec4( vec3( 0.62, 0.82, 0.95 ) * caustic * gain * 0.85, caustic * gain );
+			}
+		`,
+	} );
+
+}
+	// Editor variant of the game's caustic animator: there is no underwater
+	// camera state in the editor, so the caustics run at a fixed visible
+	// gain instead of easing in only when the game camera is submerged.
+	function attachCausticAnimator( mesh ) {
+
+		let last = 0;
+		mesh.onBeforeRender = () => {
+
+			const now = performance.now() * 0.001;
+			const u = mesh.material.uniforms;
+			u.time.value = now;
+			const step = Math.min( 1, Math.max( 0, now - last ) * 6.0 );
+			last = now;
+			u.gain.value = THREE.MathUtils.lerp( u.gain.value, 0.55, step );
+
+		};
 
 	}
 
+	function createPoolWallCausticsMaterial() {
+
+	return new THREE.ShaderMaterial( {
+		uniforms: {
+			time: { value: 0 },
+			gain: { value: 0 },
+			shade: { value: 1 },
+			centerY: { value: 0 },
+			waterY: { value: 0.12 },
+		},
+		transparent: true,
+		depthWrite: false,
+		blending: THREE.AdditiveBlending,
+		vertexShader: `
+			varying vec2 vLocal;
+			void main() {
+				vLocal = position.xy;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+			}
+		`,
+		fragmentShader: `
+			uniform float time;
+			uniform float gain;
+			uniform float shade;
+			uniform float centerY;
+			uniform float waterY;
+			varying vec2 vLocal;
+			float hash( vec2 p ) {
+				p = 50.0 * fract( p * 0.3183099 + vec2( 0.71, 0.113 ) );
+				return fract( p.x * p.y * ( p.x + p.y ) );
+			}
+			float noise( vec2 p ) {
+				vec2 i = floor( p ), f = fract( p );
+				f = f * f * ( 3.0 - 2.0 * f );
+				return mix( mix( hash( i ), hash( i + vec2( 1.0, 0.0 ) ), f.x ),
+					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+			}
+			void main() {
+				if ( gain <= 0.001 ) discard;
+				float ct = time * 1.9;
+				mat2 rotC = mat2( 0.84, 0.54, - 0.54, 0.84 );
+				vec2 cUV = rotC * vec2( vLocal.x * 1.45, vLocal.y * 1.1 );
+				float n1 = noise( cUV * 1.15 + vec2( ct * 0.32, ct * 0.11 ) );
+				float n2 = noise( cUV * 1.62 + vec2( 37.2, - 11.7 ) - vec2( ct * 0.21, - ct * 0.24 ) );
+				float web = abs( n1 - n2 );
+				float caustic = pow( max( 0.0, 1.0 - web ), 22.0 );
+				// Fade to nothing AT the water line (dry wall stays clean) and
+				// dim a little with depth, like real light attenuation.
+				float worldY = centerY + vLocal.y;
+				float surfaceFade = smoothstep( 0.0, 0.07, waterY - worldY );
+				float depthFade = clamp( 0.45 + ( waterY - worldY ) * 0.9, 0.35, 1.0 );
+				caustic *= surfaceFade * depthFade * shade;
+				gl_FragColor = vec4( vec3( 0.62, 0.82, 0.95 ) * caustic * gain * 0.8, caustic * gain );
+			}
+		`,
+	} );
+
+}
+	// Sun direction matches the game's shadow-casting light so caustic
+	// shading agrees with the scene's shadows.
+	const CAUSTIC_SUN_DIR = new THREE.Vector3( 11.4, 15, - 5.3 ).normalize();
+const _upShadeNormal = new THREE.Vector3( 0, 1, 0 );
+function computeCausticShade( normal ) {
+
+	return THREE.MathUtils.smoothstep( THREE.MathUtils.clamp( normal.dot( CAUSTIC_SUN_DIR ), - 1, 1 ), - 0.05, 0.45 );
+
+}
+
+	function editorCreatePoolCellVisual( gx, gz, { isWaterCell, exitSide = null, poolVisuals } ) {
+
+	const pool = new THREE.Group();
+	pool.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
+	const { poolWallTexture, poolFloorTexture } = getPoolTextures();
+	const floor = new THREE.Mesh(
+		new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ),
+		new THREE.MeshStandardMaterial( { map: poolFloorTexture, roughness: 0.82, metalness: 0.0 } )
+	);
+	floor.position.y = - WATER_DEPTH;
+	floor.receiveShadow = true;
+	pool.add( floor );
+	// Caustic light layer just above the floor tile — visible only
+	// while the camera is underwater (see createPoolFloorCausticsMaterial).
+	const causticOverlay = new THREE.Mesh(
+		new THREE.PlaneGeometry( CELL_RAW, CELL_RAW ),
+		createPoolFloorCausticsMaterial()
+	);
+	causticOverlay.rotation.x = - Math.PI / 2;
+	causticOverlay.position.y = - WATER_DEPTH + CELL_RAW * 0.028;
+	// Floor faces up, so its caustic shade is the sun's own up-term —
+	// any surface the sun can't reach stays dark (shared with walls).
+	causticOverlay.material.uniforms.shade.value = computeCausticShade( _upShadeNormal );
+	attachCausticAnimator( causticOverlay );
+	pool.add( causticOverlay );
+	// If this pool tile has a pool slope, omit the wall + edge lip on the
+	// exit side (where the ramp's high end meets ground level).
+	const sides = [
+		{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
+		{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+		{ dx: 0, dz: 1, x: 0, z: CELL_RAW * 0.5, ry: 0 },
+		{ dx: - 1, dz: 0, x: - CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+	];
+	for ( const side of sides ) {
+		if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
+		if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
+		const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { map: poolWallTexture, roughness: 0.7, metalness: 0.0 } ) );
+		wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
+		wall.rotation.y = side.ry;
+		wall.castShadow = true;
+		wall.receiveShadow = true;
+		pool.add( wall );
+		// Caustic light film on the wall's INNER face — same animated
+		// pattern as the floor, shaded by how directly the wall faces
+		// the sun (walls in shade get none).
+		const wallCaustic = new THREE.Mesh(
+			new THREE.PlaneGeometry( CELL_RAW, WATER_WALL_HEIGHT * 0.94 ),
+			createPoolWallCausticsMaterial()
+		);
+		const inward = new THREE.Vector3( - side.dx, 0, - side.dz );
+		wallCaustic.position.set(
+			side.x + inward.x * CELL_RAW * 0.052,
+			wall.position.y,
+			side.z + inward.z * CELL_RAW * 0.052
+		);
+		wallCaustic.lookAt( wallCaustic.position.clone().add( inward ) );
+		wallCaustic.material.uniforms.shade.value = computeCausticShade( inward );
+		wallCaustic.material.uniforms.centerY.value = wall.position.y;
+		wallCaustic.material.uniforms.waterY.value = 0.12;
+		attachCausticAnimator( wallCaustic );
+		pool.add( wallCaustic );
+		const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: poolVisuals.isCustom ? 0.55 : 0.3, roughness: 0.22, metalness: 0.12 } ) );
+		edge.position.set( side.x, 0.515, side.z );
+		edge.rotation.y = side.ry;
+		pool.add( edge );
+	}
+	return pool;
+
+}
+
+	function createWaterPoolMesh( gx, gz ) {
+
+		// Real pool visuals — the exact textured walls, floor, caustic light
+		// films, and glowing lip the game renders (editor-local copy).
+		const slopeCell = grid.get( cellKey( gx, gz ) );
+		const exit = slopeCell?.poolSlope ? getPoolSlopeFacingOffset( slopeCell.poolSlopeOrient ?? 0 ) : null;
+		const colorsOn = customPoolColorsEnabled === true;
+		const poolVisuals = {
+			waterColor: colorsOn && customPoolConfig.waterColor ? customPoolConfig.waterColor : '#1180e6',
+			edgeColor: colorsOn && customPoolConfig.edgeColor ? customPoolConfig.edgeColor : '#5cc7ff',
+			transparent: customPoolConfig.transparent === true,
+			isCustom: colorsOn,
+		};
+		const pool = editorCreatePoolCellVisual( gx, gz, {
+			isWaterCell,
+			exitSide: exit ? `${ exit.dx },${ exit.dz }` : null,
+			poolVisuals,
+		} );
+		// Editor-only translucent surface at the game's water line (y = 0.12)
+		// so the pool interior stays readable while editing.
+		const waterColor = new THREE.Color( poolVisuals.waterColor );
+		if ( colorsOn ) {
+			const hsl = { h: 0, s: 0, l: 0 };
+			waterColor.getHSL( hsl );
+			waterColor.setHSL( hsl.h, Math.min( 1, hsl.s * 1.5 ), THREE.MathUtils.clamp( hsl.l, 0.34, 0.62 ) );
+		}
+		const water = new THREE.Mesh(
+			new THREE.PlaneGeometry( CELL_RAW * 0.98, CELL_RAW * 0.98 ),
+			new THREE.MeshStandardMaterial( { color: waterColor, emissive: waterColor, emissiveIntensity: colorsOn ? 0.45 : 0.18, roughness: 0.35, metalness: 0.02, transparent: true, opacity: poolVisuals.transparent ? 0.72 : 0.55 } )
+		);
+		water.rotation.x = - Math.PI / 2;
+		water.position.y = 0.12;
+		water.userData.waterSurface = true;
+		pool.add( water );
+		return pool;
+
+	}
 	function refreshWaterNeighborhood( gx, gz ) {
 
+		groundTilesDirty = true; // water added/removed → recut the ground holes
 		for ( const [ dx, dz ] of [ [ 0, 0 ], [ 1, 0 ], [ - 1, 0 ], [ 0, 1 ], [ 0, - 1 ] ] ) {
 			const nx = gx + dx, nz = gz + dz;
 			const cell = grid.get( cellKey( nx, nz ) );
@@ -2101,6 +2414,9 @@
 		if ( allowSurfaceOverlap ) {
 
 			cell.roadPieces.push( { type, orient, isFinish: type === 'track-finish' || type === 'track-start-finish' } );
+			// A Start / Start-Finish block is the spawn point — drop the car
+			// on it immediately, facing the block's orientation.
+			if ( type === 'track-start' || type === 'track-start-finish' ) editorDrive?.respawn();
 			cell.type = cell.roadPieces[ cell.roadPieces.length - 1 ].type;
 			cell.orient = cell.roadPieces[ cell.roadPieces.length - 1 ].orient;
 			cell.isFinish = Boolean( cell.roadPieces.find( ( p ) => p.isFinish ) );
@@ -2761,7 +3077,7 @@
 		mouse.x = ( clientX / window.innerWidth ) * 2 - 1;
 		mouse.y = - ( clientY / window.innerHeight ) * 2 + 1;
 
-		raycaster.setFromCamera( mouse, camera );
+		raycaster.setFromCamera( mouse, editorActiveCamera() );
 
 		const plane = new THREE.Plane( new THREE.Vector3( 0, 1, 0 ), 0.51 );
 		const hit = new THREE.Vector3();
@@ -2801,6 +3117,7 @@
 
 	function save() {
 
+		markEditorCollidersDirty();
 		const arr = getCellsArray();
 
 		const encoded = encodeCells( arr );
@@ -3004,7 +3321,7 @@
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload, z: poolSlopes } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig, colorsOn: customPoolColorsEnabled === true }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload, z: poolSlopes } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
@@ -3159,6 +3476,9 @@
 				...( mods.y || {} )
 			};
 			customPoolConfig = normalizeCustomPoolConfig( mods.r );
+			customPoolColorsEnabled = mods?.r?.colorsOn === true;
+			const cpToggle = document.getElementById( 'cp-colors-toggle' );
+			if ( cpToggle ) cpToggle.checked = customPoolColorsEnabled;
 			worldPreset = mods.t === 'pool-filled' ? 'pool-filled' : 'normal';
 			const templateSelect = document.getElementById( 'map-template-select' );
 			if ( templateSelect ) templateSelect.value = worldPreset === 'pool-filled' ? 'pool-filled' : 'normal';
@@ -3744,19 +4064,40 @@ function refreshMovingSpeedUi() {
 		showToast( `Surface overlap ${ allowSurfaceOverlap ? 'enabled' : 'disabled' }` );
 
 	} );
-	document.getElementById( 'btn-magnet-up' )?.addEventListener( 'click', () => nudgeSelectedMagnet( MAGNET_Y_STEP ) );
-	document.getElementById( 'btn-magnet-down' )?.addEventListener( 'click', () => nudgeSelectedMagnet( - MAGNET_Y_STEP ) );
+	// One Height pair for EVERY special block type: nudge whichever kind is
+	// selected and toast ITS value. The old merged handler nudged magnet AND
+	// arc — the second call's "Select a…" toast clobbered the first, so the
+	// value notification often never showed.
+	function nudgeSelectedHeight( deltaGridY ) {
+
+		if ( selectedMagnetIndex >= 0 && magnetBlocks[ selectedMagnetIndex ] ) return nudgeSelectedMagnet( deltaGridY );
+		if ( selectedArcIndex >= 0 && arcBlocks[ selectedArcIndex ] ) return nudgeSelectedArc( deltaGridY );
+		showToast( 'Select a special block first — magnet, arc, or portal' );
+
+	}
+	document.getElementById( 'btn-magnet-up' )?.addEventListener( 'click', () => nudgeSelectedHeight( MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-magnet-down' )?.addEventListener( 'click', () => nudgeSelectedHeight( - MAGNET_Y_STEP ) );
 	document.getElementById( 'btn-magnet-strength-up' )?.addEventListener( 'click', () => nudgeSelectedMagnetStrength( MAGNET_STRENGTH_STEP ) );
 	document.getElementById( 'btn-magnet-strength-down' )?.addEventListener( 'click', () => nudgeSelectedMagnetStrength( - MAGNET_STRENGTH_STEP ) );
 	document.getElementById( 'btn-magnet-range-up' )?.addEventListener( 'click', () => nudgeSelectedMagnetRange( MAGNET_RANGE_STEP ) );
 	document.getElementById( 'btn-magnet-range-down' )?.addEventListener( 'click', () => nudgeSelectedMagnetRange( - MAGNET_RANGE_STEP ) );
-	document.getElementById( 'btn-portal-up' )?.addEventListener( 'click', () => nudgeSelectedArc( MAGNET_Y_STEP ) );
-	document.getElementById( 'btn-portal-down' )?.addEventListener( 'click', () => nudgeSelectedArc( - MAGNET_Y_STEP ) );
 	document.getElementById( 'btn-portal-id-up' )?.addEventListener( 'click', () => nudgeSelectedArcId( 1 ) );
 	document.getElementById( 'btn-portal-id-down' )?.addEventListener( 'click', () => nudgeSelectedArcId( - 1 ) );
 	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
 	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
-	document.getElementById( 'btn-custom-pool' )?.addEventListener( 'click', () => {
+	// Colors checkbox INSIDE the Custom Pool button — clicking it must not open
+	// (or re-trigger) the settings panel.
+	document.getElementById( 'cp-colors-toggle' )?.addEventListener( 'click', ( event ) => {
+		event.stopPropagation();
+		customPoolColorsEnabled = event.currentTarget.checked;
+		// Re-render every pool so the preview matches what the game will show.
+		for ( const [ key, cell ] of grid ) if ( cell.water ) { const [ gx, gz ] = key.split( ',' ).map( Number ); placeOverlayMesh( gx, gz, cell ); }
+		save();
+		showToast( customPoolColorsEnabled ? 'Custom pool colors enabled' : 'Custom pool colors disabled' );
+	} );
+	document.getElementById( 'btn-custom-pool' )?.addEventListener( 'click', ( event ) => {
+		if ( event.target && event.target.id === 'cp-colors-toggle' ) return;
+		document.getElementById( 'cp-colors-toggle' ).checked = customPoolColorsEnabled;
 		document.getElementById( 'cp-drag' ).value = String( customPoolConfig.drag );
 		document.getElementById( 'cp-buoyancy' ).value = String( customPoolConfig.buoyancy );
 		document.getElementById( 'cp-water-color' ).value = customPoolConfig.waterColor;
@@ -4295,6 +4636,15 @@ function refreshMovingSpeedUi() {
 
 	el.addEventListener( 'pointerdown', ( e ) => {
 
+		// Free cam: MIDDLE-drag rotates the 3D camera.
+		// Right-click still erases; left-click still draws; Ctrl/Space fly.
+		if ( editorCamMode === 'free' && editorDrive && e.button === 1 ) {
+
+			editorDrive.startRotate( e.clientX, e.clientY );
+			return;
+
+		}
+
 		el.setPointerCapture( e.pointerId );
 		pointers.set( e.pointerId, { x: e.clientX, y: e.clientY } );
 
@@ -4319,8 +4669,9 @@ function refreshMovingSpeedUi() {
 		if ( pointers.size > 2 ) return;
 
 		// Single pointer
-		// Middle mouse, ctrl+click, or space+click → pan
-		if ( e.button === 1 || ( e.button === 0 && ( e.ctrlKey || e.metaKey || spaceDown ) ) ) {
+		// Middle mouse, ctrl+click, or space+click → pan (flat mode only;
+		// in free mode middle rotates, Ctrl/Space fly, clicks draw/erase)
+		if ( editorCamMode === 'flat' && ( e.button === 1 || ( e.button === 0 && ( e.ctrlKey || e.metaKey || spaceDown ) ) ) ) {
 
 			isPanning = true;
 			panStart.x = e.clientX;
@@ -4362,6 +4713,13 @@ function refreshMovingSpeedUi() {
 	} );
 
 	el.addEventListener( 'pointermove', ( e ) => {
+
+		if ( editorDrive && editorDrive.isRotating() ) {
+
+			editorDrive.moveRotate( e.clientX, e.clientY );
+			return;
+
+		}
 
 		pointers.set( e.pointerId, { x: e.clientX, y: e.clientY } );
 
@@ -4427,6 +4785,7 @@ function refreshMovingSpeedUi() {
 
 	window.addEventListener( 'pointerup', ( e ) => {
 
+		if ( editorDrive ) editorDrive.endRotate();
 		pointers.delete( e.pointerId );
 
 		if ( pointers.size === 0 ) {
@@ -4465,6 +4824,14 @@ function refreshMovingSpeedUi() {
 	el.addEventListener( 'wheel', ( e ) => {
 
 		e.preventDefault();
+
+		// Free cam: wheel dollies along the look direction.
+		if ( editorCamMode === 'free' && editorDrive ) {
+
+			editorDrive.dolly( e.deltaY );
+			return;
+
+		}
 
 		if ( e.ctrlKey ) {
 
@@ -4511,7 +4878,7 @@ function refreshMovingSpeedUi() {
 
 			if ( e.key === ' ' ) {
 
-				if ( ! spaceDown ) {
+				if ( editorCamMode === 'flat' && ! spaceDown ) {
 
 					spaceDown = true;
 					el.style.cursor = 'grab';
@@ -4532,33 +4899,11 @@ function refreshMovingSpeedUi() {
 
 				rotateSelection();
 
-			} else if ( e.key === 'ArrowUp' ) {
+			} else if ( e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' ) {
 
-				camTarget.z -= panStep;
-				camera.position.z = camTarget.z;
-				camera.lookAt( camTarget.x, 0, camTarget.z );
+				// Arrow keys now DRIVE the test car in every editor mode.
 				e.preventDefault();
-
-			} else if ( e.key === 'ArrowDown' ) {
-
-				camTarget.z += panStep;
-				camera.position.z = camTarget.z;
-				camera.lookAt( camTarget.x, 0, camTarget.z );
-				e.preventDefault();
-
-			} else if ( e.key === 'ArrowLeft' ) {
-
-				camTarget.x -= panStep;
-				camera.position.x = camTarget.x;
-				camera.lookAt( camTarget.x, 0, camTarget.z );
-				e.preventDefault();
-
-			} else if ( e.key === 'ArrowRight' ) {
-
-				camTarget.x += panStep;
-				camera.position.x = camTarget.x;
-				camera.lookAt( camTarget.x, 0, camTarget.z );
-				e.preventDefault();
+				if ( editorDrive ) editorDrive.onDriveKey( e.key, true );
 
 			}
 
@@ -4572,6 +4917,8 @@ function refreshMovingSpeedUi() {
 			if ( ! isPanning ) el.style.cursor = '';
 
 		}
+
+		if ( editorDrive && ( e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' ) ) editorDrive.onDriveKey( e.key, false );
 
 	} );
 
@@ -4589,10 +4936,14 @@ function refreshMovingSpeedUi() {
 
 	}
 
+	const driveClock = new THREE.Clock();
 	function animate() {
 
 		requestAnimationFrame( animate );
-		renderer.render( scene, camera );
+		const dt = Math.min( 0.033, Math.max( 0, driveClock.getDelta() ) );
+		stepEditorDrive( dt );
+		if ( groundTilesDirty ) { rebuildGroundTiles(); groundTilesDirty = false; }
+		renderer.render( scene, editorActiveCamera() );
 
 	}
 
@@ -5105,6 +5456,1289 @@ document.addEventListener('pointerdown', (e) => {
 
 
 
+
+	// ═══════════════════════════════════════════════════════════
+	// DRIVE IN EDITOR: drivable test car (both modes) + Free Cam
+	// ═══════════════════════════════════════════════════════════
+	// Hoisted so save()/animate() can call it before this section runs.
+	function markEditorCollidersDirty() { if ( editorDrive ) editorDrive.markDirty(); }
+	function stepEditorDrive( dt ) { if ( editorDrive ) editorDrive.step( dt ); }
+
+	( function initEditorDrive() {
+
+		const NOOP_CONTACT_LISTENER = { onContactAdded() {} };
+		const driveKeys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+		const flyKeys = new Set();
+		let rotating = false, rotLastX = 0, rotLastY = 0;
+		let active = false;          // physics stack finished booting
+		let world = null, vehicle = null;
+		let dirty = false, lastEditAt = 0;
+		let fatal = false;
+
+		// Moving obstacles (slide / spin / orbit / custom) — editor-local
+		// copy of the game's exact mesh + animation code (main.js stays
+		// byte-identical; this is a read-only duplicate in editor namespace).
+		function createMovingObstacleState( scene, extras ) {
+	const entries = Array.isArray( extras?.movingObstacles ) ? extras.movingObstacles : [];
+	const state = { items: [], startTime: 0 };
+	for ( const entry of entries ) {
+		const [ gxRaw, gzRaw, typeRaw, orientRaw, speedRaw ] = Array.isArray( entry ) ? entry : [];
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const type = String( typeRaw || '' );
+		const orient = Number( orientRaw ) || 0;
+		const base = new THREE.Vector3( ( gx + 0.5 ) * CELL_RAW * GRID_SCALE, -0.5 + ( CELL_RAW * GRID_SCALE * 0.08 ), ( gz + 0.5 ) * CELL_RAW * GRID_SCALE );
+		const obstacle = { type, orient, speed: THREE.MathUtils.clamp( Number( speedRaw ) || 1, 0.25, 3 ), base, mesh: new THREE.Group(), colliders: [] };
+		if ( type === 'moving-slide-block' ) {
+			const m = new THREE.Mesh( new THREE.BoxGeometry( 2.1, 1.2, 1.5 ), new THREE.MeshStandardMaterial( { color: 0x8ca0b8 } ) );
+			obstacle.mesh.add( m );
+			obstacle.colliders.push( { half: new THREE.Vector3( 1.05, 0.6, 0.75 ), offset: new THREE.Vector3() } );
+		} else if ( type === 'moving-spin-wall' ) {
+			const m = new THREE.Mesh( new THREE.BoxGeometry( 3.8, 0.8, 0.55 ), new THREE.MeshStandardMaterial( { color: 0xb4b8bf } ) );
+			obstacle.mesh.add( m );
+			obstacle.colliders.push( { half: new THREE.Vector3( 1.9, 0.4, 0.275 ), offset: new THREE.Vector3() } );
+		} else if ( type === 'moving-custom' ) {
+			const cfg = entry?.[5] && typeof entry[5] === 'object' ? entry[5] : {};
+			obstacle.custom = cfg;
+			const count = Math.max( 1, Math.min( 8, Math.round( Number( cfg.count ) || 1 ) ) );
+			for ( let i = 0; i < count; i ++ ) {
+				const sx = Number( cfg.sx ) || 2, sy = Number( cfg.sy ) || 0.8, sz = Number( cfg.sz ) || 0.8;
+				const shape = String( cfg.shape || 'square' );
+				const geom = shape === 'pole' ? new THREE.CylinderGeometry( sx * 0.18, sx * 0.18, sy, 12 ) : new THREE.BoxGeometry( sx, sy, sz );
+				const mesh = new THREE.Mesh( geom, new THREE.MeshStandardMaterial( { color: cfg.color || '#ff8844' } ) );
+				obstacle.mesh.add( mesh );
+				obstacle.colliders.push( { half: new THREE.Vector3( shape === 'pole' ? sx * 0.18 : sx * 0.5, sy * 0.5, shape === 'pole' ? sx * 0.18 : sz * 0.5 ), offset: new THREE.Vector3(), shape } );
+			}
+		} else if ( type === 'moving-orbit-poles' ) {
+			for ( let i = 0; i < 3; i ++ ) {
+				const pole = new THREE.Mesh( new THREE.CylinderGeometry( 0.23, 0.23, 1.0, 12 ), new THREE.MeshStandardMaterial( { color: 0x979ea8 } ) );
+				obstacle.mesh.add( pole );
+				obstacle.colliders.push( { half: new THREE.Vector3( 0.23, 0.5, 0.23 ), offset: new THREE.Vector3() } );
+			}
+		} else continue;
+		obstacle.mesh.position.copy( base );
+		scene.add( obstacle.mesh );
+		state.items.push( obstacle );
+	}
+	return state;
+}
+
+function resetMovingObstacles( state, now = 0 ) {
+	if ( ! state ) return;
+	state.startTime = now;
+}
+
+function updateMovingObstacles( state, now, vehicleList ) {
+	if ( ! state ) return;
+	const t = now - ( state.startTime || 0 );
+	for ( const obstacle of state.items ) {
+		const p = obstacle.base.clone();
+		obstacle.mesh.rotation.set( 0, 0, 0 );
+		if ( obstacle.type === 'moving-slide-block' ) p.x += Math.sin( t * 1.35 * obstacle.speed ) * 1.7;
+		if ( obstacle.type === 'moving-spin-wall' ) obstacle.mesh.rotation.y = t * 0.9 * obstacle.speed;
+		if ( obstacle.type === 'moving-custom' ) {
+			const cfg = obstacle.custom || {};
+			const orbitR = Number( cfg.orbit ) || 0;
+			for ( let i = 0; i < obstacle.mesh.children.length; i ++ ) {
+				const a = ( t * ( Number( cfg.rot ) || 1 ) * obstacle.speed ) + i * ( Math.PI * 2 / obstacle.mesh.children.length );
+				const ox = Math.cos( a ) * orbitR, oz = Math.sin( a ) * orbitR;
+				obstacle.mesh.children[i].position.set( ox, 0, oz );
+				obstacle.mesh.children[i].rotation.y = a;
+				obstacle.colliders[i].offset.set( ox, 0, oz );
+			}
+		} else if ( obstacle.type === 'moving-orbit-poles' ) {
+			for ( let i = 0; i < obstacle.mesh.children.length; i ++ ) {
+				const a = t * 1.35 * obstacle.speed + i * ( Math.PI * 2 / 3 );
+				obstacle.mesh.children[ i ].position.set( Math.cos( a ) * 1.25, 0, Math.sin( a ) * 1.25 );
+				obstacle.colliders[ i ].offset.set( Math.cos( a ) * 1.25, 0, Math.sin( a ) * 1.25 );
+			}
+		}
+		obstacle.mesh.position.copy( p );
+		for ( const vehicle of vehicleList ) {
+			if ( ! vehicle?.rigidBody ) continue;
+			const r = 0.5;
+			for ( const collider of obstacle.colliders ) {
+				const quat = obstacle.mesh.quaternion;
+				const world = collider.offset.clone().applyQuaternion( quat ).add( obstacle.mesh.position );
+				const local = vehicle.spherePos.clone().sub( world ).applyQuaternion( quat.clone().invert() );
+				const clampedLocal = new THREE.Vector3(
+					THREE.MathUtils.clamp( local.x, -collider.half.x, collider.half.x ),
+					THREE.MathUtils.clamp( local.y, -collider.half.y, collider.half.y ),
+					THREE.MathUtils.clamp( local.z, -collider.half.z, collider.half.z )
+				);
+				const closest = clampedLocal.clone().applyQuaternion( quat ).add( world );
+				const delta = vehicle.spherePos.clone().sub( closest );
+				const distSq = delta.lengthSq();
+				if ( distSq >= r * r || distSq < 1e-8 ) continue;
+				const dist = Math.sqrt( distSq );
+				const n = delta.multiplyScalar( 1 / dist );
+				const push = ( r - dist ) + 1e-3;
+				vehicle.spherePos.addScaledVector( n, push );
+				rigidBody.setPosition( vehicle.physicsWorld, vehicle.rigidBody, [ vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z ], false );
+				const vx = vehicle.sphereVel.x, vy = vehicle.sphereVel.y, vz = vehicle.sphereVel.z;
+				const dot = vx * n.x + vy * n.y + vz * n.z;
+				if ( dot < 0 ) rigidBody.setLinearVelocity( vehicle.physicsWorld, vehicle.rigidBody, [ vx - dot * n.x, vy - dot * n.y, vz - dot * n.z ] );
+			}
+		}
+	}
+}
+
+		// The editor stores mods as short-key base64; Physics.js wants the
+		// long-key extras object. Round-trip through encode/decode.
+		function getPhysicsExtras() {
+
+			const m = decodeMods( encodeMods() );
+			const extras = {
+				bumps: m.b, poles: m.p, cubes: m.k, walls: m.l, jumps: m.j,
+				elevated: m.e, decorations: m.d, magnets: m.m, customAssets: m.x,
+				poolSlopes: m.z,
+				water: m.q,
+				customPool: m.r && typeof m.r === 'object' ? m.r : {},
+				movingObstacles: m.o,
+				surfaces: m.u,
+				arcLinks: m.a,
+			};
+			// Pool-filled preset floods every non-track cell — same merge the
+			// game does before building physics.
+			if ( m.t === 'pool-filled' ) {
+
+				const generated = computePoolPresetWaterCells( getCellsArray(), extras );
+				const merged = new Map( [ ...generated, ...extras.water ].map( ( c ) => [ `${ c[ 0 ] },${ c[ 1 ] }`, c ] ) );
+				extras.water = [ ...merged.values() ];
+
+			}
+			return extras;
+
+		}
+
+		// Ground colliders — mirrors main.js createGroundSurfaceCollider +
+		// the ground-run algorithm: one thick slab when the map has no water,
+		// otherwise runs of slab that skip every water (pool) cell so cars
+		// actually drop into pools and drive on the pool floors.
+		function addGroundColliders( w, cellsArr, extras ) {
+
+			const GROUND_HALF_H = 0.5;   // thick slab: buries the top edge (no seam catches)
+			const groundTopY = - 0.125 + 0.01;
+			function slab( halfX, halfZ, cx, cz ) {
+
+				rigidBody.create( w, {
+					shape: box.create( { halfExtents: [ halfX, GROUND_HALF_H, halfZ ] } ),
+					motionType: MotionType.STATIC,
+					objectLayer: w._OL_STATIC,
+					position: [ cx, groundTopY - GROUND_HALF_H, cz ],
+					friction: 5.0,
+					restitution: 0.0,
+				} );
+
+			}
+
+			const bounds = computeTrackBounds( cellsArr );
+			const roadHalf = Math.max( bounds.halfWidth, bounds.halfDepth ) + 10;
+			const waterCells = Array.isArray( extras?.water ) ? extras.water : [];
+			const waterSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+
+			if ( waterSet.size === 0 ) {
+
+				slab( roadHalf, roadHalf, bounds.centerX, bounds.centerZ );
+				return;
+
+			}
+
+			const cellW = CELL_RAW * GRID_SCALE;
+			const minGx = Math.floor( ( bounds.centerX - roadHalf ) / cellW ) - 1;
+			const maxGx = Math.ceil( ( bounds.centerX + roadHalf ) / cellW ) + 1;
+			const minGz = Math.floor( ( bounds.centerZ - roadHalf ) / cellW ) - 1;
+			const maxGz = Math.ceil( ( bounds.centerZ + roadHalf ) / cellW ) + 1;
+			const activeRuns = new Map();
+			function flushRun( runStart, runEnd, startGz, endGz ) {
+
+				const nx = runEnd - runStart + 1;
+				const nz = endGz - startGz + 1;
+				slab( cellW * nx * 0.5, cellW * nz * 0.5, ( runStart + nx * 0.5 ) * cellW, ( startGz + nz * 0.5 ) * cellW );
+
+			}
+
+			for ( let gz = minGz; gz <= maxGz; gz ++ ) {
+
+				const currentRowRuns = new Set();
+				let runStart = null;
+				for ( let gx = minGx; gx <= maxGx + 1; gx ++ ) {
+
+					const solid = gx <= maxGx && ! waterSet.has( `${ gx },${ gz }` );
+					if ( solid && runStart === null ) runStart = gx;
+					if ( ( ! solid || gx > maxGx ) && runStart !== null ) {
+
+						const runEnd = gx - 1;
+						const runKey = `${ runStart },${ runEnd }`;
+						currentRowRuns.add( runKey );
+						if ( activeRuns.has( runKey ) ) activeRuns.get( runKey ).endGz = gz;
+						else activeRuns.set( runKey, { runStart, runEnd, startGz: gz, endGz: gz } );
+						runStart = null;
+
+					}
+
+				}
+				for ( const [ runKey, run ] of activeRuns ) {
+
+					if ( ! currentRowRuns.has( runKey ) ) {
+
+						flushRun( run.runStart, run.runEnd, run.startGz, run.endGz );
+						activeRuns.delete( runKey );
+
+					}
+
+				}
+
+			}
+			for ( const run of activeRuns.values() ) flushRun( run.runStart, run.runEnd, run.startGz, run.endGz );
+
+		}
+
+		function buildWorld() {
+
+			const ws = createWorldSettings();
+			ws.gravity = [ 0, - 9.81, 0 ];
+			const bplM = addBroadphaseLayer( ws );
+			const bplS = addBroadphaseLayer( ws );
+			const olM = addObjectLayer( ws, bplM );
+			const olS = addObjectLayer( ws, bplS );
+			enableCollision( ws, olM, olS );
+			enableCollision( ws, olM, olM );
+			const w = createWorld( ws );
+			w._OL_MOVING = olM;
+			w._OL_STATIC = olS;
+			const cellsArr = getCellsArray();
+			const extras = getPhysicsExtras();
+			buildWallColliders( w, null, cellsArr, extras );
+			addGroundColliders( w, cellsArr, extras );
+			return w;
+
+		}
+
+		function rebuildColliders( now ) {
+
+			if ( ! dirty || ! active ) { dirty = false; return; }
+			if ( now - lastEditAt < 0.4 ) return;   // let edit bursts settle
+			dirty = false;
+			try {
+
+				const pos = vehicle.spherePos.toArray();
+				const newWorld = buildWorld();
+				const body = createSphereBody( newWorld, [ pos[ 0 ], Math.max( pos[ 1 ], 0.5 ), pos[ 2 ] ] );
+				vehicle.rigidBody = body;
+				vehicle.physicsWorld = newWorld;
+				vehicle.linearSpeed = 0;
+				world = newWorld;
+				rebuildMovingState();
+				rebuildEffectEntries();
+
+			} catch ( err ) {
+
+				console.warn( 'Editor collider rebuild failed', err );
+
+			}
+
+		}
+
+		async function init() {
+
+			try {
+
+				registerAll();
+				const spawn = computeSpawnPosition( getCellsArray() );
+				world = buildWorld();
+				const body = createSphereBody( world, spawn.position );
+				vehicle = new Vehicle();
+				vehicle.rigidBody = body;
+				vehicle.physicsWorld = world;
+				vehicle.setSpawn( spawn.position, spawn.angle );
+				vehicle.setPerformance( { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } );
+				const gltf = await new Promise( ( resolve, reject ) => loader.load( 'models/vehicle-truck-yellow.glb', resolve, undefined, reject ) );
+				gltf.scene.traverse( ( child ) => { if ( child.isMesh ) child.material.side = THREE.FrontSide; } );
+				// Godot-exported vehicle models carry a 0.5 root scale (same fix
+				// the game's loader applies).
+				gltf.scene.scale.setScalar( 0.5 );
+				const carGroup = vehicle.init( gltf.scene );
+				scene.add( carGroup );
+				active = true;
+				rebuildMovingState();
+				rebuildEffectEntries();
+
+			} catch ( err ) {
+
+				fatal = true;
+				console.warn( 'Editor test-car unavailable (editing still works):', err );
+				showToast( 'Test car failed to load — editing still works' );
+
+			}
+
+		}
+
+		// The SAME animated mover meshes + hitboxes the game runs, rebuilt
+		// from the live grid and animated on the editor's own clock. They
+		// shove the drive car around exactly like in the game.
+		let movingState = null;
+		let driveClock = 0;
+		function rebuildMovingState() {
+
+			if ( movingState ) for ( const it of movingState.items ) scene.remove( it.mesh );
+			movingState = createMovingObstacleState( scene, getPhysicsExtras() );
+			resetMovingObstacles( movingState, 0 );
+
+		}
+
+		// ─── Car-affecting blocks: magnets, arc links, portals, pads, surfaces ───
+		// Editor-local copy of the game's per-frame effect logic (main.js stays
+		// byte-identical). Same trigger radii, same force math, same falloff —
+		// rebuilt from the live grid whenever the physics world rebuilds.
+		const FX_CELL_UNIT = CELL_RAW * GRID_SCALE;
+		const FX_ARC_LINK_TRIGGER_RADIUS = CELL_RAW * GRID_SCALE * 0.32;
+		const FX_ARC_LINK_MIN_TIME = 0.45;
+		const FX_ARC_LINK_MAX_TIME = 1.6;
+		const FX_VEHICLE_BASE_GRAVITY_FACTOR = 1.5;
+		const FX_SURFACE_HALF_EXTENT = CELL_RAW * GRID_SCALE * 0.39;
+		const FX_VEHICLE_SURFACE_RADIUS = 0.5;
+		const FX_GARAGE_FIXED_MULTIPLIER = 1.15;
+		const FX_AIR_TRICK_DURATION_SECONDS = 0.62;
+		const FX_MAGNET_FULL_STRENGTH_BLOCKS = 0.5;
+		const FX_MAGNET_DEFAULT_MAX_DISTANCE_BLOCKS = 1.5;
+		const FX_MAGNET_DEFAULT_FORCE_PER_SECOND = 26.0;
+		const FX_MAGNET_MIN_MAX_DISTANCE_BLOCKS = 0.75;
+		const FX_MAGNET_MAX_MAX_DISTANCE_BLOCKS = 2.5;
+		const FX_MAGNET_MIN_FORCE_PER_SECOND = 8.0;
+		const FX_MAGNET_MAX_FORCE_PER_SECOND = 64.0;
+		const FX_BOUNCE_VERTICAL_DELTA = 7.2;
+		const FX_KICK_LATERAL_DELTA = 7.4;
+		const FX_BOOST_VELOCITY_DELTA = 8.2;
+		const FX_BOOST_FORCE_SECONDS = 0.45;
+		const FX_BOOST_ACCEL_PER_SECOND = 16.5;
+		const FX_SURFACE_EFFECTS = {
+			'surface-wood': { grip: 0.9, drag: 1.35, accel: 1.0, drive: 1.55 },
+			'surface-ice': { grip: 0.4, drag: 0.58, accel: 0.45, drive: 0.8 },
+			'surface-sand': { grip: 0.72, drag: 2.6, accel: 0.35, drive: 0.5 },
+			'surface-custom-a': { grip: 1.2, drag: 1.0, accel: 1.05, drive: 1.15 },
+			'surface-custom-b': { grip: 0.55, drag: 0.9, accel: 0.72, drive: 0.85 },
+			'surface-custom-c': { grip: 0.95, drag: 1.7, accel: 1.25, drive: 1.3 },
+		};
+		const FX_PAD_RESET_TYPE = 'pad-reset';
+		const FX_SIZE_PAD_TYPES = new Set( [ 'pad-size-small', 'pad-size-normal', 'pad-size-mega' ] );
+		const FX_CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
+		const FX_PAD_EFFECTS = {
+			'pad-low-gravity': { id: 'low-gravity', gravity: 0.45 },
+			'pad-heavy-gravity': { id: 'heavy-gravity', gravity: 1.7 },
+			'pad-high-grip': { id: 'high-grip', grip: 2.2, drag: 1.25 },
+			'pad-high-speed': { id: 'high-speed', accel: 1.5, drive: 1.6, topSpeed: 1.25 },
+			'pad-no-brakes': { id: 'no-brakes', disableBrakes: true },
+			'pad-no-steering': { id: 'no-steering', disableSteering: true },
+			'pad-no-acceleration': { id: 'no-acceleration', disableAcceleration: true, accel: 0.0, drive: 0.0, drag: 0.18, grip: 0.86 },
+			'pad-slow-motion': { id: 'slow-motion', timeScale: 0.6 },
+			'pad-fast-motion': { id: 'fast-motion', timeScale: 1.35 },
+			'pad-drift': { id: 'drift', grip: 0.32, drag: 0.45, steering: 1.35 },
+			'pad-size-small': { id: 'size-small', scale: 0.5 },
+			'pad-size-normal': { id: 'size-normal', scale: 1.0 },
+			'pad-size-mega': { id: 'size-mega', scale: 1.8 },
+			'pad-trick-yaw-1': { id: 'trick-yaw-1', trick: { yaw: 1 } },
+			'pad-trick-pitch-1': { id: 'trick-pitch-1', trick: { pitch: 1 } },
+			'pad-trick-roll-1': { id: 'trick-roll-1', trick: { roll: 1 } },
+			'pad-trick-yaw-pitch-1': { id: 'trick-yaw-pitch-1', trick: { yaw: 1, pitch: 1 } },
+			'pad-trick-yaw-roll-1': { id: 'trick-yaw-roll-1', trick: { yaw: 1, roll: 1 } },
+			'pad-trick-pitch-roll-1': { id: 'trick-pitch-roll-1', trick: { pitch: 1, roll: 1 } },
+			'pad-trick-yaw-pitch-roll-1': { id: 'trick-yaw-pitch-roll-1', trick: { yaw: 1, pitch: 1, roll: 1 } },
+			'pad-trick-yaw-roll-pitch': { id: 'trick-yaw-roll-pitch', trick: { yaw: 1, roll: 1, pitch: -1 } },
+			'pad-trick-pitch-yaw-roll': { id: 'trick-pitch-yaw-roll', trick: { pitch: 1, yaw: -1, roll: 1 } },
+		};
+		const FX_PAD_LABELS = {
+			'pad-low-gravity': 'Low Gravity', 'pad-heavy-gravity': 'Heavy Gravity', 'pad-high-grip': 'High Grip',
+			'pad-high-speed': 'High Speed', 'pad-no-brakes': 'No Brakes', 'pad-no-steering': 'No Steering',
+			'pad-no-acceleration': 'No Acceleration', 'pad-slow-motion': 'Slow Motion', 'pad-fast-motion': 'Fast Motion',
+			'pad-drift': 'Drift Mode', 'pad-size-small': 'Mini Pad', 'pad-size-normal': 'Normal Pad', 'pad-size-mega': 'Mega Pad',
+			'pad-trick-yaw-1': 'Yaw Flip', 'pad-trick-pitch-1': 'Pitch Flip', 'pad-trick-roll-1': 'Roll Flip',
+			'pad-trick-yaw-pitch-1': 'Yaw+Pitch', 'pad-trick-yaw-roll-1': 'Yaw+Roll', 'pad-trick-pitch-roll-1': 'Pitch+Roll',
+			'pad-trick-yaw-pitch-roll-1': 'Yaw+Pitch+Roll', 'pad-trick-yaw-roll-pitch': 'Yaw+Roll+Pitch', 'pad-trick-pitch-yaw-roll': 'Pitch+Yaw+Roll',
+			'pad-custom-a': 'Custom Pad A', 'pad-custom-b': 'Custom Pad B', 'pad-custom-c': 'Custom Pad C',
+		};
+
+		let fxMagnetEntries = [];
+		let fxArcLinkEntries = [];
+		let fxArcEntriesById = new Map();
+		let fxSurfaceEntryByCell = new Map();
+		let fxPadEntryByCell = new Map();
+		let fxBoostSurfaceEntryByCell = new Map();
+		let fxArcLinkState = { contactKey: null, lockUntilExit: false };
+		let fxPadContactKey = null;
+		let fxBoostContactKey = null;
+		let fxBoostActiveUntil = 0;
+		let fxActivePadEffect = null;
+		let fxClock = 0;
+		const fxSpecialContactState = new Map();
+		const fxAirTrickState = {
+			active: false, progress: 0, lastSmoothT: 0, recovering: false, recoveryT: 0,
+			recoveryDuration: 0.9,
+			recoveryStartQuat: new THREE.Quaternion(),
+			recoveryTargetQuat: new THREE.Quaternion(),
+			baseYaw: 0, pitchTotal: 0, yawTotal: 0, rollTotal: 0,
+		};
+
+		function fxGetCustomSurfaceEffect( surfaceType ) {
+
+			const conf = customSurfaceConfigs?.[ surfaceType ];
+			if ( ! conf ) return null;
+			const grip = THREE.MathUtils.clamp( Number( conf.grip ) || 1, 0.2, 2.5 );
+			const speed = THREE.MathUtils.clamp( Number( conf.speed ) || 1, 0.2, 2.5 );
+			return {
+				grip,
+				drag: THREE.MathUtils.clamp( 1.2 / speed, 0.4, 3.4 ),
+				accel: speed,
+				drive: speed,
+			};
+
+		}
+
+		function fxGetSurfaceEffect( surfaceType ) {
+
+			return fxGetCustomSurfaceEffect( surfaceType ) || FX_SURFACE_EFFECTS[ surfaceType || null ] || null;
+
+		}
+
+		function fxGetCustomPadEffect( padType ) {
+
+			const conf = customPadConfigs?.[ padType ];
+			if ( ! conf ) return null;
+			return {
+				id: padType,
+				gravity: Number.isFinite( Number( conf.gravity ) ) ? THREE.MathUtils.clamp( Number( conf.gravity ), 0.15, 3 ) : undefined,
+				grip: Number.isFinite( Number( conf.grip ) ) ? THREE.MathUtils.clamp( Number( conf.grip ), 0.05, 5 ) : undefined,
+				drag: Number.isFinite( Number( conf.drag ) ) ? THREE.MathUtils.clamp( Number( conf.drag ), 0.05, 5 ) : undefined,
+				accel: Number.isFinite( Number( conf.accel ) ) ? THREE.MathUtils.clamp( Number( conf.accel ), 0, 5 ) : undefined,
+				drive: Number.isFinite( Number( conf.drive ) ) ? THREE.MathUtils.clamp( Number( conf.drive ), 0, 5 ) : undefined,
+				topSpeed: Number.isFinite( Number( conf.topSpeed ) ) ? THREE.MathUtils.clamp( Number( conf.topSpeed ), 0, 3 ) : undefined,
+				steering: Number.isFinite( Number( conf.steering ) ) ? THREE.MathUtils.clamp( Number( conf.steering ), 0, 3 ) : undefined,
+				timeScale: Number.isFinite( Number( conf.timeScale ) ) ? THREE.MathUtils.clamp( Number( conf.timeScale ), 0.15, 3 ) : undefined,
+				disableBrakes: Boolean( conf.disableBrakes ),
+				disableSteering: Boolean( conf.disableSteering ),
+				disableAcceleration: Boolean( conf.disableAcceleration ),
+			};
+
+		}
+
+		function fxGetPadEffectForType( padType ) {
+
+			return fxGetCustomPadEffect( padType ) || FX_PAD_EFFECTS[ padType ] || null;
+
+		}
+
+		function rebuildEffectEntries() {
+
+			const extras = getPhysicsExtras();
+			fxMagnetEntries = ( Array.isArray( extras.magnets ) ? extras.magnets : [] )
+				.map( ( [ gxRaw, gzRaw, yGridRaw, variant, forceRaw, rangeRaw ] ) => {
+
+					const gx = Number( gxRaw ), gz = Number( gzRaw );
+					if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) return null;
+					const yGrid = THREE.MathUtils.clamp( Number( yGridRaw ) || 0, - 1, 3 );
+					const kindRaw = String( variant );
+					const kind = kindRaw === 'red' ? 'red' : ( kindRaw === 'grapple' ? 'grapple' : 'blue' );
+					const forcePerSecond = THREE.MathUtils.clamp( Number( forceRaw ) || FX_MAGNET_DEFAULT_FORCE_PER_SECOND, FX_MAGNET_MIN_FORCE_PER_SECOND, FX_MAGNET_MAX_FORCE_PER_SECOND );
+					const maxDistanceBlocks = THREE.MathUtils.clamp( Number( rangeRaw ) || FX_MAGNET_DEFAULT_MAX_DISTANCE_BLOCKS, FX_MAGNET_MIN_MAX_DISTANCE_BLOCKS, FX_MAGNET_MAX_MAX_DISTANCE_BLOCKS );
+					return {
+						gx, gz, yGrid, kind, forcePerSecond,
+						maxDistance: CELL_RAW * GRID_SCALE * maxDistanceBlocks,
+						centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
+						centerY: ( CELL_RAW * GRID_SCALE * 0.08 ) - 0.06 + yGrid * CELL_RAW * GRID_SCALE,
+						centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
+					};
+
+				} )
+				.filter( Boolean );
+			fxArcLinkEntries = ( Array.isArray( extras.arcLinks ) ? extras.arcLinks : [] )
+				.map( ( [ gxRaw, gzRaw, yGridRaw, variantRaw, idRaw ] ) => {
+
+					const gx = Number( gxRaw ), gz = Number( gzRaw );
+					if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) return null;
+					const yGrid = THREE.MathUtils.clamp( Number( yGridRaw ) || 0, - 1, 3 );
+					const variant = String( variantRaw );
+					const color = variant === 'portal-purple' || variant === 'purple'
+						? 'portal-purple'
+						: ( variant === 'portal-yellow' || variant === 'yellow'
+							? 'portal-yellow'
+							: ( variant === 'orange' ? 'orange' : 'green' ) );
+					return {
+						gx, gz, yGrid, color,
+						linkId: THREE.MathUtils.clamp( Math.round( Number( idRaw ) || 1 ), 1, 999 ),
+						centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
+						centerY: ( CELL_RAW * GRID_SCALE * 0.08 ) - 0.06 + yGrid * CELL_RAW * GRID_SCALE,
+						centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
+					};
+
+				} )
+				.filter( Boolean );
+			fxArcEntriesById = new Map();
+			for ( const entry of fxArcLinkEntries ) {
+
+				const bucket = fxArcEntriesById.get( entry.linkId ) || [];
+				bucket.push( entry );
+				fxArcEntriesById.set( entry.linkId, bucket );
+
+			}
+			fxSurfaceEntryByCell = new Map();
+			fxPadEntryByCell = new Map();
+			fxBoostSurfaceEntryByCell = new Map();
+			for ( const [ gx, gz, type ] of ( Array.isArray( extras.surfaces ) ? extras.surfaces : [] ) ) {
+
+				if ( ! Number.isFinite( Number( gx ) ) || ! Number.isFinite( Number( gz ) ) ) continue;
+				const entry = {
+					gx, gz, type,
+					centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
+					centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
+				};
+				const key = entry.gx + ',' + entry.gz;
+				fxSurfaceEntryByCell.set( key, entry );
+				if ( entry.type === FX_PAD_RESET_TYPE || FX_PAD_EFFECTS[ entry.type ] || FX_CUSTOM_PAD_TYPES.includes( entry.type ) ) fxPadEntryByCell.set( key, entry );
+				if ( entry.type === 'surface-boost' ) fxBoostSurfaceEntryByCell.set( key, entry );
+
+			}
+			fxArcLinkState = { contactKey: null, lockUntilExit: false };
+			fxPadContactKey = null;
+			fxBoostContactKey = null;
+			fxBoostActiveUntil = 0;
+			fxActivePadEffect = null;
+			if ( vehicle?.container ) vehicle.container.scale.setScalar( 1 );
+			if ( vehicle ) vehicle.__padScale = 1;
+
+		}
+
+		function fxCollectNearbyEntries( targetVehicle, byCellMap, bucket ) {
+
+			const cx = Math.floor( targetVehicle.spherePos.x / FX_CELL_UNIT );
+			const cz = Math.floor( targetVehicle.spherePos.z / FX_CELL_UNIT );
+			bucket.length = 0;
+			for ( let dz = - 1; dz <= 1; dz ++ ) {
+				for ( let dx = - 1; dx <= 1; dx ++ ) {
+					const entry = byCellMap.get( ( cx + dx ) + ',' + ( cz + dz ) );
+					if ( entry ) bucket.push( entry );
+				}
+			}
+			return bucket.length > 0;
+
+		}
+
+		function fxOverlapsSurfaceEntry( targetVehicle, entry ) {
+
+			const dx = Math.abs( targetVehicle.spherePos.x - entry.centerX );
+			const dz = Math.abs( targetVehicle.spherePos.z - entry.centerZ );
+			return dx <= FX_SURFACE_HALF_EXTENT + FX_VEHICLE_SURFACE_RADIUS && dz <= FX_SURFACE_HALF_EXTENT + FX_VEHICLE_SURFACE_RADIUS;
+
+		}
+
+		function fxOverlapsPadEntry( targetVehicle, entry ) {
+
+			const dx = targetVehicle.spherePos.x - entry.centerX;
+			const dz = targetVehicle.spherePos.z - entry.centerZ;
+			const radius = FX_SURFACE_HALF_EXTENT + FX_VEHICLE_SURFACE_RADIUS;
+			return dx * dx + dz * dz <= radius * radius;
+
+		}
+
+		const _fxMagnetDelta = new THREE.Vector3();
+		const _fxMagnetDir = new THREE.Vector3();
+		const _fxBoostForward = new THREE.Vector3();
+		const _fxSurfaceNeighbourhood = [];
+		const _fxPadNeighbourhood = [];
+		const _fxBoostNeighbourhood = [];
+
+		function fxIsVehicleOnGround( targetVehicle ) {
+
+			const posY = targetVehicle?.spherePos?.y ?? 999;
+			const verticalSpeed = Math.abs( targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] ?? 999 );
+			return posY <= 0.62 && verticalSpeed <= 1.1;
+
+		}
+
+		function fxApplyMagnetForceFor( targetVehicle, dt ) {
+
+			if ( ! targetVehicle?.rigidBody || fxMagnetEntries.length === 0 ) return;
+			const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+			let nextVelX = vel[ 0 ], nextVelY = vel[ 1 ], nextVelZ = vel[ 2 ];
+			let changed = false;
+			const magnetFullStrengthDistance = CELL_RAW * GRID_SCALE * FX_MAGNET_FULL_STRENGTH_BLOCKS;
+			for ( const magnet of fxMagnetEntries ) {
+
+				_fxMagnetDelta.set( magnet.centerX - targetVehicle.spherePos.x, magnet.centerY - targetVehicle.spherePos.y, magnet.centerZ - targetVehicle.spherePos.z );
+				const distance = _fxMagnetDelta.length();
+				if ( distance <= 1e-4 || distance > magnet.maxDistance ) continue;
+				_fxMagnetDir.copy( _fxMagnetDelta ).multiplyScalar( 1 / distance );
+				if ( magnet.kind === 'red' ) _fxMagnetDir.multiplyScalar( - 1 );
+				let strengthScale = 0;
+				if ( distance <= magnetFullStrengthDistance ) strengthScale = 1;
+				else {
+
+					const tf = THREE.MathUtils.clamp(
+						( distance - magnetFullStrengthDistance ) / Math.max( 1e-6, magnet.maxDistance - magnetFullStrengthDistance ),
+						0,
+						1
+					);
+					strengthScale = Math.pow( 1 - tf, 1.6 );
+
+				}
+				const impulse = magnet.forcePerSecond * strengthScale * dt;
+				nextVelX += _fxMagnetDir.x * impulse;
+				nextVelY += _fxMagnetDir.y * impulse;
+				nextVelZ += _fxMagnetDir.z * impulse;
+				changed = true;
+
+			}
+			if ( changed ) rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ nextVelX, nextVelY, nextVelZ ] );
+
+		}
+
+		function fxApplyArcLinkFor( targetVehicle, state ) {
+
+			const currentState = state && typeof state === 'object'
+				? state
+				: { contactKey: null, lockUntilExit: false };
+			if ( ! targetVehicle?.rigidBody || fxArcLinkEntries.length === 0 ) return currentState;
+			let nextContactKey = null;
+			let triggeredEntry = null;
+			for ( const entry of fxArcLinkEntries ) {
+
+				if ( entry.color !== 'orange' && entry.color !== 'portal-purple' ) continue;
+				const dx = entry.centerX - targetVehicle.spherePos.x;
+				const dy = entry.centerY - targetVehicle.spherePos.y;
+				const dz = entry.centerZ - targetVehicle.spherePos.z;
+				if ( dx * dx + dy * dy + dz * dz > FX_ARC_LINK_TRIGGER_RADIUS * FX_ARC_LINK_TRIGGER_RADIUS ) continue;
+				nextContactKey = `arc:${ entry.linkId }:${ entry.color }:${ entry.gx },${ entry.gz }`;
+				triggeredEntry = entry;
+				break;
+
+			}
+			if ( ! nextContactKey ) return { contactKey: null, lockUntilExit: false };
+			if ( currentState.lockUntilExit ) return { contactKey: nextContactKey, lockUntilExit: true };
+			if ( currentState.contactKey === nextContactKey ) return { contactKey: nextContactKey, lockUntilExit: false };
+			const pairCandidates = ( fxArcEntriesById.get( triggeredEntry.linkId ) || [] )
+				.filter( ( candidate ) => candidate !== triggeredEntry );
+			const pair = triggeredEntry.color === 'portal-purple'
+				? pairCandidates.find( ( candidate ) => candidate.color === 'portal-yellow' )
+				: pairCandidates.find( ( candidate ) => candidate.color === 'green' );
+			if ( ! pair ) {
+
+				const missingLabel = triggeredEntry.color === 'portal-purple' ? 'yellow portal endpoint' : 'green endpoint';
+				showToast( `Arc Link #${ triggeredEntry.linkId }: missing ${ missingLabel }` );
+				return { contactKey: nextContactKey, lockUntilExit: false };
+
+			}
+			if ( triggeredEntry.color === 'portal-purple' ) {
+
+				const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+				rigidBody.setPosition( world, targetVehicle.rigidBody, [ pair.centerX, pair.centerY, pair.centerZ ], false );
+				rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], vel[ 1 ], vel[ 2 ] ] );
+				targetVehicle.spherePos.set( pair.centerX, pair.centerY, pair.centerZ );
+				targetVehicle.container.position.set( targetVehicle.spherePos.x, targetVehicle.spherePos.y - 0.5, targetVehicle.spherePos.z );
+				showToast( `Portal #${ triggeredEntry.linkId }: teleported (velocity kept)` );
+				return { contactKey: nextContactKey, lockUntilExit: true };
+
+			}
+			const tx = pair.centerX - targetVehicle.spherePos.x;
+			const ty = pair.centerY - targetVehicle.spherePos.y;
+			const tz = pair.centerZ - targetVehicle.spherePos.z;
+			const horizontal = Math.hypot( tx, tz );
+			const travelTime = THREE.MathUtils.clamp( horizontal / 12, FX_ARC_LINK_MIN_TIME, FX_ARC_LINK_MAX_TIME );
+			const gravityFactor = Number( targetVehicle?.rigidBody?.motionProperties?.gravityFactor ) || FX_VEHICLE_BASE_GRAVITY_FACTOR;
+			const gravity = 9.81 * gravityFactor;
+			const vx = tx / travelTime;
+			const vz = tz / travelTime;
+			const vy = ( ty + 0.5 * gravity * travelTime * travelTime ) / travelTime;
+			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vx, vy, vz ] );
+			showToast( `Arc #${ triggeredEntry.linkId }: launched to green endpoint` );
+			return { contactKey: nextContactKey, lockUntilExit: true };
+
+		}
+
+		function fxFindPadContactFor( targetVehicle ) {
+
+			if ( ! fxCollectNearbyEntries( targetVehicle, fxPadEntryByCell, _fxPadNeighbourhood ) ) return null;
+			for ( let i = _fxPadNeighbourhood.length - 1; i >= 0; i -- ) {
+
+				const entry = _fxPadNeighbourhood[ i ];
+				if ( fxOverlapsPadEntry( targetVehicle, entry ) ) return { key: `pad:${ entry.gx },${ entry.gz },${ entry.type }`, type: entry.type };
+
+			}
+			return null;
+
+		}
+
+		function fxCombinePadEffects( current, incoming ) {
+
+			if ( ! current ) return incoming ? { ...incoming } : null;
+			if ( ! incoming ) return { ...current };
+			const combined = { ...current, ...incoming };
+			const multiplicativeKeys = [ 'gravity', 'grip', 'drag', 'accel', 'drive', 'topSpeed', 'steering', 'timeScale', 'scale' ];
+			for ( const key of multiplicativeKeys ) {
+
+				const a = Number( current[ key ] );
+				const b = Number( incoming[ key ] );
+				if ( Number.isFinite( a ) && Number.isFinite( b ) ) combined[ key ] = a * b;
+				else if ( Number.isFinite( b ) ) combined[ key ] = b;
+				else if ( Number.isFinite( a ) ) combined[ key ] = a;
+
+			}
+			combined.disableBrakes = Boolean( current.disableBrakes || incoming.disableBrakes );
+			combined.disableSteering = Boolean( current.disableSteering || incoming.disableSteering );
+			combined.disableAcceleration = Boolean( current.disableAcceleration || incoming.disableAcceleration );
+			if ( incoming.trick ) combined.trick = incoming.trick;
+			return combined;
+
+		}
+
+		function fxApplySizePadEffect( current, incoming ) {
+
+			const base = current ? { ...current } : {};
+			delete base.scale;
+			delete base.__sizePadType;
+			const next = incoming ? { ...base, ...incoming } : base;
+			next.__sizePadType = incoming?.id || null;
+			return Object.keys( next ).length ? next : null;
+
+		}
+
+		function fxApplyPadContact( targetVehicle, lastContactKey, setEffect, getCurrentEffect = null ) {
+
+			const contact = fxFindPadContactFor( targetVehicle );
+			if ( ! contact ) return null;
+			if ( contact.key === lastContactKey ) return lastContactKey;
+			if ( contact.type === FX_PAD_RESET_TYPE ) {
+
+				setEffect( null );
+				showToast( 'Pad effect: reset to default' );
+				return contact.key;
+
+			}
+			const effect = fxGetPadEffectForType( contact.type );
+			const previous = getCurrentEffect ? ( getCurrentEffect() || null ) : null;
+			if ( FX_SIZE_PAD_TYPES.has( contact.type ) ) setEffect( fxApplySizePadEffect( previous, effect ) );
+			else setEffect( fxCombinePadEffects( previous, effect ) );
+			showToast( `Pad effect: ${ FX_PAD_LABELS[ contact.type ] || contact.type }` );
+			return contact.key;
+
+		}
+
+		function fxApplyPadInputModifiers( baseInput, effect ) {
+
+			if ( ! baseInput ) return baseInput;
+			const input = { ...baseInput };
+			if ( effect?.disableSteering ) input.x = 0;
+			if ( effect?.disableBrakes && input.z < 0 ) input.z = 0;
+			if ( effect?.disableAcceleration && input.z > 0 ) input.z = 0;
+			if ( Number.isFinite( effect?.steering ) ) input.x *= effect.steering;
+			return input;
+
+		}
+
+		function fxFindActiveSurfaceTypeFor( targetVehicle ) {
+
+			if ( ! fxCollectNearbyEntries( targetVehicle, fxSurfaceEntryByCell, _fxSurfaceNeighbourhood ) ) return null;
+			for ( let i = _fxSurfaceNeighbourhood.length - 1; i >= 0; i -- ) {
+				if ( fxOverlapsSurfaceEntry( targetVehicle, _fxSurfaceNeighbourhood[ i ] ) ) return _fxSurfaceNeighbourhood[ i ].type;
+			}
+			return null;
+
+		}
+
+		function fxApplySurfaceGrip( targetVehicle, surfaceType, padEffect = null ) {
+
+			const effect = fxGetSurfaceEffect( surfaceType );
+			const pack = FX_GARAGE_FIXED_MULTIPLIER;
+			const padGrip = Number.isFinite( padEffect?.grip ) ? padEffect.grip : 1.0;
+			const padDrag = Number.isFinite( padEffect?.drag ) ? padEffect.drag : 1.0;
+			const padAccel = Number.isFinite( padEffect?.accel ) ? padEffect.accel : 1.0;
+			const padDrive = Number.isFinite( padEffect?.drive ) ? padEffect.drive : 1.0;
+			targetVehicle.gripMultiplier = ( effect ? effect.grip : 1.0 ) * pack * padGrip;
+			targetVehicle.dragMultiplier = ( effect ? effect.drag : 1.0 ) * padDrag;
+			const speedCapScale = Number.isFinite( padEffect?.topSpeed ) ? padEffect.topSpeed : 1.0;
+			targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * pack * padAccel * speedCapScale;
+			targetVehicle.driveMultiplier = ( effect ? effect.drive : 1.0 ) * pack * padDrive * speedCapScale;
+
+		}
+
+		function fxFindSurfaceContactKeyForType( targetVehicle, surfaceType ) {
+
+			if ( ! fxCollectNearbyEntries( targetVehicle, fxSurfaceEntryByCell, _fxSurfaceNeighbourhood ) ) return null;
+			for ( let i = _fxSurfaceNeighbourhood.length - 1; i >= 0; i -- ) {
+
+				const entry = _fxSurfaceNeighbourhood[ i ];
+				if ( entry.type === surfaceType && fxOverlapsSurfaceEntry( targetVehicle, entry ) ) return `surface:${ entry.gx },${ entry.gz }`;
+
+			}
+			return null;
+
+		}
+
+		function fxApplySurfaceBounceFor( targetVehicle ) {
+
+			if ( ! fxIsVehicleOnGround( targetVehicle ) ) return false;
+			const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], Math.max( vel[ 1 ], 0 ) + FX_BOUNCE_VERTICAL_DELTA, vel[ 2 ] ] );
+			return true;
+
+		}
+
+		function fxApplySurfaceKickFor( targetVehicle, direction ) {
+
+			_fxBoostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+			_fxBoostForward.y = 0;
+			const forwardLenSq = _fxBoostForward.lengthSq();
+			if ( forwardLenSq < 1e-6 ) return;
+			_fxBoostForward.multiplyScalar( 1 / Math.sqrt( forwardLenSq ) );
+			const lateralX = - _fxBoostForward.z * direction;
+			const lateralZ = _fxBoostForward.x * direction;
+			const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
+				vel[ 0 ] + lateralX * FX_KICK_LATERAL_DELTA,
+				vel[ 1 ],
+				vel[ 2 ] + lateralZ * FX_KICK_LATERAL_DELTA,
+			] );
+			return true;
+
+		}
+
+		function fxApplyCustomSurfaceForceFor( targetVehicle, surfaceType ) {
+
+			const conf = customSurfaceConfigs?.[ surfaceType ];
+			if ( ! conf ) return false;
+			if ( conf.noAir && ! fxIsVehicleOnGround( targetVehicle ) ) return false;
+			const amount = Math.max( 0, Number( conf.forceAmount ) || 0 );
+			if ( amount <= 0 ) return false;
+			const force = conf.force || {};
+			_fxBoostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+			_fxBoostForward.y = 0;
+			if ( _fxBoostForward.lengthSq() < 1e-6 ) _fxBoostForward.set( 0, 0, 1 );
+			_fxBoostForward.normalize();
+			const sideX = - _fxBoostForward.z;
+			const sideZ = _fxBoostForward.x;
+			const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+			const nextVel = [ vel[ 0 ], vel[ 1 ], vel[ 2 ] ];
+			if ( force.forward ) { nextVel[ 0 ] += _fxBoostForward.x * amount; nextVel[ 2 ] += _fxBoostForward.z * amount; }
+			if ( force.backward ) { nextVel[ 0 ] -= _fxBoostForward.x * amount; nextVel[ 2 ] -= _fxBoostForward.z * amount; }
+			if ( force.left ) { nextVel[ 0 ] -= sideX * amount; nextVel[ 2 ] -= sideZ * amount; }
+			if ( force.right ) { nextVel[ 0 ] += sideX * amount; nextVel[ 2 ] += sideZ * amount; }
+			if ( force.up ) nextVel[ 1 ] += amount;
+			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, nextVel );
+			return true;
+
+		}
+
+		const FX_SPECIAL_SURFACE_HANDLERS = {
+			'surface-bounce': ( targetVehicle ) => fxApplySurfaceBounceFor( targetVehicle ),
+			'surface-kick-l': ( targetVehicle ) => fxApplySurfaceKickFor( targetVehicle, - 1 ),
+			'surface-kick-r': ( targetVehicle ) => fxApplySurfaceKickFor( targetVehicle, 1 ),
+		};
+		const FX_SPECIAL_SURFACE_TYPES = [
+			...Object.keys( FX_SPECIAL_SURFACE_HANDLERS ),
+			...Object.keys( customSurfaceConfigs || {} ).filter( ( key ) => key.startsWith( 'surface-custom-' ) ),
+		];
+
+		function fxApplySpecialSurfacesFor( targetVehicle, contactState ) {
+
+			for ( const surfaceType of FX_SPECIAL_SURFACE_TYPES ) {
+
+				const currentKey = fxFindSurfaceContactKeyForType( targetVehicle, surfaceType );
+				const previousKey = contactState.get( surfaceType ) || null;
+				if ( currentKey ) {
+
+					if ( previousKey !== currentKey ) {
+
+						const triggered = FX_SPECIAL_SURFACE_HANDLERS[ surfaceType ]
+							? FX_SPECIAL_SURFACE_HANDLERS[ surfaceType ]( targetVehicle )
+							: fxApplyCustomSurfaceForceFor( targetVehicle, surfaceType );
+						const oncePerContact = Boolean( customSurfaceConfigs?.[ surfaceType ]?.oncePerContact );
+						if ( triggered ) {
+
+							if ( oncePerContact || FX_SPECIAL_SURFACE_HANDLERS[ surfaceType ] ) contactState.set( surfaceType, currentKey );
+							else contactState.delete( surfaceType );
+
+						} else if ( oncePerContact ) contactState.set( surfaceType, currentKey );
+						else contactState.delete( surfaceType );
+
+					}
+
+				} else {
+
+					contactState.delete( surfaceType );
+
+				}
+
+			}
+
+		}
+
+		function fxFindBoostSurfaceContactKeyFor( targetVehicle ) {
+
+			if ( ! fxCollectNearbyEntries( targetVehicle, fxBoostSurfaceEntryByCell, _fxBoostNeighbourhood ) ) return null;
+			for ( let i = _fxBoostNeighbourhood.length - 1; i >= 0; i -- ) {
+
+				const entry = _fxBoostNeighbourhood[ i ];
+				if ( fxOverlapsSurfaceEntry( targetVehicle, entry ) ) return `surface:${ entry.gx },${ entry.gz }`;
+
+			}
+			return null;
+
+		}
+
+		function fxApplyBoostFor( targetVehicle, now ) {
+
+			if ( ! targetVehicle?.rigidBody ) return;
+			_fxBoostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+			_fxBoostForward.y = 0;
+			const boostLenSq = _fxBoostForward.lengthSq();
+			if ( boostLenSq < 1e-6 ) return;
+			_fxBoostForward.multiplyScalar( 1 / Math.sqrt( boostLenSq ) );
+			const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
+				vel[ 0 ] + _fxBoostForward.x * FX_BOOST_VELOCITY_DELTA,
+				vel[ 1 ],
+				vel[ 2 ] + _fxBoostForward.z * FX_BOOST_VELOCITY_DELTA,
+			] );
+			fxBoostActiveUntil = now + FX_BOOST_FORCE_SECONDS;
+			targetVehicle.setWheelieActive?.( true );
+
+		}
+
+		function fxUpdateActiveBoost( targetVehicle, dt, now ) {
+
+			if ( ! targetVehicle?.rigidBody ) return;
+			if ( now >= fxBoostActiveUntil ) {
+				targetVehicle.setWheelieActive?.( false );
+				return;
+			}
+			_fxBoostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+			_fxBoostForward.y = 0;
+			const boostLenSq = _fxBoostForward.lengthSq();
+			if ( boostLenSq < 1e-6 ) return;
+			_fxBoostForward.multiplyScalar( 1 / Math.sqrt( boostLenSq ) );
+			const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
+				vel[ 0 ] + _fxBoostForward.x * FX_BOOST_ACCEL_PER_SECOND * dt,
+				vel[ 1 ],
+				vel[ 2 ] + _fxBoostForward.z * FX_BOOST_ACCEL_PER_SECOND * dt,
+			] );
+
+		}
+
+		function fxApplyVehicleScaleFromPad( targetVehicle, effect ) {
+
+			if ( ! targetVehicle?.container ) return;
+			const nextScale = Number.isFinite( effect?.scale ) ? THREE.MathUtils.clamp( effect.scale, 0.35, 2.5 ) : 1;
+			const prevScale = Number.isFinite( targetVehicle.__padScale ) ? targetVehicle.__padScale : 1;
+			targetVehicle.container.scale.setScalar( nextScale );
+			targetVehicle.__padScale = nextScale;
+			if ( nextScale > prevScale && nextScale > 1.01 && targetVehicle?.spherePos && targetVehicle?.rigidBody ) {
+
+				const lift = 0.24 * ( nextScale - prevScale );
+				targetVehicle.spherePos.y += lift;
+				rigidBody.setPosition( world, targetVehicle.rigidBody, targetVehicle.spherePos.toArray(), false );
+
+			}
+
+		}
+
+		function fxUpdateAirTrickStateFor( targetVehicle, activePadEffect, state, dt, onTrickFinished = null ) {
+
+			if ( ! targetVehicle || ! state ) return;
+			const trick = activePadEffect?.trick || null;
+			const hasTrickPayload = Boolean( trick );
+			const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
+			const airborne = targetVehicle.spherePos.y > 0.5 || Math.abs( verticalVel ) > 0.25;
+			const canRun = state.active ? hasTrickPayload : ( hasTrickPayload && airborne );
+			if ( ! canRun ) {
+
+				const interrupted = state.active && state.progress > 0 && state.progress < 1;
+				if ( interrupted ) {
+
+					state.recovering = true;
+					state.recoveryT = 0;
+					state.recoveryStartQuat.copy( targetVehicle.container.quaternion );
+					const euler = new THREE.Euler().setFromQuaternion( targetVehicle.container.quaternion, 'YXZ' );
+					euler.x = 0;
+					euler.z = 0;
+					state.recoveryTargetQuat.setFromEuler( euler );
+
+				}
+				state.active = false;
+				state.progress = 0;
+				state.lastSmoothT = 0;
+				if ( interrupted && onTrickFinished ) onTrickFinished();
+				if ( state.recovering ) {
+
+					state.recoveryT = Math.min( 1, state.recoveryT + dt / state.recoveryDuration );
+					const tt = state.recoveryT * state.recoveryT * ( 3 - 2 * state.recoveryT );
+					targetVehicle.container.quaternion.copy( state.recoveryStartQuat ).slerp( state.recoveryTargetQuat, tt );
+					targetVehicle.container.updateMatrixWorld( true );
+					if ( state.recoveryT >= 1 ) state.recovering = false;
+
+				}
+				return;
+
+			}
+
+			if ( ! state.active ) {
+				state.active = true;
+				state.recovering = false;
+				state.recoveryT = 0;
+				state.progress = 0;
+				state.lastSmoothT = 0;
+				const phase = trick || {};
+				const qEuler = new THREE.Euler().setFromQuaternion( targetVehicle.container.quaternion, 'YXZ' );
+				state.baseYaw = qEuler.y;
+				state.pitchTotal = ( Number( phase.pitch ) || 0 ) * Math.PI * 2;
+				state.yawTotal = ( Number( phase.yaw ) || 0 ) * Math.PI * 2;
+				state.rollTotal = ( Number( phase.roll ) || 0 ) * Math.PI * 2;
+			}
+
+			state.progress = Math.min( 1, state.progress + ( dt / FX_AIR_TRICK_DURATION_SECONDS ) );
+			const deltaT = Math.max( 0, state.progress - state.lastSmoothT );
+			state.lastSmoothT = state.progress;
+			if ( deltaT > 0 ) {
+
+				const deltaEuler = new THREE.Euler(
+					state.pitchTotal * deltaT,
+					state.yawTotal * deltaT,
+					state.rollTotal * deltaT,
+					'YXZ'
+				);
+				const dq = new THREE.Quaternion().setFromEuler( deltaEuler );
+				targetVehicle.container.quaternion.multiply( dq ).normalize();
+
+			}
+			targetVehicle.container.updateMatrixWorld( true );
+			if ( state.progress >= 1 ) {
+
+				state.active = false;
+				state.progress = 0;
+				state.lastSmoothT = 0;
+				state.recovering = true;
+				state.recoveryT = 0;
+				state.recoveryStartQuat.copy( targetVehicle.container.quaternion );
+				const euler = new THREE.Euler( 0, state.baseYaw, 0, 'YXZ' );
+				state.recoveryTargetQuat.setFromEuler( euler );
+				if ( onTrickFinished ) onTrickFinished();
+
+			}
+
+		}
+
+		function step( dt ) {
+
+			driveClock += dt;
+			// Build movers even if the car model failed to load — the editor
+			// should always show obstacles moving.
+			if ( ! movingState ) rebuildMovingState();
+			updateMovingObstacles( movingState, driveClock, active && vehicle ? [ vehicle ] : [] );
+			if ( active && vehicle ) {
+
+				rebuildColliders( performance.now() * 0.001 );
+				// Pad time-scale slows/speeds the whole simulation, like the game.
+				const padTimeScale = Number.isFinite( fxActivePadEffect?.timeScale ) ? fxActivePadEffect.timeScale : 1;
+				const fxdt = dt * padTimeScale;
+				fxClock += fxdt;
+				const padAdjustedInput = fxApplyPadInputModifiers( {
+					x: ( driveKeys.ArrowRight ? 1 : 0 ) - ( driveKeys.ArrowLeft ? 1 : 0 ),
+					z: ( driveKeys.ArrowUp ? 1 : 0 ) - ( driveKeys.ArrowDown ? 1 : 0 ),
+					y: 0,
+				}, fxActivePadEffect );
+				updateWorld( world, NOOP_CONTACT_LISTENER, fxdt );
+				vehicle.update( fxdt, padAdjustedInput );
+				// Per-frame car effects — same order as the game loop:
+				// magnets → arc links/portals → pad gravity → pads → surfaces
+				// → boost → special surfaces → air tricks → size pad scale.
+				fxApplyMagnetForceFor( vehicle, fxdt );
+				fxArcLinkState = fxApplyArcLinkFor( vehicle, fxArcLinkState );
+				if ( vehicle.rigidBody?.motionProperties ) {
+
+					const gravityScale = Number.isFinite( fxActivePadEffect?.gravity ) ? fxActivePadEffect.gravity : 1.0;
+					const sphereVy = vehicle.rigidBody.motionProperties.linearVelocity[ 1 ];
+					const nearGroundBoost = Math.abs( sphereVy ) < 1.5 ? 1.4 : 1.0;
+					vehicle.rigidBody.motionProperties.gravityFactor = FX_VEHICLE_BASE_GRAVITY_FACTOR * nearGroundBoost * gravityScale;
+
+				}
+				fxPadContactKey = fxApplyPadContact( vehicle, fxPadContactKey, ( effect ) => {
+
+					fxActivePadEffect = effect;
+
+				}, () => fxActivePadEffect ) || null;
+				const activeSurfaceType = fxFindActiveSurfaceTypeFor( vehicle );
+				fxUpdateActiveBoost( vehicle, fxdt, fxClock );
+				const boostKey = fxFindBoostSurfaceContactKeyFor( vehicle );
+				if ( boostKey && boostKey !== fxBoostContactKey ) {
+
+					fxApplyBoostFor( vehicle, fxClock );
+					showToast( 'Boost surface: zoom!' );
+
+				}
+				fxBoostContactKey = boostKey || null;
+				fxApplySpecialSurfacesFor( vehicle, fxSpecialContactState );
+				fxUpdateAirTrickStateFor( vehicle, fxActivePadEffect, fxAirTrickState, fxdt, () => {
+
+					if ( ! fxActivePadEffect?.trick ) return;
+					const { trick, ...rest } = fxActivePadEffect;
+					fxActivePadEffect = Object.keys( rest ).length ? rest : null;
+
+				} );
+				fxApplySurfaceGrip( vehicle, activeSurfaceType, fxActivePadEffect );
+				fxApplyVehicleScaleFromPad( vehicle, fxActivePadEffect );
+
+			}
+			stepFlyAndPanCam( dt );
+
+		}
+
+		// ── Follow cam: chase camera behind the car, like driving the map ──
+		const _followFwd = new THREE.Vector3();
+		function stepFollowCam( dt ) {
+
+			if ( ! vehicle || ! vehicle.container ) return;
+			const car = vehicle.container.position;
+			_followFwd.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion );
+			_followFwd.y = 0;
+			if ( _followFwd.lengthSq() < 1e-6 ) _followFwd.set( 0, 0, 1 );
+			_followFwd.normalize();
+			const desired = new THREE.Vector3(
+				car.x - _followFwd.x * cellWorld * 2.6,
+				Math.max( 0.6, car.y + cellWorld * 1.4 ),
+				car.z - _followFwd.z * cellWorld * 2.6
+			);
+			freeCamera.position.lerp( desired, 1 - Math.exp( - 5 * dt ) );
+			freeCamera.lookAt( car.x, car.y + cellWorld * 0.4, car.z );
+
+		}
+
+		// ── Free cam fly (free mode) / WASD pan (flat mode) / follow (follow mode) ──
+		function stepFlyAndPanCam( dt ) {
+
+			if ( editorCamMode === 'follow' ) { stepFollowCam( dt ); return; }
+			if ( flyKeys.size === 0 && editorCamMode === 'free' ) { freeCamera.rotation.set( freeCamPitch, freeCamYaw, 0, 'YXZ' ); return; }
+			if ( flyKeys.size === 0 ) return;
+
+			if ( editorCamMode === 'flat' ) {
+
+				// WASD pans the top-down camera at a comfortable rate.
+				const stepPan = cellWorld * 10 * dt;
+				if ( flyKeys.has( 'KeyW' ) ) camTarget.z -= stepPan;
+				if ( flyKeys.has( 'KeyS' ) ) camTarget.z += stepPan;
+				if ( flyKeys.has( 'KeyA' ) ) camTarget.x -= stepPan;
+				if ( flyKeys.has( 'KeyD' ) ) camTarget.x += stepPan;
+				camera.position.x = camTarget.x;
+				camera.position.z = camTarget.z;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				return;
+
+			}
+
+			const cp = Math.cos( freeCamPitch ), sp = Math.sin( freeCamPitch );
+			const sy = Math.sin( freeCamYaw ), cy = Math.cos( freeCamYaw );
+			const fwd = new THREE.Vector3( - sy * cp, sp, - cy * cp );
+			const right = new THREE.Vector3( cy, 0, - sy );
+			const move = new THREE.Vector3();
+			if ( flyKeys.has( 'KeyW' ) ) move.add( fwd );
+			if ( flyKeys.has( 'KeyS' ) ) move.sub( fwd );
+			if ( flyKeys.has( 'KeyD' ) ) move.add( right );
+			if ( flyKeys.has( 'KeyA' ) ) move.sub( right );
+			if ( flyKeys.has( 'KeyE' ) || flyKeys.has( 'Space' ) ) move.y += 1;
+			if ( flyKeys.has( 'KeyQ' ) || flyKeys.has( 'ControlLeft' ) || flyKeys.has( 'ControlRight' ) ) move.y -= 1;
+			if ( move.lengthSq() > 0 ) freeCamera.position.addScaledVector( move.normalize(), cellWorld * 7 * dt );
+			freeCamera.position.y = Math.max( 0.6, freeCamera.position.y );
+			freeCamera.rotation.set( freeCamPitch, freeCamYaw, 0, 'YXZ' );
+
+		}
+
+		// ── Camera rotation (free mode drag) ──
+		function startRotate( x, y ) { rotating = true; rotLastX = x; rotLastY = y; el.style.cursor = 'grabbing'; }
+		function moveRotate( x, y ) {
+
+			if ( ! rotating ) return;
+			freeCamYaw -= ( x - rotLastX ) * 0.005;
+			freeCamPitch = Math.max( - 1.45, Math.min( 0.9, freeCamPitch - ( y - rotLastY ) * 0.005 ) );
+			rotLastX = x; rotLastY = y;
+
+		}
+		function endRotate() { if ( rotating ) { rotating = false; el.style.cursor = ''; } }
+
+		function dolly( deltaY ) {
+
+			const cp = Math.cos( freeCamPitch );
+			const fwd = new THREE.Vector3( - Math.sin( freeCamYaw ) * cp, Math.sin( freeCamPitch ), - Math.cos( freeCamYaw ) * cp );
+			freeCamera.position.addScaledVector( fwd, - deltaY * 0.02 * cellWorld * 0.5 );
+			freeCamera.position.y = Math.max( 0.6, freeCamera.position.y );
+
+		}
+
+		function respawn() {
+
+			if ( ! active ) { showToast( 'Test car unavailable' ); return; }
+			// Always recompute from the CURRENT grid: a placed Start or
+			// Start/Finish block wins — position AND facing — falling back to
+			// the first road cell when the map has no start block yet.
+			const spawn = computeSpawnPosition( getCellsArray() );
+			vehicle.setSpawn( spawn.position, spawn.angle );
+			vehicle.resetToSpawn();
+			showToast( 'Car respawned' );
+
+		}
+
+		// ── Mode toggle ──
+		const camModeSelect = document.getElementById( 'cam-mode-select' );
+		const driveHint = document.getElementById( 'drive-hint' );
+		function setMode( mode ) {
+
+			editorCamMode = mode;
+			if ( camModeSelect ) camModeSelect.value = mode;
+			if ( mode === 'free' ) {
+
+				driveHint.textContent = 'Free: middle-drag rotate · wheel dolly · WASD fly · Space/Ctrl up-down · ← ↑ ↓ → drive · right-click erase';
+				showToast( 'Free cam: middle-drag rotate, WASD fly, Space/Ctrl up-down, arrows drive, right-click erases' );
+
+			} else if ( mode === 'follow' ) {
+
+				driveHint.textContent = 'Follow: chase cam behind the car · ← ↑ ↓ → drive · Shift+R respawn · right-click erase';
+				showToast( 'Follow cam: chases the car like a normal race' );
+
+			} else {
+
+				driveHint.textContent = 'Flat: ← ↑ ↓ → drive car · WASD pan · right-click erase · Shift+R respawn';
+				showToast( 'Flat map view' );
+
+			}
+
+		}
+		camModeSelect?.addEventListener( 'change', () => setMode( camModeSelect.value ) );
+		document.getElementById( 'btn-respawn-car' )?.addEventListener( 'click', respawn );
+
+		// ── Keyboard: fly/pan keys + Shift+R respawn ──
+		window.addEventListener( 'keydown', ( e ) => {
+
+			const target = e.target;
+			const isTypingTarget = target && ( target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable );
+			if ( isTypingTarget ) return;
+			if ( FLY_CODES.includes( e.code ) ) flyKeys.add( e.code );
+			if ( e.shiftKey && e.key.toLowerCase() === 'r' ) { e.preventDefault(); respawn(); }
+
+		} );
+		window.addEventListener( 'keyup', ( e ) => flyKeys.delete( e.code ) );
+		const FLY_CODES = [ 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ControlLeft', 'ControlRight' ];
+
+		// Expose immediately so the input handlers wired above can use the
+		// freecam even while the car model is still loading.
+		editorDrive = {
+			step,
+			markDirty: () => { dirty = true; lastEditAt = performance.now() * 0.001; },
+			startRotate, moveRotate, endRotate,
+			isRotating: () => rotating,
+			dolly,
+			onDriveKey: ( key, down ) => { if ( key in driveKeys ) driveKeys[ key ] = down; },
+			respawn,
+		};
+		init();
+
+	} )();
 
 	</script>
 </main>

@@ -205,6 +205,9 @@ function sanitizeProfile( value ) {
 		},
 		campaign: profile?.campaign && typeof profile.campaign === 'object' ? profile.campaign : null,
 		carKey: typeof profile?.carKey === 'string' ? profile.carKey : '',
+		// Default-car setting must round-trip the cloud so the player's pick
+		// follows their account. '__last' keeps last-used; '__random' rolls.
+		defaultCar: sanitizeDefaultCar( profile?.defaultCar ),
 		hud: sanitizeHudLayout( profile?.hud ),
 		settings: sanitizeSettings( profile?.settings ),
 	};
@@ -307,11 +310,26 @@ function sanitizeGarageCosmetics( value ) {
 					sourceHex: typeof mapping?.sourceHex === 'string' ? mapping.sourceHex.slice( 0, 7 ) : '#ff0000',
 					targetColorId: typeof mapping?.targetColorId === 'string' ? mapping.targetColorId.slice( 0, 32 ) : '',
 					tolerance: Math.max( 8, Math.min( 180, Math.floor( Number( mapping?.tolerance ) || 40 ) ) ),
+					// Region mask (compact RLE) so a repaint applies to the exact
+					// selected pixels on every machine, not just the one it was
+					// painted on. Capped to keep one profile well under the KV
+					// 25MB value budget (48 mappings × 32KB ≈ 1.5MB worst case).
+					mask: typeof mapping?.mask === 'string' ? mapping.mask.slice( 0, 32000 ) : '',
+					maskW: Math.max( 0, Math.min( 4096, Math.floor( Number( mapping?.maskW ) || 0 ) ) ),
+					maskH: Math.max( 0, Math.min( 4096, Math.floor( Number( mapping?.maskH ) || 0 ) ) ),
 				} ) ),
 			};
 		}
 	}
 	return { unlockedPaints, cars };
+}
+
+// Default-car setting: '__last' (follow last used), '__random' (roll each
+// race), or a concrete car key like 'vehicle-truck-yellow'.
+function sanitizeDefaultCar( value ) {
+	if ( value === '__last' || value === '__random' ) return value;
+	if ( typeof value === 'string' && /^vehicle-[a-z0-9-]{1,48}$/.test( value ) ) return value;
+	return '__last';
 }
 
 function sanitizePlayerName( value ) {

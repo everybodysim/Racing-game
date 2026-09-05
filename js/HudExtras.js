@@ -259,10 +259,12 @@ export class HudExtras {
 		// Save context, translate to center, rotate so player heading is "up"
 		ctx.save();
 		ctx.translate( cx, cy );
-		// Rotate so the player's forward direction points up on the minimap.
-		// In canvas, "up" is -Y. The player's heading angle is measured from +Z.
-		// We want to rotate by -headingAngle so that heading direction maps to -Y (up).
-		ctx.rotate( -headingAngle );
+		// Rotate so the player's forward direction points up on the minimap, then
+		// MIRROR horizontally: the car's right side is world -X when facing +Z,
+		// so without the mirror every turn reads backwards (turn right -> map
+		// turns left). The cursor stays locked; only the map flips.
+		ctx.rotate( headingAngle );
+		ctx.scale( -1, 1 );
 
 		// Draw track cells relative to player position
 		for ( const [ gx, gz, type ] of this.cells ) {
