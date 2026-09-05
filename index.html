@@ -2828,7 +2828,9 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					if ( map ) q.set( 'map', map );
 					if ( mods ) q.set( 'mods', mods );
 					const rawUrl = `${ normalizeTrackPath( u.pathname ) }${ q.toString() ? `?${ q.toString() }` : '' }`;
-					return `trk-${ hashTrackSeed( `v5-url|${ rawUrl }` ) }`;
+					// Default track (no map/mods) keeps the reset v5 id; others keep v4.
+					const seedVersion = ( map || mods ) ? 'v4' : 'v5';
+					return `trk-${ hashTrackSeed( `${ seedVersion }-url|${ rawUrl }` ) }`;
 				} catch ( e ) { return ''; }
 			}
 
@@ -3330,7 +3332,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000185&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000205&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;

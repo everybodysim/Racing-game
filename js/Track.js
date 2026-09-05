@@ -27,97 +27,380 @@ const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 const WATER_DEPTH = CELL_RAW * 0.34;
 const WATER_WALL_HEIGHT = CELL_RAW * 0.38;
 
-const WATER_SHADER_ASSET_ROOT = 'https://cdn.jsdelivr.net/gh/martinRenou/threejs-water@master/';
-let waterWaveTexture = null;
-let waterTileTexture = null;
-function getWaterTextures() {
-	if ( waterWaveTexture && waterTileTexture ) return { waterWaveTexture, waterTileTexture };
-	const waterTextureLoader = new THREE.TextureLoader();
-	waterTextureLoader.setCrossOrigin( 'anonymous' );
-	waterWaveTexture = waterTextureLoader.load( `${ WATER_SHADER_ASSET_ROOT }water.png`, ( texture ) => {
-		texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-		texture.minFilter = THREE.LinearFilter;
-		texture.magFilter = THREE.LinearFilter;
-	} );
-	waterTileTexture = waterTextureLoader.load( `${ WATER_SHADER_ASSET_ROOT }tiles.jpg`, ( texture ) => {
-		texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-	} );
-	return { waterWaveTexture, waterTileTexture };
+// ---------------------------------------------------------------------------
+// Pool visuals — 100% procedural (no external texture CDNs).
+// Pool block tiles are canvas-generated ceramic tiles; the water is a
+// custom shader port of the classic "tinted clear water" technique:
+// fbm waves with small chop, screen-space refraction (real scene wobble), a caustic web,
+// fresnel sky reflection, and a sun glint.
+const WATER_SHADER_TILE_COLS = 8; // ceramic tiles per grid cell (shader + textures stay in sync)
+
+let poolWallTexture = null;
+let poolFloorTexture = null;
+function createPoolTileCanvas( cols, rows ) {
+
+	// Deterministic PRNG so every player sees the same pool.
+	let seed = 1337 ^ ( cols * 7919 ) ^ ( rows * 104729 );
+	const rand = () => {
+
+		seed = ( seed * 1664525 + 1013904223 ) >>> 0;
+		return seed / 4294967296;
+
+	};
+	const tileW = 64;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = cols * tileW;
+	canvas.height = rows * tileW;
+	const ctx = canvas.getContext( '2d' );
+	// grout base
+	ctx.fillStyle = '#2f5a72';
+	ctx.fillRect( 0, 0, canvas.width, canvas.height );
+	for ( let ty = 0; ty < rows; ty ++ ) {
+		for ( let tx = 0; tx < cols; tx ++ ) {
+
+			const x = tx * tileW, y = ty * tileW;
+			const r = rand();
+			const accent = r > 0.9;
+			const light = 58 + rand() * 12;
+			const hue = accent ? 208 : 200 + rand() * 8;
+			const sat = accent ? 62 : 48 + rand() * 10;
+			ctx.fillStyle = `hsl( ${ hue }, ${ sat }%, ${ light }% )`;
+			ctx.fillRect( x + 3, y + 3, tileW - 6, tileW - 6 );
+			// bevel: lighter top-left edge, darker bottom-right
+			ctx.fillStyle = 'rgba( 255, 255, 255, 0.16 )';
+			ctx.fillRect( x + 3, y + 3, tileW - 6, 2 );
+			ctx.fillStyle = 'rgba( 10, 30, 50, 0.18 )';
+			ctx.fillRect( x + 3, y + tileW - 5, tileW - 6, 2 );
+			// speckle
+			for ( let k = 0; k < 6; k ++ ) {
+
+				ctx.fillStyle = `rgba( 255, 255, 255, ${ 0.03 + rand() * 0.05 } )`;
+				ctx.fillRect( x + 4 + rand() * ( tileW - 8 ), y + 4 + rand() * ( tileW - 8 ), 2, 2 );
+
+			}
+
+		}
+	}
+	return canvas;
+
+}
+function getPoolTextures() {
+
+	if ( poolWallTexture && poolFloorTexture ) return { poolWallTexture, poolFloorTexture };
+	const toTexture = ( canvas ) => {
+
+		const tex = new THREE.CanvasTexture( canvas );
+		tex.colorSpace = THREE.SRGBColorSpace;
+		tex.anisotropy = 4;
+		return tex;
+
+	};
+	poolFloorTexture = toTexture( createPoolTileCanvas( WATER_SHADER_TILE_COLS, WATER_SHADER_TILE_COLS ) );
+	poolWallTexture = toTexture( createPoolTileCanvas( WATER_SHADER_TILE_COLS, 3 ) );
+	return { poolWallTexture, poolFloorTexture };
+
+}
+
+// ---------------------------------------------------------------------------
+// Screen-space refraction: before the main render, the scene is rendered
+// WITHOUT the water planes into a half-res per-camera render target; the
+// water shader then samples that texture with an animated wobble — so the
+// car, the pool tiles, everything under water wiggles like real light
+// bending through the surface.
+const WATER_PLANES = [];
+const _waterDbSize = new THREE.Vector2();
+const _waterPrevViewport = new THREE.Vector4();
+const _waterPrevScissor = new THREE.Vector4();
+const waterRefrRTs = new Map();
+
+// Frame-budget governor. The refraction pass re-renders the whole scene,
+// which is exactly what pools steal from the frame rate. Two gates:
+//  1. FRUSTUM: if no water plane is in the camera's view, skip the pass
+//     entirely (off-screen pools cost nothing).
+//  2. CADENCE: as FPS dips, re-render the RT every 2nd/3rd/4th call instead
+//     of every frame. The wobble animates per-frame IN-SHADER (time
+//     uniform), so a 2-3 frame old refraction sample is imperceptible —
+//     but the frame gets a whole scene-render cheaper.
+const waterLastRefrFrameByCam = new Map();
+const _waterFrustum = new THREE.Frustum();
+const _waterProjScreen = new THREE.Matrix4();
+let waterRefrFrameCounter = 0;
+let waterRefrCadence = 1;
+
+export function updateWaterQuality( rollingFps ) {
+
+	if ( ! Number.isFinite( rollingFps ) || rollingFps <= 0 ) {
+
+		waterRefrCadence = 1; // no signal yet — assume healthy
+		return;
+
+	}
+	waterRefrCadence = rollingFps >= 45 ? 1 : rollingFps >= 28 ? 2 : rollingFps >= 18 ? 3 : 4;
+
+}
+
+function isWaterVisibleToCamera( camera ) {
+
+	if ( WATER_PLANES.length === 0 ) return false;
+	camera.updateMatrixWorld();
+	camera.matrixWorldInverse.copy( camera.matrixWorld ).invert();
+	_waterProjScreen.multiplyMatrices( camera.projectionMatrix, camera.matrixWorldInverse );
+	_waterFrustum.setFromProjectionMatrix( _waterProjScreen );
+	for ( const plane of WATER_PLANES ) {
+
+		// World-space spheres are cached once per plane (planes never move);
+		// no per-frame allocation here.
+		const sphere = plane.userData.waterWorldSphere;
+		if ( ! sphere ) return true; // not cached — be safe, render the pass
+		if ( _waterFrustum.intersectsSphere( sphere ) ) return true;
+
+	}
+	return false;
+
+}
+
+// viewportRect (canvas px, bottom-left origin) mirrors split-screen scissor
+// rects so each camera's water samples ITS OWN view.
+export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0, viewportRect = null ) {
+
+	if ( WATER_PLANES.length === 0 ) return;
+	if ( ! isWaterVisibleToCamera( camera ) ) return;
+	waterRefrFrameCounter ++;
+	const waterLastFrame = waterLastRefrFrameByCam.get( camIndex );
+	if ( waterLastFrame !== undefined && waterRefrFrameCounter - waterLastFrame < waterRefrCadence ) return;
+	waterLastRefrFrameByCam.set( camIndex, waterRefrFrameCounter );
+	const db = renderer.getDrawingBufferSize( _waterDbSize );
+	const w = Math.max( 2, Math.floor( db.x / 2 ) );
+	const h = Math.max( 2, Math.floor( db.y / 2 ) );
+	let rt = waterRefrRTs.get( camIndex );
+	if ( ! rt || rt.width !== w || rt.height !== h ) {
+
+		if ( rt ) rt.dispose();
+		rt = new THREE.WebGLRenderTarget( w, h );
+		waterRefrRTs.set( camIndex, rt );
+
+	}
+	const prevViewport = renderer.getViewport( _waterPrevViewport );
+	const prevScissor = renderer.getScissor( _waterPrevScissor );
+	const prevScissorTest = renderer.getScissorTest();
+	for ( const plane of WATER_PLANES ) plane.visible = false;
+	renderer.setRenderTarget( rt );
+	if ( viewportRect ) {
+
+		renderer.setScissorTest( true );
+		renderer.setViewport( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
+		renderer.setScissor( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
+
+	} else {
+
+		renderer.setScissorTest( false );
+		renderer.setViewport( 0, 0, w, h );
+
+	}
+	renderer.render( scene, camera );
+	renderer.setRenderTarget( null );
+	renderer.setViewport( prevViewport );
+	renderer.setScissor( prevScissor );
+	renderer.setScissorTest( prevScissorTest );
+	for ( const plane of WATER_PLANES ) {
+
+		plane.visible = true;
+		plane.material.uniforms.tDiffuse.value = rt.texture;
+		plane.material.uniforms.resolution.value.set( db.x, db.y );
+
+	}
+
 }
 
 function normalizePoolVisuals( extras = null ) {
+
 	const cfg = extras?.customPool && typeof extras.customPool === 'object' ? extras.customPool : {};
 	const isHex = ( value ) => /^#[0-9a-f]{6}$/i.test( String( value || '' ) );
 	return {
-		waterColor: isHex( cfg.waterColor ) ? cfg.waterColor : '#1f8fd6',
+		// Bluer than the old default — the shader body adds a further cool tint.
+		waterColor: isHex( cfg.waterColor ) ? cfg.waterColor : '#1180e6',
 		edgeColor: isHex( cfg.edgeColor ) ? cfg.edgeColor : '#5cc7ff',
-		transparent: cfg.transparent !== false,
+		// Opaque by default (refraction is drawn in-shader like the reference
+		// demo); only tracks that explicitly ask get the see-through alpha.
+		transparent: cfg.transparent === true,
 	};
+
 }
 
 function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 
-	const { waterWaveTexture, waterTileTexture } = getWaterTextures();
 	return new THREE.ShaderMaterial( {
 		uniforms: {
 			time: { value: 0 },
-			waveTex: { value: waterWaveTexture },
-			tileTex: { value: waterTileTexture },
-			lightDir: { value: new THREE.Vector3( 0.62, 0.74, - 0.25 ).normalize() },
-			shallowColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0xffffff ), 0.28 ) },
-			deepColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0x001b2f ), 0.45 ) },
-			waterAlpha: { value: visuals.transparent ? 0.68 : 1.0 },
+			waveHeight: { value: CELL_RAW * 0.17 },
+			floorY: { value: - WATER_DEPTH },
+			tDiffuse: { value: null },
+			resolution: { value: new THREE.Vector2( 1, 1 ) },
+			// Distance fade bands (camera -> fragment). Fed live from scene.fog.far:
+			// far water goes flat + caustic-free instead of shimmering as a tiny
+			// blue noise field at the edge of visibility.
+			waveFadeStart: { value: 45.0 },
+			waveFadeEnd: { value: 75.0 },
+			causticFadeStart: { value: 34.0 },
+			causticFadeEnd: { value: 58.0 },
+			lightDir: { value: new THREE.Vector3( 0.577, 0.577, 0.577 ).normalize() },
+			deepColor: { value: new THREE.Color( visuals.waterColor ).lerp( new THREE.Color( 0x041f3d ), 0.6 ) },
+			skyTop: { value: new THREE.Color( 0x6db3e8 ) },
+			skyHorizon: { value: new THREE.Color( 0xdff3ff ) },
+
 		},
+		// Waves: fbm-animated height field with finite-difference world
+		// normals (the demo's technique), evaluated in world space so all
+		// pool planes share one continuous ocean feel.
 		vertexShader: `
-			varying vec2 vUv;
-			varying vec3 vWorldPosition;
-			uniform sampler2D waveTex;
 			uniform float time;
+			uniform float waveHeight;
+			uniform float waveFadeStart;
+			uniform float waveFadeEnd;
+			uniform float causticFadeStart;
+			uniform float causticFadeEnd;
+			varying vec3 vWorldPos;
+			varying vec3 vWorldNormal;
+			varying float vWaveH;
+			varying float vWaveDistFade;
+			varying float vCausticDistFade;
+
+			float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 ); }
+			float noise( vec2 p ) {
+				vec2 i = floor( p ), f = fract( p );
+				f = f * f * ( 3.0 - 2.0 * f );
+				return mix( mix( hash( i ), hash( i + vec2( 1.0, 0.0 ) ), f.x ),
+					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+			}
+			float fbm( vec2 p, float t ) {
+				float v = 0.0, a = 0.5;
+				mat2 rot = mat2( 0.8, 0.6, -0.6, 0.8 );
+				for ( int i = 0; i < 3; i ++ ) {
+					v += a * noise( p + vec2( t * 0.2, - t * 0.1 ) );
+					p = rot * p * 2.0 + vec2( 100.0 );
+					a *= 0.5;
+				}
+				return v;
+			}
+			float getWave( vec2 wp, float t ) {
+				// Rolling swell...
+				float h = sin( wp.x * 1.35 + t ) * 0.055 + cos( wp.y * 1.15 - t * 0.8 ) * 0.045;
+				h += fbm( wp * 3.2, t ) * 0.07;
+				// ...with choppy ripples riding on top (the "watery" detail)
+				h += sin( wp.x * 3.4 - t * 1.4 ) * 0.03 + sin( ( wp.x + wp.y ) * 5.3 + t * 1.9 ) * 0.02;
+				return h;
+			}
 			void main() {
-				vUv = uv;
-				vec3 transformed = position;
-				vec2 waveUvA = uv * 3.0 + vec2( time * 0.035, time * 0.022 );
-				vec2 waveUvB = uv * 7.0 + vec2( - time * 0.018, time * 0.031 );
-				float waveA = texture2D( waveTex, waveUvA ).r;
-				float waveB = texture2D( waveTex, waveUvB ).g;
-				transformed.z += ( waveA + waveB - 1.0 ) * 0.045;
-				vec4 worldPosition = modelMatrix * vec4( transformed, 1.0 );
-				vWorldPosition = worldPosition.xyz;
-				gl_Position = projectionMatrix * viewMatrix * worldPosition;
+				float t = time * 1.2;
+				vec4 world = modelMatrix * vec4( position, 1.0 );
+				// Camera-distance fades: past the fade bands the surface
+				// settles into a flat blue plane — no waves, no caustics.
+				float camDist = distance( world.xyz, cameraPosition );
+				vWaveDistFade = 1.0 - smoothstep( waveFadeStart, waveFadeEnd, camDist );
+				vCausticDistFade = 1.0 - smoothstep( causticFadeStart, causticFadeEnd, camDist );
+				vec2 wp = world.xz;
+				float d = 0.12;
+				float hC = getWave( wp, t );
+				float hX1 = getWave( wp - vec2( d, 0.0 ), t );
+				float hX2 = getWave( wp + vec2( d, 0.0 ), t );
+				float hZ1 = getWave( wp - vec2( 0.0, d ), t );
+				float hZ2 = getWave( wp + vec2( 0.0, d ), t );
+				world.y += hC * waveHeight * vWaveDistFade;
+				vWaveH = hC * vWaveDistFade;
+				vWorldPos = world.xyz;
+				vWorldNormal = normalize( vec3( ( hX1 - hX2 ) * vWaveDistFade, 2.0 * d, ( hZ1 - hZ2 ) * vWaveDistFade ) );
+				gl_Position = projectionMatrix * viewMatrix * world;
 			}
 		`,
 		fragmentShader: `
-			uniform sampler2D waveTex;
-			uniform sampler2D tileTex;
-			uniform vec3 lightDir;
-			uniform vec3 shallowColor;
-			uniform vec3 deepColor;
-			uniform float waterAlpha;
+			uniform sampler2D tDiffuse;
+			uniform vec2 resolution;
 			uniform float time;
-			varying vec2 vUv;
-			varying vec3 vWorldPosition;
+			uniform float floorY;
+			uniform vec3 lightDir;
+			uniform vec3 deepColor;
+			uniform vec3 skyTop;
+			uniform vec3 skyHorizon;
+			varying vec3 vWorldPos;
+			varying vec3 vWorldNormal;
+			varying float vWaveH;
+			varying float vWaveDistFade;
+			varying float vCausticDistFade;
+
+			float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 ); }
+			float noise( vec2 p ) {
+				vec2 i = floor( p ), f = fract( p );
+				f = f * f * ( 3.0 - 2.0 * f );
+				return mix( mix( hash( i ), hash( i + vec2( 1.0, 0.0 ) ), f.x ),
+					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+			}
 			void main() {
-				vec2 flowA = vUv * 4.0 + vec2( time * 0.045, - time * 0.025 );
-				vec2 flowB = vUv * 9.0 + vec2( - time * 0.018, time * 0.036 );
-				vec3 waveA = texture2D( waveTex, flowA ).rgb;
-				vec3 waveB = texture2D( waveTex, flowB ).rgb;
-				vec2 ripple = ( waveA.rg + waveB.gb - 1.0 ) * 0.045;
-				float foam = smoothstep( 0.74, 0.99, waveA.b * 0.65 + waveB.r * 0.35 );
-				vec3 tile = texture2D( tileTex, vUv * 2.5 + ripple ).rgb;
-				float caustic = pow( max( max( tile.r, tile.g ), tile.b ), 3.0 );
-				vec3 normal = normalize( vec3( ripple.x * 3.2, 1.0, ripple.y * 3.2 ) );
-				vec3 viewDir = normalize( cameraPosition - vWorldPosition );
-				float fresnel = pow( 1.0 - max( dot( normal, viewDir ), 0.0 ), 3.0 );
-				float sparkle = pow( max( dot( reflect( - lightDir, normal ), viewDir ), 0.0 ), 46.0 );
-				vec3 color = mix( deepColor, shallowColor, 0.52 + 0.18 * waveA.b );
-				color += tile * 0.045 + caustic * vec3( 0.35, 0.95, 1.15 ) * 0.23;
-				color = mix( color, vec3( 0.78, 0.97, 1.0 ), fresnel * 0.62 + foam * 0.2 );
-				color += sparkle * vec3( 1.0, 0.9, 0.62 ) * 1.25;
-				gl_FragColor = vec4( color, waterAlpha );
+				vec3 n = normalize( vWorldNormal );
+				vec3 viewDir = normalize( cameraPosition - vWorldPos );
+				vec3 rDir = reflect( - viewDir, n );
+				vec3 refrDir = refract( - viewDir, n, 1.0 / 1.333 );
+				if ( abs( refrDir.y ) < 1e-4 ) refrDir.y = - 1e-4;
+
+				float fresnel = 0.03 + 0.24 * pow( 1.0 - max( dot( n, viewDir ), 0.0 ), 5.0 );
+				// Procedural sky (no skybox asset needed)
+				float skyMix = clamp( rDir.y * 0.5 + 0.5, 0.0, 1.0 );
+				vec3 skyColor = mix( skyHorizon, skyTop, skyMix ) * 0.35;
+
+				// Refracted ray: how far it travels to the pool floor — used
+				// both for the depth tint and to project the caustic web onto
+				// where the ray lands.
+				float dFloor = max( ( floorY - vWorldPos.y ) / refrDir.y, 0.0 );
+				vec3 fPos = vWorldPos + refrDir * dFloor;
+
+				// Screen-space refraction: sample the REAL rendered scene (the
+				// car, the actual pool tiles — no fake drawn floor) through an
+				// animated wobble: light bending and shivering through water.
+				vec2 screenUV = gl_FragCoord.xy / resolution;
+				float wt = time * 1.6;
+				vec2 wobble = vec2(
+					noise( vWorldPos.xz * 2.1 + vec2( wt, wt * 0.7 ) ) - 0.5,
+					noise( vWorldPos.zx * 2.3 - vec2( wt * 0.8, wt ) ) - 0.5
+				);
+				vec2 refrUV = clamp( screenUV + wobble * 0.035, vec2( 0.002 ), vec2( 0.998 ) );
+				vec3 refrColor = texture2D( tDiffuse, refrUV ).rgb;
+
+				// Depth tint along the refracted ray
+				float depthT = clamp( dFloor / ( ${ CELL_RAW } * 0.6 ), 0.0, 1.0 );
+				refrColor = mix( refrColor, deepColor, depthT * 0.4 );
+
+				// Caustic web projected onto where the refracted ray lands —
+				// since the sample IS the real scene, the light pattern lands
+				// on the actual pool floor AND any car under the surface.
+				vec2 cUV = fPos.xz * 1.8 + n.xz * 0.35;
+				float ct = time * 2.0;
+				float n1 = noise( cUV + vec2( ct * 0.3, ct * 0.1 ) );
+				float n2 = noise( cUV.yx - vec2( ct * 0.2, - ct * 0.2 ) );
+				float web = abs( n1 - n2 );
+				// Caustics fade out with distance instead of popping off
+				float caustic = pow( max( 0.0, 1.0 - web ), 30.0 ) * 0.6 * vCausticDistFade;
+				refrColor += vec3( caustic * vec3( 0.65, 0.8, 0.9 ) );
+
+				// The bluer body tint requested
+				refrColor *= vec3( 0.86, 0.94, 1.08 );
+
+				vec3 final = mix( refrColor, skyColor, fresnel );
+				final += vec3( pow( max( dot( rDir, lightDir ), 0.0 ), 450.0 ) * 0.3 );
+
+				// Surface texture: foam caps the tallest crests, tiny sun
+				// glints shimmer across the ripples
+				float foam = smoothstep( 0.13, 0.2, vWaveH );
+				final = mix( final, vec3( 0.85, 0.95, 1.0 ), foam * 0.4 );
+				// Shimmer fades with the waves — far water is a calm blue plane
+				float glint = pow( max( 0.0, noise( vWorldPos.xz * 6.5 + vec2( time * 0.7, - time * 0.4 ) ) - 0.62 ), 3.0 );
+				final += glint * 0.5 * vWaveDistFade * vec3( 0.9, 0.97, 1.0 );
+				gl_FragColor = vec4( final, 1.0 );
 			}
 		`,
-		transparent: visuals.transparent,
-		depthWrite: ! visuals.transparent,
+		// Opaque on purpose: the refraction sample already shows everything
+		// under the surface. Alpha-blending the raw scene back in (the old
+		// "transparent" mode) put an un-wiggled ghost of the pool/car on top.
+		transparent: false,
+		depthWrite: true,
 		side: THREE.DoubleSide,
 	} );
 
@@ -465,6 +748,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const customSurfaces = extras?.customSurfaces && typeof extras.customSurfaces === 'object' ? extras.customSurfaces : {};
 		const customPads = extras?.customPads && typeof extras.customPads === 'object' ? extras.customPads : {};
 		const poolVisuals = normalizePoolVisuals( extras );
+		// Rebuilt from scratch every track build — drop planes from the previous track.
+		WATER_PLANES.length = 0;
 		const elevatedMap = new Map();
 		for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedCells ) {
 
@@ -508,14 +793,34 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			}
 			const waterWidth = Math.max( CELL_RAW, ( maxWaterGx - minWaterGx + 2 ) * CELL_RAW );
 			const waterDepth = Math.max( CELL_RAW, ( maxWaterGz - minWaterGz + 2 ) * CELL_RAW );
+			// Subdivided so the vertex-stage wave height field has geometry to bend.
+			const waterSeg = THREE.MathUtils.clamp( Math.round( Math.max( waterWidth, waterDepth ) / CELL_RAW ) * 32, 32, 128 );
 			const waterPlane = new THREE.Mesh(
-				new THREE.PlaneGeometry( waterWidth, waterDepth ),
+				new THREE.PlaneGeometry( waterWidth, waterDepth, waterSeg, waterSeg ),
 				createRepositoryWaterMaterial( poolVisuals )
 			);
 			waterPlane.rotation.x = - Math.PI / 2;
-			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.32, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
+			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.12, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
 			waterPlane.userData.waterSurface = true;
-			waterPlane.onBeforeRender = () => { waterPlane.material.uniforms.time.value = performance.now() * 0.001; };
+			WATER_PLANES.push( waterPlane );
+			// Cache the world-space bounding sphere once — the frustum gate
+			// tests it every frame, and pool planes never move after this.
+			waterPlane.updateMatrixWorld();
+			waterPlane.geometry.computeBoundingSphere();
+			waterPlane.userData.waterWorldSphere = waterPlane.geometry.boundingSphere.clone().applyMatrix4( waterPlane.matrixWorld );
+			waterPlane.onBeforeRender = ( renderer, scene, camera ) => {
+
+				waterPlane.material.uniforms.time.value = performance.now() * 0.001;
+				// Track the live fog distance so the fades follow track size and
+				// weather automatically — water stays lively inside the play
+				// area and settles to flat blue out past it.
+				const fogFar = scene?.fog?.far || 90;
+				waterPlane.material.uniforms.waveFadeStart.value = fogFar * 0.55;
+				waterPlane.material.uniforms.waveFadeEnd.value = fogFar * 0.95;
+				waterPlane.material.uniforms.causticFadeStart.value = fogFar * 0.40;
+				waterPlane.material.uniforms.causticFadeEnd.value = fogFar * 0.75;
+
+			};
 			trackPieceGroup.add( waterPlane );
 
 		}
@@ -523,9 +828,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 			const pool = new THREE.Group();
 			pool.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
+			const { poolWallTexture, poolFloorTexture } = getPoolTextures();
 			const floor = new THREE.Mesh(
 				new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ),
-				new THREE.MeshStandardMaterial( { color: 0x31433e, roughness: 0.95, metalness: 0.0 } )
+				new THREE.MeshStandardMaterial( { map: poolFloorTexture, roughness: 0.82, metalness: 0.0 } )
 			);
 			floor.position.y = - WATER_DEPTH;
 			floor.receiveShadow = true;
@@ -548,13 +854,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			for ( const side of sides ) {
 				if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
 				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
-				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { color: 0x20312e, roughness: 0.9, metalness: 0.0 } ) );
+				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { map: poolWallTexture, roughness: 0.7, metalness: 0.0 } ) );
 				wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
 				wall.rotation.y = side.ry;
 				wall.castShadow = true;
 				wall.receiveShadow = true;
 				pool.add( wall );
-				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: 0.28, roughness: 0.4 } ) );
+				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: 0.3, roughness: 0.22, metalness: 0.12 } ) );
 				edge.position.set( side.x, 0.515, side.z );
 				edge.rotation.y = side.ry;
 				pool.add( edge );

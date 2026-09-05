@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
+import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999971';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999976';
 import { buildWallColliders, createSphereBody } from './Physics.js';
-import { SmokeTrails } from './Particles.js';
+import { SmokeTrails, WaterSplashFX } from './Particles.js';
+import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
@@ -100,6 +101,7 @@ const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: T
 renderer.setSize( window.innerWidth, window.innerHeight );
 renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, getGraphicsPreset().maxPixelRatio ) );
 renderer.shadowMap.enabled = getGraphicsPreset().shadows;
+renderer.shadowMap.autoUpdate = false; // needsUpdate=true each frame; refraction pass must not recompute shadows
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
@@ -3690,7 +3692,11 @@ function getTrackId( mapParamValue, extrasParamValue ) {
 	if ( extrasParamValue ) params.set( 'mods', extrasParamValue );
 	const normalizedPath = normalizeTrackPath( window.location.pathname );
 	const rawUrl = `${ normalizedPath }${ params.toString() ? `?${ params.toString() }` : '' }`;
-	return `trk-${ hashTrackSeed( `v5-url|${ rawUrl }` ) }`;
+	// Only the DEFAULT track (no map, no mods) rides the v5 seed — its
+	// leaderboard was intentionally reset. Every other track keeps the v4
+	// seed so its existing leaderboard id (and records) are untouched.
+	const trackIdSeedVersion = ( mapParamValue || extrasParamValue ) ? 'v4' : 'v5';
+	return `trk-${ hashTrackSeed( `${ trackIdSeedVersion }-url|${ rawUrl }` ) }`;
 
 }
 
@@ -4367,7 +4373,7 @@ async function init() {
 		return { underwater: false, exitTimer: 0 };
 
 	}
-	function updateWaterCameraState( state, position, deltaSeconds ) {
+	function updateWaterCameraState( state, position, deltaSeconds, onEnter = null ) {
 
 		if ( ! state || ! position ) return false;
 		const gx = Math.floor( position.x / cellWorld );
@@ -4380,6 +4386,7 @@ async function init() {
 
 				state.underwater = true;
 				state.exitTimer = 0;
+				if ( onEnter ) onEnter( position );
 
 			}
 			return state.underwater;
@@ -4416,6 +4423,24 @@ async function init() {
 		return true;
 
 	}
+	// Splash when a car breaks the water surface — scaled by how hard it went in.
+	const WATER_SURFACE_Y = 0.12;
+	let waterSplashFx = null;
+	function triggerWaterSplash( targetVehicle, position ) {
+
+		if ( ! position ) return;
+		const velocity = targetVehicle?.rigidBody?.motionProperties?.linearVelocity || [ 0, 0, 0 ];
+		const dive = Math.abs( Math.min( velocity[ 1 ], 0 ) );
+		const speed = Math.hypot( velocity[ 0 ], velocity[ 1 ], velocity[ 2 ] );
+		// gentle wading in barely plops; a hard dive makes a real splash
+		const intensity = THREE.MathUtils.clamp( dive / 10 + speed / 60, 0.1, 1 );
+		if ( intensity < 0.22 ) return;
+		waterSplashFx ??= new WaterSplashFX( scene );
+		waterSplashFx.burst( position.x, WATER_SURFACE_Y, position.z, intensity );
+		window.__gameAudio?.playSplash?.( intensity );
+
+	}
+
 	function createGroundSurfaceCollider( halfExtents, position ) {
 
 		// Make ground colliders thick so edges are buried deep below the surface.
@@ -5460,6 +5485,42 @@ async function init() {
 		vehicle, cells: customCells || TRACK_CELLS, camera: cam.camera
 	} );
 	const cam2 = isSplitScreen ? new Camera() : null;
+
+	// Chase-cam hitbox clipping: a REAL physics raycast (crashcat castRay) from
+	// the car toward the camera each frame. Static hitboxes only — walls,
+	// buildings, track pieces; never the car itself or other dynamic bodies.
+	// If the segment is blocked, the camera pulls in front of the hitbox
+	// instead of clipping inside it. Chase cam only; the fixed overview cam
+	// keeps its framing untouched.
+	const camRayCollector = createAnyCastRayCollector();
+	const camRaySettings = createDefaultCastRaySettings();
+	const camRayFilter = ccLayerFilter.forWorld( world );
+	camRayFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
+	const CAM_CLIP_MARGIN = 0.4; // hover distance off hitbox surfaces
+	const CAM_CLIP_MIN = 1.4;     // never closer to the car than this
+	const camRayOrigin = [ 0, 0, 0 ];
+	const camRayDir = [ 0, 0, 0 ];
+	const camClipProbe = ( origin, dir, length ) => {
+
+		camRayOrigin[ 0 ] = origin.x;
+		camRayOrigin[ 1 ] = origin.y;
+		camRayOrigin[ 2 ] = origin.z;
+		camRayDir[ 0 ] = dir.x;
+		camRayDir[ 1 ] = dir.y;
+		camRayDir[ 2 ] = dir.z;
+		// AnyCastRayCollector.addMiss() is a no-op — stale hits linger, so reset() before every cast.
+		camRayCollector.reset();
+		castRay( world, camRayCollector, camRaySettings, camRayOrigin, camRayDir, length, camRayFilter );
+		if ( camRayCollector.hit.status !== CastRayStatus.COLLIDING ) return length;
+		// First hit along the car→camera segment: park the camera just short of it.
+		let freeLen = camRayCollector.hit.fraction * length - CAM_CLIP_MARGIN;
+		freeLen = Math.max( freeLen, Math.min( CAM_CLIP_MIN, length ) );
+		return Math.min( freeLen, length );
+
+	};
+	cam.clipProbe = camClipProbe;
+	if ( cam2 ) cam2.clipProbe = camClipProbe;
+
 	// Reused each frame for cam.update() dynamics to avoid allocating an options
 	// object on every camera update (up to 4 calls/frame). cam.update only reads the
 	// fields, it never retains the reference.
@@ -5812,6 +5873,33 @@ async function init() {
 
 	const particles = new SmokeTrails( scene, getGraphicsParticleOptions() );
 	const particles2 = isSplitScreen ? new SmokeTrails( scene, getGraphicsParticleOptions() ) : null;
+	// Drift skid marks from both rear tires — one shared ring-buffer pool.
+	// Grounded check = a REAL physics raycast through crashcat (castRay) against
+	// the static track colliders only — no height detection, so airborne cars
+	// (jumps, trick pads, flying off slopes) never lay marks.
+	const skidRayCollector = createAnyCastRayCollector();
+	const skidRaySettings = createDefaultCastRaySettings();
+	const skidRayFilter = ccLayerFilter.forWorld( world );
+	skidRayFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
+	const SKID_RAY_LIFT = 0.05;   // cast from just above the tire contact patch
+	const SKID_RAY_REACH = 0.4;   // ground must be within this of the patch
+	const skidRayOrigin = [ 0, 0, 0 ];
+	const skidRayDown = [ 0, - 1, 0 ];
+	const skidGroundRaycast = ( vehicle, contactPoint ) => {
+
+		skidRayOrigin[ 0 ] = contactPoint.x;
+		skidRayOrigin[ 1 ] = contactPoint.y + SKID_RAY_LIFT;
+		skidRayOrigin[ 2 ] = contactPoint.z;
+		// AnyCastRayCollector.addMiss() is a no-op — stale hits linger, so reset() before every cast.
+		skidRayCollector.reset();
+		castRay( world, skidRayCollector, skidRaySettings, skidRayOrigin, skidRayDown, SKID_RAY_LIFT + SKID_RAY_REACH, skidRayFilter );
+		return skidRayCollector.hit.status === CastRayStatus.COLLIDING;
+
+	};
+	const skidMarks = new SkidMarks( scene, {
+		enabled: ( getGraphicsPreset().smokeParticles ?? 64 ) > 0,
+		groundTest: skidGroundRaycast,
+	} );
 	const lapHud = document.getElementById( 'lap-hud' );
 	const lapHud2 = document.getElementById( 'lap-hud-2' );
 	const countdownHud = document.getElementById( 'countdown-hud' );
@@ -6554,9 +6642,11 @@ async function init() {
 		if ( keys.KeyA ) freecamMove.add( freecamRight );
 		if ( keys.Space ) freecamMove.y += 1;
 		if ( keys.ControlLeft || keys.ControlRight ) freecamMove.y -= 1;
+		// Shift sprints the freecam (declared before, never wired — now it is).
+		const sprinting = keys.ShiftLeft || keys.ShiftRight;
 		if ( freecamMove.lengthSq() > 1e-6 ) {
 
-			cam.camera.position.addScaledVector( freecamMove.normalize(), freecamState.moveSpeed * dt );
+			cam.camera.position.addScaledVector( freecamMove.normalize(), freecamState.moveSpeed * ( sprinting ? freecamState.sprintMultiplier : 1 ) * dt );
 
 		}
 		cam.lookTarget.copy( cam.camera.position ).add( freecamForward );
@@ -6769,6 +6859,7 @@ async function init() {
 		applyGraphicsPresetToRenderer();
 		particles.setQuality( getGraphicsParticleOptions() );
 		particles2?.setQuality( getGraphicsParticleOptions() );
+		skidMarks.setQuality( { maxSegments: ( getGraphicsPreset().smokeParticles ?? 64 ) > 0 ? undefined : 0 } );
 		setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
 		updateGraphicsQualityUi();
 
@@ -6817,6 +6908,7 @@ async function init() {
 		applyGraphicsPresetToRenderer();
 		particles.setQuality( getGraphicsParticleOptions() );
 		particles2?.setQuality( getGraphicsParticleOptions() );
+		skidMarks.setQuality( { maxSegments: ( getGraphicsPreset().smokeParticles ?? 64 ) > 0 ? undefined : 0 } );
 		setupWeatherFx( vehicle.spherePos.x, vehicle.spherePos.z );
 		updateGraphicsQualityUi();
 	}
@@ -7398,6 +7490,7 @@ async function init() {
 
 				resize();
 				carRoot.rotation.y = garageViewer.yaw;
+				renderer.shadowMap.needsUpdate = true;
 				renderer.render( scene, camera );
 				requestAnimationFrame( animate );
 
@@ -8649,7 +8742,11 @@ function completeCampaignStage() {
 	let bestLapSeconds = null;
 	let checkpointDeltaText = '';
 	let lastSyncedOnlineBestLapSeconds = null;
-	let autoRespawnTimerId = null;
+	// Pending auto-respawn as a GAME-CLOCK timestamp (not a real-time setTimeout):
+	// at 20 FPS a 500ms real timer fires at a random point in a long frame —
+	// or never fires at all if the lap bookkeeping threw before arming it.
+	// The frame loop fires it the moment the game clock passes the timestamp.
+	let autoRespawnAtSeconds = null;
 	let hasPrevFinishSample = false;
 	let lastLocalX = 0;
 	let lastLocalZ = 0;
@@ -8675,7 +8772,6 @@ function completeCampaignStage() {
 	const cellWorldSize = CELL_RAW * GRID_SCALE;
 	const cellHalfExtent = cellWorldSize * 0.5;
 	const slopeCellMap = new Map();
-	const SLOPE_CONFORM_ANGLE = Math.atan2( CELL_RAW * 0.5, CELL_RAW );
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	for ( const [ gx, gz, rawType, rawOrient = 0 ] of slopeElevatedCells ) {
 
@@ -8688,15 +8784,50 @@ function completeCampaignStage() {
 			orient = ORIENT_180[ orient ] ?? orient;
 
 		}
-		slopeCellMap.set( `${ gx },${ gz }`, { gx, gz, type, orient } );
+		// OFF-GRID support: a piece at fractional coords (editor free placement)
+		// spans two cells per axis. Register every cell it touches, not just its
+		// raw key — a fractional key like "12.5,3.7" can never match the integer
+		// cell lookups used at runtime.
+		const cellKeys = ( v ) => Number.isInteger( Number( v ) )
+			? [ Number( v ) ]
+			: [ Math.floor( Number( v ) ), Math.floor( Number( v ) ) + 1 ];
+		for ( const cgx of cellKeys( gx ) ) {
+			for ( const cgz of cellKeys( gz ) ) {
+				slopeCellMap.set( `${ cgx },${ cgz }`, { gx, gz, type, orient } );
+			}
+		}
 
 	}
-	// True when the vehicle's current grid cell is a slope. Uses the same cell
-	// math as applySlopeConformVisual. Used to bypass seam-bounce suppression on
-	// slopes (uphill driving legitimately gains upward velocity).
+	// Pool slopes are real tilted colliders too (they are NOT in extras.elevated),
+	// so register their cells as well.
+	if ( Array.isArray( extras?.poolSlopes ) ) {
+		for ( const entry of extras.poolSlopes ) {
+			const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+			const cellKeys = ( v ) => Number.isInteger( v ) ? [ v ] : [ Math.floor( v ), Math.floor( v ) + 1 ];
+			for ( const cgx of cellKeys( gx ) ) {
+				for ( const cgz of cellKeys( gz ) ) {
+					if ( ! slopeCellMap.has( `${ cgx },${ cgz }` ) ) {
+						slopeCellMap.set( `${ cgx },${ cgz }`, { gx, gz, type: 'pool-slope', orient: entry?.[ 2 ] ?? 0 } );
+					}
+				}
+			}
+		}
+	}
+	// True when the vehicle is on a genuinely sloped surface. Two signals, OR'd:
+	//  1. The grid map (slope pieces incl. off-grid fractional spans + pool slopes)
+	//  2. The vehicle's MEASURED ground tilt from the raycast slope detection —
+	//     physical truth, catches any angled collider regardless of registration.
+	// Used to bypass seam-bounce suppression on slopes: uphill driving
+	// legitimately gains upward velocity, and the restore would otherwise freeze
+	// the car (the "no gravity / can't move / slides on the hitbox" glitch that
+	// hit off-grid slope blocks whose registry key never matched).
+	const SEAM_BYPASS_TILT = 0.1; // rad ≈ 5.7° — below real slopes (≈26°), above noise/bevels (≈2°)
 	function isVehicleOnSlopeCell( targetVehicle ) {
 
-		if ( ! targetVehicle?.spherePos || slopeCellMap.size === 0 ) return false;
+		if ( ! targetVehicle?.spherePos ) return false;
+		if ( ( targetVehicle.lastGroundTilt || 0 ) > SEAM_BYPASS_TILT ) return true;
+		if ( slopeCellMap.size === 0 ) return false;
 		const gx = Math.floor( targetVehicle.spherePos.x / cellWorldSize );
 		const gz = Math.floor( targetVehicle.spherePos.z / cellWorldSize );
 		return slopeCellMap.has( `${ gx },${ gz }` );
@@ -8807,7 +8938,7 @@ function completeCampaignStage() {
 	let lapSeconds2 = 0;
 	let lastLapSeconds2 = null;
 	let bestLapSeconds2 = null;
-	let autoRespawnTimerId2 = null;
+	let autoRespawnAtSeconds2 = null;
 	let hasPrevFinishSample2 = false;
 	let lastLocalX2 = 0;
 	let lastLocalZ2 = 0;
@@ -8981,44 +9112,70 @@ function completeCampaignStage() {
 
 	}
 
-	const _slopeForward = new THREE.Vector3();
-	const _slopeUp = new THREE.Vector3();
-	const _slopeCarForward = new THREE.Vector3();
-	const _slopeLocalUp = new THREE.Vector3();
-	const _slopeYawOnlyQuat = new THREE.Quaternion();
-	function applySlopeConformVisual( targetVehicle ) {
+	// --- Dynamic slope detection: REAL raycast ground sampling --------------
+	// Replaces the legacy grid-cell slope lookup (applySlopeConformVisual):
+	// four downward physics rays at the chassis frame sample the actual
+	// hitbox surface every frame, so the car conforms to ANY angled collider —
+	// slope pieces, pool slopes, banks, custom geometry — at its TRUE angle,
+	// not a hardcoded 26.57° constant. Ray pairs (front/back, left/right) are
+	// only trusted when both hits land on the SAME collider body, so a sample
+	// point that slips inside a wall while hugging it can never fake a slope.
+	const slopeRayCollector = createAnyCastRayCollector();
+	const slopeRaySettings = createDefaultCastRaySettings();
+	const slopeRayFilter = ccLayerFilter.forWorld( world );
+	slopeRayFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
+	const SLOPE_RAY_REACH = 1.6;              // max ground depth below chassis center
+	const SLOPE_SAMPLE_HALF_LENGTH = 1.1;     // front/back sample offsets
+	const SLOPE_SAMPLE_HALF_WIDTH = 0.65;      // left/right sample offsets
+	const _slopeFwd = new THREE.Vector3();
+	const _slopeSide = new THREE.Vector3();
+	const _slopeRayOrigin = [ 0, 0, 0 ];
+	const _slopeRayDown = [ 0, - 1, 0 ];
+	function sampleGroundDepth( x, y, z ) {
+
+		_slopeRayOrigin[ 0 ] = x;
+		_slopeRayOrigin[ 1 ] = y;
+		_slopeRayOrigin[ 2 ] = z;
+		// AnyCastRayCollector.addMiss() is a no-op — stale hits linger, so reset() before every cast.
+		slopeRayCollector.reset();
+		castRay( world, slopeRayCollector, slopeRaySettings, _slopeRayOrigin, _slopeRayDown, SLOPE_RAY_REACH, slopeRayFilter );
+		if ( slopeRayCollector.hit.status !== CastRayStatus.COLLIDING ) return null;
+		return { depth: slopeRayCollector.hit.fraction * SLOPE_RAY_REACH, bodyId: slopeRayCollector.hit.bodyIdB };
+
+	}
+
+	function applyRaycastSlopeVisual( targetVehicle ) {
 
 		if ( ! targetVehicle?.container ) return;
-		const gx = Math.floor( targetVehicle.spherePos.x / cellWorldSize );
-		const gz = Math.floor( targetVehicle.spherePos.z / cellWorldSize );
-		const slopeCell = slopeCellMap.get( `${ gx },${ gz }` );
-		if ( ! slopeCell ) {
-
-			targetVehicle.setSlopeVisualTilt( 0, 0 );
-			return;
-
-		}
-
-		const centerX = ( slopeCell.gx + 0.5 ) * cellWorldSize;
-		const centerZ = ( slopeCell.gz + 0.5 ) * cellWorldSize;
-		if ( Math.abs( targetVehicle.spherePos.x - centerX ) > cellHalfExtent || Math.abs( targetVehicle.spherePos.z - centerZ ) > cellHalfExtent ) {
-
-			targetVehicle.setSlopeVisualTilt( 0, 0 );
-			return;
-
-		}
-
-		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeCell.orient ] || 0 );
-		_slopeForward.set( 0, 0, 1 ).applyAxisAngle( _up, yaw ).normalize();
-		_slopeUp.copy( _up ).addScaledVector( _slopeForward, - Math.tan( SLOPE_CONFORM_ANGLE ) ).normalize();
-		_slopeCarForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion ).setY( 0 ).normalize();
-		if ( _slopeCarForward.lengthSq() < 1e-6 ) _slopeCarForward.set( 0, 0, 1 );
-		const headingYaw = Math.atan2( _slopeCarForward.x, _slopeCarForward.z );
-		_slopeYawOnlyQuat.setFromAxisAngle( _up, - headingYaw );
-		_slopeLocalUp.copy( _slopeUp ).applyQuaternion( _slopeYawOnlyQuat ).normalize();
-		const pitch = THREE.MathUtils.clamp( Math.atan2( - _slopeLocalUp.z, _slopeLocalUp.y ), - SLOPE_CONFORM_ANGLE, SLOPE_CONFORM_ANGLE );
-		const roll = THREE.MathUtils.clamp( Math.atan2( _slopeLocalUp.x, _slopeLocalUp.y ), - SLOPE_CONFORM_ANGLE, SLOPE_CONFORM_ANGLE );
-		targetVehicle.setSlopeVisualTilt( pitch, roll );
+		_slopeFwd.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+		_slopeFwd.y = 0;
+		if ( _slopeFwd.lengthSq() < 1e-6 ) _slopeFwd.set( 0, 0, 1 );
+		_slopeFwd.normalize();
+		_slopeSide.set( 1, 0, 0 ).applyQuaternion( targetVehicle.container.quaternion );
+		_slopeSide.y = 0;
+		if ( _slopeSide.lengthSq() < 1e-6 ) _slopeSide.set( 1, 0, 0 );
+		_slopeSide.normalize();
+		const px = targetVehicle.spherePos.x;
+		const py = targetVehicle.spherePos.y;
+		const pz = targetVehicle.spherePos.z;
+		const L = SLOPE_SAMPLE_HALF_LENGTH;
+		const W = SLOPE_SAMPLE_HALF_WIDTH;
+		const forward = sampleGroundDepth( px + _slopeFwd.x * L, py, pz + _slopeFwd.z * L );
+		const backward = sampleGroundDepth( px - _slopeFwd.x * L, py, pz - _slopeFwd.z * L );
+		const right = sampleGroundDepth( px + _slopeSide.x * W, py, pz + _slopeSide.z * W );
+		const left = sampleGroundDepth( px - _slopeSide.x * W, py, pz - _slopeSide.z * W );
+		// Pair consistency: only use a pair whose two hits agree on the body.
+		const samples = {
+			forward: forward && backward && forward.bodyId === backward.bodyId ? forward.depth : null,
+			backward: forward && backward && forward.bodyId === backward.bodyId ? backward.depth : null,
+			left: left && right && left.bodyId === right.bodyId ? left.depth : null,
+			right: left && right && left.bodyId === right.bodyId ? right.depth : null,
+		};
+		const tilt = Vehicle.computeSlopeTiltFromSamples( samples, L, W );
+		targetVehicle.setSlopeVisualTilt( tilt.pitch, tilt.roll );
+		// Physical slope signal for the seam-bounce guard (isVehicleOnSlopeCell):
+		// the measured surface angle, 0 while airborne. Survives across frames.
+		targetVehicle.lastGroundTilt = Math.hypot( tilt.pitch, tilt.roll );
 
 	}
 
@@ -9518,6 +9675,8 @@ function completeCampaignStage() {
 
 		try {
 
+			renderer.shadowMap.needsUpdate = true;
+			prerenderWaterRefraction( renderer, scene, cam.camera );
 			renderer.render( scene, cam.camera );
 			const source = renderer.domElement;
 			if ( ! source || source.width === 0 || source.height === 0 ) return '';
@@ -10286,10 +10445,15 @@ function completeCampaignStage() {
 
 	function updateFpsHud( realFrameSeconds ) {
 
-		if ( ! fpsHudVisible || ! fpsHud ) return;
+		// Rolling FPS tracks every frame even when the HUD is hidden — the
+		// water-quality governor (updateWaterQuality) reads this signal.
 		const instantFps = realFrameSeconds > 0 ? 1 / realFrameSeconds : 0;
-		if ( ! Number.isFinite( instantFps ) || instantFps <= 0 ) return;
-		rollingFps = rollingFps > 0 ? THREE.MathUtils.lerp( rollingFps, instantFps, 0.08 ) : instantFps;
+		if ( Number.isFinite( instantFps ) && instantFps > 0 ) {
+
+			rollingFps = rollingFps > 0 ? THREE.MathUtils.lerp( rollingFps, instantFps, 0.08 ) : instantFps;
+
+		}
+		if ( ! fpsHudVisible || ! fpsHud ) return;
 		fpsHudAccumulator += realFrameSeconds;
 		if ( fpsHudAccumulator < 0.18 ) return;
 		fpsHudAccumulator = 0;
@@ -10458,6 +10622,10 @@ function completeCampaignStage() {
 
 		lapStartSeconds = raceClockSeconds;
 		lapSeconds = 0;
+		// Restart snaps the car back to the start — break any in-progress skid
+		// trails so no line is drawn across the map to the spawn block.
+		skidMarks?.breakVehicleTrail( vehicle );
+		skidMarks?.breakVehicleTrail( vehicle2 );
 		currentLapInvalidatedByPause = false;
 		boostActiveUntil = 0;
 		vehicle.setWheelieActive?.( false );
@@ -10535,12 +10703,7 @@ function completeCampaignStage() {
 
 	function respawnVehicle() {
 
-		if ( autoRespawnTimerId ) {
-
-			clearTimeout( autoRespawnTimerId );
-			autoRespawnTimerId = null;
-
-		}
+		autoRespawnAtSeconds = null;
 		vehicle.resetToSpawn();
 		resetMovingObstacles( movingObstacleState, raceClockSeconds );
 		cam.targetPosition.copy( vehicle.spherePos );
@@ -10554,12 +10717,7 @@ function completeCampaignStage() {
 	function respawnVehicle2() {
 
 		if ( ! vehicle2 || ! cam2 ) return;
-		if ( autoRespawnTimerId2 ) {
-
-			clearTimeout( autoRespawnTimerId2 );
-			autoRespawnTimerId2 = null;
-
-		}
+		autoRespawnAtSeconds2 = null;
 		vehicle2.resetToSpawn();
 		cam2.targetPosition.copy( vehicle2.spherePos );
 		cam2.camera.position.addVectors( cam2.targetPosition, cam2.offset );
@@ -10619,25 +10777,13 @@ function completeCampaignStage() {
 
 	function scheduleAutoRespawnVehicle() {
 
-		if ( autoRespawnTimerId ) clearTimeout( autoRespawnTimerId );
-		autoRespawnTimerId = setTimeout( () => {
-
-			autoRespawnTimerId = null;
-			respawnVehicle();
-
-		}, 500 );
+		autoRespawnAtSeconds = raceClockSeconds + 0.5;
 
 	}
 
 	function scheduleAutoRespawnVehicle2() {
 
-		if ( autoRespawnTimerId2 ) clearTimeout( autoRespawnTimerId2 );
-		autoRespawnTimerId2 = setTimeout( () => {
-
-			autoRespawnTimerId2 = null;
-			respawnVehicle2();
-
-		}, 500 );
+		autoRespawnAtSeconds2 = raceClockSeconds + 0.5;
 
 	}
 
@@ -11831,6 +11977,8 @@ function completeCampaignStage() {
 			const height = window.innerHeight;
 			const halfH = Math.floor( height / 2 );
 
+			renderer.shadowMap.needsUpdate = true;
+			prerenderWaterRefraction( renderer, scene, cam.camera, 0, { x: 0, y: halfH, w: width, h: height - halfH } );
 			renderer.setScissorTest( true );
 			cam.camera.aspect = width / Math.max( 1, halfH );
 			cam.camera.updateProjectionMatrix();
@@ -11842,11 +11990,14 @@ function completeCampaignStage() {
 			cam2.camera.updateProjectionMatrix();
 			renderer.setViewport( 0, 0, width, halfH );
 			renderer.setScissor( 0, 0, width, halfH );
+			prerenderWaterRefraction( renderer, scene, cam2.camera, 1, { x: 0, y: 0, w: width, h: halfH } );
 			renderer.render( scene, cam2.camera );
 			renderer.setScissorTest( false );
 
 		} else {
 
+			renderer.shadowMap.needsUpdate = true;
+			prerenderWaterRefraction( renderer, scene, cam.camera );
 			renderer.render( scene, cam.camera );
 
 		}
@@ -11905,7 +12056,22 @@ function completeCampaignStage() {
 			raceClockSeconds += dt;
 			const now = raceClockSeconds;
 
+			updateWaterQuality( rollingFps );
 			updateCountdownState( now );
+			// Fire due auto-respawns on the game clock — deterministic even at
+			// 20 FPS, where real-time timers fire arbitrarily late or never.
+			if ( autoRespawnAtSeconds !== null && now >= autoRespawnAtSeconds ) {
+
+				autoRespawnAtSeconds = null;
+				respawnVehicle();
+
+			}
+			if ( autoRespawnAtSeconds2 !== null && vehicle2 && now >= autoRespawnAtSeconds2 ) {
+
+				autoRespawnAtSeconds2 = null;
+				respawnVehicle2();
+
+			}
 			const controlsBlocked = modeMenuOpen || replayViewerMode || countdownActive;
 			let baseInput;
 			if ( controlsBlocked ) baseInput = ZERO_DRIVE_INPUT;
@@ -11990,8 +12156,8 @@ function completeCampaignStage() {
 			const speedDisplay = Math.abs(vehicle.linearSpeed) * 150;
 			if (speedDisplay > (window.__advTopSpeed || 0)) { window.__advTopSpeed = speedDisplay; advancementEvents.emit('top_speed_updated', { speed: speedDisplay }); }
 			if ( vehicle2 && padAdjustedInput2 ) vehicle2.update( dt, padAdjustedInput2 );
-			applySlopeConformVisual( vehicle );
-			if ( vehicle2 ) applySlopeConformVisual( vehicle2 );
+			applyRaycastSlopeVisual( vehicle );
+			if ( vehicle2 ) applyRaycastSlopeVisual( vehicle2 );
 			if ( carHitboxMesh.visible ) carHitboxMesh.position.set( vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z );
 			applyMagnetForceFor( vehicle, dt );
 			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
@@ -12195,13 +12361,13 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat.setFromEuler( camYawLockEuler.set( 0, camYawLockValue, 0, 'YXZ' ) );
-				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt );
+				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) );
 				cam.update( dt, vehicle.spherePos, camYawLockQuat, _camDynamics1 );
 
 			} else {
 
 				camYawLockActive = false;
-				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt );
+				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) );
 				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, _camDynamics1 );
 
 			}
@@ -12220,13 +12386,13 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat2.setFromEuler( camYawLockEuler2.set( 0, camYawLockValue2, 0, 'YXZ' ) );
-				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt );
+				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) );
 				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2, _camDynamics2 );
 
 			} else {
 
 				camYawLockActive2 = false;
-				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt );
+				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) );
 				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion, _camDynamics2 );
 
 			}
@@ -12248,7 +12414,10 @@ function completeCampaignStage() {
 			if ( particles2 ) particles2.customColor = null;
 		}
 		particles.update( dt, vehicle );
+		waterSplashFx?.update( dt );
 		particles2?.update( dt, vehicle2 );
+		skidMarks.update( dt, vehicle );
+		skidMarks.update( dt, vehicle2 );
 		if ( ! homeLandingEl ) homeLandingEl = document.getElementById( 'home-landing' );
 		audio.updateMusic( dt, ! homeLandingEl?.classList.contains( 'visible' ) && ! modeMenuOpen && ! replayViewerMode );
 		audio.update( dt, vehicle.linearSpeed, padAdjustedInput.z, vehicle.driftIntensity );
@@ -12481,6 +12650,10 @@ function completeCampaignStage() {
 			const allCheckpointsPassed = checkpointStates.every( ( checkpoint ) => checkpoint.passedThisLap );
 			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
 
+					// Schedule the respawn BEFORE the share-snapshot / leaderboard
+					// bookkeeping below — on a laggy frame any of that can throw,
+					// and a throw must never eat the respawn.
+					if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle();
 					const completedLap = now - lapStartSeconds;
 					// Gameplay mods (any non-freecam installed mod, including every custom-*
 					// Blockly mod) change physics/handling, so a lap driven under one can never
@@ -12623,7 +12796,6 @@ function completeCampaignStage() {
 
 				}
 				resetPhysicsObstacles();
-				if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle();
 				startCountdown();
 					saveLapStats();
 					rewardCoinsForLap( completedLap );
@@ -12715,6 +12887,7 @@ function completeCampaignStage() {
 			const allCheckpointsPassed2 = checkpointStates2.every( ( checkpoint ) => checkpoint.passedThisLap );
 			if ( hasLeftStartZone2 && allCheckpointsPassed2 && crossedFinish ) {
 
+				if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle2();
 				const completedLap2 = now - lapStartSeconds2;
 				lastLapSeconds2 = completedLap2;
 				bestLapSeconds2 = bestLapSeconds2 === null ? completedLap2 : Math.min( bestLapSeconds2, completedLap2 );
@@ -12726,7 +12899,6 @@ function completeCampaignStage() {
 				lastLocalZ2 = 0;
 				for ( const checkpoint of checkpointStates2 ) checkpoint.passedThisLap = false;
 				resetPhysicsObstacles();
-				if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle2();
 
 			}
 
