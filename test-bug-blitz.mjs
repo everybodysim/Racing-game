@@ -74,7 +74,7 @@ test( 'editor: colors flag defaults to disabled (false)', /let customPoolColorsE
 test( 'editor: payload carries colorsOn', editor.includes( 'r: { ...customPoolConfig, colorsOn: customPoolColorsEnabled === true }' ) );
 test( 'editor: load restores the flag + syncs the checkbox', /customPoolColorsEnabled = mods\?\.r\?\.colorsOn === true;/.test( editor ) );
 test( 'editor: toggling stops propagation (no panel open)', /cp-colors-toggle' \)\?\.addEventListener\( 'click', \( event \) => \{[\s\S]{0,80}event\.stopPropagation\(\);/.test( editor ) );
-test( 'editor: vivid preview only when colors are enabled', /const colorsOn = customPoolColorsEnabled === true;[\s\S]{0,900}colorsOn \? 0\.45 : 0\.18/.test( editor ) );
+test( 'editor: vivid preview only when colors are enabled', /const colorsOn = customPoolColorsEnabled === true;[\s\S]{0,2400}colorsOn \? 0\.45 : 0\.18/.test( editor ) );
 
 console.log( '\n8. Garage + default car' );
 test( 'garage cards: no spinning preview canvas anymore', !main.includes( 'garage-card-preview" aria-label' ) );
@@ -119,10 +119,10 @@ test( 'Track.js: caustic noise domains rotated so lattices never align', track.s
 test( 'Track.js: pool WALLS get shaded underwater caustics', track.includes( 'function createPoolWallCausticsMaterial' ) && track.includes( 'attachCausticAnimator( wallCaustic )' ) && track.includes( 'surfaceFade = smoothstep' ) );
 test( 'Track.js: caustics respect sun shading (N dot L toward the sun)', track.includes( 'function computeCausticShade' ) && track.includes( 'uniforms.shade.value = computeCausticShade' ) );
 test( 'index.html: overlay is pointer-transparent', /#underwater-overlay \{[^}]*pointer-events: none;/.test( html ) );
-test( 'editor.html: special parts use ONE merged adjust row (no duplicate height pairs)', /class="side-ui-adjust"/.test( editor ) && editor.split( 'id="btn-portal-up"' ).length === 1 && editor.split( 'Arc/Portal ▲' ).length === 1 );
+test( 'editor.html: special parts restored to the original flat bar (no details panel, no adjust group)', ! /<details id="side-ui-bar"/.test( editor ) && ! /side-ui-adjust/.test( editor ) && /<div id="side-ui-bar">/.test( editor ) && editor.includes( 'Arc/Portal ▲' ) && editor.includes( 'Magnet ▲' ) );
 test( 'editor.html: all 14 special-part button ids survived the merge', [ 'btn-magnet-blue','btn-magnet-red','btn-magnet-up','btn-magnet-down','btn-magnet-strength-up','btn-magnet-strength-down','btn-magnet-range-up','btn-magnet-range-down','btn-arc-green','btn-portal-yellow','btn-arc-orange','btn-portal-purple','btn-portal-id-down','btn-portal-id-up' ].every( ( id ) => editor.split( 'id="' + id + '"' ).length === 2 ) );
 test( 'editor.html: Height dispatcher toasts the RIGHT block value (no clobber)', editor.includes( 'function nudgeSelectedHeight' ) && editor.includes( "addEventListener( 'click', () => nudgeSelectedHeight( MAGNET_Y_STEP ) )" ) && ! editor.includes( 'nudgeSelectedMagnet( MAGNET_Y_STEP ); nudgeSelectedArc( MAGNET_Y_STEP )' ) );
-test( 'editor.html: special-block adjust row is a 2x4 grid', /\.side-ui-adjust \{ display: grid; grid-template-columns: repeat\( 2, minmax\( 0, 1fr \) \);/.test( editor ) );
+test( 'editor.html: special-blocks bar is the original 212px 2-column flat grid', /#side-ui-bar \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?width: 212px;/.test( editor ) );
 test( 'worker: defaultCar + repaint masks survive sanitizeProfile', ( () => { const w = worker; return w.includes( 'sanitizeDefaultCar' ) && /mask: typeof mapping\?\.mask === 'string' \? mapping\.mask\.slice\( 0, 32000 \) : ''/.test( w ) && /defaultCar: sanitizeDefaultCar\( profile\?\.defaultCar \)/.test( w ); } )() );
 test( 'editor.html: arc/portal help text kept', editor.includes( 'Orange launches' ) );
 test( 'Track.js import pin bumped to v=1000213', /Track\.js\?v=1000213'/.test( main ) );

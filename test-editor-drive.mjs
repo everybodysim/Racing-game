@@ -43,7 +43,7 @@ test( 'editor slope-up placed at ground level like the game (-ELEVATED_HEIGHT)',
 test( 'top-right cluster is fixed-positioned', /#editor-cam-cluster \{ position: fixed; top: 10px; right: 12px;/.test( html ) );
 test( 'buttons no longer clutter the Run toolbar group', ! /btn-cam-mode" class="action"/.test( html ) );
 test( 'drive hint chip exists', html.includes( 'id="drive-hint"' ) );
-test( 'Special Parts panel widened to 424px (2x4 grid kept)', /#side-ui-bar \{[\s\S]*?width: 424px;/.test( html ) && html.includes( 'grid-template-columns: repeat( 2, minmax( 0, 1fr ) ); gap: 4px;' ) );
+test( 'Special Parts bar is the original flat 212px 2-column bar', /#side-ui-bar \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?width: 212px;/.test( html ) && ! /<details id="side-ui-bar"/.test( html ) );
 
 console.log( 'Editor drive: input wiring' );
 test( 'arrow keys no longer pan the flat camera (they drive the car)', ! /ArrowUp' \) \{\s*camTarget\.z -= panStep/.test( html ) );

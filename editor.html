@@ -190,7 +190,7 @@
 			z-index: 20;
 		}
 		#toast.show { opacity: 1; }
-		.drive-hint { position: fixed; left: 10px; bottom: 10px; z-index: 40; pointer-events: none; font-size: 11px; color: #cfe3ff; background: rgba( 10, 14, 22, 0.72 ); border: 1px solid rgba( 120, 160, 220, 0.25 ); border-radius: 8px; padding: 6px 10px; max-width: 62vw; }
+		.drive-hint { position: fixed; top: 52px; right: 12px; z-index: 40; pointer-events: none; font-size: 11px; color: #cfe3ff; background: rgba( 10, 14, 22, 0.72 ); border: 1px solid rgba( 120, 160, 220, 0.25 ); border-radius: 8px; padding: 6px 10px; max-width: 30vw; }
 		#editor-cam-cluster { position: fixed; top: 10px; right: 12px; z-index: 42; display: flex; gap: 8px; }
 		#editor-cam-cluster button { font-size: 12px; font-weight: 600; color: #e8efff; background: rgba( 15, 18, 24, 0.92 ); border: 1px solid rgba( 255, 255, 255, 0.22 ); border-left: 3px solid rgba( 125, 211, 252, 0.55 ); border-radius: 8px; padding: 8px 12px; cursor: pointer; box-shadow: 0 6px 20px rgba( 0, 0, 0, 0.35 ); }
 		#editor-cam-cluster button:hover { background: rgba( 45, 55, 72, 0.95 ); }
@@ -281,54 +281,23 @@
 			position: absolute;
 			left: 12px;
 			bottom: 16px;
-			width: 424px;
-			z-index: 32;
-			background: rgba(15, 18, 24, 0.92);
-			border: 1px solid rgba(255, 255, 255, 0.16);
-			border-left: 3px solid rgba(255, 200, 100, 0.55);
-			border-radius: 10px;
-			box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-			overflow: hidden;
-		}
-		#side-ui-toggle {
-			padding: 7px 10px;
-			font-size: 11px;
-			font-weight: 700;
-			color: #ffd066;
-			cursor: pointer;
-			user-select: none;
-			list-style: none;
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-		}
-		#side-ui-toggle::-webkit-details-marker { display: none; }
-		#side-ui-toggle::after {
-			content: '▼';
-			font-size: 8px;
-			opacity: 0.7;
-		}
-		#side-ui-bar:not([open]) #side-ui-toggle::after {
-			content: '▶';
-		}
-		.side-ui-content {
 			display: grid;
 			grid-template-columns: repeat(2, minmax(0, 1fr));
+			grid-auto-rows: minmax(0, auto);
 			gap: 6px;
-			padding: 8px;
-			border-top: 1px solid rgba(255, 255, 255, 0.08);
+			width: 212px;
+			z-index: 32;
 		}
-		.side-ui-content button {
+		#side-ui-bar button {
 			padding: 8px 9px;
-			border: 1px solid rgba(255, 255, 255, 0.18);
+			border: 1px solid rgba(255,255,255,0.18);
 			border-radius: 8px;
 			background: rgba(15, 18, 24, 0.88);
 			color: #e8efff;
 			font-size: 11px;
 			cursor: pointer;
 		}
-		.side-ui-content button:hover { background: rgba(45, 55, 72, 0.92); }
-		.side-ui-adjust { display: grid; grid-template-columns: repeat( 2, minmax( 0, 1fr ) ); gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba( 255, 255, 255, 0.14 ); }
+		#side-ui-bar button:hover { background: rgba(45,55,72,0.92); }
 		#arc-link-help {
 			grid-column: 1 / -1;
 			padding: 6px 8px;
@@ -413,7 +382,6 @@
 .toolbar-group[data-cat="decor"]     { border-left: 3px solid rgba(180, 120, 255, 0.55); }
 .toolbar-group[data-cat="edit"]      { border-left: 3px solid rgba(120, 220, 240, 0.55); }
 .toolbar-group[data-cat="run"]       { border-left: 3px solid rgba(120, 240, 140, 0.55); }
-#side-ui-bar { border-left: 3px solid rgba(255, 200, 100, 0.4); border-radius: 10px; padding-left: 9px; }
 
 /* ─── Feature 8: Collapsible settings bar ─── */
 #settings-bar.collapsed > *:not(#settings-toggle-btn) { display: none !important; }
@@ -528,28 +496,26 @@
 			<div class="mobile-editor-help">Orange/Purple are starts. Green/Yellow are matching endpoints.</div>
 		</div>
 	</details>
-<details id="side-ui-bar" open>
-    <summary id="side-ui-toggle">⚡ Special Parts</summary>
-    <div class="side-ui-content">
-        <button id="btn-magnet-blue">Magnet Blue +</button>
-        <button id="btn-magnet-red">Magnet Red +</button>
-        <button id="btn-arc-orange" title="Orange arc is the launch/start point">Arc Start (Orange) +</button>
-        <button id="btn-arc-green" title="Green arc is the endpoint only (does not launch)">Arc End (Green) +</button>
-        <button id="btn-portal-purple" title="Purple portal is the start point and keeps velocity">Portal Start (Purple) +</button>
-        <button id="btn-portal-yellow" title="Yellow portal is endpoint only (one-way, does not launch)">Portal End (Yellow) +</button>
-        <div class="side-ui-adjust" role="group" aria-label="Adjust the selected special block">
-            <button id="btn-magnet-up" title="Raise the selected magnet / arc / portal by 0.1 grid">Height ▲</button>
-            <button id="btn-magnet-down" title="Lower the selected magnet / arc / portal by 0.1 grid">Height ▼</button>
-            <button id="btn-magnet-strength-up" title="Increase selected magnet strength">Strength ▲</button>
-            <button id="btn-magnet-strength-down" title="Decrease selected magnet strength">Strength ▼</button>
-            <button id="btn-magnet-range-up" title="Increase selected magnet range">Range ▲</button>
-            <button id="btn-magnet-range-down" title="Decrease selected magnet range">Range ▼</button>
-            <button id="btn-portal-id-up" title="Increase selected arc/portal link id">ID ▲</button>
-            <button id="btn-portal-id-down" title="Decrease selected arc/portal link id">ID ▼</button>
-        </div>
-        <div id="arc-link-help">Arc Link flow: <strong>Orange launches</strong> to matching <strong>Green endpoint</strong>. Portal flow: <strong>Purple teleports</strong> to matching <strong>Yellow endpoint</strong> and keeps velocity. Green/Yellow never launch.</div>
-    </div>
-</details>
+<div id="side-ui-bar">
+		<button id="btn-magnet-blue">Magnet Blue +</button>
+		<button id="btn-magnet-red">Magnet Red +</button>
+	<!--	<button id="btn-magnet-grapple">Grapple Orb +</button> -->
+		<button id="btn-magnet-up" title="Move selected magnet up by 0.1 grid">Magnet ▲</button>
+		<button id="btn-magnet-down" title="Move selected magnet down by 0.1 grid">Magnet ▼</button>
+		<button id="btn-magnet-strength-up" title="Increase selected magnet strength">Strength +</button>
+		<button id="btn-magnet-strength-down" title="Decrease selected magnet strength">Strength -</button>
+		<button id="btn-magnet-range-up" title="Increase selected magnet range">Range +</button>
+		<button id="btn-magnet-range-down" title="Decrease selected magnet range">Range -</button>
+		<button id="btn-arc-green" title="Green arc is the endpoint only (does not launch)">Arc End (Green) +</button>
+		<button id="btn-portal-yellow" title="Yellow portal is endpoint only (one-way, does not launch)">Portal End (Yellow) +</button>
+		<button id="btn-arc-orange" title="Orange arc is the launch/start point">Arc Start (Orange) +</button>
+		<button id="btn-portal-purple" title="Purple portal is the start point and keeps velocity">Portal Start (Purple) +</button>
+		<button id="btn-portal-up" title="Move selected arc/portal up by 0.1 grid">Arc/Portal ▲</button>
+		<button id="btn-portal-down" title="Move selected arc/portal down by 0.1 grid">Arc/Portal ▼</button>
+		<button id="btn-portal-id-down" title="Decrease selected arc/portal link id">Arc/Portal ID -</button>
+		<button id="btn-portal-id-up" title="Increase selected arc/portal link id">Arc/Portal ID +</button>
+		<div id="arc-link-help">Arc Link flow: <strong>Orange launches</strong> to matching <strong>Green endpoint</strong>. Portal flow: <strong>Purple teleports</strong> to matching <strong>Yellow endpoint</strong> and keeps velocity. Green/Yellow never launch.</div>
+	</div>
 	<div id="panel-overlay" hidden></div>
 	<div id="panel-center" hidden>
 		<div id="flow-panel" class="tool-panel" hidden>
@@ -1940,57 +1906,8 @@
 
 		}
 
-		if ( cell.movingObstacle ) {
-
-			const marker = new THREE.Group();
-			if ( cell.movingObstacle === MOVING_SLIDE_TOOL ) {
-
-				const body = new THREE.Mesh(
-					new THREE.BoxGeometry( CELL_RAW * 0.42, CELL_RAW * 0.2, CELL_RAW * 0.3 ),
-					new THREE.MeshStandardMaterial( { color: 0x7ec8ff, emissive: 0x2c5f86, emissiveIntensity: 0.65, metalness: 0.25, roughness: 0.45 } )
-				);
-				marker.add( body );
-				const rail = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.04, CELL_RAW * 0.06 ), new THREE.MeshStandardMaterial( { color: 0x9fb9cf } ) );
-				rail.position.y = - CELL_RAW * 0.09;
-				marker.add( rail );
-
-			} else if ( cell.movingObstacle === MOVING_SPIN_TOOL ) {
-
-				const arm = new THREE.Mesh(
-					new THREE.BoxGeometry( CELL_RAW * 0.58, CELL_RAW * 0.18, CELL_RAW * 0.08 ),
-					new THREE.MeshStandardMaterial( { color: 0xffa073, emissive: 0x7a2f10, emissiveIntensity: 0.65, metalness: 0.18, roughness: 0.5 } )
-				);
-				marker.add( arm );
-				const hub = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.03, CELL_RAW * 0.03, CELL_RAW * 0.1, 12 ), new THREE.MeshStandardMaterial( { color: 0xcccccc } ) );
-				hub.rotation.z = Math.PI * 0.5;
-				marker.add( hub );
-
-			} else if ( cell.movingObstacle === MOVING_CUSTOM_TOOL ) {
-				const cfg = cell.movingCustom || readCustomMovingUi();
-				const sx = Number( cfg?.sx ) || 2, sy = Number( cfg?.sy ) || 0.8, sz = Number( cfg?.sz ) || 0.8;
-				const cmat = new THREE.MeshStandardMaterial( { color: cfg?.color || '#ff8844', emissive: 0x331100 } );
-				const custom = cfg?.shape === 'pole' ? new THREE.CylinderGeometry( sx * 0.18, sx * 0.18, sy, 12 ) : new THREE.BoxGeometry( sx, sy, sz );
-				marker.add( new THREE.Mesh( custom, cmat ) );
-			} else {
-
-				for ( let i = 0; i < 3; i ++ ) {
-
-					const pole = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.035, CELL_RAW * 0.035, CELL_RAW * 0.22, 10 ), new THREE.MeshStandardMaterial( { color: 0x9b6fdc, emissive: 0x2f1f4f } ) );
-					const a = i * ( Math.PI * 2 / 3 );
-					pole.position.set( Math.cos( a ) * CELL_RAW * 0.18, 0, Math.sin( a ) * CELL_RAW * 0.18 );
-					marker.add( pole );
-
-				}
-
-			}
-
-			marker.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.1 ) - 0.06, ( gz + 0.5 ) * CELL_RAW );
-			marker.traverse( ( child ) => { if ( child.isMesh ) { child.castShadow = true; child.receiveShadow = true; } } );
-			trackGroup.add( marker );
-			cell.cubeMesh = marker;
-
-		}
-
+		// Moving obstacles render as the real animated meshes (see the drive
+		// section's createMovingObstacleState copy) — no static marker needed.
 		if ( cell.wall ) {
 
 			const wall = new THREE.Mesh(
@@ -2089,62 +2006,327 @@
 
 	}
 
+	// ─── Pool visuals — editor-local copy of the game's pool renderer ───
+	// Same ceramic-tile walls/floor, animated caustic light films, and glowing
+	// edge lip the game draws, duplicated into the editor namespace so the
+	// core game runtime (Track.js) stays byte-identical.
+	const WATER_SHADER_TILE_COLS = 8;
+	const WATER_DEPTH = CELL_RAW * 0.34;
+	const WATER_WALL_HEIGHT = CELL_RAW * 0.38;
+	let poolWallTexture = null;
+	let poolFloorTexture = null;
+function createPoolTileCanvas( cols, rows ) {
+
+	// Deterministic PRNG so every player sees the same pool.
+	let seed = 1337 ^ ( cols * 7919 ) ^ ( rows * 104729 );
+	const rand = () => {
+
+		seed = ( seed * 1664525 + 1013904223 ) >>> 0;
+		return seed / 4294967296;
+
+	};
+	const tileW = 64;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = cols * tileW;
+	canvas.height = rows * tileW;
+	const ctx = canvas.getContext( '2d' );
+	// grout base
+	ctx.fillStyle = '#2f5a72';
+	ctx.fillRect( 0, 0, canvas.width, canvas.height );
+	for ( let ty = 0; ty < rows; ty ++ ) {
+		for ( let tx = 0; tx < cols; tx ++ ) {
+
+			const x = tx * tileW, y = ty * tileW;
+			const r = rand();
+			const accent = r > 0.9;
+			const light = 58 + rand() * 12;
+			const hue = accent ? 208 : 200 + rand() * 8;
+			const sat = accent ? 62 : 48 + rand() * 10;
+			ctx.fillStyle = `hsl( ${ hue }, ${ sat }%, ${ light }% )`;
+			ctx.fillRect( x + 3, y + 3, tileW - 6, tileW - 6 );
+			// bevel: lighter top-left edge, darker bottom-right
+			ctx.fillStyle = 'rgba( 255, 255, 255, 0.16 )';
+			ctx.fillRect( x + 3, y + 3, tileW - 6, 2 );
+			ctx.fillStyle = 'rgba( 10, 30, 50, 0.18 )';
+			ctx.fillRect( x + 3, y + tileW - 5, tileW - 6, 2 );
+			// speckle
+			for ( let k = 0; k < 6; k ++ ) {
+
+				ctx.fillStyle = `rgba( 255, 255, 255, ${ 0.03 + rand() * 0.05 } )`;
+				ctx.fillRect( x + 4 + rand() * ( tileW - 8 ), y + 4 + rand() * ( tileW - 8 ), 2, 2 );
+
+			}
+
+		}
+	}
+	return canvas;
+
+}function getPoolTextures() {
+
+	if ( poolWallTexture && poolFloorTexture ) return { poolWallTexture, poolFloorTexture };
+	const toTexture = ( canvas ) => {
+
+		const tex = new THREE.CanvasTexture( canvas );
+		tex.colorSpace = THREE.SRGBColorSpace;
+		tex.anisotropy = 4;
+		return tex;
+
+	};
+	poolFloorTexture = toTexture( createPoolTileCanvas( WATER_SHADER_TILE_COLS, WATER_SHADER_TILE_COLS ) );
+	poolWallTexture = toTexture( createPoolTileCanvas( WATER_SHADER_TILE_COLS, 3 ) );
+	return { poolWallTexture, poolFloorTexture };
+
+}
+	function createPoolFloorCausticsMaterial() {
+
+	return new THREE.ShaderMaterial( {
+		uniforms: {
+			time: { value: 0 },
+			gain: { value: 0 },
+			shade: { value: 1 },
+			lightDir: { value: new THREE.Vector3( 0.577, 0.577, 0.577 ).normalize() },
+		},
+		transparent: true,
+		depthWrite: false,
+		blending: THREE.AdditiveBlending,
+		vertexShader: `
+			varying vec2 vLocal;
+			void main() {
+				vLocal = position.xy;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+			}
+		`,
+		fragmentShader: `
+			uniform float time;
+			uniform float gain;
+			uniform float shade;
+			varying vec2 vLocal;
+			// Sin-free hash (iq): the old fract(sin(dot)*43758) hash loses precision
+			// on large coords and printed a repeating CROSS/X lattice artifact
+			// across the water. This one stays clean at any distance.
+			float hash( vec2 p ) {
+				p = 50.0 * fract( p * 0.3183099 + vec2( 0.71, 0.113 ) );
+				return fract( p.x * p.y * ( p.x + p.y ) );
+			}
+			float noise( vec2 p ) {
+				vec2 i = floor( p ), f = fract( p );
+				f = f * f * ( 3.0 - 2.0 * f );
+				return mix( mix( hash( i ), hash( i + vec2( 1.0, 0.0 ) ), f.x ),
+					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+			}
+			void main() {
+				if ( gain <= 0.001 ) discard;
+				float ct = time * 1.9;
+				// Rotated + differently-scaled domains so the two integer
+				// lattices never align (aligned ones drew the cross/X pattern).
+				mat2 rotC = mat2( 0.84, 0.54, -0.54, 0.84 );
+				vec2 cUV = rotC * vLocal * 1.85;
+				float n1 = noise( cUV * 1.15 + vec2( ct * 0.32, ct * 0.11 ) );
+				float n2 = noise( cUV * 1.62 + vec2( 37.2, - 11.7 ) - vec2( ct * 0.21, - ct * 0.24 ) );
+				float web = abs( n1 - n2 );
+				// Caustics are LIGHT — the shade uniform (N·L toward the sun)
+				// fades them out on surfaces that sit in shadow.
+				float caustic = pow( max( 0.0, 1.0 - web ), 22.0 ) * shade;
+				gl_FragColor = vec4( vec3( 0.62, 0.82, 0.95 ) * caustic * gain * 0.85, caustic * gain );
+			}
+		`,
+	} );
+
+}
+	// Editor variant of the game's caustic animator: there is no underwater
+	// camera state in the editor, so the caustics run at a fixed visible
+	// gain instead of easing in only when the game camera is submerged.
+	function attachCausticAnimator( mesh ) {
+
+		let last = 0;
+		mesh.onBeforeRender = () => {
+
+			const now = performance.now() * 0.001;
+			const u = mesh.material.uniforms;
+			u.time.value = now;
+			const step = Math.min( 1, Math.max( 0, now - last ) * 6.0 );
+			last = now;
+			u.gain.value = THREE.MathUtils.lerp( u.gain.value, 0.55, step );
+
+		};
+
+	}
+
+	function createPoolWallCausticsMaterial() {
+
+	return new THREE.ShaderMaterial( {
+		uniforms: {
+			time: { value: 0 },
+			gain: { value: 0 },
+			shade: { value: 1 },
+			centerY: { value: 0 },
+			waterY: { value: 0.12 },
+		},
+		transparent: true,
+		depthWrite: false,
+		blending: THREE.AdditiveBlending,
+		vertexShader: `
+			varying vec2 vLocal;
+			void main() {
+				vLocal = position.xy;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+			}
+		`,
+		fragmentShader: `
+			uniform float time;
+			uniform float gain;
+			uniform float shade;
+			uniform float centerY;
+			uniform float waterY;
+			varying vec2 vLocal;
+			float hash( vec2 p ) {
+				p = 50.0 * fract( p * 0.3183099 + vec2( 0.71, 0.113 ) );
+				return fract( p.x * p.y * ( p.x + p.y ) );
+			}
+			float noise( vec2 p ) {
+				vec2 i = floor( p ), f = fract( p );
+				f = f * f * ( 3.0 - 2.0 * f );
+				return mix( mix( hash( i ), hash( i + vec2( 1.0, 0.0 ) ), f.x ),
+					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+			}
+			void main() {
+				if ( gain <= 0.001 ) discard;
+				float ct = time * 1.9;
+				mat2 rotC = mat2( 0.84, 0.54, - 0.54, 0.84 );
+				vec2 cUV = rotC * vec2( vLocal.x * 1.45, vLocal.y * 1.1 );
+				float n1 = noise( cUV * 1.15 + vec2( ct * 0.32, ct * 0.11 ) );
+				float n2 = noise( cUV * 1.62 + vec2( 37.2, - 11.7 ) - vec2( ct * 0.21, - ct * 0.24 ) );
+				float web = abs( n1 - n2 );
+				float caustic = pow( max( 0.0, 1.0 - web ), 22.0 );
+				// Fade to nothing AT the water line (dry wall stays clean) and
+				// dim a little with depth, like real light attenuation.
+				float worldY = centerY + vLocal.y;
+				float surfaceFade = smoothstep( 0.0, 0.07, waterY - worldY );
+				float depthFade = clamp( 0.45 + ( waterY - worldY ) * 0.9, 0.35, 1.0 );
+				caustic *= surfaceFade * depthFade * shade;
+				gl_FragColor = vec4( vec3( 0.62, 0.82, 0.95 ) * caustic * gain * 0.8, caustic * gain );
+			}
+		`,
+	} );
+
+}
+	// Sun direction matches the game's shadow-casting light so caustic
+	// shading agrees with the scene's shadows.
+	const CAUSTIC_SUN_DIR = new THREE.Vector3( 11.4, 15, - 5.3 ).normalize();
+const _upShadeNormal = new THREE.Vector3( 0, 1, 0 );
+function computeCausticShade( normal ) {
+
+	return THREE.MathUtils.smoothstep( THREE.MathUtils.clamp( normal.dot( CAUSTIC_SUN_DIR ), - 1, 1 ), - 0.05, 0.45 );
+
+}
+
+	function editorCreatePoolCellVisual( gx, gz, { isWaterCell, exitSide = null, poolVisuals } ) {
+
+	const pool = new THREE.Group();
+	pool.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
+	const { poolWallTexture, poolFloorTexture } = getPoolTextures();
+	const floor = new THREE.Mesh(
+		new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ),
+		new THREE.MeshStandardMaterial( { map: poolFloorTexture, roughness: 0.82, metalness: 0.0 } )
+	);
+	floor.position.y = - WATER_DEPTH;
+	floor.receiveShadow = true;
+	pool.add( floor );
+	// Caustic light layer just above the floor tile — visible only
+	// while the camera is underwater (see createPoolFloorCausticsMaterial).
+	const causticOverlay = new THREE.Mesh(
+		new THREE.PlaneGeometry( CELL_RAW, CELL_RAW ),
+		createPoolFloorCausticsMaterial()
+	);
+	causticOverlay.rotation.x = - Math.PI / 2;
+	causticOverlay.position.y = - WATER_DEPTH + CELL_RAW * 0.028;
+	// Floor faces up, so its caustic shade is the sun's own up-term —
+	// any surface the sun can't reach stays dark (shared with walls).
+	causticOverlay.material.uniforms.shade.value = computeCausticShade( _upShadeNormal );
+	attachCausticAnimator( causticOverlay );
+	pool.add( causticOverlay );
+	// If this pool tile has a pool slope, omit the wall + edge lip on the
+	// exit side (where the ramp's high end meets ground level).
+	const sides = [
+		{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
+		{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+		{ dx: 0, dz: 1, x: 0, z: CELL_RAW * 0.5, ry: 0 },
+		{ dx: - 1, dz: 0, x: - CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+	];
+	for ( const side of sides ) {
+		if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
+		if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
+		const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { map: poolWallTexture, roughness: 0.7, metalness: 0.0 } ) );
+		wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
+		wall.rotation.y = side.ry;
+		wall.castShadow = true;
+		wall.receiveShadow = true;
+		pool.add( wall );
+		// Caustic light film on the wall's INNER face — same animated
+		// pattern as the floor, shaded by how directly the wall faces
+		// the sun (walls in shade get none).
+		const wallCaustic = new THREE.Mesh(
+			new THREE.PlaneGeometry( CELL_RAW, WATER_WALL_HEIGHT * 0.94 ),
+			createPoolWallCausticsMaterial()
+		);
+		const inward = new THREE.Vector3( - side.dx, 0, - side.dz );
+		wallCaustic.position.set(
+			side.x + inward.x * CELL_RAW * 0.052,
+			wall.position.y,
+			side.z + inward.z * CELL_RAW * 0.052
+		);
+		wallCaustic.lookAt( wallCaustic.position.clone().add( inward ) );
+		wallCaustic.material.uniforms.shade.value = computeCausticShade( inward );
+		wallCaustic.material.uniforms.centerY.value = wall.position.y;
+		wallCaustic.material.uniforms.waterY.value = 0.12;
+		attachCausticAnimator( wallCaustic );
+		pool.add( wallCaustic );
+		const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: poolVisuals.isCustom ? 0.55 : 0.3, roughness: 0.22, metalness: 0.12 } ) );
+		edge.position.set( side.x, 0.515, side.z );
+		edge.rotation.y = side.ry;
+		pool.add( edge );
+	}
+	return pool;
+
+}
+
 	function createWaterPoolMesh( gx, gz ) {
 
-		const group = new THREE.Group();
-		group.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
-		// Mirror the game: colors only when the editor checkbox opted in, and
-		// pushed hard (saturated + glowing) so the custom color reads clearly.
+		// Real pool visuals — the exact textured walls, floor, caustic light
+		// films, and glowing lip the game renders (editor-local copy).
+		const slopeCell = grid.get( cellKey( gx, gz ) );
+		const exit = slopeCell?.poolSlope ? getPoolSlopeFacingOffset( slopeCell.poolSlopeOrient ?? 0 ) : null;
 		const colorsOn = customPoolColorsEnabled === true;
-		const edgeColor = new THREE.Color( colorsOn ? ( customPoolConfig.edgeColor || CUSTOM_POOL_DEFAULT.edgeColor ) : '#5cc7ff' );
-		const waterColor = new THREE.Color( colorsOn ? ( customPoolConfig.waterColor || CUSTOM_POOL_DEFAULT.waterColor ) : '#1180e6' );
+		const poolVisuals = {
+			waterColor: colorsOn && customPoolConfig.waterColor ? customPoolConfig.waterColor : '#1180e6',
+			edgeColor: colorsOn && customPoolConfig.edgeColor ? customPoolConfig.edgeColor : '#5cc7ff',
+			transparent: customPoolConfig.transparent === true,
+			isCustom: colorsOn,
+		};
+		const pool = editorCreatePoolCellVisual( gx, gz, {
+			isWaterCell,
+			exitSide: exit ? `${ exit.dx },${ exit.dz }` : null,
+			poolVisuals,
+		} );
+		// Editor-only translucent surface at the game's water line (y = 0.12)
+		// so the pool interior stays readable while editing.
+		const waterColor = new THREE.Color( poolVisuals.waterColor );
 		if ( colorsOn ) {
 			const hsl = { h: 0, s: 0, l: 0 };
 			waterColor.getHSL( hsl );
 			waterColor.setHSL( hsl.h, Math.min( 1, hsl.s * 1.5 ), THREE.MathUtils.clamp( hsl.l, 0.34, 0.62 ) );
 		}
-		const waterMat = new THREE.MeshStandardMaterial( { color: waterColor, emissive: waterColor, emissiveIntensity: colorsOn ? 0.45 : 0.18, roughness: 0.35, metalness: 0.02, transparent: Boolean( customPoolConfig.transparent ), opacity: customPoolConfig.transparent ? 0.72 : 1 } );
-		const floorMat = new THREE.MeshStandardMaterial( { color: 0x31433e, roughness: 0.95, metalness: 0.0 } );
-		const wallMat = new THREE.MeshStandardMaterial( { color: 0x20312e, roughness: 0.9, metalness: 0.0 } );
-		const edgeMat = new THREE.MeshStandardMaterial( { color: edgeColor, emissive: edgeColor, emissiveIntensity: colorsOn ? 0.55 : 0.28, roughness: 0.4 } );
-		const floor = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ), floorMat );
-		floor.position.y = - CELL_RAW * 0.34;
-		floor.receiveShadow = true;
-		group.add( floor );
-		const water = new THREE.Mesh( new THREE.PlaneGeometry( CELL_RAW * 0.92, CELL_RAW * 0.92 ), waterMat );
+		const water = new THREE.Mesh(
+			new THREE.PlaneGeometry( CELL_RAW * 0.98, CELL_RAW * 0.98 ),
+			new THREE.MeshStandardMaterial( { color: waterColor, emissive: waterColor, emissiveIntensity: colorsOn ? 0.45 : 0.18, roughness: 0.35, metalness: 0.02, transparent: true, opacity: poolVisuals.transparent ? 0.72 : 0.55 } )
+		);
 		water.rotation.x = - Math.PI / 2;
-		water.position.y = 0.515;
+		water.position.y = 0.12;
 		water.userData.waterSurface = true;
-		group.add( water );
-		// If this pool tile has a pool slope, skip the wall + edge lip on the
-		// side the ramp exits toward (high end meets ground level there) so the
-		// car can drive up/down without a wall or lip blocking it.
-		const slopeCell = grid.get( cellKey( gx, gz ) );
-		const exitSide = slopeCell?.poolSlope ? getPoolSlopeFacingOffset( slopeCell.poolSlopeOrient ?? 0 ) : null;
-		const sides = [
-			{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
-			{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
-			{ dx: 0, dz: 1, x: 0, z: CELL_RAW * 0.5, ry: 0 },
-			{ dx: - 1, dz: 0, x: - CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
-		];
-		for ( const side of sides ) {
-			if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
-			if ( exitSide && exitSide.dx === side.dx && exitSide.dz === side.dz ) continue;
-			const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.38, CELL_RAW * 0.08 ), wallMat );
-			wall.position.set( side.x, - CELL_RAW * 0.16, side.z );
-			wall.rotation.y = side.ry;
-			wall.castShadow = true;
-			wall.receiveShadow = true;
-			group.add( wall );
-			const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), edgeMat );
-			edge.position.set( side.x, 0.535, side.z );
-			edge.rotation.y = side.ry;
-			group.add( edge );
-		}
-		return group;
+		pool.add( water );
+		return pool;
 
 	}
-
 	function refreshWaterNeighborhood( gx, gz ) {
 
 		for ( const [ dx, dz ] of [ [ 0, 0 ], [ 1, 0 ], [ - 1, 0 ], [ 0, 1 ], [ 0, - 1 ] ] ) {
@@ -5244,6 +5426,115 @@ document.addEventListener('pointerdown', (e) => {
 		let dirty = false, lastEditAt = 0;
 		let fatal = false;
 
+		// Moving obstacles (slide / spin / orbit / custom) — editor-local
+		// copy of the game's exact mesh + animation code (main.js stays
+		// byte-identical; this is a read-only duplicate in editor namespace).
+		function createMovingObstacleState( scene, extras ) {
+	const entries = Array.isArray( extras?.movingObstacles ) ? extras.movingObstacles : [];
+	const state = { items: [], startTime: 0 };
+	for ( const entry of entries ) {
+		const [ gxRaw, gzRaw, typeRaw, orientRaw, speedRaw ] = Array.isArray( entry ) ? entry : [];
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const type = String( typeRaw || '' );
+		const orient = Number( orientRaw ) || 0;
+		const base = new THREE.Vector3( ( gx + 0.5 ) * CELL_RAW * GRID_SCALE, -0.5 + ( CELL_RAW * GRID_SCALE * 0.08 ), ( gz + 0.5 ) * CELL_RAW * GRID_SCALE );
+		const obstacle = { type, orient, speed: THREE.MathUtils.clamp( Number( speedRaw ) || 1, 0.25, 3 ), base, mesh: new THREE.Group(), colliders: [] };
+		if ( type === 'moving-slide-block' ) {
+			const m = new THREE.Mesh( new THREE.BoxGeometry( 2.1, 1.2, 1.5 ), new THREE.MeshStandardMaterial( { color: 0x8ca0b8 } ) );
+			obstacle.mesh.add( m );
+			obstacle.colliders.push( { half: new THREE.Vector3( 1.05, 0.6, 0.75 ), offset: new THREE.Vector3() } );
+		} else if ( type === 'moving-spin-wall' ) {
+			const m = new THREE.Mesh( new THREE.BoxGeometry( 3.8, 0.8, 0.55 ), new THREE.MeshStandardMaterial( { color: 0xb4b8bf } ) );
+			obstacle.mesh.add( m );
+			obstacle.colliders.push( { half: new THREE.Vector3( 1.9, 0.4, 0.275 ), offset: new THREE.Vector3() } );
+		} else if ( type === 'moving-custom' ) {
+			const cfg = entry?.[5] && typeof entry[5] === 'object' ? entry[5] : {};
+			obstacle.custom = cfg;
+			const count = Math.max( 1, Math.min( 8, Math.round( Number( cfg.count ) || 1 ) ) );
+			for ( let i = 0; i < count; i ++ ) {
+				const sx = Number( cfg.sx ) || 2, sy = Number( cfg.sy ) || 0.8, sz = Number( cfg.sz ) || 0.8;
+				const shape = String( cfg.shape || 'square' );
+				const geom = shape === 'pole' ? new THREE.CylinderGeometry( sx * 0.18, sx * 0.18, sy, 12 ) : new THREE.BoxGeometry( sx, sy, sz );
+				const mesh = new THREE.Mesh( geom, new THREE.MeshStandardMaterial( { color: cfg.color || '#ff8844' } ) );
+				obstacle.mesh.add( mesh );
+				obstacle.colliders.push( { half: new THREE.Vector3( shape === 'pole' ? sx * 0.18 : sx * 0.5, sy * 0.5, shape === 'pole' ? sx * 0.18 : sz * 0.5 ), offset: new THREE.Vector3(), shape } );
+			}
+		} else if ( type === 'moving-orbit-poles' ) {
+			for ( let i = 0; i < 3; i ++ ) {
+				const pole = new THREE.Mesh( new THREE.CylinderGeometry( 0.23, 0.23, 1.0, 12 ), new THREE.MeshStandardMaterial( { color: 0x979ea8 } ) );
+				obstacle.mesh.add( pole );
+				obstacle.colliders.push( { half: new THREE.Vector3( 0.23, 0.5, 0.23 ), offset: new THREE.Vector3() } );
+			}
+		} else continue;
+		obstacle.mesh.position.copy( base );
+		scene.add( obstacle.mesh );
+		state.items.push( obstacle );
+	}
+	return state;
+}
+
+function resetMovingObstacles( state, now = 0 ) {
+	if ( ! state ) return;
+	state.startTime = now;
+}
+
+function updateMovingObstacles( state, now, vehicleList ) {
+	if ( ! state ) return;
+	const t = now - ( state.startTime || 0 );
+	for ( const obstacle of state.items ) {
+		const p = obstacle.base.clone();
+		obstacle.mesh.rotation.set( 0, 0, 0 );
+		if ( obstacle.type === 'moving-slide-block' ) p.x += Math.sin( t * 1.35 * obstacle.speed ) * 1.7;
+		if ( obstacle.type === 'moving-spin-wall' ) obstacle.mesh.rotation.y = t * 0.9 * obstacle.speed;
+		if ( obstacle.type === 'moving-custom' ) {
+			const cfg = obstacle.custom || {};
+			const orbitR = Number( cfg.orbit ) || 0;
+			for ( let i = 0; i < obstacle.mesh.children.length; i ++ ) {
+				const a = ( t * ( Number( cfg.rot ) || 1 ) * obstacle.speed ) + i * ( Math.PI * 2 / obstacle.mesh.children.length );
+				const ox = Math.cos( a ) * orbitR, oz = Math.sin( a ) * orbitR;
+				obstacle.mesh.children[i].position.set( ox, 0, oz );
+				obstacle.mesh.children[i].rotation.y = a;
+				obstacle.colliders[i].offset.set( ox, 0, oz );
+			}
+		} else if ( obstacle.type === 'moving-orbit-poles' ) {
+			for ( let i = 0; i < obstacle.mesh.children.length; i ++ ) {
+				const a = t * 1.35 * obstacle.speed + i * ( Math.PI * 2 / 3 );
+				obstacle.mesh.children[ i ].position.set( Math.cos( a ) * 1.25, 0, Math.sin( a ) * 1.25 );
+				obstacle.colliders[ i ].offset.set( Math.cos( a ) * 1.25, 0, Math.sin( a ) * 1.25 );
+			}
+		}
+		obstacle.mesh.position.copy( p );
+		for ( const vehicle of vehicleList ) {
+			if ( ! vehicle?.rigidBody ) continue;
+			const r = 0.5;
+			for ( const collider of obstacle.colliders ) {
+				const quat = obstacle.mesh.quaternion;
+				const world = collider.offset.clone().applyQuaternion( quat ).add( obstacle.mesh.position );
+				const local = vehicle.spherePos.clone().sub( world ).applyQuaternion( quat.clone().invert() );
+				const clampedLocal = new THREE.Vector3(
+					THREE.MathUtils.clamp( local.x, -collider.half.x, collider.half.x ),
+					THREE.MathUtils.clamp( local.y, -collider.half.y, collider.half.y ),
+					THREE.MathUtils.clamp( local.z, -collider.half.z, collider.half.z )
+				);
+				const closest = clampedLocal.clone().applyQuaternion( quat ).add( world );
+				const delta = vehicle.spherePos.clone().sub( closest );
+				const distSq = delta.lengthSq();
+				if ( distSq >= r * r || distSq < 1e-8 ) continue;
+				const dist = Math.sqrt( distSq );
+				const n = delta.multiplyScalar( 1 / dist );
+				const push = ( r - dist ) + 1e-3;
+				vehicle.spherePos.addScaledVector( n, push );
+				rigidBody.setPosition( vehicle.physicsWorld, vehicle.rigidBody, [ vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z ], false );
+				const vx = vehicle.sphereVel.x, vy = vehicle.sphereVel.y, vz = vehicle.sphereVel.z;
+				const dot = vx * n.x + vy * n.y + vz * n.z;
+				if ( dot < 0 ) rigidBody.setLinearVelocity( vehicle.physicsWorld, vehicle.rigidBody, [ vx - dot * n.x, vy - dot * n.y, vz - dot * n.z ] );
+			}
+		}
+	}
+}
+
 		// The editor stores mods as short-key base64; Physics.js wants the
 		// long-key extras object. Round-trip through encode/decode.
 		function getPhysicsExtras() {
@@ -5255,7 +5546,7 @@ document.addEventListener('pointerdown', (e) => {
 				poolSlopes: m.z,
 				water: m.q,
 				customPool: m.r && typeof m.r === 'object' ? m.r : {},
-				movingObstacles: [],
+				movingObstacles: m.o,
 			};
 			// Pool-filled preset floods every non-track cell — same merge the
 			// game does before building physics.
@@ -5388,6 +5679,7 @@ document.addEventListener('pointerdown', (e) => {
 				vehicle.physicsWorld = newWorld;
 				vehicle.linearSpeed = 0;
 				world = newWorld;
+				rebuildMovingState();
 
 			} catch ( err ) {
 
@@ -5418,6 +5710,7 @@ document.addEventListener('pointerdown', (e) => {
 				const carGroup = vehicle.init( gltf.scene );
 				scene.add( carGroup );
 				active = true;
+				rebuildMovingState();
 
 			} catch ( err ) {
 
@@ -5429,8 +5722,26 @@ document.addEventListener('pointerdown', (e) => {
 
 		}
 
+		// The SAME animated mover meshes + hitboxes the game runs, rebuilt
+		// from the live grid and animated on the editor's own clock. They
+		// shove the drive car around exactly like in the game.
+		let movingState = null;
+		let driveClock = 0;
+		function rebuildMovingState() {
+
+			if ( movingState ) for ( const it of movingState.items ) scene.remove( it.mesh );
+			movingState = createMovingObstacleState( scene, getPhysicsExtras() );
+			resetMovingObstacles( movingState, 0 );
+
+		}
+
 		function step( dt ) {
 
+			driveClock += dt;
+			// Build movers even if the car model failed to load — the editor
+			// should always show obstacles moving.
+			if ( ! movingState ) rebuildMovingState();
+			updateMovingObstacles( movingState, driveClock, active && vehicle ? [ vehicle ] : [] );
 			if ( active && vehicle ) {
 
 				rebuildColliders( performance.now() * 0.001 );
