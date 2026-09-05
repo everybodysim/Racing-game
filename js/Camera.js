@@ -17,8 +17,16 @@ export class Camera {
 
 		this.offset = new THREE.Vector3( 7.0, 7.1, 7.0 );
 		this.chaseOffset = new THREE.Vector3( 0, 2.3, - 6.6 );
-		this.underwaterChaseOffset = new THREE.Vector3( 0, 7.4, - 3.2 );
-		this.underwaterOverviewOffset = new THREE.Vector3( 3.6, 8.6, 3.6 );
+		// Underwater framing: drop in low and close behind the car so the
+		// camera reads as "in the water with it". The dive clamp below then
+		// holds the camera under the water plane — without this, the +2.3
+		// chase height keeps the cam floating AT the surface in shallow pools
+		// even while the car is fully submerged.
+		this.underwaterChaseOffset = new THREE.Vector3( 0, 0.7, - 5.2 );
+		this.underwaterOverviewOffset = this.offset;
+		// World Y of the water plane (main.js passes its WATER_SURFACE_Y in
+		// the dynamics object each frame).
+		this.waterSurfaceY = 0.12;
 		this.targetPosition = new THREE.Vector3();
 		this.lookTarget = new THREE.Vector3();
 		this.mode = 'chase';
@@ -72,11 +80,15 @@ export class Camera {
 		const speedRatio = THREE.MathUtils.clamp( Number( dynamics.speedRatio ) || 0, 0, 1.8 );
 		const driftAmount = THREE.MathUtils.clamp( Number( dynamics.driftIntensity ) || 0, 0, 1 );
 		const underwaterTarget = dynamics.underwaterCamera ? 1 : 0;
+		// Snappy blend in BOTH directions — a slow 0.7s ease made the
+		// water↔normal transition feel laggy and kept the cam bobbing at
+		// the surface for seconds after the car dove.
 		this.underwaterBlend = THREE.MathUtils.lerp(
-    this.underwaterBlend,
-    underwaterTarget,
-    Math.min(1, dt / 0.7)
-);
+			this.underwaterBlend,
+			underwaterTarget,
+			Math.min( 1, dt / 0.16 )
+		);
+		if ( Number.isFinite( Number( dynamics.waterSurfaceY ) ) ) this.waterSurfaceY = Number( dynamics.waterSurfaceY );
 		const underwaterLift = this.underwaterBlend;
 		const targetLerp = this.mode === 'chase' ? 10 : 6;
 		this.targetPosition.lerp( target, dt * targetLerp );
@@ -129,8 +141,25 @@ export class Camera {
 			}
 
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
-			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) );
-			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift );
+			// The look point stays ahead of the car; underwater it also drops
+			// so the camera pitches down at the submerged car.
+			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, 4.8 );
+			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.35, underwaterLift );
+			// DIVE WITH THE CAR: hold the camera below the water plane (a
+			// little under the surface, where the fog band lives) and never
+			// more than 1.0 above the car — shallow pools still read as
+			// "in the water" instead of skimming the surface.
+			if ( underwaterLift > 0.001 ) {
+
+				const waterY = Number( this.waterSurfaceY ) || 0;
+				const maxCamY = Math.min( this.targetPosition.y + 1.0, waterY - 0.42 );
+				this._desiredPos.y = THREE.MathUtils.lerp(
+					this._desiredPos.y,
+					Math.min( this._desiredPos.y, maxCamY ),
+					underwaterLift
+				);
+
+			}
 
 			const chaseLag = THREE.MathUtils.lerp( 10, 7.2, Math.min( 1, speedRatio * 0.8 + driftAmount * 0.4 ) ) * this.userLagScale;
 			this.camera.position.lerp( this._desiredPos, dt * chaseLag );

@@ -5,7 +5,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999977';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000213';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails, WaterSplashFX } from './Particles.js';
 import { SkidMarks } from './SkidMarks.js';
@@ -318,6 +318,8 @@ const BOOST_ACCEL_PER_SECOND = 16.5;
 const FX_SETTINGS_KEY = 'racing-fx-settings-v1';
 const COUNTDOWN_SETTINGS_KEY = 'racing-countdown-enabled-v1';
 const FPS_HUD_SETTINGS_KEY = 'racing-show-fps-v1';
+// Default-car gameplay setting: '__last' (keep last used), '__random', or a CAR_STATS key.
+const DEFAULT_CAR_KEY = 'racing-default-car-v1';
 const COUNTDOWN_DURATION_SECONDS = 3;
 const ZERO_DRIVE_INPUT = { x: 0, z: 0 };
 const VEHICLE_SURFACE_RADIUS = 0.5;
@@ -4370,6 +4372,11 @@ async function init() {
 	const WATER_BUOYANCY = THREE.MathUtils.clamp( Number( customPoolSettings.buoyancy ) || 0.28, 0.05, 3 );
 	const WATER_GRAVITY_SCALE = Math.min( WATER_BUOYANCY, 1 );
 	const WATER_VELOCITY_DRAG = THREE.MathUtils.clamp( Number( customPoolSettings.drag ) || 1.8, 0.1, 6 );
+	// Barely-there water control: ~2 m/s^2 of paddle thrust and ~0.55 rad/s of
+	// water steering while buoyant. Deliberately tiny.
+	const WATER_CONTROL_ACCEL = 2.0;
+	const WATER_CONTROL_STEER = 0.55;
+	const _waterControlFwd = new THREE.Vector3();
 	function isCameraTargetInWater( position ) {
 
 		if ( waterCellSet.size === 0 || ! position ) return false;
@@ -4404,7 +4411,8 @@ async function init() {
 		}
 		const clearlyOutOfWater = ! inWaterCell || position.y > 1.1;
 		state.exitTimer = clearlyOutOfWater ? state.exitTimer + safeDelta : 0;
-		if ( state.exitTimer >= 0.35 ) {
+		// Quick exit window so surfacing snaps back to normal framing fast.
+		if ( state.exitTimer >= 0.16 ) {
 
 			state.underwater = false;
 			state.exitTimer = 0;
@@ -4415,6 +4423,109 @@ async function init() {
 	}
 	const waterCameraState1 = createWaterCameraState();
 	const waterCameraState2 = createWaterCameraState();
+	// Camera-underwater detection (separate from the car state above): drives
+	// the underwater fog, the screen overlay, and the pool-floor caustics.
+	const cameraWaterState = createWaterCameraState();
+	const underwaterFog = new THREE.Fog( 0x0e3f55, 0.9, Math.max( 8, cellWorld * 1.35 ) );
+	let underwaterOverlayEl = null;
+	let lastCameraUnderwater = false;
+	function updateCameraUnderwater( activeCamera, deltaSeconds ) {
+
+		const underwater = waterCells.length > 0 && activeCamera
+			? updateWaterCameraState( cameraWaterState, activeCamera.position, deltaSeconds )
+			: false;
+		if ( underwater !== lastCameraUnderwater ) {
+
+			lastCameraUnderwater = underwater;
+			underwaterOverlayEl ??= document.getElementById( 'underwater-overlay' );
+			underwaterOverlayEl?.classList.toggle( 'active', underwater );
+			setWaterUnderwaterCameraState( underwater );
+
+		}
+		return underwater;
+
+	}
+
+	// --- Bubbles: a few rare air bubbles trail off the car while it is
+	// submerged. Pooled sprites, near-zero cost when nobody is in a pool.
+	class CarBubblesFX {
+
+		constructor( targetScene ) {
+
+			this.group = new THREE.Group();
+			this.group.frustumCulled = false;
+			targetScene.add( this.group );
+			this.pool = [];
+			this.spawnTimer = 0;
+			const textureSize = 32;
+			const canvas = document.createElement( 'canvas' );
+			canvas.width = textureSize;
+			canvas.height = textureSize;
+			const ctx = canvas.getContext( '2d' );
+			const grad = ctx.createRadialGradient( textureSize * 0.38, textureSize * 0.34, 1, textureSize * 0.5, textureSize * 0.5, textureSize * 0.48 );
+			grad.addColorStop( 0, 'rgba(235,250,255,0.95)' );
+			grad.addColorStop( 0.65, 'rgba(180,225,255,0.35)' );
+			grad.addColorStop( 1, 'rgba(160,210,255,0)' );
+			ctx.fillStyle = grad;
+			ctx.fillRect( 0, 0, textureSize, textureSize );
+			this.texture = new THREE.CanvasTexture( canvas );
+			this.material = new THREE.SpriteMaterial( { map: this.texture, transparent: true, depthWrite: false, opacity: 0.85 } );
+
+		}
+		spawn( x, y, z ) {
+
+			let sprite = this.pool.find( ( s ) => ! s.visible );
+			if ( ! sprite ) {
+
+				if ( this.group.children.length >= 16 ) return;
+				sprite = new THREE.Sprite( this.material );
+				sprite.visible = false;
+				this.group.add( sprite );
+				this.pool.push( sprite );
+
+			}
+			const scale = 0.05 + Math.random() * 0.11;
+			sprite.position.set( x + ( Math.random() - 0.5 ) * 0.5, y, z + ( Math.random() - 0.5 ) * 0.5 );
+			sprite.scale.setScalar( scale );
+			sprite.userData.riseSpeed = 0.55 + Math.random() * 0.7;
+			sprite.userData.wobblePhase = Math.random() * Math.PI * 2;
+			sprite.userData.maxAge = 2.4 + Math.random() * 1.2;
+			sprite.userData.age = 0;
+			sprite.visible = true;
+
+		}
+		update( deltaSeconds, targetVehicle, submerged ) {
+
+			const safeDelta = Math.max( 0, deltaSeconds );
+			for ( const sprite of this.pool ) {
+
+				if ( ! sprite.visible ) continue;
+				sprite.userData.age += safeDelta;
+				sprite.position.y += sprite.userData.riseSpeed * safeDelta;
+				sprite.position.x += Math.sin( sprite.userData.age * 5 + sprite.userData.wobblePhase ) * 0.14 * safeDelta;
+				sprite.position.z += Math.cos( sprite.userData.age * 4.3 + sprite.userData.wobblePhase ) * 0.14 * safeDelta;
+				if ( sprite.userData.age > sprite.userData.maxAge || sprite.position.y >= WATER_SURFACE_Y - 0.02 ) sprite.visible = false;
+
+			}
+			if ( ! submerged ) {
+
+				this.spawnTimer = Math.max( this.spawnTimer, 0.4 );
+				return;
+
+			}
+			this.spawnTimer -= safeDelta;
+			if ( this.spawnTimer <= 0 ) {
+
+				this.spawnTimer = 0.5 + Math.random() * 1.6; // rare: a few bubbles every so often
+				this.spawn( targetVehicle.spherePos.x, targetVehicle.spherePos.y - 0.1, targetVehicle.spherePos.z );
+
+			}
+
+		}
+
+	}
+	let carBubblesFx = null;
+	let carBubblesFx2 = null;
 
 	function applyWaterPhysicsDamping( targetVehicle, deltaSeconds ) {
 
@@ -4424,10 +4535,42 @@ async function init() {
 		const velocity = targetVehicle.rigidBody.motionProperties.linearVelocity || [ 0, 0, 0 ];
 		const upwardFloatVelocity = Math.max( 0, WATER_BUOYANCY - 1 ) * 12 * safeDelta;
 		const verticalVelocity = THREE.MathUtils.clamp( ( velocity[ 1 ] * Math.sqrt( dragFactor ) ) + upwardFloatVelocity, -18, 8 );
+		let vx = velocity[ 0 ] * dragFactor;
+		let vz = velocity[ 2 ] * dragFactor;
+		// Slight water control (JUST BARELY): a gentle nudge along the car's
+		// facing when throttling, and a whisper of steering — enough to point
+		// the car while it floats, nowhere near water-top racing speed.
+		const inputZ = Number( targetVehicle.inputZ ) || 0;
+		const inputX = Number( targetVehicle.inputX ) || 0;
+		if ( inputZ || inputX ) {
+
+			const fwd = _waterControlFwd.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+			fwd.y = 0;
+			if ( fwd.lengthSq() > 1e-6 ) {
+
+				fwd.normalize();
+				const thrust = inputZ * WATER_CONTROL_ACCEL * safeDelta;
+				vx += fwd.x * thrust;
+				vz += fwd.z * thrust;
+				if ( inputX ) {
+
+					const steer = Math.sign( inputX ) * WATER_CONTROL_STEER * safeDelta;
+					const cos = Math.cos( steer );
+					const sin = Math.sin( steer );
+					const nx = vx * cos - vz * sin;
+					const nz = vx * sin + vz * cos;
+					vx = nx;
+					vz = nz;
+
+				}
+
+			}
+
+		}
 		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
-			velocity[ 0 ] * dragFactor,
+			vx,
 			verticalVelocity,
-			velocity[ 2 ] * dragFactor,
+			vz,
 		], false );
 		targetVehicle.linearSpeed *= dragFactor;
 		return true;
@@ -5534,8 +5677,8 @@ async function init() {
 	// Reused each frame for cam.update() dynamics to avoid allocating an options
 	// object on every camera update (up to 4 calls/frame). cam.update only reads the
 	// fields, it never retains the reference.
-	const _camDynamics1 = { speedRatio: 0, driftIntensity: 0, underwaterCamera: false };
-	const _camDynamics2 = { speedRatio: 0, driftIntensity: 0, underwaterCamera: false };
+	const _camDynamics1 = { speedRatio: 0, driftIntensity: 0, underwaterCamera: false, waterSurfaceY: 0.12 };
+	const _camDynamics2 = { speedRatio: 0, driftIntensity: 0, underwaterCamera: false, waterSurfaceY: 0.12 };
 
 	if ( cam2 && vehicle2 ) {
 
@@ -5921,6 +6064,7 @@ async function init() {
 	const effectMessage = document.getElementById( 'effect-message' );
 	let effectMessageTimeout = null;
 	const carSelect = document.getElementById( 'car-select' );
+	const defaultCarSelect = document.getElementById( 'default-car-select' );
 	const coinsLabel = document.getElementById( 'coins-label' );
 	const accountCoinsValue = document.getElementById( 'account-coins-value' );
 	const shareTimeBtn = document.getElementById( 'share-time-btn' );
@@ -6959,9 +7103,40 @@ async function init() {
 
 	}
 
+	// Paint masks (per-pixel selection RLE) are the only heavy part of garage
+	// storage. Returns the cosmetics as-is when under budget, or a copy with
+	// the OLDEST masks stripped until it fits — keeps localStorage and the
+	// cloud profile small no matter how much someone paints.
+	function compactGarageCosmetics( cosmetics, budget = 200000 ) {
+
+		if ( ! cosmetics ) return cosmetics;
+		let maskTotal = 0;
+		for ( const car of Object.values( cosmetics.cars || {} ) ) {
+			for ( const mapping of car.mappings || [] ) {
+				if ( mapping?.mask ) maskTotal += String( mapping.mask ).length;
+			}
+		}
+		if ( maskTotal <= budget ) return cosmetics;
+		const clone = JSON.parse( JSON.stringify( cosmetics ) );
+		let over = maskTotal - budget;
+		for ( const car of Object.values( clone.cars || {} ) ) {
+			for ( const mapping of car.mappings || [] ) {
+				if ( over <= 0 ) return clone;
+				if ( mapping?.mask ) {
+					over -= String( mapping.mask ).length;
+					mapping.mask = '';
+					mapping.maskW = 0;
+					mapping.maskH = 0;
+				}
+			}
+		}
+		return clone;
+
+	}
+
 	function saveGarageMods() {
 
-		localStorage.setItem( garageStoreKey, JSON.stringify( { mods: garageMods, unlocked: garageUnlocked, cosmetics: garageCosmetics } ) );
+		localStorage.setItem( garageStoreKey, JSON.stringify( { mods: garageMods, unlocked: garageUnlocked, cosmetics: compactGarageCosmetics( garageCosmetics ) } ) );
 
 	}
 
@@ -7477,8 +7652,12 @@ async function init() {
 		const renderer = new THREE.WebGLRenderer( { canvas: garageViewerCanvas, antialias: true, alpha: true } );
 		renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, 1.5 ) );
 		const scene = new THREE.Scene();
-		const camera = new THREE.PerspectiveCamera( 38, 1, 0.1, 100 );
-		camera.position.set( 0, 1.25, 5.2 );
+		const camera = new THREE.PerspectiveCamera( 34, 1, 0.1, 100 );
+		// Frame the car properly: closer in AND pitched down at it. The old
+		// (0, 1.25, 5.2) rig never lookAt-ed the car, so it sat as a tiny
+		// sliver at the very bottom of the frame and clicks could not select.
+		camera.position.set( 0, 1.35, 3.9 );
+		camera.lookAt( 0, 0.45, 0 );
 		scene.background = new THREE.Color( 0xf7fbff );
 		scene.add( new THREE.AmbientLight( 0xffffff, 3.0 ) );
 		const carRoot = new THREE.Group();
@@ -7549,14 +7728,15 @@ async function init() {
 			button.className = `garage-vehicle-card${ carKey === selectedKey ? ' active' : '' }`;
 			button.dataset.carKey = carKey;
 			button.style.setProperty( '--garage-accent', style.border || '#9ed8ff' );
+			// No per-card spinning 3D previews anymore — with many painted cars
+			// the shared preview renderer repaint (clone + full texture recolor
+			// per car, per frame) tanked the whole page. The big garage viewer
+			// is the one true preview now.
 			button.innerHTML = `
 				<h5>${ stats.name }</h5>
-				<canvas class="garage-card-preview" aria-label="${ stats.name } preview"></canvas>
 				<div class="garage-vehicle-meta">
 					<span>Paint maps: ${ mappings }</span>
 				</div>`;
-			const canvas = button.querySelector( '.garage-card-preview' );
-			garageCardCanvasByKey[ carKey ] = canvas;
 			button.addEventListener( 'click', ( event ) => { event.preventDefault(); event.stopPropagation(); selectGarageCar( carKey ); } );
 			garageVehicleCards.appendChild( button );
 
@@ -7672,9 +7852,10 @@ async function init() {
 
 	function updateGarageCardMeta( carKey ) {
 
-		const canvas = garageCardCanvasByKey[ carKey ];
-		if ( ! canvas ) return;
-		const meta = canvas.parentElement?.querySelector( '.garage-vehicle-meta > span:last-child' );
+		// Cards no longer hold preview canvases — find them by data-car-key so the
+		// "Paint maps: N" count updates immediately after every paint/remove.
+		const card = garageVehicleCards?.querySelector( `.garage-vehicle-card[data-car-key="${ carKey }"]` );
+		const meta = card?.querySelector( '.garage-vehicle-meta > span:last-child' );
 		if ( meta ) meta.textContent = `Paint maps: ${ getGarageCosmeticCar( carKey ).mappings.length }`;
 
 	}
@@ -7928,6 +8109,11 @@ async function init() {
 		const total = source.width * source.height;
 		// Pre-decode any masks so the hot loop stays cheap.
 		const masks = resolvedMappings.map( ( m ) => getResolvedMappingMask( m, total ) );
+		// Masked mappings are region-accurate: they must ONLY paint inside their
+		// mask. Letting them also color-match globally doubled the effective
+		// tolerance (selected region + a whole-car wash of the same paint).
+		// Legacy / ghost mappings without masks keep the global color match.
+		const globalMappings = resolvedMappings.filter( ( m, idx ) => ! masks[ idx ] );
 		for ( let i = 0, p = 0; i < output.length; i += 4, p ++ ) {
 
 			let mapped = null;
@@ -7944,7 +8130,7 @@ async function init() {
 					r: output[ i ],
 					g: output[ i + 1 ],
 					b: output[ i + 2 ],
-				}, resolvedMappings );
+				}, globalMappings );
 
 			}
 			if ( mapped ) {
@@ -8579,9 +8765,10 @@ function completeCampaignStage() {
 			v: 2,
 			playerName: sanitizePlayerName( playerNameInput?.value || '' ),
 			economy: { coins },
-			garage: { mods: garageMods, unlocked: garageUnlocked, cosmetics: garageCosmetics },
+			garage: { mods: garageMods, unlocked: garageUnlocked, cosmetics: compactGarageCosmetics( garageCosmetics ) },
 			campaign: campaignState,
 			carKey: currentCarKey(),
+			defaultCar: localStorage.getItem( DEFAULT_CAR_KEY ) || '__last',
 			hud: window.__hudGrid ? window.__hudGrid.getLayoutSnapshot() : undefined,
 			settings: GameSettings.getSettings(),
 		};
@@ -8668,6 +8855,22 @@ function completeCampaignStage() {
 				applyCarCustomization( vehicle );
 
 			}
+
+		}
+		// Default-car setting applies LAST so a specific default always wins
+		// over the profile's last-used carKey. A LOCAL pick beats the cloud
+		// copy — the cloud value only lands on machines with no local
+		// preference yet (otherwise a stale cloud profile would resurrect a
+		// setting the user changed on this machine).
+		{
+
+			const localDefault = localStorage.getItem( DEFAULT_CAR_KEY );
+			const cloudDefault = typeof parsed?.defaultCar === 'string' ? parsed.defaultCar : null;
+			const nextDefault = localDefault || cloudDefault || '__last';
+			localStorage.setItem( DEFAULT_CAR_KEY, nextDefault );
+			const defaultSelect = document.getElementById( 'default-car-select' );
+			if ( defaultSelect ) defaultSelect.value = nextDefault;
+			if ( nextDefault !== '__last' ) applyDefaultCar( nextDefault );
 
 		}
 		saveEconomy();
@@ -10319,6 +10522,52 @@ function completeCampaignStage() {
 
 	}
 
+	// Auto-save: every 5 minutes the profile syncs to the accounts backend so a
+	// crash / closed tab never loses more than ~5 minutes of progress. A top
+	// notification (same channel as lap deltas / leaderboard notices) confirms
+	// each save; failures stay quiet in the console.
+	setInterval( async () => {
+
+		if ( ! accountSession?.token ) return;
+		try {
+
+			await cloudSaveProfile();
+			showTopMessage( 'Profile auto-saved to the cloud', false, 1800 );
+
+		} catch ( err ) {
+
+			console.warn( 'Profile auto-save failed', err );
+
+		}
+
+	}, 300000 );
+
+	// Debounced profile cloud sync for small setting changes (default car, etc.).
+	let profileCloudSyncTimer = null;
+	function syncProfileToCloudDebounced() {
+
+		if ( ! accountSession?.token ) return;
+		if ( profileCloudSyncTimer ) clearTimeout( profileCloudSyncTimer );
+		profileCloudSyncTimer = setTimeout( async () => {
+
+			profileCloudSyncTimer = null;
+			try {
+
+				await accountApiRequest( '/profile', {
+					method: 'POST',
+					body: JSON.stringify( { token: accountSession.token, profile: getCurrentProfileSnapshot() } ),
+				} );
+
+			} catch ( err ) {
+
+				console.warn( 'Profile cloud sync failed', err );
+
+			}
+
+		}, 1500 );
+
+	}
+
 	// Debounced HUD layout -> cloud sync. Triggered by js/HudGrid.js whenever the
 	// player adds/removes/reorders a widget (saveHudLayout -> onHudLayoutChange).
 	// No-op when not signed in; the layout still persists to localStorage.
@@ -11559,6 +11808,47 @@ function completeCampaignStage() {
 		updateFpsHudVisibility();
 
 	} );
+
+	// ── Default car setting (Gameplay panel) ─────────────────────────────
+	// '__last' keeps the current behavior (remember the car you drove last),
+	// '__random' rolls a new car every race start, anything else is a CAR_STATS key.
+	function applyDefaultCar( value ) {
+
+		if ( ! value || value === '__last' ) return;
+		if ( value === '__random' ) {
+
+			randomizeLapCarIfSinglePlayer();
+			return;
+
+		}
+		if ( ! CAR_STATS[ value ] ) return;
+		if ( carSelect ) carSelect.value = value;
+		updateCarSelectColor();
+		if ( models[ value ] ) vehicle.setModel( models[ value ] );
+		applyCarCustomization( vehicle );
+		applyVehiclePerformance();
+
+	}
+
+	if ( defaultCarSelect ) {
+
+		const options = [ '<option value="__last">Last used car (default)</option>', '<option value="__random">Random</option>' ];
+		for ( const [ key, stats ] of Object.entries( CAR_STATS ) ) options.push( `<option value="${ key }">${ stats.name }</option>` );
+		defaultCarSelect.innerHTML = options.join( '' );
+		defaultCarSelect.value = localStorage.getItem( DEFAULT_CAR_KEY ) || '__last';
+
+		defaultCarSelect.addEventListener( 'change', () => {
+
+			const value = defaultCarSelect.value || '__last';
+			localStorage.setItem( DEFAULT_CAR_KEY, value );
+			applyDefaultCar( value );
+			showTopMessage( value === '__random' ? 'Default car: random' : ( CAR_STATS[ value ] ? `Default car: ${ CAR_STATS[ value ].name }` : 'Default car: last used' ), false, 1800 );
+			syncProfileToCloudDebounced();
+
+		} );
+
+	}
+
 	garageTargetColorInput?.addEventListener( 'input', () => { updateGaragePaintControls(); refreshGarageViewer(); } );
 	garageRepaintToleranceInput?.addEventListener( 'input', () => { updateGaragePaintControls(); } );
 	garageClearSelectionBtn?.addEventListener( 'click', clearGarageSelection );
@@ -11594,7 +11884,10 @@ function completeCampaignStage() {
 		const maskRle = encodeSelectionMaskRle( garageSelectionMask );
 		const mw = garageSelectionSource ? garageSelectionSource.width : 0;
 		const mh = garageSelectionSource ? garageSelectionSource.height : 0;
-		const existing = carData.mappings.find( ( mapping ) => mapping.mask || colorDistanceSqHex( mapping.sourceHex, sourceHex ) <= tolerance * tolerance );
+		// Only fold into an existing mapping when the CLICKED SOURCE COLOR matches it
+			// (previously "mapping.mask ||" matched any masked mapping first, so every
+			// new masked repaint silently overwrote an older masked region).
+			const existing = carData.mappings.find( ( mapping ) => colorDistanceSqHex( mapping.sourceHex, sourceHex ) <= tolerance * tolerance );
 		if ( existing ) {
 
 			existing.sourceHex = sourceHex;
@@ -11617,11 +11910,13 @@ function completeCampaignStage() {
 		selectedGarageSourceHex = '';
 		hoveredGarageSourceHex = '';
 		garageSelectionMask = null;
-		updateGarageMappingsUi();
-		updateGaragePaintControls();
 		applyCarCustomization( vehicle );
 		refreshGarageViewer();
 		refreshGarageCardPreviewPaint( carKey );
+		// List + card counts refresh LAST, after every state mutation, so the
+		// new paint map is always visible right away (no card round-trip needed).
+		updateGarageMappingsUi();
+		updateGaragePaintControls();
 		updateGarageCardMeta( carKey );
 		broadcastPeerState();
 		setGarageMappingStatus( `Painted ${ desc.count.toLocaleString() } pixels ${ targetHex } for ${ GARAGE_REPAINT_COST } coins.` );
@@ -11822,7 +12117,10 @@ function completeCampaignStage() {
 
 	}, 480000 );
 	if ( campaignParamEnabled ) setGameMode( 'campaign' );
-	randomizeLapCarIfSinglePlayer();
+	// Default-car setting wins at boot: unset or '__random' rolls a fresh car
+	// (the old boot behavior), a specific car locks it in, '__last' keeps
+	// whatever the profile / page loaded.
+	applyDefaultCar( localStorage.getItem( DEFAULT_CAR_KEY ) || '__random' );
 	resetLapState( true );
 	resetLapState2( true );
 	startCountdown();
@@ -12355,7 +12653,9 @@ function completeCampaignStage() {
 			vehicle.spherePos.z - 5.3
 		);
 
+		const cameraUnderwater = updateCameraUnderwater( cam.camera, dt );
 		if ( freecamState.active ) scene.fog = null;
+		else if ( cameraUnderwater ) scene.fog = underwaterFog;
 		else if ( scene.fog !== gameplayFog ) scene.fog = gameplayFog;
 		if ( freecamState.active ) updateFreecam( dt );
 		else if ( ! replayViewerMode ) {
@@ -12381,6 +12681,22 @@ function completeCampaignStage() {
 				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, _camDynamics1 );
 
 			}
+
+		}
+		if ( waterCells.length > 0 ) {
+
+			if ( vehicle && isCameraTargetInWater( vehicle.spherePos ) ) {
+
+				carBubblesFx ??= new CarBubblesFX( scene );
+				carBubblesFx.update( dt, vehicle, true );
+
+			} else carBubblesFx?.update( dt, vehicle, false );
+			if ( vehicle2 && isCameraTargetInWater( vehicle2.spherePos ) ) {
+
+				carBubblesFx2 ??= new CarBubblesFX( scene );
+				carBubblesFx2.update( dt, vehicle2, true );
+
+			} else carBubblesFx2?.update( dt, vehicle2, false );
 
 		}
 		if ( cam2 && vehicle2 ) {
@@ -12502,7 +12818,10 @@ function completeCampaignStage() {
 		}
 		skyUniforms.time.value = now;
 		skyUniforms.vibrance.value = THREE.MathUtils.lerp( skyUniforms.vibrance.value, 0.2 + ( speedRatioFx * 0.18 ) + ( driftFx * 0.1 ), Math.min( 1, dt * 2.4 ) );
-		skyGroup.position.set( vehicle.container.position.x, 0, vehicle.container.position.z );
+		// Follow the CAMERA, not the car — in freecam it used to slide with the
+		// vehicle while the camera stood still, which reads very wrong. Keeping y=0
+		// so the horizon line never shifts; x/z track whatever view is active.
+		skyGroup.position.set( cam.camera.position.x, 0, cam.camera.position.z );
 		if ( skyDecorState.starPoints ) {
 			skyDecorState.starPoints.material.opacity = 0.75 + Math.sin( now * 1.3 ) * 0.12 + Math.sin( now * 2.7 + 1.3 ) * 0.08;
 		}

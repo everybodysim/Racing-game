@@ -49,8 +49,8 @@ test( 'refraction wobble is animated (the light-bending wiggle)', /noise\( vWorl
 test( 'water shader references no removed uniforms (compiles)', ! /cellSize|shallowColor/.test( shader ) );
 test( 'choppy ripples ride the swell', /sin\( wp\.x \* 3\.4 - t \* 1\.4 \) \* 0\.03/.test( shader ) );
 test( 'rolling swell amplitudes', /sin\( wp\.x \* 1\.35 \+ t \) \* 0\.055/.test( shader ) );
-test( 'wave scale 3.4x the flat pass', /waveHeight: \{ value: CELL_RAW \* 0\.17 \}/.test( track ) );
-test( 'water level leaves wave headroom below the edge lip', /CELL_RAW, 0\.12,/.test( track ) && 0.12 + 0.22 * 9.99 * 0.17 < 0.515 );
+test( 'wave scale 3x the flat pass (backed off from 0.17 so crests stop clipping through grass)', /waveHeight: \{ value: CELL_RAW \* 0\.15 \}/.test( track ) );
+test( 'water level leaves wave headroom below the edge lip', /CELL_RAW, 0\.12,/.test( track ) && 0.12 + 0.22 * 9.99 * 0.15 < 0.515 );
 test( 'splash surface matches the lowered water level', /WATER_SURFACE_Y = 0\.12/.test( main ) );
 test( 'fresnel sky reflection', /fresnel/.test( shader ) && /skyTop/.test( shader ) );
 test( 'sun glint', /pow\(\s*max\( dot\( rDir, lightDir \), 0\.0 \),\s*450\.0/.test( shader ) );
@@ -69,14 +69,14 @@ test( 'tile textures deterministic (seeded PRNG)', /createPoolTileCanvas/.test( 
 
 // 6. Bluer
 test( 'default waterColor is a saturated blue', track.includes( "'#1180e6'" ) );
-test( 'shader applies the blue body tint', shader.includes( 'vec3( 0.86, 0.94, 1.08 )' ) );
+test( 'shader applies the blue body tint (classic pools) and stays neutral for custom pool colors', shader.includes( 'refrColor *= uTint;' ) && track.includes( 'uniform vec3 uTint;' ) && /uTint: \{ value: new THREE\.Vector3\( visuals\.isCustom \? 1 : 0\.86, visuals\.isCustom \? 1 : 0\.94, visuals\.isCustom \? 1 : 1\.08 \) \}/.test( track ) );
 
 // 6b. Screen-space refraction plumbing
 test( 'prerender pass exists (hides water, renders scene to half-res RT)', /export function prerenderWaterRefraction/.test( track ) && /plane\.visible = false/.test( track ) && /db\.x /.test( track ) && /Math\.floor\( db\.x \/ 2 \)/.test( track ) );
 test( 'plane registry resets per track build', track.includes( 'WATER_PLANES.length = 0;' ) && track.includes( 'WATER_PLANES.push( waterPlane );' ) );
 test( 'every render site prerenders refraction (incl. split-screen rects)', main.split( 'prerenderWaterRefraction( renderer, scene' ).length === 5 && main.includes( 'prerenderWaterRefraction( renderer, scene, cam2.camera, 1,' ) );
 test( 'shadows update once per frame, not per render pass', main.includes( 'shadowMap.autoUpdate = false' ) && main.includes( 'renderer.shadowMap.needsUpdate = true' ) );
-test( 'Track.js module cache param bumped (it changed)', main.includes( 'Track.js?v=999977' ) );
+test( 'Track.js module cache param bumped (it changed)', main.includes( 'Track.js?v=1000212' ) );
 
 // 7. Splash when the car breaks the surface
 test( 'splash FX class exists (droplet burst + gravity)', /export class WaterSplashFX/.test( particles ) && /burst\(/.test( particles ) && /velocity\.y -= particle\.gravity \* dt/.test( particles ) );
