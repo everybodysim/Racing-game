@@ -190,6 +190,8 @@
 			z-index: 20;
 		}
 		#toast.show { opacity: 1; }
+		.drive-hint { position: fixed; left: 10px; bottom: 10px; z-index: 40; pointer-events: none; font-size: 11px; color: #cfe3ff; background: rgba( 10, 14, 22, 0.72 ); border: 1px solid rgba( 120, 160, 220, 0.25 ); border-radius: 8px; padding: 6px 10px; max-width: 62vw; }
+		#btn-cam-mode.engaged { outline: 2px solid #7dd3fc; }
 		#offgrid-dev-banner {
 			position: absolute;
 			top: 82px;
@@ -442,7 +444,8 @@
 	{
 		"imports": {
 			"three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
-			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/"
+			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/",
+			"crashcat": "https://esm.sh/crashcat@0.0.2"
 		}
 	}
 	</script>
@@ -679,6 +682,8 @@
 			<span class="toolbar-group-label">Run</span>
 			<button id="btn-play" class="action">Play</button>
 			<button id="btn-quick-test" class="action">Quick Test</button>
+			<button id="btn-cam-mode" class="action" title="Flat Map = classic top-down editing. Free = rotatable 3D camera you can edit from.">View: Flat</button>
+			<button id="btn-respawn-car" class="action" title="Respawn the test car at the start line (Shift+R)">Respawn Car</button>
 		<!--	<button id="btn-select-spawn">Pick Test Spawn</button> -->
 			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;"><input id="autosave-enable" type="checkbox" checked> Auto-save</label>
 			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;">Every <input id="autosave-interval" type="number" min="5" max="600" step="1" value="30" style="width:62px;background:rgba(8,10,14,0.9);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 4px;"> s</label>
@@ -697,6 +702,7 @@
 	<div id="quick-tools"></div>
 
 	<div id="toast"></div>
+<div id="drive-hint" class="drive-hint">← ↑ ↓ → drive the test car · Shift+R respawn · drag to pan</div>
 	<div id="offgrid-dev-banner" hidden>Off-grid placement is still in development — expect rough edges while it gets fixed.</div>
 	<div id="custom-surface-panel" hidden>
 		<h3 id="custom-surface-title">Custom Surface</h3>
@@ -763,7 +769,11 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells } from './js/Track.js';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, computeSpawnPosition } from './js/Track.js';
+	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
+	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody } from 'crashcat';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js';
+	import { Vehicle } from './js/Vehicle.js';
 
 	// ─── State ────────────────────────────────────────────────
 
@@ -1494,12 +1504,31 @@
 
 	const camTarget = new THREE.Vector3( cellCenter, 0, cellCenter );
 
+	// ─── Editor camera modes: 'flat' (top-down ortho, the classic editor) and
+	// 'free' (perspective freecam you can rotate/dolly while editing). The
+	// test car is drivable in BOTH modes (arrow keys).
+	let editorCamMode = 'flat';
+	var editorDrive = null; // assigned by the drive section at the bottom
+	const freeCamera = new THREE.PerspectiveCamera( 60, aspect, 0.1, 600 );
+	freeCamera.position.set( cellCenter, 18, cellCenter + 14 );
+	freeCamera.lookAt( cellCenter, 0.5, cellCenter );
+	let freeCamYaw = Math.PI;
+	let freeCamPitch = - 0.85;
+
+	function editorActiveCamera() {
+
+		return editorCamMode === 'free' ? freeCamera : camera;
+
+	}
+
 	window.addEventListener( 'resize', () => {
 
 		const a = window.innerWidth / window.innerHeight;
 		camera.left = - frustum * a;
 		camera.right = frustum * a;
 		camera.updateProjectionMatrix();
+		freeCamera.aspect = a;
+		freeCamera.updateProjectionMatrix();
 		renderer.setSize( window.innerWidth, window.innerHeight );
 
 	} );
@@ -2802,7 +2831,7 @@
 		mouse.x = ( clientX / window.innerWidth ) * 2 - 1;
 		mouse.y = - ( clientY / window.innerHeight ) * 2 + 1;
 
-		raycaster.setFromCamera( mouse, camera );
+		raycaster.setFromCamera( mouse, editorActiveCamera() );
 
 		const plane = new THREE.Plane( new THREE.Vector3( 0, 1, 0 ), 0.51 );
 		const hit = new THREE.Vector3();
@@ -2842,6 +2871,7 @@
 
 	function save() {
 
+		markEditorCollidersDirty();
 		const arr = getCellsArray();
 
 		const encoded = encodeCells( arr );
@@ -4360,6 +4390,15 @@ function refreshMovingSpeedUi() {
 
 	el.addEventListener( 'pointerdown', ( e ) => {
 
+		// Free cam: right/middle drag (or space+drag) rotates the 3D camera.
+		// Left-click still draws; erase via the erase tool.
+		if ( editorCamMode === 'free' && editorDrive && ( e.button === 2 || e.button === 1 || ( e.button === 0 && ( e.ctrlKey || e.metaKey || spaceDown ) ) ) ) {
+
+			editorDrive.startRotate( e.clientX, e.clientY );
+			return;
+
+		}
+
 		el.setPointerCapture( e.pointerId );
 		pointers.set( e.pointerId, { x: e.clientX, y: e.clientY } );
 
@@ -4428,6 +4467,13 @@ function refreshMovingSpeedUi() {
 
 	el.addEventListener( 'pointermove', ( e ) => {
 
+		if ( editorDrive && editorDrive.isRotating() ) {
+
+			editorDrive.moveRotate( e.clientX, e.clientY );
+			return;
+
+		}
+
 		pointers.set( e.pointerId, { x: e.clientX, y: e.clientY } );
 
 		// Two-pointer pan + pinch
@@ -4492,6 +4538,7 @@ function refreshMovingSpeedUi() {
 
 	window.addEventListener( 'pointerup', ( e ) => {
 
+		if ( editorDrive ) editorDrive.endRotate();
 		pointers.delete( e.pointerId );
 
 		if ( pointers.size === 0 ) {
@@ -4530,6 +4577,14 @@ function refreshMovingSpeedUi() {
 	el.addEventListener( 'wheel', ( e ) => {
 
 		e.preventDefault();
+
+		// Free cam: wheel dollies along the look direction.
+		if ( editorCamMode === 'free' && editorDrive ) {
+
+			editorDrive.dolly( e.deltaY );
+			return;
+
+		}
 
 		if ( e.ctrlKey ) {
 
@@ -4597,33 +4652,11 @@ function refreshMovingSpeedUi() {
 
 				rotateSelection();
 
-			} else if ( e.key === 'ArrowUp' ) {
+			} else if ( e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' ) {
 
-				camTarget.z -= panStep;
-				camera.position.z = camTarget.z;
-				camera.lookAt( camTarget.x, 0, camTarget.z );
+				// Arrow keys now DRIVE the test car in every editor mode.
 				e.preventDefault();
-
-			} else if ( e.key === 'ArrowDown' ) {
-
-				camTarget.z += panStep;
-				camera.position.z = camTarget.z;
-				camera.lookAt( camTarget.x, 0, camTarget.z );
-				e.preventDefault();
-
-			} else if ( e.key === 'ArrowLeft' ) {
-
-				camTarget.x -= panStep;
-				camera.position.x = camTarget.x;
-				camera.lookAt( camTarget.x, 0, camTarget.z );
-				e.preventDefault();
-
-			} else if ( e.key === 'ArrowRight' ) {
-
-				camTarget.x += panStep;
-				camera.position.x = camTarget.x;
-				camera.lookAt( camTarget.x, 0, camTarget.z );
-				e.preventDefault();
+				if ( editorDrive ) editorDrive.onDriveKey( e.key, true );
 
 			}
 
@@ -4637,6 +4670,8 @@ function refreshMovingSpeedUi() {
 			if ( ! isPanning ) el.style.cursor = '';
 
 		}
+
+		if ( editorDrive && ( e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' ) ) editorDrive.onDriveKey( e.key, false );
 
 	} );
 
@@ -4654,10 +4689,13 @@ function refreshMovingSpeedUi() {
 
 	}
 
+	const driveClock = new THREE.Clock();
 	function animate() {
 
 		requestAnimationFrame( animate );
-		renderer.render( scene, camera );
+		const dt = Math.min( 0.033, Math.max( 0, driveClock.getDelta() ) );
+		stepEditorDrive( dt );
+		renderer.render( scene, editorActiveCamera() );
 
 	}
 
@@ -5170,6 +5208,251 @@ document.addEventListener('pointerdown', (e) => {
 
 
 
+
+	// ═══════════════════════════════════════════════════════════
+	// DRIVE IN EDITOR: drivable test car (both modes) + Free Cam
+	// ═══════════════════════════════════════════════════════════
+	// Hoisted so save()/animate() can call it before this section runs.
+	function markEditorCollidersDirty() { if ( editorDrive ) editorDrive.markDirty(); }
+	function stepEditorDrive( dt ) { if ( editorDrive ) editorDrive.step( dt ); }
+
+	( function initEditorDrive() {
+
+		const NOOP_CONTACT_LISTENER = { onContactAdded() {} };
+		const driveKeys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+		const flyKeys = new Set();
+		let rotating = false, rotLastX = 0, rotLastY = 0;
+		let active = false;          // physics stack finished booting
+		let world = null, vehicle = null;
+		let dirty = false, lastEditAt = 0;
+		let fatal = false;
+
+		// The editor stores mods as short-key base64; Physics.js wants the
+		// long-key extras object. Round-trip through encode/decode.
+		function getPhysicsExtras() {
+
+			const m = decodeMods( encodeMods() );
+			return {
+				bumps: m.b, poles: m.p, cubes: m.k, walls: m.l, jumps: m.j,
+				elevated: m.e, decorations: m.d, magnets: m.m, customAssets: m.x,
+				poolSlopes: m.z,
+				water: m.t === 'pool-filled' ? [] : m.q,
+				movingObstacles: [],
+			};
+
+		}
+
+		function buildWorld() {
+
+			const ws = createWorldSettings();
+			ws.gravity = [ 0, - 9.81, 0 ];
+			const bplM = addBroadphaseLayer( ws );
+			const bplS = addBroadphaseLayer( ws );
+			const olM = addObjectLayer( ws, bplM );
+			const olS = addObjectLayer( ws, bplS );
+			enableCollision( ws, olM, olS );
+			enableCollision( ws, olM, olM );
+			const w = createWorld( ws );
+			w._OL_MOVING = olM;
+			w._OL_STATIC = olS;
+			buildWallColliders( w, null, getCellsArray(), getPhysicsExtras() );
+			return w;
+
+		}
+
+		function rebuildColliders( now ) {
+
+			if ( ! dirty || ! active ) { dirty = false; return; }
+			if ( now - lastEditAt < 0.4 ) return;   // let edit bursts settle
+			dirty = false;
+			try {
+
+				const pos = vehicle.spherePos.toArray();
+				const newWorld = buildWorld();
+				const body = createSphereBody( newWorld, [ pos[ 0 ], Math.max( pos[ 1 ], 0.5 ), pos[ 2 ] ] );
+				vehicle.rigidBody = body;
+				vehicle.physicsWorld = newWorld;
+				vehicle.linearSpeed = 0;
+				world = newWorld;
+
+			} catch ( err ) {
+
+				console.warn( 'Editor collider rebuild failed', err );
+
+			}
+
+		}
+
+		async function init() {
+
+			try {
+
+				registerAll();
+				const spawn = computeSpawnPosition( getCellsArray() );
+				world = buildWorld();
+				const body = createSphereBody( world, spawn.position );
+				vehicle = new Vehicle();
+				vehicle.rigidBody = body;
+				vehicle.physicsWorld = world;
+				vehicle.setSpawn( spawn.position, spawn.angle );
+				vehicle.setPerformance( { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } );
+				const gltf = await new Promise( ( resolve, reject ) => loader.load( 'models/vehicle-truck-yellow.glb', resolve, undefined, reject ) );
+				gltf.scene.traverse( ( child ) => { if ( child.isMesh ) child.material.side = THREE.FrontSide; } );
+				// Godot-exported vehicle models carry a 0.5 root scale (same fix
+				// the game's loader applies).
+				gltf.scene.scale.setScalar( 0.5 );
+				const carGroup = vehicle.init( gltf.scene );
+				scene.add( carGroup );
+				active = true;
+
+			} catch ( err ) {
+
+				fatal = true;
+				console.warn( 'Editor test-car unavailable (editing still works):', err );
+				showToast( 'Test car failed to load — editing still works' );
+
+			}
+
+		}
+
+		function step( dt ) {
+
+			if ( active && vehicle ) {
+
+				rebuildColliders( performance.now() * 0.001 );
+				updateWorld( world, NOOP_CONTACT_LISTENER, dt );
+				vehicle.update( dt, {
+					x: ( driveKeys.ArrowRight ? 1 : 0 ) - ( driveKeys.ArrowLeft ? 1 : 0 ),
+					z: ( driveKeys.ArrowUp ? 1 : 0 ) - ( driveKeys.ArrowDown ? 1 : 0 ),
+					y: 0,
+				} );
+
+			}
+			stepFlyAndPanCam( dt );
+
+		}
+
+		// ── Free cam fly (free mode) / WASD pan (flat mode) ──
+		function stepFlyAndPanCam( dt ) {
+
+			if ( flyKeys.size === 0 && editorCamMode === 'free' ) { freeCamera.rotation.set( freeCamPitch, freeCamYaw, 0, 'YXZ' ); return; }
+			if ( flyKeys.size === 0 ) return;
+
+			if ( editorCamMode === 'flat' ) {
+
+				// WASD pans the top-down camera at a comfortable rate.
+				const stepPan = cellWorld * 10 * dt;
+				if ( flyKeys.has( 'KeyW' ) ) camTarget.z -= stepPan;
+				if ( flyKeys.has( 'KeyS' ) ) camTarget.z += stepPan;
+				if ( flyKeys.has( 'KeyA' ) ) camTarget.x -= stepPan;
+				if ( flyKeys.has( 'KeyD' ) ) camTarget.x += stepPan;
+				camera.position.x = camTarget.x;
+				camera.position.z = camTarget.z;
+				camera.lookAt( camTarget.x, 0, camTarget.z );
+				return;
+
+			}
+
+			const cp = Math.cos( freeCamPitch ), sp = Math.sin( freeCamPitch );
+			const sy = Math.sin( freeCamYaw ), cy = Math.cos( freeCamYaw );
+			const fwd = new THREE.Vector3( - sy * cp, sp, - cy * cp );
+			const right = new THREE.Vector3( cy, 0, - sy );
+			const move = new THREE.Vector3();
+			if ( flyKeys.has( 'KeyW' ) ) move.add( fwd );
+			if ( flyKeys.has( 'KeyS' ) ) move.sub( fwd );
+			if ( flyKeys.has( 'KeyD' ) ) move.add( right );
+			if ( flyKeys.has( 'KeyA' ) ) move.sub( right );
+			if ( flyKeys.has( 'KeyE' ) ) move.y += 1;
+			if ( flyKeys.has( 'KeyQ' ) ) move.y -= 1;
+			if ( move.lengthSq() > 0 ) freeCamera.position.addScaledVector( move.normalize(), cellWorld * 7 * dt );
+			freeCamera.position.y = Math.max( 0.6, freeCamera.position.y );
+			freeCamera.rotation.set( freeCamPitch, freeCamYaw, 0, 'YXZ' );
+
+		}
+
+		// ── Camera rotation (free mode drag) ──
+		function startRotate( x, y ) { rotating = true; rotLastX = x; rotLastY = y; el.style.cursor = 'grabbing'; }
+		function moveRotate( x, y ) {
+
+			if ( ! rotating ) return;
+			freeCamYaw -= ( x - rotLastX ) * 0.005;
+			freeCamPitch = Math.max( - 1.45, Math.min( 0.9, freeCamPitch - ( y - rotLastY ) * 0.005 ) );
+			rotLastX = x; rotLastY = y;
+
+		}
+		function endRotate() { if ( rotating ) { rotating = false; el.style.cursor = ''; } }
+
+		function dolly( deltaY ) {
+
+			const cp = Math.cos( freeCamPitch );
+			const fwd = new THREE.Vector3( - Math.sin( freeCamYaw ) * cp, Math.sin( freeCamPitch ), - Math.cos( freeCamYaw ) * cp );
+			freeCamera.position.addScaledVector( fwd, - deltaY * 0.02 * cellWorld * 0.5 );
+			freeCamera.position.y = Math.max( 0.6, freeCamera.position.y );
+
+		}
+
+		function respawn() {
+
+			if ( ! active ) { showToast( 'Test car unavailable' ); return; }
+			vehicle.resetToSpawn();
+			if ( editorCamMode === 'free' ) { freeCamera.position.set( vehicle.spherePos.x + cellWorld * 2, cellWorld * 2.4, vehicle.spherePos.z + cellWorld * 2 ); }
+			showToast( 'Car respawned' );
+
+		}
+
+		// ── Mode toggle ──
+		const btnCamMode = document.getElementById( 'btn-cam-mode' );
+		const driveHint = document.getElementById( 'drive-hint' );
+		function setMode( mode ) {
+
+			editorCamMode = mode;
+			if ( mode === 'free' ) {
+
+				btnCamMode.textContent = 'View: Free';
+				btnCamMode.classList.add( 'engaged' );
+				driveHint.textContent = 'Free: right-drag rotate · wheel dolly · WASD+Q/E fly · ← ↑ ↓ → drive car · Shift+R respawn';
+				showToast( 'Free cam: right-drag to rotate, WASD+Q/E to fly, arrows to drive' );
+
+			} else {
+
+				btnCamMode.textContent = 'View: Flat';
+				btnCamMode.classList.remove( 'engaged' );
+				driveHint.textContent = 'Flat: ← ↑ ↓ → drive car · WASD pan · Shift+R respawn';
+				showToast( 'Flat map view' );
+
+			}
+
+		}
+		btnCamMode?.addEventListener( 'click', () => setMode( editorCamMode === 'flat' ? 'free' : 'flat' ) );
+		document.getElementById( 'btn-respawn-car' )?.addEventListener( 'click', respawn );
+
+		// ── Keyboard: fly/pan keys + Shift+R respawn ──
+		window.addEventListener( 'keydown', ( e ) => {
+
+			const target = e.target;
+			const isTypingTarget = target && ( target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable );
+			if ( isTypingTarget ) return;
+			if ( FLY_CODES.includes( e.code ) ) flyKeys.add( e.code );
+			if ( e.shiftKey && e.key.toLowerCase() === 'r' ) { e.preventDefault(); respawn(); }
+
+		} );
+		window.addEventListener( 'keyup', ( e ) => flyKeys.delete( e.code ) );
+		const FLY_CODES = [ 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE' ];
+
+		// Expose immediately so the input handlers wired above can use the
+		// freecam even while the car model is still loading.
+		editorDrive = {
+			step,
+			markDirty: () => { dirty = true; lastEditAt = performance.now() * 0.001; },
+			startRotate, moveRotate, endRotate,
+			isRotating: () => rotating,
+			dolly,
+			onDriveKey: ( key, down ) => { if ( key in driveKeys ) driveKeys[ key ] = down; },
+			respawn,
+		};
+		init();
+
+	} )();
 
 	</script>
 </main>
