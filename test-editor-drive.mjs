@@ -19,10 +19,10 @@ function test( name, cond ) {
 
 console.log( 'Editor drive: module imports' );
 test( 'importmap maps crashcat (same pinned version as the game)', html.includes( '"crashcat": "https://esm.sh/crashcat@0.0.2"' ) );
-test( 'editor imports crashcat world/update functions', /import \{ createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody \} from 'crashcat'/.test( html ) );
+test( 'editor imports crashcat world/update functions (incl. box + MotionType for ground)', /import \{ createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType \} from 'crashcat'/.test( html ) );
 test( 'editor imports buildWallColliders + createSphereBody from Physics.js', html.includes( "import { buildWallColliders, createSphereBody } from './js/Physics.js'" ) );
 test( 'editor imports Vehicle from Vehicle.js', html.includes( "import { Vehicle } from './js/Vehicle.js'" ) );
-test( 'editor imports computeSpawnPosition from Track.js', /computeSpawnPosition \} from '\.\/js\/Track\.js'/.test( html ) );
+test( 'editor imports computeSpawnPosition + bounds/pool-preset helpers from Track.js', /computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells \} from '\.\/js\/Track\.js'/.test( html ) );
 test( 'Physics.js null-safe for a missing debug group', physics.includes( 'if ( debugGroup )' ) );
 
 console.log( 'Editor drive: camera modes' );
@@ -33,17 +33,24 @@ test( 'screenToGrid raycasts from the ACTIVE camera', html.includes( 'raycaster.
 test( 'animate() renders the ACTIVE camera', html.includes( 'renderer.render( scene, editorActiveCamera() )' ) );
 test( 'animate() steps the drive physics every frame', html.includes( 'stepEditorDrive( dt )' ) );
 test( 'resize keeps the free camera aspect in sync', html.includes( 'freeCamera.aspect = a;' ) );
-test( 'View toggle button exists with a Respawn Car button', html.includes( 'id="btn-cam-mode"' ) && html.includes( 'id="btn-respawn-car"' ) );
+test( 'View toggle + Respawn Car buttons live in the top-right cluster', html.includes( 'id="btn-cam-mode"' ) && html.includes( 'id="btn-respawn-car"' ) && html.includes( 'id="editor-cam-cluster"' ) );
+test( 'top-right cluster is fixed-positioned', /#editor-cam-cluster \{ position: fixed; top: 10px; right: 12px;/.test( html ) );
+test( 'buttons no longer clutter the Run toolbar group', ! /btn-cam-mode" class="action"/.test( html ) );
 test( 'drive hint chip exists', html.includes( 'id="drive-hint"' ) );
+test( 'Special Parts panel widened to 424px (2x4 grid kept)', /#side-ui-bar \{[\s\S]*?width: 424px;/.test( html ) && html.includes( 'grid-template-columns: repeat( 2, minmax( 0, 1fr ) ); gap: 4px;' ) );
 
 console.log( 'Editor drive: input wiring' );
 test( 'arrow keys no longer pan the flat camera (they drive the car)', ! /ArrowUp' \) \{\s*camTarget\.z -= panStep/.test( html ) );
 test( 'arrow keydown feeds editorDrive.onDriveKey', html.includes( "editorDrive.onDriveKey( e.key, true )" ) );
 test( 'arrow keyup releases editorDrive.onDriveKey', html.includes( "editorDrive.onDriveKey( e.key, false )" ) );
-test( 'free-mode right/middle/space drag starts camera rotation', /editorCamMode === 'free' && editorDrive && \( e\.button === 2 \|\| e\.button === 1 \|\| \( e\.button === 0 && \( e\.ctrlKey \|\| e\.metaKey \|\| spaceDown \) \) \)/.test( html ) );
+test( 'free-mode MIDDLE-drag rotates the camera', /editorCamMode === 'free' && editorDrive && e\.button === 1 \) \{\s*editorDrive\.startRotate/.test( html ) );
+test( 'right-click is NOT captured for rotate (erase keeps working in free mode)', ! /e\.button === 2 \|\| e\.button === 1/.test( html ) );
+test( 'flat pan branch (middle/ctrl/space) is flat-mode only', /editorCamMode !== 'free' && \( e\.button === 1 \|\|/.test( html ) );
 test( 'pointermove routes to rotation while rotating', html.includes( 'editorDrive.isRotating()' ) );
 test( 'free-mode wheel dollies instead of ortho-zooming', html.includes( 'editorDrive.dolly( e.deltaY )' ) );
 test( 'free cam never clips below the floor', ( html.match( /Math\.max\( 0\.6, freeCamera\.position\.y \)/g ) || [] ).length >= 2 );
+test( 'Space flies UP and Ctrl flies DOWN in free mode', /flyKeys\.has\( 'KeyE' \) \|\| flyKeys\.has\( 'Space' \) \) move\.y \+= 1;/.test( html ) && /flyKeys\.has\( 'KeyQ' \) \|\| flyKeys\.has\( 'ControlLeft' \)/.test( html ) );
+test( 'space-grab cursor only engages in flat mode', /editorCamMode !== 'free' && ! spaceDown/.test( html ) );
 test( 'Shift+R respawns the car', html.includes( "e.key.toLowerCase() === 'r' ) { e.preventDefault(); respawn(); }" ) );
 
 console.log( 'Editor drive: physics lifecycle' );
@@ -51,11 +58,17 @@ test( 'hoisted editorDrive handle is var (no TDZ when save() runs first)', html.
 test( 'markEditorCollidersDirty guards on editorDrive', /function markEditorCollidersDirty\(\) \{ if \( editorDrive \) editorDrive\.markDirty\(\); \}/.test( html ) );
 test( 'stepEditorDrive guards on editorDrive', /function stepEditorDrive\( dt \) \{ if \( editorDrive \) editorDrive\.step\( dt \); \}/.test( html ) );
 test( 'save() marks colliders dirty so walls track edits', /function save\(\) \{\s*markEditorCollidersDirty\(\);/.test( html ) );
-test( 'physics extras round-trip maps short keys to long keys', /water: m\.t === 'pool-filled' \? \[\] : m\.q,/.test( html ) && html.includes( 'poolSlopes: m.z' ) && html.includes( 'magnets: m.m' ) );
+test( 'physics extras round-trip maps short keys to long keys', html.includes( 'water: m.q,' ) && html.includes( 'poolSlopes: m.z' ) && html.includes( 'magnets: m.m' ) );
+test( 'pool-filled preset floods non-track cells like the game', /if \( m\.t === 'pool-filled' \) \{[\s\S]*?computePoolPresetWaterCells\( getCellsArray\(\), extras \)/.test( html ) );
+test( 'ground colliders built for the drive world (car can no longer fall through on spawn)', /buildWallColliders\( w, null, cellsArr, extras \);\s*addGroundColliders\( w, cellsArr, extras \);/.test( html ) );
+test( 'ground uses one thick slab when no water cells', html.includes( 'if ( waterSet.size === 0 ) {' ) && html.includes( 'GROUND_HALF_H = 0.5' ) );
+test( 'ground runs skip water cells so cars drop into pools', /waterSet\.has\( `\$\{ gx \},\$\{ gz \}` \)/.test( html ) && html.includes( 'function flushRun(' ) );
+test( 'spawn/rest y matches the game ground (top at -0.115)', html.includes( 'groundTopY = - 0.125 + 0.01' ) );
+test( 'respawn does NOT move the camera', ! /freeCamera\.position\.set\( vehicle\.spherePos/.test( html ) );
 test( 'physics world built with the same layer setup as the game', ( () => {
 
 	const i = html.indexOf( 'function buildWorld() {' );
-	return html.slice( i, i + 900 ).includes( 'buildWallColliders( w, null, getCellsArray(), getPhysicsExtras() )' );
+	return html.slice( i, i + 1200 ).includes( 'buildWallColliders( w, null, cellsArr, extras )' );
 
 } )() );
 test( 'colliders rebuild debounced after edit bursts settle', html.includes( 'now - lastEditAt < 0.4' ) );

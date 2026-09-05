@@ -191,6 +191,10 @@
 		}
 		#toast.show { opacity: 1; }
 		.drive-hint { position: fixed; left: 10px; bottom: 10px; z-index: 40; pointer-events: none; font-size: 11px; color: #cfe3ff; background: rgba( 10, 14, 22, 0.72 ); border: 1px solid rgba( 120, 160, 220, 0.25 ); border-radius: 8px; padding: 6px 10px; max-width: 62vw; }
+		#editor-cam-cluster { position: fixed; top: 10px; right: 12px; z-index: 42; display: flex; gap: 8px; }
+		#editor-cam-cluster button { font-size: 12px; font-weight: 600; color: #e8efff; background: rgba( 15, 18, 24, 0.92 ); border: 1px solid rgba( 255, 255, 255, 0.22 ); border-left: 3px solid rgba( 125, 211, 252, 0.55 ); border-radius: 8px; padding: 8px 12px; cursor: pointer; box-shadow: 0 6px 20px rgba( 0, 0, 0, 0.35 ); }
+		#editor-cam-cluster button:hover { background: rgba( 45, 55, 72, 0.95 ); }
+		#editor-cam-cluster button.engaged { outline: 2px solid #7dd3fc; }
 		#btn-cam-mode.engaged { outline: 2px solid #7dd3fc; }
 		#offgrid-dev-banner {
 			position: absolute;
@@ -277,7 +281,7 @@
 			position: absolute;
 			left: 12px;
 			bottom: 16px;
-			width: 212px;
+			width: 424px;
 			z-index: 32;
 			background: rgba(15, 18, 24, 0.92);
 			border: 1px solid rgba(255, 255, 255, 0.16);
@@ -682,8 +686,6 @@
 			<span class="toolbar-group-label">Run</span>
 			<button id="btn-play" class="action">Play</button>
 			<button id="btn-quick-test" class="action">Quick Test</button>
-			<button id="btn-cam-mode" class="action" title="Flat Map = classic top-down editing. Free = rotatable 3D camera you can edit from.">View: Flat</button>
-			<button id="btn-respawn-car" class="action" title="Respawn the test car at the start line (Shift+R)">Respawn Car</button>
 		<!--	<button id="btn-select-spawn">Pick Test Spawn</button> -->
 			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;"><input id="autosave-enable" type="checkbox" checked> Auto-save</label>
 			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;">Every <input id="autosave-interval" type="number" min="5" max="600" step="1" value="30" style="width:62px;background:rgba(8,10,14,0.9);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 4px;"> s</label>
@@ -703,6 +705,10 @@
 
 	<div id="toast"></div>
 <div id="drive-hint" class="drive-hint">← ↑ ↓ → drive the test car · Shift+R respawn · drag to pan</div>
+<div id="editor-cam-cluster">
+	<button id="btn-cam-mode" title="Flat Map = classic top-down editing. Free = rotatable 3D camera you can edit and drive from.">View: Flat</button>
+	<button id="btn-respawn-car" title="Respawn the test car at the start line (Shift+R)">Respawn Car</button>
+</div>
 	<div id="offgrid-dev-banner" hidden>Off-grid placement is still in development — expect rough edges while it gets fixed.</div>
 	<div id="custom-surface-panel" hidden>
 		<h3 id="custom-surface-title">Custom Surface</h3>
@@ -769,9 +775,9 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, computeSpawnPosition } from './js/Track.js';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells } from './js/Track.js';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
-	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody } from 'crashcat';
+	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js';
 	import { Vehicle } from './js/Vehicle.js';
 
@@ -4390,9 +4396,9 @@ function refreshMovingSpeedUi() {
 
 	el.addEventListener( 'pointerdown', ( e ) => {
 
-		// Free cam: right/middle drag (or space+drag) rotates the 3D camera.
-		// Left-click still draws; erase via the erase tool.
-		if ( editorCamMode === 'free' && editorDrive && ( e.button === 2 || e.button === 1 || ( e.button === 0 && ( e.ctrlKey || e.metaKey || spaceDown ) ) ) ) {
+		// Free cam: MIDDLE-drag rotates the 3D camera.
+		// Right-click still erases; left-click still draws; Ctrl/Space fly.
+		if ( editorCamMode === 'free' && editorDrive && e.button === 1 ) {
 
 			editorDrive.startRotate( e.clientX, e.clientY );
 			return;
@@ -4423,8 +4429,9 @@ function refreshMovingSpeedUi() {
 		if ( pointers.size > 2 ) return;
 
 		// Single pointer
-		// Middle mouse, ctrl+click, or space+click → pan
-		if ( e.button === 1 || ( e.button === 0 && ( e.ctrlKey || e.metaKey || spaceDown ) ) ) {
+		// Middle mouse, ctrl+click, or space+click → pan (flat mode only;
+		// in free mode middle rotates, Ctrl/Space fly, clicks draw/erase)
+		if ( editorCamMode !== 'free' && ( e.button === 1 || ( e.button === 0 && ( e.ctrlKey || e.metaKey || spaceDown ) ) ) ) {
 
 			isPanning = true;
 			panStart.x = e.clientX;
@@ -4631,7 +4638,7 @@ function refreshMovingSpeedUi() {
 
 			if ( e.key === ' ' ) {
 
-				if ( ! spaceDown ) {
+				if ( editorCamMode !== 'free' && ! spaceDown ) {
 
 					spaceDown = true;
 					el.style.cursor = 'grab';
@@ -5232,13 +5239,107 @@ document.addEventListener('pointerdown', (e) => {
 		function getPhysicsExtras() {
 
 			const m = decodeMods( encodeMods() );
-			return {
+			const extras = {
 				bumps: m.b, poles: m.p, cubes: m.k, walls: m.l, jumps: m.j,
 				elevated: m.e, decorations: m.d, magnets: m.m, customAssets: m.x,
 				poolSlopes: m.z,
-				water: m.t === 'pool-filled' ? [] : m.q,
+				water: m.q,
+				customPool: m.r && typeof m.r === 'object' ? m.r : {},
 				movingObstacles: [],
 			};
+			// Pool-filled preset floods every non-track cell — same merge the
+			// game does before building physics.
+			if ( m.t === 'pool-filled' ) {
+
+				const generated = computePoolPresetWaterCells( getCellsArray(), extras );
+				const merged = new Map( [ ...generated, ...extras.water ].map( ( c ) => [ `${ c[ 0 ] },${ c[ 1 ] }`, c ] ) );
+				extras.water = [ ...merged.values() ];
+
+			}
+			return extras;
+
+		}
+
+		// Ground colliders — mirrors main.js createGroundSurfaceCollider +
+		// the ground-run algorithm: one thick slab when the map has no water,
+		// otherwise runs of slab that skip every water (pool) cell so cars
+		// actually drop into pools and drive on the pool floors.
+		function addGroundColliders( w, cellsArr, extras ) {
+
+			const GROUND_HALF_H = 0.5;   // thick slab: buries the top edge (no seam catches)
+			const groundTopY = - 0.125 + 0.01;
+			function slab( halfX, halfZ, cx, cz ) {
+
+				rigidBody.create( w, {
+					shape: box.create( { halfExtents: [ halfX, GROUND_HALF_H, halfZ ] } ),
+					motionType: MotionType.STATIC,
+					objectLayer: w._OL_STATIC,
+					position: [ cx, groundTopY - GROUND_HALF_H, cz ],
+					friction: 5.0,
+					restitution: 0.0,
+				} );
+
+			}
+
+			const bounds = computeTrackBounds( cellsArr );
+			const roadHalf = Math.max( bounds.halfWidth, bounds.halfDepth ) + 10;
+			const waterCells = Array.isArray( extras?.water ) ? extras.water : [];
+			const waterSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+
+			if ( waterSet.size === 0 ) {
+
+				slab( roadHalf, roadHalf, bounds.centerX, bounds.centerZ );
+				return;
+
+			}
+
+			const cellW = CELL_RAW * GRID_SCALE;
+			const minGx = Math.floor( ( bounds.centerX - roadHalf ) / cellW ) - 1;
+			const maxGx = Math.ceil( ( bounds.centerX + roadHalf ) / cellW ) + 1;
+			const minGz = Math.floor( ( bounds.centerZ - roadHalf ) / cellW ) - 1;
+			const maxGz = Math.ceil( ( bounds.centerZ + roadHalf ) / cellW ) + 1;
+			const activeRuns = new Map();
+			function flushRun( runStart, runEnd, startGz, endGz ) {
+
+				const nx = runEnd - runStart + 1;
+				const nz = endGz - startGz + 1;
+				slab( cellW * nx * 0.5, cellW * nz * 0.5, ( runStart + nx * 0.5 ) * cellW, ( startGz + nz * 0.5 ) * cellW );
+
+			}
+
+			for ( let gz = minGz; gz <= maxGz; gz ++ ) {
+
+				const currentRowRuns = new Set();
+				let runStart = null;
+				for ( let gx = minGx; gx <= maxGx + 1; gx ++ ) {
+
+					const solid = gx <= maxGx && ! waterSet.has( `${ gx },${ gz }` );
+					if ( solid && runStart === null ) runStart = gx;
+					if ( ( ! solid || gx > maxGx ) && runStart !== null ) {
+
+						const runEnd = gx - 1;
+						const runKey = `${ runStart },${ runEnd }`;
+						currentRowRuns.add( runKey );
+						if ( activeRuns.has( runKey ) ) activeRuns.get( runKey ).endGz = gz;
+						else activeRuns.set( runKey, { runStart, runEnd, startGz: gz, endGz: gz } );
+						runStart = null;
+
+					}
+
+				}
+				for ( const [ runKey, run ] of activeRuns ) {
+
+					if ( ! currentRowRuns.has( runKey ) ) {
+
+						flushRun( run.runStart, run.runEnd, run.startGz, run.endGz );
+						activeRuns.delete( runKey );
+
+					}
+
+				}
+
+			}
+			for ( const run of activeRuns.values() ) flushRun( run.runStart, run.runEnd, run.startGz, run.endGz );
 
 		}
 
@@ -5255,7 +5356,10 @@ document.addEventListener('pointerdown', (e) => {
 			const w = createWorld( ws );
 			w._OL_MOVING = olM;
 			w._OL_STATIC = olS;
-			buildWallColliders( w, null, getCellsArray(), getPhysicsExtras() );
+			const cellsArr = getCellsArray();
+			const extras = getPhysicsExtras();
+			buildWallColliders( w, null, cellsArr, extras );
+			addGroundColliders( w, cellsArr, extras );
 			return w;
 
 		}
@@ -5362,8 +5466,8 @@ document.addEventListener('pointerdown', (e) => {
 			if ( flyKeys.has( 'KeyS' ) ) move.sub( fwd );
 			if ( flyKeys.has( 'KeyD' ) ) move.add( right );
 			if ( flyKeys.has( 'KeyA' ) ) move.sub( right );
-			if ( flyKeys.has( 'KeyE' ) ) move.y += 1;
-			if ( flyKeys.has( 'KeyQ' ) ) move.y -= 1;
+			if ( flyKeys.has( 'KeyE' ) || flyKeys.has( 'Space' ) ) move.y += 1;
+			if ( flyKeys.has( 'KeyQ' ) || flyKeys.has( 'ControlLeft' ) || flyKeys.has( 'ControlRight' ) ) move.y -= 1;
 			if ( move.lengthSq() > 0 ) freeCamera.position.addScaledVector( move.normalize(), cellWorld * 7 * dt );
 			freeCamera.position.y = Math.max( 0.6, freeCamera.position.y );
 			freeCamera.rotation.set( freeCamPitch, freeCamYaw, 0, 'YXZ' );
@@ -5395,7 +5499,6 @@ document.addEventListener('pointerdown', (e) => {
 
 			if ( ! active ) { showToast( 'Test car unavailable' ); return; }
 			vehicle.resetToSpawn();
-			if ( editorCamMode === 'free' ) { freeCamera.position.set( vehicle.spherePos.x + cellWorld * 2, cellWorld * 2.4, vehicle.spherePos.z + cellWorld * 2 ); }
 			showToast( 'Car respawned' );
 
 		}
@@ -5410,14 +5513,14 @@ document.addEventListener('pointerdown', (e) => {
 
 				btnCamMode.textContent = 'View: Free';
 				btnCamMode.classList.add( 'engaged' );
-				driveHint.textContent = 'Free: right-drag rotate · wheel dolly · WASD+Q/E fly · ← ↑ ↓ → drive car · Shift+R respawn';
-				showToast( 'Free cam: right-drag to rotate, WASD+Q/E to fly, arrows to drive' );
+				driveHint.textContent = 'Free: middle-drag rotate · wheel dolly · WASD fly · Space/Ctrl up-down · ← ↑ ↓ → drive · right-click erase';
+				showToast( 'Free cam: middle-drag rotate, WASD fly, Space/Ctrl up-down, arrows drive, right-click erases' );
 
 			} else {
 
 				btnCamMode.textContent = 'View: Flat';
 				btnCamMode.classList.remove( 'engaged' );
-				driveHint.textContent = 'Flat: ← ↑ ↓ → drive car · WASD pan · Shift+R respawn';
+				driveHint.textContent = 'Flat: ← ↑ ↓ → drive car · WASD pan · right-click erase · Shift+R respawn';
 				showToast( 'Flat map view' );
 
 			}
@@ -5437,7 +5540,7 @@ document.addEventListener('pointerdown', (e) => {
 
 		} );
 		window.addEventListener( 'keyup', ( e ) => flyKeys.delete( e.code ) );
-		const FLY_CODES = [ 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE' ];
+		const FLY_CODES = [ 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ControlLeft', 'ControlRight' ];
 
 		// Expose immediately so the input handlers wired above can use the
 		// freecam even while the car model is still loading.
