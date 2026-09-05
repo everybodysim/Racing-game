@@ -47,6 +47,21 @@ test( 'green ground no longer covers pools: per-cell tile patch with water holes
 test( 'ground hole recut hooks: water edits flag the patch dirty', /groundTilesDirty = true; \/\/ water added\/removed/.test( html ) );
 test( 'ground hole recut hooks: rebuild runs in the render loop', /if \( groundTilesDirty \) \{ rebuildGroundTiles\(\); groundTilesDirty = false; \}/.test( html ) );
 test( 'ground surround frame fills outside the grid (no seams)', /const groundFrame = new THREE\.Group\(\);/.test( html ) && html.includes( 'groundFrame.add( strip )' ) );
+console.log( 'Editor drive: car-affecting blocks (magnets / arcs / portals / pads / surfaces)' );
+test( 'physics extras now include surfaces + arcLinks', /surfaces: m\.u,/.test( html ) && /arcLinks: m\.a,/.test( html ) );
+test( 'magnet force applied per frame (blue pulls, red pushes, curved falloff)', html.includes( 'function fxApplyMagnetForceFor' ) && /if \( magnet\.kind === 'red' \) _fxMagnetDir\.multiplyScalar\( - 1 \);/.test( html ) && /Math\.pow\( 1 - tf, 1\.6 \)/.test( html ) );
+test( 'arc links + portals trigger with game-identical radius and ballistics', html.includes( 'function fxApplyArcLinkFor' ) && /FX_ARC_LINK_TRIGGER_RADIUS = CELL_RAW \* GRID_SCALE \* 0\.32;/.test( html ) && /const vy = \( ty \+ 0\.5 \* gravity \* travelTime \* travelTime \) \/ travelTime;/.test( html ) );
+test( 'purple portal teleports and keeps velocity', /portal-purple' \) \{[\s\S]*?rigidBody\.setPosition\( world, targetVehicle\.rigidBody, \[ pair\.centerX, pair\.centerY, pair\.centerZ \], false \);[\s\S]*?velocity kept/.test( html ) );
+test( 'pads: contact detection, effect combining, input modifiers, time + gravity scale', html.includes( 'function fxApplyPadContact' ) && html.includes( 'function fxCombinePadEffects' ) && html.includes( 'function fxApplyPadInputModifiers' ) && /fxActivePadEffect\?\.timeScale/.test( html ) && /fxActivePadEffect\?\.gravity/.test( html ) );
+test( 'surfaces: grip/drag/accel/drive multipliers like the game', html.includes( 'function fxApplySurfaceGrip' ) && /FX_SURFACE_EFFECTS = \{[\s\S]*?'surface-ice'/.test( html ) && /FX_GARAGE_FIXED_MULTIPLIER = 1\.15;/.test( html ) );
+test( 'special surfaces: bounce, kicks, custom forces with once-per-contact latch', html.includes( 'function fxApplySpecialSurfacesFor' ) && /'surface-bounce': \( targetVehicle \) => fxApplySurfaceBounceFor\( targetVehicle \),/.test( html ) && /oncePerContact/.test( html ) );
+test( 'boost surfaces: impulse + sustained accel like the game', html.includes( 'function fxApplyBoostFor' ) && /FX_BOOST_VELOCITY_DELTA = 8\.2;/.test( html ) && /FX_BOOST_ACCEL_PER_SECOND = 16\.5;/.test( html ) );
+test( 'trick pads: air-trick spin + recovery copied into the editor', html.includes( 'function fxUpdateAirTrickStateFor' ) && /FX_AIR_TRICK_DURATION_SECONDS = 0\.62;/.test( html ) );
+test( 'size pads rescale the car', html.includes( 'function fxApplyVehicleScaleFromPad' ) && /container\.scale\.setScalar\( nextScale \)/.test( html ) );
+test( 'step wiring: effects run in the game loop order (magnet → arc → gravity → pad → boost → special → trick → grip)', /fxApplyMagnetForceFor\( vehicle, fxdt \);[\s\S]*?fxApplyArcLinkFor\( vehicle, fxArcLinkState \);[\s\S]*?gravityFactor = FX_VEHICLE_BASE_GRAVITY_FACTOR[\s\S]*?fxApplyPadContact\( vehicle[\s\S]*?fxApplyBoostFor\( vehicle, fxClock \);[\s\S]*?fxApplySpecialSurfacesFor\( vehicle, fxSpecialContactState \);[\s\S]*?fxApplySurfaceGrip\( vehicle, activeSurfaceType, fxActivePadEffect \);/.test( html ) );
+test( 'effect entries rebuild with the colliders + on drive init', /rebuildMovingState\(\);\n[\s\S]{0,120}rebuildEffectEntries\(\);/.test( html ) && ( html.match( /rebuildEffectEntries\(\);/g ) || [] ).length >= 2 );
+test( 'no game-runtime edits: fx subsystem is editor-local (main.js has no fxApply*)', ! /fxApply/.test( readFileSync( './js/main.js', 'utf-8' ) ) );
+
 test( 'Special Parts bar is the original flat 212px 2-column bar', /#side-ui-bar \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?width: 212px;/.test( html ) && ! /<details id="side-ui-bar"/.test( html ) );
 
 console.log( 'Editor drive: input wiring' );
@@ -86,8 +101,8 @@ test( 'rebuild preserves the car position across world swaps', html.includes( 'c
 test( 'vehicle body created with the game-identical spawn + perf', html.includes( 'vehicle.setPerformance( { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } )' ) );
 test( 'car model gets the Godot 0.5 root scale fix', html.includes( 'gltf.scene.scale.setScalar( 0.5 );' ) );
 test( 'car model materials forced FrontSide like the game loader', html.includes( "child.material.side = THREE.FrontSide;" ) );
-test( 'drive input shape matches Vehicle.update (x/z axes)', /vehicle\.update\( dt, \{\s*x: \( driveKeys\.ArrowRight \? 1 : 0 \) - \( driveKeys\.ArrowLeft \? 1 : 0 \),\s*z: \( driveKeys\.ArrowUp \? 1 : 0 \) - \( driveKeys\.ArrowDown \? 1 : 0 \),/.test( html ) );
-test( 'physics stepping passes a contact listener (crashcat contract)', html.includes( 'updateWorld( world, NOOP_CONTACT_LISTENER, dt )' ) );
+test( 'drive input shape matches Vehicle.update (x/z axes), pad-modified', /const padAdjustedInput = fxApplyPadInputModifiers\( \{\s*x: \( driveKeys\.ArrowRight \? 1 : 0 \) - \( driveKeys\.ArrowLeft \? 1 : 0 \),\s*z: \( driveKeys\.ArrowUp \? 1 : 0 \) - \( driveKeys\.ArrowDown \? 1 : 0 \),\s*y: 0,\s*\}, fxActivePadEffect \);/.test( html ) && html.includes( 'vehicle.update( fxdt, padAdjustedInput )' ) );
+test( 'physics stepping passes a contact listener (crashcat contract)', html.includes( 'updateWorld( world, NOOP_CONTACT_LISTENER, fxdt )' ) );
 test( 'Vehicle.update only consumes x/z from the input object', vehicle.includes( 'this.inputX = controlsInput.x;' ) && vehicle.includes( 'this.inputZ = controlsInput.z;' ) );
 test( 'computeSpawnPosition returns { position, angle } used by setSpawn', track.includes( 'return { position: [ x, 0.5, z ], angle };' ) && html.includes( 'vehicle.setSpawn( spawn.position, spawn.angle )' ) );
 test( 'respawn resets through Vehicle.resetToSpawn', html.includes( 'vehicle.resetToSpawn();' ) );
