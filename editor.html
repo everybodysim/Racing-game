@@ -322,7 +322,7 @@
 			cursor: pointer;
 		}
 		.side-ui-content button:hover { background: rgba(45, 55, 72, 0.92); }
-		.side-ui-adjust { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba( 255, 255, 255, 0.14 ); }
+		.side-ui-adjust { display: grid; grid-template-columns: repeat( 2, minmax( 0, 1fr ) ); gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba( 255, 255, 255, 0.14 ); }
 		#arc-link-help {
 			grid-column: 1 / -1;
 			padding: 6px 8px;
@@ -1189,7 +1189,7 @@
 		arc.linkId = clampArcLinkId( ( arc.linkId ?? ARC_DEFAULT_ID ) + delta );
 		rebuildArcMeshes();
 		save();
-		showToast( `Arc link id: ${ arc.linkId }` );
+		showToast( `${ arc.type === PORTAL_PURPLE_TOOL || arc.type === PORTAL_YELLOW_TOOL ? 'Portal' : 'Arc' } link id: ${ arc.linkId }` );
 
 	}
 
@@ -1207,7 +1207,7 @@
 		if ( arc.mesh ) arc.mesh.position.y = getMagnetWorldY( arc.y );
 		refreshArcSelectionTint();
 		save();
-		showToast( `Arc Y: ${ arc.y.toFixed( 2 ) }` );
+		showToast( `${ arc.type === PORTAL_PURPLE_TOOL || arc.type === PORTAL_YELLOW_TOOL ? 'Portal' : 'Arc' } Y: ${ arc.y.toFixed( 2 ) }` );
 
 	}
 
@@ -3788,11 +3788,19 @@ function refreshMovingSpeedUi() {
 		showToast( `Surface overlap ${ allowSurfaceOverlap ? 'enabled' : 'disabled' }` );
 
 	} );
-	// One shared Height pair for every special block: each nudge helper is a
-	// no-op unless ITS block type is selected, so calling both moves exactly
-	// the selected block (magnet OR arc/portal).
-	document.getElementById( 'btn-magnet-up' )?.addEventListener( 'click', () => { nudgeSelectedMagnet( MAGNET_Y_STEP ); nudgeSelectedArc( MAGNET_Y_STEP ); } );
-	document.getElementById( 'btn-magnet-down' )?.addEventListener( 'click', () => { nudgeSelectedMagnet( - MAGNET_Y_STEP ); nudgeSelectedArc( - MAGNET_Y_STEP ); } );
+	// One Height pair for EVERY special block type: nudge whichever kind is
+	// selected and toast ITS value. The old merged handler nudged magnet AND
+	// arc — the second call's "Select a…" toast clobbered the first, so the
+	// value notification often never showed.
+	function nudgeSelectedHeight( deltaGridY ) {
+
+		if ( selectedMagnetIndex >= 0 && magnetBlocks[ selectedMagnetIndex ] ) return nudgeSelectedMagnet( deltaGridY );
+		if ( selectedArcIndex >= 0 && arcBlocks[ selectedArcIndex ] ) return nudgeSelectedArc( deltaGridY );
+		showToast( 'Select a special block first — magnet, arc, or portal' );
+
+	}
+	document.getElementById( 'btn-magnet-up' )?.addEventListener( 'click', () => nudgeSelectedHeight( MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-magnet-down' )?.addEventListener( 'click', () => nudgeSelectedHeight( - MAGNET_Y_STEP ) );
 	document.getElementById( 'btn-magnet-strength-up' )?.addEventListener( 'click', () => nudgeSelectedMagnetStrength( MAGNET_STRENGTH_STEP ) );
 	document.getElementById( 'btn-magnet-strength-down' )?.addEventListener( 'click', () => nudgeSelectedMagnetStrength( - MAGNET_STRENGTH_STEP ) );
 	document.getElementById( 'btn-magnet-range-up' )?.addEventListener( 'click', () => nudgeSelectedMagnetRange( MAGNET_RANGE_STEP ) );

@@ -5,7 +5,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000212';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000213';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails, WaterSplashFX } from './Particles.js';
 import { SkidMarks } from './SkidMarks.js';
@@ -4411,7 +4411,8 @@ async function init() {
 		}
 		const clearlyOutOfWater = ! inWaterCell || position.y > 1.1;
 		state.exitTimer = clearlyOutOfWater ? state.exitTimer + safeDelta : 0;
-		if ( state.exitTimer >= 0.35 ) {
+		// Quick exit window so surfacing snaps back to normal framing fast.
+		if ( state.exitTimer >= 0.16 ) {
 
 			state.underwater = false;
 			state.exitTimer = 0;
@@ -5676,8 +5677,8 @@ async function init() {
 	// Reused each frame for cam.update() dynamics to avoid allocating an options
 	// object on every camera update (up to 4 calls/frame). cam.update only reads the
 	// fields, it never retains the reference.
-	const _camDynamics1 = { speedRatio: 0, driftIntensity: 0, underwaterCamera: false };
-	const _camDynamics2 = { speedRatio: 0, driftIntensity: 0, underwaterCamera: false };
+	const _camDynamics1 = { speedRatio: 0, driftIntensity: 0, underwaterCamera: false, waterSurfaceY: 0.12 };
+	const _camDynamics2 = { speedRatio: 0, driftIntensity: 0, underwaterCamera: false, waterSurfaceY: 0.12 };
 
 	if ( cam2 && vehicle2 ) {
 

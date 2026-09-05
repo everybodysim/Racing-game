@@ -301,7 +301,13 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			varying float vWaveDistFade;
 			varying float vCausticDistFade;
 
-			float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 ); }
+			// Sin-free hash (iq): the old fract(sin(dot)*43758) hash loses precision
+			// on large coords and printed a repeating CROSS/X lattice artifact
+			// across the water. This one stays clean at any distance.
+			float hash( vec2 p ) {
+				p = 50.0 * fract( p * 0.3183099 + vec2( 0.71, 0.113 ) );
+				return fract( p.x * p.y * ( p.x + p.y ) );
+			}
 			float noise( vec2 p ) {
 				vec2 i = floor( p ), f = fract( p );
 				f = f * f * ( 3.0 - 2.0 * f );
@@ -364,7 +370,13 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			varying float vWaveDistFade;
 			varying float vCausticDistFade;
 
-			float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 ); }
+			// Sin-free hash (iq): the old fract(sin(dot)*43758) hash loses precision
+			// on large coords and printed a repeating CROSS/X lattice artifact
+			// across the water. This one stays clean at any distance.
+			float hash( vec2 p ) {
+				p = 50.0 * fract( p * 0.3183099 + vec2( 0.71, 0.113 ) );
+				return fract( p.x * p.y * ( p.x + p.y ) );
+			}
 			float noise( vec2 p ) {
 				vec2 i = floor( p ), f = fract( p );
 				f = f * f * ( 3.0 - 2.0 * f );
@@ -423,8 +435,11 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				// on the actual pool floor AND any car under the surface.
 				vec2 cUV = fPos.xz * 1.8 + n.xz * 0.35;
 				float ct = time * 2.0;
-				float n1 = noise( cUV + vec2( ct * 0.3, ct * 0.1 ) );
-				float n2 = noise( cUV.yx - vec2( ct * 0.2, - ct * 0.2 ) );
+				// Two noise fields on ROTATED, differently-scaled domains —
+				// aligned lattices are what drew the cross/X pattern.
+				mat2 rotC = mat2( 0.84, 0.54, -0.54, 0.84 );
+				float n1 = noise( rotC * cUV * 1.15 + vec2( ct * 0.3, ct * 0.1 ) );
+				float n2 = noise( rotC * cUV * 1.62 + vec2( 37.2, - 11.7 ) - vec2( ct * 0.2, - ct * 0.2 ) );
 				float web = abs( n1 - n2 );
 				// Caustics fade out with distance instead of popping off
 				float caustic = pow( max( 0.0, 1.0 - web ), 30.0 ) * 0.6 * vCausticDistFade;
@@ -466,6 +481,7 @@ function createPoolFloorCausticsMaterial() {
 		uniforms: {
 			time: { value: 0 },
 			gain: { value: 0 },
+			shade: { value: 1 },
 			lightDir: { value: new THREE.Vector3( 0.577, 0.577, 0.577 ).normalize() },
 		},
 		transparent: true,
@@ -481,8 +497,15 @@ function createPoolFloorCausticsMaterial() {
 		fragmentShader: `
 			uniform float time;
 			uniform float gain;
+			uniform float shade;
 			varying vec2 vLocal;
-			float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 ); }
+			// Sin-free hash (iq): the old fract(sin(dot)*43758) hash loses precision
+			// on large coords and printed a repeating CROSS/X lattice artifact
+			// across the water. This one stays clean at any distance.
+			float hash( vec2 p ) {
+				p = 50.0 * fract( p * 0.3183099 + vec2( 0.71, 0.113 ) );
+				return fract( p.x * p.y * ( p.x + p.y ) );
+			}
 			float noise( vec2 p ) {
 				vec2 i = floor( p ), f = fract( p );
 				f = f * f * ( 3.0 - 2.0 * f );
@@ -491,16 +514,114 @@ function createPoolFloorCausticsMaterial() {
 			}
 			void main() {
 				if ( gain <= 0.001 ) discard;
-				vec2 cUV = vLocal * 1.85;
 				float ct = time * 1.9;
-				float n1 = noise( cUV + vec2( ct * 0.32, ct * 0.11 ) );
-				float n2 = noise( cUV.yx - vec2( ct * 0.21, - ct * 0.24 ) );
+				// Rotated + differently-scaled domains so the two integer
+				// lattices never align (aligned ones drew the cross/X pattern).
+				mat2 rotC = mat2( 0.84, 0.54, -0.54, 0.84 );
+				vec2 cUV = rotC * vLocal * 1.85;
+				float n1 = noise( cUV * 1.15 + vec2( ct * 0.32, ct * 0.11 ) );
+				float n2 = noise( cUV * 1.62 + vec2( 37.2, - 11.7 ) - vec2( ct * 0.21, - ct * 0.24 ) );
 				float web = abs( n1 - n2 );
-				float caustic = pow( max( 0.0, 1.0 - web ), 22.0 );
+				// Caustics are LIGHT — the shade uniform (N·L toward the sun)
+				// fades them out on surfaces that sit in shadow.
+				float caustic = pow( max( 0.0, 1.0 - web ), 22.0 ) * shade;
 				gl_FragColor = vec4( vec3( 0.62, 0.82, 0.95 ) * caustic * gain * 0.85, caustic * gain );
 			}
 		`,
 	} );
+
+}
+
+// Caustic film for the INNER pool walls: vertical bands that fade out at the
+// water line (nothing above the surface) and dim with depth. `shade` is the
+// N·L term toward the sun — walls facing away from the light sit in shade and
+// get no caustics, matching the floor overlay's behavior.
+function createPoolWallCausticsMaterial() {
+
+	return new THREE.ShaderMaterial( {
+		uniforms: {
+			time: { value: 0 },
+			gain: { value: 0 },
+			shade: { value: 1 },
+			centerY: { value: 0 },
+			waterY: { value: 0.12 },
+		},
+		transparent: true,
+		depthWrite: false,
+		blending: THREE.AdditiveBlending,
+		vertexShader: `
+			varying vec2 vLocal;
+			void main() {
+				vLocal = position.xy;
+				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+			}
+		`,
+		fragmentShader: `
+			uniform float time;
+			uniform float gain;
+			uniform float shade;
+			uniform float centerY;
+			uniform float waterY;
+			varying vec2 vLocal;
+			float hash( vec2 p ) {
+				p = 50.0 * fract( p * 0.3183099 + vec2( 0.71, 0.113 ) );
+				return fract( p.x * p.y * ( p.x + p.y ) );
+			}
+			float noise( vec2 p ) {
+				vec2 i = floor( p ), f = fract( p );
+				f = f * f * ( 3.0 - 2.0 * f );
+				return mix( mix( hash( i ), hash( i + vec2( 1.0, 0.0 ) ), f.x ),
+					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+			}
+			void main() {
+				if ( gain <= 0.001 ) discard;
+				float ct = time * 1.9;
+				mat2 rotC = mat2( 0.84, 0.54, - 0.54, 0.84 );
+				vec2 cUV = rotC * vec2( vLocal.x * 1.45, vLocal.y * 1.1 );
+				float n1 = noise( cUV * 1.15 + vec2( ct * 0.32, ct * 0.11 ) );
+				float n2 = noise( cUV * 1.62 + vec2( 37.2, - 11.7 ) - vec2( ct * 0.21, - ct * 0.24 ) );
+				float web = abs( n1 - n2 );
+				float caustic = pow( max( 0.0, 1.0 - web ), 22.0 );
+				// Fade to nothing AT the water line (dry wall stays clean) and
+				// dim a little with depth, like real light attenuation.
+				float worldY = centerY + vLocal.y;
+				float surfaceFade = smoothstep( 0.0, 0.07, waterY - worldY );
+				float depthFade = clamp( 0.45 + ( waterY - worldY ) * 0.9, 0.35, 1.0 );
+				caustic *= surfaceFade * depthFade * shade;
+				gl_FragColor = vec4( vec3( 0.62, 0.82, 0.95 ) * caustic * gain * 0.8, caustic * gain );
+			}
+		`,
+	} );
+
+}
+
+// Shared per-frame animation for every caustic overlay (floor + walls): tick
+// the clock and ease the gain toward the underwater camera state. 6/s easing
+// makes the water↔normal transition feel instant.
+function attachCausticAnimator( mesh ) {
+
+	let last = 0;
+	mesh.onBeforeRender = () => {
+
+		const now = performance.now() * 0.001;
+		const u = mesh.material.uniforms;
+		u.time.value = now;
+		const targetGain = WATER_UNDERWATER.camera ? 1 : 0;
+		const step = Math.min( 1, Math.max( 0, now - last ) * 6.0 );
+		last = now;
+		u.gain.value = THREE.MathUtils.lerp( u.gain.value, targetGain, step );
+
+	};
+
+}
+
+// Sun direction matches main.js's shadow-casting directional light
+// (11.4, 15, -5.3) so caustic shading agrees with the scene's shadows.
+const CAUSTIC_SUN_DIR = new THREE.Vector3( 11.4, 15, - 5.3 ).normalize();
+const _upShadeNormal = new THREE.Vector3( 0, 1, 0 );
+function computeCausticShade( normal ) {
+
+	return THREE.MathUtils.smoothstep( THREE.MathUtils.clamp( normal.dot( CAUSTIC_SUN_DIR ), - 1, 1 ), - 0.05, 0.45 );
 
 }
 
@@ -934,18 +1055,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			);
 			causticOverlay.rotation.x = - Math.PI / 2;
 			causticOverlay.position.y = - WATER_DEPTH + CELL_RAW * 0.028;
-			let causticLastTime = 0;
-			causticOverlay.onBeforeRender = () => {
-
-				const now = performance.now() * 0.001;
-				const u = causticOverlay.material.uniforms;
-				u.time.value = now;
-				const targetGain = WATER_UNDERWATER.camera ? 1 : 0;
-				const step = Math.min( 1, Math.max( 0, now - causticLastTime ) * 3.5 );
-				causticLastTime = now;
-				u.gain.value = THREE.MathUtils.lerp( u.gain.value, targetGain, step );
-
-			};
+			// Floor faces up, so its caustic shade is the sun's own up-term —
+			// any surface the sun can't reach stays dark (shared with walls).
+			causticOverlay.material.uniforms.shade.value = computeCausticShade( _upShadeNormal );
+			attachCausticAnimator( causticOverlay );
 			pool.add( causticOverlay );
 			// If this pool tile has a pool slope, omit the wall + edge lip on the
 			// exit side (where the ramp's high end meets ground level).
@@ -971,6 +1084,25 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				wall.castShadow = true;
 				wall.receiveShadow = true;
 				pool.add( wall );
+				// Caustic light film on the wall's INNER face — same animated
+				// pattern as the floor, shaded by how directly the wall faces
+				// the sun (walls in shade get none).
+				const wallCaustic = new THREE.Mesh(
+					new THREE.PlaneGeometry( CELL_RAW, WATER_WALL_HEIGHT * 0.94 ),
+					createPoolWallCausticsMaterial()
+				);
+				const inward = new THREE.Vector3( - side.dx, 0, - side.dz );
+				wallCaustic.position.set(
+					side.x + inward.x * CELL_RAW * 0.052,
+					wall.position.y,
+					side.z + inward.z * CELL_RAW * 0.052
+				);
+				wallCaustic.lookAt( wallCaustic.position.clone().add( inward ) );
+				wallCaustic.material.uniforms.shade.value = computeCausticShade( inward );
+				wallCaustic.material.uniforms.centerY.value = wall.position.y;
+				wallCaustic.material.uniforms.waterY.value = 0.12;
+				attachCausticAnimator( wallCaustic );
+				pool.add( wallCaustic );
 				const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: poolVisuals.isCustom ? 0.55 : 0.3, roughness: 0.22, metalness: 0.12 } ) );
 				edge.position.set( side.x, 0.515, side.z );
 				edge.rotation.y = side.ry;

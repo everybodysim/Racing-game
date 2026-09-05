@@ -90,11 +90,12 @@ test( 'default-car options include Last used + Random + every CAR_STATS car', /'
 test( 'boot: default-car setting overrides the boot randomizer', /applyDefaultCar\( localStorage\.getItem\( DEFAULT_CAR_KEY \) \|\| '__random' \);/.test( main ) );
 test( 'profile snapshot carries defaultCar', main.includes( "defaultCar: localStorage.getItem( DEFAULT_CAR_KEY ) || '__last'," ) );
 test( 'profile import merges default car (local pick beats stale cloud)', /const nextDefault = localDefault \|\| cloudDefault \|\| '__last';/.test( main ) && /if \( nextDefault !== '__last' \) applyDefaultCar\( nextDefault \);/.test( main ) );
-test( 'index.html cache bumped for the new main.js', /v=1000212/.test( html ) );
+test( 'index.html cache bumped for the new main.js', /v=1000213/.test( html ) );
 
 console.log( '\n9. Underwater package (dive cam + fog + overlay + caustics + bubbles)' );
 const camera = readFileSync( './js/Camera.js', 'utf8' );
-test( 'chase cam dives underwater with the car (no lift offsets)', /underwaterChaseOffset = this\.chaseOffset;/.test( camera ) && /underwaterOverviewOffset = this\.offset;/.test( camera ) );
+test( 'chase cam dives underwater with the car (fast blend + dive clamp)', /underwaterChaseOffset = new THREE\.Vector3\( 0, 0\.7, - 5\.2 \);/.test( camera ) && /dt \/ 0\.16/.test( camera ) && /waterY - 0\.42/.test( camera ) && /this\.targetPosition\.y \+ 1\.0/.test( camera ) );
+test( 'main.js feeds the camera the water surface height', main.includes( 'waterSurfaceY: 0.12' ) && main.split( 'waterSurfaceY: 0.12' ).length === 3 );
 test( 'look target no longer collapses underwater', !camera.includes( 'lerp( 4.8, 0.8, underwaterLift )' ) );
 test( 'main.js: camera-underwater state + fog + overlay toggle wired', main.includes( 'const cameraUnderwater = updateCameraUnderwater( cam.camera, dt );' ) );
 test( 'main.js: underwater fog engages before the gameplay fog fallback', main.includes( 'else if ( cameraUnderwater ) scene.fog = underwaterFog;' ) );
@@ -113,13 +114,18 @@ test( 'Track.js: caustics gain eases toward the camera-underwater flag', /u\.gai
 test( 'Track.js: caustic overlay attached per pool floor', track.includes( 'const causticOverlay = new THREE.Mesh(' ) );
 test( 'index.html: underwater overlay element present after <body>', /<body>\s*\n\t<div id="underwater-overlay" aria-hidden="true"><\/div>/.test( html ) );
 test( 'index.html: overlay CSS with light-band animation', html.includes( '@keyframes underwater-light-bands' ) );
+test( 'Track.js: sin-hash cross-pattern artifact is GONE (iq hash everywhere)', ! track.includes( 'vec2( 127.1, 311.7 )' ) && track.split( 'p.x * p.y * ( p.x + p.y )' ).length === 5 );
+test( 'Track.js: caustic noise domains rotated so lattices never align', track.split( 'mat2 rotC' ).length === 4 );
+test( 'Track.js: pool WALLS get shaded underwater caustics', track.includes( 'function createPoolWallCausticsMaterial' ) && track.includes( 'attachCausticAnimator( wallCaustic )' ) && track.includes( 'surfaceFade = smoothstep' ) );
+test( 'Track.js: caustics respect sun shading (N dot L toward the sun)', track.includes( 'function computeCausticShade' ) && track.includes( 'uniforms.shade.value = computeCausticShade' ) );
 test( 'index.html: overlay is pointer-transparent', /#underwater-overlay \{[^}]*pointer-events: none;/.test( html ) );
 test( 'editor.html: special parts use ONE merged adjust row (no duplicate height pairs)', /class="side-ui-adjust"/.test( editor ) && editor.split( 'id="btn-portal-up"' ).length === 1 && editor.split( 'Arc/Portal ▲' ).length === 1 );
 test( 'editor.html: all 14 special-part button ids survived the merge', [ 'btn-magnet-blue','btn-magnet-red','btn-magnet-up','btn-magnet-down','btn-magnet-strength-up','btn-magnet-strength-down','btn-magnet-range-up','btn-magnet-range-down','btn-arc-green','btn-portal-yellow','btn-arc-orange','btn-portal-purple','btn-portal-id-down','btn-portal-id-up' ].every( ( id ) => editor.split( 'id="' + id + '"' ).length === 2 ) );
-test( 'editor.html: merged Height buttons nudge BOTH magnets and arcs', editor.includes( 'nudgeSelectedMagnet( MAGNET_Y_STEP ); nudgeSelectedArc( MAGNET_Y_STEP ); } );' ) && editor.includes( 'nudgeSelectedMagnet( - MAGNET_Y_STEP ); nudgeSelectedArc( - MAGNET_Y_STEP ); } );' ) );
+test( 'editor.html: Height dispatcher toasts the RIGHT block value (no clobber)', editor.includes( 'function nudgeSelectedHeight' ) && editor.includes( "addEventListener( 'click', () => nudgeSelectedHeight( MAGNET_Y_STEP ) )" ) && ! editor.includes( 'nudgeSelectedMagnet( MAGNET_Y_STEP ); nudgeSelectedArc( MAGNET_Y_STEP )' ) );
+test( 'editor.html: special-block adjust row is a 2x4 grid', /\.side-ui-adjust \{ display: grid; grid-template-columns: repeat\( 2, minmax\( 0, 1fr \) \);/.test( editor ) );
 test( 'worker: defaultCar + repaint masks survive sanitizeProfile', ( () => { const w = worker; return w.includes( 'sanitizeDefaultCar' ) && /mask: typeof mapping\?\.mask === 'string' \? mapping\.mask\.slice\( 0, 32000 \) : ''/.test( w ) && /defaultCar: sanitizeDefaultCar\( profile\?\.defaultCar \)/.test( w ); } )() );
 test( 'editor.html: arc/portal help text kept', editor.includes( 'Orange launches' ) );
-test( 'Track.js import pin bumped to v=1000212', /Track\.js\?v=1000212'/.test( main ) );
+test( 'Track.js import pin bumped to v=1000213', /Track\.js\?v=1000213'/.test( main ) );
 
 console.log( `\n${ passed } passed, ${ failed } failed${ failed ? ' — WITH FAILURES' : '' }` );
 process.exitCode = failed ? 1 : 0;
