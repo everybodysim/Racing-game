@@ -1,5 +1,8 @@
 const TRACKS_KEY = 'tracks:all';
+const TRACKS_META_KEY = 'tracks:meta';
+const TRACKS_CHUNK_PREFIX = 'tracks:chunk:';
 const MAX_ENTRIES = 300;
+const MAX_TRACKS_CHUNK_BYTES = 5_000_000;
 const PACK_KEY_PREFIX = 'pack:';
 const MAX_PACK_BYTES = 20_000_000;
 
@@ -106,7 +109,7 @@ async function addTrack( request, env ) {
 	const entries = await loadEntries( env );
 	entries.unshift( entry );
 	const trimmed = entries.slice( 0, MAX_ENTRIES );
-	await env.TRACKS_KV.put( TRACKS_KEY, JSON.stringify( trimmed ) );
+	await saveEntries( trimmed, env );
 	return json( { ok: true, entry } );
 }
 
@@ -116,7 +119,7 @@ async function deleteTrack( id, request, env ) {
 
 	const entries = await loadEntries( env );
 	const next = entries.filter( ( entry ) => entry.id !== id );
-	await env.TRACKS_KV.put( TRACKS_KEY, JSON.stringify( next ) );
+	await saveEntries( next, env );
 	return json( { ok: true } );
 }
 
@@ -124,10 +127,10 @@ async function incrementTrackViews( id, env ) {
 	if ( ! id ) return json( { ok: false, error: 'id is required' }, 400 );
 	const entries = await loadEntries( env );
 	const index = entries.findIndex( ( entry ) => entry.id === id );
-	if ( index === - 1 ) return json( { ok: false, error: 'Not found' }, 404 );
+	if ( index === -1 ) return json( { ok: false, error: 'Not found' }, 404 );
 	const current = Number( entries[ index ].viewCount );
 	entries[ index ].viewCount = Number.isFinite( current ) ? current + 1 : 1;
-	await env.TRACKS_KV.put( TRACKS_KEY, JSON.stringify( entries ) );
+	await saveEntries( entries, env );
 	return json( { ok: true, entry: entries[ index ] } );
 }
 
@@ -143,7 +146,7 @@ async function voteTrack( id, request, env ) {
 	if ( vote !== 1 && vote !== -1 ) return json( { ok: false, error: 'vote must be 1 or -1' }, 400 );
 	const entries = await loadEntries( env );
 	const index = entries.findIndex( ( entry ) => entry.id === id );
-	if ( index === - 1 ) return json( { ok: false, error: 'Not found' }, 404 );
+	if ( index === -1 ) return json( { ok: false, error: 'Not found' }, 404 );
 	const currentUp = Number( entries[ index ].thumbsUp );
 	const currentDown = Number( entries[ index ].thumbsDown );
 	entries[ index ].thumbsUp = Number.isFinite( currentUp ) ? currentUp : 0;
@@ -151,28 +154,102 @@ async function voteTrack( id, request, env ) {
 	if ( vote > 0 ) entries[ index ].thumbsUp += 1;
 	if ( vote < 0 ) entries[ index ].thumbsDown += 1;
 	entries[ index ].lastLikedAt = Date.now();
-	await env.TRACKS_KV.put( TRACKS_KEY, JSON.stringify( entries ) );
+	await saveEntries( entries, env );
 	return json( { ok: true, entry: entries[ index ] } );
 }
 
 async function loadEntries( env ) {
+	const metaRaw = await env.TRACKS_KV.get( TRACKS_META_KEY );
+	if ( metaRaw ) {
+		try {
+			const meta = JSON.parse( metaRaw );
+			if ( Array.isArray( meta?.chunks ) ) {
+				const chunks = await Promise.all( meta.chunks.map( ( key ) => env.TRACKS_KV.get( key ) ) );
+				const entries = [];
+				for ( const raw of chunks ) {
+					if ( ! raw ) continue;
+					try {
+						const parsed = JSON.parse( raw );
+						if ( Array.isArray( parsed ) ) entries.push( ...parsed );
+					} catch {
+						// Ignore a corrupt chunk instead of making the whole board unreadable.
+					}
+				}
+				return normalizeEntries( entries );
+			}
+		} catch {
+			// Fall through to the legacy single-key format.
+		}
+	}
+
 	const raw = await env.TRACKS_KV.get( TRACKS_KEY );
 	if ( ! raw ) return [];
 	try {
 		const parsed = JSON.parse( raw );
 		if ( ! Array.isArray( parsed ) ) return [];
-		return parsed.map( ( entry ) => ( {
-			...entry,
-			viewCount: Number.isFinite( Number( entry?.viewCount ) ) ? Number( entry.viewCount ) : 0,
-			thumbsUp: Number.isFinite( Number( entry?.thumbsUp ) ) ? Number( entry.thumbsUp ) : 0,
-			thumbsDown: Number.isFinite( Number( entry?.thumbsDown ) ) ? Number( entry.thumbsDown ) : 0,
-			description: String( entry?.description || '' ),
-			thumbnailDataUrl: String( entry?.thumbnailDataUrl || '' ),
-			lastLikedAt: Number.isFinite( Number( entry?.lastLikedAt ) ) ? Number( entry.lastLikedAt ) : 0,
-		} ) );
+		return normalizeEntries( parsed );
 	} catch {
 		return [];
 	}
+}
+
+function normalizeEntries( entries ) {
+	return entries.map( ( entry ) => ( {
+		...entry,
+		viewCount: Number.isFinite( Number( entry?.viewCount ) ) ? Number( entry.viewCount ) : 0,
+		thumbsUp: Number.isFinite( Number( entry?.thumbsUp ) ) ? Number( entry.thumbsUp ) : 0,
+		thumbsDown: Number.isFinite( Number( entry?.thumbsDown ) ) ? Number( entry.thumbsDown ) : 0,
+		description: String( entry?.description || '' ),
+		thumbnailDataUrl: String( entry?.thumbnailDataUrl || '' ),
+		lastLikedAt: Number.isFinite( Number( entry?.lastLikedAt ) ) ? Number( entry.lastLikedAt ) : 0,
+	} ) );
+}
+
+async function saveEntries( entries, env ) {
+	const chunks = [];
+	let current = [];
+	let currentBytes = 2;
+
+	for ( const entry of entries ) {
+		const entryBytes = byteLength( JSON.stringify( entry ) );
+		if ( entryBytes + 2 > MAX_TRACKS_CHUNK_BYTES ) {
+			throw new Error( `Track entry is too large for a storage chunk: ${ entryBytes } bytes` );
+		}
+
+		const separatorBytes = current.length ? 1 : 0;
+		if ( current.length && currentBytes + separatorBytes + entryBytes > MAX_TRACKS_CHUNK_BYTES ) {
+			chunks.push( current );
+			current = [];
+			currentBytes = 2;
+		}
+
+		current.push( entry );
+		currentBytes += separatorBytes + entryBytes;
+	}
+
+	if ( current.length || chunks.length === 0 ) chunks.push( current );
+
+	const newKeys = chunks.map( ( _, index ) => `${ TRACKS_CHUNK_PREFIX }${ index }` );
+	for ( let i = 0; i < chunks.length; i++ ) {
+		await env.TRACKS_KV.put( newKeys[ i ], JSON.stringify( chunks[ i ] ) );
+	}
+
+	await env.TRACKS_KV.put( TRACKS_META_KEY, JSON.stringify( {
+		version: 1,
+		chunks: newKeys,
+		entryCount: entries.length,
+	} ) );
+
+	// Once the new chunked layout is safely published, remove the legacy giant value.
+	try {
+		await env.TRACKS_KV.delete( TRACKS_KEY );
+	} catch {
+		// The old value is no longer used; failure to delete it should not break writes.
+	}
+}
+
+function byteLength( value ) {
+	return new TextEncoder().encode( value ).byteLength;
 }
 
 async function createPack( request, env ) {
