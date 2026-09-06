@@ -515,8 +515,8 @@
 		<div class="mobile-editor-sheet" aria-label="Advanced editor tools">
 			<button type="button" data-mobile-click="btn-magnet-blue">Magnet Blue +</button>
 			<button type="button" data-mobile-click="btn-magnet-red">Magnet Red +</button>
-			<button type="button" data-mobile-click="btn-magnet-up">Magnet ▲</button>
-			<button type="button" data-mobile-click="btn-magnet-down">Magnet ▼</button>
+			<button type="button" data-mobile-click="btn-magnet-up">Special ▲</button>
+			<button type="button" data-mobile-click="btn-magnet-down">Special ▼</button>
 			<button type="button" data-mobile-click="btn-magnet-strength-up">Strength +</button>
 			<button type="button" data-mobile-click="btn-magnet-strength-down">Strength -</button>
 			<button type="button" data-mobile-click="btn-magnet-range-up">Range +</button>
@@ -525,8 +525,6 @@
 			<button type="button" data-mobile-click="btn-portal-yellow">Portal End +</button>
 			<button type="button" data-mobile-click="btn-arc-orange">Arc Start +</button>
 			<button type="button" data-mobile-click="btn-portal-purple">Portal Start +</button>
-			<button type="button" data-mobile-click="btn-magnet-up">Height ▲</button>
-			<button type="button" data-mobile-click="btn-magnet-down">Height ▼</button>
 			<button type="button" data-mobile-click="btn-portal-id-down">ID -</button>
 			<button type="button" data-mobile-click="btn-portal-id-up">ID +</button>
 			<div class="mobile-editor-help">Orange/Purple are starts. Green/Yellow are matching endpoints.</div>
@@ -536,8 +534,8 @@
 		<button id="btn-magnet-blue">Magnet Blue +</button>
 		<button id="btn-magnet-red">Magnet Red +</button>
 	<!--	<button id="btn-magnet-grapple">Grapple Orb +</button> -->
-		<button id="btn-magnet-up" title="Move selected magnet up by 0.1 grid">Magnet ▲</button>
-		<button id="btn-magnet-down" title="Move selected magnet down by 0.1 grid">Magnet ▼</button>
+		<button id="btn-magnet-up" title="Move the selected special block up by 0.1 grid">Special ▲</button>
+		<button id="btn-magnet-down" title="Move the selected special block down by 0.1 grid">Special ▼</button>
 		<button id="btn-magnet-strength-up" title="Increase selected magnet strength">Strength +</button>
 		<button id="btn-magnet-strength-down" title="Decrease selected magnet strength">Strength -</button>
 		<button id="btn-magnet-range-up" title="Increase selected magnet range">Range +</button>
@@ -909,6 +907,63 @@
 	const ARC_MAX_ID = 999;
 	const BLOCK_HEIGHT_OFFSET = 0.012;
 	const DECO_HEIGHT_OFFSET = BLOCK_HEIGHT_OFFSET * 0.5;
+
+	function selectMagnetIndex( index ) {
+
+		selectedMagnetIndex = index;
+		selectedArcIndex = -1;
+		updateSpecialBlockControls();
+
+	}
+
+	function selectArcIndex( index ) {
+
+		selectedArcIndex = index;
+		selectedMagnetIndex = -1;
+		updateSpecialBlockControls();
+
+	}
+
+	function updateSpecialBlockControls() {
+
+		const hasMagnet = selectedMagnetIndex >= 0 && Boolean( magnetBlocks[ selectedMagnetIndex ] );
+		const hasArc = selectedArcIndex >= 0 && Boolean( arcBlocks[ selectedArcIndex ] );
+		const setVisible = ( id, visible ) => {
+
+			const element = document.getElementById( id );
+			if ( element ) element.style.display = visible ? '' : 'none';
+
+		};
+		const setMobileVisible = ( id, visible ) => {
+
+			document.querySelectorAll( `.mobile-editor-sheet [data-mobile-click="${ id }"]` ).forEach( ( element ) => {
+
+				element.style.display = visible ? '' : 'none';
+
+			} );
+
+		};
+		setVisible( 'btn-magnet-up', hasMagnet || hasArc );
+		setVisible( 'btn-magnet-down', hasMagnet || hasArc );
+		setVisible( 'btn-portal-up', false );
+		setVisible( 'btn-portal-down', false );
+		setVisible( 'btn-magnet-strength-up', hasMagnet );
+		setVisible( 'btn-magnet-strength-down', hasMagnet );
+		setVisible( 'btn-magnet-range-up', hasMagnet );
+		setVisible( 'btn-magnet-range-down', hasMagnet );
+		setVisible( 'btn-portal-id-up', hasArc );
+		setVisible( 'btn-portal-id-down', hasArc );
+		setVisible( 'arc-link-help', hasArc );
+		setMobileVisible( 'btn-magnet-up', hasMagnet || hasArc );
+		setMobileVisible( 'btn-magnet-down', hasMagnet || hasArc );
+		setMobileVisible( 'btn-magnet-strength-up', hasMagnet );
+		setMobileVisible( 'btn-magnet-strength-down', hasMagnet );
+		setMobileVisible( 'btn-magnet-range-up', hasMagnet );
+		setMobileVisible( 'btn-magnet-range-down', hasMagnet );
+		setMobileVisible( 'btn-portal-id-up', hasArc );
+		setMobileVisible( 'btn-portal-id-down', hasArc );
+
+	}
 
 	function clampMagnetGridY( value ) {
 
@@ -2493,13 +2548,13 @@ function computeCausticShade( normal ) {
 			const existingIndex = findNearestMagnetIndex( gx, gz );
 			if ( existingIndex >= 0 ) {
 
-				selectedMagnetIndex = existingIndex;
+				selectMagnetIndex( existingIndex );
 				if ( magnetBlocks[ existingIndex ].type !== selectedType ) magnetBlocks[ existingIndex ].type = selectedType;
 
 			} else {
 
 				magnetBlocks.push( { gx, gz, y: MAGNET_DEFAULT_Y, type: selectedType, strength: MAGNET_DEFAULT_STRENGTH, range: MAGNET_DEFAULT_RANGE, mesh: null } );
-				selectedMagnetIndex = magnetBlocks.length - 1;
+				selectMagnetIndex( magnetBlocks.length - 1 );
 
 			}
 			rebuildMagnetMeshes();
@@ -2511,13 +2566,13 @@ function computeCausticShade( normal ) {
 			const existingIndex = findNearestArcIndex( gx, gz );
 			if ( existingIndex >= 0 ) {
 
-				selectedArcIndex = existingIndex;
+				selectArcIndex( existingIndex );
 				if ( arcBlocks[ existingIndex ].type !== selectedType ) arcBlocks[ existingIndex ].type = selectedType;
 
 			} else {
 
 				arcBlocks.push( { gx, gz, y: MAGNET_DEFAULT_Y, type: selectedType, linkId: ARC_DEFAULT_ID, mesh: null } );
-				selectedArcIndex = arcBlocks.length - 1;
+				selectArcIndex( arcBlocks.length - 1 );
 
 			}
 			rebuildArcMeshes();
@@ -2947,7 +3002,7 @@ function computeCausticShade( normal ) {
 		const existingIndex = findNearestMagnetIndex( gx, gz );
 		if ( existingIndex >= 0 && magnetBlocks[ existingIndex ] ) {
 
-			selectedMagnetIndex = existingIndex;
+			selectMagnetIndex( existingIndex );
 			previewGx = magnetBlocks[ existingIndex ].gx;
 			previewGz = magnetBlocks[ existingIndex ].gz;
 			previewY = clampMagnetGridY( magnetBlocks[ existingIndex ].y );
@@ -2998,7 +3053,7 @@ function computeCausticShade( normal ) {
 			const existingIndex = findNearestArcIndex( gx, gz );
 			if ( existingIndex >= 0 && arcBlocks[ existingIndex ] ) {
 
-				selectedArcIndex = existingIndex;
+				selectArcIndex( existingIndex );
 				previewGx = arcBlocks[ existingIndex ].gx;
 				previewGz = arcBlocks[ existingIndex ].gz;
 				previewY = clampMagnetGridY( arcBlocks[ existingIndex ].y );
@@ -3936,6 +3991,7 @@ function refreshMovingSpeedUi() {
 
 		const rotIndex = ORIENTATIONS.indexOf( selectedOrient );
 		btnRotate.textContent = `Rotate: ${ Math.max( 0, rotIndex ) * 90 }°`;
+		updateSpecialBlockControls();
 
 	}
 
@@ -3943,7 +3999,11 @@ function refreshMovingSpeedUi() {
 
 		selectedType = type;
 		selectTool( 'paint' );
-		if ( type === MAGNET_BLUE_TOOL || type === MAGNET_RED_TOOL ) {
+		const isMagnetTool = type === MAGNET_BLUE_TOOL || type === MAGNET_RED_TOOL || type === MAGNET_GRAPPLE_TOOL;
+		const isArcTool = type === ARC_GREEN_TOOL || type === ARC_ORANGE_TOOL || type === PORTAL_YELLOW_TOOL || type === PORTAL_PURPLE_TOOL;
+		if ( isMagnetTool ) {
+
+			selectedArcIndex = -1;
 
 			if ( hoveredCell ) {
 
@@ -3953,12 +4013,21 @@ function refreshMovingSpeedUi() {
 
 			}
 
+		} else if ( isArcTool ) {
+
+			selectedMagnetIndex = -1;
+
+		} else {
+
+			selectedMagnetIndex = -1;
+			selectedArcIndex = -1;
+
 		}
 		if ( isMovingObstacleTool( type ) && hoveredCell ) {
 			const cell = grid.get( cellKey( hoveredCell.gx, hoveredCell.gz ) );
 			if ( cell?.movingObstacle && movingSpeedInput ) movingSpeedInput.value = String( Math.max( 0.25, Math.min( 3, Number( cell.movingSpeed ) || 1 ) ) );
 		}
-		if ( type === ARC_GREEN_TOOL || type === ARC_ORANGE_TOOL || type === PORTAL_YELLOW_TOOL || type === PORTAL_PURPLE_TOOL ) {
+		if ( isArcTool ) {
 
 			if ( hoveredCell ) {
 
@@ -4123,6 +4192,8 @@ function refreshMovingSpeedUi() {
 	}
 	document.getElementById( 'btn-magnet-up' )?.addEventListener( 'click', () => nudgeSelectedHeight( MAGNET_Y_STEP ) );
 	document.getElementById( 'btn-magnet-down' )?.addEventListener( 'click', () => nudgeSelectedHeight( - MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-portal-up' )?.addEventListener( 'click', () => nudgeSelectedHeight( MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-portal-down' )?.addEventListener( 'click', () => nudgeSelectedHeight( -MAGNET_Y_STEP ) );
 	document.getElementById( 'btn-magnet-strength-up' )?.addEventListener( 'click', () => nudgeSelectedMagnetStrength( MAGNET_STRENGTH_STEP ) );
 	document.getElementById( 'btn-magnet-strength-down' )?.addEventListener( 'click', () => nudgeSelectedMagnetStrength( - MAGNET_STRENGTH_STEP ) );
 	document.getElementById( 'btn-magnet-range-up' )?.addEventListener( 'click', () => nudgeSelectedMagnetRange( MAGNET_RANGE_STEP ) );
