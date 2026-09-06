@@ -272,6 +272,7 @@ const modelNames = [
 	'elev-track-3-way', 'elev-track-4-way',
 	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
 	'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d',
+	'garage',
 ];
 
 const models = {};
@@ -3966,6 +3967,7 @@ async function loadRuntimeMods() {
 function getRequiredModelNames( customCells, extras, carKeys ) {
 
 	const required = new Set( carKeys );
+	required.add( 'garage' );
 	for ( const [ , , key ] of ( customCells || TRACK_CELLS ) ) {
 		required.add( key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key );
 	}
@@ -4010,8 +4012,10 @@ async function loadModels( requiredNames = modelNames ) {
 
 					if ( child.isMesh ) {
 
-						// Keep DoubleSide for elevated track models (corner walls need to be visible from inside)
-						if ( ! name.startsWith( 'elev-track-' ) ) child.material.side = THREE.FrontSide;
+						// The garage is a walk-in scene, so render both sides of every
+						// surface while the other models keep their normal front faces.
+						if ( name === 'garage' ) child.material.side = THREE.DoubleSide;
+						else if ( ! name.startsWith( 'elev-track-' ) ) child.material.side = THREE.FrontSide;
 
 					}
 
@@ -7699,6 +7703,16 @@ async function init() {
 		if ( ! source ) return;
 		const clone = source.clone( true );
 		clone.rotation.y = Math.PI;
+		clone.traverse( ( child ) => {
+
+			if ( child.isMesh ) {
+
+				child.castShadow = true;
+				child.receiveShadow = true;
+
+			}
+
+		} );
 		garageViewer.carRoot.add( clone );
 		applyCarCustomizationToObject( clone, carKey, '', true, '', getGarageRepaintTolerance(), garageSelectionMask, garageTargetColorInput?.value || '' );
 
@@ -7739,6 +7753,8 @@ async function init() {
 
 		if ( garageViewer || ! garageViewerCanvas ) return;
 		const renderer = new THREE.WebGLRenderer( { canvas: garageViewerCanvas, antialias: true, alpha: true } );
+		renderer.shadowMap.enabled = true;
+		renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 		renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, 1.5 ) );
 		const scene = new THREE.Scene();
 		const camera = new THREE.PerspectiveCamera( 34, 1, 0.1, 100 );
@@ -7747,11 +7763,56 @@ async function init() {
 		// sliver at the very bottom of the frame and clicks could not select.
 		camera.position.set( 0, 1.35, 3.9 );
 		camera.lookAt( 0, 0.45, 0 );
-		scene.background = new THREE.Color( 0xf7fbff );
+		scene.background = new THREE.Color( 0x87ceeb );
 		scene.add( new THREE.AmbientLight( 0xffffff, 3.0 ) );
+		const displayRoot = new THREE.Group();
+		const garageRoot = new THREE.Group();
+		const garageSource = models.garage;
+		if ( garageSource ) {
+
+			const garage = garageSource.clone( true );
+			const bounds = new THREE.Box3().setFromObject( garage );
+			const size = bounds.getSize( new THREE.Vector3() );
+			const largestDimension = Math.max( size.x, size.y, size.z, 0.001 );
+			// The uploaded garage contains generous surrounding space. Keep the
+			// scene large enough that the visible city reads behind the car.
+			const garageScale = 80 / largestDimension;
+			garage.scale.setScalar( garageScale );
+			// The GLB origin is the car parking point. Preserve it instead of
+			// recentering the mesh by its bounds, so the car shares the authored
+			// garage coordinate system and sits naturally on the garage floor.
+			garage.position.set( 0, 0, - 2.2 );
+			garage.traverse( ( child ) => {
+
+				if ( ! child.isMesh ) return;
+				const materials = Array.isArray( child.material ) ? child.material : [ child.material ];
+				materials.forEach( ( material ) => { material.side = THREE.DoubleSide; } );
+				child.castShadow = true;
+				child.receiveShadow = true;
+
+			} );
+			garageRoot.add( garage );
+
+		}
+		garageRoot.renderOrder = - 1;
+		displayRoot.add( garageRoot );
 		const carRoot = new THREE.Group();
-		scene.add( carRoot );
-		garageViewer = { renderer, scene, camera, carRoot, yaw: 0, dragging: false, moved: false, sx: 0, sy: 0, raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
+		carRoot.rotation.y = Math.PI / 4;
+		displayRoot.add( carRoot );
+		const garageKeyLight = new THREE.DirectionalLight( 0xffffff, 2.4 );
+		garageKeyLight.position.set( - 4, 7, 5 );
+		garageKeyLight.target.position.set( 0, 0, 0 );
+		garageKeyLight.castShadow = true;
+		garageKeyLight.shadow.mapSize.set( 1024, 1024 );
+		garageKeyLight.shadow.camera.near = 0.1;
+		garageKeyLight.shadow.camera.far = 30;
+		garageKeyLight.shadow.camera.left = - 10;
+		garageKeyLight.shadow.camera.right = 10;
+		garageKeyLight.shadow.camera.top = 10;
+		garageKeyLight.shadow.camera.bottom = - 10;
+		scene.add( garageKeyLight, garageKeyLight.target );
+		scene.add( displayRoot );
+		garageViewer = { renderer, scene, camera, displayRoot, garageRoot, carRoot, yaw: 0, pitch: 0.23, zoom: 1, dragging: false, moved: false, sx: 0, sy: 0, pinchDistance: 0, pointers: new Map(), raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
 		const resize = () => {
 
 			const rect = garageViewerCanvas.getBoundingClientRect();
@@ -7767,7 +7828,12 @@ async function init() {
 			if ( garageViewer ) {
 
 				resize();
-				carRoot.rotation.y = garageViewer.yaw;
+				displayRoot.rotation.y = garageViewer.yaw;
+				carRoot.rotation.y = Math.PI / 4;
+				const orbitRadius = 3.9 / garageViewer.zoom;
+				camera.position.y = 0.45 + Math.sin( garageViewer.pitch ) * orbitRadius;
+				camera.position.z = Math.cos( garageViewer.pitch ) * orbitRadius;
+				camera.lookAt( 0, 0.45, 0 );
 				renderer.shadowMap.needsUpdate = true;
 				renderer.render( scene, camera );
 				requestAnimationFrame( animate );
@@ -7776,25 +7842,68 @@ async function init() {
 
 		};
 		// Drag to rotate; a click (no significant drag) selects the color under the cursor.
-		garageViewerCanvas.addEventListener( 'pointerdown', ( event ) => { garageViewer.dragging = true; garageViewer.moved = false; garageViewer.sx = event.clientX; garageViewer.sy = event.clientY; garageViewerCanvas.classList.add( 'dragging' ); garageViewerCanvas.setPointerCapture?.( event.pointerId ); } );
+		garageViewerCanvas.addEventListener( 'wheel', ( event ) => {
+
+			event.preventDefault();
+			garageViewer.zoom = THREE.MathUtils.clamp( garageViewer.zoom * Math.exp( - event.deltaY * 0.001 ), 0.3, 2.2 );
+
+		}, { passive: false } );
+		garageViewerCanvas.addEventListener( 'pointerdown', ( event ) => {
+
+			garageViewer.pointers.set( event.pointerId, { x: event.clientX, y: event.clientY } );
+			if ( garageViewer.pointers.size === 2 ) {
+
+				const points = [ ... garageViewer.pointers.values() ];
+				garageViewer.pinchDistance = Math.hypot( points[ 0 ].x - points[ 1 ].x, points[ 0 ].y - points[ 1 ].y );
+				garageViewer.dragging = false;
+
+			} else {
+
+				garageViewer.dragging = true;
+				garageViewer.moved = false;
+				garageViewer.sx = event.clientX;
+				garageViewer.sy = event.clientY;
+				garageViewerCanvas.classList.add( 'dragging' );
+
+			}
+			garageViewerCanvas.setPointerCapture?.( event.pointerId );
+
+		} );
 		garageViewerCanvas.addEventListener( 'pointermove', ( event ) => {
 
+			if ( garageViewer.pointers.has( event.pointerId ) ) garageViewer.pointers.set( event.pointerId, { x: event.clientX, y: event.clientY } );
+			if ( garageViewer.pointers.size >= 2 ) {
+
+				const points = [ ... garageViewer.pointers.values() ];
+				const distance = Math.hypot( points[ 0 ].x - points[ 1 ].x, points[ 0 ].y - points[ 1 ].y );
+				if ( garageViewer.pinchDistance > 0 ) garageViewer.zoom = THREE.MathUtils.clamp( garageViewer.zoom * ( distance / garageViewer.pinchDistance ), 0.3, 2.2 );
+				garageViewer.pinchDistance = distance;
+				garageViewer.moved = true;
+				return;
+
+			}
 			if ( ! garageViewer.dragging ) return;
 			const dx = event.clientX - garageViewer.sx;
 			const dy = event.clientY - garageViewer.sy;
 			if ( Math.abs( dx ) + Math.abs( dy ) > 4 ) garageViewer.moved = true;
 			garageViewer.yaw += dx * 0.01;
+			// Dragging upward lowers the camera; never allow it below the car.
+			garageViewer.pitch = THREE.MathUtils.clamp( garageViewer.pitch + dy * 0.008, 0, 0.95 );
 			garageViewer.sx = event.clientX;
 			garageViewer.sy = event.clientY;
 
 		} );
-		garageViewerCanvas.addEventListener( 'pointerup', ( event ) => {
+		const endPointer = ( event ) => {
 
+			garageViewer.pointers.delete( event.pointerId );
+			if ( garageViewer.pointers.size > 0 ) return;
 			garageViewer.dragging = false;
 			garageViewerCanvas.classList.remove( 'dragging' );
 			if ( ! garageViewer.moved ) garageSelectFromViewerClick( event );
 
-		} );
+		};
+		garageViewerCanvas.addEventListener( 'pointerup', endPointer );
+		garageViewerCanvas.addEventListener( 'pointercancel', endPointer );
 		refreshGarageViewer();
 		animate();
 
