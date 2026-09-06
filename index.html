@@ -3656,7 +3656,7 @@ document.getElementById('loading-status').textContent =
     const nameInput = document.getElementById("name");
     if (nameInput) nameInput.value = userName;
   }
-	const seenMessageIds = new Set(); // prevent the same Ably event from rendering twice
+  let seen = new Set(); // prevent duplicates
   let hasUnreadMessages = false;
   const baseDocumentTitle = "Racing";
   document.title = baseDocumentTitle;
@@ -3831,19 +3831,10 @@ document.getElementById('loading-status').textContent =
   updateClubUnreadButtons();
   loadMyClubIds().then(hydrateMissedClubMessages);
 
-	function getChatMessageId(message) {
-		if (message?.id) return `id:${ message.id }`;
-		const timestamp = Number(message?.timestamp) || 0;
-		const clientId = String(message?.clientId || '');
-		return timestamp || clientId ? `event:${ timestamp }:${ clientId }:${ String(message?.data || '') }` : '';
-	}
-
-	function addMessage(message) {
-		const text = String(message?.data || '');
-		if (isClubTaggedMessage(text)) return;
-		const messageId = getChatMessageId(message);
-		if (messageId && seenMessageIds.has(messageId)) return;
-		if (messageId) seenMessageIds.add(messageId);
+  function addMessage(text) {
+    if (isClubTaggedMessage(text)) return;
+    if (seen.has(text)) return;
+    seen.add(text);
 
     const div = document.createElement("div");
     div.className = "msg";
@@ -3871,7 +3862,7 @@ document.getElementById('loading-status').textContent =
         }
 
         const messages = result.items.reverse(); // oldest → newest
-		messages.forEach(msg => addMessage(msg));
+        messages.forEach(msg => addMessage(msg.data));
       });
     }
   };
@@ -3900,7 +3891,7 @@ document.getElementById('loading-status').textContent =
       incrementClubUnread(msg);
       return;
     }
-	addMessage(msg);
+    addMessage(msg.data);
     if (chatWindow.style.display !== "flex" || document.hidden) {
       setUnreadIndicator(true);
     }
