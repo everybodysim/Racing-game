@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
+import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
@@ -4105,6 +4105,140 @@ async function loadCustomTrackAssets( extras ) {
 
 }
 
+async function loadGarageCollisionAsset() {
+
+	try {
+		const text = await ( await fetch( 'models/garage.obj' ) ).text();
+		return objLoader.parse( text );
+	} catch ( error ) {
+		console.warn( 'Failed to load garage collision OBJ', error );
+		return null;
+	}
+
+}
+
+function getGarageCollisionBoxes( root, scale, zOffset ) {
+
+	if ( ! root ) return [];
+	const boxes = [];
+	root.updateMatrixWorld( true );
+	root.traverse( ( child ) => {
+
+		if ( ! child.isMesh || ! child.geometry?.attributes?.position ) return;
+		const positions = child.geometry.attributes.position;
+		const unique = new Map();
+		for ( let i = 0; i < positions.count; i ++ ) {
+
+			const point = new THREE.Vector3().fromBufferAttribute( positions, i ).applyMatrix4( child.matrixWorld );
+			point.multiplyScalar( scale );
+			point.z += zOffset;
+			const key = `${ point.x.toFixed( 5 ) },${ point.y.toFixed( 5 ) },${ point.z.toFixed( 5 ) }`;
+			unique.set( key, point );
+
+		}
+		const points = [ ... unique.values() ];
+		if ( points.length < 8 ) return;
+		const center = points.reduce( ( sum, point ) => sum.add( point ), new THREE.Vector3() ).multiplyScalar( 1 / points.length );
+		const origin = points[ 0 ];
+		const candidates = points.slice( 1 ).map( ( point ) => point.clone().sub( origin ) ).sort( ( a, b ) => a.lengthSq() - b.lengthSq() );
+		let axes = null;
+		for ( let i = 0; i < candidates.length && ! axes; i ++ ) {
+			for ( let j = i + 1; j < candidates.length && ! axes; j ++ ) {
+				for ( let k = j + 1; k < candidates.length; k ++ ) {
+
+					const lengths = [ candidates[ i ].length(), candidates[ j ].length(), candidates[ k ].length() ];
+					if ( lengths.some( ( length ) => length < 1e-4 ) ) continue;
+					const normalized = candidates.slice( i, i + 1 ).concat( candidates.slice( j, j + 1 ), candidates.slice( k, k + 1 ) ).map( ( axis ) => axis.clone().normalize() );
+					const orthogonal = Math.abs( normalized[ 0 ].dot( normalized[ 1 ] ) ) < 0.01
+						&& Math.abs( normalized[ 0 ].dot( normalized[ 2 ] ) ) < 0.01
+						&& Math.abs( normalized[ 1 ].dot( normalized[ 2 ] ) ) < 0.01;
+					if ( orthogonal ) { axes = normalized.map( ( axis, index ) => axis.multiplyScalar( lengths[ index ] * 0.5 ) ); break; }
+
+				}
+			}
+		}
+		if ( ! axes ) return;
+		const xAxis = axes[ 0 ].clone().normalize();
+		const yAxis = axes[ 1 ].clone().normalize();
+		const zAxis = new THREE.Vector3().crossVectors( xAxis, yAxis ).normalize();
+		if ( zAxis.dot( axes[ 2 ] ) < 0 ) zAxis.negate();
+		const basis = new THREE.Matrix4().makeBasis( xAxis, yAxis, zAxis );
+		const worldYHalfExtent = Math.abs( axes[ 0 ].y ) + Math.abs( axes[ 1 ].y ) + Math.abs( axes[ 2 ].y );
+		const worldXHalfExtent = ( Math.max( ... points.map( ( point ) => point.x ) ) - Math.min( ... points.map( ( point ) => point.x ) ) ) * 0.5;
+		const worldZHalfExtent = ( Math.max( ... points.map( ( point ) => point.z ) ) - Math.min( ... points.map( ( point ) => point.z ) ) ) * 0.5;
+		const footprintArea = worldXHalfExtent * worldZHalfExtent * 4;
+		boxes.push( { center: [ center.x, center.y, center.z ], halfExtents: [ axes[ 0 ].length(), axes[ 1 ].length(), axes[ 2 ].length() ], worldXHalfExtent, worldYHalfExtent, worldZHalfExtent, footprintArea, quaternion: new THREE.Quaternion().setFromRotationMatrix( basis ) } );
+
+	} );
+	return boxes;
+
+}
+
+function getGarageTriangleMeshData( root, scale, zOffset ) {
+
+	const positions = [];
+	const indices = [];
+	if ( ! root ) return { positions, indices };
+	root.updateMatrixWorld( true );
+	root.traverse( ( child ) => {
+
+		if ( ! child.isMesh || ! child.geometry?.attributes?.position ) return;
+		const attribute = child.geometry.attributes.position;
+		const offset = positions.length / 3;
+		for ( let i = 0; i < attribute.count; i ++ ) {
+
+			const point = new THREE.Vector3().fromBufferAttribute( attribute, i ).applyMatrix4( child.matrixWorld );
+			positions.push( point.x * scale, point.y * scale, point.z * scale + zOffset );
+
+		}
+		if ( child.geometry.index ) {
+
+			const index = child.geometry.index;
+			for ( let i = 0; i < index.count; i ++ ) indices.push( offset + index.getX( i ) );
+
+		} else {
+
+			for ( let i = 0; i < attribute.count; i ++ ) indices.push( offset + i );
+
+		}
+
+	} );
+	return { positions, indices };
+
+}
+
+function addGarageCollisionBoxes( world, root, scale, zOffset ) {
+
+	const boxes = getGarageCollisionBoxes( root, scale, zOffset );
+	const meshData = getGarageTriangleMeshData( root, scale, zOffset );
+	let floorTop = 0;
+	let floorArea = 0;
+	for ( const entry of boxes ) {
+
+		if ( entry.footprintArea > floorArea ) {
+
+			floorArea = entry.footprintArea;
+			floorTop = entry.center[ 1 ] + entry.worldYHalfExtent;
+
+		}
+
+	}
+	if ( meshData.positions.length >= 9 && meshData.indices.length >= 3 ) {
+
+		rigidBody.create( world, {
+			shape: triangleMesh.create( meshData ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: [ 0, 0, 0 ],
+			friction: 5.0,
+			restitution: 0.0,
+		} );
+
+	}
+	return { count: boxes.length, floorTop };
+
+}
+
 // --- Sandboxed Custom-Mod UI + Storage helpers (module scope) ---
 // These give mods a safe, isolated way to build their own interface and persist
 // data without ever touching the game's real DOM or localStorage keys directly.
@@ -4376,7 +4510,13 @@ async function init() {
 	}
 	const requiredModelNames = getRequiredModelNames( customCells, extras, carKeys );
 	setLoadingStatus( `Loading ${ requiredModelNames.length } needed models…`, 'models' );
+	const garageCollisionPromise = loadGarageCollisionAsset();
 	await Promise.all( [ loadModels( requiredModelNames ), loadCustomTrackAssets( extras ) ] );
+	const garageCollisionAsset = await garageCollisionPromise;
+	const garageBounds = new THREE.Box3().setFromObject( models.garage );
+	const garageSize = garageBounds.getSize( new THREE.Vector3() );
+	const garageSceneScale = 80 / Math.max( garageSize.x, garageSize.y, garageSize.z, 0.001 );
+	const garageSceneZOffset = - 2.2;
 	setLoadingStatus( 'Loading track and mods…', 'track' );
 	const runtimeMods = await runtimeModsPromise;
 	// Surface installed runtime mods in the boot console so players can confirm their
@@ -4451,6 +4591,21 @@ async function init() {
 	const world = createWorld( worldSettings );
 	world._OL_MOVING = OL_MOVING;
 	world._OL_STATIC = OL_STATIC;
+	const garageWorldSettings = createWorldSettings();
+	garageWorldSettings.gravity = [ 0, - 9.81, 0 ];
+	const garageBplMoving = addBroadphaseLayer( garageWorldSettings );
+	const garageBplStatic = addBroadphaseLayer( garageWorldSettings );
+	const garageOlMoving = addObjectLayer( garageWorldSettings, garageBplMoving );
+	const garageOlStatic = addObjectLayer( garageWorldSettings, garageBplStatic );
+	enableCollision( garageWorldSettings, garageOlMoving, garageOlStatic );
+	enableCollision( garageWorldSettings, garageOlMoving, garageOlMoving );
+	const garageWorld = createWorld( garageWorldSettings );
+	garageWorld._OL_MOVING = garageOlMoving;
+	garageWorld._OL_STATIC = garageOlStatic;
+	let garageCollisionAdded = false;
+	let garageFloorTop = 0;
+	let garageVehicleBody = null;
+	let garageVehicle = null;
 
 	const hitboxDebugGroup = new THREE.Group();
 	hitboxDebugGroup.visible = false;
@@ -6303,6 +6458,8 @@ async function init() {
 	const garageAccelUnlockBtn = document.getElementById( 'garage-accel-unlock' );
 	const garageDriveUnlockBtn = document.getElementById( 'garage-drive-unlock' );
 	const garageViewerCanvas = document.getElementById( 'garage-viewer' );
+	const garageViewerHint = document.getElementById( 'garage-viewer-hint' );
+	const garageDriveBtn = document.getElementById( 'garage-drive-btn' );
 	const garageTargetColorInput = document.getElementById( 'garage-target-color' );
 	const garageApplyPaintBtn = document.getElementById( 'garage-apply-paint-btn' );
 	const garageClearSelectionBtn = document.getElementById( 'garage-clear-selection-btn' );
@@ -6424,6 +6581,7 @@ async function init() {
 	let selectedGarageSourceHex = '';
 	let hoveredGarageSourceHex = '';
 	let garageViewer = null;
+	let garageDriveActive = false;
 	let garageCosmetics = normalizeGarageCosmetics( null );
 	const recolorTextureSourceCache = new WeakMap();
 	const garageTexturePaletteCache = new WeakMap();
@@ -6918,6 +7076,7 @@ async function init() {
 	function setModeMenuOpen( open ) {
 
 		modeMenuOpen = open;
+		if ( ! open && garageDriveActive ) setGarageDriveActive( false );
 		if ( modeMenu ) modeMenu.style.display = open ? 'block' : 'none';
 		document.body.classList.toggle( 'mode-menu-open', modeMenuOpen );
 		// Spin the garage card previews only while the garage panel is actually visible. While open
@@ -7066,7 +7225,7 @@ async function init() {
 
 		}
 		// Only keep the garage card preview renderers alive while the garage tab is open & menu
-		// visible; otherwise dispose them to free the ~10 WebGL contexts (see setModeMenuOpen).
+		if ( tab !== 'garage' && garageDriveActive ) setGarageDriveActive( false );
 		if ( modeMenuOpen && tab === 'garage' ) activateGarageCardPreviews();
 		else disposeGarageCardPreviews();
 
@@ -7771,17 +7930,14 @@ async function init() {
 		if ( garageSource ) {
 
 			const garage = garageSource.clone( true );
-			const bounds = new THREE.Box3().setFromObject( garage );
-			const size = bounds.getSize( new THREE.Vector3() );
-			const largestDimension = Math.max( size.x, size.y, size.z, 0.001 );
 			// The uploaded garage contains generous surrounding space. Keep the
 			// scene large enough that the visible city reads behind the car.
-			const garageScale = 80 / largestDimension;
+			const garageScale = garageSceneScale;
 			garage.scale.setScalar( garageScale );
 			// The GLB origin is the car parking point. Preserve it instead of
 			// recentering the mesh by its bounds, so the car shares the authored
 			// garage coordinate system and sits naturally on the garage floor.
-			garage.position.set( 0, 0, - 2.2 );
+			garage.position.set( 0, 0, garageSceneZOffset );
 			garage.traverse( ( child ) => {
 
 				if ( ! child.isMesh ) return;
@@ -7792,6 +7948,22 @@ async function init() {
 
 			} );
 			garageRoot.add( garage );
+
+		}
+		const garageCollisionVisual = garageCollisionAsset?.clone( true );
+		if ( garageCollisionVisual ) {
+
+			garageCollisionVisual.visible = false;
+			garageCollisionVisual.scale.setScalar( garageSceneScale );
+			garageCollisionVisual.position.set( 0, 0, garageSceneZOffset );
+			garageCollisionVisual.traverse( ( child ) => {
+
+				if ( ! child.isMesh ) return;
+				child.material = new THREE.MeshBasicMaterial( { color: 0xff4b38, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide } );
+				child.renderOrder = 2;
+
+			} );
+			garageRoot.add( garageCollisionVisual );
 
 		}
 		garageRoot.renderOrder = - 1;
@@ -7812,7 +7984,7 @@ async function init() {
 		garageKeyLight.shadow.camera.bottom = - 10;
 		scene.add( garageKeyLight, garageKeyLight.target );
 		scene.add( displayRoot );
-		garageViewer = { renderer, scene, camera, displayRoot, garageRoot, carRoot, yaw: 0, pitch: 0.23, zoom: 1, dragging: false, moved: false, sx: 0, sy: 0, pinchDistance: 0, pointers: new Map(), raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
+		garageViewer = { renderer, scene, camera, displayRoot, garageRoot, carRoot, yaw: 0, pitch: 0.23, zoom: 1, drive: false, dragging: false, moved: false, sx: 0, sy: 0, pinchDistance: 0, pointers: new Map(), raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
 		const resize = () => {
 
 			const rect = garageViewerCanvas.getBoundingClientRect();
@@ -7828,12 +8000,25 @@ async function init() {
 			if ( garageViewer ) {
 
 				resize();
-				displayRoot.rotation.y = garageViewer.yaw;
-				carRoot.rotation.y = Math.PI / 4;
 				const orbitRadius = 3.9 / garageViewer.zoom;
-				camera.position.y = 0.45 + Math.sin( garageViewer.pitch ) * orbitRadius;
-				camera.position.z = Math.cos( garageViewer.pitch ) * orbitRadius;
-				camera.lookAt( 0, 0.45, 0 );
+				if ( garageViewer.drive ) {
+
+					displayRoot.rotation.y = 0;
+					const target = garageVehicle?.spherePos || vehicle.spherePos;
+					const chaseOffset = new THREE.Vector3( 0, 2.3, - 6.6 ).applyQuaternion( garageVehicle?.container?.quaternion || vehicle.container.quaternion );
+					const chaseLook = new THREE.Vector3( 0, 0.9, 4.8 ).applyQuaternion( garageVehicle?.container?.quaternion || vehicle.container.quaternion );
+					camera.position.lerp( new THREE.Vector3( target.x + chaseOffset.x, target.y + chaseOffset.y, target.z + chaseOffset.z ), 0.12 );
+					camera.lookAt( target.x + chaseLook.x, target.y + chaseLook.y, target.z + chaseLook.z );
+
+				} else {
+
+					displayRoot.rotation.y = garageViewer.yaw;
+					carRoot.rotation.y = Math.PI / 4;
+					camera.position.y = 0.45 + Math.sin( garageViewer.pitch ) * orbitRadius;
+					camera.position.z = Math.cos( garageViewer.pitch ) * orbitRadius;
+					camera.lookAt( 0, 0.45, 0 );
+
+				}
 				renderer.shadowMap.needsUpdate = true;
 				renderer.render( scene, camera );
 				requestAnimationFrame( animate );
@@ -7899,13 +8084,79 @@ async function init() {
 			if ( garageViewer.pointers.size > 0 ) return;
 			garageViewer.dragging = false;
 			garageViewerCanvas.classList.remove( 'dragging' );
-			if ( ! garageViewer.moved ) garageSelectFromViewerClick( event );
+			if ( ! garageViewer.moved && ! garageViewer.drive ) garageSelectFromViewerClick( event );
 
 		};
 		garageViewerCanvas.addEventListener( 'pointerup', endPointer );
 		garageViewerCanvas.addEventListener( 'pointercancel', endPointer );
 		refreshGarageViewer();
 		animate();
+
+	}
+
+	function setGarageDriveActive( active ) {
+
+		if ( active === garageDriveActive ) return;
+		if ( active ) {
+
+			if ( ! garageViewer ) initGarageViewer();
+			if ( ! garageViewer ) return;
+			if ( ! garageCollisionAdded ) {
+
+				const collisionData = addGarageCollisionBoxes( garageWorld, garageCollisionAsset, garageSceneScale, garageSceneZOffset );
+				garageFloorTop = collisionData.floorTop;
+				garageCollisionAdded = true;
+				appendLoadingConsole( `Garage collision boxes loaded: ${ collisionData.count } (scale ${ garageSceneScale.toFixed( 3 )}, floor top ${ garageFloorTop.toFixed( 3 )})` );
+
+			}
+			const garageSpawn = [ 0, garageFloorTop + 0.55, 0 ];
+			if ( ! garageVehicleBody ) garageVehicleBody = createSphereBody( garageWorld, garageSpawn );
+			const garageCarKey = getSelectedGarageCarKey();
+			if ( ! garageVehicle ) {
+
+				garageVehicle = new Vehicle();
+				garageVehicle.rigidBody = garageVehicleBody;
+				garageVehicle.physicsWorld = garageWorld;
+				garageVehicle.setPerformance( CAR_STATS[ garageCarKey ].perf );
+				garageVehicle.init( models[ garageCarKey ] );
+				applyCarCustomizationToObject( garageVehicle.container, garageCarKey );
+
+			} else if ( models[ garageCarKey ] ) garageVehicle.setModel( models[ garageCarKey ] );
+			garageVehicle.setPerformance( CAR_STATS[ garageCarKey ].perf );
+			applyCarCustomizationToObject( garageVehicle.container, garageCarKey );
+			garageVehicle.rigidBody = garageVehicleBody;
+			garageVehicle.physicsWorld = garageWorld;
+			rigidBody.setLinearVelocity( world, sphereBody, [ 0, 0, 0 ] );
+			rigidBody.setAngularVelocity( world, sphereBody, [ 0, 0, 0 ] );
+			garageDriveActive = true;
+			garageViewer.drive = true;
+			garageViewer.carRoot.visible = false;
+			disposeGarageCloneMaterials( garageViewer.carRoot );
+			garageViewer.carRoot.clear();
+			garageViewer.displayRoot.add( garageVehicle.container );
+			garageVehicle.setSpawn( garageSpawn, 0 );
+			garageVehicle.resetToSpawn();
+			garageDriveBtn.textContent = 'Exit garage drive';
+			garageDriveBtn.classList.add( 'active' );
+			garageViewerHint.textContent = 'WASD or controller to drive • drag to orbit camera • scroll or pinch to zoom';
+
+		} else {
+
+			garageDriveActive = false;
+			if ( garageViewer ) {
+
+				garageViewer.drive = false;
+				garageViewer.carRoot.visible = true;
+				if ( garageVehicle?.container?.parent ) garageVehicle.container.parent.remove( garageVehicle.container );
+
+			}
+			garageVehicle?.resetToSpawn();
+			refreshGarageViewer();
+			garageDriveBtn.textContent = 'Test drive garage';
+			garageDriveBtn.classList.remove( 'active' );
+			garageViewerHint.textContent = 'Click a color to select it • drag to rotate • scroll or pinch to zoom';
+
+		}
 
 	}
 
@@ -8133,6 +8384,13 @@ async function init() {
 		ensureGarageSelectionSource();
 		refreshGarageViewer();
 		updateGarageCardActiveState();
+		if ( garageDriveActive && garageVehicle && models[ selectedKey ] ) {
+
+			garageVehicle.setModel( models[ selectedKey ] );
+			garageVehicle.setPerformance( CAR_STATS[ selectedKey ].perf );
+			applyCarCustomizationToObject( garageVehicle.container, selectedKey );
+
+		}
 		setGarageMappingStatus( `Now editing mappings for ${ CAR_STATS[ selectedKey ]?.name || 'selected car' }.` );
 		applyVehiclePerformance();
 		saveGarageMods();
@@ -11981,6 +12239,14 @@ function completeCampaignStage() {
 	garageGripUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'grip' ) );
 	garageAccelUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'accel' ) );
 	garageDriveUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'drive' ) );
+	garageDriveBtn?.addEventListener( 'click', () => setGarageDriveActive( ! garageDriveActive ) );
+	window.addEventListener( 'keydown', ( event ) => {
+
+		if ( ! modeMenuOpen || modeTab !== 'garage' ) return;
+		if ( [ 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'PageUp', 'PageDown', 'Home', 'End' ].includes( event.code ) ) event.preventDefault();
+		if ( ! garageDriveActive && [ 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight' ].includes( event.code ) ) setGarageDriveActive( true );
+
+	} );
 	modeTabGameplayBtn?.addEventListener( 'click', () => setModeTab( 'gameplay' ) );
 	modeTabGarageBtn?.addEventListener( 'click', () => setModeTab( 'garage' ) );
 	modeTabAccountBtn?.addEventListener( 'click', () => setModeTab( 'account' ) );
@@ -12109,6 +12375,7 @@ function completeCampaignStage() {
 		hoveredGarageSourceHex = '';
 		garageSelectionMask = null;
 		applyCarCustomization( vehicle );
+		if ( garageDriveActive && garageVehicle ) applyCarCustomizationToObject( garageVehicle.container, carKey );
 		refreshGarageViewer();
 		refreshGarageCardPreviewPaint( carKey );
 		// List + card counts refresh LAST, after every state mutation, so the
@@ -12578,7 +12845,7 @@ function completeCampaignStage() {
 				respawnVehicle2();
 
 			}
-			const controlsBlocked = modeMenuOpen || replayViewerMode || countdownActive;
+			const controlsBlocked = ( modeMenuOpen && ! garageDriveActive ) || replayViewerMode || countdownActive;
 			let baseInput;
 			if ( controlsBlocked ) baseInput = ZERO_DRIVE_INPUT;
 			else if ( freecamState.active ) baseInput = readFreecamCarInput();
@@ -12634,16 +12901,17 @@ function completeCampaignStage() {
 		}
 
 		updateWorld( world, contactListener, dt );
+		if ( garageDriveActive ) updateWorld( garageWorld, contactListener, dt );
 
 		// Suppress seam bounces and detect real crashes based on speed loss.
 		// Skip seam suppression while the car is on a slope cell: uphill driving
 		// legitimately produces upward velocity that would otherwise trip the
 		// seam-bounce detector and freeze the car (the grip-loss glitch).
 		const onSlope1 = isVehicleOnSlopeCell( vehicle );
-		const seam1 = suppressSeamBounce( world, vehicle, '1', onSlope1 );
+		const seam1 = garageDriveActive ? false : suppressSeamBounce( world, vehicle, '1', onSlope1 );
 		const seam2 = vehicle2 ? suppressSeamBounce( world, vehicle2, '2', isVehicleOnSlopeCell( vehicle2 ) ) : false;
 
-		if ( vehicle?.rigidBody?.motionProperties ) {
+		if ( ! garageDriveActive && vehicle?.rigidBody?.motionProperties ) {
 			const v = vehicle.rigidBody.motionProperties.linearVelocity;
 			const speed1After = Math.sqrt( v[ 0 ] * v[ 0 ] + v[ 2 ] * v[ 2 ] );
 			detectCrashFromSpeedLoss( vehicle, speed1Before, speed1After, seam1 );
@@ -12655,7 +12923,8 @@ function completeCampaignStage() {
 		}
 
 			const wasDrifting = vehicle.driftIntensity > 0.25;
-			vehicle.update( dt, padAdjustedInput );
+			vehicle.update( dt, garageDriveActive ? ZERO_DRIVE_INPUT : padAdjustedInput );
+			if ( garageDriveActive && garageVehicle ) garageVehicle.update( dt, padAdjustedInput );
 			const isDrifting = vehicle.driftIntensity > 0.25;
 			if (!wasDrifting && isDrifting) advancementEvents.emit('drift_started', {});
 			if (wasDrifting && !isDrifting) advancementEvents.emit('drift_ended', {});
@@ -12665,7 +12934,7 @@ function completeCampaignStage() {
 			applyRaycastSlopeVisual( vehicle );
 			if ( vehicle2 ) applyRaycastSlopeVisual( vehicle2 );
 			if ( carHitboxMesh.visible ) carHitboxMesh.position.set( vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z );
-			applyMagnetForceFor( vehicle, dt );
+			if ( ! garageDriveActive ) applyMagnetForceFor( vehicle, dt );
 			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
 			applyGrappleSwingFor( vehicle, controls?.keys, dt );
 			arcLinkState = applyArcLinkFor( vehicle, arcLinkState );
