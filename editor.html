@@ -422,8 +422,11 @@
 #settings-toggle-btn:hover { color: #fff; }
 
 /* ─── Feature 4: Minimap ─── */
-#minimap-wrap { position: absolute; left: 12px; top: 12px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
+#minimap-wrap { position: absolute; left: 12px; top: 70px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
 #minimap-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
+#track-slots { position: absolute; left: 12px; top: 12px; display: flex; gap: 4px; padding: 5px; border-radius: 10px; background: rgba(20,20,30,0.84); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 4px 20px rgba(0,0,0,0.35); z-index: 16; }
+#track-slots button { padding: 6px 8px; border: 1px solid rgba(255,255,255,0.18); border-radius: 7px; background: rgba(8,10,14,0.75); color: #dbe8ff; font: 700 10px sans-serif; cursor: pointer; }
+#track-slots button:hover, #track-slots button.active { background: rgba(80,160,255,0.3); border-color: rgba(120,180,255,0.65); color: #fff; }
 #btn-custom-pool { display: inline-flex; align-items: center; gap: 6px; }
 #btn-custom-pool #cp-colors-toggle { accent-color: #34d058; width: 14px; height: 14px; margin: 0; cursor: pointer; flex: none; }
 #minimap-label { position: absolute; top: 4px; left: 8px; font: 700 9px sans-serif; color: rgba(255,255,255,0.45); pointer-events: none; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -699,6 +702,11 @@
 		<canvas id="minimap-canvas" width="140" height="140"></canvas>
 		<span id="minimap-label">Map</span>
 	</div>
+	<div id="track-slots" aria-label="Track save slots">
+		<button type="button" data-track-slot="0">Slot 1</button>
+		<button type="button" data-track-slot="1">Slot 2</button>
+		<button type="button" data-track-slot="2">Slot 3</button>
+	</div>
 	<div id="selection-box"></div>
 	<div id="clipboard-hint"></div>
 	<div id="quick-tools"></div>
@@ -887,6 +895,10 @@
 	let autosaveEnabled = true;
 	let autosaveEverySeconds = 30;
 	let autosaveTimer = null;
+	const TRACK_SLOT_COUNT = 3;
+	const TRACK_SLOT_KEY_PREFIX = 'racing-editor-slot-';
+	const ACTIVE_TRACK_SLOT_KEY = 'racing-editor-active-slot';
+	let activeTrackSlot = Math.max( 0, Math.min( TRACK_SLOT_COUNT - 1, Number( localStorage.getItem( ACTIVE_TRACK_SLOT_KEY ) ) || 0 ) );
 	const OFFGRID_STEP = 0.25;
 	const MAGNET_Y_STEP = 0.1;
 	const MAGNET_MIN_Y = -1;
@@ -3222,11 +3234,53 @@ function computeCausticShade( normal ) {
 		const arr = getCellsArray();
 
 		const encoded = encodeCells( arr );
+		const modsEncoded = encodeMods();
 		localStorage.setItem( 'racing-editor-cells', encoded );
-		localStorage.setItem( 'racing-editor-mods', encodeMods() );
+		localStorage.setItem( 'racing-editor-mods', modsEncoded );
+		localStorage.setItem( `${ TRACK_SLOT_KEY_PREFIX }${ activeTrackSlot }`, JSON.stringify( { cells: encoded, mods: modsEncoded, updatedAt: Date.now() } ) );
 		localStorage.removeItem( QUICK_TEST_GHOST_KEY );
 		localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
 		clearQuickTestGhost();
+		updateTrackSlotButtons();
+
+	}
+
+	function getTrackSlotState( slot ) {
+
+		try {
+			const parsed = JSON.parse( localStorage.getItem( `${ TRACK_SLOT_KEY_PREFIX }${ slot }` ) || 'null' );
+			return parsed?.cells ? parsed : null;
+		} catch {
+			return null;
+		}
+
+	}
+
+	function updateTrackSlotButtons() {
+
+		document.querySelectorAll( '[data-track-slot]' ).forEach( ( button ) => {
+			const slot = Number( button.dataset.trackSlot );
+			button.classList.toggle( 'active', slot === activeTrackSlot );
+			button.textContent = `Slot ${ slot + 1 }${ getTrackSlotState( slot ) ? ' *' : '' }`;
+		} );
+
+	}
+
+	async function selectTrackSlot( slot ) {
+
+		const state = getTrackSlotState( slot );
+		activeTrackSlot = slot;
+		localStorage.setItem( ACTIVE_TRACK_SLOT_KEY, String( slot ) );
+		if ( state ) {
+			await loadEncodedState( state.cells, state.mods || '' );
+			localStorage.setItem( 'racing-editor-cells', state.cells );
+			localStorage.setItem( 'racing-editor-mods', state.mods || '' );
+			updateTrackSlotButtons();
+			showToast( `Loaded track slot ${ slot + 1 }` );
+			return;
+		}
+		save();
+		showToast( `Saved current track to slot ${ slot + 1 }` );
 
 	}
 
@@ -3775,9 +3829,12 @@ function computeCausticShade( normal ) {
 		const params = new URLSearchParams( window.location.search );
 		const mapParam = params.get( 'map' );
 		const modsParam = params.get( 'mods' );
-		const encoded = mapParam || localStorage.getItem( 'racing-editor-cells' );
-		const modsEncoded = modsParam || localStorage.getItem( 'racing-editor-mods' );
+		const activeSlotState = getTrackSlotState( activeTrackSlot );
+		const encoded = mapParam || activeSlotState?.cells || localStorage.getItem( 'racing-editor-cells' );
+		const modsEncoded = modsParam || activeSlotState?.mods || localStorage.getItem( 'racing-editor-mods' );
 		await loadEncodedState( encoded, modsEncoded );
+		if ( ! mapParam && ! activeSlotState && encoded ) save();
+		updateTrackSlotButtons();
 
 	}
 
@@ -4608,6 +4665,10 @@ function refreshMovingSpeedUi() {
 	} );
 	const autosaveEnableInput = document.getElementById( 'autosave-enable' );
 	const autosaveIntervalSelect = document.getElementById( 'autosave-interval' );
+	document.querySelectorAll( '[data-track-slot]' ).forEach( ( button ) => {
+		button.addEventListener( 'click', () => selectTrackSlot( Number( button.dataset.trackSlot ) ) );
+	} );
+	updateTrackSlotButtons();
 	autosaveEnableInput?.addEventListener( 'change', () => {
 
 		autosaveEnabled = Boolean( autosaveEnableInput.checked );
