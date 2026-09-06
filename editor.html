@@ -238,9 +238,13 @@
 			left: 50%;
 			transform: translateX(-50%);
 			display: flex;
-			align-items: center;
-			gap: 8px;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 5px;
 			padding: 8px 12px;
+			width: max-content;
+			max-width: calc( 100vw - 24px );
+			box-sizing: border-box;
 			background: rgba(20, 20, 30, 0.82);
 			backdrop-filter: blur(10px);
 			-webkit-backdrop-filter: blur(10px);
@@ -260,22 +264,51 @@
 			font-size: 12px;
 		}
 
-		#settings-bar input[type="checkbox"] {
-			accent-color: #7ab8ff;
-			width: 14px;
-			height: 14px;
-		}
-		#settings-bar .back-home {
-			text-decoration: none;
-			font: 700 12px sans-serif;
-			padding: 5px 10px;
+		#settings-bar .settings-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
+		#settings-bar .weather-lightning-toggle {
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
+			padding: 5px 9px;
+			border: 1px solid rgba( 255, 255, 255, 0.2 );
 			border-radius: 7px;
-			border: 1px solid rgba(140,210,255,0.5);
-			background: rgba(29,78,216,0.85);
-			color: #fff;
+			background: rgba( 10, 12, 18, 0.8 );
+			color: #e9f1ff;
+			font: 400 12px/1 sans-serif;
+			cursor: pointer;
 			white-space: nowrap;
 		}
-		#settings-bar .back-home:hover { background: rgba(37,99,235,1); }
+		#settings-bar .weather-lightning-toggle:hover { background: rgba( 35, 42, 56, 0.95 ); }
+		#settings-bar .weather-lightning-toggle input { accent-color: #8fb9ff; width: 14px; height: 14px; margin: 0; cursor: pointer; }
+
+		/* Docked beside the canvas, clear of the top camera controls and the
+		   bottom tool shelf so chat can remain open while editing. */
+		#editor-chat-panel {
+			position: fixed;
+			right: 12px;
+			top: 94px;
+			width: min( 288px, calc( 100vw - 24px ) );
+			height: min( 300px, calc( 100vh - 238px ) );
+			min-height: 190px;
+			display: flex;
+			flex-direction: column;
+			background: rgba( 16, 18, 24, 0.94 );
+			border: 1px solid rgba( 255, 255, 255, 0.16 );
+			border-radius: 12px;
+			box-shadow: 0 14px 34px rgba( 0, 0, 0, 0.42 );
+			overflow: hidden;
+			z-index: 24;
+		}
+		#editor-chat-header { padding: 9px 11px; border-bottom: 1px solid rgba( 255, 255, 255, 0.1 ); color: #eaf3ff; font: 800 12px/1 sans-serif; }
+		#editor-chat-account { padding: 7px 10px; color: #aebfd5; font: 600 10px/1.25 sans-serif; border-bottom: 1px solid rgba( 255, 255, 255, 0.08 ); }
+		#editor-chat-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; }
+		.editor-chat-message { margin: 5px 0; padding: 7px 8px; border: 1px solid rgba( 255, 255, 255, 0.08 ); border-radius: 8px; background: rgba( 255, 255, 255, 0.06 ); color: #eef5ff; font: 12px/1.3 sans-serif; overflow-wrap: anywhere; }
+		#editor-chat-input-row { display: flex; gap: 6px; padding: 8px; border-top: 1px solid rgba( 255, 255, 255, 0.1 ); }
+		#editor-chat-input { flex: 1; min-width: 0; padding: 7px 8px; border: 1px solid rgba( 255, 255, 255, 0.18 ); border-radius: 7px; background: rgba( 6, 9, 14, 0.9 ); color: #fff; font: 12px sans-serif; }
+		#editor-chat-send { padding: 7px 9px; border: 1px solid rgba( 119, 243, 177, 0.42 ); border-radius: 7px; background: rgba( 48, 151, 96, 0.3 ); color: #c8ffdc; font: 800 11px sans-serif; cursor: pointer; }
+		#editor-chat-send:hover { background: rgba( 48, 151, 96, 0.5 ); }
+		@media ( max-height: 680px ) { #editor-chat-panel { height: min( 300px, calc( 100vh - 238px ) ); } }
+		@media ( max-width: 760px ), ( pointer: coarse ) { #editor-chat-panel { display: none; } }
 
 	#side-ui-bar {
 			position: absolute;
@@ -384,13 +417,16 @@
 .toolbar-group[data-cat="run"]       { border-left: 3px solid rgba(120, 240, 140, 0.55); }
 
 /* ─── Feature 8: Collapsible settings bar ─── */
-#settings-bar.collapsed > *:not(#settings-toggle-btn) { display: none !important; }
+#settings-bar.collapsed .settings-row > *:not(#settings-toggle-btn) { display: none !important; }
 #settings-toggle-btn { cursor: pointer; font-weight: 700; color: rgba(180, 210, 255, 0.9); white-space: nowrap; border: none; background: none; padding: 4px 8px; font-size: 12px; }
 #settings-toggle-btn:hover { color: #fff; }
 
 /* ─── Feature 4: Minimap ─── */
-#minimap-wrap { position: absolute; left: 12px; top: 12px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
+#minimap-wrap { position: absolute; left: 12px; top: 70px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
 #minimap-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
+#track-slots { position: absolute; left: 12px; top: 12px; display: flex; gap: 4px; padding: 5px; border-radius: 10px; background: rgba(20,20,30,0.84); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 4px 20px rgba(0,0,0,0.35); z-index: 16; }
+#track-slots button { padding: 6px 8px; border: 1px solid rgba(255,255,255,0.18); border-radius: 7px; background: rgba(8,10,14,0.75); color: #dbe8ff; font: 700 10px sans-serif; cursor: pointer; }
+#track-slots button:hover, #track-slots button.active { background: rgba(80,160,255,0.3); border-color: rgba(120,180,255,0.65); color: #fff; }
 #btn-custom-pool { display: inline-flex; align-items: center; gap: 6px; }
 #btn-custom-pool #cp-colors-toggle { accent-color: #34d058; width: 14px; height: 14px; margin: 0; cursor: pointer; flex: none; }
 #minimap-label { position: absolute; top: 4px; left: 8px; font: 700 9px sans-serif; color: rgba(255,255,255,0.45); pointer-events: none; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -437,7 +473,7 @@
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content">
 	<div id="settings-bar">
-		<a class="back-home" href="index.html">← Home</a>
+		<div class="settings-row">
 		<button id="settings-toggle-btn" type="button">⚙ Track Settings</button>
 		<label for="weather-preset">Weather</label>
 
@@ -446,6 +482,7 @@
 			<option value="cloudy">Cloudy</option>
 			<option value="sunset">Sunset</option>
 			<option value="night">Night</option>
+			<option value="night-constellations">Night (Constellations)</option>
 			<option value="dawn-mist">Dawn Mist</option>
 		</select>
 		<label for="weather-precip">Precip</label>
@@ -460,27 +497,29 @@
 			<option value="medium" selected>Medium</option>
 			<option value="high">High</option>
 		</select>
+		</div>
+		<div class="settings-row">
 		<label for="weather-wind">Wind</label>
 		<select id="weather-wind" aria-label="Wind">
 			<option value="none">Calm</option>
 			<option value="breezy">Breezy</option>
 			<option value="gusty">Gusty</option>
 		</select>
-		<label for="weather-lightning">Lightning</label>
-		<input id="weather-lightning" type="checkbox" aria-label="Lightning flashes">
+		<label class="weather-lightning-toggle" for="weather-lightning"><input id="weather-lightning" type="checkbox" aria-label="Lightning flashes"><span>Lightning</span></label>
 		<label for="map-template-select">Template</label>
 		<select id="map-template-select" aria-label="Map template">
 			<option value="normal">Normal map</option>
 			<option value="pool-filled">Pool filled map</option>
 		</select>
+		</div>
 	</div>
 	<details id="mobile-editor-drawer">
 		<summary aria-label="Open mobile advanced object tools">Objects</summary>
 		<div class="mobile-editor-sheet" aria-label="Advanced editor tools">
 			<button type="button" data-mobile-click="btn-magnet-blue">Magnet Blue +</button>
 			<button type="button" data-mobile-click="btn-magnet-red">Magnet Red +</button>
-			<button type="button" data-mobile-click="btn-magnet-up">Magnet ▲</button>
-			<button type="button" data-mobile-click="btn-magnet-down">Magnet ▼</button>
+			<button type="button" data-mobile-click="btn-magnet-up">Special ▲</button>
+			<button type="button" data-mobile-click="btn-magnet-down">Special ▼</button>
 			<button type="button" data-mobile-click="btn-magnet-strength-up">Strength +</button>
 			<button type="button" data-mobile-click="btn-magnet-strength-down">Strength -</button>
 			<button type="button" data-mobile-click="btn-magnet-range-up">Range +</button>
@@ -489,8 +528,6 @@
 			<button type="button" data-mobile-click="btn-portal-yellow">Portal End +</button>
 			<button type="button" data-mobile-click="btn-arc-orange">Arc Start +</button>
 			<button type="button" data-mobile-click="btn-portal-purple">Portal Start +</button>
-			<button type="button" data-mobile-click="btn-magnet-up">Height ▲</button>
-			<button type="button" data-mobile-click="btn-magnet-down">Height ▼</button>
 			<button type="button" data-mobile-click="btn-portal-id-down">ID -</button>
 			<button type="button" data-mobile-click="btn-portal-id-up">ID +</button>
 			<div class="mobile-editor-help">Orange/Purple are starts. Green/Yellow are matching endpoints.</div>
@@ -500,8 +537,8 @@
 		<button id="btn-magnet-blue">Magnet Blue +</button>
 		<button id="btn-magnet-red">Magnet Red +</button>
 	<!--	<button id="btn-magnet-grapple">Grapple Orb +</button> -->
-		<button id="btn-magnet-up" title="Move selected magnet up by 0.1 grid">Magnet ▲</button>
-		<button id="btn-magnet-down" title="Move selected magnet down by 0.1 grid">Magnet ▼</button>
+		<button id="btn-magnet-up" title="Move the selected special block up by 0.1 grid">Special ▲</button>
+		<button id="btn-magnet-down" title="Move the selected special block down by 0.1 grid">Special ▼</button>
 		<button id="btn-magnet-strength-up" title="Increase selected magnet strength">Strength +</button>
 		<button id="btn-magnet-strength-down" title="Decrease selected magnet strength">Strength -</button>
 		<button id="btn-magnet-range-up" title="Increase selected magnet range">Range +</button>
@@ -665,6 +702,11 @@
 		<canvas id="minimap-canvas" width="140" height="140"></canvas>
 		<span id="minimap-label">Map</span>
 	</div>
+	<div id="track-slots" aria-label="Track save slots">
+		<button type="button" data-track-slot="0">Slot 1</button>
+		<button type="button" data-track-slot="1">Slot 2</button>
+		<button type="button" data-track-slot="2">Slot 3</button>
+	</div>
 	<div id="selection-box"></div>
 	<div id="clipboard-hint"></div>
 	<div id="quick-tools"></div>
@@ -679,6 +721,15 @@
 	</select>
 	<button id="btn-respawn-car" title="Respawn the test car at the start line (Shift+R)">Respawn Car</button>
 </div>
+	<aside id="editor-chat-panel" aria-label="Live chat">
+		<div id="editor-chat-header">💬 Live Chat</div>
+		<div id="editor-chat-account">Checking account…</div>
+		<div id="editor-chat-messages" aria-live="polite"></div>
+		<div id="editor-chat-input-row">
+			<input id="editor-chat-input" type="text" maxlength="500" placeholder="Type message…" aria-label="Chat message">
+			<button id="editor-chat-send" type="button">Send</button>
+		</div>
+	</aside>
 	<div id="offgrid-dev-banner" hidden>Off-grid placement is still in development — expect rough edges while it gets fixed.</div>
 	<div id="custom-surface-panel" hidden>
 		<h3 id="custom-surface-title">Custom Surface</h3>
@@ -844,6 +895,10 @@
 	let autosaveEnabled = true;
 	let autosaveEverySeconds = 30;
 	let autosaveTimer = null;
+	const TRACK_SLOT_COUNT = 3;
+	const TRACK_SLOT_KEY_PREFIX = 'racing-editor-slot-';
+	const ACTIVE_TRACK_SLOT_KEY = 'racing-editor-active-slot';
+	let activeTrackSlot = Math.max( 0, Math.min( TRACK_SLOT_COUNT - 1, Number( localStorage.getItem( ACTIVE_TRACK_SLOT_KEY ) ) || 0 ) );
 	const OFFGRID_STEP = 0.25;
 	const MAGNET_Y_STEP = 0.1;
 	const MAGNET_MIN_Y = -1;
@@ -864,6 +919,63 @@
 	const ARC_MAX_ID = 999;
 	const BLOCK_HEIGHT_OFFSET = 0.012;
 	const DECO_HEIGHT_OFFSET = BLOCK_HEIGHT_OFFSET * 0.5;
+
+	function selectMagnetIndex( index ) {
+
+		selectedMagnetIndex = index;
+		selectedArcIndex = -1;
+		updateSpecialBlockControls();
+
+	}
+
+	function selectArcIndex( index ) {
+
+		selectedArcIndex = index;
+		selectedMagnetIndex = -1;
+		updateSpecialBlockControls();
+
+	}
+
+	function updateSpecialBlockControls() {
+
+		const hasMagnet = selectedMagnetIndex >= 0 && Boolean( magnetBlocks[ selectedMagnetIndex ] );
+		const hasArc = selectedArcIndex >= 0 && Boolean( arcBlocks[ selectedArcIndex ] );
+		const setVisible = ( id, visible ) => {
+
+			const element = document.getElementById( id );
+			if ( element ) element.style.display = visible ? '' : 'none';
+
+		};
+		const setMobileVisible = ( id, visible ) => {
+
+			document.querySelectorAll( `.mobile-editor-sheet [data-mobile-click="${ id }"]` ).forEach( ( element ) => {
+
+				element.style.display = visible ? '' : 'none';
+
+			} );
+
+		};
+		setVisible( 'btn-magnet-up', hasMagnet || hasArc );
+		setVisible( 'btn-magnet-down', hasMagnet || hasArc );
+		setVisible( 'btn-portal-up', false );
+		setVisible( 'btn-portal-down', false );
+		setVisible( 'btn-magnet-strength-up', hasMagnet );
+		setVisible( 'btn-magnet-strength-down', hasMagnet );
+		setVisible( 'btn-magnet-range-up', hasMagnet );
+		setVisible( 'btn-magnet-range-down', hasMagnet );
+		setVisible( 'btn-portal-id-up', hasArc );
+		setVisible( 'btn-portal-id-down', hasArc );
+		setVisible( 'arc-link-help', hasArc );
+		setMobileVisible( 'btn-magnet-up', hasMagnet || hasArc );
+		setMobileVisible( 'btn-magnet-down', hasMagnet || hasArc );
+		setMobileVisible( 'btn-magnet-strength-up', hasMagnet );
+		setMobileVisible( 'btn-magnet-strength-down', hasMagnet );
+		setMobileVisible( 'btn-magnet-range-up', hasMagnet );
+		setMobileVisible( 'btn-magnet-range-down', hasMagnet );
+		setMobileVisible( 'btn-portal-id-up', hasArc );
+		setMobileVisible( 'btn-portal-id-down', hasArc );
+
+	}
 
 	function clampMagnetGridY( value ) {
 
@@ -1466,6 +1578,7 @@
 		cloudy: { name: 'Cloudy', bg: 0x9aa4b2, fogNear: 70, fogFar: 130, sun: 3.8, hemi: 1.3, exposure: 0.95, ground: 0x3f835f },
 		sunset: { name: 'Sunset', bg: 0xc7987d, fogNear: 65, fogFar: 120, sun: 4.6, hemi: 1.25, exposure: 1.08, ground: 0x4c7d58 },
 		night: { name: 'Night', bg: 0x0b1220, fogNear: 45, fogFar: 95, sun: 1.6, hemi: 0.45, exposure: 0.7, ground: 0x243745 },
+		'night-constellations': { name: 'Night (Constellations)', bg: 0x0b1220, fogNear: 45, fogFar: 95, sun: 1.6, hemi: 0.45, exposure: 0.7, ground: 0x243745 },
 		'dawn-mist': { name: 'Dawn Mist', bg: 0xb6c2cc, fogNear: 36, fogFar: 78, sun: 2.9, hemi: 1.1, exposure: 0.88, ground: 0x4f7f74 },
 	};
 	const WEATHER_DEFAULT = 'clear';
@@ -2447,13 +2560,13 @@ function computeCausticShade( normal ) {
 			const existingIndex = findNearestMagnetIndex( gx, gz );
 			if ( existingIndex >= 0 ) {
 
-				selectedMagnetIndex = existingIndex;
+				selectMagnetIndex( existingIndex );
 				if ( magnetBlocks[ existingIndex ].type !== selectedType ) magnetBlocks[ existingIndex ].type = selectedType;
 
 			} else {
 
 				magnetBlocks.push( { gx, gz, y: MAGNET_DEFAULT_Y, type: selectedType, strength: MAGNET_DEFAULT_STRENGTH, range: MAGNET_DEFAULT_RANGE, mesh: null } );
-				selectedMagnetIndex = magnetBlocks.length - 1;
+				selectMagnetIndex( magnetBlocks.length - 1 );
 
 			}
 			rebuildMagnetMeshes();
@@ -2465,13 +2578,13 @@ function computeCausticShade( normal ) {
 			const existingIndex = findNearestArcIndex( gx, gz );
 			if ( existingIndex >= 0 ) {
 
-				selectedArcIndex = existingIndex;
+				selectArcIndex( existingIndex );
 				if ( arcBlocks[ existingIndex ].type !== selectedType ) arcBlocks[ existingIndex ].type = selectedType;
 
 			} else {
 
 				arcBlocks.push( { gx, gz, y: MAGNET_DEFAULT_Y, type: selectedType, linkId: ARC_DEFAULT_ID, mesh: null } );
-				selectedArcIndex = arcBlocks.length - 1;
+				selectArcIndex( arcBlocks.length - 1 );
 
 			}
 			rebuildArcMeshes();
@@ -2901,7 +3014,7 @@ function computeCausticShade( normal ) {
 		const existingIndex = findNearestMagnetIndex( gx, gz );
 		if ( existingIndex >= 0 && magnetBlocks[ existingIndex ] ) {
 
-			selectedMagnetIndex = existingIndex;
+			selectMagnetIndex( existingIndex );
 			previewGx = magnetBlocks[ existingIndex ].gx;
 			previewGz = magnetBlocks[ existingIndex ].gz;
 			previewY = clampMagnetGridY( magnetBlocks[ existingIndex ].y );
@@ -2952,7 +3065,7 @@ function computeCausticShade( normal ) {
 			const existingIndex = findNearestArcIndex( gx, gz );
 			if ( existingIndex >= 0 && arcBlocks[ existingIndex ] ) {
 
-				selectedArcIndex = existingIndex;
+				selectArcIndex( existingIndex );
 				previewGx = arcBlocks[ existingIndex ].gx;
 				previewGz = arcBlocks[ existingIndex ].gz;
 				previewY = clampMagnetGridY( arcBlocks[ existingIndex ].y );
@@ -3121,11 +3234,53 @@ function computeCausticShade( normal ) {
 		const arr = getCellsArray();
 
 		const encoded = encodeCells( arr );
+		const modsEncoded = encodeMods();
 		localStorage.setItem( 'racing-editor-cells', encoded );
-		localStorage.setItem( 'racing-editor-mods', encodeMods() );
+		localStorage.setItem( 'racing-editor-mods', modsEncoded );
+		localStorage.setItem( `${ TRACK_SLOT_KEY_PREFIX }${ activeTrackSlot }`, JSON.stringify( { cells: encoded, mods: modsEncoded, updatedAt: Date.now() } ) );
 		localStorage.removeItem( QUICK_TEST_GHOST_KEY );
 		localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
 		clearQuickTestGhost();
+		updateTrackSlotButtons();
+
+	}
+
+	function getTrackSlotState( slot ) {
+
+		try {
+			const parsed = JSON.parse( localStorage.getItem( `${ TRACK_SLOT_KEY_PREFIX }${ slot }` ) || 'null' );
+			return parsed?.cells ? parsed : null;
+		} catch {
+			return null;
+		}
+
+	}
+
+	function updateTrackSlotButtons() {
+
+		document.querySelectorAll( '[data-track-slot]' ).forEach( ( button ) => {
+			const slot = Number( button.dataset.trackSlot );
+			button.classList.toggle( 'active', slot === activeTrackSlot );
+			button.textContent = `Slot ${ slot + 1 }${ getTrackSlotState( slot ) ? ' *' : '' }`;
+		} );
+
+	}
+
+	async function selectTrackSlot( slot ) {
+
+		const state = getTrackSlotState( slot );
+		activeTrackSlot = slot;
+		localStorage.setItem( ACTIVE_TRACK_SLOT_KEY, String( slot ) );
+		if ( state ) {
+			await loadEncodedState( state.cells, state.mods || '' );
+			localStorage.setItem( 'racing-editor-cells', state.cells );
+			localStorage.setItem( 'racing-editor-mods', state.mods || '' );
+			updateTrackSlotButtons();
+			showToast( `Loaded track slot ${ slot + 1 }` );
+			return;
+		}
+		save();
+		showToast( `Saved current track to slot ${ slot + 1 }` );
 
 	}
 
@@ -3674,9 +3829,12 @@ function computeCausticShade( normal ) {
 		const params = new URLSearchParams( window.location.search );
 		const mapParam = params.get( 'map' );
 		const modsParam = params.get( 'mods' );
-		const encoded = mapParam || localStorage.getItem( 'racing-editor-cells' );
-		const modsEncoded = modsParam || localStorage.getItem( 'racing-editor-mods' );
+		const activeSlotState = getTrackSlotState( activeTrackSlot );
+		const encoded = mapParam || activeSlotState?.cells || localStorage.getItem( 'racing-editor-cells' );
+		const modsEncoded = modsParam || activeSlotState?.mods || localStorage.getItem( 'racing-editor-mods' );
 		await loadEncodedState( encoded, modsEncoded );
+		if ( ! mapParam && ! activeSlotState && encoded ) save();
+		updateTrackSlotButtons();
 
 	}
 
@@ -3890,6 +4048,7 @@ function refreshMovingSpeedUi() {
 
 		const rotIndex = ORIENTATIONS.indexOf( selectedOrient );
 		btnRotate.textContent = `Rotate: ${ Math.max( 0, rotIndex ) * 90 }°`;
+		updateSpecialBlockControls();
 
 	}
 
@@ -3897,7 +4056,11 @@ function refreshMovingSpeedUi() {
 
 		selectedType = type;
 		selectTool( 'paint' );
-		if ( type === MAGNET_BLUE_TOOL || type === MAGNET_RED_TOOL ) {
+		const isMagnetTool = type === MAGNET_BLUE_TOOL || type === MAGNET_RED_TOOL || type === MAGNET_GRAPPLE_TOOL;
+		const isArcTool = type === ARC_GREEN_TOOL || type === ARC_ORANGE_TOOL || type === PORTAL_YELLOW_TOOL || type === PORTAL_PURPLE_TOOL;
+		if ( isMagnetTool ) {
+
+			selectedArcIndex = -1;
 
 			if ( hoveredCell ) {
 
@@ -3907,12 +4070,21 @@ function refreshMovingSpeedUi() {
 
 			}
 
+		} else if ( isArcTool ) {
+
+			selectedMagnetIndex = -1;
+
+		} else {
+
+			selectedMagnetIndex = -1;
+			selectedArcIndex = -1;
+
 		}
 		if ( isMovingObstacleTool( type ) && hoveredCell ) {
 			const cell = grid.get( cellKey( hoveredCell.gx, hoveredCell.gz ) );
 			if ( cell?.movingObstacle && movingSpeedInput ) movingSpeedInput.value = String( Math.max( 0.25, Math.min( 3, Number( cell.movingSpeed ) || 1 ) ) );
 		}
-		if ( type === ARC_GREEN_TOOL || type === ARC_ORANGE_TOOL || type === PORTAL_YELLOW_TOOL || type === PORTAL_PURPLE_TOOL ) {
+		if ( isArcTool ) {
 
 			if ( hoveredCell ) {
 
@@ -4077,6 +4249,8 @@ function refreshMovingSpeedUi() {
 	}
 	document.getElementById( 'btn-magnet-up' )?.addEventListener( 'click', () => nudgeSelectedHeight( MAGNET_Y_STEP ) );
 	document.getElementById( 'btn-magnet-down' )?.addEventListener( 'click', () => nudgeSelectedHeight( - MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-portal-up' )?.addEventListener( 'click', () => nudgeSelectedHeight( MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-portal-down' )?.addEventListener( 'click', () => nudgeSelectedHeight( -MAGNET_Y_STEP ) );
 	document.getElementById( 'btn-magnet-strength-up' )?.addEventListener( 'click', () => nudgeSelectedMagnetStrength( MAGNET_STRENGTH_STEP ) );
 	document.getElementById( 'btn-magnet-strength-down' )?.addEventListener( 'click', () => nudgeSelectedMagnetStrength( - MAGNET_STRENGTH_STEP ) );
 	document.getElementById( 'btn-magnet-range-up' )?.addEventListener( 'click', () => nudgeSelectedMagnetRange( MAGNET_RANGE_STEP ) );
@@ -4491,6 +4665,10 @@ function refreshMovingSpeedUi() {
 	} );
 	const autosaveEnableInput = document.getElementById( 'autosave-enable' );
 	const autosaveIntervalSelect = document.getElementById( 'autosave-interval' );
+	document.querySelectorAll( '[data-track-slot]' ).forEach( ( button ) => {
+		button.addEventListener( 'click', () => selectTrackSlot( Number( button.dataset.trackSlot ) ) );
+	} );
+	updateTrackSlotButtons();
 	autosaveEnableInput?.addEventListener( 'change', () => {
 
 		autosaveEnabled = Boolean( autosaveEnableInput.checked );
@@ -4860,6 +5038,16 @@ function refreshMovingSpeedUi() {
 			const modifier = e.ctrlKey || e.metaKey;
 			const target = e.target;
 			const isTypingTarget = target && ( target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable );
+			if ( isTypingTarget ) return;
+			// Shift is reserved as a modifier (not a driving key). In particular,
+			// Shift+ArrowUp must not accidentally leave the test car accelerating.
+			if ( e.key === 'Shift' ) {
+
+				editorDrive?.clearDriveKeys?.();
+				return;
+
+			}
+			if ( e.shiftKey && ! modifier ) return;
 			if ( ! isTypingTarget && modifier && key === 'z' ) {
 
 				e.preventDefault();
@@ -5468,6 +5656,11 @@ document.addEventListener('pointerdown', (e) => {
 
 		const NOOP_CONTACT_LISTENER = { onContactAdded() {} };
 		const driveKeys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+		function clearDriveKeys() {
+
+			for ( const key of Object.keys( driveKeys ) ) driveKeys[ key ] = false;
+
+		}
 		const flyKeys = new Set();
 		let rotating = false, rotLastX = 0, rotLastY = 0;
 		let active = false;          // physics stack finished booting
@@ -6718,6 +6911,13 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			const target = e.target;
 			const isTypingTarget = target && ( target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable );
 			if ( isTypingTarget ) return;
+			if ( e.key === 'Shift' ) {
+
+				clearDriveKeys();
+				return;
+
+			}
+			if ( e.shiftKey && e.key.toLowerCase() !== 'r' ) return;
 			if ( FLY_CODES.includes( e.code ) ) flyKeys.add( e.code );
 			if ( e.shiftKey && e.key.toLowerCase() === 'r' ) { e.preventDefault(); respawn(); }
 
@@ -6734,6 +6934,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			isRotating: () => rotating,
 			dolly,
 			onDriveKey: ( key, down ) => { if ( key in driveKeys ) driveKeys[ key ] = down; },
+			clearDriveKeys,
 			respawn,
 		};
 		init();
@@ -6743,6 +6944,92 @@ function updateMovingObstacles( state, now, vehicleList ) {
 	</script>
 </main>
 
+<script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+<script>
+	// The editor uses the same global channel as the game, but keeps the chat
+	// docked in its own reserved right-side panel so the build tools stay usable.
+	( () => {
+
+		const messages = document.getElementById( 'editor-chat-messages' );
+		const input = document.getElementById( 'editor-chat-input' );
+		const send = document.getElementById( 'editor-chat-send' );
+		const account = document.getElementById( 'editor-chat-account' );
+		if ( ! messages || ! input || ! send || ! account || ! window.Ably ) return;
+
+		function getAccountUsername() {
+
+			try {
+
+				const session = JSON.parse( localStorage.getItem( 'racing-account-session-v1' ) || 'null' );
+				return String( session?.username || '' ).trim();
+
+			} catch {
+
+				return '';
+
+			}
+
+		}
+
+		const username = getAccountUsername();
+		account.textContent = username ? `Chatting as ${ username }` : 'Log in from the game home screen to send messages.';
+		const seen = new Set();
+		function addMessage( text ) {
+
+			const message = String( text || '' );
+			if ( ! message || seen.has( message ) || /^\[[^\]]+\](?:\[(?:owner|announce)\])?\s/.test( message ) ) return;
+			seen.add( message );
+			const row = document.createElement( 'div' );
+			row.className = 'editor-chat-message';
+			row.textContent = message;
+			messages.appendChild( row );
+			messages.scrollTop = messages.scrollHeight;
+
+		}
+
+		const ably = new Ably.Realtime( 'kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDmM' );
+		const channel = ably.channels.get( 'global-chat' );
+		channel.history( { limit: 50 }, ( error, result ) => {
+
+			if ( error ) return;
+			for ( const entry of ( result?.items || [] ).reverse() ) addMessage( entry.data );
+
+		} );
+		channel.subscribe( ( entry ) => addMessage( entry.data ) );
+
+		function sendMessage() {
+
+			const text = input.value.trim();
+			const name = getAccountUsername();
+			if ( ! text ) return;
+			if ( ! name ) {
+
+				account.textContent = 'Log in from the game home screen to send messages.';
+				input.focus();
+				return;
+
+			}
+			channel.publish( 'message', `${ name }: ${ text }` );
+			input.value = '';
+
+		}
+
+		send.addEventListener( 'click', sendMessage );
+		input.addEventListener( 'keydown', ( event ) => {
+
+			// Keep editor shortcuts (space-to-pan, tool keys, drive arrows, etc.)
+			// out of the chat field so every character can be typed normally.
+			event.stopPropagation();
+			if ( event.key === 'Enter' ) {
+
+				event.preventDefault();
+				sendMessage();
+
+			}
+
+		} );
+	} )();
+</script>
 <script type="module" src="js/PageMusic.js"></script>
 
 </body>

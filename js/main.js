@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
+import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
@@ -272,6 +272,7 @@ const modelNames = [
 	'elev-track-3-way', 'elev-track-4-way',
 	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
 	'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d',
+	'garage',
 ];
 
 const models = {};
@@ -424,6 +425,7 @@ const WEATHER_PRESETS = {
 	cloudy: { bg: 0xaab2ba, fogNearMul: 2.56, fogFarMul: 5.12, sun: 3.8, hemi: 1.3, exposure: 0.95 },
 	sunset: { bg: 0xffb178, fogNearMul: 2.24, fogFarMul: 4.8, sun: 4.4, hemi: 1.2, exposure: 1.08 },
 	night: { bg: 0x0a1730, fogNearMul: 1.92, fogFarMul: 4.0, sun: 1.7, hemi: 0.45, exposure: 0.7 },
+	'night-constellations': { bg: 0x0a1730, fogNearMul: 1.92, fogFarMul: 4.0, sun: 1.7, hemi: 0.45, exposure: 0.7 },
 	'dawn-mist': { bg: 0xb6c2cc, fogNearMul: 1.6, fogFarMul: 3.36, sun: 2.9, hemi: 1.1, exposure: 0.88 },
 };
 
@@ -432,6 +434,7 @@ const WEATHER_SKY_GRADIENTS = {
 	cloudy: { top: '#5c6b7c', mid: '#8b96a3', horizon: '#c9cfd5', ground: '#aab2ba' },
 	sunset: { top: '#2c1f52', mid: '#c4548f', horizon: '#ff8a4c', ground: '#ffd28a' },
 	night: { top: '#01030b', mid: '#050d24', horizon: '#132244', ground: '#0a1730' },
+	'night-constellations': { top: '#01030b', mid: '#050d24', horizon: '#132244', ground: '#0a1730' },
 	'dawn-mist': { top: '#5f92d0', mid: '#9fc4eb', horizon: '#ffdcb0', ground: '#c5ddf4' },
 };
 
@@ -441,7 +444,8 @@ const SKY_DECOR_PRESETS = {
 	clear: { clouds: { count: 12, scale: [ 3.0, 5.0 ], elevationRange: [ 8, 24 ], color: 0xffffff, opacity: 0.92 }, stars: 0, moon: false },
 	sunset: { clouds: { count: 10, scale: [ 3.2, 5.2 ], elevationRange: [ 6, 18 ], color: 0xffcfae, opacity: 0.93 }, stars: 0, moon: false },
 	cloudy: { clouds: { count: 15, scale: [ 4.5, 7.0 ], elevationRange: [ 5, 18 ], color: 0x9aa3ad, opacity: 0.9 }, stars: 0, moon: false },
-	night: { clouds: { count: 6, scale: [ 2.5, 4.0 ], elevationRange: [ 12, 28 ], color: 0x2b3a5c, opacity: 0.35 }, stars: 600, moon: true },
+	night: { clouds: { count: 6, scale: [ 2.5, 4.0 ], elevationRange: [ 12, 28 ], color: 0x2b3a5c, opacity: 0.35 }, stars: 600, moon: true, constellations: true },
+	'night-constellations': { clouds: { count: 6, scale: [ 2.5, 4.0 ], elevationRange: [ 12, 28 ], color: 0x2b3a5c, opacity: 0.35 }, stars: 600, moon: true, constellations: true },
 };
 
 const WEATHER_DEFAULT = 'clear';
@@ -3186,7 +3190,7 @@ function applySkyPalette( preset = WEATHER_DEFAULT ) {
 
 // ─── Sky decorations: low-poly clouds, stars, moon (follows the vehicle so ───
 // ─── they always stay within the camera's far plane, like a real skybox)  ───
-let skyDecorState = { cloudGroup: null, starPoints: null, moonGroup: null };
+let skyDecorState = { cloudGroup: null, starPoints: null, constellationLines: null, moonGroup: null };
 
 function clearSkyDecorations() {
 
@@ -3208,6 +3212,13 @@ function clearSkyDecorations() {
 		skyDecorState.starPoints.material?.dispose();
 
 	}
+	if ( skyDecorState.constellationLines ) {
+
+		skyGroup.remove( skyDecorState.constellationLines );
+		skyDecorState.constellationLines.geometry?.dispose();
+		skyDecorState.constellationLines.material?.dispose();
+
+	}
 	if ( skyDecorState.moonGroup ) {
 
 		skyGroup.remove( skyDecorState.moonGroup );
@@ -3219,7 +3230,7 @@ function clearSkyDecorations() {
 		} );
 
 	}
-	skyDecorState = { cloudGroup: null, starPoints: null, moonGroup: null };
+	skyDecorState = { cloudGroup: null, starPoints: null, constellationLines: null, moonGroup: null };
 
 }
 
@@ -3302,6 +3313,86 @@ function buildSkyDecorations( preset ) {
 		starPoints.frustumCulled = false;
 		skyGroup.add( starPoints );
 		skyDecorState.starPoints = starPoints;
+
+		if ( config.constellations ) {
+
+			const lineCount = Math.min( 104, Math.max( 28, Math.floor( starCount * 1.15 / 8 ) ) );
+			let linePositions = new Float32Array( lineCount * 6 );
+			const linkCounts = new Uint8Array( starCount );
+			const links = [];
+			const linkedStars = [];
+			const cross = ( ax, az, bx, bz, cx, cz ) => ( bx - ax ) * ( cz - az ) - ( bz - az ) * ( cx - ax );
+			const segmentsIntersect = ( first, second, third, fourth ) => {
+
+				const firstSide = cross( first.x, first.z, second.x, second.z, third.x, third.z );
+				const secondSide = cross( first.x, first.z, second.x, second.z, fourth.x, fourth.z );
+				const thirdSide = cross( third.x, third.z, fourth.x, fourth.z, first.x, first.z );
+				const fourthSide = cross( third.x, third.z, fourth.x, fourth.z, second.x, second.z );
+				return ( firstSide > 0 ) !== ( secondSide > 0 ) && ( thirdSide > 0 ) !== ( fourthSide > 0 );
+
+			};
+			let accepted = 0;
+			for ( let attempt = 0; attempt < lineCount * 8 && accepted < lineCount; attempt ++ ) {
+
+				let first = Math.floor( Math.random() * starCount );
+				if ( linkedStars.length > 0 && Math.random() < 0.72 ) {
+
+					const linkedStart = Math.floor( Math.random() * linkedStars.length );
+					first = linkedStars[ linkedStart ];
+
+				}
+				if ( linkCounts[ first ] >= 5 ) continue;
+				const nearby = [];
+				const firstOffset = first * 3;
+				for ( let candidate = 0; candidate < starCount; candidate ++ ) {
+
+					if ( candidate === first ) continue;
+					const candidateOffset = candidate * 3;
+					const dx = positions[ candidateOffset ] - positions[ firstOffset ];
+					const dy = positions[ candidateOffset + 1 ] - positions[ firstOffset + 1 ];
+					const dz = positions[ candidateOffset + 2 ] - positions[ firstOffset + 2 ];
+					nearby.push( { index: candidate, distance: dx * dx + dy * dy + dz * dz } );
+
+				}
+				nearby.sort( ( a, b ) => a.distance - b.distance );
+				const nearbyCount = Math.min( 8, nearby.length );
+				let second = -1;
+				for ( let candidateTry = 0; candidateTry < nearbyCount; candidateTry ++ ) {
+
+					const candidate = nearby[ ( candidateTry + Math.floor( Math.random() * nearbyCount ) ) % nearbyCount ].index;
+					if ( linkCounts[ candidate ] >= 5 ) continue;
+					if ( links.some( ( link ) => ( link.first === first && link.second === candidate ) || ( link.first === candidate && link.second === first ) ) ) continue;
+					const firstPoint = { x: positions[ first * 3 ], z: positions[ first * 3 + 2 ] };
+					const secondPoint = { x: positions[ candidate * 3 ], z: positions[ candidate * 3 + 2 ] };
+					const crossesExisting = links.some( ( link ) => {
+						if ( link.first === first || link.first === candidate || link.second === first || link.second === candidate ) return false;
+						return segmentsIntersect( firstPoint, secondPoint, link.firstPoint, link.secondPoint );
+					} );
+					if ( crossesExisting ) continue;
+					second = candidate;
+					links.push( { first, second, firstPoint, secondPoint } );
+					linkCounts[ first ]++;
+					linkCounts[ second ]++;
+					linkedStars.push( first, second );
+					break;
+
+				}
+				if ( second < 0 ) continue;
+				linePositions.set( positions.subarray( first * 3, first * 3 + 3 ), accepted * 6 );
+				linePositions.set( positions.subarray( second * 3, second * 3 + 3 ), accepted * 6 + 3 );
+				accepted++;
+
+			}
+			linePositions = linePositions.slice( 0, accepted * 6 );
+			const lineGeometry = new THREE.BufferGeometry();
+			lineGeometry.setAttribute( 'position', new THREE.BufferAttribute( linePositions, 3 ) );
+			const lineMaterial = new THREE.LineBasicMaterial( { color: 0x7898c7, transparent: true, opacity: 0.34, depthWrite: false, depthTest: true, fog: false } );
+			const constellationLines = new THREE.LineSegments( lineGeometry, lineMaterial );
+			constellationLines.frustumCulled = false;
+			skyGroup.add( constellationLines );
+			skyDecorState.constellationLines = constellationLines;
+
+		}
 
 	}
 
@@ -3876,6 +3967,7 @@ async function loadRuntimeMods() {
 function getRequiredModelNames( customCells, extras, carKeys ) {
 
 	const required = new Set( carKeys );
+	required.add( 'garage' );
 	for ( const [ , , key ] of ( customCells || TRACK_CELLS ) ) {
 		required.add( key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key );
 	}
@@ -3920,8 +4012,10 @@ async function loadModels( requiredNames = modelNames ) {
 
 					if ( child.isMesh ) {
 
-						// Keep DoubleSide for elevated track models (corner walls need to be visible from inside)
-						if ( ! name.startsWith( 'elev-track-' ) ) child.material.side = THREE.FrontSide;
+						// The garage is a walk-in scene, so render both sides of every
+						// surface while the other models keep their normal front faces.
+						if ( name === 'garage' ) child.material.side = THREE.DoubleSide;
+						else if ( ! name.startsWith( 'elev-track-' ) ) child.material.side = THREE.FrontSide;
 
 					}
 
@@ -4008,6 +4102,140 @@ async function loadCustomTrackAssets( extras ) {
 		}
 
 	}
+
+}
+
+async function loadGarageCollisionAsset() {
+
+	try {
+		const text = await ( await fetch( 'models/garage.obj' ) ).text();
+		return objLoader.parse( text );
+	} catch ( error ) {
+		console.warn( 'Failed to load garage collision OBJ', error );
+		return null;
+	}
+
+}
+
+function getGarageCollisionBoxes( root, scale, zOffset ) {
+
+	if ( ! root ) return [];
+	const boxes = [];
+	root.updateMatrixWorld( true );
+	root.traverse( ( child ) => {
+
+		if ( ! child.isMesh || ! child.geometry?.attributes?.position ) return;
+		const positions = child.geometry.attributes.position;
+		const unique = new Map();
+		for ( let i = 0; i < positions.count; i ++ ) {
+
+			const point = new THREE.Vector3().fromBufferAttribute( positions, i ).applyMatrix4( child.matrixWorld );
+			point.multiplyScalar( scale );
+			point.z += zOffset;
+			const key = `${ point.x.toFixed( 5 ) },${ point.y.toFixed( 5 ) },${ point.z.toFixed( 5 ) }`;
+			unique.set( key, point );
+
+		}
+		const points = [ ... unique.values() ];
+		if ( points.length < 8 ) return;
+		const center = points.reduce( ( sum, point ) => sum.add( point ), new THREE.Vector3() ).multiplyScalar( 1 / points.length );
+		const origin = points[ 0 ];
+		const candidates = points.slice( 1 ).map( ( point ) => point.clone().sub( origin ) ).sort( ( a, b ) => a.lengthSq() - b.lengthSq() );
+		let axes = null;
+		for ( let i = 0; i < candidates.length && ! axes; i ++ ) {
+			for ( let j = i + 1; j < candidates.length && ! axes; j ++ ) {
+				for ( let k = j + 1; k < candidates.length; k ++ ) {
+
+					const lengths = [ candidates[ i ].length(), candidates[ j ].length(), candidates[ k ].length() ];
+					if ( lengths.some( ( length ) => length < 1e-4 ) ) continue;
+					const normalized = candidates.slice( i, i + 1 ).concat( candidates.slice( j, j + 1 ), candidates.slice( k, k + 1 ) ).map( ( axis ) => axis.clone().normalize() );
+					const orthogonal = Math.abs( normalized[ 0 ].dot( normalized[ 1 ] ) ) < 0.01
+						&& Math.abs( normalized[ 0 ].dot( normalized[ 2 ] ) ) < 0.01
+						&& Math.abs( normalized[ 1 ].dot( normalized[ 2 ] ) ) < 0.01;
+					if ( orthogonal ) { axes = normalized.map( ( axis, index ) => axis.multiplyScalar( lengths[ index ] * 0.5 ) ); break; }
+
+				}
+			}
+		}
+		if ( ! axes ) return;
+		const xAxis = axes[ 0 ].clone().normalize();
+		const yAxis = axes[ 1 ].clone().normalize();
+		const zAxis = new THREE.Vector3().crossVectors( xAxis, yAxis ).normalize();
+		if ( zAxis.dot( axes[ 2 ] ) < 0 ) zAxis.negate();
+		const basis = new THREE.Matrix4().makeBasis( xAxis, yAxis, zAxis );
+		const worldYHalfExtent = Math.abs( axes[ 0 ].y ) + Math.abs( axes[ 1 ].y ) + Math.abs( axes[ 2 ].y );
+		const worldXHalfExtent = ( Math.max( ... points.map( ( point ) => point.x ) ) - Math.min( ... points.map( ( point ) => point.x ) ) ) * 0.5;
+		const worldZHalfExtent = ( Math.max( ... points.map( ( point ) => point.z ) ) - Math.min( ... points.map( ( point ) => point.z ) ) ) * 0.5;
+		const footprintArea = worldXHalfExtent * worldZHalfExtent * 4;
+		boxes.push( { center: [ center.x, center.y, center.z ], halfExtents: [ axes[ 0 ].length(), axes[ 1 ].length(), axes[ 2 ].length() ], worldXHalfExtent, worldYHalfExtent, worldZHalfExtent, footprintArea, quaternion: new THREE.Quaternion().setFromRotationMatrix( basis ) } );
+
+	} );
+	return boxes;
+
+}
+
+function getGarageTriangleMeshData( root, scale, zOffset ) {
+
+	const positions = [];
+	const indices = [];
+	if ( ! root ) return { positions, indices };
+	root.updateMatrixWorld( true );
+	root.traverse( ( child ) => {
+
+		if ( ! child.isMesh || ! child.geometry?.attributes?.position ) return;
+		const attribute = child.geometry.attributes.position;
+		const offset = positions.length / 3;
+		for ( let i = 0; i < attribute.count; i ++ ) {
+
+			const point = new THREE.Vector3().fromBufferAttribute( attribute, i ).applyMatrix4( child.matrixWorld );
+			positions.push( point.x * scale, point.y * scale, point.z * scale + zOffset );
+
+		}
+		if ( child.geometry.index ) {
+
+			const index = child.geometry.index;
+			for ( let i = 0; i < index.count; i ++ ) indices.push( offset + index.getX( i ) );
+
+		} else {
+
+			for ( let i = 0; i < attribute.count; i ++ ) indices.push( offset + i );
+
+		}
+
+	} );
+	return { positions, indices };
+
+}
+
+function addGarageCollisionBoxes( world, root, scale, zOffset ) {
+
+	const boxes = getGarageCollisionBoxes( root, scale, zOffset );
+	const meshData = getGarageTriangleMeshData( root, scale, zOffset );
+	let floorTop = 0;
+	let floorArea = 0;
+	for ( const entry of boxes ) {
+
+		if ( entry.footprintArea > floorArea ) {
+
+			floorArea = entry.footprintArea;
+			floorTop = entry.center[ 1 ] + entry.worldYHalfExtent;
+
+		}
+
+	}
+	if ( meshData.positions.length >= 9 && meshData.indices.length >= 3 ) {
+
+		rigidBody.create( world, {
+			shape: triangleMesh.create( meshData ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: [ 0, 0, 0 ],
+			friction: 5.0,
+			restitution: 0.0,
+		} );
+
+	}
+	return { count: boxes.length, floorTop };
 
 }
 
@@ -4282,7 +4510,13 @@ async function init() {
 	}
 	const requiredModelNames = getRequiredModelNames( customCells, extras, carKeys );
 	setLoadingStatus( `Loading ${ requiredModelNames.length } needed models…`, 'models' );
+	const garageCollisionPromise = loadGarageCollisionAsset();
 	await Promise.all( [ loadModels( requiredModelNames ), loadCustomTrackAssets( extras ) ] );
+	const garageCollisionAsset = await garageCollisionPromise;
+	const garageBounds = new THREE.Box3().setFromObject( models.garage );
+	const garageSize = garageBounds.getSize( new THREE.Vector3() );
+	const garageSceneScale = 80 / Math.max( garageSize.x, garageSize.y, garageSize.z, 0.001 );
+	const garageSceneZOffset = - 2.2;
 	setLoadingStatus( 'Loading track and mods…', 'track' );
 	const runtimeMods = await runtimeModsPromise;
 	// Surface installed runtime mods in the boot console so players can confirm their
@@ -4357,6 +4591,21 @@ async function init() {
 	const world = createWorld( worldSettings );
 	world._OL_MOVING = OL_MOVING;
 	world._OL_STATIC = OL_STATIC;
+	const garageWorldSettings = createWorldSettings();
+	garageWorldSettings.gravity = [ 0, - 9.81, 0 ];
+	const garageBplMoving = addBroadphaseLayer( garageWorldSettings );
+	const garageBplStatic = addBroadphaseLayer( garageWorldSettings );
+	const garageOlMoving = addObjectLayer( garageWorldSettings, garageBplMoving );
+	const garageOlStatic = addObjectLayer( garageWorldSettings, garageBplStatic );
+	enableCollision( garageWorldSettings, garageOlMoving, garageOlStatic );
+	enableCollision( garageWorldSettings, garageOlMoving, garageOlMoving );
+	const garageWorld = createWorld( garageWorldSettings );
+	garageWorld._OL_MOVING = garageOlMoving;
+	garageWorld._OL_STATIC = garageOlStatic;
+	let garageCollisionAdded = false;
+	let garageFloorTop = 0;
+	let garageVehicleBody = null;
+	let garageVehicle = null;
 
 	const hitboxDebugGroup = new THREE.Group();
 	hitboxDebugGroup.visible = false;
@@ -6209,6 +6458,8 @@ async function init() {
 	const garageAccelUnlockBtn = document.getElementById( 'garage-accel-unlock' );
 	const garageDriveUnlockBtn = document.getElementById( 'garage-drive-unlock' );
 	const garageViewerCanvas = document.getElementById( 'garage-viewer' );
+	const garageViewerHint = document.getElementById( 'garage-viewer-hint' );
+	const garageDriveBtn = document.getElementById( 'garage-drive-btn' );
 	const garageTargetColorInput = document.getElementById( 'garage-target-color' );
 	const garageApplyPaintBtn = document.getElementById( 'garage-apply-paint-btn' );
 	const garageClearSelectionBtn = document.getElementById( 'garage-clear-selection-btn' );
@@ -6330,6 +6581,7 @@ async function init() {
 	let selectedGarageSourceHex = '';
 	let hoveredGarageSourceHex = '';
 	let garageViewer = null;
+	let garageDriveActive = false;
 	let garageCosmetics = normalizeGarageCosmetics( null );
 	const recolorTextureSourceCache = new WeakMap();
 	const garageTexturePaletteCache = new WeakMap();
@@ -6817,7 +7069,6 @@ async function init() {
 		if ( keys.ArrowRight ) x += 1;
 		if ( keys.ArrowUp ) z += 1;
 		if ( keys.ArrowDown ) z -= 1;
-		if ( keys.ShiftLeft || keys.ShiftRight ) z = Math.max( z, 1 );
 		return { x, z };
 
 	}
@@ -6825,6 +7076,7 @@ async function init() {
 	function setModeMenuOpen( open ) {
 
 		modeMenuOpen = open;
+		if ( ! open && garageDriveActive ) setGarageDriveActive( false );
 		if ( modeMenu ) modeMenu.style.display = open ? 'block' : 'none';
 		document.body.classList.toggle( 'mode-menu-open', modeMenuOpen );
 		// Spin the garage card previews only while the garage panel is actually visible. While open
@@ -6973,7 +7225,7 @@ async function init() {
 
 		}
 		// Only keep the garage card preview renderers alive while the garage tab is open & menu
-		// visible; otherwise dispose them to free the ~10 WebGL contexts (see setModeMenuOpen).
+		if ( tab !== 'garage' && garageDriveActive ) setGarageDriveActive( false );
 		if ( modeMenuOpen && tab === 'garage' ) activateGarageCardPreviews();
 		else disposeGarageCardPreviews();
 
@@ -7610,6 +7862,16 @@ async function init() {
 		if ( ! source ) return;
 		const clone = source.clone( true );
 		clone.rotation.y = Math.PI;
+		clone.traverse( ( child ) => {
+
+			if ( child.isMesh ) {
+
+				child.castShadow = true;
+				child.receiveShadow = true;
+
+			}
+
+		} );
 		garageViewer.carRoot.add( clone );
 		applyCarCustomizationToObject( clone, carKey, '', true, '', getGarageRepaintTolerance(), garageSelectionMask, garageTargetColorInput?.value || '' );
 
@@ -7650,6 +7912,8 @@ async function init() {
 
 		if ( garageViewer || ! garageViewerCanvas ) return;
 		const renderer = new THREE.WebGLRenderer( { canvas: garageViewerCanvas, antialias: true, alpha: true } );
+		renderer.shadowMap.enabled = true;
+		renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 		renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, 1.5 ) );
 		const scene = new THREE.Scene();
 		const camera = new THREE.PerspectiveCamera( 34, 1, 0.1, 100 );
@@ -7658,11 +7922,69 @@ async function init() {
 		// sliver at the very bottom of the frame and clicks could not select.
 		camera.position.set( 0, 1.35, 3.9 );
 		camera.lookAt( 0, 0.45, 0 );
-		scene.background = new THREE.Color( 0xf7fbff );
+		scene.background = new THREE.Color( 0x87ceeb );
 		scene.add( new THREE.AmbientLight( 0xffffff, 3.0 ) );
+		const displayRoot = new THREE.Group();
+		const garageRoot = new THREE.Group();
+		const garageSource = models.garage;
+		if ( garageSource ) {
+
+			const garage = garageSource.clone( true );
+			// The uploaded garage contains generous surrounding space. Keep the
+			// scene large enough that the visible city reads behind the car.
+			const garageScale = garageSceneScale;
+			garage.scale.setScalar( garageScale );
+			// The GLB origin is the car parking point. Preserve it instead of
+			// recentering the mesh by its bounds, so the car shares the authored
+			// garage coordinate system and sits naturally on the garage floor.
+			garage.position.set( 0, 0, garageSceneZOffset );
+			garage.traverse( ( child ) => {
+
+				if ( ! child.isMesh ) return;
+				const materials = Array.isArray( child.material ) ? child.material : [ child.material ];
+				materials.forEach( ( material ) => { material.side = THREE.DoubleSide; } );
+				child.castShadow = true;
+				child.receiveShadow = true;
+
+			} );
+			garageRoot.add( garage );
+
+		}
+		const garageCollisionVisual = garageCollisionAsset?.clone( true );
+		if ( garageCollisionVisual ) {
+
+			garageCollisionVisual.visible = false;
+			garageCollisionVisual.scale.setScalar( garageSceneScale );
+			garageCollisionVisual.position.set( 0, 0, garageSceneZOffset );
+			garageCollisionVisual.traverse( ( child ) => {
+
+				if ( ! child.isMesh ) return;
+				child.material = new THREE.MeshBasicMaterial( { color: 0xff4b38, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide } );
+				child.renderOrder = 2;
+
+			} );
+			garageRoot.add( garageCollisionVisual );
+
+		}
+		garageRoot.renderOrder = - 1;
+		displayRoot.add( garageRoot );
 		const carRoot = new THREE.Group();
-		scene.add( carRoot );
-		garageViewer = { renderer, scene, camera, carRoot, yaw: 0, dragging: false, moved: false, sx: 0, sy: 0, raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
+		carRoot.rotation.y = Math.PI / 4;
+		displayRoot.add( carRoot );
+		const garageKeyLight = new THREE.DirectionalLight( 0xffffff, 2.4 );
+		garageKeyLight.position.set( - 4, 7, 5 );
+		garageKeyLight.target.position.set( 0, 0, 0 );
+		garageKeyLight.castShadow = true;
+		garageKeyLight.shadow.mapSize.set( 1024, 1024 );
+		garageKeyLight.shadow.camera.near = 0.1;
+		garageKeyLight.shadow.camera.far = 30;
+		garageKeyLight.shadow.camera.left = - 10;
+		garageKeyLight.shadow.camera.right = 10;
+		garageKeyLight.shadow.camera.top = 10;
+		garageKeyLight.shadow.camera.bottom = - 10;
+		scene.add( garageKeyLight, garageKeyLight.target );
+		scene.add( displayRoot );
+		garageViewer = { renderer, scene, camera, displayRoot, garageRoot, carRoot, yaw: 0, pitch: 0.23, zoom: 1, drive: false, dragging: false, moved: false, sx: 0, sy: 0, pinchDistance: 0, pointers: new Map(), raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
 		const resize = () => {
 
 			const rect = garageViewerCanvas.getBoundingClientRect();
@@ -7678,7 +8000,25 @@ async function init() {
 			if ( garageViewer ) {
 
 				resize();
-				carRoot.rotation.y = garageViewer.yaw;
+				const orbitRadius = 3.9 / garageViewer.zoom;
+				if ( garageViewer.drive ) {
+
+					displayRoot.rotation.y = 0;
+					const target = garageVehicle?.spherePos || vehicle.spherePos;
+					const chaseOffset = new THREE.Vector3( 0, 2.3, - 6.6 ).applyQuaternion( garageVehicle?.container?.quaternion || vehicle.container.quaternion );
+					const chaseLook = new THREE.Vector3( 0, 0.9, 4.8 ).applyQuaternion( garageVehicle?.container?.quaternion || vehicle.container.quaternion );
+					camera.position.lerp( new THREE.Vector3( target.x + chaseOffset.x, target.y + chaseOffset.y, target.z + chaseOffset.z ), 0.12 );
+					camera.lookAt( target.x + chaseLook.x, target.y + chaseLook.y, target.z + chaseLook.z );
+
+				} else {
+
+					displayRoot.rotation.y = garageViewer.yaw;
+					carRoot.rotation.y = Math.PI / 4;
+					camera.position.y = 0.45 + Math.sin( garageViewer.pitch ) * orbitRadius;
+					camera.position.z = Math.cos( garageViewer.pitch ) * orbitRadius;
+					camera.lookAt( 0, 0.45, 0 );
+
+				}
 				renderer.shadowMap.needsUpdate = true;
 				renderer.render( scene, camera );
 				requestAnimationFrame( animate );
@@ -7687,27 +8027,136 @@ async function init() {
 
 		};
 		// Drag to rotate; a click (no significant drag) selects the color under the cursor.
-		garageViewerCanvas.addEventListener( 'pointerdown', ( event ) => { garageViewer.dragging = true; garageViewer.moved = false; garageViewer.sx = event.clientX; garageViewer.sy = event.clientY; garageViewerCanvas.classList.add( 'dragging' ); garageViewerCanvas.setPointerCapture?.( event.pointerId ); } );
+		garageViewerCanvas.addEventListener( 'wheel', ( event ) => {
+
+			event.preventDefault();
+			garageViewer.zoom = THREE.MathUtils.clamp( garageViewer.zoom * Math.exp( - event.deltaY * 0.001 ), 0.3, 2.2 );
+
+		}, { passive: false } );
+		garageViewerCanvas.addEventListener( 'pointerdown', ( event ) => {
+
+			garageViewer.pointers.set( event.pointerId, { x: event.clientX, y: event.clientY } );
+			if ( garageViewer.pointers.size === 2 ) {
+
+				const points = [ ... garageViewer.pointers.values() ];
+				garageViewer.pinchDistance = Math.hypot( points[ 0 ].x - points[ 1 ].x, points[ 0 ].y - points[ 1 ].y );
+				garageViewer.dragging = false;
+
+			} else {
+
+				garageViewer.dragging = true;
+				garageViewer.moved = false;
+				garageViewer.sx = event.clientX;
+				garageViewer.sy = event.clientY;
+				garageViewerCanvas.classList.add( 'dragging' );
+
+			}
+			garageViewerCanvas.setPointerCapture?.( event.pointerId );
+
+		} );
 		garageViewerCanvas.addEventListener( 'pointermove', ( event ) => {
 
+			if ( garageViewer.pointers.has( event.pointerId ) ) garageViewer.pointers.set( event.pointerId, { x: event.clientX, y: event.clientY } );
+			if ( garageViewer.pointers.size >= 2 ) {
+
+				const points = [ ... garageViewer.pointers.values() ];
+				const distance = Math.hypot( points[ 0 ].x - points[ 1 ].x, points[ 0 ].y - points[ 1 ].y );
+				if ( garageViewer.pinchDistance > 0 ) garageViewer.zoom = THREE.MathUtils.clamp( garageViewer.zoom * ( distance / garageViewer.pinchDistance ), 0.3, 2.2 );
+				garageViewer.pinchDistance = distance;
+				garageViewer.moved = true;
+				return;
+
+			}
 			if ( ! garageViewer.dragging ) return;
 			const dx = event.clientX - garageViewer.sx;
 			const dy = event.clientY - garageViewer.sy;
 			if ( Math.abs( dx ) + Math.abs( dy ) > 4 ) garageViewer.moved = true;
 			garageViewer.yaw += dx * 0.01;
+			// Dragging upward lowers the camera; never allow it below the car.
+			garageViewer.pitch = THREE.MathUtils.clamp( garageViewer.pitch + dy * 0.008, 0, 0.95 );
 			garageViewer.sx = event.clientX;
 			garageViewer.sy = event.clientY;
 
 		} );
-		garageViewerCanvas.addEventListener( 'pointerup', ( event ) => {
+		const endPointer = ( event ) => {
 
+			garageViewer.pointers.delete( event.pointerId );
+			if ( garageViewer.pointers.size > 0 ) return;
 			garageViewer.dragging = false;
 			garageViewerCanvas.classList.remove( 'dragging' );
-			if ( ! garageViewer.moved ) garageSelectFromViewerClick( event );
+			if ( ! garageViewer.moved && ! garageViewer.drive ) garageSelectFromViewerClick( event );
 
-		} );
+		};
+		garageViewerCanvas.addEventListener( 'pointerup', endPointer );
+		garageViewerCanvas.addEventListener( 'pointercancel', endPointer );
 		refreshGarageViewer();
 		animate();
+
+	}
+
+	function setGarageDriveActive( active ) {
+
+		if ( active === garageDriveActive ) return;
+		if ( active ) {
+
+			if ( ! garageViewer ) initGarageViewer();
+			if ( ! garageViewer ) return;
+			if ( ! garageCollisionAdded ) {
+
+				const collisionData = addGarageCollisionBoxes( garageWorld, garageCollisionAsset, garageSceneScale, garageSceneZOffset );
+				garageFloorTop = collisionData.floorTop;
+				garageCollisionAdded = true;
+				appendLoadingConsole( `Garage collision boxes loaded: ${ collisionData.count } (scale ${ garageSceneScale.toFixed( 3 )}, floor top ${ garageFloorTop.toFixed( 3 )})` );
+
+			}
+			const garageSpawn = [ 0, garageFloorTop + 0.55, 0 ];
+			if ( ! garageVehicleBody ) garageVehicleBody = createSphereBody( garageWorld, garageSpawn );
+			const garageCarKey = getSelectedGarageCarKey();
+			if ( ! garageVehicle ) {
+
+				garageVehicle = new Vehicle();
+				garageVehicle.rigidBody = garageVehicleBody;
+				garageVehicle.physicsWorld = garageWorld;
+				garageVehicle.setPerformance( CAR_STATS[ garageCarKey ].perf );
+				garageVehicle.init( models[ garageCarKey ] );
+				applyCarCustomizationToObject( garageVehicle.container, garageCarKey );
+
+			} else if ( models[ garageCarKey ] ) garageVehicle.setModel( models[ garageCarKey ] );
+			garageVehicle.setPerformance( CAR_STATS[ garageCarKey ].perf );
+			applyCarCustomizationToObject( garageVehicle.container, garageCarKey );
+			garageVehicle.rigidBody = garageVehicleBody;
+			garageVehicle.physicsWorld = garageWorld;
+			rigidBody.setLinearVelocity( world, sphereBody, [ 0, 0, 0 ] );
+			rigidBody.setAngularVelocity( world, sphereBody, [ 0, 0, 0 ] );
+			garageDriveActive = true;
+			garageViewer.drive = true;
+			garageViewer.carRoot.visible = false;
+			disposeGarageCloneMaterials( garageViewer.carRoot );
+			garageViewer.carRoot.clear();
+			garageViewer.displayRoot.add( garageVehicle.container );
+			garageVehicle.setSpawn( garageSpawn, 0 );
+			garageVehicle.resetToSpawn();
+			garageDriveBtn.textContent = 'Exit garage drive';
+			garageDriveBtn.classList.add( 'active' );
+			garageViewerHint.textContent = 'WASD or controller to drive • drag to orbit camera • scroll or pinch to zoom';
+
+		} else {
+
+			garageDriveActive = false;
+			if ( garageViewer ) {
+
+				garageViewer.drive = false;
+				garageViewer.carRoot.visible = true;
+				if ( garageVehicle?.container?.parent ) garageVehicle.container.parent.remove( garageVehicle.container );
+
+			}
+			garageVehicle?.resetToSpawn();
+			refreshGarageViewer();
+			garageDriveBtn.textContent = 'Test drive garage';
+			garageDriveBtn.classList.remove( 'active' );
+			garageViewerHint.textContent = 'Click a color to select it • drag to rotate • scroll or pinch to zoom';
+
+		}
 
 	}
 
@@ -7935,6 +8384,13 @@ async function init() {
 		ensureGarageSelectionSource();
 		refreshGarageViewer();
 		updateGarageCardActiveState();
+		if ( garageDriveActive && garageVehicle && models[ selectedKey ] ) {
+
+			garageVehicle.setModel( models[ selectedKey ] );
+			garageVehicle.setPerformance( CAR_STATS[ selectedKey ].perf );
+			applyCarCustomizationToObject( garageVehicle.container, selectedKey );
+
+		}
 		setGarageMappingStatus( `Now editing mappings for ${ CAR_STATS[ selectedKey ]?.name || 'selected car' }.` );
 		applyVehiclePerformance();
 		saveGarageMods();
@@ -11783,6 +12239,14 @@ function completeCampaignStage() {
 	garageGripUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'grip' ) );
 	garageAccelUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'accel' ) );
 	garageDriveUnlockBtn?.addEventListener( 'click', () => unlockGaragePack( 'drive' ) );
+	garageDriveBtn?.addEventListener( 'click', () => setGarageDriveActive( ! garageDriveActive ) );
+	window.addEventListener( 'keydown', ( event ) => {
+
+		if ( ! modeMenuOpen || modeTab !== 'garage' ) return;
+		if ( [ 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'PageUp', 'PageDown', 'Home', 'End' ].includes( event.code ) ) event.preventDefault();
+		if ( ! garageDriveActive && [ 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight' ].includes( event.code ) ) setGarageDriveActive( true );
+
+	} );
 	modeTabGameplayBtn?.addEventListener( 'click', () => setModeTab( 'gameplay' ) );
 	modeTabGarageBtn?.addEventListener( 'click', () => setModeTab( 'garage' ) );
 	modeTabAccountBtn?.addEventListener( 'click', () => setModeTab( 'account' ) );
@@ -11911,6 +12375,7 @@ function completeCampaignStage() {
 		hoveredGarageSourceHex = '';
 		garageSelectionMask = null;
 		applyCarCustomization( vehicle );
+		if ( garageDriveActive && garageVehicle ) applyCarCustomizationToObject( garageVehicle.container, carKey );
 		refreshGarageViewer();
 		refreshGarageCardPreviewPaint( carKey );
 		// List + card counts refresh LAST, after every state mutation, so the
@@ -12380,7 +12845,7 @@ function completeCampaignStage() {
 				respawnVehicle2();
 
 			}
-			const controlsBlocked = modeMenuOpen || replayViewerMode || countdownActive;
+			const controlsBlocked = ( modeMenuOpen && ! garageDriveActive ) || replayViewerMode || countdownActive;
 			let baseInput;
 			if ( controlsBlocked ) baseInput = ZERO_DRIVE_INPUT;
 			else if ( freecamState.active ) baseInput = readFreecamCarInput();
@@ -12436,16 +12901,17 @@ function completeCampaignStage() {
 		}
 
 		updateWorld( world, contactListener, dt );
+		if ( garageDriveActive ) updateWorld( garageWorld, contactListener, dt );
 
 		// Suppress seam bounces and detect real crashes based on speed loss.
 		// Skip seam suppression while the car is on a slope cell: uphill driving
 		// legitimately produces upward velocity that would otherwise trip the
 		// seam-bounce detector and freeze the car (the grip-loss glitch).
 		const onSlope1 = isVehicleOnSlopeCell( vehicle );
-		const seam1 = suppressSeamBounce( world, vehicle, '1', onSlope1 );
+		const seam1 = garageDriveActive ? false : suppressSeamBounce( world, vehicle, '1', onSlope1 );
 		const seam2 = vehicle2 ? suppressSeamBounce( world, vehicle2, '2', isVehicleOnSlopeCell( vehicle2 ) ) : false;
 
-		if ( vehicle?.rigidBody?.motionProperties ) {
+		if ( ! garageDriveActive && vehicle?.rigidBody?.motionProperties ) {
 			const v = vehicle.rigidBody.motionProperties.linearVelocity;
 			const speed1After = Math.sqrt( v[ 0 ] * v[ 0 ] + v[ 2 ] * v[ 2 ] );
 			detectCrashFromSpeedLoss( vehicle, speed1Before, speed1After, seam1 );
@@ -12457,7 +12923,8 @@ function completeCampaignStage() {
 		}
 
 			const wasDrifting = vehicle.driftIntensity > 0.25;
-			vehicle.update( dt, padAdjustedInput );
+			vehicle.update( dt, garageDriveActive ? ZERO_DRIVE_INPUT : padAdjustedInput );
+			if ( garageDriveActive && garageVehicle ) garageVehicle.update( dt, padAdjustedInput );
 			const isDrifting = vehicle.driftIntensity > 0.25;
 			if (!wasDrifting && isDrifting) advancementEvents.emit('drift_started', {});
 			if (wasDrifting && !isDrifting) advancementEvents.emit('drift_ended', {});
@@ -12467,7 +12934,7 @@ function completeCampaignStage() {
 			applyRaycastSlopeVisual( vehicle );
 			if ( vehicle2 ) applyRaycastSlopeVisual( vehicle2 );
 			if ( carHitboxMesh.visible ) carHitboxMesh.position.set( vehicle.spherePos.x, vehicle.spherePos.y, vehicle.spherePos.z );
-			applyMagnetForceFor( vehicle, dt );
+			if ( ! garageDriveActive ) applyMagnetForceFor( vehicle, dt );
 			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
 			applyGrappleSwingFor( vehicle, controls?.keys, dt );
 			arcLinkState = applyArcLinkFor( vehicle, arcLinkState );

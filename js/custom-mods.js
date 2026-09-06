@@ -230,7 +230,7 @@ Blockly.Blocks.action_set_horizon_color = { init() { this.appendDummyInput().app
 Blockly.Blocks.action_set_particle_color = { init() { this.appendDummyInput().appendField( 'set particle color' ).appendField( new Blockly.FieldColour( '#ff4b1f' ), 'COLOR' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( FX ); } };
 Blockly.Blocks.action_flash_screen = { init() { this.appendDummyInput().appendField( 'flash screen' ).appendField( new Blockly.FieldColour( '#ffffff' ), 'COLOR' ); this.setPreviousStatement( true ); this.setNextStatement( true ); this.setColour( FX ); } };
 actionDef( 'action_set_sky_vibrance', 'VALUE', 'set sky vibrance (0-1)', FX );
-actionDefDropdown( 'action_set_sky_palette', 'set sky/weather palette', 'PRESET', [ [ 'Clear', 'clear' ], [ 'Cloudy', 'cloudy' ], [ 'Sunset', 'sunset' ], [ 'Night', 'night' ], [ 'Dawn Mist', 'dawn-mist' ] ], null, null, FX );
+actionDefDropdown( 'action_set_sky_palette', 'set sky/weather palette', 'PRESET', [ [ 'Clear', 'clear' ], [ 'Cloudy', 'cloudy' ], [ 'Sunset', 'sunset' ], [ 'Night', 'night' ], [ 'Night (Constellations)', 'night-constellations' ], [ 'Dawn Mist', 'dawn-mist' ] ], null, null, FX );
 actionDef( 'action_set_sun_intensity', 'VALUE', 'set sun intensity', FX );
 actionDef( 'action_set_hemi_intensity', 'VALUE', 'set ambient light', FX );
 actionDef( 'action_set_exposure', 'VALUE', 'set exposure', FX );
@@ -518,7 +518,7 @@ actionDef( 'action_set_master_volume', 'VALUE', 'set master volume (0-1)', AUD )
 actionDef( 'action_restart_race', null, 'restart race', FLOW );
 actionDef( 'action_teleport_to_spawn', null, 'teleport to spawn', FLOW );
 actionDef( 'action_add_lap_time_penalty', 'SECS', 'add time penalty (seconds)', FLOW );
-actionDefDropdown( 'action_set_weather', 'set weather', 'W', [ [ 'Clear', 'clear' ], [ 'Cloudy', 'cloudy' ], [ 'Sunset', 'sunset' ], [ 'Night', 'night' ], [ 'Dawn Mist', 'dawn-mist' ] ], null, null, FX );
+actionDefDropdown( 'action_set_weather', 'set weather', 'W', [ [ 'Clear', 'clear' ], [ 'Cloudy', 'cloudy' ], [ 'Sunset', 'sunset' ], [ 'Night', 'night' ], [ 'Night (Constellations)', 'night-constellations' ], [ 'Dawn Mist', 'dawn-mist' ] ], null, null, FX );
 actionDef( 'action_set_fog_color_rgb', 'VALUE', 'tint world (0-1)', FX );
 
 // ---- EVENTS (extended, derived in the generated runtime) ----
