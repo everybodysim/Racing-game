@@ -625,7 +625,7 @@ function computeCausticShade( normal ) {
 
 }
 
-const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way' ] );
+const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way' ] );
 
 function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 
@@ -706,6 +706,7 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 
 	let modelKey = null;
 	if ( type === 'elevated-straight' ) modelKey = 'elev-track-straight';
+	else if ( type === 'elevated-cross' ) modelKey = 'elev-track-cross';
 	else if ( type === 'elevated-corner' ) modelKey = 'elev-track-corner';
 	else if ( type === 'elevated-checkpoint' ) modelKey = 'elev-track-checkpoint';
 	else if ( type === 'slope-up' || type === 'slope-down' ) modelKey = 'elev-track-slope';

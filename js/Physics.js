@@ -556,7 +556,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const gx = Number( gxRaw );
 			const gz = Number( gzRaw );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
-			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-checkpoint' && elevatedType !== 'elevated-3-way' && elevatedType !== 'elevated-4-way' ) continue;
+			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-cross' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-checkpoint' && elevatedType !== 'elevated-3-way' && elevatedType !== 'elevated-4-way' ) continue;
 			flatSet.add( `${ gx },${ gz }` );
 
 		}
@@ -973,7 +973,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		// The elevated-corner support pillar is curved (matching the corner mesh),
 		// so the generic full-square support box is skipped for corners and rebuilt
 		// by addElevatedCornerSupport() as an L-shaped + outer-arc footprint below.
-		if ( normalizedType !== 'slope-up' && normalizedType !== 'elevated-corner' ) addElevatedSupportCollider( nx, nz );
+		if ( normalizedType !== 'slope-up' && normalizedType !== 'elevated-corner' && normalizedType !== 'elevated-cross' ) addElevatedSupportCollider( nx, nz );
 		if ( normalizedType === 'slope-up' ) {
 
 			addSlopeCollider( nx, nz, normalizedOrient, true );
@@ -983,6 +983,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		if ( normalizedType === 'elevated-straight' || normalizedType === 'elevated-checkpoint' ) {
 
 			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
+			continue;
+
+		}
+		if ( normalizedType === 'elevated-cross' ) {
+
+			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
+			const throughOrient = { 0: 16, 10: 22, 16: 0, 22: 10 }[ normalizedOrient ] ?? normalizedOrient;
+			addElevatedRoadWalls( nx, nz, throughOrient, wallY, hHeight );
 			continue;
 
 		}
