@@ -111,20 +111,44 @@
 
 /* === Shared page polish (low specificity, easily overridden by page styles) === */
 
-/* Nicer default link colors for pages that don't style them */
 a:not(.skid-nav-brand):not(.skid-nav-link):not(.home-main-link):not(.home-secondary-link):not(.skip-link):not(.hero-link):not(.back-link) {
   color: var(--skid-accent2, #5ac8ff);
 }
 
-/* Smooth scroll for all pages */
 html { scroll-behavior: smooth; }
 
-/* Consistent details/summary styling */
 details > summary { cursor: pointer; user-select: none; }
 details > summary::-webkit-details-marker { opacity: 0.6; }
 
-/* Better scrollbar styling for dark theme */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.25); }
+
+/* Track board: thumbnails are temporarily disabled to keep KV storage under control. */
+label[for="track-thumbnail"] {
+  position: relative;
+  color: #8d98aa;
+  margin-bottom: 6px;
+}
+
+label[for="track-thumbnail"]::after {
+  content: "Sorry, this feature is temporarily disabled for space reasons.";
+  display: block;
+  margin-top: 5px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 190, 90, 0.28);
+  border-radius: 9px;
+  background: rgba(255, 190, 90, 0.07);
+  color: #d8c39b;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+#track-thumbnail {
+  opacity: 0.42;
+  filter: grayscale(1);
+  pointer-events: none;
+  cursor: not-allowed;
+}
