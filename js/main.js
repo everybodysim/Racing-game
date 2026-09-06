@@ -424,6 +424,7 @@ const WEATHER_PRESETS = {
 	cloudy: { bg: 0xaab2ba, fogNearMul: 2.56, fogFarMul: 5.12, sun: 3.8, hemi: 1.3, exposure: 0.95 },
 	sunset: { bg: 0xffb178, fogNearMul: 2.24, fogFarMul: 4.8, sun: 4.4, hemi: 1.2, exposure: 1.08 },
 	night: { bg: 0x0a1730, fogNearMul: 1.92, fogFarMul: 4.0, sun: 1.7, hemi: 0.45, exposure: 0.7 },
+	'night-constellations': { bg: 0x0a1730, fogNearMul: 1.92, fogFarMul: 4.0, sun: 1.7, hemi: 0.45, exposure: 0.7 },
 	'dawn-mist': { bg: 0xb6c2cc, fogNearMul: 1.6, fogFarMul: 3.36, sun: 2.9, hemi: 1.1, exposure: 0.88 },
 };
 
@@ -432,6 +433,7 @@ const WEATHER_SKY_GRADIENTS = {
 	cloudy: { top: '#5c6b7c', mid: '#8b96a3', horizon: '#c9cfd5', ground: '#aab2ba' },
 	sunset: { top: '#2c1f52', mid: '#c4548f', horizon: '#ff8a4c', ground: '#ffd28a' },
 	night: { top: '#01030b', mid: '#050d24', horizon: '#132244', ground: '#0a1730' },
+	'night-constellations': { top: '#01030b', mid: '#050d24', horizon: '#132244', ground: '#0a1730' },
 	'dawn-mist': { top: '#5f92d0', mid: '#9fc4eb', horizon: '#ffdcb0', ground: '#c5ddf4' },
 };
 
@@ -441,7 +443,8 @@ const SKY_DECOR_PRESETS = {
 	clear: { clouds: { count: 12, scale: [ 3.0, 5.0 ], elevationRange: [ 8, 24 ], color: 0xffffff, opacity: 0.92 }, stars: 0, moon: false },
 	sunset: { clouds: { count: 10, scale: [ 3.2, 5.2 ], elevationRange: [ 6, 18 ], color: 0xffcfae, opacity: 0.93 }, stars: 0, moon: false },
 	cloudy: { clouds: { count: 15, scale: [ 4.5, 7.0 ], elevationRange: [ 5, 18 ], color: 0x9aa3ad, opacity: 0.9 }, stars: 0, moon: false },
-	night: { clouds: { count: 6, scale: [ 2.5, 4.0 ], elevationRange: [ 12, 28 ], color: 0x2b3a5c, opacity: 0.35 }, stars: 600, moon: true },
+	night: { clouds: { count: 6, scale: [ 2.5, 4.0 ], elevationRange: [ 12, 28 ], color: 0x2b3a5c, opacity: 0.35 }, stars: 600, moon: true, constellations: true },
+	'night-constellations': { clouds: { count: 6, scale: [ 2.5, 4.0 ], elevationRange: [ 12, 28 ], color: 0x2b3a5c, opacity: 0.35 }, stars: 600, moon: true, constellations: true },
 };
 
 const WEATHER_DEFAULT = 'clear';
@@ -3186,7 +3189,7 @@ function applySkyPalette( preset = WEATHER_DEFAULT ) {
 
 // ─── Sky decorations: low-poly clouds, stars, moon (follows the vehicle so ───
 // ─── they always stay within the camera's far plane, like a real skybox)  ───
-let skyDecorState = { cloudGroup: null, starPoints: null, moonGroup: null };
+let skyDecorState = { cloudGroup: null, starPoints: null, constellationLines: null, moonGroup: null };
 
 function clearSkyDecorations() {
 
@@ -3208,6 +3211,13 @@ function clearSkyDecorations() {
 		skyDecorState.starPoints.material?.dispose();
 
 	}
+	if ( skyDecorState.constellationLines ) {
+
+		skyGroup.remove( skyDecorState.constellationLines );
+		skyDecorState.constellationLines.geometry?.dispose();
+		skyDecorState.constellationLines.material?.dispose();
+
+	}
 	if ( skyDecorState.moonGroup ) {
 
 		skyGroup.remove( skyDecorState.moonGroup );
@@ -3219,7 +3229,7 @@ function clearSkyDecorations() {
 		} );
 
 	}
-	skyDecorState = { cloudGroup: null, starPoints: null, moonGroup: null };
+	skyDecorState = { cloudGroup: null, starPoints: null, constellationLines: null, moonGroup: null };
 
 }
 
@@ -3302,6 +3312,86 @@ function buildSkyDecorations( preset ) {
 		starPoints.frustumCulled = false;
 		skyGroup.add( starPoints );
 		skyDecorState.starPoints = starPoints;
+
+		if ( config.constellations ) {
+
+			const lineCount = Math.min( 104, Math.max( 28, Math.floor( starCount * 1.15 / 8 ) ) );
+			let linePositions = new Float32Array( lineCount * 6 );
+			const linkCounts = new Uint8Array( starCount );
+			const links = [];
+			const linkedStars = [];
+			const cross = ( ax, az, bx, bz, cx, cz ) => ( bx - ax ) * ( cz - az ) - ( bz - az ) * ( cx - ax );
+			const segmentsIntersect = ( first, second, third, fourth ) => {
+
+				const firstSide = cross( first.x, first.z, second.x, second.z, third.x, third.z );
+				const secondSide = cross( first.x, first.z, second.x, second.z, fourth.x, fourth.z );
+				const thirdSide = cross( third.x, third.z, fourth.x, fourth.z, first.x, first.z );
+				const fourthSide = cross( third.x, third.z, fourth.x, fourth.z, second.x, second.z );
+				return ( firstSide > 0 ) !== ( secondSide > 0 ) && ( thirdSide > 0 ) !== ( fourthSide > 0 );
+
+			};
+			let accepted = 0;
+			for ( let attempt = 0; attempt < lineCount * 8 && accepted < lineCount; attempt ++ ) {
+
+				let first = Math.floor( Math.random() * starCount );
+				if ( linkedStars.length > 0 && Math.random() < 0.72 ) {
+
+					const linkedStart = Math.floor( Math.random() * linkedStars.length );
+					first = linkedStars[ linkedStart ];
+
+				}
+				if ( linkCounts[ first ] >= 5 ) continue;
+				const nearby = [];
+				const firstOffset = first * 3;
+				for ( let candidate = 0; candidate < starCount; candidate ++ ) {
+
+					if ( candidate === first ) continue;
+					const candidateOffset = candidate * 3;
+					const dx = positions[ candidateOffset ] - positions[ firstOffset ];
+					const dy = positions[ candidateOffset + 1 ] - positions[ firstOffset + 1 ];
+					const dz = positions[ candidateOffset + 2 ] - positions[ firstOffset + 2 ];
+					nearby.push( { index: candidate, distance: dx * dx + dy * dy + dz * dz } );
+
+				}
+				nearby.sort( ( a, b ) => a.distance - b.distance );
+				const nearbyCount = Math.min( 8, nearby.length );
+				let second = -1;
+				for ( let candidateTry = 0; candidateTry < nearbyCount; candidateTry ++ ) {
+
+					const candidate = nearby[ ( candidateTry + Math.floor( Math.random() * nearbyCount ) ) % nearbyCount ].index;
+					if ( linkCounts[ candidate ] >= 5 ) continue;
+					if ( links.some( ( link ) => ( link.first === first && link.second === candidate ) || ( link.first === candidate && link.second === first ) ) ) continue;
+					const firstPoint = { x: positions[ first * 3 ], z: positions[ first * 3 + 2 ] };
+					const secondPoint = { x: positions[ candidate * 3 ], z: positions[ candidate * 3 + 2 ] };
+					const crossesExisting = links.some( ( link ) => {
+						if ( link.first === first || link.first === candidate || link.second === first || link.second === candidate ) return false;
+						return segmentsIntersect( firstPoint, secondPoint, link.firstPoint, link.secondPoint );
+					} );
+					if ( crossesExisting ) continue;
+					second = candidate;
+					links.push( { first, second, firstPoint, secondPoint } );
+					linkCounts[ first ]++;
+					linkCounts[ second ]++;
+					linkedStars.push( first, second );
+					break;
+
+				}
+				if ( second < 0 ) continue;
+				linePositions.set( positions.subarray( first * 3, first * 3 + 3 ), accepted * 6 );
+				linePositions.set( positions.subarray( second * 3, second * 3 + 3 ), accepted * 6 + 3 );
+				accepted++;
+
+			}
+			linePositions = linePositions.slice( 0, accepted * 6 );
+			const lineGeometry = new THREE.BufferGeometry();
+			lineGeometry.setAttribute( 'position', new THREE.BufferAttribute( linePositions, 3 ) );
+			const lineMaterial = new THREE.LineBasicMaterial( { color: 0x7898c7, transparent: true, opacity: 0.34, depthWrite: false, depthTest: true, fog: false } );
+			const constellationLines = new THREE.LineSegments( lineGeometry, lineMaterial );
+			constellationLines.frustumCulled = false;
+			skyGroup.add( constellationLines );
+			skyDecorState.constellationLines = constellationLines;
+
+		}
 
 	}
 
@@ -6817,7 +6907,6 @@ async function init() {
 		if ( keys.ArrowRight ) x += 1;
 		if ( keys.ArrowUp ) z += 1;
 		if ( keys.ArrowDown ) z -= 1;
-		if ( keys.ShiftLeft || keys.ShiftRight ) z = Math.max( z, 1 );
 		return { x, z };
 
 	}

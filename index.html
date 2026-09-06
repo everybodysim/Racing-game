@@ -934,6 +934,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#underwater-overlay.active { opacity: 1; }
 		/* Sun-through-the-surface light bands: two wide soft gradients drifting
 		   at different speeds. Pure CSS, repaints only a translucent layer. */
+		@keyframes underwater-caustics {
 			0% { transform: translate3d( -4%, -2%, 0 ) rotate( 0.6deg ); }
 			100% { transform: translate3d( 4%, 2%, 0 ) rotate( -0.6deg ); }
 		}
