@@ -470,7 +470,7 @@
 /* ─── Feature 4: Minimap ─── */
 #minimap-wrap { position: absolute; left: 12px; top: 70px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
 #minimap-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
-#topbar { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 14; flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); }
+#topbar { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: max-content; display: flex; gap: 8px; z-index: 14; flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); }
 .topbar-cluster { display: flex; align-items: center; gap: 3px; padding: 5px 8px; border-radius: 10px; background: rgba(20,20,30,0.84); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 4px 20px rgba(0,0,0,0.35); }
 .topbar-label { font: 700 10px sans-serif; color: rgba(180,210,255,0.9); margin-right: 4px; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; }
 #topbar button { padding: 4px 8px; border: none; border-radius: 8px; background: transparent; color: rgba(255,255,255,0.72); font-size: 11px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
@@ -748,8 +748,7 @@
 			<button id="btn-custom-import">Import 3D</button>
 			<input id="custom-model-file" type="file" accept=".glb,.gltf,.obj,model/gltf-binary,model/gltf+json" style="display:none" />
 		</div>
-	</div>
-	<div id="topbar">
+		<div id="topbar">
 		<div class="topbar-cluster" aria-label="Options">
 			<span class="topbar-label">Options</span>
 			<button id="btn-play" class="action">Play</button>
@@ -772,6 +771,10 @@
 	</div>
 
 
+	<div id="minimap-wrap" class="hidden">
+		<canvas id="minimap-canvas" width="140" height="140"></canvas>
+		<span id="minimap-label">Map</span>
+	</div>
 	<div id="track-slots" aria-label="Track save slots">
 		<button type="button" data-track-slot="0">Slot 1</button>
 		<button type="button" data-track-slot="1">Slot 2</button>
@@ -5884,22 +5887,10 @@ function renderMinimap() {
         ctx.lineWidth = 1;
         ctx.strokeRect((minGx+half)*pxPerCell, (minGz+half)*pxPerCell, (maxGx-minGx+1)*pxPerCell, (maxGz-minGz+1)*pxPerCell);
     }
-    const camGx = camTarget.x / cellWorld - half;
-    const camGz = camTarget.z / cellWorld - half;
-    const viewHalfW = (frustum * (window.innerWidth / window.innerHeight)) / cellWorld / camera.zoom;
-    const viewHalfD = frustum / cellWorld / camera.zoom;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(
-        Math.max(0, (camGx - viewHalfW + half) * pxPerCell),
-        Math.max(0, (camGz - viewHalfD + half) * pxPerCell),
-        Math.min(W, (viewHalfW * 2) * pxPerCell),
-        Math.min(H, (viewHalfD * 2) * pxPerCell)
-    );
 }
 
-// Minimap removed per user request (the grey box in the corner).
-// initMinimap() and renderMinimap() remain above if it is ever wanted again.
+initMinimap();
+setInterval(renderMinimap, 200);
 
 // ═════════════════════════════════════════════════════════════════
 // KEYBOARD SHORTCUTS — extended
