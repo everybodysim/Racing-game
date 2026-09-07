@@ -4,6 +4,68 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 	<title>Skid Circuit — Track Editor</title>
+<script>
+		// ─── White-screen watchdog ───────────────────────────────────
+		// If the editor module dies before the render loop starts (a storage
+		// quota error, corrupt saved data, a failed import…), the page used to
+		// sit blank forever. This captures the error and offers a recovery
+		// path instead. The module clears it with window.__editorReady.
+		( function () {
+
+			var errors = [];
+			function record( text ) {
+
+				errors.push( String( text ).slice( 0, 400 ) );
+				if ( errors.length > 8 ) errors.shift();
+
+			}
+
+			window.addEventListener( 'error', function ( e ) {
+
+				record( ( e.message || 'Script error' ) + ( e.filename ? ' @ line ' + e.lineno : '' ) );
+
+			} );
+			window.addEventListener( 'unhandledrejection', function ( e ) {
+
+				record( 'Unhandled rejection: ' + ( ( e.reason && ( e.reason.stack || e.reason.message || e.reason ) ) || 'unknown' ) );
+
+			} );
+
+			setTimeout( function () {
+
+				if ( window.__editorReady || document.getElementById( 'editor-boot-overlay' ) ) return;
+				var el = document.createElement( 'div' );
+				el.id = 'editor-boot-overlay';
+				el.setAttribute( 'style', 'position:fixed;inset:0;z-index:99999;background:#10151f;color:#e8f0ff;font:14px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:24px;' );
+				el.innerHTML = '<div style="max-width:600px;width:100%">'
+					+ '<h2 style="margin:0 0 8px;font:700 19px sans-serif;color:#fff">The editor failed to start</h2>'
+					+ '<p style="margin:0 0 12px;color:#9fb2cc">The page kept your saved track. Most startup failures come from full browser storage or a broken cached file — reload first, and reset only if it keeps failing.</p>'
+					+ '<pre style="white-space:pre-wrap;word-break:break-word;background:#0a0e16;border:1px solid #2a3547;border-radius:8px;padding:10px;max-height:170px;overflow:auto;font-size:11px;margin:0 0 14px;color:#c9dcf5"></pre>'
+					+ '<button id="editor-boot-reload" style="padding:10px 16px;margin-right:8px;border:0;border-radius:8px;background:#3478f6;color:#fff;font:700 13px sans-serif;cursor:pointer">Reload editor</button>'
+					+ '<button id="editor-boot-reset" style="padding:10px 16px;border:1px solid #3a4a63;border-radius:8px;background:transparent;color:#cfe0ff;font:700 13px sans-serif;cursor:pointer">Reset editor data</button>'
+					+ '</div>';
+				el.querySelector( 'pre' ).textContent = errors.length ? errors.join( '\n' ) : 'No JavaScript error was captured — this is likely a storage-full or graphics issue. Try the Reload button.';
+				( document.body || document.documentElement ).appendChild( el );
+				document.getElementById( 'editor-boot-reload' ).onclick = function () { location.reload(); };
+				document.getElementById( 'editor-boot-reset' ).onclick = function () {
+
+					try {
+
+						Object.keys( localStorage ).forEach( function ( key ) {
+
+							if ( key.indexOf( 'racing-editor-' ) === 0 ) localStorage.removeItem( key );
+
+						} );
+
+					} catch ( e ) {}
+					location.href = location.pathname;
+
+				};
+
+			}, 7000 );
+
+		} )();
+	</script>
 <link rel="canonical" href="https://everybodysim.github.io/Racing-game/editor.html">
 <meta name="description" content="Build your own racing circuits with the Skid Circuit track editor — place track pieces, set checkpoints, and test your custom maps instantly.">
 <meta name="robots" content="index, follow">
@@ -900,6 +962,27 @@
 	const TRACK_SLOT_KEY_PREFIX = 'racing-editor-slot-';
 	const ACTIVE_TRACK_SLOT_KEY = 'racing-editor-active-slot';
 	let activeTrackSlot = Math.max( 0, Math.min( TRACK_SLOT_COUNT - 1, Number( localStorage.getItem( ACTIVE_TRACK_SLOT_KEY ) ) || 0 ) );
+
+	// Storage writes must never take the editor down: a full localStorage quota
+	// (long-lived origins accumulate tracks, slots and replays) makes setItem
+	// throw QuotaExceededError — which used to kill init and the slot buttons.
+	function safeSetItem( key, value ) {
+
+		try {
+
+			localStorage.setItem( key, value );
+			return true;
+
+		} catch ( error ) {
+
+			console.warn( `Skipped saving ${ key } (${ error?.name || 'storage error' })` );
+			return false;
+
+		}
+
+	}
+
+	let trackSlotBackupFailed = false;
 	const OFFGRID_STEP = 0.25;
 	const MAGNET_Y_STEP = 0.1;
 	const MAGNET_MIN_Y = -1;
@@ -3230,9 +3313,20 @@ function computeCausticShade( normal ) {
 
 		const encoded = encodeCells( arr );
 		const modsEncoded = encodeMods();
-		localStorage.setItem( 'racing-editor-cells', encoded );
-		localStorage.setItem( 'racing-editor-mods', modsEncoded );
-		localStorage.setItem( `${ TRACK_SLOT_KEY_PREFIX }${ activeTrackSlot }`, JSON.stringify( { cells: encoded, mods: modsEncoded, updatedAt: Date.now() } ) );
+		safeSetItem( 'racing-editor-cells', encoded );
+		safeSetItem( 'racing-editor-mods', modsEncoded );
+		const slotStored = safeSetItem( `${ TRACK_SLOT_KEY_PREFIX }${ activeTrackSlot }`, JSON.stringify( { cells: encoded, mods: modsEncoded, updatedAt: Date.now() } ) );
+		if ( slotStored ) {
+
+			trackSlotBackupFailed = false;
+
+		} else if ( ! trackSlotBackupFailed ) {
+
+			// The main keys above still saved fine — only the slot copy was skipped.
+			trackSlotBackupFailed = true;
+			showToast( 'Track too large for slot backup — regular saves still work' );
+
+		}
 		localStorage.removeItem( QUICK_TEST_GHOST_KEY );
 		localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
 		clearQuickTestGhost();
@@ -3265,16 +3359,17 @@ function computeCausticShade( normal ) {
 
 		const state = getTrackSlotState( slot );
 		activeTrackSlot = slot;
-		localStorage.setItem( ACTIVE_TRACK_SLOT_KEY, String( slot ) );
+		safeSetItem( ACTIVE_TRACK_SLOT_KEY, String( slot ) );
 		if ( state ) {
 			await loadEncodedState( state.cells, state.mods || '' );
-			localStorage.setItem( 'racing-editor-cells', state.cells );
-			localStorage.setItem( 'racing-editor-mods', state.mods || '' );
+			safeSetItem( 'racing-editor-cells', state.cells );
+			safeSetItem( 'racing-editor-mods', state.mods || '' );
 			updateTrackSlotButtons();
 			showToast( `Loaded track slot ${ slot + 1 }` );
 			return;
 		}
 		save();
+		updateTrackSlotButtons();
 		showToast( `Saved current track to slot ${ slot + 1 }` );
 
 	}
@@ -3821,15 +3916,26 @@ function computeCausticShade( normal ) {
 
 	async function loadSaved() {
 
-		const params = new URLSearchParams( window.location.search );
-		const mapParam = params.get( 'map' );
-		const modsParam = params.get( 'mods' );
-		const activeSlotState = getTrackSlotState( activeTrackSlot );
-		const encoded = mapParam || activeSlotState?.cells || localStorage.getItem( 'racing-editor-cells' );
-		const modsEncoded = modsParam || activeSlotState?.mods || localStorage.getItem( 'racing-editor-mods' );
-		await loadEncodedState( encoded, modsEncoded );
-		if ( ! mapParam && ! activeSlotState && encoded ) save();
-		updateTrackSlotButtons();
+		try {
+
+			const params = new URLSearchParams( window.location.search );
+			const mapParam = params.get( 'map' );
+			const modsParam = params.get( 'mods' );
+			const activeSlotState = getTrackSlotState( activeTrackSlot );
+			const encoded = mapParam || activeSlotState?.cells || localStorage.getItem( 'racing-editor-cells' );
+			const modsEncoded = modsParam || activeSlotState?.mods || localStorage.getItem( 'racing-editor-mods' );
+			await loadEncodedState( encoded, modsEncoded );
+			if ( ! mapParam && ! activeSlotState && encoded ) save();
+			updateTrackSlotButtons();
+
+		} catch ( error ) {
+
+			// Corrupt saved data or a full storage quota must leave the editor
+			// usable (the render loop depends on init getting past this call).
+			console.error( 'Failed to restore the saved track:', error );
+			showToast( 'Could not load the saved track — starting clean' );
+
+		}
 
 	}
 
@@ -5109,9 +5215,26 @@ function refreshMovingSpeedUi() {
 	// ─── Init & render loop ───────────────────────────────────
 
 	refreshModTools();
-	await loadModels();
+	try {
+
+		await loadModels();
+
+	} catch ( error ) {
+
+		console.error( 'Failed to load models:', error );
+		showToast( 'Some track models failed to load — check your connection' );
+
+	}
 	applyWeatherPreset( WEATHER_DEFAULT );
-	await loadSaved();
+	try {
+
+		await loadSaved();
+
+	} catch ( error ) {
+
+		console.error( 'Failed to load saved track:', error );
+
+	}
 
 	// Start with a finish cell if the grid is empty
 	if ( grid.size === 0 ) {
@@ -5132,6 +5255,9 @@ function refreshMovingSpeedUi() {
 	}
 
 	animate();
+
+	// Handshake with the white-screen watchdog injected in <head>.
+	window.__editorReady = true;
 
 // ═════════════════════════════════════════════════════════════════
 // FEATURE 1: Independent, open-by-default toolbar groups
