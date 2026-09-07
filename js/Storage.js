@@ -197,6 +197,68 @@ function decompressJson(str, fallback) {
   }
 }
 
+// Personal-best ghost samples are huge compared with the PB time. Keep the
+// personal-best time, but never persist the local replay payload that recreates
+// the PB ghost. This is intentionally scoped to racing-lap-stats:* only, so
+// every other localStorage feature keeps its existing behavior.
+function installLapGhostStorageGuard() {
+  if (typeof window === 'undefined' || !window.Storage || window.__racingLapGhostStorageGuard) return;
+  var proto = window.Storage.prototype;
+  if (!proto || typeof proto.setItem !== 'function' || typeof proto.getItem !== 'function') return;
+
+  var originalSetItem = proto.setItem;
+  var originalGetItem = proto.getItem;
+  var LAP_PREFIX = 'racing-lap-stats:';
+  var GHOST_FIELDS = [
+    'bestGhostDuration',
+    'bestGhostCarKey',
+    'bestGhostCosmetics',
+    'bestLapGhostSamples',
+    'bestLapInputFrames',
+  ];
+
+  function stripGhostFields(raw) {
+    if (typeof raw !== 'string' || !raw) return raw;
+    try {
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return raw;
+      var changed = false;
+      for (var i = 0; i < GHOST_FIELDS.length; i++) {
+        if (Object.prototype.hasOwnProperty.call(parsed, GHOST_FIELDS[i])) {
+          delete parsed[GHOST_FIELDS[i]];
+          changed = true;
+        }
+      }
+      return changed ? JSON.stringify(parsed) : raw;
+    } catch (e) {
+      return raw;
+    }
+  }
+
+  try {
+    proto.setItem = function(key, value) {
+      var k = String(key);
+      var v = k.indexOf(LAP_PREFIX) === 0 ? stripGhostFields(String(value)) : value;
+      return originalSetItem.call(this, key, v);
+    };
+    proto.getItem = function(key) {
+      var raw = originalGetItem.call(this, key);
+      var k = String(key);
+      if (k.indexOf(LAP_PREFIX) !== 0 || raw == null) return raw;
+      var cleaned = stripGhostFields(raw);
+      if (cleaned !== raw) originalSetItem.call(this, key, cleaned);
+      return cleaned;
+    };
+    window.__racingLapGhostStorageGuard = true;
+  } catch (e) {
+    // Never interfere with game startup if a browser disallows patching Storage.
+  }
+}
+
+// Storage.js is imported by main.js before lap persistence is used, so this
+// also cleans old oversized PB ghost entries the first time they are read.
+installLapGhostStorageGuard();
+
 // Classic-script global interop (ignored by ES module loaders).
 var StorageApi = {
   MARKER: MARKER,
