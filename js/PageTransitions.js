@@ -89,11 +89,23 @@
 			var payload = await response.json();
 			if ( ! payload || ! payload.ok || ! payload.map ) throw new Error( payload?.error || 'Pack did not contain map data' );
 
-			localStorage.setItem( 'racing-editor-cells', String( payload.map ) );
-			localStorage.setItem( 'racing-editor-mods', String( payload.mods || '' ) );
+			var packedCells = String( payload.map );
+			var packedMods = String( payload.mods || '' );
+			localStorage.setItem( 'racing-editor-cells', packedCells );
+			localStorage.setItem( 'racing-editor-mods', packedMods );
 
-			// Go directly to the editor with NO query string. editor.html already
-			// falls back to these two storage keys when map/mods are absent.
+			// editor.html prefers the active track slot over the generic fallback
+			// keys. Put the packed track in that exact slot too, otherwise an
+			// existing slot could silently win and make the editor appear empty.
+			var activeSlot = Math.max( 0, Math.min( 2, Number( localStorage.getItem( 'racing-editor-active-slot' ) ) || 0 ) );
+			localStorage.setItem( 'racing-editor-slot-' + activeSlot, JSON.stringify( {
+				cells: packedCells,
+				mods: packedMods,
+				updatedAt: Date.now(),
+			} ) );
+
+			// Go directly to the editor with NO query string. editor.html will
+			// read the active slot we just populated, avoiding the giant URL.
 			window.location.href = 'editor.html';
 			return true;
 		} catch ( error ) {
