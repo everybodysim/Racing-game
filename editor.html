@@ -84,25 +84,33 @@
 		canvas { display: block; touch-action: none; }
 
 		#toolbar {
-			position: absolute;
-			bottom: 14px;
-			left: 236px;
-			right: 12px;
-			display: flex;
-			flex-wrap: wrap;
-			justify-content: center;
-			align-items: center;
-			gap: 2px;
-			padding: 5px 6px;
-			max-width: none;
-			background: rgba(20, 20, 30, 0.85);
-			backdrop-filter: blur(12px);
-			-webkit-backdrop-filter: blur(12px);
-			border-radius: 14px;
-			border: 1px solid rgba(255, 255, 255, 0.1);
-			box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-			z-index: 10;
-		}
+    position: absolute;
+    bottom: 14px;
+    left: 236px;
+    right: 12px;
+
+    display: flex;
+    flex-direction: column;
+    flex-wrap: nowrap;
+
+    justify-content: flex-end;
+    align-items: center;
+
+    gap: 4px;
+    padding: 5px 6px;
+
+    max-width: none;
+
+    background: rgba(20, 20, 30, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+
+    z-index: 10;
+}
 
 		#toolbar button {
 			padding: 4px 7px;
