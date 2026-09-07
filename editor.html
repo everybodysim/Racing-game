@@ -504,7 +504,7 @@
 #track-slots button { padding: 6px 8px; border: 1px solid rgba(255,255,255,0.18); border-radius: 7px; background: rgba(8,10,14,0.75); color: #dbe8ff; font: 700 10px sans-serif; cursor: pointer; }
 #track-slots button:hover, #track-slots button.active { background: rgba(80,160,255,0.3); border-color: rgba(120,180,255,0.65); color: #fff; }
 #btn-custom-pool { display: inline-flex; align-items: center; gap: 6px; }
-#btn-custom-pool #cp-colors-toggle { accent-color: #34d058; width: 14px; height: 14px; margin: 0; cursor: pointer; flex: none; }
+#btn-custom-pool #cpe-colors-toggle { accent-color: #34d058; width: 14px; height: 14px; margin: 0; cursor: pointer; flex: none; }
 #minimap-label { position: absolute; top: 4px; left: 8px; font: 700 9px sans-serif; color: rgba(255,255,255,0.45); pointer-events: none; text-transform: uppercase; letter-spacing: 0.06em; }
 #minimap-wrap.hidden { display: none; }
 
@@ -688,7 +688,7 @@
 			<button id="btn-wall">Wall +</button>
 			<button id="btn-jump">Jump +</button>
 			<button id="btn-water">Water Pool +</button>
-			<button id="btn-custom-pool" title="Opens custom pool settings"><input type="checkbox" id="cp-colors-toggle" aria-label="Enable custom pool colors"> Custom Pool</button>
+			<button id="btn-custom-pool" title="Opens custom pool settings"><input type="checkbox" id="cpe-colors-toggle" aria-label="Enable custom pool colors"> Custom Pool</button>
 		</div>
 		<div class="toolbar-group" aria-label="Moving objects" data-cat="moving">
 			<span class="toolbar-group-label">Moving</span>
@@ -821,35 +821,15 @@
 	</aside>
 	<div id="offgrid-dev-banner" hidden>Off-grid placement is still in development — expect rough edges while it gets fixed.</div>
 	<div id="custom-surface-panel" hidden>
-		<h3 id="custom-surface-title">Custom Surface</h3>
-		<div class="custom-surface-grid" id="custom-effect-fields">
-			<label><input type="checkbox" id="cs-force-forward"> Force Forward</label>
-			<label><input type="checkbox" id="cs-force-backward"> Force Backward</label>
-			<label><input type="checkbox" id="cs-force-left"> Force Left</label>
-			<label><input type="checkbox" id="cs-force-right"> Force Right</label>
-			<label><input type="checkbox" id="cs-force-up"> Force Up</label>
-			<label>Force Amount <input type="range" id="cs-force-amount" min="-1" max="20" step="0.1" value="4"></label>
-			<label><input type="checkbox" id="cs-no-air"> Don't trigger in air</label>
-			<label><input type="checkbox" id="cs-once-contact"> Trigger once until leave/re-enter</label>
-			<label>Color <input type="color" id="cs-color" value="#9c7bff"></label>
-			<label>Grip <input type="range" id="cs-grip" min="0" max="5" step="0.05" value="1.2"></label>
-			<label>Speed <input type="range" id="cs-speed" min="0" max="5" step="0.05" value="1.05"></label>
-			<label>Gravity <input type="range" id="cs-pad-gravity" min="0.15" max="3" step="0.05" value="1"></label>
-			<label>Drag <input type="range" id="cs-pad-drag" min="0.05" max="5" step="0.05" value="1"></label>
-			<label>Accel <input type="range" id="cs-pad-accel" min="0" max="5" step="0.05" value="1"></label>
-			<label>Drive <input type="range" id="cs-pad-drive" min="0" max="5" step="0.05" value="1"></label>
-			<label>Top Speed <input type="range" id="cs-pad-top-speed" min="0" max="3" step="0.05" value="1"></label>
-			<label>Steering <input type="range" id="cs-pad-steering" min="0" max="3" step="0.05" value="1"></label>
-			<label>Time Scale <input type="range" id="cs-pad-time-scale" min="0.15" max="3" step="0.05" value="1"></label>
-			<label><input type="checkbox" id="cs-pad-no-brakes"> Disable brakes</label>
-			<label><input type="checkbox" id="cs-pad-no-steering"> Disable steering</label>
-			<label><input type="checkbox" id="cs-pad-no-acceleration"> Disable acceleration</label>
-		</div>
-		<div class="custom-surface-actions">
-			<button id="cs-save">Save</button>
-			<button id="cs-close">Close</button>
-		</div>
-	</div>
+		<h3 id="custom-surface-title">Custom Surface</h3><div class="custom-surface-grid">
+			<label><input type="checkbox" id="cs-trigger-in-air"> Trigger in air</label><label><input type="checkbox" id="cs-trigger-repeatedly"> Trigger repeatedly</label>
+			<label><input type="checkbox" id="cs-force-forward"> Force Forward</label><label><input type="checkbox" id="cs-force-backward"> Force Backward</label><label><input type="checkbox" id="cs-force-left"> Force Left</label><label><input type="checkbox" id="cs-force-right"> Force Right</label><label><input type="checkbox" id="cs-force-up"> Force Up</label>
+			<label>Force Amount <input type="range" id="cs-force-amount" min="0" max="20" step="0.1" value="4"></label><label>Color <input type="color" id="cs-color" value="#9c7bff"></label><label>Grip <input type="range" id="cs-grip" min="0" max="5" step="0.05" value="1.2"></label><label>Speed <input type="range" id="cs-speed" min="0" max="5" step="0.05" value="1.05"></label><label>Drag <input type="range" id="cs-drag" min="0.05" max="5" step="0.05" value="1"></label><label>Drive <input type="range" id="cs-drive" min="0" max="5" step="0.05" value="1"></label><label>Accel <input type="range" id="cs-accel" min="0" max="5" step="0.05" value="1"></label><label>Top Speed <input type="range" id="cs-top-speed" min="0" max="3" step="0.05" value="1"></label>
+		</div><div class="custom-surface-actions"><button id="cs-save">Save</button><button id="cs-close">Close</button></div></div>
+	<div id="custom-pad-panel" hidden>
+		<h3 id="custom-pad-title">Custom Pad</h3><div class="custom-surface-grid">
+			<label>Color <input type="color" id="cpe-color" value="#7fb7ff"></label><label>Gravity <input type="range" id="cpe-gravity" min="0.15" max="3" step="0.05" value="1"></label><label>Grip <input type="range" id="cpe-grip" min="0" max="5" step="0.05" value="1"></label><label>Speed <input type="range" id="cpe-speed" min="0" max="5" step="0.05" value="1"></label><label>Drag <input type="range" id="cpe-drag" min="0.05" max="5" step="0.05" value="1"></label><label>Accel <input type="range" id="cpe-accel" min="0" max="5" step="0.05" value="1"></label><label>Drive <input type="range" id="cpe-drive" min="0" max="5" step="0.05" value="1"></label><label>Top Speed <input type="range" id="cpe-top-speed" min="0" max="3" step="0.05" value="1"></label><label>Steering <input type="range" id="cpe-steering" min="0" max="3" step="0.05" value="1"></label><label>Time Scale <input type="range" id="cpe-time-scale" min="0.15" max="3" step="0.05" value="1"></label><label><input type="checkbox" id="cpe-no-brakes"> Disable brakes</label><label><input type="checkbox" id="cpe-no-steering"> Disable steering</label><label><input type="checkbox" id="cpe-no-acceleration"> Disable acceleration</label>
+		</div><div class="custom-surface-actions"><button id="cp-save-effect">Save</button><button id="cp-close-effect">Close</button></div></div>
 <div id="custom-pool-panel" hidden style="position:absolute;right:12px;top:72px;width:min(320px,calc(100vw - 24px));padding:12px;border-radius:10px;background:rgba(16,18,24,0.92);border:1px solid rgba(255,255,255,0.15);color:#eef3ff;z-index:31;">
   <h3 style="margin:0 0 10px;font-size:14px;">Custom Pool</h3>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:12px;">
@@ -950,15 +930,15 @@
 	let selectedOrient = 0;
 	let allowSurfaceOverlap = false;
 	const CUSTOM_SURFACE_DEFAULTS = {
-		'surface-custom-a': { color: '#9c7bff', grip: 1.2, speed: 1.05, forceAmount: 4, force: { forward: true, backward: false, left: false, right: false, up: false }, noAir: true, oncePerContact: true },
-		'surface-custom-b': { color: '#7bffda', grip: 0.55, speed: 0.72, forceAmount: 3, force: { forward: false, backward: true, left: false, right: false, up: false }, noAir: false, oncePerContact: true },
-		'surface-custom-c': { color: '#ffc97b', grip: 0.95, speed: 1.25, forceAmount: 6, force: { forward: false, backward: false, left: true, right: true, up: true }, noAir: true, oncePerContact: false },
+		'surface-custom-a': { color: '#9c7bff', grip: 1.2, speed: 1.05, drag: 1, accel: 1, drive: 1, topSpeed: 1, forceAmount: 4, force: { forward: true, backward: false, left: false, right: false, up: false }, triggerInAir: false, triggerRepeatedly: false },
+		'surface-custom-b': { color: '#7bffda', grip: 0.55, speed: 0.72, drag: 1, accel: 1, drive: 1, topSpeed: 1, forceAmount: 3, force: { forward: false, backward: true, left: false, right: false, up: false }, triggerInAir: true, triggerRepeatedly: false },
+		'surface-custom-c': { color: '#ffc97b', grip: 0.95, speed: 1.25, drag: 1, accel: 1, drive: 1, topSpeed: 1, forceAmount: 6, force: { forward: false, backward: false, left: true, right: true, up: true }, triggerInAir: false, triggerRepeatedly: true },
 	};
 	let customSurfaceConfigs = JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) );
 	const CUSTOM_PAD_DEFAULTS = {
-		'pad-custom-a': { color: '#7fb7ff', gravity: 1, drag: 1, accel: 1, drive: 1, topSpeed: 1, steering: 1, timeScale: 1, disableBrakes: false, disableSteering: false, disableAcceleration: false },
-		'pad-custom-b': { color: '#a4ffd9', gravity: 0.8, drag: 0.7, accel: 1.25, drive: 1.25, topSpeed: 1.15, steering: 1.1, timeScale: 1.15, disableBrakes: false, disableSteering: false, disableAcceleration: false },
-		'pad-custom-c': { color: '#ffd28e', gravity: 1.35, drag: 1.4, accel: 0.65, drive: 0.7, topSpeed: 0.85, steering: 0.9, timeScale: 0.8, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+		'pad-custom-a': { color: '#7fb7ff', gravity: 1, grip: 1, speed: 1, drag: 1, accel: 1, drive: 1, topSpeed: 1, steering: 1, timeScale: 1, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+		'pad-custom-b': { color: '#a4ffd9', gravity: 0.8, grip: 1, speed: 1, drag: 0.7, accel: 1.25, drive: 1.25, topSpeed: 1.15, steering: 1.1, timeScale: 1.15, disableBrakes: false, disableSteering: false, disableAcceleration: false },
+		'pad-custom-c': { color: '#ffd28e', gravity: 1.35, grip: 1, speed: 1, drag: 1.4, accel: 0.65, drive: 0.7, topSpeed: 0.85, steering: 0.9, timeScale: 0.8, disableBrakes: false, disableSteering: false, disableAcceleration: false },
 	};
 	let customPadConfigs = JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) );
 	let activeCustomSurfaceEditor = null;
@@ -3836,7 +3816,7 @@ function computeCausticShade( normal ) {
 			};
 			customPoolConfig = normalizeCustomPoolConfig( mods.r );
 			customPoolColorsEnabled = mods?.r?.colorsOn === true;
-			const cpToggle = document.getElementById( 'cp-colors-toggle' );
+			const cpToggle = document.getElementById( 'cpe-colors-toggle' );
 			if ( cpToggle ) cpToggle.checked = customPoolColorsEnabled;
 			worldPreset = mods.t === 'pool-filled' ? 'pool-filled' : 'normal';
 			const templateSelect = document.getElementById( 'map-template-select' );
@@ -4288,31 +4268,14 @@ function refreshMovingSpeedUi() {
 	const overlapToggleBtn = document.getElementById( 'btn-overlap-toggle' );
 	const offGridDevBanner = document.getElementById( 'offgrid-dev-banner' );
 	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
+	const customPadPanel = document.getElementById( 'custom-pad-panel' );
 	const customSurfaceTitle = document.getElementById( 'custom-surface-title' );
+	const customPadTitle = document.getElementById( 'custom-pad-title' );
 	const customSurfaceInputs = {
-		forward: document.getElementById( 'cs-force-forward' ),
-		backward: document.getElementById( 'cs-force-backward' ),
-		left: document.getElementById( 'cs-force-left' ),
-		right: document.getElementById( 'cs-force-right' ),
-		up: document.getElementById( 'cs-force-up' ),
-		forceAmount: document.getElementById( 'cs-force-amount' ),
-		noAir: document.getElementById( 'cs-no-air' ),
-		oncePerContact: document.getElementById( 'cs-once-contact' ),
-		color: document.getElementById( 'cs-color' ),
-		grip: document.getElementById( 'cs-grip' ),
-		speed: document.getElementById( 'cs-speed' ),
-		padGravity: document.getElementById( 'cs-pad-gravity' ),
-		padDrag: document.getElementById( 'cs-pad-drag' ),
-		padAccel: document.getElementById( 'cs-pad-accel' ),
-		padDrive: document.getElementById( 'cs-pad-drive' ),
-		padTopSpeed: document.getElementById( 'cs-pad-top-speed' ),
-		padSteering: document.getElementById( 'cs-pad-steering' ),
-		padTimeScale: document.getElementById( 'cs-pad-time-scale' ),
-		padNoBrakes: document.getElementById( 'cs-pad-no-brakes' ),
-		padNoSteering: document.getElementById( 'cs-pad-no-steering' ),
-		padNoAcceleration: document.getElementById( 'cs-pad-no-acceleration' ),
-		save: document.getElementById( 'cs-save' ),
-		close: document.getElementById( 'cs-close' ),
+		forward: document.getElementById( 'cs-force-forward' ), backward: document.getElementById( 'cs-force-backward' ), left: document.getElementById( 'cs-force-left' ), right: document.getElementById( 'cs-force-right' ), up: document.getElementById( 'cs-force-up' ), forceAmount: document.getElementById( 'cs-force-amount' ), triggerInAir: document.getElementById( 'cs-trigger-in-air' ), triggerRepeatedly: document.getElementById( 'cs-trigger-repeatedly' ), color: document.getElementById( 'cs-color' ), grip: document.getElementById( 'cs-grip' ), speed: document.getElementById( 'cs-speed' ), drag: document.getElementById( 'cs-drag' ), drive: document.getElementById( 'cs-drive' ), accel: document.getElementById( 'cs-accel' ), topSpeed: document.getElementById( 'cs-top-speed' ), save: document.getElementById( 'cs-save' ), close: document.getElementById( 'cs-close' ),
+	};
+	const customPadInputs = {
+		color: document.getElementById( 'cpe-color' ), gravity: document.getElementById( 'cpe-gravity' ), grip: document.getElementById( 'cpe-grip' ), speed: document.getElementById( 'cpe-speed' ), drag: document.getElementById( 'cpe-drag' ), accel: document.getElementById( 'cpe-accel' ), drive: document.getElementById( 'cpe-drive' ), topSpeed: document.getElementById( 'cpe-top-speed' ), steering: document.getElementById( 'cpe-steering' ), timeScale: document.getElementById( 'cpe-time-scale' ), noBrakes: document.getElementById( 'cpe-no-brakes' ), noSteering: document.getElementById( 'cpe-no-steering' ), noAcceleration: document.getElementById( 'cpe-no-acceleration' ), save: document.getElementById( 'cp-save-effect' ), close: document.getElementById( 'cp-close-effect' ),
 	};
 
 	function refreshModTools() {
@@ -4444,102 +4407,75 @@ function refreshMovingSpeedUi() {
 	}
 
 
-	function updateCustomEffectFieldVisibility( isPad ) {
-		const surfaceOnly = [ 'cs-force-forward','cs-force-backward','cs-force-left','cs-force-right','cs-force-up','cs-force-amount','cs-no-air','cs-once-contact','cs-grip','cs-speed' ];
-		const padOnly = [ 'cs-pad-gravity','cs-pad-drag','cs-pad-accel','cs-pad-drive','cs-pad-top-speed','cs-pad-steering','cs-pad-time-scale','cs-pad-no-brakes','cs-pad-no-steering','cs-pad-no-acceleration' ];
-		for ( const id of [ ...surfaceOnly, ...padOnly ] ) {
-			const el = document.getElementById( id );
-			if ( !el ) continue;
-			const label = el.closest( 'label' );
-			if ( label ) label.hidden = isPad ? !padOnly.includes( id ) : !surfaceOnly.includes( id );
-		}
-	}
-
 	function openCustomSurfaceEditor( surfaceType ) {
 
 		activeCustomSurfaceEditor = surfaceType;
-		const isPad = surfaceType.startsWith( 'pad-' );
-		updateCustomEffectFieldVisibility( isPad );
-		const config = isPad
-			? ( customPadConfigs[ surfaceType ] || CUSTOM_PAD_DEFAULTS[ surfaceType ] )
-			: ( customSurfaceConfigs[ surfaceType ] || CUSTOM_SURFACE_DEFAULTS[ surfaceType ] );
-		customSurfaceTitle.textContent = `${ isPad ? 'Edit Pad' : 'Edit Surface' } · ${ surfaceType.replace( 'surface-', '' ).replace( 'pad-', 'pad-' ) }`;
-		customSurfaceInputs.forward.checked = Boolean( config.force?.forward );
-		customSurfaceInputs.backward.checked = Boolean( config.force?.backward );
-		customSurfaceInputs.left.checked = Boolean( config.force?.left );
-		customSurfaceInputs.right.checked = Boolean( config.force?.right );
-		customSurfaceInputs.up.checked = Boolean( config.force?.up );
+		const config = customSurfaceConfigs[ surfaceType ] || CUSTOM_SURFACE_DEFAULTS[ surfaceType ];
+		customSurfaceTitle.textContent = `Edit Surface · ${ surfaceType.replace( 'surface-', '' ) }`;
+		for ( const key of [ 'forward', 'backward', 'left', 'right', 'up' ] ) customSurfaceInputs[ key ].checked = Boolean( config.force?.[ key ] );
 		customSurfaceInputs.forceAmount.value = String( Number( config.forceAmount ?? 0 ) );
-		customSurfaceInputs.noAir.checked = Boolean( config.noAir );
-		customSurfaceInputs.oncePerContact.checked = Boolean( config.oncePerContact );
-		customSurfaceInputs.color.value = config.color || '#9c7bff';
-		customSurfaceInputs.grip.value = String( Number( config.grip ?? 1 ) );
-		customSurfaceInputs.speed.value = String( Number( config.speed ?? 1 ) );
-		customSurfaceInputs.padGravity.value = String( Number( config.gravity ?? 1 ) );
-		customSurfaceInputs.padDrag.value = String( Number( config.drag ?? 1 ) );
-		customSurfaceInputs.padAccel.value = String( Number( config.accel ?? 1 ) );
-		customSurfaceInputs.padDrive.value = String( Number( config.drive ?? 1 ) );
-		customSurfaceInputs.padTopSpeed.value = String( Number( config.topSpeed ?? 1 ) );
-		customSurfaceInputs.padSteering.value = String( Number( config.steering ?? 1 ) );
-		customSurfaceInputs.padTimeScale.value = String( Number( config.timeScale ?? 1 ) );
-		customSurfaceInputs.padNoBrakes.checked = Boolean( config.disableBrakes );
-		customSurfaceInputs.padNoSteering.checked = Boolean( config.disableSteering );
-		customSurfaceInputs.padNoAcceleration.checked = Boolean( config.disableAcceleration );
+		customSurfaceInputs.triggerInAir.checked = config.triggerInAir === true || ( config.triggerInAir === undefined && ! config.noAir );
+		customSurfaceInputs.triggerRepeatedly.checked = config.triggerRepeatedly === true || ( config.triggerRepeatedly === undefined && ! config.oncePerContact );
+		for ( const key of [ 'color', 'grip', 'speed', 'drag', 'drive', 'accel', 'topSpeed' ] ) customSurfaceInputs[ key ].value = String( config[ key ] ?? ( key === 'color' ? '#9c7bff' : 1 ) );
+		customPadPanel.hidden = true;
 		customSurfacePanel.hidden = false;
 
 	}
 
-	function closeCustomSurfaceEditor() {
+	function openCustomPadEditor( padType ) {
+
+		activeCustomSurfaceEditor = padType;
+		const config = customPadConfigs[ padType ] || CUSTOM_PAD_DEFAULTS[ padType ];
+		customPadTitle.textContent = `Edit Pad · ${ padType.replace( 'pad-', '' ) }`;
+		for ( const key of [ 'color', 'gravity', 'grip', 'speed', 'drag', 'accel', 'drive', 'topSpeed', 'steering', 'timeScale' ] ) customPadInputs[ key ].value = String( config[ key ] ?? ( key === 'color' ? '#7fb7ff' : 1 ) );
+		customPadInputs.noBrakes.checked = Boolean( config.disableBrakes );
+		customPadInputs.noSteering.checked = Boolean( config.disableSteering );
+		customPadInputs.noAcceleration.checked = Boolean( config.disableAcceleration );
+		customSurfacePanel.hidden = true;
+		customPadPanel.hidden = false;
+
+	}
+
+	function closeCustomEffectEditor() {
 
 		customSurfacePanel.hidden = true;
+		customPadPanel.hidden = true;
 		activeCustomSurfaceEditor = null;
+
+	}
+
+	function refreshEditedCustomEffect() {
+
+		save();
+		for ( const [ key, cell ] of grid ) {
+			if ( ! cell.surfaceTypes?.includes( activeCustomSurfaceEditor ) ) continue;
+			const [ gx, gz ] = key.split( ',' ).map( Number );
+			placeOverlayMesh( gx, gz, cell );
+		}
+		showToast( `${ activeCustomSurfaceEditor } saved` );
 
 	}
 
 	function saveCustomSurfaceEditor() {
 
-		if ( ! activeCustomSurfaceEditor ) return;
+		if ( ! CUSTOM_SURFACE_TYPES.includes( activeCustomSurfaceEditor ) ) return;
 		pushHistorySnapshot();
-		if ( activeCustomSurfaceEditor.startsWith( 'pad-' ) ) {
-
-			customPadConfigs[ activeCustomSurfaceEditor ] = {
-				color: customSurfaceInputs.color.value || '#7fb7ff',
-				gravity: Number( customSurfaceInputs.padGravity.value ) || 1,
-				drag: Number( customSurfaceInputs.padDrag.value ) || 1,
-				accel: Number( customSurfaceInputs.padAccel.value ) || 1,
-				drive: Number( customSurfaceInputs.padDrive.value ) || 1,
-				topSpeed: Number( customSurfaceInputs.padTopSpeed.value ) || 1,
-				steering: Number( customSurfaceInputs.padSteering.value ) || 1,
-				timeScale: Number( customSurfaceInputs.padTimeScale.value ) || 1,
-				disableBrakes: customSurfaceInputs.padNoBrakes.checked,
-				disableSteering: customSurfaceInputs.padNoSteering.checked,
-				disableAcceleration: customSurfaceInputs.padNoAcceleration.checked,
-			};
-
-		} else customSurfaceConfigs[ activeCustomSurfaceEditor ] = {
-			color: customSurfaceInputs.color.value || '#9c7bff',
-			grip: Number( customSurfaceInputs.grip.value ) || 1,
-			speed: Number( customSurfaceInputs.speed.value ) || 1,
-			forceAmount: Math.max( 0, Number( customSurfaceInputs.forceAmount.value ) || 0 ),
-			force: {
-				forward: customSurfaceInputs.forward.checked,
-				backward: customSurfaceInputs.backward.checked,
-				left: customSurfaceInputs.left.checked,
-				right: customSurfaceInputs.right.checked,
-				up: customSurfaceInputs.up.checked,
-			},
-			noAir: customSurfaceInputs.noAir.checked,
-			oncePerContact: customSurfaceInputs.oncePerContact.checked,
+		customSurfaceConfigs[ activeCustomSurfaceEditor ] = {
+			color: customSurfaceInputs.color.value || '#9c7bff', grip: Number( customSurfaceInputs.grip.value ) || 1, speed: Number( customSurfaceInputs.speed.value ) || 1, drag: Number( customSurfaceInputs.drag.value ) || 1, drive: Number( customSurfaceInputs.drive.value ) || 1, accel: Number( customSurfaceInputs.accel.value ) || 1, topSpeed: Number( customSurfaceInputs.topSpeed.value ) || 1, forceAmount: Math.max( 0, Number( customSurfaceInputs.forceAmount.value ) || 0 ), force: { forward: customSurfaceInputs.forward.checked, backward: customSurfaceInputs.backward.checked, left: customSurfaceInputs.left.checked, right: customSurfaceInputs.right.checked, up: customSurfaceInputs.up.checked }, triggerInAir: customSurfaceInputs.triggerInAir.checked, triggerRepeatedly: customSurfaceInputs.triggerRepeatedly.checked,
 		};
-		save();
-		for ( const [ key, cell ] of grid ) {
+		refreshEditedCustomEffect();
 
-			if ( ! cell.surfaceTypes?.includes( activeCustomSurfaceEditor ) ) continue;
-			const [ gx, gz ] = key.split( ',' ).map( Number );
-			placeOverlayMesh( gx, gz, cell );
+	}
 
-		}
-		showToast( `${ activeCustomSurfaceEditor } saved` );
+	function saveCustomPadEditor() {
+
+		if ( ! CUSTOM_PAD_TYPES.includes( activeCustomSurfaceEditor ) ) return;
+		pushHistorySnapshot();
+		customPadConfigs[ activeCustomSurfaceEditor ] = {
+			color: customPadInputs.color.value || '#7fb7ff', gravity: Number( customPadInputs.gravity.value ) || 1, grip: Number( customPadInputs.grip.value ) || 1, speed: Number( customPadInputs.speed.value ) || 1, drag: Number( customPadInputs.drag.value ) || 1, accel: Number( customPadInputs.accel.value ) || 1, drive: Number( customPadInputs.drive.value ) || 1, topSpeed: Number( customPadInputs.topSpeed.value ) || 1, steering: Number( customPadInputs.steering.value ) || 1, timeScale: Number( customPadInputs.timeScale.value ) || 1, disableBrakes: customPadInputs.noBrakes.checked, disableSteering: customPadInputs.noSteering.checked, disableAcceleration: customPadInputs.noAcceleration.checked,
+		};
+		refreshEditedCustomEffect();
+
 	}
 
 	function rotateSelection() {
@@ -4559,7 +4495,8 @@ function refreshMovingSpeedUi() {
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 
 			selectTileType( type );
-			if ( CUSTOM_SURFACE_TYPES.includes( type ) || CUSTOM_PAD_TYPES.includes( type ) ) openCustomSurfaceEditor( type );
+			if ( CUSTOM_SURFACE_TYPES.includes( type ) ) openCustomSurfaceEditor( type );
+			if ( CUSTOM_PAD_TYPES.includes( type ) ) openCustomPadEditor( type );
 
 		} );
 
@@ -4580,7 +4517,7 @@ function refreshMovingSpeedUi() {
 
 		if ( ! padSelect.value ) return;
 		selectTileType( padSelect.value );
-		if ( CUSTOM_PAD_TYPES.includes( padSelect.value ) ) openCustomSurfaceEditor( padSelect.value );
+		if ( CUSTOM_PAD_TYPES.includes( padSelect.value ) ) openCustomPadEditor( padSelect.value );
 		showToast( `Pad: ${ padSelect.options[ padSelect.selectedIndex ]?.textContent || padSelect.value }` );
 
 	} );
@@ -4614,10 +4551,12 @@ function refreshMovingSpeedUi() {
 	document.getElementById( 'btn-portal-id-up' )?.addEventListener( 'click', () => nudgeSelectedArcId( 1 ) );
 	document.getElementById( 'btn-portal-id-down' )?.addEventListener( 'click', () => nudgeSelectedArcId( - 1 ) );
 	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
-	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
+	customSurfaceInputs.close?.addEventListener( 'click', closeCustomEffectEditor );
+	customPadInputs.save?.addEventListener( 'click', saveCustomPadEditor );
+	customPadInputs.close?.addEventListener( 'click', closeCustomEffectEditor );
 	// Colors checkbox INSIDE the Custom Pool button — clicking it must not open
 	// (or re-trigger) the settings panel.
-	document.getElementById( 'cp-colors-toggle' )?.addEventListener( 'click', ( event ) => {
+	document.getElementById( 'cpe-colors-toggle' )?.addEventListener( 'click', ( event ) => {
 		event.stopPropagation();
 		customPoolColorsEnabled = event.currentTarget.checked;
 		// Re-render every pool so the preview matches what the game will show.
@@ -4626,9 +4565,9 @@ function refreshMovingSpeedUi() {
 		showToast( customPoolColorsEnabled ? 'Custom pool colors enabled' : 'Custom pool colors disabled' );
 	} );
 	document.getElementById( 'btn-custom-pool' )?.addEventListener( 'click', ( event ) => {
-		if ( event.target && event.target.id === 'cp-colors-toggle' ) return;
-		document.getElementById( 'cp-colors-toggle' ).checked = customPoolColorsEnabled;
-		document.getElementById( 'cp-drag' ).value = String( customPoolConfig.drag );
+		if ( event.target && event.target.id === 'cpe-colors-toggle' ) return;
+		document.getElementById( 'cpe-colors-toggle' ).checked = customPoolColorsEnabled;
+		document.getElementById( 'cpe-drag' ).value = String( customPoolConfig.drag );
 		document.getElementById( 'cp-buoyancy' ).value = String( customPoolConfig.buoyancy );
 		document.getElementById( 'cp-water-color' ).value = customPoolConfig.waterColor;
 		document.getElementById( 'cp-edge-color' ).value = customPoolConfig.edgeColor;
@@ -4638,7 +4577,7 @@ function refreshMovingSpeedUi() {
 	document.getElementById( 'cp-close' )?.addEventListener( 'click', () => { customPoolPanel.hidden = true; } );
 	document.getElementById( 'cp-save' )?.addEventListener( 'click', () => {
 		pushHistorySnapshot();
-		customPoolConfig = normalizeCustomPoolConfig( { drag: document.getElementById( 'cp-drag' ).value, buoyancy: document.getElementById( 'cp-buoyancy' ).value, waterColor: document.getElementById( 'cp-water-color' ).value, edgeColor: document.getElementById( 'cp-edge-color' ).value, transparent: document.getElementById( 'cp-transparent' ).checked } );
+		customPoolConfig = normalizeCustomPoolConfig( { drag: document.getElementById( 'cpe-drag' ).value, buoyancy: document.getElementById( 'cp-buoyancy' ).value, waterColor: document.getElementById( 'cp-water-color' ).value, edgeColor: document.getElementById( 'cp-edge-color' ).value, transparent: document.getElementById( 'cp-transparent' ).checked } );
 		for ( const [ key, cell ] of grid ) if ( cell.water ) { const [ gx, gz ] = key.split( ',' ).map( Number ); placeOverlayMesh( gx, gz, cell ); }
 		save(); customPoolPanel.hidden = true; showToast( 'Custom pool saved' );
 	} );
@@ -6441,14 +6380,8 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 			const conf = customSurfaceConfigs?.[ surfaceType ];
 			if ( ! conf ) return null;
-			const grip = THREE.MathUtils.clamp( Number( conf.grip ) || 1, 0.2, 2.5 );
-			const speed = THREE.MathUtils.clamp( Number( conf.speed ) || 1, 0.2, 2.5 );
-			return {
-				grip,
-				drag: THREE.MathUtils.clamp( 1.2 / speed, 0.4, 3.4 ),
-				accel: speed,
-				drive: speed,
-			};
+			const speed = THREE.MathUtils.clamp( Number.isFinite( Number( conf.speed ) ) ? Number( conf.speed ) : 1, 0, 5 );
+			return { grip: THREE.MathUtils.clamp( Number.isFinite( Number( conf.grip ) ) ? Number( conf.grip ) : 1, 0.05, 5 ), drag: THREE.MathUtils.clamp( Number.isFinite( Number( conf.drag ) ) ? Number( conf.drag ) : 1, 0.05, 5 ), accel: THREE.MathUtils.clamp( Number.isFinite( Number( conf.accel ) ) ? Number( conf.accel ) : 1, 0, 5 ) * speed, drive: THREE.MathUtils.clamp( Number.isFinite( Number( conf.drive ) ) ? Number( conf.drive ) : 1, 0, 5 ) * speed, topSpeed: THREE.MathUtils.clamp( Number.isFinite( Number( conf.topSpeed ) ) ? Number( conf.topSpeed ) : 1, 0, 3 ) };
 
 		}
 
@@ -6467,8 +6400,8 @@ function updateMovingObstacles( state, now, vehicleList ) {
 				gravity: Number.isFinite( Number( conf.gravity ) ) ? THREE.MathUtils.clamp( Number( conf.gravity ), 0.15, 3 ) : undefined,
 				grip: Number.isFinite( Number( conf.grip ) ) ? THREE.MathUtils.clamp( Number( conf.grip ), 0.05, 5 ) : undefined,
 				drag: Number.isFinite( Number( conf.drag ) ) ? THREE.MathUtils.clamp( Number( conf.drag ), 0.05, 5 ) : undefined,
-				accel: Number.isFinite( Number( conf.accel ) ) ? THREE.MathUtils.clamp( Number( conf.accel ), 0, 5 ) : undefined,
-				drive: Number.isFinite( Number( conf.drive ) ) ? THREE.MathUtils.clamp( Number( conf.drive ), 0, 5 ) : undefined,
+				accel: Number.isFinite( Number( conf.accel ) ) ? THREE.MathUtils.clamp( Number( conf.accel ), 0, 5 ) * THREE.MathUtils.clamp( Number.isFinite( Number( conf.speed ) ) ? Number( conf.speed ) : 1, 0, 5 ) : undefined,
+				drive: Number.isFinite( Number( conf.drive ) ) ? THREE.MathUtils.clamp( Number( conf.drive ), 0, 5 ) * THREE.MathUtils.clamp( Number.isFinite( Number( conf.speed ) ) ? Number( conf.speed ) : 1, 0, 5 ) : undefined,
 				topSpeed: Number.isFinite( Number( conf.topSpeed ) ) ? THREE.MathUtils.clamp( Number( conf.topSpeed ), 0, 3 ) : undefined,
 				steering: Number.isFinite( Number( conf.steering ) ) ? THREE.MathUtils.clamp( Number( conf.steering ), 0, 3 ) : undefined,
 				timeScale: Number.isFinite( Number( conf.timeScale ) ) ? THREE.MathUtils.clamp( Number( conf.timeScale ), 0.15, 3 ) : undefined,
@@ -6811,7 +6744,9 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			const padDrive = Number.isFinite( padEffect?.drive ) ? padEffect.drive : 1.0;
 			targetVehicle.gripMultiplier = ( effect ? effect.grip : 1.0 ) * pack * padGrip;
 			targetVehicle.dragMultiplier = ( effect ? effect.drag : 1.0 ) * padDrag;
-			const speedCapScale = Number.isFinite( padEffect?.topSpeed ) ? padEffect.topSpeed : 1.0;
+			const surfaceTopSpeed = Number.isFinite( effect?.topSpeed ) ? effect.topSpeed : 1.0;
+			const padTopSpeed = Number.isFinite( padEffect?.topSpeed ) ? padEffect.topSpeed : 1.0;
+			const speedCapScale = surfaceTopSpeed * padTopSpeed;
 			targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * pack * padAccel * speedCapScale;
 			targetVehicle.driveMultiplier = ( effect ? effect.drive : 1.0 ) * pack * padDrive * speedCapScale;
 
@@ -6862,7 +6797,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 			const conf = customSurfaceConfigs?.[ surfaceType ];
 			if ( ! conf ) return false;
-			if ( conf.noAir && ! fxIsVehicleOnGround( targetVehicle ) ) return false;
+			if ( ( conf.triggerInAir === false || ( conf.triggerInAir === undefined && conf.noAir ) ) && ! fxIsVehicleOnGround( targetVehicle ) ) return false;
 			const amount = Math.max( 0, Number( conf.forceAmount ) || 0 );
 			if ( amount <= 0 ) return false;
 			const force = conf.force || {};
@@ -6907,7 +6842,9 @@ function updateMovingObstacles( state, now, vehicleList ) {
 						const triggered = FX_SPECIAL_SURFACE_HANDLERS[ surfaceType ]
 							? FX_SPECIAL_SURFACE_HANDLERS[ surfaceType ]( targetVehicle )
 							: fxApplyCustomSurfaceForceFor( targetVehicle, surfaceType );
-						const oncePerContact = Boolean( customSurfaceConfigs?.[ surfaceType ]?.oncePerContact );
+						const config = customSurfaceConfigs?.[ surfaceType ] || {};
+					const triggerRepeatedly = config.triggerRepeatedly === true || ( config.triggerRepeatedly === undefined && ! config.oncePerContact );
+					const oncePerContact = ! triggerRepeatedly;
 						if ( triggered ) {
 
 							if ( oncePerContact || FX_SPECIAL_SURFACE_HANDLERS[ surfaceType ] ) contactState.set( surfaceType, currentKey );
