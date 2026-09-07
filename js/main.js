@@ -3243,6 +3243,7 @@ function makeLowPolyCloud( scale, color, opacity ) {
 		const r = 0.4 + Math.random() * 0.55;
 		const geo = new THREE.IcosahedronGeometry( r, 1 );
 		const mat = new THREE.MeshBasicMaterial( { color, flatShading: true, transparent: opacity < 1, opacity, fog: false } );
+		mat.userData.baseOpacity = opacity;
 		const mesh = new THREE.Mesh( geo, mat );
 		mesh.position.set(
 			( Math.random() - 0.5 ) * 3.2,
@@ -7058,6 +7059,28 @@ async function init() {
 		}
 		cam.lookTarget.copy( cam.camera.position ).add( freecamForward );
 		cam.camera.lookAt( cam.lookTarget );
+
+	}
+
+	// Clouds fade out while the Freecam mod is active so puffs never block a
+	// flying camera, and fade back in when freecam is disabled.
+	let cloudFreecamFade = 1; // 1 = visible, 0 = fully faded
+
+	function updateCloudFreecamFade( dt ) {
+
+		if ( ! skyDecorState.cloudGroup ) return;
+		const target = freecamState.active ? 0 : 1;
+		if ( ! freecamState.active && Math.abs( target - cloudFreecamFade ) < 1e-3 ) return; // settled and restored
+		cloudFreecamFade += ( target - cloudFreecamFade ) * ( 1 - Math.exp( - 6 * dt ) );
+		skyDecorState.cloudGroup.traverse( ( obj ) => {
+
+			const mat = obj.material;
+			if ( ! mat ) return;
+			if ( mat.userData.baseOpacity === undefined ) mat.userData.baseOpacity = mat.opacity;
+			mat.opacity = mat.userData.baseOpacity * cloudFreecamFade;
+			mat.transparent = true;
+
+		} );
 
 	}
 
@@ -12815,6 +12838,7 @@ function completeCampaignStage() {
 
 				audio.updateMusic( realFrameSeconds, false );
 				if ( freecamState.active ) updateFreecam( realFrameSeconds );
+				updateCloudFreecamFade( realFrameSeconds );
 				renderFrame();
 				return;
 
@@ -13125,6 +13149,7 @@ function completeCampaignStage() {
 		if ( freecamState.active ) scene.fog = null;
 		else if ( cameraUnderwater ) scene.fog = underwaterFog;
 		else if ( scene.fog !== gameplayFog ) scene.fog = gameplayFog;
+		updateCloudFreecamFade( dt );
 		if ( freecamState.active ) updateFreecam( dt );
 		else if ( ! replayViewerMode ) {
 
