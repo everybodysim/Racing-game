@@ -917,6 +917,8 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#garage-repaint-tolerance { width: 100%; margin-top: 6px; }
 		.garage-paint-actions { display: flex; gap: 6px; margin-top: 10px; }
 		.garage-paint-actions button { flex: 1; }
+		#garage-drive-btn { width: 100%; margin-bottom: 8px; border-radius: 9px; border: 1px solid rgba(112,190,255,0.55); background: rgba(39,116,185,0.82); color: #fff; padding: 9px; font: 900 12px/1 sans-serif; cursor: pointer; }
+		#garage-drive-btn.active { background: rgba(202,91,53,0.9); border-color: rgba(255,185,130,0.7); }
 		#garage-clear-selection-btn { border-radius: 9px; border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.08); color: #fff; padding: 9px; font: 900 12px/1 sans-serif; cursor: pointer; }
 		#garage-apply-paint-btn { border-radius: 9px; border: 1px solid rgba(107,255,176,0.55); background: linear-gradient(135deg, rgba(47,180,105,0.95), rgba(45,131,255,0.86)); color: #06120a; padding: 9px; font: 900 12px/1 sans-serif; cursor: pointer; }
 		#garage-apply-paint-btn:disabled { opacity: 0.55; cursor: default; }
@@ -934,6 +936,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		#underwater-overlay.active { opacity: 1; }
 		/* Sun-through-the-surface light bands: two wide soft gradients drifting
 		   at different speeds. Pure CSS, repaints only a translucent layer. */
+		@keyframes underwater-caustics {
 			0% { transform: translate3d( -4%, -2%, 0 ) rotate( 0.6deg ); }
 			100% { transform: translate3d( 4%, 2%, 0 ) rotate( -0.6deg ); }
 		}
@@ -2554,9 +2557,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			</select>
 			<!-- Garage stat tuning is hidden for now; all performance multipliers are fixed at x1.15 in code. -->
 			<h4 style="margin-top:12px;">Paint Shop</h4>
-			<div id="garage-color-help">Click a color on the car to select that whole area, pick a new paint color, then Apply. Drag to rotate the car.</div>
+			<div id="garage-color-help">Click a color on the car to select that whole area, pick a new paint color, then Apply. Drag to rotate; scroll or pinch to zoom.</div>
 			<div id="garage-paint-studio">
 				<div id="garage-paint-tools">
+					<button id="garage-drive-btn" type="button">Test drive garage</button>
 					<label for="garage-target-color">New paint color</label>
 					<input id="garage-target-color" type="color" value="#00aaff">
 					<label for="garage-repaint-tolerance">Color match: <span id="garage-repaint-tolerance-value">40</span></label>
@@ -2571,7 +2575,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				</div>
 				<div id="garage-viewer-wrap">
 					<canvas id="garage-viewer" aria-label="3D garage car paint preview"></canvas>
-					<div id="garage-viewer-hint">Click a color on the car to select it • drag to rotate</div>
+					<div id="garage-viewer-hint">Click a color to select it • drag to rotate • scroll or pinch to zoom</div>
 				</div>
 			</div>
 		</div>

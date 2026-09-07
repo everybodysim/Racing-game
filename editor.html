@@ -4,6 +4,68 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 	<title>Skid Circuit — Track Editor</title>
+<script>
+		// ─── White-screen watchdog ───────────────────────────────────
+		// If the editor module dies before the render loop starts (a storage
+		// quota error, corrupt saved data, a failed import…), the page used to
+		// sit blank forever. This captures the error and offers a recovery
+		// path instead. The module clears it with window.__editorReady.
+		( function () {
+
+			var errors = [];
+			function record( text ) {
+
+				errors.push( String( text ).slice( 0, 400 ) );
+				if ( errors.length > 8 ) errors.shift();
+
+			}
+
+			window.addEventListener( 'error', function ( e ) {
+
+				record( ( e.message || 'Script error' ) + ( e.filename ? ' @ line ' + e.lineno : '' ) );
+
+			} );
+			window.addEventListener( 'unhandledrejection', function ( e ) {
+
+				record( 'Unhandled rejection: ' + ( ( e.reason && ( e.reason.stack || e.reason.message || e.reason ) ) || 'unknown' ) );
+
+			} );
+
+			setTimeout( function () {
+
+				if ( window.__editorReady || document.getElementById( 'editor-boot-overlay' ) ) return;
+				var el = document.createElement( 'div' );
+				el.id = 'editor-boot-overlay';
+				el.setAttribute( 'style', 'position:fixed;inset:0;z-index:99999;background:#10151f;color:#e8f0ff;font:14px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:24px;' );
+				el.innerHTML = '<div style="max-width:600px;width:100%">'
+					+ '<h2 style="margin:0 0 8px;font:700 19px sans-serif;color:#fff">The editor failed to start</h2>'
+					+ '<p style="margin:0 0 12px;color:#9fb2cc">The page kept your saved track. Most startup failures come from full browser storage or a broken cached file — reload first, and reset only if it keeps failing.</p>'
+					+ '<pre style="white-space:pre-wrap;word-break:break-word;background:#0a0e16;border:1px solid #2a3547;border-radius:8px;padding:10px;max-height:170px;overflow:auto;font-size:11px;margin:0 0 14px;color:#c9dcf5"></pre>'
+					+ '<button id="editor-boot-reload" style="padding:10px 16px;margin-right:8px;border:0;border-radius:8px;background:#3478f6;color:#fff;font:700 13px sans-serif;cursor:pointer">Reload editor</button>'
+					+ '<button id="editor-boot-reset" style="padding:10px 16px;border:1px solid #3a4a63;border-radius:8px;background:transparent;color:#cfe0ff;font:700 13px sans-serif;cursor:pointer">Reset editor data</button>'
+					+ '</div>';
+				el.querySelector( 'pre' ).textContent = errors.length ? errors.join( '\n' ) : 'No JavaScript error was captured — this is likely a storage-full or graphics issue. Try the Reload button.';
+				( document.body || document.documentElement ).appendChild( el );
+				document.getElementById( 'editor-boot-reload' ).onclick = function () { location.reload(); };
+				document.getElementById( 'editor-boot-reset' ).onclick = function () {
+
+					try {
+
+						Object.keys( localStorage ).forEach( function ( key ) {
+
+							if ( key.indexOf( 'racing-editor-' ) === 0 ) localStorage.removeItem( key );
+
+						} );
+
+					} catch ( e ) {}
+					location.href = location.pathname;
+
+				};
+
+			}, 7000 );
+
+		} )();
+	</script>
 <link rel="canonical" href="https://everybodysim.github.io/Racing-game/editor.html">
 <meta name="description" content="Build your own racing circuits with the Skid Circuit track editor — place track pieces, set checkpoints, and test your custom maps instantly.">
 <meta name="robots" content="index, follow">
@@ -196,22 +258,6 @@
 		#editor-cam-cluster button:hover { background: rgba( 45, 55, 72, 0.95 ); }
 		#editor-cam-cluster select { font-size: 12px; font-weight: 600; color: #e8efff; background: rgba( 15, 18, 24, 0.92 ); border: 1px solid rgba( 255, 255, 255, 0.22 ); border-left: 3px solid rgba( 125, 211, 252, 0.55 ); border-radius: 8px; padding: 8px 10px; cursor: pointer; box-shadow: 0 6px 20px rgba( 0, 0, 0, 0.35 ); }
 		#editor-cam-cluster select:hover { background: rgba( 45, 55, 72, 0.95 ); }
-		#offgrid-dev-banner {
-			position: absolute;
-			top: 82px;
-			left: 50%;
-			transform: translateX(-50%);
-			max-width: min(520px, calc(100vw - 24px));
-			padding: 10px 16px;
-			border-radius: 12px;
-			border: 1px solid rgba(255, 210, 120, 0.55);
-			background: rgba(70, 48, 10, 0.92);
-			color: #fff3cf;
-			font: 700 13px/1.35 sans-serif;
-			text-align: center;
-			box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
-			z-index: 22;
-		}
 		#custom-surface-panel {
 			position: absolute;
 			right: 12px;
@@ -238,9 +284,13 @@
 			left: 50%;
 			transform: translateX(-50%);
 			display: flex;
-			align-items: center;
-			gap: 8px;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 5px;
 			padding: 8px 12px;
+			width: max-content;
+			max-width: calc( 100vw - 24px );
+			box-sizing: border-box;
 			background: rgba(20, 20, 30, 0.82);
 			backdrop-filter: blur(10px);
 			-webkit-backdrop-filter: blur(10px);
@@ -260,22 +310,51 @@
 			font-size: 12px;
 		}
 
-		#settings-bar input[type="checkbox"] {
-			accent-color: #7ab8ff;
-			width: 14px;
-			height: 14px;
-		}
-		#settings-bar .back-home {
-			text-decoration: none;
-			font: 700 12px sans-serif;
-			padding: 5px 10px;
+		#settings-bar .settings-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
+		#settings-bar .weather-lightning-toggle {
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
+			padding: 5px 9px;
+			border: 1px solid rgba( 255, 255, 255, 0.2 );
 			border-radius: 7px;
-			border: 1px solid rgba(140,210,255,0.5);
-			background: rgba(29,78,216,0.85);
-			color: #fff;
+			background: rgba( 10, 12, 18, 0.8 );
+			color: #e9f1ff;
+			font: 400 12px/1 sans-serif;
+			cursor: pointer;
 			white-space: nowrap;
 		}
-		#settings-bar .back-home:hover { background: rgba(37,99,235,1); }
+		#settings-bar .weather-lightning-toggle:hover { background: rgba( 35, 42, 56, 0.95 ); }
+		#settings-bar .weather-lightning-toggle input { accent-color: #8fb9ff; width: 14px; height: 14px; margin: 0; cursor: pointer; }
+
+		/* Docked beside the canvas, clear of the top camera controls and the
+		   bottom tool shelf so chat can remain open while editing. */
+		#editor-chat-panel {
+			position: fixed;
+			right: 12px;
+			top: 94px;
+			width: min( 288px, calc( 100vw - 24px ) );
+			height: min( 300px, calc( 100vh - 238px ) );
+			min-height: 190px;
+			display: flex;
+			flex-direction: column;
+			background: rgba( 16, 18, 24, 0.94 );
+			border: 1px solid rgba( 255, 255, 255, 0.16 );
+			border-radius: 12px;
+			box-shadow: 0 14px 34px rgba( 0, 0, 0, 0.42 );
+			overflow: hidden;
+			z-index: 24;
+		}
+		#editor-chat-header { padding: 9px 11px; border-bottom: 1px solid rgba( 255, 255, 255, 0.1 ); color: #eaf3ff; font: 800 12px/1 sans-serif; }
+		#editor-chat-account { padding: 7px 10px; color: #aebfd5; font: 600 10px/1.25 sans-serif; border-bottom: 1px solid rgba( 255, 255, 255, 0.08 ); }
+		#editor-chat-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; }
+		.editor-chat-message { margin: 5px 0; padding: 7px 8px; border: 1px solid rgba( 255, 255, 255, 0.08 ); border-radius: 8px; background: rgba( 255, 255, 255, 0.06 ); color: #eef5ff; font: 12px/1.3 sans-serif; overflow-wrap: anywhere; }
+		#editor-chat-input-row { display: flex; gap: 6px; padding: 8px; border-top: 1px solid rgba( 255, 255, 255, 0.1 ); }
+		#editor-chat-input { flex: 1; min-width: 0; padding: 7px 8px; border: 1px solid rgba( 255, 255, 255, 0.18 ); border-radius: 7px; background: rgba( 6, 9, 14, 0.9 ); color: #fff; font: 12px sans-serif; }
+		#editor-chat-send { padding: 7px 9px; border: 1px solid rgba( 119, 243, 177, 0.42 ); border-radius: 7px; background: rgba( 48, 151, 96, 0.3 ); color: #c8ffdc; font: 800 11px sans-serif; cursor: pointer; }
+		#editor-chat-send:hover { background: rgba( 48, 151, 96, 0.5 ); }
+		@media ( max-height: 680px ) { #editor-chat-panel { height: min( 300px, calc( 100vh - 238px ) ); } }
+		@media ( max-width: 760px ), ( pointer: coarse ) { #editor-chat-panel { display: none; } }
 
 	#side-ui-bar {
 			position: absolute;
@@ -384,13 +463,44 @@
 .toolbar-group[data-cat="run"]       { border-left: 3px solid rgba(120, 240, 140, 0.55); }
 
 /* ─── Feature 8: Collapsible settings bar ─── */
-#settings-bar.collapsed > *:not(#settings-toggle-btn) { display: none !important; }
+#settings-bar.collapsed .settings-row > *:not(#settings-toggle-btn) { display: none !important; }
 #settings-toggle-btn { cursor: pointer; font-weight: 700; color: rgba(180, 210, 255, 0.9); white-space: nowrap; border: none; background: none; padding: 4px 8px; font-size: 12px; }
 #settings-toggle-btn:hover { color: #fff; }
 
 /* ─── Feature 4: Minimap ─── */
-#minimap-wrap { position: absolute; left: 12px; top: 12px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
+#minimap-wrap { position: absolute; left: 12px; top: 70px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
 #minimap-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
+#topbar { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: max-content; display: flex; gap: 8px; z-index: 14; flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); }
+.topbar-cluster { display: flex; align-items: center; gap: 3px; padding: 5px 8px; border-radius: 10px; background: rgba(20,20,30,0.84); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 4px 20px rgba(0,0,0,0.35); }
+.topbar-label { font: 700 10px sans-serif; color: rgba(180,210,255,0.9); margin-right: 4px; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; }
+#topbar button { padding: 4px 8px; border: none; border-radius: 8px; background: transparent; color: rgba(255,255,255,0.72); font-size: 11px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+#topbar button:hover { background: rgba(255,255,255,0.1); color: #fff; }
+#topbar button.active { background: rgba(80,160,255,0.3); color: #fff; }
+#topbar button.action { background: rgba(80, 180, 80, 0.25); color: rgba(140, 255, 140, 0.9); font-weight: 700; }
+#topbar button.action:hover { background: rgba(80, 180, 80, 0.4); color: #fff; }
+#topbar button.danger { color: rgba(255,255,255,0.75); }
+#topbar button.danger:hover { background: rgba(179,69,63,0.8); color: #fff; }
+#topbar button:disabled { opacity: 0.45; cursor: default; }
+#track-slots { position: absolute; left: 12px; top: 12px; display: flex; gap: 4px; padding: 5px; border-radius: 10px; background: rgba(20,20,30,0.84); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 4px 20px rgba(0,0,0,0.35); z-index: 16; }
+#btn-storage-chip { color: #cfd8ea; background: rgba(8,10,14,0.9); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
+#btn-storage-chip:hover { background: rgba(30,38,52,0.95); }
+#storage-overlay { position: fixed; inset: 0; z-index: 90; background: rgba(4,8,14,0.55); display: flex; align-items: center; justify-content: center; }
+#storage-overlay[hidden] { display: none; }
+#storage-overlay .storage-card { width: min(560px, 92vw); max-height: 80vh; overflow: auto; background: #10151f; color: #e8f0ff; border: 1px solid rgba(255,255,255,0.16); border-radius: 12px; padding: 16px; font-size: 13px; }
+#storage-overlay h3 { margin: 0 0 6px; font-size: 15px; }
+#storage-overlay p { color: #9fb2cc; margin: 0 0 10px; }
+#storage-overlay .storage-list div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 12px; }
+#storage-overlay .storage-list .k { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
+#storage-overlay button { margin: 10px 6px 0 0; padding: 8px 12px; border-radius: 8px; border: 0; background: #3478f6; color: #fff; font-weight: 700; font-size: 12px; cursor: pointer; }
+#storage-overlay button.secondary { background: transparent; border: 1px solid #3a4a63; color: #cfe0ff; }
+#storage-overlay button.danger { background: #b3453f; }
+#storage-overlay #storage-need-space { display: block; width: 100%; margin: 0 0 14px; padding: 12px; font-size: 14px; background: #2e9e5b; }
+#storage-overlay #storage-need-space:hover { background: #37b96b; }
+#storage-overlay #storage-confirm { border: 1px solid #3a4a63; border-radius: 10px; padding: 12px; margin: 0 0 14px; background: #0a0e16; }
+#storage-overlay #storage-confirm h3 { margin: 0 0 8px; }
+#storage-overlay #storage-confirm p { margin: 0 0 4px; }
+#track-slots button { padding: 6px 8px; border: 1px solid rgba(255,255,255,0.18); border-radius: 7px; background: rgba(8,10,14,0.75); color: #dbe8ff; font: 700 10px sans-serif; cursor: pointer; }
+#track-slots button:hover, #track-slots button.active { background: rgba(80,160,255,0.3); border-color: rgba(120,180,255,0.65); color: #fff; }
 #btn-custom-pool { display: inline-flex; align-items: center; gap: 6px; }
 #btn-custom-pool #cp-colors-toggle { accent-color: #34d058; width: 14px; height: 14px; margin: 0; cursor: pointer; flex: none; }
 #minimap-label { position: absolute; top: 4px; left: 8px; font: 700 9px sans-serif; color: rgba(255,255,255,0.45); pointer-events: none; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -437,7 +547,7 @@
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content">
 	<div id="settings-bar">
-		<a class="back-home" href="index.html">← Home</a>
+		<div class="settings-row">
 		<button id="settings-toggle-btn" type="button">⚙ Track Settings</button>
 		<label for="weather-preset">Weather</label>
 
@@ -446,6 +556,7 @@
 			<option value="cloudy">Cloudy</option>
 			<option value="sunset">Sunset</option>
 			<option value="night">Night</option>
+			<option value="night-constellations">Night (Constellations)</option>
 			<option value="dawn-mist">Dawn Mist</option>
 		</select>
 		<label for="weather-precip">Precip</label>
@@ -460,27 +571,29 @@
 			<option value="medium" selected>Medium</option>
 			<option value="high">High</option>
 		</select>
+		</div>
+		<div class="settings-row">
 		<label for="weather-wind">Wind</label>
 		<select id="weather-wind" aria-label="Wind">
 			<option value="none">Calm</option>
 			<option value="breezy">Breezy</option>
 			<option value="gusty">Gusty</option>
 		</select>
-		<label for="weather-lightning">Lightning</label>
-		<input id="weather-lightning" type="checkbox" aria-label="Lightning flashes">
+		<label class="weather-lightning-toggle" for="weather-lightning"><input id="weather-lightning" type="checkbox" aria-label="Lightning flashes"><span>Lightning</span></label>
 		<label for="map-template-select">Template</label>
 		<select id="map-template-select" aria-label="Map template">
 			<option value="normal">Normal map</option>
 			<option value="pool-filled">Pool filled map</option>
 		</select>
+		</div>
 	</div>
 	<details id="mobile-editor-drawer">
 		<summary aria-label="Open mobile advanced object tools">Objects</summary>
 		<div class="mobile-editor-sheet" aria-label="Advanced editor tools">
 			<button type="button" data-mobile-click="btn-magnet-blue">Magnet Blue +</button>
 			<button type="button" data-mobile-click="btn-magnet-red">Magnet Red +</button>
-			<button type="button" data-mobile-click="btn-magnet-up">Magnet ▲</button>
-			<button type="button" data-mobile-click="btn-magnet-down">Magnet ▼</button>
+			<button type="button" data-mobile-click="btn-magnet-up">Special ▲</button>
+			<button type="button" data-mobile-click="btn-magnet-down">Special ▼</button>
 			<button type="button" data-mobile-click="btn-magnet-strength-up">Strength +</button>
 			<button type="button" data-mobile-click="btn-magnet-strength-down">Strength -</button>
 			<button type="button" data-mobile-click="btn-magnet-range-up">Range +</button>
@@ -489,8 +602,6 @@
 			<button type="button" data-mobile-click="btn-portal-yellow">Portal End +</button>
 			<button type="button" data-mobile-click="btn-arc-orange">Arc Start +</button>
 			<button type="button" data-mobile-click="btn-portal-purple">Portal Start +</button>
-			<button type="button" data-mobile-click="btn-magnet-up">Height ▲</button>
-			<button type="button" data-mobile-click="btn-magnet-down">Height ▼</button>
 			<button type="button" data-mobile-click="btn-portal-id-down">ID -</button>
 			<button type="button" data-mobile-click="btn-portal-id-up">ID +</button>
 			<div class="mobile-editor-help">Orange/Purple are starts. Green/Yellow are matching endpoints.</div>
@@ -500,8 +611,8 @@
 		<button id="btn-magnet-blue">Magnet Blue +</button>
 		<button id="btn-magnet-red">Magnet Red +</button>
 	<!--	<button id="btn-magnet-grapple">Grapple Orb +</button> -->
-		<button id="btn-magnet-up" title="Move selected magnet up by 0.1 grid">Magnet ▲</button>
-		<button id="btn-magnet-down" title="Move selected magnet down by 0.1 grid">Magnet ▼</button>
+		<button id="btn-magnet-up" title="Move the selected special block up by 0.1 grid">Special ▲</button>
+		<button id="btn-magnet-down" title="Move the selected special block down by 0.1 grid">Special ▼</button>
 		<button id="btn-magnet-strength-up" title="Increase selected magnet strength">Strength +</button>
 		<button id="btn-magnet-strength-down" title="Decrease selected magnet strength">Strength -</button>
 		<button id="btn-magnet-range-up" title="Increase selected magnet range">Range +</button>
@@ -559,6 +670,7 @@
 			<button id="btn-3way">3-Way</button>
 			<button id="btn-4way">4-Way</button>
 			<button id="btn-elevated-straight" style="display:none">Elev Straight</button>
+			<button id="btn-elevated-cross" style="display:none">Elev Cross</button>
 			<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
 			<button id="btn-elevated-checkpoint" style="display:none">Elev Checkpoint</button>
 			<button id="btn-slope-up" style="display:none">Slope Up</button>
@@ -582,7 +694,6 @@
 			<button id="btn-moving-spin">Spinning Wall +</button>
 			<button id="btn-moving-orbit">Orbit Poles +</button>
 			<button id="btn-moving-custom">Custom Mover +</button>
-			<label id="moving-speed-wrap" style="display:none;color:#dbe8ff;font-size:11px;">Move Speed <input id="moving-speed" type="range" min="0.25" max="3" step="0.05" value="1"><span id="moving-speed-value">1.00x</span></label>
 		</div>
 		<div class="toolbar-group" aria-label="Surfaces and pads" data-cat="surfaces">
 			<span class="toolbar-group-label">Surfaces</span>
@@ -635,28 +746,27 @@
 			<button id="btn-building-small-c">Bldg C</button>
 			<button id="btn-building-small-d">Bldg D</button>
 			<button id="btn-custom-import">Import 3D</button>
-			<button id="btn-custom-cycle">Custom: none</button>
 			<input id="custom-model-file" type="file" accept=".glb,.gltf,.obj,model/gltf-binary,model/gltf+json" style="display:none" />
-			<button id="btn-rotate">Rotate: 0°</button>
 		</div>
-		<div class="toolbar-group" aria-label="Edit tools" data-cat="edit">
-			<span class="toolbar-group-label">Edit</span>
+		<div id="topbar">
+		<div class="topbar-cluster" aria-label="Options">
+			<span class="topbar-label">Options</span>
+			<button id="btn-play" class="action">Play</button>
+			<button id="btn-quick-test" class="action">Quick Test</button>
+			<button id="btn-share" class="action">Share</button>
+			<button id="btn-clear" class="danger">Clear</button>
+			<button id="btn-storage-chip" type="button" title="Browser storage used by this site — click for details and cleanup">💾 <span id="storage-chip-text">…</span></button>
+		</div>
+		<div class="topbar-cluster" aria-label="Edit tools">
+			<span class="topbar-label">Tools</span>
+			<button id="btn-rotate">Rotate: 0°</button>
+			<button id="btn-custom-cycle">Custom: none</button>
 			<button id="btn-paint" class="active">Paint</button>
 			<button id="btn-erase">Erase</button>
 			<button id="btn-undo" title="Undo (Ctrl/Cmd+Z)" disabled>Undo</button>
 			<button id="btn-redo" title="Redo (Ctrl+Y or Cmd+Shift+Z)" disabled>Redo</button>
 			<button id="btn-flow">Flow: Off</button>
 			<button id="btn-offgrid">Snap: Grid</button>
-		</div>
-		<div class="toolbar-group" aria-label="Testing and sharing" data-cat="run">
-			<span class="toolbar-group-label">Run</span>
-			<button id="btn-play" class="action">Play</button>
-			<button id="btn-quick-test" class="action">Quick Test</button>
-		<!--	<button id="btn-select-spawn">Pick Test Spawn</button> -->
-			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;"><input id="autosave-enable" type="checkbox" checked> Auto-save</label>
-			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;">Every <input id="autosave-interval" type="number" min="5" max="600" step="1" value="30" style="width:62px;background:rgba(8,10,14,0.9);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 4px;"> s</label>
-			<button id="btn-share" class="action">Share</button>
-			<button id="btn-clear" class="danger">Clear</button>
 		</div>
 	</div>
 
@@ -665,8 +775,31 @@
 		<canvas id="minimap-canvas" width="140" height="140"></canvas>
 		<span id="minimap-label">Map</span>
 	</div>
+	<div id="track-slots" aria-label="Track save slots">
+		<button type="button" data-track-slot="0">Slot 1</button>
+		<button type="button" data-track-slot="1">Slot 2</button>
+		<button type="button" data-track-slot="2">Slot 3</button>
+	</div>
 	<div id="selection-box"></div>
 	<div id="clipboard-hint"></div>
+	<div id="storage-overlay" hidden>
+		<div class="storage-card">
+			<button id="storage-need-space" type="button">💾 I need more space</button>
+			<div id="storage-confirm" hidden>
+				<h3>Free up space?</h3>
+				<p>This deletes your <strong>saved ghost replays</strong> (cached copies stored in your browser — usually the biggest hog). Your ghost will not appear on tracks again until you set a new personal best. <strong>Leaderboards and gameplay are not affected</strong> — those live on the server.</p>
+				<button id="storage-confirm-yes" type="button">Delete ghosts &amp; free the space</button>
+				<button id="storage-confirm-no" type="button" class="secondary">Cancel</button>
+			</div>
+			<h3>Browser storage</h3>
+			<p id="storage-summary"></p>
+			<div class="storage-list" id="storage-list"></div>
+			<button id="storage-refresh" type="button">Refresh</button>
+			<button id="storage-clear-editor" type="button" class="secondary">Clear editor data</button>
+			<button id="storage-clear-ghosts" type="button" class="secondary">Clear test ghosts</button>
+			<button id="storage-close" type="button" class="danger">Close</button>
+		</div>
+	</div>
 	<div id="quick-tools"></div>
 
 	<div id="toast"></div>
@@ -679,7 +812,15 @@
 	</select>
 	<button id="btn-respawn-car" title="Respawn the test car at the start line (Shift+R)">Respawn Car</button>
 </div>
-	<div id="offgrid-dev-banner" hidden>Off-grid placement is still in development — expect rough edges while it gets fixed.</div>
+	<aside id="editor-chat-panel" aria-label="Live chat">
+		<div id="editor-chat-header">💬 Live Chat</div>
+		<div id="editor-chat-account">Checking account…</div>
+		<div id="editor-chat-messages" aria-live="polite"></div>
+		<div id="editor-chat-input-row">
+			<input id="editor-chat-input" type="text" maxlength="500" placeholder="Type message…" aria-label="Chat message">
+			<button id="editor-chat-send" type="button">Send</button>
+		</div>
+	</aside>
 	<div id="custom-surface-panel" hidden>
 		<h3 id="custom-surface-title">Custom Surface</h3>
 		<div class="custom-surface-grid">
@@ -779,7 +920,7 @@
 	const ARC_ORANGE_TOOL = 'arc-orange';
 	const PORTAL_YELLOW_TOOL = 'portal-yellow';
 	const PORTAL_PURPLE_TOOL = 'portal-purple';
-	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'elevated-3-way', 'elevated-4-way' ];
+	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'elevated-3-way', 'elevated-4-way' ];
 	const POOL_SLOPE_TOOL = 'pool-slope';
 	const POOL_SLOPE_DEPTH = CELL_RAW * 0.34; // matches pool floor depth
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
@@ -844,6 +985,31 @@
 	let autosaveEnabled = true;
 	let autosaveEverySeconds = 30;
 	let autosaveTimer = null;
+	const TRACK_SLOT_COUNT = 3;
+	const TRACK_SLOT_KEY_PREFIX = 'racing-editor-slot-';
+	const ACTIVE_TRACK_SLOT_KEY = 'racing-editor-active-slot';
+	let activeTrackSlot = Math.max( 0, Math.min( TRACK_SLOT_COUNT - 1, Number( localStorage.getItem( ACTIVE_TRACK_SLOT_KEY ) ) || 0 ) );
+
+	// Storage writes must never take the editor down: a full localStorage quota
+	// (long-lived origins accumulate tracks, slots and replays) makes setItem
+	// throw QuotaExceededError — which used to kill init and the slot buttons.
+	function safeSetItem( key, value ) {
+
+		try {
+
+			localStorage.setItem( key, value );
+			return true;
+
+		} catch ( error ) {
+
+			console.warn( `Skipped saving ${ key } (${ error?.name || 'storage error' })` );
+			return false;
+
+		}
+
+	}
+
+	let trackSlotBackupFailed = false;
 	const OFFGRID_STEP = 0.25;
 	const MAGNET_Y_STEP = 0.1;
 	const MAGNET_MIN_Y = -1;
@@ -864,6 +1030,63 @@
 	const ARC_MAX_ID = 999;
 	const BLOCK_HEIGHT_OFFSET = 0.012;
 	const DECO_HEIGHT_OFFSET = BLOCK_HEIGHT_OFFSET * 0.5;
+
+	function selectMagnetIndex( index ) {
+
+		selectedMagnetIndex = index;
+		selectedArcIndex = -1;
+		updateSpecialBlockControls();
+
+	}
+
+	function selectArcIndex( index ) {
+
+		selectedArcIndex = index;
+		selectedMagnetIndex = -1;
+		updateSpecialBlockControls();
+
+	}
+
+	function updateSpecialBlockControls() {
+
+		const hasMagnet = selectedMagnetIndex >= 0 && Boolean( magnetBlocks[ selectedMagnetIndex ] );
+		const hasArc = selectedArcIndex >= 0 && Boolean( arcBlocks[ selectedArcIndex ] );
+		const setVisible = ( id, visible ) => {
+
+			const element = document.getElementById( id );
+			if ( element ) element.style.display = visible ? '' : 'none';
+
+		};
+		const setMobileVisible = ( id, visible ) => {
+
+			document.querySelectorAll( `.mobile-editor-sheet [data-mobile-click="${ id }"]` ).forEach( ( element ) => {
+
+				element.style.display = visible ? '' : 'none';
+
+			} );
+
+		};
+		setVisible( 'btn-magnet-up', hasMagnet || hasArc );
+		setVisible( 'btn-magnet-down', hasMagnet || hasArc );
+		setVisible( 'btn-portal-up', false );
+		setVisible( 'btn-portal-down', false );
+		setVisible( 'btn-magnet-strength-up', hasMagnet );
+		setVisible( 'btn-magnet-strength-down', hasMagnet );
+		setVisible( 'btn-magnet-range-up', hasMagnet );
+		setVisible( 'btn-magnet-range-down', hasMagnet );
+		setVisible( 'btn-portal-id-up', hasArc );
+		setVisible( 'btn-portal-id-down', hasArc );
+		setVisible( 'arc-link-help', hasArc );
+		setMobileVisible( 'btn-magnet-up', hasMagnet || hasArc );
+		setMobileVisible( 'btn-magnet-down', hasMagnet || hasArc );
+		setMobileVisible( 'btn-magnet-strength-up', hasMagnet );
+		setMobileVisible( 'btn-magnet-strength-down', hasMagnet );
+		setMobileVisible( 'btn-magnet-range-up', hasMagnet );
+		setMobileVisible( 'btn-magnet-range-down', hasMagnet );
+		setMobileVisible( 'btn-portal-id-up', hasArc );
+		setMobileVisible( 'btn-portal-id-down', hasArc );
+
+	}
 
 	function clampMagnetGridY( value ) {
 
@@ -1466,6 +1689,7 @@
 		cloudy: { name: 'Cloudy', bg: 0x9aa4b2, fogNear: 70, fogFar: 130, sun: 3.8, hemi: 1.3, exposure: 0.95, ground: 0x3f835f },
 		sunset: { name: 'Sunset', bg: 0xc7987d, fogNear: 65, fogFar: 120, sun: 4.6, hemi: 1.25, exposure: 1.08, ground: 0x4c7d58 },
 		night: { name: 'Night', bg: 0x0b1220, fogNear: 45, fogFar: 95, sun: 1.6, hemi: 0.45, exposure: 0.7, ground: 0x243745 },
+		'night-constellations': { name: 'Night (Constellations)', bg: 0x0b1220, fogNear: 45, fogFar: 95, sun: 1.6, hemi: 0.45, exposure: 0.7, ground: 0x243745 },
 		'dawn-mist': { name: 'Dawn Mist', bg: 0xb6c2cc, fogNear: 36, fogFar: 78, sun: 2.9, hemi: 1.1, exposure: 0.88, ground: 0x4f7f74 },
 	};
 	const WEATHER_DEFAULT = 'clear';
@@ -1560,7 +1784,7 @@
 
 	const loader = new GLTFLoader();
 	const objLoader = new OBJLoader();
-	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'elev-track-straight', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
+	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
 	const models = {};
 	const customAssets = new Map();
 	let customAssetOrder = [];
@@ -1853,17 +2077,16 @@
 
 			const normalizedType = cell.elevatedType === 'slope-down' ? 'slope-up' : cell.elevatedType;
 			const normalizedOrient = cell.elevatedType === 'slope-down' ? ( ORIENT_180[ cell.elevatedOrient || 0 ] ?? ( cell.elevatedOrient || 0 ) ) : ( cell.elevatedOrient || 0 );
-			const sourceType = ( normalizedType === 'elevated-corner' )
-				? 'elev-track-corner'
-				: ( normalizedType === 'elevated-checkpoint'
-					? 'elev-track-checkpoint'
-					: ( normalizedType === 'slope-up'
-						? 'elev-track-slope'
-						: ( normalizedType === 'elevated-3-way'
-							? 'elev-track-3-way'
-							: ( normalizedType === 'elevated-4-way'
-								? 'elev-track-4-way'
-								: 'elev-track-straight' ) ) ) );
+			const elevatedModelKeys = {
+				'elevated-straight': 'elev-track-straight',
+				'elevated-cross': 'elev-track-cross',
+				'elevated-corner': 'elev-track-corner',
+				'elevated-checkpoint': 'elev-track-checkpoint',
+				'slope-up': 'elev-track-slope',
+				'elevated-3-way': 'elev-track-3-way',
+				'elevated-4-way': 'elev-track-4-way',
+			};
+			const sourceType = elevatedModelKeys[ normalizedType ] || 'elev-track-straight';
 			const elevatedSrc = models[ sourceType ];
 			if ( elevatedSrc ) {
 
@@ -2447,13 +2670,13 @@ function computeCausticShade( normal ) {
 			const existingIndex = findNearestMagnetIndex( gx, gz );
 			if ( existingIndex >= 0 ) {
 
-				selectedMagnetIndex = existingIndex;
+				selectMagnetIndex( existingIndex );
 				if ( magnetBlocks[ existingIndex ].type !== selectedType ) magnetBlocks[ existingIndex ].type = selectedType;
 
 			} else {
 
 				magnetBlocks.push( { gx, gz, y: MAGNET_DEFAULT_Y, type: selectedType, strength: MAGNET_DEFAULT_STRENGTH, range: MAGNET_DEFAULT_RANGE, mesh: null } );
-				selectedMagnetIndex = magnetBlocks.length - 1;
+				selectMagnetIndex( magnetBlocks.length - 1 );
 
 			}
 			rebuildMagnetMeshes();
@@ -2465,13 +2688,13 @@ function computeCausticShade( normal ) {
 			const existingIndex = findNearestArcIndex( gx, gz );
 			if ( existingIndex >= 0 ) {
 
-				selectedArcIndex = existingIndex;
+				selectArcIndex( existingIndex );
 				if ( arcBlocks[ existingIndex ].type !== selectedType ) arcBlocks[ existingIndex ].type = selectedType;
 
 			} else {
 
 				arcBlocks.push( { gx, gz, y: MAGNET_DEFAULT_Y, type: selectedType, linkId: ARC_DEFAULT_ID, mesh: null } );
-				selectedArcIndex = arcBlocks.length - 1;
+				selectArcIndex( arcBlocks.length - 1 );
 
 			}
 			rebuildArcMeshes();
@@ -2901,7 +3124,7 @@ function computeCausticShade( normal ) {
 		const existingIndex = findNearestMagnetIndex( gx, gz );
 		if ( existingIndex >= 0 && magnetBlocks[ existingIndex ] ) {
 
-			selectedMagnetIndex = existingIndex;
+			selectMagnetIndex( existingIndex );
 			previewGx = magnetBlocks[ existingIndex ].gx;
 			previewGz = magnetBlocks[ existingIndex ].gz;
 			previewY = clampMagnetGridY( magnetBlocks[ existingIndex ].y );
@@ -2952,7 +3175,7 @@ function computeCausticShade( normal ) {
 			const existingIndex = findNearestArcIndex( gx, gz );
 			if ( existingIndex >= 0 && arcBlocks[ existingIndex ] ) {
 
-				selectedArcIndex = existingIndex;
+				selectArcIndex( existingIndex );
 				previewGx = arcBlocks[ existingIndex ].gx;
 				previewGz = arcBlocks[ existingIndex ].gz;
 				previewY = clampMagnetGridY( arcBlocks[ existingIndex ].y );
@@ -2974,27 +3197,22 @@ function computeCausticShade( normal ) {
 			return;
 
 		}
-		const ghostType = selectedType === BUMP_TOOL
-			? 'track-bump'
-			: ( selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL
-				? 'track-straight'
-				: ( selectedType === JUMP_TOOL
-					? 'track-straight'
-					: ( selectedType === POOL_SLOPE_TOOL
-						? 'elev-track-slope'
-						: ( selectedType === 'elevated-corner'
-							? 'elev-track-corner'
-							: ( selectedType === 'elevated-straight'
-								? 'elev-track-straight'
-								: ( selectedType === 'elevated-checkpoint'
-									? 'elev-track-checkpoint'
-									: ( selectedType === 'slope-up'
-										? 'elev-track-slope'
-										: ( selectedType === 'elevated-3-way'
-											? 'elev-track-3-way'
-											: ( selectedType === 'elevated-4-way'
-												? 'elev-track-4-way'
-												: ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType ) ) ) ) ) ) ) ) ) );
+		const ghostModelKeys = {
+			[ BUMP_TOOL ]: 'track-bump',
+			[ POLE_TOOL ]: 'track-straight',
+			[ CUBE_TOOL ]: 'track-straight',
+			[ WALL_TOOL ]: 'track-straight',
+			[ JUMP_TOOL ]: 'track-straight',
+			[ POOL_SLOPE_TOOL ]: 'elev-track-slope',
+			'elevated-straight': 'elev-track-straight',
+			'elevated-cross': 'elev-track-cross',
+			'elevated-corner': 'elev-track-corner',
+			'elevated-checkpoint': 'elev-track-checkpoint',
+			'slope-up': 'elev-track-slope',
+			'elevated-3-way': 'elev-track-3-way',
+			'elevated-4-way': 'elev-track-4-way',
+		};
+		const ghostType = ghostModelKeys[ selectedType ] || ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType );
 		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
 
 	}
@@ -3121,11 +3339,97 @@ function computeCausticShade( normal ) {
 		const arr = getCellsArray();
 
 		const encoded = encodeCells( arr );
-		localStorage.setItem( 'racing-editor-cells', encoded );
-		localStorage.setItem( 'racing-editor-mods', encodeMods() );
+		const modsEncoded = encodeMods();
+		const cellsStored = safeSetItem( 'racing-editor-cells', encoded );
+		const modsStored = safeSetItem( 'racing-editor-mods', modsEncoded );
+		const slotStored = cellsStored && modsStored && safeSetItem( `${ TRACK_SLOT_KEY_PREFIX }${ activeTrackSlot }`, JSON.stringify( { cells: encoded, mods: modsEncoded, updatedAt: Date.now() } ) );
+		if ( cellsStored && modsStored ) {
+
+			if ( slotStored ) {
+
+				trackSlotBackupFailed = false;
+
+			} else if ( ! trackSlotBackupFailed ) {
+
+				// The main keys above saved fine — only the slot copy was skipped
+				// because the browser is close to its storage quota.
+				trackSlotBackupFailed = true;
+				showToast( 'Saved — slot backup skipped (browser storage almost full)' );
+
+			}
+
+		} else if ( ! trackSlotBackupFailed ) {
+
+			// The save itself failed: the browser refused the write. This is a
+			// device storage quota problem (common on full Chromebooks), not a
+			// problem with the track's size.
+			trackSlotBackupFailed = true;
+			console.warn( 'Storage sizes on this origin:', Object.keys( localStorage )
+				.map( ( key ) => `${ key }=${ ( localStorage.getItem( key ) || '' ).length }` )
+				.join( ' ' ) );
+			const toastStorageError = ( usage, quota ) => showToast(
+				quota ? `Couldn't save — browser storage is full (${ ( usage / 1048576 ).toFixed( 1 ) } of ${ ( quota / 1048576 ).toFixed( 1 ) } MB). Free up device space, then reload.`
+					: "Couldn't save — browser storage is full. Free up device space or clear site data."
+			);
+			if ( navigator.storage?.estimate ) {
+
+				navigator.storage.estimate().then(
+					( est ) => toastStorageError( est.usage || 0, est.quota || 0 ),
+					() => toastStorageError( 0, 0 )
+				);
+
+			} else {
+
+				toastStorageError( 0, 0 );
+
+			}
+
+		}
 		localStorage.removeItem( QUICK_TEST_GHOST_KEY );
 		localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
 		clearQuickTestGhost();
+		updateTrackSlotButtons();
+		updateStorageChip();
+
+	}
+
+	function getTrackSlotState( slot ) {
+
+		try {
+			const parsed = JSON.parse( localStorage.getItem( `${ TRACK_SLOT_KEY_PREFIX }${ slot }` ) || 'null' );
+			return parsed?.cells ? parsed : null;
+		} catch {
+			return null;
+		}
+
+	}
+
+	function updateTrackSlotButtons() {
+
+		document.querySelectorAll( '[data-track-slot]' ).forEach( ( button ) => {
+			const slot = Number( button.dataset.trackSlot );
+			button.classList.toggle( 'active', slot === activeTrackSlot );
+			button.textContent = `Slot ${ slot + 1 }${ getTrackSlotState( slot ) ? ' *' : '' }`;
+		} );
+
+	}
+
+	async function selectTrackSlot( slot ) {
+
+		const state = getTrackSlotState( slot );
+		activeTrackSlot = slot;
+		safeSetItem( ACTIVE_TRACK_SLOT_KEY, String( slot ) );
+		if ( state ) {
+			await loadEncodedState( state.cells, state.mods || '' );
+			safeSetItem( 'racing-editor-cells', state.cells );
+			safeSetItem( 'racing-editor-mods', state.mods || '' );
+			updateTrackSlotButtons();
+			showToast( `Loaded track slot ${ slot + 1 }` );
+			return;
+		}
+		save();
+		updateTrackSlotButtons();
+		showToast( `Saved current track to slot ${ slot + 1 }` );
 
 	}
 
@@ -3671,15 +3975,156 @@ function computeCausticShade( normal ) {
 
 	async function loadSaved() {
 
-		const params = new URLSearchParams( window.location.search );
-		const mapParam = params.get( 'map' );
-		const modsParam = params.get( 'mods' );
-		const encoded = mapParam || localStorage.getItem( 'racing-editor-cells' );
-		const modsEncoded = modsParam || localStorage.getItem( 'racing-editor-mods' );
-		await loadEncodedState( encoded, modsEncoded );
+		try {
+
+			const params = new URLSearchParams( window.location.search );
+			const mapParam = params.get( 'map' );
+			const modsParam = params.get( 'mods' );
+			const activeSlotState = getTrackSlotState( activeTrackSlot );
+			const encoded = mapParam || activeSlotState?.cells || localStorage.getItem( 'racing-editor-cells' );
+			const modsEncoded = modsParam || activeSlotState?.mods || localStorage.getItem( 'racing-editor-mods' );
+			await loadEncodedState( encoded, modsEncoded );
+			if ( ! mapParam && ! activeSlotState && encoded ) save();
+			updateTrackSlotButtons();
+
+		} catch ( error ) {
+
+			// Corrupt saved data or a full storage quota must leave the editor
+			// usable (the render loop depends on init getting past this call).
+			console.error( 'Failed to restore the saved track:', error );
+			showToast( 'Could not load the saved track — starting clean' );
+
+		}
 
 	}
 
+
+	// ─── Storage usage panel ────────────────────────────────────
+
+	function formatMB( bytes ) {
+
+		return bytes >= 1048576 ? `${ ( bytes / 1048576 ).toFixed( 1 ) } MB` : `${ Math.max( 1, Math.round( bytes / 1024 ) ) } KB`;
+
+	}
+
+	function getStorageEntries() {
+
+		const entries = [];
+		try {
+
+			for ( let i = 0; i < localStorage.length; i ++ ) {
+
+				const key = localStorage.key( i );
+				entries.push( { key, size: ( localStorage.getItem( key ) || '' ).length * 2 } ); // UTF-16 = 2 bytes/char
+
+			}
+
+		} catch ( e ) {}
+		return entries.sort( ( a, b ) => b.size - a.size );
+
+	}
+
+	function updateStorageChip() {
+
+		const total = getStorageEntries().reduce( ( sum, e ) => sum + e.size, 0 );
+		const el = document.getElementById( 'storage-chip-text' );
+		if ( el ) el.textContent = formatMB( total );
+
+	}
+
+	function renderStorageOverlay() {
+
+		const entries = getStorageEntries();
+		const total = entries.reduce( ( sum, e ) => sum + e.size, 0 );
+		const summary = document.getElementById( 'storage-summary' );
+		if ( summary ) summary.textContent = `${ formatMB( total ) } of browser storage used by ${ entries.length } saved items (browsers allow roughly 5-10 MB per site). Editor keys can be cleared without losing game data.`;
+		const list = document.getElementById( 'storage-list' );
+		if ( list ) {
+
+			list.textContent = '';
+			for ( const entry of entries.slice( 0, 15 ) ) {
+
+				const row = document.createElement( 'div' );
+				const k = document.createElement( 'span' );
+				k.className = 'k';
+				k.textContent = entry.key;
+				k.title = entry.key;
+				const v = document.createElement( 'span' );
+				v.textContent = formatMB( entry.size );
+				row.append( k, v );
+				list.appendChild( row );
+
+			}
+
+		}
+		updateStorageChip();
+
+	}
+
+	( function initStoragePanel() {
+
+		const chip = document.getElementById( 'btn-storage-chip' );
+		const overlay = document.getElementById( 'storage-overlay' );
+		if ( ! chip || ! overlay ) return;
+		chip.addEventListener( 'click', () => { renderStorageOverlay(); overlay.hidden = false; } );
+		document.getElementById( 'storage-refresh' )?.addEventListener( 'click', renderStorageOverlay );
+		document.getElementById( 'storage-close' )?.addEventListener( 'click', () => { overlay.hidden = true; } );
+		overlay.addEventListener( 'click', ( e ) => { if ( e.target === overlay ) overlay.hidden = true; } );
+		document.getElementById( 'storage-clear-ghosts' )?.addEventListener( 'click', () => {
+
+			localStorage.removeItem( QUICK_TEST_GHOST_KEY );
+			localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
+			renderStorageOverlay();
+			showToast( 'Test ghosts cleared' );
+
+		} );
+		const needSpaceBtn = document.getElementById( 'storage-need-space' );
+		const confirmBox = document.getElementById( 'storage-confirm' );
+		if ( needSpaceBtn && confirmBox ) {
+
+			needSpaceBtn.addEventListener( 'click', () => { confirmBox.hidden = ! confirmBox.hidden; } );
+			document.getElementById( 'storage-confirm-no' )?.addEventListener( 'click', () => { confirmBox.hidden = true; } );
+			document.getElementById( 'storage-confirm-yes' )?.addEventListener( 'click', () => {
+
+				confirmBox.hidden = true;
+				let freed = 0;
+				let removed = 0;
+				try {
+
+					for ( let i = localStorage.length - 1; i >= 0; i -- ) {
+
+						const key = localStorage.key( i );
+						if ( key && ( key.startsWith( 'racing-recent-ghosts' ) || key === QUICK_TEST_GHOST_KEY || key === QUICK_TEST_GHOST_MAP_KEY ) ) {
+
+							freed += ( localStorage.getItem( key ) || '' ).length * 2;
+							localStorage.removeItem( key );
+							removed ++;
+
+						}
+
+					}
+
+				} catch ( e ) {}
+				renderStorageOverlay();
+				showToast( removed ? `Freed ${ formatMB( freed ) } by deleting ${ removed } ghost save${ removed === 1 ? '' : 's' }` : 'No ghost saves found to delete' );
+
+			} );
+
+		}
+		document.getElementById( 'storage-clear-editor' )?.addEventListener( 'click', () => {
+
+			Object.keys( localStorage ).forEach( ( key ) => {
+
+				if ( key.startsWith( 'racing-editor-' ) ) localStorage.removeItem( key );
+
+			} );
+			renderStorageOverlay();
+			showToast( 'Editor data cleared — reload to start fresh' );
+
+		} );
+		updateStorageChip();
+
+	} )();
 
 	// ─── Toast ────────────────────────────────────────────────
 
@@ -3758,6 +4203,7 @@ function refreshMovingSpeedUi() {
 		[ MOVING_CUSTOM_TOOL ]: document.getElementById( 'btn-moving-custom' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
 		'elevated-straight': document.getElementById( 'btn-elevated-straight' ),
+		'elevated-cross': document.getElementById( 'btn-elevated-cross' ),
 		'elevated-corner': document.getElementById( 'btn-elevated-corner' ),
 		'elevated-checkpoint': document.getElementById( 'btn-elevated-checkpoint' ),
 		'slope-up': document.getElementById( 'btn-slope-up' ),
@@ -3785,7 +4231,6 @@ function refreshMovingSpeedUi() {
 	const surfaceSelect = document.getElementById( 'surface-select' );
 	const padSelect = document.getElementById( 'pad-select' );
 	const overlapToggleBtn = document.getElementById( 'btn-overlap-toggle' );
-	const offGridDevBanner = document.getElementById( 'offgrid-dev-banner' );
 	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
 	const customSurfaceTitle = document.getElementById( 'custom-surface-title' );
 	const customSurfaceInputs = {
@@ -3890,6 +4335,7 @@ function refreshMovingSpeedUi() {
 
 		const rotIndex = ORIENTATIONS.indexOf( selectedOrient );
 		btnRotate.textContent = `Rotate: ${ Math.max( 0, rotIndex ) * 90 }°`;
+		updateSpecialBlockControls();
 
 	}
 
@@ -3897,7 +4343,11 @@ function refreshMovingSpeedUi() {
 
 		selectedType = type;
 		selectTool( 'paint' );
-		if ( type === MAGNET_BLUE_TOOL || type === MAGNET_RED_TOOL ) {
+		const isMagnetTool = type === MAGNET_BLUE_TOOL || type === MAGNET_RED_TOOL || type === MAGNET_GRAPPLE_TOOL;
+		const isArcTool = type === ARC_GREEN_TOOL || type === ARC_ORANGE_TOOL || type === PORTAL_YELLOW_TOOL || type === PORTAL_PURPLE_TOOL;
+		if ( isMagnetTool ) {
+
+			selectedArcIndex = -1;
 
 			if ( hoveredCell ) {
 
@@ -3907,12 +4357,21 @@ function refreshMovingSpeedUi() {
 
 			}
 
+		} else if ( isArcTool ) {
+
+			selectedMagnetIndex = -1;
+
+		} else {
+
+			selectedMagnetIndex = -1;
+			selectedArcIndex = -1;
+
 		}
 		if ( isMovingObstacleTool( type ) && hoveredCell ) {
 			const cell = grid.get( cellKey( hoveredCell.gx, hoveredCell.gz ) );
 			if ( cell?.movingObstacle && movingSpeedInput ) movingSpeedInput.value = String( Math.max( 0.25, Math.min( 3, Number( cell.movingSpeed ) || 1 ) ) );
 		}
-		if ( type === ARC_GREEN_TOOL || type === ARC_ORANGE_TOOL || type === PORTAL_YELLOW_TOOL || type === PORTAL_PURPLE_TOOL ) {
+		if ( isArcTool ) {
 
 			if ( hoveredCell ) {
 
@@ -4077,6 +4536,8 @@ function refreshMovingSpeedUi() {
 	}
 	document.getElementById( 'btn-magnet-up' )?.addEventListener( 'click', () => nudgeSelectedHeight( MAGNET_Y_STEP ) );
 	document.getElementById( 'btn-magnet-down' )?.addEventListener( 'click', () => nudgeSelectedHeight( - MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-portal-up' )?.addEventListener( 'click', () => nudgeSelectedHeight( MAGNET_Y_STEP ) );
+	document.getElementById( 'btn-portal-down' )?.addEventListener( 'click', () => nudgeSelectedHeight( -MAGNET_Y_STEP ) );
 	document.getElementById( 'btn-magnet-strength-up' )?.addEventListener( 'click', () => nudgeSelectedMagnetStrength( MAGNET_STRENGTH_STEP ) );
 	document.getElementById( 'btn-magnet-strength-down' )?.addEventListener( 'click', () => nudgeSelectedMagnetStrength( - MAGNET_STRENGTH_STEP ) );
 	document.getElementById( 'btn-magnet-range-up' )?.addEventListener( 'click', () => nudgeSelectedMagnetRange( MAGNET_RANGE_STEP ) );
@@ -4250,7 +4711,6 @@ function refreshMovingSpeedUi() {
 		if ( ! offGridToggleBtn ) return;
 		offGridToggleBtn.textContent = placeOffGrid ? 'Snap: Off' : 'Snap: Grid';
 		offGridToggleBtn.classList.toggle( 'active', placeOffGrid );
-		if ( offGridDevBanner ) offGridDevBanner.hidden = ! placeOffGrid;
 
 	}
 
@@ -4258,7 +4718,7 @@ function refreshMovingSpeedUi() {
 
 		placeOffGrid = ! placeOffGrid;
 		syncPlacementUi();
-		showToast( placeOffGrid ? 'Off-grid placement enabled — in development' : 'Grid snap enabled' );
+		showToast( placeOffGrid ? 'Off-grid placement enabled' : 'Grid snap enabled' );
 
 	} );
 
@@ -4491,6 +4951,10 @@ function refreshMovingSpeedUi() {
 	} );
 	const autosaveEnableInput = document.getElementById( 'autosave-enable' );
 	const autosaveIntervalSelect = document.getElementById( 'autosave-interval' );
+	document.querySelectorAll( '[data-track-slot]' ).forEach( ( button ) => {
+		button.addEventListener( 'click', () => selectTrackSlot( Number( button.dataset.trackSlot ) ) );
+	} );
+	updateTrackSlotButtons();
 	autosaveEnableInput?.addEventListener( 'change', () => {
 
 		autosaveEnabled = Boolean( autosaveEnableInput.checked );
@@ -4860,6 +5324,16 @@ function refreshMovingSpeedUi() {
 			const modifier = e.ctrlKey || e.metaKey;
 			const target = e.target;
 			const isTypingTarget = target && ( target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable );
+			if ( isTypingTarget ) return;
+			// Shift is reserved as a modifier (not a driving key). In particular,
+			// Shift+ArrowUp must not accidentally leave the test car accelerating.
+			if ( e.key === 'Shift' ) {
+
+				editorDrive?.clearDriveKeys?.();
+				return;
+
+			}
+			if ( e.shiftKey && ! modifier ) return;
 			if ( ! isTypingTarget && modifier && key === 'z' ) {
 
 				e.preventDefault();
@@ -4925,9 +5399,26 @@ function refreshMovingSpeedUi() {
 	// ─── Init & render loop ───────────────────────────────────
 
 	refreshModTools();
-	await loadModels();
+	try {
+
+		await loadModels();
+
+	} catch ( error ) {
+
+		console.error( 'Failed to load models:', error );
+		showToast( 'Some track models failed to load — check your connection' );
+
+	}
 	applyWeatherPreset( WEATHER_DEFAULT );
-	await loadSaved();
+	try {
+
+		await loadSaved();
+
+	} catch ( error ) {
+
+		console.error( 'Failed to load saved track:', error );
+
+	}
 
 	// Start with a finish cell if the grid is empty
 	if ( grid.size === 0 ) {
@@ -4948,6 +5439,9 @@ function refreshMovingSpeedUi() {
 	}
 
 	animate();
+
+	// Handshake with the white-screen watchdog injected in <head>.
+	window.__editorReady = true;
 
 // ═════════════════════════════════════════════════════════════════
 // FEATURE 1: Independent, open-by-default toolbar groups
@@ -5018,7 +5512,7 @@ function refreshMovingSpeedUi() {
         }
     }
     document.addEventListener('click', (e) => {
-        const btn = e.target.closest('#toolbar button[id], #side-ui-bar button[id]');
+        const btn = e.target.closest('#toolbar button[id], #topbar button[id], #side-ui-bar button[id]');
         if (btn && btn.id) {
             toolUsage[btn.id] = (toolUsage[btn.id] || 0) + 1;
             rebuildQuickTools();
@@ -5332,7 +5826,7 @@ function renderMinimap() {
         // Elevated track pieces (lighter, drawn first so overlays show on top)
         if (cell.elevatedType) {
             const et = cell.elevatedType;
-            if (et === 'elevated-straight' || et === 'slope-up') color = '#c0d0e0';
+			if (et === 'elevated-straight' || et === 'elevated-cross' || et === 'slope-up') color = '#c0d0e0';
             else if (et === 'elevated-corner') color = '#a0b0c8';
             else if (et === 'elevated-checkpoint') color = '#7ad8ff';
             else if (et === 'elevated-3-way' || et === 'elevated-4-way') color = '#b0c0d8';
@@ -5344,7 +5838,7 @@ function renderMinimap() {
             else if (type === 'track-checkpoint') color = '#5ac8ff';
             else if (type === 'track-corner') color = '#8899aa';
             else if (type === 'track-3-way' || type === 'track-4-way') color = '#99aabb';
-            else if (type === 'elevated-straight' || type === 'slope-up') color = '#c0d0e0';
+			else if (type === 'elevated-straight' || type === 'elevated-cross' || type === 'slope-up') color = '#c0d0e0';
             else if (type === 'elevated-corner') color = '#a0b0c8';
             else if (type === 'elevated-checkpoint') color = '#7ad8ff';
             else color = '#a0b0c0';
@@ -5393,18 +5887,6 @@ function renderMinimap() {
         ctx.lineWidth = 1;
         ctx.strokeRect((minGx+half)*pxPerCell, (minGz+half)*pxPerCell, (maxGx-minGx+1)*pxPerCell, (maxGz-minGz+1)*pxPerCell);
     }
-    const camGx = camTarget.x / cellWorld - half;
-    const camGz = camTarget.z / cellWorld - half;
-    const viewHalfW = (frustum * (window.innerWidth / window.innerHeight)) / cellWorld / camera.zoom;
-    const viewHalfD = frustum / cellWorld / camera.zoom;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(
-        Math.max(0, (camGx - viewHalfW + half) * pxPerCell),
-        Math.max(0, (camGz - viewHalfD + half) * pxPerCell),
-        Math.min(W, (viewHalfW * 2) * pxPerCell),
-        Math.min(H, (viewHalfD * 2) * pxPerCell)
-    );
 }
 
 initMinimap();
@@ -5468,6 +5950,11 @@ document.addEventListener('pointerdown', (e) => {
 
 		const NOOP_CONTACT_LISTENER = { onContactAdded() {} };
 		const driveKeys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+		function clearDriveKeys() {
+
+			for ( const key of Object.keys( driveKeys ) ) driveKeys[ key ] = false;
+
+		}
 		const flyKeys = new Set();
 		let rotating = false, rotLastX = 0, rotLastY = 0;
 		let active = false;          // physics stack finished booting
@@ -6718,6 +7205,13 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			const target = e.target;
 			const isTypingTarget = target && ( target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable );
 			if ( isTypingTarget ) return;
+			if ( e.key === 'Shift' ) {
+
+				clearDriveKeys();
+				return;
+
+			}
+			if ( e.shiftKey && e.key.toLowerCase() !== 'r' ) return;
 			if ( FLY_CODES.includes( e.code ) ) flyKeys.add( e.code );
 			if ( e.shiftKey && e.key.toLowerCase() === 'r' ) { e.preventDefault(); respawn(); }
 
@@ -6734,6 +7228,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			isRotating: () => rotating,
 			dolly,
 			onDriveKey: ( key, down ) => { if ( key in driveKeys ) driveKeys[ key ] = down; },
+			clearDriveKeys,
 			respawn,
 		};
 		init();
@@ -6743,6 +7238,92 @@ function updateMovingObstacles( state, now, vehicleList ) {
 	</script>
 </main>
 
+<script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+<script>
+	// The editor uses the same global channel as the game, but keeps the chat
+	// docked in its own reserved right-side panel so the build tools stay usable.
+	( () => {
+
+		const messages = document.getElementById( 'editor-chat-messages' );
+		const input = document.getElementById( 'editor-chat-input' );
+		const send = document.getElementById( 'editor-chat-send' );
+		const account = document.getElementById( 'editor-chat-account' );
+		if ( ! messages || ! input || ! send || ! account || ! window.Ably ) return;
+
+		function getAccountUsername() {
+
+			try {
+
+				const session = JSON.parse( localStorage.getItem( 'racing-account-session-v1' ) || 'null' );
+				return String( session?.username || '' ).trim();
+
+			} catch {
+
+				return '';
+
+			}
+
+		}
+
+		const username = getAccountUsername();
+		account.textContent = username ? `Chatting as ${ username }` : 'Log in from the game home screen to send messages.';
+		const seen = new Set();
+		function addMessage( text ) {
+
+			const message = String( text || '' );
+			if ( ! message || seen.has( message ) || /^\[[^\]]+\](?:\[(?:owner|announce)\])?\s/.test( message ) ) return;
+			seen.add( message );
+			const row = document.createElement( 'div' );
+			row.className = 'editor-chat-message';
+			row.textContent = message;
+			messages.appendChild( row );
+			messages.scrollTop = messages.scrollHeight;
+
+		}
+
+		const ably = new Ably.Realtime( 'kbFfcw.zJJN7Q:gkQ0QImXKGlMS_rgQxn2DGUHssQd0zRefhfgDjFwDmM' );
+		const channel = ably.channels.get( 'global-chat' );
+		channel.history( { limit: 50 }, ( error, result ) => {
+
+			if ( error ) return;
+			for ( const entry of ( result?.items || [] ).reverse() ) addMessage( entry.data );
+
+		} );
+		channel.subscribe( ( entry ) => addMessage( entry.data ) );
+
+		function sendMessage() {
+
+			const text = input.value.trim();
+			const name = getAccountUsername();
+			if ( ! text ) return;
+			if ( ! name ) {
+
+				account.textContent = 'Log in from the game home screen to send messages.';
+				input.focus();
+				return;
+
+			}
+			channel.publish( 'message', `${ name }: ${ text }` );
+			input.value = '';
+
+		}
+
+		send.addEventListener( 'click', sendMessage );
+		input.addEventListener( 'keydown', ( event ) => {
+
+			// Keep editor shortcuts (space-to-pan, tool keys, drive arrows, etc.)
+			// out of the chat field so every character can be typed normally.
+			event.stopPropagation();
+			if ( event.key === 'Enter' ) {
+
+				event.preventDefault();
+				sendMessage();
+
+			}
+
+		} );
+	} )();
+</script>
 <script type="module" src="js/PageMusic.js"></script>
 
 </body>

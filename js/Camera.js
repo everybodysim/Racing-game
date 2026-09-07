@@ -17,13 +17,11 @@ export class Camera {
 
 		this.offset = new THREE.Vector3( 7.0, 7.1, 7.0 );
 		this.chaseOffset = new THREE.Vector3( 0, 2.3, - 6.6 );
-		// Underwater framing: drop in low and close behind the car so the
-		// camera reads as "in the water with it". The dive clamp below then
-		// holds the camera under the water plane — without this, the +2.3
-		// chase height keeps the cam floating AT the surface in shallow pools
-		// even while the car is fully submerged.
-		this.underwaterChaseOffset = new THREE.Vector3( 0, 0.7, - 5.2 );
-		this.underwaterOverviewOffset = this.offset;
+		// Keep the pool framing high and dry. This is intentionally a steeper,
+		// closer angle than normal chase mode, so a submerged car remains easy
+		// to see without moving the camera through the water surface.
+		this.underwaterChaseOffset = new THREE.Vector3( 0, 7.4, - 3.2 );
+		this.underwaterOverviewOffset = new THREE.Vector3( 3.6, 8.6, 3.6 );
 		// World Y of the water plane (main.js passes its WATER_SURFACE_Y in
 		// the dynamics object each frame).
 		this.waterSurfaceY = 0.12;
@@ -141,25 +139,10 @@ export class Camera {
 			}
 
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
-			// The look point stays ahead of the car; underwater it also drops
-			// so the camera pitches down at the submerged car.
-			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, 4.8 );
-			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.35, underwaterLift );
-			// DIVE WITH THE CAR: hold the camera below the water plane (a
-			// little under the surface, where the fog band lives) and never
-			// more than 1.0 above the car — shallow pools still read as
-			// "in the water" instead of skimming the surface.
-			if ( underwaterLift > 0.001 ) {
-
-				const waterY = Number( this.waterSurfaceY ) || 0;
-				const maxCamY = Math.min( this.targetPosition.y + 1.0, waterY - 0.42 );
-				this._desiredPos.y = THREE.MathUtils.lerp(
-					this._desiredPos.y,
-					Math.min( this._desiredPos.y, maxCamY ),
-					underwaterLift
-				);
-
-			}
+			// Bring the aim point in as the camera rises, giving pools the
+			// requested higher-angle view of the car.
+			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) );
+			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift );
 
 			const chaseLag = THREE.MathUtils.lerp( 10, 7.2, Math.min( 1, speedRatio * 0.8 + driftAmount * 0.4 ) ) * this.userLagScale;
 			this.camera.position.lerp( this._desiredPos, dt * chaseLag );
@@ -179,6 +162,21 @@ export class Camera {
 			this.camera.fov = THREE.MathUtils.lerp( this.camera.fov, 42, Math.min( 1, dt * 4 ) );
 			this.camera.updateProjectionMatrix();
 			this.camera.lookAt( this.lookTarget );
+
+		}
+
+		// The raised pool offsets handle normal framing. This final guard also
+		// covers the first blend frame (and custom camera settings), ensuring
+		// the camera can never briefly cross below the water surface.
+		if ( underwaterTarget ) {
+
+			const minimumCameraY = this.waterSurfaceY + 0.35;
+			if ( this.camera.position.y < minimumCameraY ) {
+
+				this.camera.position.y = minimumCameraY;
+				this.camera.lookAt( this.lookTarget );
+
+			}
 
 		}
 
