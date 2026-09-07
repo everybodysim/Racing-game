@@ -58,27 +58,43 @@
 		'body.skid-leaving { animation: skid-page-leave 0.18s ease-in forwards; pointer-events: none; }';
 	document.head.appendChild( style );
 
-	// Pack tracks are stored server-side under a short 16-character id. The
-	// editor normally expects its map data in localStorage, so when an Edit
-	// This Track action starts from a ?pack= URL, fetch the pack first and put
-	// its map/mod data into the editor's normal storage slots. This avoids ever
-	// constructing editor.html?map=<huge payload>, which can trigger HTTP 414.
+	// Pack tracks are stored server-side under a short id. The normal index
+	// handler can resolve a pack into a huge ?map= URL, which is exactly what
+	// causes the URI-too-long failure. Instead, fetch the pack and hand the
+	// editor its normal localStorage inputs, never putting the map in the URL.
 	async function openPackedTrackInEditor( packId, trigger ) {
 		if ( ! packId ) return false;
-		var button = trigger && trigger.tagName === 'BUTTON' ? trigger : null;
+		var button = trigger && ( trigger.tagName === 'BUTTON' || trigger.tagName === 'A' ) ? trigger : null;
 		var originalText = button ? button.textContent : '';
 		if ( button ) {
 			button.disabled = true;
 			button.textContent = 'Loading track…';
 		}
+
 		try {
-			var response = await fetch( TRACK_PACK_API + encodeURIComponent( packId ), { cache: 'no-store' } );
-			if ( ! response.ok ) throw new Error( 'Pack request failed (' + response.status + ')' );
+			var response = null;
+			var lastError = null;
+			for ( var attempt = 0; attempt < 8; attempt++ ) {
+				try {
+					response = await fetch( TRACK_PACK_API + encodeURIComponent( packId ), { cache: 'no-store' } );
+					if ( response.ok ) break;
+					lastError = new Error( 'Pack request failed (' + response.status + ')' );
+				} catch ( error ) {
+					lastError = error;
+				}
+				if ( attempt < 7 ) await new Promise( function ( resolve ) { setTimeout( resolve, 350 * Math.min( attempt + 1, 4 ) ); } );
+			}
+			if ( ! response || ! response.ok ) throw lastError || new Error( 'Pack request failed' );
+
 			var payload = await response.json();
 			if ( ! payload || ! payload.ok || ! payload.map ) throw new Error( payload?.error || 'Pack did not contain map data' );
+
 			localStorage.setItem( 'racing-editor-cells', String( payload.map ) );
 			localStorage.setItem( 'racing-editor-mods', String( payload.mods || '' ) );
-			navigateSameTab( 'editor.html' );
+
+			// Go directly to the editor with NO query string. editor.html already
+			// falls back to these two storage keys when map/mods are absent.
+			window.location.href = 'editor.html';
 			return true;
 		} catch ( error ) {
 			if ( button ) {
@@ -133,18 +149,21 @@
 		};
 	}
 
-	// Capture packed-track editor navigation before page-specific handlers run.
-	// This is important because index.html/tracks.html may already have built a
-	// long ?map= link from the packed track by the time the user clicks it.
+	// Capture packed-track editor navigation before index.html's existing
+	// handler can turn the pack into a giant ?map= URL. Accept both names used
+	// by shared-track URLs: ?pack= and ?sharedPack=.
 	document.addEventListener( 'click', function ( e ) {
 		if ( e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey ) return;
-		var packId = new URLSearchParams( window.location.search ).get( 'pack' );
+		var params = new URLSearchParams( window.location.search );
+		var packId = params.get( 'pack' ) || params.get( 'sharedPack' );
 		if ( ! packId ) return;
+
 		var target = e.target && e.target.closest ? e.target.closest( 'a,button' ) : null;
 		if ( ! target ) return;
 		var href = target.tagName === 'A' ? ( target.getAttribute( 'href' ) || '' ) : '';
 		var isEditorLink = target.id === 'nav-edit-this-track' || /(?:^|\/)editor\.html(?:[?#]|$)/i.test( href );
 		if ( ! isEditorLink ) return;
+
 		e.preventDefault();
 		e.stopImmediatePropagation();
 		openPackedTrackInEditor( packId, target );
