@@ -496,6 +496,8 @@
 #storage-overlay p { color: #9fb2cc; margin: 0 0 10px; }
 #storage-overlay .storage-list div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 12px; }
 #storage-overlay .storage-list .k { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
+#storage-overlay .storage-list .storage-x { margin: 0; padding: 2px 7px; background: transparent; border: 1px solid #3a4a63; color: #9fb2cc; font-size: 11px; border-radius: 6px; }
+#storage-overlay .storage-list .storage-x:hover { color: #fff; border-color: #b3453f; background: rgba(179, 69, 63, 0.3); }
 #storage-overlay button { margin: 10px 6px 0 0; padding: 8px 12px; border-radius: 8px; border: 0; background: #3478f6; color: #fff; font-weight: 700; font-size: 12px; cursor: pointer; }
 #storage-overlay button.secondary { background: transparent; border: 1px solid #3a4a63; color: #cfe0ff; }
 #storage-overlay button.danger { background: #b3453f; }
@@ -4048,7 +4050,23 @@ function computeCausticShade( normal ) {
 				k.title = entry.key;
 				const v = document.createElement( 'span' );
 				v.textContent = formatMB( entry.size );
-				row.append( k, v );
+				const x = document.createElement( 'button' );
+				x.type = 'button';
+				x.className = 'storage-x';
+				x.textContent = '✕';
+				x.title = `Remove ${ entry.key }`;
+				x.addEventListener( 'click', () => {
+
+					try {
+
+						localStorage.removeItem( entry.key );
+						showToast( `Removed ${ entry.key }` );
+
+					} catch ( e ) { showToast( 'Could not remove that item' ); }
+					renderStorageOverlay();
+
+				} );
+				row.append( k, v, x );
 				list.appendChild( row );
 
 			}
@@ -4069,21 +4087,38 @@ function computeCausticShade( normal ) {
 		overlay.addEventListener( 'click', ( e ) => { if ( e.target === overlay ) overlay.hidden = true; } );
 		document.getElementById( 'storage-clear-ghosts' )?.addEventListener( 'click', () => {
 
-			localStorage.removeItem( QUICK_TEST_GHOST_KEY );
-			localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
+			let freed = 0, count = 0;
+			for ( const key of Object.keys( localStorage ) ) {
+
+				if ( key === QUICK_TEST_GHOST_KEY || key === QUICK_TEST_GHOST_MAP_KEY || key.startsWith( 'racing-recent-ghosts' ) ) {
+
+					freed += ( localStorage.getItem( key ) || '' ).length * 2;
+					localStorage.removeItem( key );
+					count ++;
+
+				}
+
+			}
 			renderStorageOverlay();
-			showToast( 'Test ghosts cleared' );
+			showToast( count ? `Cleared ${ count } ghost item${ count === 1 ? '' : 's' } (${ formatMB( freed ) })` : 'No ghost data found' );
 
 		} );
 		document.getElementById( 'storage-clear-editor' )?.addEventListener( 'click', () => {
 
-			Object.keys( localStorage ).forEach( ( key ) => {
+			let freed = 0, count = 0;
+			for ( const key of Object.keys( localStorage ) ) {
 
-				if ( key.startsWith( 'racing-editor-' ) ) localStorage.removeItem( key );
+				if ( key.startsWith( 'racing-editor-' ) ) {
 
-			} );
+					freed += ( localStorage.getItem( key ) || '' ).length * 2;
+					localStorage.removeItem( key );
+					count ++;
+
+				}
+
+			}
 			renderStorageOverlay();
-			showToast( 'Editor data cleared — reload to start fresh' );
+			showToast( count ? `Cleared ${ count } editor item${ count === 1 ? '' : 's' } (${ formatMB( freed ) })` : 'No editor data found' );
 
 		} );
 		updateStorageChip();
@@ -5853,18 +5888,6 @@ function renderMinimap() {
         ctx.lineWidth = 1;
         ctx.strokeRect((minGx+half)*pxPerCell, (minGz+half)*pxPerCell, (maxGx-minGx+1)*pxPerCell, (maxGz-minGz+1)*pxPerCell);
     }
-    const camGx = camTarget.x / cellWorld - half;
-    const camGz = camTarget.z / cellWorld - half;
-    const viewHalfW = (frustum * (window.innerWidth / window.innerHeight)) / cellWorld / camera.zoom;
-    const viewHalfD = frustum / cellWorld / camera.zoom;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(
-        Math.max(0, (camGx - viewHalfW + half) * pxPerCell),
-        Math.max(0, (camGz - viewHalfD + half) * pxPerCell),
-        Math.min(W, (viewHalfW * 2) * pxPerCell),
-        Math.min(H, (viewHalfD * 2) * pxPerCell)
-    );
 }
 
 initMinimap();
