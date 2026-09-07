@@ -88,6 +88,48 @@ console.log( '3) Fresh browser — normal boot, no overlay, slots save + load ro
 	await browser.close();
 }
 
+console.log( '3b) Storage chip + breakdown overlay' );
+{
+	const { browser, page } = await openPage();
+	check( 'storage chip exists and shows a size', await page.evaluate( () => /KB|MB/.test( document.getElementById( 'storage-chip-text' )?.textContent || '' ) ) );
+	await page.evaluate( () => localStorage.setItem( 'legacy-hog', 'x'.repeat( 200000 ) ) );
+	await page.click( '#btn-storage-chip' ).catch( () => {} );
+	await page.waitForTimeout( 400 );
+	check( 'overlay opens with per-key list', await page.evaluate( () => {
+
+		const rows = [ ...document.querySelectorAll( '#storage-list div' ) ];
+		return ! document.getElementById( 'storage-overlay' ).hidden && rows.some( ( r ) => r.textContent.includes( 'legacy-hog' ) );
+
+	} ) );
+	await page.click( '#storage-clear-editor' ).catch( () => {} );
+	await page.waitForTimeout( 400 );
+	check( 'clear-editor removes editor keys only', await page.evaluate( () => Object.keys( localStorage ).every( ( k ) => ! k.startsWith( 'racing-editor-' ) ) && Boolean( localStorage.getItem( 'legacy-hog' ) ) ) );
+	await browser.close();
+}
+
+console.log( '3c) Full quota on main keys — accurate "couldn\'t save" toast with usage numbers' );
+{
+	const { browser, page, pageErrors } = await openPage( {
+		initScripts: [
+			[ ( [ c, m ] ) => {
+				localStorage.setItem( 'racing-editor-cells', c );
+				localStorage.setItem( 'racing-editor-mods', m );
+				const orig = Storage.prototype.setItem;
+				Storage.prototype.setItem = function ( k, v ) {
+					if ( String( k ).startsWith( 'racing-editor-' ) ) { const err = new Error( 'The quota has been exceeded.' ); err.name = 'QuotaExceededError'; throw err; }
+					return orig.call( this, k, v );
+				};
+			}, [ cellsV2( cells ), mods ] ],
+		],
+	} );
+	await page.waitForTimeout( 1500 );
+	check( 'toast explains the storage problem', await page.evaluate( () => ( document.getElementById( 'toast' ).textContent || '' ).includes( "Couldn't save" ) ) );
+	check( 'boot still completes under total save failure', await page.evaluate( () => window.__editorReady === true ) );
+	for ( const pe of pageErrors ) console.log( '    [pageerror] ' + ( pe.stack || pe ).slice( 0, 600 ).split( '\n' ).slice( 0, 8 ).join( ' // ' ) );
+	check( 'no uncaught page errors', pageErrors.length === 0 );
+	await browser.close();
+}
+
 console.log( '4) Watchdog — simulated total module failure shows the recovery overlay' );
 {
 	const browser = await chromium.launch();

@@ -487,6 +487,18 @@
 #minimap-wrap { position: absolute; left: 12px; top: 70px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
 #minimap-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
 #track-slots { position: absolute; left: 12px; top: 12px; display: flex; gap: 4px; padding: 5px; border-radius: 10px; background: rgba(20,20,30,0.84); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 4px 20px rgba(0,0,0,0.35); z-index: 16; }
+#btn-storage-chip { color: #cfd8ea; background: rgba(8,10,14,0.9); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
+#btn-storage-chip:hover { background: rgba(30,38,52,0.95); }
+#storage-overlay { position: fixed; inset: 0; z-index: 90; background: rgba(4,8,14,0.55); display: flex; align-items: center; justify-content: center; }
+#storage-overlay[hidden] { display: none; }
+#storage-overlay .storage-card { width: min(560px, 92vw); max-height: 80vh; overflow: auto; background: #10151f; color: #e8f0ff; border: 1px solid rgba(255,255,255,0.16); border-radius: 12px; padding: 16px; font-size: 13px; }
+#storage-overlay h3 { margin: 0 0 6px; font-size: 15px; }
+#storage-overlay p { color: #9fb2cc; margin: 0 0 10px; }
+#storage-overlay .storage-list div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 12px; }
+#storage-overlay .storage-list .k { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
+#storage-overlay button { margin: 10px 6px 0 0; padding: 8px 12px; border-radius: 8px; border: 0; background: #3478f6; color: #fff; font-weight: 700; font-size: 12px; cursor: pointer; }
+#storage-overlay button.secondary { background: transparent; border: 1px solid #3a4a63; color: #cfe0ff; }
+#storage-overlay button.danger { background: #b3453f; }
 #track-slots button { padding: 6px 8px; border: 1px solid rgba(255,255,255,0.18); border-radius: 7px; background: rgba(8,10,14,0.75); color: #dbe8ff; font: 700 10px sans-serif; cursor: pointer; }
 #track-slots button:hover, #track-slots button.active { background: rgba(80,160,255,0.3); border-color: rgba(120,180,255,0.65); color: #fff; }
 #btn-custom-pool { display: inline-flex; align-items: center; gap: 6px; }
@@ -757,6 +769,7 @@
 			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;">Every <input id="autosave-interval" type="number" min="5" max="600" step="1" value="30" style="width:62px;background:rgba(8,10,14,0.9);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 4px;"> s</label>
 			<button id="btn-share" class="action">Share</button>
 			<button id="btn-clear" class="danger">Clear</button>
+			<button id="btn-storage-chip" type="button" title="Browser storage used by this site — click for details and cleanup">💾 <span id="storage-chip-text">…</span></button>
 		</div>
 	</div>
 
@@ -772,6 +785,17 @@
 	</div>
 	<div id="selection-box"></div>
 	<div id="clipboard-hint"></div>
+	<div id="storage-overlay" hidden>
+		<div class="storage-card">
+			<h3>Browser storage</h3>
+			<p id="storage-summary"></p>
+			<div class="storage-list" id="storage-list"></div>
+			<button id="storage-refresh" type="button">Refresh</button>
+			<button id="storage-clear-editor" type="button" class="secondary">Clear editor data</button>
+			<button id="storage-clear-ghosts" type="button" class="secondary">Clear test ghosts</button>
+			<button id="storage-close" type="button" class="danger">Close</button>
+		</div>
+	</div>
 	<div id="quick-tools"></div>
 
 	<div id="toast"></div>
@@ -3313,24 +3337,56 @@ function computeCausticShade( normal ) {
 
 		const encoded = encodeCells( arr );
 		const modsEncoded = encodeMods();
-		safeSetItem( 'racing-editor-cells', encoded );
-		safeSetItem( 'racing-editor-mods', modsEncoded );
-		const slotStored = safeSetItem( `${ TRACK_SLOT_KEY_PREFIX }${ activeTrackSlot }`, JSON.stringify( { cells: encoded, mods: modsEncoded, updatedAt: Date.now() } ) );
-		if ( slotStored ) {
+		const cellsStored = safeSetItem( 'racing-editor-cells', encoded );
+		const modsStored = safeSetItem( 'racing-editor-mods', modsEncoded );
+		const slotStored = cellsStored && modsStored && safeSetItem( `${ TRACK_SLOT_KEY_PREFIX }${ activeTrackSlot }`, JSON.stringify( { cells: encoded, mods: modsEncoded, updatedAt: Date.now() } ) );
+		if ( cellsStored && modsStored ) {
 
-			trackSlotBackupFailed = false;
+			if ( slotStored ) {
+
+				trackSlotBackupFailed = false;
+
+			} else if ( ! trackSlotBackupFailed ) {
+
+				// The main keys above saved fine — only the slot copy was skipped
+				// because the browser is close to its storage quota.
+				trackSlotBackupFailed = true;
+				showToast( 'Saved — slot backup skipped (browser storage almost full)' );
+
+			}
 
 		} else if ( ! trackSlotBackupFailed ) {
 
-			// The main keys above still saved fine — only the slot copy was skipped.
+			// The save itself failed: the browser refused the write. This is a
+			// device storage quota problem (common on full Chromebooks), not a
+			// problem with the track's size.
 			trackSlotBackupFailed = true;
-			showToast( 'Track too large for slot backup — regular saves still work' );
+			console.warn( 'Storage sizes on this origin:', Object.keys( localStorage )
+				.map( ( key ) => `${ key }=${ ( localStorage.getItem( key ) || '' ).length }` )
+				.join( ' ' ) );
+			const toastStorageError = ( usage, quota ) => showToast(
+				quota ? `Couldn't save — browser storage is full (${ ( usage / 1048576 ).toFixed( 1 ) } of ${ ( quota / 1048576 ).toFixed( 1 ) } MB). Free up device space, then reload.`
+					: "Couldn't save — browser storage is full. Free up device space or clear site data."
+			);
+			if ( navigator.storage?.estimate ) {
+
+				navigator.storage.estimate().then(
+					( est ) => toastStorageError( est.usage || 0, est.quota || 0 ),
+					() => toastStorageError( 0, 0 )
+				);
+
+			} else {
+
+				toastStorageError( 0, 0 );
+
+			}
 
 		}
 		localStorage.removeItem( QUICK_TEST_GHOST_KEY );
 		localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
 		clearQuickTestGhost();
 		updateTrackSlotButtons();
+		updateStorageChip();
 
 	}
 
@@ -3939,6 +3995,100 @@ function computeCausticShade( normal ) {
 
 	}
 
+
+	// ─── Storage usage panel ────────────────────────────────────
+
+	function formatMB( bytes ) {
+
+		return bytes >= 1048576 ? `${ ( bytes / 1048576 ).toFixed( 1 ) } MB` : `${ Math.max( 1, Math.round( bytes / 1024 ) ) } KB`;
+
+	}
+
+	function getStorageEntries() {
+
+		const entries = [];
+		try {
+
+			for ( let i = 0; i < localStorage.length; i ++ ) {
+
+				const key = localStorage.key( i );
+				entries.push( { key, size: ( localStorage.getItem( key ) || '' ).length * 2 } ); // UTF-16 = 2 bytes/char
+
+			}
+
+		} catch ( e ) {}
+		return entries.sort( ( a, b ) => b.size - a.size );
+
+	}
+
+	function updateStorageChip() {
+
+		const total = getStorageEntries().reduce( ( sum, e ) => sum + e.size, 0 );
+		const el = document.getElementById( 'storage-chip-text' );
+		if ( el ) el.textContent = formatMB( total );
+
+	}
+
+	function renderStorageOverlay() {
+
+		const entries = getStorageEntries();
+		const total = entries.reduce( ( sum, e ) => sum + e.size, 0 );
+		const summary = document.getElementById( 'storage-summary' );
+		if ( summary ) summary.textContent = `${ formatMB( total ) } of browser storage used by ${ entries.length } saved items (browsers allow roughly 5-10 MB per site). Editor keys can be cleared without losing game data.`;
+		const list = document.getElementById( 'storage-list' );
+		if ( list ) {
+
+			list.textContent = '';
+			for ( const entry of entries.slice( 0, 15 ) ) {
+
+				const row = document.createElement( 'div' );
+				const k = document.createElement( 'span' );
+				k.className = 'k';
+				k.textContent = entry.key;
+				k.title = entry.key;
+				const v = document.createElement( 'span' );
+				v.textContent = formatMB( entry.size );
+				row.append( k, v );
+				list.appendChild( row );
+
+			}
+
+		}
+		updateStorageChip();
+
+	}
+
+	( function initStoragePanel() {
+
+		const chip = document.getElementById( 'btn-storage-chip' );
+		const overlay = document.getElementById( 'storage-overlay' );
+		if ( ! chip || ! overlay ) return;
+		chip.addEventListener( 'click', () => { renderStorageOverlay(); overlay.hidden = false; } );
+		document.getElementById( 'storage-refresh' )?.addEventListener( 'click', renderStorageOverlay );
+		document.getElementById( 'storage-close' )?.addEventListener( 'click', () => { overlay.hidden = true; } );
+		overlay.addEventListener( 'click', ( e ) => { if ( e.target === overlay ) overlay.hidden = true; } );
+		document.getElementById( 'storage-clear-ghosts' )?.addEventListener( 'click', () => {
+
+			localStorage.removeItem( QUICK_TEST_GHOST_KEY );
+			localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
+			renderStorageOverlay();
+			showToast( 'Test ghosts cleared' );
+
+		} );
+		document.getElementById( 'storage-clear-editor' )?.addEventListener( 'click', () => {
+
+			Object.keys( localStorage ).forEach( ( key ) => {
+
+				if ( key.startsWith( 'racing-editor-' ) ) localStorage.removeItem( key );
+
+			} );
+			renderStorageOverlay();
+			showToast( 'Editor data cleared — reload to start fresh' );
+
+		} );
+		updateStorageChip();
+
+	} )();
 
 	// ─── Toast ────────────────────────────────────────────────
 
