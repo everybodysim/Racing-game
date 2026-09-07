@@ -696,7 +696,6 @@
 			<button id="btn-moving-spin">Spinning Wall +</button>
 			<button id="btn-moving-orbit">Orbit Poles +</button>
 			<button id="btn-moving-custom">Custom Mover +</button>
-			<label id="moving-speed-wrap" style="display:none;color:#dbe8ff;font-size:11px;">Move Speed <input id="moving-speed" type="range" min="0.25" max="3" step="0.05" value="1"><span id="moving-speed-value">1.00x</span></label>
 		</div>
 		<div class="toolbar-group" aria-label="Surfaces and pads" data-cat="surfaces">
 			<span class="toolbar-group-label">Surfaces</span>
@@ -757,6 +756,7 @@
 			<span class="toolbar-group-label">Edit</span>
 			<button id="btn-paint" class="active">Paint</button>
 			<button id="btn-erase">Erase</button>
+			<button id="btn-select" title="Select mode: drag to select, drag inside selection to move (3)">Select</button>
 			<button id="btn-undo" title="Undo (Ctrl/Cmd+Z)" disabled>Undo</button>
 			<button id="btn-redo" title="Redo (Ctrl+Y or Cmd+Shift+Z)" disabled>Redo</button>
 			<button id="btn-flow">Flow: Off</button>
@@ -767,8 +767,6 @@
 			<button id="btn-play" class="action">Play</button>
 			<button id="btn-quick-test" class="action">Quick Test</button>
 		<!--	<button id="btn-select-spawn">Pick Test Spawn</button> -->
-			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;"><input id="autosave-enable" type="checkbox" checked> Auto-save</label>
-			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;">Every <input id="autosave-interval" type="number" min="5" max="600" step="1" value="30" style="width:62px;background:rgba(8,10,14,0.9);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 4px;"> s</label>
 			<button id="btn-share" class="action">Share</button>
 			<button id="btn-clear" class="danger">Clear</button>
 			<button id="btn-storage-chip" type="button" title="Browser storage used by this site — click for details and cleanup">💾 <span id="storage-chip-text">…</span></button>
@@ -3540,8 +3538,7 @@ function computeCausticShade( normal ) {
 		if ( ! autosaveEnabled ) return;
 		autosaveTimer = setInterval( () => {
 
-			save();
-			showToast( 'Auto-saved editor state' );
+			save(); // silent auto-save — UI controls were removed on purpose
 
 		}, Math.max( 5, autosaveEverySeconds ) * 1000 );
 
@@ -5435,6 +5432,7 @@ function refreshMovingSpeedUi() {
 		const dt = Math.min( 0.033, Math.max( 0, driveClock.getDelta() ) );
 		stepEditorDrive( dt );
 		if ( groundTilesDirty ) { rebuildGroundTiles(); groundTilesDirty = false; }
+		if ( window.__skidEditorFrameHook ) window.__skidEditorFrameHook();
 		renderer.render( scene, editorActiveCamera() );
 
 	}
@@ -5523,8 +5521,10 @@ function refreshMovingSpeedUi() {
 })();
 
 // ═════════════════════════════════════════════════════════════════
-// FEATURE 2 & 3: Multi-select, copy/paste/duplicate with rotation
+
+// FEATURE 2 & 3: Select / move / copy / paste / delete with ghost previews
 // ═════════════════════════════════════════════════════════════════
+const CLIPBOARD_STORAGE_KEY = 'racing-editor-clipboard-v1';
 let selectMode = false;
 let isSelecting = false;
 let selectionStart = null;
@@ -5533,254 +5533,624 @@ let selectedCells = [];
 let clipboard = null;
 let pastePreviewOrient = 0;
 let isPasteMode = false;
+let moveDrag = null;
+let lastGhostKey = '';
 
 const selectionBox = document.getElementById('selection-box');
 const clipboardHint = document.getElementById('clipboard-hint');
 
+// ── 3D overlays: translucent ghost preview + selection highlight ──
+const selectGhostGroup = new THREE.Group();
+selectGhostGroup.visible = false;
+scene.add( selectGhostGroup );
+const selHighlightGroup = new THREE.Group();
+selHighlightGroup.visible = false;
+scene.add( selHighlightGroup );
+
+const ghostGeo = new THREE.BoxGeometry( cellWorld * 0.96, 0.16, cellWorld * 0.96 );
+const selTileGeo = new THREE.BoxGeometry( cellWorld * 0.98, 0.08, cellWorld * 0.98 );
+const selTileMat = new THREE.MeshBasicMaterial( { color: 0x78c8ff, transparent: true, opacity: 0.22, depthWrite: false } );
+const ghostMats = {};
+function ghostMat( color ) {
+
+    if ( ! ghostMats[ color ] ) ghostMats[ color ] = new THREE.MeshBasicMaterial( { color, transparent: true, opacity: 0.55, depthWrite: false } );
+    return ghostMats[ color ];
+
+}
+
+function previewColorForCell( item ) {
+
+    let color = null;
+    if ( item.elevatedType ) color = '#9fc4e8';
+    if ( item.roadPieces && item.roadPieces.length ) {
+
+        const type = item.roadPieces[ 0 ].type;
+        if ( type === 'track-start-finish' || type === 'track-finish' || type === 'track-start' ) color = '#77f3b1';
+        else if ( type === 'track-checkpoint' ) color = '#5ac8ff';
+        else if ( type === 'track-corner' ) color = '#8899aa';
+        else if ( type === 'track-3-way' || type === 'track-4-way' ) color = '#99aabb';
+        else color = '#a8b8c8';
+
+	}
+    if ( item.water ) color = '#1f8fd6';
+    if ( item.surfaceTypes && item.surfaceTypes.length ) {
+
+        const st = item.surfaceTypes[ 0 ];
+        if ( st === 'surface-ice' ) color = color || '#7ad8ff';
+        else if ( st === 'surface-boost' ) color = '#ff4b4b';
+        else if ( st === 'surface-sand' ) color = '#d7b46a';
+        else if ( st === 'surface-bounce' ) color = '#baff7a';
+        else if ( st === 'surface-kick-l' ) color = '#c683ff';
+        else if ( st === 'surface-kick-r' ) color = '#ff83d0';
+
+	}
+    if ( item.bump ) color = '#ffaa44';
+    if ( item.jump ) color = '#ffdd44';
+    if ( item.pole ) color = '#ff6644';
+    if ( item.cube ) color = '#aa66ff';
+    if ( item.wall ) color = '#666677';
+    if ( item.movingObstacle ) color = '#ff66aa';
+    if ( item.decoType && ! color ) color = '#2d6e2d';
+    return color;
+
+}
+
+function clearGroup( group ) {
+
+    while ( group.children.length ) group.remove( group.children[ 0 ] );
+
+}
+
+function hideGhostPreview() {
+
+    selectGhostGroup.visible = false;
+    lastGhostKey = '';
+
+}
+
+function rebuildGhostPreview( data, originGx, originGz, orient, tag ) {
+
+    if ( ! data || ! data.cells || ! data.cells.length ) { hideGhostPreview(); return; }
+    const key = tag + ':' + originGx + ',' + originGz + ',' + orient + ':' + data.cells.length + ':' + ( data.magnets || [] ).length + ':' + ( data.arcs || [] ).length;
+    if ( key === lastGhostKey ) return;
+    lastGhostKey = key;
+    clearGroup( selectGhostGroup );
+    for ( const item of data.cells ) {
+
+        const color = previewColorForCell( item );
+        if ( ! color ) continue;
+        const rot = rotateOffset( item.dx, item.dz, orient );
+        const gx = originGx + rot.dx;
+        const gz = originGz + rot.dz;
+        const mesh = new THREE.Mesh( ghostGeo, ghostMat( color ) );
+        mesh.position.set( ( gx + 0.5 ) * cellWorld, item.elevatedType ? 1.55 : 0.62, ( gz + 0.5 ) * cellWorld );
+        selectGhostGroup.add( mesh );
+
+	}
+    for ( const m of ( data.magnets || [] ) ) {
+
+        const rot = rotateOffset( m.dx, m.dz, orient );
+        const gx = originGx + rot.dx;
+        const gz = originGz + rot.dz;
+        const mesh = new THREE.Mesh( ghostGeo, ghostMat( m.type === 'magnet-red' ? '#ff4444' : ( m.type === 'magnet-grapple' ? '#44ff88' : '#4488ff' ) ) );
+        mesh.scale.set( 0.45, 1.4, 0.45 );
+        mesh.position.set( ( gx + 0.5 ) * cellWorld, 0.85, ( gz + 0.5 ) * cellWorld );
+        selectGhostGroup.add( mesh );
+
+	}
+    for ( const a of ( data.arcs || [] ) ) {
+
+        const rot = rotateOffset( a.dx, a.dz, orient );
+        const gx = originGx + rot.dx;
+        const gz = originGz + rot.dz;
+        const mesh = new THREE.Mesh( ghostGeo, ghostMat( a.type === 'arc-orange' ? '#ff8800' : ( a.type === 'portal-purple' ? '#aa44ff' : ( a.type === 'portal-yellow' ? '#ffee44' : '#44ff88' ) ) ) );
+        mesh.scale.set( 0.45, 1.4, 0.45 );
+        mesh.position.set( ( gx + 0.5 ) * cellWorld, 0.85, ( gz + 0.5 ) * cellWorld );
+        selectGhostGroup.add( mesh );
+
+	}
+    selectGhostGroup.visible = selectGhostGroup.children.length > 0;
+
+}
+
+function rebuildSelectionHighlight() {
+
+    clearGroup( selHighlightGroup );
+    for ( const c of selectedCells ) {
+
+        const mesh = new THREE.Mesh( selTileGeo, selTileMat );
+        mesh.position.set( ( c.gx + 0.5 ) * cellWorld, 0.58, ( c.gz + 0.5 ) * cellWorld );
+        selHighlightGroup.add( mesh );
+
+	}
+    selHighlightGroup.visible = selectedCells.length > 0;
+
+}
+
 function toggleSelectMode() {
-    selectMode = !selectMode;
+
+    selectMode = ! selectMode;
     const btnSelect = document.getElementById('btn-select');
     if (btnSelect) btnSelect.classList.toggle('active', selectMode);
     if (selectMode) {
-        selectTool('paint');
-        showToast('Select mode: drag to select, Del to erase, Ctrl+C/V/D to copy/paste/duplicate');
-    } else {
+
+        showClipboardHint('Select mode — drag a box to select. Drag inside the selection to move it. Ctrl+C copy, Ctrl+X cut, Ctrl+V paste, Del delete, Esc exit.');
+
+	} else {
+
+        isSelecting = false;
+        moveDrag = null;
         selectedCells = [];
+        selectionStart = null;
+        selectionEnd = null;
         selectionBox.style.display = 'none';
-        clipboardHint.classList.remove('show');
-    }
+        rebuildSelectionHighlight();
+        if ( ! isPasteMode ) hideClipboardHint();
+
+	}
+
 }
 
-function gridToScreen(gx, gz) {
-    const worldX = (gx + 0.5) * cellWorld;
-    const worldZ = (gz + 0.5) * cellWorld;
-    const vec = new THREE.Vector3(worldX, 0.51, worldZ);
-    vec.project(camera);
+function gridToScreen( gx, gz ) {
+
+    const worldX = ( gx + 0.5 ) * cellWorld;
+    const worldZ = ( gz + 0.5 ) * cellWorld;
+    const vec = new THREE.Vector3( worldX, 0.51, worldZ );
+    vec.project( editorActiveCamera() );
     return {
-        x: (vec.x + 1) / 2 * window.innerWidth,
-        y: (-vec.y + 1) / 2 * window.innerHeight
+        x: ( vec.x + 1 ) / 2 * window.innerWidth,
+        y: ( - vec.y + 1 ) / 2 * window.innerHeight
     };
+
 }
 
 function updateSelectionBox() {
-    if (!selectionStart || !selectionEnd) {
+
+    if ( ! selectionStart || ! selectionEnd ) {
         selectionBox.style.display = 'none';
         return;
     }
-    const minGx = Math.min(selectionStart.gx, selectionEnd.gx);
-    const maxGx = Math.max(selectionStart.gx, selectionEnd.gx);
-    const minGz = Math.min(selectionStart.gz, selectionEnd.gz);
-    const maxGz = Math.max(selectionStart.gz, selectionEnd.gz);
-    const s1 = gridToScreen(minGx, minGz);
-    const s2 = gridToScreen(maxGx + 1, maxGz + 1);
-    const left = Math.min(s1.x, s2.x);
-    const top = Math.min(s1.y, s2.y);
-    const w = Math.abs(s2.x - s1.x);
-    const h = Math.abs(s2.y - s1.y);
+    const b = selectionBounds();
+    if ( ! b ) { selectionBox.style.display = 'none'; return; }
+    const s1 = gridToScreen( b.minGx, b.minGz );
+    const s2 = gridToScreen( b.maxGx + 1, b.maxGz + 1 );
+    const left = Math.min( s1.x, s2.x );
+    const top = Math.min( s1.y, s2.y );
+    const w = Math.abs( s2.x - s1.x );
+    const h = Math.abs( s2.y - s1.y );
     selectionBox.style.display = 'block';
     selectionBox.style.left = left + 'px';
     selectionBox.style.top = top + 'px';
     selectionBox.style.width = w + 'px';
     selectionBox.style.height = h + 'px';
+
+}
+
+function selectionBounds() {
+
+    if ( ! selectionStart || ! selectionEnd ) return null;
+    return {
+        minGx: Math.min( selectionStart.gx, selectionEnd.gx ),
+        maxGx: Math.max( selectionStart.gx, selectionEnd.gx ),
+        minGz: Math.min( selectionStart.gz, selectionEnd.gz ),
+        maxGz: Math.max( selectionStart.gz, selectionEnd.gz )
+    };
+
 }
 
 function collectSelectedCells() {
-    if (!selectionStart || !selectionEnd) return [];
-    const minGx = Math.min(selectionStart.gx, selectionEnd.gx);
-    const maxGx = Math.max(selectionStart.gx, selectionEnd.gx);
-    const minGz = Math.min(selectionStart.gz, selectionEnd.gz);
-    const maxGz = Math.max(selectionStart.gz, selectionEnd.gz);
+
+    const b = selectionBounds();
+    if ( ! b ) return [];
     const cells = [];
-    for (let gx = minGx; gx <= maxGx; gx++) {
-        for (let gz = minGz; gz <= maxGz; gz++) {
-            if (grid.has(cellKey(gx, gz))) cells.push({ gx, gz });
+    for ( let gx = b.minGx; gx <= b.maxGx; gx ++ ) {
+        for ( let gz = b.minGz; gz <= b.maxGz; gz ++ ) {
+            if ( grid.has( cellKey( gx, gz ) ) ) cells.push( { gx, gz } );
         }
     }
     return cells;
+
 }
 
-function showClipboardHint(text) {
+function showClipboardHint( text ) {
+
     clipboardHint.textContent = text;
-    clipboardHint.classList.add('show');
+    clipboardHint.classList.add( 'show' );
+
 }
 
 function hideClipboardHint() {
-    clipboardHint.classList.remove('show');
+
+    clipboardHint.classList.remove( 'show' );
+
 }
 
-function copySelection() {
-    const cells = selectedCells.length > 0 ? selectedCells : collectSelectedCells();
-    if (cells.length === 0) {
-        showToast('Nothing selected to copy');
-        return;
-    }
-    const minGx = Math.min.apply(null, cells.map(c => c.gx));
-    const minGz = Math.min.apply(null, cells.map(c => c.gz));
-    const maxGx = Math.max.apply(null, cells.map(c => c.gx));
-    const maxGz = Math.max.apply(null, cells.map(c => c.gz));
+// Snapshot the full content of a cell region (roads, obstacles, water,
+// surfaces, decor, magnets, arcs) as offsets from the region origin.
+function captureRegion( cells ) {
+
+    if ( ! cells.length ) return null;
+    const minGx = Math.min.apply( null, cells.map( c => c.gx ) );
+    const minGz = Math.min.apply( null, cells.map( c => c.gz ) );
+    const maxGx = Math.max.apply( null, cells.map( c => c.gx ) );
+    const maxGz = Math.max.apply( null, cells.map( c => c.gz ) );
     const cellData = [];
-    for (const c of cells) {
-        const key = cellKey(c.gx, c.gz);
-        const cell = grid.get(key);
-        if (!cell) continue;
-        cellData.push({
+    for ( const c of cells ) {
+
+        const cell = grid.get( cellKey( c.gx, c.gz ) );
+        if ( ! cell ) continue;
+        cellData.push( {
             dx: c.gx - minGx, dz: c.gz - minGz,
-            roadPieces: JSON.parse(JSON.stringify(cell.roadPieces || [])),
+            roadPieces: JSON.parse( JSON.stringify( cell.roadPieces || [] ) ),
             bump: cell.bump || false, pole: cell.pole || false, cube: cell.cube || false,
             wall: cell.wall || false, wallOrient: cell.wallOrient || 0,
             jump: cell.jump || false, jumpOrient: cell.jumpOrient || 0,
             water: cell.water || false,
             elevatedType: cell.elevatedType || null, elevatedOrient: cell.elevatedOrient || 0,
-            surfaceTypes: [].concat(cell.surfaceTypes || []),
+            surfaceTypes: [].concat( cell.surfaceTypes || [] ),
             decoType: cell.decoType || null, decoOrient: cell.decoOrient || 0,
             movingObstacle: cell.movingObstacle || null, movingSpeed: cell.movingSpeed || 1,
             movingCustom: cell.movingCustom || null,
-        });
-    }
-    const magnets = magnetBlocks.filter(m =>
+        } );
+
+	}
+    const magnets = magnetBlocks.filter( m =>
         m.gx >= minGx && m.gx <= maxGx && m.gz >= minGz && m.gz <= maxGz
-    ).map(m => ({ dx: m.gx - minGx, dz: m.gz - minGz, y: m.y, type: m.type, strength: m.strength, range: m.range }));
-    const arcs = arcBlocks.filter(a =>
+    ).map( m => ( { dx: m.gx - minGx, dz: m.gz - minGz, y: m.y, type: m.type, strength: m.strength, range: m.range } ) );
+    const arcs = arcBlocks.filter( a =>
         a.gx >= minGx && a.gx <= maxGx && a.gz >= minGz && a.gz <= maxGz
-    ).map(a => ({ dx: a.gx - minGx, dz: a.gz - minGz, y: a.y, type: a.type, linkId: a.linkId }));
-    clipboard = { cells: cellData, magnets, arcs, orient: 0 };
+    ).map( a => ( { dx: a.gx - minGx, dz: a.gz - minGz, y: a.y, type: a.type, linkId: a.linkId } ) );
+    return { cells: cellData, magnets, arcs };
+
+}
+
+// The clipboard survives reloads via localStorage.
+function persistClipboard() {
+
+    if ( ! clipboard || ! clipboard.cells || ! clipboard.cells.length ) return;
+    try {
+
+        localStorage.setItem( CLIPBOARD_STORAGE_KEY, JSON.stringify( { v: 1, cells: clipboard.cells, magnets: clipboard.magnets || [], arcs: clipboard.arcs || [] } ) );
+
+    } catch ( e ) {
+
+        console.warn( 'Could not persist editor clipboard', e );
+
+	}
+
+}
+
+function restoreClipboard() {
+
+    try {
+
+        const raw = localStorage.getItem( CLIPBOARD_STORAGE_KEY );
+        if ( ! raw ) return;
+        const parsed = JSON.parse( raw );
+        if ( parsed && Array.isArray( parsed.cells ) && parsed.cells.length ) {
+
+            clipboard = {
+                cells: parsed.cells,
+                magnets: Array.isArray( parsed.magnets ) ? parsed.magnets : [],
+                arcs: Array.isArray( parsed.arcs ) ? parsed.arcs : []
+            };
+            showToast( 'Clipboard restored — ' + parsed.cells.length + ' cells from last session (Ctrl+V to paste)' );
+
+        }
+
+    } catch ( e ) {
+
+        console.warn( 'Could not restore editor clipboard', e );
+
+	}
+
+}
+
+function copySelection() {
+
+    const cells = selectedCells.length > 0 ? selectedCells : collectSelectedCells();
+    if ( cells.length === 0 ) {
+        showToast( 'Nothing selected to copy' );
+        return;
+    }
+    clipboard = captureRegion( cells );
     pastePreviewOrient = 0;
-    showClipboardHint('Copied ' + cellData.length + ' cells. Ctrl+V to paste, R to rotate.');
-    showToast('Copied ' + cellData.length + ' cells to clipboard');
+    persistClipboard();
+    showClipboardHint( 'Copied ' + clipboard.cells.length + ' cells — Ctrl+V to paste (ghost preview), R to rotate while pasting. Saved across reloads.' );
+    showToast( 'Copied ' + clipboard.cells.length + ' cells to clipboard' );
+
 }
 
-function rotateOffset(dx, dz, orient) {
-    const times = ((orient % 4) + 4) % 4;
+function rotateOffset( dx, dz, orient ) {
+
+    const times = ( ( orient % 4 ) + 4 ) % 4;
     let rx = dx, rz = dz;
-    for (let i = 0; i < times; i++) { const t = rx; rx = -rz; rz = t; }
+    for ( let i = 0; i < times; i ++ ) { const t = rx; rx = - rz; rz = t; }
     return { dx: rx, dz: rz };
+
 }
 
-function rotateOrient(baseOrient, delta) {
-    const idx = ORIENTATIONS.indexOf(baseOrient);
-    if (idx < 0) return baseOrient;
-    const newIdx = ((idx + delta) % ORIENTATIONS.length + ORIENTATIONS.length) % ORIENTATIONS.length;
-    return ORIENTATIONS[newIdx];
+function rotateOrient( baseOrient, delta ) {
+
+    const idx = ORIENTATIONS.indexOf( baseOrient );
+    if ( idx < 0 ) return baseOrient;
+    const newIdx = ( ( idx + delta ) % ORIENTATIONS.length + ORIENTATIONS.length ) % ORIENTATIONS.length;
+    return ORIENTATIONS[ newIdx ];
+
 }
 
-function pasteClipboard(targetGx, targetGz) {
-    if (!clipboard || !clipboard.cells.length) { showToast('Clipboard is empty'); return; }
+function pasteData( data, targetGx, targetGz, orient ) {
+
+    if ( ! data || ! data.cells || ! data.cells.length ) { showToast( 'Clipboard is empty' ); return; }
     pushHistorySnapshot();
-    const orient = pastePreviewOrient;
-    for (const item of clipboard.cells) {
-        const rotated = rotateOffset(item.dx, item.dz, orient);
+    for ( const item of data.cells ) {
+
+        const rotated = rotateOffset( item.dx, item.dz, orient );
         const gx = targetGx + rotated.dx;
         const gz = targetGz + rotated.dz;
-        const key = cellKey(gx, gz);
-        const existing = grid.get(key);
-        if (existing) {
-            for (const m of (existing.roadMeshes||[])) trackGroup.remove(m);
-            if (existing.mesh) trackGroup.remove(existing.mesh);
-            if (existing.bumpMesh) trackGroup.remove(existing.bumpMesh);
-            if (existing.poleMesh) trackGroup.remove(existing.poleMesh);
-            if (existing.cubeMesh) trackGroup.remove(existing.cubeMesh);
-            if (existing.wallMesh) trackGroup.remove(existing.wallMesh);
-            if (existing.jumpMesh) trackGroup.remove(existing.jumpMesh);
-            if (existing.waterMesh) trackGroup.remove(existing.waterMesh);
-            if (existing.elevatedMesh) trackGroup.remove(existing.elevatedMesh);
-            if (existing.elevatedSupportMesh) trackGroup.remove(existing.elevatedSupportMesh);
-            for (const sm of (existing.surfaceMeshes||[])) trackGroup.remove(sm);
-            if (existing.decoMesh) trackGroup.remove(existing.decoMesh);
+        const key = cellKey( gx, gz );
+        const existing = grid.get( key );
+        if ( existing ) {
+
+            for ( const m of ( existing.roadMeshes || [] ) ) trackGroup.remove( m );
+            if ( existing.mesh ) trackGroup.remove( existing.mesh );
+            if ( existing.bumpMesh ) trackGroup.remove( existing.bumpMesh );
+            if ( existing.poleMesh ) trackGroup.remove( existing.poleMesh );
+            if ( existing.cubeMesh ) trackGroup.remove( existing.cubeMesh );
+            if ( existing.wallMesh ) trackGroup.remove( existing.wallMesh );
+            if ( existing.jumpMesh ) trackGroup.remove( existing.jumpMesh );
+            if ( existing.waterMesh ) trackGroup.remove( existing.waterMesh );
+            if ( existing.elevatedMesh ) trackGroup.remove( existing.elevatedMesh );
+            if ( existing.elevatedSupportMesh ) trackGroup.remove( existing.elevatedSupportMesh );
+            for ( const sm of ( existing.surfaceMeshes || [] ) ) trackGroup.remove( sm );
+            if ( existing.decoMesh ) trackGroup.remove( existing.decoMesh );
+
         }
         const cell = makeEmptyCell();
-        if (item.roadPieces && item.roadPieces.length) {
-            cell.roadPieces = item.roadPieces.map(rp => ({
-                type: rp.type, orient: rotateOrient(rp.orient, orient), isFinish: rp.isFinish,
-            }));
-            cell.type = cell.roadPieces[0].type;
-            cell.orient = cell.roadPieces[0].orient;
-            cell.isFinish = cell.roadPieces.some(p => p.isFinish);
+        if ( item.roadPieces && item.roadPieces.length ) {
+
+            cell.roadPieces = item.roadPieces.map( rp => ( {
+                type: rp.type, orient: rotateOrient( rp.orient, orient ), isFinish: rp.isFinish,
+            } ) );
+            cell.type = cell.roadPieces[ 0 ].type;
+            cell.orient = cell.roadPieces[ 0 ].orient;
+            cell.isFinish = cell.roadPieces.some( p => p.isFinish );
+
         }
-        if (item.bump) cell.bump = true;
-        if (item.pole) cell.pole = true;
-        if (item.cube) cell.cube = true;
-        if (item.wall) { cell.wall = true; cell.wallOrient = rotateOrient(item.wallOrient||0, orient); }
-        if (item.jump) { cell.jump = true; cell.jumpOrient = rotateOrient(item.jumpOrient||0, orient); }
-        if (item.water) cell.water = true;
-        if (item.elevatedType) { cell.elevatedType = item.elevatedType; cell.elevatedOrient = rotateOrient(item.elevatedOrient||0, orient); }
-        if (item.surfaceTypes) cell.surfaceTypes = [].concat(item.surfaceTypes);
-        if (item.decoType) { cell.decoType = item.decoType; cell.decoOrient = rotateOrient(item.decoOrient||0, orient); }
-        if (item.movingObstacle) { cell.movingObstacle = item.movingObstacle; cell.movingSpeed = item.movingSpeed; cell.movingCustom = item.movingCustom; }
-        grid.set(key, cell);
-        placeMesh(gx, gz, cell);
-        placeOverlayMesh(gx, gz, cell);
-    }
-    for (const m of (clipboard.magnets||[])) {
-        const rotated = rotateOffset(m.dx, m.dz, orient);
-        magnetBlocks.push({ gx: targetGx+rotated.dx, gz: targetGz+rotated.dz, y: m.y, type: m.type, strength: m.strength, range: m.range, mesh: null });
-        rebuildMagnetMeshes();
-    }
-    for (const a of (clipboard.arcs||[])) {
-        const rotated = rotateOffset(a.dx, a.dz, orient);
-        arcBlocks.push({ gx: targetGx+rotated.dx, gz: targetGz+rotated.dz, y: a.y, type: a.type, linkId: a.linkId, mesh: null });
-        rebuildArcMeshes();
-    }
+        if ( item.bump ) cell.bump = true;
+        if ( item.pole ) cell.pole = true;
+        if ( item.cube ) cell.cube = true;
+        if ( item.wall ) { cell.wall = true; cell.wallOrient = rotateOrient( item.wallOrient || 0, orient ); }
+        if ( item.jump ) { cell.jump = true; cell.jumpOrient = rotateOrient( item.jumpOrient || 0, orient ); }
+        if ( item.water ) cell.water = true;
+        if ( item.elevatedType ) { cell.elevatedType = item.elevatedType; cell.elevatedOrient = rotateOrient( item.elevatedOrient || 0, orient ); }
+        if ( item.surfaceTypes ) cell.surfaceTypes = [].concat( item.surfaceTypes );
+        if ( item.decoType ) { cell.decoType = item.decoType; cell.decoOrient = rotateOrient( item.decoOrient || 0, orient ); }
+        if ( item.movingObstacle ) { cell.movingObstacle = item.movingObstacle; cell.movingSpeed = item.movingSpeed; cell.movingCustom = item.movingCustom; }
+        grid.set( key, cell );
+        placeMesh( gx, gz, cell );
+        placeOverlayMesh( gx, gz, cell );
+
+	}
+    for ( const m of ( data.magnets || [] ) ) {
+
+        const rotated = rotateOffset( m.dx, m.dz, orient );
+        magnetBlocks.push( { gx: targetGx + rotated.dx, gz: targetGz + rotated.dz, y: m.y, type: m.type, strength: m.strength, range: m.range, mesh: null } );
+
+	}
+    if ( data.magnets && data.magnets.length ) rebuildMagnetMeshes();
+    for ( const a of ( data.arcs || [] ) ) {
+
+        const rotated = rotateOffset( a.dx, a.dz, orient );
+        arcBlocks.push( { gx: targetGx + rotated.dx, gz: targetGz + rotated.dz, y: a.y, type: a.type, linkId: a.linkId, mesh: null } );
+
+	}
+    if ( data.arcs && data.arcs.length ) rebuildArcMeshes();
     save();
-    showToast('Pasted ' + clipboard.cells.length + ' cells (rotation: ' + (orient*90) + '\u00B0)');
+    showToast( 'Pasted ' + data.cells.length + ' cells (rotation: ' + ( orient * 90 ) + '\u00B0)' );
+
+}
+
+function pasteClipboard( targetGx, targetGz ) {
+
+    if ( ! clipboard || ! clipboard.cells || ! clipboard.cells.length ) { showToast( 'Clipboard is empty' ); return; }
+    pasteData( clipboard, targetGx, targetGz, pastePreviewOrient );
+
 }
 
 function duplicateSelection() {
-    if (selectedCells.length === 0) { showToast('Select something first'); return; }
+
+    if ( selectedCells.length === 0 ) { showToast( 'Select something first' ); return; }
     copySelection();
-    const minGx = Math.min.apply(null, selectedCells.map(c => c.gx));
-    const minGz = Math.min.apply(null, selectedCells.map(c => c.gz));
-    const maxGx = Math.max.apply(null, selectedCells.map(c => c.gx));
-    const maxGz = Math.max.apply(null, selectedCells.map(c => c.gz));
-    pasteClipboard(minGx + 2, minGz);
-    selectionStart = { gx: minGx + 2, gz: minGz };
-    selectionEnd = { gx: minGx + 2 + (maxGx - minGx), gz: minGz + (maxGz - minGz) };
+    const b = selectionBounds();
+    if ( ! b ) return;
+    pasteClipboard( b.minGx + 2, b.minGz );
+    selectionStart = { gx: b.minGx + 2, gz: b.minGz };
+    selectionEnd = { gx: b.minGx + 2 + ( b.maxGx - b.minGx ), gz: b.minGz + ( b.maxGz - b.minGz ) };
     selectedCells = collectSelectedCells();
     updateSelectionBox();
+    rebuildSelectionHighlight();
+
+}
+
+// Remove magnets/arcs inside a region (used by move + delete so extras
+// don't get orphaned or double-pasted).
+function purgeRegionExtras( b ) {
+
+    if ( ! b ) return;
+    let removedM = false, removedA = false;
+    const keptMagnets = [];
+    for ( const m of magnetBlocks ) {
+
+        if ( m.gx >= b.minGx && m.gx <= b.maxGx && m.gz >= b.minGz && m.gz <= b.maxGz ) {
+
+            if ( m.mesh ) trackGroup.remove( m.mesh );
+            removedM = true;
+
+        } else keptMagnets.push( m );
+
+    }
+    magnetBlocks.length = 0;
+    for ( const m of keptMagnets ) magnetBlocks.push( m );
+    const keptArcs = [];
+    for ( const a of arcBlocks ) {
+
+        if ( a.gx >= b.minGx && a.gx <= b.maxGx && a.gz >= b.minGz && a.gz <= b.maxGz ) {
+
+            if ( a.mesh ) trackGroup.remove( a.mesh );
+            removedA = true;
+
+        } else keptArcs.push( a );
+
+    }
+    arcBlocks.length = 0;
+    for ( const a of keptArcs ) arcBlocks.push( a );
+    if ( removedM ) rebuildMagnetMeshes();
+    if ( removedA ) rebuildArcMeshes();
+
 }
 
 function deleteSelection() {
+
     const cells = selectedCells.length > 0 ? selectedCells : collectSelectedCells();
-    if (cells.length === 0) { showToast('Nothing selected'); return; }
+    if ( cells.length === 0 ) { showToast( 'Nothing selected' ); return; }
     pushHistorySnapshot();
-    for (const c of cells) { eraseRoad(c.gx, c.gz); }
+    purgeRegionExtras( selectionBounds() );
+    for ( const c of cells ) eraseRoad( c.gx, c.gz );
     selectedCells = [];
+    selectionStart = null;
+    selectionEnd = null;
     selectionBox.style.display = 'none';
-    showToast('Deleted ' + cells.length + ' cells');
+    rebuildSelectionHighlight();
+    hideClipboardHint();
+    save();
+    showToast( 'Deleted ' + cells.length + ' cells' );
+
 }
 
-// Select mode pointer handlers (capture phase, run before existing handlers)
-document.addEventListener('pointerdown', (e) => {
-    if (!selectMode) return;
-    if (e.button !== 0) return;
-    const cell = screenToGrid(e.clientX, e.clientY);
-    if (!cell) return;
+// Move: drop the original region and re-stamp it at the drag offset.
+function applyMoveDrag() {
+
+    if ( ! moveDrag ) return;
+    const dGx = moveDrag.curOriginGx - moveDrag.origMinGx;
+    const dGz = moveDrag.curOriginGz - moveDrag.origMinGz;
+    const data = moveDrag.data;
+    const movedCells = selectedCells.map( c => ( { gx: c.gx, gz: c.gz } ) );
+    const b = { minGx: moveDrag.origMinGx, minGz: moveDrag.origMinGz, maxGx: moveDrag.origMaxGx, maxGz: moveDrag.origMaxGz };
+    moveDrag = null;
+    hideGhostPreview();
+    if ( dGx === 0 && dGz === 0 ) return;
+    pushHistorySnapshot();
+    purgeRegionExtras( b );
+    for ( const c of movedCells ) eraseRoad( c.gx, c.gz );
+    pasteData( data, b.minGx + dGx, b.minGz + dGz, 0 );
+    selectionStart = { gx: b.minGx + dGx, gz: b.minGz + dGz };
+    selectionEnd = { gx: b.maxGx + dGx, gz: b.maxGz + dGz };
+    selectedCells = collectSelectedCells();
+    updateSelectionBox();
+    rebuildSelectionHighlight();
+    showClipboardHint( selectedCells.length + ' cells moved — Ctrl+C copy, Ctrl+X cut, Ctrl+V paste, Del delete' );
+
+}
+
+// Select-mode pointer handlers (capture phase, run before existing handlers)
+document.addEventListener( 'pointerdown', ( e ) => {
+    if ( ! selectMode || isPasteMode ) return;
+    if ( e.button !== 0 ) return;
+    const cell = screenToGrid( e.clientX, e.clientY );
+    if ( ! cell ) return;
+    const b = selectionBounds();
+    // Grab inside the current selection → start a move drag (ghost preview).
+    if ( b && selectedCells.length > 0
+        && cell.gx >= b.minGx && cell.gx <= b.maxGx
+        && cell.gz >= b.minGz && cell.gz <= b.maxGz ) {
+
+        moveDrag = {
+            grabDx: cell.gx - b.minGx, grabDz: cell.gz - b.minGz,
+            origMinGx: b.minGx, origMinGz: b.minGz, origMaxGx: b.maxGx, origMaxGz: b.maxGz,
+            data: captureRegion( selectedCells ),
+            curOriginGx: b.minGx, curOriginGz: b.minGz
+        };
+        isSelecting = false;
+        e.stopPropagation();
+        return;
+
+    }
     isSelecting = true;
     selectionStart = cell;
     selectionEnd = cell;
     selectedCells = [];
+    rebuildSelectionHighlight();
     updateSelectionBox();
     e.stopPropagation();
-}, true);
+}, true );
 
-document.addEventListener('pointermove', (e) => {
-    if (!selectMode || !isSelecting) return;
-    const cell = screenToGrid(e.clientX, e.clientY);
-    if (!cell) return;
+document.addEventListener( 'pointermove', ( e ) => {
+    if ( isPasteMode && clipboard ) {
+
+        const cell = screenToGrid( e.clientX, e.clientY );
+        if ( cell ) rebuildGhostPreview( clipboard, cell.gx, cell.gz, pastePreviewOrient, 'paste' );
+        return;
+
+    }
+    if ( ! selectMode ) return;
+    if ( moveDrag ) {
+
+        const cell = screenToGrid( e.clientX, e.clientY );
+        if ( ! cell ) return;
+        moveDrag.curOriginGx = cell.gx - moveDrag.grabDx;
+        moveDrag.curOriginGz = cell.gz - moveDrag.grabDz;
+        rebuildGhostPreview( moveDrag.data, moveDrag.curOriginGx, moveDrag.curOriginGz, 0, 'move' );
+        return;
+
+    }
+    if ( ! isSelecting ) return;
+    const cell = screenToGrid( e.clientX, e.clientY );
+    if ( ! cell ) return;
     selectionEnd = cell;
     updateSelectionBox();
-}, true);
+}, true );
 
-document.addEventListener('pointerup', (e) => {
-    if (!selectMode || !isSelecting) return;
+document.addEventListener( 'pointerup', ( e ) => {
+    if ( ! selectMode ) return;
+    if ( moveDrag ) { applyMoveDrag(); return; }
+    if ( ! isSelecting ) return;
     isSelecting = false;
     selectedCells = collectSelectedCells();
-    if (selectedCells.length > 0) {
-        showClipboardHint(selectedCells.length + ' cells selected \u2014 Ctrl+C copy, Ctrl+V paste, Ctrl+D duplicate, Del delete');
+    rebuildSelectionHighlight();
+    if ( selectedCells.length > 0 ) {
+        showClipboardHint( selectedCells.length + ' cells selected — drag inside to move, Ctrl+C copy, Ctrl+X cut, Ctrl+V paste, Del delete' );
     } else {
         hideClipboardHint();
         selectionBox.style.display = 'none';
     }
-}, true);
+}, true );
+
+// Keep the selection box glued to the grid while the camera moves.
+window.__skidEditorFrameHook = () => { if ( selectMode ) updateSelectionBox(); };
+
+// The Select toolbar button toggles the mode (shortcut: 3).
+document.getElementById( 'btn-select' )?.addEventListener( 'click', () => toggleSelectMode() );
+
+// Test/diagnostic hooks (harmless in production).
+window.__skidEditorSelect = {
+    gridToScreen,
+    gridInfo: () => ( {
+        size: grid.size,
+        cells: [ ...grid.entries() ].map( ( [ k, c ] ) => k + ':' + ( ( c.roadPieces && c.roadPieces[ 0 ] ) ? c.roadPieces[ 0 ].type : '' ) )
+    } ),
+    screenToGrid,
+    selectionCount: () => selectedCells.length,
+    inSelectMode: () => selectMode,
+    inPasteMode: () => isPasteMode,
+    isDragging: () => isSelecting,
+    hasMoveDrag: () => !! moveDrag,
+    bounds: () => selectionBounds(),
+    ghostInfo: () => ( { visible: selectGhostGroup.visible, count: selectGhostGroup.children.length } ),
+    clipboardSize: () => ( clipboard && clipboard.cells ? clipboard.cells.length : 0 )
+};
+
+restoreClipboard();
 
 // ═════════════════════════════════════════════════════════════════
 // FEATURE 4: Minimap
@@ -5904,19 +6274,21 @@ window.addEventListener('keydown', (e) => {
     if (isTypingTarget) return;
 
     if (modifier && key === 'c' && selectMode) { e.preventDefault(); copySelection(); return; }
-    if (modifier && key === 'v' && clipboard) { e.preventDefault(); isPasteMode = true; showToast('Paste mode: click to place. R to rotate. Esc to cancel.'); return; }
+    if (modifier && key === 'x' && selectMode) { e.preventDefault(); if (selectedCells.length) { copySelection(); deleteSelection(); } else showToast('Nothing selected to cut'); return; }
+    if (modifier && key === 'v' && clipboard) { e.preventDefault(); isPasteMode = true; showClipboardHint('Paste mode — ghost preview shows what will land. Click to place, R to rotate, Esc to cancel.'); return; }
     if (modifier && key === 'd' && selectMode) { e.preventDefault(); duplicateSelection(); return; }
     if ((key === 'delete' || key === 'backspace') && selectMode && selectedCells.length > 0) { e.preventDefault(); deleteSelection(); return; }
     if (key === 'escape') {
-        if (isPasteMode) { isPasteMode = false; showToast('Paste cancelled'); }
-        if (selectMode) toggleSelectMode();
+        if (isPasteMode) { isPasteMode = false; hideGhostPreview(); hideClipboardHint(); showToast('Paste cancelled'); }
+        else if (selectMode) toggleSelectMode();
         return;
     }
-    if (key === 'r' && isPasteMode) { e.preventDefault(); pastePreviewOrient = (pastePreviewOrient + 1) % 4; showToast('Paste rotation: ' + (pastePreviewOrient*90) + '\u00B0'); return; }
+    if (key === 'r' && isPasteMode) { e.preventDefault(); pastePreviewOrient = (pastePreviewOrient + 1) % 4; lastGhostKey = ''; showToast('Paste rotation: ' + (pastePreviewOrient * 90) + '\u00B0'); return; }
     if (!modifier && !e.shiftKey) {
         switch (key) {
             case '1': selectTool('paint'); break;
             case '2': selectTool('erase'); break;
+            case '3': toggleSelectMode(); break;
             case '4': if (typeof selectedType !== 'undefined') selectTileType('track-straight'); break;
             case '5': if (typeof selectedType !== 'undefined') selectTileType('track-corner'); break;
             case '6': if (typeof selectedType !== 'undefined' && typeof BUMP_TOOL !== 'undefined') selectTileType(BUMP_TOOL); break;
@@ -5926,7 +6298,13 @@ window.addEventListener('keydown', (e) => {
     }
 }, true);
 
-// Paste mode click handler
+// Paste mode: the ghost follows the cursor, a click stamps the clipboard.
+document.addEventListener('pointermove', (e) => {
+    if (!isPasteMode || !clipboard) return;
+    const cell = screenToGrid(e.clientX, e.clientY);
+    if (cell) rebuildGhostPreview(clipboard, cell.gx, cell.gz, pastePreviewOrient, 'paste');
+}, true);
+
 document.addEventListener('pointerdown', (e) => {
     if (!isPasteMode) return;
     if (e.button !== 0) return;
@@ -5936,9 +6314,6 @@ document.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
     e.preventDefault();
 }, true);
-
-
-
 
 	// ═══════════════════════════════════════════════════════════
 	// DRIVE IN EDITOR: drivable test car (both modes) + Free Cam
