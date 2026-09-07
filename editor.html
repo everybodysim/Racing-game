@@ -258,22 +258,6 @@
 		#editor-cam-cluster button:hover { background: rgba( 45, 55, 72, 0.95 ); }
 		#editor-cam-cluster select { font-size: 12px; font-weight: 600; color: #e8efff; background: rgba( 15, 18, 24, 0.92 ); border: 1px solid rgba( 255, 255, 255, 0.22 ); border-left: 3px solid rgba( 125, 211, 252, 0.55 ); border-radius: 8px; padding: 8px 10px; cursor: pointer; box-shadow: 0 6px 20px rgba( 0, 0, 0, 0.35 ); }
 		#editor-cam-cluster select:hover { background: rgba( 45, 55, 72, 0.95 ); }
-		#offgrid-dev-banner {
-			position: absolute;
-			top: 82px;
-			left: 50%;
-			transform: translateX(-50%);
-			max-width: min(520px, calc(100vw - 24px));
-			padding: 10px 16px;
-			border-radius: 12px;
-			border: 1px solid rgba(255, 210, 120, 0.55);
-			background: rgba(70, 48, 10, 0.92);
-			color: #fff3cf;
-			font: 700 13px/1.35 sans-serif;
-			text-align: center;
-			box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
-			z-index: 22;
-		}
 		#custom-surface-panel {
 			position: absolute;
 			right: 12px;
@@ -486,6 +470,17 @@
 /* ─── Feature 4: Minimap ─── */
 #minimap-wrap { position: absolute; left: 12px; top: 70px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
 #minimap-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
+#topbar { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 14; flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); }
+.topbar-cluster { display: flex; align-items: center; gap: 3px; padding: 5px 8px; border-radius: 10px; background: rgba(20,20,30,0.84); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 4px 20px rgba(0,0,0,0.35); }
+.topbar-label { font: 700 10px sans-serif; color: rgba(180,210,255,0.9); margin-right: 4px; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; }
+#topbar button { padding: 4px 8px; border: none; border-radius: 8px; background: transparent; color: rgba(255,255,255,0.72); font-size: 11px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+#topbar button:hover { background: rgba(255,255,255,0.1); color: #fff; }
+#topbar button.active { background: rgba(80,160,255,0.3); color: #fff; }
+#topbar button.action { background: rgba(80, 180, 80, 0.25); color: rgba(140, 255, 140, 0.9); font-weight: 700; }
+#topbar button.action:hover { background: rgba(80, 180, 80, 0.4); color: #fff; }
+#topbar button.danger { color: rgba(255,255,255,0.75); }
+#topbar button.danger:hover { background: rgba(179,69,63,0.8); color: #fff; }
+#topbar button:disabled { opacity: 0.45; cursor: default; }
 #track-slots { position: absolute; left: 12px; top: 12px; display: flex; gap: 4px; padding: 5px; border-radius: 10px; background: rgba(20,20,30,0.84); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 4px 20px rgba(0,0,0,0.35); z-index: 16; }
 #btn-storage-chip { color: #cfd8ea; background: rgba(8,10,14,0.9); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
 #btn-storage-chip:hover { background: rgba(30,38,52,0.95); }
@@ -499,6 +494,11 @@
 #storage-overlay button { margin: 10px 6px 0 0; padding: 8px 12px; border-radius: 8px; border: 0; background: #3478f6; color: #fff; font-weight: 700; font-size: 12px; cursor: pointer; }
 #storage-overlay button.secondary { background: transparent; border: 1px solid #3a4a63; color: #cfe0ff; }
 #storage-overlay button.danger { background: #b3453f; }
+#storage-overlay #storage-need-space { display: block; width: 100%; margin: 0 0 14px; padding: 12px; font-size: 14px; background: #2e9e5b; }
+#storage-overlay #storage-need-space:hover { background: #37b96b; }
+#storage-overlay #storage-confirm { border: 1px solid #3a4a63; border-radius: 10px; padding: 12px; margin: 0 0 14px; background: #0a0e16; }
+#storage-overlay #storage-confirm h3 { margin: 0 0 8px; }
+#storage-overlay #storage-confirm p { margin: 0 0 4px; }
 #track-slots button { padding: 6px 8px; border: 1px solid rgba(255,255,255,0.18); border-radius: 7px; background: rgba(8,10,14,0.75); color: #dbe8ff; font: 700 10px sans-serif; cursor: pointer; }
 #track-slots button:hover, #track-slots button.active { background: rgba(80,160,255,0.3); border-color: rgba(120,180,255,0.65); color: #fff; }
 #btn-custom-pool { display: inline-flex; align-items: center; gap: 6px; }
@@ -694,7 +694,6 @@
 			<button id="btn-moving-spin">Spinning Wall +</button>
 			<button id="btn-moving-orbit">Orbit Poles +</button>
 			<button id="btn-moving-custom">Custom Mover +</button>
-			<label id="moving-speed-wrap" style="display:none;color:#dbe8ff;font-size:11px;">Move Speed <input id="moving-speed" type="range" min="0.25" max="3" step="0.05" value="1"><span id="moving-speed-value">1.00x</span></label>
 		</div>
 		<div class="toolbar-group" aria-label="Surfaces and pads" data-cat="surfaces">
 			<span class="toolbar-group-label">Surfaces</span>
@@ -747,12 +746,22 @@
 			<button id="btn-building-small-c">Bldg C</button>
 			<button id="btn-building-small-d">Bldg D</button>
 			<button id="btn-custom-import">Import 3D</button>
-			<button id="btn-custom-cycle">Custom: none</button>
 			<input id="custom-model-file" type="file" accept=".glb,.gltf,.obj,model/gltf-binary,model/gltf+json" style="display:none" />
-			<button id="btn-rotate">Rotate: 0°</button>
 		</div>
-		<div class="toolbar-group" aria-label="Edit tools" data-cat="edit">
-			<span class="toolbar-group-label">Edit</span>
+	</div>
+	<div id="topbar">
+		<div class="topbar-cluster" aria-label="Options">
+			<span class="topbar-label">Options</span>
+			<button id="btn-play" class="action">Play</button>
+			<button id="btn-quick-test" class="action">Quick Test</button>
+			<button id="btn-share" class="action">Share</button>
+			<button id="btn-clear" class="danger">Clear</button>
+			<button id="btn-storage-chip" type="button" title="Browser storage used by this site — click for details and cleanup">💾 <span id="storage-chip-text">…</span></button>
+		</div>
+		<div class="topbar-cluster" aria-label="Edit tools">
+			<span class="topbar-label">Tools</span>
+			<button id="btn-rotate">Rotate: 0°</button>
+			<button id="btn-custom-cycle">Custom: none</button>
 			<button id="btn-paint" class="active">Paint</button>
 			<button id="btn-erase">Erase</button>
 			<button id="btn-undo" title="Undo (Ctrl/Cmd+Z)" disabled>Undo</button>
@@ -760,24 +769,9 @@
 			<button id="btn-flow">Flow: Off</button>
 			<button id="btn-offgrid">Snap: Grid</button>
 		</div>
-		<div class="toolbar-group" aria-label="Testing and sharing" data-cat="run">
-			<span class="toolbar-group-label">Run</span>
-			<button id="btn-play" class="action">Play</button>
-			<button id="btn-quick-test" class="action">Quick Test</button>
-		<!--	<button id="btn-select-spawn">Pick Test Spawn</button> -->
-			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;"><input id="autosave-enable" type="checkbox" checked> Auto-save</label>
-			<label style="color:#cfd8ea;font-size:12px;display:flex;align-items:center;gap:4px;">Every <input id="autosave-interval" type="number" min="5" max="600" step="1" value="30" style="width:62px;background:rgba(8,10,14,0.9);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 4px;"> s</label>
-			<button id="btn-share" class="action">Share</button>
-			<button id="btn-clear" class="danger">Clear</button>
-			<button id="btn-storage-chip" type="button" title="Browser storage used by this site — click for details and cleanup">💾 <span id="storage-chip-text">…</span></button>
-		</div>
 	</div>
 
 
-	<div id="minimap-wrap" class="hidden">
-		<canvas id="minimap-canvas" width="140" height="140"></canvas>
-		<span id="minimap-label">Map</span>
-	</div>
 	<div id="track-slots" aria-label="Track save slots">
 		<button type="button" data-track-slot="0">Slot 1</button>
 		<button type="button" data-track-slot="1">Slot 2</button>
@@ -787,6 +781,13 @@
 	<div id="clipboard-hint"></div>
 	<div id="storage-overlay" hidden>
 		<div class="storage-card">
+			<button id="storage-need-space" type="button">💾 I need more space</button>
+			<div id="storage-confirm" hidden>
+				<h3>Free up space?</h3>
+				<p>This deletes your <strong>saved ghost replays</strong> (cached copies stored in your browser — usually the biggest hog). Your ghost will not appear on tracks again until you set a new personal best. <strong>Leaderboards and gameplay are not affected</strong> — those live on the server.</p>
+				<button id="storage-confirm-yes" type="button">Delete ghosts &amp; free the space</button>
+				<button id="storage-confirm-no" type="button" class="secondary">Cancel</button>
+			</div>
 			<h3>Browser storage</h3>
 			<p id="storage-summary"></p>
 			<div class="storage-list" id="storage-list"></div>
@@ -817,7 +818,6 @@
 			<button id="editor-chat-send" type="button">Send</button>
 		</div>
 	</aside>
-	<div id="offgrid-dev-banner" hidden>Off-grid placement is still in development — expect rough edges while it gets fixed.</div>
 	<div id="custom-surface-panel" hidden>
 		<h3 id="custom-surface-title">Custom Surface</h3>
 		<div class="custom-surface-grid">
@@ -4075,6 +4075,39 @@ function computeCausticShade( normal ) {
 			showToast( 'Test ghosts cleared' );
 
 		} );
+		const needSpaceBtn = document.getElementById( 'storage-need-space' );
+		const confirmBox = document.getElementById( 'storage-confirm' );
+		if ( needSpaceBtn && confirmBox ) {
+
+			needSpaceBtn.addEventListener( 'click', () => { confirmBox.hidden = ! confirmBox.hidden; } );
+			document.getElementById( 'storage-confirm-no' )?.addEventListener( 'click', () => { confirmBox.hidden = true; } );
+			document.getElementById( 'storage-confirm-yes' )?.addEventListener( 'click', () => {
+
+				confirmBox.hidden = true;
+				let freed = 0;
+				let removed = 0;
+				try {
+
+					for ( let i = localStorage.length - 1; i >= 0; i -- ) {
+
+						const key = localStorage.key( i );
+						if ( key && ( key.startsWith( 'racing-recent-ghosts' ) || key === QUICK_TEST_GHOST_KEY || key === QUICK_TEST_GHOST_MAP_KEY ) ) {
+
+							freed += ( localStorage.getItem( key ) || '' ).length * 2;
+							localStorage.removeItem( key );
+							removed ++;
+
+						}
+
+					}
+
+				} catch ( e ) {}
+				renderStorageOverlay();
+				showToast( removed ? `Freed ${ formatMB( freed ) } by deleting ${ removed } ghost save${ removed === 1 ? '' : 's' }` : 'No ghost saves found to delete' );
+
+			} );
+
+		}
 		document.getElementById( 'storage-clear-editor' )?.addEventListener( 'click', () => {
 
 			Object.keys( localStorage ).forEach( ( key ) => {
@@ -4195,7 +4228,6 @@ function refreshMovingSpeedUi() {
 	const surfaceSelect = document.getElementById( 'surface-select' );
 	const padSelect = document.getElementById( 'pad-select' );
 	const overlapToggleBtn = document.getElementById( 'btn-overlap-toggle' );
-	const offGridDevBanner = document.getElementById( 'offgrid-dev-banner' );
 	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
 	const customSurfaceTitle = document.getElementById( 'custom-surface-title' );
 	const customSurfaceInputs = {
@@ -4676,7 +4708,6 @@ function refreshMovingSpeedUi() {
 		if ( ! offGridToggleBtn ) return;
 		offGridToggleBtn.textContent = placeOffGrid ? 'Snap: Off' : 'Snap: Grid';
 		offGridToggleBtn.classList.toggle( 'active', placeOffGrid );
-		if ( offGridDevBanner ) offGridDevBanner.hidden = ! placeOffGrid;
 
 	}
 
@@ -4684,7 +4715,7 @@ function refreshMovingSpeedUi() {
 
 		placeOffGrid = ! placeOffGrid;
 		syncPlacementUi();
-		showToast( placeOffGrid ? 'Off-grid placement enabled — in development' : 'Grid snap enabled' );
+		showToast( placeOffGrid ? 'Off-grid placement enabled' : 'Grid snap enabled' );
 
 	} );
 
@@ -5478,7 +5509,7 @@ function refreshMovingSpeedUi() {
         }
     }
     document.addEventListener('click', (e) => {
-        const btn = e.target.closest('#toolbar button[id], #side-ui-bar button[id]');
+        const btn = e.target.closest('#toolbar button[id], #topbar button[id], #side-ui-bar button[id]');
         if (btn && btn.id) {
             toolUsage[btn.id] = (toolUsage[btn.id] || 0) + 1;
             rebuildQuickTools();
@@ -5867,8 +5898,8 @@ function renderMinimap() {
     );
 }
 
-initMinimap();
-setInterval(renderMinimap, 200);
+// Minimap removed per user request (the grey box in the corner).
+// initMinimap() and renderMinimap() remain above if it is ever wanted again.
 
 // ═════════════════════════════════════════════════════════════════
 // KEYBOARD SHORTCUTS — extended
