@@ -7071,7 +7071,7 @@ async function init() {
 		if ( ! skyDecorState.cloudGroup ) return;
 		const target = freecamState.active ? 0 : 1;
 		if ( ! freecamState.active && Math.abs( target - cloudFreecamFade ) < 1e-3 ) return; // settled and restored
-		cloudFreecamFade += ( target - cloudFreecamFade ) * ( 1 - Math.exp( - 6 * dt ) );
+		cloudFreecamFade = target; // instant: never blocks the view, even for a frame
 		skyDecorState.cloudGroup.traverse( ( obj ) => {
 
 			const mat = obj.material;
