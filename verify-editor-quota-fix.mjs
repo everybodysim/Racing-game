@@ -47,7 +47,7 @@ console.log( '1) Quota exceeded on slot writes — editor must boot and slots mu
 	for ( const pe of pageErrors ) console.log( '    [pageerror] ' + ( pe.stack || pe ).slice( 0, 700 ).split( '\\n' ).slice( 0, 10 ).join( ' // ' ) );
 	check( 'no uncaught page errors during boot', pageErrors.length === 0 );
 	check( 'module reported ready', await page.evaluate( () => window.__editorReady === true ) );
-	check( 'render canvas exists', await page.evaluate( () => document.querySelectorAll( 'canvas' ).length >= 1 ) );
+	check( 'render canvas exists', await page.evaluate( () => document.querySelectorAll( 'canvas' ).length >= 2 ) );
 	check( 'no boot overlay shown', await page.evaluate( () => ! document.getElementById( 'editor-boot-overlay' ) ) );
 	await page.click( '#track-slots button[data-track-slot="2"]' ).catch( () => {} );
 	await page.waitForTimeout( 800 );
@@ -67,7 +67,7 @@ console.log( '2) Corrupt saved track — editor must still boot clean' );
 	for ( const pe of pageErrors ) console.log( '    [pageerror] ' + ( pe.stack || pe ).slice( 0, 700 ).split( '\\n' ).slice( 0, 10 ).join( ' // ' ) );
 	check( 'no uncaught page errors during boot', pageErrors.length === 0 );
 	check( 'module reported ready', await page.evaluate( () => window.__editorReady === true ) );
-	check( 'render canvas exists', await page.evaluate( () => document.querySelectorAll( 'canvas' ).length >= 1 ) );
+	check( 'render canvas exists', await page.evaluate( () => document.querySelectorAll( 'canvas' ).length >= 2 ) );
 	await browser.close();
 }
 
@@ -137,7 +137,21 @@ console.log( '3d) UI cleanup: autosave controls, speed slider, off-grid banner, 
 	check( 'no autosave interval input', await page.evaluate( () => ! document.getElementById( 'autosave-interval' ) ) );
 	check( 'no moving speed slider', await page.evaluate( () => ! document.getElementById( 'moving-speed-wrap' ) ) );
 	check( 'no off-grid dev banner', await page.evaluate( () => ! document.getElementById( 'offgrid-dev-banner' ) ) );
-	check( 'no minimap box', await page.evaluate( () => ! document.getElementById( 'minimap-wrap' ) ) );
+	check( 'minimap is back', await page.evaluate( () => Boolean( document.getElementById( 'minimap-wrap' ) ) && ! document.getElementById( 'minimap-wrap' ).classList.contains( 'hidden' ) ) );
+	check( 'camera-look rectangle removed from minimap', await page.evaluate( () => ! String( window.renderMinimap ).includes( 'viewHalfW' ) ) );
+	check( 'Options bar sits ABOVE the bottom toolbar box', await page.evaluate( () => {
+
+		const tb = document.getElementById( 'topbar' ).getBoundingClientRect();
+		const bar = document.getElementById( 'toolbar' ).getBoundingClientRect();
+		return tb.bottom <= bar.top + 1 && tb.height > 0;
+
+	} ) );
+	check( 'Options and Tools clusters are side by side', await page.evaluate( () => {
+
+		const clusters = [ ...document.querySelectorAll( '#topbar .topbar-cluster' ) ].map( ( c ) => c.getBoundingClientRect() );
+		return clusters.length === 2 && Math.abs( clusters[0].top - clusters[1].top ) < 8;
+
+	} ) );
 	check( 'topbar exists with Options label', await page.evaluate( () => Boolean( document.getElementById( 'topbar' ) ) && document.querySelector( '#topbar .topbar-label' )?.textContent === 'Options' ) );
 	check( 'Play/QuickTest/Share/Clear live in topbar', await page.evaluate( () => [ 'btn-play', 'btn-quick-test', 'btn-share', 'btn-clear' ].every( ( id ) => Boolean( document.getElementById( id )?.closest( '#topbar' ) ) ) ) );
 	check( 'Edit tools live in second topbar cluster', await page.evaluate( () => [ 'btn-rotate', 'btn-paint', 'btn-erase', 'btn-undo', 'btn-redo', 'btn-flow', 'btn-offgrid' ].every( ( id ) => Boolean( document.getElementById( id )?.closest( '#topbar' ) ) ) ) );
