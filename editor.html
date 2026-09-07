@@ -822,7 +822,7 @@
 	<div id="offgrid-dev-banner" hidden>Off-grid placement is still in development — expect rough edges while it gets fixed.</div>
 	<div id="custom-surface-panel" hidden>
 		<h3 id="custom-surface-title">Custom Surface</h3>
-		<div class="custom-surface-grid">
+		<div class="custom-surface-grid" id="custom-effect-fields">
 			<label><input type="checkbox" id="cs-force-forward"> Force Forward</label>
 			<label><input type="checkbox" id="cs-force-backward"> Force Backward</label>
 			<label><input type="checkbox" id="cs-force-left"> Force Left</label>
@@ -4443,14 +4443,27 @@ function refreshMovingSpeedUi() {
 
 	}
 
+
+	function updateCustomEffectFieldVisibility( isPad ) {
+		const surfaceOnly = [ 'cs-force-forward','cs-force-backward','cs-force-left','cs-force-right','cs-force-up','cs-force-amount','cs-no-air','cs-once-contact','cs-grip','cs-speed' ];
+		const padOnly = [ 'cs-pad-gravity','cs-pad-drag','cs-pad-accel','cs-pad-drive','cs-pad-top-speed','cs-pad-steering','cs-pad-time-scale','cs-pad-no-brakes','cs-pad-no-steering','cs-pad-no-acceleration' ];
+		for ( const id of [ ...surfaceOnly, ...padOnly ] ) {
+			const el = document.getElementById( id );
+			if ( !el ) continue;
+			const label = el.closest( 'label' );
+			if ( label ) label.hidden = isPad ? !padOnly.includes( id ) : !surfaceOnly.includes( id );
+		}
+	}
+
 	function openCustomSurfaceEditor( surfaceType ) {
 
 		activeCustomSurfaceEditor = surfaceType;
 		const isPad = surfaceType.startsWith( 'pad-' );
+		updateCustomEffectFieldVisibility( isPad );
 		const config = isPad
 			? ( customPadConfigs[ surfaceType ] || CUSTOM_PAD_DEFAULTS[ surfaceType ] )
 			: ( customSurfaceConfigs[ surfaceType ] || CUSTOM_SURFACE_DEFAULTS[ surfaceType ] );
-		customSurfaceTitle.textContent = `Edit ${ surfaceType.replace( 'surface-', '' ).replace( 'pad-', 'pad-' ) }`;
+		customSurfaceTitle.textContent = `${ isPad ? 'Edit Pad' : 'Edit Surface' } · ${ surfaceType.replace( 'surface-', '' ).replace( 'pad-', 'pad-' ) }`;
 		customSurfaceInputs.forward.checked = Boolean( config.force?.forward );
 		customSurfaceInputs.backward.checked = Boolean( config.force?.backward );
 		customSurfaceInputs.left.checked = Boolean( config.force?.left );
