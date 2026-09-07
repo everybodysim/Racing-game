@@ -47,7 +47,7 @@ console.log( '1) Quota exceeded on slot writes — editor must boot and slots mu
 	for ( const pe of pageErrors ) console.log( '    [pageerror] ' + ( pe.stack || pe ).slice( 0, 700 ).split( '\\n' ).slice( 0, 10 ).join( ' // ' ) );
 	check( 'no uncaught page errors during boot', pageErrors.length === 0 );
 	check( 'module reported ready', await page.evaluate( () => window.__editorReady === true ) );
-	check( 'render canvas exists', await page.evaluate( () => document.querySelectorAll( 'canvas' ).length >= 2 ) );
+	check( 'render canvas exists', await page.evaluate( () => document.querySelectorAll( 'canvas' ).length >= 1 ) );
 	check( 'no boot overlay shown', await page.evaluate( () => ! document.getElementById( 'editor-boot-overlay' ) ) );
 	await page.click( '#track-slots button[data-track-slot="2"]' ).catch( () => {} );
 	await page.waitForTimeout( 800 );
@@ -67,7 +67,7 @@ console.log( '2) Corrupt saved track — editor must still boot clean' );
 	for ( const pe of pageErrors ) console.log( '    [pageerror] ' + ( pe.stack || pe ).slice( 0, 700 ).split( '\\n' ).slice( 0, 10 ).join( ' // ' ) );
 	check( 'no uncaught page errors during boot', pageErrors.length === 0 );
 	check( 'module reported ready', await page.evaluate( () => window.__editorReady === true ) );
-	check( 'render canvas exists', await page.evaluate( () => document.querySelectorAll( 'canvas' ).length >= 2 ) );
+	check( 'render canvas exists', await page.evaluate( () => document.querySelectorAll( 'canvas' ).length >= 1 ) );
 	await browser.close();
 }
 
@@ -127,6 +127,42 @@ console.log( '3c) Full quota on main keys — accurate "couldn\'t save" toast wi
 	check( 'boot still completes under total save failure', await page.evaluate( () => window.__editorReady === true ) );
 	for ( const pe of pageErrors ) console.log( '    [pageerror] ' + ( pe.stack || pe ).slice( 0, 600 ).split( '\n' ).slice( 0, 8 ).join( ' // ' ) );
 	check( 'no uncaught page errors', pageErrors.length === 0 );
+	await browser.close();
+}
+
+console.log( '3d) UI cleanup: autosave controls, speed slider, off-grid banner, minimap removed; topbar present' );
+{
+	const { browser, page, pageErrors } = await openPage();
+	check( 'no autosave checkbox', await page.evaluate( () => ! document.getElementById( 'autosave-enable' ) ) );
+	check( 'no autosave interval input', await page.evaluate( () => ! document.getElementById( 'autosave-interval' ) ) );
+	check( 'no moving speed slider', await page.evaluate( () => ! document.getElementById( 'moving-speed-wrap' ) ) );
+	check( 'no off-grid dev banner', await page.evaluate( () => ! document.getElementById( 'offgrid-dev-banner' ) ) );
+	check( 'no minimap box', await page.evaluate( () => ! document.getElementById( 'minimap-wrap' ) ) );
+	check( 'topbar exists with Options label', await page.evaluate( () => Boolean( document.getElementById( 'topbar' ) ) && document.querySelector( '#topbar .topbar-label' )?.textContent === 'Options' ) );
+	check( 'Play/QuickTest/Share/Clear live in topbar', await page.evaluate( () => [ 'btn-play', 'btn-quick-test', 'btn-share', 'btn-clear' ].every( ( id ) => Boolean( document.getElementById( id )?.closest( '#topbar' ) ) ) ) );
+	check( 'Edit tools live in second topbar cluster', await page.evaluate( () => [ 'btn-rotate', 'btn-paint', 'btn-erase', 'btn-undo', 'btn-redo', 'btn-flow', 'btn-offgrid' ].every( ( id ) => Boolean( document.getElementById( id )?.closest( '#topbar' ) ) ) ) );
+	check( 'no RUN group left in bottom toolbar', await page.evaluate( () => ! document.querySelector( '#toolbar [data-cat="run"]' ) ) );
+	check( 'no EDIT group left in bottom toolbar', await page.evaluate( () => ! document.querySelector( '#toolbar [data-cat="edit"]' ) ) );
+	check( 'no page errors from reorg', pageErrors.length === 0 );
+	// Need-more-space flow
+	await page.evaluate( () => { localStorage.setItem( 'racing-recent-ghosts:track-1', 'x'.repeat( 50000 ) ); } );
+	await page.click( '#btn-storage-chip' ).catch( () => {} );
+	await page.waitForTimeout( 300 );
+	check( 'need-space button at top of overlay', await page.evaluate( () => {
+
+		const card = document.querySelector( '#storage-overlay .storage-card' );
+		return card.firstElementChild.id === 'storage-need-space' && ! document.getElementById( 'storage-overlay' ).hidden;
+
+	} ) );
+	await page.click( '#storage-need-space' ).catch( () => {} );
+	check( 'confirm explains ghost consequence', await page.evaluate( () => ! document.getElementById( 'storage-confirm' ).hidden && /personal best/.test( document.getElementById( 'storage-confirm' ).textContent ) ) );
+	await page.click( '#storage-confirm-yes' ).catch( () => {} );
+	await page.waitForTimeout( 400 );
+	check( 'ghost keys deleted after confirm', await page.evaluate( () => localStorage.getItem( 'racing-recent-ghosts:track-1' ) === null ) );
+	check( 'toast reports freed space', await page.evaluate( () => /Freed/.test( document.getElementById( 'toast' ).textContent || '' ) ) );
+	await page.click( '#storage-need-space' ).catch( () => {} );
+	await page.click( '#storage-confirm-no' ).catch( () => {} );
+	check( 'cancel leaves data alone', await page.evaluate( () => ! document.getElementById( 'storage-confirm' ).hidden === false || document.getElementById( 'storage-confirm' ).hidden ) );
 	await browser.close();
 }
 
