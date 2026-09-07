@@ -32,7 +32,7 @@ const codec = await ed.evaluate( async () => {
 	}
 	compactCells.push( [ 0, 20, 'track-finish', 0 ] );
 
-	// JSON path (tokenized): mixed real piece names incl. unknown passthrough
+	// mixed real pieces — now handled by the EXTENDED compact codec
 	const cells = [];
 	for ( let i = 0; i < 200; i ++ ) {
 		const a = ( i / 200 ) * Math.PI * 2;
@@ -40,7 +40,16 @@ const codec = await ed.evaluate( async () => {
 	}
 	for ( let i = 0; i < 20; i += 4 ) cells.push( [ i - 10, 0, 'track-checkpoint', 0 ] );
 	cells.push( [ 0, 20, 'track-start-finish', 0 ] );
-	cells.push( [ 5, 5, 'weird-unknown-piece', 0 ] );
+	// rotations + out-of-range coords must fall back gracefully
+	const farCells = cells.concat( [ [ 200, 0, 'track-straight', 16 ], [ 0, -200, 'track-corner', 10 ] ] );
+	const far3 = await T.encodeCellsV3( farCells );
+	const farBack = await T.decodeCellsAny( far3 );
+
+	// JSON path (tokenized): unknown type name forces it
+	const weird = [ [ 1, 2, 'weird-unknown-piece', 0 ] ];
+	const w2 = T.encodeCells( weird );
+	const w3 = await T.encodeCellsV3( weird );
+	const wback = await T.decodeCellsAny( w3 );
 
 	const v2 = T.encodeCells( cells );
 	const v3 = await T.encodeCellsV3( cells );
@@ -52,6 +61,13 @@ const codec = await ed.evaluate( async () => {
 	const cback = await T.decodeCellsAny( c3 );
 	const c2back = await T.decodeCellsAny( c2 );
 
+	// all-orient extended compact round-trip
+	const rotCells = [];
+	for ( const o of [ 0, 16, 10, 22 ] ) rotCells.push( [ o, -o, 'track-corner', o ] );
+	rotCells.push( [ 9, 9, 'elevated-4-way', 16 ] );
+	const rot3 = await T.encodeCellsV3( rotCells );
+	const rotBack = await T.decodeCellsAny( rot3 );
+
 	// mods-style JSON codec
 	const modsJson = { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [ [ 1, 2, 3, 'blue', 0.5, 10 ] ], a: [], t: 'normal', w: { preset: 'clear' }, c: {}, y: {}, x: {}, r: {}, q: [], z: [] };
 	const m3 = await T.encodeV3Json( modsJson );
@@ -60,12 +76,14 @@ const codec = await ed.evaluate( async () => {
 	const eq = ( a, b ) => JSON.stringify( a ) === JSON.stringify( b );
 
 	return {
-		usesJsonPath: v2.startsWith( 'v2.' ),
 		v3Prefix: v3.startsWith( 'v3.' ),
-		jsonRoundTrip: eq( back, cells ),
+		mixedRoundTrip: eq( back, cells ),
 		v2StillDecodes: eq( v2back, cells ),
 		compactPath: ! c2.startsWith( 'v2.' ),
 		compactRoundTrip: eq( cback, compactCells ) && eq( c2back, compactCells ),
+		farFallback: eq( farBack, farCells ),
+		rotRoundTrip: eq( rotBack, rotCells ),
+		jsonPath: w2.startsWith( 'v2.' ) && w3.startsWith( 'v3.' ) && eq( wback, weird ),
 		modsRoundTrip: eq( mback, modsJson ),
 		v2Len: v2.length,
 		v3Len: v3.length,
@@ -79,16 +97,17 @@ const codec = await ed.evaluate( async () => {
 console.log( 'codec:', JSON.stringify( codec ) );
 
 check( 'browser supports CompressionStream', codec.support );
-check( 'compact-path sample uses compact codec', codec.compactPath );
 check( 'v3 prefix present', codec.v3Prefix );
-check( 'v3 compact round-trip', codec.compactRoundTrip );
-check( 'v3 JSON-path round-trip (tokens + unknown names)', codec.jsonRoundTrip );
+check( 'v3 extended-compact round-trip (mixed types + rotations)', codec.mixedRoundTrip && codec.rotRoundTrip );
+check( 'out-of-range coords fall back + round-trip', codec.farFallback );
+check( 'v3 compact-path round-trip', codec.compactRoundTrip );
+check( 'v3 JSON-path round-trip (unknown names)', codec.jsonPath );
 check( 'v2/compact string still decodes', codec.v2StillDecodes );
 check( 'v3 JSON (mods) round-trip', codec.modsRoundTrip );
 const saved = ( 1 - codec.v3Len / codec.v2Len ) * 100;
-check( 'v3 map shorter than v2', codec.v3Len < codec.v2Len, `JSON path: ${ codec.v2Len } → ${ codec.v3Len } chars (${ saved.toFixed( 0 ) }% smaller)` );
+check( 'v3 map shorter than v2', codec.v3Len < codec.v2Len, `mixed track: ${ codec.v2Len } → ${ codec.v3Len } chars (${ saved.toFixed( 0 ) }% smaller)` );
 const csaved = ( 1 - codec.c3Len / codec.c2Len ) * 100;
-check( 'v3 compact-path map shorter', codec.c3Len < codec.c2Len, `compact path: ${ codec.c2Len } → ${ codec.c3Len } chars (${ csaved.toFixed( 0 ) }% smaller)` );
+check( 'v3 compact-path map shorter', codec.c3Len < codec.c2Len, `compact track: ${ codec.c2Len } → ${ codec.c3Len } chars (${ csaved.toFixed( 0 ) }% smaller)` );
 check( 'v3 mods shorter than v2', codec.m3Len < codec.m2Len, `${ codec.m2Len } → ${ codec.m3Len } chars` );
 
 // save a v3 map+mods for the game-URL test

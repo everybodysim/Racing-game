@@ -1675,6 +1675,13 @@ const V3_NAME_TOKENS = {
 const V3_TOKEN_NAMES = {};
 for ( const [ name, token ] of Object.entries( V3_NAME_TOKENS ) ) V3_TOKEN_NAMES[ token ] = name;
 
+// Extended compact codec (v3 fmt 0): every known piece type fits in
+// 3 bytes/cell — [ gx+128, gz+128, (typeIdx << 2) | orientIdx ].
+// This list is append-only: never reorder or remove entries.
+const V3_EXTENDED_TYPES = Object.keys( V3_NAME_TOKENS );
+const V3_EXTENDED_INDEX = {};
+for ( let i = 0; i < V3_EXTENDED_TYPES.length; i ++ ) V3_EXTENDED_INDEX[ V3_EXTENDED_TYPES[ i ] ] = i;
+
 export function encodeCells( cells ) {
 
 	const supportsCompactCodec = cells.every( ( cell ) => {
@@ -1763,14 +1770,14 @@ function v3CodecSupported() {
 
 async function deflateBytes( bytes ) {
 
-	const stream = new Blob( [ bytes ] ).stream().pipeThrough( new CompressionStream( 'deflate' ) );
+	const stream = new Blob( [ bytes ] ).stream().pipeThrough( new CompressionStream( 'deflate-raw' ) );
 	return new Uint8Array( await new Response( stream ).arrayBuffer() );
 
 }
 
 async function inflateBytes( bytes ) {
 
-	const stream = new Blob( [ bytes ] ).stream().pipeThrough( new DecompressionStream( 'deflate' ) );
+	const stream = new Blob( [ bytes ] ).stream().pipeThrough( new DecompressionStream( 'deflate-raw' ) );
 	return new Uint8Array( await new Response( stream ).arrayBuffer() );
 
 }
@@ -1802,8 +1809,35 @@ export async function encodeCellsV3( cells ) {
 	if ( ! v3CodecSupported() ) return v2;
 	let fmt;
 	let payload;
-	if ( v2.startsWith( 'v2.' ) ) {
+	const orientIdx = ( o ) => ( o === 0 ? 0 : ( o === 16 ? 1 : ( o === 10 ? 2 : ( o === 22 ? 3 : -1 ) ) ) );
+	const fitsExtended = cells.every( ( cell ) => {
 
+		if ( ! Array.isArray( cell ) || cell.length < 4 ) return false;
+		const [ gx, gz, name, orient ] = cell;
+		return Number.isInteger( gx ) && Number.isInteger( gz )
+			&& gx >= -127 && gx <= 127 && gz >= -127 && gz <= 127
+			&& V3_EXTENDED_INDEX[ name ] !== undefined
+			&& orientIdx( orient ) >= 0;
+
+	} );
+	if ( fitsExtended ) {
+
+		// Extended compact: all known types, 3 bytes per cell.
+		fmt = 0;
+		payload = new Uint8Array( cells.length * 3 );
+		for ( let i = 0; i < cells.length; i ++ ) {
+
+			const [ gx, gz, name, orient ] = cells[ i ];
+			const packed = ( V3_EXTENDED_INDEX[ name ] << 2 ) | orientIdx( orient );
+			payload[ i * 3 ] = gx + 128;
+			payload[ i * 3 + 1 ] = gz + 128;
+			payload[ i * 3 + 2 ] = packed;
+
+		}
+
+	} else {
+
+		// JSON fallback for anything the compact tables don't know.
 		fmt = 1;
 		const tokenized = cells.map( ( cell ) => {
 
@@ -1812,11 +1846,6 @@ export async function encodeCellsV3( cells ) {
 
 		} );
 		payload = new TextEncoder().encode( JSON.stringify( { v: 2, cells: tokenized } ) );
-
-	} else {
-
-		fmt = 0;
-		payload = base64urlToBytes( v2 );
 
 	}
 	const framed = new Uint8Array( 1 + payload.length );
@@ -1834,7 +1863,21 @@ export async function decodeCellsAny( str ) {
 
 		const inflated = await inflateBytes( base64urlToBytes( s.slice( 3 ) ) );
 		if ( ! inflated.length ) throw new Error( 'Empty v3 payload' );
-		if ( inflated[ 0 ] === 0 ) return decodeCells( bytesToBase64url( inflated.subarray( 1 ) ) );
+		if ( inflated[ 0 ] === 0 ) {
+
+			const body = inflated.subarray( 1 );
+			const out = [];
+			for ( let i = 0; i + 2 < body.length; i += 3 ) {
+
+				const ti = ( body[ i + 2 ] >> 2 ) & 0x3f;
+				const oi = body[ i + 2 ] & 0x03;
+				if ( ti >= V3_EXTENDED_TYPES.length ) continue;
+				out.push( [ body[ i ] - 128, body[ i + 1 ] - 128, V3_EXTENDED_TYPES[ ti ], ORIENT_TO_GODOT[ oi ] ] );
+
+			}
+			return out;
+
+		}
 		const parsed = JSON.parse( new TextDecoder().decode( inflated.subarray( 1 ) ) );
 		const entries = Array.isArray( parsed?.cells ) ? parsed.cells : [];
 		return entries
