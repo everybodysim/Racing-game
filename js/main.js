@@ -5,7 +5,7 @@ import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, e
 import { Vehicle } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000213';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000213';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails, WaterSplashFX } from './Particles.js';
 import { SkidMarks } from './SkidMarks.js';
@@ -3525,15 +3525,10 @@ function updateMovingObstacles( state, now, vehicleList ) {
 	}
 }
 
-function decodeExtrasParam( str ) {
+function extrasFromParsed( parsed ) {
 
-	if ( ! str ) return null;
-
-	try {
-
-		const json = decodeURIComponent( escape( atob( str.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
-		const parsed = JSON.parse( json );
-			return {
+	if ( ! parsed || typeof parsed !== 'object' ) return null;
+	return {
 				bumps: Array.isArray( parsed.b ) ? parsed.b : [],
 				poles: Array.isArray( parsed.p ) ? parsed.p : [],
 				cubes: Array.isArray( parsed.k ) ? parsed.k : [],
@@ -3556,12 +3551,45 @@ function decodeExtrasParam( str ) {
 			weather: normalizeWeatherDetails( parsed?.w ),
 		};
 
+}
+
+function decodeExtrasParam( str ) {
+
+	if ( ! str ) return null;
+
+	try {
+
+		const json = decodeURIComponent( escape( atob( str.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
+		return extrasFromParsed( JSON.parse( json ) );
+
 	} catch ( e ) {
 
 		console.warn( 'Invalid mods parameter, ignoring extras' );
 		return null;
 
 	}
+
+}
+
+// v3-aware mods decoder: accepts compressed 'v3.' payloads and every older format.
+async function decodeExtrasParamAny( str ) {
+
+	const s = String( str || '' );
+	if ( s.startsWith( 'v3.' ) ) {
+
+		try {
+
+			return extrasFromParsed( await decodeV3Json( s ) );
+
+		} catch ( e ) {
+
+			console.warn( 'Invalid v3 mods parameter, ignoring extras' );
+			return null;
+
+		}
+
+	}
+	return decodeExtrasParam( s );
 
 }
 
@@ -4478,7 +4506,7 @@ async function init() {
 	let customCells = null;
 	let spawn = null;
 
-	const extras = decodeExtrasParam( extrasParam );
+	const extras = await decodeExtrasParamAny( extrasParam );
 	const carKeys = Object.keys( CAR_STATS );
 	const deterministicCarSeed = hashTrackSeed( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
 
@@ -4494,7 +4522,7 @@ async function init() {
 
 		try {
 
-			customCells = decodeCells( mapParam );
+			customCells = await decodeCellsAny( mapParam );
 			spawn = computeSpawnPosition( customCells );
 
 		} catch ( e ) {

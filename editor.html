@@ -885,7 +885,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells } from './js/Track.js';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells } from './js/Track.js';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js';
@@ -3257,12 +3257,16 @@ function computeCausticShade( normal ) {
 
 	}
 
-	function maybeLoadQuickTestGhost() {
+	async function maybeLoadQuickTestGhost() {
 
-		const encoded = encodeCells( getCellsArray() );
-		const mapHash = `${ encoded }|${ encodeMods() }`;
+		const encoded = await encodeCellsV3( getCellsArray() );
+		let mapHash = `${ encoded }|${ await encodeModsV3() }`;
 		const expectedHash = localStorage.getItem( QUICK_TEST_GHOST_MAP_KEY ) || '';
-		if ( expectedHash !== mapHash ) {
+		if ( expectedHash !== mapHash && expectedHash === `${ encodeCells( getCellsArray() ) }|${ encodeMods() }` ) {
+
+			// Legacy v2 hash from before the v3 codec — still a match.
+
+		} else if ( expectedHash !== mapHash ) {
 
 			localStorage.removeItem( QUICK_TEST_GHOST_KEY );
 			localStorage.removeItem( QUICK_TEST_GHOST_MAP_KEY );
@@ -3640,40 +3644,92 @@ function computeCausticShade( normal ) {
 		};
 	}
 
+	function modsDefault() {
+
+		return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], t: 'normal', w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [], z: [] };
+
+	}
+
+	function modsFromParsed( parsed ) {
+
+		if ( ! parsed || typeof parsed !== 'object' ) return modsDefault();
+		return {
+			b: Array.isArray( parsed.b ) ? parsed.b : [],
+			p: Array.isArray( parsed.p ) ? parsed.p : [],
+			k: Array.isArray( parsed.k ) ? parsed.k : [],
+			l: Array.isArray( parsed.l ) ? parsed.l : [],
+			j: Array.isArray( parsed.j ) ? parsed.j : [],
+			o: Array.isArray( parsed.o ) ? parsed.o : [],
+			e: Array.isArray( parsed.e ) ? parsed.e : [],
+			u: Array.isArray( parsed.u ) ? parsed.u : [],
+			d: Array.isArray( parsed.d ) ? parsed.d : [],
+			m: Array.isArray( parsed.m ) ? parsed.m : [],
+			a: Array.isArray( parsed.a ) ? parsed.a : [],
+			t: parsed.t === 'pool-filled' ? 'pool-filled' : 'normal',
+			w: normalizeWeatherSettings( parsed?.w ),
+			c: parsed?.c && typeof parsed.c === 'object' ? parsed.c : JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
+			y: parsed?.y && typeof parsed.y === 'object' ? parsed.y : JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ),
+			x: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
+			r: normalizeCustomPoolConfig( parsed?.r ),
+			q: Array.isArray( parsed.q ) ? parsed.q : [],
+			z: Array.isArray( parsed.z ) ? parsed.z : [],
+		};
+
+	}
+
 	function decodeMods( modsStr ) {
 
-		if ( ! modsStr ) return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], t: 'normal', w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [], z: [] };
+		if ( ! modsStr ) return modsDefault();
 
 		try {
 
 			const payload = decodeURIComponent( escape( atob( modsStr.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
-			const parsed = JSON.parse( payload );
-				return {
-					b: Array.isArray( parsed.b ) ? parsed.b : [],
-					p: Array.isArray( parsed.p ) ? parsed.p : [],
-					k: Array.isArray( parsed.k ) ? parsed.k : [],
-					l: Array.isArray( parsed.l ) ? parsed.l : [],
-					j: Array.isArray( parsed.j ) ? parsed.j : [],
-					o: Array.isArray( parsed.o ) ? parsed.o : [],
-					e: Array.isArray( parsed.e ) ? parsed.e : [],
-					u: Array.isArray( parsed.u ) ? parsed.u : [],
-						d: Array.isArray( parsed.d ) ? parsed.d : [],
-					m: Array.isArray( parsed.m ) ? parsed.m : [],
-					a: Array.isArray( parsed.a ) ? parsed.a : [],
-						t: parsed.t === 'pool-filled' ? 'pool-filled' : 'normal',
-						w: normalizeWeatherSettings( parsed?.w ),
-						c: parsed?.c && typeof parsed.c === 'object' ? parsed.c : JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
-						y: parsed?.y && typeof parsed.y === 'object' ? parsed.y : JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ),
-						x: parsed?.x && typeof parsed.x === 'object' ? parsed.x : {},
-						r: normalizeCustomPoolConfig( parsed?.r ),
-						q: Array.isArray( parsed.q ) ? parsed.q : [],
-						z: Array.isArray( parsed.z ) ? parsed.z : [],
-					};
+			return modsFromParsed( JSON.parse( payload ) );
 
 		} catch ( e ) {
 
 			console.warn( 'Failed to decode mods', e );
-				return { b: [], p: [], k: [], l: [], j: [], o: [], e: [], u: [], d: [], m: [], a: [], t: 'normal', w: normalizeWeatherSettings( null ), c: JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ), y: JSON.parse( JSON.stringify( CUSTOM_PAD_DEFAULTS ) ), x: {}, r: normalizeCustomPoolConfig( null ), q: [], z: [] };
+			return modsDefault();
+
+		}
+
+	}
+
+	// v3-aware mods decoder: accepts compressed 'v3.' payloads and every older format.
+	async function decodeModsAny( modsStr ) {
+
+		const s = String( modsStr || '' );
+		if ( s.startsWith( 'v3.' ) ) {
+
+			try {
+
+				return modsFromParsed( await decodeV3Json( s ) );
+
+			} catch ( e ) {
+
+				console.warn( 'Failed to decode v3 mods', e );
+				return modsDefault();
+
+			}
+
+		}
+		return decodeMods( s );
+
+	}
+
+	// Compressed mods for URLs/storage. Falls back to the v2 form when the
+	// browser can't compress.
+	async function encodeModsV3() {
+
+		const s = encodeMods();
+		try {
+
+			const json = decodeURIComponent( escape( atob( s.replace( /-/g, '+' ).replace( /_/g, '/' ) ) ) );
+			return ( await encodeV3Json( JSON.parse( json ) ) ) || s;
+
+		} catch ( e ) {
+
+			return s;
 
 		}
 
@@ -3752,7 +3808,7 @@ function computeCausticShade( normal ) {
 
 		try {
 
-			const arr = decodeCells( encoded );
+			const arr = await decodeCellsAny( encoded );
 
 				for ( const [ gx, gz, type, orient ] of arr ) {
 
@@ -3768,7 +3824,7 @@ function computeCausticShade( normal ) {
 
 				}
 
-			const mods = decodeMods( modsEncoded );
+			const mods = await decodeModsAny( modsEncoded );
 			await loadCustomAssetsFromMods( mods.x );
 			customSurfaceConfigs = {
 				...JSON.parse( JSON.stringify( CUSTOM_SURFACE_DEFAULTS ) ),
@@ -4871,8 +4927,8 @@ function refreshMovingSpeedUi() {
 
 	async function createPlayableTrackUrl() {
 
-		const encoded = encodeCells( getCellsArray() );
-		const mods = encodeMods();
+		const encoded = await encodeCellsV3( getCellsArray() );
+		const mods = await encodeModsV3();
 		const base = window.location.href.replace( /editor\.html.*/, '' );
 		const rawUrl = `${ base }index.html?map=${ encoded }&mods=${ mods }${ buildTestSpawnQuery() }`;
 		const shouldForcePacked = customAssets.size > 0;
@@ -4931,7 +4987,7 @@ function refreshMovingSpeedUi() {
 			const testUrl = new URL( result.url, window.location.href );
 			testUrl.searchParams.set( 'editorQuickTest', '1' );
 			testUrl.searchParams.set( 'editorReturn', window.location.href.split( '?' )[ 0 ] );
-			testUrl.searchParams.set( 'editorGhostMap', `${ encodeCells( getCellsArray() ) }|${ encodeMods() }` );
+			testUrl.searchParams.set( 'editorGhostMap', `${ await encodeCellsV3( getCellsArray() ) }|${ await encodeModsV3() }` );
 			localStorage.setItem( 'racing-campaign-editor-played', '1' );
 			window.location.href = testUrl.toString();
 			if ( result.mode === 'local-pack' ) showToast( 'Opened with local pack fallback (same browser/device only).' );

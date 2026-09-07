@@ -1646,6 +1646,35 @@ const GODOT_TO_ORIENT = { 0: 0, 16: 1, 10: 2, 22: 3 };
 
 export { TYPE_NAMES };
 
+// v3 JSON payloads substitute well-known cell type names with 1-char tokens
+// (e.g. 'track-checkpoint' -> 'e'). Unknown names pass through untouched, so
+// the transform is lossless for every track that can be encoded today.
+const V3_NAME_TOKENS = {
+
+	'track-straight': 'a',
+	'track-corner': 'b',
+	'track-3-way': 'c',
+	'track-4-way': 'd',
+	'track-checkpoint': 'e',
+	'track-bump': 'f',
+	'track-finish': 'g',
+	'track-start': 'h',
+	'track-start-finish': 'i',
+	'track-cross': 'j',
+	'elevated-straight': 'k',
+	'elevated-corner': 'l',
+	'elevated-cross': 'm',
+	'elevated-checkpoint': 'n',
+	'elevated-3-way': 'o',
+	'elevated-4-way': 'p',
+	'slope-up': 'q',
+	'slope-down': 'r',
+
+};
+
+const V3_TOKEN_NAMES = {};
+for ( const [ name, token ] of Object.entries( V3_NAME_TOKENS ) ) V3_TOKEN_NAMES[ token ] = name;
+
 export function encodeCells( cells ) {
 
 	const supportsCompactCodec = cells.every( ( cell ) => {
@@ -1718,6 +1747,102 @@ export function decodeCells( str ) {
 	}
 
 	return cells;
+
+}
+
+// ─── v3 URL codec: deflate-compressed payloads for much shorter share URLs ───
+// v3 wraps the existing v2 outputs: 0 = compact 3-byte cells, 1 = JSON v2.
+// decodeCellsAny() reads v3, v2 and the compact codec; decodeCells() is
+// unchanged so every existing sync call site keeps working.
+
+function v3CodecSupported() {
+
+	return typeof CompressionStream === 'function' && typeof DecompressionStream === 'function';
+
+}
+
+async function deflateBytes( bytes ) {
+
+	const stream = new Blob( [ bytes ] ).stream().pipeThrough( new CompressionStream( 'deflate' ) );
+	return new Uint8Array( await new Response( stream ).arrayBuffer() );
+
+}
+
+async function inflateBytes( bytes ) {
+
+	const stream = new Blob( [ bytes ] ).stream().pipeThrough( new DecompressionStream( 'deflate' ) );
+	return new Uint8Array( await new Response( stream ).arrayBuffer() );
+
+}
+
+// Compress an arbitrary JSON-serializable value into a 'v3.' string.
+// Returns null when the browser can't compress (caller keeps the v2 form).
+export async function encodeV3Json( value ) {
+
+	if ( ! v3CodecSupported() ) return null;
+	const payload = new TextEncoder().encode( JSON.stringify( value ) );
+	return `v3.${ bytesToBase64url( await deflateBytes( payload ) ) }`;
+
+}
+
+// Inverse of encodeV3Json: parses a 'v3.' string back into a value.
+export async function decodeV3Json( str ) {
+
+	const bytes = base64urlToBytes( String( str ).slice( 3 ) );
+	const inflated = await inflateBytes( bytes );
+	return JSON.parse( new TextDecoder().decode( inflated ) );
+
+}
+
+// Shortest available cells encoding. Returns a 'v3.' string (or the v2
+// string unchanged when the browser lacks compression support).
+export async function encodeCellsV3( cells ) {
+
+	const v2 = encodeCells( cells );
+	if ( ! v3CodecSupported() ) return v2;
+	let fmt;
+	let payload;
+	if ( v2.startsWith( 'v2.' ) ) {
+
+		fmt = 1;
+		const tokenized = cells.map( ( cell ) => {
+
+			if ( ! Array.isArray( cell ) || cell.length < 4 ) return cell;
+			return [ cell[ 0 ], cell[ 1 ], V3_NAME_TOKENS[ cell[ 2 ] ] ?? cell[ 2 ], cell[ 3 ] ];
+
+		} );
+		payload = new TextEncoder().encode( JSON.stringify( { v: 2, cells: tokenized } ) );
+
+	} else {
+
+		fmt = 0;
+		payload = base64urlToBytes( v2 );
+
+	}
+	const framed = new Uint8Array( 1 + payload.length );
+	framed[ 0 ] = fmt;
+	framed.set( payload, 1 );
+	return `v3.${ bytesToBase64url( await deflateBytes( framed ) ) }`;
+
+}
+
+// Async cells decoder accepting v3, v2 JSON and the compact codec.
+export async function decodeCellsAny( str ) {
+
+	const s = String( str || '' );
+	if ( s.startsWith( 'v3.' ) ) {
+
+		const inflated = await inflateBytes( base64urlToBytes( s.slice( 3 ) ) );
+		if ( ! inflated.length ) throw new Error( 'Empty v3 payload' );
+		if ( inflated[ 0 ] === 0 ) return decodeCells( bytesToBase64url( inflated.subarray( 1 ) ) );
+		const parsed = JSON.parse( new TextDecoder().decode( inflated.subarray( 1 ) ) );
+		const entries = Array.isArray( parsed?.cells ) ? parsed.cells : [];
+		return entries
+			.filter( ( cell ) => Array.isArray( cell ) && cell.length >= 4 )
+			.map( ( [ gx, gz, name, orient ] ) => [ Number( gx ), Number( gz ), V3_TOKEN_NAMES[ name ] ?? name, orient ] );
+
+	}
+	return decodeCells( s );
 
 }
 
