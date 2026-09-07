@@ -30,7 +30,6 @@
 
 var MARKER = 'ZC1:';
 
-// ---- UTF-8 <-> binary string helpers (no unescaped-unicode pitfalls) ----
 function utf8ToBinary(str) {
   var bytes = new TextEncoder().encode(String(str == null ? '' : str));
   var bin = '';
@@ -44,9 +43,8 @@ function binaryToUtf8(bin) {
   return new TextDecoder().decode(bytes);
 }
 
-// ---- base64url (URI-safe, no padding) of a binary string ----
 function btoaUrl(bin) {
-  var b64 = btoa(bin); // standard base64
+  var b64 = btoa(bin);
   return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 function atobUrl(b64url) {
@@ -56,12 +54,8 @@ function atobUrl(b64url) {
   return atob(b64);
 }
 
-// ---- LZW core operating on a binary string (char codes 0..255) ----
-// Pack the dictionary-index stream as 16-bit big-endian pairs, then base64url.
-// 0xFFFF is a reserved "reset" control code; the dictionary is capped below it
-// and reset mid-stream when full, so arbitrarily large input round-trips safely.
-var DICT_RESET = 0xFFFF; // reserved control index (never a valid dict entry)
-var DICT_MAX = 0xFFFF;   // reset before adding an entry that would collide with the sentinel
+var DICT_RESET = 0xFFFF;
+var DICT_MAX = 0xFFFF;
 
 function lzwCompressBin(data) {
   var out = [];
@@ -78,9 +72,6 @@ function lzwCompressBin(data) {
     } else {
       out.push(dict[w]);
       if (size >= DICT_MAX) {
-        // Dictionary full: emit reset sentinel and rebuild a fresh single-byte
-        // dictionary. The current char c starts the next phrase (it exists in
-        // the new dict as itself); do NOT add the stale wc.
         out.push(DICT_RESET);
         dict = {};
         for (var j = 0; j < 256; j++) dict[String.fromCharCode(j)] = j;
@@ -159,8 +150,6 @@ function compressString(str) {
     var packed = lzwCompressBin(bin);
     var enc = btoaUrl(packed);
     var out = MARKER + enc;
-    // Only use the compressed form if it's actually smaller; otherwise return
-    // the plain string so we never make things bigger (and quota worse).
     return out.length < s.length ? out : s;
   } catch (e) {
     return String(str == null ? '' : str);
@@ -169,14 +158,14 @@ function compressString(str) {
 
 function decompressString(str) {
   var s = String(str == null ? '' : str);
-  if (s.indexOf(MARKER) !== 0) return s; // not ours -> passthrough (legacy)
+  if (s.indexOf(MARKER) !== 0) return s;
   try {
     var enc = s.slice(MARKER.length);
     var packed = atobUrl(enc);
     var bin = lzwDecompressBin(packed);
     return binaryToUtf8(bin);
   } catch (e) {
-    return s; // never throw; fall back to raw input
+    return s;
   }
 }
 
@@ -197,7 +186,68 @@ function decompressJson(str, fallback) {
   }
 }
 
-// Classic-script global interop (ignored by ES module loaders).
+// Personal-best ghost samples are huge compared with the PB time. Keep the
+// personal-best time, but never persist the local replay payload that recreates
+// the PB ghost. This is intentionally scoped to racing-lap-stats:* only, so
+// every other localStorage feature keeps its existing behavior.
+function installLapGhostStorageGuard() {
+  if (typeof window === 'undefined' || !window.Storage || window.__racingLapGhostStorageGuard) return;
+  var proto = window.Storage.prototype;
+  if (!proto || typeof proto.setItem !== 'function' || typeof proto.getItem !== 'function') return;
+
+  var originalSetItem = proto.setItem;
+  var originalGetItem = proto.getItem;
+  var LAP_PREFIX = 'racing-lap-stats:';
+  var GHOST_FIELDS = [
+    'bestGhostDuration',
+    'bestGhostCarKey',
+    'bestGhostCosmetics',
+    'bestLapGhostSamples',
+    'bestLapInputFrames',
+  ];
+
+  function stripGhostFields(raw) {
+    if (typeof raw !== 'string' || !raw) return raw;
+    try {
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return raw;
+      var changed = false;
+      for (var i = 0; i < GHOST_FIELDS.length; i++) {
+        if (Object.prototype.hasOwnProperty.call(parsed, GHOST_FIELDS[i])) {
+          delete parsed[GHOST_FIELDS[i]];
+          changed = true;
+        }
+      }
+      return changed ? JSON.stringify(parsed) : raw;
+    } catch (e) {
+      return raw;
+    }
+  }
+
+  try {
+    proto.setItem = function(key, value) {
+      var k = String(key);
+      var v = k.indexOf(LAP_PREFIX) === 0 ? stripGhostFields(String(value)) : value;
+      return originalSetItem.call(this, key, v);
+    };
+    proto.getItem = function(key) {
+      var raw = originalGetItem.call(this, key);
+      var k = String(key);
+      if (k.indexOf(LAP_PREFIX) !== 0 || raw == null) return raw;
+      var cleaned = stripGhostFields(raw);
+      if (cleaned !== raw) originalSetItem.call(this, key, cleaned);
+      return cleaned;
+    };
+    window.__racingLapGhostStorageGuard = true;
+  } catch (e) {
+    // Never interfere with game startup if a browser disallows patching Storage.
+  }
+}
+
+// Storage.js is imported by main.js before lap persistence is used, so this
+// also cleans old oversized PB ghost entries the first time they are read.
+installLapGhostStorageGuard();
+
 var StorageApi = {
   MARKER: MARKER,
   compressString: compressString,
