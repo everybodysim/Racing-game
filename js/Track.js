@@ -125,6 +125,8 @@ const waterLastRefrFrameByCam = new Map();
 const _waterFrustum = new THREE.Frustum();
 const _waterProjScreen = new THREE.Matrix4();
 let waterRefrFrameCounter = 0;
+// Per-camera pose at the last refraction pass — used to force a fresh pass when the camera moves.
+const waterLastCamStateByCam = new Map();
 let waterRefrCadence = 1;
 
 // Camera-underwater state shared by every pool material. When the camera is
@@ -177,7 +179,35 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 	if ( ! isWaterVisibleToCamera( camera ) ) return;
 	waterRefrFrameCounter ++;
 	const waterLastFrame = waterLastRefrFrameByCam.get( camIndex );
-	if ( waterLastFrame !== undefined && waterRefrFrameCounter - waterLastFrame < waterRefrCadence ) return;
+	// The FPS governor (updateWaterQuality) saves a full scene render by
+	// re-sampling a cadence-stale refraction RT. That is only invisible when
+	// the camera is still — the moment the camera moves (or dives under the
+	// surface) a stale RT shows lagged, offset content through the water,
+	// which reads as "broken" on low-end machines (the ones on LOW preset).
+	// So the cadence gate now applies ONLY to a stationary camera: any
+	// camera movement or underwater frame forces a fresh pass.
+	let waterCamMoved = true;
+	const waterCamState = waterLastCamStateByCam.get( camIndex );
+	if ( waterCamState ) {
+
+		if ( waterCamState.pos.distanceToSquared( camera.position ) < 0.0025 && waterCamState.quat.angleTo( camera.quaternion ) < 0.01 ) {
+
+			waterCamMoved = false;
+
+		} else {
+
+			waterCamState.pos.copy( camera.position );
+			waterCamState.quat.copy( camera.quaternion );
+
+		}
+
+	} else {
+
+		waterLastCamStateByCam.set( camIndex, { pos: camera.position.clone(), quat: camera.quaternion.clone() } );
+
+	}
+	const waterCadence = WATER_UNDERWATER.camera ? 1 : waterRefrCadence;
+	if ( ! waterCamMoved && waterLastFrame !== undefined && waterRefrFrameCounter - waterLastFrame < waterCadence ) return;
 	waterLastRefrFrameByCam.set( camIndex, waterRefrFrameCounter );
 	const db = renderer.getDrawingBufferSize( _waterDbSize );
 	const w = Math.max( 2, Math.floor( db.x / 2 ) );
