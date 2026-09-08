@@ -4648,9 +4648,13 @@ async function init() {
 	const waterCellSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 	const cellWorld = CELL_RAW * GRID_SCALE;
 	const customPoolSettings = extras?.customPool && typeof extras.customPool === 'object' ? extras.customPool : {};
-	const WATER_BUOYANCY = THREE.MathUtils.clamp( Number( customPoolSettings.buoyancy ) || 0.28, 0.05, 3 );
+	// The editor's "Custom Pool" checkmark gates the whole custom pool, not
+	// just its colors — with the checkbox off, physics fall back to the
+	// classic defaults even if the payload still carries old tuned values.
+	const customPoolOn = customPoolSettings.colorsOn === true;
+	const WATER_BUOYANCY = THREE.MathUtils.clamp( Number( customPoolOn ? customPoolSettings.buoyancy : 0 ) || 0.28, 0.05, 3 );
 	const WATER_GRAVITY_SCALE = Math.min( WATER_BUOYANCY, 1 );
-	const WATER_VELOCITY_DRAG = THREE.MathUtils.clamp( Number( customPoolSettings.drag ) || 1.8, 0.1, 6 );
+	const WATER_VELOCITY_DRAG = THREE.MathUtils.clamp( Number( customPoolOn ? customPoolSettings.drag : 0 ) || 1.8, 0.1, 6 );
 	// Barely-there water control: ~2 m/s^2 of paddle thrust and ~0.55 rad/s of
 	// water steering while buoyant. Deliberately tiny.
 	const WATER_CONTROL_ACCEL = 2.0;

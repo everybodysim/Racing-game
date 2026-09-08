@@ -274,7 +274,8 @@
 			box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
 			z-index: 22;
 		}
-		#custom-surface-panel {
+		#custom-surface-panel,
+		#custom-pad-panel {
 			position: absolute;
 			right: 12px;
 			top: 72px;
@@ -286,7 +287,8 @@
 			color: #eef3ff;
 			z-index: 30;
 		}
-		#custom-surface-panel h3 { margin: 0 0 8px; font-size: 14px; }
+		#custom-surface-panel h3,
+		#custom-pad-panel h3 { margin: 0 0 8px; font-size: 14px; }
 		.custom-surface-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; font-size: 12px; }
 		.custom-surface-grid label { display: flex; align-items: center; gap: 6px; }
 		.custom-surface-grid input[type="number"],
@@ -725,9 +727,6 @@
 				<option value="pad-size-small">Mini Pad (0.5×)</option>
 				<option value="pad-size-normal">Normal Pad (1.0×)</option>
 				<option value="pad-size-mega">Mega Pad (1.8×)</option>
-				<option value="pad-custom-a">Custom Pad A</option>
-				<option value="pad-custom-b">Custom Pad B</option>
-				<option value="pad-custom-c">Custom Pad C</option>
 			</select>
 			<button id="btn-surface-custom-a">Custom A</button>
 			<button id="btn-surface-custom-b">Custom B</button>
@@ -821,17 +820,27 @@
 	<div id="custom-surface-panel" hidden>
 		<h3 id="custom-surface-title">Custom Surface</h3>
 		<div class="custom-surface-grid">
+			<label>Color <input type="color" id="cs-color" value="#9c7bff"></label>
+			<label>Grip <input type="range" id="cs-grip" min="0" max="5" step="0.05" value="1.2"></label>
+			<label>Speed <input type="range" id="cs-speed" min="0" max="5" step="0.05" value="1.05"></label>
+			<label>Force Amount <input type="range" id="cs-force-amount" min="-1" max="20" step="0.1" value="4"></label>
 			<label><input type="checkbox" id="cs-force-forward"> Force Forward</label>
 			<label><input type="checkbox" id="cs-force-backward"> Force Backward</label>
 			<label><input type="checkbox" id="cs-force-left"> Force Left</label>
 			<label><input type="checkbox" id="cs-force-right"> Force Right</label>
 			<label><input type="checkbox" id="cs-force-up"> Force Up</label>
-			<label>Force Amount <input type="range" id="cs-force-amount" min="-1" max="20" step="0.1" value="4"></label>
 			<label><input type="checkbox" id="cs-no-air"> Don't trigger in air</label>
 			<label><input type="checkbox" id="cs-once-contact"> Trigger once until leave/re-enter</label>
-			<label>Color <input type="color" id="cs-color" value="#9c7bff"></label>
-			<label>Grip <input type="range" id="cs-grip" min="0" max="5" step="0.05" value="1.2"></label>
-			<label>Speed <input type="range" id="cs-speed" min="0" max="5" step="0.05" value="1.05"></label>
+		</div>
+		<div class="custom-surface-actions">
+			<button id="cs-save">Save</button>
+			<button id="cs-close">Close</button>
+		</div>
+	</div>
+	<div id="custom-pad-panel" hidden>
+		<h3 id="custom-pad-title">Custom Pad</h3>
+		<div class="custom-surface-grid">
+			<label>Color <input type="color" id="cs-pad-color" value="#7fb7ff"></label>
 			<label>Gravity <input type="range" id="cs-pad-gravity" min="0.15" max="3" step="0.05" value="1"></label>
 			<label>Drag <input type="range" id="cs-pad-drag" min="0.05" max="5" step="0.05" value="1"></label>
 			<label>Accel <input type="range" id="cs-pad-accel" min="0" max="5" step="0.05" value="1"></label>
@@ -844,8 +853,8 @@
 			<label><input type="checkbox" id="cs-pad-no-acceleration"> Disable acceleration</label>
 		</div>
 		<div class="custom-surface-actions">
-			<button id="cs-save">Save</button>
-			<button id="cs-close">Close</button>
+			<button id="csp-save">Save</button>
+			<button id="csp-close">Close</button>
 		</div>
 	</div>
 <div id="custom-pool-panel" hidden style="position:absolute;right:12px;top:72px;width:min(320px,calc(100vw - 24px));padding:12px;border-radius:10px;background:rgba(16,18,24,0.92);border:1px solid rgba(255,255,255,0.15);color:#eef3ff;z-index:31;">
@@ -3638,6 +3647,9 @@ function computeCausticShade( normal ) {
 			waterColor: /^#[0-9a-f]{6}$/i.test( String( next.waterColor || '' ) ) ? next.waterColor : CUSTOM_POOL_DEFAULT.waterColor,
 			edgeColor: /^#[0-9a-f]{6}$/i.test( String( next.edgeColor || '' ) ) ? next.edgeColor : CUSTOM_POOL_DEFAULT.edgeColor,
 			transparent: next.transparent !== false,
+			// Survives the decode round-trip: loading a shared track keeps the
+			// creator's custom-pool checkbox state (gates colors AND physics).
+			colorsOn: next.colorsOn === true,
 		};
 	}
 
@@ -4286,7 +4298,10 @@ function refreshMovingSpeedUi() {
 	const offGridDevBanner = document.getElementById( 'offgrid-dev-banner' );
 	const customSurfacePanel = document.getElementById( 'custom-surface-panel' );
 	const customSurfaceTitle = document.getElementById( 'custom-surface-title' );
+	const customPadPanel = document.getElementById( 'custom-pad-panel' );
+	const customPadTitle = document.getElementById( 'custom-pad-title' );
 	const customSurfaceInputs = {
+		padColor: document.getElementById( 'cs-pad-color' ),
 		forward: document.getElementById( 'cs-force-forward' ),
 		backward: document.getElementById( 'cs-force-backward' ),
 		left: document.getElementById( 'cs-force-left' ),
@@ -4447,7 +4462,13 @@ function refreshMovingSpeedUi() {
 		const config = isPad
 			? ( customPadConfigs[ surfaceType ] || CUSTOM_PAD_DEFAULTS[ surfaceType ] )
 			: ( customSurfaceConfigs[ surfaceType ] || CUSTOM_SURFACE_DEFAULTS[ surfaceType ] );
-		customSurfaceTitle.textContent = `Edit ${ surfaceType.replace( 'surface-', '' ).replace( 'pad-', 'pad-' ) }`;
+		const letter = surfaceType.replace( 'surface-custom-', '' ).replace( 'pad-custom-', '' ).toUpperCase();
+		// Pads and surfaces have separate panels now: a pad keeps its effect
+		// until the next checkpoint, a surface only applies while you're on it,
+		// so each panel shows only the settings that make sense for it.
+		customSurfacePanel.hidden = isPad;
+		customPadPanel.hidden = ! isPad;
+		( isPad ? customPadTitle : customSurfaceTitle ).textContent = `${ isPad ? 'Custom Pad' : 'Custom Surface' } ${ letter }`;
 		customSurfaceInputs.forward.checked = Boolean( config.force?.forward );
 		customSurfaceInputs.backward.checked = Boolean( config.force?.backward );
 		customSurfaceInputs.left.checked = Boolean( config.force?.left );
@@ -4456,7 +4477,8 @@ function refreshMovingSpeedUi() {
 		customSurfaceInputs.forceAmount.value = String( Number( config.forceAmount ?? 0 ) );
 		customSurfaceInputs.noAir.checked = Boolean( config.noAir );
 		customSurfaceInputs.oncePerContact.checked = Boolean( config.oncePerContact );
-		customSurfaceInputs.color.value = config.color || '#9c7bff';
+		if ( isPad ) customSurfaceInputs.padColor.value = config.color || '#7fb7ff';
+		else customSurfaceInputs.color.value = config.color || '#9c7bff';
 		customSurfaceInputs.grip.value = String( Number( config.grip ?? 1 ) );
 		customSurfaceInputs.speed.value = String( Number( config.speed ?? 1 ) );
 		customSurfaceInputs.padGravity.value = String( Number( config.gravity ?? 1 ) );
@@ -4469,13 +4491,13 @@ function refreshMovingSpeedUi() {
 		customSurfaceInputs.padNoBrakes.checked = Boolean( config.disableBrakes );
 		customSurfaceInputs.padNoSteering.checked = Boolean( config.disableSteering );
 		customSurfaceInputs.padNoAcceleration.checked = Boolean( config.disableAcceleration );
-		customSurfacePanel.hidden = false;
 
 	}
 
 	function closeCustomSurfaceEditor() {
 
 		customSurfacePanel.hidden = true;
+		customPadPanel.hidden = true;
 		activeCustomSurfaceEditor = null;
 
 	}
@@ -4487,7 +4509,7 @@ function refreshMovingSpeedUi() {
 		if ( activeCustomSurfaceEditor.startsWith( 'pad-' ) ) {
 
 			customPadConfigs[ activeCustomSurfaceEditor ] = {
-				color: customSurfaceInputs.color.value || '#7fb7ff',
+				color: customSurfaceInputs.padColor.value || '#7fb7ff',
 				gravity: Number( customSurfaceInputs.padGravity.value ) || 1,
 				drag: Number( customSurfaceInputs.padDrag.value ) || 1,
 				accel: Number( customSurfaceInputs.padAccel.value ) || 1,
@@ -4599,6 +4621,8 @@ function refreshMovingSpeedUi() {
 	document.getElementById( 'btn-portal-id-down' )?.addEventListener( 'click', () => nudgeSelectedArcId( - 1 ) );
 	customSurfaceInputs.save?.addEventListener( 'click', saveCustomSurfaceEditor );
 	customSurfaceInputs.close?.addEventListener( 'click', closeCustomSurfaceEditor );
+	document.getElementById( 'csp-save' )?.addEventListener( 'click', saveCustomSurfaceEditor );
+	document.getElementById( 'csp-close' )?.addEventListener( 'click', closeCustomSurfaceEditor );
 	// Colors checkbox INSIDE the Custom Pool button — clicking it must not open
 	// (or re-trigger) the settings panel.
 	document.getElementById( 'cp-colors-toggle' )?.addEventListener( 'click', ( event ) => {
@@ -4607,7 +4631,9 @@ function refreshMovingSpeedUi() {
 		// Re-render every pool so the preview matches what the game will show.
 		for ( const [ key, cell ] of grid ) if ( cell.water ) { const [ gx, gz ] = key.split( ',' ).map( Number ); placeOverlayMesh( gx, gz, cell ); }
 		save();
-		showToast( customPoolColorsEnabled ? 'Custom pool colors enabled' : 'Custom pool colors disabled' );
+		// Physics are gated by this checkbox too — make the drive sim rebuild.
+		editorDrive?.markDirty?.();
+		showToast( customPoolColorsEnabled ? 'Custom pool enabled' : 'Custom pool disabled' );
 	} );
 	document.getElementById( 'btn-custom-pool' )?.addEventListener( 'click', ( event ) => {
 		if ( event.target && event.target.id === 'cp-colors-toggle' ) return;
@@ -6716,6 +6742,63 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		const FX_ARC_LINK_MIN_TIME = 0.45;
 		const FX_ARC_LINK_MAX_TIME = 1.6;
 		const FX_VEHICLE_BASE_GRAVITY_FACTOR = 1.5;
+		// ─── Pool physics (editor copy of the game's water handling) ───
+		const FX_WATER_CONTROL_ACCEL = 2.0;
+		const FX_WATER_CONTROL_STEER = 0.55;
+		let fxWaterState = null;
+		const _fxWaterFwd = new THREE.Vector3();
+		function fxVehicleInWater( spherePos ) {
+
+			if ( ! fxWaterState || ! spherePos ) return false;
+			const gx = Math.floor( spherePos.x / FX_CELL_UNIT );
+			const gz = Math.floor( spherePos.z / FX_CELL_UNIT );
+			return fxWaterState.waterSet.has( `${ gx },${ gz }` ) && spherePos.y < 0;
+
+		}
+		// Same damping the game applies in pools: velocity drag, buoyant lift
+		// and a whisper of paddle control while floating.
+		function fxApplyWaterPhysicsFor( targetVehicle, deltaSeconds ) {
+
+			if ( ! fxVehicleInWater( targetVehicle?.spherePos ) || ! targetVehicle?.rigidBody?.motionProperties ) return false;
+			const safeDelta = Math.max( 0, deltaSeconds );
+			const dragFactor = Math.exp( - fxWaterState.drag * safeDelta );
+			const velocity = targetVehicle.rigidBody.motionProperties.linearVelocity || [ 0, 0, 0 ];
+			const upwardFloatVelocity = Math.max( 0, fxWaterState.buoyancy - 1 ) * 12 * safeDelta;
+			const verticalVelocity = THREE.MathUtils.clamp( ( velocity[ 1 ] * Math.sqrt( dragFactor ) ) + upwardFloatVelocity, -18, 8 );
+			let vx = velocity[ 0 ] * dragFactor;
+			let vz = velocity[ 2 ] * dragFactor;
+			const inputZ = Number( targetVehicle.inputZ ) || 0;
+			const inputX = Number( targetVehicle.inputX ) || 0;
+			if ( inputZ || inputX ) {
+
+				const fwd = _fxWaterFwd.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+				fwd.y = 0;
+				if ( fwd.lengthSq() > 1e-6 ) {
+
+					fwd.normalize();
+					const thrust = inputZ * FX_WATER_CONTROL_ACCEL * safeDelta;
+					vx += fwd.x * thrust;
+					vz += fwd.z * thrust;
+					if ( inputX ) {
+
+						const steer = Math.sign( inputX ) * FX_WATER_CONTROL_STEER * safeDelta;
+						const cos = Math.cos( steer );
+						const sin = Math.sin( steer );
+						const nx = vx * cos - vz * sin;
+						const nz = vx * sin + vz * cos;
+						vx = nx;
+						vz = nz;
+
+					}
+
+				}
+
+			}
+			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vx, verticalVelocity, vz ], false );
+			targetVehicle.linearSpeed *= dragFactor;
+			return true;
+
+		}
 		const FX_SURFACE_HALF_EXTENT = CELL_RAW * GRID_SCALE * 0.39;
 		const FX_VEHICLE_SURFACE_RADIUS = 0.5;
 		const FX_GARAGE_FIXED_MULTIPLIER = 1.15;
@@ -6850,6 +6933,15 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		function rebuildEffectEntries() {
 
 			const extras = getPhysicsExtras();
+			// Pool physics snapshot — gated by the editor's custom-pool checkbox
+			// exactly like the game, so unticked pools float with classic physics.
+			const poolCfg = extras.customPool && typeof extras.customPool === 'object' ? extras.customPool : {};
+			const poolOn = poolCfg.colorsOn === true;
+			fxWaterState = {
+				waterSet: new Set( ( Array.isArray( extras.water ) ? extras.water : [] ).map( ( [ gx, gz ] ) => `${ Number( gx ) },${ Number( gz ) }` ) ),
+				buoyancy: THREE.MathUtils.clamp( Number( poolOn ? poolCfg.buoyancy : 0 ) || 0.28, 0.05, 3 ),
+				drag: THREE.MathUtils.clamp( Number( poolOn ? poolCfg.drag : 0 ) || 1.8, 0.1, 6 ),
+			};
 			fxMagnetEntries = ( Array.isArray( extras.magnets ) ? extras.magnets : [] )
 				.map( ( [ gxRaw, gzRaw, yGridRaw, variant, forceRaw, rangeRaw ] ) => {
 
@@ -7476,9 +7568,13 @@ function updateMovingObstacles( state, now, vehicleList ) {
 					const gravityScale = Number.isFinite( fxActivePadEffect?.gravity ) ? fxActivePadEffect.gravity : 1.0;
 					const sphereVy = vehicle.rigidBody.motionProperties.linearVelocity[ 1 ];
 					const nearGroundBoost = Math.abs( sphereVy ) < 1.5 ? 1.4 : 1.0;
-					vehicle.rigidBody.motionProperties.gravityFactor = FX_VEHICLE_BASE_GRAVITY_FACTOR * nearGroundBoost * gravityScale;
+					// Pools scale gravity by buoyancy, exactly like the game.
+					const inWater = fxVehicleInWater( vehicle.spherePos );
+					const waterGravityScale = inWater && fxWaterState ? Math.min( fxWaterState.buoyancy, 1 ) : 1.0;
+					vehicle.rigidBody.motionProperties.gravityFactor = FX_VEHICLE_BASE_GRAVITY_FACTOR * nearGroundBoost * gravityScale * waterGravityScale;
 
 				}
+				fxApplyWaterPhysicsFor( vehicle, fxdt );
 				fxPadContactKey = fxApplyPadContact( vehicle, fxPadContactKey, ( effect ) => {
 
 					fxActivePadEffect = effect;
@@ -7655,6 +7751,9 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		// freecam even while the car model is still loading.
 		editorDrive = {
 			step,
+			getWaterState: () => fxWaterState,
+			isVehicleInWater: () => fxVehicleInWater( vehicle?.spherePos ),
+			getVehiclePos: () => ( vehicle?.spherePos ? vehicle.spherePos.toArray() : null ),
 			markDirty: () => { dirty = true; lastEditAt = performance.now() * 0.001; },
 			startRotate, moveRotate, endRotate,
 			isRotating: () => rotating,
@@ -7663,6 +7762,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			clearDriveKeys,
 			respawn,
 		};
+		window.__skidEditorDrive = editorDrive;
 		init();
 
 	} )();
