@@ -7328,12 +7328,21 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 		const username = getAccountUsername();
 		account.textContent = username ? `Chatting as ${ username }` : 'Log in from the game home screen to send messages.';
+		// Dedupe by Ably's unique message id, not by text — the same person
+		// may repeat a message ("yep" twice) and different people often say
+		// the same thing, while a message delivered via both the history
+		// load and the live subscription still renders only once.
 		const seen = new Set();
-		function addMessage( text ) {
+		function addMessage( text, id ) {
 
 			const message = String( text || '' );
-			if ( ! message || seen.has( message ) || /^\[[^\]]+\](?:\[(?:owner|announce)\])?\s/.test( message ) ) return;
-			seen.add( message );
+			if ( ! message || /^\[[^\]]+\](?:\[(?:owner|announce)\])?\s/.test( message ) ) return;
+			if ( id !== undefined ) {
+
+				if ( seen.has( id ) ) return;
+				seen.add( id );
+
+			}
 			const row = document.createElement( 'div' );
 			row.className = 'editor-chat-message';
 			row.textContent = message;
@@ -7347,10 +7356,10 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		channel.history( { limit: 50 }, ( error, result ) => {
 
 			if ( error ) return;
-			for ( const entry of ( result?.items || [] ).reverse() ) addMessage( entry.data );
+			for ( const entry of ( result?.items || [] ).reverse() ) addMessage( entry.data, entry.id );
 
 		} );
-		channel.subscribe( ( entry ) => addMessage( entry.data ) );
+		channel.subscribe( ( entry ) => addMessage( entry.data, entry.id ) );
 
 		function sendMessage() {
 
