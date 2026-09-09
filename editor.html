@@ -3087,6 +3087,112 @@ function computeCausticShade( normal ) {
 
 	}
 
+	function ghostMaterial( color ) {
+
+		return new THREE.MeshStandardMaterial( {
+			color,
+			transparent: true,
+			opacity: 0.55,
+			depthWrite: false,
+		} );
+
+	}
+
+	// Ghost preview for obstacle / moving-obstacle tools. Geometry mirrors
+	// placeOverlayMesh (pole/cube/wall/jump) and the drive section's
+	// createMovingObstacleState (moving tools) so the ghost shows exactly
+	// what a click will place. Moving-obstacle sizes are world units in the
+	// drive world (added straight to the scene), but ghostGroup is scaled by
+	// GRID_SCALE — convert with toLocal so the ghost is the same visual size.
+	function addObstacleGhost( type, gx, gz, orient ) {
+
+		const group = new THREE.Group();
+		const toLocal = ( world ) => world / GRID_SCALE;
+		const cx = ( gx + 0.5 ) * CELL_RAW;
+		const cz = ( gz + 0.5 ) * CELL_RAW;
+		const deg = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
+		const isMoving = isMovingObstacleTool( type );
+		if ( type === POLE_TOOL ) {
+
+			const pole = new THREE.Mesh( new THREE.CylinderGeometry( CELL_RAW * 0.08, CELL_RAW * 0.08, CELL_RAW * 0.13, 16 ), ghostMaterial( 0x8c8f96 ) );
+			pole.position.set( cx, ( CELL_RAW * 0.065 ) - 0.06, cz );
+			group.add( pole );
+
+		} else if ( type === CUBE_TOOL ) {
+
+			const cube = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ), ghostMaterial( 0x9da5b1 ) );
+			cube.position.set( cx, ( CELL_RAW * 0.08 ) - 0.06, cz );
+			group.add( cube );
+
+		} else if ( type === WALL_TOOL ) {
+
+			const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ), ghostMaterial( 0x868a90 ) );
+			wall.position.set( cx, ( CELL_RAW * 0.075 ) - 0.06, cz );
+			wall.rotation.y = deg;
+			group.add( wall );
+
+		} else if ( type === JUMP_TOOL ) {
+
+			const jump = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.36, CELL_RAW * 0.18, CELL_RAW * 0.36 ), ghostMaterial( 0x7f6a58 ) );
+			jump.position.set( cx, 0.24 + BLOCK_HEIGHT_OFFSET, cz );
+			jump.rotation.order = 'YXZ';
+			jump.rotation.y = deg;
+			jump.rotation.x = - THREE.MathUtils.degToRad( 30 );
+			group.add( jump );
+
+		} else if ( type === MOVING_SLIDE_TOOL ) {
+
+			group.add( new THREE.Mesh( new THREE.BoxGeometry( toLocal( 2.1 ), toLocal( 1.2 ), toLocal( 1.5 ) ), ghostMaterial( 0x8ca0b8 ) ) );
+
+		} else if ( type === MOVING_SPIN_TOOL ) {
+
+			group.add( new THREE.Mesh( new THREE.BoxGeometry( toLocal( 3.8 ), toLocal( 0.8 ), toLocal( 0.55 ) ), ghostMaterial( 0xb4b8bf ) ) );
+
+		} else if ( type === MOVING_ORBIT_TOOL ) {
+
+			for ( let i = 0; i < 3; i ++ ) {
+
+				const pole = new THREE.Mesh( new THREE.CylinderGeometry( toLocal( 0.23 ), toLocal( 0.23 ), toLocal( 1.0 ), 12 ), ghostMaterial( 0x979ea8 ) );
+				const a = i * ( Math.PI * 2 / 3 );
+				pole.position.set( Math.cos( a ) * toLocal( 1.25 ), 0, Math.sin( a ) * toLocal( 1.25 ) );
+				group.add( pole );
+
+			}
+
+		} else if ( type === MOVING_CUSTOM_TOOL ) {
+
+			const cfg = readCustomMovingUi();
+			const count = Math.max( 1, Math.min( 8, Math.round( Number( cfg.count ) || 1 ) ) );
+			const sx = Number( cfg.sx ) || 2;
+			const sy = Number( cfg.sy ) || 0.8;
+			const sz = Number( cfg.sz ) || 0.8;
+			const shape = String( cfg.shape || 'square' );
+			const orbitR = toLocal( Number( cfg.orbit ) || 0 );
+			for ( let i = 0; i < count; i ++ ) {
+
+				const geom = shape === 'pole'
+					? new THREE.CylinderGeometry( toLocal( sx * 0.18 ), toLocal( sx * 0.18 ), toLocal( sy ), 12 )
+					: new THREE.BoxGeometry( toLocal( sx ), toLocal( sy ), toLocal( sz ) );
+				const mesh = new THREE.Mesh( geom, ghostMaterial( cfg.color || '#ff8844' ) );
+				if ( orbitR > 0 || count > 1 ) {
+
+					const a = i * ( Math.PI * 2 / count );
+					mesh.position.set( Math.cos( a ) * orbitR, 0, Math.sin( a ) * orbitR );
+
+				}
+				group.add( mesh );
+
+			}
+
+		}
+		// Moving obstacles sit at the drive world's base height: world
+		// -0.5 + CELL_RAW*GRID_SCALE*0.08 == ghostGroup-local CELL_RAW*0.08
+		// (ghostGroup already carries the -0.5 offset).
+		group.position.set( isMoving ? cx : 0, isMoving ? CELL_RAW * 0.08 : 0, isMoving ? cz : 0 );
+		ghostGroup.add( group );
+
+	}
+
 	function addGhostPiece( type, orient, gx, gz, opacity ) {
 
 		const modelType = ( type === 'track-checkpoint' || type === 'track-start' || type === 'track-start-finish' ) ? 'track-finish' : type;
@@ -3237,12 +3343,19 @@ function computeCausticShade( normal ) {
 			return;
 
 		}
+		// Obstacle tools: ghost the REAL obstacle. Pole/cube/wall/jump are
+		// procedural meshes and the moving tools have no model at all, so the
+		// old fall-through rendered nothing (moving obstacles) or a road tile
+		// placeholder (pole/cube/wall/jump) — off-grid placement was pure
+		// guesswork.
+		if ( selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || isMovingObstacleTool( selectedType ) ) {
+
+			addObstacleGhost( selectedType, gx, gz, selectedOrient );
+			return;
+
+		}
 		const ghostModelKeys = {
 			[ BUMP_TOOL ]: 'track-bump',
-			[ POLE_TOOL ]: 'track-straight',
-			[ CUBE_TOOL ]: 'track-straight',
-			[ WALL_TOOL ]: 'track-straight',
-			[ JUMP_TOOL ]: 'track-straight',
 			[ POOL_SLOPE_TOOL ]: 'elev-track-slope',
 			'elevated-straight': 'elev-track-straight',
 			'elevated-cross': 'elev-track-cross',
@@ -3366,8 +3479,13 @@ function computeCausticShade( normal ) {
 
 		} else {
 
-			gx = Math.round( gx / OFFGRID_STEP ) * OFFGRID_STEP;
-			gz = Math.round( gz / OFFGRID_STEP ) * OFFGRID_STEP;
+			// Off-grid pieces store a fractional "cell index" that still renders
+			// through the shared cell-center convention ((gx + 0.5) * CELL_RAW,
+			// same in the game), so the half-cell center offset must be removed
+			// BEFORE snapping — without this every off-grid piece landed half a
+			// cell to the right and below the mouse.
+			gx = Math.round( ( gx - 0.5 ) / OFFGRID_STEP ) * OFFGRID_STEP;
+			gz = Math.round( ( gz - 0.5 ) / OFFGRID_STEP ) * OFFGRID_STEP;
 
 		}
 
@@ -4255,6 +4373,14 @@ function computeCausticShade( normal ) {
 	const movingCustomCount = document.getElementById( 'moving-custom-count' );
 	const movingCustomRot = document.getElementById( 'moving-custom-rot' );
 	const movingCustomColor = document.getElementById( 'moving-custom-color' );
+	function refreshCustomMoverGhost() {
+
+		// Tweak a custom-mover setting while the tool is selected → refresh
+		// the ghost so it previews the new shape/count/orbit immediately.
+		if ( selectedType === MOVING_CUSTOM_TOOL && hoveredCell ) updateGhost( hoveredCell.gx, hoveredCell.gz );
+
+	}
+
 	function readCustomMovingUi() { return { shape: movingCustomShape?.value || 'square', sx: Number( movingCustomSx?.value ) || 2, sy: Number( movingCustomSy?.value ) || 0.8, sz: Number( movingCustomSz?.value ) || 0.8, orbit: Number( movingCustomOrbit?.value ) || 0, count: Math.max( 1, Math.round( Number( movingCustomCount?.value ) || 1 ) ), rot: Number( movingCustomRot?.value ) || 1, color: movingCustomColor?.value || '#ff8844' }; }
 
 
@@ -4279,6 +4405,14 @@ function refreshMovingSpeedUi() {
 			}
 		}
 	} );
+	// Custom mover config tweaks refresh the ghost preview live.
+	for ( const el of [ movingCustomShape, movingCustomSx, movingCustomSy, movingCustomSz, movingCustomOrbit, movingCustomCount, movingCustomRot, movingCustomColor ] ) {
+
+		if ( ! el ) continue;
+		el.addEventListener( 'input', refreshCustomMoverGhost );
+		el.addEventListener( 'change', refreshCustomMoverGhost );
+
+	}
 	const tileButtons = {
 		'track-straight': document.getElementById( 'btn-straight' ),
 		'track-corner': document.getElementById( 'btn-corner' ),
