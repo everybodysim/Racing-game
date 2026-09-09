@@ -243,6 +243,7 @@
 			if ( leaderboardProgressLabel ) leaderboardProgressLabel.textContent = 'Fetching board data\u2026';
 			const payload = await apiRequest();
 			entries = sanitizeBoardEntries( payload?.entries );
+			await primeV3Previews();
 			// Defer render to next frame so loading panel shows immediately
 			requestAnimationFrame( () => render() );
 			hydrateTopLeaderboardRows( entries ).then( () => render() );
@@ -473,6 +474,141 @@
 			};
 		}
 
+		// ─── v3 share-URL previews (PR #425 codec) ───
+		// 'v3.' map/mods tokens are raw-deflate compressed, which can only be
+		// inflated ASYNC (DecompressionStream). The board renders cards
+		// synchronously, so v3 URLs are pre-inflated into v3PreviewCache before
+		// render; hydrateTrackPreviewFromUrl also decodes v3 directly when a
+		// card scrolls into view. Mirrors the codec in js/Track.js — keep the
+		// type/token tables in sync with it (append-only, never reorder).
+		const v3PreviewCache = new Map();
+		const V3_NAME_TOKENS = {
+			'track-straight': 'a',
+			'track-corner': 'b',
+			'track-3-way': 'c',
+			'track-4-way': 'd',
+			'track-checkpoint': 'e',
+			'track-bump': 'f',
+			'track-finish': 'g',
+			'track-start': 'h',
+			'track-start-finish': 'i',
+			'track-cross': 'j',
+			'elevated-straight': 'k',
+			'elevated-corner': 'l',
+			'elevated-cross': 'm',
+			'elevated-checkpoint': 'n',
+			'elevated-3-way': 'o',
+			'elevated-4-way': 'p',
+			'slope-up': 'q',
+			'slope-down': 'r',
+		};
+		const V3_TOKEN_NAMES = {};
+		for ( const [ name, token ] of Object.entries( V3_NAME_TOKENS ) ) V3_TOKEN_NAMES[ token ] = name;
+		const V3_EXTENDED_TYPES = Object.keys( V3_NAME_TOKENS );
+		const V3_ORIENT_BY_IDX = [ 0, 16, 10, 22 ];
+
+		function boardBase64urlToBytes( token ) {
+			const raw = String( token ).replace( /-/g, '+' ).replace( /_/g, '/' );
+			const padded = raw + '==='.slice( ( raw.length + 3 ) % 4 );
+			const binary = atob( padded );
+			const bytes = new Uint8Array( binary.length );
+			for ( let i = 0; i < binary.length; i ++ ) bytes[ i ] = binary.charCodeAt( i );
+			return bytes;
+		}
+
+		async function inflateBoardBytes( bytes ) {
+			const stream = new Blob( [ bytes ] ).stream().pipeThrough( new DecompressionStream( 'deflate-raw' ) );
+			return new Uint8Array( await new Response( stream ).arrayBuffer() );
+		}
+
+		async function decodeCellsFromMapAsync( mapToken ) {
+			const token = String( mapToken || '' );
+			if ( ! token.startsWith( 'v3.' ) ) return decodeCellsFromMap( token );
+			const inflated = await inflateBoardBytes( boardBase64urlToBytes( token.slice( 3 ) ) );
+			if ( ! inflated.length ) return [];
+			if ( inflated[ 0 ] === 0 ) {
+				const body = inflated.subarray( 1 );
+				const cells = [];
+				for ( let i = 0; i + 2 < body.length; i += 3 ) {
+					const ti = ( body[ i + 2 ] >> 2 ) & 0x3f;
+					const oi = body[ i + 2 ] & 0x03;
+					if ( ti >= V3_EXTENDED_TYPES.length ) continue;
+					cells.push( [ body[ i ] - 128, body[ i + 1 ] - 128, V3_EXTENDED_TYPES[ ti ], V3_ORIENT_BY_IDX[ oi ] ?? 0 ] );
+				}
+				return cells;
+			}
+			const parsed = JSON.parse( new TextDecoder().decode( inflated.subarray( 1 ) ) );
+			const list = Array.isArray( parsed?.cells ) ? parsed.cells : [];
+			return list
+				.filter( ( cell ) => Array.isArray( cell ) && cell.length >= 3 )
+				.map( ( cell ) => [ Number( cell[ 0 ] ), Number( cell[ 1 ] ), V3_TOKEN_NAMES[ cell[ 2 ] ] ?? cell[ 2 ], cell[ 3 ] ?? 0 ] )
+				.filter( ( c ) => Number.isFinite( c[ 0 ] ) && Number.isFinite( c[ 1 ] ) );
+		}
+
+		async function decodeModsFromTokenAsync( modsToken ) {
+			const token = String( modsToken || '' );
+			if ( ! token || token === 'none' ) return { b: [], u: [], d: [] };
+			if ( ! token.startsWith( 'v3.' ) ) return decodeModsFromToken( token );
+			const inflated = await inflateBoardBytes( boardBase64urlToBytes( token.slice( 3 ) ) );
+			const parsed = JSON.parse( new TextDecoder().decode( inflated ) );
+			return ( parsed && typeof parsed === 'object' ) ? parsed : { b: [], u: [], d: [] };
+		}
+
+		async function parseTrackLayoutFromParamsAsync( map, mods ) {
+			return {
+				cells: map ? await decodeCellsFromMapAsync( map ) : [],
+				mods: mods ? await decodeModsFromTokenAsync( mods ) : { b: [], u: [], d: [] },
+			};
+		}
+
+		function isV3PlayUrl( playUrl ) {
+			return /(?:[?&]map=v3\.|[?&]mods=v3\.)/.test( String( playUrl || '' ) );
+		}
+
+		async function parseTrackLayoutFromUrlAsync( playUrl ) {
+			let parsed = null;
+			try {
+				parsed = new URL( playUrl, window.location.href );
+			} catch ( e ) {
+				return { cells: [], mods: {}, ghost: [] };
+			}
+			const ghostPreview = parseGhostPreviewFromUrl( parsed ) || [];
+			try {
+				const map = parsed.searchParams.get( 'map' );
+				const mods = parsed.searchParams.get( 'mods' );
+				const localPack = parsed.searchParams.get( 'localPack' );
+				if ( ( ! map || ! mods ) && localPack ) {
+					try {
+						const packed = JSON.parse( localStorage.getItem( `racing-local-pack:${ localPack }` ) || 'null' );
+						const m = ! map && typeof packed?.map === 'string' ? packed.map : map;
+						const md = ! mods && typeof packed?.mods === 'string' ? packed.mods : mods;
+						return { ...( await parseTrackLayoutFromParamsAsync( m, md ) ), ghost: ghostPreview };
+					} catch ( e ) {}
+				}
+				return { ...( await parseTrackLayoutFromParamsAsync( map, mods ) ), ghost: ghostPreview };
+			} catch ( e ) {
+				return { cells: [], mods: {}, ghost: ghostPreview };
+			}
+		}
+
+		// Pre-inflate every v3 entry URL into v3PreviewCache so the sync
+		// stats/style/preview path sees real cells & mods during render.
+		async function primeV3Previews() {
+			const jobs = [];
+			for ( const entry of entries ) {
+				const url = entry?.playUrl;
+				if ( ! url || ! isV3PlayUrl( url ) || v3PreviewCache.has( url ) ) continue;
+				jobs.push( ( async () => {
+					try {
+						v3PreviewCache.set( url, await parseTrackLayoutFromUrlAsync( url ) );
+					} catch ( e ) {
+						v3PreviewCache.set( url, { cells: [], mods: {}, ghost: [] } );
+					}
+				} )() );
+			}
+			if ( jobs.length ) await Promise.all( jobs );
+		}
+
 
 		function parseGhostPreviewFromUrl( parsedUrl ) {
 			try {
@@ -490,6 +626,8 @@
 		}
 
 		function parseTrackLayoutFromUrl( playUrl ) {
+			const cached = v3PreviewCache.get( String( playUrl || '' ) );
+			if ( cached ) return cached;
 			let parsed = null;
 			try {
 				parsed = new URL( playUrl, window.location.href );
@@ -523,12 +661,12 @@
 				drawTrackPreview( canvas, [], {} );
 				return;
 			}
-			let previewData = parseTrackLayoutFromUrl( playUrl );
+			let previewData = await parseTrackLayoutFromUrlAsync( playUrl );
 			const packId = parsed.searchParams.get( 'pack' ) || parsed.searchParams.get( 'sharedPack' );
 			if ( packId && ( ! previewData.cells.length || ! Object.keys( normalizePreviewMods( previewData.mods ) ).some( ( key ) => Array.isArray( previewData.mods[ key ] ) && previewData.mods[ key ].length ) ) ) {
 				try {
 					const payload = await resolvePreviewPackPayload( packId );
-					if ( payload?.map || payload?.mods ) previewData = parseTrackLayoutFromParams( payload.map, payload.mods );
+					if ( payload?.map || payload?.mods ) previewData = await parseTrackLayoutFromParamsAsync( payload.map, payload.mods );
 				} catch ( e ) {}
 			}
 			drawTrackPreview( canvas, previewData.cells, previewData.mods );
@@ -1019,6 +1157,7 @@
 					createdAt: Date.now(),
 				} );
 				saveToHash();
+				await primeV3Previews();
 				await hydrateTopLeaderboardRows( entries );
 
 			}
@@ -1131,7 +1270,8 @@
 					if ( ! Array.isArray( parsed?.entries ) ) throw new Error();
 					entries = sanitizeBoardEntries( parsed.entries );
 					saveToHash();
-					hydrateTopLeaderboardRows( entries )
+					primeV3Previews()
+						.then( () => hydrateTopLeaderboardRows( entries ) )
 						.finally( () => {
 							render();
 							setStatus( `Imported ${ entries.length } shared track entries.` );
@@ -1154,7 +1294,7 @@
 			window.addEventListener( 'hashchange', () => {
 				if ( useRemoteBoard ) return;
 				loadFromHash();
-				hydrateTopLeaderboardRows( entries ).finally( () => render() );
+				primeV3Previews().finally( () => hydrateTopLeaderboardRows( entries ).finally( () => render() ) );
 			} );
 			let searchDebounce = null;
 			searchInput.addEventListener( 'input', () => {
@@ -1201,6 +1341,7 @@
 
 					useRemoteBoard = false;
 					loadFromHash();
+					await primeV3Previews();
 					setStatus( 'Cloud board unavailable. Using local share-link mode.' );
 					hydrateTopLeaderboardRows( entries ).then( () => render() );
 
