@@ -227,6 +227,13 @@ dirLight.shadow.camera.far = 60;
 dirLight.shadow.bias = -0.0004;
 dirLight.shadow.normalBias = 0.04;
 scene.add( dirLight );
+// Ground-locked sun target: the directional light must follow the car only
+// in X/Z. Aiming it straight at the vehicle (height included) tilted the
+// sun as the car climbed, sliding every shadow around. The proxy sits at
+// y=0 and is synced to the car's XZ every frame in animate().
+const sunFollowTarget = new THREE.Object3D();
+scene.add( sunFollowTarget );
+dirLight.target = sunFollowTarget;
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
 scene.add( hemiLight );
@@ -5911,7 +5918,9 @@ async function init() {
 	if ( ghostEnabled ) createGhostModel( models[ 'vehicle-truck-yellow' ] );
 	if ( replayViewerMode ) vehicle.container.visible = false;
 
-	dirLight.target = vehicleGroup;
+	// (Sun targeting moved up to setup: dirLight aims at sunFollowTarget,
+	// a ground-locked proxy synced to the car's XZ each frame — never its
+	// height — so climbing no longer tilts the sun and shifts shadows.)
 
 	const cam = new Camera();
 	cam.targetPosition.copy( vehicle.spherePos );
@@ -12860,6 +12869,9 @@ function completeCampaignStage() {
 			}
 
 			timer.update();
+			// Sun follows the car's ground shadow position (XZ only, fixed y=0)
+			// so shadow direction never changes with car height.
+			sunFollowTarget.position.set( vehicleGroup.position.x, 0, vehicleGroup.position.z );
 			const nowMs = performance.now();
 			const realFrameSeconds = Math.max( 1 / 1000, ( nowMs - lastFrameNowMs ) / 1000 );
 			lastFrameNowMs = nowMs;
