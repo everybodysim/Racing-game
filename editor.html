@@ -2978,6 +2978,10 @@ function computeCausticShade( normal ) {
 		}
 
 		grid.clear();
+		// Water cells were just wiped, so the hole-cut ground mesh is stale —
+		// rebuild it on the next frame or pool holes linger after Clear
+		// until some other action happens to flag the ground dirty.
+		groundTilesDirty = true;
 		clearMagnetMeshes();
 		clearArcMeshes();
 		magnetBlocks.length = 0;
