@@ -1375,34 +1375,46 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			const geometry = isPad
 				? new THREE.CircleGeometry( CELL_RAW * 0.39, 24 )
 				: new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 );
-			const patch = new THREE.Mesh(
-				geometry,
-				new THREE.MeshStandardMaterial( {
-					color: visual.color,
-					emissive: visual.emissive,
-					emissiveIntensity: 0.2,
-					transparent: true,
-					opacity: 0.58,
-					metalness: visual.metalness,
-					roughness: visual.roughness
-				} )
-			);
-			patch.rotation.x = - Math.PI / 2;
+			const material = new THREE.MeshStandardMaterial( {
+				color: visual.color,
+				emissive: visual.emissive,
+				emissiveIntensity: 0.2,
+				transparent: true,
+				opacity: 0.58,
+				metalness: visual.metalness,
+				roughness: visual.roughness
+			} );
 			const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
-			const yOffset = getOverlayHeightOffset( elevatedEntry );
-			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
-			// Slope tilt: surfaces and pads placed on a slope block lie flush with
-			// the ramp. The tilt comes from the cell's own elevated entry, so
-			// off-grid (fractional) placements work exactly like on-grid ones.
-			// The ramp rises toward local -Z, so the plane tilts toward local +Z
-			// (downhill) by atan(height / cell).
-			if ( elevatedEntry && elevatedEntry.type === 'slope-up' ) {
-				patch.rotation.order = 'YXZ';
-				patch.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ elevatedEntry.orient ] ?? 0 );
-				patch.rotation.x = - Math.PI / 2 + Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
-			}
-			patch.receiveShadow = true;
-			trackPieceGroup.add( patch );
+			const addPatch = ( overlayOffset ) => {
+
+				const patch = new THREE.Mesh( geometry, material );
+				patch.rotation.x = - Math.PI / 2;
+				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET + overlayOffset, ( gz + 0.5 ) * CELL_RAW );
+				// Slope tilt: surfaces and pads placed on a slope block lie flush with
+				// the ramp. The tilt comes from the cell's own elevated entry, so
+				// off-grid (fractional) placements work exactly like on-grid ones.
+				// The ramp rises toward local -Z, so the plane tilts toward local +Z
+				// (downhill) by atan(height / cell).
+				if ( elevatedEntry && elevatedEntry.type === 'slope-up' ) {
+					patch.rotation.order = 'YXZ';
+					patch.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ elevatedEntry.orient ] ?? 0 );
+					patch.rotation.x = - Math.PI / 2 + Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
+				}
+				patch.receiveShadow = true;
+				trackPieceGroup.add( patch );
+				return patch;
+
+			};
+			// Top patch: unchanged normal placement for the block it was
+			// painted on.
+			addPatch( getOverlayHeightOffset( elevatedEntry ) );
+			// Cross blocks: the underpass road below the bridge is a real
+			// driving surface, so a pad/surface on the cell also renders a
+			// second patch on the bottom road, at the normal ground patch
+			// height (no lift). Visual only — the pad/surface effect stays
+			// cell-wide either way (driving under the bridge still triggers
+			// it, an accepted game feature), so gameplay logic is untouched.
+			if ( elevatedEntry && elevatedEntry.type === 'elevated-cross' ) addPatch( 0 );
 
 		}
 
