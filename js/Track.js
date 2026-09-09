@@ -125,6 +125,8 @@ const waterLastRefrFrameByCam = new Map();
 const _waterFrustum = new THREE.Frustum();
 const _waterProjScreen = new THREE.Matrix4();
 let waterRefrFrameCounter = 0;
+// Per-camera pose at the last refraction pass — used to force a fresh pass when the camera moves.
+const waterLastCamStateByCam = new Map();
 let waterRefrCadence = 1;
 
 // Camera-underwater state shared by every pool material. When the camera is
@@ -177,7 +179,35 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 	if ( ! isWaterVisibleToCamera( camera ) ) return;
 	waterRefrFrameCounter ++;
 	const waterLastFrame = waterLastRefrFrameByCam.get( camIndex );
-	if ( waterLastFrame !== undefined && waterRefrFrameCounter - waterLastFrame < waterRefrCadence ) return;
+	// The FPS governor (updateWaterQuality) saves a full scene render by
+	// re-sampling a cadence-stale refraction RT. That is only invisible when
+	// the camera is still — the moment the camera moves (or dives under the
+	// surface) a stale RT shows lagged, offset content through the water,
+	// which reads as "broken" on low-end machines (the ones on LOW preset).
+	// So the cadence gate now applies ONLY to a stationary camera: any
+	// camera movement or underwater frame forces a fresh pass.
+	let waterCamMoved = true;
+	const waterCamState = waterLastCamStateByCam.get( camIndex );
+	if ( waterCamState ) {
+
+		if ( waterCamState.pos.distanceToSquared( camera.position ) < 0.0025 && waterCamState.quat.angleTo( camera.quaternion ) < 0.01 ) {
+
+			waterCamMoved = false;
+
+		} else {
+
+			waterCamState.pos.copy( camera.position );
+			waterCamState.quat.copy( camera.quaternion );
+
+		}
+
+	} else {
+
+		waterLastCamStateByCam.set( camIndex, { pos: camera.position.clone(), quat: camera.quaternion.clone() } );
+
+	}
+	const waterCadence = WATER_UNDERWATER.camera ? 1 : waterRefrCadence;
+	if ( ! waterCamMoved && waterLastFrame !== undefined && waterRefrFrameCounter - waterLastFrame < waterCadence ) return;
 	waterLastRefrFrameByCam.set( camIndex, waterRefrFrameCounter );
 	const db = renderer.getDrawingBufferSize( _waterDbSize );
 	const w = Math.max( 2, Math.floor( db.x / 2 ) );
@@ -195,20 +225,35 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 	const prevScissorTest = renderer.getScissorTest();
 	for ( const plane of WATER_PLANES ) plane.visible = false;
 	renderer.setRenderTarget( rt );
+	// IMPORTANT: use the render target's own viewport/scissor (raw
+	// framebuffer pixels), NOT renderer.setViewport/setScissor — those are
+	// logical units that three.js MULTIPLIES BY the renderer's pixel ratio.
+	// On the LOW preset (pixelRatio 0.85) that multiplication shrinks the
+	// viewport to 85% of the RT, leaving the top/right of the refraction
+	// texture unwritten: water outside a bottom-left square sampled stale
+	// data ("trash") while the square itself showed the whole frustum
+	// squeezed into 85% ("zoomed out"). At ratios >= 1 the multiplied
+	// viewport overflows and GL clamps it to full — which is why medium and
+	// high never showed it. rt.viewport is applied verbatim by
+	// setRenderTarget, so this is exact at every ratio.
 	if ( viewportRect ) {
 
-		renderer.setScissorTest( true );
-		renderer.setViewport( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
-		renderer.setScissor( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
+		rt.scissorTest = true;
+		rt.scissor.set( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
+		rt.viewport.set( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
 
 	} else {
 
-		renderer.setScissorTest( false );
-		renderer.setViewport( 0, 0, w, h );
+		rt.scissorTest = false;
+		rt.viewport.set( 0, 0, w, h );
 
 	}
 	renderer.render( scene, camera );
 	renderer.setRenderTarget( null );
+	// Restore the RT to full-frame defaults so later binds (share snapshot,
+	// the other split-screen camera) always start from the full texture.
+	rt.scissorTest = false;
+	rt.viewport.set( 0, 0, w, h );
 	renderer.setViewport( prevViewport );
 	renderer.setScissor( prevScissor );
 	renderer.setScissorTest( prevScissorTest );
@@ -216,7 +261,6 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 
 		plane.visible = true;
 		plane.material.uniforms.tDiffuse.value = rt.texture;
-		plane.material.uniforms.resolution.value.set( db.x, db.y );
 
 	}
 
@@ -252,7 +296,6 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			waveHeight: { value: CELL_RAW * 0.15 },
 			floorY: { value: - WATER_DEPTH },
 			tDiffuse: { value: null },
-			resolution: { value: new THREE.Vector2( 1, 1 ) },
 			// Distance fade bands (camera -> fragment), fixed world-space
 			// distances scaled to cell size — NOT tied to scene.fog.far (fog
 			// here reaches groundSize*6.4, so fog-coupled bands only kicked in
@@ -300,6 +343,17 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			varying float vWaveH;
 			varying float vWaveDistFade;
 			varying float vCausticDistFade;
+			// Clip-space position: lets the fragment shader derive its own
+			// screen-space UV (clip.xy/clip.w * 0.5 + 0.5) with NO dependency
+			// on an externally-tracked "resolution" uniform. The old scheme
+			// (gl_FragCoord / resolution) breaks the instant that uniform
+			// drifts from the true drawing-buffer size for even one frame
+			// (pixel-ratio change, a quality-preset switch, the pool leaving
+			// frustum during the switch so the cadence-gated refresh never
+			// runs) — exactly the failure mode reported on the LOW preset,
+			// which is the only preset with pixelRatio < 1. NDC needs no such
+			// uniform and can't desync from what was actually rasterized.
+			varying vec4 vClip;
 
 			// Sin-free hash (iq): the old fract(sin(dot)*43758) hash loses precision
 			// on large coords and printed a repeating CROSS/X lattice artifact
@@ -352,11 +406,11 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				vWorldPos = world.xyz;
 				vWorldNormal = normalize( vec3( ( hX1 - hX2 ) * vWaveDistFade, 2.0 * d, ( hZ1 - hZ2 ) * vWaveDistFade ) );
 				gl_Position = projectionMatrix * viewMatrix * world;
+				vClip = gl_Position;
 			}
 		`,
 		fragmentShader: `
 			uniform sampler2D tDiffuse;
-			uniform vec2 resolution;
 			uniform float time;
 			uniform float floorY;
 			uniform vec3 lightDir;
@@ -369,6 +423,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			varying float vWaveH;
 			varying float vWaveDistFade;
 			varying float vCausticDistFade;
+			varying vec4 vClip;
 
 			// Sin-free hash (iq): the old fract(sin(dot)*43758) hash loses precision
 			// on large coords and printed a repeating CROSS/X lattice artifact
@@ -404,7 +459,10 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				// Screen-space refraction: sample the REAL rendered scene (the
 				// car, the actual pool tiles — no fake drawn floor) through an
 				// animated wobble: light bending and shivering through water.
-				vec2 screenUV = gl_FragCoord.xy / resolution;
+				// NDC -> [0,1] UV. No "resolution" uniform involved — this can
+				// never desync from the actual rasterized frame (see the
+				// vClip comment in the vertex shader above).
+				vec2 screenUV = ( vClip.xy / vClip.w ) * 0.5 + 0.5;
 				float wt = time * 1.6;
 				vec2 wobble = vec2(
 					noise( vWorldPos.xz * 2.1 + vec2( wt, wt * 0.7 ) ) - 0.5,
