@@ -2744,6 +2744,23 @@ function computeCausticShade( normal ) {
 				showToast( 'Pool tiles can only be added to empty cells' );
 				return;
 			}
+			// Obstacles and cross blocks don't mix: the cross bridge spans the
+			// cell's underpass road, so an obstacle there either pokes through
+			// the bridge or clutters the underpass. Block painting obstacles
+			// onto a cross cell — except toggling an existing one OFF, which
+			// stays allowed so legacy placements can be cleaned up — and
+			// block painting a cross block onto a cell that already holds
+			// obstacles.
+			const isObstacleTool = selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL;
+			const obstaclePresent = ( selectedType === BUMP_TOOL && cell.bump ) || ( selectedType === POLE_TOOL && cell.pole ) || ( selectedType === CUBE_TOOL && cell.cube ) || ( selectedType === WALL_TOOL && cell.wall ) || ( selectedType === JUMP_TOOL && cell.jump );
+			if ( isObstacleTool && cell.elevatedType === 'elevated-cross' && ! obstaclePresent ) {
+				showToast( 'Obstacles cannot be placed on a cross block' );
+				return;
+			}
+			if ( selectedType === 'elevated-cross' && ( cell.bump || cell.pole || cell.cube || cell.wall || cell.jump ) ) {
+				showToast( 'Cross blocks cannot hold obstacles — erase them first' );
+				return;
+			}
 			if ( selectedType !== WATER_TOOL ) removePoolTileAt( gx, gz, cell );
 			grid.set( key, cell );
 			if ( selectedType === BUMP_TOOL ) {
