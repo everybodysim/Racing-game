@@ -239,17 +239,25 @@ export class Vehicle {
 
 		const targetSpeed = this.inputZ * this.topSpeed;
 
+		// Lerp factors are clamped to 1: stacked pad effects multiply
+		// accelMultiplier (4x pad-high-speed is ~14x), and lerp(a, b, t)
+		// EXTRAPOLATES for t > 1 — so dt * rate * multiplier > 2 amplified
+		// |linearSpeed - target| by (t-1) every frame instead of shrinking
+		// it. Stacked high-speed pads made the speed model oscillate
+		// exponentially (measured: 1.2 -> 14,000,000 in ~3s) and crash the
+		// tab. Clamped, stacks still mean much faster acceleration toward
+		// the pad-boosted top speed — just never overshoot.
 		if ( targetSpeed < 0 && this.linearSpeed > 0.01 ) {
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, 0.0, dt * this.brakeRate * this.accelMultiplier );
+			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, 0.0, Math.min( 1, dt * this.brakeRate * this.accelMultiplier ) );
 
 		} else if ( targetSpeed < 0 ) {
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed / 2, dt * this.reverseAccelRate * this.accelMultiplier );
+			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed / 2, Math.min( 1, dt * this.reverseAccelRate * this.accelMultiplier ) );
 
 		} else {
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed, dt * this.accelRate * this.accelMultiplier );
+			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed, Math.min( 1, dt * this.accelRate * this.accelMultiplier ) );
 
 		}
 
