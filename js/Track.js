@@ -246,7 +246,6 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 
 		plane.visible = true;
 		plane.material.uniforms.tDiffuse.value = rt.texture;
-		plane.material.uniforms.resolution.value.set( db.x, db.y );
 
 	}
 
@@ -282,7 +281,6 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			waveHeight: { value: CELL_RAW * 0.15 },
 			floorY: { value: - WATER_DEPTH },
 			tDiffuse: { value: null },
-			resolution: { value: new THREE.Vector2( 1, 1 ) },
 			// Distance fade bands (camera -> fragment), fixed world-space
 			// distances scaled to cell size — NOT tied to scene.fog.far (fog
 			// here reaches groundSize*6.4, so fog-coupled bands only kicked in
@@ -330,6 +328,17 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			varying float vWaveH;
 			varying float vWaveDistFade;
 			varying float vCausticDistFade;
+			// Clip-space position: lets the fragment shader derive its own
+			// screen-space UV (clip.xy/clip.w * 0.5 + 0.5) with NO dependency
+			// on an externally-tracked "resolution" uniform. The old scheme
+			// (gl_FragCoord / resolution) breaks the instant that uniform
+			// drifts from the true drawing-buffer size for even one frame
+			// (pixel-ratio change, a quality-preset switch, the pool leaving
+			// frustum during the switch so the cadence-gated refresh never
+			// runs) — exactly the failure mode reported on the LOW preset,
+			// which is the only preset with pixelRatio < 1. NDC needs no such
+			// uniform and can't desync from what was actually rasterized.
+			varying vec4 vClip;
 
 			// Sin-free hash (iq): the old fract(sin(dot)*43758) hash loses precision
 			// on large coords and printed a repeating CROSS/X lattice artifact
@@ -382,11 +391,11 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				vWorldPos = world.xyz;
 				vWorldNormal = normalize( vec3( ( hX1 - hX2 ) * vWaveDistFade, 2.0 * d, ( hZ1 - hZ2 ) * vWaveDistFade ) );
 				gl_Position = projectionMatrix * viewMatrix * world;
+				vClip = gl_Position;
 			}
 		`,
 		fragmentShader: `
 			uniform sampler2D tDiffuse;
-			uniform vec2 resolution;
 			uniform float time;
 			uniform float floorY;
 			uniform vec3 lightDir;
@@ -399,6 +408,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			varying float vWaveH;
 			varying float vWaveDistFade;
 			varying float vCausticDistFade;
+			varying vec4 vClip;
 
 			// Sin-free hash (iq): the old fract(sin(dot)*43758) hash loses precision
 			// on large coords and printed a repeating CROSS/X lattice artifact
@@ -434,7 +444,10 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				// Screen-space refraction: sample the REAL rendered scene (the
 				// car, the actual pool tiles — no fake drawn floor) through an
 				// animated wobble: light bending and shivering through water.
-				vec2 screenUV = gl_FragCoord.xy / resolution;
+				// NDC -> [0,1] UV. No "resolution" uniform involved — this can
+				// never desync from the actual rasterized frame (see the
+				// vClip comment in the vertex shader above).
+				vec2 screenUV = ( vClip.xy / vClip.w ) * 0.5 + 0.5;
 				float wt = time * 1.6;
 				vec2 wobble = vec2(
 					noise( vWorldPos.xz * 2.1 + vec2( wt, wt * 0.7 ) ) - 0.5,
