@@ -53,7 +53,6 @@
     <div class="stack">
       <div><b>Identity</b></div>
       <input id="playerName" maxlength="24" placeholder="Account username" disabled>
-      <button class="btn" id="saveName" disabled>Locked</button>
       <div class="small">Chat username is locked to your signed-in account.</div>
     </div>
     <hr style="border-color:var(--line);width:100%">
@@ -259,7 +258,6 @@ async function sendClub(stream,inputId){
     toast(err.message || 'Failed to send message', true);
   }
 }
-$('saveName').onclick=()=>{};
 $('refreshClubsBtn').onclick=()=>renderClubs();
 $('newClubFocusBtn').onclick=()=>$('newClubName').focus();
 $('createClubBtn').onclick=async()=>{me=getAccountUsername(); if(!me){ alert('Log in to your account to create clubs.'); return; } const name=$('newClubName').value.trim();if(!name)return; try { await api('/clubs',{method:'POST',body:JSON.stringify({displayName:name,ownerUsername:me})}); $('newClubName').value=''; await renderClubs(); toast('Club created'); } catch (err) { toast(err?.message||'Create failed', true); }};
