@@ -3423,7 +3423,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000221&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000224&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
@@ -3528,40 +3528,6 @@ document.getElementById('loading-status').textContent =
       border-bottom: 1px solid rgba(255,255,255,0.08);
     }
 
-    /* Name bar */
-    #name-bar {
-      display: flex;
-      gap: 6px;
-      padding: 8px;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-    }
-
-    #name {
-      flex: 1;
-      padding: 8px 10px;
-      border-radius: 8px;
-      border: 1px solid rgba(255,255,255,0.15);
-      background: rgba(8,10,14,0.7);
-      color: white;
-      font-size: 12px;
-      outline: none;
-    }
-
-    #set-name {
-      padding: 8px 10px;
-      border-radius: 8px;
-      border: none;
-      cursor: pointer;
-      font-size: 12px;
-      color: rgba(255,255,255,0.9);
-      background: rgba(255,255,255,0.08);
-      transition: 0.15s;
-    }
-
-    #set-name:hover {
-      background: rgba(255,255,255,0.15);
-    }
-
     /* Chat messages */
     #chat {
       flex: 1;
@@ -3623,11 +3589,6 @@ document.getElementById('loading-status').textContent =
 <div id="chat-box">
   <div id="chat-header">Live Chat</div>
 
-  <div id="name-bar">
-    <input id="name" placeholder="Account username required" disabled />
-    <button id="set-name" disabled>Locked</button>
-  </div>
-
   <div id="chat"></div>
 
   <div id="input-area">
@@ -3655,10 +3616,6 @@ document.getElementById('loading-status').textContent =
     } catch { return ""; }
   }
   let userName = getAccountUsername();
-  if (userName) {
-    const nameInput = document.getElementById("name");
-    if (nameInput) nameInput.value = userName;
-  }
   let seen = new Set(); // prevent duplicates
   let hasUnreadMessages = false;
   const baseDocumentTitle = "Racing";
@@ -3882,11 +3839,6 @@ document.getElementById('loading-status').textContent =
     }
   });
 
-  // Username is locked to account username
-  const nameInput = document.getElementById("name");
-  const setBtn = document.getElementById("set-name");
-  if (!userName && nameInput) nameInput.placeholder = "Log in to an account to chat";
-  if (setBtn) setBtn.title = "Username is your account username";
 
   // Live messages
   channel.subscribe(msg => {

@@ -1028,6 +1028,10 @@
 	const ARC_DEFAULT_ID = 1;
 	const ARC_MAX_ID = 999;
 	const BLOCK_HEIGHT_OFFSET = 0.012;
+	// Pads/surfaces hover this far above the road so low blocks (bump domes,
+	// jump ramps) can never render through them. Mirrors PAD_SURFACE_LIFT in
+	// js/Track.js — keep the two in sync.
+	const BLOCK_PAD_SURFACE_LIFT = 0.55;
 	const DECO_HEIGHT_OFFSET = BLOCK_HEIGHT_OFFSET * 0.5;
 
 	function selectMagnetIndex( index ) {
@@ -2207,34 +2211,45 @@
 
 				const visual = getSurfaceVisual( surfaceType );
 				const isPad = String( surfaceType || '' ).startsWith( 'pad-' );
-				const patch = new THREE.Mesh(
-					isPad ? new THREE.CircleGeometry( CELL_RAW * 0.39, 24 ) : new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 ),
-					new THREE.MeshStandardMaterial( {
-						color: visual.color,
-						emissive: visual.emissive,
-						emissiveIntensity: 0.2,
-						transparent: true,
-						opacity: 0.58,
-						metalness: visual.metalness,
-						roughness: visual.roughness
-					} )
-				);
-				patch.rotation.x = - Math.PI / 2;
-				const yOffset = getOverlayHeightOffset( cell );
-				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
-				// Slope tilt: flush with the ramp, matching the game build. Uses the
-				// cell's own elevated block, so off-grid cells tilt correctly too.
-				if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) {
-					const slopeOrient = cell.elevatedType === 'slope-down'
-						? ( ORIENT_180[ cell.elevatedOrient || 0 ] ?? ( cell.elevatedOrient || 0 ) )
-						: ( cell.elevatedOrient || 0 );
-					patch.rotation.order = 'YXZ';
-					patch.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeOrient ] || 0 );
-					patch.rotation.x = - Math.PI / 2 + Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
-				}
-				patch.receiveShadow = true;
-				trackGroup.add( patch );
-				cell.surfaceMeshes.push( patch );
+				const geometry = isPad ? new THREE.CircleGeometry( CELL_RAW * 0.39, 24 ) : new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 );
+				const material = new THREE.MeshStandardMaterial( {
+					color: visual.color,
+					emissive: visual.emissive,
+					emissiveIntensity: 0.2,
+					transparent: true,
+					opacity: 0.58,
+					metalness: visual.metalness,
+					roughness: visual.roughness
+				} );
+				const stackOffset = idx * 0.008;
+				const addSurfacePatch = ( overlayOffset ) => {
+
+					const patch = new THREE.Mesh( geometry, material );
+					patch.rotation.x = - Math.PI / 2;
+					patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_PAD_SURFACE_LIFT + BLOCK_HEIGHT_OFFSET + overlayOffset + stackOffset, ( gz + 0.5 ) * CELL_RAW );
+					// Slope tilt: flush with the ramp, matching the game build. Uses the
+					// cell's own elevated block, so off-grid cells tilt correctly too.
+					if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) {
+						const slopeOrient = cell.elevatedType === 'slope-down'
+							? ( ORIENT_180[ cell.elevatedOrient || 0 ] ?? ( cell.elevatedOrient || 0 ) )
+							: ( cell.elevatedOrient || 0 );
+						patch.rotation.order = 'YXZ';
+						patch.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeOrient ] || 0 );
+						patch.rotation.x = - Math.PI / 2 + Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
+					}
+					patch.receiveShadow = true;
+					trackGroup.add( patch );
+					cell.surfaceMeshes.push( patch );
+					return patch;
+
+				};
+				addSurfacePatch( getOverlayHeightOffset( cell ) );
+				// Cross blocks: the underpass road below the bridge is a real
+				// driving surface, so a pad/surface on the cell also shows on
+				// the bottom road. Visual only — the effect stays cell-wide
+				// either way (driving under the bridge still triggers it, an
+				// accepted game feature). Mirrors the game build in Track.js.
+				if ( cell.elevatedType === 'elevated-cross' ) addSurfacePatch( 0 );
 
 			} );
 
@@ -6382,11 +6397,39 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		const _fxPadNeighbourhood = [];
 		const _fxBoostNeighbourhood = [];
 
+		function fxGroundedHeightFor( targetVehicle ) {
+
+			// Height-aware ground check. The old flat-road threshold (0.62)
+			// read every car on an elevated deck or slope as airborne, so
+			// ground-gated effects (bounce, kick, custom noAir surfaces)
+			// silently stopped working on those blocks — editor only, since
+			// the game checks real wheel contact. Expected on-ground height =
+			// flat road + the overlay height of the block under the car
+			// (half for slopes, matching the pad/surface render heights).
+			const posX = targetVehicle?.spherePos?.x ?? 0;
+			const posZ = targetVehicle?.spherePos?.z ?? 0;
+			const unit = CELL_RAW * GRID_SCALE;
+			const gx = Math.floor( posX / unit );
+			const gz = Math.floor( posZ / unit );
+			let overlay = 0;
+			// Off-grid pieces sit at fractional origins, so the block under
+			// the car may be keyed at floor or floor-1 on either axis — take
+			// the tallest match of the four candidates.
+			for ( const cx of [ gx, gx - 1 ] ) {
+				for ( const cz of [ gz, gz - 1 ] ) {
+					const cell = grid.get( cellKey( cx, cz ) );
+					if ( cell ) overlay = Math.max( overlay, getOverlayHeightOffset( cell ) );
+				}
+			}
+			return 0.62 + overlay * GRID_SCALE;
+
+		}
+
 		function fxIsVehicleOnGround( targetVehicle ) {
 
 			const posY = targetVehicle?.spherePos?.y ?? 999;
 			const verticalSpeed = Math.abs( targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] ?? 999 );
-			return posY <= 0.62 && verticalSpeed <= 1.1;
+			return posY <= fxGroundedHeightFor( targetVehicle ) && verticalSpeed <= 1.1;
 
 		}
 
@@ -6782,7 +6825,9 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			const trick = activePadEffect?.trick || null;
 			const hasTrickPayload = Boolean( trick );
 			const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
-			const airborne = targetVehicle.spherePos.y > 0.5 || Math.abs( verticalVel ) > 0.25;
+			// Height-aware: on an elevated deck the car's world Y is far above 0.5
+			// while still ON the ground — compare against the local driving surface.
+			const airborne = targetVehicle.spherePos.y > fxGroundedHeightFor( targetVehicle ) + 0.3 || Math.abs( verticalVel ) > 0.25;
 			const canRun = state.active ? hasTrickPayload : ( hasTrickPayload && airborne );
 			if ( ! canRun ) {
 

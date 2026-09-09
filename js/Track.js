@@ -8,6 +8,9 @@ export const GRID_SCALE = 0.75;
 const _dummy = new THREE.Object3D();
 const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
 const JUMP_RAMP_SIZE = CELL_RAW * 0.36;
+// Pads/surfaces hover this far above the road so low blocks (bump domes,
+// jump ramps) can never render through them.
+const PAD_SURFACE_LIFT = 0.55;
 const JUMP_RAMP_DEPTH = CELL_RAW * 0.18;
 const JUMP_RAMP_Y = 0.24;
 const VISUAL_HEIGHT_OFFSET = 0.012;
@@ -1375,34 +1378,43 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			const geometry = isPad
 				? new THREE.CircleGeometry( CELL_RAW * 0.39, 24 )
 				: new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 );
-			const patch = new THREE.Mesh(
-				geometry,
-				new THREE.MeshStandardMaterial( {
-					color: visual.color,
-					emissive: visual.emissive,
-					emissiveIntensity: 0.2,
-					transparent: true,
-					opacity: 0.58,
-					metalness: visual.metalness,
-					roughness: visual.roughness
-				} )
-			);
-			patch.rotation.x = - Math.PI / 2;
+			const material = new THREE.MeshStandardMaterial( {
+				color: visual.color,
+				emissive: visual.emissive,
+				emissiveIntensity: 0.2,
+				transparent: true,
+				opacity: 0.58,
+				metalness: visual.metalness,
+				roughness: visual.roughness
+			} );
 			const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
-			const yOffset = getOverlayHeightOffset( elevatedEntry );
-			patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
-			// Slope tilt: surfaces and pads placed on a slope block lie flush with
-			// the ramp. The tilt comes from the cell's own elevated entry, so
-			// off-grid (fractional) placements work exactly like on-grid ones.
-			// The ramp rises toward local -Z, so the plane tilts toward local +Z
-			// (downhill) by atan(height / cell).
-			if ( elevatedEntry && elevatedEntry.type === 'slope-up' ) {
-				patch.rotation.order = 'YXZ';
-				patch.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ elevatedEntry.orient ] ?? 0 );
-				patch.rotation.x = - Math.PI / 2 + Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
-			}
-			patch.receiveShadow = true;
-			trackPieceGroup.add( patch );
+			const addPatch = ( overlayOffset ) => {
+
+				const patch = new THREE.Mesh( geometry, material );
+				patch.rotation.x = - Math.PI / 2;
+				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + PAD_SURFACE_LIFT + VISUAL_HEIGHT_OFFSET + overlayOffset, ( gz + 0.5 ) * CELL_RAW );
+				// Slope tilt: surfaces and pads placed on a slope block lie flush with
+				// the ramp. The tilt comes from the cell's own elevated entry, so
+				// off-grid (fractional) placements work exactly like on-grid ones.
+				// The ramp rises toward local -Z, so the plane tilts toward local +Z
+				// (downhill) by atan(height / cell).
+				if ( elevatedEntry && elevatedEntry.type === 'slope-up' ) {
+					patch.rotation.order = 'YXZ';
+					patch.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ elevatedEntry.orient ] ?? 0 );
+					patch.rotation.x = - Math.PI / 2 + Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
+				}
+				patch.receiveShadow = true;
+				trackPieceGroup.add( patch );
+				return patch;
+
+			};
+			addPatch( getOverlayHeightOffset( elevatedEntry ) );
+			// Cross blocks: the underpass road below the bridge is a real
+			// driving surface, so a pad/surface on the cell also shows on the
+			// bottom road. Visual only — the effect stays cell-wide either way
+			// (driving under the bridge still triggers it, an accepted game
+			// feature), so no gameplay logic changes here.
+			if ( elevatedEntry && elevatedEntry.type === 'elevated-cross' ) addPatch( 0 );
 
 		}
 
