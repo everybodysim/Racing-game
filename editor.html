@@ -6557,11 +6557,39 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		const _fxPadNeighbourhood = [];
 		const _fxBoostNeighbourhood = [];
 
+		function fxGroundedHeightFor( targetVehicle ) {
+
+			// Height-aware ground check. The old flat-road threshold (0.62)
+			// read every car on an elevated deck or slope as airborne, so
+			// ground-gated effects (bounce, kick, custom noAir surfaces)
+			// silently stopped working on those blocks — editor only, since
+			// the game checks real wheel contact. Expected on-ground height =
+			// flat road + the overlay height of the block under the car
+			// (half for slopes, matching the pad/surface render heights).
+			const posX = targetVehicle?.spherePos?.x ?? 0;
+			const posZ = targetVehicle?.spherePos?.z ?? 0;
+			const unit = CELL_RAW * GRID_SCALE;
+			const gx = Math.floor( posX / unit );
+			const gz = Math.floor( posZ / unit );
+			let overlay = 0;
+			// Off-grid pieces sit at fractional origins, so the block under
+			// the car may be keyed at floor or floor-1 on either axis — take
+			// the tallest match of the four candidates.
+			for ( const cx of [ gx, gx - 1 ] ) {
+				for ( const cz of [ gz, gz - 1 ] ) {
+					const cell = grid.get( cellKey( cx, cz ) );
+					if ( cell ) overlay = Math.max( overlay, getOverlayHeightOffset( cell ) );
+				}
+			}
+			return 0.62 + overlay * GRID_SCALE;
+
+		}
+
 		function fxIsVehicleOnGround( targetVehicle ) {
 
 			const posY = targetVehicle?.spherePos?.y ?? 999;
 			const verticalSpeed = Math.abs( targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] ?? 999 );
-			return posY <= 0.62 && verticalSpeed <= 1.1;
+			return posY <= fxGroundedHeightFor( targetVehicle ) && verticalSpeed <= 1.1;
 
 		}
 
@@ -6957,7 +6985,9 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			const trick = activePadEffect?.trick || null;
 			const hasTrickPayload = Boolean( trick );
 			const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
-			const airborne = targetVehicle.spherePos.y > 0.5 || Math.abs( verticalVel ) > 0.25;
+			// Height-aware: on an elevated deck the car's world Y is far above 0.5
+			// while still ON the ground — compare against the local driving surface.
+			const airborne = targetVehicle.spherePos.y > fxGroundedHeightFor( targetVehicle ) + 0.3 || Math.abs( verticalVel ) > 0.25;
 			const canRun = state.active ? hasTrickPayload : ( hasTrickPayload && airborne );
 			if ( ! canRun ) {
 
