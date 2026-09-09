@@ -225,20 +225,35 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 	const prevScissorTest = renderer.getScissorTest();
 	for ( const plane of WATER_PLANES ) plane.visible = false;
 	renderer.setRenderTarget( rt );
+	// IMPORTANT: use the render target's own viewport/scissor (raw
+	// framebuffer pixels), NOT renderer.setViewport/setScissor — those are
+	// logical units that three.js MULTIPLIES BY the renderer's pixel ratio.
+	// On the LOW preset (pixelRatio 0.85) that multiplication shrinks the
+	// viewport to 85% of the RT, leaving the top/right of the refraction
+	// texture unwritten: water outside a bottom-left square sampled stale
+	// data ("trash") while the square itself showed the whole frustum
+	// squeezed into 85% ("zoomed out"). At ratios >= 1 the multiplied
+	// viewport overflows and GL clamps it to full — which is why medium and
+	// high never showed it. rt.viewport is applied verbatim by
+	// setRenderTarget, so this is exact at every ratio.
 	if ( viewportRect ) {
 
-		renderer.setScissorTest( true );
-		renderer.setViewport( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
-		renderer.setScissor( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
+		rt.scissorTest = true;
+		rt.scissor.set( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
+		rt.viewport.set( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
 
 	} else {
 
-		renderer.setScissorTest( false );
-		renderer.setViewport( 0, 0, w, h );
+		rt.scissorTest = false;
+		rt.viewport.set( 0, 0, w, h );
 
 	}
 	renderer.render( scene, camera );
 	renderer.setRenderTarget( null );
+	// Restore the RT to full-frame defaults so later binds (share snapshot,
+	// the other split-screen camera) always start from the full texture.
+	rt.scissorTest = false;
+	rt.viewport.set( 0, 0, w, h );
 	renderer.setViewport( prevViewport );
 	renderer.setScissor( prevScissor );
 	renderer.setScissorTest( prevScissorTest );
