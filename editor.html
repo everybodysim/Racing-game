@@ -2226,12 +2226,19 @@
 				// in-cell track parts so those blocks never render over or
 				// through them. Heights are the models' measured tops:
 				// 4-way hub ≈0.85 (incl. its +0.1 nudge), 3-way hub ≈0.80,
-				// jump ramp ≈1.93. Elevated-tile placements keep their
-				// existing flush rendering — the user wants those unchanged.
+				// jump ramp ≈1.93. Elevated tiles stay flush with their own
+				// deck (no lift above rails/hubs) — but their deck plates
+				// aren't flush with the model origin, so a per-type deck
+				// offset keeps the patch from rendering BELOW the road.
 				let surfaceLift = 0;
 				if ( ! cell.elevatedType ) {
 					if ( cell.jump ) surfaceLift = 1.5;
 					else if ( ( cell.roadPieces || [] ).some( ( piece ) => piece.type === 'track-4-way' || piece.type === 'track-3-way' ) ) surfaceLift = 0.45;
+				} else if ( cell.elevatedType === 'elevated-3-way' || cell.elevatedType === 'elevated-4-way' || cell.elevatedType === 'elevated-checkpoint' ) {
+					// Measured deck tops above the model origin: 3-way ≈+0.05,
+					// 4-way ≈+0.06 (−0.04 plate + its +0.1 placement nudge),
+					// checkpoint ≈+0.01. Straight/cross/corner decks are flush.
+					surfaceLift = cell.elevatedType === 'elevated-3-way' ? 0.05 : ( cell.elevatedType === 'elevated-4-way' ? 0.06 : 0.01 );
 				}
 				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + surfaceLift + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
 				// Slope tilt: flush with the ramp, matching the game build. Uses the
@@ -2747,17 +2754,18 @@ function computeCausticShade( normal ) {
 			// Obstacles and cross blocks don't mix: the cross bridge spans the
 			// cell's underpass road, so an obstacle there either pokes through
 			// the bridge or clutters the underpass. Block painting obstacles
-			// onto a cross cell — except toggling an existing one OFF, which
-			// stays allowed so legacy placements can be cleaned up — and
-			// block painting a cross block onto a cell that already holds
-			// obstacles.
-			const isObstacleTool = selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL;
-			const obstaclePresent = ( selectedType === BUMP_TOOL && cell.bump ) || ( selectedType === POLE_TOOL && cell.pole ) || ( selectedType === CUBE_TOOL && cell.cube ) || ( selectedType === WALL_TOOL && cell.wall ) || ( selectedType === JUMP_TOOL && cell.jump );
+			// and moving objects onto a cross cell — except toggling an
+			// existing one OFF, which stays allowed so legacy placements can
+			// be cleaned up — and block painting a cross block onto a cell
+			// that already holds obstacles.
+			const isObstacleTool = selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL;
+			const isMovingTool = selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL;
+			const obstaclePresent = ( selectedType === BUMP_TOOL && cell.bump ) || ( selectedType === POLE_TOOL && cell.pole ) || ( selectedType === CUBE_TOOL && cell.cube ) || ( selectedType === WALL_TOOL && cell.wall ) || ( selectedType === JUMP_TOOL && cell.jump ) || ( isMovingTool && cell.movingObstacle === selectedType );
 			if ( isObstacleTool && cell.elevatedType === 'elevated-cross' && ! obstaclePresent ) {
 				showToast( 'Obstacles cannot be placed on a cross block' );
 				return;
 			}
-			if ( selectedType === 'elevated-cross' && ( cell.bump || cell.pole || cell.cube || cell.wall || cell.jump ) ) {
+			if ( selectedType === 'elevated-cross' && ( cell.bump || cell.pole || cell.cube || cell.wall || cell.jump || cell.movingObstacle ) ) {
 				showToast( 'Cross blocks cannot hold obstacles — erase them first' );
 				return;
 			}

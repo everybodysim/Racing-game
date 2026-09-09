@@ -29,11 +29,30 @@ await tool( '#btn-pole' ); await click( B ); // toggling existing pole OFF stays
 await page.waitForTimeout( 150 );
 const t3 = await page.evaluate( () => document.getElementById( 'toast' ).classList.contains( 'show' ) ? document.getElementById( 'toast' ).textContent : '(no toast)' );
 
+// Moving objects are blocked on cross blocks too (same rules).
+await page.waitForTimeout( 2200 );
+await tool( '#btn-moving-slide' ); await click( A ); // moving onto cross cell → blocked
+const t4 = await toast();
+await page.waitForTimeout( 2200 );
+await click( B ); // moving onto empty cell → placed (control)
+await page.waitForTimeout( 150 );
+const t5 = await page.evaluate( () => document.getElementById( 'toast' ).classList.contains( 'show' ) ? document.getElementById( 'toast' ).textContent : '(no toast)' );
+await tool( '#btn-elevated-cross' ); await click( B ); // cross onto moving-obstacle cell → blocked
+const t6 = await toast();
+await page.waitForTimeout( 2200 );
+await tool( '#btn-moving-slide' ); await click( B ); // toggling existing mover OFF stays allowed
+await page.waitForTimeout( 150 );
+const t7 = await page.evaluate( () => document.getElementById( 'toast' ).classList.contains( 'show' ) ? document.getElementById( 'toast' ).textContent : '(no toast)' );
+
 const pass = [];
 pass.push( [ 'pole on non-cross cell ok', ! afterControl.includes( 'cross' ) ] );
 pass.push( [ 'obstacle-on-cross blocked', t1.includes( 'Obstacles cannot be placed on a cross block' ) ] );
 pass.push( [ 'cross-on-obstacle blocked', t2.includes( 'erase them first' ) ] );
 pass.push( [ 'toggle-off still allowed', ! t3.includes( 'cannot' ) ] );
+pass.push( [ 'moving-on-cross blocked', t4.includes( 'Obstacles cannot be placed on a cross block' ) ] );
+pass.push( [ 'moving on non-cross cell ok', ! t5.includes( 'cross' ) ] );
+pass.push( [ 'cross-on-moving blocked', t6.includes( 'erase them first' ) ] );
+pass.push( [ 'moving toggle-off allowed', ! t7.includes( 'cannot' ) ] );
 for ( const [ name, ok ] of pass ) console.log( ( ok ? 'PASS' : 'FAIL' ) + ' — ' + name );
 console.log( 'page errors:', errors.length ? errors : 'none' );
 await browser.close();
