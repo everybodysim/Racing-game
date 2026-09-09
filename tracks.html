@@ -18,6 +18,10 @@
 .records-board{padding:22px}.records-board h2{font-size:20px;margin-bottom:6px}.records-list{display:flex;flex-direction:column;gap:8px}.record-chip{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;background:linear-gradient(135deg,rgba(255,255,255,.07),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.13);transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}.record-chip:hover{transform:translateX(4px);border-color:rgba(119,243,177,.28);box-shadow:0 4px 20px rgba(80,200,140,.08)}.record-chip .rank-badge{flex-shrink:0;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:900 15px sans-serif;background:rgba(255,255,255,.08);color:var(--muted);border:1px solid rgba(255,255,255,.12)}.record-chip:nth-child(1) .rank-badge{background:linear-gradient(135deg,#ffd95a,#f0b429);color:#1a1300;border-color:#ffd95a;box-shadow:0 0 12px rgba(255,215,0,.25)}.record-chip:nth-child(2) .rank-badge{background:linear-gradient(135deg,#d4d4d4,#a8a8a8);color:#151515;border-color:#d4d4d4}.record-chip:nth-child(3) .rank-badge{background:linear-gradient(135deg,#e09455,#c97f3e);color:#1a0e00;border-color:#e09455}.record-chip .record-info{flex:1;min-width:0}.record-chip .name{font-weight:800;font-size:15px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.record-chip .count{font-size:12px;color:var(--muted);margin-top:2px}.record-chip:nth-child(1){border-color:rgba(255,215,0,.25);background:linear-gradient(135deg,rgba(255,215,0,.08),rgba(255,255,255,.03))}.records-empty{color:var(--muted);font-size:13px;padding:12px;text-align:center}
 @media(max-width:760px){.hero,.section-head{align-items:flex-start;flex-direction:column}select{max-width:none}}
 	</style>
+	<style>
+#board-rail{position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:900;display:flex;flex-direction:column;gap:5px;padding:7px;background:rgba(10,16,28,.74);border:1px solid rgba(255,255,255,.14);border-radius:14px;backdrop-filter:blur(6px);box-shadow:0 10px 30px rgba(0,0,0,.28)}#board-rail button{border:1px solid transparent;background:transparent;color:var(--muted);border-radius:9px;padding:6px 11px;font:700 11px sans-serif;white-space:nowrap;cursor:pointer;text-align:right}#board-rail button:hover{background:rgba(255,255,255,.12);color:#fff}#board-rail button.active{background:linear-gradient(135deg,rgba(48,198,119,.28),rgba(48,151,255,.22));border-color:rgba(119,243,177,.45);color:#fff}@media (max-width:1180px){#board-rail{display:none}}.creator-badge{border-color:rgba(119,243,177,.3);color:#a9e8c4}#publishing-as b{color:#fff}
+	</style>
+
 <style>
 .publish-ghost-guide{margin:12px 0 14px;padding:12px;border-radius:12px;border:1px solid rgba(119,243,177,.28);background:linear-gradient(135deg,rgba(46,151,111,.15),rgba(60,132,220,.12))}
 .publish-ghost-guide h3{margin:0 0 5px;color:#caffdf;font-size:14px}
@@ -31,11 +35,12 @@
 <body>
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content">
-	<div class="wrap">
+	<nav id="board-rail" aria-label="Jump to board section"></nav>
+		<div class="wrap">
 		<div class="hero"><div><div class="section-kicker">Community tracks</div><h1>Track Browser</h1><p class="sub">Find a fast new favorite, chase records, and jump straight into racing.</p></div><div class="row"><button id="random-track-btn" type="button">🎲 Random track</button><a class="linkbtn" href="index.html">Back to game</a></div></div>
 		<div class="panel" id="loading-panel"><div class="section-kicker">Loading track data</div><div id="leaderboard-progress-wrap" aria-live="polite"><div id="leaderboard-progress-label">Loading leaderboard data…</div><div id="leaderboard-progress-bar"><div id="leaderboard-progress-fill"></div></div></div></div>
 		<div class="panel admin-strip"><input id="adminTokenInput" placeholder="Admin password" type="password"><div class="row" style="margin-top:0"><button id="export-board-btn" type="button">Export board code</button><button id="import-board-btn" type="button">Import board code</button><button id="copy-link-btn" type="button">Copy share link</button></div></div>
-		<details class="panel" id="publish-drawer"><summary>Publish Track</summary><div class="drawer-panel"><p class="sub"></p><section class="publish-ghost-guide" aria-labelledby="publish-ghost-guide-title"><h3 id="publish-ghost-guide-title">Before you publish: add a real run</h3><p>Every shared track needs a ghost so players can race the route you built.</p><ol><li>Open your track and drive a complete lap/run.</li><li>Use <strong>Export ghost</strong> in the game to copy the ghost code.</li><li>Return here, then paste that code into the Ghost code box below.</li><li>Name your track, add optional notes or a thumbnail, and publish it to the board.</li></ol></section><label for="track-name">Track name</label><input id="track-name" placeholder="e.g. Forest Sprint" /><label for="ghost-code">Ghost code or board import/export code</label><textarea id="ghost-code" placeholder="Paste export ghost code here..."></textarea><label for="track-description">Description (optional)</label><textarea id="track-description" placeholder="Add notes, style, and tips..."></textarea><label for="track-thumbnail">Thumbnail image (optional)</label><input id="track-thumbnail" type="file" accept="image/*" /><div class="row"><button id="add-btn" type="button">Publish to board</button></div><div id="status"></div></div></details>
+		<details class="panel" id="publish-drawer"><summary>Publish Track</summary><div class="drawer-panel"><p class="sub" id="publishing-as"></p><section class="publish-ghost-guide" aria-labelledby="publish-ghost-guide-title"><h3 id="publish-ghost-guide-title">Before you publish: add a real run</h3><p>Every shared track needs a ghost so players can race the route you built.</p><ol><li>Open your track and drive a complete lap/run.</li><li>Use <strong>Export ghost</strong> in the game to copy the ghost code.</li><li>Return here, then paste that code into the Ghost code box below.</li><li>Name your track, add optional notes or a thumbnail, and publish it to the board.</li></ol></section><label for="track-name">Track name</label><input id="track-name" placeholder="e.g. Forest Sprint" /><label for="ghost-code">Ghost code or board import/export code</label><textarea id="ghost-code" placeholder="Paste export ghost code here..."></textarea><label for="track-description">Description (optional)</label><textarea id="track-description" placeholder="Add notes, style, and tips..."></textarea><label for="track-thumbnail">Thumbnail image (optional)</label><input id="track-thumbnail" type="file" accept="image/*" /><div class="row"><button id="add-btn" type="button">Publish to board</button></div><div id="status"></div></div></details>
 		<div id="publish-modal" hidden role="dialog" aria-modal="true" aria-label="Publishing track"><div class="publish-modal-card"><h3>Hold on — your track is publishing</h3><p>Sit tight while it uploads to the Track Share Board. Everything else is locked until it finishes.</p><div class="publish-modal-bar"><div class="publish-modal-bar-fill"></div></div><div class="publish-modal-step" id="publish-modal-step">Uploading track…</div></div></div>
 		<div class="panel"><div class="row" style="margin-top:0"><input id="search-input" placeholder="Search track name..." style="max-width:360px" /><select id="size-filter"><option value="all">All sizes</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select><select id="sort-filter"><option value="newest">Newest</option><option value="popular">Most popular</option><option value="most-liked">Most liked</option><option value="best-time">Best lap time</option></select></div></div>
 		<section class="browser-section" id="section-featured"><div class="section-head"><div><div class="section-kicker">Editor's algorithmic pick</div><h2>Featured Track</h2></div><p class="sub">Newer than average with above-average play activity.</p></div><div id="featured-track" class="featured-layout"></div></section>
@@ -117,6 +122,38 @@
 		function sanitizeBoardEntries( input ) {
 			const rows = Array.isArray( input ) ? input : [];
 			return rows.filter( ( entry ) => typeof entry?.playUrl === 'string' && typeof entry?.name === 'string' && ! isPackBoardEntry( entry ) );
+		}
+
+		// ─── Creator credit ───
+		// New tracks are published with the currently logged-in player name
+		// (same localStorage key the game uses). Old entries without a
+		// creator simply display as "Anonymous" everywhere.
+		const PLAYER_NAME_KEY = 'racing-player-name-v1';
+		const MAX_CREATOR_LENGTH = 24;
+
+		function escapeHtml( value ) {
+			return String( value == null ? '' : value )
+				.replace( /&/g, '&amp;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' )
+				.replace( /"/g, '&quot;' ).replace( /'/g, '&#39;' );
+		}
+
+		function getBoardCreatorName() {
+			let name = '';
+			try {
+				name = localStorage.getItem( PLAYER_NAME_KEY ) || '';
+			} catch ( e ) {}
+			const clean = String( name ).replace( /\s+/g, ' ' ).trim().replace( /[<>]/g, '' ).slice( 0, MAX_CREATOR_LENGTH );
+			return clean || 'Anonymous';
+		}
+
+		function updatePublishingAs() {
+			const el = document.getElementById( 'publishing-as' );
+			if ( el ) el.innerHTML = `Publishing as <b>${ escapeHtml( getBoardCreatorName() ) }</b> — set your name in the game to get credited.`;
+		}
+
+		function getEntryCreator( entry ) {
+			const clean = String( entry?.creator || '' ).replace( /\s+/g, ' ' ).trim().slice( 0, 32 );
+			return clean || 'Anonymous';
 		}
 
 		function encodeBase64UrlJson( value ) {
@@ -937,6 +974,7 @@
 			card.className = `card${ options.featured ? ' featured' : '' }`;
 			card.innerHTML = `<h3>${ entry.name }</h3>
 				<div class="badges">
+					<span class="badge creator-badge" title="Track creator">by ${ escapeHtml( getEntryCreator( entry ) ) }</span>
 					<span class="badge">▶ ${ stats.plays } plays</span>
 					<span class="badge">👍 ${ stats.likes }</span>
 					<span class="badge">🏁 ${ stats.sizeTag }</span>
@@ -1132,7 +1170,7 @@
 				try {
 					await apiRequest( '', {
 						method: 'POST',
-						body: JSON.stringify( { name, ghostCode: rawCode, description, thumbnailDataUrl: selectedThumbnailDataUrl } ),
+						body: JSON.stringify( { name, ghostCode: rawCode, creator: getBoardCreatorName(), description, thumbnailDataUrl: selectedThumbnailDataUrl } ),
 					} );
 					setPublishModalStep( 'Refreshing the Track Share Board…' );
 					await loadFromRemote();
@@ -1152,6 +1190,7 @@
 					thumbsUp: 0,
 					thumbsDown: 0,
 					lastLikedAt: 0,
+					creator: getBoardCreatorName(),
 					description,
 					thumbnailDataUrl: selectedThumbnailDataUrl,
 					createdAt: Date.now(),
@@ -1294,6 +1333,7 @@
 			window.addEventListener( 'hashchange', () => {
 				if ( useRemoteBoard ) return;
 				loadFromHash();
+				updatePublishingAs();
 				primeV3Previews().finally( () => hydrateTopLeaderboardRows( entries ).finally( () => render() ) );
 			} );
 			let searchDebounce = null;
@@ -1327,6 +1367,65 @@
 				const pick = filtered[ Math.floor( Math.random() * filtered.length ) ];
 				window.open( pick.playUrl, '_blank', 'noopener,noreferrer' );
 			} );
+
+			// ─── Side rail: instant jump-to-section navigation ───
+			const BOARD_RAIL_SECTIONS = [
+				{ id: 'section-featured', label: 'Featured' },
+				{ id: 'section-trending', label: 'Trending' },
+				{ id: 'section-new-week', label: 'New This Week' },
+				{ id: 'section-top-rated', label: 'Top Rated' },
+				{ id: 'section-fastest', label: 'Fastest' },
+				{ id: 'section-records', label: 'Records' },
+				{ id: 'section-library', label: 'All Tracks' },
+			];
+			( function initBoardRail() {
+				const rail = document.getElementById( 'board-rail' );
+				if ( ! rail ) return;
+				const buttons = new Map();
+				for ( const section of BOARD_RAIL_SECTIONS ) {
+					const btn = document.createElement( 'button' );
+					btn.type = 'button';
+					btn.textContent = section.label;
+					btn.setAttribute( 'aria-label', `Jump to ${ section.label }` );
+					btn.addEventListener( 'click', () => {
+						const el = document.getElementById( section.id );
+						if ( ! el ) return;
+						// behavior:'instant' overrides the page's global smooth
+						// scrolling — the rail is meant to jump, not glide.
+						const top = Math.max( 0, el.getBoundingClientRect().top + window.scrollY - 12 );
+						window.scrollTo( { top, behavior: 'instant' } );
+					} );
+					rail.appendChild( btn );
+					buttons.set( section.id, btn );
+				}
+				let railTick = false;
+				const updateRailActive = () => {
+					railTick = false;
+					const maxScroll = Math.max( 0, document.documentElement.scrollHeight - window.innerHeight );
+					// At the very bottom of a short page the last section can
+					// never scroll past the viewport top — highlight it anyway.
+					if ( window.scrollY >= maxScroll - 4 ) {
+						for ( const [ id, btn ] of buttons ) btn.classList.toggle( 'active', id === BOARD_RAIL_SECTIONS[ BOARD_RAIL_SECTIONS.length - 1 ].id );
+						return;
+					}
+					const y = window.scrollY + 140;
+					let current = null;
+					for ( const section of BOARD_RAIL_SECTIONS ) {
+						const el = document.getElementById( section.id );
+						if ( el && el.offsetTop <= y ) current = section.id;
+					}
+					if ( ! current ) current = BOARD_RAIL_SECTIONS[ 0 ].id;
+					for ( const [ id, btn ] of buttons ) btn.classList.toggle( 'active', id === current );
+				};
+				window.addEventListener( 'scroll', () => {
+					if ( ! railTick ) {
+						railTick = true;
+						requestAnimationFrame( updateRailActive );
+					}
+				}, { passive: true } );
+				updateRailActive();
+			} )();
+			updatePublishingAs();
 
 			( async () => {
 				try {

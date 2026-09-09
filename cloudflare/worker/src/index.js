@@ -63,6 +63,14 @@ async function getTracks( env ) {
 	return json( { ok: true, entries } );
 }
 
+// Creator field: stored on new entries so the board can credit track
+// authors. Empty/missing creator falls back to 'Anonymous' (legacy
+// entries simply have no field and the UI applies the same fallback).
+function sanitizeCreator( value ) {
+	const stripped = String( value || '' ).replace( /\s+/g, ' ' ).trim().replace( /[<>]/g, '' );
+	return stripped.slice( 0, 32 ) || 'Anonymous';
+}
+
 async function addTrack( request, env ) {
 	let payload;
 	try {
@@ -101,6 +109,7 @@ async function addTrack( request, env ) {
 		thumbsUp: 0,
 		thumbsDown: 0,
 		lastLikedAt: 0,
+		creator: sanitizeCreator( payload?.creator ),
 		description,
 		thumbnailDataUrl: thumbnailDataUrl.slice( 0, 400000 ),
 		createdAt: Date.now(),
