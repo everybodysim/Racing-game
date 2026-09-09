@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skid Circuit — Official Track Formatter</title>
+<style>
+	/* Matches the official-tracks.html dark palette. Standalone tool page —
+	   deliberately NOT linked anywhere in the game or on the site. */
+	:root {
+		--bg: #0b0f14;
+		--panel: #121821;
+		--panel-2: #0e141c;
+		--border: rgba( 255, 255, 255, 0.08 );
+		--text: #e8edf4;
+		--muted: #8b97a7;
+		--accent: #77f3b1;
+		--warn: #ffcf70;
+		--danger: #ff7a7a;
+		--mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	}
+	* { box-sizing: border-box; margin: 0; padding: 0; }
+	body {
+		background: var(--bg);
+		color: var(--text);
+		font: 15px/1.5 system-ui, -apple-system, sans-serif;
+		min-height: 100vh;
+		padding: 36px 20px 60px;
+	}
+	.wrap { max-width: 880px; margin: 0 auto; }
+	.kicker {
+		display: inline-block; color: var(--accent);
+		font: 800 12px/1 sans-serif; letter-spacing: .16em; text-transform: uppercase;
+		padding: 6px 14px; border-radius: 999px;
+		border: 1px solid rgba( 119, 243, 177, .32 );
+		background: rgba( 119, 243, 177, .08 );
+	}
+	h1 { margin: 18px 0 8px; font-size: clamp( 28px, 5vw, 44px ); line-height: 1; letter-spacing: -.03em; font-weight: 900; }
+	.sub { color: var(--muted); margin-bottom: 28px; }
+	.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+	.card {
+		background: var(--panel); border: 1px solid var(--border);
+		border-radius: 14px; padding: 20px;
+	}
+	.card.full { grid-column: 1 / -1; }
+	label { display: block; font: 700 11px/1 sans-serif; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+	input[type=text], input[type=url], textarea {
+		width: 100%; background: var(--panel-2); border: 1px solid var(--border);
+		border-radius: 10px; color: var(--text); padding: 11px 13px;
+		font: 14px/1.45 system-ui, sans-serif;
+		outline: none;
+	}
+	textarea { min-height: 92px; resize: vertical; }
+	input:focus, textarea:focus { border-color: rgba( 119, 243, 177, .55 ); }
+	.hint { font-size: 12px; color: var(--muted); margin-top: 7px; }
+	.tab-chip {
+		display: inline-block; margin-left: 8px; padding: 3px 10px; border-radius: 999px;
+		font: 800 11px/1.4 sans-serif; letter-spacing: .06em; vertical-align: 1px;
+		border: 1px solid rgba( 119, 243, 177, .4 ); color: var(--accent); background: rgba( 119, 243, 177, .1 );
+	}
+	.tab-chip.warn { border-color: rgba( 255, 207, 112, .5 ); color: var(--warn); background: rgba( 255, 207, 112, .1 ); }
+	.tab-chip.bad { border-color: rgba( 255, 122, 122, .5 ); color: var(--danger); background: rgba( 255, 122, 122, .1 ); }
+	.drop {
+		border: 2px dashed rgba( 255, 255, 255, .18 ); border-radius: 12px;
+		padding: 26px 18px; text-align: center; color: var(--muted); cursor: pointer;
+		transition: border-color .15s, background .15s;
+	}
+	.drop:hover, .drop.over { border-color: rgba( 119, 243, 177, .6 ); background: rgba( 119, 243, 177, .05 ); }
+	.preview-row { display: flex; gap: 14px; align-items: center; margin-top: 14px; }
+	.preview-row img { width: 132px; height: 82px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+	.preview-meta { font-size: 12px; color: var(--muted); }
+	.preview-meta b { color: var(--text); }
+	select {
+		width: 100%; background: var(--panel-2); border: 1px solid var(--border);
+		border-radius: 10px; color: var(--text); padding: 10px 12px; font: 14px system-ui, sans-serif;
+	}
+	button.primary {
+		width: 100%; padding: 13px 18px; border: none; border-radius: 11px; cursor: pointer;
+		background: var(--accent); color: #06281a;
+		font: 800 14px/1 sans-serif; letter-spacing: .04em; text-transform: uppercase;
+	}
+	button.primary:hover { filter: brightness( 1.07 ); }
+	button.primary:disabled { opacity: .45; cursor: not-allowed; }
+	button.ghost {
+		padding: 10px 16px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+		background: transparent; color: var(--text); font: 700 13px/1 sans-serif;
+	}
+	button.ghost:hover { border-color: rgba( 119, 243, 177, .5 ); color: var(--accent); }
+	.output-wrap { display: none; }
+	.output-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 10px; flex-wrap: wrap; }
+	.output-head h2 { font-size: 15px; letter-spacing: .02em; }
+	.size-note { font: 700 12px sans-serif; color: var(--muted); }
+	.size-note.big { color: var(--warn); }
+	pre.code {
+		background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+		padding: 14px; font: 12px/1.55 var(--mono); white-space: pre-wrap; word-break: break-all;
+		max-height: 300px; overflow: auto; color: #c7d5e8;
+	}
+	.warn-line { display: none; margin-top: 12px; font-size: 13px; color: var(--warn); }
+	.warn-line.show { display: block; }
+	.ok-line { display: none; margin-top: 12px; font-size: 13px; color: var(--accent); }
+	.ok-line.show { display: block; }
+	.toast {
+		position: fixed; left: 50%; bottom: 26px; transform: translateX( -50% ) translateY( 12px );
+		background: var(--panel); border: 1px solid rgba( 119, 243, 177, .4 ); color: var(--text );
+		padding: 10px 20px; border-radius: 999px; font: 700 13px sans-serif; opacity: 0;
+		transition: opacity .2s, transform .2s; pointer-events: none;
+	}
+	.toast.show { opacity: 1; transform: translateX( -50% ) translateY( 0 ); }
+	footer { margin-top: 26px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+	<span class="kicker">Internal tool</span>
+	<h1>Official Track Formatter</h1>
+	<p class="sub">Turn an image + share URL + name + description into the exact entry to paste into the <b>TRACKS</b> array in <code>official-tracks.html</code>. Everything runs locally in your browser — nothing is uploaded anywhere.</p>
+
+	<div class="card full">
+		<label for="f-name">Track name</label>
+		<input type="text" id="f-name" placeholder="e.g. B04 Sunset Spiral" autocomplete="off">
+		<div class="hint" id="name-hint">Name it with the slot convention (A01–E15) for the display label — the first letter picks the tab.</div>
+	</div>
+
+	<div class="grid">
+		<div class="card">
+			<label for="f-url">Share / play URL</label>
+			<input type="url" id="f-url" placeholder="https://everybodysim.github.io/Racing-game/index.html?map=…">
+			<div class="hint" id="url-hint">Paste the full link straight from the track share board / editor share button.</div>
+		</div>
+		<div class="card">
+			<label>Track image</label>
+			<div class="drop" id="drop">
+				<div id="drop-label">Click or drop an image here<br>(png / jpg / webp)</div>
+			</div>
+			<input type="file" id="f-image" accept="image/png,image/jpeg,image/webp" hidden>
+			<div class="preview-row" id="preview-row" style="display:none">
+				<img id="preview-img" alt="Track image preview">
+				<div class="preview-meta">
+					<b id="img-name">—</b><br>
+					<span id="img-size">—</span><br>
+					<span id="img-out-size">—</span>
+				</div>
+			</div>
+			<div style="margin-top:14px">
+				<label for="f-imgmode">Image handling</label>
+				<select id="f-imgmode">
+					<option value="resize" selected>Resize to 480px wide (JPEG, small repo footprint) — recommended</option>
+					<option value="original">Keep original file exactly as-is</option>
+				</select>
+			</div>
+		</div>
+	</div>
+
+	<div class="card full">
+		<label for="f-desc">Description</label>
+		<textarea id="f-desc" placeholder="One or two sentences players see on the track card…"></textarea>
+	</div>
+
+	<div class="card full">
+		<button class="primary" id="btn-generate">Generate paste-in snippet</button>
+		<div class="warn-line" id="warn-line"></div>
+		<div class="ok-line" id="ok-line"></div>
+	</div>
+
+	<div class="card full output-wrap" id="output-wrap">
+		<div class="output-head">
+			<h2>Snippet</h2>
+			<span class="size-note" id="size-note"></span>
+			<button class="ghost" id="btn-copy">Copy</button>
+		</div>
+		<pre class="code" id="code"></pre>
+		<div class="hint">Paste it as one entry inside the <code>const TRACKS = [ … ]</code> array. Order matters: within a letter, the <b>position in the array</b> picks the slot (1st “B…” track → slot B01, 4th → B04) — the number in the name is only a display label. Place it where its slot number says it belongs.</div>
+	</div>
+
+	<footer>Skid Circuit internal tool — not linked from the game. Generated entirely client-side.</footer>
+</div>
+<div class="toast" id="toast">Copied!</div>
+
+<script>
+( () => {
+
+	'use strict';
+
+	const $ = ( id ) => document.getElementById( id );
+	const nameInput = $( 'f-name' );
+	const urlInput = $( 'f-url' );
+	const descInput = $( 'f-desc' );
+	const imgMode = $( 'f-imgmode' );
+	const fileInput = $( 'f-image' );
+	const drop = $( 'drop' );
+	const warnLine = $( 'warn-line' );
+	const okLine = $( 'ok-line' );
+	const toast = $( 'toast' );
+
+	// ── Live tab indicator: first letter of the name picks the A–E group ──
+	const GROUP_KEYS = [ 'a', 'b', 'c', 'd', 'e' ];
+	let tabChip = null;
+	function updateTabChip() {
+
+		if ( ! tabChip ) {
+
+			tabChip = document.createElement( 'span' );
+			tabChip.className = 'tab-chip';
+			nameInput.insertAdjacentElement( 'afterend', tabChip );
+
+		}
+		const first = String( nameInput.value || '' ).trim().charAt( 0 ).toUpperCase();
+		if ( ! first ) {
+
+			tabChip.textContent = 'tab: —';
+			tabChip.className = 'tab-chip warn';
+
+		} else if ( GROUP_KEYS.includes( first.toLowerCase() ) ) {
+
+			tabChip.textContent = `tab: ${ first } Tracks`;
+			tabChip.className = 'tab-chip';
+
+		} else {
+
+			tabChip.textContent = `no “${ first }” tab — use A–E`;
+			tabChip.className = 'tab-chip bad';
+
+		}
+
+	}
+	nameInput.addEventListener( 'input', updateTabChip );
+	updateTabChip();
+
+	// ── Image intake: click or drag-drop, then base64 ──
+	let imageDataUrl = null;
+	let imageFileName = '';
+	let imageFileBytes = 0;
+
+	function formatBytes( b ) {
+
+		if ( b >= 1048576 ) return `${ ( b / 1048576 ).toFixed( 1 ) } MB`;
+		return `${ Math.max( 1, Math.round( b / 1024 ) ) } KB`;
+
+	}
+
+	function loadImageFile( file ) {
+
+		if ( ! file || ! /^image\/(png|jpeg|webp)$/.test( file.type ) ) {
+
+			showToast( 'Please pick a png, jpg or webp image' );
+			return;
+
+		}
+		const reader = new FileReader();
+		reader.onload = () => {
+
+			imageDataUrl = reader.result;
+			imageFileName = file.name;
+			imageFileBytes = file.size;
+			$( 'preview-img' ).src = imageDataUrl;
+			$( 'img-name' ).textContent = file.name;
+			$( 'img-size' ).textContent = `Original: ${ formatBytes( file.size ) } (${ file.type.replace( 'image/', '' ) })`;
+			updateOutSizeNote();
+			$( 'preview-row' ).style.display = 'flex';
+			$( 'drop-label' ).innerHTML = 'Replace image';
+			showToast( 'Image loaded' );
+
+		};
+		reader.readAsDataURL( file );
+
+	}
+
+	function updateOutSizeNote() {
+
+		if ( ! imageDataUrl ) return;
+		if ( imgMode.value === 'original' ) {
+
+			$( 'img-out-size' ).textContent = `Snippet will embed the original (${ formatBytes( imageFileBytes ) })`;
+
+		} else {
+
+			$( 'img-out-size' ).textContent = `Snippet will embed a 480px-wide JPEG`;
+
+		}
+
+	}
+
+	fileInput.addEventListener( 'change', ( e ) => loadImageFile( e.target.files[ 0 ] ) );
+	drop.addEventListener( 'click', () => fileInput.click() );
+	drop.addEventListener( 'dragover', ( e ) => { e.preventDefault(); drop.classList.add( 'over' ); } );
+	drop.addEventListener( 'dragleave', () => drop.classList.remove( 'over' ) );
+	drop.addEventListener( 'drop', ( e ) => {
+
+		e.preventDefault();
+		drop.classList.remove( 'over' );
+		loadImageFile( e.dataTransfer.files[ 0 ] );
+
+	} );
+	imgMode.addEventListener( 'change', updateOutSizeNote );
+
+	// ── Resize path: draw to a canvas at max 480px wide, export JPEG ──
+	function resizeToDataUrl( dataUrl ) {
+
+		return new Promise( ( resolve, reject ) => {
+
+			const img = new Image();
+			img.onload = () => {
+
+				const MAX_W = 480;
+				const scale = Math.min( 1, MAX_W / img.naturalWidth );
+				const w = Math.max( 1, Math.round( img.naturalWidth * scale ) );
+				const h = Math.max( 1, Math.round( img.naturalHeight * scale ) );
+				const canvas = document.createElement( 'canvas' );
+				canvas.width = w;
+				canvas.height = h;
+				canvas.getContext( '2d' ).drawImage( img, 0, 0, w, h );
+				resolve( canvas.toDataURL( 'image/jpeg', 0.85 ) );
+
+			};
+			img.onerror = reject;
+			img.src = dataUrl;
+
+		} );
+
+	}
+
+	// ── Generate ──
+	async function generate() {
+
+		warnLine.classList.remove( 'show' );
+		okLine.classList.remove( 'show' );
+		const name = String( nameInput.value || '' ).trim();
+		const url = String( urlInput.value || '' ).trim();
+		const desc = String( descInput.value || '' ).trim();
+		const problems = [];
+		if ( ! name ) problems.push( 'name is empty' );
+		if ( ! url ) problems.push( 'share URL is empty' );
+		if ( ! desc ) problems.push( 'description is empty' );
+		if ( ! imageDataUrl ) problems.push( 'no image loaded' );
+		if ( problems.length ) {
+
+			warnLine.textContent = `Missing: ${ problems.join( ', ' ) }.`;
+			warnLine.classList.add( 'show' );
+			$( 'output-wrap' ).style.display = 'none';
+			return;
+
+		}
+		const first = name.charAt( 0 ).toUpperCase();
+		if ( ! GROUP_KEYS.includes( first.toLowerCase() ) ) {
+
+			warnLine.textContent = `Heads up: “${ name }” starts with “${ first }” — the page only has A–E tabs. It would never show up. Rename with an A–E letter.`;
+			warnLine.classList.add( 'show' );
+
+		}
+
+		let imageOut = imageDataUrl;
+		if ( imgMode.value === 'resize' ) {
+
+			try {
+
+				imageOut = await resizeToDataUrl( imageDataUrl );
+
+			} catch ( err ) {
+
+				warnLine.textContent = 'Could not resize the image — embedding the original instead.';
+				warnLine.classList.add( 'show' );
+
+			}
+
+		}
+
+		const entry = { name, description: desc, playUrl: url, image: imageOut };
+		const snippet = JSON.stringify( entry, null, 2 ) + ',';
+		$( 'code' ).textContent = snippet;
+		const bytes = new Blob( [ snippet ] ).size;
+		const note = $( 'size-note' );
+		note.textContent = `snippet: ${ formatBytes( bytes ) }`;
+		note.classList.toggle( 'big', bytes > 300000 );
+		$( 'output-wrap' ).style.display = 'block';
+		if ( ! warnLine.classList.contains( 'show' ) ) {
+
+			okLine.textContent = `Looks good — this entry will appear in the ${ first } Tracks tab.`;
+			okLine.classList.add( 'show' );
+
+		}
+		$( 'btn-copy' ).dataset.ready = '1';
+
+	}
+	$( 'btn-generate' ).addEventListener( 'click', generate );
+
+	// ── Copy ──
+	let toastTimer = null;
+	function showToast( text ) {
+
+		toast.textContent = text;
+		toast.classList.add( 'show' );
+		clearTimeout( toastTimer );
+		toastTimer = setTimeout( () => toast.classList.remove( 'show' ), 1800 );
+
+	}
+	$( 'btn-copy' ).addEventListener( 'click', async () => {
+
+		if ( ! $( 'btn-copy' ).dataset.ready ) {
+
+			showToast( 'Generate the snippet first' );
+			return;
+
+		}
+		const text = $( 'code' ).textContent;
+		try {
+
+			await navigator.clipboard.writeText( text );
+			showToast( 'Copied!' );
+
+		} catch ( err ) {
+
+			// Clipboard API can be blocked on plain file:// or http:// —
+			// fall back to the legacy selection path.
+			const ta = document.createElement( 'textarea' );
+			ta.value = text;
+			document.body.appendChild( ta );
+			ta.select();
+			try {
+
+				document.execCommand( 'copy' );
+				showToast( 'Copied!' );
+
+			} catch ( err2 ) {
+
+				showToast( 'Copy failed — select the code manually' );
+
+			}
+			ta.remove();
+
+		}
+
+	} );
+
+} )();
+</script>
+</body>
+</html>
