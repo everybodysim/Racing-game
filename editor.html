@@ -2221,7 +2221,19 @@
 				);
 				patch.rotation.x = - Math.PI / 2;
 				const yOffset = getOverlayHeightOffset( cell );
-				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
+				// Editor-only visibility lift (game build stays untouched):
+				// pads/surfaces on non-elevated tiles must float above tall
+				// in-cell track parts so those blocks never render over or
+				// through them. Heights are the models' measured tops:
+				// 4-way hub ≈0.85 (incl. its +0.1 nudge), 3-way hub ≈0.80,
+				// jump ramp ≈1.93. Elevated-tile placements keep their
+				// existing flush rendering — the user wants those unchanged.
+				let surfaceLift = 0;
+				if ( ! cell.elevatedType ) {
+					if ( cell.jump ) surfaceLift = 1.5;
+					else if ( ( cell.roadPieces || [] ).some( ( piece ) => piece.type === 'track-4-way' || piece.type === 'track-3-way' ) ) surfaceLift = 0.45;
+				}
+				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + surfaceLift + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
 				// Slope tilt: flush with the ramp, matching the game build. Uses the
 				// cell's own elevated block, so off-grid cells tilt correctly too.
 				if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) {
