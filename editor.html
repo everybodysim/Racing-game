@@ -6795,10 +6795,12 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			const speedCapScale = Number.isFinite( padEffect?.topSpeed ) ? padEffect.topSpeed : 1.0;
 			// Parity with the game's applySurfaceGrip: pads raise actual top speed
 			// (recomputed from the stored base every frame — idempotent, self-reverting).
+			// Speed factor capped at 10x and drive at 4x — same stability reasoning
+			// as the game copy (overspun ball = wheelspin/tumble, no forward speed).
 			if ( ! Number.isFinite( targetVehicle.baseTopSpeed ) ) targetVehicle.baseTopSpeed = targetVehicle.topSpeed;
-			targetVehicle.topSpeed = targetVehicle.baseTopSpeed * speedCapScale;
-			targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * pack * padAccel * speedCapScale;
-			targetVehicle.driveMultiplier = ( effect ? effect.drive : 1.0 ) * pack * padDrive * speedCapScale;
+			targetVehicle.topSpeed = targetVehicle.baseTopSpeed * Math.min( 10, speedCapScale );
+			targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * pack * padAccel;
+			targetVehicle.driveMultiplier = Math.min( 4, ( effect ? effect.drive : 1.0 ) * pack * padDrive );
 
 		}
 
