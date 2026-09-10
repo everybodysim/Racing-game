@@ -12,7 +12,15 @@ export default {
 		if ( request.method === 'OPTIONS' ) return withCors( new Response( null, { status: 204 } ) );
 
 		if ( url.pathname === '/api/tracks' && request.method === 'GET' ) {
-			return withCors( await getTracks( env ) );
+			return withCors( await getTracks( url, env ) );
+		}
+
+		// Single track thumbnail (lazy-loaded by board cards). Keeps the main
+		// list payload thumbnail-free (fields=list) so the board stays fast as
+		// the track database grows.
+		if ( url.pathname.startsWith( '/api/tracks/' ) && url.pathname.endsWith( '/thumb' ) && request.method === 'GET' ) {
+			const id = url.pathname.split( '/' )[ 3 ];
+			return withCors( await getTrackThumb( id, env ) );
 		}
 
 		if ( url.pathname === '/api/tracks' && request.method === 'POST' ) {
@@ -58,9 +66,78 @@ function withCors( response ) {
 	return new Response( response.body, { status: response.status, headers } );
 }
 
-async function getTracks( env ) {
+async function getTracks( url, env ) {
 	const entries = await loadEntries( env );
-	return json( { ok: true, entries } );
+
+	// All query params are OPTIONAL and default to the legacy behaviour
+	// (full list, newest-first, thumbnails inline) so older frontends keep
+	// working against this worker unchanged.
+	const author = String( url.searchParams.get( 'author' ) || '' ).trim().toLowerCase();
+	const search = String( url.searchParams.get( 'search' ) || '' ).trim().toLowerCase();
+	const sort = String( url.searchParams.get( 'sort' ) || 'newest' );
+	const fields = String( url.searchParams.get( 'fields' ) || '' ).trim();
+	// NB: Number(null) === 0, so an absent param must NOT fall into the
+	// numeric default — check it explicitly (a bare Number()||0 here made the
+	// no-params legacy request return a single entry).
+	const limitRaw = Number( url.searchParams.get( 'limit' ) );
+	const limit = Number.isFinite( limitRaw ) && limitRaw > 0 ? Math.min( 300, Math.floor( limitRaw ) ) : 0;
+	const offset = Math.max( 0, Math.floor( Number( url.searchParams.get( 'offset' ) ) || 0 ) );
+
+	let filtered = entries;
+	if ( author ) {
+		filtered = filtered.filter( ( entry ) => String( entry?.creator || '' ).trim().toLowerCase() === author );
+	}
+	if ( search ) {
+		filtered = filtered.filter( ( entry ) => {
+			const name = String( entry?.name || '' ).toLowerCase();
+			const description = String( entry?.description || '' ).toLowerCase();
+			const creator = String( entry?.creator || '' ).toLowerCase();
+			return name.includes( search ) || description.includes( search ) || creator.includes( search );
+		} );
+	}
+
+	const sorted = [ ...filtered ];
+	if ( sort === 'popular' ) {
+		sorted.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) );
+	} else if ( sort === 'most-liked' ) {
+		sorted.sort( ( a, b ) => ( Number( b.thumbsUp ) || 0 ) - ( Number( a.thumbsUp ) || 0 ) );
+	} else if ( sort === 'best-time' ) {
+		sorted.sort( ( a, b ) => ( Number( a.bestLapSeconds ) || Infinity ) - ( Number( b.bestLapSeconds ) || Infinity ) );
+	} else if ( sort === 'alpha' ) {
+		sorted.sort( ( a, b ) => String( a?.name || '' ).localeCompare( String( b?.name || '' ) ) );
+	}
+	// 'newest' (default): entries are stored newest-first via unshift.
+
+	const total = sorted.length;
+	let page = sorted;
+	if ( limit > 0 ) page = sorted.slice( offset, offset + limit );
+
+	if ( fields === 'list' ) {
+		page = page.map( ( entry ) => {
+			const { thumbnailDataUrl, ...rest } = entry;
+			return { ...rest, hasThumbnail: Boolean( thumbnailDataUrl ) };
+		} );
+	}
+
+	return json( { ok: true, entries: page, total, offset, limit } );
+}
+
+async function getTrackThumb( id, env ) {
+	if ( ! id ) return json( { ok: false, error: 'id is required' }, 400 );
+	const entries = await loadEntries( env );
+	const entry = entries.find( ( e ) => e.id === id );
+	const dataUrl = String( entry?.thumbnailDataUrl || '' );
+	const match = dataUrl.match( /^data:(image\/(?:png|jpeg|webp|gif));base64,([a-zA-Z0-9+/=]+)$/ );
+	if ( ! entry || ! match ) return json( { ok: false, error: 'Not found' }, 404 );
+	const bytes = Uint8Array.from( atob( match[ 2 ] ), ( c ) => c.charCodeAt( 0 ) );
+	return new Response( bytes, {
+		status: 200,
+		headers: {
+			'Content-Type': match[ 1 ],
+			// Thumbnails are immutable once published — let the browser cache them.
+			'Cache-Control': 'public, max-age=86400',
+		},
+	} );
 }
 
 // Creator field: stored on new entries so the board can credit track

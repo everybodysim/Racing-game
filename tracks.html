@@ -19,6 +19,22 @@
 @media(max-width:760px){.hero,.section-head{align-items:flex-start;flex-direction:column}select{max-width:none}}
 	</style>
 	<style>
+.author-chip{display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(119,243,177,.32);background:rgba(119,243,177,.08);color:#a9e8c4;border-radius:999px;padding:3px 12px 3px 3px;font:700 11px sans-serif;cursor:pointer;text-decoration:none;transition:background .15s,box-shadow .15s,transform .15s;white-space:nowrap}
+.author-chip:hover{background:rgba(119,243,177,.2);box-shadow:0 0 0 3px rgba(119,243,177,.12);transform:translateY(-1px)}
+.author-chip .author-avatar{width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font:800 11px sans-serif;color:#fff;letter-spacing:.02em;flex:none}
+.author-chip.anon{cursor:default;background:transparent;color:var(--muted);border-color:rgba(255,255,255,.14)}
+.author-chip.anon:hover{box-shadow:none;transform:none;background:transparent}
+#library-pager{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;padding:18px 0 6px}
+#library-pager button{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:var(--muted);border-radius:9px;padding:7px 13px;font:700 12px sans-serif;cursor:pointer}
+#library-pager button:hover:not(:disabled){background:rgba(255,255,255,.12);color:#fff}
+#library-pager button.active{background:linear-gradient(135deg,rgba(48,198,119,.28),rgba(48,151,255,.22));border-color:rgba(119,243,177,.45);color:#fff}
+#library-pager button:disabled{opacity:.35;cursor:default}
+#library-pager .pager-info{font:600 12px sans-serif;color:var(--muted);margin:0 6px}
+#author-hero{display:flex;align-items:center;gap:16px;padding:22px;border:1px solid rgba(255,255,255,.14);border-radius:16px;background:rgba(10,16,28,.5);margin-bottom:18px;flex-wrap:wrap}
+#author-hero .author-avatar{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:800 28px sans-serif;color:#fff;flex:none}
+#author-hero h2{margin:0}
+#author-hero .author-meta{color:var(--muted);font:600 13px sans-serif;margin-top:4px}
+#author-hero .author-back{margin-left:auto}
 #board-rail{position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:900;display:flex;flex-direction:column;gap:5px;padding:7px;background:rgba(10,16,28,.74);border:1px solid rgba(255,255,255,.14);border-radius:14px;backdrop-filter:blur(6px);box-shadow:0 10px 30px rgba(0,0,0,.28)}#board-rail button{border:1px solid transparent;background:transparent;color:var(--muted);border-radius:9px;padding:6px 11px;font:700 11px sans-serif;white-space:nowrap;cursor:pointer;text-align:right}#board-rail button:hover{background:rgba(255,255,255,.12);color:#fff}#board-rail button.active{background:linear-gradient(135deg,rgba(48,198,119,.28),rgba(48,151,255,.22));border-color:rgba(119,243,177,.45);color:#fff}@media (max-width:1180px){#board-rail{display:none}}.creator-badge{border-color:rgba(119,243,177,.3);color:#a9e8c4}#publishing-as b{color:#fff}
 	</style>
 
@@ -49,7 +65,8 @@
 		<section class="browser-section" id="section-top-rated"><div class="section-head"><div><div class="section-kicker">Community favorites</div><h2>Top Rated</h2></div></div><div id="top-rated-list" class="track-row"></div></section>
 		<section class="browser-section" id="section-fastest"><div class="section-head"><div><div class="section-kicker">Record chasers</div><h2>Fastest Records</h2></div></div><div id="fastest-records-list" class="track-row"></div></section>
 		<div class="panel records-board" id="section-records"><h2>Track Share Record Board</h2><p class="sub">Drivers ranked by how many unique shared tracks they currently hold #1 on.</p><div id="records-board-list" class="records-list"></div><h2 style="margin-top:16px">Global Placement Rating</h2><p class="sub">Cross-track rating from placement points (1st/2nd/3rd…) across all shared tracks.</p><div id="placement-rating-list" class="records-list"></div></div>
-		<section class="browser-section" id="section-library"><div class="section-head"><div><div class="section-kicker">Full library</div><h2>All Tracks</h2></div></div><div id="grid"></div></section>
+		<section class="browser-section" id="section-library"><div class="section-head"><div><div class="section-kicker">Full library</div><h2>All Tracks</h2></div></div><div id="grid"></div><div id="library-pager"></div></section>
+		<section class="browser-section" id="section-author" style="display:none"><div class="section-head"><div><div class="section-kicker">Track creator</div><h2>Author Page</h2></div></div><div id="author-hero"></div><div id="author-grid"></div></section>
 		<script>
 			const API_BASE = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
 			const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
@@ -88,6 +105,10 @@
 			const leaderboardProgressLabel = document.getElementById( 'leaderboard-progress-label' );
 			const leaderboardProgressFill = document.getElementById( 'leaderboard-progress-fill' );
 			const grid = document.getElementById( 'grid' );
+			const libraryPager = document.getElementById( 'library-pager' );
+			const sectionAuthor = document.getElementById( 'section-author' );
+			const authorHero = document.getElementById( 'author-hero' );
+			const authorGrid = document.getElementById( 'author-grid' );
 			let entries = [];
 			let useRemoteBoard = false;
 			let topByTrackId = new Map();
@@ -154,6 +175,38 @@
 		function getEntryCreator( entry ) {
 			const clean = String( entry?.creator || '' ).replace( /\s+/g, ' ' ).trim().slice( 0, 32 );
 			return clean || 'Anonymous';
+		}
+
+		// ─── Author pages + library pagination ───
+		const PAGE_SIZE = 50;
+		let libraryPage = 0;
+		function isAnonCreator( entry ) {
+			const name = getEntryCreator( entry );
+			return ! name || name.toLowerCase() === 'anonymous';
+		}
+		function authorHue( name ) {
+			let hue = 0;
+			for ( let i = 0; i < name.length; i ++ ) hue = ( hue * 31 + name.charCodeAt( i ) ) % 360;
+			return hue;
+		}
+		function authorInitial( name ) {
+			return ( String( name ).trim()[ 0 ] || '?' ).toUpperCase();
+		}
+		function hashParams() {
+			return new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
+		}
+		function getAuthorFromHash() {
+			try { return ( hashParams().get( 'author' ) || '' ).trim(); } catch ( e ) { return ''; }
+		}
+		// Sets/clears the author param while preserving other hash params (the
+		// local-share mode keeps its whole board payload in #board=).
+		function setAuthorInHash( name ) {
+			const params = hashParams();
+			if ( name ) params.set( 'author', name );
+			else params.delete( 'author' );
+			const next = params.toString();
+			const nextHash = next ? `#${ next }` : '#';
+			if ( window.location.hash !== nextHash ) window.location.hash = nextHash;
 		}
 
 		function encodeBase64UrlJson( value ) {
@@ -278,7 +331,9 @@
 
 		async function loadFromRemote() {
 			if ( leaderboardProgressLabel ) leaderboardProgressLabel.textContent = 'Fetching board data\u2026';
-			const payload = await apiRequest();
+			// fields=list: entries without inline thumbnails (lazy /thumb fetch
+			// per visible card). Older workers ignore the param and still work.
+			const payload = await apiRequest( '?fields=list' );
 			entries = sanitizeBoardEntries( payload?.entries );
 			await primeV3Previews();
 			// Defer render to next frame so loading panel shows immediately
@@ -953,6 +1008,38 @@
 			window.requestIdleCallback = ( cb, opts ) => setTimeout( () => cb( { didTimeout: false, timeRemaining: () => 0 } ), opts?.timeout || 50 );
 		}
 
+		// Lazy thumbnail fetch — cloud entries ship without inline thumbnails
+		// (fields=list keeps the board payload small); visible cards pull the
+		// real screenshot from /api/tracks/:id/thumb and swap it in.
+		const thumbUrlCache = new Map();
+		const thumbObserver = new IntersectionObserver( ( items ) => {
+			for ( const item of items ) {
+				if ( ! item.isIntersecting ) continue;
+				thumbObserver.unobserve( item.target );
+				const id = item.target.dataset.thumbId;
+				if ( ! id ) continue;
+				( async () => {
+					try {
+						let url = thumbUrlCache.get( id );
+						if ( ! url ) {
+							const res = await fetch( `${ API_BASE }/${ id }/thumb`, { cache: 'force-cache' } );
+							if ( ! res.ok ) throw new Error( 'no thumbnail' );
+							url = URL.createObjectURL( await res.blob() );
+							thumbUrlCache.set( id, url );
+						}
+						const img = document.createElement( 'img' );
+						img.className = 'preview-canvas';
+						img.alt = 'Track thumbnail';
+						img.src = url;
+						item.target.replaceWith( img );
+					} catch ( e ) {
+						// Old worker or missing thumbnail: the canvas preview
+						// already rendered underneath — nothing to do.
+					}
+				} )();
+			}
+		}, { rootMargin: '300px' } );
+
 		// Lazy canvas preview — only draw when scrolled into view
 		const previewObserver = new IntersectionObserver( ( entries ) => {
 			for ( const entry of entries ) {
@@ -972,9 +1059,14 @@
 			const stats = getTrackStats( entry );
 			const card = document.createElement( 'div' );
 			card.className = `card${ options.featured ? ' featured' : '' }`;
+			const creatorName = getEntryCreator( entry );
+			const anonCreator = isAnonCreator( entry );
+			const authorChip = anonCreator
+				? `<span class="author-chip anon" title="Anonymous creator"><span class="author-avatar" style="background:hsl(${ authorHue( creatorName ) } 40% 34%)">?</span>Anonymous</span>`
+				: `<button type="button" class="author-chip" data-author="${ escapeHtml( creatorName ) }" title="View ${ escapeHtml( creatorName ) }'s tracks"><span class="author-avatar" style="background:hsl(${ authorHue( creatorName ) } 62% 42%)">${ authorInitial( creatorName ) }</span>by ${ escapeHtml( creatorName ) }</button>`;
 			card.innerHTML = `<h3>${ entry.name }</h3>
 				<div class="badges">
-					<span class="badge creator-badge" title="Track creator">by ${ escapeHtml( getEntryCreator( entry ) ) }</span>
+					${ authorChip }
 					<span class="badge">▶ ${ stats.plays } plays</span>
 					<span class="badge">👍 ${ stats.likes }</span>
 					<span class="badge">🏁 ${ stats.sizeTag }</span>
@@ -993,6 +1085,7 @@
 					<button data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
 					<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
 					<button data-id="${ entry.id }" type="button">Remove</button>
+					<button type="button" class="copy-btn" data-copy-url="${ escapeHtml( entry.playUrl ) }" title="Copy a direct link to this track">🔗 Copy Link</button>
 				</div>`;
 			if ( ! entry.thumbnailDataUrl ) {
 				const previewCanvas = card.querySelector( '.preview-canvas' );
@@ -1000,6 +1093,13 @@
 				previewCanvas.dataset.mods = JSON.stringify( stats.previewData?.mods || {} );
 				previewCanvas.dataset.playUrl = entry.playUrl;
 				previewObserver.observe( previewCanvas );
+				// Cloud entries arrive thumbnail-free (fields=list) for a fast
+				// first paint; the real screenshot is fetched lazily when the
+				// card scrolls into view and swapped in once it loads.
+				if ( useRemoteBoard && entry.hasThumbnail ) {
+					previewCanvas.dataset.thumbId = entry.id;
+					thumbObserver.observe( previewCanvas );
+				}
 			}
 			return card;
 		}
@@ -1089,8 +1189,72 @@
 			return `${ baseUrl }${ separator }ghost=${ ghostBlob }`;
 		}
 
+		// Author page: driven by #author=<name> so it is shareable and the
+		// browser back button works. Takes priority over search/browse views.
+		function renderAuthorPage( name ) {
+			const clean = String( name || '' ).trim();
+			const anon = ! clean || clean.toLowerCase() === 'anonymous';
+			const displayName = clean || 'Anonymous';
+			document.querySelectorAll( '.browser-section, .records-board' ).forEach( ( s ) => { s.style.display = 'none'; } );
+			if ( sectionAuthor ) sectionAuthor.style.display = '';
+			const theirs = anon ? [] : entries.filter( ( entry ) => getEntryCreator( entry ).toLowerCase() === clean.toLowerCase() );
+			if ( authorHero ) {
+				authorHero.innerHTML = `
+					<span class="author-avatar" style="background:hsl(${ authorHue( displayName ) } ${ anon ? 40 : 62 }% ${ anon ? 34 : 42 }%)">${ anon ? '?' : authorInitial( displayName ) }</span>
+					<div><h2>${ escapeHtml( displayName ) }</h2><div class="author-meta">${ theirs.length } shared track${ theirs.length === 1 ? '' : 's' } on the board</div></div>
+					<button type="button" class="linkbtn author-back" data-author-back="1">← Back to the board</button>`;
+			}
+			renderTrackList( authorGrid, theirs, anon ? 'Anonymous tracks have no author page.' : `${ escapeHtml( displayName ) } hasn't published any tracks yet.` );
+			window.scrollTo( { top: 0, behavior: 'instant' } );
+		}
+
+		function clearLibraryPager() {
+			if ( libraryPager ) libraryPager.innerHTML = '';
+		}
+
+		function renderLibraryPager( total, pageCount, shown ) {
+			if ( ! libraryPager ) return;
+			const start = libraryPage * PAGE_SIZE;
+			if ( pageCount <= 1 ) {
+				libraryPager.innerHTML = total > 0 ? `<span class="pager-info">Showing ${ start + 1 }–${ start + shown } of ${ total } track${ total === 1 ? '' : 's' }</span>` : '';
+				return;
+			}
+			const windowStart = Math.max( 0, Math.min( libraryPage - 2, pageCount - 5 ) );
+			const windowEnd = Math.min( pageCount, windowStart + 5 );
+			let html = `<button type="button" data-page="0"${ libraryPage === 0 ? ' disabled' : '' }>« First</button>
+				<button type="button" data-page="${ libraryPage - 1 }"${ libraryPage === 0 ? ' disabled' : '' }>‹ Prev</button>`;
+			for ( let p = windowStart; p < windowEnd; p ++ ) {
+				html += `<button type="button" data-page="${ p }"${ p === libraryPage ? ' class="active"' : '' }>${ p + 1 }</button>`;
+			}
+			html += `<button type="button" data-page="${ libraryPage + 1 }"${ libraryPage >= pageCount - 1 ? ' disabled' : '' }>Next ›</button>
+				<button type="button" data-page="${ pageCount - 1 }"${ libraryPage >= pageCount - 1 ? ' disabled' : '' }>Last »</button>
+				<span class="pager-info">Showing ${ start + 1 }–${ start + shown } of ${ total } track${ total === 1 ? '' : 's' }</span>`;
+			libraryPager.innerHTML = html;
+		}
+
+		// Renders the current PAGE_SIZE slice of the list into the grid plus the
+		// pager — the full library no longer builds hundreds of cards at once.
+		function renderGridPaged( filtered ) {
+			const total = filtered.length;
+			const pageCount = Math.max( 1, Math.ceil( total / PAGE_SIZE ) );
+			if ( libraryPage >= pageCount ) libraryPage = pageCount - 1;
+			if ( libraryPage < 0 ) libraryPage = 0;
+			const start = libraryPage * PAGE_SIZE;
+			const slice = filtered.slice( start, start + PAGE_SIZE );
+			const frag = document.createDocumentFragment();
+			for ( const entry of slice ) frag.appendChild( createTrackCard( entry ) );
+			grid.appendChild( frag );
+			renderLibraryPager( total, pageCount, slice.length );
+		}
+
 		function render() {
 			_statsCache.clear();
+			if ( sectionAuthor ) sectionAuthor.style.display = 'none';
+			const authorParam = getAuthorFromHash();
+			if ( authorParam ) {
+				renderAuthorPage( authorParam );
+				return;
+			}
 			const hasSearch = ( searchInput?.value || '' ).trim().length > 0;
 			grid.innerHTML = '';
 
@@ -1112,14 +1276,11 @@
 				const filtered = getFilteredEntries();
 				if ( filtered.length === 0 ) {
 					grid.innerHTML = '<div class="card"><h3>No matches</h3><div class="meta">Try a different search or size filter.</div></div>';
+					clearLibraryPager();
 					return;
 				}
 
-				const searchFrag = document.createDocumentFragment();
-				for ( const entry of filtered ) {
-					searchFrag.appendChild( createTrackCard( entry ) );
-				}
-				grid.appendChild( searchFrag );
+				renderGridPaged( filtered );
 				return;
 			}
 
@@ -1145,14 +1306,11 @@
 				grid.innerHTML = hasAny
 					? '<div class="card"><h3>No matches</h3><div class="meta">Try a different search or size filter.</div></div>'
 					: '<div class="card"><h3>No uploads yet</h3><div class="meta">Add a ghost code to get started.</div></div>';
+				clearLibraryPager();
 				return;
 			}
 
-			const gridFrag = document.createDocumentFragment();
-			for ( const entry of filtered ) {
-				gridFrag.appendChild( createTrackCard( entry ) );
-			}
-			grid.appendChild( gridFrag );
+			renderGridPaged( filtered );
 		}
 
 		async function addEntryFromGhostCode() {
@@ -1362,7 +1520,12 @@
 				}
 			} );
 			window.addEventListener( 'hashchange', () => {
-				if ( useRemoteBoard ) return;
+				if ( useRemoteBoard ) {
+					// Remote mode: the hash carries the author-page route
+					// (#author=Name) — render picks it up from the hash.
+					render();
+					return;
+				}
 				loadFromHash();
 				updatePublishingAs();
 				primeV3Previews().finally( () => hydrateTopLeaderboardRows( entries ).finally( () => render() ) );
@@ -1370,10 +1533,45 @@
 			let searchDebounce = null;
 			searchInput.addEventListener( 'input', () => {
 				clearTimeout( searchDebounce );
-				searchDebounce = setTimeout( () => render(), 200 );
+				searchDebounce = setTimeout( () => { libraryPage = 0; render(); }, 200 );
 			} );
-			sizeFilter.addEventListener( 'change', () => render() );
-			sortFilter.addEventListener( 'change', () => render() );
+			sizeFilter.addEventListener( 'change', () => { libraryPage = 0; render(); } );
+			sortFilter.addEventListener( 'change', () => { libraryPage = 0; render(); } );
+			// Author chip / back / copy-link delegation. These buttons never
+			// carry data-id, so the vote/remove handler ignores them.
+			document.addEventListener( 'click', ( e ) => {
+				const chip = e.target.closest( '[data-author]' );
+				if ( chip ) {
+					setAuthorInHash( chip.getAttribute( 'data-author' ) );
+					return;
+				}
+				const back = e.target.closest( '[data-author-back]' );
+				if ( back ) {
+					setAuthorInHash( '' );
+					return;
+				}
+				const copyBtn = e.target.closest( '[data-copy-url]' );
+				if ( copyBtn ) {
+					const url = copyBtn.getAttribute( 'data-copy-url' ) || '';
+					if ( navigator.clipboard?.writeText ) {
+						navigator.clipboard.writeText( url )
+							.then( () => setStatus( 'Track link copied — share it anywhere!' ) )
+							.catch( () => setStatus( 'Copy failed. Use the Play link and copy it from the address bar.', true ) );
+					} else {
+						setStatus( 'Copy not supported here. Use the Play link instead.', true );
+					}
+				}
+			} );
+			libraryPager?.addEventListener( 'click', ( e ) => {
+				const btn = e.target.closest( 'button[data-page]' );
+				if ( ! btn || btn.disabled ) return;
+				const page = Number( btn.getAttribute( 'data-page' ) );
+				if ( ! Number.isInteger( page ) || page < 0 || page === libraryPage ) return;
+				libraryPage = page;
+				render();
+				const lib = document.getElementById( 'section-library' );
+				if ( lib ) window.scrollTo( { top: Math.max( 0, lib.getBoundingClientRect().top + window.scrollY - 12 ), behavior: 'instant' } );
+			} );
 			thumbnailInput.addEventListener( 'change', async () => {
 				const file = thumbnailInput.files?.[ 0 ];
 				if ( ! file ) {
