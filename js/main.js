@@ -10,6 +10,7 @@ import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails, WaterSplashFX } from './Particles.js';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
+import { encodeGhostBinary, decodeGhostBinary, encodeGhostCode, decodeGhostCode } from './GhostCodec.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
 import { HudExtras } from './HudExtras.js';
@@ -5396,10 +5397,6 @@ async function init() {
 	let ghostModel = null;
 	const bestLapGhostSamples = [];
 	let currentLapGhostSamples = [];
-	let bestLapInputFrames = [];
-	let latestLapInputFrames = [];
-	let currentLapInputFrames = [];
-	let inputRecordFrame = 0;
 	let bestGhostDuration = 0;
 	const ghostPlaybackCursor = { _cursor: 1 };
 	let bestGhostCarKey = 'vehicle-truck-yellow';
@@ -5611,33 +5608,6 @@ async function init() {
 
 	}
 
-	function resetCurrentLapInputs() {
-
-		currentLapInputFrames = [];
-		inputRecordFrame = 0;
-
-	}
-
-	function recordLapInput( lapElapsed, input, controlState ) {
-
-		if ( ! ghostEnabled ) return;
-		inputRecordFrame ++;
-		if ( inputRecordFrame % 2 !== 0 ) return;
-		const keys = controlState || {};
-		currentLapInputFrames.push( {
-			t: lapElapsed,
-			x: Number.isFinite( input?.x ) ? input.x : 0,
-			z: Number.isFinite( input?.z ) ? input.z : 0,
-			keys: {
-				left: Boolean( keys.KeyA || keys.ArrowLeft ),
-				right: Boolean( keys.KeyD || keys.ArrowRight ),
-				forward: Boolean( keys.KeyW || keys.ArrowUp ),
-				back: Boolean( keys.KeyS || keys.ArrowDown ),
-			},
-		} );
-
-	}
-
 	function recordGhostSample( lapElapsed, force = false ) {
 
 		if ( ! ghostEnabled ) return;
@@ -5722,8 +5692,14 @@ async function init() {
 
 	function extractNormalizedGhostPayload( payload ) {
 
-		const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
-		const duration = Number( payload?.duration );
+		// Accepts v1 payload objects, { g2 } wrappers, and bare g2 binary
+		// strings (js/GhostCodec.js) — legacy payloads keep working.
+		let source = payload;
+		if ( source && typeof source === 'object' && typeof source.g2 === 'string' ) source = decodeGhostBinary( source.g2 );
+		else if ( typeof source === 'string' ) source = decodeGhostBinary( source );
+		if ( ! source || typeof source !== 'object' ) return null;
+		const samples = Array.isArray( source.samples ) ? source.samples : [];
+		const duration = Number( source.duration );
 		if ( samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return null;
 		const normalizedSamples = [];
 		for ( const sample of samples ) {
@@ -5744,9 +5720,9 @@ async function init() {
 		return {
 			samples: normalizedSamples,
 			duration,
-			car: payload?.car,
-			bestLapSeconds: payload?.bestLapSeconds,
-			cosmetics: normalizeGhostCosmeticsPayload( payload?.cosmetics ),
+			car: source.car,
+			bestLapSeconds: source.bestLapSeconds,
+			cosmetics: normalizeGhostCosmeticsPayload( source.cosmetics ),
 		};
 
 	}
@@ -9086,7 +9062,16 @@ function completeCampaignStage() {
 
 		try {
 
-			localStorage.setItem( recentGhostStoreKey, JSON.stringify( recentGhostHistory.slice( 0, 12 ) ) );
+			// Compact "g2" entries — raw sample arrays could blow past the
+			// localStorage quota on Chromebooks; the codec cuts ~89%.
+			const compact = [];
+			for ( const entry of recentGhostHistory.slice( 0, 12 ) ) {
+
+				const g2 = encodeGhostBinary( entry );
+				if ( g2 ) compact.push( { g2 } );
+
+			}
+			localStorage.setItem( recentGhostStoreKey, JSON.stringify( compact ) );
 
 		} catch ( e ) {
 
@@ -10217,7 +10202,7 @@ function completeCampaignStage() {
 		const trick = activePadEffect?.trick || null;
 		const hasTrickPayload = Boolean( trick );
 		const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
-		const airborne = targetVehicle.spherePos.y > 0.5 || Math.abs( verticalVel ) > 0.25;
+		const airborne = ! isVehicleTouchingGroundBelow( targetVehicle ) || Math.abs( verticalVel ) > 0.25;
 		const canRun = state.active ? hasTrickPayload : ( hasTrickPayload && airborne );
 		if ( ! canRun ) {
 
@@ -10497,10 +10482,14 @@ function completeCampaignStage() {
 
 			try {
 
-				const parsed = decodeBase64UrlJson( ghostCode );
-				const ghostBlob = encodeBase64UrlJson( parsed.ghost );
-				const separator = parsed.url.includes( '#' ) ? '&' : '#';
-				playTrackUrl = `${ parsed.url }${ separator }ghost=${ ghostBlob }`;
+				const parsed = decodeGhostCode( ghostCode );
+				if ( parsed ) {
+
+					const ghostBlob = encodeGhostBinary( parsed.ghost ) || encodeBase64UrlJson( parsed.ghost );
+					const separator = parsed.url.includes( '#' ) ? '&' : '#';
+					playTrackUrl = `${ parsed.url }${ separator }ghost=${ ghostBlob }`;
+
+				}
 
 			} catch ( e ) {
 
@@ -10529,13 +10518,8 @@ function completeCampaignStage() {
 			return;
 
 		}
-		const replayPayload = {
-			v: 1,
-			url: currentTrackUrl,
-			ghost: ghostPayload,
-		};
-		const replayCode = encodeBase64UrlJson( replayPayload );
-		window.open( `replay.html#code=${ replayCode }`, '_blank' );
+		const replayCode = encodeGhostCode( currentTrackUrl, ghostPayload );
+		if ( replayCode ) window.open( `replay.html#code=${ replayCode }`, '_blank' );
 
 	}
 
@@ -10559,49 +10543,15 @@ function completeCampaignStage() {
 
 		if ( ! ghostEnabled ) return '';
 		if ( bestLapGhostSamples.length < 2 || ! Number.isFinite( bestLapSeconds ) ) return '';
-		const payload = {
-			v: 1,
-			url: currentTrackUrl,
-			ghost: {
-				car: bestGhostCarKey,
-				cosmetics: bestGhostCosmetics,
-				bestLapSeconds,
-				duration: bestGhostDuration,
-				samples: bestLapGhostSamples,
-				inputs: bestLapInputFrames,
-			}
-		};
-		return encodeBase64UrlJson( payload );
-
-	}
-
-	function deriveInputsFromGhostSamples( samples, duration ) {
-
-		if ( ! Array.isArray( samples ) || samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return [];
-		const derived = [];
-		for ( let i = 1; i < samples.length; i ++ ) {
-
-			const prev = samples[ i - 1 ];
-			const next = samples[ i ];
-			const dt = Math.max( 1e-4, next.t - prev.t );
-			const dx = next.x - prev.x;
-			const dz = next.z - prev.z;
-			const speed = Math.sqrt( dx * dx + dz * dz ) / dt;
-			const yawDelta = lerpAngle( prev.yaw, next.yaw, 1 ) - prev.yaw;
-			derived.push( {
-				t: next.t,
-				x: THREE.MathUtils.clamp( yawDelta * 2.3, - 1, 1 ),
-				z: speed > 0.08 ? 1 : 0,
-				keys: {
-					left: yawDelta > 0.08,
-					right: yawDelta < - 0.08,
-					forward: speed > 0.08,
-					back: false,
-				},
-			} );
-
-		}
-		return derived;
+		// Compact v2 code (js/GhostCodec.js): ~89% smaller than the old JSON
+		// payload — a 60s lap drops from ~230 KB to ~25 KB of pasteable text.
+		return encodeGhostCode( currentTrackUrl, {
+			car: bestGhostCarKey,
+			cosmetics: bestGhostCosmetics,
+			bestLapSeconds,
+			duration: bestGhostDuration,
+			samples: bestLapGhostSamples,
+		} ) || '';
 
 	}
 
@@ -10647,42 +10597,24 @@ function completeCampaignStage() {
 		if ( ! ghostEnabled ) return;
 		const code = window.prompt( 'Paste ghost code:' );
 		if ( ! code ) return;
-		let parsed;
-		try {
-
-			parsed = decodeBase64UrlJson( code.trim() );
-
-		} catch ( e ) {
+		const parsed = decodeGhostCode( code.trim() );
+		if ( ! parsed ) {
 
 			window.alert( 'Invalid ghost code.' );
 			return;
 
 		}
-		const url = typeof parsed?.url === 'string' ? parsed.url : '';
-		if ( ! parsed?.ghost ) {
-
-			window.alert( 'Ghost code is missing required data.' );
-			return;
-
-		}
+		const url = typeof parsed.url === 'string' ? parsed.url : '';
 		const applied = applyImportedGhostPayload( parsed.ghost );
 		if ( applied ) {
 
-			const importedInputs = Array.isArray( parsed.ghost?.inputs ) ? parsed.ghost.inputs : deriveInputsFromGhostSamples( parsed.ghost?.samples, parsed.ghost?.duration );
-				if ( importedInputs.length > 1 ) {
-
-					bestLapInputFrames = importedInputs;
-					latestLapInputFrames = importedInputs.slice();
-					saveLapStats();
-
-			}
 			showTopMessage( 'Ghost imported for current track.', false, 1700 );
 			return;
 
 		}
 		if ( url ) {
 
-			const ghostBlob = encodeBase64UrlJson( parsed.ghost );
+			const ghostBlob = encodeGhostBinary( parsed.ghost ) || encodeBase64UrlJson( parsed.ghost );
 			const separator = url.includes( '#' ) ? '&' : '#';
 			window.open( `${ url }${ separator }ghost=${ ghostBlob }`, '_blank' );
 			return;
@@ -11172,26 +11104,25 @@ function completeCampaignStage() {
 					lapNumber,
 					lastLapSeconds,
 					bestLapSeconds,
-					bestGhostDuration: 0,
-					bestGhostCarKey: 'vehicle-truck-yellow',
-					bestGhostCosmetics: null,
-					bestLapGhostSamples: [],
-					bestLapInputFrames: [],
-					latestLapInputFrames: [],
+					bestGhostG2: '',
 				} ) );
 			return;
 
 		}
+			// Compact "g2" binary ghost (js/GhostCodec.js) — the old raw JSON
+			// sample array was by far the biggest localStorage consumer.
+			const bestGhostG2 = encodeGhostBinary( {
+				car: bestGhostCarKey,
+				cosmetics: bestGhostCosmetics,
+				bestLapSeconds,
+				duration: bestGhostDuration,
+				samples: bestLapGhostSamples,
+			} ) || '';
 			localStorage.setItem( lapStoreKey, JSON.stringify( {
 				lapNumber,
 				lastLapSeconds,
 				bestLapSeconds,
-				bestGhostDuration,
-				bestGhostCarKey,
-				bestGhostCosmetics,
-				bestLapGhostSamples,
-				bestLapInputFrames,
-				latestLapInputFrames,
+				bestGhostG2,
 			} ) );
 
 	}
@@ -11209,36 +11140,34 @@ function completeCampaignStage() {
 			bestGhostDuration = Number.isFinite( parsed.bestGhostDuration ) ? parsed.bestGhostDuration : 0;
 				bestGhostCarKey = typeof parsed.bestGhostCarKey === 'string' ? parsed.bestGhostCarKey : 'vehicle-truck-yellow';
 				bestGhostCosmetics = normalizeGhostCosmeticsPayload( parsed.bestGhostCosmetics );
-					bestLapGhostSamples.length = 0;
-					bestLapInputFrames = [];
-					latestLapInputFrames = [];
-					ghostPlaybackCursor._cursor = 1;
-				if ( Array.isArray( parsed.bestLapGhostSamples ) ) {
+				bestLapGhostSamples.length = 0;
+				ghostPlaybackCursor._cursor = 1;
+				const compactGhost = typeof parsed.bestGhostG2 === 'string' ? decodeGhostBinary( parsed.bestGhostG2 ) : null;
+				if ( compactGhost ) {
 
-				for ( const sample of parsed.bestLapGhostSamples ) {
+					for ( const sample of compactGhost.samples ) bestLapGhostSamples.push( sample );
+					if ( compactGhost.car ) bestGhostCarKey = compactGhost.car;
+					bestGhostCosmetics = normalizeGhostCosmeticsPayload( compactGhost.cosmetics );
+					if ( Number.isFinite( compactGhost.bestLapSeconds ) ) bestLapSeconds = compactGhost.bestLapSeconds;
+					if ( Number.isFinite( compactGhost.duration ) ) bestGhostDuration = compactGhost.duration;
 
-					if ( ! Number.isFinite( sample?.t ) || ! Number.isFinite( sample?.x ) || ! Number.isFinite( sample?.y ) || ! Number.isFinite( sample?.z ) || ! Number.isFinite( sample?.yaw ) ) continue;
-					bestLapGhostSamples.push( {
-						t: sample.t,
-						x: sample.x,
-						y: sample.y,
-						z: sample.z,
-						yaw: sample.yaw,
-					} );
+				} else if ( Array.isArray( parsed.bestLapGhostSamples ) ) {
+
+					for ( const sample of parsed.bestLapGhostSamples ) {
+
+						if ( ! Number.isFinite( sample?.t ) || ! Number.isFinite( sample?.x ) || ! Number.isFinite( sample?.y ) || ! Number.isFinite( sample?.z ) || ! Number.isFinite( sample?.yaw ) ) continue;
+						bestLapGhostSamples.push( {
+							t: sample.t,
+							x: sample.x,
+							y: sample.y,
+							z: sample.z,
+							yaw: sample.yaw,
+						} );
+
+					}
 
 				}
-				if ( Array.isArray( parsed.bestLapInputFrames ) ) {
 
-					bestLapInputFrames = parsed.bestLapInputFrames.filter( ( sample ) => Number.isFinite( sample?.t ) && Number.isFinite( sample?.x ) && Number.isFinite( sample?.z ) );
-
-				}
-				if ( Array.isArray( parsed.latestLapInputFrames ) ) {
-
-					latestLapInputFrames = parsed.latestLapInputFrames.filter( ( sample ) => Number.isFinite( sample?.t ) && Number.isFinite( sample?.x ) && Number.isFinite( sample?.z ) );
-
-				}
-
-			}
 			if ( bestLapGhostSamples.length < 2 ) bestGhostDuration = 0;
 			if ( ghostEnabled && bestLapGhostSamples.length >= 2 && models[ bestGhostCarKey ] ) createGhostModel( models[ bestGhostCarKey ], bestGhostCosmetics );
 
@@ -11393,7 +11322,6 @@ function completeCampaignStage() {
 
 		}
 		resetCurrentLapGhost();
-		resetCurrentLapInputs();
 		recordGhostSample( 0, true );
 		updateCountdownHud( now );
 		updateLapHud();
@@ -11458,7 +11386,6 @@ function completeCampaignStage() {
 		camYawLockActive = false;
 		specialSurfaceContactState.clear();
 		resetCurrentLapGhost();
-		resetCurrentLapInputs();
 		recordGhostSample( 0, true );
 		updateGhostPlayback( 0 );
 		updateLeaderboardGhostPlayback( 0 );
@@ -11993,11 +11920,41 @@ function completeCampaignStage() {
 
 	}
 
+	// Contact-based ground detection. The legacy check hard-coded the FLAT
+	// ground height (posY <= 0.62), so on elevated blocks (deck ~+3.75 world
+	// units) the car read as permanently airborne — bounce pads and force-up
+	// custom surfaces sat on elevated pieces triggered but never launched the
+	// car, and trick pads could fire while simply driving. Now the ONLY ground
+	// truth is physics: a short downward ray from the sphere center reports a
+	// static hitbox directly below the car, at ANY height — flat road, elevated
+	// deck, slope, custom geometry, all identical.
+	// Depth 0.62 = resting on flat ground (sphere center -> collider surface);
+	// the 0.95 budget covers slope contact geometry (the center-to-surface
+	// distance grows with the surface angle, ~0.88 on a 45° face).
+	const GROUND_TOUCH_DEPTH = 0.95;
+	function isVehicleTouchingGroundBelow( targetVehicle ) {
+
+		if ( ! targetVehicle?.spherePos ) return false;
+		const probe = sampleGroundDepth( targetVehicle.spherePos.x, targetVehicle.spherePos.y, targetVehicle.spherePos.z );
+		return Boolean( probe && probe.depth <= GROUND_TOUCH_DEPTH );
+
+	}
+
 	function isVehicleOnGround( targetVehicle ) {
 
-		const posY = targetVehicle?.spherePos?.y ?? 999;
+		// Touching a hitbox below + not bouncing off it (the vertical-speed
+		// gate keeps launch pads from re-triggering on the way up).
+		if ( ! isVehicleTouchingGroundBelow( targetVehicle ) ) return false;
 		const verticalSpeed = Math.abs( targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] ?? 999 );
-		return posY <= 0.62 && verticalSpeed <= 1.1;
+		return verticalSpeed <= 1.1;
+
+	}
+
+	function isVehicleAirborne( targetVehicle ) {
+
+		if ( ! targetVehicle ) return false;
+		const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
+		return ! isVehicleTouchingGroundBelow( targetVehicle ) || Math.abs( verticalVel ) > 0.35;
 
 	}
 
@@ -12031,11 +11988,21 @@ function completeCampaignStage() {
 					const oncePerContact = Boolean( customSurfaceConfigs?.[ surfaceType ]?.oncePerContact );
 					if ( triggered ) {
 
+						// Once-per-contact surfaces consume their trigger on an
+						// ACTUAL hit only. A declined pass (car airborne over the
+						// cell, e.g. a spawn drop or a fly-over) must NOT burn the
+						// once-per-contact slot — the surface stays armed and fires
+						// the moment the car is touching a hitbox below it on that
+						// cell. (It used to mark itself consumed while airborne,
+						// leaving noAir force pads permanently dead.)
 						if ( oncePerContact || SPECIAL_SURFACE_HANDLERS[ surfaceType ] ) contactState.set( surfaceType, currentKey );
 						else contactState.delete( surfaceType );
 
-					} else if ( oncePerContact ) contactState.set( surfaceType, currentKey );
-					else contactState.delete( surfaceType );
+					} else {
+
+						contactState.delete( surfaceType );
+
+					}
 
 				}
 
@@ -12700,7 +12667,7 @@ function completeCampaignStage() {
 
 		try {
 
-			const payload = decodeBase64UrlJson( importedGhost );
+			const payload = decodeGhostBinary( importedGhost ) || decodeBase64UrlJson( importedGhost );
 			if ( applyImportedGhostPayload( payload ) ) {
 
 				updateLapHud();
@@ -12993,7 +12960,6 @@ function completeCampaignStage() {
 			if ( customModForceBrakeUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: - 1 };
 			if ( customModForceThrottleUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: 1 };
 			const padAdjustedInput2 = input2 ? applyPadInputModifiers( input2, activePadEffect2 ) : null;
-			recordLapInput( Math.max( 0, now - lapStartSeconds ), padAdjustedInput, controls?.keys );
 			if ( hacksActive && hacksState.infiniteCoins ) coins = Math.max( coins, 9999999 );
 			if ( arcadeBoostInstalled ) {
 
@@ -13614,26 +13580,6 @@ function completeCampaignStage() {
 					updateGhostShareButtons();
 
 				}
-				if ( isNewBest && currentLapInputFrames.length > 1 ) {
-
-					bestLapInputFrames = currentLapInputFrames.map( ( sample ) => ( {
-						t: sample.t,
-						x: sample.x,
-						z: sample.z,
-						keys: sample.keys || { left: false, right: false, forward: false, back: false },
-					} ) );
-
-				}
-				if ( currentLapInputFrames.length > 1 ) {
-
-					latestLapInputFrames = currentLapInputFrames.map( ( sample ) => ( {
-						t: sample.t,
-						x: sample.x,
-						z: sample.z,
-						keys: sample.keys || { left: false, right: false, forward: false, back: false },
-					} ) );
-
-				}
 				dispatchRuntimeModEvent( 'onLapFinish', { type: 'lapFinish', lapTime: completedLap, bestLapSeconds, lapNumber, isNewBest, lapInvalid } );
 				if ( currentLapGhostSamples.length > 1 ) {
 
@@ -13691,7 +13637,6 @@ function completeCampaignStage() {
 						currentLapInvalidatedByPause = false;
 						checkpointDeltaText = '';
 						resetCurrentLapGhost();
-						resetCurrentLapInputs();
 						recordGhostSample( 0, true );
 					updateGhostPlayback( 0 );
 					updateLeaderboardGhostPlayback( 0 );
