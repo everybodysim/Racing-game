@@ -54,8 +54,8 @@ const MAX_PIXEL_RATIO = 1.5;
 const GRAPHICS_QUALITY_KEY = 'racing-graphics-quality';
 const GRAPHICS_QUALITY_PRESETS = {
 	low: { label: 'Low', maxPixelRatio: 0.85, shadows: false, shadowMapSize: 1024, smokeParticles: 24, smokeEmissionStride: 3, weatherParticleScale: 0, bloomStrength: 0, bloomRadius: 0 },
-	medium: { label: 'Medium', maxPixelRatio: 1.1, shadows: true, shadowMapSize: 2048, smokeParticles: 44, smokeEmissionStride: 2, weatherParticleScale: 0.55, bloomStrength: 0.01, bloomRadius: 0.01 },
-	high: { label: 'High', maxPixelRatio: MAX_PIXEL_RATIO, shadows: true, shadowMapSize: 4096, smokeParticles: 64, smokeEmissionStride: 1, weatherParticleScale: 1, bloomStrength: 0.02, bloomRadius: 0.02 },
+	medium: { label: 'Medium', maxPixelRatio: 1.1, shadows: true, shadowMapSize: 2048, smokeParticles: 44, smokeEmissionStride: 2, weatherParticleScale: 0.55, bloomStrength: 0, bloomRadius: 0 },
+	high: { label: 'High', maxPixelRatio: MAX_PIXEL_RATIO, shadows: true, shadowMapSize: 4096, smokeParticles: 64, smokeEmissionStride: 1, weatherParticleScale: 1, bloomStrength: 0, bloomRadius: 0 },
 };
 
 function isLikelyMobileDevice() {
@@ -106,6 +106,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
 let bloomPass = null;
+let bloomAttached = false;
 
 function applyBloomPreset() {
 
@@ -114,6 +115,17 @@ function applyBloomPreset() {
 	bloomPass.strength = preset.bloomStrength;
 	bloomPass.radius = preset.bloomRadius;
 	bloomPass.threshold = preset.bloomStrength > 0 ? 0.62 : 1.0;
+	// A zero-strength bloom still runs its full multi-pass chain every
+	// frame (a dozen-plus internal fullscreen renders — the most expensive
+	// no-op in the pipeline). Detach the effect entirely when it adds
+	// nothing; re-attach when a preset/custom setting wants it back.
+	const wantsBloom = ( preset.bloomStrength || 0 ) > 0;
+	if ( wantsBloom !== bloomAttached ) {
+
+		bloomAttached = wantsBloom;
+		renderer.setEffects( wantsBloom ? [ bloomPass ] : [] );
+
+	}
 
 }
 
@@ -123,8 +135,9 @@ async function loadBloomEffect() {
 
 		const { UnrealBloomPass } = await import( 'three/addons/postprocessing/UnrealBloomPass.js' );
 		bloomPass = new UnrealBloomPass( new THREE.Vector2( window.innerWidth, window.innerHeight ) );
+		// applyBloomPreset attaches the effect only when the active preset
+		// actually wants bloom (built-in presets now default to strength 0).
 		applyBloomPreset();
-		renderer.setEffects( [ bloomPass ] );
 
 	} catch ( error ) {
 
@@ -12824,6 +12837,23 @@ function completeCampaignStage() {
 
 	let hudUpdateAccumulator = 0;
 
+	// Shadow depth pass at up to ~110 Hz: per-frame at <=60 FPS (unchanged
+	// behavior), every 2nd/3rd frame at high refresh rates. The sun and all
+	// scenery are static, and the fastest mover — the car — still gets its
+	// shadow refreshed >100 times a second, more often than the old every-
+	// frame-at-60-FPS behavior. Mode changes that relocate the camera/car
+	// set shadowMap.needsUpdate themselves and bypass this gate.
+	const SHADOW_REFRESH_MIN_MS = 9;
+	let _shadowRefreshLastMs = -9999;
+	function refreshShadowsIfNeeded() {
+
+		const nowMs = performance.now();
+		if ( nowMs - _shadowRefreshLastMs < SHADOW_REFRESH_MIN_MS ) return;
+		_shadowRefreshLastMs = nowMs;
+		renderer.shadowMap.needsUpdate = true;
+
+	}
+
 	function renderFrame() {
 
 		if ( isSplitScreen && cam2 ) {
@@ -12832,7 +12862,7 @@ function completeCampaignStage() {
 			const height = window.innerHeight;
 			const halfH = Math.floor( height / 2 );
 
-			renderer.shadowMap.needsUpdate = true;
+			refreshShadowsIfNeeded();
 			prerenderWaterRefraction( renderer, scene, cam.camera, 0, { x: 0, y: halfH, w: width, h: height - halfH } );
 			renderer.setScissorTest( true );
 			cam.camera.aspect = width / Math.max( 1, halfH );
@@ -12851,7 +12881,7 @@ function completeCampaignStage() {
 
 		} else {
 
-			renderer.shadowMap.needsUpdate = true;
+			refreshShadowsIfNeeded();
 			prerenderWaterRefraction( renderer, scene, cam.camera );
 			renderer.render( scene, cam.camera );
 
@@ -13357,7 +13387,10 @@ function completeCampaignStage() {
 
 				}
 				const blurVignette = Math.min( 0.65, motionBlurPx );
-				const backdrop = `blur(${ blurVignette.toFixed( 3 ) }px)`;
+				// 0.05px steps — visually identical, but the backdropFilter string
+				// only changes ~13 times across the whole speed range instead of
+				// every single frame, killing the fullscreen re-style thrash.
+				const backdrop = `blur(${ ( Math.round( blurVignette * 20 ) / 20 ).toFixed( 3 ) }px)`;
 				if ( backdrop !== _lastVignetteBackdrop ) {
 
 					speedBlurVignette.style.backdropFilter = backdrop;
