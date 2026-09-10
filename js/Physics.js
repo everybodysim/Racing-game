@@ -1119,6 +1119,13 @@ export function createSphereBody( world, spawnPos ) {
 		restitution: 0.0,
 		linearDamping: 0.1,
 		angularDamping: 4.0,
+		// The physics engine's default max angular velocity is .25*PI*60
+		// = 47.12 rad/s — the ball could never roll faster than ~17 u/s
+		// (~50-64 mph), silently eating every speed boost (pads, hacks,
+		// engine upgrades past ~1.8). Lift it well past the rolling speed
+		// any reachable top speed needs (~640 rad/s at the 10x pad cap)
+		// while keeping a finite safety net against tumble explosions.
+		maxAngularVelocity: 2000,
 		gravityFactor: 1.5,
 		motionQuality: MotionQuality.LINEAR_CAST,
 	} );

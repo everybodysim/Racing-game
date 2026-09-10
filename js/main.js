@@ -10309,15 +10309,24 @@ function completeCampaignStage() {
 		targetVehicle.dragMultiplier = ( effect ? effect.drag : 1.0 ) * padDrag;
 		if ( hacksInstalled && hacksState.enabled && hacksState.lowFriction ) targetVehicle.dragMultiplier *= 0.35;
 		const speedCapScale = Number.isFinite( padEffect?.topSpeed ) ? padEffect.topSpeed : 1.0;
-		// Pad effects now raise the car's actual top speed (stacked pads used to
-		// only fold their topSpeed factor into accel/drive, so MAX_EFFECTIVE_TOP_SPEED
+		// Pad effects raise the car's actual top speed (stacked pads used to only
+		// fold their topSpeed factor into accel/drive, so MAX_EFFECTIVE_TOP_SPEED
 		// (1.8 = 64 mph) stayed a hard wall no matter how many pads you stacked).
-		// Multipliers are recomputed from the stored base every frame, so this is
-		// idempotent and reverts on its own when the pad contact ends.
+		// Recomputed from the stored base every frame — idempotent, self-reverting.
+		// PAD_SPEED_FACTOR_CAP: without it, 20 stacked pads = 86x top speed and the
+		// drive injection below scales with linearSpeed, so the ball would be spun
+		// at billions of rad/s (quaternion death). 10x (= ~640 mph) is the sane ceiling.
+		// PAD_DRIVE_CAP: drive force x driveMultiplier injects ball spin; spin beyond
+		// ~1x rolling speed is pure wheelspin/tumble — the car "freaks out" and
+		// friction can't convert the slip into forward speed (this is why stacked
+		// pads used to glitch the body without making it any faster). 4x keeps the
+		// boost drama without the blender.
+		const PAD_SPEED_FACTOR_CAP = 10;
+		const PAD_DRIVE_CAP = 4;
 		if ( ! Number.isFinite( targetVehicle.baseTopSpeed ) ) targetVehicle.baseTopSpeed = targetVehicle.topSpeed;
-		targetVehicle.topSpeed = targetVehicle.baseTopSpeed * speedCapScale;
-		targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * accelPack * padAccel * speedCapScale;
-		targetVehicle.driveMultiplier = ( effect ? effect.drive : 1.0 ) * drivePack * padDrive * speedCapScale;
+		targetVehicle.topSpeed = targetVehicle.baseTopSpeed * Math.min( PAD_SPEED_FACTOR_CAP, speedCapScale );
+		targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * accelPack * padAccel;
+		targetVehicle.driveMultiplier = Math.min( PAD_DRIVE_CAP, ( effect ? effect.drive : 1.0 ) * drivePack * padDrive );
 
 	}
 
