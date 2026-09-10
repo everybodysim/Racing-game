@@ -114,20 +114,35 @@ const _waterPrevScissor = new THREE.Vector4();
 const waterRefrRTs = new Map();
 
 // Frame-budget governor. The refraction pass re-renders the whole scene,
-// which is exactly what pools steal from the frame rate. Two gates:
+// which is exactly what pools steal from the frame rate. Three gates:
 //  1. FRUSTUM: if no water plane is in the camera's view, skip the pass
 //     entirely (off-screen pools cost nothing).
-//  2. CADENCE: as FPS dips, re-render the RT every 2nd/3rd/4th call instead
-//     of every frame. The wobble animates per-frame IN-SHADER (time
-//     uniform), so a 2-3 frame old refraction sample is imperceptible —
-//     but the frame gets a whole scene-render cheaper.
+//  2. CADENCE (stationary camera): as FPS dips, re-render the RT every
+//     2nd/3rd/4th call instead of every frame. The wobble animates per-frame
+//     IN-SHADER (time uniform), so a 2-3 frame old refraction sample is
+//     imperceptible — but the frame gets a whole scene-render cheaper.
+//  3. MOTION STALENESS (moving camera): reuse a sample up to
+//     WATER_REFR_STALE_MS old while the camera stays inside the motion
+//     budget — at 200 FPS this turns the per-frame full-scene render into
+//     a ~30 Hz background refresh instead of a 200 Hz one.
 const waterLastRefrFrameByCam = new Map();
 const _waterFrustum = new THREE.Frustum();
 const _waterProjScreen = new THREE.Matrix4();
 let waterRefrFrameCounter = 0;
-// Per-camera pose at the last refraction pass — used to force a fresh pass when the camera moves.
+// Per-camera pose at the last refraction pass — used to decide when a fresh
+// pass is actually needed (see the motion-staleness gate below).
 const waterLastCamStateByCam = new Map();
 let waterRefrCadence = 1;
+// Motion-staleness budget: while the camera is moving, a refraction sample up
+// to WATER_REFR_STALE_MS old is imperceptible behind the per-frame animated
+// wobble (~2 frames at 60 FPS). At high refresh rates this cuts the pass to a
+// fraction of frames instead of every single one — at 200 FPS the pool costs
+// ~1/6th of a full scene render per frame. Reuse is only allowed while the
+// camera has moved less than WATER_REFR_STALE_MOVE / turned WATER_REFR_STALE_ANGLE
+// since the sample — a big jump (respawn, camera cut) always forces a fresh pass.
+const WATER_REFR_STALE_MS = 32;
+const WATER_REFR_STALE_MOVE_SQ = 1.75 * 1.75;
+const WATER_REFR_STALE_ANGLE = 0.05;
 
 // Camera-underwater state shared by every pool material. When the camera is
 // below the surface, the pool floors get their animated caustic overlay and
@@ -179,36 +194,61 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 	if ( ! isWaterVisibleToCamera( camera ) ) return;
 	waterRefrFrameCounter ++;
 	const waterLastFrame = waterLastRefrFrameByCam.get( camIndex );
-	// The FPS governor (updateWaterQuality) saves a full scene render by
-	// re-sampling a cadence-stale refraction RT. That is only invisible when
-	// the camera is still — the moment the camera moves (or dives under the
-	// surface) a stale RT shows lagged, offset content through the water,
-	// which reads as "broken" on low-end machines (the ones on LOW preset).
-	// So the cadence gate now applies ONLY to a stationary camera: any
-	// camera movement or underwater frame forces a fresh pass.
-	let waterCamMoved = true;
+	// When does the pool actually need a fresh scene render?
+	//  - UNDERWATER camera: always — the shimmering underside is the screen
+	//    content, any staleness is visible.
+	//  - STATIONARY camera: the LOW-fps cadence governor (updateWaterQuality)
+	//    applies — the RT content only changes via the in-shader wobble anyway.
+	//  - MOVING camera: motion-staleness gate — a sample up to
+	//    WATER_REFR_STALE_MS old (≈2 frames at 60 FPS) is imperceptible behind
+	//    the animated wobble, so at high refresh rates the pass runs on only a
+	//    fraction of frames (at 200 FPS: ~1/6th of a scene render per frame).
+	//    Reuse requires the camera to have moved/turned less than the budget
+	//    since the sample — big jumps (respawn, camera cut) force a fresh pass.
 	const waterCamState = waterLastCamStateByCam.get( camIndex );
-	if ( waterCamState ) {
+	const markFreshPass = () => {
 
-		if ( waterCamState.pos.distanceToSquared( camera.position ) < 0.0025 && waterCamState.quat.angleTo( camera.quaternion ) < 0.01 ) {
-
-			waterCamMoved = false;
-
-		} else {
+		if ( waterCamState ) {
 
 			waterCamState.pos.copy( camera.position );
 			waterCamState.quat.copy( camera.quaternion );
+			waterCamState.t = performance.now();
+
+		} else {
+
+			waterLastCamStateByCam.set( camIndex, { pos: camera.position.clone(), quat: camera.quaternion.clone(), t: performance.now() } );
 
 		}
+		waterLastRefrFrameByCam.set( camIndex, waterRefrFrameCounter );
 
-	} else {
+	};
+	if ( ! WATER_UNDERWATER.camera ) {
 
-		waterLastCamStateByCam.set( camIndex, { pos: camera.position.clone(), quat: camera.quaternion.clone() } );
+		let skipPass = false;
+		if ( waterCamState ) {
+
+			const movedSq = waterCamState.pos.distanceToSquared( camera.position );
+			const angle = waterCamState.quat.angleTo( camera.quaternion );
+			if ( movedSq < 0.0025 && angle < 0.01 ) {
+
+				// Parked camera — LOW-fps cadence governor.
+				skipPass = waterLastFrame !== undefined && waterRefrFrameCounter - waterLastFrame < waterRefrCadence;
+
+			} else if ( waterLastFrame !== undefined
+				&& ( performance.now() - waterCamState.t ) < WATER_REFR_STALE_MS
+				&& movedSq < WATER_REFR_STALE_MOVE_SQ
+				&& angle < WATER_REFR_STALE_ANGLE ) {
+
+				// Moving camera — sample still inside the staleness budget.
+				skipPass = true;
+
+			}
+
+		}
+		if ( skipPass ) return;
 
 	}
-	const waterCadence = WATER_UNDERWATER.camera ? 1 : waterRefrCadence;
-	if ( ! waterCamMoved && waterLastFrame !== undefined && waterRefrFrameCounter - waterLastFrame < waterCadence ) return;
-	waterLastRefrFrameByCam.set( camIndex, waterRefrFrameCounter );
+	markFreshPass();
 	const db = renderer.getDrawingBufferSize( _waterDbSize );
 	const w = Math.max( 2, Math.floor( db.x / 2 ) );
 	const h = Math.max( 2, Math.floor( db.y / 2 ) );
