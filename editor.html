@@ -6897,11 +6897,18 @@ function updateMovingObstacles( state, now, vehicleList ) {
 						const oncePerContact = Boolean( customSurfaceConfigs?.[ surfaceType ]?.oncePerContact );
 						if ( triggered ) {
 
+							// Mirror of the game fix: once-per-contact is consumed
+							// on an ACTUAL hit only. A declined pass (car airborne
+							// over the cell, e.g. spawn drop) stays armed and fires
+							// when the car next touches ground on that cell.
 							if ( oncePerContact || FX_SPECIAL_SURFACE_HANDLERS[ surfaceType ] ) contactState.set( surfaceType, currentKey );
 							else contactState.delete( surfaceType );
 
-						} else if ( oncePerContact ) contactState.set( surfaceType, currentKey );
-						else contactState.delete( surfaceType );
+						} else {
+
+							contactState.delete( surfaceType );
+
+						}
 
 					}
 

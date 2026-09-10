@@ -73,7 +73,8 @@
 				const base = new URL(replayData.url, window.location.href);
 				base.searchParams.set('replayViewer', '1');
 				base.hash = '';
-				const blob = btoa(unescape(encodeURIComponent(JSON.stringify(replayData.ghost)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+				const blob = window.__ghostCodec?.encodeGhostBinary(replayData.ghost)
+					|| btoa(unescape(encodeURIComponent(JSON.stringify(replayData.ghost)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 				return `${base.toString()}#ghost=${blob}`;
 			} catch { return null; }
 		}
@@ -95,7 +96,11 @@
 			return true;
 		}
 		function loadFromTextarea() {
-			try { setReplay(decodeBase64UrlJson(codeInput.value.trim())); }
+			const raw = codeInput.value.trim();
+			// v2 binary codes first (js/GhostCodec.js), then legacy v1 JSON.
+			const decoded = window.__ghostCodec ? window.__ghostCodec.decodeGhostCode(raw) : null;
+			if (decoded) { setReplay(decoded); return; }
+			try { setReplay(decodeBase64UrlJson(raw)); }
 			catch { statusEl.textContent = 'Could not decode ghost code.'; }
 		}
 		loadBtn.addEventListener('click', loadFromTextarea);
@@ -112,11 +117,19 @@
 			window.open(replayUrl, '_blank');
 		});
 		const hashCode = readCodeFromHash();
-		if (hashCode) { codeInput.value = hashCode; loadFromTextarea(); }
+		if (hashCode) { codeInput.value = hashCode; } // auto-load happens after the codec module boots (v2 codes need it)
 	</script>
 </main>
 
-<script type="module" src="js/PageMusic.js"></script>
+<script type="module">
+			// Ghost codec bridge for the classic script above (v2 binary codes).
+			import * as GhostCodec from './js/GhostCodec.js';
+			window.__ghostCodec = GhostCodec;
+			// Hash auto-load lives here: v2 codes need the codec, which is a
+			// deferred module — the classic script above runs first.
+			if (readCodeFromHash()) loadFromTextarea();
+		</script>
+		<script type="module" src="js/PageMusic.js"></script>
 <script src="js/NavBar.js"></script>
 </body>
 </html>

@@ -1071,8 +1071,20 @@
 			return [ ...filtered ].sort( ( a, b ) => ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) );
 		}
 
-		function buildPlayUrl( baseUrl, ghostPayload ) {
-			const ghostBlob = encodeBase64UrlJson( ghostPayload );
+		async function buildPlayUrl( baseUrl, ghostPayload ) {
+			// Compact "g2" blob (js/GhostCodec.js); legacy JSON fallback.
+			let ghostBlob = '';
+			try {
+
+				const GhostCodec = await import( './js/GhostCodec.js' );
+				ghostBlob = GhostCodec.encodeGhostBinary( ghostPayload ) || '';
+
+			} catch ( e ) {
+
+				console.warn( 'Ghost codec unavailable, falling back to JSON ghost blob', e );
+
+			}
+			if ( ! ghostBlob ) ghostBlob = encodeBase64UrlJson( ghostPayload );
 			const separator = baseUrl.includes( '#' ) ? '&' : '#';
 			return `${ baseUrl }${ separator }ghost=${ ghostBlob }`;
 		}
@@ -1147,11 +1159,26 @@
 			const rawCode = ghostInput.value.trim();
 			if ( ! rawCode ) return setStatus( 'Paste a ghost code first.', true );
 
-			let parsed;
+			let parsed = null;
 			try {
-				parsed = decodeBase64UrlJson( rawCode );
+
+				// Accept v2 binary codes (js/GhostCodec.js) AND legacy v1 JSON.
+				const GhostCodec = await import( './js/GhostCodec.js' );
+				parsed = GhostCodec.decodeGhostCode( rawCode );
+
 			} catch ( e ) {
-				return setStatus( 'Could not decode ghost code.', true );
+
+				console.warn( 'Ghost code decode via codec failed, trying legacy JSON', e );
+
+			}
+			if ( ! parsed ) {
+
+				try {
+					parsed = decodeBase64UrlJson( rawCode );
+				} catch ( e ) {
+					return setStatus( 'Could not decode ghost code.', true );
+				}
+
 			}
 
 			if ( ! parsed?.url || ! parsed?.ghost?.samples || parsed.ghost.samples.length < 2 ) {
@@ -1160,7 +1187,7 @@
 
 			const name = ( nameInput.value || '' ).trim() || inferTrackName( parsed.url );
 			const description = ( descriptionInput.value || '' ).trim();
-			const playUrl = buildPlayUrl( parsed.url, parsed.ghost );
+			const playUrl = await buildPlayUrl( parsed.url, parsed.ghost );
 			const entryId = `${ Date.now() }:${ entries.length }`;
 			if ( useRemoteBoard ) {
 				bumpCampaignCounter( 'play-share-open', 1 );
@@ -1168,9 +1195,13 @@
 				setPublishModalStep( 'Uploading track…' );
 				showPublishModal();
 				try {
+					const GhostCodec = await import( './js/GhostCodec.js' );
+					// The deployed board worker validates the v1 ghost shape, so
+					// v2 codes are translated to v1 before POSTing.
+					const postCode = GhostCodec.ghostToLegacyV1Code( parsed.url, parsed.ghost ) || rawCode;
 					await apiRequest( '', {
 						method: 'POST',
-						body: JSON.stringify( { name, ghostCode: rawCode, creator: getBoardCreatorName(), description, thumbnailDataUrl: selectedThumbnailDataUrl } ),
+						body: JSON.stringify( { name, ghostCode: postCode, creator: getBoardCreatorName(), description, thumbnailDataUrl: selectedThumbnailDataUrl } ),
 					} );
 					setPublishModalStep( 'Refreshing the Track Share Board…' );
 					await loadFromRemote();
