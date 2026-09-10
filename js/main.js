@@ -5684,7 +5684,17 @@ async function init() {
 		ghostModel.rotation.z = lerpAngle( ghostModel.rotation.z, targetRoll, 0.18 );
 		if ( replayViewerMode && ! freecamState.active ) {
 			cam.targetPosition.copy( ghostModel.position );
+			// Recorded ghost y is the car-model base (container.y ≈ -0.1, below
+			// the road surface — correct for the visual model). Casting the
+			// hitbox clip probe from that origin lands INSIDE the static ground
+			// collider, so every cast "hits" and the camera gets pinned ~2.5
+			// units behind the car at bumper height for the whole replay.
+			// Replays are cinematic: keep the normal chase framing (pre-clip-fix
+			// behavior) and skip the probe for this update only.
+			const savedClipProbe = cam.clipProbe;
+			cam.clipProbe = null;
 			cam.update( 1 / 60, ghostModel.position, ghostModel.quaternion );
+			cam.clipProbe = savedClipProbe;
 		}
 
 	}
