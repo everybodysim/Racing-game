@@ -420,15 +420,25 @@ export class Vehicle {
 
 		if ( ! this.bodyNode ) return;
 
+		// The lean targets below are speed-proportional and were tuned for the
+		// normal ~1.8 top speed (pitch target ~= ls|ls|/24 rad, roll ~= |ls|/5).
+		// Stacked speed pads now drive linearSpeed to 10x+ (#438/#439), which
+		// scaled those targets into full backflips (5.4 rad at a 10-pad stack)
+		// and upside-down rolls while steering. Clamp the TARGETS to their
+		// intended physical lean: normal driving is unchanged, absurd speed
+		// saturates at max lean instead of flipping the body over.
+		const MAX_BODY_PITCH = 0.35;
+		const MAX_BODY_ROLL = 0.38;
+
 		this.bodyNode.rotation.x = lerpAngle(
 			this.bodyNode.rotation.x,
-			-( this.linearSpeed - this.acceleration ) / 6,
+			THREE.MathUtils.clamp( -( this.linearSpeed - this.acceleration ) / 6, -MAX_BODY_PITCH, MAX_BODY_PITCH ),
 			dt * 10
 		);
 
 		this.bodyNode.rotation.z = lerpAngle(
 			this.bodyNode.rotation.z,
-			-( this.inputX / 5 ) * this.linearSpeed,
+			THREE.MathUtils.clamp( -( this.inputX / 5 ) * this.linearSpeed, -MAX_BODY_ROLL, MAX_BODY_ROLL ),
 			dt * 5
 		);
 
@@ -440,7 +450,10 @@ export class Vehicle {
 
 		for ( const wheel of this.wheels ) {
 
-			wheel.rotation.x += this.acceleration;
+			// Modulo keeps per-frame spin under one revolution — at pad-stack
+			// speeds `acceleration` exceeds 2*PI per frame and the raw sum
+			// strobes/aliases instead of reading as fast spin.
+			wheel.rotation.x = ( wheel.rotation.x + this.acceleration ) % ( Math.PI * 2 );
 
 		}
 
