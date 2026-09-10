@@ -84,6 +84,10 @@ let graphicsQuality = normalizeGraphicsQuality( localStorage.getItem( GRAPHICS_Q
 // property accesses and keeps the hot path allocation-free.
 let cachedGraphicsPreset = GRAPHICS_QUALITY_PRESETS[ graphicsQuality ] || GRAPHICS_QUALITY_PRESETS[ getDefaultGraphicsQuality() ];
 
+// Set the LOW-preset body class up front (applyGraphicsPresetToRenderer/
+// applyGraphicsQuality keep it in sync on every later change).
+document.body.classList.toggle( 'gfx-low', graphicsQuality === 'low' );
+
 function getGraphicsPreset() {
 
 	return cachedGraphicsPreset;
@@ -250,6 +254,10 @@ scene.add( fillLight );
 function applyGraphicsPresetToRenderer() {
 
 	const preset = getGraphicsPreset();
+	// LOW = weak hardware: also kill the always-on HUD backdrop blurs (the
+	// body.gfx-low rules in index.html). Small-widget blurs are cheap on
+	// discrete GPUs but cost real frame time on integrated ones.
+	document.body.classList.toggle( 'gfx-low', preset === GRAPHICS_QUALITY_PRESETS.low );
 	const splitScreenPixelCap = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1' ? 1 : preset.maxPixelRatio;
 	renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, splitScreenPixelCap ) );
 	renderer.shadowMap.enabled = preset.shadows;
@@ -7328,6 +7336,7 @@ async function init() {
 
 		graphicsQuality = normalizeGraphicsQuality( nextQuality );
 		cachedGraphicsPreset = GRAPHICS_QUALITY_PRESETS[ graphicsQuality ] || GRAPHICS_QUALITY_PRESETS[ getDefaultGraphicsQuality() ];
+		document.body.classList.toggle( 'gfx-low', graphicsQuality === 'low' );
 		if ( save ) {
 			localStorage.setItem( GRAPHICS_QUALITY_KEY, graphicsQuality );
 			// Keep the unified GameSettings slice in sync so a cloud save
@@ -12894,9 +12903,7 @@ function completeCampaignStage() {
 	// hot loop stays allocation-free.
 	const _vignetteProjected = new THREE.Vector3();
 	let _cssEffectAccumulator = 0;
-	let _lastCanvasFilter = '';
 	let _lastVignetteOpacity = '';
-	let _lastVignetteBackdrop = '';
 	let _lastVignetteX = '';
 	let _lastVignetteY = '';
 
@@ -13344,22 +13351,19 @@ function completeCampaignStage() {
 		const motionBlurPx = cachedGraphicsPreset.label === 'High'
 			? Math.max( 0, ( speedRatioFx - 0.8 ) * 1.05 )
 			: Math.max( 0, ( speedRatioFx - 0.96 ) * 0.7 );
-		const vibrance = 1.08 + ( driftFx * 0.04 ) + ( speedRatioFx * 0.025 );
 		// The speed-driven saturation/contrast + vignette effects ramp smoothly with
 		// velocity, so refreshing them ~12x/sec is visually identical to every-frame
 		// but skips per-frame style invalidation and string formatting on the hot path.
 		_cssEffectAccumulator += dt;
 		const refreshCssEffects = _cssEffectAccumulator >= 0.08;
 		if ( refreshCssEffects ) _cssEffectAccumulator = 0;
-		if ( refreshCssEffects ) {
-			const canvasFilter = `saturate(${ vibrance.toFixed( 3 ) }) contrast(1.07)`;
-			if ( canvasFilter !== _lastCanvasFilter ) {
-
-				renderer.domElement.style.filter = canvasFilter;
-				_lastCanvasFilter = canvasFilter;
-
-			}
-		}
+		// NOTE: the old saturate()/contrast() CSS filter on renderer.domElement
+		// was removed — a style.filter on the WebGL canvas permanently kicks it
+		// off Chrome's direct-presentation fast path and forces a fullscreen
+		// compositor filter pass EVERY frame (even in menus), one of the biggest
+		// hidden lag sources on integrated GPUs. The saturation ramp (1.08→1.14)
+		// was imperceptible; the speed feel still comes from the exposure ramp
+		// (toneMappingExposure, in-shader) and the vignette below.
 		if ( speedBlurVignette ) {
 			const projected = _vignetteProjected.copy( vehicle.spherePos ).project( cam.camera );
 			const px = ( projected.x * 0.5 + 0.5 ) * 100;
@@ -13386,18 +13390,11 @@ function completeCampaignStage() {
 					_lastVignetteOpacity = opacity;
 
 				}
-				const blurVignette = Math.min( 0.65, motionBlurPx );
-				// 0.05px steps — visually identical, but the backdropFilter string
-				// only changes ~13 times across the whole speed range instead of
-				// every single frame, killing the fullscreen re-style thrash.
-				const backdrop = `blur(${ ( Math.round( blurVignette * 20 ) / 20 ).toFixed( 3 ) }px)`;
-				if ( backdrop !== _lastVignetteBackdrop ) {
-
-					speedBlurVignette.style.backdropFilter = backdrop;
-					speedBlurVignette.style.webkitBackdropFilter = backdrop;
-					_lastVignetteBackdrop = backdrop;
-
-				}
+				// NOTE: the live backdrop-filter blur is gone — a fullscreen
+				// backdrop-filter is the single most expensive compositor effect in
+				// Chrome (fullscreen backdrop readback + blur passes every frame) and
+				// at its 0.65px ceiling it was imperceptible. The element now stays a
+				// pure radial-gradient vignette that tracks the car: one cheap paint.
 			}
 		}
 		skyUniforms.time.value = now;

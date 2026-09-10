@@ -112,11 +112,19 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			z-index: 2;
 			pointer-events: none;
 			opacity: 0;
-			backdrop-filter: blur(0px);
-			-webkit-backdrop-filter: blur(0px);
 			background: radial-gradient(circle at var(--car-x, 50%) var(--car-y, 60%), rgba(0,0,0,0) 0%, rgba(0,0,0,0) 16%, rgba(6,12,24,0.02) 42%, rgba(6,12,24,0.08) 100%);
-			transition: opacity 120ms linear, backdrop-filter 120ms linear;
+			transition: opacity 120ms linear;
 		}
+		/* LOW preset = weak hardware: every backdrop-filter blur (even a tiny
+		   one) forces a backdrop readback + blur pass per frame on the compositor
+		   — real frame time on integrated GPUs. One class kills them all. */
+		body.gfx-low .hud-widget,
+		body.gfx-low #mp-panel,
+		body.gfx-low #chat-box,
+		body.gfx-low #quick-menu-btn,
+		body.gfx-low #quick-menu-panel,
+		body.gfx-low #mode-menu-btn,
+		body.gfx-low #home-menu-btn { backdrop-filter: none; -webkit-backdrop-filter: none; }
 		#loading-screen {
 			position: fixed;
 			inset: 0;
