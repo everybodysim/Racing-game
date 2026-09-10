@@ -59,6 +59,7 @@ export class Vehicle {
 		this.spawnPosition = new THREE.Vector3( 3.5, 0.5, 5 );
 		this.spawnAngle = 0;
 		this.topSpeed = 1.0;
+		this.baseTopSpeed = 1.0;
 		this.accelRate = 6.0;
 		this.reverseAccelRate = 2.0;
 		this.brakeRate = 8.0;
@@ -76,6 +77,7 @@ export class Vehicle {
 
 		if ( ! perf ) return;
 		this.topSpeed = perf.topSpeed ?? this.topSpeed;
+		this.baseTopSpeed = this.topSpeed;
 		this.accelRate = perf.accelRate ?? this.accelRate;
 		this.reverseAccelRate = perf.reverseAccelRate ?? this.reverseAccelRate;
 		this.brakeRate = perf.brakeRate ?? this.brakeRate;
