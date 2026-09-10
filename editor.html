@@ -6793,6 +6793,10 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			targetVehicle.gripMultiplier = ( effect ? effect.grip : 1.0 ) * pack * padGrip;
 			targetVehicle.dragMultiplier = ( effect ? effect.drag : 1.0 ) * padDrag;
 			const speedCapScale = Number.isFinite( padEffect?.topSpeed ) ? padEffect.topSpeed : 1.0;
+			// Parity with the game's applySurfaceGrip: pads raise actual top speed
+			// (recomputed from the stored base every frame — idempotent, self-reverting).
+			if ( ! Number.isFinite( targetVehicle.baseTopSpeed ) ) targetVehicle.baseTopSpeed = targetVehicle.topSpeed;
+			targetVehicle.topSpeed = targetVehicle.baseTopSpeed * speedCapScale;
 			targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * pack * padAccel * speedCapScale;
 			targetVehicle.driveMultiplier = ( effect ? effect.drive : 1.0 ) * pack * padDrive * speedCapScale;
 

@@ -10309,6 +10309,13 @@ function completeCampaignStage() {
 		targetVehicle.dragMultiplier = ( effect ? effect.drag : 1.0 ) * padDrag;
 		if ( hacksInstalled && hacksState.enabled && hacksState.lowFriction ) targetVehicle.dragMultiplier *= 0.35;
 		const speedCapScale = Number.isFinite( padEffect?.topSpeed ) ? padEffect.topSpeed : 1.0;
+		// Pad effects now raise the car's actual top speed (stacked pads used to
+		// only fold their topSpeed factor into accel/drive, so MAX_EFFECTIVE_TOP_SPEED
+		// (1.8 = 64 mph) stayed a hard wall no matter how many pads you stacked).
+		// Multipliers are recomputed from the stored base every frame, so this is
+		// idempotent and reverts on its own when the pad contact ends.
+		if ( ! Number.isFinite( targetVehicle.baseTopSpeed ) ) targetVehicle.baseTopSpeed = targetVehicle.topSpeed;
+		targetVehicle.topSpeed = targetVehicle.baseTopSpeed * speedCapScale;
 		targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * accelPack * padAccel * speedCapScale;
 		targetVehicle.driveMultiplier = ( effect ? effect.drive : 1.0 ) * drivePack * padDrive * speedCapScale;
 
