@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Skid Circuit — Track Author</title>
+<link rel="canonical" href="https://everybodysim.github.io/Racing-game/author.html">
+<meta name="description" content="Every track published by a Skid Circuit community track creator — most played first.">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Skid Circuit">
+<meta property="og:title" content="Skid Circuit — Track Author">
+<meta property="og:description" content="Every track published by a Skid Circuit community track creator — most played first.">
+<meta property="og:url" content="https://everybodysim.github.io/Racing-game/author.html">
+<meta property="og:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
+	<style>
+:root{color-scheme:dark;--panel:rgba(255,255,255,.07);--line:rgba(255,255,255,.13);--muted:#b5c2da;--accent:#77f3b1}
+body{margin:0;font:14px/1.45 Inter,system-ui,sans-serif;background:radial-gradient(circle at top left,rgba(74,163,255,.22),transparent 32rem),linear-gradient(160deg,#07101e,#121826 55%,#0b1420);color:#e6edf7}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 16px 46px}
+h1{margin:0 0 4px;font-size:clamp(28px,4.5vw,44px);line-height:.98;letter-spacing:-.05em}
+h2{margin:0;font-size:22px}
+h3{margin:0 0 7px;font-size:18px}
+.sub{margin:0;color:var(--muted)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:16px;box-shadow:0 18px 50px rgba(0,0,0,.16)}
+.section-kicker{color:var(--accent);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.12em}
+.section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+button,.linkbtn{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:9px 12px;cursor:pointer;font:700 13px sans-serif;text-decoration:none}
+button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
+.play-map-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-color:rgba(132,245,172,.72);background:linear-gradient(135deg,rgba(48,198,119,.95),rgba(48,151,255,.85));color:#04130b!important;box-shadow:0 0 18px rgba(77,232,152,.26);font-weight:900!important;flex:1}
+#author-hero{display:flex;align-items:center;gap:18px;padding:24px;border:1px solid rgba(255,255,255,.14);border-radius:16px;background:rgba(10,16,28,.5);margin-bottom:18px;flex-wrap:wrap}
+#author-hero .author-avatar{width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:800 32px sans-serif;color:#fff;flex:none}
+#author-hero .author-meta{color:var(--muted);font:600 13px sans-serif;margin-top:4px}
+#author-hero .hero-back{margin-left:auto}
+.author-stat{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px}
+.author-stat .stat b{color:#fff}
+.card{position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.085),rgba(255,255,255,.045));border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:12px}
+.card.featured{border-color:rgba(119,243,177,.35);box-shadow:inset 0 1px rgba(255,255,255,.08),0 0 40px rgba(80,200,140,.13)}
+.preview-canvas{width:100%;aspect-ratio:5/3;object-fit:cover;display:block;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0d1118;margin:10px 0}
+#author-featured .preview-canvas{aspect-ratio:16/6.5}
+.preview-placeholder{display:flex;align-items:center;justify-content:center;font-size:34px}
+.meta{color:var(--muted);font-size:12px;margin-bottom:8px}
+.stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:8px 0}
+.stat{border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);border-radius:10px;padding:8px}
+.stat b{display:block;color:#fff;font-size:14px}
+.stat span{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.badge{font-size:11px;border-radius:999px;padding:3px 7px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08)}
+#author-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:12px}
+#author-status{min-height:18px;margin-top:8px;color:#93f4b7}
+#author-status.error{color:#ff9b8a}
+.loading-bar{height:9px;border-radius:999px;background:rgba(255,255,255,.13);overflow:hidden;max-width:420px}
+.loading-bar-fill{height:100%;width:38%;border-radius:999px;background:linear-gradient(90deg,#5ac8ff,#77f3b1);animation:slide 1.05s ease-in-out infinite}
+@keyframes slide{0%{margin-left:-40%}100%{margin-left:100%}}
+@media(max-width:760px){.section-head{align-items:flex-start;flex-direction:column}#author-hero .hero-back{margin-left:0}}
+	</style>
+</head>
+<body>
+<div class="wrap">
+	<main id="author-main">
+		<div class="panel" id="author-loading">
+			<h2>Loading author…</h2>
+			<div class="loading-bar"><div class="loading-bar-fill"></div></div>
+		</div>
+		<div id="author-body" style="display:none">
+			<section class="panel" id="author-hero-panel">
+				<div class="section-kicker">Track creator</div>
+				<div id="author-hero"></div>
+			</section>
+			<section id="author-featured-section" style="display:none">
+				<div class="section-head"><div><div class="section-kicker">Community favorite</div><h2>Most Played</h2></div></div>
+				<div id="author-featured"></div>
+			</section>
+			<section id="author-all-section">
+				<div class="section-head"><div><div class="section-kicker">Full collection</div><h2>All Tracks</h2></div><p class="sub" id="author-count"></p></div>
+				<div id="author-grid"></div>
+			</section>
+		</div>
+		<div id="author-empty" class="panel" style="display:none">
+			<h2>No tracks found</h2>
+			<p class="sub" id="author-empty-text"></p>
+			<div class="row"><a class="linkbtn" href="tracks.html">← Back to the Track Share Board</a></div>
+		</div>
+		<div id="author-status"></div>
+	</main>
+</div>
+
+<script>
+( function () {
+	'use strict';
+	const API_BASE = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
+	const VOTE_SESSION_KEY = 'trackVotes:v1';
+	const PLAYER_NAME_KEY = 'racing-player-name-v1';
+
+	const params = new URLSearchParams( window.location.search );
+	let authorName = ( params.get( 'author' ) || '' ).trim();
+	if ( ! authorName ) {
+		try {
+			const hash = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
+			authorName = ( hash.get( 'author' ) || '' ).trim();
+		} catch ( e ) {}
+	}
+	const displayName = authorName || 'Anonymous';
+
+	function setStatus( msg, isError = false ) {
+		const el = document.getElementById( 'author-status' );
+		if ( el ) { el.textContent = msg || ''; el.classList.toggle( 'error', isError ); }
+	}
+	function escapeHtml( value ) {
+		return String( value == null ? '' : value )
+			.replace( /&/g, '&amp;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' )
+			.replace( /"/g, '&quot;' ).replace( /'/g, '&#39;' );
+	}
+	function formatSeconds( value ) {
+		if ( ! Number.isFinite( value ) ) return '--.--';
+		return value.toFixed( 2 ) + 's';
+	}
+	function authorHue( name ) {
+		let hue = 0;
+		for ( let i = 0; i < name.length; i ++ ) hue = ( hue * 31 + name.charCodeAt( i ) ) % 360;
+		return hue;
+	}
+	function authorInitial( name ) {
+		return ( String( name ).trim()[ 0 ] || '?' ).toUpperCase();
+	}
+	function getEntryCreator( entry ) {
+		const clean = String( entry?.creator || '' ).replace( /\s+/g, ' ' ).trim().slice( 0, 32 );
+		return clean || 'Anonymous';
+	}
+	function loadVoteSession() {
+		try { return new Set( JSON.parse( sessionStorage.getItem( VOTE_SESSION_KEY ) || '[]' ) ); } catch ( e ) { return new Set(); }
+	}
+	function saveVoteSession() {
+		try { sessionStorage.setItem( VOTE_SESSION_KEY, JSON.stringify( [ ...votedTrackActions ] ) ); } catch ( e ) {}
+	}
+	function sanitizeEntries( input ) {
+		const rows = Array.isArray( input ) ? input : [];
+		return rows.filter( ( entry ) => typeof entry?.playUrl === 'string' && typeof entry?.name === 'string' && ! String( entry.name ).startsWith( '[PACK]' ) );
+	}
+
+	async function fetchWithRetry( url, { attempts = 8, timeoutMs = 8000, backoffMs = 350 } = {} ) {
+		let lastError = null;
+		for ( let attempt = 0; attempt < attempts; attempt ++ ) {
+			const controller = new AbortController();
+			const timeoutId = setTimeout( () => controller.abort(), timeoutMs );
+			try {
+				const res = await fetch( url, { cache: 'no-store', signal: controller.signal } );
+				clearTimeout( timeoutId );
+				if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+				return await res.json();
+			} catch ( err ) {
+				clearTimeout( timeoutId );
+				lastError = err;
+				if ( attempt + 1 < attempts ) await new Promise( ( r ) => setTimeout( r, backoffMs * ( attempt + 1 ) ) );
+			}
+		}
+		throw lastError || new Error( 'Request failed' );
+	}
+
+	// Lazy thumbnails: cloud entries ship thumbnail-free; fetch per visible card.
+	const thumbUrlCache = new Map();
+	const thumbObserver = new IntersectionObserver( ( items ) => {
+		for ( const item of items ) {
+			if ( ! item.isIntersecting ) continue;
+			thumbObserver.unobserve( item.target );
+			const id = item.target.dataset.thumbId;
+			if ( ! id ) continue;
+			( async () => {
+				try {
+					let url = thumbUrlCache.get( id );
+					if ( ! url ) {
+						const res = await fetch( `${ API_BASE }/${ id }/thumb`, { cache: 'force-cache' } );
+						if ( ! res.ok ) throw new Error( 'no thumbnail' );
+						url = URL.createObjectURL( await res.blob() );
+						thumbUrlCache.set( id, url );
+					}
+					const img = document.createElement( 'img' );
+					img.className = 'preview-canvas';
+					img.alt = 'Track thumbnail';
+					img.src = url;
+					item.target.replaceWith( img );
+				} catch ( e ) {}
+			} )();
+		}
+	}, { rootMargin: '300px' } );
+
+	function previewMarkup( entry ) {
+		if ( entry.thumbnailDataUrl ) {
+			return `<img class="preview-canvas" src="${ entry.thumbnailDataUrl }" alt="Track thumbnail for ${ escapeHtml( entry.name ) }">`;
+		}
+		if ( entry.hasThumbnail ) {
+			return `<div class="preview-canvas preview-placeholder" data-thumb-id="${ entry.id }">🏁</div>`;
+		}
+		return `<div class="preview-canvas preview-placeholder">🏁</div>`;
+	}
+
+	function createAuthorCard( entry, options = {} ) {
+		const plays = Number( entry.viewCount ) || 0;
+		const likes = Number( entry.thumbsUp ) || 0;
+		const dislikes = Number( entry.thumbsDown ) || 0;
+		const best = Number( entry.bestLapSeconds );
+		const card = document.createElement( 'div' );
+		card.className = `card${ options.featured ? ' featured' : '' }`;
+		card.innerHTML = `<h3>${ escapeHtml( entry.name ) }</h3>
+			<div class="badges">
+				<span class="badge">▶ ${ plays } plays</span>
+				<span class="badge">👍 ${ likes }</span>
+			</div>
+			${ previewMarkup( entry ) }
+			<div class="stat-grid">
+				<div class="stat"><span>Best time</span><b>${ Number.isFinite( best ) ? formatSeconds( best ) : '--.--' }</b></div>
+				<div class="stat"><span>Plays</span><b>${ plays }</b></div>
+				<div class="stat"><span>Rating</span><b>${ likes } 👍 / ${ dislikes } 👎</b></div>
+				<div class="stat"><span>Published</span><b>${ new Date( Number( entry.createdAt ) || 0 ).toLocaleDateString() }</b></div>
+			</div>
+			<div class="meta">${ entry.description ? escapeHtml( entry.description ) : 'No description.' }</div>
+			<div class="row" style="margin-top:0">
+				<a class="linkbtn play-map-btn" href="${ escapeHtml( entry.playUrl ) }" target="_blank" rel="noopener noreferrer">▶ Play</a>
+				<button data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
+				<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
+				<button type="button" class="copy-btn" data-copy-url="${ escapeHtml( entry.playUrl ) }" title="Copy a direct link to this track">🔗 Copy Link</button>
+			</div>`;
+		const lazy = card.querySelector( '[data-thumb-id]' );
+		if ( lazy ) thumbObserver.observe( lazy );
+		return card;
+	}
+
+	const votedTrackActions = loadVoteSession();
+	let entries = [];
+
+	function renderAuthor() {
+		const hue = authorHue( displayName );
+		const initial = authorInitial( displayName );
+		const totalPlays = entries.reduce( ( t, e ) => t + ( Number( e.viewCount ) || 0 ), 0 );
+		const totalLikes = entries.reduce( ( t, e ) => t + ( Number( e.thumbsUp ) || 0 ), 0 );
+		const hero = document.getElementById( 'author-hero' );
+		if ( hero ) {
+			hero.innerHTML = `
+				<span class="author-avatar" style="background:hsl(${ hue } 62% 42%)">${ initial }</span>
+				<div>
+					<h1>${ escapeHtml( displayName ) }</h1>
+					<div class="author-meta">${ entries.length } shared track${ entries.length === 1 ? '' : 's' } on the board</div>
+					<div class="author-stat">
+						<div class="stat"><span>Total plays</span><b>${ totalPlays }</b></div>
+						<div class="stat"><span>Total likes</span><b>${ totalLikes } 👍</b></div>
+					</div>
+				</div>
+				<a class="linkbtn hero-back" href="tracks.html">← Back to the board</a>`;
+		}
+		document.title = `Skid Circuit — ${ displayName }'s tracks`;
+
+		const byPlays = [ ...entries ].sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) );
+		const featuredSection = document.getElementById( 'author-featured-section' );
+		const featuredWrap = document.getElementById( 'author-featured' );
+		const grid = document.getElementById( 'author-grid' );
+		const countEl = document.getElementById( 'author-count' );
+		const allSection = document.getElementById( 'author-all-section' );
+
+		if ( featuredWrap ) featuredWrap.innerHTML = '';
+		if ( grid ) grid.innerHTML = '';
+
+		if ( entries.length === 0 ) {
+			if ( featuredSection ) featuredSection.style.display = 'none';
+			if ( allSection ) allSection.style.display = 'none';
+			const empty = document.getElementById( 'author-empty' );
+			const emptyText = document.getElementById( 'author-empty-text' );
+			if ( empty ) empty.style.display = '';
+			if ( emptyText ) emptyText.textContent = `${ displayName } hasn't published any tracks — or the creator is Anonymous.`;
+			return;
+		}
+
+		if ( featuredSection && featuredWrap ) {
+			featuredSection.style.display = '';
+			featuredWrap.appendChild( createAuthorCard( byPlays[ 0 ], { featured: true } ) );
+		}
+		if ( allSection ) allSection.style.display = '';
+		if ( countEl ) countEl.textContent = `${ entries.length } track${ entries.length === 1 ? '' : 's' }`;
+		if ( grid ) {
+			const rest = byPlays.slice( 1 );
+			const frag = document.createDocumentFragment();
+			for ( const entry of rest ) frag.appendChild( createAuthorCard( entry ) );
+			if ( rest.length === 0 ) {
+				grid.innerHTML = '<div class="card"><h3>Just getting started</h3><div class="meta">This creator has one track so far — race it above!</div></div>';
+			} else {
+				grid.appendChild( frag );
+			}
+		}
+	}
+
+	async function loadAuthor() {
+		const loading = document.getElementById( 'author-loading' );
+		const body = document.getElementById( 'author-body' );
+		try {
+			const payload = await fetchWithRetry( `${ API_BASE }?fields=list&author=${ encodeURIComponent( authorName ) }` );
+			let rows = sanitizeEntries( payload?.entries );
+			if ( payload?.total === undefined ) {
+				// Legacy worker (pre-author-param deploy): it returned the whole
+				// board — filter down client-side.
+				rows = rows.filter( ( entry ) => getEntryCreator( entry ).toLowerCase() === authorName.toLowerCase() );
+			}
+			entries = rows;
+			if ( loading ) loading.style.display = 'none';
+			if ( body ) body.style.display = '';
+			renderAuthor();
+		} catch ( err ) {
+			if ( loading ) loading.style.display = 'none';
+			const empty = document.getElementById( 'author-empty' );
+			const emptyText = document.getElementById( 'author-empty-text' );
+			if ( empty ) empty.style.display = '';
+			if ( emptyText ) emptyText.textContent = 'The cloud board is unreachable right now. Try again in a moment.';
+			setStatus( 'Could not reach the track board.', true );
+		}
+	}
+
+	// Votes + copy-link delegation
+	document.addEventListener( 'click', async ( e ) => {
+		const copyBtn = e.target.closest( '[data-copy-url]' );
+		if ( copyBtn ) {
+			const url = copyBtn.getAttribute( 'data-copy-url' ) || '';
+			if ( navigator.clipboard?.writeText ) {
+				navigator.clipboard.writeText( url )
+					.then( () => setStatus( 'Track link copied — share it anywhere!' ) )
+					.catch( () => setStatus( 'Copy failed. Use the Play link and copy it from the address bar.', true ) );
+			} else {
+				setStatus( 'Copy not supported here. Use the Play link instead.', true );
+			}
+			return;
+		}
+		if ( e.target.tagName !== 'BUTTON' ) return;
+		const id = e.target.getAttribute( 'data-id' );
+		if ( ! id ) return;
+		const vote = Number( e.target.getAttribute( 'data-vote' ) );
+		if ( vote !== 1 && vote !== -1 ) return;
+		const voteKey = `${ id }:${ vote }`;
+		if ( votedTrackActions.has( voteKey ) ) return;
+		try {
+			const res = await fetch( `${ API_BASE }/${ id }/vote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { vote } ) } );
+			if ( ! res.ok ) throw new Error( 'vote failed' );
+			const payload = await res.json();
+			const current = entries.find( ( entry ) => entry.id === id );
+			if ( current && payload?.entry ) {
+				current.thumbsUp = Number( payload.entry.thumbsUp ) || 0;
+				current.thumbsDown = Number( payload.entry.thumbsDown ) || 0;
+			}
+		} catch ( err ) {
+			setStatus( 'Vote failed — the board worker is having a moment. Try again.', true );
+			return;
+		}
+		votedTrackActions.add( voteKey );
+		saveVoteSession();
+		renderAuthor();
+		setStatus( vote > 0 ? 'Thanks for the 👍!' : 'Noted — voted 👎.' );
+	} );
+
+	if ( ! authorName || authorName.toLowerCase() === 'anonymous' ) {
+		document.getElementById( 'author-loading' ).style.display = 'none';
+		const empty = document.getElementById( 'author-empty' );
+		const emptyText = document.getElementById( 'author-empty-text' );
+		if ( empty ) empty.style.display = '';
+		if ( emptyText ) emptyText.textContent = 'Anonymous tracks have no author page — set a player name in the game to get credited.';
+	} else {
+		loadAuthor();
+	}
+} )();
+</script>
+
+<script type="module" src="js/PageMusic.js"></script>
+<script src="js/NavBar.js"></script>
+</body>
+</html>
