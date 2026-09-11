@@ -811,10 +811,25 @@ function handlePeerPacket( packet, sourcePeerId ) {
 
 		}
 		if ( packet.type !== PEER_PACKET_STATE ) return;
-		const visualState = resolveRemoteVisualState( playerId, packet.carKey, packet.cosmetics );
+		// Slim 30Hz packets omit cosmetics/name when unchanged — reuse the peer's
+		// current visual instead of re-resolving (which would rebuild the model).
+		let visualState = remotePlayerVisuals.get( playerId );
+		if ( packet.cosmetics === undefined && visualState && ( visualState.currentCarKey || visualState.carKey ) === packet.carKey ) {
+
+			// transform-only packet for a visual we already have: keep as-is
+
+		} else if ( packet.cosmetics === undefined && visualState ) {
+
+			visualState = resolveRemoteVisualState( playerId, packet.carKey, null );
+
+		} else {
+
+			visualState = resolveRemoteVisualState( playerId, packet.carKey, packet.cosmetics );
+
+		}
 		if ( ! visualState ) return;
 		const isFirstPacket = ! visualState.lastSeenAt;
-		applyRemoteNameTag( visualState, packet.name || 'Player' );
+		if ( packet.name !== undefined ) applyRemoteNameTag( visualState, packet.name || 'Player' );
 		visualState.targetPos.set( Number( packet.x ) || 0, ( Number( packet.y ) || 0 ) - 0.1, Number( packet.z ) || 0 );
 		visualState.targetRotY = THREE.MathUtils.degToRad( ( ( Number( packet.ry ) || 0 ) % 360 + 0 ) % 360 ) ;
 		if ( isFirstPacket ) {
@@ -981,6 +996,26 @@ function formatPeerPacketNumber( value, precision ) {
 
 }
 
+// Cosmetics (car paint mappings) barely ever change, but the garage walk that
+// builds them used to run for every broadcast packet. Memoize per car key with
+// a short refresh window so repainting still propagates within ~300ms.
+let peerCosmeticsMemo = { carKey: '', at: 0, value: null };
+function buildPeerCosmeticsSnapshot( packetCarKey ) {
+
+	const now = Date.now();
+	if ( peerCosmeticsMemo.carKey !== packetCarKey || now - peerCosmeticsMemo.at >= 300 ) {
+
+		peerCosmeticsMemo = {
+			carKey: packetCarKey,
+			at: now,
+			value: typeof localMultiplayerStateHandlers.buildCosmetics === 'function' ? localMultiplayerStateHandlers.buildCosmetics( packetCarKey ) : null,
+		};
+
+	}
+	return peerCosmeticsMemo.value;
+
+}
+
 function buildRemotePlayerSnapshot() {
 	const container	 = getLocalVehicleContainer();
 	const pos	 = container?.position || { x:	 0,	 y:	 0,	 z:	 0 };
@@ -994,35 +1029,65 @@ function buildRemotePlayerSnapshot() {
 		z: formatPeerPacketNumber( pos.z,	 3 ),
 		ry	: Number( getMultiplayerHeadingDegrees( container ).toFixed( 2 ) ),
 		carKey: packetCarKey,
-		cosmetics: typeof localMultiplayerStateHandlers.buildCosmetics === 'function' ? localMultiplayerStateHandlers.buildCosmetics( packetCarKey ) : null,
+		cosmetics: buildPeerCosmeticsSnapshot( packetCarKey ),
 		name: typeof getLocalMultiplayerDisplayName === 'function' ? getLocalMultiplayerDisplayName() : 'Player',
 		updatedAt: Date.now(),
 	};
 }
 function buildLocalPeerStatePacket() {
-		const snap = buildRemotePlayerSnapshot();
-			if ( ! snap ) return null;
-			const { x,	 y,	 z,	 ry,	 carKey,	 cosmetics,	 name,	 updatedAt,	 type,	 playerId } = snap;
-			return { x,	 y,	 z,	 ry,	 carKey,	 cosmetics,	 name,	 updatedAt,	 type,	 playerId };
-			}
+
+	const snap = buildRemotePlayerSnapshot();
+	if ( ! snap ) return null;
+	const { x, y, z, ry, carKey, cosmetics, name, updatedAt, type, playerId } = snap;
+	return { x, y, z, ry, carKey, cosmetics, name, updatedAt, type, playerId };
+
+}
+
+// Tracks what the last wire packet told peers about cosmetics/name so the 30Hz
+// stream can stay transform-only until something actually changes (plus a 1s
+// safety refresh). Fresh connections always get a full packet first (see
+// registerPeerConnection), so nobody is left without cosmetics.
+let lastPeerPacketMeta = { signature: '', name: '', at: 0 };
 
 function broadcastPeerState() {
 
-		const now = Date.now();
 		if ( ! multiplayerSessionState.roomCode || ! multiplayerSessionState.peer ) return;
+		let hasOpenConnection = false;
+		for ( const connection of multiplayerSessionState.connections.values() ) {
+
+			if ( connection && connection.open ) { hasOpenConnection = true; break; }
+
+		}
+		if ( ! hasOpenConnection ) return;
 		const snap = buildRemotePlayerSnapshot();
 		if ( ! snap || ! snap.carKey ) return;
-		const bypassFirebase = Boolean( multiplayerSessionState.peer && multiplayerSessionState.connections.size > 0 );
-		const fbGuard = 'peerBroadcastLastFirebaseAt';
-		if ( bypassFirebase ) {
-				const lastFb = Number( multiplayerSessionState[ fbGuard ] ) || 0;
-				if ( now - lastFb < REMOTE_SYNC_MS ) return;
-				multiplayerSessionState[ fbGuard ] = now;
-		}
 
 	try {
 
-		const packet = buildLocalPeerStatePacket();
+		const now = Date.now();
+		const metaSignature = `${ snap.carKey }|${ snap.cosmetics ? JSON.stringify( snap.cosmetics ) : '' }`;
+		const includeMeta = lastPeerPacketMeta.signature !== metaSignature
+			|| lastPeerPacketMeta.name !== snap.name
+			|| now - lastPeerPacketMeta.at >= 1000;
+		// Transform-only packets keep the 30Hz stream lean; receivers keep their
+		// current remote visual when cosmetics/name are absent (see handlePeerPacket).
+		const packet = {
+			type: PEER_PACKET_STATE,
+			playerId: snap.playerId,
+			x: snap.x,
+			y: snap.y,
+			z: snap.z,
+			ry: snap.ry,
+			carKey: snap.carKey,
+			updatedAt: snap.updatedAt,
+		};
+		if ( includeMeta ) {
+
+			packet.cosmetics = snap.cosmetics;
+			packet.name = snap.name;
+			lastPeerPacketMeta = { signature: metaSignature, name: snap.name, at: now };
+
+		}
 		for ( const [ peerId, connection ] of multiplayerSessionState.connections.entries() ) {
 
 			if ( connection && connection.open ) {
