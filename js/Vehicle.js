@@ -32,6 +32,9 @@ export class Vehicle {
 
 		this.spherePos = new THREE.Vector3( 3.5, 0.5, 5 );
 		this.sphereVel = new THREE.Vector3();
+		// Custom mods "apply spin X/Y/Z": decaying visual spin on the car body
+		// (rad/s, local axes) — see applyExternalSpin.
+		this.externalSpinRate = new THREE.Vector3();
 		this.wheelieNode = null;
 		this.wheelieAmount = 0;
 		this.wheelieActive = false;
@@ -102,6 +105,7 @@ export class Vehicle {
 
 		}
 
+		this.externalSpinRate.set( 0, 0, 0 );
 		this.spherePos.copy( this.spawnPosition );
 		this.sphereVel.set( 0, 0, 0 );
 		this.linearSpeed = 0;
@@ -232,7 +236,7 @@ export class Vehicle {
 
 		_tmpVec.set( 0, 1, 0 ).applyQuaternion( this.container.quaternion );
 
-		if ( _tmpVec.y > 0.5 ) {
+		if ( _tmpVec.y > 0.5 && ! this.hasExternalSpin() ) {
 
 			const targetQuat = this.alignWithY( this.container.quaternion, _up );
 			this.container.quaternion.slerp( targetQuat, 0.2 );
@@ -309,6 +313,16 @@ export class Vehicle {
 			this.spherePos.y - 0.5,
 			this.spherePos.z
 		);
+
+		if ( this.hasExternalSpin() ) {
+
+			this.container.rotateX( this.externalSpinRate.x * dt );
+			this.container.rotateY( this.externalSpinRate.y * dt );
+			this.container.rotateZ( this.externalSpinRate.z * dt );
+			this.externalSpinRate.multiplyScalar( Math.exp( - dt * 1.1 ) ); // decays → car self-rights
+			if ( this.externalSpinRate.lengthSq() < 0.0004 ) this.externalSpinRate.set( 0, 0, 0 );
+
+		}
 
 		if ( dt > 0 ) {
 
@@ -393,6 +407,26 @@ export class Vehicle {
 
 		this.slopeTiltPitch = Number.isFinite( pitch ) ? pitch : 0;
 		this.slopeTiltRoll = Number.isFinite( roll ) ? roll : 0;
+
+	}
+
+	// Custom mods "apply spin X/Y/Z" writes angular velocity to the physics
+	// ball, but the visible body is decoupled from the ball's rotation (yaw
+	// comes from the steering model + the body is upright-enforced below) —
+	// so ball-only spin is invisible. applyExternalSpin ALSO rotates the
+	// visible car as a decaying tumble; while it's active the upright
+	// correction pauses, and once it decays the normal logic rights the car.
+	applyExternalSpin( x = 0, y = 0, z = 0 ) {
+
+		this.externalSpinRate.x = THREE.MathUtils.clamp( this.externalSpinRate.x + x, -30, 30 );
+		this.externalSpinRate.y = THREE.MathUtils.clamp( this.externalSpinRate.y + y, -30, 30 );
+		this.externalSpinRate.z = THREE.MathUtils.clamp( this.externalSpinRate.z + z, -30, 30 );
+
+	}
+
+	hasExternalSpin() {
+
+		return this.externalSpinRate.lengthSq() > 0.01;
 
 	}
 

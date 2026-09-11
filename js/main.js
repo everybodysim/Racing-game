@@ -6318,6 +6318,9 @@ async function init() {
 				const cz = THREE.MathUtils.clamp( Number( z ) || 0, -10, 10 );
 				const cur = vehicle.rigidBody.motionProperties?.angularVelocity || [ 0, 0, 0 ];
 				rigidBody.setAngularVelocity( world, vehicle.rigidBody, [ cur[ 0 ] + cx, cur[ 1 ] + cy, cur[ 2 ] + cz ] );
+				// The ball's spin alone is invisible (body decoupled + upright-enforced)
+				// — also spin the visible car so the block actually reads as a spin.
+				if ( typeof vehicle.applyExternalSpin === 'function' ) vehicle.applyExternalSpin( cx, cy, cz );
 			},
 			teleport: ( x = 0, y = 1, z = 0 ) => {
 				if ( ! vehicle?.rigidBody ) return;
