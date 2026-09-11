@@ -558,15 +558,34 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	}
 
 	// Pool slope: a ramp that descends from the ground surface down to the pool
-	// floor so the car can drive in/out. It reuses the slope collider shape but
-	// is centered around the pool floor depth and scaled to match the pool.
+	// floor so the car can drive in/out. PINNED SEAM MATH (mirrors
+	// getSlopeGeometry above): the ramp is a DESCENDING tilted box whose high
+	// end is local +z (the ground-road side, via the 180°-flipped yaw).
+	//   - high edge pinned at the GROUND DRIVING PLANE (groundY + 0.01 — the top
+	//     of the thick ground surface box, see createGroundSurfaceCollider in
+	//     js/main.js) exactly at the cell boundary + a small overlap into the
+	//     ground box → coplanar, sealed, zero lip
+	//   - low edge pinned at the POOL FLOOR TOP (floor box top = groundY −
+	//     0.34·cell + 0.04·S) exactly at the inner boundary + a small overlap
+	//     into the floor box → coplanar, sealed
+	// The old geometry centered a fixed-length box on the cell: its high edge
+	// floated ~0.10 ABOVE the ground plane (a lip that popped the sphere both
+	// entering and leaving the pool) and its low edge floated ~0.03 above the
+	// pool floor (a step at the bottom). The half-thickness displacement term
+	// hy·sin(angle) is applied to the box centre toward the ground side so the
+	// pinned edges land exactly on the boundaries.
 	const POOL_FLOOR_DROP = CELL_RAW * S * 0.34;
-	const poolSlopeAngle = Math.atan2( POOL_FLOOR_DROP, CELL_RAW * S );
-	const poolSlopeHalfLen = Math.max(
-		ELEVATED_SURFACE_HALF_XZ,
-		( ( Math.abs( POOL_FLOOR_DROP ) * 0.5 ) / Math.sin( poolSlopeAngle ) )
-	);
-	const poolSlopeCenterY = groundY - POOL_FLOOR_DROP * 0.5;
+	const poolFloorBoxTop = groundY - POOL_FLOOR_DROP + 0.04 * S;
+	const poolGroundTop = groundY + 0.01;
+	const poolSlopeSpan = CELL_HALF * S + SLOPE_SEAM_OVERLAP;
+	const poolSlopeRise = poolGroundTop - poolFloorBoxTop;
+	const poolSlopeAngle = Math.atan2( poolSlopeRise, poolSlopeSpan * 2 );
+	const poolSlopeHalfLen = Math.hypot( poolSlopeSpan, poolSlopeRise * 0.5 );
+	const poolSlopeCenterY = ( poolGroundTop + poolFloorBoxTop ) * 0.5
+		- ELEVATED_SURFACE_HALF_H * Math.cos( poolSlopeAngle );
+	// The tilted half-thickness displaces the top-face edges; shift the box
+	// centre hy·sin(angle) toward local +z (the ground side) to compensate.
+	const poolSlopeShift = ELEVATED_SURFACE_HALF_H * Math.sin( poolSlopeAngle );
 	function addPoolSlopeCollider( gx, gz, orient = 0 ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
@@ -575,7 +594,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ flipOrient ] ?? 0 );
 		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( - poolSlopeAngle, yaw, 0, 'YXZ' ) );
 		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, poolSlopeHalfLen ];
-		const position = [ cx, poolSlopeCenterY, cz ];
+		const position = [ cx + Math.sin( yaw ) * poolSlopeShift, poolSlopeCenterY, cz + Math.cos( yaw ) * poolSlopeShift ];
 		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents } ),
