@@ -13,6 +13,7 @@
 <meta property="og:description" content="Every track published by a Skid Circuit community track creator — most played first.">
 <meta property="og:url" content="https://everybodysim.github.io/Racing-game/author.html">
 <meta property="og:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
+<link rel="stylesheet" href="ui-theme.css">
 	<style>
 :root{color-scheme:dark;--panel:rgba(255,255,255,.07);--line:rgba(255,255,255,.13);--muted:#b5c2da;--accent:#77f3b1}
 body{margin:0;font:14px/1.45 Inter,system-ui,sans-serif;background:radial-gradient(circle at top left,rgba(74,163,255,.22),transparent 32rem),linear-gradient(160deg,#07101e,#121826 55%,#0b1420);color:#e6edf7}
@@ -29,7 +30,6 @@ button,.linkbtn{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,2
 button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 .play-map-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-color:rgba(132,245,172,.72);background:linear-gradient(135deg,rgba(48,198,119,.95),rgba(48,151,255,.85));color:#04130b!important;box-shadow:0 0 18px rgba(77,232,152,.26);font-weight:900!important;flex:1}
 #author-hero{display:flex;align-items:center;gap:18px;padding:24px;border:1px solid rgba(255,255,255,.14);border-radius:16px;background:rgba(10,16,28,.5);margin-bottom:18px;flex-wrap:wrap}
-#author-hero .author-avatar{width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:800 32px sans-serif;color:#fff;flex:none}
 #author-hero .author-meta{color:var(--muted);font:600 13px sans-serif;margin-top:4px}
 #author-hero .hero-back{margin-left:auto}
 .author-stat{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px}
@@ -38,7 +38,6 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 .card.featured{border-color:rgba(119,243,177,.35);box-shadow:inset 0 1px rgba(255,255,255,.08),0 0 40px rgba(80,200,140,.13)}
 .preview-canvas{width:100%;aspect-ratio:5/3;object-fit:cover;display:block;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0d1118;margin:10px 0}
 #author-featured .preview-canvas{aspect-ratio:16/6.5}
-.preview-placeholder{display:flex;align-items:center;justify-content:center;font-size:34px}
 .meta{color:var(--muted);font-size:12px;margin-bottom:8px}
 .stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:8px 0}
 .stat{border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.18);border-radius:10px;padding:8px}
@@ -115,14 +114,6 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 		if ( ! Number.isFinite( value ) ) return '--.--';
 		return value.toFixed( 2 ) + 's';
 	}
-	function authorHue( name ) {
-		let hue = 0;
-		for ( let i = 0; i < name.length; i ++ ) hue = ( hue * 31 + name.charCodeAt( i ) ) % 360;
-		return hue;
-	}
-	function authorInitial( name ) {
-		return ( String( name ).trim()[ 0 ] || '?' ).toUpperCase();
-	}
 	function getEntryCreator( entry ) {
 		const clean = String( entry?.creator || '' ).replace( /\s+/g, ' ' ).trim().slice( 0, 32 );
 		return clean || 'Anonymous';
@@ -184,14 +175,352 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 		}
 	}, { rootMargin: '300px' } );
 
+		// ── Track preview pipeline (ported verbatim from tracks.html) ──
+		const TRACK_SHARE_API_ROOT = 'https://racing-track-board-api.ga1010.workers.dev';
+		const TRACK_SHARE_API_PREFIXES = [ '/api', '' ];
+		const previewPackCache = new Map();
+		const V3_NAME_TOKENS = {
+			'track-straight': 'a',
+			'track-corner': 'b',
+			'track-3-way': 'c',
+			'track-4-way': 'd',
+			'track-checkpoint': 'e',
+			'track-bump': 'f',
+			'track-finish': 'g',
+			'track-start': 'h',
+			'track-start-finish': 'i',
+			'track-cross': 'j',
+			'elevated-straight': 'k',
+			'elevated-corner': 'l',
+			'elevated-cross': 'm',
+			'elevated-checkpoint': 'n',
+			'elevated-3-way': 'o',
+			'elevated-4-way': 'p',
+			'slope-up': 'q',
+			'slope-down': 'r',
+		};
+		const V3_TOKEN_NAMES = {};
+		for ( const [ name, token ] of Object.entries( V3_NAME_TOKENS ) ) V3_TOKEN_NAMES[ token ] = name;
+		const V3_EXTENDED_TYPES = Object.keys( V3_NAME_TOKENS );
+		const V3_ORIENT_BY_IDX = [ 0, 16, 10, 22 ];
+		function decodeBase64UrlJson( value ) {
+			const normalized = value.replace( /-/g, '+' ).replace( /_/g, '/' );
+			const padded = normalized + '='.repeat( ( 4 - normalized.length % 4 ) % 4 );
+			return JSON.parse( decodeURIComponent( escape( atob( padded ) ) ) );
+		}
+		function decodeBase64Url( value ) {
+			const normalized = String( value || '' ).replace( /-/g, '+' ).replace( /_/g, '/' );
+			const padded = normalized + '='.repeat( ( 4 - normalized.length % 4 ) % 4 );
+			return atob( padded );
+		}
+		function decodeCellsFromMap( mapToken ) {
+			if ( ! mapToken ) return [];
+			// v2 format: JSON with { v: 2, cells: [[gx, gz, type, orient], ...] }
+			// This handles tracks with types beyond the 4 compact types (start/finish, elevated, etc.)
+			if ( typeof mapToken === 'string' && mapToken.startsWith( 'v2.' ) ) {
+				try {
+					const raw = mapToken.slice( 3 ).replace( /-/g, '+' ).replace( /_/g, '/' );
+					const padded = raw + '==='.slice( ( raw.length + 3 ) % 4 );
+					const payload = decodeURIComponent( escape( atob( padded ) ) );
+					const parsed = JSON.parse( payload );
+					const entries = Array.isArray( parsed?.cells ) ? parsed.cells : [];
+					return entries
+						.filter( ( cell ) => Array.isArray( cell ) && cell.length >= 3 )
+						.map( ( cell ) => [ Number( cell[0] ), Number( cell[1] ), cell[2], cell[3] ?? 0 ] )
+						.filter( ( c ) => Number.isFinite( c[0] ) && Number.isFinite( c[1] ) );
+				} catch ( e ) {
+					return [];
+				}
+			}
+			// Compact codec: 3 bytes per cell
+			try {
+				const bytes = decodeBase64Url( mapToken );
+				const typeByIdx = [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-finish' ];
+				const orientByIdx = [ 0, 16, 10, 22 ];
+				const cells = [];
+				for ( let i = 0; i + 2 < bytes.length; i += 3 ) {
+					const gx = bytes.charCodeAt( i ) - 128;
+					const gz = bytes.charCodeAt( i + 1 ) - 128;
+					const packed = bytes.charCodeAt( i + 2 );
+					const type = typeByIdx[ packed >> 2 ] || 'track-straight';
+					const orient = orientByIdx[ packed & 3 ] ?? 0;
+					cells.push( [ gx, gz, type, orient ] );
+				}
+				return cells;
+			} catch ( e ) {
+				return [];
+			}
+		}
+		function decodeModsFromToken( modsToken ) {
+			if ( ! modsToken || modsToken === 'none' ) return { b: [], u: [], d: [] };
+			const decoded = decodeBase64Url( modsToken );
+			return JSON.parse( decodeURIComponent( escape( decoded ) ) );
+		}
+		async function resolvePreviewPackPayload( packId ) {
+			const safePackId = String( packId || '' ).trim();
+			if ( ! safePackId ) return null;
+			if ( previewPackCache.has( safePackId ) ) return previewPackCache.get( safePackId );
+			const promise = ( async () => {
+				for ( const prefix of TRACK_SHARE_API_PREFIXES ) {
+					try {
+						// Retry so a transient 503 doesn't blank a track preview.
+						const url = `${ TRACK_SHARE_API_ROOT }${ prefix }/packs/${ encodeURIComponent( safePackId ) }`;
+						const payload = await fetchWithRetry( url );
+						if ( payload?.ok ) return payload;
+					} catch ( e ) {}
+				}
+				return null;
+			} )();
+			previewPackCache.set( safePackId, promise );
+			return promise;
+		}
+		function normalizePreviewMods( mods ) {
+			return ( mods && typeof mods === 'object' ) ? mods : { b: [], u: [], d: [] };
+		}
+		function boardBase64urlToBytes( token ) {
+			const raw = String( token ).replace( /-/g, '+' ).replace( /_/g, '/' );
+			const padded = raw + '==='.slice( ( raw.length + 3 ) % 4 );
+			const binary = atob( padded );
+			const bytes = new Uint8Array( binary.length );
+			for ( let i = 0; i < binary.length; i ++ ) bytes[ i ] = binary.charCodeAt( i );
+			return bytes;
+		}
+		async function inflateBoardBytes( bytes ) {
+			const stream = new Blob( [ bytes ] ).stream().pipeThrough( new DecompressionStream( 'deflate-raw' ) );
+			return new Uint8Array( await new Response( stream ).arrayBuffer() );
+		}
+		async function decodeCellsFromMapAsync( mapToken ) {
+			const token = String( mapToken || '' );
+			if ( ! token.startsWith( 'v3.' ) ) return decodeCellsFromMap( token );
+			const inflated = await inflateBoardBytes( boardBase64urlToBytes( token.slice( 3 ) ) );
+			if ( ! inflated.length ) return [];
+			if ( inflated[ 0 ] === 0 ) {
+				const body = inflated.subarray( 1 );
+				const cells = [];
+				for ( let i = 0; i + 2 < body.length; i += 3 ) {
+					const ti = ( body[ i + 2 ] >> 2 ) & 0x3f;
+					const oi = body[ i + 2 ] & 0x03;
+					if ( ti >= V3_EXTENDED_TYPES.length ) continue;
+					cells.push( [ body[ i ] - 128, body[ i + 1 ] - 128, V3_EXTENDED_TYPES[ ti ], V3_ORIENT_BY_IDX[ oi ] ?? 0 ] );
+				}
+				return cells;
+			}
+			const parsed = JSON.parse( new TextDecoder().decode( inflated.subarray( 1 ) ) );
+			const list = Array.isArray( parsed?.cells ) ? parsed.cells : [];
+			return list
+				.filter( ( cell ) => Array.isArray( cell ) && cell.length >= 3 )
+				.map( ( cell ) => [ Number( cell[ 0 ] ), Number( cell[ 1 ] ), V3_TOKEN_NAMES[ cell[ 2 ] ] ?? cell[ 2 ], cell[ 3 ] ?? 0 ] )
+				.filter( ( c ) => Number.isFinite( c[ 0 ] ) && Number.isFinite( c[ 1 ] ) );
+		}
+		async function decodeModsFromTokenAsync( modsToken ) {
+			const token = String( modsToken || '' );
+			if ( ! token || token === 'none' ) return { b: [], u: [], d: [] };
+			if ( ! token.startsWith( 'v3.' ) ) return decodeModsFromToken( token );
+			const inflated = await inflateBoardBytes( boardBase64urlToBytes( token.slice( 3 ) ) );
+			const parsed = JSON.parse( new TextDecoder().decode( inflated ) );
+			return ( parsed && typeof parsed === 'object' ) ? parsed : { b: [], u: [], d: [] };
+		}
+		async function parseTrackLayoutFromParamsAsync( map, mods ) {
+			return {
+				cells: map ? await decodeCellsFromMapAsync( map ) : [],
+				mods: mods ? await decodeModsFromTokenAsync( mods ) : { b: [], u: [], d: [] },
+			};
+		}
+		function parseGhostPreviewFromUrl( parsedUrl ) {
+			try {
+				const hash = new URLSearchParams( parsedUrl.hash.startsWith( '#' ) ? parsedUrl.hash.slice( 1 ) : parsedUrl.hash );
+				const ghostToken = hash.get( 'ghost' );
+				if ( ! ghostToken ) return null;
+				const payload = decodeBase64UrlJson( ghostToken );
+				const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
+				return samples
+					.map( ( sample ) => ( { x: Number( sample?.x ), z: Number( sample?.z ) } ) )
+					.filter( ( point ) => Number.isFinite( point.x ) && Number.isFinite( point.z ) );
+			} catch ( e ) {
+				return null;
+			}
+		}
+		async function parseTrackLayoutFromUrlAsync( playUrl ) {
+			let parsed = null;
+			try {
+				parsed = new URL( playUrl, window.location.href );
+			} catch ( e ) {
+				return { cells: [], mods: {}, ghost: [] };
+			}
+			const ghostPreview = parseGhostPreviewFromUrl( parsed ) || [];
+			try {
+				const map = parsed.searchParams.get( 'map' );
+				const mods = parsed.searchParams.get( 'mods' );
+				const localPack = parsed.searchParams.get( 'localPack' );
+				if ( ( ! map || ! mods ) && localPack ) {
+					try {
+						const packed = JSON.parse( localStorage.getItem( `racing-local-pack:${ localPack }` ) || 'null' );
+						const m = ! map && typeof packed?.map === 'string' ? packed.map : map;
+						const md = ! mods && typeof packed?.mods === 'string' ? packed.mods : mods;
+						return { ...( await parseTrackLayoutFromParamsAsync( m, md ) ), ghost: ghostPreview };
+					} catch ( e ) {}
+				}
+				return { ...( await parseTrackLayoutFromParamsAsync( map, mods ) ), ghost: ghostPreview };
+			} catch ( e ) {
+				return { cells: [], mods: {}, ghost: ghostPreview };
+			}
+		}
+		async function hydrateTrackPreviewFromUrl( playUrl, canvas ) {
+			let parsed = null;
+			try {
+				parsed = new URL( playUrl, window.location.href );
+			} catch ( e ) {
+				drawTrackPreview( canvas, [], {} );
+				return;
+			}
+			let previewData = await parseTrackLayoutFromUrlAsync( playUrl );
+			const packId = parsed.searchParams.get( 'pack' ) || parsed.searchParams.get( 'sharedPack' );
+			if ( packId && ( ! previewData.cells.length || ! Object.keys( normalizePreviewMods( previewData.mods ) ).some( ( key ) => Array.isArray( previewData.mods[ key ] ) && previewData.mods[ key ].length ) ) ) {
+				try {
+					const payload = await resolvePreviewPackPayload( packId );
+					if ( payload?.map || payload?.mods ) previewData = await parseTrackLayoutFromParamsAsync( payload.map, payload.mods );
+				} catch ( e ) {}
+			}
+			drawTrackPreview( canvas, previewData.cells, previewData.mods );
+		}
+		function getTrackCellPreviewColor( type ) {
+			if ( type === 'track-finish' || type === 'track-start-finish' || type === 'track-start' ) return '#77f3b1';
+			if ( type === 'track-checkpoint' ) return '#5ac8ff';
+			if ( type === 'track-corner' ) return '#8899aa';
+			return '#a0b0c0';
+		}
+		function getSurfacePreviewColor( surfaceType, mods ) {
+			if ( String( surfaceType || '' ).startsWith( 'surface-custom-' ) ) return mods?.c?.[ surfaceType ]?.color || '#9c7bff';
+			if ( String( surfaceType || '' ).startsWith( 'pad-custom-' ) ) return mods?.y?.[ surfaceType ]?.color || '#7fb7ff';
+			if ( surfaceType === 'surface-ice' ) return '#9be7ff';
+			if ( surfaceType === 'surface-boost' ) return '#ffdf5d';
+			if ( surfaceType === 'surface-wood' ) return '#c58b45';
+			if ( surfaceType === 'surface-mud' ) return '#8b5a2b';
+			if ( surfaceType === 'surface-gravel' ) return '#94a3b8';
+			return '#facc15';
+		}
+		function getPreviewBlockColor( key, item, mods ) {
+			switch ( key ) {
+				case 'u': return getSurfacePreviewColor( item?.[ 2 ], mods );
+				case 'b': return '#ffaa44';
+				case 'p': return '#ff6644';
+				case 'k': return '#aa66ff';
+				case 'l': return '#666677';
+				case 'j': return '#38bdf8';
+				case 'q': return '#1f8fd6';
+				case 'o': return item?.[ 2 ] === 'moving-custom' && item?.[ 5 ]?.color ? item[ 5 ].color : '#fb7185';
+				case 'e': return '#c084fc';
+				case 'd': return String( item?.[ 2 ] || '' ).startsWith( 'custom:' ) ? '#f472b6' : '#94a3b8';
+				case 'm': return item?.[ 3 ] === 'red' ? '#ff4444' : '#4488ff';
+				case 'a': return item?.[ 3 ] === 'orange' ? '#ff8800' : ( item?.[ 3 ] === 'portal-purple' ? '#aa44ff' : ( item?.[ 3 ] === 'portal-yellow' ? '#facc15' : '#44ff88' ) );
+				case 's': return '#22c55e';
+				default: return '#e5e7eb';
+			}
+		}
+		function getPreviewBlockRank( key ) {
+			if ( key === 'u' || key === 's' ) return 5;
+			if ( key === 'q' ) return 15;
+			if ( key === 'b' ) return 25;
+			if ( key === 'j' || key === 'e' ) return 35;
+			if ( key === 'l' || key === 'p' || key === 'k' || key === 'o' || key === 'd' ) return 45;
+			if ( key === 'm' || key === 'a' ) return 55;
+			return 30;
+		}
+		function getPreviewItemCoords( item ) {
+			if ( Array.isArray( item ) ) return [ item[ 0 ], item[ 1 ] ];
+			if ( item && typeof item === 'object' ) return [ item.gx ?? item.x, item.gz ?? item.z ];
+			return [ NaN, NaN ];
+		}
+		function collectPreviewBlocks( cells, mods = {} ) {
+			const normalizedMods = normalizePreviewMods( mods );
+			const blocks = [];
+			const add = ( x, z, color, rank = 0, scale = 1 ) => {
+				const nx = Number( x );
+				const nz = Number( z );
+				if ( Number.isFinite( nx ) && Number.isFinite( nz ) ) blocks.push( { x: nx, z: nz, color, rank, scale } );
+			};
+			for ( const cell of Array.isArray( cells ) ? cells : [] ) {
+				add( cell?.[ 0 ], cell?.[ 1 ], getTrackCellPreviewColor( cell?.[ 2 ] ), 20 );
+			}
+			for ( const [ key, value ] of Object.entries( normalizedMods ) ) {
+				if ( ! Array.isArray( value ) ) continue;
+				for ( const item of value ) {
+					const [ x, z ] = getPreviewItemCoords( item );
+					const isPin = key === 'm' || key === 'a';
+					add( x, z, getPreviewBlockColor( key, item, normalizedMods ), getPreviewBlockRank( key ), isPin ? 0.42 : 1 );
+				}
+			}
+			return blocks.sort( ( a, b ) => a.rank - b.rank );
+		}
+		function drawTrackPreview( canvas, cells, mods = {} ) {
+			if ( ! canvas ) return;
+			const ctx = canvas.getContext( '2d' );
+			ctx.clearRect( 0, 0, canvas.width, canvas.height );
+			ctx.fillStyle = '#0d1118';
+			ctx.fillRect( 0, 0, canvas.width, canvas.height );
+			const blocks = collectPreviewBlocks( cells, mods );
+			if ( blocks.length === 0 ) {
+				// Fallback: draw a simple track icon so the canvas isn't blank
+				ctx.strokeStyle = '#4da3ff';
+				ctx.lineWidth = 3;
+				ctx.beginPath();
+				const cx = canvas.width / 2, cy = canvas.height / 2;
+				const r = Math.min( canvas.width, canvas.height ) * 0.3;
+				ctx.arc( cx, cy, r, 0, Math.PI * 1.5 );
+				ctx.stroke();
+				ctx.beginPath();
+				ctx.arc( cx, cy, r * 0.6, 0, Math.PI * 1.5 );
+				ctx.stroke();
+				ctx.fillStyle = 'rgba(255,255,255,0.35)';
+				ctx.font = '600 12px sans-serif';
+				ctx.textAlign = 'center';
+				ctx.fillText( 'Preview unavailable', cx, cy + r + 18 );
+				return;
+			}
+			// Loop-based bounds (avoids Math.min(...xs) stack overflow on large tracks)
+			let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+			for ( const b of blocks ) {
+				if ( b.x < minX ) minX = b.x;
+				if ( b.x > maxX ) maxX = b.x;
+				if ( b.z < minZ ) minZ = b.z;
+				if ( b.z > maxZ ) maxZ = b.z;
+			}
+			const pad = 4;
+			const spanX = Math.max( 1, maxX - minX + 1 );
+			const spanZ = Math.max( 1, maxZ - minZ + 1 );
+			const size = Math.max( 3, Math.min( 30, Math.floor( Math.min( ( canvas.width - pad * 2 ) / spanX, ( canvas.height - pad * 2 ) / spanZ ) ) ) );
+			const offsetX = ( canvas.width - spanX * size ) / 2;
+			const offsetY = ( canvas.height - spanZ * size ) / 2;
+			// Draw blocks only — no ghost line
+			for ( const block of blocks ) {
+				const px = offsetX + ( block.x - minX ) * size;
+				const py = offsetY + ( block.z - minZ ) * size;
+				ctx.fillStyle = block.color;
+				const blockSize = Math.max( 2, size * ( block.scale || 1 ) );
+				ctx.fillRect( Math.round( px + ( size - blockSize ) / 2 ) + 1, Math.round( py + ( size - blockSize ) / 2 ) + 1, Math.max( 1, blockSize - 2 ), Math.max( 1, blockSize - 2 ) );
+			}
+		}
+
+		// Lazy canvas previews: only decode + draw when the card scrolls near.
+		if ( ! window.requestIdleCallback ) {
+			window.requestIdleCallback = ( cb, opts ) => setTimeout( () => cb( { didTimeout: false, timeRemaining: () => 0 } ), opts?.timeout || 50 );
+		}
+		const previewObserver = new IntersectionObserver( ( items ) => {
+			for ( const item of items ) {
+				if ( ! item.isIntersecting ) continue;
+				previewObserver.unobserve( item.target );
+				const url = item.target.dataset.playUrl;
+				if ( url ) requestIdleCallback( () => hydrateTrackPreviewFromUrl( url, item.target ), { timeout: 2000 } );
+			}
+		}, { rootMargin: '200px' } );
+
 	function previewMarkup( entry ) {
 		if ( entry.thumbnailDataUrl ) {
 			return `<img class="preview-canvas" src="${ entry.thumbnailDataUrl }" alt="Track thumbnail for ${ escapeHtml( entry.name ) }">`;
 		}
-		if ( entry.hasThumbnail ) {
-			return `<div class="preview-canvas preview-placeholder" data-thumb-id="${ entry.id }">🏁</div>`;
-		}
-		return `<div class="preview-canvas preview-placeholder">🏁</div>`;
+		// Real 2D block preview (same pipeline as the board) with the lazy
+		// thumbnail swapping in on top when the entry has a screenshot.
+		return `<canvas class="preview-canvas" width="300" height="180" aria-label="2D block preview for ${ escapeHtml( entry.name ) }" data-play-url="${ escapeHtml( entry.playUrl ) }"${ entry.hasThumbnail ? ` data-thumb-id="${ entry.id }"` : '' }></canvas>`;
 	}
 
 	function createAuthorCard( entry, options = {} ) {
@@ -220,6 +549,8 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 				<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
 				<button type="button" class="copy-btn" data-copy-url="${ escapeHtml( entry.playUrl ) }" title="Copy a direct link to this track">🔗 Copy Link</button>
 			</div>`;
+		const canvas = card.querySelector( 'canvas.preview-canvas' );
+		if ( canvas ) previewObserver.observe( canvas );
 		const lazy = card.querySelector( '[data-thumb-id]' );
 		if ( lazy ) thumbObserver.observe( lazy );
 		return card;
@@ -229,14 +560,11 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 	let entries = [];
 
 	function renderAuthor() {
-		const hue = authorHue( displayName );
-		const initial = authorInitial( displayName );
 		const totalPlays = entries.reduce( ( t, e ) => t + ( Number( e.viewCount ) || 0 ), 0 );
 		const totalLikes = entries.reduce( ( t, e ) => t + ( Number( e.thumbsUp ) || 0 ), 0 );
 		const hero = document.getElementById( 'author-hero' );
 		if ( hero ) {
 			hero.innerHTML = `
-				<span class="author-avatar" style="background:hsl(${ hue } 62% 42%)">${ initial }</span>
 				<div>
 					<h1>${ escapeHtml( displayName ) }</h1>
 					<div class="author-meta">${ entries.length } shared track${ entries.length === 1 ? '' : 's' } on the board</div>

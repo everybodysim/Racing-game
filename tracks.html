@@ -19,16 +19,16 @@
 @media(max-width:760px){.hero,.section-head{align-items:flex-start;flex-direction:column}select{max-width:none}}
 	</style>
 	<style>
-.author-chip{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:8px 12px;font:700 13px sans-serif;cursor:pointer;text-decoration:none;transition:background .15s,border-color .15s;white-space:nowrap}
+.author-chip{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:9px 12px;font:700 13px sans-serif;cursor:pointer;text-decoration:none;transition:background .15s,border-color .15s;white-space:nowrap;min-width:0;max-width:calc(100% - 64px)}
+.author-chip .author-name{overflow:hidden;text-overflow:ellipsis;min-width:0}
 .author-chip:hover{background:rgba(119,243,177,.18);border-color:rgba(119,243,177,.5)}
-.author-chip .author-avatar{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font:800 11px sans-serif;color:#fff;letter-spacing:.02em;flex:none}
 .author-chip.anon{cursor:default;opacity:.55}
 .author-chip.anon:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.22)}
-.track-rail{display:flex;gap:12px;overflow-x:auto;padding:4px 2px 12px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
-.track-rail::-webkit-scrollbar{height:8px}
-.track-rail::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:99px}
-.track-rail .card{flex:0 0 290px;min-width:290px;max-width:290px}
-.track-rail .card .preview-canvas{height:150px}
+.track-rail{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.track-rail.expanded{display:flex;overflow-x:auto;padding:4px 2px 12px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
+.track-rail.expanded::-webkit-scrollbar{height:8px}
+.track-rail.expanded::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:99px}
+.track-rail.expanded .card{flex:0 0 290px;min-width:290px;max-width:290px}
 .rail-controls{display:flex;gap:8px;align-items:center}
 .rail-controls button{padding:7px 12px}
 #library-pager{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;padding:18px 0 6px}
@@ -36,6 +36,9 @@
 #library-pager button:hover:not(:disabled){background:rgba(255,255,255,.12);color:#fff}
 #library-pager button.active{background:linear-gradient(135deg,rgba(48,198,119,.28),rgba(48,151,255,.22));border-color:rgba(119,243,177,.45);color:#fff}
 #library-pager button:disabled{opacity:.35;cursor:default}
+.card-author-row.icon-only .copy-label{display:none}
+.records-title{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.records-toggle{font-size:12px;padding:6px 10px}
 #library-pager .pager-info{font:600 12px sans-serif;color:var(--muted);margin:0 6px}
 #board-rail{position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:900;display:flex;flex-direction:column;gap:5px;padding:7px;background:rgba(10,16,28,.74);border:1px solid rgba(255,255,255,.14);border-radius:14px;backdrop-filter:blur(6px);box-shadow:0 10px 30px rgba(0,0,0,.28)}#board-rail button{border:1px solid transparent;background:transparent;color:var(--muted);border-radius:9px;padding:6px 11px;font:700 11px sans-serif;white-space:nowrap;cursor:pointer;text-align:right}#board-rail button:hover{background:rgba(255,255,255,.12);color:#fff}#board-rail button.active{background:linear-gradient(135deg,rgba(48,198,119,.28),rgba(48,151,255,.22));border-color:rgba(119,243,177,.45);color:#fff}@media (max-width:1180px){#board-rail{display:none}}.creator-badge{border-color:rgba(119,243,177,.3);color:#a9e8c4}#publishing-as b{color:#fff}
 	</style>
@@ -60,12 +63,12 @@
 		<div class="panel admin-strip"><input id="adminTokenInput" placeholder="Admin password" type="password"><div class="row" style="margin-top:0"><button id="export-board-btn" type="button">Export board code</button><button id="import-board-btn" type="button">Import board code</button><button id="copy-link-btn" type="button">Copy share link</button></div></div>
 		<details class="panel" id="publish-drawer"><summary>Publish Track</summary><div class="drawer-panel"><p class="sub" id="publishing-as"></p><section class="publish-ghost-guide" aria-labelledby="publish-ghost-guide-title"><h3 id="publish-ghost-guide-title">Before you publish: add a real run</h3><p>Every shared track needs a ghost so players can race the route you built.</p><ol><li>Open your track and drive a complete lap/run.</li><li>Use <strong>Export ghost</strong> in the game to copy the ghost code.</li><li>Return here, then paste that code into the Ghost code box below.</li><li>Name your track, add optional notes or a thumbnail, and publish it to the board.</li></ol></section><label for="track-name">Track name</label><input id="track-name" placeholder="e.g. Forest Sprint" /><label for="ghost-code">Ghost code or board import/export code</label><textarea id="ghost-code" placeholder="Paste export ghost code here..."></textarea><label for="track-description">Description (optional)</label><textarea id="track-description" placeholder="Add notes, style, and tips..."></textarea><label for="track-thumbnail">Thumbnail image (optional)</label><input id="track-thumbnail" type="file" accept="image/*" /><div class="row"><button id="add-btn" type="button">Publish to board</button></div><div id="status"></div></div></details>
 		<div id="publish-modal" hidden role="dialog" aria-modal="true" aria-label="Publishing track"><div class="publish-modal-card"><h3>Hold on — your track is publishing</h3><p>Sit tight while it uploads to the Track Share Board. Everything else is locked until it finishes.</p><div class="publish-modal-bar"><div class="publish-modal-bar-fill"></div></div><div class="publish-modal-step" id="publish-modal-step">Uploading track…</div></div></div>
-		<div class="panel"><div class="row" style="margin-top:0"><input id="search-input" placeholder="Search track name..." style="max-width:360px" /><select id="size-filter"><option value="all">All sizes</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select><select id="sort-filter"><option value="newest">Newest</option><option value="popular">Most popular</option><option value="most-liked">Most liked</option><option value="best-time">Best lap time</option></select></div></div>
 		<section class="browser-section" id="section-featured"><div class="section-head"><div><div class="section-kicker">Editor's algorithmic pick</div><h2>Featured Track</h2></div><p class="sub">Newer than average with above-average play activity.</p></div><div id="featured-track" class="featured-layout"></div></section>
 		<section class="browser-section" id="section-trending"><div class="section-head"><div><div class="section-kicker">Hot right now</div><h2>Trending Tracks</h2></div><div class="rail-controls"><button type="button" class="rail-arrow" data-rail-scroll="-1" data-for="section-trending" hidden aria-label="Scroll trending tracks left">←</button><button type="button" class="rail-arrow" data-rail-scroll="1" data-for="section-trending" hidden aria-label="Scroll trending tracks right">→</button><button type="button" class="rail-expand" data-rail-expand="section-trending" hidden>Show more</button></div></div><div id="trending-list" class="track-rail"></div></section>
 		<section class="browser-section" id="section-new-week"><div class="section-head"><div><div class="section-kicker">Fresh uploads</div><h2>New This Week</h2></div><div class="rail-controls"><button type="button" class="rail-arrow" data-rail-scroll="-1" data-for="section-new-week" hidden aria-label="Scroll new tracks left">←</button><button type="button" class="rail-arrow" data-rail-scroll="1" data-for="section-new-week" hidden aria-label="Scroll new tracks right">→</button><button type="button" class="rail-expand" data-rail-expand="section-new-week" hidden>Show more</button></div></div><div id="new-week-list" class="track-rail"></div></section>
-		<div class="panel records-board" id="section-records"><h2>Track Share Record Board</h2><p class="sub">Drivers ranked by how many unique shared tracks they currently hold #1 on.</p><div id="records-board-list" class="records-list"></div><h2 style="margin-top:16px">Global Placement Rating</h2><p class="sub">Cross-track rating from placement points (1st/2nd/3rd…) across all shared tracks.</p><div id="placement-rating-list" class="records-list"></div></div>
-		<section class="browser-section" id="section-library"><div class="section-head"><div><div class="section-kicker">Full library</div><h2>All Tracks</h2></div></div><div id="grid"></div><div id="library-pager"></div></section>
+		<div class="panel records-board" id="section-records"><h2 class="records-title">Track Share Record Board <button type="button" class="records-toggle" data-records-toggle="leaders">Show all</button></h2><p class="sub">Drivers ranked by how many unique shared tracks they currently hold #1 on.</p><div id="records-board-list" class="records-list"></div><h2 class="records-title" style="margin-top:16px">Global Placement Rating <button type="button" class="records-toggle" data-records-toggle="ratings">Show all</button></h2><p class="sub">Cross-track rating from placement points (1st/2nd/3rd…) across all shared tracks.</p><div id="placement-rating-list" class="records-list"></div></div>
+		<div class="panel" id="library-toolbar"><div class="row" style="margin-top:0"><input id="search-input" placeholder="Search track name..." style="max-width:360px" /><select id="size-filter"><option value="all">All sizes</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select><select id="sort-filter"><option value="newest">Newest</option><option value="popular">Most popular</option><option value="most-liked">Most liked</option><option value="best-time">Best lap time</option></select><button id="random-track-btn-2" type="button">🎲 Random track</button></div></div>
+<section class="browser-section" id="section-library"><div class="section-head"><div><div class="section-kicker">Full library</div><h2>All Tracks</h2></div></div><div id="library-pager-top"></div><div id="grid"></div><div id="library-pager"></div></section>
 
 		<script>
 			const API_BASE = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
@@ -104,6 +107,8 @@
 			const leaderboardProgressFill = document.getElementById( 'leaderboard-progress-fill' );
 			const grid = document.getElementById( 'grid' );
 			const libraryPager = document.getElementById( 'library-pager' );
+			const libraryPagerTop = document.getElementById( 'library-pager-top' );
+			const randomTrackBtn2 = document.getElementById( 'random-track-btn-2' );
 			let entries = [];
 			let useRemoteBoard = false;
 			let topByTrackId = new Map();
@@ -178,14 +183,6 @@
 		function isAnonCreator( entry ) {
 			const name = getEntryCreator( entry );
 			return ! name || name.toLowerCase() === 'anonymous';
-		}
-		function authorHue( name ) {
-			let hue = 0;
-			for ( let i = 0; i < name.length; i ++ ) hue = ( hue * 31 + name.charCodeAt( i ) ) % 360;
-			return hue;
-		}
-		function authorInitial( name ) {
-			return ( String( name ).trim()[ 0 ] || '?' ).toUpperCase();
 		}
 		// Author pages live on their own page (author.html?author=Name).
 		// Old #author= share links from the in-page era redirect there.
@@ -928,6 +925,15 @@
 
 		}
 
+		const RECORDS_PREVIEW_COUNT = 3;
+		const recordsCollapsed = { leaders: true, ratings: true };
+		function updateRecordsToggle( key, total ) {
+			const btn = document.querySelector( `[data-records-toggle="${ key }"]` );
+			if ( ! btn ) return;
+			btn.hidden = total <= RECORDS_PREVIEW_COUNT;
+			btn.textContent = recordsCollapsed[ key ] ? `Show all ${ total } ↓` : 'Show top 3 ↑';
+		}
+
 		function renderRecordBoard() {
 			if ( ! recordsBoardList ) return;
 			if ( leaderboardHydrating ) {
@@ -940,7 +946,7 @@
 				recordsBoardList.innerHTML = '<div class="records-empty">No leaderboard winners yet. Complete a lap to create the first record holder.</div>';
 				return;
 			}
-			recordsBoardList.innerHTML = leaders.slice( 0, 8 )
+			recordsBoardList.innerHTML = ( recordsCollapsed.leaders ? leaders.slice( 0, RECORDS_PREVIEW_COUNT ) : leaders )
 				.map( ( leader, idx ) => `<div class="record-chip">
 					<div class="rank-badge">${ idx === 0 ? '♛' : ( idx + 1 ) }</div>
 					<div class="record-info">
@@ -949,6 +955,7 @@
 					</div>
 				</div>` )
 				.join( '' );
+			updateRecordsToggle( 'leaders', leaders.length );
 			if ( ! placementRatingList ) return;
 			const ratings = getPlacementRatings();
 			if ( ratings.length === 0 ) {
@@ -957,7 +964,7 @@
 				return;
 
 			}
-			placementRatingList.innerHTML = ratings.slice( 0, 10 )
+			placementRatingList.innerHTML = ( recordsCollapsed.ratings ? ratings.slice( 0, RECORDS_PREVIEW_COUNT ) : ratings )
 				.map( ( row, idx ) => `<div class="record-chip">
 					<div class="rank-badge">${ idx === 0 ? '★' : ( idx + 1 ) }</div>
 					<div class="record-info">
@@ -966,6 +973,7 @@
 					</div>
 				</div>` )
 				.join( '' );
+			updateRecordsToggle( 'ratings', ratings.length );
 		}
 
 		const _statsCache = new Map();
@@ -1050,8 +1058,8 @@
 			const creatorName = getEntryCreator( entry );
 			const anonCreator = isAnonCreator( entry );
 			const authorChip = anonCreator
-				? `<span class="author-chip anon" title="Anonymous creator"><span class="author-avatar" style="background:hsl(${ authorHue( creatorName ) } 40% 34%)">?</span>Anonymous</span>`
-				: `<button type="button" class="author-chip" data-author="${ escapeHtml( creatorName ) }" title="View ${ escapeHtml( creatorName ) }'s tracks"><span class="author-avatar" style="background:hsl(${ authorHue( creatorName ) } 62% 42%)">${ authorInitial( creatorName ) }</span>by ${ escapeHtml( creatorName ) }</button>`;
+				? `<span class="author-chip anon" title="Anonymous creator">Anonymous</span>`
+				: `<button type="button" class="author-chip" data-author="${ escapeHtml( creatorName ) }" title="View ${ escapeHtml( creatorName ) }'s tracks">by <span class="author-name">${ escapeHtml( creatorName ) }</span></button>`;
 			card.innerHTML = `<h3>${ entry.name }</h3>
 				<div class="badges">
 					<span class="badge">▶ ${ stats.plays } plays</span>
@@ -1069,7 +1077,7 @@
 				<div class="meta">${ entry.description ? entry.description : 'No description.' }</div>
 				<div class="row card-author-row">
 					${ authorChip }
-					<button type="button" class="copy-btn" data-copy-url="${ escapeHtml( entry.playUrl ) }" title="Copy a direct link to this track">🔗 Copy Link</button>
+					<button type="button" class="copy-btn" data-copy-url="${ escapeHtml( entry.playUrl ) }" title="Copy a direct link to this track">🔗 <span class="copy-label">Copy Link</span></button>
 				</div>
 				<div class="row" style="margin-top:0">
 					<a class="linkbtn play-map-btn" href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play</a>
@@ -1104,6 +1112,25 @@
 			const frag = document.createDocumentFragment();
 			items.forEach( ( entry ) => frag.appendChild( createTrackCard( entry, options ) ) );
 			container.appendChild( frag );
+			scheduleAuthorRowCheck();
+		}
+
+		// Long usernames used to push the Copy Link button onto its own ugly
+		// second line inside cards — when the author row wraps, the copy
+		// button drops its label and becomes just the 🔗 emoji.
+		let authorRowCheckQueued = false;
+		function scheduleAuthorRowCheck() {
+			if ( authorRowCheckQueued ) return;
+			authorRowCheckQueued = true;
+			requestAnimationFrame( () => {
+				authorRowCheckQueued = false;
+				document.querySelectorAll( '.card-author-row' ).forEach( ( row ) => {
+					const chip = row.querySelector( '.author-chip' );
+					const copy = row.querySelector( '.copy-btn' );
+					if ( ! chip || ! copy ) return;
+					row.classList.toggle( 'icon-only', copy.offsetTop > chip.offsetTop + 4 );
+				} );
+			} );
 		}
 
 		function renderHighlights() {
@@ -1132,6 +1159,7 @@
 			if ( ! container ) return;
 			const expanded = expandedRails.has( sectionId );
 			const shown = items.slice( 0, expanded ? RAIL_MAX : RAIL_PREVIEW_COUNT );
+			container.classList.toggle( 'expanded', expanded );
 			renderTrackList( container, shown, emptyText );
 			const expandBtn = document.querySelector( `[data-rail-expand="${ sectionId }"]` );
 			if ( expandBtn ) {
@@ -1199,15 +1227,13 @@
 		}
 
 		function clearLibraryPager() {
-			if ( libraryPager ) libraryPager.innerHTML = '';
+			for ( const el of [ libraryPager, libraryPagerTop ] ) if ( el ) el.innerHTML = '';
 		}
 
-		function renderLibraryPager( total, pageCount, shown ) {
-			if ( ! libraryPager ) return;
+		function buildLibraryPagerHtml( total, pageCount, shown ) {
 			const start = libraryPage * PAGE_SIZE;
 			if ( pageCount <= 1 ) {
-				libraryPager.innerHTML = total > 0 ? `<span class="pager-info">Showing ${ start + 1 }–${ start + shown } of ${ total } track${ total === 1 ? '' : 's' }</span>` : '';
-				return;
+				return total > 0 ? `<span class="pager-info">Showing ${ start + 1 }–${ start + shown } of ${ total } track${ total === 1 ? '' : 's' }</span>` : '';
 			}
 			const windowStart = Math.max( 0, Math.min( libraryPage - 2, pageCount - 5 ) );
 			const windowEnd = Math.min( pageCount, windowStart + 5 );
@@ -1219,7 +1245,12 @@
 			html += `<button type="button" data-page="${ libraryPage + 1 }"${ libraryPage >= pageCount - 1 ? ' disabled' : '' }>Next ›</button>
 				<button type="button" data-page="${ pageCount - 1 }"${ libraryPage >= pageCount - 1 ? ' disabled' : '' }>Last »</button>
 				<span class="pager-info">Showing ${ start + 1 }–${ start + shown } of ${ total } track${ total === 1 ? '' : 's' }</span>`;
-			libraryPager.innerHTML = html;
+			return html;
+		}
+
+		function renderLibraryPager( total, pageCount, shown ) {
+			const html = buildLibraryPagerHtml( total, pageCount, shown );
+			for ( const el of [ libraryPager, libraryPagerTop ] ) if ( el ) el.innerHTML = html;
 		}
 
 		// Renders the current PAGE_SIZE slice of the list into the grid plus the
@@ -1235,6 +1266,7 @@
 			for ( const entry of slice ) frag.appendChild( createTrackCard( entry ) );
 			grid.appendChild( frag );
 			renderLibraryPager( total, pageCount, slice.length );
+			scheduleAuthorRowCheck();
 		}
 
 		function render() {
@@ -1524,6 +1556,13 @@
 					window.location.href = `author.html?author=${ encodeURIComponent( chip.getAttribute( 'data-author' ) || '' ) }`;
 					return;
 				}
+				const recBtn = e.target.closest( '[data-records-toggle]' );
+				if ( recBtn ) {
+					const key = recBtn.getAttribute( 'data-records-toggle' );
+					recordsCollapsed[ key ] = ! recordsCollapsed[ key ];
+					renderRecordBoard();
+					return;
+				}
 				const railBtn = e.target.closest( '[data-rail-expand]' );
 				if ( railBtn ) {
 					expandedRails.add( railBtn.getAttribute( 'data-rail-expand' ) );
@@ -1548,7 +1587,7 @@
 					}
 				}
 			} );
-			libraryPager?.addEventListener( 'click', ( e ) => {
+			const handleLibraryPagerClick = ( e ) => {
 				const btn = e.target.closest( 'button[data-page]' );
 				if ( ! btn || btn.disabled ) return;
 				const page = Number( btn.getAttribute( 'data-page' ) );
@@ -1557,6 +1596,14 @@
 				render();
 				const lib = document.getElementById( 'section-library' );
 				if ( lib ) window.scrollTo( { top: Math.max( 0, lib.getBoundingClientRect().top + window.scrollY - 12 ), behavior: 'instant' } );
+			};
+			libraryPager?.addEventListener( 'click', handleLibraryPagerClick );
+			libraryPagerTop?.addEventListener( 'click', handleLibraryPagerClick );
+			// Long usernames + narrow viewports: re-check author rows on resize.
+			let authorRowResizeDebounce = null;
+			window.addEventListener( 'resize', () => {
+				clearTimeout( authorRowResizeDebounce );
+				authorRowResizeDebounce = setTimeout( scheduleAuthorRowCheck, 120 );
 			} );
 			thumbnailInput.addEventListener( 'change', async () => {
 				const file = thumbnailInput.files?.[ 0 ];
@@ -1571,7 +1618,7 @@
 				};
 				reader.readAsDataURL( file );
 			} );
-			randomTrackBtn.addEventListener( 'click', () => {
+			const openRandomTrack = () => {
 				const filtered = getFilteredEntries();
 				if ( filtered.length === 0 ) {
 
@@ -1579,9 +1626,12 @@
 					return;
 
 				}
+
 				const pick = filtered[ Math.floor( Math.random() * filtered.length ) ];
 				window.open( pick.playUrl, '_blank', 'noopener,noreferrer' );
-			} );
+			};
+			randomTrackBtn.addEventListener( 'click', openRandomTrack );
+			randomTrackBtn2?.addEventListener( 'click', openRandomTrack );
 
 			// ─── Side rail: instant jump-to-section navigation ───
 			const BOARD_RAIL_SECTIONS = [
