@@ -811,25 +811,10 @@ function handlePeerPacket( packet, sourcePeerId ) {
 
 		}
 		if ( packet.type !== PEER_PACKET_STATE ) return;
-		// Slim 30Hz packets omit cosmetics/name when unchanged — reuse the peer's
-		// current visual instead of re-resolving (which would rebuild the model).
-		let visualState = remotePlayerVisuals.get( playerId );
-		if ( packet.cosmetics === undefined && visualState && ( visualState.currentCarKey || visualState.carKey ) === packet.carKey ) {
-
-			// transform-only packet for a visual we already have: keep as-is
-
-		} else if ( packet.cosmetics === undefined && visualState ) {
-
-			visualState = resolveRemoteVisualState( playerId, packet.carKey, null );
-
-		} else {
-
-			visualState = resolveRemoteVisualState( playerId, packet.carKey, packet.cosmetics );
-
-		}
+		const visualState = resolveRemoteVisualState( playerId, packet.carKey, packet.cosmetics );
 		if ( ! visualState ) return;
 		const isFirstPacket = ! visualState.lastSeenAt;
-		if ( packet.name !== undefined ) applyRemoteNameTag( visualState, packet.name || 'Player' );
+		applyRemoteNameTag( visualState, packet.name || 'Player' );
 		visualState.targetPos.set( Number( packet.x ) || 0, ( Number( packet.y ) || 0 ) - 0.1, Number( packet.z ) || 0 );
 		visualState.targetRotY = THREE.MathUtils.degToRad( ( ( Number( packet.ry ) || 0 ) % 360 + 0 ) % 360 ) ;
 		if ( isFirstPacket ) {
@@ -1043,12 +1028,6 @@ function buildLocalPeerStatePacket() {
 
 }
 
-// Tracks what the last wire packet told peers about cosmetics/name so the 30Hz
-// stream can stay transform-only until something actually changes (plus a 1s
-// safety refresh). Fresh connections always get a full packet first (see
-// registerPeerConnection), so nobody is left without cosmetics.
-let lastPeerPacketMeta = { signature: '', name: '', at: 0 };
-
 function broadcastPeerState() {
 
 		if ( ! multiplayerSessionState.roomCode || ! multiplayerSessionState.peer ) return;
@@ -1064,13 +1043,9 @@ function broadcastPeerState() {
 
 	try {
 
-		const now = Date.now();
-		const metaSignature = `${ snap.carKey }|${ snap.cosmetics ? JSON.stringify( snap.cosmetics ) : '' }`;
-		const includeMeta = lastPeerPacketMeta.signature !== metaSignature
-			|| lastPeerPacketMeta.name !== snap.name
-			|| now - lastPeerPacketMeta.at >= 1000;
-		// Transform-only packets keep the 30Hz stream lean; receivers keep their
-		// current remote visual when cosmetics/name are absent (see handlePeerPacket).
+		// Full state every tick: receivers rely on cosmetics/name riding along so
+		// resolveRemoteVisualState's signature match can no-op-reuse their visual.
+		// (Cosmetics itself is memoized — see buildPeerCosmeticsSnapshot.)
 		const packet = {
 			type: PEER_PACKET_STATE,
 			playerId: snap.playerId,
@@ -1079,15 +1054,10 @@ function broadcastPeerState() {
 			z: snap.z,
 			ry: snap.ry,
 			carKey: snap.carKey,
+			cosmetics: snap.cosmetics,
+			name: snap.name,
 			updatedAt: snap.updatedAt,
 		};
-		if ( includeMeta ) {
-
-			packet.cosmetics = snap.cosmetics;
-			packet.name = snap.name;
-			lastPeerPacketMeta = { signature: metaSignature, name: snap.name, at: now };
-
-		}
 		for ( const [ peerId, connection ] of multiplayerSessionState.connections.entries() ) {
 
 			if ( connection && connection.open ) {
