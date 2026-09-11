@@ -15,7 +15,6 @@ import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
 import { HudExtras } from './HudExtras.js';
 import { createRuntime as _createModRuntime } from './mod-runtime.js';
-import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 import { normalizeFirebaseVoteDoc, tallyFirebaseVotes, countFreshRoomPlayers } from './multiplayer-firebase-vote.js';
 import {
@@ -811,6 +810,9 @@ function handlePeerPacket( packet, sourcePeerId ) {
 
 		}
 		if ( packet.type !== PEER_PACKET_STATE ) return;
+		// If the remote car's model isn't in memory yet (lazy boot), fetch it in
+		// the background — the 30Hz stream rebuilds the visual on a later packet.
+		if ( CAR_STATS[ packet.carKey ] && ! models[ packet.carKey ] ) ensureModelsLoaded( packet.carKey );
 		const visualState = resolveRemoteVisualState( playerId, packet.carKey, packet.cosmetics );
 		if ( ! visualState ) return;
 		const isFirstPacket = ! visualState.lastSeenAt;
@@ -878,10 +880,29 @@ function registerPeerConnection( connection ) {
 
 }
 
-function startPeerMultiplayer( roomCode, role ) {
+// PeerJS is only needed once multiplayer actually starts. A static CDN import
+// forced every boot to pay an extra esm.sh round trip before any game code ran;
+// loading it on demand keeps the critical path network-free (except three.js).
+let PeerCtor = null;
+async function loadPeerCtor() {
+
+	if ( PeerCtor ) return PeerCtor;
+	PeerCtor = ( await import( 'https://esm.sh/peerjs@1.5.5?bundle' ) ).default;
+	return PeerCtor;
+
+}
+
+async function startPeerMultiplayer( roomCode, role ) {
 
 	closeMultiplayerPeer();
 	logMpDebug( `[PeerJS] Initializing ${ role } peer for room: ${ roomCode }...` );
+	let Peer;
+	try { Peer = await loadPeerCtor(); }
+	catch ( error ) {
+		logMpDebug( `[PeerJS] Failed to load PeerJS library: ${ error?.message || error }` );
+		updateMultiplayerStatus( 'Multiplayer failed to load. Check your connection and retry.' );
+		return;
+	}
 	const peerId = role === 'host' ? getPeerRoomId( roomCode ) : multiplayerSessionState.clientId;
 	const peer = new Peer( peerId, peerConfig );
 	multiplayerSessionState.peer = peer;
@@ -1939,14 +1960,17 @@ function redirectPublicServerToMap( sig, reason = 'host' ) {
 
 // Try to claim the host peer id; if taken, fall back to joiner. Resolves once
 // the peer is open (host) or once we've started connecting to the host (joiner).
-function startPublicServerPeer( roomCode ) {
+async function startPublicServerPeer( roomCode ) {
 
+	if ( ! isPublicServerActive() ) return;
+	const hostPeerId = getPeerRoomId( roomCode );
+	closeMultiplayerPeer();
+	logMpDebug( `[PublicServer] Trying to claim host peer id ${ hostPeerId }…` );
+	let Peer;
+	try { Peer = await loadPeerCtor(); }
+	catch ( error ) { logMpDebug( `[PublicServer] Failed to load PeerJS library: ${ error?.message || error }` ); return; }
 	return new Promise( ( resolve ) => {
 
-		if ( ! isPublicServerActive() ) { resolve(); return; }
-		const hostPeerId = getPeerRoomId( roomCode );
-		closeMultiplayerPeer();
-		logMpDebug( `[PublicServer] Trying to claim host peer id ${ hostPeerId }…` );
 		const peer = new Peer( hostPeerId, peerConfig );
 		multiplayerSessionState.peer = peer;
 		let settled = false;
@@ -2137,12 +2161,15 @@ function maintainPublicServerPeer() {
 // A joiner that lost its host connection tries to claim the RACE-ROOM-<code> id.
 // If it succeeds it becomes the new host (self-healing); if the id is still
 // taken (someone else became host first) it stays a joiner and reconnects.
-function maybeReclaimPublicServerHost( roomCode ) {
+async function maybeReclaimPublicServerHost( roomCode ) {
 
 	if ( publicServerState.hostClaimInFlight ) return;
 	publicServerState.hostClaimInFlight = true;
 	const hostPeerId = getPeerRoomId( roomCode );
 	logMpDebug( `[PublicServer] Attempting to reclaim host id ${ hostPeerId }` );
+	let Peer;
+	try { Peer = await loadPeerCtor(); }
+	catch ( error ) { publicServerState.hostClaimInFlight = false; logMpDebug( `[PublicServer] Failed to load PeerJS library: ${ error?.message || error }` ); return; }
 	const probe = new Peer( hostPeerId, peerConfig );
 	let resolved = false;
 	const finish = ( becameHost ) => {
@@ -4052,8 +4079,9 @@ async function loadRuntimeMods() {
 
 function getRequiredModelNames( customCells, extras, carKeys ) {
 
+	// Boot only needs the car(s) the player can actually end up driving — every
+	// other vehicle and the garage lazy-load via ensureModelsLoaded + prefetch.
 	const required = new Set( carKeys );
-	required.add( 'garage' );
 	for ( const [ , , key ] of ( customCells || TRACK_CELLS ) ) {
 		required.add( key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key );
 	}
@@ -4134,6 +4162,26 @@ async function loadModels( requiredNames = modelNames ) {
 
 	await Promise.all( promises );
 	appendLoadingConsole( `Ready with ${ requiredNames.length } optimized models.` );
+
+}
+
+// Lazy model loading: boot fetches only what the first frame needs; everything
+// else streams in on demand (car switch, garage open, remote players, ghosts)
+// and then via the post-boot idle prefetch. Concurrent requests for the same
+// model share one in-flight load.
+const pendingModelLoads = new Map();
+
+function ensureModelsLoaded( names ) {
+
+	const wanted = ( Array.isArray( names ) ? names : [ names ] ).filter( ( name ) => modelNames.includes( name ) && ! models[ name ] );
+	const inflight = wanted.map( ( name ) => pendingModelLoads.get( name ) ).filter( Boolean );
+	const toLoad = wanted.filter( ( name ) => ! pendingModelLoads.has( name ) );
+	if ( toLoad.length === 0 ) return inflight.length ? Promise.all( inflight ).then( () => true ) : Promise.resolve( false );
+	const pending = loadModels( toLoad )
+		.then( () => { for ( const name of toLoad ) pendingModelLoads.delete( name ); return true; } )
+		.catch( ( error ) => { for ( const name of toLoad ) pendingModelLoads.delete( name ); console.warn( 'Failed to lazy-load models', toLoad, error ); return false; } );
+	for ( const name of toLoad ) pendingModelLoads.set( name, pending );
+	return pending;
 
 }
 
@@ -4595,15 +4643,82 @@ async function init() {
 		const waterByKey = new Map( [ ...generatedWater, ...explicitWater ].map( ( cell ) => [ `${ cell[ 0 ] },${ cell[ 1 ] }`, cell ] ) );
 		extras.water = [ ...waterByKey.values() ];
 	}
-	const requiredModelNames = getRequiredModelNames( customCells, extras, carKeys );
+	// Boot car set: only the car(s) the player can actually end up driving load
+	// up front. Every other vehicle (~1.8MB) and the garage (the single biggest
+	// model, 3.7MB) lazy-load on demand or via the post-boot idle prefetch —
+	// several MB off the critical path.
+	const bootCarKeys = new Set( [ 'vehicle-truck-yellow' ] );
+	const bootCarSelect = document.getElementById( 'car-select' );
+	if ( bootCarSelect?.value && CAR_STATS[ bootCarSelect.value ] ) bootCarKeys.add( bootCarSelect.value );
+	const bootDefaultCar = localStorage.getItem( DEFAULT_CAR_KEY );
+	if ( bootDefaultCar && CAR_STATS[ bootDefaultCar ] ) bootCarKeys.add( bootDefaultCar );
+	if ( isSplitScreen ) for ( const key of Object.keys( CAR_STATS ) ) bootCarKeys.add( key ); // random split-screen spawns
+	const requiredModelNames = getRequiredModelNames( customCells, extras, [ ...bootCarKeys ] );
 	setLoadingStatus( `Loading ${ requiredModelNames.length } needed models…`, 'models' );
-	const garageCollisionPromise = loadGarageCollisionAsset();
 	await Promise.all( [ loadModels( requiredModelNames ), loadCustomTrackAssets( extras ) ] );
-	const garageCollisionAsset = await garageCollisionPromise;
-	const garageBounds = new THREE.Box3().setFromObject( models.garage );
-	const garageSize = garageBounds.getSize( new THREE.Vector3() );
-	const garageSceneScale = 80 / Math.max( garageSize.x, garageSize.y, garageSize.z, 0.001 );
 	const garageSceneZOffset = - 2.2;
+	let garageSceneScale = null;
+	let garageCollisionAsset = null;
+	let garageAssetsPromise = null;
+	// Garage assets load lazily: on garage open/drive, or via idle prefetch.
+	// models.garage, the collision OBJ and the viewer scale all arrive together.
+	function ensureGarageAssets() {
+
+		if ( models.garage && garageSceneScale && garageCollisionAsset ) return Promise.resolve();
+		if ( ! garageAssetsPromise ) {
+
+			garageAssetsPromise = Promise.all( [ ensureModelsLoaded( [ 'garage' ] ), loadGarageCollisionAsset() ] )
+				.then( ( [ , collisionAsset ] ) => {
+
+					garageCollisionAsset = collisionAsset || null;
+					const garageBounds = new THREE.Box3().setFromObject( models.garage );
+					const garageSize = garageBounds.getSize( new THREE.Vector3() );
+					garageSceneScale = 80 / Math.max( garageSize.x, garageSize.y, garageSize.z, 0.001 );
+
+				} )
+				.catch( ( error ) => console.warn( 'Failed to load garage assets', error ) );
+
+		}
+		return garageAssetsPromise;
+
+	}
+	// Assembles the garage scene + hidden collision debug visual inside the
+	// viewer once the assets exist. Idempotent — safe to call repeatedly.
+	function addGarageSceneToViewer() {
+
+		if ( ! garageViewer || ! models.garage || ! garageSceneScale || garageViewer.garageSceneAdded ) return;
+		garageViewer.garageSceneAdded = true;
+		const garage = models.garage.clone( true );
+		garage.scale.setScalar( garageSceneScale );
+		garage.position.set( 0, 0, garageSceneZOffset );
+		garage.traverse( ( child ) => {
+
+			if ( ! child.isMesh ) return;
+			const materials = Array.isArray( child.material ) ? child.material : [ child.material ];
+			materials.forEach( ( material ) => { material.side = THREE.DoubleSide; } );
+			child.castShadow = true;
+			child.receiveShadow = true;
+
+		} );
+		garageViewer.garageRoot.add( garage );
+		const garageCollisionVisual = garageCollisionAsset?.clone( true );
+		if ( garageCollisionVisual ) {
+
+			garageCollisionVisual.visible = false;
+			garageCollisionVisual.scale.setScalar( garageSceneScale );
+			garageCollisionVisual.position.set( 0, 0, garageSceneZOffset );
+			garageCollisionVisual.traverse( ( child ) => {
+
+				if ( ! child.isMesh ) return;
+				child.material = new THREE.MeshBasicMaterial( { color: 0xff4b38, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide } );
+				child.renderOrder = 2;
+
+			} );
+			garageViewer.garageRoot.add( garageCollisionVisual );
+
+		}
+
+	}
 	setLoadingStatus( 'Loading track and mods…', 'track' );
 	const runtimeMods = await runtimeModsPromise;
 	// Surface installed runtime mods in the boot console so players can confirm their
@@ -5826,6 +5941,9 @@ async function init() {
 			recentGhostPlayers.push( { ...entry, model } );
 
 		}
+		// Any ghost still on a fallback model gets rebuilt once its real car loads.
+		const missingGhostCars = [ ...new Set( recentGhostHistory.slice( 0, targetCount ).map( ( entry ) => entry.car ).filter( ( car ) => car && CAR_STATS[ car ] && ! models[ car ] ) ) ];
+		if ( missingGhostCars.length ) ensureModelsLoaded( missingGhostCars ).then( () => rebuildRecentGhostVisuals() );
 
 	}
 
@@ -5834,6 +5952,7 @@ async function init() {
 		if ( ! ghostEnabled ) return false;
 		const normalized = extractNormalizedGhostPayload( payload );
 		if ( ! normalized ) return false;
+		if ( normalized.car && CAR_STATS[ normalized.car ] && ! models[ normalized.car ] ) ensureModelsLoaded( normalized.car ); // arrives on the next leaderboard refresh
 		const modelKey = normalized.car && models[ normalized.car ] ? normalized.car : 'vehicle-truck-yellow';
 		const ghostCosmetics = normalized.car === modelKey ? normalized.cosmetics : null;
 		const model = createGhostVisualModel( models[ modelKey ], 0.27, ghostCosmetics );
@@ -6240,9 +6359,11 @@ async function init() {
 			},
 			getModelNames: () => Object.keys( CAR_STATS ),
 			setVehicleModel: ( key = 'vehicle-truck-yellow' ) => {
-				if ( ! CAR_STATS[ key ] || ! models[ key ] ) return;
-				vehicle.setModel( models[ key ] );
-				applyVehiclePerformance();
+				if ( ! CAR_STATS[ key ] ) return;
+				if ( models[ key ] ) {
+					vehicle.setModel( models[ key ] );
+					applyVehiclePerformance();
+				} else ensureModelsLoaded( [ key ] ).then( () => { if ( models[ key ] ) { vehicle.setModel( models[ key ] ); applyVehiclePerformance(); } } );
 			},
 			// --- Extended custom-mod API (added for the expanded block set) ---
 			// All numeric inputs are clamped to safe, non-exploitable ranges.
@@ -7320,6 +7441,7 @@ async function init() {
 			ensureGarageSelectionSource();
 			if ( ! garageViewer ) initGarageViewer();
 			refreshGarageViewer();
+			ensureGarageAssets().then( () => { addGarageSceneToViewer(); refreshGarageViewer(); } );
 
 		}
 		// Only keep the garage card preview renderers alive while the garage tab is open & menu
@@ -8025,46 +8147,8 @@ async function init() {
 		scene.add( new THREE.AmbientLight( 0xffffff, 3.0 ) );
 		const displayRoot = new THREE.Group();
 		const garageRoot = new THREE.Group();
-		const garageSource = models.garage;
-		if ( garageSource ) {
-
-			const garage = garageSource.clone( true );
-			// The uploaded garage contains generous surrounding space. Keep the
-			// scene large enough that the visible city reads behind the car.
-			const garageScale = garageSceneScale;
-			garage.scale.setScalar( garageScale );
-			// The GLB origin is the car parking point. Preserve it instead of
-			// recentering the mesh by its bounds, so the car shares the authored
-			// garage coordinate system and sits naturally on the garage floor.
-			garage.position.set( 0, 0, garageSceneZOffset );
-			garage.traverse( ( child ) => {
-
-				if ( ! child.isMesh ) return;
-				const materials = Array.isArray( child.material ) ? child.material : [ child.material ];
-				materials.forEach( ( material ) => { material.side = THREE.DoubleSide; } );
-				child.castShadow = true;
-				child.receiveShadow = true;
-
-			} );
-			garageRoot.add( garage );
-
-		}
-		const garageCollisionVisual = garageCollisionAsset?.clone( true );
-		if ( garageCollisionVisual ) {
-
-			garageCollisionVisual.visible = false;
-			garageCollisionVisual.scale.setScalar( garageSceneScale );
-			garageCollisionVisual.position.set( 0, 0, garageSceneZOffset );
-			garageCollisionVisual.traverse( ( child ) => {
-
-				if ( ! child.isMesh ) return;
-				child.material = new THREE.MeshBasicMaterial( { color: 0xff4b38, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide } );
-				child.renderOrder = 2;
-
-			} );
-			garageRoot.add( garageCollisionVisual );
-
-		}
+		// The garage scene itself is assembled by addGarageSceneToViewer() the
+		// moment the (lazily loaded) garage assets exist — see ensureGarageAssets.
 		garageRoot.renderOrder = - 1;
 		displayRoot.add( garageRoot );
 		const carRoot = new THREE.Group();
@@ -8083,7 +8167,8 @@ async function init() {
 		garageKeyLight.shadow.camera.bottom = - 10;
 		scene.add( garageKeyLight, garageKeyLight.target );
 		scene.add( displayRoot );
-		garageViewer = { renderer, scene, camera, displayRoot, garageRoot, carRoot, yaw: 0, pitch: 0.23, zoom: 1, drive: false, dragging: false, moved: false, sx: 0, sy: 0, pinchDistance: 0, pointers: new Map(), raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
+		garageViewer = { renderer, scene, camera, displayRoot, garageRoot, carRoot, garageSceneAdded: false, yaw: 0, pitch: 0.23, zoom: 1, drive: false, dragging: false, moved: false, sx: 0, sy: 0, pinchDistance: 0, pointers: new Map(), raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
+		addGarageSceneToViewer();
 		const resize = () => {
 
 			const rect = garageViewerCanvas.getBoundingClientRect();
@@ -8200,6 +8285,7 @@ async function init() {
 
 			if ( ! garageViewer ) initGarageViewer();
 			if ( ! garageViewer ) return;
+			ensureGarageAssets().then( () => {
 			if ( ! garageCollisionAdded ) {
 
 				const collisionData = addGarageCollisionBoxes( garageWorld, garageCollisionAsset, garageSceneScale, garageSceneZOffset );
@@ -8238,6 +8324,7 @@ async function init() {
 			garageDriveBtn.textContent = 'Exit garage drive';
 			garageDriveBtn.classList.add( 'active' );
 			garageViewerHint.textContent = 'WASD or controller to drive • drag to orbit camera • scroll or pinch to zoom';
+			} );
 
 		} else {
 
@@ -8478,7 +8565,7 @@ async function init() {
 			applyCarCustomization( vehicle );
 			applyHitboxHackVisuals( true );
 
-		}
+		} else ensureModelsLoaded( [ selectedKey ] ).then( () => { if ( carSelect?.value === selectedKey && models[ selectedKey ] ) selectGarageCar( selectedKey ); } );
 		updateGarageMappingsUi();
 		ensureGarageSelectionSource();
 		refreshGarageViewer();
@@ -9418,7 +9505,7 @@ function completeCampaignStage() {
 				vehicle.setModel( models[ parsed.carKey ] );
 				applyCarCustomization( vehicle );
 
-			}
+			} else ensureModelsLoaded( [ parsed.carKey ] ).then( () => { if ( carSelect.value === parsed.carKey && models[ parsed.carKey ] ) { vehicle.setModel( models[ parsed.carKey ] ); applyCarCustomization( vehicle ); } } );
 
 		}
 		// Default-car setting applies LAST so a specific default always wins
@@ -12295,7 +12382,7 @@ function completeCampaignStage() {
 			applyCarCustomization( vehicle );
 			applyHitboxHackVisuals( true );
 
-		}
+		} else ensureModelsLoaded( [ selectedKey ] ).then( () => { if ( carSelect.value === selectedKey && models[ selectedKey ] ) carSelect.dispatchEvent( new Event( 'change' ) ); } );
 		updateGarageMappingsUi();
 		renderGarageVehicleCards();
 		setGarageMappingStatus( `Now editing mappings for ${ CAR_STATS[ selectedKey ]?.name || 'selected car' }.` );
@@ -12395,6 +12482,7 @@ function completeCampaignStage() {
 		if ( carSelect ) carSelect.value = value;
 		updateCarSelectColor();
 		if ( models[ value ] ) vehicle.setModel( models[ value ] );
+		else ensureModelsLoaded( [ value ] ).then( () => { if ( carSelect?.value === value && models[ value ] ) { vehicle.setModel( models[ value ] ); applyCarCustomization( vehicle ); } } );
 		applyCarCustomization( vehicle );
 		applyVehiclePerformance();
 
@@ -12669,7 +12757,7 @@ function completeCampaignStage() {
 	const garageParamEnabled = new URLSearchParams( window.location.search ).get( 'garage' ) === '1';
 	setModeTab( garageParamEnabled ? 'garage' : 'gameplay' );
 	initGarageViewer();
-	if ( garageParamEnabled ) { setModeMenuOpen( true ); ensureGarageSelectionSource(); }
+	if ( garageParamEnabled ) { setModeMenuOpen( true ); ensureGarageSelectionSource(); ensureGarageAssets().then( () => { addGarageSceneToViewer(); refreshGarageViewer(); } ); }
 	if ( garageCarSelect ) garageCarSelect.value = currentCarKey();
 	updateCarSelectColor();
 	updateGarageUi();
@@ -12695,6 +12783,24 @@ function completeCampaignStage() {
 	resetLapState( true );
 	resetLapState2( true );
 	startCountdown();
+	// Post-boot idle prefetch: everything boot skipped (remaining cars, then the
+	// garage) streams in a little after the game settles, so car switching and
+	// the garage feel instant — without ever blocking the critical path.
+	setTimeout( () => {
+
+		const prefetchOrder = modelNames.filter( ( name ) => CAR_STATS[ name ] && ! models[ name ] );
+		if ( ! models.garage ) prefetchOrder.push( 'garage' );
+		let prefetchIndex = 0;
+		const pumpPrefetch = () => {
+
+			if ( prefetchIndex >= prefetchOrder.length ) return;
+			ensureModelsLoaded( [ prefetchOrder[ prefetchIndex ++ ] ] ).finally( () => setTimeout( pumpPrefetch, 200 ) );
+
+		};
+		pumpPrefetch();
+		loadPeerCtor().catch( () => {} ); // warm the (lazy) multiplayer library
+
+	}, 2500 );
 
 	const hashParams = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
 	const importedGhost = hashParams.get( 'ghost' );
