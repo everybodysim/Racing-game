@@ -10,11 +10,11 @@ import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails, WaterSplashFX } from './Particles.js';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
+import { encodeGhostBinary, decodeGhostBinary, encodeGhostCode, decodeGhostCode } from './GhostCodec.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
 import { HudExtras } from './HudExtras.js';
 import { createRuntime as _createModRuntime } from './mod-runtime.js';
-import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
 import { normalizeFirebaseVoteDoc, tallyFirebaseVotes, countFreshRoomPlayers } from './multiplayer-firebase-vote.js';
 import {
@@ -54,8 +54,8 @@ const MAX_PIXEL_RATIO = 1.5;
 const GRAPHICS_QUALITY_KEY = 'racing-graphics-quality';
 const GRAPHICS_QUALITY_PRESETS = {
 	low: { label: 'Low', maxPixelRatio: 0.85, shadows: false, shadowMapSize: 1024, smokeParticles: 24, smokeEmissionStride: 3, weatherParticleScale: 0, bloomStrength: 0, bloomRadius: 0 },
-	medium: { label: 'Medium', maxPixelRatio: 1.1, shadows: true, shadowMapSize: 2048, smokeParticles: 44, smokeEmissionStride: 2, weatherParticleScale: 0.55, bloomStrength: 0.01, bloomRadius: 0.01 },
-	high: { label: 'High', maxPixelRatio: MAX_PIXEL_RATIO, shadows: true, shadowMapSize: 4096, smokeParticles: 64, smokeEmissionStride: 1, weatherParticleScale: 1, bloomStrength: 0.02, bloomRadius: 0.02 },
+	medium: { label: 'Medium', maxPixelRatio: 1.1, shadows: true, shadowMapSize: 2048, smokeParticles: 44, smokeEmissionStride: 2, weatherParticleScale: 0.55, bloomStrength: 0, bloomRadius: 0 },
+	high: { label: 'High', maxPixelRatio: MAX_PIXEL_RATIO, shadows: true, shadowMapSize: 4096, smokeParticles: 64, smokeEmissionStride: 1, weatherParticleScale: 1, bloomStrength: 0, bloomRadius: 0 },
 };
 
 function isLikelyMobileDevice() {
@@ -84,6 +84,10 @@ let graphicsQuality = normalizeGraphicsQuality( localStorage.getItem( GRAPHICS_Q
 // property accesses and keeps the hot path allocation-free.
 let cachedGraphicsPreset = GRAPHICS_QUALITY_PRESETS[ graphicsQuality ] || GRAPHICS_QUALITY_PRESETS[ getDefaultGraphicsQuality() ];
 
+// Set the LOW-preset body class up front (applyGraphicsPresetToRenderer/
+// applyGraphicsQuality keep it in sync on every later change).
+document.body.classList.toggle( 'gfx-low', graphicsQuality === 'low' );
+
 function getGraphicsPreset() {
 
 	return cachedGraphicsPreset;
@@ -106,6 +110,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
 let bloomPass = null;
+let bloomAttached = false;
 
 function applyBloomPreset() {
 
@@ -114,6 +119,17 @@ function applyBloomPreset() {
 	bloomPass.strength = preset.bloomStrength;
 	bloomPass.radius = preset.bloomRadius;
 	bloomPass.threshold = preset.bloomStrength > 0 ? 0.62 : 1.0;
+	// A zero-strength bloom still runs its full multi-pass chain every
+	// frame (a dozen-plus internal fullscreen renders — the most expensive
+	// no-op in the pipeline). Detach the effect entirely when it adds
+	// nothing; re-attach when a preset/custom setting wants it back.
+	const wantsBloom = ( preset.bloomStrength || 0 ) > 0;
+	if ( wantsBloom !== bloomAttached ) {
+
+		bloomAttached = wantsBloom;
+		renderer.setEffects( wantsBloom ? [ bloomPass ] : [] );
+
+	}
 
 }
 
@@ -123,8 +139,9 @@ async function loadBloomEffect() {
 
 		const { UnrealBloomPass } = await import( 'three/addons/postprocessing/UnrealBloomPass.js' );
 		bloomPass = new UnrealBloomPass( new THREE.Vector2( window.innerWidth, window.innerHeight ) );
+		// applyBloomPreset attaches the effect only when the active preset
+		// actually wants bloom (built-in presets now default to strength 0).
 		applyBloomPreset();
-		renderer.setEffects( [ bloomPass ] );
 
 	} catch ( error ) {
 
@@ -237,6 +254,10 @@ scene.add( fillLight );
 function applyGraphicsPresetToRenderer() {
 
 	const preset = getGraphicsPreset();
+	// LOW = weak hardware: also kill the always-on HUD backdrop blurs (the
+	// body.gfx-low rules in index.html). Small-widget blurs are cheap on
+	// discrete GPUs but cost real frame time on integrated ones.
+	document.body.classList.toggle( 'gfx-low', preset === GRAPHICS_QUALITY_PRESETS.low );
 	const splitScreenPixelCap = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1' ? 1 : preset.maxPixelRatio;
 	renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, splitScreenPixelCap ) );
 	renderer.shadowMap.enabled = preset.shadows;
@@ -789,6 +810,9 @@ function handlePeerPacket( packet, sourcePeerId ) {
 
 		}
 		if ( packet.type !== PEER_PACKET_STATE ) return;
+		// If the remote car's model isn't in memory yet (lazy boot), fetch it in
+		// the background — the 30Hz stream rebuilds the visual on a later packet.
+		if ( CAR_STATS[ packet.carKey ] && ! models[ packet.carKey ] ) ensureModelsLoaded( packet.carKey );
 		const visualState = resolveRemoteVisualState( playerId, packet.carKey, packet.cosmetics );
 		if ( ! visualState ) return;
 		const isFirstPacket = ! visualState.lastSeenAt;
@@ -856,10 +880,29 @@ function registerPeerConnection( connection ) {
 
 }
 
-function startPeerMultiplayer( roomCode, role ) {
+// PeerJS is only needed once multiplayer actually starts. A static CDN import
+// forced every boot to pay an extra esm.sh round trip before any game code ran;
+// loading it on demand keeps the critical path network-free (except three.js).
+let PeerCtor = null;
+async function loadPeerCtor() {
+
+	if ( PeerCtor ) return PeerCtor;
+	PeerCtor = ( await import( 'https://esm.sh/peerjs@1.5.5?bundle' ) ).default;
+	return PeerCtor;
+
+}
+
+async function startPeerMultiplayer( roomCode, role ) {
 
 	closeMultiplayerPeer();
 	logMpDebug( `[PeerJS] Initializing ${ role } peer for room: ${ roomCode }...` );
+	let Peer;
+	try { Peer = await loadPeerCtor(); }
+	catch ( error ) {
+		logMpDebug( `[PeerJS] Failed to load PeerJS library: ${ error?.message || error }` );
+		updateMultiplayerStatus( 'Multiplayer failed to load. Check your connection and retry.' );
+		return;
+	}
 	const peerId = role === 'host' ? getPeerRoomId( roomCode ) : multiplayerSessionState.clientId;
 	const peer = new Peer( peerId, peerConfig );
 	multiplayerSessionState.peer = peer;
@@ -959,6 +1002,26 @@ function formatPeerPacketNumber( value, precision ) {
 
 }
 
+// Cosmetics (car paint mappings) barely ever change, but the garage walk that
+// builds them used to run for every broadcast packet. Memoize per car key with
+// a short refresh window so repainting still propagates within ~300ms.
+let peerCosmeticsMemo = { carKey: '', at: 0, value: null };
+function buildPeerCosmeticsSnapshot( packetCarKey ) {
+
+	const now = Date.now();
+	if ( peerCosmeticsMemo.carKey !== packetCarKey || now - peerCosmeticsMemo.at >= 300 ) {
+
+		peerCosmeticsMemo = {
+			carKey: packetCarKey,
+			at: now,
+			value: typeof localMultiplayerStateHandlers.buildCosmetics === 'function' ? localMultiplayerStateHandlers.buildCosmetics( packetCarKey ) : null,
+		};
+
+	}
+	return peerCosmeticsMemo.value;
+
+}
+
 function buildRemotePlayerSnapshot() {
 	const container	 = getLocalVehicleContainer();
 	const pos	 = container?.position || { x:	 0,	 y:	 0,	 z:	 0 };
@@ -972,35 +1035,50 @@ function buildRemotePlayerSnapshot() {
 		z: formatPeerPacketNumber( pos.z,	 3 ),
 		ry	: Number( getMultiplayerHeadingDegrees( container ).toFixed( 2 ) ),
 		carKey: packetCarKey,
-		cosmetics: typeof localMultiplayerStateHandlers.buildCosmetics === 'function' ? localMultiplayerStateHandlers.buildCosmetics( packetCarKey ) : null,
+		cosmetics: buildPeerCosmeticsSnapshot( packetCarKey ),
 		name: typeof getLocalMultiplayerDisplayName === 'function' ? getLocalMultiplayerDisplayName() : 'Player',
 		updatedAt: Date.now(),
 	};
 }
 function buildLocalPeerStatePacket() {
-		const snap = buildRemotePlayerSnapshot();
-			if ( ! snap ) return null;
-			const { x,	 y,	 z,	 ry,	 carKey,	 cosmetics,	 name,	 updatedAt,	 type,	 playerId } = snap;
-			return { x,	 y,	 z,	 ry,	 carKey,	 cosmetics,	 name,	 updatedAt,	 type,	 playerId };
-			}
+
+	const snap = buildRemotePlayerSnapshot();
+	if ( ! snap ) return null;
+	const { x, y, z, ry, carKey, cosmetics, name, updatedAt, type, playerId } = snap;
+	return { x, y, z, ry, carKey, cosmetics, name, updatedAt, type, playerId };
+
+}
 
 function broadcastPeerState() {
 
-		const now = Date.now();
 		if ( ! multiplayerSessionState.roomCode || ! multiplayerSessionState.peer ) return;
+		let hasOpenConnection = false;
+		for ( const connection of multiplayerSessionState.connections.values() ) {
+
+			if ( connection && connection.open ) { hasOpenConnection = true; break; }
+
+		}
+		if ( ! hasOpenConnection ) return;
 		const snap = buildRemotePlayerSnapshot();
 		if ( ! snap || ! snap.carKey ) return;
-		const bypassFirebase = Boolean( multiplayerSessionState.peer && multiplayerSessionState.connections.size > 0 );
-		const fbGuard = 'peerBroadcastLastFirebaseAt';
-		if ( bypassFirebase ) {
-				const lastFb = Number( multiplayerSessionState[ fbGuard ] ) || 0;
-				if ( now - lastFb < REMOTE_SYNC_MS ) return;
-				multiplayerSessionState[ fbGuard ] = now;
-		}
 
 	try {
 
-		const packet = buildLocalPeerStatePacket();
+		// Full state every tick: receivers rely on cosmetics/name riding along so
+		// resolveRemoteVisualState's signature match can no-op-reuse their visual.
+		// (Cosmetics itself is memoized — see buildPeerCosmeticsSnapshot.)
+		const packet = {
+			type: PEER_PACKET_STATE,
+			playerId: snap.playerId,
+			x: snap.x,
+			y: snap.y,
+			z: snap.z,
+			ry: snap.ry,
+			carKey: snap.carKey,
+			cosmetics: snap.cosmetics,
+			name: snap.name,
+			updatedAt: snap.updatedAt,
+		};
 		for ( const [ peerId, connection ] of multiplayerSessionState.connections.entries() ) {
 
 			if ( connection && connection.open ) {
@@ -1882,14 +1960,17 @@ function redirectPublicServerToMap( sig, reason = 'host' ) {
 
 // Try to claim the host peer id; if taken, fall back to joiner. Resolves once
 // the peer is open (host) or once we've started connecting to the host (joiner).
-function startPublicServerPeer( roomCode ) {
+async function startPublicServerPeer( roomCode ) {
 
+	if ( ! isPublicServerActive() ) return;
+	const hostPeerId = getPeerRoomId( roomCode );
+	closeMultiplayerPeer();
+	logMpDebug( `[PublicServer] Trying to claim host peer id ${ hostPeerId }…` );
+	let Peer;
+	try { Peer = await loadPeerCtor(); }
+	catch ( error ) { logMpDebug( `[PublicServer] Failed to load PeerJS library: ${ error?.message || error }` ); return; }
 	return new Promise( ( resolve ) => {
 
-		if ( ! isPublicServerActive() ) { resolve(); return; }
-		const hostPeerId = getPeerRoomId( roomCode );
-		closeMultiplayerPeer();
-		logMpDebug( `[PublicServer] Trying to claim host peer id ${ hostPeerId }…` );
 		const peer = new Peer( hostPeerId, peerConfig );
 		multiplayerSessionState.peer = peer;
 		let settled = false;
@@ -2080,12 +2161,15 @@ function maintainPublicServerPeer() {
 // A joiner that lost its host connection tries to claim the RACE-ROOM-<code> id.
 // If it succeeds it becomes the new host (self-healing); if the id is still
 // taken (someone else became host first) it stays a joiner and reconnects.
-function maybeReclaimPublicServerHost( roomCode ) {
+async function maybeReclaimPublicServerHost( roomCode ) {
 
 	if ( publicServerState.hostClaimInFlight ) return;
 	publicServerState.hostClaimInFlight = true;
 	const hostPeerId = getPeerRoomId( roomCode );
 	logMpDebug( `[PublicServer] Attempting to reclaim host id ${ hostPeerId }` );
+	let Peer;
+	try { Peer = await loadPeerCtor(); }
+	catch ( error ) { publicServerState.hostClaimInFlight = false; logMpDebug( `[PublicServer] Failed to load PeerJS library: ${ error?.message || error }` ); return; }
 	const probe = new Peer( hostPeerId, peerConfig );
 	let resolved = false;
 	const finish = ( becameHost ) => {
@@ -3995,8 +4079,9 @@ async function loadRuntimeMods() {
 
 function getRequiredModelNames( customCells, extras, carKeys ) {
 
+	// Boot only needs the car(s) the player can actually end up driving — every
+	// other vehicle and the garage lazy-load via ensureModelsLoaded + prefetch.
 	const required = new Set( carKeys );
-	required.add( 'garage' );
 	for ( const [ , , key ] of ( customCells || TRACK_CELLS ) ) {
 		required.add( key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key );
 	}
@@ -4077,6 +4162,26 @@ async function loadModels( requiredNames = modelNames ) {
 
 	await Promise.all( promises );
 	appendLoadingConsole( `Ready with ${ requiredNames.length } optimized models.` );
+
+}
+
+// Lazy model loading: boot fetches only what the first frame needs; everything
+// else streams in on demand (car switch, garage open, remote players, ghosts)
+// and then via the post-boot idle prefetch. Concurrent requests for the same
+// model share one in-flight load.
+const pendingModelLoads = new Map();
+
+function ensureModelsLoaded( names ) {
+
+	const wanted = ( Array.isArray( names ) ? names : [ names ] ).filter( ( name ) => modelNames.includes( name ) && ! models[ name ] );
+	const inflight = wanted.map( ( name ) => pendingModelLoads.get( name ) ).filter( Boolean );
+	const toLoad = wanted.filter( ( name ) => ! pendingModelLoads.has( name ) );
+	if ( toLoad.length === 0 ) return inflight.length ? Promise.all( inflight ).then( () => true ) : Promise.resolve( false );
+	const pending = loadModels( toLoad )
+		.then( () => { for ( const name of toLoad ) pendingModelLoads.delete( name ); return true; } )
+		.catch( ( error ) => { for ( const name of toLoad ) pendingModelLoads.delete( name ); console.warn( 'Failed to lazy-load models', toLoad, error ); return false; } );
+	for ( const name of toLoad ) pendingModelLoads.set( name, pending );
+	return pending;
 
 }
 
@@ -4538,15 +4643,82 @@ async function init() {
 		const waterByKey = new Map( [ ...generatedWater, ...explicitWater ].map( ( cell ) => [ `${ cell[ 0 ] },${ cell[ 1 ] }`, cell ] ) );
 		extras.water = [ ...waterByKey.values() ];
 	}
-	const requiredModelNames = getRequiredModelNames( customCells, extras, carKeys );
+	// Boot car set: only the car(s) the player can actually end up driving load
+	// up front. Every other vehicle (~1.8MB) and the garage (the single biggest
+	// model, 3.7MB) lazy-load on demand or via the post-boot idle prefetch —
+	// several MB off the critical path.
+	const bootCarKeys = new Set( [ 'vehicle-truck-yellow' ] );
+	const bootCarSelect = document.getElementById( 'car-select' );
+	if ( bootCarSelect?.value && CAR_STATS[ bootCarSelect.value ] ) bootCarKeys.add( bootCarSelect.value );
+	const bootDefaultCar = localStorage.getItem( DEFAULT_CAR_KEY );
+	if ( bootDefaultCar && CAR_STATS[ bootDefaultCar ] ) bootCarKeys.add( bootDefaultCar );
+	if ( isSplitScreen ) for ( const key of Object.keys( CAR_STATS ) ) bootCarKeys.add( key ); // random split-screen spawns
+	const requiredModelNames = getRequiredModelNames( customCells, extras, [ ...bootCarKeys ] );
 	setLoadingStatus( `Loading ${ requiredModelNames.length } needed models…`, 'models' );
-	const garageCollisionPromise = loadGarageCollisionAsset();
 	await Promise.all( [ loadModels( requiredModelNames ), loadCustomTrackAssets( extras ) ] );
-	const garageCollisionAsset = await garageCollisionPromise;
-	const garageBounds = new THREE.Box3().setFromObject( models.garage );
-	const garageSize = garageBounds.getSize( new THREE.Vector3() );
-	const garageSceneScale = 80 / Math.max( garageSize.x, garageSize.y, garageSize.z, 0.001 );
 	const garageSceneZOffset = - 2.2;
+	let garageSceneScale = null;
+	let garageCollisionAsset = null;
+	let garageAssetsPromise = null;
+	// Garage assets load lazily: on garage open/drive, or via idle prefetch.
+	// models.garage, the collision OBJ and the viewer scale all arrive together.
+	function ensureGarageAssets() {
+
+		if ( models.garage && garageSceneScale && garageCollisionAsset ) return Promise.resolve();
+		if ( ! garageAssetsPromise ) {
+
+			garageAssetsPromise = Promise.all( [ ensureModelsLoaded( [ 'garage' ] ), loadGarageCollisionAsset() ] )
+				.then( ( [ , collisionAsset ] ) => {
+
+					garageCollisionAsset = collisionAsset || null;
+					const garageBounds = new THREE.Box3().setFromObject( models.garage );
+					const garageSize = garageBounds.getSize( new THREE.Vector3() );
+					garageSceneScale = 80 / Math.max( garageSize.x, garageSize.y, garageSize.z, 0.001 );
+
+				} )
+				.catch( ( error ) => console.warn( 'Failed to load garage assets', error ) );
+
+		}
+		return garageAssetsPromise;
+
+	}
+	// Assembles the garage scene + hidden collision debug visual inside the
+	// viewer once the assets exist. Idempotent — safe to call repeatedly.
+	function addGarageSceneToViewer() {
+
+		if ( ! garageViewer || ! models.garage || ! garageSceneScale || garageViewer.garageSceneAdded ) return;
+		garageViewer.garageSceneAdded = true;
+		const garage = models.garage.clone( true );
+		garage.scale.setScalar( garageSceneScale );
+		garage.position.set( 0, 0, garageSceneZOffset );
+		garage.traverse( ( child ) => {
+
+			if ( ! child.isMesh ) return;
+			const materials = Array.isArray( child.material ) ? child.material : [ child.material ];
+			materials.forEach( ( material ) => { material.side = THREE.DoubleSide; } );
+			child.castShadow = true;
+			child.receiveShadow = true;
+
+		} );
+		garageViewer.garageRoot.add( garage );
+		const garageCollisionVisual = garageCollisionAsset?.clone( true );
+		if ( garageCollisionVisual ) {
+
+			garageCollisionVisual.visible = false;
+			garageCollisionVisual.scale.setScalar( garageSceneScale );
+			garageCollisionVisual.position.set( 0, 0, garageSceneZOffset );
+			garageCollisionVisual.traverse( ( child ) => {
+
+				if ( ! child.isMesh ) return;
+				child.material = new THREE.MeshBasicMaterial( { color: 0xff4b38, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide } );
+				child.renderOrder = 2;
+
+			} );
+			garageViewer.garageRoot.add( garageCollisionVisual );
+
+		}
+
+	}
 	setLoadingStatus( 'Loading track and mods…', 'track' );
 	const runtimeMods = await runtimeModsPromise;
 	// Surface installed runtime mods in the boot console so players can confirm their
@@ -5375,10 +5547,6 @@ async function init() {
 	let ghostModel = null;
 	const bestLapGhostSamples = [];
 	let currentLapGhostSamples = [];
-	let bestLapInputFrames = [];
-	let latestLapInputFrames = [];
-	let currentLapInputFrames = [];
-	let inputRecordFrame = 0;
 	let bestGhostDuration = 0;
 	const ghostPlaybackCursor = { _cursor: 1 };
 	let bestGhostCarKey = 'vehicle-truck-yellow';
@@ -5590,33 +5758,6 @@ async function init() {
 
 	}
 
-	function resetCurrentLapInputs() {
-
-		currentLapInputFrames = [];
-		inputRecordFrame = 0;
-
-	}
-
-	function recordLapInput( lapElapsed, input, controlState ) {
-
-		if ( ! ghostEnabled ) return;
-		inputRecordFrame ++;
-		if ( inputRecordFrame % 2 !== 0 ) return;
-		const keys = controlState || {};
-		currentLapInputFrames.push( {
-			t: lapElapsed,
-			x: Number.isFinite( input?.x ) ? input.x : 0,
-			z: Number.isFinite( input?.z ) ? input.z : 0,
-			keys: {
-				left: Boolean( keys.KeyA || keys.ArrowLeft ),
-				right: Boolean( keys.KeyD || keys.ArrowRight ),
-				forward: Boolean( keys.KeyW || keys.ArrowUp ),
-				back: Boolean( keys.KeyS || keys.ArrowDown ),
-			},
-		} );
-
-	}
-
 	function recordGhostSample( lapElapsed, force = false ) {
 
 		if ( ! ghostEnabled ) return;
@@ -5684,15 +5825,31 @@ async function init() {
 		ghostModel.rotation.z = lerpAngle( ghostModel.rotation.z, targetRoll, 0.18 );
 		if ( replayViewerMode && ! freecamState.active ) {
 			cam.targetPosition.copy( ghostModel.position );
+			// Recorded ghost y is the car-model base (container.y ≈ -0.1, below
+			// the road surface — correct for the visual model). Casting the
+			// hitbox clip probe from that origin lands INSIDE the static ground
+			// collider, so every cast "hits" and the camera gets pinned ~2.5
+			// units behind the car at bumper height for the whole replay.
+			// Replays are cinematic: keep the normal chase framing (pre-clip-fix
+			// behavior) and skip the probe for this update only.
+			const savedClipProbe = cam.clipProbe;
+			cam.clipProbe = null;
 			cam.update( 1 / 60, ghostModel.position, ghostModel.quaternion );
+			cam.clipProbe = savedClipProbe;
 		}
 
 	}
 
 	function extractNormalizedGhostPayload( payload ) {
 
-		const samples = Array.isArray( payload?.samples ) ? payload.samples : [];
-		const duration = Number( payload?.duration );
+		// Accepts v1 payload objects, { g2 } wrappers, and bare g2 binary
+		// strings (js/GhostCodec.js) — legacy payloads keep working.
+		let source = payload;
+		if ( source && typeof source === 'object' && typeof source.g2 === 'string' ) source = decodeGhostBinary( source.g2 );
+		else if ( typeof source === 'string' ) source = decodeGhostBinary( source );
+		if ( ! source || typeof source !== 'object' ) return null;
+		const samples = Array.isArray( source.samples ) ? source.samples : [];
+		const duration = Number( source.duration );
 		if ( samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return null;
 		const normalizedSamples = [];
 		for ( const sample of samples ) {
@@ -5713,9 +5870,9 @@ async function init() {
 		return {
 			samples: normalizedSamples,
 			duration,
-			car: payload?.car,
-			bestLapSeconds: payload?.bestLapSeconds,
-			cosmetics: normalizeGhostCosmeticsPayload( payload?.cosmetics ),
+			car: source.car,
+			bestLapSeconds: source.bestLapSeconds,
+			cosmetics: normalizeGhostCosmeticsPayload( source.cosmetics ),
 		};
 
 	}
@@ -5784,6 +5941,9 @@ async function init() {
 			recentGhostPlayers.push( { ...entry, model } );
 
 		}
+		// Any ghost still on a fallback model gets rebuilt once its real car loads.
+		const missingGhostCars = [ ...new Set( recentGhostHistory.slice( 0, targetCount ).map( ( entry ) => entry.car ).filter( ( car ) => car && CAR_STATS[ car ] && ! models[ car ] ) ) ];
+		if ( missingGhostCars.length ) ensureModelsLoaded( missingGhostCars ).then( () => rebuildRecentGhostVisuals() );
 
 	}
 
@@ -5792,6 +5952,7 @@ async function init() {
 		if ( ! ghostEnabled ) return false;
 		const normalized = extractNormalizedGhostPayload( payload );
 		if ( ! normalized ) return false;
+		if ( normalized.car && CAR_STATS[ normalized.car ] && ! models[ normalized.car ] ) ensureModelsLoaded( normalized.car ); // arrives on the next leaderboard refresh
 		const modelKey = normalized.car && models[ normalized.car ] ? normalized.car : 'vehicle-truck-yellow';
 		const ghostCosmetics = normalized.car === modelKey ? normalized.cosmetics : null;
 		const model = createGhostVisualModel( models[ modelKey ], 0.27, ghostCosmetics );
@@ -6198,9 +6359,11 @@ async function init() {
 			},
 			getModelNames: () => Object.keys( CAR_STATS ),
 			setVehicleModel: ( key = 'vehicle-truck-yellow' ) => {
-				if ( ! CAR_STATS[ key ] || ! models[ key ] ) return;
-				vehicle.setModel( models[ key ] );
-				applyVehiclePerformance();
+				if ( ! CAR_STATS[ key ] ) return;
+				if ( models[ key ] ) {
+					vehicle.setModel( models[ key ] );
+					applyVehiclePerformance();
+				} else ensureModelsLoaded( [ key ] ).then( () => { if ( models[ key ] ) { vehicle.setModel( models[ key ] ); applyVehiclePerformance(); } } );
 			},
 			// --- Extended custom-mod API (added for the expanded block set) ---
 			// All numeric inputs are clamped to safe, non-exploitable ranges.
@@ -7278,6 +7441,7 @@ async function init() {
 			ensureGarageSelectionSource();
 			if ( ! garageViewer ) initGarageViewer();
 			refreshGarageViewer();
+			ensureGarageAssets().then( () => { addGarageSceneToViewer(); refreshGarageViewer(); } );
 
 		}
 		// Only keep the garage card preview renderers alive while the garage tab is open & menu
@@ -7305,6 +7469,7 @@ async function init() {
 
 		graphicsQuality = normalizeGraphicsQuality( nextQuality );
 		cachedGraphicsPreset = GRAPHICS_QUALITY_PRESETS[ graphicsQuality ] || GRAPHICS_QUALITY_PRESETS[ getDefaultGraphicsQuality() ];
+		document.body.classList.toggle( 'gfx-low', graphicsQuality === 'low' );
 		if ( save ) {
 			localStorage.setItem( GRAPHICS_QUALITY_KEY, graphicsQuality );
 			// Keep the unified GameSettings slice in sync so a cloud save
@@ -7982,46 +8147,8 @@ async function init() {
 		scene.add( new THREE.AmbientLight( 0xffffff, 3.0 ) );
 		const displayRoot = new THREE.Group();
 		const garageRoot = new THREE.Group();
-		const garageSource = models.garage;
-		if ( garageSource ) {
-
-			const garage = garageSource.clone( true );
-			// The uploaded garage contains generous surrounding space. Keep the
-			// scene large enough that the visible city reads behind the car.
-			const garageScale = garageSceneScale;
-			garage.scale.setScalar( garageScale );
-			// The GLB origin is the car parking point. Preserve it instead of
-			// recentering the mesh by its bounds, so the car shares the authored
-			// garage coordinate system and sits naturally on the garage floor.
-			garage.position.set( 0, 0, garageSceneZOffset );
-			garage.traverse( ( child ) => {
-
-				if ( ! child.isMesh ) return;
-				const materials = Array.isArray( child.material ) ? child.material : [ child.material ];
-				materials.forEach( ( material ) => { material.side = THREE.DoubleSide; } );
-				child.castShadow = true;
-				child.receiveShadow = true;
-
-			} );
-			garageRoot.add( garage );
-
-		}
-		const garageCollisionVisual = garageCollisionAsset?.clone( true );
-		if ( garageCollisionVisual ) {
-
-			garageCollisionVisual.visible = false;
-			garageCollisionVisual.scale.setScalar( garageSceneScale );
-			garageCollisionVisual.position.set( 0, 0, garageSceneZOffset );
-			garageCollisionVisual.traverse( ( child ) => {
-
-				if ( ! child.isMesh ) return;
-				child.material = new THREE.MeshBasicMaterial( { color: 0xff4b38, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide } );
-				child.renderOrder = 2;
-
-			} );
-			garageRoot.add( garageCollisionVisual );
-
-		}
+		// The garage scene itself is assembled by addGarageSceneToViewer() the
+		// moment the (lazily loaded) garage assets exist — see ensureGarageAssets.
 		garageRoot.renderOrder = - 1;
 		displayRoot.add( garageRoot );
 		const carRoot = new THREE.Group();
@@ -8040,7 +8167,8 @@ async function init() {
 		garageKeyLight.shadow.camera.bottom = - 10;
 		scene.add( garageKeyLight, garageKeyLight.target );
 		scene.add( displayRoot );
-		garageViewer = { renderer, scene, camera, displayRoot, garageRoot, carRoot, yaw: 0, pitch: 0.23, zoom: 1, drive: false, dragging: false, moved: false, sx: 0, sy: 0, pinchDistance: 0, pointers: new Map(), raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
+		garageViewer = { renderer, scene, camera, displayRoot, garageRoot, carRoot, garageSceneAdded: false, yaw: 0, pitch: 0.23, zoom: 1, drive: false, dragging: false, moved: false, sx: 0, sy: 0, pinchDistance: 0, pointers: new Map(), raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
+		addGarageSceneToViewer();
 		const resize = () => {
 
 			const rect = garageViewerCanvas.getBoundingClientRect();
@@ -8157,6 +8285,7 @@ async function init() {
 
 			if ( ! garageViewer ) initGarageViewer();
 			if ( ! garageViewer ) return;
+			ensureGarageAssets().then( () => {
 			if ( ! garageCollisionAdded ) {
 
 				const collisionData = addGarageCollisionBoxes( garageWorld, garageCollisionAsset, garageSceneScale, garageSceneZOffset );
@@ -8195,6 +8324,7 @@ async function init() {
 			garageDriveBtn.textContent = 'Exit garage drive';
 			garageDriveBtn.classList.add( 'active' );
 			garageViewerHint.textContent = 'WASD or controller to drive • drag to orbit camera • scroll or pinch to zoom';
+			} );
 
 		} else {
 
@@ -8435,7 +8565,7 @@ async function init() {
 			applyCarCustomization( vehicle );
 			applyHitboxHackVisuals( true );
 
-		}
+		} else ensureModelsLoaded( [ selectedKey ] ).then( () => { if ( carSelect?.value === selectedKey && models[ selectedKey ] ) selectGarageCar( selectedKey ); } );
 		updateGarageMappingsUi();
 		ensureGarageSelectionSource();
 		refreshGarageViewer();
@@ -9054,7 +9184,16 @@ function completeCampaignStage() {
 
 		try {
 
-			localStorage.setItem( recentGhostStoreKey, JSON.stringify( recentGhostHistory.slice( 0, 12 ) ) );
+			// Compact "g2" entries — raw sample arrays could blow past the
+			// localStorage quota on Chromebooks; the codec cuts ~89%.
+			const compact = [];
+			for ( const entry of recentGhostHistory.slice( 0, 12 ) ) {
+
+				const g2 = encodeGhostBinary( entry );
+				if ( g2 ) compact.push( { g2 } );
+
+			}
+			localStorage.setItem( recentGhostStoreKey, JSON.stringify( compact ) );
 
 		} catch ( e ) {
 
@@ -9366,7 +9505,7 @@ function completeCampaignStage() {
 				vehicle.setModel( models[ parsed.carKey ] );
 				applyCarCustomization( vehicle );
 
-			}
+			} else ensureModelsLoaded( [ parsed.carKey ] ).then( () => { if ( carSelect.value === parsed.carKey && models[ parsed.carKey ] ) { vehicle.setModel( models[ parsed.carKey ] ); applyCarCustomization( vehicle ); } } );
 
 		}
 		// Default-car setting applies LAST so a specific default always wins
@@ -10185,7 +10324,7 @@ function completeCampaignStage() {
 		const trick = activePadEffect?.trick || null;
 		const hasTrickPayload = Boolean( trick );
 		const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
-		const airborne = targetVehicle.spherePos.y > 0.5 || Math.abs( verticalVel ) > 0.25;
+		const airborne = ! isVehicleTouchingGroundBelow( targetVehicle ) || Math.abs( verticalVel ) > 0.25;
 		const canRun = state.active ? hasTrickPayload : ( hasTrickPayload && airborne );
 		if ( ! canRun ) {
 
@@ -10309,8 +10448,24 @@ function completeCampaignStage() {
 		targetVehicle.dragMultiplier = ( effect ? effect.drag : 1.0 ) * padDrag;
 		if ( hacksInstalled && hacksState.enabled && hacksState.lowFriction ) targetVehicle.dragMultiplier *= 0.35;
 		const speedCapScale = Number.isFinite( padEffect?.topSpeed ) ? padEffect.topSpeed : 1.0;
-		targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * accelPack * padAccel * speedCapScale;
-		targetVehicle.driveMultiplier = ( effect ? effect.drive : 1.0 ) * drivePack * padDrive * speedCapScale;
+		// Pad effects raise the car's actual top speed (stacked pads used to only
+		// fold their topSpeed factor into accel/drive, so MAX_EFFECTIVE_TOP_SPEED
+		// (1.8 = 64 mph) stayed a hard wall no matter how many pads you stacked).
+		// Recomputed from the stored base every frame — idempotent, self-reverting.
+		// PAD_SPEED_FACTOR_CAP: without it, 20 stacked pads = 86x top speed and the
+		// drive injection below scales with linearSpeed, so the ball would be spun
+		// at billions of rad/s (quaternion death). 10x (= ~640 mph) is the sane ceiling.
+		// PAD_DRIVE_CAP: drive force x driveMultiplier injects ball spin; spin beyond
+		// ~1x rolling speed is pure wheelspin/tumble — the car "freaks out" and
+		// friction can't convert the slip into forward speed (this is why stacked
+		// pads used to glitch the body without making it any faster). 4x keeps the
+		// boost drama without the blender.
+		const PAD_SPEED_FACTOR_CAP = 10;
+		const PAD_DRIVE_CAP = 4;
+		if ( ! Number.isFinite( targetVehicle.baseTopSpeed ) ) targetVehicle.baseTopSpeed = targetVehicle.topSpeed;
+		targetVehicle.topSpeed = targetVehicle.baseTopSpeed * Math.min( PAD_SPEED_FACTOR_CAP, speedCapScale );
+		targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * accelPack * padAccel;
+		targetVehicle.driveMultiplier = Math.min( PAD_DRIVE_CAP, ( effect ? effect.drive : 1.0 ) * drivePack * padDrive );
 
 	}
 
@@ -10449,10 +10604,14 @@ function completeCampaignStage() {
 
 			try {
 
-				const parsed = decodeBase64UrlJson( ghostCode );
-				const ghostBlob = encodeBase64UrlJson( parsed.ghost );
-				const separator = parsed.url.includes( '#' ) ? '&' : '#';
-				playTrackUrl = `${ parsed.url }${ separator }ghost=${ ghostBlob }`;
+				const parsed = decodeGhostCode( ghostCode );
+				if ( parsed ) {
+
+					const ghostBlob = encodeGhostBinary( parsed.ghost ) || encodeBase64UrlJson( parsed.ghost );
+					const separator = parsed.url.includes( '#' ) ? '&' : '#';
+					playTrackUrl = `${ parsed.url }${ separator }ghost=${ ghostBlob }`;
+
+				}
 
 			} catch ( e ) {
 
@@ -10481,13 +10640,8 @@ function completeCampaignStage() {
 			return;
 
 		}
-		const replayPayload = {
-			v: 1,
-			url: currentTrackUrl,
-			ghost: ghostPayload,
-		};
-		const replayCode = encodeBase64UrlJson( replayPayload );
-		window.open( `replay.html#code=${ replayCode }`, '_blank' );
+		const replayCode = encodeGhostCode( currentTrackUrl, ghostPayload );
+		if ( replayCode ) window.open( `replay.html#code=${ replayCode }`, '_blank' );
 
 	}
 
@@ -10511,49 +10665,15 @@ function completeCampaignStage() {
 
 		if ( ! ghostEnabled ) return '';
 		if ( bestLapGhostSamples.length < 2 || ! Number.isFinite( bestLapSeconds ) ) return '';
-		const payload = {
-			v: 1,
-			url: currentTrackUrl,
-			ghost: {
-				car: bestGhostCarKey,
-				cosmetics: bestGhostCosmetics,
-				bestLapSeconds,
-				duration: bestGhostDuration,
-				samples: bestLapGhostSamples,
-				inputs: bestLapInputFrames,
-			}
-		};
-		return encodeBase64UrlJson( payload );
-
-	}
-
-	function deriveInputsFromGhostSamples( samples, duration ) {
-
-		if ( ! Array.isArray( samples ) || samples.length < 2 || ! Number.isFinite( duration ) || duration <= 0 ) return [];
-		const derived = [];
-		for ( let i = 1; i < samples.length; i ++ ) {
-
-			const prev = samples[ i - 1 ];
-			const next = samples[ i ];
-			const dt = Math.max( 1e-4, next.t - prev.t );
-			const dx = next.x - prev.x;
-			const dz = next.z - prev.z;
-			const speed = Math.sqrt( dx * dx + dz * dz ) / dt;
-			const yawDelta = lerpAngle( prev.yaw, next.yaw, 1 ) - prev.yaw;
-			derived.push( {
-				t: next.t,
-				x: THREE.MathUtils.clamp( yawDelta * 2.3, - 1, 1 ),
-				z: speed > 0.08 ? 1 : 0,
-				keys: {
-					left: yawDelta > 0.08,
-					right: yawDelta < - 0.08,
-					forward: speed > 0.08,
-					back: false,
-				},
-			} );
-
-		}
-		return derived;
+		// Compact v2 code (js/GhostCodec.js): ~89% smaller than the old JSON
+		// payload — a 60s lap drops from ~230 KB to ~25 KB of pasteable text.
+		return encodeGhostCode( currentTrackUrl, {
+			car: bestGhostCarKey,
+			cosmetics: bestGhostCosmetics,
+			bestLapSeconds,
+			duration: bestGhostDuration,
+			samples: bestLapGhostSamples,
+		} ) || '';
 
 	}
 
@@ -10599,42 +10719,24 @@ function completeCampaignStage() {
 		if ( ! ghostEnabled ) return;
 		const code = window.prompt( 'Paste ghost code:' );
 		if ( ! code ) return;
-		let parsed;
-		try {
-
-			parsed = decodeBase64UrlJson( code.trim() );
-
-		} catch ( e ) {
+		const parsed = decodeGhostCode( code.trim() );
+		if ( ! parsed ) {
 
 			window.alert( 'Invalid ghost code.' );
 			return;
 
 		}
-		const url = typeof parsed?.url === 'string' ? parsed.url : '';
-		if ( ! parsed?.ghost ) {
-
-			window.alert( 'Ghost code is missing required data.' );
-			return;
-
-		}
+		const url = typeof parsed.url === 'string' ? parsed.url : '';
 		const applied = applyImportedGhostPayload( parsed.ghost );
 		if ( applied ) {
 
-			const importedInputs = Array.isArray( parsed.ghost?.inputs ) ? parsed.ghost.inputs : deriveInputsFromGhostSamples( parsed.ghost?.samples, parsed.ghost?.duration );
-				if ( importedInputs.length > 1 ) {
-
-					bestLapInputFrames = importedInputs;
-					latestLapInputFrames = importedInputs.slice();
-					saveLapStats();
-
-			}
 			showTopMessage( 'Ghost imported for current track.', false, 1700 );
 			return;
 
 		}
 		if ( url ) {
 
-			const ghostBlob = encodeBase64UrlJson( parsed.ghost );
+			const ghostBlob = encodeGhostBinary( parsed.ghost ) || encodeBase64UrlJson( parsed.ghost );
 			const separator = url.includes( '#' ) ? '&' : '#';
 			window.open( `${ url }${ separator }ghost=${ ghostBlob }`, '_blank' );
 			return;
@@ -11124,26 +11226,25 @@ function completeCampaignStage() {
 					lapNumber,
 					lastLapSeconds,
 					bestLapSeconds,
-					bestGhostDuration: 0,
-					bestGhostCarKey: 'vehicle-truck-yellow',
-					bestGhostCosmetics: null,
-					bestLapGhostSamples: [],
-					bestLapInputFrames: [],
-					latestLapInputFrames: [],
+					bestGhostG2: '',
 				} ) );
 			return;
 
 		}
+			// Compact "g2" binary ghost (js/GhostCodec.js) — the old raw JSON
+			// sample array was by far the biggest localStorage consumer.
+			const bestGhostG2 = encodeGhostBinary( {
+				car: bestGhostCarKey,
+				cosmetics: bestGhostCosmetics,
+				bestLapSeconds,
+				duration: bestGhostDuration,
+				samples: bestLapGhostSamples,
+			} ) || '';
 			localStorage.setItem( lapStoreKey, JSON.stringify( {
 				lapNumber,
 				lastLapSeconds,
 				bestLapSeconds,
-				bestGhostDuration,
-				bestGhostCarKey,
-				bestGhostCosmetics,
-				bestLapGhostSamples,
-				bestLapInputFrames,
-				latestLapInputFrames,
+				bestGhostG2,
 			} ) );
 
 	}
@@ -11161,36 +11262,34 @@ function completeCampaignStage() {
 			bestGhostDuration = Number.isFinite( parsed.bestGhostDuration ) ? parsed.bestGhostDuration : 0;
 				bestGhostCarKey = typeof parsed.bestGhostCarKey === 'string' ? parsed.bestGhostCarKey : 'vehicle-truck-yellow';
 				bestGhostCosmetics = normalizeGhostCosmeticsPayload( parsed.bestGhostCosmetics );
-					bestLapGhostSamples.length = 0;
-					bestLapInputFrames = [];
-					latestLapInputFrames = [];
-					ghostPlaybackCursor._cursor = 1;
-				if ( Array.isArray( parsed.bestLapGhostSamples ) ) {
+				bestLapGhostSamples.length = 0;
+				ghostPlaybackCursor._cursor = 1;
+				const compactGhost = typeof parsed.bestGhostG2 === 'string' ? decodeGhostBinary( parsed.bestGhostG2 ) : null;
+				if ( compactGhost ) {
 
-				for ( const sample of parsed.bestLapGhostSamples ) {
+					for ( const sample of compactGhost.samples ) bestLapGhostSamples.push( sample );
+					if ( compactGhost.car ) bestGhostCarKey = compactGhost.car;
+					bestGhostCosmetics = normalizeGhostCosmeticsPayload( compactGhost.cosmetics );
+					if ( Number.isFinite( compactGhost.bestLapSeconds ) ) bestLapSeconds = compactGhost.bestLapSeconds;
+					if ( Number.isFinite( compactGhost.duration ) ) bestGhostDuration = compactGhost.duration;
 
-					if ( ! Number.isFinite( sample?.t ) || ! Number.isFinite( sample?.x ) || ! Number.isFinite( sample?.y ) || ! Number.isFinite( sample?.z ) || ! Number.isFinite( sample?.yaw ) ) continue;
-					bestLapGhostSamples.push( {
-						t: sample.t,
-						x: sample.x,
-						y: sample.y,
-						z: sample.z,
-						yaw: sample.yaw,
-					} );
+				} else if ( Array.isArray( parsed.bestLapGhostSamples ) ) {
+
+					for ( const sample of parsed.bestLapGhostSamples ) {
+
+						if ( ! Number.isFinite( sample?.t ) || ! Number.isFinite( sample?.x ) || ! Number.isFinite( sample?.y ) || ! Number.isFinite( sample?.z ) || ! Number.isFinite( sample?.yaw ) ) continue;
+						bestLapGhostSamples.push( {
+							t: sample.t,
+							x: sample.x,
+							y: sample.y,
+							z: sample.z,
+							yaw: sample.yaw,
+						} );
+
+					}
 
 				}
-				if ( Array.isArray( parsed.bestLapInputFrames ) ) {
 
-					bestLapInputFrames = parsed.bestLapInputFrames.filter( ( sample ) => Number.isFinite( sample?.t ) && Number.isFinite( sample?.x ) && Number.isFinite( sample?.z ) );
-
-				}
-				if ( Array.isArray( parsed.latestLapInputFrames ) ) {
-
-					latestLapInputFrames = parsed.latestLapInputFrames.filter( ( sample ) => Number.isFinite( sample?.t ) && Number.isFinite( sample?.x ) && Number.isFinite( sample?.z ) );
-
-				}
-
-			}
 			if ( bestLapGhostSamples.length < 2 ) bestGhostDuration = 0;
 			if ( ghostEnabled && bestLapGhostSamples.length >= 2 && models[ bestGhostCarKey ] ) createGhostModel( models[ bestGhostCarKey ], bestGhostCosmetics );
 
@@ -11345,7 +11444,6 @@ function completeCampaignStage() {
 
 		}
 		resetCurrentLapGhost();
-		resetCurrentLapInputs();
 		recordGhostSample( 0, true );
 		updateCountdownHud( now );
 		updateLapHud();
@@ -11410,7 +11508,6 @@ function completeCampaignStage() {
 		camYawLockActive = false;
 		specialSurfaceContactState.clear();
 		resetCurrentLapGhost();
-		resetCurrentLapInputs();
 		recordGhostSample( 0, true );
 		updateGhostPlayback( 0 );
 		updateLeaderboardGhostPlayback( 0 );
@@ -11945,11 +12042,41 @@ function completeCampaignStage() {
 
 	}
 
+	// Contact-based ground detection. The legacy check hard-coded the FLAT
+	// ground height (posY <= 0.62), so on elevated blocks (deck ~+3.75 world
+	// units) the car read as permanently airborne — bounce pads and force-up
+	// custom surfaces sat on elevated pieces triggered but never launched the
+	// car, and trick pads could fire while simply driving. Now the ONLY ground
+	// truth is physics: a short downward ray from the sphere center reports a
+	// static hitbox directly below the car, at ANY height — flat road, elevated
+	// deck, slope, custom geometry, all identical.
+	// Depth 0.62 = resting on flat ground (sphere center -> collider surface);
+	// the 0.95 budget covers slope contact geometry (the center-to-surface
+	// distance grows with the surface angle, ~0.88 on a 45° face).
+	const GROUND_TOUCH_DEPTH = 0.95;
+	function isVehicleTouchingGroundBelow( targetVehicle ) {
+
+		if ( ! targetVehicle?.spherePos ) return false;
+		const probe = sampleGroundDepth( targetVehicle.spherePos.x, targetVehicle.spherePos.y, targetVehicle.spherePos.z );
+		return Boolean( probe && probe.depth <= GROUND_TOUCH_DEPTH );
+
+	}
+
 	function isVehicleOnGround( targetVehicle ) {
 
-		const posY = targetVehicle?.spherePos?.y ?? 999;
+		// Touching a hitbox below + not bouncing off it (the vertical-speed
+		// gate keeps launch pads from re-triggering on the way up).
+		if ( ! isVehicleTouchingGroundBelow( targetVehicle ) ) return false;
 		const verticalSpeed = Math.abs( targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] ?? 999 );
-		return posY <= 0.62 && verticalSpeed <= 1.1;
+		return verticalSpeed <= 1.1;
+
+	}
+
+	function isVehicleAirborne( targetVehicle ) {
+
+		if ( ! targetVehicle ) return false;
+		const verticalVel = targetVehicle?.rigidBody?.motionProperties?.linearVelocity?.[ 1 ] || 0;
+		return ! isVehicleTouchingGroundBelow( targetVehicle ) || Math.abs( verticalVel ) > 0.35;
 
 	}
 
@@ -11983,11 +12110,21 @@ function completeCampaignStage() {
 					const oncePerContact = Boolean( customSurfaceConfigs?.[ surfaceType ]?.oncePerContact );
 					if ( triggered ) {
 
+						// Once-per-contact surfaces consume their trigger on an
+						// ACTUAL hit only. A declined pass (car airborne over the
+						// cell, e.g. a spawn drop or a fly-over) must NOT burn the
+						// once-per-contact slot — the surface stays armed and fires
+						// the moment the car is touching a hitbox below it on that
+						// cell. (It used to mark itself consumed while airborne,
+						// leaving noAir force pads permanently dead.)
 						if ( oncePerContact || SPECIAL_SURFACE_HANDLERS[ surfaceType ] ) contactState.set( surfaceType, currentKey );
 						else contactState.delete( surfaceType );
 
-					} else if ( oncePerContact ) contactState.set( surfaceType, currentKey );
-					else contactState.delete( surfaceType );
+					} else {
+
+						contactState.delete( surfaceType );
+
+					}
 
 				}
 
@@ -12245,7 +12382,7 @@ function completeCampaignStage() {
 			applyCarCustomization( vehicle );
 			applyHitboxHackVisuals( true );
 
-		}
+		} else ensureModelsLoaded( [ selectedKey ] ).then( () => { if ( carSelect.value === selectedKey && models[ selectedKey ] ) carSelect.dispatchEvent( new Event( 'change' ) ); } );
 		updateGarageMappingsUi();
 		renderGarageVehicleCards();
 		setGarageMappingStatus( `Now editing mappings for ${ CAR_STATS[ selectedKey ]?.name || 'selected car' }.` );
@@ -12345,6 +12482,7 @@ function completeCampaignStage() {
 		if ( carSelect ) carSelect.value = value;
 		updateCarSelectColor();
 		if ( models[ value ] ) vehicle.setModel( models[ value ] );
+		else ensureModelsLoaded( [ value ] ).then( () => { if ( carSelect?.value === value && models[ value ] ) { vehicle.setModel( models[ value ] ); applyCarCustomization( vehicle ); } } );
 		applyCarCustomization( vehicle );
 		applyVehiclePerformance();
 
@@ -12619,7 +12757,7 @@ function completeCampaignStage() {
 	const garageParamEnabled = new URLSearchParams( window.location.search ).get( 'garage' ) === '1';
 	setModeTab( garageParamEnabled ? 'garage' : 'gameplay' );
 	initGarageViewer();
-	if ( garageParamEnabled ) { setModeMenuOpen( true ); ensureGarageSelectionSource(); }
+	if ( garageParamEnabled ) { setModeMenuOpen( true ); ensureGarageSelectionSource(); ensureGarageAssets().then( () => { addGarageSceneToViewer(); refreshGarageViewer(); } ); }
 	if ( garageCarSelect ) garageCarSelect.value = currentCarKey();
 	updateCarSelectColor();
 	updateGarageUi();
@@ -12645,6 +12783,24 @@ function completeCampaignStage() {
 	resetLapState( true );
 	resetLapState2( true );
 	startCountdown();
+	// Post-boot idle prefetch: everything boot skipped (remaining cars, then the
+	// garage) streams in a little after the game settles, so car switching and
+	// the garage feel instant — without ever blocking the critical path.
+	setTimeout( () => {
+
+		const prefetchOrder = modelNames.filter( ( name ) => CAR_STATS[ name ] && ! models[ name ] );
+		if ( ! models.garage ) prefetchOrder.push( 'garage' );
+		let prefetchIndex = 0;
+		const pumpPrefetch = () => {
+
+			if ( prefetchIndex >= prefetchOrder.length ) return;
+			ensureModelsLoaded( [ prefetchOrder[ prefetchIndex ++ ] ] ).finally( () => setTimeout( pumpPrefetch, 200 ) );
+
+		};
+		pumpPrefetch();
+		loadPeerCtor().catch( () => {} ); // warm the (lazy) multiplayer library
+
+	}, 2500 );
 
 	const hashParams = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
 	const importedGhost = hashParams.get( 'ghost' );
@@ -12652,7 +12808,7 @@ function completeCampaignStage() {
 
 		try {
 
-			const payload = decodeBase64UrlJson( importedGhost );
+			const payload = decodeGhostBinary( importedGhost ) || decodeBase64UrlJson( importedGhost );
 			if ( applyImportedGhostPayload( payload ) ) {
 
 				updateLapHud();
@@ -12798,6 +12954,23 @@ function completeCampaignStage() {
 
 	let hudUpdateAccumulator = 0;
 
+	// Shadow depth pass at up to ~110 Hz: per-frame at <=60 FPS (unchanged
+	// behavior), every 2nd/3rd frame at high refresh rates. The sun and all
+	// scenery are static, and the fastest mover — the car — still gets its
+	// shadow refreshed >100 times a second, more often than the old every-
+	// frame-at-60-FPS behavior. Mode changes that relocate the camera/car
+	// set shadowMap.needsUpdate themselves and bypass this gate.
+	const SHADOW_REFRESH_MIN_MS = 9;
+	let _shadowRefreshLastMs = -9999;
+	function refreshShadowsIfNeeded() {
+
+		const nowMs = performance.now();
+		if ( nowMs - _shadowRefreshLastMs < SHADOW_REFRESH_MIN_MS ) return;
+		_shadowRefreshLastMs = nowMs;
+		renderer.shadowMap.needsUpdate = true;
+
+	}
+
 	function renderFrame() {
 
 		if ( isSplitScreen && cam2 ) {
@@ -12806,7 +12979,7 @@ function completeCampaignStage() {
 			const height = window.innerHeight;
 			const halfH = Math.floor( height / 2 );
 
-			renderer.shadowMap.needsUpdate = true;
+			refreshShadowsIfNeeded();
 			prerenderWaterRefraction( renderer, scene, cam.camera, 0, { x: 0, y: halfH, w: width, h: height - halfH } );
 			renderer.setScissorTest( true );
 			cam.camera.aspect = width / Math.max( 1, halfH );
@@ -12825,7 +12998,7 @@ function completeCampaignStage() {
 
 		} else {
 
-			renderer.shadowMap.needsUpdate = true;
+			refreshShadowsIfNeeded();
 			prerenderWaterRefraction( renderer, scene, cam.camera );
 			renderer.render( scene, cam.camera );
 
@@ -12838,9 +13011,7 @@ function completeCampaignStage() {
 	// hot loop stays allocation-free.
 	const _vignetteProjected = new THREE.Vector3();
 	let _cssEffectAccumulator = 0;
-	let _lastCanvasFilter = '';
 	let _lastVignetteOpacity = '';
-	let _lastVignetteBackdrop = '';
 	let _lastVignetteX = '';
 	let _lastVignetteY = '';
 
@@ -12930,7 +13101,6 @@ function completeCampaignStage() {
 			if ( customModForceBrakeUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: - 1 };
 			if ( customModForceThrottleUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: 1 };
 			const padAdjustedInput2 = input2 ? applyPadInputModifiers( input2, activePadEffect2 ) : null;
-			recordLapInput( Math.max( 0, now - lapStartSeconds ), padAdjustedInput, controls?.keys );
 			if ( hacksActive && hacksState.infiniteCoins ) coins = Math.max( coins, 9999999 );
 			if ( arcadeBoostInstalled ) {
 
@@ -13288,22 +13458,19 @@ function completeCampaignStage() {
 		const motionBlurPx = cachedGraphicsPreset.label === 'High'
 			? Math.max( 0, ( speedRatioFx - 0.8 ) * 1.05 )
 			: Math.max( 0, ( speedRatioFx - 0.96 ) * 0.7 );
-		const vibrance = 1.08 + ( driftFx * 0.04 ) + ( speedRatioFx * 0.025 );
 		// The speed-driven saturation/contrast + vignette effects ramp smoothly with
 		// velocity, so refreshing them ~12x/sec is visually identical to every-frame
 		// but skips per-frame style invalidation and string formatting on the hot path.
 		_cssEffectAccumulator += dt;
 		const refreshCssEffects = _cssEffectAccumulator >= 0.08;
 		if ( refreshCssEffects ) _cssEffectAccumulator = 0;
-		if ( refreshCssEffects ) {
-			const canvasFilter = `saturate(${ vibrance.toFixed( 3 ) }) contrast(1.07)`;
-			if ( canvasFilter !== _lastCanvasFilter ) {
-
-				renderer.domElement.style.filter = canvasFilter;
-				_lastCanvasFilter = canvasFilter;
-
-			}
-		}
+		// NOTE: the old saturate()/contrast() CSS filter on renderer.domElement
+		// was removed — a style.filter on the WebGL canvas permanently kicks it
+		// off Chrome's direct-presentation fast path and forces a fullscreen
+		// compositor filter pass EVERY frame (even in menus), one of the biggest
+		// hidden lag sources on integrated GPUs. The saturation ramp (1.08→1.14)
+		// was imperceptible; the speed feel still comes from the exposure ramp
+		// (toneMappingExposure, in-shader) and the vignette below.
 		if ( speedBlurVignette ) {
 			const projected = _vignetteProjected.copy( vehicle.spherePos ).project( cam.camera );
 			const px = ( projected.x * 0.5 + 0.5 ) * 100;
@@ -13330,15 +13497,11 @@ function completeCampaignStage() {
 					_lastVignetteOpacity = opacity;
 
 				}
-				const blurVignette = Math.min( 0.65, motionBlurPx );
-				const backdrop = `blur(${ blurVignette.toFixed( 3 ) }px)`;
-				if ( backdrop !== _lastVignetteBackdrop ) {
-
-					speedBlurVignette.style.backdropFilter = backdrop;
-					speedBlurVignette.style.webkitBackdropFilter = backdrop;
-					_lastVignetteBackdrop = backdrop;
-
-				}
+				// NOTE: the live backdrop-filter blur is gone — a fullscreen
+				// backdrop-filter is the single most expensive compositor effect in
+				// Chrome (fullscreen backdrop readback + blur passes every frame) and
+				// at its 0.65px ceiling it was imperceptible. The element now stays a
+				// pure radial-gradient vignette that tracks the car: one cheap paint.
 			}
 		}
 		skyUniforms.time.value = now;
@@ -13558,26 +13721,6 @@ function completeCampaignStage() {
 					updateGhostShareButtons();
 
 				}
-				if ( isNewBest && currentLapInputFrames.length > 1 ) {
-
-					bestLapInputFrames = currentLapInputFrames.map( ( sample ) => ( {
-						t: sample.t,
-						x: sample.x,
-						z: sample.z,
-						keys: sample.keys || { left: false, right: false, forward: false, back: false },
-					} ) );
-
-				}
-				if ( currentLapInputFrames.length > 1 ) {
-
-					latestLapInputFrames = currentLapInputFrames.map( ( sample ) => ( {
-						t: sample.t,
-						x: sample.x,
-						z: sample.z,
-						keys: sample.keys || { left: false, right: false, forward: false, back: false },
-					} ) );
-
-				}
 				dispatchRuntimeModEvent( 'onLapFinish', { type: 'lapFinish', lapTime: completedLap, bestLapSeconds, lapNumber, isNewBest, lapInvalid } );
 				if ( currentLapGhostSamples.length > 1 ) {
 
@@ -13635,7 +13778,6 @@ function completeCampaignStage() {
 						currentLapInvalidatedByPause = false;
 						checkpointDeltaText = '';
 						resetCurrentLapGhost();
-						resetCurrentLapInputs();
 						recordGhostSample( 0, true );
 					updateGhostPlayback( 0 );
 					updateLeaderboardGhostPlayback( 0 );

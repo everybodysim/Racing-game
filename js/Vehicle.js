@@ -59,6 +59,7 @@ export class Vehicle {
 		this.spawnPosition = new THREE.Vector3( 3.5, 0.5, 5 );
 		this.spawnAngle = 0;
 		this.topSpeed = 1.0;
+		this.baseTopSpeed = 1.0;
 		this.accelRate = 6.0;
 		this.reverseAccelRate = 2.0;
 		this.brakeRate = 8.0;
@@ -76,6 +77,7 @@ export class Vehicle {
 
 		if ( ! perf ) return;
 		this.topSpeed = perf.topSpeed ?? this.topSpeed;
+		this.baseTopSpeed = this.topSpeed;
 		this.accelRate = perf.accelRate ?? this.accelRate;
 		this.reverseAccelRate = perf.reverseAccelRate ?? this.reverseAccelRate;
 		this.brakeRate = perf.brakeRate ?? this.brakeRate;
@@ -239,17 +241,25 @@ export class Vehicle {
 
 		const targetSpeed = this.inputZ * this.topSpeed;
 
+		// Lerp factors are clamped to 1: stacked pad effects multiply
+		// accelMultiplier (4x pad-high-speed is ~14x), and lerp(a, b, t)
+		// EXTRAPOLATES for t > 1 — so dt * rate * multiplier > 2 amplified
+		// |linearSpeed - target| by (t-1) every frame instead of shrinking
+		// it. Stacked high-speed pads made the speed model oscillate
+		// exponentially (measured: 1.2 -> 14,000,000 in ~3s) and crash the
+		// tab. Clamped, stacks still mean much faster acceleration toward
+		// the pad-boosted top speed — just never overshoot.
 		if ( targetSpeed < 0 && this.linearSpeed > 0.01 ) {
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, 0.0, dt * this.brakeRate * this.accelMultiplier );
+			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, 0.0, Math.min( 1, dt * this.brakeRate * this.accelMultiplier ) );
 
 		} else if ( targetSpeed < 0 ) {
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed / 2, dt * this.reverseAccelRate * this.accelMultiplier );
+			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed / 2, Math.min( 1, dt * this.reverseAccelRate * this.accelMultiplier ) );
 
 		} else {
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed, dt * this.accelRate * this.accelMultiplier );
+			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed, Math.min( 1, dt * this.accelRate * this.accelMultiplier ) );
 
 		}
 
@@ -410,15 +420,25 @@ export class Vehicle {
 
 		if ( ! this.bodyNode ) return;
 
+		// The lean targets below are speed-proportional and were tuned for the
+		// normal ~1.8 top speed (pitch target ~= ls|ls|/24 rad, roll ~= |ls|/5).
+		// Stacked speed pads now drive linearSpeed to 10x+ (#438/#439), which
+		// scaled those targets into full backflips (5.4 rad at a 10-pad stack)
+		// and upside-down rolls while steering. Clamp the TARGETS to their
+		// intended physical lean: normal driving is unchanged, absurd speed
+		// saturates at max lean instead of flipping the body over.
+		const MAX_BODY_PITCH = 0.35;
+		const MAX_BODY_ROLL = 0.38;
+
 		this.bodyNode.rotation.x = lerpAngle(
 			this.bodyNode.rotation.x,
-			-( this.linearSpeed - this.acceleration ) / 6,
+			THREE.MathUtils.clamp( -( this.linearSpeed - this.acceleration ) / 6, -MAX_BODY_PITCH, MAX_BODY_PITCH ),
 			dt * 10
 		);
 
 		this.bodyNode.rotation.z = lerpAngle(
 			this.bodyNode.rotation.z,
-			-( this.inputX / 5 ) * this.linearSpeed,
+			THREE.MathUtils.clamp( -( this.inputX / 5 ) * this.linearSpeed, -MAX_BODY_ROLL, MAX_BODY_ROLL ),
 			dt * 5
 		);
 
@@ -430,7 +450,10 @@ export class Vehicle {
 
 		for ( const wheel of this.wheels ) {
 
-			wheel.rotation.x += this.acceleration;
+			// Modulo keeps per-frame spin under one revolution — at pad-stack
+			// speeds `acceleration` exceeds 2*PI per frame and the raw sum
+			// strobes/aliases instead of reading as fast spin.
+			wheel.rotation.x = ( wheel.rotation.x + this.acceleration ) % ( Math.PI * 2 );
 
 		}
 
