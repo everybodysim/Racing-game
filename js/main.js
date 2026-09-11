@@ -10070,8 +10070,8 @@ function completeCampaignStage() {
 			gravity: Number.isFinite( Number( conf.gravity ) ) ? THREE.MathUtils.clamp( Number( conf.gravity ), 0.15, 3 ) : undefined,
 			grip: Number.isFinite( Number( conf.grip ) ) ? THREE.MathUtils.clamp( Number( conf.grip ), 0.05, 5 ) : undefined,
 			drag: Number.isFinite( Number( conf.drag ) ) ? THREE.MathUtils.clamp( Number( conf.drag ), 0.05, 5 ) : undefined,
-			accel: Number.isFinite( Number( conf.accel ) ) ? THREE.MathUtils.clamp( Number( conf.accel ), 0, 5 ) : undefined,
-			drive: Number.isFinite( Number( conf.drive ) ) ? THREE.MathUtils.clamp( Number( conf.drive ), 0, 5 ) : undefined,
+			accel: Number.isFinite( Number( conf.accel ) ) ? THREE.MathUtils.clamp( Number( conf.accel ), 0, 5 ) * THREE.MathUtils.clamp( Number.isFinite( Number( conf.speed ) ) ? Number( conf.speed ) : 1, 0, 5 ) : undefined,
+			drive: Number.isFinite( Number( conf.drive ) ) ? THREE.MathUtils.clamp( Number( conf.drive ), 0, 5 ) * THREE.MathUtils.clamp( Number.isFinite( Number( conf.speed ) ) ? Number( conf.speed ) : 1, 0, 5 ) : undefined,
 			topSpeed: Number.isFinite( Number( conf.topSpeed ) ) ? THREE.MathUtils.clamp( Number( conf.topSpeed ), 0, 3 ) : undefined,
 			steering: Number.isFinite( Number( conf.steering ) ) ? THREE.MathUtils.clamp( Number( conf.steering ), 0, 3 ) : undefined,
 			timeScale: Number.isFinite( Number( conf.timeScale ) ) ? THREE.MathUtils.clamp( Number( conf.timeScale ), 0.15, 3 ) : undefined,
@@ -10273,13 +10273,13 @@ function completeCampaignStage() {
 
 		const conf = customSurfaceConfigs?.[ surfaceType ];
 		if ( ! conf ) return null;
-		const grip = THREE.MathUtils.clamp( Number( conf.grip ) || 1, 0.2, 2.5 );
-		const speed = THREE.MathUtils.clamp( Number( conf.speed ) || 1, 0.2, 2.5 );
+		const speed = THREE.MathUtils.clamp( Number.isFinite( Number( conf.speed ) ) ? Number( conf.speed ) : 1, 0, 5 );
 		return {
-			grip,
-			drag: THREE.MathUtils.clamp( 1.2 / speed, 0.4, 3.4 ),
-			accel: speed,
-			drive: speed,
+			grip: THREE.MathUtils.clamp( Number.isFinite( Number( conf.grip ) ) ? Number( conf.grip ) : 1, 0.05, 5 ),
+			drag: THREE.MathUtils.clamp( Number.isFinite( Number( conf.drag ) ) ? Number( conf.drag ) : 1, 0.05, 5 ),
+			accel: THREE.MathUtils.clamp( Number.isFinite( Number( conf.accel ) ) ? Number( conf.accel ) : 1, 0, 5 ) * speed,
+			drive: THREE.MathUtils.clamp( Number.isFinite( Number( conf.drive ) ) ? Number( conf.drive ) : 1, 0, 5 ) * speed,
+			topSpeed: THREE.MathUtils.clamp( Number.isFinite( Number( conf.topSpeed ) ) ? Number( conf.topSpeed ) : 1, 0, 3 ),
 		};
 
 	}
@@ -10304,7 +10304,9 @@ function completeCampaignStage() {
 		if ( hacksInstalled && hacksState.enabled ) targetVehicle.gripMultiplier *= hacksState.roadGrip;
 		targetVehicle.dragMultiplier = ( effect ? effect.drag : 1.0 ) * padDrag;
 		if ( hacksInstalled && hacksState.enabled && hacksState.lowFriction ) targetVehicle.dragMultiplier *= 0.35;
-		const speedCapScale = Number.isFinite( padEffect?.topSpeed ) ? padEffect.topSpeed : 1.0;
+		const surfaceTopSpeed = Number.isFinite( effect?.topSpeed ) ? effect.topSpeed : 1.0;
+		const padTopSpeed = Number.isFinite( padEffect?.topSpeed ) ? padEffect.topSpeed : 1.0;
+		const speedCapScale = surfaceTopSpeed * padTopSpeed;
 		targetVehicle.accelMultiplier = ( effect ? effect.accel : 1.0 ) * accelPack * padAccel * speedCapScale;
 		targetVehicle.driveMultiplier = ( effect ? effect.drive : 1.0 ) * drivePack * padDrive * speedCapScale;
 
@@ -11683,7 +11685,7 @@ function completeCampaignStage() {
 
 		const conf = customSurfaceConfigs?.[ surfaceType ];
 		if ( ! conf ) return false;
-		if ( conf.noAir && ! isVehicleOnGround( targetVehicle ) ) return false;
+		if ( ( conf.triggerInAir === false || ( conf.triggerInAir === undefined && conf.noAir ) ) && ! isVehicleOnGround( targetVehicle ) ) return false;
 		const amount = Math.max( 0, Number( conf.forceAmount ) || 0 );
 		if ( amount <= 0 ) return false;
 		const force = conf.force || {};
@@ -11976,7 +11978,9 @@ function completeCampaignStage() {
 					const triggered = SPECIAL_SURFACE_HANDLERS[ surfaceType ]
 						? SPECIAL_SURFACE_HANDLERS[ surfaceType ]( targetVehicle )
 						: applyCustomSurfaceForceFor( targetVehicle, surfaceType );
-					const oncePerContact = Boolean( customSurfaceConfigs?.[ surfaceType ]?.oncePerContact );
+					const config = customSurfaceConfigs?.[ surfaceType ] || {};
+					const triggerRepeatedly = config.triggerRepeatedly === true || ( config.triggerRepeatedly === undefined && ! config.oncePerContact );
+					const oncePerContact = ! triggerRepeatedly;
 					if ( triggered ) {
 
 						if ( oncePerContact || SPECIAL_SURFACE_HANDLERS[ surfaceType ] ) contactState.set( surfaceType, currentKey );
