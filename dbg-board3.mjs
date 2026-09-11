@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await ( await browser.newContext() ).newPage();
+await page.goto( 'https://everybodysim.github.io/Racing-game/tracks.html', { waitUntil: 'networkidle' } );
+await page.waitForTimeout( 3000 );
+const text = await page.evaluate( () => document.body.innerText );
+const idx = text.indexOf( 'All Tracks' );
+console.log( text.slice( 1400, 3400 ) );
+const emptyMarkers = text.match( /[^\n]*[Nn]othing[^\n]*/g ) || [];
+console.log( 'EMPTY MARKERS:', JSON.stringify( emptyMarkers ) );
+await browser.close();

@@ -1,0 +1,16 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await ( await browser.newContext() ).newPage();
+let apiResponse = null;
+page.on( 'response', r => { if ( r.url().includes( 'workers.dev' ) ) apiResponse = r.status() + ' ' + r.url().split( '?' )[ 0 ]; } );
+const errs = [];
+page.on( 'pageerror', e => errs.push( e.message.split( '\n' )[ 0 ] ) );
+page.on( 'console', m => { if ( m.type() === 'error' ) errs.push( m.text().slice( 0, 160 ) ); } );
+await page.goto( 'https://everybodysim.github.io/Racing-game/tracks.html', { waitUntil: 'networkidle' } );
+await page.waitForTimeout( 3000 );
+const text = await page.evaluate( () => document.body.innerText );
+console.log( 'API response seen:', apiResponse );
+console.log( '--- FULL PAGE TEXT ---' );
+console.log( text.slice( 0, 1600 ) );
+console.log( 'errors:', errs.slice( 0, 4 ) );
+await browser.close();
