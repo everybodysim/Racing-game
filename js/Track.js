@@ -723,7 +723,7 @@ function computeCausticShade( normal ) {
 
 }
 
-const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way' ] );
+const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way' ] );
 
 function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 
@@ -806,6 +806,7 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	if ( type === 'elevated-straight' ) modelKey = 'elev-track-straight';
 	else if ( type === 'elevated-cross' ) modelKey = 'elev-track-cross';
 	else if ( type === 'elevated-corner' ) modelKey = 'elev-track-corner';
+	else if ( type === 'elevated-cross-corner' ) modelKey = 'elev-cross-corners';
 	else if ( type === 'elevated-checkpoint' ) modelKey = 'elev-track-checkpoint';
 	else if ( type === 'slope-up' || type === 'slope-down' ) modelKey = 'elev-track-slope';
 	else if ( type === 'elevated-3-way' ) modelKey = 'elev-track-3-way';
@@ -813,6 +814,16 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
 
 	const piece = models[ modelKey ].clone();
+	// The cross-corner mesh can be viewed from inside the corner opening, so render both faces
+	if ( type === 'elevated-cross-corner' ) {
+
+	piece.traverse( ( child ) => {
+
+	if ( child.material ) child.material.side = THREE.DoubleSide;
+
+	} );
+
+	}
 	// Slope model is pre-sloped at the correct size — place at ground level, no scaling
 	const yAdjust = ( type === 'slope-up' || type === 'slope-down' ) ? - ELEVATED_HEIGHT : 0;
 	piece.position.set(

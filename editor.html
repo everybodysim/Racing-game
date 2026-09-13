@@ -672,6 +672,7 @@
 			<button id="btn-elevated-straight" style="display:none">Elev Straight</button>
 			<button id="btn-elevated-cross" style="display:none">Elev Cross</button>
 			<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
+			<button id="btn-elevated-cross-corner" style="display:none">Elev Cross Corner</button>
 			<button id="btn-elevated-checkpoint" style="display:none">Elev Checkpoint</button>
 			<button id="btn-slope-up" style="display:none">Slope Up</button>
 			<button id="btn-pool-slope" style="display:none">Pool Slope</button>
@@ -919,7 +920,7 @@
 	const ARC_ORANGE_TOOL = 'arc-orange';
 	const PORTAL_YELLOW_TOOL = 'portal-yellow';
 	const PORTAL_PURPLE_TOOL = 'portal-purple';
-	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-checkpoint', 'slope-up', 'elevated-3-way', 'elevated-4-way' ];
+	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'slope-up', 'elevated-3-way', 'elevated-4-way' ];
 	const POOL_SLOPE_TOOL = 'pool-slope';
 	const POOL_SLOPE_DEPTH = CELL_RAW * 0.34; // matches pool floor depth
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
@@ -1783,7 +1784,7 @@
 
 	const loader = new GLTFLoader();
 	const objLoader = new OBJLoader();
-	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
+	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
 	const models = {};
 	const customAssets = new Map();
 	let customAssetOrder = [];
@@ -2080,6 +2081,7 @@
 				'elevated-straight': 'elev-track-straight',
 				'elevated-cross': 'elev-track-cross',
 				'elevated-corner': 'elev-track-corner',
+				'elevated-cross-corner': 'elev-cross-corners',
 				'elevated-checkpoint': 'elev-track-checkpoint',
 				'slope-up': 'elev-track-slope',
 				'elevated-3-way': 'elev-track-3-way',
@@ -4437,6 +4439,7 @@ function refreshMovingSpeedUi() {
 		'elevated-straight': document.getElementById( 'btn-elevated-straight' ),
 		'elevated-cross': document.getElementById( 'btn-elevated-cross' ),
 		'elevated-corner': document.getElementById( 'btn-elevated-corner' ),
+		'elevated-cross-corner': document.getElementById( 'btn-elevated-cross-corner' ),
 		'elevated-checkpoint': document.getElementById( 'btn-elevated-checkpoint' ),
 		'slope-up': document.getElementById( 'btn-slope-up' ),
 		[ POOL_SLOPE_TOOL ]: document.getElementById( 'btn-pool-slope' ),

@@ -92,7 +92,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	// The two pitched side rails were centred on the slope box and sat too low;
 	// raise them by half their own height so they read as a proper kerb.
 	const SLOPE_SIDE_WALL_RAISE = ELEVATED_WALL_HALF_H;
-	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-checkpoint', 'elevated-3-way', 'elevated-4-way' ] );
+	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-3-way', 'elevated-4-way' ] );
 
 	// PERFECT SLOPE SEAM MATH. The slope's driving surface is the TOP face of a
 	// tilted box (half-thickness hy = ELEVATED_SURFACE_HALF_H). The old geometry
@@ -369,6 +369,43 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
+	function addElevatedCrossCornerSupport( gx, gz, orient = 0 ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const rad = deg * Math.PI / 180;
+		const cr = Math.cos( rad ), sr = Math.sin( rad );
+		const supportTopY = groundY + ( CELL_HALF * S ) - SUPPORT_SINK - 0.12;
+		const centerY = supportTopY - SUPPORT_HALF_HEIGHT;
+		const armHalfLen = CELL_HALF - WALL_HALF_THICK;
+		const armHalfThick = WALL_HALF_THICK;
+		const arms = [
+		{ lx: 0, lz: ( CELL_HALF - armHalfThick ), hx: armHalfLen, hz: armHalfThick },
+		{ lx: -( CELL_HALF - armHalfThick ), lz: 0, hx: armHalfThick, hz: armHalfLen },
+		];
+		const yawQuat = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
+		for ( const arm of arms ) {
+
+			const wx = cx + ( arm.lx * cr + arm.lz * sr ) * S;
+			const wz = cz + ( - arm.lx * sr + arm.lz * cr ) * S;
+			const halfExtents = [ arm.hx * S, SUPPORT_HALF_HEIGHT, arm.hz * S ];
+			const position = [ wx, centerY, wz ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				quaternion: yawQuat,
+				friction: 0.95,
+				restitution: 0.0,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, yawQuat );
+
+		}
+
+	}
+
 	function add3WayWalls( gx, gz, orient = 0, centerY = wallY, wallHalfHeight = hHeight ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
@@ -619,7 +656,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const gx = Number( gxRaw );
 			const gz = Number( gzRaw );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
-			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-cross' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-checkpoint' && elevatedType !== 'elevated-3-way' && elevatedType !== 'elevated-4-way' ) continue;
+			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-cross' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-cross-corner' && elevatedType !== 'elevated-checkpoint' && elevatedType !== 'elevated-3-way' && elevatedType !== 'elevated-4-way' ) continue;
 			flatSet.add( `${ gx },${ gz }` );
 
 		}
@@ -1036,7 +1073,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		// The elevated-corner support pillar is curved (matching the corner mesh),
 		// so the generic full-square support box is skipped for corners and rebuilt
 		// by addElevatedCornerSupport() as an L-shaped + outer-arc footprint below.
-		if ( normalizedType !== 'slope-up' && normalizedType !== 'elevated-corner' && normalizedType !== 'elevated-cross' ) addElevatedSupportCollider( nx, nz );
+		if ( normalizedType !== 'slope-up' && normalizedType !== 'elevated-corner' && normalizedType !== 'elevated-cross' && normalizedType !== 'elevated-cross-corner' ) addElevatedSupportCollider( nx, nz );
 		if ( normalizedType === 'slope-up' ) {
 
 			addSlopeCollider( nx, nz, normalizedOrient, true, elevatedMap );
@@ -1061,6 +1098,15 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 			addElevatedCornerSupport( nx, nz, normalizedOrient );
 			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
+			continue;
+
+		}
+		if ( normalizedType === 'elevated-cross-corner' ) {
+
+			addElevatedCrossCornerSupport( nx, nz, normalizedOrient );
+			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
+			const bottomOrient = ORIENT_180[ normalizedOrient ] ?? normalizedOrient;
+			addElevatedCornerWalls( nx, nz, bottomOrient, wallY, hHeight );
 			continue;
 
 		}
