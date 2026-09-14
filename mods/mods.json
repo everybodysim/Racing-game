@@ -56,6 +56,13 @@
       "folder": "mods",
       "entry": "mods/VideoRecorder.js",
       "viewerPage": "index.html"
+    },
+    {
+      "id": "multiplayer-editor",
+      "name": "Multiplayer Editor",
+      "folder": "mods",
+      "entry": "mods/MultiplayerEditor.js",
+      "viewerPage": "editor.html"
     }
   ]
 }
