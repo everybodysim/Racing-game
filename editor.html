@@ -3502,7 +3502,7 @@ function computeCausticShade( normal ) {
 
 	// ─── Persistence ──────────────────────────────────────────
 
-	// Multiplayer Editor mod: set by js/EditorMultiplayer.js while the mod
+	// Multiplayer Editor: set by js/EditorMultiplayer.js while the feature
 	// is installed. var (not let) — save() can run before the mod activation
 	// block at the bottom of the module executes.
 	var editorMpBroadcast = null;
@@ -7328,23 +7328,13 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 	
 	// ─── Multiplayer Editor mod (activation is mod-gated) ────────
-	// ONLY when the 'multiplayer-editor' mod is installed: hand the
-	// collaborative editing module (js/EditorMultiplayer.js) a small bridge
-	// to the editor internals — full state encode, apply-without-reload,
-	// broadcast-on-save — and let it replace the minimap with the
-	// multiplayer panel. Without the mod the editor is byte-identical.
+	// Built-in Multiplayer Editor: always hand the collaborative editing
+	// module (js/EditorMultiplayer.js) a small bridge to the editor
+	// internals — full state encode, apply-without-reload,
+	// broadcast-on-save. The panel docks below the minimap (which stays);
+	// PeerJS itself is loaded on demand by the module on first Host/Join.
 	( () => {
 
-		const isMpEditorModInstalled = () => {
-
-			try {
-
-				return JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' ).some( ( m ) => m?.id === 'multiplayer-editor' );
-
-			} catch { return false; }
-
-		};
-		if ( ! isMpEditorModInstalled() ) return;
 		const bridge = {
 			setBroadcast( fn ) { editorMpBroadcast = fn; },
 			getState() { return { cells: encodeCells( getCellsArray() ), mods: encodeMods() }; },
@@ -7384,7 +7374,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 				},
 		};
-		import( './js/EditorMultiplayer.js' ).then( ( m ) => m.activateEditorMultiplayer( bridge ) ).catch( ( error ) => console.warn( 'Multiplayer Editor mod failed to start', error ) );
+		import( './js/EditorMultiplayer.js' ).then( ( m ) => m.activateEditorMultiplayer( bridge ) ).catch( ( error ) => console.warn( 'Multiplayer Editor failed to start', error ) );
 
 	} )();
 

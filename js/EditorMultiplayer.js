@@ -1,10 +1,9 @@
-// Collaborative track editing over PeerJS — the Multiplayer Editor mod.
+// Collaborative track editing over PeerJS — the Multiplayer Editor.
 //
-// Activated ONLY when the 'multiplayer-editor' mod is installed (the
-// activation check lives at the bottom of editor.html's main module and
-// hands this module a small bridge to the editor internals). While the
-// mod is installed, the minimap is replaced by the same Host / Join /
-// ROOM CODE multiplayer panel the game uses.
+// A built-in editor feature (formerly an installable mod): editor.html's
+// main module always loads this file at boot and hands it a small bridge
+// to the editor internals. The minimap stays visible; the same Host /
+// Join / ROOM CODE multiplayer panel the game uses docks below it.
 //
 // Topology: the host owns the peer id EDITOR-ROOM-<code> (a dedicated
 // prefix so editor rooms never collide with the game's RACE-ROOM- ids);
@@ -26,8 +25,16 @@
 // The mod is inert in the game itself — it does not modify gameplay, so
 // leaderboard submissions are unaffected.
 
-import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
 import * as THREE from 'three';
+// PeerJS is loaded on demand (first Host/Join) so a built-in feature costs
+// nothing at editor boot — same lazy-load philosophy as the game's menu.
+let PeerLib = null;
+async function ensurePeerLib() {
+
+	if ( ! PeerLib ) PeerLib = ( await import( 'https://esm.sh/peerjs@1.5.5?bundle' ) ).default;
+	return PeerLib;
+
+}
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const PEER_CONFIG = { config: { iceServers: [ { urls: 'stun:stun.l.google.com:19302' } ] } };
@@ -523,9 +530,10 @@ export function leave() {
 
 }
 
-export function host( code = genCode() ) {
+export async function host( code = genCode() ) {
 
 	if ( session ) leave();
+	const Peer = await ensurePeerLib();
 	const peer = new Peer( ROOM_PREFIX + code, PEER_CONFIG );
 	session = { role: 'host', code, peer, conns: new Map(), hostConn: null, players: new Map( [ [ 'host', playerName() ] ] ) };
 	peer.on( 'open', () => {
@@ -580,7 +588,7 @@ export function host( code = genCode() ) {
 
 }
 
-export function join( code ) {
+export async function join( code ) {
 
 	const clean = String( code || '' ).trim().toUpperCase();
 	if ( ! /^[A-Z0-9]{4,10}$/.test( clean ) ) {
@@ -590,6 +598,7 @@ export function join( code ) {
 
 	}
 	if ( session ) leave();
+	const Peer = await ensurePeerLib();
 	const peer = new Peer( undefined, PEER_CONFIG );
 	session = { role: 'join', code: clean, peer, conns: new Map(), hostConn: null, players: new Map() };
 	statusText( `Connecting to room ${ clean }...` );
@@ -662,7 +671,7 @@ function buildPanel() {
 	// Mirrors the game's #mp-panel styling (index.html) — "the exact same
 	// UI as in the normal game", docked where the minimap lived.
 	style.textContent = `
-		#mped-panel { position: absolute; left: 12px; top: 70px; z-index: 15; width: 210px; box-sizing: border-box; background: rgba(8,12,18,0.88); border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; padding: 10px; color: #fff; font: 13px/1.3 sans-serif; backdrop-filter: blur(2px); box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
+		#mped-panel { position: absolute; left: 12px; top: 218px; z-index: 15; width: 210px; box-sizing: border-box; background: rgba(8,12,18,0.88); border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; padding: 10px; color: #fff; font: 13px/1.3 sans-serif; backdrop-filter: blur(2px); box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
 		#mped-title { font: 700 13px/1 sans-serif; margin-bottom: 8px; opacity: 0.95; }
 		#mped-actions { display: flex; gap: 6px; margin-bottom: 8px; }
 		#mped-actions button { border: none; border-radius: 6px; background: rgba(255,255,255,0.16); color: #fff; padding: 6px 9px; font: 600 12px/1 sans-serif; cursor: pointer; }
@@ -715,10 +724,7 @@ export function activateEditorMultiplayer( editorApi ) {
 	buildPanel();
 	api.setBroadcast( onLocalSave );
 	presenceLoop();
-	// The minimap is rarely used; the multiplayer panel takes its place
-	// while the mod is installed.
-	const wrap = document.getElementById( 'minimap-wrap' );
-	if ( wrap ) wrap.style.display = 'none';
+	// The minimap stays visible; the multiplayer panel docks just below it.
 	window.__EDITOR_MP__ = { host, join, leave, info };
 
 }
