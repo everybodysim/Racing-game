@@ -724,8 +724,8 @@ export function activateEditorMultiplayer( editorApi ) {
 	buildPanel();
 	api.setBroadcast( onLocalSave );
 	presenceLoop();
-	// The minimap now lives inside the bottom toolbox; the multiplayer
-	// panel docks top-left (top 70px) where the minimap used to be.
+	// The minimap is out of the editor UI for now, so the multiplayer panel
+	// takes the top-left corner (top 70px).
 	window.__EDITOR_MP__ = { host, join, leave, info };
 
 }
