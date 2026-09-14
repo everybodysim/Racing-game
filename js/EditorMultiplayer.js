@@ -202,33 +202,52 @@ function updateRemoteCursor( peerId, packet ) {
 	const entry = remoteEntry( peerId, packet.name );
 	const scene = api?.getScene?.();
 	if ( ! scene ) return;
+	const cell = 7.5; // CELL_RAW * GRID_SCALE — full editor cell in world units
 	if ( ! entry.cursor ) {
 
-		const cell = 7.5; // CELL_RAW * GRID_SCALE — full editor cell in world units
 		const group = new THREE.Group();
-		const box = new THREE.Mesh(
-			new THREE.BoxGeometry( cell * 0.96, cell * 0.22, cell * 0.96 ),
-			new THREE.MeshStandardMaterial( { color: entry.color, emissive: entry.color, emissiveIntensity: 0.35, transparent: true, opacity: 0.32, depthWrite: false } )
-		);
-		box.position.y = cell * 0.11;
-		group.add( box );
-		const label = makeNameSprite( `${ entry.name } · ${ toolLabel( packet.type, packet.erase ) }`, entry.color );
-		label.position.y = cell * 0.55;
-		group.add( label );
 		scene.add( group );
-		entry.cursor = { group, box, label, peerId };
+		entry.cursor = { group, box: null, label: null, mesh: null, peerId, labelKey: '', lastAt: 0, gx: 0, gz: 0 };
 
 	}
+	const cur = entry.cursor;
 	const [ x, , z ] = api.cellCenter( packet.gx, packet.gz );
-	entry.cursor.group.position.set( x, 0, z );
-	entry.cursor.box.material.color.set( packet.erase ? '#ff5340' : entry.color );
-	entry.cursor.box.material.emissive.set( packet.erase ? '#8f1a10' : entry.color );
-	entry.cursor.label.material.map.dispose();
-	entry.cursor.label.material.map = makeNameSprite( `${ entry.name } · ${ toolLabel( packet.type, packet.erase ) }`, entry.color ).material.map;
-	entry.cursor.label.material.needsUpdate = true;
-	entry.cursor.lastAt = Date.now();
-	entry.cursor.gx = packet.gx;
-	entry.cursor.gz = packet.gz;
+	// Identity slab at the cell — player color, red when they're erasing.
+	if ( ! cur.box ) {
+
+		cur.box = new THREE.Mesh(
+			new THREE.BoxGeometry( cell * 0.96, cell * 0.22, cell * 0.96 ),
+			new THREE.MeshStandardMaterial( { transparent: true, opacity: 0.32, depthWrite: false } )
+		);
+		cur.group.add( cur.box );
+
+	}
+	cur.box.position.set( x, cell * 0.11, z );
+	cur.box.material.color.set( packet.erase ? '#ff5340' : entry.color );
+	cur.box.material.emissive.set( packet.erase ? '#8f1a10' : entry.color );
+	// The REAL block they're about to place — same mesh and opacity as the
+	// local hover ghost, built by the editor's own ghost builders.
+	if ( cur.mesh ) { cur.group.remove( cur.mesh ); disposeGroup( cur.mesh ); cur.mesh = null; }
+	if ( ! packet.erase ) {
+
+		try { cur.mesh = api.buildRemoteGhost?.( packet.type, packet.orient, packet.gx, packet.gz ) || null; } catch { cur.mesh = null; }
+		if ( cur.mesh ) cur.group.add( cur.mesh );
+
+	}
+	// Name tag floats well above so it never covers the block or the car.
+	const labelKey = entry.name + '|' + toolLabel( packet.type, packet.erase );
+	if ( cur.labelKey !== labelKey || ! cur.label ) {
+
+		if ( cur.label ) { cur.group.remove( cur.label ); cur.label.material.map.dispose(); cur.label.material.dispose(); }
+		cur.label = makeNameSprite( `${ entry.name } · ${ toolLabel( packet.type, packet.erase ) }`, entry.color );
+		cur.group.add( cur.label );
+		cur.labelKey = labelKey;
+
+	}
+	cur.label.position.set( x, 6, z );
+	cur.lastAt = Date.now();
+	cur.gx = packet.gx;
+	cur.gz = packet.gz;
 
 }
 
@@ -256,7 +275,8 @@ function updateRemoteCar( peerId, packet ) {
 		if ( carTemplate ) group.add( carTemplate.clone( true ) );
 		else { ensureCarTemplate().then( () => { if ( entry.car && ! entry.car.group.children.length && carTemplate ) entry.car.group.add( carTemplate.clone( true ) ); } ); }
 		const label = makeNameSprite( entry.name, entry.color );
-		label.position.y = 2.6;
+		// High above the car so flat / top-down view keeps the car visible.
+		label.position.y = 5.2;
 		group.add( label );
 		group.position.fromArray( packet.p );
 		group.quaternion.fromArray( packet.q );
@@ -614,7 +634,7 @@ function info() {
 		players: [ ...session.players.values() ],
 		remotes: [ ...remotes.entries() ].map( ( [ id, entry ] ) => ( {
 			id,
-			cursor: entry.cursor ? { gx: entry.cursor.gx, gz: entry.cursor.gz } : null,
+			cursor: entry.cursor ? { gx: entry.cursor.gx, gz: entry.cursor.gz, hasModel: !! entry.cursor.mesh, labelY: entry.cursor.label ? entry.cursor.label.position.y : null } : null,
 			car: entry.car ? { p: entry.car.group.position.toArray() } : null,
 		} ) ),
 	};
