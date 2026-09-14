@@ -2000,6 +2000,28 @@
 
 	}
 
+	// Removes every mesh a cell currently owns from the scene. The grid
+	// entry (data) and the visuals must die together: skipping this leaves a
+	// "ghost block" behind — still rendered, absent from the share URL, and
+	// un-erasable (eraseRoad is a no-op for keys no longer in the grid).
+	function removeCellMeshes( cell ) {
+
+		for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
+		if ( cell.mesh ) trackGroup.remove( cell.mesh );
+		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
+		if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
+		if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
+		if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
+		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
+		if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
+		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
+		if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
+		if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
+		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
+		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+
+	}
+
 	function placeOverlayMesh( gx, gz, cell ) {
 
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
@@ -2835,6 +2857,7 @@ function computeCausticShade( normal ) {
 			}
 			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
+				removeCellMeshes( cell );
 				grid.delete( key );
 
 			} else {
@@ -2863,6 +2886,7 @@ function computeCausticShade( normal ) {
 
 			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
+				removeCellMeshes( cell );
 				grid.delete( key );
 
 			} else {
@@ -2938,19 +2962,7 @@ function computeCausticShade( normal ) {
 		if ( ! grid.has( key ) ) return;
 
 		const cell = grid.get( key );
-		for ( const mesh of cell.roadMeshes || [] ) trackGroup.remove( mesh );
-		if ( cell.mesh ) trackGroup.remove( cell.mesh );
-		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
-		if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
-		if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
-		if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
-		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
-				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
-		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
-		if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
-		if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
-		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
-		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
+		removeCellMeshes( cell );
 		grid.delete( key );
 		refreshWaterNeighborhood( gx, gz );
 		save();
@@ -7313,7 +7325,8 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 	} )();
 
-	</script>
+	
+</script>
 </main>
 
 <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
