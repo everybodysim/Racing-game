@@ -86,13 +86,15 @@
 		#toolbar {
 			position: absolute;
 			bottom: 14px;
-			left: 12px;
-			right: 12px;
-			display: grid;
-			grid-template-columns: minmax(0, 1fr) auto;
-			grid-template-rows: auto auto auto;
-			gap: 5px;
-			padding: 8px 10px;
+			left: 50%;
+			right: auto;
+			transform: translateX(-50%);
+			display: flex;
+			flex-wrap: wrap;
+			justify-content: center;
+			align-items: center;
+			gap: 4px;
+			padding: 6px 10px;
 			max-width: none;
 			background: linear-gradient(180deg, rgba(26, 30, 42, 0.92), rgba(13, 16, 23, 0.92));
 			backdrop-filter: blur(14px);
@@ -137,31 +139,44 @@
 			color: #fff;
 		}
 
-		/* Tabbed toolbox v2: flat, modern — 5 category tabs, essentials row,
-		   minimap docked far right. No boxes, no borders, soft glow accents. */
-		#toolbar-tabs {
-			grid-column: 1;
-			grid-row: 1;
+		/* Studio rail toolbox: vertical category rail bottom-left, tool
+		   flyout panel beside it, slim essentials bar bottom-center. */
+		#tool-rail {
+			position: absolute;
+			left: 12px;
+			bottom: 14px;
 			display: flex;
-			flex-wrap: wrap;
-			align-items: center;
-			gap: 2px;
+			flex-direction: column;
+			gap: 4px;
+			padding: 6px;
+			border-radius: 16px;
+			background: linear-gradient(180deg, rgba(26, 30, 42, 0.92), rgba(13, 16, 23, 0.92));
+			backdrop-filter: blur(14px);
+			-webkit-backdrop-filter: blur(14px);
+			border: 1px solid rgba(255, 255, 255, 0.07);
+			box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+			z-index: 31;
 		}
-		#toolbar button.tool-tab {
-			display: inline-flex;
+		#tool-rail .rail-cat {
+			display: flex;
 			align-items: center;
-			gap: 7px;
+			gap: 8px;
+			width: 100%;
+			box-sizing: border-box;
+			padding: 9px 10px;
+			border: none;
+			border-radius: 10px;
+			background: transparent;
+			color: rgba(190, 205, 235, 0.55);
 			font-size: 10.5px;
 			font-weight: 700;
-			letter-spacing: 0.08em;
+			letter-spacing: 0.06em;
 			text-transform: uppercase;
-			color: rgba(190, 205, 235, 0.5);
-			background: transparent !important;
-			padding: 6px 11px;
-			border-radius: 999px;
+			cursor: pointer;
 			transition: color 0.16s ease, background 0.16s ease;
+			white-space: nowrap;
 		}
-		#toolbar button.tool-tab::before {
+		#tool-rail .rail-cat::before {
 			content: '';
 			width: 7px;
 			height: 7px;
@@ -170,41 +185,41 @@
 			opacity: 0.5;
 			transition: opacity 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 		}
-		#toolbar button.tool-tab:hover {
-			color: #fff;
-			background: rgba(255, 255, 255, 0.06) !important;
-		}
-		#toolbar button.tool-tab.active {
-			color: #fff;
-			background: rgba(255, 255, 255, 0.08) !important;
-		}
-		#toolbar button.tool-tab.active::before {
+		#tool-rail .rail-cat:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
+		#tool-rail .rail-cat.active { color: #fff; background: rgba(255, 255, 255, 0.09); }
+		#tool-rail .rail-cat.active::before {
 			opacity: 1;
 			transform: scale(1.2);
 			box-shadow: 0 0 9px var(--tab-accent, rgba(255, 255, 255, 0.5));
 		}
-		#toolbar-tools {
-			grid-column: 1;
-			grid-row: 2;
-			display: flex;
-			align-items: stretch;
-			min-height: 38px;
+		#rail-flyout {
+			position: absolute;
+			left: 118px;
+			bottom: 14px;
+			z-index: 31;
+			max-width: min(600px, calc(100vw - 130px));
 		}
+		#rail-flyout[hidden] { display: none; }
 		.tool-page:not([hidden]) {
 			display: flex;
 			flex-wrap: wrap;
 			align-items: center;
-			gap: 4px;
-			width: 100%;
+			gap: 5px;
 			box-sizing: border-box;
-			padding: 1px 2px;
+			padding: 9px 11px;
+			border-radius: 14px;
+			background: linear-gradient(180deg, rgba(26, 30, 42, 0.92), rgba(13, 16, 23, 0.92));
+			backdrop-filter: blur(14px);
+			-webkit-backdrop-filter: blur(14px);
+			border: 1px solid rgba(255, 255, 255, 0.07);
+			box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 		}
 		.tool-page button {
-			background: rgba(255, 255, 255, 0.05);
-			color: rgba(255, 255, 255, 0.72);
+			background: rgba(255, 255, 255, 0.06);
+			color: rgba(255, 255, 255, 0.75);
 		}
 		.tool-page button:hover {
-			background: rgba(255, 255, 255, 0.11);
+			background: rgba(255, 255, 255, 0.12);
 			color: #fff;
 		}
 		.tool-page button.active {
@@ -213,14 +228,10 @@
 			box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cat-accent, rgba(255, 255, 255, 0.5)) 50%, transparent), 0 0 10px color-mix(in srgb, var(--cat-accent, rgba(255, 255, 255, 0.5)) 18%, transparent);
 		}
 		#toolbar-essentials {
-			grid-column: 1;
-			grid-row: 3;
 			display: flex;
 			flex-wrap: wrap;
 			align-items: center;
 			gap: 4px;
-			padding-top: 7px;
-			border-top: 1px solid rgba(255, 255, 255, 0.07);
 		}
 		#toolbar .seg {
 			display: inline-flex;
@@ -236,6 +247,8 @@
 			color: #fff;
 			box-shadow: none;
 		}
+		/* OS dropdown popups render on white — force dark text inside them. */
+		select option { color: #16181d; background: #fff; }
 		#toolbar #arc-link-help {
 			width: 100%;
 			padding: 5px 8px;
@@ -304,6 +317,7 @@
 			.tool-tab, .tool-page button, .tool-page select { flex: 0 0 auto; }
 			#toolbar button, #toolbar select { min-height: 34px; padding: 7px 9px; font-size: 11px; }
 			#minimap-wrap { display: none; }
+			#tool-rail, #rail-flyout { display: none; }
 			#mobile-editor-drawer {
 				display: block;
 				position: absolute;
@@ -520,11 +534,11 @@
 	
 <style>
 /* ─── Tabbed toolbox v2: per-category accent colors ─── */
-.tool-tab[data-cat="track"],     .tool-page[data-cat="track"]     { --tab-accent: rgba(100, 220, 120, 0.9); --cat-accent: rgba(100, 220, 120, 0.9); }
-.tool-tab[data-cat="obstacles"], .tool-page[data-cat="obstacles"] { --tab-accent: rgba(255, 160, 60, 0.9); --cat-accent: rgba(255, 160, 60, 0.9); }
-.tool-tab[data-cat="waterpads"], .tool-page[data-cat="waterpads"] { --tab-accent: rgba(90, 170, 255, 0.9); --cat-accent: rgba(90, 170, 255, 0.9); }
-.tool-tab[data-cat="decor"],     .tool-page[data-cat="decor"]     { --tab-accent: rgba(180, 120, 255, 0.9); --cat-accent: rgba(180, 120, 255, 0.9); }
-.tool-tab[data-cat="special"],   .tool-page[data-cat="special"]   { --tab-accent: rgba(110, 225, 205, 0.9); --cat-accent: rgba(110, 225, 205, 0.9); }
+.rail-cat[data-cat="track"],     .tool-page[data-cat="track"]     { --tab-accent: rgba(100, 220, 120, 0.9); --cat-accent: rgba(100, 220, 120, 0.9); }
+.rail-cat[data-cat="obstacles"], .tool-page[data-cat="obstacles"] { --tab-accent: rgba(255, 160, 60, 0.9); --cat-accent: rgba(255, 160, 60, 0.9); }
+.rail-cat[data-cat="waterpads"], .tool-page[data-cat="waterpads"] { --tab-accent: rgba(90, 170, 255, 0.9); --cat-accent: rgba(90, 170, 255, 0.9); }
+.rail-cat[data-cat="decor"],     .tool-page[data-cat="decor"]     { --tab-accent: rgba(180, 120, 255, 0.9); --cat-accent: rgba(180, 120, 255, 0.9); }
+.rail-cat[data-cat="special"],   .tool-page[data-cat="special"]   { --tab-accent: rgba(110, 225, 205, 0.9); --cat-accent: rgba(110, 225, 205, 0.9); }
 
 /* ─── Feature 8: Collapsible settings bar ─── */
 #settings-bar.collapsed .settings-row > *:not(#settings-toggle-btn) { display: none !important; }
@@ -532,7 +546,7 @@
 #settings-toggle-btn:hover { color: #fff; }
 
 /* ─── Feature 4: Minimap — docked inside the toolbox, far right ─── */
-#minimap-wrap { grid-column: 2; grid-row: 1 / 4; align-self: center; position: relative; width: 124px; height: 124px; border-radius: 12px; overflow: hidden; background: rgba(8,12,18,0.92); box-shadow: 0 0 0 1px rgba(255,255,255,0.07), 0 6px 24px rgba(0,0,0,0.5); margin-left: 4px; }
+#minimap-wrap { position: absolute; right: 12px; bottom: 14px; width: 124px; height: 124px; border-radius: 12px; overflow: hidden; background: rgba(8,12,18,0.92); box-shadow: 0 0 0 1px rgba(255,255,255,0.07), 0 6px 24px rgba(0,0,0,0.5); z-index: 15; }
 #minimap-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
 #track-slots { position: absolute; left: 12px; top: 12px; display: flex; gap: 4px; padding: 5px; border-radius: 10px; background: rgba(20,20,30,0.84); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 4px 20px rgba(0,0,0,0.35); z-index: 16; }
 #btn-storage-chip { color: #cfd8ea; background: rgba(8,10,14,0.9); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
@@ -682,15 +696,14 @@
 		</div>
 	</div>
 
-	<div id="toolbar">
-		<div id="toolbar-tabs" role="tablist" aria-label="Block categories">
-			<button class="tool-tab" type="button" data-cat="track">Track</button>
-			<button class="tool-tab" type="button" data-cat="obstacles">Obstacles</button>
-			<button class="tool-tab" type="button" data-cat="waterpads">Water &amp; Pads</button>
-			<button class="tool-tab" type="button" data-cat="decor">Decor</button>
-			<button class="tool-tab" type="button" data-cat="special">Special</button>
+	<div id="tool-rail" aria-label="Block categories">
+			<button class="rail-cat" type="button" data-cat="track">Track</button>
+			<button class="rail-cat" type="button" data-cat="obstacles">Obs</button>
+			<button class="rail-cat" type="button" data-cat="waterpads">Pads</button>
+			<button class="rail-cat" type="button" data-cat="decor">Decor</button>
+			<button class="rail-cat" type="button" data-cat="special">Spec</button>
 		</div>
-		<div id="toolbar-tools">
+		<div id="rail-flyout" hidden>
 			<div class="tool-page" data-cat="track" hidden>
 				<button id="btn-straight" class="active">Straight</button>
 				<button id="btn-corner">Corner</button>
@@ -801,7 +814,10 @@
 		</div>
 		</div>
 		<span data-cat="tools" hidden aria-hidden="true"></span>
-		<div id="toolbar-essentials">
+		</div>
+		<div id="toolbar">
+		<span data-cat="tools" hidden aria-hidden="true"></span>
+<div id="toolbar-essentials">
 			<span class="seg">
 				<button id="btn-paint" class="active">Paint</button>
 				<button id="btn-erase">Erase</button>
@@ -819,11 +835,11 @@
 			<button id="btn-clear" class="danger">Clear</button>
 			<button id="btn-storage-chip" type="button" title="Browser storage used by this site — click for details and cleanup">💾 <span id="storage-chip-text">…</span></button>
 		</div>
+		</div>
 		<div id="minimap-wrap" class="hidden">
 			<canvas id="minimap-canvas" width="140" height="140"></canvas>
 			<span id="minimap-label">Map</span>
 		</div>
-	</div>
 
 
 
@@ -5763,29 +5779,27 @@ function refreshMovingSpeedUi() {
 // ═════════════════════════════════════════════════════════════════
 // FEATURE 1: Independent, open-by-default toolbar groups
 // ═════════════════════════════════════════════════════════════════
-(function initTabbedToolbar() {
-    const tabs = Array.from(document.querySelectorAll('#toolbar-tabs .tool-tab'));
-    const pages = Array.from(document.querySelectorAll('#toolbar-tools .tool-page'));
-    if (!tabs.length || !pages.length) return;
+(function initRailToolbox() {
+    const rail = document.getElementById('tool-rail');
+    const flyout = document.getElementById('rail-flyout');
+    const cats = Array.from(rail.querySelectorAll('.rail-cat'));
+    const pages = Array.from(flyout.querySelectorAll('.tool-page'));
+    if (!cats.length || !pages.length) return;
     const KEY = 'racing-editor-toolbox-tab-v1';
-    const activate = (cat) => {
-        let found = false;
-        tabs.forEach((t) => {
-            const on = t.dataset.cat === cat;
-            t.classList.toggle('active', on);
-            if (on) found = true;
-        });
+    const open = (cat, save) => {
+        cats.forEach((c) => c.classList.toggle('active', c.dataset.cat === cat));
         pages.forEach((p) => { p.hidden = p.dataset.cat !== cat; });
-        if (!found) { activate('track'); return; }
-        try { localStorage.setItem(KEY, cat); } catch { /* private mode */ }
+        flyout.hidden = !cat;
+        if (save) { try { localStorage.setItem(KEY, cat || ''); } catch { /* private mode */ } }
     };
-    let saved = 'track';
-    try { saved = localStorage.getItem(KEY) || 'track'; } catch { /* private mode */ }
-    if (!tabs.some((t) => t.dataset.cat === saved)) saved = 'track';
-    activate(saved);
-    tabs.forEach((t) => t.addEventListener('click', (e) => {
+    let saved = null;
+    try { saved = localStorage.getItem(KEY) || null; } catch { /* private mode */ }
+    if (!saved || !pages.some((p) => p.dataset.cat === saved)) saved = 'track';
+    open(saved, false);
+    cats.forEach((c) => c.addEventListener('click', (e) => {
         e.preventDefault();
-        activate(t.dataset.cat);
+        const isActive = c.classList.contains('active');
+        open(isActive ? null : c.dataset.cat, true);
     }));
 })();
 
