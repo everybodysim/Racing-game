@@ -671,7 +671,7 @@ function buildPanel() {
 	// Mirrors the game's #mp-panel styling (index.html) — "the exact same
 	// UI as in the normal game", docked where the minimap lived.
 	style.textContent = `
-		#mped-panel { position: absolute; left: 12px; top: 218px; z-index: 15; width: 210px; box-sizing: border-box; background: rgba(8,12,18,0.88); border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; padding: 10px; color: #fff; font: 13px/1.3 sans-serif; backdrop-filter: blur(2px); box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
+		#mped-panel { position: absolute; left: 12px; top: 70px; z-index: 15; width: 210px; box-sizing: border-box; background: rgba(8,12,18,0.88); border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; padding: 10px; color: #fff; font: 13px/1.3 sans-serif; backdrop-filter: blur(2px); box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
 		#mped-title { font: 700 13px/1 sans-serif; margin-bottom: 8px; opacity: 0.95; }
 		#mped-actions { display: flex; gap: 6px; margin-bottom: 8px; }
 		#mped-actions button { border: none; border-radius: 6px; background: rgba(255,255,255,0.16); color: #fff; padding: 6px 9px; font: 600 12px/1 sans-serif; cursor: pointer; }
@@ -724,7 +724,8 @@ export function activateEditorMultiplayer( editorApi ) {
 	buildPanel();
 	api.setBroadcast( onLocalSave );
 	presenceLoop();
-	// The minimap stays visible; the multiplayer panel docks just below it.
+	// The minimap now lives inside the bottom toolbox; the multiplayer
+	// panel docks top-left (top 70px) where the minimap used to be.
 	window.__EDITOR_MP__ = { host, join, leave, info };
 
 }
