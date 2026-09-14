@@ -157,7 +157,13 @@ function removePeerVisuals( peerId ) {
 	if ( ! entry ) return;
 	const scene = api?.getScene?.();
 	if ( entry.cursor ) { if ( scene ) scene.remove( entry.cursor.group ); disposeGroup( entry.cursor.group ); entry.cursor = null; }
-	if ( entry.car ) { if ( scene ) scene.remove( entry.car.group ); entry.car = null; }
+	if ( entry.car ) {
+
+		if ( scene ) { scene.remove( entry.car.group ); scene.remove( entry.car.labelHolder ); }
+		disposeGroup( entry.car.labelHolder );
+		entry.car = null;
+
+	}
 	remotes.delete( peerId );
 
 }
@@ -244,7 +250,9 @@ function updateRemoteCursor( peerId, packet ) {
 		cur.labelKey = labelKey;
 
 	}
-	cur.label.position.set( x, 6, z );
+	// Up for the free camera, north of the cell for flat view —
+	// a pure Y offset vanishes in screen space when looking straight down.
+	cur.label.position.set( x, 4.5, z - 4.5 );
 	cur.lastAt = Date.now();
 	cur.gx = packet.gx;
 	cur.gz = packet.gz;
@@ -265,7 +273,7 @@ function updateRemoteCar( peerId, packet ) {
 	if ( ! scene ) return;
 	if ( packet.off ) {
 
-		if ( entry.car ) { scene.remove( entry.car.group ); entry.car = null; }
+		if ( entry.car ) { scene.remove( entry.car.group ); scene.remove( entry.car.labelHolder ); disposeGroup( entry.car.labelHolder ); entry.car = null; }
 		return;
 
 	}
@@ -274,14 +282,17 @@ function updateRemoteCar( peerId, packet ) {
 		const group = new THREE.Group();
 		if ( carTemplate ) group.add( carTemplate.clone( true ) );
 		else { ensureCarTemplate().then( () => { if ( entry.car && ! entry.car.group.children.length && carTemplate ) entry.car.group.add( carTemplate.clone( true ) ); } ); }
-		const label = makeNameSprite( entry.name, entry.color );
-		// High above the car so flat / top-down view keeps the car visible.
-		label.position.y = 5.2;
-		group.add( label );
+		// The tag rides its own non-rotating holder, positioned every frame
+		// at car + up/north offset. In the flat top-down camera a pure Y
+		// offset vanishes in screen space and the tag still covers the car —
+		// the Z offset keeps it north of the car on screen instead.
+		const labelHolder = new THREE.Group();
+		labelHolder.add( makeNameSprite( entry.name, entry.color ) );
+		scene.add( labelHolder );
 		group.position.fromArray( packet.p );
 		group.quaternion.fromArray( packet.q );
 		scene.add( group );
-		entry.car = { group, targetP: new THREE.Vector3().fromArray( packet.p ), targetQ: new THREE.Quaternion().fromArray( packet.q ), lastAt: Date.now() };
+		entry.car = { group, labelHolder, targetP: new THREE.Vector3().fromArray( packet.p ), targetQ: new THREE.Quaternion().fromArray( packet.q ), lastAt: Date.now() };
 
 	}
 	entry.car.targetP.fromArray( packet.p );
@@ -341,6 +352,8 @@ function presenceLoop() {
 
 				entry.car.group.position.lerp( entry.car.targetP, 0.3 );
 				entry.car.group.quaternion.slerp( entry.car.targetQ, 0.3 );
+				// Up for the free camera, north for the flat camera.
+				entry.car.labelHolder.position.set( entry.car.group.position.x, entry.car.group.position.y + 2, entry.car.group.position.z - 4.5 );
 
 			}
 			if ( entry.cursor && now - entry.cursor.lastAt > CURSOR_IDLE_HIDE_MS ) hideRemoteCursor( entry.cursor.peerId || '' );
@@ -634,8 +647,8 @@ function info() {
 		players: [ ...session.players.values() ],
 		remotes: [ ...remotes.entries() ].map( ( [ id, entry ] ) => ( {
 			id,
-			cursor: entry.cursor ? { gx: entry.cursor.gx, gz: entry.cursor.gz, hasModel: !! entry.cursor.mesh, labelY: entry.cursor.label ? entry.cursor.label.position.y : null } : null,
-			car: entry.car ? { p: entry.car.group.position.toArray() } : null,
+			cursor: entry.cursor ? { gx: entry.cursor.gx, gz: entry.cursor.gz, hasModel: !! entry.cursor.mesh } : null,
+			car: entry.car ? { p: entry.car.group.position.toArray(), labelP: entry.car.labelHolder.position.toArray() } : null,
 		} ) ),
 	};
 
