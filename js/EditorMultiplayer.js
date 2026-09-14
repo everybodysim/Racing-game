@@ -161,6 +161,7 @@ function removePeerVisuals( peerId ) {
 
 		if ( scene ) { scene.remove( entry.car.group ); scene.remove( entry.car.labelHolder ); }
 		disposeGroup( entry.car.labelHolder );
+		disposeGroup( entry.car.group );
 		entry.car = null;
 
 	}
@@ -197,7 +198,7 @@ function ensureCarTemplate() {
 			carTemplate = gltf.scene;
 			resolve();
 
-		}, undefined, () => resolve() );
+		}, undefined, () => { console.warn( '[Multiplayer Editor] remote-car template failed to load — remote cars will be invisible' ); resolve(); } );
 
 	} );
 
@@ -250,9 +251,7 @@ function updateRemoteCursor( peerId, packet ) {
 		cur.labelKey = labelKey;
 
 	}
-	// Up for the free camera, north of the cell for flat view —
-	// a pure Y offset vanishes in screen space when looking straight down.
-	cur.label.position.set( x, 4.5, z - 4.5 );
+	cur.label.position.set( x, 6, z );
 	cur.lastAt = Date.now();
 	cur.gx = packet.gx;
 	cur.gz = packet.gz;
@@ -266,6 +265,44 @@ function hideRemoteCursor( peerId ) {
 
 }
 
+// Remote cars render as player-tinted ghosts: translucent, emissive-tinted
+// with the player color, and a 2% larger shell. Both players' editor cars
+// spawn at the exact same point — opaque remote cars hide inside your own
+// car there. The ghost shell + translucency keeps the other car visible
+// even at perfect spawn overlap, and makes remote cars read as "not mine".
+function ghostCarMaterial( srcMat, tint ) {
+
+	const m = srcMat.clone();
+	if ( m.color ) m.color.lerp( tint, 0.5 );
+	if ( m.emissive ) { m.emissive.copy( tint ); m.emissiveIntensity = 0.3; }
+	m.transparent = true;
+	m.opacity = 0.62;
+	m.depthWrite = false;
+	// X-ray: both editor cars spawn at the exact same point — with depth
+	// testing on, the ghost loses the depth fight against the local car at
+	// spawn overlap and is completely invisible. No depth test = the ghost
+	// is always visible through your own car (and through blocks — it's a
+	// presence ghost, that's the point).
+	m.depthTest = false;
+	return m;
+
+}
+
+function addGhostCar( group, colorHex ) {
+
+	const inst = carTemplate.clone( true );
+	const tint = new THREE.Color( colorHex );
+	inst.traverse( ( o ) => {
+
+		if ( ! o.isMesh ) return;
+		if ( Array.isArray( o.material ) ) o.material = o.material.map( ( m ) => ghostCarMaterial( m, tint ) );
+		else o.material = ghostCarMaterial( o.material, tint );
+
+	} );
+	group.add( inst );
+
+}
+
 function updateRemoteCar( peerId, packet ) {
 
 	const entry = remoteEntry( peerId, packet.name );
@@ -273,15 +310,19 @@ function updateRemoteCar( peerId, packet ) {
 	if ( ! scene ) return;
 	if ( packet.off ) {
 
-		if ( entry.car ) { scene.remove( entry.car.group ); scene.remove( entry.car.labelHolder ); disposeGroup( entry.car.labelHolder ); entry.car = null; }
+		if ( entry.car ) { scene.remove( entry.car.group ); scene.remove( entry.car.labelHolder ); disposeGroup( entry.car.labelHolder ); disposeGroup( entry.car.group ); entry.car = null; }
 		return;
 
 	}
 	if ( ! entry.car ) {
 
 		const group = new THREE.Group();
-		if ( carTemplate ) group.add( carTemplate.clone( true ) );
-		else { ensureCarTemplate().then( () => { if ( entry.car && ! entry.car.group.children.length && carTemplate ) entry.car.group.add( carTemplate.clone( true ) ); } ); }
+		// 1.06 shell: at the flat camera's zoom a 2% offset is sub-pixel, and
+		// the two spawn cars coincide exactly — the ghost roof must clear the
+		// local car's roof by a full pixel or the ghost is invisible at spawn.
+		group.scale.setScalar( 1.06 );
+		if ( carTemplate ) addGhostCar( group, entry.color );
+		else ensureCarTemplate(); // template attach is retried per packet below
 		// The tag rides its own non-rotating holder, positioned every frame
 		// at car + up/north offset. In the flat top-down camera a pure Y
 		// offset vanishes in screen space and the tag still covers the car —
@@ -295,6 +336,9 @@ function updateRemoteCar( peerId, packet ) {
 		entry.car = { group, labelHolder, targetP: new THREE.Vector3().fromArray( packet.p ), targetQ: new THREE.Quaternion().fromArray( packet.q ), lastAt: Date.now() };
 
 	}
+	// Lazy attach: car packets arrive at 12.5Hz — if the template wasn't
+	// loaded when the group was created, this slots it in as soon as it is.
+	if ( entry.car && ! entry.car.group.children.length && carTemplate ) addGhostCar( entry.car.group, entry.color );
 	entry.car.targetP.fromArray( packet.p );
 	entry.car.targetQ.fromArray( packet.q );
 	entry.car.lastAt = Date.now();
