@@ -7306,6 +7306,9 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			getWaterState: () => fxWaterState,
 			isVehicleInWater: () => fxVehicleInWater( vehicle?.spherePos ),
 			getVehiclePos: () => ( vehicle?.spherePos ? vehicle.spherePos.toArray() : null ),
+			// Full 3D pose for the Multiplayer Editor mod: remote players
+			// see this car rendered live in their editors.
+			getVehiclePose: () => ( vehicle?.container ? { p: vehicle.container.position.toArray(), q: vehicle.container.quaternion.toArray() } : null ),
 			markDirty: () => { dirty = true; lastEditAt = performance.now() * 0.001; },
 			startRotate, moveRotate, endRotate,
 			isRotating: () => rotating,
@@ -7347,10 +7350,21 @@ function updateMovingObstacles( state, now, vehicleList ) {
 				try { return ( localStorage.getItem( 'racing-player-name-v1' ) || '' ).trim() || 'Anonymous'; } catch { return 'Anonymous'; }
 
 			},
+			getHoverState() {
+
+				// Where the local player's brush currently hovers — broadcast
+				// so peers see a transparent preview of the placement.
+				if ( ! hoveredCell ) return null;
+				return { gx: hoveredCell.gx, gz: hoveredCell.gz, type: selectedType, orient: selectedOrient, erase: tool === 'erase' };
+
+			},
+			cellCenter( gx, gz ) { return [ ( gx + 0.5 ) * CELL_RAW * GRID_SCALE, 0, ( gz + 0.5 ) * CELL_RAW * GRID_SCALE ]; },
+			getScene() { return scene; },
 		};
 		import( './js/EditorMultiplayer.js' ).then( ( m ) => m.activateEditorMultiplayer( bridge ) ).catch( ( error ) => console.warn( 'Multiplayer Editor mod failed to start', error ) );
 
 	} )();
+
 
 </script>
 </main>

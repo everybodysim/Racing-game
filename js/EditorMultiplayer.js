@@ -14,15 +14,28 @@
 // load with no page reload. Last writer wins: for a few players building
 // a track together this is self-healing and needs no merge logic.
 //
+// Presence, on top of map sync:
+//  - Remote test-drive cars: while a peer drives, their car is streamed
+//    (position + quaternion at 12.5 Hz) and rendered live in your
+//    editor, smoothly lerped between packets.
+//  - Placement previews: each peer's hovered cell + active tool are
+//    streamed, so you see a transparent colored ghost of where their
+//    block would land (red when they're erasing) with a floating name
+//    tag. Ghosts fade out when a peer's cursor goes idle.
+//
 // The mod is inert in the game itself — it does not modify gameplay, so
 // leaderboard submissions are unaffected.
 
 import Peer from 'https://esm.sh/peerjs@1.5.5?bundle';
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const PEER_CONFIG = { config: { iceServers: [ { urls: 'stun:stun.l.google.com:19302' } ] } };
 const ROOM_PREFIX = 'EDITOR-ROOM-';
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const BROADCAST_DEBOUNCE_MS = 120;
+const PRESENCE_TICK_MS = 80;          // 12.5 Hz presence stream
+const CURSOR_IDLE_HIDE_MS = 4000;     // hide a peer's ghost if their mouse went idle
 
 let api = null;
 let session = null;       // { role: 'host' | 'join', code, peer, conns: Map, hostConn, players: Map }
@@ -30,6 +43,12 @@ let applying = false;     // a remote apply must not rebroadcast as a local edit
 let knownKey = '';        // last-known local state key (per-peer stable encoding)
 let pendingBroadcast = null;
 let broadcastTimer = 0;
+let carTemplate = null;   // cloned per remote player
+const remotes = new Map(); // peerId -> { color, cursor: {...}, car: {...} }
+let lastHoverKey = '';
+let wasDriving = false;
+let presenceTimer = 0;
+let rafId = 0;
 
 function playerName() { return api?.playerName?.() || 'Anonymous'; }
 
@@ -57,7 +76,12 @@ function renderPlayers() {
 	for ( const [ id, name ] of entries ) {
 
 		const li = document.createElement( 'li' );
-		li.textContent = name + ( session.role === 'host' && id === 'host' ? ' (host)' : '' );
+		const dot = document.createElement( 'span' );
+		dot.textContent = '●';
+		dot.style.color = peerColor( id );
+		dot.style.marginRight = '4px';
+		li.appendChild( dot );
+		li.appendChild( document.createTextNode( name + ( session.role === 'host' && id === 'host' ? ' (host)' : '' ) ) );
 		list.appendChild( li );
 
 	}
@@ -73,7 +97,251 @@ function safeSend( conn, packet ) {
 
 function stateKey( cells, mods ) { return cells + '|' + mods; }
 
-// The host's roster is the source of truth; joiners just render it.
+// ─── Presence visuals ────────────────────────────────────────────────
+
+function peerColor( peerId ) {
+
+	let hash = 0;
+	const s = String( peerId || '' );
+	for ( let i = 0; i < s.length; i ++ ) hash = ( hash * 31 + s.charCodeAt( i ) ) >>> 0;
+	return '#' + new THREE.Color().setHSL( ( hash % 360 ) / 360, 0.85, 0.6 ).getHexString();
+
+}
+
+function toolLabel( type, erase ) {
+
+	if ( erase ) return 'erasing';
+	const t = String( type || '' ).replace( /^(track|overlay|surface|pad)-/, '' ).replace( /-/g, ' ' );
+	return t || 'block';
+
+}
+
+function makeNameSprite( text, colorHex ) {
+
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = 256;
+	canvas.height = 64;
+	const ctx = canvas.getContext( '2d' );
+	ctx.fillStyle = 'rgba(8,12,18,0.82)';
+	ctx.beginPath();
+	ctx.roundRect( 4, 8, 248, 48, 12 );
+	ctx.fill();
+	ctx.strokeStyle = colorHex;
+	ctx.lineWidth = 3;
+	ctx.stroke();
+	ctx.fillStyle = '#fff';
+	ctx.font = '700 26px system-ui, sans-serif';
+	ctx.textAlign = 'center';
+	ctx.textBaseline = 'middle';
+	ctx.fillText( String( text ).slice( 0, 18 ), 128, 33 );
+	const texture = new THREE.CanvasTexture( canvas );
+	const sprite = new THREE.Sprite( new THREE.SpriteMaterial( { map: texture, transparent: true, depthTest: false } ) );
+	sprite.scale.set( 4.4, 1.1, 1 );
+	return sprite;
+
+}
+
+function remoteEntry( peerId, name ) {
+
+	let entry = remotes.get( peerId );
+	if ( entry ) return entry;
+	entry = { color: peerColor( peerId ), name: name || 'Anonymous', cursor: null, car: null };
+	remotes.set( peerId, entry );
+	return entry;
+
+}
+
+function removePeerVisuals( peerId ) {
+
+	const entry = remotes.get( peerId );
+	if ( ! entry ) return;
+	const scene = api?.getScene?.();
+	if ( entry.cursor ) { if ( scene ) scene.remove( entry.cursor.group ); disposeGroup( entry.cursor.group ); entry.cursor = null; }
+	if ( entry.car ) { if ( scene ) scene.remove( entry.car.group ); entry.car = null; }
+	remotes.delete( peerId );
+
+}
+
+function disposeGroup( group ) {
+
+	group?.traverse( ( child ) => {
+
+		if ( child.isMesh || child.isSprite ) {
+
+			child.material?.dispose?.();
+			if ( child.geometry && ! child.geometry.__sharedCar ) child.geometry.dispose?.();
+
+		}
+
+	} );
+
+}
+
+function ensureCarTemplate() {
+
+	if ( carTemplate ) return Promise.resolve();
+	return new Promise( ( resolve ) => {
+
+		new GLTFLoader().load( 'models/vehicle-truck-yellow.glb', ( gltf ) => {
+
+			// Same fixes the editor's own drive loader applies: front-side
+			// materials and the Godot 0.5 root scale.
+			gltf.scene.traverse( ( child ) => { if ( child.isMesh ) child.material.side = THREE.FrontSide; } );
+			gltf.scene.scale.setScalar( 0.5 );
+			carTemplate = gltf.scene;
+			resolve();
+
+		}, undefined, () => resolve() );
+
+	} );
+
+}
+
+function updateRemoteCursor( peerId, packet ) {
+
+	const entry = remoteEntry( peerId, packet.name );
+	const scene = api?.getScene?.();
+	if ( ! scene ) return;
+	if ( ! entry.cursor ) {
+
+		const cell = 7.5; // CELL_RAW * GRID_SCALE — full editor cell in world units
+		const group = new THREE.Group();
+		const box = new THREE.Mesh(
+			new THREE.BoxGeometry( cell * 0.96, cell * 0.22, cell * 0.96 ),
+			new THREE.MeshStandardMaterial( { color: entry.color, emissive: entry.color, emissiveIntensity: 0.35, transparent: true, opacity: 0.32, depthWrite: false } )
+		);
+		box.position.y = cell * 0.11;
+		group.add( box );
+		const label = makeNameSprite( `${ entry.name } · ${ toolLabel( packet.type, packet.erase ) }`, entry.color );
+		label.position.y = cell * 0.55;
+		group.add( label );
+		scene.add( group );
+		entry.cursor = { group, box, label, peerId };
+
+	}
+	const [ x, , z ] = api.cellCenter( packet.gx, packet.gz );
+	entry.cursor.group.position.set( x, 0, z );
+	entry.cursor.box.material.color.set( packet.erase ? '#ff5340' : entry.color );
+	entry.cursor.box.material.emissive.set( packet.erase ? '#8f1a10' : entry.color );
+	entry.cursor.label.material.map.dispose();
+	entry.cursor.label.material.map = makeNameSprite( `${ entry.name } · ${ toolLabel( packet.type, packet.erase ) }`, entry.color ).material.map;
+	entry.cursor.label.material.needsUpdate = true;
+	entry.cursor.lastAt = Date.now();
+	entry.cursor.gx = packet.gx;
+	entry.cursor.gz = packet.gz;
+
+}
+
+function hideRemoteCursor( peerId ) {
+
+	const entry = remotes.get( peerId );
+	if ( entry?.cursor ) { removePeerVisuals( peerId ); }
+
+}
+
+function updateRemoteCar( peerId, packet ) {
+
+	const entry = remoteEntry( peerId, packet.name );
+	const scene = api?.getScene?.();
+	if ( ! scene ) return;
+	if ( packet.off ) {
+
+		if ( entry.car ) { scene.remove( entry.car.group ); entry.car = null; }
+		return;
+
+	}
+	if ( ! entry.car ) {
+
+		const group = new THREE.Group();
+		if ( carTemplate ) group.add( carTemplate.clone( true ) );
+		else { ensureCarTemplate().then( () => { if ( entry.car && ! entry.car.group.children.length && carTemplate ) entry.car.group.add( carTemplate.clone( true ) ); } ); }
+		const label = makeNameSprite( entry.name, entry.color );
+		label.position.y = 2.6;
+		group.add( label );
+		group.position.fromArray( packet.p );
+		group.quaternion.fromArray( packet.q );
+		scene.add( group );
+		entry.car = { group, targetP: new THREE.Vector3().fromArray( packet.p ), targetQ: new THREE.Quaternion().fromArray( packet.q ), lastAt: Date.now() };
+
+	}
+	entry.car.targetP.fromArray( packet.p );
+	entry.car.targetQ.fromArray( packet.q );
+	entry.car.lastAt = Date.now();
+
+}
+
+function presenceLoop() {
+
+	if ( presenceTimer ) return;
+	presenceTimer = setInterval( () => {
+
+		if ( ! session ) return;
+		// Test-drive pose
+		let pose = null;
+		try { pose = window.__skidEditorDrive?.getVehiclePose?.() || null; } catch { pose = null; }
+		if ( pose ) {
+
+			wasDriving = true;
+			sendPacket( { t: 'car', p: pose.p, q: pose.q } );
+
+		} else if ( wasDriving ) {
+
+			wasDriving = false;
+			sendPacket( { t: 'car', off: true } );
+
+		}
+		// Hover placement preview
+		const hover = api?.getHoverState?.();
+		if ( hover ) {
+
+			const key = `${ hover.gx },${ hover.gz },${ hover.type },${ hover.orient },${ hover.erase }`;
+			if ( key !== lastHoverKey ) {
+
+				lastHoverKey = key;
+				sendPacket( { t: 'cursor', ...hover, name: playerName() } );
+
+			}
+
+		} else if ( lastHoverKey ) {
+
+			lastHoverKey = '';
+			sendPacket( { t: 'cursor', off: true } );
+
+		}
+
+	}, PRESENCE_TICK_MS );
+	// Smooth remote cars + hide idle cursors.
+	const tick = () => {
+
+		rafId = requestAnimationFrame( tick );
+		const now = Date.now();
+		for ( const [ , entry ] of remotes ) {
+
+			if ( entry.car ) {
+
+				entry.car.group.position.lerp( entry.car.targetP, 0.3 );
+				entry.car.group.quaternion.slerp( entry.car.targetQ, 0.3 );
+
+			}
+			if ( entry.cursor && now - entry.cursor.lastAt > CURSOR_IDLE_HIDE_MS ) hideRemoteCursor( entry.cursor.peerId || '' );
+
+		}
+
+	};
+	rafId = requestAnimationFrame( tick );
+
+}
+
+function sendPacket( packet ) {
+
+	if ( ! session ) return;
+	if ( session.role === 'host' ) { for ( const conn of session.conns.values() ) safeSend( conn, packet ); }
+	else if ( session.hostConn ) safeSend( session.hostConn, packet );
+
+}
+
+// ─── Map sync ────────────────────────────────────────────────────────
+
 function broadcastRoster() {
 
 	if ( ! session || session.role !== 'host' ) return;
@@ -118,13 +386,19 @@ function handlePacket( packet, conn ) {
 
 	} else if ( packet.t === 'state' ) {
 
-		if ( session.role === 'host' ) {
-
-			// Star topology: relay the joiner's edit to every other joiner.
-			for ( const c of session.conns.values() ) if ( c !== conn ) safeSend( c, packet );
-
-		}
+		if ( session.role === 'host' ) for ( const c of session.conns.values() ) if ( c !== conn ) safeSend( c, packet );
 		applyRemote( packet );
+
+	} else if ( packet.t === 'car' ) {
+
+		if ( session.role === 'host' ) for ( const c of session.conns.values() ) if ( c !== conn ) safeSend( c, packet );
+		updateRemoteCar( conn.peer, packet );
+
+	} else if ( packet.t === 'cursor' ) {
+
+		if ( session.role === 'host' ) for ( const c of session.conns.values() ) if ( c !== conn ) safeSend( c, packet );
+		if ( packet.off ) hideRemoteCursor( conn.peer );
+		else updateRemoteCursor( conn.peer, packet );
 
 	} else if ( packet.t === 'roster' ) {
 
@@ -141,8 +415,16 @@ function handlePacket( packet, conn ) {
 
 			session.players.delete( conn.peer );
 			session.conns.delete( conn.peer );
+			removePeerVisuals( conn.peer );
 			renderPlayers();
 			broadcastRoster();
+
+		} else {
+
+			// The host left gracefully — tear down immediately instead of
+			// waiting for the data channel to notice.
+			statusText( 'Host left the room.' );
+			leave();
 
 		}
 
@@ -151,11 +433,6 @@ function handlePacket( packet, conn ) {
 }
 
 // Called by the editor's save() on EVERY local save (edits and autosave).
-// A save that happens while applying remote state just records the new
-// local key; afterwards, only genuinely-changed state gets broadcast —
-// grid iteration order differs per peer, so identical states can encode
-// differently across peers, and the per-peer key comparison is what
-// prevents echo loops.
 function onLocalSave( cells, mods ) {
 
 	if ( ! session ) return;
@@ -175,15 +452,8 @@ function onLocalSave( cells, mods ) {
 		const packet = { t: 'state', cells: pendingBroadcast.cells, mods: pendingBroadcast.mods, name: playerName() };
 		knownKey = stateKey( pendingBroadcast.cells, pendingBroadcast.mods );
 		pendingBroadcast = null;
-		if ( session.role === 'host' ) {
-
-			for ( const conn of session.conns.values() ) safeSend( conn, packet );
-
-		} else if ( session.hostConn ) {
-
-			safeSend( session.hostConn, packet );
-
-		}
+		if ( session.role === 'host' ) { for ( const conn of session.conns.values() ) safeSend( conn, packet ); }
+		else if ( session.hostConn ) safeSend( session.hostConn, packet );
 
 	}, BROADCAST_DEBOUNCE_MS );
 
@@ -203,6 +473,7 @@ export function leave() {
 		else if ( current.hostConn ) safeSend( current.hostConn, { t: 'bye' } );
 
 	} catch { /* ignore */ }
+	for ( const peerId of [ ...remotes.keys() ] ) removePeerVisuals( peerId );
 	try { current.peer.destroy(); } catch { /* ignore */ }
 	const leaveBtn = document.getElementById( 'mped-leave-btn' );
 	if ( leaveBtn ) leaveBtn.style.display = 'none';
@@ -256,6 +527,7 @@ export function host( code = genCode() ) {
 			if ( ! session || session.role !== 'host' ) return;
 			session.conns.delete( conn.peer );
 			session.players.delete( conn.peer );
+			removePeerVisuals( conn.peer );
 			renderPlayers();
 			broadcastRoster();
 
@@ -340,6 +612,11 @@ function info() {
 		code: session.code,
 		connected: session.role === 'host' ? session.conns.size : ( session.hostConn ? 1 : 0 ),
 		players: [ ...session.players.values() ],
+		remotes: [ ...remotes.entries() ].map( ( [ id, entry ] ) => ( {
+			id,
+			cursor: entry.cursor ? { gx: entry.cursor.gx, gz: entry.cursor.gz } : null,
+			car: entry.car ? { p: entry.car.group.position.toArray() } : null,
+		} ) ),
 	};
 
 }
@@ -403,6 +680,7 @@ export function activateEditorMultiplayer( editorApi ) {
 	api = editorApi;
 	buildPanel();
 	api.setBroadcast( onLocalSave );
+	presenceLoop();
 	// The minimap is rarely used; the multiplayer panel takes its place
 	// while the mod is installed.
 	const wrap = document.getElementById( 'minimap-wrap' );
