@@ -92,95 +92,125 @@
 			grid-template-columns: minmax(0, 1fr) auto;
 			grid-template-rows: auto auto auto;
 			gap: 5px;
-			padding: 6px 8px;
+			padding: 8px 10px;
 			max-width: none;
-			background: rgba(20, 20, 30, 0.85);
-			backdrop-filter: blur(12px);
-			-webkit-backdrop-filter: blur(12px);
-			border-radius: 14px;
-			border: 1px solid rgba(255, 255, 255, 0.1);
-			box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+			background: linear-gradient(180deg, rgba(26, 30, 42, 0.92), rgba(13, 16, 23, 0.92));
+			backdrop-filter: blur(14px);
+			-webkit-backdrop-filter: blur(14px);
+			border-radius: 16px;
+			border: 1px solid rgba(255, 255, 255, 0.07);
+			box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 			z-index: 10;
 		}
 
 		#toolbar button {
-			padding: 4px 7px;
+			padding: 5px 10px;
 			border: none;
 			border-radius: 8px;
 			background: transparent;
-			color: rgba(255, 255, 255, 0.65);
-			font-size: 10px;
-			font-weight: 500;
+			color: rgba(255, 255, 255, 0.68);
+			font-size: 11px;
+			font-weight: 600;
 			cursor: pointer;
-			transition: all 0.15s;
+			transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
 			white-space: nowrap;
 		}
+		#toolbar button:disabled { opacity: 0.32; pointer-events: none; }
 		#toolbar select {
-			padding: 4px 7px;
-			border: 1px solid rgba(255, 255, 255, 0.18);
+			padding: 5px 9px;
+			border: none;
 			border-radius: 8px;
-			background: rgba(8, 10, 14, 0.9);
-			color: rgba(255, 255, 255, 0.92);
-			font-size: 10px;
-			font-weight: 500;
+			background: rgba(255, 255, 255, 0.06);
+			color: rgba(255, 255, 255, 0.88);
+			font-size: 11px;
+			font-weight: 600;
 			cursor: pointer;
 			white-space: nowrap;
 		}
+		#toolbar select:hover { background: rgba(255, 255, 255, 0.1); }
 		#toolbar button:hover {
-			background: rgba(255, 255, 255, 0.1);
+			background: rgba(255, 255, 255, 0.09);
 			color: #fff;
 		}
 		#toolbar button.active {
-			background: rgba(255, 255, 255, 0.18);
+			background: rgba(255, 255, 255, 0.14);
 			color: #fff;
 		}
 
-		/* Tabbed toolbox: category tabs on top, the active category's tools
-		   below, essentials always visible, minimap docked far right. */
+		/* Tabbed toolbox v2: flat, modern — 5 category tabs, essentials row,
+		   minimap docked far right. No boxes, no borders, soft glow accents. */
 		#toolbar-tabs {
 			grid-column: 1;
 			grid-row: 1;
 			display: flex;
 			flex-wrap: wrap;
 			align-items: center;
-			gap: 3px;
+			gap: 2px;
 		}
 		#toolbar button.tool-tab {
-			font-size: 10px;
+			display: inline-flex;
+			align-items: center;
+			gap: 7px;
+			font-size: 10.5px;
 			font-weight: 700;
-			letter-spacing: 0.05em;
+			letter-spacing: 0.08em;
 			text-transform: uppercase;
-			color: rgba(190, 210, 240, 0.66);
-			padding: 6px 10px;
+			color: rgba(190, 205, 235, 0.5);
+			background: transparent !important;
+			padding: 6px 11px;
 			border-radius: 999px;
-			border: 1px solid rgba(255, 255, 255, 0.14) !important;
-			background: rgba(8, 12, 18, 0.6) !important;
+			transition: color 0.16s ease, background 0.16s ease;
 		}
-		#toolbar button.tool-tab:hover { color: #fff; background: rgba(255, 255, 255, 0.1) !important; }
+		#toolbar button.tool-tab::before {
+			content: '';
+			width: 7px;
+			height: 7px;
+			border-radius: 50%;
+			background: var(--tab-accent, rgba(255, 255, 255, 0.5));
+			opacity: 0.5;
+			transition: opacity 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+		}
+		#toolbar button.tool-tab:hover {
+			color: #fff;
+			background: rgba(255, 255, 255, 0.06) !important;
+		}
 		#toolbar button.tool-tab.active {
 			color: #fff;
-			background: rgba(255, 255, 255, 0.14) !important;
-			border-color: var(--tab-accent, rgba(255, 255, 255, 0.35)) !important;
-			box-shadow: inset 0 0 0 1px var(--tab-accent, rgba(255, 255, 255, 0.35));
+			background: rgba(255, 255, 255, 0.08) !important;
+		}
+		#toolbar button.tool-tab.active::before {
+			opacity: 1;
+			transform: scale(1.2);
+			box-shadow: 0 0 9px var(--tab-accent, rgba(255, 255, 255, 0.5));
 		}
 		#toolbar-tools {
 			grid-column: 1;
 			grid-row: 2;
 			display: flex;
 			align-items: stretch;
-			min-height: 42px;
+			min-height: 38px;
 		}
 		.tool-page:not([hidden]) {
 			display: flex;
 			flex-wrap: wrap;
 			align-items: center;
-			gap: 3px;
-			padding: 4px 6px;
-			border-radius: 10px;
-			border: 1px solid rgba(255, 255, 255, 0.08);
-			background: rgba(6, 10, 16, 0.55);
+			gap: 4px;
 			width: 100%;
 			box-sizing: border-box;
+			padding: 1px 2px;
+		}
+		.tool-page button {
+			background: rgba(255, 255, 255, 0.05);
+			color: rgba(255, 255, 255, 0.72);
+		}
+		.tool-page button:hover {
+			background: rgba(255, 255, 255, 0.11);
+			color: #fff;
+		}
+		.tool-page button.active {
+			background: color-mix(in srgb, var(--cat-accent, rgba(255, 255, 255, 0.5)) 22%, transparent);
+			color: #fff;
+			box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cat-accent, rgba(255, 255, 255, 0.5)) 50%, transparent), 0 0 10px color-mix(in srgb, var(--cat-accent, rgba(255, 255, 255, 0.5)) 18%, transparent);
 		}
 		#toolbar-essentials {
 			grid-column: 1;
@@ -188,7 +218,23 @@
 			display: flex;
 			flex-wrap: wrap;
 			align-items: center;
-			gap: 3px;
+			gap: 4px;
+			padding-top: 7px;
+			border-top: 1px solid rgba(255, 255, 255, 0.07);
+		}
+		#toolbar .seg {
+			display: inline-flex;
+			gap: 2px;
+			padding: 2px;
+			border-radius: 9px;
+			background: rgba(255, 255, 255, 0.05);
+		}
+		#toolbar .seg button { background: transparent; color: rgba(255, 255, 255, 0.62); }
+		#toolbar .seg button:hover { color: #fff; }
+		#toolbar .seg button.active {
+			background: rgba(255, 255, 255, 0.14);
+			color: #fff;
+			box-shadow: none;
 		}
 		#toolbar #arc-link-help {
 			width: 100%;
@@ -211,20 +257,21 @@
 		}
 
 		#toolbar button.action {
-			background: rgba(80, 180, 80, 0.25);
-			color: rgba(140, 255, 140, 0.9);
+			background: rgba(72, 199, 132, 0.16);
+			color: rgba(150, 255, 195, 0.95);
 		}
 		#toolbar button.action:hover {
-			background: rgba(80, 180, 80, 0.4);
+			background: rgba(72, 199, 132, 0.32);
 			color: #fff;
+			box-shadow: 0 0 12px rgba(72, 199, 132, 0.18);
 		}
 
 		#toolbar button.danger {
-			color: rgba(255, 255, 255, 0.45);
+			color: rgba(255, 255, 255, 0.42);
 		}
 		#toolbar button.danger:hover {
-			background: rgba(220, 80, 80, 0.25);
-			color: rgba(255, 140, 140, 0.9);
+			background: rgba(255, 105, 97, 0.16);
+			color: rgba(255, 170, 165, 0.95);
 		}
 
 
@@ -472,15 +519,12 @@
 	</style>
 	
 <style>
-/* ─── Tabbed toolbox: per-category accent colors ─── */
-.tool-tab[data-cat="track"]     { --tab-accent: rgba(100, 220, 120, 0.8); }
-.tool-tab[data-cat="elevated"]   { --tab-accent: rgba(255, 190, 80, 0.8); }
-.tool-tab[data-cat="obstacles"] { --tab-accent: rgba(255, 160, 60, 0.8); }
-.tool-tab[data-cat="moving"]    { --tab-accent: rgba(255, 100, 100, 0.8); }
-.tool-tab[data-cat="water"]     { --tab-accent: rgba(100, 160, 255, 0.8); }
-.tool-tab[data-cat="pads"]      { --tab-accent: rgba(90, 210, 240, 0.8); }
-.tool-tab[data-cat="decor"]     { --tab-accent: rgba(180, 120, 255, 0.8); }
-.tool-tab[data-cat="special"]   { --tab-accent: rgba(120, 220, 200, 0.8); }
+/* ─── Tabbed toolbox v2: per-category accent colors ─── */
+.tool-tab[data-cat="track"],     .tool-page[data-cat="track"]     { --tab-accent: rgba(100, 220, 120, 0.9); --cat-accent: rgba(100, 220, 120, 0.9); }
+.tool-tab[data-cat="obstacles"], .tool-page[data-cat="obstacles"] { --tab-accent: rgba(255, 160, 60, 0.9); --cat-accent: rgba(255, 160, 60, 0.9); }
+.tool-tab[data-cat="waterpads"], .tool-page[data-cat="waterpads"] { --tab-accent: rgba(90, 170, 255, 0.9); --cat-accent: rgba(90, 170, 255, 0.9); }
+.tool-tab[data-cat="decor"],     .tool-page[data-cat="decor"]     { --tab-accent: rgba(180, 120, 255, 0.9); --cat-accent: rgba(180, 120, 255, 0.9); }
+.tool-tab[data-cat="special"],   .tool-page[data-cat="special"]   { --tab-accent: rgba(110, 225, 205, 0.9); --cat-accent: rgba(110, 225, 205, 0.9); }
 
 /* ─── Feature 8: Collapsible settings bar ─── */
 #settings-bar.collapsed .settings-row > *:not(#settings-toggle-btn) { display: none !important; }
@@ -488,7 +532,7 @@
 #settings-toggle-btn:hover { color: #fff; }
 
 /* ─── Feature 4: Minimap — docked inside the toolbox, far right ─── */
-#minimap-wrap { grid-column: 2; grid-row: 1 / 4; align-self: center; position: relative; width: 124px; height: 124px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); box-shadow: 0 4px 20px rgba(0,0,0,0.45); margin-left: 2px; }
+#minimap-wrap { grid-column: 2; grid-row: 1 / 4; align-self: center; position: relative; width: 124px; height: 124px; border-radius: 12px; overflow: hidden; background: rgba(8,12,18,0.92); box-shadow: 0 0 0 1px rgba(255,255,255,0.07), 0 6px 24px rgba(0,0,0,0.5); margin-left: 4px; }
 #minimap-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
 #track-slots { position: absolute; left: 12px; top: 12px; display: flex; gap: 4px; padding: 5px; border-radius: 10px; background: rgba(20,20,30,0.84); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 4px 20px rgba(0,0,0,0.35); z-index: 16; }
 #btn-storage-chip { color: #cfd8ea; background: rgba(8,10,14,0.9); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
@@ -640,12 +684,9 @@
 
 	<div id="toolbar">
 		<div id="toolbar-tabs" role="tablist" aria-label="Block categories">
-			<button class="tool-tab" type="button" data-cat="track">Road</button>
-			<button class="tool-tab" type="button" data-cat="elevated">Elevated</button>
+			<button class="tool-tab" type="button" data-cat="track">Track</button>
 			<button class="tool-tab" type="button" data-cat="obstacles">Obstacles</button>
-			<button class="tool-tab" type="button" data-cat="moving">Moving</button>
-			<button class="tool-tab" type="button" data-cat="water">Water</button>
-			<button class="tool-tab" type="button" data-cat="pads">Pads &amp; Surfaces</button>
+			<button class="tool-tab" type="button" data-cat="waterpads">Water &amp; Pads</button>
 			<button class="tool-tab" type="button" data-cat="decor">Decor</button>
 			<button class="tool-tab" type="button" data-cat="special">Special</button>
 		</div>
@@ -662,8 +703,7 @@
 					<option value="track-start">Place: Start</option>
 					<option value="track-finish">Place: Finish</option>
 				</select>
-			</div>
-			<div class="tool-page" data-cat="elevated" hidden>
+				<span class="separator"></span>
 				<button id="btn-elevated-straight" style="display:none">Elev Straight</button>
 				<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
 				<button id="btn-elevated-cross" style="display:none">Elev Cross</button>
@@ -680,18 +720,16 @@
 				<button id="btn-cube">Cube +</button>
 				<button id="btn-wall">Wall +</button>
 				<button id="btn-jump">Jump +</button>
-			</div>
-			<div class="tool-page" data-cat="moving" hidden>
+				<span class="separator"></span>
 				<button id="btn-moving-slide">Sliding Block +</button>
 				<button id="btn-moving-spin">Spinning Wall +</button>
 				<button id="btn-moving-orbit">Orbit Poles +</button>
 				<button id="btn-moving-custom">Custom Mover +</button>
 			</div>
-			<div class="tool-page" data-cat="water" hidden>
+			<div class="tool-page" data-cat="waterpads" hidden>
 				<button id="btn-water">Water Pool +</button>
 				<button id="btn-custom-pool" title="Opens custom pool settings"><input type="checkbox" id="cp-colors-toggle" aria-label="Enable custom pool colors"> Custom Pool</button>
-			</div>
-			<div class="tool-page" data-cat="pads" hidden>
+				<span class="separator"></span>
 				<select id="surface-select" aria-label="Surface picker">
 					<option value="">Surface…</option>
 					<option value="surface-wood">Wood</option>
@@ -702,6 +740,10 @@
 					<option value="surface-kick-l">Kick Left</option>
 					<option value="surface-kick-r">Kick Right</option>
 				</select>
+				<button id="btn-surface-custom-a">Custom A</button>
+				<button id="btn-surface-custom-b">Custom B</button>
+				<button id="btn-surface-custom-c">Custom C</button>
+				<span class="separator"></span>
 				<select id="pad-select" aria-label="Pad picker">
 					<option value="">Pads…</option>
 					<option value="pad-reset">Reset Effects</option>
@@ -719,13 +761,9 @@
 					<option value="pad-size-normal">Normal Pad (1.0×)</option>
 					<option value="pad-size-mega">Mega Pad (1.8×)</option>
 				</select>
-				<button id="btn-surface-custom-a">Custom A</button>
-				<button id="btn-surface-custom-b">Custom B</button>
-				<button id="btn-surface-custom-c">Custom C</button>
 				<button id="btn-pad-custom-a">Pad A</button>
 				<button id="btn-pad-custom-b">Pad B</button>
 				<button id="btn-pad-custom-c">Pad C</button>
-				<button id="btn-overlap-toggle">Overlap: Off</button>
 			</div>
 			<div class="tool-page" data-cat="decor" hidden>
 				<button id="btn-deco-forest">Tree</button>
@@ -736,6 +774,7 @@
 				<button id="btn-building-small-b">Bldg B</button>
 				<button id="btn-building-small-c">Bldg C</button>
 				<button id="btn-building-small-d">Bldg D</button>
+				<span class="separator"></span>
 				<button id="btn-custom-import">Import 3D</button>
 				<button id="btn-custom-cycle">Custom: none</button>
 				<input id="custom-model-file" type="file" accept=".glb,.gltf,.obj,model/gltf-binary,model/gltf+json" style="display:none" />
@@ -759,14 +798,18 @@
 			<button id="btn-portal-id-down" title="Decrease selected arc/portal link id">Arc/Portal ID -</button>
 			<button id="btn-portal-id-up" title="Increase selected arc/portal link id">Arc/Portal ID +</button>
 			<div id="arc-link-help">Arc Link flow: <strong>Orange launches</strong> to matching <strong>Green endpoint</strong>. Portal flow: <strong>Purple teleports</strong> to matching <strong>Yellow endpoint</strong> and keeps velocity. Green/Yellow never launch.</div>
-			</div>
 		</div>
+		</div>
+		<span data-cat="tools" hidden aria-hidden="true"></span>
 		<div id="toolbar-essentials">
-			<button id="btn-paint" class="active">Paint</button>
-			<button id="btn-erase">Erase</button>
+			<span class="seg">
+				<button id="btn-paint" class="active">Paint</button>
+				<button id="btn-erase">Erase</button>
+			</span>
 			<button id="btn-undo" title="Undo (Ctrl/Cmd+Z)" disabled>Undo</button>
 			<button id="btn-redo" title="Redo (Ctrl+Y or Cmd+Shift+Z)" disabled>Redo</button>
 			<button id="btn-rotate" title="Rotate the piece before placing">Rotate: 0°</button>
+			<button id="btn-overlap-toggle" title="Let blocks overlap on the same cell">Overlap: Off</button>
 			<button id="btn-flow">Flow: Off</button>
 			<button id="btn-offgrid">Snap: Grid</button>
 			<span class="separator"></span>
