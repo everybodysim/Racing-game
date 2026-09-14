@@ -81,9 +81,9 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
 	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT - FLAT_ELEVATED_SURFACE_DROP;
 	const slopeDeckTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H;
-	// How far the merged flat-deck surface box protrudes past its cell boundary
-	// into the neighbouring slope cell (edgeOverhang * 0.5 — see
-	// addMergedElevatedSurfaceColliders).
+	// How far the slope collider tucks past the flat-deck cell's edge
+	// (edgeOverhang * 0.5 — see getSlopeGeometry +
+	// addFlatElevatedSurfaceColliders).
 	const SLOPE_DECK_EDGE_PROTRUSION = CELL_RAW * S * 0.03 * 0.5;
 	// Slope↔slope seams (two high ends meeting = a peak, or a deck-less top)
 	// are sealed with a small coplanar overlap so the ball can never drop
@@ -646,9 +646,16 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	function addMergedElevatedSurfaceColliders( elevatedList ) {
+	function addFlatElevatedSurfaceColliders( elevatedList ) {
 
-		const flatSet = new Set();
+		// One collider per flat elevated cell. The old greedy rectangle merge
+		// (adjacent flat decks fused into single spanning boxes with a 3%
+		// edgeOverhang) was a seam-clipping workaround. Seam clipping is now
+		// fixed at the physics level, and the merged boxes caused their own
+		// problems — one rect covered every cell in the run, including edges
+		// hanging past blocks that shouldn't have them. Ground-level cells are
+		// untouched (they were never merged).
+		const half = CELL_HALF * S;
 		for ( const entry of elevatedList ) {
 
 			if ( ! Array.isArray( entry ) ) continue;
@@ -656,90 +663,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const gx = Number( gxRaw );
 			const gz = Number( gzRaw );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
-			if ( elevatedType !== 'elevated-straight' && elevatedType !== 'elevated-cross' && elevatedType !== 'elevated-corner' && elevatedType !== 'elevated-cross-corner' && elevatedType !== 'elevated-checkpoint' && elevatedType !== 'elevated-3-way' && elevatedType !== 'elevated-4-way' ) continue;
-			flatSet.add( `${ gx },${ gz }` );
+			if ( ! FLAT_ELEVATED_TYPES.has( elevatedType ) ) continue;
 
-		}
-
-		if ( flatSet.size === 0 ) return;
-
-		const rows = new Map();
-		for ( const cellKey of flatSet ) {
-
-			const [ gx, gz ] = cellKey.split( ',' ).map( Number );
-			if ( ! rows.has( gz ) ) rows.set( gz, [] );
-			rows.get( gz ).push( gx );
-
-		}
-
-		const rowKeys = [ ...rows.keys() ].sort( ( a, b ) => a - b );
-		const activeRects = new Map();
-		const finishedRects = [];
-
-		for ( const gz of rowKeys ) {
-
-			const xs = rows.get( gz ).sort( ( a, b ) => a - b );
-			const spans = [];
-			let start = xs[ 0 ];
-			let prev = xs[ 0 ];
-			for ( let i = 1; i < xs.length; i ++ ) {
-
-				const x = xs[ i ];
-				if ( x === prev + 1 ) {
-
-					prev = x;
-					continue;
-
-				}
-				spans.push( [ start, prev ] );
-				start = x;
-				prev = x;
-
-			}
-			spans.push( [ start, prev ] );
-
-			const nextActive = new Map();
-			for ( const [ spanStart, spanEnd ] of spans ) {
-
-				const spanKey = `${ spanStart },${ spanEnd }`;
-				const existing = activeRects.get( spanKey );
-				if ( existing ) {
-
-					existing.maxZ = gz;
-					nextActive.set( spanKey, existing );
-
-				} else {
-
-					nextActive.set( spanKey, { minX: spanStart, maxX: spanEnd, minZ: gz, maxZ: gz } );
-
-				}
-
-			}
-
-			for ( const [ spanKey, rect ] of activeRects ) {
-
-				if ( ! nextActive.has( spanKey ) ) finishedRects.push( rect );
-
-			}
-
-			activeRects.clear();
-			for ( const [ spanKey, rect ] of nextActive ) activeRects.set( spanKey, rect );
-
-		}
-
-		for ( const rect of activeRects.values() ) finishedRects.push( rect );
-
-		const edgeOverhang = CELL_RAW * S * 0.03;
-		for ( const rect of finishedRects ) {
-
-			const spanCellsX = rect.maxX - rect.minX + 1;
-			const spanCellsZ = rect.maxZ - rect.minZ + 1;
-			const fullX = spanCellsX * CELL_RAW * S + edgeOverhang;
-			const fullZ = spanCellsZ * CELL_RAW * S + edgeOverhang;
-			const halfExtents = [ fullX * 0.5, ELEVATED_SURFACE_HALF_H, fullZ * 0.5 ];
-			const centerX = ( ( rect.minX + rect.maxX + 1 ) * 0.5 ) * CELL_RAW * S;
-			const centerZ = ( ( rect.minZ + rect.maxZ + 1 ) * 0.5 ) * CELL_RAW * S;
-			const position = [ centerX, elevatedSurfaceY, centerZ ];
+			const halfExtents = [ half, ELEVATED_SURFACE_HALF_H, half ];
+			const position = [ ( gx + 0.5 ) * CELL_RAW * S, elevatedSurfaceY, ( gz + 0.5 ) * CELL_RAW * S ];
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
 				motionType: MotionType.STATIC,
@@ -1061,7 +988,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	addMergedElevatedSurfaceColliders( elevatedEntries );
+	addFlatElevatedSurfaceColliders( elevatedEntries );
 
 	for ( const [ gx, gz, elevatedType, orient = 0 ] of elevatedEntries ) {
 
