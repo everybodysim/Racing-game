@@ -16,7 +16,7 @@ try { wanted = localStorage.getItem( 'racing-mp-backend' ) || 'supabase'; } catc
 
 if ( wanted === 'supabase' ) {
 	try {
-		backend = ( await import( './SupabasePeer.js' ) ).default;
+		backend = ( await import( './SupabasePeer.js?v=2' ) ).default;
 	} catch ( e ) {
 		console.warn( '[MP] Supabase transport unavailable, falling back to PeerJS:', e );
 		backend = null;

@@ -160,6 +160,9 @@ function bcast( room, env ) {
 }
 
 const HOST_BEACON_MS = 2500;
+// Data flush window: one room broadcast per window => ~15 broadcasts/s per
+// page, safely under Supabase free tier's ~20 messages/s per client cap.
+const DATA_FLUSH_MS = 66;
 const CLAIM_LISTEN_MS = 350;
 
 class SupabaseConnection {
@@ -171,7 +174,6 @@ class SupabaseConnection {
 		this._me = peer._myId;
 		this._ev = emitter();
 		this._sendQueue = [];
-		this._flushTimer = null;
 		this._helloTimer = null;
 		this._helloTries = 0;
 		this._closed = false;
@@ -205,31 +207,22 @@ class SupabaseConnection {
 		this._on( 'open' );
 	}
 
-	// One message per 'data' event on receive (we un-batch); sends coalesce.
+	// One message per 'data' event on receive (we un-batch on arrival); on the
+	// wire every connection's queue is bundled into ONE room broadcast per
+	// flush window. Supabase's free tier drops messages past ~20 broadcasts
+	// per second per client, so the transport paces itself under that cap:
+	// one broadcast every DATA_FLUSH_MS no matter how many connections or
+	// how hot the 30Hz pose streams are.
 	send( data ) {
 		if ( this._closed ) throw new Error( 'Connection is closed' );
 		this._sendQueue.push( data );
-		if ( ! this._flushTimer ) this._flushTimer = setTimeout( () => this._flush(), 40 );
-	}
-
-	_flush() {
-		this._flushTimer = null;
-		const batch = this._sendQueue;
-		this._sendQueue = [];
-		if ( batch.length && ! this._closed ) {
-			whenReady( this._room ).then( () => {
-				if ( ! this._closed && batch.length ) {
-					bcast( this._room, this._peer._stamp( { k: 'data', from: this._me, to: this.peer, b: batch } ) );
-				}
-			} );
-		}
+		this._peer._armDataFlush();
 	}
 
 	close() {
 		if ( this._closed ) return;
 		this._closed = true;
 		this._stopHello();
-		this._flush();
 		bcast( this._room, this._peer._stamp( { k: 'bye', from: this._me, to: this.peer } ) );
 		this._peer._dropConn( this.peer );
 		this._ev.emit( 'close' );
@@ -251,6 +244,7 @@ class SupabasePeer {
 		this._claimTimer = null;
 		this._resolved = false;
 		this._pendingHellos = [];
+		this._dataTimer = null;
 		if ( this._isHostClaim ) {
 			this._resolveHostClaim();
 		} else {
@@ -362,9 +356,15 @@ class SupabasePeer {
 				}
 				break;
 			case 'data': {
-				if ( env.to !== this._myId ) return;
 				const conn = this._conns.get( env.from );
-				if ( conn && Array.isArray( env.b ) ) {
+				if ( ! conn ) break;
+				if ( Array.isArray( env.items ) ) {
+					for ( const item of env.items ) {
+						if ( item && item.to === this._myId && Array.isArray( item.b ) ) {
+							for ( const x of item.b ) conn._on( 'data', x );
+						}
+					}
+				} else if ( env.to === this._myId && Array.isArray( env.b ) ) {
 					for ( const item of env.b ) conn._on( 'data', item );
 				}
 				break;
@@ -403,6 +403,50 @@ class SupabasePeer {
 		this._conns.delete( remoteId );
 	}
 
+	// ── rate-limit-safe data flushing ────────────────────────────────────
+	// All connections' queued messages leave as a single broadcast carrying
+	// per-recipient items; receivers pick out items addressed to them. This
+	// keeps total broadcasts per page at ~1000/DATA_FLUSH_MS per second,
+	// under Supabase's free-tier per-client message cap.
+	_armDataFlush() {
+		if ( this._dataTimer || this._destroyed ) return;
+		this._dataTimer = setTimeout( () => {
+			this._dataTimer = null;
+			this._flushDataOut();
+		}, DATA_FLUSH_MS );
+	}
+
+	_flushDataOut() {
+		if ( this._destroyed || ! this._room ) return;
+		const items = [];
+		for ( const conn of this._conns.values() ) {
+			if ( conn._closed || ! conn._sendQueue.length ) continue;
+			items.push( { to: conn.peer, b: conn._sendQueue } );
+			conn._sendQueue = [];
+		}
+		if ( ! items.length ) return;
+		whenReady( this._room ).then( () => {
+			if ( this._destroyed ) return;
+			// Conns may have queued more while waiting; re-arm instead of
+			// bursting a second broadcast.
+			if ( this._dataTimer ) { this._stashItems( items ); return; }
+			bcast( this._room, this._stamp( { k: 'data', from: this._myId, items } ) );
+			// Anything queued during the await rides the next window.
+			let more = false;
+			for ( const conn of this._conns.values() ) if ( conn._sendQueue.length ) { more = true; break; }
+			if ( more ) this._armDataFlush();
+		} );
+	}
+
+	_stashItems( items ) {
+		// A broadcast is already scheduled; put these items back so they
+		// ride that window (prepend keeps per-recipient ordering).
+		for ( const item of items ) {
+			const conn = this._conns.get( item.to );
+			if ( conn ) conn._sendQueue = item.b.concat( conn._sendQueue );
+		}
+	}
+
 	// ── public API ───────────────────────────────────────────────────────────
 	connect( targetId, _opts ) {
 		if ( this._destroyed ) throw new Error( 'Peer is destroyed' );
@@ -418,6 +462,7 @@ class SupabasePeer {
 		this._destroyed = true;
 		if ( this._claimTimer ) { clearTimeout( this._claimTimer ); this._claimTimer = null; }
 		if ( this._hostBeacon ) { clearInterval( this._hostBeacon ); this._hostBeacon = null; }
+		if ( this._dataTimer ) { clearTimeout( this._dataTimer ); this._dataTimer = null; }
 		for ( const conn of this._conns.values() ) {
 			if ( ! conn._closed ) conn.close();
 		}
