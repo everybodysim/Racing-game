@@ -116,6 +116,8 @@
 			transition: all 0.15s;
 			white-space: nowrap;
 		}
+		/* OS select popups render on white — force dark text inside them. */
+		select option { color: #16181d; background: #fff; }
 		#toolbar select {
 			padding: 4px 7px;
 			border: 1px solid rgba(255, 255, 255, 0.18);
@@ -485,7 +487,8 @@
 #settings-toggle-btn { cursor: pointer; font-weight: 700; color: rgba(180, 210, 255, 0.9); white-space: nowrap; border: none; background: none; padding: 4px 8px; font-size: 12px; }
 #settings-toggle-btn:hover { color: #fff; }
 
-/* ─── Feature 4: Minimap ─── */
+/* ─── Feature 4: Minimap — removed from the editor UI for now ─── */
+#minimap-wrap { display: none !important; }
 #minimap-wrap { position: absolute; left: 12px; top: 70px; width: 140px; height: 140px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: rgba(8,12,18,0.88); z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.45); }
 #minimap-canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
 #track-slots { position: absolute; left: 12px; top: 12px; display: flex; gap: 4px; padding: 5px; border-radius: 10px; background: rgba(20,20,30,0.84); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 4px 20px rgba(0,0,0,0.35); z-index: 16; }
@@ -3106,7 +3109,9 @@ function computeCausticShade( normal ) {
 	// what a click will place. Moving-obstacle sizes are world units in the
 	// drive world (added straight to the scene), but ghostGroup is scaled by
 	// GRID_SCALE — convert with toLocal so the ghost is the same visual size.
-	function addObstacleGhost( type, gx, gz, orient ) {
+	// target: optional — the Multiplayer Editor mod renders remote players'
+	// placement previews through the same builder.
+	function addObstacleGhost( type, gx, gz, orient, target ) {
 
 		const group = new THREE.Group();
 		const toLocal = ( world ) => world / GRID_SCALE;
@@ -3191,11 +3196,11 @@ function computeCausticShade( normal ) {
 		// -0.5 + CELL_RAW*GRID_SCALE*0.08 == ghostGroup-local CELL_RAW*0.08
 		// (ghostGroup already carries the -0.5 offset).
 		group.position.set( isMoving ? cx : 0, isMoving ? CELL_RAW * 0.08 : 0, isMoving ? cz : 0 );
-		ghostGroup.add( group );
+		( target || ghostGroup ).add( group );
 
 	}
 
-	function addGhostPiece( type, orient, gx, gz, opacity ) {
+	function addGhostPiece( type, orient, gx, gz, opacity, target ) {
 
 		const modelType = ( type === 'track-checkpoint' || type === 'track-start' || type === 'track-start-finish' ) ? 'track-finish' : type;
 		const src = models[ modelType ];
@@ -3239,7 +3244,7 @@ function computeCausticShade( normal ) {
 
 		} );
 
-		ghostGroup.add( mesh );
+		( target || ghostGroup ).add( mesh );
 
 		// Slope direction arrow — bright cone pointing uphill
 		if ( type === 'elev-track-slope' || type === 'slope-up' || type === 'slope-down' ) {
@@ -3296,6 +3301,21 @@ function computeCausticShade( normal ) {
 		ghostGroup.add( preview );
 
 	}
+
+	// Tool type -> ghost model key (module-level: shared by the local hover
+	// ghost and the Multiplayer Editor's remote placement previews).
+	const REMOTE_GHOST_MODEL_KEYS = {
+		[ BUMP_TOOL ]: 'track-bump',
+		[ POOL_SLOPE_TOOL ]: 'elev-track-slope',
+		'elevated-straight': 'elev-track-straight',
+		'elevated-cross': 'elev-track-cross',
+		'elevated-corner': 'elev-track-corner',
+		'elevated-cross-corner': 'elev-cross-corners',
+		'elevated-checkpoint': 'elev-track-checkpoint',
+		'slope-up': 'elev-track-slope',
+		'elevated-3-way': 'elev-track-3-way',
+		'elevated-4-way': 'elev-track-4-way',
+	};
 
 	function updateGhost( gx, gz ) {
 
@@ -3356,20 +3376,7 @@ function computeCausticShade( normal ) {
 			return;
 
 		}
-		const ghostModelKeys = {
-			[ BUMP_TOOL ]: 'track-bump',
-			[ POOL_SLOPE_TOOL ]: 'elev-track-slope',
-			'elevated-straight': 'elev-track-straight',
-			'elevated-cross': 'elev-track-cross',
-			'elevated-corner': 'elev-track-corner',
-			'elevated-cross-corner': 'elev-cross-corners',
-			'elevated-checkpoint': 'elev-track-checkpoint',
-			'slope-up': 'elev-track-slope',
-			'elevated-3-way': 'elev-track-3-way',
-			'elevated-4-way': 'elev-track-4-way',
-		};
-		const ghostType = ghostModelKeys[ selectedType ] || ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType );
-		addGhostPiece( ghostType, selectedOrient, gx, gz, 0.4 );
+		addGhostPiece( REMOTE_GHOST_MODEL_KEYS[ selectedType ] || ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType ), selectedOrient, gx, gz, 0.4 );
 
 	}
 
@@ -3498,6 +3505,11 @@ function computeCausticShade( normal ) {
 
 	// ─── Persistence ──────────────────────────────────────────
 
+	// Multiplayer Editor: set by js/EditorMultiplayer.js while the feature
+	// is installed. var (not let) — save() can run before the mod activation
+	// block at the bottom of the module executes.
+	var editorMpBroadcast = null;
+
 	function save() {
 
 		markEditorCollidersDirty();
@@ -3505,7 +3517,8 @@ function computeCausticShade( normal ) {
 
 		const encoded = encodeCells( arr );
 		const modsEncoded = encodeMods();
-		const cellsStored = safeSetItem( 'racing-editor-cells', encoded );
+		if ( editorMpBroadcast ) { try { editorMpBroadcast( encoded, modsEncoded ); } catch { /* multiplayer must never break saving */ } }
+			const cellsStored = safeSetItem( 'racing-editor-cells', encoded );
 		const modsStored = safeSetItem( 'racing-editor-mods', modsEncoded );
 		const slotStored = cellsStored && modsStored && safeSetItem( `${ TRACK_SLOT_KEY_PREFIX }${ activeTrackSlot }`, JSON.stringify( { cells: encoded, mods: modsEncoded, updatedAt: Date.now() } ) );
 		if ( cellsStored && modsStored ) {
@@ -7300,6 +7313,9 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			getWaterState: () => fxWaterState,
 			isVehicleInWater: () => fxVehicleInWater( vehicle?.spherePos ),
 			getVehiclePos: () => ( vehicle?.spherePos ? vehicle.spherePos.toArray() : null ),
+			// Full 3D pose for the Multiplayer Editor mod: remote players
+			// see this car rendered live in their editors.
+			getVehiclePose: () => ( vehicle?.container ? { p: vehicle.container.position.toArray(), q: vehicle.container.quaternion.toArray() } : null ),
 			markDirty: () => { dirty = true; lastEditAt = performance.now() * 0.001; },
 			startRotate, moveRotate, endRotate,
 			isRotating: () => rotating,
@@ -7313,7 +7329,61 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 	} )();
 
-	</script>
+	
+	// ─── Multiplayer Editor mod (activation is mod-gated) ────────
+	// Built-in Multiplayer Editor: always hand the collaborative editing
+	// module (js/EditorMultiplayer.js) a small bridge to the editor
+	// internals — full state encode, apply-without-reload,
+	// broadcast-on-save. The panel docks below the minimap (which stays);
+	// PeerJS itself is loaded on demand by the module on first Host/Join.
+	( () => {
+
+		const bridge = {
+			setBroadcast( fn ) { editorMpBroadcast = fn; },
+			getState() { return { cells: encodeCells( getCellsArray() ), mods: encodeMods() }; },
+			async applyState( cells, mods ) { await loadEncodedState( cells, mods ); },
+			playerName() {
+
+				try { return ( localStorage.getItem( 'racing-player-name-v1' ) || '' ).trim() || 'Anonymous'; } catch { return 'Anonymous'; }
+
+			},
+			getHoverState() {
+
+				// Where the local player's brush currently hovers — broadcast
+				// so peers see a transparent preview of the placement.
+				if ( ! hoveredCell ) return null;
+				return { gx: hoveredCell.gx, gz: hoveredCell.gz, type: selectedType, orient: selectedOrient, erase: tool === 'erase' };
+
+			},
+			cellCenter( gx, gz ) { return [ ( gx + 0.5 ) * CELL_RAW * GRID_SCALE, 0, ( gz + 0.5 ) * CELL_RAW * GRID_SCALE ]; },
+			getScene() { return scene; },
+				// Build the REAL block preview (same mesh + opacity as the local
+				// hover ghost) for a remote player's placement. Returns a group
+				// already transformed to world space, or null when there is no
+				// model ghost for this tool (caller falls back to a slab).
+				buildRemoteGhost( type, orient, gx, gz ) {
+
+					const OBSTACLE_GHOST_TYPES = [ POLE_TOOL, CUBE_TOOL, WALL_TOOL, JUMP_TOOL ];
+					const inner = new THREE.Group();
+					if ( OBSTACLE_GHOST_TYPES.includes( type ) || isMovingObstacleTool( type ) ) addObstacleGhost( type, gx, gz, orient, inner );
+					else if ( type === MAGNET_BLUE_TOOL || type === MAGNET_RED_TOOL || type === MAGNET_GRAPPLE_TOOL || type === ARC_GREEN_TOOL || type === ARC_ORANGE_TOOL || type === PORTAL_YELLOW_TOOL || type === PORTAL_PURPLE_TOOL ) return null;
+					else addGhostPiece( REMOTE_GHOST_MODEL_KEYS[ type ] || ( SURFACE_TYPES.includes( type ) ? 'track-straight' : type ), orient, gx, gz, 0.4, inner );
+					if ( ! inner.children.length ) return null;
+					const wrap = new THREE.Group();
+					wrap.position.y = - 0.5;
+					wrap.scale.setScalar( GRID_SCALE );
+					wrap.add( inner );
+					return wrap;
+
+				},
+		};
+		import( './js/EditorMultiplayer.js' ).then( ( m ) => m.activateEditorMultiplayer( bridge ) ).catch( ( error ) => console.warn( 'Multiplayer Editor failed to start', error ) );
+
+	} )();
+
+
+
+</script>
 </main>
 
 <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
