@@ -62,7 +62,6 @@ function getClient() {
 	return sharedClient;
 }
 
-const ROOM_PREFIX_RE = /^RACE-ROOM-/;
 function roomKeyFor( peerId ) {
 	return 'room-' + String( peerId ).replace( ROOM_PREFIX_RE, '' ).toLowerCase();
 }
@@ -84,6 +83,10 @@ function emitter() {
 		},
 	};
 }
+
+// Game room ids (RACE-ROOM-<code>) map to channel "room-<code>"; other
+// explicit ids (e.g. EDITOR-ROOM-<code>) keep their full slug.
+const ROOM_PREFIX_RE = /^RACE-ROOM-/;
 
 // One Realtime room per RACE-ROOM-<code>, shared across every SupabasePeer in
 // this tab. The channel's listeners dispatch to all attached peers.
@@ -234,7 +237,9 @@ class SupabasePeer {
 		this.id = null;
 		this._destroyed = false;
 		this._opening = false;
-		this._isHostClaim = !! ( id && ROOM_PREFIX_RE.test( id ) );
+		// PeerJS semantics: an explicit id means the peer CLAIMS that id.
+		// Any prefix works (RACE-ROOM-, EDITOR-ROOM-, custom).
+		this._isHostClaim = !! id;
 		this._myId = this._isHostClaim ? id : ( id || randomId() );
 		this._token = 'tk-' + randomId();
 		this._ev = emitter();
@@ -269,7 +274,7 @@ class SupabasePeer {
 		return room;
 	}
 
-	// A host claim (id = RACE-ROOM-<code>): listen briefly for an existing
+	// A host claim (explicit id): listen briefly for an existing
 	// host's beacon, then claim (beacon + 'open'), or emit 'unavailable-id'.
 	_resolveHostClaim() {
 		const room = this._attach( roomKeyFor( this._myId ) );
