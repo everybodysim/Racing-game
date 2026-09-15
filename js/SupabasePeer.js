@@ -37,8 +37,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // The anon key is designed to be public: it only grants access gated by Row
 // Level Security, and racing rooms need no database tables at all. Fill these
 // in once after creating the project at https://supabase.com.
-let SUPABASE_URL = '';
-let SUPABASE_ANON_KEY = '';
+let SUPABASE_URL = 'https://qgpzrqepnclaocerowgk.supabase.co';
+let SUPABASE_ANON_KEY = 'sb_publishable_ihLanRNKK65DmybkYPBI0Q_qDixxWZB';
 // Runtime override: setting localStorage 'sc-supabase-url' / 'sc-supabase-key'
 // lets credentials be swapped without editing code.
 try {
@@ -51,8 +51,10 @@ function getClient() {
 	if ( ! SUPABASE_URL || ! SUPABASE_ANON_KEY ) {
 		throw new Error( '[SupabasePeer] Not configured: set SUPABASE_URL and SUPABASE_ANON_KEY in js/SupabasePeer.js' );
 	}
+	// The bare project host is required (a /rest/v1 suffix breaks Realtime).
+	const rtUrl = SUPABASE_URL.replace( /\/rest\/v1\/?$/, '' ).replace( /\/+$/, '' );
 	if ( ! sharedClient ) {
-		sharedClient = createClient( SUPABASE_URL, SUPABASE_ANON_KEY, {
+		sharedClient = createClient( rtUrl, SUPABASE_ANON_KEY, {
 			realtime: { params: { eventsPerSecond: 100 } },
 			auth: { persistSession: false, autoRefreshToken: false },
 		} );

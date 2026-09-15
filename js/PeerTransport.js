@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // PeerTransport — picks which multiplayer transport the game loads.
 //
-//   localStorage['racing-mp-backend'] === 'supabase'  → js/SupabasePeer.js
-//   anything else (default)                            → PeerJS (unchanged)
+//   default                                            → js/SupabasePeer.js
+//   localStorage['racing-mp-backend'] === 'peerjs'      → PeerJS (escape hatch)
 //
 // If the Supabase backend fails to load (no credentials yet, CDN hiccup),
 // we fall back to PeerJS so multiplayer always boots. PeerJS stays exactly
@@ -10,8 +10,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 let backend = null;
-let wanted = 'peerjs';
-try { wanted = localStorage.getItem( 'racing-mp-backend' ) || 'peerjs'; } catch { /* private mode */ }
+// Default: Supabase (the PeerJS escape hatch stays available).
+let wanted = 'supabase';
+try { wanted = localStorage.getItem( 'racing-mp-backend' ) || 'supabase'; } catch { /* private mode */ }
 
 if ( wanted === 'supabase' ) {
 	try {
