@@ -31,7 +31,18 @@ import * as THREE from 'three';
 let PeerLib = null;
 async function ensurePeerLib() {
 
-	if ( ! PeerLib ) PeerLib = ( await import( 'https://esm.sh/peerjs@1.5.5?bundle' ) ).default;
+	// Supabase Realtime transport (PeerJS-compatible API), same one the game
+	// racing rooms use. Falls back to PeerJS only if it fails to load.
+	if ( ! PeerLib ) {
+		try {
+			PeerLib = ( await import( './SupabasePeer.js?v=3' ) ).default;
+			console.log( '[EditorMP] transport: supabase' );
+		} catch ( e ) {
+			console.warn( '[EditorMP] Supabase transport unavailable, using PeerJS:', e );
+			PeerLib = ( await import( 'https://esm.sh/peerjs@1.5.5?bundle' ) ).default;
+			console.log( '[EditorMP] transport: peerjs (fallback)' );
+		}
+	}
 	return PeerLib;
 
 }
