@@ -360,18 +360,18 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 					// a red pool must read RED from anywhere.
 					const hsl = { h: 0, s: 0, l: 0 };
 					c.getHSL( hsl );
-					c.setHSL( hsl.h, Math.min( 1, hsl.s * 3.5 ), THREE.MathUtils.clamp( 0.38 + hsl.l * 0.55, 0.42, 0.78 ) );
-					c.multiplyScalar( 1.55 );
+					c.setHSL( hsl.h, Math.min( 1, hsl.s * 3 ), THREE.MathUtils.clamp( 0.35 + hsl.l * 0.5, 0.4, 0.72 ) );
+					c.multiplyScalar( 1.35 );
 
 				}
-				return c.lerp( new THREE.Color( 0x041f3d ), visuals.isCustom ? 0.01 : 0.6 );
+				return c.lerp( new THREE.Color( 0x041f3d ), visuals.isCustom ? 0.03 : 0.6 );
 
 			} )() },
 			// Neutral tint for custom pools (no blue shift); classic cool tint otherwise.
 			uTint: { value: new THREE.Vector3( visuals.isCustom ? 1 : 0.86, visuals.isCustom ? 1 : 0.94, visuals.isCustom ? 1 : 1.08 ) },
 			// Custom pools tint the refraction sample harder so the color
 			// survives the scene underneath; default pools keep 0.4.
-			depthMix: { value: visuals.isCustom ? 0.9 : 0.4 },
+			depthMix: { value: visuals.isCustom ? 0.8 : 0.4 },
 			skyTop: { value: new THREE.Color( 0x6db3e8 ) },
 			skyHorizon: { value: new THREE.Color( 0xdff3ff ) },
 
@@ -1059,6 +1059,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	const decoGroup = new THREE.Group();
 
 	const cells = customCells || TRACK_CELLS;
+	// Ground cells holding a 3-way/4-way block — their hub (~0.85 tall)
+	// covers a flat patch entirely, so pads/surfaces there lift above it.
+	// Same +0.45 the editor build uses, so both look identical.
+	const hubCellSet = new Set();
+	for ( const [ hubGx, hubGz, hubKey ] of cells ) {
+		if ( hubKey === 'track-3-way' || hubKey === 'track-4-way' ) hubCellSet.add( `${ hubGx },${ hubGz }` );
+	}
 	const waterCellsForDeco = extras && Array.isArray( extras.water ) ? extras.water : [];
 
 	for ( const [ gx, gz, key, orient ] of cells ) {
@@ -1476,7 +1483,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					: elevatedEntry.type === 'elevated-checkpoint' ? 0.01
 					: 0 )
 				: 0;
-			addPatch( getOverlayHeightOffset( elevatedEntry ) + deckOffset );
+			const hubOffset = ( ! elevatedEntry && hubCellSet.has( `${ gx },${ gz }` ) ) ? 0.45 : 0;
+			addPatch( getOverlayHeightOffset( elevatedEntry ) + deckOffset + hubOffset );
 			// Cross blocks: the underpass road below the bridge is a real
 			// driving surface, so a pad/surface on the cell also renders a
 			// second patch on the bottom road, at the normal ground patch
