@@ -1465,18 +1465,11 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				return patch;
 
 			};
-			// Top patch: unchanged normal placement for the block it was
-			// painted on. Elevated 3-way/4-way/checkpoint deck plates sit a
-			// little above the model origin, so their patches lift by the
-			// same measured offsets the editor uses — without this the pad
-			// renders under the deck plate.
-			const deckOffset = elevatedEntry
-				? ( elevatedEntry.type === 'elevated-3-way' ? 0.05
-					: elevatedEntry.type === 'elevated-4-way' ? 0.06
-					: elevatedEntry.type === 'elevated-checkpoint' ? 0.01
-					: 0 )
-				: 0;
-			addPatch( getOverlayHeightOffset( elevatedEntry ) + deckOffset );
+			// Top patch: standard placement. Every elevated deck road sits at
+			// the same height (measured: road plateaus at model y=0 for all
+			// piece types), so a flat patch is flush on 3-way/4-way/
+			// checkpoint exactly like straights/cross — no special offsets.
+			addPatch( getOverlayHeightOffset( elevatedEntry ) );
 			// Cross blocks: the underpass road below the bridge is a real
 			// driving surface, so a pad/surface on the cell also renders a
 			// second patch on the bottom road, at the normal ground patch
