@@ -2229,7 +2229,7 @@
 				let surfaceLift = 0;
 				if ( ! cell.elevatedType ) {
 					if ( cell.jump ) surfaceLift = 1.5;
-					else if ( ( cell.roadPieces || [] ).some( ( piece ) => piece.type === 'track-4-way' || piece.type === 'track-3-way' ) ) surfaceLift = 0.45;
+					else if ( ( cell.roadPieces || [] ).some( ( piece ) => piece.type === 'track-4-way' || piece.type === 'track-3-way' ) ) surfaceLift = 0.05;
 				} else if ( cell.elevatedType === 'elevated-3-way' || cell.elevatedType === 'elevated-4-way' || cell.elevatedType === 'elevated-checkpoint' ) {
 					surfaceLift = cell.elevatedType === 'elevated-3-way' ? 0.05 : ( cell.elevatedType === 'elevated-4-way' ? 0.06 : 0.01 );
 				}

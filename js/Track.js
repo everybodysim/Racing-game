@@ -1059,7 +1059,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	const decoGroup = new THREE.Group();
 
 	const cells = customCells || TRACK_CELLS;
-	// Ground cells holding a 3-way/4-way block — their pads lift +0.45 to
+	// Ground cells holding a 3-way/4-way block — their pads lift +0.05 to
 	// sit above the block, matching the editor.
 	const hubCellSet = new Set();
 	for ( const [ hubGx, hubGz, hubKey ] of cells ) {
@@ -1475,7 +1475,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			// are always visible — ground and elevated, matching the editor.
 			const isWay = ( ! elevatedEntry && hubCellSet.has( `${ gx },${ gz }` ) )
 				|| ( elevatedEntry && ( elevatedEntry.type === 'elevated-3-way' || elevatedEntry.type === 'elevated-4-way' ) );
-			addPatch( getOverlayHeightOffset( elevatedEntry ) + ( isWay ? 0.45 : 0 ) );
+			addPatch( getOverlayHeightOffset( elevatedEntry ) + ( isWay ? 0.05 : 0 ) );
 			// Cross blocks: the underpass road below the bridge is a real
 			// driving surface, so a pad/surface on the cell also renders a
 			// second patch on the bottom road, at the normal ground patch
