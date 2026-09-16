@@ -144,7 +144,7 @@ function getRenderer( width, height ) {
 
 }
 
-async function renderNow( cells, mods, width, height ) {
+async function renderNow( cells, mods, width, height, quality = 0.87 ) {
 
 	const safeCells = Array.isArray( cells ) ? cells : [];
 	if ( ! safeCells.length ) return null;
@@ -197,7 +197,7 @@ async function renderNow( cells, mods, width, height ) {
 	let dataUrl = null;
 	try {
 
-		dataUrl = renderer.domElement.toDataURL( 'image/jpeg', 0.87 );
+		dataUrl = renderer.domElement.toDataURL( 'image/jpeg', quality );
 
 	} catch ( e ) {
 
@@ -235,12 +235,12 @@ const pending = new Map();
  */
 export function renderTrackTopDown( cells, mods, options = {} ) {
 
-	const { cacheKey = null, width = 640, height = 384 } = options;
+	const { cacheKey = null, width = 640, height = 384, quality = 0.87 } = options;
 
 	if ( cacheKey && memoryCache.has( cacheKey ) ) return Promise.resolve( memoryCache.get( cacheKey ) );
 	if ( cacheKey && pending.has( cacheKey ) ) return pending.get( cacheKey );
 
-	const job = queue.then( () => renderNow( cells, mods, width, height ) );
+	const job = queue.then( () => renderNow( cells, mods, width, height, quality ) );
 	queue = job.catch( () => {} );
 
 	const tracked = job.then( ( dataUrl ) => {

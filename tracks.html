@@ -1106,10 +1106,15 @@
 				await waitForPreview3dModule();
 				if ( ! window.__renderTrackTopDown ) return;
 				const playUrl = canvas.dataset.playUrl || '';
-				const cacheKey = playUrl || ( 'cells:' + cells.length + ':' + JSON.stringify( cells ).length + ':' + JSON.stringify( mods || {} ).length );
+				// Featured cards display their preview several times wider, so
+				// they get a dedicated hi-res render (own cache slot) instead of
+				// an upscaled small snapshot.
+				const featured = canvas.dataset.featured === '1';
+				const renderSize = featured ? { width: 900, height: 540, quality: 0.92 } : { width: 500, height: 300 };
+				const cacheKey = ( featured ? playUrl + '@2x' : playUrl ) || ( 'cells:' + cells.length + ':' + JSON.stringify( cells ).length + ':' + JSON.stringify( mods || {} ).length );
 				const cached = preview3dCacheGet( cacheKey );
 				if ( cached && await paintPreviewImageOnCanvas( canvas, cached ) ) return;
-				const dataUrl = await window.__renderTrackTopDown( cells, mods, { cacheKey: cacheKey, width: 500, height: 300 } );
+				const dataUrl = await window.__renderTrackTopDown( cells, mods, { cacheKey: cacheKey, ...renderSize } );
 				if ( dataUrl && await paintPreviewImageOnCanvas( canvas, dataUrl ) ) {
 					preview3dCacheSet( cacheKey, dataUrl );
 					return;
@@ -1148,7 +1153,7 @@
 					<span class="badge">🏁 ${ stats.sizeTag }</span>
 					<span class="badge">🧭 ${ stats.styleTag }</span>
 				</div>
-				${ entry.thumbnailDataUrl ? `<img class="preview-canvas" src="${ entry.thumbnailDataUrl }" alt="Track thumbnail for ${ entry.name }">` : `<canvas class="preview-canvas" width="300" height="180" aria-label="2D block preview for ${ entry.name }"></canvas>` }
+				${ entry.thumbnailDataUrl ? `<img class="preview-canvas" src="${ entry.thumbnailDataUrl }" alt="Track thumbnail for ${ entry.name }">` : `<canvas class="preview-canvas" width="${ options.featured ? 900 : 300 }" height="${ options.featured ? 540 : 180 }" aria-label="Track preview for ${ entry.name }"></canvas>` }
 				<div class="stat-grid">
 					<div class="stat"><span>Best time</span><b>${ stats.bestTime === Infinity ? '--.--' : formatSeconds( stats.bestTime ) }</b></div>
 					<div class="stat"><span>Record holder</span><b>${ stats.topRow ? stats.topRow.name : 'Open' }</b></div>
@@ -1171,6 +1176,7 @@
 				previewCanvas.dataset.cells = JSON.stringify( stats.previewData?.cells || [] );
 				previewCanvas.dataset.mods = JSON.stringify( stats.previewData?.mods || {} );
 				previewCanvas.dataset.playUrl = entry.playUrl;
+				if ( options.featured ) previewCanvas.dataset.featured = '1';
 				previewObserver.observe( previewCanvas );
 				// Cloud entries arrive thumbnail-free (fields=list) for a fast
 				// first paint; the real screenshot is fetched lazily when the

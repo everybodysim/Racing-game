@@ -36,6 +36,21 @@
   </style>
 <script src="js/PageTransitions.js"></script>
 <link rel="stylesheet" href="ui-theme.css">
+<script type="importmap">
+{
+	"imports": {
+		"three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
+		"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/"
+	}
+}
+</script>
+<script type="module">
+	// Realistic 3D top-down track preview. The module exposes
+	// window.__renderTrackTopDown; the page falls back to its flat 2D
+	// preview if the module or WebGL is unavailable.
+	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js';
+	window.__renderTrackTopDown = renderTrackTopDown;
+</script>
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -532,6 +547,65 @@
     }
   }
 
+  // ── Realistic 3D top-down preview ──
+  // Renders ONE frozen bird's-eye snapshot of the TOTD track with the real
+  // block models (js/TrackTopDownRenderer.js, loaded via the importmap
+  // module in <head>). The flat grid stays underneath as the fallback.
+  const PREVIEW3D_CACHE_PREFIX = 'racing-preview-3d:';
+  const PREVIEW3D_CACHE_MAX = 40;
+
+  function preview3dCacheGet( key ) {
+    try { return localStorage.getItem( PREVIEW3D_CACHE_PREFIX + key ); } catch ( e ) { return null; }
+  }
+
+  function preview3dCacheSet( key, dataUrl ) {
+    try {
+      const keys = [];
+      for ( let i = 0; i < localStorage.length; i ++ ) {
+        const k = localStorage.key( i );
+        if ( k && k.startsWith( PREVIEW3D_CACHE_PREFIX ) ) keys.push( k );
+      }
+      while ( keys.length >= PREVIEW3D_CACHE_MAX ) localStorage.removeItem( keys.shift() );
+      localStorage.setItem( PREVIEW3D_CACHE_PREFIX + key, dataUrl );
+    } catch ( e ) {}
+  }
+
+  function paintPreviewImageOnCanvas( canvas, dataUrl ) {
+    return new Promise( ( resolve ) => {
+      const img = new Image();
+      img.onload = () => {
+        const ctx = canvas.getContext( '2d' );
+        ctx.clearRect( 0, 0, canvas.width, canvas.height );
+        ctx.drawImage( img, 0, 0, canvas.width, canvas.height );
+        resolve( true );
+      };
+      img.onerror = () => resolve( false );
+      img.src = dataUrl;
+    } );
+  }
+
+  async function waitForPreview3dModule( timeoutMs = 8000 ) {
+    const start = Date.now();
+    while ( ! window.__renderTrackTopDown && Date.now() - start < timeoutMs ) {
+      await new Promise( ( r ) => setTimeout( r, 50 ) );
+    }
+    return !! window.__renderTrackTopDown;
+  }
+
+  async function upgradePreview3D( cells, mods, cacheKey ) {
+    try {
+      if ( ! Array.isArray( cells ) || ! cells.length || ! cacheKey ) return;
+      await waitForPreview3dModule();
+      if ( ! window.__renderTrackTopDown ) return;
+      const cv = document.getElementById( 'preview' );
+      if ( ! cv ) return;
+      const cached = preview3dCacheGet( cacheKey );
+      if ( cached && await paintPreviewImageOnCanvas( cv, cached ) ) return;
+      const dataUrl = await window.__renderTrackTopDown( cells, mods, { cacheKey: cacheKey, width: 640, height: 440 } );
+      if ( dataUrl && await paintPreviewImageOnCanvas( cv, dataUrl ) ) preview3dCacheSet( cacheKey, dataUrl );
+    } catch ( e ) {}
+  }
+
   async function run() {
     const date = document.getElementById('dateInput').value || utcTodayStr();
     const generated = generateForDate(date);
@@ -547,6 +621,7 @@
     document.getElementById('cellsOut').value = JSON.stringify(generated.cells, null, 2);
 
     drawPreview(generated.cells, generated.mods);
+    upgradePreview3D( generated.cells, generated.mods, url );
 
     const holderEl = document.getElementById('totd-record-holder');
     const timeEl = document.getElementById('totd-record-time');

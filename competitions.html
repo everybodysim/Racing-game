@@ -39,6 +39,21 @@
   </style>
 <script src="js/PageTransitions.js"></script>
 <link rel="stylesheet" href="ui-theme.css">
+<script type="importmap">
+{
+	"imports": {
+		"three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
+		"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/"
+	}
+}
+</script>
+<script type="module">
+	// Realistic 3D top-down track preview. The module exposes
+	// window.__renderTrackTopDown; the page falls back to its flat 2D
+	// grid preview if the module or WebGL is unavailable.
+	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js';
+	window.__renderTrackTopDown = renderTrackTopDown;
+</script>
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -205,6 +220,167 @@
     }
   }
 
+  // ── Realistic 3D top-down preview for the selected cup track ──
+  // Renders ONE frozen bird's-eye snapshot with the real block models
+  // (js/TrackTopDownRenderer.js via the importmap module in <head>) onto
+  // #gridPreview; the flat 2D grid stays underneath as the fallback.
+  // Map/mods decode is v1/v2/v3-aware (ported from the share-board
+  // pipeline) so modern v3 share URLs preview correctly here too.
+  const PREVIEW3D_CACHE_PREFIX = 'racing-preview-3d:';
+  const PREVIEW3D_CACHE_MAX = 40;
+  const V3_NAME_TOKENS = {
+    'track-straight': 'a', 'track-corner': 'b', 'track-3-way': 'c', 'track-4-way': 'd',
+    'track-checkpoint': 'e', 'track-bump': 'f', 'track-finish': 'g', 'track-start': 'h',
+    'track-start-finish': 'i', 'track-cross': 'j', 'elevated-straight': 'k',
+    'elevated-corner': 'l', 'elevated-cross': 'm', 'elevated-checkpoint': 'n',
+    'elevated-3-way': 'o', 'elevated-4-way': 'p', 'slope-up': 'q', 'slope-down': 'r'
+  };
+  const V3_TOKEN_NAMES = {};
+  for ( const [ name, token ] of Object.entries( V3_NAME_TOKENS ) ) V3_TOKEN_NAMES[ token ] = name;
+  const V3_EXTENDED_TYPES = Object.keys( V3_NAME_TOKENS );
+  const V3_ORIENT_BY_IDX = [ 0, 16, 10, 22 ];
+
+  function b64urlToBytes( token ) {
+    const raw = String( token ).replace( /-/g, '+' ).replace( /_/g, '/' );
+    const padded = raw + '==='.slice( ( raw.length + 3 ) % 4 );
+    const binary = atob( padded );
+    const bytes = new Uint8Array( binary.length );
+    for ( let i = 0; i < binary.length; i ++ ) bytes[ i ] = binary.charCodeAt( i );
+    return bytes;
+  }
+
+  async function inflatePreviewBytes( bytes ) {
+    const stream = new Blob( [ bytes ] ).stream().pipeThrough( new DecompressionStream( 'deflate-raw' ) );
+    return new Uint8Array( await new Response( stream ).arrayBuffer() );
+  }
+
+  async function decodeCells3D( mapToken ) {
+    const token = String( mapToken || '' );
+    if ( ! token ) return [];
+    if ( token.startsWith( 'v3.' ) ) {
+      const inflated = await inflatePreviewBytes( b64urlToBytes( token.slice( 3 ) ) );
+      if ( ! inflated.length ) return [];
+      if ( inflated[ 0 ] === 0 ) {
+        const body = inflated.subarray( 1 );
+        const cells = [];
+        for ( let i = 0; i + 2 < body.length; i += 3 ) {
+          const ti = ( body[ i + 2 ] >> 2 ) & 0x3f;
+          const oi = body[ i + 2 ] & 0x03;
+          if ( ti >= V3_EXTENDED_TYPES.length ) continue;
+          cells.push( [ body[ i ] - 128, body[ i + 1 ] - 128, V3_EXTENDED_TYPES[ ti ], V3_ORIENT_BY_IDX[ oi ] ?? 0 ] );
+        }
+        return cells;
+      }
+      const parsed = JSON.parse( new TextDecoder().decode( inflated.subarray( 1 ) ) );
+      const list = Array.isArray( parsed?.cells ) ? parsed.cells : [];
+      return list
+        .filter( ( cell ) => Array.isArray( cell ) && cell.length >= 3 )
+        .map( ( cell ) => [ Number( cell[ 0 ] ), Number( cell[ 1 ] ), V3_TOKEN_NAMES[ cell[ 2 ] ] ?? cell[ 2 ], cell[ 3 ] ?? 0 ] )
+        .filter( ( c ) => Number.isFinite( c[ 0 ] ) && Number.isFinite( c[ 1 ] ) );
+    }
+    if ( token.startsWith( 'v2.' ) ) {
+      try {
+        const bytes = b64urlToBytes( token.slice( 3 ) );
+        let binary = '';
+        for ( const b of bytes ) binary += String.fromCharCode( b );
+        const parsed = JSON.parse( decodeURIComponent( escape( binary ) ) );
+        const list = Array.isArray( parsed?.cells ) ? parsed.cells : [];
+        return list
+          .filter( ( cell ) => Array.isArray( cell ) && cell.length >= 3 )
+          .map( ( cell ) => [ Number( cell[ 0 ] ), Number( cell[ 1 ] ), cell[ 2 ], cell[ 3 ] ?? 0 ] )
+          .filter( ( c ) => Number.isFinite( c[ 0 ] ) && Number.isFinite( c[ 1 ] ) );
+      } catch ( e ) { return []; }
+    }
+    try {
+      const bytes = b64urlToBytes( token );
+      const typeByIdx = [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-finish' ];
+      const cells = [];
+      for ( let i = 0; i + 2 < bytes.length; i += 3 ) {
+        cells.push( [ bytes[ i ] - 128, bytes[ i + 1 ] - 128, typeByIdx[ ( bytes[ i + 2 ] >> 2 ) & 0x03 ] ?? 'track-straight', [ 0, 16, 10, 22 ][ bytes[ i + 2 ] & 0x03 ] ?? 0 ] );
+      }
+      return cells;
+    } catch ( e ) { return []; }
+  }
+
+  async function decodeMods3D( modsToken ) {
+    const token = String( modsToken || '' );
+    if ( ! token || token === 'none' ) return {};
+    try {
+      if ( token.startsWith( 'v3.' ) ) {
+        const inflated = await inflatePreviewBytes( b64urlToBytes( token.slice( 3 ) ) );
+        const parsed = JSON.parse( new TextDecoder().decode( inflated ) );
+        return ( parsed && typeof parsed === 'object' ) ? parsed : {};
+      }
+      const bytes = b64urlToBytes( token );
+      let binary = '';
+      for ( const b of bytes ) binary += String.fromCharCode( b );
+      return JSON.parse( decodeURIComponent( escape( binary ) ) );
+    } catch ( e ) { return {}; }
+  }
+
+  async function fetchPreviewData3D( playUrl ) {
+    try {
+      const parsed = new URL( playUrl, window.location.href );
+      return { cells: await decodeCells3D( parsed.searchParams.get( 'map' ) ), mods: await decodeMods3D( parsed.searchParams.get( 'mods' ) ) };
+    } catch ( e ) { return { cells: [], mods: {} }; }
+  }
+
+  function preview3dCacheGet( key ) {
+    try { return localStorage.getItem( PREVIEW3D_CACHE_PREFIX + key ); } catch ( e ) { return null; }
+  }
+
+  function preview3dCacheSet( key, dataUrl ) {
+    try {
+      const keys = [];
+      for ( let i = 0; i < localStorage.length; i ++ ) {
+        const k = localStorage.key( i );
+        if ( k && k.startsWith( PREVIEW3D_CACHE_PREFIX ) ) keys.push( k );
+      }
+      while ( keys.length >= PREVIEW3D_CACHE_MAX ) localStorage.removeItem( keys.shift() );
+      localStorage.setItem( PREVIEW3D_CACHE_PREFIX + key, dataUrl );
+    } catch ( e ) {}
+  }
+
+  function paintPreviewImageOnCanvas( canvas, dataUrl ) {
+    return new Promise( ( resolve ) => {
+      const img = new Image();
+      img.onload = () => {
+        const ctx = canvas.getContext( '2d' );
+        ctx.clearRect( 0, 0, canvas.width, canvas.height );
+        ctx.drawImage( img, 0, 0, canvas.width, canvas.height );
+        resolve( true );
+      };
+      img.onerror = () => resolve( false );
+      img.src = dataUrl;
+    } );
+  }
+
+  async function waitForPreview3dModule( timeoutMs = 8000 ) {
+    const start = Date.now();
+    while ( ! window.__renderTrackTopDown && Date.now() - start < timeoutMs ) {
+      await new Promise( ( r ) => setTimeout( r, 50 ) );
+    }
+    return !! window.__renderTrackTopDown;
+  }
+
+  async function upgradeGridPreview3D( playUrl ) {
+    const g = document.getElementById( 'gridPreview' );
+    if ( ! g || ! playUrl ) return;
+    const cacheKey = 'comp3d:' + playUrl;
+    try {
+      await waitForPreview3dModule();
+      if ( ! window.__renderTrackTopDown ) return;
+      const cached = preview3dCacheGet( cacheKey );
+      if ( cached && await paintPreviewImageOnCanvas( g, cached ) ) return;
+      const data = await fetchPreviewData3D( playUrl );
+      if ( Array.isArray( data.cells ) && data.cells.length ) {
+        // Hi-res render downscaled onto the canvas so the preview stays crisp.
+        const dataUrl = await window.__renderTrackTopDown( data.cells, data.mods, { cacheKey: cacheKey, width: 760, height: 460 } );
+        if ( dataUrl && await paintPreviewImageOnCanvas( g, dataUrl ) ) preview3dCacheSet( cacheKey, dataUrl );
+      }
+    } catch ( e ) {}
+  }
+
   function canonicalizeTracks(rows) {
     return [...(Array.isArray(rows) ? rows : [])]
       .filter((x) => typeof x?.playUrl === 'string')
@@ -247,6 +423,7 @@
     ctx.fillStyle = '#bad0ea'; ctx.fillText('Entry fee: ' + fmt(tiers[selected - 1].fee) + ' coins', 20, 145);
     ctx.fillText('Prize pool grows from all entries.', 20, 170);
     ctx.fillText('Top 3 split: 60% / 28% / 12%', 20, 195);
+    upgradeGridPreview3D( e.track.playUrl );
     const cells = decodeMapCells(e.track.playUrl);
     gctx.fillStyle = '#8cd3ff'; gctx.font = 'bold 16px sans-serif'; gctx.fillText('Track Grid Preview', 14, 24);
     if (!cells.length) { gctx.fillStyle = '#ffd66b'; gctx.fillText('No map cells found for this shared track.', 14, 54); return; }
