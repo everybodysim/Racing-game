@@ -2226,15 +2226,20 @@
 				);
 				patch.rotation.x = - Math.PI / 2;
 				const yOffset = getOverlayHeightOffset( cell );
-				// Pads/surfaces render EXACTLY like the game build: flat on the ground
-				// (or flush on their elevated deck). The old editor-only lift
-				// above jump ramps and 3-way/4-way hubs is gone — the game
-				// doesn't draw one, so the editor mustn't either. Elevated
-				// 3-way/4-way/checkpoint deck plates sit slightly above the
-				// model origin, so those keep their measured deck offsets
-				// (same numbers the game build now uses).
+				// Pads/surfaces sit flat on the ground (jump ramps included), EXCEPT
+				// on ground 3-way/4-way cells, where the block's hub would swallow
+				// the patch — those lift +0.45 above it, identical to the game
+				// build. Elevated 3-way/4-way/checkpoint deck plates sit slightly
+				// above the model origin, so those keep their measured deck
+				// offsets (same numbers the game build uses).
 				let surfaceLift = 0;
-				if ( cell.elevatedType === 'elevated-3-way' || cell.elevatedType === 'elevated-4-way' || cell.elevatedType === 'elevated-checkpoint' ) {
+				if ( ! cell.elevatedType ) {
+					// Ground 3-way/4-way cells: the block's hub (~0.85 tall) covers
+					// a flat patch entirely — lift it above the hub so the pad is
+					// visible. Same +0.45 the game build uses, so editor and game
+					// look identical.
+					if ( ( cell.roadPieces || [] ).some( ( piece ) => piece.type === 'track-4-way' || piece.type === 'track-3-way' ) ) surfaceLift = 0.45;
+				} else if ( cell.elevatedType === 'elevated-3-way' || cell.elevatedType === 'elevated-4-way' || cell.elevatedType === 'elevated-checkpoint' ) {
 					surfaceLift = cell.elevatedType === 'elevated-3-way' ? 0.05 : ( cell.elevatedType === 'elevated-4-way' ? 0.06 : 0.01 );
 				}
 				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + surfaceLift + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
@@ -2566,7 +2571,7 @@ function computeCausticShade( normal ) {
 		wallCaustic.material.uniforms.waterY.value = 0.12;
 		attachCausticAnimator( wallCaustic );
 		pool.add( wallCaustic );
-		const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: poolVisuals.isCustom ? 1.0 : 0.3, roughness: 0.22, metalness: 0.12 } ) );
+		const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: poolVisuals.isCustom ? 0.85 : 0.3, roughness: 0.22, metalness: 0.12 } ) );
 		edge.position.set( side.x, 0.515, side.z );
 		edge.rotation.y = side.ry;
 		pool.add( edge );
@@ -2603,11 +2608,11 @@ function computeCausticShade( normal ) {
 			// band. The emissive glow below doubles too.
 			const hsl = { h: 0, s: 0, l: 0 };
 			waterColor.getHSL( hsl );
-			waterColor.setHSL( hsl.h, Math.min( 1, hsl.s * 3.5 ), THREE.MathUtils.clamp( 0.38 + hsl.l * 0.55, 0.42, 0.78 ) );
+			waterColor.setHSL( hsl.h, Math.min( 1, hsl.s * 3 ), THREE.MathUtils.clamp( 0.35 + hsl.l * 0.5, 0.4, 0.72 ) );
 		}
 		const water = new THREE.Mesh(
 			new THREE.PlaneGeometry( CELL_RAW * 0.98, CELL_RAW * 0.98 ),
-			new THREE.MeshStandardMaterial( { color: waterColor, emissive: waterColor, emissiveIntensity: colorsOn ? 1.2 : 0.18, roughness: 0.35, metalness: 0.02, transparent: true, opacity: poolVisuals.transparent ? 0.72 : 0.55 } )
+			new THREE.MeshStandardMaterial( { color: waterColor, emissive: waterColor, emissiveIntensity: colorsOn ? 0.95 : 0.18, roughness: 0.35, metalness: 0.02, transparent: true, opacity: poolVisuals.transparent ? 0.72 : 0.55 } )
 		);
 		water.rotation.x = - Math.PI / 2;
 		water.position.y = 0.12;
