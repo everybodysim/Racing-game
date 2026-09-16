@@ -360,18 +360,18 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 					// a red pool must read RED from anywhere.
 					const hsl = { h: 0, s: 0, l: 0 };
 					c.getHSL( hsl );
-					c.setHSL( hsl.h, Math.min( 1, hsl.s * 3 ), THREE.MathUtils.clamp( 0.35 + hsl.l * 0.5, 0.4, 0.72 ) );
-					c.multiplyScalar( 1.35 );
+					c.setHSL( hsl.h, Math.min( 1, hsl.s * 3.5 ), THREE.MathUtils.clamp( 0.38 + hsl.l * 0.55, 0.42, 0.78 ) );
+					c.multiplyScalar( 1.55 );
 
 				}
-				return c.lerp( new THREE.Color( 0x041f3d ), visuals.isCustom ? 0.03 : 0.6 );
+				return c.lerp( new THREE.Color( 0x041f3d ), visuals.isCustom ? 0.01 : 0.6 );
 
 			} )() },
 			// Neutral tint for custom pools (no blue shift); classic cool tint otherwise.
 			uTint: { value: new THREE.Vector3( visuals.isCustom ? 1 : 0.86, visuals.isCustom ? 1 : 0.94, visuals.isCustom ? 1 : 1.08 ) },
 			// Custom pools tint the refraction sample harder so the color
 			// survives the scene underneath; default pools keep 0.4.
-			depthMix: { value: visuals.isCustom ? 0.8 : 0.4 },
+			depthMix: { value: visuals.isCustom ? 0.9 : 0.4 },
 			skyTop: { value: new THREE.Color( 0x6db3e8 ) },
 			skyHorizon: { value: new THREE.Color( 0xdff3ff ) },
 

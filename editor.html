@@ -2566,7 +2566,7 @@ function computeCausticShade( normal ) {
 		wallCaustic.material.uniforms.waterY.value = 0.12;
 		attachCausticAnimator( wallCaustic );
 		pool.add( wallCaustic );
-		const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: poolVisuals.isCustom ? 0.85 : 0.3, roughness: 0.22, metalness: 0.12 } ) );
+		const edge = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.035, CELL_RAW * 0.09 ), new THREE.MeshStandardMaterial( { color: poolVisuals.edgeColor, emissive: poolVisuals.edgeColor, emissiveIntensity: poolVisuals.isCustom ? 1.0 : 0.3, roughness: 0.22, metalness: 0.12 } ) );
 		edge.position.set( side.x, 0.515, side.z );
 		edge.rotation.y = side.ry;
 		pool.add( edge );
@@ -2603,11 +2603,11 @@ function computeCausticShade( normal ) {
 			// band. The emissive glow below doubles too.
 			const hsl = { h: 0, s: 0, l: 0 };
 			waterColor.getHSL( hsl );
-			waterColor.setHSL( hsl.h, Math.min( 1, hsl.s * 3 ), THREE.MathUtils.clamp( 0.35 + hsl.l * 0.5, 0.4, 0.72 ) );
+			waterColor.setHSL( hsl.h, Math.min( 1, hsl.s * 3.5 ), THREE.MathUtils.clamp( 0.38 + hsl.l * 0.55, 0.42, 0.78 ) );
 		}
 		const water = new THREE.Mesh(
 			new THREE.PlaneGeometry( CELL_RAW * 0.98, CELL_RAW * 0.98 ),
-			new THREE.MeshStandardMaterial( { color: waterColor, emissive: waterColor, emissiveIntensity: colorsOn ? 0.95 : 0.18, roughness: 0.35, metalness: 0.02, transparent: true, opacity: poolVisuals.transparent ? 0.72 : 0.55 } )
+			new THREE.MeshStandardMaterial( { color: waterColor, emissive: waterColor, emissiveIntensity: colorsOn ? 1.2 : 0.18, roughness: 0.35, metalness: 0.02, transparent: true, opacity: poolVisuals.transparent ? 0.72 : 0.55 } )
 		);
 		water.rotation.x = - Math.PI / 2;
 		water.position.y = 0.12;
@@ -5361,11 +5361,13 @@ function refreshMovingSpeedUi() {
 
 	el.addEventListener( 'pointerdown', ( e ) => {
 
-		// Free cam: MIDDLE-drag or Ctrl+left-drag rotates the 3D camera —
-		// touchpads rarely have a comfortable middle button, so Ctrl+drag is
-		// the trackpad-friendly path. Right-click still erases; a plain
-		// left-click still draws; Ctrl/Space still fly.
-		if ( editorCamMode === 'free' && editorDrive && ( e.button === 1 || ( e.button === 0 && e.ctrlKey ) ) ) {
+		// Free cam: MIDDLE-drag or Shift+left-drag rotates the 3D camera —
+		// touchpads rarely have a comfortable middle button, so Shift+drag is
+		// the trackpad-friendly path (Ctrl is fly-DOWN, so it can't be the
+		// modifier). Early-return before any draw logic, so a Shift-held
+		// click NEVER places a block. Right-click still erases; a plain
+		// left-click still draws.
+		if ( editorCamMode === 'free' && editorDrive && ( e.button === 1 || ( e.button === 0 && e.shiftKey ) ) ) {
 
 			editorDrive.startRotate( e.clientX, e.clientY );
 			return;
@@ -7265,8 +7267,8 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			if ( camModeSelect ) camModeSelect.value = mode;
 			if ( mode === 'free' ) {
 
-				driveHint.textContent = 'Free: middle-drag rotate · wheel dolly · WASD fly · Space/Ctrl up-down · ← ↑ ↓ → drive · right-click erase';
-				showToast( 'Free cam: middle-drag rotate, WASD fly, Space/Ctrl up-down, arrows drive, right-click erases' );
+				driveHint.textContent = 'Free: middle or Shift+drag rotate · wheel dolly · WASD fly · Space/Ctrl up-down · ← ↑ ↓ → drive · right-click erase';
+				showToast( 'Free cam: middle or Shift+drag rotate, WASD fly, Space/Ctrl up-down, arrows drive, right-click erases' );
 
 			} else if ( mode === 'follow' ) {
 
