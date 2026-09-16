@@ -2226,20 +2226,17 @@
 				);
 				patch.rotation.x = - Math.PI / 2;
 				const yOffset = getOverlayHeightOffset( cell );
-				// Pads/surfaces sit flat on the ground (jump ramps included), EXCEPT
-				// on ground 3-way/4-way cells, where the block's hub would swallow
-				// the patch — those lift +0.45 above it, identical to the game
-				// build. Elevated 3-way/4-way/checkpoint deck plates sit slightly
-				// above the model origin, so those keep their measured deck
-				// offsets (same numbers the game build uses).
+				// Pads/surfaces sit FLAT on the ground on every cell — ground
+				// 3-way/4-way blocks are flat road (their model tops are rails
+				// at ~0.1 and the 4-way's arch is on one arm; the center is
+				// plain road), so a flat patch at the standard height shows
+				// fine. Measured from the GLBs — the old "hub ≈0.85" note was
+				// wrong, don't re-add a lift here. Elevated 3-way/4-way/
+				// checkpoint deck plates sit slightly above the model origin,
+				// so those keep their measured deck offsets (same numbers the
+				// game build uses).
 				let surfaceLift = 0;
-				if ( ! cell.elevatedType ) {
-					// Ground 3-way/4-way cells: the block's hub (~0.85 tall) covers
-					// a flat patch entirely — lift it above the hub so the pad is
-					// visible. Same +0.45 the game build uses, so editor and game
-					// look identical.
-					if ( ( cell.roadPieces || [] ).some( ( piece ) => piece.type === 'track-4-way' || piece.type === 'track-3-way' ) ) surfaceLift = 0.45;
-				} else if ( cell.elevatedType === 'elevated-3-way' || cell.elevatedType === 'elevated-4-way' || cell.elevatedType === 'elevated-checkpoint' ) {
+				if ( cell.elevatedType === 'elevated-3-way' || cell.elevatedType === 'elevated-4-way' || cell.elevatedType === 'elevated-checkpoint' ) {
 					surfaceLift = cell.elevatedType === 'elevated-3-way' ? 0.05 : ( cell.elevatedType === 'elevated-4-way' ? 0.06 : 0.01 );
 				}
 				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + surfaceLift + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
