@@ -354,16 +354,24 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				const c = new THREE.Color( visuals.waterColor );
 				if ( visuals.isCustom ) {
 
+					// Push the picked hue HARD: at 1.5x saturation the tint
+					// was barely readable. Saturate x3 into a bright band,
+					// boost the level, and nearly skip the deep-navy drown —
+					// a red pool must read RED from anywhere.
 					const hsl = { h: 0, s: 0, l: 0 };
 					c.getHSL( hsl );
-					c.setHSL( hsl.h, Math.min( 1, hsl.s * 1.5 ), THREE.MathUtils.clamp( hsl.l, 0.34, 0.62 ) );
+					c.setHSL( hsl.h, Math.min( 1, hsl.s * 3 ), THREE.MathUtils.clamp( 0.35 + hsl.l * 0.5, 0.4, 0.72 ) );
+					c.multiplyScalar( 1.35 );
 
 				}
-				return c.lerp( new THREE.Color( 0x041f3d ), visuals.isCustom ? 0.12 : 0.6 );
+				return c.lerp( new THREE.Color( 0x041f3d ), visuals.isCustom ? 0.03 : 0.6 );
 
 			} )() },
 			// Neutral tint for custom pools (no blue shift); classic cool tint otherwise.
 			uTint: { value: new THREE.Vector3( visuals.isCustom ? 1 : 0.86, visuals.isCustom ? 1 : 0.94, visuals.isCustom ? 1 : 1.08 ) },
+			// Custom pools tint the refraction sample harder so the color
+			// survives the scene underneath; default pools keep 0.4.
+			depthMix: { value: visuals.isCustom ? 0.8 : 0.4 },
 			skyTop: { value: new THREE.Color( 0x6db3e8 ) },
 			skyHorizon: { value: new THREE.Color( 0xdff3ff ) },
 
@@ -455,6 +463,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			uniform float floorY;
 			uniform vec3 lightDir;
 			uniform vec3 deepColor;
+			uniform float depthMix;
 			uniform vec3 uTint;
 			uniform vec3 skyTop;
 			uniform vec3 skyHorizon;
@@ -526,7 +535,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 
 				// Depth tint along the refracted ray
 				float depthT = clamp( dFloor / ( ${ CELL_RAW } * 0.6 ), 0.0, 1.0 );
-				refrColor = mix( refrColor, deepColor, depthT * 0.4 );
+				refrColor = mix( refrColor, deepColor, depthT * depthMix );
 
 				// Caustic web projected onto where the refracted ray lands —
 				// since the sample IS the real scene, the light pattern lands
@@ -1457,8 +1466,17 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 			};
 			// Top patch: unchanged normal placement for the block it was
-			// painted on.
-			addPatch( getOverlayHeightOffset( elevatedEntry ) );
+			// painted on. Elevated 3-way/4-way/checkpoint deck plates sit a
+			// little above the model origin, so their patches lift by the
+			// same measured offsets the editor uses — without this the pad
+			// renders under the deck plate.
+			const deckOffset = elevatedEntry
+				? ( elevatedEntry.type === 'elevated-3-way' ? 0.05
+					: elevatedEntry.type === 'elevated-4-way' ? 0.06
+					: elevatedEntry.type === 'elevated-checkpoint' ? 0.01
+					: 0 )
+				: 0;
+			addPatch( getOverlayHeightOffset( elevatedEntry ) + deckOffset );
 			// Cross blocks: the underpass road below the bridge is a real
 			// driving surface, so a pad/surface on the cell also renders a
 			// second patch on the bottom road, at the normal ground patch
