@@ -55,7 +55,7 @@
 	// Realistic 3D top-down track preview. The module exposes
 	// window.__renderTrackTopDown; the page falls back to its flat 2D
 	// grid if the module or WebGL is unavailable.
-	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js';
+	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260916';
 	window.__renderTrackTopDown = renderTrackTopDown;
 </script>
 </head>
@@ -378,24 +378,7 @@ function getTrackIds(playUrl) {
   // module in <head>) — queued one at a time through a single shared WebGL
   // context, cached in a localStorage LRU so each track renders at most
   // once per browser. The flat 2D grid stays underneath as the fallback.
-  const PREVIEW3D_CACHE_PREFIX = 'racing-preview-3d:';
-  const PREVIEW3D_CACHE_MAX = 40;
 
-  function preview3dCacheGet( key ) {
-    try { return localStorage.getItem( PREVIEW3D_CACHE_PREFIX + key ); } catch ( e ) { return null; }
-  }
-
-  function preview3dCacheSet( key, dataUrl ) {
-    try {
-      const keys = [];
-      for ( let i = 0; i < localStorage.length; i ++ ) {
-        const k = localStorage.key( i );
-        if ( k && k.startsWith( PREVIEW3D_CACHE_PREFIX ) ) keys.push( k );
-      }
-      while ( keys.length >= PREVIEW3D_CACHE_MAX ) localStorage.removeItem( keys.shift() );
-      localStorage.setItem( PREVIEW3D_CACHE_PREFIX + key, dataUrl );
-    } catch ( e ) {}
-  }
 
   function paintPreviewImageOnCanvas( canvas, dataUrl ) {
     return new Promise( ( resolve ) => {
@@ -424,12 +407,10 @@ function getTrackIds(playUrl) {
       if ( ! Array.isArray( cells ) || ! cells.length || ! cacheKey ) return;
       await waitForPreview3dModule();
       if ( ! window.__renderTrackTopDown ) return;
-      const cached = preview3dCacheGet( cacheKey );
-      if ( cached && await paintPreviewImageOnCanvas( canvas, cached ) ) return;
       // Hi-res render downscaled onto the canvas so the wide card preview
       // stays crisp (matches the page's 1.2 display aspect).
       const dataUrl = await window.__renderTrackTopDown( cells, mods, { cacheKey: cacheKey, width: 600, height: 500 } );
-      if ( dataUrl && await paintPreviewImageOnCanvas( canvas, dataUrl ) ) preview3dCacheSet( cacheKey, dataUrl );
+      if ( dataUrl ) await paintPreviewImageOnCanvas( canvas, dataUrl );
     } catch ( e ) {}
   }
 

@@ -1600,6 +1600,11 @@
 	dirLight.shadow.camera.right = 60;
 	dirLight.shadow.camera.top = 60;
 	dirLight.shadow.camera.bottom = - 60;
+	// Match the game's anti-acne shadow bias (elevated decks would otherwise
+	// self-shadow in stripes — 120-unit extent at 4096 needs more than the
+	// default 0 bias).
+	dirLight.shadow.bias = -0.0003;
+	dirLight.shadow.normalBias = 0.15;
 	scene.add( dirLight );
 
 	const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
@@ -2229,9 +2234,13 @@
 				let surfaceLift = 0;
 				if ( ! cell.elevatedType ) {
 					if ( cell.jump ) surfaceLift = 1.5;
-					else if ( ( cell.roadPieces || [] ).some( ( piece ) => piece.type === 'track-4-way' || piece.type === 'track-3-way' ) ) surfaceLift = 0.05;
+					// Editor-only: 3-way/4-way hubs stand taller than a straight/
+					// corner tile, so the flat surface patch needs more lift here
+					// or it renders under the hub geometry. Game rendering (Track.js)
+					// is untouched by this value.
+					else if ( ( cell.roadPieces || [] ).some( ( piece ) => piece.type === 'track-4-way' || piece.type === 'track-3-way' ) ) surfaceLift = 0.16;
 				} else if ( cell.elevatedType === 'elevated-3-way' || cell.elevatedType === 'elevated-4-way' || cell.elevatedType === 'elevated-checkpoint' ) {
-					surfaceLift = cell.elevatedType === 'elevated-3-way' ? 0.05 : ( cell.elevatedType === 'elevated-4-way' ? 0.06 : 0.01 );
+					surfaceLift = cell.elevatedType === 'elevated-3-way' ? 0.16 : ( cell.elevatedType === 'elevated-4-way' ? 0.17 : 0.01 );
 				}
 				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + surfaceLift + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
 				// Slope tilt: flush with the ramp, matching the game build. Uses the
@@ -2975,6 +2984,16 @@ function computeCausticShade( normal ) {
 		}
 
 		grid.clear();
+		// Defensive final sweep: trackGroup only ever holds per-cell dynamic
+		// content (road pieces, obstacles, surfaces, pool slopes, elevated
+		// decks...) — nothing persistent lives here — so wiping it completely
+		// guarantees no "ghost block" can survive Clear Map, regardless of
+		// which mesh property it happened to be tracked under.
+		while ( trackGroup.children.length ) trackGroup.remove( trackGroup.children[ 0 ] );
+		// Moving obstacles animate in a separate scene group while test-
+		// driving (not tracked on `cell` at all) — tear it down immediately
+		// rather than waiting on the collider-rebuild debounce.
+		if ( editorDrive ) editorDrive.clearMovingObstacleMeshesNow();
 		// Water cells were just wiped, so the hole-cut ground mesh is stale —
 		// rebuild it on the next frame or pool holes linger after Clear
 		// until some other action happens to flag the ground dirty.
@@ -7313,6 +7332,14 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			// see this car rendered live in their editors.
 			getVehiclePose: () => ( vehicle?.container ? { p: vehicle.container.position.toArray(), q: vehicle.container.quaternion.toArray() } : null ),
 			markDirty: () => { dirty = true; lastEditAt = performance.now() * 0.001; },
+			// Immediate teardown for moving-obstacle meshes (they live in a
+			// separate scene group, not on `cell`, so a bulk grid clear can't
+			// reach them by property name). Independent of the dirty/debounce/
+			// active gate so Clear Map never leaves them floating as ghosts.
+			clearMovingObstacleMeshesNow: () => {
+				if ( movingState ) for ( const it of movingState.items ) scene.remove( it.mesh );
+				movingState = null;
+			},
 			startRotate, moveRotate, endRotate,
 			isRotating: () => rotating,
 			dolly,

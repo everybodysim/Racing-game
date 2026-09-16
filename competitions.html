@@ -51,7 +51,7 @@
 	// Realistic 3D top-down track preview. The module exposes
 	// window.__renderTrackTopDown; the page falls back to its flat 2D
 	// grid preview if the module or WebGL is unavailable.
-	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js';
+	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260916';
 	window.__renderTrackTopDown = renderTrackTopDown;
 </script>
 </head>
@@ -226,8 +226,6 @@
   // #gridPreview; the flat 2D grid stays underneath as the fallback.
   // Map/mods decode is v1/v2/v3-aware (ported from the share-board
   // pipeline) so modern v3 share URLs preview correctly here too.
-  const PREVIEW3D_CACHE_PREFIX = 'racing-preview-3d:';
-  const PREVIEW3D_CACHE_MAX = 40;
   const V3_NAME_TOKENS = {
     'track-straight': 'a', 'track-corner': 'b', 'track-3-way': 'c', 'track-4-way': 'd',
     'track-checkpoint': 'e', 'track-bump': 'f', 'track-finish': 'g', 'track-start': 'h',
@@ -325,21 +323,6 @@
     } catch ( e ) { return { cells: [], mods: {} }; }
   }
 
-  function preview3dCacheGet( key ) {
-    try { return localStorage.getItem( PREVIEW3D_CACHE_PREFIX + key ); } catch ( e ) { return null; }
-  }
-
-  function preview3dCacheSet( key, dataUrl ) {
-    try {
-      const keys = [];
-      for ( let i = 0; i < localStorage.length; i ++ ) {
-        const k = localStorage.key( i );
-        if ( k && k.startsWith( PREVIEW3D_CACHE_PREFIX ) ) keys.push( k );
-      }
-      while ( keys.length >= PREVIEW3D_CACHE_MAX ) localStorage.removeItem( keys.shift() );
-      localStorage.setItem( PREVIEW3D_CACHE_PREFIX + key, dataUrl );
-    } catch ( e ) {}
-  }
 
   function paintPreviewImageOnCanvas( canvas, dataUrl ) {
     return new Promise( ( resolve ) => {
@@ -370,13 +353,11 @@
     try {
       await waitForPreview3dModule();
       if ( ! window.__renderTrackTopDown ) return;
-      const cached = preview3dCacheGet( cacheKey );
-      if ( cached && await paintPreviewImageOnCanvas( g, cached ) ) return;
       const data = await fetchPreviewData3D( playUrl );
       if ( Array.isArray( data.cells ) && data.cells.length ) {
         // Hi-res render downscaled onto the canvas so the preview stays crisp.
         const dataUrl = await window.__renderTrackTopDown( data.cells, data.mods, { cacheKey: cacheKey, width: 760, height: 460 } );
-        if ( dataUrl && await paintPreviewImageOnCanvas( g, dataUrl ) ) preview3dCacheSet( cacheKey, dataUrl );
+        if ( dataUrl ) await paintPreviewImageOnCanvas( g, dataUrl );
       }
     } catch ( e ) {}
   }

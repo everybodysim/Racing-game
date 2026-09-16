@@ -242,8 +242,12 @@ dirLight.castShadow = getGraphicsPreset().shadows;
 dirLight.shadow.mapSize.setScalar( getGraphicsPreset().shadowMapSize );
 dirLight.shadow.camera.near = 0.5;
 dirLight.shadow.camera.far = 60;
-dirLight.shadow.bias = -0.0004;
-dirLight.shadow.normalBias = 0.04;
+// Shadow acne on thin elevated decks: the shadow-camera extent scales with
+// the track, so on medium/large tracks one shadow texel exceeds the old
+// normalBias (0.04) and decks self-shadow in stripes. 0.15 stays under one
+// deck thickness (no peter-panning) while covering the texel size.
+dirLight.shadow.bias = -0.0003;
+dirLight.shadow.normalBias = 0.15;
 scene.add( dirLight );
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );

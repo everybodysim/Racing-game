@@ -48,7 +48,7 @@
 	// Realistic 3D top-down track preview. The module exposes
 	// window.__renderTrackTopDown; the page falls back to its flat 2D
 	// preview if the module or WebGL is unavailable.
-	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js';
+	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260916';
 	window.__renderTrackTopDown = renderTrackTopDown;
 </script>
 </head>
@@ -551,25 +551,6 @@
   // Renders ONE frozen bird's-eye snapshot of the TOTD track with the real
   // block models (js/TrackTopDownRenderer.js, loaded via the importmap
   // module in <head>). The flat grid stays underneath as the fallback.
-  const PREVIEW3D_CACHE_PREFIX = 'racing-preview-3d:';
-  const PREVIEW3D_CACHE_MAX = 40;
-
-  function preview3dCacheGet( key ) {
-    try { return localStorage.getItem( PREVIEW3D_CACHE_PREFIX + key ); } catch ( e ) { return null; }
-  }
-
-  function preview3dCacheSet( key, dataUrl ) {
-    try {
-      const keys = [];
-      for ( let i = 0; i < localStorage.length; i ++ ) {
-        const k = localStorage.key( i );
-        if ( k && k.startsWith( PREVIEW3D_CACHE_PREFIX ) ) keys.push( k );
-      }
-      while ( keys.length >= PREVIEW3D_CACHE_MAX ) localStorage.removeItem( keys.shift() );
-      localStorage.setItem( PREVIEW3D_CACHE_PREFIX + key, dataUrl );
-    } catch ( e ) {}
-  }
-
   function paintPreviewImageOnCanvas( canvas, dataUrl ) {
     return new Promise( ( resolve ) => {
       const img = new Image();
@@ -599,10 +580,8 @@
       if ( ! window.__renderTrackTopDown ) return;
       const cv = document.getElementById( 'preview' );
       if ( ! cv ) return;
-      const cached = preview3dCacheGet( cacheKey );
-      if ( cached && await paintPreviewImageOnCanvas( cv, cached ) ) return;
       const dataUrl = await window.__renderTrackTopDown( cells, mods, { cacheKey: cacheKey, width: 640, height: 440 } );
-      if ( dataUrl && await paintPreviewImageOnCanvas( cv, dataUrl ) ) preview3dCacheSet( cacheKey, dataUrl );
+      if ( dataUrl ) await paintPreviewImageOnCanvas( cv, dataUrl );
     } catch ( e ) {}
   }
 

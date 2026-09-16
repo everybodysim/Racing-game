@@ -65,7 +65,7 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 		// Realistic 3D top-down track previews. The module exposes
 		// window.__renderTrackTopDown; the board script below uses it when
 		// available and falls back to the flat 2D preview otherwise.
-		import { renderTrackTopDown } from './js/TrackTopDownRenderer.js';
+		import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260916';
 		window.__renderTrackTopDown = renderTrackTopDown;
 	</script>
 </head>
@@ -528,25 +528,6 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 		// renders queue one at a time through a single WebGL context. The
 		// snapshot paints onto the existing canvas so the lazy real-thumbnail
 		// swap keeps working on top of it.
-		const PREVIEW3D_CACHE_PREFIX = 'racing-preview-3d:';
-		const PREVIEW3D_CACHE_MAX = 40;
-
-		function preview3dCacheGet( key ) {
-			try { return localStorage.getItem( PREVIEW3D_CACHE_PREFIX + key ); } catch ( e ) { return null; }
-		}
-
-		function preview3dCacheSet( key, dataUrl ) {
-			try {
-				const keys = [];
-				for ( let i = 0; i < localStorage.length; i ++ ) {
-					const k = localStorage.key( i );
-					if ( k && k.startsWith( PREVIEW3D_CACHE_PREFIX ) ) keys.push( k );
-				}
-				while ( keys.length >= PREVIEW3D_CACHE_MAX ) localStorage.removeItem( keys.shift() );
-				localStorage.setItem( PREVIEW3D_CACHE_PREFIX + key, dataUrl );
-			} catch ( e ) {}
-		}
-
 		function paintPreviewImageOnCanvas( canvas, dataUrl ) {
 			return new Promise( ( resolve ) => {
 				const img = new Image();
@@ -573,15 +554,10 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 			try {
 				await waitForPreview3dModule();
 				if ( window.__renderTrackTopDown ) {
-					const cached = preview3dCacheGet( playUrl );
-					if ( cached && await paintPreviewImageOnCanvas( canvas, cached ) ) return;
 					const previewData = await parseTrackLayoutFromUrlAsync( playUrl );
 					if ( Array.isArray( previewData.cells ) && previewData.cells.length ) {
 						const dataUrl = await window.__renderTrackTopDown( previewData.cells, previewData.mods, { cacheKey: playUrl, width: 500, height: 300 } );
-						if ( dataUrl && await paintPreviewImageOnCanvas( canvas, dataUrl ) ) {
-							preview3dCacheSet( playUrl, dataUrl );
-							return;
-						}
+						if ( dataUrl && await paintPreviewImageOnCanvas( canvas, dataUrl ) ) return;
 					}
 				}
 			} catch ( e ) {}

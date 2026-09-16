@@ -215,6 +215,20 @@ async function renderNow( cells, mods, width, height, quality = 0.87 ) {
 let queue = Promise.resolve();
 // In-memory cache for this page session — a track is rendered at most once
 // per unique cache key even if multiple cards ask for it concurrently.
+// One-time cleanup: earlier versions cached rendered previews in
+// localStorage (up to 40 entries, ~25KB each). That persistence has been
+// removed — renders are now in-memory only for the current page load —
+// but purge any leftover entries from before so old browsers reclaim the
+// space instead of carrying dead data forever.
+try {
+	const legacyKeys = [];
+	for ( let i = 0; i < localStorage.length; i ++ ) {
+		const k = localStorage.key( i );
+		if ( k && k.startsWith( 'racing-preview-3d:' ) ) legacyKeys.push( k );
+	}
+	for ( const k of legacyKeys ) localStorage.removeItem( k );
+} catch ( e ) {}
+
 const memoryCache = new Map();
 const pending = new Map();
 
