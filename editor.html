@@ -1959,12 +1959,10 @@
 			if ( ! src ) return;
 
 				const mesh = src.clone();
-				// No editor-only nudges: pieces place EXACTLY like the game build
-				// (the game has no +0.1 for the 4-way, and the editor's colliders
-				// are built for the un-nudged position anyway). Editor visuals
-				// must mirror the game — that divergence is what kept burying
-				// pads under the 4-way.
-				mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + idx * 0.035, ( gz + 0.5 ) * CELL_RAW );
+				// The 4-way's road deck sits a hair below ground level — nudge it
+				// up like the elevated 4-way (same +0.1 the editor already uses).
+				const yNudge = roadPiece.type === 'track-4-way' ? 0.1 : 0;
+				mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + idx * 0.035 + yNudge, ( gz + 0.5 ) * CELL_RAW );
 				mesh.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ roadPiece.orient ] || 0 );
 				const gateTint = getGateTintColor( roadPiece.type );
 				mesh.traverse( ( c ) => {
@@ -2097,7 +2095,7 @@
 			if ( elevatedSrc ) {
 
 				const elevated = elevatedSrc.clone();
-				const yAdjust = normalizedType === 'slope-up' ? - ELEVATED_HEIGHT : 0;
+				const yAdjust = normalizedType === 'elevated-4-way' ? 0.1 : ( normalizedType === 'slope-up' ? - ELEVATED_HEIGHT : 0 );
 				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
 				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 );
 				// Slope model is pre-sloped at the correct size — no rotation or scaling needed
@@ -2228,14 +2226,13 @@
 				);
 				patch.rotation.x = - Math.PI / 2;
 				const yOffset = getOverlayHeightOffset( cell );
-				// Pads/surfaces sit at the STANDARD patch height on every cell —
-				// no special lifts or offsets anywhere. Measured from the GLBs:
-				// road plateaus sit at model y=0 for every piece (straights,
-				// 3-way, 4-way, checkpoints, elevated decks — the 4-way's 0.75
-				// peak is just the finish arch on one arm), so the standard
-				// patch height is flush on ALL of them. Don't re-add per-type
-				// offsets here.
 				let surfaceLift = 0;
+				if ( ! cell.elevatedType ) {
+					if ( cell.jump ) surfaceLift = 1.5;
+					else if ( ( cell.roadPieces || [] ).some( ( piece ) => piece.type === 'track-4-way' || piece.type === 'track-3-way' ) ) surfaceLift = 0.45;
+				} else if ( cell.elevatedType === 'elevated-3-way' || cell.elevatedType === 'elevated-4-way' || cell.elevatedType === 'elevated-checkpoint' ) {
+					surfaceLift = cell.elevatedType === 'elevated-3-way' ? 0.05 : ( cell.elevatedType === 'elevated-4-way' ? 0.06 : 0.01 );
+				}
 				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + surfaceLift + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
 				// Slope tilt: flush with the ramp, matching the game build. Uses the
 				// cell's own elevated block, so off-grid cells tilt correctly too.

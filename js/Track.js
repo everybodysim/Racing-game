@@ -1059,6 +1059,12 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	const decoGroup = new THREE.Group();
 
 	const cells = customCells || TRACK_CELLS;
+	// Ground cells holding a 3-way/4-way block — their pads lift +0.45 to
+	// sit above the block, matching the editor.
+	const hubCellSet = new Set();
+	for ( const [ hubGx, hubGz, hubKey ] of cells ) {
+		if ( hubKey === 'track-3-way' || hubKey === 'track-4-way' ) hubCellSet.add( `${ hubGx },${ hubGz }` );
+	}
 	const waterCellsForDeco = extras && Array.isArray( extras.water ) ? extras.water : [];
 
 	for ( const [ gx, gz, key, orient ] of cells ) {
@@ -1465,11 +1471,11 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				return patch;
 
 			};
-			// Top patch: standard placement. Every elevated deck road sits at
-			// the same height (measured: road plateaus at model y=0 for all
-			// piece types), so a flat patch is flush on 3-way/4-way/
-			// checkpoint exactly like straights/cross — no special offsets.
-			addPatch( getOverlayHeightOffset( elevatedEntry ) );
+			// Pads on 3-way/4-way blocks sit ABOVE the block (+0.45) so they
+			// are always visible — ground and elevated, matching the editor.
+			const isWay = ( ! elevatedEntry && hubCellSet.has( `${ gx },${ gz }` ) )
+				|| ( elevatedEntry && ( elevatedEntry.type === 'elevated-3-way' || elevatedEntry.type === 'elevated-4-way' ) );
+			addPatch( getOverlayHeightOffset( elevatedEntry ) + ( isWay ? 0.45 : 0 ) );
 			// Cross blocks: the underpass road below the bridge is a real
 			// driving surface, so a pad/surface on the cell also renders a
 			// second patch on the bottom road, at the normal ground patch
