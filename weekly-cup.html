@@ -43,6 +43,21 @@
   </style>
 <script src="js/PageTransitions.js"></script>
 <link rel="stylesheet" href="ui-theme.css">
+<script type="importmap">
+{
+	"imports": {
+		"three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
+		"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/"
+	}
+}
+</script>
+<script type="module">
+	// Realistic 3D top-down track preview. The module exposes
+	// window.__renderTrackTopDown; the page falls back to its flat 2D
+	// grid if the module or WebGL is unavailable.
+	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js';
+	window.__renderTrackTopDown = renderTrackTopDown;
+</script>
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -357,6 +372,67 @@ function getTrackIds(playUrl) {
     return [];
   }
 }
+  // ── Realistic 3D top-down previews ──
+  // Renders ONE frozen bird's-eye snapshot of each cup track with the real
+  // block models (js/TrackTopDownRenderer.js, loaded via the importmap
+  // module in <head>) — queued one at a time through a single shared WebGL
+  // context, cached in a localStorage LRU so each track renders at most
+  // once per browser. The flat 2D grid stays underneath as the fallback.
+  const PREVIEW3D_CACHE_PREFIX = 'racing-preview-3d:';
+  const PREVIEW3D_CACHE_MAX = 40;
+
+  function preview3dCacheGet( key ) {
+    try { return localStorage.getItem( PREVIEW3D_CACHE_PREFIX + key ); } catch ( e ) { return null; }
+  }
+
+  function preview3dCacheSet( key, dataUrl ) {
+    try {
+      const keys = [];
+      for ( let i = 0; i < localStorage.length; i ++ ) {
+        const k = localStorage.key( i );
+        if ( k && k.startsWith( PREVIEW3D_CACHE_PREFIX ) ) keys.push( k );
+      }
+      while ( keys.length >= PREVIEW3D_CACHE_MAX ) localStorage.removeItem( keys.shift() );
+      localStorage.setItem( PREVIEW3D_CACHE_PREFIX + key, dataUrl );
+    } catch ( e ) {}
+  }
+
+  function paintPreviewImageOnCanvas( canvas, dataUrl ) {
+    return new Promise( ( resolve ) => {
+      const img = new Image();
+      img.onload = () => {
+        const ctx = canvas.getContext( '2d' );
+        ctx.clearRect( 0, 0, canvas.width, canvas.height );
+        ctx.drawImage( img, 0, 0, canvas.width, canvas.height );
+        resolve( true );
+      };
+      img.onerror = () => resolve( false );
+      img.src = dataUrl;
+    } );
+  }
+
+  async function waitForPreview3dModule( timeoutMs = 8000 ) {
+    const start = Date.now();
+    while ( ! window.__renderTrackTopDown && Date.now() - start < timeoutMs ) {
+      await new Promise( ( r ) => setTimeout( r, 50 ) );
+    }
+    return !! window.__renderTrackTopDown;
+  }
+
+  async function upgradePreview3D( canvas, cells, mods, cacheKey ) {
+    try {
+      if ( ! Array.isArray( cells ) || ! cells.length || ! cacheKey ) return;
+      await waitForPreview3dModule();
+      if ( ! window.__renderTrackTopDown ) return;
+      const cached = preview3dCacheGet( cacheKey );
+      if ( cached && await paintPreviewImageOnCanvas( canvas, cached ) ) return;
+      // Hi-res render downscaled onto the canvas so the wide card preview
+      // stays crisp (matches the page's 1.2 display aspect).
+      const dataUrl = await window.__renderTrackTopDown( cells, mods, { cacheKey: cacheKey, width: 600, height: 500 } );
+      if ( dataUrl && await paintPreviewImageOnCanvas( canvas, dataUrl ) ) preview3dCacheSet( cacheKey, dataUrl );
+    } catch ( e ) {}
+  }
+
   function drawPreview(canvas, cells, mods) {
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -437,6 +513,7 @@ function getTrackIds(playUrl) {
       card.innerHTML = `<h3>Track ${idx + 1}</h3><canvas width="280" height="210"></canvas><div class="row"><span class="meta">Seed slot ${idx + 1}</span><a class="linkbtn" href="${track.playUrl}" target="_blank" rel="noopener">Play</a></div>`;
       const canvas = card.querySelector('canvas');
       drawPreview(canvas, track.cells, track.modsObj);
+      upgradePreview3D(canvas, track.cells, track.modsObj, track.playUrl);
       gridEl.appendChild(card);
     });
 
