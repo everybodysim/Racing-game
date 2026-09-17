@@ -37,6 +37,29 @@ export function createShadowProxyController( scene, rootGroup, dirLight ) {
 
 			if ( ! ( obj.isMesh && obj.castShadow ) ) return;
 			if ( obj.layers.mask !== 1 ) return; // layer-0-only = static source; skip proxies/dynamics
+			// Instanced casters (forest/bush/grass decoration) keep their own
+			// draw in the depth pass: their per-instance transforms live in
+			// instanceMatrix, which a merge would drop (one un-instanced copy
+			// instead of every tree). An InstancedMesh is already ONE draw,
+			// so this costs nothing — it just renders with its real material
+			// (alpha-tested leaves etc.) like the original pipeline.
+			if ( obj.isInstancedMesh ) {
+
+				obj.layers.enable( SHADOW_CAST_LAYER );
+				return;
+
+			}
+			// Alpha-tested cutouts (leaf planes, grass cards) need their
+			// material's map + alphaTest in the depth pass; the merged bulk
+			// is solid, so merging them would turn lacy foliage into solid
+			// quads. They stay as individual (cheap) casters too.
+			const mats = Array.isArray( obj.material ) ? obj.material : [ obj.material ];
+			if ( mats.some( ( m ) => m && ( m.alphaTest ?? 0 ) > 0 ) ) {
+
+				obj.layers.enable( SHADOW_CAST_LAYER );
+				return;
+
+			}
 			const geom = obj.geometry;
 			const posAttr = geom?.attributes?.position;
 			if ( ! posAttr || posAttr.itemSize !== 3 ) return;
@@ -73,7 +96,11 @@ export function createShadowProxyController( scene, rootGroup, dirLight ) {
 		geom.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
 		geom.setIndex( indices );
 		geom.computeBoundingSphere();
-		proxy = new THREE.Mesh( geom, new THREE.MeshBasicMaterial( { colorWrite: false, depthWrite: false } ) );
+		// shadowSide DoubleSide: pieces mutated to DoubleSide at runtime
+		// (e.g. cross-corner blocks, viewed from inside their opening)
+		// must keep casting from both faces. For closed opaque geometry the
+		// back faces lose the depth test, so this changes nothing there.
+		proxy = new THREE.Mesh( geom, new THREE.MeshBasicMaterial( { colorWrite: false, depthWrite: false, shadowSide: THREE.DoubleSide } ) );
 		proxy.castShadow = true;
 		proxy.receiveShadow = false;
 		proxy.layers.set( SHADOW_CAST_LAYER ); // main camera never sees it
