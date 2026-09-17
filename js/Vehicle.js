@@ -166,6 +166,13 @@ export class Vehicle {
 				child.castShadow = true;
 				child.receiveShadow = true;
 				child.layers.enable( 9 );
+				// The car model is an OPEN shell (single-surface hood/roof/fender
+				// panels, no closed hull). Three.js depth-passes BACK faces of
+				// FrontSide materials by default, which drops every outward
+				// panel and leaves a hollow "cross-section" shadow. Cast with
+				// both faces so the full outer silhouette lands in the map.
+				const mats = Array.isArray( child.material ) ? child.material : [ child.material ];
+				for ( const m of mats ) if ( m ) m.shadowSide = THREE.DoubleSide;
 				const mat = child.material;
 				if ( mat && mat.isMeshStandardMaterial ) {
 					mat.metalness = Math.max( mat.metalness ?? 0.08, 0.12 );
