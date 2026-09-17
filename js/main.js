@@ -255,6 +255,10 @@ dirLight.shadow.normalBias = 0.15;
 // single merged proxy mesh (see ShadowProxy.js): the depth pass renders
 // one draw for the whole world plus a handful of dynamic casters.
 scene.add( dirLight );
+// World-locked sun anchor (set when a track loads): the sun stays a fixed
+// offset from the TRACK CENTER, not the car, so the light vector is constant
+// for every pixel of the world — static shadows never swing as you drive.
+let shadowSunAnchor = null;
 let staticShadowProxy = null; // merged static-caster mesh for the sun depth pass (ShadowProxy.js)
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
@@ -4671,6 +4675,7 @@ async function init() {
 	shadowTarget.position.set( bounds.centerX, 0, bounds.centerZ );
 	scene.add( shadowTarget );
 	dirLight.target = shadowTarget;
+	shadowSunAnchor = { x: bounds.centerX, y: 0, z: bounds.centerZ };
 	// The locked window reaches farther behind the center than the old
 	// car-following aim, so give the ortho depth range room to cover it
 	// (ortho depth is linear — no precision cost).
@@ -13327,15 +13332,17 @@ function completeCampaignStage() {
 
 		}
 
+		// World-locked sun: same (11.4, 15, -5.3) offset as always, but from the
+		// LOCKED track-center anchor instead of the car. With the shadow target
+		// also locked, the light vector is now constant everywhere — static
+		// shadows never swing or stretch as the car drives (a car-relative sun
+		// swung the vector every frame once the target stopped following the car).
+		// The +15 above the anchor keeps the historical ground-level height
+		// (0 + 15 = 15); elevation no longer matters because the anchor is fixed.
 		dirLight.position.set(
-			vehicle.spherePos.x + 11.4,
-			// Height-tracking: keep the sun a constant +15 above the sphere so the
-			// light vector is identical on elevated decks (+3.75) and in pool bowls
-			// (-2.5) — a fixed Y rotated the vector as the car climbed/descended,
-			// stretching shadows and drifting their intensity. The offset matches
-			// the historical ground-level light (0 + 15 = 15).
-			vehicle.spherePos.y + 15,
-			vehicle.spherePos.z - 5.3
+			( shadowSunAnchor ? shadowSunAnchor.x : vehicle.spherePos.x ) + 11.4,
+			( shadowSunAnchor ? shadowSunAnchor.y : vehicle.spherePos.y ) + 15,
+			( shadowSunAnchor ? shadowSunAnchor.z : vehicle.spherePos.z ) - 5.3
 		);
 
 		const cameraUnderwater = updateCameraUnderwater( cam.camera, dt );
