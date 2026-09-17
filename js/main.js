@@ -5473,6 +5473,16 @@ async function init() {
 
 	}
 
+
+        // Camera obstacle avoidance
+        // Moving bodies (the player's own car sphere, P2, ghosts, NPCs) can't
+        // block the chase camera, and visuals without hitboxes (trees, decorations) are
+        // never part of the physics world, so they are ignored automatically.
+        const ignoreDynamicCameraBodies = ( body ) => ! body || body._pooled || body.motionType !== MotionType.STATIC;
+        cam.setObstacleCollision( world, ignoreDynamicCameraBodies );
+
+        if ( cam2 ) cam2.setObstacleCollision( world, ignoreDynamicCameraBodies );
+
 	const controls = isSplitScreen
 		? new Controls( { leftKeys: [ 'KeyA' ], rightKeys: [ 'KeyD' ], forwardKeys: [ 'KeyW' ], backKeys: [ 'KeyS' ], enableGamepad: false, enableTouch: false } )
 		: new Controls();

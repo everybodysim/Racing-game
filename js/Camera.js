@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createCameraObstacleProbe } from './Physics.js';
 
 function lerpAngle( a, b, t ) {
 
@@ -36,6 +37,18 @@ export class Camera {
 		this.userPitch = 0;
 		this.userLagScale = 1;
 
+		// Camera-vs-hitbox collision: ray from the target toward the desired camera
+		// position, smoothly pulling the camera in when something solid is in the way.
+		this.obstacleProbe = null;
+		this.ignoreBodyPredicate = null;
+		this.collisionDistanceBuffer = 0.5;
+		this.collisionMinDistance = 1.0;
+		this.collisionMaxDistance = 12.5;
+		this._collisionSmooth = 1;
+		this._collisionOrigin = new THREE.Vector3();
+		this._collisionDir = new THREE.Vector3();
+		this._cameraHitPoint = new THREE.Vector3();
+
 		this.camera.position.copy( this.offset );
 		this.camera.lookAt( 0, 0, 0 );
 
@@ -61,7 +74,16 @@ export class Camera {
 
 	}
 
+	setObstacleCollision( world, isBodyIgnored ) {
+
+		this.obstacleProbe = world ? createCameraObstacleProbe( world ) : null;
+		this.ignoreBodyPredicate = isBodyIgnored || null;
+		this._collisionSmooth = 1;
+
+	}
+
 	update( dt, target, targetQuaternion, dynamics = {} ) {
+		this._collisionDt = Math.min( 0.1, Math.max( 1e-4, Number( dt ) || 0.016 ) );
 
 		const speedRatio = THREE.MathUtils.clamp( Number( dynamics.speedRatio ) || 0, 0, 1.8 );
 		const driftAmount = THREE.MathUtils.clamp( Number( dynamics.driftIntensity ) || 0, 0, 1 );
@@ -100,6 +122,7 @@ export class Camera {
 			if ( this.userHeight != null ) this._rotatedOffset.y = this.userHeight;
 			if ( this.userPitch ) this._rotatedOffset.applyAxisAngle( new THREE.Vector3( 1, 0, 0 ), this.userPitch );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
+			this.applyObstacleCollision( this._desiredPos );
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
 			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) );
 			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift );
@@ -124,6 +147,42 @@ export class Camera {
 			this.camera.lookAt( this.lookTarget );
 
 		}
+
+	}
+
+
+	applyObstacleCollision( desiredPos ) {
+
+		if ( ! this.obstacleProbe || ! desiredPos ) return;
+		const origin = this._collisionOrigin;
+		const dir = this._collisionDir;
+
+		origin.copy( this.targetPosition );
+		origin.y +=  0.4;
+		const carForward = this._forward;
+		if ( carForward ) origin.addScaledVector( carForward,  0.6 );
+		dir.copy( desiredPos ).sub( origin ).normalize();
+		const fullDist = Math.max( 0.1, Math.min( Number( this.collisionMaxDistance ) ||  12.5, origin.distanceTo( desiredPos ) ) );
+
+		const rayDist = fullDist - Math.max( 0.2, Number( this.collisionDistanceBuffer ) || 0.5 );
+		const hit = this.obstacleProbe.probe( origin, dir, Math.max( 0.1, rayDist ), body => {
+
+			if ( ! this.ignoreBodyPredicate ) return false;
+			return this.ignoreBodyPredicate( body );
+
+		} );
+		if ( ! hit ) {
+
+			this._collisionSmooth = Math.min( 1, Math.max( 0, this._collisionSmooth -  0.35 ) );
+			return;
+
+		}
+		const hitDist = Math.max( Number( this.collisionMinDistance ) || 1.0, origin.distanceTo( desiredPos ) * hit.fraction - Number( this.collisionDistanceBuffer ) ||  0.5 );
+		const targetDist = THREE.MathUtils.clamp( hitDist, Number( this.collisionMinDistance ) ||  1.0, fullDist );
+		this._collisionSmooth = Math.min( 1, Math.max( this._collisionSmooth, 1 - Math.exp( - 3.5 * this._collisionDt ) ) );
+		const dist = THREE.MathUtils.lerp( origin.distanceTo( desiredPos ), targetDist, this._collisionSmooth );
+		dir.multiplyScalar( dist );
+		desiredPos.copy( origin ).add( dir );
 
 	}
 
