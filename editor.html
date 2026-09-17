@@ -893,7 +893,7 @@
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js';
-	import { Vehicle, createCarBlobShadow, updateCarBlobShadow } from './js/Vehicle.js?v=1000224';
+	import { Vehicle, createCarBlobShadow, updateCarBlobShadow } from './js/Vehicle.js?v=1000225';
 
 	// ─── State ────────────────────────────────────────────────
 
@@ -6317,12 +6317,15 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			if ( ! active || ! vehicle?.container || ! vehicle.spherePos ) { driveBlob.visible = false; return; }
 			const p = vehicle.spherePos;
 			const depth = probeDriveGround( p.x, p.y, p.z );
+			const lp = dirLight.position;
 			updateCarBlobShadow( driveBlob, {
 				x: p.x, z: p.z,
 				groundY: depth == null ? null : p.y - depth,
 				yaw: vehicle.container.rotation.y,
 				scale: Math.max( vehicle.container.scale.x, 0.01 ),
-				airHeight: depth == null ? 999 : depth,
+				airHeight: depth == null ? 999 : Math.max( 0, depth - 0.45 ),
+				offsetX: - lp.x / Math.max( lp.y, 0.5 ) * 0.35,
+				offsetZ: - lp.z / Math.max( lp.y, 0.5 ) * 0.35,
 			} );
 
 		}

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-import { Vehicle, createCarBlobShadow, updateCarBlobShadow } from './Vehicle.js?v=1000224';
+import { Vehicle, createCarBlobShadow, updateCarBlobShadow } from './Vehicle.js?v=1000225';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000230';
@@ -4674,6 +4674,19 @@ async function init() {
 
 	buildTrack( scene, models, customCells, extras );
 	const movingObstacleState = createMovingObstacleState( scene, extras );
+	// Moving obstacles never cast real shadows (castShadow off, same as
+	// before the bake change) — give each one a blob sized to its footprint.
+	const moverBlobs = [];
+	for ( const obstacle of movingObstacleState.items ) {
+
+		let maxHalf = 0;
+		for ( const c of obstacle.colliders ) maxHalf = Math.max( maxHalf, c.half.x, c.half.z );
+		const orbitR = Number( obstacle.custom?.orbit ) || 0;
+		const blob = createCarBlobShadow();
+		scene.add( blob );
+		moverBlobs.push( { blob, obstacle, scale: Math.max( 0.55, ( maxHalf * 2 + orbitR * 2 + 0.6 ) / 2.5 ) } );
+
+	}
 	// One-time static shadow bake: renders the sun's depth map with the
 	// fully-built track and reuses it until the tab closes / track reloads.
 	dirLight.shadow.needsUpdate = true;
@@ -5263,7 +5276,7 @@ async function init() {
 		return Math.atan2( _blobFwd.x, _blobFwd.z );
 
 	}
-	function updateVehicleBlob( blob, targetVehicle ) {
+	function updateVehicleBlob( blob, targetVehicle, offX = 0, offZ = 0 ) {
 
 		if ( ! blob ) return;
 		if ( ! targetVehicle?.container || ! targetVehicle.spherePos ) { blob.visible = false; return; }
@@ -5274,7 +5287,8 @@ async function init() {
 			groundY: probe ? p.y - probe.depth : null,
 			yaw: blobYawFromQuaternion( targetVehicle.container.quaternion ),
 			scale: Math.max( targetVehicle.container.scale.x, targetVehicle.container.scale.z, 0.01 ),
-			airHeight: probe ? probe.depth : 999,
+			airHeight: probe ? Math.max( 0, probe.depth - 0.45 ) : 999,
+			offsetX: offX, offsetZ: offZ,
 		} );
 
 	}
@@ -5284,11 +5298,18 @@ async function init() {
 
 			playerBlob.visible = false;
 			player2Blob.visible = false;
+			for ( const entry of moverBlobs ) entry.blob.visible = false;
+			for ( const [ , state ] of remotePlayerVisuals ) if ( state?.blob ) state.blob.visible = false;
 			return;
 
 		}
-		updateVehicleBlob( playerBlob, vehicle );
-		updateVehicleBlob( player2Blob, vehicle2 );
+		// Shadow-direction offset: real shadows fall slightly away from the
+		// sun, so displace every blob the same way (mid-body projection).
+		const lp = dirLight.position;
+		const offX = - lp.x / Math.max( lp.y, 0.5 ) * 0.35;
+		const offZ = - lp.z / Math.max( lp.y, 0.5 ) * 0.35;
+		updateVehicleBlob( playerBlob, vehicle, offX, offZ );
+		updateVehicleBlob( player2Blob, vehicle2, offX, offZ );
 		for ( const [ , state ] of remotePlayerVisuals ) {
 
 			if ( ! state?.blob ) continue;
@@ -5301,7 +5322,24 @@ async function init() {
 				groundY: probe ? originY - probe.depth : null,
 				yaw: mesh.rotation.y,
 				scale: mesh.scale.x,
-				airHeight: probe ? probe.depth : 999,
+				airHeight: probe ? Math.max( 0, probe.depth - 0.6 ) : 999,
+				offsetX: offX, offsetZ: offZ,
+			} );
+
+		}
+		for ( const entry of moverBlobs ) {
+
+			const mesh = entry.obstacle.mesh;
+			if ( ! mesh || ! mesh.visible ) { entry.blob.visible = false; continue; }
+			const originY = mesh.position.y + 0.5;
+			const probe = sampleGroundDepth( mesh.position.x, originY, mesh.position.z );
+			updateCarBlobShadow( entry.blob, {
+				x: mesh.position.x, z: mesh.position.z,
+				groundY: probe ? originY - probe.depth : null,
+				yaw: mesh.rotation.y,
+				scale: entry.scale,
+				airHeight: probe ? Math.max( 0, probe.depth - 0.5 ) : 999,
+				offsetX: offX, offsetZ: offZ,
 			} );
 
 		}

@@ -495,6 +495,7 @@ export class Vehicle {
 // already land almost directly beneath the car, so the visual difference
 // is tiny.
 let _carBlobTexture = null;
+const CAR_BLOB_OPACITY = 0.65; // ~matches how dark real sun shadows were
 
 export function createCarBlobShadow() {
 
@@ -505,8 +506,8 @@ export function createCarBlobShadow() {
 		canvas.width = canvas.height = size;
 		const ctx = canvas.getContext( '2d' );
 		const gradient = ctx.createRadialGradient( size / 2, size / 2, size * 0.05, size / 2, size / 2, size * 0.5 );
-		gradient.addColorStop( 0, 'rgba(0,0,0,0.5)' );
-		gradient.addColorStop( 0.6, 'rgba(0,0,0,0.3)' );
+		gradient.addColorStop( 0, 'rgba(0,0,0,0.82)' );
+		gradient.addColorStop( 0.55, 'rgba(0,0,0,0.5)' );
 		gradient.addColorStop( 1, 'rgba(0,0,0,0)' );
 		ctx.fillStyle = gradient;
 		ctx.fillRect( 0, 0, size, size );
@@ -515,10 +516,10 @@ export function createCarBlobShadow() {
 	}
 	const mesh = new THREE.Mesh(
 		new THREE.PlaneGeometry( 1, 1 ),
-		new THREE.MeshBasicMaterial( { map: _carBlobTexture, transparent: true, depthWrite: false, opacity: 0.42 } )
+		new THREE.MeshBasicMaterial( { map: _carBlobTexture, transparent: true, depthWrite: false, opacity: CAR_BLOB_OPACITY } )
 	);
 	mesh.rotation.order = 'YXZ';
-	mesh.scale.set( 1.7, 2.2, 1 );
+	mesh.scale.set( 1.9, 2.5, 1 );
 	mesh.renderOrder = 2;
 	mesh.visible = false;
 	return mesh;
@@ -535,9 +536,12 @@ export function updateCarBlobShadow( blob, opts ) {
 	const s = Number( opts.scale ) || 1;
 	const grow = 1 + air * 0.15;
 	blob.visible = true;
-	blob.position.set( opts.x, opts.groundY + 0.02, opts.z );
+	// Slight displacement toward where the sun's real shadow would fall
+	// (offset vector computed by the caller from the live light position).
+	const offX = Number( opts.offsetX ) || 0, offZ = Number( opts.offsetZ ) || 0;
+	blob.position.set( opts.x + offX, opts.groundY + 0.02, opts.z + offZ );
 	blob.rotation.set( - Math.PI / 2, Number( opts.yaw ) || 0, 0 );
-	blob.scale.set( 1.7 * s * grow, 2.2 * s * grow, 1 );
-	blob.material.opacity = 0.42 * fade;
+	blob.scale.set( 1.9 * s * grow, 2.5 * s * grow, 1 );
+	blob.material.opacity = CAR_BLOB_OPACITY * fade;
 
 }
