@@ -4661,6 +4661,20 @@ async function init() {
 	dirLight.shadow.camera.right = shadowExtent;
 	dirLight.shadow.camera.top = shadowExtent;
 	dirLight.shadow.camera.bottom = - shadowExtent;
+	// World-locked shadow camera: aim at the track CENTER, not the car.
+	// The extent already covers the whole track, so following the car only
+	// slid the ortho window as you drove — that slide made every static
+	// shadow swim by a texel ("tiny shift") and wobbled the sun direction.
+	// Locking it freezes statics like the old one-time bake, while the car
+	// still casts its real shadow into the map every refresh.
+	const shadowTarget = new THREE.Object3D();
+	shadowTarget.position.set( bounds.centerX, 0, bounds.centerZ );
+	scene.add( shadowTarget );
+	dirLight.target = shadowTarget;
+	// The locked window reaches farther behind the center than the old
+	// car-following aim, so give the ortho depth range room to cover it
+	// (ortho depth is linear — no precision cost).
+	dirLight.shadow.camera.far = 60 + 2 * shadowExtent + 20;
 	dirLight.shadow.camera.updateProjectionMatrix();
 
 	applySkyPalette( weatherSettings.preset );
@@ -5982,8 +5996,6 @@ async function init() {
 
 	if ( ghostEnabled ) createGhostModel( models[ 'vehicle-truck-yellow' ] );
 	if ( replayViewerMode ) vehicle.container.visible = false;
-
-	dirLight.target = vehicleGroup;
 
 	const cam = new Camera();
 	cam.targetPosition.copy( vehicle.spherePos );
