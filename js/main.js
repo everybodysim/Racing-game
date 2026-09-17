@@ -2,8 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-import { Vehicle } from './Vehicle.js?v=1000226';
-import { createShadowProxyController } from './ShadowProxy.js?v=2';
+import { Vehicle } from './Vehicle.js?v=1000223';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000230';
@@ -249,13 +248,7 @@ dirLight.shadow.camera.far = 60;
 // deck thickness (no peter-panning) while covering the texel size.
 dirLight.shadow.bias = -0.0003;
 dirLight.shadow.normalBias = 0.15;
-// The sun's shadow map re-renders per frame (rate-gated by
-// refreshShadowsIfNeeded) — REAL shadows for the car and moving objects.
-// The cost is kept low because the static track geometry casts through a
-// single merged proxy mesh (see ShadowProxy.js): the depth pass renders
-// one draw for the whole world plus a handful of dynamic casters.
 scene.add( dirLight );
-let staticShadowProxy = null; // merged static-caster mesh for the sun depth pass (ShadowProxy.js)
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
 scene.add( hemiLight );
@@ -3527,13 +3520,6 @@ function createMovingObstacleState( scene, extras ) {
 			}
 		} else continue;
 		obstacle.mesh.position.copy( base );
-		// Real moving shadows: cast into the sun's per-frame depth pass
-		// (which only renders layer 9 — see ShadowProxy.js).
-		obstacle.mesh.traverse( ( o ) => {
-
-			if ( o.isMesh ) { o.castShadow = true; o.layers.enable( 9 ); }
-
-		} );
 		scene.add( obstacle.mesh );
 		state.items.push( obstacle );
 	}
@@ -4680,11 +4666,6 @@ async function init() {
 
 	buildTrack( scene, models, customCells, extras );
 	const movingObstacleState = createMovingObstacleState( scene, extras );
-	// Merge every static caster into ONE proxy mesh so the sun's per-frame
-	// depth pass stays cheap (a single draw for the whole track) while the
-	// car + moving obstacles cast their real, moving shadows every frame.
-	if ( staticShadowProxy ) staticShadowProxy.rebuild();
-	else staticShadowProxy = createShadowProxyController( scene, scene, dirLight );
 
 
 	const worldSettings = createWorldSettings();
@@ -5175,11 +5156,8 @@ async function init() {
 				obj.material.depthWrite = true;
 
 			}
-			// Real moving shadow caster — the sun's depth pass only
-			// renders layer 9 (see ShadowProxy.js), so enable it here.
 			obj.castShadow = true;
 			obj.receiveShadow = true;
-			obj.layers.enable( 9 );
 
 		} );
 		if ( previousState?.targetPos ) mesh.position.copy( previousState.targetPos );
@@ -8155,9 +8133,6 @@ async function init() {
 		garageKeyLight.shadow.camera.right = 10;
 		garageKeyLight.shadow.camera.top = 10;
 		garageKeyLight.shadow.camera.bottom = - 10;
-		// The merged static shadow proxy (layer 9) belongs to the sun's
-		// depth pass only — keep it out of the garage light's map.
-		garageKeyLight.shadow.camera.layers.disable( 9 );
 		scene.add( garageKeyLight, garageKeyLight.target );
 		scene.add( displayRoot );
 		garageViewer = { renderer, scene, camera, displayRoot, garageRoot, carRoot, yaw: 0, pitch: 0.23, zoom: 1, drive: false, dragging: false, moved: false, sx: 0, sy: 0, pinchDistance: 0, pointers: new Map(), raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
@@ -12928,11 +12903,12 @@ function completeCampaignStage() {
 
 	let hudUpdateAccumulator = 0;
 
-	// Keeps the renderer's shadow-map pass ENABLED at ~110 Hz so the SUN's
-	// depth map re-renders with moving cars/obstacles every frame (real
-	// dynamic shadows — cheap now that statics cast through one merged
-	// proxy mesh, see ShadowProxy.js), and the garage key light keeps its
-	// own per-frame map.
+	// Shadow depth pass at up to ~110 Hz: per-frame at <=60 FPS (unchanged
+	// behavior), every 2nd/3rd frame at high refresh rates. The sun and all
+	// scenery are static, and the fastest mover — the car — still gets its
+	// shadow refreshed >100 times a second, more often than the old every-
+	// frame-at-60-FPS behavior. Mode changes that relocate the camera/car
+	// set shadowMap.needsUpdate themselves and bypass this gate.
 	const SHADOW_REFRESH_MIN_MS = 9;
 	let _shadowRefreshLastMs = -9999;
 	function refreshShadowsIfNeeded() {
@@ -12941,7 +12917,6 @@ function completeCampaignStage() {
 		if ( nowMs - _shadowRefreshLastMs < SHADOW_REFRESH_MIN_MS ) return;
 		_shadowRefreshLastMs = nowMs;
 		renderer.shadowMap.needsUpdate = true;
-		staticShadowProxy?.tick?.();
 
 	}
 
