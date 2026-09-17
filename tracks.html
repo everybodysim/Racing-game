@@ -52,6 +52,21 @@
 </style>
 <script src="js/PageTransitions.js"></script>
 <link rel="stylesheet" href="ui-theme.css">
+	<script type="importmap">
+	{
+		"imports": {
+			"three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
+			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/"
+		}
+	}
+	</script>
+	<script type="module">
+		// Realistic 3D top-down track previews. The module exposes
+		// window.__renderTrackTopDown; the board script below uses it when
+		// available and falls back to the flat 2D preview otherwise.
+		import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260916';
+		window.__renderTrackTopDown = renderTrackTopDown;
+	</script>
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -1036,6 +1051,53 @@
 			}
 		}, { rootMargin: '300px' } );
 
+		// ── Realistic 3D top-down previews ──
+		// js/TrackTopDownRenderer.js (loaded by the importmap module in <head>)
+		// renders one frozen bird's-eye snapshot of the track using the REAL
+		// block models — never hundreds of live previews: each track renders at
+		// most once per browser (in-memory only, no localStorage — nothing
+		// persists across reloads), and renders queue one at a time through a
+		// single WebGL context. The snapshot paints onto the existing canvas
+		// so the lazy real-thumbnail swap keeps working on top of it.
+		function paintPreviewImageOnCanvas( canvas, dataUrl ) {
+			return new Promise( ( resolve ) => {
+				const img = new Image();
+				img.onload = () => {
+					const ctx = canvas.getContext( '2d' );
+					ctx.clearRect( 0, 0, canvas.width, canvas.height );
+					ctx.drawImage( img, 0, 0, canvas.width, canvas.height );
+					resolve( true );
+				};
+				img.onerror = () => resolve( false );
+				img.src = dataUrl;
+			} );
+		}
+
+		async function waitForPreview3dModule( timeoutMs = 8000 ) {
+			const start = Date.now();
+			while ( ! window.__renderTrackTopDown && Date.now() - start < timeoutMs ) {
+				await new Promise( ( r ) => setTimeout( r, 50 ) );
+			}
+			return !! window.__renderTrackTopDown;
+		}
+
+		async function drawRealisticTrackPreview( canvas, cells, mods ) {
+			try {
+				if ( ! Array.isArray( cells ) || ! cells.length ) return;
+				await waitForPreview3dModule();
+				if ( ! window.__renderTrackTopDown ) return;
+				const playUrl = canvas.dataset.playUrl || '';
+				// Featured cards display their preview several times wider, so
+				// they get a dedicated hi-res render (own cache slot) instead of
+				// an upscaled small snapshot.
+				const featured = canvas.dataset.featured === '1';
+				const renderSize = featured ? { width: 900, height: 540, quality: 0.92 } : { width: 500, height: 300 };
+				const cacheKey = ( featured ? playUrl + '@2x' : playUrl ) || ( 'cells:' + cells.length + ':' + JSON.stringify( cells ).length + ':' + JSON.stringify( mods || {} ).length );
+				const dataUrl = await window.__renderTrackTopDown( cells, mods, { cacheKey: cacheKey, ...renderSize } );
+				if ( dataUrl ) await paintPreviewImageOnCanvas( canvas, dataUrl );
+			} catch ( e ) {}
+		}
+
 		// Lazy canvas preview — only draw when scrolled into view
 		const previewObserver = new IntersectionObserver( ( entries ) => {
 			for ( const entry of entries ) {
@@ -1044,10 +1106,10 @@
 				previewObserver.unobserve( canvas );
 				const cells = JSON.parse( canvas.dataset.cells || '[]' );
 				const mods = JSON.parse( canvas.dataset.mods || '{}' );
+				// Flat 2D preview paints immediately; the realistic frozen 3D
+				// top-down snapshot upgrades it once rendered.
 				drawTrackPreview( canvas, cells, mods );
-				// Defer the async hydrate so visible cards paint first
-				const url = canvas.dataset.playUrl;
-				if ( url ) requestIdleCallback( () => hydrateTrackPreviewFromUrl( url, canvas ), { timeout: 2000 } );
+				drawRealisticTrackPreview( canvas, cells, mods );
 			}
 		}, { rootMargin: '200px' } );
 
@@ -1067,7 +1129,7 @@
 					<span class="badge">🏁 ${ stats.sizeTag }</span>
 					<span class="badge">🧭 ${ stats.styleTag }</span>
 				</div>
-				${ entry.thumbnailDataUrl ? `<img class="preview-canvas" src="${ entry.thumbnailDataUrl }" alt="Track thumbnail for ${ entry.name }">` : `<canvas class="preview-canvas" width="300" height="180" aria-label="2D block preview for ${ entry.name }"></canvas>` }
+				${ entry.thumbnailDataUrl ? `<img class="preview-canvas" src="${ entry.thumbnailDataUrl }" alt="Track thumbnail for ${ entry.name }">` : `<canvas class="preview-canvas" width="${ options.featured ? 900 : 300 }" height="${ options.featured ? 540 : 180 }" aria-label="Track preview for ${ entry.name }"></canvas>` }
 				<div class="stat-grid">
 					<div class="stat"><span>Best time</span><b>${ stats.bestTime === Infinity ? '--.--' : formatSeconds( stats.bestTime ) }</b></div>
 					<div class="stat"><span>Record holder</span><b>${ stats.topRow ? stats.topRow.name : 'Open' }</b></div>
@@ -1090,6 +1152,7 @@
 				previewCanvas.dataset.cells = JSON.stringify( stats.previewData?.cells || [] );
 				previewCanvas.dataset.mods = JSON.stringify( stats.previewData?.mods || {} );
 				previewCanvas.dataset.playUrl = entry.playUrl;
+				if ( options.featured ) previewCanvas.dataset.featured = '1';
 				previewObserver.observe( previewCanvas );
 				// Cloud entries arrive thumbnail-free (fields=list) for a fast
 				// first paint; the real screenshot is fetched lazily when the

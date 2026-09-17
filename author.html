@@ -53,6 +53,21 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 @keyframes slide{0%{margin-left:-40%}100%{margin-left:100%}}
 @media(max-width:760px){.section-head{align-items:flex-start;flex-direction:column}#author-hero .hero-back{margin-left:0}}
 	</style>
+	<script type="importmap">
+	{
+		"imports": {
+			"three": "https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js",
+			"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/"
+		}
+	}
+	</script>
+	<script type="module">
+		// Realistic 3D top-down track previews. The module exposes
+		// window.__renderTrackTopDown; the board script below uses it when
+		// available and falls back to the flat 2D preview otherwise.
+		import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260916';
+		window.__renderTrackTopDown = renderTrackTopDown;
+	</script>
 </head>
 <body>
 <div class="wrap">
@@ -505,12 +520,56 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 		if ( ! window.requestIdleCallback ) {
 			window.requestIdleCallback = ( cb, opts ) => setTimeout( () => cb( { didTimeout: false, timeRemaining: () => 0 } ), opts?.timeout || 50 );
 		}
+		// ── Realistic 3D top-down previews ──
+		// js/TrackTopDownRenderer.js (loaded by the importmap module in <head>)
+		// renders one frozen bird's-eye snapshot of the track using the REAL
+		// block models — never hundreds of live previews: each track renders at
+		// most once per browser, the frozen frame is cached in localStorage, and
+		// renders queue one at a time through a single WebGL context. The
+		// snapshot paints onto the existing canvas so the lazy real-thumbnail
+		// swap keeps working on top of it.
+		function paintPreviewImageOnCanvas( canvas, dataUrl ) {
+			return new Promise( ( resolve ) => {
+				const img = new Image();
+				img.onload = () => {
+					const ctx = canvas.getContext( '2d' );
+					ctx.clearRect( 0, 0, canvas.width, canvas.height );
+					ctx.drawImage( img, 0, 0, canvas.width, canvas.height );
+					resolve( true );
+				};
+				img.onerror = () => resolve( false );
+				img.src = dataUrl;
+			} );
+		}
+
+		async function waitForPreview3dModule( timeoutMs = 8000 ) {
+			const start = Date.now();
+			while ( ! window.__renderTrackTopDown && Date.now() - start < timeoutMs ) {
+				await new Promise( ( r ) => setTimeout( r, 50 ) );
+			}
+			return !! window.__renderTrackTopDown;
+		}
+
+		async function drawRealisticTrackPreviewFromUrl( canvas, playUrl ) {
+			try {
+				await waitForPreview3dModule();
+				if ( window.__renderTrackTopDown ) {
+					const previewData = await parseTrackLayoutFromUrlAsync( playUrl );
+					if ( Array.isArray( previewData.cells ) && previewData.cells.length ) {
+						const dataUrl = await window.__renderTrackTopDown( previewData.cells, previewData.mods, { cacheKey: playUrl, width: 500, height: 300 } );
+						if ( dataUrl && await paintPreviewImageOnCanvas( canvas, dataUrl ) ) return;
+					}
+				}
+			} catch ( e ) {}
+			hydrateTrackPreviewFromUrl( playUrl, canvas ); // flat 2D fallback (also resolves pack-backed tracks)
+		}
+
 		const previewObserver = new IntersectionObserver( ( items ) => {
 			for ( const item of items ) {
 				if ( ! item.isIntersecting ) continue;
 				previewObserver.unobserve( item.target );
 				const url = item.target.dataset.playUrl;
-				if ( url ) requestIdleCallback( () => hydrateTrackPreviewFromUrl( url, item.target ), { timeout: 2000 } );
+				if ( url ) drawRealisticTrackPreviewFromUrl( item.target, url );
 			}
 		}, { rootMargin: '200px' } );
 

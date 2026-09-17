@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-import { Vehicle } from './Vehicle.js?v=1000223';
+import { Vehicle } from './Vehicle.js?v=1000227';
+import { createShadowProxyController } from './ShadowProxy.js?v=2';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000230';
@@ -242,9 +243,23 @@ dirLight.castShadow = getGraphicsPreset().shadows;
 dirLight.shadow.mapSize.setScalar( getGraphicsPreset().shadowMapSize );
 dirLight.shadow.camera.near = 0.5;
 dirLight.shadow.camera.far = 60;
-dirLight.shadow.bias = -0.0004;
-dirLight.shadow.normalBias = 0.04;
+// Shadow acne on thin elevated decks: the shadow-camera extent scales with
+// the track, so on medium/large tracks one shadow texel exceeds the old
+// normalBias (0.04) and decks self-shadow in stripes. 0.15 stays under one
+// deck thickness (no peter-panning) while covering the texel size.
+dirLight.shadow.bias = -0.0003;
+dirLight.shadow.normalBias = 0.15;
+// The sun's shadow map re-renders per frame (rate-gated by
+// refreshShadowsIfNeeded) — REAL shadows for the car and moving objects.
+// The cost is kept low because the static track geometry casts through a
+// single merged proxy mesh (see ShadowProxy.js): the depth pass renders
+// one draw for the whole world plus a handful of dynamic casters.
 scene.add( dirLight );
+// World-locked sun anchor (set when a track loads): the sun stays a fixed
+// offset from the TRACK CENTER, not the car, so the light vector is constant
+// for every pixel of the world — static shadows never swing as you drive.
+let shadowSunAnchor = null;
+let staticShadowProxy = null; // merged static-caster mesh for the sun depth pass (ShadowProxy.js)
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
 scene.add( hemiLight );
@@ -3516,6 +3531,13 @@ function createMovingObstacleState( scene, extras ) {
 			}
 		} else continue;
 		obstacle.mesh.position.copy( base );
+		// Real moving shadows: cast into the sun's per-frame depth pass
+		// (which only renders layer 9 — see ShadowProxy.js).
+		obstacle.mesh.traverse( ( o ) => {
+
+			if ( o.isMesh ) { o.castShadow = true; o.layers.enable( 9 ); }
+
+		} );
 		scene.add( obstacle.mesh );
 		state.items.push( obstacle );
 	}
@@ -4643,6 +4665,21 @@ async function init() {
 	dirLight.shadow.camera.right = shadowExtent;
 	dirLight.shadow.camera.top = shadowExtent;
 	dirLight.shadow.camera.bottom = - shadowExtent;
+	// World-locked shadow camera: aim at the track CENTER, not the car.
+	// The extent already covers the whole track, so following the car only
+	// slid the ortho window as you drove — that slide made every static
+	// shadow swim by a texel ("tiny shift") and wobbled the sun direction.
+	// Locking it freezes statics like the old one-time bake, while the car
+	// still casts its real shadow into the map every refresh.
+	const shadowTarget = new THREE.Object3D();
+	shadowTarget.position.set( bounds.centerX, 0, bounds.centerZ );
+	scene.add( shadowTarget );
+	dirLight.target = shadowTarget;
+	shadowSunAnchor = { x: bounds.centerX, y: 0, z: bounds.centerZ };
+	// The locked window reaches farther behind the center than the old
+	// car-following aim, so give the ortho depth range room to cover it
+	// (ortho depth is linear — no precision cost).
+	dirLight.shadow.camera.far = 60 + 2 * shadowExtent + 20;
 	dirLight.shadow.camera.updateProjectionMatrix();
 
 	applySkyPalette( weatherSettings.preset );
@@ -4662,6 +4699,11 @@ async function init() {
 
 	buildTrack( scene, models, customCells, extras );
 	const movingObstacleState = createMovingObstacleState( scene, extras );
+	// Merge every static caster into ONE proxy mesh so the sun's per-frame
+	// depth pass stays cheap (a single draw for the whole track) while the
+	// car + moving obstacles cast their real, moving shadows every frame.
+	if ( staticShadowProxy ) staticShadowProxy.rebuild();
+	else staticShadowProxy = createShadowProxyController( scene, scene, dirLight );
 
 
 	const worldSettings = createWorldSettings();
@@ -5152,8 +5194,11 @@ async function init() {
 				obj.material.depthWrite = true;
 
 			}
+			// Real moving shadow caster — the sun's depth pass only
+			// renders layer 9 (see ShadowProxy.js), so enable it here.
 			obj.castShadow = true;
 			obj.receiveShadow = true;
+			obj.layers.enable( 9 );
 
 		} );
 		if ( previousState?.targetPos ) mesh.position.copy( previousState.targetPos );
@@ -5956,8 +6001,6 @@ async function init() {
 
 	if ( ghostEnabled ) createGhostModel( models[ 'vehicle-truck-yellow' ] );
 	if ( replayViewerMode ) vehicle.container.visible = false;
-
-	dirLight.target = vehicleGroup;
 
 	const cam = new Camera();
 	cam.targetPosition.copy( vehicle.spherePos );
@@ -8129,6 +8172,9 @@ async function init() {
 		garageKeyLight.shadow.camera.right = 10;
 		garageKeyLight.shadow.camera.top = 10;
 		garageKeyLight.shadow.camera.bottom = - 10;
+		// The merged static shadow proxy (layer 9) belongs to the sun's
+		// depth pass only — keep it out of the garage light's map.
+		garageKeyLight.shadow.camera.layers.disable( 9 );
 		scene.add( garageKeyLight, garageKeyLight.target );
 		scene.add( displayRoot );
 		garageViewer = { renderer, scene, camera, displayRoot, garageRoot, carRoot, yaw: 0, pitch: 0.23, zoom: 1, drive: false, dragging: false, moved: false, sx: 0, sy: 0, pinchDistance: 0, pointers: new Map(), raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
@@ -12899,12 +12945,11 @@ function completeCampaignStage() {
 
 	let hudUpdateAccumulator = 0;
 
-	// Shadow depth pass at up to ~110 Hz: per-frame at <=60 FPS (unchanged
-	// behavior), every 2nd/3rd frame at high refresh rates. The sun and all
-	// scenery are static, and the fastest mover — the car — still gets its
-	// shadow refreshed >100 times a second, more often than the old every-
-	// frame-at-60-FPS behavior. Mode changes that relocate the camera/car
-	// set shadowMap.needsUpdate themselves and bypass this gate.
+	// Keeps the renderer's shadow-map pass ENABLED at ~110 Hz so the SUN's
+	// depth map re-renders with moving cars/obstacles every frame (real
+	// dynamic shadows — cheap now that statics cast through one merged
+	// proxy mesh, see ShadowProxy.js), and the garage key light keeps its
+	// own per-frame map.
 	const SHADOW_REFRESH_MIN_MS = 9;
 	let _shadowRefreshLastMs = -9999;
 	function refreshShadowsIfNeeded() {
@@ -12913,6 +12958,7 @@ function completeCampaignStage() {
 		if ( nowMs - _shadowRefreshLastMs < SHADOW_REFRESH_MIN_MS ) return;
 		_shadowRefreshLastMs = nowMs;
 		renderer.shadowMap.needsUpdate = true;
+		staticShadowProxy?.tick?.();
 
 	}
 
@@ -13286,15 +13332,17 @@ function completeCampaignStage() {
 
 		}
 
+		// World-locked sun: same (11.4, 15, -5.3) offset as always, but from the
+		// LOCKED track-center anchor instead of the car. With the shadow target
+		// also locked, the light vector is now constant everywhere — static
+		// shadows never swing or stretch as the car drives (a car-relative sun
+		// swung the vector every frame once the target stopped following the car).
+		// The +15 above the anchor keeps the historical ground-level height
+		// (0 + 15 = 15); elevation no longer matters because the anchor is fixed.
 		dirLight.position.set(
-			vehicle.spherePos.x + 11.4,
-			// Height-tracking: keep the sun a constant +15 above the sphere so the
-			// light vector is identical on elevated decks (+3.75) and in pool bowls
-			// (-2.5) — a fixed Y rotated the vector as the car climbed/descended,
-			// stretching shadows and drifting their intensity. The offset matches
-			// the historical ground-level light (0 + 15 = 15).
-			vehicle.spherePos.y + 15,
-			vehicle.spherePos.z - 5.3
+			( shadowSunAnchor ? shadowSunAnchor.x : vehicle.spherePos.x ) + 11.4,
+			( shadowSunAnchor ? shadowSunAnchor.y : vehicle.spherePos.y ) + 15,
+			( shadowSunAnchor ? shadowSunAnchor.z : vehicle.spherePos.z ) - 5.3
 		);
 
 		const cameraUnderwater = updateCameraUnderwater( cam.camera, dt );
