@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-import { Vehicle, createCarBlobShadow, updateCarBlobShadow } from './Vehicle.js?v=1000225';
+import { Vehicle } from './Vehicle.js?v=1000226';
+import { createShadowProxyController } from './ShadowProxy.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000230';
@@ -248,15 +249,13 @@ dirLight.shadow.camera.far = 60;
 // deck thickness (no peter-panning) while covering the texel size.
 dirLight.shadow.bias = -0.0003;
 dirLight.shadow.normalBias = 0.15;
-// Shadow depth passes were the single biggest per-frame cost on Med/High:
-// the sun never moves and the world is static, so the map is now BAKED ONCE
-// per track load (needsUpdate=true after buildTrack) and reused for the rest
-// of the session. Moving casters (the car, remote cars) are excluded from
-// the bake and get cheap blob shadows instead (see updateCarBlobShadows).
-// Other shadow-casting lights (e.g. the garage key light) keep their own
-// per-frame maps — renderer.shadowMap.needsUpdate stays on for them.
-dirLight.shadow.autoUpdate = false;
+// The sun's shadow map re-renders per frame (rate-gated by
+// refreshShadowsIfNeeded) — REAL shadows for the car and moving objects.
+// The cost is kept low because the static track geometry casts through a
+// single merged proxy mesh (see ShadowProxy.js): the depth pass renders
+// one draw for the whole world plus a handful of dynamic casters.
 scene.add( dirLight );
+let staticShadowProxy = null; // merged static-caster mesh for the sun depth pass (ShadowProxy.js)
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
 scene.add( hemiLight );
@@ -3528,6 +3527,13 @@ function createMovingObstacleState( scene, extras ) {
 			}
 		} else continue;
 		obstacle.mesh.position.copy( base );
+		// Real moving shadows: cast into the sun's per-frame depth pass
+		// (which only renders layer 9 — see ShadowProxy.js).
+		obstacle.mesh.traverse( ( o ) => {
+
+			if ( o.isMesh ) { o.castShadow = true; o.layers.enable( 9 ); }
+
+		} );
 		scene.add( obstacle.mesh );
 		state.items.push( obstacle );
 	}
@@ -4674,22 +4680,11 @@ async function init() {
 
 	buildTrack( scene, models, customCells, extras );
 	const movingObstacleState = createMovingObstacleState( scene, extras );
-	// Moving obstacles never cast real shadows (castShadow off, same as
-	// before the bake change) — give each one a blob sized to its footprint.
-	const moverBlobs = [];
-	for ( const obstacle of movingObstacleState.items ) {
-
-		let maxHalf = 0;
-		for ( const c of obstacle.colliders ) maxHalf = Math.max( maxHalf, c.half.x, c.half.z );
-		const orbitR = Number( obstacle.custom?.orbit ) || 0;
-		const blob = createCarBlobShadow();
-		scene.add( blob );
-		moverBlobs.push( { blob, obstacle, scale: Math.max( 0.55, ( maxHalf * 2 + orbitR * 2 + 0.6 ) / 2.5 ) } );
-
-	}
-	// One-time static shadow bake: renders the sun's depth map with the
-	// fully-built track and reuses it until the tab closes / track reloads.
-	dirLight.shadow.needsUpdate = true;
+	// Merge every static caster into ONE proxy mesh so the sun's per-frame
+	// depth pass stays cheap (a single draw for the whole track) while the
+	// car + moving obstacles cast their real, moving shadows every frame.
+	if ( staticShadowProxy ) staticShadowProxy.rebuild();
+	else staticShadowProxy = createShadowProxyController( scene, scene, dirLight );
 
 
 	const worldSettings = createWorldSettings();
@@ -5180,10 +5175,11 @@ async function init() {
 				obj.material.depthWrite = true;
 
 			}
-			// Remote cars are moving casters — keep them out of the frozen
-			// sun shadow map (stale streaks otherwise); they get blob shadows.
-			obj.castShadow = false;
+			// Real moving shadow caster — the sun's depth pass only
+			// renders layer 9 (see ShadowProxy.js), so enable it here.
+			obj.castShadow = true;
 			obj.receiveShadow = true;
+			obj.layers.enable( 9 );
 
 		} );
 		if ( previousState?.targetPos ) mesh.position.copy( previousState.targetPos );
@@ -5200,8 +5196,6 @@ async function init() {
 			targetRotY: previousState?.targetRotY || mesh.rotation.y,
 			lastSeenAt: previousState?.lastSeenAt || 0,
 		};
-		state.blob = createCarBlobShadow();
-		scene.add( state.blob );
 		remotePlayerVisuals.set( playerId, state );
 		return state;
 
@@ -5248,101 +5242,7 @@ async function init() {
 			}
 
 		} );
-		if ( state.blob ) {
-
-			scene.remove( state.blob );
-			state.blob.geometry?.dispose?.();
-			state.blob.material?.dispose?.();
-			state.blob = null;
-
-		}
 		remotePlayerVisuals.delete( playerId );
-
-	}
-
-	// ── Car blob shadows ─────────────────────────────────────────────
-	// The sun's shadow map is baked once (see the dirLight setup), so every
-	// moving caster gets this cheap ground blob instead: player car, split-
-	// screen car, remote MP cars. Blob = soft dark quad under the car,
-	// ground-anchored via the physics ray, fading when airborne.
-	const playerBlob = createCarBlobShadow();
-	scene.add( playerBlob );
-	const player2Blob = createCarBlobShadow();
-	scene.add( player2Blob );
-	const _blobFwd = new THREE.Vector3();
-	function blobYawFromQuaternion( quaternion ) {
-
-		_blobFwd.set( 0, 0, 1 ).applyQuaternion( quaternion );
-		return Math.atan2( _blobFwd.x, _blobFwd.z );
-
-	}
-	function updateVehicleBlob( blob, targetVehicle, offX = 0, offZ = 0 ) {
-
-		if ( ! blob ) return;
-		if ( ! targetVehicle?.container || ! targetVehicle.spherePos ) { blob.visible = false; return; }
-		const p = targetVehicle.spherePos;
-		const probe = sampleGroundDepth( p.x, p.y, p.z );
-		updateCarBlobShadow( blob, {
-			x: p.x, z: p.z,
-			groundY: probe ? p.y - probe.depth : null,
-			yaw: blobYawFromQuaternion( targetVehicle.container.quaternion ),
-			scale: Math.max( targetVehicle.container.scale.x, targetVehicle.container.scale.z, 0.01 ),
-			airHeight: probe ? Math.max( 0, probe.depth - 0.45 ) : 999,
-			offsetX: offX, offsetZ: offZ,
-		} );
-
-	}
-	function updateCarBlobShadows() {
-
-		if ( ! dirLight.castShadow ) {
-
-			playerBlob.visible = false;
-			player2Blob.visible = false;
-			for ( const entry of moverBlobs ) entry.blob.visible = false;
-			for ( const [ , state ] of remotePlayerVisuals ) if ( state?.blob ) state.blob.visible = false;
-			return;
-
-		}
-		// Shadow-direction offset: real shadows fall slightly away from the
-		// sun, so displace every blob the same way (mid-body projection).
-		const lp = dirLight.position;
-		const offX = - lp.x / Math.max( lp.y, 0.5 ) * 0.35;
-		const offZ = - lp.z / Math.max( lp.y, 0.5 ) * 0.35;
-		updateVehicleBlob( playerBlob, vehicle, offX, offZ );
-		updateVehicleBlob( player2Blob, vehicle2, offX, offZ );
-		for ( const [ , state ] of remotePlayerVisuals ) {
-
-			if ( ! state?.blob ) continue;
-			const mesh = state.mesh;
-			if ( ! mesh || ! mesh.visible ) { state.blob.visible = false; continue; }
-			const originY = mesh.position.y + 0.6;
-			const probe = sampleGroundDepth( mesh.position.x, originY, mesh.position.z );
-			updateCarBlobShadow( state.blob, {
-				x: mesh.position.x, z: mesh.position.z,
-				groundY: probe ? originY - probe.depth : null,
-				yaw: mesh.rotation.y,
-				scale: mesh.scale.x,
-				airHeight: probe ? Math.max( 0, probe.depth - 0.6 ) : 999,
-				offsetX: offX, offsetZ: offZ,
-			} );
-
-		}
-		for ( const entry of moverBlobs ) {
-
-			const mesh = entry.obstacle.mesh;
-			if ( ! mesh || ! mesh.visible ) { entry.blob.visible = false; continue; }
-			const originY = mesh.position.y + 0.5;
-			const probe = sampleGroundDepth( mesh.position.x, originY, mesh.position.z );
-			updateCarBlobShadow( entry.blob, {
-				x: mesh.position.x, z: mesh.position.z,
-				groundY: probe ? originY - probe.depth : null,
-				yaw: mesh.rotation.y,
-				scale: entry.scale,
-				airHeight: probe ? Math.max( 0, probe.depth - 0.5 ) : 999,
-				offsetX: offX, offsetZ: offZ,
-			} );
-
-		}
 
 	}
 
@@ -8255,6 +8155,9 @@ async function init() {
 		garageKeyLight.shadow.camera.right = 10;
 		garageKeyLight.shadow.camera.top = 10;
 		garageKeyLight.shadow.camera.bottom = - 10;
+		// The merged static shadow proxy (layer 9) belongs to the sun's
+		// depth pass only — keep it out of the garage light's map.
+		garageKeyLight.shadow.camera.layers.disable( 9 );
 		scene.add( garageKeyLight, garageKeyLight.target );
 		scene.add( displayRoot );
 		garageViewer = { renderer, scene, camera, displayRoot, garageRoot, carRoot, yaw: 0, pitch: 0.23, zoom: 1, drive: false, dragging: false, moved: false, sx: 0, sy: 0, pinchDistance: 0, pointers: new Map(), raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2() };
@@ -13025,11 +12928,11 @@ function completeCampaignStage() {
 
 	let hudUpdateAccumulator = 0;
 
-	// Keeps the renderer's shadow-map pass ENABLED (needed for per-light
-	// shadow updates, e.g. the garage key light). The SUN's depth map is
-	// exempt: dirLight.shadow.autoUpdate=false means it only re-renders when
-	// dirLight.shadow.needsUpdate is explicitly set (once per track load,
-	// and by graphics-preset changes) — this gate no longer re-bakes it.
+	// Keeps the renderer's shadow-map pass ENABLED at ~110 Hz so the SUN's
+	// depth map re-renders with moving cars/obstacles every frame (real
+	// dynamic shadows — cheap now that statics cast through one merged
+	// proxy mesh, see ShadowProxy.js), and the garage key light keeps its
+	// own per-frame map.
 	const SHADOW_REFRESH_MIN_MS = 9;
 	let _shadowRefreshLastMs = -9999;
 	function refreshShadowsIfNeeded() {
@@ -13038,12 +12941,12 @@ function completeCampaignStage() {
 		if ( nowMs - _shadowRefreshLastMs < SHADOW_REFRESH_MIN_MS ) return;
 		_shadowRefreshLastMs = nowMs;
 		renderer.shadowMap.needsUpdate = true;
+		staticShadowProxy?.tick?.();
 
 	}
 
 	function renderFrame() {
 
-		updateCarBlobShadows();
 		if ( isSplitScreen && cam2 ) {
 
 			const width = window.innerWidth;

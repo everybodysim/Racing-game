@@ -160,12 +160,12 @@ export class Vehicle {
 
 			if ( child.isMesh ) {
 
-				// The sun's shadow depth map is baked once per session, so the
-				// car — the one thing that moves — must NOT be in it (it would
-				// leave a frozen shadow streak on the track). The car gets a
-				// cheap ground blob shadow instead (createCarBlobShadow).
-				child.castShadow = false;
+				// Real castShadow: the sun's depth pass only renders layer 9
+				// (see ShadowProxy.js), so the car must live on it too to be
+				// able to cast its moving shadow every frame.
+				child.castShadow = true;
 				child.receiveShadow = true;
+				child.layers.enable( 9 );
 				const mat = child.material;
 				if ( mat && mat.isMeshStandardMaterial ) {
 					mat.metalness = Math.max( mat.metalness ?? 0.08, 0.12 );
@@ -484,64 +484,5 @@ export class Vehicle {
 		}
 
 	}
-
-}
-
-
-// ── Blob shadow ──────────────────────────────────────────────────────
-// The sun's shadow depth map is baked once per session (autoUpdate=false),
-// so the car can't be in it. This cheap ground blob replaces the car's
-// dynamic sun shadow: with the sun steeply overhead, real car shadows
-// already land almost directly beneath the car, so the visual difference
-// is tiny.
-let _carBlobTexture = null;
-const CAR_BLOB_OPACITY = 0.65; // ~matches how dark real sun shadows were
-
-export function createCarBlobShadow() {
-
-	if ( ! _carBlobTexture ) {
-
-		const size = 128;
-		const canvas = document.createElement( 'canvas' );
-		canvas.width = canvas.height = size;
-		const ctx = canvas.getContext( '2d' );
-		const gradient = ctx.createRadialGradient( size / 2, size / 2, size * 0.05, size / 2, size / 2, size * 0.5 );
-		gradient.addColorStop( 0, 'rgba(0,0,0,0.82)' );
-		gradient.addColorStop( 0.55, 'rgba(0,0,0,0.5)' );
-		gradient.addColorStop( 1, 'rgba(0,0,0,0)' );
-		ctx.fillStyle = gradient;
-		ctx.fillRect( 0, 0, size, size );
-		_carBlobTexture = new THREE.CanvasTexture( canvas );
-
-	}
-	const mesh = new THREE.Mesh(
-		new THREE.PlaneGeometry( 1, 1 ),
-		new THREE.MeshBasicMaterial( { map: _carBlobTexture, transparent: true, depthWrite: false, opacity: CAR_BLOB_OPACITY } )
-	);
-	mesh.rotation.order = 'YXZ';
-	mesh.scale.set( 1.9, 2.5, 1 );
-	mesh.renderOrder = 2;
-	mesh.visible = false;
-	return mesh;
-
-}
-
-export function updateCarBlobShadow( blob, opts ) {
-
-	if ( ! blob ) return;
-	if ( opts?.groundY == null || ! Number.isFinite( opts.groundY ) ) { blob.visible = false; return; }
-	const air = Math.max( 0, Number( opts.airHeight ) || 0 );
-	const fade = air <= 0.45 ? 1 : Math.max( 0, 1 - ( air - 0.45 ) / 1.6 );
-	if ( fade <= 0.01 ) { blob.visible = false; return; }
-	const s = Number( opts.scale ) || 1;
-	const grow = 1 + air * 0.15;
-	blob.visible = true;
-	// Slight displacement toward where the sun's real shadow would fall
-	// (offset vector computed by the caller from the live light position).
-	const offX = Number( opts.offsetX ) || 0, offZ = Number( opts.offsetZ ) || 0;
-	blob.position.set( opts.x + offX, opts.groundY + 0.02, opts.z + offZ );
-	blob.rotation.set( - Math.PI / 2, Number( opts.yaw ) || 0, 0 );
-	blob.scale.set( 1.9 * s * grow, 2.5 * s * grow, 1 );
-	blob.material.opacity = CAR_BLOB_OPACITY * fade;
 
 }
