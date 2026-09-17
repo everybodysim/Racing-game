@@ -160,8 +160,12 @@ export class Vehicle {
 
 			if ( child.isMesh ) {
 
+				// Real castShadow: the sun's depth pass only renders layer 9
+				// (see ShadowProxy.js), so the car must live on it too to be
+				// able to cast its moving shadow every frame.
 				child.castShadow = true;
 				child.receiveShadow = true;
+				child.layers.enable( 9 );
 				const mat = child.material;
 				if ( mat && mat.isMeshStandardMaterial ) {
 					mat.metalness = Math.max( mat.metalness ?? 0.08, 0.12 );
