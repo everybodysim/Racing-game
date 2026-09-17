@@ -891,9 +891,9 @@
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells } from './js/Track.js';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
-	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
+	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js';
-	import { Vehicle } from './js/Vehicle.js';
+	import { Vehicle, createCarBlobShadow, updateCarBlobShadow } from './js/Vehicle.js?v=1000224';
 
 	// ─── State ────────────────────────────────────────────────
 
@@ -1605,7 +1605,30 @@
 	// default 0 bias).
 	dirLight.shadow.bias = -0.0003;
 	dirLight.shadow.normalBias = 0.15;
+	// The sun never moves, so instead of re-rendering the full-track depth
+	// map EVERY frame (the single biggest editor cost on big maps), it is
+	// baked and re-baked only when the map actually changes: edits push a
+	// history snapshot (markEditorShadowDirty), undo/redo and Clear reload
+	// the map, and the render loop also catches track-group child changes
+	// (async model loads, editor-MP remote placements).
+	dirLight.shadow.autoUpdate = false;
 	scene.add( dirLight );
+
+	let editorShadowBake = true;
+	let editorShadowChildCount = -1;
+	function markEditorShadowDirty() { editorShadowBake = true; }
+	function editorShadowTick() {
+
+		const count = trackGroup.children.length;
+		if ( editorShadowBake || count !== editorShadowChildCount ) {
+
+			editorShadowBake = false;
+			editorShadowChildCount = count;
+			dirLight.shadow.needsUpdate = true;
+
+		}
+
+	}
 
 	const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
 	scene.add( hemiLight );
@@ -2994,6 +3017,7 @@ function computeCausticShade( normal ) {
 		// driving (not tracked on `cell` at all) — tear it down immediately
 		// rather than waiting on the collider-rebuild debounce.
 		if ( editorDrive ) editorDrive.clearMovingObstacleMeshesNow();
+		markEditorShadowDirty();
 		// Water cells were just wiped, so the hole-cut ground mesh is stale —
 		// rebuild it on the next frame or pool holes linger after Clear
 		// until some other action happens to flag the ground dirty.
@@ -3668,6 +3692,8 @@ function computeCausticShade( normal ) {
 		if ( undoStack.length > HISTORY_LIMIT ) undoStack.shift();
 		redoStack.length = 0;
 		updateHistoryButtons();
+		// The sun shadow map is baked, not per-frame — an edit means it's stale.
+		markEditorShadowDirty();
 
 	}
 
@@ -3680,6 +3706,7 @@ function computeCausticShade( normal ) {
 			await loadEncodedState( snapshot.cells, snapshot.mods );
 			testSpawnCell = snapshot.testSpawn ? { ...snapshot.testSpawn } : null;
 			save();
+			markEditorShadowDirty();
 
 		} finally {
 
@@ -4207,6 +4234,7 @@ function computeCausticShade( normal ) {
 			}
 			rebuildArcMeshes();
 			if ( worldPreset === 'pool-filled' ) applyPoolFilledTemplate();
+			markEditorShadowDirty();
 
 		} catch ( e ) {
 
@@ -5714,6 +5742,7 @@ function refreshMovingSpeedUi() {
 		const dt = Math.min( 0.033, Math.max( 0, driveClock.getDelta() ) );
 		stepEditorDrive( dt );
 		if ( groundTilesDirty ) { rebuildGroundTiles(); groundTilesDirty = false; }
+		editorShadowTick();
 		if ( window.__skidEditorFrameHook ) window.__skidEditorFrameHook();
 		renderer.render( scene, editorActiveCamera() );
 
@@ -6237,6 +6266,8 @@ function updateMovingObstacles( state, now, vehicleList ) {
 				gltf.scene.scale.setScalar( 0.5 );
 				const carGroup = vehicle.init( gltf.scene );
 				scene.add( carGroup );
+				driveBlob = createCarBlobShadow();
+				scene.add( driveBlob );
 				active = true;
 				rebuildMovingState();
 				rebuildEffectEntries();
@@ -6256,6 +6287,45 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		// shove the drive car around exactly like in the game.
 		let movingState = null;
 		let driveClock = 0;
+		// Blob shadow for the test-drive car: the sun's depth map is baked
+		// (rebaked only on edits), so the car gets this cheap ground blob
+		// instead — anchored by a downward physics ray so it sits correctly
+		// on the road, elevated decks and slopes.
+		let driveBlob = null;
+		const driveBlobCollector = createAnyCastRayCollector();
+		const driveBlobSettings = createDefaultCastRaySettings();
+		let driveBlobFilter = null;
+		let driveBlobFilterWorld = null;
+		function probeDriveGround( x, y, z ) {
+
+			if ( ! world || ! vehicle?.rigidBody ) return null;
+			if ( driveBlobFilterWorld !== world ) {
+
+				driveBlobFilter = ccLayerFilter.forWorld( world );
+				driveBlobFilterWorld = world;
+
+			}
+			driveBlobCollector.reset();
+			castRay( world, driveBlobCollector, driveBlobSettings, [ x, y, z ], [ 0, -1, 0 ], 2.2, driveBlobFilter );
+			if ( driveBlobCollector.hit.status !== CastRayStatus.COLLIDING ) return null;
+			return driveBlobCollector.hit.fraction * 2.2;
+
+		}
+		function updateDriveBlob() {
+
+			if ( ! driveBlob ) return;
+			if ( ! active || ! vehicle?.container || ! vehicle.spherePos ) { driveBlob.visible = false; return; }
+			const p = vehicle.spherePos;
+			const depth = probeDriveGround( p.x, p.y, p.z );
+			updateCarBlobShadow( driveBlob, {
+				x: p.x, z: p.z,
+				groundY: depth == null ? null : p.y - depth,
+				yaw: vehicle.container.rotation.y,
+				scale: Math.max( vehicle.container.scale.x, 0.01 ),
+				airHeight: depth == null ? 999 : depth,
+			} );
+
+		}
 		function rebuildMovingState() {
 
 			if ( movingState ) for ( const it of movingState.items ) scene.remove( it.mesh );
@@ -7118,6 +7188,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			// should always show obstacles moving.
 			if ( ! movingState ) rebuildMovingState();
 			updateMovingObstacles( movingState, driveClock, active && vehicle ? [ vehicle ] : [] );
+			updateDriveBlob();
 			if ( active && vehicle ) {
 
 				rebuildColliders( performance.now() * 0.001 );

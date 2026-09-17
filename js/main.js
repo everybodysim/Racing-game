@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-import { Vehicle } from './Vehicle.js?v=1000223';
+import { Vehicle, createCarBlobShadow, updateCarBlobShadow } from './Vehicle.js?v=1000224';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000230';
@@ -248,6 +248,14 @@ dirLight.shadow.camera.far = 60;
 // deck thickness (no peter-panning) while covering the texel size.
 dirLight.shadow.bias = -0.0003;
 dirLight.shadow.normalBias = 0.15;
+// Shadow depth passes were the single biggest per-frame cost on Med/High:
+// the sun never moves and the world is static, so the map is now BAKED ONCE
+// per track load (needsUpdate=true after buildTrack) and reused for the rest
+// of the session. Moving casters (the car, remote cars) are excluded from
+// the bake and get cheap blob shadows instead (see updateCarBlobShadows).
+// Other shadow-casting lights (e.g. the garage key light) keep their own
+// per-frame maps — renderer.shadowMap.needsUpdate stays on for them.
+dirLight.shadow.autoUpdate = false;
 scene.add( dirLight );
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
@@ -4666,6 +4674,9 @@ async function init() {
 
 	buildTrack( scene, models, customCells, extras );
 	const movingObstacleState = createMovingObstacleState( scene, extras );
+	// One-time static shadow bake: renders the sun's depth map with the
+	// fully-built track and reuses it until the tab closes / track reloads.
+	dirLight.shadow.needsUpdate = true;
 
 
 	const worldSettings = createWorldSettings();
@@ -5156,7 +5167,9 @@ async function init() {
 				obj.material.depthWrite = true;
 
 			}
-			obj.castShadow = true;
+			// Remote cars are moving casters — keep them out of the frozen
+			// sun shadow map (stale streaks otherwise); they get blob shadows.
+			obj.castShadow = false;
 			obj.receiveShadow = true;
 
 		} );
@@ -5174,6 +5187,8 @@ async function init() {
 			targetRotY: previousState?.targetRotY || mesh.rotation.y,
 			lastSeenAt: previousState?.lastSeenAt || 0,
 		};
+		state.blob = createCarBlobShadow();
+		scene.add( state.blob );
 		remotePlayerVisuals.set( playerId, state );
 		return state;
 
@@ -5220,7 +5235,76 @@ async function init() {
 			}
 
 		} );
+		if ( state.blob ) {
+
+			scene.remove( state.blob );
+			state.blob.geometry?.dispose?.();
+			state.blob.material?.dispose?.();
+			state.blob = null;
+
+		}
 		remotePlayerVisuals.delete( playerId );
+
+	}
+
+	// ── Car blob shadows ─────────────────────────────────────────────
+	// The sun's shadow map is baked once (see the dirLight setup), so every
+	// moving caster gets this cheap ground blob instead: player car, split-
+	// screen car, remote MP cars. Blob = soft dark quad under the car,
+	// ground-anchored via the physics ray, fading when airborne.
+	const playerBlob = createCarBlobShadow();
+	scene.add( playerBlob );
+	const player2Blob = createCarBlobShadow();
+	scene.add( player2Blob );
+	const _blobFwd = new THREE.Vector3();
+	function blobYawFromQuaternion( quaternion ) {
+
+		_blobFwd.set( 0, 0, 1 ).applyQuaternion( quaternion );
+		return Math.atan2( _blobFwd.x, _blobFwd.z );
+
+	}
+	function updateVehicleBlob( blob, targetVehicle ) {
+
+		if ( ! blob ) return;
+		if ( ! targetVehicle?.container || ! targetVehicle.spherePos ) { blob.visible = false; return; }
+		const p = targetVehicle.spherePos;
+		const probe = sampleGroundDepth( p.x, p.y, p.z );
+		updateCarBlobShadow( blob, {
+			x: p.x, z: p.z,
+			groundY: probe ? p.y - probe.depth : null,
+			yaw: blobYawFromQuaternion( targetVehicle.container.quaternion ),
+			scale: Math.max( targetVehicle.container.scale.x, targetVehicle.container.scale.z, 0.01 ),
+			airHeight: probe ? probe.depth : 999,
+		} );
+
+	}
+	function updateCarBlobShadows() {
+
+		if ( ! dirLight.castShadow ) {
+
+			playerBlob.visible = false;
+			player2Blob.visible = false;
+			return;
+
+		}
+		updateVehicleBlob( playerBlob, vehicle );
+		updateVehicleBlob( player2Blob, vehicle2 );
+		for ( const [ , state ] of remotePlayerVisuals ) {
+
+			if ( ! state?.blob ) continue;
+			const mesh = state.mesh;
+			if ( ! mesh || ! mesh.visible ) { state.blob.visible = false; continue; }
+			const originY = mesh.position.y + 0.6;
+			const probe = sampleGroundDepth( mesh.position.x, originY, mesh.position.z );
+			updateCarBlobShadow( state.blob, {
+				x: mesh.position.x, z: mesh.position.z,
+				groundY: probe ? originY - probe.depth : null,
+				yaw: mesh.rotation.y,
+				scale: mesh.scale.x,
+				airHeight: probe ? probe.depth : 999,
+			} );
+
+		}
 
 	}
 
@@ -12903,12 +12987,11 @@ function completeCampaignStage() {
 
 	let hudUpdateAccumulator = 0;
 
-	// Shadow depth pass at up to ~110 Hz: per-frame at <=60 FPS (unchanged
-	// behavior), every 2nd/3rd frame at high refresh rates. The sun and all
-	// scenery are static, and the fastest mover — the car — still gets its
-	// shadow refreshed >100 times a second, more often than the old every-
-	// frame-at-60-FPS behavior. Mode changes that relocate the camera/car
-	// set shadowMap.needsUpdate themselves and bypass this gate.
+	// Keeps the renderer's shadow-map pass ENABLED (needed for per-light
+	// shadow updates, e.g. the garage key light). The SUN's depth map is
+	// exempt: dirLight.shadow.autoUpdate=false means it only re-renders when
+	// dirLight.shadow.needsUpdate is explicitly set (once per track load,
+	// and by graphics-preset changes) — this gate no longer re-bakes it.
 	const SHADOW_REFRESH_MIN_MS = 9;
 	let _shadowRefreshLastMs = -9999;
 	function refreshShadowsIfNeeded() {
@@ -12922,6 +13005,7 @@ function completeCampaignStage() {
 
 	function renderFrame() {
 
+		updateCarBlobShadows();
 		if ( isSplitScreen && cam2 ) {
 
 			const width = window.innerWidth;
