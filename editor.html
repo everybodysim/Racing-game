@@ -1610,6 +1610,13 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 
 	// Ortho depth is linear, but the frustum now reaches behind the origin
 	// much farther, so give the depth range room (same formula as the game).
+	// The sun itself sits INSIDE the map near the origin (11.4, 15, -5.3), and
+	// a shadow camera only captures what is IN FRONT of it. Anything behind the
+	// sun (the whole +x/-z half of the grid beyond ~34 units) got clipped by the
+	// near plane, no matter how wide the frustum was. A negative near extends
+	// the ortho shadow box BACKWARD through the sun, so every grid corner
+	// casts. Ortho depth is linear, so the wider range costs no precision.
+	dirLight.shadow.camera.near = - editorShadowExtent;
 	dirLight.shadow.camera.far = 60 + 2 * editorShadowExtent + 20;
 	// OrthographicCamera lenses only take effect after updateProjectionMatrix —
 	// without this call the shadow pass keeps the projection matrix computed

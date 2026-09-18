@@ -4679,6 +4679,12 @@ async function init() {
 	// The locked window reaches farther behind the center than the old
 	// car-following aim, so give the ortho depth range room to cover it
 	// (ortho depth is linear — no precision cost).
+	// Shadow camera near pulled BEHIND the sun: the sun hovers at anchor +
+	// (11.4, 15, -5.3), so without this the half of the track on the sunward
+	// side of the anchor (beyond ~34 units) was clipped by the near plane and
+	// never cast a shadow. Negative near extends the ortho box backward
+	// through the sun; depth is linear, so no precision cost.
+	dirLight.shadow.camera.near = - shadowExtent;
 	dirLight.shadow.camera.far = 60 + 2 * shadowExtent + 20;
 	dirLight.shadow.camera.updateProjectionMatrix();
 
