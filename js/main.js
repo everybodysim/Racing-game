@@ -5734,143 +5734,7 @@ async function init() {
 
 	}
 
-	// ── Ghost car cosmetic effects ──────────────────────────────────────
-	// The code that renders body roll / lean, wheel steering, wheel spin and
-	// boost wheelies already exists: Vehicle.js's updateBody / updateWheels /
-	// updateWheelie. Ghosts call THE REAL METHODS through a field-compatible
-	// proxy (Vehicle.prototype.<method>.call(proxy, dt)) — no mirrored
-	// formulas, so every tuning change to the real car applies to ghosts.
-	// Inputs are reconstructed from what the ghost samples already record
-	// (t, x, y, z, yaw): nothing new is stored in the ghost code.
-	//  - inputX: inverted from the exact steering relation in Vehicle.update
-	//    (yawRate = -inputX * clamp(|ls|,0.2,1) * grip * 4 * direction)
-	//  - linearSpeed: signed forward speed along the recorded heading
-	//  - wheelieActive: sharp forward kick in the samples reads as a boost
-	const GHOST_WHEELIE_ACCEL = 12;   // sample-rate forward accel (u/s²) that reads as a boost kick (real boost = ~18)
-	const GHOST_EFFECT_MAX_LS = 60;   // beyond this the pair is treated as a seek/teleport
-
-	function buildGhostEffectRig( model ) {
-
-		if ( ! model ) return null;
-		const rig = {
-			wheels: [], wheelFL: null, wheelFR: null,
-			proxy: {
-				bodyNode: null, wheels: [], wheelFL: null, wheelFR: null,
-				modelRoot: model, wheelieNode: null,
-				wheelieActive: false, wheelieAmount: 0,
-				inputX: 0, linearSpeed: 0, acceleration: 0, topSpeed: 1,
-			},
-			tangAccel: 0, lastNow: 0, lastSampleT: -1, lastAlpha: -1, prevSampleT: -1, prevPairLs: 0, wheelieHoldUntil: 0,
-		};
-		model.traverse( ( child ) => {
-
-			const name = String( child.name || '' ).toLowerCase();
-			if ( ! rig.proxy.bodyNode && name.includes( 'body' ) && ! name.includes( 'wheel' ) ) rig.proxy.bodyNode = child;
-			else if ( name.includes( 'wheel' ) ) {
-
-				rig.wheels.push( child );
-				if ( name.includes( 'front' ) && name.includes( 'left' ) ) rig.proxy.wheelFL = child;
-				if ( name.includes( 'front' ) && name.includes( 'right' ) ) rig.proxy.wheelFR = child;
-				if ( name.includes( 'back' ) && name.includes( 'left' ) ) rig.wheelBL = child;
-				if ( name.includes( 'back' ) && name.includes( 'right' ) ) rig.wheelBR = child;
-
-			}
-
-		} );
-		rig.proxy.wheels = rig.wheels;
-		if ( ! rig.wheels.length && ! rig.proxy.bodyNode ) return null;
-		// Mirror Vehicle.js's wheelie pivot: rotate about the rear axle.
-		if ( rig.wheelBL && rig.wheelBR && rig.wheelBL.parent === rig.wheelBR.parent ) {
-
-			const rearZ = ( rig.wheelBL.position.z + rig.wheelBR.position.z ) / 2;
-			const rearParent = rig.wheelBL.parent;
-			const pivot = new THREE.Group();
-			pivot.position.set( 0, 0, rearZ );
-			const inner = new THREE.Group();
-			inner.position.z = - rearZ;
-			while ( rearParent.children.length ) inner.add( rearParent.children[ 0 ] );
-			pivot.add( inner );
-			rearParent.add( pivot );
-			rig.proxy.wheelieNode = pivot;
-
-		}
-		return rig;
-
-	}
-
-	function getGhostRig( model ) {
-
-		if ( ! model ) return null;
-		if ( ! model.userData.ghostEffectRig ) model.userData.ghostEffectRig = buildGhostEffectRig( model );
-		return model.userData.ghostEffectRig;
-
-	}
-
-	function updateGhostEffects( rig, sampleA, sampleB, span, alpha ) {
-
-		if ( ! rig || ! sampleA || ! sampleB ) return;
-		const now = performance.now() / 1000;
-		let dt = rig.lastNow ? ( now - rig.lastNow ) : 0;
-		rig.lastNow = now;
-		if ( dt < 0 ) dt = 0;
-		if ( dt > 0.1 ) dt = 0.1;
-
-		// Frozen playback (paused replay / scrub hold) = the real car's game
-		// loop is paused too: no effect updates, everything freezes in place.
-		const moved = ( sampleA.t !== rig.lastSampleT || Math.abs( alpha - rig.lastAlpha ) > 1e-5 );
-		rig.lastSampleT = sampleA.t;
-		rig.lastAlpha = alpha;
-		if ( ! moved ) return;
-
-		// Signed forward speed along the recorded heading.
-		const vx = span > 1e-4 ? ( sampleB.x - sampleA.x ) / span : 0;
-		const vz = span > 1e-4 ? ( sampleB.z - sampleA.z ) / span : 0;
-		const planarSpeed = Math.hypot( vx, vz );
-		const teleport = planarSpeed > GHOST_EFFECT_MAX_LS;
-		let forwardSpeed = vx * Math.sin( sampleA.yaw ) + vz * Math.cos( sampleA.yaw );
-		if ( teleport ) forwardSpeed = THREE.MathUtils.clamp( forwardSpeed, -GHOST_EFFECT_MAX_LS, GHOST_EFFECT_MAX_LS );
-
-		// Recorded yaw rate -> steering input, inverting Vehicle.update's
-		// exact relation (yawRate = -inputX * clamp(|ls|,0.2,1) * grip * 4 * direction).
-		let dYaw = ( sampleB.yaw ?? sampleA.yaw ) - sampleA.yaw;
-		while ( dYaw > Math.PI ) dYaw -= 2 * Math.PI;
-		while ( dYaw < -Math.PI ) dYaw += 2 * Math.PI;
-		const omega = ( ! teleport && span > 1e-4 ) ? dYaw / span : 0;
-		let direction = Math.sign( forwardSpeed );
-		if ( direction === 0 ) direction = 1;
-		const steeringGrip = Math.min( Math.max( Math.abs( forwardSpeed ), 0.2 ), 1.0 );
-		const proxy = rig.proxy;
-		proxy.inputX = teleport ? 0 : THREE.MathUtils.clamp( - omega / ( 4 * steeringGrip * direction ), -1, 1 );
-		proxy.linearSpeed = forwardSpeed;
-
-		// Real smoothing line from Vehicle.update (rad/frame wheel rate).
-		proxy.acceleration = THREE.MathUtils.lerp(
-			proxy.acceleration,
-			proxy.linearSpeed + ( 0.25 * proxy.linearSpeed * Math.abs( proxy.linearSpeed ) ),
-			dt
-		);
-
-		// Boost kick detection at sample resolution; held for the game's
-		// BOOST_FORCE_SECONDS so ghost wheelies read like real ones.
-		if ( sampleA.t !== rig.prevSampleT ) {
-
-			const pairDt = rig.prevSampleT > 0 ? Math.max( 1e-3, sampleA.t - rig.prevSampleT ) : span;
-			rig.tangAccel = teleport ? 0 : ( Math.abs( forwardSpeed ) - rig.prevPairLs ) / pairDt;
-			rig.prevPairLs = Math.abs( forwardSpeed );
-			rig.prevSampleT = sampleA.t;
-
-		}
-		if ( rig.tangAccel > GHOST_WHEELIE_ACCEL ) rig.wheelieHoldUntil = now + 0.45;
-		proxy.wheelieActive = now < rig.wheelieHoldUntil;
-
-		// THE REAL Vehicle.js methods — the same code the player's car runs.
-		Vehicle.prototype.updateWheels.call( proxy, dt );
-		Vehicle.prototype.updateBody.call( proxy, dt );
-		Vehicle.prototype.updateWheelie.call( proxy, dt );
-
-	}
-
-		function updateGhostPlayback( lapElapsed ) {
+	function updateGhostPlayback( lapElapsed ) {
 
 		if ( ! ghostEnabled ) return;
 		if ( ! showBestGhost ) { if ( ghostModel ) ghostModel.visible = false; return; }
@@ -5903,7 +5767,6 @@ async function init() {
 		ghostModel.rotation.x = lerpAngle( ghostModel.rotation.x, targetPitch, 0.18 );
 		ghostModel.rotation.y = lerpAngle( ghostModel.rotation.y, targetYaw, 0.18 );
 		ghostModel.rotation.z = lerpAngle( ghostModel.rotation.z, targetRoll, 0.18 );
-		updateGhostEffects( getGhostRig( ghostModel ), sampleA, sampleB, span, alpha );
 		if ( replayViewerMode && ! freecamState.active ) {
 			cam.targetPosition.copy( ghostModel.position );
 			// Recorded ghost y is the car-model base (container.y ≈ -0.1, below
@@ -6203,7 +6066,6 @@ async function init() {
 			state.model.rotation.x = lerpAngle( state.model.rotation.x, targetPitch, 0.18 );
 			state.model.rotation.y = lerpAngle( state.model.rotation.y, targetYaw, 0.18 );
 			state.model.rotation.z = lerpAngle( state.model.rotation.z, targetRoll, 0.18 );
-			updateGhostEffects( getGhostRig( state.model ), sampleA, sampleB, span, alpha );
 
 		}
 
@@ -6238,7 +6100,6 @@ async function init() {
 			state.model.rotation.x = lerpAngle( state.model.rotation.x, targetPitch, 0.18 );
 			state.model.rotation.y = lerpAngle( state.model.rotation.y, targetYaw, 0.18 );
 			state.model.rotation.z = lerpAngle( state.model.rotation.z, targetRoll, 0.18 );
-			updateGhostEffects( getGhostRig( state.model ), sampleA, sampleB, span, alpha );
 
 		}
 
