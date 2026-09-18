@@ -50,7 +50,7 @@
 	// preview if the module or WebGL is unavailable.
 	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260916';
 	import { encodeCellsV3 } from './js/Track.js?v=1000230';
-	import { generateTrackPlan } from './js/CupTrackGen.js?v=20260917';
+	import { generateTrackPlan } from './js/CupTrackGen.js?v=20260918';
 	window.__renderTrackTopDown = renderTrackTopDown;
 	window.__encodeCellsV3 = encodeCellsV3;
 	window.__cupTrackGen = generateTrackPlan;
@@ -220,8 +220,10 @@
     // stream so the shared plan and the scenery never step on each other.
     const rng = mulberry32(hash32(seedText) ^ 0x9e3779b9);
     const roadCells = tiles.map((t) => [t[0], t[1]]);
+    const poolSet = new Set((plan.modsObj.q || []).map(([x, z]) => `${x},${z}`));
+    const notPool = ([x, z]) => !poolSet.has(`${x},${z}`);
 
-    const poleCandidates = [...roadCells, ...roadCells.map(([x, z]) => [x + 1, z]), ...roadCells.map(([x, z]) => [x - 1, z])];
+    const poleCandidates = [...roadCells, ...roadCells.map(([x, z]) => [x + 1, z]), ...roadCells.map(([x, z]) => [x - 1, z])].filter(notPool);
     const poleCount = Math.min(5, Math.max(1, Math.floor(tiles.length / 16)));
     const poles = sampleDeterministic(poleCandidates, rng, poleCount);
 
@@ -236,6 +238,7 @@
       for (let x = minX; x <= maxX; x++) {
         const k = `${x},${z}`;
         if (roadSet.has(k)) continue;
+        if (poolSet.has(k)) continue;
 
         let nearRoad = false;
         for (let dz = -1; dz <= 1 && !nearRoad; dz++) {
@@ -266,7 +269,8 @@
         s: [],             // legacy boost pads (unused)
         u: plan.modsObj.u, // surfaces
         d: deco,           // scenery
-        e: plan.modsObj.e  // elevated road: detours + cross-overs
+        e: plan.modsObj.e, // elevated road: detours + cross-overs
+        q: plan.modsObj.q  // water pools in road-enclosed pockets
       }
     };
   }

@@ -227,6 +227,8 @@ function entryAt(cell, inD, outD, ctx) {
   const k = key(cell[0], cell[1]);
   if (ctx.elevKeys.has(k)) return null;
   if (ctx.slopeKeys.has(k)) return null;
+  // The finish gate (and any future special) never gets road built over it.
+  if (ctx.noElevKeys && ctx.noElevKeys.has(k)) return null;
   const g = ctx.groundMap.get(k);
   if (g && !ctx.windowKeys.has(k)) {
     const dirs = groundDirsOf(g.tile);
@@ -412,6 +414,7 @@ function genDetours(rng, tiles, specialIdx, removedIdx, elevEntries) {
       maxX: Math.max(...xs) + 2,
       minZ: Math.min(...zs) - 2,
       maxZ: Math.max(...zs) + 2,
+      noElevKeys: new Set([...specialIdx].map((i) => key(tiles[i][0], tiles[i][1]))),
     };
     for (let ti = 0; ti < tiles.length; ti++) {
       if (removedIdx.has(ti) || specialIdx.has(ti)) continue;
@@ -441,6 +444,44 @@ function genDetours(rng, tiles, specialIdx, removedIdx, elevEntries) {
   }
 }
 
+// ─── Water pools ─────────────────────────────────────────────────────────────
+// Flood-fill the non-road space inside the lap's bounding box; a pocket that
+// never touches the bbox edge is fully enclosed by road. Small pockets (<= 7
+// cells) are filled with pool cells; bigger enclosed areas stay grass.
+function genPools(cells) {
+  const roadSet = new Set(cells.map((c) => key(c[0], c[1])));
+  const xs = cells.map((c) => c[0]);
+  const zs = cells.map((c) => c[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minZ = Math.min(...zs), maxZ = Math.max(...zs);
+  const seen = new Set();
+  const pools = [];
+  for (let x = minX; x <= maxX; x++) {
+    for (let z = minZ; z <= maxZ; z++) {
+      const k = key(x, z);
+      if (roadSet.has(k) || seen.has(k)) continue;
+      const comp = [[x, z]];
+      seen.add(k);
+      let enclosed = true;
+      for (let ci = 0; ci < comp.length; ci++) {
+        const [cx, cz] = comp[ci];
+        if (cx === minX || cx === maxX || cz === minZ || cz === maxZ) enclosed = false;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = cx + dx;
+          const nz = cz + dz;
+          if (nx < minX || nx > maxX || nz < minZ || nz > maxZ) continue;
+          const nk = key(nx, nz);
+          if (roadSet.has(nk) || seen.has(nk)) continue;
+          seen.add(nk);
+          comp.push([nx, nz]);
+        }
+      }
+      if (enclosed && comp.length <= 7) for (const c of comp) pools.push([c[0], c[1]]);
+    }
+  }
+  return pools;
+}
+
 // ─── Plan ────────────────────────────────────────────────────────────────────
 
 export function generateTrackPlan(seedText, opts = {}) {
@@ -456,19 +497,54 @@ export function generateTrackPlan(seedText, opts = {}) {
   if (!loop) {
     loop = [[2, 2], [3, 2], [4, 2], [5, 2], [6, 2], [7, 2], [8, 2], [8, 3], [8, 4], [8, 5], [8, 6], [8, 7], [7, 7], [6, 7], [5, 7], [4, 7], [3, 7], [2, 7], [2, 6], [2, 5], [2, 4], [2, 3], [2, 2]];
   }
-  const { tiles, cpCandidates } = loopToTiles(loop);
-  const cpCount = Math.min(cpCandidates.length, rndInt(rng, 1, 3));
-  const cpIdxSet = new Set(sampleDeterministic(cpCandidates, rng, cpCount));
-  for (const idx of cpIdxSet) tiles[idx][2] = 'track-checkpoint';
-  const specialIdx = new Set([...cpIdxSet]);
+  const { tiles } = loopToTiles(loop);
   const finishIdx = tiles.findIndex((t) => t[2] === 'track-finish');
-  if (finishIdx >= 0) specialIdx.add(finishIdx);
+
+  // Checkpoints FIRST: always several (3-4), spread as far apart as the lap
+  // allows via farthest-point sampling — a single checkpoint lets players
+  // cross it and turn around. Gates must never sit under elevated road
+  // (cross blocks over a checkpoint are ugly in particular), so the
+  // detour search below treats checkpoints and the finish as no-build cells.
+  const n0 = tiles.length;
+  const cycDist = (a, b) => { const d = Math.abs(a - b); return Math.min(d, n0 - d); };
+  const cpCandidates = [];
+  for (let i = 0; i < n0; i++) {
+    if (tiles[i][2] !== 'track-straight') continue;
+    if (finishIdx >= 0 && cycDist(i, finishIdx) < 2) continue; // never hugging the finish gate
+    cpCandidates.push(i);
+  }
+  const cpCount = Math.min(3 + (rng() < 0.5 ? 1 : 0), cpCandidates.length);
+  const chosenCp = finishIdx >= 0 ? [finishIdx] : [];
+  const chosenSet = new Set(chosenCp);
+  for (let k = 0; k < cpCount; k++) {
+    let best = -1;
+    let bestD = -1;
+    for (const cand of cpCandidates) {
+      if (chosenSet.has(cand)) continue;
+      let d = Infinity;
+      for (const s of chosenCp) d = Math.min(d, cycDist(cand, s));
+      if (d > bestD) { bestD = d; best = cand; }
+    }
+    if (best < 0) break;
+    chosenCp.push(best);
+    chosenSet.add(best);
+    tiles[best][2] = 'track-checkpoint';
+  }
+  const specialIdx = new Set(chosenSet);
+
+  // Elevated detours: the search never builds road over checkpoints or the
+  // finish (noElevKeys), and windows are bounded by them, so a checkpoint can
+  // never end up under a cross block or any elevated road.
   const elevEntries = [];
   const removedIdx = new Set();
   genDetours(rng, tiles, specialIdx, removedIdx, elevEntries);
   const order = tiles.map((_, i) => i).filter((i) => !removedIdx.has(i));
   const groundTiles = order.map((i) => tiles[i]);
   const elevKeys = new Set(elevEntries.map(([gx, gz]) => key(gx, gz)));
+
+  // Water pools: small pockets fully enclosed by road become ponds (up to 7
+  // cells per pocket, exactly the pocket); bigger enclosed areas stay grass.
+  const pools = genPools(groundTiles);
   const bumpCandidates = groundTiles.filter(([gx, gz, t]) => t === 'track-straight' && !elevKeys.has(key(gx, gz)));
   const bumps = sampleDeterministic(bumpCandidates, rng, Math.min(5, Math.max(1, Math.floor(tiles.length / 11))));
   const surfCandidates = groundTiles.filter(([gx, gz, t]) => (t === 'track-straight' || t === 'track-corner') && !elevKeys.has(key(gx, gz)));
@@ -477,7 +553,7 @@ export function generateTrackPlan(seedText, opts = {}) {
     .map(([x, z, t], idx) => [x, z, t === 'track-corner' ? 'surface-ice' : surfacePalette[idx % surfacePalette.length]]);
   return {
     cells: groundTiles,
-    modsObj: { b: bumps, s: [], u: surfaceCells, d: [], e: elevEntries },
+    modsObj: { b: bumps, s: [], u: surfaceCells, d: [], e: elevEntries, q: pools },
     rng,
   };
 }
