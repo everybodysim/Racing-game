@@ -5734,6 +5734,142 @@ async function init() {
 
 	}
 
+	// ── Ghost car cosmetic effects ──────────────────────────────────────
+	// Ghost models are plain clones of the car model, so they ship the same
+	// named nodes (body / wheels). We rebuild the rig Vehicle.js builds
+	// (front-wheel steering, body lean, wheel spin, and a wheelie pivot about
+	// the rear axle) and drive the SAME effect formulas — but kinematically,
+	// from what the ghost samples already record (t, x, y, z, yaw): speed
+	// from consecutive samples, steering from yaw rate, boost wheelies from
+	// sharp forward acceleration. Nothing extra is stored in the ghost code.
+	const GHOST_EFFECT_MAX_OMEGA = 2.2; // yaw rate (rad/s) that reads as full steering lock
+	const GHOST_WHEELIE_ACCEL = 9;      // smoothed forward accel (u/s²) that reads as a boost kick
+	const GHOST_EFFECT_MAX_LS = 60;    // beyond this the pair is treated as a seek/teleport
+
+	function buildGhostEffectRig( model ) {
+
+		if ( ! model ) return null;
+		const rig = {
+			bodyNode: null, wheels: [],
+			wheelFL: null, wheelFR: null, wheelBL: null, wheelBR: null,
+			wheelieNode: null, wheelieActive: false, wheelieAmount: 0,
+			ghostAccel: 0, steer: 0, prevLs: 0, tangAccel: 0,
+			lastNow: 0, lastSampleT: -1, lastAlpha: -1, wheelieHoldUntil: 0,
+		};
+		model.traverse( ( child ) => {
+
+			const name = String( child.name || '' ).toLowerCase();
+			if ( ! rig.bodyNode && name.includes( 'body' ) && ! name.includes( 'wheel' ) ) rig.bodyNode = child;
+			else if ( name.includes( 'wheel' ) ) {
+
+				rig.wheels.push( child );
+				if ( name.includes( 'front' ) && name.includes( 'left' ) ) rig.wheelFL = child;
+				if ( name.includes( 'front' ) && name.includes( 'right' ) ) rig.wheelFR = child;
+				if ( name.includes( 'back' ) && name.includes( 'left' ) ) rig.wheelBL = child;
+				if ( name.includes( 'back' ) && name.includes( 'right' ) ) rig.wheelBR = child;
+
+			}
+
+		} );
+		if ( ! rig.wheels.length && ! rig.bodyNode ) return null;
+		// Mirror Vehicle.js: pivot at the rear axle so wheelies pitch the
+		// whole model up about its back wheels. Reparenting into an inner
+		// group with a -rearZ offset keeps every world transform identical.
+		if ( rig.wheelBL && rig.wheelBR && rig.wheelBL.parent === rig.wheelBR.parent ) {
+
+			const rearZ = ( rig.wheelBL.position.z + rig.wheelBR.position.z ) / 2;
+			const rearParent = rig.wheelBL.parent;
+			const pivot = new THREE.Group();
+			pivot.position.set( 0, 0, rearZ );
+			const inner = new THREE.Group();
+			inner.position.z = - rearZ;
+			while ( rearParent.children.length ) inner.add( rearParent.children[ 0 ] );
+			pivot.add( inner );
+			rearParent.add( pivot );
+			rig.wheelieNode = pivot;
+
+		}
+		return rig;
+
+	}
+
+	function getGhostRig( model ) {
+
+		if ( ! model ) return null;
+		if ( ! model.userData.ghostEffectRig ) model.userData.ghostEffectRig = buildGhostEffectRig( model );
+		return model.userData.ghostEffectRig;
+
+	}
+
+	function updateGhostEffects( rig, sampleA, sampleB, span, alpha ) {
+
+		if ( ! rig || ! sampleA || ! sampleB ) return;
+		const now = performance.now() / 1000;
+		let dt = rig.lastNow ? ( now - rig.lastNow ) : 0;
+		rig.lastNow = now;
+		if ( dt < 0 ) dt = 0;
+		if ( dt > 0.1 ) dt = 0.1;
+
+		// Movement gate: a frozen clock (paused replay / scrub hold) must not
+		// keep the wheels spinning — only advance effects while playback moves.
+		const moved = ( sampleA.t !== rig.lastSampleT || Math.abs( alpha - rig.lastAlpha ) > 1e-5 );
+		rig.lastSampleT = sampleA.t;
+		rig.lastAlpha = alpha;
+
+		// Kinematic speed + signed yaw rate from the sample pair.
+		const dpos = Math.hypot( sampleB.x - sampleA.x, sampleB.y - sampleA.y, sampleB.z - sampleA.z );
+		let ls = span > 1e-4 ? dpos / span : 0;
+		const teleport = ls > GHOST_EFFECT_MAX_LS;
+		if ( teleport ) ls = GHOST_EFFECT_MAX_LS;
+		let dYaw = ( sampleB.yaw ?? sampleA.yaw ) - sampleA.yaw;
+		while ( dYaw > Math.PI ) dYaw -= 2 * Math.PI;
+		while ( dYaw < -Math.PI ) dYaw += 2 * Math.PI;
+		const omega = ( ! teleport && span > 1e-4 ) ? dYaw / span : 0;
+
+		// vehicle.acceleration mirror: smoothed toward ls + 0.25·ls·|ls|.
+		rig.ghostAccel = THREE.MathUtils.lerp( rig.ghostAccel, ls + 0.25 * ls * Math.abs( ls ), dt );
+		// Steering input estimate: yaw rate reads as steering lock.
+		const inputX = THREE.MathUtils.clamp( omega / GHOST_EFFECT_MAX_OMEGA, -1, 1 );
+		rig.steer = THREE.MathUtils.lerp( rig.steer, inputX, Math.min( 1, dt * 10 ) );
+
+		// Wheel spin — Vehicle adds its `acceleration` per frame; scale by the
+		// same 60fps step, modulo to avoid strobing at pad-stack speeds.
+		if ( rig.wheels.length && moved ) {
+
+			const spin = rig.ghostAccel * ( dt * 60 );
+			for ( const wheel of rig.wheels ) wheel.rotation.x = ( wheel.rotation.x + spin ) % ( Math.PI * 2 );
+
+		}
+		// Front wheel steering — same formula as Vehicle.updateWheels.
+		const steerTarget = - rig.steer / 1.5;
+		if ( rig.wheelFL ) rig.wheelFL.rotation.y = lerpAngle( rig.wheelFL.rotation.y, steerTarget, Math.min( 1, dt * 10 ) );
+		if ( rig.wheelFR ) rig.wheelFR.rotation.y = lerpAngle( rig.wheelFR.rotation.y, steerTarget, Math.min( 1, dt * 10 ) );
+		// Body pitch/roll lean — same formulas + clamps as Vehicle.updateBody.
+		if ( rig.bodyNode ) {
+
+			rig.bodyNode.rotation.x = lerpAngle( rig.bodyNode.rotation.x,
+				THREE.MathUtils.clamp( -( ls - rig.ghostAccel ) / 6, - 0.35, 0.35 ), Math.min( 1, dt * 10 ) );
+			rig.bodyNode.rotation.z = lerpAngle( rig.bodyNode.rotation.z,
+				THREE.MathUtils.clamp( -( rig.steer / 5 ) * ls, - 0.38, 0.38 ), Math.min( 1, dt * 5 ) );
+
+		}
+		// Boost wheelie — a sharp forward kick in the samples reads as a boost
+		// pickup; smooth the frame-vs-sample mismatch before thresholding.
+		const spike = ( moved && dt > 1e-4 ) ? ( ls - rig.prevLs ) / dt : 0;
+		rig.prevLs = ls;
+		rig.tangAccel = THREE.MathUtils.lerp( rig.tangAccel, teleport ? 0 : spike, 0.3 );
+		// Hold a detected kick as long as the game's boost force window
+		// (BOOST_FORCE_SECONDS) so ghost wheelies read like real ones.
+		if ( rig.tangAccel > GHOST_WHEELIE_ACCEL ) rig.wheelieHoldUntil = now + 0.45;
+		rig.wheelieActive = now < rig.wheelieHoldUntil;
+		// Wheelie pose — same pivot math as Vehicle.updateWheelie.
+		const wheelieTarget = rig.wheelieActive ? 1 : 0;
+		const wheelieRate = wheelieTarget > rig.wheelieAmount ? 6.5 : 3.5;
+		rig.wheelieAmount += ( wheelieTarget - rig.wheelieAmount ) * Math.min( 1, dt * wheelieRate );
+		if ( rig.wheelieNode ) rig.wheelieNode.rotation.x = - rig.wheelieAmount * 0.55;
+
+	}
+
 	function updateGhostPlayback( lapElapsed ) {
 
 		if ( ! ghostEnabled ) return;
@@ -5767,6 +5903,7 @@ async function init() {
 		ghostModel.rotation.x = lerpAngle( ghostModel.rotation.x, targetPitch, 0.18 );
 		ghostModel.rotation.y = lerpAngle( ghostModel.rotation.y, targetYaw, 0.18 );
 		ghostModel.rotation.z = lerpAngle( ghostModel.rotation.z, targetRoll, 0.18 );
+		updateGhostEffects( getGhostRig( ghostModel ), sampleA, sampleB, span, alpha );
 		if ( replayViewerMode && ! freecamState.active ) {
 			cam.targetPosition.copy( ghostModel.position );
 			// Recorded ghost y is the car-model base (container.y ≈ -0.1, below
@@ -6066,6 +6203,7 @@ async function init() {
 			state.model.rotation.x = lerpAngle( state.model.rotation.x, targetPitch, 0.18 );
 			state.model.rotation.y = lerpAngle( state.model.rotation.y, targetYaw, 0.18 );
 			state.model.rotation.z = lerpAngle( state.model.rotation.z, targetRoll, 0.18 );
+			updateGhostEffects( getGhostRig( state.model ), sampleA, sampleB, span, alpha );
 
 		}
 
@@ -6100,6 +6238,7 @@ async function init() {
 			state.model.rotation.x = lerpAngle( state.model.rotation.x, targetPitch, 0.18 );
 			state.model.rotation.y = lerpAngle( state.model.rotation.y, targetYaw, 0.18 );
 			state.model.rotation.z = lerpAngle( state.model.rotation.z, targetRoll, 0.18 );
+			updateGhostEffects( getGhostRig( state.model ), sampleA, sampleB, span, alpha );
 
 		}
 
