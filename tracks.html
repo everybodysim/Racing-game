@@ -332,6 +332,7 @@
 		}
 
 		let boardLoading = false;
+		let boardFailed = false;
 		async function loadFromRemote() {
 			if ( leaderboardProgressLabel ) leaderboardProgressLabel.textContent = 'Fetching board data\u2026';
 			// The full board list is ~30MB now (every entry carries its ghost
@@ -339,10 +340,11 @@
 			// connection, far past the default 8s abort that made the page show
 			// "Nothing here yet" every time. Give the list fetch a long
 			// timeout and enough attempts to ride out the worker's 503s.
+			boardFailed = false;
 			boardLoading = true;
 			render();
 			try {
-				const payload = await apiRequest( '?fields=list', { timeoutMs: 45000, attempts: 5 } );
+				const payload = await apiRequest( '?fields=list', { timeoutMs: 45000, attempts: 12 } );
 				entries = sanitizeBoardEntries( payload?.entries );
 			} finally {
 				boardLoading = false;
@@ -1183,7 +1185,9 @@
 			if ( items.length === 0 ) {
 				container.innerHTML = boardLoading
 				? '<div class="card"><h3>Loading tracks\u2026</h3><div class="meta">Fetching the cloud board \u2014 it\u2019s a big one, a moment.</div></div>'
-				: `<div class="card"><h3>Nothing here yet</h3><div class="meta">${ emptyText }</div></div>`;
+				: boardFailed
+					? '<div class="card"><h3>Couldn\u2019t reach the cloud board</h3><div class="meta">Hit Retry in the All Tracks section to try again.</div></div>'
+					: `<div class="card"><h3>Nothing here yet</h3><div class="meta">${ emptyText }</div></div>`;
 				return;
 			}
 			const frag = document.createDocumentFragment();
@@ -1346,6 +1350,13 @@
 			scheduleAuthorRowCheck();
 		}
 
+		document.addEventListener( 'click', ( ev ) => {
+
+			if ( ! ev.target?.closest?.( '[data-retry-board]' ) ) return;
+			boardFailed = false;
+			loadFromRemote().then( () => render() ).catch( () => render() );
+
+		} );
 		function render() {
 			_statsCache.clear();
 			const hasSearch = ( searchInput?.value || '' ).trim().length > 0;
@@ -1400,7 +1411,9 @@
 					? '<div class="card"><h3>No matches</h3><div class="meta">Try a different search or size filter.</div></div>'
 					: boardLoading
 						? '<div class="card"><h3>Loading tracks\u2026</h3><div class="meta">Fetching the cloud board \u2014 it\u2019s a big one, a moment.</div></div>'
-						: '<div class="card"><h3>No uploads yet</h3><div class="meta">Add a ghost code to get started.</div></div>';
+						: boardFailed
+							? '<div class="card"><h3>Couldn\u2019t reach the cloud board</h3><div class="meta">The board API didn\u2019t respond in time.</div><button type="button" data-retry-board style="margin-top:10px">Retry</button></div>'
+							: '<div class="card"><h3>No uploads yet</h3><div class="meta">Add a ghost code to get started.</div></div>';
 				clearLibraryPager();
 				return;
 			}
@@ -1781,9 +1794,10 @@
 				} catch ( e ) {
 
 					useRemoteBoard = false;
+					boardFailed = true;
 					loadFromHash();
 					await primeV3Previews();
-					setStatus( 'Cloud board unavailable. Using local share-link mode.' );
+					setStatus( 'Cloud board unreachable \u2014 hit Retry to try again. (Local share-link mode still works.)' );
 					hydrateTopLeaderboardRows( entries ).then( () => render() );
 
 				}
