@@ -160,6 +160,27 @@
 			return rows.filter( ( entry ) => typeof entry?.playUrl === 'string' && typeof entry?.name === 'string' && ! isPackBoardEntry( entry ) );
 		}
 
+		// Slim board entries carry a ghostless playUrl + hasGhost flag. The
+		// full URL (with the #ghost= blob) is fetched once per track on demand.
+		const fullPlayUrlCache = new Map();
+		async function resolveFullPlayUrl( entry ) {
+			if ( ! entry?.id ) return entry?.playUrl || null;
+			const slimUrl = String( entry.playUrl || '' );
+			if ( ! entry.hasGhost || slimUrl.includes( '#ghost=' ) ) return slimUrl || null;
+			if ( fullPlayUrlCache.has( entry.id ) ) return fullPlayUrlCache.get( entry.id );
+			try {
+				const payload = await apiRequest( `/${ encodeURIComponent( entry.id ) }` );
+				const full = String( payload?.entry?.playUrl || '' );
+				if ( full ) {
+					fullPlayUrlCache.set( entry.id, full );
+					return full;
+				}
+			} catch ( e ) {
+				// Fall through: open the ghostless URL — track still plays.
+			}
+			return slimUrl || null;
+		}
+
 		// ─── Creator credit ───
 		// New tracks are published with the currently logged-in player name
 		// (same localStorage key the game uses). Old entries without a
@@ -335,16 +356,16 @@
 		let boardFailed = false;
 		async function loadFromRemote() {
 			if ( leaderboardProgressLabel ) leaderboardProgressLabel.textContent = 'Fetching board data\u2026';
-			// The full board list is ~30MB now (every entry carries its ghost
-			// blob inside playUrl) — that can take 20s+ on a normal home
-			// connection, far past the default 8s abort that made the page show
-			// "Nothing here yet" every time. Give the list fetch a long
-			// timeout and enough attempts to ride out the worker's 503s.
+			// fields=slim: the worker serves a few-hundred-KB index (no
+			// thumbnails, no ghost blobs inside playUrl). The full 30MB list
+			// blew the worker's CPU limit on every request (Cloudflare
+			// "Worker exceeded CPU time" in the dashboard logs) — ghosts are
+			// now fetched per-track on demand via GET /api/tracks/:id.
 			boardFailed = false;
 			boardLoading = true;
 			render();
 			try {
-				const payload = await apiRequest( '?fields=list', { timeoutMs: 45000, attempts: 12 } );
+				const payload = await apiRequest( '?fields=slim', { timeoutMs: 45000, attempts: 12 } );
 				entries = sanitizeBoardEntries( payload?.entries );
 			} finally {
 				boardLoading = false;
@@ -1153,7 +1174,7 @@
 				<div class="meta">${ entry.description ? entry.description : 'No description.' }</div>
 				<div class="row card-author-row">
 					${ authorChip }
-					<button type="button" class="copy-btn" data-copy-url="${ escapeHtml( entry.playUrl ) }" title="Copy a direct link to this track">🔗 <span class="copy-label">Copy Link</span></button>
+					<button type="button" class="copy-btn" data-copy-url="${ escapeHtml( entry.playUrl ) }" data-copy-id="${ entry.id }" title="Copy a direct link to this track">🔗 <span class="copy-label">Copy Link</span></button>
 				</div>
 				<div class="row" style="margin-top:0">
 					<a class="linkbtn play-map-btn" href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play</a>
@@ -1520,6 +1541,15 @@
   if ( openLink ) {
     if ( useRemoteBoard ) {
       const id = openLink.getAttribute( 'data-id' );
+      // Slim list: the href is ghostless — fetch the full playUrl (tiny
+      // per-track request, cached) and open that instead.
+      const slimEntry = entries.find( ( en ) => en.id === id );
+      if ( slimEntry && slimEntry.hasGhost && ! String( slimEntry.playUrl || '' ).includes( '#ghost=' ) ) {
+        e.preventDefault();
+        resolveFullPlayUrl( slimEntry ).then( ( full ) => {
+          if ( full ) window.open( full, '_blank', 'noopener' );
+        } );
+      }
       try {
         await apiRequest( `/${ id }/view`, { method: 'POST' } );
         const current = entries.find( ( entry ) => entry.id === id );
@@ -1669,13 +1699,22 @@
 				}
 				const copyBtn = e.target.closest( '[data-copy-url]' );
 				if ( copyBtn ) {
-					const url = copyBtn.getAttribute( 'data-copy-url' ) || '';
-					if ( navigator.clipboard?.writeText ) {
-						navigator.clipboard.writeText( url )
-							.then( () => setStatus( 'Track link copied — share it anywhere!' ) )
-							.catch( () => setStatus( 'Copy failed. Use the Play link and copy it from the address bar.', true ) );
+					const slimUrl = copyBtn.getAttribute( 'data-copy-url' ) || '';
+					const copyEntry = entries.find( ( en ) => en.id === copyBtn.getAttribute( 'data-copy-id' ) );
+					const writeUrl = ( url ) => {
+						if ( navigator.clipboard?.writeText ) {
+							navigator.clipboard.writeText( url )
+								.then( () => setStatus( 'Track link copied — share it anywhere!' ) )
+								.catch( () => setStatus( 'Copy failed. Use the Play link and copy it from the address bar.', true ) );
+						} else {
+							setStatus( 'Copy not supported here. Use the Play link instead.', true );
+						}
+					};
+					if ( copyEntry && copyEntry.hasGhost && ! slimUrl.includes( '#ghost=' ) ) {
+						setStatus( 'Fetching the full track link\u2026' );
+						resolveFullPlayUrl( copyEntry ).then( writeUrl );
 					} else {
-						setStatus( 'Copy not supported here. Use the Play link instead.', true );
+						writeUrl( slimUrl );
 					}
 				}
 			} );

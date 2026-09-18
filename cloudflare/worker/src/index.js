@@ -1,6 +1,8 @@
 const TRACKS_KEY = 'tracks:all';
 const TRACKS_META_KEY = 'tracks:meta';
 const TRACKS_CHUNK_PREFIX = 'tracks:chunk:';
+const SLIM_INDEX_KEY = 'tracks:slim-index';
+const ENTRY_KEY_PREFIX = 'tracks:entry:';
 const MAX_ENTRIES = 300;
 const MAX_TRACKS_CHUNK_BYTES = 5_000_000;
 const PACK_KEY_PREFIX = 'pack:';
@@ -21,6 +23,14 @@ export default {
 		if ( url.pathname.startsWith( '/api/tracks/' ) && url.pathname.endsWith( '/thumb' ) && request.method === 'GET' ) {
 			const id = url.pathname.split( '/' )[ 3 ];
 			return withCors( await getTrackThumb( id, env ) );
+		}
+
+		// Full single board entry (playUrl WITH its #ghost blob). The slim
+		// list strips ghosts so the board loads fast; the page refetches the
+		// complete entry on demand when a player opens or shares a track.
+		if ( url.pathname.startsWith( '/api/tracks/' ) && request.method === 'GET' && ! url.pathname.endsWith( '/thumb' ) ) {
+			const id = url.pathname.split( '/' )[ 3 ];
+			return withCors( await getTrackById( id, env ) );
 		}
 
 		if ( url.pathname === '/api/tracks' && request.method === 'POST' ) {
@@ -67,7 +77,12 @@ function withCors( response ) {
 }
 
 async function getTracks( url, env ) {
-	const entries = await loadEntries( env );
+	// fields=slim reads the lightweight index (no thumbnails, no ghost blobs
+	// inside playUrl) instead of the full ~30MB entry set — the fast path the
+	// board page uses. Every other fields value reads full entries.
+	const entries = String( url.searchParams.get( 'fields' ) || '' ).trim() === 'slim'
+		? await loadSlimIndex( env )
+		: await loadEntries( env );
 
 	// All query params are OPTIONAL and default to the legacy behaviour
 	// (full list, newest-first, thumbnails inline) so older frontends keep
@@ -192,6 +207,10 @@ async function addTrack( request, env ) {
 		createdAt: Date.now(),
 	};
 
+	// Per-entry key so GET /api/tracks/:id for this track never needs the
+	// full chunk scan. Failure is non-fatal — the scan fallback still works.
+	try { await env.TRACKS_KV.put( `${ ENTRY_KEY_PREFIX }${ entry.id }`, JSON.stringify( entry ) ); } catch {}
+
 	const entries = await loadEntries( env );
 	entries.unshift( entry );
 	const trimmed = entries.slice( 0, MAX_ENTRIES );
@@ -242,6 +261,71 @@ async function voteTrack( id, request, env ) {
 	entries[ index ].lastLikedAt = Date.now();
 	await saveEntries( entries, env );
 	return json( { ok: true, entry: entries[ index ] } );
+}
+
+// Strip the #ghost= blob from a play URL; the board list only needs the
+// map+mods link. The full URL is served per-track via GET /api/tracks/:id.
+function slimPlayUrl( playUrl ) {
+	const url = String( playUrl || '' );
+	const hashIndex = url.indexOf( '#ghost=' );
+	return hashIndex === -1 ? url : url.slice( 0, hashIndex );
+}
+
+function playUrlHasGhost( playUrl ) {
+	return String( playUrl || '' ).indexOf( '#ghost=' ) !== -1;
+}
+
+// Slim index entries: everything the board page needs to list, search and
+// sort tracks — no thumbnail data, no ghost blobs. A few hundred KB total
+// instead of tens of MB, so the worker stays far under its CPU limit.
+function buildSlimIndex( entries ) {
+	return entries.map( ( entry ) => {
+		const { thumbnailDataUrl, ...rest } = entry;
+		return {
+			...rest,
+			playUrl: slimPlayUrl( entry?.playUrl ),
+			hasThumbnail: Boolean( thumbnailDataUrl ),
+			hasGhost: playUrlHasGhost( entry?.playUrl ),
+		};
+	} );
+}
+
+async function loadSlimIndex( env ) {
+	const raw = await env.TRACKS_KV.get( SLIM_INDEX_KEY );
+	if ( raw ) {
+		try {
+			const parsed = JSON.parse( raw );
+			if ( Array.isArray( parsed ) ) return parsed;
+		} catch {
+			// Corrupt index — fall through and rebuild it.
+		}
+	}
+	// First request after this update: build the index once from the full
+	// entries, then every future fields=slim read is a tiny KV get.
+	const slim = buildSlimIndex( await loadEntries( env ) );
+	try { await env.TRACKS_KV.put( SLIM_INDEX_KEY, JSON.stringify( slim ) ); } catch {}
+	return slim;
+}
+
+// Single full entry. Reads the dedicated per-entry key (cheap) so Play
+// clicks never re-parse the whole board; older tracks without a
+// per-entry key fall back to one chunk scan, then self-heal by writing
+// their key.
+async function getTrackById( id, env ) {
+	if ( ! id ) return json( { ok: false, error: 'id is required' }, 400 );
+	const key = `${ ENTRY_KEY_PREFIX }${ id }`;
+	const raw = await env.TRACKS_KV.get( key );
+	if ( raw ) {
+		try {
+			const entry = JSON.parse( raw );
+			if ( entry?.playUrl ) return json( { ok: true, entry } );
+		} catch {}
+	}
+	const entries = await loadEntries( env );
+	const entry = entries.find( ( e ) => String( e?.id || '' ) === String( id ) );
+	if ( ! entry ) return json( { ok: false, error: 'Track not found' }, 404 );
+	try { await env.TRACKS_KV.put( key, JSON.stringify( entry ) ); } catch {}
+	return json( { ok: true, entry } );
 }
 
 async function loadEntries( env ) {
@@ -319,6 +403,10 @@ async function saveEntries( entries, env ) {
 	for ( let i = 0; i < chunks.length; i++ ) {
 		await env.TRACKS_KV.put( newKeys[ i ], JSON.stringify( chunks[ i ] ) );
 	}
+
+	// Keep the slim board index in sync so fields=slim reads stay cheap.
+	// An index write failure must never break a publish/delete/vote.
+	try { await env.TRACKS_KV.put( SLIM_INDEX_KEY, JSON.stringify( buildSlimIndex( entries ) ) ); } catch {}
 
 	await env.TRACKS_KV.put( TRACKS_META_KEY, JSON.stringify( {
 		version: 1,
