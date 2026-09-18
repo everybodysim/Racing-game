@@ -273,18 +273,20 @@
 			// "Cloud board unavailable. Using local share-link mode." Retrying a
 			// handful of times makes a 200 effectively guaranteed (empirically 8
 			// attempts -> 100% success), so the board page reliably connects.
+			// options.timeoutMs / options.attempts override the defaults and are
+			// stripped from the fetch init below.
+			const { timeoutMs: customTimeoutMs, attempts: customAttempts, ...fetchOptions } = options;
 			const isWrite = options.method && options.method !== 'GET';
-			const attempts = isWrite ? 1 : 8;
-			let lastError = null;
+			const attempts = isWrite ? 1 : ( customAttempts || 8 );
 			for ( let attempt = 0; attempt < attempts; attempt ++ ) {
 				const controller = new AbortController();
-				const timeoutId = setTimeout( () => controller.abort(), 8000 );
+				const timeoutId = setTimeout( () => controller.abort(), customTimeoutMs || 8000 );
 				try {
 					const res = await fetch( `${ API_BASE }${ path }`, {
 						headers: { 'Content-Type': 'application/json', ...( options.headers || {} ) },
 						cache: 'no-store',
 						signal: controller.signal,
-						...options,
+						...fetchOptions,
 					} );
 					if ( res.ok ) {
 						// Use .text() + JSON.parse for faster parsing of large payloads
@@ -329,12 +331,22 @@
 			}
 		}
 
+		let boardLoading = false;
 		async function loadFromRemote() {
 			if ( leaderboardProgressLabel ) leaderboardProgressLabel.textContent = 'Fetching board data\u2026';
-			// fields=list: entries without inline thumbnails (lazy /thumb fetch
-			// per visible card). Older workers ignore the param and still work.
-			const payload = await apiRequest( '?fields=list' );
-			entries = sanitizeBoardEntries( payload?.entries );
+			// The full board list is ~30MB now (every entry carries its ghost
+			// blob inside playUrl) — that can take 20s+ on a normal home
+			// connection, far past the default 8s abort that made the page show
+			// "Nothing here yet" every time. Give the list fetch a long
+			// timeout and enough attempts to ride out the worker's 503s.
+			boardLoading = true;
+			render();
+			try {
+				const payload = await apiRequest( '?fields=list', { timeoutMs: 45000, attempts: 5 } );
+				entries = sanitizeBoardEntries( payload?.entries );
+			} finally {
+				boardLoading = false;
+			}
 			await primeV3Previews();
 			// Defer render to next frame so loading panel shows immediately
 			requestAnimationFrame( () => render() );
@@ -1169,7 +1181,9 @@
 			if ( ! container ) return;
 			container.innerHTML = '';
 			if ( items.length === 0 ) {
-				container.innerHTML = `<div class="card"><h3>Nothing here yet</h3><div class="meta">${ emptyText }</div></div>`;
+				container.innerHTML = boardLoading
+				? '<div class="card"><h3>Loading tracks\u2026</h3><div class="meta">Fetching the cloud board \u2014 it\u2019s a big one, a moment.</div></div>'
+				: `<div class="card"><h3>Nothing here yet</h3><div class="meta">${ emptyText }</div></div>`;
 				return;
 			}
 			const frag = document.createDocumentFragment();
@@ -1384,7 +1398,9 @@
 				const hasAny = entries.length > 0;
 				grid.innerHTML = hasAny
 					? '<div class="card"><h3>No matches</h3><div class="meta">Try a different search or size filter.</div></div>'
-					: '<div class="card"><h3>No uploads yet</h3><div class="meta">Add a ghost code to get started.</div></div>';
+					: boardLoading
+						? '<div class="card"><h3>Loading tracks\u2026</h3><div class="meta">Fetching the cloud board \u2014 it\u2019s a big one, a moment.</div></div>'
+						: '<div class="card"><h3>No uploads yet</h3><div class="meta">Add a ghost code to get started.</div></div>';
 				clearLibraryPager();
 				return;
 			}
