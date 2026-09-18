@@ -1606,9 +1606,18 @@
 	dirLight.shadow.camera.right = editorShadowExtent;
 	dirLight.shadow.camera.top = editorShadowExtent;
 	dirLight.shadow.camera.bottom = - editorShadowExtent;
+
 	// Ortho depth is linear, but the frustum now reaches behind the origin
 	// much farther, so give the depth range room (same formula as the game).
 	dirLight.shadow.camera.far = 60 + 2 * editorShadowExtent + 20;
+	// OrthographicCamera lenses only take effect after updateProjectionMatrix —
+	// without this call the shadow pass keeps the projection matrix computed
+	// at construction time (the old +/-60), no matter what the fields say.
+	dirLight.shadow.camera.updateProjectionMatrix();
+	// Anti-acne bias: full-grid extent at 4096 is the same texel density the
+	// game runs on 30-cell tracks, where these values are proven.
+	dirLight.shadow.bias = -0.0003;
+	dirLight.shadow.normalBias = 0.15;
 	scene.add( dirLight );
 
 	const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
