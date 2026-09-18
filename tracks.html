@@ -370,10 +370,14 @@
 			} finally {
 				boardLoading = false;
 			}
-			await primeV3Previews();
-			// Defer render to next frame so loading panel shows immediately
+			// Defer render to next frame so loading panel shows immediately.
+			// No all-entries parse before first paint anymore — visible cards
+			// parse their own preview data (cached) as they render.
 			requestAnimationFrame( () => render() );
-			hydrateTopLeaderboardRows( entries ).then( () => render() );
+			// Leaderboard stats: hydrate what's on screen first, then quietly
+			// work through the rest of the board in the background.
+			queueLeaderboardHydration( collectVisibleEntries() );
+			setTimeout( () => queueLeaderboardHydration( entries ), 1500 );
 		}
 
 		function getTrackIdFromPlayUrl( playUrl ) {
@@ -454,9 +458,26 @@
 			return hash.toString( 16 ).padStart( 16, '0' );
 		}
 
+		const hydratedTrackIds = new Set();
+		let leaderboardHydrationChain = Promise.resolve();
+		function collectVisibleEntries() {
+			const ids = new Set( [ ...document.querySelectorAll( '[data-id]' ) ].map( ( el ) => el.getAttribute( 'data-id' ) ).filter( Boolean ) );
+			return entries.filter( ( entry ) => ids.has( entry.id ) );
+		}
+		// Serialized so overlapping triggers (render, search, pagination) never
+		// double-fetch the same track. Re-renders only when new rows arrived.
+		function queueLeaderboardHydration( sourceEntries ) {
+			if ( ! Array.isArray( sourceEntries ) || sourceEntries.length === 0 ) return;
+			leaderboardHydrationChain = leaderboardHydrationChain.then( async () => {
+				const hydrated = await hydrateTopLeaderboardRows( sourceEntries );
+				if ( hydrated > 0 ) render();
+			} ).catch( () => {} );
+			return leaderboardHydrationChain;
+		}
+
 		async function hydrateTopLeaderboardRows( sourceEntries ) {
-			const next = new Map();
-			const rowsMap = new Map();
+			const next = new Map( topByTrackId );
+			const rowsMap = new Map( rowsByTrackId );
 			const CHUNK_SIZE = 40;
 			const bestRowForTrack = ( rows ) => {
 				if ( ! Array.isArray( rows ) || rows.length === 0 ) return null;
@@ -466,11 +487,10 @@
 				const primaryId = getTrackIdFromPlayUrl( entry.playUrl );
 				if ( ! primaryId ) return [ '', null ];
 				return [ primaryId, { primaryId, candidateIds: [ primaryId, ...getLegacyTrackIdsFromPlayUrl( entry.playUrl ) ] } ];
-			} ) ).values() ].filter( Boolean );
+			} ) ).values() ].filter( Boolean ).filter( ( request ) => ! hydratedTrackIds.has( request.primaryId ) );
+			if ( trackRequests.length === 0 ) return 0;
 			leaderboardHydrating = true;
-			setLeaderboardProgress( 0, trackRequests.length );
-			topByTrackId = new Map();
-			rowsByTrackId = new Map();
+			setLeaderboardProgress( hydratedTrackIds.size, hydratedTrackIds.size + trackRequests.length );
 			for ( let i = 0; i < trackRequests.length; i += CHUNK_SIZE ) {
 				const chunk = trackRequests.slice( i, i + CHUNK_SIZE );
 				const tasks = chunk.map( async ( request ) => {
@@ -490,17 +510,19 @@
 						.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
 					rowsMap.set( primaryId, dedupedRows );
 					next.set( primaryId, bestRowForTrack( dedupedRows ) );
+					hydratedTrackIds.add( primaryId );
 				} );
 				await Promise.all( tasks );
 				topByTrackId = new Map( next );
 				rowsByTrackId = new Map( rowsMap );
-				setLeaderboardProgress( next.size, trackRequests.length );
+				setLeaderboardProgress( hydratedTrackIds.size, hydratedTrackIds.size );
 				renderRecordBoard();
 			}
 			topByTrackId = next;
 			rowsByTrackId = rowsMap;
 			leaderboardHydrating = false;
-			setLeaderboardProgress( trackRequests.length, trackRequests.length );
+			setLeaderboardProgress( hydratedTrackIds.size, hydratedTrackIds.size );
+			return trackRequests.length;
 		}
 
 		function inferTrackName( url, fallback = 'Shared Track' ) {
@@ -1189,7 +1211,7 @@
 				previewCanvas.dataset.playUrl = entry.playUrl;
 				if ( options.featured ) previewCanvas.dataset.featured = '1';
 				previewObserver.observe( previewCanvas );
-				// Cloud entries arrive thumbnail-free (fields=list) for a fast
+				// Cloud entries arrive thumbnail-free (fields=slim) for a fast
 				// first paint; the real screenshot is fetched lazily when the
 				// card scrolls into view and swapped in once it loads.
 				if ( useRemoteBoard && entry.hasThumbnail ) {
@@ -1406,6 +1428,7 @@
 				}
 
 				renderGridPaged( filtered );
+				queueLeaderboardHydration( collectVisibleEntries() );
 				return;
 			}
 
@@ -1440,6 +1463,7 @@
 			}
 
 			renderGridPaged( filtered );
+			queueLeaderboardHydration( collectVisibleEntries() );
 		}
 
 		async function addEntryFromGhostCode() {
