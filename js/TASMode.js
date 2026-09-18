@@ -194,8 +194,11 @@ export function activate( ctx ) {
 
 			if ( ! state.started ) {
 
+				// Arm during the countdown; the first step AFTER it ends is
+				// step 0 of the recording. If the countdown is disabled the
+				// first sim step starts the recording directly.
 				if ( countdownActive ) state.countdownSeen = true;
-				if ( ! countdownActive || state.countdownSeen ) {
+				else {
 
 					state.started = true;
 					state.stepIndex = 0;

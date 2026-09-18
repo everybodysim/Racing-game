@@ -14166,6 +14166,10 @@ function completeCampaignStage() {
 	// vehicle/world hooks. All glue below only runs in TAS mode.
 	if ( new URLSearchParams( location.search ).get( 'tas' ) === '1' ) {
 
+		// TAS needs its pre-lap countdown regardless of the player's normal
+		// countdown setting (fingers-on-keys time before the timer starts).
+		countdownEnabled = true;
+
 		try {
 
 			const tasModule = await import( './TASMode.js?v=1' );
