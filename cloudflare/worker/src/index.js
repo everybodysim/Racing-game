@@ -77,6 +77,13 @@ function withCors( response ) {
 }
 
 async function getTracks( url, env ) {
+	// One-time (idempotent) migration endpoint: writes the per-entry key for
+	// every stored entry so GET /api/tracks/:id never needs the heavy chunk
+	// scan. Safe to hit anytime — skips keys that already exist.
+	if ( url.searchParams.get( 'backfill' ) === '1' ) {
+		return await backfillEntryKeys( env );
+	}
+
 	// fields=slim reads the lightweight index (no thumbnails, no ghost blobs
 	// inside playUrl) instead of the full ~30MB entry set — the fast path the
 	// board page uses. Every other fields value reads full entries.
@@ -311,6 +318,18 @@ async function loadSlimIndex( env ) {
 // clicks never re-parse the whole board; older tracks without a
 // per-entry key fall back to one chunk scan, then self-heal by writing
 // their key.
+async function backfillEntryKeys( env ) {
+	const entries = await loadEntries( env );
+	let wrote = 0;
+	for ( let i = 0; i < entries.length; i += 25 ) {
+		const batch = entries.slice( i, i + 25 ).filter( ( entry ) => entry?.id && entry?.playUrl );
+		await Promise.all( batch.map( async ( entry ) => {
+			try { await env.TRACKS_KV.put( `${ ENTRY_KEY_PREFIX }${ entry.id }`, JSON.stringify( entry ) ); wrote++; } catch {}
+		} ) );
+	}
+	return json( { ok: true, backfilled: wrote, total: entries.length } );
+}
+
 async function getTrackById( id, env ) {
 	if ( ! id ) return json( { ok: false, error: 'id is required' }, 400 );
 	const key = `${ ENTRY_KEY_PREFIX }${ id }`;

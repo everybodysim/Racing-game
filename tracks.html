@@ -169,7 +169,7 @@
 			if ( ! entry.hasGhost || slimUrl.includes( '#ghost=' ) ) return slimUrl || null;
 			if ( fullPlayUrlCache.has( entry.id ) ) return fullPlayUrlCache.get( entry.id );
 			try {
-				const payload = await apiRequest( `/${ encodeURIComponent( entry.id ) }` );
+				const payload = await apiRequest( `/${ encodeURIComponent( entry.id ) }`, { timeoutMs: 6000, attempts: 2 } );
 				const full = String( payload?.entry?.playUrl || '' );
 				if ( full ) {
 					fullPlayUrlCache.set( entry.id, full );
@@ -1211,6 +1211,19 @@
 				previewCanvas.dataset.playUrl = entry.playUrl;
 				if ( options.featured ) previewCanvas.dataset.featured = '1';
 				previewObserver.observe( previewCanvas );
+				// v3 codes can't be parsed synchronously (async inflate), so a
+				// cold cache renders empty cells first. Parse now and re-arm
+				// the observer: visible cards redraw, offscreen ones stay lazy.
+				if ( ! stats.previewData?.cells?.length && isV3PlayUrl( entry.playUrl ) ) {
+					parseTrackLayoutFromUrlAsync( entry.playUrl ).then( ( data ) => {
+						const canvas = card.querySelector( '.preview-canvas' );
+						if ( ! canvas || ! data?.cells?.length ) return;
+						v3PreviewCache.set( String( entry.playUrl ), data );
+						canvas.dataset.cells = JSON.stringify( data.cells );
+						canvas.dataset.mods = JSON.stringify( data.mods || {} );
+						previewObserver.observe( canvas );
+					} );
+				}
 				// Cloud entries arrive thumbnail-free (fields=slim) for a fast
 				// first paint; the real screenshot is fetched lazily when the
 				// card scrolls into view and swapped in once it loads.
@@ -1570,9 +1583,11 @@
       const slimEntry = entries.find( ( en ) => en.id === id );
       if ( slimEntry && slimEntry.hasGhost && ! String( slimEntry.playUrl || '' ).includes( '#ghost=' ) ) {
         e.preventDefault();
+        const label = openLink.textContent;
+        openLink.textContent = '\u25b6 Fetching ghost\u2026';
         resolveFullPlayUrl( slimEntry ).then( ( full ) => {
           if ( full ) window.open( full, '_blank', 'noopener' );
-        } );
+        } ).finally( () => { openLink.textContent = label; } );
       }
       try {
         await apiRequest( `/${ id }/view`, { method: 'POST' } );
