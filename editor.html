@@ -1595,11 +1595,20 @@
 	dirLight.castShadow = true;
 	dirLight.shadow.mapSize.setScalar( 4096 );
 	dirLight.shadow.camera.near = 0.5;
-	dirLight.shadow.camera.far = 100;
-	dirLight.shadow.camera.left = - 60;
-	dirLight.shadow.camera.right = 60;
-	dirLight.shadow.camera.top = 60;
-	dirLight.shadow.camera.bottom = - 60;
+	// Full-grid shadow coverage. The old fixed +/-60 frustum only reached ~8
+	// cells around the origin, but the editor grid spans GRID_HALF_CELLS
+	// (= 15) cells in every direction (~ +/-112 world units) and the ground
+	// plane reaches +/-100 — maps built away from the center simply had no
+	// shadows. Size the frustum to the whole grid, the same way the game
+	// sizes its shadow camera from computeTrackBounds() bounds (+10 margin).
+	const editorShadowExtent = 15 * CELL_RAW * GRID_SCALE + 10; // keep 15 in sync with GRID_HALF_CELLS
+	dirLight.shadow.camera.left = - editorShadowExtent;
+	dirLight.shadow.camera.right = editorShadowExtent;
+	dirLight.shadow.camera.top = editorShadowExtent;
+	dirLight.shadow.camera.bottom = - editorShadowExtent;
+	// Ortho depth is linear, but the frustum now reaches behind the origin
+	// much farther, so give the depth range room (same formula as the game).
+	dirLight.shadow.camera.far = 60 + 2 * editorShadowExtent + 20;
 	scene.add( dirLight );
 
 	const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
