@@ -49,7 +49,11 @@
 	// window.__renderTrackTopDown; the page falls back to its flat 2D
 	// preview if the module or WebGL is unavailable.
 	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260916';
+	import { encodeCellsV3 } from './js/Track.js?v=1000230';
+	import { generateTrackPlan } from './js/CupTrackGen.js?v=20260917';
 	window.__renderTrackTopDown = renderTrackTopDown;
+	window.__encodeCellsV3 = encodeCellsV3;
+	window.__cupTrackGen = generateTrackPlan;
 </script>
 </head>
 <body>
@@ -96,29 +100,6 @@
   const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
 
   // ---------- codec ----------
-  const TYPE_INDEX = {
-    'track-straight': 0,
-    'track-corner': 1,
-    'track-checkpoint': 2,
-    'track-finish': 3
-  };
-  const GODOT_TO_ORIENT = { 0:0, 16:1, 10:2, 22:3 };
-
-  function encodeCells(cells) {
-    const bytes = new Uint8Array(cells.length * 3);
-    for (let i = 0; i < cells.length; i++) {
-      const [gx, gz, type, orient] = cells[i];
-      const ti = TYPE_INDEX[type] ?? 0;
-      const oi = GODOT_TO_ORIENT[orient] ?? 0;
-      bytes[i * 3] = gx + 128;
-      bytes[i * 3 + 1] = gz + 128;
-      bytes[i * 3 + 2] = (ti << 2) | oi;
-    }
-    let bin = '';
-    for (const b of bytes) bin += String.fromCharCode(b);
-    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-
   function encodeMods(modsObj) {
     const json = JSON.stringify(modsObj);
     return btoa(unescape(encodeURIComponent(json)))
@@ -214,151 +195,6 @@
   }
 
   // ---------- loop generation ----------
-  const DIRS = [[1,0],[0,1],[-1,0],[0,-1]]; // E,S,W,N
-  const key = (x,z) => `${x},${z}`;
-
-  function genClosedLoop(rng, opts = {}) {
-    const W = opts.W ?? 14;
-    const H = opts.H ?? 14;
-    const minLen = opts.minLen ?? 18;
-    const maxLen = opts.maxLen ?? 44;
-    const attempts = opts.attempts ?? 240;
-
-    for (let attempt = 0; attempt < attempts; attempt++) {
-      const start = [rndInt(rng, 2, W - 3), rndInt(rng, 2, H - 3)];
-      let path = [start];
-      const seen = new Set([key(start[0], start[1])]);
-      let prevDir = -1;
-      const target = rndInt(rng, minLen, maxLen);
-
-      for (let step = 0; step < maxLen + 20; step++) {
-        const [cx, cz] = path[path.length - 1];
-        const [sx, sz] = start;
-
-        // close if adjacent to start and long enough
-        if (path.length >= minLen && Math.abs(cx - sx) + Math.abs(cz - sz) === 1) {
-          path.push([sx, sz]); // repeat start as closure marker
-          if (path.length - 1 >= minLen) return path;
-        }
-
-        let candidates = [];
-        for (let di = 0; di < 4; di++) {
-          const [dx, dz] = DIRS[di];
-          const nx = cx + dx, nz = cz + dz;
-
-          // keep away from borders
-          if (nx < 1 || nz < 1 || nx >= W - 1 || nz >= H - 1) continue;
-
-          const k = key(nx, nz);
-          const isStart = (nx === sx && nz === sz);
-
-          // no revisits except closure to start
-          if (!isStart && seen.has(k)) continue;
-
-          // no immediate backtracking
-          if (prevDir !== -1 && (di + 2) % 4 === prevDir) continue;
-
-          // discourage side touching that creates messy near-crossings
-          let neighbors = 0;
-          for (const [adx, adz] of DIRS) {
-            if (seen.has(key(nx + adx, nz + adz))) neighbors++;
-          }
-          if (!isStart && neighbors > 2) continue;
-
-          let score = 1;
-          if (prevDir === di) score += 1.4; // smoother lines
-          if (isStart && path.length >= minLen) score += 5;
-          candidates.push({di, nx, nz, score, isStart});
-        }
-
-        if (!candidates.length) break;
-
-        // weighted pick
-        let total = candidates.reduce((s, c) => s + c.score, 0);
-        let r = rng() * total;
-        let pick = candidates[0];
-        for (const c of candidates) {
-          r -= c.score;
-          if (r <= 0) { pick = c; break; }
-        }
-
-        path.push([pick.nx, pick.nz]);
-        if (!pick.isStart) seen.add(key(pick.nx, pick.nz));
-        prevDir = pick.di;
-
-        // try early close near target
-        if (path.length >= target && Math.abs(pick.nx - start[0]) + Math.abs(pick.nz - start[1]) === 1) {
-          path.push([start[0], start[1]]);
-          return path;
-        }
-      }
-    }
-
-    return null;
-  }
-
-  function loopToTiles(loop) {
-    const unique = loop.slice(0, -1); // remove repeated end/start
-    const n = unique.length;
-
-    function dir(a, b) {
-      const dx = b[0] - a[0], dz = b[1] - a[1];
-      if (dx === 1 && dz === 0) return 'E';
-      if (dx === -1 && dz === 0) return 'W';
-      if (dx === 0 && dz === 1) return 'S';
-      if (dx === 0 && dz === -1) return 'N';
-      return '?';
-    }
-
-    const tiles = [];
-    for (let i = 0; i < n; i++) {
-      const prev = unique[(i - 1 + n) % n];
-      const cur = unique[i];
-      const next = unique[(i + 1) % n];
-      const d1 = dir(cur, prev);
-      const d2 = dir(cur, next);
-      const set = new Set([d1, d2]);
-
-      let type = 'track-straight';
-      let orient = 0;
-
-      // straights
-      if (set.has('N') && set.has('S')) {
-        type = 'track-straight';
-        orient = 0;
-      } else if (set.has('E') && set.has('W')) {
-        type = 'track-straight';
-        orient = 22;
-      } else {
-        // corners mapping from your game conventions:
-        // E+S => 16, W+S => 0, N+E => 10, W+N => 22
-        type = 'track-corner';
-        if (set.has('E') && set.has('S')) orient = 16;
-        else if (set.has('W') && set.has('S')) orient = 0;
-        else if (set.has('N') && set.has('E')) orient = 10;
-        else if (set.has('W') && set.has('N')) orient = 22;
-      }
-
-      tiles.push([cur[0], cur[1], type, orient]);
-    }
-
-    // choose finish on straight if possible
-    let finishIdx = tiles.findIndex(t => t[2] === 'track-straight');
-    if (finishIdx < 0) finishIdx = 0;
-    tiles[finishIdx][2] = 'track-finish';
-
-    // checkpoint candidates on straights, away from finish
-    const cpCandidates = [];
-    for (let i = 0; i < tiles.length; i++) {
-      if (i === finishIdx) continue;
-      if (tiles[i][2] !== 'track-straight') continue;
-      const ringDist = Math.min(Math.abs(i - finishIdx), tiles.length - Math.abs(i - finishIdx));
-      if (ringDist > Math.floor(tiles.length / 6)) cpCandidates.push(i);
-    }
-
-    return { tiles, cpCandidates };
-  }
-
   function sampleDeterministic(arr, rng, count) {
     const copy = arr.slice();
     const out = [];
@@ -372,46 +208,26 @@
 
   function generateForDate(utcDate) {
     const seedText = `daily-v2:${utcDate}`;
-    const seed = hash32(seedText);
-    const rng = mulberry32(seed);
+    if (!window.__cupTrackGen) throw new Error('Track generator module failed to load');
+    // Loop, checkpoints, bumps, surfaces and elevated detours come from the
+    // shared js/CupTrackGen.js — the same fixed generator weekly-cup.html
+    // uses. Detours can cross OVER the ground loop through elevated-cross /
+    // elevated-cross-corner blocks, and ramps attach in-line (no 3-way/4-way).
+    const plan = window.__cupTrackGen(seedText);
+    const tiles = plan.cells;
 
-    let loop = genClosedLoop(rng, {
-      W: rndInt(rng, 12, 18),
-      H: rndInt(rng, 12, 18),
-      minLen: rndInt(rng, 18, 26),
-      maxLen: rndInt(rng, 30, 46),
-      attempts: 260
-    });
+    // Daily scenery flavor stays page-side, on its own deterministic rng
+    // stream so the shared plan and the scenery never step on each other.
+    const rng = mulberry32(hash32(seedText) ^ 0x9e3779b9);
+    const roadCells = tiles.map((t) => [t[0], t[1]]);
 
-    // fallback rectangle loop
-    if (!loop) {
-      const expanded = [];
-      for (let x = 2; x <= 8; x++) expanded.push([x, 2]);
-      for (let z = 3; z <= 7; z++) expanded.push([8, z]);
-      for (let x = 7; x >= 2; x--) expanded.push([x, 7]);
-      for (let z = 6; z >= 2; z--) expanded.push([2, z]);
-      expanded.push([2, 2]); // close
-      loop = expanded;
-    }
-
-    const { tiles, cpCandidates } = loopToTiles(loop);
-
-    // checkpoints are part of map cells
-    const cpCount = Math.min(cpCandidates.length, rndInt(rng, 1, 3));
-    const cpIdxs = sampleDeterministic(cpCandidates, rng, cpCount);
-    for (const idx of cpIdxs) tiles[idx][2] = 'track-checkpoint';
-
-    // bumps only on road cells
-    const roadCells = tiles.map(t => [t[0], t[1]]);
-    const bumpCount = Math.min(4, Math.max(1, Math.floor(tiles.length / 12)));
-    const bumps = sampleDeterministic(roadCells, rng, bumpCount);
     const poleCandidates = [...roadCells, ...roadCells.map(([x, z]) => [x + 1, z]), ...roadCells.map(([x, z]) => [x - 1, z])];
     const poleCount = Math.min(5, Math.max(1, Math.floor(tiles.length / 16)));
     const poles = sampleDeterministic(poleCandidates, rng, poleCount);
 
     // scenery around road
     const roadSet = new Set(roadCells.map(([x, z]) => `${x},${z}`));
-    const xs = tiles.map(t => t[0]), zs = tiles.map(t => t[1]);
+    const xs = tiles.map((t) => t[0]), zs = tiles.map((t) => t[1]);
     const minX = Math.min(...xs) - 2, maxX = Math.max(...xs) + 2;
     const minZ = Math.min(...zs) - 2, maxZ = Math.max(...zs) + 2;
 
@@ -441,23 +257,16 @@
       return [x, z, type, orient];
     });
 
-    const surfaceCount = Math.min(6, Math.max(2, Math.floor(tiles.length / 8)));
-    const surfacePalette = ['surface-wood', 'surface-ice', 'surface-boost'];
-    const surfaceCells = sampleDeterministic(roadCells, rng, surfaceCount).map(([x, z], idx) => [
-      x,
-      z,
-      surfacePalette[idx % surfacePalette.length]
-    ]);
-
     return {
       seedText,
       cells: tiles,
       mods: {
-        b: bumps, // bumps
-        p: poles, // poles
-        s: [],    // legacy boost pads (unused; boost surfaces can still appear via `u`)
-        u: surfaceCells,
-        d: deco   // scenery
+        b: plan.modsObj.b, // bumps
+        p: poles,          // poles
+        s: [],             // legacy boost pads (unused)
+        u: plan.modsObj.u, // surfaces
+        d: deco,           // scenery
+        e: plan.modsObj.e  // elevated road: detours + cross-overs
       }
     };
   }
@@ -586,9 +395,13 @@
   }
 
   async function run() {
+    const t0 = Date.now();
+    while ((!window.__cupTrackGen || !window.__encodeCellsV3) && Date.now() - t0 < 6000) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
     const date = document.getElementById('dateInput').value || utcTodayStr();
     const generated = generateForDate(date);
-    const map = encodeCells(generated.cells);
+    const map = await window.__encodeCellsV3(generated.cells);
     const mods = encodeMods(generated.mods);
     const url = buildUrl(map, mods);
 
