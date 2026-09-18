@@ -9450,6 +9450,13 @@ function completeCampaignStage() {
 
 	const timer = new THREE.Timer();
 	let lastFrameNowMs = performance.now();
+	// Deterministic fixed-step simulation: the whole game sim advances in
+	// EXACT 1/60s steps fed by an accumulator (see animate). Frame rate only
+	// decides how many steps run per render (30 fps -> 2, 144 Hz -> 0-1);
+	// physics, laps, boosts and ghost samples are identical at any fps.
+	// TAS-ready: same input timeline => same run, bit for bit.
+	const SIM_STEP_SECONDS = 1 / 60;
+	let simAccumulator = 0;
 	let raceClockSeconds = 0;
 	let paused = false;
 	let currentLapInvalidatedByPause = false;
@@ -13134,7 +13141,7 @@ function completeCampaignStage() {
 			lastFrameNowMs = nowMs;
 			const frameSeconds = timer.getDelta();
 			updateFpsHud( realFrameSeconds );
-			const dtBase = Math.min( frameSeconds, 1 / 15 );
+			const dtBase = SIM_STEP_SECONDS; // fixed 1/60s step; clamping lives in the accumulator below
 			if ( paused ) {
 
 				audio.updateMusic( realFrameSeconds, false );
@@ -13144,6 +13151,22 @@ function completeCampaignStage() {
 				return;
 
 			}
+			// ── Fixed-step accumulator ─────────────────────────────────────
+			// Real frame time is only the FUEL: the simulation below always runs
+			// whole 1/60s steps, so slow devices (dipped frames) and high-Hz
+			// displays produce identical physics, lap times and ghost samples
+			// for the same inputs. Max 4 steps per render caps catch-up after
+			// tab-away so sim time never outruns real time unboundedly.
+			simAccumulator += Math.min( frameSeconds, 0.25 );
+			let simSteps = Math.floor( simAccumulator / SIM_STEP_SECONDS );
+			if ( simSteps > 4 ) {
+
+				simSteps = 4;
+				simAccumulator = SIM_STEP_SECONDS * 4;
+
+			} else simAccumulator -= simSteps * SIM_STEP_SECONDS;
+			const runSimulationStep = () => {
+
 			const hacksActive = hacksInstalled && hacksState.enabled;
 			const hackTimeScale = hacksActive ? hacksState.timeScale : 1;
 			const padScale1 = Number( activePadTimeScale ) || 1;
@@ -14094,6 +14117,9 @@ function completeCampaignStage() {
 
 		}
 
+
+			};
+			for ( let simStepIndex = 0; simStepIndex < simSteps; simStepIndex ++ ) runSimulationStep();
 
 		renderFrame();
 
