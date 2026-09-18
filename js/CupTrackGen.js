@@ -319,7 +319,7 @@ function findElevatedPath(startCell, startInD, endCell, endOutD, ctx, maxLen) {
       }
       if (chainHas(node, nbKey)) continue;
       const isCross = ctx.groundMap.has(nbKey) && !ctx.windowKeys.has(nbKey);
-      const stepCost = 1 + (outD !== node.inD ? 0.3 : 0) + (isCross ? -1.2 : 0);
+      const stepCost = 1 + (outD !== node.inD ? 0.3 : 0) + (isCross ? -2.8 : 0);
       const nCost = node.cost + stepCost;
       const nState = nbKey + '|' + outD;
       if (best.has(nState) && best.get(nState) <= nCost) continue;
@@ -355,7 +355,7 @@ function genDetours(rng, tiles, specialIdx, removedIdx, elevEntries) {
   const elevKeys = new Set(elevEntries.map(([gx, gz]) => key(gx, gz)));
   const windows = [];
   for (const run of runs) {
-    if (run.len < 6) continue;
+    if (run.len < 4) continue;
     const straights = [];
     let blocked = false;
     for (let k = 0; k < run.len; k++) {
@@ -367,14 +367,14 @@ function genDetours(rng, tiles, specialIdx, removedIdx, elevEntries) {
     for (const i of straights) {
       for (const j of straights) {
         const len = j - i + 1;
-        if (len < 6 || len > 18) continue;
+        if (len < 4 || len > 18) continue;
         windows.push({ run, i, j, len });
       }
     }
   }
   if (!windows.length) return;
   windows.sort((a, b) => b.len - a.len || a.run.start - b.run.start || a.i - b.i);
-  const count = rndInt(rng, 1, 2);
+  const count = 2;
   const cap = Math.max(12, Math.floor(tiles.length * 0.5));
   let used = 0;
   let placed = 0;
@@ -387,6 +387,7 @@ function genDetours(rng, tiles, specialIdx, removedIdx, elevEntries) {
     let overlap = false;
     for (let k = i; k <= j; k++) {
       if (removedIdx.has(idxOf(k))) { overlap = true; break; }
+      if (elevKeys.has(key(tiles[idxOf(k)][0], tiles[idxOf(k)][1]))) { overlap = true; break; }
     }
     if (overlap) continue;
     const cells = [];
@@ -421,7 +422,7 @@ function genDetours(rng, tiles, specialIdx, removedIdx, elevEntries) {
       ctx.groundMap.set(key(tiles[ti][0], tiles[ti][1]), { tile: tiles[ti] });
     }
     for (let k = i; k <= j; k++) ctx.windowKeys.add(key(tiles[idxOf(k)][0], tiles[idxOf(k)][1]));
-    let path = findElevatedPath(firstCell, startInD, lastCell, endOutD, ctx, Math.min(26, L + 8));
+    let path = findElevatedPath(firstCell, startInD, lastCell, endOutD, ctx, Math.min(28, Math.max(18, L + 14)));
     if (!path) {
       // fallback: copy the removed run 1:1 (always port-valid)
       path = [];
@@ -437,7 +438,13 @@ function genDetours(rng, tiles, specialIdx, removedIdx, elevEntries) {
     }
     elevEntries.push([cells[0][0], cells[0][1], 'slope-up', orientFor([gin], ['S'])]);
     elevEntries.push([cells[L - 1][0], cells[L - 1][1], 'slope-up', orientFor([gout], ['S'])]);
-    for (const e of path) elevEntries.push(e);
+    for (const e of path) {
+      elevEntries.push(e);
+      elevKeys.add(key(e[0], e[1]));
+    }
+    for (const c of [cells[0], cells[L - 1]]) {
+      elevKeys.add(key(c[0], c[1]));
+    }
     for (let k = i; k <= j; k++) removedIdx.add(idxOf(k));
     used += L;
     placed++;
