@@ -4581,6 +4581,10 @@ async function init() {
 	let showBestGhost = true;
 
 	if ( replayViewerMode ) document.body.classList.add( 'replay-viewer-mode' );
+	// Replay viewer playback clock: in replayViewer mode the ghost is driven
+	// by this controllable clock (top-bar play/pause + scrub) instead of the
+	// live lap timer, so the replay.html embed can be paused and seeked.
+	const replayViewerClock = { time: 0, playing: true };
 	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
 
 	let customCells = null;
@@ -5777,6 +5781,102 @@ async function init() {
 			cam.update( 1 / 60, ghostModel.position, ghostModel.quaternion );
 			cam.clipProbe = savedClipProbe;
 		}
+
+	}
+
+	// Replay viewer top bar (index.html #replay-topbar): play/pause + scrub
+	// slider, driven by replayViewerClock. Only wired in replayViewer mode;
+	// normal gameplay never touches this. Also bridges to the replay.html
+	// parent: broadcasts {type:'replay-state'} for the telemetry graph and
+	// accepts replay-play / replay-pause / replay-seek commands (graph seek).
+	function initReplayViewerControls() {
+
+		const topbar = document.getElementById( 'replay-topbar' );
+		if ( ! topbar ) return;
+		topbar.hidden = false;
+		const toggleBtn = document.getElementById( 'replay-toggle' );
+		const scrub = document.getElementById( 'replay-scrub' );
+		const timeLabel = document.getElementById( 'replay-time' );
+		const SVG_PAUSE = '<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
+		const SVG_PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+		let scrubbing = false;
+
+		const fmt = ( v ) => `${ ( Number( v ) || 0 ).toFixed( 1 ) }s`;
+		function syncTopbar() {
+
+			const dur = bestGhostDuration || 0;
+			if ( scrub ) scrub.disabled = dur <= 0;
+			if ( scrub && dur > 0 && ! scrubbing ) scrub.value = String( Math.round( replayViewerClock.time / dur * 1000 ) );
+			if ( timeLabel ) timeLabel.textContent = `${ fmt( replayViewerClock.time ) } / ${ fmt( dur ) }`;
+			if ( toggleBtn ) {
+
+				toggleBtn.innerHTML = replayViewerClock.playing ? SVG_PAUSE : SVG_PLAY;
+				toggleBtn.setAttribute( 'aria-label', replayViewerClock.playing ? 'Pause replay' : 'Play replay' );
+
+			}
+
+		}
+
+		if ( toggleBtn ) toggleBtn.addEventListener( 'click', () => {
+
+			replayViewerClock.playing = ! replayViewerClock.playing;
+			syncTopbar();
+
+		} );
+		if ( scrub ) {
+
+			scrub.addEventListener( 'input', () => {
+
+				const dur = bestGhostDuration || 0;
+				if ( dur <= 0 ) return;
+				scrubbing = true;
+				replayViewerClock.time = ( Number( scrub.value ) / 1000 ) * dur;
+				syncTopbar();
+
+			} );
+			scrub.addEventListener( 'change', () => { scrubbing = false; } );
+
+		}
+
+		window.addEventListener( 'message', ( ev ) => {
+
+			if ( ! replayViewerMode ) return;
+			const data = ev.data;
+			if ( ! data || typeof data !== 'object' ) return;
+			if ( data.type === 'replay-play' ) replayViewerClock.playing = true;
+			else if ( data.type === 'replay-pause' ) replayViewerClock.playing = false;
+			else if ( data.type === 'replay-seek' && Number.isFinite( data.t ) ) {
+
+				const dur = bestGhostDuration || 0;
+				if ( dur > 0 ) replayViewerClock.time = THREE.MathUtils.clamp( data.t, 0, dur - 1e-3 );
+
+			}
+			syncTopbar();
+
+		} );
+
+		// Self-contained RAF loop: advances the clock and refreshes the top bar
+		// without touching the main frame loop's timing.
+		let lastT = performance.now();
+		let lastBroadcast = 0;
+		const loop = () => {
+
+			requestAnimationFrame( loop );
+			const nowMs = performance.now();
+			const dtSec = Math.min( 0.05, ( nowMs - lastT ) / 1000 );
+			lastT = nowMs;
+			const dur = bestGhostDuration || 0;
+			if ( replayViewerClock.playing && dur > 0 ) replayViewerClock.time = ( replayViewerClock.time + dtSec ) % dur;
+			if ( ! scrubbing ) syncTopbar();
+			if ( nowMs - lastBroadcast >= 250 ) {
+
+				lastBroadcast = nowMs;
+				try { window.parent.postMessage( { type: 'replay-state', t: replayViewerClock.time, duration: dur, playing: replayViewerClock.playing }, '*' ); } catch ( e ) {}
+
+			}
+
+		};
+		requestAnimationFrame( loop );
 
 	}
 
@@ -11525,7 +11625,7 @@ function completeCampaignStage() {
 		specialSurfaceContactState.clear();
 		resetCurrentLapGhost();
 		recordGhostSample( 0, true );
-		updateGhostPlayback( 0 );
+		updateGhostPlayback( replayViewerMode ? replayViewerClock.time : 0 );
 		updateLeaderboardGhostPlayback( 0 );
 		updateRecentGhostPlayback( 0 );
 		hasLeftStartZone = false;
@@ -12820,6 +12920,7 @@ function completeCampaignStage() {
 
 	}
 
+	if ( replayViewerMode ) initReplayViewerControls();
 	window.addEventListener( 'mousemove', ( e ) => {
 
 		if ( ! freecamInstalled || ! freecamState.active ) return;
@@ -13786,7 +13887,7 @@ function completeCampaignStage() {
 						checkpointDeltaText = '';
 						resetCurrentLapGhost();
 						recordGhostSample( 0, true );
-					updateGhostPlayback( 0 );
+					updateGhostPlayback( replayViewerMode ? replayViewerClock.time : 0 );
 					updateLeaderboardGhostPlayback( 0 );
 					updateRecentGhostPlayback( 0 );
 				hasLeftStartZone = false;
@@ -13917,7 +14018,7 @@ function completeCampaignStage() {
 		if ( vehicle2 ) lapSeconds2 = countdownActive ? 0 : now - lapStartSeconds2;
 		updateMovingObstacles( movingObstacleState, now, [ vehicle, vehicle2 ] );
 		recordGhostSample( lapSeconds );
-		updateGhostPlayback( lapSeconds );
+		updateGhostPlayback( replayViewerMode ? replayViewerClock.time : lapSeconds );
 		updateLeaderboardGhostPlayback( lapSeconds );
 		updateRecentGhostPlayback( lapSeconds );
 		const stuntScoringActive = gameMode === 'stunt' || ( gameMode === 'campaign' && campaignState?.stageType === 'stunt-score' );
