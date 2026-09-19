@@ -4581,6 +4581,10 @@ async function init() {
 	let showBestGhost = true;
 
 	if ( replayViewerMode ) document.body.classList.add( 'replay-viewer-mode' );
+	// Replay viewer playback clock: in replayViewer mode the ghost is driven
+	// by this controllable clock (top-bar play/pause + scrub) instead of the
+	// live lap timer, so the replay.html embed can be paused and seeked.
+	const replayViewerClock = { time: 0, playing: true };
 	if ( isSplitScreen ) renderer.setPixelRatio( 1 );
 
 	let customCells = null;
@@ -4679,6 +4683,12 @@ async function init() {
 	// The locked window reaches farther behind the center than the old
 	// car-following aim, so give the ortho depth range room to cover it
 	// (ortho depth is linear — no precision cost).
+	// Shadow camera near pulled BEHIND the sun: the sun hovers at anchor +
+	// (11.4, 15, -5.3), so without this the half of the track on the sunward
+	// side of the anchor (beyond ~34 units) was clipped by the near plane and
+	// never cast a shadow. Negative near extends the ortho box backward
+	// through the sun; depth is linear, so no precision cost.
+	dirLight.shadow.camera.near = - shadowExtent;
 	dirLight.shadow.camera.far = 60 + 2 * shadowExtent + 20;
 	dirLight.shadow.camera.updateProjectionMatrix();
 
@@ -5771,6 +5781,102 @@ async function init() {
 			cam.update( 1 / 60, ghostModel.position, ghostModel.quaternion );
 			cam.clipProbe = savedClipProbe;
 		}
+
+	}
+
+	// Replay viewer top bar (index.html #replay-topbar): play/pause + scrub
+	// slider, driven by replayViewerClock. Only wired in replayViewer mode;
+	// normal gameplay never touches this. Also bridges to the replay.html
+	// parent: broadcasts {type:'replay-state'} for the telemetry graph and
+	// accepts replay-play / replay-pause / replay-seek commands (graph seek).
+	function initReplayViewerControls() {
+
+		const topbar = document.getElementById( 'replay-topbar' );
+		if ( ! topbar ) return;
+		topbar.hidden = false;
+		const toggleBtn = document.getElementById( 'replay-toggle' );
+		const scrub = document.getElementById( 'replay-scrub' );
+		const timeLabel = document.getElementById( 'replay-time' );
+		const SVG_PAUSE = '<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
+		const SVG_PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+		let scrubbing = false;
+
+		const fmt = ( v ) => `${ ( Number( v ) || 0 ).toFixed( 1 ) }s`;
+		function syncTopbar() {
+
+			const dur = bestGhostDuration || 0;
+			if ( scrub ) scrub.disabled = dur <= 0;
+			if ( scrub && dur > 0 && ! scrubbing ) scrub.value = String( Math.round( replayViewerClock.time / dur * 1000 ) );
+			if ( timeLabel ) timeLabel.textContent = `${ fmt( replayViewerClock.time ) } / ${ fmt( dur ) }`;
+			if ( toggleBtn ) {
+
+				toggleBtn.innerHTML = replayViewerClock.playing ? SVG_PAUSE : SVG_PLAY;
+				toggleBtn.setAttribute( 'aria-label', replayViewerClock.playing ? 'Pause replay' : 'Play replay' );
+
+			}
+
+		}
+
+		if ( toggleBtn ) toggleBtn.addEventListener( 'click', () => {
+
+			replayViewerClock.playing = ! replayViewerClock.playing;
+			syncTopbar();
+
+		} );
+		if ( scrub ) {
+
+			scrub.addEventListener( 'input', () => {
+
+				const dur = bestGhostDuration || 0;
+				if ( dur <= 0 ) return;
+				scrubbing = true;
+				replayViewerClock.time = ( Number( scrub.value ) / 1000 ) * dur;
+				syncTopbar();
+
+			} );
+			scrub.addEventListener( 'change', () => { scrubbing = false; } );
+
+		}
+
+		window.addEventListener( 'message', ( ev ) => {
+
+			if ( ! replayViewerMode ) return;
+			const data = ev.data;
+			if ( ! data || typeof data !== 'object' ) return;
+			if ( data.type === 'replay-play' ) replayViewerClock.playing = true;
+			else if ( data.type === 'replay-pause' ) replayViewerClock.playing = false;
+			else if ( data.type === 'replay-seek' && Number.isFinite( data.t ) ) {
+
+				const dur = bestGhostDuration || 0;
+				if ( dur > 0 ) replayViewerClock.time = THREE.MathUtils.clamp( data.t, 0, dur - 1e-3 );
+
+			}
+			syncTopbar();
+
+		} );
+
+		// Self-contained RAF loop: advances the clock and refreshes the top bar
+		// without touching the main frame loop's timing.
+		let lastT = performance.now();
+		let lastBroadcast = 0;
+		const loop = () => {
+
+			requestAnimationFrame( loop );
+			const nowMs = performance.now();
+			const dtSec = Math.min( 0.05, ( nowMs - lastT ) / 1000 );
+			lastT = nowMs;
+			const dur = bestGhostDuration || 0;
+			if ( replayViewerClock.playing && dur > 0 ) replayViewerClock.time = ( replayViewerClock.time + dtSec ) % dur;
+			if ( ! scrubbing ) syncTopbar();
+			if ( nowMs - lastBroadcast >= 250 ) {
+
+				lastBroadcast = nowMs;
+				try { window.parent.postMessage( { type: 'replay-state', t: replayViewerClock.time, duration: dur, playing: replayViewerClock.playing }, '*' ); } catch ( e ) {}
+
+			}
+
+		};
+		requestAnimationFrame( loop );
 
 	}
 
@@ -9344,6 +9450,39 @@ function completeCampaignStage() {
 
 	const timer = new THREE.Timer();
 	let lastFrameNowMs = performance.now();
+	// Deterministic fixed-step simulation: the whole game sim advances in
+	// EXACT 1/60s steps fed by an accumulator (see animate). Frame rate only
+	// decides how many steps run per render (30 fps -> 2, 144 Hz -> 0-1);
+	// physics, laps, boosts and ghost samples are identical at any fps.
+	// TAS-ready: same input timeline => same run, bit for bit.
+	const SIM_STEP_SECONDS = 1 / 60;
+	let simAccumulator = 0;
+	let tasMode = null; // TAS editor game mode (?tas=1) — null in normal play
+
+	// TAS-only lap bookkeeping: what the normal lap-transition block does for
+	// state (timer restart, checkpoint/gate resets, obstacle resets) without
+	// any of the recording/rewards side effects. Called only from TASMode.
+	function tasBeginNextLap() {
+
+		lapStartSeconds = raceClockSeconds;
+		lapSeconds = 0;
+		hasLeftStartZone = false;
+		hasPrevFinishSample = false;
+		lastLocalX = 0;
+		lastLocalZ = 0;
+		for ( let checkpointIndex = 0; checkpointIndex < checkpointStates.length; checkpointIndex ++ ) {
+
+			const checkpoint = checkpointStates[ checkpointIndex ];
+			checkpoint.lastLocalX = 0;
+			checkpoint.lastLocalZ = 0;
+			checkpoint.hasPrevSample = false;
+			checkpoint.passedThisLap = false;
+
+		}
+		resetPhysicsObstacles();
+		resetMovingObstacles( movingObstacleState, raceClockSeconds );
+
+	}
 	let raceClockSeconds = 0;
 	let paused = false;
 	let currentLapInvalidatedByPause = false;
@@ -11519,7 +11658,7 @@ function completeCampaignStage() {
 		specialSurfaceContactState.clear();
 		resetCurrentLapGhost();
 		recordGhostSample( 0, true );
-		updateGhostPlayback( 0 );
+		updateGhostPlayback( replayViewerMode ? replayViewerClock.time : 0 );
 		updateLeaderboardGhostPlayback( 0 );
 		updateRecentGhostPlayback( 0 );
 		hasLeftStartZone = false;
@@ -12814,6 +12953,7 @@ function completeCampaignStage() {
 
 	}
 
+	if ( replayViewerMode ) initReplayViewerControls();
 	window.addEventListener( 'mousemove', ( e ) => {
 
 		if ( ! freecamInstalled || ! freecamState.active ) return;
@@ -13027,7 +13167,7 @@ function completeCampaignStage() {
 			lastFrameNowMs = nowMs;
 			const frameSeconds = timer.getDelta();
 			updateFpsHud( realFrameSeconds );
-			const dtBase = Math.min( frameSeconds, 1 / 15 );
+			const dtBase = SIM_STEP_SECONDS; // fixed 1/60s step; clamping lives in the accumulator below
 			if ( paused ) {
 
 				audio.updateMusic( realFrameSeconds, false );
@@ -13037,6 +13177,26 @@ function completeCampaignStage() {
 				return;
 
 			}
+			// ── Fixed-step accumulator ─────────────────────────────────────
+			// Real frame time is only the FUEL: the simulation below always runs
+			// whole 1/60s steps, so slow devices (dipped frames) and high-Hz
+			// displays produce identical physics, lap times and ghost samples
+			// for the same inputs. Max 4 steps per render caps catch-up after
+			// tab-away so sim time never outruns real time unboundedly.
+			simAccumulator += Math.min( frameSeconds, 0.25 );
+			let simSteps = Math.floor( simAccumulator / SIM_STEP_SECONDS );
+			if ( simSteps > 10 ) {
+
+				// Very slow frame (below ~6 FPS): run at most 10 steps
+				// (1/6s of sim) and DISCARD the leftover backlog — sim
+				// time can never outrun real time; frames slower than
+				// 1/6s lose the excess (tab-away, long freezes).
+				simSteps = 10;
+				simAccumulator = 0;
+
+			} else simAccumulator -= simSteps * SIM_STEP_SECONDS;
+			const runSimulationStep = () => {
+
 			const hacksActive = hacksInstalled && hacksState.enabled;
 			const hackTimeScale = hacksActive ? hacksState.timeScale : 1;
 			const padScale1 = Number( activePadTimeScale ) || 1;
@@ -13088,6 +13248,10 @@ function completeCampaignStage() {
 			if ( countdownActive ) input = ZERO_DRIVE_INPUT;
 			const input2 = controls2 ? ( modeMenuOpen || replayViewerMode || countdownActive ? ZERO_DRIVE_INPUT : controls2.update() ) : null;
 			let padAdjustedInput = applyPadInputModifiers( input, activePadEffect );
+			if ( tasMode ) padAdjustedInput = tasMode.step( padAdjustedInput );
+			// TAS fast-forward: expose this raw sim step to TASMode once, so
+			// skip runs can synchronously burst-simulate lap 1.
+			if ( tasMode && ! window.__tasStepOnce ) window.__tasStepOnce = runSimulationStep;
 			if ( customModNoSteerUntil > now ) padAdjustedInput = { ...padAdjustedInput, x: 0 };
 			if ( customModForceBrakeUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: - 1 };
 			if ( customModForceThrottleUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: 1 };
@@ -13667,6 +13831,8 @@ function completeCampaignStage() {
 
 			const allCheckpointsPassed = checkpointStates.every( ( checkpoint ) => checkpoint.passedThisLap );
 			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
+				if ( tasMode ) { tasMode.onLapComplete(); }
+				else {
 
 					// Schedule the respawn BEFORE the share-snapshot / leaderboard
 					// bookkeeping below — on a laggy frame any of that can throw,
@@ -13780,7 +13946,7 @@ function completeCampaignStage() {
 						checkpointDeltaText = '';
 						resetCurrentLapGhost();
 						recordGhostSample( 0, true );
-					updateGhostPlayback( 0 );
+					updateGhostPlayback( replayViewerMode ? replayViewerClock.time : 0 );
 					updateLeaderboardGhostPlayback( 0 );
 					updateRecentGhostPlayback( 0 );
 				hasLeftStartZone = false;
@@ -13843,6 +14009,7 @@ function completeCampaignStage() {
 							if ( campaignState?.stageType === 'mastery' ) incrementCampaignProgress( 'mastery' );
 
 						}
+				} // end non-TAS lap-transition block
 
 				}
 
@@ -13911,7 +14078,7 @@ function completeCampaignStage() {
 		if ( vehicle2 ) lapSeconds2 = countdownActive ? 0 : now - lapStartSeconds2;
 		updateMovingObstacles( movingObstacleState, now, [ vehicle, vehicle2 ] );
 		recordGhostSample( lapSeconds );
-		updateGhostPlayback( lapSeconds );
+		updateGhostPlayback( replayViewerMode ? replayViewerClock.time : lapSeconds );
 		updateLeaderboardGhostPlayback( lapSeconds );
 		updateRecentGhostPlayback( lapSeconds );
 		const stuntScoringActive = gameMode === 'stunt' || ( gameMode === 'campaign' && campaignState?.stageType === 'stunt-score' );
@@ -13988,6 +14155,9 @@ function completeCampaignStage() {
 		}
 
 
+			};
+			for ( let simStepIndex = 0; simStepIndex < simSteps; simStepIndex ++ ) runSimulationStep();
+
 		renderFrame();
 
 		// Video Recorder: push the freshly rendered canvas frame into the
@@ -13998,6 +14168,77 @@ function completeCampaignStage() {
 	}
 
 	rebuildRecentGhostVisuals();
+
+	// TAS editor game mode (?tas=1): loads js/TASMode.js and hands it the
+	// vehicle/world hooks. All glue below only runs in TAS mode.
+	if ( new URLSearchParams( location.search ).get( 'tas' ) === '1' ) {
+
+		// TAS RECORDING sessions get the pre-lap countdown (fingers-on-keys
+		// time before the timer starts; R / Try again restart it). Replays
+		// start instantly instead — they inject their own first step.
+		countdownEnabled = true;
+
+		try {
+
+			const tasModule = await import( './TASMode.js?v=13' );
+			const tasIsLoop = ! startCell || ! finishCell || (
+				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
+			);
+			tasMode = tasModule.activate( {
+				isLoop: tasIsLoop,
+				trackId: location.search.replace( /(^|[?&])tas=1&?/, '' ),
+				vehicle, world, rigidBodyApi: rigidBody,
+				fns: {
+					startCountdown,
+					respawnVehicle,
+					// Super-fast lap-1 simulation for TAS skip runs: one raw
+					// sim step (registered by the TAS hook inside animate).
+					stepOnce: () => window.__tasStepOnce && window.__tasStepOnce(),
+					cancelCountdown: () => { countdownActive = false; countdownEndsAt = 0; updateCountdownHud( raceClockSeconds ); },
+					// Skip-mode runs must re-enter lap 2 carrying the SAME
+					// gameplay state the recording had at the line crossing:
+					// respawn zeroes all of this, but tasBeginNextLap (the
+					// record's own lap boundary) deliberately does NOT.
+					restoreGameState: ( snap ) => {
+						boostActiveUntil = raceClockSeconds + ( snap.boostRemaining || 0 );
+						if ( snap.boostContactCell !== undefined ) boostContactCell = snap.boostContactCell;
+						if ( snap.arcLinkState ) arcLinkState = snap.arcLinkState;
+						if ( snap.activePadEffect !== undefined ) activePadEffect = snap.activePadEffect;
+						if ( snap.activePadTimeScale !== undefined ) activePadTimeScale = snap.activePadTimeScale;
+						if ( snap.padContactKey !== undefined ) padContactKey = snap.padContactKey;
+						if ( typeof snap.vehicleLinearSpeed === 'number' ) vehicle.linearSpeed = snap.vehicleLinearSpeed;
+						if ( typeof snap.vehicleAngularSpeed === 'number' ) vehicle.angularSpeed = snap.vehicleAngularSpeed;
+						if ( typeof snap.vehicleAcceleration === 'number' ) vehicle.acceleration = snap.vehicleAcceleration;
+					},
+				},
+				tasBeginNextLap,
+				get: {
+					raceClock: () => raceClockSeconds,
+					lapStart: () => lapStartSeconds,
+					lapSeconds: () => lapSeconds,
+					countdownActive: () => countdownActive,
+					gameState: () => ( {
+						boostRemaining: Math.max( 0, boostActiveUntil - raceClockSeconds ),
+						boostContactCell,
+						arcLinkState: { ...arcLinkState },
+						activePadEffect,
+						activePadTimeScale,
+						padContactKey,
+						vehicleLinearSpeed: vehicle.linearSpeed,
+						vehicleAngularSpeed: vehicle.angularSpeed,
+						vehicleAcceleration: vehicle.acceleration,
+					} ),
+				},
+			} );
+
+		} catch ( error ) {
+
+			console.error( 'TAS mode failed to load', error );
+
+		}
+
+	}
+
 	animate();
 
 }

@@ -1865,13 +1865,26 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	
 		body.ui-hidden > :not(canvas):not(script) { display: none !important; }
 		body.ui-hidden canvas { touch-action: none; }
-		/* The minimap is a <canvas> appended to <body>, so the :not(canvas) rule
+		/* The minimap is a <canvas> appended to <body>
+, so the :not(canvas) rule
 		   above spares it. Hide it explicitly with the rest of the UI (H key). */
 		body.ui-hidden #minimap-hud { display: none !important; }
 
-		body.replay-viewer-mode > :not(canvas):not(script) { display: none !important; }
+		body.replay-viewer-mode > :not(canvas):not(script):not(#replay-topbar) { display: none !important; }
 		body.replay-viewer-mode canvas { touch-action: none; }
 		body.replay-viewer-mode #minimap-hud { display: none !important; }
+
+		/* Replay viewer top bar (replay.html embeds index.html?replayViewer=1).
+		   Hidden in normal gameplay; js/main.js wires it up in replay mode. */
+		#replay-topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 9998; display: flex; align-items: center; gap: 14px; padding: 10px 16px; background: linear-gradient(180deg, rgba(8,12,20,.94), rgba(8,12,20,.66)); border-bottom: 1px solid rgba(255,255,255,.10); backdrop-filter: blur(8px); font: 600 13px/1 system-ui, sans-serif; color: #eaf0ff; }
+		body:not(.replay-viewer-mode) #replay-topbar { display: none !important; }
+		#replay-toggle { width: 40px; height: 40px; flex: none; border-radius: 50%; border: 1px solid rgba(255,255,255,.16); background: rgba(29,78,216,.85); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .15s, transform .1s; }
+		#replay-toggle:hover { background: rgba(48,100,230,.95); }
+		#replay-toggle:active { transform: scale(.94); }
+		#replay-toggle svg { width: 18px; height: 18px; fill: #fff; }
+		#replay-scrub { flex: 1; min-width: 120px; height: 22px; accent-color: #4da3ff; cursor: pointer; }
+		#replay-time { flex: none; min-width: 112px; text-align: right; font-variant-numeric: tabular-nums; opacity: .88; letter-spacing: .02em; }
+		#replay-hint { flex: none; opacity: .45; font-weight: 500; }
 
 
 		/* Mobile-first gameplay chrome. Everything is gated behind coarse pointers so desktop layout is untouched. */
@@ -2293,6 +2306,13 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 <script src="js/PageTransitions.js"></script>
 </head>
 <body>
+<!-- Replay viewer top bar: hidden during normal gameplay, revealed + wired by js/main.js in replayViewer mode. -->
+    <div id="replay-topbar" hidden>
+      <button id="replay-toggle" type="button" aria-label="Pause replay"></button>
+      <input id="replay-scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Replay position">
+      <span id="replay-time">0.0s / 0.0s</span>
+      <span id="replay-hint">C = free camera</span>
+    </div>
 	<div id="underwater-overlay" aria-hidden="true"></div>
 <script>
 // ── Early mobile detection (prevents FOUC) ──
@@ -3431,7 +3451,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000237&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000261&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
