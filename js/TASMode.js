@@ -9,10 +9,13 @@
 //   position, velocity, angular velocity and rotation are captured at the
 //   lap-1 -> lap-2 crossing at FULL precision (Number<->String round-trips
 //   are exact) so lap 2 replays are deterministic.
-// - RUN: replays lap 1, then hard-applies the recorded crossing state at
-//   the start of lap 2 — lap-1 drift can never corrupt the timed lap.
-//   Reported time = lap 2 on loop tracks (the lap that matters), lap 1
-//   otherwise. Legacy v1 'lap1'/'lap2' and v2-v4 flat scripts still parse.
+// - RUN, skip mode (editor checkbox OFF, default): jump straight to lap 2 —
+//   respawn, apply the recorded crossing state, inject instantly.
+// - RUN, play-lap-1 mode (checkbox ON): mirrors the recording exactly —
+//   countdown settle first (the recording's lap 1 started post-settle;
+//   replaying from a fresh unsettled spawn made lap 1 drift until it
+//   missed the finish), then lap 1, then the recorded state at the line,
+//   then lap 2. Legacy pre-v6 scripts keep their instant-start behavior.
 
 const TAS_STEP_HZ = 60;
 
@@ -177,12 +180,14 @@ export function activate( ctx ) {
 
 	function parseScript( text ) {
 
-		const script = { mode: 'run', crossState: null, lap1: [], lap2: [], errors: [] };
+		const script = { mode: 'run', crossState: null, lap1: [], lap2: [], errors: [], ver: 0 };
 		const num = ( s ) => Number( s );
 		let lastStep = -1;
 		let inLap2 = false;
 		for ( const rawLine of String( text ).split( /\r?\n/ ) ) {
 
+			const verMatch = /^#\s*Skid Circuit TAS v(\d+)/.exec( rawLine );
+			if ( verMatch ) script.ver = num( verMatch[ 1 ] );
 			const line = rawLine.replace( /#.*$/, '' ).trim();
 			if ( ! line ) continue;
 			if ( line === 'end' ) break;
@@ -304,6 +309,20 @@ export function activate( ctx ) {
 
 		if ( state.phase === 'run' && state.runScript ) {
 
+			// Play-lap-1 mode arms exactly like the recorder: no injection
+			// until the countdown has fully ended.
+			if ( ! state.started ) {
+
+				if ( ctx.get.countdownActive() ) {
+
+					if ( state.overlayTick % 6 === 0 ) updateOverlay();
+					return zeroInput();
+
+				}
+				state.started = true;
+				state.stepIndex = 0;
+
+			}
 			const scripted = scriptInputAt( state.stepIndex );
 			state.stepIndex ++;
 			if ( state.overlayTick % 6 === 0 ) updateOverlay();
@@ -412,7 +431,7 @@ export function activate( ctx ) {
 
 	}
 
-	function run( text ) {
+	function run( text, playLap1 ) {
 
 		const script = parseScript( text );
 		if ( script.errors.length ) {
@@ -422,27 +441,44 @@ export function activate( ctx ) {
 
 		}
 		state.lastRunText = text;
+		state.lastPlayLap1 = !! playLap1;
 		resetState( 'run' );
 		state.runScript = script;
-		state.started = true;
 		state.stepIndex = 0;
 		ctx.fns.respawnVehicle();
-		if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown(); // runs start NOW, no countdown
-		// Lap-2-only scripts (legacy 'lap2' or hand-edited): start AT the
-		// recorded crossing state. Otherwise replay lap 1 from spawn first.
-		if ( script.lap2.length && ! script.lap1.length ) {
+		// Skip mode: jump straight to the timed lap from the EXACT recorded
+		// crossing state (instant — the car is mid-flight, no countdown).
+		const skipLap1 = script.lap2.length > 0 && ( ! playLap1 || ! script.lap1.length );
+		if ( skipLap1 ) {
 
+			state.started = true;
 			applyCrossState( script.crossState );
 			state.runEntries = script.lap2;
 			state.runLaps = 1;
+			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+			post( 'tas-run-started', { mode: script.mode, steps: script.lap2.length, skipLap1: true } );
+			updateOverlay();
+			return;
+
+		}
+		state.runEntries = script.lap1;
+		if ( script.ver >= 6 ) {
+
+			// v6+ play-lap-1 mode mirrors the recording: countdown settle
+			// first, injection arms when it ends — exactly like recording.
+			state.runLaps = script.lap2.length ? 2 : 1;
+			state.started = false;
+			ctx.fns.startCountdown();
 
 		} else {
 
-			state.runEntries = script.lap1;
-			state.runLaps = ( ctx.isLoop && script.mode === 'run' && ! script.crossState ) || ( script.lap1.length && script.lap2.length ) ? 2 : 1;
+			// Legacy pre-v6 flat scripts keep their instant-start behavior.
+			state.runLaps = ( ctx.isLoop && script.mode === 'run' ) || ( script.lap1.length && script.lap2.length ) ? 2 : 1;
+			state.started = true;
+			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
 
 		}
-		post( 'tas-run-started', { mode: script.mode, steps: script.lap1.length + script.lap2.length } );
+		post( 'tas-run-started', { mode: script.mode, steps: script.lap1.length + script.lap2.length, skipLap1: false } );
 		updateOverlay();
 
 	}
@@ -452,7 +488,7 @@ export function activate( ctx ) {
 		if ( event.source !== window.parent || ! event.data?.type ) return;
 		const type = event.data.type;
 		if ( type === 'tas-retry' ) retry();
-		else if ( type === 'tas-run' ) run( event.data.script || '' );
+		else if ( type === 'tas-run' ) run( event.data.script || '', !! event.data.playLap1 );
 		else if ( type === 'tas-stop' ) { state.phase = 'done'; ctx.tasBeginNextLap(); updateOverlay(); }
 
 	} );
@@ -465,7 +501,7 @@ export function activate( ctx ) {
 		if ( event.code !== 'KeyR' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ) return;
 		event.preventDefault();
 		event.stopPropagation();
-		if ( state.phase === 'run' && state.lastRunText ) run( state.lastRunText );
+		if ( state.phase === 'run' && state.lastRunText ) run( state.lastRunText, state.lastPlayLap1 );
 		else retry();
 
 	}, true );
@@ -480,8 +516,8 @@ export function activate( ctx ) {
 
 	function updateOverlay() {
 
-		const phaseLabel = state.phase === 'record' ? ( state.started ? 'REC' : 'COUNTDOWN' )
-			: state.phase === 'run' ? 'RUN' : 'DONE';
+		const phaseLabel = ( state.phase === 'record' || state.phase === 'run' ) && ! state.started ? 'COUNTDOWN'
+			: state.phase === 'record' ? 'REC' : state.phase === 'run' ? 'RUN' : 'DONE';
 		const lapLabel = ctx.isLoop ? `LOOP · lap ${ state.lapsCompleted + 1 }/${ lapsNeeded }`
 			: 'NON-LOOP · 1 lap';
 		overlay.textContent = `TAS ${ phaseLabel } · ${ lapLabel }`

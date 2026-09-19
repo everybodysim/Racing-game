@@ -81,6 +81,10 @@
 			<label for="inputs">TAS inputs (editable)</label>
 			<textarea id="inputs" spellcheck="false" placeholder="Recorded inputs appear here after a completed lap. Edit any step line, then Run."></textarea>
 			<div id="validation"></div>
+			<div class="row" style="align-items:center;gap:6px;font-size:12px;color:#8b949e;">
+				<input type="checkbox" id="play-lap1" style="margin:0;">
+				<label for="play-lap1">Play lap 1 first (loop tracks) — off = jump straight to lap 2</label>
+			</div>
 			<div class="row">
 				<button id="run-btn">Run inputs ▶</button>
 				<button id="stop-btn">Stop</button>
@@ -158,7 +162,7 @@
 				break;
 			}
 			case 'tas-run-started':
-				statusEl.textContent = 'running ' + data.steps + ' input steps (' + data.mode + ')…';
+				statusEl.textContent = ( data.skipLap1 ? 'running lap 2 from the recorded line-crossing state' : 'replaying lap 1 (countdown), then lap 2' ) + ' — ' + data.steps + ' steps…';
 				$( 't-run' ).textContent = 'running…';
 				break;
 			case 'tas-run-complete':
@@ -193,7 +197,7 @@
 	$( 'run-btn' ).addEventListener( 'click', () => {
 
 		validation.textContent = '';
-		sendToGame( 'tas-run', { script: inputs.value } );
+		sendToGame( 'tas-run', { script: inputs.value, playLap1: $( 'play-lap1' ).checked } );
 
 	} );
 	$( 'stop-btn' ).addEventListener( 'click', () => sendToGame( 'tas-stop' ) );
