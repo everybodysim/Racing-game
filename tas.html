@@ -83,12 +83,17 @@
 			<div id="state-note" style="font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#6e7681;margin-top:4px;"></div>
 			<div id="validation"></div>
 			<div class="row" style="align-items:center;gap:6px;font-size:12px;color:#8b949e;">
-				<input type="checkbox" id="play-lap1" style="margin:0;">
-				<label for="play-lap1">Play lap 1 in real time — off = super-fast-simulate lap 1, then run lap 2</label>
+				<input type="checkbox" id="lap2-zero" style="margin:0;" checked>
+				<label for="lap2-zero">Slider 0 = lap 2 (loop tracks only)</label>
 			</div>
 			<div class="row">
 				<button id="run-btn">Run inputs ▶</button>
 				<button id="stop-btn">Stop</button>
+			<div id="tas-bar" style="display:none;flex-basis:100%;width:100%;margin-top:8px;gap:8px;align-items:center;">
+				<button id="tas-play" style="min-width:36px;">⏸</button>
+				<input type="range" id="tas-slider" min="0" max="1000" value="0" step="1" style="flex:1;width:70%;accent-color:#238636;height:28px;">
+				<span id="tas-slider-label" style="font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#6e7681;white-space:nowrap;">step 0 / 0</span>
+			</div>
 			</div>
 			<div style="border-top:1px solid #30363d;margin-top:2px;padding-top:10px;">
 				<label>Brute force</label>
@@ -283,7 +288,7 @@
 	$( 'run-btn' ).addEventListener( 'click', () => {
 
 		validation.textContent = '';
-		sendToGame( 'tas-run', { script: composeFull(), playLap1: $( 'play-lap1' ).checked } );
+		sendToGame( 'tas-run', { script: composeFull(), startAtLap2: $( 'lap2-zero' ).checked } );
 
 	} );
 	$( 'stop-btn' ).addEventListener( 'click', () => sendToGame( 'tas-stop' ) );
@@ -309,6 +314,129 @@
 	if ( prefill ) loadTrack( prefill );
 
 } )();
+
+	// ── TAS playback bar: pause/seek slider driven by the game's
+	// auto-calculated run (calc -> seek -> real-time play) ──────────────
+	( function () {
+
+		const bar = $( 'tas-bar' ), playBtn = $( 'tas-play' ), slider = $( 'tas-slider' ), label = $( 'tas-slider-label' );
+		const lap2Zero = $( 'lap2-zero' ), inputsEl = $( 'inputs' );
+		let total = null, l1c = null, time = null, dragging = false, playing = true;
+		let lineMap = null;
+
+		function zeroOffset() { return ( lap2Zero.checked && l1c != null ) ? l1c : 0; }
+		function sliderToGlobal( v ) { return v + zeroOffset(); }
+		function globalToSlider( g ) { return Math.max( 0, g - zeroOffset() ); }
+		function isLoopScript() { return /^cross\s*$/m.test( inputsEl.value ); }
+
+		function refreshLoopVisibility() {
+
+			lap2Zero.parentElement.style.display = isLoopScript() ? '' : 'none';
+
+		}
+		inputsEl.addEventListener( 'input', () => { lineMap = null; refreshLoopVisibility(); } );
+		lap2Zero.addEventListener( 'change', () => { if ( total != null ) slider.max = String( total - zeroOffset() ); slider.value = String( globalToSlider( Number( slider.value ) + ( lap2Zero.checked ? l1c : -l1c ) ) ); updateLabel( Number( slider.value ) + zeroOffset() ); } );
+		refreshLoopVisibility();
+
+		function buildLineMap() {
+
+			const lines = inputsEl.value.split( '\n' );
+			const map = { lap1: [], lap2: [] };
+			let cross = -1;
+			lines.forEach( ( l, i ) => { if ( /^cross\s*$/.test( l.trim() ) ) cross = i; } );
+			lines.forEach( ( l, i ) => {
+
+				if ( ! /^step\s+/.test( l.trim() ) ) return;
+				if ( cross === -1 || i < cross ) map.lap1.push( i );
+				else map.lap2.push( i );
+
+			} );
+			return map;
+
+		}
+
+		function highlight( lap, entry ) {
+
+			if ( ! lineMap ) lineMap = buildLineMap();
+			const lines = ( lap === 2 ? lineMap.lap2 : lineMap.lap1 );
+			const line = lines[ entry ];
+			if ( line == null ) return;
+			const arr = inputsEl.value.split( '\n' );
+			let start = 0;
+			for ( let i = 0; i < line; i ++ ) start += arr[ i ].length + 1;
+			const focused = document.activeElement === inputsEl;
+			try {
+
+				inputsEl.setSelectionRange( start, start + arr[ line ].length );
+				const lh = 16;
+				const target = line * lh - inputsEl.clientHeight / 3;
+				if ( Math.abs( inputsEl.scrollTop - target ) > lh * 2 ) inputsEl.scrollTop = Math.max( 0, target );
+
+			} catch ( e ) {}
+			if ( focused ) inputsEl.blur();
+
+		}
+
+		function updateLabel( g ) {
+
+			label.textContent = `step ${ g } / ${ total == null ? '?' : total }${ time != null ? ` · run ${ time }s` : '' }`;
+
+		}
+
+		playBtn.addEventListener( 'click', () => { sendToGame( 'tas-toggle-pause', {} ); } );
+		slider.addEventListener( 'pointerdown', () => { dragging = true; } );
+		window.addEventListener( 'pointerup', () => { dragging = false; } );
+		slider.addEventListener( 'change', () => {
+
+			if ( total != null ) sendToGame( 'tas-seek', { step: sliderToGlobal( Number( slider.value ) ) } );
+
+		} );
+
+		window.addEventListener( 'message', ( ev ) => {
+
+			const d = ev.data;
+			if ( ! d || typeof d !== 'object' ) return;
+			if ( d.type === 'tas-run-started' && d.totalSteps != null ) {
+
+				total = d.totalSteps; l1c = d.lap1CrossStep; time = d.calcTime;
+				bar.style.display = 'flex';
+				playing = true; playBtn.textContent = '⏸';
+				slider.max = String( total - zeroOffset() );
+				slider.value = '0';
+				updateLabel( zeroOffset() );
+
+			} else if ( d.type === 'tas-run-started' ) {
+
+				bar.style.display = 'none';
+
+			} else if ( d.type === 'tas-step' ) {
+
+				if ( ! dragging ) slider.value = String( globalToSlider( d.global ) );
+				updateLabel( d.global );
+				highlight( d.lap, d.entry );
+
+			} else if ( d.type === 'tas-paused' ) {
+
+				playing = ! d.paused;
+				playBtn.textContent = d.paused ? '▶' : '⏸';
+
+			} else if ( d.type === 'tas-run-complete' ) {
+
+				time = d.lapSeconds;
+				playBtn.textContent = '▶';
+				if ( total != null ) slider.value = String( globalToSlider( total ) );
+				updateLabel( total != null ? total : 0 );
+
+			} else if ( d.type === 'tas-bruteforce-update' || d.type === 'tas-bruteforce-done' ) {
+
+				bar.style.display = 'none';
+				total = null;
+
+			}
+
+		} );
+
+	} )();
 </script>
 </body>
 </html>

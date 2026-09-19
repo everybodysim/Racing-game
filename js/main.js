@@ -14182,7 +14182,7 @@ function completeCampaignStage() {
 
 		try {
 
-			const tasModule = await import( './TASMode.js?v=16' );
+			const tasModule = await import( './TASMode.js?v=18' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
@@ -14197,6 +14197,20 @@ function completeCampaignStage() {
 					// sim step (registered by the TAS hook inside animate).
 					stepOnce: () => window.__tasStepOnce && window.__tasStepOnce(),
 					cancelCountdown: () => { countdownActive = false; countdownEndsAt = 0; updateCountdownHud( raceClockSeconds ); },
+					// Burst-mode lap detection sync (TAS-only glue): the game
+					// detects crossings once per FRAME in animate(); TAS bursts
+					// run hundreds of raw steps with no frames between, so
+					// TASMode mirrors the detection per step and writes the
+					// detector's module state back through here — when animate
+					// resumes it sees a consistent sample chain and never
+					// double-fires a crossing.
+					writeLapDetection: ( patch ) => {
+						if ( 'hasLeftStartZone' in patch ) hasLeftStartZone = patch.hasLeftStartZone;
+						if ( 'hasPrevFinishSample' in patch ) hasPrevFinishSample = patch.hasPrevFinishSample;
+						if ( 'lastLocalX' in patch ) lastLocalX = patch.lastLocalX;
+						if ( 'lastLocalZ' in patch ) lastLocalZ = patch.lastLocalZ;
+					},
+					saveCheckpointState,
 					// Skip-mode runs must re-enter lap 2 carrying the SAME
 					// gameplay state the recording had at the line crossing:
 					// respawn zeroes all of this, but tasBeginNextLap (the
@@ -14219,6 +14233,11 @@ function completeCampaignStage() {
 					lapStart: () => lapStartSeconds,
 					lapSeconds: () => lapSeconds,
 					countdownActive: () => countdownActive,
+				lapDetection: () => ( {
+					finishData, startGateData, checkpointStates,
+					hasLeftStartZone, hasPrevFinishSample, lastLocalX, lastLocalZ,
+					checkpointRespawnInstalled,
+				} ),
 					gameState: () => ( {
 						boostRemaining: Math.max( 0, boostActiveUntil - raceClockSeconds ),
 						boostContactCell,

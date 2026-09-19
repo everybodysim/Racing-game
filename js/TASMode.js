@@ -48,6 +48,11 @@ export function activate( ctx ) {
 		runLaps: 1,
 		lastRunText: '',
 		overlayTick: 0,
+		playback: { lap1CrossStep: null, totalSteps: null, time: null },
+		paused: false,
+		pausePos: null,
+		pauseRot: null,
+		calc: false,
 	};
 
 	window.__tasState = () => {
@@ -62,6 +67,9 @@ export function activate( ctx ) {
 			wipeFails: state.wipeFails,
 			brute: state.brute ? { round: state.brute.round, rounds: state.brute.rounds, adopted: state.brute.adopted, best: state.brute.best, last: state.brute.last } : null,
 			mutate: ( text, n, add ) => scriptToText( mutateScript( parseScript( text ), n, add ) ),
+			det: ctx.get.lapDetection ? ctx.get.lapDetection() : null,
+			playback: state.playback,
+			paused: state.paused,
 			isLoop: ctx.isLoop,
 			pos: [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ],
 			vel: mp ? [ ...mp.linearVelocity ] : [ 0, 0, 0 ],
@@ -360,6 +368,16 @@ export function activate( ctx ) {
 
 		if ( state.phase === 'run' && state.runScript ) {
 
+			if ( state.paused ) {
+
+				// Freeze: hold the car exactly at the paused pose; the
+				// zeroed velocities keep it from creeping per step.
+				applyCrossState( { pos: state.pausePos, rot: state.pauseRot, vel: [ 0, 0, 0 ], angvel: [ 0, 0, 0 ] } );
+				if ( state.overlayTick % 6 === 0 ) updateOverlay();
+				return zeroInput();
+
+			}
+
 			// Play-lap-1 mode arms exactly like the recorder: no injection
 			// until the countdown has fully ended.
 			if ( ! state.started ) {
@@ -375,8 +393,18 @@ export function activate( ctx ) {
 
 			}
 			const scripted = scriptInputAt( state.stepIndex );
+			if ( state.overlayTick % 6 === 0 ) {
+
+				updateOverlay();
+				post( 'tas-step', {
+					global: globalStep(),
+					total: state.playback.totalSteps,
+					lap: Math.min( state.lapsCompleted + 1, state.runLaps ),
+					entry: state.runPointer,
+				} );
+
+			}
 			state.stepIndex ++;
-			if ( state.overlayTick % 6 === 0 ) updateOverlay();
 			return scripted;
 
 		}
@@ -384,6 +412,14 @@ export function activate( ctx ) {
 		// done: freeze driving
 		if ( state.overlayTick % 6 === 0 ) updateOverlay();
 		return zeroInput();
+
+	}
+
+	// Global run position: lap-2 steps continue past the lap-1 crossing step
+	// instead of resetting to 0 at the line (loop tracks, skip mode).
+	function globalStep() {
+
+		return state.stepIndex + ( state.lapsCompleted >= 1 ? ( state.playback.lap1CrossStep || 0 ) : 0 );
 
 	}
 
@@ -407,6 +443,7 @@ export function activate( ctx ) {
 				// Crossing into the timed lap: hard-apply the recorded
 				// crossing state (pos/vel/angvel/rot) so lap 2 starts
 				// EXACTLY as recorded, no matter how lap 1 drifted.
+				if ( state.lapsCompleted === 1 ) state.playback.lap1CrossStep = state.stepIndex;
 				if ( state.lapsCompleted === 1 && state.runScript.lap2.length ) {
 
 					if ( state.runScript.crossState ) applyCrossState( state.runScript.crossState );
@@ -425,6 +462,7 @@ export function activate( ctx ) {
 			state.phase = 'done';
 			ctx.tasBeginNextLap();
 			if ( state.brute ) state.bruteResult = lapSeconds;
+			else if ( state.calc ) state.playback.totalSteps = globalStep(), state.playback.time = round6( lapSeconds );
 			else post( 'tas-run-complete', { lapSeconds: round6( lapSeconds ), stepCount } );
 			updateOverlay();
 			return;
@@ -479,6 +517,9 @@ export function activate( ctx ) {
 		state.runEntries = null;
 		state.runPointer = 0;
 		state.runLaps = 1;
+		state.paused = false;
+		state.pausePos = null;
+		state.pauseRot = null;
 
 	}
 
@@ -493,7 +534,7 @@ export function activate( ctx ) {
 
 	}
 
-	function run( text, playLap1 ) {
+	function run( text, startAtLap2 ) {
 
 		const script = parseScript( text );
 		if ( script.errors.length ) {
@@ -503,97 +544,184 @@ export function activate( ctx ) {
 
 		}
 		state.lastRunText = text;
-		state.lastPlayLap1 = !! playLap1;
+		state.lastPlayLap1 = !! startAtLap2;
+		state.playback = { lap1CrossStep: null, totalSteps: null, time: null };
 		resetState( 'run' );
 		state.runScript = script;
 		state.stepIndex = 0;
 		ctx.fns.respawnVehicle();
-		// FAST mode (checkbox OFF): super-fast-simulate lap 1 in ONE
-		// synchronous burst — respawn, contact wipe, countdown settle and
-		// the whole lap-1 input timeline, thousands of fixed steps with no
-		// rendering (sub-second). The lap-1 crossing fires mid-burst and
-		// applies the exact recorded line state, so lap 2 then runs in
-		// real time entering the engine EXACTLY like a full real-time
-		// replay — every bit of lap-1 history included.
-		if ( ! playLap1 && script.lap2.length && script.lap1.length && ctx.fns.stepOnce ) {
 
+		// AUTO-CALCULATE: burst the ENTIRE run (countdown settle + every
+		// lap, crossings detected in-burst by the probe) to learn the
+		// lap-1 crossing step, the total run length and the precise
+		// finish time BEFORE playback starts. Playback then seeks to the
+		// slider's zero position and plays in real time; scrubbing the
+		// slider re-anchors with the same deterministic bursts.
+		if ( ctx.fns.stepOnce && script.lap1.length ) {
+
+			state.calc = true;
 			state.runEntries = script.lap1;
-			state.runLaps = 2;
+			state.runLaps = script.lap2.length ? 2 : ( ctx.isLoop && script.mode === 'run' && ! script.crossState ? 2 : 1 );
 			state.started = false;
 			resetCarPhysicsHistory();
 			ctx.fns.startCountdown();
 			state.fastForward = true;
+			const l1Last = script.lap1[ script.lap1.length - 1 ].step;
+			const l2Last = script.lap2.length ? script.lap2[ script.lap2.length - 1 ].step : 0;
+			const burstCap = 60 * 5 + ( l1Last + 60 * 30 ) + ( script.lap2.length ? l2Last + 60 * 30 : 0 );
 			let burst = 0;
-			const burstCap = 60 * 4 + script.lap1[ script.lap1.length - 1 ].step + 60 * 30;
 			try {
 
-				while ( state.phase === 'run' && state.lapsCompleted < 1 && burst ++ < burstCap ) ctx.fns.stepOnce();
+				while ( state.phase === 'run' && burst ++ < burstCap ) {
 
-			} catch ( e ) { /* fall through to the exact-state fallback */ }
+					ctx.fns.stepOnce();
+					if ( state.phase === 'run' ) probeLapCross();
+
+				}
+
+			} catch ( e ) { /* seek falls back below */ }
 			state.fastForward = false;
-			if ( state.lapsCompleted >= 1 ) {
+			state.calc = false;
+			// undo the calc's done flip; seekTo re-anchors everything
+			state.phase = 'run';
+			state.lapsCompleted = 0;
+			state.started = false;
+			state.runEntries = script.lap1;
+			state.runPointer = 0;
 
-				// crossing fired mid-burst: lap-2 entries are live, the
-				// recorded line state is applied, contacts wiped. Real time
-				// takes over from the very next frame.
-				post( 'tas-run-started', { mode: script.mode, steps: script.lap2.length, skipLap1: true, fastForwarded: true } );
-				updateOverlay();
-				return;
+		}
+		const l1c = state.playback.lap1CrossStep;
+		seekTo( ( startAtLap2 && l1c != null ) ? l1c : 0 );
+		post( 'tas-run-started', {
+			mode: script.mode,
+			steps: script.lap1.length + script.lap2.length,
+			skipLap1: !!( startAtLap2 && l1c != null ),
+			totalSteps: state.playback.totalSteps,
+			lap1CrossStep: l1c,
+			calcTime: state.playback.time,
+		} );
+		updateOverlay();
 
-			}
-			// Lap 1 never crossed (heavily edited script): fall back to the
-			// exact-state teleport so the run still works.
+	}
+
+	// Deterministic scrub: re-anchor from respawn and burst to an exact
+	// global step (sub-second); playback resumes real-time from there.
+	function seekTo( target ) {
+
+		const script = state.runScript;
+		if ( ! script ) return;
+		state.paused = false;
+		const l1c = state.playback.lap1CrossStep;
+
+		// Legacy lap-2-only scripts: no lap-1 timeline — instant teleport.
+		if ( ! script.lap1.length && script.lap2.length ) {
+
+			resetState( 'run' );
+			state.runScript = script;
+			state.started = true;
+			applyCrossState( script.crossState );
+			state.runEntries = script.lap2;
+			state.runLaps = 1;
+			state.runPointer = 0;
+			resetCarPhysicsHistory();
+			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+			updateOverlay();
+			return;
+
+		}
+
+		// Broken lap-1 timeline (crossing never fired) + lap-2 start: the
+		// exact-state teleport fallback keeps heavily-edited runs alive.
+		if ( target > 0 && l1c == null && script.lap2.length && script.crossState && ctx.fns.stepOnce ) {
+
+			resetState( 'run' );
+			state.runScript = script;
 			state.lapsCompleted = 1;
 			applyCrossState( script.crossState );
-			resetCarPhysicsHistory();
-			ctx.tasBeginNextLap();
 			state.runEntries = script.lap2;
+			state.runRaps = null; // (typo guard: never again)
 			state.runLaps = 1;
-			state.stepIndex = 0;
 			state.runPointer = 0;
 			state.started = true;
-			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
-			post( 'tas-run-started', { mode: script.mode, steps: script.lap2.length, skipLap1: true, fastForwarded: false } );
-			updateOverlay();
-			return;
-
-		}
-		// TELEPORT mode: legacy lap-2-only scripts (no lap-1 timeline to
-		// simulate) start AT the recorded crossing state, instantly.
-		const skipLap1 = script.lap2.length > 0 && ( ! playLap1 || ! script.lap1.length );
-		if ( skipLap1 ) {
-
-			state.started = true;
-			applyCrossState( script.crossState );
-			state.runEntries = script.lap2;
-			state.runLaps = 1;
 			resetCarPhysicsHistory();
 			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
-			post( 'tas-run-started', { mode: script.mode, steps: script.lap2.length, skipLap1: true, fastForwarded: false } );
 			updateOverlay();
 			return;
 
 		}
-		state.runEntries = script.lap1;
-		resetCarPhysicsHistory();
-		if ( script.ver >= 6 ) {
 
-			// v6+ play-lap-1 mode mirrors the recording: countdown settle
-			// first, injection arms when it ends — exactly like recording.
-			state.runLaps = script.lap2.length ? 2 : 1;
-			state.started = false;
-			ctx.fns.startCountdown();
+		if ( ! ctx.fns.stepOnce || ! script.lap1.length ) return;
+
+		resetState( 'run' );
+		state.runScript = script;
+		state.stepIndex = 0;
+		ctx.fns.respawnVehicle();
+		state.runEntries = script.lap1;
+		state.runLaps = script.lap2.length ? 2 : ( ctx.isLoop && script.mode === 'run' && ! script.crossState ? 2 : 1 );
+		state.started = false;
+		resetCarPhysicsHistory();
+		ctx.fns.startCountdown();
+		state.fastForward = true;
+		const l1Last = script.lap1[ script.lap1.length - 1 ].step;
+		const l2Last = script.lap2.length ? script.lap2[ script.lap2.length - 1 ].step : 0;
+		const burstCap = 60 * 5 + ( l1Last + 60 * 30 ) + ( script.lap2.length ? l2Last + 60 * 30 : 0 );
+		let burst = 0;
+		try {
+
+			if ( l1c != null && target < l1c ) {
+
+				// target inside lap 1: stop before the crossing can fire
+				while ( state.phase === 'run' && state.lapsCompleted === 0 && burst ++ < burstCap ) {
+
+					ctx.fns.stepOnce();
+					if ( state.phase === 'run' ) probeLapCross();
+					if ( state.started && state.stepIndex >= target ) break;
+
+				}
+
+			} else {
+
+				while ( state.phase === 'run' && state.lapsCompleted < 1 && burst ++ < burstCap ) {
+
+					ctx.fns.stepOnce();
+					if ( state.phase === 'run' ) probeLapCross();
+
+				}
+				const local = l1c == null ? target : target - l1c;
+				while ( state.phase === 'run' && state.lapsCompleted === 1 && state.stepIndex < local && burst ++ < burstCap ) {
+
+					ctx.fns.stepOnce();
+					if ( state.phase === 'run' ) probeLapCross();
+
+				}
+
+			}
+
+		} catch ( e ) {}
+		state.fastForward = false;
+		updateOverlay();
+
+	}
+
+	// Pause: freeze the car exactly at its pose (physics keeps stepping,
+	// so the freeze re-applies position + zero velocity every step).
+	// Resume: seek back to the paused global step — fully deterministic.
+	function togglePause() {
+
+		if ( state.phase !== 'run' || ! state.runScript ) return;
+		if ( ! state.paused ) {
+
+			state.paused = true;
+			state.pausePos = [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ];
+			state.pauseRot = [ ctx.vehicle.container.rotation.x, ctx.vehicle.container.rotation.y, ctx.vehicle.container.rotation.z ];
 
 		} else {
 
-			// Legacy pre-v6 flat scripts keep their instant-start behavior.
-			state.runLaps = ( ctx.isLoop && script.mode === 'run' ) || ( script.lap1.length && script.lap2.length ) ? 2 : 1;
-			state.started = true;
-			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+			const g = globalStep();
+			seekTo( g );
 
 		}
-		post( 'tas-run-started', { mode: script.mode, steps: script.lap1.length + script.lap2.length, skipLap1: false, fastForwarded: false } );
-		updateOverlay();
+		post( 'tas-paused', { paused: state.paused } );
 
 	}
 
@@ -745,7 +873,12 @@ export function activate( ctx ) {
 		const burstCap = 60 * 5 + ( l1Last + 60 * 30 ) + ( script.lap2.length ? l2Last + 60 * 30 : 0 );
 		try {
 
-			while ( state.phase === 'run' && burst ++ < burstCap ) ctx.fns.stepOnce();
+			while ( state.phase === 'run' && burst ++ < burstCap ) {
+
+				ctx.fns.stepOnce();
+				if ( state.phase === 'run' ) probeLapCross();
+
+			}
 
 		} catch ( e ) { /* DNF */ }
 		state.fastForward = false;
@@ -813,6 +946,9 @@ export function activate( ctx ) {
 		else if ( type === 'tas-stop' ) { state.phase = 'done'; ctx.tasBeginNextLap(); updateOverlay(); }
 		else if ( type === 'tas-bruteforce' ) bruteForce( event.data );
 		else if ( type === 'tas-bruteforce-stop' ) { if ( state.brute ) state.brute.stop = true; }
+		else if ( type === 'tas-toggle-pause' ) togglePause();
+		else if ( type === 'tas-seek' && state.runScript && ( state.phase === 'run' || state.phase === 'done' ) )
+			seekTo( Math.max( 0, Math.round( Number( event.data.step ) || 0 ) ) );
 
 	} );
 
@@ -847,7 +983,7 @@ export function activate( ctx ) {
 		const lapLabel = ctx.isLoop ? `LOOP · lap ${ state.lapsCompleted + 1 }/${ lapsNeeded }`
 			: 'NON-LOOP · 1 lap';
 		overlay.textContent = `TAS ${ phaseLabel } · ${ lapLabel }`
-			+ `\nstep ${ state.stepIndex } (${ TAS_STEP_HZ } Hz)`
+			+ `\nstep ${ state.phase === 'run' ? globalStep() : state.stepIndex }${ state.phase === 'run' && state.playback.totalSteps != null ? ' / ' + state.playback.totalSteps : '' } (${ TAS_STEP_HZ } Hz)`
 			+ `\nlap ${ ( ctx.get.lapSeconds() || 0 ).toFixed( 6 ) }s`
 			+ `\nsim ${ ctx.get.raceClock().toFixed( 2 ) }s`;
 
