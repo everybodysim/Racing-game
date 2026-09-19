@@ -61,6 +61,7 @@ export function activate( ctx ) {
 			inputsRecorded: state.lapBuffers.reduce( ( n, b ) => n + b.length, 0 ),
 			wipeFails: state.wipeFails,
 			brute: state.brute ? { round: state.brute.round, rounds: state.brute.rounds, adopted: state.brute.adopted, best: state.brute.best, last: state.brute.last } : null,
+			mutate: ( text, n, add ) => scriptToText( mutateScript( parseScript( text ), n, add ) ),
 			isLoop: ctx.isLoop,
 			pos: [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ],
 			vel: mp ? [ ...mp.linearVelocity ] : [ 0, 0, 0 ],
@@ -612,11 +613,14 @@ export function activate( ctx ) {
 		const lines = [ '# Skid Circuit TAS v11', `track: ${ ctx.trackId }`, 'mode: run' ];
 		if ( ctx.isLoop && script.crossState ) {
 
-			lines.push( `state: pos ${ script.crossState.pos.map( fmt ).join( ' ' ) }` );
-			lines.push( `state: vel ${ script.crossState.vel.map( fmt ).join( ' ' ) }` );
-			lines.push( `state: angvel ${ script.crossState.angvel.map( fmt ).join( ' ' ) }` );
-			lines.push( `state: rot ${ script.crossState.rot.map( fmt ).join( ' ' ) }` );
-			if ( script.crossState.game ) lines.push( `state: game ${ JSON.stringify( script.crossState.game ) }` );
+			// Each line guarded: hand-edited scripts may carry a partial
+			// state block and the forcer must never crash rebuilding text.
+			const cs = script.crossState;
+			if ( cs.pos ) lines.push( `state: pos ${ cs.pos.map( fmt ).join( ' ' ) }` );
+			if ( cs.vel ) lines.push( `state: vel ${ cs.vel.map( fmt ).join( ' ' ) }` );
+			if ( cs.angvel ) lines.push( `state: angvel ${ cs.angvel.map( fmt ).join( ' ' ) }` );
+			if ( cs.rot ) lines.push( `state: rot ${ cs.rot.map( fmt ).join( ' ' ) }` );
+			if ( cs.game ) lines.push( `state: game ${ JSON.stringify( cs.game ) }` );
 
 		}
 		for ( const e of script.lap1 ) lines.push( `step ${ e.step } x=${ fmt( e.x ) } z=${ fmt( e.z ) }` );
@@ -641,6 +645,17 @@ export function activate( ctx ) {
 
 	}
 
+	function pickOther( v ) {
+
+		const opts = [ -1, 0, 1 ].filter( ( o ) => o !== v );
+		return opts[ Math.floor( Math.random() * opts.length ) ];
+
+	}
+
+	// Mutation mix (per changed input): 60% steering value, 15% accel value
+	// (accel is far more likely to break a run, so it mutates less), 25%
+	// timing — the entry's step slides STRICTLY between its neighbors so the
+	// timeline can never un-order (later mutations see updated bounds).
 	function mutateScript( script, mutations, addInput ) {
 
 		const cand = cloneScript( script );
@@ -648,15 +663,41 @@ export function activate( ctx ) {
 		if ( ! timedLap.length ) return cand;
 		for ( let m = 0; m < mutations; m ++ ) {
 
-			const e = timedLap[ Math.floor( Math.random() * timedLap.length ) ];
-			e.x = randInput();
-			e.z = randInput();
+			const idx = Math.floor( Math.random() * timedLap.length );
+			const e = timedLap[ idx ];
+			const roll = Math.random();
+			if ( roll < 0.60 ) {
+
+				e.x = pickOther( e.x ); // steering: -1 / 0 / 1, never a no-op
+
+			} else if ( roll < 0.75 ) {
+
+				e.z = pickOther( e.z ); // accel: -1 / 0 / 1, rarer by design
+
+			} else {
+
+				// timing: shift this entry between the previous and next entry
+				const prev = idx > 0 ? timedLap[ idx - 1 ].step : -1;
+				const next = idx < timedLap.length - 1 ? timedLap[ idx + 1 ].step : e.step + 120;
+				const lo = prev + 1;
+				const hi = Math.max( next - 1, lo );
+				if ( hi > lo || ( hi === lo && lo !== e.step ) ) {
+
+					let nStep = lo + Math.floor( Math.random() * ( hi - lo + 1 ) );
+					if ( nStep === e.step ) nStep = lo !== e.step ? lo : hi;
+					e.step = nStep;
+
+				}
+
+			}
 
 		}
 		if ( addInput ) {
 
+			// New input at the timeline's end: fresh steering, keep the last
+			// throttle (random accel at the run's tail almost only harms).
 			const last = timedLap[ timedLap.length - 1 ];
-			timedLap.push( { step: last.step + 1, x: randInput(), z: randInput() } );
+			timedLap.push( { step: last.step + 1, x: pickOther( last.x ), z: last.z } );
 
 		}
 		return cand;
