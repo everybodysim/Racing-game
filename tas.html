@@ -85,7 +85,7 @@
 				<button id="run-btn">Run inputs ▶</button>
 				<button id="stop-btn">Stop</button>
 			</div>
-			<div id="hint">Looping tracks record lap 2 (flying start, state carried across the line). Non-looping tracks record lap 1. No countdown in TAS mode — recording starts immediately on the first step.</div>
+			<div id="hint">Looping tracks record lap 2 (flying start, state carried across the line). Non-looping tracks record lap 1. Looping tracks: drive 2 laps — the script keeps BOTH laps (edit either), the time shown is lap 2. Non-looping: drive 1 lap. Countdown runs before recording; R restarts it. Replays: lap 1 re-runs, then lap 2 starts from the recorded line-crossing state.</div>
 		</div>
 	</div>
 </div>
@@ -142,7 +142,7 @@
 			case 'tas-ready':
 				typeBadge.textContent = data.isLoop ? 'LOOP TRACK · drive 2 laps' : 'NON-LOOP TRACK · drive 1 lap';
 				typeBadge.classList.toggle( 'nonloop', ! data.isLoop );
-				statusEl.textContent = 'ready — recording, drive your lap(s)';
+				statusEl.textContent = 'countdown — then drive your lap(s)';
 				break;
 			case 'tas-lap-cross':
 				statusEl.textContent = 'lap 1 done — rolled straight into lap 2 (flying start)';
@@ -186,7 +186,7 @@
 	$( 'retry-btn' ).addEventListener( 'click', () => {
 
 		popup.classList.remove( 'active' );
-		statusEl.textContent = 'recording — drive!';
+		statusEl.textContent = 'countdown — get ready…';
 		sendToGame( 'tas-retry' );
 
 	} );

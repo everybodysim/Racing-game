@@ -1,17 +1,18 @@
 // js/TASMode.js — game-side TAS mode (?tas=1), see docs/tas-editor-plan.md.
 // Only loaded when ?tas=1 is in the game URL; normal gameplay never imports
-// this module. The TAS region in main.js sets countdownEnabled=false so
-// startCountdown() no-ops everywhere in TAS mode — recording and replay
-// both start on the very first sim step. No arming, no waiting.
+// this module and no game runtime file changes for TAS behavior.
 //
-// DETERMINISM CORE: one flat per-step input timeline with a global step
-// counter. Record: step 0 = first sim step after boot/retry. Replay:
-// step 0 = first sim step after respawn. Loop tracks roll straight into
-// lap 2 with CONTINUOUS steps — the replay re-derives the flying start by
-// replaying lap 1's inputs (nothing is snapshotted or rounded). Values
-// are stored at full precision (String(n)).
-// Legacy 'lap1'/'lap2' snapshot scripts (pre-flat-timeline) still parse
-// and run with their old instant-inject + crossState-restore behavior.
+// MODEL:
+// - RECORD (?tas=1 open, Try again, R): 3-2-1 countdown FIRST — the timer,
+//   the step counter and recording all start only when it ends. On loop
+//   tracks BOTH laps are recorded (lap 1 stays editable in the script);
+//   position, velocity, angular velocity and rotation are captured at the
+//   lap-1 -> lap-2 crossing at FULL precision (Number<->String round-trips
+//   are exact) so lap 2 replays are deterministic.
+// - RUN: replays lap 1, then hard-applies the recorded crossing state at
+//   the start of lap 2 — lap-1 drift can never corrupt the timed lap.
+//   Reported time = lap 2 on loop tracks (the lap that matters), lap 1
+//   otherwise. Legacy v1 'lap1'/'lap2' and v2-v4 flat scripts still parse.
 
 const TAS_STEP_HZ = 60;
 
@@ -26,25 +27,35 @@ export function activate( ctx ) {
 
 	const state = {
 		phase: 'record',           // record | run | done
-		stepIndex: 0,              // global step counter since session start
+		started: false,            // true once the countdown has ended
+		stepIndex: 0,              // per-lap step counter
 		lastRecorded: null,
 		lapsCompleted: 0,
-		buffer: [],                // ONE flat RLE buffer of {step, x, z}
-		crossState: null,          // captured at lap1->2 cross (DISPLAY ONLY)
+		lapBuffers: [ [] ],        // per-lap RLE buffers of {step, x, z}
+		crossState: null,          // lap-1 -> lap-2 crossing state, FULL precision
 		runScript: null,
+		runEntries: null,          // active replay timeline (lap1 or lap2)
 		runPointer: 0,
+		runLaps: 1,
+		lastRunText: '',
 		overlayTick: 0,
 	};
 
-	window.__tasState = () => ( {
-		phase: state.phase,
-		lapsCompleted: state.lapsCompleted,
-		stepIndex: state.stepIndex,
-		inputsRecorded: state.buffer.length,
-		isLoop: ctx.isLoop,
-		pos: [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ],
-		yaw: ctx.vehicle.container.rotation.y,
-	} );
+	window.__tasState = () => {
+		const mp = ctx.vehicle.rigidBody?.motionProperties;
+		return {
+			phase: state.phase,
+			lapsCompleted: state.lapsCompleted,
+			started: state.started,
+			countdownActive: ctx.get.countdownActive(),
+			stepIndex: state.stepIndex,
+			inputsRecorded: state.lapBuffers.reduce( ( n, b ) => n + b.length, 0 ),
+			isLoop: ctx.isLoop,
+			pos: [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ],
+			vel: mp ? [ ...mp.linearVelocity ] : [ 0, 0, 0 ],
+			yaw: ctx.vehicle.container.rotation.y,
+		};
+	};
 
 	const post = ( type, payload ) => {
 
@@ -52,22 +63,56 @@ export function activate( ctx ) {
 
 	};
 
-	// ── TAS-only UI: hide the normal game HUD, keep ghost import/export ──
-	// TAS mode shows only the TAS overlay, plus the ghost import/export
-	// buttons so a TAS-produced ghost can be exported and shared.
+	// ── UI wipe: nothing except what TAS uses stays in the viewport ─────
+	const KEEP_SELECTOR = '#loading-screen, #countdown-hud, #export-ghost-btn, #import-ghost-btn, #tas-overlay';
+	const KEEP_IDS = new Set( [ 'loading-screen', 'countdown-hud', 'export-ghost-btn', 'import-ghost-btn', 'tas-overlay' ] );
 	const hideStyle = document.createElement( 'style' );
-	hideStyle.textContent = '#hud-grid, #lap-hud, #lap-hud-2, #home-landing, #replay-topbar,'
-		+ ' #editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link,'
-		+ ' #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link,'
-		+ ' #hacks-toggle, #hacks-panel, #split-link, #respawnBtn, #mode-menu-btn,'
-		+ ' #home-menu-btn, #car-select, #share-time-btn, #video-recorder-btn,'
-		+ ' #boost-ui, #boost-activate-btn, #economy-hud, #coins-label, #fps-hud,'
-		+ ' #adv-overlay, #adv-toast, #arc-link-ui, #campaign-progress,'
-		+ ' #campaign-info-btn, #effect-message, #top-message, #quick-menu,'
-		+ ' #default-car-select, #countdown-hud { display: none !important; }';
+	hideStyle.textContent = '.tas-hide { display: none !important; }';
 	document.head.appendChild( hideStyle );
+	const spine = new Set();
+	function markHidden( el ) {
 
-	// ── Cross-line state capture (DISPLAY ONLY — replays re-derive it) ──
+		if ( ! el || el.nodeType !== 1 ) return;
+		if ( el.tagName === 'CANVAS' ) return; // canvases are the game view, never UI
+		if ( spine.has( el ) || KEEP_IDS.has( el.id ) || el.closest( KEEP_SELECTOR ) ) return;
+		el.classList.add( 'tas-hide' );
+
+	}
+	function wipeUi() {
+
+		const canvases = document.querySelectorAll( 'canvas' );
+		if ( ! canvases.length ) return; // no canvas yet — static list only (safety)
+		spine.clear();
+		for ( const canvas of canvases ) {
+
+			spine.add( canvas );
+			for ( let el = canvas.parentElement; el && el !== document.body; el = el.parentElement ) spine.add( el );
+
+		}
+		for ( const el of document.querySelectorAll( 'body *' ) ) markHidden( el );
+
+	}
+	wipeUi();
+	// Late-added DOM (toasts, popups) gets hidden too — but only added nodes,
+	// so per-frame HUD text updates cost nothing.
+	new MutationObserver( ( mutations ) => {
+
+		for ( const m of mutations ) for ( const node of m.addedNodes ) {
+
+			if ( node.nodeType !== 1 ) continue;
+			if ( node.id === 'tas-overlay' ) continue;
+			markHidden( node );
+			for ( const child of node.querySelectorAll ? node.querySelectorAll( '*' ) : [] ) markHidden( child );
+
+		}
+
+	} ).observe( document.body, { childList: true, subtree: true } );
+
+	// First open needs its countdown too: main.js's own boot call runs before
+	// this module sets countdownEnabled, so start one here.
+	try { ctx.fns.startCountdown(); } catch ( e ) { /* retry()/R also start it */ }
+
+	// ── Crossing state capture / apply (FULL precision) ─────────────────
 	function captureCrossState() {
 
 		const v = ctx.vehicle;
@@ -81,11 +126,50 @@ export function activate( ctx ) {
 
 	}
 
-	// ── Script build / parse ──────────────────────────────────────────
-	function buildScript( buffer ) {
+	function applyCrossState( cs ) {
 
-		const lines = [ '# Skid Circuit TAS v4', `track: ${ ctx.trackId }`, 'mode: run' ];
-		for ( const entry of buffer ) lines.push( `step ${ entry.step } x=${ String( entry.x ) } z=${ String( entry.z ) }` );
+		if ( ! cs ) return;
+		const v = ctx.vehicle;
+		const body = v.rigidBody;
+		if ( body ) {
+
+			if ( ctx.rigidBodyApi.setPosition ) ctx.rigidBodyApi.setPosition( ctx.world, body, cs.pos, false );
+			if ( cs.vel && ctx.rigidBodyApi.setLinearVelocity ) ctx.rigidBodyApi.setLinearVelocity( ctx.world, body, cs.vel );
+			if ( cs.angvel && ctx.rigidBodyApi.setAngularVelocity ) ctx.rigidBodyApi.setAngularVelocity( ctx.world, body, cs.angvel );
+
+		}
+		v.spherePos.set( cs.pos[ 0 ], cs.pos[ 1 ], cs.pos[ 2 ] );
+		if ( cs.rot ) {
+
+			v.container.rotation.set( cs.rot[ 0 ], cs.rot[ 1 ], cs.rot[ 2 ] );
+			v.container.quaternion.setFromEuler( v.container.rotation );
+
+		}
+
+	}
+
+	// ── Script build / parse ──────────────────────────────────────────
+	function fmt( n ) { return String( n ); }
+
+	function buildScript() {
+
+		const lines = [ '# Skid Circuit TAS v6', `track: ${ ctx.trackId }`, 'mode: run' ];
+		if ( ctx.isLoop && state.crossState ) {
+
+			lines.push( `state: pos ${ state.crossState.pos.map( fmt ).join( ' ' ) }` );
+			lines.push( `state: vel ${ state.crossState.vel.map( fmt ).join( ' ' ) }` );
+			lines.push( `state: angvel ${ state.crossState.angvel.map( fmt ).join( ' ' ) }` );
+			lines.push( `state: rot ${ state.crossState.rot.map( fmt ).join( ' ' ) }` );
+
+		}
+		const lap1 = state.lapBuffers[ 0 ] || [];
+		for ( const entry of lap1 ) lines.push( `step ${ entry.step } x=${ fmt( entry.x ) } z=${ fmt( entry.z ) }` );
+		if ( ctx.isLoop ) {
+
+			lines.push( 'cross' );
+			for ( const entry of state.lapBuffers[ 1 ] || [] ) lines.push( `step ${ entry.step } x=${ fmt( entry.x ) } z=${ fmt( entry.z ) }` );
+
+		}
 		lines.push( 'end' );
 		return lines.join( '\n' );
 
@@ -93,15 +177,23 @@ export function activate( ctx ) {
 
 	function parseScript( text ) {
 
-		const script = { mode: 'run', crossState: null, entries: [], errors: [] };
+		const script = { mode: 'run', crossState: null, lap1: [], lap2: [], errors: [] };
 		const num = ( s ) => Number( s );
 		let lastStep = -1;
+		let inLap2 = false;
 		for ( const rawLine of String( text ).split( /\r?\n/ ) ) {
 
 			const line = rawLine.replace( /#.*$/, '' ).trim();
 			if ( ! line ) continue;
 			if ( line === 'end' ) break;
 			if ( line.startsWith( 'track:' ) || line.startsWith( 'Skid Circuit TAS' ) ) continue;
+			if ( line === 'cross' ) {
+
+				inLap2 = true;
+				lastStep = -1;
+				continue;
+
+			}
 			if ( line.startsWith( 'mode:' ) ) {
 
 				const mode = line.slice( 5 ).trim();
@@ -144,19 +236,22 @@ export function activate( ctx ) {
 					else script.errors.push( `bad token "${ part }" in: "${ line }"` );
 
 				}
-				script.entries.push( { step, x: clampInput( kv.x ), z: clampInput( kv.z ) } );
+				const entry = { step, x: clampInput( kv.x ), z: clampInput( kv.z ) };
+				( inLap2 ? script.lap2 : script.lap1 ).push( entry );
 				continue;
 
 			}
 			script.errors.push( `unrecognized line: "${ line }"` );
 
 		}
-		if ( ! script.entries.length ) script.errors.push( 'no step lines' );
+		// legacy 'lap2' scripts carry the lap-2 timeline only
+		if ( script.mode === 'lap2' && script.lap2.length === 0 && script.lap1.length ) script.lap2 = script.lap1, script.lap1 = [];
 		if ( script.mode === 'lap2' && ( ! script.crossState?.pos || ! script.crossState?.vel ) ) {
 
-			script.errors.push( 'legacy lap2 scripts need "state: pos" and "state: vel" lines' );
+			script.errors.push( 'lap2 scripts need "state: pos" and "state: vel" lines' );
 
 		}
+		if ( ! script.lap1.length && ! script.lap2.length ) script.errors.push( 'no step lines' );
 		return script;
 
 	}
@@ -165,7 +260,8 @@ export function activate( ctx ) {
 
 	function scriptInputAt( i ) {
 
-		const entries = state.runScript.entries;
+		const entries = state.runEntries;
+		if ( ! entries || ! entries.length ) return zeroInput();
 		while ( state.runPointer < entries.length - 1 && entries[ state.runPointer + 1 ].step <= i ) state.runPointer ++;
 		const e = entries[ state.runPointer ];
 		return e && e.step <= i ? { x: e.x, z: e.z } : zeroInput();
@@ -179,11 +275,24 @@ export function activate( ctx ) {
 
 		if ( state.phase === 'record' ) {
 
-			// Recording starts on the very first sim step — no arming, no
-			// countdown. Every step is recorded; RLE collapses repeats.
+			if ( ! state.started ) {
+
+				// Countdown: timer stays at 0, steps stay at 0, nothing is
+				// recorded until the countdown has fully ended.
+				if ( ctx.get.countdownActive() ) {
+
+					if ( state.overlayTick % 6 === 0 ) updateOverlay();
+					return input;
+
+				}
+				state.started = true;
+				state.stepIndex = 0;
+
+			}
+			const buffer = state.lapBuffers[ state.lapBuffers.length - 1 ];
 			if ( state.lastRecorded === null || state.lastRecorded.x !== input.x || state.lastRecorded.z !== input.z ) {
 
-				state.buffer.push( { step: state.stepIndex, x: input.x, z: input.z } );
+				buffer.push( { step: state.stepIndex, x: input.x, z: input.z } );
 				state.lastRecorded = { x: input.x, z: input.z };
 
 			}
@@ -195,8 +304,6 @@ export function activate( ctx ) {
 
 		if ( state.phase === 'run' && state.runScript ) {
 
-			// Injection starts on the very first sim step after respawn —
-			// the mirror of the recorder's start.
 			const scripted = scriptInputAt( state.stepIndex );
 			state.stepIndex ++;
 			if ( state.overlayTick % 6 === 0 ) updateOverlay();
@@ -218,10 +325,19 @@ export function activate( ctx ) {
 
 		if ( state.phase === 'run' ) {
 
-			if ( state.lapsCompleted < lapsNeeded ) {
+			if ( state.lapsCompleted < state.runLaps ) {
 
-				// Loop track, lap 1 of the replay done — keep injecting the
-				// same flat timeline; lap 2 emerges from the re-derived state.
+				// Crossing into the timed lap: hard-apply the recorded
+				// crossing state (pos/vel/angvel/rot) so lap 2 starts
+				// EXACTLY as recorded, no matter how lap 1 drifted.
+				if ( state.lapsCompleted === 1 && state.runScript.lap2.length ) {
+
+					if ( state.runScript.crossState ) applyCrossState( state.runScript.crossState );
+					state.runEntries = state.runScript.lap2;
+					state.runPointer = 0;
+					state.stepIndex = 0;
+
+				}
 				ctx.tasBeginNextLap();
 				updateOverlay();
 				return;
@@ -238,19 +354,21 @@ export function activate( ctx ) {
 
 		if ( state.lapsCompleted < lapsNeeded ) {
 
-			// Loop track, lap 1 recorded: rolling straight into lap 2 — the
-			// cross state is captured for display only; the replay re-derives
-			// it by replaying lap 1's inputs (no rounding, no snapshots).
+			// Loop track, lap 1 done: NO countdown — roll straight into lap 2,
+			// capture the flying-start state at full precision for the script.
 			state.crossState = captureCrossState();
 			ctx.tasBeginNextLap();
+			state.lapBuffers.push( [] );
+			state.stepIndex = 0;
+			state.lastRecorded = null;
 			post( 'tas-lap-cross', { lap: 1, lapSeconds: round6( lapSeconds ) } );
 			updateOverlay();
 			return;
 
 		}
 
-		// Recording complete: hand the flat script to the editor.
-		const script = buildScript( state.buffer );
+		// Recording complete: hand the full script (both laps) to the editor.
+		const script = buildScript();
 		const stepCount = state.stepIndex;
 		state.phase = 'done';
 		ctx.tasBeginNextLap();
@@ -267,17 +385,20 @@ export function activate( ctx ) {
 
 	function round6( n ) { return Number( n.toFixed( 6 ) ); }
 
-	// ── Parent commands ────────────────────────────────────────────────
+	// ── Parent commands + R restart ─────────────────────────────────────
 	function resetState( phase ) {
 
 		state.phase = phase;
+		state.started = false;
 		state.stepIndex = 0;
 		state.lastRecorded = null;
 		state.lapsCompleted = 0;
-		state.buffer = [];
+		state.lapBuffers = [ [] ];
 		state.crossState = null;
 		state.runScript = null;
+		state.runEntries = null;
 		state.runPointer = 0;
+		state.runLaps = 1;
 
 	}
 
@@ -285,6 +406,7 @@ export function activate( ctx ) {
 
 		resetState( 'record' );
 		ctx.fns.respawnVehicle();
+		ctx.fns.startCountdown();
 		post( 'tas-retry-started', {} );
 		updateOverlay();
 
@@ -299,35 +421,29 @@ export function activate( ctx ) {
 			return;
 
 		}
+		state.lastRunText = text;
 		resetState( 'run' );
-		script.legacy = script.mode !== 'run';
 		state.runScript = script;
+		state.started = true;
+		state.stepIndex = 0;
 		ctx.fns.respawnVehicle();
-		if ( script.mode === 'lap2' && script.crossState ) applyLegacyCrossState( script.crossState );
-		post( 'tas-run-started', { mode: script.mode, steps: script.entries.length } );
+		if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown(); // runs start NOW, no countdown
+		// Lap-2-only scripts (legacy 'lap2' or hand-edited): start AT the
+		// recorded crossing state. Otherwise replay lap 1 from spawn first.
+		if ( script.lap2.length && ! script.lap1.length ) {
+
+			applyCrossState( script.crossState );
+			state.runEntries = script.lap2;
+			state.runLaps = 1;
+
+		} else {
+
+			state.runEntries = script.lap1;
+			state.runLaps = ( ctx.isLoop && script.mode === 'run' && ! script.crossState ) || ( script.lap1.length && script.lap2.length ) ? 2 : 1;
+
+		}
+		post( 'tas-run-started', { mode: script.mode, steps: script.lap1.length + script.lap2.length } );
 		updateOverlay();
-
-	}
-
-	// Legacy lap1/lap2 snapshot scripts only — never used by mode: run.
-	function applyLegacyCrossState( cs ) {
-
-		const v = ctx.vehicle;
-		const body = v.rigidBody;
-		if ( body ) {
-
-			if ( ctx.rigidBodyApi.setPosition ) ctx.rigidBodyApi.setPosition( ctx.world, body, cs.pos, false );
-			if ( cs.vel && ctx.rigidBodyApi.setLinearVelocity ) ctx.rigidBodyApi.setLinearVelocity( ctx.world, body, cs.vel );
-			if ( cs.angvel && ctx.rigidBodyApi.setAngularVelocity ) ctx.rigidBodyApi.setAngularVelocity( ctx.world, body, cs.angvel );
-
-		}
-		v.spherePos.set( cs.pos[ 0 ], cs.pos[ 1 ], cs.pos[ 2 ] );
-		if ( cs.rot ) {
-
-			v.container.rotation.set( cs.rot[ 0 ], cs.rot[ 1 ], cs.rot[ 2 ] );
-			v.container.quaternion.setFromEuler( v.container.rotation );
-
-		}
 
 	}
 
@@ -341,6 +457,19 @@ export function activate( ctx ) {
 
 	} );
 
+	// R = restart. Recording (or done): fresh countdown + fresh recording —
+	// steps stay frozen until the countdown finishes. During a run: restart
+	// the replay instantly. Plain R only (no Ctrl/Cmd/etc).
+	window.addEventListener( 'keydown', ( event ) => {
+
+		if ( event.code !== 'KeyR' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ) return;
+		event.preventDefault();
+		event.stopPropagation();
+		if ( state.phase === 'run' && state.lastRunText ) run( state.lastRunText );
+		else retry();
+
+	}, true );
+
 	// ── Overlay (TAS-only timing UI, full precision) ─────────────────────
 	const overlay = document.createElement( 'div' );
 	overlay.id = 'tas-overlay';
@@ -351,7 +480,8 @@ export function activate( ctx ) {
 
 	function updateOverlay() {
 
-		const phaseLabel = state.phase === 'record' ? 'REC' : state.phase === 'run' ? 'RUN' : 'DONE';
+		const phaseLabel = state.phase === 'record' ? ( state.started ? 'REC' : 'COUNTDOWN' )
+			: state.phase === 'run' ? 'RUN' : 'DONE';
 		const lapLabel = ctx.isLoop ? `LOOP · lap ${ state.lapsCompleted + 1 }/${ lapsNeeded }`
 			: 'NON-LOOP · 1 lap';
 		overlay.textContent = `TAS ${ phaseLabel } · ${ lapLabel }`

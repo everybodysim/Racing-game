@@ -14170,15 +14170,14 @@ function completeCampaignStage() {
 	// vehicle/world hooks. All glue below only runs in TAS mode.
 	if ( new URLSearchParams( location.search ).get( 'tas' ) === '1' ) {
 
-		// TAS has NO countdown: recording and replay both start on the very
-		// first sim step, so the flat input timeline is step-for-step
-		// symmetric. (startCountdown() no-ops with this disabled, including
-		// the boot call and lap-transition calls.)
-		countdownEnabled = false;
+		// TAS RECORDING sessions get the pre-lap countdown (fingers-on-keys
+		// time before the timer starts; R / Try again restart it). Replays
+		// start instantly instead — they inject their own first step.
+		countdownEnabled = true;
 
 		try {
 
-			const tasModule = await import( './TASMode.js?v=4' );
+			const tasModule = await import( './TASMode.js?v=7' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
@@ -14186,7 +14185,7 @@ function completeCampaignStage() {
 				isLoop: tasIsLoop,
 				trackId: location.search.replace( /(^|[?&])tas=1&?/, '' ),
 				vehicle, world, rigidBodyApi: rigidBody,
-				fns: { startCountdown, respawnVehicle },
+				fns: { startCountdown, respawnVehicle, cancelCountdown: () => { countdownActive = false; countdownEndsAt = 0; updateCountdownHud( raceClockSeconds ); } },
 				tasBeginNextLap,
 				get: {
 					raceClock: () => raceClockSeconds,
