@@ -1,22 +1,19 @@
 // js/TASMode.js — game-side TAS mode (?tas=1), see docs/tas-editor-plan.md.
 // Only loaded when ?tas=1 is in the game URL; normal gameplay never imports
-// this module and NO game runtime file changes for TAS behavior.
+// this module. The TAS region in main.js sets countdownEnabled=false so
+// startCountdown() no-ops everywhere in TAS mode — recording and replay
+// both start on the very first sim step. No arming, no waiting.
 //
-// DETERMINISM CORE: record and replay run the SAME event sequence:
-//   1. activate() starts the pre-lap countdown on first boot (TAS always
-//      gets a countdown, including the very first open);
-//   2. both sessions arm at the FIRST countdown step and use ONE flat
-//      per-step input timeline with a global step counter — loop tracks
-//      roll straight into lap 2 with continuous steps (lap crossings
-//      emerge from physics; nothing is snapshotted or rounded);
-//   3. values are stored at full precision (String(n), no 4-decimal
-//      rounding), so a replay of your lap re-derives lap 2 instead of
-//      restoring a lossy cross-line state.
-// Legacy 'lap1'/'lap2' snapshot scripts (recorded before this version)
-// still parse and run with their old instant-inject behavior.
+// DETERMINISM CORE: one flat per-step input timeline with a global step
+// counter. Record: step 0 = first sim step after boot/retry. Replay:
+// step 0 = first sim step after respawn. Loop tracks roll straight into
+// lap 2 with CONTINUOUS steps — the replay re-derives the flying start by
+// replaying lap 1's inputs (nothing is snapshotted or rounded). Values
+// are stored at full precision (String(n)).
+// Legacy 'lap1'/'lap2' snapshot scripts (pre-flat-timeline) still parse
+// and run with their old instant-inject + crossState-restore behavior.
 
 const TAS_STEP_HZ = 60;
-const ARM_FALLBACK_STEPS = 5; // if no countdown ever runs, arm anyway
 
 function zeroInput() { return { x: 0, z: 0 }; }
 
@@ -29,9 +26,7 @@ export function activate( ctx ) {
 
 	const state = {
 		phase: 'record',           // record | run | done
-		started: false,            // armed at the FIRST countdown step
-		preArmSteps: 0,            // steps seen before arming (fallback only)
-		stepIndex: 0,              // global step counter since arm
+		stepIndex: 0,              // global step counter since session start
 		lastRecorded: null,
 		lapsCompleted: 0,
 		buffer: [],                // ONE flat RLE buffer of {step, x, z}
@@ -44,7 +39,6 @@ export function activate( ctx ) {
 	window.__tasState = () => ( {
 		phase: state.phase,
 		lapsCompleted: state.lapsCompleted,
-		started: state.started,
 		stepIndex: state.stepIndex,
 		inputsRecorded: state.buffer.length,
 		isLoop: ctx.isLoop,
@@ -58,9 +52,9 @@ export function activate( ctx ) {
 
 	};
 
-	// ── TAS-only UI: hide the normal game HUD, keep countdown + ghosts ──
-	// TAS mode should show only the TAS overlay (plus the ghost import /
-	// export buttons, so a TAS-produced ghost can be exported and shared).
+	// ── TAS-only UI: hide the normal game HUD, keep ghost import/export ──
+	// TAS mode shows only the TAS overlay, plus the ghost import/export
+	// buttons so a TAS-produced ghost can be exported and shared.
 	const hideStyle = document.createElement( 'style' );
 	hideStyle.textContent = '#hud-grid, #lap-hud, #lap-hud-2, #home-landing, #replay-topbar,'
 		+ ' #editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link,'
@@ -70,13 +64,8 @@ export function activate( ctx ) {
 		+ ' #boost-ui, #boost-activate-btn, #economy-hud, #coins-label, #fps-hud,'
 		+ ' #adv-overlay, #adv-toast, #arc-link-ui, #campaign-progress,'
 		+ ' #campaign-info-btn, #effect-message, #top-message, #quick-menu,'
-		+ ' #default-car-select { display: none !important; }';
+		+ ' #default-car-select, #countdown-hud { display: none !important; }';
 	document.head.appendChild( hideStyle );
-
-	// TAS boots straight into the race WITH a countdown — including the
-	// very first open. The countdown is also the arm point for recording
-	// and replay, so both start from the same settled spawn state.
-	try { ctx.fns.startCountdown(); } catch ( e ) { /* run()/retry() start it too */ }
 
 	// ── Cross-line state capture (DISPLAY ONLY — replays re-derive it) ──
 	function captureCrossState() {
@@ -95,7 +84,7 @@ export function activate( ctx ) {
 	// ── Script build / parse ──────────────────────────────────────────
 	function buildScript( buffer ) {
 
-		const lines = [ '# Skid Circuit TAS v3', `track: ${ ctx.trackId }`, 'mode: run' ];
+		const lines = [ '# Skid Circuit TAS v4', `track: ${ ctx.trackId }`, 'mode: run' ];
 		for ( const entry of buffer ) lines.push( `step ${ entry.step } x=${ String( entry.x ) } z=${ String( entry.z ) }` );
 		lines.push( 'end' );
 		return lines.join( '\n' );
@@ -186,36 +175,12 @@ export function activate( ctx ) {
 	// ── Per-step hook (called from runSimulationStep after pad modifiers) ──
 	function step( input ) {
 
-		const countdownActive = ctx.get.countdownActive();
 		state.overlayTick ++;
 
 		if ( state.phase === 'record' ) {
 
-			// Arm at the FIRST countdown step — a replay arms at the exact
-			// same step of its own countdown, so both sessions run the
-			// same event sequence from the same settled spawn state.
-			if ( ! state.started ) {
-
-				if ( countdownActive ) {
-
-					state.started = true;
-					state.stepIndex = 0;
-
-				} else if ( ++ state.preArmSteps >= ARM_FALLBACK_STEPS ) {
-
-					// No countdown is running at all (broken start) — arm
-					// anyway so recording never locks up.
-					state.started = true;
-					state.stepIndex = 0;
-
-				} else {
-
-					if ( state.overlayTick % 6 === 0 ) updateOverlay();
-					return input;
-
-				}
-
-			}
+			// Recording starts on the very first sim step — no arming, no
+			// countdown. Every step is recorded; RLE collapses repeats.
 			if ( state.lastRecorded === null || state.lastRecorded.x !== input.x || state.lastRecorded.z !== input.z ) {
 
 				state.buffer.push( { step: state.stepIndex, x: input.x, z: input.z } );
@@ -230,27 +195,8 @@ export function activate( ctx ) {
 
 		if ( state.phase === 'run' && state.runScript ) {
 
-			if ( ! state.runScript.legacy && ! state.started ) {
-
-				// Mirror the recorder's arm logic exactly.
-				if ( countdownActive ) {
-
-					state.started = true;
-					state.stepIndex = 0;
-
-				} else if ( ++ state.preArmSteps >= ARM_FALLBACK_STEPS ) {
-
-					state.started = true;
-					state.stepIndex = 0;
-
-				} else {
-
-					if ( state.overlayTick % 6 === 0 ) updateOverlay();
-					return zeroInput();
-
-				}
-
-			}
+			// Injection starts on the very first sim step after respawn —
+			// the mirror of the recorder's start.
 			const scripted = scriptInputAt( state.stepIndex );
 			state.stepIndex ++;
 			if ( state.overlayTick % 6 === 0 ) updateOverlay();
@@ -325,8 +271,6 @@ export function activate( ctx ) {
 	function resetState( phase ) {
 
 		state.phase = phase;
-		state.started = false;
-		state.preArmSteps = 0;
 		state.stepIndex = 0;
 		state.lastRecorded = null;
 		state.lapsCompleted = 0;
@@ -341,7 +285,6 @@ export function activate( ctx ) {
 
 		resetState( 'record' );
 		ctx.fns.respawnVehicle();
-		ctx.fns.startCountdown();
 		post( 'tas-retry-started', {} );
 		updateOverlay();
 
@@ -361,14 +304,6 @@ export function activate( ctx ) {
 		state.runScript = script;
 		ctx.fns.respawnVehicle();
 		if ( script.mode === 'lap2' && script.crossState ) applyLegacyCrossState( script.crossState );
-		if ( script.legacy ) {
-
-			// Legacy snapshot scripts behave exactly as they did before
-			// v3: inject immediately from step 0, no countdown.
-			state.started = true;
-			state.stepIndex = 0;
-
-		} else ctx.fns.startCountdown();
 		post( 'tas-run-started', { mode: script.mode, steps: script.entries.length } );
 		updateOverlay();
 
@@ -416,8 +351,7 @@ export function activate( ctx ) {
 
 	function updateOverlay() {
 
-		const phaseLabel = state.phase === 'record' ? ( state.started ? 'REC' : 'ARM' )
-			: state.phase === 'run' ? 'RUN' : 'DONE';
+		const phaseLabel = state.phase === 'record' ? 'REC' : state.phase === 'run' ? 'RUN' : 'DONE';
 		const lapLabel = ctx.isLoop ? `LOOP · lap ${ state.lapsCompleted + 1 }/${ lapsNeeded }`
 			: 'NON-LOOP · 1 lap';
 		overlay.textContent = `TAS ${ phaseLabel } · ${ lapLabel }`

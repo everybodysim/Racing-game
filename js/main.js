@@ -14170,13 +14170,15 @@ function completeCampaignStage() {
 	// vehicle/world hooks. All glue below only runs in TAS mode.
 	if ( new URLSearchParams( location.search ).get( 'tas' ) === '1' ) {
 
-		// TAS needs its pre-lap countdown regardless of the player's normal
-		// countdown setting (fingers-on-keys time before the timer starts).
-		countdownEnabled = true;
+		// TAS has NO countdown: recording and replay both start on the very
+		// first sim step, so the flat input timeline is step-for-step
+		// symmetric. (startCountdown() no-ops with this disabled, including
+		// the boot call and lap-transition calls.)
+		countdownEnabled = false;
 
 		try {
 
-			const tasModule = await import( './TASMode.js?v=3' );
+			const tasModule = await import( './TASMode.js?v=4' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
