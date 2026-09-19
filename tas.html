@@ -109,6 +109,16 @@
 	const typeBadge = $( 'track-type' ), statusEl = $( 'status' ), popup = $( 'popup' );
 	const inputs = $( 'inputs' ), validation = $( 'validation' );
 	let lastScript = null;
+	let currentTrackUrl = null;
+
+	// Every record/replay session starts from a FRESH game frame: residual
+	// physics state (contact warm-start, broadphase tree) made replays drift
+	// ~1 ULP from recordings. A fresh boot is bit-identical for both.
+	function reloadGame() {
+
+		if ( currentTrackUrl ) loadTrack( currentTrackUrl );
+
+	}
 
 	function sendToGame( type, payload ) {
 
@@ -127,6 +137,7 @@
 		u.searchParams.set( 'nc', String( Date.now() ) );
 		frame.src = u.pathname === '/' || u.pathname.endsWith( '/' ) ? u.origin + u.pathname + 'index.html' + u.search : u.href;
 		validation.textContent = '';
+		currentTrackUrl = rawUrl;
 		urlScreen.style.display = 'none';
 		editor.classList.add( 'active' );
 		statusEl.textContent = 'booting track…';
@@ -186,14 +197,19 @@
 	$( 'retry-btn' ).addEventListener( 'click', () => {
 
 		popup.classList.remove( 'active' );
-		statusEl.textContent = 'countdown…';
-		sendToGame( 'tas-retry' );
+		statusEl.textContent = 'fresh boot — countdown…';
+		try { sessionStorage.removeItem( 'tas-pending-run' ); } catch ( e ) {}
+		reloadGame();
 
 	} );
 	$( 'run-btn' ).addEventListener( 'click', () => {
 
 		validation.textContent = '';
-		sendToGame( 'tas-run', { script: inputs.value } );
+		// Store the script and REBOOT the game frame — the replay then
+		// consumes it at init, before any sim step, so the replay session
+		// is state-for-state identical to a fresh recording boot.
+		try { sessionStorage.setItem( 'tas-pending-run', inputs.value ); } catch ( e ) {}
+		reloadGame();
 
 	} );
 	$( 'stop-btn' ).addEventListener( 'click', () => sendToGame( 'tas-stop' ) );

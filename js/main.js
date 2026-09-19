@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
+import { contacts, createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000227';
 import { createShadowProxyController } from './ShadowProxy.js?v=2';
 import { Camera } from './Camera.js';
@@ -11722,6 +11722,19 @@ function completeCampaignStage() {
 
 		autoRespawnAtSeconds = null;
 		vehicle.resetToSpawn();
+		// Determinism (TAS): crashcat keeps persistent contact records with
+		// warm-start impulses between steps; residue from the previous run
+		// made the resting microstate differ by ~1 ULP and replays slowly
+		// diverged. Wipe the car's contacts and wake the body so every
+		// respawn/recording/replay session starts from the exact same
+		// clean physics state. Normal respawns are unaffected (fresh
+		// contacts are re-created on the next step anyway).
+		if ( vehicle.rigidBody ) {
+
+			contacts.destroyBodyContacts( world.contacts, world.bodies, vehicle.rigidBody );
+			rigidBody.wake( world, vehicle.rigidBody );
+
+		}
 		resetMovingObstacles( movingObstacleState, raceClockSeconds );
 		cam.targetPosition.copy( vehicle.spherePos );
 		cam.camera.position.addVectors( cam.targetPosition, cam.offset );
@@ -13185,15 +13198,13 @@ function completeCampaignStage() {
 			// tab-away so sim time never outruns real time unboundedly.
 			simAccumulator += Math.min( frameSeconds, 0.25 );
 			let simSteps = Math.floor( simAccumulator / SIM_STEP_SECONDS );
-			if ( simSteps > 4 ) {
+			if ( simSteps > 10 ) {
 
-				// Slow frame: run at most 4 steps (1/15s — the pre-loop
-				// clamp) and DISCARD the leftover backlog. Retaining it
-				// fast-forwarded the next frames in 4-step bursts, so on
-				// hitchy low-fps machines the game visibly ran too fast
-				// for several frames after every hitch. Sim time can now
-				// never outrun real time within a burst.
-				simSteps = 4;
+				// Very slow frame (below ~6 FPS): run at most 10 steps
+				// (1/6s of sim) and DISCARD the leftover backlog — sim
+				// time can never outrun real time; frames slower than
+				// 1/6s lose the excess (tab-away, long freezes).
+				simSteps = 10;
 				simAccumulator = 0;
 
 			} else simAccumulator -= simSteps * SIM_STEP_SECONDS;
@@ -14178,7 +14189,7 @@ function completeCampaignStage() {
 
 		try {
 
-			const tasModule = await import( './TASMode.js?v=1' );
+			const tasModule = await import( './TASMode.js?v=2' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
