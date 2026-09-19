@@ -1,22 +1,22 @@
 // js/TASMode.js — game-side TAS mode (?tas=1), see docs/tas-editor-plan.md.
 // Only loaded when ?tas=1 is in the game URL; normal gameplay never imports
-// this module.
+// this module and NO game runtime file changes for TAS behavior.
 //
-// DETERMINISM CONTRACT (v2): a run is bit-identical to its recording because
-// record and replay execute the SAME state machine over the SAME events:
-//   1. every session (record or replay) starts with respawnVehicle() +
-//      startCountdown() — the canonical "settled spawn" state;
-//   2. the recorder arms at the FIRST countdown step and records a single
-//      flat per-step input timeline (global step counter, laps included —
-//      lap crossings emerge from physics, they are not scripted);
-//   3. a replay arms at the same first countdown step and injects that exact
-//      timeline step-for-step, zero-input before/after it;
-//   4. nothing is snapshotted or rounded on the replay path — the cross-line
-//      state of loop tracks is RE-DERIVED by replaying lap 1.
-// Legacy 'lap1'/'lap2' snapshot scripts still parse and run (best-effort),
-// but the recorder only emits 'mode: run' flat scripts.
+// DETERMINISM CORE: record and replay run the SAME event sequence:
+//   1. activate() starts the pre-lap countdown on first boot (TAS always
+//      gets a countdown, including the very first open);
+//   2. both sessions arm at the FIRST countdown step and use ONE flat
+//      per-step input timeline with a global step counter — loop tracks
+//      roll straight into lap 2 with continuous steps (lap crossings
+//      emerge from physics; nothing is snapshotted or rounded);
+//   3. values are stored at full precision (String(n), no 4-decimal
+//      rounding), so a replay of your lap re-derives lap 2 instead of
+//      restoring a lossy cross-line state.
+// Legacy 'lap1'/'lap2' snapshot scripts (recorded before this version)
+// still parse and run with their old instant-inject behavior.
 
 const TAS_STEP_HZ = 60;
+const ARM_FALLBACK_STEPS = 5; // if no countdown ever runs, arm anyway
 
 function zeroInput() { return { x: 0, z: 0 }; }
 
@@ -30,6 +30,7 @@ export function activate( ctx ) {
 	const state = {
 		phase: 'record',           // record | run | done
 		started: false,            // armed at the FIRST countdown step
+		preArmSteps: 0,            // steps seen before arming (fallback only)
 		stepIndex: 0,              // global step counter since arm
 		lastRecorded: null,
 		lapsCompleted: 0,
@@ -38,9 +39,6 @@ export function activate( ctx ) {
 		runScript: null,
 		runPointer: 0,
 		overlayTick: 0,
-		runId: 0,                  // bumped by run()/retry() — observers use
-		                           // it to detect a NEW session, not stale state
-		stream: [],                // {s, x, y, z, yaw} per step (probe/E2E)
 	};
 
 	window.__tasState = () => ( {
@@ -49,19 +47,36 @@ export function activate( ctx ) {
 		started: state.started,
 		stepIndex: state.stepIndex,
 		inputsRecorded: state.buffer.length,
-		runId: state.runId,
 		isLoop: ctx.isLoop,
 		pos: [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ],
 		yaw: ctx.vehicle.container.rotation.y,
 	} );
-
-	window.__tasStream = () => state.stream;
 
 	const post = ( type, payload ) => {
 
 		if ( window.parent && window.parent !== window ) window.parent.postMessage( { type, ...payload }, '*' );
 
 	};
+
+	// ── TAS-only UI: hide the normal game HUD, keep countdown + ghosts ──
+	// TAS mode should show only the TAS overlay (plus the ghost import /
+	// export buttons, so a TAS-produced ghost can be exported and shared).
+	const hideStyle = document.createElement( 'style' );
+	hideStyle.textContent = '#hud-grid, #lap-hud, #lap-hud-2, #home-landing, #replay-topbar,'
+		+ ' #editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link,'
+		+ ' #competitions-link, #replay-link, #tracks-link, #clubs-link, #mods-link,'
+		+ ' #hacks-toggle, #hacks-panel, #split-link, #respawnBtn, #mode-menu-btn,'
+		+ ' #home-menu-btn, #car-select, #share-time-btn, #video-recorder-btn,'
+		+ ' #boost-ui, #boost-activate-btn, #economy-hud, #coins-label, #fps-hud,'
+		+ ' #adv-overlay, #adv-toast, #arc-link-ui, #campaign-progress,'
+		+ ' #campaign-info-btn, #effect-message, #top-message, #quick-menu,'
+		+ ' #default-car-select { display: none !important; }';
+	document.head.appendChild( hideStyle );
+
+	// TAS boots straight into the race WITH a countdown — including the
+	// very first open. The countdown is also the arm point for recording
+	// and replay, so both start from the same settled spawn state.
+	try { ctx.fns.startCountdown(); } catch ( e ) { /* run()/retry() start it too */ }
 
 	// ── Cross-line state capture (DISPLAY ONLY — replays re-derive it) ──
 	function captureCrossState() {
@@ -78,12 +93,10 @@ export function activate( ctx ) {
 	}
 
 	// ── Script build / parse ──────────────────────────────────────────
-	function fmt( n ) { return String( n ); }
-
 	function buildScript( buffer ) {
 
-		const lines = [ '# Skid Circuit TAS v2', `track: ${ ctx.trackId }`, 'mode: run' ];
-		for ( const entry of buffer ) lines.push( `step ${ entry.step } x=${ fmt( entry.x ) } z=${ fmt( entry.z ) }` );
+		const lines = [ '# Skid Circuit TAS v3', `track: ${ ctx.trackId }`, 'mode: run' ];
+		for ( const entry of buffer ) lines.push( `step ${ entry.step } x=${ String( entry.x ) } z=${ String( entry.z ) }` );
 		lines.push( 'end' );
 		return lines.join( '\n' );
 
@@ -171,17 +184,6 @@ export function activate( ctx ) {
 	}
 
 	// ── Per-step hook (called from runSimulationStep after pad modifiers) ──
-	function probe() {
-
-		const v = ctx.vehicle;
-		state.stream.push( {
-			s: state.stepIndex,
-			x: v.spherePos.x, y: v.spherePos.y, z: v.spherePos.z,
-			yaw: v.container.rotation.y,
-		} );
-
-	}
-
 	function step( input ) {
 
 		const countdownActive = ctx.get.countdownActive();
@@ -189,9 +191,9 @@ export function activate( ctx ) {
 
 		if ( state.phase === 'record' ) {
 
-			// Arm at the FIRST countdown step — replay arms at the exact
-			// same step, so both sessions run an identical event sequence
-			// (respawn -> countdown steps -> drive) from identical state.
+			// Arm at the FIRST countdown step — a replay arms at the exact
+			// same step of its own countdown, so both sessions run the
+			// same event sequence from the same settled spawn state.
 			if ( ! state.started ) {
 
 				if ( countdownActive ) {
@@ -199,21 +201,28 @@ export function activate( ctx ) {
 					state.started = true;
 					state.stepIndex = 0;
 
+				} else if ( ++ state.preArmSteps >= ARM_FALLBACK_STEPS ) {
+
+					// No countdown is running at all (broken start) — arm
+					// anyway so recording never locks up.
+					state.started = true;
+					state.stepIndex = 0;
+
+				} else {
+
+					if ( state.overlayTick % 6 === 0 ) updateOverlay();
+					return input;
+
 				}
 
 			}
-			if ( state.started ) {
+			if ( state.lastRecorded === null || state.lastRecorded.x !== input.x || state.lastRecorded.z !== input.z ) {
 
-				probe();
-				if ( state.lastRecorded === null || state.lastRecorded.x !== input.x || state.lastRecorded.z !== input.z ) {
-
-					state.buffer.push( { step: state.stepIndex, x: input.x, z: input.z } );
-					state.lastRecorded = { x: input.x, z: input.z };
-
-				}
-				state.stepIndex ++;
+				state.buffer.push( { step: state.stepIndex, x: input.x, z: input.z } );
+				state.lastRecorded = { x: input.x, z: input.z };
 
 			}
+			state.stepIndex ++;
 			if ( state.overlayTick % 6 === 0 ) updateOverlay();
 			return input;
 
@@ -221,22 +230,27 @@ export function activate( ctx ) {
 
 		if ( state.phase === 'run' && state.runScript ) {
 
-			const legacy = state.runScript.legacy;
-			// Arm exactly like the recorder: on the arm step itself, fall
-			// through and inject step 0 (no one-step skew).
-			if ( ! legacy && ! state.started ) {
+			if ( ! state.runScript.legacy && ! state.started ) {
 
-				if ( ! countdownActive ) {
+				// Mirror the recorder's arm logic exactly.
+				if ( countdownActive ) {
+
+					state.started = true;
+					state.stepIndex = 0;
+
+				} else if ( ++ state.preArmSteps >= ARM_FALLBACK_STEPS ) {
+
+					state.started = true;
+					state.stepIndex = 0;
+
+				} else {
 
 					if ( state.overlayTick % 6 === 0 ) updateOverlay();
 					return zeroInput();
 
 				}
-				state.started = true;
-				state.stepIndex = 0;
 
 			}
-			probe();
 			const scripted = scriptInputAt( state.stepIndex );
 			state.stepIndex ++;
 			if ( state.overlayTick % 6 === 0 ) updateOverlay();
@@ -260,6 +274,8 @@ export function activate( ctx ) {
 
 			if ( state.lapsCompleted < lapsNeeded ) {
 
+				// Loop track, lap 1 of the replay done — keep injecting the
+				// same flat timeline; lap 2 emerges from the re-derived state.
 				ctx.tasBeginNextLap();
 				updateOverlay();
 				return;
@@ -276,9 +292,9 @@ export function activate( ctx ) {
 
 		if ( state.lapsCompleted < lapsNeeded ) {
 
-			// Loop track, lap 1 done: rolling straight into lap 2 — the
-			// cross state is captured for display only; the replay does NOT
-			// restore it (it re-derives it by replaying lap 1's inputs).
+			// Loop track, lap 1 recorded: rolling straight into lap 2 — the
+			// cross state is captured for display only; the replay re-derives
+			// it by replaying lap 1's inputs (no rounding, no snapshots).
 			state.crossState = captureCrossState();
 			ctx.tasBeginNextLap();
 			post( 'tas-lap-cross', { lap: 1, lapSeconds: round6( lapSeconds ) } );
@@ -310,6 +326,7 @@ export function activate( ctx ) {
 
 		state.phase = phase;
 		state.started = false;
+		state.preArmSteps = 0;
 		state.stepIndex = 0;
 		state.lastRecorded = null;
 		state.lapsCompleted = 0;
@@ -317,14 +334,12 @@ export function activate( ctx ) {
 		state.crossState = null;
 		state.runScript = null;
 		state.runPointer = 0;
-		state.stream = [];
 
 	}
 
 	function retry() {
 
 		resetState( 'record' );
-		state.runId ++;
 		ctx.fns.respawnVehicle();
 		ctx.fns.startCountdown();
 		post( 'tas-retry-started', {} );
@@ -342,13 +357,18 @@ export function activate( ctx ) {
 
 		}
 		resetState( 'run' );
-		state.runId ++;
 		script.legacy = script.mode !== 'run';
 		state.runScript = script;
 		ctx.fns.respawnVehicle();
 		if ( script.mode === 'lap2' && script.crossState ) applyLegacyCrossState( script.crossState );
-		if ( script.legacy ) state.started = true; // legacy: inject from step 0
-		else ctx.fns.startCountdown();
+		if ( script.legacy ) {
+
+			// Legacy snapshot scripts behave exactly as they did before
+			// v3: inject immediately from step 0, no countdown.
+			state.started = true;
+			state.stepIndex = 0;
+
+		} else ctx.fns.startCountdown();
 		post( 'tas-run-started', { mode: script.mode, steps: script.entries.length } );
 		updateOverlay();
 
@@ -386,41 +406,29 @@ export function activate( ctx ) {
 
 	} );
 
-	// ── Overlay (TAS-only timing UI) ───────────────────────────────────
+	// ── Overlay (TAS-only timing UI, full precision) ─────────────────────
 	const overlay = document.createElement( 'div' );
 	overlay.id = 'tas-overlay';
 	overlay.style.cssText = 'position:fixed;top:10px;left:10px;z-index:99999;pointer-events:none;'
-		+ 'font:600 12px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#fff;'
+		+ 'font:600 12px/1.6 ui-monospace,Menlo,Consolas,monospace;color:#fff;'
 		+ 'background:rgba(0,0,0,0.55);padding:6px 10px;border-radius:6px;white-space:pre;';
 	document.body.appendChild( overlay );
 
 	function updateOverlay() {
 
-		const phaseLabel = state.phase === 'record' ? 'REC'
+		const phaseLabel = state.phase === 'record' ? ( state.started ? 'REC' : 'ARM' )
 			: state.phase === 'run' ? 'RUN' : 'DONE';
 		const lapLabel = ctx.isLoop ? `LOOP · lap ${ state.lapsCompleted + 1 }/${ lapsNeeded }`
 			: 'NON-LOOP · 1 lap';
 		overlay.textContent = `TAS ${ phaseLabel } · ${ lapLabel }`
 			+ `\nstep ${ state.stepIndex } (${ TAS_STEP_HZ } Hz)`
+			+ `\nlap ${ ( ctx.get.lapSeconds() || 0 ).toFixed( 6 ) }s`
 			+ `\nsim ${ ctx.get.raceClock().toFixed( 2 ) }s`;
 
 	}
 	updateOverlay();
 
 	post( 'tas-ready', { isLoop: ctx.isLoop, trackId: ctx.trackId, stepHz: TAS_STEP_HZ } );
-
-	// Replay boot: tas.html stores a pending script in sessionStorage and
-	// reloads this frame. Consuming it HERE — synchronously at init, before
-	// the first sim step — makes the replay session state-for-state
-	// identical to a fresh recording boot (same spawn, same fresh physics
-	// world, same countdown, movers anchored at raceClock 0).
-	try {
-
-		const pending = sessionStorage.getItem( 'tas-pending-run' );
-		sessionStorage.removeItem( 'tas-pending-run' );
-		if ( pending ) run( pending );
-
-	} catch ( e ) { /* storage unavailable — in-page run still works */ }
 
 	return { step, onLapComplete };
 
