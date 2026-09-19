@@ -387,9 +387,16 @@ export function activate( ctx ) {
 	}
 
 	// ── Lap cross hook (replaces the normal lap-transition block in TAS) ──
-	function onLapComplete() {
+	function onLapComplete( crossT = 1 ) {
 
-		const lapSeconds = ctx.get.lapSeconds();
+		// Sub-step precision: the finish plane is crossed PARTWAY through the
+		// final step (crossT = interpolation fraction between the last two
+		// samples). The raw sim clock only advances in 1/60s quanta, so the
+		// recorded time must subtract the un-simulated remainder of that step:
+		// lapSeconds_precise = stepClock - (1 - crossT) / 60. Without this,
+		// every lap time is a multiple of 1/60 (~16.7ms) and the displayed
+		// decimals are fake — the brute forcer could never see sub-step wins.
+		const lapSeconds = ctx.get.lapSeconds() - ( 1 - crossT ) / TAS_STEP_HZ;
 		state.lapsCompleted ++;
 
 		if ( state.phase === 'run' ) {

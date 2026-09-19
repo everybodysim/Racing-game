@@ -13812,6 +13812,7 @@ function completeCampaignStage() {
 			}
 
 			let crossedFinish = false;
+			let crossedAtT = 1; // TAS: fraction inside the step where the plane was crossed
 
 			if ( hasPrevFinishSample ) {
 
@@ -13824,6 +13825,7 @@ function completeCampaignStage() {
 					const t = z0 / ( z0 - z1 );
 					const xCross = THREE.MathUtils.lerp( lastLocalX, localX, t );
 					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent;
+					if ( crossedFinish ) crossedAtT = t;
 
 				}
 
@@ -13831,7 +13833,7 @@ function completeCampaignStage() {
 
 			const allCheckpointsPassed = checkpointStates.every( ( checkpoint ) => checkpoint.passedThisLap );
 			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
-				if ( tasMode ) { tasMode.onLapComplete(); }
+				if ( tasMode ) { tasMode.onLapComplete( crossedAtT ); }
 				else {
 
 					// Schedule the respawn BEFORE the share-snapshot / leaderboard
@@ -14180,7 +14182,7 @@ function completeCampaignStage() {
 
 		try {
 
-			const tasModule = await import( './TASMode.js?v=13' );
+			const tasModule = await import( './TASMode.js?v=14' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
