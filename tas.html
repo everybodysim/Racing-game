@@ -83,7 +83,7 @@
 			<div id="validation"></div>
 			<div class="row" style="align-items:center;gap:6px;font-size:12px;color:#8b949e;">
 				<input type="checkbox" id="play-lap1" style="margin:0;">
-				<label for="play-lap1">Play lap 1 first (loop tracks) — off = jump straight to lap 2</label>
+				<label for="play-lap1">Play lap 1 in real time — off = super-fast-simulate lap 1, then run lap 2</label>
 			</div>
 			<div class="row">
 				<button id="run-btn">Run inputs ▶</button>
@@ -162,7 +162,7 @@
 				break;
 			}
 			case 'tas-run-started':
-				statusEl.textContent = ( data.skipLap1 ? 'running lap 2 from the recorded line-crossing state' : 'replaying lap 1 (countdown), then lap 2' ) + ' — ' + data.steps + ' steps…';
+				statusEl.textContent = ( data.skipLap1 ? ( data.fastForwarded ? 'lap 1 simulated super-fast — running lap 2' : 'running lap 2 from the recorded line-crossing state' ) : 'replaying lap 1 (countdown), then lap 2' ) + ' — ' + data.steps + ' steps…';
 				$( 't-run' ).textContent = 'running…';
 				break;
 			case 'tas-run-complete':

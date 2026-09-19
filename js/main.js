@@ -13249,6 +13249,9 @@ function completeCampaignStage() {
 			const input2 = controls2 ? ( modeMenuOpen || replayViewerMode || countdownActive ? ZERO_DRIVE_INPUT : controls2.update() ) : null;
 			let padAdjustedInput = applyPadInputModifiers( input, activePadEffect );
 			if ( tasMode ) padAdjustedInput = tasMode.step( padAdjustedInput );
+			// TAS fast-forward: expose this raw sim step to TASMode once, so
+			// skip runs can synchronously burst-simulate lap 1.
+			if ( tasMode && ! window.__tasStepOnce ) window.__tasStepOnce = runSimulationStep;
 			if ( customModNoSteerUntil > now ) padAdjustedInput = { ...padAdjustedInput, x: 0 };
 			if ( customModForceBrakeUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: - 1 };
 			if ( customModForceThrottleUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: 1 };
@@ -14177,7 +14180,7 @@ function completeCampaignStage() {
 
 		try {
 
-			const tasModule = await import( './TASMode.js?v=9' );
+			const tasModule = await import( './TASMode.js?v=11' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
@@ -14185,13 +14188,46 @@ function completeCampaignStage() {
 				isLoop: tasIsLoop,
 				trackId: location.search.replace( /(^|[?&])tas=1&?/, '' ),
 				vehicle, world, rigidBodyApi: rigidBody,
-				fns: { startCountdown, respawnVehicle, cancelCountdown: () => { countdownActive = false; countdownEndsAt = 0; updateCountdownHud( raceClockSeconds ); } },
+				fns: {
+					startCountdown,
+					respawnVehicle,
+					// Super-fast lap-1 simulation for TAS skip runs: one raw
+					// sim step (registered by the TAS hook inside animate).
+					stepOnce: () => window.__tasStepOnce && window.__tasStepOnce(),
+					cancelCountdown: () => { countdownActive = false; countdownEndsAt = 0; updateCountdownHud( raceClockSeconds ); },
+					// Skip-mode runs must re-enter lap 2 carrying the SAME
+					// gameplay state the recording had at the line crossing:
+					// respawn zeroes all of this, but tasBeginNextLap (the
+					// record's own lap boundary) deliberately does NOT.
+					restoreGameState: ( snap ) => {
+						boostActiveUntil = raceClockSeconds + ( snap.boostRemaining || 0 );
+						if ( snap.boostContactCell !== undefined ) boostContactCell = snap.boostContactCell;
+						if ( snap.arcLinkState ) arcLinkState = snap.arcLinkState;
+						if ( snap.activePadEffect !== undefined ) activePadEffect = snap.activePadEffect;
+						if ( snap.activePadTimeScale !== undefined ) activePadTimeScale = snap.activePadTimeScale;
+						if ( snap.padContactKey !== undefined ) padContactKey = snap.padContactKey;
+						if ( typeof snap.vehicleLinearSpeed === 'number' ) vehicle.linearSpeed = snap.vehicleLinearSpeed;
+						if ( typeof snap.vehicleAngularSpeed === 'number' ) vehicle.angularSpeed = snap.vehicleAngularSpeed;
+						if ( typeof snap.vehicleAcceleration === 'number' ) vehicle.acceleration = snap.vehicleAcceleration;
+					},
+				},
 				tasBeginNextLap,
 				get: {
 					raceClock: () => raceClockSeconds,
 					lapStart: () => lapStartSeconds,
 					lapSeconds: () => lapSeconds,
 					countdownActive: () => countdownActive,
+					gameState: () => ( {
+						boostRemaining: Math.max( 0, boostActiveUntil - raceClockSeconds ),
+						boostContactCell,
+						arcLinkState: { ...arcLinkState },
+						activePadEffect,
+						activePadTimeScale,
+						padContactKey,
+						vehicleLinearSpeed: vehicle.linearSpeed,
+						vehicleAngularSpeed: vehicle.angularSpeed,
+						vehicleAcceleration: vehicle.acceleration,
+					} ),
 				},
 			} );
 

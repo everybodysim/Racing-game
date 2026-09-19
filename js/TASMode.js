@@ -32,6 +32,7 @@ export function activate( ctx ) {
 
 	const state = {
 		phase: 'record',           // record | run | done
+		fastForward: false,        // true during the synchronous lap-1 burst
 		wipeFails: 0,
 		started: false,            // true once the countdown has ended
 		stepIndex: 0,              // per-lap step counter
@@ -153,6 +154,10 @@ export function activate( ctx ) {
 			vel: mp ? [ ...mp.linearVelocity ] : [ 0, 0, 0 ],
 			angvel: mp ? [ ...mp.angularVelocity ] : [ 0, 0, 0 ],
 			rot: [ v.container.rotation.x, v.container.rotation.y, v.container.rotation.z ],
+			// Gameplay state the record carries across the line but respawn
+			// zeroes: boost timer, pad effect state, boost contact memory,
+			// arc-link state, vehicle speed accumulators.
+			game: ctx.get.gameState?.() ?? null,
 		};
 
 	}
@@ -176,6 +181,7 @@ export function activate( ctx ) {
 			v.container.quaternion.setFromEuler( v.container.rotation );
 
 		}
+		if ( cs.game && ctx.fns.restoreGameState ) ctx.fns.restoreGameState( cs.game );
 
 	}
 
@@ -184,13 +190,14 @@ export function activate( ctx ) {
 
 	function buildScript() {
 
-		const lines = [ '# Skid Circuit TAS v6', `track: ${ ctx.trackId }`, 'mode: run' ];
+		const lines = [ '# Skid Circuit TAS v11', `track: ${ ctx.trackId }`, 'mode: run' ];
 		if ( ctx.isLoop && state.crossState ) {
 
 			lines.push( `state: pos ${ state.crossState.pos.map( fmt ).join( ' ' ) }` );
 			lines.push( `state: vel ${ state.crossState.vel.map( fmt ).join( ' ' ) }` );
 			lines.push( `state: angvel ${ state.crossState.angvel.map( fmt ).join( ' ' ) }` );
 			lines.push( `state: rot ${ state.crossState.rot.map( fmt ).join( ' ' ) }` );
+			if ( state.crossState.game ) lines.push( `state: game ${ JSON.stringify( state.crossState.game ) }` );
 
 		}
 		const lap1 = state.lapBuffers[ 0 ] || [];
@@ -232,6 +239,18 @@ export function activate( ctx ) {
 				const mode = line.slice( 5 ).trim();
 				if ( mode !== 'run' && mode !== 'lap1' && mode !== 'lap2' ) script.errors.push( `unknown mode "${ mode }"` );
 				else script.mode = mode;
+				continue;
+
+			}
+			if ( line.startsWith( 'state: game' ) ) {
+
+				try {
+
+					const game = JSON.parse( line.slice( 'state: game'.length ).trim() );
+					script.crossState = script.crossState || {};
+					script.crossState.game = game;
+
+				} catch ( e ) { script.errors.push( `bad game state line: "${ line.slice( 0, 80 ) }"` ); }
 				continue;
 
 			}
@@ -477,8 +496,58 @@ export function activate( ctx ) {
 		state.runScript = script;
 		state.stepIndex = 0;
 		ctx.fns.respawnVehicle();
-		// Skip mode: jump straight to the timed lap from the EXACT recorded
-		// crossing state (instant — the car is mid-flight, no countdown).
+		// FAST mode (checkbox OFF): super-fast-simulate lap 1 in ONE
+		// synchronous burst — respawn, contact wipe, countdown settle and
+		// the whole lap-1 input timeline, thousands of fixed steps with no
+		// rendering (sub-second). The lap-1 crossing fires mid-burst and
+		// applies the exact recorded line state, so lap 2 then runs in
+		// real time entering the engine EXACTLY like a full real-time
+		// replay — every bit of lap-1 history included.
+		if ( ! playLap1 && script.lap2.length && script.lap1.length && ctx.fns.stepOnce ) {
+
+			state.runEntries = script.lap1;
+			state.runRaps = 2;
+			state.started = false;
+			resetCarPhysicsHistory();
+			ctx.fns.startCountdown();
+			state.fastForward = true;
+			let burst = 0;
+			const burstCap = 60 * 4 + script.lap1[ script.lap1.length - 1 ].step + 60 * 30;
+			try {
+
+				while ( state.phase === 'run' && state.lapsCompleted < 1 && burst ++ < burstCap ) ctx.fns.stepOnce();
+
+			} catch ( e ) { /* fall through to the exact-state fallback */ }
+			state.fastForward = false;
+			if ( state.lapsCompleted >= 1 ) {
+
+				// crossing fired mid-burst: lap-2 entries are live, the
+				// recorded line state is applied, contacts wiped. Real time
+				// takes over from the very next frame.
+				post( 'tas-run-started', { mode: script.mode, steps: script.lap2.length, skipLap1: true, fastForwarded: true } );
+				updateOverlay();
+				return;
+
+			}
+			// Lap 1 never crossed (heavily edited script): fall back to the
+			// exact-state teleport so the run still works.
+			state.lapsCompleted = 1;
+			applyCrossState( script.crossState );
+			resetCarPhysicsHistory();
+			ctx.tasBeginNextLap();
+			state.runEntries = script.lap2;
+			state.runRaps = 1;
+			state.stepIndex = 0;
+			state.runPointer = 0;
+			state.started = true;
+			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+			post( 'tas-run-started', { mode: script.mode, steps: script.lap2.length, skipLap1: true, fastForwarded: false } );
+			updateOverlay();
+			return;
+
+		}
+		// TELEPORT mode: legacy lap-2-only scripts (no lap-1 timeline to
+		// simulate) start AT the recorded crossing state, instantly.
 		const skipLap1 = script.lap2.length > 0 && ( ! playLap1 || ! script.lap1.length );
 		if ( skipLap1 ) {
 
@@ -488,7 +557,7 @@ export function activate( ctx ) {
 			state.runLaps = 1;
 			resetCarPhysicsHistory();
 			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
-			post( 'tas-run-started', { mode: script.mode, steps: script.lap2.length, skipLap1: true } );
+			post( 'tas-run-started', { mode: script.mode, steps: script.lap2.length, skipLap1: true, fastForwarded: false } );
 			updateOverlay();
 			return;
 
@@ -511,7 +580,7 @@ export function activate( ctx ) {
 			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
 
 		}
-		post( 'tas-run-started', { mode: script.mode, steps: script.lap1.length + script.lap2.length, skipLap1: false } );
+		post( 'tas-run-started', { mode: script.mode, steps: script.lap1.length + script.lap2.length, skipLap1: false, fastForwarded: false } );
 		updateOverlay();
 
 	}
@@ -548,6 +617,8 @@ export function activate( ctx ) {
 	document.body.appendChild( overlay );
 
 	function updateOverlay() {
+
+		if ( state.fastForward ) return; // burst: skip DOM writes
 
 		const phaseLabel = ( state.phase === 'record' || state.phase === 'run' ) && ! state.started ? 'COUNTDOWN'
 			: state.phase === 'record' ? 'REC' : state.phase === 'run' ? 'RUN' : 'DONE';
