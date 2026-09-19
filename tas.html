@@ -89,6 +89,27 @@
 				<button id="run-btn">Run inputs ▶</button>
 				<button id="stop-btn">Stop</button>
 			</div>
+			<div style="border-top:1px solid #30363d;margin-top:2px;padding-top:10px;">
+				<label>Brute force</label>
+				<div class="row" style="align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#8b949e;">
+					<label for="bf-rounds" style="text-transform:none;letter-spacing:0;">rounds
+						<input id="bf-rounds" type="number" min="1" max="2000" value="20" style="width:64px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:3px 6px;font:inherit;">
+					</label>
+					<label for="bf-mut" style="text-transform:none;letter-spacing:0;">inputs changed/round
+						<input id="bf-mut" type="range" min="1" max="10" value="3" style="width:96px;">
+						<span id="bf-mut-val">3</span>
+					</label>
+				</div>
+				<div class="row" style="align-items:center;gap:6px;font-size:12px;color:#8b949e;margin-top:6px;">
+					<input type="checkbox" id="bf-add" style="margin:0;">
+					<label for="bf-add" style="text-transform:none;letter-spacing:0;">add 1 input each round</label>
+				</div>
+				<div class="row" style="margin-top:6px;">
+					<button id="bf-start" style="background:#1f6feb;color:#fff;">Brute force ▶</button>
+					<button id="bf-stop" style="background:#6e7681;color:#fff;" disabled>Stop</button>
+				</div>
+				<div id="bf-status" style="font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#8b949e;margin-top:6px;white-space:pre-wrap;"></div>
+			</div>
 			<div id="hint">Looping tracks record lap 2 (flying start, state carried across the line). Non-looping tracks record lap 1. Looping tracks: drive 2 laps — the script keeps BOTH laps (edit either), the time shown is lap 2. Non-looping: drive 1 lap. Countdown runs before recording; R restarts it. Replays: lap 1 re-runs, then lap 2 starts from the recorded line-crossing state.</div>
 		</div>
 	</div>
@@ -173,6 +194,23 @@
 			case 'tas-run-invalid':
 				validation.textContent = 'Script errors:\n' + data.errors.join( '\n' );
 				break;
+			case 'tas-bruteforce-progress':
+				$( 'bf-status' ).textContent = `round ${ data.round }/${ data.rounds } — last ${ data.lastTime }s — best ${ data.bestTime }s${ data.adopted ? ' ✓ adopted' : '' }`;
+				break;
+			case 'tas-bruteforce-update':
+				inputs.value = data.script;
+				break;
+			case 'tas-bruteforce-done':
+				$( 'bf-start' ).disabled = false;
+				$( 'bf-stop' ).disabled = true;
+				$( 'bf-status' ).textContent = `done — best ${ data.bestTime }s${ data.improved ? ' (improved over baseline)' : ' (no improvement)' }`;
+				statusEl.textContent = 'brute force finished — inputs box holds the best run';
+				break;
+			case 'tas-bruteforce-error':
+				$( 'bf-start' ).disabled = false;
+				$( 'bf-stop' ).disabled = true;
+				$( 'bf-status' ).textContent = 'error: ' + data.errors.join( '; ' );
+				break;
 
 		}
 
@@ -201,6 +239,22 @@
 
 	} );
 	$( 'stop-btn' ).addEventListener( 'click', () => sendToGame( 'tas-stop' ) );
+	$( 'bf-mut' ).addEventListener( 'input', () => { $( 'bf-mut-val' ).textContent = $( 'bf-mut' ).value; } );
+	$( 'bf-start' ).addEventListener( 'click', () => {
+
+		validation.textContent = '';
+		sendToGame( 'tas-bruteforce', {
+			script: inputs.value,
+			mutations: Number( $( 'bf-mut' ).value ),
+			addInput: $( 'bf-add' ).checked,
+			rounds: Math.max( 1, Number( $( 'bf-rounds' ).value ) || 20 )
+		} );
+		$( 'bf-start' ).disabled = true;
+		$( 'bf-stop' ).disabled = false;
+		$( 'bf-status' ).textContent = 'simulating baseline…';
+
+	} );
+	$( 'bf-stop' ).addEventListener( 'click', () => sendToGame( 'tas-bruteforce-stop', {} ) );
 
 	const prefill = new URLSearchParams( location.search ).get( 'url' );
 	if ( prefill ) loadTrack( prefill );

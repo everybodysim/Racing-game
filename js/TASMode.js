@@ -33,6 +33,8 @@ export function activate( ctx ) {
 	const state = {
 		phase: 'record',           // record | run | done
 		fastForward: false,        // true during the synchronous lap-1 burst
+		brute: null,               // active brute-force session object
+		bruteResult: null,         // timed-lap seconds captured in brute mode
 		wipeFails: 0,
 		started: false,            // true once the countdown has ended
 		stepIndex: 0,              // per-lap step counter
@@ -58,6 +60,7 @@ export function activate( ctx ) {
 			stepIndex: state.stepIndex,
 			inputsRecorded: state.lapBuffers.reduce( ( n, b ) => n + b.length, 0 ),
 			wipeFails: state.wipeFails,
+			brute: state.brute ? { round: state.brute.round, rounds: state.brute.rounds, adopted: state.brute.adopted, best: state.brute.best, last: state.brute.last } : null,
 			isLoop: ctx.isLoop,
 			pos: [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ],
 			vel: mp ? [ ...mp.linearVelocity ] : [ 0, 0, 0 ],
@@ -413,7 +416,8 @@ export function activate( ctx ) {
 			const stepCount = state.stepIndex;
 			state.phase = 'done';
 			ctx.tasBeginNextLap();
-			post( 'tas-run-complete', { lapSeconds: round6( lapSeconds ), stepCount } );
+			if ( state.brute ) state.bruteResult = lapSeconds;
+			else post( 'tas-run-complete', { lapSeconds: round6( lapSeconds ), stepCount } );
 			updateOverlay();
 			return;
 
@@ -585,6 +589,155 @@ export function activate( ctx ) {
 
 	}
 
+	// ── Brute forcer ──────────────────────────────────────────────────────
+	// Hill-climbing optimizer over the timed lap's input entries. Each round
+	// mutates N random entries (checkbox: also appends one new input at the
+	// timeline's end), quick-simulates the FULL run in one synchronous burst
+	// (countdown + lap 1 + lap 2), and adopts the candidate only if it
+	// finishes FASTER. Loop tracks mutate lap-2 entries only — the recorded
+	// crossing state is hard-applied at the line, so lap-1 edits can never
+	// change the timed lap (they can only break it).
+	const randInput = () => [ -1, 0, 1 ][ Math.floor( Math.random() * 3 ) ];
+	const fmtTime = ( t ) => t === Infinity ? 'DNF' : round6( t );
+
+	function scriptToText( script ) {
+
+		const lines = [ '# Skid Circuit TAS v11', `track: ${ ctx.trackId }`, 'mode: run' ];
+		if ( ctx.isLoop && script.crossState ) {
+
+			lines.push( `state: pos ${ script.crossState.pos.map( fmt ).join( ' ' ) }` );
+			lines.push( `state: vel ${ script.crossState.vel.map( fmt ).join( ' ' ) }` );
+			lines.push( `state: angvel ${ script.crossState.angvel.map( fmt ).join( ' ' ) }` );
+			lines.push( `state: rot ${ script.crossState.rot.map( fmt ).join( ' ' ) }` );
+			if ( script.crossState.game ) lines.push( `state: game ${ JSON.stringify( script.crossState.game ) }` );
+
+		}
+		for ( const e of script.lap1 ) lines.push( `step ${ e.step } x=${ fmt( e.x ) } z=${ fmt( e.z ) }` );
+		if ( ctx.isLoop ) {
+
+			lines.push( 'cross' );
+			for ( const e of script.lap2 ) lines.push( `step ${ e.step } x=${ fmt( e.x ) } z=${ fmt( e.z ) }` );
+
+		}
+		lines.push( 'end' );
+		return lines.join( '\n' );
+
+	}
+
+	function cloneScript( script ) {
+
+		return {
+			mode: script.mode, ver: script.ver, crossState: script.crossState,
+			lap1: script.lap1.map( ( e ) => ( { step: e.step, x: e.x, z: e.z } ) ),
+			lap2: script.lap2.map( ( e ) => ( { step: e.step, x: e.x, z: e.z } ) ),
+		};
+
+	}
+
+	function mutateScript( script, mutations, addInput ) {
+
+		const cand = cloneScript( script );
+		const timedLap = cand.lap2.length ? cand.lap2 : cand.lap1;
+		if ( ! timedLap.length ) return cand;
+		for ( let m = 0; m < mutations; m ++ ) {
+
+			const e = timedLap[ Math.floor( Math.random() * timedLap.length ) ];
+			e.x = randInput();
+			e.z = randInput();
+
+		}
+		if ( addInput ) {
+
+			const last = timedLap[ timedLap.length - 1 ];
+			timedLap.push( { step: last.step + 1, x: randInput(), z: randInput() } );
+
+		}
+		return cand;
+
+	}
+
+	// Full-run quick simulation: one synchronous burst, no rendering. Returns
+	// the timed lap's seconds, or Infinity when the candidate never finishes.
+	function bruteEvaluate( script ) {
+
+		state.bruteResult = null;
+		resetState( 'run' );
+		state.runScript = script;
+		state.stepIndex = 0;
+		ctx.fns.respawnVehicle();
+		resetCarPhysicsHistory();
+		state.runEntries = script.lap1;
+		state.runLaps = script.lap2.length ? 2 : ( ctx.isLoop && script.mode === 'run' && ! script.crossState ? 2 : 1 );
+		state.started = false;
+		ctx.fns.startCountdown();
+		state.fastForward = true;
+		let burst = 0;
+		const lastStep = Math.max(
+			script.lap1.length ? script.lap1[ script.lap1.length - 1 ].step : 0,
+			script.lap2.length ? script.lap2[ script.lap2.length - 1 ].step : 0
+		);
+		const burstCap = 60 * 4 + lastStep + 60 * 40;
+		try {
+
+			while ( state.phase === 'run' && burst ++ < burstCap ) ctx.fns.stepOnce();
+
+		} catch ( e ) { /* DNF */ }
+		state.fastForward = false;
+		return state.bruteResult === null ? Infinity : state.bruteResult;
+
+	}
+
+	async function bruteForce( payload ) {
+
+		if ( state.brute ) return; // already running
+		const script = parseScript( payload.script || '' );
+		if ( script.errors.length ) { post( 'tas-bruteforce-error', { errors: script.errors } ); return; }
+		if ( ! script.lap1.length && ! script.lap2.length ) {
+
+			post( 'tas-bruteforce-error', { errors: [ 'script has no inputs to mutate' ] } );
+			return;
+
+		}
+		const mutations = Math.max( 1, Math.min( 20, Number( payload.mutations ) || 1 ) );
+		const addInput = !! payload.addInput;
+		const rounds = Math.max( 1, Math.min( 2000, Number( payload.rounds ) || 10 ) );
+		state.brute = { stop: false, round: 0, rounds, best: null, last: null, adopted: 0 };
+		const baseline = bruteEvaluate( script );
+		let bestScript = script;
+		let bestTime = baseline;
+		state.brute.best = baseline;
+		post( 'tas-bruteforce-progress', { round: 0, rounds, bestTime: fmtTime( bestTime ), lastTime: fmtTime( baseline ), adopted: false } );
+		for ( let round = 1; round <= rounds; round ++ ) {
+
+			if ( state.brute.stop ) break;
+			const candidate = mutateScript( bestScript, mutations, addInput );
+			const t = bruteEvaluate( candidate );
+			let adopted = false;
+			if ( t < bestTime ) {
+
+				bestTime = t;
+				bestScript = candidate;
+				adopted = true;
+				state.brute.adopted ++;
+				post( 'tas-bruteforce-update', { script: scriptToText( bestScript ) } );
+
+			}
+			state.brute.round = round;
+			state.brute.best = bestTime;
+			state.brute.last = t;
+			post( 'tas-bruteforce-progress', { round, rounds, bestTime: fmtTime( bestTime ), lastTime: fmtTime( t ), adopted } );
+			await new Promise( ( r ) => setTimeout( r, 0 ) ); // yield to the editor UI
+
+		}
+		const bestText = scriptToText( bestScript );
+		state.lastRunText = bestText; // R / Run re-run the best found
+		const improved = bestTime < baseline;
+		state.brute = null;
+		state.phase = 'done';
+		post( 'tas-bruteforce-done', { bestTime: fmtTime( bestTime ), improved, script: bestText } );
+
+	}
+
 	window.addEventListener( 'message', ( event ) => {
 
 		if ( event.source !== window.parent || ! event.data?.type ) return;
@@ -592,6 +745,8 @@ export function activate( ctx ) {
 		if ( type === 'tas-retry' ) retry();
 		else if ( type === 'tas-run' ) run( event.data.script || '', !! event.data.playLap1 );
 		else if ( type === 'tas-stop' ) { state.phase = 'done'; ctx.tasBeginNextLap(); updateOverlay(); }
+		else if ( type === 'tas-bruteforce' ) bruteForce( event.data );
+		else if ( type === 'tas-bruteforce-stop' ) { if ( state.brute ) state.brute.stop = true; }
 
 	} );
 
@@ -603,6 +758,7 @@ export function activate( ctx ) {
 		if ( event.code !== 'KeyR' || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ) return;
 		event.preventDefault();
 		event.stopPropagation();
+		if ( state.brute ) return; // brute forcer owns the engine
 		if ( state.phase === 'run' && state.lastRunText ) run( state.lastRunText, state.lastPlayLap1 );
 		else retry();
 
