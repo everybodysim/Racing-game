@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skid Circuit — TAS Editor</title>
+<style>
+	* { box-sizing: border-box; }
+	html, body { margin: 0; height: 100%; background: #0d1117; color: #e6edf3;
+		font: 14px/1.45 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; }
+	#url-screen { display: flex; align-items: center; justify-content: center; height: 100%; }
+	.url-card { width: min(560px, 92vw); background: #161b22; border: 1px solid #30363d;
+		border-radius: 12px; padding: 28px; }
+	.url-card h1 { font-size: 18px; margin: 0 0 6px; }
+	.url-card p { color: #8b949e; margin: 0 0 16px; }
+	.url-card input { width: 100%; padding: 10px 12px; background: #0d1117; color: #e6edf3;
+		border: 1px solid #30363d; border-radius: 8px; font: 13px ui-monospace, Menlo, Consolas, monospace; }
+	.url-card button { margin-top: 14px; padding: 10px 22px; background: #238636; color: #fff;
+		border: 0; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%; }
+	#editor { display: none; height: 100%; flex-direction: column; }
+	#editor.active { display: flex; }
+	header { display: flex; align-items: center; gap: 14px; padding: 8px 14px;
+		background: #161b22; border-bottom: 1px solid #30363d; }
+	header .title { font-weight: 700; }
+	#track-type { font: 600 12px ui-monospace, Menlo, Consolas, monospace; padding: 3px 10px;
+		border-radius: 999px; background: #1f6feb; }
+	#track-type.nonloop { background: #8250df; }
+	#status { color: #8b949e; font-size: 12px; flex: 1; }
+	#layout { flex: 1; display: flex; min-height: 0; }
+	#viewport-wrap { flex: 1; position: relative; min-width: 0; }
+	iframe { width: 100%; height: 100%; border: 0; display: block; background: #000; }
+	#panel { width: 380px; display: flex; flex-direction: column; background: #161b22;
+		border-left: 1px solid #30363d; padding: 12px; gap: 10px; }
+	#timing { font: 600 13px ui-monospace, Menlo, Consolas, monospace; color: #8b949e; }
+	#timing b { color: #e6edf3; }
+	#panel label { font-size: 12px; font-weight: 700; color: #8b949e; text-transform: uppercase; letter-spacing: .04em; }
+	#inputs { flex: 1; min-height: 120px; resize: none; background: #0d1117; color: #e6edf3;
+		border: 1px solid #30363d; border-radius: 8px; padding: 10px;
+		font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+	#panel .row { display: flex; gap: 8px; }
+	#panel button { flex: 1; padding: 9px 0; border: 0; border-radius: 8px; font-weight: 600; cursor: pointer; }
+	#run-btn { background: #238636; color: #fff; }
+	#stop-btn { background: #6e7681; color: #fff; }
+	#validation { font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: #f85149;
+		white-space: pre-wrap; max-height: 110px; overflow: auto; }
+	#popup { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6);
+		align-items: center; justify-content: center; z-index: 50; }
+	#popup.active { display: flex; }
+	.popup-card { width: min(480px, 92vw); background: #161b22; border: 1px solid #30363d;
+		border-radius: 12px; padding: 24px; text-align: center; }
+	.popup-card h2 { margin: 0 0 6px; font-size: 17px; }
+	.popup-card .lap { font: 600 26px ui-monospace, Menlo, Consolas, monospace; color: #3fb950; margin: 10px 0 18px; }
+	.popup-card .row { display: flex; gap: 10px; }
+	.popup-card button { flex: 1; padding: 11px 0; border: 0; border-radius: 8px; font-weight: 700; cursor: pointer; }
+	#use-btn { background: #238636; color: #fff; }
+	#retry-btn { background: #30363d; color: #e6edf3; }
+	#hint { font-size: 11px; color: #6e7681; }
+</style>
+</head>
+<body>
+
+<div id="url-screen">
+	<div class="url-card">
+		<h1>Skid Circuit — TAS Editor</h1>
+		<p>Paste a track URL (board Play link or index.html?map=…&amp;…). It loads in TAS mode in the viewport.</p>
+		<input id="track-url" type="text" placeholder="https://everybodysim.github.io/Racing-game/index.html?map=…" spellcheck="false">
+		<button id="load-btn">Load track</button>
+	</div>
+</div>
+
+<div id="editor">
+	<header>
+		<span class="title">Skid Circuit TAS</span>
+		<span id="track-type">…</span>
+		<span id="status">loading…</span>
+	</header>
+	<div id="layout">
+		<div id="viewport-wrap"><iframe id="viewport" title="TAS viewport"></iframe></div>
+		<div id="panel">
+			<div id="timing">lap <b id="t-lap">–</b> · steps <b id="t-steps">–</b> · last run <b id="t-run">–</b></div>
+			<label for="inputs">TAS inputs (editable)</label>
+			<textarea id="inputs" spellcheck="false" placeholder="Recorded inputs appear here after a completed lap. Edit any step line, then Run."></textarea>
+			<div id="validation"></div>
+			<div class="row">
+				<button id="run-btn">Run inputs ▶</button>
+				<button id="stop-btn">Stop</button>
+			</div>
+			<div id="hint">Looping tracks record lap 2 (flying start, state carried across the line). Non-looping tracks record lap 1. Countdown runs only in TAS mode and never restarts at the finish line.</div>
+		</div>
+	</div>
+</div>
+
+<div id="popup">
+	<div class="popup-card">
+		<h2 id="popup-title">Lap complete</h2>
+		<div class="lap" id="popup-lap">–</div>
+		<div class="row">
+			<button id="use-btn">Use this run</button>
+			<button id="retry-btn">Try again</button>
+		</div>
+	</div>
+</div>
+
+<script>
+( function () {
+
+	const $ = ( id ) => document.getElementById( id );
+	const urlScreen = $( 'url-screen' ), editor = $( 'editor' ), frame = $( 'viewport' );
+	const typeBadge = $( 'track-type' ), statusEl = $( 'status' ), popup = $( 'popup' );
+	const inputs = $( 'inputs' ), validation = $( 'validation' );
+	let lastScript = null;
+
+	function sendToGame( type, payload ) {
+
+		frame.contentWindow.postMessage( { type, ...payload }, '*' );
+
+	}
+
+	function loadTrack( rawUrl ) {
+
+		let u;
+		try { u = new URL( rawUrl, location.href ); }
+		catch ( e ) { validation.textContent = 'Not a valid URL: ' + rawUrl; return; }
+		u.searchParams.delete( 'tas' );
+		u.searchParams.delete( 'replayViewer' );
+		u.searchParams.set( 'tas', '1' );
+		u.searchParams.set( 'nc', String( Date.now() ) );
+		frame.src = u.pathname === '/' || u.pathname.endsWith( '/' ) ? u.origin + u.pathname + 'index.html' + u.search : u.href;
+		validation.textContent = '';
+		urlScreen.style.display = 'none';
+		editor.classList.add( 'active' );
+		statusEl.textContent = 'booting track…';
+
+	}
+
+	window.addEventListener( 'message', ( event ) => {
+
+		if ( event.source !== frame.contentWindow || ! event.data?.type ) return;
+		const data = event.data;
+		switch ( data.type ) {
+
+			case 'tas-ready':
+				typeBadge.textContent = data.isLoop ? 'LOOP TRACK · drive 2 laps' : 'NON-LOOP TRACK · drive 1 lap';
+				typeBadge.classList.toggle( 'nonloop', ! data.isLoop );
+				statusEl.textContent = 'ready — countdown starts the timer, drive your lap(s)';
+				break;
+			case 'tas-lap-cross':
+				statusEl.textContent = 'lap 1 done — rolled straight into lap 2 (flying start)';
+				$( 't-lap' ).textContent = '2 (recording)';
+				break;
+			case 'tas-lap-complete': {
+				lastScript = data.script;
+				$( 't-lap' ).textContent = String( data.lap );
+				$( 't-steps' ).textContent = String( data.stepCount );
+				$( 'popup-title' ).textContent = data.lap > 1 ? 'Lap 2 complete' : 'Lap complete';
+				$( 'popup-lap' ).textContent = data.lapSeconds.toFixed( 3 ) + 's · ' + data.stepCount + ' steps';
+				popup.classList.add( 'active' );
+				break;
+			}
+			case 'tas-run-started':
+				statusEl.textContent = 'running ' + data.steps + ' input steps (' + data.mode + ')…';
+				$( 't-run' ).textContent = 'running…';
+				break;
+			case 'tas-run-complete':
+				$( 't-run' ).textContent = data.lapSeconds.toFixed( 3 ) + 's · ' + data.stepCount + ' steps';
+				$( 't-steps' ).textContent = String( data.stepCount );
+				statusEl.textContent = 'run complete';
+				break;
+			case 'tas-run-invalid':
+				validation.textContent = 'Script errors:\n' + data.errors.join( '\n' );
+				break;
+
+		}
+
+	} );
+
+	$( 'load-btn' ).addEventListener( 'click', () => loadTrack( $( 'track-url' ).value.trim() ) );
+	$( 'track-url' ).addEventListener( 'keydown', ( e ) => { if ( e.key === 'Enter' ) loadTrack( e.target.value.trim() ); } );
+	$( 'use-btn' ).addEventListener( 'click', () => {
+
+		if ( lastScript !== null ) inputs.value = lastScript;
+		popup.classList.remove( 'active' );
+		statusEl.textContent = 'inputs pasted — edit them if you like, then Run';
+
+	} );
+	$( 'retry-btn' ).addEventListener( 'click', () => {
+
+		popup.classList.remove( 'active' );
+		statusEl.textContent = 'countdown…';
+		sendToGame( 'tas-retry' );
+
+	} );
+	$( 'run-btn' ).addEventListener( 'click', () => {
+
+		validation.textContent = '';
+		sendToGame( 'tas-run', { script: inputs.value } );
+
+	} );
+	$( 'stop-btn' ).addEventListener( 'click', () => sendToGame( 'tas-stop' ) );
+
+	const prefill = new URLSearchParams( location.search ).get( 'url' );
+	if ( prefill ) loadTrack( prefill );
+
+} )();
+</script>
+</body>
+</html>

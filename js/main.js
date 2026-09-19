@@ -9457,6 +9457,32 @@ function completeCampaignStage() {
 	// TAS-ready: same input timeline => same run, bit for bit.
 	const SIM_STEP_SECONDS = 1 / 60;
 	let simAccumulator = 0;
+	let tasMode = null; // TAS editor game mode (?tas=1) — null in normal play
+
+	// TAS-only lap bookkeeping: what the normal lap-transition block does for
+	// state (timer restart, checkpoint/gate resets, obstacle resets) without
+	// any of the recording/rewards side effects. Called only from TASMode.
+	function tasBeginNextLap() {
+
+		lapStartSeconds = raceClockSeconds;
+		lapSeconds = 0;
+		hasLeftStartZone = false;
+		hasPrevFinishSample = false;
+		lastLocalX = 0;
+		lastLocalZ = 0;
+		for ( let checkpointIndex = 0; checkpointIndex < checkpointStates.length; checkpointIndex ++ ) {
+
+			const checkpoint = checkpointStates[ checkpointIndex ];
+			checkpoint.lastLocalX = 0;
+			checkpoint.lastLocalZ = 0;
+			checkpoint.hasPrevSample = false;
+			checkpoint.passedThisLap = false;
+
+		}
+		resetPhysicsObstacles();
+		resetMovingObstacles( movingObstacleState, raceClockSeconds );
+
+	}
 	let raceClockSeconds = 0;
 	let paused = false;
 	let currentLapInvalidatedByPause = false;
@@ -13247,6 +13273,7 @@ function completeCampaignStage() {
 			if ( countdownActive ) input = ZERO_DRIVE_INPUT;
 			const input2 = controls2 ? ( modeMenuOpen || replayViewerMode || countdownActive ? ZERO_DRIVE_INPUT : controls2.update() ) : null;
 			let padAdjustedInput = applyPadInputModifiers( input, activePadEffect );
+			if ( tasMode ) padAdjustedInput = tasMode.step( padAdjustedInput );
 			if ( customModNoSteerUntil > now ) padAdjustedInput = { ...padAdjustedInput, x: 0 };
 			if ( customModForceBrakeUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: - 1 };
 			if ( customModForceThrottleUntil > now ) padAdjustedInput = { ...padAdjustedInput, z: 1 };
@@ -13826,6 +13853,8 @@ function completeCampaignStage() {
 
 			const allCheckpointsPassed = checkpointStates.every( ( checkpoint ) => checkpoint.passedThisLap );
 			if ( hasLeftStartZone && allCheckpointsPassed && crossedFinish ) {
+				if ( tasMode ) { tasMode.onLapComplete(); }
+				else {
 
 					// Schedule the respawn BEFORE the share-snapshot / leaderboard
 					// bookkeeping below — on a laggy frame any of that can throw,
@@ -14002,6 +14031,7 @@ function completeCampaignStage() {
 							if ( campaignState?.stageType === 'mastery' ) incrementCampaignProgress( 'mastery' );
 
 						}
+				} // end non-TAS lap-transition block
 
 				}
 
@@ -14160,6 +14190,43 @@ function completeCampaignStage() {
 	}
 
 	rebuildRecentGhostVisuals();
+
+	// TAS editor game mode (?tas=1): loads js/TASMode.js and hands it the
+	// vehicle/world hooks. All glue below only runs in TAS mode.
+	if ( new URLSearchParams( location.search ).get( 'tas' ) === '1' ) {
+
+		// TAS needs its pre-lap countdown regardless of the player's normal
+		// countdown setting (fingers-on-keys time before the timer starts).
+		countdownEnabled = true;
+
+		try {
+
+			const tasModule = await import( './TASMode.js?v=1' );
+			const tasIsLoop = ! startCell || ! finishCell || (
+				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
+			);
+			tasMode = tasModule.activate( {
+				isLoop: tasIsLoop,
+				trackId: location.search.replace( /(^|[?&])tas=1&?/, '' ),
+				vehicle, world, rigidBodyApi: rigidBody,
+				fns: { startCountdown, respawnVehicle },
+				tasBeginNextLap,
+				get: {
+					raceClock: () => raceClockSeconds,
+					lapStart: () => lapStartSeconds,
+					lapSeconds: () => lapSeconds,
+					countdownActive: () => countdownActive,
+				},
+			} );
+
+		} catch ( error ) {
+
+			console.error( 'TAS mode failed to load', error );
+
+		}
+
+	}
+
 	animate();
 
 }
