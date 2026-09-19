@@ -17,6 +17,8 @@
 //   missed the finish), then lap 1, then the recorded state at the line,
 //   then lap 2. Legacy pre-v6 scripts keep their instant-start behavior.
 
+import { contacts } from 'crashcat';
+
 const TAS_STEP_HZ = 60;
 
 function zeroInput() { return { x: 0, z: 0 }; }
@@ -30,6 +32,7 @@ export function activate( ctx ) {
 
 	const state = {
 		phase: 'record',           // record | run | done
+		wipeFails: 0,
 		started: false,            // true once the countdown has ended
 		stepIndex: 0,              // per-lap step counter
 		lastRecorded: null,
@@ -53,12 +56,37 @@ export function activate( ctx ) {
 			countdownActive: ctx.get.countdownActive(),
 			stepIndex: state.stepIndex,
 			inputsRecorded: state.lapBuffers.reduce( ( n, b ) => n + b.length, 0 ),
+			wipeFails: state.wipeFails,
 			isLoop: ctx.isLoop,
 			pos: [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ],
 			vel: mp ? [ ...mp.linearVelocity ] : [ 0, 0, 0 ],
 			yaw: ctx.vehicle.container.rotation.y,
 		};
 	};
+
+	// crashcat keeps persistent contact pairs with warm-start solver
+	// impulses; the history carried INTO lap 2 differed between sessions
+	// that drove lap 1 (a lap of contact history) and ones that skipped it
+	// (teleported in). Every lap-2 boundary in EVERY session — recording
+	// crossings, play-mode crossings, skip-mode starts, retries — wipes the
+	// car's contact records, so all sessions start lap 2 from the same
+	// clean engine state: exact recorded pos/vel/angvel/rot + zero
+	// warm-start. Fresh contacts re-form on the next step.
+	function resetCarPhysicsHistory() {
+
+		try {
+
+			const body = ctx.vehicle.rigidBody;
+			if ( body && ctx.world?.contacts ) {
+
+				contacts.destroyBodyContacts( ctx.world.contacts, ctx.world.bodies, body );
+				ctx.rigidBodyApi.wake?.( ctx.world, body );
+
+			}
+
+		} catch ( e ) { state.wipeFails ++; }
+
+	}
 
 	const post = ( type, payload ) => {
 
@@ -352,6 +380,7 @@ export function activate( ctx ) {
 				if ( state.lapsCompleted === 1 && state.runScript.lap2.length ) {
 
 					if ( state.runScript.crossState ) applyCrossState( state.runScript.crossState );
+					resetCarPhysicsHistory();
 					state.runEntries = state.runScript.lap2;
 					state.runPointer = 0;
 					state.stepIndex = 0;
@@ -377,6 +406,7 @@ export function activate( ctx ) {
 			// capture the flying-start state at full precision for the script.
 			state.crossState = captureCrossState();
 			ctx.tasBeginNextLap();
+			resetCarPhysicsHistory();
 			state.lapBuffers.push( [] );
 			state.stepIndex = 0;
 			state.lastRecorded = null;
@@ -425,6 +455,7 @@ export function activate( ctx ) {
 
 		resetState( 'record' );
 		ctx.fns.respawnVehicle();
+		resetCarPhysicsHistory();
 		ctx.fns.startCountdown();
 		post( 'tas-retry-started', {} );
 		updateOverlay();
@@ -455,6 +486,7 @@ export function activate( ctx ) {
 			applyCrossState( script.crossState );
 			state.runEntries = script.lap2;
 			state.runLaps = 1;
+			resetCarPhysicsHistory();
 			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
 			post( 'tas-run-started', { mode: script.mode, steps: script.lap2.length, skipLap1: true } );
 			updateOverlay();
@@ -462,6 +494,7 @@ export function activate( ctx ) {
 
 		}
 		state.runEntries = script.lap1;
+		resetCarPhysicsHistory();
 		if ( script.ver >= 6 ) {
 
 			// v6+ play-lap-1 mode mirrors the recording: countdown settle
