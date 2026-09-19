@@ -96,8 +96,8 @@ export function activate( ctx ) {
 	};
 
 	// ── UI wipe: nothing except what TAS uses stays in the viewport ─────
-	const KEEP_SELECTOR = '#loading-screen, #countdown-hud, #export-ghost-btn, #import-ghost-btn, #tas-overlay';
-	const KEEP_IDS = new Set( [ 'loading-screen', 'countdown-hud', 'export-ghost-btn', 'import-ghost-btn', 'tas-overlay' ] );
+	const KEEP_SELECTOR = '#loading-screen, #countdown-hud, #export-ghost-btn, #import-ghost-btn, #tas-overlay, #replay-topbar';
+	const KEEP_IDS = new Set( [ 'loading-screen', 'countdown-hud', 'export-ghost-btn', 'import-ghost-btn', 'tas-overlay', 'replay-topbar' ] );
 	const hideStyle = document.createElement( 'style' );
 	hideStyle.textContent = '.tas-hide { display: none !important; }';
 	document.head.appendChild( hideStyle );
@@ -506,7 +506,7 @@ export function activate( ctx ) {
 		if ( ! playLap1 && script.lap2.length && script.lap1.length && ctx.fns.stepOnce ) {
 
 			state.runEntries = script.lap1;
-			state.runRaps = 2;
+			state.runLaps = 2;
 			state.started = false;
 			resetCarPhysicsHistory();
 			ctx.fns.startCountdown();
@@ -536,7 +536,7 @@ export function activate( ctx ) {
 			resetCarPhysicsHistory();
 			ctx.tasBeginNextLap();
 			state.runEntries = script.lap2;
-			state.runRaps = 1;
+			state.runLaps = 1;
 			state.stepIndex = 0;
 			state.runPointer = 0;
 			state.started = true;
