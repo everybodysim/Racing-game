@@ -652,10 +652,14 @@ export function activate( ctx ) {
 
 	}
 
-	// Mutation mix (per changed input): 60% steering value, 15% accel value
-	// (accel is far more likely to break a run, so it mutates less), 25%
-	// timing — the entry's step slides STRICTLY between its neighbors so the
-	// timeline can never un-order (later mutations see updated bounds).
+	// Mutation menu (per changed input):
+	//   40% steering value — x from {-1,0,1}, never a no-op
+	//   10% accel value     — z from {-1,0,1}, rare (breaks runs easily)
+	//   25% timing shift    — step slides strictly between neighbors
+	//   25% steering pulse  — override steering for 3-24 steps inside one
+	//                         segment, then the original input resumes: a
+	//                         true 'few frames of gameplay' nudge, the small
+	//                         blast-radius change random search needs.
 	function mutateScript( script, mutations, addInput ) {
 
 		const cand = cloneScript( script );
@@ -666,15 +670,15 @@ export function activate( ctx ) {
 			const idx = Math.floor( Math.random() * timedLap.length );
 			const e = timedLap[ idx ];
 			const roll = Math.random();
-			if ( roll < 0.60 ) {
+			if ( roll < 0.40 ) {
 
 				e.x = pickOther( e.x ); // steering: -1 / 0 / 1, never a no-op
 
-			} else if ( roll < 0.75 ) {
+			} else if ( roll < 0.50 ) {
 
 				e.z = pickOther( e.z ); // accel: -1 / 0 / 1, rarer by design
 
-			} else {
+			} else if ( roll < 0.75 ) {
 
 				// timing: shift this entry between the previous and next entry
 				const prev = idx > 0 ? timedLap[ idx - 1 ].step : -1;
@@ -689,7 +693,20 @@ export function activate( ctx ) {
 
 				}
 
-			}
+			} else if ( idx < timedLap.length - 1 ) {
+
+				// steering pulse: new steering now, original resumes mid-segment
+				const segEnd = timedLap[ idx + 1 ].step;
+				const maxWin = Math.min( 24, segEnd - e.step - 1 );
+				if ( maxWin >= 3 ) {
+
+					const w = 3 + Math.floor( Math.random() * ( maxWin - 2 ) );
+					timedLap.splice( idx + 1, 0, { step: e.step + w, x: e.x, z: e.z } );
+					e.x = pickOther( e.x );
+
+				} else e.x = pickOther( e.x );
+
+			} else e.x = pickOther( e.x ); // last entry: no segment to pulse into
 
 		}
 		if ( addInput ) {
@@ -720,11 +737,12 @@ export function activate( ctx ) {
 		ctx.fns.startCountdown();
 		state.fastForward = true;
 		let burst = 0;
-		const lastStep = Math.max(
-			script.lap1.length ? script.lap1[ script.lap1.length - 1 ].step : 0,
-			script.lap2.length ? script.lap2[ script.lap2.length - 1 ].step : 0
-		);
-		const burstCap = 60 * 4 + lastStep + 60 * 40;
+		// The cap must cover the countdown PLUS the full duration of EVERY
+		// lap: the crossing step is far past the last input-change step, so
+		// budgeting off entry steps starved lap 2 and every candidate DNF'd.
+		const l1Last = script.lap1.length ? script.lap1[ script.lap1.length - 1 ].step : 0;
+		const l2Last = script.lap2.length ? script.lap2[ script.lap2.length - 1 ].step : 0;
+		const burstCap = 60 * 5 + ( l1Last + 60 * 30 ) + ( script.lap2.length ? l2Last + 60 * 30 : 0 );
 		try {
 
 			while ( state.phase === 'run' && burst ++ < burstCap ) ctx.fns.stepOnce();

@@ -80,6 +80,7 @@
 			<div id="timing">lap <b id="t-lap">–</b> · steps <b id="t-steps">–</b> · last run <b id="t-run">–</b></div>
 			<label for="inputs">TAS inputs (editable)</label>
 			<textarea id="inputs" spellcheck="false" placeholder="Recorded inputs appear here after a completed lap. Edit any step line, then Run."></textarea>
+			<div id="state-note" style="font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#6e7681;margin-top:4px;"></div>
 			<div id="validation"></div>
 			<div class="row" style="align-items:center;gap:6px;font-size:12px;color:#8b949e;">
 				<input type="checkbox" id="play-lap1" style="margin:0;">
@@ -134,6 +135,52 @@
 	const typeBadge = $( 'track-type' ), statusEl = $( 'status' ), popup = $( 'popup' );
 	const inputs = $( 'inputs' ), validation = $( 'validation' );
 	let lastScript = null;
+	let hiddenState = null; // raw 'state: ...' lines, managed automatically
+
+	function splitStateLines( text ) {
+
+		const stateLines = [];
+		const rest = [];
+		for ( const line of String( text ).split( '\n' ) ) {
+
+			if ( /^\s*state:\s/.test( line ) ) stateLines.push( line.trim() );
+			else rest.push( line );
+
+		}
+		return { state: stateLines.join( '\n' ), body: rest.join( '\n' ).replace( /^\n+/, '' ) };
+
+	}
+
+	function updateStateNote() {
+
+		$( 'state-note' ).textContent = hiddenState
+			? '✓ hidden flying-start state attached — auto-updated on record / brute-force, never editable by hand'
+			: 'no hidden start state (non-loop track, or nothing recorded yet)';
+
+	}
+
+	// What gets SENT to the game: hidden state block + whatever step lines
+	// are in the box. Any state lines pasted into the box are tucked away.
+	function composeFull() {
+
+		const parts = splitStateLines( inputs.value );
+		if ( parts.state ) hiddenState = parts.state;
+		if ( parts.body !== inputs.value ) inputs.value = parts.body;
+		updateStateNote();
+		return hiddenState ? hiddenState + '\n' + parts.body : parts.body;
+
+	}
+
+	// A script arrived from the game (record complete, or a better brute
+	// candidate): keep its state block hidden and up to date automatically.
+	function adoptScript( fullText ) {
+
+		const parts = splitStateLines( fullText );
+		hiddenState = parts.state || null;
+		inputs.value = parts.body;
+		updateStateNote();
+
+	}
 
 	function sendToGame( type, payload ) {
 
@@ -198,11 +245,12 @@
 				$( 'bf-status' ).textContent = `round ${ data.round }/${ data.rounds } — last ${ data.lastTime }s — best ${ data.bestTime }s${ data.adopted ? ' ✓ adopted' : '' }`;
 				break;
 			case 'tas-bruteforce-update':
-				inputs.value = data.script;
+				adoptScript( data.script );
 				break;
 			case 'tas-bruteforce-done':
 				$( 'bf-start' ).disabled = false;
 				$( 'bf-stop' ).disabled = true;
+				if ( data.script ) adoptScript( data.script );
 				$( 'bf-status' ).textContent = `done — best ${ data.bestTime }s${ data.improved ? ' (improved over baseline)' : ' (no improvement)' }`;
 				statusEl.textContent = 'brute force finished — inputs box holds the best run';
 				break;
@@ -220,7 +268,7 @@
 	$( 'track-url' ).addEventListener( 'keydown', ( e ) => { if ( e.key === 'Enter' ) loadTrack( e.target.value.trim() ); } );
 	$( 'use-btn' ).addEventListener( 'click', () => {
 
-		if ( lastScript !== null ) inputs.value = lastScript;
+		if ( lastScript !== null ) adoptScript( lastScript );
 		popup.classList.remove( 'active' );
 		statusEl.textContent = 'inputs pasted — edit them if you like, then Run';
 
@@ -235,7 +283,7 @@
 	$( 'run-btn' ).addEventListener( 'click', () => {
 
 		validation.textContent = '';
-		sendToGame( 'tas-run', { script: inputs.value, playLap1: $( 'play-lap1' ).checked } );
+		sendToGame( 'tas-run', { script: composeFull(), playLap1: $( 'play-lap1' ).checked } );
 
 	} );
 	$( 'stop-btn' ).addEventListener( 'click', () => sendToGame( 'tas-stop' ) );
@@ -244,7 +292,7 @@
 
 		validation.textContent = '';
 		sendToGame( 'tas-bruteforce', {
-			script: inputs.value,
+			script: composeFull(),
 			mutations: Number( $( 'bf-mut' ).value ),
 			addInput: $( 'bf-add' ).checked,
 			rounds: Math.max( 1, Number( $( 'bf-rounds' ).value ) || 20 )
@@ -256,6 +304,7 @@
 	} );
 	$( 'bf-stop' ).addEventListener( 'click', () => sendToGame( 'tas-bruteforce-stop', {} ) );
 
+	composeFull(); // tuck away any pasted state lines immediately
 	const prefill = new URLSearchParams( location.search ).get( 'url' );
 	if ( prefill ) loadTrack( prefill );
 
