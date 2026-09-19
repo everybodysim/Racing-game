@@ -10295,17 +10295,6 @@ function completeCampaignStage() {
 
 	}
 
-	// True when a pad effect carries multiplicative driving stats (grip, accel,
-	// topSpeed, timeScale, ...). Trick-only pads return false so they keep
-	// re-firing their one-shot flips on every touch.
-	function padEffectHasStats( effect ) {
-
-		if ( ! effect ) return false;
-		const multiplicativeKeys = [ 'gravity', 'grip', 'drag', 'accel', 'drive', 'topSpeed', 'steering', 'timeScale', 'scale' ];
-		return multiplicativeKeys.some( ( key ) => Number.isFinite( effect[ key ] ) );
-
-	}
-
 	function getPadLabel( padType ) {
 
 		switch ( padType ) {
@@ -10437,26 +10426,8 @@ function completeCampaignStage() {
 		}
 		const effect = getPadEffectForType( contact.type );
 		const previous = getCurrentEffect ? ( getCurrentEffect() || null ) : null;
-		if ( SIZE_PAD_TYPES.has( contact.type ) ) {
-
-			setEffect( applySizePadEffect( previous, effect ) );
-
-		} else if ( previous?.__padSources?.[ contact.type ] && padEffectHasStats( effect ) ) {
-
-			// This pad's stat effect is ALREADY active. Pad stats combine
-			// MULTIPLICATIVELY, so re-combining on every contact-key change let
-			// wobbling across a pad-zone boundary (or re-touching a pad) stack
-			// grip/accel exponentially — the "randomly huge speed and grip"
-			// bug. Skip: one application per pad, cleared by reset pads /
-			// checkpoints / lap restarts. Trick-only pads re-fire below.
-
-		} else {
-
-			const combined = combinePadEffects( previous, effect );
-			combined.__padSources = { ...( previous?.__padSources || {} ), [ contact.type ]: true };
-			setEffect( combined );
-
-		}
+		if ( SIZE_PAD_TYPES.has( contact.type ) ) setEffect( applySizePadEffect( previous, effect ) );
+		else setEffect( combinePadEffects( previous, effect ) );
 		showEffectPopup( `Effect applied: ${ getPadLabel( contact.type ) }` );
 		return contact.key;
 
@@ -13216,8 +13187,14 @@ function completeCampaignStage() {
 			let simSteps = Math.floor( simAccumulator / SIM_STEP_SECONDS );
 			if ( simSteps > 4 ) {
 
+				// Slow frame: run at most 4 steps (1/15s — the pre-loop
+				// clamp) and DISCARD the leftover backlog. Retaining it
+				// fast-forwarded the next frames in 4-step bursts, so on
+				// hitchy low-fps machines the game visibly ran too fast
+				// for several frames after every hitch. Sim time can now
+				// never outrun real time within a burst.
 				simSteps = 4;
-				simAccumulator = SIM_STEP_SECONDS * 4;
+				simAccumulator = 0;
 
 			} else simAccumulator -= simSteps * SIM_STEP_SECONDS;
 			const runSimulationStep = () => {
