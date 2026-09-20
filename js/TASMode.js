@@ -111,8 +111,8 @@ export function activate( ctx ) {
 	};
 
 	// ── UI wipe: nothing except what TAS uses stays in the viewport ─────
-	const KEEP_SELECTOR = '#loading-screen, #countdown-hud, #export-ghost-btn, #import-ghost-btn, #tas-overlay, #replay-topbar';
-	const KEEP_IDS = new Set( [ 'loading-screen', 'countdown-hud', 'export-ghost-btn', 'import-ghost-btn', 'tas-overlay', 'replay-topbar' ] );
+	const KEEP_SELECTOR = '#loading-screen, #countdown-hud, #export-ghost-btn, #import-ghost-btn, #tas-overlay, #replay-topbar, #tas-keys';
+	const KEEP_IDS = new Set( [ 'loading-screen', 'countdown-hud', 'export-ghost-btn', 'import-ghost-btn', 'tas-overlay', 'replay-topbar', 'tas-keys' ] );
 	const hideStyle = document.createElement( 'style' );
 	hideStyle.textContent = '.tas-hide { display: none !important; }';
 	document.head.appendChild( hideStyle );
@@ -547,6 +547,14 @@ export function activate( ctx ) {
 
 	// ── Lap cross hook (replaces the normal lap-transition block in TAS) ──
 	function onLapComplete( crossT = 1 ) {
+
+		// Post-run crossings are always junk: after a run (or a brute-force
+		// pass) finishes, the car can still drift through the finish plane
+		// with residual velocity — the per-frame detector fires it, the
+		// 'done' phase skips the run branch below, and the RECORD path
+		// used to take it: a bugged "Lap complete — use this run?" popup
+		// with the half-finished junk state. Once done, crossings die here.
+		if ( state.phase === 'done' ) return;
 
 		// Sub-step precision: the finish plane is crossed PARTWAY through the
 		// final step (crossT = interpolation fraction between the last two
@@ -1064,6 +1072,20 @@ post( 'tas-paused', { paused: state.paused } );
 
 	}
 
+	// End-of-brute viewport reset: the last burst leaves the car mid-track
+	// (often near/past the finish) with residual velocity, still in 'run'
+	// phase on the DNF path — it kept drifting, sometimes crossing the
+	// finish again. Park the car at the start line, idle and done.
+	function bruteCleanup() {
+
+		resetState( 'done' );
+		ctx.fns.respawnVehicle();
+		resetCarPhysicsHistory();
+		if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+		updateOverlay();
+
+	}
+
 	async function bruteForce( payload ) {
 
 		if ( state.brute ) return; // already running
@@ -1092,6 +1114,7 @@ post( 'tas-paused', { paused: state.paused } );
 			// as "better" and the brute would replace the user's run with
 			// a wall-slam. Keep the script byte-identical and say why.
 			state.brute = null;
+			bruteCleanup();
 			post( 'tas-bruteforce-error', { errors: [ 'Baseline run did not finish in the fast simulation — the script was NOT changed. Make the run finish (Run button) before brute-forcing.' ] } );
 			return;
 
@@ -1141,7 +1164,7 @@ post( 'tas-paused', { paused: state.paused } );
 		state.lastRunText = bestText; // R / Run re-run the best found
 		const improved = bestTime < baseline;
 		state.brute = null;
-		state.phase = 'done';
+		bruteCleanup();
 		post( 'tas-bruteforce-done', { bestTime: fmtTime( bestTime ), improved, script: bestText } );
 
 	}
