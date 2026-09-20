@@ -14216,23 +14216,17 @@ function completeCampaignStage() {
 					setSimSpeed: ( mult ) => { tasSpeedMult = Math.max( 0.05, Math.min( 1, Number( mult ) || 1 ) ); },
 					setCollisionView: ( on ) => {
 
-						// The game's own hitbox hack renders the REAL collider
-						// solids (buildWallColliders feeds hitboxDebugGroup),
-						// the car's sphere hitbox, and turns world meshes
-						// translucent — the exact view the hacks panel shows.
-						// Drive it directly; no snapshot approximations.
-						if ( on ) {
-
-							hacksState.enabled = true;
-							hacksState.showHitboxes = true;
-							applyHitboxHackVisuals( true );
-
-						} else {
-
-							hacksState.showHitboxes = false;
-							applyHitboxHackVisuals( true );
-
-						}
+						// The game's own hitbox debug: REAL collider solids
+						// (buildWallColliders feeds hitboxDebugGroup) + the
+						// car's sphere hitbox, with world meshes turned
+						// translucent by setHackMeshTransparencyEnabled so the
+						// solid hitboxes stay 100% visible. Drive those pieces
+						// DIRECTLY — applyHitboxHackVisuals() gates on the
+						// hacks mod being installed, which silently forced the
+						// view off and made the checkbox do nothing.
+						hitboxDebugGroup.visible = !! on;
+						carHitboxMesh.visible = !! on;
+						setHackMeshTransparencyEnabled( !! on );
 
 					},
 					// Skip-mode runs must re-enter lap 2 carrying the SAME
