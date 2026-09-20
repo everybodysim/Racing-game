@@ -13841,7 +13841,13 @@ function completeCampaignStage() {
 					// bookkeeping below — on a laggy frame any of that can throw,
 					// and a throw must never eat the respawn.
 					if ( shouldAutoRespawnAfterLap ) scheduleAutoRespawnVehicle();
-					const completedLap = now - lapStartSeconds;
+					// ONE precise clock everywhere: the crossing happens PARTWAY
+					// through the final step (crossedAtT is the exact interpolation
+					// fraction, the same one the TAS tool uses) — subtract the
+					// un-simulated remainder of that step so lap times are sub-step
+					// precise instead of 1/60s-quantized. PBs, popups, ghosts and
+					// the leaderboard all share this single clock.
+					const completedLap = now - lapStartSeconds - ( 1 - crossedAtT ) / 60;
 					// Gameplay mods (any non-freecam installed mod, including every custom-*
 					// Blockly mod) change physics/handling, so a lap driven under one can never
 					// be a fair leaderboard entry. Treat it as invalid: do NOT update the local
