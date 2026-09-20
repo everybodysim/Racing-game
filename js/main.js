@@ -4131,6 +4131,27 @@ async function loadModels( requiredNames = modelNames ) {
 						if ( name === 'garage' ) child.material.side = THREE.DoubleSide;
 						else if ( ! name.startsWith( 'elev-track-' ) ) child.material.side = THREE.FrontSide;
 
+						// Track blocks must be flat shaded — no light reflections.
+						// GLB exports carry varying metalness/roughness, so some
+						// blocks glinted under the sun while others stayed matte
+						// (user report 2026-09-20). Zero all PBR reflectivity on
+						// every block so they shade pure diffuse, consistently.
+						// Car paint (garage shiny finish) is NOT affected — this
+						// branch only runs for track-* / elev-track-* models.
+						if ( name.startsWith( 'track-' ) || name.startsWith( 'elev-track-' ) ) {
+
+							( Array.isArray( child.material ) ? child.material : [ child.material ] ).forEach( ( m ) => {
+
+								if ( typeof m.metalness === 'number' ) m.metalness = 0;
+								if ( typeof m.roughness === 'number' ) m.roughness = 1;
+								if ( typeof m.envMapIntensity === 'number' ) m.envMapIntensity = 0;
+								if ( typeof m.specularIntensity === 'number' ) m.specularIntensity = 0;
+								if ( typeof m.clearcoat === 'number' ) m.clearcoat = 0;
+
+							} );
+
+						}
+
 					}
 
 				} );
