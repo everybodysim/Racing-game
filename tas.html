@@ -33,13 +33,23 @@
 	#panel { width: 380px; display: flex; flex-direction: column; background: #161b22;
 		border-left: 1px solid #30363d; padding: 12px; gap: 10px;
 		overflow-y: auto; scrollbar-width: thin; } /* the toolset keeps growing — the whole sidebar scrolls */
-	#panel > *:not(#inputs) { flex-shrink: 0; } /* keep natural heights: the panel scrolls, sections don't get crushed */
+	#panel > *:not(#inputs-wrap) { flex-shrink: 0; } /* keep natural heights: the panel scrolls, sections don't get crushed */
 	#timing { font: 600 13px ui-monospace, Menlo, Consolas, monospace; color: #8b949e; }
 	#timing b { color: #e6edf3; }
 	#panel label { font-size: 12px; font-weight: 700; color: #8b949e; text-transform: uppercase; letter-spacing: .04em; }
-	#inputs { flex: 1; min-height: 120px; resize: none; background: #0d1117; color: #e6edf3;
-		border: 1px solid #30363d; border-radius: 8px; padding: 10px;
+	#inputs-wrap { position: relative; flex: 1; min-height: 120px;
+		background: #0d1117; border: 1px solid #30363d; border-radius: 8px; }
+	#inputs { position: absolute; inset: 0; width: 100%; height: 100%; resize: none;
+		background: transparent; color: transparent; caret-color: #e6edf3;
+		border: 0; border-radius: 8px; padding: 10px; overflow-y: scroll;
 		font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+	#inputs::placeholder { color: #6e7681; }
+	#inputs::selection { background: rgba(56,139,253,.45); }
+	#inputs-mirror { position: absolute; inset: 0; padding: 10px; pointer-events: none;
+		overflow-y: scroll; overflow-x: hidden; border-radius: 8px;
+		font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: #e6edf3;
+		white-space: pre-wrap; word-break: normal; }
+	#inputs-mirror .cur { color: #7ee787; }
 	#panel .row { display: flex; gap: 8px; }
 	#panel button { flex: 1; padding: 9px 0; border: 0; border-radius: 8px; font-weight: 600; cursor: pointer; }
 	#run-btn { background: #238636; color: #fff; }
@@ -99,7 +109,9 @@
 				<button id="grab-btn" title="Copy whatever you've driven so far into the inputs box — no finished lap needed.">Import unfinished run ⤓</button>
 			</div>
 			<label for="inputs">TAS inputs (editable)</label>
-			<textarea id="inputs" spellcheck="false" placeholder="Recorded inputs appear here after a completed lap. Edit any step line, then Run."></textarea>
+			<div id="inputs-wrap">
+				<textarea id="inputs" spellcheck="false" placeholder="Recorded inputs appear here after a completed lap. Edit any step line, then Run."></textarea>
+			</div>
 			<div id="state-note" style="font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#6e7681;margin-top:4px;"></div>
 			<div id="validation"></div>
 			<div class="row" style="align-items:center;gap:6px;font-size:12px;color:#8b949e;">
@@ -188,7 +200,12 @@
 
 		const parts = splitStateLines( inputs.value );
 		if ( parts.state ) hiddenState = parts.state;
-		if ( parts.body !== inputs.value ) inputs.value = parts.body;
+		if ( parts.body !== inputs.value ) {
+
+			inputs.value = parts.body;
+			inputs.dispatchEvent( new Event( 'input', { bubbles: true } ) ); // mirror rebuild
+
+		}
 		updateStateNote();
 		return hiddenState ? hiddenState + '\n' + parts.body : parts.body;
 
@@ -201,6 +218,7 @@
 		const parts = splitStateLines( fullText );
 		hiddenState = parts.state || null;
 		inputs.value = parts.body;
+		inputs.dispatchEvent( new Event( 'input', { bubbles: true } ) ); // mirror rebuild
 		updateStateNote();
 
 	}
@@ -253,13 +271,13 @@
 				break;
 			}
 			case 'tas-run-started':
-				statusEl.textContent = ( data.skipLap1 ? ( data.fastForwarded ? 'lap 1 simulated super-fast — running lap 2' : 'running lap 2 from the recorded line-crossing state' ) : 'replaying lap 1 (countdown), then lap 2' ) + ' — ' + data.steps + ' steps…';
+				statusEl.textContent = ( data.skipLap1 ? ( data.fastForwarded ? 'lap 1 simulated super-fast — running lap 2' : 'running lap 2 from the recorded line-crossing state' ) : ( /\bcross\s*$/m.test( inputs.value ) ? 'replaying lap 1 (countdown), then lap 2' : 'replaying the recorded run (countdown)' ) ) + ' — ' + data.steps + ' steps…';
 				$( 't-run' ).textContent = 'running…';
 				break;
 			case 'tas-run-complete':
-				$( 't-run' ).textContent = data.lapSeconds.toFixed( 6 ) + 's · ' + data.stepCount + ' steps';
+				$( 't-run' ).textContent = ( data.lapSeconds != null ? data.lapSeconds.toFixed( 6 ) + 's · ' : 'no finish · ' ) + data.stepCount + ' steps';
 				$( 't-steps' ).textContent = String( data.stepCount );
-				statusEl.textContent = 'run complete';
+				statusEl.textContent = data.unfinished ? 'run ended at the end of the recorded inputs' : 'run complete';
 				break;
 			case 'tas-run-invalid':
 				validation.textContent = 'Script errors:\n' + data.errors.join( '\n' );
@@ -378,7 +396,7 @@
 			lap2Zero.parentElement.style.display = '';
 
 		}
-		inputsEl.addEventListener( 'input', () => { lineMap = null; hlLine = null; placeHl(); refreshLoopVisibility(); } );
+		inputsEl.addEventListener( 'input', () => { lineMap = null; hlLine = null; renderMirror(); syncMirrorScroll(); refreshLoopVisibility(); } );
 		lap2Zero.addEventListener( 'change', () => { if ( total != null ) slider.max = String( total - zeroOffset() ); slider.value = String( globalToSlider( Number( slider.value ) + ( lap2Zero.checked ? l1c : -l1c ) ) ); updateLabel( Number( slider.value ) + zeroOffset() ); } );
 		refreshLoopVisibility();
 
@@ -399,27 +417,56 @@
 
 		}
 
+		// Text-color highlight: a synced mirror div renders the SAME text
+		// behind the transparent-text textarea, the current step's line in
+		// green — the highlight IS the text in the actual box. No floating
+		// band to drift out of place, no selection theft, wrapping and
+		// scrolling are shared by construction.
+		const mirror = document.createElement( 'div' );
+		mirror.id = 'inputs-mirror';
+		inputsEl.parentElement.insertBefore( mirror, inputsEl );
+		let mirrorSpans = [];
+		let curSpan = null;
+		function setCurLine( line ) {
+
+			if ( curSpan ) curSpan.classList.remove( 'cur' );
+			curSpan = ( line != null && mirrorSpans[ line ] ) || null;
+			if ( curSpan ) curSpan.classList.add( 'cur' );
+
+		}
+		function renderMirror() {
+
+			const lines = inputsEl.value.split( '\n' );
+			mirror.textContent = '';
+			mirrorSpans = lines.map( ( l, i ) => {
+
+				const sp = document.createElement( 'span' );
+				sp.textContent = l;
+				mirror.appendChild( sp );
+				if ( i < lines.length - 1 ) mirror.appendChild( document.createTextNode( '\n' ) );
+				return sp;
+
+			} );
+			setCurLine( hlLine );
+
+		}
+		function syncMirrorScroll() { mirror.scrollTop = inputsEl.scrollTop; }
+		inputsEl.addEventListener( 'scroll', syncMirrorScroll );
 		function highlight( lap, entry ) {
 
 			if ( ! lineMap ) lineMap = buildLineMap();
 			const lines = ( lap === 2 ? lineMap.lap2 : lineMap.lap1 );
 			const line = lines[ entry ];
 			if ( line == null ) return;
-			const arr = inputsEl.value.split( '\n' );
-			let start = 0;
-			for ( let i = 0; i < line; i ++ ) start += arr[ i ].length + 1;
 			hlLine = line;
-			placeHl();
-			const focused = document.activeElement === inputsEl;
-			try {
-
-				inputsEl.setSelectionRange( start, start + arr[ line ].length );
-				const lh = 16;
-				const target = line * lh - inputsEl.clientHeight / 3;
-				if ( Math.abs( inputsEl.scrollTop - target ) > lh * 2 ) inputsEl.scrollTop = Math.max( 0, target );
-
-			} catch ( e ) {}
-			if ( focused ) inputsEl.blur();
+			setCurLine( line );
+			const span = mirrorSpans[ line ];
+			if ( ! span ) return;
+			// Keep the current line comfortably in view — REAL geometry
+			// (wrapped lines included), not line-height guesswork.
+			const target = Math.max( 0, span.offsetTop - 10 - inputsEl.clientHeight / 3 );
+			if ( Math.abs( inputsEl.scrollTop - target ) > 40 ) inputsEl.scrollTop = target;
+			syncMirrorScroll();
 
 		}
 
@@ -429,23 +476,8 @@
 
 		}
 
-		const hl = document.createElement( 'div' );
-		hl.style.cssText = 'position:fixed;left:0;top:0;height:16px;width:0;background:rgba(63,185,80,.28);pointer-events:none;z-index:50;';
-		document.body.appendChild( hl );
 		let hlLine = null;
-		function placeHl() {
-
-			if ( hlLine == null ) { hl.style.width = '0'; return; }
-			const r = inputsEl.getBoundingClientRect();
-			const top = r.top + hlLine * 16 - inputsEl.scrollTop;
-			if ( top < r.top || top + 16 > r.bottom ) { hl.style.width = '0'; return; } // line outside the box
-			hl.style.left = r.left + 'px';
-			hl.style.width = r.width + 'px';
-			hl.style.top = top + 'px';
-
-		}
-		inputsEl.addEventListener( 'scroll', placeHl );
-		window.addEventListener( 'resize', placeHl );
+		renderMirror();
 		playBtn.addEventListener( 'click', () => { send_( 'tas-toggle-pause', {} ); } );
 		slider.addEventListener( 'pointerdown', () => { dragging = true; } );
 		window.addEventListener( 'pointerup', () => { dragging = false; } );
@@ -489,6 +521,7 @@
 				playBtn.textContent = '▶';
 				if ( total != null && document.activeElement !== slider ) slider.value = String( globalToSlider( total ) );
 				updateLabel( total != null ? total : 0 );
+				if ( d.unfinished ) $id( 'status' ).textContent = 'end of inputs — the run never crossed the finish (scrub the attempt, edit it, or brute-force from here)';
 
 			} else if ( d.type === 'tas-bruteforce-update' || d.type === 'tas-bruteforce-done' ) {
 

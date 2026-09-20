@@ -427,6 +427,24 @@ export function activate( ctx ) {
 				state.stepIndex = 0;
 
 			}
+			// Unfinished (imported partial) run: the calc learned no finish
+			// crossing ever comes. End playback at the SAME bound the calc
+			// broke at — last input + 10s coast — instead of driving off
+			// forever on the held last input.
+			if ( state.started && state.playback.unfinished ) {
+
+				const es = state.runEntries;
+				if ( es && es.length && state.stepIndex > es[ es.length - 1 ].step + 60 * 10 ) {
+
+					state.phase = 'done';
+					ctx.tasBeginNextLap();
+					post( 'tas-run-complete', { unfinished: true, stepCount: state.stepIndex } );
+					updateOverlay();
+					return zeroInput();
+
+				}
+
+			}
 			const scripted = scriptInputAt( state.stepIndex );
 			if ( state.overlayTick % 6 === 0 ) {
 
@@ -734,6 +752,26 @@ export function activate( ctx ) {
 
 					ctx.fns.stepOnce();
 					if ( state.phase === 'run' ) probeLapCross();
+					// Unfinished runs (imported partial attempts): the
+					// inputs run out long before any finish exists. Keep
+					// simulating only a 10s coast window past the last
+					// input (a coasting finish still counts), then stop
+					// burning burst steps and pin the slider bounds to
+					// where the timeline actually ends — a null bound
+					// meant slider max 0 and seeks that never fired.
+					if ( state.phase === 'run' && state.started ) {
+
+						const es = state.runEntries;
+						const last = es && es.length ? es[ es.length - 1 ].step : null;
+						if ( last != null && state.stepIndex > last + 60 * 10 ) {
+
+							state.playback.totalSteps = globalStep();
+							state.playback.unfinished = true;
+							break;
+
+						}
+
+					}
 
 				}
 
@@ -749,6 +787,7 @@ export function activate( ctx ) {
 
 		}
 		const l1c = state.playback.lap1CrossStep;
+		if ( startAtLap2 && l1c == null ) startAtLap2 = false; // no crossing learned — nothing to skip to
 		if ( startAtLap2 && script.lap2.length ) {
 
 			// Skip mode: the calc above learned the run's shape (crossing
