@@ -1127,6 +1127,18 @@ post( 'tas-paused', { paused: state.paused } );
 			}
 
 		}
+		else if ( type === 'tas-setspeed' ) {
+
+			// Playback rate: 1 = real time. Only the accumulator fuel is
+			// scaled; sim steps stay fixed 1/60s, so physics is identical.
+			if ( ctx.fns.setSimSpeed ) ctx.fns.setSimSpeed( Number( event.data.mult ) || 1 );
+
+		}
+		else if ( type === 'tas-hitbox' ) {
+
+			if ( ctx.fns.setCollisionView ) ctx.fns.setCollisionView( !! event.data.on );
+
+		}
 
 	} );
 

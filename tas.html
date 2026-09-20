@@ -9,6 +9,7 @@
 	html, body { margin: 0; height: 100%; background: #0d1117; color: #e6edf3;
 		font: 14px/1.45 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; }
 	#url-screen { display: flex; align-items: center; justify-content: center; height: 100%; }
+		#tas-bar.tas-idle #tas-run-row { opacity: .45; pointer-events: none; }
 	.url-card { width: min(560px, 92vw); background: #161b22; border: 1px solid #30363d;
 		border-radius: 12px; padding: 28px; }
 	.url-card h1 { font-size: 18px; margin: 0 0 6px; }
@@ -76,10 +77,17 @@
 	</header>
 	<div id="layout">
 		<div id="viewport-stack" style="flex:1;display:flex;flex-direction:column;min-width:0;">
-			<div id="tas-bar" style="display:none;flex:none;align-items:center;gap:14px;padding:10px 16px;background:linear-gradient(180deg,rgba(8,12,20,.94),rgba(8,12,20,.66));border-bottom:1px solid rgba(255,255,255,.10);font:600 13px/1 system-ui,sans-serif;color:#eaf0ff;">
-				<button id="tas-play" style="width:36px;height:36px;flex:none;border-radius:50%;border:1px solid rgba(255,255,255,.16);background:rgba(29,78,216,.85);color:#fff;cursor:pointer;">⏸</button>
-				<input type="range" id="tas-slider" min="0" max="1000" value="0" step="1" style="flex:1;">
-				<span id="tas-slider-label" style="font-size:12px;white-space:nowrap;opacity:.85;">step 0 / 0</span>
+			<div id="tas-bar" class="tas-idle" style="flex:none;flex-direction:column;background:linear-gradient(180deg,rgba(8,12,20,.94),rgba(8,12,20,.66));border-bottom:1px solid rgba(255,255,255,.10);font:600 13px/1 system-ui,sans-serif;color:#eaf0ff;">
+				<div id="tas-run-row" style="display:flex;align-items:center;gap:14px;padding:10px 16px;">
+					<button id="tas-play" style="width:36px;height:36px;flex:none;border-radius:50%;border:1px solid rgba(255,255,255,.16);background:rgba(29,78,216,.85);color:#fff;cursor:pointer;">⏸</button>
+					<input type="range" id="tas-slider" min="0" max="1000" value="0" step="1" style="flex:1;">
+					<span id="tas-slider-label" style="font-size:12px;white-space:nowrap;opacity:.85;">step 0 / 0</span>
+				</div>
+				<div style="display:flex;align-items:center;gap:14px;padding:0 16px 10px;">
+					<label style="display:flex;align-items:center;gap:6px;font-weight:400;white-space:nowrap;"><input type="checkbox" id="tas-hitbox"> hitboxes</label>
+					<input type="range" id="tas-speed" min="0.1" max="1" value="1" step="0.05" style="flex:1;max-width:280px;">
+					<span id="tas-speed-label" style="font-size:12px;white-space:nowrap;opacity:.85;">100%</span>
+				</div>
 			</div>
 			<div id="viewport-wrap"><iframe id="viewport" title="TAS viewport"></iframe></div>
 		</div>
@@ -329,6 +337,14 @@
 			if ( f && f.contentWindow ) f.contentWindow.postMessage( Object.assign( { type }, data ), '*' );
 		};
 		const bar = $id( 'tas-bar' ), playBtn = $id( 'tas-play' ), slider = $id( 'tas-slider' ), label = $id( 'tas-slider-label' );
+		const speed = $id( 'tas-speed' ), speedLabel = $id( 'tas-speed-label' );
+		$id( 'tas-hitbox' ).addEventListener( 'change', ( e ) => send_( 'tas-hitbox', { on: e.target.checked } ) );
+		speed.addEventListener( 'input', () => {
+
+			speedLabel.textContent = Math.round( Number( speed.value ) * 100 ) + '%';
+			send_( 'tas-setspeed', { mult: Number( speed.value ) } );
+
+		} );
 		const lap2Zero = $id( 'lap2-zero' ), inputsEl = $id( 'inputs' );
 		let total = null, l1c = null, time = null, dragging = false, playing = true;
 		let lineMap = null;
@@ -345,7 +361,7 @@
 			lap2Zero.parentElement.style.display = '';
 
 		}
-		inputsEl.addEventListener( 'input', () => { lineMap = null; refreshLoopVisibility(); } );
+		inputsEl.addEventListener( 'input', () => { lineMap = null; hlLine = null; placeHl(); refreshLoopVisibility(); } );
 		lap2Zero.addEventListener( 'change', () => { if ( total != null ) slider.max = String( total - zeroOffset() ); slider.value = String( globalToSlider( Number( slider.value ) + ( lap2Zero.checked ? l1c : -l1c ) ) ); updateLabel( Number( slider.value ) + zeroOffset() ); } );
 		refreshLoopVisibility();
 
@@ -375,6 +391,8 @@
 			const arr = inputsEl.value.split( '\n' );
 			let start = 0;
 			for ( let i = 0; i < line; i ++ ) start += arr[ i ].length + 1;
+			hlLine = line;
+			placeHl();
 			const focused = document.activeElement === inputsEl;
 			try {
 
@@ -394,6 +412,21 @@
 
 		}
 
+		const hl = document.createElement( 'div' );
+		hl.style.cssText = 'position:fixed;left:0;top:0;height:16px;width:0;background:rgba(63,185,80,.28);pointer-events:none;z-index:50;';
+		document.body.appendChild( hl );
+		let hlLine = null;
+		function placeHl() {
+
+			if ( hlLine == null ) { hl.style.width = '0'; return; }
+			const r = inputsEl.getBoundingClientRect();
+			hl.style.left = r.left + 'px';
+			hl.style.width = r.width + 'px';
+			hl.style.top = ( r.top + hlLine * 16 - inputsEl.scrollTop ) + 'px';
+
+		}
+		inputsEl.addEventListener( 'scroll', placeHl );
+		window.addEventListener( 'resize', placeHl );
 		playBtn.addEventListener( 'click', () => { send_( 'tas-toggle-pause', {} ); } );
 		slider.addEventListener( 'pointerdown', () => { dragging = true; } );
 		window.addEventListener( 'pointerup', () => { dragging = false; } );
@@ -412,7 +445,7 @@
 				total = d.totalSteps != null ? d.totalSteps : null;
 				l1c = d.lap1CrossStep != null ? d.lap1CrossStep : null;
 				time = d.calcTime != null ? d.calcTime : null;
-				bar.style.display = 'flex';
+				bar.classList.remove( 'tas-idle' );
 				playing = true; playBtn.textContent = '⏸';
 				slider.max = String( total != null ? total - zeroOffset() : 0 );
 				slider.value = '0';
@@ -422,7 +455,7 @@
 
 				if ( total == null ) slider.max = String( Math.max( Number( slider.max ), d.global ) );
 
-				if ( ! dragging ) slider.value = String( globalToSlider( d.global ) );
+				if ( ! dragging && document.activeElement !== slider ) slider.value = String( globalToSlider( d.global ) );
 				updateLabel( d.global );
 				highlight( d.lap, d.entry );
 
@@ -435,12 +468,12 @@
 
 				time = d.lapSeconds;
 				playBtn.textContent = '▶';
-				if ( total != null ) slider.value = String( globalToSlider( total ) );
+				if ( total != null && document.activeElement !== slider ) slider.value = String( globalToSlider( total ) );
 				updateLabel( total != null ? total : 0 );
 
 			} else if ( d.type === 'tas-bruteforce-update' || d.type === 'tas-bruteforce-done' ) {
 
-				bar.style.display = 'none';
+				bar.classList.add( 'tas-idle' );
 				total = null;
 
 			}

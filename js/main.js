@@ -9457,6 +9457,7 @@ function completeCampaignStage() {
 	// TAS-ready: same input timeline => same run, bit for bit.
 	const SIM_STEP_SECONDS = 1 / 60;
 	let simAccumulator = 0;
+	let tasSpeedMult = 1; // TAS playback rate: multiplies accumulator fuel only; steps stay fixed 1/60s so physics is identical
 	let tasMode = null; // TAS editor game mode (?tas=1) — null in normal play
 
 	// TAS-only lap bookkeeping: what the normal lap-transition block does for
@@ -13183,7 +13184,7 @@ function completeCampaignStage() {
 			// displays produce identical physics, lap times and ghost samples
 			// for the same inputs. Max 4 steps per render caps catch-up after
 			// tab-away so sim time never outruns real time unboundedly.
-			simAccumulator += Math.min( frameSeconds, 0.25 );
+			simAccumulator += Math.min( frameSeconds, 0.25 ) * tasSpeedMult;
 			let simSteps = Math.floor( simAccumulator / SIM_STEP_SECONDS );
 			if ( simSteps > 10 ) {
 
@@ -14182,7 +14183,7 @@ function completeCampaignStage() {
 
 		try {
 
-			const tasModule = await import( './TASMode.js?v=22' );
+			const tasModule = await import( './TASMode.js?v=23' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
@@ -14212,6 +14213,57 @@ function completeCampaignStage() {
 					},
 					saveCheckpointState,
 					setPaused: ( v ) => { paused = !! v; },
+					setSimSpeed: ( mult ) => { tasSpeedMult = Math.max( 0.05, Math.min( 1, Number( mult ) || 1 ) ); },
+					setCollisionView: ( on ) => {
+
+						// Hitbox view: snapshot every visible world mesh as an
+						// opaque box of its true bounds; skip sky-scale geometry
+						// and the player car. Boxes are static snapshots —
+						// moving obstacles freeze at toggle time.
+						if ( on ) {
+
+							if ( ! window.__tasHitboxes ) {
+
+								const group = new THREE.Group();
+								const mat = new THREE.MeshBasicMaterial( { color: 0x2f81f7 } );
+								const carSet = new Set();
+								vehicle.container.traverse( ( o ) => carSet.add( o ) );
+								scene.traverse( ( o ) => {
+
+									if ( ! o.isMesh || carSet.has( o ) ) return;
+									const box = new THREE.Box3().setFromObject( o );
+									const size = box.getSize( new THREE.Vector3() );
+									if ( Math.max( size.x, size.y, size.z ) > 300 ) return; // sky/ocean
+									if ( size.x + size.y + size.z < 0.05 ) return;
+									const solid = new THREE.Mesh( new THREE.BoxGeometry( size.x, size.y, size.z ), mat );
+									solid.position.copy( box.getCenter( new THREE.Vector3() ) );
+									group.add( solid );
+
+								} );
+								scene.add( group );
+								window.__tasHitboxes = { group, hidden: [], carSet };
+
+							}
+							const hb = window.__tasHitboxes;
+							scene.traverse( ( o ) => {
+
+								if ( ! o.isMesh || ! o.visible || o.parent === hb.group || hb.carSet.has( o ) ) return;
+								hb.hidden.push( o );
+								o.visible = false;
+
+							} );
+							hb.group.visible = true;
+
+						} else if ( window.__tasHitboxes ) {
+
+							const hb = window.__tasHitboxes;
+							hb.hidden.forEach( ( o ) => { o.visible = true; } );
+							hb.hidden.length = 0;
+							hb.group.visible = false;
+
+						}
+
+					},
 					// Skip-mode runs must re-enter lap 2 carrying the SAME
 					// gameplay state the recording had at the line crossing:
 					// respawn zeroes all of this, but tasBeginNextLap (the
