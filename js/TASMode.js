@@ -340,6 +340,20 @@ export function activate( ctx ) {
 
 		state.overlayTick ++;
 
+		// In-game arrow-key display: show the EFFECTIVE input — the pad
+		// while recording (fingers on keys during the countdown too), the
+		// scripted values while replaying, nothing once the run is done.
+		// Skipped during fast-forward bursts: hundreds of raw steps per
+		// frame would just thrash the DOM for one invisible flicker.
+		if ( ctx.fns.updateTasKeys && ! state.fastForward ) {
+
+			let display = input;
+			if ( state.phase === 'done' ) display = zeroInput();
+			else if ( state.phase === 'run' ) display = state.started ? scriptInputAt( state.stepIndex ) : zeroInput();
+			ctx.fns.updateTasKeys( display );
+
+		}
+
 		if ( state.phase === 'record' ) {
 
 			if ( ! state.started ) {
@@ -807,6 +821,13 @@ export function activate( ctx ) {
 
 					ctx.fns.stepOnce();
 					if ( state.phase === 'run' ) probeLapCross();
+					// Non-loop runs (and loop runs whose calc never found a
+					// crossing) have NO lap-1 boundary to burst toward — the
+					// target IS the position. Without this break the burst
+					// ran the ENTIRE lap, "arriving" instantly at the finish
+					// so the run zoomed past instead of playing (user bug:
+					// non-loop runs unwatchable, checkbox irrelevant).
+					if ( l1c == null && state.started && state.stepIndex >= target ) break;
 
 				}
 				const local = l1c == null ? target : target - l1c;

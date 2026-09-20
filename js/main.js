@@ -14212,9 +14212,38 @@ function completeCampaignStage() {
 		// start instantly instead — they inject their own first step.
 		countdownEnabled = true;
 
+		// In-game input display: the 4 arrow keys, just above the ghost
+		// import/export buttons. Lit while pressed — pad input while
+		// recording, scripted values while replaying (driven from
+		// TASMode.step via the updateTasKeys hook below).
+		const tasKeyStyle = document.createElement( 'style' );
+		tasKeyStyle.textContent = '#tas-keys{position:absolute;left:16px;bottom:56px;z-index:10;display:flex;flex-direction:column;gap:4px;user-select:none;pointer-events:none;}'
+			+ '#tas-keys .row{display:flex;gap:4px;}'
+			+ '#tas-keys .tk{width:30px;height:30px;display:flex;align-items:center;justify-content:center;font:700 15px/1 sans-serif;color:#fff;background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.28);border-radius:6px;transition:background .06s,border-color .06s;}'
+			+ '#tas-keys .tk.on{background:rgba(35,134,54,0.92);border-color:rgba(63,185,80,0.9);}';
+		document.head.appendChild( tasKeyStyle );
+		const mkTasKey = ( glyph ) => { const d = document.createElement( 'div' ); d.className = 'tk'; d.textContent = glyph; return d; };
+		const tasKeysEl = document.createElement( 'div' );
+		tasKeysEl.id = 'tas-keys';
+		const tasKeyUp = mkTasKey( '↑' ), tasKeyLeft = mkTasKey( '←' ), tasKeyDown = mkTasKey( '↓' ), tasKeyRight = mkTasKey( '→' );
+		const tasKeyRow = document.createElement( 'div' );
+		tasKeyRow.className = 'row';
+		tasKeyRow.append( tasKeyLeft, tasKeyDown, tasKeyRight );
+		tasKeysEl.append( tasKeyUp, tasKeyRow );
+		document.body.appendChild( tasKeysEl );
+		const updateTasKeys = ( input ) => {
+
+			const i = input || {};
+			tasKeyUp.classList.toggle( 'on', ( i.z || 0 ) > 0.5 );
+			tasKeyDown.classList.toggle( 'on', ( i.z || 0 ) < -0.5 );
+			tasKeyLeft.classList.toggle( 'on', ( i.x || 0 ) < -0.5 );
+			tasKeyRight.classList.toggle( 'on', ( i.x || 0 ) > 0.5 );
+
+		};
+
 		try {
 
-			const tasModule = await import( './TASMode.js?v=25' );
+			const tasModule = await import( './TASMode.js?v=26' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
@@ -14244,6 +14273,7 @@ function completeCampaignStage() {
 					},
 					saveCheckpointState,
 					setPaused: ( v ) => { paused = !! v; },
+					updateTasKeys,
 					setSimSpeed: ( mult ) => { tasSpeedMult = Math.max( 0.05, Math.min( 1, Number( mult ) || 1 ) ); },
 					setCollisionView: ( on ) => {
 
