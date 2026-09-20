@@ -819,6 +819,8 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	else if ( type === 'elevated-checkpoint' ) modelKey = 'elev-track-checkpoint';
 	else if ( type === 'slope-up' || type === 'slope-down' ) modelKey = 'elev-track-slope';
 	else if ( type === 'elevated-3-way' ) modelKey = 'elev-track-3-way';
+	else if ( type === 'elevated-choke-half' ) modelKey = 'elev-track-choke-half';
+	else if ( type === 'elevated-choke-both' ) modelKey = 'elev-track-choke-both';
 	else if ( type === 'elevated-4-way' ) modelKey = 'elev-track-4-way';
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
 

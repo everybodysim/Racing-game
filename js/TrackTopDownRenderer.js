@@ -27,8 +27,10 @@ import { buildTrack, computeTrackBounds, prerenderWaterRefraction } from './Trac
 const STATIC_MODEL_NAMES = [
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'track-3-way', 'track-4-way',
+	'track-choke-half', 'track-choke-both',
 	'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners',
 	'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way',
+	'elev-track-choke-half', 'elev-track-choke-both',
 	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
 	'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d',
 ];
