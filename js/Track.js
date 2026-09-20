@@ -1809,6 +1809,8 @@ const V3_NAME_TOKENS = {
 	'elevated-4-way': 'p',
 	'slope-up': 'q',
 	'slope-down': 'r',
+	'track-choke-half': 's',
+	'track-choke-both': 't',
 
 };
 

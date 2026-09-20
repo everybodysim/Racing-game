@@ -311,8 +311,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 				const xLine = CHOKE_APEX_X + ( WALL_X - CHOKE_APEX_X ) * 0.5 * ( 1 + Math.cos( 2 * Math.PI * t ) );
 				const dx = - ( WALL_X - CHOKE_APEX_X ) * Math.PI * Math.sin( 2 * Math.PI * t ) / span;
 				const lx = side * xLine;
-				const wx = cx + ( lx * cr ) * S;
-				const wz = cz + ( - lx * sr ) * S;
+				// world position follows the add3WayWalls local->world convention; zc
+				// spreads the 8 boxes along the block instead of stacking at its center.
+				const wx = cx + ( lx * cr + zc * sr ) * S;
+				const wz = cz + ( - lx * sr + zc * cr ) * S;
 				// box long axis follows the tangent (dx, dz = 1) in local
 				// space; the block yaw adds on top of the per-segment tilt.
 				const segTilt = Math.atan( side * dx );
