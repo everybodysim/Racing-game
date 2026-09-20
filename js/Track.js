@@ -732,7 +732,7 @@ function computeCausticShade( normal ) {
 
 }
 
-const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way' ] );
+const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ] );
 
 function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 
