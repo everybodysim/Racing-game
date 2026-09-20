@@ -31,7 +31,9 @@
 	#viewport-wrap { flex: 1; position: relative; min-width: 0; }
 	iframe { width: 100%; height: 100%; border: 0; display: block; background: #000; }
 	#panel { width: 380px; display: flex; flex-direction: column; background: #161b22;
-		border-left: 1px solid #30363d; padding: 12px; gap: 10px; }
+		border-left: 1px solid #30363d; padding: 12px; gap: 10px;
+		overflow-y: auto; scrollbar-width: thin; } /* the toolset keeps growing — the whole sidebar scrolls */
+	#panel > *:not(#inputs) { flex-shrink: 0; } /* keep natural heights: the panel scrolls, sections don't get crushed */
 	#timing { font: 600 13px ui-monospace, Menlo, Consolas, monospace; color: #8b949e; }
 	#timing b { color: #e6edf3; }
 	#panel label { font-size: 12px; font-weight: 700; color: #8b949e; text-transform: uppercase; letter-spacing: .04em; }
@@ -93,6 +95,9 @@
 		</div>
 		<div id="panel">
 			<div id="timing">lap <b id="t-lap">–</b> · steps <b id="t-steps">–</b> · last run <b id="t-run">–</b></div>
+			<div class="row">
+				<button id="grab-btn" title="Copy whatever you've driven so far into the inputs box — no finished lap needed.">Import unfinished run ⤓</button>
+			</div>
 			<label for="inputs">TAS inputs (editable)</label>
 			<textarea id="inputs" spellcheck="false" placeholder="Recorded inputs appear here after a completed lap. Edit any step line, then Run."></textarea>
 			<div id="state-note" style="font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#6e7681;margin-top:4px;"></div>
@@ -277,11 +282,19 @@
 				$( 'bf-stop' ).disabled = true;
 				$( 'bf-status' ).textContent = 'error: ' + data.errors.join( '; ' );
 				break;
+			case 'tas-grab-run':
+				adoptScript( data.script );
+				statusEl.textContent = `live run imported — ${ data.entries } input changes, ${ data.steps } steps recorded so far`;
+				break;
+			case 'tas-grab-empty':
+				statusEl.textContent = 'nothing to import — record some driving first (the run must be in progress)';
+				break;
 
 		}
 
 	} );
 
+	$( 'grab-btn' ).addEventListener( 'click', () => sendToGame( 'tas-grab-partial' ) );
 	$( 'load-btn' ).addEventListener( 'click', () => loadTrack( $( 'track-url' ).value.trim() ) );
 	$( 'track-url' ).addEventListener( 'keydown', ( e ) => { if ( e.key === 'Enter' ) loadTrack( e.target.value.trim() ); } );
 	$( 'use-btn' ).addEventListener( 'click', () => {

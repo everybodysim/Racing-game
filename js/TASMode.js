@@ -228,6 +228,34 @@ export function activate( ctx ) {
 
 	}
 
+	// Unfinished-run grab (verify-a-hard-track workflow): exactly what has
+	// been recorded SO FAR. Unlike buildScript() it never synthesizes a
+	// 'cross' line — on a loop track mid-lap-1 the crossing hasn't happened,
+	// so the export is lap 1 only and says so honestly.
+	function buildPartialScript() {
+
+		const lines = [ '# Skid Circuit TAS v11', `track: ${ ctx.trackId }`, 'mode: run' ];
+		if ( ctx.isLoop && state.lapsCompleted >= 1 && state.crossState ) {
+
+			lines.push( `state: pos ${ state.crossState.pos.map( fmt ).join( ' ' ) }` );
+			lines.push( `state: vel ${ state.crossState.vel.map( fmt ).join( ' ' ) }` );
+			lines.push( `state: angvel ${ state.crossState.angvel.map( fmt ).join( ' ' ) }` );
+			lines.push( `state: rot ${ state.crossState.rot.map( fmt ).join( ' ' ) }` );
+			if ( state.crossState.game ) lines.push( `state: game ${ JSON.stringify( state.crossState.game ) }` );
+
+		}
+		for ( const entry of state.lapBuffers[ 0 ] || [] ) lines.push( `step ${ entry.step } x=${ fmt( entry.x ) } z=${ fmt( entry.z ) }` );
+		if ( ctx.isLoop && state.lapsCompleted >= 1 && state.crossState ) {
+
+			lines.push( 'cross' );
+			for ( const entry of state.lapBuffers[ 1 ] || [] ) lines.push( `step ${ entry.step } x=${ fmt( entry.x ) } z=${ fmt( entry.z ) }` );
+
+		}
+		lines.push( 'end' );
+		return lines.join( '\n' );
+
+	}
+
 	function parseScript( text ) {
 
 		const script = { mode: 'run', crossState: null, lap1: [], lap2: [], errors: [], ver: 0 };
@@ -1179,6 +1207,21 @@ post( 'tas-paused', { paused: state.paused } );
 		else if ( type === 'tas-bruteforce' ) bruteForce( event.data );
 		else if ( type === 'tas-bruteforce-stop' ) { if ( state.brute ) state.brute.stop = true; }
 		else if ( type === 'tas-toggle-pause' ) togglePause();
+		else if ( type === 'tas-grab-partial' ) {
+
+			// "Import unfinished run": copy the live recording into the
+			// editor's inputs box WITHOUT needing a completed lap — for
+			// checking/verifying hard tracks you can't finish yet.
+			const entries = state.lapBuffers.reduce( ( n, b ) => n + b.length, 0 );
+			if ( state.phase !== 'record' || ! entries ) {
+
+				post( 'tas-grab-empty', {} );
+				return;
+
+			}
+			post( 'tas-grab-run', { script: buildPartialScript(), steps: state.stepIndex, entries } );
+
+		}
 		else if ( type === 'tas-seek' && state.runScript && ( state.phase === 'run' || state.phase === 'done' ) ) {
 
 			// Scrubbing while paused STAYS paused: capture BEFORE the seek
