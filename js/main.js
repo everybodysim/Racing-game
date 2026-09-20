@@ -14182,7 +14182,7 @@ function completeCampaignStage() {
 
 		try {
 
-			const tasModule = await import( './TASMode.js?v=19' );
+			const tasModule = await import( './TASMode.js?v=20' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
@@ -14211,6 +14211,7 @@ function completeCampaignStage() {
 						if ( 'lastLocalZ' in patch ) lastLocalZ = patch.lastLocalZ;
 					},
 					saveCheckpointState,
+					setPaused: ( v ) => { paused = !! v; },
 					// Skip-mode runs must re-enter lap 2 carrying the SAME
 					// gameplay state the recording had at the line crossing:
 					// respawn zeroes all of this, but tasBeginNextLap (the

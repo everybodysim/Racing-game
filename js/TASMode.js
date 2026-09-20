@@ -54,6 +54,7 @@ export function activate( ctx ) {
 		pauseRot: null,
 		calc: false,
 		probeErr: null,
+		skipMode: false,
 	};
 
 	window.__tasState = () => {
@@ -370,16 +371,6 @@ export function activate( ctx ) {
 
 		if ( state.phase === 'run' && state.runScript ) {
 
-			if ( state.paused ) {
-
-				// Freeze: hold the car exactly at the paused pose; the
-				// zeroed velocities keep it from creeping per step.
-				applyCrossState( { pos: state.pausePos, rot: state.pauseRot, vel: [ 0, 0, 0 ], angvel: [ 0, 0, 0 ] } );
-				if ( state.overlayTick % 6 === 0 ) updateOverlay();
-				return zeroInput();
-
-			}
-
 			// Play-lap-1 mode arms exactly like the recorder: no injection
 			// until the countdown has fully ended.
 			if ( ! state.started ) {
@@ -535,7 +526,8 @@ export function activate( ctx ) {
 	// instead of resetting to 0 at the line (loop tracks, skip mode).
 	function globalStep() {
 
-		return state.stepIndex + ( state.lapsCompleted >= 1 ? ( state.playback.lap1CrossStep || 0 ) : 0 );
+		const base = state.playback.lap1CrossStep || 0;
+		return state.stepIndex + ( ( state.skipMode || state.lapsCompleted >= 1 ) ? base : 0 );
 
 	}
 
@@ -634,8 +626,8 @@ export function activate( ctx ) {
 		state.runPointer = 0;
 		state.runLaps = 1;
 		state.paused = false;
-		state.pausePos = null;
-		state.pauseRot = null;
+		state.skipMode = false;
+		if ( ctx.fns.setPaused ) ctx.fns.setPaused( false );
 
 	}
 
@@ -707,11 +699,35 @@ export function activate( ctx ) {
 
 		}
 		const l1c = state.playback.lap1CrossStep;
-		seekTo( ( startAtLap2 && l1c != null ) ? l1c : 0 );
+		if ( startAtLap2 && script.lap2.length ) {
+
+			// SKIP MODE — the v16 path, restored by user order: NO lap-1
+			// replay. The calc above already learned the run's shape
+			// (crossing step / length / time); now respawn, hard-apply the
+			// EXACT recorded crossing state (pos/vel/angvel/rot + game
+			// state) and inject lap 2 with the flying start. Scrubbing the
+			// slider into lap 1 still re-anchors via seekTo.
+			resetState( 'run' );
+			state.runScript = script;
+			state.skipMode = true;
+			state.started = true;
+			applyCrossState( script.crossState );
+			state.runEntries = script.lap2;
+			state.runLaps = 1;
+			state.runPointer = 0;
+			resetCarPhysicsHistory();
+			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+
+		} else {
+
+			state.skipMode = false;
+			seekTo( 0 );
+
+		}
 		post( 'tas-run-started', {
 			mode: script.mode,
 			steps: script.lap1.length + script.lap2.length,
-			skipLap1: !!( startAtLap2 && l1c != null ),
+			skipLap1: !! startAtLap2,
 			totalSteps: state.playback.totalSteps,
 			lap1CrossStep: l1c,
 			calcTime: state.playback.time,
@@ -734,6 +750,7 @@ export function activate( ctx ) {
 
 			resetState( 'run' );
 			state.runScript = script;
+			state.skipMode = true;
 			state.started = true;
 			applyCrossState( script.crossState );
 			state.runEntries = script.lap2;
@@ -752,6 +769,7 @@ export function activate( ctx ) {
 
 			resetState( 'run' );
 			state.runScript = script;
+			state.skipMode = true;
 			state.lapsCompleted = 1;
 			applyCrossState( script.crossState );
 			state.runEntries = script.lap2;
@@ -770,6 +788,7 @@ export function activate( ctx ) {
 
 		resetState( 'run' );
 		state.runScript = script;
+		state.skipMode = false;
 		state.stepIndex = 0;
 		ctx.fns.respawnVehicle();
 		state.runEntries = script.lap1;
@@ -819,25 +838,16 @@ export function activate( ctx ) {
 
 	}
 
-	// Pause: freeze the car exactly at its pose (physics keeps stepping,
-	// so the freeze re-applies position + zero velocity every step).
-	// Resume: seek back to the paused global step — fully deterministic.
+	// Pause = the GAME's own pause (main.js `paused` flag): the sim loop
+	// stops, the engine/camera/overlay keep rendering. Resume is instant
+	// — the run simply continues from the paused step.
 	function togglePause() {
 
 		if ( state.phase !== 'run' || ! state.runScript ) return;
-		if ( ! state.paused ) {
-
-			state.paused = true;
-			state.pausePos = [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ];
-			state.pauseRot = [ ctx.vehicle.container.rotation.x, ctx.vehicle.container.rotation.y, ctx.vehicle.container.rotation.z ];
-
-		} else {
-
-			const g = globalStep();
-			seekTo( g );
-
-		}
-		post( 'tas-paused', { paused: state.paused } );
+		if ( ! ctx.fns.setPaused ) return;
+		state.paused = ! state.paused;
+		ctx.fns.setPaused( state.paused );
+post( 'tas-paused', { paused: state.paused } );
 
 	}
 

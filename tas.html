@@ -75,7 +75,12 @@
 		<span id="status">loading…</span>
 	</header>
 	<div id="layout">
-		<div id="viewport-wrap"><iframe id="viewport" title="TAS viewport"></iframe></div>
+		<div id="tas-bar" style="display:none;margin-bottom:6px;gap:8px;align-items:center;">
+				<button id="tas-play">⏸</button>
+				<input type="range" id="tas-slider" min="0" max="1000" value="0" step="1" style="flex:1;">
+				<span id="tas-slider-label" style="font-size:11px;white-space:nowrap;">step 0 / 0</span>
+			</div>
+			<div id="viewport-wrap"><iframe id="viewport" title="TAS viewport"></iframe></div>
 		<div id="panel">
 			<div id="timing">lap <b id="t-lap">–</b> · steps <b id="t-steps">–</b> · last run <b id="t-run">–</b></div>
 			<label for="inputs">TAS inputs (editable)</label>
@@ -89,11 +94,6 @@
 			<div class="row">
 				<button id="run-btn">Run inputs ▶</button>
 				<button id="stop-btn">Stop</button>
-			<div id="tas-bar" style="display:none;flex-basis:100%;width:100%;margin-top:8px;gap:8px;align-items:center;">
-				<button id="tas-play" style="min-width:36px;">⏸</button>
-				<input type="range" id="tas-slider" min="0" max="1000" value="0" step="1" style="flex:1;width:70%;accent-color:#238636;height:28px;">
-				<span id="tas-slider-label" style="font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#6e7681;white-space:nowrap;">step 0 / 0</span>
-			</div>
 			</div>
 			<div style="border-top:1px solid #30363d;margin-top:2px;padding-top:10px;">
 				<label>Brute force</label>
