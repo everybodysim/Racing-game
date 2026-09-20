@@ -836,6 +836,13 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	} );
 
 	}
+	// Choke shells must not sample the shadow map (self-shadow acne on the
+	// grazing curve faces — see the placePiece choke branch for the full note).
+	if ( type === 'elevated-choke-half' || type === 'elevated-choke-both' ) {
+
+	piece.traverse( ( child ) => { child.userData.isChokeMesh = true; } );
+
+	}
 	// Slope model is pre-sloped at the correct size — place at ground level, no scaling
 	const yAdjust = ( type === 'slope-up' || type === 'slope-down' ) ? - ELEVATED_HEIGHT : 0;
 	piece.position.set(
@@ -1722,7 +1729,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		if ( child.isMesh ) {
 
 			child.castShadow = true;
-			child.receiveShadow = true;
+			// Choke shells don't sample the shadow map (self-shadow acne) —
+			// they still CAST, so their ground shadow stays.
+			child.receiveShadow = ! child.userData.isChokeMesh;
 
 		}
 
@@ -1909,8 +1918,14 @@ export function placePiece( models, key, gx, gz, orient ) {
 		// The pinch walls are viewable from inside the choke opening, so render
 		// both faces (same treatment as the elevated blocks). Materials are
 		// shared with the source model — guarded so it mutates only once.
+		// The choke's thin open shell also MUST NOT sample the shadow map:
+		// its own proxy-cast silhouette self-shadows the grazing curve faces
+		// ("shredded" acne over specific faces with shadows on, fine with
+		// shadows off — user report 2026-09-20). Tag every mesh; the blanket
+		// receiveShadow pass at the end of buildTrack respects the tag.
 		piece.traverse( ( child ) => {
 
+			child.userData.isChokeMesh = true;
 			if ( child.material && ! child.material.__doubleSided ) {
 
 				( Array.isArray( child.material ) ? child.material : [ child.material ] ).forEach( ( m ) => {

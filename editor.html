@@ -895,7 +895,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000236';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000237';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260920';
@@ -2045,7 +2045,11 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 
 						}
 						c.castShadow = true;
-						c.receiveShadow = true;
+						// Choke shells don't sample the shadow map — their own
+						// proxy-cast silhouette self-shadows the grazing curve
+						// faces (shredded acne with shadows on, fine off).
+						// They still cast, so the ground shadow stays.
+						c.receiveShadow = modelType !== 'track-choke-half' && modelType !== 'track-choke-both';
 
 				}
 
@@ -2164,7 +2168,9 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 					if ( c.isMesh ) {
 
 						c.castShadow = true;
-						c.receiveShadow = true;
+						// Elevated choke shells don't sample the shadow map (self-shadow
+						// acne on the grazing curve faces — see ground placement note).
+						c.receiveShadow = sourceType !== 'elev-track-choke-half' && sourceType !== 'elev-track-choke-both';
 						// GLB materials are single-sided; seen from underneath / behind, the
 						// faces vanish and cast broken shadows. Render every elevated block
 						// double-sided. Materials are shared with the source model, so this
