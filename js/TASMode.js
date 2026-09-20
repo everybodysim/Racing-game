@@ -665,7 +665,7 @@ export function activate( ctx ) {
 		// finish time BEFORE playback starts. Playback then seeks to the
 		// slider's zero position and plays in real time; scrubbing the
 		// slider re-anchors with the same deterministic bursts.
-		if ( ! startAtLap2 && ctx.fns.stepOnce && script.lap1.length ) {
+		if ( ctx.fns.stepOnce && script.lap1.length ) {
 
 			state.calc = true;
 			state.runEntries = script.lap1;
@@ -701,59 +701,16 @@ export function activate( ctx ) {
 		const l1c = state.playback.lap1CrossStep;
 		if ( startAtLap2 && script.lap2.length ) {
 
-			// SKIP MODE — the v11 fast path (user order): ONE synchronous
-			// burst simulates countdown + lap 1 at full speed (~half a
-			// second); the crossing fires mid-burst, applies the exact
-			// recorded crossing state and hands over to lap 2 REAL-TIME,
-			// carrying all lap-1 physics history. Lap 1 is never played
-			// in real time. If it never crosses in the burst (edited
-			// script), the instant teleport below still skips lap 1.
-			resetState( 'run' );
-			state.runScript = script;
-			state.skipMode = true;
-			state.started = false;
-			state.runEntries = script.lap1;
-			state.runLaps = 2;
-			ctx.fns.respawnVehicle();
-			resetCarPhysicsHistory();
-			ctx.fns.startCountdown();
-			state.fastForward = true;
-			let burst = 0;
-			const l1Last = script.lap1.length ? script.lap1[ script.lap1.length - 1 ].step : 0;
-			const burstCap = 60 * 5 + l1Last + 60 * 30;
-			try {
+			// Skip mode: the calc above learned the run's shape (crossing
+			// step, total, precise time — the slider shows #/# and the
+			// label shows the result). seekTo re-anchors and BURSTS lap 1
+			// synchronously — never a real-time lap-1 replay — then lap 2
+			// plays real-time from the exact recorded crossing state.
+			// Edited scripts where lap 1 can't cross still get the instant
+			// teleport fallback inside seekTo.
+			seekTo( l1c != null ? l1c : 1 );
 
-				while ( state.phase === 'run' && state.lapsCompleted < 1 && burst ++ < burstCap ) {
-
-					ctx.fns.stepOnce();
-					if ( state.phase === 'run' ) probeLapCross();
-
-				}
-
-			} catch ( e ) { /* fall through to the teleport */ }
-			state.fastForward = false;
-			if ( state.lapsCompleted < 1 ) {
-
-				// teleport fallback: exact recorded crossing state
-				resetState( 'run' );
-				state.runScript = script;
-				state.skipMode = true;
-				state.started = true;
-				applyCrossState( script.crossState );
-				state.runEntries = script.lap2;
-				state.runLaps = 1;
-				state.runPointer = 0;
-				resetCarPhysicsHistory();
-				if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
-
-			}
-
-		} else {
-
-			state.skipMode = false;
-			seekTo( 0 );
-
-		}
+		} else seekTo( 0 );
 		post( 'tas-run-started', {
 			mode: script.mode,
 			steps: script.lap1.length + script.lap2.length,
@@ -1071,16 +1028,30 @@ post( 'tas-paused', { paused: state.paused } );
 		let bestTime = baseline;
 		state.brute.best = baseline;
 		post( 'tas-bruteforce-progress', { round: 0, rounds, bestTime: fmtTime( bestTime ), lastTime: fmtTime( baseline ), adopted: false } );
+		// Beam search: keep the top `beamWidth` candidates (not just the
+		// single best), mutate EVERY seed each round, re-rank by precise
+		// finish time. Several live lineages escape the single-track dead
+		// ends plain hill-climbing gets stuck in.
+		const beamWidth = Math.max( 1, Math.min( 8, Number( payload.beam ) || 4 ) );
+		let beam = [ { script, time: baseline } ];
 		for ( let round = 1; round <= rounds; round ++ ) {
 
 			if ( state.brute.stop ) break;
-			const candidate = mutateScript( bestScript, mutations, addInput );
-			const t = bruteEvaluate( candidate );
-			let adopted = false;
-			if ( t < bestTime ) {
+			const pool = beam.slice();
+			for ( const seed of beam ) {
 
-				bestTime = t;
-				bestScript = candidate;
+				const candidate = mutateScript( seed.script, mutations, addInput );
+				pool.push( { script: candidate, time: bruteEvaluate( candidate ) } );
+
+			}
+			pool.sort( ( a, b ) => a.time - b.time );
+			beam = pool.slice( 0, beamWidth );
+			const best = beam[ 0 ];
+			let adopted = false;
+			if ( best.time < bestTime ) {
+
+				bestTime = best.time;
+				bestScript = best.script;
 				adopted = true;
 				state.brute.adopted ++;
 				post( 'tas-bruteforce-update', { script: scriptToText( bestScript ) } );
@@ -1088,8 +1059,8 @@ post( 'tas-paused', { paused: state.paused } );
 			}
 			state.brute.round = round;
 			state.brute.best = bestTime;
-			state.brute.last = t;
-			post( 'tas-bruteforce-progress', { round, rounds, bestTime: fmtTime( bestTime ), lastTime: fmtTime( t ), adopted } );
+			state.brute.last = best.time;
+			post( 'tas-bruteforce-progress', { round, rounds, bestTime: fmtTime( bestTime ), lastTime: fmtTime( best.time ), adopted } );
 			await new Promise( ( r ) => setTimeout( r, 0 ) ); // yield to the editor UI
 
 		}

@@ -111,6 +111,9 @@
 					<label for="bf-rounds" style="text-transform:none;letter-spacing:0;">rounds
 						<input id="bf-rounds" type="number" min="1" max="2000" value="20" style="width:64px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:3px 6px;font:inherit;">
 					</label>
+					<label for="bf-beam" style="text-transform:none;letter-spacing:0;">beam
+						<input id="bf-beam" type="number" min="1" max="8" value="4" style="width:48px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:3px 6px;font:inherit;">
+					</label>
 					<label for="bf-mut" style="text-transform:none;letter-spacing:0;">inputs changed/round
 						<input id="bf-mut" type="range" min="1" max="10" value="1" style="width:96px;">
 						<span id="bf-mut-val">1</span>
@@ -309,6 +312,7 @@
 		sendToGame( 'tas-bruteforce', {
 			script: composeFull(),
 			mutations: Number( $( 'bf-mut' ).value ),
+			beam: Number( $( 'bf-beam' ).value ),
 			addInput: $( 'bf-add' ).checked,
 			rounds: Math.max( 1, Number( $( 'bf-rounds' ).value ) || 20 )
 		} );
@@ -420,9 +424,11 @@
 
 			if ( hlLine == null ) { hl.style.width = '0'; return; }
 			const r = inputsEl.getBoundingClientRect();
+			const top = r.top + hlLine * 16 - inputsEl.scrollTop;
+			if ( top < r.top || top + 16 > r.bottom ) { hl.style.width = '0'; return; } // line outside the box
 			hl.style.left = r.left + 'px';
 			hl.style.width = r.width + 'px';
-			hl.style.top = ( r.top + hlLine * 16 - inputsEl.scrollTop ) + 'px';
+			hl.style.top = top + 'px';
 
 		}
 		inputsEl.addEventListener( 'scroll', placeHl );
