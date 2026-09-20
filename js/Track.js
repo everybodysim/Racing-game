@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const ORIENT_DEG = { 0: 0, 10: 180, 16: 90, 22: 270 };
 
@@ -823,6 +824,7 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	else if ( type === 'elevated-choke-both' ) modelKey = 'elev-track-choke-both';
 	else if ( type === 'elevated-4-way' ) modelKey = 'elev-track-4-way';
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
+	if ( modelKey === 'elev-track-choke-half' || modelKey === 'elev-track-choke-both' ) smoothChokeSourceModel( models[ modelKey ] );
 
 	const piece = models[ modelKey ].clone();
 	// The cross-corner mesh can be viewed from inside the corner opening, so render both faces
@@ -1757,11 +1759,43 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 }
 
+// Choke walls curve in 8 flat segments and the GLBs ship per-segment flat
+// normals, so under the game's hard directional sun adjacent faces alternate
+// bright and dark ("a bunch of random shaded faces"). Merge attribute-identical
+// vertices and recompute smooth normals ONCE per shared source model so the
+// curve shades as a continuous gradient, like the corner blocks. Guarded so
+// the rework runs only once per page load.
+export function smoothChokeSourceModel( model ) {
+
+	if ( ! model || model.userData.__chokeSmoothed ) return;
+
+	model.userData.__chokeSmoothed = true;
+	model.traverse( ( child ) => {
+
+		if ( ! ( child.isMesh && child.geometry && child.geometry.attributes.position ) ) return;
+		// mergeVertices hashes EVERY attribute, including normal — since flat
+		// shading gives each face's own vertices distinct normals, that alone
+		// blocks almost all merging (verified: 2646 -> 2626 verts, no-op).
+		// Drop normals first so only position+uv drive the merge, THEN
+		// recompute normals smoothed across the newly-shared vertices.
+		const geo = child.geometry.clone();
+		geo.deleteAttribute( 'normal' );
+		const merged = mergeVertices( geo, 1e-4 );
+		merged.computeVertexNormals();
+		child.geometry = merged;
+
+	} );
+
+}
+
 export function placePiece( models, key, gx, gz, orient ) {
 
 	const modelKey = key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key;
 	const src = models[ modelKey ];
 	if ( ! src ) return null;
+	// Smooth the choke curve's flat segment normals before cloning (the clone
+	// shares geometry, so the source must be reworked first).
+	if ( modelKey === 'track-choke-half' || modelKey === 'track-choke-both' ) smoothChokeSourceModel( src );
 
 	const piece = src.clone();
 	const yOffset = ( String( key || '' ).startsWith( 'decoration-' ) || String( key || '' ).startsWith( 'building-' ) ) ? DECORATION_HEIGHT_OFFSET : VISUAL_HEIGHT_OFFSET;

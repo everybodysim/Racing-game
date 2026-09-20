@@ -895,7 +895,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells } from './js/Track.js?v=1000234';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000235';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260920';
@@ -1998,6 +1998,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 			const modelType = ( roadPiece.type === 'track-checkpoint' || roadPiece.type === 'track-start' || roadPiece.type === 'track-start-finish' ) ? 'track-finish' : roadPiece.type;
 			const src = models[ modelType ];
 			if ( ! src ) return;
+				if ( modelType === 'track-choke-half' || modelType === 'track-choke-both' ) smoothChokeSourceModel( src );
 
 				const mesh = src.clone();
 				// The 4-way's road deck sits a hair below ground level — nudge it
@@ -2152,6 +2153,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 			const elevatedSrc = models[ sourceType ];
 			if ( elevatedSrc ) {
 
+				if ( sourceType === 'elev-track-choke-half' || sourceType === 'elev-track-choke-both' ) smoothChokeSourceModel( elevatedSrc );
 				const elevated = elevatedSrc.clone();
 				const yAdjust = normalizedType === 'elevated-4-way' ? 0.1 : ( normalizedType === 'slope-up' ? - ELEVATED_HEIGHT : 0 );
 				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
