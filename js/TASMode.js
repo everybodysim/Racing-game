@@ -665,7 +665,7 @@ export function activate( ctx ) {
 		// finish time BEFORE playback starts. Playback then seeks to the
 		// slider's zero position and plays in real time; scrubbing the
 		// slider re-anchors with the same deterministic bursts.
-		if ( ctx.fns.stepOnce && script.lap1.length ) {
+		if ( ! startAtLap2 && ctx.fns.stepOnce && script.lap1.length ) {
 
 			state.calc = true;
 			state.runEntries = script.lap1;
@@ -701,22 +701,52 @@ export function activate( ctx ) {
 		const l1c = state.playback.lap1CrossStep;
 		if ( startAtLap2 && script.lap2.length ) {
 
-			// SKIP MODE — the v16 path, restored by user order: NO lap-1
-			// replay. The calc above already learned the run's shape
-			// (crossing step / length / time); now respawn, hard-apply the
-			// EXACT recorded crossing state (pos/vel/angvel/rot + game
-			// state) and inject lap 2 with the flying start. Scrubbing the
-			// slider into lap 1 still re-anchors via seekTo.
+			// SKIP MODE — the v11 fast path (user order): ONE synchronous
+			// burst simulates countdown + lap 1 at full speed (~half a
+			// second); the crossing fires mid-burst, applies the exact
+			// recorded crossing state and hands over to lap 2 REAL-TIME,
+			// carrying all lap-1 physics history. Lap 1 is never played
+			// in real time. If it never crosses in the burst (edited
+			// script), the instant teleport below still skips lap 1.
 			resetState( 'run' );
 			state.runScript = script;
 			state.skipMode = true;
-			state.started = true;
-			applyCrossState( script.crossState );
-			state.runEntries = script.lap2;
-			state.runLaps = 1;
-			state.runPointer = 0;
+			state.started = false;
+			state.runEntries = script.lap1;
+			state.runLaps = 2;
+			ctx.fns.respawnVehicle();
 			resetCarPhysicsHistory();
-			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+			ctx.fns.startCountdown();
+			state.fastForward = true;
+			let burst = 0;
+			const l1Last = script.lap1.length ? script.lap1[ script.lap1.length - 1 ].step : 0;
+			const burstCap = 60 * 5 + l1Last + 60 * 30;
+			try {
+
+				while ( state.phase === 'run' && state.lapsCompleted < 1 && burst ++ < burstCap ) {
+
+					ctx.fns.stepOnce();
+					if ( state.phase === 'run' ) probeLapCross();
+
+				}
+
+			} catch ( e ) { /* fall through to the teleport */ }
+			state.fastForward = false;
+			if ( state.lapsCompleted < 1 ) {
+
+				// teleport fallback: exact recorded crossing state
+				resetState( 'run' );
+				state.runScript = script;
+				state.skipMode = true;
+				state.started = true;
+				applyCrossState( script.crossState );
+				state.runEntries = script.lap2;
+				state.runLaps = 1;
+				state.runPointer = 0;
+				resetCarPhysicsHistory();
+				if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+
+			}
 
 		} else {
 
@@ -910,7 +940,7 @@ post( 'tas-paused', { paused: state.paused } );
 	//   40% steering value — x from {-1,0,1}, never a no-op
 	//   10% accel value     — z from {-1,0,1}, rare (breaks runs easily)
 	//   25% timing shift    — step slides strictly between neighbors
-	//   25% steering pulse  — override steering for 3-24 steps inside one
+	//   25% steering pulse  — override steering for 3-8 steps inside one
 	//                         segment, then the original input resumes: a
 	//                         true 'few frames of gameplay' nudge, the small
 	//                         blast-radius change random search needs.
@@ -951,7 +981,7 @@ post( 'tas-paused', { paused: state.paused } );
 
 				// steering pulse: new steering now, original resumes mid-segment
 				const segEnd = timedLap[ idx + 1 ].step;
-				const maxWin = Math.min( 24, segEnd - e.step - 1 );
+				const maxWin = Math.min( 8, segEnd - e.step - 1 );
 				if ( maxWin >= 3 ) {
 
 					const w = 3 + Math.floor( Math.random() * ( maxWin - 2 ) );
@@ -1028,6 +1058,17 @@ post( 'tas-paused', { paused: state.paused } );
 		const rounds = Math.max( 1, Math.min( 2000, Number( payload.rounds ) || 10 ) );
 		state.brute = { stop: false, round: 0, rounds, best: null, last: null, adopted: 0 };
 		const baseline = bruteEvaluate( script );
+		if ( ! Number.isFinite( baseline ) ) {
+
+			// NEVER mutate a script whose own timed run does not finish:
+			// with an infinite baseline any garbage finisher would count
+			// as "better" and the brute would replace the user's run with
+			// a wall-slam. Keep the script byte-identical and say why.
+			state.brute = null;
+			post( 'tas-bruteforce-error', { errors: [ 'Baseline run did not finish in the fast simulation — the script was NOT changed. Make the run finish (Run button) before brute-forcing.' ] } );
+			return;
+
+		}
 		let bestScript = script;
 		let bestTime = baseline;
 		state.brute.best = baseline;
@@ -1073,8 +1114,13 @@ post( 'tas-paused', { paused: state.paused } );
 		else if ( type === 'tas-bruteforce' ) bruteForce( event.data );
 		else if ( type === 'tas-bruteforce-stop' ) { if ( state.brute ) state.brute.stop = true; }
 		else if ( type === 'tas-toggle-pause' ) togglePause();
-		else if ( type === 'tas-seek' && state.runScript && ( state.phase === 'run' || state.phase === 'done' ) )
+		else if ( type === 'tas-seek' && state.runScript && ( state.phase === 'run' || state.phase === 'done' ) ) {
+
 			seekTo( Math.max( 0, Math.round( Number( event.data.step ) || 0 ) ) );
+			// Scrubbing while paused STAYS paused — re-anchor only, never resume.
+			if ( state.paused && ctx.fns.setPaused ) ctx.fns.setPaused( true );
+
+		}
 
 	} );
 

@@ -75,12 +75,14 @@
 		<span id="status">loading…</span>
 	</header>
 	<div id="layout">
-		<div id="tas-bar" style="display:none;margin-bottom:6px;gap:8px;align-items:center;">
-				<button id="tas-play">⏸</button>
+		<div id="viewport-stack" style="flex:1;display:flex;flex-direction:column;min-width:0;">
+			<div id="tas-bar" style="display:none;flex:none;align-items:center;gap:14px;padding:10px 16px;background:linear-gradient(180deg,rgba(8,12,20,.94),rgba(8,12,20,.66));border-bottom:1px solid rgba(255,255,255,.10);font:600 13px/1 system-ui,sans-serif;color:#eaf0ff;">
+				<button id="tas-play" style="width:36px;height:36px;flex:none;border-radius:50%;border:1px solid rgba(255,255,255,.16);background:rgba(29,78,216,.85);color:#fff;cursor:pointer;">⏸</button>
 				<input type="range" id="tas-slider" min="0" max="1000" value="0" step="1" style="flex:1;">
-				<span id="tas-slider-label" style="font-size:11px;white-space:nowrap;">step 0 / 0</span>
+				<span id="tas-slider-label" style="font-size:12px;white-space:nowrap;opacity:.85;">step 0 / 0</span>
 			</div>
 			<div id="viewport-wrap"><iframe id="viewport" title="TAS viewport"></iframe></div>
+		</div>
 		<div id="panel">
 			<div id="timing">lap <b id="t-lap">–</b> · steps <b id="t-steps">–</b> · last run <b id="t-run">–</b></div>
 			<label for="inputs">TAS inputs (editable)</label>
@@ -102,8 +104,8 @@
 						<input id="bf-rounds" type="number" min="1" max="2000" value="20" style="width:64px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:3px 6px;font:inherit;">
 					</label>
 					<label for="bf-mut" style="text-transform:none;letter-spacing:0;">inputs changed/round
-						<input id="bf-mut" type="range" min="1" max="10" value="3" style="width:96px;">
-						<span id="bf-mut-val">3</span>
+						<input id="bf-mut" type="range" min="1" max="10" value="1" style="width:96px;">
+						<span id="bf-mut-val">1</span>
 					</label>
 				</div>
 				<div class="row" style="align-items:center;gap:6px;font-size:12px;color:#8b949e;margin-top:6px;">
