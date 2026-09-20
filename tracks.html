@@ -160,6 +160,27 @@
 			return rows.filter( ( entry ) => typeof entry?.playUrl === 'string' && typeof entry?.name === 'string' && ! isPackBoardEntry( entry ) );
 		}
 
+		// Slim board entries carry a ghostless playUrl + hasGhost flag. The
+		// full URL (with the #ghost= blob) is fetched once per track on demand.
+		const fullPlayUrlCache = new Map();
+		async function resolveFullPlayUrl( entry ) {
+			if ( ! entry?.id ) return entry?.playUrl || null;
+			const slimUrl = String( entry.playUrl || '' );
+			if ( ! entry.hasGhost || slimUrl.includes( '#ghost=' ) ) return slimUrl || null;
+			if ( fullPlayUrlCache.has( entry.id ) ) return fullPlayUrlCache.get( entry.id );
+			try {
+				const payload = await apiRequest( `/${ encodeURIComponent( entry.id ) }`, { timeoutMs: 6000, attempts: 2 } );
+				const full = String( payload?.entry?.playUrl || '' );
+				if ( full ) {
+					fullPlayUrlCache.set( entry.id, full );
+					return full;
+				}
+			} catch ( e ) {
+				// Fall through: open the ghostless URL — track still plays.
+			}
+			return slimUrl || null;
+		}
+
 		// ─── Creator credit ───
 		// New tracks are published with the currently logged-in player name
 		// (same localStorage key the game uses). Old entries without a
@@ -273,18 +294,20 @@
 			// "Cloud board unavailable. Using local share-link mode." Retrying a
 			// handful of times makes a 200 effectively guaranteed (empirically 8
 			// attempts -> 100% success), so the board page reliably connects.
+			// options.timeoutMs / options.attempts override the defaults and are
+			// stripped from the fetch init below.
+			const { timeoutMs: customTimeoutMs, attempts: customAttempts, ...fetchOptions } = options;
 			const isWrite = options.method && options.method !== 'GET';
-			const attempts = isWrite ? 1 : 8;
-			let lastError = null;
+			const attempts = isWrite ? 1 : ( customAttempts || 8 );
 			for ( let attempt = 0; attempt < attempts; attempt ++ ) {
 				const controller = new AbortController();
-				const timeoutId = setTimeout( () => controller.abort(), 8000 );
+				const timeoutId = setTimeout( () => controller.abort(), customTimeoutMs || 8000 );
 				try {
 					const res = await fetch( `${ API_BASE }${ path }`, {
 						headers: { 'Content-Type': 'application/json', ...( options.headers || {} ) },
 						cache: 'no-store',
 						signal: controller.signal,
-						...options,
+						...fetchOptions,
 					} );
 					if ( res.ok ) {
 						// Use .text() + JSON.parse for faster parsing of large payloads
@@ -329,16 +352,32 @@
 			}
 		}
 
+		let boardLoading = false;
+		let boardFailed = false;
 		async function loadFromRemote() {
 			if ( leaderboardProgressLabel ) leaderboardProgressLabel.textContent = 'Fetching board data\u2026';
-			// fields=list: entries without inline thumbnails (lazy /thumb fetch
-			// per visible card). Older workers ignore the param and still work.
-			const payload = await apiRequest( '?fields=list' );
-			entries = sanitizeBoardEntries( payload?.entries );
-			await primeV3Previews();
-			// Defer render to next frame so loading panel shows immediately
+			// fields=slim: the worker serves a few-hundred-KB index (no
+			// thumbnails, no ghost blobs inside playUrl). The full 30MB list
+			// blew the worker's CPU limit on every request (Cloudflare
+			// "Worker exceeded CPU time" in the dashboard logs) — ghosts are
+			// now fetched per-track on demand via GET /api/tracks/:id.
+			boardFailed = false;
+			boardLoading = true;
+			render();
+			try {
+				const payload = await apiRequest( '?fields=slim', { timeoutMs: 45000, attempts: 12 } );
+				entries = sanitizeBoardEntries( payload?.entries );
+			} finally {
+				boardLoading = false;
+			}
+			// Defer render to next frame so loading panel shows immediately.
+			// No all-entries parse before first paint anymore — visible cards
+			// parse their own preview data (cached) as they render.
 			requestAnimationFrame( () => render() );
-			hydrateTopLeaderboardRows( entries ).then( () => render() );
+			// Leaderboard stats: hydrate what's on screen first, then quietly
+			// work through the rest of the board in the background.
+			queueLeaderboardHydration( collectVisibleEntries() );
+			setTimeout( () => queueLeaderboardHydration( entries ), 1500 );
 		}
 
 		function getTrackIdFromPlayUrl( playUrl ) {
@@ -419,9 +458,26 @@
 			return hash.toString( 16 ).padStart( 16, '0' );
 		}
 
+		const hydratedTrackIds = new Set();
+		let leaderboardHydrationChain = Promise.resolve();
+		function collectVisibleEntries() {
+			const ids = new Set( [ ...document.querySelectorAll( '[data-id]' ) ].map( ( el ) => el.getAttribute( 'data-id' ) ).filter( Boolean ) );
+			return entries.filter( ( entry ) => ids.has( entry.id ) );
+		}
+		// Serialized so overlapping triggers (render, search, pagination) never
+		// double-fetch the same track. Re-renders only when new rows arrived.
+		function queueLeaderboardHydration( sourceEntries ) {
+			if ( ! Array.isArray( sourceEntries ) || sourceEntries.length === 0 ) return;
+			leaderboardHydrationChain = leaderboardHydrationChain.then( async () => {
+				const hydrated = await hydrateTopLeaderboardRows( sourceEntries );
+				if ( hydrated > 0 ) render();
+			} ).catch( () => {} );
+			return leaderboardHydrationChain;
+		}
+
 		async function hydrateTopLeaderboardRows( sourceEntries ) {
-			const next = new Map();
-			const rowsMap = new Map();
+			const next = new Map( topByTrackId );
+			const rowsMap = new Map( rowsByTrackId );
 			const CHUNK_SIZE = 40;
 			const bestRowForTrack = ( rows ) => {
 				if ( ! Array.isArray( rows ) || rows.length === 0 ) return null;
@@ -431,11 +487,10 @@
 				const primaryId = getTrackIdFromPlayUrl( entry.playUrl );
 				if ( ! primaryId ) return [ '', null ];
 				return [ primaryId, { primaryId, candidateIds: [ primaryId, ...getLegacyTrackIdsFromPlayUrl( entry.playUrl ) ] } ];
-			} ) ).values() ].filter( Boolean );
+			} ) ).values() ].filter( Boolean ).filter( ( request ) => ! hydratedTrackIds.has( request.primaryId ) );
+			if ( trackRequests.length === 0 ) return 0;
 			leaderboardHydrating = true;
-			setLeaderboardProgress( 0, trackRequests.length );
-			topByTrackId = new Map();
-			rowsByTrackId = new Map();
+			setLeaderboardProgress( hydratedTrackIds.size, hydratedTrackIds.size + trackRequests.length );
 			for ( let i = 0; i < trackRequests.length; i += CHUNK_SIZE ) {
 				const chunk = trackRequests.slice( i, i + CHUNK_SIZE );
 				const tasks = chunk.map( async ( request ) => {
@@ -455,17 +510,19 @@
 						.sort( ( a, b ) => Number( a.timeSeconds ) - Number( b.timeSeconds ) );
 					rowsMap.set( primaryId, dedupedRows );
 					next.set( primaryId, bestRowForTrack( dedupedRows ) );
+					hydratedTrackIds.add( primaryId );
 				} );
 				await Promise.all( tasks );
 				topByTrackId = new Map( next );
 				rowsByTrackId = new Map( rowsMap );
-				setLeaderboardProgress( next.size, trackRequests.length );
+				setLeaderboardProgress( hydratedTrackIds.size, hydratedTrackIds.size );
 				renderRecordBoard();
 			}
 			topByTrackId = next;
 			rowsByTrackId = rowsMap;
 			leaderboardHydrating = false;
-			setLeaderboardProgress( trackRequests.length, trackRequests.length );
+			setLeaderboardProgress( hydratedTrackIds.size, hydratedTrackIds.size );
+			return trackRequests.length;
 		}
 
 		function inferTrackName( url, fallback = 'Shared Track' ) {
@@ -1139,7 +1196,7 @@
 				<div class="meta">${ entry.description ? entry.description : 'No description.' }</div>
 				<div class="row card-author-row">
 					${ authorChip }
-					<button type="button" class="copy-btn" data-copy-url="${ escapeHtml( entry.playUrl ) }" title="Copy a direct link to this track">🔗 <span class="copy-label">Copy Link</span></button>
+					<button type="button" class="copy-btn" data-copy-url="${ escapeHtml( entry.playUrl ) }" data-copy-id="${ entry.id }" title="Copy a direct link to this track">🔗 <span class="copy-label">Copy Link</span></button>
 				</div>
 				<div class="row" style="margin-top:0">
 					<a class="linkbtn play-map-btn" href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play</a>
@@ -1154,7 +1211,20 @@
 				previewCanvas.dataset.playUrl = entry.playUrl;
 				if ( options.featured ) previewCanvas.dataset.featured = '1';
 				previewObserver.observe( previewCanvas );
-				// Cloud entries arrive thumbnail-free (fields=list) for a fast
+				// v3 codes can't be parsed synchronously (async inflate), so a
+				// cold cache renders empty cells first. Parse now and re-arm
+				// the observer: visible cards redraw, offscreen ones stay lazy.
+				if ( ! stats.previewData?.cells?.length && isV3PlayUrl( entry.playUrl ) ) {
+					parseTrackLayoutFromUrlAsync( entry.playUrl ).then( ( data ) => {
+						const canvas = card.querySelector( '.preview-canvas' );
+						if ( ! canvas || ! data?.cells?.length ) return;
+						v3PreviewCache.set( String( entry.playUrl ), data );
+						canvas.dataset.cells = JSON.stringify( data.cells );
+						canvas.dataset.mods = JSON.stringify( data.mods || {} );
+						previewObserver.observe( canvas );
+					} );
+				}
+				// Cloud entries arrive thumbnail-free (fields=slim) for a fast
 				// first paint; the real screenshot is fetched lazily when the
 				// card scrolls into view and swapped in once it loads.
 				if ( useRemoteBoard && entry.hasThumbnail ) {
@@ -1169,7 +1239,11 @@
 			if ( ! container ) return;
 			container.innerHTML = '';
 			if ( items.length === 0 ) {
-				container.innerHTML = `<div class="card"><h3>Nothing here yet</h3><div class="meta">${ emptyText }</div></div>`;
+				container.innerHTML = boardLoading
+				? '<div class="card"><h3>Loading tracks\u2026</h3><div class="meta">Fetching the cloud board \u2014 it\u2019s a big one, a moment.</div></div>'
+				: boardFailed
+					? '<div class="card"><h3>Couldn\u2019t reach the cloud board</h3><div class="meta">Hit Retry in the All Tracks section to try again.</div></div>'
+					: `<div class="card"><h3>Nothing here yet</h3><div class="meta">${ emptyText }</div></div>`;
 				return;
 			}
 			const frag = document.createDocumentFragment();
@@ -1332,6 +1406,13 @@
 			scheduleAuthorRowCheck();
 		}
 
+		document.addEventListener( 'click', ( ev ) => {
+
+			if ( ! ev.target?.closest?.( '[data-retry-board]' ) ) return;
+			boardFailed = false;
+			loadFromRemote().then( () => render() ).catch( () => render() );
+
+		} );
 		function render() {
 			_statsCache.clear();
 			const hasSearch = ( searchInput?.value || '' ).trim().length > 0;
@@ -1360,6 +1441,7 @@
 				}
 
 				renderGridPaged( filtered );
+				queueLeaderboardHydration( collectVisibleEntries() );
 				return;
 			}
 
@@ -1384,12 +1466,17 @@
 				const hasAny = entries.length > 0;
 				grid.innerHTML = hasAny
 					? '<div class="card"><h3>No matches</h3><div class="meta">Try a different search or size filter.</div></div>'
-					: '<div class="card"><h3>No uploads yet</h3><div class="meta">Add a ghost code to get started.</div></div>';
+					: boardLoading
+						? '<div class="card"><h3>Loading tracks\u2026</h3><div class="meta">Fetching the cloud board \u2014 it\u2019s a big one, a moment.</div></div>'
+						: boardFailed
+							? '<div class="card"><h3>Couldn\u2019t reach the cloud board</h3><div class="meta">The board API didn\u2019t respond in time.</div><button type="button" data-retry-board style="margin-top:10px">Retry</button></div>'
+							: '<div class="card"><h3>No uploads yet</h3><div class="meta">Add a ghost code to get started.</div></div>';
 				clearLibraryPager();
 				return;
 			}
 
 			renderGridPaged( filtered );
+			queueLeaderboardHydration( collectVisibleEntries() );
 		}
 
 		async function addEntryFromGhostCode() {
@@ -1491,6 +1578,17 @@
   if ( openLink ) {
     if ( useRemoteBoard ) {
       const id = openLink.getAttribute( 'data-id' );
+      // Slim list: the href is ghostless — fetch the full playUrl (tiny
+      // per-track request, cached) and open that instead.
+      const slimEntry = entries.find( ( en ) => en.id === id );
+      if ( slimEntry && slimEntry.hasGhost && ! String( slimEntry.playUrl || '' ).includes( '#ghost=' ) ) {
+        e.preventDefault();
+        const label = openLink.textContent;
+        openLink.textContent = '\u25b6 Fetching ghost\u2026';
+        resolveFullPlayUrl( slimEntry ).then( ( full ) => {
+          if ( full ) window.open( full, '_blank', 'noopener' );
+        } ).finally( () => { openLink.textContent = label; } );
+      }
       try {
         await apiRequest( `/${ id }/view`, { method: 'POST' } );
         const current = entries.find( ( entry ) => entry.id === id );
@@ -1640,13 +1738,22 @@
 				}
 				const copyBtn = e.target.closest( '[data-copy-url]' );
 				if ( copyBtn ) {
-					const url = copyBtn.getAttribute( 'data-copy-url' ) || '';
-					if ( navigator.clipboard?.writeText ) {
-						navigator.clipboard.writeText( url )
-							.then( () => setStatus( 'Track link copied — share it anywhere!' ) )
-							.catch( () => setStatus( 'Copy failed. Use the Play link and copy it from the address bar.', true ) );
+					const slimUrl = copyBtn.getAttribute( 'data-copy-url' ) || '';
+					const copyEntry = entries.find( ( en ) => en.id === copyBtn.getAttribute( 'data-copy-id' ) );
+					const writeUrl = ( url ) => {
+						if ( navigator.clipboard?.writeText ) {
+							navigator.clipboard.writeText( url )
+								.then( () => setStatus( 'Track link copied — share it anywhere!' ) )
+								.catch( () => setStatus( 'Copy failed. Use the Play link and copy it from the address bar.', true ) );
+						} else {
+							setStatus( 'Copy not supported here. Use the Play link instead.', true );
+						}
+					};
+					if ( copyEntry && copyEntry.hasGhost && ! slimUrl.includes( '#ghost=' ) ) {
+						setStatus( 'Fetching the full track link\u2026' );
+						resolveFullPlayUrl( copyEntry ).then( writeUrl );
 					} else {
-						setStatus( 'Copy not supported here. Use the Play link instead.', true );
+						writeUrl( slimUrl );
 					}
 				}
 			} );
@@ -1765,9 +1872,10 @@
 				} catch ( e ) {
 
 					useRemoteBoard = false;
+					boardFailed = true;
 					loadFromHash();
 					await primeV3Previews();
-					setStatus( 'Cloud board unavailable. Using local share-link mode.' );
+					setStatus( 'Cloud board unreachable \u2014 hit Retry to try again. (Local share-link mode still works.)' );
 					hydrateTopLeaderboardRows( entries ).then( () => render() );
 
 				}

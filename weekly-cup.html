@@ -56,7 +56,11 @@
 	// window.__renderTrackTopDown; the page falls back to its flat 2D
 	// grid if the module or WebGL is unavailable.
 	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260916';
+	import { encodeCellsV3 } from './js/Track.js?v=1000230';
+	import { generateTrackPlan } from './js/CupTrackGen.js?v=20260918';
 	window.__renderTrackTopDown = renderTrackTopDown;
+	window.__encodeCellsV3 = encodeCellsV3;
+	window.__cupTrackGen = generateTrackPlan;
 </script>
 </head>
 <body>
@@ -94,183 +98,27 @@
   const BASE_URL = 'https://everybodysim.github.io/Racing-game/index.html';
   const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
 
-  const TYPE_INDEX = { 'track-straight': 0, 'track-corner': 1, 'track-checkpoint': 2, 'track-finish': 3 };
-  const GODOT_TO_ORIENT = { 0: 0, 16: 1, 10: 2, 22: 3 };
-  const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
-
-  function hash32(str) {
-    let h = 0x811c9dc5;
-    for (let i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 0x01000193);
-    }
-    return h >>> 0;
-  }
-
-  function mulberry32(seed) {
-    let t = seed >>> 0;
-    return function() {
-      t += 0x6D2B79F5;
-      let r = Math.imul(t ^ (t >>> 15), 1 | t);
-      r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
-      return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
-  const rndInt = (rng, a, b) => a + Math.floor(rng() * (b - a + 1));
-  const key = (x, z) => `${x},${z}`;
-
-  function encodeCells(cells) {
-    const bytes = new Uint8Array(cells.length * 3);
-    for (let i = 0; i < cells.length; i++) {
-      const [gx, gz, type, orient] = cells[i];
-      bytes[i * 3] = gx + 128;
-      bytes[i * 3 + 1] = gz + 128;
-      bytes[i * 3 + 2] = ((TYPE_INDEX[type] ?? 0) << 2) | (GODOT_TO_ORIENT[orient] ?? 0);
-    }
-    let bin = '';
-    for (const b of bytes) bin += String.fromCharCode(b);
-    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-
   function encodeMods(modsObj) {
-    return btoa(unescape(encodeURIComponent(JSON.stringify(modsObj))))
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const json = JSON.stringify(modsObj);
+    return btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
-  function sampleDeterministic(arr, rng, count) {
-    const copy = arr.slice();
-    const out = [];
-    for (let i = 0; i < count && copy.length; i++) {
-      const idx = Math.floor(rng() * copy.length);
-      out.push(copy[idx]);
-      copy.splice(idx, 1);
+  // Track generation lives in js/CupTrackGen.js (shared with totd.html): a
+  // fixed loop walk, checkpoints, bumps and surfaces, and elevated detours
+  // whose elevated road is SEARCHED — it can cut across the map and cross
+  // OVER the ground loop using elevated-cross / elevated-cross-corner blocks.
+  // Ramps attach in-line, so no 3-way/4-way cells are ever generated.
+  async function generateTrack(seedText) {
+    const t0 = Date.now();
+    while ((!window.__cupTrackGen || !window.__encodeCellsV3) && Date.now() - t0 < 6000) {
+      await new Promise((r) => setTimeout(r, 25));
     }
-    return out;
-  }
-
-  function genClosedLoop(rng, opts = {}) {
-    const W = opts.W ?? 14;
-    const H = opts.H ?? 14;
-    const minLen = opts.minLen ?? 18;
-    const maxLen = opts.maxLen ?? 44;
-    for (let attempt = 0; attempt < (opts.attempts ?? 240); attempt++) {
-      const start = [rndInt(rng, 2, W - 3), rndInt(rng, 2, H - 3)];
-      const path = [start];
-      const seen = new Set([key(start[0], start[1])]);
-      let prevDir = -1;
-      const target = rndInt(rng, minLen, maxLen);
-      for (let step = 0; step < maxLen + 20; step++) {
-        const [cx, cz] = path[path.length - 1];
-        const [sx, sz] = start;
-        if (path.length >= minLen && Math.abs(cx - sx) + Math.abs(cz - sz) === 1) {
-          path.push([sx, sz]);
-          if (path.length - 1 >= minLen) return path;
-        }
-        const candidates = [];
-        for (let di = 0; di < 4; di++) {
-          const [dx, dz] = DIRS[di];
-          const nx = cx + dx;
-          const nz = cz + dz;
-          if (nx < 1 || nz < 1 || nx >= W - 1 || nz >= H - 1) continue;
-          const isStart = nx === sx && nz === sz;
-          if (!isStart && seen.has(key(nx, nz))) continue;
-          if (prevDir !== -1 && (di + 2) % 4 === prevDir) continue;
-          let neighbors = 0;
-          for (const [adx, adz] of DIRS) {
-            if (seen.has(key(nx + adx, nz + adz))) neighbors++;
-          }
-          if (!isStart && neighbors > 2) continue;
-          let score = 1;
-          if (prevDir === di) score += 1.4;
-          if (isStart && path.length >= minLen) score += 5;
-          candidates.push({ di, nx, nz, score, isStart });
-        }
-        if (!candidates.length) break;
-        let total = candidates.reduce((s, c) => s + c.score, 0);
-        let r = rng() * total;
-        let pick = candidates[0];
-        for (const c of candidates) {
-          r -= c.score;
-          if (r <= 0) { pick = c; break; }
-        }
-        path.push([pick.nx, pick.nz]);
-        if (!pick.isStart) seen.add(key(pick.nx, pick.nz));
-        prevDir = pick.di;
-        if (path.length >= target && Math.abs(pick.nx - sx) + Math.abs(pick.nz - sz) === 1) {
-          path.push([sx, sz]);
-          return path;
-        }
-      }
-    }
-    return null;
-  }
-
-  function loopToTiles(loop) {
-    const unique = loop.slice(0, -1);
-    const n = unique.length;
-    const dir = (a, b) => {
-      const dx = b[0] - a[0], dz = b[1] - a[1];
-      if (dx === 1 && dz === 0) return 'E';
-      if (dx === -1 && dz === 0) return 'W';
-      if (dx === 0 && dz === 1) return 'S';
-      if (dx === 0 && dz === -1) return 'N';
-      return '?';
-    };
-    const tiles = [];
-    for (let i = 0; i < n; i++) {
-      const prev = unique[(i - 1 + n) % n];
-      const cur = unique[i];
-      const next = unique[(i + 1) % n];
-      const set = new Set([dir(cur, prev), dir(cur, next)]);
-      let type = 'track-straight';
-      let orient = 0;
-      if (set.has('N') && set.has('S')) { type = 'track-straight'; orient = 0; }
-      else if (set.has('E') && set.has('W')) { type = 'track-straight'; orient = 22; }
-      else {
-        type = 'track-corner';
-        if (set.has('E') && set.has('S')) orient = 16;
-        else if (set.has('W') && set.has('S')) orient = 0;
-        else if (set.has('N') && set.has('E')) orient = 10;
-        else if (set.has('W') && set.has('N')) orient = 22;
-      }
-      tiles.push([cur[0], cur[1], type, orient]);
-    }
-    let finishIdx = tiles.findIndex((t) => t[2] === 'track-straight');
-    if (finishIdx < 0) finishIdx = 0;
-    tiles[finishIdx][2] = 'track-finish';
-    const cpCandidates = [];
-    for (let i = 0; i < tiles.length; i++) {
-      if (i === finishIdx || tiles[i][2] !== 'track-straight') continue;
-      const ringDist = Math.min(Math.abs(i - finishIdx), tiles.length - Math.abs(i - finishIdx));
-      if (ringDist > Math.floor(tiles.length / 6)) cpCandidates.push(i);
-    }
-    return { tiles, cpCandidates };
-  }
-
-  function generateTrack(seedText) {
-    const seed = hash32(seedText);
-    const rng = mulberry32(seed);
-    let loop = genClosedLoop(rng, {
-      W: rndInt(rng, 12, 18), H: rndInt(rng, 12, 18), minLen: rndInt(rng, 18, 26),
-      maxLen: rndInt(rng, 30, 46), attempts: 260
-    });
-    if (!loop) {
-      loop = [[2,2],[3,2],[4,2],[5,2],[6,2],[7,2],[8,2],[8,3],[8,4],[8,5],[8,6],[8,7],[7,7],[6,7],[5,7],[4,7],[3,7],[2,7],[2,6],[2,5],[2,4],[2,3],[2,2]];
-    }
-    const { tiles, cpCandidates } = loopToTiles(loop);
-    const cpCount = Math.min(cpCandidates.length, rndInt(rng, 1, 3));
-    for (const idx of sampleDeterministic(cpCandidates, rng, cpCount)) tiles[idx][2] = 'track-checkpoint';
-    const roadCells = tiles.map((t) => [t[0], t[1]]);
-    const bumps = sampleDeterministic(roadCells, rng, Math.min(4, Math.max(1, Math.floor(tiles.length / 12))));
-    const surfacePalette = ['surface-wood', 'surface-ice', 'surface-boost'];
-    const surfaceCells = sampleDeterministic(roadCells, rng, Math.min(6, Math.max(2, Math.floor(tiles.length / 8))))
-      .map(([x, z], idx) => [x, z, surfacePalette[idx % surfacePalette.length]]);
-    const mods = { b: bumps, s: [], u: surfaceCells, d: [] };
-    const map = encodeCells(tiles);
-    const modsEncoded = encodeMods(mods);
+    if (!window.__cupTrackGen || !window.__encodeCellsV3) throw new Error('Track generator unavailable');
+    const plan = window.__cupTrackGen(seedText);
+    const map = await window.__encodeCellsV3(plan.cells);
+    const modsEncoded = encodeMods(plan.modsObj);
     const playUrl = `${BASE_URL}?map=${encodeURIComponent(map)}&mods=${encodeURIComponent(modsEncoded)}`;
-    return { map, mods: modsEncoded, playUrl, cells: tiles, modsObj: mods };
+    return { map, mods: modsEncoded, playUrl, cells: plan.cells, modsObj: plan.modsObj };
   }
 
 const WEATHER_PRESETS = {
@@ -486,7 +334,7 @@ function getTrackIds(playUrl) {
     leaderRows.innerHTML = '<tr><td colspan="3">Loading leaderboard data…</td></tr>';
 
     const tracks = [];
-    for (let i = 0; i < 9; i++) tracks.push(generateTrack(`weekly-cup:${weekStart}:slot:${i + 1}`));
+    for (let i = 0; i < 9; i++) tracks.push(await generateTrack(`weekly-cup:${weekStart}:slot:${i + 1}`));
 
     tracks.forEach((track, idx) => {
       const card = document.createElement('div');

@@ -5,26 +5,43 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>Skid Circuit — Replay Watcher</title>
 <link rel="canonical" href="https://everybodysim.github.io/Racing-game/replay.html">
-<meta name="description" content="Watch and share Skid Circuit race replays. Load ghost codes and replay your fastest laps.">
+<meta name="description" content="Watch and share Skid Circuit race replays. Load ghost codes, scrub through laps, and study speed and elevation telemetry.">
 <meta name="robots" content="index, follow">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Skid Circuit">
 <meta property="og:title" content="Skid Circuit — Replay Watcher">
-<meta property="og:description" content="Watch and share Skid Circuit race replays. Load ghost codes and replay your fastest laps.">
+<meta property="og:description" content="Watch and share Skid Circuit race replays with telemetry graphs.">
 <meta property="og:url" content="https://everybodysim.github.io/Racing-game/replay.html">
 <meta property="og:image" content="https://everybodysim.github.io/Racing-game/branding/logo.png">
 	<style>
 .skip-link{position:absolute;left:12px;top:-40px;padding:8px 10px;border-radius:8px;background:#1b2a40;color:#fff;z-index:9999;border:1px solid rgba(255,255,255,.35)}
 .skip-link:focus{top:12px}
 
-		body { margin: 0; background: #0e1118; color: #eaf0ff; font: 14px/1.4 system-ui, sans-serif; }
-		.wrap { max-width: 980px; margin: 18px auto; padding: 0 14px; }
-		.panel { background: #131925; border: 1px solid #273146; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
-		.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-		button, textarea { font: inherit; color: #eaf0ff; background: #0e141f; border: 1px solid #2a354a; border-radius: 8px; padding: 8px 10px; }
-		button { cursor: pointer; background: #1d4ed8; border-color: #1d4ed8; }
-		textarea { width: 100%; min-height: 76px; box-sizing: border-box; }
-		.meta { opacity: 0.85; }
+		:root { color-scheme: dark; }
+		body { margin: 0; background: #0b0e15; color: #eaf0ff; font: 14px/1.45 system-ui, sans-serif;
+			background-image: radial-gradient(1100px 500px at 50% -120px, rgba(37,99,235,.14), transparent 70%); }
+		.wrap { max-width: 1040px; margin: 20px auto 40px; padding: 0 16px; }
+		h1 { font-size: 19px; margin: 0 0 4px; letter-spacing: .01em; }
+		.subtle { color: #8ea0c0; font-size: 12.5px; }
+		.panel { background: #121724; border: 1px solid #26314a; border-radius: 12px; padding: 14px; margin-bottom: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+		.loadbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+		.loadbar textarea { flex: 2 1 340px; font: 12.5px/1.4 ui-monospace, monospace; color: #eaf0ff; background: #0c111c; border: 1px solid #2a354a; border-radius: 9px; padding: 9px 10px; min-height: 46px; resize: vertical; box-sizing: border-box; }
+		.loadbar textarea:focus { outline: 1px solid #4da3ff; }
+		.btnrow { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
+		button { font: 600 13px/1 system-ui, sans-serif; color: #fff; background: #1d4ed8; border: 1px solid #2f66f0; border-radius: 9px; padding: 10px 14px; cursor: pointer; transition: background .15s, transform .06s; }
+		button:hover { background: #2c5fed; }
+		button:active { transform: translateY(1px); }
+		button.ghosty { background: transparent; border-color: #33405e; color: #b8c6e2; }
+		button.ghosty:hover { background: #18202f; }
+		#status { color: #8ea0c0; font-size: 12.5px; padding: 10px 2px 0; }
+		#replay-frame { width: 100%; aspect-ratio: 16 / 9; max-height: 72vh; border: 1px solid #2a354a; border-radius: 10px; background: #0a0f17; display: block; }
+		.tele-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+		.tele-head h2 { font-size: 14px; margin: 0; flex: 1 1 auto; }
+		.tele-head select { font: 600 13px/1 system-ui, sans-serif; color: #eaf0ff; background: #0c111c; border: 1px solid #2a354a; border-radius: 9px; padding: 8px 10px; cursor: pointer; }
+		.tele-head select:focus { outline: 1px solid #4da3ff; }
+		#tele-value { font: 700 14px/1 ui-monospace, monospace; font-variant-numeric: tabular-nums; color: #9cc4ff; min-width: 86px; text-align: right; }
+		#telemetry-canvas { width: 100%; height: 190px; display: block; border-radius: 9px; background: #0c111c; cursor: crosshair; touch-action: none; }
+		.tele-note { color: #6d7f9f; font-size: 11.5px; margin: 8px 2px 0; }
 	</style>
 <script src="js/PageTransitions.js"></script>
 <link rel="stylesheet" href="ui-theme.css">
@@ -33,19 +50,35 @@
 <a class="skip-link" href="#main-content">Skip to main content</a>
 <main id="main-content">
 	<div class="wrap">
+		<h1>Replay Watcher</h1>
+		<div class="subtle" style="margin-bottom:14px">Paste a ghost code, watch the lap, and study the telemetry below. Playback controls live on the bar above the viewport.</div>
 		<div class="panel">
-			<div class="controls">
-				<button id="load-code">Load Ghost Code</button>
-				<button id="play-pause">Play</button>
-				<button id="open-race">Open Race URL</button>
-				<div id="status" class="meta">No replay loaded.</div>
+			<div class="loadbar">
+				<textarea id="ghost-code" placeholder="Paste exported ghost code here..." aria-label="Ghost code"></textarea>
+				<div class="btnrow">
+					<button id="load-code">Load Ghost Code</button>
+					<button id="open-race" class="ghosty">Open Race URL</button>
+				</div>
 			</div>
-			<div style="margin-top:8px">
-				<textarea id="ghost-code" placeholder="Paste exported ghost code here..."></textarea>
-			</div>
+			<div id="status">No replay loaded.</div>
 		</div>
 		<div class="panel">
-			<iframe id="replay-frame" title="Replay renderer" style="width:100%;height:70vh;border:1px solid #2a354a;border-radius:8px;background:#0a0f17;" loading="lazy"></iframe>
+			<iframe id="replay-frame" title="Replay renderer" loading="lazy"></iframe>
+		</div>
+		<div class="panel" id="telemetry-panel" hidden>
+			<div class="tele-head">
+				<h2>Lap telemetry</h2>
+				<label class="subtle" for="metric-select">Metric</label>
+				<select id="metric-select">
+					<option value="speed">Speed (km/h)</option>
+					<option value="elevation">Elevation (m)</option>
+					<option value="turn">Turn rate (°/s)</option>
+					<option value="latg">Lateral G</option>
+				</select>
+				<span id="tele-value">--</span>
+			</div>
+			<canvas id="telemetry-canvas"></canvas>
+			<div class="tele-note">Click or drag on the graph to seek the replay.</div>
 		</div>
 	</div>
 	<script>
@@ -57,12 +90,18 @@
 		}
 		const codeInput = document.getElementById('ghost-code');
 		const loadBtn = document.getElementById('load-code');
-		const playBtn = document.getElementById('play-pause');
 		const openRaceBtn = document.getElementById('open-race');
 		const statusEl = document.getElementById('status');
 		const replayFrame = document.getElementById('replay-frame');
+		const telePanel = document.getElementById('telemetry-panel');
+		const metricSelect = document.getElementById('metric-select');
+		const teleValue = document.getElementById('tele-value');
+		const teleCanvas = document.getElementById('telemetry-canvas');
 		let replay = null;
-		let isPlaying = false;
+		let telemetry = null;
+		window.__replayState = null;
+		let lastState = null;
+
 		function readCodeFromHash() {
 			const hash = new URLSearchParams(location.hash.startsWith('#') ? location.hash.slice(1) : location.hash);
 			return hash.get('code') || '';
@@ -78,6 +117,34 @@
 				return `${base.toString()}#ghost=${blob}`;
 			} catch { return null; }
 		}
+
+		// ── Telemetry: derive metric series from the ghost's position samples ──
+		const DEG = 180 / Math.PI;
+		function buildTelemetry(samples, duration) {
+			const n = samples.length;
+			const speed = [], elevation = [], turn = [], latg = [];
+			const wrapAngle = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+			for (let i = 0; i < n; i++) {
+				const a = samples[i];
+				const b = samples[Math.min(i + 1, n - 1)];
+				const dt = Math.max(1e-4, (b.t ?? (a.t + 1 / 60)) - a.t);
+				const dist = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+				const ups = dist / dt;                       // world units per second (1u = 1m)
+				const yawRate = Math.abs(wrapAngle((b.yaw ?? a.yaw) - a.yaw)) / dt;
+				speed.push({ t: a.t, v: ups * 3.6 });        // km/h — same conversion as the in-game HUD
+				elevation.push({ t: a.t, v: a.y });
+				turn.push({ t: a.t, v: yawRate * DEG });
+				latg.push({ t: a.t, v: ups * yawRate / 9.81 });
+			}
+			return { duration, speed, elevation, turn, latg };
+		}
+		const METRICS = {
+			speed:     { label: 'Speed (km/h)',  unit: 'km/h', fmt: 1 },
+			elevation: { label: 'Elevation (m)', unit: 'm',    fmt: 1 },
+			turn:      { label: 'Turn rate',     unit: '°/s',  fmt: 0 },
+			latg:      { label: 'Lateral G',     unit: 'G',    fmt: 2 }
+		};
+
 		function setReplay(parsed) {
 			if (!parsed || !parsed.ghost || !Array.isArray(parsed.ghost.samples) || parsed.ghost.samples.length < 2) {
 				statusEl.textContent = 'Invalid ghost payload.';
@@ -89,10 +156,10 @@
 				statusEl.textContent = 'Replay URL is missing or invalid.';
 				return false;
 			}
+			telemetry = buildTelemetry(replay.ghost.samples, Number(replay.ghost.duration) || 0);
+			telePanel.hidden = false;
 			replayFrame.src = replayUrl;
-			isPlaying = false;
-			playBtn.textContent = 'Play';
-			statusEl.textContent = `Loaded ${replay.ghost.samples.length} samples from ${replay.url || 'unknown URL'}`;
+			statusEl.textContent = `Loaded ${replay.ghost.samples.length} samples (${telemetry.duration.toFixed(1)}s lap)`;
 			return true;
 		}
 		function loadFromTextarea() {
@@ -104,18 +171,101 @@
 			catch { statusEl.textContent = 'Could not decode ghost code.'; }
 		}
 		loadBtn.addEventListener('click', loadFromTextarea);
-		playBtn.addEventListener('click', () => {
-			if (!replay) return void (statusEl.textContent = 'Load a ghost code first.');
-			isPlaying = !isPlaying;
-			playBtn.textContent = isPlaying ? 'Pause' : 'Play';
-			replayFrame.contentWindow?.postMessage({ type: isPlaying ? 'replay-play' : 'replay-pause' }, '*');
-		});
 		openRaceBtn.addEventListener('click', () => {
 			if (!replay) return void (statusEl.textContent = 'Load a ghost code first.');
 			const replayUrl = buildReplayUrl(replay);
 			if (!replayUrl) return void (statusEl.textContent = 'Replay URL is missing or invalid.');
 			window.open(replayUrl, '_blank');
 		});
+
+		// ── Live state bridge: the embedded game broadcasts replay-state messages ──
+		window.addEventListener('message', (ev) => {
+			const d = ev.data;
+			if (!d || d.type !== 'replay-state') return;
+			window.__replayState = d;
+			if (d.t !== lastState?.t || d.playing !== lastState?.playing) drawTelemetry();
+			lastState = d;
+		});
+		function seekToFraction(frac) {
+			const dur = window.__replayState?.duration || telemetry?.duration || 0;
+			if (!(dur > 0)) return;
+			replayFrame.contentWindow?.postMessage({ type: 'replay-seek', t: Math.max(0, Math.min(dur - 1e-3, frac * dur)) }, '*');
+		}
+
+		// ── Graph ──
+		function drawTelemetry() {
+			if (!telemetry || !telemetry.duration) return;
+			const key = metricSelect.value;
+			const series = telemetry[key];
+			if (!series || series.length < 2) return;
+			const dpr = window.devicePixelRatio || 1;
+			const cssW = teleCanvas.clientWidth || 600, cssH = teleCanvas.clientHeight || 190;
+			if (teleCanvas.width !== Math.round(cssW * dpr)) { teleCanvas.width = Math.round(cssW * dpr); teleCanvas.height = Math.round(cssH * dpr); }
+			const ctx = teleCanvas.getContext('2d');
+			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+			const W = cssW, H = cssH, padL = 46, padR = 12, padT = 14, padB = 20;
+			const plotW = W - padL - padR, plotH = H - padT - padB;
+			ctx.clearRect(0, 0, W, H);
+
+			let vMin = Infinity, vMax = -Infinity;
+			for (const p of series) { if (p.v < vMin) vMin = p.v; if (p.v > vMax) vMax = p.v; }
+			if (!Number.isFinite(vMin) || !Number.isFinite(vMax)) return;
+			if (vMax - vMin < 1e-6) { vMax = vMin + 1; }
+			const pad = (vMax - vMin) * 0.08;
+			vMin -= pad; vMax += pad;
+			const dur = telemetry.duration;
+			const xOf = (t) => padL + (t / dur) * plotW;
+			const yOf = (v) => padT + (1 - (v - vMin) / (vMax - vMin)) * plotH;
+
+			// grid + axis labels
+			ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 1;
+			ctx.fillStyle = '#6d7f9f'; ctx.font = '10px ui-monospace, monospace'; ctx.textAlign = 'right';
+			for (let g = 0; g <= 4; g++) {
+				const y = padT + (g / 4) * plotH;
+				ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+				const val = vMax - (g / 4) * (vMax - vMin);
+				ctx.fillText(val.toFixed(METRICS[key].fmt), padL - 6, y + 3);
+			}
+			ctx.textAlign = 'center';
+			const step = dur > 60 ? 15 : dur > 25 ? 10 : 5;
+			for (let t = 0; t <= dur + 1e-6; t += step) ctx.fillText(t.toFixed(0) + 's', xOf(t), H - 6);
+
+			// series line
+			ctx.strokeStyle = '#4da3ff'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+			ctx.beginPath();
+			for (let i = 0; i < series.length; i++) {
+				const p = series[i];
+				if (i === 0) ctx.moveTo(xOf(p.t), yOf(p.v)); else ctx.lineTo(xOf(p.t), yOf(p.v));
+			}
+			ctx.stroke();
+
+			// playhead
+			const st = window.__replayState;
+			if (st && st.duration > 0) {
+				const t = Math.max(0, Math.min(dur, st.t));
+				const x = xOf(t);
+				ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1;
+				ctx.beginPath(); ctx.moveTo(x, padT - 4); ctx.lineTo(x, padT + plotH); ctx.stroke();
+				const idx = Math.max(0, Math.min(series.length - 1, Math.floor((t / dur) * (series.length - 1))));
+				const dot = series[idx];
+				ctx.fillStyle = '#9cc4ff';
+				ctx.beginPath(); ctx.arc(x, yOf(dot.v), 3.5, 0, Math.PI * 2); ctx.fill();
+				teleValue.textContent = dot.v.toFixed(METRICS[key].fmt) + ' ' + METRICS[key].unit;
+			}
+		}
+		metricSelect.addEventListener('change', drawTelemetry);
+		window.addEventListener('resize', drawTelemetry);
+
+		// click / drag seek on the graph
+		let seeking = false;
+		const fracFromEvent = (e) => {
+			const rect = teleCanvas.getBoundingClientRect();
+			return Math.max(0, Math.min(1, (e.clientX - rect.left - 46) / Math.max(1, rect.width - 46 - 12)));
+		};
+		teleCanvas.addEventListener('pointerdown', (e) => { seeking = true; teleCanvas.setPointerCapture(e.pointerId); seekToFraction(fracFromEvent(e)); });
+		teleCanvas.addEventListener('pointermove', (e) => { if (seeking) seekToFraction(fracFromEvent(e)); });
+		teleCanvas.addEventListener('pointerup', () => { seeking = false; });
+
 		const hashCode = readCodeFromHash();
 		if (hashCode) { codeInput.value = hashCode; } // auto-load happens after the codec module boots (v2 codes need it)
 	</script>

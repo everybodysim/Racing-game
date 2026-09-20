@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skid Circuit — TAS Editor</title>
+<style>
+	* { box-sizing: border-box; }
+	html, body { margin: 0; height: 100%; background: #0d1117; color: #e6edf3;
+		font: 14px/1.45 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; }
+	#url-screen { display: flex; align-items: center; justify-content: center; height: 100%; }
+		#tas-bar.tas-idle #tas-run-row { opacity: .45; pointer-events: none; }
+	.url-card { width: min(560px, 92vw); background: #161b22; border: 1px solid #30363d;
+		border-radius: 12px; padding: 28px; }
+	.url-card h1 { font-size: 18px; margin: 0 0 6px; }
+	.url-card p { color: #8b949e; margin: 0 0 16px; }
+	.url-card input { width: 100%; padding: 10px 12px; background: #0d1117; color: #e6edf3;
+		border: 1px solid #30363d; border-radius: 8px; font: 13px ui-monospace, Menlo, Consolas, monospace; }
+	.url-card button { margin-top: 14px; padding: 10px 22px; background: #238636; color: #fff;
+		border: 0; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%; }
+	#editor { display: none; height: 100%; flex-direction: column; }
+	#editor.active { display: flex; }
+	header { display: flex; align-items: center; gap: 14px; padding: 8px 14px;
+		background: #161b22; border-bottom: 1px solid #30363d; }
+	header .title { font-weight: 700; }
+	#track-type { font: 600 12px ui-monospace, Menlo, Consolas, monospace; padding: 3px 10px;
+		border-radius: 999px; background: #1f6feb; }
+	#track-type.nonloop { background: #8250df; }
+	#status { color: #8b949e; font-size: 12px; flex: 1; }
+	#layout { flex: 1; display: flex; min-height: 0; }
+	#viewport-wrap { flex: 1; position: relative; min-width: 0; }
+	iframe { width: 100%; height: 100%; border: 0; display: block; background: #000; }
+	#panel { width: 380px; display: flex; flex-direction: column; background: #161b22;
+		border-left: 1px solid #30363d; padding: 12px; gap: 10px; }
+	#timing { font: 600 13px ui-monospace, Menlo, Consolas, monospace; color: #8b949e; }
+	#timing b { color: #e6edf3; }
+	#panel label { font-size: 12px; font-weight: 700; color: #8b949e; text-transform: uppercase; letter-spacing: .04em; }
+	#inputs { flex: 1; min-height: 120px; resize: none; background: #0d1117; color: #e6edf3;
+		border: 1px solid #30363d; border-radius: 8px; padding: 10px;
+		font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+	#panel .row { display: flex; gap: 8px; }
+	#panel button { flex: 1; padding: 9px 0; border: 0; border-radius: 8px; font-weight: 600; cursor: pointer; }
+	#run-btn { background: #238636; color: #fff; }
+	#stop-btn { background: #6e7681; color: #fff; }
+	#validation { font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: #f85149;
+		white-space: pre-wrap; max-height: 110px; overflow: auto; }
+	#popup { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6);
+		align-items: center; justify-content: center; z-index: 50; }
+	#popup.active { display: flex; }
+	.popup-card { width: min(480px, 92vw); background: #161b22; border: 1px solid #30363d;
+		border-radius: 12px; padding: 24px; text-align: center; }
+	.popup-card h2 { margin: 0 0 6px; font-size: 17px; }
+	.popup-card .lap { font: 600 26px ui-monospace, Menlo, Consolas, monospace; color: #3fb950; margin: 10px 0 18px; }
+	.popup-card .row { display: flex; gap: 10px; }
+	.popup-card button { flex: 1; padding: 11px 0; border: 0; border-radius: 8px; font-weight: 700; cursor: pointer; }
+	#use-btn { background: #238636; color: #fff; }
+	#retry-btn { background: #30363d; color: #e6edf3; }
+	#hint { font-size: 11px; color: #6e7681; }
+</style>
+</head>
+<body>
+
+<div id="url-screen">
+	<div class="url-card">
+		<h1>Skid Circuit — TAS Editor</h1>
+		<p>Paste a track URL (board Play link or index.html?map=…&amp;…). It loads in TAS mode in the viewport.</p>
+		<input id="track-url" type="text" placeholder="https://everybodysim.github.io/Racing-game/index.html?map=…" spellcheck="false">
+		<button id="load-btn">Load track</button>
+	</div>
+</div>
+
+<div id="editor">
+	<header>
+		<span class="title">Skid Circuit TAS</span>
+		<span id="track-type">…</span>
+		<span id="status">loading…</span>
+	</header>
+	<div id="layout">
+		<div id="viewport-stack" style="flex:1;display:flex;flex-direction:column;min-width:0;">
+			<div id="tas-bar" class="tas-idle" style="flex:none;flex-direction:column;background:linear-gradient(180deg,rgba(8,12,20,.94),rgba(8,12,20,.66));border-bottom:1px solid rgba(255,255,255,.10);font:600 13px/1 system-ui,sans-serif;color:#eaf0ff;">
+				<div id="tas-run-row" style="display:flex;align-items:center;gap:14px;padding:10px 16px;">
+					<button id="tas-play" style="width:36px;height:36px;flex:none;border-radius:50%;border:1px solid rgba(255,255,255,.16);background:rgba(29,78,216,.85);color:#fff;cursor:pointer;">⏸</button>
+					<input type="range" id="tas-slider" min="0" max="1000" value="0" step="1" style="flex:1;">
+					<span id="tas-slider-label" style="font-size:12px;white-space:nowrap;opacity:.85;">step 0 / 0</span>
+				</div>
+				<div style="display:flex;align-items:center;gap:14px;padding:0 16px 10px;">
+					<label style="display:flex;align-items:center;gap:6px;font-weight:400;white-space:nowrap;"><input type="checkbox" id="tas-hitbox"> hitboxes</label>
+					<input type="range" id="tas-speed" min="0.1" max="1" value="1" step="0.05" style="flex:1;max-width:280px;">
+					<span id="tas-speed-label" style="font-size:12px;white-space:nowrap;opacity:.85;">100%</span>
+				</div>
+			</div>
+			<div id="viewport-wrap"><iframe id="viewport" title="TAS viewport"></iframe></div>
+		</div>
+		<div id="panel">
+			<div id="timing">lap <b id="t-lap">–</b> · steps <b id="t-steps">–</b> · last run <b id="t-run">–</b></div>
+			<label for="inputs">TAS inputs (editable)</label>
+			<textarea id="inputs" spellcheck="false" placeholder="Recorded inputs appear here after a completed lap. Edit any step line, then Run."></textarea>
+			<div id="state-note" style="font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#6e7681;margin-top:4px;"></div>
+			<div id="validation"></div>
+			<div class="row" style="align-items:center;gap:6px;font-size:12px;color:#8b949e;">
+				<input type="checkbox" id="lap2-zero" style="margin:0;" checked>
+				<label for="lap2-zero">Skip lap 1 — slider 0 = lap 2 (loop tracks)</label>
+			</div>
+			<div class="row">
+				<button id="run-btn">Run inputs ▶</button>
+				<button id="stop-btn">Stop</button>
+			</div>
+			<div style="border-top:1px solid #30363d;margin-top:2px;padding-top:10px;">
+				<label>Brute force</label>
+				<div class="row" style="align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#8b949e;">
+					<label for="bf-rounds" style="text-transform:none;letter-spacing:0;">rounds
+						<input id="bf-rounds" type="number" min="1" max="2000" value="20" style="width:64px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:3px 6px;font:inherit;">
+					</label>
+					<label for="bf-beam" style="text-transform:none;letter-spacing:0;">beam
+						<input id="bf-beam" type="number" min="1" max="8" value="4" style="width:48px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:3px 6px;font:inherit;">
+					</label>
+					<label for="bf-mut" style="text-transform:none;letter-spacing:0;">inputs changed/round
+						<input id="bf-mut" type="range" min="1" max="10" value="1" style="width:96px;">
+						<span id="bf-mut-val">1</span>
+					</label>
+				</div>
+				<div class="row" style="align-items:center;gap:6px;font-size:12px;color:#8b949e;margin-top:6px;">
+					<input type="checkbox" id="bf-add" style="margin:0;">
+					<label for="bf-add" style="text-transform:none;letter-spacing:0;">add 1 input each round</label>
+				</div>
+				<div class="row" style="margin-top:6px;">
+					<button id="bf-start" style="background:#1f6feb;color:#fff;">Brute force ▶</button>
+					<button id="bf-stop" style="background:#6e7681;color:#fff;" disabled>Stop</button>
+				</div>
+				<div id="bf-status" style="font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#8b949e;margin-top:6px;white-space:pre-wrap;"></div>
+			</div>
+			<div id="hint">Looping tracks record lap 2 (flying start, state carried across the line). Non-looping tracks record lap 1. Looping tracks: drive 2 laps — the script keeps BOTH laps (edit either), the time shown is lap 2. Non-looping: drive 1 lap. Countdown runs before recording; R restarts it. Replays: lap 1 re-runs, then lap 2 starts from the recorded line-crossing state.</div>
+		</div>
+	</div>
+</div>
+
+<div id="popup">
+	<div class="popup-card">
+		<h2 id="popup-title">Lap complete</h2>
+		<div class="lap" id="popup-lap">–</div>
+		<div class="row">
+			<button id="use-btn">Use this run</button>
+			<button id="retry-btn">Try again</button>
+		</div>
+	</div>
+</div>
+
+<script>
+( function () {
+
+	const $ = ( id ) => document.getElementById( id );
+	const urlScreen = $( 'url-screen' ), editor = $( 'editor' ), frame = $( 'viewport' );
+	const typeBadge = $( 'track-type' ), statusEl = $( 'status' ), popup = $( 'popup' );
+	const inputs = $( 'inputs' ), validation = $( 'validation' );
+	let lastScript = null;
+	let hiddenState = null; // raw 'state: ...' lines, managed automatically
+
+	function splitStateLines( text ) {
+
+		const stateLines = [];
+		const rest = [];
+		for ( const line of String( text ).split( '\n' ) ) {
+
+			if ( /^\s*state:\s/.test( line ) ) stateLines.push( line.trim() );
+			else rest.push( line );
+
+		}
+		return { state: stateLines.join( '\n' ), body: rest.join( '\n' ).replace( /^\n+/, '' ) };
+
+	}
+
+	function updateStateNote() {
+
+		$( 'state-note' ).textContent = hiddenState
+			? '✓ hidden flying-start state attached — auto-updated on record / brute-force, never editable by hand'
+			: 'no hidden start state (non-loop track, or nothing recorded yet)';
+
+	}
+
+	// What gets SENT to the game: hidden state block + whatever step lines
+	// are in the box. Any state lines pasted into the box are tucked away.
+	function composeFull() {
+
+		const parts = splitStateLines( inputs.value );
+		if ( parts.state ) hiddenState = parts.state;
+		if ( parts.body !== inputs.value ) inputs.value = parts.body;
+		updateStateNote();
+		return hiddenState ? hiddenState + '\n' + parts.body : parts.body;
+
+	}
+
+	// A script arrived from the game (record complete, or a better brute
+	// candidate): keep its state block hidden and up to date automatically.
+	function adoptScript( fullText ) {
+
+		const parts = splitStateLines( fullText );
+		hiddenState = parts.state || null;
+		inputs.value = parts.body;
+		updateStateNote();
+
+	}
+
+	function sendToGame( type, payload ) {
+
+		frame.contentWindow.postMessage( { type, ...payload }, '*' );
+
+	}
+
+	function loadTrack( rawUrl ) {
+
+		let u;
+		try { u = new URL( rawUrl, location.href ); }
+		catch ( e ) { validation.textContent = 'Not a valid URL: ' + rawUrl; return; }
+		u.searchParams.delete( 'tas' );
+		u.searchParams.delete( 'replayViewer' );
+		u.searchParams.set( 'tas', '1' );
+		u.searchParams.set( 'nc', String( Date.now() ) );
+		frame.src = u.pathname === '/' || u.pathname.endsWith( '/' ) ? u.origin + u.pathname + 'index.html' + u.search : u.href;
+		validation.textContent = '';
+		urlScreen.style.display = 'none';
+		editor.classList.add( 'active' );
+		statusEl.textContent = 'booting track…';
+
+	}
+
+	window.addEventListener( 'message', ( event ) => {
+
+		if ( event.source !== frame.contentWindow || ! event.data?.type ) return;
+		const data = event.data;
+		switch ( data.type ) {
+
+			case 'tas-ready':
+				typeBadge.textContent = data.isLoop ? 'LOOP TRACK · drive 2 laps' : 'NON-LOOP TRACK · drive 1 lap';
+				typeBadge.classList.toggle( 'nonloop', ! data.isLoop );
+				statusEl.textContent = 'countdown — then drive your lap(s)';
+				break;
+			case 'tas-lap-cross':
+				statusEl.textContent = 'lap 1 done — rolled straight into lap 2 (flying start)';
+				$( 't-lap' ).textContent = '2 (recording)';
+				break;
+			case 'tas-lap-complete': {
+				lastScript = data.script;
+				$( 't-lap' ).textContent = String( data.lap );
+				$( 't-steps' ).textContent = String( data.stepCount );
+				$( 'popup-title' ).textContent = data.lap > 1 ? 'Lap 2 complete' : 'Lap complete';
+				$( 'popup-lap' ).textContent = data.lapSeconds.toFixed( 6 ) + 's · ' + data.stepCount + ' steps';
+				popup.classList.add( 'active' );
+				break;
+			}
+			case 'tas-run-started':
+				statusEl.textContent = ( data.skipLap1 ? ( data.fastForwarded ? 'lap 1 simulated super-fast — running lap 2' : 'running lap 2 from the recorded line-crossing state' ) : 'replaying lap 1 (countdown), then lap 2' ) + ' — ' + data.steps + ' steps…';
+				$( 't-run' ).textContent = 'running…';
+				break;
+			case 'tas-run-complete':
+				$( 't-run' ).textContent = data.lapSeconds.toFixed( 6 ) + 's · ' + data.stepCount + ' steps';
+				$( 't-steps' ).textContent = String( data.stepCount );
+				statusEl.textContent = 'run complete';
+				break;
+			case 'tas-run-invalid':
+				validation.textContent = 'Script errors:\n' + data.errors.join( '\n' );
+				break;
+			case 'tas-bruteforce-progress':
+				$( 'bf-status' ).textContent = `round ${ data.round }/${ data.rounds } — last ${ data.lastTime }s — best ${ data.bestTime }s${ data.adopted ? ' ✓ adopted' : '' }`;
+				break;
+			case 'tas-bruteforce-update':
+				adoptScript( data.script );
+				break;
+			case 'tas-bruteforce-done':
+				$( 'bf-start' ).disabled = false;
+				$( 'bf-stop' ).disabled = true;
+				if ( data.script ) adoptScript( data.script );
+				$( 'bf-status' ).textContent = `done — best ${ data.bestTime }s${ data.improved ? ' (improved over baseline)' : ' (no improvement)' }`;
+				statusEl.textContent = 'brute force finished — inputs box holds the best run';
+				break;
+			case 'tas-bruteforce-error':
+				$( 'bf-start' ).disabled = false;
+				$( 'bf-stop' ).disabled = true;
+				$( 'bf-status' ).textContent = 'error: ' + data.errors.join( '; ' );
+				break;
+
+		}
+
+	} );
+
+	$( 'load-btn' ).addEventListener( 'click', () => loadTrack( $( 'track-url' ).value.trim() ) );
+	$( 'track-url' ).addEventListener( 'keydown', ( e ) => { if ( e.key === 'Enter' ) loadTrack( e.target.value.trim() ); } );
+	$( 'use-btn' ).addEventListener( 'click', () => {
+
+		if ( lastScript !== null ) adoptScript( lastScript );
+		popup.classList.remove( 'active' );
+		statusEl.textContent = 'inputs pasted — edit them if you like, then Run';
+
+	} );
+	$( 'retry-btn' ).addEventListener( 'click', () => {
+
+		popup.classList.remove( 'active' );
+		statusEl.textContent = 'countdown — get ready…';
+		sendToGame( 'tas-retry' );
+
+	} );
+	$( 'run-btn' ).addEventListener( 'click', () => {
+
+		validation.textContent = '';
+		sendToGame( 'tas-run', { script: composeFull(), startAtLap2: $( 'lap2-zero' ).checked } );
+
+	} );
+	$( 'stop-btn' ).addEventListener( 'click', () => sendToGame( 'tas-stop' ) );
+	$( 'bf-mut' ).addEventListener( 'input', () => { $( 'bf-mut-val' ).textContent = $( 'bf-mut' ).value; } );
+	$( 'bf-start' ).addEventListener( 'click', () => {
+
+		validation.textContent = '';
+		sendToGame( 'tas-bruteforce', {
+			script: composeFull(),
+			mutations: Number( $( 'bf-mut' ).value ),
+			beam: Number( $( 'bf-beam' ).value ),
+			addInput: $( 'bf-add' ).checked,
+			rounds: Math.max( 1, Number( $( 'bf-rounds' ).value ) || 20 )
+		} );
+		$( 'bf-start' ).disabled = true;
+		$( 'bf-stop' ).disabled = false;
+		$( 'bf-status' ).textContent = 'simulating baseline…';
+
+	} );
+	$( 'bf-stop' ).addEventListener( 'click', () => sendToGame( 'tas-bruteforce-stop', {} ) );
+
+	composeFull(); // tuck away any pasted state lines immediately
+	const prefill = new URLSearchParams( location.search ).get( 'url' );
+	if ( prefill ) loadTrack( prefill );
+
+} )();
+
+	// ── TAS playback bar: pause/seek slider driven by the game's
+	// auto-calculated run (calc -> seek -> real-time play) ──────────────
+	( function () {
+
+		// Self-contained: the main editor IIFE owns $/sendToGame and this
+		// block sits OUTSIDE it — never reference them here.
+		const $id = ( id ) => document.getElementById( id );
+		const send_ = ( type, data ) => {
+			const f = document.querySelector( 'iframe' );
+			if ( f && f.contentWindow ) f.contentWindow.postMessage( Object.assign( { type }, data ), '*' );
+		};
+		const bar = $id( 'tas-bar' ), playBtn = $id( 'tas-play' ), slider = $id( 'tas-slider' ), label = $id( 'tas-slider-label' );
+		const speed = $id( 'tas-speed' ), speedLabel = $id( 'tas-speed-label' );
+		$id( 'tas-hitbox' ).addEventListener( 'change', ( e ) => send_( 'tas-hitbox', { on: e.target.checked } ) );
+		speed.addEventListener( 'input', () => {
+
+			speedLabel.textContent = Math.round( Number( speed.value ) * 100 ) + '%';
+			send_( 'tas-setspeed', { mult: Number( speed.value ) } );
+
+		} );
+		const lap2Zero = $id( 'lap2-zero' ), inputsEl = $id( 'inputs' );
+		let total = null, l1c = null, time = null, dragging = false, playing = true;
+		let lineMap = null;
+
+		function zeroOffset() { return ( lap2Zero.checked && l1c != null ) ? l1c : 0; }
+		function sliderToGlobal( v ) { return v + zeroOffset(); }
+		function globalToSlider( g ) { return Math.max( 0, g - zeroOffset() ); }
+		function isLoopScript() { return /^cross\s*$/m.test( inputsEl.value ); }
+
+		function refreshLoopVisibility() {
+
+			// Always visible: hiding it until a loop script appears made it
+			// look like the feature vanished on a fresh page.
+			lap2Zero.parentElement.style.display = '';
+
+		}
+		inputsEl.addEventListener( 'input', () => { lineMap = null; hlLine = null; placeHl(); refreshLoopVisibility(); } );
+		lap2Zero.addEventListener( 'change', () => { if ( total != null ) slider.max = String( total - zeroOffset() ); slider.value = String( globalToSlider( Number( slider.value ) + ( lap2Zero.checked ? l1c : -l1c ) ) ); updateLabel( Number( slider.value ) + zeroOffset() ); } );
+		refreshLoopVisibility();
+
+		function buildLineMap() {
+
+			const lines = inputsEl.value.split( '\n' );
+			const map = { lap1: [], lap2: [] };
+			let cross = -1;
+			lines.forEach( ( l, i ) => { if ( /^cross\s*$/.test( l.trim() ) ) cross = i; } );
+			lines.forEach( ( l, i ) => {
+
+				if ( ! /^step\s+/.test( l.trim() ) ) return;
+				if ( cross === -1 || i < cross ) map.lap1.push( i );
+				else map.lap2.push( i );
+
+			} );
+			return map;
+
+		}
+
+		function highlight( lap, entry ) {
+
+			if ( ! lineMap ) lineMap = buildLineMap();
+			const lines = ( lap === 2 ? lineMap.lap2 : lineMap.lap1 );
+			const line = lines[ entry ];
+			if ( line == null ) return;
+			const arr = inputsEl.value.split( '\n' );
+			let start = 0;
+			for ( let i = 0; i < line; i ++ ) start += arr[ i ].length + 1;
+			hlLine = line;
+			placeHl();
+			const focused = document.activeElement === inputsEl;
+			try {
+
+				inputsEl.setSelectionRange( start, start + arr[ line ].length );
+				const lh = 16;
+				const target = line * lh - inputsEl.clientHeight / 3;
+				if ( Math.abs( inputsEl.scrollTop - target ) > lh * 2 ) inputsEl.scrollTop = Math.max( 0, target );
+
+			} catch ( e ) {}
+			if ( focused ) inputsEl.blur();
+
+		}
+
+		function updateLabel( g ) {
+
+			label.textContent = `step ${ g } / ${ total == null ? '?' : total }${ time != null ? ` · run ${ time }s` : '' }`;
+
+		}
+
+		const hl = document.createElement( 'div' );
+		hl.style.cssText = 'position:fixed;left:0;top:0;height:16px;width:0;background:rgba(63,185,80,.28);pointer-events:none;z-index:50;';
+		document.body.appendChild( hl );
+		let hlLine = null;
+		function placeHl() {
+
+			if ( hlLine == null ) { hl.style.width = '0'; return; }
+			const r = inputsEl.getBoundingClientRect();
+			const top = r.top + hlLine * 16 - inputsEl.scrollTop;
+			if ( top < r.top || top + 16 > r.bottom ) { hl.style.width = '0'; return; } // line outside the box
+			hl.style.left = r.left + 'px';
+			hl.style.width = r.width + 'px';
+			hl.style.top = top + 'px';
+
+		}
+		inputsEl.addEventListener( 'scroll', placeHl );
+		window.addEventListener( 'resize', placeHl );
+		playBtn.addEventListener( 'click', () => { send_( 'tas-toggle-pause', {} ); } );
+		slider.addEventListener( 'pointerdown', () => { dragging = true; } );
+		window.addEventListener( 'pointerup', () => { dragging = false; } );
+		slider.addEventListener( 'change', () => {
+
+			if ( total != null ) send_( 'tas-seek', { step: sliderToGlobal( Number( slider.value ) ) } );
+
+		} );
+
+		window.addEventListener( 'message', ( ev ) => {
+
+			const d = ev.data;
+			if ( ! d || typeof d !== 'object' ) return;
+			if ( d.type === 'tas-run-started' ) {
+
+				total = d.totalSteps != null ? d.totalSteps : null;
+				l1c = d.lap1CrossStep != null ? d.lap1CrossStep : null;
+				time = d.calcTime != null ? d.calcTime : null;
+				bar.classList.remove( 'tas-idle' );
+				playing = true; playBtn.textContent = '⏸';
+				slider.max = String( total != null ? total - zeroOffset() : 0 );
+				slider.value = '0';
+				updateLabel( zeroOffset() );
+
+			} else if ( d.type === 'tas-step' ) {
+
+				if ( total == null ) slider.max = String( Math.max( Number( slider.max ), d.global ) );
+
+				if ( ! dragging && document.activeElement !== slider ) slider.value = String( globalToSlider( d.global ) );
+				updateLabel( d.global );
+				highlight( d.lap, d.entry );
+
+			} else if ( d.type === 'tas-paused' ) {
+
+				playing = ! d.paused;
+				playBtn.textContent = d.paused ? '▶' : '⏸';
+
+			} else if ( d.type === 'tas-run-complete' ) {
+
+				time = d.lapSeconds;
+				playBtn.textContent = '▶';
+				if ( total != null && document.activeElement !== slider ) slider.value = String( globalToSlider( total ) );
+				updateLabel( total != null ? total : 0 );
+
+			} else if ( d.type === 'tas-bruteforce-update' || d.type === 'tas-bruteforce-done' ) {
+
+				bar.classList.add( 'tas-idle' );
+				total = null;
+
+			}
+
+		} );
+
+	} )();
+</script>
+</body>
+</html>
