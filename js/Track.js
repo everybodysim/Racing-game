@@ -1769,6 +1769,27 @@ export function placePiece( models, key, gx, gz, orient ) {
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
+	if ( modelKey === 'track-choke-half' || modelKey === 'track-choke-both' ) {
+
+		// The pinch walls are viewable from inside the choke opening, so render
+		// both faces (same treatment as the elevated blocks). Materials are
+		// shared with the source model — guarded so it mutates only once.
+		piece.traverse( ( child ) => {
+
+			if ( child.material && ! child.material.__doubleSided ) {
+
+				( Array.isArray( child.material ) ? child.material : [ child.material ] ).forEach( ( m ) => {
+
+					m.side = THREE.DoubleSide;
+					m.__doubleSided = true;
+
+				} );
+
+			}
+
+		} );
+
+	}
         // Start/finish blocks no longer tinted (checkpoint textures read cleanly).
 
 	return piece;

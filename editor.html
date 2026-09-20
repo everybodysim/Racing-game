@@ -895,7 +895,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells } from './js/Track.js?v=1000233';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells } from './js/Track.js?v=1000234';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260920';
@@ -2009,6 +2009,19 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 				mesh.traverse( ( c ) => {
 
 					if ( c.isMesh ) {
+
+						// Choke pinch walls are viewable from inside the opening —
+						// render both faces (guarded, shared source materials).
+						if ( ( modelType === 'track-choke-half' || modelType === 'track-choke-both' ) && c.material && ! c.material.__doubleSided ) {
+
+							( Array.isArray( c.material ) ? c.material : [ c.material ] ).forEach( ( m ) => {
+
+								m.side = THREE.DoubleSide;
+								m.__doubleSided = true;
+
+							} );
+
+						}
 
 						if ( gateTint && c.material ) {
 
