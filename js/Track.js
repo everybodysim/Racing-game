@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const ORIENT_DEG = { 0: 0, 10: 180, 16: 90, 22: 270 };
 
@@ -1761,10 +1760,66 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 // Choke walls curve in 8 flat segments and the GLBs ship per-segment flat
 // normals, so under the game's hard directional sun adjacent faces alternate
-// bright and dark ("a bunch of random shaded faces"). Merge attribute-identical
-// vertices and recompute smooth normals ONCE per shared source model so the
-// curve shades as a continuous gradient, like the corner blocks. Guarded so
-// the rework runs only once per page load.
+// bright and dark ("a bunch of random shaded faces"). The curb/rumble-strip
+// texture on these pieces tiles PER SEGMENT, so 154 of 613 shared vertex
+// positions carry up to 5 distinct UVs (confirmed by direct inspection) —
+// any fix that merges the vertex buffer by matching attributes (mergeVertices)
+// silently skips exactly those seams, since UV never matches there, leaving
+// the curb's shading untouched while the plain walls looked fixed. Instead,
+// average face normals purely by ROUNDED POSITION and overwrite the `normal`
+// attribute in place — vertex count and every UV/color stay byte-identical,
+// only the shading direction changes. Guarded so this runs once per shared
+// source model per page load.
+function smoothNormalsByPosition( geometry, precision = 4 ) {
+
+	const pos = geometry.attributes.position;
+	const idx = geometry.index ? geometry.index.array : null;
+	const count = pos.count;
+	const key = ( i ) => `${ pos.getX( i ).toFixed( precision ) },${ pos.getY( i ).toFixed( precision ) },${ pos.getZ( i ).toFixed( precision ) }`;
+
+	const accum = new Map();
+	const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
+	const cb = new THREE.Vector3(), ab = new THREE.Vector3();
+
+	const triCount = idx ? idx.length / 3 : count / 3;
+	for ( let t = 0; t < triCount; t ++ ) {
+
+		const ia = idx ? idx[ t * 3 ] : t * 3;
+		const ib = idx ? idx[ t * 3 + 1 ] : t * 3 + 1;
+		const ic = idx ? idx[ t * 3 + 2 ] : t * 3 + 2;
+
+		vA.fromBufferAttribute( pos, ia );
+		vB.fromBufferAttribute( pos, ib );
+		vC.fromBufferAttribute( pos, ic );
+
+		cb.subVectors( vC, vB );
+		ab.subVectors( vA, vB );
+		cb.cross( ab ); // unnormalized, area-weighted face normal
+
+		for ( const i of [ ia, ib, ic ] ) {
+
+			const k = key( i );
+			let a = accum.get( k );
+			if ( ! a ) { a = [ 0, 0, 0 ]; accum.set( k, a ); }
+			a[ 0 ] += cb.x; a[ 1 ] += cb.y; a[ 2 ] += cb.z;
+
+		}
+
+	}
+
+	const normal = geometry.attributes.normal || new THREE.BufferAttribute( new Float32Array( count * 3 ), 3 );
+	const n = new THREE.Vector3();
+	for ( let i = 0; i < count; i ++ ) {
+
+		const a = accum.get( key( i ) );
+		n.set( a[ 0 ], a[ 1 ], a[ 2 ] ).normalize();
+		normal.setXYZ( i, n.x, n.y, n.z );
+
+	}
+	geometry.setAttribute( 'normal', normal );
+
+}
+
 export function smoothChokeSourceModel( model ) {
 
 	if ( ! model || model.userData.__chokeSmoothed ) return;
@@ -1773,16 +1828,7 @@ export function smoothChokeSourceModel( model ) {
 	model.traverse( ( child ) => {
 
 		if ( ! ( child.isMesh && child.geometry && child.geometry.attributes.position ) ) return;
-		// mergeVertices hashes EVERY attribute, including normal — since flat
-		// shading gives each face's own vertices distinct normals, that alone
-		// blocks almost all merging (verified: 2646 -> 2626 verts, no-op).
-		// Drop normals first so only position+uv drive the merge, THEN
-		// recompute normals smoothed across the newly-shared vertices.
-		const geo = child.geometry.clone();
-		geo.deleteAttribute( 'normal' );
-		const merged = mergeVertices( geo, 1e-4 );
-		merged.computeVertexNormals();
-		child.geometry = merged;
+		smoothNormalsByPosition( child.geometry );
 
 	} );
 
