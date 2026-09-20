@@ -2869,6 +2869,10 @@ function computeCausticShade( normal ) {
 			}
 			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
+				// Toggle-off emptied the cell: clear its overlay meshes
+				// BEFORE deleting it, or the pole/bump/surface meshes stay in
+				// the scene as untracked ghosts no tool can remove.
+				placeOverlayMesh( gx, gz, cell );
 				grid.delete( key );
 
 			} else {
@@ -2897,6 +2901,10 @@ function computeCausticShade( normal ) {
 
 			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
+				// Toggle-off emptied the cell: clear its overlay meshes
+				// BEFORE deleting it, or the pole/bump/surface meshes stay in
+				// the scene as untracked ghosts no tool can remove.
+				placeOverlayMesh( gx, gz, cell );
 				grid.delete( key );
 
 			} else {
