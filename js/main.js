@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType } from 'crashcat';
 import { Vehicle } from './Vehicle.js';
+import { SkidMarks } from './SkidMarks.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=999971';
@@ -4505,6 +4506,7 @@ async function init() {
 	carHitboxMesh.userData.isHackHitboxDebug = true;
 	carHitboxMesh.visible = false;
 	scene.add( carHitboxMesh );
+	const skidMarks = new SkidMarks( scene, { maxMarks: 1200 } );
 	const originalHackTransparencyByMaterial = new Map();
 	let hackVisualsApplied = false;
 
@@ -5669,6 +5671,7 @@ async function init() {
 				rigidBody.setPosition( world, vehicle.rigidBody, [ cx, cy, cz ], false );
 				rigidBody.setLinearVelocity( world, vehicle.rigidBody, [ 0, 0, 0 ] );
 				rigidBody.setAngularVelocity( world, vehicle.rigidBody, [ 0, 0, 0 ] );
+				if ( vehicle.teleportInterlock != null ) vehicle.teleportInterlock += 8;
 			},
 			setHudText: ( text = '' ) => {
 				if ( topMessage ) {
@@ -10542,6 +10545,7 @@ function completeCampaignStage() {
 
 		}
 		vehicle.resetToSpawn();
+		skidMarks?.clear?.();
 		resetMovingObstacles( movingObstacleState, raceClockSeconds );
 		cam.targetPosition.copy( vehicle.spherePos );
 		cam.camera.position.addVectors( cam.targetPosition, cam.offset );
@@ -10561,6 +10565,7 @@ function completeCampaignStage() {
 
 		}
 		vehicle2.resetToSpawn();
+		skidMarks?.clear?.();
 		cam2.targetPosition.copy( vehicle2.spherePos );
 		cam2.camera.position.addVectors( cam2.targetPosition, cam2.offset );
 		resetPhysicsObstacles();
@@ -10996,6 +11001,7 @@ function completeCampaignStage() {
 			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], vel[ 1 ], vel[ 2 ] ] );
 			targetVehicle.spherePos.set( pair.centerX, pair.centerY, pair.centerZ );
 			targetVehicle.container.position.set( targetVehicle.spherePos.x, targetVehicle.spherePos.y - 0.5, targetVehicle.spherePos.z );
+			if ( targetVehicle.teleportInterlock != null ) targetVehicle.teleportInterlock += 10;
 			setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: purple portal → ${ pair.color } endpoint (velocity kept)` );
 				hasPrevFinishSample = false;
 				lastLocalX = 0;
@@ -12065,6 +12071,7 @@ function completeCampaignStage() {
 						const fwd = new THREE.Vector3( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).setY( 0 ).normalize();
 						vehicle.spherePos.addScaledVector( fwd, 6.5 );
 						rigidBody.setPosition( world, vehicle.rigidBody, vehicle.spherePos.toArray(), false );
+						if ( vehicle.teleportInterlock != null ) vehicle.teleportInterlock += 6;
 
 					}
 					hackTeleportLatch = trigger;
@@ -12117,6 +12124,10 @@ function completeCampaignStage() {
 			lastSurfaceNotifyType2 = activeSurfaceType2;
 
 		}
+		skidMarks.update( dt, [
+			{ veh: vehicle, contact: Boolean( vehicle.rigidBody?.contactCount ) },
+			...( vehicle2 ? [ { veh: vehicle2, contact: Boolean( vehicle2.rigidBody?.contactCount ) } ] : [] )
+		] );
 		updateActiveBoost( vehicle, boostActiveUntil, dt, now );
 		if ( vehicle2 ) updateActiveBoost( vehicle2, boostActiveUntil2, dt, now );
 		const activeBoostContactKey = findLegacyBoostContactKeyFor( vehicle ) || findBoostSurfaceContactKeyFor( vehicle );
