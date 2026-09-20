@@ -936,14 +936,16 @@ post( 'tas-paused', { paused: state.paused } );
 
 	}
 
-	// Mutation menu (per changed input):
-	//   40% steering value — x from {-1,0,1}, never a no-op
-	//   10% accel value     — z from {-1,0,1}, rare (breaks runs easily)
-	//   25% timing shift    — step slides strictly between neighbors
-	//   25% steering pulse  — override steering for 3-8 steps inside one
-	//                         segment, then the original input resumes: a
-	//                         true 'few frames of gameplay' nudge, the small
-	//                         blast-radius change random search needs.
+	// Mutation menu (per changed input) — 3-frame pulses by user spec:
+	//   55% steering pulse — pick a RANDOM frame inside a segment, override
+	//                        steering for exactly 3 steps, then a spliced
+	//                        release entry restores the original value. The
+	//                        change can NEVER exceed 3 frames.
+	//   15% accel pulse     — same 3-frame override+release on accel (z).
+	//   30% timing shift    — an entry's step slides strictly between its
+	//                        neighbors; no input value changes at all.
+	// Raw value flips (the old run-breakers: one steering flip persisted for
+	// a whole multi-second segment) are gone for good.
 	function mutateScript( script, mutations, addInput ) {
 
 		const cand = cloneScript( script );
@@ -951,20 +953,29 @@ post( 'tas-paused', { paused: state.paused } );
 		if ( ! timedLap.length ) return cand;
 		for ( let m = 0; m < mutations; m ++ ) {
 
-			const idx = Math.floor( Math.random() * timedLap.length );
-			const e = timedLap[ idx ];
 			const roll = Math.random();
-			if ( roll < 0.40 ) {
+			if ( roll < 0.70 ) {
 
-				e.x = pickOther( e.x ); // steering: -1 / 0 / 1, never a no-op
+				// 3-frame pulse at a random frame: override at f, release at f+3.
+				const isAccel = roll >= 0.55;
+				const key = isAccel ? 'z' : 'x';
+				const idx = Math.floor( Math.random() * timedLap.length );
+				const e = timedLap[ idx ];
+				const next = idx < timedLap.length - 1 ? timedLap[ idx + 1 ].step : e.step + 120;
+				const lo = e.step + 1;    // strictly inside the segment, after its entry
+				const hi = next - 4;      // pulse (3 steps) + release fit before the next entry
+				if ( hi < lo ) continue; // segment too short for a safe pulse
+				const f = lo + Math.floor( Math.random() * ( hi - lo + 1 ) );
+				const pulse = { step: f, x: e.x, z: e.z };
+				pulse[ key ] = pickOther( e[ key ] );
+				timedLap.splice( idx + 1, 0, pulse );
+				timedLap.splice( idx + 2, 0, { step: f + 3, x: e.x, z: e.z } );
 
-			} else if ( roll < 0.50 ) {
-
-				e.z = pickOther( e.z ); // accel: -1 / 0 / 1, rarer by design
-
-			} else if ( roll < 0.75 ) {
+			} else {
 
 				// timing: shift this entry between the previous and next entry
+				const idx = Math.floor( Math.random() * timedLap.length );
+				const e = timedLap[ idx ];
 				const prev = idx > 0 ? timedLap[ idx - 1 ].step : -1;
 				const next = idx < timedLap.length - 1 ? timedLap[ idx + 1 ].step : e.step + 120;
 				const lo = prev + 1;
@@ -977,20 +988,7 @@ post( 'tas-paused', { paused: state.paused } );
 
 				}
 
-			} else if ( idx < timedLap.length - 1 ) {
-
-				// steering pulse: new steering now, original resumes mid-segment
-				const segEnd = timedLap[ idx + 1 ].step;
-				const maxWin = Math.min( 8, segEnd - e.step - 1 );
-				if ( maxWin >= 3 ) {
-
-					const w = 3 + Math.floor( Math.random() * ( maxWin - 2 ) );
-					timedLap.splice( idx + 1, 0, { step: e.step + w, x: e.x, z: e.z } );
-					e.x = pickOther( e.x );
-
-				} else e.x = pickOther( e.x );
-
-			} else e.x = pickOther( e.x ); // last entry: no segment to pulse into
+			}
 
 		}
 		if ( addInput ) {
@@ -1109,16 +1107,24 @@ post( 'tas-paused', { paused: state.paused } );
 		if ( event.source !== window.parent || ! event.data?.type ) return;
 		const type = event.data.type;
 		if ( type === 'tas-retry' ) retry();
-		else if ( type === 'tas-run' ) run( event.data.script || '', !! event.data.playLap1 );
+		else if ( type === 'tas-run' ) run( event.data.script || '', !! event.data.startAtLap2 );
 		else if ( type === 'tas-stop' ) { state.phase = 'done'; ctx.tasBeginNextLap(); updateOverlay(); }
 		else if ( type === 'tas-bruteforce' ) bruteForce( event.data );
 		else if ( type === 'tas-bruteforce-stop' ) { if ( state.brute ) state.brute.stop = true; }
 		else if ( type === 'tas-toggle-pause' ) togglePause();
 		else if ( type === 'tas-seek' && state.runScript && ( state.phase === 'run' || state.phase === 'done' ) ) {
 
+			// Scrubbing while paused STAYS paused: capture BEFORE the seek
+			// (seekTo's resetState clears state.paused), re-anchor, then
+			// re-assert the game pause so the run holds at the sought step.
+			const wasPaused = state.paused;
 			seekTo( Math.max( 0, Math.round( Number( event.data.step ) || 0 ) ) );
-			// Scrubbing while paused STAYS paused — re-anchor only, never resume.
-			if ( state.paused && ctx.fns.setPaused ) ctx.fns.setPaused( true );
+			if ( wasPaused && ctx.fns.setPaused ) {
+
+				state.paused = true;
+				ctx.fns.setPaused( true );
+
+			}
 
 		}
 
