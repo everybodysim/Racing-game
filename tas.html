@@ -84,7 +84,7 @@
 			<div id="validation"></div>
 			<div class="row" style="align-items:center;gap:6px;font-size:12px;color:#8b949e;">
 				<input type="checkbox" id="lap2-zero" style="margin:0;" checked>
-				<label for="lap2-zero">Slider 0 = lap 2 (loop tracks only)</label>
+				<label for="lap2-zero">Skip lap 1 — slider 0 = lap 2 (loop tracks)</label>
 			</div>
 			<div class="row">
 				<button id="run-btn">Run inputs ▶</button>
@@ -319,8 +319,15 @@
 	// auto-calculated run (calc -> seek -> real-time play) ──────────────
 	( function () {
 
-		const bar = $( 'tas-bar' ), playBtn = $( 'tas-play' ), slider = $( 'tas-slider' ), label = $( 'tas-slider-label' );
-		const lap2Zero = $( 'lap2-zero' ), inputsEl = $( 'inputs' );
+		// Self-contained: the main editor IIFE owns $/sendToGame and this
+		// block sits OUTSIDE it — never reference them here.
+		const $id = ( id ) => document.getElementById( id );
+		const send_ = ( type, data ) => {
+			const f = document.querySelector( 'iframe' );
+			if ( f && f.contentWindow ) f.contentWindow.postMessage( Object.assign( { type }, data ), '*' );
+		};
+		const bar = $id( 'tas-bar' ), playBtn = $id( 'tas-play' ), slider = $id( 'tas-slider' ), label = $id( 'tas-slider-label' );
+		const lap2Zero = $id( 'lap2-zero' ), inputsEl = $id( 'inputs' );
 		let total = null, l1c = null, time = null, dragging = false, playing = true;
 		let lineMap = null;
 
@@ -331,7 +338,9 @@
 
 		function refreshLoopVisibility() {
 
-			lap2Zero.parentElement.style.display = isLoopScript() ? '' : 'none';
+			// Always visible: hiding it until a loop script appears made it
+			// look like the feature vanished on a fresh page.
+			lap2Zero.parentElement.style.display = '';
 
 		}
 		inputsEl.addEventListener( 'input', () => { lineMap = null; refreshLoopVisibility(); } );
@@ -383,12 +392,12 @@
 
 		}
 
-		playBtn.addEventListener( 'click', () => { sendToGame( 'tas-toggle-pause', {} ); } );
+		playBtn.addEventListener( 'click', () => { send_( 'tas-toggle-pause', {} ); } );
 		slider.addEventListener( 'pointerdown', () => { dragging = true; } );
 		window.addEventListener( 'pointerup', () => { dragging = false; } );
 		slider.addEventListener( 'change', () => {
 
-			if ( total != null ) sendToGame( 'tas-seek', { step: sliderToGlobal( Number( slider.value ) ) } );
+			if ( total != null ) send_( 'tas-seek', { step: sliderToGlobal( Number( slider.value ) ) } );
 
 		} );
 
@@ -396,20 +405,20 @@
 
 			const d = ev.data;
 			if ( ! d || typeof d !== 'object' ) return;
-			if ( d.type === 'tas-run-started' && d.totalSteps != null ) {
+			if ( d.type === 'tas-run-started' ) {
 
-				total = d.totalSteps; l1c = d.lap1CrossStep; time = d.calcTime;
+				total = d.totalSteps != null ? d.totalSteps : null;
+				l1c = d.lap1CrossStep != null ? d.lap1CrossStep : null;
+				time = d.calcTime != null ? d.calcTime : null;
 				bar.style.display = 'flex';
 				playing = true; playBtn.textContent = '⏸';
-				slider.max = String( total - zeroOffset() );
+				slider.max = String( total != null ? total - zeroOffset() : 0 );
 				slider.value = '0';
 				updateLabel( zeroOffset() );
 
-			} else if ( d.type === 'tas-run-started' ) {
-
-				bar.style.display = 'none';
-
 			} else if ( d.type === 'tas-step' ) {
+
+				if ( total == null ) slider.max = String( Math.max( Number( slider.max ), d.global ) );
 
 				if ( ! dragging ) slider.value = String( globalToSlider( d.global ) );
 				updateLabel( d.global );

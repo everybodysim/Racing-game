@@ -53,6 +53,7 @@ export function activate( ctx ) {
 		pausePos: null,
 		pauseRot: null,
 		calc: false,
+		probeErr: null,
 	};
 
 	window.__tasState = () => {
@@ -70,6 +71,7 @@ export function activate( ctx ) {
 			det: ctx.get.lapDetection ? ctx.get.lapDetection() : null,
 			playback: state.playback,
 			paused: state.paused,
+			probeErr: state.probeErr || null,
 			isLoop: ctx.isLoop,
 			pos: [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ],
 			vel: mp ? [ ...mp.linearVelocity ] : [ 0, 0, 0 ],
@@ -412,6 +414,120 @@ export function activate( ctx ) {
 		// done: freeze driving
 		if ( state.overlayTick % 6 === 0 ) updateOverlay();
 		return zeroInput();
+
+	}
+
+	// Per-burst-step mirror of the game's lap detection (main.js runs it
+	// once per FRAME; bursts run hundreds of raw steps with no frames, so
+	// crossings mid-burst are invisible to the game). Physics-relevant
+	// effects only: checkpoint pass flags + pad clears + checkpoint
+	// respawn save + start-zone exit + the finish crossing into
+	// onLapComplete(crossT). Ghost HUD deltas / mod events are skipped
+	// (cosmetic). Primitives are written back through writeLapDetection so
+	// the game's per-frame detector never double-fires or desyncs.
+	function probeLapCross() {
+
+		try {
+
+			probeLapCrossInner();
+
+		} catch ( e ) {
+
+			if ( ! state.probeErr ) state.probeErr = String( e && e.message || e );
+			throw e; // burst loops abort on a broken probe instead of looping blind
+
+		}
+
+	}
+
+	function probeLapCrossInner() {
+
+		const det = ctx.get.lapDetection();
+		if ( ! det ) return;
+		const v = ctx.vehicle;
+
+		// checkpoints: exact game math (zero-inclusive plane test +
+		// interpolation + xCross gate; passedThisLap keeps it forward-only)
+		if ( det.checkpointStates ) {
+
+			for ( const checkpoint of det.checkpointStates ) {
+
+				const localX = ( ( v.spherePos.x - checkpoint.centerX ) * checkpoint.cosA ) + ( ( v.spherePos.z - checkpoint.centerZ ) * checkpoint.sinA );
+				const localZ = ( - ( v.spherePos.x - checkpoint.centerX ) * checkpoint.sinA ) + ( ( v.spherePos.z - checkpoint.centerZ ) * checkpoint.cosA );
+				if ( checkpoint.hasPrevSample ) {
+
+					const z0 = checkpoint.lastLocalZ;
+					const z1 = localZ;
+					const crossedPlane = ( z0 <= 0 && z1 >= 0 ) || ( z0 >= 0 && z1 <= 0 );
+					if ( crossedPlane ) {
+
+						const t = z0 / ( z0 - z1 );
+						const xCross = checkpoint.lastLocalX + ( localX - checkpoint.lastLocalX ) * t;
+						if ( t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent && ! checkpoint.passedThisLap ) {
+
+							checkpoint.passedThisLap = true;
+							ctx.fns.restoreGameState( { activePadEffect: null, activePadTimeScale: 1, padContactKey: null } );
+							if ( det.checkpointRespawnInstalled && ctx.fns.saveCheckpointState ) ctx.fns.saveCheckpointState( checkpoint );
+
+						}
+
+					}
+
+				}
+				checkpoint.lastLocalX = localX;
+				checkpoint.lastLocalZ = localZ;
+				checkpoint.hasPrevSample = true;
+
+			}
+
+		}
+
+		if ( ! det.finishData ) return;
+		const fd = det.finishData;
+		const localX = ( ( v.spherePos.x - fd.centerX ) * fd.cosA ) + ( ( v.spherePos.z - fd.centerZ ) * fd.sinA );
+		const localZ = ( - ( v.spherePos.x - fd.centerX ) * fd.sinA ) + ( ( v.spherePos.z - fd.centerZ ) * fd.cosA );
+		const sd = det.startGateData || fd;
+		const startLocalX = ( ( v.spherePos.x - sd.centerX ) * sd.cosA ) + ( ( v.spherePos.z - sd.centerZ ) * sd.sinA );
+		const startLocalZ = ( - ( v.spherePos.x - sd.centerX ) * sd.sinA ) + ( ( v.spherePos.z - sd.centerZ ) * sd.cosA );
+		const inStartCell = Math.abs( startLocalX ) < sd.halfExtent && Math.abs( startLocalZ ) < sd.halfExtent;
+		if ( ! det.hasLeftStartZone && ! inStartCell ) det.hasLeftStartZone = true;
+
+		let crossedFinish = false;
+		let crossedAtT = 1;
+		if ( det.hasPrevFinishSample ) {
+
+			const z0 = det.lastLocalZ;
+			const z1 = localZ;
+			const crossedPlane = ( z0 <= 0 && z1 >= 0 ) || ( z0 >= 0 && z1 <= 0 );
+			if ( crossedPlane ) {
+
+				const t = z0 / ( z0 - z1 );
+				const xCross = det.lastLocalX + ( localX - det.lastLocalX ) * t;
+				crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= fd.halfExtent;
+				if ( crossedFinish ) crossedAtT = t;
+
+			}
+
+		}
+
+		if ( crossedFinish ) {
+
+			if ( ! det.hasLeftStartZone ) return; // mirror the game's gate
+			if ( det.checkpointStates && ! det.checkpointStates.every( ( c ) => c.passedThisLap ) ) {
+
+				ctx.fns.writeLapDetection( { hasLeftStartZone: det.hasLeftStartZone, hasPrevFinishSample: true, lastLocalX: localX, lastLocalZ: localZ } );
+				return;
+
+			}
+			// Crossing! onLapComplete may teleport (applyCrossState) or end
+			// the run — skip the tail write so a fresh sample chain starts
+			// from the post-crossing state (no phantom on the next frame).
+			onLapComplete( crossedAtT );
+			return;
+
+		}
+
+		ctx.fns.writeLapDetection( { hasLeftStartZone: det.hasLeftStartZone, hasPrevFinishSample: true, lastLocalX: localX, lastLocalZ: localZ } );
 
 	}
 
