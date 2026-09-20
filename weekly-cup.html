@@ -339,7 +339,7 @@ function buildTrackId(pathname, mapParam, modsParam) {
   if (mapParam) query.set('map', mapParam);
   if (modsParam) query.set('mods', modsParam);
   const rawUrl = `${pathname}${query.toString() ? `?${query.toString()}` : ''}`;
-  return `trk-${hashTrackSeed(`v4-url|${rawUrl}`)}`;
+  return `trk-${hashTrackSeed(`v5-url|${rawUrl}`)}`;
 }
 
 function getTrackIds(playUrl) {
