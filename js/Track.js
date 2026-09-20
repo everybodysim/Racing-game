@@ -1766,22 +1766,36 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 // any fix that merges the vertex buffer by matching attributes (mergeVertices)
 // silently skips exactly those seams, since UV never matches there, leaving
 // the curb's shading untouched while the plain walls looked fixed. Instead,
-// average face normals purely by ROUNDED POSITION and overwrite the `normal`
-// attribute in place — vertex count and every UV/color stay byte-identical,
-// only the shading direction changes. Guarded so this runs once per shared
-// source model per page load.
-function smoothNormalsByPosition( geometry, precision = 4 ) {
+// average face normals by ROUNDED POSITION but only WITHIN crease-limited
+// groups (see smoothNormalsByPosition) and overwrite the `normal` attribute
+// in place — vertex count and every UV/color stay byte-identical, only the
+// shading direction changes. Guarded so this runs once per shared source
+// model per page load.
+function smoothNormalsByPosition( geometry, precision = 4, maxCreaseCos = 0.7071 ) {
+
+	// Crease-limited smoothing. The 8-segment curve turns only ~11-22 degrees
+	// between segments, so those groups merge and shade as one smooth arc.
+	// Hard 90-degree corners (rumble-strip blocks, top caps, end faces) stay
+	// flat-shaded: averaging across them tilts the crease vertices' normals
+	// halfway between faces, which both leaks light across the edge and, worse,
+	// misaligns the shadow pass's normalBias offset — that produced the
+	// "shredded" self-shadow acne on exactly those faces (user report
+	// 2026-09-20). Union-find groups triangles that share a vertex position
+	// ONLY when their face normals differ by less than ~45 degrees
+	// (cos 0.7071); each group gets an area-weighted averaged normal written
+	// to all its vertex instances. Vertex count and every UV/color stay
+	// byte-identical.
 
 	const pos = geometry.attributes.position;
 	const idx = geometry.index ? geometry.index.array : null;
 	const count = pos.count;
-	const key = ( i ) => `${ pos.getX( i ).toFixed( precision ) },${ pos.getY( i ).toFixed( precision ) },${ pos.getZ( i ).toFixed( precision ) }`;
-
-	const accum = new Map();
+	const triCount = idx ? idx.length / 3 : count / 3;
+	const faceN = new Float32Array( triCount * 3 );
 	const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
 	const cb = new THREE.Vector3(), ab = new THREE.Vector3();
+	const pkey = ( i ) => `${ pos.getX( i ).toFixed( precision ) },${ pos.getY( i ).toFixed( precision ) },${ pos.getZ( i ).toFixed( precision ) }`;
+	const posToTris = new Map();
 
-	const triCount = idx ? idx.length / 3 : count / 3;
 	for ( let t = 0; t < triCount; t ++ ) {
 
 		const ia = idx ? idx[ t * 3 ] : t * 3;
@@ -1796,24 +1810,65 @@ function smoothNormalsByPosition( geometry, precision = 4 ) {
 		ab.subVectors( vA, vB );
 		cb.cross( ab ); // unnormalized, area-weighted face normal
 
+		faceN[ t * 3 ] = cb.x; faceN[ t * 3 + 1 ] = cb.y; faceN[ t * 3 + 2 ] = cb.z;
+
 		for ( const i of [ ia, ib, ic ] ) {
 
-			const k = key( i );
-			let a = accum.get( k );
-			if ( ! a ) { a = [ 0, 0, 0 ]; accum.set( k, a ); }
-			a[ 0 ] += cb.x; a[ 1 ] += cb.y; a[ 2 ] += cb.z;
+			const k = pkey( i );
+			let arr = posToTris.get( k );
+			if ( ! arr ) { arr = []; posToTris.set( k, arr ); }
+			if ( ! arr.includes( t ) ) arr.push( t );
 
 		}
 
 	}
 
+	const parent = Array.from( { length: triCount }, ( _, i ) => i );
+	const find = ( t ) => {
+
+		while ( parent[ t ] !== t ) { parent[ t ] = parent[ parent[ t ] ]; t = parent[ t ]; }
+		return t;
+
+	};
+	const union = ( a, b ) => { a = find( a ); b = find( b ); if ( a !== b ) parent[ b ] = a; };
+
+	for ( const tris of posToTris.values() ) {
+
+		for ( let i = 0; i < tris.length; i ++ ) for ( let j = i + 1; j < tris.length; j ++ ) {
+
+			const a = tris[ i ], b = tris[ j ];
+			const la = Math.hypot( faceN[ a * 3 ], faceN[ a * 3 + 1 ], faceN[ a * 3 + 2 ] );
+			const lb = Math.hypot( faceN[ b * 3 ], faceN[ b * 3 + 1 ], faceN[ b * 3 + 2 ] );
+			if ( ! la || ! lb ) continue;
+			const dot = ( faceN[ a * 3 ] * faceN[ b * 3 ] + faceN[ a * 3 + 1 ] * faceN[ b * 3 + 1 ] + faceN[ a * 3 + 2 ] * faceN[ b * 3 + 2 ] ) / ( la * lb );
+			if ( dot >= maxCreaseCos ) union( a, b );
+
+		}
+
+	}
+
+	const groupAcc = new Map();
+	for ( let t = 0; t < triCount; t ++ ) {
+
+		const r = find( t );
+		let a = groupAcc.get( r );
+		if ( ! a ) { a = [ 0, 0, 0 ]; groupAcc.set( r, a ); }
+		a[ 0 ] += faceN[ t * 3 ]; a[ 1 ] += faceN[ t * 3 + 1 ]; a[ 2 ] += faceN[ t * 3 + 2 ];
+
+	}
+
 	const normal = geometry.attributes.normal || new THREE.BufferAttribute( new Float32Array( count * 3 ), 3 );
 	const n = new THREE.Vector3();
-	for ( let i = 0; i < count; i ++ ) {
+	for ( let t = 0; t < triCount; t ++ ) {
 
-		const a = accum.get( key( i ) );
+		const a = groupAcc.get( find( t ) );
 		n.set( a[ 0 ], a[ 1 ], a[ 2 ] ).normalize();
-		normal.setXYZ( i, n.x, n.y, n.z );
+		for ( let vi = 0; vi < 3; vi ++ ) {
+
+			const i = idx ? idx[ t * 3 + vi ] : t * 3 + vi;
+			normal.setXYZ( i, n.x, n.y, n.z );
+
+		}
 
 	}
 	geometry.setAttribute( 'normal', normal );
