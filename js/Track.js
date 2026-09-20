@@ -826,7 +826,7 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 
 	const piece = models[ modelKey ].clone();
 	// The cross-corner mesh can be viewed from inside the corner opening, so render both faces
-	if ( type === 'elevated-cross-corner' ) {
+	if ( type === 'elevated-cross-corner' || type === 'elevated-choke-half' || type === 'elevated-choke-both' ) {
 
 	piece.traverse( ( child ) => {
 
