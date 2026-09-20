@@ -960,34 +960,80 @@ post( 'tas-paused', { paused: state.paused } );
 
 	}
 
-	// Full-run quick simulation: one synchronous burst, no rendering. Returns
-	// the timed lap's seconds, or Infinity when the candidate never finishes.
-	function bruteEvaluate( script ) {
+	// Quick simulation of one candidate, no rendering. Returns the timed
+	// lap's seconds, or Infinity when the candidate never finishes.
+	//
+	// SAVE-STATE FAST PATH (loop tracks with a recorded crossing state):
+	// mutations only ever touch the TIMED lap's entries, so every
+	// candidate's lap 1 is byte-identical — re-simulating the countdown and
+	// lap 1 for each candidate is pure waste. Instead restore the recorded
+	// line-crossing state directly (the exact call sequence the real
+	// crossing runs: applyCrossState -> resetCarPhysicsHistory -> entries
+	// swap -> tasBeginNextLap) and burst ONLY the timed lap. This is the
+	// TMInterface-style save-state model: restore, simulate forward,
+	// measure.
+	//
+	// PRUNING: only strictly-faster finishes are ever adopted, so once a
+	// candidate's timed-lap clock has passed the current best time it
+	// mathematically cannot win — abort immediately instead of grinding to
+	// the burst cap (a wall-slammer used to burn its whole 30s-slack
+	// budget before giving up). The +2-step margin is strictly safe: the
+	// best a candidate can do from S elapsed steps is (S-1)/60 seconds
+	// (sub-step crossing credit is < 1/60), so past bestTime*60+2 steps it
+	// can never reach bestTime.
+	function bruteEvaluate( script, pruneTime = Infinity, fast = false ) {
 
 		state.bruteResult = null;
-		resetState( 'run' );
-		state.runScript = script;
-		state.stepIndex = 0;
-		ctx.fns.respawnVehicle();
-		resetCarPhysicsHistory();
-		state.runEntries = script.lap1;
-		state.runLaps = script.lap2.length ? 2 : ( ctx.isLoop && script.mode === 'run' && ! script.crossState ? 2 : 1 );
-		state.started = false;
-		ctx.fns.startCountdown();
-		state.fastForward = true;
-		let burst = 0;
-		// The cap must cover the countdown PLUS the full duration of EVERY
-		// lap: the crossing step is far past the last input-change step, so
-		// budgeting off entry steps starved lap 2 and every candidate DNF'd.
 		const l1Last = script.lap1.length ? script.lap1[ script.lap1.length - 1 ].step : 0;
 		const l2Last = script.lap2.length ? script.lap2[ script.lap2.length - 1 ].step : 0;
-		const burstCap = 60 * 5 + ( l1Last + 60 * 30 ) + ( script.lap2.length ? l2Last + 60 * 30 : 0 );
+		let burstCap;
+		let timedStart; // lapsCompleted value once the car is IN the timed lap
+		if ( fast && script.crossState && script.crossState.pos && script.crossState.vel && script.lap2.length ) {
+
+			resetState( 'run' );
+			state.runScript = script;
+			state.skipMode = true;
+			state.lapsCompleted = 1;
+			applyCrossState( script.crossState );
+			resetCarPhysicsHistory();
+			state.runEntries = script.lap2;
+			state.runPointer = 0;
+			state.runLaps = 1; // the finish crossing of the timed lap IS the done state
+			state.stepIndex = 0;
+			state.started = true;
+			ctx.tasBeginNextLap();
+			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+			timedStart = 1;
+			burstCap = l2Last + 60 * 30; // timed-lap inputs + the same 30s finish slack
+
+		} else {
+
+			resetState( 'run' );
+			state.runScript = script;
+			state.stepIndex = 0;
+			ctx.fns.respawnVehicle();
+			resetCarPhysicsHistory();
+			state.runEntries = script.lap1;
+			state.runLaps = script.lap2.length ? 2 : ( ctx.isLoop && script.mode === 'run' && ! script.crossState ? 2 : 1 );
+			state.started = false;
+			ctx.fns.startCountdown();
+			timedStart = script.lap2.length ? 1 : 0;
+			// The cap must cover the countdown PLUS the full duration of EVERY
+			// lap: the crossing step is far past the last input-change step, so
+			// budgeting off entry steps starved lap 2 and every candidate DNF'd.
+			burstCap = 60 * 5 + ( l1Last + 60 * 30 ) + ( script.lap2.length ? l2Last + 60 * 30 : 0 );
+
+		}
+		state.fastForward = true;
+		const pruneSteps = Number.isFinite( pruneTime ) ? pruneTime * 60 + 2 : Infinity;
+		let burst = 0;
 		try {
 
 			while ( state.phase === 'run' && burst ++ < burstCap ) {
 
 				ctx.fns.stepOnce();
 				if ( state.phase === 'run' ) probeLapCross();
+				if ( state.phase === 'run' && state.lapsCompleted >= timedStart && state.stepIndex > pruneSteps ) break;
 
 			}
 
@@ -1011,8 +1057,13 @@ post( 'tas-paused', { paused: state.paused } );
 		const mutations = Math.max( 1, Math.min( 20, Number( payload.mutations ) || 1 ) );
 		const addInput = !! payload.addInput;
 		const rounds = Math.max( 1, Math.min( 2000, Number( payload.rounds ) || 10 ) );
-		state.brute = { stop: false, round: 0, rounds, best: null, last: null, adopted: 0 };
-		const baseline = bruteEvaluate( script );
+		// Save-state acceleration applies when the script carries the recorded
+		// line-crossing state (loop tracks). Non-loop scripts keep the full
+		// countdown+lap re-simulation; pruning protects both paths.
+		const fast = !!( script.crossState && script.crossState.pos && script.crossState.vel && script.lap2.length && ctx.tasBeginNextLap );
+		state.brute = { stop: false, round: 0, rounds, best: null, last: null, adopted: 0, evals: 0 };
+		const baseline = bruteEvaluate( script, Infinity, fast );
+		state.brute.evals ++;
 		if ( ! Number.isFinite( baseline ) ) {
 
 			// NEVER mutate a script whose own timed run does not finish:
@@ -1041,7 +1092,8 @@ post( 'tas-paused', { paused: state.paused } );
 			for ( const seed of beam ) {
 
 				const candidate = mutateScript( seed.script, mutations, addInput );
-				pool.push( { script: candidate, time: bruteEvaluate( candidate ) } );
+				pool.push( { script: candidate, time: bruteEvaluate( candidate, bestTime, fast ) } );
+				state.brute.evals ++;
 
 			}
 			pool.sort( ( a, b ) => a.time - b.time );
@@ -1060,7 +1112,7 @@ post( 'tas-paused', { paused: state.paused } );
 			state.brute.round = round;
 			state.brute.best = bestTime;
 			state.brute.last = best.time;
-			post( 'tas-bruteforce-progress', { round, rounds, bestTime: fmtTime( bestTime ), lastTime: fmtTime( best.time ), adopted } );
+			post( 'tas-bruteforce-progress', { round, rounds, bestTime: fmtTime( bestTime ), lastTime: fmtTime( best.time ), adopted, evals: state.brute.evals, fast } );
 			await new Promise( ( r ) => setTimeout( r, 0 ) ); // yield to the editor UI
 
 		}

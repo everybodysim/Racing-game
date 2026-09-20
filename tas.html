@@ -88,6 +88,9 @@
 					<input type="range" id="tas-speed" min="0.1" max="1" value="1" step="0.05" style="flex:1;max-width:280px;">
 					<span id="tas-speed-label" style="font-size:12px;white-space:nowrap;opacity:.85;">100%</span>
 				</div>
+				<div style="padding:0 16px 10px;">
+					<canvas id="tas-input-canvas" title="input timeline — blue: steering, green: throttle (red: brake). Click to seek." style="width:100%;height:64px;display:block;border:1px solid rgba(255,255,255,.10);border-radius:6px;background:rgba(0,0,0,.28);cursor:crosshair;"></canvas>
+				</div>
 			</div>
 			<div id="viewport-wrap"><iframe id="viewport" title="TAS viewport"></iframe></div>
 		</div>
@@ -260,7 +263,7 @@
 				validation.textContent = 'Script errors:\n' + data.errors.join( '\n' );
 				break;
 			case 'tas-bruteforce-progress':
-				$( 'bf-status' ).textContent = `round ${ data.round }/${ data.rounds } — last ${ data.lastTime }s — best ${ data.bestTime }s${ data.adopted ? ' ✓ adopted' : '' }`;
+				$( 'bf-status' ).textContent = `round ${ data.round }/${ data.rounds } — last ${ data.lastTime }s — best ${ data.bestTime }s${ data.adopted ? ' ✓ adopted' : '' }${ data.evals != null ? ` · ${ data.evals } sims` : '' }${ data.fast ? ' · save-state' : '' }`;
 				break;
 			case 'tas-bruteforce-update':
 				adoptScript( data.script );
@@ -485,6 +488,236 @@
 			}
 
 		} );
+
+	} )();
+
+	// ── Input visualization: steering / throttle strip over the whole
+	// script, playhead synced to playback, click to seek. Self-contained:
+	// no references to the other IIFEs' internals.
+	( function () {
+
+		const $id = ( id ) => document.getElementById( id );
+		const send_ = ( type, data ) => {
+
+			const f = document.querySelector( 'iframe' );
+			if ( f && f.contentWindow ) f.contentWindow.postMessage( Object.assign( { type }, data ), '*' );
+
+		};
+		const canvas = $id( 'tas-input-canvas' ), inputsEl = $id( 'inputs' );
+		const g = canvas.getContext( '2d' );
+		let playGlobal = null, total = null, l1c = null;
+
+		function parseScriptLocal() {
+
+			const lap1 = [], lap2 = [];
+			let inLap2 = false;
+			for ( const raw of inputsEl.value.split( /\r?\n/ ) ) {
+
+				const line = raw.replace( /#.*$/, '' ).trim();
+				if ( line === 'end' ) break;
+				if ( line === 'cross' ) { inLap2 = true; continue; }
+				if ( ! line.startsWith( 'step' ) ) continue;
+				const parts = line.slice( 4 ).trim().split( /\s+/ );
+				const step = Number( parts[ 0 ] );
+				if ( ! Number.isInteger( step ) || step < 0 ) continue;
+				let x = 0, z = 0;
+				for ( const part of parts.slice( 1 ) ) {
+
+					const m = /^(x|z)=(-?[0-9.eE+]+)$/.exec( part );
+					if ( m ) { if ( m[ 1 ] === 'x' ) x = Math.max( -1, Math.min( 1, Number( m[ 2 ] ) ) ); else z = Math.max( -1, Math.min( 1, Number( m[ 2 ] ) ) ); }
+
+				}
+				( inLap2 ? lap2 : lap1 ).push( { step, x, z } );
+
+			}
+			return { lap1, lap2 };
+
+		}
+
+		function draw() {
+
+			const dpr = window.devicePixelRatio || 1;
+			const W = canvas.width / dpr, H = canvas.height / dpr;
+			if ( ! W || ! H ) return;
+			g.setTransform( dpr, 0, 0, dpr, 0, 0 );
+			g.clearRect( 0, 0, W, H );
+			const pad = 8;
+			const innerW = Math.max( 1, W - pad * 2 );
+			const script = parseScriptLocal();
+			const hasLap1 = script.lap1.length > 0, hasLap2 = script.lap2.length > 0;
+			if ( ! hasLap1 && ! hasLap2 ) {
+
+				g.fillStyle = 'rgba(230,237,243,.35)';
+				g.font = '11px ui-monospace,Menlo,Consolas,monospace';
+				g.textAlign = 'center';
+				g.fillText( 'inputs appear here after a lap — blue = steering, green = throttle', W / 2, H / 2 + 4 );
+				return;
+
+			}
+			// Timeline spans (global steps). After a Run the game reports the
+			// true crossing/total steps; before that, fall back to per-lap
+			// entry extents so the strip is still readable.
+			const l1Span = l1c != null ? l1c : ( hasLap1 ? script.lap1[ script.lap1.length - 1 ].step + 90 : 0 );
+			const totalSpan = total != null ? total : l1Span + ( hasLap2 ? script.lap2[ script.lap2.length - 1 ].step + 60 : 0 );
+			const xOf = ( gs ) => pad + Math.max( 0, Math.min( 1, gs / totalSpan ) ) * innerW;
+			// lanes: steering trace on top, throttle band below
+			const steerTop = 6, steerH = H - 30, mid = steerTop + steerH / 2, half = steerH / 2 - 2;
+			const bandTop = H - 18, bandH = 12;
+
+			// zero / cross dividers
+			g.strokeStyle = 'rgba(255,255,255,.14)';
+			g.lineWidth = 1;
+			g.beginPath();
+			g.moveTo( pad, mid ); g.lineTo( W - pad, mid );
+			g.stroke();
+			if ( hasLap1 && hasLap2 ) {
+
+				g.setLineDash( [ 3, 3 ] );
+				g.beginPath();
+				g.moveTo( xOf( l1Span ) + .5, 4 );
+				g.lineTo( xOf( l1Span ) + .5, H - 4 );
+				g.stroke();
+				g.setLineDash( [] );
+
+			}
+
+			// regions labels
+			g.fillStyle = 'rgba(230,237,243,.30)';
+			g.font = '10px ui-monospace,Menlo,Consolas,monospace';
+			g.textAlign = 'left';
+			if ( hasLap1 ) g.fillText( 'lap 1', pad + 4, 14 );
+			if ( hasLap2 ) { g.textAlign = 'right'; g.fillText( 'lap 2', W - pad - 4, 14 ); g.textAlign = 'left'; }
+
+			const drawEntries = ( entries, offset, baseSteps ) => {
+
+				if ( ! entries.length ) return;
+				// steering step-graph: horizontal holds at each input value,
+				// verticals where the value changes
+				g.strokeStyle = '#58a6ff';
+				g.lineWidth = 1.5;
+				g.beginPath();
+				let lastX = null, lastY = null;
+				for ( const e of entries ) {
+
+					const ex = xOf( e.step + offset ), ey = mid - e.x * half;
+					if ( lastX != null ) { g.lineTo( ex, lastY ); }
+					g.lineTo( ex, ey );
+					lastX = ex; lastY = ey;
+
+				}
+				const endX = hasLap2 && offset === 0 && baseSteps != null ? xOf( baseSteps ) : xOf( ( entries[ entries.length - 1 ].step + offset ) + 60 );
+				if ( lastX != null ) g.lineTo( endX, lastY );
+				g.stroke();
+				// throttle band (z>0 green, z<0 red)
+				for ( let i = 0; i < entries.length; i ++ ) {
+
+					const e = entries[ i ];
+					if ( ! e.z ) continue;
+					const x0 = xOf( e.step + offset );
+					const x1 = i + 1 < entries.length ? xOf( entries[ i + 1 ].step + offset ) : ( hasLap2 && offset === 0 && baseSteps != null ? xOf( baseSteps ) : xOf( ( e.step + offset ) + 60 ) );
+					g.fillStyle = e.z > 0 ? 'rgba(63,185,80,.85)' : 'rgba(248,81,73,.85)';
+					const h = Math.min( 1, Math.abs( e.z ) ) * bandH;
+					g.fillRect( x0, e.z > 0 ? bandTop + bandH - h : bandTop, Math.max( 1, x1 - x0 ), h );
+
+				}
+
+			};
+
+			drawEntries( script.lap1, 0, hasLap2 ? l1Span : null );
+			if ( hasLap2 ) drawEntries( script.lap2, l1Span, null );
+
+			// playhead + live input readout
+			if ( playGlobal != null ) {
+
+				const px = xOf( playGlobal );
+				g.strokeStyle = 'rgba(255,255,255,.85)';
+				g.lineWidth = 1;
+				g.beginPath();
+				g.moveTo( px + .5, 2 );
+				g.lineTo( px + .5, H - 2 );
+				g.stroke();
+				// active input at the playhead
+				const inLap2 = playGlobal >= l1Span && hasLap2;
+				const entries = inLap2 ? script.lap2 : script.lap1;
+				let cur = entries.length ? entries[ 0 ] : null;
+				const local = inLap2 ? playGlobal - l1Span : playGlobal;
+				for ( const e of entries ) { if ( e.step <= local ) cur = e; else break; }
+				if ( cur ) {
+
+					g.fillStyle = '#fff';
+					g.beginPath();
+					g.arc( px, mid - cur.x * half, 3, 0, Math.PI * 2 );
+					g.fill();
+					g.fillStyle = 'rgba(230,237,243,.92)';
+					g.font = '11px ui-monospace,Menlo,Consolas,monospace';
+					g.textAlign = 'right';
+					g.fillText( `x ${ cur.x } · z ${ cur.z }`, W - pad - 4, H - 24 );
+					g.textAlign = 'left';
+
+				}
+
+			}
+
+		}
+
+		function resize() {
+
+			const r = canvas.getBoundingClientRect();
+			const dpr = window.devicePixelRatio || 1;
+			canvas.width = Math.max( 1, Math.round( r.width * dpr ) );
+			canvas.height = Math.max( 1, Math.round( r.height * dpr ) );
+			draw();
+
+		}
+
+		window.addEventListener( 'resize', resize );
+		// script text changed (manual edit, programmatic adopt from any path)
+		inputsEl.addEventListener( 'input', draw );
+		$id( 'use-btn' ).addEventListener( 'click', () => requestAnimationFrame( draw ) );
+		// click-to-seek on the strip (same seek the slider sends, global steps)
+		canvas.addEventListener( 'click', ( ev ) => {
+
+			if ( total == null ) return;
+			const r = canvas.getBoundingClientRect();
+			const pad = 8, innerW = Math.max( 1, r.width - pad * 2 );
+			const frac = Math.max( 0, Math.min( 1, ( ev.clientX - r.left - pad ) / innerW ) );
+			const totalSpan = total;
+			send_( 'tas-seek', { step: Math.round( frac * totalSpan ) } );
+
+		} );
+
+		window.addEventListener( 'message', ( ev ) => {
+
+			const d = ev.data;
+			if ( ! d || typeof d !== 'object' ) return;
+			if ( d.type === 'tas-step' ) {
+
+				playGlobal = d.global;
+				if ( total == null && d.total ) total = d.total;
+				draw();
+
+			} else if ( d.type === 'tas-run-started' ) {
+
+				total = d.totalSteps != null ? d.totalSteps : total;
+				l1c = d.lap1CrossStep != null ? d.lap1CrossStep : l1c;
+				playGlobal = null;
+				draw();
+
+			} else if ( d.type === 'tas-run-complete' ) {
+
+				playGlobal = total;
+				draw();
+
+			} else if ( d.type === 'tas-bruteforce-update' || d.type === 'tas-bruteforce-done' || d.type === 'tas-bruteforce-progress' ) {
+
+				// the inputs box adopts the best script live — redraw it
+				if ( d.type !== 'tas-bruteforce-progress' ) requestAnimationFrame( draw );
+
+			}
+
+		} );
+
+		resize();
 
 	} )();
 </script>
