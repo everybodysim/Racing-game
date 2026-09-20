@@ -14217,7 +14217,7 @@ function completeCampaignStage() {
 		// recording, scripted values while replaying (driven from
 		// TASMode.step via the updateTasKeys hook below).
 		const tasKeyStyle = document.createElement( 'style' );
-		tasKeyStyle.textContent = '#tas-keys{position:absolute;left:16px;bottom:56px;z-index:10;display:flex;flex-direction:column;gap:4px;user-select:none;pointer-events:none;}'
+		tasKeyStyle.textContent = '#tas-keys{position:absolute;left:16px;bottom:56px;z-index:10;display:flex;flex-direction:column;align-items:center;gap:4px;user-select:none;pointer-events:none;}'
 			+ '#tas-keys .row{display:flex;gap:4px;}'
 			+ '#tas-keys .tk{width:30px;height:30px;display:flex;align-items:center;justify-content:center;font:700 15px/1 sans-serif;color:#fff;background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.28);border-radius:6px;transition:background .06s,border-color .06s;}'
 			+ '#tas-keys .tk.on{background:rgba(35,134,54,0.92);border-color:rgba(63,185,80,0.9);}';
