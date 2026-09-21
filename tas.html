@@ -37,18 +37,18 @@
 	#timing { font: 600 13px ui-monospace, Menlo, Consolas, monospace; color: #8b949e; }
 	#timing b { color: #e6edf3; }
 	#panel label { font-size: 12px; font-weight: 700; color: #8b949e; text-transform: uppercase; letter-spacing: .04em; }
-	#inputs-wrap { position: relative; flex: 1; min-height: 120px;
+	#inputs-wrap { position: relative; flex: 1; min-height: 120px; overflow: hidden;
 		background: #0d1117; border: 1px solid #30363d; border-radius: 8px; }
 	#inputs { position: absolute; inset: 0; width: 100%; height: 100%; resize: none;
 		background: transparent; color: transparent; caret-color: #e6edf3;
-		border: 0; border-radius: 8px; padding: 10px; overflow-y: scroll;
+		border: 0; border-radius: 8px; padding: 10px; overflow: auto;
 		font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
 	#inputs::placeholder { color: #6e7681; }
 	#inputs::selection { background: rgba(56,139,253,.45); }
 	#inputs-mirror { position: absolute; inset: 0; padding: 10px; pointer-events: none;
-		overflow-y: scroll; overflow-x: hidden; border-radius: 8px;
+		overflow: hidden; border-radius: 8px; will-change: transform;
 		font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: #e6edf3;
-		white-space: pre-wrap; word-break: normal; }
+		white-space: pre; }
 	#inputs-mirror .cur { color: #7ee787; }
 	#panel .row { display: flex; gap: 8px; }
 	#panel button { flex: 1; padding: 9px 0; border: 0; border-radius: 8px; font-weight: 600; cursor: pointer; }
@@ -128,8 +128,7 @@
 					<select id="bf-goal" title="What counts as success" style="flex:1;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:5px 6px;font:600 12px/1.2 ui-monospace,Menlo,Consolas,monospace;">
 						<option value="time">Goal: fastest lap</option>
 						<option value="target">Goal: reach target area</option>
-						<option value="ai">Goal: AI driver (evolve your run)</option>
-						<option value="ai-nn">Goal: AI driver — NEURAL NET (learns to drive)</option>
+						<option value="ai">Goal: AI driver — neural net (learns to drive)</option>
 					</select>
 					<button id="bf-target-btn" style="display:none;flex:1;background:#1f6feb;color:#fff;">Select target ⌖</button>
 				</div>
@@ -326,6 +325,9 @@
 				$( 'bf-stop' ).disabled = true;
 				$( 'bf-status' ).textContent = 'error: ' + data.errors.join( '; ' );
 				break;
+			case 'tas-ai-eval':
+				$( 'bf-status' ).textContent = data.note ? `NEURAL: ${ data.note }` : `NEURAL: evaluating ${ data.n }/${ data.total } — watch it drive…`;
+				break;
 			case 'tas-ai-progress':
 				$( 'bf-status' ).textContent = `gen ${ data.round }/${ data.rounds }${ data.nn ? ' NEURAL' : '' } — best ${ data.bestTime === 'DNF' ? 'no finish yet' : data.bestTime + 's' } — best prog ${ data.bestProg } — gen top ${ data.genProg }${ data.adopted ? ' ✓ adopted' : '' } · ${ data.evals } sims${ data.fast ? ' · save-state' : '' }`;
 				break;
@@ -388,7 +390,7 @@
 	function refreshGoalUi() {
 
 		const goal = bfGoal.value;
-		const isAi = goal === 'ai' || goal === 'ai-nn';
+		const isAi = goal === 'ai';
 		bfTargetBtn.style.display = goal === 'target' ? '' : 'none';
 		$( 'ai-row' ).style.display = isAi ? '' : 'none';
 		$( 'ai-row2' ).style.display = isAi ? '' : 'none';
@@ -488,10 +490,9 @@
 			return;
 
 		}
-		if ( bfGoal.value === 'ai' || bfGoal.value === 'ai-nn' ) {
+		if ( bfGoal.value === 'ai' ) {
 
 			sendToGame( 'tas-ai', {
-				nn: bfGoal.value === 'ai-nn',
 				script: composeFull(),
 				mutations: Number( $( 'bf-mut' ).value ),
 				population: Number( $( 'bf-pop' ).value ) || 20,
@@ -501,7 +502,7 @@
 			} );
 			$( 'bf-start' ).disabled = true;
 			$( 'bf-stop' ).disabled = false;
-			$( 'bf-status' ).textContent = bfGoal.value === 'ai-nn' ? 'NEURAL: growing random nets + evaluating generation 0…' : 'AI: capturing guide + evaluating generation 0…';
+			$( 'bf-status' ).textContent = 'NEURAL: growing random nets + evaluating generation 0…';
 			return;
 
 		}
@@ -588,6 +589,7 @@
 		// green — the highlight IS the text in the actual box. No floating
 		// band to drift out of place, no selection theft, wrapping and
 		// scrolling are shared by construction.
+		inputsEl.setAttribute( 'wrap', 'off' ); // never soft-wrap: every logical line = one visual line in BOTH boxes
 		const mirror = document.createElement( 'div' );
 		mirror.id = 'inputs-mirror';
 		inputsEl.parentElement.insertBefore( mirror, inputsEl );
@@ -616,7 +618,9 @@
 			setCurLine( hlLine );
 
 		}
-		function syncMirrorScroll() { mirror.scrollTop = inputsEl.scrollTop; }
+		// The mirror has no scrollbars of its own (overflow:hidden): it is
+		// painted at the textarea's scroll offset by transform, both axes.
+		function syncMirrorScroll() { mirror.style.transform = `translate( ${ -inputsEl.scrollLeft }px, ${ -inputsEl.scrollTop }px )`; }
 		inputsEl.addEventListener( 'scroll', syncMirrorScroll );
 		function highlight( lap, entry ) {
 

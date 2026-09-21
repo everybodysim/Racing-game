@@ -14269,7 +14269,7 @@ function completeCampaignStage() {
 
 		try {
 
-			const tasModule = await import( './TASMode.js?v=33' );
+			const tasModule = await import( './TASMode.js?v=34' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
@@ -14364,6 +14364,14 @@ function completeCampaignStage() {
 				tasBeginNextLap,
 				get: {
 					raceClock: () => raceClockSeconds,
+					// AI driver sensors: the track's cell occupancy (road /
+					// elevated / water) for the net's 8-direction proximity
+					// probes, plus gate positions via lapDetection().
+					trackCells: () => ( {
+						road: activeCells,
+						elevated: Array.isArray( extras?.elevated ) ? extras.elevated : [],
+						water: Array.isArray( extras?.water ) ? extras.water : [],
+					} ),
 					lapStart: () => lapStartSeconds,
 					lapSeconds: () => lapSeconds,
 					countdownActive: () => countdownActive,
