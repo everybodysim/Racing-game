@@ -134,11 +134,12 @@
 				</div>
 				<div class="row" id="ai-row" style="display:none;align-items:center;gap:8px;">
 					<button id="bf-guide-btn" style="flex:1;background:#238636;color:#fff;">Refresh guide lap ⤴</button>
-					<span id="bf-guide-status" style="flex:1.4;font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#8b949e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">no guide yet — captured from your run on start</span>
+					<button id="bf-best-btn" style="flex:1;background:#1f6feb;color:#fff;">Use AI best run ⤓</button>
+					<span id="bf-guide-status" style="flex:1.1;font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#8b949e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">no guide yet — captured from your run on start</span>
 				</div>
 				<div class="row" id="ai-row2" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#8b949e;">
 					<input type="checkbox" id="ai-useguide" checked style="margin:0;">
-					<label for="ai-useguide" style="text-transform:none;letter-spacing:0;">use guide lap (carrot 🥕)</label>
+					<label for="ai-useguide" style="text-transform:none;letter-spacing:0;">guide lap = the net's eyes</label>
 					<input type="checkbox" id="ai-debug-toggle" style="margin:0;">
 					<label for="ai-debug-toggle" style="text-transform:none;letter-spacing:0;">debug panel</label>
 				</div>
@@ -166,7 +167,8 @@
 					<button id="bf-stop" style="background:#6e7681;color:#fff;" disabled>Stop</button>
 				</div>
 				<div id="bf-status" style="font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#8b949e;margin-top:6px;white-space:pre-wrap;"></div>
-				<div id="ai-debug" style="display:none;font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#7ee787;background:#0d1117;border:1px solid #30363d;border-radius:6px;margin-top:6px;padding:8px 10px;max-height:170px;overflow-y:auto;white-space:pre-wrap;">AI debug — start a run to see what the driver receives, its rewards and the carrot position.</div>
+				<div id="ai-live" style="display:none;font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#e6edf3;background:#0d1117;border:1px solid #30363d;border-radius:6px;margin-top:6px;padding:8px 10px;"></div>
+				<div id="ai-debug" style="display:none;font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#7ee787;background:#0d1117;border:1px solid #30363d;border-radius:6px;margin-top:6px;padding:8px 10px;max-height:170px;overflow-y:auto;white-space:pre-wrap;">AI debug — start a run to see the net's sensors, rewards and live progress.</div>
 			</div>
 			<div id="hint">Looping tracks record lap 2 (flying start, state carried across the line). Non-looping tracks record lap 1. Looping tracks: drive 2 laps — the script keeps BOTH laps (edit either), the time shown is lap 2. Non-looping: drive 1 lap. Countdown runs before recording; R restarts it. Replays: lap 1 re-runs, then lap 2 starts from the recorded line-crossing state.</div>
 		</div>
@@ -325,6 +327,9 @@
 				$( 'bf-stop' ).disabled = true;
 				$( 'bf-status' ).textContent = 'error: ' + data.errors.join( '; ' );
 				break;
+			case 'tas-ai-telemetry':
+				lvRender( data );
+				break;
 			case 'tas-ai-eval':
 				$( 'bf-status' ).textContent = data.note ? `NEURAL: ${ data.note }` : `NEURAL: evaluating ${ data.n }/${ data.total } — watch it drive…`;
 				break;
@@ -336,7 +341,8 @@
 				$( 'bf-stop' ).disabled = true;
 				$( 'bf-status' ).textContent = data.finish
 					? `AI done — best ${ data.bestTime }s${ data.improved ? ' (adopted)' : '' }`
-					: `AI done — no finisher found (best progress kept in the box if any)`;
+					: data.blindKept ? 'AI done — no finisher yet, but the net’s best drive is in your inputs box (replay it!)'
+					: 'AI done — no finisher found (your run is untouched)';
 				statusEl.textContent = data.finish ? `AI driver finished: ${ data.bestTime }s` : 'AI driver: no finishing run found yet — add generations or improve the seed';
 				break;
 			case 'tas-ai-debug':
@@ -447,6 +453,117 @@
 
 	} );
 	refreshGoalUi();
+	// ── AI LIVE TELEMETRY PANEL ──────────────────────────────────────────
+	// Built once on the first 'tas-ai-telemetry' message, then updated in
+	// place: live reward, the 26 sensor inputs (wall/water compasses + the
+	// numeric row) and the net's steer/throttle outputs.
+	const LV_DIRS = [ '\u2191', '\u2192', '\u2198', '\u2193', '\u2199', '\u2190', '\u2196', '\u21d7' ]; // clockwise from ahead
+	let lv = null;
+	function lvBuild() {
+
+		const wrap = $( 'ai-live' );
+		wrap.style.display = 'block';
+		wrap.innerHTML = ''
+			+ '<div id="lv-head" style="font-weight:700;color:#7ee787;">LIVE — waiting for the net…</div>'
+			+ '<div style="display:flex;gap:14px;margin-top:6px;align-items:flex-end;">'
+			+ '<div><div style="color:#8b949e;">walls</div><div id="lv-walls" style="display:grid;grid-template-columns:repeat(3,20px);gap:1px;"></div></div>'
+			+ '<div><div style="color:#8b949e;">water</div><div id="lv-water" style="display:grid;grid-template-columns:repeat(3,20px);gap:1px;"></div></div>'
+			+ '<div><div style="color:#8b949e;">outputs</div><div id="lv-out" style="display:grid;grid-template-columns:repeat(3,20px);gap:1px;"></div></div>'
+			+ '</div>'
+			+ '<div id="lv-nums" style="color:#8b949e;margin-top:6px;white-space:pre-wrap;">—</div>'
+			+ '<canvas id="lv-spark" width="300" height="30" style="margin-top:6px;display:block;"></canvas>';
+		// compass cells: 3x3 grid, dir d clockwise from ahead; grid order
+		// row-major = [↖,↑,↗, ←,◉,→, ↙,↓,↘]
+		const order = [ 7, 0, 1, 6, -1, 2, 5, 4, 3 ];
+		const AR = [ '\u2191', '\u2197', '\u2192', '\u2198', '\u2193', '\u2199', '\u2190', '\u2196' ];
+		lv = { head: $( 'lv-head' ), spark: $( 'lv-spark' ), nums: $( 'lv-nums' ), walls: [], water: [], out: [] };
+		for ( const id of [ 'walls', 'water' ] ) {
+
+			const grid = $( 'lv-' + id );
+			for ( let i = 0; i < 9; i ++ ) {
+
+				const c = document.createElement( 'div' );
+				if ( order[ i ] === -1 ) { c.textContent = '\u25c9'; c.style.textAlign = 'center'; c.style.background = '#161b22'; }
+				else c.textContent = AR[ order[ i ] ];
+				c.style.cssText += ';width:20px;height:18px;line-height:18px;text-align:center;border-radius:3px;font-size:11px;';
+				grid.appendChild( c );
+				if ( order[ i ] !== -1 ) lv[ id ].push( { el: c, d: order[ i ] } );
+
+			}
+
+		}
+		const og = $( 'lv-out' );
+		const ocs = [ '', '\u25b2', '', '\u25c0', '\u25c9', '\u25b6', '', '\u25bc', '' ];
+		for ( let i = 0; i < 9; i ++ ) {
+
+			const c = document.createElement( 'div' );
+			c.textContent = ocs[ i ] || '';
+			c.style.cssText = ';width:20px;height:18px;line-height:18px;text-align:center;border-radius:3px;font-size:11px;color:#30363d;background:#161b22;';
+			og.appendChild( c );
+			if ( i === 1 || i === 3 || i === 5 || i === 7 ) lv.out.push( c );
+
+		}
+
+	}
+	function lvRender( d ) {
+
+		if ( ! lv ) lvBuild();
+		if ( d.done ) { lv.head.textContent = 'SESSION ENDED'; lv.head.style.color = '#8b949e'; return; }
+		lv.head.style.color = '#7ee787';
+		if ( ! d.started || ! d.sensors ) {
+
+			lv.head.textContent = `LIVE · countdown… (gen ${ d.gen })`;
+			return;
+
+		}
+		lv.head.textContent = `LIVE · reward ${ d.rewardText } · step ${ d.step } · gen ${ d.gen } · eval ${ d.evals }`;
+		for ( const c of lv.walls ) {
+
+			const a = 1 - d.sensors[ c.d ];
+			c.el.style.background = `rgba( 255,140,60,${ ( a * 0.9 ).toFixed( 2 ) } )`;
+
+		}
+		for ( const c of lv.water ) {
+
+			const a = 1 - d.sensors[ 8 + c.d ];
+			c.el.style.background = `rgba( 90,160,255,${ ( a * 0.9 ).toFixed( 2 ) } )`;
+
+		}
+		lv.out[ 0 ].style.color = d.z > 0 ? '#7ee787' : '#30363d'; // throttle up
+		lv.out[ 1 ].style.color = d.x < 0 ? '#7ee787' : '#30363d'; // steer left
+		lv.out[ 2 ].style.color = d.x > 0 ? '#7ee787' : '#30363d'; // steer right
+		lv.out[ 3 ].style.color = d.z < 0 ? '#7ee787' : '#30363d'; // brake
+		const s = d.sensors;
+		lv.nums.textContent = `cp \u2192${ s[ 16 ].toFixed( 2 ) } \u2191${ s[ 17 ].toFixed( 2 ) } dist ${ s[ 18 ].toFixed( 2 ) }`
+			+ ` · guide \u22a5${ s[ 19 ].toFixed( 2 ) } carrot \u2192${ s[ 20 ].toFixed( 2 ) } \u2191${ s[ 21 ].toFixed( 2 ) }`
+			+ ` · spd ${ s[ 22 ].toFixed( 2 ) } · in x${ d.x > 0 ? '+' + d.x : d.x } z${ d.z > 0 ? '+' + d.z : d.z }`;
+		// sparkline: reward history, thin bars
+		const cv = lv.spark, g = cv.getContext( '2d' );
+		g.clearRect( 0, 0, cv.width, cv.height );
+		if ( d.hist && d.hist.length > 1 ) {
+
+			let mn = Infinity, mx = - Infinity;
+			for ( const v of d.hist ) { mn = Math.min( mn, v ); mx = Math.max( mx, v ); }
+			const span = Math.max( 0.001, mx - mn );
+			g.fillStyle = '#238636';
+			const bw = cv.width / d.hist.length;
+			d.hist.forEach( ( v, i ) => {
+
+				const h = 3 + ( ( v - mn ) / span ) * ( cv.height - 4 );
+				g.fillRect( i * bw, cv.height - h, Math.max( 1, bw - 0.5 ), h );
+
+			} );
+
+		}
+
+	}
+	$( 'bf-best-btn' ).addEventListener( 'click', () => {
+
+		$( 'bf-status' ).textContent = 'asking the net for its best run…';
+		sendToGame( 'tas-ai-adopt', {} );
+
+	} );
+
 	$( 'bf-guide-btn' ).addEventListener( 'click', () => {
 
 		sendToGame( 'tas-ai-guide', { script: composeFull() } );

@@ -1719,6 +1719,11 @@ post( 'tas-paused', { paused: state.paused } );
 		const x = out[ 0 ] > 0.25 ? 1 : out[ 0 ] < -0.25 ? -1 : 0;
 		const z = out[ 1 ] > -0.2 ? 1 : -1;
 		b.lastX = x; b.lastZ = z;
+		// live telemetry for the editor panel (latest sensors + outputs)
+		const prog = b.guide ? b.progIdx : Math.hypot( p.x - b.sx, p.z - b.sz );
+		state.nnTel = { s: inp, x, z, prog, step: state.stepIndex };
+		if ( ! state.nnTelHist ) { state.nnTelHist = new Float32Array( 1024 ); state.nnTelN = 0; }
+		state.nnTelHist[ state.nnTelN ++ & 1023 ] = prog;
 		return { x, z };
 
 	}
@@ -1777,7 +1782,7 @@ post( 'tas-paused', { paused: state.paused } );
 		if ( ! state.nnGrid ) state.nnGrid = buildCellGrid();
 		if ( ! state.nnCps ) state.nnCps = ( ctx.get.lapDetection().checkpointStates || [] ).slice();
 		for ( const c of state.nnCps ) c.passedThisLap = false; // fresh attempt = fresh lap
-		return { w, guide, progIdx: 0, px: p.x, pz: p.z, hx: 0, hz: 1, lastX: 0, lastZ: 1, grid: state.nnGrid, cell: state.nnCell, cps: state.nnCps };
+		return { w, guide, progIdx: 0, px: p.x, pz: p.z, sx: p.x, sz: p.z, hx: 0, hz: 1, lastX: 0, lastZ: 1, grid: state.nnGrid, cell: state.nnCell, cps: state.nnCps };
 
 	}
 
@@ -1809,11 +1814,31 @@ post( 'tas-paused', { paused: state.paused } );
 	// frame is yielded, so the browser stays responsive, the in-game HUD
 	// renders the run LIVE, and Stop reacts mid-generation. Pausing means
 	// no wall-clock sim steps sneak in between chunks (determinism intact).
+	// Pack the latest sensor snapshot (+ downsampled reward history) for the
+	// editor's live panel.
+	function nnTelPack() {
+
+		const t = state.nnTel;
+		const total = state.nnTelTotal || 1;
+		if ( ! t ) return { started: false, gen: state.brute ? state.brute.round : 0 };
+		const n = Math.min( state.nnTelN, 1024 );
+		const hist = [];
+		for ( let i = Math.max( 0, n - 256 ); i < n; i += 4 ) hist.push( +state.nnTelHist[ i & 1023 ].toFixed( 1 ) );
+		return {
+			sensors: Array.from( t.s, ( v ) => +v.toFixed( 3 ) ),
+			x: t.x, z: t.z, step: t.step, started: true,
+			rewardText: state.nnTelGuide ? Math.round( 100 * t.prog / total ) + '%' : t.prog.toFixed( 1 ) + 'u',
+			hist, gen: state.brute ? state.brute.round : 0, evals: state.brute ? state.brute.evals : 0,
+		};
+
+	}
+
 	async function burstNn( genome, guide ) {
 
 		let progIdx = 0, lastProgressStep = 0, bestProg = 0, bestProgStep = 0;
 		const startP = { x: state.nnBrain.px, z: state.nnBrain.pz };
 		const total = guide ? guide.pts.length - 1 : 1;
+		state.nnTelTotal = total; state.nnTelGuide = !! guide;
 		const cap = 60 * 40;
 		const CHUNK = 300;
 		const pauseGlue = ctx.fns.setPaused;
@@ -1824,6 +1849,7 @@ post( 'tas-paused', { paused: state.paused } );
 
 				if ( pauseGlue && burst % CHUNK === 0 ) {
 
+					post( 'tas-ai-telemetry', nnTelPack() );
 					pauseGlue( true );
 					setRewardHud( state.nnInfo ? state.nnInfo.label : 'AI reward', `${ bestProg }/${ total }`, '?', '?', '?' );
 					await new Promise( ( r ) => setTimeout( r, 0 ) );
@@ -1889,6 +1915,7 @@ post( 'tas-paused', { paused: state.paused } );
 		}
 		if ( ! hasSeed ) seed = { mode: 'run', lap1: [], lap2: [], crossState: null, errors: [] }; // blind learning straight from spawn
 		state.nnGrid = null; state.nnCps = null; // re-read the map per session
+		state.nnTel = null; state.nnTelHist = null; state.nnTelN = 0; // fresh telemetry per session
 		const rounds = Math.max( 1, Math.min( 2000, Number( payload.rounds ) || 20 ) );
 		const popSize = Math.max( 4, Math.min( 32, Number( payload.population ) || 20 ) );
 		const sigma = 0.05 * Math.max( 1, Math.min( 10, Number( payload.mutations ) || 2 ) );
@@ -1942,6 +1969,7 @@ post( 'tas-paused', { paused: state.paused } );
 
 		};
 		let bestFinish = Infinity, bestRec = null, improved = false;
+		let blindBest = { prog: -1, rec: null }; // best drive of a BLIND session
 		for ( let round = 0; round <= rounds; round ++ ) {
 
 			if ( state.brute.stop ) break;
@@ -1953,6 +1981,7 @@ post( 'tas-paused', { paused: state.paused } );
 
 					await nnEvaluate( g, guide, fast );
 					state.brute.evals ++;
+					post( 'tas-ai-telemetry', nnTelPack() );
 					evaled ++;
 					post( 'tas-ai-eval', { n: evaled, total: population.length } );
 
@@ -1973,9 +2002,11 @@ post( 'tas-paused', { paused: state.paused } );
 				else { cand.lap1 = bestRec.length ? bestRec : [ { step: 0, x: 0, z: 0 } ]; cand.crossState = null; }
 				const bestText = scriptToText( cand );
 				state.lastRunText = bestText;
+				state.aiBest = { text: bestText, desc: fmtTime( top.fit.finish ) };
 				post( 'tas-bruteforce-update', { script: bestText } );
 
 			}
+			if ( ! guide && top.fit.prog > blindBest.prog ) blindBest = { prog: top.fit.prog, rec: top.rec };
 			state.brute.round = round;
 			state.brute.best = bestFinish;
 			state.brute.last = top.fit.finish;
@@ -2012,6 +2043,24 @@ post( 'tas-paused', { paused: state.paused } );
 		state.brute = null;
 		bruteCleanup();
 		hideAiVisuals();
+		// blind session with no finisher: leave the net's BEST DRIVE in the
+		// box (a real, replayable partial run) instead of ending with nothing
+		if ( ! Number.isFinite( bestFinish ) && ! guide && blindBest.rec && blindBest.prog > 3 ) {
+
+			// clone the SEED so save-state/crossing info survives; the net's
+			// best drive replaces the timed lap (lap 2 if it ran save-state)
+			const cand = cloneScript( seed );
+			if ( fast && seed.crossState ) { cand.lap2 = blindBest.rec; }
+			else { cand.lap1 = blindBest.rec; cand.lap2 = []; cand.crossState = null; }
+			state.lastRunText = scriptToText( cand );
+			state.aiBest = { text: state.lastRunText, desc: blindBest.prog.toFixed( 1 ) + 'u' };
+			post( 'tas-bruteforce-update', { script: state.lastRunText } ); // writes the inputs box
+			post( 'tas-ai-telemetry', { done: true } );
+			post( 'tas-ai-done', { bestTime: fmtTime( bestFinish ), improved: false, finish: false, blindKept: true, script: state.lastRunText, nn: true } );
+			return;
+
+		}
+		post( 'tas-ai-telemetry', { done: true } );
 		post( 'tas-ai-done', { bestTime: fmtTime( bestFinish ), improved, finish: Number.isFinite( bestFinish ), script: Number.isFinite( bestFinish ) ? state.lastRunText : undefined, nn: true } );
 
 	}
@@ -2058,6 +2107,18 @@ window.addEventListener( 'message', ( event ) => {
 		else if ( type === 'tas-stop' ) { state.phase = 'done'; ctx.tasBeginNextLap(); updateOverlay(); }
 		else if ( type === 'tas-bruteforce' ) bruteForce( event.data );
 		else if ( type === 'tas-ai' ) aiDrive( event.data );
+		else if ( type === 'tas-ai-adopt' ) {
+
+			// parent's "Use AI best run" button: write the session's best
+			// (fastest finisher, else the best blind drive) into the box
+			if ( state.aiBest ) {
+
+				post( 'tas-bruteforce-update', { script: state.aiBest.text } );
+				post( 'tas-ai-eval', { note: `best run (${ state.aiBest.desc }) applied to the inputs box` } );
+
+			} else post( 'tas-ai-eval', { note: 'no AI best run yet — let a session run first' } );
+
+		}
 		else if ( type === 'tas-ai-guide' ) {
 
 			// "Refresh guide lap": re-capture the guide from the box's script.
