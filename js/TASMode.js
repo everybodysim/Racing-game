@@ -871,6 +871,10 @@ export function activate( ctx ) {
 		state.paused = false;
 		state.skipMode = false;
 		if ( ctx.fns.setPaused ) ctx.fns.setPaused( false );
+		// Every pass (record, run, seek, brute eval) starts the sim clock at
+		// 0 — mods keyed on the absolute race clock (waves, timed effects)
+		// then see the SAME window as the recorded drive.
+		if ( ctx.fns.resetRaceClock ) ctx.fns.resetRaceClock();
 
 	}
 

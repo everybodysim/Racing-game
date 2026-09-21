@@ -6218,6 +6218,27 @@ async function init() {
 	let customModFlashOverlay = null;
 	let customModSnowIntensity = 0;
 	let customModRainIntensity = 0;
+	// Mod-forced physics state uses ONE-SHOT setters and ABSOLUTE race-clock
+	// deadlines (forceBrakeUntil = raceClock + 0.4s, etc). Nothing ever cleared
+	// them, so a mod that fired during a previous attempt — or during a TAS
+	// calc/playback pass on the same ever-growing race clock — still forced the
+	// car on the NEXT respawn. Every re-anchor (retry, TAS run/seek, brute
+	// eval, auto-respawn) now starts from clean mod physics.
+	function resetCustomModForces() {
+
+		customModTimeScale = 1;
+		customModGravityScale = 1;
+		customModForceBrakeUntil = 0;
+		customModForceThrottleUntil = 0;
+		customModNoSteerUntil = 0;
+		customModShakeUntil = 0;
+		customModShakeIntensity = 0;
+		customModFlashUntil = 0;
+		customModFogStrength = 1;
+		customModParticleBurstSeconds = 0;
+
+	}
+
 	const runtimeModContext = {
 		vehicle,
 		world,
@@ -11747,6 +11768,7 @@ function completeCampaignStage() {
 	function respawnVehicle() {
 
 		autoRespawnAtSeconds = null;
+		resetCustomModForces();
 		vehicle.resetToSpawn();
 		resetMovingObstacles( movingObstacleState, raceClockSeconds );
 		cam.targetPosition.copy( vehicle.spherePos );
@@ -11754,6 +11776,11 @@ function completeCampaignStage() {
 		resetPhysicsObstacles();
 
 		resetLapState( true );
+		// Mods keep their own internal state (timers, wave phases, zone
+		// history). Fire the reset hook on EVERY respawn — retry, TAS
+		// run/seek re-anchor, brute eval, auto-respawn — not just the
+		// manual button, so every pass starts from identical mod state.
+		dispatchRuntimeModEvent( 'onRespawn', { type: 'respawn', source: 'respawn' } );
 
 	}
 
@@ -12318,7 +12345,6 @@ function completeCampaignStage() {
 		e.preventDefault();
 		respawnVehicle();
 		advancementEvents.emit('player_respawned', { source: 'respawn_button' });
-		dispatchRuntimeModEvent( 'onRespawn', { type: 'respawn', source: 'respawn_button' } );
 
 	} );
 	modeMenuBtn?.addEventListener( 'click', ( e ) => {
@@ -14243,7 +14269,7 @@ function completeCampaignStage() {
 
 		try {
 
-			const tasModule = await import( './TASMode.js?v=31' );
+			const tasModule = await import( './TASMode.js?v=32' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
@@ -14254,6 +14280,14 @@ function completeCampaignStage() {
 				fns: {
 					startCountdown,
 					respawnVehicle,
+					// Determinism: raceClockSeconds never resets on its own, so a
+					// replay ran at a different absolute clock window than the
+					// drive it replays — mods keyed on `now` (wave phases, timed
+					// effects) diverged, and stale one-shot mod forces leaked
+					// across attempts. TASMode resets the sim clock to 0 on every
+					// resetState, so record, replay, calc and brute all share the
+					// SAME clock window.
+					resetRaceClock: () => { raceClockSeconds = 0; },
 					// Super-fast lap-1 simulation for TAS skip runs: one raw
 					// sim step (registered by the TAS hook inside animate).
 					stepOnce: () => window.__tasStepOnce && window.__tasStepOnce(),
