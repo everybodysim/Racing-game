@@ -128,13 +128,20 @@
 					<select id="bf-goal" title="What counts as success" style="flex:1;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:5px 6px;font:600 12px/1.2 ui-monospace,Menlo,Consolas,monospace;">
 						<option value="time">Goal: fastest lap</option>
 						<option value="target">Goal: reach target area</option>
-						<option value="ai">Goal: AI driver (evolve a run)</option>
+						<option value="ai">Goal: AI driver (evolve your run)</option>
+						<option value="ai-nn">Goal: AI driver — NEURAL NET (learns to drive)</option>
 					</select>
 					<button id="bf-target-btn" style="display:none;flex:1;background:#1f6feb;color:#fff;">Select target ⌖</button>
 				</div>
 				<div class="row" id="ai-row" style="display:none;align-items:center;gap:8px;">
 					<button id="bf-guide-btn" style="flex:1;background:#238636;color:#fff;">Refresh guide lap ⤴</button>
 					<span id="bf-guide-status" style="flex:1.4;font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#8b949e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">no guide yet — captured from your run on start</span>
+				</div>
+				<div class="row" id="ai-row2" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#8b949e;">
+					<input type="checkbox" id="ai-useguide" checked style="margin:0;">
+					<label for="ai-useguide" style="text-transform:none;letter-spacing:0;">use guide lap (carrot 🥕)</label>
+					<input type="checkbox" id="ai-debug-toggle" style="margin:0;">
+					<label for="ai-debug-toggle" style="text-transform:none;letter-spacing:0;">debug panel</label>
 				</div>
 				<div class="row" style="align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#8b949e;">
 					<label for="bf-rounds" style="text-transform:none;letter-spacing:0;">rounds
@@ -160,6 +167,7 @@
 					<button id="bf-stop" style="background:#6e7681;color:#fff;" disabled>Stop</button>
 				</div>
 				<div id="bf-status" style="font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#8b949e;margin-top:6px;white-space:pre-wrap;"></div>
+				<div id="ai-debug" style="display:none;font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#7ee787;background:#0d1117;border:1px solid #30363d;border-radius:6px;margin-top:6px;padding:8px 10px;max-height:170px;overflow-y:auto;white-space:pre-wrap;">AI debug — start a run to see what the driver receives, its rewards and the carrot position.</div>
 			</div>
 			<div id="hint">Looping tracks record lap 2 (flying start, state carried across the line). Non-looping tracks record lap 1. Looping tracks: drive 2 laps — the script keeps BOTH laps (edit either), the time shown is lap 2. Non-looping: drive 1 lap. Countdown runs before recording; R restarts it. Replays: lap 1 re-runs, then lap 2 starts from the recorded line-crossing state.</div>
 		</div>
@@ -319,7 +327,7 @@
 				$( 'bf-status' ).textContent = 'error: ' + data.errors.join( '; ' );
 				break;
 			case 'tas-ai-progress':
-				$( 'bf-status' ).textContent = `gen ${ data.round }/${ data.rounds } — best ${ data.bestTime === 'DNF' ? 'no finish yet' : data.bestTime + 's' } — best prog ${ data.bestProg } — gen top ${ data.genProg }${ data.adopted ? ' ✓ adopted' : '' } · ${ data.evals } sims${ data.fast ? ' · save-state' : '' }`;
+				$( 'bf-status' ).textContent = `gen ${ data.round }/${ data.rounds }${ data.nn ? ' NEURAL' : '' } — best ${ data.bestTime === 'DNF' ? 'no finish yet' : data.bestTime + 's' } — best prog ${ data.bestProg } — gen top ${ data.genProg }${ data.adopted ? ' ✓ adopted' : '' } · ${ data.evals } sims${ data.fast ? ' · save-state' : '' }`;
 				break;
 			case 'tas-ai-done':
 				$( 'bf-start' ).disabled = false;
@@ -328,6 +336,11 @@
 					? `AI done — best ${ data.bestTime }s${ data.improved ? ' (adopted)' : '' }`
 					: `AI done — no finisher found (best progress kept in the box if any)`;
 				statusEl.textContent = data.finish ? `AI driver finished: ${ data.bestTime }s` : 'AI driver: no finishing run found yet — add generations or improve the seed';
+				break;
+			case 'tas-ai-debug':
+				// always cached; only painted when the toggle shows the panel
+				$( 'ai-debug' ).textContent = data.text;
+				$( 'ai-debug' ).scrollTop = $( 'ai-debug' ).scrollHeight;
 				break;
 			case 'tas-ai-error':
 				$( 'bf-start' ).disabled = false;
@@ -375,12 +388,29 @@
 	function refreshGoalUi() {
 
 		const goal = bfGoal.value;
+		const isAi = goal === 'ai' || goal === 'ai-nn';
 		bfTargetBtn.style.display = goal === 'target' ? '' : 'none';
-		$( 'ai-row' ).style.display = goal === 'ai' ? '' : 'none';
-		$( 'bf-pop-label' ).style.display = goal === 'ai' ? '' : 'none';
-		$( 'bf-beam-label' ).style.display = goal === 'ai' ? 'none' : '';
+		$( 'ai-row' ).style.display = isAi ? '' : 'none';
+		$( 'ai-row2' ).style.display = isAi ? '' : 'none';
+		$( 'bf-pop-label' ).style.display = isAi ? '' : 'none';
+		$( 'bf-beam-label' ).style.display = isAi ? 'none' : '';
+		syncGuideUi();
 
 	}
+	function syncGuideUi() {
+
+		// carrot switch off -> the guide lap is unused; hide its controls
+		const show = $( 'ai-useguide' ).checked ? '' : 'none';
+		$( 'bf-guide-btn' ).style.display = show;
+		$( 'bf-guide-status' ).style.display = show;
+
+	}
+	$( 'ai-useguide' ).addEventListener( 'change', syncGuideUi );
+	$( 'ai-debug-toggle' ).addEventListener( 'change', () => {
+
+		$( 'ai-debug' ).style.display = $( 'ai-debug-toggle' ).checked ? '' : 'none';
+
+	} );
 	function setBfTargetState( st ) {
 
 		bfTargetState = st;
@@ -458,18 +488,20 @@
 			return;
 
 		}
-		if ( bfGoal.value === 'ai' ) {
+		if ( bfGoal.value === 'ai' || bfGoal.value === 'ai-nn' ) {
 
 			sendToGame( 'tas-ai', {
+				nn: bfGoal.value === 'ai-nn',
 				script: composeFull(),
 				mutations: Number( $( 'bf-mut' ).value ),
 				population: Number( $( 'bf-pop' ).value ) || 20,
 				addInput: $( 'bf-add' ).checked,
-				rounds: Math.max( 1, Number( $( 'bf-rounds' ).value ) || 20 )
+				rounds: Math.max( 1, Number( $( 'bf-rounds' ).value ) || 20 ),
+				useGuide: $( 'ai-useguide' ).checked
 			} );
 			$( 'bf-start' ).disabled = true;
 			$( 'bf-stop' ).disabled = false;
-			$( 'bf-status' ).textContent = 'AI: capturing guide + evaluating generation 0…';
+			$( 'bf-status' ).textContent = bfGoal.value === 'ai-nn' ? 'NEURAL: growing random nets + evaluating generation 0…' : 'AI: capturing guide + evaluating generation 0…';
 			return;
 
 		}
