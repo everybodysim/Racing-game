@@ -227,8 +227,8 @@ export function activate( ctx ) {
 	};
 
 	// ── UI wipe: nothing except what TAS uses stays in the viewport ─────
-	const KEEP_SELECTOR = '#loading-screen, #countdown-hud, #export-ghost-btn, #import-ghost-btn, #tas-overlay, #replay-topbar, #tas-keys';
-	const KEEP_IDS = new Set( [ 'loading-screen', 'countdown-hud', 'export-ghost-btn', 'import-ghost-btn', 'tas-overlay', 'replay-topbar', 'tas-keys' ] );
+	const KEEP_SELECTOR = '#loading-screen, #countdown-hud, #export-ghost-btn, #import-ghost-btn, #tas-overlay, #replay-topbar, #tas-keys, #tas-ai-live';
+	const KEEP_IDS = new Set( [ 'loading-screen', 'countdown-hud', 'export-ghost-btn', 'import-ghost-btn', 'tas-overlay', 'replay-topbar', 'tas-keys', 'tas-ai-live' ] );
 	const hideStyle = document.createElement( 'style' );
 	hideStyle.textContent = '.tas-hide { display: none !important; }';
 	document.head.appendChild( hideStyle );
@@ -1849,9 +1849,12 @@ post( 'tas-paused', { paused: state.paused } );
 
 				if ( pauseGlue && burst % CHUNK === 0 ) {
 
-					post( 'tas-ai-telemetry', nnTelPack() );
+					const tel = nnTelPack();
+					post( 'tas-ai-telemetry', tel );
+					renderAiLive( tel );
 					pauseGlue( true );
-					setRewardHud( state.nnInfo ? state.nnInfo.label : 'AI reward', `${ bestProg }/${ total }`, '?', '?', '?' );
+					const rt = guide ? Math.round( 100 * bestProg / total ) + '%' : bestProg.toFixed( 1 ) + 'u';
+					setRewardHud( state.nnInfo ? state.nnInfo.label : 'AI reward', rt, state.brute ? state.brute.round : 0, state.brute ? state.brute.rounds : 0, Number.isFinite( bestFinish ) ? fmtTime( bestFinish ) : 'DNF' );
 					await new Promise( ( r ) => setTimeout( r, 0 ) );
 					pauseGlue( false );
 					if ( state.brute && state.brute.stop ) break;
@@ -1918,7 +1921,8 @@ post( 'tas-paused', { paused: state.paused } );
 		state.nnTel = null; state.nnTelHist = null; state.nnTelN = 0; // fresh telemetry per session
 		const rounds = Math.max( 1, Math.min( 2000, Number( payload.rounds ) || 20 ) );
 		const popSize = Math.max( 4, Math.min( 32, Number( payload.population ) || 20 ) );
-		const sigma = 0.05 * Math.max( 1, Math.min( 10, Number( payload.mutations ) || 2 ) );
+		let sigma = 0.05 * Math.max( 1, Math.min( 10, Number( payload.mutations ) || 2 ) );
+		let stagnant = 0, bestEverProg = -1;
 		const useGuide = payload.useGuide !== false; // the guide is the net's EYES
 		const fast = !!( seed.crossState && seed.crossState.pos && seed.crossState.vel && seed.lap2.length && ctx.tasBeginNextLap );
 		state.nnSeed = seed;
@@ -1981,7 +1985,9 @@ post( 'tas-paused', { paused: state.paused } );
 
 					await nnEvaluate( g, guide, fast );
 					state.brute.evals ++;
-					post( 'tas-ai-telemetry', nnTelPack() );
+					const tel = nnTelPack();
+					post( 'tas-ai-telemetry', tel );
+					renderAiLive( tel );
 					evaled ++;
 					post( 'tas-ai-eval', { n: evaled, total: population.length } );
 
@@ -1990,6 +1996,9 @@ post( 'tas-paused', { paused: state.paused } );
 			}
 			population.sort( ( a, b ) => aiFitCompare( a.fit, b.fit ) );
 			const top = population[ 0 ];
+			// adaptive mutation: improving -> fine-tune, stagnant -> explore
+			if ( top.fit.prog > bestEverProg + 1e-6 || Number.isFinite( top.fit.finish ) ) { stagnant = 0; bestEverProg = Math.max( bestEverProg, top.fit.prog ); sigma = Math.max( 0.02, sigma * 0.85 ); }
+			else if ( ++ stagnant >= 3 ) { sigma = Math.min( 0.6, sigma * 1.6 ); stagnant = 0; }
 			if ( Number.isFinite( top.fit.finish ) && top.fit.finish < bestFinish ) {
 
 				bestFinish = top.fit.finish;
@@ -2056,11 +2065,13 @@ post( 'tas-paused', { paused: state.paused } );
 			state.aiBest = { text: state.lastRunText, desc: blindBest.prog.toFixed( 1 ) + 'u' };
 			post( 'tas-bruteforce-update', { script: state.lastRunText } ); // writes the inputs box
 			post( 'tas-ai-telemetry', { done: true } );
+			renderAiLive( { done: true } );
 			post( 'tas-ai-done', { bestTime: fmtTime( bestFinish ), improved: false, finish: false, blindKept: true, script: state.lastRunText, nn: true } );
 			return;
 
 		}
 		post( 'tas-ai-telemetry', { done: true } );
+		renderAiLive( { done: true } );
 		post( 'tas-ai-done', { bestTime: fmtTime( bestFinish ), improved, finish: Number.isFinite( bestFinish ), script: Number.isFinite( bestFinish ) ? state.lastRunText : undefined, nn: true } );
 
 	}
@@ -2232,6 +2243,94 @@ window.addEventListener( 'message', ( event ) => {
 		+ 'font:600 12px/1.6 ui-monospace,Menlo,Consolas,monospace;color:#fff;'
 		+ 'background:rgba(0,0,0,0.55);padding:6px 10px;border-radius:6px;white-space:pre;';
 	document.body.appendChild( overlay );
+
+	// ── AI LIVE panel (in-game: reward, sensors, outputs, history) ──────
+	// Injected by TASMode itself so it ALWAYS ships with the cache-busted
+	// game script — the editor page's copy can lag a cache cycle behind.
+	const aiLive = document.createElement( 'div' );
+	aiLive.id = 'tas-ai-live';
+	aiLive.style.cssText = 'position:fixed;top:10px;right:10px;z-index:99999;pointer-events:none;display:none;'
+		+ 'font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#e6edf3;'
+		+ 'background:rgba(0,0,0,0.72);padding:8px 10px;border-radius:6px;';
+	document.body.appendChild( aiLive );
+	let aiCells = null;
+	function renderAiLive( d ) {
+
+		if ( ! d || d.done ) { if ( aiCells ) aiCells.head.textContent = 'AI SESSION ENDED'; return; }
+		if ( ! d.started || ! d.sensors ) { if ( aiCells ) aiCells.head.textContent = `AI LIVE \u00b7 countdown\u2026 (gen ${ d.gen })`; return; }
+		aiLive.style.display = 'block';
+		if ( ! aiCells ) {
+
+			aiLive.innerHTML = '<div id="ail-head" style="font-weight:700;color:#7ee787;"></div>'
+				+ '<div style="display:flex;gap:12px;margin-top:5px;">'
+				+ '<div><div style="color:#8b949e;">walls</div><div id="ail-walls" style="display:grid;grid-template-columns:repeat(3,18px);gap:1px;"></div></div>'
+				+ '<div><div style="color:#8b949e;">water</div><div id="ail-water" style="display:grid;grid-template-columns:repeat(3,18px);gap:1px;"></div></div>'
+				+ '<div><div style="color:#8b949e;">out</div><div id="ail-out" style="display:grid;grid-template-columns:repeat(3,18px);gap:1px;"></div></div>'
+				+ '</div>'
+				+ '<div id="ail-nums" style="color:#8b949e;margin-top:5px;white-space:pre-wrap;"></div>'
+				+ '<canvas id="ail-spark" width="300" height="30" style="margin-top:5px;display:block;"></canvas>';
+			const order = [ 7, 0, 1, 6, -1, 2, 5, 4, 3 ];
+			const AR = [ '\u2191', '\u2197', '\u2192', '\u2198', '\u2193', '\u2199', '\u2190', '\u2196' ];
+			aiCells = { head: document.getElementById( 'ail-head' ), nums: document.getElementById( 'ail-nums' ), spark: document.getElementById( 'ail-spark' ), walls: [], water: [], out: [] };
+			for ( const id of [ 'ail-walls', 'ail-water' ] ) {
+
+				const grid = document.getElementById( id );
+				for ( let i = 0; i < 9; i ++ ) {
+
+					const c = document.createElement( 'div' );
+					if ( order[ i ] === -1 ) { c.textContent = '\u25c9'; c.style.background = '#161b22'; }
+					else c.textContent = AR[ order[ i ] ];
+					c.style.cssText += ';width:18px;height:16px;line-height:16px;text-align:center;border-radius:3px;font-size:10px;';
+					grid.appendChild( c );
+					if ( order[ i ] !== -1 ) aiCells[ id.slice( 4 ) ].push( { el: c, d: order[ i ] } );
+
+				}
+
+			}
+			const og = document.getElementById( 'ail-out' );
+			const ocs = [ '', '\u25b2', '', '\u25c0', '\u25c9', '\u25b6', '', '\u25bc', '' ];
+			for ( let i = 0; i < 9; i ++ ) {
+
+				const c = document.createElement( 'div' );
+				c.textContent = ocs[ i ] || '';
+				c.style.cssText = ';width:18px;height:16px;line-height:16px;text-align:center;border-radius:3px;font-size:10px;color:#30363d;background:#161b22;';
+				og.appendChild( c );
+				if ( i === 1 || i === 3 || i === 5 || i === 7 ) aiCells.out.push( c );
+
+			}
+
+		}
+		aiCells.head.textContent = `AI LIVE \u00b7 reward ${ d.rewardText } \u00b7 step ${ d.step } \u00b7 gen ${ d.gen } \u00b7 eval ${ d.evals }`;
+		aiCells.head.style.color = '#7ee787';
+		for ( const c of aiCells.walls ) c.el.style.background = `rgba( 255,140,60,${ ( ( 1 - d.sensors[ c.d ] ) * 0.9 ).toFixed( 2 ) } )`;
+		for ( const c of aiCells.water ) c.el.style.background = `rgba( 90,160,255,${ ( ( 1 - d.sensors[ 8 + c.d ] ) * 0.9 ).toFixed( 2 ) } )`;
+		aiCells.out[ 0 ].style.color = d.z > 0 ? '#7ee787' : '#30363d';
+		aiCells.out[ 1 ].style.color = d.x < 0 ? '#7ee787' : '#30363d';
+		aiCells.out[ 2 ].style.color = d.x > 0 ? '#7ee787' : '#30363d';
+		aiCells.out[ 3 ].style.color = d.z < 0 ? '#7ee787' : '#30363d';
+		const sv = d.sensors;
+		aiCells.nums.textContent = `cp \u2192${ sv[ 16 ].toFixed( 2 ) } \u2191${ sv[ 17 ].toFixed( 2 ) } ${ sv[ 18 ].toFixed( 2 ) }`
+			+ ` \u00b7 guide \u22a5${ sv[ 19 ].toFixed( 2 ) } \u00b7 carrot \u2192${ sv[ 20 ].toFixed( 2 ) } \u2191${ sv[ 21 ].toFixed( 2 ) }`
+			+ ` \u00b7 spd ${ sv[ 22 ].toFixed( 2 ) } \u00b7 out x${ d.x > 0 ? '+' + d.x : d.x } z${ d.z > 0 ? '+' + d.z : d.z }`;
+		const cv = aiCells.spark, g = cv.getContext( '2d' );
+		g.clearRect( 0, 0, cv.width, cv.height );
+		if ( d.hist && d.hist.length > 1 ) {
+
+			let mn = Infinity, mx = - Infinity;
+			for ( const v of d.hist ) { mn = Math.min( mn, v ); mx = Math.max( mx, v ); }
+			const span = Math.max( 0.001, mx - mn );
+			g.fillStyle = '#238636';
+			const bw = cv.width / d.hist.length;
+			d.hist.forEach( ( v, i ) => {
+
+				const h = 3 + ( ( v - mn ) / span ) * ( cv.height - 4 );
+				g.fillRect( i * bw, cv.height - h, Math.max( 1, bw - 0.5 ), h );
+
+			} );
+
+		}
+
+	}
 
 	function updateOverlay() {
 
