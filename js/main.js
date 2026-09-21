@@ -4,7 +4,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000227';
 import { createShadowProxyController } from './ShadowProxy.js?v=2';
-import { Camera } from './Camera.js';
+import { Camera } from './Camera.js?v=1';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000237';
 import { buildWallColliders, createSphereBody } from './Physics.js?v=20260920';
@@ -11771,8 +11771,14 @@ function completeCampaignStage() {
 		resetCustomModForces();
 		vehicle.resetToSpawn();
 		resetMovingObstacles( movingObstacleState, raceClockSeconds );
-		cam.targetPosition.copy( vehicle.spherePos );
-		cam.camera.position.addVectors( cam.targetPosition, cam.offset );
+		// Freecam OWNS the camera while active — re-anchoring the chase cam
+		// here would teleport the freecam to the spawn. Skip and leave it.
+		if ( ! freecamState.active ) {
+
+			cam.targetPosition.copy( vehicle.spherePos );
+			cam.camera.position.addVectors( cam.targetPosition, cam.offset );
+
+		}
 		resetPhysicsObstacles();
 
 		resetLapState( true );
@@ -11789,8 +11795,12 @@ function completeCampaignStage() {
 		if ( ! vehicle2 || ! cam2 ) return;
 		autoRespawnAtSeconds2 = null;
 		vehicle2.resetToSpawn();
-		cam2.targetPosition.copy( vehicle2.spherePos );
-		cam2.camera.position.addVectors( cam2.targetPosition, cam2.offset );
+		if ( ! freecamState.active ) {
+
+			cam2.targetPosition.copy( vehicle2.spherePos );
+			cam2.camera.position.addVectors( cam2.targetPosition, cam2.offset );
+
+		}
 		resetPhysicsObstacles();
 		resetLapState2( true );
 

@@ -62,7 +62,8 @@ export class Camera {
 
 	toggleMode() {
 
-		this.mode = this.mode === 'overview' ? 'chase' : 'overview';
+		// chase -> locked (rigid mount) -> overview -> chase
+		this.mode = this.mode === 'chase' ? 'locked' : this.mode === 'locked' ? 'overview' : 'chase';
 		if ( this.mode !== 'chase' ) this.hasChaseYaw = false;
 
 	}
@@ -91,7 +92,49 @@ export class Camera {
 		const targetLerp = this.mode === 'chase' ? 10 : 6;
 		this.targetPosition.lerp( target, dt * targetLerp );
 
-		if ( this.mode === 'chase' && targetQuaternion ) {
+		if ( this.mode === 'locked' ) {
+
+			// RIGID mount: the camera is welded behind the car. No lerp on
+			// position, no yaw smoothing, no fov speed effects — it is
+			// exactly target + fixed rotated offset, every frame.
+			if ( targetQuaternion ) {
+
+				this._forward.set( 0, 0, 1 ).applyQuaternion( targetQuaternion );
+				this._forward.y = 0;
+				if ( this._forward.lengthSq() < 1e-5 ) this._forward.set( 0, 0, 1 );
+				this._forward.normalize();
+
+			} else this._forward.set( 0, 0, 1 );
+			const yaw = Math.atan2( this._forward.x, this._forward.z );
+			this.targetPosition.copy( target );
+			this._rotatedOffset.copy( this.chaseOffset ).lerp( this.underwaterChaseOffset, underwaterLift ).applyAxisAngle( this._upAxis, yaw );
+			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
+			if ( this.clipProbe ) {
+
+				this._clipDir.subVectors( this._desiredPos, this.targetPosition );
+				const desiredLen = this._clipDir.length();
+				if ( desiredLen > 1e-4 ) {
+
+					this._clipDir.divideScalar( desiredLen );
+					const freeLen = this.clipProbe( this.targetPosition, this._clipDir, desiredLen );
+					if ( freeLen < desiredLen ) this._desiredPos.copy( this.targetPosition ).addScaledVector( this._clipDir, freeLen );
+
+				}
+
+			}
+			this.camera.position.copy( this._desiredPos );
+			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) );
+			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift );
+			this.lookTarget.copy( this._desiredLook );
+			if ( this.camera.fov !== 42 ) {
+
+				this.camera.fov = 42;
+				this.camera.updateProjectionMatrix();
+
+			}
+			this.camera.lookAt( this.lookTarget );
+
+		} else if ( this.mode === 'chase' && targetQuaternion ) {
 
 			this._forward.set( 0, 0, 1 ).applyQuaternion( targetQuaternion );
 			this._forward.y = 0;
