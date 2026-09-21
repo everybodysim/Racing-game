@@ -14243,7 +14243,7 @@ function completeCampaignStage() {
 
 		try {
 
-			const tasModule = await import( './TASMode.js?v=29' );
+			const tasModule = await import( './TASMode.js?v=30' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
@@ -14305,6 +14305,27 @@ function completeCampaignStage() {
 						if ( typeof snap.vehicleAngularSpeed === 'number' ) vehicle.angularSpeed = snap.vehicleAngularSpeed;
 						if ( typeof snap.vehicleAcceleration === 'number' ) vehicle.acceleration = snap.vehicleAcceleration;
 					},
+					// Brute-force target zone placement (TAS-only): screen
+					// point -> world point through the game camera. Any mesh
+					// counts (the car included — clicking the car targets the
+					// car's spot), sky clicks fall back to the y=0 ground
+					// plane. TASMode's own cylinders are userData.tasTarget
+					// and skipped, so they never shadow the pick.
+					pickWorldPoint: ( clientX, clientY ) => {
+						const rect = renderer.domElement.getBoundingClientRect();
+						const raycaster = new THREE.Raycaster();
+						raycaster.setFromCamera( new THREE.Vector2(
+							( ( clientX - rect.left ) / rect.width ) * 2 - 1,
+							- ( ( clientY - rect.top ) / rect.height ) * 2 + 1
+						), cam.camera );
+						const hits = raycaster.intersectObjects( scene.children, true ).filter( ( h ) => ! h.object.userData.tasTarget );
+						if ( hits.length ) return { x: hits[ 0 ].point.x, y: hits[ 0 ].point.y, z: hits[ 0 ].point.z };
+						const p = new THREE.Vector3();
+						if ( raycaster.ray.intersectPlane( new THREE.Plane( new THREE.Vector3( 0, 1, 0 ), 0 ), p ) && Number.isFinite( p.x ) ) return { x: p.x, y: 0, z: p.z };
+						return null;
+					},
+					getScene: () => scene,
+					getCanvas: () => renderer.domElement,
 				},
 				tasBeginNextLap,
 				get: {

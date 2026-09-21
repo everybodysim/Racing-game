@@ -18,6 +18,7 @@
 //   then lap 2. Legacy pre-v6 scripts keep their instant-start behavior.
 
 import { contacts } from 'crashcat';
+import * as THREE from 'three';
 
 const TAS_STEP_HZ = 60;
 
@@ -47,6 +48,9 @@ export function activate( ctx ) {
 		runPointer: 0,
 		runLaps: 1,
 		lastRunText: '',
+		targetMode: false,        // brute/run goal: 'time' (false) | 'target' (true)
+		target: null,             // { x, z } world center of the target zone
+		targetPlacing: false,
 		overlayTick: 0,
 		playback: { lap1CrossStep: null, totalSteps: null, time: null },
 		paused: false,
@@ -74,6 +78,9 @@ export function activate( ctx ) {
 			paused: state.paused,
 			probeErr: state.probeErr || null,
 			isLoop: ctx.isLoop,
+			targetMode: state.targetMode,
+			target: state.target ? { ...state.target } : null,
+			targetPlacing: state.targetPlacing,
 			pos: [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ],
 			vel: mp ? [ ...mp.linearVelocity ] : [ 0, 0, 0 ],
 			yaw: ctx.vehicle.container.rotation.y,
@@ -427,6 +434,17 @@ export function activate( ctx ) {
 				state.stepIndex = 0;
 
 			}
+			// Target-goal runs: reaching the zone IS the goal — the run
+			// ends there (same "done" freeze a finish crossing produces).
+			if ( state.started && state.targetMode && targetHit() ) {
+
+				state.phase = 'done';
+				ctx.tasBeginNextLap();
+				post( 'tas-run-complete', { reachedTarget: true, stepCount: state.stepIndex } );
+				updateOverlay();
+				return zeroInput();
+
+			}
 			// Unfinished (imported partial) run: the calc learned no finish
 			// crossing ever comes. End playback at the SAME bound the calc
 			// broke at — last input + 10s coast — instead of driving off
@@ -637,7 +655,7 @@ export function activate( ctx ) {
 			const stepCount = state.stepIndex;
 			state.phase = 'done';
 			ctx.tasBeginNextLap();
-			if ( state.brute ) state.bruteResult = lapSeconds;
+			if ( state.brute && ! state.targetMode ) state.bruteResult = lapSeconds; // target mode scores ZONE REACHES, not finishes
 			else if ( state.calc ) state.playback.totalSteps = globalStep(), state.playback.time = round6( lapSeconds );
 			else post( 'tas-run-complete', { lapSeconds: round6( lapSeconds ), stepCount } );
 			updateOverlay();
@@ -679,6 +697,77 @@ export function activate( ctx ) {
 
 	function round6( n ) { return Number( n.toFixed( 6 ) ); }
 
+	// ── Brute target zone ("Goal: reach target area") ───────────────────
+	// A tall transparent cylinder anywhere on the map (no grid snap — the
+	// pick is a camera raycast against whatever you clicked, sky clicks
+	// fall back to the y=0 ground plane). The car's hitbox entering the
+	// cylinder counts as SUCCESS for brute runs and ends replay runs.
+	const TARGET_RADIUS = 3, TARGET_SLACK = 1, TARGET_HEIGHT = 60; // tall: ground level through elevated decks
+	const targetGeo = new THREE.CylinderGeometry( TARGET_RADIUS, TARGET_RADIUS, TARGET_HEIGHT, 32 );
+	const mkTargetMat = ( op ) => new THREE.MeshBasicMaterial( { color: 0x3fb950, transparent: true, opacity: op, depthWrite: false, side: THREE.DoubleSide } );
+	const targetMesh = new THREE.Mesh( targetGeo, mkTargetMat( 0.25 ) );
+	const ghostMesh = new THREE.Mesh( targetGeo, mkTargetMat( 0.10 ) );
+	for ( const m of [ targetMesh, ghostMesh ] ) {
+
+		m.position.y = TARGET_HEIGHT / 2;
+		m.visible = false;
+		m.userData.tasTarget = true;
+		m.raycast = () => {}; // never block its own placement pick
+
+	}
+	if ( ctx.fns.getScene ) ctx.fns.getScene().add( targetMesh, ghostMesh );
+
+	function setPlacing( on ) {
+
+		state.targetPlacing = on;
+		const canvas = ctx.fns.getCanvas && ctx.fns.getCanvas();
+		if ( canvas ) canvas.style.cursor = on ? 'crosshair' : '';
+		ghostMesh.visible = false; // re-shown on the next mousemove
+
+	}
+
+	function targetHit() {
+
+		if ( ! state.target ) return false;
+		const p = ctx.vehicle.spherePos;
+		const dx = p.x - state.target.x, dz = p.z - state.target.z;
+		const r = TARGET_RADIUS + TARGET_SLACK;
+		return dx * dx + dz * dz <= r * r;
+
+	}
+
+	window.addEventListener( 'mousemove', ( e ) => {
+
+		if ( ! state.targetPlacing ) return;
+		const p = ctx.fns.pickWorldPoint && ctx.fns.pickWorldPoint( e.clientX, e.clientY );
+		if ( p ) { ghostMesh.position.set( p.x, TARGET_HEIGHT / 2, p.z ); ghostMesh.visible = true; }
+
+	} );
+	window.addEventListener( 'click', ( e ) => {
+
+		if ( ! state.targetPlacing ) return;
+		const canvas = ctx.fns.getCanvas && ctx.fns.getCanvas();
+		if ( canvas && e.target !== canvas ) return; // overlay clicks don't place
+		const p = ctx.fns.pickWorldPoint && ctx.fns.pickWorldPoint( e.clientX, e.clientY );
+		if ( ! p ) return;
+		state.target = { x: p.x, z: p.z };
+		targetMesh.position.set( p.x, TARGET_HEIGHT / 2, p.z );
+		targetMesh.visible = true;
+		setPlacing( false );
+		post( 'tas-target-placed', { x: p.x, z: p.z } );
+
+	} );
+	window.addEventListener( 'keydown', ( e ) => {
+
+		if ( state.targetPlacing && e.code === 'Escape' ) {
+
+			setPlacing( false );
+			post( 'tas-target-canceled', {} );
+
+		}
+
+	} );
+
 	// ── Parent commands + R restart ─────────────────────────────────────
 	function resetState( phase ) {
 
@@ -710,7 +799,7 @@ export function activate( ctx ) {
 
 	}
 
-	function run( text, startAtLap2 ) {
+	function run( text, startAtLap2, goal ) {
 
 		const script = parseScript( text );
 		if ( script.errors.length ) {
@@ -719,6 +808,9 @@ export function activate( ctx ) {
 			return;
 
 		}
+		// Goal for this run: 'target' only counts with a placed zone;
+		// everything else behaves exactly like a normal time run.
+		state.targetMode = goal === 'target' && !! state.target;
 		state.lastRunText = text;
 		state.lastPlayLap1 = !! startAtLap2;
 		state.playback = { lap1CrossStep: null, totalSteps: null, time: null };
@@ -752,6 +844,15 @@ export function activate( ctx ) {
 
 					ctx.fns.stepOnce();
 					if ( state.phase === 'run' ) probeLapCross();
+					// Target-goal: the calc stops at the zone — the reach
+					// step is the run's total; playback ends at the same
+					// step via the step() check.
+					if ( state.phase === 'run' && state.targetMode && targetHit() ) {
+
+						state.playback.totalSteps = globalStep();
+						break;
+
+					}
 					// Unfinished runs (imported partial attempts): the
 					// inputs run out long before any finish exists. Keep
 					// simulating only a 10s coast window past the last
@@ -1121,7 +1222,12 @@ post( 'tas-paused', { paused: state.paused } );
 
 		}
 		state.fastForward = true;
-		const pruneSteps = Number.isFinite( pruneTime ) ? pruneTime * 60 + 2 : Infinity;
+		// Target mode prunes in global steps against the current best
+		// reach (pruneTime IS a step count there); time mode prunes in
+		// lap-local steps past bestTime's 60Hz equivalent.
+		const pruneSteps = Number.isFinite( pruneTime )
+			? ( state.targetMode ? Math.floor( pruneTime ) + 1 : pruneTime * 60 + 2 )
+			: Infinity;
 		let burst = 0;
 		try {
 
@@ -1129,7 +1235,17 @@ post( 'tas-paused', { paused: state.paused } );
 
 				ctx.fns.stepOnce();
 				if ( state.phase === 'run' ) probeLapCross();
-				if ( state.phase === 'run' && state.lapsCompleted >= timedStart && state.stepIndex > pruneSteps ) break;
+				// Target-goal scoring: the FIRST step whose car position is
+				// inside the zone is the candidate's score (lower = better
+				// = "use the fastest run" among the successes).
+				if ( state.phase === 'run' && state.targetMode && targetHit() ) {
+
+					state.bruteResult = globalStep();
+					break;
+
+				}
+				if ( state.phase === 'run' && state.lapsCompleted >= timedStart
+					&& ( state.targetMode ? globalStep() : state.stepIndex ) > pruneSteps ) break;
 
 			}
 
@@ -1167,14 +1283,34 @@ post( 'tas-paused', { paused: state.paused } );
 		const mutations = Math.max( 1, Math.min( 20, Number( payload.mutations ) || 1 ) );
 		const addInput = !! payload.addInput;
 		const rounds = Math.max( 1, Math.min( 2000, Number( payload.rounds ) || 10 ) );
+		// GOAL: 'time' = current behavior (fastest finish). 'target' =
+		// success is the car entering the placed zone; among successes the
+		// fastest (earliest reach) run wins; failures are trashed.
+		const goal = payload.goal === 'target' ? 'target' : 'time';
+		if ( goal === 'target' && ! state.target ) {
+
+			post( 'tas-bruteforce-error', { errors: [ 'select a target area first (place the zone on the map)' ] } );
+			return;
+
+		}
+		state.targetMode = goal === 'target';
 		// Save-state acceleration applies when the script carries the recorded
 		// line-crossing state (loop tracks). Non-loop scripts keep the full
-		// countdown+lap re-simulation; pruning protects both paths.
-		const fast = !!( script.crossState && script.crossState.pos && script.crossState.vel && script.lap2.length && ctx.tasBeginNextLap );
+		// countdown+lap re-simulation; pruning protects both paths. Target
+		// runs always full-sim: the zone can sit anywhere on the timeline
+		// (including lap 1), and mutations never touch lap 1 anyway.
+		const fast = goal === 'time' && !!( script.crossState && script.crossState.pos && script.crossState.vel && script.lap2.length && ctx.tasBeginNextLap );
+		// Target metrics are STEP counts, not seconds — show them as such.
+		const fmtGoal = ( v ) => state.targetMode
+			? ( Number.isFinite( v ) ? `${ Math.round( v ) } steps` : 'none yet' )
+			: fmtTime( v );
 		state.brute = { stop: false, round: 0, rounds, best: null, last: null, adopted: 0, evals: 0 };
 		const baseline = bruteEvaluate( script, Infinity, fast );
 		state.brute.evals ++;
-		if ( ! Number.isFinite( baseline ) ) {
+		// Time mode refuses to mutate a DNF baseline (wall-slam protection).
+		// Target mode allows an unreachable baseline — the brute then hunts
+		// for ANY reach first, adopting only genuine successes.
+		if ( goal === 'time' && ! Number.isFinite( baseline ) ) {
 
 			// NEVER mutate a script whose own timed run does not finish:
 			// with an infinite baseline any garbage finisher would count
@@ -1189,7 +1325,7 @@ post( 'tas-paused', { paused: state.paused } );
 		let bestScript = script;
 		let bestTime = baseline;
 		state.brute.best = baseline;
-		post( 'tas-bruteforce-progress', { round: 0, rounds, bestTime: fmtTime( bestTime ), lastTime: fmtTime( baseline ), adopted: false } );
+		post( 'tas-bruteforce-progress', { round: 0, rounds, bestTime: fmtGoal( bestTime ), lastTime: fmtGoal( baseline ), adopted: false } );
 		// Beam search: keep the top `beamWidth` candidates (not just the
 		// single best), mutate EVERY seed each round, re-rank by precise
 		// finish time. Several live lineages escape the single-track dead
@@ -1223,7 +1359,7 @@ post( 'tas-paused', { paused: state.paused } );
 			state.brute.round = round;
 			state.brute.best = bestTime;
 			state.brute.last = best.time;
-			post( 'tas-bruteforce-progress', { round, rounds, bestTime: fmtTime( bestTime ), lastTime: fmtTime( best.time ), adopted, evals: state.brute.evals, fast } );
+			post( 'tas-bruteforce-progress', { round, rounds, bestTime: fmtGoal( bestTime ), lastTime: fmtGoal( best.time ), adopted, evals: state.brute.evals, fast } );
 			await new Promise( ( r ) => setTimeout( r, 0 ) ); // yield to the editor UI
 
 		}
@@ -1232,7 +1368,7 @@ post( 'tas-paused', { paused: state.paused } );
 		const improved = bestTime < baseline;
 		state.brute = null;
 		bruteCleanup();
-		post( 'tas-bruteforce-done', { bestTime: fmtTime( bestTime ), improved, script: bestText } );
+		post( 'tas-bruteforce-done', { bestTime: fmtGoal( bestTime ), improved, script: bestText, targetMode: state.targetMode } );
 
 	}
 
@@ -1241,11 +1377,38 @@ post( 'tas-paused', { paused: state.paused } );
 		if ( event.source !== window.parent || ! event.data?.type ) return;
 		const type = event.data.type;
 		if ( type === 'tas-retry' ) retry();
-		else if ( type === 'tas-run' ) run( event.data.script || '', !! event.data.startAtLap2 );
+		else if ( type === 'tas-run' ) run( event.data.script || '', !! event.data.startAtLap2, event.data.goal );
 		else if ( type === 'tas-stop' ) { state.phase = 'done'; ctx.tasBeginNextLap(); updateOverlay(); }
 		else if ( type === 'tas-bruteforce' ) bruteForce( event.data );
 		else if ( type === 'tas-bruteforce-stop' ) { if ( state.brute ) state.brute.stop = true; }
 		else if ( type === 'tas-toggle-pause' ) togglePause();
+		else if ( type === 'tas-target-place' ) {
+
+			// Editor button: enter/leave placement mode (hover ghost +
+			// click to drop, Esc cancels). A target already placed keeps
+			// its place — cancel only cancels the placement.
+			if ( event.data.on ) {
+
+				if ( state.target ) { post( 'tas-target-placed', { x: state.target.x, z: state.target.z } ); return; }
+				setPlacing( true );
+
+			} else {
+
+				setPlacing( false );
+				if ( state.target ) post( 'tas-target-placed', { x: state.target.x, z: state.target.z } );
+				else post( 'tas-target-canceled', {} );
+
+			}
+
+		}
+		else if ( type === 'tas-target-remove' ) {
+
+			state.target = null;
+			targetMesh.visible = false;
+			setPlacing( false );
+			post( 'tas-target-removed', {} );
+
+		}
 		else if ( type === 'tas-grab-partial' ) {
 
 			// "Import unfinished run": copy the live recording into the

@@ -124,6 +124,13 @@
 			</div>
 			<div style="border-top:1px solid #30363d;margin-top:2px;padding-top:10px;">
 				<label>Brute force</label>
+				<div class="row" style="align-items:center;gap:8px;">
+					<select id="bf-goal" title="What counts as success" style="flex:1;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:5px 6px;font:600 12px/1.2 ui-monospace,Menlo,Consolas,monospace;">
+						<option value="time">Goal: fastest lap</option>
+						<option value="target">Goal: reach target area</option>
+					</select>
+					<button id="bf-target-btn" style="display:none;flex:1;background:#1f6feb;color:#fff;">Select target ⌖</button>
+				</div>
 				<div class="row" style="align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#8b949e;">
 					<label for="bf-rounds" style="text-transform:none;letter-spacing:0;">rounds
 						<input id="bf-rounds" type="number" min="1" max="2000" value="20" style="width:64px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:3px 6px;font:inherit;">
@@ -277,7 +284,9 @@
 			case 'tas-run-complete':
 				$( 't-run' ).textContent = ( data.lapSeconds != null ? data.lapSeconds.toFixed( 6 ) + 's · ' : 'no finish · ' ) + data.stepCount + ' steps';
 				$( 't-steps' ).textContent = String( data.stepCount );
-				statusEl.textContent = data.unfinished ? 'run ended at the end of the recorded inputs' : 'run complete';
+				statusEl.textContent = data.reachedTarget
+					? 'REACHED THE TARGET ZONE — successful run (' + data.stepCount + ' steps)'
+					: ( data.unfinished ? 'run ended at the end of the recorded inputs' : 'run complete' );
 				break;
 			case 'tas-run-invalid':
 				validation.textContent = 'Script errors:\n' + data.errors.join( '\n' );
@@ -292,13 +301,25 @@
 				$( 'bf-start' ).disabled = false;
 				$( 'bf-stop' ).disabled = true;
 				if ( data.script ) adoptScript( data.script );
-				$( 'bf-status' ).textContent = `done — best ${ data.bestTime }s${ data.improved ? ' (improved over baseline)' : ' (no improvement)' }`;
+				if ( data.targetMode ) $( 'bf-status' ).textContent = `done — best reach ${ data.bestTime }${ data.improved ? ' (improved over baseline)' : ' (baseline still fastest)' }`;
+				else $( 'bf-status' ).textContent = `done — best ${ data.bestTime }s${ data.improved ? ' (improved over baseline)' : ' (no improvement)' }`;
 				statusEl.textContent = 'brute force finished — inputs box holds the best run';
 				break;
 			case 'tas-bruteforce-error':
 				$( 'bf-start' ).disabled = false;
 				$( 'bf-stop' ).disabled = true;
 				$( 'bf-status' ).textContent = 'error: ' + data.errors.join( '; ' );
+				break;
+			case 'tas-target-placed':
+				setBfTargetState( 'placed' );
+				bfGoal.value = 'target';
+				refreshGoalUi();
+				statusEl.textContent = 'target zone placed — runs & brute force now aim for it';
+				break;
+			case 'tas-target-canceled':
+			case 'tas-target-removed':
+				setBfTargetState( 'none' );
+				statusEl.textContent = 'target zone removed — brute force is back to fastest-lap rules';
 				break;
 			case 'tas-grab-run':
 				adoptScript( data.script );
@@ -313,6 +334,53 @@
 	} );
 
 	$( 'grab-btn' ).addEventListener( 'click', () => sendToGame( 'tas-grab-partial' ) );
+
+	// Brute goal: fastest lap vs reach-target-area. The target zone is
+	// picked ON the map: "Select target" -> hover the game, click to drop
+	// a tall transparent cylinder; placed -> the button becomes
+	// "Remove target" (and back). Esc cancels a pending selection.
+	let bfTargetState = 'none'; // none | placing | placed
+	const bfTargetBtn = $( 'bf-target-btn' ), bfGoal = $( 'bf-goal' );
+	function refreshGoalUi() {
+
+		const goal = bfGoal.value;
+		bfTargetBtn.style.display = goal === 'target' ? '' : 'none';
+
+	}
+	function setBfTargetState( st ) {
+
+		bfTargetState = st;
+		if ( st === 'placing' ) { bfTargetBtn.textContent = 'Cancel selection…'; bfTargetBtn.style.background = '#6e7681'; }
+		else if ( st === 'placed' ) { bfTargetBtn.textContent = 'Remove target ✕'; bfTargetBtn.style.background = '#b62324'; }
+		else { bfTargetBtn.textContent = 'Select target ⌖'; bfTargetBtn.style.background = '#1f6feb'; }
+
+	}
+	bfGoal.addEventListener( 'change', () => {
+
+		refreshGoalUi();
+		// switching goals cancels a pending selection (a placed zone stays)
+		if ( bfTargetState === 'placing' ) sendToGame( 'tas-target-place', { on: false } );
+
+	} );
+	bfTargetBtn.addEventListener( 'click', () => {
+
+		if ( bfTargetState === 'none' ) {
+
+			setBfTargetState( 'placing' );
+			sendToGame( 'tas-target-place', { on: true } );
+
+		} else if ( bfTargetState === 'placing' ) {
+
+			sendToGame( 'tas-target-place', { on: false } );
+
+		} else {
+
+			sendToGame( 'tas-target-remove' );
+
+		}
+
+	} );
+	refreshGoalUi();
 	$( 'load-btn' ).addEventListener( 'click', () => loadTrack( $( 'track-url' ).value.trim() ) );
 	$( 'track-url' ).addEventListener( 'keydown', ( e ) => { if ( e.key === 'Enter' ) loadTrack( e.target.value.trim() ); } );
 	$( 'use-btn' ).addEventListener( 'click', () => {
@@ -332,7 +400,11 @@
 	$( 'run-btn' ).addEventListener( 'click', () => {
 
 		validation.textContent = '';
-		sendToGame( 'tas-run', { script: composeFull(), startAtLap2: $( 'lap2-zero' ).checked } );
+		sendToGame( 'tas-run', {
+			script: composeFull(),
+			startAtLap2: $( 'lap2-zero' ).checked,
+			goal: ( bfGoal.value === 'target' && bfTargetState === 'placed' ) ? 'target' : 'time'
+		} );
 
 	} );
 	$( 'stop-btn' ).addEventListener( 'click', () => sendToGame( 'tas-stop' ) );
@@ -340,7 +412,14 @@
 	$( 'bf-start' ).addEventListener( 'click', () => {
 
 		validation.textContent = '';
+		if ( bfGoal.value === 'target' && bfTargetState !== 'placed' ) {
+
+			$( 'bf-status' ).textContent = 'select a target area first — place the zone on the map';
+			return;
+
+		}
 		sendToGame( 'tas-bruteforce', {
+			goal: bfGoal.value === 'target' ? 'target' : 'time',
 			script: composeFull(),
 			mutations: Number( $( 'bf-mut' ).value ),
 			beam: Number( $( 'bf-beam' ).value ),
