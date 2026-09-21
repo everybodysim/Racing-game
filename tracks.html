@@ -301,7 +301,12 @@
 			const attempts = isWrite ? 1 : ( customAttempts || 8 );
 			for ( let attempt = 0; attempt < attempts; attempt ++ ) {
 				const controller = new AbortController();
-				const timeoutId = setTimeout( () => controller.abort(), customTimeoutMs || 8000 );
+				// The worker rewrites its whole (30MB+) entries blob on every write,
+				// so publishes/votes can take ~10s and climbing — the old 8s
+				// read-style abort killed every write mid-flight. Writes get a 45s
+				// budget (they are never retried, so a longer wait adds no
+				// duplicate-post risk).
+				const timeoutId = setTimeout( () => controller.abort(), customTimeoutMs || ( isWrite ? 45000 : 8000 ) );
 				try {
 					const res = await fetch( `${ API_BASE }${ path }`, {
 						headers: { 'Content-Type': 'application/json', ...( options.headers || {} ) },
@@ -1527,10 +1532,22 @@
 					const postCode = GhostCodec.ghostToLegacyV1Code( parsed.url, parsed.ghost ) || rawCode;
 					await apiRequest( '', {
 						method: 'POST',
+						// One shot only (retries could double-post), but with enough
+						// headroom for the worker's slow whole-blob rewrite.
+						timeoutMs: 60000,
 						body: JSON.stringify( { name, ghostCode: postCode, creator: getBoardCreatorName(), description, thumbnailDataUrl: selectedThumbnailDataUrl } ),
 					} );
 					setPublishModalStep( 'Refreshing the Track Share Board…' );
 					await loadFromRemote();
+				} catch ( publishError ) {
+					// The upload can outlive the old 8s abort, which used to vanish
+					// the modal with NO message at all — publish simply looked broken.
+					// Say what happened instead. NOTE: the worker may STILL have saved
+					// the entry after a client-side timeout, so tell the user to check
+					// the board before retrying.
+					console.warn( 'Publish failed', publishError );
+					setStatus( 'Publish failed (' + String( publishError?.message || 'network error' ).slice( 0, 90 ) + '). The board may be busy — refresh and check whether your track arrived before retrying.', true );
+					return;
 				} finally {
 					hidePublishModal();
 				}
