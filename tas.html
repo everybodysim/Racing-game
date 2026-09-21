@@ -128,15 +128,23 @@
 					<select id="bf-goal" title="What counts as success" style="flex:1;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:5px 6px;font:600 12px/1.2 ui-monospace,Menlo,Consolas,monospace;">
 						<option value="time">Goal: fastest lap</option>
 						<option value="target">Goal: reach target area</option>
+						<option value="ai">Goal: AI driver (evolve a run)</option>
 					</select>
 					<button id="bf-target-btn" style="display:none;flex:1;background:#1f6feb;color:#fff;">Select target ⌖</button>
+				</div>
+				<div class="row" id="ai-row" style="display:none;align-items:center;gap:8px;">
+					<button id="bf-guide-btn" style="flex:1;background:#238636;color:#fff;">Refresh guide lap ⤴</button>
+					<span id="bf-guide-status" style="flex:1.4;font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#8b949e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">no guide yet — captured from your run on start</span>
 				</div>
 				<div class="row" style="align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#8b949e;">
 					<label for="bf-rounds" style="text-transform:none;letter-spacing:0;">rounds
 						<input id="bf-rounds" type="number" min="1" max="2000" value="20" style="width:64px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:3px 6px;font:inherit;">
 					</label>
-					<label for="bf-beam" style="text-transform:none;letter-spacing:0;">beam
+					<label for="bf-beam" id="bf-beam-label" style="text-transform:none;letter-spacing:0;">beam
 						<input id="bf-beam" type="number" min="1" max="8" value="4" style="width:48px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:3px 6px;font:inherit;">
+					</label>
+					<label for="bf-pop" id="bf-pop-label" style="display:none;text-transform:none;letter-spacing:0;">population
+						<input id="bf-pop" type="number" min="4" max="32" value="20" style="width:48px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:3px 6px;font:inherit;">
 					</label>
 					<label for="bf-mut" style="text-transform:none;letter-spacing:0;">inputs changed/round
 						<input id="bf-mut" type="range" min="1" max="10" value="1" style="width:96px;">
@@ -310,6 +318,29 @@
 				$( 'bf-stop' ).disabled = true;
 				$( 'bf-status' ).textContent = 'error: ' + data.errors.join( '; ' );
 				break;
+			case 'tas-ai-progress':
+				$( 'bf-status' ).textContent = `gen ${ data.round }/${ data.rounds } — best ${ data.bestTime === 'DNF' ? 'no finish yet' : data.bestTime + 's' } — best prog ${ data.bestProg } — gen top ${ data.genProg }${ data.adopted ? ' ✓ adopted' : '' } · ${ data.evals } sims${ data.fast ? ' · save-state' : '' }`;
+				break;
+			case 'tas-ai-done':
+				$( 'bf-start' ).disabled = false;
+				$( 'bf-stop' ).disabled = true;
+				$( 'bf-status' ).textContent = data.finish
+					? `AI done — best ${ data.bestTime }s${ data.improved ? ' (adopted)' : '' }`
+					: `AI done — no finisher found (best progress kept in the box if any)`;
+				statusEl.textContent = data.finish ? `AI driver finished: ${ data.bestTime }s` : 'AI driver: no finishing run found yet — add generations or improve the seed';
+				break;
+			case 'tas-ai-error':
+				$( 'bf-start' ).disabled = false;
+				$( 'bf-stop' ).disabled = true;
+				$( 'bf-status' ).textContent = 'AI error: ' + data.errors.join( '; ' );
+				break;
+			case 'tas-ai-guide-ok':
+				$( 'bf-guide-status' ).textContent = `guide: ${ data.pts } pts${ data.fast ? ' (save-state lap)' : '' }`;
+				$( 'bf-status' ).textContent = 'guide lap captured from the current run';
+				break;
+			case 'tas-ai-guide-error':
+				$( 'bf-guide-status' ).textContent = 'guide capture failed';
+				break;
 			case 'tas-target-placed':
 				setBfTargetState( 'placed' );
 				bfGoal.value = 'target';
@@ -345,6 +376,9 @@
 
 		const goal = bfGoal.value;
 		bfTargetBtn.style.display = goal === 'target' ? '' : 'none';
+		$( 'ai-row' ).style.display = goal === 'ai' ? '' : 'none';
+		$( 'bf-pop-label' ).style.display = goal === 'ai' ? '' : 'none';
+		$( 'bf-beam-label' ).style.display = goal === 'ai' ? 'none' : '';
 
 	}
 	function setBfTargetState( st ) {
@@ -381,6 +415,12 @@
 
 	} );
 	refreshGoalUi();
+	$( 'bf-guide-btn' ).addEventListener( 'click', () => {
+
+		sendToGame( 'tas-ai-guide', { script: composeFull() } );
+		$( 'bf-guide-status' ).textContent = 'capturing…';
+
+	} );
 	$( 'load-btn' ).addEventListener( 'click', () => loadTrack( $( 'track-url' ).value.trim() ) );
 	$( 'track-url' ).addEventListener( 'keydown', ( e ) => { if ( e.key === 'Enter' ) loadTrack( e.target.value.trim() ); } );
 	$( 'use-btn' ).addEventListener( 'click', () => {
@@ -415,6 +455,21 @@
 		if ( bfGoal.value === 'target' && bfTargetState !== 'placed' ) {
 
 			$( 'bf-status' ).textContent = 'select a target area first — place the zone on the map';
+			return;
+
+		}
+		if ( bfGoal.value === 'ai' ) {
+
+			sendToGame( 'tas-ai', {
+				script: composeFull(),
+				mutations: Number( $( 'bf-mut' ).value ),
+				population: Number( $( 'bf-pop' ).value ) || 20,
+				addInput: $( 'bf-add' ).checked,
+				rounds: Math.max( 1, Number( $( 'bf-rounds' ).value ) || 20 )
+			} );
+			$( 'bf-start' ).disabled = true;
+			$( 'bf-stop' ).disabled = false;
+			$( 'bf-status' ).textContent = 'AI: capturing guide + evaluating generation 0…';
 			return;
 
 		}

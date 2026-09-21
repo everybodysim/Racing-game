@@ -24,6 +24,90 @@ const TAS_STEP_HZ = 60;
 
 function zeroInput() { return { x: 0, z: 0 }; }
 
+// ── AI driver pure helpers (module level, no state deps) ──────────────
+// Nearest guide point with a forward search window: the car may legitimately
+// leave the guide line (cutting a corner, a whole different route), so the
+// projection only looks BACK a little and FORWARD a lot — progress never
+// goes backwards unless the car actually drives backwards.
+function guideProject( pts, lastIdx, x, z ) {
+
+	if ( ! pts || ! pts.length ) return 0;
+	const lo = Math.max( 0, Math.floor( lastIdx ) - 8 );
+	const hi = Math.min( pts.length - 1, Math.ceil( lastIdx ) + 40 );
+	let bestIdx = lo, bestD = Infinity;
+	for ( let i = lo; i <= hi; i ++ ) {
+
+		const d = ( pts[ i ].x - x ) ** 2 + ( pts[ i ].z - z ) ** 2;
+		if ( d < bestD ) { bestD = d; bestIdx = i; }
+
+	}
+	return bestIdx;
+
+}
+
+// Carrot steering bias for mutations: the guide's own motion direction at a
+// step vs the direction to a point ~2s further along the guide. Returns the
+// steer input (-1 | +1) toward the carrot side, or null when the guide is
+// ~stationary / ~straight there (no signal -> plain random mutation).
+// Sign conventions verified against the game: ArrowRight -> x=+1, and the
+// heading->carrot cross product is negative when the carrot is to the
+// car's RIGHT, so cross < 0 means steer +1.
+function guideSteerBias( samples, step ) {
+
+	if ( ! samples || samples.length < 3 ) return null;
+	const at = ( st ) => samples[ Math.max( 0, Math.min( samples.length - 1, Math.round( st ) ) ) ];
+	const cur = at( step ), back = at( step - 45 ), fwd = at( step + 120 );
+	const hx = cur.x - back.x, hz = cur.z - back.z;
+	const hxz = Math.hypot( hx, hz );
+	if ( hxz < 0.2 ) return null; // guide car was ~parked here
+	const tx = fwd.x - cur.x, tz = fwd.z - cur.z;
+	const txz = Math.hypot( tx, tz );
+	if ( txz < 0.2 ) return null; // carrot sits on top of us
+	const cross = ( hz * tx - hx * tz ) / ( hxz * txz ); // sin(signed angle)
+	if ( Math.abs( cross ) < 0.12 ) return null; // guide ~straight here
+	return cross < 0 ? 1 : -1;
+
+}
+
+// Fitness ranking: a FINISH always outranks progress (the carrot guides the
+// search, it never becomes the law — a genuine shortcut must still win).
+// Among finishers the precise time decides; among non-finishers the furthest
+// guide progress decides, earlier-is-better as tiebreak.
+function aiFitCompare( a, b ) {
+
+	const af = Number.isFinite( a.finish ), bf = Number.isFinite( b.finish );
+	if ( af !== bf ) return af ? -1 : 1;
+	if ( af ) return a.finish - b.finish;
+	if ( a.prog !== b.prog ) return b.prog - a.prog;
+	return a.progStep - b.progStep;
+
+}
+
+// Crossover: splice two timed laps where each parent first reached the SAME
+// progress fraction. B's tail is renumbered so the child is a valid ordered
+// timeline (steps strictly increasing across the junction). Returns null
+// when either parent's map can't support a cut at that fraction.
+function aiSplice( lapA, mapA, bestA, lapB, mapB, bestB, frac ) {
+
+	if ( ! lapA || ! lapB || ! mapA || ! mapB || bestA <= 0 || bestB <= 0 ) return null;
+	const targetA = frac * bestA, targetB = frac * bestB;
+	let sa = -1, sb = -1;
+	for ( const [ st, pr ] of mapA ) if ( pr >= targetA ) { sa = st; break; }
+	for ( const [ st, pr ] of mapB ) if ( pr >= targetB ) { sb = st; break; }
+	if ( sa <= 0 || sb <= 0 ) return null;
+	const head = lapA.filter( ( e ) => e.step < sa );
+	const tail = lapB.filter( ( e ) => e.step >= sb ).map( ( e ) => ( { step: e.step - sb + sa, x: e.x, z: e.z } ) );
+	const child = [ ...head ];
+	for ( const e of tail ) {
+
+		// ordered merge (tail steps are already increasing; guard anyway)
+		if ( ! child.length || e.step > child[ child.length - 1 ].step ) child.push( e );
+
+	}
+	return child.length ? child : null;
+
+}
+
 export function activate( ctx ) {
 
 	if ( window.__tasActive ) return;
@@ -49,6 +133,7 @@ export function activate( ctx ) {
 		runLaps: 1,
 		lastRunText: '',
 		targetMode: false,        // brute/run goal: 'time' (false) | 'target' (true)
+		aiGuide: null,            // captured guide lap for the AI driver
 		target: null,             // { x, z } world center of the target zone
 		targetPlacing: false,
 		overlayTick: 0,
@@ -79,6 +164,7 @@ export function activate( ctx ) {
 			probeErr: state.probeErr || null,
 			isLoop: ctx.isLoop,
 			targetMode: state.targetMode,
+			aiGuide: state.aiGuide ? { pts: state.aiGuide.pts.length, samples: state.aiGuide.samples.length } : null,
 			target: state.target ? { ...state.target } : null,
 			targetPlacing: state.targetPlacing,
 			pos: [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ],
@@ -1100,11 +1186,23 @@ post( 'tas-paused', { paused: state.paused } );
 	//                        neighbors; no input value changes at all.
 	// Raw value flips (the old run-breakers: one steering flip persisted for
 	// a whole multi-second segment) are gone for good.
-	function mutateScript( script, mutations, addInput ) {
+	function mutateScript( script, mutations, addInput, guide ) {
 
 		const cand = cloneScript( script );
 		const timedLap = cand.lap2.length ? cand.lap2 : cand.lap1;
 		if ( ! timedLap.length ) return cand;
+		// Carrot-biased steering pick (AI driver only; plain brute passes no
+		// guide and gets the original uniform pickOther, byte-identical).
+		// ~65% of steering pulses bend toward the side the guide's carrot
+		// sits on; the rest stay random so the population keeps exploring.
+		const pickSteer = ( e ) => {
+
+			const bias = guide ? guideSteerBias( guide.samples, e.step ) : null;
+			if ( bias == null || bias === e.x ) return pickOther( e.x );
+			if ( Math.random() < 0.65 ) return bias;
+			return pickOther( e.x );
+
+		};
 		for ( let m = 0; m < mutations; m ++ ) {
 
 			const roll = Math.random();
@@ -1121,7 +1219,7 @@ post( 'tas-paused', { paused: state.paused } );
 				if ( hi < lo ) continue; // segment too short for a safe pulse
 				const f = lo + Math.floor( Math.random() * ( hi - lo + 1 ) );
 				const pulse = { step: f, x: e.x, z: e.z };
-				pulse[ key ] = pickOther( e[ key ] );
+				pulse[ key ] = ( key === 'x' && guide ) ? pickSteer( e ) : pickOther( e[ key ] );
 				timedLap.splice( idx + 1, 0, pulse );
 				timedLap.splice( idx + 2, 0, { step: f + 3, x: e.x, z: e.z } );
 
@@ -1372,6 +1470,306 @@ post( 'tas-paused', { paused: state.paused } );
 
 	}
 
+	// ── AI driver: evolve a full run from the user's lap (carrot method) ──
+	// GUIDE: the recorded run is re-simulated once in a burst; every step's
+	// car position is sampled (aligned to the timed lap's entry steps —
+	// stepIndex restarts at 0 at the lap-1 crossing on loop tracks, exactly
+	// where the mutated entries live). The samples are resampled to ~2-unit
+	// guide points for progress tracking.
+	function captureGuide( script ) {
+
+		const fast = !!( script.crossState && script.crossState.pos && script.crossState.vel && script.lap2.length && ctx.tasBeginNextLap );
+		const timed = fast ? script.lap2 : script.lap1;
+		if ( ! timed.length ) return null;
+		state.bruteResult = null;
+		const lLast = timed[ timed.length - 1 ].step;
+		let burstCap;
+		if ( fast ) {
+
+			resetState( 'run' );
+			state.runScript = script;
+			state.skipMode = true;
+			state.lapsCompleted = 1;
+			applyCrossState( script.crossState );
+			resetCarPhysicsHistory();
+			state.runEntries = script.lap2;
+			state.runPointer = 0;
+			state.runLaps = 1;
+			state.stepIndex = 0;
+			state.started = true;
+			ctx.tasBeginNextLap();
+			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+			burstCap = lLast + 60 * 30;
+
+		} else {
+
+			resetState( 'run' );
+			state.runScript = script;
+			state.stepIndex = 0;
+			ctx.fns.respawnVehicle();
+			resetCarPhysicsHistory();
+			state.runEntries = script.lap1;
+			state.runLaps = script.lap2.length ? 2 : ( ctx.isLoop && script.mode === 'run' && ! script.crossState ? 2 : 1 );
+			state.started = false;
+			ctx.fns.startCountdown();
+			burstCap = 60 * 5 + ( lLast + 60 * 30 );
+
+		}
+		const samples = [];
+		state.fastForward = true;
+		let burst = 0, movedStep = 0;
+		try {
+
+			while ( state.phase === 'run' && burst ++ < burstCap ) {
+
+				ctx.fns.stepOnce();
+				if ( state.phase === 'run' ) probeLapCross();
+				if ( state.started ) {
+
+					const p = ctx.vehicle.spherePos;
+					samples.push( { x: p.x, z: p.z } );
+					// stop sampling once the baseline has been parked for 4s
+					// (no NEW 2-unit-separated point): a crashed baseline
+					// used to sample its whole 30s wall-coast budget.
+					if ( samples.length > 1 ) {
+
+						const ref = samples[ samples.length - 2 ];
+						if ( ( p.x - ref.x ) ** 2 + ( p.z - ref.z ) ** 2 >= 0.04 ) movedStep = samples.length;
+
+					}
+					if ( samples.length - movedStep > 60 * 4 ) break;
+
+				}
+
+			}
+
+		} catch ( e ) { /* baseline dying mid-guide is fine: the carrot covers what it drove */ }
+		state.fastForward = false;
+		if ( samples.length < 10 ) return null;
+		const pts = [ samples[ 0 ] ];
+		for ( const smp of samples ) {
+
+			const ref = pts[ pts.length - 1 ];
+			if ( ( smp.x - ref.x ) ** 2 + ( smp.z - ref.z ) ** 2 >= 4 ) pts.push( smp ); // ~2 units apart
+
+		}
+		if ( pts.length < 2 ) return null;
+		return { samples, pts };
+
+	}
+
+	// One AI candidate: quick-sim like a brute candidate, but scored by
+	// carrot progress (furthest guide point reached) with the same
+	// finish-first ranking the brute adoption rules demand. Stuck cars die
+	// fast: 4 seconds without forward progress aborts the sim (a
+	// wall-humper used to burn its full 30s slack budget).
+	function aiEvaluate( script, guide, fast ) {
+
+		state.bruteResult = null;
+		const timed = fast ? script.lap2 : script.lap1;
+		const lLast = timed.length ? timed[ timed.length - 1 ].step : 0;
+		let burstCap;
+		if ( fast ) {
+
+			resetState( 'run' );
+			state.runScript = script;
+			state.skipMode = true;
+			state.lapsCompleted = 1;
+			applyCrossState( script.crossState );
+			resetCarPhysicsHistory();
+			state.runEntries = script.lap2;
+			state.runPointer = 0;
+			state.runLaps = 1;
+			state.stepIndex = 0;
+			state.started = true;
+			ctx.tasBeginNextLap();
+			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+			burstCap = lLast + 60 * 30;
+
+		} else {
+
+			resetState( 'run' );
+			state.runScript = script;
+			state.stepIndex = 0;
+			ctx.fns.respawnVehicle();
+			resetCarPhysicsHistory();
+			state.runEntries = script.lap1;
+			state.runLaps = script.lap2.length ? 2 : ( ctx.isLoop && script.mode === 'run' && ! script.crossState ? 2 : 1 );
+			state.started = false;
+			ctx.fns.startCountdown();
+			burstCap = 60 * 5 + ( lLast + 60 * 30 );
+
+		}
+		state.fastForward = true;
+		let burst = 0, progIdx = 0, lastProgressStep = 0;
+		let bestProg = 0, bestProgStep = 0;
+		const map = []; // sparse [step, progress] every 30 steps (crossover cut points)
+		const total = guide.pts.length - 1;
+		try {
+
+			while ( state.phase === 'run' && burst ++ < burstCap ) {
+
+				ctx.fns.stepOnce();
+				if ( state.phase === 'run' ) probeLapCross();
+				if ( state.phase === 'run' && state.started ) {
+
+					const p = ctx.vehicle.spherePos;
+					const idx = guideProject( guide.pts, progIdx, p.x, p.z );
+					if ( idx > progIdx ) {
+
+						progIdx = idx;
+						lastProgressStep = state.stepIndex;
+						if ( progIdx > bestProg ) { bestProg = progIdx; bestProgStep = state.stepIndex; }
+
+					} else if ( state.stepIndex - lastProgressStep > 60 * 4 ) break; // stuck
+					if ( state.stepIndex % 30 === 0 ) map.push( [ state.stepIndex, bestProg ] );
+
+				}
+
+			}
+
+		} catch ( e ) { /* DNF */ }
+		state.fastForward = false;
+		const finish = state.bruteResult === null ? Infinity : state.bruteResult;
+		// a finish IS full progress for ranking purposes
+		if ( Number.isFinite( finish ) ) { bestProg = total; bestProgStep = state.stepIndex; }
+		return { finish, prog: bestProg, progStep: bestProgStep, steps: state.stepIndex, map, total };
+
+	}
+
+	// The AI session. Same safety rails as brute force: state.brute owns the
+	// engine (R is blocked), only FINISHERS are adopted, adoption is
+	// strictly-faster (a DNF baseline only allows the FIRST finisher in),
+	// and the end state is the same parked-at-start cleanup.
+	async function aiDrive( payload ) {
+
+		if ( state.brute || state.ai ) return;
+		const script = parseScript( payload.script || '' );
+		if ( script.errors.length ) { post( 'tas-ai-error', { errors: script.errors } ); return; }
+		if ( ! script.lap1.length && ! script.lap2.length ) {
+
+			post( 'tas-ai-error', { errors: [ 'script has no inputs to evolve — record or paste a run first' ] } );
+			return;
+
+		}
+		const mutations = Math.max( 1, Math.min( 20, Number( payload.mutations ) || 1 ) );
+		const addInput = !! payload.addInput;
+		const rounds = Math.max( 1, Math.min( 2000, Number( payload.rounds ) || 20 ) );
+		const popSize = Math.max( 4, Math.min( 32, Number( payload.population ) || 20 ) );
+		const fast = !!( script.crossState && script.crossState.pos && script.crossState.vel && script.lap2.length && ctx.tasBeginNextLap );
+		// Guide: a fresh capture is required when there isn't one, or when
+		// the save-state mode changed vs the captured guide (full <-> fast
+		// sample timelines are different step spaces).
+		if ( ! state.aiGuide || state.aiGuide.fast !== fast ) {
+
+			const guide = captureGuide( script );
+			if ( ! guide ) {
+
+				post( 'tas-ai-error', { errors: [ 'guide capture failed — the baseline run never moves; drive a lap first' ] } );
+				return;
+
+			}
+			guide.fast = fast;
+			state.aiGuide = guide;
+
+		}
+		const guide = state.aiGuide;
+		state.brute = { stop: false, round: 0, rounds, best: null, last: null, adopted: 0, evals: 0 };
+		const baseFit = aiEvaluate( script, guide, fast );
+		state.brute.evals ++;
+		state.brute.best = baseFit.finish;
+		let bestFinish = baseFit.finish;
+		let bestScript = script;
+		let improved = false;
+		const total = baseFit.total || ( guide.pts.length - 1 );
+		const fmtPct = ( f ) => `${ Math.max( 0, Math.min( 100, Math.round( ( f.prog / total ) * 100 ) ) ) }%`;
+		post( 'tas-ai-progress', {
+			round: 0, rounds,
+			bestTime: fmtTime( bestFinish ),
+			bestProg: fmtPct( baseFit ),
+			genProg: fmtPct( baseFit ),
+			adopted: false, evals: state.brute.evals, fast,
+		} );
+		// generation 0: baseline + mutants of it
+		let population = [ { script, fit: baseFit } ];
+		while ( population.length < popSize ) {
+
+			const cand = mutateScript( script, mutations, addInput, guide );
+			population.push( { script: cand, fit: aiEvaluate( cand, guide, fast ) } );
+			state.brute.evals ++;
+
+		}
+		population.sort( ( a, b ) => aiFitCompare( a.fit, b.fit ) );
+		const keepN = Math.max( 2, Math.min( 6, Math.floor( popSize / 4 ) ) );
+		for ( let round = 1; round <= rounds; round ++ ) {
+
+			if ( state.brute.stop ) break;
+			const elite = population.slice( 0, keepN );
+			const next = elite.map( ( e ) => ( { script: e.script, fit: e.fit } ) ); // elites carry their fitness
+			while ( next.length < popSize ) {
+
+				// weighted elite choice: rank 0 is most likely parent
+				const pick = elite[ Math.min( elite.length - 1, Math.floor( -Math.log( 1 - Math.random() ) * 2 ) ) ];
+				let cand = null;
+				if ( next.length % 4 === 3 && elite.length > 1 ) {
+
+					// crossover: splice two elites where each first reached
+					// the same progress fraction
+					const other = elite[ Math.floor( Math.random() * elite.length ) ];
+					const frac = 0.2 + Math.random() * 0.6;
+					const timedA = pick.script.lap2.length ? pick.script.lap2 : pick.script.lap1;
+					const timedB = other.script.lap2.length ? other.script.lap2 : other.script.lap1;
+					const childLap = aiSplice( timedA, pick.fit.map, pick.fit.prog, timedB, other.fit.map, other.fit.prog, frac );
+					if ( childLap ) {
+
+						cand = cloneScript( pick.script );
+						if ( cand.lap2.length ) cand.lap2 = childLap;
+						else cand.lap1 = childLap;
+						cand = mutateScript( cand, Math.max( 1, Math.floor( mutations / 2 ) ), addInput, guide ); // + a light touch
+
+					}
+
+				}
+				if ( ! cand ) cand = mutateScript( pick.script, mutations, addInput, guide );
+				next.push( { script: cand, fit: aiEvaluate( cand, guide, fast ) } );
+				state.brute.evals ++;
+
+			}
+			population = next;
+			population.sort( ( a, b ) => aiFitCompare( a.fit, b.fit ) );
+			const top = population[ 0 ];
+			let adopted = false;
+			if ( Number.isFinite( top.fit.finish ) && top.fit.finish < bestFinish ) {
+
+				bestFinish = top.fit.finish;
+				bestScript = top.script;
+				improved = true;
+				adopted = true;
+				state.brute.adopted ++;
+				post( 'tas-bruteforce-update', { script: scriptToText( bestScript ) } ); // editor adoption path (hidden state refresh included)
+
+			}
+			state.brute.round = round;
+			state.brute.best = bestFinish;
+			state.brute.last = top.fit.finish;
+			post( 'tas-ai-progress', {
+				round, rounds,
+				bestTime: fmtTime( bestFinish ),
+				bestProg: fmtPct( { prog: Number.isFinite( bestFinish ) ? total : population.find( ( c ) => Number.isFinite( c.fit.finish ) )?.fit.prog ?? top.fit.prog } ),
+				genProg: fmtPct( top.fit ),
+				adopted, evals: state.brute.evals, fast,
+			} );
+			await new Promise( ( r ) => setTimeout( r, 0 ) ); // yield to the editor UI
+
+		}
+		const bestText = scriptToText( bestScript );
+		state.lastRunText = bestText;
+		state.brute = null;
+		bruteCleanup();
+		post( 'tas-ai-done', { bestTime: fmtTime( bestFinish ), improved, finish: Number.isFinite( bestFinish ), script: bestText } );
+
+	}
+
 	window.addEventListener( 'message', ( event ) => {
 
 		if ( event.source !== window.parent || ! event.data?.type ) return;
@@ -1380,6 +1778,25 @@ post( 'tas-paused', { paused: state.paused } );
 		else if ( type === 'tas-run' ) run( event.data.script || '', !! event.data.startAtLap2, event.data.goal );
 		else if ( type === 'tas-stop' ) { state.phase = 'done'; ctx.tasBeginNextLap(); updateOverlay(); }
 		else if ( type === 'tas-bruteforce' ) bruteForce( event.data );
+		else if ( type === 'tas-ai' ) aiDrive( event.data );
+		else if ( type === 'tas-ai-guide' ) {
+
+			// "Refresh guide lap": re-capture the guide from the box's script.
+			const gscript = parseScript( event.data.script || '' );
+			if ( gscript.errors.length || ( ! gscript.lap1.length && ! gscript.lap2.length ) ) {
+
+				post( 'tas-ai-guide-error', { errors: [ 'no valid inputs to capture a guide from' ] } );
+				return;
+
+			}
+			const gfast = !!( gscript.crossState && gscript.crossState.pos && gscript.crossState.vel && gscript.lap2.length && ctx.tasBeginNextLap );
+			const g = captureGuide( gscript );
+			if ( ! g ) { post( 'tas-ai-guide-error', { errors: [ 'guide capture failed — the baseline run never moves' ] } ); return; }
+			g.fast = gfast;
+			state.aiGuide = g;
+			post( 'tas-ai-guide-ok', { pts: g.pts.length, samples: g.samples.length, fast: gfast } );
+
+		}
 		else if ( type === 'tas-bruteforce-stop' ) { if ( state.brute ) state.brute.stop = true; }
 		else if ( type === 'tas-toggle-pause' ) togglePause();
 		else if ( type === 'tas-target-place' ) {
