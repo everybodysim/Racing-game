@@ -1961,8 +1961,38 @@ post( 'tas-paused', { paused: state.paused } );
 
 		} else { hideAiVisuals(); }
 		state.brute = { stop: false, round: 0, rounds, best: null, last: null, adopted: 0, evals: 0 };
+		// ── WARM BRAIN: sessions CONTINUE training from the last best
+		// genome instead of re-learning from random weights every time.
+		const brainKey = 'skid-ai-brain:' + ( ctx.trackId || 'default' );
+		const loadBrain = () => {
+
+			try {
+
+				const j = JSON.parse( localStorage.getItem( brainKey ) || 'null' );
+				if ( j && Array.isArray( j.w ) && j.w.length === NN_W ) return { w: Float32Array.from( j.w ), gens: j.gens | 0 };
+
+			} catch ( e ) {}
+			return null;
+
+		};
+		const saveBrain = ( w, gens ) => {
+
+			try { localStorage.setItem( brainKey, JSON.stringify( { w: Array.from( w ), gens } ) ); } catch ( e ) {}
+
+		};
+		let brainGens = 0;
+		const warm = loadBrain();
 		let population = [];
-		for ( let i = 0; i < popSize; i ++ ) population.push( { w: nnMakeGenome( 1 ) } );
+		if ( warm ) {
+
+			// elite = the trained brain itself; most others explore around it,
+			// a few wider mutations keep diversity alive
+			brainGens = warm.gens;
+			for ( let i = 0; i < popSize; i ++ )
+				population.push( { w: i === 0 ? warm.w : ( i < popSize * 0.75 ? nnMutate( warm.w, 0.1 ) : nnMutate( warm.w, 0.5 ) ) } );
+			state.warmNote = `warm brain (trained ${ warm.gens } gens) — continuing`;
+
+		} else for ( let i = 0; i < popSize; i ++ ) population.push( { w: nnMakeGenome( 1 ) } );
 		// reward readout: guide mode = % of the guide line; blind mode =
 		// raw world units (there is no reference line to make a % of)
 		const fmtPct = ( prog ) => {
@@ -1978,6 +2008,7 @@ post( 'tas-paused', { paused: state.paused } );
 
 			if ( state.brute.stop ) break;
 			let evaled = 0;
+			if ( round > 0 ) state.warmNote = null; // note sticks during gen 0 only
 			for ( const g of population ) {
 
 				if ( state.brute.stop ) break;
@@ -1989,7 +2020,9 @@ post( 'tas-paused', { paused: state.paused } );
 					post( 'tas-ai-telemetry', tel );
 					renderAiLive( tel );
 					evaled ++;
-					post( 'tas-ai-eval', { n: evaled, total: population.length } );
+					post( 'tas-ai-eval', state.warmNote && round === 0
+						? { note: state.warmNote + ` — eval ${ evaled }/${ population.length }` }
+						: { n: evaled, total: population.length } );
 
 				}
 
@@ -1997,7 +2030,7 @@ post( 'tas-paused', { paused: state.paused } );
 			population.sort( ( a, b ) => aiFitCompare( a.fit, b.fit ) );
 			const top = population[ 0 ];
 			// adaptive mutation: improving -> fine-tune, stagnant -> explore
-			if ( top.fit.prog > bestEverProg + 1e-6 || Number.isFinite( top.fit.finish ) ) { stagnant = 0; bestEverProg = Math.max( bestEverProg, top.fit.prog ); sigma = Math.max( 0.02, sigma * 0.85 ); }
+			if ( top.fit.prog > bestEverProg + 1e-6 || Number.isFinite( top.fit.finish ) ) { stagnant = 0; bestEverProg = Math.max( bestEverProg, top.fit.prog ); sigma = Math.max( 0.02, sigma * 0.85 ); saveBrain( top.w, brainGens + round ); }
 			else if ( ++ stagnant >= 3 ) { sigma = Math.min( 0.6, sigma * 1.6 ); stagnant = 0; }
 			if ( Number.isFinite( top.fit.finish ) && top.fit.finish < bestFinish ) {
 
@@ -2052,6 +2085,7 @@ post( 'tas-paused', { paused: state.paused } );
 		state.brute = null;
 		bruteCleanup();
 		hideAiVisuals();
+		saveBrain( population.length ? population[ 0 ].w : null, brainGens + rounds + 1 ); // never lose the training
 		// blind session with no finisher: leave the net's BEST DRIVE in the
 		// box (a real, replayable partial run) instead of ending with nothing
 		if ( ! Number.isFinite( bestFinish ) && ! guide && blindBest.rec && blindBest.prog > 3 ) {
@@ -2118,6 +2152,12 @@ window.addEventListener( 'message', ( event ) => {
 		else if ( type === 'tas-stop' ) { state.phase = 'done'; ctx.tasBeginNextLap(); updateOverlay(); }
 		else if ( type === 'tas-bruteforce' ) bruteForce( event.data );
 		else if ( type === 'tas-ai' ) aiDrive( event.data );
+		else if ( type === 'tas-ai-brain-reset' ) {
+
+			try { localStorage.removeItem( 'skid-ai-brain:' + ( ctx.trackId || 'default' ) ); } catch ( e ) {}
+			post( 'tas-ai-eval', { note: 'AI brain wiped — the next session starts fresh' } );
+
+		}
 		else if ( type === 'tas-ai-adopt' ) {
 
 			// parent's "Use AI best run" button: write the session's best
