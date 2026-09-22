@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-import { Vehicle } from './Vehicle.js?v=1000227';
+import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=2';
 import { Camera } from './Camera.js?v=1';
 import { Controls } from './Controls.js';
@@ -316,21 +316,21 @@ const modelNames = [
 
 const models = {};
 const CAR_STATS = {
-	'vehicle-truck-yellow': { name: 'Trail Pickup', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-green': { name: 'Utility Pickup', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-purple': { name: 'Cargo Van', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-truck-red': { name: 'Stakebed Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-hatchback-green': { name: 'Hatchback', bodyStyle: 'hatchback', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-sedan-orange': { name: 'Sedan', bodyStyle: 'sedan', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-car-police': { name: 'Police Car', bodyStyle: 'car', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-delivery-yellow': { name: 'Delivery', bodyStyle: 'delivery', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-flatbed-purple': { name: 'Flatbed Truck', bodyStyle: 'flatbed', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-van-blue': { name: 'Panel Van', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-ambulance-red': { name: 'Ambulance', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-firetruck-red': { name: 'Fire Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-taxi-yellow': { name: 'Taxi', bodyStyle: 'car', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-tractor-yellow': { name: 'Tractor', bodyStyle: 'tractor', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
-	'vehicle-trash-green': { name: 'Trash Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.12, accelRate: 4.8, driveForce: 95.0 } },
+	'vehicle-truck-yellow': { name: 'Trail Pickup', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-truck-green': { name: 'Utility Pickup', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-truck-purple': { name: 'Cargo Van', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-truck-red': { name: 'Stakebed Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-hatchback-green': { name: 'Hatchback', bodyStyle: 'hatchback', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-sedan-orange': { name: 'Sedan', bodyStyle: 'sedan', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-car-police': { name: 'Police Car', bodyStyle: 'car', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-delivery-yellow': { name: 'Delivery', bodyStyle: 'delivery', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-flatbed-purple': { name: 'Flatbed Truck', bodyStyle: 'flatbed', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-van-blue': { name: 'Panel Van', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-ambulance-red': { name: 'Ambulance', bodyStyle: 'van', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-firetruck-red': { name: 'Fire Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-taxi-yellow': { name: 'Taxi', bodyStyle: 'car', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-tractor-yellow': { name: 'Tractor', bodyStyle: 'tractor', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
+	'vehicle-trash-green': { name: 'Trash Truck', bodyStyle: 'truck', speed: 9, accel: 5, perf: { topSpeed: 1.25, accelRate: 6.0, driveForce: 100.0 } },
 };
 const CAR_SELECT_STYLES = {
 	'vehicle-truck-yellow': { background: '#f2c94c', border: '#ffe082', color: '#1b1606' },
@@ -492,6 +492,8 @@ const PRECIP_DEFAULT = 'none';
 const INTENSITY_DEFAULT = 'medium';
 const WIND_DEFAULT = 'none';
 const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
+// Handling revision: separate records set under the earlier vehicle physics.
+const LEADERBOARD_ID_PREFIX = 'easy-v1-';
 const ACCOUNT_API_BASE = 'https://racing-account-api.ga1010.workers.dev/api/accounts';
 const TRACK_SHARE_API_ROOT = 'https://racing-track-board-api.ga1010.workers.dev';
 const TRACK_SHARE_API_PREFIXES = [ '/api', '' ];
@@ -3909,7 +3911,7 @@ function getTrackId( mapParamValue, extrasParamValue ) {
 	// leaderboard was intentionally reset. Every other track keeps the v4
 	// seed so its existing leaderboard id (and records) are untouched.
 	const trackIdSeedVersion = ( mapParamValue || extrasParamValue ) ? 'v4' : 'v5';
-	return `trk-${ hashTrackSeed( `${ trackIdSeedVersion }-url|${ rawUrl }` ) }`;
+	return `${ LEADERBOARD_ID_PREFIX }trk-${ hashTrackSeed( `${ trackIdSeedVersion }-url|${ rawUrl }` ) }`;
 
 }
 
