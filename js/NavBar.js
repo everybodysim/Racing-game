@@ -19,6 +19,7 @@
 		'share.html': 'Share Time',
 		'tas-viewer.html': 'TAS Viewer',
 		'totd.html': 'Track of the Day',
+		'author.html': 'Track Author',
 		'tracks.html': 'Track Browser',
 		'weekly-cup.html': 'Weekly Cup',
 	};

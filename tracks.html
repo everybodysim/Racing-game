@@ -19,6 +19,27 @@
 @media(max-width:760px){.hero,.section-head{align-items:flex-start;flex-direction:column}select{max-width:none}}
 	</style>
 	<style>
+.author-chip{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:9px 12px;font:700 13px sans-serif;cursor:pointer;text-decoration:none;transition:background .15s,border-color .15s;white-space:nowrap;min-width:0;max-width:calc(100% - 64px)}
+.author-chip .author-name{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.author-chip:hover{background:rgba(119,243,177,.18);border-color:rgba(119,243,177,.5)}
+.author-chip.anon{cursor:default;opacity:.55}
+.author-chip.anon:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.22)}
+.track-rail{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.track-rail.expanded{display:flex;overflow-x:auto;padding:4px 2px 12px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}
+.track-rail.expanded::-webkit-scrollbar{height:8px}
+.track-rail.expanded::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:99px}
+.track-rail.expanded .card{flex:0 0 290px;min-width:290px;max-width:290px}
+.rail-controls{display:flex;gap:8px;align-items:center}
+.rail-controls button{padding:7px 12px}
+#library-pager{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;padding:18px 0 6px}
+#library-pager button{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:var(--muted);border-radius:9px;padding:7px 13px;font:700 12px sans-serif;cursor:pointer}
+#library-pager button:hover:not(:disabled){background:rgba(255,255,255,.12);color:#fff}
+#library-pager button.active{background:linear-gradient(135deg,rgba(48,198,119,.28),rgba(48,151,255,.22));border-color:rgba(119,243,177,.45);color:#fff}
+#library-pager button:disabled{opacity:.35;cursor:default}
+.card-author-row.icon-only .copy-label{display:none}
+.records-title{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.records-toggle{font-size:12px;padding:6px 10px}
+#library-pager .pager-info{font:600 12px sans-serif;color:var(--muted);margin:0 6px}
 #board-rail{position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:900;display:flex;flex-direction:column;gap:5px;padding:7px;background:rgba(10,16,28,.74);border:1px solid rgba(255,255,255,.14);border-radius:14px;backdrop-filter:blur(6px);box-shadow:0 10px 30px rgba(0,0,0,.28)}#board-rail button{border:1px solid transparent;background:transparent;color:var(--muted);border-radius:9px;padding:6px 11px;font:700 11px sans-serif;white-space:nowrap;cursor:pointer;text-align:right}#board-rail button:hover{background:rgba(255,255,255,.12);color:#fff}#board-rail button.active{background:linear-gradient(135deg,rgba(48,198,119,.28),rgba(48,151,255,.22));border-color:rgba(119,243,177,.45);color:#fff}@media (max-width:1180px){#board-rail{display:none}}.creator-badge{border-color:rgba(119,243,177,.3);color:#a9e8c4}#publishing-as b{color:#fff}
 	</style>
 
@@ -42,14 +63,13 @@
 		<div class="panel admin-strip"><input id="adminTokenInput" placeholder="Admin password" type="password"><div class="row" style="margin-top:0"><button id="export-board-btn" type="button">Export board code</button><button id="import-board-btn" type="button">Import board code</button><button id="copy-link-btn" type="button">Copy share link</button></div></div>
 		<details class="panel" id="publish-drawer"><summary>Publish Track</summary><div class="drawer-panel"><p class="sub" id="publishing-as"></p><section class="publish-ghost-guide" aria-labelledby="publish-ghost-guide-title"><h3 id="publish-ghost-guide-title">Before you publish: add a real run</h3><p>Every shared track needs a ghost so players can race the route you built.</p><ol><li>Open your track and drive a complete lap/run.</li><li>Use <strong>Export ghost</strong> in the game to copy the ghost code.</li><li>Return here, then paste that code into the Ghost code box below.</li><li>Name your track, add optional notes or a thumbnail, and publish it to the board.</li></ol></section><label for="track-name">Track name</label><input id="track-name" placeholder="e.g. Forest Sprint" /><label for="ghost-code">Ghost code or board import/export code</label><textarea id="ghost-code" placeholder="Paste export ghost code here..."></textarea><label for="track-description">Description (optional)</label><textarea id="track-description" placeholder="Add notes, style, and tips..."></textarea><label for="track-thumbnail">Thumbnail image (optional)</label><input id="track-thumbnail" type="file" accept="image/*" /><div class="row"><button id="add-btn" type="button">Publish to board</button></div><div id="status"></div></div></details>
 		<div id="publish-modal" hidden role="dialog" aria-modal="true" aria-label="Publishing track"><div class="publish-modal-card"><h3>Hold on — your track is publishing</h3><p>Sit tight while it uploads to the Track Share Board. Everything else is locked until it finishes.</p><div class="publish-modal-bar"><div class="publish-modal-bar-fill"></div></div><div class="publish-modal-step" id="publish-modal-step">Uploading track…</div></div></div>
-		<div class="panel"><div class="row" style="margin-top:0"><input id="search-input" placeholder="Search track name..." style="max-width:360px" /><select id="size-filter"><option value="all">All sizes</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select><select id="sort-filter"><option value="newest">Newest</option><option value="popular">Most popular</option><option value="most-liked">Most liked</option><option value="best-time">Best lap time</option></select></div></div>
 		<section class="browser-section" id="section-featured"><div class="section-head"><div><div class="section-kicker">Editor's algorithmic pick</div><h2>Featured Track</h2></div><p class="sub">Newer than average with above-average play activity.</p></div><div id="featured-track" class="featured-layout"></div></section>
-		<section class="browser-section" id="section-trending"><div class="section-head"><div><div class="section-kicker">Hot right now</div><h2>Trending Tracks</h2></div></div><div id="trending-list" class="track-row"></div></section>
-		<section class="browser-section" id="section-new-week"><div class="section-head"><div><div class="section-kicker">Fresh uploads</div><h2>New This Week</h2></div></div><div id="new-week-list" class="track-row"></div></section>
-		<section class="browser-section" id="section-top-rated"><div class="section-head"><div><div class="section-kicker">Community favorites</div><h2>Top Rated</h2></div></div><div id="top-rated-list" class="track-row"></div></section>
-		<section class="browser-section" id="section-fastest"><div class="section-head"><div><div class="section-kicker">Record chasers</div><h2>Fastest Records</h2></div></div><div id="fastest-records-list" class="track-row"></div></section>
-		<div class="panel records-board" id="section-records"><h2>Track Share Record Board</h2><p class="sub">Drivers ranked by how many unique shared tracks they currently hold #1 on.</p><div id="records-board-list" class="records-list"></div><h2 style="margin-top:16px">Global Placement Rating</h2><p class="sub">Cross-track rating from placement points (1st/2nd/3rd…) across all shared tracks.</p><div id="placement-rating-list" class="records-list"></div></div>
-		<section class="browser-section" id="section-library"><div class="section-head"><div><div class="section-kicker">Full library</div><h2>All Tracks</h2></div></div><div id="grid"></div></section>
+		<section class="browser-section" id="section-trending"><div class="section-head"><div><div class="section-kicker">Hot right now</div><h2>Trending Tracks</h2></div><div class="rail-controls"><button type="button" class="rail-arrow" data-rail-scroll="-1" data-for="section-trending" hidden aria-label="Scroll trending tracks left">←</button><button type="button" class="rail-arrow" data-rail-scroll="1" data-for="section-trending" hidden aria-label="Scroll trending tracks right">→</button><button type="button" class="rail-expand" data-rail-expand="section-trending" hidden>Show more</button></div></div><div id="trending-list" class="track-rail"></div></section>
+		<section class="browser-section" id="section-new-week"><div class="section-head"><div><div class="section-kicker">Fresh uploads</div><h2>New This Week</h2></div><div class="rail-controls"><button type="button" class="rail-arrow" data-rail-scroll="-1" data-for="section-new-week" hidden aria-label="Scroll new tracks left">←</button><button type="button" class="rail-arrow" data-rail-scroll="1" data-for="section-new-week" hidden aria-label="Scroll new tracks right">→</button><button type="button" class="rail-expand" data-rail-expand="section-new-week" hidden>Show more</button></div></div><div id="new-week-list" class="track-rail"></div></section>
+		<div class="panel records-board" id="section-records"><h2 class="records-title">Track Share Record Board <button type="button" class="records-toggle" data-records-toggle="leaders">Show all</button></h2><p class="sub">Drivers ranked by how many unique shared tracks they currently hold #1 on.</p><div id="records-board-list" class="records-list"></div><h2 class="records-title" style="margin-top:16px">Global Placement Rating <button type="button" class="records-toggle" data-records-toggle="ratings">Show all</button></h2><p class="sub">Cross-track rating from placement points (1st/2nd/3rd…) across all shared tracks.</p><div id="placement-rating-list" class="records-list"></div></div>
+		<div class="panel" id="library-toolbar"><div class="row" style="margin-top:0"><input id="search-input" placeholder="Search track name..." style="max-width:360px" /><select id="size-filter"><option value="all">All sizes</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select><select id="sort-filter"><option value="newest">Newest</option><option value="popular">Most popular</option><option value="most-liked">Most liked</option><option value="best-time">Best lap time</option></select><button id="random-track-btn-2" type="button">🎲 Random track</button></div></div>
+<section class="browser-section" id="section-library"><div class="section-head"><div><div class="section-kicker">Full library</div><h2>All Tracks</h2></div></div><div id="library-pager-top"></div><div id="grid"></div><div id="library-pager"></div></section>
+
 		<script>
 			const API_BASE = 'https://racing-track-board-api.ga1010.workers.dev/api/tracks';
 			const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
@@ -81,13 +101,14 @@
 			const newWeekList = document.getElementById( 'new-week-list' );
 			const trendingList = document.getElementById( 'trending-list' );
 			const featuredTrack = document.getElementById( 'featured-track' );
-			const topRatedList = document.getElementById( 'top-rated-list' );
-			const fastestRecordsList = document.getElementById( 'fastest-records-list' );
 			const statusEl = document.getElementById( 'status' );
 			const leaderboardProgressWrap = document.getElementById( 'leaderboard-progress-wrap' );
 			const leaderboardProgressLabel = document.getElementById( 'leaderboard-progress-label' );
 			const leaderboardProgressFill = document.getElementById( 'leaderboard-progress-fill' );
 			const grid = document.getElementById( 'grid' );
+			const libraryPager = document.getElementById( 'library-pager' );
+			const libraryPagerTop = document.getElementById( 'library-pager-top' );
+			const randomTrackBtn2 = document.getElementById( 'random-track-btn-2' );
 			let entries = [];
 			let useRemoteBoard = false;
 			let topByTrackId = new Map();
@@ -155,6 +176,23 @@
 			const clean = String( entry?.creator || '' ).replace( /\s+/g, ' ' ).trim().slice( 0, 32 );
 			return clean || 'Anonymous';
 		}
+
+		// ─── Author pages + library pagination ───
+		const PAGE_SIZE = 50;
+		let libraryPage = 0;
+		function isAnonCreator( entry ) {
+			const name = getEntryCreator( entry );
+			return ! name || name.toLowerCase() === 'anonymous';
+		}
+		// Author pages live on their own page (author.html?author=Name).
+		// Old #author= share links from the in-page era redirect there.
+		( function legacyAuthorRedirect() {
+			try {
+				const params = new URLSearchParams( window.location.hash.startsWith( '#' ) ? window.location.hash.slice( 1 ) : window.location.hash );
+				const author = ( params.get( 'author' ) || '' ).trim();
+				if ( author ) window.location.replace( `author.html?author=${ encodeURIComponent( author ) }` );
+			} catch ( e ) {}
+		} )();
 
 		function encodeBase64UrlJson( value ) {
 			return btoa( unescape( encodeURIComponent( JSON.stringify( value ) ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/g, '' );
@@ -278,7 +316,9 @@
 
 		async function loadFromRemote() {
 			if ( leaderboardProgressLabel ) leaderboardProgressLabel.textContent = 'Fetching board data\u2026';
-			const payload = await apiRequest();
+			// fields=list: entries without inline thumbnails (lazy /thumb fetch
+			// per visible card). Older workers ignore the param and still work.
+			const payload = await apiRequest( '?fields=list' );
 			entries = sanitizeBoardEntries( payload?.entries );
 			await primeV3Previews();
 			// Defer render to next frame so loading panel shows immediately
@@ -885,6 +925,15 @@
 
 		}
 
+		const RECORDS_PREVIEW_COUNT = 3;
+		const recordsCollapsed = { leaders: true, ratings: true };
+		function updateRecordsToggle( key, total ) {
+			const btn = document.querySelector( `[data-records-toggle="${ key }"]` );
+			if ( ! btn ) return;
+			btn.hidden = total <= RECORDS_PREVIEW_COUNT;
+			btn.textContent = recordsCollapsed[ key ] ? `Show all ${ total } ↓` : 'Show top 3 ↑';
+		}
+
 		function renderRecordBoard() {
 			if ( ! recordsBoardList ) return;
 			if ( leaderboardHydrating ) {
@@ -897,7 +946,7 @@
 				recordsBoardList.innerHTML = '<div class="records-empty">No leaderboard winners yet. Complete a lap to create the first record holder.</div>';
 				return;
 			}
-			recordsBoardList.innerHTML = leaders.slice( 0, 8 )
+			recordsBoardList.innerHTML = ( recordsCollapsed.leaders ? leaders.slice( 0, RECORDS_PREVIEW_COUNT ) : leaders )
 				.map( ( leader, idx ) => `<div class="record-chip">
 					<div class="rank-badge">${ idx === 0 ? '♛' : ( idx + 1 ) }</div>
 					<div class="record-info">
@@ -906,6 +955,7 @@
 					</div>
 				</div>` )
 				.join( '' );
+			updateRecordsToggle( 'leaders', leaders.length );
 			if ( ! placementRatingList ) return;
 			const ratings = getPlacementRatings();
 			if ( ratings.length === 0 ) {
@@ -914,7 +964,7 @@
 				return;
 
 			}
-			placementRatingList.innerHTML = ratings.slice( 0, 10 )
+			placementRatingList.innerHTML = ( recordsCollapsed.ratings ? ratings.slice( 0, RECORDS_PREVIEW_COUNT ) : ratings )
 				.map( ( row, idx ) => `<div class="record-chip">
 					<div class="rank-badge">${ idx === 0 ? '★' : ( idx + 1 ) }</div>
 					<div class="record-info">
@@ -923,6 +973,7 @@
 					</div>
 				</div>` )
 				.join( '' );
+			updateRecordsToggle( 'ratings', ratings.length );
 		}
 
 		const _statsCache = new Map();
@@ -953,6 +1004,38 @@
 			window.requestIdleCallback = ( cb, opts ) => setTimeout( () => cb( { didTimeout: false, timeRemaining: () => 0 } ), opts?.timeout || 50 );
 		}
 
+		// Lazy thumbnail fetch — cloud entries ship without inline thumbnails
+		// (fields=list keeps the board payload small); visible cards pull the
+		// real screenshot from /api/tracks/:id/thumb and swap it in.
+		const thumbUrlCache = new Map();
+		const thumbObserver = new IntersectionObserver( ( items ) => {
+			for ( const item of items ) {
+				if ( ! item.isIntersecting ) continue;
+				thumbObserver.unobserve( item.target );
+				const id = item.target.dataset.thumbId;
+				if ( ! id ) continue;
+				( async () => {
+					try {
+						let url = thumbUrlCache.get( id );
+						if ( ! url ) {
+							const res = await fetch( `${ API_BASE }/${ id }/thumb`, { cache: 'force-cache' } );
+							if ( ! res.ok ) throw new Error( 'no thumbnail' );
+							url = URL.createObjectURL( await res.blob() );
+							thumbUrlCache.set( id, url );
+						}
+						const img = document.createElement( 'img' );
+						img.className = 'preview-canvas';
+						img.alt = 'Track thumbnail';
+						img.src = url;
+						item.target.replaceWith( img );
+					} catch ( e ) {
+						// Old worker or missing thumbnail: the canvas preview
+						// already rendered underneath — nothing to do.
+					}
+				} )();
+			}
+		}, { rootMargin: '300px' } );
+
 		// Lazy canvas preview — only draw when scrolled into view
 		const previewObserver = new IntersectionObserver( ( entries ) => {
 			for ( const entry of entries ) {
@@ -972,9 +1055,13 @@
 			const stats = getTrackStats( entry );
 			const card = document.createElement( 'div' );
 			card.className = `card${ options.featured ? ' featured' : '' }`;
+			const creatorName = getEntryCreator( entry );
+			const anonCreator = isAnonCreator( entry );
+			const authorChip = anonCreator
+				? `<span class="author-chip anon" title="Anonymous creator">Anonymous</span>`
+				: `<button type="button" class="author-chip" data-author="${ escapeHtml( creatorName ) }" title="View ${ escapeHtml( creatorName ) }'s tracks">by <span class="author-name">${ escapeHtml( creatorName ) }</span></button>`;
 			card.innerHTML = `<h3>${ entry.name }</h3>
 				<div class="badges">
-					<span class="badge creator-badge" title="Track creator">by ${ escapeHtml( getEntryCreator( entry ) ) }</span>
 					<span class="badge">▶ ${ stats.plays } plays</span>
 					<span class="badge">👍 ${ stats.likes }</span>
 					<span class="badge">🏁 ${ stats.sizeTag }</span>
@@ -988,6 +1075,10 @@
 					<div class="stat"><span>Rating</span><b>${ stats.likes } 👍 / ${ stats.dislikes } 👎</b></div>
 				</div>
 				<div class="meta">${ entry.description ? entry.description : 'No description.' }</div>
+				<div class="row card-author-row">
+					${ authorChip }
+					<button type="button" class="copy-btn" data-copy-url="${ escapeHtml( entry.playUrl ) }" title="Copy a direct link to this track">🔗 <span class="copy-label">Copy Link</span></button>
+				</div>
 				<div class="row" style="margin-top:0">
 					<a class="linkbtn play-map-btn" href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play</a>
 					<button data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
@@ -1000,6 +1091,13 @@
 				previewCanvas.dataset.mods = JSON.stringify( stats.previewData?.mods || {} );
 				previewCanvas.dataset.playUrl = entry.playUrl;
 				previewObserver.observe( previewCanvas );
+				// Cloud entries arrive thumbnail-free (fields=list) for a fast
+				// first paint; the real screenshot is fetched lazily when the
+				// card scrolls into view and swapped in once it loads.
+				if ( useRemoteBoard && entry.hasThumbnail ) {
+					previewCanvas.dataset.thumbId = entry.id;
+					thumbObserver.observe( previewCanvas );
+				}
 			}
 			return card;
 		}
@@ -1014,6 +1112,25 @@
 			const frag = document.createDocumentFragment();
 			items.forEach( ( entry ) => frag.appendChild( createTrackCard( entry, options ) ) );
 			container.appendChild( frag );
+			scheduleAuthorRowCheck();
+		}
+
+		// Long usernames used to push the Copy Link button onto its own ugly
+		// second line inside cards — when the author row wraps, the copy
+		// button drops its label and becomes just the 🔗 emoji.
+		let authorRowCheckQueued = false;
+		function scheduleAuthorRowCheck() {
+			if ( authorRowCheckQueued ) return;
+			authorRowCheckQueued = true;
+			requestAnimationFrame( () => {
+				authorRowCheckQueued = false;
+				document.querySelectorAll( '.card-author-row' ).forEach( ( row ) => {
+					const chip = row.querySelector( '.author-chip' );
+					const copy = row.querySelector( '.copy-btn' );
+					if ( ! chip || ! copy ) return;
+					row.classList.toggle( 'icon-only', copy.offsetTop > chip.offsetTop + 4 );
+				} );
+			} );
 		}
 
 		function renderHighlights() {
@@ -1026,15 +1143,35 @@
 				.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )[ 0 ] || newestFirst[ 0 ];
 			const trending = [ ...entries ]
 				.sort( ( a, b ) => ( ( Number( b.viewCount ) || 0 ) * 2 + ( Number( b.thumbsUp ) || 0 ) + ( Number( b.createdAt ) >= weekAgo ? 5 : 0 ) ) - ( ( Number( a.viewCount ) || 0 ) * 2 + ( Number( a.thumbsUp ) || 0 ) + ( Number( a.createdAt ) >= weekAgo ? 5 : 0 ) ) )
-				.slice( 0, 6 );
-			const newWeek = newestFirst.filter( ( entry ) => Number( entry?.createdAt ) >= weekAgo ).slice( 0, 6 );
-			const topRated = [ ...entries ].sort( ( a, b ) => ( Number( b.thumbsUp ) || 0 ) - ( Number( a.thumbsUp ) || 0 ) || ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) ).slice( 0, 6 );
-			const fastest = [ ...entries ].filter( ( entry ) => getTrackStats( entry ).bestTime < Infinity ).sort( ( a, b ) => getTrackStats( a ).bestTime - getTrackStats( b ).bestTime ).slice( 0, 6 );
+				.slice( 0, RAIL_MAX );
+			const newWeek = newestFirst.filter( ( entry ) => Number( entry?.createdAt ) >= weekAgo ).slice( 0, RAIL_MAX );
 			renderTrackList( featuredTrack, featured ? [ featured ] : [], 'No tracks have been published yet.', { featured: true } );
-			renderTrackList( trendingList, trending, 'Play counts will surface trending tracks once people start racing.' );
-			renderTrackList( newWeekList, newWeek, 'No new tracks were published in the past 7 days.' );
-			renderTrackList( topRatedList, topRated, 'Likes and plays will determine top rated tracks.' );
-			renderTrackList( fastestRecordsList, fastest, 'No best times are available yet.' );
+			renderRail( trendingList, trending, 'section-trending', 'Play counts will surface trending tracks once people start racing.' );
+			renderRail( newWeekList, newWeek, 'section-new-week', 'No new tracks were published in the past 7 days.' );
+		}
+
+		// Horizontal section rails: 4 cards up front, "Show more" fills the
+		// same single scrollable row with up to RAIL_MAX — never extra rows.
+		const RAIL_PREVIEW_COUNT = 4;
+		const RAIL_MAX = 20;
+		const expandedRails = new Set();
+		function renderRail( container, items, sectionId, emptyText ) {
+			if ( ! container ) return;
+			const expanded = expandedRails.has( sectionId );
+			const shown = items.slice( 0, expanded ? RAIL_MAX : RAIL_PREVIEW_COUNT );
+			container.classList.toggle( 'expanded', expanded );
+			renderTrackList( container, shown, emptyText );
+			const expandBtn = document.querySelector( `[data-rail-expand="${ sectionId }"]` );
+			if ( expandBtn ) {
+				const more = Math.min( items.length, RAIL_MAX ) - RAIL_PREVIEW_COUNT;
+				expandBtn.hidden = expanded || more <= 0;
+				if ( more > 0 ) expandBtn.textContent = `Show ${ more } more →`;
+			}
+			requestAnimationFrame( () => {
+				document.querySelectorAll( `[data-rail-scroll][data-for="${ sectionId }"]` ).forEach( ( btn ) => {
+					btn.hidden = container.scrollWidth <= container.clientWidth + 20;
+				} );
+			} );
 		}
 
 		function inferTrackSize( entry ) {
@@ -1071,10 +1208,65 @@
 			return [ ...filtered ].sort( ( a, b ) => ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) );
 		}
 
-		function buildPlayUrl( baseUrl, ghostPayload ) {
-			const ghostBlob = encodeBase64UrlJson( ghostPayload );
+		async function buildPlayUrl( baseUrl, ghostPayload ) {
+			// Compact "g2" blob (js/GhostCodec.js); legacy JSON fallback.
+			let ghostBlob = '';
+			try {
+
+				const GhostCodec = await import( './js/GhostCodec.js' );
+				ghostBlob = GhostCodec.encodeGhostBinary( ghostPayload ) || '';
+
+			} catch ( e ) {
+
+				console.warn( 'Ghost codec unavailable, falling back to JSON ghost blob', e );
+
+			}
+			if ( ! ghostBlob ) ghostBlob = encodeBase64UrlJson( ghostPayload );
 			const separator = baseUrl.includes( '#' ) ? '&' : '#';
 			return `${ baseUrl }${ separator }ghost=${ ghostBlob }`;
+		}
+
+		function clearLibraryPager() {
+			for ( const el of [ libraryPager, libraryPagerTop ] ) if ( el ) el.innerHTML = '';
+		}
+
+		function buildLibraryPagerHtml( total, pageCount, shown ) {
+			const start = libraryPage * PAGE_SIZE;
+			if ( pageCount <= 1 ) {
+				return total > 0 ? `<span class="pager-info">Showing ${ start + 1 }–${ start + shown } of ${ total } track${ total === 1 ? '' : 's' }</span>` : '';
+			}
+			const windowStart = Math.max( 0, Math.min( libraryPage - 2, pageCount - 5 ) );
+			const windowEnd = Math.min( pageCount, windowStart + 5 );
+			let html = `<button type="button" data-page="0"${ libraryPage === 0 ? ' disabled' : '' }>« First</button>
+				<button type="button" data-page="${ libraryPage - 1 }"${ libraryPage === 0 ? ' disabled' : '' }>‹ Prev</button>`;
+			for ( let p = windowStart; p < windowEnd; p ++ ) {
+				html += `<button type="button" data-page="${ p }"${ p === libraryPage ? ' class="active"' : '' }>${ p + 1 }</button>`;
+			}
+			html += `<button type="button" data-page="${ libraryPage + 1 }"${ libraryPage >= pageCount - 1 ? ' disabled' : '' }>Next ›</button>
+				<button type="button" data-page="${ pageCount - 1 }"${ libraryPage >= pageCount - 1 ? ' disabled' : '' }>Last »</button>
+				<span class="pager-info">Showing ${ start + 1 }–${ start + shown } of ${ total } track${ total === 1 ? '' : 's' }</span>`;
+			return html;
+		}
+
+		function renderLibraryPager( total, pageCount, shown ) {
+			const html = buildLibraryPagerHtml( total, pageCount, shown );
+			for ( const el of [ libraryPager, libraryPagerTop ] ) if ( el ) el.innerHTML = html;
+		}
+
+		// Renders the current PAGE_SIZE slice of the list into the grid plus the
+		// pager — the full library no longer builds hundreds of cards at once.
+		function renderGridPaged( filtered ) {
+			const total = filtered.length;
+			const pageCount = Math.max( 1, Math.ceil( total / PAGE_SIZE ) );
+			if ( libraryPage >= pageCount ) libraryPage = pageCount - 1;
+			if ( libraryPage < 0 ) libraryPage = 0;
+			const start = libraryPage * PAGE_SIZE;
+			const slice = filtered.slice( start, start + PAGE_SIZE );
+			const frag = document.createDocumentFragment();
+			for ( const entry of slice ) frag.appendChild( createTrackCard( entry ) );
+			grid.appendChild( frag );
+			renderLibraryPager( total, pageCount, slice.length );
+			scheduleAuthorRowCheck();
 		}
 
 		function render() {
@@ -1100,14 +1292,11 @@
 				const filtered = getFilteredEntries();
 				if ( filtered.length === 0 ) {
 					grid.innerHTML = '<div class="card"><h3>No matches</h3><div class="meta">Try a different search or size filter.</div></div>';
+					clearLibraryPager();
 					return;
 				}
 
-				const searchFrag = document.createDocumentFragment();
-				for ( const entry of filtered ) {
-					searchFrag.appendChild( createTrackCard( entry ) );
-				}
-				grid.appendChild( searchFrag );
+				renderGridPaged( filtered );
 				return;
 			}
 
@@ -1133,25 +1322,37 @@
 				grid.innerHTML = hasAny
 					? '<div class="card"><h3>No matches</h3><div class="meta">Try a different search or size filter.</div></div>'
 					: '<div class="card"><h3>No uploads yet</h3><div class="meta">Add a ghost code to get started.</div></div>';
+				clearLibraryPager();
 				return;
 			}
 
-			const gridFrag = document.createDocumentFragment();
-			for ( const entry of filtered ) {
-				gridFrag.appendChild( createTrackCard( entry ) );
-			}
-			grid.appendChild( gridFrag );
+			renderGridPaged( filtered );
 		}
 
 		async function addEntryFromGhostCode() {
 			const rawCode = ghostInput.value.trim();
 			if ( ! rawCode ) return setStatus( 'Paste a ghost code first.', true );
 
-			let parsed;
+			let parsed = null;
 			try {
-				parsed = decodeBase64UrlJson( rawCode );
+
+				// Accept v2 binary codes (js/GhostCodec.js) AND legacy v1 JSON.
+				const GhostCodec = await import( './js/GhostCodec.js' );
+				parsed = GhostCodec.decodeGhostCode( rawCode );
+
 			} catch ( e ) {
-				return setStatus( 'Could not decode ghost code.', true );
+
+				console.warn( 'Ghost code decode via codec failed, trying legacy JSON', e );
+
+			}
+			if ( ! parsed ) {
+
+				try {
+					parsed = decodeBase64UrlJson( rawCode );
+				} catch ( e ) {
+					return setStatus( 'Could not decode ghost code.', true );
+				}
+
 			}
 
 			if ( ! parsed?.url || ! parsed?.ghost?.samples || parsed.ghost.samples.length < 2 ) {
@@ -1160,7 +1361,7 @@
 
 			const name = ( nameInput.value || '' ).trim() || inferTrackName( parsed.url );
 			const description = ( descriptionInput.value || '' ).trim();
-			const playUrl = buildPlayUrl( parsed.url, parsed.ghost );
+			const playUrl = await buildPlayUrl( parsed.url, parsed.ghost );
 			const entryId = `${ Date.now() }:${ entries.length }`;
 			if ( useRemoteBoard ) {
 				bumpCampaignCounter( 'play-share-open', 1 );
@@ -1168,9 +1369,13 @@
 				setPublishModalStep( 'Uploading track…' );
 				showPublishModal();
 				try {
+					const GhostCodec = await import( './js/GhostCodec.js' );
+					// The deployed board worker validates the v1 ghost shape, so
+					// v2 codes are translated to v1 before POSTing.
+					const postCode = GhostCodec.ghostToLegacyV1Code( parsed.url, parsed.ghost ) || rawCode;
 					await apiRequest( '', {
 						method: 'POST',
-						body: JSON.stringify( { name, ghostCode: rawCode, creator: getBoardCreatorName(), description, thumbnailDataUrl: selectedThumbnailDataUrl } ),
+						body: JSON.stringify( { name, ghostCode: postCode, creator: getBoardCreatorName(), description, thumbnailDataUrl: selectedThumbnailDataUrl } ),
 					} );
 					setPublishModalStep( 'Refreshing the Track Share Board…' );
 					await loadFromRemote();
@@ -1339,10 +1544,67 @@
 			let searchDebounce = null;
 			searchInput.addEventListener( 'input', () => {
 				clearTimeout( searchDebounce );
-				searchDebounce = setTimeout( () => render(), 200 );
+				searchDebounce = setTimeout( () => { libraryPage = 0; render(); }, 200 );
 			} );
-			sizeFilter.addEventListener( 'change', () => render() );
-			sortFilter.addEventListener( 'change', () => render() );
+			sizeFilter.addEventListener( 'change', () => { libraryPage = 0; render(); } );
+			sortFilter.addEventListener( 'change', () => { libraryPage = 0; render(); } );
+			// Author chip / back / copy-link delegation. These buttons never
+			// carry data-id, so the vote/remove handler ignores them.
+			document.addEventListener( 'click', ( e ) => {
+				const chip = e.target.closest( '[data-author]' );
+				if ( chip ) {
+					window.location.href = `author.html?author=${ encodeURIComponent( chip.getAttribute( 'data-author' ) || '' ) }`;
+					return;
+				}
+				const recBtn = e.target.closest( '[data-records-toggle]' );
+				if ( recBtn ) {
+					const key = recBtn.getAttribute( 'data-records-toggle' );
+					recordsCollapsed[ key ] = ! recordsCollapsed[ key ];
+					renderRecordBoard();
+					return;
+				}
+				const railBtn = e.target.closest( '[data-rail-expand]' );
+				if ( railBtn ) {
+					expandedRails.add( railBtn.getAttribute( 'data-rail-expand' ) );
+					render();
+					return;
+				}
+				const scrollBtn = e.target.closest( '[data-rail-scroll]' );
+				if ( scrollBtn ) {
+					const list = document.getElementById( scrollBtn.getAttribute( 'data-for' ).replace( 'section-', '' ) + '-list' );
+					list?.scrollBy( { left: Number( scrollBtn.getAttribute( 'data-rail-scroll' ) ) * 620, behavior: 'smooth' } );
+					return;
+				}
+				const copyBtn = e.target.closest( '[data-copy-url]' );
+				if ( copyBtn ) {
+					const url = copyBtn.getAttribute( 'data-copy-url' ) || '';
+					if ( navigator.clipboard?.writeText ) {
+						navigator.clipboard.writeText( url )
+							.then( () => setStatus( 'Track link copied — share it anywhere!' ) )
+							.catch( () => setStatus( 'Copy failed. Use the Play link and copy it from the address bar.', true ) );
+					} else {
+						setStatus( 'Copy not supported here. Use the Play link instead.', true );
+					}
+				}
+			} );
+			const handleLibraryPagerClick = ( e ) => {
+				const btn = e.target.closest( 'button[data-page]' );
+				if ( ! btn || btn.disabled ) return;
+				const page = Number( btn.getAttribute( 'data-page' ) );
+				if ( ! Number.isInteger( page ) || page < 0 || page === libraryPage ) return;
+				libraryPage = page;
+				render();
+				const lib = document.getElementById( 'section-library' );
+				if ( lib ) window.scrollTo( { top: Math.max( 0, lib.getBoundingClientRect().top + window.scrollY - 12 ), behavior: 'instant' } );
+			};
+			libraryPager?.addEventListener( 'click', handleLibraryPagerClick );
+			libraryPagerTop?.addEventListener( 'click', handleLibraryPagerClick );
+			// Long usernames + narrow viewports: re-check author rows on resize.
+			let authorRowResizeDebounce = null;
+			window.addEventListener( 'resize', () => {
+				clearTimeout( authorRowResizeDebounce );
+				authorRowResizeDebounce = setTimeout( scheduleAuthorRowCheck, 120 );
+			} );
 			thumbnailInput.addEventListener( 'change', async () => {
 				const file = thumbnailInput.files?.[ 0 ];
 				if ( ! file ) {
@@ -1356,7 +1618,7 @@
 				};
 				reader.readAsDataURL( file );
 			} );
-			randomTrackBtn.addEventListener( 'click', () => {
+			const openRandomTrack = () => {
 				const filtered = getFilteredEntries();
 				if ( filtered.length === 0 ) {
 
@@ -1364,17 +1626,18 @@
 					return;
 
 				}
+
 				const pick = filtered[ Math.floor( Math.random() * filtered.length ) ];
 				window.open( pick.playUrl, '_blank', 'noopener,noreferrer' );
-			} );
+			};
+			randomTrackBtn.addEventListener( 'click', openRandomTrack );
+			randomTrackBtn2?.addEventListener( 'click', openRandomTrack );
 
 			// ─── Side rail: instant jump-to-section navigation ───
 			const BOARD_RAIL_SECTIONS = [
 				{ id: 'section-featured', label: 'Featured' },
 				{ id: 'section-trending', label: 'Trending' },
 				{ id: 'section-new-week', label: 'New This Week' },
-				{ id: 'section-top-rated', label: 'Top Rated' },
-				{ id: 'section-fastest', label: 'Fastest' },
 				{ id: 'section-records', label: 'Records' },
 				{ id: 'section-library', label: 'All Tracks' },
 			];
