@@ -331,6 +331,54 @@ export class Vehicle {
 
 	}
 
+	/**
+	 * Dynamic slope detection (pure math, node-testable).
+	 *
+	 * Given the four downward-ray ground samples taken at the chassis frame —
+	 * depths below the chassis center where each ray hit (all rays share the
+	 * same origin height), or null when that ray missed / was rejected —
+	 * reconstruct the ground normal in car space and decompose it into
+	 * pitch/roll that map DIRECTLY onto modelRoot.rotation.x/z.
+	 *
+	 * Physical convention (locked by test-slope-tilt.mjs, and confirmed by
+	 * live testing — the legacy grid-cell detection was inverted, which is
+	 * why its convention is NOT replicated here):
+	 *   climbing (surface rises along the car's forward axis) → nose UP
+	 *   surface rising toward the car's right → right side UP
+	 */
+	static computeSlopeTiltFromSamples( samples, halfLength = 1.1, halfWidth = 0.65, maxTilt = 1.0 ) {
+
+		const num = ( v ) => Number.isFinite( v ) ? v : null;
+		const forward = num( samples?.forward );
+		const backward = num( samples?.backward );
+		const left = num( samples?.left );
+		const right = num( samples?.right );
+
+		// Surface rise-over-run along the car's forward axis (from depth deltas).
+		let nx = 0, nz = 0;
+		if ( forward != null && backward != null ) {
+
+			nz = - ( backward - forward ) / ( 2 * halfLength );
+
+		}
+
+		if ( left != null && right != null ) {
+
+			nx = ( right - left ) / ( 2 * halfWidth );
+
+		}
+
+		if ( nx === 0 && nz === 0 ) return { pitch: 0, roll: 0 };
+
+		const inv = 1 / Math.hypot( nx, 1, nz );
+		const ny = inv;
+		return {
+			pitch: THREE.MathUtils.clamp( Math.atan2( nz * inv, ny ), - maxTilt, maxTilt ),
+			roll: THREE.MathUtils.clamp( Math.atan2( - nx * inv, ny ), - maxTilt, maxTilt ),
+		};
+
+	}
+
 	setSlopeVisualTilt( pitch = 0, roll = 0 ) {
 
 		this.slopeTiltPitch = Number.isFinite( pitch ) ? pitch : 0;
