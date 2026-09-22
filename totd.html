@@ -133,9 +133,9 @@
     if (mapParam) query.set('map', mapParam);
     if (modsParam) query.set('mods', modsParam);
     const rawUrl = `${pathname}${query.toString() ? `?${query.toString()}` : ''}`;
-    // Default track uses v5; custom tracks use v4. easy-v1 resets all boards.
+    // Default track (no map/mods) keeps the reset v5 id; others keep v4.
     const seedVersion = (mapParam || modsParam) ? 'v4' : 'v5';
-    return `easy-v1-trk-${hashTrackSeed(`${seedVersion}-url|${rawUrl}`)}`;
+    return `trk-${hashTrackSeed(`${seedVersion}-url|${rawUrl}`)}`;
   }
 
   function getTrackIds(playUrl) {
@@ -143,7 +143,7 @@
       const parsed = new URL(playUrl, window.location.href);
       const map = parsed.searchParams.get('map');
       const mods = parsed.searchParams.get('mods');
-      const normalizedPath = normalizeTrackPath(new URL('index.html', window.location.href).pathname);
+      const normalizedPath = normalizeTrackPath(parsed.pathname || '/');
       return [buildTrackId(normalizedPath, map, mods)];
     } catch {
       return [];

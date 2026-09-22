@@ -492,8 +492,6 @@ const PRECIP_DEFAULT = 'none';
 const INTENSITY_DEFAULT = 'medium';
 const WIND_DEFAULT = 'none';
 const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
-// Handling revision: separate records set under the earlier vehicle physics.
-const LEADERBOARD_ID_PREFIX = 'easy-v1-';
 const ACCOUNT_API_BASE = 'https://racing-account-api.ga1010.workers.dev/api/accounts';
 const TRACK_SHARE_API_ROOT = 'https://racing-track-board-api.ga1010.workers.dev';
 const TRACK_SHARE_API_PREFIXES = [ '/api', '' ];
@@ -3908,10 +3906,10 @@ function getTrackId( mapParamValue, extrasParamValue ) {
 	const normalizedPath = normalizeTrackPath( window.location.pathname );
 	const rawUrl = `${ normalizedPath }${ params.toString() ? `?${ params.toString() }` : '' }`;
 	// Only the DEFAULT track (no map, no mods) rides the v5 seed — its
-	// default track uses v5, custom tracks use v4; easy-v1 resets every board.
-	// Keep the version split for stable per-track IDs within this generation.
+	// leaderboard was intentionally reset. Every other track keeps the v4
+	// seed so its existing leaderboard id (and records) are untouched.
 	const trackIdSeedVersion = ( mapParamValue || extrasParamValue ) ? 'v4' : 'v5';
-	return `${ LEADERBOARD_ID_PREFIX }trk-${ hashTrackSeed( `${ trackIdSeedVersion }-url|${ rawUrl }` ) }`;
+	return `trk-${ hashTrackSeed( `${ trackIdSeedVersion }-url|${ rawUrl }` ) }`;
 
 }
 
