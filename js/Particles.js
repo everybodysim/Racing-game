@@ -182,3 +182,88 @@ export class SmokeTrails {
 	}
 
 }
+
+const SPLASH_PARTICLE_COLORS = [
+	new THREE.Color( 0xbfe8ff ),
+	new THREE.Color( 0x8fd4f7 ),
+	new THREE.Color( 0xe8f7ff ),
+];
+
+// Splash when a car dives into pool water: a burst of light-blue droplets
+// thrown up and outward, pulled down by gravity, fading as they fall.
+export class WaterSplashFX {
+
+	constructor( scene, options = {} ) {
+
+		this.scene = scene;
+		this.maxParticles = Math.max( 8, Math.floor( Number( options.maxParticles ) || 48 ) );
+		const map = new THREE.TextureLoader().load( 'sprites/smoke.png' );
+		this.baseMaterial = new THREE.SpriteMaterial( {
+			map,
+			transparent: true,
+			depthWrite: false,
+			opacity: 0.85,
+		} );
+		this.particles = [];
+		for ( let i = 0; i < this.maxParticles; i ++ ) {
+
+			const sprite = new THREE.Sprite( this.baseMaterial.clone() );
+			sprite.material.color.copy( SPLASH_PARTICLE_COLORS[ i % SPLASH_PARTICLE_COLORS.length ] );
+			sprite.visible = false;
+			this.scene.add( sprite );
+			this.particles.push( { sprite, life: 0, maxLife: 0, velocity: new THREE.Vector3(), gravity: 9 } );
+
+		}
+		this.emitIndex = 0;
+
+	}
+
+	// intensity 0..1 — gentle wading makes a small plop, a dive makes a proper splash.
+	burst( x, y, z, intensity = 1 ) {
+
+		const count = Math.floor( 8 + intensity * 22 );
+		for ( let i = 0; i < count; i ++ ) {
+
+			const particle = this.particles[ this.emitIndex ];
+			this.emitIndex = ( this.emitIndex + 1 ) % this.particles.length;
+			const angle = Math.random() * Math.PI * 2;
+			const horizontal = ( 0.9 + Math.random() * 1.6 ) * ( 0.55 + intensity * 0.9 );
+			particle.velocity.set(
+				Math.cos( angle ) * horizontal,
+				( 2.2 + Math.random() * 2.6 ) * ( 0.5 + intensity ),
+				Math.sin( angle ) * horizontal
+			);
+			particle.maxLife = 0.45 + Math.random() * 0.4;
+			particle.life = particle.maxLife;
+			particle.sprite.position.set( x + ( Math.random() - 0.5 ) * 0.3, y, z + ( Math.random() - 0.5 ) * 0.3 );
+			particle.sprite.scale.setScalar( 0.28 + Math.random() * 0.22 + intensity * 0.2 );
+			particle.sprite.material.opacity = 0.7 + intensity * 0.2;
+			particle.sprite.visible = true;
+
+		}
+
+	}
+
+	update( dt ) {
+
+		for ( const particle of this.particles ) {
+
+			if ( particle.life <= 0 ) continue;
+			particle.life -= dt;
+			if ( particle.life <= 0 ) {
+
+				particle.sprite.visible = false;
+				continue;
+
+			}
+			particle.velocity.y -= particle.gravity * dt;
+			particle.sprite.position.addScaledVector( particle.velocity, dt );
+			const t = particle.life / particle.maxLife;
+			particle.sprite.material.opacity = 0.8 * t;
+			particle.sprite.scale.multiplyScalar( 1 + dt * 0.9 );
+
+		}
+
+	}
+
+}

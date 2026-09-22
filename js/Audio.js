@@ -380,6 +380,45 @@ export class GameAudio {
 
 	}
 
+	// Procedural splash: filtered noise burst with a lowpass sweep — no sample
+	// file needed. intensity 0..1 scales loudness and brightness.
+	playSplash( intensity = 1 ) {
+
+		if ( ! this.listener ) return;
+		const ctx = this.listener.context;
+		if ( ! ctx ) return;
+		if ( ! this.splashNoiseBuffer ) {
+
+			const length = Math.floor( ctx.sampleRate * 1.0 );
+			const buffer = ctx.createBuffer( 1, length, ctx.sampleRate );
+			const data = buffer.getChannelData( 0 );
+			for ( let i = 0; i < length; i ++ ) data[ i ] = Math.random() * 2 - 1;
+			this.splashNoiseBuffer = buffer;
+
+		}
+		const now = ctx.currentTime;
+		const clampedIntensity = THREE.MathUtils.clamp( intensity, 0.15, 1 );
+		const src = ctx.createBufferSource();
+		src.buffer = this.splashNoiseBuffer;
+		src.playbackRate.value = 0.9 + Math.random() * 0.2;
+		const filter = ctx.createBiquadFilter();
+		filter.type = 'lowpass';
+		filter.frequency.setValueAtTime( 1200 + clampedIntensity * 1800, now );
+		filter.frequency.exponentialRampToValueAtTime( 320, now + 0.45 );
+		filter.Q.value = 0.7;
+		const gain = ctx.createGain();
+		const peak = ( 0.18 + clampedIntensity * 0.45 ) * this.settings.sfxVolume;
+		gain.gain.setValueAtTime( 0.0001, now );
+		gain.gain.linearRampToValueAtTime( peak, now + 0.015 );
+		gain.gain.exponentialRampToValueAtTime( 0.0001, now + 0.55 );
+		src.connect( filter );
+		filter.connect( gain );
+		gain.connect( this.listener.getInput() );
+		src.start( now );
+		src.stop( now + 0.6 );
+
+	}
+
 	update( dt, speed, throttle, driftIntensity ) {
 
 		if ( ! this.ready ) return;

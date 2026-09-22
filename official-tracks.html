@@ -149,7 +149,8 @@ function getTrackIdFromPlayUrl( playUrl ) {
 		query.set( 'map', map );
 		if ( mods ) query.set( 'mods', mods );
 		const rawUrl = `${ normalizedPath }?${ query.toString() }`;
-		return `trk-${ hashTrackSeed( `v5-url|${ rawUrl }` ) }`;
+		// Official tracks always carry a map param → v4 keeps existing ids.
+		return `trk-${ hashTrackSeed( `v4-url|${ rawUrl }` ) }`;
 	} catch ( e ) {
 		return '';
 	}
