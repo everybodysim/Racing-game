@@ -18,6 +18,7 @@
 //   then lap 2. Legacy pre-v6 scripts keep their instant-start behavior.
 
 import { contacts } from 'crashcat';
+import * as THREE from 'three';
 
 const TAS_STEP_HZ = 60;
 
@@ -47,6 +48,9 @@ export function activate( ctx ) {
 		runPointer: 0,
 		runLaps: 1,
 		lastRunText: '',
+		targetMode: false,        // brute/run goal: 'time' (false) | 'target' (true)
+		target: null,             // { x, z } world center of the target zone
+		targetPlacing: false,
 		overlayTick: 0,
 		playback: { lap1CrossStep: null, totalSteps: null, time: null },
 		paused: false,
@@ -74,6 +78,9 @@ export function activate( ctx ) {
 			paused: state.paused,
 			probeErr: state.probeErr || null,
 			isLoop: ctx.isLoop,
+			targetMode: state.targetMode,
+			target: state.target ? { ...state.target } : null,
+			targetPlacing: state.targetPlacing,
 			pos: [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ],
 			vel: mp ? [ ...mp.linearVelocity ] : [ 0, 0, 0 ],
 			yaw: ctx.vehicle.container.rotation.y,
@@ -111,8 +118,8 @@ export function activate( ctx ) {
 	};
 
 	// ── UI wipe: nothing except what TAS uses stays in the viewport ─────
-	const KEEP_SELECTOR = '#loading-screen, #countdown-hud, #export-ghost-btn, #import-ghost-btn, #tas-overlay, #replay-topbar';
-	const KEEP_IDS = new Set( [ 'loading-screen', 'countdown-hud', 'export-ghost-btn', 'import-ghost-btn', 'tas-overlay', 'replay-topbar' ] );
+	const KEEP_SELECTOR = '#loading-screen, #countdown-hud, #export-ghost-btn, #import-ghost-btn, #tas-overlay, #replay-topbar, #tas-keys';
+	const KEEP_IDS = new Set( [ 'loading-screen', 'countdown-hud', 'export-ghost-btn', 'import-ghost-btn', 'tas-overlay', 'replay-topbar', 'tas-keys' ] );
 	const hideStyle = document.createElement( 'style' );
 	hideStyle.textContent = '.tas-hide { display: none !important; }';
 	document.head.appendChild( hideStyle );
@@ -218,6 +225,34 @@ export function activate( ctx ) {
 		const lap1 = state.lapBuffers[ 0 ] || [];
 		for ( const entry of lap1 ) lines.push( `step ${ entry.step } x=${ fmt( entry.x ) } z=${ fmt( entry.z ) }` );
 		if ( ctx.isLoop ) {
+
+			lines.push( 'cross' );
+			for ( const entry of state.lapBuffers[ 1 ] || [] ) lines.push( `step ${ entry.step } x=${ fmt( entry.x ) } z=${ fmt( entry.z ) }` );
+
+		}
+		lines.push( 'end' );
+		return lines.join( '\n' );
+
+	}
+
+	// Unfinished-run grab (verify-a-hard-track workflow): exactly what has
+	// been recorded SO FAR. Unlike buildScript() it never synthesizes a
+	// 'cross' line — on a loop track mid-lap-1 the crossing hasn't happened,
+	// so the export is lap 1 only and says so honestly.
+	function buildPartialScript() {
+
+		const lines = [ '# Skid Circuit TAS v11', `track: ${ ctx.trackId }`, 'mode: run' ];
+		if ( ctx.isLoop && state.lapsCompleted >= 1 && state.crossState ) {
+
+			lines.push( `state: pos ${ state.crossState.pos.map( fmt ).join( ' ' ) }` );
+			lines.push( `state: vel ${ state.crossState.vel.map( fmt ).join( ' ' ) }` );
+			lines.push( `state: angvel ${ state.crossState.angvel.map( fmt ).join( ' ' ) }` );
+			lines.push( `state: rot ${ state.crossState.rot.map( fmt ).join( ' ' ) }` );
+			if ( state.crossState.game ) lines.push( `state: game ${ JSON.stringify( state.crossState.game ) }` );
+
+		}
+		for ( const entry of state.lapBuffers[ 0 ] || [] ) lines.push( `step ${ entry.step } x=${ fmt( entry.x ) } z=${ fmt( entry.z ) }` );
+		if ( ctx.isLoop && state.lapsCompleted >= 1 && state.crossState ) {
 
 			lines.push( 'cross' );
 			for ( const entry of state.lapBuffers[ 1 ] || [] ) lines.push( `step ${ entry.step } x=${ fmt( entry.x ) } z=${ fmt( entry.z ) }` );
@@ -340,6 +375,20 @@ export function activate( ctx ) {
 
 		state.overlayTick ++;
 
+		// In-game arrow-key display: show the EFFECTIVE input — the pad
+		// while recording (fingers on keys during the countdown too), the
+		// scripted values while replaying, nothing once the run is done.
+		// Skipped during fast-forward bursts: hundreds of raw steps per
+		// frame would just thrash the DOM for one invisible flicker.
+		if ( ctx.fns.updateTasKeys && ! state.fastForward ) {
+
+			let display = input;
+			if ( state.phase === 'done' ) display = zeroInput();
+			else if ( state.phase === 'run' ) display = state.started ? scriptInputAt( state.stepIndex ) : zeroInput();
+			ctx.fns.updateTasKeys( display );
+
+		}
+
 		if ( state.phase === 'record' ) {
 
 			if ( ! state.started ) {
@@ -383,6 +432,35 @@ export function activate( ctx ) {
 				}
 				state.started = true;
 				state.stepIndex = 0;
+
+			}
+			// Target-goal runs: reaching the zone IS the goal — the run
+			// ends there (same "done" freeze a finish crossing produces).
+			if ( state.started && state.targetMode && targetHit() ) {
+
+				state.phase = 'done';
+				ctx.tasBeginNextLap();
+				post( 'tas-run-complete', { reachedTarget: true, stepCount: state.stepIndex } );
+				updateOverlay();
+				return zeroInput();
+
+			}
+			// Unfinished (imported partial) run: the calc learned no finish
+			// crossing ever comes. End playback at the SAME bound the calc
+			// broke at — last input + 10s coast — instead of driving off
+			// forever on the held last input.
+			if ( state.started && state.playback.unfinished ) {
+
+				const es = state.runEntries;
+				if ( es && es.length && state.stepIndex > es[ es.length - 1 ].step + 60 * 10 ) {
+
+					state.phase = 'done';
+					ctx.tasBeginNextLap();
+					post( 'tas-run-complete', { unfinished: true, stepCount: state.stepIndex } );
+					updateOverlay();
+					return zeroInput();
+
+				}
 
 			}
 			const scripted = scriptInputAt( state.stepIndex );
@@ -534,6 +612,14 @@ export function activate( ctx ) {
 	// ── Lap cross hook (replaces the normal lap-transition block in TAS) ──
 	function onLapComplete( crossT = 1 ) {
 
+		// Post-run crossings are always junk: after a run (or a brute-force
+		// pass) finishes, the car can still drift through the finish plane
+		// with residual velocity — the per-frame detector fires it, the
+		// 'done' phase skips the run branch below, and the RECORD path
+		// used to take it: a bugged "Lap complete — use this run?" popup
+		// with the half-finished junk state. Once done, crossings die here.
+		if ( state.phase === 'done' ) return;
+
 		// Sub-step precision: the finish plane is crossed PARTWAY through the
 		// final step (crossT = interpolation fraction between the last two
 		// samples). The raw sim clock only advances in 1/60s quanta, so the
@@ -569,7 +655,7 @@ export function activate( ctx ) {
 			const stepCount = state.stepIndex;
 			state.phase = 'done';
 			ctx.tasBeginNextLap();
-			if ( state.brute ) state.bruteResult = lapSeconds;
+			if ( state.brute && ! state.targetMode ) state.bruteResult = lapSeconds; // target mode scores ZONE REACHES, not finishes
 			else if ( state.calc ) state.playback.totalSteps = globalStep(), state.playback.time = round6( lapSeconds );
 			else post( 'tas-run-complete', { lapSeconds: round6( lapSeconds ), stepCount } );
 			updateOverlay();
@@ -611,6 +697,77 @@ export function activate( ctx ) {
 
 	function round6( n ) { return Number( n.toFixed( 6 ) ); }
 
+	// ── Brute target zone ("Goal: reach target area") ───────────────────
+	// A tall transparent cylinder anywhere on the map (no grid snap — the
+	// pick is a camera raycast against whatever you clicked, sky clicks
+	// fall back to the y=0 ground plane). The car's hitbox entering the
+	// cylinder counts as SUCCESS for brute runs and ends replay runs.
+	const TARGET_RADIUS = 3, TARGET_SLACK = 1, TARGET_HEIGHT = 60; // tall: ground level through elevated decks
+	const targetGeo = new THREE.CylinderGeometry( TARGET_RADIUS, TARGET_RADIUS, TARGET_HEIGHT, 32 );
+	const mkTargetMat = ( op ) => new THREE.MeshBasicMaterial( { color: 0x3fb950, transparent: true, opacity: op, depthWrite: false, side: THREE.DoubleSide } );
+	const targetMesh = new THREE.Mesh( targetGeo, mkTargetMat( 0.25 ) );
+	const ghostMesh = new THREE.Mesh( targetGeo, mkTargetMat( 0.10 ) );
+	for ( const m of [ targetMesh, ghostMesh ] ) {
+
+		m.position.y = TARGET_HEIGHT / 2;
+		m.visible = false;
+		m.userData.tasTarget = true;
+		m.raycast = () => {}; // never block its own placement pick
+
+	}
+	if ( ctx.fns.getScene ) ctx.fns.getScene().add( targetMesh, ghostMesh );
+
+	function setPlacing( on ) {
+
+		state.targetPlacing = on;
+		const canvas = ctx.fns.getCanvas && ctx.fns.getCanvas();
+		if ( canvas ) canvas.style.cursor = on ? 'crosshair' : '';
+		ghostMesh.visible = false; // re-shown on the next mousemove
+
+	}
+
+	function targetHit() {
+
+		if ( ! state.target ) return false;
+		const p = ctx.vehicle.spherePos;
+		const dx = p.x - state.target.x, dz = p.z - state.target.z;
+		const r = TARGET_RADIUS + TARGET_SLACK;
+		return dx * dx + dz * dz <= r * r;
+
+	}
+
+	window.addEventListener( 'mousemove', ( e ) => {
+
+		if ( ! state.targetPlacing ) return;
+		const p = ctx.fns.pickWorldPoint && ctx.fns.pickWorldPoint( e.clientX, e.clientY );
+		if ( p ) { ghostMesh.position.set( p.x, TARGET_HEIGHT / 2, p.z ); ghostMesh.visible = true; }
+
+	} );
+	window.addEventListener( 'click', ( e ) => {
+
+		if ( ! state.targetPlacing ) return;
+		const canvas = ctx.fns.getCanvas && ctx.fns.getCanvas();
+		if ( canvas && e.target !== canvas ) return; // overlay clicks don't place
+		const p = ctx.fns.pickWorldPoint && ctx.fns.pickWorldPoint( e.clientX, e.clientY );
+		if ( ! p ) return;
+		state.target = { x: p.x, z: p.z };
+		targetMesh.position.set( p.x, TARGET_HEIGHT / 2, p.z );
+		targetMesh.visible = true;
+		setPlacing( false );
+		post( 'tas-target-placed', { x: p.x, z: p.z } );
+
+	} );
+	window.addEventListener( 'keydown', ( e ) => {
+
+		if ( state.targetPlacing && e.code === 'Escape' ) {
+
+			setPlacing( false );
+			post( 'tas-target-canceled', {} );
+
+		}
+
+	} );
+
 	// ── Parent commands + R restart ─────────────────────────────────────
 	function resetState( phase ) {
 
@@ -642,7 +799,7 @@ export function activate( ctx ) {
 
 	}
 
-	function run( text, startAtLap2 ) {
+	function run( text, startAtLap2, goal ) {
 
 		const script = parseScript( text );
 		if ( script.errors.length ) {
@@ -651,6 +808,9 @@ export function activate( ctx ) {
 			return;
 
 		}
+		// Goal for this run: 'target' only counts with a placed zone;
+		// everything else behaves exactly like a normal time run.
+		state.targetMode = goal === 'target' && !! state.target;
 		state.lastRunText = text;
 		state.lastPlayLap1 = !! startAtLap2;
 		state.playback = { lap1CrossStep: null, totalSteps: null, time: null };
@@ -684,6 +844,35 @@ export function activate( ctx ) {
 
 					ctx.fns.stepOnce();
 					if ( state.phase === 'run' ) probeLapCross();
+					// Target-goal: the calc stops at the zone — the reach
+					// step is the run's total; playback ends at the same
+					// step via the step() check.
+					if ( state.phase === 'run' && state.targetMode && targetHit() ) {
+
+						state.playback.totalSteps = globalStep();
+						break;
+
+					}
+					// Unfinished runs (imported partial attempts): the
+					// inputs run out long before any finish exists. Keep
+					// simulating only a 10s coast window past the last
+					// input (a coasting finish still counts), then stop
+					// burning burst steps and pin the slider bounds to
+					// where the timeline actually ends — a null bound
+					// meant slider max 0 and seeks that never fired.
+					if ( state.phase === 'run' && state.started ) {
+
+						const es = state.runEntries;
+						const last = es && es.length ? es[ es.length - 1 ].step : null;
+						if ( last != null && state.stepIndex > last + 60 * 10 ) {
+
+							state.playback.totalSteps = globalStep();
+							state.playback.unfinished = true;
+							break;
+
+						}
+
+					}
 
 				}
 
@@ -699,6 +888,7 @@ export function activate( ctx ) {
 
 		}
 		const l1c = state.playback.lap1CrossStep;
+		if ( startAtLap2 && l1c == null ) startAtLap2 = false; // no crossing learned — nothing to skip to
 		if ( startAtLap2 && script.lap2.length ) {
 
 			// Skip mode: the calc above learned the run's shape (crossing
@@ -807,6 +997,13 @@ export function activate( ctx ) {
 
 					ctx.fns.stepOnce();
 					if ( state.phase === 'run' ) probeLapCross();
+					// Non-loop runs (and loop runs whose calc never found a
+					// crossing) have NO lap-1 boundary to burst toward — the
+					// target IS the position. Without this break the burst
+					// ran the ENTIRE lap, "arriving" instantly at the finish
+					// so the run zoomed past instead of playing (user bug:
+					// non-loop runs unwatchable, checkbox irrelevant).
+					if ( l1c == null && state.started && state.stepIndex >= target ) break;
 
 				}
 				const local = l1c == null ? target : target - l1c;
@@ -960,40 +1157,115 @@ post( 'tas-paused', { paused: state.paused } );
 
 	}
 
-	// Full-run quick simulation: one synchronous burst, no rendering. Returns
-	// the timed lap's seconds, or Infinity when the candidate never finishes.
-	function bruteEvaluate( script ) {
+	// Quick simulation of one candidate, no rendering. Returns the timed
+	// lap's seconds, or Infinity when the candidate never finishes.
+	//
+	// SAVE-STATE FAST PATH (loop tracks with a recorded crossing state):
+	// mutations only ever touch the TIMED lap's entries, so every
+	// candidate's lap 1 is byte-identical — re-simulating the countdown and
+	// lap 1 for each candidate is pure waste. Instead restore the recorded
+	// line-crossing state directly (the exact call sequence the real
+	// crossing runs: applyCrossState -> resetCarPhysicsHistory -> entries
+	// swap -> tasBeginNextLap) and burst ONLY the timed lap. This is the
+	// TMInterface-style save-state model: restore, simulate forward,
+	// measure.
+	//
+	// PRUNING: only strictly-faster finishes are ever adopted, so once a
+	// candidate's timed-lap clock has passed the current best time it
+	// mathematically cannot win — abort immediately instead of grinding to
+	// the burst cap (a wall-slammer used to burn its whole 30s-slack
+	// budget before giving up). The +2-step margin is strictly safe: the
+	// best a candidate can do from S elapsed steps is (S-1)/60 seconds
+	// (sub-step crossing credit is < 1/60), so past bestTime*60+2 steps it
+	// can never reach bestTime.
+	function bruteEvaluate( script, pruneTime = Infinity, fast = false ) {
 
 		state.bruteResult = null;
-		resetState( 'run' );
-		state.runScript = script;
-		state.stepIndex = 0;
-		ctx.fns.respawnVehicle();
-		resetCarPhysicsHistory();
-		state.runEntries = script.lap1;
-		state.runLaps = script.lap2.length ? 2 : ( ctx.isLoop && script.mode === 'run' && ! script.crossState ? 2 : 1 );
-		state.started = false;
-		ctx.fns.startCountdown();
-		state.fastForward = true;
-		let burst = 0;
-		// The cap must cover the countdown PLUS the full duration of EVERY
-		// lap: the crossing step is far past the last input-change step, so
-		// budgeting off entry steps starved lap 2 and every candidate DNF'd.
 		const l1Last = script.lap1.length ? script.lap1[ script.lap1.length - 1 ].step : 0;
 		const l2Last = script.lap2.length ? script.lap2[ script.lap2.length - 1 ].step : 0;
-		const burstCap = 60 * 5 + ( l1Last + 60 * 30 ) + ( script.lap2.length ? l2Last + 60 * 30 : 0 );
+		let burstCap;
+		let timedStart; // lapsCompleted value once the car is IN the timed lap
+		if ( fast && script.crossState && script.crossState.pos && script.crossState.vel && script.lap2.length ) {
+
+			resetState( 'run' );
+			state.runScript = script;
+			state.skipMode = true;
+			state.lapsCompleted = 1;
+			applyCrossState( script.crossState );
+			resetCarPhysicsHistory();
+			state.runEntries = script.lap2;
+			state.runPointer = 0;
+			state.runLaps = 1; // the finish crossing of the timed lap IS the done state
+			state.stepIndex = 0;
+			state.started = true;
+			ctx.tasBeginNextLap();
+			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+			timedStart = 1;
+			burstCap = l2Last + 60 * 30; // timed-lap inputs + the same 30s finish slack
+
+		} else {
+
+			resetState( 'run' );
+			state.runScript = script;
+			state.stepIndex = 0;
+			ctx.fns.respawnVehicle();
+			resetCarPhysicsHistory();
+			state.runEntries = script.lap1;
+			state.runLaps = script.lap2.length ? 2 : ( ctx.isLoop && script.mode === 'run' && ! script.crossState ? 2 : 1 );
+			state.started = false;
+			ctx.fns.startCountdown();
+			timedStart = script.lap2.length ? 1 : 0;
+			// The cap must cover the countdown PLUS the full duration of EVERY
+			// lap: the crossing step is far past the last input-change step, so
+			// budgeting off entry steps starved lap 2 and every candidate DNF'd.
+			burstCap = 60 * 5 + ( l1Last + 60 * 30 ) + ( script.lap2.length ? l2Last + 60 * 30 : 0 );
+
+		}
+		state.fastForward = true;
+		// Target mode prunes in global steps against the current best
+		// reach (pruneTime IS a step count there); time mode prunes in
+		// lap-local steps past bestTime's 60Hz equivalent.
+		const pruneSteps = Number.isFinite( pruneTime )
+			? ( state.targetMode ? Math.floor( pruneTime ) + 1 : pruneTime * 60 + 2 )
+			: Infinity;
+		let burst = 0;
 		try {
 
 			while ( state.phase === 'run' && burst ++ < burstCap ) {
 
 				ctx.fns.stepOnce();
 				if ( state.phase === 'run' ) probeLapCross();
+				// Target-goal scoring: the FIRST step whose car position is
+				// inside the zone is the candidate's score (lower = better
+				// = "use the fastest run" among the successes).
+				if ( state.phase === 'run' && state.targetMode && targetHit() ) {
+
+					state.bruteResult = globalStep();
+					break;
+
+				}
+				if ( state.phase === 'run' && state.lapsCompleted >= timedStart
+					&& ( state.targetMode ? globalStep() : state.stepIndex ) > pruneSteps ) break;
 
 			}
 
 		} catch ( e ) { /* DNF */ }
 		state.fastForward = false;
 		return state.bruteResult === null ? Infinity : state.bruteResult;
+
+	}
+
+	// End-of-brute viewport reset: the last burst leaves the car mid-track
+	// (often near/past the finish) with residual velocity, still in 'run'
+	// phase on the DNF path — it kept drifting, sometimes crossing the
+	// finish again. Park the car at the start line, idle and done.
+	function bruteCleanup() {
+
+		resetState( 'done' );
+		ctx.fns.respawnVehicle();
+		resetCarPhysicsHistory();
+		if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+		updateOverlay();
 
 	}
 
@@ -1011,15 +1283,41 @@ post( 'tas-paused', { paused: state.paused } );
 		const mutations = Math.max( 1, Math.min( 20, Number( payload.mutations ) || 1 ) );
 		const addInput = !! payload.addInput;
 		const rounds = Math.max( 1, Math.min( 2000, Number( payload.rounds ) || 10 ) );
-		state.brute = { stop: false, round: 0, rounds, best: null, last: null, adopted: 0 };
-		const baseline = bruteEvaluate( script );
-		if ( ! Number.isFinite( baseline ) ) {
+		// GOAL: 'time' = current behavior (fastest finish). 'target' =
+		// success is the car entering the placed zone; among successes the
+		// fastest (earliest reach) run wins; failures are trashed.
+		const goal = payload.goal === 'target' ? 'target' : 'time';
+		if ( goal === 'target' && ! state.target ) {
+
+			post( 'tas-bruteforce-error', { errors: [ 'select a target area first (place the zone on the map)' ] } );
+			return;
+
+		}
+		state.targetMode = goal === 'target';
+		// Save-state acceleration applies when the script carries the recorded
+		// line-crossing state (loop tracks). Non-loop scripts keep the full
+		// countdown+lap re-simulation; pruning protects both paths. Target
+		// runs always full-sim: the zone can sit anywhere on the timeline
+		// (including lap 1), and mutations never touch lap 1 anyway.
+		const fast = goal === 'time' && !!( script.crossState && script.crossState.pos && script.crossState.vel && script.lap2.length && ctx.tasBeginNextLap );
+		// Target metrics are STEP counts, not seconds — show them as such.
+		const fmtGoal = ( v ) => state.targetMode
+			? ( Number.isFinite( v ) ? `${ Math.round( v ) } steps` : 'none yet' )
+			: fmtTime( v );
+		state.brute = { stop: false, round: 0, rounds, best: null, last: null, adopted: 0, evals: 0 };
+		const baseline = bruteEvaluate( script, Infinity, fast );
+		state.brute.evals ++;
+		// Time mode refuses to mutate a DNF baseline (wall-slam protection).
+		// Target mode allows an unreachable baseline — the brute then hunts
+		// for ANY reach first, adopting only genuine successes.
+		if ( goal === 'time' && ! Number.isFinite( baseline ) ) {
 
 			// NEVER mutate a script whose own timed run does not finish:
 			// with an infinite baseline any garbage finisher would count
 			// as "better" and the brute would replace the user's run with
 			// a wall-slam. Keep the script byte-identical and say why.
 			state.brute = null;
+			bruteCleanup();
 			post( 'tas-bruteforce-error', { errors: [ 'Baseline run did not finish in the fast simulation — the script was NOT changed. Make the run finish (Run button) before brute-forcing.' ] } );
 			return;
 
@@ -1027,7 +1325,7 @@ post( 'tas-paused', { paused: state.paused } );
 		let bestScript = script;
 		let bestTime = baseline;
 		state.brute.best = baseline;
-		post( 'tas-bruteforce-progress', { round: 0, rounds, bestTime: fmtTime( bestTime ), lastTime: fmtTime( baseline ), adopted: false } );
+		post( 'tas-bruteforce-progress', { round: 0, rounds, bestTime: fmtGoal( bestTime ), lastTime: fmtGoal( baseline ), adopted: false } );
 		// Beam search: keep the top `beamWidth` candidates (not just the
 		// single best), mutate EVERY seed each round, re-rank by precise
 		// finish time. Several live lineages escape the single-track dead
@@ -1041,7 +1339,8 @@ post( 'tas-paused', { paused: state.paused } );
 			for ( const seed of beam ) {
 
 				const candidate = mutateScript( seed.script, mutations, addInput );
-				pool.push( { script: candidate, time: bruteEvaluate( candidate ) } );
+				pool.push( { script: candidate, time: bruteEvaluate( candidate, bestTime, fast ) } );
+				state.brute.evals ++;
 
 			}
 			pool.sort( ( a, b ) => a.time - b.time );
@@ -1060,7 +1359,7 @@ post( 'tas-paused', { paused: state.paused } );
 			state.brute.round = round;
 			state.brute.best = bestTime;
 			state.brute.last = best.time;
-			post( 'tas-bruteforce-progress', { round, rounds, bestTime: fmtTime( bestTime ), lastTime: fmtTime( best.time ), adopted } );
+			post( 'tas-bruteforce-progress', { round, rounds, bestTime: fmtGoal( bestTime ), lastTime: fmtGoal( best.time ), adopted, evals: state.brute.evals, fast } );
 			await new Promise( ( r ) => setTimeout( r, 0 ) ); // yield to the editor UI
 
 		}
@@ -1068,8 +1367,8 @@ post( 'tas-paused', { paused: state.paused } );
 		state.lastRunText = bestText; // R / Run re-run the best found
 		const improved = bestTime < baseline;
 		state.brute = null;
-		state.phase = 'done';
-		post( 'tas-bruteforce-done', { bestTime: fmtTime( bestTime ), improved, script: bestText } );
+		bruteCleanup();
+		post( 'tas-bruteforce-done', { bestTime: fmtGoal( bestTime ), improved, script: bestText, targetMode: state.targetMode } );
 
 	}
 
@@ -1078,11 +1377,53 @@ post( 'tas-paused', { paused: state.paused } );
 		if ( event.source !== window.parent || ! event.data?.type ) return;
 		const type = event.data.type;
 		if ( type === 'tas-retry' ) retry();
-		else if ( type === 'tas-run' ) run( event.data.script || '', !! event.data.startAtLap2 );
+		else if ( type === 'tas-run' ) run( event.data.script || '', !! event.data.startAtLap2, event.data.goal );
 		else if ( type === 'tas-stop' ) { state.phase = 'done'; ctx.tasBeginNextLap(); updateOverlay(); }
 		else if ( type === 'tas-bruteforce' ) bruteForce( event.data );
 		else if ( type === 'tas-bruteforce-stop' ) { if ( state.brute ) state.brute.stop = true; }
 		else if ( type === 'tas-toggle-pause' ) togglePause();
+		else if ( type === 'tas-target-place' ) {
+
+			// Editor button: enter/leave placement mode (hover ghost +
+			// click to drop, Esc cancels). A target already placed keeps
+			// its place — cancel only cancels the placement.
+			if ( event.data.on ) {
+
+				if ( state.target ) { post( 'tas-target-placed', { x: state.target.x, z: state.target.z } ); return; }
+				setPlacing( true );
+
+			} else {
+
+				setPlacing( false );
+				if ( state.target ) post( 'tas-target-placed', { x: state.target.x, z: state.target.z } );
+				else post( 'tas-target-canceled', {} );
+
+			}
+
+		}
+		else if ( type === 'tas-target-remove' ) {
+
+			state.target = null;
+			targetMesh.visible = false;
+			setPlacing( false );
+			post( 'tas-target-removed', {} );
+
+		}
+		else if ( type === 'tas-grab-partial' ) {
+
+			// "Import unfinished run": copy the live recording into the
+			// editor's inputs box WITHOUT needing a completed lap — for
+			// checking/verifying hard tracks you can't finish yet.
+			const entries = state.lapBuffers.reduce( ( n, b ) => n + b.length, 0 );
+			if ( state.phase !== 'record' || ! entries ) {
+
+				post( 'tas-grab-empty', {} );
+				return;
+
+			}
+			post( 'tas-grab-run', { script: buildPartialScript(), steps: state.stepIndex, entries } );
+
+		}
 		else if ( type === 'tas-seek' && state.runScript && ( state.phase === 'run' || state.phase === 'done' ) ) {
 
 			// Scrubbing while paused STAYS paused: capture BEFORE the seek

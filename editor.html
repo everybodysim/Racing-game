@@ -141,6 +141,8 @@
 		.toolbar-group {
 			display: flex;
 			align-items: center;
+			flex-wrap: wrap;
+			max-width: calc( 100vw - 300px );
 			gap: 3px;
 			padding: 4px 5px;
 			border-radius: 10px;
@@ -672,6 +674,8 @@
 			<button id="btn-checkpoint">Checkpoint</button>
 			<button id="btn-3way">3-Way</button>
 			<button id="btn-4way">4-Way</button>
+			<button id="btn-choke-half">Choke Half</button>
+			<button id="btn-choke-both">Choke Both</button>
 			<button id="btn-elevated-straight" style="display:none">Elev Straight</button>
 			<button id="btn-elevated-cross" style="display:none">Elev Cross</button>
 			<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
@@ -681,6 +685,8 @@
 			<button id="btn-pool-slope" style="display:none">Pool Slope</button>
 			<button id="btn-elevated-3way" style="display:none">Elev 3-Way</button>
 			<button id="btn-elevated-4way" style="display:none">Elev 4-Way</button>
+			<button id="btn-elevated-choke-half" style="display:none">Elev Choke Half</button>
+			<button id="btn-elevated-choke-both" style="display:none">Elev Choke Both</button>
 		</div>
 		<div class="toolbar-group" aria-label="Obstacles" data-cat="obstacles">
 			<span class="toolbar-group-label">Obstacles</span>
@@ -889,10 +895,10 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells } from './js/Track.js';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000237';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-	import { buildWallColliders, createSphereBody } from './js/Physics.js';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260920';
 	import { Vehicle } from './js/Vehicle.js?v=1000227';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 
@@ -900,7 +906,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 
 	const grid = new Map(); // "gx,gz" → { type, orient, isFinish, mesh }
 	const ORIENTATIONS = [ 0, 16, 10, 22 ];
-	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint', 'track-start', 'track-start-finish', 'track-3-way', 'track-4-way' ];
+	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint', 'track-start', 'track-start-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both' ];
 	const BUMP_TOOL = 'overlay-bump';
 	const POLE_TOOL = 'overlay-pole';
 	const CUBE_TOOL = 'overlay-cube';
@@ -924,7 +930,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 	const ARC_ORANGE_TOOL = 'arc-orange';
 	const PORTAL_YELLOW_TOOL = 'portal-yellow';
 	const PORTAL_PURPLE_TOOL = 'portal-purple';
-	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'slope-up', 'elevated-3-way', 'elevated-4-way' ];
+	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'slope-up', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ];
 	const POOL_SLOPE_TOOL = 'pool-slope';
 	const POOL_SLOPE_DEPTH = CELL_RAW * 0.34; // matches pool floor depth
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
@@ -1822,7 +1828,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 
 	const loader = new GLTFLoader();
 	const objLoader = new OBJLoader();
-	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
+	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'elev-track-choke-half', 'elev-track-choke-both', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
 	const models = {};
 	const customAssets = new Map();
 	let customAssetOrder = [];
@@ -1951,7 +1957,27 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 
 					gltf.scene.traverse( ( child ) => {
 
-						if ( child.isMesh ) child.material.side = THREE.FrontSide;
+						if ( child.isMesh ) {
+
+							child.material.side = THREE.FrontSide;
+							// Flat shading for track blocks — kill all PBR
+							// reflectivity so no block glints under the sun
+							// (same treatment as js/main.js loadModels).
+							if ( name.startsWith( 'track-' ) || name.startsWith( 'elev-track-' ) ) {
+
+								( Array.isArray( child.material ) ? child.material : [ child.material ] ).forEach( ( m ) => {
+
+									if ( typeof m.metalness === 'number' ) m.metalness = 0;
+									if ( typeof m.roughness === 'number' ) m.roughness = 1;
+									if ( typeof m.envMapIntensity === 'number' ) m.envMapIntensity = 0;
+									if ( typeof m.specularIntensity === 'number' ) m.specularIntensity = 0;
+									if ( typeof m.clearcoat === 'number' ) m.clearcoat = 0;
+
+								} );
+
+							}
+
+						}
 
 					} );
 
@@ -1992,6 +2018,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 			const modelType = ( roadPiece.type === 'track-checkpoint' || roadPiece.type === 'track-start' || roadPiece.type === 'track-start-finish' ) ? 'track-finish' : roadPiece.type;
 			const src = models[ modelType ];
 			if ( ! src ) return;
+				if ( modelType === 'track-choke-half' || modelType === 'track-choke-both' ) smoothChokeSourceModel( src );
 
 				const mesh = src.clone();
 				// The 4-way's road deck sits a hair below ground level — nudge it
@@ -2003,6 +2030,19 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 				mesh.traverse( ( c ) => {
 
 					if ( c.isMesh ) {
+
+						// Choke pinch walls are viewable from inside the opening —
+						// render both faces (guarded, shared source materials).
+						if ( ( modelType === 'track-choke-half' || modelType === 'track-choke-both' ) && c.material && ! c.material.__doubleSided ) {
+
+							( Array.isArray( c.material ) ? c.material : [ c.material ] ).forEach( ( m ) => {
+
+								m.side = THREE.DoubleSide;
+								m.__doubleSided = true;
+
+							} );
+
+						}
 
 						if ( gateTint && c.material ) {
 
@@ -2025,7 +2065,11 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 
 						}
 						c.castShadow = true;
-						c.receiveShadow = true;
+						// Choke shells don't sample the shadow map — their own
+						// proxy-cast silhouette self-shadows the grazing curve
+						// faces (shredded acne with shadows on, fine off).
+						// They still cast, so the ground shadow stays.
+						c.receiveShadow = modelType !== 'track-choke-half' && modelType !== 'track-choke-both';
 
 				}
 
@@ -2123,12 +2167,17 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 				'elevated-checkpoint': 'elev-track-checkpoint',
 				'slope-up': 'elev-track-slope',
 				'elevated-3-way': 'elev-track-3-way',
+		'elevated-choke-half': 'elev-track-choke-half',
+		'elevated-choke-both': 'elev-track-choke-both',
+				'elevated-choke-half': 'elev-track-choke-half',
+				'elevated-choke-both': 'elev-track-choke-both',
 				'elevated-4-way': 'elev-track-4-way',
 			};
 			const sourceType = elevatedModelKeys[ normalizedType ] || 'elev-track-straight';
 			const elevatedSrc = models[ sourceType ];
 			if ( elevatedSrc ) {
 
+				if ( sourceType === 'elev-track-choke-half' || sourceType === 'elev-track-choke-both' ) smoothChokeSourceModel( elevatedSrc );
 				const elevated = elevatedSrc.clone();
 				const yAdjust = normalizedType === 'elevated-4-way' ? 0.1 : ( normalizedType === 'slope-up' ? - ELEVATED_HEIGHT : 0 );
 				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
@@ -2139,7 +2188,9 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 					if ( c.isMesh ) {
 
 						c.castShadow = true;
-						c.receiveShadow = true;
+						// Elevated choke shells don't sample the shadow map (self-shadow
+						// acne on the grazing curve faces — see ground placement note).
+						c.receiveShadow = sourceType !== 'elev-track-choke-half' && sourceType !== 'elev-track-choke-both';
 						// GLB materials are single-sided; seen from underneath / behind, the
 						// faces vanish and cast broken shadows. Render every elevated block
 						// double-sided. Materials are shared with the source model, so this
@@ -3364,6 +3415,8 @@ function computeCausticShade( normal ) {
 		'elevated-checkpoint': 'elev-track-checkpoint',
 		'slope-up': 'elev-track-slope',
 		'elevated-3-way': 'elev-track-3-way',
+		'elevated-choke-half': 'elev-track-choke-half',
+		'elevated-choke-both': 'elev-track-choke-both',
 		'elevated-4-way': 'elev-track-4-way',
 	};
 
@@ -4513,8 +4566,12 @@ function refreshMovingSpeedUi() {
 		[ POOL_SLOPE_TOOL ]: document.getElementById( 'btn-pool-slope' ),
 		'elevated-3-way': document.getElementById( 'btn-elevated-3way' ),
 		'elevated-4-way': document.getElementById( 'btn-elevated-4way' ),
+		'elevated-choke-half': document.getElementById( 'btn-elevated-choke-half' ),
+		'elevated-choke-both': document.getElementById( 'btn-elevated-choke-both' ),
 		'track-3-way': document.getElementById( 'btn-3way' ),
 		'track-4-way': document.getElementById( 'btn-4way' ),
+		'track-choke-half': document.getElementById( 'btn-choke-half' ),
+		'track-choke-both': document.getElementById( 'btn-choke-both' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
@@ -4799,7 +4856,7 @@ function refreshMovingSpeedUi() {
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-3-way', 'track-4-way', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 

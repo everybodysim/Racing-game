@@ -6,8 +6,8 @@ import { Vehicle } from './Vehicle.js?v=1000227';
 import { createShadowProxyController } from './ShadowProxy.js?v=2';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000230';
-import { buildWallColliders, createSphereBody } from './Physics.js';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000237';
+import { buildWallColliders, createSphereBody } from './Physics.js?v=20260920';
 import { SmokeTrails, WaterSplashFX } from './Particles.js';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
@@ -305,8 +305,10 @@ const modelNames = [
 	'vehicle-ambulance-red', 'vehicle-firetruck-red', 'vehicle-taxi-yellow', 'vehicle-tractor-yellow', 'vehicle-trash-green',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'track-3-way', 'track-4-way',
+	'track-choke-half', 'track-choke-both',
 	'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope',
 	'elev-track-3-way', 'elev-track-4-way',
+	'elev-track-choke-half', 'elev-track-choke-both',
 	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
 	'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d',
 	'garage',
@@ -4102,6 +4104,8 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 			else if ( et === 'elevated-checkpoint' ) required.add( 'elev-track-checkpoint' );
 			else if ( et === 'elevated-3-way' ) required.add( 'elev-track-3-way' );
 			else if ( et === 'elevated-4-way' ) required.add( 'elev-track-4-way' );
+			else if ( et === 'elevated-choke-half' ) required.add( 'elev-track-choke-half' );
+			else if ( et === 'elevated-choke-both' ) required.add( 'elev-track-choke-both' );
 			else required.add( 'track-straight' );
 		}
 	}
@@ -4126,6 +4130,27 @@ async function loadModels( requiredNames = modelNames ) {
 						// surface while the other models keep their normal front faces.
 						if ( name === 'garage' ) child.material.side = THREE.DoubleSide;
 						else if ( ! name.startsWith( 'elev-track-' ) ) child.material.side = THREE.FrontSide;
+
+						// Track blocks must be flat shaded — no light reflections.
+						// GLB exports carry varying metalness/roughness, so some
+						// blocks glinted under the sun while others stayed matte
+						// (user report 2026-09-20). Zero all PBR reflectivity on
+						// every block so they shade pure diffuse, consistently.
+						// Car paint (garage shiny finish) is NOT affected — this
+						// branch only runs for track-* / elev-track-* models.
+						if ( name.startsWith( 'track-' ) || name.startsWith( 'elev-track-' ) ) {
+
+							( Array.isArray( child.material ) ? child.material : [ child.material ] ).forEach( ( m ) => {
+
+								if ( typeof m.metalness === 'number' ) m.metalness = 0;
+								if ( typeof m.roughness === 'number' ) m.roughness = 1;
+								if ( typeof m.envMapIntensity === 'number' ) m.envMapIntensity = 0;
+								if ( typeof m.specularIntensity === 'number' ) m.specularIntensity = 0;
+								if ( typeof m.clearcoat === 'number' ) m.clearcoat = 0;
+
+							} );
+
+						}
 
 					}
 
@@ -14187,9 +14212,38 @@ function completeCampaignStage() {
 		// start instantly instead — they inject their own first step.
 		countdownEnabled = true;
 
+		// In-game input display: the 4 arrow keys, just above the ghost
+		// import/export buttons. Lit while pressed — pad input while
+		// recording, scripted values while replaying (driven from
+		// TASMode.step via the updateTasKeys hook below).
+		const tasKeyStyle = document.createElement( 'style' );
+		tasKeyStyle.textContent = '#tas-keys{position:absolute;left:16px;bottom:56px;z-index:10;display:flex;flex-direction:column;align-items:center;gap:4px;user-select:none;pointer-events:none;}'
+			+ '#tas-keys .row{display:flex;gap:4px;}'
+			+ '#tas-keys .tk{width:30px;height:30px;display:flex;align-items:center;justify-content:center;font:700 15px/1 sans-serif;color:#fff;background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.28);border-radius:6px;transition:background .06s,border-color .06s;}'
+			+ '#tas-keys .tk.on{background:rgba(35,134,54,0.92);border-color:rgba(63,185,80,0.9);}';
+		document.head.appendChild( tasKeyStyle );
+		const mkTasKey = ( glyph ) => { const d = document.createElement( 'div' ); d.className = 'tk'; d.textContent = glyph; return d; };
+		const tasKeysEl = document.createElement( 'div' );
+		tasKeysEl.id = 'tas-keys';
+		const tasKeyUp = mkTasKey( '↑' ), tasKeyLeft = mkTasKey( '←' ), tasKeyDown = mkTasKey( '↓' ), tasKeyRight = mkTasKey( '→' );
+		const tasKeyRow = document.createElement( 'div' );
+		tasKeyRow.className = 'row';
+		tasKeyRow.append( tasKeyLeft, tasKeyDown, tasKeyRight );
+		tasKeysEl.append( tasKeyUp, tasKeyRow );
+		document.body.appendChild( tasKeysEl );
+		const updateTasKeys = ( input ) => {
+
+			const i = input || {};
+			tasKeyUp.classList.toggle( 'on', ( i.z || 0 ) > 0.5 );
+			tasKeyDown.classList.toggle( 'on', ( i.z || 0 ) < -0.5 );
+			tasKeyLeft.classList.toggle( 'on', ( i.x || 0 ) < -0.5 );
+			tasKeyRight.classList.toggle( 'on', ( i.x || 0 ) > 0.5 );
+
+		};
+
 		try {
 
-			const tasModule = await import( './TASMode.js?v=24' );
+			const tasModule = await import( './TASMode.js?v=30' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
@@ -14219,6 +14273,7 @@ function completeCampaignStage() {
 					},
 					saveCheckpointState,
 					setPaused: ( v ) => { paused = !! v; },
+					updateTasKeys,
 					setSimSpeed: ( mult ) => { tasSpeedMult = Math.max( 0.05, Math.min( 1, Number( mult ) || 1 ) ); },
 					setCollisionView: ( on ) => {
 
@@ -14250,6 +14305,27 @@ function completeCampaignStage() {
 						if ( typeof snap.vehicleAngularSpeed === 'number' ) vehicle.angularSpeed = snap.vehicleAngularSpeed;
 						if ( typeof snap.vehicleAcceleration === 'number' ) vehicle.acceleration = snap.vehicleAcceleration;
 					},
+					// Brute-force target zone placement (TAS-only): screen
+					// point -> world point through the game camera. Any mesh
+					// counts (the car included — clicking the car targets the
+					// car's spot), sky clicks fall back to the y=0 ground
+					// plane. TASMode's own cylinders are userData.tasTarget
+					// and skipped, so they never shadow the pick.
+					pickWorldPoint: ( clientX, clientY ) => {
+						const rect = renderer.domElement.getBoundingClientRect();
+						const raycaster = new THREE.Raycaster();
+						raycaster.setFromCamera( new THREE.Vector2(
+							( ( clientX - rect.left ) / rect.width ) * 2 - 1,
+							- ( ( clientY - rect.top ) / rect.height ) * 2 + 1
+						), cam.camera );
+						const hits = raycaster.intersectObjects( scene.children, true ).filter( ( h ) => ! h.object.userData.tasTarget );
+						if ( hits.length ) return { x: hits[ 0 ].point.x, y: hits[ 0 ].point.y, z: hits[ 0 ].point.z };
+						const p = new THREE.Vector3();
+						if ( raycaster.ray.intersectPlane( new THREE.Plane( new THREE.Vector3( 0, 1, 0 ), 0 ), p ) && Number.isFinite( p.x ) ) return { x: p.x, y: 0, z: p.z };
+						return null;
+					},
+					getScene: () => scene,
+					getCanvas: () => renderer.domElement,
 				},
 				tasBeginNextLap,
 				get: {

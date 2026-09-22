@@ -732,7 +732,7 @@ function computeCausticShade( normal ) {
 
 }
 
-const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way' ] );
+const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ] );
 
 function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 
@@ -819,18 +819,28 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	else if ( type === 'elevated-checkpoint' ) modelKey = 'elev-track-checkpoint';
 	else if ( type === 'slope-up' || type === 'slope-down' ) modelKey = 'elev-track-slope';
 	else if ( type === 'elevated-3-way' ) modelKey = 'elev-track-3-way';
+	else if ( type === 'elevated-choke-half' ) modelKey = 'elev-track-choke-half';
+	else if ( type === 'elevated-choke-both' ) modelKey = 'elev-track-choke-both';
 	else if ( type === 'elevated-4-way' ) modelKey = 'elev-track-4-way';
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
+	if ( modelKey === 'elev-track-choke-half' || modelKey === 'elev-track-choke-both' ) smoothChokeSourceModel( models[ modelKey ] );
 
 	const piece = models[ modelKey ].clone();
 	// The cross-corner mesh can be viewed from inside the corner opening, so render both faces
-	if ( type === 'elevated-cross-corner' ) {
+	if ( type === 'elevated-cross-corner' || type === 'elevated-choke-half' || type === 'elevated-choke-both' ) {
 
 	piece.traverse( ( child ) => {
 
 	if ( child.material ) child.material.side = THREE.DoubleSide;
 
 	} );
+
+	}
+	// Choke shells must not sample the shadow map (self-shadow acne on the
+	// grazing curve faces — see the placePiece choke branch for the full note).
+	if ( type === 'elevated-choke-half' || type === 'elevated-choke-both' ) {
+
+	piece.traverse( ( child ) => { child.userData.isChokeMesh = true; } );
 
 	}
 	// Slope model is pre-sloped at the correct size — place at ground level, no scaling
@@ -1719,7 +1729,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		if ( child.isMesh ) {
 
 			child.castShadow = true;
-			child.receiveShadow = true;
+			// Choke shells don't sample the shadow map (self-shadow acne) —
+			// they still CAST, so their ground shadow stays.
+			child.receiveShadow = ! child.userData.isChokeMesh;
 
 		}
 
@@ -1755,11 +1767,145 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 }
 
+// Choke walls curve in 8 flat segments and the GLBs ship per-segment flat
+// normals, so under the game's hard directional sun adjacent faces alternate
+// bright and dark ("a bunch of random shaded faces"). The curb/rumble-strip
+// texture on these pieces tiles PER SEGMENT, so 154 of 613 shared vertex
+// positions carry up to 5 distinct UVs (confirmed by direct inspection) —
+// any fix that merges the vertex buffer by matching attributes (mergeVertices)
+// silently skips exactly those seams, since UV never matches there, leaving
+// the curb's shading untouched while the plain walls looked fixed. Instead,
+// average face normals by ROUNDED POSITION but only WITHIN crease-limited
+// groups (see smoothNormalsByPosition) and overwrite the `normal` attribute
+// in place — vertex count and every UV/color stay byte-identical, only the
+// shading direction changes. Guarded so this runs once per shared source
+// model per page load.
+function smoothNormalsByPosition( geometry, precision = 4, maxCreaseCos = 0.7071 ) {
+
+	// Crease-limited smoothing. The 8-segment curve turns only ~11-22 degrees
+	// between segments, so those groups merge and shade as one smooth arc.
+	// Hard 90-degree corners (rumble-strip blocks, top caps, end faces) stay
+	// flat-shaded: averaging across them tilts the crease vertices' normals
+	// halfway between faces, which both leaks light across the edge and, worse,
+	// misaligns the shadow pass's normalBias offset — that produced the
+	// "shredded" self-shadow acne on exactly those faces (user report
+	// 2026-09-20). Union-find groups triangles that share a vertex position
+	// ONLY when their face normals differ by less than ~45 degrees
+	// (cos 0.7071); each group gets an area-weighted averaged normal written
+	// to all its vertex instances. Vertex count and every UV/color stay
+	// byte-identical.
+
+	const pos = geometry.attributes.position;
+	const idx = geometry.index ? geometry.index.array : null;
+	const count = pos.count;
+	const triCount = idx ? idx.length / 3 : count / 3;
+	const faceN = new Float32Array( triCount * 3 );
+	const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
+	const cb = new THREE.Vector3(), ab = new THREE.Vector3();
+	const pkey = ( i ) => `${ pos.getX( i ).toFixed( precision ) },${ pos.getY( i ).toFixed( precision ) },${ pos.getZ( i ).toFixed( precision ) }`;
+	const posToTris = new Map();
+
+	for ( let t = 0; t < triCount; t ++ ) {
+
+		const ia = idx ? idx[ t * 3 ] : t * 3;
+		const ib = idx ? idx[ t * 3 + 1 ] : t * 3 + 1;
+		const ic = idx ? idx[ t * 3 + 2 ] : t * 3 + 2;
+
+		vA.fromBufferAttribute( pos, ia );
+		vB.fromBufferAttribute( pos, ib );
+		vC.fromBufferAttribute( pos, ic );
+
+		cb.subVectors( vC, vB );
+		ab.subVectors( vA, vB );
+		cb.cross( ab ); // unnormalized, area-weighted face normal
+
+		faceN[ t * 3 ] = cb.x; faceN[ t * 3 + 1 ] = cb.y; faceN[ t * 3 + 2 ] = cb.z;
+
+		for ( const i of [ ia, ib, ic ] ) {
+
+			const k = pkey( i );
+			let arr = posToTris.get( k );
+			if ( ! arr ) { arr = []; posToTris.set( k, arr ); }
+			if ( ! arr.includes( t ) ) arr.push( t );
+
+		}
+
+	}
+
+	const parent = Array.from( { length: triCount }, ( _, i ) => i );
+	const find = ( t ) => {
+
+		while ( parent[ t ] !== t ) { parent[ t ] = parent[ parent[ t ] ]; t = parent[ t ]; }
+		return t;
+
+	};
+	const union = ( a, b ) => { a = find( a ); b = find( b ); if ( a !== b ) parent[ b ] = a; };
+
+	for ( const tris of posToTris.values() ) {
+
+		for ( let i = 0; i < tris.length; i ++ ) for ( let j = i + 1; j < tris.length; j ++ ) {
+
+			const a = tris[ i ], b = tris[ j ];
+			const la = Math.hypot( faceN[ a * 3 ], faceN[ a * 3 + 1 ], faceN[ a * 3 + 2 ] );
+			const lb = Math.hypot( faceN[ b * 3 ], faceN[ b * 3 + 1 ], faceN[ b * 3 + 2 ] );
+			if ( ! la || ! lb ) continue;
+			const dot = ( faceN[ a * 3 ] * faceN[ b * 3 ] + faceN[ a * 3 + 1 ] * faceN[ b * 3 + 1 ] + faceN[ a * 3 + 2 ] * faceN[ b * 3 + 2 ] ) / ( la * lb );
+			if ( dot >= maxCreaseCos ) union( a, b );
+
+		}
+
+	}
+
+	const groupAcc = new Map();
+	for ( let t = 0; t < triCount; t ++ ) {
+
+		const r = find( t );
+		let a = groupAcc.get( r );
+		if ( ! a ) { a = [ 0, 0, 0 ]; groupAcc.set( r, a ); }
+		a[ 0 ] += faceN[ t * 3 ]; a[ 1 ] += faceN[ t * 3 + 1 ]; a[ 2 ] += faceN[ t * 3 + 2 ];
+
+	}
+
+	const normal = geometry.attributes.normal || new THREE.BufferAttribute( new Float32Array( count * 3 ), 3 );
+	const n = new THREE.Vector3();
+	for ( let t = 0; t < triCount; t ++ ) {
+
+		const a = groupAcc.get( find( t ) );
+		n.set( a[ 0 ], a[ 1 ], a[ 2 ] ).normalize();
+		for ( let vi = 0; vi < 3; vi ++ ) {
+
+			const i = idx ? idx[ t * 3 + vi ] : t * 3 + vi;
+			normal.setXYZ( i, n.x, n.y, n.z );
+
+		}
+
+	}
+	geometry.setAttribute( 'normal', normal );
+
+}
+
+export function smoothChokeSourceModel( model ) {
+
+	if ( ! model || model.userData.__chokeSmoothed ) return;
+
+	model.userData.__chokeSmoothed = true;
+	model.traverse( ( child ) => {
+
+		if ( ! ( child.isMesh && child.geometry && child.geometry.attributes.position ) ) return;
+		smoothNormalsByPosition( child.geometry );
+
+	} );
+
+}
+
 export function placePiece( models, key, gx, gz, orient ) {
 
 	const modelKey = key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key;
 	const src = models[ modelKey ];
 	if ( ! src ) return null;
+	// Smooth the choke curve's flat segment normals before cloning (the clone
+	// shares geometry, so the source must be reworked first).
+	if ( modelKey === 'track-choke-half' || modelKey === 'track-choke-both' ) smoothChokeSourceModel( src );
 
 	const piece = src.clone();
 	const yOffset = ( String( key || '' ).startsWith( 'decoration-' ) || String( key || '' ).startsWith( 'building-' ) ) ? DECORATION_HEIGHT_OFFSET : VISUAL_HEIGHT_OFFSET;
@@ -1767,6 +1913,33 @@ export function placePiece( models, key, gx, gz, orient ) {
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
+	if ( modelKey === 'track-choke-half' || modelKey === 'track-choke-both' ) {
+
+		// The pinch walls are viewable from inside the choke opening, so render
+		// both faces (same treatment as the elevated blocks). Materials are
+		// shared with the source model — guarded so it mutates only once.
+		// The choke's thin open shell also MUST NOT sample the shadow map:
+		// its own proxy-cast silhouette self-shadows the grazing curve faces
+		// ("shredded" acne over specific faces with shadows on, fine with
+		// shadows off — user report 2026-09-20). Tag every mesh; the blanket
+		// receiveShadow pass at the end of buildTrack respects the tag.
+		piece.traverse( ( child ) => {
+
+			child.userData.isChokeMesh = true;
+			if ( child.material && ! child.material.__doubleSided ) {
+
+				( Array.isArray( child.material ) ? child.material : [ child.material ] ).forEach( ( m ) => {
+
+					m.side = THREE.DoubleSide;
+					m.__doubleSided = true;
+
+				} );
+
+			}
+
+		} );
+
+	}
         // Start/finish blocks no longer tinted (checkpoint textures read cleanly).
 
 	return piece;
@@ -1807,6 +1980,8 @@ const V3_NAME_TOKENS = {
 	'elevated-4-way': 'p',
 	'slope-up': 'q',
 	'slope-down': 'r',
+	'track-choke-half': 's',
+	'track-choke-both': 't',
 
 };
 

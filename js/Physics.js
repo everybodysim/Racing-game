@@ -92,7 +92,15 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	// The two pitched side rails were centred on the slope box and sat too low;
 	// raise them by half their own height so they read as a proper kerb.
 	const SLOPE_SIDE_WALL_RAISE = ELEVATED_WALL_HALF_H;
-	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-3-way', 'elevated-4-way' ] );
+	// Choke blocks: the wall center-line runs a cosine pinch along the
+	// block — WALL_X (4.75) at the two open ends, pinching to CHOKE_APEX_X
+	// (2.5 from the block edge, per the Blender sculpt) at mid-length.
+	// 8 rotated box segments per curved side (same pattern as the corner
+	// arcs) approximate the curve; a straight wall fills the flat side of
+	// the half-choke.
+	const CHOKE_APEX_X = 2.5;
+	const CHOKE_SEGS = 8;
+	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ] );
 
 	// PERFECT SLOPE SEAM MATH. The slope's driving surface is the TOP face of a
 	// tilted box (half-thickness hy = ELEVATED_SURFACE_HALF_H). The old geometry
@@ -251,6 +259,82 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 				restitution: 0.0,
 			} );
 			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+		}
+
+	}
+
+	function addChokeWalls( gx, gz, orient = 0, chokeSides = [ - 1 ], centerY = wallY, wallHalfHeight = hHeight ) {
+
+		// Choke road walls. For every side: if it chokes, 8 rotated boxes
+		// trace a cosine pinch from the block end (local x = ±WALL_X at
+		// local z = ±CELL_HALF) to the apex (±CHOKE_APEX_X at z = 0); if it
+		// is flat, one straight wall identical to a normal straight block.
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const rad = deg * Math.PI / 180;
+		const cr = Math.cos( rad ), sr = Math.sin( rad );
+		const span = CELL_RAW;
+		const halfSpan = CELL_HALF;
+		for ( const side of [ - 1, 1 ] ) {
+
+			if ( ! chokeSides.includes( side ) ) {
+
+				// flat side: normal straight wall
+				const lx = side * WALL_X;
+				const wx = cx + ( lx * cr ) * S;
+				const wz = cz + ( - lx * sr ) * S;
+				const halfExtents = [ hThick, wallHalfHeight, hLen ];
+				const position = [ wx, centerY, wz ];
+				const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
+				rigidBody.create( world, {
+					shape: box.create( { halfExtents } ),
+					motionType: MotionType.STATIC,
+					objectLayer: world._OL_STATIC,
+					position,
+					quaternion,
+					friction: 0.0,
+					restitution: 0.0,
+				} );
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+				continue;
+
+			}
+			// choked side: 8 tangent-rotated boxes along the pinch curve.
+			// Center-line: x(t) = APEX + (WALL_X-APEX) * 0.5*(1+cos(2π t)),
+			// t = (z + halfSpan) / span → WALL_X at both ends, APEX at z = 0.
+			for ( let i = 0; i < CHOKE_SEGS; i ++ ) {
+
+				const zc = - halfSpan + ( ( i + 0.5 ) / CHOKE_SEGS ) * span;
+				const t = ( zc + halfSpan ) / span;
+				const xLine = CHOKE_APEX_X + ( WALL_X - CHOKE_APEX_X ) * 0.5 * ( 1 + Math.cos( 2 * Math.PI * t ) );
+				const dx = - ( WALL_X - CHOKE_APEX_X ) * Math.PI * Math.sin( 2 * Math.PI * t ) / span;
+				const lx = side * xLine;
+				// world position follows the add3WayWalls local->world convention; zc
+				// spreads the 8 boxes along the block instead of stacking at its center.
+				const wx = cx + ( lx * cr + zc * sr ) * S;
+				const wz = cz + ( - lx * sr + zc * cr ) * S;
+				// box long axis follows the tangent (dx, dz = 1) in local
+				// space; the block yaw adds on top of the per-segment tilt.
+				const segTilt = Math.atan( side * dx );
+				const yaw = rad + segTilt;
+				const halfLen = ( span / CHOKE_SEGS * 0.5 ) / Math.cos( segTilt ) + 0.09;
+				const halfExtents = [ hThick, wallHalfHeight, halfLen ];
+				const position = [ wx, centerY, wz ];
+				const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
+				rigidBody.create( world, {
+					shape: box.create( { halfExtents } ),
+					motionType: MotionType.STATIC,
+					objectLayer: world._OL_STATIC,
+					position,
+					quaternion,
+					friction: 0.0,
+					restitution: 0.0,
+				} );
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			}
 
 		}
 
@@ -939,6 +1023,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 			}
 
+		} else if ( baseKey === 'track-choke-half' ) {
+
+			addChokeWalls( gx, gz, orient, [ - 1 ] );
+
+		} else if ( baseKey === 'track-choke-both' ) {
+
+			addChokeWalls( gx, gz, orient, [ - 1, 1 ] );
+
 		} else if ( baseKey === 'track-corner' ) {
 
 			const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S;
@@ -1010,6 +1102,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		if ( normalizedType === 'elevated-straight' || normalizedType === 'elevated-checkpoint' ) {
 
 			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
+			continue;
+
+		}
+		if ( normalizedType === 'elevated-choke-half' || normalizedType === 'elevated-choke-both' ) {
+
+			// Same choke wall colliders at the elevated deck height; the
+			// generic big support rectangle below the deck is added above.
+			addChokeWalls( nx, nz, normalizedOrient, normalizedType === 'elevated-choke-both' ? [ - 1, 1 ] : [ - 1 ], elevatedWallY, ELEVATED_WALL_HALF_H );
 			continue;
 
 		}
