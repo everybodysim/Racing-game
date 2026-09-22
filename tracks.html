@@ -388,16 +388,16 @@
 		function getTrackIdFromPlayUrl( playUrl ) {
 			try {
 				const parsed = new URL( playUrl, window.location.href );
-				const normalizedPath = normalizeTrackPath( parsed.pathname );
+				const normalizedPath = normalizeTrackPath( new URL( 'index.html', window.location.href ).pathname );
 				const query = new URLSearchParams();
 				const map = parsed.searchParams.get( 'map' ) || '';
 				const mods = parsed.searchParams.get( 'mods' ) || '';
 				if ( map ) query.set( 'map', map );
 				if ( mods ) query.set( 'mods', mods );
 				const rawUrl = `${ normalizedPath }${ query.toString() ? `?${ query.toString() }` : '' }`;
-				// Default track (no map/mods) keeps the reset v5 id; others keep v4.
+				// Default track uses v5; custom tracks use v4. easy-v1 resets all boards.
 				const seedVersion = ( map || mods ) ? 'v4' : 'v5';
-				return `trk-${ hashTrackSeed( `${ seedVersion }-url|${ rawUrl }` ) }`;
+				return `easy-v1-trk-${ hashTrackSeed( `${ seedVersion }-url|${ rawUrl }` ) }`;
 			} catch ( e ) {
 				return '';
 			}

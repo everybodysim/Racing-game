@@ -62,7 +62,7 @@ export class Vehicle {
 		this.baseTopSpeed = 1.0;
 		this.accelRate = 6.0;
 		this.reverseAccelRate = 2.0;
-		this.brakeRate = 10.0;
+		this.brakeRate = 8.0;
 		this.driveForce = 100.0;
 		this.gripMultiplier = 1.0;
 		this.dragMultiplier = 1.0;
@@ -234,10 +234,10 @@ export class Vehicle {
 		let direction = Math.sign( this.linearSpeed );
 		if ( direction === 0 ) direction = Math.abs( this.inputZ ) > 0.1 ? Math.sign( this.inputZ ) : 1;
 
-		const steeringGrip = THREE.MathUtils.clamp( Math.abs( this.linearSpeed ), 0.32, 1.0 ) * this.gripMultiplier;
+		const steeringGrip = THREE.MathUtils.clamp( Math.abs( this.linearSpeed ), 0.2, 1.0 ) * this.gripMultiplier;
 
 		const targetAngular = - this.inputX * steeringGrip * 4 * direction;
-		this.angularSpeed = THREE.MathUtils.lerp( this.angularSpeed, targetAngular, Math.min( 1, dt * 5 ) );
+		this.angularSpeed = THREE.MathUtils.lerp( this.angularSpeed, targetAngular, dt * 4 );
 
 		this.container.rotateY( this.angularSpeed * dt );
 
