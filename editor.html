@@ -6647,6 +6647,21 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			fxSurfaceEntryByCell = new Map();
 			fxPadEntryByCell = new Map();
 			fxBoostSurfaceEntryByCell = new Map();
+			// Off-grid pads/surfaces have FRACTIONAL cell coords; integer-cell
+			// lookups never matched them. Register under every integer cell the
+			// footprint overlaps (lists — an off-grid piece straddles up to 4).
+			const fxCellKeysForEntry = ( gx, gz ) => {
+				const keys = [];
+				for ( let x = Math.floor( gx ); x <= Math.floor( gx + 1 ); x ++ ) {
+					for ( let z = Math.floor( gz ); z <= Math.floor( gz + 1 ); z ++ ) keys.push( x + ',' + z );
+				}
+				return keys;
+			};
+			const fxPushEntryByCell = ( map, key, entry ) => {
+				const list = map.get( key );
+				if ( list ) list.push( entry );
+				else map.set( key, [ entry ] );
+			};
 			for ( const [ gx, gz, type ] of ( Array.isArray( extras.surfaces ) ? extras.surfaces : [] ) ) {
 
 				if ( ! Number.isFinite( Number( gx ) ) || ! Number.isFinite( Number( gz ) ) ) continue;
@@ -6655,10 +6670,13 @@ function updateMovingObstacles( state, now, vehicleList ) {
 					centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
 					centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
 				};
-				const key = entry.gx + ',' + entry.gz;
-				fxSurfaceEntryByCell.set( key, entry );
-				if ( entry.type === FX_PAD_RESET_TYPE || FX_PAD_EFFECTS[ entry.type ] || FX_CUSTOM_PAD_TYPES.includes( entry.type ) ) fxPadEntryByCell.set( key, entry );
-				if ( entry.type === 'surface-boost' ) fxBoostSurfaceEntryByCell.set( key, entry );
+				for ( const key of fxCellKeysForEntry( entry.gx, entry.gz ) ) {
+
+					fxPushEntryByCell( fxSurfaceEntryByCell, key, entry );
+					if ( entry.type === FX_PAD_RESET_TYPE || FX_PAD_EFFECTS[ entry.type ] || FX_CUSTOM_PAD_TYPES.includes( entry.type ) ) fxPushEntryByCell( fxPadEntryByCell, key, entry );
+					if ( entry.type === 'surface-boost' ) fxPushEntryByCell( fxBoostSurfaceEntryByCell, key, entry );
+
+				}
 
 			}
 			fxArcLinkState = { contactKey: null, lockUntilExit: false };
@@ -6678,8 +6696,8 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			bucket.length = 0;
 			for ( let dz = - 1; dz <= 1; dz ++ ) {
 				for ( let dx = - 1; dx <= 1; dx ++ ) {
-					const entry = byCellMap.get( ( cx + dx ) + ',' + ( cz + dz ) );
-					if ( entry ) bucket.push( entry );
+					const list = byCellMap.get( ( cx + dx ) + ',' + ( cz + dz ) );
+					if ( list ) for ( let i = 0; i < list.length; i ++ ) bucket.push( list[ i ] );
 				}
 			}
 			return bucket.length > 0;
@@ -6936,9 +6954,10 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		}
 
 		const FX_TRAMPOLINE_RESTITUTION = 0.82;
-		const FX_TRAMPOLINE_MIN_BOUNCE = 1.5;
-		const FX_AIR_CONTROL_AIR_ACCEL_PER_SECOND = 12.0;
-		const FX_AIR_CONTROL_GROUND_FORCE_PER_SECOND = 9.0;
+		const FX_TRAMPOLINE_MIN_IMPACT = 0.55;
+		const FX_AIR_CONTROL_AIR_ACCEL_PER_SECOND = 40.0;
+		const FX_AIR_CONTROL_GROUND_FORCE_PER_SECOND = 30.0;
+		const FX_AIR_CONTROL_MAX_SPEED_MPS = 55 / 2.23694;
 		function fxApplyTrampolineBounceFor( targetVehicle ) {
 
 			// Trampoline: reflect downward velocity on EVERY landing, never a
@@ -6949,7 +6968,8 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			if ( ! targetVehicle.rigidBody?.motionProperties ) return;
 			const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
 			if ( vel[ 1 ] > 0.12 ) return;
-			const bounce = Math.max( FX_TRAMPOLINE_MIN_BOUNCE, - vel[ 1 ] * FX_TRAMPOLINE_RESTITUTION );
+			if ( - vel[ 1 ] < FX_TRAMPOLINE_MIN_IMPACT ) return; // resting/rolling: no tiny bounces
+			const bounce = - vel[ 1 ] * FX_TRAMPOLINE_RESTITUTION;
 			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], bounce, vel[ 2 ] ] );
 
 		}
@@ -6961,6 +6981,8 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			if ( ! targetVehicle?.rigidBody?.motionProperties ) return;
 			const throttle = Number( input?.z ) || 0;
 			if ( throttle === 0 ) return;
+			const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
+			if ( Math.hypot( vel[ 0 ], vel[ 1 ], vel[ 2 ] ) > FX_AIR_CONTROL_MAX_SPEED_MPS ) return;
 			const grounded = ( targetVehicle?.spherePos?.y ?? 999 ) <= fxGroundedHeightFor( targetVehicle );
 			const airborne = ! grounded || Math.abs( targetVehicle.rigidBody.motionProperties.linearVelocity[ 1 ] ) > 0.35;
 			const accelPerSecond = airborne ? FX_AIR_CONTROL_AIR_ACCEL_PER_SECOND : FX_AIR_CONTROL_GROUND_FORCE_PER_SECOND;
@@ -6968,7 +6990,6 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			_fxBoostForward.y = 0;
 			if ( _fxBoostForward.lengthSq() < 1e-6 ) return;
 			_fxBoostForward.normalize();
-			const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
 			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
 				vel[ 0 ] + _fxBoostForward.x * accelPerSecond * throttle * dt,
 				vel[ 1 ],

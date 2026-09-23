@@ -451,11 +451,16 @@ const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 const BOUNCE_VERTICAL_DELTA = 7.2;
 const KICK_LATERAL_DELTA = 7.4;
 const TRAMPOLINE_RESTITUTION = 0.82;
-// Min bounce stays above the seam-bounce suppressor's prevVy < 1.0 guard, so
-// trampoline launches can never be mistaken for seam pops and frozen mid-air.
-const TRAMPOLINE_MIN_BOUNCE = 1.5;
-const AIR_CONTROL_AIR_ACCEL_PER_SECOND = 12.0;
-const AIR_CONTROL_GROUND_FORCE_PER_SECOND = 9.0;
+// Falling slower than this = just resting/rolling on the surface (per-frame
+// gravity settles are ~0.05) — no bounce. Only real landings launch the car,
+// and reflected hops decay naturally to rest (no energy floor re-injecting).
+const TRAMPOLINE_MIN_IMPACT = 0.55;
+const AIR_CONTROL_AIR_ACCEL_PER_SECOND = 40.0;
+const AIR_CONTROL_GROUND_FORCE_PER_SECOND = 30.0;
+// Over this speed the Air Control pad's extra force cuts out — flames stay,
+// force doesn't. 55 mph = 24.59 m/s in the world units the HUD speedometer
+// reads (world u/s x 3.6 = km/h).
+const AIR_CONTROL_MAX_SPEED_MPS = 55 / 2.23694;
 const MAGNET_FULL_STRENGTH_BLOCKS = 0.5;
 const MAGNET_DEFAULT_MAX_DISTANCE_BLOCKS = 1.5;
 const MAGNET_DEFAULT_FORCE_PER_SECOND = 26.0;
@@ -9953,12 +9958,38 @@ function completeCampaignStage() {
 	const padEntryByCell = new Map();
 	const boostSurfaceEntryByCell = new Map();
 	const CELL_UNIT = CELL_RAW * GRID_SCALE;
+	// Off-grid pads/surfaces sit at FRACTIONAL cell coordinates, but the
+	// per-frame lookups key by INTEGER cell (floor of world position / cell
+	// size). A fractional key like "3.5,0" never matches, so off-grid pads
+	// and surfaces silently did nothing. Register each entry under EVERY
+	// integer cell its footprint [gx,gx+1] x [gz,gz+1] overlaps (cell lists,
+	// since an off-grid piece can straddle up to four integer cells), so the
+	// car finds it whichever integer cell it stands in.
+	function cellKeysForEntry( gx, gz ) {
+
+		const keys = [];
+		for ( let x = Math.floor( gx ); x <= Math.floor( gx + 1 ); x ++ ) {
+			for ( let z = Math.floor( gz ); z <= Math.floor( gz + 1 ); z ++ ) keys.push( x + ',' + z );
+		}
+		return keys;
+
+	}
+	function pushEntryByCell( map, key, entry ) {
+
+		const list = map.get( key );
+		if ( list ) list.push( entry );
+		else map.set( key, [ entry ] );
+
+	}
 	for ( const entry of surfaceEntries ) {
 
-		const key = entry.gx + ',' + entry.gz;
-		surfaceEntryByCell.set( key, entry );
-		if ( entry.type === PAD_RESET_TYPE || PAD_EFFECTS[ entry.type ] || CUSTOM_PAD_TYPES.includes( entry.type ) ) padEntryByCell.set( key, entry );
-		if ( entry.type === 'surface-boost' ) boostSurfaceEntryByCell.set( key, entry );
+		for ( const key of cellKeysForEntry( entry.gx, entry.gz ) ) {
+
+			pushEntryByCell( surfaceEntryByCell, key, entry );
+			if ( entry.type === PAD_RESET_TYPE || PAD_EFFECTS[ entry.type ] || CUSTOM_PAD_TYPES.includes( entry.type ) ) pushEntryByCell( padEntryByCell, key, entry );
+			if ( entry.type === 'surface-boost' ) pushEntryByCell( boostSurfaceEntryByCell, key, entry );
+
+		}
 
 	}
 
@@ -9967,7 +9998,10 @@ function completeCampaignStage() {
 		centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
 		centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
 	} ) );
-	const legacyBoostEntryByCell = new Map( legacyBoostEntries.map( ( entry ) => [ entry.gx + ',' + entry.gz, entry ] ) );
+	const legacyBoostEntryByCell = new Map();
+	for ( const entry of legacyBoostEntries ) {
+		for ( const key of cellKeysForEntry( entry.gx, entry.gz ) ) pushEntryByCell( legacyBoostEntryByCell, key, entry );
+	}
 	const magnetCells = Array.isArray( extras?.magnets ) ? extras.magnets : [];
 	const arcLinkCells = Array.isArray( extras?.arcLinks ) ? extras.arcLinks : [];
 	const magnetFullStrengthDistance = CELL_RAW * GRID_SCALE * MAGNET_FULL_STRENGTH_BLOCKS;
@@ -10302,8 +10336,8 @@ function completeCampaignStage() {
 		bucket.length = 0;
 		for ( let dz = - 1; dz <= 1; dz ++ ) {
 			for ( let dx = - 1; dx <= 1; dx ++ ) {
-				const entry = byCellMap.get( ( cx + dx ) + ',' + ( cz + dz ) );
-				if ( entry ) bucket.push( entry );
+				const list = byCellMap.get( ( cx + dx ) + ',' + ( cz + dz ) );
+				if ( list ) for ( let i = 0; i < list.length; i ++ ) bucket.push( list[ i ] );
 			}
 		}
 		return bucket.length > 0;
@@ -12034,7 +12068,11 @@ function completeCampaignStage() {
 		if ( ! targetVehicle.rigidBody?.motionProperties ) return;
 		const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
 		if ( vel[ 1 ] > 0.12 ) return; // already on the way up: don't fight the launch
-		const bounce = Math.max( TRAMPOLINE_MIN_BOUNCE, - vel[ 1 ] * TRAMPOLINE_RESTITUTION );
+		if ( - vel[ 1 ] < TRAMPOLINE_MIN_IMPACT ) return; // resting/rolling: tiny-bounce guard
+		// Pure velocity reflection (no floor): hops decay naturally to rest.
+		// Bounces stay above the seam-suppressor freeze zone because the
+		// suppressor's saved velocity is captured AFTER this reflect.
+		const bounce = - vel[ 1 ] * TRAMPOLINE_RESTITUTION;
 		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], bounce, vel[ 2 ] ] );
 
 	}
@@ -12051,13 +12089,15 @@ function completeCampaignStage() {
 		targetParticles?.triggerAirControlFx?.( 0.3 );
 		const throttle = Number( input?.z ) || 0;
 		if ( throttle === 0 ) return;
+		const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
+		const physSpeed = Math.hypot( vel[ 0 ], vel[ 1 ], vel[ 2 ] );
+		if ( physSpeed > AIR_CONTROL_MAX_SPEED_MPS ) return; // 55 mph cut: flames stay, force stops
 		const airborne = isVehicleAirborne( targetVehicle );
 		const accelPerSecond = airborne ? AIR_CONTROL_AIR_ACCEL_PER_SECOND : AIR_CONTROL_GROUND_FORCE_PER_SECOND;
 		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
 		_boostForward.y = 0;
 		if ( _boostForward.lengthSq() < 1e-6 ) return;
 		_boostForward.normalize();
-		const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
 		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
 			vel[ 0 ] + _boostForward.x * accelPerSecond * throttle * dt,
 			vel[ 1 ],
