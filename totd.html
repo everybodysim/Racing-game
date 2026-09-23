@@ -48,7 +48,7 @@
 	// Realistic 3D top-down track preview. The module exposes
 	// window.__renderTrackTopDown; the page falls back to its flat 2D
 	// preview if the module or WebGL is unavailable.
-	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260923';
+	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260924';
 	import { encodeCellsV3 } from './js/Track.js?v=1000238';
 	import { generateTrackPlan } from './js/CupTrackGen.js?v=20260918';
 	window.__renderTrackTopDown = renderTrackTopDown;
@@ -311,6 +311,7 @@
       'track-straight': '#4da3ff',
       'track-corner': '#b084ff',
       'track-checkpoint': '#ffd54f',
+      'track-checkpoint-corner': '#ffd54f',
       'track-finish': '#72e39a',
     };
 

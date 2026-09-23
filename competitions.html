@@ -51,7 +51,7 @@
 	// Realistic 3D top-down track preview. The module exposes
 	// window.__renderTrackTopDown; the page falls back to its flat 2D
 	// grid preview if the module or WebGL is unavailable.
-	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260923';
+	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260924';
 	window.__renderTrackTopDown = renderTrackTopDown;
 </script>
 </head>
@@ -231,7 +231,7 @@
     'track-checkpoint': 'e', 'track-bump': 'f', 'track-finish': 'g', 'track-start': 'h',
     'track-start-finish': 'i', 'track-cross': 'j', 'elevated-straight': 'k',
     'elevated-corner': 'l', 'elevated-cross': 'm', 'elevated-checkpoint': 'n',
-    'elevated-3-way': 'o', 'elevated-4-way': 'p', 'slope-up': 'q', 'slope-down': 'r', 'track-choke-half': 's', 'track-choke-both': 't'
+    'elevated-3-way': 'o', 'elevated-4-way': 'p', 'slope-up': 'q', 'slope-down': 'r', 'track-choke-half': 's', 'track-choke-both': 't', 'track-checkpoint-corner': 'u', 'elevated-checkpoint-corner': 'v'
   };
   const V3_TOKEN_NAMES = {};
   for ( const [ name, token ] of Object.entries( V3_NAME_TOKENS ) ) V3_TOKEN_NAMES[ token ] = name;

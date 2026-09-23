@@ -1983,6 +1983,8 @@ const V3_NAME_TOKENS = {
 	'slope-down': 'r',
 	'track-choke-half': 's',
 	'track-choke-both': 't',
+	'track-checkpoint-corner': 'u',
+	'elevated-checkpoint-corner': 'v',
 
 };
 
