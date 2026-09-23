@@ -100,7 +100,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	// the half-choke.
 	const CHOKE_APEX_X = 2.5;
 	const CHOKE_SEGS = 8;
-	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ] );
+	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ] );
 
 	// PERFECT SLOPE SEAM MATH. The slope's driving surface is the TOP face of a
 	// tilted box (half-thickness hy = ELEVATED_SURFACE_HALF_H). The old geometry
@@ -1031,7 +1031,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 			addChokeWalls( gx, gz, orient, [ - 1, 1 ] );
 
-		} else if ( baseKey === 'track-corner' ) {
+		} else if ( baseKey === 'track-corner' || baseKey === 'track-checkpoint-corner' ) {
 
 			const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S;
 			const wcz = cz + ( - ARC_CENTER_X * sr + ARC_CENTER_Z * cr ) * S;
@@ -1124,6 +1124,15 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		if ( normalizedType === 'elevated-corner' ) {
 
 			addElevatedCornerSupport( nx, nz, normalizedOrient );
+			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
+			continue;
+
+		}
+		if ( normalizedType === 'elevated-checkpoint-corner' ) {
+
+			// Same deck-height corner walls as an elevated corner, but keep the
+			// generic SQUARE support box (added above) — the corner-checkpoint
+			// GLB carries its own square support visually, so no curved pillar.
 			addElevatedCornerWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
 			continue;
 

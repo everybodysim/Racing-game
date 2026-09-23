@@ -6,8 +6,8 @@ import { Vehicle } from './Vehicle.js?v=1000227';
 import { createShadowProxyController } from './ShadowProxy.js?v=2';
 import { Camera } from './Camera.js?v=1';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000237';
-import { buildWallColliders, createSphereBody } from './Physics.js?v=20260920';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000238';
+import { buildWallColliders, createSphereBody } from './Physics.js?v=20260921';
 import { SmokeTrails, WaterSplashFX } from './Particles.js';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
@@ -303,7 +303,7 @@ const modelNames = [
 	'vehicle-hatchback-green', 'vehicle-sedan-orange',
 	'vehicle-car-police', 'vehicle-delivery-yellow', 'vehicle-flatbed-purple', 'vehicle-van-blue',
 	'vehicle-ambulance-red', 'vehicle-firetruck-red', 'vehicle-taxi-yellow', 'vehicle-tractor-yellow', 'vehicle-trash-green',
-	'track-straight', 'track-corner', 'track-bump', 'track-finish',
+	'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-bump', 'track-finish',
 	'track-3-way', 'track-4-way',
 	'track-choke-half', 'track-choke-both',
 	'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope',
@@ -4102,6 +4102,7 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 			else if ( et === 'elevated-corner' ) required.add( 'elev-track-corner' );
 			else if ( et === 'elevated-cross-corner' ) required.add( 'elev-cross-corners' );
 			else if ( et === 'elevated-checkpoint' ) required.add( 'elev-track-checkpoint' );
+			else if ( et === 'elevated-checkpoint-corner' ) required.add( 'track-checkpoint-corner' );
 			else if ( et === 'elevated-3-way' ) required.add( 'elev-track-3-way' );
 			else if ( et === 'elevated-4-way' ) required.add( 'elev-track-4-way' );
 			else if ( et === 'elevated-choke-half' ) required.add( 'elev-track-choke-half' );
@@ -9556,7 +9557,16 @@ function completeCampaignStage() {
 			.filter( ( c ) => Array.isArray( c ) && c[ 2 ] === 'elevated-checkpoint' )
 			.map( ( [ gx, gz, , orient = 0 ] ) => [ gx, gz, 'track-checkpoint', orient ] )
 		: [];
-	const checkpointCells = [ ...activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' ), ...elevatedCheckpointCells ];
+	const elevatedCornerCheckpointCells = Array.isArray( extras?.elevated )
+		? extras.elevated
+			.filter( ( c ) => Array.isArray( c ) && c[ 2 ] === 'elevated-checkpoint-corner' )
+			.map( ( [ gx, gz, , orient = 0 ] ) => [ gx, gz, 'track-checkpoint-corner', orient ] )
+		: [];
+	const checkpointCells = [
+		...activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' || c[ 2 ] === 'track-checkpoint-corner' ),
+		...elevatedCheckpointCells,
+		...elevatedCornerCheckpointCells,
+	];
 	const slopeElevatedCells = Array.isArray( extras?.elevated )
 		? extras.elevated.filter( ( c ) => Array.isArray( c ) && ( c[ 2 ] === 'slope-up' || c[ 2 ] === 'slope-down' ) )
 		: [];
@@ -9771,11 +9781,40 @@ function completeCampaignStage() {
 
 		if ( ! cell ) return null;
 
-		const [ gx, gz, , orient ] = cell;
-		const centerX = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
-		const centerZ = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
-		const halfExtent = ( CELL_RAW * GRID_SCALE ) * 0.5;
-		const angle = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
+		const [ gx, gz, type, orient ] = cell;
+		let centerX = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
+		let centerZ = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
+		let halfExtent = ( CELL_RAW * GRID_SCALE ) * 0.5;
+		let angle = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
+
+		if ( type === 'track-checkpoint-corner' ) {
+
+			// Corner checkpoints: the arch spans the cell's 45-degree diagonal,
+			// so the trigger plane runs corner-to-corner instead of edge-to-edge.
+			// Slide the gate band onto the road's mid-diagonal (where the arch
+			// stands) and shrink it to the road width across the diagonal
+			// (inner arc to outer arc, same radii the corner colliders use), so
+			// the gate can only fire for a car actually driving through the
+			// turn — never for one crossing the diagonal plane outside the corner.
+			const cellHalf = CELL_RAW * 0.5;
+			const innerD = 0.25;
+			const outerD = cellHalf * 2 - 0.25;
+			const midD = ( innerD + outerD ) * 0.5;
+			angle -= Math.PI / 4;
+			// Road mid-diagonal point in the piece's local frame (raw units,
+			// arc center at (-cellHalf, +cellHalf)), scaled to world units.
+			const px = ( - cellHalf + midD * Math.SQRT1_2 ) * GRID_SCALE;
+			const pz = ( cellHalf - midD * Math.SQRT1_2 ) * GRID_SCALE;
+			// Rotate the local offset by the piece's orientation (same Y-axis
+			// rotation convention the track meshes use).
+			const cosT = Math.cos( angle + Math.PI / 4 );
+			const sinT = Math.sin( angle + Math.PI / 4 );
+			centerX += px * cosT + pz * sinT;
+			centerZ += - px * sinT + pz * cosT;
+			halfExtent = ( outerD - innerD ) * 0.5 * GRID_SCALE;
+
+		}
+
 		const cosA = Math.cos( angle );
 		const sinA = Math.sin( angle );
 		return { centerX, centerZ, halfExtent, angle, cosA, sinA };

@@ -652,6 +652,7 @@
 				<select id="flow-corner-type">
 					<option value="track-corner">Track Corner</option>
 					<option value="track-checkpoint">Checkpoint</option>
+					<option value="track-checkpoint-corner">Corner Checkpoint</option>
 				</select>
 			</div>
 			<div class="panel-row">
@@ -672,6 +673,7 @@
 				<option value="track-finish">Place: Finish</option>
 			</select>
 			<button id="btn-checkpoint">Checkpoint</button>
+			<button id="btn-corner-checkpoint">Corner Checkpoint</button>
 			<button id="btn-3way">3-Way</button>
 			<button id="btn-4way">4-Way</button>
 			<button id="btn-choke-half">Choke Half</button>
@@ -681,6 +683,7 @@
 			<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
 			<button id="btn-elevated-cross-corner" style="display:none">Elev Cross Corner</button>
 			<button id="btn-elevated-checkpoint" style="display:none">Elev Checkpoint</button>
+			<button id="btn-elevated-corner-checkpoint" style="display:none">Elev Corner Checkpoint</button>
 			<button id="btn-slope-up" style="display:none">Slope Up</button>
 			<button id="btn-pool-slope" style="display:none">Pool Slope</button>
 			<button id="btn-elevated-3way" style="display:none">Elev 3-Way</button>
@@ -895,10 +898,10 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000237';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000238';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260920';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260921';
 	import { Vehicle } from './js/Vehicle.js?v=1000227';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 
@@ -906,7 +909,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 
 	const grid = new Map(); // "gx,gz" → { type, orient, isFinish, mesh }
 	const ORIENTATIONS = [ 0, 16, 10, 22 ];
-	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint', 'track-start', 'track-start-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both' ];
+	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-finish', 'track-checkpoint', 'track-start', 'track-start-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both' ];
 	const BUMP_TOOL = 'overlay-bump';
 	const POLE_TOOL = 'overlay-pole';
 	const CUBE_TOOL = 'overlay-cube';
@@ -930,7 +933,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 	const ARC_ORANGE_TOOL = 'arc-orange';
 	const PORTAL_YELLOW_TOOL = 'portal-yellow';
 	const PORTAL_PURPLE_TOOL = 'portal-purple';
-	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'slope-up', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ];
+	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ];
 	const POOL_SLOPE_TOOL = 'pool-slope';
 	const POOL_SLOPE_DEPTH = CELL_RAW * 0.34; // matches pool floor depth
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
@@ -1828,7 +1831,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 
 	const loader = new GLTFLoader();
 	const objLoader = new OBJLoader();
-	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'elev-track-choke-half', 'elev-track-choke-both', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
+	const modelNames = [ 'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'elev-track-choke-half', 'elev-track-choke-both', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
 	const models = {};
 	const customAssets = new Map();
 	let customAssetOrder = [];
@@ -2165,6 +2168,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 				'elevated-corner': 'elev-track-corner',
 				'elevated-cross-corner': 'elev-cross-corners',
 				'elevated-checkpoint': 'elev-track-checkpoint',
+				'elevated-checkpoint-corner': 'track-checkpoint-corner',
 				'slope-up': 'elev-track-slope',
 				'elevated-3-way': 'elev-track-3-way',
 		'elevated-choke-half': 'elev-track-choke-half',
@@ -3413,6 +3417,7 @@ function computeCausticShade( normal ) {
 		'elevated-corner': 'elev-track-corner',
 		'elevated-cross-corner': 'elev-cross-corners',
 		'elevated-checkpoint': 'elev-track-checkpoint',
+		'elevated-checkpoint-corner': 'track-checkpoint-corner',
 		'slope-up': 'elev-track-slope',
 		'elevated-3-way': 'elev-track-3-way',
 		'elevated-choke-half': 'elev-track-choke-half',
@@ -4557,11 +4562,13 @@ function refreshMovingSpeedUi() {
 		[ MOVING_ORBIT_TOOL ]: document.getElementById( 'btn-moving-orbit' ),
 		[ MOVING_CUSTOM_TOOL ]: document.getElementById( 'btn-moving-custom' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
+		'track-checkpoint-corner': document.getElementById( 'btn-corner-checkpoint' ),
 		'elevated-straight': document.getElementById( 'btn-elevated-straight' ),
 		'elevated-cross': document.getElementById( 'btn-elevated-cross' ),
 		'elevated-corner': document.getElementById( 'btn-elevated-corner' ),
 		'elevated-cross-corner': document.getElementById( 'btn-elevated-cross-corner' ),
 		'elevated-checkpoint': document.getElementById( 'btn-elevated-checkpoint' ),
+		'elevated-checkpoint-corner': document.getElementById( 'btn-elevated-corner-checkpoint' ),
 		'slope-up': document.getElementById( 'btn-slope-up' ),
 		[ POOL_SLOPE_TOOL ]: document.getElementById( 'btn-pool-slope' ),
 		'elevated-3-way': document.getElementById( 'btn-elevated-3way' ),
@@ -4856,7 +4863,7 @@ function refreshMovingSpeedUi() {
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-checkpoint-corner', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 
@@ -5950,14 +5957,14 @@ function renderMinimap() {
             const et = cell.elevatedType;
 			if (et === 'elevated-straight' || et === 'elevated-cross' || et === 'slope-up') color = '#c0d0e0';
             else if (et === 'elevated-corner') color = '#a0b0c8';
-            else if (et === 'elevated-checkpoint') color = '#7ad8ff';
+            else if (et === 'elevated-checkpoint' || et === 'elevated-checkpoint-corner') color = '#7ad8ff';
             else if (et === 'elevated-3-way' || et === 'elevated-4-way') color = '#b0c0d8';
         }
         // Road pieces
         if (cell.roadPieces && cell.roadPieces.length) {
             const type = cell.roadPieces[0].type;
             if (type === 'track-start-finish' || type === 'track-finish' || type === 'track-start') color = '#77f3b1';
-            else if (type === 'track-checkpoint') color = '#5ac8ff';
+            else if (type === 'track-checkpoint' || type === 'track-checkpoint-corner') color = '#5ac8ff';
             else if (type === 'track-corner') color = '#8899aa';
             else if (type === 'track-3-way' || type === 'track-4-way') color = '#99aabb';
 			else if (type === 'elevated-straight' || type === 'elevated-cross' || type === 'slope-up') color = '#c0d0e0';
