@@ -7,6 +7,10 @@ const BOOST_PARTICLE_COLORS = [
 	new THREE.Color( 0xff4b1f ),
 	new THREE.Color( 0xff9f1c ),
 ];
+const AIR_CONTROL_PARTICLE_COLORS = [
+	new THREE.Color( 0x37b6ff ),
+	new THREE.Color( 0x9fe4ff ),
+];
 
 export class SmokeTrails {
 
@@ -31,6 +35,7 @@ export class SmokeTrails {
 
 		this.emitIndex = 0;
 		this.boostFxTime = 0;
+		this.airControlFxTime = 0;
 		this.customColor = null;
 
 	}
@@ -77,8 +82,10 @@ export class SmokeTrails {
 
 		this.boostFxTime = Math.max( 0, this.boostFxTime - dt );
 		const boostActive = this.boostFxTime > 0;
+		this.airControlFxTime = Math.max( 0, this.airControlFxTime - dt );
+		const airControlActive = this.airControlFxTime > 0;
 		const speedRatio = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed || 0 ) / Math.max( 0.01, vehicle.topSpeed || 1 ), 0, 1.7 );
-		const shouldEmit = boostActive || ( speedRatio > 0.25 && vehicle.driftIntensity > 0.62 );
+		const shouldEmit = boostActive || airControlActive || ( speedRatio > 0.25 && vehicle.driftIntensity > 0.62 );
 
 		// Emit new particles from back wheel positions
 		if ( shouldEmit ) {
@@ -86,8 +93,15 @@ export class SmokeTrails {
 			this.emitFrame = ( this.emitFrame + 1 ) % this.emissionStride;
 			if ( this.emitFrame === 0 ) {
 
-				if ( vehicle.wheelBL ) this.emitAtWheel( vehicle.wheelBL, vehicle, boostActive );
-				if ( vehicle.wheelBR ) this.emitAtWheel( vehicle.wheelBR, vehicle, boostActive );
+				// Air Control pad: little blue flames from ALL four wheels.
+				if ( airControlActive ) {
+
+					if ( vehicle.wheelFL ) this.emitAtWheel( vehicle.wheelFL, vehicle, false, true );
+					if ( vehicle.wheelFR ) this.emitAtWheel( vehicle.wheelFR, vehicle, false, true );
+
+				}
+				if ( vehicle.wheelBL ) this.emitAtWheel( vehicle.wheelBL, vehicle, boostActive, airControlActive );
+				if ( vehicle.wheelBR ) this.emitAtWheel( vehicle.wheelBR, vehicle, boostActive, airControlActive );
 
 			}
 
@@ -143,7 +157,13 @@ export class SmokeTrails {
 
 	}
 
-	emitAtWheel( wheel, vehicle, boostActive = false ) {
+	triggerAirControlFx( duration = 1 ) {
+
+		this.airControlFxTime = Math.max( this.airControlFxTime, duration );
+
+	}
+
+	emitAtWheel( wheel, vehicle, boostActive = false, airControlActive = false ) {
 
 		const poolSize = Math.max( 1, Math.min( this.maxParticles, this.particles.length ) );
 		const p = this.particles[ this.emitIndex % poolSize ];
@@ -156,9 +176,11 @@ export class SmokeTrails {
 		p.sprite.position.copy( _worldPos );
 		p.sprite.visible = true;
 		p.sprite.material.opacity = 0;
-		const particleColor = boostActive
-			? BOOST_PARTICLE_COLORS[ Math.random() < 0.5 ? 0 : 1 ]
-			: ( this.customColor || DEFAULT_PARTICLE_COLOR );
+		const particleColor = airControlActive
+			? AIR_CONTROL_PARTICLE_COLORS[ Math.random() < 0.5 ? 0 : 1 ]
+			: ( boostActive
+				? BOOST_PARTICLE_COLORS[ Math.random() < 0.5 ? 0 : 1 ]
+				: ( this.customColor || DEFAULT_PARTICLE_COLOR ) );
 		p.sprite.material.color.copy( particleColor );
 
 		const speedRatio = THREE.MathUtils.clamp( Math.abs( vehicle.linearSpeed || 0 ) / Math.max( 0.01, vehicle.topSpeed || 1 ), 0, 1.7 );

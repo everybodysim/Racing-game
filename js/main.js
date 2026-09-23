@@ -6,9 +6,9 @@ import { Vehicle } from './Vehicle.js?v=1000227';
 import { createShadowProxyController } from './ShadowProxy.js?v=2';
 import { Camera } from './Camera.js?v=1';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000238';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000239';
 import { buildWallColliders, createSphereBody } from './Physics.js?v=20260921';
-import { SmokeTrails, WaterSplashFX } from './Particles.js';
+import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
 import { encodeGhostBinary, decodeGhostBinary, encodeGhostCode, decodeGhostCode } from './GhostCodec.js';
@@ -367,6 +367,7 @@ const SURFACE_EFFECTS = {
 	'surface-wood': { grip: 0.9, drag: 1.35, accel: 1.0, drive: 1.55 },
 	'surface-ice': { grip: 0.4, drag: 0.58, accel: 0.45, drive: 0.8 },
 	'surface-sand': { grip: 0.72, drag: 2.6, accel: 0.35, drive: 0.5 },
+	'surface-trampoline': { grip: 1.0, drag: 1.0, accel: 1.0, drive: 1.0 },
 	'surface-custom-a': { grip: 1.2, drag: 1.0, accel: 1.05, drive: 1.15 },
 	'surface-custom-b': { grip: 0.55, drag: 0.9, accel: 0.72, drive: 0.85 },
 	'surface-custom-c': { grip: 0.95, drag: 1.7, accel: 1.25, drive: 1.3 },
@@ -420,6 +421,7 @@ function suppressSeamBounce( world, veh, key, onSlope = false ) {
 }
 const PAD_EFFECTS = {
 	'pad-low-gravity': { id: 'low-gravity', gravity: 0.45 },
+	'pad-air-control': { id: 'air-control', gravity: 0.6, airControl: true },
 	'pad-heavy-gravity': { id: 'heavy-gravity', gravity: 1.7 },
 	'pad-high-grip': { id: 'high-grip', grip: 2.2, drag: 1.25 },
 	'pad-high-speed': { id: 'high-speed', accel: 1.5, drive: 1.6, topSpeed: 1.25 },
@@ -448,6 +450,12 @@ const SIZE_PAD_TYPES = new Set( [ 'pad-size-small', 'pad-size-normal', 'pad-size
 const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 const BOUNCE_VERTICAL_DELTA = 7.2;
 const KICK_LATERAL_DELTA = 7.4;
+const TRAMPOLINE_RESTITUTION = 0.82;
+// Min bounce stays above the seam-bounce suppressor's prevVy < 1.0 guard, so
+// trampoline launches can never be mistaken for seam pops and frozen mid-air.
+const TRAMPOLINE_MIN_BOUNCE = 1.5;
+const AIR_CONTROL_AIR_ACCEL_PER_SECOND = 12.0;
+const AIR_CONTROL_GROUND_FORCE_PER_SECOND = 9.0;
 const MAGNET_FULL_STRENGTH_BLOCKS = 0.5;
 const MAGNET_DEFAULT_MAX_DISTANCE_BLOCKS = 1.5;
 const MAGNET_DEFAULT_FORCE_PER_SECOND = 26.0;
@@ -10387,6 +10395,7 @@ function completeCampaignStage() {
 
 			case PAD_RESET_TYPE: return 'Pad Reset';
 			case 'pad-low-gravity': return 'Low Gravity';
+			case 'pad-air-control': return 'Air Control';
 			case 'pad-heavy-gravity': return 'Heavy Gravity';
 			case 'pad-high-grip': return 'High Grip';
 			case 'pad-high-speed': return 'High Speed';
@@ -10670,6 +10679,7 @@ function completeCampaignStage() {
 
 	function applySurfaceGrip( targetVehicle, surfaceType, padEffect = null ) {
 
+		if ( surfaceType === 'surface-trampoline' ) applyTrampolineBounceFor( targetVehicle );
 		const effect = getSurfaceEffect( surfaceType );
 		const gripPack = GARAGE_FIXED_MULTIPLIER;
 		const accelPack = GARAGE_FIXED_MULTIPLIER;
@@ -12009,6 +12019,50 @@ function completeCampaignStage() {
 		const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
 		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], Math.max( vel[ 1 ], 0 ) + BOUNCE_VERTICAL_DELTA, vel[ 2 ] ] );
 		return true;
+
+	}
+
+	function applyTrampolineBounceFor( targetVehicle ) {
+
+		// Trampoline surface: reflects the car's vertical velocity on EVERY
+		// landing — never a one-shot trigger, so you keep bouncing until you
+		// drive off (a once-per-contact gate would give exactly one bounce).
+		// Not applied in air: the ray-based ground check below is height-
+		// independent, so elevated decks correctly count as ground here
+		// (the old flat-height check read elevated cars as airborne).
+		if ( ! isVehicleTouchingGroundBelow( targetVehicle ) ) return;
+		if ( ! targetVehicle.rigidBody?.motionProperties ) return;
+		const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
+		if ( vel[ 1 ] > 0.12 ) return; // already on the way up: don't fight the launch
+		const bounce = Math.max( TRAMPOLINE_MIN_BOUNCE, - vel[ 1 ] * TRAMPOLINE_RESTITUTION );
+		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], bounce, vel[ 2 ] ] );
+
+	}
+
+	function applyAirControlFor( targetVehicle, padEffect, input, dt, targetParticles = null ) {
+
+		// Air Control pad (lasts until the next checkpoint, like all pads):
+		// throttle input becomes a real forward/backward force — in the air
+		// (accelerate/decelerate mid-jump) AND on the ground stacked on top
+		// of normal driving, so ground runs are faster under the pad too.
+		// Airborne uses the ray-based ground check: elevated decks = ground.
+		if ( ! padEffect?.airControl ) return;
+		if ( ! targetVehicle?.rigidBody?.motionProperties ) return;
+		targetParticles?.triggerAirControlFx?.( 0.3 );
+		const throttle = Number( input?.z ) || 0;
+		if ( throttle === 0 ) return;
+		const airborne = isVehicleAirborne( targetVehicle );
+		const accelPerSecond = airborne ? AIR_CONTROL_AIR_ACCEL_PER_SECOND : AIR_CONTROL_GROUND_FORCE_PER_SECOND;
+		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+		_boostForward.y = 0;
+		if ( _boostForward.lengthSq() < 1e-6 ) return;
+		_boostForward.normalize();
+		const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
+		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
+			vel[ 0 ] + _boostForward.x * accelPerSecond * throttle * dt,
+			vel[ 1 ],
+			vel[ 2 ] + _boostForward.z * accelPerSecond * throttle * dt,
+		] );
 
 	}
 
@@ -13445,6 +13499,10 @@ function completeCampaignStage() {
 				applyWaterPhysicsDamping( vehicle2, dt );
 
 			}
+			// Air Control pad: throttle force in the air (and stacked on normal
+			// driving on the ground) + little blue wheel flames while it lasts.
+			applyAirControlFor( vehicle, activePadEffect, padAdjustedInput, dt, particles );
+			if ( vehicle2 ) applyAirControlFor( vehicle2, activePadEffect2, padAdjustedInput2, dt, particles2 );
 			if ( hacksActive ) {
 
 				if ( hacksState.boostAnywhere && controls?.keys?.KeyB && vehicle?.rigidBody?.motionProperties ) {

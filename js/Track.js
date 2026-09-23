@@ -756,10 +756,12 @@ function getSurfaceVisual( surfaceType, customSurfaces = null, customPads = null
 		case 'surface-boost': return { color: 0xff4b4b, emissive: 0xc1121f, metalness: 0.0, roughness: 0.9 };
 		case 'surface-sand': return { color: 0xd7b46a, emissive: 0x6f4f22, metalness: 0.0, roughness: 1.0 };
 		case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
+		case 'surface-trampoline': return { color: 0x66f2d0, emissive: 0x0f8f74, metalness: 0.0, roughness: 0.7 };
 		case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
 		case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
 		case 'pad-reset': return { color: 0xffffff, emissive: 0x557c92, metalness: 0.1, roughness: 0.35 };
 		case 'pad-low-gravity': return { color: 0x9bc2ff, emissive: 0x2e4f9f, metalness: 0.05, roughness: 0.55 };
+		case 'pad-air-control': return { color: 0x37b6ff, emissive: 0x0c4f9e, metalness: 0.05, roughness: 0.6 };
 		case 'pad-heavy-gravity': return { color: 0x4a5f85, emissive: 0x111b36, metalness: 0.05, roughness: 0.8 };
 		case 'pad-high-grip': return { color: 0x5cff9a, emissive: 0x0d6a39, metalness: 0.02, roughness: 0.95 };
 		case 'pad-high-speed': return { color: 0xffbc4f, emissive: 0x8a4e06, metalness: 0.0, roughness: 0.8 };

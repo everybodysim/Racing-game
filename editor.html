@@ -717,6 +717,7 @@
 				<option value="surface-boost">Boost Surface</option>
 				<option value="surface-sand">Sand</option>
 				<option value="surface-bounce">Bounce Plate</option>
+				<option value="surface-trampoline">Trampoline</option>
 				<option value="surface-kick-l">Kick Left</option>
 				<option value="surface-kick-r">Kick Right</option>
 			</select>
@@ -724,6 +725,7 @@
 				<option value="">Pads…</option>
 				<option value="pad-reset">Reset Effects</option>
 				<option value="pad-low-gravity">Low Gravity</option>
+				<option value="pad-air-control">Air Control</option>
 				<option value="pad-heavy-gravity">Heavy Gravity</option>
 				<option value="pad-high-grip">High Grip</option>
 				<option value="pad-high-speed">High Speed</option>
@@ -898,7 +900,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000238';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000239';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260921';
@@ -942,8 +944,8 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 	const SLOPE_VISUAL_DROP = CELL_RAW * 0.04;
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const SURFACE_TYPES = [
-		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
-		'pad-reset', 'pad-low-gravity', 'pad-heavy-gravity', 'pad-high-grip', 'pad-high-speed',
+		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-trampoline', 'surface-kick-l', 'surface-kick-r',
+		'pad-reset', 'pad-low-gravity', 'pad-air-control', 'pad-heavy-gravity', 'pad-high-grip', 'pad-high-speed',
 		'pad-no-brakes', 'pad-no-steering', 'pad-no-acceleration', 'pad-slow-motion', 'pad-fast-motion', 'pad-drift',
 		'pad-size-small', 'pad-size-normal', 'pad-size-mega',
 		'pad-trick-yaw-1', 'pad-trick-pitch-1', 'pad-trick-roll-1',
@@ -1538,6 +1540,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 			case 'surface-boost': return { color: 0xff4b4b, emissive: 0xc1121f, metalness: 0.0, roughness: 0.9 };
 			case 'surface-sand': return { color: 0xd7b46a, emissive: 0x6f4f22, metalness: 0.0, roughness: 1.0 };
 			case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
+			case 'surface-trampoline': return { color: 0x66f2d0, emissive: 0x0f8f74, metalness: 0.0, roughness: 0.7 };
 			case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
 			case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
 			case 'surface-custom-a':
@@ -1549,6 +1552,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 			}
 			case 'pad-reset': return { color: 0xffffff, emissive: 0x557c92, metalness: 0.1, roughness: 0.35 };
 			case 'pad-low-gravity': return { color: 0x9bc2ff, emissive: 0x2e4f9f, metalness: 0.05, roughness: 0.55 };
+			case 'pad-air-control': return { color: 0x37b6ff, emissive: 0x0c4f9e, metalness: 0.05, roughness: 0.6 };
 			case 'pad-heavy-gravity': return { color: 0x4a5f85, emissive: 0x111b36, metalness: 0.05, roughness: 0.8 };
 			case 'pad-high-grip': return { color: 0x5cff9a, emissive: 0x0d6a39, metalness: 0.02, roughness: 0.95 };
 			case 'pad-high-speed': return { color: 0xffbc4f, emissive: 0x8a4e06, metalness: 0.0, roughness: 0.8 };
@@ -5981,6 +5985,7 @@ function renderMinimap() {
             else if (st === 'surface-boost') color = '#ff4b4b';
             else if (st === 'surface-sand') color = '#d7b46a';
             else if (st === 'surface-bounce') color = '#baff7a';
+            else if (st === 'surface-trampoline') color = '#66f2d0';
             else if (st === 'surface-kick-l') color = '#c683ff';
             else if (st === 'surface-kick-r') color = '#ff83d0';
         }
@@ -6474,6 +6479,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		const FX_CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 		const FX_PAD_EFFECTS = {
 			'pad-low-gravity': { id: 'low-gravity', gravity: 0.45 },
+			'pad-air-control': { id: 'air-control', gravity: 0.6, airControl: true },
 			'pad-heavy-gravity': { id: 'heavy-gravity', gravity: 1.7 },
 			'pad-high-grip': { id: 'high-grip', grip: 2.2, drag: 1.25 },
 			'pad-high-speed': { id: 'high-speed', accel: 1.5, drive: 1.6, topSpeed: 1.25 },
@@ -6497,7 +6503,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			'pad-trick-pitch-yaw-roll': { id: 'trick-pitch-yaw-roll', trick: { pitch: 1, yaw: -1, roll: 1 } },
 		};
 		const FX_PAD_LABELS = {
-			'pad-low-gravity': 'Low Gravity', 'pad-heavy-gravity': 'Heavy Gravity', 'pad-high-grip': 'High Grip',
+			'pad-low-gravity': 'Low Gravity', 'pad-air-control': 'Air Control', 'pad-heavy-gravity': 'Heavy Gravity', 'pad-high-grip': 'High Grip',
 			'pad-high-speed': 'High Speed', 'pad-no-brakes': 'No Brakes', 'pad-no-steering': 'No Steering',
 			'pad-no-acceleration': 'No Acceleration', 'pad-slow-motion': 'Slow Motion', 'pad-fast-motion': 'Fast Motion',
 			'pad-drift': 'Drift Mode', 'pad-size-small': 'Mini Pad', 'pad-size-normal': 'Normal Pad', 'pad-size-mega': 'Mega Pad',
@@ -6929,7 +6935,50 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 		}
 
+		const FX_TRAMPOLINE_RESTITUTION = 0.82;
+		const FX_TRAMPOLINE_MIN_BOUNCE = 1.5;
+		const FX_AIR_CONTROL_AIR_ACCEL_PER_SECOND = 12.0;
+		const FX_AIR_CONTROL_GROUND_FORCE_PER_SECOND = 9.0;
+		function fxApplyTrampolineBounceFor( targetVehicle ) {
+
+			// Trampoline: reflect downward velocity on EVERY landing, never a
+			// one-shot. The height-offset-aware ground check counts elevated
+			// decks as ground (not air).
+			const posY = targetVehicle?.spherePos?.y ?? 999;
+			if ( posY > fxGroundedHeightFor( targetVehicle ) + 0.02 ) return;
+			if ( ! targetVehicle.rigidBody?.motionProperties ) return;
+			const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
+			if ( vel[ 1 ] > 0.12 ) return;
+			const bounce = Math.max( FX_TRAMPOLINE_MIN_BOUNCE, - vel[ 1 ] * FX_TRAMPOLINE_RESTITUTION );
+			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], bounce, vel[ 2 ] ] );
+
+		}
+		function fxApplyAirControlFor( targetVehicle, padEffect, input, dt ) {
+
+			// Air Control pad in the editor test drive: throttle force in the
+			// air and stacked on normal driving on the ground.
+			if ( ! padEffect?.airControl ) return;
+			if ( ! targetVehicle?.rigidBody?.motionProperties ) return;
+			const throttle = Number( input?.z ) || 0;
+			if ( throttle === 0 ) return;
+			const grounded = ( targetVehicle?.spherePos?.y ?? 999 ) <= fxGroundedHeightFor( targetVehicle );
+			const airborne = ! grounded || Math.abs( targetVehicle.rigidBody.motionProperties.linearVelocity[ 1 ] ) > 0.35;
+			const accelPerSecond = airborne ? FX_AIR_CONTROL_AIR_ACCEL_PER_SECOND : FX_AIR_CONTROL_GROUND_FORCE_PER_SECOND;
+			_fxBoostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+			_fxBoostForward.y = 0;
+			if ( _fxBoostForward.lengthSq() < 1e-6 ) return;
+			_fxBoostForward.normalize();
+			const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
+			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
+				vel[ 0 ] + _fxBoostForward.x * accelPerSecond * throttle * dt,
+				vel[ 1 ],
+				vel[ 2 ] + _fxBoostForward.z * accelPerSecond * throttle * dt,
+			] );
+
+		}
 		function fxApplySurfaceGrip( targetVehicle, surfaceType, padEffect = null ) {
+
+			if ( surfaceType === 'surface-trampoline' ) fxApplyTrampolineBounceFor( targetVehicle );
 
 			const effect = fxGetSurfaceEffect( surfaceType );
 			const pack = FX_GARAGE_FIXED_MULTIPLIER;
@@ -7264,6 +7313,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 				}
 				fxApplyWaterPhysicsFor( vehicle, fxdt );
+				fxApplyAirControlFor( vehicle, fxActivePadEffect, padAdjustedInput, fxdt );
 				fxPadContactKey = fxApplyPadContact( vehicle, fxPadContactKey, ( effect ) => {
 
 					fxActivePadEffect = effect;
