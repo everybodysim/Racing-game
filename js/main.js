@@ -386,7 +386,7 @@ const BOOST_ACCEL_PER_SECOND = 16.5;
 const FX_SETTINGS_KEY = 'racing-fx-settings-v1';
 const COUNTDOWN_SETTINGS_KEY = 'racing-countdown-enabled-v1';
 const FPS_HUD_SETTINGS_KEY = 'racing-show-fps-v1';
-// Default-car gameplay setting: '__last' (keep last used), '__random', or a CAR_STATS key.
+// Default-car gameplay setting: '__random' (default — roll a car each race), '__last' (keep last used), or a CAR_STATS key.
 const DEFAULT_CAR_KEY = 'racing-default-car-v1';
 const COUNTDOWN_DURATION_SECONDS = 3;
 const ZERO_DRIVE_INPUT = { x: 0, z: 0 };
@@ -9685,7 +9685,7 @@ function completeCampaignStage() {
 			garage: { mods: garageMods, unlocked: garageUnlocked, cosmetics: compactGarageCosmetics( garageCosmetics ) },
 			campaign: campaignState,
 			carKey: currentCarKey(),
-			defaultCar: localStorage.getItem( DEFAULT_CAR_KEY ) || '__last',
+			defaultCar: localStorage.getItem( DEFAULT_CAR_KEY ) || '__random',
 			hud: window.__hudGrid ? window.__hudGrid.getLayoutSnapshot() : undefined,
 			settings: GameSettings.getSettings(),
 		};
@@ -9783,7 +9783,7 @@ function completeCampaignStage() {
 
 			const localDefault = localStorage.getItem( DEFAULT_CAR_KEY );
 			const cloudDefault = typeof parsed?.defaultCar === 'string' ? parsed.defaultCar : null;
-			const nextDefault = localDefault || cloudDefault || '__last';
+			const nextDefault = localDefault || cloudDefault || '__random';
 			localStorage.setItem( DEFAULT_CAR_KEY, nextDefault );
 			const defaultSelect = document.getElementById( 'default-car-select' );
 			if ( defaultSelect ) defaultSelect.value = nextDefault;
@@ -12872,8 +12872,8 @@ function completeCampaignStage() {
 	} );
 
 	// ── Default car setting (Gameplay panel) ─────────────────────────────
-	// '__last' keeps the current behavior (remember the car you drove last),
-	// '__random' rolls a new car every race start, anything else is a CAR_STATS key.
+	// '__random' (the default) rolls a new car every race start, '__last'
+	// remembers the car you drove last, anything else is a CAR_STATS key.
 	function applyDefaultCar( value ) {
 
 		if ( ! value || value === '__last' ) return;
@@ -12894,14 +12894,14 @@ function completeCampaignStage() {
 
 	if ( defaultCarSelect ) {
 
-		const options = [ '<option value="__last">Last used car (default)</option>', '<option value="__random">Random</option>' ];
+		const options = [ '<option value="__random">Random (default)</option>', '<option value="__last">Last used car</option>' ];
 		for ( const [ key, stats ] of Object.entries( CAR_STATS ) ) options.push( `<option value="${ key }">${ stats.name }</option>` );
 		defaultCarSelect.innerHTML = options.join( '' );
-		defaultCarSelect.value = localStorage.getItem( DEFAULT_CAR_KEY ) || '__last';
+		defaultCarSelect.value = localStorage.getItem( DEFAULT_CAR_KEY ) || '__random';
 
 		defaultCarSelect.addEventListener( 'change', () => {
 
-			const value = defaultCarSelect.value || '__last';
+			const value = defaultCarSelect.value || '__random';
 			localStorage.setItem( DEFAULT_CAR_KEY, value );
 			applyDefaultCar( value );
 			showTopMessage( value === '__random' ? 'Default car: random' : ( CAR_STATS[ value ] ? `Default car: ${ CAR_STATS[ value ].name }` : 'Default car: last used' ), false, 1800 );
