@@ -157,6 +157,10 @@ const WATER_REFR_STALE_ANGLE = 0.08;
 // below the surface, the pool floors get their animated caustic overlay and
 // the water surface renders its shimmering underside.
 const WATER_UNDERWATER = { camera: false, gain: 0 };
+
+// Reused temporaries for the static mesh batcher in buildTrack.
+const _batchMat = new THREE.Matrix4();
+const _batchInv = new THREE.Matrix4();
 export function setWaterUnderwaterCameraState( active ) {
 
 	WATER_UNDERWATER.camera = !! active;
@@ -1824,6 +1828,62 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			trackGroup.add( npc );
 
 		}
+
+	}
+
+	// FPS: static mesh batching. Track pieces, bumps, poles and elevated
+	// blocks are clones that SHARE geometry and material with their source
+	// model, so every mesh with the same (geometry, material, flags) triple
+	// renders identically from ONE InstancedMesh. A mega map goes from
+	// ~2,500 draw calls to a few dozen with zero visual change — the clone
+	// matrices (orientation, elevated offsets, barrier scale) are baked into
+	// the per-instance matrices. Water planes are excluded: the refraction
+	// pass toggles their visibility and reads their cached world spheres.
+	// Meshes with per-cell-unique geometry or materials (pool basins, surface
+	// patches, boost pads' cloned tinted materials) never reach the >=2
+	// bucket threshold and stay exactly as they were.
+	trackPieceGroup.updateMatrixWorld( true );
+	_batchInv.copy( trackPieceGroup.matrixWorld ).invert();
+	const batches = new Map();
+	const leaves = [];
+	const leafBatch = new Map();
+	trackPieceGroup.traverse( ( obj ) => {
+
+		if ( ! obj.isMesh || obj.isInstancedMesh ) return;
+		if ( obj.userData.waterWorldSphere ) return; // refraction-managed water
+		const mats = Array.isArray( obj.material ) ? obj.material : [ obj.material ];
+		if ( mats.some( ( m ) => ! m ) ) return;
+		const key = obj.geometry.uuid + '|' + mats.map( ( m ) => m.uuid ).join( ',' )
+			+ '|' + ( obj.castShadow ? 1 : 0 ) + ( obj.receiveShadow ? 1 : 0 )
+			+ '|' + ( obj.userData.isChokeMesh ? 1 : 0 );
+		_batchMat.copy( _batchInv ).multiply( obj.matrixWorld );
+		let batch = batches.get( key );
+		if ( ! batch ) {
+
+			batch = { geometry: obj.geometry, material: obj.material, castShadow: obj.castShadow, receiveShadow: obj.receiveShadow, isChokeMesh: !! obj.userData.isChokeMesh, matrices: [] };
+			batches.set( key, batch );
+
+		}
+		batch.matrices.push( _batchMat.clone() );
+		leaves.push( obj );
+		leafBatch.set( obj, batch );
+
+	} );
+	for ( const batch of batches.values() ) {
+
+		if ( batch.matrices.length < 2 ) continue;
+		const inst = new THREE.InstancedMesh( batch.geometry, batch.material, batch.matrices.length );
+		for ( let i = 0; i < batch.matrices.length; i ++ ) inst.setMatrixAt( i, batch.matrices[ i ] );
+		inst.instanceMatrix.needsUpdate = true;
+		inst.castShadow = batch.castShadow;
+		inst.receiveShadow = batch.receiveShadow;
+		if ( batch.isChokeMesh ) inst.userData.isChokeMesh = true;
+		trackPieceGroup.add( inst );
+
+	}
+	for ( const mesh of leaves ) {
+
+		if ( leafBatch.get( mesh ).matrices.length >= 2 ) mesh.parent.remove( mesh );
 
 	}
 
