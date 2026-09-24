@@ -4,7 +4,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
-import { Camera } from './Camera.js?v=2';
+import { Camera } from './Camera.js?v=3';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000246';
 import { buildWallColliders, createSphereBody } from './Physics.js?v=20260921';
@@ -295,6 +295,36 @@ window.addEventListener( 'resize', () => {
 	applyGraphicsPresetToRenderer();
 
 } );
+
+// TILT-SHIFT DIORAMA: while the car is mini-sized, a blurred + saturated
+// half-res copy of the frame, masked to the top/bottom of the screen
+// (the classic tilt-shift / miniature focus band), sells the "tiny car
+// in a huge world" macro-photo look. The compositor does the blur, the
+// copy only draws while a mini effect is actually active, and it fades
+// out otherwise — zero cost in normal gameplay.
+const tiltShiftCanvas = document.createElement( 'canvas' );
+tiltShiftCanvas.id = 'tiltshift-overlay';
+tiltShiftCanvas.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;opacity:0;transition:opacity .45s ease;filter:blur(6px) saturate(1.25);-webkit-mask-image:linear-gradient(to bottom,#000 0%,transparent 34%,transparent 60%,#000 80%);mask-image:linear-gradient(to bottom,#000 0%,transparent 34%,transparent 60%,#000 80%);z-index:3;';
+document.body.appendChild( tiltShiftCanvas );
+const tiltShiftCtx = tiltShiftCanvas.getContext( '2d' );
+function updateTiltShift( carScale ) {
+
+	// Same policy as the HUD blur rules: no compositor blur passes on the
+	// LOW preset (weak integrated GPUs).
+	const want = carScale < 0.9 && ! document.body.classList.contains( 'gfx-low' );
+	tiltShiftCanvas.style.opacity = want ? '1' : '0';
+	if ( ! want ) return;
+	const src = renderer.domElement;
+	const w = Math.max( 2, src.width >> 1 ), h = Math.max( 2, src.height >> 1 );
+	if ( tiltShiftCanvas.width !== w || tiltShiftCanvas.height !== h ) {
+
+		tiltShiftCanvas.width = w;
+		tiltShiftCanvas.height = h;
+
+	}
+	tiltShiftCtx.drawImage( src, 0, 0, w, h );
+
+}
 
 // ?perf=1: tiny on-screen diagnostics (fps / sim vs render ms / draw calls)
 // so performance reports from real machines come with numbers, not vibes.
@@ -14009,6 +14039,9 @@ function completeCampaignStage() {
 		// 50-unit dome's ceiling and expose the OUTSIDE of the skybox, so the
 		// sky group rides the camera's height as well — you can never escape it.
 		skyGroup.position.copy( cam.camera.position );
+		// Same rAF task as the render — the WebGL canvas can only be
+		// drawImage'd before the compositor presents the frame.
+		updateTiltShift( vehicle.container ? vehicle.container.scale.x : 1 );
 		if ( skyDecorState.starPoints ) {
 			skyDecorState.starPoints.material.opacity = 0.75 + Math.sin( now * 1.3 ) * 0.12 + Math.sin( now * 2.7 + 1.3 ) * 0.08;
 		}
