@@ -263,6 +263,21 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 
 			}
 
+			// LOW-FPS ESCAPE HATCH: the staleness budget above is ~33ms — at
+			// 45+ FPS it saves most passes, but at 8-15 FPS a frame takes
+			// 70-125ms so it NEVER skips and a pool map renders the ENTIRE
+			// scene twice every single frame (the exact "pool maps are 2x
+			// slower" wall). So at struggling framerates the cadence governor
+			// applies to moving cameras regardless of the staleness budget:
+			// every 4th frame gets a fresh refraction sample, the in-shader
+			// wobble keeps the water animated between samples. Healthy
+			// frame rates (cadence 1) are completely unaffected.
+			if ( ! skipPass && waterLastFrame !== undefined && waterRefrCadence > 1 ) {
+
+				skipPass = waterRefrFrameCounter - waterLastFrame < waterRefrCadence;
+
+			}
+
 		}
 		if ( skipPass ) return;
 
@@ -1856,34 +1871,58 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const key = obj.geometry.uuid + '|' + mats.map( ( m ) => m.uuid ).join( ',' )
 			+ '|' + ( obj.castShadow ? 1 : 0 ) + ( obj.receiveShadow ? 1 : 0 )
 			+ '|' + ( obj.userData.isChokeMesh ? 1 : 0 );
-		_batchMat.copy( _batchInv ).multiply( obj.matrixWorld );
+			_batchMat.copy( _batchInv ).multiply( obj.matrixWorld );
 		let batch = batches.get( key );
 		if ( ! batch ) {
 
-			batch = { geometry: obj.geometry, material: obj.material, castShadow: obj.castShadow, receiveShadow: obj.receiveShadow, isChokeMesh: !! obj.userData.isChokeMesh, matrices: [] };
+			batch = { geometry: obj.geometry, material: obj.material, castShadow: obj.castShadow, receiveShadow: obj.receiveShadow, isChokeMesh: !! obj.userData.isChokeMesh, chunks: new Map() };
 			batches.set( key, batch );
 
 		}
-		batch.matrices.push( _batchMat.clone() );
+		// CHUNKED instancing: one InstancedMesh per (mesh kind, 32x32 world
+		// chunk). A single mega-InstancedMesh always draws ALL its instances
+		// (no per-instance frustum culling) — on a huge map that rasterizes
+		// every piece in every pass (main + pool refraction + shadow depth)
+		// and made weak GPUs SLOWER than the original per-piece draws.
+		// Chunk-local bounding spheres restore frustum culling: only the
+		// handful of chunks actually on screen draw, while each visible chunk
+		// still renders dozens of pieces in ONE call.
+		const cx = Math.floor( _batchMat.elements[ 12 ] / 32 );
+		const cz = Math.floor( _batchMat.elements[ 13 ] / 32 );
+		const chunkKey = cx + ',' + cz;
+		let list = batch.chunks.get( chunkKey );
+		if ( ! list ) {
+
+			list = [];
+			batch.chunks.set( chunkKey, list );
+
+		}
+		list.push( _batchMat.clone() );
 		leaves.push( obj );
 		leafBatch.set( obj, batch );
+		batch.chunkOf = batch.chunkOf || new Map();
+		batch.chunkOf.set( obj, list );
 
 	} );
 	for ( const batch of batches.values() ) {
 
-		if ( batch.matrices.length < 2 ) continue;
-		const inst = new THREE.InstancedMesh( batch.geometry, batch.material, batch.matrices.length );
-		for ( let i = 0; i < batch.matrices.length; i ++ ) inst.setMatrixAt( i, batch.matrices[ i ] );
-		inst.instanceMatrix.needsUpdate = true;
-		inst.castShadow = batch.castShadow;
-		inst.receiveShadow = batch.receiveShadow;
-		if ( batch.isChokeMesh ) inst.userData.isChokeMesh = true;
-		trackPieceGroup.add( inst );
+		for ( const list of batch.chunks.values() ) {
+
+			if ( list.length < 2 ) continue;
+			const inst = new THREE.InstancedMesh( batch.geometry, batch.material, list.length );
+			for ( let i = 0; i < list.length; i ++ ) inst.setMatrixAt( i, list[ i ] );
+			inst.instanceMatrix.needsUpdate = true;
+			inst.castShadow = batch.castShadow;
+			inst.receiveShadow = batch.receiveShadow;
+			if ( batch.isChokeMesh ) inst.userData.isChokeMesh = true;
+			trackPieceGroup.add( inst );
+
+		}
 
 	}
 	for ( const mesh of leaves ) {
 
-		if ( leafBatch.get( mesh ).matrices.length >= 2 ) mesh.parent.remove( mesh );
+		if ( leafBatch.get( mesh ).chunkOf.get( mesh ).length >= 2 ) mesh.parent.remove( mesh );
 
 	}
 
