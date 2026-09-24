@@ -12181,18 +12181,14 @@ function completeCampaignStage() {
 		const throttle = Number( input?.z ) || 0;
 		if ( throttle === 0 ) return;
 		const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
+		const physSpeed = Math.hypot( vel[ 0 ], vel[ 1 ], vel[ 2 ] );
+		if ( physSpeed > AIR_CONTROL_MAX_SPEED_MPS ) return; // 55 mph cut: flames stay, force stops
+		const airborne = isVehicleAirborne( targetVehicle );
+		const accelPerSecond = airborne ? AIR_CONTROL_AIR_ACCEL_PER_SECOND : AIR_CONTROL_GROUND_FORCE_PER_SECOND;
 		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
 		_boostForward.y = 0;
 		if ( _boostForward.lengthSq() < 1e-6 ) return;
 		_boostForward.normalize();
-		// The 55 mph cut applies to the speed ALONG THE CAR'S FACING, not
-		// raw 3D speed: a drift/corner run is sideways-heavy and the raw
-		// speed check wrongly killed the pad force mid-turn. Sideways and
-		// vertical motion no longer count toward the cap.
-		const forwardSpeed = vel[ 0 ] * _boostForward.x + vel[ 2 ] * _boostForward.z;
-		if ( forwardSpeed > AIR_CONTROL_MAX_SPEED_MPS ) return; // 55 mph cut along facing: flames stay, force stops
-		const airborne = isVehicleAirborne( targetVehicle );
-		const accelPerSecond = airborne ? AIR_CONTROL_AIR_ACCEL_PER_SECOND : AIR_CONTROL_GROUND_FORCE_PER_SECOND;
 		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
 			vel[ 0 ] + _boostForward.x * accelPerSecond * throttle * dt,
 			vel[ 1 ],
