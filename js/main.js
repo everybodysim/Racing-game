@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000227';
 import { createShadowProxyController } from './ShadowProxy.js?v=2';
 import { Camera } from './Camera.js?v=1';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000239';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000240';
 import { buildWallColliders, createSphereBody } from './Physics.js?v=20260921';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -312,6 +312,7 @@ const modelNames = [
 	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
 	'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d',
 	'garage',
+	'barrier',
 ];
 
 const models = {};
@@ -4103,6 +4104,8 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 		if ( ! customCells ) required.add( 'decoration-tents' );
 	}
 	if ( Array.isArray( extras?.bumps ) && extras.bumps.length ) required.add( 'track-bump' );
+	// Wall obstacles render via the barrier GLB (visual only; hitbox unchanged).
+	if ( Array.isArray( extras?.walls ) && extras.walls.length ) required.add( 'barrier' );
 	if ( Array.isArray( extras?.decorations ) ) {
 		for ( const deco of extras.decorations ) if ( typeof deco?.[ 2 ] === 'string' ) required.add( deco[ 2 ] );
 	}

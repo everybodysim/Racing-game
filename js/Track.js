@@ -4,6 +4,10 @@ export const ORIENT_DEG = { 0: 0, 10: 180, 16: 90, 22: 270 };
 
 export const CELL_RAW = 9.99;
 export const GRID_SCALE = 0.75;
+// Wall obstacle barrier model (models/barrier.glb): authored 7.2 units long
+// while the wall footprint is 0.62 cells — uniform scale matches the model's
+// length exactly to the old wall box, so barrier segments still line up.
+export const BARRIER_WALL_SCALE = ( CELL_RAW * 0.62 ) / 7.2;
 
 const _dummy = new THREE.Object3D();
 const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
@@ -1378,16 +1382,36 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		for ( const [ gx, gz, orient = 0 ] of wallCells ) {
 
-			const wall = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
-				new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
-			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
-			wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
-			wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
-			wall.castShadow = true;
-			wall.receiveShadow = true;
-			trackPieceGroup.add( wall );
+			// Wall obstacle now uses the real barrier model (visual only —
+			// the physics hitbox is untouched). The spinning wall obstacle
+			// (moving-spin-wall) is a DIFFERENT system and stays a box.
+			// Fallback to the legacy box if the model failed to load.
+			const barrier = placePiece( models, 'barrier', gx, gz, orient );
+			if ( barrier ) {
+
+				barrier.scale.multiplyScalar( BARRIER_WALL_SCALE );
+				barrier.position.y += getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+				barrier.traverse( ( child ) => {
+
+					if ( child.isMesh ) { child.castShadow = true; child.receiveShadow = true; }
+
+				} );
+				trackPieceGroup.add( barrier );
+
+			} else {
+
+				const wall = new THREE.Mesh(
+					new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
+					new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
+				);
+				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+				wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+				wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+				wall.castShadow = true;
+				wall.receiveShadow = true;
+				trackPieceGroup.add( wall );
+
+			}
 
 		}
 

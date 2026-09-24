@@ -18,7 +18,7 @@
 // This file is standalone: it does not touch js/main.js or js/Track.js.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { buildTrack, computeTrackBounds, prerenderWaterRefraction } from './Track.js?v=1000239';
+import { buildTrack, computeTrackBounds, prerenderWaterRefraction } from './Track.js?v=1000240';
 
 // Only the STATIC (non-vehicle) models a track can ever place. Deliberately
 // excludes every vehicle-*.glb (no cars are drawn in a top-down preview) and
@@ -33,6 +33,7 @@ const STATIC_MODEL_NAMES = [
 	'elev-track-choke-half', 'elev-track-choke-both',
 	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
 	'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d',
+	'barrier',
 ];
 
 let modelsPromise = null;
