@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-import { Vehicle } from './Vehicle.js?v=1000229';
+import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=2';
 import { Camera } from './Camera.js?v=1';
 import { Controls } from './Controls.js';
@@ -10256,18 +10256,12 @@ function completeCampaignStage() {
 
 	// --- Dynamic slope detection: REAL raycast ground sampling --------------
 	// Replaces the legacy grid-cell slope lookup (applySlopeConformVisual):
-	// four downward physics rays cast from the WHEEL positions sample the
-	// actual ground surface every frame, so the car conforms to ANY angled
-	// collider — slope pieces, pool slopes, banks, custom geometry — at its
-	// TRUE angle, not a hardcoded 26.57° constant. The front/back (pitch)
-	// samples allow CROSS-BODY hits — road→slope and road→bump transitions
-	// are two different colliders, and demanding the same body made the tilt
-	// wait until both wheels sat fully on the new piece (the "takes a second
-	// to conform" complaint). The left/right (roll) samples still require the
-	// same body, so a sample point that slips inside a wall while hugging it
-	// can never fake a slope. Sample offsets, ray reach and the plausibility
-	// window all scale with the car's current size, so mini/mega pads move the
-	// sampled ground with the wheels.
+	// four downward physics rays at the chassis frame sample the actual
+	// hitbox surface every frame, so the car conforms to ANY angled collider —
+	// slope pieces, pool slopes, banks, custom geometry — at its TRUE angle,
+	// not a hardcoded 26.57° constant. Ray pairs (front/back, left/right) are
+	// only trusted when both hits land on the SAME collider body, so a sample
+	// point that slips inside a wall while hugging it can never fake a slope.
 	const slopeRayCollector = createAnyCastRayCollector();
 	const slopeRaySettings = createDefaultCastRaySettings();
 	const slopeRayFilter = ccLayerFilter.forWorld( world );
@@ -10279,21 +10273,16 @@ function completeCampaignStage() {
 	const _slopeSide = new THREE.Vector3();
 	const _slopeRayOrigin = [ 0, 0, 0 ];
 	const _slopeRayDown = [ 0, - 1, 0 ];
-	function sampleGroundDepth( x, y, z, reach = SLOPE_RAY_REACH, maxDepth = reach ) {
+	function sampleGroundDepth( x, y, z ) {
 
 		_slopeRayOrigin[ 0 ] = x;
 		_slopeRayOrigin[ 1 ] = y;
 		_slopeRayOrigin[ 2 ] = z;
 		// AnyCastRayCollector.addMiss() is a no-op — stale hits linger, so reset() before every cast.
 		slopeRayCollector.reset();
-		castRay( world, slopeRayCollector, slopeRaySettings, _slopeRayOrigin, _slopeRayDown, reach, slopeRayFilter );
+		castRay( world, slopeRayCollector, slopeRaySettings, _slopeRayOrigin, _slopeRayDown, SLOPE_RAY_REACH, slopeRayFilter );
 		if ( slopeRayCollector.hit.status !== CastRayStatus.COLLIDING ) return null;
-		const depth = slopeRayCollector.hit.fraction * reach;
-		// Plausibility guard: real ground under the wheels is never deeper than
-		// one radius plus the drop a slope face can produce. Deeper hits are far
-		// floors / collider bottoms seen through seams and would fake a tilt.
-		if ( depth > maxDepth ) return null;
-		return { depth, bodyId: slopeRayCollector.hit.bodyIdB };
+		return { depth: slopeRayCollector.hit.fraction * SLOPE_RAY_REACH, bodyId: slopeRayCollector.hit.bodyIdB };
 
 	}
 
@@ -10311,28 +10300,16 @@ function completeCampaignStage() {
 		const px = targetVehicle.spherePos.x;
 		const py = targetVehicle.spherePos.y;
 		const pz = targetVehicle.spherePos.z;
-		// Wheel positions: front/rear axle + left/right wheel track, scaled with
-		// the car's current size so mini/mega pads move the sampled points with
-		// the wheels. The origin sits half a radius ABOVE the centre so the
-		// front ray can already see ground that has risen past the chassis
-		// mid-line mid-transition (the old centre-height origin missed it).
-		const carScale = Math.abs( Number( targetVehicle.container.scale.x ) ) || 1;
-		const radius = Number( targetVehicle.hitboxRadius ) || VEHICLE_SURFACE_RADIUS * carScale;
-		const L = SLOPE_SAMPLE_HALF_LENGTH * carScale;
-		const W = SLOPE_SAMPLE_HALF_WIDTH * carScale;
-		const originY = py + radius * 0.5;
-		const reach = radius * 2 + 1.2 * carScale;
-		const maxDepth = radius * 1.5 + 0.8 * carScale;
-		const forward = sampleGroundDepth( px + _slopeFwd.x * L, originY, pz + _slopeFwd.z * L, reach, maxDepth );
-		const backward = sampleGroundDepth( px - _slopeFwd.x * L, originY, pz - _slopeFwd.z * L, reach, maxDepth );
-		const right = sampleGroundDepth( px + _slopeSide.x * W, originY, pz + _slopeSide.z * W, reach, maxDepth );
-		const left = sampleGroundDepth( px - _slopeSide.x * W, originY, pz - _slopeSide.z * W, reach, maxDepth );
-		// Pitch (front/back) accepts cross-body samples — transitions are two
-		// colliders and rejecting them was the conform lag. Roll (left/right)
-		// keeps the same-body requirement so wall-hugging can't fake a slope.
+		const L = SLOPE_SAMPLE_HALF_LENGTH;
+		const W = SLOPE_SAMPLE_HALF_WIDTH;
+		const forward = sampleGroundDepth( px + _slopeFwd.x * L, py, pz + _slopeFwd.z * L );
+		const backward = sampleGroundDepth( px - _slopeFwd.x * L, py, pz - _slopeFwd.z * L );
+		const right = sampleGroundDepth( px + _slopeSide.x * W, py, pz + _slopeSide.z * W );
+		const left = sampleGroundDepth( px - _slopeSide.x * W, py, pz - _slopeSide.z * W );
+		// Pair consistency: only use a pair whose two hits agree on the body.
 		const samples = {
-			forward: forward && backward ? forward.depth : null,
-			backward: forward && backward ? backward.depth : null,
+			forward: forward && backward && forward.bodyId === backward.bodyId ? forward.depth : null,
+			backward: forward && backward && forward.bodyId === backward.bodyId ? backward.depth : null,
 			left: left && right && left.bodyId === right.bodyId ? left.depth : null,
 			right: left && right && left.bodyId === right.bodyId ? right.depth : null,
 		};
