@@ -265,8 +265,14 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 	}
 	markFreshPass();
 	const db = renderer.getDrawingBufferSize( _waterDbSize );
-	const w = Math.max( 2, Math.floor( db.x / 2 ) );
-	const h = Math.max( 2, Math.floor( db.y / 2 ) );
+	// FPS: ABOVE water the RT is quarter res — this pass renders the whole
+	// scene, so pixel count IS the pool-map cost, and the animated wobble
+	// samples it through distortion anyway (resolution is invisible behind
+	// it). UNDERWATER the RT is the actual screen content (the shimmering
+	// pool underside), so it keeps the original half-res sampling.
+	const scaleDiv = WATER_UNDERWATER.camera ? 2 : 4;
+	const w = Math.max( 2, Math.floor( db.x / scaleDiv ) );
+	const h = Math.max( 2, Math.floor( db.y / scaleDiv ) );
 	let rt = waterRefrRTs.get( camIndex );
 	if ( ! rt || rt.width !== w || rt.height !== h ) {
 
@@ -294,8 +300,8 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 	if ( viewportRect ) {
 
 		rt.scissorTest = true;
-		rt.scissor.set( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
-		rt.viewport.set( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
+		rt.scissor.set( Math.floor( viewportRect.x / scaleDiv ), Math.floor( viewportRect.y / scaleDiv ), Math.floor( viewportRect.w / scaleDiv ), Math.floor( viewportRect.h / scaleDiv ) );
+		rt.viewport.set( Math.floor( viewportRect.x / scaleDiv ), Math.floor( viewportRect.y / scaleDiv ), Math.floor( viewportRect.w / scaleDiv ), Math.floor( viewportRect.h / scaleDiv ) );
 
 	} else {
 

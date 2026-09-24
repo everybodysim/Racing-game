@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=2';
 import { Camera } from './Camera.js?v=1';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000242';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000243';
 import { buildWallColliders, createSphereBody } from './Physics.js?v=20260921';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -267,6 +267,10 @@ const fillLight = new THREE.AmbientLight( 0x9cb8d9, 0.24 );
 scene.add( fillLight );
 
 
+// Huge-map shadow map cap (world half-extent units), set once the track
+// bounds are known. 0 = no cap. Every preset (re-)apply respects it via min().
+let shadowMapSizeCap = 0;
+
 function applyGraphicsPresetToRenderer() {
 
 	const preset = getGraphicsPreset();
@@ -279,7 +283,7 @@ function applyGraphicsPresetToRenderer() {
 	renderer.shadowMap.enabled = preset.shadows;
 	if ( renderer.shadowMap ) renderer.shadowMap.needsUpdate = true;
 	dirLight.castShadow = preset.shadows;
-	dirLight.shadow.mapSize.setScalar( preset.shadowMapSize );
+	dirLight.shadow.mapSize.setScalar( shadowMapSizeCap ? Math.min( preset.shadowMapSize, shadowMapSizeCap ) : preset.shadowMapSize );
 	dirLight.shadow.needsUpdate = true;
 	applyBloomPreset();
 
@@ -4733,6 +4737,26 @@ async function init() {
 	dirLight.shadow.camera.near = - shadowExtent;
 	dirLight.shadow.camera.far = 60 + 2 * shadowExtent + 20;
 	dirLight.shadow.camera.updateProjectionMatrix();
+	// FPS: huge maps cap the shadow map at 2048. The depth pass rasterizes
+	// the merged static proxy every frame, and on a huge map a 4096² map is
+	// 4x the cost while the texel-per-world-unit density is already too low
+	// for the extra resolution to read as sharper — same visuals, a quarter
+	// of the depth-pass cost. Normal maps keep the preset size untouched.
+	// The cap is remembered in shadowMapSizeCap so the boot settings re-apply
+	// on the first animate frame (and every later preset change) keeps it.
+	if ( Math.max( hw, hd ) > 55 ) {
+
+		shadowMapSizeCap = 2048;
+		if ( dirLight.shadow.map ) {
+
+			dirLight.shadow.map.dispose();
+			dirLight.shadow.map = null;
+
+		}
+		dirLight.shadow.mapSize.setScalar( Math.min( getGraphicsPreset().shadowMapSize, shadowMapSizeCap ) );
+		if ( renderer.shadowMap ) renderer.shadowMap.needsUpdate = true;
+
+	}
 
 	applySkyPalette( weatherSettings.preset );
 	buildSkyDecorations( weatherSettings.preset );
@@ -13299,12 +13323,12 @@ function completeCampaignStage() {
 	// dynamic shadows — cheap now that statics cast through one merged
 	// proxy mesh, see ShadowProxy.js), and the garage key light keeps its
 	// own per-frame map.
-	// FPS: the sun's depth map only refreshes at 30Hz instead of every
-	// frame. Static world shadows are pixel-identical (the world doesn't
-	// move); only the CAR's shadow trails by 1-2 frames, which is invisible
-	// at driving speed. On mega maps the depth pass rasterizes a 4096² map
-	// (high preset), so skipping ~2/3 of those passes is a big win.
-	const SHADOW_REFRESH_MIN_MS = 33;
+	// Shadows refresh EVERY frame: the car's shadow must track the car
+	// smoothly. (A 30Hz throttle here made the moving car's shadow visibly
+	// jump — the static world is baked into the proxy so its cost is one
+	// merged draw; the depth-pass cost is handled by the mapSize cap on
+	// huge maps instead of a refresh throttle.)
+	const SHADOW_REFRESH_MIN_MS = 9;
 	let _shadowRefreshLastMs = -9999;
 	function refreshShadowsIfNeeded() {
 
