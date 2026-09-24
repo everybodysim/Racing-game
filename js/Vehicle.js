@@ -424,7 +424,9 @@ export class Vehicle {
 	applySlopeVisualTilt( dt ) {
 
 		if ( ! this.modelRoot ) return;
-		const blend = 1 - Math.exp( - dt * 10 );
+		// Suspension-speed response: settles in ~150ms, so the body follows the
+		// wheel rays like a real car's springs instead of lagging behind.
+		const blend = 1 - Math.exp( - dt * 20 );
 		this.modelRoot.rotation.x = THREE.MathUtils.lerp( this.modelRoot.rotation.x, this.slopeTiltPitch, blend );
 		this.modelRoot.rotation.z = THREE.MathUtils.lerp( this.modelRoot.rotation.z, this.slopeTiltRoll, blend );
 
