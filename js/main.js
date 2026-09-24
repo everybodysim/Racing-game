@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000228';
-import { createShadowProxyController } from './ShadowProxy.js?v=2';
+import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=1';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000246';
@@ -295,6 +295,29 @@ window.addEventListener( 'resize', () => {
 	applyGraphicsPresetToRenderer();
 
 } );
+
+// ?perf=1: tiny on-screen diagnostics (fps / sim vs render ms / draw calls)
+// so performance reports from real machines come with numbers, not vibes.
+if ( new URLSearchParams( window.location.search ).get( 'perf' ) === '1' ) {
+
+	const perfEl = document.createElement( 'div' );
+	perfEl.id = 'perf-overlay';
+	perfEl.style.cssText = 'position:fixed;top:8px;left:8px;z-index:99999;background:rgba(0,0,0,.72);color:#7ee787;font:11px/1.6 ui-monospace,monospace;padding:8px 10px;border-radius:8px;pointer-events:none;white-space:pre;';
+	document.body.appendChild( perfEl );
+	window.setInterval( () => {
+
+		const p = window.__perf || {};
+		const frameMs = Number.isFinite( p.frameMs ) ? p.frameMs : 0;
+		const renderMs = Number.isFinite( p.renderMs ) ? p.renderMs : 0;
+		const tris = Number( p.tris ) || 0;
+		perfEl.textContent =
+			`FPS ${ ( 1000 / Math.max( 1, frameMs ) ).toFixed( 1 ) }   frame ${ frameMs.toFixed( 1 ) }ms\n` +
+			`render ${ renderMs.toFixed( 1 ) }ms   rest ${( frameMs - renderMs ).toFixed( 1 ) }ms\n` +
+			`draws ${ p.calls ?? '—' }   tris ${ tris > 1e6 ? ( tris / 1e6 ).toFixed( 1 ) + 'M' : Math.round( tris / 1000 ) + 'K' }`;
+
+	}, 300 );
+
+}
 
 const loadingManager = new THREE.LoadingManager();
 loadingManager.onStart = ( url ) => appendLoadingConsole( `Fetching ${ url.split( '/' ).pop() }…` );
@@ -13328,12 +13351,58 @@ function completeCampaignStage() {
 	// jump — the static world is baked into the proxy so its cost is one
 	// merged draw; the depth-pass cost is handled by the mapSize cap on
 	// huge maps instead of a refresh throttle.)
+	// FPS: adaptive resolution. Fill-bound weak GPUs (integrated
+	// Chromebook chips) scale almost linearly with pixel count: dropping
+	// the render resolution in steps is the single biggest lever. Steps
+	// down while fps stays < 16, restores when it recovers above 40, with
+	// cooldowns so it never oscillates. The graphics preset stays the cap;
+	// this only scales BELOW it (floor 0.5x = quarter the pixels).
+	let autoResScale = 1;
+	let autoResNextDecisionMs = 0;
+	function applyAutoResolution() {
+
+		const preset = getGraphicsPreset();
+		const splitCap = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1' ? 1 : preset.maxPixelRatio;
+		renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, splitCap ) * autoResScale );
+		renderer.setSize( window.innerWidth, window.innerHeight );
+
+	}
+	function updateAutoResolution() {
+
+		const nowMs = performance.now();
+		if ( nowMs < autoResNextDecisionMs ) return;
+		if ( ! Number.isFinite( rollingFps ) || rollingFps <= 0 ) return;
+		if ( rollingFps < 16 && autoResScale > 0.5 ) {
+
+			autoResScale = Math.max( 0.5, autoResScale * 0.8 );
+			autoResNextDecisionMs = nowMs + 4000;
+			applyAutoResolution();
+
+		} else if ( rollingFps > 40 && autoResScale < 1 ) {
+
+			autoResScale = Math.min( 1, autoResScale / 0.8 );
+			autoResNextDecisionMs = nowMs + 4000;
+			applyAutoResolution();
+
+		} else {
+
+			autoResNextDecisionMs = nowMs + 1000;
+
+		}
+
+	}
 	const SHADOW_REFRESH_MIN_MS = 9;
 	let _shadowRefreshLastMs = -9999;
 	function refreshShadowsIfNeeded() {
 
 		const nowMs = performance.now();
-		if ( nowMs - _shadowRefreshLastMs < SHADOW_REFRESH_MIN_MS ) return;
+		// FPS: the shadow depth pass is a full extra geometry pass. On a
+		// healthy system it refreshes every frame (9ms floor, unchanged);
+		// on a struggling one (integrated Chromebook chip, mega map) a
+		// 2nd/3rd-frame cadence is far cheaper, and at those frame times
+		// the slower shadow update is barely visible anyway.
+		const throttleMs = rollingFps > 0 && rollingFps < 18 ? 66 : rollingFps < 30 ? 33 : SHADOW_REFRESH_MIN_MS;
+		if ( nowMs - _shadowRefreshLastMs < throttleMs ) return;
 		_shadowRefreshLastMs = nowMs;
 		renderer.shadowMap.needsUpdate = true;
 		staticShadowProxy?.tick?.();
@@ -13362,14 +13431,20 @@ function completeCampaignStage() {
 			renderer.setViewport( 0, 0, width, halfH );
 			renderer.setScissor( 0, 0, width, halfH );
 			prerenderWaterRefraction( renderer, scene, cam2.camera, 1, { x: 0, y: 0, w: width, h: halfH } );
+			const _perfRenderT0 = performance.now();
 			renderer.render( scene, cam2.camera );
+			window.__perf = window.__perf || {};
+			window.__perf.renderMs = performance.now() - _perfRenderT0;
 			renderer.setScissorTest( false );
 
 		} else {
 
 			refreshShadowsIfNeeded();
 			prerenderWaterRefraction( renderer, scene, cam.camera );
+			const _perfRenderT0 = performance.now();
 			renderer.render( scene, cam.camera );
+			window.__perf = window.__perf || {};
+			window.__perf.renderMs = performance.now() - _perfRenderT0;
 
 		}
 		hideLoadingOverlay();
@@ -13386,6 +13461,19 @@ function completeCampaignStage() {
 
 	let settingsAppliedThisBoot = false;
 	function animate() {
+
+		// ?perf=1 metrics (and future tuning): renderer.info with
+		// autoReset=false accumulates across the WHOLE frame — shadow
+		// depth pass + pool refraction pass + main render — so reads at
+		// the next frame's start are true per-frame totals.
+		if ( renderer.info.autoReset ) renderer.info.autoReset = false;
+		const _perfNow = performance.now();
+		window.__perf = window.__perf || {};
+		window.__perf.frameMs = _perfNow - ( window.__perfT0 || _perfNow );
+		window.__perf.calls = renderer.info.render.calls;
+		window.__perf.tris = renderer.info.render.triangles;
+		window.__perfT0 = _perfNow;
+		renderer.info.reset();
 
 		requestAnimationFrame( animate );
 
@@ -13447,6 +13535,7 @@ function completeCampaignStage() {
 			const now = raceClockSeconds;
 
 			updateWaterQuality( rollingFps );
+			updateAutoResolution();
 			updateCountdownState( now );
 			// Fire due auto-respawns on the game clock — deterministic even at
 			// 20 FPS, where real-time timers fire arbitrarily late or never.
