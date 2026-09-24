@@ -297,14 +297,14 @@ window.addEventListener( 'resize', () => {
 } );
 
 // TILT-SHIFT DIORAMA: while the car is mini-sized, a blurred + saturated
-// half-res copy of the frame, masked to the top/bottom of the screen
-// (the classic tilt-shift / miniature focus band), sells the "tiny car
-// in a huge world" macro-photo look. The compositor does the blur, the
+// half-res copy of the frame, masked to the TOP of the screen (the
+// miniature-focus band), sells the "tiny car in a huge world"
+// macro-photo look. No bottom band — it covered the car. The compositor does the blur, the
 // copy only draws while a mini effect is actually active, and it fades
 // out otherwise — zero cost in normal gameplay.
 const tiltShiftCanvas = document.createElement( 'canvas' );
 tiltShiftCanvas.id = 'tiltshift-overlay';
-tiltShiftCanvas.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;opacity:0;transition:opacity .45s ease;filter:blur(6px) saturate(1.25);-webkit-mask-image:linear-gradient(to bottom,#000 0%,transparent 34%,transparent 60%,#000 80%);mask-image:linear-gradient(to bottom,#000 0%,transparent 34%,transparent 60%,#000 80%);z-index:3;';
+tiltShiftCanvas.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;opacity:0;transition:opacity .45s ease;filter:blur(6px) saturate(1.25);-webkit-mask-image:linear-gradient(to bottom,#000 0%,transparent 34%,transparent 100%);mask-image:linear-gradient(to bottom,#000 0%,transparent 34%,transparent 100%);z-index:3;';
 document.body.appendChild( tiltShiftCanvas );
 const tiltShiftCtx = tiltShiftCanvas.getContext( '2d' );
 function updateTiltShift( carScale ) {
