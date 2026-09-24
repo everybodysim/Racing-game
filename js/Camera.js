@@ -88,6 +88,10 @@ export class Camera {
 			Math.min( 1, dt / 0.16 )
 		);
 		if ( Number.isFinite( Number( dynamics.waterSurfaceY ) ) ) this.waterSurfaceY = Number( dynamics.waterSurfaceY );
+		// World-scale feel: when the car grows or shrinks (mega/mini size
+		// pads, custom mods), the camera rides with it — same car framing,
+		// and the WORLD reads bigger (mini) or smaller (mega) around it.
+		const vehicleScale = THREE.MathUtils.clamp( Number( dynamics.vehicleScale ) || 1, 0.35, 2.5 );
 		const underwaterLift = this.underwaterBlend;
 		const targetLerp = this.mode === 'chase' ? 10 : 6;
 		this.targetPosition.lerp( target, dt * targetLerp );
@@ -123,8 +127,8 @@ export class Camera {
 
 			}
 			this.camera.position.copy( this._desiredPos );
-			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) );
-			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift );
+			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) * vehicleScale );
+			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift ) * vehicleScale;
 			this.lookTarget.copy( this._desiredLook );
 			if ( this.camera.fov !== 42 ) {
 
@@ -158,6 +162,7 @@ export class Camera {
 			if ( this.userDistance != null ) { const len = this._rotatedOffset.length() || 6.6; this._rotatedOffset.multiplyScalar( Math.max( 0.2, this.userDistance ) / len ); }
 			if ( this.userHeight != null ) this._rotatedOffset.y = this.userHeight;
 			if ( this.userPitch ) this._rotatedOffset.applyAxisAngle( new THREE.Vector3( 1, 0, 0 ), this.userPitch );
+			if ( vehicleScale !== 1 ) this._rotatedOffset.multiplyScalar( vehicleScale );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 
 			// Chase-cam hitbox clipping: cast from the car toward the camera.
@@ -184,8 +189,8 @@ export class Camera {
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
 			// Bring the aim point in as the camera rises, giving pools the
 			// requested higher-angle view of the car.
-			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) );
-			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift );
+			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) * vehicleScale );
+			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift ) * vehicleScale;
 
 			const chaseLag = THREE.MathUtils.lerp( 10, 7.2, Math.min( 1, speedRatio * 0.8 + driftAmount * 0.4 ) ) * this.userLagScale;
 			this.camera.position.lerp( this._desiredPos, dt * chaseLag );
@@ -198,6 +203,7 @@ export class Camera {
 		} else {
 
 			this._rotatedOffset.copy( this.offset ).lerp( this.underwaterOverviewOffset, underwaterLift );
+			if ( vehicleScale !== 1 ) this._rotatedOffset.multiplyScalar( vehicleScale );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			this.camera.position.lerp( this._desiredPos, dt * 8 );
 			this._desiredLook.copy( this.targetPosition );

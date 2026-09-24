@@ -4,7 +4,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
-import { Camera } from './Camera.js?v=1';
+import { Camera } from './Camera.js?v=2';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000246';
 import { buildWallColliders, createSphereBody } from './Physics.js?v=20260921';
@@ -13472,6 +13472,10 @@ function completeCampaignStage() {
 		window.__perf.frameMs = _perfNow - ( window.__perfT0 || _perfNow );
 		window.__perf.calls = renderer.info.render.calls;
 		window.__perf.tris = renderer.info.render.triangles;
+		window.__perf.carScale = vehicle.container ? vehicle.container.scale.x : 1;
+		window.__perf.camDist = cam.camera.position.distanceTo( vehicle.spherePos );
+		window.__perf.camY = cam.camera.position.y;
+		window.__perf.skyY = skyGroup.position.y;
 		window.__perfT0 = _perfNow;
 		renderer.info.reset();
 
@@ -13859,13 +13863,13 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat.setFromEuler( camYawLockEuler.set( 0, camYawLockValue, 0, 'YXZ' ) );
-				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) );
+				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) ); _camDynamics1.vehicleScale = vehicle.container ? vehicle.container.scale.x : 1;
 				cam.update( dt, vehicle.spherePos, camYawLockQuat, _camDynamics1 );
 
 			} else {
 
 				camYawLockActive = false;
-				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) );
+				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) ); _camDynamics1.vehicleScale = vehicle.container ? vehicle.container.scale.x : 1;
 				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, _camDynamics1 );
 
 			}
@@ -13900,13 +13904,13 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat2.setFromEuler( camYawLockEuler2.set( 0, camYawLockValue2, 0, 'YXZ' ) );
-				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) );
+				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) ); _camDynamics2.vehicleScale = vehicle2.container ? vehicle2.container.scale.x : 1;
 				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2, _camDynamics2 );
 
 			} else {
 
 				camYawLockActive2 = false;
-				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) );
+				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) ); _camDynamics2.vehicleScale = vehicle2.container ? vehicle2.container.scale.x : 1;
 				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion, _camDynamics2 );
 
 			}
@@ -14000,9 +14004,11 @@ function completeCampaignStage() {
 		skyUniforms.time.value = now;
 		skyUniforms.vibrance.value = THREE.MathUtils.lerp( skyUniforms.vibrance.value, 0.2 + ( speedRatioFx * 0.18 ) + ( driftFx * 0.1 ), Math.min( 1, dt * 2.4 ) );
 		// Follow the CAMERA, not the car — in freecam it used to slide with the
-		// vehicle while the camera stood still, which reads very wrong. Keeping y=0
-		// so the horizon line never shifts; x/z track whatever view is active.
-		skyGroup.position.set( cam.camera.position.x, 0, cam.camera.position.z );
+		// vehicle while the camera stood still, which reads very wrong. All three
+		// axes track the active view now: a low-grav mega jump can climb past the
+		// 50-unit dome's ceiling and expose the OUTSIDE of the skybox, so the
+		// sky group rides the camera's height as well — you can never escape it.
+		skyGroup.position.copy( cam.camera.position );
 		if ( skyDecorState.starPoints ) {
 			skyDecorState.starPoints.material.opacity = 0.75 + Math.sin( now * 1.3 ) * 0.12 + Math.sin( now * 2.7 + 1.3 ) * 0.08;
 		}
