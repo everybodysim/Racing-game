@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=2';
 import { Camera } from './Camera.js?v=1';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000241';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000242';
 import { buildWallColliders, createSphereBody } from './Physics.js?v=20260921';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -13299,7 +13299,12 @@ function completeCampaignStage() {
 	// dynamic shadows — cheap now that statics cast through one merged
 	// proxy mesh, see ShadowProxy.js), and the garage key light keeps its
 	// own per-frame map.
-	const SHADOW_REFRESH_MIN_MS = 9;
+	// FPS: the sun's depth map only refreshes at 30Hz instead of every
+	// frame. Static world shadows are pixel-identical (the world doesn't
+	// move); only the CAR's shadow trails by 1-2 frames, which is invisible
+	// at driving speed. On mega maps the depth pass rasterizes a 4096² map
+	// (high preset), so skipping ~2/3 of those passes is a big win.
+	const SHADOW_REFRESH_MIN_MS = 33;
 	let _shadowRefreshLastMs = -9999;
 	function refreshShadowsIfNeeded() {
 

@@ -144,9 +144,14 @@ let waterRefrCadence = 1;
 // ~1/6th of a full scene render per frame. Reuse is only allowed while the
 // camera has moved less than WATER_REFR_STALE_MOVE / turned WATER_REFR_STALE_ANGLE
 // since the sample — a big jump (respawn, camera cut) always forces a fresh pass.
-const WATER_REFR_STALE_MS = 32;
-const WATER_REFR_STALE_MOVE_SQ = 1.75 * 1.75;
-const WATER_REFR_STALE_ANGLE = 0.05;
+// Staleness budget for MOVING cameras. This budget is only ever SPENT when
+// the FPS governor (waterRefrCadence) allows a skip — at a healthy 45+ FPS
+// the pass still runs every frame and these values are irrelevant. On a
+// struggling system the budget lets the governor spread the passes out
+// instead of paying a full extra scene render every frame (pool maps).
+const WATER_REFR_STALE_MS = 70;
+const WATER_REFR_STALE_MOVE_SQ = 4.5 * 4.5;
+const WATER_REFR_STALE_ANGLE = 0.08;
 
 // Camera-underwater state shared by every pool material. When the camera is
 // below the surface, the pool floors get their animated caustic overlay and
@@ -243,8 +248,14 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 				&& movedSq < WATER_REFR_STALE_MOVE_SQ
 				&& angle < WATER_REFR_STALE_ANGLE ) {
 
-				// Moving camera — sample still inside the staleness budget.
-				skipPass = true;
+				// Moving camera — sample still inside the staleness budget, and
+				// the FPS governor applies here too: at a healthy 45+ FPS
+				// waterRefrCadence is 1 and the pass still runs every frame
+				// (unchanged), but on a struggling system it runs every
+				// 2nd/3rd/4th frame instead — that full extra scene render is
+				// what makes pool maps lag. A camera jump outside the budget
+				// above still forces a fresh pass.
+				skipPass = waterRefrFrameCounter - waterLastFrame < waterRefrCadence;
 
 			}
 
@@ -1809,6 +1820,21 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		}
 
 	}
+
+	// FPS: static-scene freeze. Nothing inside trackGroup ever moves after
+	// the build (moving obstacles are added to the scene root elsewhere, and
+	// water/pad/glow effects are shader-side), so stop three.js recomposing
+	// every piece's local matrix on EVERY frame — mega maps carry thousands
+	// of pieces and that recompose pass is pure per-frame CPU waste. World
+	// matrices stay valid: the group's own matrix stays auto-updated, and if
+	// anything re-anchors the group the refreshed parent transform still
+	// combines with the children's saved local matrices.
+	trackGroup.updateMatrixWorld( true );
+	trackGroup.traverse( ( child ) => {
+
+		if ( child !== trackGroup ) child.matrixAutoUpdate = false;
+
+	} );
 
 	return trackGroup;
 
