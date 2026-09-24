@@ -1380,6 +1380,26 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
+		// One-time fixup of the barrier SOURCE model: the GLB's origin is not
+		// at the center of the wall design (its mesh node carries a +23 x
+		// translation), which would place every wall far off to the side.
+		// Shift the source's children by the design's own bounds center so
+		// the wall sits centered on its cell. Guarded so it runs once;
+		// clones made later by placePiece inherit the corrected positions.
+		if ( models.barrier && ! models.barrier.userData.__barrierCentered ) {
+
+			models.barrier.updateMatrixWorld( true );
+			const bounds = new THREE.Box3().setFromObject( models.barrier );
+			const center = bounds.getCenter( new THREE.Vector3() );
+			for ( const child of models.barrier.children ) {
+
+				child.position.x -= center.x;
+				child.position.z -= center.z;
+
+			}
+			models.barrier.userData.__barrierCentered = true;
+
+		}
 		for ( const [ gx, gz, orient = 0 ] of wallCells ) {
 
 			// Wall obstacle now uses the real barrier model (visual only —
