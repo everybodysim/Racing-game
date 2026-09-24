@@ -161,6 +161,39 @@ const WATER_UNDERWATER = { camera: false, gain: 0 };
 // Reused temporaries for the static mesh batcher in buildTrack.
 const _batchMat = new THREE.Matrix4();
 const _batchInv = new THREE.Matrix4();
+
+// FPS: shared geometry + material singletons for the per-cell overlay meshes.
+// Poles/cubes/jumps/wall-fallbacks used to construct a NEW BoxGeometry or
+// CylinderGeometry AND MeshStandardMaterial for every placed cell —
+// identical parameters each time, but unique objects, so the static batcher
+// could never merge them (unique uuids) and each stayed an individual draw
+// call in every render pass. With shared singletons the batcher collapses
+// them into chunked InstancedMeshes exactly like the road pieces.
+let _sharedOverlayParts = null;
+function getSharedOverlayParts() {
+
+	if ( _sharedOverlayParts ) return _sharedOverlayParts;
+	_sharedOverlayParts = {
+		pole: {
+			geometry: new THREE.CylinderGeometry( POLE_RADIUS, POLE_RADIUS, POLE_HEIGHT, 16 ),
+			material: new THREE.MeshStandardMaterial( { color: 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
+		},
+		cube: {
+			geometry: new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+			material: new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
+		},
+		jump: {
+			geometry: new THREE.BoxGeometry( JUMP_RAMP_SIZE, JUMP_RAMP_DEPTH, JUMP_RAMP_SIZE ),
+			material: new THREE.MeshStandardMaterial( { color: 0x7f6a58, roughness: 0.85, metalness: 0.02 } )
+		},
+		wall: {
+			geometry: new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
+			material: new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
+		}
+	};
+	return _sharedOverlayParts;
+
+}
 export function setWaterUnderwaterCameraState( active ) {
 
 	WATER_UNDERWATER.camera = !! active;
@@ -1323,8 +1356,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz ] of poleCells ) {
 
 			const pole = new THREE.Mesh(
-				new THREE.CylinderGeometry( POLE_RADIUS, POLE_RADIUS, POLE_HEIGHT, 16 ),
-				new THREE.MeshStandardMaterial( { color: 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
+				getSharedOverlayParts().pole.geometry,
+				getSharedOverlayParts().pole.material
 			);
 			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
 			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( POLE_HEIGHT * 0.5 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
@@ -1346,8 +1379,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz ] of cubeCells ) {
 
 			const cube = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
-				new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
+				getSharedOverlayParts().cube.geometry,
+				getSharedOverlayParts().cube.material
 			);
 			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
 			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
@@ -1457,8 +1490,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			} else {
 
 				const wall = new THREE.Mesh(
-					new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
-					new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
+					getSharedOverlayParts().wall.geometry,
+					getSharedOverlayParts().wall.material
 				);
 				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
 				wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
@@ -1499,12 +1532,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz, orient = 0 ] of jumpCells ) {
 
 			const jump = new THREE.Mesh(
-				new THREE.BoxGeometry( JUMP_RAMP_SIZE, JUMP_RAMP_DEPTH, JUMP_RAMP_SIZE ),
-				new THREE.MeshStandardMaterial( {
-					color: 0x7f6a58,
-					roughness: 0.85,
-					metalness: 0.02,
-				} )
+				getSharedOverlayParts().jump.geometry,
+				getSharedOverlayParts().jump.material
 			);
 			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
 			jump.position.set( ( gx + 0.5 ) * CELL_RAW, JUMP_RAMP_Y + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
@@ -1527,22 +1556,42 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
+		// FPS: every pad/surface of the same TYPE renders with identical
+		// material parameters, so one shared material per type (and one
+		// geometry per shape) lets the static batcher instance the whole
+		// overlay layer — hundreds of unique-material draws collapse into a
+		// couple of chunked InstancedMeshes. Scoped per build so custom
+		// surface visuals from different maps can't leak into each other.
+		const surfaceGeoCache = new Map();
+		const surfaceMatCache = new Map();
 		for ( const [ gx, gz, surfaceType ] of surfaces ) {
 
 			const visual = getSurfaceVisual( surfaceType, customSurfaces, customPads );
 			const isPad = String( surfaceType || '' ).startsWith( 'pad-' );
-			const geometry = isPad
-				? new THREE.CircleGeometry( CELL_RAW * 0.39, 24 )
-				: new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 );
-			const material = new THREE.MeshStandardMaterial( {
-				color: visual.color,
-				emissive: visual.emissive,
-				emissiveIntensity: 0.2,
-				transparent: true,
-				opacity: 0.58,
-				metalness: visual.metalness,
-				roughness: visual.roughness
-			} );
+			let geometry = surfaceGeoCache.get( isPad ? 'pad' : 'plane' );
+			if ( ! geometry ) {
+
+				geometry = isPad
+					? new THREE.CircleGeometry( CELL_RAW * 0.39, 24 )
+					: new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 );
+				surfaceGeoCache.set( isPad ? 'pad' : 'plane', geometry );
+
+			}
+			let material = surfaceMatCache.get( surfaceType );
+			if ( ! material ) {
+
+				material = new THREE.MeshStandardMaterial( {
+					color: visual.color,
+					emissive: visual.emissive,
+					emissiveIntensity: 0.2,
+					transparent: true,
+					opacity: 0.58,
+					metalness: visual.metalness,
+					roughness: visual.roughness
+				} );
+				surfaceMatCache.set( surfaceType, material );
+
+			}
 			const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
 			const addPatch = ( overlayOffset ) => {
 
