@@ -200,15 +200,11 @@ export function setWaterUnderwaterCameraState( active ) {
 
 }
 
-export function updateWaterQuality( rollingFps ) {
+export function updateWaterQuality() {
 
-	if ( ! Number.isFinite( rollingFps ) || rollingFps <= 0 ) {
-
-		waterRefrCadence = 1; // no signal yet — assume healthy
-		return;
-
-	}
-	waterRefrCadence = rollingFps >= 45 ? 1 : rollingFps >= 28 ? 2 : rollingFps >= 18 ? 3 : 4;
+	// No-op: the refraction pass always renders a fresh sample now (see
+	// prerenderWaterRefraction). Kept so the main.js import keeps resolving.
+	waterRefrCadence = 1;
 
 }
 
@@ -268,53 +264,15 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 		waterLastRefrFrameByCam.set( camIndex, waterRefrFrameCounter );
 
 	};
-	if ( ! WATER_UNDERWATER.camera ) {
-
-		let skipPass = false;
-		if ( waterCamState ) {
-
-			const movedSq = waterCamState.pos.distanceToSquared( camera.position );
-			const angle = waterCamState.quat.angleTo( camera.quaternion );
-			if ( movedSq < 0.0025 && angle < 0.01 ) {
-
-				// Parked camera — LOW-fps cadence governor.
-				skipPass = waterLastFrame !== undefined && waterRefrFrameCounter - waterLastFrame < waterRefrCadence;
-
-			} else if ( waterLastFrame !== undefined
-				&& ( performance.now() - waterCamState.t ) < WATER_REFR_STALE_MS
-				&& movedSq < WATER_REFR_STALE_MOVE_SQ
-				&& angle < WATER_REFR_STALE_ANGLE ) {
-
-				// Moving camera — sample still inside the staleness budget, and
-				// the FPS governor applies here too: at a healthy 45+ FPS
-				// waterRefrCadence is 1 and the pass still runs every frame
-				// (unchanged), but on a struggling system it runs every
-				// 2nd/3rd/4th frame instead — that full extra scene render is
-				// what makes pool maps lag. A camera jump outside the budget
-				// above still forces a fresh pass.
-				skipPass = waterRefrFrameCounter - waterLastFrame < waterRefrCadence;
-
-			}
-
-			// LOW-FPS ESCAPE HATCH: the staleness budget above is ~33ms — at
-			// 45+ FPS it saves most passes, but at 8-15 FPS a frame takes
-			// 70-125ms so it NEVER skips and a pool map renders the ENTIRE
-			// scene twice every single frame (the exact "pool maps are 2x
-			// slower" wall). So at struggling framerates the cadence governor
-			// applies to moving cameras regardless of the staleness budget:
-			// every 4th frame gets a fresh refraction sample, the in-shader
-			// wobble keeps the water animated between samples. Healthy
-			// frame rates (cadence 1) are completely unaffected.
-			if ( ! skipPass && waterLastFrame !== undefined && waterRefrCadence > 1 ) {
-
-				skipPass = waterRefrFrameCounter - waterLastFrame < waterRefrCadence;
-
-			}
-
-		}
-		if ( skipPass ) return;
-
-	}
+	// ALWAYS a fresh refraction sample, every frame, on every preset.
+	// The old adaptive skip logic (cadence governor + staleness budget)
+	// stopped refreshing the sample whenever the frame rate dipped — which
+	// is exactly the HIGH-preset case on integrated GPUs — and the stale
+	// sample read behind the live wobble as glitchy, mirror-like water.
+	// (LOW preset looked fine only because it kept a healthy frame rate,
+	// so the governor never engaged.) Pools now render identically on
+	// every preset; the quarter-res RT keeps the pass cheap and the
+	// auto resolution scaler absorbs the extra cost if needed.
 	markFreshPass();
 	const db = renderer.getDrawingBufferSize( _waterDbSize );
 	// FPS: ABOVE water the RT is quarter res — this pass renders the whole
