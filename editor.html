@@ -902,9 +902,9 @@
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000241';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
-	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
+	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260921';
-	import { Vehicle } from './js/Vehicle.js?v=1000227';
+	import { Vehicle } from './js/Vehicle.js?v=1000228';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 
 	// ─── State ────────────────────────────────────────────────
@@ -6686,6 +6686,18 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			fxActivePadEffect = null;
 			if ( vehicle?.container ) vehicle.container.scale.setScalar( 1 );
 			if ( vehicle ) vehicle.__padScale = 1;
+			// Restore the base 0.5 physics sphere (bottom anchored) so a resized
+			// car never carries a stale mega/mini hitbox into the next test drive.
+			if ( vehicle?.rigidBody && vehicle.hitboxRadius && vehicle.hitboxRadius !== FX_VEHICLE_SURFACE_RADIUS ) {
+
+				const bottomY = vehicle.spherePos.y - vehicle.hitboxRadius;
+				vehicle.rigidBody.shape = sphere.create( { radius: FX_VEHICLE_SURFACE_RADIUS } );
+				rigidBody.updateShape( world, vehicle.rigidBody );
+				vehicle.spherePos.y = bottomY + FX_VEHICLE_SURFACE_RADIUS;
+				rigidBody.setPosition( world, vehicle.rigidBody, vehicle.spherePos.toArray(), false );
+				vehicle.hitboxRadius = FX_VEHICLE_SURFACE_RADIUS;
+
+			}
 
 		}
 
@@ -6708,7 +6720,8 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 			const dx = Math.abs( targetVehicle.spherePos.x - entry.centerX );
 			const dz = Math.abs( targetVehicle.spherePos.z - entry.centerZ );
-			return dx <= FX_SURFACE_HALF_EXTENT + FX_VEHICLE_SURFACE_RADIUS && dz <= FX_SURFACE_HALF_EXTENT + FX_VEHICLE_SURFACE_RADIUS;
+			const fxVehRadius = Number( targetVehicle.hitboxRadius ) || FX_VEHICLE_SURFACE_RADIUS;
+			return dx <= FX_SURFACE_HALF_EXTENT + fxVehRadius && dz <= FX_SURFACE_HALF_EXTENT + fxVehRadius;
 
 		}
 
@@ -6716,7 +6729,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 			const dx = targetVehicle.spherePos.x - entry.centerX;
 			const dz = targetVehicle.spherePos.z - entry.centerZ;
-			const radius = FX_SURFACE_HALF_EXTENT + FX_VEHICLE_SURFACE_RADIUS;
+			const radius = FX_SURFACE_HALF_EXTENT + ( Number( targetVehicle.hitboxRadius ) || FX_VEHICLE_SURFACE_RADIUS );
 			return dx * dx + dz * dz <= radius * radius;
 
 		}
@@ -7199,11 +7212,18 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			const prevScale = Number.isFinite( targetVehicle.__padScale ) ? targetVehicle.__padScale : 1;
 			targetVehicle.container.scale.setScalar( nextScale );
 			targetVehicle.__padScale = nextScale;
-			if ( nextScale > prevScale && nextScale > 1.01 && targetVehicle?.spherePos && targetVehicle?.rigidBody ) {
+			// Mirror of the game: resize the physics sphere with the visual,
+			// anchored at the sphere's bottom so the car stays seated.
+			const prevRadius = Number( targetVehicle.hitboxRadius ) || FX_VEHICLE_SURFACE_RADIUS;
+			const nextRadius = FX_VEHICLE_SURFACE_RADIUS * nextScale;
+			if ( nextRadius !== prevRadius && targetVehicle?.spherePos && targetVehicle?.rigidBody ) {
 
-				const lift = 0.24 * ( nextScale - prevScale );
-				targetVehicle.spherePos.y += lift;
+				const bottomY = targetVehicle.spherePos.y - prevRadius;
+				targetVehicle.rigidBody.shape = sphere.create( { radius: nextRadius } );
+				rigidBody.updateShape( world, targetVehicle.rigidBody );
+				targetVehicle.spherePos.y = bottomY + nextRadius;
 				rigidBody.setPosition( world, targetVehicle.rigidBody, targetVehicle.spherePos.toArray(), false );
+				targetVehicle.hitboxRadius = nextRadius;
 
 			}
 

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-import { Vehicle } from './Vehicle.js?v=1000227';
+import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
+import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=2';
 import { Camera } from './Camera.js?v=1';
 import { Controls } from './Controls.js';
@@ -10249,7 +10249,8 @@ function completeCampaignStage() {
 
 		const dx = Math.abs( targetVehicle.spherePos.x - entry.centerX );
 		const dz = Math.abs( targetVehicle.spherePos.z - entry.centerZ );
-		return dx <= halfExtent + VEHICLE_SURFACE_RADIUS && dz <= halfExtent + VEHICLE_SURFACE_RADIUS;
+		const vehRadius = Number( targetVehicle.hitboxRadius ) || VEHICLE_SURFACE_RADIUS;
+		return dx <= halfExtent + vehRadius && dz <= halfExtent + vehRadius;
 
 	}
 
@@ -10325,7 +10326,7 @@ function completeCampaignStage() {
 		const dx = targetVehicle.spherePos.x - entry.centerX;
 		const dz = targetVehicle.spherePos.z - entry.centerZ;
 		const padRadius = surfaceHalfExtent;
-		const radius = padRadius + VEHICLE_SURFACE_RADIUS;
+		const radius = padRadius + ( Number( targetVehicle.hitboxRadius ) || VEHICLE_SURFACE_RADIUS );
 		return dx * dx + dz * dz <= radius * radius;
 
 	}
@@ -10577,11 +10578,21 @@ function completeCampaignStage() {
 		targetVehicle.container.scale.setScalar( nextScale );
 		targetVehicle.__padScale = nextScale;
 		if ( targetHitboxMesh ) targetHitboxMesh.scale.setScalar( nextScale );
-		if ( nextScale > prevScale && nextScale > 1.01 && targetVehicle?.spherePos && targetVehicle?.rigidBody ) {
+		// Resize the physics sphere WITH the visual (the hitbox must follow the
+		// mini/mega/normal size pads). The sphere's BOTTOM is anchored: the body
+		// is repositioned so (spherePos.y - radius) never changes, which keeps
+		// the car GLB seated on the ground — no floating, no sinking — and
+		// preserves the exact ground contact through the resize.
+		const prevRadius = Number( targetVehicle.hitboxRadius ) || VEHICLE_SURFACE_RADIUS;
+		const nextRadius = VEHICLE_SURFACE_RADIUS * nextScale;
+		if ( nextRadius !== prevRadius && targetVehicle?.spherePos && targetVehicle?.rigidBody && targetVehicle.physicsWorld ) {
 
-			const lift = 0.24 * ( nextScale - prevScale );
-			targetVehicle.spherePos.y += lift;
+			const bottomY = targetVehicle.spherePos.y - prevRadius;
+			targetVehicle.rigidBody.shape = sphere.create( { radius: nextRadius } );
+			rigidBody.updateShape( targetVehicle.physicsWorld, targetVehicle.rigidBody );
+			targetVehicle.spherePos.y = bottomY + nextRadius;
 			rigidBody.setPosition( targetVehicle.physicsWorld, targetVehicle.rigidBody, targetVehicle.spherePos.toArray(), false );
+			targetVehicle.hitboxRadius = nextRadius;
 
 		}
 
@@ -11914,7 +11925,7 @@ function completeCampaignStage() {
 		rigidBody.setLinearVelocity( world, vehicle.rigidBody, [ 0, 0, 0 ] );
 		rigidBody.setAngularVelocity( world, vehicle.rigidBody, [ 0, 0, 0 ] );
 		vehicle.spherePos.fromArray( savedCheckpointState.position );
-		vehicle.container.position.set( vehicle.spherePos.x, vehicle.spherePos.y - 0.5, vehicle.spherePos.z );
+		vehicle.container.position.set( vehicle.spherePos.x, vehicle.spherePos.y - ( vehicle.hitboxRadius || 0.5 ), vehicle.spherePos.z );
 		vehicle.container.rotation.y = savedCheckpointState.checkpointAngle || 0;
 		vehicle.linearSpeed = 0;
 		vehicle.angularSpeed = 0;
@@ -11978,7 +11989,7 @@ function completeCampaignStage() {
 		rigidBody.setLinearVelocity( world, vehicle.rigidBody, savedPracticeState.linearVelocity, false );
 		rigidBody.setAngularVelocity( world, vehicle.rigidBody, savedPracticeState.angularVelocity, false );
 		vehicle.spherePos.fromArray( savedPracticeState.position );
-		vehicle.container.position.set( vehicle.spherePos.x, vehicle.spherePos.y - 0.5, vehicle.spherePos.z );
+		vehicle.container.position.set( vehicle.spherePos.x, vehicle.spherePos.y - ( vehicle.hitboxRadius || 0.5 ), vehicle.spherePos.z );
 		vehicle.container.rotation.y = savedPracticeState.rotationY || 0;
 		cam.targetPosition.copy( vehicle.spherePos );
 		showTopMessage( 'Returned to saved practice state.', false, 1200 );
@@ -12357,7 +12368,7 @@ function completeCampaignStage() {
 			rigidBody.setPosition( world, targetVehicle.rigidBody, [ pair.centerX, pair.centerY, pair.centerZ ], false );
 			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], vel[ 1 ], vel[ 2 ] ] );
 			targetVehicle.spherePos.set( pair.centerX, pair.centerY, pair.centerZ );
-			targetVehicle.container.position.set( targetVehicle.spherePos.x, targetVehicle.spherePos.y - 0.5, targetVehicle.spherePos.z );
+			targetVehicle.container.position.set( targetVehicle.spherePos.x, targetVehicle.spherePos.y - ( targetVehicle.hitboxRadius || 0.5 ), targetVehicle.spherePos.z );
 			setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: purple portal → ${ pair.color } endpoint (velocity kept)` );
 				hasPrevFinishSample = false;
 				lastLocalX = 0;
