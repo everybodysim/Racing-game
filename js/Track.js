@@ -136,7 +136,12 @@ let waterRefrFrameCounter = 0;
 // Per-camera pose at the last refraction pass — used to decide when a fresh
 // pass is actually needed (see the motion-staleness gate below).
 const waterLastCamStateByCam = new Map();
-let waterRefrCadence = 1;
+// Adaptive FILL for the always-fresh refraction pass: the second scene
+// render renders into this-divisor-scaled target pixels. 4 = quarter-res
+// (healthy), up to 8 = eighth-res when the frame rate is struggling. The
+// sample is STILL fresh every frame — only its fill cost shrinks.
+let waterRefrScaleDiv = 4;
+let waterRefrDivLastChangeMs = 0;
 // Motion-staleness budget: while the camera is moving, a refraction sample up
 // to WATER_REFR_STALE_MS old is imperceptible behind the per-frame animated
 // wobble (~2 frames at 60 FPS). At high refresh rates this cuts the pass to a
@@ -200,11 +205,23 @@ export function setWaterUnderwaterCameraState( active ) {
 
 }
 
-export function updateWaterQuality() {
+export function updateWaterQuality( rollingFps ) {
 
-	// No-op: the refraction pass always renders a fresh sample now (see
-	// prerenderWaterRefraction). Kept so the main.js import keeps resolving.
-	waterRefrCadence = 1;
+	// Fresh refraction sample every frame, but the SECOND scene render's
+	// FILL scales down with the frame rate: quarter-res detail while
+	// healthy, down to eighth-res when struggling (the animated wobble
+	// hides the difference — a softer sample never reads as stale).
+	// Hysteresis: at most ONE resolution change per 4s so the render
+	// target never thrashes between sizes.
+	const target = ! Number.isFinite( rollingFps ) || rollingFps <= 0 ? 4
+		: rollingFps >= 45 ? 4 : rollingFps >= 28 ? 6 : 8;
+	const nowMs = performance.now();
+	if ( target !== waterRefrScaleDiv && nowMs - waterRefrDivLastChangeMs > 4000 ) {
+
+		waterRefrScaleDiv = target;
+		waterRefrDivLastChangeMs = nowMs;
+
+	}
 
 }
 
@@ -280,7 +297,7 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 	// samples it through distortion anyway (resolution is invisible behind
 	// it). UNDERWATER the RT is the actual screen content (the shimmering
 	// pool underside), so it keeps the original half-res sampling.
-	const scaleDiv = WATER_UNDERWATER.camera ? 2 : 4;
+	const scaleDiv = WATER_UNDERWATER.camera ? 2 : waterRefrScaleDiv;
 	const w = Math.max( 2, Math.floor( db.x / scaleDiv ) );
 	const h = Math.max( 2, Math.floor( db.y / scaleDiv ) );
 	let rt = waterRefrRTs.get( camIndex );
