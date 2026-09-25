@@ -780,7 +780,7 @@ function computeCausticShade( normal ) {
 
 }
 
-const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ] );
+const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'pool-cross' ] );
 
 function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 
@@ -792,6 +792,9 @@ function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 function getOverlayHeightOffset( elevatedEntry ) {
 
 	if ( ! elevatedEntry ) return 0;
+	// Pool Cross sits at pool level (no lift) — the elevated-cross model
+	// dropped into the pool, not a bridge.
+	if ( elevatedEntry.type === 'pool-cross' ) return 0;
 	return elevatedEntry.type === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
 
 }
@@ -863,7 +866,7 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 
 	let modelKey = null;
 	if ( type === 'elevated-straight' ) modelKey = 'elev-track-straight';
-	else if ( type === 'elevated-cross' ) modelKey = 'elev-track-cross';
+	else if ( type === 'elevated-cross' || type === 'pool-cross' ) modelKey = 'elev-track-cross';
 	else if ( type === 'elevated-corner' ) modelKey = 'elev-track-corner';
 	else if ( type === 'elevated-cross-corner' ) modelKey = 'elev-cross-corners';
 	else if ( type === 'elevated-checkpoint' ) modelKey = 'elev-track-checkpoint';
@@ -894,8 +897,9 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	piece.traverse( ( child ) => { child.userData.isChokeMesh = true; } );
 
 	}
-	// Slope model is pre-sloped at the correct size — place at ground level, no scaling
-	const yAdjust = ( type === 'slope-up' || type === 'slope-down' ) ? - ELEVATED_HEIGHT : 0;
+	// Slope model is pre-sloped at the correct size — place at ground level, no scaling.
+	// Pool Cross: same cross model, but at pool level (no ELEVATED_HEIGHT lift).
+	const yAdjust = ( type === 'slope-up' || type === 'slope-down' || type === 'pool-cross' ) ? - ELEVATED_HEIGHT : 0;
 	piece.position.set(
 		( gx + 0.5 ) * CELL_RAW,
 		0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust,
@@ -2186,6 +2190,7 @@ const V3_NAME_TOKENS = {
 	'track-choke-both': 't',
 	'track-checkpoint-corner': 'u',
 	'elevated-checkpoint-corner': 'v',
+	'pool-cross': 'w',
 
 };
 

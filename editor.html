@@ -686,6 +686,7 @@
 			<button id="btn-elevated-corner-checkpoint" style="display:none">Elev Corner Checkpoint</button>
 			<button id="btn-slope-up" style="display:none">Slope Up</button>
 			<button id="btn-pool-slope" style="display:none">Pool Slope</button>
+			<button id="btn-pool-cross" style="display:none">Pool Cross</button>
 			<button id="btn-elevated-3way" style="display:none">Elev 3-Way</button>
 			<button id="btn-elevated-4way" style="display:none">Elev 4-Way</button>
 			<button id="btn-elevated-choke-half" style="display:none">Elev Choke Half</button>
@@ -900,10 +901,10 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000248';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000249';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260921';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260922';
 	import { Vehicle } from './js/Vehicle.js?v=1000228';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
@@ -935,8 +936,9 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 	const ARC_ORANGE_TOOL = 'arc-orange';
 	const PORTAL_YELLOW_TOOL = 'portal-yellow';
 	const PORTAL_PURPLE_TOOL = 'portal-purple';
-	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ];
+	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'pool-cross' ];
 	const POOL_SLOPE_TOOL = 'pool-slope';
+	const POOL_CROSS_TOOL = 'pool-cross';
 	const POOL_SLOPE_DEPTH = CELL_RAW * 0.34; // matches pool floor depth
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
 	const SUPPORT_HEIGHT = CELL_RAW * 0.5;
@@ -1441,6 +1443,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 		// Both slope directions ramp ground -> ELEVATED_HEIGHT across the cell,
 		// so their midpoint (cell center) sits at half height either way.
 		if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) return ELEVATED_HEIGHT * 0.5;
+		if ( cell.elevatedType === 'pool-cross' ) return 0;
 		return ELEVATED_HEIGHT;
 
 	}
@@ -2169,6 +2172,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 			const elevatedModelKeys = {
 				'elevated-straight': 'elev-track-straight',
 				'elevated-cross': 'elev-track-cross',
+				'pool-cross': 'elev-track-cross',
 				'elevated-corner': 'elev-track-corner',
 				'elevated-cross-corner': 'elev-cross-corners',
 				'elevated-checkpoint': 'elev-track-checkpoint',
@@ -2187,7 +2191,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 				if ( sourceType === 'elev-track-choke-half' || sourceType === 'elev-track-choke-both' ) smoothChokeSourceModel( elevatedSrc );
 				const elevated = elevatedSrc.clone();
-				const yAdjust = normalizedType === 'elevated-4-way' ? 0.1 : ( normalizedType === 'slope-up' ? - ELEVATED_HEIGHT : 0 );
+				const yAdjust = normalizedType === 'elevated-4-way' ? 0.1 : ( ( normalizedType === 'slope-up' || normalizedType === 'pool-cross' ) ? - ELEVATED_HEIGHT : 0 );
 				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
 				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 );
 				// Slope model is pre-sloped at the correct size — no rotation or scaling needed
@@ -2838,6 +2842,46 @@ function computeCausticShade( normal ) {
 			removePoolEdgeInFacingDirection( gx, gz, selectedOrient );
 			placeOverlayMesh( gx, gz, cell );
 
+		} else if ( selectedType === POOL_CROSS_TOOL ) {
+
+			// Pool Cross: the elevated-cross model sitting at pool level.
+			// Never off-grid, only ON a pool tile, and unlike every other
+			// block it does NOT remove the pool tile — it is placed OVER the
+			// pool (the water stays, the block floats above the pool floor).
+			if ( placeOffGrid ) {
+
+				showToast( 'Pool Cross cannot be placed off-grid' );
+				return;
+
+			}
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			if ( ! cell.water ) {
+
+				showToast( 'Pool Cross can only be placed over a pool tile' );
+				return;
+
+			}
+			if ( cell.poolSlope ) {
+
+				showToast( 'Pool Cross cannot be placed on a pool slope' );
+				return;
+
+			}
+			if ( cell.elevatedType === POOL_CROSS_TOOL ) {
+
+				cell.elevatedType = null;
+				cell.elevatedOrient = 0;
+
+			} else {
+
+				cell.elevatedType = POOL_CROSS_TOOL;
+				cell.elevatedOrient = selectedOrient;
+
+			}
+			grid.set( key, cell );
+			placeOverlayMesh( gx, gz, cell );
+
 		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || selectedType === WATER_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || MOVING_CUSTOM_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
 
 			const key = cellKey( gx, gz );
@@ -2856,11 +2900,11 @@ function computeCausticShade( normal ) {
 			const isObstacleTool = selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL;
 			const isMovingTool = selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL;
 			const obstaclePresent = ( selectedType === BUMP_TOOL && cell.bump ) || ( selectedType === POLE_TOOL && cell.pole ) || ( selectedType === CUBE_TOOL && cell.cube ) || ( selectedType === WALL_TOOL && cell.wall ) || ( selectedType === JUMP_TOOL && cell.jump ) || ( isMovingTool && cell.movingObstacle === selectedType );
-			if ( isObstacleTool && cell.elevatedType === 'elevated-cross' && ! obstaclePresent ) {
+			if ( isObstacleTool && ( cell.elevatedType === 'elevated-cross' || cell.elevatedType === 'pool-cross' ) && ! obstaclePresent ) {
 				showToast( 'Obstacles cannot be placed on a cross block' );
 				return;
 			}
-			if ( selectedType === 'elevated-cross' && ( cell.bump || cell.pole || cell.cube || cell.wall || cell.jump || cell.movingObstacle ) ) {
+			if ( ( selectedType === 'elevated-cross' || selectedType === 'pool-cross' ) && ( cell.bump || cell.pole || cell.cube || cell.wall || cell.jump || cell.movingObstacle ) ) {
 				showToast( 'Cross blocks cannot hold obstacles — erase them first' );
 				return;
 			}
@@ -3418,6 +3462,7 @@ function computeCausticShade( normal ) {
 		[ POOL_SLOPE_TOOL ]: 'elev-track-slope',
 		'elevated-straight': 'elev-track-straight',
 		'elevated-cross': 'elev-track-cross',
+		'pool-cross': 'elev-track-cross',
 		'elevated-corner': 'elev-track-corner',
 		'elevated-cross-corner': 'elev-cross-corners',
 		'elevated-checkpoint': 'elev-track-checkpoint',
@@ -3584,7 +3629,7 @@ function computeCausticShade( normal ) {
 
 		let gx = hit.x / cellWorld;
 		let gz = hit.z / cellWorld;
-		if ( selectedType === WATER_TOOL || selectedType === POOL_SLOPE_TOOL ) {
+		if ( selectedType === WATER_TOOL || selectedType === POOL_SLOPE_TOOL || selectedType === POOL_CROSS_TOOL ) {
 
 			gx = Math.floor( gx );
 			gz = Math.floor( gz );
@@ -4575,6 +4620,7 @@ function refreshMovingSpeedUi() {
 		'elevated-checkpoint-corner': document.getElementById( 'btn-elevated-corner-checkpoint' ),
 		'slope-up': document.getElementById( 'btn-slope-up' ),
 		[ POOL_SLOPE_TOOL ]: document.getElementById( 'btn-pool-slope' ),
+		[ POOL_CROSS_TOOL ]: document.getElementById( 'btn-pool-cross' ),
 		'elevated-3-way': document.getElementById( 'btn-elevated-3way' ),
 		'elevated-4-way': document.getElementById( 'btn-elevated-4way' ),
 		'elevated-choke-half': document.getElementById( 'btn-elevated-choke-half' ),
@@ -5960,6 +6006,7 @@ function renderMinimap() {
         if (cell.elevatedType) {
             const et = cell.elevatedType;
 			if (et === 'elevated-straight' || et === 'elevated-cross' || et === 'slope-up') color = '#c0d0e0';
+			else if (et === 'pool-cross') color = '#6db3e8';
             else if (et === 'elevated-corner') color = '#a0b0c8';
             else if (et === 'elevated-checkpoint' || et === 'elevated-checkpoint-corner') color = '#7ad8ff';
             else if (et === 'elevated-3-way' || et === 'elevated-4-way') color = '#b0c0d8';

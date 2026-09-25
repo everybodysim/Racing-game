@@ -100,7 +100,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	// the half-choke.
 	const CHOKE_APEX_X = 2.5;
 	const CHOKE_SEGS = 8;
-	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ] );
+	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'pool-cross' ] );
 
 	// PERFECT SLOPE SEAM MATH. The slope's driving surface is the TOP face of a
 	// tilted box (half-thickness hy = ELEVATED_SURFACE_HALF_H). The old geometry
@@ -750,7 +750,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			if ( ! FLAT_ELEVATED_TYPES.has( elevatedType ) ) continue;
 
 			const halfExtents = [ half, ELEVATED_SURFACE_HALF_H, half ];
-			const position = [ ( gx + 0.5 ) * CELL_RAW * S, elevatedSurfaceY, ( gz + 0.5 ) * CELL_RAW * S ];
+			// Pool Cross: the same deck collider, dropped to pool level (no
+			// ELEVATED_HEIGHT lift) — it sits over the water, not above it.
+			const surfaceY = elevatedType === 'pool-cross' ? elevatedSurfaceY - ELEVATED_HEIGHT : elevatedSurfaceY;
+			const position = [ ( gx + 0.5 ) * CELL_RAW * S, surfaceY, ( gz + 0.5 ) * CELL_RAW * S ];
 			rigidBody.create( world, {
 				shape: box.create( { halfExtents } ),
 				motionType: MotionType.STATIC,
@@ -1092,7 +1095,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		// The elevated-corner support pillar is curved (matching the corner mesh),
 		// so the generic full-square support box is skipped for corners and rebuilt
 		// by addElevatedCornerSupport() as an L-shaped + outer-arc footprint below.
-		if ( normalizedType !== 'slope-up' && normalizedType !== 'elevated-corner' && normalizedType !== 'elevated-cross' && normalizedType !== 'elevated-cross-corner' ) addElevatedSupportCollider( nx, nz );
+		if ( normalizedType !== 'slope-up' && normalizedType !== 'elevated-corner' && normalizedType !== 'elevated-cross' && normalizedType !== 'elevated-cross-corner' && normalizedType !== 'pool-cross' ) addElevatedSupportCollider( nx, nz );
 		if ( normalizedType === 'slope-up' ) {
 
 			addSlopeCollider( nx, nz, normalizedOrient, true, elevatedMap );
@@ -1118,6 +1121,19 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			addElevatedRoadWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
 			const throughOrient = { 0: 16, 10: 22, 16: 0, 22: 10 }[ normalizedOrient ] ?? normalizedOrient;
 			addElevatedRoadWalls( nx, nz, throughOrient, wallY, hHeight );
+			continue;
+
+		}
+		if ( normalizedType === 'pool-cross' ) {
+
+			// Pool Cross: the elevated-cross hitbox set dropped to pool level.
+			// Deck walls (road direction) land exactly on the normal ground
+			// wall line, and the two underpass walls (perpendicular, the
+			// "bottom" pair) are 3x TALLER than a standard ground wall so a
+			// car floating at the pool surface can never hop over them.
+			addElevatedRoadWalls( nx, nz, normalizedOrient, wallY, ELEVATED_WALL_HALF_H );
+			const throughOrient = { 0: 16, 10: 22, 16: 0, 22: 10 }[ normalizedOrient ] ?? normalizedOrient;
+			addElevatedRoadWalls( nx, nz, throughOrient, wallY, hHeight * 3 );
 			continue;
 
 		}
