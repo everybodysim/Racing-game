@@ -1139,12 +1139,13 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 			// Pool Cross: the elevated-cross hitbox set dropped to pool level.
 			// Deck walls (road direction) land exactly on the normal ground
-			// wall line, and the two underpass walls (perpendicular, the
-			// "bottom" pair) are 1.75x taller than a standard ground wall so
-			// a car floating at the pool surface can never hop over them.
+			// wall line. The two underpass walls (perpendicular, the
+			// "bottom" pair) follow the block down by ELEVATED_HEIGHT so
+			// they line up with the submerged underpass opening, and they
+			// are 1.75x taller than a standard ground wall.
 			addElevatedRoadWalls( nx, nz, normalizedOrient, wallY, ELEVATED_WALL_HALF_H );
 			const throughOrient = { 0: 16, 10: 22, 16: 0, 22: 10 }[ normalizedOrient ] ?? normalizedOrient;
-			addElevatedRoadWalls( nx, nz, throughOrient, wallY, hHeight * 1.75 );
+			addElevatedRoadWalls( nx, nz, throughOrient, wallY - ELEVATED_HEIGHT, hHeight * 1.75 );
 			continue;
 
 		}
