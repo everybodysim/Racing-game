@@ -827,6 +827,16 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			poolSlopeExit.set( `${ Number( gx ) },${ Number( gz ) }`, `${ dx },${ dz }` );
 		}
 	}
+	// Pool Cross cells: the block deck seals the whole cell at ground level
+	// and its own walls are the boundary, so the pool bowl wall collider on
+	// every ground-facing side of the cell is skipped — the same trust the
+	// pool slope's exit side already gets.
+	const poolCrossCells = new Set();
+	for ( const [ gx, gz, elevatedType ] of elevatedEntries ) {
+
+		if ( elevatedType === 'pool-cross' ) poolCrossCells.add( `${ Number( gx ) },${ Number( gz ) }` );
+
+	}
 	const WATER_BEVEL_ANGLE = THREE.MathUtils.degToRad( 1.6 );
 	for ( const [ gx, gz ] of waterEntries ) {
 
@@ -847,6 +857,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		for ( const [ dx, dz, ox, oz, yaw ] of sides ) {
 			if ( waterSet.has( `${ gx + dx },${ gz + dz }` ) ) continue;
 			if ( exitSide === `${ dx },${ dz }` ) continue;
+			if ( poolCrossCells.has( `${ gx },${ gz }` ) ) continue;
 			const halfExtents = [ CELL_HALF * S, CELL_RAW * S * 0.19, CELL_RAW * S * 0.04 ];
 			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
 			// Lower wall so its top is flush with groundY (below the ground surface),
@@ -1129,11 +1140,11 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			// Pool Cross: the elevated-cross hitbox set dropped to pool level.
 			// Deck walls (road direction) land exactly on the normal ground
 			// wall line, and the two underpass walls (perpendicular, the
-			// "bottom" pair) are 3x TALLER than a standard ground wall so a
-			// car floating at the pool surface can never hop over them.
+			// "bottom" pair) are 1.75x taller than a standard ground wall so
+			// a car floating at the pool surface can never hop over them.
 			addElevatedRoadWalls( nx, nz, normalizedOrient, wallY, ELEVATED_WALL_HALF_H );
 			const throughOrient = { 0: 16, 10: 22, 16: 0, 22: 10 }[ normalizedOrient ] ?? normalizedOrient;
-			addElevatedRoadWalls( nx, nz, throughOrient, wallY, hHeight * 3 );
+			addElevatedRoadWalls( nx, nz, throughOrient, wallY, hHeight * 1.75 );
 			continue;
 
 		}

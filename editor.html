@@ -901,10 +901,10 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000249';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000250';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260922';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260923';
 	import { Vehicle } from './js/Vehicle.js?v=1000228';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
@@ -2603,7 +2603,7 @@ function computeCausticShade( normal ) {
 
 }
 
-	function editorCreatePoolCellVisual( gx, gz, { isWaterCell, exitSide = null, poolVisuals } ) {
+	function editorCreatePoolCellVisual( gx, gz, { isWaterCell, exitSide = null, poolVisuals, hideBoundary = false } ) {
 
 	const pool = new THREE.Group();
 	pool.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
@@ -2639,6 +2639,9 @@ function computeCausticShade( normal ) {
 	for ( const side of sides ) {
 		if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
 		if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
+		// Pool Cross on this tile: the block's own walls are the boundary —
+		// no pool wall / edge lip here.
+		if ( hideBoundary ) continue;
 		const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { map: poolWallTexture, roughness: 0.7, metalness: 0.0 } ) );
 		wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
 		wall.rotation.y = side.ry;
@@ -2690,6 +2693,7 @@ function computeCausticShade( normal ) {
 			isWaterCell,
 			exitSide: exit ? `${ exit.dx },${ exit.dz }` : null,
 			poolVisuals,
+			hideBoundary: slopeCell?.elevatedType === 'pool-cross',
 		} );
 		// Editor-only translucent surface at the game's water line (y = 0.12)
 		// so the pool interior stays readable while editing.

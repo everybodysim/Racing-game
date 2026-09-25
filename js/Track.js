@@ -1268,6 +1268,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			for ( const side of sides ) {
 				if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
 				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
+				// Pool Cross: the block covers the whole cell at ground level and
+				// its own walls are the boundary — omit the pool wall + edge lip
+				// (they would poke through the deck and catch cars on the lip).
+				if ( elevatedMap.get( `${ gx },${ gz }` )?.type === 'pool-cross' ) continue;
 				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { map: poolWallTexture, roughness: 0.7, metalness: 0.0 } ) );
 				wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
 				wall.rotation.y = side.ry;
