@@ -1142,10 +1142,11 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			// wall line. The two underpass walls (perpendicular, the
 			// "bottom" pair) follow the block down by ELEVATED_HEIGHT so
 			// they line up with the submerged underpass opening, and they
-			// are 2.5x taller than a standard ground wall.
+			// are 2.5x taller than a standard ground wall. Raised 2 units
+			// from the original sunken position per user tuning.
 			addElevatedRoadWalls( nx, nz, normalizedOrient, wallY, ELEVATED_WALL_HALF_H );
 			const throughOrient = { 0: 16, 10: 22, 16: 0, 22: 10 }[ normalizedOrient ] ?? normalizedOrient;
-			addElevatedRoadWalls( nx, nz, throughOrient, wallY - ELEVATED_HEIGHT, hHeight * 2.5 );
+			addElevatedRoadWalls( nx, nz, throughOrient, wallY - ELEVATED_HEIGHT + 2, hHeight * 2.5 );
 			continue;
 
 		}
