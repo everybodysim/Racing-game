@@ -58,6 +58,7 @@ export class Camera {
 		this.floorProbe = null;
 		this.carInWater = false;
 		this._ceilingClamped = false;
+		this._submergedFraming = false;
 		this._clipDir = new THREE.Vector3();
 
 		this.camera.position.copy( this.offset );
@@ -111,6 +112,7 @@ export class Camera {
 
 			this._rotatedOffset.y = clampedY;
 			this._ceilingClamped = true;
+			if ( this.targetPosition.y + clampedY < this.waterSurfaceY ) this._submergedFraming = true;
 
 		}
 
@@ -139,7 +141,12 @@ export class Camera {
 		// buried inside the slab at the water line.
 		const underBlockY = Math.min( roadTopY - 0.45, this.waterSurfaceY - 0.25 );
 		const cap = underBlockY - this.targetPosition.y;
-		if ( this._rotatedOffset.y > cap ) this._rotatedOffset.y = cap;
+		if ( this._rotatedOffset.y > cap ) {
+
+			this._rotatedOffset.y = cap;
+			this._submergedFraming = true;
+
+		}
 
 	}
 
@@ -158,6 +165,7 @@ export class Camera {
 		);
 		if ( Number.isFinite( Number( dynamics.waterSurfaceY ) ) ) this.waterSurfaceY = Number( dynamics.waterSurfaceY );
 		this.carInWater = dynamics.carInWater === true;
+		this._submergedFraming = false;
 		// World-scale feel: when the car grows or shrinks (mega/mini size
 		// pads, custom mods), the camera rides with it — same car framing,
 		// and the WORLD reads bigger (mini) or smaller (mega) around it.
@@ -284,6 +292,8 @@ export class Camera {
 
 			this._rotatedOffset.copy( this.offset ).lerp( this.underwaterOverviewOffset, underwaterLift );
 			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
+			this._applyCeilingClamp( camScale );
+			this._applySubmergedRoadClamp();
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			this.camera.position.lerp( this._desiredPos, dt * 8 );
 			this._desiredLook.copy( this.targetPosition );
@@ -297,7 +307,7 @@ export class Camera {
 		// The raised pool offsets handle normal framing. This final guard also
 		// covers the first blend frame (and custom camera settings), ensuring
 		// the camera can never briefly cross below the water surface.
-		if ( underwaterTarget ) {
+		if ( underwaterTarget && ! this._submergedFraming ) {
 
 			const minimumCameraY = this.waterSurfaceY + 0.35;
 			if ( this.camera.position.y < minimumCameraY ) {
