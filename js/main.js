@@ -4,7 +4,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
-import { Camera } from './Camera.js?v=5';
+import { Camera } from './Camera.js?v=6';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000250';
 import { buildWallColliders, createSphereBody } from './Physics.js?v=20260925';
@@ -6288,6 +6288,24 @@ async function init() {
 	};
 	cam.ceilingProbe = camClipCeilingProbe;
 	if ( cam2 ) cam2.ceilingProbe = camClipCeilingProbe;
+	// Straight-DOWN companion probe: when the car floats in a pool on top
+	// of a sunken road surface (pool cross deck), this reports the
+	// clearance to that road so the camera can drop below the water line
+	// instead of looking down at the car through the deck.
+	const camRayDownDir = [ 0, - 1, 0 ];
+	const camClipFloorProbe = ( origin, downLength ) => {
+
+		camRayOrigin[ 0 ] = origin.x;
+		camRayOrigin[ 1 ] = origin.y;
+		camRayOrigin[ 2 ] = origin.z;
+		camRayCollector.reset();
+		castRay( world, camRayCollector, camRaySettings, camRayOrigin, camRayDownDir, downLength, camRayFilter );
+		if ( camRayCollector.hit.status !== CastRayStatus.COLLIDING ) return downLength;
+		return camRayCollector.hit.fraction * downLength;
+
+	};
+	cam.floorProbe = camClipFloorProbe;
+	if ( cam2 ) cam2.floorProbe = camClipFloorProbe;
 
 	// Reused each frame for cam.update() dynamics to avoid allocating an options
 	// object on every camera update (up to 4 calls/frame). cam.update only reads the
@@ -13523,6 +13541,9 @@ function completeCampaignStage() {
 		window.__perf.carScale = vehicle.container ? vehicle.container.scale.x : 1;
 		window.__perf.camDist = cam.camera.position.distanceTo( vehicle.spherePos );
 		window.__perf.camY = cam.camera.position.y;
+		window.__perf.carY = vehicle.spherePos.y;
+		window.__perf.carX = vehicle.spherePos.x;
+		window.__perf.carZ = vehicle.spherePos.z;
 		window.__perf.skyY = skyGroup.position.y;
 		window.__perfT0 = _perfNow;
 		renderer.info.reset();
@@ -13911,13 +13932,13 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat.setFromEuler( camYawLockEuler.set( 0, camYawLockValue, 0, 'YXZ' ) );
-				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) ); _camDynamics1.vehicleScale = vehicle.container ? vehicle.container.scale.x : 1;
+				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) ); _camDynamics1.carInWater = waterCellSet.has( `${ Math.floor( vehicle.spherePos.x / cellWorld ) },${ Math.floor( vehicle.spherePos.z / cellWorld ) }` ); _camDynamics1.vehicleScale = vehicle.container ? vehicle.container.scale.x : 1;
 				cam.update( dt, vehicle.spherePos, camYawLockQuat, _camDynamics1 );
 
 			} else {
 
 				camYawLockActive = false;
-				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) ); _camDynamics1.vehicleScale = vehicle.container ? vehicle.container.scale.x : 1;
+				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) ); _camDynamics1.carInWater = waterCellSet.has( `${ Math.floor( vehicle.spherePos.x / cellWorld ) },${ Math.floor( vehicle.spherePos.z / cellWorld ) }` ); _camDynamics1.vehicleScale = vehicle.container ? vehicle.container.scale.x : 1;
 				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, _camDynamics1 );
 
 			}
@@ -13952,13 +13973,13 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat2.setFromEuler( camYawLockEuler2.set( 0, camYawLockValue2, 0, 'YXZ' ) );
-				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) ); _camDynamics2.vehicleScale = vehicle2.container ? vehicle2.container.scale.x : 1;
+				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) ); _camDynamics2.carInWater = waterCellSet.has( `${ Math.floor( vehicle2.spherePos.x / cellWorld ) },${ Math.floor( vehicle2.spherePos.z / cellWorld ) }` ); _camDynamics2.vehicleScale = vehicle2.container ? vehicle2.container.scale.x : 1;
 				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2, _camDynamics2 );
 
 			} else {
 
 				camYawLockActive2 = false;
-				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) ); _camDynamics2.vehicleScale = vehicle2.container ? vehicle2.container.scale.x : 1;
+				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) ); _camDynamics2.carInWater = waterCellSet.has( `${ Math.floor( vehicle2.spherePos.x / cellWorld ) },${ Math.floor( vehicle2.spherePos.z / cellWorld ) }` ); _camDynamics2.vehicleScale = vehicle2.container ? vehicle2.container.scale.x : 1;
 				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion, _camDynamics2 );
 
 			}

@@ -52,6 +52,12 @@ export class Camera {
 		// the camera's height clamps under it instead of rising past the
 		// block and getting covered by its top. null = off.
 		this.ceilingProbe = null;
+		// Straight-down probe (chase cam): ( origin, downLength ) => freeDown.
+		// Reports clearance to a sunken road surface under the car so the
+		// camera can drop below the water line (see _applySubmergedRoadClamp).
+		this.floorProbe = null;
+		this.carInWater = false;
+		this._ceilingClamped = false;
 		this._clipDir = new THREE.Vector3();
 
 		this.camera.position.copy( this.offset );
@@ -88,21 +94,43 @@ export class Camera {
 	// Downward only: never raises the camera above its desired offset.
 	_applyCeilingClamp( camScale ) {
 
+		this._ceilingClamped = false;
 		if ( ! this.ceilingProbe || this._rotatedOffset.y <= 0 ) return;
 		const wantUp = this._rotatedOffset.y + 0.45;
 		const upFree = this.ceilingProbe( this.targetPosition, wantUp );
 		if ( upFree >= wantUp ) return;
+		// The ceiling is authoritative: the camera must sit BELOW it, even
+		// when that puts it below the car (a bumper-height shot looking up
+		// through the gap beats a camera parked inside the deck). Under
+		// water the floor stays permissive so it never pushes the camera
+		// back up through the slab; on dry land keep bumper height.
 		let clampedY = upFree - 0.45;
-		let minY = 0.25 * camScale;
-		if ( this.underwaterBlend > 0 ) {
+		const minY = this.underwaterBlend > 0 ? - 0.9 * camScale : 0.25 * camScale;
+		clampedY = Math.max( clampedY, minY );
+		if ( clampedY < this._rotatedOffset.y ) {
 
-			const waterCap = this.waterSurfaceY - 0.25 - this.targetPosition.y;
-			if ( clampedY > waterCap ) clampedY = waterCap;
-			if ( minY > waterCap ) minY = waterCap;
+			this._rotatedOffset.y = clampedY;
+			this._ceilingClamped = true;
 
 		}
-		clampedY = Math.max( clampedY, minY );
-		if ( clampedY < this._rotatedOffset.y ) this._rotatedOffset.y = clampedY;
+
+	}
+
+	// Submerged-road clamp: when the car floats in a pool ON TOP of a
+	// sunken road surface (pool cross deck), force the camera BELOW the
+	// water line. From above, the deck sits between the camera and the
+	// car and the view is covered; from under the water line the framing
+	// is clear. Only fires while the car is inside a water cell.
+	_applySubmergedRoadClamp() {
+
+		if ( ! this.floorProbe || ! this.carInWater ) return;
+		// A ceiling overhead already owns the framing (tunnel under a deck).
+		if ( this._ceilingClamped ) return;
+		const nearRoad = 0.7;
+		const floorFree = this.floorProbe( this.targetPosition, nearRoad );
+		if ( floorFree >= nearRoad ) return;
+		const cap = this.waterSurfaceY - 0.25 - this.targetPosition.y;
+		if ( this._rotatedOffset.y > cap ) this._rotatedOffset.y = cap;
 
 	}
 
@@ -120,6 +148,7 @@ export class Camera {
 			Math.min( 1, dt / 0.16 )
 		);
 		if ( Number.isFinite( Number( dynamics.waterSurfaceY ) ) ) this.waterSurfaceY = Number( dynamics.waterSurfaceY );
+		this.carInWater = dynamics.carInWater === true;
 		// World-scale feel: when the car grows or shrinks (mega/mini size
 		// pads, custom mods), the camera rides with it — same car framing,
 		// and the WORLD reads bigger (mini) or smaller (mega) around it.
@@ -151,6 +180,7 @@ export class Camera {
 			this._rotatedOffset.copy( this.chaseOffset ).lerp( this.underwaterChaseOffset, underwaterLift ).applyAxisAngle( this._upAxis, yaw );
 			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
 			this._applyCeilingClamp( camScale );
+			this._applySubmergedRoadClamp();
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			if ( this.clipProbe ) {
 
@@ -203,6 +233,7 @@ export class Camera {
 			if ( this.userPitch ) this._rotatedOffset.applyAxisAngle( new THREE.Vector3( 1, 0, 0 ), this.userPitch );
 			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
 			this._applyCeilingClamp( camScale );
+			this._applySubmergedRoadClamp();
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 
 			// Chase-cam hitbox clipping: cast from the car toward the camera.
