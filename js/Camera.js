@@ -129,7 +129,16 @@ export class Camera {
 		const nearRoad = 0.7;
 		const floorFree = this.floorProbe( this.targetPosition, nearRoad );
 		if ( floorFree >= nearRoad ) return;
-		const cap = this.waterSurfaceY - 0.25 - this.targetPosition.y;
+		// Only the sunken ROAD counts: its top must sit near the water
+		// line. The deep pool floor or anything far below leaves the
+		// normal view alone — no more clamping in open water.
+		const roadTopY = this.targetPosition.y - floorFree;
+		if ( roadTopY < this.waterSurfaceY - 0.9 ) return;
+		// Park the camera BELOW the road slab (under the block) so the
+		// view looks up through the gap under the deck instead of being
+		// buried inside the slab at the water line.
+		const underBlockY = Math.min( roadTopY - 0.45, this.waterSurfaceY - 0.25 );
+		const cap = underBlockY - this.targetPosition.y;
 		if ( this._rotatedOffset.y > cap ) this._rotatedOffset.y = cap;
 
 	}
