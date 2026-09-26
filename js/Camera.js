@@ -80,6 +80,32 @@ export class Camera {
 
 	}
 
+	// Ceiling clamp (chase cam): when a static ceiling hangs right above
+	// the car (pool cross deck, low bridges), pull the camera's height
+	// down under it. Under water, the camera is additionally kept BELOW
+	// the water surface — riding above the water/deck line puts the
+	// block's top between the camera and the car and the view is covered.
+	// Downward only: never raises the camera above its desired offset.
+	_applyCeilingClamp( camScale ) {
+
+		if ( ! this.ceilingProbe || this._rotatedOffset.y <= 0 ) return;
+		const wantUp = this._rotatedOffset.y + 0.45;
+		const upFree = this.ceilingProbe( this.targetPosition, wantUp );
+		if ( upFree >= wantUp ) return;
+		let clampedY = upFree - 0.45;
+		let minY = 0.25 * camScale;
+		if ( this.underwaterBlend > 0 ) {
+
+			const waterCap = this.waterSurfaceY - 0.25 - this.targetPosition.y;
+			if ( clampedY > waterCap ) clampedY = waterCap;
+			if ( minY > waterCap ) minY = waterCap;
+
+		}
+		clampedY = Math.max( clampedY, minY );
+		if ( clampedY < this._rotatedOffset.y ) this._rotatedOffset.y = clampedY;
+
+	}
+
 	update( dt, target, targetQuaternion, dynamics = {} ) {
 
 		const speedRatio = THREE.MathUtils.clamp( Number( dynamics.speedRatio ) || 0, 0, 1.8 );
@@ -124,20 +150,7 @@ export class Camera {
 			this.targetPosition.copy( target );
 			this._rotatedOffset.copy( this.chaseOffset ).lerp( this.underwaterChaseOffset, underwaterLift ).applyAxisAngle( this._upAxis, yaw );
 			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
-			// Clamp the camera's height under any ceiling right above the car
-			// (downward only — never raise the camera above its desired offset).
-			if ( this.ceilingProbe && this._rotatedOffset.y > 0 ) {
-
-				const wantUp = this._rotatedOffset.y + 0.45;
-				const upFree = this.ceilingProbe( this.targetPosition, wantUp );
-				if ( upFree < wantUp ) {
-
-					const clampedY = Math.max( upFree - 0.45, 0.6 * camScale );
-					if ( clampedY < this._rotatedOffset.y ) this._rotatedOffset.y = clampedY;
-
-				}
-
-			}
+			this._applyCeilingClamp( camScale );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			if ( this.clipProbe ) {
 
@@ -189,20 +202,7 @@ export class Camera {
 			if ( this.userHeight != null ) this._rotatedOffset.y = this.userHeight;
 			if ( this.userPitch ) this._rotatedOffset.applyAxisAngle( new THREE.Vector3( 1, 0, 0 ), this.userPitch );
 			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
-			// Clamp the camera's height under any ceiling right above the car
-			// (downward only — never raise the camera above its desired offset).
-			if ( this.ceilingProbe && this._rotatedOffset.y > 0 ) {
-
-				const wantUp = this._rotatedOffset.y + 0.45;
-				const upFree = this.ceilingProbe( this.targetPosition, wantUp );
-				if ( upFree < wantUp ) {
-
-					const clampedY = Math.max( upFree - 0.45, 0.6 * camScale );
-					if ( clampedY < this._rotatedOffset.y ) this._rotatedOffset.y = clampedY;
-
-				}
-
-			}
+			this._applyCeilingClamp( camScale );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 
 			// Chase-cam hitbox clipping: cast from the car toward the camera.
