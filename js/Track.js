@@ -1827,7 +1827,18 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		createInstances( models[ 'decoration-empty' ], emptyPositions, true );
 		createInstances( models[ 'empty-deco-grass' ], grassPositions );
-		createInstances( models[ 'decoration-forest' ], forestPositions, true );
+		// Official "Hide Trees" mod (visual only): swap the auto-scattered
+		// forest trees for the flat empty deco plane. Trees are pure
+		// decoration with no colliders, so this changes nothing about
+		// physics or timing. Read from the same localStorage key the Mod
+		// Manager uses (js/mods-manager.js INSTALLED_MODS_KEY).
+		let hideTreesMod = false;
+		try {
+
+			hideTreesMod = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' ).some( ( m ) => m?.id === 'hide-trees' );
+
+		} catch { /* malformed list — treat as not installed */ }
+		createInstances( models[ hideTreesMod ? 'decoration-empty' : 'decoration-forest' ], forestPositions, true );
 
 	}
 
