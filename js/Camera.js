@@ -53,8 +53,7 @@ export class Camera {
 		// block and getting covered by its top. null = off.
 		this.ceilingProbe = null;
 		// Straight-down probe (chase cam): ( origin, downLength ) => freeDown.
-		// Reports clearance to a sunken road surface under the car so the
-		// camera can drop below the water line (see _applySubmergedRoadClamp).
+		// Reports clearance to the first surface under the car.
 		this.floorProbe = null;
 		this.carInWater = false;
 		this._ceilingClamped = false;
@@ -118,38 +117,6 @@ export class Camera {
 
 	}
 
-	// Submerged-road clamp: when the car floats in a pool ON TOP of a
-	// sunken road surface (pool cross deck), force the camera BELOW the
-	// water line. From above, the deck sits between the camera and the
-	// car and the view is covered; from under the water line the framing
-	// is clear. Only fires while the car is inside a water cell.
-	_applySubmergedRoadClamp() {
-
-		if ( ! this.floorProbe || ! this.carInWater ) return;
-		// A ceiling overhead already owns the framing (tunnel under a deck).
-		if ( this._ceilingClamped ) return;
-		const nearRoad = 0.7;
-		const floorFree = this.floorProbe( this.targetPosition, nearRoad );
-		if ( floorFree >= nearRoad ) return;
-		// Only the sunken ROAD counts: its top must sit near the water
-		// line. The deep pool floor or anything far below leaves the
-		// normal view alone — no more clamping in open water.
-		const roadTopY = this.targetPosition.y - floorFree;
-		if ( roadTopY < this.waterSurfaceY - 0.9 ) return;
-		// Park the camera BELOW the road slab (under the block) so the
-		// view looks up through the gap under the deck instead of being
-		// buried inside the slab at the water line.
-		const underBlockY = Math.min( roadTopY - 0.45, this.waterSurfaceY - 0.25 );
-		const cap = underBlockY - this.targetPosition.y;
-		if ( this._rotatedOffset.y > cap ) {
-
-			this._rotatedOffset.y = cap;
-			this._submergedFraming = true;
-
-		}
-
-	}
-
 	update( dt, target, targetQuaternion, dynamics = {} ) {
 
 		const speedRatio = THREE.MathUtils.clamp( Number( dynamics.speedRatio ) || 0, 0, 1.8 );
@@ -197,7 +164,6 @@ export class Camera {
 			this._rotatedOffset.copy( this.chaseOffset ).lerp( this.underwaterChaseOffset, underwaterLift ).applyAxisAngle( this._upAxis, yaw );
 			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
 			this._applyCeilingClamp( camScale );
-			this._applySubmergedRoadClamp();
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			if ( this.clipProbe ) {
 
@@ -250,7 +216,6 @@ export class Camera {
 			if ( this.userPitch ) this._rotatedOffset.applyAxisAngle( new THREE.Vector3( 1, 0, 0 ), this.userPitch );
 			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
 			this._applyCeilingClamp( camScale );
-			this._applySubmergedRoadClamp();
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 
 			// Chase-cam hitbox clipping: cast from the car toward the camera.
@@ -293,7 +258,6 @@ export class Camera {
 			this._rotatedOffset.copy( this.offset ).lerp( this.underwaterOverviewOffset, underwaterLift );
 			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
 			this._applyCeilingClamp( camScale );
-			this._applySubmergedRoadClamp();
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			this.camera.position.lerp( this._desiredPos, dt * 8 );
 			this._desiredLook.copy( this.targetPosition );
