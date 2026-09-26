@@ -4,10 +4,10 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
-import { Camera } from './Camera.js?v=3';
+import { Camera } from './Camera.js?v=4';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000250';
-import { buildWallColliders, createSphereBody } from './Physics.js?v=20260924';
+import { buildWallColliders, createSphereBody } from './Physics.js?v=20260925';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
@@ -6270,6 +6270,24 @@ async function init() {
 	};
 	cam.clipProbe = camClipProbe;
 	if ( cam2 ) cam2.clipProbe = camClipProbe;
+	// Straight-up companion probe for the chase cam: when a static ceiling
+	// hangs right above the car (pool cross deck, low bridges), the camera
+	// clamps its height under it instead of rising past the block and
+	// getting covered by its top.
+	const camRayUpDir = [ 0, 1, 0 ];
+	const camClipCeilingProbe = ( origin, upLength ) => {
+
+		camRayOrigin[ 0 ] = origin.x;
+		camRayOrigin[ 1 ] = origin.y;
+		camRayOrigin[ 2 ] = origin.z;
+		camRayCollector.reset();
+		castRay( world, camRayCollector, camRaySettings, camRayOrigin, camRayUpDir, upLength, camRayFilter );
+		if ( camRayCollector.hit.status !== CastRayStatus.COLLIDING ) return upLength;
+		return camRayCollector.hit.fraction * upLength;
+
+	};
+	cam.ceilingProbe = camClipCeilingProbe;
+	if ( cam2 ) cam2.ceilingProbe = camClipCeilingProbe;
 
 	// Reused each frame for cam.update() dynamics to avoid allocating an options
 	// object on every camera update (up to 4 calls/frame). cam.update only reads the
