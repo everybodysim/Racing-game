@@ -48,8 +48,8 @@
 	// Realistic 3D top-down track preview. The module exposes
 	// window.__renderTrackTopDown; the page falls back to its flat 2D
 	// preview if the module or WebGL is unavailable.
-	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260923';
-	import { encodeCellsV3 } from './js/Track.js?v=1000237';
+	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20261002';
+	import { encodeCellsV3 } from './js/Track.js?v=1000238';
 	import { generateTrackPlan } from './js/CupTrackGen.js?v=20260918';
 	window.__renderTrackTopDown = renderTrackTopDown;
 	window.__encodeCellsV3 = encodeCellsV3;
@@ -311,6 +311,7 @@
       'track-straight': '#4da3ff',
       'track-corner': '#b084ff',
       'track-checkpoint': '#ffd54f',
+      'track-checkpoint-corner': '#ffd54f',
       'track-finish': '#72e39a',
     };
 
@@ -324,6 +325,7 @@
     for (const [x, z, surfaceType] of (mods.u || [])) {
       const [px, py] = toPix(x, z);
       ctx.fillStyle =
+        surfaceType === 'surface-trampoline' ? '#66f2d0' :
         surfaceType === 'surface-ice' ? '#7ad8ff' :
         surfaceType === 'surface-boost' ? '#ff9f2e' :
         '#b88657';

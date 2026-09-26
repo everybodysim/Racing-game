@@ -652,6 +652,7 @@
 				<select id="flow-corner-type">
 					<option value="track-corner">Track Corner</option>
 					<option value="track-checkpoint">Checkpoint</option>
+					<option value="track-checkpoint-corner">Corner Checkpoint</option>
 				</select>
 			</div>
 			<div class="panel-row">
@@ -672,6 +673,7 @@
 				<option value="track-finish">Place: Finish</option>
 			</select>
 			<button id="btn-checkpoint">Checkpoint</button>
+			<button id="btn-corner-checkpoint">Corner Checkpoint</button>
 			<button id="btn-3way">3-Way</button>
 			<button id="btn-4way">4-Way</button>
 			<button id="btn-choke-half">Choke Half</button>
@@ -681,8 +683,10 @@
 			<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
 			<button id="btn-elevated-cross-corner" style="display:none">Elev Cross Corner</button>
 			<button id="btn-elevated-checkpoint" style="display:none">Elev Checkpoint</button>
+			<button id="btn-elevated-corner-checkpoint" style="display:none">Elev Corner Checkpoint</button>
 			<button id="btn-slope-up" style="display:none">Slope Up</button>
 			<button id="btn-pool-slope" style="display:none">Pool Slope</button>
+			<button id="btn-pool-cross" style="display:none">Pool Cross</button>
 			<button id="btn-elevated-3way" style="display:none">Elev 3-Way</button>
 			<button id="btn-elevated-4way" style="display:none">Elev 4-Way</button>
 			<button id="btn-elevated-choke-half" style="display:none">Elev Choke Half</button>
@@ -714,6 +718,7 @@
 				<option value="surface-boost">Boost Surface</option>
 				<option value="surface-sand">Sand</option>
 				<option value="surface-bounce">Bounce Plate</option>
+				<option value="surface-trampoline">Trampoline</option>
 				<option value="surface-kick-l">Kick Left</option>
 				<option value="surface-kick-r">Kick Right</option>
 			</select>
@@ -721,6 +726,7 @@
 				<option value="">Pads…</option>
 				<option value="pad-reset">Reset Effects</option>
 				<option value="pad-low-gravity">Low Gravity</option>
+				<option value="pad-air-control">Air Control</option>
 				<option value="pad-heavy-gravity">Heavy Gravity</option>
 				<option value="pad-high-grip">High Grip</option>
 				<option value="pad-high-speed">High Speed</option>
@@ -895,18 +901,18 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000237';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000251';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
-	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260920';
-	import { Vehicle } from './js/Vehicle.js?v=1000227';
-import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
+	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260926';
+	import { Vehicle } from './js/Vehicle.js?v=1000228';
+import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 	// ─── State ────────────────────────────────────────────────
 
 	const grid = new Map(); // "gx,gz" → { type, orient, isFinish, mesh }
 	const ORIENTATIONS = [ 0, 16, 10, 22 ];
-	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-finish', 'track-checkpoint', 'track-start', 'track-start-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both' ];
+	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-finish', 'track-checkpoint', 'track-start', 'track-start-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both' ];
 	const BUMP_TOOL = 'overlay-bump';
 	const POLE_TOOL = 'overlay-pole';
 	const CUBE_TOOL = 'overlay-cube';
@@ -930,8 +936,9 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 	const ARC_ORANGE_TOOL = 'arc-orange';
 	const PORTAL_YELLOW_TOOL = 'portal-yellow';
 	const PORTAL_PURPLE_TOOL = 'portal-purple';
-	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'slope-up', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ];
+	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'pool-cross' ];
 	const POOL_SLOPE_TOOL = 'pool-slope';
+	const POOL_CROSS_TOOL = 'pool-cross';
 	const POOL_SLOPE_DEPTH = CELL_RAW * 0.34; // matches pool floor depth
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
 	const SUPPORT_HEIGHT = CELL_RAW * 0.5;
@@ -939,8 +946,8 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 	const SLOPE_VISUAL_DROP = CELL_RAW * 0.04;
 	const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 	const SURFACE_TYPES = [
-		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-kick-l', 'surface-kick-r',
-		'pad-reset', 'pad-low-gravity', 'pad-heavy-gravity', 'pad-high-grip', 'pad-high-speed',
+		'surface-wood', 'surface-ice', 'surface-boost', 'surface-sand', 'surface-bounce', 'surface-trampoline', 'surface-kick-l', 'surface-kick-r',
+		'pad-reset', 'pad-low-gravity', 'pad-air-control', 'pad-heavy-gravity', 'pad-high-grip', 'pad-high-speed',
 		'pad-no-brakes', 'pad-no-steering', 'pad-no-acceleration', 'pad-slow-motion', 'pad-fast-motion', 'pad-drift',
 		'pad-size-small', 'pad-size-normal', 'pad-size-mega',
 		'pad-trick-yaw-1', 'pad-trick-pitch-1', 'pad-trick-roll-1',
@@ -1436,6 +1443,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 		// Both slope directions ramp ground -> ELEVATED_HEIGHT across the cell,
 		// so their midpoint (cell center) sits at half height either way.
 		if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) return ELEVATED_HEIGHT * 0.5;
+		if ( cell.elevatedType === 'pool-cross' ) return 0;
 		return ELEVATED_HEIGHT;
 
 	}
@@ -1535,6 +1543,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 			case 'surface-boost': return { color: 0xff4b4b, emissive: 0xc1121f, metalness: 0.0, roughness: 0.9 };
 			case 'surface-sand': return { color: 0xd7b46a, emissive: 0x6f4f22, metalness: 0.0, roughness: 1.0 };
 			case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
+			case 'surface-trampoline': return { color: 0x66f2d0, emissive: 0x0f8f74, metalness: 0.0, roughness: 0.7 };
 			case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
 			case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
 			case 'surface-custom-a':
@@ -1546,6 +1555,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 			}
 			case 'pad-reset': return { color: 0xffffff, emissive: 0x557c92, metalness: 0.1, roughness: 0.35 };
 			case 'pad-low-gravity': return { color: 0x9bc2ff, emissive: 0x2e4f9f, metalness: 0.05, roughness: 0.55 };
+			case 'pad-air-control': return { color: 0x37b6ff, emissive: 0x0c4f9e, metalness: 0.05, roughness: 0.6 };
 			case 'pad-heavy-gravity': return { color: 0x4a5f85, emissive: 0x111b36, metalness: 0.05, roughness: 0.8 };
 			case 'pad-high-grip': return { color: 0x5cff9a, emissive: 0x0d6a39, metalness: 0.02, roughness: 0.95 };
 			case 'pad-high-speed': return { color: 0xffbc4f, emissive: 0x8a4e06, metalness: 0.0, roughness: 0.8 };
@@ -1828,7 +1838,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 
 	const loader = new GLTFLoader();
 	const objLoader = new OBJLoader();
-	const modelNames = [ 'track-straight', 'track-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'elev-track-choke-half', 'elev-track-choke-both', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
+	const modelNames = [ 'barrier', 'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'elev-track-choke-half', 'elev-track-choke-both', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
 	const models = {};
 	const customAssets = new Map();
 	let customAssetOrder = [];
@@ -2162,9 +2172,11 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 			const elevatedModelKeys = {
 				'elevated-straight': 'elev-track-straight',
 				'elevated-cross': 'elev-track-cross',
+				'pool-cross': 'elev-track-cross',
 				'elevated-corner': 'elev-track-corner',
 				'elevated-cross-corner': 'elev-cross-corners',
 				'elevated-checkpoint': 'elev-track-checkpoint',
+				'elevated-checkpoint-corner': 'track-checkpoint-corner',
 				'slope-up': 'elev-track-slope',
 				'elevated-3-way': 'elev-track-3-way',
 		'elevated-choke-half': 'elev-track-choke-half',
@@ -2179,7 +2191,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=2';
 
 				if ( sourceType === 'elev-track-choke-half' || sourceType === 'elev-track-choke-both' ) smoothChokeSourceModel( elevatedSrc );
 				const elevated = elevatedSrc.clone();
-				const yAdjust = normalizedType === 'elevated-4-way' ? 0.1 : ( normalizedType === 'slope-up' ? - ELEVATED_HEIGHT : 0 );
+				const yAdjust = normalizedType === 'elevated-4-way' ? 0.1 : ( ( normalizedType === 'slope-up' || normalizedType === 'pool-cross' ) ? - ELEVATED_HEIGHT : 0 );
 				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
 				elevated.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ normalizedOrient ] || 0 );
 				// Slope model is pre-sloped at the correct size — no rotation or scaling needed
@@ -2591,7 +2603,7 @@ function computeCausticShade( normal ) {
 
 }
 
-	function editorCreatePoolCellVisual( gx, gz, { isWaterCell, exitSide = null, poolVisuals } ) {
+	function editorCreatePoolCellVisual( gx, gz, { isWaterCell, exitSide = null, poolVisuals, hideBoundary = false } ) {
 
 	const pool = new THREE.Group();
 	pool.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
@@ -2627,6 +2639,9 @@ function computeCausticShade( normal ) {
 	for ( const side of sides ) {
 		if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
 		if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
+		// Pool Cross on this tile: the block's own walls are the boundary —
+		// no pool wall / edge lip here.
+		if ( hideBoundary ) continue;
 		const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { map: poolWallTexture, roughness: 0.7, metalness: 0.0 } ) );
 		wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
 		wall.rotation.y = side.ry;
@@ -2678,6 +2693,7 @@ function computeCausticShade( normal ) {
 			isWaterCell,
 			exitSide: exit ? `${ exit.dx },${ exit.dz }` : null,
 			poolVisuals,
+			hideBoundary: slopeCell?.elevatedType === 'pool-cross',
 		} );
 		// Editor-only translucent surface at the game's water line (y = 0.12)
 		// so the pool interior stays readable while editing.
@@ -2830,6 +2846,46 @@ function computeCausticShade( normal ) {
 			removePoolEdgeInFacingDirection( gx, gz, selectedOrient );
 			placeOverlayMesh( gx, gz, cell );
 
+		} else if ( selectedType === POOL_CROSS_TOOL ) {
+
+			// Pool Cross: the elevated-cross model sitting at pool level.
+			// Never off-grid, only ON a pool tile, and unlike every other
+			// block it does NOT remove the pool tile — it is placed OVER the
+			// pool (the water stays, the block floats above the pool floor).
+			if ( placeOffGrid ) {
+
+				showToast( 'Pool Cross cannot be placed off-grid' );
+				return;
+
+			}
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			if ( ! cell.water ) {
+
+				showToast( 'Pool Cross can only be placed over a pool tile' );
+				return;
+
+			}
+			if ( cell.poolSlope ) {
+
+				showToast( 'Pool Cross cannot be placed on a pool slope' );
+				return;
+
+			}
+			if ( cell.elevatedType === POOL_CROSS_TOOL ) {
+
+				cell.elevatedType = null;
+				cell.elevatedOrient = 0;
+
+			} else {
+
+				cell.elevatedType = POOL_CROSS_TOOL;
+				cell.elevatedOrient = selectedOrient;
+
+			}
+			grid.set( key, cell );
+			placeOverlayMesh( gx, gz, cell );
+
 		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || selectedType === WATER_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || MOVING_CUSTOM_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
 
 			const key = cellKey( gx, gz );
@@ -2848,11 +2904,11 @@ function computeCausticShade( normal ) {
 			const isObstacleTool = selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL;
 			const isMovingTool = selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL;
 			const obstaclePresent = ( selectedType === BUMP_TOOL && cell.bump ) || ( selectedType === POLE_TOOL && cell.pole ) || ( selectedType === CUBE_TOOL && cell.cube ) || ( selectedType === WALL_TOOL && cell.wall ) || ( selectedType === JUMP_TOOL && cell.jump ) || ( isMovingTool && cell.movingObstacle === selectedType );
-			if ( isObstacleTool && cell.elevatedType === 'elevated-cross' && ! obstaclePresent ) {
+			if ( isObstacleTool && ( cell.elevatedType === 'elevated-cross' || cell.elevatedType === 'pool-cross' ) && ! obstaclePresent ) {
 				showToast( 'Obstacles cannot be placed on a cross block' );
 				return;
 			}
-			if ( selectedType === 'elevated-cross' && ( cell.bump || cell.pole || cell.cube || cell.wall || cell.jump || cell.movingObstacle ) ) {
+			if ( ( selectedType === 'elevated-cross' || selectedType === 'pool-cross' ) && ( cell.bump || cell.pole || cell.cube || cell.wall || cell.jump || cell.movingObstacle ) ) {
 				showToast( 'Cross blocks cannot hold obstacles — erase them first' );
 				return;
 			}
@@ -3410,9 +3466,11 @@ function computeCausticShade( normal ) {
 		[ POOL_SLOPE_TOOL ]: 'elev-track-slope',
 		'elevated-straight': 'elev-track-straight',
 		'elevated-cross': 'elev-track-cross',
+		'pool-cross': 'elev-track-cross',
 		'elevated-corner': 'elev-track-corner',
 		'elevated-cross-corner': 'elev-cross-corners',
 		'elevated-checkpoint': 'elev-track-checkpoint',
+		'elevated-checkpoint-corner': 'track-checkpoint-corner',
 		'slope-up': 'elev-track-slope',
 		'elevated-3-way': 'elev-track-3-way',
 		'elevated-choke-half': 'elev-track-choke-half',
@@ -3575,7 +3633,7 @@ function computeCausticShade( normal ) {
 
 		let gx = hit.x / cellWorld;
 		let gz = hit.z / cellWorld;
-		if ( selectedType === WATER_TOOL || selectedType === POOL_SLOPE_TOOL ) {
+		if ( selectedType === WATER_TOOL || selectedType === POOL_SLOPE_TOOL || selectedType === POOL_CROSS_TOOL ) {
 
 			gx = Math.floor( gx );
 			gz = Math.floor( gz );
@@ -4557,13 +4615,16 @@ function refreshMovingSpeedUi() {
 		[ MOVING_ORBIT_TOOL ]: document.getElementById( 'btn-moving-orbit' ),
 		[ MOVING_CUSTOM_TOOL ]: document.getElementById( 'btn-moving-custom' ),
 		'track-checkpoint': document.getElementById( 'btn-checkpoint' ),
+		'track-checkpoint-corner': document.getElementById( 'btn-corner-checkpoint' ),
 		'elevated-straight': document.getElementById( 'btn-elevated-straight' ),
 		'elevated-cross': document.getElementById( 'btn-elevated-cross' ),
 		'elevated-corner': document.getElementById( 'btn-elevated-corner' ),
 		'elevated-cross-corner': document.getElementById( 'btn-elevated-cross-corner' ),
 		'elevated-checkpoint': document.getElementById( 'btn-elevated-checkpoint' ),
+		'elevated-checkpoint-corner': document.getElementById( 'btn-elevated-corner-checkpoint' ),
 		'slope-up': document.getElementById( 'btn-slope-up' ),
 		[ POOL_SLOPE_TOOL ]: document.getElementById( 'btn-pool-slope' ),
+		[ POOL_CROSS_TOOL ]: document.getElementById( 'btn-pool-cross' ),
 		'elevated-3-way': document.getElementById( 'btn-elevated-3way' ),
 		'elevated-4-way': document.getElementById( 'btn-elevated-4way' ),
 		'elevated-choke-half': document.getElementById( 'btn-elevated-choke-half' ),
@@ -4856,7 +4917,7 @@ function refreshMovingSpeedUi() {
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-checkpoint-corner', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 
@@ -5949,15 +6010,16 @@ function renderMinimap() {
         if (cell.elevatedType) {
             const et = cell.elevatedType;
 			if (et === 'elevated-straight' || et === 'elevated-cross' || et === 'slope-up') color = '#c0d0e0';
+			else if (et === 'pool-cross') color = '#6db3e8';
             else if (et === 'elevated-corner') color = '#a0b0c8';
-            else if (et === 'elevated-checkpoint') color = '#7ad8ff';
+            else if (et === 'elevated-checkpoint' || et === 'elevated-checkpoint-corner') color = '#7ad8ff';
             else if (et === 'elevated-3-way' || et === 'elevated-4-way') color = '#b0c0d8';
         }
         // Road pieces
         if (cell.roadPieces && cell.roadPieces.length) {
             const type = cell.roadPieces[0].type;
             if (type === 'track-start-finish' || type === 'track-finish' || type === 'track-start') color = '#77f3b1';
-            else if (type === 'track-checkpoint') color = '#5ac8ff';
+            else if (type === 'track-checkpoint' || type === 'track-checkpoint-corner') color = '#5ac8ff';
             else if (type === 'track-corner') color = '#8899aa';
             else if (type === 'track-3-way' || type === 'track-4-way') color = '#99aabb';
 			else if (type === 'elevated-straight' || type === 'elevated-cross' || type === 'slope-up') color = '#c0d0e0';
@@ -5974,6 +6036,7 @@ function renderMinimap() {
             else if (st === 'surface-boost') color = '#ff4b4b';
             else if (st === 'surface-sand') color = '#d7b46a';
             else if (st === 'surface-bounce') color = '#baff7a';
+            else if (st === 'surface-trampoline') color = '#66f2d0';
             else if (st === 'surface-kick-l') color = '#c683ff';
             else if (st === 'surface-kick-r') color = '#ff83d0';
         }
@@ -6467,6 +6530,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 		const FX_CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 		const FX_PAD_EFFECTS = {
 			'pad-low-gravity': { id: 'low-gravity', gravity: 0.45 },
+			'pad-air-control': { id: 'air-control', gravity: 0.6, airControl: true },
 			'pad-heavy-gravity': { id: 'heavy-gravity', gravity: 1.7 },
 			'pad-high-grip': { id: 'high-grip', grip: 2.2, drag: 1.25 },
 			'pad-high-speed': { id: 'high-speed', accel: 1.5, drive: 1.6, topSpeed: 1.25 },
@@ -6490,7 +6554,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			'pad-trick-pitch-yaw-roll': { id: 'trick-pitch-yaw-roll', trick: { pitch: 1, yaw: -1, roll: 1 } },
 		};
 		const FX_PAD_LABELS = {
-			'pad-low-gravity': 'Low Gravity', 'pad-heavy-gravity': 'Heavy Gravity', 'pad-high-grip': 'High Grip',
+			'pad-low-gravity': 'Low Gravity', 'pad-air-control': 'Air Control', 'pad-heavy-gravity': 'Heavy Gravity', 'pad-high-grip': 'High Grip',
 			'pad-high-speed': 'High Speed', 'pad-no-brakes': 'No Brakes', 'pad-no-steering': 'No Steering',
 			'pad-no-acceleration': 'No Acceleration', 'pad-slow-motion': 'Slow Motion', 'pad-fast-motion': 'Fast Motion',
 			'pad-drift': 'Drift Mode', 'pad-size-small': 'Mini Pad', 'pad-size-normal': 'Normal Pad', 'pad-size-mega': 'Mega Pad',
@@ -6634,6 +6698,21 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			fxSurfaceEntryByCell = new Map();
 			fxPadEntryByCell = new Map();
 			fxBoostSurfaceEntryByCell = new Map();
+			// Off-grid pads/surfaces have FRACTIONAL cell coords; integer-cell
+			// lookups never matched them. Register under every integer cell the
+			// footprint overlaps (lists — an off-grid piece straddles up to 4).
+			const fxCellKeysForEntry = ( gx, gz ) => {
+				const keys = [];
+				for ( let x = Math.floor( gx ); x <= Math.floor( gx + 1 ); x ++ ) {
+					for ( let z = Math.floor( gz ); z <= Math.floor( gz + 1 ); z ++ ) keys.push( x + ',' + z );
+				}
+				return keys;
+			};
+			const fxPushEntryByCell = ( map, key, entry ) => {
+				const list = map.get( key );
+				if ( list ) list.push( entry );
+				else map.set( key, [ entry ] );
+			};
 			for ( const [ gx, gz, type ] of ( Array.isArray( extras.surfaces ) ? extras.surfaces : [] ) ) {
 
 				if ( ! Number.isFinite( Number( gx ) ) || ! Number.isFinite( Number( gz ) ) ) continue;
@@ -6642,10 +6721,13 @@ function updateMovingObstacles( state, now, vehicleList ) {
 					centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
 					centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
 				};
-				const key = entry.gx + ',' + entry.gz;
-				fxSurfaceEntryByCell.set( key, entry );
-				if ( entry.type === FX_PAD_RESET_TYPE || FX_PAD_EFFECTS[ entry.type ] || FX_CUSTOM_PAD_TYPES.includes( entry.type ) ) fxPadEntryByCell.set( key, entry );
-				if ( entry.type === 'surface-boost' ) fxBoostSurfaceEntryByCell.set( key, entry );
+				for ( const key of fxCellKeysForEntry( entry.gx, entry.gz ) ) {
+
+					fxPushEntryByCell( fxSurfaceEntryByCell, key, entry );
+					if ( entry.type === FX_PAD_RESET_TYPE || FX_PAD_EFFECTS[ entry.type ] || FX_CUSTOM_PAD_TYPES.includes( entry.type ) ) fxPushEntryByCell( fxPadEntryByCell, key, entry );
+					if ( entry.type === 'surface-boost' ) fxPushEntryByCell( fxBoostSurfaceEntryByCell, key, entry );
+
+				}
 
 			}
 			fxArcLinkState = { contactKey: null, lockUntilExit: false };
@@ -6655,6 +6737,18 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			fxActivePadEffect = null;
 			if ( vehicle?.container ) vehicle.container.scale.setScalar( 1 );
 			if ( vehicle ) vehicle.__padScale = 1;
+			// Restore the base 0.5 physics sphere (bottom anchored) so a resized
+			// car never carries a stale mega/mini hitbox into the next test drive.
+			if ( vehicle?.rigidBody && vehicle.hitboxRadius && vehicle.hitboxRadius !== FX_VEHICLE_SURFACE_RADIUS ) {
+
+				const bottomY = vehicle.spherePos.y - vehicle.hitboxRadius;
+				vehicle.rigidBody.shape = sphere.create( { radius: FX_VEHICLE_SURFACE_RADIUS } );
+				rigidBody.updateShape( world, vehicle.rigidBody );
+				vehicle.spherePos.y = bottomY + FX_VEHICLE_SURFACE_RADIUS;
+				rigidBody.setPosition( world, vehicle.rigidBody, vehicle.spherePos.toArray(), false );
+				vehicle.hitboxRadius = FX_VEHICLE_SURFACE_RADIUS;
+
+			}
 
 		}
 
@@ -6665,8 +6759,8 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			bucket.length = 0;
 			for ( let dz = - 1; dz <= 1; dz ++ ) {
 				for ( let dx = - 1; dx <= 1; dx ++ ) {
-					const entry = byCellMap.get( ( cx + dx ) + ',' + ( cz + dz ) );
-					if ( entry ) bucket.push( entry );
+					const list = byCellMap.get( ( cx + dx ) + ',' + ( cz + dz ) );
+					if ( list ) for ( let i = 0; i < list.length; i ++ ) bucket.push( list[ i ] );
 				}
 			}
 			return bucket.length > 0;
@@ -6677,7 +6771,8 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 			const dx = Math.abs( targetVehicle.spherePos.x - entry.centerX );
 			const dz = Math.abs( targetVehicle.spherePos.z - entry.centerZ );
-			return dx <= FX_SURFACE_HALF_EXTENT + FX_VEHICLE_SURFACE_RADIUS && dz <= FX_SURFACE_HALF_EXTENT + FX_VEHICLE_SURFACE_RADIUS;
+			const fxVehRadius = Number( targetVehicle.hitboxRadius ) || FX_VEHICLE_SURFACE_RADIUS;
+			return dx <= FX_SURFACE_HALF_EXTENT + fxVehRadius && dz <= FX_SURFACE_HALF_EXTENT + fxVehRadius;
 
 		}
 
@@ -6685,7 +6780,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 			const dx = targetVehicle.spherePos.x - entry.centerX;
 			const dz = targetVehicle.spherePos.z - entry.centerZ;
-			const radius = FX_SURFACE_HALF_EXTENT + FX_VEHICLE_SURFACE_RADIUS;
+			const radius = FX_SURFACE_HALF_EXTENT + ( Number( targetVehicle.hitboxRadius ) || FX_VEHICLE_SURFACE_RADIUS );
 			return dx * dx + dz * dz <= radius * radius;
 
 		}
@@ -6922,7 +7017,53 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 		}
 
+		const FX_TRAMPOLINE_RESTITUTION = 0.82;
+		const FX_TRAMPOLINE_MIN_IMPACT = 0.55;
+		const FX_AIR_CONTROL_AIR_ACCEL_PER_SECOND = 40.0;
+		const FX_AIR_CONTROL_GROUND_FORCE_PER_SECOND = 30.0;
+		const FX_AIR_CONTROL_MAX_SPEED_MPS = 55 / 2.23694;
+		function fxApplyTrampolineBounceFor( targetVehicle ) {
+
+			// Trampoline: reflect downward velocity on EVERY landing, never a
+			// one-shot. The height-offset-aware ground check counts elevated
+			// decks as ground (not air).
+			const posY = targetVehicle?.spherePos?.y ?? 999;
+			if ( posY > fxGroundedHeightFor( targetVehicle ) + 0.02 ) return;
+			if ( ! targetVehicle.rigidBody?.motionProperties ) return;
+			const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
+			if ( vel[ 1 ] > 0.12 ) return;
+			if ( - vel[ 1 ] < FX_TRAMPOLINE_MIN_IMPACT ) return; // resting/rolling: no tiny bounces
+			const bounce = - vel[ 1 ] * FX_TRAMPOLINE_RESTITUTION;
+			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], bounce, vel[ 2 ] ] );
+
+		}
+		function fxApplyAirControlFor( targetVehicle, padEffect, input, dt ) {
+
+			// Air Control pad in the editor test drive: throttle force in the
+			// air and stacked on normal driving on the ground.
+			if ( ! padEffect?.airControl ) return;
+			if ( ! targetVehicle?.rigidBody?.motionProperties ) return;
+			const throttle = Number( input?.z ) || 0;
+			if ( throttle === 0 ) return;
+			const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
+			if ( Math.hypot( vel[ 0 ], vel[ 1 ], vel[ 2 ] ) > FX_AIR_CONTROL_MAX_SPEED_MPS ) return;
+			const grounded = ( targetVehicle?.spherePos?.y ?? 999 ) <= fxGroundedHeightFor( targetVehicle );
+			const airborne = ! grounded || Math.abs( targetVehicle.rigidBody.motionProperties.linearVelocity[ 1 ] ) > 0.35;
+			const accelPerSecond = airborne ? FX_AIR_CONTROL_AIR_ACCEL_PER_SECOND : FX_AIR_CONTROL_GROUND_FORCE_PER_SECOND;
+			_fxBoostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+			_fxBoostForward.y = 0;
+			if ( _fxBoostForward.lengthSq() < 1e-6 ) return;
+			_fxBoostForward.normalize();
+			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
+				vel[ 0 ] + _fxBoostForward.x * accelPerSecond * throttle * dt,
+				vel[ 1 ],
+				vel[ 2 ] + _fxBoostForward.z * accelPerSecond * throttle * dt,
+			] );
+
+		}
 		function fxApplySurfaceGrip( targetVehicle, surfaceType, padEffect = null ) {
+
+			if ( surfaceType === 'surface-trampoline' ) fxApplyTrampolineBounceFor( targetVehicle );
 
 			const effect = fxGetSurfaceEffect( surfaceType );
 			const pack = FX_GARAGE_FIXED_MULTIPLIER;
@@ -7122,11 +7263,18 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			const prevScale = Number.isFinite( targetVehicle.__padScale ) ? targetVehicle.__padScale : 1;
 			targetVehicle.container.scale.setScalar( nextScale );
 			targetVehicle.__padScale = nextScale;
-			if ( nextScale > prevScale && nextScale > 1.01 && targetVehicle?.spherePos && targetVehicle?.rigidBody ) {
+			// Mirror of the game: resize the physics sphere with the visual,
+			// anchored at the sphere's bottom so the car stays seated.
+			const prevRadius = Number( targetVehicle.hitboxRadius ) || FX_VEHICLE_SURFACE_RADIUS;
+			const nextRadius = FX_VEHICLE_SURFACE_RADIUS * nextScale;
+			if ( nextRadius !== prevRadius && targetVehicle?.spherePos && targetVehicle?.rigidBody ) {
 
-				const lift = 0.24 * ( nextScale - prevScale );
-				targetVehicle.spherePos.y += lift;
+				const bottomY = targetVehicle.spherePos.y - prevRadius;
+				targetVehicle.rigidBody.shape = sphere.create( { radius: nextRadius } );
+				rigidBody.updateShape( world, targetVehicle.rigidBody );
+				targetVehicle.spherePos.y = bottomY + nextRadius;
 				rigidBody.setPosition( world, targetVehicle.rigidBody, targetVehicle.spherePos.toArray(), false );
+				targetVehicle.hitboxRadius = nextRadius;
 
 			}
 
@@ -7257,6 +7405,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 				}
 				fxApplyWaterPhysicsFor( vehicle, fxdt );
+				fxApplyAirControlFor( vehicle, fxActivePadEffect, padAdjustedInput, fxdt );
 				fxPadContactKey = fxApplyPadContact( vehicle, fxPadContactKey, ( effect ) => {
 
 					fxActivePadEffect = effect;

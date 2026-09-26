@@ -37,15 +37,46 @@ export function createShadowProxyController( scene, rootGroup, dirLight ) {
 
 			if ( ! ( obj.isMesh && obj.castShadow ) ) return;
 			if ( obj.layers.mask !== 1 ) return; // layer-0-only = static source; skip proxies/dynamics
-			// Instanced casters (forest/bush/grass decoration) keep their own
-			// draw in the depth pass: their per-instance transforms live in
-			// instanceMatrix, which a merge would drop (one un-instanced copy
-			// instead of every tree). An InstancedMesh is already ONE draw,
-			// so this costs nothing — it just renders with its real material
-			// (alpha-tested leaves etc.) like the original pipeline.
 			if ( obj.isInstancedMesh ) {
 
-				obj.layers.enable( SHADOW_CAST_LAYER );
+				// Alpha-tested instanced casters (forest/bush/grass deco) keep
+				// their own draw in the depth pass: a merge would drop their
+				// per-instance transforms and turn lacy foliage into solid
+				// quads, and alphaTest needs the real material. They're only
+				// a handful of InstancedMeshes — cheap either way.
+				const iMats = Array.isArray( obj.material ) ? obj.material : [ obj.material ];
+				if ( iMats.some( ( m ) => m && ( m.alphaTest ?? 0 ) > 0 ) ) {
+
+					obj.layers.enable( SHADOW_CAST_LAYER );
+					return;
+
+				}
+				// Track-piece chunks (buildTrack's static batcher) can carry
+				// HUNDREDS of InstancedMeshes across a big map. The old
+				// cast-layer shortcut drew each one in the depth pass — and
+				// the shadow camera sees the ENTIRE map, so nothing ever
+				// culled: the depth pass exploded from one merged proxy draw
+				// to hundreds of draws per shadow refresh (the 10 -> 5 FPS
+				// regression on huge maps). Bake every instance's transform
+				// straight into the merged proxy geometry instead: the depth
+				// pass is ONE draw for all statics again.
+				const iPosAttr = obj.geometry?.attributes?.position;
+				const iIndex = obj.geometry?.index;
+				if ( ! iPosAttr || iPosAttr.itemSize !== 3 ) return;
+				for ( let k = 0; k < obj.count; k ++ ) {
+
+					m4.fromArray( obj.instanceMatrix.array, k * 16 ).premultiply( obj.matrixWorld );
+					const baseVertex = positions.length / 3;
+					for ( let i = 0; i < iPosAttr.count; i ++ ) {
+
+						v.fromBufferAttribute( iPosAttr, i ).applyMatrix4( m4 );
+						positions.push( v.x, v.y, v.z );
+
+					}
+					if ( iIndex ) for ( let i = 0; i < iIndex.count; i ++ ) indices.push( baseVertex + iIndex.getX( i ) );
+					else for ( let i = 0; i < iPosAttr.count; i ++ ) indices.push( baseVertex + i );
+
+				}
 				return;
 
 			}

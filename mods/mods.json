@@ -56,6 +56,13 @@
       "folder": "mods",
       "entry": "mods/VideoRecorder.js",
       "viewerPage": "index.html"
+    },
+    {
+      "id": "hide-trees",
+      "name": "Hide Trees",
+      "folder": "mods",
+      "entry": "mods/HideTrees.js",
+      "viewerPage": "index.html"
     }
   ]
 }

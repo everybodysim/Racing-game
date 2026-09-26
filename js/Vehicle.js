@@ -31,6 +31,10 @@ export class Vehicle {
 		this.acceleration = 0;
 
 		this.spherePos = new THREE.Vector3( 3.5, 0.5, 5 );
+		// Physics sphere radius — resizes with the size pads (mini/mega). The
+		// car container always sits at the sphere's BOTTOM, so keeping this in
+		// sync keeps the GLB seated on the ground at any size.
+		this.hitboxRadius = 0.5;
 		this.sphereVel = new THREE.Vector3();
 		this.wheelieNode = null;
 		this.wheelieAmount = 0;
@@ -108,7 +112,7 @@ export class Vehicle {
 		this.angularSpeed = 0;
 		this.acceleration = 0;
 		this.modelVelocity.set( 0, 0, 0 );
-		this.container.position.set( this.spherePos.x, this.spherePos.y - 0.5, this.spherePos.z );
+		this.container.position.set( this.spherePos.x, this.spherePos.y - this.hitboxRadius, this.spherePos.z );
 		this.container.rotation.set( 0, this.spawnAngle, 0 );
 		this.container.quaternion.setFromEuler( this.container.rotation );
 		this.prevModelPos.copy( this.container.position );
@@ -324,7 +328,7 @@ export class Vehicle {
 
 		this.container.position.set(
 			this.spherePos.x,
-			this.spherePos.y - 0.5,
+			this.spherePos.y - this.hitboxRadius,
 			this.spherePos.z
 		);
 

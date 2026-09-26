@@ -4,6 +4,10 @@ export const ORIENT_DEG = { 0: 0, 10: 180, 16: 90, 22: 270 };
 
 export const CELL_RAW = 9.99;
 export const GRID_SCALE = 0.75;
+// Wall obstacle barrier model (models/barrier.glb): authored 7.2 units long
+// while the wall footprint is 0.62 cells — uniform scale matches the model's
+// length exactly to the old wall box, so barrier segments still line up.
+export const BARRIER_WALL_SCALE = ( CELL_RAW * 0.62 ) / 7.2;
 
 const _dummy = new THREE.Object3D();
 const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
@@ -132,7 +136,12 @@ let waterRefrFrameCounter = 0;
 // Per-camera pose at the last refraction pass — used to decide when a fresh
 // pass is actually needed (see the motion-staleness gate below).
 const waterLastCamStateByCam = new Map();
-let waterRefrCadence = 1;
+// Adaptive FILL for the always-fresh refraction pass: the second scene
+// render renders into this-divisor-scaled target pixels. 4 = quarter-res
+// (healthy), up to 8 = eighth-res when the frame rate is struggling. The
+// sample is STILL fresh every frame — only its fill cost shrinks.
+let waterRefrScaleDiv = 4;
+let waterRefrDivLastChangeMs = 0;
 // Motion-staleness budget: while the camera is moving, a refraction sample up
 // to WATER_REFR_STALE_MS old is imperceptible behind the per-frame animated
 // wobble (~2 frames at 60 FPS). At high refresh rates this cuts the pass to a
@@ -140,14 +149,56 @@ let waterRefrCadence = 1;
 // ~1/6th of a full scene render per frame. Reuse is only allowed while the
 // camera has moved less than WATER_REFR_STALE_MOVE / turned WATER_REFR_STALE_ANGLE
 // since the sample — a big jump (respawn, camera cut) always forces a fresh pass.
-const WATER_REFR_STALE_MS = 32;
-const WATER_REFR_STALE_MOVE_SQ = 1.75 * 1.75;
-const WATER_REFR_STALE_ANGLE = 0.05;
+// Staleness budget for MOVING cameras. This budget is only ever SPENT when
+// the FPS governor (waterRefrCadence) allows a skip — at a healthy 45+ FPS
+// the pass still runs every frame and these values are irrelevant. On a
+// struggling system the budget lets the governor spread the passes out
+// instead of paying a full extra scene render every frame (pool maps).
+const WATER_REFR_STALE_MS = 70;
+const WATER_REFR_STALE_MOVE_SQ = 4.5 * 4.5;
+const WATER_REFR_STALE_ANGLE = 0.08;
 
 // Camera-underwater state shared by every pool material. When the camera is
 // below the surface, the pool floors get their animated caustic overlay and
 // the water surface renders its shimmering underside.
 const WATER_UNDERWATER = { camera: false, gain: 0 };
+
+// Reused temporaries for the static mesh batcher in buildTrack.
+const _batchMat = new THREE.Matrix4();
+const _batchInv = new THREE.Matrix4();
+
+// FPS: shared geometry + material singletons for the per-cell overlay meshes.
+// Poles/cubes/jumps/wall-fallbacks used to construct a NEW BoxGeometry or
+// CylinderGeometry AND MeshStandardMaterial for every placed cell —
+// identical parameters each time, but unique objects, so the static batcher
+// could never merge them (unique uuids) and each stayed an individual draw
+// call in every render pass. With shared singletons the batcher collapses
+// them into chunked InstancedMeshes exactly like the road pieces.
+let _sharedOverlayParts = null;
+function getSharedOverlayParts() {
+
+	if ( _sharedOverlayParts ) return _sharedOverlayParts;
+	_sharedOverlayParts = {
+		pole: {
+			geometry: new THREE.CylinderGeometry( POLE_RADIUS, POLE_RADIUS, POLE_HEIGHT, 16 ),
+			material: new THREE.MeshStandardMaterial( { color: 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
+		},
+		cube: {
+			geometry: new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+			material: new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
+		},
+		jump: {
+			geometry: new THREE.BoxGeometry( JUMP_RAMP_SIZE, JUMP_RAMP_DEPTH, JUMP_RAMP_SIZE ),
+			material: new THREE.MeshStandardMaterial( { color: 0x7f6a58, roughness: 0.85, metalness: 0.02 } )
+		},
+		wall: {
+			geometry: new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
+			material: new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
+		}
+	};
+	return _sharedOverlayParts;
+
+}
 export function setWaterUnderwaterCameraState( active ) {
 
 	WATER_UNDERWATER.camera = !! active;
@@ -156,13 +207,21 @@ export function setWaterUnderwaterCameraState( active ) {
 
 export function updateWaterQuality( rollingFps ) {
 
-	if ( ! Number.isFinite( rollingFps ) || rollingFps <= 0 ) {
+	// Fresh refraction sample every frame, but the SECOND scene render's
+	// FILL scales down with the frame rate: quarter-res detail while
+	// healthy, down to eighth-res when struggling (the animated wobble
+	// hides the difference — a softer sample never reads as stale).
+	// Hysteresis: at most ONE resolution change per 4s so the render
+	// target never thrashes between sizes.
+	const target = ! Number.isFinite( rollingFps ) || rollingFps <= 0 ? 4
+		: rollingFps >= 45 ? 4 : rollingFps >= 28 ? 6 : 8;
+	const nowMs = performance.now();
+	if ( target !== waterRefrScaleDiv && nowMs - waterRefrDivLastChangeMs > 4000 ) {
 
-		waterRefrCadence = 1; // no signal yet — assume healthy
-		return;
+		waterRefrScaleDiv = target;
+		waterRefrDivLastChangeMs = nowMs;
 
 	}
-	waterRefrCadence = rollingFps >= 45 ? 1 : rollingFps >= 28 ? 2 : rollingFps >= 18 ? 3 : 4;
 
 }
 
@@ -222,36 +281,25 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 		waterLastRefrFrameByCam.set( camIndex, waterRefrFrameCounter );
 
 	};
-	if ( ! WATER_UNDERWATER.camera ) {
-
-		let skipPass = false;
-		if ( waterCamState ) {
-
-			const movedSq = waterCamState.pos.distanceToSquared( camera.position );
-			const angle = waterCamState.quat.angleTo( camera.quaternion );
-			if ( movedSq < 0.0025 && angle < 0.01 ) {
-
-				// Parked camera — LOW-fps cadence governor.
-				skipPass = waterLastFrame !== undefined && waterRefrFrameCounter - waterLastFrame < waterRefrCadence;
-
-			} else if ( waterLastFrame !== undefined
-				&& ( performance.now() - waterCamState.t ) < WATER_REFR_STALE_MS
-				&& movedSq < WATER_REFR_STALE_MOVE_SQ
-				&& angle < WATER_REFR_STALE_ANGLE ) {
-
-				// Moving camera — sample still inside the staleness budget.
-				skipPass = true;
-
-			}
-
-		}
-		if ( skipPass ) return;
-
-	}
+	// ALWAYS a fresh refraction sample, every frame, on every preset.
+	// The old adaptive skip logic (cadence governor + staleness budget)
+	// stopped refreshing the sample whenever the frame rate dipped — which
+	// is exactly the HIGH-preset case on integrated GPUs — and the stale
+	// sample read behind the live wobble as glitchy, mirror-like water.
+	// (LOW preset looked fine only because it kept a healthy frame rate,
+	// so the governor never engaged.) Pools now render identically on
+	// every preset; the quarter-res RT keeps the pass cheap and the
+	// auto resolution scaler absorbs the extra cost if needed.
 	markFreshPass();
 	const db = renderer.getDrawingBufferSize( _waterDbSize );
-	const w = Math.max( 2, Math.floor( db.x / 2 ) );
-	const h = Math.max( 2, Math.floor( db.y / 2 ) );
+	// FPS: ABOVE water the RT is quarter res — this pass renders the whole
+	// scene, so pixel count IS the pool-map cost, and the animated wobble
+	// samples it through distortion anyway (resolution is invisible behind
+	// it). UNDERWATER the RT is the actual screen content (the shimmering
+	// pool underside), so it keeps the original half-res sampling.
+	const scaleDiv = WATER_UNDERWATER.camera ? 2 : waterRefrScaleDiv;
+	const w = Math.max( 2, Math.floor( db.x / scaleDiv ) );
+	const h = Math.max( 2, Math.floor( db.y / scaleDiv ) );
 	let rt = waterRefrRTs.get( camIndex );
 	if ( ! rt || rt.width !== w || rt.height !== h ) {
 
@@ -279,8 +327,8 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 	if ( viewportRect ) {
 
 		rt.scissorTest = true;
-		rt.scissor.set( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
-		rt.viewport.set( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
+		rt.scissor.set( Math.floor( viewportRect.x / scaleDiv ), Math.floor( viewportRect.y / scaleDiv ), Math.floor( viewportRect.w / scaleDiv ), Math.floor( viewportRect.h / scaleDiv ) );
+		rt.viewport.set( Math.floor( viewportRect.x / scaleDiv ), Math.floor( viewportRect.y / scaleDiv ), Math.floor( viewportRect.w / scaleDiv ), Math.floor( viewportRect.h / scaleDiv ) );
 
 	} else {
 
@@ -732,7 +780,7 @@ function computeCausticShade( normal ) {
 
 }
 
-const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ] );
+const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'pool-cross' ] );
 
 function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 
@@ -744,6 +792,9 @@ function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 function getOverlayHeightOffset( elevatedEntry ) {
 
 	if ( ! elevatedEntry ) return 0;
+	// Pool Cross sits at pool level (no lift) — the elevated-cross model
+	// dropped into the pool, not a bridge.
+	if ( elevatedEntry.type === 'pool-cross' ) return 0;
 	return elevatedEntry.type === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
 
 }
@@ -756,10 +807,12 @@ function getSurfaceVisual( surfaceType, customSurfaces = null, customPads = null
 		case 'surface-boost': return { color: 0xff4b4b, emissive: 0xc1121f, metalness: 0.0, roughness: 0.9 };
 		case 'surface-sand': return { color: 0xd7b46a, emissive: 0x6f4f22, metalness: 0.0, roughness: 1.0 };
 		case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
+		case 'surface-trampoline': return { color: 0x66f2d0, emissive: 0x0f8f74, metalness: 0.0, roughness: 0.7 };
 		case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
 		case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
 		case 'pad-reset': return { color: 0xffffff, emissive: 0x557c92, metalness: 0.1, roughness: 0.35 };
 		case 'pad-low-gravity': return { color: 0x9bc2ff, emissive: 0x2e4f9f, metalness: 0.05, roughness: 0.55 };
+		case 'pad-air-control': return { color: 0x37b6ff, emissive: 0x0c4f9e, metalness: 0.05, roughness: 0.6 };
 		case 'pad-heavy-gravity': return { color: 0x4a5f85, emissive: 0x111b36, metalness: 0.05, roughness: 0.8 };
 		case 'pad-high-grip': return { color: 0x5cff9a, emissive: 0x0d6a39, metalness: 0.02, roughness: 0.95 };
 		case 'pad-high-speed': return { color: 0xffbc4f, emissive: 0x8a4e06, metalness: 0.0, roughness: 0.8 };
@@ -813,10 +866,11 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 
 	let modelKey = null;
 	if ( type === 'elevated-straight' ) modelKey = 'elev-track-straight';
-	else if ( type === 'elevated-cross' ) modelKey = 'elev-track-cross';
+	else if ( type === 'elevated-cross' || type === 'pool-cross' ) modelKey = 'elev-track-cross';
 	else if ( type === 'elevated-corner' ) modelKey = 'elev-track-corner';
 	else if ( type === 'elevated-cross-corner' ) modelKey = 'elev-cross-corners';
 	else if ( type === 'elevated-checkpoint' ) modelKey = 'elev-track-checkpoint';
+	else if ( type === 'elevated-checkpoint-corner' ) modelKey = 'track-checkpoint-corner';
 	else if ( type === 'slope-up' || type === 'slope-down' ) modelKey = 'elev-track-slope';
 	else if ( type === 'elevated-3-way' ) modelKey = 'elev-track-3-way';
 	else if ( type === 'elevated-choke-half' ) modelKey = 'elev-track-choke-half';
@@ -843,8 +897,9 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	piece.traverse( ( child ) => { child.userData.isChokeMesh = true; } );
 
 	}
-	// Slope model is pre-sloped at the correct size — place at ground level, no scaling
-	const yAdjust = ( type === 'slope-up' || type === 'slope-down' ) ? - ELEVATED_HEIGHT : 0;
+	// Slope model is pre-sloped at the correct size — place at ground level, no scaling.
+	// Pool Cross: same cross model, but at pool level (no ELEVATED_HEIGHT lift).
+	const yAdjust = ( type === 'slope-up' || type === 'slope-down' || type === 'pool-cross' ) ? - ELEVATED_HEIGHT : 0;
 	piece.position.set(
 		( gx + 0.5 ) * CELL_RAW,
 		0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust,
@@ -1213,6 +1268,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			for ( const side of sides ) {
 				if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
 				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
+				// Pool Cross: the block covers the whole cell at ground level and
+				// its own walls are the boundary — omit the pool wall + edge lip
+				// (they would poke through the deck and catch cars on the lip).
+				if ( elevatedMap.get( `${ gx },${ gz }` )?.type === 'pool-cross' ) continue;
 				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { map: poolWallTexture, roughness: 0.7, metalness: 0.0 } ) );
 				wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
 				wall.rotation.y = side.ry;
@@ -1280,8 +1339,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz ] of poleCells ) {
 
 			const pole = new THREE.Mesh(
-				new THREE.CylinderGeometry( POLE_RADIUS, POLE_RADIUS, POLE_HEIGHT, 16 ),
-				new THREE.MeshStandardMaterial( { color: 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
+				getSharedOverlayParts().pole.geometry,
+				getSharedOverlayParts().pole.material
 			);
 			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
 			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( POLE_HEIGHT * 0.5 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
@@ -1303,8 +1362,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz ] of cubeCells ) {
 
 			const cube = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
-				new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
+				getSharedOverlayParts().cube.geometry,
+				getSharedOverlayParts().cube.material
 			);
 			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
 			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
@@ -1373,18 +1432,58 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
+		// One-time fixup of the barrier SOURCE model: the GLB's origin is not
+		// at the center of the wall design (its mesh node carries a +23 x
+		// translation), which would place every wall far off to the side.
+		// Shift the source's children by the design's own bounds center so
+		// the wall sits centered on its cell. Guarded so it runs once;
+		// clones made later by placePiece inherit the corrected positions.
+		if ( models.barrier && ! models.barrier.userData.__barrierCentered ) {
+
+			models.barrier.updateMatrixWorld( true );
+			const bounds = new THREE.Box3().setFromObject( models.barrier );
+			const center = bounds.getCenter( new THREE.Vector3() );
+			for ( const child of models.barrier.children ) {
+
+				child.position.x -= center.x;
+				child.position.z -= center.z;
+
+			}
+			models.barrier.userData.__barrierCentered = true;
+
+		}
 		for ( const [ gx, gz, orient = 0 ] of wallCells ) {
 
-			const wall = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
-				new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
-			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
-			wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
-			wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
-			wall.castShadow = true;
-			wall.receiveShadow = true;
-			trackPieceGroup.add( wall );
+			// Wall obstacle now uses the real barrier model (visual only —
+			// the physics hitbox is untouched). The spinning wall obstacle
+			// (moving-spin-wall) is a DIFFERENT system and stays a box.
+			// Fallback to the legacy box if the model failed to load.
+			const barrier = placePiece( models, 'barrier', gx, gz, orient );
+			if ( barrier ) {
+
+				barrier.scale.multiplyScalar( BARRIER_WALL_SCALE );
+				barrier.position.y += getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+				barrier.traverse( ( child ) => {
+
+					if ( child.isMesh ) { child.castShadow = true; child.receiveShadow = true; }
+
+				} );
+				trackPieceGroup.add( barrier );
+
+			} else {
+
+				const wall = new THREE.Mesh(
+					getSharedOverlayParts().wall.geometry,
+					getSharedOverlayParts().wall.material
+				);
+				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+				wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+				wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+				wall.castShadow = true;
+				wall.receiveShadow = true;
+				trackPieceGroup.add( wall );
+
+			}
 
 		}
 
@@ -1416,12 +1515,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz, orient = 0 ] of jumpCells ) {
 
 			const jump = new THREE.Mesh(
-				new THREE.BoxGeometry( JUMP_RAMP_SIZE, JUMP_RAMP_DEPTH, JUMP_RAMP_SIZE ),
-				new THREE.MeshStandardMaterial( {
-					color: 0x7f6a58,
-					roughness: 0.85,
-					metalness: 0.02,
-				} )
+				getSharedOverlayParts().jump.geometry,
+				getSharedOverlayParts().jump.material
 			);
 			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
 			jump.position.set( ( gx + 0.5 ) * CELL_RAW, JUMP_RAMP_Y + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
@@ -1444,22 +1539,42 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
+		// FPS: every pad/surface of the same TYPE renders with identical
+		// material parameters, so one shared material per type (and one
+		// geometry per shape) lets the static batcher instance the whole
+		// overlay layer — hundreds of unique-material draws collapse into a
+		// couple of chunked InstancedMeshes. Scoped per build so custom
+		// surface visuals from different maps can't leak into each other.
+		const surfaceGeoCache = new Map();
+		const surfaceMatCache = new Map();
 		for ( const [ gx, gz, surfaceType ] of surfaces ) {
 
 			const visual = getSurfaceVisual( surfaceType, customSurfaces, customPads );
 			const isPad = String( surfaceType || '' ).startsWith( 'pad-' );
-			const geometry = isPad
-				? new THREE.CircleGeometry( CELL_RAW * 0.39, 24 )
-				: new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 );
-			const material = new THREE.MeshStandardMaterial( {
-				color: visual.color,
-				emissive: visual.emissive,
-				emissiveIntensity: 0.2,
-				transparent: true,
-				opacity: 0.58,
-				metalness: visual.metalness,
-				roughness: visual.roughness
-			} );
+			let geometry = surfaceGeoCache.get( isPad ? 'pad' : 'plane' );
+			if ( ! geometry ) {
+
+				geometry = isPad
+					? new THREE.CircleGeometry( CELL_RAW * 0.39, 24 )
+					: new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 );
+				surfaceGeoCache.set( isPad ? 'pad' : 'plane', geometry );
+
+			}
+			let material = surfaceMatCache.get( surfaceType );
+			if ( ! material ) {
+
+				material = new THREE.MeshStandardMaterial( {
+					color: visual.color,
+					emissive: visual.emissive,
+					emissiveIntensity: 0.2,
+					transparent: true,
+					opacity: 0.58,
+					metalness: visual.metalness,
+					roughness: visual.roughness
+				} );
+				surfaceMatCache.set( surfaceType, material );
+
+			}
 			const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
 			const addPatch = ( overlayOffset ) => {
 
@@ -1712,7 +1827,18 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		createInstances( models[ 'decoration-empty' ], emptyPositions, true );
 		createInstances( models[ 'empty-deco-grass' ], grassPositions );
-		createInstances( models[ 'decoration-forest' ], forestPositions, true );
+		// Official "Hide Trees" mod (visual only): swap the auto-scattered
+		// forest trees for the flat empty deco plane. Trees are pure
+		// decoration with no colliders, so this changes nothing about
+		// physics or timing. Read from the same localStorage key the Mod
+		// Manager uses (js/mods-manager.js INSTALLED_MODS_KEY).
+		let hideTreesMod = false;
+		try {
+
+			hideTreesMod = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' ).some( ( m ) => m?.id === 'hide-trees' );
+
+		} catch { /* malformed list — treat as not installed */ }
+		createInstances( models[ hideTreesMod ? 'decoration-empty' : 'decoration-forest' ], forestPositions, true );
 
 	}
 
@@ -1762,6 +1888,101 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		}
 
 	}
+
+	// FPS: static mesh batching. Track pieces, bumps, poles and elevated
+	// blocks are clones that SHARE geometry and material with their source
+	// model, so every mesh with the same (geometry, material, flags) triple
+	// renders identically from ONE InstancedMesh. A mega map goes from
+	// ~2,500 draw calls to a few dozen with zero visual change — the clone
+	// matrices (orientation, elevated offsets, barrier scale) are baked into
+	// the per-instance matrices. Water planes are excluded: the refraction
+	// pass toggles their visibility and reads their cached world spheres.
+	// Meshes with per-cell-unique geometry or materials (pool basins, surface
+	// patches, boost pads' cloned tinted materials) never reach the >=2
+	// bucket threshold and stay exactly as they were.
+	trackPieceGroup.updateMatrixWorld( true );
+	_batchInv.copy( trackPieceGroup.matrixWorld ).invert();
+	const batches = new Map();
+	const leaves = [];
+	const leafBatch = new Map();
+	trackPieceGroup.traverse( ( obj ) => {
+
+		if ( ! obj.isMesh || obj.isInstancedMesh ) return;
+		if ( obj.userData.waterWorldSphere ) return; // refraction-managed water
+		const mats = Array.isArray( obj.material ) ? obj.material : [ obj.material ];
+		if ( mats.some( ( m ) => ! m ) ) return;
+		const key = obj.geometry.uuid + '|' + mats.map( ( m ) => m.uuid ).join( ',' )
+			+ '|' + ( obj.castShadow ? 1 : 0 ) + ( obj.receiveShadow ? 1 : 0 )
+			+ '|' + ( obj.userData.isChokeMesh ? 1 : 0 );
+			_batchMat.copy( _batchInv ).multiply( obj.matrixWorld );
+		let batch = batches.get( key );
+		if ( ! batch ) {
+
+			batch = { geometry: obj.geometry, material: obj.material, castShadow: obj.castShadow, receiveShadow: obj.receiveShadow, isChokeMesh: !! obj.userData.isChokeMesh, chunks: new Map() };
+			batches.set( key, batch );
+
+		}
+		// CHUNKED instancing: one InstancedMesh per (mesh kind, 32x32 world
+		// chunk). A single mega-InstancedMesh always draws ALL its instances
+		// (no per-instance frustum culling) — on a huge map that rasterizes
+		// every piece in every pass (main + pool refraction + shadow depth)
+		// and made weak GPUs SLOWER than the original per-piece draws.
+		// Chunk-local bounding spheres restore frustum culling: only the
+		// handful of chunks actually on screen draw, while each visible chunk
+		// still renders dozens of pieces in ONE call.
+		const cx = Math.floor( _batchMat.elements[ 12 ] / 32 );
+		const cz = Math.floor( _batchMat.elements[ 13 ] / 32 );
+		const chunkKey = cx + ',' + cz;
+		let list = batch.chunks.get( chunkKey );
+		if ( ! list ) {
+
+			list = [];
+			batch.chunks.set( chunkKey, list );
+
+		}
+		list.push( _batchMat.clone() );
+		leaves.push( obj );
+		leafBatch.set( obj, batch );
+		batch.chunkOf = batch.chunkOf || new Map();
+		batch.chunkOf.set( obj, list );
+
+	} );
+	for ( const batch of batches.values() ) {
+
+		for ( const list of batch.chunks.values() ) {
+
+			if ( list.length < 2 ) continue;
+			const inst = new THREE.InstancedMesh( batch.geometry, batch.material, list.length );
+			for ( let i = 0; i < list.length; i ++ ) inst.setMatrixAt( i, list[ i ] );
+			inst.instanceMatrix.needsUpdate = true;
+			inst.castShadow = batch.castShadow;
+			inst.receiveShadow = batch.receiveShadow;
+			if ( batch.isChokeMesh ) inst.userData.isChokeMesh = true;
+			trackPieceGroup.add( inst );
+
+		}
+
+	}
+	for ( const mesh of leaves ) {
+
+		if ( leafBatch.get( mesh ).chunkOf.get( mesh ).length >= 2 ) mesh.parent.remove( mesh );
+
+	}
+
+	// FPS: static-scene freeze. Nothing inside trackGroup ever moves after
+	// the build (moving obstacles are added to the scene root elsewhere, and
+	// water/pad/glow effects are shader-side), so stop three.js recomposing
+	// every piece's local matrix on EVERY frame — mega maps carry thousands
+	// of pieces and that recompose pass is pure per-frame CPU waste. World
+	// matrices stay valid: the group's own matrix stays auto-updated, and if
+	// anything re-anchors the group the refreshed parent transform still
+	// combines with the children's saved local matrices.
+	trackGroup.updateMatrixWorld( true );
+	trackGroup.traverse( ( child ) => {
+
+		if ( child !== trackGroup ) child.matrixAutoUpdate = false;
+
+	} );
 
 	return trackGroup;
 
@@ -1982,6 +2203,9 @@ const V3_NAME_TOKENS = {
 	'slope-down': 'r',
 	'track-choke-half': 's',
 	'track-choke-both': 't',
+	'track-checkpoint-corner': 'u',
+	'elevated-checkpoint-corner': 'v',
+	'pool-cross': 'w',
 
 };
 
