@@ -4266,17 +4266,31 @@ async function loadModels( requiredNames = modelNames ) {
 
 	await Promise.all( promises );
 
-	// Hide Trees mod swap target: untitled.glb is the empty plane, but its
-	// authored flat dark-green renders near-black in daylight and read as
-	// "holes in the ground" next to the bright grass quads. Dress it in the
-	// game's own ground-grass material (clone, forced two-sided in case the
-	// plane's faces wind downward) so replaced tree cells look EXACTLY like
-	// the empty ground around them. Geometry stays untitled.glb.
+	// Hide Trees mod swap target: untitled.glb is the empty plane. Its own
+	// UVs span 0..5, which tiles the WHOLE colormap atlas five times across
+	// the plane (magenta void, road tiles, black, everything). The ground
+	// quads instead put every UV on ONE atlas point (flat grass green), so
+	// remap the plane's UVs onto the ground quad's exact sample point, read
+	// dynamically from the grass geometry. The plane then renders the same
+	// flat grass the surrounding ground shows, via the game's colormap
+	// material. Geometry stays untitled.glb. Two-sided in case the plane's
+	// faces wind downward.
 	const untitledModel = models[ 'untitled' ];
 	if ( untitledModel ) {
 
 		let grassMat = null;
-		models[ 'empty-deco-grass' ]?.traverse( ( c ) => { if ( ! grassMat && c.isMesh ) grassMat = c.material; } );
+		let grassU = 0.031, grassV = 0.875; // empty-deco-grass.glb's authored sample point
+		models[ 'empty-deco-grass' ]?.traverse( ( c ) => {
+
+			if ( ! grassMat && c.isMesh ) {
+
+				grassMat = c.material;
+				const uv = c.geometry.getAttribute( 'uv' );
+				if ( uv ) { grassU = uv.getX( 0 ); grassV = uv.getY( 0 ); }
+
+			}
+
+		} );
 		untitledModel.traverse( ( c ) => {
 
 			if ( ! c.isMesh ) return;
@@ -4285,6 +4299,13 @@ async function loadModels( requiredNames = modelNames ) {
 				const m = grassMat.clone();
 				m.side = THREE.DoubleSide;
 				c.material = m;
+				const uv = c.geometry.getAttribute( 'uv' );
+				if ( uv ) {
+
+					for ( let i = 0; i < uv.count; i ++ ) uv.setXY( i, grassU, grassV );
+					uv.needsUpdate = true;
+
+				}
 
 			} else {
 
