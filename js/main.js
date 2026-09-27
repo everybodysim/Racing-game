@@ -4223,11 +4223,6 @@ async function loadModels( requiredNames = modelNames ) {
 
 					if ( child.isMesh ) {
 
-						const isRoadBlock = ( name.startsWith( 'track-' ) || name.startsWith( 'elev-' ) ) && ! name.includes( 'tent' );
-						if ( isRoadBlock ) {
-
-
-						}
 						// The AI-generated blocks (thin/choke/cross-corners) carry
 						// inconsistent Blender normals (mixed smooth/flat), so smooth
 						// shading renders blotchy. Force PER-FACE shading for them:
