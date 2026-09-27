@@ -1132,9 +1132,21 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	}
 	const waterCellsForDeco = extras && Array.isArray( extras.water ) ? extras.water : [];
 
+	// Official "Hide Trees" mod (visual only): every forest tree — auto-
+	// scattered, cell-placed (default track forest ring), or editor-
+	// decorated — renders as the flat empty deco plane instead. Trees are
+	// pure decoration with no colliders, so nothing about physics or
+	// timing changes (js/main.js whitelists the mod for the leaderboard).
+	// Same localStorage key as js/mods-manager.js INSTALLED_MODS_KEY.
+	let hideTreesMod = false;
+	try {
+
+		hideTreesMod = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' ).some( ( m ) => m?.id === 'hide-trees' );
+
+	} catch { /* malformed list — treat as not installed */ }
 	for ( const [ gx, gz, key, orient ] of cells ) {
 
-		const piece = placePiece( models, key, gx, gz, orient );
+		const piece = placePiece( models, hideTreesMod && key === 'decoration-forest' ? 'decoration-empty' : key, gx, gz, orient );
 		if ( piece ) trackPieceGroup.add( piece );
 
 	}
@@ -1534,7 +1546,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( waterSet.has( `${ gx },${ gz }` ) ) continue;
 			// Don't place a decoration tree under a slope block.
 			if ( slopeCells.has( `${ Number( gx ) },${ Number( gz ) }` ) ) continue;
-			const piece = placePiece( models, key, gx, gz, orient || 0 );
+			const piece = placePiece( models, hideTreesMod && key === 'decoration-forest' ? 'decoration-empty' : key, gx, gz, orient || 0 );
 			if ( piece ) decoGroup.add( piece );
 
 		}
@@ -1827,17 +1839,6 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		createInstances( models[ 'decoration-empty' ], emptyPositions, true );
 		createInstances( models[ 'empty-deco-grass' ], grassPositions );
-		// Official "Hide Trees" mod (visual only): swap the auto-scattered
-		// forest trees for the flat empty deco plane. Trees are pure
-		// decoration with no colliders, so this changes nothing about
-		// physics or timing. Read from the same localStorage key the Mod
-		// Manager uses (js/mods-manager.js INSTALLED_MODS_KEY).
-		let hideTreesMod = false;
-		try {
-
-			hideTreesMod = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' ).some( ( m ) => m?.id === 'hide-trees' );
-
-		} catch { /* malformed list — treat as not installed */ }
 		createInstances( models[ hideTreesMod ? 'decoration-empty' : 'decoration-forest' ], forestPositions, true );
 
 	}
@@ -1849,6 +1850,44 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	scene.add( trackGroup );
 
 	trackGroup.updateMatrixWorld( true );
+
+	// Normalize shading across every track model to the STRAIGHT ROAD
+	// block. The game's GLBs were exported from Blender over time with
+	// drifting PBR values (metalness/roughness/flat-shading differ per
+	// piece), so blocks shade inconsistently next to each other. Copy the
+	// road's shading model onto every opaque standard material in the
+	// built track — colors, textures, and emissives stay untouched, and
+	// anything see-through (water, glass) keeps its own look.
+	let roadRefMat = null;
+	const roadSrc = models[ 'track-straight' ];
+	if ( roadSrc ) roadSrc.traverse( ( c ) => { if ( ! roadRefMat && c.isMesh && c.material?.isMeshStandardMaterial ) roadRefMat = c.material; } );
+	if ( roadRefMat ) {
+
+		const shadeRef = {
+			metalness: roadRefMat.metalness,
+			roughness: roadRefMat.roughness,
+			envMapIntensity: roadRefMat.envMapIntensity ?? 1,
+			flatShading: !! roadRefMat.flatShading,
+			toneMapped: roadRefMat.toneMapped !== false
+		};
+		trackGroup.traverse( ( child ) => {
+
+			const m = child.isMesh ? child.material : null;
+			if ( ! m || ! m.isMeshStandardMaterial || m.transparent || m.opacity < 1 ) return;
+			if ( m.flatShading !== shadeRef.flatShading ) {
+
+				m.flatShading = shadeRef.flatShading;
+				m.needsUpdate = true; // flat/smooth is compiled into the shader
+
+			}
+			m.metalness = shadeRef.metalness;
+			m.roughness = shadeRef.roughness;
+			m.envMapIntensity = shadeRef.envMapIntensity;
+			m.toneMapped = shadeRef.toneMapped;
+
+		} );
+
+	}
 
 	trackGroup.traverse( ( child ) => {
 
