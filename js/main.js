@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000261';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000262';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260941';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -4260,6 +4260,36 @@ function flattenWallTexels( material ) {
 		ctx.drawImage( img, 0, 0 );
 		const data = ctx.getImageData( 0, 0, w, h );
 		const d = data.data;
+		// MIPMAP BLEED FIX: at distance the GPU averages the pinned texel
+		// with its atlas neighbors (mip levels), tinting walls/stripes by
+		// distance. Paint a solid PAD around every pinned texel (skipping
+		// pixels other models actually sample) so mip blending can only see
+		// the correct color. Boxes are 512-atlas coordinates.
+		const PAD_RECTS = [{"k":"wall","b":[296,388,312,404],"e":[[300,398],[304,401],[304,402],[308,397]]},{"k":"wall","b":[295,388,311,404],"e":[[300,398],[304,401],[304,402],[308,397]]},{"k":"wall","b":[305,389,321,405],"e":[[308,397]]},{"k":"wall","b":[296,402,312,418],"e":[[304,402],[304,409],[304,411],[304,413],[304,417],[312,418]]},{"k":"wall","b":[296,419,312,435],"e":[[304,420],[304,423],[304,426],[304,429],[304,430],[304,433],[304,434],[309,431]]},{"k":"stripe","b":[223,319,239,335],"e":[[228,324],[230,330]]},{"k":"stripe","b":[229,318,245,334],"e":[[230,330],[240,320],[240,323],[240,330],[240,332]]},{"k":"stripe","b":[232,260,248,276],"e":[[240,273],[240,275]]},{"k":"stripe","b":[232,323,248,339],"e":[[240,323],[240,330],[240,332]]},{"k":"stripe","b":[232,363,248,379],"e":[[235,374],[240,364]]},{"k":"stripe","b":[233,260,249,276],"e":[[240,273],[240,275]]},{"k":"stripe","b":[233,289,249,305],"e":[[240,293],[240,298],[240,301],[240,304]]},{"k":"stripe","b":[233,318,249,334],"e":[[240,320],[240,323],[240,330],[240,332]]},{"k":"stripe","b":[233,341,249,357],"e":[[238,354],[240,341],[240,343],[240,345],[240,348],[240,353],[240,354],[240,356],[240,357]]},{"k":"stripe","b":[234,299,250,315],"e":[[240,301],[240,304],[240,311],[240,312]]},{"k":"stripe","b":[424,388,440,404],"e":[]}];
+		const padColor = { wall: null, stripe: null };
+		for ( const uvs of [ WALL_TEXEL_UVS, STRIPE_TEXEL_UVS ] ) {
+			let r0 = 0, g0 = 0, b0 = 0;
+			for ( const [ u, v ] of uvs ) {
+				const x0 = Math.min( w - 1, Math.max( 0, Math.round( u * w - 0.5 ) ) );
+				const y0 = Math.min( h - 1, Math.max( 0, Math.round( v * h - 0.5 ) ) );
+				const i0 = ( y0 * w + x0 ) * 4;
+				r0 += d[ i0 ]; g0 += d[ i0 + 1 ]; b0 += d[ i0 + 2 ];
+			}
+			padColor[ uvs === WALL_TEXEL_UVS ? 'wall' : 'stripe' ] = [ Math.round( r0 / uvs.length ), Math.round( g0 / uvs.length ), Math.round( b0 / uvs.length ) ];
+		}
+		for ( const pad of PAD_RECTS ) {
+			const col = padColor[ pad.k ];
+			if ( ! col ) continue;
+			const sx = w / 512, sy = h / 512;
+			for ( let px = pad.b[ 0 ]; px <= pad.b[ 2 ]; px ++ ) {
+				for ( let py = pad.b[ 1 ]; py <= pad.b[ 3 ]; py ++ ) {
+					if ( pad.e.some( ( e ) => e[ 0 ] === px && e[ 1 ] === py ) ) continue;
+					const ix = Math.min( w - 1, Math.round( px * sx ) ), iy = Math.min( h - 1, Math.round( py * sy ) );
+					const i0 = ( iy * w + ix ) * 4;
+					d[ i0 ] = col[ 0 ]; d[ i0 + 1 ] = col[ 1 ]; d[ i0 + 2 ] = col[ 2 ]; d[ i0 + 3 ] = 255;
+				}
+			}
+		}
 		// rewrite each texel SET to its own solid average color
 		for ( const uvs of [ WALL_TEXEL_UVS, STRIPE_TEXEL_UVS ] ) {
 

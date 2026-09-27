@@ -922,8 +922,9 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 
 			}
 			child.userData.isChokeMesh = true;
-			// shells cast again — shadowSide=FrontSide fixed the self-cast acne
-			child.castShadow = true;
+			// shells: shadows OFF (user order 2026-09-27 — in-game shadows on
+			// these AI blocks still looked bad; back to the no-shadow look)
+			child.castShadow = false;
 
 		} );
 
@@ -1933,11 +1934,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			child.castShadow = true;
 			// Choke shells don't sample the shadow map (self-shadow acne) —
 			// they still CAST, so their ground shadow stays.
-			// ALL blocks receive shadows (2026-09-27): the shell acne root cause
-			// is fixed at the material level (shadowSide=FrontSide — double-sided
-			// shells no longer cast their own back faces into the map) + the sun
-			// normalBias headroom. No more blanket shadow-map opt-outs.
-			child.receiveShadow = true;
+			// shells stay OFF the shadow map (user order 2026-09-27)
+			child.receiveShadow = ! child.userData.isChokeMesh;
 
 		}
 
@@ -2355,7 +2353,6 @@ export function placePiece( models, key, gx, gz, orient ) {
 			// shadowing — only the pinch shell is tagged with the anti-acne flag.
 			if ( child.userData.isChokeTreeMesh ) return;
 			child.userData.isChokeMesh = true;
-			child.castShadow = true;
 			if ( child.material && ! child.material.__doubleSided ) {
 
 				( Array.isArray( child.material ) ? child.material : [ child.material ] ).forEach( ( m ) => {
