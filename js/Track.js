@@ -1909,7 +1909,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 			const m = child.isMesh ? child.material : null;
 			if ( ! m || ! m.isMeshStandardMaterial || m.transparent || m.opacity < 1 ) return;
-			if ( m.flatShading !== shadeRef.flatShading ) {
+			if ( m.userData?.aiFlatShaded ) { m.flatShading = true; } // AI blocks keep per-face shading
+			else if ( m.flatShading !== shadeRef.flatShading ) {
 
 				m.flatShading = shadeRef.flatShading;
 				m.needsUpdate = true; // flat/smooth is compiled into the shader

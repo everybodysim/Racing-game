@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000259';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000260';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260941';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -4222,11 +4222,31 @@ const WALL_TEXEL_UVS = [
 	[ 0.592773, 0.774414 ], [ 0.594727, 0.774414 ], [ 0.612305, 0.776367 ],
 	[ 0.594727, 0.801758 ], [ 0.594727, 0.834961 ],
 ];
+// road dash stripes: every yellow/orange dash texel sampled at road level
+// by the track blocks (they hold slightly different shades -> gradient
+// stripes). All get rewritten to one solid average and all dash UVs are
+// pinned to a single texel.
+const STRIPE_TEXEL_UVS = [[0.452148, 0.639648],
+	[0.463867, 0.637695],
+	[0.469727, 0.524414],
+	[0.469727, 0.647461],
+	[0.469727, 0.725586],
+	[0.47168, 0.524414],
+	[0.47168, 0.581055],
+	[0.47168, 0.637695],
+	[0.47168, 0.682617],
+	[0.473633, 0.600586],
+	[0.844727, 0.774414]];
+// pin targets (texel centers)
+const WALL_PIN_UV = [ 0.594727, 0.774414 ];
+const STRIPE_PIN_UV = [ 0.47168, 0.581054 ];
+
 const _flattenedWallTextures = new WeakSet();
 function flattenWallTexels( material ) {
 
-	if ( ! material ) return;
+	if ( ! material ) return null;
 	const maps = Array.isArray( material ) ? material.map( ( m ) => m?.map ).filter( Boolean ) : ( material.map ? [ material.map ] : [] );
+	let result = null;
 	for ( const texture of maps ) {
 
 		if ( ! texture?.image || _flattenedWallTextures.has( texture ) ) continue;
@@ -4240,24 +4260,71 @@ function flattenWallTexels( material ) {
 		ctx.drawImage( img, 0, 0 );
 		const data = ctx.getImageData( 0, 0, w, h );
 		const d = data.data;
-		let r = 0, g = 0, b = 0;
-		const idxs = [];
-		for ( const [ u, v ] of WALL_TEXEL_UVS ) {
+		// rewrite each texel SET to its own solid average color
+		for ( const uvs of [ WALL_TEXEL_UVS, STRIPE_TEXEL_UVS ] ) {
 
-			const x = Math.min( w - 1, Math.max( 0, Math.round( u * w - 0.5 ) ) );
-			const y = Math.min( h - 1, Math.max( 0, Math.round( v * h - 0.5 ) ) );
-			const i = ( y * w + x ) * 4;
-			idxs.push( i );
-			r += d[ i ]; g += d[ i + 1 ]; b += d[ i + 2 ];
+			let r = 0, g = 0, b = 0;
+			const idxs = [];
+			for ( const [ u, v ] of uvs ) {
+
+				const x = Math.min( w - 1, Math.max( 0, Math.round( u * w - 0.5 ) ) );
+				const y = Math.min( h - 1, Math.max( 0, Math.round( v * h - 0.5 ) ) );
+				const i = ( y * w + x ) * 4;
+				idxs.push( i );
+				r += d[ i ]; g += d[ i + 1 ]; b += d[ i + 2 ];
+
+			}
+			r = Math.round( r / idxs.length ); g = Math.round( g / idxs.length ); b = Math.round( b / idxs.length );
+			for ( const i of idxs ) { d[ i ] = r; d[ i + 1 ] = g; d[ i + 2 ] = b; d[ i + 3 ] = 255; }
 
 		}
-		r = Math.round( r / idxs.length ); g = Math.round( g / idxs.length ); b = Math.round( b / idxs.length );
-		for ( const i of idxs ) { d[ i ] = r; d[ i + 1 ] = g; d[ i + 2 ] = b; d[ i + 3 ] = 255; }
 		ctx.putImageData( data, 0, 0 );
 		texture.image = canvas;
 		texture.needsUpdate = true;
+		result = d; // keep pixel data for stripe classification below
 
 	}
+	return result;
+
+}
+
+// NO-GRADIENT UV PINNING for road-block models: every wall-band vertex is
+// pinned to ONE wall texel and every dash-stripe vertex to ONE stripe texel,
+// so walls and dashes render perfectly solid no matter how their UVs were
+// authored in Blender. Geometry only changes in memory - GLB files untouched.
+const _stripePxSet = new Set( STRIPE_TEXEL_UVS.map( ( [ u, v ] ) => `${ Math.round( u * 512 - 0.5 ) },${ Math.round( v * 512 - 0.5 ) }` ) );
+function pinSolidUvs( mesh ) {
+
+	const geo = mesh.geometry;
+	const uvAttr = geo?.attributes?.uv;
+	const map = Array.isArray( mesh.material ) ? mesh.material[ 0 ]?.map : mesh.material?.map;
+	if ( ! uvAttr || ! map?.image ) return;
+	const w = map.image.width, h = map.image.height;
+	if ( ! w || ! h ) return;
+	const arr = uvAttr.array;
+	let changed = false;
+	for ( let i = 0; i < uvAttr.count; i ++ ) {
+
+		const u = arr[ 2 * i ], v = arr[ 2 * i + 1 ];
+		// wall band -> wall texel
+		if ( u >= 0.578 && u <= 0.625 && v >= 0.755 && v <= 0.865 ) {
+
+			arr[ 2 * i ] = WALL_PIN_UV[ 0 ]; arr[ 2 * i + 1 ] = WALL_PIN_UV[ 1 ];
+			changed = true;
+			continue;
+
+		}
+		// dash stripe texel -> stripe texel (512-atlas texel identity)
+		const key = `${ Math.round( u * 512 - 0.5 ) },${ Math.round( v * 512 - 0.5 ) }`;
+		if ( _stripePxSet.has( key ) ) {
+
+			arr[ 2 * i ] = STRIPE_PIN_UV[ 0 ]; arr[ 2 * i + 1 ] = STRIPE_PIN_UV[ 1 ];
+			changed = true;
+
+		}
+
+	}
+	if ( changed ) uvAttr.needsUpdate = true;
 
 }
 
@@ -4272,8 +4339,31 @@ async function loadModels( requiredNames = modelNames ) {
 
 					if ( child.isMesh ) {
 
-						// solid wall colors (see flattenWallTexels above)
+						// solid wall + stripe colors (see flattenWallTexels above)
 						flattenWallTexels( child.material );
+						const isRoadBlock = ( name.startsWith( 'track-' ) || name.startsWith( 'elev-' ) ) && ! name.includes( 'tent' );
+						if ( isRoadBlock ) pinSolidUvs( child );
+						// The AI-generated blocks (thin/choke/cross-corners) carry
+						// inconsistent Blender normals (mixed smooth/flat), so smooth
+						// shading renders blotchy. Force PER-FACE shading for them:
+						// identical clean faceting as the classic blocks, ignoring
+						// the messy vertex normals entirely. aiFlatShaded protects
+						// the flag from Track.js's road-reference shading pass.
+						if ( /thin|choke|cross-corners/.test( name ) ) {
+
+							( Array.isArray( child.material ) ? child.material : [ child.material ] ).forEach( ( m ) => {
+
+								if ( m && m.isMeshStandardMaterial ) {
+
+									m.flatShading = true;
+									m.needsUpdate = true;
+									m.userData.aiFlatShaded = true;
+
+								}
+
+							} );
+
+						}
 
 						// The garage is a walk-in scene, so render both sides of every
 						// surface while the other models keep their normal front faces.
