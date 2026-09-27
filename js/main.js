@@ -4358,6 +4358,54 @@ function pinSolidUvs( mesh ) {
 
 }
 
+// UNIVERSAL anti-gradient rule: ANY triangle whose 3 UV points span more
+// than ~1 texel gets all 3 verts snapped to a single texel (the majority
+// texel if two verts agree, else the centroid). A tri sampling one texel
+// cannot render a gradient — this makes gradients geometrically impossible
+// on every road-block surface, without needing to know what each surface is.
+// Tree UV bands (foliage + trunk) keep their authored UVs.
+function collapseSpanTris( mesh ) {
+
+	// un-share vertices first: in an indexed mesh one vertex belongs to
+	// several triangles, so collapsing one tri's UVs would drag its
+	// neighbor tris into NEW spans. toNonIndexed gives every triangle its
+	// own 3 verts, making the collapse strictly local per triangle.
+	if ( mesh.geometry.index ) mesh.geometry = mesh.geometry.toNonIndexed();
+	const geo = mesh.geometry;
+	const uvAttr = geo?.attributes?.uv;
+	if ( ! uvAttr ) return;
+	const arr = uvAttr.array;
+	const triCount = uvAttr.count / 3;
+	if ( ! Number.isInteger( triCount ) ) return;
+	const texel = ( u, v ) => [ Math.min( 511, Math.max( 0, Math.round( u * 512 - 0.5 ) ) ), Math.min( 511, Math.max( 0, Math.round( v * 512 - 0.5 ) ) ) ];
+	let changed = false;
+	for ( let t = 0; t < triCount; t ++ ) {
+
+		const a = 3 * t, b = 3 * t + 1, c = 3 * t + 2;
+		const u0 = arr[ 2 * a ], v0 = arr[ 2 * a + 1 ];
+		const u1 = arr[ 2 * b ], v1 = arr[ 2 * b + 1 ];
+		const u2 = arr[ 2 * c ], v2 = arr[ 2 * c + 1 ];
+		if ( ( u0 >= 0.084 && u0 <= 0.112 ) || ( u1 >= 0.084 && u1 <= 0.112 ) || ( u2 >= 0.084 && u2 <= 0.112 ) ) continue; // foliage
+		if ( ( u0 >= 0.836 && u0 <= 0.858 ) || ( u1 >= 0.836 && u1 <= 0.858 ) || ( u2 >= 0.836 && u2 <= 0.858 ) ) continue; // trunk
+		const du = Math.max( Math.abs( u0 - u1 ), Math.abs( u1 - u2 ), Math.abs( u0 - u2 ) );
+		const dv = Math.max( Math.abs( v0 - v1 ), Math.abs( v1 - v2 ), Math.abs( v0 - v2 ) );
+		if ( Math.max( du, dv ) * 512 <= 1.25 ) continue; // single-texel tri — solid by construction
+		const t0 = texel( u0, v0 ), t1 = texel( u1, v1 ), t2 = texel( u2, v2 );
+		let target;
+		if ( t0[ 0 ] === t1[ 0 ] && t0[ 1 ] === t1[ 1 ] ) target = t0;
+		else if ( t1[ 0 ] === t2[ 0 ] && t1[ 1 ] === t2[ 1 ] ) target = t1;
+		else if ( t0[ 0 ] === t2[ 0 ] && t0[ 1 ] === t2[ 1 ] ) target = t0;
+		else target = texel( ( u0 + u1 + u2 ) / 3, ( v0 + v1 + v2 ) / 3 );
+		const pu = ( target[ 0 ] + 0.5 ) / 512, pv = ( target[ 1 ] + 0.5 ) / 512;
+		arr[ 2 * a ] = pu; arr[ 2 * a + 1 ] = pv;
+		arr[ 2 * b ] = pu; arr[ 2 * b + 1 ] = pv;
+		arr[ 2 * c ] = pu; arr[ 2 * c + 1 ] = pv;
+		changed = true;
+
+	}
+	if ( changed ) uvAttr.needsUpdate = true;
+
+}
 async function loadModels( requiredNames = modelNames ) {
 
 	const promises = requiredNames.map( ( name ) =>
@@ -4372,7 +4420,12 @@ async function loadModels( requiredNames = modelNames ) {
 						// solid wall + stripe colors (see flattenWallTexels above)
 						flattenWallTexels( child.material );
 						const isRoadBlock = ( name.startsWith( 'track-' ) || name.startsWith( 'elev-' ) ) && ! name.includes( 'tent' );
-						if ( isRoadBlock ) pinSolidUvs( child );
+						if ( isRoadBlock ) {
+
+							pinSolidUvs( child );
+							collapseSpanTris( child );
+
+						}
 						// The AI-generated blocks (thin/choke/cross-corners) carry
 						// inconsistent Blender normals (mixed smooth/flat), so smooth
 						// shading renders blotchy. Force PER-FACE shading for them:

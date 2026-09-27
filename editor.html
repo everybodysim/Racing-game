@@ -1980,20 +1980,20 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 // Tree UV bands (foliage + trunk) keep their authored UVs.
 function collapseSpanTris( mesh ) {
 
+	if ( mesh.geometry.index ) mesh.geometry = mesh.geometry.toNonIndexed();
 	const geo = mesh.geometry;
 	const uvAttr = geo?.attributes?.uv;
 	if ( ! uvAttr ) return;
 	const arr = uvAttr.array;
-	const idx = geo.index ? geo.index.array : null;
-	const triCount = ( idx ? idx.length : uvAttr.count ) / 3;
+	const triCount = uvAttr.count / 3;
 	if ( ! Number.isInteger( triCount ) ) return;
 	const texel = ( u, v ) => [ Math.min( 511, Math.max( 0, Math.round( u * 512 - 0.5 ) ) ), Math.min( 511, Math.max( 0, Math.round( v * 512 - 0.5 ) ) ) ];
 	let changed = false;
 	for ( let t = 0; t < triCount; t ++ ) {
 
-		const a = idx ? idx[ 3 * t ] : 3 * t;
-		const b = idx ? idx[ 3 * t + 1 ] : 3 * t + 1;
-		const c = idx ? idx[ 3 * t + 2 ] : 3 * t + 2;
+		const a = 3 * t;
+		const b = 3 * t + 1;
+		const c = 3 * t + 2;
 		const u0 = arr[ 2 * a ], v0 = arr[ 2 * a + 1 ];
 		const u1 = arr[ 2 * b ], v1 = arr[ 2 * b + 1 ];
 		const u2 = arr[ 2 * c ], v2 = arr[ 2 * c + 1 ];
