@@ -922,7 +922,22 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 
 			}
 			child.userData.isChokeMesh = true;
-			child.castShadow = false;
+			if ( isThin ) {
+
+				// thin/transition shells keep the full anti-acne treatment
+				child.userData.isThinShell = true;
+				child.castShadow = false;
+
+			} else {
+
+				// CHOKE shells get their shadows BACK (2026-09-27): the
+				// horrid shading turned out to be metallic materials + broken
+				// smooth normals (both fixed), not real shadow acne. Trees
+				// stay split out with their own shadowing, so the shell can
+				// cast + receive like a classic block again.
+				child.castShadow = true;
+
+			}
 
 		} );
 
@@ -1932,7 +1947,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			child.castShadow = true;
 			// Choke shells don't sample the shadow map (self-shadow acne) —
 			// they still CAST, so their ground shadow stays.
-			child.receiveShadow = ! child.userData.isChokeMesh;
+			// THIN shells only: choke shells receive shadows again (their
+			// shading is fixed — metallic materials + normals were the bug)
+			child.receiveShadow = ! child.userData.isThinShell;
 
 		}
 
@@ -1988,12 +2005,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		if ( mats.some( ( m ) => ! m ) ) return;
 		const key = obj.geometry.uuid + '|' + mats.map( ( m ) => m.uuid ).join( ',' )
 			+ '|' + ( obj.castShadow ? 1 : 0 ) + ( obj.receiveShadow ? 1 : 0 )
-			+ '|' + ( obj.userData.isChokeMesh ? 1 : 0 );
+			+ '|' + ( obj.userData.isChokeMesh ? 1 : 0 )
+			+ '|' + ( obj.userData.isThinShell ? 1 : 0 );
 			_batchMat.copy( _batchInv ).multiply( obj.matrixWorld );
 		let batch = batches.get( key );
 		if ( ! batch ) {
 
-			batch = { geometry: obj.geometry, material: obj.material, castShadow: obj.castShadow, receiveShadow: obj.receiveShadow, isChokeMesh: !! obj.userData.isChokeMesh, chunks: new Map() };
+			batch = { geometry: obj.geometry, material: obj.material, castShadow: obj.castShadow, receiveShadow: obj.receiveShadow, isChokeMesh: !! obj.userData.isChokeMesh, isThinShell: !! obj.userData.isThinShell, chunks: new Map() };
 			batches.set( key, batch );
 
 		}
@@ -2033,6 +2051,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			inst.castShadow = batch.castShadow;
 			inst.receiveShadow = batch.receiveShadow;
 			if ( batch.isChokeMesh ) inst.userData.isChokeMesh = true;
+			if ( batch.isThinShell ) inst.userData.isThinShell = true;
 			trackPieceGroup.add( inst );
 
 		}
@@ -2350,6 +2369,9 @@ export function placePiece( models, key, gx, gz, orient ) {
 			// shadowing — only the pinch shell is tagged with the anti-acne flag.
 			if ( child.userData.isChokeTreeMesh ) return;
 			child.userData.isChokeMesh = true;
+			// choke shells cast + receive again (2026-09-27 — see the elevated
+			// choke branch note: shading fixed at the root, shadows restored)
+			child.castShadow = true;
 			if ( child.material && ! child.material.__doubleSided ) {
 
 				( Array.isArray( child.material ) ? child.material : [ child.material ] ).forEach( ( m ) => {
