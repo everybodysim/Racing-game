@@ -248,7 +248,7 @@ dirLight.shadow.camera.far = 60;
 // normalBias (0.04) and decks self-shadow in stripes. 0.15 stays under one
 // deck thickness (no peter-panning) while covering the texel size.
 dirLight.shadow.bias = -0.0003;
-dirLight.shadow.normalBias = 0.15;
+dirLight.shadow.normalBias = 0.22;
 // The sun's shadow map re-renders per frame (rate-gated by
 // refreshShadowsIfNeeded) — REAL shadows for the car and moving objects.
 // The cost is kept low because the static track geometry casts through a
@@ -4358,6 +4358,13 @@ async function loadModels( requiredNames = modelNames ) {
 									m.flatShading = true;
 									m.needsUpdate = true;
 									m.userData.aiFlatShaded = true;
+									// SHADOW ACNE ROOT CAUSE: these shells render DoubleSide
+									// (see-through curve interiors), and three.js puts BOTH
+									// faces of a double-sided mesh into the shadow map —
+									// the wall's own BACK faces then shadow its front faces
+									// = the stripey self-shadow acne. Only FRONT faces may
+									// cast. This is what will let shadows come back on.
+									m.shadowSide = THREE.FrontSide;
 
 								}
 
