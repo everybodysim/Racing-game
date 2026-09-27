@@ -6,8 +6,8 @@ import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000258';
-import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260940';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000259';
+import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260941';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
@@ -4290,8 +4290,12 @@ async function loadModels( requiredNames = modelNames ) {
 						// (user report 2026-09-20). Zero all PBR reflectivity on
 						// every block so they shade pure diffuse, consistently.
 						// Car paint (garage shiny finish) is NOT affected — this
-						// branch only runs for track-* / elev-track-* models.
-						if ( name.startsWith( 'track-' ) || name.startsWith( 'elev-track-' ) ) {
+						// branch only runs for track-block models. The gate covers
+						// EVERY road block (track-*, elev-thin-*, elev-choke-*,
+						// elev-cross-*, elev-wide-to-thin*, elev-track-*): the
+						// thin/choke shells were missed before and kept their
+						// metallic default materials — horrid reflective shading.
+						if ( name.startsWith( 'track-' ) || name.startsWith( 'elev-' ) ) {
 
 							( Array.isArray( child.material ) ? child.material : [ child.material ] ).forEach( ( m ) => {
 

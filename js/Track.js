@@ -922,7 +922,7 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 
 			}
 			child.userData.isChokeMesh = true;
-			if ( isThin ) child.castShadow = false;
+			child.castShadow = false;
 
 		} );
 

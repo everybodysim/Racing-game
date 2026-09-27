@@ -32,7 +32,7 @@ const _debugMat = new THREE.MeshBasicMaterial( {
 // anchored, so walls rise UP from the ground) while the mega pad effect is
 // active: the mega car must not be able to hop over walls. Wall colliders
 // register from buildWallColliders via its addWallBody helper.
-const WALL_BOOST = { bodies: [], active: false, mult: 4 };
+const WALL_BOOST = { bodies: [], active: false, mult: 2 };
 
 export function setWallHeightBoost( active ) {
 
