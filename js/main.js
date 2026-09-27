@@ -4158,6 +4158,11 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 		required.add( 'decoration-forest' );
 		// Flat grass used to replace auto-forest trees that sit under (off-grid) roads.
 		required.add( 'empty-deco-grass' );
+		// Hide Trees mod swap target (empty green plane). MUST be in
+		// `required` — requiredNames is modelNames FILTERED BY this set, so
+		// an unrequired model silently never loads, models['untitled'] is
+		// undefined, and every tree swap renders NOTHING (holes).
+		required.add( 'untitled' );
 		// Default tracks include hand-authored tent decoration cells, so load that model too.
 		if ( ! customCells ) required.add( 'decoration-tents' );
 	}
