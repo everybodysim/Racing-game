@@ -116,7 +116,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	// same as every other elevated piece) — see addChokeCrossWalls below.
 	const CHOKE_CROSS_OFFSET = 3;
 	const CHOKE_CROSS_HALF_LEN = 2.8;
-	const CHOKE_CROSS_HALF_THICK = 1.4;
+	const CHOKE_CROSS_HALF_THICK = 0.35;
 	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'pool-cross' ] );
 
 	// PERFECT SLOPE SEAM MATH. The slope's driving surface is the TOP face of a
