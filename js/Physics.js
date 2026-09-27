@@ -114,8 +114,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	// helper here. Works both as a normal ground block and as an elevated
 	// deck (raise = the standard ELEVATED_HEIGHT reused via elevatedWallY,
 	// same as every other elevated piece) — see addChokeCrossWalls below.
-	const CHOKE_CROSS_OFFSET = 3;
-	const CHOKE_CROSS_HALF_LEN = 2.8;
+	// Wall geometry, in diagonal coordinates (distance from cell center):
+	// outer tip pinned at the cell corner (d = 5*sqrt(2) = 7.07), inner tip
+	// pulled 1.75 units back from the old reach (d 1.44 -> 3.19) per user
+	// request — walls used to crowd the center diamond. Box center sits
+	// halfway between the tips: d = 5.12 -> per-axis offset 3.62; half
+	// length = (7.07 - 3.19) / 2 = 1.93.
+	const CHOKE_CROSS_OFFSET = 3.62;
+	const CHOKE_CROSS_HALF_LEN = 1.93;
 	const CHOKE_CROSS_HALF_THICK = 0.35;
 	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'pool-cross' ] );
 
