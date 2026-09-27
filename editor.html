@@ -1972,152 +1972,6 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 	}
 
-// UNIVERSAL anti-gradient rule: ANY triangle whose 3 UV points span more
-// than ~1 texel gets all 3 verts snapped to a single texel (the majority
-// texel if two verts agree, else the centroid). A tri sampling one texel
-// cannot render a gradient — this makes gradients geometrically impossible
-// on every road-block surface, without needing to know what each surface is.
-// Tree UV bands (foliage + trunk) keep their authored UVs.
-function collapseSpanTris( mesh ) {
-
-	if ( mesh.geometry.index ) mesh.geometry = mesh.geometry.toNonIndexed();
-	const geo = mesh.geometry;
-	const uvAttr = geo?.attributes?.uv;
-	if ( ! uvAttr ) return;
-	const arr = uvAttr.array;
-	const triCount = uvAttr.count / 3;
-	if ( ! Number.isInteger( triCount ) ) return;
-	const texel = ( u, v ) => [ Math.min( 511, Math.max( 0, Math.round( u * 512 - 0.5 ) ) ), Math.min( 511, Math.max( 0, Math.round( v * 512 - 0.5 ) ) ) ];
-	let changed = false;
-	for ( let t = 0; t < triCount; t ++ ) {
-
-		const a = 3 * t;
-		const b = 3 * t + 1;
-		const c = 3 * t + 2;
-		const u0 = arr[ 2 * a ], v0 = arr[ 2 * a + 1 ];
-		const u1 = arr[ 2 * b ], v1 = arr[ 2 * b + 1 ];
-		const u2 = arr[ 2 * c ], v2 = arr[ 2 * c + 1 ];
-		if ( ( u0 >= 0.084 && u0 <= 0.112 ) || ( u1 >= 0.084 && u1 <= 0.112 ) || ( u2 >= 0.084 && u2 <= 0.112 ) ) continue; // foliage
-		if ( ( u0 >= 0.836 && u0 <= 0.858 ) || ( u1 >= 0.836 && u1 <= 0.858 ) || ( u2 >= 0.836 && u2 <= 0.858 ) ) continue; // trunk
-		const du = Math.max( Math.abs( u0 - u1 ), Math.abs( u1 - u2 ), Math.abs( u0 - u2 ) );
-		const dv = Math.max( Math.abs( v0 - v1 ), Math.abs( v1 - v2 ), Math.abs( v0 - v2 ) );
-		if ( Math.max( du, dv ) * 512 <= 1.25 ) continue; // single-texel tri — solid by construction
-		const t0 = texel( u0, v0 ), t1 = texel( u1, v1 ), t2 = texel( u2, v2 );
-		let target;
-		if ( t0[ 0 ] === t1[ 0 ] && t0[ 1 ] === t1[ 1 ] ) target = t0;
-		else if ( t1[ 0 ] === t2[ 0 ] && t1[ 1 ] === t2[ 1 ] ) target = t1;
-		else if ( t0[ 0 ] === t2[ 0 ] && t0[ 1 ] === t2[ 1 ] ) target = t0;
-		else target = texel( ( u0 + u1 + u2 ) / 3, ( v0 + v1 + v2 ) / 3 );
-		const pu = ( target[ 0 ] + 0.5 ) / 512, pv = ( target[ 1 ] + 0.5 ) / 512;
-		arr[ 2 * a ] = pu; arr[ 2 * a + 1 ] = pv;
-		arr[ 2 * b ] = pu; arr[ 2 * b + 1 ] = pv;
-		arr[ 2 * c ] = pu; arr[ 2 * c + 1 ] = pv;
-		changed = true;
-
-	}
-	if ( changed ) uvAttr.needsUpdate = true;
-
-}
-
-		// ---- SOLID WALL / STRIPE COLORS + NO-GRADIENT UV PINNING (editor parity
-	// with js/main.js): 36 GLBs embed their own atlas copy, so colormap.png
-	// edits never reach most blocks. Wall texels hold different shades and
-	// dash texels a whole gradient family. Per texture: rewrite the wall +
-	// stripe texel sets to their own solid averages; per geometry: pin every
-	// wall-band vert to ONE wall texel and every dash vert to ONE stripe texel.
-	const WALL_TEXEL_UVS = [
-	[ 0.592773, 0.774414 ], [ 0.594727, 0.774414 ], [ 0.612305, 0.776367 ],
-	[ 0.594727, 0.801758 ], [ 0.594727, 0.834961 ],
-];
-	const STRIPE_TEXEL_UVS = [[0.452148, 0.639648],
-	[0.463867, 0.637695],
-	[0.469727, 0.524414],
-	[0.469727, 0.647461],
-	[0.469727, 0.725586],
-	[0.47168, 0.524414],
-	[0.47168, 0.581055],
-	[0.47168, 0.637695],
-	[0.47168, 0.682617],
-	[0.473633, 0.600586],
-	[0.844727, 0.774414]];
-	const WALL_PIN_UV = [ 0.594727, 0.774414 ];
-	const STRIPE_PIN_UV = [ 0.47168, 0.581054 ];
-	const _editorFlatTextures = new WeakSet();
-	function flattenWallTexels( material ) {
-
-		if ( ! material ) return;
-		const maps = Array.isArray( material ) ? material.map( ( m ) => m?.map ).filter( Boolean ) : ( material.map ? [ material.map ] : [] );
-		for ( const texture of maps ) {
-
-			if ( ! texture?.image || _editorFlatTextures.has( texture ) ) continue;
-			const img = texture.image;
-			const w = img.width, h = img.height;
-			if ( ! w || ! h ) continue;
-			_editorFlatTextures.add( texture );
-			const canvas = document.createElement( 'canvas' );
-			canvas.width = w; canvas.height = h;
-			const ctx = canvas.getContext( '2d', { willReadFrequently: true } );
-			ctx.drawImage( img, 0, 0 );
-			const data = ctx.getImageData( 0, 0, w, h );
-			const d = data.data;
-			for ( const uvs of [ WALL_TEXEL_UVS, STRIPE_TEXEL_UVS ] ) {
-
-				let r = 0, g = 0, b = 0;
-				const idxs = [];
-				for ( const [ u, v ] of uvs ) {
-
-					const x = Math.min( w - 1, Math.max( 0, Math.round( u * w - 0.5 ) ) );
-					const y = Math.min( h - 1, Math.max( 0, Math.round( v * h - 0.5 ) ) );
-					const i = ( y * w + x ) * 4;
-					idxs.push( i );
-					r += d[ i ]; g += d[ i + 1 ]; b += d[ i + 2 ];
-
-				}
-				r = Math.round( r / idxs.length ); g = Math.round( g / idxs.length ); b = Math.round( b / idxs.length );
-				for ( const i of idxs ) { d[ i ] = r; d[ i + 1 ] = g; d[ i + 2 ] = b; d[ i + 3 ] = 255; }
-
-			}
-			ctx.putImageData( data, 0, 0 );
-			texture.image = canvas;
-			texture.needsUpdate = true;
-
-		}
-
-	}
-	const _editorStripePx = new Set( STRIPE_TEXEL_UVS.map( ( [ u, v ] ) => `${ Math.round( u * 512 - 0.5 ) },${ Math.round( v * 512 - 0.5 ) }` ) );
-	function pinSolidUvs( mesh ) {
-
-		const geo = mesh.geometry;
-		const uvAttr = geo?.attributes?.uv;
-		const map = Array.isArray( mesh.material ) ? mesh.material[ 0 ]?.map : mesh.material?.map;
-		if ( ! uvAttr || ! map?.image ) return;
-		const w = map.image.width, h = map.image.height;
-		if ( ! w || ! h ) return;
-		const arr = uvAttr.array;
-		let changed = false;
-		for ( let i = 0; i < uvAttr.count; i ++ ) {
-
-			const u = arr[ 2 * i ], v = arr[ 2 * i + 1 ];
-			if ( u >= 0.578 && u <= 0.625 && v >= 0.755 && v <= 0.865 ) {
-
-				arr[ 2 * i ] = WALL_PIN_UV[ 0 ]; arr[ 2 * i + 1 ] = WALL_PIN_UV[ 1 ];
-				changed = true;
-				continue;
-
-			}
-			const key = `${ Math.round( u * 512 - 0.5 ) },${ Math.round( v * 512 - 0.5 ) }`;
-			if ( _editorStripePx.has( key ) ) {
-
-				arr[ 2 * i ] = STRIPE_PIN_UV[ 0 ]; arr[ 2 * i + 1 ] = STRIPE_PIN_UV[ 1 ];
-				changed = true;
-
-			}
-
-		}
-		if ( changed ) uvAttr.needsUpdate = true;
-
-	}
-
 	async function loadModels() {
 
 		const promises = modelNames.map( ( name ) =>
@@ -2130,14 +1984,10 @@ function collapseSpanTris( mesh ) {
 						if ( child.isMesh ) {
 
 							child.material.side = THREE.FrontSide;
-								// solid wall + stripe colors (see flattenWallTexels above)
-									flattenWallTexels( child.material );
 							// Flat shading for track blocks — kill all PBR
 							// reflectivity so no block glints under the sun
 							// (same treatment as js/main.js loadModels).
 							if ( ( name.startsWith( 'track-' ) || name.startsWith( 'elev-' ) ) && ! name.includes( 'tent' ) ) {
-								pinSolidUvs( child );
-							collapseSpanTris( child );
 
 								( Array.isArray( child.material ) ? child.material : [ child.material ] ).forEach( ( m ) => {
 
