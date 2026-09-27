@@ -900,12 +900,31 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	}
 	// Choke shells must not sample the shadow map (self-shadow acne on the
 	// grazing curve faces — see the placePiece choke branch for the full note).
-	if ( type === 'elevated-choke-half' || type === 'elevated-choke-both' ) {
+	// Thin/transition shells get the same anti-acne treatment AND stop casting
+	// shadows entirely — their AI-authored normals produce strange self-shadow
+	// shading; trees keep normal shadows (separate meshes, tree UV bands).
+	if ( type === 'elevated-choke-half' || type === 'elevated-choke-both' || THIN_MODEL_KEYS.has( modelKey ) ) {
 
-	// The baked-in tree meshes are split out (see splitChokeTrees) and must
-	// sample the shadow map like normal trees — only the pinch shell gets
-	// the anti-acne receiveShadow=false tag.
-	piece.traverse( ( child ) => { if ( ! child.userData.isChokeTreeMesh ) child.userData.isChokeMesh = true; } );
+		const isThin = THIN_MODEL_KEYS.has( modelKey );
+		piece.traverse( ( child ) => {
+
+			if ( ! child.isMesh || child.userData.isChokeTreeMesh ) return;
+			// tree meshes (foliage u ~0.094-0.108, trunk u ~0.844) keep shadows
+			if ( child.geometry && child.geometry.attributes.uv ) {
+
+				const uv = child.geometry.attributes.uv;
+				for ( let i = 0; i < uv.count; i ++ ) {
+
+					const u = uv.getX( i );
+					if ( ( u >= 0.09 && u <= 0.11 ) || ( u >= 0.84 && u <= 0.856 ) ) return;
+
+				}
+
+			}
+			child.userData.isChokeMesh = true;
+			if ( isThin ) child.castShadow = false;
+
+		} );
 
 	}
 	// Slope model is pre-sloped at the correct size — place at ground level, no scaling.
