@@ -28,6 +28,30 @@ const _debugMat = new THREE.MeshBasicMaterial( {
 	depthTest: false,
 } );
 
+// MEGA PAD WALL BOOST — grows every registered wall collider (bottom
+// anchored, so walls rise UP from the ground) while the mega pad effect is
+// active: the mega car must not be able to hop over walls. Wall colliders
+// register from buildWallColliders via its addWallBody helper.
+const WALL_BOOST = { bodies: [], active: false, mult: 4 };
+
+export function setWallHeightBoost( active ) {
+
+	const on = Boolean( active );
+	if ( on === WALL_BOOST.active ) return;
+	WALL_BOOST.active = on;
+	for ( const e of WALL_BOOST.bodies ) {
+
+		const hy = on ? e.baseHY * WALL_BOOST.mult : e.baseHY;
+		e.body.shape = box.create( { halfExtents: [ e.hx, hy, e.hz ] } );
+		rigidBody.updateShape( e.world, e.body );
+		const bottomY = e.y - e.baseHY;
+		rigidBody.setPosition( e.world, e.body, [ e.x, bottomY + hy, e.z ], false );
+		if ( e.debugMesh ) { e.debugMesh.scale.y = hy / e.baseHY; e.debugMesh.position.y = bottomY + hy; }
+
+	}
+
+}
+
 function addDebugBox( group, halfExtents, position, quaternion ) {
 
 	const geo = new THREE.BoxGeometry( halfExtents[ 0 ] * 2, halfExtents[ 1 ] * 2, halfExtents[ 2 ] * 2 );
@@ -37,6 +61,7 @@ function addDebugBox( group, halfExtents, position, quaternion ) {
 	mesh.position.set( position[ 0 ], position[ 1 ], position[ 2 ] );
 	if ( quaternion ) mesh.quaternion.set( quaternion[ 0 ], quaternion[ 1 ], quaternion[ 2 ], quaternion[ 3 ] );
 	group.add( mesh );
+	return mesh;
 
 }
 
@@ -52,6 +77,13 @@ function addDebugSphere( group, radius, position ) {
 }
 
 export function buildWallColliders( world, debugGroup, customCells, extras = null ) {
+
+	// MEGA PAD WALL BOOST bookkeeping: the registry is rebuilt per track; if
+	// the boost is active when a new track loads, re-apply it to the fresh
+	// wall set at the end of this build.
+	const wallBoostWasActive = WALL_BOOST.active;
+	WALL_BOOST.active = false;
+	WALL_BOOST.bodies.length = 0;
 
 	const S = GRID_SCALE;
 	const CELL_HALF = CELL_RAW / 2;
@@ -187,6 +219,25 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const INNER_SEG = 3;
 	const INNER_SEG_HALF_LEN = ( INNER_R * ( Math.PI / 2 ) / INNER_SEG / 2 ) * S;
 
+	// Wall-type static collider: creates the body AND registers it for the
+	// mega-pad height boost (see setWallHeightBoost at module level).
+	function addWallBody( halfExtents, position, quaternion ) {
+
+		const body = rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			quaternion,
+			friction: 0.0,
+			restitution: 0.0,
+		} );
+		const debugMesh = debugGroup ? addDebugBox( debugGroup, halfExtents, position, quaternion ) : null;
+		WALL_BOOST.bodies.push( { world, body, hx: halfExtents[ 0 ], hz: halfExtents[ 2 ], baseHY: halfExtents[ 1 ], x: position[ 0 ], y: position[ 1 ], z: position[ 2 ], debugMesh } );
+		return body;
+
+	}
+
 	function addArcWall( wcx, wcz, arcStart, radius, numSeg, segHalfLen, centerY = wallY, wallHalfHeight = hHeight ) {
 
 		for ( let i = 0; i < numSeg; i ++ ) {
@@ -200,15 +251,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			];
 			const quaternion = [ 0, Math.sin( - aMid / 2 ), 0, Math.cos( - aMid / 2 ) ];
 
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents } ),
-				motionType: MotionType.STATIC,
-				objectLayer: world._OL_STATIC,
-				position,
-				quaternion,
-				friction: 0.0,
-				restitution: 0.0,
-			} );
+			addWallBody( halfExtents, position, quaternion );
 
 			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
@@ -273,16 +316,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const halfExtents = [ hThick, wallHalfHeight, hLen ];
 			const position = [ wx, centerY, wz ];
 			const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents } ),
-				motionType: MotionType.STATIC,
-				objectLayer: world._OL_STATIC,
-				position,
-				quaternion,
-				friction: 0.0,
-				restitution: 0.0,
-			} );
-			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+			addWallBody( halfExtents, position, quaternion );
 
 		}
 
@@ -312,16 +346,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 				const halfExtents = [ hThick, wallHalfHeight, hLen ];
 				const position = [ wx, centerY, wz ];
 				const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
-				rigidBody.create( world, {
-					shape: box.create( { halfExtents } ),
-					motionType: MotionType.STATIC,
-					objectLayer: world._OL_STATIC,
-					position,
-					quaternion,
-					friction: 0.0,
-					restitution: 0.0,
-				} );
-				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+				addWallBody( halfExtents, position, quaternion );
 				continue;
 
 			}
@@ -347,16 +372,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 				const halfExtents = [ hThick, wallHalfHeight, halfLen ];
 				const position = [ wx, centerY, wz ];
 				const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
-				rigidBody.create( world, {
-					shape: box.create( { halfExtents } ),
-					motionType: MotionType.STATIC,
-					objectLayer: world._OL_STATIC,
-					position,
-					quaternion,
-					friction: 0.0,
-					restitution: 0.0,
-				} );
-				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+				addWallBody( halfExtents, position, quaternion );
 
 			}
 
@@ -388,15 +404,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 				const position = [ wx, centerY, wz ];
 				const quaternion = [ 0, Math.sin( total / 2 ), 0, Math.cos( total / 2 ) ];
 
-				rigidBody.create( world, {
-					shape: box.create( { halfExtents } ),
-					motionType: MotionType.STATIC,
-					objectLayer: world._OL_STATIC,
-					position,
-					quaternion,
-					friction: 0.0,
-					restitution: 0.0,
-				} );
+				addWallBody( halfExtents, position, quaternion );
 
 				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
@@ -443,16 +451,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const halfExtents = [ hThk, wallHalfHeight, hLen ];
 			const position = [ wx, centerY, wz ];
 			const quaternion = [ 0, Math.sin( total / 2 ), 0, Math.cos( total / 2 ) ];
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents } ),
-				motionType: MotionType.STATIC,
-				objectLayer: world._OL_STATIC,
-				position,
-				quaternion,
-				friction: 0.0,
-				restitution: 0.0,
-			} );
-			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+			addWallBody( halfExtents, position, quaternion );
 
 		}
 
@@ -476,16 +475,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 				const halfExtents = [ hThick, wallHalfHeight, segHalfLen ];
 				const position = [ wcx + radius * Math.cos( aMid ) * S, centerY, wcz + radius * Math.sin( aMid ) * S ];
 				const quaternion = [ 0, Math.sin( - aMid / 2 ), 0, Math.cos( - aMid / 2 ) ];
-				rigidBody.create( world, {
-					shape: box.create( { halfExtents } ),
-					motionType: MotionType.STATIC,
-					objectLayer: world._OL_STATIC,
-					position,
-					quaternion,
-					friction: 0.0,
-					restitution: 0.0,
-				} );
-				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+				addWallBody( halfExtents, position, quaternion );
 
 			}
 
@@ -635,16 +625,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const halfExtents = [ hLen, wallHalfHeight, hThick ];
 		const position = [ wx, centerY, wz ];
 		const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
-		rigidBody.create( world, {
-			shape: box.create( { halfExtents } ),
-			motionType: MotionType.STATIC,
-			objectLayer: world._OL_STATIC,
-			position,
-			quaternion,
-			friction: 0.0,
-			restitution: 0.0,
-		} );
-		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+		addWallBody( halfExtents, position, quaternion );
 
 	}
 
@@ -690,16 +671,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const offsetZ = - localX * Math.sin( yaw );
 			const halfExtents = [ hThick, ELEVATED_WALL_HALF_H, geom.halfLen ];
 			const position = [ cx + shiftX + offsetX, geom.centerY + SLOPE_SIDE_WALL_RAISE, cz + shiftZ + offsetZ ];
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents } ),
-				motionType: MotionType.STATIC,
-				objectLayer: world._OL_STATIC,
-				position,
-				quaternion,
-				friction: 0.0,
-				restitution: 0.0,
-			} );
-			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+			addWallBody( halfExtents, position, quaternion );
 
 		}
 
@@ -763,16 +735,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const wz = cz + ( - lx * sr ) * S;
 			const halfExtents = [ hThick, hHeight, hLen ];
 			const position = [ wx, wallY, wz ];
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents } ),
-				motionType: MotionType.STATIC,
-				objectLayer: world._OL_STATIC,
-				position,
-				quaternion,
-				friction: 0.0,
-				restitution: 0.0,
-			} );
-			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+			addWallBody( halfExtents, position, quaternion );
 
 		}
 
@@ -1141,15 +1104,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 				const position = [ wx, wallY, wz ];
 				const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
 
-				rigidBody.create( world, {
-					shape: box.create( { halfExtents } ),
-					motionType: MotionType.STATIC,
-					objectLayer: world._OL_STATIC,
-					position,
-					quaternion,
-					friction: 0.0,
-					restitution: 0.0,
-				} );
+				addWallBody( halfExtents, position, quaternion );
 
 				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
@@ -1423,6 +1378,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	return [];
 
+	if ( wallBoostWasActive ) setWallHeightBoost( true );
 }
 
 export function createSphereBody( world, spawnPos ) {

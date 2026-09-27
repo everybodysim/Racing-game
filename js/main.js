@@ -7,7 +7,7 @@ import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000258';
-import { buildWallColliders, createSphereBody } from './Physics.js?v=20260939';
+import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260940';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
@@ -4212,6 +4212,55 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 
 }
 
+// SOLID WALL COLORS: every wall in the game samples one of five texels in
+// the shared colormap atlas (embedded copies included), and those texels
+// hold slightly different shades — so walls read as inconsistent gradients.
+// At load time each texture gets those five pixels rewritten to their own
+// average, making every wall one solid color. Per-pixel surgery only:
+// vehicle paint texels sit one pixel away in the same atlas.
+const WALL_TEXEL_UVS = [
+	[ 0.592773, 0.774414 ], [ 0.594727, 0.774414 ], [ 0.612305, 0.776367 ],
+	[ 0.594727, 0.801758 ], [ 0.594727, 0.834961 ],
+];
+const _flattenedWallTextures = new WeakSet();
+function flattenWallTexels( material ) {
+
+	if ( ! material ) return;
+	const maps = Array.isArray( material ) ? material.map( ( m ) => m?.map ).filter( Boolean ) : ( material.map ? [ material.map ] : [] );
+	for ( const texture of maps ) {
+
+		if ( ! texture?.image || _flattenedWallTextures.has( texture ) ) continue;
+		const img = texture.image;
+		const w = img.width, h = img.height;
+		if ( ! w || ! h ) continue;
+		_flattenedWallTextures.add( texture );
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = w; canvas.height = h;
+		const ctx = canvas.getContext( '2d', { willReadFrequently: true } );
+		ctx.drawImage( img, 0, 0 );
+		const data = ctx.getImageData( 0, 0, w, h );
+		const d = data.data;
+		let r = 0, g = 0, b = 0;
+		const idxs = [];
+		for ( const [ u, v ] of WALL_TEXEL_UVS ) {
+
+			const x = Math.min( w - 1, Math.max( 0, Math.round( u * w - 0.5 ) ) );
+			const y = Math.min( h - 1, Math.max( 0, Math.round( v * h - 0.5 ) ) );
+			const i = ( y * w + x ) * 4;
+			idxs.push( i );
+			r += d[ i ]; g += d[ i + 1 ]; b += d[ i + 2 ];
+
+		}
+		r = Math.round( r / idxs.length ); g = Math.round( g / idxs.length ); b = Math.round( b / idxs.length );
+		for ( const i of idxs ) { d[ i ] = r; d[ i + 1 ] = g; d[ i + 2 ] = b; d[ i + 3 ] = 255; }
+		ctx.putImageData( data, 0, 0 );
+		texture.image = canvas;
+		texture.needsUpdate = true;
+
+	}
+
+}
+
 async function loadModels( requiredNames = modelNames ) {
 
 	const promises = requiredNames.map( ( name ) =>
@@ -4222,6 +4271,9 @@ async function loadModels( requiredNames = modelNames ) {
 				gltf.scene.traverse( ( child ) => {
 
 					if ( child.isMesh ) {
+
+						// solid wall colors (see flattenWallTexels above)
+						flattenWallTexels( child.material );
 
 						// The garage is a walk-in scene, so render both sides of every
 						// surface while the other models keep their normal front faces.
@@ -10765,6 +10817,12 @@ function completeCampaignStage() {
 	function applyVehicleScaleFromPad( targetVehicle, effect, targetHitboxMesh = null ) {
 
 		if ( ! targetVehicle?.container ) return;
+
+		// MEGA PAD WALL BOOST: while the LOCAL player carries the mega size
+		// effect, every wall collider grows 4x taller (bottom anchored) so the
+		// mega car cannot climb over walls. Any other scale effect (or none)
+		// puts the walls back to normal.
+		if ( targetVehicle === vehicle ) setWallHeightBoost( effect?.__sizePadType === 'size-mega' );
 		// No pad effect active: settle at the mod-set scale (default 1) instead of
 		// hard-resetting to 1, which stomped the custom-mod "set car scale" block.
 		const modBase = THREE.MathUtils.clamp( targetVehicle.__modScale ?? 1, 0.25, 3 );
