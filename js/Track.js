@@ -780,7 +780,7 @@ function computeCausticShade( normal ) {
 
 }
 
-const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'pool-cross' ] );
+const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'pool-cross' ] );
 
 function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 
@@ -875,6 +875,7 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	else if ( type === 'elevated-3-way' ) modelKey = 'elev-track-3-way';
 	else if ( type === 'elevated-choke-half' ) modelKey = 'elev-track-choke-half';
 	else if ( type === 'elevated-choke-both' ) modelKey = 'elev-track-choke-both';
+	else if ( type === 'elevated-choke-cross' ) modelKey = 'elev-choke';
 	else if ( type === 'elevated-4-way' ) modelKey = 'elev-track-4-way';
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
 	if ( modelKey === 'elev-track-choke-half' || modelKey === 'elev-track-choke-both' ) smoothChokeSourceModel( models[ modelKey ] );

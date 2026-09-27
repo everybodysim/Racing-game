@@ -100,7 +100,24 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	// the half-choke.
 	const CHOKE_APEX_X = 2.5;
 	const CHOKE_SEGS = 8;
-	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'pool-cross' ] );
+	// "elev-choke" pinwheel block (new mesh, 2026-09-27): 4 diagonal walls,
+	// one from each of the block's 4 corners, tapering in toward a tight
+	// diamond-shaped center opening that still lets the car through in all
+	// 4 cardinal directions. Measured directly off the user's top-down
+	// reference image (own PCA fit of the wall silhouette, corner-blob by
+	// corner-blob, image = exactly 10x10 units): each wall's box CENTER sits
+	// 3 units in from its corner along BOTH x and z, its long axis runs on
+	// the exact 45° corner-to-center diagonal with half-length 2.8, and its
+	// perpendicular half-thickness is 1.4. 4-fold symmetric (rotating the
+	// whole pattern 90° maps it onto itself), so `orient` only spins the
+	// pattern in place — kept anyway for consistency with every other wall
+	// helper here. Works both as a normal ground block and as an elevated
+	// deck (raise = the standard ELEVATED_HEIGHT reused via elevatedWallY,
+	// same as every other elevated piece) — see addChokeCrossWalls below.
+	const CHOKE_CROSS_OFFSET = 3;
+	const CHOKE_CROSS_HALF_LEN = 2.8;
+	const CHOKE_CROSS_HALF_THICK = 1.4;
+	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'pool-cross' ] );
 
 	// PERFECT SLOPE SEAM MATH. The slope's driving surface is the TOP face of a
 	// tilted box (half-thickness hy = ELEVATED_SURFACE_HALF_H). The old geometry
@@ -332,6 +349,48 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 					friction: 0.0,
 					restitution: 0.0,
 				} );
+				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+			}
+
+		}
+
+	}
+
+	function addChokeCrossWalls( gx, gz, orient = 0, centerY = wallY, wallHalfHeight = hHeight ) {
+
+		// 4 boxes, one per corner. Box center = (±CHOKE_CROSS_OFFSET,
+		// ±CHOKE_CROSS_OFFSET) in local cell space; box long axis (local Z
+		// before rotation) is tilted by atan2(lx,lz) so it lies exactly on
+		// that corner's diagonal, then the whole thing is rotated by the
+		// block's own orient like every other wall helper.
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const rad = deg * Math.PI / 180;
+		const cr = Math.cos( rad ), sr = Math.sin( rad );
+		const halfExtents = [ CHOKE_CROSS_HALF_THICK * S, wallHalfHeight, CHOKE_CROSS_HALF_LEN * S ];
+
+		for ( const lx of [ - CHOKE_CROSS_OFFSET, CHOKE_CROSS_OFFSET ] ) {
+
+			for ( const lz of [ - CHOKE_CROSS_OFFSET, CHOKE_CROSS_OFFSET ] ) {
+
+				const wx = cx + ( lx * cr + lz * sr ) * S;
+				const wz = cz + ( - lx * sr + lz * cr ) * S;
+				const total = rad + Math.atan2( lx, lz );
+				const position = [ wx, centerY, wz ];
+				const quaternion = [ 0, Math.sin( total / 2 ), 0, Math.cos( total / 2 ) ];
+
+				rigidBody.create( world, {
+					shape: box.create( { halfExtents } ),
+					motionType: MotionType.STATIC,
+					objectLayer: world._OL_STATIC,
+					position,
+					quaternion,
+					friction: 0.0,
+					restitution: 0.0,
+				} );
+
 				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
 			}
@@ -1045,6 +1104,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 			addChokeWalls( gx, gz, orient, [ - 1, 1 ] );
 
+		} else if ( baseKey === 'track-choke-cross' ) {
+
+			addChokeCrossWalls( gx, gz, orient );
+
 		} else if ( baseKey === 'track-corner' || baseKey === 'track-checkpoint-corner' ) {
 
 			const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S;
@@ -1124,6 +1187,15 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			// Same choke wall colliders at the elevated deck height; the
 			// generic big support rectangle below the deck is added above.
 			addChokeWalls( nx, nz, normalizedOrient, normalizedType === 'elevated-choke-both' ? [ - 1, 1 ] : [ - 1 ], elevatedWallY, ELEVATED_WALL_HALF_H );
+			continue;
+
+		}
+		if ( normalizedType === 'elevated-choke-cross' ) {
+
+			// Pinwheel block, elevated variant: 4 diagonal corner walls at
+			// deck height (support box + flat driving-deck surface are both
+			// generic — added above / via FLAT_ELEVATED_TYPES respectively).
+			addChokeCrossWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
 			continue;
 
 		}

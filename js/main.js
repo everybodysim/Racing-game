@@ -4186,6 +4186,7 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 			else if ( et === 'elevated-4-way' ) required.add( 'elev-track-4-way' );
 			else if ( et === 'elevated-choke-half' ) required.add( 'elev-track-choke-half' );
 			else if ( et === 'elevated-choke-both' ) required.add( 'elev-track-choke-both' );
+			else if ( et === 'elevated-choke-cross' ) required.add( 'elev-choke' );
 			else required.add( 'track-straight' );
 		}
 	}
