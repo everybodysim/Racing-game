@@ -366,6 +366,7 @@ const modelNames = [
 	'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope',
 	'elev-track-3-way', 'elev-track-4-way',
 	'elev-track-choke-half', 'elev-track-choke-both',
+	'elev-choke-4-way',
 	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
 	'untitled',
 	'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d',
@@ -4151,7 +4152,10 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 	const required = new Set( carKeys );
 	required.add( 'garage' );
 	for ( const [ , , key ] of ( customCells || TRACK_CELLS ) ) {
-		required.add( key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key );
+		// 'track-choke-cross' renders via the elev-choke-4-way mesh (no dedicated
+		// ground GLB exists), so require that file instead of a 404.
+		required.add( key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish'
+			: key === 'track-choke-cross' ? 'elev-choke-4-way' : key );
 	}
 	if ( extras?.worldPreset !== 'pool-filled' ) {
 		required.add( 'decoration-empty' );
@@ -4186,7 +4190,7 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 			else if ( et === 'elevated-4-way' ) required.add( 'elev-track-4-way' );
 			else if ( et === 'elevated-choke-half' ) required.add( 'elev-track-choke-half' );
 			else if ( et === 'elevated-choke-both' ) required.add( 'elev-track-choke-both' );
-			else if ( et === 'elevated-choke-cross' ) required.add( 'elev-choke' );
+			else if ( et === 'elevated-choke-cross' ) required.add( 'elev-choke-4-way' );
 			else required.add( 'track-straight' );
 		}
 	}

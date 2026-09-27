@@ -875,7 +875,7 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	else if ( type === 'elevated-3-way' ) modelKey = 'elev-track-3-way';
 	else if ( type === 'elevated-choke-half' ) modelKey = 'elev-track-choke-half';
 	else if ( type === 'elevated-choke-both' ) modelKey = 'elev-track-choke-both';
-	else if ( type === 'elevated-choke-cross' ) modelKey = 'elev-choke';
+	else if ( type === 'elevated-choke-cross' ) modelKey = 'elev-choke-4-way';
 	else if ( type === 'elevated-4-way' ) modelKey = 'elev-track-4-way';
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
 	if ( modelKey === 'elev-track-choke-half' || modelKey === 'elev-track-choke-both' ) smoothChokeSourceModel( models[ modelKey ] );
@@ -2166,7 +2166,8 @@ export function smoothChokeSourceModel( model ) {
 
 export function placePiece( models, key, gx, gz, orient ) {
 
-	const modelKey = key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key;
+	const modelKey = key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish'
+		: key === 'track-choke-cross' ? 'elev-choke-4-way' : key;
 	const src = models[ modelKey ];
 	if ( ! src ) return null;
 	// Smooth the choke curve's flat segment normals before cloning (the clone
