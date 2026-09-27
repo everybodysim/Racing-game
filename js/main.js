@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000253';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000254';
 import { buildWallColliders, createSphereBody } from './Physics.js?v=20260926';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -4204,6 +4204,10 @@ async function loadModels( requiredNames = modelNames ) {
 						// The garage is a walk-in scene, so render both sides of every
 						// surface while the other models keep their normal front faces.
 						if ( name === 'garage' ) child.material.side = THREE.DoubleSide;
+						// untitled.glb (empty green plane, Hide Trees mod swap target)
+						// is wound face-down — force two-sided or it renders invisible
+						// from above and leaves see-through holes in the ground.
+						else if ( name === 'untitled' ) child.material.side = THREE.DoubleSide;
 						else if ( ! name.startsWith( 'elev-track-' ) ) child.material.side = THREE.FrontSide;
 
 						// Track blocks must be flat shaded — no light reflections.
@@ -4256,6 +4260,37 @@ async function loadModels( requiredNames = modelNames ) {
 	);
 
 	await Promise.all( promises );
+
+	// Hide Trees mod swap target: untitled.glb is the empty plane, but its
+	// authored flat dark-green renders near-black in daylight and read as
+	// "holes in the ground" next to the bright grass quads. Dress it in the
+	// game's own ground-grass material (clone, forced two-sided in case the
+	// plane's faces wind downward) so replaced tree cells look EXACTLY like
+	// the empty ground around them. Geometry stays untitled.glb.
+	const untitledModel = models[ 'untitled' ];
+	if ( untitledModel ) {
+
+		let grassMat = null;
+		models[ 'empty-deco-grass' ]?.traverse( ( c ) => { if ( ! grassMat && c.isMesh ) grassMat = c.material; } );
+		untitledModel.traverse( ( c ) => {
+
+			if ( ! c.isMesh ) return;
+			if ( grassMat ) {
+
+				const m = grassMat.clone();
+				m.side = THREE.DoubleSide;
+				c.material = m;
+
+			} else {
+
+				c.material.side = THREE.DoubleSide;
+
+			}
+
+		} );
+
+	}
+
 	appendLoadingConsole( `Ready with ${ requiredNames.length } optimized models.` );
 
 }

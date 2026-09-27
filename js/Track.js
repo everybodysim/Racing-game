@@ -1132,10 +1132,11 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	}
 	const waterCellsForDeco = extras && Array.isArray( extras.water ) ? extras.water : [];
 
-	// Official "Hide Trees" mod (visual only): every forest tree — auto-
-	// scattered (near-track buffer AND far forest), cell-placed (default
-	// track forest ring), or editor-decorated — renders as the flat empty
-	// green plane (models/untitled.glb) instead. Trees are
+	// Official "Hide Trees" mod (visual only): every AUTO-placed forest
+	// tree — the scatter (near-track buffer AND far forest) plus the
+	// default track's baked DECO_CELLS ring — renders as the flat empty
+	// green plane (models/untitled.glb) instead. Player-placed trees (map
+	// URL cells, editor decorations) are NEVER touched. Trees are
 	// pure decoration with no colliders, so nothing about physics or
 	// timing changes (js/main.js whitelists the mod for the leaderboard).
 	// Same localStorage key as js/mods-manager.js INSTALLED_MODS_KEY.
@@ -1147,7 +1148,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	} catch { /* malformed list — treat as not installed */ }
 	for ( const [ gx, gz, key, orient ] of cells ) {
 
-		const piece = placePiece( models, hideTreesMod && key === 'decoration-forest' ? 'untitled' : key, gx, gz, orient );
+		const piece = placePiece( models, key, gx, gz, orient );
 		if ( piece ) trackPieceGroup.add( piece );
 
 	}
@@ -1547,7 +1548,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( waterSet.has( `${ gx },${ gz }` ) ) continue;
 			// Don't place a decoration tree under a slope block.
 			if ( slopeCells.has( `${ Number( gx ) },${ Number( gz ) }` ) ) continue;
-			const piece = placePiece( models, hideTreesMod && key === 'decoration-forest' ? 'untitled' : key, gx, gz, orient || 0 );
+			const piece = placePiece( models, key, gx, gz, orient || 0 );
 			if ( piece ) decoGroup.add( piece );
 
 		}
@@ -1628,10 +1629,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 	if ( ! customCells ) {
 
-		// Place hand-authored decorations for the default track
+		// Place hand-authored decorations for the default track. These are
+		// BAKED game content (auto placement), so the Hide Trees mod swaps
+		// the forest trees here too — unlike URL/editor trees, which are
+		// player-placed and stay untouched.
 		for ( const [ gx, gz, key, orient ] of DECO_CELLS ) {
 
-			const piece = placePiece( models, key, gx, gz, orient );
+			const piece = placePiece( models, hideTreesMod && key === 'decoration-forest' ? 'untitled' : key, gx, gz, orient );
 			if ( piece ) decoGroup.add( piece );
 
 		}
