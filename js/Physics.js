@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { rigidBody, box, sphere, MotionType, MotionQuality } from 'crashcat';
 import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
+import { THIN_WALL_SPECS } from './thin-wall-specs.js?v=1';
 
 // Building model definitions. The game's loadModels() scales every 'building-*'
 // model up 10x (see js/main.js); the editor renders the same models at 10x too.
@@ -123,7 +124,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const CHOKE_CROSS_OFFSET = 3.62;
 	const CHOKE_CROSS_HALF_LEN = 1.93;
 	const CHOKE_CROSS_HALF_THICK = 0.35;
-	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'pool-cross' ] );
+	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'elevated-thin-straight', 'elevated-thin-corner', 'elevated-thin-3-way', 'elevated-thin-4-way', 'elevated-wide-thin', 'elevated-wide-thin-corner', 'pool-cross' ] );
 
 	// PERFECT SLOPE SEAM MATH. The slope's driving surface is the TOP face of a
 	// tilted box (half-thickness hy = ELEVATED_SURFACE_HALF_H). The old geometry
@@ -400,6 +401,58 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
 			}
+
+		}
+
+	}
+
+	// Thin-road / wide-to-thin transition blocks: hitbox walls come from
+	// AUTO-GENERATED specs (js/thin-wall-specs.js) fitted to the actual
+	// white-wall triangles in each GLB, so the colliders follow the exact
+	// funnel/arc geometry instead of hand-tuned constants.
+	const THIN_TYPE_TO_SPEC = {
+		'track-thin-straight': 'thin-straight',
+		'track-thin-corner': 'thin-corner',
+		'track-thin-3-way': 'thin-3-way',
+		'track-thin-4-way': 'thin-4-way',
+		'track-wide-thin': 'wide-thin',
+		'track-wide-thin-corner': 'wide-thin-corner',
+		'elevated-thin-straight': 'thin-straight',
+		'elevated-thin-corner': 'thin-corner',
+		'elevated-thin-3-way': 'thin-3-way',
+		'elevated-thin-4-way': 'thin-4-way',
+		'elevated-wide-thin': 'wide-thin',
+		'elevated-wide-thin-corner': 'wide-thin-corner',
+	};
+
+	function addSpecWalls( gx, gz, orient = 0, specKey, centerY = wallY, wallHalfHeight = hHeight ) {
+
+		const spec = THIN_WALL_SPECS[ specKey ];
+		if ( ! spec ) return;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const rad = ( ORIENT_DEG[ orient ] ?? 0 ) * Math.PI / 180;
+		const cr = Math.cos( rad ), sr = Math.sin( rad );
+		for ( const seg of spec ) {
+
+			const lx = seg[ 0 ], lz = seg[ 1 ];
+			const hThk = seg[ 2 ] * S, hLen = seg[ 3 ] * S;
+			const wx = cx + ( lx * cr + lz * sr ) * S;
+			const wz = cz + ( - lx * sr + lz * cr ) * S;
+			const total = rad + seg[ 4 ];
+			const halfExtents = [ hThk, wallHalfHeight, hLen ];
+			const position = [ wx, centerY, wz ];
+			const quaternion = [ 0, Math.sin( total / 2 ), 0, Math.cos( total / 2 ) ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position,
+				quaternion,
+				friction: 0.0,
+				restitution: 0.0,
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
 		}
 
@@ -1114,6 +1167,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 			addChokeCrossWalls( gx, gz, orient );
 
+		} else if ( baseKey === 'track-thin-straight' || baseKey === 'track-thin-corner' || baseKey === 'track-thin-3-way' || baseKey === 'track-thin-4-way' || baseKey === 'track-wide-thin' || baseKey === 'track-wide-thin-corner' ) {
+
+			addSpecWalls( gx, gz, orient, THIN_TYPE_TO_SPEC[ baseKey ] );
+
 		} else if ( baseKey === 'track-corner' || baseKey === 'track-checkpoint-corner' ) {
 
 			const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S;
@@ -1202,6 +1259,15 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			// deck height (support box + flat driving-deck surface are both
 			// generic — added above / via FLAT_ELEVATED_TYPES respectively).
 			addChokeCrossWalls( nx, nz, normalizedOrient, elevatedWallY, ELEVATED_WALL_HALF_H );
+			continue;
+
+		}
+		if ( normalizedType === 'elevated-thin-straight' || normalizedType === 'elevated-thin-corner' || normalizedType === 'elevated-thin-3-way' || normalizedType === 'elevated-thin-4-way' || normalizedType === 'elevated-wide-thin' || normalizedType === 'elevated-wide-thin-corner' ) {
+
+			// Thin / transition blocks, elevated variant: spec walls at deck
+			// height (support box + flat driving-deck surface are generic —
+			// added above / via FLAT_ELEVATED_TYPES respectively).
+			addSpecWalls( nx, nz, normalizedOrient, THIN_TYPE_TO_SPEC[ normalizedType ], elevatedWallY, ELEVATED_WALL_HALF_H );
 			continue;
 
 		}

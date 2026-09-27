@@ -6,8 +6,8 @@ import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000255';
-import { buildWallColliders, createSphereBody } from './Physics.js?v=20260928';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000256';
+import { buildWallColliders, createSphereBody } from './Physics.js?v=20260929';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
@@ -367,6 +367,12 @@ const modelNames = [
 	'elev-track-3-way', 'elev-track-4-way',
 	'elev-track-choke-half', 'elev-track-choke-both',
 	'elev-choke-4-way',
+	'elev-thin-straight',
+	'elev-thin-corner',
+	'elev-thin-3-way',
+	'elev-thin-4-way',
+	'elev-wide-to-thin',
+	'elev-wide-to-thin-corner',
 	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
 	'untitled',
 	'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d',
@@ -4155,7 +4161,7 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 		// 'track-choke-cross' renders via the elev-choke-4-way mesh (no dedicated
 		// ground GLB exists), so require that file instead of a 404.
 		required.add( key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish'
-			: key === 'track-choke-cross' ? 'elev-choke-4-way' : key );
+			: key === 'track-choke-cross' ? 'elev-choke-4-way' : THIN_GROUND_MODEL_KEYS[ key ] || key );
 	}
 	if ( extras?.worldPreset !== 'pool-filled' ) {
 		required.add( 'decoration-empty' );
@@ -4191,6 +4197,12 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 			else if ( et === 'elevated-choke-half' ) required.add( 'elev-track-choke-half' );
 			else if ( et === 'elevated-choke-both' ) required.add( 'elev-track-choke-both' );
 			else if ( et === 'elevated-choke-cross' ) required.add( 'elev-choke-4-way' );
+			else if ( et === 'elevated-thin-straight' ) required.add( 'elev-thin-straight' );
+			else if ( et === 'elevated-thin-corner' ) required.add( 'elev-thin-corner' );
+			else if ( et === 'elevated-thin-3-way' ) required.add( 'elev-thin-3-way' );
+			else if ( et === 'elevated-thin-4-way' ) required.add( 'elev-thin-4-way' );
+			else if ( et === 'elevated-wide-thin' ) required.add( 'elev-wide-to-thin' );
+			else if ( et === 'elevated-wide-thin-corner' ) required.add( 'elev-wide-to-thin-corner' );
 			else required.add( 'track-straight' );
 		}
 	}

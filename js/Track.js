@@ -780,7 +780,7 @@ function computeCausticShade( normal ) {
 
 }
 
-const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'pool-cross' ] );
+const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'elevated-thin-straight', 'elevated-thin-corner', 'elevated-thin-3-way', 'elevated-thin-4-way', 'elevated-wide-thin', 'elevated-wide-thin-corner', 'pool-cross' ] );
 
 function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 
@@ -877,6 +877,12 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	else if ( type === 'elevated-choke-both' ) modelKey = 'elev-track-choke-both';
 	else if ( type === 'elevated-choke-cross' ) modelKey = 'elev-choke-4-way';
 	else if ( type === 'elevated-4-way' ) modelKey = 'elev-track-4-way';
+	else if ( type === 'elevated-thin-straight' ) modelKey = 'elev-thin-straight';
+	else if ( type === 'elevated-thin-corner' ) modelKey = 'elev-thin-corner';
+	else if ( type === 'elevated-thin-3-way' ) modelKey = 'elev-thin-3-way';
+	else if ( type === 'elevated-thin-4-way' ) modelKey = 'elev-thin-4-way';
+	else if ( type === 'elevated-wide-thin' ) modelKey = 'elev-wide-to-thin';
+	else if ( type === 'elevated-wide-thin-corner' ) modelKey = 'elev-wide-to-thin-corner';
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
 	if ( modelKey === 'elev-track-choke-half' || modelKey === 'elev-track-choke-both' ) smoothChokeSourceModel( models[ modelKey ] );
 
@@ -2248,10 +2254,23 @@ export function smoothChokeSourceModel( model ) {
 
 }
 
+// Thin-road / transition blocks have no dedicated ground GLBs — the
+// elevated meshes are reused at ground level with their support legs buried
+// (same convention as track-choke-cross reusing elev-choke-4-way). Shared
+// with main.js + editor.html for model-required lists and render remaps.
+export const THIN_GROUND_MODEL_KEYS = {
+	'track-thin-straight': 'elev-thin-straight',
+	'track-thin-corner': 'elev-thin-corner',
+	'track-thin-3-way': 'elev-thin-3-way',
+	'track-thin-4-way': 'elev-thin-4-way',
+	'track-wide-thin': 'elev-wide-to-thin',
+	'track-wide-thin-corner': 'elev-wide-to-thin-corner',
+};
+
 export function placePiece( models, key, gx, gz, orient ) {
 
 	const modelKey = key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish'
-		: key === 'track-choke-cross' ? 'elev-choke-4-way' : key;
+		: key === 'track-choke-cross' ? 'elev-choke-4-way' : THIN_GROUND_MODEL_KEYS[ key ] || key;
 	const src = models[ modelKey ];
 	if ( ! src ) return null;
 	// Smooth the choke curve's flat segment normals before cloning (the clone

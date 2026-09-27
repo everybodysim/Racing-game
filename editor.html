@@ -679,6 +679,12 @@
 			<button id="btn-choke-half">Choke Half</button>
 			<button id="btn-choke-both">Choke Both</button>
 			<button id="btn-choke-cross">Choke Cross</button>
+			<button id="btn-thin-straight">Thin Straight</button>
+			<button id="btn-thin-corner">Thin Corner</button>
+			<button id="btn-thin-3-way">Thin 3-Way</button>
+			<button id="btn-thin-4-way">Thin 4-Way</button>
+			<button id="btn-wide-thin">Wide-Thin</button>
+			<button id="btn-wide-thin-corner">Wide-Thin Corner</button>
 			<button id="btn-elevated-straight" style="display:none">Elev Straight</button>
 			<button id="btn-elevated-cross" style="display:none">Elev Cross</button>
 			<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
@@ -693,6 +699,12 @@
 			<button id="btn-elevated-choke-half" style="display:none">Elev Choke Half</button>
 			<button id="btn-elevated-choke-both" style="display:none">Elev Choke Both</button>
 			<button id="btn-elevated-choke-cross" style="display:none">Elev Choke Cross</button>
+			<button id="btn-elevated-thin-straight" style="display:none">Elev Thin Straight</button>
+			<button id="btn-elevated-thin-corner" style="display:none">Elev Thin Corner</button>
+			<button id="btn-elevated-thin-3-way" style="display:none">Elev Thin 3-Way</button>
+			<button id="btn-elevated-thin-4-way" style="display:none">Elev Thin 4-Way</button>
+			<button id="btn-elevated-wide-thin" style="display:none">Elev Wide-Thin</button>
+			<button id="btn-elevated-wide-thin-corner" style="display:none">Elev Wide-Thin Corner</button>
 		</div>
 		<div class="toolbar-group" aria-label="Obstacles" data-cat="obstacles">
 			<span class="toolbar-group-label">Obstacles</span>
@@ -903,10 +915,10 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000255';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS } from './js/Track.js?v=1000256';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260928';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260929';
 	import { Vehicle } from './js/Vehicle.js?v=1000228';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
@@ -914,7 +926,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 	const grid = new Map(); // "gx,gz" → { type, orient, isFinish, mesh }
 	const ORIENTATIONS = [ 0, 16, 10, 22 ];
-	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-finish', 'track-checkpoint', 'track-start', 'track-start-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'track-choke-cross' ];
+	const TILE_TYPES = [ 'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-finish', 'track-checkpoint', 'track-start', 'track-start-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'track-choke-cross', 'track-thin-straight', 'track-thin-corner', 'track-thin-3-way', 'track-thin-4-way', 'track-wide-thin', 'track-wide-thin-corner' ];
 	const BUMP_TOOL = 'overlay-bump';
 	const POLE_TOOL = 'overlay-pole';
 	const CUBE_TOOL = 'overlay-cube';
@@ -938,7 +950,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 	const ARC_ORANGE_TOOL = 'arc-orange';
 	const PORTAL_YELLOW_TOOL = 'portal-yellow';
 	const PORTAL_PURPLE_TOOL = 'portal-purple';
-	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'pool-cross' ];
+	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'elevated-thin-straight', 'elevated-thin-corner', 'elevated-thin-3-way', 'elevated-thin-4-way', 'elevated-wide-thin', 'elevated-wide-thin-corner', 'pool-cross' ];
 	const POOL_SLOPE_TOOL = 'pool-slope';
 	const POOL_CROSS_TOOL = 'pool-cross';
 	const POOL_SLOPE_DEPTH = CELL_RAW * 0.34; // matches pool floor depth
@@ -1840,7 +1852,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 	const loader = new GLTFLoader();
 	const objLoader = new OBJLoader();
-	const modelNames = [ 'barrier', 'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'elev-track-choke-half', 'elev-track-choke-both', 'elev-choke-4-way', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
+	const modelNames = [ 'barrier', 'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'elev-track-choke-half', 'elev-track-choke-both', 'elev-choke-4-way', 'elev-thin-straight', 'elev-thin-corner', 'elev-thin-3-way', 'elev-thin-4-way', 'elev-wide-to-thin', 'elev-wide-to-thin-corner', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
 	const models = {};
 	const customAssets = new Map();
 	let customAssetOrder = [];
@@ -2028,7 +2040,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 		cell.roadPieces.forEach( ( roadPiece, idx ) => {
 
 			const modelType = roadPiece.type === 'track-choke-cross' ? 'elev-choke-4-way'
-				: ( roadPiece.type === 'track-checkpoint' || roadPiece.type === 'track-start' || roadPiece.type === 'track-start-finish' ) ? 'track-finish' : roadPiece.type;
+				: ( roadPiece.type === 'track-checkpoint' || roadPiece.type === 'track-start' || roadPiece.type === 'track-start-finish' ) ? 'track-finish' : THIN_GROUND_MODEL_KEYS[ roadPiece.type ] || roadPiece.type;
 			const src = models[ modelType ];
 			if ( ! src ) return;
 				if ( modelType === 'track-choke-half' || modelType === 'track-choke-both' ) smoothChokeSourceModel( src );
@@ -3481,6 +3493,12 @@ function computeCausticShade( normal ) {
 		'elevated-choke-both': 'elev-track-choke-both',
 		'elevated-choke-cross': 'elev-choke-4-way',
 		'elevated-4-way': 'elev-track-4-way',
+		'elevated-thin-straight': 'elev-thin-straight',
+		'elevated-thin-corner': 'elev-thin-corner',
+		'elevated-thin-3-way': 'elev-thin-3-way',
+		'elevated-thin-4-way': 'elev-thin-4-way',
+		'elevated-wide-thin': 'elev-wide-to-thin',
+		'elevated-wide-thin-corner': 'elev-wide-to-thin-corner',
 	};
 
 	function updateGhost( gx, gz ) {
@@ -4635,11 +4653,23 @@ function refreshMovingSpeedUi() {
 		'elevated-choke-half': document.getElementById( 'btn-elevated-choke-half' ),
 		'elevated-choke-both': document.getElementById( 'btn-elevated-choke-both' ),
 		'elevated-choke-cross': document.getElementById( 'btn-elevated-choke-cross' ),
+		'elevated-thin-straight': document.getElementById( 'btn-elevated-thin-straight' ),
+		'elevated-thin-corner': document.getElementById( 'btn-elevated-thin-corner' ),
+		'elevated-thin-3-way': document.getElementById( 'btn-elevated-thin-3-way' ),
+		'elevated-thin-4-way': document.getElementById( 'btn-elevated-thin-4-way' ),
+		'elevated-wide-thin': document.getElementById( 'btn-elevated-wide-thin' ),
+		'elevated-wide-thin-corner': document.getElementById( 'btn-elevated-wide-thin-corner' ),
 		'track-3-way': document.getElementById( 'btn-3way' ),
 		'track-4-way': document.getElementById( 'btn-4way' ),
 		'track-choke-half': document.getElementById( 'btn-choke-half' ),
 		'track-choke-both': document.getElementById( 'btn-choke-both' ),
 		'track-choke-cross': document.getElementById( 'btn-choke-cross' ),
+		'track-thin-straight': document.getElementById( 'btn-thin-straight' ),
+		'track-thin-corner': document.getElementById( 'btn-thin-corner' ),
+		'track-thin-3-way': document.getElementById( 'btn-thin-3-way' ),
+		'track-thin-4-way': document.getElementById( 'btn-thin-4-way' ),
+		'track-wide-thin': document.getElementById( 'btn-wide-thin' ),
+		'track-wide-thin-corner': document.getElementById( 'btn-wide-thin-corner' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
@@ -4924,7 +4954,7 @@ function refreshMovingSpeedUi() {
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-checkpoint-corner', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'track-choke-cross', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-checkpoint-corner', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'track-choke-cross', 'track-thin-straight', 'track-thin-corner', 'track-thin-3-way', 'track-thin-4-way', 'track-wide-thin', 'track-wide-thin-corner', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 
