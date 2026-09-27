@@ -1133,8 +1133,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	const waterCellsForDeco = extras && Array.isArray( extras.water ) ? extras.water : [];
 
 	// Official "Hide Trees" mod (visual only): every forest tree — auto-
-	// scattered, cell-placed (default track forest ring), or editor-
-	// decorated — renders as the flat empty deco plane instead. Trees are
+	// scattered (near-track buffer AND far forest), cell-placed (default
+	// track forest ring), or editor-decorated — renders as the flat empty
+	// green plane (models/untitled.glb) instead. Trees are
 	// pure decoration with no colliders, so nothing about physics or
 	// timing changes (js/main.js whitelists the mod for the leaderboard).
 	// Same localStorage key as js/mods-manager.js INSTALLED_MODS_KEY.
@@ -1146,7 +1147,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	} catch { /* malformed list — treat as not installed */ }
 	for ( const [ gx, gz, key, orient ] of cells ) {
 
-		const piece = placePiece( models, hideTreesMod && key === 'decoration-forest' ? 'decoration-empty' : key, gx, gz, orient );
+		const piece = placePiece( models, hideTreesMod && key === 'decoration-forest' ? 'untitled' : key, gx, gz, orient );
 		if ( piece ) trackPieceGroup.add( piece );
 
 	}
@@ -1546,7 +1547,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( waterSet.has( `${ gx },${ gz }` ) ) continue;
 			// Don't place a decoration tree under a slope block.
 			if ( slopeCells.has( `${ Number( gx ) },${ Number( gz ) }` ) ) continue;
-			const piece = placePiece( models, hideTreesMod && key === 'decoration-forest' ? 'decoration-empty' : key, gx, gz, orient || 0 );
+			const piece = placePiece( models, hideTreesMod && key === 'decoration-forest' ? 'untitled' : key, gx, gz, orient || 0 );
 			if ( piece ) decoGroup.add( piece );
 
 		}
@@ -1837,9 +1838,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		createInstances( models[ 'decoration-empty' ], emptyPositions, true );
+		createInstances( models[ hideTreesMod ? 'untitled' : 'decoration-empty' ], emptyPositions, true );
 		createInstances( models[ 'empty-deco-grass' ], grassPositions );
-		createInstances( models[ hideTreesMod ? 'decoration-empty' : 'decoration-forest' ], forestPositions, true );
+		createInstances( models[ hideTreesMod ? 'untitled' : 'decoration-forest' ], forestPositions, true );
 
 	}
 
