@@ -885,10 +885,11 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	else if ( type === 'elevated-wide-thin-corner' ) modelKey = 'elev-wide-to-thin-corner';
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
 	if ( modelKey === 'elev-track-choke-half' || modelKey === 'elev-track-choke-both' ) smoothChokeSourceModel( models[ modelKey ] );
+	if ( THIN_MODEL_KEYS.has( modelKey ) ) smoothThinSourceModel( models[ modelKey ] );
 
 	const piece = models[ modelKey ].clone();
 	// The cross-corner mesh can be viewed from inside the corner opening, so render both faces
-	if ( type === 'elevated-cross-corner' || type === 'elevated-choke-half' || type === 'elevated-choke-both' ) {
+	if ( type === 'elevated-cross-corner' || type === 'elevated-choke-half' || type === 'elevated-choke-both' || THIN_MODEL_KEYS.has( modelKey ) ) {
 
 	piece.traverse( ( child ) => {
 
@@ -2234,6 +2235,35 @@ function splitChokeTrees( model ) {
 
 }
 
+// Thin-road / transition blocks: smooth the chunky faceted arc corners of
+// the shell meshes (same crease-limited smoothing as the choke shells), but
+// leave the baked tree meshes alone so they keep their authored hard
+// normals (same rule as normal forest trees).
+export const THIN_MODEL_KEYS = new Set( [ 'elev-thin-straight', 'elev-thin-corner', 'elev-thin-3-way', 'elev-thin-4-way', 'elev-wide-to-thin', 'elev-wide-to-thin-corner' ] );
+
+export function smoothThinSourceModel( model ) {
+
+	if ( ! model || model.userData.__thinSmoothed ) return;
+	model.userData.__thinSmoothed = true;
+	model.traverse( ( child ) => {
+
+		if ( ! ( child.isMesh && child.geometry && child.geometry.attributes.position && child.geometry.attributes.uv ) ) return;
+		const uv = child.geometry.attributes.uv;
+		let isTree = false;
+		for ( let i = 0; i < uv.count; i++ ) {
+
+			const u = uv.getX( i );
+			// Baked tree texels: foliage u ~0.094-0.108, trunk u ~0.844 (same
+			// bands as splitChokeTrees uses for the choke shells).
+			if ( ( u >= 0.09 && u <= 0.11 ) || ( u >= 0.84 && u <= 0.856 ) ) { isTree = true; break; }
+
+		}
+		if ( ! isTree ) smoothNormalsByPosition( child.geometry );
+
+	} );
+
+}
+
 export function smoothChokeSourceModel( model ) {
 
 	if ( ! model || model.userData.__chokeSmoothed ) return;
@@ -2276,6 +2306,7 @@ export function placePiece( models, key, gx, gz, orient ) {
 	// Smooth the choke curve's flat segment normals before cloning (the clone
 	// shares geometry, so the source must be reworked first).
 	if ( modelKey === 'track-choke-half' || modelKey === 'track-choke-both' ) smoothChokeSourceModel( src );
+	if ( THIN_MODEL_KEYS.has( modelKey ) ) smoothThinSourceModel( src );
 
 	const piece = src.clone();
 	const yOffset = ( String( key || '' ).startsWith( 'decoration-' ) || String( key || '' ).startsWith( 'building-' ) ) ? DECORATION_HEIGHT_OFFSET : VISUAL_HEIGHT_OFFSET;
@@ -2283,7 +2314,7 @@ export function placePiece( models, key, gx, gz, orient ) {
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
-	if ( modelKey === 'track-choke-half' || modelKey === 'track-choke-both' ) {
+	if ( modelKey === 'track-choke-half' || modelKey === 'track-choke-both' || THIN_MODEL_KEYS.has( modelKey ) ) {
 
 		// The pinch walls are viewable from inside the choke opening, so render
 		// both faces (same treatment as the elevated blocks). Materials are

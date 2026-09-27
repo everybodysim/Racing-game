@@ -915,10 +915,10 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS } from './js/Track.js?v=1000256';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000257';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260929';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260930';
 	import { Vehicle } from './js/Vehicle.js?v=1000228';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
@@ -2044,6 +2044,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 			const src = models[ modelType ];
 			if ( ! src ) return;
 				if ( modelType === 'track-choke-half' || modelType === 'track-choke-both' ) smoothChokeSourceModel( src );
+				if ( THIN_MODEL_KEYS.has( modelType ) ) smoothThinSourceModel( src );
 
 				const mesh = src.clone();
 				// The 4-way's road deck sits a hair below ground level — nudge it
@@ -2058,7 +2059,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 						// Choke pinch walls are viewable from inside the opening —
 						// render both faces (guarded, shared source materials).
-						if ( ( modelType === 'track-choke-half' || modelType === 'track-choke-both' ) && c.material && ! c.material.__doubleSided ) {
+						if ( ( modelType === 'track-choke-half' || modelType === 'track-choke-both' || THIN_MODEL_KEYS.has( modelType ) ) && c.material && ! c.material.__doubleSided ) {
 
 							( Array.isArray( c.material ) ? c.material : [ c.material ] ).forEach( ( m ) => {
 
@@ -2200,12 +2201,19 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 				'elevated-choke-both': 'elev-track-choke-both',
 				'elevated-choke-cross': 'elev-choke-4-way',
 				'elevated-4-way': 'elev-track-4-way',
+				'elevated-thin-straight': 'elev-thin-straight',
+				'elevated-thin-corner': 'elev-thin-corner',
+				'elevated-thin-3-way': 'elev-thin-3-way',
+				'elevated-thin-4-way': 'elev-thin-4-way',
+				'elevated-wide-thin': 'elev-wide-to-thin',
+				'elevated-wide-thin-corner': 'elev-wide-to-thin-corner',
 			};
 			const sourceType = elevatedModelKeys[ normalizedType ] || 'elev-track-straight';
 			const elevatedSrc = models[ sourceType ];
 			if ( elevatedSrc ) {
 
 				if ( sourceType === 'elev-track-choke-half' || sourceType === 'elev-track-choke-both' ) smoothChokeSourceModel( elevatedSrc );
+				if ( THIN_MODEL_KEYS.has( sourceType ) ) smoothThinSourceModel( elevatedSrc );
 				const elevated = elevatedSrc.clone();
 				const yAdjust = normalizedType === 'elevated-4-way' ? 0.1 : ( ( normalizedType === 'slope-up' || normalizedType === 'pool-cross' ) ? - ELEVATED_HEIGHT : 0 );
 				elevated.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust, ( gz + 0.5 ) * CELL_RAW );
@@ -3375,9 +3383,10 @@ function computeCausticShade( normal ) {
 
 	function addGhostPiece( type, orient, gx, gz, opacity, target ) {
 
-		const modelType = ( type === 'track-checkpoint' || type === 'track-start' || type === 'track-start-finish' ) ? 'track-finish' : type;
+		const modelType = ( type === 'track-checkpoint' || type === 'track-start' || type === 'track-start-finish' ) ? 'track-finish' : THIN_GROUND_MODEL_KEYS[ type ] || type;
 		const src = models[ modelType ];
 		if ( ! src ) return;
+		if ( THIN_MODEL_KEYS.has( modelType ) ) smoothThinSourceModel( src );
 
 		const mesh = src.clone();
 		mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET, ( gz + 0.5 ) * CELL_RAW );
@@ -3560,7 +3569,7 @@ function computeCausticShade( normal ) {
 			return;
 
 		}
-		addGhostPiece( REMOTE_GHOST_MODEL_KEYS[ selectedType ] || ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : selectedType ), selectedOrient, gx, gz, 0.4 );
+		addGhostPiece( REMOTE_GHOST_MODEL_KEYS[ selectedType ] || ( SURFACE_TYPES.includes( selectedType ) ? 'track-straight' : THIN_GROUND_MODEL_KEYS[ selectedType ] || selectedType ), selectedOrient, gx, gz, 0.4 );
 
 	}
 

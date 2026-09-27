@@ -1,16 +1,18 @@
 // AUTO-GENERATED hitbox wall specs for the thin-road / wide-to-thin
 // transition blocks. Extracted from the raised white-wall triangles in
 // each GLB (atlas UV band u 0.585-0.625, y>0.1 so road-level paint
-// medians are excluded), triangle-proximity-clustered into wall chains
-// and fitted with recursive residual-split rotated boxes. Local cell
-// coords, origin at cell center, units = raw cell units (cell -5..5).
+// medians are excluded), with the GLB NODE rotation baked into the
+// vertices (the renderer applies it; the specs must match what you
+// SEE, not the raw vertex data). Triangle-proximity-clustered into wall
+// chains, fitted with recursive residual-split rotated boxes. Local
+// cell coords, origin at cell center, units = raw cell units (-5..5).
 // Box entry: [ cx, cz, halfThickness, halfLength, yawRadians ];
 // box long axis is local Z rotated by yaw (yaw 0 = along +z).
 // Regenerate from the GLBs if the models change.
 export const THIN_WALL_SPECS = {
   'thin-straight': [
-	[ 2.25, 0.0, 0.27, 5.12, 0.0 ],
 	[ -2.25, 0.0, 0.27, 5.12, 0.0 ],
+	[ 2.25, 0.0, 0.27, 5.12, 0.0 ],
   ],
   'thin-corner': [
 	[ 2.122, 3.954, 0.27, 1.211, 0.1478 ],
@@ -24,25 +26,17 @@ export const THIN_WALL_SPECS = {
 	[ -4.533, 2.407, 0.27, 0.711, -2.0273 ],
   ],
   'thin-3-way': [
-	[ -2.384, 4.582, 0.27, 0.67, 0.4908 ],
-	[ -2.48, 3.712, 0.27, 0.672, 0.6507 ],
-	[ -3.638, 2.514, 0.27, 0.671, -2.2821 ],
-	[ -4.533, 2.407, 0.27, 0.711, -2.0273 ],
-	[ -4.582, -2.384, 0.27, 0.67, -1.08 ],
-	[ -3.712, -2.48, 0.27, 0.672, -0.9201 ],
-	[ -2.514, -3.638, 0.27, 0.671, -0.7113 ],
-	[ -2.407, -4.533, 0.27, 0.711, -0.4565 ],
-	[ 2.25, 0.0, 0.27, 5.12, 0.0 ],
-  ],
-  'thin-4-way': [
-	[ -2.384, 4.582, 0.27, 0.67, 0.4908 ],
-	[ -2.48, 3.712, 0.27, 0.672, 0.6507 ],
-	[ -3.638, 2.514, 0.27, 0.671, -2.2821 ],
-	[ -4.533, 2.407, 0.27, 0.711, -2.0273 ],
 	[ 4.582, 2.384, 0.27, 0.67, -1.08 ],
 	[ 3.712, 2.48, 0.27, 0.672, -0.9201 ],
 	[ 2.514, 3.638, 0.27, 0.671, -0.7113 ],
 	[ 2.407, 4.533, 0.27, 0.711, -0.4565 ],
+	[ -2.384, 4.582, 0.27, 0.67, 0.4908 ],
+	[ -2.48, 3.712, 0.27, 0.672, 0.6507 ],
+	[ -3.638, 2.514, 0.27, 0.671, -2.2821 ],
+	[ -4.533, 2.407, 0.27, 0.711, -2.0273 ],
+	[ 0.0, -2.25, 0.27, 5.12, 1.5708 ],
+  ],
+  'thin-4-way': [
 	[ 2.384, -4.582, 0.27, 0.67, 0.4908 ],
 	[ 2.48, -3.712, 0.27, 0.672, 0.6507 ],
 	[ 3.638, -2.514, 0.27, 0.671, -2.2821 ],
@@ -51,10 +45,18 @@ export const THIN_WALL_SPECS = {
 	[ -3.712, -2.48, 0.27, 0.672, -0.9201 ],
 	[ -2.514, -3.638, 0.27, 0.671, -0.7113 ],
 	[ -2.407, -4.533, 0.27, 0.711, -0.4565 ],
+	[ -2.384, 4.582, 0.27, 0.67, 0.4908 ],
+	[ -2.48, 3.712, 0.27, 0.672, 0.6507 ],
+	[ -3.638, 2.514, 0.27, 0.671, -2.2821 ],
+	[ -4.533, 2.407, 0.27, 0.711, -2.0273 ],
+	[ 4.582, 2.384, 0.27, 0.67, -1.08 ],
+	[ 3.712, 2.48, 0.27, 0.672, -0.9201 ],
+	[ 2.514, 3.638, 0.27, 0.671, -0.7113 ],
+	[ 2.407, 4.533, 0.27, 0.711, -0.4565 ],
   ],
   'wide-thin': [
-	[ 3.495, 0.0, 0.27, 5.336, 0.2462 ],
-	[ -3.497, 0.0, 0.27, 5.335, -0.2459 ],
+	[ -3.495, 0.0, 0.27, 5.336, 0.2462 ],
+	[ 3.497, 0.0, 0.27, 5.335, -0.2459 ],
   ],
   'wide-thin-corner': [
 	[ -4.249, 4.128, 0.27, 1.245, -0.4984 ],
