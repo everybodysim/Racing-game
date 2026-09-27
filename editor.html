@@ -903,7 +903,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000254';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel } from './js/Track.js?v=1000255';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260928';
@@ -2082,7 +2082,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 						// proxy-cast silhouette self-shadows the grazing curve
 						// faces (shredded acne with shadows on, fine off).
 						// They still cast, so the ground shadow stays.
-						c.receiveShadow = modelType !== 'track-choke-half' && modelType !== 'track-choke-both';
+						c.receiveShadow = ( modelType !== 'track-choke-half' && modelType !== 'track-choke-both' ) || !! c.userData.isChokeTreeMesh;
 
 				}
 
@@ -2206,7 +2206,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 						c.castShadow = true;
 						// Elevated choke shells don't sample the shadow map (self-shadow
 						// acne on the grazing curve faces — see ground placement note).
-						c.receiveShadow = sourceType !== 'elev-track-choke-half' && sourceType !== 'elev-track-choke-both';
+						c.receiveShadow = ( sourceType !== 'elev-track-choke-half' && sourceType !== 'elev-track-choke-both' ) || !! c.userData.isChokeTreeMesh;
 						// GLB materials are single-sided; seen from underneath / behind, the
 						// faces vanish and cast broken shadows. Render every elevated block
 						// double-sided. Materials are shared with the source model, so this

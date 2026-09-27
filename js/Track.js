@@ -895,7 +895,10 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	// grazing curve faces — see the placePiece choke branch for the full note).
 	if ( type === 'elevated-choke-half' || type === 'elevated-choke-both' ) {
 
-	piece.traverse( ( child ) => { child.userData.isChokeMesh = true; } );
+	// The baked-in tree meshes are split out (see splitChokeTrees) and must
+	// sample the shadow map like normal trees — only the pinch shell gets
+	// the anti-acne receiveShadow=false tag.
+	piece.traverse( ( child ) => { if ( ! child.userData.isChokeTreeMesh ) child.userData.isChokeMesh = true; } );
 
 	}
 	// Slope model is pre-sloped at the correct size — place at ground level, no scaling.
@@ -2150,14 +2153,95 @@ function smoothNormalsByPosition( geometry, precision = 4, maxCreaseCos = 0.7071
 
 }
 
+// Choke shells bake TREES into the same mesh as the pinch walls, but the
+// tree triangles are cleanly separable by atlas UV: foliage samples the
+// u≈0.094/0.108 strip and trunks the u≈0.844 strip — the exact texels
+// decoration-forest uses — while every shell/road/wall texel sits between
+// u=0.219 and u=0.719. (User report 2026-09-27: the baked trees inherited
+// the shell's receiveShadow=false anti-acne tag, so they rendered fully
+// sunlit — "sand brown" trunks instead of shaded tree brown like normal
+// trees, which self-shadow under their canopies.)
+const CHOKE_TREE_U_BANDS = [ [ 0.08, 0.12 ], [ 0.83, 0.86 ] ];
+
+function isChokeTreeU( u ) {
+
+	for ( const [ lo, hi ] of CHOKE_TREE_U_BANDS ) if ( u >= lo && u <= hi ) return true;
+	return false;
+
+}
+
+function splitChokeTrees( model ) {
+
+	const meshes = [];
+	model.traverse( ( child ) => {
+
+		if ( child.isMesh && child.geometry && child.geometry.index && child.geometry.attributes.uv && ! Array.isArray( child.material ) ) meshes.push( child );
+
+	} );
+	for ( const child of meshes ) {
+
+		const idx = child.geometry.index.array;
+		const uv = child.geometry.attributes.uv;
+		const triCount = idx.length / 3;
+		const shellIdx = [];
+		const treeIdx = [];
+		for ( let t = 0; t < triCount; t ++ ) {
+
+			const a = idx[ t * 3 ], b = idx[ t * 3 + 1 ], c = idx[ t * 3 + 2 ];
+			if ( isChokeTreeU( uv.getX( a ) ) && isChokeTreeU( uv.getX( b ) ) && isChokeTreeU( uv.getX( c ) ) ) treeIdx.push( a, b, c );
+			else shellIdx.push( a, b, c );
+
+		}
+		if ( ! treeIdx.length || ! shellIdx.length ) continue; // nothing to split
+		const makeGeom = ( indices ) => {
+
+			const g = new THREE.BufferGeometry();
+			for ( const name of Object.keys( child.geometry.attributes ) ) {
+
+				g.setAttribute( name, child.geometry.attributes[ name ].clone() );
+
+			}
+			g.setIndex( indices );
+			return g;
+
+		};
+		const parts = [
+			{ mesh: new THREE.Mesh( makeGeom( shellIdx ), child.material ), tree: false },
+			{ mesh: new THREE.Mesh( makeGeom( treeIdx ), child.material ), tree: true },
+		];
+		for ( const { mesh, tree } of parts ) {
+
+			mesh.name = ( child.name || 'choke' ) + ( tree ? '-trees' : '-shell' );
+			if ( tree ) mesh.userData.isChokeTreeMesh = true;
+			mesh.position.copy( child.position );
+			mesh.quaternion.copy( child.quaternion );
+			mesh.scale.copy( child.scale );
+			mesh.visible = child.visible;
+			mesh.castShadow = child.castShadow;
+			mesh.receiveShadow = child.receiveShadow;
+			child.parent.add( mesh );
+
+		}
+		child.parent.remove( child );
+
+	}
+
+}
+
 export function smoothChokeSourceModel( model ) {
 
 	if ( ! model || model.userData.__chokeSmoothed ) return;
 
 	model.userData.__chokeSmoothed = true;
+
+	// Split the baked trees out FIRST: the shell keeps its crease-limited arc
+	// smoothing (anti-acne), while the trees keep their authored hard normals
+	// exactly like the normal forest trees (which are never smoothed).
+	splitChokeTrees( model );
 	model.traverse( ( child ) => {
 
 		if ( ! ( child.isMesh && child.geometry && child.geometry.attributes.position ) ) return;
+		if ( child.userData.isChokeTreeMesh ) return;
 		smoothNormalsByPosition( child.geometry );
 
 	} );
@@ -2192,6 +2276,9 @@ export function placePiece( models, key, gx, gz, orient ) {
 		// receiveShadow pass at the end of buildTrack respects the tag.
 		piece.traverse( ( child ) => {
 
+			// Tree meshes split out of the shell (splitChokeTrees) keep normal
+			// shadowing — only the pinch shell is tagged with the anti-acne flag.
+			if ( child.userData.isChokeTreeMesh ) return;
 			child.userData.isChokeMesh = true;
 			if ( child.material && ! child.material.__doubleSided ) {
 
