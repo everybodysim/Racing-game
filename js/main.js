@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-import { Vehicle } from './Vehicle.js?v=1000233';
+import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
@@ -188,62 +188,7 @@ initMultiplayerPanel();
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color( 0xadb2ba );
-
-	// ENVIRONMENT for real reflections: metalness/roughness (garage paint
-	// sliders) are meaningless without something to reflect. A small
-	// equirect sky-to-ground gradient gives every PBR material a source.
-	// Road blocks are unaffected (their envMapIntensity is 0); car paint
-	// gets genuine sky/ground reflections so shiny paints read as chrome.
-	const carEnvTexture = ( () => {
-
-		// Environments need FEATURES to reflect: a featureless gradient makes
-		// metal paint look darker, not shinier (metalness kills diffuse and a
-		// smooth env gives back nothing). Add a hot sun disc + bright horizon
-		// band so glossy surfaces catch moving glints that read as shine.
-		const W = 256, H = 128;
-		const c = document.createElement( 'canvas' );
-		c.width = W; c.height = H;
-		const ctx = c.getContext( '2d' );
-		const g = ctx.createLinearGradient( 0, 0, 0, H );
-		g.addColorStop( 0.00, '#aee0ff' );
-		g.addColorStop( 0.42, '#f4fbff' );
-		g.addColorStop( 0.50, '#e8f4e2' );
-		g.addColorStop( 0.58, '#7fae6b' );
-		g.addColorStop( 1.00, '#48693f' );
-		ctx.fillStyle = g;
-		ctx.fillRect( 0, 0, W, H );
-		// Sun disc — the highlight source for chrome/gloss paint
-		const sunX = W * 0.68, sunY = H * 0.24;
-		const sun = ctx.createRadialGradient( sunX, sunY, 2, sunX, sunY, 26 );
-		sun.addColorStop( 0, 'rgba(255,255,255,1)' );
-		sun.addColorStop( 0.35, 'rgba(255,253,235,0.95)' );
-		sun.addColorStop( 1, 'rgba(255,250,220,0)' );
-		ctx.fillStyle = sun;
-		ctx.fillRect( sunX - 30, sunY - 30, 60, 60 );
-		// Hot horizon band for long streak reflections along body panels
-		ctx.fillStyle = 'rgba(255,255,255,0.55)';
-		ctx.fillRect( 0, H * 0.46, W, 3 );
-		const tex = new THREE.CanvasTexture( c );
-		tex.mapping = THREE.EquirectangularReflectionMapping;
-		tex.colorSpace = THREE.SRGBColorSpace;
-		return tex;
-
-	} )();
-	// CAR-PAINT-ONLY environment: assigning this to scene.environment lit
-	// every standard material in the world (washed-out, "less vibrant" look).
-	// Publish it for car materials instead — the world keeps its original look.
-	window.__carStaticEnv = carEnvTexture;
-
-	// REAL scene reflections for mirror-tier finishes. The static environment
-	// gradient can never "play the game" in the paint — a cube camera at the
-	// car samples the live scene (car hidden during capture) so max-metalness
-	// paint reflects the actual track. Updated in the animate loop only while
-	// the finish is metallic (SHINY_MATERIAL_TUNING.metalness >= 0.3).
-	const CAR_MIRROR_RT = new THREE.WebGLCubeRenderTarget( 256, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter } );
-	window.__carMirrorRT = CAR_MIRROR_RT; // Vehicle.js + retune access
-	const carMirrorCamera = new THREE.CubeCamera( 0.1, 120, CAR_MIRROR_RT );
-	scene.add( carMirrorCamera );
-	let carMirrorFrame = 0;
+scene.fog = new THREE.Fog( 0xadb2ba, 30, 55 );
 
 const skyUniforms = {
 	topColor: { value: new THREE.Color( '#6fb9ff' ) },
@@ -5956,20 +5901,6 @@ async function init() {
 					if ( remapped.hasShiny ) applyShinyFinish( material );
 
 				}
-				const T = window.__shinyTuning || { metalness: 0, roughness: 0.7 };
-				// Applying paint must carry the current finish tuning on EVERY
-				// material — matte-palette repaints used to keep whatever
-				// metalness/roughness they had, so the finish sliders seemed dead.
-				if ( typeof material.metalness === 'number' ) {
-
-					material.metalness = T.metalness;
-					material.roughness = T.roughness;
-					material.envMapIntensity = 1.2 + T.metalness * 1.3;
-					const boost = 1 + T.metalness * T.metalness * 0.6;
-					if ( material.color && typeof material.color.multiplyScalar === 'function' ) { material.color.multiplyScalar( boost ); material.userData.__finishBoost = boost; }
-					material.envMap = T.metalness >= 0.3 ? window.__carMirrorRT.texture : ( window.__carStaticEnv || null );
-
-				}
 				material.transparent = opacity < 1;
 				material.opacity = opacity;
 				material.depthWrite = opacity >= 1;
@@ -7100,105 +7031,6 @@ async function init() {
 	const garageClearSelectionBtn = document.getElementById( 'garage-clear-selection-btn' );
 	const garageRepaintToleranceInput = document.getElementById( 'garage-repaint-tolerance' );
 	const garageRepaintToleranceValue = document.getElementById( 'garage-repaint-tolerance-value' );
-	const garageFinishMetalInput = document.getElementById( 'garage-finish-metal' );
-	const garageFinishMetalValue = document.getElementById( 'garage-finish-metal-value' );
-	const garageFinishRoughInput = document.getElementById( 'garage-finish-rough' );
-	const garageFinishRoughValue = document.getElementById( 'garage-finish-rough-value' );
-
-	// SHINY PAINT FINISH SLIDERS: live-tune metalness/roughness of every
-	// shiny-painted material (in-game car, garage preview, remote cars),
-	// then persist. No restrictions are re-imposed on the car: the road
-	// PBR-zeroing pass only touches track-/elev- block models, and
-	// Vehicle.js floors (never zeroes) body metalness.
-	function syncGarageFinishSliders() {
-
-		if ( garageFinishMetalInput ) {
-
-			garageFinishMetalInput.value = String( SHINY_MATERIAL_TUNING.metalness );
-			if ( garageFinishMetalValue ) garageFinishMetalValue.textContent = Number( SHINY_MATERIAL_TUNING.metalness ).toFixed( 2 );
-
-		}
-		if ( garageFinishRoughInput ) {
-
-			garageFinishRoughInput.value = String( SHINY_MATERIAL_TUNING.roughness );
-			if ( garageFinishRoughValue ) garageFinishRoughValue.textContent = Number( SHINY_MATERIAL_TUNING.roughness ).toFixed( 2 );
-
-		}
-
-	}
-
-	function retuneShinyPaintFinish() {
-
-		// TDZ-safe: boot paths can call this before SHINY_MATERIAL_TUNING executes.
-		const T = window.__shinyTuning || { metalness: 0, roughness: 0.7 };
-
-		// Default-finish car materials (never shiny-palette-painted) are not in
-		// the registry — retune the active cars' materials directly too.
-		// localPlayerVehicle is the module-level handle assigned right after
-		// Vehicle creation (the local `vehicle` const inside init() is not
-		// reachable from here).
-		for ( const veh of [ localPlayerVehicle ] ) {
-			if ( ! veh?.container?.traverse ) continue;
-			veh.container.traverse( ( child ) => {
-				if ( ! child?.material ) return;
-				for ( const m of ( Array.isArray( child.material ) ? child.material : [ child.material ] ) ) {
-					if ( m && typeof m.metalness === 'number' ) {
-
-						m.metalness = T.metalness;
-						m.roughness = T.roughness;
-						// Reflections are tinted by the paint texels — a dark paint
-						// mirrors through a black filter and reads as matte. Scale
-						// env intensity and the base color with metalness (idempotent
-						// via __finishBoost) so full metal reads as chrome on ANY paint.
-						m.envMapIntensity = 1.2 + T.metalness * 1.3;
-						const boost = 1 + T.metalness * T.metalness * 0.6;
-						const prev = m.userData.__finishBoost || 1;
-						if ( m.color && typeof m.color.multiplyScalar === 'function' ) { m.color.multiplyScalar( boost / prev ); m.userData.__finishBoost = boost; }
-						// Mirror-tier: sample the LIVE scene cube instead of the static
-						// gradient once metalness passes 0.3.
-						m.envMap = T.metalness >= 0.3 ? window.__carMirrorRT.texture : ( window.__carStaticEnv || null );
-						m.needsUpdate = true;
-
-					}
-				}
-			} );
-		}
-		let touched = 0;
-		for ( const material of shinyPaintMaterials ) {
-
-			if ( typeof material.metalness === 'number' ) { material.metalness = SHINY_MATERIAL_TUNING.metalness; touched ++; }
-			if ( typeof material.roughness === 'number' ) material.roughness = SHINY_MATERIAL_TUNING.roughness;
-			if ( material.needsUpdate !== undefined ) material.needsUpdate = true;
-
-		}
-		return touched;
-
-	}
-
-	if ( garageFinishMetalInput ) {
-
-		garageFinishMetalInput.addEventListener( 'input', () => {
-
-			SHINY_MATERIAL_TUNING.metalness = Number( garageFinishMetalInput.value );
-			if ( garageFinishMetalValue ) garageFinishMetalValue.textContent = SHINY_MATERIAL_TUNING.metalness.toFixed( 2 );
-			retuneShinyPaintFinish();
-			saveGarageMods();
-
-		} );
-
-	}
-	if ( garageFinishRoughInput ) {
-
-		garageFinishRoughInput.addEventListener( 'input', () => {
-
-			SHINY_MATERIAL_TUNING.roughness = Number( garageFinishRoughInput.value );
-			if ( garageFinishRoughValue ) garageFinishRoughValue.textContent = SHINY_MATERIAL_TUNING.roughness.toFixed( 2 );
-			retuneShinyPaintFinish();
-			saveGarageMods();
-
-		} );
-
-	}
 	const garageSelectionChip = document.getElementById( 'garage-selection-chip' );
 	const garageMappingStatus = document.getElementById( 'garage-mapping-status' );
 	const garageMappingsList = document.getElementById( 'garage-mappings-list' );
@@ -7299,10 +7131,9 @@ async function init() {
 	const GARAGE_STANDARD_PALETTE = buildGaragePaintPalette();
 	const GARAGE_SHINY_PALETTE = buildGarageShinyPalette();
 	const GARAGE_PAINT_PALETTE = [ ...GARAGE_STANDARD_PALETTE, ...GARAGE_SHINY_PALETTE ];
-	const shinyPaintMaterials = new Set(); // every material that received a shiny paint finish (slider retunes these live)
 	const SHINY_MATERIAL_TUNING = {
-		metalness: 0,
-		roughness: 0.7,
+		metalness: 0.9,
+		roughness: 0.04,
 		envMapIntensity: 4.0,
 		brightnessBoost: 1.45,
 		emissiveBoost: 0.22,
@@ -7311,7 +7142,6 @@ async function init() {
 		specularIntensity: 1.0,
 		phongShininess: 220,
 	};
-	window.__shinyTuning = SHINY_MATERIAL_TUNING; // TDZ-safe access for early-boot paths
 	const GARAGE_DEFAULT_PAINT_UNLOCKS = new Set( [ GARAGE_STANDARD_PALETTE[ 0 ]?.id, GARAGE_STANDARD_PALETTE[ 1 ]?.id, GARAGE_STANDARD_PALETTE[ 11 ]?.id ].filter( Boolean ) );
 	let selectedPaintColorId = GARAGE_PAINT_PALETTE[ 0 ]?.id || '';
 	let selectedGarageSourceHex = '';
@@ -8150,7 +7980,7 @@ async function init() {
 
 	function saveGarageMods() {
 
-		localStorage.setItem( garageStoreKey, JSON.stringify( { mods: garageMods, unlocked: garageUnlocked, cosmetics: compactGarageCosmetics( garageCosmetics ), finish: { metalness: SHINY_MATERIAL_TUNING.metalness, roughness: SHINY_MATERIAL_TUNING.roughness } } ) );
+		localStorage.setItem( garageStoreKey, JSON.stringify( { mods: garageMods, unlocked: garageUnlocked, cosmetics: compactGarageCosmetics( garageCosmetics ) } ) );
 
 	}
 
@@ -8164,14 +7994,6 @@ async function init() {
 			garageMods = { grip: GARAGE_FIXED_MULTIPLIER, accel: GARAGE_FIXED_MULTIPLIER, drive: GARAGE_FIXED_MULTIPLIER };
 			garageUnlocked = { grip: true, accel: true, drive: true };
 			garageCosmetics = normalizeGarageCosmetics( parsed?.cosmetics );
-			// Saved shiny-paint finish (metalness/roughness sliders)
-			const fin = parsed?.finish;
-			if ( fin ) {
-
-				if ( Number.isFinite( Number( fin.metalness ) ) ) SHINY_MATERIAL_TUNING.metalness = Math.max( 0, Math.min( 1, Number( fin.metalness ) ) );
-				if ( Number.isFinite( Number( fin.roughness ) ) ) SHINY_MATERIAL_TUNING.roughness = Math.max( 0, Math.min( 1, Number( fin.roughness ) ) );
-
-			}
 
 		} catch ( e ) {
 
@@ -8686,7 +8508,6 @@ async function init() {
 		renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 		renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, 1.5 ) );
 		const scene = new THREE.Scene();
-		scene.environment = carEnvTexture;
 		const camera = new THREE.PerspectiveCamera( 34, 1, 0.1, 100 );
 		// Frame the car properly: closer in AND pitched down at it. The old
 		// (0, 1.25, 5.2) rig never lookAt-ed the car, so it sat as a tiny
@@ -9017,7 +8838,6 @@ async function init() {
 			if ( ! canvas ) continue;
 			const ctx2d = canvas.getContext( '2d' );
 			const scene = new THREE.Scene();
-			scene.environment = carEnvTexture;
 			scene.add( new THREE.AmbientLight( 0xffffff, 3.0 ) );
 			const dir = new THREE.DirectionalLight( 0xffffff, 1.2 );
 			dir.position.set( 2, 3, 2 );
@@ -9397,23 +9217,20 @@ async function init() {
 
 	function applyShinyFinish( material, mappedColor = null ) {
 
-		const T = window.__shinyTuning || { metalness: 0, roughness: 0.7, envMapIntensity: 4.0, brightnessBoost: 1.45, emissiveBoost: 0.22, clearcoat: 1.0, clearcoatRoughness: 0.05, specularIntensity: 1.0, phongShininess: 220 };
-
-		shinyPaintMaterials.add( material ); // garage metalness/roughness sliders retune these live
-		if ( typeof material.metalness === 'number' ) material.metalness = T.metalness;
-		if ( typeof material.roughness === 'number' ) material.roughness = T.roughness;
-		if ( typeof material.envMapIntensity === 'number' ) material.envMapIntensity = T.envMapIntensity;
-		if ( typeof material.clearcoat === 'number' ) material.clearcoat = T.clearcoat;
-		if ( typeof material.clearcoatRoughness === 'number' ) material.clearcoatRoughness = T.clearcoatRoughness;
-		if ( typeof material.specularIntensity === 'number' ) material.specularIntensity = T.specularIntensity;
-		if ( typeof material.shininess === 'number' ) material.shininess = T.phongShininess;
+		if ( typeof material.metalness === 'number' ) material.metalness = SHINY_MATERIAL_TUNING.metalness;
+		if ( typeof material.roughness === 'number' ) material.roughness = SHINY_MATERIAL_TUNING.roughness;
+		if ( typeof material.envMapIntensity === 'number' ) material.envMapIntensity = SHINY_MATERIAL_TUNING.envMapIntensity;
+		if ( typeof material.clearcoat === 'number' ) material.clearcoat = SHINY_MATERIAL_TUNING.clearcoat;
+		if ( typeof material.clearcoatRoughness === 'number' ) material.clearcoatRoughness = SHINY_MATERIAL_TUNING.clearcoatRoughness;
+		if ( typeof material.specularIntensity === 'number' ) material.specularIntensity = SHINY_MATERIAL_TUNING.specularIntensity;
+		if ( typeof material.shininess === 'number' ) material.shininess = SHINY_MATERIAL_TUNING.phongShininess;
 		if ( material.specular && typeof material.specular.setScalar === 'function' ) material.specular.setScalar( 1.0 );
-		if ( material.color ) material.color.multiplyScalar( T.brightnessBoost );
+		if ( material.color ) material.color.multiplyScalar( SHINY_MATERIAL_TUNING.brightnessBoost );
 		if ( material.emissive ) {
 
 			if ( mappedColor ) material.emissive.setRGB( mappedColor.r / 255, mappedColor.g / 255, mappedColor.b / 255 );
 			else material.emissive.copy( material.color );
-			material.emissive.multiplyScalar( T.emissiveBoost );
+			material.emissive.multiplyScalar( SHINY_MATERIAL_TUNING.emissiveBoost );
 
 		}
 
@@ -13558,7 +13375,6 @@ function completeCampaignStage() {
 	loadHacksState();
 	loadStuntStats();
 	loadGarageMods();
-	syncGarageFinishSliders();
 	loadCampaignState();
 	const garageParamEnabled = new URLSearchParams( window.location.search ).get( 'garage' ) === '1';
 	setModeTab( garageParamEnabled ? 'garage' : 'gameplay' );
@@ -13863,21 +13679,6 @@ function completeCampaignStage() {
 
 	let settingsAppliedThisBoot = false;
 	function animate() {
-
-		// Refresh the car-mirror cube camera (every 3rd frame, metallic finishes
-		// only — zero cost for the default matte paint).
-		carMirrorFrame = ( carMirrorFrame + 1 ) % 3;
-		const mirrorTuning = window.__shinyTuning;
-		if ( carMirrorFrame === 0 && mirrorTuning && mirrorTuning.metalness >= 0.3 && localPlayerVehicle?.container ) {
-
-			localPlayerVehicle.container.visible = false;
-			carMirrorCamera.position.copy( localPlayerVehicle.container.position );
-			carMirrorCamera.position.y += 0.6;
-			carMirrorCamera.update( renderer, scene );
-			localPlayerVehicle.container.visible = true;
-
-		}
-
 
 		// ?perf=1 metrics (and future tuning): renderer.info with
 		// autoReset=false accumulates across the WHOLE frame — shadow

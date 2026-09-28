@@ -22,27 +22,6 @@ function lerpAngle( a, b, t ) {
 
 }
 
-// Saved garage paint finish (metalness/roughness sliders), read once at
-// module load — the same store the garage UI persists to. Falls back to the
-// sliders' default values (0.2 / 0.5) when nothing is saved.
-const VEHICLE_PAINT_FINISH = ( () => {
-
-	const fin = { metalness: 0, roughness: 0.7 };
-	try {
-
-		const parsed = JSON.parse( localStorage.getItem( 'racing-garage-mods-v1' ) || '{}' );
-		if ( parsed?.finish ) {
-
-			if ( Number.isFinite( Number( parsed.finish.metalness ) ) ) fin.metalness = Math.max( 0, Math.min( 1, Number( parsed.finish.metalness ) ) );
-			if ( Number.isFinite( Number( parsed.finish.roughness ) ) ) fin.roughness = Math.max( 0, Math.min( 1, Number( parsed.finish.roughness ) ) );
-
-		}
-
-	} catch ( e ) { /* fresh browser / bad store — keep defaults */ }
-	return fin;
-
-} )();
-
 export class Vehicle {
 
 	constructor() {
@@ -200,17 +179,9 @@ export class Vehicle {
 				for ( const m of mats ) if ( m ) m.shadowSide = THREE.DoubleSide;
 				const mat = child.material;
 				if ( mat && mat.isMeshStandardMaterial ) {
-					// DEFAULT PAINT FINISH — reads the SAVED garage finish
-					// (metalness/roughness sliders) so respawns/creations honor
-					// the player's settings instead of resetting to defaults.
-					mat.metalness = VEHICLE_PAINT_FINISH.metalness;
-					mat.roughness = VEHICLE_PAINT_FINISH.roughness;
-					// Reflections are tinted by the paint texels, so dark paints
-					// need a stronger environment read to read as chrome. Scale
-					// with the saved metalness (mirrors retuneShinyPaintFinish).
-					mat.envMapIntensity = 1.2 + VEHICLE_PAINT_FINISH.metalness * 1.3;
-					mat.envMap = VEHICLE_PAINT_FINISH.metalness >= 0.3 ? ( window.__carMirrorRT ? window.__carMirrorRT.texture : null ) : ( window.__carStaticEnv || null );
-					if ( mat.color && typeof mat.color.multiplyScalar === 'function' ) mat.color.multiplyScalar( 1 + VEHICLE_PAINT_FINISH.metalness * VEHICLE_PAINT_FINISH.metalness * 0.6 );
+					mat.metalness = Math.max( mat.metalness ?? 0.08, 0.12 );
+					mat.roughness = Math.min( mat.roughness ?? 0.7, 0.56 );
+					mat.envMapIntensity = Math.max( mat.envMapIntensity ?? 1, 1.12 );
 				}
 
 			}
