@@ -282,6 +282,7 @@
 		.custom-surface-grid input[type="number"],
 		.custom-surface-grid input[type="color"] { width: 100%; }
 		.custom-surface-actions { margin-top: 10px; display: flex; gap: 8px; justify-content: flex-end; }
+		.tool-active { outline: 2px solid #4cc2ff !important; background: rgba(76,194,255,0.28) !important; }
 		.custom-surface-actions button { padding: 6px 10px; }
 
 		#settings-bar {
@@ -696,6 +697,9 @@
 			<button id="btn-wall">Wall +</button>
 			<button id="btn-jump">Jump +</button>
 			<button id="btn-water">Water Pool +</button>
+			<button id="btn-tunnel-hole">Tunnel Hole +</button>
+			<button id="btn-tunnel-slope">Tunnel Slope</button>
+			<button id="btn-underground" title="While ON, every road block you place goes underground (open-top tunnel). On-grid only.">⤓ Underground</button>
 			<button id="btn-custom-pool" title="Opens custom pool settings"><input type="checkbox" id="cp-colors-toggle" aria-label="Enable custom pool colors"> Custom Pool</button>
 		</div>
 		<div class="toolbar-group" aria-label="Moving objects" data-cat="moving">
@@ -896,10 +900,10 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000269';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000270';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260941';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260943';
 	import { Vehicle } from './js/Vehicle.js?v=1000228';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
@@ -933,6 +937,10 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 	const PORTAL_PURPLE_TOOL = 'portal-purple';
 	const ELEVATED_TYPES = [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'elevated-thin-straight', 'elevated-thin-corner', 'elevated-thin-3-way', 'elevated-thin-4-way', 'elevated-wide-thin', 'elevated-wide-thin-corner', 'pool-cross' ];
 	const POOL_SLOPE_TOOL = 'pool-slope';
+	// OPEN-TOP TUNNELS (user order 2026-09-28): hole = carved empty pit,
+	// slope = entrance ramp. SEPARATE from pool slopes — never shared data.
+	const TUNNEL_HOLE_TOOL = 'tunnel-hole';
+	const TUNNEL_SLOPE_TOOL = 'tunnel-slope';
 	const POOL_CROSS_TOOL = 'pool-cross';
 	const POOL_SLOPE_DEPTH = CELL_RAW * 0.34; // matches pool floor depth
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
@@ -961,6 +969,16 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 	let tool = 'paint'; // 'paint', 'erase'
 	let selectedType = 'track-straight';
 	let selectedOrient = 0;
+	// ⤓ Underground placement mode: while ON, every road block placed via
+	// setCell is flagged underground (open-top tunnel). On-grid only.
+	let undergroundMode = false;
+	{
+		const undergroundBtn = document.getElementById( 'btn-underground' );
+		if ( undergroundBtn ) undergroundBtn.addEventListener( 'click', () => {
+			undergroundMode = ! undergroundMode;
+			undergroundBtn.classList.toggle( 'tool-active', undergroundMode );
+		} );
+	}
 	let allowSurfaceOverlap = false;
 	const CUSTOM_SURFACE_DEFAULTS = {
 		'surface-custom-a': { color: '#9c7bff', grip: 1.2, speed: 1.05, forceAmount: 4, force: { forward: true, backward: false, left: false, right: false, up: false }, noAir: true, oncePerContact: true },
@@ -1041,6 +1059,8 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 	const ARC_DEFAULT_ID = 1;
 	const ARC_MAX_ID = 999;
 	const BLOCK_HEIGHT_OFFSET = 0.012;
+	// Tunnel pit depth — matches the game-side TUNNEL_DROP (dry pool bowl).
+	const TUNNEL_DROP = CELL_RAW * 0.32;
 	const DECO_HEIGHT_OFFSET = BLOCK_HEIGHT_OFFSET * 0.5;
 
 	function selectMagnetIndex( index ) {
@@ -1434,6 +1454,8 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 	function getOverlayHeightOffset( cell ) {
 
+		// Open-top tunnel: overlays follow their block down to the pit floor.
+		if ( cell?.underground ) return - TUNNEL_DROP;
 		if ( ! cell?.elevatedType ) return 0;
 		// Both slope directions ramp ground -> ELEVATED_HEIGHT across the cell,
 		// so their midpoint (cell center) sits at half height either way.
@@ -1484,6 +1506,11 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 			poolSlope: false,
 			poolSlopeOrient: 0,
 			poolSlopeMesh: null,
+			underground: false,
+			tunnelSlope: false,
+			tunnelSlopeOrient: 0,
+			undergroundMesh: null,
+			tunnelSlopeMesh: null,
 			surfaceTypes: [],
 			surfaceMeshes: [],
 			decoType: null,
@@ -1504,7 +1531,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 		if ( ! cell ) return hasStandaloneObjectAtCell( gx, gz );
 		return Boolean(
-			cell.roadPieces?.length || cell.type || cell.bump || cell.pole || cell.cube || cell.wall || cell.jump
+			cell.roadPieces?.length || cell.type || cell.bump || cell.pole || cell.cube || cell.underground || cell.wall || cell.jump
 			|| cell.movingObstacle || cell.elevatedType || cell.poolSlope || cell.decoType || cell.surfaceTypes?.length
 			|| hasStandaloneObjectAtCell( gx, gz )
 		);
@@ -2051,7 +2078,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 				// The 4-way's road deck sits a hair below ground level — nudge it
 				// up like the elevated 4-way (same +0.1 the editor already uses).
 				const yNudge = ( roadPiece.type === 'track-4-way' || roadPiece.type === 'track-choke-cross' ) ? 0.1 : 0;
-				mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + idx * 0.035 + yNudge, ( gz + 0.5 ) * CELL_RAW );
+				mesh.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + idx * 0.035 + yNudge - ( cell.underground ? TUNNEL_DROP : 0 ), ( gz + 0.5 ) * CELL_RAW );
 				mesh.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ roadPiece.orient ] || 0 );
 				const gateTint = getGateTintColor( roadPiece.type );
 				mesh.traverse( ( c ) => {
@@ -2109,6 +2136,44 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 	}
 
+	function createTunnelPitMesh( gx, gz, cell ) {
+
+		// Editor mirror of the game-side dry pool bowl: dirt floor + walls,
+		// walls skipped toward adjacent tunnel cells and the slope exit side.
+		const pit = new THREE.Group();
+		pit.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
+		const floorMat = new THREE.MeshStandardMaterial( { color: 0x6f4e2e, roughness: 0.95, metalness: 0.0 } );
+		const wallMat = new THREE.MeshStandardMaterial( { color: 0x5c4126, roughness: 0.95, metalness: 0.0 } );
+		const floor = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ), floorMat );
+		floor.position.y = 0.5 - TUNNEL_DROP - CELL_RAW * 0.02;
+		floor.receiveShadow = true;
+		pit.add( floor );
+		let exitSide = null;
+		if ( cell.tunnelSlope ) {
+			const { dx, dz } = getPoolSlopeFacingOffset( cell.tunnelSlopeOrient || 0 );
+			exitSide = `${ dx },${ dz }`;
+		}
+		const sides = [
+			{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
+			{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+			{ dx: 0, dz: 1, x: 0, z: CELL_RAW * 0.5, ry: 0 },
+			{ dx: - 1, dz: 0, x: - CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+		];
+		for ( const side of sides ) {
+			const nb = grid.get( cellKey( gx + side.dx, gz + side.dz ) );
+			if ( nb?.underground ) continue;
+			if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
+			const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.38, CELL_RAW * 0.08 ), wallMat );
+			wall.position.set( side.x, 0.5 - CELL_RAW * 0.19, side.z );
+			wall.rotation.y = side.ry;
+			wall.castShadow = true;
+			wall.receiveShadow = true;
+			pit.add( wall );
+		}
+		return pit;
+
+	}
+
 	function placeOverlayMesh( gx, gz, cell ) {
 
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
@@ -2120,6 +2185,8 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
 		if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
 		if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
+		if ( cell.undergroundMesh ) trackGroup.remove( cell.undergroundMesh );
+		if ( cell.tunnelSlopeMesh ) trackGroup.remove( cell.tunnelSlopeMesh );
 		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		cell.bumpMesh = null;
@@ -2131,6 +2198,8 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 		cell.elevatedMesh = null;
 		cell.elevatedSupportMesh = null;
 		cell.poolSlopeMesh = null;
+		cell.undergroundMesh = null;
+		cell.tunnelSlopeMesh = null;
 		cell.surfaceMeshes = [];
 		cell.decoMesh = null;
 
@@ -2326,6 +2395,30 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 			const pool = createWaterPoolMesh( gx, gz );
 			trackGroup.add( pool );
 			cell.waterMesh = pool;
+
+		}
+
+		if ( cell.underground ) {
+
+			const pit = createTunnelPitMesh( gx, gz, cell );
+			trackGroup.add( pit );
+			cell.undergroundMesh = pit;
+
+		}
+
+		if ( cell.tunnelSlope ) {
+
+			const slopeSrc = models[ 'elev-track-slope' ];
+			if ( slopeSrc ) {
+
+				const slope = slopeSrc.clone();
+				slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET - 5, ( gz + 0.5 ) * CELL_RAW );
+				slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.tunnelSlopeOrient || 0 ] || 0 );
+				slope.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; } } );
+				trackGroup.add( slope );
+				cell.tunnelSlopeMesh = slope;
+
+			}
 
 		}
 
@@ -2780,6 +2873,15 @@ function computeCausticShade( normal ) {
 		const key = cellKey( gx, gz );
 		const cell = grid.get( key ) || makeEmptyCell();
 		removePoolTileAt( gx, gz, cell );
+		// ⤓ Underground mode: road blocks placed while the toggle is ON go
+		// into an open-top tunnel pit (on-grid only).
+		if ( undergroundMode && ! Number.isInteger( gx ) ) {
+
+			showToast( 'Underground blocks are on-grid only' );
+			return;
+
+		}
+		cell.underground = undergroundMode === true;
 		if ( allowSurfaceOverlap ) {
 
 			cell.roadPieces.push( { type, orient, isFinish: type === 'track-finish' || type === 'track-start-finish' } );
@@ -2869,6 +2971,45 @@ function computeCausticShade( normal ) {
 			// Remove the pool edge on the side the slope faces so the car isn't
 			// caught on the lip while driving up/down the ramp.
 			removePoolEdgeInFacingDirection( gx, gz, selectedOrient );
+			placeOverlayMesh( gx, gz, cell );
+
+		} else if ( selectedType === TUNNEL_HOLE_TOOL ) {
+
+			// Tunnel Hole: a carved empty pit (open-top tunnel with nothing
+			// in it). On-grid ONLY. Toggle: click again to fill it back in.
+			if ( placeOffGrid ) {
+
+				showToast( 'Tunnel Hole is on-grid only' );
+				return;
+
+			}
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key ) || makeEmptyCell();
+			grid.set( key, cell );
+			cell.underground = ! cell.underground;
+			if ( ! cell.underground ) cell.tunnelSlope = false;
+			placeOverlayMesh( gx, gz, cell );
+
+		} else if ( selectedType === TUNNEL_SLOPE_TOOL ) {
+
+			// Tunnel Slope: entrance ramp for a tunnel cell. SEPARATE tool from
+			// Pool Slope; only placeable inside an existing tunnel cell.
+			if ( placeOffGrid ) {
+
+				showToast( 'Tunnel Slope is on-grid only' );
+				return;
+
+			}
+			const key = cellKey( gx, gz );
+			const cell = grid.get( key );
+			if ( ! cell || ! cell.underground ) {
+
+				showToast( 'Tunnel Slope can only go inside a tunnel cell' );
+				return;
+
+			}
+			cell.tunnelSlope = ! cell.tunnelSlope;
+			cell.tunnelSlopeOrient = selectedOrient;
 			placeOverlayMesh( gx, gz, cell );
 
 		} else if ( selectedType === POOL_CROSS_TOOL ) {
@@ -2999,7 +3140,7 @@ function computeCausticShade( normal ) {
 				}
 
 			}
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.underground && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				// Toggle-off emptied the cell: clear its overlay meshes
 				// BEFORE deleting it, or the pole/bump/surface meshes stay in
@@ -3031,7 +3172,7 @@ function computeCausticShade( normal ) {
 
 			}
 
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.underground && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				// Toggle-off emptied the cell: clear its overlay meshes
 				// BEFORE deleting it, or the pole/bump/surface meshes stay in
@@ -3123,6 +3264,8 @@ function computeCausticShade( normal ) {
 		if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
 		if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
 		if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
+		if ( cell.undergroundMesh ) trackGroup.remove( cell.undergroundMesh );
+		if ( cell.tunnelSlopeMesh ) trackGroup.remove( cell.tunnelSlopeMesh );
 		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		grid.delete( key );
@@ -3148,6 +3291,10 @@ function computeCausticShade( normal ) {
 				if ( cell.elevatedMesh ) trackGroup.remove( cell.elevatedMesh );
 				if ( cell.elevatedSupportMesh ) trackGroup.remove( cell.elevatedSupportMesh );
 				if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
+				if ( cell.undergroundMesh ) trackGroup.remove( cell.undergroundMesh );
+				if ( cell.tunnelSlopeMesh ) trackGroup.remove( cell.tunnelSlopeMesh );
+		if ( cell.undergroundMesh ) trackGroup.remove( cell.undergroundMesh );
+		if ( cell.tunnelSlopeMesh ) trackGroup.remove( cell.tunnelSlopeMesh );
 				for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 
@@ -3937,6 +4084,8 @@ function computeCausticShade( normal ) {
 		const movingObstacles = [];
 		const water = [];
 		const poolSlopes = [];
+		const tunnels = [];
+		const tunnelSlopes = [];
 
 		for ( const [ key, cell ] of grid ) {
 
@@ -3948,6 +4097,8 @@ function computeCausticShade( normal ) {
 				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
 				if ( cell.water && worldPreset !== 'pool-filled' ) water.push( [ gx, gz ] );
 				if ( cell.poolSlope ) poolSlopes.push( [ gx, gz, cell.poolSlopeOrient || 0 ] );
+				if ( cell.underground ) tunnels.push( [ gx, gz ] );
+				if ( cell.tunnelSlope ) tunnelSlopes.push( [ gx, gz, cell.tunnelSlopeOrient || 0 ] );
 				if ( cell.movingObstacle ) movingObstacles.push( [ gx, gz, cell.movingObstacle, cell.wallOrient || 0, Number.isFinite( Number( cell.movingSpeed ) ) ? Number( cell.movingSpeed ) : 1, cell.movingCustom && typeof cell.movingCustom === 'object' ? cell.movingCustom : null ] );
 				if ( cell.elevatedType ) {
 
@@ -3999,7 +4150,7 @@ function computeCausticShade( normal ) {
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig, colorsOn: customPoolColorsEnabled === true }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload, z: poolSlopes } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig, colorsOn: customPoolColorsEnabled === true }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload, z: poolSlopes, g: tunnels, h: tunnelSlopes } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
@@ -4047,6 +4198,8 @@ function computeCausticShade( normal ) {
 			r: normalizeCustomPoolConfig( parsed?.r ),
 			q: Array.isArray( parsed.q ) ? parsed.q : [],
 			z: Array.isArray( parsed.z ) ? parsed.z : [],
+			g: Array.isArray( parsed.g ) ? parsed.g : [],
+			h: Array.isArray( parsed.h ) ? parsed.h : [],
 		};
 
 	}
@@ -4295,6 +4448,28 @@ function computeCausticShade( normal ) {
 
 			}
 			for ( const [ gx, gz ] of mods.q || [] ) refreshWaterNeighborhood( gx, gz );
+			// Open-top tunnels: g = tunnel cells, h = tunnel slopes.
+			for ( const [ gx, gz ] of mods.g || [] ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.underground = true;
+				placeMesh( gx, gz, cell );
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+			for ( const [ gx, gz, orient = 0 ] of mods.h || [] ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.underground = true;
+				cell.tunnelSlope = true;
+				cell.tunnelSlopeOrient = orient;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
 
 			for ( const [ gx, gz, movingType, _orient, movingSpeedRaw, movingCustomRaw ] of mods.o || [] ) {
 
@@ -4657,6 +4832,8 @@ function refreshMovingSpeedUi() {
 		'elevated-checkpoint-corner': document.getElementById( 'btn-elevated-corner-checkpoint' ),
 		'slope-up': document.getElementById( 'btn-slope-up' ),
 		[ POOL_SLOPE_TOOL ]: document.getElementById( 'btn-pool-slope' ),
+		[ TUNNEL_HOLE_TOOL ]: document.getElementById( 'btn-tunnel-hole' ),
+		[ TUNNEL_SLOPE_TOOL ]: document.getElementById( 'btn-tunnel-slope' ),
 		[ POOL_CROSS_TOOL ]: document.getElementById( 'btn-pool-cross' ),
 		'elevated-3-way': document.getElementById( 'btn-elevated-3way' ),
 		'elevated-4-way': document.getElementById( 'btn-elevated-4way' ),
@@ -4780,7 +4957,7 @@ function refreshMovingSpeedUi() {
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES, TUNNEL_HOLE_TOOL, TUNNEL_SLOPE_TOOL ] ) {
 
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
@@ -4961,7 +5138,7 @@ function refreshMovingSpeedUi() {
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-checkpoint-corner', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'track-choke-cross', 'track-thin-straight', 'track-thin-corner', 'track-thin-3-way', 'track-thin-4-way', 'track-wide-thin', 'track-wide-thin-corner', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-checkpoint-corner', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'track-choke-cross', 'track-thin-straight', 'track-thin-corner', 'track-thin-3-way', 'track-thin-4-way', 'track-wide-thin', 'track-wide-thin-corner', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES, TUNNEL_HOLE_TOOL, TUNNEL_SLOPE_TOOL ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 
@@ -6280,7 +6457,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 			const m = decodeMods( encodeMods() );
 			const extras = {
-				bumps: m.b, poles: m.p, cubes: m.k, walls: m.l, jumps: m.j,
+				bumps: m.b, poles: m.p, cubes: m.k, walls: m.l, jumps: m.j, tunnels: m.g, tunnelSlopes: m.h,
 				elevated: m.e, decorations: m.d, magnets: m.m, customAssets: m.x,
 				poolSlopes: m.z,
 				water: m.q,

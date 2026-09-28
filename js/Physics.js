@@ -863,7 +863,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const jumpMap = new Map();
 	const magnetEntries = extras && Array.isArray( extras.magnets ) ? extras.magnets : [];
 	const elevatedEntries = extras && Array.isArray( extras.elevated ) ? extras.elevated : [];
+	// OPEN-TOP TUNNELS (user order 2026-09-28): a tunnel cell reuses the pool
+	// bowl collider set — floor at the exact pool depth + bowl walls — a dry
+	// pool. Car-in-water physics keys off extras.water elsewhere, so tunnels
+	// stay dry.
 	const waterEntries = extras && Array.isArray( extras.water ) ? extras.water : [];
+	const tunnelEntriesForBowl = extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [];
 	const elevatedMap = new Map();
 	const customAssetColliders = extras?.customAssets && typeof extras.customAssets === 'object' ? extras.customAssets : {};
 	const decorationEntries = extras && Array.isArray( extras.decorations ) ? extras.decorations : [];
@@ -900,7 +905,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	const waterSet = new Set( waterEntries.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+	const waterSet = new Set( [
+		...waterEntries.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ),
+		...tunnelEntriesForBowl.map( ( [ gx, gz ] ) => `${ Number( gx ) },${ Number( gz ) }` ),
+	] );
 	// Map each pool-slope cell to the (dx,dz) side it exits toward, so the
 	// corresponding pool wall can be skipped (otherwise it blocks the car).
 	const poolSlopeExit = new Map();
@@ -908,6 +916,15 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		for ( const [ gx, gz, orient = 0 ] of extras.poolSlopes ) {
 			const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 			// Exit side = high end of the ramp (opposite the low end at +z).
+			const dx = - Math.round( Math.sin( rad ) );
+			const dz = - Math.round( Math.cos( rad ) );
+			poolSlopeExit.set( `${ Number( gx ) },${ Number( gz ) }`, `${ dx },${ dz }` );
+		}
+	}
+	// Tunnel slopes: same exit-side mapping (SEPARATE data key from pool slopes).
+	if ( Array.isArray( extras?.tunnelSlopes ) ) {
+		for ( const [ gx, gz, orient = 0 ] of extras.tunnelSlopes ) {
+			const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 			const dx = - Math.round( Math.sin( rad ) );
 			const dz = - Math.round( Math.cos( rad ) );
 			poolSlopeExit.set( `${ Number( gx ) },${ Number( gz ) }`, `${ dx },${ dz }` );
@@ -924,7 +941,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 	const WATER_BEVEL_ANGLE = THREE.MathUtils.degToRad( 1.6 );
-	for ( const [ gx, gz ] of waterEntries ) {
+	for ( const [ gx, gz ] of [ ...waterEntries, ...tunnelEntriesForBowl ] ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
@@ -1295,6 +1312,16 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	const poolSlopeEntries = extras && Array.isArray( extras.poolSlopes ) ? extras.poolSlopes : [];
 	for ( const [ gxRaw, gzRaw, orient = 0 ] of poolSlopeEntries ) {
+
+		const gx = Number( gxRaw );
+		const gz = Number( gzRaw );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		addPoolSlopeCollider( gx, gz, orient );
+
+	}
+	// Tunnel slopes: identical ramp colliders, separate data (user order).
+	const tunnelSlopeEntries = extras && Array.isArray( extras.tunnelSlopes ) ? extras.tunnelSlopes : [];
+	for ( const [ gxRaw, gzRaw, orient = 0 ] of tunnelSlopeEntries ) {
 
 		const gx = Number( gxRaw );
 		const gz = Number( gzRaw );

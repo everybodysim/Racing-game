@@ -29,6 +29,10 @@ const SUPPORT_SINK = 0.03;
 const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 
 const WATER_DEPTH = CELL_RAW * 0.34;
+// Open-top tunnel pit depth: the block sits at the pit floor, which reuses
+// the PROVEN pool bowl depth (POOL_FLOOR_DROP = CELL_RAW * 0.34 physics
+// floor top + a hair for the visual floor thickness).
+const TUNNEL_DROP = CELL_RAW * 0.32;
 const WATER_WALL_HEIGHT = CELL_RAW * 0.38;
 
 // ---------------------------------------------------------------------------
@@ -806,8 +810,11 @@ function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 
 }
 
-function getOverlayHeightOffset( elevatedEntry ) {
+function getOverlayHeightOffset( elevatedEntry, isTunnelCell = false ) {
 
+	// Open-top tunnel: every overlay (bump/pole/cube/wall/jump/surface/pad)
+	// follows its block down to the pit floor.
+	if ( isTunnelCell ) return - TUNNEL_DROP;
 	if ( ! elevatedEntry ) return 0;
 	// Pool Cross sits at pool level (no lift) — the elevated-cross model
 	// dropped into the pool, not a bridge.
@@ -1195,10 +1202,20 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		hideTreesMod = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' ).some( ( m ) => m?.id === 'hide-trees' );
 
 	} catch { /* malformed list — treat as not installed */ }
+	const tunnelCells = extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [];
+	const tunnelSlopeCells = extras && Array.isArray( extras.tunnelSlopes ) ? extras.tunnelSlopes : [];
+	const tunnelSet = new Set( tunnelCells.map( ( [ gx, gz ] ) => `${ Number( gx ) },${ Number( gz ) }` ) );
 	for ( const [ gx, gz, key, orient ] of cells ) {
 
 		const piece = placePiece( models, key, gx, gz, orient );
-		if ( piece ) trackPieceGroup.add( piece );
+		if ( piece ) {
+
+			// Open-top tunnel (user order 2026-09-28): the ground block sits at
+			// the pit floor — a dry pool bowl. Works for EVERY ground block type.
+			if ( tunnelSet.has( `${ Number( gx ) },${ Number( gz ) }` ) ) piece.position.y -= TUNNEL_DROP;
+			trackPieceGroup.add( piece );
+
+		}
 
 	}
 
@@ -1386,12 +1403,74 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
+		// ── OPEN-TOP TUNNELS: dry pool bowls (user order 2026-09-28) ──
+		// Same bowl geometry as pools (floor + walls, walls skipped toward
+		// adjacent tunnel cells and tunnel-slope exits) but DIRT textured and
+		// no water, no caustics. The block itself was already dropped to the
+		// pit floor in the cells loop above.
+		const tunnelSlopeOrientByCell = new Map();
+		for ( const [ gx, gz, orient = 0 ] of tunnelSlopeCells ) tunnelSlopeOrientByCell.set( `${ Number( gx ) },${ Number( gz ) }`, orient || 0 );
+		const tunnelFloorMat = new THREE.MeshStandardMaterial( { color: 0x6f4e2e, roughness: 0.95, metalness: 0.0 } );
+		const tunnelWallMat = new THREE.MeshStandardMaterial( { color: 0x5c4126, roughness: 0.95, metalness: 0.0 } );
+		for ( const [ gxRaw, gzRaw ] of tunnelCells ) {
+
+			const gx = Number( gxRaw );
+			const gz = Number( gzRaw );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+			const pit = new THREE.Group();
+			pit.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
+			const floor = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ), tunnelFloorMat );
+			floor.position.y = 0.5 - TUNNEL_DROP - CELL_RAW * 0.02;
+			floor.receiveShadow = true;
+			pit.add( floor );
+			const slopeOrient = tunnelSlopeOrientByCell.get( `${ gx },${ gz }` );
+			let exitSide = null;
+			if ( slopeOrient !== undefined ) {
+				const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeOrient ] ?? 0 );
+				exitSide = `${ - Math.round( Math.sin( rad ) ) },${ - Math.round( Math.cos( rad ) ) }`;
+			}
+			const sides = [
+				{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
+				{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+				{ dx: 0, dz: 1, x: 0, z: CELL_RAW * 0.5, ry: 0 },
+				{ dx: - 1, dz: 0, x: - CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+			];
+			for ( const side of sides ) {
+				if ( tunnelSet.has( `${ gx + side.dx },${ gz + side.dz }` ) ) continue;
+				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
+				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), tunnelWallMat );
+				wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
+				wall.rotation.y = side.ry;
+				wall.castShadow = true;
+				wall.receiveShadow = true;
+				pit.add( wall );
+			}
+			trackPieceGroup.add( pit );
+
+		}
+		// Tunnel slopes: SEPARATE from pool slopes (user order) but the same
+		// proven ramp GLB + placement math, driven by their own data key.
+		for ( const [ gxRaw, gzRaw, orient = 0 ] of tunnelSlopeCells ) {
+
+			const gx = Number( gxRaw );
+			const gz = Number( gzRaw );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+			const slopeSrc = models[ 'elev-track-slope' ];
+			if ( ! slopeSrc ) continue;
+			const slope = slopeSrc.clone();
+			slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET - 5, ( gz + 0.5 ) * CELL_RAW );
+			slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+			slope.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; } } );
+			trackPieceGroup.add( slope );
+
+		}
+
 		for ( const [ gx, gz ] of bumpCells ) {
 
 			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
 			if ( piece ) {
 
-				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
 				piece.position.y += yOffset;
 				trackPieceGroup.add( piece );
 
@@ -1405,7 +1484,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				getSharedOverlayParts().pole.geometry,
 				getSharedOverlayParts().pole.material
 			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
 			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( POLE_HEIGHT * 0.5 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			pole.castShadow = true;
 			pole.receiveShadow = true;
@@ -1428,7 +1507,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				getSharedOverlayParts().cube.geometry,
 				getSharedOverlayParts().cube.material
 			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
 			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			cube.castShadow = true;
 			cube.receiveShadow = true;
@@ -1525,7 +1604,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( barrier ) {
 
 				barrier.scale.multiplyScalar( BARRIER_WALL_SCALE );
-				barrier.position.y += getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+				barrier.position.y += getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
 				barrier.traverse( ( child ) => {
 
 					if ( child.isMesh ) { child.castShadow = true; child.receiveShadow = true; }
@@ -1539,7 +1618,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					getSharedOverlayParts().wall.geometry,
 					getSharedOverlayParts().wall.material
 				);
-				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
 				wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 				wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 				wall.castShadow = true;
@@ -1567,7 +1646,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					}
 
 				} );
-				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
 				piece.position.y += yOffset;
 				trackPieceGroup.add( piece );
 
@@ -1581,7 +1660,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				getSharedOverlayParts().jump.geometry,
 				getSharedOverlayParts().jump.material
 			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
 			jump.position.set( ( gx + 0.5 ) * CELL_RAW, JUMP_RAMP_Y + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			jump.rotation.order = 'YXZ';
 			jump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
@@ -1595,6 +1674,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz, key, orient ] of decorations ) {
 
 			if ( waterSet.has( `${ gx },${ gz }` ) ) continue;
+			// No trees in open-top tunnel pits either.
+			if ( tunnelSet.has( `${ Number( gx ) },${ Number( gz ) }` ) ) continue;
 			// Don't place a decoration tree under a slope block.
 			if ( slopeCells.has( `${ Number( gx ) },${ Number( gz ) }` ) ) continue;
 			const piece = placePiece( models, key, gx, gz, orient || 0 );
@@ -1738,7 +1819,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		}
 
 		// Track cells + water cells: occupied (skip ground) + tree-blocked
-		for ( const [ gx, gz ] of [ ...cells, ...waterCellsForDeco ] ) {
+		for ( const [ gx, gz ] of [ ...cells, ...waterCellsForDeco, ...tunnelCells ] ) {
 			blockCellForTrees( gx, gz, true );
 		}
 

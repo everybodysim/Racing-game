@@ -6,8 +6,8 @@ import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000269';
-import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260942';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000270';
+import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260943';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
@@ -3713,6 +3713,9 @@ function extrasFromParsed( parsed ) {
 			worldPreset: parsed.t === 'pool-filled' ? 'pool-filled' : 'normal',
 			water: Array.isArray( parsed.q ) ? parsed.q : [],
 			poolSlopes: Array.isArray( parsed.z ) ? parsed.z : [],
+			// OPEN-TOP TUNNELS: g = tunnel cells, h = tunnel slopes [gx, gz, orient].
+			tunnels: Array.isArray( parsed.g ) ? parsed.g : [],
+			tunnelSlopes: Array.isArray( parsed.h ) ? parsed.h : [],
 			customPool: parsed?.r && typeof parsed.r === 'object' ? parsed.r : {},
 			weather: normalizeWeatherDetails( parsed?.w ),
 		};
@@ -4214,6 +4217,8 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 	}
 	// Pool slopes reuse the elev-track-slope GLB, so ensure it's loaded.
 	if ( Array.isArray( extras?.poolSlopes ) && extras.poolSlopes.length ) required.add( 'elev-track-slope' );
+	// Tunnel slopes reuse the same ramp GLB.
+	if ( Array.isArray( extras?.tunnelSlopes ) && extras.tunnelSlopes.length ) required.add( 'elev-track-slope' );
 	return modelNames.filter( ( name ) => required.has( name ) );
 
 }
@@ -10219,6 +10224,20 @@ function completeCampaignStage() {
 	}
 	// Pool slopes are real tilted colliders too (they are NOT in extras.elevated),
 	// so register their cells as well.
+	if ( Array.isArray( extras?.tunnelSlopes ) ) {
+		for ( const entry of extras.tunnelSlopes ) {
+			const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+			const cellKeys = ( v ) => Number.isInteger( v ) ? [ v ] : [ Math.floor( v ), Math.floor( v ) + 1 ];
+			for ( const cgx of cellKeys( gx ) ) {
+				for ( const cgz of cellKeys( gz ) ) {
+					if ( ! slopeCellMap.has( `${ cgx },${ cgz }` ) ) {
+						slopeCellMap.set( `${ cgx },${ cgz }`, { gx, gz, type: 'pool-slope', orient: entry?.[ 2 ] ?? 0 } );
+					}
+				}
+			}
+		}
+	}
 	if ( Array.isArray( extras?.poolSlopes ) ) {
 		for ( const entry of extras.poolSlopes ) {
 			const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
