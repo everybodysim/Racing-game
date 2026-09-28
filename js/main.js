@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000266';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000267';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260942';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -3767,12 +3767,12 @@ function spawnPhysicsBoxes( worldRef ) {
 			motionType: MotionType.DYNAMIC,
 			objectLayer: worldRef._OL_MOVING,
 			position: [ x, spawnY, z ],
-			mass: 25,
+			mass: 8, // LIGHTER (user order): gets tossed instead of dragging
 			friction: 0.5,
-			restitution: 0.55,
-			linearDamping: 0.05,
-			angularDamping: 0.3,
-			gravityFactor: 1.6,
+			restitution: 0.3, // was 0.55 — less frantic bouncing
+			linearDamping: 0.25,
+			angularDamping: 0.5, // heavier damping: no endless tumbling
+			gravityFactor: 1.0,
 			motionQuality: MotionQuality.LINEAR_CAST,
 		} );
 		const mesh = new THREE.Mesh( physicsBoxGeo, physicsBoxMat );
@@ -3803,6 +3803,25 @@ function updatePhysicsBoxes( worldRef ) {
 	for ( const entry of physicsBoxBodies ) {
 
 		const pos = entry.body.position;
+		// Stability clamps (deterministic, state-only): bound freak-outs and
+		// recover from any NaN instead of the box exploding into the void.
+		const lv = entry.body.motionProperties.linearVelocity;
+		if ( Number.isFinite( lv[ 0 ] ) && Number.isFinite( lv[ 1 ] ) && Number.isFinite( lv[ 2 ] ) ) {
+			const ls = Math.hypot( lv[ 0 ], lv[ 1 ], lv[ 2 ] );
+			if ( ls > 40 ) rigidBody.setLinearVelocity( worldRef, entry.body, [ lv[ 0 ] / ls * 40, lv[ 1 ] / ls * 40, lv[ 2 ] / ls * 40 ] );
+		} else {
+			rigidBody.setLinearVelocity( worldRef, entry.body, [ 0, 0, 0 ] );
+			rigidBody.setAngularVelocity( worldRef, entry.body, [ 0, 0, 0 ] );
+			rigidBody.setPosition( worldRef, entry.body, entry.home, true );
+			continue;
+		}
+		const av = entry.body.motionProperties.angularVelocity;
+		if ( Number.isFinite( av[ 0 ] ) && Number.isFinite( av[ 1 ] ) && Number.isFinite( av[ 2 ] ) ) {
+			const as = Math.hypot( av[ 0 ], av[ 1 ], av[ 2 ] );
+			if ( as > 30 ) rigidBody.setAngularVelocity( worldRef, entry.body, [ av[ 0 ] / as * 30, av[ 1 ] / as * 30, av[ 2 ] / as * 30 ] );
+		} else {
+			rigidBody.setAngularVelocity( worldRef, entry.body, [ 0, 0, 0 ] );
+		}
 		// Fell off the world — teleport home and calm it down.
 		if ( pos[ 1 ] < entry.home[ 1 ] - 40 ) {
 

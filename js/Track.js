@@ -250,7 +250,12 @@ function isWaterVisibleToCamera( camera ) {
 export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0, viewportRect = null ) {
 
 	if ( WATER_PLANES.length === 0 ) return;
-	if ( ! isWaterVisibleToCamera( camera ) ) return;
+	// NORMAL WATER (user order 2026-09-28): pools no longer sample the live
+	// scene — the refraction render target read as a wiggly camera feed of the
+	// game. The water is a plain procedural surface now, so the whole scene
+	// re-render for the RT is skipped (big perf win). The shader no longer
+	// reads tDiffuse; nothing here needs to run.
+	return;
 	waterRefrFrameCounter ++;
 	const waterLastFrame = waterLastRefrFrameByCam.get( camIndex );
 	// When does the pool actually need a fresh scene render?
@@ -576,15 +581,16 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				// above-water refraction sample.
 				if ( ! gl_FrontFacing ) {
 
-					vec3 under = texture2D( tDiffuse, clamp( screenUV + wobble * 0.02, vec2( 0.002 ), vec2( 0.998 ) ) ).rgb;
-					under *= vec3( 0.45, 0.72, 0.86 );
+					vec3 under = vec3( 0.34, 0.58, 0.74 );
 					float shimmer = 0.5 + 0.5 * sin( ( vWorldPos.x + vWorldPos.z ) * 1.7 + time * 2.6 + noise( vWorldPos.xz * 2.6 + vec2( time * 0.9, - time * 0.7 ) ) * 7.0 );
 					under += vec3( 0.22, 0.36, 0.42 ) * shimmer * vWaveDistFade;
 					gl_FragColor = vec4( under, 1.0 );
 					return;
 
 				}
-				vec3 refrColor = texture2D( tDiffuse, refrUV ).rgb;
+				// NORMAL WATER: plain pool body color (custom pool colors still
+				// read through deepColor); no camera feed of the scene.
+				vec3 refrColor = mix( vec3( 0.55, 0.8, 0.9 ), deepColor * 1.35, 0.45 );
 
 				// Depth tint along the refracted ray
 				float depthT = clamp( dFloor / ( ${ CELL_RAW } * 0.6 ), 0.0, 1.0 );
@@ -952,12 +958,6 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 		0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust,
 		( gz + 0.5 ) * CELL_RAW
 	);
-	// anti z-clipping jitter, elevated band (+0.032..0.06) — golden-ratio
-	// per-cell, provably distinct, disjoint from the ground road band
-	// (+0.002..0.03) so elevated/ground seams can never tie
-	const zfIdxE = ( gx + 1024 ) * 4096 + ( gz + 1024 );
-	const zfGoldenE = ( ( zfIdxE * 0.6180339887498949 ) % 1 + 1 ) % 1;
-	piece.position.y += 0.008 + zfGoldenE * 0.007;
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
 
@@ -1869,14 +1869,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 				for ( let i = 0; i < count; i ++ ) {
 
-					// anti z-clipping: flat quads get the decoration band
-					// (-0.002..-0.022) keyed by cell — provably distinct from
-					// every other quad and always below road/tree levels
-					const zfGx = Math.round( positions[ i * 2 ] / CELL_RAW - 0.5 );
-					const zfGz = Math.round( positions[ i * 2 + 1 ] / CELL_RAW - 0.5 );
-					const zfIdxG = ( zfGx + 1024 ) * 4096 + ( zfGz + 1024 );
-					const zfGoldenG = ( ( zfIdxG * 0.6180339887498949 ) % 1 + 1 ) % 1;
-					_dummy.position.set( positions[ i * 2 ], 0.5 - ( 0.0005 + zfGoldenG * 0.005 ), positions[ i * 2 + 1 ] );
+_dummy.position.set( positions[ i * 2 ], 0.5, positions[ i * 2 + 1 ] );
 					// Per-instance Y rotation for 3D trees/bushes (decoration-forest +
 					// decoration-empty) breaks up the repetitive grid pattern. Limited to
 					// 90° intervals (0, 90, 180, 270) so nothing looks oddly tilted.
@@ -2363,15 +2356,6 @@ export function placePiece( models, key, gx, gz, orient ) {
 	const isDecorationPiece = String( key || '' ).startsWith( 'decoration-' ) || String( key || '' ).startsWith( 'building-' );
 	const yOffset = isDecorationPiece ? DECORATION_HEIGHT_OFFSET : VISUAL_HEIGHT_OFFSET;
 	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + yOffset, ( gz + 0.5 ) * CELL_RAW );
-	// ANTI Z-CLIPPING: tiny per-cell golden-ratio height jitter. For distinct
-	// integers the fractional parts of n*phi are provably distinct, and the
-	// cell index is injective, so NO two blocks can ever share an exact level.
-	// Bands: road pieces +0.002..0.03, decorations -0.002..-0.022 (always
-	// BELOW the road band, so road-vs-decoration overlaps resolve
-	// road-on-top), elevated decks +0.032..0.06 (disjoint from both).
-	const zfIdx = ( gx + 1024 ) * 4096 + ( gz + 1024 );
-	const zfGolden = ( ( zfIdx * 0.6180339887498949 ) % 1 + 1 ) % 1;
-	piece.position.y += isDecorationPiece ? - ( 0.0005 + zfGolden * 0.005 ) : ( 0.0005 + zfGolden * 0.007 );
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );

@@ -897,7 +897,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000266';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000267';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260941';
@@ -2381,10 +2381,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 				} else if ( cell.elevatedType === 'elevated-3-way' || cell.elevatedType === 'elevated-4-way' || cell.elevatedType === 'elevated-checkpoint' ) {
 					surfaceLift = cell.elevatedType === 'elevated-3-way' ? 0.16 : ( cell.elevatedType === 'elevated-4-way' ? 0.17 : 0.01 );
 				}
-				// USER ORDER (2026-09-28): pads/surfaces were still getting covered by
-				// block geometry — every patch lifted a further 0.1 so they read clearly.
-				// Editor-only visual; game rendering (Track.js) is untouched by this value.
-				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + 0.1 + BLOCK_HEIGHT_OFFSET + yOffset + surfaceLift + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
+				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + surfaceLift + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
 				// Slope tilt: flush with the ramp, matching the game build. Uses the
 				// cell's own elevated block, so off-grid cells tilt correctly too.
 				if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) {
