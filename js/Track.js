@@ -1304,8 +1304,23 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				maxWaterGz = Math.max( maxWaterGz, gz + 1 );
 
 			}
-			const waterWidth = Math.max( CELL_RAW, ( maxWaterGx - minWaterGx + 2 ) * CELL_RAW );
-			const waterDepth = Math.max( CELL_RAW, ( maxWaterGz - minWaterGz + 2 ) * CELL_RAW );
+			// The plane overshoots by one cell per side to tuck under the pool
+			// rim — but that overshoot must NEVER cross tunnel pits next to the
+			// pool (a water 'wall' the car drives through inside the tunnel,
+			// user order 2026-09-28). Drop the overshoot on any side whose strip
+			// touches a tunnel cell; the pit's own wall closes the boundary.
+			const tunnelNearWater = new Set( ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ).map( ( tEntry ) => `${ Number( tEntry[ 0 ] ) },${ Number( tEntry[ 1 ] ) }` ) );
+			let expandMinGx = 1, expandMaxGx = 1, expandMinGz = 1, expandMaxGz = 1;
+			for ( let z = minWaterGz; z < maxWaterGz; z ++ ) {
+				if ( tunnelNearWater.has( `${ minWaterGx - 1 },${ z }` ) ) expandMinGx = 0;
+				if ( tunnelNearWater.has( `${ maxWaterGx },${ z }` ) ) expandMaxGx = 0;
+			}
+			for ( let x = minWaterGx; x < maxWaterGx; x ++ ) {
+				if ( tunnelNearWater.has( `${ x },${ minWaterGz - 1 }` ) ) expandMinGz = 0;
+				if ( tunnelNearWater.has( `${ x },${ maxWaterGz }` ) ) expandMaxGz = 0;
+			}
+			const waterWidth = Math.max( CELL_RAW, ( maxWaterGx - minWaterGx + expandMinGx + expandMaxGx ) * CELL_RAW );
+			const waterDepth = Math.max( CELL_RAW, ( maxWaterGz - minWaterGz + expandMinGz + expandMaxGz ) * CELL_RAW );
 			// Subdivided so the vertex-stage wave height field has geometry to bend.
 			const waterSeg = THREE.MathUtils.clamp( Math.round( Math.max( waterWidth, waterDepth ) / CELL_RAW ) * 32, 32, 128 );
 			const waterPlane = new THREE.Mesh(
@@ -1313,7 +1328,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				createRepositoryWaterMaterial( poolVisuals )
 			);
 			waterPlane.rotation.x = - Math.PI / 2;
-			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.12, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
+			waterPlane.position.set( ( ( minWaterGx - expandMinGx + maxWaterGx + expandMaxGx ) * 0.5 ) * CELL_RAW, 0.12, ( ( minWaterGz - expandMinGz + maxWaterGz + expandMaxGz ) * 0.5 ) * CELL_RAW );
 			waterPlane.userData.waterSurface = true;
 			WATER_PLANES.push( waterPlane );
 			// Cache the world-space bounding sphere once — the frustum gate

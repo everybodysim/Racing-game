@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000276';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000277';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260948';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -9879,11 +9879,11 @@ function completeCampaignStage() {
 	let rollingFps = 0;
 	let fpsHudAccumulator = 0;
 	const activeCells = customCells || TRACK_CELLS;
-	const hasSeparateStartCell = activeCells.some( ( c ) => c[ 2 ] === 'track-start' );
-	const hasSeparateFinishCell = activeCells.some( ( c ) => c[ 2 ] === 'track-finish' );
+	const hasSeparateStartCell = activeCells.some( ( c ) => c[ 2 ] === 'track-start' ) || tunnelGateCells.some( ( c ) => c[ 2 ] === 'track-start' );
+	const hasSeparateFinishCell = activeCells.some( ( c ) => c[ 2 ] === 'track-finish' ) || tunnelGateCells.some( ( c ) => c[ 2 ] === 'track-finish' );
 	const shouldAutoRespawnAfterLap = hasSeparateStartCell && hasSeparateFinishCell;
-	const startCell = activeCells.find( ( c ) => c[ 2 ] === 'track-start' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || null;
-	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || activeCells[ 0 ];
+	const startCell = activeCells.find( ( c ) => c[ 2 ] === 'track-start' ) || tunnelGateCells.find( ( c ) => c[ 2 ] === 'track-start' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || tunnelGateCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || null;
+	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || tunnelGateCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || tunnelGateCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || activeCells[ 0 ];
 	const elevatedCheckpointCells = Array.isArray( extras?.elevated )
 		? extras.elevated
 			.filter( ( c ) => Array.isArray( c ) && c[ 2 ] === 'elevated-checkpoint' )
@@ -9894,10 +9894,25 @@ function completeCampaignStage() {
 			.filter( ( c ) => Array.isArray( c ) && c[ 2 ] === 'elevated-checkpoint-corner' )
 			.map( ( [ gx, gz, , orient = 0 ] ) => [ gx, gz, 'track-checkpoint-corner', orient ] )
 		: [];
+	// Tunnel pit blocks: checkpoints/gates placed IN tunnels never appear in
+	// `cells`, so they were invisible to lap/checkpoint logic — the trigger
+	// plane test itself is 2D (no y gate), it just never got a state (user
+	// order 2026-09-28). Map them in like elevated checkpoints.
+	const tunnelCheckpointCells = Array.isArray( extras?.tunnels )
+		? extras.tunnels
+			.filter( ( t ) => Array.isArray( t ) && t.length >= 5 && ( t[ 4 ] === 'track-checkpoint' || t[ 4 ] === 'track-checkpoint-corner' ) )
+			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0 ] )
+		: [];
+	const tunnelGateCells = Array.isArray( extras?.tunnels )
+		? extras.tunnels
+			.filter( ( t ) => Array.isArray( t ) && t.length >= 5 && ( t[ 4 ] === 'track-start' || t[ 4 ] === 'track-finish' || t[ 4 ] === 'track-start-finish' ) )
+			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0 ] )
+		: [];
 	const checkpointCells = [
 		...activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' || c[ 2 ] === 'track-checkpoint-corner' ),
 		...elevatedCheckpointCells,
 		...elevatedCornerCheckpointCells,
+		...tunnelCheckpointCells,
 	];
 	const slopeElevatedCells = Array.isArray( extras?.elevated )
 		? extras.elevated.filter( ( c ) => Array.isArray( c ) && ( c[ 2 ] === 'slope-up' || c[ 2 ] === 'slope-down' ) )

@@ -674,10 +674,12 @@
 			<button id="btn-wide-thin">Wide-Thin</button>
 			<button id="btn-slope-up" style="display:none">Slope Up</button>
 		</div>
-		<div class="toolbar-group" aria-label="Pool pieces" data-cat="pool">
-			<span class="toolbar-group-label">Pool</span>
+		<div class="toolbar-group" aria-label="Pool and tunnel pieces" data-cat="pool">
+			<span class="toolbar-group-label">Pool & Tunnel</span>
 			<button id="btn-pool-slope" style="display:none">Pool Slope</button>
 			<button id="btn-pool-cross" style="display:none">Pool Cross</button>
+			<button id="btn-tunnel-hole">Tunnel Hole +</button>
+			<button id="btn-tunnel-slope">Tunnel Slope</button>
 		</div>
 		<div class="toolbar-group" aria-label="Start and finish" data-cat="track">
 		<span class="toolbar-group-label">Start / Finish</span>
@@ -696,8 +698,6 @@
 			<button id="btn-wall">Wall +</button>
 			<button id="btn-jump">Jump +</button>
 			<button id="btn-water">Water Pool +</button>
-			<button id="btn-tunnel-hole">Tunnel Hole +</button>
-			<button id="btn-tunnel-slope">Tunnel Slope</button>
 			<button id="btn-custom-pool" title="Opens custom pool settings"><input type="checkbox" id="cp-colors-toggle" aria-label="Enable custom pool colors"> Custom Pool</button>
 		</div>
 		<div class="toolbar-group" aria-label="Moving objects" data-cat="moving">
@@ -898,7 +898,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000276';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000277';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260948';
@@ -3001,6 +3001,14 @@ function computeCausticShade( normal ) {
 
 			} else {
 
+				// Tunnel holes must land on empty cells (user order) — no open
+				// pit under roads/obstacles.
+				if ( ! type && ! isCellCompletelyEmptyForPool( cell, gx, gz ) ) {
+
+					showToast( 'Tunnel holes need an empty cell' );
+					return;
+
+				}
 				cell.tunnel = { type: type ?? null, orient: orient ?? 0, closed };
 
 			}
