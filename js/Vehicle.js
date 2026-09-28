@@ -208,8 +208,9 @@ export class Vehicle {
 					// Reflections are tinted by the paint texels, so dark paints
 					// need a stronger environment read to read as chrome. Scale
 					// with the saved metalness (mirrors retuneShinyPaintFinish).
-					mat.envMapIntensity = 1.2 + VEHICLE_PAINT_FINISH.metalness * 5;
-					if ( mat.color && typeof mat.color.multiplyScalar === 'function' ) mat.color.multiplyScalar( 1 + VEHICLE_PAINT_FINISH.metalness * VEHICLE_PAINT_FINISH.metalness * 2 );
+					mat.envMapIntensity = 1.2 + VEHICLE_PAINT_FINISH.metalness * 1.3;
+					mat.envMap = VEHICLE_PAINT_FINISH.metalness >= 0.3 ? ( window.__carMirrorRT ? window.__carMirrorRT.texture : null ) : ( window.__carStaticEnv || null );
+					if ( mat.color && typeof mat.color.multiplyScalar === 'function' ) mat.color.multiplyScalar( 1 + VEHICLE_PAINT_FINISH.metalness * VEHICLE_PAINT_FINISH.metalness * 0.6 );
 				}
 
 			}
