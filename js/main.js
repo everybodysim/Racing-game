@@ -6,8 +6,8 @@ import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000274';
-import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260946';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000275';
+import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260947';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
@@ -4219,6 +4219,24 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 	if ( Array.isArray( extras?.poolSlopes ) && extras.poolSlopes.length ) required.add( 'elev-track-slope' );
 	// Tunnel slopes reuse the same ramp GLB.
 	if ( Array.isArray( extras?.tunnelSlopes ) && extras.tunnelSlopes.length ) required.add( 'elev-track-slope' );
+	// Tunnel pit blocks: their GLB comes from the tunnel entry's type, which
+	// NEVER appears in `cells` — request it explicitly. Without this, a
+	// corner placed only in a tunnel (no surface corner anywhere) never
+	// loaded the corner GLB, so placePiece silently returned null and the
+	// pit looked empty (user-found root cause 2026-09-28).
+	if ( Array.isArray( extras?.tunnels ) ) {
+
+		for ( const tunnelEntry of extras.tunnels ) {
+
+			if ( ! Array.isArray( tunnelEntry ) || tunnelEntry.length < 5 ) continue;
+			const tunnelType = tunnelEntry[ 4 ];
+			if ( ! tunnelType ) continue;
+			required.add( tunnelType === 'track-checkpoint' || tunnelType === 'track-start' || tunnelType === 'track-start-finish' ? 'track-finish'
+				: tunnelType === 'track-choke-cross' ? 'elev-choke-4-way' : THIN_GROUND_MODEL_KEYS[ tunnelType ] || tunnelType );
+
+		}
+
+	}
 	return modelNames.filter( ( name ) => required.has( name ) );
 
 }

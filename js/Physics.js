@@ -1005,6 +1005,18 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		}
 
 	}
+	// Thin/choke blocks placed IN tunnels keep their raised-wall hitboxes
+	// underground (user order): the same auto-generated spec walls, dropped
+	// to the pit floor level.
+	const tunnelSpecWallY = wallY - TUNNEL_FLOOR_DROP;
+	for ( const specEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
+
+		if ( ! Array.isArray( specEntry ) || specEntry.length < 5 ) continue;
+		const specKey = THIN_TYPE_TO_SPEC[ specEntry[ 4 ] ];
+		if ( ! specKey ) continue;
+		addSpecWalls( Number( specEntry[ 0 ] ), Number( specEntry[ 1 ] ), Number( specEntry[ 3 ] ) || 0, specKey, tunnelSpecWallY );
+
+	}
 	// Tunnel slopes: same exit-side mapping (SEPARATE data key from pool slopes).
 	if ( Array.isArray( extras?.tunnelSlopes ) ) {
 		for ( const [ gx, gz, orient = 0 ] of extras.tunnelSlopes ) {
