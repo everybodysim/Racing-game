@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-import { Vehicle } from './Vehicle.js?v=1000228';
+import { Vehicle } from './Vehicle.js?v=1000229';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
@@ -7085,6 +7085,17 @@ async function init() {
 
 	function retuneShinyPaintFinish() {
 
+		// Default-finish car materials (never shiny-palette-painted) are not in
+		// the registry — retune the active cars' materials directly too.
+		for ( const veh of [ vehicle, vehicle2 ] ) {
+			if ( ! veh?.container?.traverse ) continue;
+			veh.container.traverse( ( child ) => {
+				if ( ! child?.material ) return;
+				for ( const m of ( Array.isArray( child.material ) ? child.material : [ child.material ] ) ) {
+					if ( m && typeof m.metalness === 'number' ) { m.metalness = SHINY_MATERIAL_TUNING.metalness; m.roughness = SHINY_MATERIAL_TUNING.roughness; }
+				}
+			} );
+		}
 		let touched = 0;
 		for ( const material of shinyPaintMaterials ) {
 
@@ -7223,8 +7234,8 @@ async function init() {
 	const GARAGE_PAINT_PALETTE = [ ...GARAGE_STANDARD_PALETTE, ...GARAGE_SHINY_PALETTE ];
 	const shinyPaintMaterials = new Set(); // every material that received a shiny paint finish (slider retunes these live)
 	const SHINY_MATERIAL_TUNING = {
-		metalness: 0.9,
-		roughness: 0.04,
+		metalness: 0.2,
+		roughness: 0.5,
 		envMapIntensity: 4.0,
 		brightnessBoost: 1.45,
 		emissiveBoost: 0.22,
@@ -10242,6 +10253,32 @@ function completeCampaignStage() {
 			for ( const cgz of cellKeys( gz ) ) {
 				slopeCellMap.set( `${ cgx },${ cgz }`, { gx, gz, type, orient } );
 			}
+		}
+
+	}
+	// JUMP RAMPS register as slope cells too. The ramp is a 30-degree tilted
+	// collider: climbing it legitimately produces upward velocity that the
+	// seam-bounce detector otherwise "restores" every physics step — the car
+	// floats/hovers up the ramp instead of driving it (reported after the
+	// exact-mesh ramp collider made the car actually ride the slope).
+	// Off-grid (fractional) ramps span two cells per axis — register every
+	// touched integer cell so the bypass works off-grid as well.
+	if ( Array.isArray( extras?.jumps ) ) {
+
+		const jumpKeys = ( v ) => Number.isInteger( Number( v ) )
+			? [ Number( v ) ]
+			: [ Math.floor( Number( v ) ), Math.floor( Number( v ) ) + 1 ];
+		for ( const entry of extras.jumps ) {
+
+			if ( ! Array.isArray( entry ) ) continue;
+			const [ jgx, jgz ] = entry;
+			if ( ! Number.isFinite( Number( jgx ) ) || ! Number.isFinite( Number( jgz ) ) ) continue;
+			for ( const cgx of jumpKeys( jgx ) ) {
+				for ( const cgz of jumpKeys( jgz ) ) {
+					if ( ! slopeCellMap.has( `${ cgx },${ cgz }` ) ) slopeCellMap.set( `${ cgx },${ cgz }`, { gx: jgx, gz: jgz, type: 'jump-ramp', orient: entry[ 2 ] ?? 0 } );
+				}
+			}
+
 		}
 
 	}

@@ -179,8 +179,12 @@ export class Vehicle {
 				for ( const m of mats ) if ( m ) m.shadowSide = THREE.DoubleSide;
 				const mat = child.material;
 				if ( mat && mat.isMeshStandardMaterial ) {
-					mat.metalness = Math.max( mat.metalness ?? 0.08, 0.12 );
-					mat.roughness = Math.min( mat.roughness ?? 0.7, 0.56 );
+					// DEFAULT PAINT FINISH (metalness 0.2 / roughness 0.5 — the
+					// garage sliders' defaults): every car gets a real PBR paint
+					// job out of the box, reflecting the scene environment. The
+					// garage finish sliders retune these live.
+					mat.metalness = 0.2;
+					mat.roughness = 0.5;
 					mat.envMapIntensity = Math.max( mat.envMapIntensity ?? 1, 1.12 );
 				}
 
