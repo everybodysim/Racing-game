@@ -27,7 +27,7 @@ function lerpAngle( a, b, t ) {
 // sliders' default values (0.2 / 0.5) when nothing is saved.
 const VEHICLE_PAINT_FINISH = ( () => {
 
-	const fin = { metalness: 0.2, roughness: 0.5 };
+	const fin = { metalness: 0, roughness: 0.7 };
 	try {
 
 		const parsed = JSON.parse( localStorage.getItem( 'racing-garage-mods-v1' ) || '{}' );
@@ -208,8 +208,8 @@ export class Vehicle {
 					// Reflections are tinted by the paint texels, so dark paints
 					// need a stronger environment read to read as chrome. Scale
 					// with the saved metalness (mirrors retuneShinyPaintFinish).
-					mat.envMapIntensity = 1.2 + VEHICLE_PAINT_FINISH.metalness * 3.2;
-					mat.color.setScalar( 1 + VEHICLE_PAINT_FINISH.metalness * VEHICLE_PAINT_FINISH.metalness * 2 );
+					mat.envMapIntensity = 1.2 + VEHICLE_PAINT_FINISH.metalness * 5;
+					if ( mat.color && typeof mat.color.multiplyScalar === 'function' ) mat.color.multiplyScalar( 1 + VEHICLE_PAINT_FINISH.metalness * VEHICLE_PAINT_FINISH.metalness * 2 );
 				}
 
 			}
