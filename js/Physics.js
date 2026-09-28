@@ -1005,6 +1005,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		}
 
 	}
+	// Slope-up pit blocks ARE ramps (pit floor → surface): the proven
+	// tunnel-slope ramp collider, centered on the block cell.
+	for ( const rampEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
+
+		if ( ! Array.isArray( rampEntry ) || rampEntry.length < 5 || rampEntry[ 4 ] !== 'slope-up' ) continue;
+		addTunnelSlopeCollider( Number( rampEntry[ 0 ] ), Number( rampEntry[ 1 ] ), Number( rampEntry[ 3 ] ) || 0 );
+
+	}
 	// Thin/choke blocks placed IN tunnels keep their raised-wall hitboxes
 	// underground (user order): the same auto-generated spec walls, dropped
 	// to the pit floor level.

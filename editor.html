@@ -466,6 +466,7 @@
 .toolbar-group[data-cat="moving"]    { border-left: 3px solid rgba(255, 100, 100, 0.55); }
 .toolbar-group[data-cat="surfaces"]  { border-left: 3px solid rgba(100, 180, 255, 0.55); }
 .toolbar-group[data-cat="decor"]     { border-left: 3px solid rgba(180, 120, 255, 0.55); }
+.toolbar-group[data-cat="pool"]      { border-left: 3px solid rgba(80, 200, 255, 0.55); }
 .toolbar-group[data-cat="edit"]      { border-left: 3px solid rgba(120, 220, 240, 0.55); }
 .toolbar-group[data-cat="run"]       { border-left: 3px solid rgba(120, 240, 140, 0.55); }
 
@@ -672,6 +673,9 @@
 			<button id="btn-thin-4-way">Thin 4-Way</button>
 			<button id="btn-wide-thin">Wide-Thin</button>
 			<button id="btn-slope-up" style="display:none">Slope Up</button>
+		</div>
+		<div class="toolbar-group" aria-label="Pool pieces" data-cat="pool">
+			<span class="toolbar-group-label">Pool</span>
 			<button id="btn-pool-slope" style="display:none">Pool Slope</button>
 			<button id="btn-pool-cross" style="display:none">Pool Cross</button>
 		</div>
@@ -894,10 +898,10 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000275';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000276';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260947';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260948';
 	import { Vehicle } from './js/Vehicle.js?v=1000228';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
@@ -2220,6 +2224,12 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 			const { dx, dz } = getPoolSlopeFacingOffset( cell.tunnelSlopeOrient || 0 );
 			exitSide = `${ dx },${ dz }`;
 		}
+		if ( cell.tunnel?.type === 'slope-up' ) {
+			// A slope-up pit block ramps from the pit floor to the surface —
+			// the wall opens on its high (facing) side so the car can exit.
+			const { dx, dz } = getPoolSlopeFacingOffset( cell.tunnel.orient || 0 );
+			exitSide = `${ dx },${ dz }`;
+		}
 		const sides = [
 			{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
 			{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
@@ -2475,7 +2485,14 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 			cell.tunnelPitMesh = pit;
 			if ( cell.tunnel.type ) {
 
-				const blockSrc = models[ cell.tunnel.type ];
+				// Pit blocks use BLOCK TYPE names, but some render through a
+				// different GLB (same mapping as the game's placePiece).
+				const tunnelTypeKeys = {
+					'track-checkpoint': 'track-finish', 'track-start': 'track-finish', 'track-start-finish': 'track-finish',
+					'track-choke-cross': 'elev-choke-4-way', 'slope-up': 'elev-track-slope',
+					...THIN_GROUND_MODEL_KEYS
+				};
+				const blockSrc = models[ tunnelTypeKeys[ cell.tunnel.type ] || cell.tunnel.type ];
 				if ( blockSrc ) {
 
 					const blk = blockSrc.clone();
@@ -2990,6 +3007,14 @@ function computeCausticShade( normal ) {
 			grid.set( key, cell );
 			placeMesh( gx, gz, cell );
 			placeOverlayMesh( gx, gz, cell );
+			// Neighbor pits must REBUILD — a pit built before its neighbor
+			// became a tunnel still shows the edge wall toward it (user order).
+			for ( const [ dx, dz ] of [ [ 1, 0 ], [ - 1, 0 ], [ 0, 1 ], [ 0, - 1 ] ] ) {
+
+				const nbCell = grid.get( cellKey( gx + dx, gz + dz ) );
+				if ( nbCell?.tunnel ) { placeMesh( gx + dx, gz + dz, nbCell ); placeOverlayMesh( gx + dx, gz + dz, nbCell ); }
+
+			}
 			groundTilesDirty = true; // tunnel added/removed → recut the ground holes
 			return;
 
@@ -3167,6 +3192,14 @@ function computeCausticShade( normal ) {
 
 		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || selectedType === WATER_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || MOVING_CUSTOM_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
 
+			// Slope-up in a tunnel level places as the pit block ramp (user
+			// order) instead of the surface elevated piece.
+			if ( selectedType === 'slope-up' && ( trackLevelMode === 'tunnel-open' || trackLevelMode === 'tunnel-closed' ) ) {
+
+				setCell( gx, gz, 'slope-up', selectedOrient ?? 0 );
+				return;
+
+			}
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
 			if ( selectedType === WATER_TOOL && ! cell.water && ! isCellCompletelyEmptyForPool( cell, gx, gz ) ) {

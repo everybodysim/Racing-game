@@ -1469,6 +1469,12 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeOrient ] ?? 0 );
 				exitSide = `${ - Math.round( Math.sin( rad ) ) },${ - Math.round( Math.cos( rad ) ) }`;
 			}
+			if ( info.type === 'slope-up' ) {
+				// Slope-up pit block: the ramp rises to the surface on its
+				// high side — open the pit wall there (same facing math).
+				const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ info.orient ] ?? 0 );
+				exitSide = `${ - Math.round( Math.sin( rad ) ) },${ - Math.round( Math.cos( rad ) ) }`;
+			}
 			const sides = [
 				{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
 				{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
@@ -2480,7 +2486,7 @@ export const THIN_GROUND_MODEL_KEYS = {
 export function placePiece( models, key, gx, gz, orient ) {
 
 	const modelKey = key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish'
-		: key === 'track-choke-cross' ? 'elev-choke-4-way' : THIN_GROUND_MODEL_KEYS[ key ] || key;
+		: key === 'track-choke-cross' ? 'elev-choke-4-way' : key === 'slope-up' ? 'elev-track-slope' : THIN_GROUND_MODEL_KEYS[ key ] || key;
 	const src = models[ modelKey ];
 	if ( ! src ) return null;
 	// Smooth the choke curve's flat segment normals before cloning (the clone
