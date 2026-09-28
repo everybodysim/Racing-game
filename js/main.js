@@ -8490,7 +8490,7 @@ async function init() {
 
 				const material = list[ i ];
 				const baseMap = Array.isArray( bases ) ? bases[ i ]?.map : bases?.map;
-				if ( material?.map && material.map !== baseMap ) material.map.dispose();
+				if ( material?.map && material.map !== baseMap && ! isGarageCachedPaintTexture( material.map ) ) material.map.dispose();
 				material?.dispose?.();
 
 			}
@@ -9312,11 +9312,54 @@ async function init() {
 	}
 
 
+	// GARAGE PAINT PERF: every preview refresh (hover, selection, commit,
+	// card refresh) used to re-run the full-pixel recolor + highlight loops and
+	// upload a brand-new CanvasTexture per material — dozens of 512x512 passes
+	// per interaction, growing as paint maps accumulate, until weak GPUs lost
+	// the WebGL context ("painting stops working"). Painted/highlighted
+	// textures are now cached by their inputs and reused; identical apply
+	// requests return without doing any work at all.
+	const garagePaintTextureCache = new Map();
+	const GARAGE_PAINT_CACHE_MAX = 128;
+	function garagePaintCacheKey( ...parts ) { return parts.join( '|' ); }
+	function isGarageCachedPaintTexture( texture ) {
+
+		for ( const cached of garagePaintTextureCache.values() ) if ( cached === texture ) return true;
+		return false;
+
+	}
+	function getGaragePaintCachedTexture( key, build ) {
+
+		if ( garagePaintTextureCache.has( key ) ) { const hit = garagePaintTextureCache.get( key ); garagePaintTextureCache.delete( key ); garagePaintTextureCache.set( key, hit ); return hit; }
+		const texture = build();
+		if ( ! texture ) return null;
+		if ( garagePaintTextureCache.size >= GARAGE_PAINT_CACHE_MAX ) {
+
+			const oldestKey = garagePaintTextureCache.keys().next().value;
+			garagePaintTextureCache.delete( oldestKey );
+
+		}
+		garagePaintTextureCache.set( key, texture );
+		return texture;
+
+	}
+	function garageMappingsSignature( mappings ) {
+
+		return ( mappings || [] ).map( ( m ) => `${ m.source?.r ?? m.sourceHex },${ m.source?.g ?? '' },${ m.source?.b ?? '' }>${ m.target?.r ?? m.targetColorId ?? '' },${ m.target?.g ?? '' },${ m.target?.b ?? '' }:${ m.toleranceSq ?? m.tolerance ?? '' }:${ m.finish ?? '' }:${ m.maskRle ?? '' }:${ m.maskW ?? '' }x${ m.maskH ?? '' }:${ ( m.mask && m.mask.length ) || 0 }` ).join( ';' );
+
+	}
 	function applyCarCustomizationToObject( root, carKey, highlightHex = '', previewUnlit = false, hoverHex = '', highlightTolerance = GARAGE_COLOR_PICK_TOLERANCE, previewMask = null, previewTargetHex = '' ) {
 
 		if ( ! root ) return;
 		const carData = getGarageCosmeticCar( carKey );
 		const mappings = Array.isArray( carData?.mappings ) ? carData.mappings : [];
+		// Skip identical applies: hover/selection/commit flows re-apply with the
+		// same args several times in a row — doing the full material rebuild for
+		// each one is the "garage gets laggy" root cause. The signature includes
+		// the paint mappings so a fresh paint always re-renders.
+		const applySignature = garagePaintCacheKey( carKey, highlightHex, previewUnlit, hoverHex, highlightTolerance, previewTargetHex, garageMappingsSignature( mappings ), previewMask ? `${ previewMask.length }:${ previewMask[ 0 ] }:${ previewMask[ previewMask.length - 1 ] }` : '' );
+		if ( root.userData?.__lastGarageApply === applySignature ) return;
+		root.userData.__lastGarageApply = applySignature;
 		const resolvedMappings = buildResolvedMappings( mappings );
 		// For the live preview, fold the in-progress selection mask into a transient mapping so the
 		// 3D clone shows exactly what will be repainted, before anything is committed.
@@ -9332,7 +9375,7 @@ async function init() {
 
 				child.userData.customMaterial.forEach( ( material, index ) => {
 
-					if ( material?.map && material.map !== child.userData.baseMaterial?.[ index ]?.map ) material.map.dispose();
+					if ( material?.map && material.map !== child.userData.baseMaterial?.[ index ]?.map && ! isGarageCachedPaintTexture( material.map ) ) material.map.dispose();
 					material?.dispose?.();
 
 				} );
@@ -9371,8 +9414,12 @@ async function init() {
 				}
 				if ( material.map ) {
 
-					const remapped = recolorTexture( material.map, effectiveMappings );
-					material.map = createHighlightedTexture( baseMaterial.map, highlightHex, hoverHex, highlightTolerance ) || remapped.texture;
+					const mappingsSig = garageMappingsSignature( effectiveMappings );
+					const remapped = getGaragePaintCachedTexture( garagePaintCacheKey( 'recolor', material.map.uuid, mappingsSig ), () => recolorTexture( material.map, effectiveMappings ) );
+					const highlightedTexture = ( highlightHex || hoverHex )
+						? getGaragePaintCachedTexture( garagePaintCacheKey( 'highlight', baseMaterial.map.uuid, highlightHex, hoverHex, highlightTolerance ), () => createHighlightedTexture( baseMaterial.map, highlightHex, hoverHex, highlightTolerance ) )
+						: null;
+					material.map = highlightedTexture || remapped.texture;
 					if ( remapped.hasShiny ) {
 
 						applyShinyFinish( material );
