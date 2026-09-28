@@ -229,7 +229,10 @@ scene.background = new THREE.Color( 0xadb2ba );
 		return tex;
 
 	} )();
-	scene.environment = carEnvTexture;
+	// CAR-PAINT-ONLY environment: assigning this to scene.environment lit
+	// every standard material in the world (washed-out, "less vibrant" look).
+	// Publish it for car materials instead — the world keeps its original look.
+	window.__carStaticEnv = carEnvTexture;
 
 	// REAL scene reflections for mirror-tier finishes. The static environment
 	// gradient can never "play the game" in the paint — a cube camera at the
@@ -5961,10 +5964,10 @@ async function init() {
 
 					material.metalness = T.metalness;
 					material.roughness = T.roughness;
-					material.envMapIntensity = 1.2 + T.metalness * 5;
-					const boost = 1 + T.metalness * T.metalness * 2;
+					material.envMapIntensity = 1.2 + T.metalness * 1.3;
+					const boost = 1 + T.metalness * T.metalness * 0.6;
 					if ( material.color && typeof material.color.multiplyScalar === 'function' ) { material.color.multiplyScalar( boost ); material.userData.__finishBoost = boost; }
-					material.envMap = T.metalness >= 0.3 ? window.__carMirrorRT.texture : null;
+					material.envMap = T.metalness >= 0.3 ? window.__carMirrorRT.texture : ( window.__carStaticEnv || null );
 
 				}
 				material.transparent = opacity < 1;
@@ -7147,13 +7150,13 @@ async function init() {
 						// mirrors through a black filter and reads as matte. Scale
 						// env intensity and the base color with metalness (idempotent
 						// via __finishBoost) so full metal reads as chrome on ANY paint.
-						m.envMapIntensity = 1.2 + T.metalness * 5;
-						const boost = 1 + T.metalness * T.metalness * 2;
+						m.envMapIntensity = 1.2 + T.metalness * 1.3;
+						const boost = 1 + T.metalness * T.metalness * 0.6;
 						const prev = m.userData.__finishBoost || 1;
 						if ( m.color && typeof m.color.multiplyScalar === 'function' ) { m.color.multiplyScalar( boost / prev ); m.userData.__finishBoost = boost; }
 						// Mirror-tier: sample the LIVE scene cube instead of the static
 						// gradient once metalness passes 0.3.
-						m.envMap = T.metalness >= 0.3 ? window.__carMirrorRT.texture : null;
+						m.envMap = T.metalness >= 0.3 ? window.__carMirrorRT.texture : ( window.__carStaticEnv || null );
 						m.needsUpdate = true;
 
 					}
