@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-import { Vehicle } from './Vehicle.js?v=1000230';
+import { Vehicle } from './Vehicle.js?v=1000232';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
@@ -230,7 +230,6 @@ scene.background = new THREE.Color( 0xadb2ba );
 
 	} )();
 	scene.environment = carEnvTexture;
-scene.fog = new THREE.Fog( 0xadb2ba, 30, 55 );
 
 const skyUniforms = {
 	topColor: { value: new THREE.Color( '#6fb9ff' ) },
@@ -7104,12 +7103,33 @@ async function init() {
 
 		// Default-finish car materials (never shiny-palette-painted) are not in
 		// the registry — retune the active cars' materials directly too.
-		for ( const veh of [ vehicle, vehicle2 ] ) {
+		// localPlayerVehicle is the module-level handle assigned right after
+		// Vehicle creation (the local `vehicle` const inside init() is not
+		// reachable from here).
+		for ( const veh of [ localPlayerVehicle ] ) {
 			if ( ! veh?.container?.traverse ) continue;
 			veh.container.traverse( ( child ) => {
 				if ( ! child?.material ) return;
 				for ( const m of ( Array.isArray( child.material ) ? child.material : [ child.material ] ) ) {
-					if ( m && typeof m.metalness === 'number' ) { m.metalness = SHINY_MATERIAL_TUNING.metalness; m.roughness = SHINY_MATERIAL_TUNING.roughness; }
+					if ( m && typeof m.metalness === 'number' ) {
+
+						m.metalness = SHINY_MATERIAL_TUNING.metalness;
+						m.roughness = SHINY_MATERIAL_TUNING.roughness;
+						// Metal reflections are tinted by the paint texels — a dark
+						// paint mirrors the world through a dark filter and reads
+						// as "darker paint", not shine. Scale the environment
+						// contribution up with metalness so full-metal sliders
+						// still look like chrome on ANY paint color.
+						m.envMapIntensity = 1.2 + SHINY_MATERIAL_TUNING.metalness * 3.2;
+						// Metal reflection color = baseColor (the paint texels). A dark
+						// paint at full metal mirrors the world through a black
+						// filter — indistinguishable from matte. Brighten the
+						// effective base color quadratically with metalness: near
+						// zero at the 0.2 default (paint unchanged), 3x at full
+						// metal so ANY paint color reads as bright chrome.
+						m.color.setScalar( 1 + SHINY_MATERIAL_TUNING.metalness * SHINY_MATERIAL_TUNING.metalness * 2 );
+
+					}
 				}
 			} );
 		}

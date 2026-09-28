@@ -205,9 +205,11 @@ export class Vehicle {
 					// the player's settings instead of resetting to defaults.
 					mat.metalness = VEHICLE_PAINT_FINISH.metalness;
 					mat.roughness = VEHICLE_PAINT_FINISH.roughness;
-					// Glossy paint needs a strong environment read: 2.2 gives
-					// full-metal sliders a proper chrome response.
-					mat.envMapIntensity = Math.max( mat.envMapIntensity ?? 1, 2.2 );
+					// Reflections are tinted by the paint texels, so dark paints
+					// need a stronger environment read to read as chrome. Scale
+					// with the saved metalness (mirrors retuneShinyPaintFinish).
+					mat.envMapIntensity = 1.2 + VEHICLE_PAINT_FINISH.metalness * 3.2;
+					mat.color.setScalar( 1 + VEHICLE_PAINT_FINISH.metalness * VEHICLE_PAINT_FINISH.metalness * 2 );
 				}
 
 			}
