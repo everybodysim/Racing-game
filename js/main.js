@@ -9879,6 +9879,20 @@ function completeCampaignStage() {
 	let rollingFps = 0;
 	let fpsHudAccumulator = 0;
 	const activeCells = customCells || TRACK_CELLS;
+	// Tunnel pit blocks: checkpoints/gates placed IN tunnels never appear in
+	// `cells`, so they were invisible to lap/checkpoint logic — the trigger
+	// plane test itself is 2D (no y gate), it just never got a state (user
+	// order 2026-09-28). Map them in like elevated checkpoints.
+	const tunnelCheckpointCells = Array.isArray( extras?.tunnels )
+		? extras.tunnels
+			.filter( ( t ) => Array.isArray( t ) && t.length >= 5 && ( t[ 4 ] === 'track-checkpoint' || t[ 4 ] === 'track-checkpoint-corner' ) )
+			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0 ] )
+		: [];
+	const tunnelGateCells = Array.isArray( extras?.tunnels )
+		? extras.tunnels
+			.filter( ( t ) => Array.isArray( t ) && t.length >= 5 && ( t[ 4 ] === 'track-start' || t[ 4 ] === 'track-finish' || t[ 4 ] === 'track-start-finish' ) )
+			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0 ] )
+		: [];
 	const hasSeparateStartCell = activeCells.some( ( c ) => c[ 2 ] === 'track-start' ) || tunnelGateCells.some( ( c ) => c[ 2 ] === 'track-start' );
 	const hasSeparateFinishCell = activeCells.some( ( c ) => c[ 2 ] === 'track-finish' ) || tunnelGateCells.some( ( c ) => c[ 2 ] === 'track-finish' );
 	const shouldAutoRespawnAfterLap = hasSeparateStartCell && hasSeparateFinishCell;
@@ -9893,20 +9907,6 @@ function completeCampaignStage() {
 		? extras.elevated
 			.filter( ( c ) => Array.isArray( c ) && c[ 2 ] === 'elevated-checkpoint-corner' )
 			.map( ( [ gx, gz, , orient = 0 ] ) => [ gx, gz, 'track-checkpoint-corner', orient ] )
-		: [];
-	// Tunnel pit blocks: checkpoints/gates placed IN tunnels never appear in
-	// `cells`, so they were invisible to lap/checkpoint logic — the trigger
-	// plane test itself is 2D (no y gate), it just never got a state (user
-	// order 2026-09-28). Map them in like elevated checkpoints.
-	const tunnelCheckpointCells = Array.isArray( extras?.tunnels )
-		? extras.tunnels
-			.filter( ( t ) => Array.isArray( t ) && t.length >= 5 && ( t[ 4 ] === 'track-checkpoint' || t[ 4 ] === 'track-checkpoint-corner' ) )
-			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0 ] )
-		: [];
-	const tunnelGateCells = Array.isArray( extras?.tunnels )
-		? extras.tunnels
-			.filter( ( t ) => Array.isArray( t ) && t.length >= 5 && ( t[ 4 ] === 'track-start' || t[ 4 ] === 'track-finish' || t[ 4 ] === 'track-start-finish' ) )
-			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0 ] )
 		: [];
 	const checkpointCells = [
 		...activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' || c[ 2 ] === 'track-checkpoint-corner' ),
