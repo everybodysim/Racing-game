@@ -897,7 +897,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000265';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000266';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260941';
@@ -2312,7 +2312,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 		if ( cell.physicsBox ) {
 
 			const pbox = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.3, CELL_RAW * 0.3, CELL_RAW * 0.3 ),
+				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
 				new THREE.MeshStandardMaterial( { color: 0x8a5a33, roughness: 0.85, metalness: 0.02 } )
 			);
 			const yOffset = getOverlayHeightOffset( cell );
@@ -3345,7 +3345,7 @@ function computeCausticShade( normal ) {
 
 		} else if ( type === PHYSICS_BOX_TOOL ) {
 
-			const pbox = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.3, CELL_RAW * 0.3, CELL_RAW * 0.3 ), ghostMaterial( 0x8a5a33 ) );
+			const pbox = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ), ghostMaterial( 0x8a5a33 ) );
 			pbox.position.set( cx, ( CELL_RAW * 0.08 ) - 0.06, cz );
 			group.add( pbox );
 

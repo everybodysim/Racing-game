@@ -1138,7 +1138,7 @@ export function computePoolPresetWaterCells( cells = TRACK_CELLS, extras = null 
 	};
 
 	for ( const [ gx, gz ] of ( Array.isArray( cells ) && cells.length ? cells : TRACK_CELLS ) ) addRoad( gx, gz );
-	const blockerLists = [ extras?.bumps, extras?.poles, extras?.cubes, extras?.walls, extras?.jumps, extras?.movingObstacles, extras?.elevated, extras?.surfaces, extras?.decorations, extras?.magnets, extras?.arcLinks ];
+	const blockerLists = [ extras?.bumps, extras?.poles, extras?.cubes, extras?.physicsBoxes, extras?.walls, extras?.jumps, extras?.movingObstacles, extras?.elevated, extras?.surfaces, extras?.decorations, extras?.magnets, extras?.arcLinks ];
 	for ( const list of blockerLists ) {
 		if ( ! Array.isArray( list ) ) continue;
 		for ( const entry of list ) {
