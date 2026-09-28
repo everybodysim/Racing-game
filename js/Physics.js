@@ -97,7 +97,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const hHeight = WALL_HALF_H * S;
 	const hLen = CELL_HALF * S;
 	const groundY = - 0.125;
-	const jumpRampHalfExtents = [ CELL_HALF * S * 0.36, 0.26 * S, CELL_HALF * S * 0.44 ];
+	// Ramp collider = EXACT same box as the visual mesh (Track.js: BoxGeometry
+	// of JUMP_RAMP_SIZE x JUMP_RAMP_DEPTH x JUMP_RAMP_SIZE = CELL_RAW*0.36 x
+	// CELL_RAW*0.18 x CELL_RAW*0.36). The old [*, 0.26*S, 0.44*S] slab was
+	// ~3x thicker and longer than the mesh — an invisible wall around the
+	// ramp. Same center, same 30-degree pitch, same sink as before.
+	const jumpRampHalfExtents = [ CELL_HALF * S * 0.36, CELL_HALF * S * 0.18, CELL_HALF * S * 0.36 ];
 	const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
 	const JUMP_RAMP_SINK = 0.14;
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5 * S;
