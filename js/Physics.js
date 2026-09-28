@@ -1039,20 +1039,6 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			restitution: 0.0,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, floorHalfExtents, [ cx, groundY - CELL_RAW * S * 0.34, cz ] );
-		if ( closedTop ) {
-
-			const roofHalfExtents = [ CELL_HALF * S, 0.05 * S, CELL_HALF * S ];
-			rigidBody.create( world, {
-				shape: box.create( { halfExtents: roofHalfExtents } ),
-				motionType: MotionType.STATIC,
-				objectLayer: world._OL_STATIC,
-				position: [ cx, groundY + 0.01 - 0.05 * S, cz ],
-				friction: 0.25,
-				restitution: 0.0
-			} );
-			if ( debugGroup ) addDebugBox( debugGroup, roofHalfExtents, [ cx, groundY + 0.01 - 0.05 * S, cz ] );
-
-		}
 		const exitSide = poolSlopeExit.get( `${ gx },${ gz }` );
 		const sides = [ [ 0, - 1, 0, - CELL_HALF * S, 0 ], [ 1, 0, CELL_HALF * S, 0, Math.PI / 2 ], [ 0, 1, 0, CELL_HALF * S, 0 ], [ - 1, 0, - CELL_HALF * S, 0, Math.PI / 2 ] ];
 		for ( const [ dx, dz, ox, oz, yaw ] of sides ) {
