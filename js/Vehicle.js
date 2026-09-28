@@ -22,6 +22,27 @@ function lerpAngle( a, b, t ) {
 
 }
 
+// Saved garage paint finish (metalness/roughness sliders), read once at
+// module load — the same store the garage UI persists to. Falls back to the
+// sliders' default values (0.2 / 0.5) when nothing is saved.
+const VEHICLE_PAINT_FINISH = ( () => {
+
+	const fin = { metalness: 0.2, roughness: 0.5 };
+	try {
+
+		const parsed = JSON.parse( localStorage.getItem( 'racing-garage-mods-v1' ) || '{}' );
+		if ( parsed?.finish ) {
+
+			if ( Number.isFinite( Number( parsed.finish.metalness ) ) ) fin.metalness = Math.max( 0, Math.min( 1, Number( parsed.finish.metalness ) ) );
+			if ( Number.isFinite( Number( parsed.finish.roughness ) ) ) fin.roughness = Math.max( 0, Math.min( 1, Number( parsed.finish.roughness ) ) );
+
+		}
+
+	} catch ( e ) { /* fresh browser / bad store — keep defaults */ }
+	return fin;
+
+} )();
+
 export class Vehicle {
 
 	constructor() {
@@ -179,13 +200,14 @@ export class Vehicle {
 				for ( const m of mats ) if ( m ) m.shadowSide = THREE.DoubleSide;
 				const mat = child.material;
 				if ( mat && mat.isMeshStandardMaterial ) {
-					// DEFAULT PAINT FINISH (metalness 0.2 / roughness 0.5 — the
-					// garage sliders' defaults): every car gets a real PBR paint
-					// job out of the box, reflecting the scene environment. The
-					// garage finish sliders retune these live.
-					mat.metalness = 0.2;
-					mat.roughness = 0.5;
-					mat.envMapIntensity = Math.max( mat.envMapIntensity ?? 1, 1.12 );
+					// DEFAULT PAINT FINISH — reads the SAVED garage finish
+					// (metalness/roughness sliders) so respawns/creations honor
+					// the player's settings instead of resetting to defaults.
+					mat.metalness = VEHICLE_PAINT_FINISH.metalness;
+					mat.roughness = VEHICLE_PAINT_FINISH.roughness;
+					// Glossy paint needs a strong environment read: 2.2 gives
+					// full-metal sliders a proper chrome response.
+					mat.envMapIntensity = Math.max( mat.envMapIntensity ?? 1, 2.2 );
 				}
 
 			}

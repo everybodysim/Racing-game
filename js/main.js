@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-import { Vehicle } from './Vehicle.js?v=1000229';
+import { Vehicle } from './Vehicle.js?v=1000230';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
@@ -196,16 +196,33 @@ scene.background = new THREE.Color( 0xadb2ba );
 	// gets genuine sky/ground reflections so shiny paints read as chrome.
 	const carEnvTexture = ( () => {
 
+		// Environments need FEATURES to reflect: a featureless gradient makes
+		// metal paint look darker, not shinier (metalness kills diffuse and a
+		// smooth env gives back nothing). Add a hot sun disc + bright horizon
+		// band so glossy surfaces catch moving glints that read as shine.
+		const W = 256, H = 128;
 		const c = document.createElement( 'canvas' );
-		c.width = 64; c.height = 32;
+		c.width = W; c.height = H;
 		const ctx = c.getContext( '2d' );
-		const g = ctx.createLinearGradient( 0, 0, 0, 32 );
-		g.addColorStop( 0.0, '#8ec7ef' );
-		g.addColorStop( 0.48, '#dff3ff' );
-		g.addColorStop( 0.52, '#9dbb8a' );
-		g.addColorStop( 1.0, '#5a8a4d' );
+		const g = ctx.createLinearGradient( 0, 0, 0, H );
+		g.addColorStop( 0.00, '#aee0ff' );
+		g.addColorStop( 0.42, '#f4fbff' );
+		g.addColorStop( 0.50, '#e8f4e2' );
+		g.addColorStop( 0.58, '#7fae6b' );
+		g.addColorStop( 1.00, '#48693f' );
 		ctx.fillStyle = g;
-		ctx.fillRect( 0, 0, 64, 32 );
+		ctx.fillRect( 0, 0, W, H );
+		// Sun disc — the highlight source for chrome/gloss paint
+		const sunX = W * 0.68, sunY = H * 0.24;
+		const sun = ctx.createRadialGradient( sunX, sunY, 2, sunX, sunY, 26 );
+		sun.addColorStop( 0, 'rgba(255,255,255,1)' );
+		sun.addColorStop( 0.35, 'rgba(255,253,235,0.95)' );
+		sun.addColorStop( 1, 'rgba(255,250,220,0)' );
+		ctx.fillStyle = sun;
+		ctx.fillRect( sunX - 30, sunY - 30, 60, 60 );
+		// Hot horizon band for long streak reflections along body panels
+		ctx.fillStyle = 'rgba(255,255,255,0.55)';
+		ctx.fillRect( 0, H * 0.46, W, 3 );
 		const tex = new THREE.CanvasTexture( c );
 		tex.mapping = THREE.EquirectangularReflectionMapping;
 		tex.colorSpace = THREE.SRGBColorSpace;
