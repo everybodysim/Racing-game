@@ -7096,7 +7096,6 @@ async function init() {
 		} );
 
 	}
-	syncGarageFinishSliders();
 	const garageSelectionChip = document.getElementById( 'garage-selection-chip' );
 	const garageMappingStatus = document.getElementById( 'garage-mapping-status' );
 	const garageMappingsList = document.getElementById( 'garage-mappings-list' );
@@ -13425,6 +13424,7 @@ function completeCampaignStage() {
 	loadHacksState();
 	loadStuntStats();
 	loadGarageMods();
+	syncGarageFinishSliders();
 	loadCampaignState();
 	const garageParamEnabled = new URLSearchParams( window.location.search ).get( 'garage' ) === '1';
 	setModeTab( garageParamEnabled ? 'garage' : 'gameplay' );
