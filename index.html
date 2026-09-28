@@ -1,7 +1,28 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	
+<script>
+// SERVICE WORKER KILLER (2026-09-28): a leftover SW from an old deploy was
+// serving months-stale JS to some browsers no matter how often the ?v=
+// strings changed — every "still broken" report traced to this. Runs BEFORE
+// anything loads: unregister ALL workers, wipe ALL caches, reload once.
+( async () => {
+	try {
+		if ( 'serviceWorker' in navigator ) {
+			const regs = await navigator.serviceWorker.getRegistrations();
+			for ( const r of regs ) await r.unregister();
+		}
+		if ( window.caches ) {
+			const keys = await caches.keys();
+			await Promise.all( keys.map( ( k ) => caches.delete( k ) ) );
+		}
+		if ( ! sessionStorage.getItem( 'sw-cleaned' ) ) {
+			sessionStorage.setItem( 'sw-cleaned', '1' );
+			location.reload();
+		}
+	} catch ( e ) { /* never block the page on this */ }
+} )();
+</script>
 <!--<script>
 (async () => {
   // kill service workers
@@ -2286,7 +2307,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	
 	<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 	<link rel="preconnect" href="https://esm.sh" crossorigin>
-<!--	<link rel="modulepreload" href="js/main.js?v=1000377">
+<!--	<link rel="modulepreload" href="js/main.js?v=1000378">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/GLTFLoader.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/OBJLoader.js" crossorigin>
@@ -3451,7 +3472,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000377'&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000378'&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;

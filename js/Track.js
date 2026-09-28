@@ -1295,53 +1295,70 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		}
 		if ( waterCells.length > 0 ) {
 
-			let minWaterGx = Infinity, maxWaterGx = - Infinity, minWaterGz = Infinity, maxWaterGz = - Infinity;
-			for ( const [ gx, gz ] of waterCells ) {
-
-				minWaterGx = Math.min( minWaterGx, gx );
-				maxWaterGx = Math.max( maxWaterGx, gx + 1 );
-				minWaterGz = Math.min( minWaterGz, gz );
-				maxWaterGz = Math.max( maxWaterGz, gz + 1 );
-
-			}
-			// The plane overshoots by one cell per side to tuck under the pool
-			// rim — but that overshoot must NEVER cross tunnel pits next to the
-			// pool (a water 'wall' the car drives through inside the tunnel,
-			// user order 2026-09-28). Drop the overshoot on any side whose strip
-			// touches a tunnel cell; the pit's own wall closes the boundary.
+			// One water plane per CONNECTED region (flood fill) — disconnected
+			// pools used to share one map-wide bounding rect (corner pools
+			// covered the whole map underground, user order 2026-09-28).
 			const tunnelNearWater = new Set( ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ).map( ( tEntry ) => `${ Number( tEntry[ 0 ] ) },${ Number( tEntry[ 1 ] ) }` ) );
-			let expandMinGx = 1, expandMaxGx = 1, expandMinGz = 1, expandMaxGz = 1;
-			for ( let z = minWaterGz; z < maxWaterGz; z ++ ) {
-				if ( tunnelNearWater.has( `${ minWaterGx - 1 },${ z }` ) ) expandMinGx = 0;
-				if ( tunnelNearWater.has( `${ maxWaterGx },${ z }` ) ) expandMaxGx = 0;
+			const waterCellSet = new Set( waterCells.map( ( [ x, z ] ) => `${ x },${ z }` ) );
+			const visitedWater = new Set();
+			const waterRegions = [];
+			for ( const [ startGx, startGz ] of waterCells ) {
+				if ( visitedWater.has( `${ startGx },${ startGz }` ) ) continue;
+				const region = [];
+				const stack = [ [ startGx, startGz ] ];
+				while ( stack.length ) {
+					const [ cx, cz ] = stack.pop();
+					const k = `${ cx },${ cz }`;
+					if ( visitedWater.has( k ) || ! waterCellSet.has( k ) ) continue;
+					visitedWater.add( k );
+					region.push( [ cx, cz ] );
+					stack.push( [ cx + 1, cz ], [ cx - 1, cz ], [ cx, cz + 1 ], [ cx, cz - 1 ] );
+				}
+				waterRegions.push( region );
 			}
-			for ( let x = minWaterGx; x < maxWaterGx; x ++ ) {
-				if ( tunnelNearWater.has( `${ x },${ minWaterGz - 1 }` ) ) expandMinGz = 0;
-				if ( tunnelNearWater.has( `${ x },${ maxWaterGz }` ) ) expandMaxGz = 0;
+			for ( const region of waterRegions ) {
+				let minWaterGx = Infinity, maxWaterGx = - Infinity, minWaterGz = Infinity, maxWaterGz = - Infinity;
+				for ( const [ gx, gz ] of region ) {
+					minWaterGx = Math.min( minWaterGx, gx );
+					maxWaterGx = Math.max( maxWaterGx, gx + 1 );
+					minWaterGz = Math.min( minWaterGz, gz );
+					maxWaterGz = Math.max( maxWaterGz, gz + 1 );
+				}
+				// The plane overshoots by one cell per side to tuck under the
+				// rim — but must NEVER cross tunnel pits next to the pool (a
+				// water 'wall' through tunnels, user order). The pit's own wall
+				// closes the boundary, so no seam remains.
+				let expandMinGx = 1, expandMaxGx = 1, expandMinGz = 1, expandMaxGz = 1;
+				for ( let z = minWaterGz; z < maxWaterGz; z ++ ) {
+					if ( tunnelNearWater.has( `${ minWaterGx - 1 },${ z }` ) ) expandMinGx = 0;
+					if ( tunnelNearWater.has( `${ maxWaterGx },${ z }` ) ) expandMaxGx = 0;
+				}
+				for ( let x = minWaterGx; x < maxWaterGx; x ++ ) {
+					if ( tunnelNearWater.has( `${ x },${ minWaterGz - 1 }` ) ) expandMinGz = 0;
+					if ( tunnelNearWater.has( `${ x },${ maxWaterGz }` ) ) expandMaxGz = 0;
+				}
+				const waterWidth = Math.max( CELL_RAW, ( maxWaterGx - minWaterGx + expandMinGx + expandMaxGx ) * CELL_RAW );
+				const waterDepth = Math.max( CELL_RAW, ( maxWaterGz - minWaterGz + expandMinGz + expandMaxGz ) * CELL_RAW );
+				// Subdivided so the vertex-stage wave height field has geometry to bend.
+				const waterSeg = THREE.MathUtils.clamp( Math.round( Math.max( waterWidth, waterDepth ) / CELL_RAW ) * 32, 32, 128 );
+				const waterPlane = new THREE.Mesh(
+					new THREE.PlaneGeometry( waterWidth, waterDepth, waterSeg, waterSeg ),
+					createRepositoryWaterMaterial( poolVisuals )
+				);
+				waterPlane.rotation.x = - Math.PI / 2;
+				waterPlane.position.set( ( ( minWaterGx - expandMinGx + maxWaterGx + expandMaxGx ) * 0.5 ) * CELL_RAW, 0.12, ( ( minWaterGz - expandMinGz + maxWaterGz + expandMaxGz ) * 0.5 ) * CELL_RAW );
+				waterPlane.userData.waterSurface = true;
+				WATER_PLANES.push( waterPlane );
+				// Cache the world-space bounding sphere once — the frustum gate
+				// tests it every frame, and pool planes never move after this.
+				waterPlane.updateMatrixWorld();
+				waterPlane.geometry.computeBoundingSphere();
+				waterPlane.userData.waterWorldSphere = waterPlane.geometry.boundingSphere.clone().applyMatrix4( waterPlane.matrixWorld );
+				waterPlane.onBeforeRender = () => {
+					waterPlane.material.uniforms.time.value = performance.now() * 0.001;
+				};
+				trackPieceGroup.add( waterPlane );
 			}
-			const waterWidth = Math.max( CELL_RAW, ( maxWaterGx - minWaterGx + expandMinGx + expandMaxGx ) * CELL_RAW );
-			const waterDepth = Math.max( CELL_RAW, ( maxWaterGz - minWaterGz + expandMinGz + expandMaxGz ) * CELL_RAW );
-			// Subdivided so the vertex-stage wave height field has geometry to bend.
-			const waterSeg = THREE.MathUtils.clamp( Math.round( Math.max( waterWidth, waterDepth ) / CELL_RAW ) * 32, 32, 128 );
-			const waterPlane = new THREE.Mesh(
-				new THREE.PlaneGeometry( waterWidth, waterDepth, waterSeg, waterSeg ),
-				createRepositoryWaterMaterial( poolVisuals )
-			);
-			waterPlane.rotation.x = - Math.PI / 2;
-			waterPlane.position.set( ( ( minWaterGx - expandMinGx + maxWaterGx + expandMaxGx ) * 0.5 ) * CELL_RAW, 0.12, ( ( minWaterGz - expandMinGz + maxWaterGz + expandMaxGz ) * 0.5 ) * CELL_RAW );
-			waterPlane.userData.waterSurface = true;
-			WATER_PLANES.push( waterPlane );
-			// Cache the world-space bounding sphere once — the frustum gate
-			// tests it every frame, and pool planes never move after this.
-			waterPlane.updateMatrixWorld();
-			waterPlane.geometry.computeBoundingSphere();
-			waterPlane.userData.waterWorldSphere = waterPlane.geometry.boundingSphere.clone().applyMatrix4( waterPlane.matrixWorld );
-			waterPlane.onBeforeRender = () => {
-
-				waterPlane.material.uniforms.time.value = performance.now() * 0.001;
-
-			};
-			trackPieceGroup.add( waterPlane );
 
 		}
 		for ( const [ gx, gz ] of waterCells ) {
