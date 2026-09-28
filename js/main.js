@@ -3690,6 +3690,126 @@ function updateMovingObstacles( state, now, vehicleList ) {
 	}
 }
 
+// ─── Physics boxes ─────────────────────────────────────────
+// Bouncy cardboard props (track mods key 'f'): light boxes the car can
+// shove around. Standalone dynamics — gravity, ground bounce, car push
+// impulses. Wall colliders do not affect them (v1); a box that falls
+// off the world respawns at its home spot.
+const PHYSICS_BOX_HALF = CELL_RAW * GRID_SCALE * 0.15;
+const physicsBoxes = [];
+let pendingPhysicsBoxes = null;
+let physicsBoxesSpawned = false;
+let physicsBoxLastMs = 0;
+const physicsBoxGeo = new THREE.BoxGeometry( PHYSICS_BOX_HALF * 2, PHYSICS_BOX_HALF * 2, PHYSICS_BOX_HALF * 2 );
+const physicsBoxMat = new THREE.MeshStandardMaterial( { color: 0x8a5a33, roughness: 0.85, metalness: 0.02 } );
+
+function setPendingPhysicsBoxes( extras ) {
+
+	pendingPhysicsBoxes = Array.isArray( extras?.physicsBoxes ) ? extras.physicsBoxes : null;
+	physicsBoxesSpawned = false;
+
+}
+
+function spawnPhysicsBoxes() {
+
+	physicsBoxesSpawned = true;
+	const list = pendingPhysicsBoxes || [];
+	pendingPhysicsBoxes = null;
+	for ( const b of physicsBoxes ) scene.remove( b.mesh );
+	physicsBoxes.length = 0;
+	if ( ! list.length ) return;
+	const ray = new THREE.Raycaster();
+	ray.camera = cam.camera; // sprites need it; scene fully built by first tick
+	const down = new THREE.Vector3( 0, -1, 0 );
+	for ( const entry of list ) {
+
+		const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const x = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
+		const z = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
+		ray.set( new THREE.Vector3( x, 40, z ), down );
+		const hits = ray.intersectObjects( scene.children, true );
+		let groundY = 0;
+		for ( const h of hits ) {
+
+			if ( h.point.y < 30 ) { groundY = h.point.y; break; }
+
+		}
+		const mesh = new THREE.Mesh( physicsBoxGeo, physicsBoxMat );
+		mesh.castShadow = true;
+		mesh.receiveShadow = true;
+		const pos = new THREE.Vector3( x, groundY + PHYSICS_BOX_HALF, z );
+		mesh.position.copy( pos );
+		scene.add( mesh );
+		physicsBoxes.push( {
+			mesh, pos,
+			vel: new THREE.Vector3(),
+			home: pos.clone(), homeY: groundY, groundY,
+			yaw: Math.random() * Math.PI * 2, yawVel: 0
+		} );
+
+	}
+
+}
+
+function updatePhysicsBoxes( nowMs ) {
+
+	if ( pendingPhysicsBoxes && ! physicsBoxesSpawned ) spawnPhysicsBoxes();
+	if ( ! physicsBoxes.length ) return;
+	const dt = Math.min( 0.05, Math.max( 0.001, ( nowMs - physicsBoxLastMs ) / 1000 ) ) || 0.016;
+	physicsBoxLastMs = nowMs;
+	const carPos = vehicle.spherePos;
+	const carVel = vehicle.sphereVel;
+	const carSpeed = Math.hypot( carVel.x, carVel.z );
+	for ( const b of physicsBoxes ) {
+
+		// Car push: overlap -> light box gets kicked along the push direction.
+		const dx = b.pos.x - carPos.x;
+		const dz = b.pos.z - carPos.z;
+		const hd = Math.hypot( dx, dz );
+		if ( hd < 2.6 && Math.abs( b.pos.y - carPos.y ) < 3 ) {
+
+			const nx = hd > 0.001 ? dx / hd : 1;
+			const nz = hd > 0.001 ? dz / hd : 0;
+			const kick = carSpeed * 1.15 + 2.5;
+			b.vel.x = nx * kick;
+			b.vel.z = nz * kick;
+			b.vel.y += 2.4;
+			b.yawVel += ( carSpeed + 2 ) * ( Math.random() < 0.5 ? -0.5 : 0.5 );
+
+		}
+		// Integrate: gravity, bounce, friction.
+		b.vel.y -= 26 * dt;
+		b.pos.addScaledVector( b.vel, dt );
+		if ( b.pos.y - PHYSICS_BOX_HALF < b.groundY ) {
+
+			b.pos.y = b.groundY + PHYSICS_BOX_HALF;
+			if ( b.vel.y < -1.6 ) b.vel.y = - b.vel.y * 0.52;
+			else b.vel.y = 0;
+			b.vel.x *= 0.955;
+			b.vel.z *= 0.955;
+			b.yawVel *= 0.975;
+
+		}
+		if ( b.pos.y < b.homeY - 40 ) {
+
+			// Fell off the world — respawn at its home spot.
+			b.pos.copy( b.home );
+			b.vel.set( 0, 0, 0 );
+			b.yawVel = 0;
+			b.mesh.position.copy( b.pos );
+			continue;
+
+		}
+		b.yaw += b.yawVel * dt;
+		b.mesh.position.copy( b.pos );
+		b.mesh.rotation.y = b.yaw;
+
+	}
+
+}
+
+
 function extrasFromParsed( parsed ) {
 
 	if ( ! parsed || typeof parsed !== 'object' ) return null;
@@ -3697,6 +3817,7 @@ function extrasFromParsed( parsed ) {
 				bumps: Array.isArray( parsed.b ) ? parsed.b : [],
 				poles: Array.isArray( parsed.p ) ? parsed.p : [],
 				cubes: Array.isArray( parsed.k ) ? parsed.k : [],
+			physicsBoxes: Array.isArray( parsed.f ) ? parsed.f : [],
 				walls: Array.isArray( parsed.l ) ? parsed.l : [],
 				boosts: Array.isArray( parsed.s ) ? parsed.s : [],
 				elevated: Array.isArray( parsed.e ) ? parsed.e : [],
@@ -4807,6 +4928,7 @@ async function init() {
 	let spawn = null;
 
 	const extras = await decodeExtrasParamAny( extrasParam );
+	setPendingPhysicsBoxes( extras );
 	const carKeys = Object.keys( CAR_STATS );
 	const deterministicCarSeed = hashTrackSeed( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
 
@@ -13723,6 +13845,7 @@ function completeCampaignStage() {
 	let _lastVignetteY = '';
 
 	let settingsAppliedThisBoot = false;
+
 	function animate() {
 
 		// ?perf=1 metrics (and future tuning): renderer.info with
@@ -13744,6 +13867,8 @@ function completeCampaignStage() {
 		window.__perf.skyY = skyGroup.position.y;
 		window.__perfT0 = _perfNow;
 		renderer.info.reset();
+
+		try { updatePhysicsBoxes( _perfNow ); } catch ( e ) { /* boxes must never kill the loop */ }
 
 		requestAnimationFrame( animate );
 

@@ -668,7 +668,6 @@
 			<button id="btn-thin-3-way">Thin 3-Way</button>
 			<button id="btn-thin-4-way">Thin 4-Way</button>
 			<button id="btn-wide-thin">Wide-Thin</button>
-			<button id="btn-wide-thin-corner">Wide-Thin Corner</button>
 			<button id="btn-elevated-straight" style="display:none">Elev Straight</button>
 			<button id="btn-elevated-cross" style="display:none">Elev Cross</button>
 			<button id="btn-elevated-corner" style="display:none">Elev Corner</button>
@@ -688,13 +687,13 @@
 			<button id="btn-elevated-thin-3-way" style="display:none">Elev Thin 3-Way</button>
 			<button id="btn-elevated-thin-4-way" style="display:none">Elev Thin 4-Way</button>
 			<button id="btn-elevated-wide-thin" style="display:none">Elev Wide-Thin</button>
-			<button id="btn-elevated-wide-thin-corner" style="display:none">Elev Wide-Thin Corner</button>
 		</div>
 		<div class="toolbar-group" aria-label="Obstacles" data-cat="obstacles">
 			<span class="toolbar-group-label">Obstacles</span>
 			<button id="btn-bump">Bump +</button>
 			<button id="btn-pole">Pole +</button>
 			<button id="btn-cube">Cube +</button>
+			<button id="btn-physics-box">Physics Box +</button>
 			<button id="btn-wall">Wall +</button>
 			<button id="btn-jump">Jump +</button>
 			<button id="btn-water">Water Pool +</button>
@@ -913,6 +912,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 	const BUMP_TOOL = 'overlay-bump';
 	const POLE_TOOL = 'overlay-pole';
 	const CUBE_TOOL = 'overlay-cube';
+	const PHYSICS_BOX_TOOL = 'overlay-physics-box';
 	const WALL_TOOL = 'overlay-wall';
 	const JUMP_TOOL = 'overlay-jump';
 	const WATER_TOOL = 'water-pool';
@@ -1506,7 +1506,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 		if ( ! cell ) return hasStandaloneObjectAtCell( gx, gz );
 		return Boolean(
-			cell.roadPieces?.length || cell.type || cell.bump || cell.pole || cell.cube || cell.wall || cell.jump
+			cell.roadPieces?.length || cell.type || cell.bump || cell.pole || cell.cube || cell.physicsBox || cell.wall || cell.jump
 			|| cell.movingObstacle || cell.elevatedType || cell.poolSlope || cell.decoType || cell.surfaceTypes?.length
 			|| hasStandaloneObjectAtCell( gx, gz )
 		);
@@ -2116,6 +2116,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
 		if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
 		if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
+		if ( cell.physicsBoxMesh ) trackGroup.remove( cell.physicsBoxMesh );
 		if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
 				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
@@ -2127,6 +2128,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 		cell.bumpMesh = null;
 		cell.poleMesh = null;
 		cell.cubeMesh = null;
+		cell.physicsBoxMesh = null;
 		cell.wallMesh = null;
 		cell.jumpMesh = null;
 		cell.waterMesh = null;
@@ -2302,6 +2304,23 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 			cube.receiveShadow = true;
 			trackGroup.add( cube );
 			cell.cubeMesh = cube;
+
+		}
+
+		// Physics box: bouncy cardboard prop (in-game the car can push it
+		// around — see the game-side physics box system in main.js).
+		if ( cell.physicsBox ) {
+
+			const pbox = new THREE.Mesh(
+				new THREE.BoxGeometry( CELL_RAW * 0.3, CELL_RAW * 0.3, CELL_RAW * 0.3 ),
+				new THREE.MeshStandardMaterial( { color: 0x8a5a33, roughness: 0.85, metalness: 0.02 } )
+			);
+			const yOffset = getOverlayHeightOffset( cell );
+			pbox.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+			pbox.castShadow = true;
+			pbox.receiveShadow = true;
+			trackGroup.add( pbox );
+			cell.physicsBoxMesh = pbox;
 
 		}
 
@@ -2916,7 +2935,7 @@ function computeCausticShade( normal ) {
 			grid.set( key, cell );
 			placeOverlayMesh( gx, gz, cell );
 
-		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || selectedType === WATER_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || MOVING_CUSTOM_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
+		} else if ( selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || selectedType === WATER_TOOL || selectedType === PHYSICS_BOX_TOOL || MOVING_SLIDE_TOOL === selectedType || MOVING_SPIN_TOOL === selectedType || MOVING_ORBIT_TOOL === selectedType || MOVING_CUSTOM_TOOL === selectedType || ELEVATED_TYPES.includes( selectedType ) ) {
 
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
@@ -2931,14 +2950,14 @@ function computeCausticShade( normal ) {
 			// existing one OFF, which stays allowed so legacy placements can
 			// be cleaned up — and block painting a cross block onto a cell
 			// that already holds obstacles.
-			const isObstacleTool = selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL;
+			const isObstacleTool = selectedType === BUMP_TOOL || selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === PHYSICS_BOX_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL;
 			const isMovingTool = selectedType === MOVING_SLIDE_TOOL || selectedType === MOVING_SPIN_TOOL || selectedType === MOVING_ORBIT_TOOL || selectedType === MOVING_CUSTOM_TOOL;
-			const obstaclePresent = ( selectedType === BUMP_TOOL && cell.bump ) || ( selectedType === POLE_TOOL && cell.pole ) || ( selectedType === CUBE_TOOL && cell.cube ) || ( selectedType === WALL_TOOL && cell.wall ) || ( selectedType === JUMP_TOOL && cell.jump ) || ( isMovingTool && cell.movingObstacle === selectedType );
+			const obstaclePresent = ( selectedType === BUMP_TOOL && cell.bump ) || ( selectedType === POLE_TOOL && cell.pole ) || ( selectedType === CUBE_TOOL && cell.cube ) || ( selectedType === PHYSICS_BOX_TOOL && cell.physicsBox ) || ( selectedType === WALL_TOOL && cell.wall ) || ( selectedType === JUMP_TOOL && cell.jump ) || ( isMovingTool && cell.movingObstacle === selectedType );
 			if ( isObstacleTool && ( cell.elevatedType === 'elevated-cross' || cell.elevatedType === 'pool-cross' ) && ! obstaclePresent ) {
 				showToast( 'Obstacles cannot be placed on a cross block' );
 				return;
 			}
-			if ( ( selectedType === 'elevated-cross' || selectedType === 'pool-cross' ) && ( cell.bump || cell.pole || cell.cube || cell.wall || cell.jump || cell.movingObstacle ) ) {
+			if ( ( selectedType === 'elevated-cross' || selectedType === 'pool-cross' ) && ( cell.bump || cell.pole || cell.cube || cell.physicsBox || cell.wall || cell.jump || cell.movingObstacle ) ) {
 				showToast( 'Cross blocks cannot hold obstacles — erase them first' );
 				return;
 			}
@@ -2956,6 +2975,10 @@ function computeCausticShade( normal ) {
 			} else if ( selectedType === CUBE_TOOL ) {
 
 				cell.cube = ! cell.cube;
+
+			} else if ( selectedType === PHYSICS_BOX_TOOL ) {
+
+				cell.physicsBox = ! cell.physicsBox;
 
 			} else if ( selectedType === WALL_TOOL ) {
 
@@ -3004,7 +3027,7 @@ function computeCausticShade( normal ) {
 				}
 
 			}
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.physicsBox && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				// Toggle-off emptied the cell: clear its overlay meshes
 				// BEFORE deleting it, or the pole/bump/surface meshes stay in
@@ -3036,7 +3059,7 @@ function computeCausticShade( normal ) {
 
 			}
 
-			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
+			if ( ! cell.bump && ! cell.pole && ! cell.cube && ! cell.physicsBox && ! cell.wall && ! cell.jump && ! cell.water && ! cell.movingObstacle && ! cell.elevatedType && ! cell.poolSlope && ! cell.roadPieces?.length && ! cell.decoType && ! cell.surfaceTypes?.length ) {
 
 				// Toggle-off emptied the cell: clear its overlay meshes
 				// BEFORE deleting it, or the pole/bump/surface meshes stay in
@@ -3122,6 +3145,7 @@ function computeCausticShade( normal ) {
 		if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
 		if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
 		if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
+		if ( cell.physicsBoxMesh ) trackGroup.remove( cell.physicsBoxMesh );
 		if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 		if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
 				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
@@ -3147,6 +3171,7 @@ function computeCausticShade( normal ) {
 				if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
 				if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
 				if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
+		if ( cell.physicsBoxMesh ) trackGroup.remove( cell.physicsBoxMesh );
 				if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 				if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
 				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
@@ -3317,6 +3342,12 @@ function computeCausticShade( normal ) {
 			const cube = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ), ghostMaterial( 0x9da5b1 ) );
 			cube.position.set( cx, ( CELL_RAW * 0.08 ) - 0.06, cz );
 			group.add( cube );
+
+		} else if ( type === PHYSICS_BOX_TOOL ) {
+
+			const pbox = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.3, CELL_RAW * 0.3, CELL_RAW * 0.3 ), ghostMaterial( 0x8a5a33 ) );
+			pbox.position.set( cx, ( CELL_RAW * 0.08 ) - 0.06, cz );
+			group.add( pbox );
 
 		} else if ( type === WALL_TOOL ) {
 
@@ -3569,7 +3600,7 @@ function computeCausticShade( normal ) {
 		// old fall-through rendered nothing (moving obstacles) or a road tile
 		// placeholder (pole/cube/wall/jump) — off-grid placement was pure
 		// guesswork.
-		if ( selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || isMovingObstacleTool( selectedType ) ) {
+		if ( selectedType === POLE_TOOL || selectedType === CUBE_TOOL || selectedType === PHYSICS_BOX_TOOL || selectedType === WALL_TOOL || selectedType === JUMP_TOOL || isMovingObstacleTool( selectedType ) ) {
 
 			addObstacleGhost( selectedType, gx, gz, selectedOrient );
 			return;
@@ -3932,6 +3963,7 @@ function computeCausticShade( normal ) {
 		const bumps = [];
 		const poles = [];
 		const cubes = [];
+		const physicsBoxes = [];
 		const walls = [];
 		const jumps = [];
 		const elevated = [];
@@ -3949,6 +3981,7 @@ function computeCausticShade( normal ) {
 				if ( cell.bump ) bumps.push( [ gx, gz ] );
 				if ( cell.pole ) poles.push( [ gx, gz ] );
 				if ( cell.cube ) cubes.push( [ gx, gz ] );
+				if ( cell.physicsBox ) physicsBoxes.push( [ gx, gz ] );
 				if ( cell.wall ) walls.push( [ gx, gz, cell.wallOrient || 0 ] );
 				if ( cell.jump ) jumps.push( [ gx, gz, cell.jumpOrient || 0 ] );
 				if ( cell.water && worldPreset !== 'pool-filled' ) water.push( [ gx, gz ] );
@@ -4004,7 +4037,7 @@ function computeCausticShade( normal ) {
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig, colorsOn: customPoolColorsEnabled === true }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload, z: poolSlopes } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, f: physicsBoxes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig, colorsOn: customPoolColorsEnabled === true }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload, z: poolSlopes } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
@@ -4036,6 +4069,7 @@ function computeCausticShade( normal ) {
 			b: Array.isArray( parsed.b ) ? parsed.b : [],
 			p: Array.isArray( parsed.p ) ? parsed.p : [],
 			k: Array.isArray( parsed.k ) ? parsed.k : [],
+			f: Array.isArray( parsed.f ) ? parsed.f : [],
 			l: Array.isArray( parsed.l ) ? parsed.l : [],
 			j: Array.isArray( parsed.j ) ? parsed.j : [],
 			o: Array.isArray( parsed.o ) ? parsed.o : [],
@@ -4162,6 +4196,7 @@ function computeCausticShade( normal ) {
 			if ( cell.bumpMesh ) trackGroup.remove( cell.bumpMesh );
 			if ( cell.poleMesh ) trackGroup.remove( cell.poleMesh );
 			if ( cell.cubeMesh ) trackGroup.remove( cell.cubeMesh );
+		if ( cell.physicsBoxMesh ) trackGroup.remove( cell.physicsBoxMesh );
 			if ( cell.wallMesh ) trackGroup.remove( cell.wallMesh );
 			if ( cell.jumpMesh ) trackGroup.remove( cell.jumpMesh );
 				if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
@@ -4259,6 +4294,16 @@ function computeCausticShade( normal ) {
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
 				cell.cube = true;
+				placeOverlayMesh( gx, gz, cell );
+
+			}
+
+			for ( const [ gx, gz ] of mods.f ) {
+
+				const key = cellKey( gx, gz );
+				const cell = grid.get( key ) || makeEmptyCell();
+				if ( ! grid.has( key ) ) grid.set( key, cell );
+				cell.physicsBox = true;
 				placeOverlayMesh( gx, gz, cell );
 
 			}
@@ -4638,6 +4683,7 @@ function refreshMovingSpeedUi() {
 		[ BUMP_TOOL ]: document.getElementById( 'btn-bump' ),
 		[ POLE_TOOL ]: document.getElementById( 'btn-pole' ),
 		[ CUBE_TOOL ]: document.getElementById( 'btn-cube' ),
+		[ PHYSICS_BOX_TOOL ]: document.getElementById( 'btn-physics-box' ),
 		[ MAGNET_BLUE_TOOL ]: document.getElementById( 'btn-magnet-blue' ),
 		[ MAGNET_RED_TOOL ]: document.getElementById( 'btn-magnet-red' ),
 		[ MAGNET_GRAPPLE_TOOL ]: document.getElementById( 'btn-magnet-grapple' ),
@@ -4673,7 +4719,6 @@ function refreshMovingSpeedUi() {
 		'elevated-thin-3-way': document.getElementById( 'btn-elevated-thin-3-way' ),
 		'elevated-thin-4-way': document.getElementById( 'btn-elevated-thin-4-way' ),
 		'elevated-wide-thin': document.getElementById( 'btn-elevated-wide-thin' ),
-		'elevated-wide-thin-corner': document.getElementById( 'btn-elevated-wide-thin-corner' ),
 		'track-3-way': document.getElementById( 'btn-3way' ),
 		'track-4-way': document.getElementById( 'btn-4way' ),
 		'track-choke-half': document.getElementById( 'btn-choke-half' ),
@@ -4684,7 +4729,6 @@ function refreshMovingSpeedUi() {
 		'track-thin-3-way': document.getElementById( 'btn-thin-3-way' ),
 		'track-thin-4-way': document.getElementById( 'btn-thin-4-way' ),
 		'track-wide-thin': document.getElementById( 'btn-wide-thin' ),
-		'track-wide-thin-corner': document.getElementById( 'btn-wide-thin-corner' ),
 		'decoration-forest': document.getElementById( 'btn-deco-forest' ),
 		'decoration-tents': document.getElementById( 'btn-deco-tents' ),
 		'decoration-empty': document.getElementById( 'btn-deco-empty' ),
@@ -4787,7 +4831,7 @@ function refreshMovingSpeedUi() {
 
 	function updateTileToolbar() {
 
-		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+		for ( const type of [ ...TILE_TYPES, BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES, PHYSICS_BOX_TOOL ] ) {
 
 			tileButtons[ type ]?.classList.toggle( 'active', selectedType === type );
 
@@ -4968,7 +5012,7 @@ function refreshMovingSpeedUi() {
 
 	}
 
-	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-checkpoint-corner', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'track-choke-cross', 'track-thin-straight', 'track-thin-corner', 'track-thin-3-way', 'track-thin-4-way', 'track-wide-thin', 'track-wide-thin-corner', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES ] ) {
+	for ( const type of [ 'track-straight', 'track-corner', 'track-checkpoint', 'track-checkpoint-corner', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'track-choke-cross', 'track-thin-straight', 'track-thin-corner', 'track-thin-3-way', 'track-thin-4-way', 'track-wide-thin', 'track-wide-thin-corner', BUMP_TOOL, POLE_TOOL, CUBE_TOOL, MAGNET_BLUE_TOOL, MAGNET_RED_TOOL, MAGNET_GRAPPLE_TOOL, ARC_GREEN_TOOL, ARC_ORANGE_TOOL, PORTAL_YELLOW_TOOL, PORTAL_PURPLE_TOOL, WALL_TOOL, JUMP_TOOL, WATER_TOOL, MOVING_SLIDE_TOOL, MOVING_SPIN_TOOL, MOVING_ORBIT_TOOL, MOVING_CUSTOM_TOOL, ...ELEVATED_TYPES, POOL_SLOPE_TOOL, ...DECO_TYPES, ...CUSTOM_SURFACE_TYPES, ...CUSTOM_PAD_TYPES, PHYSICS_BOX_TOOL ] ) {
 
 		tileButtons[ type ]?.addEventListener( 'click', () => {
 
@@ -6287,7 +6331,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 			const m = decodeMods( encodeMods() );
 			const extras = {
-				bumps: m.b, poles: m.p, cubes: m.k, walls: m.l, jumps: m.j,
+				bumps: m.b, poles: m.p, cubes: m.k, physicsBoxes: m.f, walls: m.l, jumps: m.j,
 				elevated: m.e, decorations: m.d, magnets: m.m, customAssets: m.x,
 				poolSlopes: m.z,
 				water: m.q,
