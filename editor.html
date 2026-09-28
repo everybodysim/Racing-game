@@ -894,7 +894,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000272';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000273';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260946';
@@ -2208,8 +2208,9 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 		if ( cell.tunnel?.closed ) {
 
 			const ceiling = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.06, CELL_RAW ), wallMat );
-			// Top 2cm below ground — never coplanar with the green tile.
-			ceiling.position.y = 0.48;
+			// Top 2cm below ground — the position is the CENTER, one
+			// half-height lower still.
+			ceiling.position.y = 0.48 - CELL_RAW * 0.03;
 			ceiling.receiveShadow = true;
 			pit.add( ceiling );
 
@@ -2230,7 +2231,8 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 			if ( nb?.tunnel ) continue;
 			if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
 			const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, TUNNEL_WALL_H, CELL_RAW * 0.08 ), wallMat );
-			wall.position.set( side.x, 0.5 - TUNNEL_WALL_H * 0.5, side.z );
+			// Rim 2cm below the green ground — no dirt visible from above.
+			wall.position.set( side.x, 0.48 - TUNNEL_WALL_H * 0.5, side.z );
 			wall.rotation.y = side.ry;
 			wall.castShadow = true;
 			wall.receiveShadow = true;

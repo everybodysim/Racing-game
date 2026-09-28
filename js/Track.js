@@ -1235,7 +1235,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			// Tunnel LEGACY v1 entries sink the cell's own piece to the pit
 			// floor; v2 entries keep surface pieces at the surface (the pit
 			// block comes from the tunnel info instead).
-			if ( tunnelInfoMap.has( `${ Number( gx ) },${ Number( gz ) }` ) && tunnelInfoMap.get( `${ Number( gx ) },${ Number( gz ) }` ).type === undefined ) piece.position.y -= TUNNEL_DROP;
+			const tunnelCellKey = `${ Number( gx ) },${ Number( gz ) }`;
+			if ( tunnelInfoMap.has( tunnelCellKey ) && tunnelInfoMap.get( tunnelCellKey ).type === undefined ) piece.position.y -= TUNNEL_DROP;
 			trackPieceGroup.add( piece );
 
 		}
@@ -1454,9 +1455,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( info.closed ) {
 
 				const ceiling = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.06, CELL_RAW ), tunnelWallMat );
-				// Top sits 2cm BELOW ground level — never coplanar with the
-				// closed cell's ground quad above (z-fight).
-				ceiling.position.y = 0.48;
+				// Top sits 2cm BELOW ground level (never coplanar with the
+				// closed cell's ground quad) — position is the CENTER, so it
+				// sits one half-height lower still.
+				ceiling.position.y = 0.48 - CELL_RAW * 0.03;
 				ceiling.receiveShadow = true;
 				pit.add( ceiling );
 
@@ -1477,7 +1479,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				if ( tunnelSet.has( `${ gx + side.dx },${ gz + side.dz }` ) ) continue;
 				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
 				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, TUNNEL_WALL_H, CELL_RAW * 0.08 ), tunnelWallMat );
-				wall.position.set( side.x, 0.5 - TUNNEL_WALL_H * 0.5, side.z );
+				// Rim sits 2cm BELOW the surrounding ground — no dirt visible
+				// from above (colliders stay flush; this is the visual only).
+				wall.position.set( side.x, 0.48 - TUNNEL_WALL_H * 0.5, side.z );
 				wall.rotation.y = side.ry;
 				wall.castShadow = true;
 				wall.receiveShadow = true;
