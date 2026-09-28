@@ -140,7 +140,7 @@ const waterLastCamStateByCam = new Map();
 // render renders into this-divisor-scaled target pixels. 4 = quarter-res
 // (healthy), up to 8 = eighth-res when the frame rate is struggling. The
 // sample is STILL fresh every frame — only its fill cost shrinks.
-let waterRefrScaleDiv = 4;
+let waterRefrScaleDiv = 2;
 let waterRefrDivLastChangeMs = 0;
 // Motion-staleness budget: while the camera is moving, a refraction sample up
 // to WATER_REFR_STALE_MS old is imperceptible behind the per-frame animated
@@ -208,13 +208,16 @@ export function setWaterUnderwaterCameraState( active ) {
 export function updateWaterQuality( rollingFps ) {
 
 	// Fresh refraction sample every frame, but the SECOND scene render's
-	// FILL scales down with the frame rate: quarter-res detail while
-	// healthy, down to eighth-res when struggling (the animated wobble
-	// hides the difference — a softer sample never reads as stale).
+	// FILL scales with the frame rate. QUALITY FLOOR (user order 2026-09-28):
+	// half-res while healthy and NEVER worse than quarter-res — the old
+	// 6/8 (sixth/eighth-res) samples turned the water into a mushy, shifty
+	// camera feed of the wrong part of the scene ("not pool area"). The
+	// wobble hides softness, but it can't hide WRONG content. The main
+	// auto-resolution scaler absorbs the extra fill cost instead.
 	// Hysteresis: at most ONE resolution change per 4s so the render
 	// target never thrashes between sizes.
-	const target = ! Number.isFinite( rollingFps ) || rollingFps <= 0 ? 4
-		: rollingFps >= 45 ? 4 : rollingFps >= 28 ? 6 : 8;
+	const target = ! Number.isFinite( rollingFps ) || rollingFps <= 0 ? 2
+		: rollingFps >= 45 ? 2 : 4;
 	const nowMs = performance.now();
 	if ( target !== waterRefrScaleDiv && nowMs - waterRefrDivLastChangeMs > 4000 ) {
 
@@ -250,12 +253,6 @@ function isWaterVisibleToCamera( camera ) {
 export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0, viewportRect = null ) {
 
 	if ( WATER_PLANES.length === 0 ) return;
-	// NORMAL WATER (user order 2026-09-28): pools no longer sample the live
-	// scene — the refraction render target read as a wiggly camera feed of the
-	// game. The water is a plain procedural surface now, so the whole scene
-	// re-render for the RT is skipped (big perf win). The shader no longer
-	// reads tDiffuse; nothing here needs to run.
-	return;
 	waterRefrFrameCounter ++;
 	const waterLastFrame = waterLastRefrFrameByCam.get( camIndex );
 	// When does the pool actually need a fresh scene render?
@@ -422,10 +419,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			} )() },
 			// Neutral tint for custom pools (no blue shift); classic cool tint otherwise.
 			uTint: { value: new THREE.Vector3( visuals.isCustom ? 1 : 0.86, visuals.isCustom ? 1 : 0.94, visuals.isCustom ? 1 : 1.08 ) },
-			// Bright water-blue body color (from the pool's edge color) so the
-			// surface reads unmistakably as WATER — custom pools keep their hue.
-			bodyColor: { value: new THREE.Color( visuals.edgeColor ) },
-			// Custom pools tint the refraction sample harder so the color
+				// Custom pools tint the refraction sample harder so the color
 			// survives the scene underneath; default pools keep 0.4.
 			depthMix: { value: visuals.isCustom ? 0.8 : 0.4 },
 			skyTop: { value: new THREE.Color( 0x6db3e8 ) },
@@ -523,7 +517,6 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			uniform float floorY;
 			uniform vec3 lightDir;
 			uniform vec3 deepColor;
-			uniform vec3 bodyColor;
 			uniform float depthMix;
 			uniform vec3 uTint;
 			uniform vec3 skyTop;
@@ -559,7 +552,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				float fresnel = 0.03 + 0.24 * pow( 1.0 - max( dot( n, viewDir ), 0.0 ), 5.0 );
 				// Procedural sky (no skybox asset needed)
 				float skyMix = clamp( rDir.y * 0.5 + 0.5, 0.0, 1.0 );
-				vec3 skyColor = mix( skyHorizon, skyTop, skyMix ) * 0.5;
+				vec3 skyColor = mix( skyHorizon, skyTop, skyMix ) * 0.35;
 
 				// Refracted ray: how far it travels to the pool floor — used
 				// both for the depth tint and to project the caustic web onto
@@ -585,17 +578,15 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				// above-water refraction sample.
 				if ( ! gl_FrontFacing ) {
 
-					vec3 under = vec3( 0.34, 0.58, 0.74 );
+					vec3 under = texture2D( tDiffuse, clamp( screenUV + wobble * 0.02, vec2( 0.002 ), vec2( 0.998 ) ) ).rgb;
+					under *= vec3( 0.45, 0.72, 0.86 );
 					float shimmer = 0.5 + 0.5 * sin( ( vWorldPos.x + vWorldPos.z ) * 1.7 + time * 2.6 + noise( vWorldPos.xz * 2.6 + vec2( time * 0.9, - time * 0.7 ) ) * 7.0 );
 					under += vec3( 0.22, 0.36, 0.42 ) * shimmer * vWaveDistFade;
 					gl_FragColor = vec4( under, 1.0 );
 					return;
 
 				}
-				// NORMAL WATER: plain pool body (no camera feed of the scene) —
-				// bright water blue by default, custom pools keep their hue;
-				// the depth mix below deepens it toward deepColor.
-				vec3 refrColor = mix( bodyColor, deepColor, 0.35 );
+				vec3 refrColor = texture2D( tDiffuse, refrUV ).rgb;
 
 				// Depth tint along the refracted ray
 				float depthT = clamp( dFloor / ( ${ CELL_RAW } * 0.6 ), 0.0, 1.0 );
