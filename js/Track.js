@@ -937,6 +937,12 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 		0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust,
 		( gz + 0.5 ) * CELL_RAW
 	);
+	// anti z-clipping jitter, elevated band (+0.032..0.06) — golden-ratio
+	// per-cell, provably distinct, disjoint from the ground road band
+	// (+0.002..0.03) so elevated/ground seams can never tie
+	const zfIdxE = ( gx + 1024 ) * 4096 + ( gz + 1024 );
+	const zfGoldenE = ( ( zfIdxE * 0.6180339887498949 ) % 1 + 1 ) % 1;
+	piece.position.y += 0.032 + zfGoldenE * 0.028;
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
 
@@ -1848,7 +1854,14 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 				for ( let i = 0; i < count; i ++ ) {
 
-					_dummy.position.set( positions[ i * 2 ], 0.5, positions[ i * 2 + 1 ] );
+					// anti z-clipping: flat quads get the decoration band
+					// (-0.002..-0.022) keyed by cell — provably distinct from
+					// every other quad and always below road/tree levels
+					const zfGx = Math.round( positions[ i * 2 ] / CELL_RAW - 0.5 );
+					const zfGz = Math.round( positions[ i * 2 + 1 ] / CELL_RAW - 0.5 );
+					const zfIdxG = ( zfGx + 1024 ) * 4096 + ( zfGz + 1024 );
+					const zfGoldenG = ( ( zfIdxG * 0.6180339887498949 ) % 1 + 1 ) % 1;
+					_dummy.position.set( positions[ i * 2 ], 0.5 - ( 0.002 + zfGoldenG * 0.02 ), positions[ i * 2 + 1 ] );
 					// Per-instance Y rotation for 3D trees/bushes (decoration-forest +
 					// decoration-empty) breaks up the repetitive grid pattern. Limited to
 					// 90° intervals (0, 90, 180, 270) so nothing looks oddly tilted.
@@ -2332,8 +2345,18 @@ export function placePiece( models, key, gx, gz, orient ) {
 	if ( THIN_MODEL_KEYS.has( modelKey ) ) smoothThinSourceModel( src );
 
 	const piece = src.clone();
-	const yOffset = ( String( key || '' ).startsWith( 'decoration-' ) || String( key || '' ).startsWith( 'building-' ) ) ? DECORATION_HEIGHT_OFFSET : VISUAL_HEIGHT_OFFSET;
+	const isDecorationPiece = String( key || '' ).startsWith( 'decoration-' ) || String( key || '' ).startsWith( 'building-' );
+	const yOffset = isDecorationPiece ? DECORATION_HEIGHT_OFFSET : VISUAL_HEIGHT_OFFSET;
 	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+	// ANTI Z-CLIPPING: tiny per-cell golden-ratio height jitter. For distinct
+	// integers the fractional parts of n*phi are provably distinct, and the
+	// cell index is injective, so NO two blocks can ever share an exact level.
+	// Bands: road pieces +0.002..0.03, decorations -0.002..-0.022 (always
+	// BELOW the road band, so road-vs-decoration overlaps resolve
+	// road-on-top), elevated decks +0.032..0.06 (disjoint from both).
+	const zfIdx = ( gx + 1024 ) * 4096 + ( gz + 1024 );
+	const zfGolden = ( ( zfIdx * 0.6180339887498949 ) % 1 + 1 ) % 1;
+	piece.position.y += isDecorationPiece ? - ( 0.002 + zfGolden * 0.02 ) : ( 0.002 + zfGolden * 0.028 );
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
