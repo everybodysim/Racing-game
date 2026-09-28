@@ -793,6 +793,38 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	// The tilted half-thickness displaces the top-face edges; shift the box
 	// centre hy·sin(angle) toward local +z (the ground side) to compensate.
 	const poolSlopeShift = ELEVATED_SURFACE_HALF_H * Math.sin( poolSlopeAngle );
+	// TUNNEL slope math: same ramp geometry, but the drop is the FULL tunnel
+	// depth (5 units = elevated height, user order), not the shallow pool.
+	const TUNNEL_FLOOR_DROP = CELL_RAW * S * 0.5;
+	const tunnelFloorBoxTop = groundY - TUNNEL_FLOOR_DROP + 0.04 * S;
+	const tunnelSlopeRise = poolGroundTop - tunnelFloorBoxTop;
+	const tunnelSlopeAngle = Math.atan2( tunnelSlopeRise, poolSlopeSpan * 2 );
+	const tunnelSlopeHalfLen = Math.hypot( poolSlopeSpan, tunnelSlopeRise * 0.5 );
+	const tunnelSlopeCenterY = ( poolGroundTop + tunnelFloorBoxTop ) * 0.5
+		- ELEVATED_SURFACE_HALF_H * Math.cos( tunnelSlopeAngle );
+	const tunnelSlopeShift = ELEVATED_SURFACE_HALF_H * Math.sin( tunnelSlopeAngle );
+	function addTunnelSlopeCollider( gx, gz, orient = 0 ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const flipOrient = ORIENT_180[ orient ] ?? orient;
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ flipOrient ] ?? 0 );
+		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( - tunnelSlopeAngle, yaw, 0, 'YXZ' ) );
+		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, tunnelSlopeHalfLen ];
+		const position = [ cx + Math.sin( yaw ) * tunnelSlopeShift, tunnelSlopeCenterY, cz + Math.cos( yaw ) * tunnelSlopeShift ];
+		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position,
+			quaternion,
+			friction: 0.9,
+			restitution: 0.0
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+	}
 	function addPoolSlopeCollider( gx, gz, orient = 0 ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
@@ -905,10 +937,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	const waterSet = new Set( [
-		...waterEntries.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ),
-		...tunnelEntriesForBowl.map( ( [ gx, gz ] ) => `${ Number( gx ) },${ Number( gz ) }` ),
-	] );
+	const waterSet = new Set( waterEntries.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 	// Map each pool-slope cell to the (dx,dz) side it exits toward, so the
 	// corresponding pool wall can be skipped (otherwise it blocks the car).
 	const poolSlopeExit = new Map();
@@ -920,6 +949,61 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			const dz = - Math.round( Math.cos( rad ) );
 			poolSlopeExit.set( `${ Number( gx ) },${ Number( gz ) }`, `${ dx },${ dz }` );
 		}
+	}
+	// ── TUNNEL BOWL COLLIDERS (user order 2026-09-28) ──
+	// Dedicated set at the FULL 5-unit depth (matching elevated height) —
+	// NOT the shallow pool bowl. Floor at pit bottom, walls rim-flush to
+	// floor, thin roof on closed tops (camera ceiling probe bows the chase
+	// cam down into the tunnel, exactly like pool cross decks).
+	const tunnelCellSet = new Set( tunnelEntriesForBowl.map( ( entry ) => `${ Number( entry[ 0 ] ) },${ Number( entry[ 1 ] ) }` ) );
+	for ( const entry of tunnelEntriesForBowl ) {
+
+		const gx = Number( entry[ 0 ] );
+		const gz = Number( entry[ 1 ] );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const closedTop = Array.isArray( entry ) && entry.length >= 5 && entry[ 2 ] === 1;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const floorHalfExtents = [ CELL_HALF * S, 0.04 * S, CELL_HALF * S ];
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: floorHalfExtents } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: [ cx, groundY - TUNNEL_FLOOR_DROP, cz ],
+			friction: 0.25,
+			restitution: 0.0
+		} );
+		if ( debugGroup ) addDebugBox( debugGroup, floorHalfExtents, [ cx, groundY - TUNNEL_FLOOR_DROP, cz ] );
+		if ( closedTop ) {
+
+			const roofHalfExtents = [ CELL_HALF * S, 0.05 * S, CELL_HALF * S ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents: roofHalfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position: [ cx, groundY + 0.01 - 0.05 * S, cz ],
+				friction: 0.25,
+				restitution: 0.0
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, roofHalfExtents, [ cx, groundY + 0.01 - 0.05 * S, cz ] );
+
+		}
+		const exitSide = poolSlopeExit.get( `${ gx },${ gz }` );
+		const wallHalfH = TUNNEL_FLOOR_DROP * 0.5 + 0.05 * S;
+		const sides = [ [ 0, - 1, 0, - CELL_HALF * S, 0 ], [ 1, 0, CELL_HALF * S, 0, Math.PI / 2 ], [ 0, 1, 0, CELL_HALF * S, 0 ], [ - 1, 0, - CELL_HALF * S, 0, Math.PI / 2 ] ];
+		for ( const [ dx, dz, ox, oz, yaw ] of sides ) {
+			if ( tunnelCellSet.has( `${ gx + dx },${ gz + dz }` ) ) continue;
+			if ( exitSide === `${ dx },${ dz }` ) continue;
+			const halfExtents = [ CELL_HALF * S, wallHalfH, CELL_RAW * S * 0.04 ];
+			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
+			// Top flush with the ground surface; bottom buried below the pit
+			// floor top — no lip, no gap, no seam between wall and floor.
+			const position = [ cx + ox, groundY + 0.01 - wallHalfH, cz + oz ];
+			rigidBody.create( world, { shape: box.create( { halfExtents } ), motionType: MotionType.STATIC, objectLayer: world._OL_STATIC, position, quaternion, friction: 0.9, restitution: 0.0 } );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+
+		}
+
 	}
 	// Tunnel slopes: same exit-side mapping (SEPARATE data key from pool slopes).
 	if ( Array.isArray( extras?.tunnelSlopes ) ) {
@@ -941,13 +1025,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 	const WATER_BEVEL_ANGLE = THREE.MathUtils.degToRad( 1.6 );
-	for ( const bowlEntry of [ ...waterEntries, ...tunnelEntriesForBowl ] ) {
-
-		const [ gx, gz ] = bowlEntry;
-		// CLOSED-top tunnel: a thin roof collider seals the pit at ground
-		// level — cars above drive over it, and the camera's ceiling probe
-		// clamps the chase cam down into the tunnel like pool cross decks.
-		const closedTop = Array.isArray( bowlEntry ) && bowlEntry.length >= 5 && bowlEntry[ 2 ] === 1;
+	for ( const [ gx, gz ] of waterEntries ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
@@ -1339,14 +1417,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		addPoolSlopeCollider( gx, gz, orient );
 
 	}
-	// Tunnel slopes: identical ramp colliders, separate data (user order).
+	// Tunnel slopes: dedicated 5-unit ramp colliders (separate data).
 	const tunnelSlopeEntries = extras && Array.isArray( extras.tunnelSlopes ) ? extras.tunnelSlopes : [];
 	for ( const [ gxRaw, gzRaw, orient = 0 ] of tunnelSlopeEntries ) {
 
 		const gx = Number( gxRaw );
 		const gz = Number( gzRaw );
 		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
-		addPoolSlopeCollider( gx, gz, orient );
+		addTunnelSlopeCollider( gx, gz, orient );
 
 	}
 

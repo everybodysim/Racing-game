@@ -894,10 +894,10 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000271';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000272';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260944';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260945';
 	import { Vehicle } from './js/Vehicle.js?v=1000228';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
@@ -963,8 +963,6 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 	let tool = 'paint'; // 'paint', 'erase'
 	let selectedType = 'track-straight';
 	let selectedOrient = 0;
-	// ⤓ Underground placement mode: while ON, every road block placed via
-	// setCell is flagged underground (open-top tunnel). On-grid only.
 	// Track placement LEVEL mode (user order 2026-09-28): one dropdown drives
 	// every track button — ground / elevated (names + types swap) / tunnel
 	// open-top / tunnel closed-top.
@@ -1108,8 +1106,11 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 	const ARC_DEFAULT_ID = 1;
 	const ARC_MAX_ID = 999;
 	const BLOCK_HEIGHT_OFFSET = 0.012;
-	// Tunnel pit depth — matches the game-side TUNNEL_DROP (dry pool bowl).
-	const TUNNEL_DROP = CELL_RAW * 0.32;
+	// Tunnel pit depth = ELEVATED_HEIGHT (5 units, user order): blocks place
+	// exactly as far below ground as elevated blocks sit above it. Matches the
+	// game-side TUNNEL_DROP + dedicated 5-unit tunnel colliders.
+	const TUNNEL_DROP = CELL_RAW * 0.5;
+	const TUNNEL_WALL_H = CELL_RAW * 0.5 + 0.1;
 	const DECO_HEIGHT_OFFSET = BLOCK_HEIGHT_OFFSET * 0.5;
 
 	function selectMagnetIndex( index ) {
@@ -1766,8 +1767,11 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 		let v = 0;
 		for ( let gz = - GRID_HALF_CELLS; gz < GRID_HALF_CELLS; gz ++ ) {
 			for ( let gx = - GRID_HALF_CELLS; gx < GRID_HALF_CELLS; gx ++ ) {
-				// Pool cells get a real hole — the sunken pool shows through.
-				if ( grid.get( cellKey( gx, gz ) )?.water ) continue;
+				// Pool cells AND open-top tunnel cells get a real hole — the
+				// sunken pool / tunnel pit shows through. Closed-top tunnels
+				// keep their green tile (the roof is the surface world).
+				const groundCell = grid.get( cellKey( gx, gz ) );
+				if ( groundCell?.water || ( groundCell?.tunnel && ! groundCell.tunnel.closed ) ) continue;
 				const x0 = gx * groundCellWorld, z0 = gz * groundCellWorld;
 				const x1 = x0 + groundCellWorld, z1 = z0 + groundCellWorld;
 				verts.push( x0, 0, z0, x1, 0, z0, x1, 0, z1, x0, 0, z1 );
@@ -2196,13 +2200,17 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 		const floorMat = new THREE.MeshStandardMaterial( { color: 0x6f4e2e, roughness: 0.95, metalness: 0.0 } );
 		const wallMat = new THREE.MeshStandardMaterial( { color: 0x5c4126, roughness: 0.95, metalness: 0.0 } );
 		const floor = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ), floorMat );
-		floor.position.y = 0.5 - TUNNEL_DROP - CELL_RAW * 0.02;
+		// Floor TOP sits one block-offset below the pit block deck — same
+		// clearance surface blocks get, so the floor never covers the block.
+		floor.position.y = 0.5 - TUNNEL_DROP - BLOCK_HEIGHT_OFFSET - CELL_RAW * 0.02;
 		floor.receiveShadow = true;
 		pit.add( floor );
 		if ( cell.tunnel?.closed ) {
 
 			const ceiling = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.06, CELL_RAW ), wallMat );
-			ceiling.position.y = 0.5 - CELL_RAW * 0.03;
+			// Top 2cm below ground — never coplanar with the green tile.
+			ceiling.position.y = 0.48;
+			ceiling.receiveShadow = true;
 			pit.add( ceiling );
 
 		}
@@ -2221,8 +2229,8 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 			const nb = grid.get( cellKey( gx + side.dx, gz + side.dz ) );
 			if ( nb?.tunnel ) continue;
 			if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
-			const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.38, CELL_RAW * 0.08 ), wallMat );
-			wall.position.set( side.x, 0.5 - CELL_RAW * 0.19, side.z );
+			const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, TUNNEL_WALL_H, CELL_RAW * 0.08 ), wallMat );
+			wall.position.set( side.x, 0.5 - TUNNEL_WALL_H * 0.5, side.z );
 			wall.rotation.y = side.ry;
 			wall.castShadow = true;
 			wall.receiveShadow = true;
@@ -2980,6 +2988,7 @@ function computeCausticShade( normal ) {
 			grid.set( key, cell );
 			placeMesh( gx, gz, cell );
 			placeOverlayMesh( gx, gz, cell );
+			groundTilesDirty = true; // tunnel added/removed → recut the ground holes
 			return;
 
 		}
@@ -3090,6 +3099,7 @@ function computeCausticShade( normal ) {
 			cell.tunnel = cell.tunnel ? null : { type: null, orient: 0, closed: false };
 			if ( ! cell.tunnel ) cell.tunnelSlope = false;
 			placeOverlayMesh( gx, gz, cell );
+			groundTilesDirty = true; // hole added/removed → recut the ground holes
 
 		} else if ( selectedType === TUNNEL_SLOPE_TOOL ) {
 

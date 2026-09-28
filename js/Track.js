@@ -29,10 +29,12 @@ const SUPPORT_SINK = 0.03;
 const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 
 const WATER_DEPTH = CELL_RAW * 0.34;
-// Open-top tunnel pit depth: the block sits at the pit floor, which reuses
-// the PROVEN pool bowl depth (POOL_FLOOR_DROP = CELL_RAW * 0.34 physics
-// floor top + a hair for the visual floor thickness).
-const TUNNEL_DROP = CELL_RAW * 0.32;
+// Tunnel pit depth = ELEVATED_HEIGHT (5 units, user order): blocks place
+// EXACTLY as far below ground as elevated blocks sit above it. The pit
+// floor top sits one visual-offset BELOW the block deck (same clearance
+// the surface ground gives blocks), so the floor never covers the block.
+const TUNNEL_DROP = CELL_RAW * 0.5;
+const TUNNEL_WALL_H = CELL_RAW * 0.5 + 0.1;
 const WATER_WALL_HEIGHT = CELL_RAW * 0.38;
 
 // ---------------------------------------------------------------------------
@@ -1230,10 +1232,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		const piece = placePiece( models, key, gx, gz, orient );
 		if ( piece ) {
 
-			// Open-top tunnel (user order 2026-09-28): LEGACY v1 entries sink
-			// the cell's own piece to the pit floor. v2 entries keep surface
-			// pieces at the surface (the pit block comes from the tunnel info).
-			if ( tunnelInfoMap.get( `${ Number( gx ) },${ Number( gz ) }` )?.type === undefined ) piece.position.y -= TUNNEL_DROP;
+			// Tunnel LEGACY v1 entries sink the cell's own piece to the pit
+			// floor; v2 entries keep surface pieces at the surface (the pit
+			// block comes from the tunnel info instead).
+			if ( tunnelInfoMap.has( `${ Number( gx ) },${ Number( gz ) }` ) && tunnelInfoMap.get( `${ Number( gx ) },${ Number( gz ) }` ).type === undefined ) piece.position.y -= TUNNEL_DROP;
 			trackPieceGroup.add( piece );
 
 		}
@@ -1439,7 +1441,11 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			const pit = new THREE.Group();
 			pit.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
 			const floor = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ), tunnelFloorMat );
-			floor.position.y = 0.5 - TUNNEL_DROP - CELL_RAW * 0.02;
+			// Floor TOP sits one VISUAL_HEIGHT_OFFSET below the block deck
+			// (deck at 0.512 - drop, floor top at 0.5 - drop) — the exact
+			// clearance surface blocks get, so the floor can never cover or
+			// z-fight the block.
+			floor.position.y = 0.5 - TUNNEL_DROP - VISUAL_HEIGHT_OFFSET - CELL_RAW * 0.02;
 			floor.receiveShadow = true;
 			pit.add( floor );
 			// CLOSED top: the surface world stays above — seal the pit with
@@ -1448,7 +1454,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( info.closed ) {
 
 				const ceiling = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.06, CELL_RAW ), tunnelWallMat );
-				ceiling.position.y = 0.5 - CELL_RAW * 0.03;
+				// Top sits 2cm BELOW ground level — never coplanar with the
+				// closed cell's ground quad above (z-fight).
+				ceiling.position.y = 0.48;
 				ceiling.receiveShadow = true;
 				pit.add( ceiling );
 
@@ -1468,8 +1476,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			for ( const side of sides ) {
 				if ( tunnelSet.has( `${ gx + side.dx },${ gz + side.dz }` ) ) continue;
 				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
-				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), tunnelWallMat );
-				wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
+				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, TUNNEL_WALL_H, CELL_RAW * 0.08 ), tunnelWallMat );
+				wall.position.set( side.x, 0.5 - TUNNEL_WALL_H * 0.5, side.z );
 				wall.rotation.y = side.ry;
 				wall.castShadow = true;
 				wall.receiveShadow = true;
