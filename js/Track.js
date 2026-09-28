@@ -422,6 +422,9 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			} )() },
 			// Neutral tint for custom pools (no blue shift); classic cool tint otherwise.
 			uTint: { value: new THREE.Vector3( visuals.isCustom ? 1 : 0.86, visuals.isCustom ? 1 : 0.94, visuals.isCustom ? 1 : 1.08 ) },
+			// Bright water-blue body color (from the pool's edge color) so the
+			// surface reads unmistakably as WATER — custom pools keep their hue.
+			bodyColor: { value: new THREE.Color( visuals.edgeColor ) },
 			// Custom pools tint the refraction sample harder so the color
 			// survives the scene underneath; default pools keep 0.4.
 			depthMix: { value: visuals.isCustom ? 0.8 : 0.4 },
@@ -520,6 +523,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			uniform float floorY;
 			uniform vec3 lightDir;
 			uniform vec3 deepColor;
+			uniform vec3 bodyColor;
 			uniform float depthMix;
 			uniform vec3 uTint;
 			uniform vec3 skyTop;
@@ -555,7 +559,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				float fresnel = 0.03 + 0.24 * pow( 1.0 - max( dot( n, viewDir ), 0.0 ), 5.0 );
 				// Procedural sky (no skybox asset needed)
 				float skyMix = clamp( rDir.y * 0.5 + 0.5, 0.0, 1.0 );
-				vec3 skyColor = mix( skyHorizon, skyTop, skyMix ) * 0.35;
+				vec3 skyColor = mix( skyHorizon, skyTop, skyMix ) * 0.5;
 
 				// Refracted ray: how far it travels to the pool floor — used
 				// both for the depth tint and to project the caustic web onto
@@ -588,9 +592,10 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 					return;
 
 				}
-				// NORMAL WATER: plain pool body color (custom pool colors still
-				// read through deepColor); no camera feed of the scene.
-				vec3 refrColor = mix( vec3( 0.55, 0.8, 0.9 ), deepColor * 1.35, 0.45 );
+				// NORMAL WATER: plain pool body (no camera feed of the scene) —
+				// bright water blue by default, custom pools keep their hue;
+				// the depth mix below deepens it toward deepColor.
+				vec3 refrColor = mix( bodyColor, deepColor, 0.35 );
 
 				// Depth tint along the refracted ray
 				float depthT = clamp( dFloor / ( ${ CELL_RAW } * 0.6 ), 0.0, 1.0 );

@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000267';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000268';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260942';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -3690,156 +3690,6 @@ function updateMovingObstacles( state, now, vehicleList ) {
 	}
 }
 
-// ─── Physics boxes ─────────────────────────────────────────
-// Bouncy cardboard props (track mods key 'f'): REAL dynamic rigid bodies in
-// the car's own physics world (crashcat) — full hitbox collisions with the
-// car, walls, obstacle colliders and each other; gravity, tumble, bounce.
-// Same size as the Cube obstacle; light mass so the car shoves them hard.
-// window.__physBoxDebug mirrors live state every frame (pending/spawned/
-// bodies + last error) so spawn problems are NEVER silently swallowed.
-const PHYSICS_BOX_HALF = CELL_RAW * 0.22 * GRID_SCALE / 2;
-const physicsBoxBodies = [];
-let pendingPhysicsBoxes = null;
-let physicsBoxesSpawned = false;
-let physicsBoxError = '';
-const physicsBoxGeo = new THREE.BoxGeometry( PHYSICS_BOX_HALF * 2, PHYSICS_BOX_HALF * 2, PHYSICS_BOX_HALF * 2 );
-const physicsBoxMat = new THREE.MeshStandardMaterial( { color: 0x8a5a33, roughness: 0.85, metalness: 0.02 } );
-
-function setPendingPhysicsBoxes( extras ) {
-
-	pendingPhysicsBoxes = Array.isArray( extras?.physicsBoxes ) ? extras.physicsBoxes : null;
-	physicsBoxesSpawned = false;
-
-}
-
-function clearPhysicsBoxes( worldRef ) {
-
-	for ( const entry of physicsBoxBodies ) {
-
-		try { rigidBody.destroy( worldRef, entry.body ); } catch ( e ) {}
-		scene.remove( entry.mesh );
-
-	}
-	physicsBoxBodies.length = 0;
-
-}
-
-function spawnPhysicsBoxes( worldRef ) {
-
-	const list = pendingPhysicsBoxes || [];
-	if ( ! list.length ) {
-
-		pendingPhysicsBoxes = null;
-		physicsBoxesSpawned = true;
-		return;
-
-	}
-	clearPhysicsBoxes();
-	const ray = new THREE.Raycaster();
-	// THREE's Sprite.raycast READS raycaster.camera.matrixWorld and crashes
-	// on null — but `cam` (the game rig) is still undefined on the first
-	// animate tick, so we give the ray its own throwaway camera and simply
-	// skip sprite hits when picking the ground (sprites are never ground).
-	ray.camera = new THREE.PerspectiveCamera();
-	const down = new THREE.Vector3( 0, -1, 0 );
-	// Scene not built yet (nothing to hit)? Retry on a later tick.
-	ray.set( new THREE.Vector3( ( Number( list[ 0 ][ 0 ] ) + 0.5 ) * CELL_RAW * GRID_SCALE, 40, ( Number( list[ 0 ][ 1 ] ) + 0.5 ) * CELL_RAW * GRID_SCALE ), down );
-	if ( ray.intersectObjects( scene.children, true ).length === 0 ) return;
-	if ( ! worldRef ) return;
-	for ( const entry of list ) {
-
-		const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
-		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
-		const x = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
-		const z = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
-		ray.set( new THREE.Vector3( x, 40, z ), down );
-		const hits = ray.intersectObjects( scene.children, true );
-		let groundY = 0;
-		for ( const h of hits ) {
-
-			if ( h.object.isSprite ) continue;
-			if ( h.point.y < 30 ) { groundY = h.point.y; break; }
-
-		}
-		const spawnY = groundY + PHYSICS_BOX_HALF + 0.02;
-		const body = rigidBody.create( worldRef, {
-			shape: box.create( { halfExtents: [ PHYSICS_BOX_HALF, PHYSICS_BOX_HALF, PHYSICS_BOX_HALF ] } ),
-			motionType: MotionType.DYNAMIC,
-			objectLayer: worldRef._OL_MOVING,
-			position: [ x, spawnY, z ],
-			mass: 8, // LIGHTER (user order): gets tossed instead of dragging
-			friction: 0.5,
-			restitution: 0.3, // was 0.55 — less frantic bouncing
-			linearDamping: 0.25,
-			angularDamping: 0.5, // heavier damping: no endless tumbling
-			gravityFactor: 1.0,
-			motionQuality: MotionQuality.LINEAR_CAST,
-		} );
-		const mesh = new THREE.Mesh( physicsBoxGeo, physicsBoxMat );
-		mesh.castShadow = true;
-		mesh.receiveShadow = true;
-		mesh.position.set( x, spawnY, z );
-		scene.add( mesh );
-		physicsBoxBodies.push( { body, mesh, home: [ x, spawnY, z ] } );
-
-	}
-	pendingPhysicsBoxes = null;
-	physicsBoxesSpawned = true;
-
-}
-
-function updatePhysicsBoxes( worldRef ) {
-
-	window.__physBoxTick = ( window.__physBoxTick || 0 ) + 1;
-	if ( pendingPhysicsBoxes && ! physicsBoxesSpawned ) spawnPhysicsBoxes( worldRef );
-	window.__physBoxDebug = {
-		pending: pendingPhysicsBoxes ? pendingPhysicsBoxes.length : null,
-		spawned: physicsBoxesSpawned,
-		bodies: physicsBoxBodies.length,
-		firstPos: physicsBoxBodies.length ? [ Number( physicsBoxBodies[ 0 ].body.position[ 0 ] ).toFixed( 2 ), Number( physicsBoxBodies[ 0 ].body.position[ 1 ] ).toFixed( 2 ), Number( physicsBoxBodies[ 0 ].body.position[ 2 ] ).toFixed( 2 ) ] : null,
-		err: physicsBoxError || null,
-	};
-	if ( ! physicsBoxBodies.length ) return;
-	for ( const entry of physicsBoxBodies ) {
-
-		const pos = entry.body.position;
-		// Stability clamps (deterministic, state-only): bound freak-outs and
-		// recover from any NaN instead of the box exploding into the void.
-		const lv = entry.body.motionProperties.linearVelocity;
-		if ( Number.isFinite( lv[ 0 ] ) && Number.isFinite( lv[ 1 ] ) && Number.isFinite( lv[ 2 ] ) ) {
-			const ls = Math.hypot( lv[ 0 ], lv[ 1 ], lv[ 2 ] );
-			if ( ls > 40 ) rigidBody.setLinearVelocity( worldRef, entry.body, [ lv[ 0 ] / ls * 40, lv[ 1 ] / ls * 40, lv[ 2 ] / ls * 40 ] );
-		} else {
-			rigidBody.setLinearVelocity( worldRef, entry.body, [ 0, 0, 0 ] );
-			rigidBody.setAngularVelocity( worldRef, entry.body, [ 0, 0, 0 ] );
-			rigidBody.setPosition( worldRef, entry.body, entry.home, true );
-			continue;
-		}
-		const av = entry.body.motionProperties.angularVelocity;
-		if ( Number.isFinite( av[ 0 ] ) && Number.isFinite( av[ 1 ] ) && Number.isFinite( av[ 2 ] ) ) {
-			const as = Math.hypot( av[ 0 ], av[ 1 ], av[ 2 ] );
-			if ( as > 30 ) rigidBody.setAngularVelocity( worldRef, entry.body, [ av[ 0 ] / as * 30, av[ 1 ] / as * 30, av[ 2 ] / as * 30 ] );
-		} else {
-			rigidBody.setAngularVelocity( worldRef, entry.body, [ 0, 0, 0 ] );
-		}
-		// Fell off the world — teleport home and calm it down.
-		if ( pos[ 1 ] < entry.home[ 1 ] - 40 ) {
-
-			try {
-				rigidBody.setPosition( worldRef, entry.body, entry.home, true );
-				rigidBody.setLinearVelocity( worldRef, entry.body, [ 0, 0, 0 ] );
-				rigidBody.setAngularVelocity( worldRef, entry.body, [ 0, 0, 0 ] );
-			} catch ( e ) {}
-
-		}
-		entry.mesh.position.set( pos[ 0 ], pos[ 1 ], pos[ 2 ] );
-		const q = entry.body.quaternion || entry.body.rotation;
-		if ( Array.isArray( q ) && q.length === 4 ) entry.mesh.quaternion.fromArray( q );
-
-	}
-
-}
-
 function extrasFromParsed( parsed ) {
 
 	if ( ! parsed || typeof parsed !== 'object' ) return null;
@@ -4958,7 +4808,6 @@ async function init() {
 	let spawn = null;
 
 	const extras = await decodeExtrasParamAny( extrasParam );
-	setPendingPhysicsBoxes( extras );
 	const carKeys = Object.keys( CAR_STATS );
 	const deterministicCarSeed = hashTrackSeed( `${ mapParam || 'default' }|${ extrasParam || 'none' }` );
 
@@ -13898,7 +13747,6 @@ function completeCampaignStage() {
 		window.__perfT0 = _perfNow;
 		renderer.info.reset();
 
-		try { updatePhysicsBoxes( world ); } catch ( e ) { physicsBoxError = String( e ); window.__physBoxErr = physicsBoxError + ' @ ' + String( e?.stack ).split( '\n' )[ 1 ]; }
 
 		requestAnimationFrame( animate );
 
