@@ -942,7 +942,7 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	// (+0.002..0.03) so elevated/ground seams can never tie
 	const zfIdxE = ( gx + 1024 ) * 4096 + ( gz + 1024 );
 	const zfGoldenE = ( ( zfIdxE * 0.6180339887498949 ) % 1 + 1 ) % 1;
-	piece.position.y += 0.032 + zfGoldenE * 0.028;
+	piece.position.y += 0.008 + zfGoldenE * 0.007;
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
 
@@ -1861,7 +1861,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					const zfGz = Math.round( positions[ i * 2 + 1 ] / CELL_RAW - 0.5 );
 					const zfIdxG = ( zfGx + 1024 ) * 4096 + ( zfGz + 1024 );
 					const zfGoldenG = ( ( zfIdxG * 0.6180339887498949 ) % 1 + 1 ) % 1;
-					_dummy.position.set( positions[ i * 2 ], 0.5 - ( 0.002 + zfGoldenG * 0.02 ), positions[ i * 2 + 1 ] );
+					_dummy.position.set( positions[ i * 2 ], 0.5 - ( 0.0005 + zfGoldenG * 0.005 ), positions[ i * 2 + 1 ] );
 					// Per-instance Y rotation for 3D trees/bushes (decoration-forest +
 					// decoration-empty) breaks up the repetitive grid pattern. Limited to
 					// 90° intervals (0, 90, 180, 270) so nothing looks oddly tilted.
@@ -2356,7 +2356,7 @@ export function placePiece( models, key, gx, gz, orient ) {
 	// road-on-top), elevated decks +0.032..0.06 (disjoint from both).
 	const zfIdx = ( gx + 1024 ) * 4096 + ( gz + 1024 );
 	const zfGolden = ( ( zfIdx * 0.6180339887498949 ) % 1 + 1 ) % 1;
-	piece.position.y += isDecorationPiece ? - ( 0.002 + zfGolden * 0.02 ) : ( 0.002 + zfGolden * 0.028 );
+	piece.position.y += isDecorationPiece ? - ( 0.0005 + zfGolden * 0.005 ) : ( 0.0005 + zfGolden * 0.007 );
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
