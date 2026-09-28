@@ -1141,7 +1141,7 @@ export function computePoolPresetWaterCells( cells = TRACK_CELLS, extras = null 
 	};
 
 	for ( const [ gx, gz ] of ( Array.isArray( cells ) && cells.length ? cells : TRACK_CELLS ) ) addRoad( gx, gz );
-	const blockerLists = [ extras?.bumps, extras?.poles, extras?.cubes, extras?.physicsBoxes, extras?.walls, extras?.jumps, extras?.movingObstacles, extras?.elevated, extras?.surfaces, extras?.decorations, extras?.magnets, extras?.arcLinks ];
+	const blockerLists = [ extras?.bumps, extras?.poles, extras?.cubes, extras?.physicsBoxes, extras?.walls, extras?.jumps, extras?.movingObstacles, extras?.elevated, extras?.surfaces, extras?.decorations, extras?.magnets, extras?.arcLinks, extras?.tunnels, extras?.tunnelSlopes ];
 	for ( const list of blockerLists ) {
 		if ( ! Array.isArray( list ) ) continue;
 		for ( const entry of list ) {
@@ -1204,15 +1204,36 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	} catch { /* malformed list — treat as not installed */ }
 	const tunnelCells = extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [];
 	const tunnelSlopeCells = extras && Array.isArray( extras.tunnelSlopes ) ? extras.tunnelSlopes : [];
-	const tunnelSet = new Set( tunnelCells.map( ( [ gx, gz ] ) => `${ Number( gx ) },${ Number( gz ) }` ) );
+	// v2 tunnel entry: [ gx, gz, closed, orient, type ] (type null = hole).
+	// v1 legacy: [ gx, gz ] — the cell's own road piece is the pit block and
+	// gets dropped in the cells loop below; surface has nothing on top.
+	const tunnelInfoMap = new Map();
+	for ( const entry of tunnelCells ) {
+
+		const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		tunnelInfoMap.set( `${ gx },${ gz }`, {
+			closed: entry.length >= 5 && entry[ 2 ] === 1,
+			orient: entry.length >= 5 ? ( Number( entry[ 3 ] ) || 0 ) : 0,
+			type: entry.length >= 5 ? ( entry[ 4 ] ?? null ) : undefined
+		} );
+
+	}
+	const tunnelSet = new Set( tunnelInfoMap.keys() );
+	// OPEN tops carve the surface away (no ground quad, no trees); CLOSED
+	// tops keep the whole surface world above (ground, trees) — only the pit
+	// below is carved, sealed by a thin roof collider + ceiling panel.
+	const tunnelOpenSet = new Set( [ ...tunnelInfoMap ].filter( ( [ , info ] ) => ! info.closed ).map( ( [ key ] ) => key ) );
+	const tunnelOpenCellsArr = [ ...tunnelOpenSet ].map( ( key ) => key.split( ',' ).map( Number ) );
 	for ( const [ gx, gz, key, orient ] of cells ) {
 
 		const piece = placePiece( models, key, gx, gz, orient );
 		if ( piece ) {
 
-			// Open-top tunnel (user order 2026-09-28): the ground block sits at
-			// the pit floor — a dry pool bowl. Works for EVERY ground block type.
-			if ( tunnelSet.has( `${ Number( gx ) },${ Number( gz ) }` ) ) piece.position.y -= TUNNEL_DROP;
+			// Open-top tunnel (user order 2026-09-28): LEGACY v1 entries sink
+			// the cell's own piece to the pit floor. v2 entries keep surface
+			// pieces at the surface (the pit block comes from the tunnel info).
+			if ( tunnelInfoMap.get( `${ Number( gx ) },${ Number( gz ) }` )?.type === undefined ) piece.position.y -= TUNNEL_DROP;
 			trackPieceGroup.add( piece );
 
 		}
@@ -1412,18 +1433,27 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz, orient = 0 ] of tunnelSlopeCells ) tunnelSlopeOrientByCell.set( `${ Number( gx ) },${ Number( gz ) }`, orient || 0 );
 		const tunnelFloorMat = new THREE.MeshStandardMaterial( { color: 0x6f4e2e, roughness: 0.95, metalness: 0.0 } );
 		const tunnelWallMat = new THREE.MeshStandardMaterial( { color: 0x5c4126, roughness: 0.95, metalness: 0.0 } );
-		for ( const [ gxRaw, gzRaw ] of tunnelCells ) {
+		for ( const [ key, info ] of tunnelInfoMap ) {
 
-			const gx = Number( gxRaw );
-			const gz = Number( gzRaw );
-			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+			const [ gx, gz ] = key.split( ',' ).map( Number );
 			const pit = new THREE.Group();
 			pit.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
 			const floor = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ), tunnelFloorMat );
 			floor.position.y = 0.5 - TUNNEL_DROP - CELL_RAW * 0.02;
 			floor.receiveShadow = true;
 			pit.add( floor );
-			const slopeOrient = tunnelSlopeOrientByCell.get( `${ gx },${ gz }` );
+			// CLOSED top: the surface world stays above — seal the pit with
+			// a ceiling panel (the roof's dirt underside) so the tunnel reads
+			// as a room from inside.
+			if ( info.closed ) {
+
+				const ceiling = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.06, CELL_RAW ), tunnelWallMat );
+				ceiling.position.y = 0.5 - CELL_RAW * 0.03;
+				ceiling.receiveShadow = true;
+				pit.add( ceiling );
+
+			}
+			const slopeOrient = tunnelSlopeOrientByCell.get( key );
 			let exitSide = null;
 			if ( slopeOrient !== undefined ) {
 				const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeOrient ] ?? 0 );
@@ -1446,6 +1476,19 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				pit.add( wall );
 			}
 			trackPieceGroup.add( pit );
+			// v2 pit block: placed at the pit floor (v1 legacy cells already
+			// dropped their own piece in the cells loop; holes have no block).
+			if ( info.type ) {
+
+				const block = placePiece( models, info.type, gx, gz, info.orient );
+				if ( block ) {
+
+					block.position.y -= TUNNEL_DROP;
+					trackPieceGroup.add( block );
+
+				}
+
+			}
 
 		}
 		// Tunnel slopes: SEPARATE from pool slopes (user order) but the same
@@ -1470,7 +1513,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
 			if ( piece ) {
 
-				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
+				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
 				piece.position.y += yOffset;
 				trackPieceGroup.add( piece );
 
@@ -1484,7 +1527,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				getSharedOverlayParts().pole.geometry,
 				getSharedOverlayParts().pole.material
 			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
+			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
 			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( POLE_HEIGHT * 0.5 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			pole.castShadow = true;
 			pole.receiveShadow = true;
@@ -1507,7 +1550,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				getSharedOverlayParts().cube.geometry,
 				getSharedOverlayParts().cube.material
 			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
+			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
 			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			cube.castShadow = true;
 			cube.receiveShadow = true;
@@ -1604,7 +1647,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( barrier ) {
 
 				barrier.scale.multiplyScalar( BARRIER_WALL_SCALE );
-				barrier.position.y += getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
+				barrier.position.y += getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
 				barrier.traverse( ( child ) => {
 
 					if ( child.isMesh ) { child.castShadow = true; child.receiveShadow = true; }
@@ -1618,7 +1661,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					getSharedOverlayParts().wall.geometry,
 					getSharedOverlayParts().wall.material
 				);
-				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
+				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
 				wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 				wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 				wall.castShadow = true;
@@ -1646,7 +1689,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					}
 
 				} );
-				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
+				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
 				piece.position.y += yOffset;
 				trackPieceGroup.add( piece );
 
@@ -1660,7 +1703,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				getSharedOverlayParts().jump.geometry,
 				getSharedOverlayParts().jump.material
 			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelSet.has( `${ gx },${ gz }` ) );
+			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
 			jump.position.set( ( gx + 0.5 ) * CELL_RAW, JUMP_RAMP_Y + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			jump.rotation.order = 'YXZ';
 			jump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
@@ -1674,8 +1717,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz, key, orient ] of decorations ) {
 
 			if ( waterSet.has( `${ gx },${ gz }` ) ) continue;
-			// No trees in open-top tunnel pits either.
-			if ( tunnelSet.has( `${ Number( gx ) },${ Number( gz ) }` ) ) continue;
+			// No trees in open-top tunnel pits (closed roofs keep their trees).
+			if ( tunnelOpenSet.has( `${ Number( gx ) },${ Number( gz ) }` ) ) continue;
 			// Don't place a decoration tree under a slope block.
 			if ( slopeCells.has( `${ Number( gx ) },${ Number( gz ) }` ) ) continue;
 			const piece = placePiece( models, key, gx, gz, orient || 0 );
@@ -1752,6 +1795,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			// cell-wide either way (driving under the bridge still triggers
 			// it, an accepted game feature), so gameplay logic is untouched.
 			if ( elevatedEntry && elevatedEntry.type === 'elevated-cross' ) addPatch( 0 );
+			// CLOSED-top tunnels (user order): a surface on the roof also
+			// renders in the tunnel below — the pit block is a real driving
+			// surface too. Visual only; the pad effect stays cell-wide.
+			if ( tunnelInfoMap.get( `${ gx },${ gz }` )?.closed ) addPatch( - TUNNEL_DROP );
 
 		}
 
@@ -1819,7 +1866,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		}
 
 		// Track cells + water cells: occupied (skip ground) + tree-blocked
-		for ( const [ gx, gz ] of [ ...cells, ...waterCellsForDeco, ...tunnelCells ] ) {
+		for ( const [ gx, gz ] of [ ...cells, ...waterCellsForDeco, ...tunnelOpenCellsArr ] ) {
 			blockCellForTrees( gx, gz, true );
 		}
 

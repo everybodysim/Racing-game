@@ -941,7 +941,13 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 	const WATER_BEVEL_ANGLE = THREE.MathUtils.degToRad( 1.6 );
-	for ( const [ gx, gz ] of [ ...waterEntries, ...tunnelEntriesForBowl ] ) {
+	for ( const bowlEntry of [ ...waterEntries, ...tunnelEntriesForBowl ] ) {
+
+		const [ gx, gz ] = bowlEntry;
+		// CLOSED-top tunnel: a thin roof collider seals the pit at ground
+		// level — cars above drive over it, and the camera's ceiling probe
+		// clamps the chase cam down into the tunnel like pool cross decks.
+		const closedTop = Array.isArray( bowlEntry ) && bowlEntry.length >= 5 && bowlEntry[ 2 ] === 1;
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
@@ -955,6 +961,20 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			restitution: 0.0,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, floorHalfExtents, [ cx, groundY - CELL_RAW * S * 0.34, cz ] );
+		if ( closedTop ) {
+
+			const roofHalfExtents = [ CELL_HALF * S, 0.05 * S, CELL_HALF * S ];
+			rigidBody.create( world, {
+				shape: box.create( { halfExtents: roofHalfExtents } ),
+				motionType: MotionType.STATIC,
+				objectLayer: world._OL_STATIC,
+				position: [ cx, groundY + 0.01 - 0.05 * S, cz ],
+				friction: 0.25,
+				restitution: 0.0
+			} );
+			if ( debugGroup ) addDebugBox( debugGroup, roofHalfExtents, [ cx, groundY + 0.01 - 0.05 * S, cz ] );
+
+		}
 		const exitSide = poolSlopeExit.get( `${ gx },${ gz }` );
 		const sides = [ [ 0, - 1, 0, - CELL_HALF * S, 0 ], [ 1, 0, CELL_HALF * S, 0, Math.PI / 2 ], [ 0, 1, 0, CELL_HALF * S, 0 ], [ - 1, 0, - CELL_HALF * S, 0, Math.PI / 2 ] ];
 		for ( const [ dx, dz, ox, oz, yaw ] of sides ) {
