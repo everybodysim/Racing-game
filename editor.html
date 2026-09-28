@@ -894,7 +894,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000273';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000274';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260946';
@@ -6631,8 +6631,18 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			const roadHalf = Math.max( bounds.halfWidth, bounds.halfDepth ) + 10;
 			const waterCells = Array.isArray( extras?.water ) ? extras.water : [];
 			const waterSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+			// OPEN-top tunnel cells get the pool treatment: skipped by the
+			// ground runs so the test car falls into the tunnel bowl.
+			const tunnelOpenSet = new Set();
+			for ( const tunnelEntry of ( Array.isArray( extras?.tunnels ) ? extras.tunnels : [] ) ) {
 
-			if ( waterSet.size === 0 ) {
+				if ( ! Array.isArray( tunnelEntry ) ) continue;
+				if ( tunnelEntry.length >= 5 && tunnelEntry[ 2 ] === 1 ) continue;
+				tunnelOpenSet.add( `${ Number( tunnelEntry[ 0 ] ) },${ Number( tunnelEntry[ 1 ] ) }` );
+
+			}
+
+			if ( waterSet.size === 0 && tunnelOpenSet.size === 0 ) {
 
 				slab( roadHalf, roadHalf, bounds.centerX, bounds.centerZ );
 				return;
@@ -6659,7 +6669,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 				let runStart = null;
 				for ( let gx = minGx; gx <= maxGx + 1; gx ++ ) {
 
-					const solid = gx <= maxGx && ! waterSet.has( `${ gx },${ gz }` );
+					const solid = gx <= maxGx && ! waterSet.has( `${ gx },${ gz }` ) && ! tunnelOpenSet.has( `${ gx },${ gz }` );
 					if ( solid && runStart === null ) runStart = gx;
 					if ( ( ! solid || gx > maxGx ) && runStart !== null ) {
 

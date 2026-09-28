@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000273';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000274';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260946';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -5250,7 +5250,19 @@ async function init() {
 		} );
 
 	}
-	if ( waterCells.length > 0 ) {
+	// OPEN-top tunnel cells need the SAME ground treatment pools get: the
+	// ground collider RUNS skip them, so cars fall through into the tunnel
+	// bowl (and the hitbox view shows a hole). CLOSED tops keep their ground.
+	const openTunnelGroundCells = new Set();
+	for ( const tunnelEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
+
+		if ( ! Array.isArray( tunnelEntry ) ) continue;
+		const closedTop = tunnelEntry.length >= 5 && tunnelEntry[ 2 ] === 1;
+		if ( closedTop ) continue;
+		openTunnelGroundCells.add( `${ Number( tunnelEntry[ 0 ] ) },${ Number( tunnelEntry[ 1 ] ) }` );
+
+	}
+	if ( waterCells.length > 0 || openTunnelGroundCells.size > 0 ) {
 
 		const waterSet = waterCellSet;
 		const minGx = Math.floor( ( bounds.centerX - roadHalf ) / cellWorld ) - 1;
@@ -5275,7 +5287,7 @@ async function init() {
 			let runStart = null;
 			for ( let gx = minGx; gx <= maxGx + 1; gx ++ ) {
 
-				const isSolidGround = gx <= maxGx && ! waterSet.has( `${ gx },${ gz }` );
+				const isSolidGround = gx <= maxGx && ! waterSet.has( `${ gx },${ gz }` ) && ! openTunnelGroundCells.has( `${ gx },${ gz }` );
 				if ( isSolidGround && runStart === null ) runStart = gx;
 				if ( ( ! isSolidGround || gx > maxGx ) && runStart !== null ) {
 
