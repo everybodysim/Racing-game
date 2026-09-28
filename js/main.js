@@ -7,7 +7,7 @@ import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000265';
-import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260941';
+import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260942';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
@@ -188,6 +188,31 @@ initMultiplayerPanel();
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color( 0xadb2ba );
+
+	// ENVIRONMENT for real reflections: metalness/roughness (garage paint
+	// sliders) are meaningless without something to reflect. A small
+	// equirect sky-to-ground gradient gives every PBR material a source.
+	// Road blocks are unaffected (their envMapIntensity is 0); car paint
+	// gets genuine sky/ground reflections so shiny paints read as chrome.
+	const carEnvTexture = ( () => {
+
+		const c = document.createElement( 'canvas' );
+		c.width = 64; c.height = 32;
+		const ctx = c.getContext( '2d' );
+		const g = ctx.createLinearGradient( 0, 0, 0, 32 );
+		g.addColorStop( 0.0, '#8ec7ef' );
+		g.addColorStop( 0.48, '#dff3ff' );
+		g.addColorStop( 0.52, '#9dbb8a' );
+		g.addColorStop( 1.0, '#5a8a4d' );
+		ctx.fillStyle = g;
+		ctx.fillRect( 0, 0, 64, 32 );
+		const tex = new THREE.CanvasTexture( c );
+		tex.mapping = THREE.EquirectangularReflectionMapping;
+		tex.colorSpace = THREE.SRGBColorSpace;
+		return tex;
+
+	} )();
+	scene.environment = carEnvTexture;
 scene.fog = new THREE.Fog( 0xadb2ba, 30, 55 );
 
 const skyUniforms = {
@@ -8582,6 +8607,7 @@ async function init() {
 		renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 		renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, 1.5 ) );
 		const scene = new THREE.Scene();
+		scene.environment = carEnvTexture;
 		const camera = new THREE.PerspectiveCamera( 34, 1, 0.1, 100 );
 		// Frame the car properly: closer in AND pitched down at it. The old
 		// (0, 1.25, 5.2) rig never lookAt-ed the car, so it sat as a tiny
@@ -8912,6 +8938,7 @@ async function init() {
 			if ( ! canvas ) continue;
 			const ctx2d = canvas.getContext( '2d' );
 			const scene = new THREE.Scene();
+			scene.environment = carEnvTexture;
 			scene.add( new THREE.AmbientLight( 0xffffff, 3.0 ) );
 			const dir = new THREE.DirectionalLight( 0xffffff, 1.2 );
 			dir.position.set( 2, 3, 2 );
