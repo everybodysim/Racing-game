@@ -7031,6 +7031,72 @@ async function init() {
 	const garageClearSelectionBtn = document.getElementById( 'garage-clear-selection-btn' );
 	const garageRepaintToleranceInput = document.getElementById( 'garage-repaint-tolerance' );
 	const garageRepaintToleranceValue = document.getElementById( 'garage-repaint-tolerance-value' );
+	const garageFinishMetalInput = document.getElementById( 'garage-finish-metal' );
+	const garageFinishMetalValue = document.getElementById( 'garage-finish-metal-value' );
+	const garageFinishRoughInput = document.getElementById( 'garage-finish-rough' );
+	const garageFinishRoughValue = document.getElementById( 'garage-finish-rough-value' );
+
+	// SHINY PAINT FINISH SLIDERS: live-tune metalness/roughness of every
+	// shiny-painted material (in-game car, garage preview, remote cars),
+	// then persist. No restrictions are re-imposed on the car: the road
+	// PBR-zeroing pass only touches track-/elev- block models, and
+	// Vehicle.js floors (never zeroes) body metalness.
+	function syncGarageFinishSliders() {
+
+		if ( garageFinishMetalInput ) {
+
+			garageFinishMetalInput.value = String( SHINY_MATERIAL_TUNING.metalness );
+			if ( garageFinishMetalValue ) garageFinishMetalValue.textContent = Number( SHINY_MATERIAL_TUNING.metalness ).toFixed( 2 );
+
+		}
+		if ( garageFinishRoughInput ) {
+
+			garageFinishRoughInput.value = String( SHINY_MATERIAL_TUNING.roughness );
+			if ( garageFinishRoughValue ) garageFinishRoughValue.textContent = Number( SHINY_MATERIAL_TUNING.roughness ).toFixed( 2 );
+
+		}
+
+	}
+
+	function retuneShinyPaintFinish() {
+
+		let touched = 0;
+		for ( const material of shinyPaintMaterials ) {
+
+			if ( typeof material.metalness === 'number' ) { material.metalness = SHINY_MATERIAL_TUNING.metalness; touched ++; }
+			if ( typeof material.roughness === 'number' ) material.roughness = SHINY_MATERIAL_TUNING.roughness;
+			if ( material.needsUpdate !== undefined ) material.needsUpdate = true;
+
+		}
+		return touched;
+
+	}
+
+	if ( garageFinishMetalInput ) {
+
+		garageFinishMetalInput.addEventListener( 'input', () => {
+
+			SHINY_MATERIAL_TUNING.metalness = Number( garageFinishMetalInput.value );
+			if ( garageFinishMetalValue ) garageFinishMetalValue.textContent = SHINY_MATERIAL_TUNING.metalness.toFixed( 2 );
+			retuneShinyPaintFinish();
+			saveGarageMods();
+
+		} );
+
+	}
+	if ( garageFinishRoughInput ) {
+
+		garageFinishRoughInput.addEventListener( 'input', () => {
+
+			SHINY_MATERIAL_TUNING.roughness = Number( garageFinishRoughInput.value );
+			if ( garageFinishRoughValue ) garageFinishRoughValue.textContent = SHINY_MATERIAL_TUNING.roughness.toFixed( 2 );
+			retuneShinyPaintFinish();
+			saveGarageMods();
+
+		} );
+
+	}
+	syncGarageFinishSliders();
 	const garageSelectionChip = document.getElementById( 'garage-selection-chip' );
 	const garageMappingStatus = document.getElementById( 'garage-mapping-status' );
 	const garageMappingsList = document.getElementById( 'garage-mappings-list' );
@@ -7131,6 +7197,7 @@ async function init() {
 	const GARAGE_STANDARD_PALETTE = buildGaragePaintPalette();
 	const GARAGE_SHINY_PALETTE = buildGarageShinyPalette();
 	const GARAGE_PAINT_PALETTE = [ ...GARAGE_STANDARD_PALETTE, ...GARAGE_SHINY_PALETTE ];
+	const shinyPaintMaterials = new Set(); // every material that received a shiny paint finish (slider retunes these live)
 	const SHINY_MATERIAL_TUNING = {
 		metalness: 0.9,
 		roughness: 0.04,
@@ -7980,7 +8047,7 @@ async function init() {
 
 	function saveGarageMods() {
 
-		localStorage.setItem( garageStoreKey, JSON.stringify( { mods: garageMods, unlocked: garageUnlocked, cosmetics: compactGarageCosmetics( garageCosmetics ) } ) );
+		localStorage.setItem( garageStoreKey, JSON.stringify( { mods: garageMods, unlocked: garageUnlocked, cosmetics: compactGarageCosmetics( garageCosmetics ), finish: { metalness: SHINY_MATERIAL_TUNING.metalness, roughness: SHINY_MATERIAL_TUNING.roughness } } ) );
 
 	}
 
@@ -7994,6 +8061,14 @@ async function init() {
 			garageMods = { grip: GARAGE_FIXED_MULTIPLIER, accel: GARAGE_FIXED_MULTIPLIER, drive: GARAGE_FIXED_MULTIPLIER };
 			garageUnlocked = { grip: true, accel: true, drive: true };
 			garageCosmetics = normalizeGarageCosmetics( parsed?.cosmetics );
+			// Saved shiny-paint finish (metalness/roughness sliders)
+			const fin = parsed?.finish;
+			if ( fin ) {
+
+				if ( Number.isFinite( Number( fin.metalness ) ) ) SHINY_MATERIAL_TUNING.metalness = Math.max( 0, Math.min( 1, Number( fin.metalness ) ) );
+				if ( Number.isFinite( Number( fin.roughness ) ) ) SHINY_MATERIAL_TUNING.roughness = Math.max( 0, Math.min( 1, Number( fin.roughness ) ) );
+
+			}
 
 		} catch ( e ) {
 
@@ -9217,6 +9292,7 @@ async function init() {
 
 	function applyShinyFinish( material, mappedColor = null ) {
 
+		shinyPaintMaterials.add( material ); // garage metalness/roughness sliders retune these live
 		if ( typeof material.metalness === 'number' ) material.metalness = SHINY_MATERIAL_TUNING.metalness;
 		if ( typeof material.roughness === 'number' ) material.roughness = SHINY_MATERIAL_TUNING.roughness;
 		if ( typeof material.envMapIntensity === 'number' ) material.envMapIntensity = SHINY_MATERIAL_TUNING.envMapIntensity;
