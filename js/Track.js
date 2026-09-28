@@ -428,6 +428,8 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 		// normals (the demo's technique), evaluated in world space so all
 		// pool planes share one continuous ocean feel.
 		vertexShader: `
+			#include <common>
+			#include <logdepthbuf_pars_vertex>
 			uniform float time;
 			uniform float waveHeight;
 			uniform float waveFadeStart;
@@ -503,9 +505,11 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				vWorldNormal = normalize( vec3( ( hX1 - hX2 ) * vWaveDistFade, 2.0 * d, ( hZ1 - hZ2 ) * vWaveDistFade ) );
 				gl_Position = projectionMatrix * viewMatrix * world;
 				vClip = gl_Position;
+				#include <logdepthbuf_vertex>
 			}
 		`,
 		fragmentShader: `
+			#include <logdepthbuf_pars_fragment>
 			uniform sampler2D tDiffuse;
 			uniform float time;
 			uniform float floorY;
@@ -536,6 +540,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
 			}
 			void main() {
+			#include <logdepthbuf_fragment>
 				vec3 n = normalize( vWorldNormal );
 				vec3 viewDir = normalize( cameraPosition - vWorldPos );
 				vec3 rDir = reflect( - viewDir, n );
@@ -643,13 +648,17 @@ function createPoolFloorCausticsMaterial() {
 		depthWrite: false,
 		blending: THREE.AdditiveBlending,
 		vertexShader: `
+			#include <common>
+			#include <logdepthbuf_pars_vertex>
 			varying vec2 vLocal;
 			void main() {
 				vLocal = position.xy;
 				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+				#include <logdepthbuf_vertex>
 			}
 		`,
 		fragmentShader: `
+			#include <logdepthbuf_pars_fragment>
 			uniform float time;
 			uniform float gain;
 			uniform float shade;
@@ -668,6 +677,7 @@ function createPoolFloorCausticsMaterial() {
 					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
 			}
 			void main() {
+			#include <logdepthbuf_fragment>
 				if ( gain <= 0.001 ) discard;
 				float ct = time * 1.9;
 				// Rotated + differently-scaled domains so the two integer
@@ -705,13 +715,17 @@ function createPoolWallCausticsMaterial() {
 		depthWrite: false,
 		blending: THREE.AdditiveBlending,
 		vertexShader: `
+			#include <common>
+			#include <logdepthbuf_pars_vertex>
 			varying vec2 vLocal;
 			void main() {
 				vLocal = position.xy;
 				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+				#include <logdepthbuf_vertex>
 			}
 		`,
 		fragmentShader: `
+			#include <logdepthbuf_pars_fragment>
 			uniform float time;
 			uniform float gain;
 			uniform float shade;
@@ -729,6 +743,7 @@ function createPoolWallCausticsMaterial() {
 					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
 			}
 			void main() {
+			#include <logdepthbuf_fragment>
 				if ( gain <= 0.001 ) discard;
 				float ct = time * 1.9;
 				mat2 rotC = mat2( 0.84, 0.54, - 0.54, 0.84 );

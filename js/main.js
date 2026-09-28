@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000228';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000264';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000265';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260941';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -103,7 +103,7 @@ function getGraphicsParticleOptions() {
 
 }
 
-const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true, powerPreference: 'high-performance', logarithmicDepthBuffer: true } );
+const renderer = new THREE.WebGLRenderer( { antialias: true, outputBufferType: THREE.HalfFloatType, preserveDrawingBuffer: true, powerPreference: 'high-performance' } );
 renderer.setSize( window.innerWidth, window.innerHeight );
 renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, getGraphicsPreset().maxPixelRatio ) );
 renderer.shadowMap.enabled = getGraphicsPreset().shadows;
@@ -206,12 +206,16 @@ const skyDome = new THREE.Mesh(
 		fog: false,
 		uniforms: skyUniforms,
 		vertexShader: `varying vec3 vDir;
+		#include <common>
+		#include <logdepthbuf_pars_vertex>
 		void main() {
 			vDir = normalize( position );
 			vec4 wp = modelMatrix * vec4( position, 1.0 );
 			gl_Position = projectionMatrix * viewMatrix * wp;
+			#include <logdepthbuf_vertex>
 		}`,
 		fragmentShader: `varying vec3 vDir;
+		#include <logdepthbuf_pars_fragment>
 		uniform vec3 topColor;
 		uniform vec3 midColor;
 		uniform vec3 horizonColor;
@@ -219,6 +223,7 @@ const skyDome = new THREE.Mesh(
 		uniform float time;
 		uniform float vibrance;
 		void main() {
+		#include <logdepthbuf_fragment>
 			float h = clamp( vDir.y * 0.5 + 0.5, 0.0, 1.0 );
 			float horizonBand = exp( -pow( abs( h - 0.48 ) * 7.0, 2.0 ) );
 			float cloudWave = ( sin( vDir.x * 9.0 + time * 0.03 ) * sin( vDir.z * 7.0 - time * 0.02 ) );
