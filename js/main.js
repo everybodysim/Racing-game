@@ -52,7 +52,7 @@ setTimeout(() => {
 }, 0);
 
 
-const MAX_PIXEL_RATIO = 1.5;
+const MAX_PIXEL_RATIO = 2;
 const GRAPHICS_QUALITY_KEY = 'racing-graphics-quality';
 const GRAPHICS_QUALITY_PRESETS = {
 	low: { label: 'Low', maxPixelRatio: 0.85, shadows: false, shadowMapSize: 1024, smokeParticles: 24, smokeEmissionStride: 3, weatherParticleScale: 0, bloomStrength: 0, bloomRadius: 0 },
@@ -13569,12 +13569,11 @@ function completeCampaignStage() {
 	// jump — the static world is baked into the proxy so its cost is one
 	// merged draw; the depth-pass cost is handled by the mapSize cap on
 	// huge maps instead of a refresh throttle.)
-	// FPS: adaptive resolution. Fill-bound weak GPUs (integrated
-	// Chromebook chips) scale almost linearly with pixel count: dropping
-	// the render resolution in steps is the single biggest lever. Steps
-	// down while fps stays < 16, restores when it recovers above 40, with
-	// cooldowns so it never oscillates. The graphics preset stays the cap;
-	// this only scales BELOW it (floor 0.5x = quarter the pixels).
+	// USER ORDER (2026-09-28): the game must NEVER automatically drop its
+	// render resolution — the auto-downscale left the game "super pixelated"
+	// and did not even improve the frame rate on the user's machine (his
+	// bottleneck is not fill rate). autoResScale is pinned at 1; the restore
+	// branch below only exists to recover any scale left below 1.
 	let autoResScale = 1;
 	let autoResNextDecisionMs = 0;
 	function applyAutoResolution() {
@@ -13592,9 +13591,8 @@ function completeCampaignStage() {
 		if ( ! Number.isFinite( rollingFps ) || rollingFps <= 0 ) return;
 		if ( rollingFps < 16 && autoResScale > 0.5 ) {
 
-			autoResScale = Math.max( 0.5, autoResScale * 0.8 );
+			// Disabled per user order — resolution never drops automatically.
 			autoResNextDecisionMs = nowMs + 4000;
-			applyAutoResolution();
 
 		} else if ( rollingFps > 40 && autoResScale < 1 ) {
 
