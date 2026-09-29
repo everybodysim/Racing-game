@@ -4862,6 +4862,28 @@ async function init() {
 		const waterByKey = new Map( [ ...generatedWater, ...explicitWater ].map( ( cell ) => [ `${ cell[ 0 ] },${ cell[ 1 ] }`, cell ] ) );
 		extras.water = [ ...waterByKey.values() ];
 	}
+	// Pools and tunnels are mutually exclusive at the cell level. This also
+	// sanitizes older/shared URLs saved before the editor enforced the rule,
+	// so legacy water can never render or affect physics inside a tunnel.
+	{
+		const tunnelKeys = new Set();
+		for ( const entry of ( Array.isArray( extras?.tunnels ) ? extras.tunnels : [] ) ) {
+			if ( Number.isFinite( Number( entry?.[ 0 ] ) ) && Number.isFinite( Number( entry?.[ 1 ] ) ) ) {
+				tunnelKeys.add( String( Number( entry[ 0 ] ) ) + ',' + String( Number( entry[ 1 ] ) ) );
+			}
+		}
+		for ( const entry of ( Array.isArray( extras?.tunnelSlopes ) ? extras.tunnelSlopes : [] ) ) {
+			if ( Number.isFinite( Number( entry?.[ 0 ] ) ) && Number.isFinite( Number( entry?.[ 1 ] ) ) ) {
+				tunnelKeys.add( String( Number( entry[ 0 ] ) ) + ',' + String( Number( entry[ 1 ] ) ) );
+			}
+		}
+		if ( Array.isArray( extras?.water ) ) {
+			extras.water = extras.water.filter( ( cell ) => ! tunnelKeys.has( String( Number( cell?.[ 0 ] ) ) + ',' + String( Number( cell?.[ 1 ] ) ) ) );
+		}
+		if ( Array.isArray( extras?.poolSlopes ) ) {
+			extras.poolSlopes = extras.poolSlopes.filter( ( cell ) => ! tunnelKeys.has( String( Number( cell?.[ 0 ] ) ) + ',' + String( Number( cell?.[ 1 ] ) ) ) );
+		}
+	}
 	const requiredModelNames = getRequiredModelNames( customCells, extras, carKeys );
 	setLoadingStatus( `Loading ${ requiredModelNames.length } needed models…`, 'models' );
 	const garageCollisionPromise = loadGarageCollisionAsset();
