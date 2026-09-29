@@ -959,6 +959,35 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			poolSlopeExit.set( `${ Number( gx ) },${ Number( gz ) }`, `${ dx },${ dz }` );
 		}
 	}
+	// Underground road walls reuse the exact normal road-piece wall geometry;
+	// the complete set is only translated down to the tunnel floor.
+	function addRoadTypeWallsAtHeight( gx, gz, roadType, orient = 0, centerY = wallY, wallHalfHeight = hHeight ) {
+		const baseKey = roadType === 'track-bump' ? 'track-straight' : roadType;
+		if ( baseKey === 'track-straight' || baseKey === 'track-finish' || baseKey === 'track-checkpoint' || baseKey === 'track-start' || baseKey === 'track-start-finish' ) {
+			const cx = ( gx + 0.5 ) * CELL_RAW * S, cz = ( gz + 0.5 ) * CELL_RAW * S;
+			const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 ), cr = Math.cos( rad ), sr = Math.sin( rad );
+			for ( const side of [ - 1, 1 ] ) {
+				const lx = side * WALL_X, wx = cx + ( lx * cr ) * S, wz = cz + ( - lx * sr ) * S;
+				addWallBody( [ hThick, wallHalfHeight, hLen ], [ wx, centerY, wz ], [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ] );
+			}
+			return;
+		}
+		if ( baseKey === 'track-choke-half' ) { addChokeWalls( gx, gz, orient, [ - 1 ], centerY, wallHalfHeight ); return; }
+		if ( baseKey === 'track-choke-both' ) { addChokeWalls( gx, gz, orient, [ - 1, 1 ], centerY, wallHalfHeight ); return; }
+		if ( baseKey === 'track-choke-cross' ) { addChokeCrossWalls( gx, gz, orient, centerY, wallHalfHeight ); return; }
+		if ( baseKey === 'track-thin-straight' || baseKey === 'track-thin-corner' || baseKey === 'track-thin-3-way' || baseKey === 'track-thin-4-way' || baseKey === 'track-wide-thin' || baseKey === 'track-wide-thin-corner' ) { addSpecWalls( gx, gz, orient, THIN_TYPE_TO_SPEC[ baseKey ], centerY, wallHalfHeight ); return; }
+		if ( baseKey === 'track-corner' || baseKey === 'track-checkpoint-corner' ) {
+			const cx = ( gx + 0.5 ) * CELL_RAW * S, cz = ( gz + 0.5 ) * CELL_RAW * S;
+			const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 ), cr = Math.cos( rad ), sr = Math.sin( rad );
+			const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S, wcz = cz + ( - ARC_CENTER_X * sr + ARC_CENTER_Z * cr ) * S;
+			addArcWall( wcx, wcz, - rad, OUTER_R, OUTER_SEG, OUTER_SEG_HALF_LEN, centerY, wallHalfHeight );
+			addArcWall( wcx, wcz, - rad, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
+			return;
+		}
+		if ( baseKey === 'track-3-way' ) { add3WayWalls( gx, gz, orient, centerY, wallHalfHeight ); return; }
+		if ( baseKey === 'track-4-way' ) { add4WayWalls( gx, gz, orient, centerY, wallHalfHeight ); return; }
+	}
+
 	// ── TUNNEL BOWL COLLIDERS (user order 2026-09-28) ──
 	// Dedicated set at the FULL 5-unit depth (matching elevated height) —
 	// NOT the shallow pool bowl. Floor at pit bottom, walls rim-flush to
@@ -997,21 +1026,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			if ( debugGroup ) addDebugBox( debugGroup, roofHalfExtents, [ cx, groundY + 0.01 - 0.05 * S, cz ] );
 
 		}
-		const exitSide = poolSlopeExit.get( `${ gx },${ gz }` );
-		const wallHalfH = TUNNEL_FLOOR_DROP * 0.5 + 0.05 * S;
-		const sides = [ [ 0, - 1, 0, - CELL_HALF * S, 0 ], [ 1, 0, CELL_HALF * S, 0, Math.PI / 2 ], [ 0, 1, 0, CELL_HALF * S, 0 ], [ - 1, 0, - CELL_HALF * S, 0, Math.PI / 2 ] ];
-		for ( const [ dx, dz, ox, oz, yaw ] of sides ) {
-			if ( tunnelCellSet.has( `${ gx + dx },${ gz + dz }` ) ) continue;
-			if ( exitSide === `${ dx },${ dz }` ) continue;
-			const halfExtents = [ CELL_HALF * S, wallHalfH, CELL_RAW * S * 0.04 ];
-			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
-			// Top flush with the ground surface; bottom buried below the pit
-			// floor top — no lip, no gap, no seam between wall and floor.
-			const position = [ cx + ox, groundY + 0.01 - wallHalfH, cz + oz ];
-			rigidBody.create( world, { shape: box.create( { halfExtents } ), motionType: MotionType.STATIC, objectLayer: world._OL_STATIC, position, quaternion, friction: 0.9, restitution: 0.0 } );
-			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
-
-		}
+		// Exact normal road wall set, translated down by the tunnel depth.
+		const undergroundWallY = wallY - TUNNEL_FLOOR_DROP;
+		const tunnelType = entry[ 2 ];
+		addRoadTypeWallsAtHeight( gx, gz, tunnelType, entry[ 3 ] ?? 0, undergroundWallY, hHeight );
 
 	}
 	// Slope-up pit blocks ARE ramps (pit floor → surface): the proven
