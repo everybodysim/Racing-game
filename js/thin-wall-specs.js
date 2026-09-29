@@ -12,6 +12,12 @@
 // box long axis is local Z rotated by yaw (yaw 0 = along +z).
 // Regenerate from the GLBs if the models change.
 export const THIN_WALL_SPECS = {
+  // Plain track-straight: raised side walls extracted from track-straight.glb
+  // (same uv-band/y>0.1 criteria, 12 wall verts -> two straight runs).
+  'straight': [
+    [ -4.75, 0.0, 0.15, 5.0, 0.0 ],
+    [ 4.75, 0.0, 0.15, 5.0, 0.0 ],
+  ],
   'thin-straight': [
 	[ -2.25, 0.0, 0.24, 5.06, 0.0 ],
 	[ 2.25, 0.0, 0.24, 5.06, 0.0 ],

@@ -901,7 +901,7 @@
 	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000279';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260949';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260950';
 	import { Vehicle } from './js/Vehicle.js?v=1000228';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
@@ -2984,6 +2984,41 @@ function computeCausticShade( normal ) {
 			return;
 
 		}
+		// Bumps can NEVER sit over a tunnel: over a roofed tunnel they would
+		// pierce the roof into the pit; over an open one they float (user
+		// order). Applies ON-grid and OFF-grid.
+		if ( type === BUMP_TOOL && cell.tunnel ) {
+
+			showToast( 'Bumps cannot be placed over tunnels' );
+			return;
+
+		}
+		// OFF-GRID LOOPHOLE (user order): a fractional placement straddles
+		// integer cells — its footprint can cover a tunnel even though the
+		// fractional cell itself is empty. Refuse if ANY footprint cell has
+		// an open tunnel (bumps: ANY tunnel at all).
+		if ( ( ! Number.isInteger( gx ) || ! Number.isInteger( gz ) ) && type !== TUNNEL_SLOPE_TOOL ) {
+
+			const fx0 = Math.floor( gx ), fz0 = Math.floor( gz );
+			let blockedBy = null;
+			for ( const fx of [ fx0, fx0 + 1 ] ) {
+				for ( const fz of [ fz0, fz0 + 1 ] ) {
+					const fCell = grid.get( cellKey( fx, fz ) );
+					if ( ! fCell?.tunnel ) continue;
+					if ( fCell.tunnel.closed && type !== BUMP_TOOL ) continue;
+					blockedBy = `${ fx },${ fz }`;
+					break;
+				}
+				if ( blockedBy ) break;
+			}
+			if ( blockedBy ) {
+
+				showToast( type === BUMP_TOOL ? 'Off-grid bumps cannot overlap tunnels' : 'Off-grid blocks cannot overlap tunnel cells' );
+				return;
+
+			}
+
+		}
 		// Tunnel levels: the block goes into the cell's carved pit (open top
 		// = ditch, closed top = roofed tunnel with the surface kept). The
 		// cell's surface road pieces are untouched, so blocks can be stacked
@@ -3249,6 +3284,33 @@ function computeCausticShade( normal ) {
 
 				showToast( 'Bumps cannot be placed over roofed tunnels' );
 				return;
+
+			}
+			if ( selectedType === BUMP_TOOL && ! cell.bump && cell.tunnel && ! cell.tunnel.closed ) {
+
+				showToast( 'Bumps cannot be placed over open tunnels' );
+				return;
+
+			}
+			// OFF-GRID LOOPHOLE (user order): a fractional bump straddles
+			// integer cells — the old loophole let it land over tunnel
+			// cells. Refuse when ANY footprint cell holds a tunnel.
+			if ( selectedType === BUMP_TOOL && ! cell.bump && ( ! Number.isInteger( gx ) || ! Number.isInteger( gz ) ) ) {
+
+				const fx0 = Math.floor( gx ), fz0 = Math.floor( gz );
+				let overlapsTunnel = false;
+				for ( const fx of [ fx0, fx0 + 1 ] ) {
+					for ( const fz of [ fz0, fz0 + 1 ] ) {
+						if ( grid.get( cellKey( fx, fz ) )?.tunnel ) { overlapsTunnel = true; break; }
+					}
+					if ( overlapsTunnel ) break;
+				}
+				if ( overlapsTunnel ) {
+
+					showToast( 'Off-grid bumps cannot overlap tunnels' );
+					return;
+
+				}
 
 			}
 			if ( selectedType === BUMP_TOOL ) {

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { rigidBody, box, sphere, MotionType, MotionQuality } from 'crashcat';
 import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
-import { THIN_WALL_SPECS } from './thin-wall-specs.js?v=11';
+import { THIN_WALL_SPECS } from './thin-wall-specs.js?v=12';
 
 // Building model definitions. The game's loadModels() scales every 'building-*'
 // model up 10x (see js/main.js); the editor renders the same models at 10x too.
@@ -425,6 +425,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	// white-wall triangles in each GLB, so the colliders follow the exact
 	// funnel/arc geometry instead of hand-tuned constants.
 	const THIN_TYPE_TO_SPEC = {
+		'track-straight': 'straight',
 		'track-thin-straight': 'thin-straight',
 		'track-thin-corner': 'thin-corner',
 		'track-thin-3-way': 'thin-3-way',
