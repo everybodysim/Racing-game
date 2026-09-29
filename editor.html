@@ -6800,13 +6800,16 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			const roadHalf = Math.max( bounds.halfWidth, bounds.halfDepth ) + 10;
 			const waterCells = Array.isArray( extras?.water ) ? extras.water : [];
 			const waterSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
-			// OPEN-top tunnel cells get the pool treatment: skipped by the
-			// ground runs so the test car falls into the tunnel bowl.
+			// OPEN-top tunnel cells get the pool treatment. Tunnel slope cells
+			// are also skipped even when they are road cells because the slope
+			// collider replaces the ground slab underneath the ramp; otherwise
+			// the editor test car hits the invisible ground through the slope.
 			const tunnelOpenSet = new Set();
 			for ( const tunnelEntry of ( Array.isArray( extras?.tunnels ) ? extras.tunnels : [] ) ) {
 
 				if ( ! Array.isArray( tunnelEntry ) ) continue;
-				if ( tunnelEntry.length >= 5 && tunnelEntry[ 2 ] === 1 ) continue;
+				const isTunnelSlope = tunnelEntry.length >= 5 && tunnelEntry[ 4 ] === 'slope-up';
+				if ( tunnelEntry.length >= 5 && tunnelEntry[ 2 ] === 1 && ! isTunnelSlope ) continue;
 				tunnelOpenSet.add( `${ Number( tunnelEntry[ 0 ] ) },${ Number( tunnelEntry[ 1 ] ) }` );
 
 			}
