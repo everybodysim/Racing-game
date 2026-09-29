@@ -1032,6 +1032,32 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		addRoadTypeWallsAtHeight( gx, gz, tunnelType, entry[ 3 ] ?? 0, undergroundWallY, hHeight );
 
 	}
+	// Tunnel perimeter walls: restore the full dirt-bowl walls at the actual tunnel floor.
+	// These are separate from the road-piece walls: they seal the carved pit edges.
+	const tunnelBowlSet = new Set( tunnelEntriesForBowl.map( e => `${ Number( e?.[ 0 ] ) },${ Number( e?.[ 1 ] ) }` ) );
+	for ( const entry of tunnelEntriesForBowl ) {
+		const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const exitSide = poolSlopeExit.get( `${ gx },${ gz }` );
+		const floorTopY = groundY - TUNNEL_FLOOR_DROP + 0.04 * S;
+		const wallHalfH = CELL_RAW * S * 0.19;
+		const wallCenterY = ( floorTopY + groundY ) * 0.5;
+		const sides = [ [ 0, - 1, 0, - CELL_HALF * S, 0 ], [ 1, 0, CELL_HALF * S, 0, Math.PI / 2 ], [ 0, 1, 0, CELL_HALF * S, 0 ], [ - 1, 0, - CELL_HALF * S, 0, Math.PI / 2 ] ];
+		for ( const [ dx, dz, ox, oz, yaw ] of sides ) {
+			if ( tunnelBowlSet.has( `${ gx + dx },${ gz + dz }` ) ) continue;
+			if ( waterSet.has( `${ gx + dx },${ gz + dz }` ) ) continue;
+			if ( exitSide === `${ dx },${ dz }` ) continue;
+			if ( poolCrossCells.has( `${ gx },${ gz }` ) ) continue;
+			const halfExtents = [ CELL_HALF * S, wallHalfH, CELL_RAW * S * 0.04 ];
+			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
+			const position = [ cx + ox, wallCenterY, cz + oz ];
+			rigidBody.create( world, { shape: box.create( { halfExtents } ), motionType: MotionType.STATIC, objectLayer: world._OL_STATIC, position, quaternion, friction: 0.9, restitution: 0.0 } );
+			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+		}
+	}
+
 	// Slope-up pit blocks ARE ramps (pit floor → surface): the proven
 	// tunnel-slope ramp collider, centered on the block cell.
 	for ( const rampEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
@@ -1246,57 +1272,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		}
 
-		if ( baseKey === 'track-straight' || baseKey === 'track-finish' || baseKey === 'track-checkpoint' || baseKey === 'track-start' || baseKey === 'track-start-finish' ) {
-
-			for ( const side of [ - 1, 1 ] ) {
-
-				const lx = side * WALL_X;
-				const wx = cx + ( lx * cr ) * S;
-				const wz = cz + ( - lx * sr ) * S;
-				const halfExtents = [ hThick, hHeight, hLen ];
-				const position = [ wx, wallY, wz ];
-				const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
-
-				addWallBody( halfExtents, position, quaternion );
-
-				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
-
-			}
-
-		} else if ( baseKey === 'track-choke-half' ) {
-
-			addChokeWalls( gx, gz, orient, [ - 1 ] );
-
-		} else if ( baseKey === 'track-choke-both' ) {
-
-			addChokeWalls( gx, gz, orient, [ - 1, 1 ] );
-
-		} else if ( baseKey === 'track-choke-cross' ) {
-
-			addChokeCrossWalls( gx, gz, orient );
-
-		} else if ( baseKey === 'track-thin-straight' || baseKey === 'track-thin-corner' || baseKey === 'track-thin-3-way' || baseKey === 'track-thin-4-way' || baseKey === 'track-wide-thin' || baseKey === 'track-wide-thin-corner' ) {
-
-			addSpecWalls( gx, gz, orient, THIN_TYPE_TO_SPEC[ baseKey ] );
-
-		} else if ( baseKey === 'track-corner' || baseKey === 'track-checkpoint-corner' ) {
-
-			const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S;
-			const wcz = cz + ( - ARC_CENTER_X * sr + ARC_CENTER_Z * cr ) * S;
-			const arcStart = - rad;
-
-			addArcWall( wcx, wcz, arcStart, OUTER_R, OUTER_SEG, OUTER_SEG_HALF_LEN );
-			addArcWall( wcx, wcz, arcStart, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN );
-
-		} else if ( baseKey === 'track-3-way' ) {
-
-			add3WayWalls( gx, gz, orient );
-
-		} else if ( baseKey === 'track-4-way' ) {
-
-			add4WayWalls( gx, gz, orient );
-
-		}
+		addRoadTypeWallsAtHeight( gx, gz, baseKey, orient, wallY, hHeight );
 
 	}
 
