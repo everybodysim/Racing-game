@@ -1040,6 +1040,15 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			poolSlopeExit.set( `${ Number( gx ) },${ Number( gz ) }`, `${ dx },${ dz }` );
 		}
 	}
+	// Tunnel slopes: same exit-side mapping (SEPARATE data key from pool slopes).
+	if ( Array.isArray( extras?.tunnelSlopes ) ) {
+		for ( const [ gx, gz, orient = 0 ] of extras.tunnelSlopes ) {
+			const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+			const dx = - Math.round( Math.sin( rad ) );
+			const dz = - Math.round( Math.cos( rad ) );
+			poolSlopeExit.set( `${ Number( gx ) },${ Number( gz ) }`, `${ dx },${ dz }` );
+		}
+	}
 	// ── TUNNEL BOWL COLLIDERS (user order 2026-09-28) ──
 	// Dedicated set at the FULL 5-unit depth (matching elevated height) —
 	// NOT the shallow pool bowl. Floor at pit bottom, walls rim-flush to
@@ -1121,15 +1130,6 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			hHeight
 		);
 
-	}
-	// Tunnel slopes: same exit-side mapping (SEPARATE data key from pool slopes).
-	if ( Array.isArray( extras?.tunnelSlopes ) ) {
-		for ( const [ gx, gz, orient = 0 ] of extras.tunnelSlopes ) {
-			const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
-			const dx = - Math.round( Math.sin( rad ) );
-			const dz = - Math.round( Math.cos( rad ) );
-			poolSlopeExit.set( `${ Number( gx ) },${ Number( gz ) }`, `${ dx },${ dz }` );
-		}
 	}
 	// Pool Cross cells: the block deck seals the whole cell at ground level
 	// and its own walls are the boundary, so the pool bowl wall collider on
