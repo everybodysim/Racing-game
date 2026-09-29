@@ -1508,6 +1508,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				if ( block ) {
 
 					block.position.y -= TUNNEL_DROP;
+					if ( info.type === 'track-choke-cross' ) block.position.y += 0.16;
 					trackPieceGroup.add( block );
 
 				}
