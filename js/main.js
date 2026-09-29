@@ -5309,12 +5309,14 @@ async function init() {
 		const closedTop = tunnelEntry.length >= 5 && tunnelEntry[ 2 ] === 1;
 		if ( closedTop ) continue;
 		const tunnelCellKey = `${ Number( tunnelEntry[ 0 ] ) },${ Number( tunnelEntry[ 1 ] ) }`;
-		// Road cells KEEP their ground even with an open pit under them: the
-		// road deck has no collider of its own (the ground IS the road's
-		// collider), so skipping it left floating road the car fell through
-		// (user order 2026-09-28). The editor now forbids that combo for new
-		// placements; this keeps old tracks drivable.
-		if ( tunnelRoadCellSet.has( tunnelCellKey ) ) continue;
+		// Tunnel slope cells are the one exception to the normal road-cell rule:
+		// the slope collider itself replaces the ground collider for this cell.
+		// Keeping the ground slab underneath the ramp makes the car hit the
+		// invisible ground through the descending slope and causes the large
+		// bump at the ground -> tunnel transition. This mirrors pool slopes,
+		// whose water/pool floor system already removes the ground slab.
+		const isTunnelSlope = tunnelEntry.length >= 5 && tunnelEntry[ 4 ] === 'slope-up';
+		if ( tunnelRoadCellSet.has( tunnelCellKey ) && ! isTunnelSlope ) continue;
 		openTunnelGroundCells.add( tunnelCellKey );
 
 	}
