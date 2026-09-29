@@ -26,6 +26,7 @@ const _debugMat = new THREE.MeshBasicMaterial( {
 	opacity: 0.5,
 	depthWrite: false,
 	depthTest: false,
+	depthTest: false,
 } );
 
 // MEGA PAD WALL BOOST — grows every registered wall collider (bottom
