@@ -897,15 +897,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
-		// Tunnel slope is the SAME physical ramp orientation as the normal
-		// elevated slope: it rises toward local -Z for orient 0. Pool slopes
-		// deliberately flip 180° because they descend into the pool; the tunnel
-		// ramp does the opposite, so using the pool's flip here puts the box on
-		// the wrong side of the cell and creates the entry bump.
-		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
-		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( tunnelSlopeAngle, yaw, 0, 'YXZ' ) );
+		// Tunnel slope uses the proven pool-slope collider placement verbatim:
+		// the slope thickness is compensated in Y and the box center is shifted
+		// along the slope so its high edge lands exactly on the surface plane.
+		const flipOrient = ORIENT_180[ orient ] ?? orient;
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ flipOrient ] ?? 0 );
+		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( - tunnelSlopeAngle, yaw, 0, 'YXZ' ) );
 		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, tunnelSlopeHalfLen ];
-		const position = [ cx - Math.sin( yaw ) * tunnelSlopeShift, tunnelSlopeCenterY, cz - Math.cos( yaw ) * tunnelSlopeShift ];
+		const position = [ cx + Math.sin( yaw ) * tunnelSlopeShift, tunnelSlopeCenterY, cz + Math.cos( yaw ) * tunnelSlopeShift ];
 		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents } ),
