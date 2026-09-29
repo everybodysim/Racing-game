@@ -5272,12 +5272,20 @@ async function init() {
 	// ground collider RUNS skip them, so cars fall through into the tunnel
 	// bowl (and the hitbox view shows a hole). CLOSED tops keep their ground.
 	const openTunnelGroundCells = new Set();
+	const tunnelRoadCellSet = new Set( ( cells || [] ).map( ( c ) => `${ Number( c[ 0 ] ) },${ Number( c[ 1 ] ) }` ) );
 	for ( const tunnelEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
 
 		if ( ! Array.isArray( tunnelEntry ) ) continue;
 		const closedTop = tunnelEntry.length >= 5 && tunnelEntry[ 2 ] === 1;
 		if ( closedTop ) continue;
-		openTunnelGroundCells.add( `${ Number( tunnelEntry[ 0 ] ) },${ Number( tunnelEntry[ 1 ] ) }` );
+		const tunnelCellKey = `${ Number( tunnelEntry[ 0 ] ) },${ Number( tunnelEntry[ 1 ] ) }`;
+		// Road cells KEEP their ground even with an open pit under them: the
+		// road deck has no collider of its own (the ground IS the road's
+		// collider), so skipping it left floating road the car fell through
+		// (user order 2026-09-28). The editor now forbids that combo for new
+		// placements; this keeps old tracks drivable.
+		if ( tunnelRoadCellSet.has( tunnelCellKey ) ) continue;
+		openTunnelGroundCells.add( tunnelCellKey );
 
 	}
 	if ( waterCells.length > 0 || openTunnelGroundCells.size > 0 ) {

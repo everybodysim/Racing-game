@@ -2975,6 +2975,15 @@ function computeCausticShade( normal ) {
 		const key = cellKey( gx, gz );
 		const cell = grid.get( key ) || makeEmptyCell();
 		removePoolTileAt( gx, gz, cell );
+		// Normal blocks must NOT go over OPEN tunnel holes — the road would
+		// float over the pit and the car falls through it (user order).
+		// Closed (roofed) tunnels are fine to build on top of.
+		if ( trackLevelMode !== 'tunnel-open' && trackLevelMode !== 'tunnel-closed' && type && cell.tunnel && ! cell.tunnel.closed ) {
+
+			showToast( 'Fill or close the tunnel before building on top' );
+			return;
+
+		}
 		// Tunnel levels: the block goes into the cell's carved pit (open top
 		// = ditch, closed top = roofed tunnel with the surface kept). The
 		// cell's surface road pieces are untouched, so blocks can be stacked
@@ -3001,11 +3010,13 @@ function computeCausticShade( normal ) {
 
 			} else {
 
-				// Tunnel holes must land on empty cells (user order) — no open
-				// pit under roads/obstacles.
-				if ( ! type && ! isCellCompletelyEmptyForPool( cell, gx, gz ) ) {
+				// OPEN tops (holes AND open-top blocks) need a completely
+				// empty cell — a pit under roads/obstacles leaves floating
+				// road the car falls through. CLOSED tops are fine anywhere
+				// (the surface stays — stacking on roofs is the point).
+				if ( ! closed && ! isCellCompletelyEmptyForPool( cell, gx, gz ) ) {
 
-					showToast( 'Tunnel holes need an empty cell' );
+					showToast( 'Open-top tunnels need an empty cell — use a closed top' );
 					return;
 
 				}
