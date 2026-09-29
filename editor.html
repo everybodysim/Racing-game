@@ -2993,10 +2993,10 @@ function computeCausticShade( normal ) {
 			return;
 
 		}
-		// OFF-GRID LOOPHOLE (user order): a fractional placement straddles
-		// integer cells — its footprint can cover a tunnel even though the
-		// fractional cell itself is empty. Refuse if ANY footprint cell has
-		// an open tunnel (bumps: ANY tunnel at all).
+		// OFF-GRID FOOTPRINT GUARD: a fractional block occupies the four
+		// integer cells it straddles. It may not overlap a tunnel OR a pool.
+		// This is deliberately strict for both open and closed tunnels: pools,
+		// tunnels, and off-grid blocks are mutually exclusive at the cell level.
 		if ( ( ! Number.isInteger( gx ) || ! Number.isInteger( gz ) ) && type !== TUNNEL_SLOPE_TOOL ) {
 
 			const fx0 = Math.floor( gx ), fz0 = Math.floor( gz );
@@ -3004,21 +3004,24 @@ function computeCausticShade( normal ) {
 			for ( const fx of [ fx0, fx0 + 1 ] ) {
 				for ( const fz of [ fz0, fz0 + 1 ] ) {
 					const fCell = grid.get( cellKey( fx, fz ) );
-					if ( ! fCell?.tunnel ) continue;
-					if ( fCell.tunnel.closed && type !== BUMP_TOOL ) continue;
-					blockedBy = `${ fx },${ fz }`;
-					break;
+					if ( fCell?.tunnel || fCell?.tunnelSlope || fCell?.water ) {
+						blockedBy = String( fx ) + ',' + String( fz );
+						break;
+					}
 				}
 				if ( blockedBy ) break;
 			}
 			if ( blockedBy ) {
 
-				showToast( type === BUMP_TOOL ? 'Off-grid bumps cannot overlap tunnels' : 'Off-grid blocks cannot overlap tunnel cells' );
+				showToast( type === BUMP_TOOL
+					? 'Off-grid bumps cannot overlap pools or tunnels'
+					: 'Off-grid blocks cannot overlap pools or tunnels' );
 				return;
 
 			}
 
 		}
+
 		// Tunnel levels: the block goes into the cell's carved pit (open top
 		// = ditch, closed top = roofed tunnel with the surface kept). The
 		// cell's surface road pieces are untouched, so blocks can be stacked
@@ -3269,8 +3272,9 @@ function computeCausticShade( normal ) {
 				showToast( 'Pool tiles can only be added to empty cells' );
 				return;
 			}
-			// OFF-GRID pools (user order): a fractional pool tile must not
-			// straddle tunnel pits (or other pool tiles) — footprint check.
+			// OFF-GRID POOL FOOTPRINT GUARD: pools use the same four-cell
+			// footprint rule as tunnel blocking. A pool cannot straddle a
+			// tunnel, tunnel entrance slope, or another pool tile.
 			if ( selectedType === WATER_TOOL && ! cell.water && ( ! Number.isInteger( gx ) || ! Number.isInteger( gz ) ) ) {
 
 				const fx0 = Math.floor( gx ), fz0 = Math.floor( gz );
@@ -3278,18 +3282,19 @@ function computeCausticShade( normal ) {
 				for ( const fx of [ fx0, fx0 + 1 ] ) {
 					for ( const fz of [ fz0, fz0 + 1 ] ) {
 						const fCell = grid.get( cellKey( fx, fz ) );
-						if ( fCell?.tunnel || fCell?.water ) { bad = true; break; }
+						if ( fCell?.tunnel || fCell?.tunnelSlope || fCell?.water ) { bad = true; break; }
 					}
 					if ( bad ) break;
 				}
 				if ( bad ) {
 
-					showToast( 'Off-grid pools cannot overlap tunnel pits or other pools' );
+					showToast( 'Off-grid pools cannot overlap pools or tunnels' );
 					return;
 
 				}
 
 			}
+
 			// Obstacles and cross blocks don't mix: the cross bridge spans the
 			// cell's underpass road, so an obstacle there either pokes through
 			// the bridge or clutters the underpass. Block painting obstacles
@@ -4722,6 +4727,16 @@ function computeCausticShade( normal ) {
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
+				// Tunnels own their cell. Older/shared URLs could contain both
+				// q=pool and g=tunnel because pools loaded first; remove the
+				// stale water before the tunnel is rendered.
+				if ( cell.water ) {
+					cell.water = false;
+					cell.poolSlope = false;
+					cell.poolSlopeOrient = 0;
+					if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
+					cell.waterMesh = null;
+				}
 				if ( entry.length >= 5 ) {
 
 					// v2: [ gx, gz, closed, orient, type ] (type null = hole).
@@ -4786,6 +4801,16 @@ function computeCausticShade( normal ) {
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
+				// A tunnel entrance owns this cell. Never resurrect a pool here,
+				// including in legacy URLs that stored both mods.
+				if ( cell.tunnel || cell.tunnelSlope ) {
+					cell.water = false;
+					cell.poolSlope = false;
+					cell.poolSlopeOrient = 0;
+					if ( cell.waterMesh ) trackGroup.remove( cell.waterMesh );
+					cell.waterMesh = null;
+					continue;
+				}
 				// Pool slope only makes sense on a water tile; skip if absent.
 				if ( ! cell.water ) continue;
 				cell.poolSlope = true;
