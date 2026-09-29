@@ -1043,15 +1043,6 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			poolSlopeExit.set( `${ Number( gx ) },${ Number( gz ) }`, `${ dx },${ dz }` );
 		}
 	}
-	// Tunnel slopes: same exit-side mapping (SEPARATE data key from pool slopes).
-	if ( Array.isArray( extras?.tunnelSlopes ) ) {
-		for ( const [ gx, gz, orient = 0 ] of extras.tunnelSlopes ) {
-			const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
-			const dx = - Math.round( Math.sin( rad ) );
-			const dz = - Math.round( Math.cos( rad ) );
-			poolSlopeExit.set( `${ Number( gx ) },${ Number( gz ) }`, `${ dx },${ dz }` );
-		}
-	}
 	// ── TUNNEL BOWL COLLIDERS (user order 2026-09-28) ──
 	// Dedicated set at the FULL 5-unit depth (matching elevated height) —
 	// NOT the shallow pool bowl. Floor at pit bottom, walls rim-flush to
@@ -1115,6 +1106,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		addTunnelSlopeCollider( Number( rampEntry[ 0 ] ), Number( rampEntry[ 1 ] ), Number( rampEntry[ 3 ] ) || 0 );
 
 	}
+	// Tunnel slope-up entries use the fixed tunnel-depth ramp collider.
+	for ( const rampEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
+
+		if ( ! Array.isArray( rampEntry ) || rampEntry.length < 5 || rampEntry[ 4 ] !== 'slope-up' ) continue;
+		addTunnelSlopeCollider( Number( rampEntry[ 0 ] ), Number( rampEntry[ 1 ] ), Number( rampEntry[ 3 ] ) || 0 );
+
+	}
+
 	// Tunnel road-piece walls are exact vertical copies of the normal road
 	// piece: same X/Z geometry, same orientation, same wall height. The ONLY
 	// difference is that the complete wall set is translated to the tunnel floor.
@@ -1471,16 +1470,6 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const gz = Number( gzRaw );
 		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
 		addPoolSlopeCollider( gx, gz, orient );
-
-	}
-	// Tunnel slopes: dedicated 5-unit ramp colliders (separate data).
-	const tunnelSlopeEntries = extras && Array.isArray( extras.tunnelSlopes ) ? extras.tunnelSlopes : [];
-	for ( const [ gxRaw, gzRaw, orient = 0 ] of tunnelSlopeEntries ) {
-
-		const gx = Number( gxRaw );
-		const gz = Number( gzRaw );
-		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
-		addTunnelSlopeCollider( gx, gz, orient );
 
 	}
 
