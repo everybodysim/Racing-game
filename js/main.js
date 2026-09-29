@@ -5294,6 +5294,14 @@ async function init() {
 	// ground collider RUNS skip them, so cars fall through into the tunnel
 	// bowl (and the hitbox view shows a hole). CLOSED tops keep their ground.
 	const openTunnelGroundCells = new Set();
+	// Tunnel slope cells are ramps, not normal ground. Their cell-wide ground
+	// collider must be omitted so it cannot sit underneath the descending half
+	// of the ramp and punch through the ramp surface as the car climbs it.
+	const tunnelSlopeGroundCells = new Set();
+	for ( const slopeEntry of ( extras && Array.isArray( extras.tunnelSlopes ) ? extras.tunnelSlopes : [] ) ) {
+		if ( ! Array.isArray( slopeEntry ) ) continue;
+		tunnelSlopeGroundCells.add( `${ Number( slopeEntry[ 0 ] ) },${ Number( slopeEntry[ 1 ] ) }` );
+	}
 	const tunnelRoadCellSet = new Set( ( ( customCells || TRACK_CELLS ) || [] ).map( ( c ) => `${ Number( c[ 0 ] ) },${ Number( c[ 1 ] ) }` ) );
 	for ( const tunnelEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
 
@@ -5335,7 +5343,7 @@ async function init() {
 			let runStart = null;
 			for ( let gx = minGx; gx <= maxGx + 1; gx ++ ) {
 
-				const isSolidGround = gx <= maxGx && ! waterSet.has( `${ gx },${ gz }` ) && ! openTunnelGroundCells.has( `${ gx },${ gz }` );
+				const isSolidGround = gx <= maxGx && ! waterSet.has( `${ gx },${ gz }` ) && ! openTunnelGroundCells.has( `${ gx },${ gz }` ) && ! tunnelSlopeGroundCells.has( `${ gx },${ gz }` );
 				if ( isSolidGround && runStart === null ) runStart = gx;
 				if ( ( ! isSolidGround || gx > maxGx ) && runStart !== null ) {
 
