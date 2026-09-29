@@ -7,7 +7,7 @@ import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000280';
-import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260951';
+import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260953';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
