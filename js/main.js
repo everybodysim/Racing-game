@@ -5272,7 +5272,7 @@ async function init() {
 	// ground collider RUNS skip them, so cars fall through into the tunnel
 	// bowl (and the hitbox view shows a hole). CLOSED tops keep their ground.
 	const openTunnelGroundCells = new Set();
-	const tunnelRoadCellSet = new Set( ( cells || [] ).map( ( c ) => `${ Number( c[ 0 ] ) },${ Number( c[ 1 ] ) }` ) );
+	const tunnelRoadCellSet = new Set( ( activeCells || [] ).map( ( c ) => `${ Number( c[ 0 ] ) },${ Number( c[ 1 ] ) }` ) );
 	for ( const tunnelEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
 
 		if ( ! Array.isArray( tunnelEntry ) ) continue;
