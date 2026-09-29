@@ -1143,7 +1143,7 @@ export function computePoolPresetWaterCells( cells = TRACK_CELLS, extras = null 
 	};
 
 	for ( const [ gx, gz ] of ( Array.isArray( cells ) && cells.length ? cells : TRACK_CELLS ) ) addRoad( gx, gz );
-	const blockerLists = [ extras?.bumps, extras?.poles, extras?.cubes, extras?.physicsBoxes, extras?.walls, extras?.jumps, extras?.movingObstacles, extras?.elevated, extras?.surfaces, extras?.decorations, extras?.magnets, extras?.arcLinks, extras?.tunnels, extras?.tunnelSlopes ];
+	const blockerLists = [ extras?.bumps, extras?.poles, extras?.cubes, extras?.physicsBoxes, extras?.walls, extras?.jumps, extras?.movingObstacles, extras?.elevated, extras?.surfaces, extras?.decorations, extras?.magnets, extras?.arcLinks, extras?.tunnels ];
 	for ( const list of blockerLists ) {
 		if ( ! Array.isArray( list ) ) continue;
 		for ( const entry of list ) {
@@ -1205,7 +1205,6 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 	} catch { /* malformed list — treat as not installed */ }
 	const tunnelCells = extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [];
-	const tunnelSlopeCells = extras && Array.isArray( extras.tunnelSlopes ) ? extras.tunnelSlopes : [];
 	// v2 tunnel entry: [ gx, gz, closed, orient, type ] (type null = hole).
 	// v1 legacy: [ gx, gz ] — the cell's own road piece is the pit block and
 	// gets dropped in the cells loop below; surface has nothing on top.
@@ -1438,8 +1437,6 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		// adjacent tunnel cells and tunnel-slope exits) but DIRT textured and
 		// no water, no caustics. The block itself was already dropped to the
 		// pit floor in the cells loop above.
-		const tunnelSlopeOrientByCell = new Map();
-		for ( const [ gx, gz, orient = 0 ] of tunnelSlopeCells ) tunnelSlopeOrientByCell.set( `${ Number( gx ) },${ Number( gz ) }`, orient || 0 );
 		const tunnelFloorMat = new THREE.MeshStandardMaterial( { color: 0x6f4e2e, roughness: 0.95, metalness: 0.0 } );
 		const tunnelWallMat = new THREE.MeshStandardMaterial( { color: 0x5c4126, roughness: 0.95, metalness: 0.0 } );
 		for ( const [ key, info ] of tunnelInfoMap ) {
@@ -1516,23 +1513,6 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			}
 
 		}
-		// Tunnel slopes: SEPARATE from pool slopes (user order) but the same
-		// proven ramp GLB + placement math, driven by their own data key.
-		for ( const [ gxRaw, gzRaw, orient = 0 ] of tunnelSlopeCells ) {
-
-			const gx = Number( gxRaw );
-			const gz = Number( gzRaw );
-			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
-			const slopeSrc = models[ 'elev-track-slope' ];
-			if ( ! slopeSrc ) continue;
-			const slope = slopeSrc.clone();
-			slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + VISUAL_HEIGHT_OFFSET - 5, ( gz + 0.5 ) * CELL_RAW );
-			slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
-			slope.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; } } );
-			trackPieceGroup.add( slope );
-
-		}
-
 		for ( const [ gx, gz ] of bumpCells ) {
 
 			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
