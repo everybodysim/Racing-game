@@ -7,7 +7,7 @@ import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=10';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000281';
-import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260953';
+import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260954';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
@@ -5345,7 +5345,7 @@ async function init() {
 			let runStart = null;
 			for ( let gx = minGx; gx <= maxGx + 1; gx ++ ) {
 
-				const isSolidGround = gx <= maxGx && ! waterSet.has( `${ gx },${ gz }` ) && ! openTunnelGroundCells.has( `${ gx },${ gz }` ) && ! tunnelSlopeGroundCells.has( `${ gx },${ gz }` );
+				const isSolidGround = gx <= maxGx && ! waterSet.has( `${ gx },${ gz }` ) && ! openTunnelGroundCells.has( `${ gx },${ gz }` );
 				if ( isSolidGround && runStart === null ) runStart = gx;
 				if ( ( ! isSolidGround || gx > maxGx ) && runStart !== null ) {
 
