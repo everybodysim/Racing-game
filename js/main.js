@@ -10310,8 +10310,8 @@ function completeCampaignStage() {
 	}
 	// Pool slopes are real tilted colliders too (they are NOT in extras.elevated),
 	// so register their cells as well.
-	if ( Array.isArray( extras?. ) ) {
-		for ( const entry of extras. ) {
+	if ( Array.isArray( extras?.poolSlopes ) ) {
+		for ( const entry of extras.poolSlopes ) {
 			const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
 			const cellKeys = ( v ) => Number.isInteger( v ) ? [ v ] : [ Math.floor( v ), Math.floor( v ) + 1 ];
