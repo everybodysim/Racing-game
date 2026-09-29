@@ -901,7 +901,7 @@
 	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000279';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260950';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260951';
 	import { Vehicle } from './js/Vehicle.js?v=1000228';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
@@ -3176,6 +3176,15 @@ function computeCausticShade( normal ) {
 			}
 			const key = cellKey( gx, gz );
 			const cell = grid.get( key ) || makeEmptyCell();
+			if ( ! cell.tunnel && ! isCellCompletelyEmptyForPool( cell, gx, gz ) ) {
+
+				// Carving a pit under existing content leaves floating meshes
+				// with no ground under them — the drive-through bug (user
+				// order: open holes on EMPTY cells only).
+				showToast( 'Tunnel holes need an empty cell — erase what is there first' );
+				return;
+
+			}
 			grid.set( key, cell );
 			cell.tunnel = cell.tunnel ? null : { type: null, orient: 0, closed: false };
 			if ( ! cell.tunnel ) cell.tunnelSlope = false;
@@ -3259,6 +3268,27 @@ function computeCausticShade( normal ) {
 			if ( selectedType === WATER_TOOL && ! cell.water && ! isCellCompletelyEmptyForPool( cell, gx, gz ) ) {
 				showToast( 'Pool tiles can only be added to empty cells' );
 				return;
+			}
+			// OFF-GRID pools (user order): a fractional pool tile must not
+			// straddle tunnel pits (or other pool tiles) — footprint check.
+			if ( selectedType === WATER_TOOL && ! cell.water && ( ! Number.isInteger( gx ) || ! Number.isInteger( gz ) ) ) {
+
+				const fx0 = Math.floor( gx ), fz0 = Math.floor( gz );
+				let bad = false;
+				for ( const fx of [ fx0, fx0 + 1 ] ) {
+					for ( const fz of [ fz0, fz0 + 1 ] ) {
+						const fCell = grid.get( cellKey( fx, fz ) );
+						if ( fCell?.tunnel || fCell?.water ) { bad = true; break; }
+					}
+					if ( bad ) break;
+				}
+				if ( bad ) {
+
+					showToast( 'Off-grid pools cannot overlap tunnel pits or other pools' );
+					return;
+
+				}
+
 			}
 			// Obstacles and cross blocks don't mix: the cross bridge spans the
 			// cell's underpass road, so an obstacle there either pokes through
