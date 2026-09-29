@@ -1466,12 +1466,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				pit.add( ceiling );
 
 			}
-			const slopeOrient = tunnelSlopeOrientByCell.get( key );
 			let exitSide = null;
-			if ( slopeOrient !== undefined ) {
-				const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeOrient ] ?? 0 );
-				exitSide = `${ - Math.round( Math.sin( rad ) ) },${ - Math.round( Math.cos( rad ) ) }`;
-			}
 			if ( info.type === 'slope-up' ) {
 				// Slope-up pit block: the ramp rises to the surface on its
 				// high side — open the pit wall there (same facing math).
