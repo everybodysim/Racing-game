@@ -471,6 +471,85 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
+	// Build the road-piece wall hitbox at any Y level. This is deliberately
+	// the SAME geometry used by the normal road blocks below; tunnel blocks
+	// only change centerY, so a tunnel choke/corner/3-way/etc. is an exact
+	// vertical copy of its normal counterpart.
+	function addRoadTypeWallsAtHeight( gx, gz, roadType, orient = 0, centerY = wallY, wallHalfHeight = hHeight ) {
+
+		const baseKey = roadType === 'track-bump' ? 'track-straight' : roadType;
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const deg = ORIENT_DEG[ orient ] ?? 0;
+		const rad = deg * Math.PI / 180;
+		const cr = Math.cos( rad ), sr = Math.sin( rad );
+
+		if ( baseKey === 'track-straight' || baseKey === 'track-finish' || baseKey === 'track-checkpoint' || baseKey === 'track-start' || baseKey === 'track-start-finish' ) {
+
+			for ( const side of [ - 1, 1 ] ) {
+
+				const lx = side * WALL_X;
+				const wx = cx + ( lx * cr ) * S;
+				const wz = cz + ( - lx * sr ) * S;
+				const halfExtents = [ hThick, wallHalfHeight, hLen ];
+				const position = [ wx, centerY, wz ];
+				const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
+				addWallBody( halfExtents, position, quaternion );
+
+			}
+
+			return;
+		}
+
+		if ( baseKey === 'track-choke-half' ) {
+
+			addChokeWalls( gx, gz, orient, [ - 1 ], centerY, wallHalfHeight );
+			return;
+
+		}
+		if ( baseKey === 'track-choke-both' ) {
+
+			addChokeWalls( gx, gz, orient, [ - 1, 1 ], centerY, wallHalfHeight );
+			return;
+
+		}
+		if ( baseKey === 'track-choke-cross' ) {
+
+			addChokeCrossWalls( gx, gz, orient, centerY, wallHalfHeight );
+			return;
+
+		}
+		if ( baseKey === 'track-thin-straight' || baseKey === 'track-thin-corner' || baseKey === 'track-thin-3-way' || baseKey === 'track-thin-4-way' || baseKey === 'track-wide-thin' || baseKey === 'track-wide-thin-corner' ) {
+
+			addSpecWalls( gx, gz, orient, THIN_TYPE_TO_SPEC[ baseKey ], centerY, wallHalfHeight );
+			return;
+
+		}
+		if ( baseKey === 'track-corner' || baseKey === 'track-checkpoint-corner' ) {
+
+			const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S;
+			const wcz = cz + ( - ARC_CENTER_X * sr + ARC_CENTER_Z * cr ) * S;
+			const arcStart = - rad;
+			addArcWall( wcx, wcz, arcStart, OUTER_R, OUTER_SEG, OUTER_SEG_HALF_LEN, centerY, wallHalfHeight );
+			addArcWall( wcx, wcz, arcStart, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN, centerY, wallHalfHeight );
+			return;
+
+		}
+		if ( baseKey === 'track-3-way' ) {
+
+			add3WayWalls( gx, gz, orient, centerY, wallHalfHeight );
+			return;
+
+		}
+		if ( baseKey === 'track-4-way' ) {
+
+			add4WayWalls( gx, gz, orient, centerY, wallHalfHeight );
+			return;
+
+		}
+
+	}
+
 	function addElevatedCornerWalls( gx, gz, orient = 0, centerY = elevatedWallY, wallHalfHeight = ELEVATED_WALL_HALF_H ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
@@ -1022,16 +1101,23 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		addTunnelSlopeCollider( Number( rampEntry[ 0 ] ), Number( rampEntry[ 1 ] ), Number( rampEntry[ 3 ] ) || 0 );
 
 	}
-	// Thin/choke blocks placed IN tunnels keep their raised-wall hitboxes
-	// underground (user order): the same auto-generated spec walls, dropped
-	// to the pit floor level.
-	const tunnelSpecWallY = wallY - TUNNEL_FLOOR_DROP;
-	for ( const specEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
+	// Tunnel road-piece walls are exact vertical copies of the normal road
+	// piece: same X/Z geometry, same orientation, same wall height. The ONLY
+	// difference is that the complete wall set is translated to the tunnel floor.
+	const tunnelWallY = wallY - TUNNEL_FLOOR_DROP;
+	for ( const roadEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
 
-		if ( ! Array.isArray( specEntry ) || specEntry.length < 5 ) continue;
-		const specKey = THIN_TYPE_TO_SPEC[ specEntry[ 4 ] ];
-		if ( ! specKey ) continue;
-		addSpecWalls( Number( specEntry[ 0 ] ), Number( specEntry[ 1 ] ), Number( specEntry[ 3 ] ) || 0, specKey, tunnelSpecWallY );
+		if ( ! Array.isArray( roadEntry ) || roadEntry.length < 5 ) continue;
+		const tunnelType = roadEntry[ 4 ];
+		if ( typeof tunnelType !== 'string' || tunnelType === 'slope-up' ) continue;
+		addRoadTypeWallsAtHeight(
+			Number( roadEntry[ 0 ] ),
+			Number( roadEntry[ 1 ] ),
+			tunnelType,
+			Number( roadEntry[ 3 ] ) || 0,
+			tunnelWallY,
+			hHeight
+		);
 
 	}
 	// Tunnel slopes: same exit-side mapping (SEPARATE data key from pool slopes).
@@ -1228,57 +1314,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		}
 
-		if ( baseKey === 'track-straight' || baseKey === 'track-finish' || baseKey === 'track-checkpoint' || baseKey === 'track-start' || baseKey === 'track-start-finish' ) {
-
-			for ( const side of [ - 1, 1 ] ) {
-
-				const lx = side * WALL_X;
-				const wx = cx + ( lx * cr ) * S;
-				const wz = cz + ( - lx * sr ) * S;
-				const halfExtents = [ hThick, hHeight, hLen ];
-				const position = [ wx, wallY, wz ];
-				const quaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
-
-				addWallBody( halfExtents, position, quaternion );
-
-				if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
-
-			}
-
-		} else if ( baseKey === 'track-choke-half' ) {
-
-			addChokeWalls( gx, gz, orient, [ - 1 ] );
-
-		} else if ( baseKey === 'track-choke-both' ) {
-
-			addChokeWalls( gx, gz, orient, [ - 1, 1 ] );
-
-		} else if ( baseKey === 'track-choke-cross' ) {
-
-			addChokeCrossWalls( gx, gz, orient );
-
-		} else if ( baseKey === 'track-thin-straight' || baseKey === 'track-thin-corner' || baseKey === 'track-thin-3-way' || baseKey === 'track-thin-4-way' || baseKey === 'track-wide-thin' || baseKey === 'track-wide-thin-corner' ) {
-
-			addSpecWalls( gx, gz, orient, THIN_TYPE_TO_SPEC[ baseKey ] );
-
-		} else if ( baseKey === 'track-corner' || baseKey === 'track-checkpoint-corner' ) {
-
-			const wcx = cx + ( ARC_CENTER_X * cr + ARC_CENTER_Z * sr ) * S;
-			const wcz = cz + ( - ARC_CENTER_X * sr + ARC_CENTER_Z * cr ) * S;
-			const arcStart = - rad;
-
-			addArcWall( wcx, wcz, arcStart, OUTER_R, OUTER_SEG, OUTER_SEG_HALF_LEN );
-			addArcWall( wcx, wcz, arcStart, INNER_R, INNER_SEG, INNER_SEG_HALF_LEN );
-
-		} else if ( baseKey === 'track-3-way' ) {
-
-			add3WayWalls( gx, gz, orient );
-
-		} else if ( baseKey === 'track-4-way' ) {
-
-			add4WayWalls( gx, gz, orient );
-
-		}
+		addRoadTypeWallsAtHeight( gx, gz, baseKey, orient, wallY, hHeight );
 
 	}
 
