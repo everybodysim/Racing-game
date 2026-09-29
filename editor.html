@@ -4745,7 +4745,7 @@ function computeCausticShade( normal ) {
 				if ( ! grid.has( key ) ) grid.set( key, cell );
 				// A tunnel entrance owns this cell. Never resurrect a pool here,
 				// including in legacy URLs that stored both mods.
-				if ( cell.tunnel || cell. ) {
+				if ( cell.tunnel || cell.poolSlope ) {
 					cell.water = false;
 					cell.poolSlope = false;
 					cell.poolSlopeOrient = 0;
