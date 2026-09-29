@@ -1511,6 +1511,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		}
 		for ( const [ gx, gz ] of bumpCells ) {
 
+			// Bumps are allowed inside open-top tunnels, but not on closed roofs.
+			// Closed roofs stay at surface level and the large bump collider would
+			// intersect the sealed tunnel volume until its collider is redesigned.
+			if ( tunnelInfoMap.get( `${ gx },${ gz }` )?.closed ) continue;
 			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
 			if ( piece ) {
 
@@ -1788,7 +1792,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			// are always visible — ground and elevated, matching the editor.
 			const isWay = ( ! elevatedEntry && hubCellSet.has( `${ gx },${ gz }` ) )
 				|| ( elevatedEntry && ( elevatedEntry.type === 'elevated-3-way' || elevatedEntry.type === 'elevated-4-way' ) );
-			addPatch( getOverlayHeightOffset( elevatedEntry ) + ( isWay ? 0.05 : 0 ) );
+			addPatch( getOverlayHeightOffset( elevatedEntry, tunnelOpenSet.has( `${ gx },${ gz }` ) ) + ( isWay ? 0.05 : 0 ) );
 			// Cross blocks: the underpass road below the bridge is a real
 			// driving surface, so a pad/surface on the cell also renders a
 			// second patch on the bottom road, at the normal ground patch
