@@ -3713,9 +3713,21 @@ function extrasFromParsed( parsed ) {
 			worldPreset: parsed.t === 'pool-filled' ? 'pool-filled' : 'normal',
 			water: Array.isArray( parsed.q ) ? parsed.q : [],
 			poolSlopes: Array.isArray( parsed.z ) ? parsed.z : [],
-			// OPEN-TOP TUNNELS: g = tunnel cells, h = tunnel slopes [gx, gz, orient].
-			tunnels: Array.isArray( parsed.g ) ? parsed.g : [],
-			tunnelSlopes: Array.isArray( parsed.h ) ? parsed.h : [],
+			// OPEN-TOP TUNNELS: g = tunnel cells. Legacy h data is migrated
+			// into canonical tunnel entries as type "slope-up".
+			tunnels: (() => {
+				const out = Array.isArray( parsed.g ) ? parsed.g.map( ( entry ) => Array.isArray( entry ) ? [ ...entry ] : entry ).filter( Array.isArray ) : [];
+				for ( const [ gx, gz, orient = 0 ] of ( Array.isArray( parsed.h ) ? parsed.h : [] ) ) {
+					const key = String( Number( gx ) ) + ',' + String( Number( gz ) );
+					const existing = out.find( ( entry ) => String( Number( entry?.[ 0 ] ) ) + ',' + String( Number( entry?.[ 1 ] ) ) === key );
+					if ( existing ) {
+						existing[ 2 ] = 0;
+						existing[ 3 ] = Number( orient ) || 0;
+						existing[ 4 ] = 'slope-up';
+					} else out.push( [ Number( gx ), Number( gz ), 0, Number( orient ) || 0, 'slope-up' ] );
+				}
+				return out;
+			})(),
 			customPool: parsed?.r && typeof parsed.r === 'object' ? parsed.r : {},
 			weather: normalizeWeatherDetails( parsed?.w ),
 		};
@@ -4217,8 +4229,6 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 	}
 	// Pool slopes reuse the elev-track-slope GLB, so ensure it's loaded.
 	if ( Array.isArray( extras?.poolSlopes ) && extras.poolSlopes.length ) required.add( 'elev-track-slope' );
-	// Tunnel slopes reuse the same ramp GLB.
-	if ( Array.isArray( extras?.tunnelSlopes ) && extras.tunnelSlopes.length ) required.add( 'elev-track-slope' );
 	// Tunnel pit blocks: their GLB comes from the tunnel entry's type, which
 	// NEVER appears in `cells` — request it explicitly. Without this, a
 	// corner placed only in a tunnel (no surface corner anywhere) never
@@ -4872,11 +4882,7 @@ async function init() {
 				tunnelKeys.add( String( Number( entry[ 0 ] ) ) + ',' + String( Number( entry[ 1 ] ) ) );
 			}
 		}
-		for ( const entry of ( Array.isArray( extras?.tunnelSlopes ) ? extras.tunnelSlopes : [] ) ) {
-			if ( Number.isFinite( Number( entry?.[ 0 ] ) ) && Number.isFinite( Number( entry?.[ 1 ] ) ) ) {
-				tunnelKeys.add( String( Number( entry[ 0 ] ) ) + ',' + String( Number( entry[ 1 ] ) ) );
-			}
-		}
+
 		if ( Array.isArray( extras?.water ) ) {
 			extras.water = extras.water.filter( ( cell ) => ! tunnelKeys.has( String( Number( cell?.[ 0 ] ) ) + ',' + String( Number( cell?.[ 1 ] ) ) ) );
 		}
@@ -5297,11 +5303,6 @@ async function init() {
 	// Tunnel slope cells are ramps, not normal ground. Their cell-wide ground
 	// collider must be omitted so it cannot sit underneath the descending half
 	// of the ramp and punch through the ramp surface as the car climbs it.
-	const tunnelSlopeGroundCells = new Set();
-	for ( const slopeEntry of ( extras && Array.isArray( extras.tunnelSlopes ) ? extras.tunnelSlopes : [] ) ) {
-		if ( ! Array.isArray( slopeEntry ) ) continue;
-		tunnelSlopeGroundCells.add( `${ Number( slopeEntry[ 0 ] ) },${ Number( slopeEntry[ 1 ] ) }` );
-	}
 	const tunnelRoadCellSet = new Set( ( ( customCells || TRACK_CELLS ) || [] ).map( ( c ) => `${ Number( c[ 0 ] ) },${ Number( c[ 1 ] ) }` ) );
 	for ( const tunnelEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
 
@@ -10309,8 +10310,8 @@ function completeCampaignStage() {
 	}
 	// Pool slopes are real tilted colliders too (they are NOT in extras.elevated),
 	// so register their cells as well.
-	if ( Array.isArray( extras?.tunnelSlopes ) ) {
-		for ( const entry of extras.tunnelSlopes ) {
+	if ( Array.isArray( extras?. ) ) {
+		for ( const entry of extras. ) {
 			const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
 			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
 			const cellKeys = ( v ) => Number.isInteger( v ) ? [ v ] : [ Math.floor( v ), Math.floor( v ) + 1 ];
