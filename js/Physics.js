@@ -887,9 +887,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const tunnelFloorBoxTop = groundY - TUNNEL_FLOOR_DROP + 0.04 * S;
 	const tunnelSlopeRise = poolGroundTop - tunnelFloorBoxTop;
 	const tunnelSlopeAngle = Math.atan2( tunnelSlopeRise, poolSlopeSpan * 2 );
-	const tunnelSlopeHalfLen = Math.hypot( CELL_HALF * S, tunnelSlopeRise * 0.5 );
+	const tunnelSlopeHalfLen = Math.hypot( poolSlopeSpan, tunnelSlopeRise * 0.5 );
+	// Keep the tunnel slope's collider placement mechanically identical to the
+	// pool slope: same center formula and the same thickness compensation shift.
 	const tunnelSlopeCenterY = ( poolGroundTop + tunnelFloorBoxTop ) * 0.5
 		- ELEVATED_SURFACE_HALF_H * Math.cos( tunnelSlopeAngle );
+	const tunnelSlopeShift = ELEVATED_SURFACE_HALF_H * Math.sin( tunnelSlopeAngle );
 	function addTunnelSlopeCollider( gx, gz, orient = 0 ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
@@ -897,8 +900,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const flipOrient = ORIENT_180[ orient ] ?? orient;
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ flipOrient ] ?? 0 );
 		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( - tunnelSlopeAngle, yaw, 0, 'YXZ' ) );
-		const halfExtents = [ CELL_HALF * S, ELEVATED_SURFACE_HALF_H, tunnelSlopeHalfLen ];
-		const position = [ cx, tunnelSlopeCenterY, cz ];
+		const halfExtents = [ ELEVATED_SURFACE_HALF_XZ, ELEVATED_SURFACE_HALF_H, tunnelSlopeHalfLen ];
+		const position = [ cx + Math.sin( yaw ) * tunnelSlopeShift, tunnelSlopeCenterY, cz + Math.cos( yaw ) * tunnelSlopeShift ];
 		const quaternion = [ quat.x, quat.y, quat.z, quat.w ];
 		rigidBody.create( world, {
 			shape: box.create( { halfExtents } ),
@@ -906,8 +909,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			objectLayer: world._OL_STATIC,
 			position,
 			quaternion,
-			friction: 0.9,
-			restitution: 0.0
+			friction: 5.0,
+			restitution: 0.0,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
 
