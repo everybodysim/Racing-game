@@ -679,7 +679,6 @@
 			<button id="btn-pool-slope" style="display:none">Pool Slope</button>
 			<button id="btn-pool-cross" style="display:none">Pool Cross</button>
 			<button id="btn-tunnel-hole">Tunnel Hole +</button>
-			<button id="btn-tunnel-slope">Tunnel Slope</button>
 		</div>
 		<div class="toolbar-group" aria-label="Start and finish" data-cat="track">
 		<span class="toolbar-group-label">Start / Finish</span>
@@ -938,7 +937,6 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 	// OPEN-TOP TUNNELS (user order 2026-09-28): hole = carved empty pit,
 	// slope = entrance ramp. SEPARATE from pool slopes — never shared data.
 	const TUNNEL_HOLE_TOOL = 'tunnel-hole';
-	const TUNNEL_SLOPE_TOOL = 'tunnel-slope';
 	const POOL_CROSS_TOOL = 'pool-cross';
 	const POOL_SLOPE_DEPTH = CELL_RAW * 0.34; // matches pool floor depth
 	const ELEVATED_HEIGHT = CELL_RAW * 0.5;
@@ -1562,11 +1560,8 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 			poolSlopeOrient: 0,
 			poolSlopeMesh: null,
 			tunnel: null,
-			tunnelSlope: false,
-			tunnelSlopeOrient: 0,
 			tunnelPitMesh: null,
 			tunnelBlockMesh: null,
-			tunnelSlopeMesh: null,
 			surfaceTypes: [],
 			surfaceMeshes: [],
 			decoType: null,
@@ -2219,12 +2214,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 			pit.add( ceiling );
 
 		}
-		let exitSide = null;
-		if ( cell.tunnelSlope ) {
-			const { dx, dz } = getPoolSlopeFacingOffset( cell.tunnelSlopeOrient || 0 );
-			exitSide = `${ dx },${ dz }`;
-		}
-		if ( cell.tunnel?.type === 'slope-up' ) {
+		let exitSide = null;		if ( cell.tunnel?.type === 'slope-up' ) {
 			// A slope-up pit block ramps from the pit floor to the surface —
 			// the wall opens on its high (facing) side so the car can exit.
 			const { dx, dz } = getPoolSlopeFacingOffset( cell.tunnel.orient || 0 );
@@ -2265,7 +2255,6 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 		if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
 		if ( cell.tunnelPitMesh ) trackGroup.remove( cell.tunnelPitMesh );
 		if ( cell.tunnelBlockMesh ) trackGroup.remove( cell.tunnelBlockMesh );
-		if ( cell.tunnelSlopeMesh ) trackGroup.remove( cell.tunnelSlopeMesh );
 		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		cell.bumpMesh = null;
@@ -2279,7 +2268,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 		cell.poolSlopeMesh = null;
 		cell.tunnelPitMesh = null;
 		cell.tunnelBlockMesh = null;
-		cell.tunnelSlopeMesh = null;
+		cell.Mesh = null;
 		cell.surfaceMeshes = [];
 		cell.decoMesh = null;
 
@@ -2503,22 +2492,6 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 					cell.tunnelBlockMesh = blk;
 
 				}
-
-			}
-
-		}
-
-		if ( cell.tunnelSlope ) {
-
-			const slopeSrc = models[ 'elev-track-slope' ];
-			if ( slopeSrc ) {
-
-				const slope = slopeSrc.clone();
-				slope.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET - 5, ( gz + 0.5 ) * CELL_RAW );
-				slope.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.tunnelSlopeOrient || 0 ] || 0 );
-				slope.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; } } );
-				trackGroup.add( slope );
-				cell.tunnelSlopeMesh = slope;
 
 			}
 
@@ -3004,7 +2977,7 @@ function computeCausticShade( normal ) {
 			for ( const fx of [ fx0, fx0 + 1 ] ) {
 				for ( const fz of [ fz0, fz0 + 1 ] ) {
 					const fCell = grid.get( cellKey( fx, fz ) );
-					if ( fCell?.tunnel || fCell?.tunnelSlope || fCell?.water ) {
+					if ( fCell?.tunnel || fCell?.water ) {
 						blockedBy = String( fx ) + ',' + String( fz );
 						break;
 					}
@@ -3044,8 +3017,7 @@ function computeCausticShade( normal ) {
 			if ( cell.tunnel?.type === type && cell.tunnel?.closed === closed ) {
 
 				cell.tunnel = null;
-				cell.tunnelSlope = false;
-
+				
 			} else {
 
 				// OPEN tops (holes AND open-top blocks) need a completely
@@ -3190,31 +3162,8 @@ function computeCausticShade( normal ) {
 			}
 			grid.set( key, cell );
 			cell.tunnel = cell.tunnel ? null : { type: null, orient: 0, closed: false };
-			if ( ! cell.tunnel ) cell.tunnelSlope = false;
-			placeOverlayMesh( gx, gz, cell );
+			if ( ! cell.tunnel ) 			placeOverlayMesh( gx, gz, cell );
 			groundTilesDirty = true; // hole added/removed → recut the ground holes
-
-		} else if ( selectedType === TUNNEL_SLOPE_TOOL ) {
-
-			// Tunnel Slope: entrance ramp for a tunnel cell. SEPARATE tool from
-			// Pool Slope; only placeable inside an existing tunnel cell.
-			if ( placeOffGrid ) {
-
-				showToast( 'Tunnel Slope is on-grid only' );
-				return;
-
-			}
-			const key = cellKey( gx, gz );
-			const cell = grid.get( key );
-			if ( ! cell?.tunnel ) {
-
-				showToast( 'Tunnel Slope can only go inside a tunnel cell' );
-				return;
-
-			}
-			cell.tunnelSlope = ! cell.tunnelSlope;
-			cell.tunnelSlopeOrient = selectedOrient;
-			placeOverlayMesh( gx, gz, cell );
 
 		} else if ( selectedType === POOL_CROSS_TOOL ) {
 
@@ -3282,7 +3231,7 @@ function computeCausticShade( normal ) {
 				for ( const fx of [ fx0, fx0 + 1 ] ) {
 					for ( const fz of [ fz0, fz0 + 1 ] ) {
 						const fCell = grid.get( cellKey( fx, fz ) );
-						if ( fCell?.tunnel || fCell?.tunnelSlope || fCell?.water ) { bad = true; break; }
+						if ( fCell?.tunnel || fCell?.water ) { bad = true; break; }
 					}
 					if ( bad ) break;
 				}
@@ -3534,7 +3483,6 @@ function computeCausticShade( normal ) {
 		if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
 		if ( cell.tunnelPitMesh ) trackGroup.remove( cell.tunnelPitMesh );
 		if ( cell.tunnelBlockMesh ) trackGroup.remove( cell.tunnelBlockMesh );
-		if ( cell.tunnelSlopeMesh ) trackGroup.remove( cell.tunnelSlopeMesh );
 		for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 		if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 		grid.delete( key );
@@ -3562,10 +3510,8 @@ function computeCausticShade( normal ) {
 				if ( cell.poolSlopeMesh ) trackGroup.remove( cell.poolSlopeMesh );
 				if ( cell.tunnelPitMesh ) trackGroup.remove( cell.tunnelPitMesh );
 				if ( cell.tunnelBlockMesh ) trackGroup.remove( cell.tunnelBlockMesh );
-				if ( cell.tunnelSlopeMesh ) trackGroup.remove( cell.tunnelSlopeMesh );
 		if ( cell.tunnelPitMesh ) trackGroup.remove( cell.tunnelPitMesh );
 		if ( cell.tunnelBlockMesh ) trackGroup.remove( cell.tunnelBlockMesh );
-		if ( cell.tunnelSlopeMesh ) trackGroup.remove( cell.tunnelSlopeMesh );
 				for ( const surfaceMesh of cell.surfaceMeshes || [] ) trackGroup.remove( surfaceMesh );
 				if ( cell.decoMesh ) trackGroup.remove( cell.decoMesh );
 
@@ -4356,7 +4302,6 @@ function computeCausticShade( normal ) {
 		const water = [];
 		const poolSlopes = [];
 		const tunnels = [];
-		const tunnelSlopes = [];
 
 		for ( const [ key, cell ] of grid ) {
 
@@ -4369,7 +4314,6 @@ function computeCausticShade( normal ) {
 				if ( cell.water && worldPreset !== 'pool-filled' ) water.push( [ gx, gz ] );
 				if ( cell.poolSlope ) poolSlopes.push( [ gx, gz, cell.poolSlopeOrient || 0 ] );
 				if ( cell.tunnel ) tunnels.push( [ gx, gz, cell.tunnel.closed ? 1 : 0, cell.tunnel.orient || 0, cell.tunnel.type ?? null ] );
-				if ( cell.tunnelSlope ) tunnelSlopes.push( [ gx, gz, cell.tunnelSlopeOrient || 0 ] );
 				if ( cell.movingObstacle ) movingObstacles.push( [ gx, gz, cell.movingObstacle, cell.wallOrient || 0, Number.isFinite( Number( cell.movingSpeed ) ) ? Number( cell.movingSpeed ) : 1, cell.movingCustom && typeof cell.movingCustom === 'object' ? cell.movingCustom : null ] );
 				if ( cell.elevatedType ) {
 
@@ -4421,7 +4365,7 @@ function computeCausticShade( normal ) {
 			};
 
 		}
-		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig, colorsOn: customPoolColorsEnabled === true }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload, z: poolSlopes, g: tunnels, h: tunnelSlopes } );
+		const payload = JSON.stringify( { b: bumps, p: poles, k: cubes, l: walls, j: jumps, o: movingObstacles, t: worldPreset === 'pool-filled' ? 'pool-filled' : 'normal', q: water, r: { ...customPoolConfig, colorsOn: customPoolColorsEnabled === true }, e: elevated, u: surfaces, d: deco, m: magnets, a: arcs, w: { ...weatherSettings }, c: customSurfaceConfigs, y: customPadConfigs, x: customPayload, z: poolSlopes, g: tunnels } );
 		return btoa( unescape( encodeURIComponent( payload ) ) ).replace( /\+/g, '-' ).replace( /\//g, '_' ).replace( /=+$/, '' );
 
 	}
@@ -4761,9 +4705,7 @@ function computeCausticShade( normal ) {
 				const key = cellKey( gx, gz );
 				const cell = grid.get( key ) || makeEmptyCell();
 				if ( ! grid.has( key ) ) grid.set( key, cell );
-				if ( ! cell.tunnel ) cell.tunnel = { closed: false, orient: 0, type: null };
-				cell.tunnelSlope = true;
-				cell.tunnelSlopeOrient = orient;
+				cell.tunnel = { closed: false, orient: Number( orient ) || 0, type: 'slope-up' };
 				placeOverlayMesh( gx, gz, cell );
 
 			}
@@ -4803,7 +4745,7 @@ function computeCausticShade( normal ) {
 				if ( ! grid.has( key ) ) grid.set( key, cell );
 				// A tunnel entrance owns this cell. Never resurrect a pool here,
 				// including in legacy URLs that stored both mods.
-				if ( cell.tunnel || cell.tunnelSlope ) {
+				if ( cell.tunnel || cell. ) {
 					cell.water = false;
 					cell.poolSlope = false;
 					cell.poolSlopeOrient = 0;
@@ -5136,7 +5078,6 @@ function refreshMovingSpeedUi() {
 		[ TUNNEL_HOLE_TOOL ]: document.getElementById( 'btn-tunnel-hole' ),
 		'elevated-cross': document.getElementById( 'btn-elev-cross-extra' ),
 		'elevated-cross-corner': document.getElementById( 'btn-elev-cross-corner-extra' ),
-		[ TUNNEL_SLOPE_TOOL ]: document.getElementById( 'btn-tunnel-slope' ),
 		[ POOL_CROSS_TOOL ]: document.getElementById( 'btn-pool-cross' ),
 		'track-3-way': document.getElementById( 'btn-3way' ),
 		'track-4-way': document.getElementById( 'btn-4way' ),
@@ -6753,7 +6694,7 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 			const m = decodeMods( encodeMods() );
 			const extras = {
-				bumps: m.b, poles: m.p, cubes: m.k, walls: m.l, jumps: m.j, tunnels: m.g, tunnelSlopes: m.h,
+				bumps: m.b, poles: m.p, cubes: m.k, walls: m.l, jumps: m.j, tunnels: m.g, s: m.h,
 				elevated: m.e, decorations: m.d, magnets: m.m, customAssets: m.x,
 				poolSlopes: m.z,
 				water: m.q,
@@ -6808,8 +6749,8 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			for ( const tunnelEntry of ( Array.isArray( extras?.tunnels ) ? extras.tunnels : [] ) ) {
 
 				if ( ! Array.isArray( tunnelEntry ) ) continue;
-				const isTunnelSlope = tunnelEntry.length >= 5 && tunnelEntry[ 4 ] === 'slope-up';
-				if ( tunnelEntry.length >= 5 && tunnelEntry[ 2 ] === 1 && ! isTunnelSlope ) continue;
+				const is = tunnelEntry.length >= 5 && tunnelEntry[ 4 ] === 'slope-up';
+				if ( tunnelEntry.length >= 5 && tunnelEntry[ 2 ] === 1 && ! is ) continue;
 				tunnelOpenSet.add( `${ Number( tunnelEntry[ 0 ] ) },${ Number( tunnelEntry[ 1 ] ) }` );
 
 			}
