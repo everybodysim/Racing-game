@@ -1768,7 +1768,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 				const patch = new THREE.Mesh( geometry, material );
 				patch.rotation.x = - Math.PI / 2;
-				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET + overlayOffset, ( gz + 0.5 ) * CELL_RAW );
+				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET + 0.12 + overlayOffset, ( gz + 0.5 ) * CELL_RAW );
 				// Slope tilt: surfaces and pads placed on a slope block lie flush with
 				// the ramp. The tilt comes from the cell's own elevated entry, so
 				// off-grid (fractional) placements work exactly like on-grid ones.
