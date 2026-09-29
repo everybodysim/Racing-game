@@ -3270,12 +3270,7 @@ function computeCausticShade( normal ) {
 				return;
 
 			}
-			if ( selectedType === BUMP_TOOL && ! cell.bump && cell.tunnel && ! cell.tunnel.closed ) {
-
-				showToast( 'Bumps cannot be placed over open tunnels' );
-				return;
-
-			}
+			
 			// OFF-GRID LOOPHOLE (user order): a fractional bump straddles
 			// integer cells — the old loophole let it land over tunnel
 			// cells. Refuse when ANY footprint cell holds a tunnel.
@@ -3285,7 +3280,8 @@ function computeCausticShade( normal ) {
 				let overlapsTunnel = false;
 				for ( const fx of [ fx0, fx0 + 1 ] ) {
 					for ( const fz of [ fz0, fz0 + 1 ] ) {
-						if ( grid.get( cellKey( fx, fz ) )?.tunnel ) { overlapsTunnel = true; break; }
+						const tunnel = grid.get( cellKey( fx, fz ) )?.tunnel;
+						if ( tunnel?.closed ) { overlapsTunnel = true; break; }
 					}
 					if ( overlapsTunnel ) break;
 				}
