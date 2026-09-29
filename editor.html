@@ -2485,7 +2485,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 				if ( blockSrc ) {
 
 					const blk = blockSrc.clone();
-					blk.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ( cell.tunnel.type === 'track-choke-cross' ? 0.28 : 0.08 ) - TUNNEL_DROP, ( gz + 0.5 ) * CELL_RAW );
+					blk.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + ( cell.tunnel.type === 'track-choke-cross' ? 0.16 : 0.08 ) - TUNNEL_DROP, ( gz + 0.5 ) * CELL_RAW );
 					blk.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.tunnel.orient || 0 ] || 0 );
 					blk.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; } } );
 					trackGroup.add( blk );
