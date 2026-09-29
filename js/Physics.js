@@ -1032,32 +1032,6 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		addRoadTypeWallsAtHeight( gx, gz, tunnelType, entry[ 3 ] ?? 0, undergroundWallY, hHeight );
 
 	}
-	// Tunnel perimeter walls: restore the full dirt-bowl walls at the actual tunnel floor.
-	// These are separate from the road-piece walls: they seal the carved pit edges.
-	const tunnelBowlSet = new Set( tunnelEntriesForBowl.map( e => `${ Number( e?.[ 0 ] ) },${ Number( e?.[ 1 ] ) }` ) );
-	for ( const entry of tunnelEntriesForBowl ) {
-		const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
-		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
-		const cx = ( gx + 0.5 ) * CELL_RAW * S;
-		const cz = ( gz + 0.5 ) * CELL_RAW * S;
-		const exitSide = poolSlopeExit.get( `${ gx },${ gz }` );
-		const floorTopY = groundY - TUNNEL_FLOOR_DROP + 0.04 * S;
-		const wallHalfH = CELL_RAW * S * 0.19;
-		const wallCenterY = ( floorTopY + groundY ) * 0.5;
-		const sides = [ [ 0, - 1, 0, - CELL_HALF * S, 0 ], [ 1, 0, CELL_HALF * S, 0, Math.PI / 2 ], [ 0, 1, 0, CELL_HALF * S, 0 ], [ - 1, 0, - CELL_HALF * S, 0, Math.PI / 2 ] ];
-		for ( const [ dx, dz, ox, oz, yaw ] of sides ) {
-			if ( tunnelBowlSet.has( `${ gx + dx },${ gz + dz }` ) ) continue;
-			if ( waterSet.has( `${ gx + dx },${ gz + dz }` ) ) continue;
-			if ( exitSide === `${ dx },${ dz }` ) continue;
-			if ( poolCrossCells.has( `${ gx },${ gz }` ) ) continue;
-			const halfExtents = [ CELL_HALF * S, wallHalfH, CELL_RAW * S * 0.04 ];
-			const quaternion = [ 0, Math.sin( yaw / 2 ), 0, Math.cos( yaw / 2 ) ];
-			const position = [ cx + ox, wallCenterY, cz + oz ];
-			rigidBody.create( world, { shape: box.create( { halfExtents } ), motionType: MotionType.STATIC, objectLayer: world._OL_STATIC, position, quaternion, friction: 0.9, restitution: 0.0 } );
-			if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
-		}
-	}
-
 	// Slope-up pit blocks ARE ramps (pit floor → surface): the proven
 	// tunnel-slope ramp collider, centered on the block cell.
 	for ( const rampEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
