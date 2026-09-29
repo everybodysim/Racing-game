@@ -2528,7 +2528,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 				} else if ( cell.elevatedType === 'elevated-3-way' || cell.elevatedType === 'elevated-4-way' || cell.elevatedType === 'elevated-checkpoint' ) {
 					surfaceLift = cell.elevatedType === 'elevated-3-way' ? 0.16 : ( cell.elevatedType === 'elevated-4-way' ? 0.17 : 0.01 );
 				}
-				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + surfaceLift + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
+				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + 0.12 + surfaceLift + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
 				// Slope tilt: flush with the ramp, matching the game build. Uses the
 				// cell's own elevated block, so off-grid cells tilt correctly too.
 				if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) {
