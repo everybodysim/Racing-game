@@ -1236,7 +1236,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			// floor; v2 entries keep surface pieces at the surface (the pit
 			// block comes from the tunnel info instead).
 			const tunnelCellKey = `${ Number( gx ) },${ Number( gz ) }`;
-			if ( tunnelInfoMap.has( tunnelCellKey ) && tunnelInfoMap.get( tunnelCellKey ).type === undefined ) piece.position.y -= TUNNEL_DROP;
+			if ( tunnelInfoMap.has( tunnelCellKey ) && tunnelInfoMap.get( tunnelCellKey ).type === undefined ) piece.position.y += 0.08 - TUNNEL_DROP;
 			trackPieceGroup.add( piece );
 
 		}
