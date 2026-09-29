@@ -1043,6 +1043,22 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			poolSlopeExit.set( `${ Number( gx ) },${ Number( gz ) }`, `${ dx },${ dz }` );
 		}
 	}
+	// Map each tunnel slope-up cell to the ground-side exit of its ramp.
+	// This MUST be built before the tunnel bowl walls, because that wall loop
+	// uses it to leave the ramp mouth open. Tunnel slopes are full-depth ramps;
+	// they must not reuse poolSlopeExit (poolSlopes is a separate decoration).
+	const tunnelSlopeExit = new Map();
+	for ( const entry of tunnelEntriesForBowl ) {
+		if ( ! Array.isArray( entry ) || entry.length < 5 || entry[ 4 ] !== 'slope-up' ) continue;
+		const gx = Number( entry[ 0 ] );
+		const gz = Number( entry[ 1 ] );
+		const orient = Number( entry[ 3 ] ) || 0;
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+		const dx = - Math.round( Math.sin( rad ) );
+		const dz = - Math.round( Math.cos( rad ) );
+		tunnelSlopeExit.set( `${ gx },${ gz }`, `${ dx },${ dz }` );
+	}
 	// ── TUNNEL BOWL COLLIDERS (user order 2026-09-28) ──
 	// Dedicated set at the FULL 5-unit depth (matching elevated height) —
 	// NOT the shallow pool bowl. Floor at pit bottom, walls rim-flush to
@@ -1081,7 +1097,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			if ( debugGroup ) addDebugBox( debugGroup, roofHalfExtents, [ cx, groundY + 0.01 - 0.05 * S, cz ] );
 
 		}
-		const exitSide = poolSlopeExit.get( `${ gx },${ gz }` );
+		const exitSide = tunnelSlopeExit.get( `${ gx },${ gz }` );
 		const wallHalfH = TUNNEL_FLOOR_DROP * 0.5 + 0.05 * S;
 		const sides = [ [ 0, - 1, 0, - CELL_HALF * S, 0 ], [ 1, 0, CELL_HALF * S, 0, Math.PI / 2 ], [ 0, 1, 0, CELL_HALF * S, 0 ], [ - 1, 0, - CELL_HALF * S, 0, Math.PI / 2 ] ];
 		for ( const [ dx, dz, ox, oz, yaw ] of sides ) {
@@ -1100,13 +1116,6 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	}
 	// Slope-up pit blocks ARE ramps (pit floor → surface): the proven
 	// tunnel-slope ramp collider, centered on the block cell.
-	for ( const rampEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
-
-		if ( ! Array.isArray( rampEntry ) || rampEntry.length < 5 || rampEntry[ 4 ] !== 'slope-up' ) continue;
-		addTunnelSlopeCollider( Number( rampEntry[ 0 ] ), Number( rampEntry[ 1 ] ), Number( rampEntry[ 3 ] ) || 0 );
-
-	}
-	// Tunnel slope-up entries use the fixed tunnel-depth ramp collider.
 	for ( const rampEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
 
 		if ( ! Array.isArray( rampEntry ) || rampEntry.length < 5 || rampEntry[ 4 ] !== 'slope-up' ) continue;
