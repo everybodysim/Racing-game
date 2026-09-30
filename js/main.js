@@ -9920,6 +9920,11 @@ function completeCampaignStage() {
 	let rollingFps = 0;
 	let fpsHudAccumulator = 0;
 	const activeCells = customCells || TRACK_CELLS;
+	// Closed-roof tunnel gates are physically below the surface. Their normal
+	// checkpoint/finish trigger is intentionally 2D for ground/elevated gates,
+	// so only these underground tunnel gates get a Y requirement. This keeps the
+	// established "airborne gate trigger" feature everywhere else.
+	const CLOSED_TUNNEL_GATE_MAX_Y = - 2.0;
 	// Tunnel pit blocks: checkpoints/gates placed IN tunnels never appear in
 	// `cells`, so they were invisible to lap/checkpoint logic — the trigger
 	// plane test itself is 2D (no y gate), it just never got a state (user
@@ -9927,12 +9932,12 @@ function completeCampaignStage() {
 	const tunnelCheckpointCells = Array.isArray( extras?.tunnels )
 		? extras.tunnels
 			.filter( ( t ) => Array.isArray( t ) && t.length >= 5 && ( t[ 4 ] === 'track-checkpoint' || t[ 4 ] === 'track-checkpoint-corner' ) )
-			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0 ] )
+			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0, t[ 2 ] === 1 ] )
 		: [];
 	const tunnelGateCells = Array.isArray( extras?.tunnels )
 		? extras.tunnels
 			.filter( ( t ) => Array.isArray( t ) && t.length >= 5 && ( t[ 4 ] === 'track-start' || t[ 4 ] === 'track-finish' || t[ 4 ] === 'track-start-finish' ) )
-			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0 ] )
+			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0, t[ 2 ] === 1 ] )
 		: [];
 	const hasSeparateStartCell = activeCells.some( ( c ) => c[ 2 ] === 'track-start' ) || tunnelGateCells.some( ( c ) => c[ 2 ] === 'track-start' );
 	const hasSeparateFinishCell = activeCells.some( ( c ) => c[ 2 ] === 'track-finish' ) || tunnelGateCells.some( ( c ) => c[ 2 ] === 'track-finish' );
@@ -10169,7 +10174,7 @@ function completeCampaignStage() {
 
 		if ( ! cell ) return null;
 
-		const [ gx, gz, type, orient ] = cell;
+		const [ gx, gz, type, orient, closedTunnelGate = false ] = cell;
 		let centerX = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
 		let centerZ = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
 		let halfExtent = ( CELL_RAW * GRID_SCALE ) * 0.5;
@@ -10205,7 +10210,7 @@ function completeCampaignStage() {
 
 		const cosA = Math.cos( angle );
 		const sinA = Math.sin( angle );
-		return { centerX, centerZ, halfExtent, angle, cosA, sinA };
+		return { centerX, centerZ, halfExtent, angle, cosA, sinA, closedTunnelGate };
 
 	}
 
@@ -14439,7 +14444,8 @@ function completeCampaignStage() {
 
 					const t = z0 / ( z0 - z1 );
 					const xCross = THREE.MathUtils.lerp( checkpoint.lastLocalX, localX, t );
-					crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent;
+					crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent
+						&& ( ! checkpoint.closedTunnelGate || vehicle.spherePos.y <= CLOSED_TUNNEL_GATE_MAX_Y );
 
 				}
 
@@ -14487,7 +14493,8 @@ function completeCampaignStage() {
 
 						const t = z0 / ( z0 - z1 );
 						const xCross = THREE.MathUtils.lerp( checkpoint.lastLocalX, localX, t );
-						crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent;
+						crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent
+						&& ( ! checkpoint.closedTunnelGate || vehicle2.spherePos.y <= CLOSED_TUNNEL_GATE_MAX_Y );
 
 					}
 
@@ -14538,7 +14545,8 @@ function completeCampaignStage() {
 
 					const t = z0 / ( z0 - z1 );
 					const xCross = THREE.MathUtils.lerp( lastLocalX, localX, t );
-					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent;
+					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent
+						&& ( ! finishData.closedTunnelGate || vehicle.spherePos.y <= CLOSED_TUNNEL_GATE_MAX_Y );
 					if ( crossedFinish ) crossedAtT = t;
 
 				}
@@ -14764,7 +14772,8 @@ function completeCampaignStage() {
 
 					const t = z0 / ( z0 - z1 );
 					const xCross = THREE.MathUtils.lerp( lastLocalX2, localX, t );
-					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent;
+					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent
+						&& ( ! finishData.closedTunnelGate || vehicle2.spherePos.y <= CLOSED_TUNNEL_GATE_MAX_Y );
 
 				}
 
