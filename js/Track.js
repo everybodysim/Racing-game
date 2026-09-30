@@ -929,7 +929,7 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	// Thin/transition shells get the same anti-acne treatment AND stop casting
 	// shadows entirely — their AI-authored normals produce strange self-shadow
 	// shading; trees keep normal shadows (separate meshes, tree UV bands).
-	if ( type === 'elevated-choke-half' || type === 'elevated-choke-both' || THIN_MODEL_KEYS.has( modelKey ) ) {
+	if ( type === 'elevated-choke-half' || type === 'elevated-choke-both' || type === 'elevated-choke-cross' || THIN_MODEL_KEYS.has( modelKey ) ) {
 
 		const isThin = THIN_MODEL_KEYS.has( modelKey );
 		piece.traverse( ( child ) => {
@@ -2488,7 +2488,7 @@ export function placePiece( models, key, gx, gz, orient ) {
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
-	if ( modelKey === 'track-choke-half' || modelKey === 'track-choke-both' || THIN_MODEL_KEYS.has( modelKey ) ) {
+	if ( modelKey === 'track-choke-half' || modelKey === 'track-choke-both' || key === 'track-choke-cross' || THIN_MODEL_KEYS.has( modelKey ) ) {
 
 		// The pinch walls are viewable from inside the choke opening, so render
 		// both faces (same treatment as the elevated blocks). Materials are
