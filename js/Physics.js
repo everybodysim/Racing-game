@@ -1031,6 +1031,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	}
 
 	const waterSet = new Set( waterEntries.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
+	// Open-top tunnels lower obstacle colliders to the same pit floor used by
+	// Track.js visuals. Closed tunnel roofs intentionally keep their overlays
+	// at the normal surface height, matching the visual placement rule.
+	const tunnelOpenSet = new Set(
+		tunnelEntriesForBowl
+			.filter( entry => Array.isArray( entry ) && entry.length >= 5 && entry[ 2 ] !== 1 )
+			.map( entry => `${ Number( entry[ 0 ] ) },${ Number( entry[ 1 ] ) }` )
+	);
 	// Map each pool-slope cell to the (dx,dz) side it exits toward, so the
 	// corresponding pool wall can be skipped (otherwise it blocks the car).
 	const poolSlopeExit = new Map();
@@ -1189,6 +1197,9 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	function getOverlayHeightOffset( gx, gz ) {
 
+		// Keep physics aligned with Track.js: overlays inside open-top tunnels
+		// are lowered to the tunnel floor. Closed roofs stay at surface height.
+		if ( tunnelOpenSet.has( `${ gx },${ gz }` ) ) return - TUNNEL_FLOOR_DROP;
 		const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
 		if ( ! elevatedEntry ) return 0;
 		return elevatedEntry.type === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
