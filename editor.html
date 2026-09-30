@@ -2190,6 +2190,17 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 	}
 
+	function refreshTunnelNeighborhood( gx, gz ) {
+
+		const keys = [ [ gx, gz ], [ gx + 1, gz ], [ gx - 1, gz ], [ gx, gz + 1 ], [ gx, gz - 1 ] ];
+		for ( const [ nx, nz ] of keys ) {
+			const neighbor = grid.get( cellKey( nx, nz ) );
+			if ( ! neighbor?.tunnel ) continue;
+			placeOverlayMesh( nx, nz, neighbor );
+		}
+
+	}
+
 	function createTunnelPitMesh( gx, gz, cell ) {
 
 		// Editor mirror of the game-side dry pool bowl: dirt floor + walls,
@@ -3041,14 +3052,8 @@ function computeCausticShade( normal ) {
 			grid.set( key, cell );
 			placeMesh( gx, gz, cell );
 			placeOverlayMesh( gx, gz, cell );
-			// Neighbor pits must REBUILD — a pit built before its neighbor
-			// became a tunnel still shows the edge wall toward it (user order).
-			for ( const [ dx, dz ] of [ [ 1, 0 ], [ - 1, 0 ], [ 0, 1 ], [ 0, - 1 ] ] ) {
-
-				const nbCell = grid.get( cellKey( gx + dx, gz + dz ) );
-				if ( nbCell?.tunnel ) { placeMesh( gx + dx, gz + dz, nbCell ); placeOverlayMesh( gx + dx, gz + dz, nbCell ); }
-
-			}
+			// Rebuild connected tunnel pits so shared edges lose their wall.
+			refreshTunnelNeighborhood( gx, gz );
 			groundTilesDirty = true; // tunnel added/removed → recut the ground holes
 			return;
 
@@ -4699,6 +4704,7 @@ function computeCausticShade( normal ) {
 				}
 				placeMesh( gx, gz, cell );
 				placeOverlayMesh( gx, gz, cell );
+				refreshTunnelNeighborhood( gx, gz );
 
 			}
 			for ( const [ gx, gz, orient = 0 ] of mods.h || [] ) {
