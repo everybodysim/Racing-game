@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { rigidBody, box, sphere, MotionType, MotionQuality } from 'crashcat';
 import { TRACK_CELLS, CELL_RAW, ORIENT_DEG, GRID_SCALE } from './Track.js';
-import { rebuildStaticSeams } from './StaticSeams.js?v=1';
 import { THIN_WALL_SPECS } from './thin-wall-specs.js?v=13';
 
 // Building model definitions. The game's loadModels() scales every 'building-*'
@@ -51,8 +50,6 @@ export function setWallHeightBoost( active ) {
 		if ( e.debugMesh ) { e.debugMesh.scale.y = hy / e.baseHY; e.debugMesh.position.y = bottomY + hy; }
 
 	}
-	// Rebuild once per wall-height toggle, not per frame.
-	for ( const world of new Set( WALL_BOOST.bodies.map( ( e ) => e.world ) ) ) rebuildStaticSeams( world );
 
 }
 
@@ -123,9 +120,13 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
 	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT - FLAT_ELEVATED_SURFACE_DROP;
 	const slopeDeckTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H;
-	// Flat decks now end at their exact cell boundaries. Their ramp must
-	// meet that same boundary, not the old merged deck's phantom overhang.
-	// Deck-less peaks retain a small overlap so neighbouring ramps stay sealed.
+	// How far the slope collider tucks past the flat-deck cell's edge
+	// (edgeOverhang * 0.5 — see getSlopeGeometry +
+	// addFlatElevatedSurfaceColliders).
+	const SLOPE_DECK_EDGE_PROTRUSION = CELL_RAW * S * 0.03 * 0.5;
+	// Slope↔slope seams (two high ends meeting = a peak, or a deck-less top)
+	// are sealed with a small coplanar overlap so the ball can never drop
+	// into a gap at the seam line.
 	const SLOPE_SEAM_OVERLAP = 0.02;
 	// The two pitched side rails were centred on the slope box and sat too low;
 	// raise them by half their own height so they read as a proper kerb.
@@ -163,9 +164,26 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const CHOKE_CROSS_HALF_THICK = 0.35;
 	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'elevated-thin-straight', 'elevated-thin-corner', 'elevated-thin-3-way', 'elevated-thin-4-way', 'elevated-wide-thin', 'elevated-wide-thin-corner', 'pool-cross' ] );
 
-	// Pin the driving face's low edge to the ground and its high edge
-	// to the ACTUAL flat-deck boundary. The former 3% deck-overhang math
-	// left a 0.112m gap after decks changed back to one exact box per cell.
+	// PERFECT SLOPE SEAM MATH. The slope's driving surface is the TOP face of a
+	// tilted box (half-thickness hy = ELEVATED_SURFACE_HALF_H). The old geometry
+	// pinned that face's low end to groundY and high end to the deck top at the
+	// CELL boundaries — but the flat deck's surface box protrudes
+	// SLOPE_DECK_EDGE_PROTRUSION into the slope cell, so at the deck box's edge
+	// the slope face had already fallen (protrusion + high-edge overhang) * tan
+	// ≈ 0.072 below the deck top. That protruding box edge exposed a lip: going
+	// UP, the sphere hit the edge face head-on and popped; going DOWN, it
+	// launched off the edge and slammed the slope below — the classic
+	// "bounced at the top both ways" feel.
+	//
+	// Fix: pin the top face's HIGH edge at slopeDeckTopY exactly AT the deck
+	// box's protruding edge (the two faces meet that line coplanar — zero lip,
+	// the sphere rolls straight across), and the LOW edge at groundY exactly at
+	// the downhill cell boundary (coplanar with the ground road). The uphill
+	// horizontal run shrinks by the protrusion, so the driving angle steepens
+	// slightly (≈26.57° → ≈27.08°) — imperceptible next to the seam being
+	// actually seamless. When the uphill neighbour is NOT a flat deck (slope
+	// peaks, or nothing), the high edge pins at the boundary + a small overlap
+	// so peaks stay sealed.
 	function getSlopeGeometry( gx, gz, orient, elevatedMap ) {
 
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
@@ -176,7 +194,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		const upIsFlatDeck = !! neighbour && FLAT_ELEVATED_TYPES.has( neighbour.type );
 
 		const spanLow = CELL_HALF * S;
-		const spanHigh = upIsFlatDeck ? CELL_HALF * S : CELL_HALF * S + SLOPE_SEAM_OVERLAP;
+		const spanHigh = upIsFlatDeck ? CELL_HALF * S - SLOPE_DECK_EDGE_PROTRUSION : CELL_HALF * S + SLOPE_SEAM_OVERLAP;
 		const rise = slopeDeckTopY - groundY;
 		const angle = Math.atan2( rise, spanLow + spanHigh );
 		const halfLen = Math.hypot( ( spanLow + spanHigh ) * 0.5, rise * 0.5 );
@@ -1559,8 +1577,6 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 }
 
 export function createSphereBody( world, spawnPos ) {
-
-	rebuildStaticSeams( world );
 
 	const body = rigidBody.create( world, {
 		shape: sphere.create( { radius: 0.5 } ),

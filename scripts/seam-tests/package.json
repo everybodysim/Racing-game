@@ -1,7 +1,0 @@
-{
-  "name": "skid-circuit-seam-regressions",
-  "private": true,
-  "type": "module",
-  "scripts": { "test": "node --no-warnings --experimental-loader ./loader.mjs run.mjs" },
-  "dependencies": { "crashcat": "0.0.2", "three": "0.183.2" }
-}

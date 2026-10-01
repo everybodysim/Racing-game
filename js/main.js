@@ -7,8 +7,8 @@ import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=11';
 import { createCameraClipProbe } from './CameraCollision.js?v=1';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000284';
-import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260956';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000283';
+import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260955';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
@@ -447,9 +447,50 @@ const SURFACE_EFFECTS = {
 const PAD_RESET_TYPE = 'pad-reset';
 const VEHICLE_BASE_GRAVITY_FACTOR = 1.5;
 
-// Shared-edge contacts are repaired before the collision response in Physics.js.
-// Never restore the car's whole velocity after a step: genuine uphill motion,
-// landings and real obstacle impacts must keep their physical response.
+// Seam bounce suppression — tracks sphere velocity between physics steps
+// to detect and cancel the upward "pop" + speed loss that happens when the
+// sphere catches on the edge between two adjacent surface colliders.
+const _seamVel1 = [ 0, 0, 0 ];
+const _seamVel2 = [ 0, 0, 0 ];
+const seamSuppress = {
+	vy1: 0,  vel1: _seamVel1,
+	vy2: 0,  vel2: _seamVel2,
+};
+
+function suppressSeamBounce( world, veh, key, onSlope = false ) {
+	if ( ! veh?.rigidBody?.motionProperties ) return false;
+	const vel = veh.rigidBody.motionProperties.linearVelocity;
+	const vy = vel[ 1 ];
+	const prevVy = seamSuppress[ 'vy' + key ];
+	const savedVel = seamSuppress[ 'vel' + key ];
+
+	// Detect a seam bounce — thresholds lowered to catch tiny annoying bumps:
+	// - vy > 0.15 (was 0.3) — catch smaller upward pops
+	// - vyDelta > 0.2 (was 0.5) — catch smaller velocity spikes
+	// - vy < 4.0 — still allows real jumps (ramps give 5+ m/s)
+	// - prevVy > -0.5 — car was ON a surface, not falling from a jump
+	// - prevVy < 1.0 — car wasn't already flying upward
+	const vyDelta = vy - prevVy;
+	const isSeamBounce = vy > 0.15 && vy < 4.0 && prevVy > - 0.5 && prevVy < 1.0 && vyDelta > 0.2;
+
+	// On a slope the car legitimately gains upward velocity as it climbs, which
+	// trips the seam-bounce thresholds and would freeze the car's velocity
+	// (undoing the whole physics step) — the intermittent "can't grip / slides
+	// around ignoring physics" glitch. Skip the restore while on a slope cell;
+	// the slope is one continuous tilted collider with no internal seam to pop on.
+	if ( isSeamBounce && ! onSlope && savedVel ) {
+		// Restore the full velocity from before the physics step.
+		// Undoes BOTH the upward bounce AND the forward speed loss.
+		rigidBody.setLinearVelocity( world, veh.rigidBody, savedVel );
+	}
+
+	seamSuppress[ 'vy' + key ] = vy;
+	const bucket = seamSuppress[ 'vel' + key ];
+	if ( bucket ) { bucket[ 0 ] = vel[ 0 ]; bucket[ 1 ] = vel[ 1 ]; bucket[ 2 ] = vel[ 2 ]; }
+	// Still report a "bounce" for crash-detection purposes only when we actually
+	// suppressed one (restored velocity). On a slope we did not, so return false.
+	return isSeamBounce && ! onSlope;
+}
 const PAD_EFFECTS = {
 	'pad-low-gravity': { id: 'low-gravity', gravity: 0.45 },
 	'pad-air-control': { id: 'air-control', gravity: 0.6, airControl: true },
@@ -13923,28 +13964,37 @@ function completeCampaignStage() {
 		let speed1Before = 0, speed2Before = 0;
 		if ( vehicle?.rigidBody?.motionProperties ) {
 			const v = vehicle.rigidBody.motionProperties.linearVelocity;
+			seamSuppress.vy1 = v[ 1 ];
+			_seamVel1[ 0 ] = v[ 0 ]; _seamVel1[ 1 ] = v[ 1 ]; _seamVel1[ 2 ] = v[ 2 ];
 			speed1Before = Math.sqrt( v[ 0 ] * v[ 0 ] + v[ 2 ] * v[ 2 ] );
 		}
 		if ( vehicle2?.rigidBody?.motionProperties ) {
 			const v2 = vehicle2.rigidBody.motionProperties.linearVelocity;
+			seamSuppress.vy2 = v2[ 1 ];
+			_seamVel2[ 0 ] = v2[ 0 ]; _seamVel2[ 1 ] = v2[ 1 ]; _seamVel2[ 2 ] = v2[ 2 ];
 			speed2Before = Math.sqrt( v2[ 0 ] * v2[ 0 ] + v2[ 2 ] * v2[ 2 ] );
 		}
 
 		updateWorld( world, contactListener, dt );
 		if ( garageDriveActive ) updateWorld( garageWorld, contactListener, dt );
 
-		// Geometry-aware edge contacts now reach the solver with the correct
-		// surface normal. Preserve actual slope/jump/crash velocities.
+		// Suppress seam bounces and detect real crashes based on speed loss.
+		// Skip seam suppression while the car is on a slope cell: uphill driving
+		// legitimately produces upward velocity that would otherwise trip the
+		// seam-bounce detector and freeze the car (the grip-loss glitch).
+		const onSlope1 = isVehicleOnSlopeCell( vehicle );
+		const seam1 = garageDriveActive ? false : suppressSeamBounce( world, vehicle, '1', onSlope1 );
+		const seam2 = vehicle2 ? suppressSeamBounce( world, vehicle2, '2', isVehicleOnSlopeCell( vehicle2 ) ) : false;
 
 		if ( ! garageDriveActive && vehicle?.rigidBody?.motionProperties ) {
 			const v = vehicle.rigidBody.motionProperties.linearVelocity;
 			const speed1After = Math.sqrt( v[ 0 ] * v[ 0 ] + v[ 2 ] * v[ 2 ] );
-			detectCrashFromSpeedLoss( vehicle, speed1Before, speed1After, false );
+			detectCrashFromSpeedLoss( vehicle, speed1Before, speed1After, seam1 );
 		}
 		if ( vehicle2?.rigidBody?.motionProperties ) {
 			const v2 = vehicle2.rigidBody.motionProperties.linearVelocity;
 			const speed2After = Math.sqrt( v2[ 0 ] * v2[ 0 ] + v2[ 2 ] * v2[ 2 ] );
-			detectCrashFromSpeedLoss( vehicle2, speed2Before, speed2After, false );
+			detectCrashFromSpeedLoss( vehicle2, speed2Before, speed2After, seam2 );
 		}
 
 			const wasDrifting = vehicle.driftIntensity > 0.25;
