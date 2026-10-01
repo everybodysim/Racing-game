@@ -123,10 +123,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const elevatedWallY = groundY + ELEVATED_HEIGHT + ELEVATED_WALL_HALF_H;
 	const elevatedSurfaceY = groundY + ELEVATED_HEIGHT - FLAT_ELEVATED_SURFACE_DROP;
 	const slopeDeckTopY = elevatedSurfaceY + ELEVATED_SURFACE_HALF_H;
-	// The ground DRIVING PLANE: the top of the thick road collider
-	// (groundY + 0.01, see createGroundSurfaceCollider in js/main.js), not
-	// raw groundY. Every slope variant pins its ground-side edge exactly HERE.
-	const SLOPE_GROUND_TOP = groundY + 0.01;
+	// Flat decks now end at their exact cell boundaries. Their ramp must
+	// meet that same boundary, not the old merged deck's phantom overhang.
+	// Deck-less peaks retain a small overlap so neighbouring ramps stay sealed.
+	const SLOPE_SEAM_OVERLAP = 0.02;
 	// The two pitched side rails were centred on the slope box and sat too low;
 	// raise them by half their own height so they read as a proper kerb.
 	const SLOPE_SIDE_WALL_RAISE = ELEVATED_WALL_HALF_H;
@@ -163,29 +163,32 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const CHOKE_CROSS_HALF_THICK = 0.35;
 	const FLAT_ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'elevated-thin-straight', 'elevated-thin-corner', 'elevated-thin-3-way', 'elevated-thin-4-way', 'elevated-wide-thin', 'elevated-wide-thin-corner', 'pool-cross' ] );
 
-	// PERFECT SLOPE SEAMS (recalculated 2026-10-01). The driving face's LOW
-	// edge pins exactly ON the downhill cell boundary at the GROUND DRIVING
-	// PLANE (the old groundY pinning sat 1 cm below the road top and left a
-	// lip at every ramp foot), and its HIGH edge pins exactly ON the uphill
-	// cell boundary at the deck top — for deck neighbours AND deck-less
-	// peaks alike (the old +0.02 peak overlap raised a ~1 cm ridge where two
-	// facing ramps met). Both seams are exact zero-step line touches;
-	// shared-edge contacts are repaired in StaticSeams.js.
-	function getSlopeGeometry( gx, gz, orient ) {
+	// Pin the driving face's low edge to the ground and its high edge
+	// to the ACTUAL flat-deck boundary. The former 3% deck-overhang math
+	// left a 0.112m gap after decks changed back to one exact box per cell.
+	function getSlopeGeometry( gx, gz, orient, elevatedMap ) {
+
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+		// The slope pitches up toward local -z; find the uphill neighbour cell.
+		const upX = - Math.sin( yaw );
+		const upZ = - Math.cos( yaw );
+		const neighbour = elevatedMap?.get( `${ gx + Math.round( upX ) },${ gz + Math.round( upZ ) }` );
+		const upIsFlatDeck = !! neighbour && FLAT_ELEVATED_TYPES.has( neighbour.type );
 
 		const spanLow = CELL_HALF * S;
-		const spanHigh = CELL_HALF * S;
-		const rise = slopeDeckTopY - SLOPE_GROUND_TOP;
+		const spanHigh = upIsFlatDeck ? CELL_HALF * S : CELL_HALF * S + SLOPE_SEAM_OVERLAP;
+		const rise = slopeDeckTopY - groundY;
 		const angle = Math.atan2( rise, spanLow + spanHigh );
 		const halfLen = Math.hypot( ( spanLow + spanHigh ) * 0.5, rise * 0.5 );
 		// Top-face centre sits half the face-centre offset below the box centre...
-		const centerY = ( SLOPE_GROUND_TOP + slopeDeckTopY ) * 0.5 - ELEVATED_SURFACE_HALF_H * Math.cos( angle );
-		// ...and horizontally at the midpoint of the two pinned edges. The
-		// tilted half-thickness displaces the top-face edges hy*sin(angle)
-		// downhill of the centre's own extent — subtract it or the pinned
-		// edges land ~0.04 downhill of the boundaries.
+		const centerY = ( groundY + slopeDeckTopY ) * 0.5 - ELEVATED_SURFACE_HALF_H * Math.cos( angle );
+		// ...and horizontally at the midpoint of the two pinned edges. The box
+		// centre's z-extent maps to (spanLow + spanHigh)/2, BUT the tilted
+		// half-thickness displaces the top-face edges hy*sin(angle) downhill of
+		// the centre's own extent — subtract it or the pinned edges land
+		// ~0.04 downhill of the deck box edge / ground boundary.
 		const shift = ( spanLow - spanHigh ) * 0.5 - ELEVATED_SURFACE_HALF_H * Math.sin( angle );
-		return { angle, halfLen, centerY, shift };
+		return { angle, halfLen, centerY, shift, upIsFlatDeck };
 
 	}
 
@@ -749,12 +752,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 	}
 
-	function addSlopeCollider( gx, gz, orient = 0, up = true ) {
+	function addSlopeCollider( gx, gz, orient = 0, up = true, elevatedMap = null ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
 		const cz = ( gz + 0.5 ) * CELL_RAW * S;
 		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
-		const geom = getSlopeGeometry( gx, gz, orient );
+		const geom = getSlopeGeometry( gx, gz, orient, elevatedMap );
 		const shiftX = Math.sin( yaw ) * geom.shift;
 		const shiftZ = Math.cos( yaw ) * geom.shift;
 		const quat = new THREE.Quaternion().setFromEuler( new THREE.Euler( up ? geom.angle : - geom.angle, yaw, 0, 'YXZ' ) );
@@ -837,12 +840,11 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	// end is local +z (the ground-road side, via the 180°-flipped yaw).
 	//   - high edge pinned at the GROUND DRIVING PLANE (groundY + 0.01 — the top
 	//     of the thick ground surface box, see createGroundSurfaceCollider in
-	//     js/main.js) exactly ON the cell boundary (no overlap — the old
-	//     +0.02 overlap pinned the edge 2 cm inside the ground cell and left
-	//     a ~7 mm step on every pool entry/exit) → coplanar, sealed, zero lip
+	//     js/main.js) exactly at the cell boundary + a small overlap into the
+	//     ground box → coplanar, sealed, zero lip
 	//   - low edge pinned at the POOL FLOOR TOP (floor box top = groundY −
-	//     0.34·cell + 0.04·S) exactly ON the inner boundary (no overlap —
-	//     the old +0.02 overlap left a step at the seam) → coplanar, sealed
+	//     0.34·cell + 0.04·S) exactly at the inner boundary + a small overlap
+	//     into the floor box → coplanar, sealed
 	// The old geometry centered a fixed-length box on the cell: its high edge
 	// floated ~0.10 ABOVE the ground plane (a lip that popped the sphere both
 	// entering and leaving the pool) and its low edge floated ~0.03 above the
@@ -851,8 +853,8 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	// pinned edges land exactly on the boundaries.
 	const POOL_FLOOR_DROP = CELL_RAW * S * 0.34;
 	const poolFloorBoxTop = groundY - POOL_FLOOR_DROP + 0.04 * S;
-	const poolGroundTop = SLOPE_GROUND_TOP;
-	const poolSlopeSpan = CELL_HALF * S;
+	const poolGroundTop = groundY + 0.01;
+	const poolSlopeSpan = CELL_HALF * S + SLOPE_SEAM_OVERLAP;
 	const poolSlopeRise = poolGroundTop - poolFloorBoxTop;
 	const poolSlopeAngle = Math.atan2( poolSlopeRise, poolSlopeSpan * 2 );
 	const poolSlopeHalfLen = Math.hypot( poolSlopeSpan, poolSlopeRise * 0.5 );
@@ -865,11 +867,9 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	// depth (5 units = elevated height, user order), not the shallow pool.
 	const TUNNEL_FLOOR_DROP = CELL_RAW * S * 0.5;
 	const tunnelFloorBoxTop = groundY - TUNNEL_FLOOR_DROP + 0.04 * S;
-	// Same exact-boundary pinning as the pool slope, at the full tunnel depth.
-	const tunnelSlopeSpan = CELL_HALF * S;
 	const tunnelSlopeRise = poolGroundTop - tunnelFloorBoxTop;
-	const tunnelSlopeAngle = Math.atan2( tunnelSlopeRise, tunnelSlopeSpan * 2 );
-	const tunnelSlopeHalfLen = Math.hypot( tunnelSlopeSpan, tunnelSlopeRise * 0.5 );
+	const tunnelSlopeAngle = Math.atan2( tunnelSlopeRise, poolSlopeSpan * 2 );
+	const tunnelSlopeHalfLen = Math.hypot( poolSlopeSpan, tunnelSlopeRise * 0.5 );
 	// Keep the tunnel slope's collider placement mechanically identical to the
 	// pool slope: same center formula and the same thickness compensation shift.
 	const tunnelSlopeCenterY = ( poolGroundTop + tunnelFloorBoxTop ) * 0.5
@@ -1367,7 +1367,7 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 		if ( normalizedType !== 'slope-up' && normalizedType !== 'elevated-corner' && normalizedType !== 'elevated-cross' && normalizedType !== 'elevated-cross-corner' && normalizedType !== 'pool-cross' ) addElevatedSupportCollider( nx, nz );
 		if ( normalizedType === 'slope-up' ) {
 
-			addSlopeCollider( nx, nz, normalizedOrient, true );
+			addSlopeCollider( nx, nz, normalizedOrient, true, elevatedMap );
 			continue;
 
 		}
