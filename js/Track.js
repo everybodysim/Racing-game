@@ -931,25 +931,19 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	// shading; trees keep normal shadows (separate meshes, tree UV bands).
 	if ( type === 'elevated-choke-half' || type === 'elevated-choke-both' || type === 'elevated-choke-cross' || THIN_MODEL_KEYS.has( modelKey ) ) {
 
-		const isThin = THIN_MODEL_KEYS.has( modelKey );
 		piece.traverse( ( child ) => {
 
 			if ( ! child.isMesh || child.userData.isChokeTreeMesh ) return;
-			// tree meshes (foliage u ~0.094-0.108, trunk u ~0.844) keep shadows
-			if ( child.geometry && child.geometry.attributes.uv ) {
-
-				const uv = child.geometry.attributes.uv;
-				for ( let i = 0; i < uv.count; i ++ ) {
-
-					const u = uv.getX( i );
-					if ( ( u >= 0.09 && u <= 0.11 ) || ( u >= 0.84 && u <= 0.856 ) ) return;
-
-				}
-
-			}
+			// Trust splitChokeTrees' tree split (isChokeTreeMesh) exactly like
+			// the ground branch in placePiece. The old per-vertex UV re-check
+			// here skipped REAL shell meshes whose atlas sampling happened to
+			// graze the tree bands, so elevated variants of these blocks kept
+			// their shadows while the ground variants matched the
+			// user-ordered no-shadow look (user report 2026-10-01).
 			child.userData.isChokeMesh = true;
 			// shells: shadows OFF (user order 2026-09-27 — in-game shadows on
 			// these AI blocks still looked bad; back to the no-shadow look)
+			child.userData.noCastShadow = true;
 			child.castShadow = false;
 
 		} );
@@ -1235,7 +1229,11 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			// floor; v2 entries keep surface pieces at the surface (the pit
 			// block comes from the tunnel info instead).
 			const tunnelCellKey = `${ Number( gx ) },${ Number( gz ) }`;
-			if ( tunnelInfoMap.has( tunnelCellKey ) && tunnelInfoMap.get( tunnelCellKey ).type === undefined ) piece.position.y += 0.08 - TUNNEL_DROP;
+			if ( tunnelInfoMap.has( tunnelCellKey ) && tunnelInfoMap.get( tunnelCellKey ).type === undefined ) {
+				piece.position.y += 0.08 - TUNNEL_DROP;
+				// Tunnel-sunk shells: no shadows at all (user order 2026-10-01).
+				piece.traverse( ( c ) => { if ( c.isMesh && c.userData.isChokeMesh && ! c.userData.isChokeTreeMesh ) c.userData.noCastShadow = true; } );
+			}
 			trackPieceGroup.add( piece );
 
 		}
@@ -1498,7 +1496,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 				const block = placePiece( models, info.type, gx, gz, info.orient );
 				if ( block ) {
-
+					// Tunnel-sunk shells: no shadows at all (user order 2026-10-01).
+					block.traverse( ( c ) => { if ( c.isMesh && c.userData.isChokeMesh && ! c.userData.isChokeTreeMesh ) c.userData.noCastShadow = true; } );
 					block.position.y -= TUNNEL_DROP;
 					if ( info.type === 'track-4-way' ) block.position.y += 0.12;
 					if ( info.type === 'track-choke-cross' ) block.position.y += 0.16;
@@ -2081,9 +2080,9 @@ _dummy.position.set( positions[ i * 2 ], 0.5, positions[ i * 2 + 1 ] );
 
 		if ( child.isMesh ) {
 
-			child.castShadow = true;
+			child.castShadow = ! child.userData.noCastShadow;
 			// Choke shells don't sample the shadow map (self-shadow acne) —
-			// they still CAST, so their ground shadow stays.
+			// ground variants still CAST; elevated + tunnel no-shadow variants cast nothing (user order 2026-10-01).
 			// shells stay OFF the shadow map (user order 2026-09-27)
 			child.receiveShadow = ! child.userData.isChokeMesh;
 

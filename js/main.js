@@ -4,10 +4,10 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, MotionQuality, castRay, createClosestCastRayCollector, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
-import { Camera } from './Camera.js?v=11';
+import { Camera } from './Camera.js?v=12';
 import { createCameraClipProbe } from './CameraCollision.js?v=1';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000283';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000284';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260955';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -6084,16 +6084,22 @@ async function init() {
 		if ( replayViewerMode && ! freecamState.active ) {
 			cam.targetPosition.copy( ghostModel.position );
 			// Recorded ghost y is the car-model base (container.y ≈ -0.1, below
-			// the road surface — correct for the visual model). Casting the
-			// hitbox clip probe from that origin lands INSIDE the static ground
-			// collider, so every cast "hits" and the camera gets pinned ~2.5
-			// units behind the car at bumper height for the whole replay.
-			// Replays are cinematic: keep the normal chase framing (pre-clip-fix
-			// behavior) and skip the probe for this update only.
-			const savedClipProbe = cam.clipProbe;
+			// the road surface — correct for the visual model). Casting ANY
+			// camera probe from that origin lands INSIDE the static ground
+			// collider, so every cast "hits": the clip probe pinned the camera
+			// ~2.5 units behind the car, and the CEILING probe's clamp drove it
+			// to ground level for whole replay stretches ("camera randomly goes
+			// to the ground"). Replays are cinematic: keep the normal chase
+			// framing (pre-probe behavior) by skipping ALL probes for this
+			// update only.
+			const savedClipProbe = cam.clipProbe, savedCeilingProbe = cam.ceilingProbe, savedFloorProbe = cam.floorProbe;
 			cam.clipProbe = null;
+			cam.ceilingProbe = null;
+			cam.floorProbe = null;
 			cam.update( 1 / 60, ghostModel.position, ghostModel.quaternion );
 			cam.clipProbe = savedClipProbe;
+			cam.ceilingProbe = savedCeilingProbe;
+			cam.floorProbe = savedFloorProbe;
 		}
 
 	}

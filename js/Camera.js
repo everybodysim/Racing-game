@@ -54,6 +54,9 @@ export class Camera {
 		// Straight-down probe (chase cam): ( origin, downLength ) => freeDown.
 		// Reports clearance to the first surface under the car.
 		this.floorProbe = null;
+		// Smoothed ceiling-clamp height (see _applyCeilingClamp): null while
+		// the framing sits at its natural offset height.
+		this._ceilEase = null;
 		this.carInWater = false;
 		this._ceilingClamped = false;
 		this._submergedFraming = false;
@@ -92,16 +95,31 @@ export class Camera {
 	// the water surface — riding above the water/deck line puts the
 	// block's top between the camera and the car and the view is covered.
 	// Downward only: never raises the camera above its desired offset.
-	_applyCeilingClamp( camScale ) {
+	_applyCeilingClamp( camScale, dt ) {
 
 		this._ceilingClamped = false;
 		if ( ! this.ceilingProbe || this._rotatedOffset.y <= 0 ) return;
 		const wantUp = this._rotatedOffset.y + 0.45;
 		const upFree = this.ceilingProbe( this.targetPosition, wantUp );
-		if ( upFree >= wantUp ) return;
+		if ( upFree >= wantUp ) {
+
+			// No ceiling overhead: ease the framing height back UP to its
+			// natural offset instead of springing a whole-units step the frame
+			// the car leaves the roof - entering/leaving low roofs read as a
+			// camera teleport (user report 2026-10-01).
+			if ( this._ceilEase != null ) {
+
+				const eased = this._ceilEase + ( this._rotatedOffset.y - this._ceilEase ) * Math.min( 1, ( dt || 1 / 60 ) * 7 );
+				this._ceilEase = eased >= this._rotatedOffset.y - 1e-4 ? null : eased;
+				this._rotatedOffset.y = this._ceilEase ?? this._rotatedOffset.y;
+
+			}
+			return;
+
+		}
 		// The ceiling is authoritative: the camera must sit BELOW it, even
 		// when that puts it below the car (a bumper-height shot looking up
-		// through the gap beats a camera parked inside the deck). Under
+		// through the gap beats a camera parked inside a deck). Under
 		// water the floor stays permissive so it never pushes the camera
 		// back up through the slab; on dry land keep bumper height.
 		let clampedY = upFree - 0.45;
@@ -109,9 +127,16 @@ export class Camera {
 		clampedY = Math.max( clampedY, minY );
 		if ( clampedY < this._rotatedOffset.y ) {
 
-			this._rotatedOffset.y = clampedY;
+			// Ease INTO the clamp (fast, hard-floored at clampedY) so the framing
+			// descends over ~0.1s instead of teleporting the frame the car
+			// crosses under a roof edge. The floor keeps the deck-sandwich
+			// guarantee: the eased height never sits above the true clamp.
+			const from = this._ceilEase ?? this._rotatedOffset.y;
+			const eased = from + ( clampedY - from ) * Math.min( 1, ( dt || 1 / 60 ) * 24 );
+			this._ceilEase = Math.max( clampedY, eased );
+			this._rotatedOffset.y = this._ceilEase;
 			this._ceilingClamped = true;
-			if ( this.targetPosition.y + clampedY < this.waterSurfaceY ) this._submergedFraming = true;
+			if ( this.targetPosition.y + this._rotatedOffset.y < this.waterSurfaceY ) this._submergedFraming = true;
 
 		}
 
@@ -180,7 +205,7 @@ export class Camera {
 			this.targetPosition.copy( target );
 			this._rotatedOffset.copy( this.chaseOffset ).lerp( this.underwaterChaseOffset, underwaterLift ).applyAxisAngle( this._upAxis, yaw );
 			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
-			this._applyCeilingClamp( camScale );
+			this._applyCeilingClamp( camScale, dt );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			this.constrainPosition( this._desiredPos );
 			this.camera.position.copy( this._desiredPos );
@@ -220,7 +245,7 @@ export class Camera {
 			if ( this.userHeight != null ) this._rotatedOffset.y = this.userHeight;
 			if ( this.userPitch ) this._rotatedOffset.applyAxisAngle( new THREE.Vector3( 1, 0, 0 ), this.userPitch );
 			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
-			this._applyCeilingClamp( camScale );
+			this._applyCeilingClamp( camScale, dt );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 
 			// Pull the desired framing forward before smoothing; the final
@@ -245,7 +270,7 @@ export class Camera {
 
 			this._rotatedOffset.copy( this.offset ).lerp( this.underwaterOverviewOffset, underwaterLift );
 			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
-			this._applyCeilingClamp( camScale );
+			this._applyCeilingClamp( camScale, dt );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			this.constrainPosition( this._desiredPos );
 			this.camera.position.lerp( this._desiredPos, Math.min( 1, dt * 8 ) );
