@@ -4,8 +4,8 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, MotionQuality, castRay, createClosestCastRayCollector, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
-import { Camera } from './Camera.js?v=12';
-import { createCameraClipProbe } from './CameraCollision.js?v=1';
+import { Camera } from './Camera.js?v=13';
+import { createCameraClipProbe, createCameraSphereOverlapProbe } from './CameraCollision.js?v=2';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000284';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260955';
@@ -6446,8 +6446,11 @@ async function init() {
 	camRayFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
 	const camRayOrigin = [ 0, 0, 0 ];
 	const camClipProbe = createCameraClipProbe( () => world );
+	const camOverlapProbe = createCameraSphereOverlapProbe( () => world );
+	cam.overlapProbe = camOverlapProbe;
 	cam.clipProbe = camClipProbe;
 	if ( cam2 ) cam2.clipProbe = camClipProbe;
+	if ( cam2 ) cam2.overlapProbe = camOverlapProbe;
 	// Straight-up companion probe for the chase cam: when a static ceiling
 	// hangs right above the car (pool cross deck, low bridges), the camera
 	// clamps its height under it instead of rising past the block and

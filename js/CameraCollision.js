@@ -38,3 +38,41 @@ export function createCameraClipProbe( getWorld ) {
 	};
 
 }
+
+
+// Zero-length sweep: reports whether a camera-sized sphere at a candidate
+// position already overlaps static geometry. The eased pull-in uses it to
+// decide whether the camera may lag briefly BEYOND the hard clip constraint
+// (smooth slide-in, wall briefly covering the car) or must snap (the lag
+// spot is inside a collider - never allowed, user report 2026-10-01).
+export function createCameraSphereOverlapProbe( getWorld ) {
+
+	const collector = createClosestCastShapeCollector();
+	const settings = createDefaultCastShapeSettings();
+	settings.collideWithBackfaces = true;
+	const shape = sphere.create( { radius: 0.22 } );
+	const position = [ 0, 0, 0 ];
+	const displacement = [ 0, 0.0001, 0 ];
+	const rotation = [ 0, 0, 0, 1 ];
+	const scale = [ 1, 1, 1 ];
+	let lastWorld = null, queryFilter = null;
+	return ( point ) => {
+
+		const world = getWorld();
+		if ( ! world ) return true;
+		if ( world !== lastWorld ) {
+
+			lastWorld = world;
+			queryFilter = filter.forWorld( world );
+			queryFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
+
+		}
+		position[ 0 ] = point.x; position[ 1 ] = point.y; position[ 2 ] = point.z;
+		collector.reset();
+		castShape( world, collector, settings, shape, position, rotation, scale, displacement, queryFilter );
+		// COLLIDING at fraction ~0 = the sphere already intersects geometry.
+		return ! ( collector.hit.status === CastShapeStatus.COLLIDING && collector.hit.fraction < 0.5 );
+
+	};
+
+}

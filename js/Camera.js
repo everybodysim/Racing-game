@@ -45,6 +45,10 @@ export class Camera {
 		// Sweeps the camera volume through static physics geometry in every
 		// driving camera mode. null = off (intentional free/replay cameras).
 		this.clipProbe = null;
+		// Sphere-overlap verifier for the eased clip pull-in (see constrainPosition).
+		this.overlapProbe = null;
+		// Current eased allowed distance along the clip ray; null when unconstrained.
+		this._clipAllow = null;
 		// Ceiling probe (chase cam): ( origin, upLength ) => freeUpLength.
 		// Supplied by main.js — a straight-up physics raycast. When a static
 		// ceiling hangs right above the car (pool cross deck, low bridges),
@@ -61,6 +65,7 @@ export class Camera {
 		this._ceilingClamped = false;
 		this._submergedFraming = false;
 		this._clipDir = new THREE.Vector3();
+		this._clipProbeTmp = new THREE.Vector3();
 		this._clipAnchor = new THREE.Vector3();
 
 		this.camera.position.copy( this.offset );
@@ -145,7 +150,7 @@ export class Camera {
 	// Run AFTER smoothing (and again after screen shake at render time).
 	// Use the real car, not the lagging aim point: at corners that point
 	// can be on the other side of the wall even when the car is inside.
-	constrainPosition( position = this.camera.position ) {
+	constrainPosition( position = this.camera.position, dt = 0 ) {
 
 		if ( ! this.clipProbe ) return;
 		this._clipDir.subVectors( position, this._clipAnchor );
@@ -153,13 +158,58 @@ export class Camera {
 		if ( length <= 1e-6 ) return;
 		this._clipDir.divideScalar( length );
 		const free = this.clipProbe( this._clipAnchor, this._clipDir, length );
-		if ( free < length ) position.copy( this._clipAnchor ).addScaledVector( this._clipDir, Math.max( 0, free ) );
+		if ( free >= length ) {
+
+			// Clear line of sight: release any eased pull (the chase lerp then
+			// eases the camera back out smoothly).
+			if ( position === this.camera.position ) this._clipAllow = null;
+			return;
+
+		}
+		const clampedFree = Math.max( 0, free );
+		if ( dt <= 0 || ! this.overlapProbe ) {
+
+			// Hard safety pass. Only the LIVE camera position manages the ease
+			// state (the mid-update pass constrains the desired point and must
+			// not reset the pull-in progress every frame). While an eased pull
+			// is in flight the camera rides at the verified eased distance -
+			// only a displacement beyond it (shake, respawn) gets hard-snapped.
+			const isLiveCamera = position === this.camera.position;
+			if ( isLiveCamera && this._clipAllow != null && length <= this._clipAllow + 0.05 ) return;
+			if ( isLiveCamera ) this._clipAllow = null;
+			position.copy( this._clipAnchor ).addScaledVector( this._clipDir, clampedFree );
+			return;
+
+		}
+		// Eased pull-in (runs once per update on the live camera position):
+		// when a wall suddenly covers the camera, slide in over ~0.1-0.2s
+		// instead of teleporting. The camera may lag BEYOND the hard limit only
+		// while the lag spot is verified clear by the sphere-overlap probe - if
+		// it would sit inside geometry, snap instantly (never clip).
+		const CLIP_PULL_RATE = 20; // units/s max closing speed
+		const prev = this._clipAllow ?? length;
+		let allowed = Math.max( clampedFree, prev - CLIP_PULL_RATE * dt );
+		allowed = Math.min( allowed, length );
+		if ( allowed > clampedFree + 1e-4 ) {
+
+			this._clipProbeTmp.copy( this._clipAnchor ).addScaledVector( this._clipDir, allowed );
+			if ( ! this.overlapProbe( this._clipProbeTmp ) ) allowed = clampedFree;
+
+		}
+		this._clipAllow = allowed >= length - 1e-4 ? null : allowed;
+		if ( allowed < length ) position.copy( this._clipAnchor ).addScaledVector( this._clipDir, allowed );
 
 	}
 
 	update( dt, target, targetQuaternion, dynamics = {} ) {
 
 		this._clipAnchor.copy( target );
+		// Raise the sweep origin well above low road-edge hitboxes: they never
+		// block the view (the camera rides 2+ units up) but the sweep sphere
+		// grazed them near the car and triggered phantom pull-ins
+		// ("probe hits the edge of the road but that is not even in the way",
+		// user report 2026-10-01).
+		this._clipAnchor.y += 1.0;
 
 		const speedRatio = THREE.MathUtils.clamp( Number( dynamics.speedRatio ) || 0, 0, 1.8 );
 		const driftAmount = THREE.MathUtils.clamp( Number( dynamics.driftIntensity ) || 0, 0, 1 );
@@ -297,7 +347,7 @@ export class Camera {
 
 		}
 
-		this.constrainPosition();
+		this.constrainPosition( this.camera.position, dt );
 		this.camera.lookAt( this.lookTarget );
 
 	}
