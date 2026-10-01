@@ -8,7 +8,7 @@ import { Camera } from './Camera.js?v=11';
 import { createCameraClipProbe } from './CameraCollision.js?v=1';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000284';
-import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260956';
+import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260957';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
