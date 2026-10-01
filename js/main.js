@@ -4,7 +4,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, MotionQuality, castRay, createClosestCastRayCollector, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
-import { Camera } from './Camera.js?v=14';
+import { Camera } from './Camera.js?v=15';
 import { createCameraClipProbe, createCameraSphereOverlapProbe } from './CameraCollision.js?v=2';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000284';
@@ -15,7 +15,7 @@ import { GameAudio } from './Audio.js';
 import { encodeGhostBinary, decodeGhostBinary, encodeGhostCode, decodeGhostCode } from './GhostCodec.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
-import { HudExtras } from './HudExtras.js';
+import { HudExtras } from './HudExtras.js?v=3';
 import { createRuntime as _createModRuntime } from './mod-runtime.js?v=1000223';
 import Peer from './PeerTransport.js';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
@@ -301,36 +301,6 @@ window.addEventListener( 'resize', () => {
 	applyGraphicsPresetToRenderer();
 
 } );
-
-// TILT-SHIFT DIORAMA: while the car is mini-sized, a blurred + saturated
-// half-res copy of the frame, masked to the TOP of the screen (the
-// miniature-focus band), sells the "tiny car in a huge world"
-// macro-photo look. No bottom band — it covered the car. The compositor does the blur, the
-// copy only draws while a mini effect is actually active, and it fades
-// out otherwise — zero cost in normal gameplay.
-const tiltShiftCanvas = document.createElement( 'canvas' );
-tiltShiftCanvas.id = 'tiltshift-overlay';
-tiltShiftCanvas.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;opacity:0;transition:opacity .45s ease;filter:blur(6px) saturate(1.25);-webkit-mask-image:linear-gradient(to bottom,#000 0%,transparent 34%,transparent 100%);mask-image:linear-gradient(to bottom,#000 0%,transparent 34%,transparent 100%);z-index:3;';
-document.body.appendChild( tiltShiftCanvas );
-const tiltShiftCtx = tiltShiftCanvas.getContext( '2d' );
-function updateTiltShift( carScale ) {
-
-	// Same policy as the HUD blur rules: no compositor blur passes on the
-	// LOW preset (weak integrated GPUs).
-	const want = carScale < 0.9 && ! document.body.classList.contains( 'gfx-low' );
-	tiltShiftCanvas.style.opacity = want ? '1' : '0';
-	if ( ! want ) return;
-	const src = renderer.domElement;
-	const w = Math.max( 2, src.width >> 1 ), h = Math.max( 2, src.height >> 1 );
-	if ( tiltShiftCanvas.width !== w || tiltShiftCanvas.height !== h ) {
-
-		tiltShiftCanvas.width = w;
-		tiltShiftCanvas.height = h;
-
-	}
-	tiltShiftCtx.drawImage( src, 0, 0, w, h );
-
-}
 
 // ?perf=1: tiny on-screen diagnostics (fps / sim vs render ms / draw calls)
 // so performance reports from real machines come with numbers, not vibes.
@@ -6433,7 +6403,7 @@ async function init() {
 
 	// ── HUD Extras: speedometer, minimap, shortcuts overlay ──
 	hudExtras = new HudExtras( {
-		vehicle, cells: customCells || TRACK_CELLS, camera: cam.camera
+		vehicle, cells: customCells || TRACK_CELLS, camera: cam.camera, extras
 	} );
 	const cam2 = isSplitScreen ? new Camera() : null;
 
@@ -10914,9 +10884,19 @@ function completeCampaignStage() {
 
 	}
 
-	function combinePadEffects( current, incoming ) {
+	function combinePadEffects( current, incoming, padType ) {
 
-		if ( ! current ) return incoming ? { ...incoming } : null;
+		// STACK CAP: one pad type can only be applied 3 times at once
+		// (a 4th run over the same boost/gravity/... pad must not keep
+		// compounding the effect, user order 2026-10-01). Counts live on
+		// the combined effect and reset with it (pad-reset / new session).
+		const PAD_STACK_CAP = 3;
+		const stacks = { ...( current?.__padStacks || {} ) };
+		const count = ( stacks[ padType ] || 0 ) + 1;
+		if ( count > PAD_STACK_CAP ) return current ? { ...current } : null;
+		stacks[ padType ] = count;
+
+		if ( ! current ) { const fresh = incoming ? { ...incoming } : null; if ( fresh ) fresh.__padStacks = stacks; return fresh; }
 		if ( ! incoming ) return { ...current };
 		const combined = { ...current, ...incoming };
 		const multiplicativeKeys = [ 'gravity', 'grip', 'drag', 'accel', 'drive', 'topSpeed', 'steering', 'timeScale', 'scale' ];
@@ -10933,6 +10913,7 @@ function completeCampaignStage() {
 		combined.disableSteering = Boolean( current.disableSteering || incoming.disableSteering );
 		combined.disableAcceleration = Boolean( current.disableAcceleration || incoming.disableAcceleration );
 		if ( incoming.trick ) combined.trick = incoming.trick;
+		combined.__padStacks = stacks;
 		return combined;
 
 	}
@@ -10963,8 +10944,17 @@ function completeCampaignStage() {
 		}
 		const effect = getPadEffectForType( contact.type );
 		const previous = getCurrentEffect ? ( getCurrentEffect() || null ) : null;
+		const stacks = previous?.__padStacks || {};
+		if ( ! SIZE_PAD_TYPES.has( contact.type ) && ( stacks[ contact.type ] || 0 ) >= 3 ) {
+
+			// This pad type is already stacked 3x — applying more must not
+			// compound further.
+			showEffectPopup( `Effect at max: ${ getPadLabel( contact.type ) } (3x)` );
+			return contact.key;
+
+		}
 		if ( SIZE_PAD_TYPES.has( contact.type ) ) setEffect( applySizePadEffect( previous, effect ) );
-		else setEffect( combinePadEffects( previous, effect ) );
+		else setEffect( combinePadEffects( previous, effect, contact.type ) );
 		showEffectPopup( `Effect applied: ${ getPadLabel( contact.type ) }` );
 		return contact.key;
 
@@ -14382,7 +14372,6 @@ function completeCampaignStage() {
 		skyGroup.position.copy( cam.camera.position );
 		// Same rAF task as the render — the WebGL canvas can only be
 		// drawImage'd before the compositor presents the frame.
-		updateTiltShift( vehicle.container ? vehicle.container.scale.x : 1 );
 		if ( skyDecorState.starPoints ) {
 			skyDecorState.starPoints.material.opacity = 0.75 + Math.sin( now * 1.3 ) * 0.12 + Math.sin( now * 2.7 + 1.3 ) * 0.08;
 		}

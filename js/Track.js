@@ -1480,10 +1480,14 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			for ( const side of sides ) {
 				if ( tunnelSet.has( `${ gx + side.dx },${ gz + side.dz }` ) ) continue;
 				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
-				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, TUNNEL_WALL_H, CELL_RAW * 0.08 ), tunnelWallMat );
+				// 0.96 width + slight inward inset: pool walls are the SAME slab
+				// on the same boundary plane, so a tunnel pit next to a pool pit
+				// had two coplanar faces z-fighting. Narrower + inset, the two
+				// slabs interpenetrate slightly but no face is ever coplanar.
+				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW * 0.96, TUNNEL_WALL_H, CELL_RAW * 0.08 ), tunnelWallMat );
 				// Rim sits 2cm BELOW the surrounding ground — no dirt visible
 				// from above (colliders stay flush; this is the visual only).
-				wall.position.set( side.x, 0.48 - TUNNEL_WALL_H * 0.5, side.z );
+				wall.position.set( side.x - side.dx * CELL_RAW * 0.02, 0.48 - TUNNEL_WALL_H * 0.5, side.z - side.dz * CELL_RAW * 0.02 );
 				wall.rotation.y = side.ry;
 				wall.castShadow = true;
 				wall.receiveShadow = true;

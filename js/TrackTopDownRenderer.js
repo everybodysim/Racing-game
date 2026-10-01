@@ -18,7 +18,7 @@
 // This file is standalone: it does not touch js/main.js or js/Track.js.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { buildTrack, computeTrackBounds, prerenderWaterRefraction } from './Track.js?v=1000246';
+import { buildTrack, computeTrackBounds, prerenderWaterRefraction, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000285';
 
 // Only the STATIC (non-vehicle) models a track can ever place. Deliberately
 // excludes every vehicle-*.glb (no cars are drawn in a top-down preview) and
@@ -38,12 +38,10 @@ const STATIC_MODEL_NAMES = [
 
 let modelsPromise = null;
 
-function loadStaticModels() {
-
-	if ( modelsPromise ) return modelsPromise;
+function loadStaticModels( extraNames = [] ) {
 
 	const loader = new GLTFLoader();
-	modelsPromise = Promise.all( STATIC_MODEL_NAMES.map( ( name ) => new Promise( ( resolve ) => {
+	const loadOne = ( name ) => new Promise( ( resolve ) => {
 
 		loader.load(
 			`models/${ name }.glb`,
@@ -63,15 +61,34 @@ function loadStaticModels() {
 			() => resolve( [ name, null ] ), // missing/broken model: skip it, don't fail the whole preview
 		);
 
-	} ) ) ).then( ( pairs ) => {
+	} );
+	// Per-name promise cache: the static set loads once; extras (e.g. tunnel
+	// pit block GLBs that only appear on tunnel tracks) merge into the same
+	// models map on first use.
+	if ( ! modelsPromise ) {
 
-		const models = {};
-		for ( const [ name, scene ] of pairs ) if ( scene ) models[ name ] = scene;
+		modelsPromise = Promise.all( STATIC_MODEL_NAMES.map( loadOne ) ).then( ( pairs ) => {
+
+			const models = {};
+			for ( const [ name, scene ] of pairs ) if ( scene ) models[ name ] = scene;
+			return models;
+
+		} );
+
+	}
+	const extras = [ ...new Set( extraNames ) ].filter( ( n ) => n && ! STATIC_MODEL_NAMES.includes( n ) );
+	return modelsPromise.then( async ( models ) => {
+
+		for ( const name of extras ) {
+
+			if ( models[ name ] ) continue;
+			const [ , scene ] = await loadOne( name );
+			if ( scene ) models[ name ] = scene;
+
+		}
 		return models;
 
 	} );
-
-	return modelsPromise;
 
 }
 
@@ -103,6 +120,22 @@ function extrasFromMods( parsed ) {
 		water: Array.isArray( parsed.q ) ? parsed.q : [],
 		poolSlopes: Array.isArray( parsed.z ) ? parsed.z : [],
 		customPool: parsed?.r && typeof parsed.r === 'object' ? parsed.r : {},
+		// OPEN-TOP TUNNELS: g = tunnel cells. Legacy h data is migrated
+		// into canonical tunnel entries as type "slope-up" (same mapping
+		// as main.js extrasFromParsed).
+		tunnels: (() => {
+			const out = Array.isArray( parsed.g ) ? parsed.g.map( ( entry ) => Array.isArray( entry ) ? [ ...entry ] : entry ).filter( Array.isArray ) : [];
+			for ( const [ gx, gz, orient = 0 ] of ( Array.isArray( parsed.h ) ? parsed.h : [] ) ) {
+				const key = String( Number( gx ) ) + ',' + String( Number( gz ) );
+				const existing = out.find( ( entry ) => String( Number( entry?.[ 0 ] ) ) + ',' + String( Number( entry?.[ 1 ] ) ) === key );
+				if ( existing ) {
+					existing[ 2 ] = 0;
+					existing[ 3 ] = Number( orient ) || 0;
+					existing[ 4 ] = 'slope-up';
+				} else out.push( [ Number( gx ), Number( gz ), 0, Number( orient ) || 0, 'slope-up' ] );
+			}
+			return out;
+		} )(),
 	};
 
 }
@@ -152,7 +185,20 @@ async function renderNow( cells, mods, width, height, quality = 0.87 ) {
 	const safeCells = Array.isArray( cells ) ? cells : [];
 	if ( ! safeCells.length ) return null;
 
-	const models = await loadStaticModels();
+	const parsedMods = ( mods && typeof mods === 'object' ) ? mods : {};
+	// Tunnel pit blocks: same required-GLB mapping main.js uses when eagerly
+	// loading tunnel models - without it the pit renders EMPTY (placePiece
+	// silently returns null for missing models).
+	const tunnelExtras = [];
+	for ( const entry of ( Array.isArray( parsedMods.g ) ? parsedMods.g : [] ) ) {
+
+		if ( ! Array.isArray( entry ) || entry.length < 5 || ! entry[ 4 ] ) continue;
+		const t = entry[ 4 ];
+		tunnelExtras.push( t === 'track-checkpoint' || t === 'track-start' || t === 'track-start-finish' ? 'track-finish'
+			: t === 'track-choke-cross' ? 'elev-choke-4-way' : t === 'slope-up' ? 'elev-track-slope' : THIN_GROUND_MODEL_KEYS[ t ] || t );
+
+	}
+	const models = await loadStaticModels( tunnelExtras );
 
 	const scene = new THREE.Scene();
 	scene.background = new THREE.Color( 0x2f8f5f );

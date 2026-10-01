@@ -45,14 +45,13 @@ export class Camera {
 		// Sweeps the camera volume through static physics geometry in every
 		// driving camera mode. null = off (intentional free/replay cameras).
 		this.clipProbe = null;
-		// Sphere-overlap verifier for the eased clip pull-in (see constrainPosition).
+		// Sphere-overlap verifier for the clip glide (see constrainPosition).
 		this.overlapProbe = null;
-		// Current eased allowed distance along the clip ray; null when unconstrained.
-		this._clipAllow = null;
-		// Total upward hop used by the current glide (bounded; snap when exceeded).
-		this._clipGlideLift = 0;
-		// Total sideways swing used by the current glide (bounded; snap when exceeded).
-		this._clipGlideSide = 0;
+		// Position the update-time constraint settled on; the render-time
+		// pass restores it if screen shake displaced the camera while the
+		// clip constraint is active (shake must never push it into a wall).
+		this._clipSettledPos = new THREE.Vector3();
+		this._clipSettled = false;
 		// Ceiling probe (chase cam): ( origin, upLength ) => freeUpLength.
 		// Supplied by main.js — a straight-up physics raycast. When a static
 		// ceiling hangs right above the car (pool cross deck, low bridges),
@@ -152,9 +151,58 @@ export class Camera {
 
 	}
 
+	// Verified chase step: blend the camera toward the desired point, but
+	// only ever commit moves to spots the overlap probe says are clear. If
+	// the straight blend ends inside geometry (corner between camera and
+	// desired), sidestep sideways instead so the camera keeps ORBITING the
+	// obstruction — without this it sat frozen behind the wall until the
+	// car drove far enough away ("caught on hitboxes", user 2026-10-01).
+	_verifiedChaseStep( k ) {
+
+		this._clipLerpTmp.copy( this.camera.position ).lerp( this._desiredPos, k );
+		if ( ! this.overlapProbe || this.overlapProbe( this._clipLerpTmp ) ) {
+
+			this.camera.position.copy( this._clipLerpTmp );
+			return;
+
+		}
+		this._clipProbeTmp.subVectors( this._desiredPos, this.camera.position );
+		this._clipProbeTmp.y = 0;
+		if ( this._clipProbeTmp.lengthSq() < 1e-8 ) return;
+		this._clipLerpTmp.set( - this._clipProbeTmp.z, 0, this._clipProbeTmp.x ).normalize();
+		for ( let side = 0; side < 2; side ++ ) {
+
+			this._clipProbeTmp.copy( this.camera.position ).addScaledVector( this._clipLerpTmp, side ? - 0.22 : 0.22 );
+			if ( this.overlapProbe( this._clipProbeTmp ) ) {
+
+				this.camera.position.copy( this._clipProbeTmp );
+				return;
+
+			}
+
+		}
+
+	}
+
 	// Run AFTER smoothing (and again after screen shake at render time).
 	// Use the real car, not the lagging aim point: at corners that point
 	// can be on the other side of the wall even when the car is inside.
+	//
+	// Stateless design (2026-10-01, replaced the eased-state machine that
+	// vibrated and froze): when the sweep says the camera's ray to the car
+	// is blocked, glide the camera toward the swept safe point ONE verified
+	// step at a time (straight, hop-over, sideways — whichever is clear).
+	// No stored allowance, no budgets, no snap fallback:
+	//   - a grazing sweep (free within a dead zone around the camera's own
+	//     distance) does NOTHING — hit/miss can't flicker pull-in vs
+	//     lerp-out every frame, which was the violent vibration
+	//   - every move is overlap-verified, so the camera never enters
+	//     geometry and never rides THROUGH a wall along the ray
+	//   - if every step is blocked the camera simply holds for that frame
+	//     (no lock: the anchor moves with the car, so geometry shifts and
+	//     a step clears next frame) — that was the "caught on hitboxes"
+	//   - the ONLY teleport is the emergency exit when the camera sphere
+	//     is already inside geometry (grown walls / editor blocks)
 	constrainPosition( position = this.camera.position, dt = 0 ) {
 
 		if ( ! this.clipProbe ) return;
@@ -162,120 +210,88 @@ export class Camera {
 		const length = this._clipDir.length();
 		if ( length <= 1e-6 ) return;
 		this._clipDir.divideScalar( length );
-		const free = this.clipProbe( this._clipAnchor, this._clipDir, length );
-		if ( free >= length ) {
+		const free = Math.max( 0, this.clipProbe( this._clipAnchor, this._clipDir, length ) );
 
-			// Clear line of sight: release any eased pull (the chase lerp then
-			// eases the camera back out smoothly).
-			if ( position === this.camera.position ) { this._clipAllow = null; this._clipGlideLift = 0; this._clipGlideSide = 0; }
+		if ( position !== this.camera.position ) {
+
+			// Mid-update pass constrains the DESIRED point: hard, no state
+			// (the desired is invisible; the verified chase lerp smooths the
+			// camera toward it and blocks candidates inside geometry).
+			if ( free < length ) position.copy( this._clipAnchor ).addScaledVector( this._clipDir, free );
 			return;
 
 		}
-		// Buried anchor: geometry surrounds the raised anchor point (car
-		// skimming a block corner mid-fall). The sweep reports a fraction ~0 hit
-		// and "pulling to the constraint" would yank the camera ONTO the anchor,
-		// inside geometry. The sweep is meaningless here - skip it and let the
-		// verified chase lerp carry the camera (it only moves to clear spots).
-		if ( this.overlapProbe && ! this.overlapProbe( this._clipAnchor ) ) return;
-		const clampedFree = Math.max( 0, free );
-		if ( dt <= 0 || ! this.overlapProbe ) {
 
-			// Hard safety pass. Only the LIVE camera position manages the ease
-			// state (the mid-update pass constrains the desired point and must
-			// not reset the pull-in progress every frame). While an eased pull
-			// is in flight the camera rides at the verified eased distance -
-			// only a displacement beyond it (shake, respawn) gets hard-snapped.
-			const isLiveCamera = position === this.camera.position;
-			if ( isLiveCamera && this._clipAllow != null && length <= this._clipAllow + 0.05 ) return;
-			if ( isLiveCamera ) this._clipAllow = null;
-			position.copy( this._clipAnchor ).addScaledVector( this._clipDir, clampedFree );
+		// Emergency: the camera sphere is already inside geometry (walls
+		// grew onto it, an editor block was placed on it). Exit NOW along
+		// the ray to the swept clear point — a teleport, but sitting
+		// inside a solid is strictly worse.
+		if ( this.overlapProbe && ! this.overlapProbe( position ) ) {
+
+			position.copy( this._clipAnchor ).addScaledVector( this._clipDir, free );
 			return;
 
 		}
-		// Eased pull-in (runs once per update on the live camera position):
-		// when a wall suddenly covers the camera, slide in over ~0.1-0.2s
-		// instead of teleporting. The camera may lag BEYOND the hard limit only
-		// while the lag spot is verified clear by the sphere-overlap probe - if
-		// it would sit inside geometry, snap instantly (never clip).
+
+		// Dead zone: clear, or grazing so close to the camera's own
+		// distance that hit/miss flickers frame to frame. Leave it alone.
+		if ( free >= length - 0.02 ) return;
+
+		if ( dt <= 0 ) {
+
+			// Render-time pass (after screen shake). Restore the position
+			// the update-time glide settled on: re-pulling to `free` here
+			// teleported away the glide's progress every frame (a snap per
+			// frame while any wall was active), but shake must also never
+			// leave the camera inside geometry.
+			if ( this.overlapProbe && ! this.overlapProbe( position ) ) {
+
+				position.copy( this._clipAnchor ).addScaledVector( this._clipDir, free );
+				return;
+
+			}
+			if ( this._clipSettled && position.distanceToSquared( this._clipSettledPos ) > 1e-8 ) position.copy( this._clipSettledPos );
+			return;
+
+		}
+
+		// Blocked: one verified glide step toward the safe point.
 		const CLIP_PULL_RATE = 20; // units/s max closing speed
-		const prev = this._clipAllow ?? length;
-		let allowed = Math.max( clampedFree, prev - CLIP_PULL_RATE * dt );
-		allowed = Math.min( allowed, length );
-		if ( allowed > clampedFree + 1e-4 ) {
+		const step = Math.min( CLIP_PULL_RATE * dt, length - free );
+		// Straight toward the safe point first...
+		this._clipLerpTmp.copy( this._clipAnchor ).addScaledVector( this._clipDir, free ).sub( position ).normalize();
+		this._clipProbeTmp.copy( position ).addScaledVector( this._clipLerpTmp, step );
+		if ( ! this.overlapProbe || this.overlapProbe( this._clipProbeTmp ) ) {
 
-			this._clipProbeTmp.copy( this._clipAnchor ).addScaledVector( this._clipDir, allowed );
-			if ( ! this.overlapProbe( this._clipProbeTmp ) ) {
+			position.copy( this._clipProbeTmp );
+			return;
 
-				// The radial lag spot is inside geometry (falling off a wall:
-				// camera above the block, safe spot in front of it - the
-				// straight path tunnels THROUGH the block). Glide instead:
-				// move toward the hard spot mostly HORIZONTALLY (keep the
-				// altitude, clear the wall top), verify every step, hop a
-				// little if the sphere grazes the top face. Once past the
-				// wall the constraint releases on its own and the chase lerp
-				// settles the camera down. Bounded: too much hopping = snap.
-				this._clipLerpTmp.copy( this._clipAnchor ).addScaledVector( this._clipDir, clampedFree ).sub( position );
-				const glideDist = this._clipLerpTmp.length();
-				if ( glideDist > 1e-4 ) {
+		}
+		// ...blocked (the straight path crosses the wall). Hop the graze
+		// over a wall top...
+		this._clipProbeTmp.y += 0.35;
+		if ( this.overlapProbe && this.overlapProbe( this._clipProbeTmp ) ) {
 
-					this._clipLerpTmp.divideScalar( glideDist );
-					if ( this._clipLerpTmp.y < - 0.3 ) {
+			position.copy( this._clipProbeTmp );
+			return;
 
-						this._clipLerpTmp.y = - 0.3;
-						this._clipLerpTmp.normalize();
+		}
+		// ...then swing sideways around the wall (orbit until the ray
+		// clears; the chase lerp then settles the framing back out).
+		this._clipLerpTmp.set( - this._clipDir.z, 0, this._clipDir.x ).normalize();
+		for ( let side = 0; side < 2; side ++ ) {
 
-					}
-					this._clipProbeTmp.copy( position ).addScaledVector( this._clipLerpTmp, Math.min( CLIP_PULL_RATE * dt, glideDist ) );
-					let hop = 0;
-					if ( ! this.overlapProbe( this._clipProbeTmp ) && this._clipGlideLift < 2.5 ) {
+			this._clipProbeTmp.copy( position ).addScaledVector( this._clipLerpTmp, side ? - step : step );
+			if ( this.overlapProbe && this.overlapProbe( this._clipProbeTmp ) ) {
 
-						// Graze on the wall top: rise over it.
-						this._clipProbeTmp.y += 0.35;
-						hop = 0.35;
-
-					}
-					if ( this.overlapProbe( this._clipProbeTmp ) ) {
-
-						position.copy( this._clipProbeTmp );
-						this._clipGlideLift += hop;
-						this._clipAllow = this._clipAnchor.distanceTo( position );
-						return;
-
-					}
-					// Forward blocked (tall wall): swing SIDEWAYS around it,
-					// toward whichever side is clear - the camera orbits the
-					// obstruction until the ray clears, then the lerp settles.
-					if ( this._clipGlideSide < 6 ) {
-
-						this._clipLerpTmp.set( - this._clipDir.z, 0, this._clipDir.x ).normalize();
-						for ( let side = 0; side < 2; side ++ ) {
-
-							this._clipProbeTmp.copy( position ).addScaledVector( this._clipLerpTmp, side ? - CLIP_PULL_RATE * dt : CLIP_PULL_RATE * dt );
-							if ( this.overlapProbe( this._clipProbeTmp ) ) {
-
-								position.copy( this._clipProbeTmp );
-								this._clipGlideSide += CLIP_PULL_RATE * dt;
-								this._clipAllow = this._clipAnchor.distanceTo( position );
-								return;
-
-							}
-
-						}
-
-					}
-
-				}
-				allowed = clampedFree; // blocked even for the glide: hard snap (never clip)
+				position.copy( this._clipProbeTmp );
+				return;
 
 			}
 
 		}
-		if ( allowed <= clampedFree + 1e-4 ) { this._clipGlideLift = 0; this._clipGlideSide = 0; }
-		// Keep the eased allowance while the constraint is active - nulling it
-		// here (camera riding AT the allowance) let the render-time hard pass
-		// snap (free was still far below length).
-		this._clipAllow = allowed;
-		if ( allowed < length ) position.copy( this._clipAnchor ).addScaledVector( this._clipDir, allowed );
+		// Every step blocked: hold this frame (never teleport, never clip).
+		return;
 
 	}
 
@@ -390,8 +406,7 @@ export class Camera {
 			// Verified lerp: the straight blend toward the (hard-pulled) desired
 			// point can tunnel through the block the glide is going around -
 			// skip the blend step while it would end inside geometry.
-			this._clipLerpTmp.copy( this.camera.position ).lerp( this._desiredPos, Math.min( 1, dt * chaseLag ) );
-			if ( ! this.overlapProbe || this.overlapProbe( this._clipLerpTmp ) ) this.camera.position.copy( this._clipLerpTmp );
+			this._verifiedChaseStep( Math.min( 1, dt * chaseLag ) );
 			this.lookTarget.lerp( this._desiredLook, dt * 8 );
 			const targetFov = 42 + ( speedRatio * 6.5 ) + ( driftAmount * 1.5 );
 			this.camera.fov = THREE.MathUtils.lerp( this.camera.fov, targetFov, Math.min( 1, dt * 3.5 ) );
@@ -405,8 +420,7 @@ export class Camera {
 			this._applyCeilingClamp( camScale, dt );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			this.constrainPosition( this._desiredPos );
-			this._clipLerpTmp.copy( this.camera.position ).lerp( this._desiredPos, Math.min( 1, dt * 8 ) );
-			if ( ! this.overlapProbe || this.overlapProbe( this._clipLerpTmp ) ) this.camera.position.copy( this._clipLerpTmp );
+			this._verifiedChaseStep( Math.min( 1, dt * 8 ) );
 			this._desiredLook.copy( this.targetPosition );
 			this.lookTarget.lerp( this._desiredLook, dt * 10 );
 			this.camera.fov = THREE.MathUtils.lerp( this.camera.fov, 42, Math.min( 1, dt * 4 ) );
@@ -431,6 +445,8 @@ export class Camera {
 		}
 
 		this.constrainPosition( this.camera.position, dt );
+		this._clipSettledPos.copy( this.camera.position );
+		this._clipSettled = true;
 		this.camera.lookAt( this.lookTarget );
 
 	}

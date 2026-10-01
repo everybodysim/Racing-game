@@ -140,8 +140,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		   one) forces a backdrop readback + blur pass per frame on the compositor
 		   — real frame time on integrated GPUs. One class kills them all. */
 		body.gfx-low .hud-widget,
-		body.gfx-low #mp-panel,
-		body.gfx-low #chat-box,
+		body.gfx-low 		body.gfx-low #chat-box,
 		body.gfx-low #quick-menu-btn,
 		body.gfx-low #quick-menu-panel,
 		body.gfx-low #mode-menu-btn,
@@ -252,7 +251,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			0%, 100% { background: linear-gradient(165deg, rgba(90,159,255,0.3), rgba(47,104,181,0.32)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.22); }
 			50% { background: linear-gradient(165deg, rgba(190,35,46,0.86), rgba(132,24,32,0.82)); box-shadow: 0 0 18px rgba(255,58,58,0.58); }
 		}
-		#mp-panel {
 			position: absolute;
 			left: 16px;
 			bottom: 54px;
@@ -265,181 +263,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			min-width: 210px;
 			backdrop-filter: blur(2px);
 		}
-		#mp-panel-title { font: 700 13px/1 sans-serif; margin-bottom: 8px; opacity: 0.95; }
-		#mp-actions { display: flex; gap: 6px; margin-bottom: 8px; }
-		#mp-actions button {
-			border: none;
-			border-radius: 6px;
-			background: rgba(255,255,255,0.16);
-			color: #fff;
-			padding: 6px 9px;
-			font: 600 12px/1 sans-serif;
-			cursor: pointer;
-		}
-		#mp-actions button:hover { background: rgba(255,255,255,0.27); }
-		#mp-code-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
-		#mp-code-input {
-			flex: 1;
-			min-width: 0;
-			border-radius: 6px;
-			border: 1px solid rgba(255,255,255,0.24);
-			background: rgba(20,20,20,0.45);
-			color: #fff;
-			padding: 6px 8px;
-			font: 700 12px/1 monospace;
-			text-transform: uppercase;
-		}
-		#mp-copy-btn {
-			border: none;
-			border-radius: 6px;
-			background: rgba(83,212,255,0.25);
-			color: #fff;
-			padding: 6px 8px;
-			font: 600 12px/1 sans-serif;
-			cursor: pointer;
-		}
-		#mp-copy-btn:hover { background: rgba(83,212,255,0.4); }
-		#mp-status {
-			display: none;
-			color: #ffe9a9;
-			font: 600 12px/1.3 sans-serif;
-			text-shadow: 0 1px 3px rgba(0,0,0,0.8);
-		}
-		#mp-status:not(:empty) { display: block; }
-		#mp-lb {
-			display: none;
-			margin-top: 8px;
-			padding-top: 8px;
-			border-top: 1px solid rgba(255,255,255,0.18);
-		}
-		#mp-lb-title { font: 700 11px/1 sans-serif; margin-bottom: 6px; opacity: 0.9; }
-		#mp-lb-list {
-			margin: 0;
-			padding-left: 16px;
-			max-height: 120px;
-			overflow: auto;
-			font: 600 11px/1.35 sans-serif;
-		}
-		#mp-lb-list li { margin: 2px 0; }
-		#mp-debug-overlay {
-			position: fixed;
-			top: 50%;
-			left: 50%;
-			transform: translate(-50%, -50%);
-			width: 80%;
-			max-width: 600px;
-			height: 350px;
-			background: rgba(10, 10, 15, 0.92);
-			border: 2px solid #00f0ff;
-			border-radius: 8px;
-			color: #00ff88;
-			font-family: monospace;
-			font-size: 12px;
-			padding: 12px;
-			overflow-y: auto;
-			z-index: 9999;
-			display: none;
-			box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
-		}
-		#mp-public-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.18); }
-		#mp-public-row[hidden], #mp-pubtrack-row[hidden] { display: none !important; }
-		#mp-public-row > .mp-public-label { font: 700 11px/1 sans-serif; opacity: 0.9; }
-		#mp-public-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
-		#mp-public-buttons button {
-			flex: 1 1 auto;
-			min-width: 0;
-			border: none;
-			border-radius: 6px;
-			background: rgba(83,212,255,0.18);
-			color: #fff;
-			padding: 6px 7px;
-			font: 600 11px/1 sans-serif;
-			cursor: pointer;
-		}
-		#mp-public-buttons button:hover { background: rgba(83,212,255,0.34); }
-		#mp-public-buttons button:disabled { opacity: 0.5; cursor: default; }
-		#mp-public-leave-btn {
-			border: none;
-			border-radius: 6px;
-			background: rgba(255,92,120,0.20);
-			color: #ffd6dc;
-			padding: 6px 8px;
-			font: 600 11px/1 sans-serif;
-			cursor: pointer;
-		}
-		#mp-public-leave-btn:hover { background: rgba(255,92,120,0.36); }
-		#mp-player-count { font: 600 11px/1 sans-serif; color: #9be8ff; opacity: 0.9; margin: 4px 0; }
 		/* Propose-a-map-vote row: shown only while connected to a public server
 		   (toggled to display:flex / none by updatePublicServerButtonStates). */
-		#mp-pubtrack-row { display: none; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.18); }
-		#mp-pubtrack-row > .mp-public-label { font: 700 11px/1 sans-serif; opacity: 0.9; }
-		#mp-pubtrack-input-wrap { display: flex; gap: 6px; align-items: center; }
-		#mp-pubtrack-input {
-			flex: 1; min-width: 0;
-			border-radius: 6px;
-			border: 1px solid rgba(255,255,255,0.24);
-			background: rgba(20,20,20,0.45);
-			color: #fff;
-			padding: 6px 8px;
-			font: 600 11px/1.2 sans-serif;
-		}
-		#mp-pubtrack-btn {
-			border: none; border-radius: 6px;
-			background: rgba(83,212,255,0.25); color: #fff;
-			padding: 6px 10px; font: 700 11px/1 sans-serif; cursor: pointer;
-			white-space: nowrap;
-		}
-		#mp-pubtrack-btn:hover { background: rgba(83,212,255,0.4); }
 		/* Map-vote prompt: a bottom-of-screen overlay shown to everyone on the
 		   public server while a vote is active. */
-		#mp-vote-prompt {
-			position: fixed;
-			left: 50%;
-			bottom: 18px;
-			transform: translateX(-50%);
-			z-index: 258;
-			display: none;
-			flex-direction: column;
-			align-items: center;
-			gap: 10px;
-			padding: 14px 20px;
-			border-radius: 14px;
-			background: rgba(15,18,24,0.96);
-			border: 1px solid rgba(83,212,255,0.5);
-			color: #fff;
-			font: 600 14px/1.4 sans-serif;
-			box-shadow: 0 14px 40px rgba(0,0,0,0.55);
-			min-width: 280px;
-			max-width: min(560px, calc(100vw - 24px));
-		}
-		#mp-vote-prompt.visible { display: flex; }
-		#mp-vote-header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; width: 100%; }
-		#mp-vote-title { margin: 0; font: 800 16px/1.2 sans-serif; }
-		#mp-vote-timer {
-			font: 800 18px/1 monospace;
-			color: #bde6ff;
-			min-width: 2.4em;
-			text-align: right;
-			white-space: nowrap;
-		}
-		#mp-vote-timer.urgent { color: #ff6b81; }
-		#mp-vote-track-name { margin: 0; color: #bde6ff; font: 700 14px/1.3 sans-serif; text-align: center; word-break: break-word; }
-		#mp-vote-buttons { display: flex; gap: 10px; align-items: center; }
-		#mp-vote-yes, #mp-vote-no {
-			border: none; border-radius: 8px;
-			padding: 8px 18px;
-			font: 800 14px/1 sans-serif;
-			cursor: pointer;
-			color: #04130a;
-		}
-		#mp-vote-yes { background: #4ade80; }
-		#mp-vote-yes:hover:not(:disabled) { background: #6ee39a; }
-		#mp-vote-no { background: #fb7185; color: #1a0608; }
-		#mp-vote-no:hover:not(:disabled) { background: #ff8a9d; }
-		#mp-vote-yes:disabled, #mp-vote-no:disabled { opacity: 0.45; cursor: default; }
-		#mp-vote-counts { display: flex; gap: 16px; font: 700 13px/1 sans-serif; opacity: 0.95; }
-		#mp-vote-yes-count { color: #86efac; }
-		#mp-vote-no-count { color: #fda4af; }
 		#competitions-warning-overlay {
 			position: fixed;
 			inset: 0;
@@ -1949,7 +1776,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link,
 			#replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link,
 			#share-time-btn, #export-ghost-btn, #import-ghost-btn { display: none !important; }
-			#mobile-actions-menu, #mp-panel { display: none !important; }
+			#mobile-actions-menu,
 			#car-select, #lap-hud, #economy-hud {
 				position: fixed;
 				top: calc(8px + env(safe-area-inset-top, 0px));
@@ -2077,7 +1904,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	body.mobile #quick-menu-btn,
 	body.mobile #quick-menu-panel,
 	body.mobile #mobile-actions-menu,
-	body.mobile #mp-panel { display: none !important; }
+	body.mobile
 
 	/* ── Mobile action dock (show on mobile only) ── */
 	body.mobile #mobile-action-dock { display: flex; }
@@ -2307,7 +2134,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	
 	<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 	<link rel="preconnect" href="https://esm.sh" crossorigin>
-<!--	<link rel="modulepreload" href="js/main.js?v=1000389">
+<!--	<link rel="modulepreload" href="js/main.js?v=1000390">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/GLTFLoader.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/OBJLoader.js" crossorigin>
@@ -2798,52 +2625,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<a id="home-menu-btn" href="index.html" role="button">Back to Home</a>
 	<button id="export-ghost-btn" type="button">Export ghost</button>
 	<button id="import-ghost-btn" type="button">Import ghost</button>
-	<div id="mp-panel" aria-label="Multiplayer">
-		<div id="mp-panel-title">Multiplayer</div>
-		<div id="mp-public-row" hidden>
-			<div class="mp-public-label">Public servers</div>
-			<div id="mp-public-buttons"></div>
-			<div id="mp-player-count" style="display:none;"></div>
-			<button id="mp-public-leave-btn" type="button" style="display:none;">Leave server</button>
-		</div>
-		<div id="mp-actions">
-			<button id="mp-host-btn" type="button">Host</button>
-			<button id="mp-join-btn" type="button">Join</button>
-			<button id="mp-debug-toggle-btn" type="button" title="Toggle multiplayer debug console">Toggle Debug</button>
-		</div>
-		<div id="mp-code-row">
-			<input id="mp-code-input" type="text" maxlength="6" placeholder="ROOM CODE" aria-label="Room code">
-			<button id="mp-copy-btn" type="button">Copy</button>
-		</div>
-		<div id="mp-status" aria-live="polite"></div>
-		<div id="mp-pubtrack-row" hidden>
-			<div class="mp-public-label">Propose a map vote</div>
-			<div id="mp-pubtrack-input-wrap">
-				<input id="mp-pubtrack-input" type="text" placeholder="Paste a track share URL" aria-label="Track share URL">
-				<button id="mp-pubtrack-btn" type="button">Select track</button>
-			</div>
-		</div>
-		<div id="mp-debug-overlay" aria-live="polite" aria-label="Multiplayer debug console"></div>
-		<div id="mp-lb">
-			<div id="mp-lb-title"></div>
-			<ol id="mp-lb-list"></ol>
-		</div>
-	</div>
-	<div id="mp-vote-prompt" role="dialog" aria-modal="false" aria-labelledby="mp-vote-title">
-		<div id="mp-vote-header">
-			<h2 id="mp-vote-title">Switch map?</h2>
-			<span id="mp-vote-timer" aria-live="off">30s</span>
-		</div>
-		<p id="mp-vote-track-name">Shared track</p>
-		<div id="mp-vote-buttons">
-			<button id="mp-vote-yes" type="button">Yes</button>
-			<button id="mp-vote-no" type="button">No</button>
-		</div>
-		<div id="mp-vote-counts">
-			<span>Yes: <span id="mp-vote-yes-count">0</span></span>
-			<span>No: <span id="mp-vote-no-count">0</span></span>
-		</div>
-	</div>
 	<div id="competitions-warning-overlay" role="presentation" aria-hidden="true">
 		<div id="competitions-warning-dialog" role="dialog" aria-modal="true" aria-labelledby="competitions-warning-title">
 			<h2 id="competitions-warning-title">Competitions notice</h2>
@@ -3472,7 +3253,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000389'&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000390'&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
