@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, MotionQuality, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
+import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, MotionQuality, castRay, createClosestCastRayCollector, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
-import { Camera } from './Camera.js?v=10';
+import { Camera } from './Camera.js?v=11';
+import { createCameraClipProbe } from './CameraCollision.js?v=1';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000283';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260955';
@@ -6430,38 +6431,15 @@ async function init() {
 	} );
 	const cam2 = isSplitScreen ? new Camera() : null;
 
-	// Chase-cam hitbox clipping: a REAL physics raycast (crashcat castRay) from
-	// the car toward the camera each frame. Static hitboxes only — walls,
-	// buildings, track pieces; never the car itself or other dynamic bodies.
-	// If the segment is blocked, the camera pulls in front of the hitbox
-	// instead of clipping inside it. Chase cam only; the fixed overview cam
-	// keeps its framing untouched.
-	const camRayCollector = createAnyCastRayCollector();
+	// The follow camera sweeps a real volume against the nearest static
+	// hitbox. Dynamic cars never block it. Ray probes below are only for
+	// choosing ceiling/floor framing; final confinement uses the sweep.
+	const camRayCollector = createClosestCastRayCollector();
 	const camRaySettings = createDefaultCastRaySettings();
 	const camRayFilter = ccLayerFilter.forWorld( world );
 	camRayFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
-	const CAM_CLIP_MARGIN = 0.4; // hover distance off hitbox surfaces
-	const CAM_CLIP_MIN = 1.4;     // never closer to the car than this
 	const camRayOrigin = [ 0, 0, 0 ];
-	const camRayDir = [ 0, 0, 0 ];
-	const camClipProbe = ( origin, dir, length ) => {
-
-		camRayOrigin[ 0 ] = origin.x;
-		camRayOrigin[ 1 ] = origin.y;
-		camRayOrigin[ 2 ] = origin.z;
-		camRayDir[ 0 ] = dir.x;
-		camRayDir[ 1 ] = dir.y;
-		camRayDir[ 2 ] = dir.z;
-		// AnyCastRayCollector.addMiss() is a no-op — stale hits linger, so reset() before every cast.
-		camRayCollector.reset();
-		castRay( world, camRayCollector, camRaySettings, camRayOrigin, camRayDir, length, camRayFilter );
-		if ( camRayCollector.hit.status !== CastRayStatus.COLLIDING ) return length;
-		// First hit along the car→camera segment: park the camera just short of it.
-		let freeLen = camRayCollector.hit.fraction * length - CAM_CLIP_MARGIN;
-		freeLen = Math.max( freeLen, Math.min( CAM_CLIP_MIN, length ) );
-		return Math.min( freeLen, length );
-
-	};
+	const camClipProbe = createCameraClipProbe( () => world );
 	cam.clipProbe = camClipProbe;
 	if ( cam2 ) cam2.clipProbe = camClipProbe;
 	// Straight-up companion probe for the chase cam: when a static ceiling
@@ -13784,6 +13762,11 @@ function completeCampaignStage() {
 	}
 
 	function renderFrame() {
+
+		// Shake and other frame effects happen after Camera.update. Recheck
+		// the actual render position so they cannot push it through a wall.
+		if ( ! freecamState.active && ! replayViewerMode ) cam.constrainPosition();
+		if ( cam2 ) cam2.constrainPosition();
 
 		if ( isSplitScreen && cam2 ) {
 

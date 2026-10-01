@@ -41,10 +41,9 @@ export class Camera {
 		this.userHeight = null;
 		this.userPitch = 0;
 		this.userLagScale = 1;
-		// Hitbox clip probe (chase cam only): ( origin, dir, length ) => freeLength.
-		// Supplied by main.js — a real physics raycast through the collision
-		// world. If something with a hitbox blocks the car→camera segment, the
-		// camera pulls in front of it instead of clipping inside. null = off.
+		// Hitbox clip probe: ( origin, dir, length ) => freeLength.
+		// Sweeps the camera volume through static physics geometry in every
+		// driving camera mode. null = off (intentional free/replay cameras).
 		this.clipProbe = null;
 		// Ceiling probe (chase cam): ( origin, upLength ) => freeUpLength.
 		// Supplied by main.js — a straight-up physics raycast. When a static
@@ -59,6 +58,7 @@ export class Camera {
 		this._ceilingClamped = false;
 		this._submergedFraming = false;
 		this._clipDir = new THREE.Vector3();
+		this._clipAnchor = new THREE.Vector3();
 
 		this.camera.position.copy( this.offset );
 		this.camera.lookAt( 0, 0, 0 );
@@ -117,7 +117,24 @@ export class Camera {
 
 	}
 
+	// Run AFTER smoothing (and again after screen shake at render time).
+	// Use the real car, not the lagging aim point: at corners that point
+	// can be on the other side of the wall even when the car is inside.
+	constrainPosition( position = this.camera.position ) {
+
+		if ( ! this.clipProbe ) return;
+		this._clipDir.subVectors( position, this._clipAnchor );
+		const length = this._clipDir.length();
+		if ( length <= 1e-6 ) return;
+		this._clipDir.divideScalar( length );
+		const free = this.clipProbe( this._clipAnchor, this._clipDir, length );
+		if ( free < length ) position.copy( this._clipAnchor ).addScaledVector( this._clipDir, Math.max( 0, free ) );
+
+	}
+
 	update( dt, target, targetQuaternion, dynamics = {} ) {
+
+		this._clipAnchor.copy( target );
 
 		const speedRatio = THREE.MathUtils.clamp( Number( dynamics.speedRatio ) || 0, 0, 1.8 );
 		const driftAmount = THREE.MathUtils.clamp( Number( dynamics.driftIntensity ) || 0, 0, 1 );
@@ -144,7 +161,7 @@ export class Camera {
 		const camScale = vehicleScale < 1 ? Math.pow( vehicleScale, 1.4 ) : vehicleScale;
 		const underwaterLift = this.underwaterBlend;
 		const targetLerp = this.mode === 'chase' ? 10 : 6;
-		this.targetPosition.lerp( target, dt * targetLerp );
+		this.targetPosition.lerp( target, Math.min( 1, dt * targetLerp ) );
 
 		if ( this.mode === 'locked' ) {
 
@@ -165,19 +182,7 @@ export class Camera {
 			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
 			this._applyCeilingClamp( camScale );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
-			if ( this.clipProbe ) {
-
-				this._clipDir.subVectors( this._desiredPos, this.targetPosition );
-				const desiredLen = this._clipDir.length();
-				if ( desiredLen > 1e-4 ) {
-
-					this._clipDir.divideScalar( desiredLen );
-					const freeLen = this.clipProbe( this.targetPosition, this._clipDir, desiredLen );
-					if ( freeLen < desiredLen ) this._desiredPos.copy( this.targetPosition ).addScaledVector( this._clipDir, freeLen );
-
-				}
-
-			}
+			this.constrainPosition( this._desiredPos );
 			this.camera.position.copy( this._desiredPos );
 			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) * camScale );
 			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift ) * camScale;
@@ -218,26 +223,9 @@ export class Camera {
 			this._applyCeilingClamp( camScale );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 
-			// Chase-cam hitbox clipping: cast from the car toward the camera.
-			// If a hitbox blocks the segment, pull the camera in front of it.
-			// (Chase cam only — the fixed overview cam keeps its framing.)
-			if ( this.clipProbe ) {
-
-				this._clipDir.subVectors( this._desiredPos, this.targetPosition );
-				const desiredLen = this._clipDir.length();
-				if ( desiredLen > 1e-4 ) {
-
-					this._clipDir.divideScalar( desiredLen );
-					const freeLen = this.clipProbe( this.targetPosition, this._clipDir, desiredLen );
-					if ( freeLen < desiredLen ) {
-
-						this._desiredPos.copy( this.targetPosition ).addScaledVector( this._clipDir, freeLen );
-
-					}
-
-				}
-
-			}
+			// Pull the desired framing forward before smoothing; the final
+			// render position is constrained again at the end of update.
+			this.constrainPosition( this._desiredPos );
 
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
 			// Bring the aim point in as the camera rises, giving pools the
@@ -246,7 +234,7 @@ export class Camera {
 			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift ) * camScale;
 
 			const chaseLag = THREE.MathUtils.lerp( 10, 7.2, Math.min( 1, speedRatio * 0.8 + driftAmount * 0.4 ) ) * this.userLagScale;
-			this.camera.position.lerp( this._desiredPos, dt * chaseLag );
+			this.camera.position.lerp( this._desiredPos, Math.min( 1, dt * chaseLag ) );
 			this.lookTarget.lerp( this._desiredLook, dt * 8 );
 			const targetFov = 42 + ( speedRatio * 6.5 ) + ( driftAmount * 1.5 );
 			this.camera.fov = THREE.MathUtils.lerp( this.camera.fov, targetFov, Math.min( 1, dt * 3.5 ) );
@@ -259,7 +247,8 @@ export class Camera {
 			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
 			this._applyCeilingClamp( camScale );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
-			this.camera.position.lerp( this._desiredPos, dt * 8 );
+			this.constrainPosition( this._desiredPos );
+			this.camera.position.lerp( this._desiredPos, Math.min( 1, dt * 8 ) );
 			this._desiredLook.copy( this.targetPosition );
 			this.lookTarget.lerp( this._desiredLook, dt * 10 );
 			this.camera.fov = THREE.MathUtils.lerp( this.camera.fov, 42, Math.min( 1, dt * 4 ) );
@@ -282,6 +271,9 @@ export class Camera {
 			}
 
 		}
+
+		this.constrainPosition();
+		this.camera.lookAt( this.lookTarget );
 
 	}
 

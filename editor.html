@@ -900,6 +900,7 @@
 	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000279';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
+	import { createCameraClipProbe } from './js/CameraCollision.js?v=1';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260951';
 	import { Vehicle } from './js/Vehicle.js?v=1000228';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
@@ -6576,6 +6577,8 @@ window.addEventListener('keydown', (e) => {
 		let rotating = false, rotLastX = 0, rotLastY = 0;
 		let active = false;          // physics stack finished booting
 		let world = null, vehicle = null;
+		const followClipProbe = createCameraClipProbe( () => world );
+		const followClipDir = new THREE.Vector3();
 		let dirty = false, lastEditAt = 0;
 		let fatal = false;
 
@@ -7926,10 +7929,23 @@ function updateMovingObstacles( state, now, vehicleList ) {
 			_followFwd.normalize();
 			const desired = new THREE.Vector3(
 				car.x - _followFwd.x * cellWorld * 2.6,
-				Math.max( 0.6, car.y + cellWorld * 1.4 ),
+				car.y + cellWorld * 1.4,
 				car.z - _followFwd.z * cellWorld * 2.6
 			);
+			// Clip both the desired framing and the smoothed render position.
+			// spherePos is above the floor; the model base can be inside it.
+			const anchor = vehicle.spherePos;
+			const constrain = ( position ) => {
+				followClipDir.subVectors( position, anchor );
+				const length = followClipDir.length();
+				if ( length < 1e-6 ) return;
+				followClipDir.divideScalar( length );
+				const free = followClipProbe( anchor, followClipDir, length );
+				if ( free < length ) position.copy( anchor ).addScaledVector( followClipDir, free );
+			};
+			constrain( desired );
 			freeCamera.position.lerp( desired, 1 - Math.exp( - 5 * dt ) );
+			constrain( freeCamera.position );
 			freeCamera.lookAt( car.x, car.y + cellWorld * 0.4, car.z );
 
 		}
