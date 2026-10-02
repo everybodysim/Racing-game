@@ -4,10 +4,9 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, MotionQuality, castRay, createClosestCastRayCollector, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
-import { Camera } from './Camera.js?v=15';
-import { createCameraClipProbe, createCameraSphereOverlapProbe } from './CameraCollision.js?v=2';
+import { Camera } from './Camera.js?v=16';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000284';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000290';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260955';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -15,7 +14,7 @@ import { GameAudio } from './Audio.js';
 import { encodeGhostBinary, decodeGhostBinary, encodeGhostCode, decodeGhostCode } from './GhostCodec.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
-import { HudExtras } from './HudExtras.js?v=3';
+import { HudExtras } from './HudExtras.js?v=4';
 import { createRuntime as _createModRuntime } from './mod-runtime.js?v=1000223';
 import Peer from './PeerTransport.js';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
@@ -6062,12 +6061,10 @@ async function init() {
 			// to the ground"). Replays are cinematic: keep the normal chase
 			// framing (pre-probe behavior) by skipping ALL probes for this
 			// update only.
-			const savedClipProbe = cam.clipProbe, savedCeilingProbe = cam.ceilingProbe, savedFloorProbe = cam.floorProbe;
-			cam.clipProbe = null;
+			const savedCeilingProbe = cam.ceilingProbe, savedFloorProbe = cam.floorProbe;
 			cam.ceilingProbe = null;
 			cam.floorProbe = null;
 			cam.update( 1 / 60, ghostModel.position, ghostModel.quaternion );
-			cam.clipProbe = savedClipProbe;
 			cam.ceilingProbe = savedCeilingProbe;
 			cam.floorProbe = savedFloorProbe;
 		}
@@ -6415,12 +6412,6 @@ async function init() {
 	const camRayFilter = ccLayerFilter.forWorld( world );
 	camRayFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
 	const camRayOrigin = [ 0, 0, 0 ];
-	const camClipProbe = createCameraClipProbe( () => world );
-	const camOverlapProbe = createCameraSphereOverlapProbe( () => world );
-	cam.overlapProbe = camOverlapProbe;
-	cam.clipProbe = camClipProbe;
-	if ( cam2 ) cam2.clipProbe = camClipProbe;
-	if ( cam2 ) cam2.overlapProbe = camOverlapProbe;
 	// Straight-up companion probe for the chase cam: when a static ceiling
 	// hangs right above the car (pool cross deck, low bridges), the camera
 	// clamps its height under it instead of rising past the block and
@@ -13761,11 +13752,6 @@ function completeCampaignStage() {
 	}
 
 	function renderFrame() {
-
-		// Shake and other frame effects happen after Camera.update. Recheck
-		// the actual render position so they cannot push it through a wall.
-		if ( ! freecamState.active && ! replayViewerMode ) cam.constrainPosition();
-		if ( cam2 ) cam2.constrainPosition();
 
 		if ( isSplitScreen && cam2 ) {
 

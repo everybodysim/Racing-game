@@ -140,7 +140,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		   one) forces a backdrop readback + blur pass per frame on the compositor
 		   — real frame time on integrated GPUs. One class kills them all. */
 		body.gfx-low .hud-widget,
-		body.gfx-low 		body.gfx-low #chat-box,
+		body.gfx-low #chat-box,
 		body.gfx-low #quick-menu-btn,
 		body.gfx-low #quick-menu-panel,
 		body.gfx-low #mode-menu-btn,
@@ -250,18 +250,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		@keyframes club-home-unread-pulse {
 			0%, 100% { background: linear-gradient(165deg, rgba(90,159,255,0.3), rgba(47,104,181,0.32)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.22); }
 			50% { background: linear-gradient(165deg, rgba(190,35,46,0.86), rgba(132,24,32,0.82)); box-shadow: 0 0 18px rgba(255,58,58,0.58); }
-		}
-			position: absolute;
-			left: 16px;
-			bottom: 54px;
-			z-index: 10;
-			background: rgba(0,0,0,0.55);
-			border-radius: 10px;
-			padding: 10px;
-			color: #fff;
-			font: 13px/1.3 sans-serif;
-			min-width: 210px;
-			backdrop-filter: blur(2px);
 		}
 		/* Propose-a-map-vote row: shown only while connected to a public server
 		   (toggled to display:flex / none by updatePublicServerButtonStates). */
@@ -1776,7 +1764,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link,
 			#replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link,
 			#share-time-btn, #export-ghost-btn, #import-ghost-btn { display: none !important; }
-			#mobile-actions-menu,
+			#mobile-actions-menu { display: none !important; }
 			#car-select, #lap-hud, #economy-hud {
 				position: fixed;
 				top: calc(8px + env(safe-area-inset-top, 0px));
@@ -1903,8 +1891,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	body.mobile #home-menu-btn,
 	body.mobile #quick-menu-btn,
 	body.mobile #quick-menu-panel,
-	body.mobile #mobile-actions-menu,
-	body.mobile
+	body.mobile #mobile-actions-menu { display: none !important; }
 
 	/* ── Mobile action dock (show on mobile only) ── */
 	body.mobile #mobile-action-dock { display: flex; }
@@ -2134,7 +2121,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	
 	<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 	<link rel="preconnect" href="https://esm.sh" crossorigin>
-<!--	<link rel="modulepreload" href="js/main.js?v=1000390">
+<!--	<link rel="modulepreload" href="js/main.js?v=1000391">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/GLTFLoader.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/OBJLoader.js" crossorigin>
@@ -3253,7 +3240,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000390'&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000391'&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;

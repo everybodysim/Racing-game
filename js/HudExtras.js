@@ -37,7 +37,7 @@ export class HudExtras {
 		this.minimapBounds = null; // {minX, maxX, minZ, maxZ} in cell grid coords
 		// Special (non-road) blocks drawn as their own little squares:
 		// tunnels, pools/water, elevated pieces, custom surfaces.
-		this.specialCells = null;
+		// (populated by _buildSpecialCells above — do NOT reset it here)
 
 		// Shortcuts overlay
 		this.shortcutsEl = null;
