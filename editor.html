@@ -897,10 +897,10 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000291';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000292';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260951';
+	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260952';
 	import { Vehicle } from './js/Vehicle.js?v=1000228';
 import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
@@ -1515,6 +1515,40 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 		if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) return ELEVATED_HEIGHT * 0.5;
 		if ( cell.elevatedType === 'pool-cross' ) return 0;
 		return ELEVATED_HEIGHT;
+
+	}
+
+	// ── OVERLAY FOOTPRINT RESOLVER (user order 2026-10-01) ──
+	// Off-grid overlays broke every elevation lookup: exact-key cell lookups
+	// only matched the overlay's own cell. The height now comes from whatever
+	// elevated block / tunnel CONTAINS the overlay's center, off-grid or not.
+	// Exact same-coordinate match wins first (legacy), then the nearest
+	// containing footprint. Footprint in cell units = [gx, gx+1) x [gz, gz+1).
+	function resolveOverlayHostCell( gx, gz ) {
+
+		const u = Number( gx ) + 0.5;
+		const v = Number( gz ) + 0.5;
+		let best = null, bestD = Infinity;
+		for ( const [ key, cell ] of grid ) {
+
+			if ( ! cell || ( ! cell.elevatedType && ! cell.tunnel ) ) continue;
+			const parts = key.split( ',' );
+			const cx = Number( parts[ 0 ] ), cz = Number( parts[ 1 ] );
+			if ( ! Number.isFinite( cx ) || ! Number.isFinite( cz ) ) continue;
+			if ( cx === Number( gx ) && cz === Number( gz ) ) return cell; // legacy exact match
+			if ( u < cx || u >= cx + 1 || v < cz || v >= cz + 1 ) continue;
+			const d = Math.abs( u - ( cx + 0.5 ) ) + Math.abs( v - ( cz + 0.5 ) );
+			if ( d < bestD ) { bestD = d; best = cell; }
+
+		}
+		return best;
+
+	}
+	// Y offset for an obstacle/surface cell from its footprint host.
+	function overlayYOffset( gx, gz ) {
+
+		const host = resolveOverlayHostCell( gx, gz );
+		return host ? getOverlayHeightOffset( host ) : 0;
 
 	}
 
@@ -2289,7 +2323,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 			if ( bumpSrc ) {
 
 				const bump = bumpSrc.clone();
-				const yOffset = getOverlayHeightOffset( cell );
+				const yOffset = overlayYOffset( gx, gz );
 				bump.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + BLOCK_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
 				bump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.bumpOrient || 0 ] || 0 );
 				bump.traverse( ( c ) => {
@@ -2319,7 +2353,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 					metalness: 0.02,
 				} )
 			);
-			const yOffset = getOverlayHeightOffset( cell );
+			const yOffset = overlayYOffset( gx, gz );
 			jump.position.set( ( gx + 0.5 ) * CELL_RAW, 0.24 + BLOCK_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			jump.rotation.order = 'YXZ';
 			jump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.jumpOrient || 0 ] || 0 );
@@ -2430,7 +2464,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 				new THREE.CylinderGeometry( CELL_RAW * 0.08, CELL_RAW * 0.08, CELL_RAW * 0.13, 16 ),
 				new THREE.MeshStandardMaterial( { color: 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
 			);
-			const yOffset = getOverlayHeightOffset( cell );
+			const yOffset = overlayYOffset( gx, gz );
 			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.065 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			pole.castShadow = true;
 			pole.receiveShadow = true;
@@ -2445,7 +2479,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 				new THREE.BoxGeometry( CELL_RAW * 0.22, CELL_RAW * 0.22, CELL_RAW * 0.22 ),
 				new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
 			);
-			const yOffset = getOverlayHeightOffset( cell );
+			const yOffset = overlayYOffset( gx, gz );
 			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			cube.castShadow = true;
 			cube.receiveShadow = true;
@@ -2462,7 +2496,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 				new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
 				new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
 			);
-			const yOffset = getOverlayHeightOffset( cell );
+			const yOffset = overlayYOffset( gx, gz );
 			wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ cell.wallOrient || 0 ] || 0 );
 			wall.castShadow = true;
@@ -2536,25 +2570,28 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 					} )
 				);
 				patch.rotation.x = - Math.PI / 2;
-				const yOffset = getOverlayHeightOffset( cell );
+				// Height host: the cell whose footprint contains this surface's
+				// center (works off-grid); own cell keeps jump/hub ground lifts.
+				const hostCell = resolveOverlayHostCell( gx, gz ) || cell;
+				const yOffset = getOverlayHeightOffset( hostCell );
 				let surfaceLift = 0;
-				if ( ! cell.elevatedType ) {
+				if ( ! hostCell.elevatedType ) {
 					if ( cell.jump ) surfaceLift = 1.5;
 					// Editor-only: 3-way/4-way hubs stand taller than a straight/
 					// corner tile, so the flat surface patch needs more lift here
 					// or it renders under the hub geometry. Game rendering (Track.js)
 					// is untouched by this value.
 					else if ( ( cell.roadPieces || [] ).some( ( piece ) => piece.type === 'track-4-way' || piece.type === 'track-3-way' ) ) surfaceLift = 0.16;
-				} else if ( cell.elevatedType === 'elevated-3-way' || cell.elevatedType === 'elevated-4-way' || cell.elevatedType === 'elevated-checkpoint' ) {
-					surfaceLift = cell.elevatedType === 'elevated-3-way' ? 0.16 : ( cell.elevatedType === 'elevated-4-way' ? 0.17 : 0.01 );
+				} else if ( hostCell.elevatedType === 'elevated-3-way' || hostCell.elevatedType === 'elevated-4-way' || hostCell.elevatedType === 'elevated-checkpoint' ) {
+					surfaceLift = hostCell.elevatedType === 'elevated-3-way' ? 0.16 : ( hostCell.elevatedType === 'elevated-4-way' ? 0.17 : 0.01 );
 				}
 				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + BLOCK_HEIGHT_OFFSET + yOffset + 0.12 + surfaceLift + idx * 0.008, ( gz + 0.5 ) * CELL_RAW );
 				// Slope tilt: flush with the ramp, matching the game build. Uses the
 				// cell's own elevated block, so off-grid cells tilt correctly too.
-				if ( cell.elevatedType === 'slope-up' || cell.elevatedType === 'slope-down' ) {
-					const slopeOrient = cell.elevatedType === 'slope-down'
-						? ( ORIENT_180[ cell.elevatedOrient || 0 ] ?? ( cell.elevatedOrient || 0 ) )
-						: ( cell.elevatedOrient || 0 );
+				if ( hostCell.elevatedType === 'slope-up' || hostCell.elevatedType === 'slope-down' ) {
+					const slopeOrient = hostCell.elevatedType === 'slope-down'
+						? ( ORIENT_180[ hostCell.elevatedOrient || 0 ] ?? ( hostCell.elevatedOrient || 0 ) )
+						: ( hostCell.elevatedOrient || 0 );
 					patch.rotation.order = 'YXZ';
 					patch.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ slopeOrient ] || 0 );
 					patch.rotation.x = - Math.PI / 2 + Math.atan2( ELEVATED_HEIGHT, CELL_RAW );
@@ -3670,6 +3707,10 @@ function computeCausticShade( normal ) {
 	function addObstacleGhost( type, gx, gz, orient, target ) {
 
 		const group = new THREE.Group();
+		// Ghost previews the footprint-resolved height (off-grid obstacles
+		// over elevated blocks / tunnels preview at the block top, not at
+		// ground level).
+		group.position.y = overlayYOffset( gx, gz );
 		const toLocal = ( world ) => world / GRID_SCALE;
 		const cx = ( gx + 0.5 ) * CELL_RAW;
 		const cz = ( gz + 0.5 ) * CELL_RAW;
@@ -5579,6 +5620,16 @@ function refreshMovingSpeedUi() {
 	window.__editorDebug = {
 		getCustomAssets: () => [ ...customAssets.values() ],
 		getGridSnapshot: () => getCellsArray(),
+		// Overlay height probe: the footprint-resolved host + Y offset an
+		// obstacle/surface at (gx, gz) would render/collide at.
+		getOverlayInfo: ( gx, gz ) => {
+			const host = resolveOverlayHostCell( gx, gz );
+			return {
+				yOffset: overlayYOffset( gx, gz ),
+				hostElevatedType: host?.elevatedType || null,
+				hostTunnel: host ? { closed: Boolean( host.tunnel?.closed ) } : null,
+			};
+		},
 	};
 	panelOverlay?.addEventListener( 'click', closePanelCenter );
 	document.querySelectorAll( '[data-close-panel]' ).forEach( ( btn ) => btn.addEventListener( 'click', closePanelCenter ) );

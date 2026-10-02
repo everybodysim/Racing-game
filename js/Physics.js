@@ -1039,6 +1039,45 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			.filter( entry => Array.isArray( entry ) && entry.length >= 5 && entry[ 2 ] !== 1 )
 			.map( entry => `${ Number( entry[ 0 ] ) },${ Number( entry[ 1 ] ) }` )
 	);
+
+	// ── OVERLAY FOOTPRINT RESOLVER (user order 2026-10-01) ──
+	// Mirror of Track.js: an overlay collider's height comes from the
+	// elevated block / tunnel whose footprint CONTAINS the overlay's
+	// center, not from an exact-key lookup (which broke for every
+	// off-grid piece). Exact same-coordinate match wins first (legacy),
+	// then the nearest containing footprint.
+	const overlayFootprints = [];
+	for ( const [ gxRaw, gzRaw, elevatedType, orient = 0 ] of elevatedEntries ) {
+
+		const fpGx = Number( gxRaw ), fpGz = Number( gzRaw );
+		if ( ! Number.isFinite( fpGx ) || ! Number.isFinite( fpGz ) ) continue;
+		overlayFootprints.push( { gx: fpGx, gz: fpGz, elevatedEntry: elevatedMap.get( `${ gxRaw },${ gzRaw }` ) } );
+
+	}
+	for ( const entry of tunnelEntriesForBowl ) {
+
+		if ( ! Array.isArray( entry ) ) continue;
+		const fpGx = Number( entry[ 0 ] ), fpGz = Number( entry[ 1 ] );
+		if ( ! Number.isFinite( fpGx ) || ! Number.isFinite( fpGz ) ) continue;
+		overlayFootprints.push( { gx: fpGx, gz: fpGz, isTunnel: true, closed: entry.length >= 5 && entry[ 2 ] === 1 } );
+
+	}
+	function resolveOverlayFootprint( gx, gz ) {
+
+		const u = Number( gx ) + 0.5;
+		const v = Number( gz ) + 0.5;
+		let best = null, bestD = Infinity;
+		for ( const f of overlayFootprints ) {
+
+			if ( f.gx === gx && f.gz === gz ) return f; // exact match: legacy behavior
+			if ( u < f.gx || u >= f.gx + 1 || v < f.gz || v >= f.gz + 1 ) continue;
+			const d = Math.abs( u - ( f.gx + 0.5 ) ) + Math.abs( v - ( f.gz + 0.5 ) );
+			if ( d < bestD ) { bestD = d; best = f; }
+
+		}
+		return best;
+
+	}
 	// Map each pool-slope cell to the (dx,dz) side it exits toward, so the
 	// corresponding pool wall can be skipped (otherwise it blocks the car).
 	const poolSlopeExit = new Map();
@@ -1199,8 +1238,12 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 
 		// Keep physics aligned with Track.js: overlays inside open-top tunnels
 		// are lowered to the tunnel floor. Closed roofs stay at surface height.
-		if ( tunnelOpenSet.has( `${ gx },${ gz }` ) ) return - TUNNEL_FLOOR_DROP;
-		const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
+		// Footprint resolution: works for off-grid overlays too (their center
+		// can sit over an elevated block / tunnel placed on- OR off-grid).
+		const f = resolveOverlayFootprint( gx, gz );
+		if ( ! f ) return 0;
+		if ( f.isTunnel ) return f.closed ? 0 : - TUNNEL_FLOOR_DROP;
+		const elevatedEntry = f.elevatedEntry;
 		if ( ! elevatedEntry ) return 0;
 		return elevatedEntry.type === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
 

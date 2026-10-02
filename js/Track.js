@@ -1267,6 +1267,66 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			elevatedMap.set( `${ gx },${ gz }`, normalizeElevatedEntry( elevatedType, orient ) );
 
 		}
+	// ── OVERLAY FOOTPRINT RESOLVER (user order 2026-10-01) ──
+	// Off-grid overlays (fractional gx/gz) broke every elevation lookup:
+	// exact-key map lookups only ever matched on-grid pieces, so obstacles
+	// and surfaces placed off-grid over elevated blocks or tunnels fell to
+	// ground level. The height is now decided by WHERE THE OVERLAY'S CENTER
+	// IS: any elevated block, tunnel, or hub whose footprint contains that
+	// point provides the offset, off-grid or not. An exact same-coordinate
+	// match wins first (identical to the old behavior), then the nearest
+	// containing footprint (for straddles). A piece's mesh is centered at
+	// (gx + 0.5) * CELL_RAW, so its footprint in cell units (x / CELL_RAW)
+	// is [gx, gx+1) x [gz, gz+1).
+	const overlayFootprints = [];
+	for ( const [ gxRaw, gzRaw, elevatedType, orient = 0 ] of elevatedCells ) {
+
+		const fpGx = Number( gxRaw ), fpGz = Number( gzRaw );
+		if ( ! Number.isFinite( fpGx ) || ! Number.isFinite( fpGz ) ) continue;
+		if ( ! ELEVATED_TYPES.has( elevatedType ) ) continue;
+		overlayFootprints.push( { gx: fpGx, gz: fpGz, elevatedEntry: normalizeElevatedEntry( elevatedType, orient ) } );
+
+	}
+	for ( const [ key, info ] of tunnelInfoMap ) {
+
+		const [ fpGx, fpGz ] = key.split( ',' ).map( Number );
+		overlayFootprints.push( { gx: fpGx, gz: fpGz, isTunnel: true, closed: Boolean( info.closed ) } );
+
+	}
+	for ( const hubKey of hubCellSet ) {
+
+		const [ fpGx, fpGz ] = hubKey.split( ',' ).map( Number );
+		if ( Number.isFinite( fpGx ) && Number.isFinite( fpGz ) ) overlayFootprints.push( { gx: fpGx, gz: fpGz, isHub: true } );
+
+	}
+	function resolveOverlayFootprint( gx, gz ) {
+
+		const u = Number( gx ) + 0.5;
+		const v = Number( gz ) + 0.5;
+		let best = null, bestD = Infinity;
+		for ( const f of overlayFootprints ) {
+
+			if ( f.gx === gx && f.gz === gz ) return f; // exact match: legacy behavior
+			if ( u < f.gx || u >= f.gx + 1 || v < f.gz || v >= f.gz + 1 ) continue;
+			const d = Math.abs( u - ( f.gx + 0.5 ) ) + Math.abs( v - ( f.gz + 0.5 ) );
+			if ( d < bestD ) { bestD = d; best = f; }
+
+		}
+		return best;
+
+	}
+	// Y offset for any overlay (bump/pole/cube/wall/jump/boost) from the
+	// footprint that contains its center. Hubs are ground level: no lift.
+	function overlayFootprintYOffset( gx, gz ) {
+
+		const f = resolveOverlayFootprint( gx, gz );
+		if ( ! f ) return 0;
+		if ( f.isTunnel ) return f.closed ? 0 : - TUNNEL_DROP;
+		if ( f.isHub ) return 0;
+		return getOverlayHeightOffset( f.elevatedEntry, false );
+
+	}
+
 		// Cells covered by a slope block (slope-up / slope-down). Trees must
 		// not spawn under a slope, so both auto-forest and hand-placed
 		// decorations skip these cells.
@@ -1520,11 +1580,14 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			// Bumps are allowed inside open-top tunnels, but not on closed roofs.
 			// Closed roofs stay at surface level and the large bump collider would
 			// intersect the sealed tunnel volume until its collider is redesigned.
-			if ( tunnelInfoMap.get( `${ gx },${ gz }` )?.closed ) continue;
+			// Closed-roof skip follows the footprint resolver: an off-grid
+			// bump whose center is over a closed roof skips exactly like an
+			// on-grid one always did.
+			if ( resolveOverlayFootprint( gx, gz )?.isTunnel === true && resolveOverlayFootprint( gx, gz ).closed ) continue;
 			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
 			if ( piece ) {
 
-				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
+				const yOffset = overlayFootprintYOffset( gx, gz );
 				piece.position.y += yOffset;
 				trackPieceGroup.add( piece );
 
@@ -1538,7 +1601,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				getSharedOverlayParts().pole.geometry,
 				getSharedOverlayParts().pole.material
 			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
+			const yOffset = overlayFootprintYOffset( gx, gz );
 			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( POLE_HEIGHT * 0.5 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			pole.castShadow = true;
 			pole.receiveShadow = true;
@@ -1561,7 +1624,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				getSharedOverlayParts().cube.geometry,
 				getSharedOverlayParts().cube.material
 			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
+			const yOffset = overlayFootprintYOffset( gx, gz );
 			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			cube.castShadow = true;
 			cube.receiveShadow = true;
@@ -1658,7 +1721,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( barrier ) {
 
 				barrier.scale.multiplyScalar( BARRIER_WALL_SCALE );
-				barrier.position.y += getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
+				barrier.position.y += overlayFootprintYOffset( gx, gz );
 				barrier.traverse( ( child ) => {
 
 					if ( child.isMesh ) { child.castShadow = true; child.receiveShadow = true; }
@@ -1672,7 +1735,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					getSharedOverlayParts().wall.geometry,
 					getSharedOverlayParts().wall.material
 				);
-				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
+				const yOffset = overlayFootprintYOffset( gx, gz );
 				wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 				wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
 				wall.castShadow = true;
@@ -1700,7 +1763,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					}
 
 				} );
-				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
+				const yOffset = overlayFootprintYOffset( gx, gz );
 				piece.position.y += yOffset;
 				trackPieceGroup.add( piece );
 
@@ -1714,7 +1777,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				getSharedOverlayParts().jump.geometry,
 				getSharedOverlayParts().jump.material
 			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ), tunnelOpenSet.has( `${ gx },${ gz }` ) );
+			const yOffset = overlayFootprintYOffset( gx, gz );
 			jump.position.set( ( gx + 0.5 ) * CELL_RAW, JUMP_RAMP_Y + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			jump.rotation.order = 'YXZ';
 			jump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
@@ -1773,7 +1836,12 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				surfaceMatCache.set( surfaceType, material );
 
 			}
-			const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
+			// Footprint-resolved host: the elevated block / tunnel / hub that
+			// contains this surface's center, off-grid or not.
+			const hostFootprint = resolveOverlayFootprint( gx, gz );
+			const elevatedEntry = hostFootprint && ! hostFootprint.isTunnel && ! hostFootprint.isHub ? hostFootprint.elevatedEntry : null;
+			const hostTunnelClosed = hostFootprint?.isTunnel === true && hostFootprint.closed;
+			const hostTunnelOpen = hostFootprint?.isTunnel === true && ! hostFootprint.closed;
 			const addPatch = ( overlayOffset ) => {
 
 				const patch = new THREE.Mesh( geometry, material );
@@ -1796,9 +1864,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			};
 			// Pads on 3-way/4-way blocks sit ABOVE the block (+0.45) so they
 			// are always visible — ground and elevated, matching the editor.
-			const isWay = ( ! elevatedEntry && hubCellSet.has( `${ gx },${ gz }` ) )
+			const isWay = ( ! elevatedEntry && hostFootprint?.isHub === true )
 				|| ( elevatedEntry && ( elevatedEntry.type === 'elevated-3-way' || elevatedEntry.type === 'elevated-4-way' ) );
-			addPatch( getOverlayHeightOffset( elevatedEntry, tunnelOpenSet.has( `${ gx },${ gz }` ) ) + ( isWay ? 0.05 : 0 ) );
+			addPatch( getOverlayHeightOffset( elevatedEntry, hostTunnelOpen ) + ( isWay ? 0.05 : 0 ) );
 			// Cross blocks: the underpass road below the bridge is a real
 			// driving surface, so a pad/surface on the cell also renders a
 			// second patch on the bottom road, at the normal ground patch
@@ -1809,7 +1877,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			// CLOSED-top tunnels (user order): a surface on the roof also
 			// renders in the tunnel below — the pit block is a real driving
 			// surface too. Visual only; the pad effect stays cell-wide.
-			if ( tunnelInfoMap.get( `${ gx },${ gz }` )?.closed ) addPatch( - TUNNEL_DROP );
+			if ( hostTunnelClosed ) addPatch( - TUNNEL_DROP );
 
 		}
 
