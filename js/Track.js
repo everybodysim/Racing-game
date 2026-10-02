@@ -1545,12 +1545,20 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				// shifted fully INSIDE this pit — outer face 0.002 inside the
 				// boundary plane, so it can never poke across into a pool's
 				// wall on the same boundary (pool slabs sit centered on the
-				// plane, faces at ±0.04; these faces at -0.082/-0.002 — no
+				// plane, faces at ±0.04; these faces at -0.042/-0.002 — no
 				// plane ever matches: no z-fighting, no clipping).
-				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, TUNNEL_WALL_H, CELL_RAW * 0.08 ), tunnelWallMat );
+				// THIN WALLS (user order 2026-10-01): the old 0.08-thick slab
+				// put its inner face 0.8 units into the pit and BURIED the
+				// sunk road piece's own raised walls, so tunnels read almost a
+				// unit narrower than the road inside them. Halve the slab to
+				// 0.04: the pit keeps its full-span dirt seal (no seams/holes),
+				// the inner face sits at 0.042 inside the boundary, and the
+				// road piece's walls poke through as the visible tunnel wall —
+				// matching the wall colliders the car actually hits.
+				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, TUNNEL_WALL_H, CELL_RAW * 0.04 ), tunnelWallMat );
 				// Rim sits 2cm BELOW the surrounding ground — no dirt visible
 				// from above (colliders stay flush; this is the visual only).
-				wall.position.set( side.x - side.dx * CELL_RAW * 0.042, 0.48 - TUNNEL_WALL_H * 0.5, side.z - side.dz * CELL_RAW * 0.042 );
+				wall.position.set( side.x - side.dx * CELL_RAW * 0.022, 0.48 - TUNNEL_WALL_H * 0.5, side.z - side.dz * CELL_RAW * 0.022 );
 				wall.rotation.y = side.ry;
 				wall.castShadow = true;
 				wall.receiveShadow = true;

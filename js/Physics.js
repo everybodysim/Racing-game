@@ -893,6 +893,60 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	const tunnelSlopeCenterY = ( poolGroundTop + tunnelFloorBoxTop ) * 0.5
 		- ELEVATED_SURFACE_HALF_H * Math.cos( tunnelSlopeAngle );
 	const tunnelSlopeShift = ELEVATED_SURFACE_HALF_H * Math.sin( tunnelSlopeAngle );
+	// DESCENT-SLOPE WALLS (user order 2026-10-01): a normal slope is railed
+	// by 5 wall boxes besides its ramp surface — 2 pitched rails along the
+	// ramp + 2 ground arms at the road edges + a cross wall capping its tall
+	// end (addSlopeSideWalls + addSlopeGroundWalls). Tunnel and pool slopes
+	// had ONLY the ramp box: the rail line from the surface road stopped dead
+	// at the pit mouth, and the deep flanks had no curb, so a car could veer
+	// off the ramp sideways into the pit with nothing to stop it. Mirror the
+	// normal slope's set adapted to the descending ramp:
+	//   - 2 pitched rails along the ramp (same pitch/yaw as the ramp box)
+	//   - 2 arms standing on the pit/pool floor at the road edges: they poke
+	//     out through the ramp surface near the deep end, so the rail line
+	//     runs continuously from the surface road, down the ramp, onto the
+	//     pit floor's own road walls (tunnels) / the pool entry curbs (pools).
+	// The normal slope's 5th box — the cross capping its tall GROUND end —
+	// has no descent equivalent: the descent's tall end is the entry mouth,
+	// and the ramp box's own face already seals that boundary from below the
+	// pit floor to the surface; a wall there would block the entrance.
+	function addDescentSlopeWalls( gx, gz, flipOrient, angle, halfLen, centerY, shift, armY ) {
+
+		const cx = ( gx + 0.5 ) * CELL_RAW * S;
+		const cz = ( gz + 0.5 ) * CELL_RAW * S;
+		const yaw = THREE.MathUtils.degToRad( ORIENT_DEG[ flipOrient ] ?? 0 );
+		// Pitched rails: parallel to the ramp surface, raised like the normal
+		// slope's side walls (SLOPE_SIDE_WALL_RAISE), half a wall tall.
+		const railQuat = new THREE.Quaternion().setFromEuler( new THREE.Euler( - angle, yaw, 0, 'YXZ' ) );
+		const railQuaternion = [ railQuat.x, railQuat.y, railQuat.z, railQuat.w ];
+		const shiftX = Math.sin( yaw ) * shift;
+		const shiftZ = Math.cos( yaw ) * shift;
+		for ( const side of [ - 1, 1 ] ) {
+
+			const localX = side * WALL_X * S;
+			const offsetX = localX * Math.cos( yaw );
+			const offsetZ = - localX * Math.sin( yaw );
+			const halfExtents = [ hThick, ELEVATED_WALL_HALF_H, halfLen ];
+			const position = [ cx + shiftX + offsetX, centerY + SLOPE_SIDE_WALL_RAISE, cz + shiftZ + offsetZ ];
+			addWallBody( halfExtents, position, railQuaternion );
+
+		}
+		// Floor arms: identical to the normal slope's ground arms (road-edge
+		// rails, full cell long) but standing on the pit/pool floor — the
+		// descent's "ground" reference level.
+		const rad = yaw;
+		const cr = Math.cos( rad ), sr = Math.sin( rad );
+		const armQuaternion = [ 0, Math.sin( rad / 2 ), 0, Math.cos( rad / 2 ) ];
+		for ( const side of [ - 1, 1 ] ) {
+
+			const lx = side * WALL_X;
+			const wx = cx + ( lx * cr ) * S;
+			const wz = cz + ( - lx * sr ) * S;
+			addWallBody( [ hThick, hHeight, hLen ], [ wx, armY, wz ], armQuaternion );
+
+		}
+
+	}
 	function addTunnelSlopeCollider( gx, gz, orient = 0 ) {
 
 		const cx = ( gx + 0.5 ) * CELL_RAW * S;
@@ -916,6 +970,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			restitution: 0.0,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+		// Tunnel slope wall set (rails + pit-floor arms) — mirrors the normal
+		// slope; arms stand at the pit-floor rail height so they line up with
+		// the sunk road pieces' own walls.
+		addDescentSlopeWalls( gx, gz, flipOrient, tunnelSlopeAngle, tunnelSlopeHalfLen, tunnelSlopeCenterY, tunnelSlopeShift, wallY - TUNNEL_FLOOR_DROP );
 
 	}
 	function addPoolSlopeCollider( gx, gz, orient = 0 ) {
@@ -938,6 +996,10 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 			restitution: 0.0,
 		} );
 		if ( debugGroup ) addDebugBox( debugGroup, halfExtents, position, quaternion );
+		// Pool slope wall set (rails + pool-floor arms) — mirrors the normal
+		// slope; arms stand at the pool-floor rail height as the pool's entry
+		// curbs.
+		addDescentSlopeWalls( gx, gz, flipOrient, poolSlopeAngle, poolSlopeHalfLen, poolSlopeCenterY, poolSlopeShift, wallY - POOL_FLOOR_DROP );
 
 	}
 
