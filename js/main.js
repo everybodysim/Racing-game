@@ -6,8 +6,8 @@ import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=17';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000293';
-import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260957';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000294';
+import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260958';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
@@ -6434,8 +6434,16 @@ async function init() {
 		castRay( world, camRayCollector, camRaySettings, camRayOrigin, camRayDir, length, camRayFilter );
 		if ( camRayCollector.hit.status !== CastRayStatus.COLLIDING ) return length;
 		// First hit along the car→camera segment: park the camera just short of it.
-		let freeLen = camRayCollector.hit.fraction * length - CAM_CLIP_MARGIN;
-		freeLen = Math.max( freeLen, Math.min( CAM_CLIP_MIN, length ) );
+		const wallDist = camRayCollector.hit.fraction * length;
+		let freeLen = wallDist - CAM_CLIP_MARGIN;
+		if ( freeLen < Math.min( CAM_CLIP_MIN, length ) ) {
+			// The 1.4 min-distance floor must NEVER push the camera THROUGH a
+			// nearby wall — tunnel pit walls sit closer than that, and the
+			// floor shoved the camera clean outside the tunnel (user order
+			// 2026-10-02). When the wall is nearer than the comfortable
+			// minimum, park just short of the wall instead of beyond it.
+			freeLen = Math.max( Math.min( wallDist - 0.06, length ), 0.3 );
+		}
 		return Math.min( freeLen, length );
 
 	};

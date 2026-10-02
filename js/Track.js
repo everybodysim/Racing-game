@@ -1574,7 +1574,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					// Tunnel-sunk shells: no shadows at all (user order 2026-10-01).
 					block.traverse( ( c ) => { if ( c.isMesh && c.userData.isChokeMesh && ! c.userData.isChokeTreeMesh ) c.userData.noCastShadow = true; } );
 					block.position.y -= TUNNEL_DROP;
-					if ( info.type === 'track-4-way' ) block.position.y += 0.12;
+					if ( info.type === 'track-4-way' ) block.position.y += 0.16;
 					if ( info.type === 'track-choke-cross' ) block.position.y += 0.16;
 					trackPieceGroup.add( block );
 

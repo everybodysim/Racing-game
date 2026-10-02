@@ -211,7 +211,14 @@ export function buildWallColliders( world, debugGroup, customCells, extras = nul
 	}
 
 	// Bump collision approximation: embed a sphere in the ground to make a smooth "dome"
-	const BUMP_RADIUS = 7.5 * S;
+	// MATCHED TO THE MESH (user order 2026-10-02): the visible bump is a
+	// dome of height ~0.45 and base radius 1.30 (track-bump.glb). The old
+	// 7.5-radius sphere kept the same apex but buried a ball ~5.5 wide under
+	// the block — it intruded into elevated decks' under-road space, pool
+	// bowls and tunnel volumes. R = 1.30²/(2·0.42) + 0.42/2 ≈ 2.222 gives a
+	// base radius of exactly 1.30 (the visible footprint) with the apex
+	// (rise 0.42, the top the car rides) IDENTICAL to before.
+	const BUMP_RADIUS = 2.222 * S;
 	const BUMP_RISE = 0.42 * S;
 	const bumpY = groundY + BUMP_RISE - BUMP_RADIUS;
 
