@@ -37,21 +37,16 @@
 	#timing { font: 600 13px ui-monospace, Menlo, Consolas, monospace; color: #8b949e; }
 	#timing b { color: #e6edf3; }
 	#panel label { font-size: 12px; font-weight: 700; color: #8b949e; text-transform: uppercase; letter-spacing: .04em; }
-	#inputs-wrap { position: relative; flex: 1; min-height: 120px;
+	#inputs-wrap { position: relative; flex: 1; min-height: 120px; overflow: hidden;
 		background: #0d1117; border: 1px solid #30363d; border-radius: 8px; }
 	#inputs { position: absolute; inset: 0; width: 100%; height: 100%; resize: none;
-		background: transparent; color: transparent; caret-color: #e6edf3;
-		border: 0; border-radius: 8px; padding: 10px; overflow-y: scroll;
+		background: #0d1117; color: #e6edf3; caret-color: #e6edf3;
+		border: 0; border-radius: 8px; padding: 10px; overflow: auto; white-space: pre;
 		font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
 	#inputs::placeholder { color: #6e7681; }
 	#inputs::selection { background: rgba(56,139,253,.45); }
-	#inputs-mirror { position: absolute; inset: 0; padding: 10px; pointer-events: none;
-		overflow-y: scroll; overflow-x: hidden; border-radius: 8px;
-		font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: #e6edf3;
-		white-space: pre-wrap; word-break: normal; }
-	#inputs-mirror .cur { color: #7ee787; }
-	#panel .row { display: flex; gap: 8px; }
-	#panel button { flex: 1; padding: 9px 0; border: 0; border-radius: 8px; font-weight: 600; cursor: pointer; }
+	#panel button { flex: 1; padding: 9px 0; border: 0; border-radius: 8px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+	#panel .row { flex-wrap: wrap; }
 	#run-btn { background: #238636; color: #fff; }
 	#stop-btn { background: #6e7681; color: #fff; }
 	#validation { font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: #f85149;
@@ -128,22 +123,40 @@
 					<select id="bf-goal" title="What counts as success" style="flex:1;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:5px 6px;font:600 12px/1.2 ui-monospace,Menlo,Consolas,monospace;">
 						<option value="time">Goal: fastest lap</option>
 						<option value="target">Goal: reach target area</option>
+						<option value="ai">Goal: AI driver — neural net (learns to drive)</option>
 					</select>
 					<button id="bf-target-btn" style="display:none;flex:1;background:#1f6feb;color:#fff;">Select target ⌖</button>
+				</div>
+				<div class="row" id="ai-row" style="display:none;align-items:center;gap:8px;">
+					<button id="bf-guide-btn" style="flex:1;background:#238636;color:#fff;">Refresh guide lap ⤴</button>
+					<button id="bf-best-btn" style="flex:1;background:#1f6feb;color:#fff;">Use AI best run ⤓</button>
+				</div>
+				<div class="row" id="ai-row3" style="display:none;align-items:center;gap:8px;">
+					<button id="bf-brain-btn" title="Wipe the saved AI brain for this track" style="flex:0.55;background:#6e2b2b;color:#fff;">Brain ✖</button>
+					<span id="bf-guide-status" style="flex:2;font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#8b949e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">no guide yet — captured from your run on start</span>
+				</div>
+				<div class="row" id="ai-row2" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#8b949e;">
+					<input type="checkbox" id="ai-useguide" checked style="margin:0;">
+					<label for="ai-useguide" style="text-transform:none;letter-spacing:0;">guide lap = the net's eyes</label>
+					<input type="checkbox" id="ai-debug-toggle" style="margin:0;">
+					<label for="ai-debug-toggle" style="text-transform:none;letter-spacing:0;">debug panel</label>
 				</div>
 				<div class="row" style="align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#8b949e;">
 					<label for="bf-rounds" style="text-transform:none;letter-spacing:0;">rounds
 						<input id="bf-rounds" type="number" min="1" max="2000" value="20" style="width:64px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:3px 6px;font:inherit;">
 					</label>
-					<label for="bf-beam" style="text-transform:none;letter-spacing:0;">beam
+					<label for="bf-beam" id="bf-beam-label" style="text-transform:none;letter-spacing:0;">beam
 						<input id="bf-beam" type="number" min="1" max="8" value="4" style="width:48px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:3px 6px;font:inherit;">
+					</label>
+					<label for="bf-pop" id="bf-pop-label" style="display:none;text-transform:none;letter-spacing:0;">population
+						<input id="bf-pop" type="number" min="4" max="32" value="20" style="width:48px;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:3px 6px;font:inherit;">
 					</label>
 					<label for="bf-mut" style="text-transform:none;letter-spacing:0;">inputs changed/round
 						<input id="bf-mut" type="range" min="1" max="10" value="1" style="width:96px;">
 						<span id="bf-mut-val">1</span>
 					</label>
 				</div>
-				<div class="row" style="align-items:center;gap:6px;font-size:12px;color:#8b949e;margin-top:6px;">
+				<div class="row" id="bf-add-row" style="align-items:center;gap:6px;font-size:12px;color:#8b949e;margin-top:6px;">
 					<input type="checkbox" id="bf-add" style="margin:0;">
 					<label for="bf-add" style="text-transform:none;letter-spacing:0;">add 1 input each round</label>
 				</div>
@@ -152,6 +165,8 @@
 					<button id="bf-stop" style="background:#6e7681;color:#fff;" disabled>Stop</button>
 				</div>
 				<div id="bf-status" style="font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#8b949e;margin-top:6px;white-space:pre-wrap;"></div>
+				<div id="ai-live" style="display:none;font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#e6edf3;background:#0d1117;border:1px solid #30363d;border-radius:6px;margin-top:6px;padding:8px 10px;"></div>
+				<div id="ai-debug" style="display:none;font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#7ee787;background:#0d1117;border:1px solid #30363d;border-radius:6px;margin-top:6px;padding:8px 10px;max-height:170px;overflow-y:auto;white-space:pre-wrap;">AI debug — start a run to see the net's sensors, rewards and live progress.</div>
 			</div>
 			<div id="hint">Looping tracks record lap 2 (flying start, state carried across the line). Non-looping tracks record lap 1. Looping tracks: drive 2 laps — the script keeps BOTH laps (edit either), the time shown is lap 2. Non-looping: drive 1 lap. Countdown runs before recording; R restarts it. Replays: lap 1 re-runs, then lap 2 starts from the recorded line-crossing state.</div>
 		</div>
@@ -310,6 +325,41 @@
 				$( 'bf-stop' ).disabled = true;
 				$( 'bf-status' ).textContent = 'error: ' + data.errors.join( '; ' );
 				break;
+			case 'tas-ai-telemetry':
+				lvRender( data );
+				break;
+			case 'tas-ai-eval':
+				$( 'bf-status' ).textContent = data.note ? `NEURAL: ${ data.note }` : `NEURAL: evaluating ${ data.n }/${ data.total } — watch it drive…`;
+				break;
+			case 'tas-ai-progress':
+				$( 'bf-status' ).textContent = `gen ${ data.round }/${ data.rounds }${ data.nn ? ' NEURAL' : '' } — best ${ data.bestTime === 'DNF' ? 'no finish yet' : data.bestTime + 's' } — best prog ${ data.bestProg } — gen top ${ data.genProg }${ data.adopted ? ' ✓ adopted' : '' } · ${ data.evals } sims${ data.fast ? ' · save-state' : '' }`;
+				break;
+			case 'tas-ai-done':
+				$( 'bf-start' ).disabled = false;
+				$( 'bf-stop' ).disabled = true;
+				$( 'bf-status' ).textContent = data.finish
+					? `AI done — best ${ data.bestTime }s${ data.improved ? ' (adopted)' : '' }`
+					: data.blindKept ? 'AI done — no finisher yet, but the net’s best drive is in your inputs box (replay it!)'
+					: 'AI done — no finisher found (your run is untouched)';
+				statusEl.textContent = data.finish ? `AI driver finished: ${ data.bestTime }s` : 'AI driver: no finishing run found yet — add generations or improve the seed';
+				break;
+			case 'tas-ai-debug':
+				// always cached; only painted when the toggle shows the panel
+				$( 'ai-debug' ).textContent = data.text;
+				$( 'ai-debug' ).scrollTop = $( 'ai-debug' ).scrollHeight;
+				break;
+			case 'tas-ai-error':
+				$( 'bf-start' ).disabled = false;
+				$( 'bf-stop' ).disabled = true;
+				$( 'bf-status' ).textContent = 'AI error: ' + data.errors.join( '; ' );
+				break;
+			case 'tas-ai-guide-ok':
+				$( 'bf-guide-status' ).textContent = `guide: ${ data.pts } pts${ data.fast ? ' (save-state lap)' : '' }`;
+				$( 'bf-status' ).textContent = 'guide lap captured from the current run';
+				break;
+			case 'tas-ai-guide-error':
+				$( 'bf-guide-status' ).textContent = 'guide capture failed';
+				break;
 			case 'tas-target-placed':
 				setBfTargetState( 'placed' );
 				bfGoal.value = 'target';
@@ -344,9 +394,33 @@
 	function refreshGoalUi() {
 
 		const goal = bfGoal.value;
+		const isAi = goal === 'ai';
 		bfTargetBtn.style.display = goal === 'target' ? '' : 'none';
+		$( 'ai-row' ).style.display = isAi ? '' : 'none';
+		$( 'ai-row2' ).style.display = isAi ? '' : 'none';
+		$( 'ai-row3' ).style.display = isAi ? '' : 'none';
+		$( 'bf-pop-label' ).style.display = isAi ? '' : 'none';
+		$( 'bf-beam-label' ).style.display = isAi ? 'none' : '';
+		// input-evolution controls do nothing for the neural net — hide them
+		$( 'bf-mut' ).closest( 'label' ).style.display = isAi ? 'none' : '';
+		$( 'bf-add-row' ).style.display = isAi ? 'none' : '';
+		syncGuideUi();
 
 	}
+	function syncGuideUi() {
+
+		// carrot switch off -> the guide lap is unused; hide its controls
+		const show = $( 'ai-useguide' ).checked ? '' : 'none';
+		$( 'bf-guide-btn' ).style.display = show;
+		$( 'bf-guide-status' ).style.display = show;
+
+	}
+	$( 'ai-useguide' ).addEventListener( 'change', syncGuideUi );
+	$( 'ai-debug-toggle' ).addEventListener( 'change', () => {
+
+		$( 'ai-debug' ).style.display = $( 'ai-debug-toggle' ).checked ? '' : 'none';
+
+	} );
 	function setBfTargetState( st ) {
 
 		bfTargetState = st;
@@ -381,6 +455,124 @@
 
 	} );
 	refreshGoalUi();
+	// ── AI LIVE TELEMETRY PANEL ──────────────────────────────────────────
+	// Built once on the first 'tas-ai-telemetry' message, then updated in
+	// place: live reward, the 26 sensor inputs (wall/water compasses + the
+	// numeric row) and the net's steer/throttle outputs.
+	const LV_DIRS = [ '\u2191', '\u2192', '\u2198', '\u2193', '\u2199', '\u2190', '\u2196', '\u21d7' ]; // clockwise from ahead
+	let lv = null;
+	function lvBuild() {
+
+		const wrap = $( 'ai-live' );
+		wrap.style.display = 'block';
+		wrap.innerHTML = ''
+			+ '<div id="lv-head" style="font-weight:700;color:#7ee787;">LIVE — waiting for the net…</div>'
+			+ '<div style="display:flex;gap:14px;margin-top:6px;align-items:flex-end;">'
+			+ '<div><div style="color:#8b949e;">walls</div><div id="lv-walls" style="display:grid;grid-template-columns:repeat(3,20px);gap:1px;"></div></div>'
+			+ '<div><div style="color:#8b949e;">water</div><div id="lv-water" style="display:grid;grid-template-columns:repeat(3,20px);gap:1px;"></div></div>'
+			+ '<div><div style="color:#8b949e;">outputs</div><div id="lv-out" style="display:grid;grid-template-columns:repeat(3,20px);gap:1px;"></div></div>'
+			+ '</div>'
+			+ '<div id="lv-nums" style="color:#8b949e;margin-top:6px;white-space:pre-wrap;">—</div>'
+			+ '<canvas id="lv-spark" width="300" height="30" style="margin-top:6px;display:block;"></canvas>';
+		// compass cells: 3x3 grid, dir d clockwise from ahead; grid order
+		// row-major = [↖,↑,↗, ←,◉,→, ↙,↓,↘]
+		const order = [ 7, 0, 1, 6, -1, 2, 5, 4, 3 ];
+		const AR = [ '\u2191', '\u2197', '\u2192', '\u2198', '\u2193', '\u2199', '\u2190', '\u2196' ];
+		lv = { head: $( 'lv-head' ), spark: $( 'lv-spark' ), nums: $( 'lv-nums' ), walls: [], water: [], out: [] };
+		for ( const id of [ 'walls', 'water' ] ) {
+
+			const grid = $( 'lv-' + id );
+			for ( let i = 0; i < 9; i ++ ) {
+
+				const c = document.createElement( 'div' );
+				if ( order[ i ] === -1 ) { c.textContent = '\u25c9'; c.style.textAlign = 'center'; c.style.background = '#161b22'; }
+				else c.textContent = AR[ order[ i ] ];
+				c.style.cssText += ';width:20px;height:18px;line-height:18px;text-align:center;border-radius:3px;font-size:11px;';
+				grid.appendChild( c );
+				if ( order[ i ] !== -1 ) lv[ id ].push( { el: c, d: order[ i ] } );
+
+			}
+
+		}
+		const og = $( 'lv-out' );
+		const ocs = [ '', '\u25b2', '', '\u25c0', '\u25c9', '\u25b6', '', '\u25bc', '' ];
+		for ( let i = 0; i < 9; i ++ ) {
+
+			const c = document.createElement( 'div' );
+			c.textContent = ocs[ i ] || '';
+			c.style.cssText = ';width:20px;height:18px;line-height:18px;text-align:center;border-radius:3px;font-size:11px;color:#30363d;background:#161b22;';
+			og.appendChild( c );
+			if ( i === 1 || i === 3 || i === 5 || i === 7 ) lv.out.push( c );
+
+		}
+
+	}
+	function lvRender( d ) {
+
+		if ( ! lv ) lvBuild();
+		if ( d.done ) { lv.head.textContent = 'SESSION ENDED'; lv.head.style.color = '#8b949e'; return; }
+		lv.head.style.color = '#7ee787';
+		if ( ! d.started || ! d.sensors ) {
+
+			lv.head.textContent = `LIVE · countdown… (gen ${ d.gen })`;
+			return;
+
+		}
+		lv.head.textContent = `LIVE · reward ${ d.rewardText } · step ${ d.step } · gen ${ d.gen } · eval ${ d.evals }`;
+		for ( const c of lv.walls ) {
+
+			const a = 1 - d.sensors[ c.d ];
+			c.el.style.background = `rgba( 255,140,60,${ ( a * 0.9 ).toFixed( 2 ) } )`;
+
+		}
+		for ( const c of lv.water ) {
+
+			const a = 1 - d.sensors[ 8 + c.d ];
+			c.el.style.background = `rgba( 90,160,255,${ ( a * 0.9 ).toFixed( 2 ) } )`;
+
+		}
+		lv.out[ 0 ].style.color = d.z > 0 ? '#7ee787' : '#30363d'; // throttle up
+		lv.out[ 1 ].style.color = d.x < 0 ? '#7ee787' : '#30363d'; // steer left
+		lv.out[ 2 ].style.color = d.x > 0 ? '#7ee787' : '#30363d'; // steer right
+		lv.out[ 3 ].style.color = d.z < 0 ? '#7ee787' : '#30363d'; // brake
+		const s = d.sensors;
+		lv.nums.textContent = `cp \u2192${ s[ 16 ].toFixed( 2 ) } \u2191${ s[ 17 ].toFixed( 2 ) } dist ${ s[ 18 ].toFixed( 2 ) }`
+			+ ` · guide \u22a5${ s[ 19 ].toFixed( 2 ) } carrot \u2192${ s[ 20 ].toFixed( 2 ) } \u2191${ s[ 21 ].toFixed( 2 ) }`
+			+ ` · spd ${ s[ 22 ].toFixed( 2 ) } · in x${ d.x > 0 ? '+' + d.x : d.x } z${ d.z > 0 ? '+' + d.z : d.z }`;
+		// sparkline: reward history, thin bars
+		const cv = lv.spark, g = cv.getContext( '2d' );
+		g.clearRect( 0, 0, cv.width, cv.height );
+		if ( d.hist && d.hist.length > 1 ) {
+
+			let mn = Infinity, mx = - Infinity;
+			for ( const v of d.hist ) { mn = Math.min( mn, v ); mx = Math.max( mx, v ); }
+			const span = Math.max( 0.001, mx - mn );
+			g.fillStyle = '#238636';
+			const bw = cv.width / d.hist.length;
+			d.hist.forEach( ( v, i ) => {
+
+				const h = 3 + ( ( v - mn ) / span ) * ( cv.height - 4 );
+				g.fillRect( i * bw, cv.height - h, Math.max( 1, bw - 0.5 ), h );
+
+			} );
+
+		}
+
+	}
+	$( 'bf-brain-btn' ).addEventListener( 'click', () => { sendToGame( 'tas-ai-brain-reset', {} ); } );
+	$( 'bf-best-btn' ).addEventListener( 'click', () => {
+
+		$( 'bf-status' ).textContent = 'asking the net for its best run…';
+		sendToGame( 'tas-ai-adopt', {} );
+
+	} );
+
+	$( 'bf-guide-btn' ).addEventListener( 'click', () => {
+
+		sendToGame( 'tas-ai-guide', { script: composeFull() } );
+		$( 'bf-guide-status' ).textContent = 'capturing…';
+
+	} );
 	$( 'load-btn' ).addEventListener( 'click', () => loadTrack( $( 'track-url' ).value.trim() ) );
 	$( 'track-url' ).addEventListener( 'keydown', ( e ) => { if ( e.key === 'Enter' ) loadTrack( e.target.value.trim() ); } );
 	$( 'use-btn' ).addEventListener( 'click', () => {
@@ -415,6 +607,22 @@
 		if ( bfGoal.value === 'target' && bfTargetState !== 'placed' ) {
 
 			$( 'bf-status' ).textContent = 'select a target area first — place the zone on the map';
+			return;
+
+		}
+		if ( bfGoal.value === 'ai' ) {
+
+			sendToGame( 'tas-ai', {
+				script: composeFull(),
+				mutations: Number( $( 'bf-mut' ).value ),
+				population: Number( $( 'bf-pop' ).value ) || 20,
+				addInput: $( 'bf-add' ).checked,
+				rounds: Math.max( 1, Number( $( 'bf-rounds' ).value ) || 20 ),
+				useGuide: $( 'ai-useguide' ).checked
+			} );
+			$( 'bf-start' ).disabled = true;
+			$( 'bf-stop' ).disabled = false;
+			$( 'bf-status' ).textContent = 'NEURAL: growing random nets + evaluating generation 0…';
 			return;
 
 		}
@@ -475,7 +683,7 @@
 			lap2Zero.parentElement.style.display = '';
 
 		}
-		inputsEl.addEventListener( 'input', () => { lineMap = null; hlLine = null; renderMirror(); syncMirrorScroll(); refreshLoopVisibility(); } );
+		inputsEl.addEventListener( 'input', () => { lineMap = null; hlLine = null; refreshLoopVisibility(); } );
 		lap2Zero.addEventListener( 'change', () => { if ( total != null ) slider.max = String( total - zeroOffset() ); slider.value = String( globalToSlider( Number( slider.value ) + ( lap2Zero.checked ? l1c : -l1c ) ) ); updateLabel( Number( slider.value ) + zeroOffset() ); } );
 		refreshLoopVisibility();
 
@@ -496,41 +704,10 @@
 
 		}
 
-		// Text-color highlight: a synced mirror div renders the SAME text
-		// behind the transparent-text textarea, the current step's line in
-		// green — the highlight IS the text in the actual box. No floating
-		// band to drift out of place, no selection theft, wrapping and
-		// scrolling are shared by construction.
-		const mirror = document.createElement( 'div' );
-		mirror.id = 'inputs-mirror';
-		inputsEl.parentElement.insertBefore( mirror, inputsEl );
-		let mirrorSpans = [];
-		let curSpan = null;
-		function setCurLine( line ) {
-
-			if ( curSpan ) curSpan.classList.remove( 'cur' );
-			curSpan = ( line != null && mirrorSpans[ line ] ) || null;
-			if ( curSpan ) curSpan.classList.add( 'cur' );
-
-		}
-		function renderMirror() {
-
-			const lines = inputsEl.value.split( '\n' );
-			mirror.textContent = '';
-			mirrorSpans = lines.map( ( l, i ) => {
-
-				const sp = document.createElement( 'span' );
-				sp.textContent = l;
-				mirror.appendChild( sp );
-				if ( i < lines.length - 1 ) mirror.appendChild( document.createTextNode( '\n' ) );
-				return sp;
-
-			} );
-			setCurLine( hlLine );
-
-		}
-		function syncMirrorScroll() { mirror.scrollTop = inputsEl.scrollTop; }
-		inputsEl.addEventListener( 'scroll', syncMirrorScroll );
+		// The inputs box is a PLAIN textarea now: visible text, real caret,
+		// real selection. The old transparent-text + mirror-div overlay was
+		// permanently 1-2 characters off (scrollbar gutters shift the two
+		// layouts apart) and made typing land in the wrong place.
 		function highlight( lap, entry ) {
 
 			if ( ! lineMap ) lineMap = buildLineMap();
@@ -538,14 +715,7 @@
 			const line = lines[ entry ];
 			if ( line == null ) return;
 			hlLine = line;
-			setCurLine( line );
-			const span = mirrorSpans[ line ];
-			if ( ! span ) return;
-			// Keep the current line comfortably in view — REAL geometry
-			// (wrapped lines included), not line-height guesswork.
-			const target = Math.max( 0, span.offsetTop - 10 - inputsEl.clientHeight / 3 );
-			if ( Math.abs( inputsEl.scrollTop - target ) > 40 ) inputsEl.scrollTop = target;
-			syncMirrorScroll();
+			label.title = `inputs line ${ line + 1 }`;
 
 		}
 
@@ -556,7 +726,6 @@
 		}
 
 		let hlLine = null;
-		renderMirror();
 		playBtn.addEventListener( 'click', () => { send_( 'tas-toggle-pause', {} ); } );
 		slider.addEventListener( 'pointerdown', () => { dragging = true; } );
 		window.addEventListener( 'pointerup', () => { dragging = false; } );

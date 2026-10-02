@@ -1,4 +1,4 @@
-// Collaborative track editing over PeerJS — the Multiplayer Editor.
+// Collaborative track editing over PeerJS ("Collaborate") — the multiplayer editor.
 //
 // A built-in editor feature (formerly an installable mod): editor.html's
 // main module always loads this file at boot and hands it a small bridge
@@ -700,7 +700,7 @@ function buildPanel() {
 	const panel = document.createElement( 'div' );
 	panel.id = 'mped-panel';
 	panel.innerHTML = `
-		<div id="mped-title">Multiplayer Editor</div>
+		<div id="mped-title">Collaborate</div>
 		<div id="mped-actions">
 			<button id="mped-host-btn" type="button">Host</button>
 			<button id="mped-join-btn" type="button">Join</button>

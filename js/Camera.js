@@ -46,6 +46,18 @@ export class Camera {
 		// world. If something with a hitbox blocks the car→camera segment, the
 		// camera pulls in front of it instead of clipping inside. null = off.
 		this.clipProbe = null;
+		// Ceiling probe (chase cam): ( origin, upLength ) => freeUpLength.
+		// Supplied by main.js — a straight-up physics raycast. When a static
+		// ceiling hangs right above the car (pool cross deck, low bridges),
+		// the camera's height clamps under it instead of rising past the
+		// block and getting covered by its top. null = off.
+		this.ceilingProbe = null;
+		// Straight-down probe (chase cam): ( origin, downLength ) => freeDown.
+		// Reports clearance to the first surface under the car.
+		this.floorProbe = null;
+		this.carInWater = false;
+		this._ceilingClamped = false;
+		this._submergedFraming = false;
 		this._clipDir = new THREE.Vector3();
 
 		this.camera.position.copy( this.offset );
@@ -62,7 +74,8 @@ export class Camera {
 
 	toggleMode() {
 
-		this.mode = this.mode === 'overview' ? 'chase' : 'overview';
+		// chase -> locked (rigid mount) -> overview -> chase
+		this.mode = this.mode === 'chase' ? 'locked' : this.mode === 'locked' ? 'overview' : 'chase';
 		if ( this.mode !== 'chase' ) this.hasChaseYaw = false;
 
 	}
@@ -70,6 +83,37 @@ export class Camera {
 	getMode() {
 
 		return this.mode;
+
+	}
+
+	// Ceiling clamp (chase cam): when a static ceiling hangs right above
+	// the car (pool cross deck, low bridges), pull the camera's height
+	// down under it. Under water, the camera is additionally kept BELOW
+	// the water surface — riding above the water/deck line puts the
+	// block's top between the camera and the car and the view is covered.
+	// Downward only: never raises the camera above its desired offset.
+	_applyCeilingClamp( camScale ) {
+
+		this._ceilingClamped = false;
+		if ( ! this.ceilingProbe || this._rotatedOffset.y <= 0 ) return;
+		const wantUp = this._rotatedOffset.y + 0.45;
+		const upFree = this.ceilingProbe( this.targetPosition, wantUp );
+		if ( upFree >= wantUp ) return;
+		// The ceiling is authoritative: the camera must sit BELOW it, even
+		// when that puts it below the car (a bumper-height shot looking up
+		// through the gap beats a camera parked inside the deck). Under
+		// water the floor stays permissive so it never pushes the camera
+		// back up through the slab; on dry land keep bumper height.
+		let clampedY = upFree - 0.45;
+		const minY = this.underwaterBlend > 0 ? - 0.9 * camScale : 0.25 * camScale;
+		clampedY = Math.max( clampedY, minY );
+		if ( clampedY < this._rotatedOffset.y ) {
+
+			this._rotatedOffset.y = clampedY;
+			this._ceilingClamped = true;
+			if ( this.targetPosition.y + clampedY < this.waterSurfaceY ) this._submergedFraming = true;
+
+		}
 
 	}
 
@@ -87,11 +131,66 @@ export class Camera {
 			Math.min( 1, dt / 0.16 )
 		);
 		if ( Number.isFinite( Number( dynamics.waterSurfaceY ) ) ) this.waterSurfaceY = Number( dynamics.waterSurfaceY );
+		this.carInWater = dynamics.carInWater === true;
+		this._submergedFraming = false;
+		// World-scale feel: when the car grows or shrinks (mega/mini size
+		// pads, custom mods), the camera rides with it — same car framing,
+		// and the WORLD reads bigger (mini) or smaller (mega) around it.
+		const vehicleScale = THREE.MathUtils.clamp( Number( dynamics.vehicleScale ) || 1, 0.35, 2.5 );
+		// Tiny car = MACRO lens: zoom in FURTHER than proportional so the
+		// surroundings loom and the read is "toy car in a huge world" (the
+		// tilt-shift overlay in main.js completes the diorama look). Mega
+		// stays exactly proportional.
+		const camScale = vehicleScale < 1 ? Math.pow( vehicleScale, 1.4 ) : vehicleScale;
 		const underwaterLift = this.underwaterBlend;
 		const targetLerp = this.mode === 'chase' ? 10 : 6;
 		this.targetPosition.lerp( target, dt * targetLerp );
 
-		if ( this.mode === 'chase' && targetQuaternion ) {
+		if ( this.mode === 'locked' ) {
+
+			// RIGID mount: the camera is welded behind the car. No lerp on
+			// position, no yaw smoothing, no fov speed effects — it is
+			// exactly target + fixed rotated offset, every frame.
+			if ( targetQuaternion ) {
+
+				this._forward.set( 0, 0, 1 ).applyQuaternion( targetQuaternion );
+				this._forward.y = 0;
+				if ( this._forward.lengthSq() < 1e-5 ) this._forward.set( 0, 0, 1 );
+				this._forward.normalize();
+
+			} else this._forward.set( 0, 0, 1 );
+			const yaw = Math.atan2( this._forward.x, this._forward.z );
+			this.targetPosition.copy( target );
+			this._rotatedOffset.copy( this.chaseOffset ).lerp( this.underwaterChaseOffset, underwaterLift ).applyAxisAngle( this._upAxis, yaw );
+			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
+			this._applyCeilingClamp( camScale );
+			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
+			if ( this.clipProbe ) {
+
+				this._clipDir.subVectors( this._desiredPos, this.targetPosition );
+				const desiredLen = this._clipDir.length();
+				if ( desiredLen > 1e-4 ) {
+
+					this._clipDir.divideScalar( desiredLen );
+					const freeLen = this.clipProbe( this.targetPosition, this._clipDir, desiredLen );
+					if ( freeLen < desiredLen ) this._desiredPos.copy( this.targetPosition ).addScaledVector( this._clipDir, freeLen );
+
+				}
+
+			}
+			this.camera.position.copy( this._desiredPos );
+			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) * camScale );
+			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift ) * camScale;
+			this.lookTarget.copy( this._desiredLook );
+			if ( this.camera.fov !== 42 ) {
+
+				this.camera.fov = 42;
+				this.camera.updateProjectionMatrix();
+
+			}
+			this.camera.lookAt( this.lookTarget );
+
+		} else if ( this.mode === 'chase' && targetQuaternion ) {
 
 			this._forward.set( 0, 0, 1 ).applyQuaternion( targetQuaternion );
 			this._forward.y = 0;
@@ -115,6 +214,8 @@ export class Camera {
 			if ( this.userDistance != null ) { const len = this._rotatedOffset.length() || 6.6; this._rotatedOffset.multiplyScalar( Math.max( 0.2, this.userDistance ) / len ); }
 			if ( this.userHeight != null ) this._rotatedOffset.y = this.userHeight;
 			if ( this.userPitch ) this._rotatedOffset.applyAxisAngle( new THREE.Vector3( 1, 0, 0 ), this.userPitch );
+			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
+			this._applyCeilingClamp( camScale );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 
 			// Chase-cam hitbox clipping: cast from the car toward the camera.
@@ -141,8 +242,8 @@ export class Camera {
 			this._forward.set( Math.sin( this.chaseYaw ), 0, Math.cos( this.chaseYaw ) );
 			// Bring the aim point in as the camera rises, giving pools the
 			// requested higher-angle view of the car.
-			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) );
-			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift );
+			this._desiredLook.copy( this.targetPosition ).addScaledVector( this._forward, THREE.MathUtils.lerp( 4.8, 0.8, underwaterLift ) * camScale );
+			this._desiredLook.y += THREE.MathUtils.lerp( 1.0, 0.45, underwaterLift ) * camScale;
 
 			const chaseLag = THREE.MathUtils.lerp( 10, 7.2, Math.min( 1, speedRatio * 0.8 + driftAmount * 0.4 ) ) * this.userLagScale;
 			this.camera.position.lerp( this._desiredPos, dt * chaseLag );
@@ -155,6 +256,8 @@ export class Camera {
 		} else {
 
 			this._rotatedOffset.copy( this.offset ).lerp( this.underwaterOverviewOffset, underwaterLift );
+			if ( camScale !== 1 ) this._rotatedOffset.multiplyScalar( camScale );
+			this._applyCeilingClamp( camScale );
 			this._desiredPos.copy( this.targetPosition ).add( this._rotatedOffset );
 			this.camera.position.lerp( this._desiredPos, dt * 8 );
 			this._desiredLook.copy( this.targetPosition );
@@ -168,7 +271,7 @@ export class Camera {
 		// The raised pool offsets handle normal framing. This final guard also
 		// covers the first blend frame (and custom camera settings), ensuring
 		// the camera can never briefly cross below the water surface.
-		if ( underwaterTarget ) {
+		if ( underwaterTarget && ! this._submergedFraming ) {
 
 			const minimumCameraY = this.waterSurfaceY + 0.35;
 			if ( this.camera.position.y < minimumCameraY ) {

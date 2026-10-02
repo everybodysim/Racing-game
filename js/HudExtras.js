@@ -20,6 +20,7 @@ export class HudExtras {
 		this.vehicle = opts.vehicle;
 		this.cells = opts.cells || [];
 		this.camera = opts.camera;
+		this._buildSpecialCells( opts.extras || null );
 
 		// Speedometer
 		this.speedoEl = null;
@@ -34,6 +35,9 @@ export class HudExtras {
 		this.minimapCanvas = null;
 		this.minimapCtx = null;
 		this.minimapBounds = null; // {minX, maxX, minZ, maxZ} in cell grid coords
+		// Special (non-road) blocks drawn as their own little squares:
+		// tunnels, pools/water, elevated pieces, custom surfaces.
+		// (populated by _buildSpecialCells above — do NOT reset it here)
 
 		// Shortcuts overlay
 		this.shortcutsEl = null;
@@ -49,6 +53,36 @@ export class HudExtras {
 	}
 
 	// ─── Speedometer ───────────────────────────────────────────
+
+	// ─── Special block cells for the minimap ─────────────────────
+	// Every cell-level block that is NOT a plain road square gets its own
+	// colored square on the minimap so the whole track reads at a glance
+	// (user order 2026-10-01: little squares in place of all the blocks,
+	// not only the normal roads).
+	_buildSpecialCells( extras ) {
+
+		this.specialCells = null;
+		if ( ! extras || typeof extras !== 'object' ) return;
+		const map = new Map();
+		const add = ( list, color ) => {
+
+			if ( ! Array.isArray( list ) ) return;
+			for ( const entry of list ) {
+
+				if ( ! Array.isArray( entry ) || entry.length < 2 ) continue;
+				map.set( `${ Number( entry[ 0 ] ) },${ Number( entry[ 1 ] ) }`, color );
+
+			}
+
+		};
+		add( extras.water, 'rgba(80,160,255,0.55)' );       // pools / water
+		add( extras.poolSlopes, 'rgba(80,160,255,0.55)' );  // slope into a pool: same water read
+		add( extras.tunnels, 'rgba(170,120,60,0.6)' );      // dirt tunnel pits
+		add( extras.elevated, 'rgba(255,255,255,0.4)' );    // raised pieces read brighter
+		add( extras.surfaces, 'rgba(255,120,200,0.5)' );    // custom surfaces
+		if ( map.size ) this.specialCells = map;
+
+	}
 
 	_buildSpeedometer() {
 
@@ -293,6 +327,46 @@ export class HudExtras {
 			}
 
 			ctx.fillRect( mx - ms / 2, my - ms / 2, ms, ms );
+
+			// Non-road blocks overlay their own colored square (same cell
+			// footprint, slightly inset so both layers read).
+			if ( this.specialCells ) {
+
+				const special = this.specialCells.get( `${ gx },${ gz }` );
+				if ( special ) {
+
+					ctx.fillStyle = special;
+					ctx.fillRect( mx - ms / 2 + ms * 0.12, my - ms / 2 + ms * 0.12, ms * 0.76, ms * 0.76 );
+
+				}
+
+			}
+
+		}
+
+		// Special blocks on cells that are NOT roads at all (pool next to the
+		// track, standalone tunnel, elevated island): no base square exists,
+		// draw them as full squares so they still show up.
+		if ( this.specialCells && this.specialCells.size ) {
+
+			const roadKeys = new Set( this.cells.map( ( c ) => `${ Number( c[ 0 ] ) },${ Number( c[ 1 ] ) }` ) );
+			for ( const [ key, color ] of this.specialCells ) {
+
+				if ( roadKeys.has( key ) ) continue;
+				const [ cgx, cgz ] = key.split( ',' ).map( Number );
+				const cellX = ( cgx + 0.5 ) * this.cellWorld;
+				const cellZ = ( cgz + 0.5 ) * this.cellWorld;
+				const dx = cellX - px;
+				const dz = cellZ - pz;
+				if ( Math.abs( dx ) > worldRadius || Math.abs( dz ) > worldRadius ) continue;
+				const mx = dx * scale;
+				const my = -dz * scale;
+				const ms = this.cellWorld * scale;
+				ctx.fillStyle = color;
+				ctx.fillRect( mx - ms / 2, my - ms / 2, ms, ms );
+
+			}
+
 		}
 
 		ctx.restore();

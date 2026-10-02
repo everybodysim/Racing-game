@@ -55,8 +55,8 @@
 	// Realistic 3D top-down track preview. The module exposes
 	// window.__renderTrackTopDown; the page falls back to its flat 2D
 	// grid if the module or WebGL is unavailable.
-	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260923';
-	import { encodeCellsV3 } from './js/Track.js?v=1000237';
+	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20261002';
+	import { encodeCellsV3 } from './js/Track.js?v=1000238';
 	import { generateTrackPlan } from './js/CupTrackGen.js?v=20260918';
 	window.__renderTrackTopDown = renderTrackTopDown;
 	window.__encodeCellsV3 = encodeCellsV3;
@@ -276,7 +276,7 @@ function getTrackIds(playUrl) {
     const toPix = (x, z) => [pad + (x - minX) * size, pad + (z - minZ) * size];
     for (const [x, z, t] of cells) {
       const [px, py] = toPix(x, z);
-      ctx.fillStyle = t === 'track-finish' ? '#72e39a' : t === 'track-checkpoint' ? '#ffd54f' : t === 'track-corner' ? '#b084ff' : '#4da3ff';
+      ctx.fillStyle = t === 'track-finish' ? '#72e39a' : (t === 'track-checkpoint' || t === 'track-checkpoint-corner') ? '#ffd54f' : t === 'track-corner' ? '#b084ff' : '#4da3ff';
       ctx.fillRect(px + 1, py + 1, size - 2, size - 2);
     }
     ctx.strokeStyle = '#ff4d4d';

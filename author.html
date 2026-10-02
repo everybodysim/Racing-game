@@ -65,7 +65,7 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 		// Realistic 3D top-down track previews. The module exposes
 		// window.__renderTrackTopDown; the board script below uses it when
 		// available and falls back to the flat 2D preview otherwise.
-		import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260923';
+		import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20261002';
 		window.__renderTrackTopDown = renderTrackTopDown;
 	</script>
 </head>
@@ -215,6 +215,8 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 			'slope-down': 'r',
 			'track-choke-half': 's',
 			'track-choke-both': 't',
+			'track-checkpoint-corner': 'u',
+			'elevated-checkpoint-corner': 'v',
 		};
 		const V3_TOKEN_NAMES = {};
 		for ( const [ name, token ] of Object.entries( V3_NAME_TOKENS ) ) V3_TOKEN_NAMES[ token ] = name;
@@ -402,7 +404,7 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 		}
 		function getTrackCellPreviewColor( type ) {
 			if ( type === 'track-finish' || type === 'track-start-finish' || type === 'track-start' ) return '#77f3b1';
-			if ( type === 'track-checkpoint' ) return '#5ac8ff';
+			if ( type === 'track-checkpoint' || type === 'track-checkpoint-corner' ) return '#5ac8ff';
 			if ( type === 'track-corner' ) return '#8899aa';
 			return '#a0b0c0';
 		}
@@ -410,6 +412,7 @@ button:hover,.linkbtn:hover{background:rgba(255,255,255,.2)}
 			if ( String( surfaceType || '' ).startsWith( 'surface-custom-' ) ) return mods?.c?.[ surfaceType ]?.color || '#9c7bff';
 			if ( String( surfaceType || '' ).startsWith( 'pad-custom-' ) ) return mods?.y?.[ surfaceType ]?.color || '#7fb7ff';
 			if ( surfaceType === 'surface-ice' ) return '#9be7ff';
+			if ( surfaceType === 'surface-trampoline' ) return '#66f2d0';
 			if ( surfaceType === 'surface-boost' ) return '#ffdf5d';
 			if ( surfaceType === 'surface-wood' ) return '#c58b45';
 			if ( surfaceType === 'surface-mud' ) return '#8b5a2b';

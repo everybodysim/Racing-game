@@ -24,6 +24,113 @@ const TAS_STEP_HZ = 60;
 
 function zeroInput() { return { x: 0, z: 0 }; }
 
+// ── AI driver pure helpers (module level, no state deps) ──────────────
+// Nearest guide point with a forward search window: the car may legitimately
+// leave the guide line (cutting a corner, a whole different route), so the
+// projection only looks BACK a little and FORWARD a lot — progress never
+// goes backwards unless the car actually drives backwards.
+function guideProject( pts, lastIdx, x, z ) {
+
+	if ( ! pts || ! pts.length ) return 0;
+	const lo = Math.max( 0, Math.floor( lastIdx ) - 8 );
+	const hi = Math.min( pts.length - 1, Math.ceil( lastIdx ) + 40 );
+	let bestIdx = lo, bestD = Infinity;
+	for ( let i = lo; i <= hi; i ++ ) {
+
+		const d = ( pts[ i ].x - x ) ** 2 + ( pts[ i ].z - z ) ** 2;
+		if ( d < bestD ) { bestD = d; bestIdx = i; }
+
+	}
+	return bestIdx;
+
+}
+
+// Carrot steering bias for mutations: the guide's own motion direction at a
+// step vs the direction to a point ~2s further along the guide. Returns the
+// steer input (-1 | +1) toward the carrot side, or null when the guide is
+// ~stationary / ~straight there (no signal -> plain random mutation).
+// Sign conventions verified against the game: ArrowRight -> x=+1, and the
+// heading->carrot cross product is negative when the carrot is to the
+// car's RIGHT, so cross < 0 means steer +1.
+function aiFitCompare( a, b ) {
+
+	const af = Number.isFinite( a.finish ), bf = Number.isFinite( b.finish );
+	if ( af !== bf ) return af ? -1 : 1;
+	if ( af ) return a.finish - b.finish;
+	if ( a.prog !== b.prog ) return b.prog - a.prog;
+	return a.progStep - b.progStep;
+
+}
+
+// Crossover: splice two timed laps where each parent first reached the SAME
+// progress fraction. B's tail is renumbered so the child is a valid ordered
+// timeline (steps strictly increasing across the junction). Returns null
+// when either parent's map can't support a cut at that fraction.
+const NN_IN = 26, NN_H = 24, NN_OUT = 2;
+const NN_W = NN_IN * NN_H + NN_H + NN_H * NN_OUT + NN_OUT;
+
+function nnMakeGenome( scale ) {
+
+	const w = new Float32Array( NN_W );
+	for ( let i = 0; i < NN_W; i ++ ) w[ i ] = ( Math.random() * 2 - 1 ) * ( scale || 1 );
+	return w;
+
+}
+
+function nnForward( w, inp ) {
+
+	const h = new Float32Array( NN_H );
+	for ( let j = 0; j < NN_H; j ++ ) {
+
+		let sum = 0;
+		for ( let i = 0; i < NN_IN; i ++ ) sum += w[ j * NN_IN + i ] * inp[ i ]; // inp[6] = 1 (bias)
+		h[ j ] = Math.tanh( sum );
+
+	}
+	let p = NN_IN * NN_H + NN_H; // skip the reserved hidden-bias block
+	const out = new Float32Array( NN_OUT );
+	for ( let k = 0; k < NN_OUT; k ++ ) {
+
+		const base = p + k * ( NN_H + 1 ); // NN_H weights + 1 bias per output
+		let sum = w[ base + NN_H ];
+		for ( let j = 0; j < NN_H; j ++ ) sum += w[ base + j ] * h[ j ];
+		out[ k ] = Math.tanh( sum );
+
+	}
+	return out;
+
+}
+
+function nnMutate( w, sigma ) {
+
+	const c = new Float32Array( w );
+	// gaussian noise on a sparse subset (keeps learned structure)
+	const n = Math.max( 1, Math.round( NN_W * 0.12 ) );
+	for ( let i = 0; i < n; i ++ ) c[ ( Math.random() * NN_W ) | 0 ] += gauss() * sigma;
+	return c;
+
+}
+
+function nnCrossover( a, b ) {
+
+	const c = new Float32Array( NN_W );
+	for ( let i = 0; i < NN_W; i ++ ) c[ i ] = Math.random() < 0.5 ? a[ i ] : b[ i ];
+	return c;
+
+}
+
+function gauss() {
+
+	let u = 0, v = 0;
+	while ( u === 0 ) u = Math.random();
+	while ( v === 0 ) v = Math.random();
+	return Math.sqrt( -2 * Math.log( u ) ) * Math.cos( 2 * Math.PI * v );
+
+}
+
+// Compact "inputs the AI changed vs its seed" summary for the debug panel:
+// "+step" = an entry the seed doesn't have at that step (added pulse),
+// "~step" = same step but different steering/throttle values.
 export function activate( ctx ) {
 
 	if ( window.__tasActive ) return;
@@ -49,6 +156,7 @@ export function activate( ctx ) {
 		runLaps: 1,
 		lastRunText: '',
 		targetMode: false,        // brute/run goal: 'time' (false) | 'target' (true)
+		aiGuide: null,            // captured guide lap for the AI driver
 		target: null,             // { x, z } world center of the target zone
 		targetPlacing: false,
 		overlayTick: 0,
@@ -79,6 +187,7 @@ export function activate( ctx ) {
 			probeErr: state.probeErr || null,
 			isLoop: ctx.isLoop,
 			targetMode: state.targetMode,
+			aiGuide: state.aiGuide ? { pts: state.aiGuide.pts.length, samples: state.aiGuide.samples.length } : null,
 			target: state.target ? { ...state.target } : null,
 			targetPlacing: state.targetPlacing,
 			pos: [ ctx.vehicle.spherePos.x, ctx.vehicle.spherePos.y, ctx.vehicle.spherePos.z ],
@@ -118,8 +227,8 @@ export function activate( ctx ) {
 	};
 
 	// ── UI wipe: nothing except what TAS uses stays in the viewport ─────
-	const KEEP_SELECTOR = '#loading-screen, #countdown-hud, #export-ghost-btn, #import-ghost-btn, #tas-overlay, #replay-topbar, #tas-keys';
-	const KEEP_IDS = new Set( [ 'loading-screen', 'countdown-hud', 'export-ghost-btn', 'import-ghost-btn', 'tas-overlay', 'replay-topbar', 'tas-keys' ] );
+	const KEEP_SELECTOR = '#loading-screen, #countdown-hud, #export-ghost-btn, #import-ghost-btn, #tas-overlay, #replay-topbar, #tas-keys, #tas-ai-live';
+	const KEEP_IDS = new Set( [ 'loading-screen', 'countdown-hud', 'export-ghost-btn', 'import-ghost-btn', 'tas-overlay', 'replay-topbar', 'tas-keys', 'tas-ai-live' ] );
 	const hideStyle = document.createElement( 'style' );
 	hideStyle.textContent = '.tas-hide { display: none !important; }';
 	document.head.appendChild( hideStyle );
@@ -415,6 +524,33 @@ export function activate( ctx ) {
 			state.stepIndex ++;
 			if ( state.overlayTick % 6 === 0 ) updateOverlay();
 			return input;
+
+		}
+
+		// Neural driver: the MLP steers instead of a script. Same arming
+		// rules (no injection until the countdown ends); every step the net
+		// reads the world (carrot angle/dist, speed, its own last actions)
+		// and decides steer/throttle. Input CHANGES are recorded as a
+		// normal RLE timeline so a learned run can be adopted & replayed.
+		if ( state.phase === 'run' && state.nnBrain && state.runScript ) {
+
+			if ( ! state.started ) {
+
+				if ( ctx.get.countdownActive() ) { if ( state.overlayTick % 6 === 0 ) updateOverlay(); return zeroInput(); }
+				state.started = true;
+				state.stepIndex = 0;
+
+			}
+			const a = nnBrainAct();
+			if ( state.lastRecorded === null || state.lastRecorded.x !== a.x || state.lastRecorded.z !== a.z ) {
+
+				state.nnRecord.push( { step: state.stepIndex, x: a.x, z: a.z } );
+				state.lastRecorded = { x: a.x, z: a.z };
+
+			}
+			state.stepIndex ++;
+			if ( state.overlayTick % 6 === 0 ) updateOverlay();
+			return a;
 
 		}
 
@@ -768,6 +904,50 @@ export function activate( ctx ) {
 
 	} );
 
+	// ── AI driver visuals: the guide line + the REWARD indicator ──────
+	// The guide polyline shows the net's reference line (its "eyes" feed);
+	// the REWARD (the carrot) is the lap reward %, shown live in the game
+	// HUD overlay and in the editor debug panel.
+	let guideLine = null;
+	function showGuideLine( guide ) {
+
+		hideGuideLine();
+		if ( ! guide || ! ctx.fns.getScene || guide.pts.length < 2 ) return;
+		const pts = guide.pts.map( ( p ) => new THREE.Vector3( p.x, 0.7, p.z ) );
+		guideLine = new THREE.Line(
+			new THREE.BufferGeometry().setFromPoints( pts ),
+			new THREE.LineBasicMaterial( { color: 0xff8c42, transparent: true, opacity: 0.45 } )
+		);
+		guideLine.userData.tasTarget = true;
+		ctx.fns.getScene().add( guideLine );
+
+	}
+	function hideGuideLine() {
+
+		if ( guideLine && ctx.fns.getScene ) {
+
+			ctx.fns.getScene().remove( guideLine );
+			guideLine.geometry.dispose();
+			guideLine.material.dispose();
+			guideLine = null;
+
+		}
+
+	}
+	// state.nnInfo = { label, reward, gen, rounds, best } -> the in-game
+	// HUD reward line (rendered by updateOverlay between generations)
+	function setRewardHud( label, reward, gen, rounds, best ) {
+
+		state.nnInfo = { label, reward, gen, rounds, best };
+
+	}
+	function hideAiVisuals() {
+
+		hideGuideLine();
+		state.nnInfo = null;
+
+	}
+
 	// ── Parent commands + R restart ─────────────────────────────────────
 	function resetState( phase ) {
 
@@ -785,6 +965,10 @@ export function activate( ctx ) {
 		state.paused = false;
 		state.skipMode = false;
 		if ( ctx.fns.setPaused ) ctx.fns.setPaused( false );
+		// Every pass (record, run, seek, brute eval) starts the sim clock at
+		// 0 — mods keyed on the absolute race clock (waves, timed effects)
+		// then see the SAME window as the recorded drive.
+		if ( ctx.fns.resetRaceClock ) ctx.fns.resetRaceClock();
 
 	}
 
@@ -1372,7 +1556,594 @@ post( 'tas-paused', { paused: state.paused } );
 
 	}
 
-	window.addEventListener( 'message', ( event ) => {
+	// ── AI driver: evolve a full run from the user's lap (carrot method) ──
+	// GUIDE: the recorded run is re-simulated once in a burst; every step's
+	// car position is sampled (aligned to the timed lap's entry steps —
+	// stepIndex restarts at 0 at the lap-1 crossing on loop tracks, exactly
+	// where the mutated entries live). The samples are resampled to ~2-unit
+	// guide points for progress tracking.
+	function captureGuide( script ) {
+
+		const fast = !!( script.crossState && script.crossState.pos && script.crossState.vel && script.lap2.length && ctx.tasBeginNextLap );
+		const timed = fast ? script.lap2 : script.lap1;
+		if ( ! timed.length ) return null;
+		state.bruteResult = null;
+		const lLast = timed[ timed.length - 1 ].step;
+		let burstCap;
+		if ( fast ) {
+
+			resetState( 'run' );
+			state.runScript = script;
+			state.skipMode = true;
+			state.lapsCompleted = 1;
+			applyCrossState( script.crossState );
+			resetCarPhysicsHistory();
+			state.runEntries = script.lap2;
+			state.runPointer = 0;
+			state.runLaps = 1;
+			state.stepIndex = 0;
+			state.started = true;
+			ctx.tasBeginNextLap();
+			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+			burstCap = lLast + 60 * 30;
+
+		} else {
+
+			resetState( 'run' );
+			state.runScript = script;
+			state.stepIndex = 0;
+			ctx.fns.respawnVehicle();
+			resetCarPhysicsHistory();
+			state.runEntries = script.lap1;
+			state.runLaps = script.lap2.length ? 2 : ( ctx.isLoop && script.mode === 'run' && ! script.crossState ? 2 : 1 );
+			state.started = false;
+			ctx.fns.startCountdown();
+			burstCap = 60 * 5 + ( lLast + 60 * 30 );
+
+		}
+		const samples = [];
+		state.fastForward = true;
+		let burst = 0, movedStep = 0;
+		try {
+
+			while ( state.phase === 'run' && burst ++ < burstCap ) {
+
+				ctx.fns.stepOnce();
+				if ( state.phase === 'run' ) probeLapCross();
+				if ( state.started ) {
+
+					const p = ctx.vehicle.spherePos;
+					samples.push( { x: p.x, z: p.z } );
+					// stop sampling once the baseline has been parked for 4s
+					// (no NEW 2-unit-separated point): a crashed baseline
+					// used to sample its whole 30s wall-coast budget.
+					if ( samples.length > 1 ) {
+
+						const ref = samples[ samples.length - 2 ];
+						if ( ( p.x - ref.x ) ** 2 + ( p.z - ref.z ) ** 2 >= 0.04 ) movedStep = samples.length;
+
+					}
+					if ( samples.length - movedStep > 60 * 4 ) break;
+
+				}
+
+			}
+
+		} catch ( e ) { /* baseline dying mid-guide is fine: the carrot covers what it drove */ }
+		state.fastForward = false;
+		if ( samples.length < 10 ) {
+
+			window.__lastGuideDiag = { samples: samples.length, movedStep, burst, phase: state.phase, started: state.started, stepIndex: state.stepIndex };
+			return null;
+
+		}
+		const pts = [ samples[ 0 ] ];
+		for ( const smp of samples ) {
+
+			const ref = pts[ pts.length - 1 ];
+			if ( ( smp.x - ref.x ) ** 2 + ( smp.z - ref.z ) ** 2 >= 4 ) pts.push( smp ); // ~2 units apart
+
+		}
+		if ( pts.length < 2 ) return null;
+		return { samples, pts };
+
+	}
+
+	// One MLP decision: build the sensor vector, forward, thresholds.
+	// Sensors: 8-direction wall/water proximity from the track cell grid
+	// (the hitboxes around the car), next checkpoint bearing/dist, guide
+	// lateral offset + carrot bearing, speed, its own last actions.
+	function nnBrainAct() {
+
+		const b = state.nnBrain, p = ctx.vehicle.spherePos;
+		let hx = p.x - b.px, hz = p.z - b.pz;
+		const stepDist = Math.hypot( hx, hz );
+		if ( stepDist > 1e-5 ) { b.hx = hx / stepDist; b.hz = hz / stepDist; }
+		b.px = p.x; b.pz = p.z;
+		hx = b.hx; hz = b.hz;
+		const inp = new Float32Array( NN_IN );
+		// [0..15] 8 directions x (clear dist, water dist), heading-relative
+		const c45 = Math.SQRT1_2, S = 21, ST = 1; // probe reach & step (world units)
+		for ( let d = 0; d < 8; d ++ ) {
+
+			const a = d * Math.PI / 4;
+			const ca = Math.cos( a ), sa = Math.sin( a );
+			const dx = hx * ca - hz * sa, dz = hx * sa + hz * ca;
+			let clear = 1, water = 1;
+			for ( let dist = ST; dist <= S; dist += ST ) {
+
+				const cell = b.grid.get( Math.floor( ( p.x + dx * dist ) / b.cell ) + ',' + Math.floor( ( p.z + dz * dist ) / b.cell ) );
+				if ( cell === 2 ) water = Math.min( water, dist / S );
+				if ( cell !== 1 ) { clear = dist / S; break; }
+
+			}
+			inp[ d ] = clear;
+			inp[ 8 + d ] = water;
+
+		}
+		// [16..18] next checkpoint (first un-passed this lap)
+		let cpSin = 0, cpCos = 1, cpDist = 1;
+		if ( b.cps && b.cps.length ) {
+
+			const cp = b.cps.find( ( c ) => ! c.passedThisLap ) || b.cps[ b.cps.length - 1 ];
+			const tx = cp.centerX - p.x, tz = cp.centerZ - p.z;
+			const dd = Math.hypot( tx, tz ) || 1e-5;
+			cpSin = - ( hz * tx - hx * tz ) / dd; // >0 = checkpoint to the RIGHT
+			cpCos = ( hx * tx + hz * tz ) / dd;
+			cpDist = Math.min( 1, dd / 40 );
+
+		}
+		inp[ 16 ] = cpSin; inp[ 17 ] = cpCos; inp[ 18 ] = cpDist;
+		// [19..21] guide: lateral offset from the closest point + carrot ~2s ahead
+		let lat = 0, cSin = 0, cCos = 1;
+		if ( b.guide && b.guide.pts.length > 1 ) {
+
+			b.progIdx = guideProject( b.guide.pts, b.progIdx, p.x, p.z );
+			const pts = b.guide.pts;
+			const near = pts[ b.progIdx ];
+			const nx = near.x - p.x, nz = near.z - p.z;
+			const nd = Math.hypot( nx, nz );
+			lat = Math.max( -1, Math.min( 1, ( hz * nx - hx * nz ) / 10 ) ); // signed left/right offset
+			const ci = Math.min( pts.length - 1, b.progIdx + 20 );
+			const tx = pts[ ci ].x - p.x, tz = pts[ ci ].z - p.z;
+			const cd = Math.hypot( tx, tz );
+			if ( cd > 1e-5 ) { cSin = - ( hz * tx - hx * tz ) / cd; cCos = ( hx * tx + hz * tz ) / cd; }
+
+		}
+		inp[ 19 ] = lat; inp[ 20 ] = cSin; inp[ 21 ] = cCos;
+		inp[ 22 ] = Math.min( 1, stepDist / 0.5 ); // speed
+		inp[ 23 ] = b.lastX; inp[ 24 ] = b.lastZ;
+		inp[ 25 ] = 1; // bias
+		const out = nnForward( b.w, inp );
+		// discrete actions; throttle biased to accelerate (rare braking)
+		const x = out[ 0 ] > 0.25 ? 1 : out[ 0 ] < -0.25 ? -1 : 0;
+		const z = out[ 1 ] > -0.2 ? 1 : -1;
+		b.lastX = x; b.lastZ = z;
+		// live telemetry for the editor panel (latest sensors + outputs)
+		const prog = b.guide ? b.progIdx : Math.hypot( p.x - b.sx, p.z - b.sz );
+		state.nnTel = { s: inp, x, z, prog, step: state.stepIndex };
+		if ( ! state.nnTelHist ) { state.nnTelHist = new Float32Array( 1024 ); state.nnTelN = 0; }
+		state.nnTelHist[ state.nnTelN ++ & 1023 ] = prog;
+		return { x, z };
+
+	}
+
+	// Evaluate one genome: sim the lap with the net driving. Fitness is the
+	// same finish-first carrot/distance reward the evolve driver uses.
+	async function nnEvaluate( genome, guide, fast ) {
+
+		state.bruteResult = null;
+		if ( fast ) {
+
+			resetState( 'run' );
+			state.runScript = { crossState: state.nnSeed.crossState, lap2: [ {} ], lap1: [] };
+			state.skipMode = true;
+			state.lapsCompleted = 1;
+			applyCrossState( state.nnSeed.crossState );
+			resetCarPhysicsHistory();
+			state.runEntries = [];
+			state.runPointer = 0;
+			state.runLaps = 1;
+			state.stepIndex = 0;
+			state.started = true;
+			ctx.tasBeginNextLap();
+			if ( ctx.fns.cancelCountdown ) ctx.fns.cancelCountdown();
+			state.lastRecorded = null;
+			const p = ctx.vehicle.spherePos;
+			state.nnBrain = nnMakeBrain( genome.w, guide, p );
+			state.nnRecord = [];
+			await burstNn( genome, guide );
+
+		} else {
+
+			resetState( 'run' );
+			state.runScript = { lap1: [ {} ], lap2: [] };
+			state.stepIndex = 0;
+			ctx.fns.respawnVehicle();
+			resetCarPhysicsHistory();
+			state.runEntries = [];
+			state.runPointer = 0;
+			state.runLaps = 1;
+			state.started = false;
+			ctx.fns.startCountdown();
+			state.lastRecorded = null;
+			const p = ctx.vehicle.spherePos;
+			state.nnBrain = nnMakeBrain( genome.w, guide, p );
+			state.nnRecord = [];
+			await burstNn( genome, guide );
+
+		}
+
+	}
+
+	// Brain factory: weights + the sensor sources (cell grid, checkpoints).
+	function nnMakeBrain( w, guide, p ) {
+
+		if ( ! state.nnGrid ) state.nnGrid = buildCellGrid();
+		if ( ! state.nnCps ) state.nnCps = ( ctx.get.lapDetection().checkpointStates || [] ).slice();
+		for ( const c of state.nnCps ) c.passedThisLap = false; // fresh attempt = fresh lap
+		return { w, guide, progIdx: 0, px: p.x, pz: p.z, sx: p.x, sz: p.z, hx: 0, hz: 1, lastX: 0, lastZ: 1, grid: state.nnGrid, cell: state.nnCell, cps: state.nnCps };
+
+	}
+
+	// Track occupancy grid for the proximity sensors: "gx,gz" -> 1 road
+	// (incl. elevated) | 2 water. Everything else reads as blocked (walls
+	// line the road, so first non-road cell ~ first hitbox).
+	function buildCellGrid() {
+
+		const t = ctx.get.trackCells ? ctx.get.trackCells() : null;
+		const grid = new Map();
+		let cell = 8; // fallback cell size until real data arrives
+		if ( t ) {
+
+			for ( const c of t.road || [] ) grid.set( c[ 0 ] + ',' + c[ 1 ], 1 );
+			for ( const c of t.elevated || [] ) grid.set( c[ 0 ] + ',' + c[ 1 ], 1 );
+			for ( const c of t.water || [] ) grid.set( c[ 0 ] + ',' + c[ 1 ], 2 );
+			const det = ctx.get.lapDetection();
+			if ( det && det.finishData && det.finishData.halfExtent ) cell = det.finishData.halfExtent * 2;
+
+		}
+		state.nnCell = cell;
+		return grid;
+
+	}
+
+	// The shared sim burst: steps until finish, stuck, or the cap; computes
+	// the reward along the way (identical semantics to aiEvaluate).
+	// NEVER one synchronous block: every 300 steps the game is paused and a
+	// frame is yielded, so the browser stays responsive, the in-game HUD
+	// renders the run LIVE, and Stop reacts mid-generation. Pausing means
+	// no wall-clock sim steps sneak in between chunks (determinism intact).
+	// Pack the latest sensor snapshot (+ downsampled reward history) for the
+	// editor's live panel.
+	function nnTelPack() {
+
+		const t = state.nnTel;
+		const total = state.nnTelTotal || 1;
+		if ( ! t ) return { started: false, gen: state.brute ? state.brute.round : 0 };
+		const n = Math.min( state.nnTelN, 1024 );
+		const hist = [];
+		for ( let i = Math.max( 0, n - 256 ); i < n; i += 4 ) hist.push( +state.nnTelHist[ i & 1023 ].toFixed( 1 ) );
+		return {
+			sensors: Array.from( t.s, ( v ) => +v.toFixed( 3 ) ),
+			x: t.x, z: t.z, step: t.step, started: true,
+			rewardText: state.nnTelGuide ? Math.round( 100 * t.prog / total ) + '%' : t.prog.toFixed( 1 ) + 'u',
+			hist, gen: state.brute ? state.brute.round : 0, evals: state.brute ? state.brute.evals : 0,
+		};
+
+	}
+
+	async function burstNn( genome, guide ) {
+
+		let progIdx = 0, lastProgressStep = 0, bestProg = 0, bestProgStep = 0;
+		const startP = { x: state.nnBrain.px, z: state.nnBrain.pz };
+		const total = guide ? guide.pts.length - 1 : 1;
+		state.nnTelTotal = total; state.nnTelGuide = !! guide;
+		const cap = 60 * 40;
+		const CHUNK = 300;
+		const pauseGlue = ctx.fns.setPaused;
+		let burst = 0;
+		try {
+
+			while ( state.phase === 'run' && burst ++ < cap ) {
+
+				if ( pauseGlue && burst % CHUNK === 0 ) {
+
+					const tel = nnTelPack();
+					post( 'tas-ai-telemetry', tel );
+					renderAiLive( tel );
+					pauseGlue( true );
+					const rt = guide ? Math.round( 100 * bestProg / total ) + '%' : bestProg.toFixed( 1 ) + 'u';
+					setRewardHud( state.nnInfo ? state.nnInfo.label : 'AI reward', rt, state.brute ? state.brute.round : 0, state.brute ? state.brute.rounds : 0, Number.isFinite( bestFinish ) ? fmtTime( bestFinish ) : 'DNF' );
+					await new Promise( ( r ) => setTimeout( r, 0 ) );
+					pauseGlue( false );
+					if ( state.brute && state.brute.stop ) break;
+
+				}
+
+				ctx.fns.stepOnce();
+				if ( state.phase === 'run' ) probeLapCross();
+				if ( state.phase === 'run' && state.started ) {
+
+					let progressed = false;
+					const p = ctx.vehicle.spherePos;
+					if ( guide ) {
+
+						const idx = guideProject( guide.pts, progIdx, p.x, p.z );
+						if ( idx > progIdx ) {
+
+							progIdx = idx; lastProgressStep = state.stepIndex; progressed = true;
+							if ( progIdx > bestProg ) { bestProg = progIdx; bestProgStep = state.stepIndex; }
+
+						}
+
+					} else {
+
+						const d = Math.hypot( p.x - startP.x, p.z - startP.z );
+						if ( d > bestProg + 0.02 ) { bestProg = d; bestProgStep = state.stepIndex; lastProgressStep = state.stepIndex; progressed = true; }
+
+					}
+					if ( ! progressed && state.stepIndex - lastProgressStep > 60 * 4 ) break;
+
+				}
+
+			}
+
+		} catch ( e ) { /* DNF */ }
+		const finish = state.bruteResult === null ? Infinity : state.bruteResult;
+		const stepsTaken = state.stepIndex;
+		const rec = state.nnRecord.slice();
+		state.nnBrain = null;
+		state.nnRecord = null;
+		genome.fit = { finish, prog: Number.isFinite( finish ) ? total : bestProg, progStep: bestProgStep, steps: stepsTaken, map: null, total };
+		genome.rec = rec;
+
+	}
+
+	// The neural session: evolve MLP weights generation by generation.
+	// A learned run that beats the seed's time is adopted into the inputs
+	// box as a normal script (replayable, shareable — the net's "muscle
+	// memory" is preserved as its driven timeline).
+	async function nnDrive( payload ) {
+
+		if ( state.brute || state.ai ) return;
+		let seed = parseScript( payload.script || '' );
+		const hasSeed = ! seed.errors.length && ( seed.lap1.length > 0 || seed.lap2.length > 0 );
+		const useGuide0 = payload.useGuide !== false;
+		if ( ! hasSeed && useGuide0 ) {
+
+			post( 'tas-ai-error', { errors: [ 'the guide (the net’s eyes) needs a recorded run — record or import one first, or switch the guide OFF for blind learning' ] } );
+			return;
+
+		}
+		if ( ! hasSeed ) seed = { mode: 'run', lap1: [], lap2: [], crossState: null, errors: [] }; // blind learning straight from spawn
+		state.nnGrid = null; state.nnCps = null; // re-read the map per session
+		state.nnTel = null; state.nnTelHist = null; state.nnTelN = 0; // fresh telemetry per session
+		const rounds = Math.max( 1, Math.min( 2000, Number( payload.rounds ) || 20 ) );
+		const popSize = Math.max( 4, Math.min( 32, Number( payload.population ) || 20 ) );
+		let sigma = 0.05 * Math.max( 1, Math.min( 10, Number( payload.mutations ) || 2 ) );
+		let stagnant = 0, bestEverProg = -1;
+		const useGuide = payload.useGuide !== false; // the guide is the net's EYES
+		const fast = !!( seed.crossState && seed.crossState.pos && seed.crossState.vel && seed.lap2.length && ctx.tasBeginNextLap );
+		state.nnSeed = seed;
+		let guide = null;
+		if ( useGuide ) {
+
+			if ( ! state.aiGuide || state.aiGuide.fast !== fast ) {
+
+				// capture can flake if leftover session state confuses the
+				// baseline re-sim: retry once, then degrade to BLIND mode
+				// (learning still happens; you can also hit "Refresh guide
+				// lap" and re-start to get the eyes back)
+				let g = captureGuide( seed );
+				if ( ! g ) g = captureGuide( seed );
+				if ( ! g ) {
+
+					hideAiVisuals();
+					post( 'tas-ai-eval', { note: 'guide capture failed twice — running BLIND' } );
+					await new Promise( ( r ) => setTimeout( r, 300 ) );
+
+				} else {
+
+					g.fast = fast;
+					state.aiGuide = g;
+					guide = state.aiGuide;
+					showGuideLine( guide );
+
+				}
+
+			} else {
+
+				guide = state.aiGuide;
+				showGuideLine( guide );
+
+			}
+
+		} else { hideAiVisuals(); }
+		state.brute = { stop: false, round: 0, rounds, best: null, last: null, adopted: 0, evals: 0 };
+		// ── WARM BRAIN: sessions CONTINUE training from the last best
+		// genome instead of re-learning from random weights every time.
+		const brainKey = 'skid-ai-brain:' + ( ctx.trackId || 'default' );
+		const loadBrain = () => {
+
+			try {
+
+				const j = JSON.parse( localStorage.getItem( brainKey ) || 'null' );
+				if ( j && Array.isArray( j.w ) && j.w.length === NN_W ) return { w: Float32Array.from( j.w ), gens: j.gens | 0 };
+
+			} catch ( e ) {}
+			return null;
+
+		};
+		const saveBrain = ( w, gens ) => {
+
+			try { localStorage.setItem( brainKey, JSON.stringify( { w: Array.from( w ), gens } ) ); } catch ( e ) {}
+
+		};
+		let brainGens = 0;
+		const warm = loadBrain();
+		let population = [];
+		if ( warm ) {
+
+			// elite = the trained brain itself; most others explore around it,
+			// a few wider mutations keep diversity alive
+			brainGens = warm.gens;
+			for ( let i = 0; i < popSize; i ++ )
+				population.push( { w: i === 0 ? warm.w : ( i < popSize * 0.75 ? nnMutate( warm.w, 0.1 ) : nnMutate( warm.w, 0.5 ) ) } );
+			state.warmNote = `warm brain (trained ${ warm.gens } gens) — continuing`;
+
+		} else for ( let i = 0; i < popSize; i ++ ) population.push( { w: nnMakeGenome( 1 ) } );
+		// reward readout: guide mode = % of the guide line; blind mode =
+		// raw world units (there is no reference line to make a % of)
+		const fmtPct = ( prog ) => {
+
+			if ( ! guide ) return `${ prog.toFixed( 1 ) }u`;
+			const scale = Math.max( 1, guide.pts.length - 1 );
+			return `${ Math.max( 0, Math.min( 100, Math.round( ( prog / scale ) * 100 ) ) ) }%`;
+
+		};
+		let bestFinish = Infinity, bestRec = null, improved = false;
+		let blindBest = { prog: -1, rec: null }; // best drive of a BLIND session
+		for ( let round = 0; round <= rounds; round ++ ) {
+
+			if ( state.brute.stop ) break;
+			let evaled = 0;
+			if ( round > 0 ) state.warmNote = null; // note sticks during gen 0 only
+			for ( const g of population ) {
+
+				if ( state.brute.stop ) break;
+				if ( ! g.fit ) {
+
+					await nnEvaluate( g, guide, fast );
+					state.brute.evals ++;
+					const tel = nnTelPack();
+					post( 'tas-ai-telemetry', tel );
+					renderAiLive( tel );
+					evaled ++;
+					post( 'tas-ai-eval', state.warmNote && round === 0
+						? { note: state.warmNote + ` — eval ${ evaled }/${ population.length }` }
+						: { n: evaled, total: population.length } );
+
+				}
+
+			}
+			population.sort( ( a, b ) => aiFitCompare( a.fit, b.fit ) );
+			const top = population[ 0 ];
+			// adaptive mutation: improving -> fine-tune, stagnant -> explore
+			if ( top.fit.prog > bestEverProg + 1e-6 || Number.isFinite( top.fit.finish ) ) { stagnant = 0; bestEverProg = Math.max( bestEverProg, top.fit.prog ); sigma = Math.max( 0.02, sigma * 0.85 ); saveBrain( top.w, brainGens + round ); }
+			else if ( ++ stagnant >= 3 ) { sigma = Math.min( 0.6, sigma * 1.6 ); stagnant = 0; }
+			if ( Number.isFinite( top.fit.finish ) && top.fit.finish < bestFinish ) {
+
+				bestFinish = top.fit.finish;
+				bestRec = top.rec;
+				improved = true;
+				state.brute.adopted ++;
+				// adopt the net's driven timeline as a real script
+				const cand = cloneScript( seed );
+				if ( fast ) { cand.lap2 = bestRec.length ? bestRec : [ { step: 0, x: 0, z: 0 } ]; }
+				else { cand.lap1 = bestRec.length ? bestRec : [ { step: 0, x: 0, z: 0 } ]; cand.crossState = null; }
+				const bestText = scriptToText( cand );
+				state.lastRunText = bestText;
+				state.aiBest = { text: bestText, desc: fmtTime( top.fit.finish ) };
+				post( 'tas-bruteforce-update', { script: bestText } );
+
+			}
+			if ( ! guide && top.fit.prog > blindBest.prog ) blindBest = { prog: top.fit.prog, rec: top.rec };
+			state.brute.round = round;
+			state.brute.best = bestFinish;
+			state.brute.last = top.fit.finish;
+			post( 'tas-ai-progress', {
+				round, rounds,
+				bestTime: fmtTime( bestFinish ),
+				bestProg: Number.isFinite( bestFinish ) ? '100%' : fmtPct( top.fit.prog ),
+				genProg: fmtPct( top.fit.prog ),
+				adopted: Number.isFinite( top.fit.finish ) && top.fit.finish === bestFinish, evals: state.brute.evals, fast, nn: true,
+			} );
+			post( 'tas-ai-debug', { text: nnDebugText( round, population, { sigma, popSize, guide, fast, bestFinish, fmtPct } ) } );
+			setRewardHud( guide ? 'AI reward' : 'AI reward (blind)', fmtPct( top.fit.prog ), round, rounds, Number.isFinite( bestFinish ) ? fmtTime( bestFinish ) : 'DNF' );
+			// next generation: elites survive, the rest are crossovers/mutants
+			const keepN = Math.max( 2, Math.min( 6, Math.floor( popSize / 4 ) ) );
+			const elite = population.slice( 0, keepN );
+			const next = elite.map( ( e ) => ( { w: e.w } ) );
+			while ( next.length < popSize ) {
+
+				const a = elite[ Math.floor( Math.random() * elite.length ) ];
+				let w;
+				if ( Math.random() < 0.4 && elite.length > 1 ) {
+
+					const b = elite[ Math.floor( Math.random() * elite.length ) ];
+					w = nnMutate( nnCrossover( a.w, b.w ), sigma );
+
+				} else w = nnMutate( a.w, sigma );
+				next.push( { w } );
+
+			}
+			population = next;
+			await new Promise( ( r ) => setTimeout( r, 0 ) );
+
+		}
+		state.brute = null;
+		bruteCleanup();
+		hideAiVisuals();
+		saveBrain( population.length ? population[ 0 ].w : null, brainGens + rounds + 1 ); // never lose the training
+		// blind session with no finisher: leave the net's BEST DRIVE in the
+		// box (a real, replayable partial run) instead of ending with nothing
+		if ( ! Number.isFinite( bestFinish ) && ! guide && blindBest.rec && blindBest.prog > 3 ) {
+
+			// clone the SEED so save-state/crossing info survives; the net's
+			// best drive replaces the timed lap (lap 2 if it ran save-state)
+			const cand = cloneScript( seed );
+			if ( fast && seed.crossState ) { cand.lap2 = blindBest.rec; }
+			else { cand.lap1 = blindBest.rec; cand.lap2 = []; cand.crossState = null; }
+			state.lastRunText = scriptToText( cand );
+			state.aiBest = { text: state.lastRunText, desc: blindBest.prog.toFixed( 1 ) + 'u' };
+			post( 'tas-bruteforce-update', { script: state.lastRunText } ); // writes the inputs box
+			post( 'tas-ai-telemetry', { done: true } );
+			renderAiLive( { done: true } );
+			post( 'tas-ai-done', { bestTime: fmtTime( bestFinish ), improved: false, finish: false, blindKept: true, script: state.lastRunText, nn: true } );
+			return;
+
+		}
+		post( 'tas-ai-telemetry', { done: true } );
+		renderAiLive( { done: true } );
+		post( 'tas-ai-done', { bestTime: fmtTime( bestFinish ), improved, finish: Number.isFinite( bestFinish ), script: Number.isFinite( bestFinish ) ? state.lastRunText : undefined, nn: true } );
+
+	}
+
+	function nnDebugText( round, population, o ) {
+
+		const lines = [];
+		lines.push( `session  NEURAL NET (${ NN_IN }→${ NN_H }→${ NN_OUT } MLP, ${ NN_W } weights, learned by evolution)` );
+		lines.push( `sensors  8-direction wall + water proximity · next checkpoint bearing/dist · ${ o.guide ? 'guide offset + carrot bearing' : 'NO guide (blind)' } · speed · last actions` );
+		lines.push( `mode     ${ o.fast ? 'save-state lap' : 'full re-sim' } · pop ${ o.popSize } · σ ${ o.sigma.toFixed( 2 ) } · eyes: ${ o.guide ? 'carrot guide' : 'BLIND (no guide!)' }` );
+		lines.push( `── gen ${ round } · ${ state.brute.evals } sims ──` );
+		const topN = Math.min( 3, population.length );
+		for ( let i = 0; i < topN; i ++ ) {
+
+			const c = population[ i ];
+			const fin = Number.isFinite( c.fit.finish ) ? c.fit.finish.toFixed( 3 ) + 's ✓' : 'DNF';
+			lines.push( `top${ i + 1 }     reward ${ o.fmtPct( c.fit.prog ) } · finish ${ fin } · ${ c.rec.length } input changes` );
+
+		}
+		lines.push( `best    ${ Number.isFinite( o.bestFinish ) ? o.bestFinish.toFixed( 3 ) + 's (adopted — in your inputs box)' : 'no finisher yet' }` );
+		return lines.join( '\n' );
+
+	}
+
+	// The AI session. Same safety rails as brute force: state.brute owns the
+	// engine (R is blocked), only FINISHERS are adopted, adoption is
+	// strictly-faster (a DNF baseline only allows the FIRST finisher in),
+	// and the end state is the same parked-at-start cleanup.
+		// AI driver = the neural net. (The old evolve-inputs hill climber was
+	// removed: it optimized recorded inputs instead of learning to drive.)
+	async function aiDrive( payload ) {
+
+		if ( state.brute || state.ai ) return;
+		return nnDrive( payload );
+
+	}
+
+window.addEventListener( 'message', ( event ) => {
 
 		if ( event.source !== window.parent || ! event.data?.type ) return;
 		const type = event.data.type;
@@ -1380,6 +2151,43 @@ post( 'tas-paused', { paused: state.paused } );
 		else if ( type === 'tas-run' ) run( event.data.script || '', !! event.data.startAtLap2, event.data.goal );
 		else if ( type === 'tas-stop' ) { state.phase = 'done'; ctx.tasBeginNextLap(); updateOverlay(); }
 		else if ( type === 'tas-bruteforce' ) bruteForce( event.data );
+		else if ( type === 'tas-ai' ) aiDrive( event.data );
+		else if ( type === 'tas-ai-brain-reset' ) {
+
+			try { localStorage.removeItem( 'skid-ai-brain:' + ( ctx.trackId || 'default' ) ); } catch ( e ) {}
+			post( 'tas-ai-eval', { note: 'AI brain wiped — the next session starts fresh' } );
+
+		}
+		else if ( type === 'tas-ai-adopt' ) {
+
+			// parent's "Use AI best run" button: write the session's best
+			// (fastest finisher, else the best blind drive) into the box
+			if ( state.aiBest ) {
+
+				post( 'tas-bruteforce-update', { script: state.aiBest.text } );
+				post( 'tas-ai-eval', { note: `best run (${ state.aiBest.desc }) applied to the inputs box` } );
+
+			} else post( 'tas-ai-eval', { note: 'no AI best run yet — let a session run first' } );
+
+		}
+		else if ( type === 'tas-ai-guide' ) {
+
+			// "Refresh guide lap": re-capture the guide from the box's script.
+			const gscript = parseScript( event.data.script || '' );
+			if ( gscript.errors.length || ( ! gscript.lap1.length && ! gscript.lap2.length ) ) {
+
+				post( 'tas-ai-guide-error', { errors: [ 'no valid inputs to capture a guide from' ] } );
+				return;
+
+			}
+			const gfast = !!( gscript.crossState && gscript.crossState.pos && gscript.crossState.vel && gscript.lap2.length && ctx.tasBeginNextLap );
+			const g = captureGuide( gscript );
+			if ( ! g ) { post( 'tas-ai-guide-error', { errors: [ 'guide capture failed — the baseline run never moves' ] } ); return; }
+			g.fast = gfast;
+			state.aiGuide = g;
+			post( 'tas-ai-guide-ok', { pts: g.pts.length, samples: g.samples.length, fast: gfast } );
+
+		}
 		else if ( type === 'tas-bruteforce-stop' ) { if ( state.brute ) state.brute.stop = true; }
 		else if ( type === 'tas-toggle-pause' ) togglePause();
 		else if ( type === 'tas-target-place' ) {
@@ -1476,6 +2284,94 @@ post( 'tas-paused', { paused: state.paused } );
 		+ 'background:rgba(0,0,0,0.55);padding:6px 10px;border-radius:6px;white-space:pre;';
 	document.body.appendChild( overlay );
 
+	// ── AI LIVE panel (in-game: reward, sensors, outputs, history) ──────
+	// Injected by TASMode itself so it ALWAYS ships with the cache-busted
+	// game script — the editor page's copy can lag a cache cycle behind.
+	const aiLive = document.createElement( 'div' );
+	aiLive.id = 'tas-ai-live';
+	aiLive.style.cssText = 'position:fixed;top:10px;right:10px;z-index:99999;pointer-events:none;display:none;'
+		+ 'font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#e6edf3;'
+		+ 'background:rgba(0,0,0,0.72);padding:8px 10px;border-radius:6px;';
+	document.body.appendChild( aiLive );
+	let aiCells = null;
+	function renderAiLive( d ) {
+
+		if ( ! d || d.done ) { if ( aiCells ) aiCells.head.textContent = 'AI SESSION ENDED'; return; }
+		if ( ! d.started || ! d.sensors ) { if ( aiCells ) aiCells.head.textContent = `AI LIVE \u00b7 countdown\u2026 (gen ${ d.gen })`; return; }
+		aiLive.style.display = 'block';
+		if ( ! aiCells ) {
+
+			aiLive.innerHTML = '<div id="ail-head" style="font-weight:700;color:#7ee787;"></div>'
+				+ '<div style="display:flex;gap:12px;margin-top:5px;">'
+				+ '<div><div style="color:#8b949e;">walls</div><div id="ail-walls" style="display:grid;grid-template-columns:repeat(3,18px);gap:1px;"></div></div>'
+				+ '<div><div style="color:#8b949e;">water</div><div id="ail-water" style="display:grid;grid-template-columns:repeat(3,18px);gap:1px;"></div></div>'
+				+ '<div><div style="color:#8b949e;">out</div><div id="ail-out" style="display:grid;grid-template-columns:repeat(3,18px);gap:1px;"></div></div>'
+				+ '</div>'
+				+ '<div id="ail-nums" style="color:#8b949e;margin-top:5px;white-space:pre-wrap;"></div>'
+				+ '<canvas id="ail-spark" width="300" height="30" style="margin-top:5px;display:block;"></canvas>';
+			const order = [ 7, 0, 1, 6, -1, 2, 5, 4, 3 ];
+			const AR = [ '\u2191', '\u2197', '\u2192', '\u2198', '\u2193', '\u2199', '\u2190', '\u2196' ];
+			aiCells = { head: document.getElementById( 'ail-head' ), nums: document.getElementById( 'ail-nums' ), spark: document.getElementById( 'ail-spark' ), walls: [], water: [], out: [] };
+			for ( const id of [ 'ail-walls', 'ail-water' ] ) {
+
+				const grid = document.getElementById( id );
+				for ( let i = 0; i < 9; i ++ ) {
+
+					const c = document.createElement( 'div' );
+					if ( order[ i ] === -1 ) { c.textContent = '\u25c9'; c.style.background = '#161b22'; }
+					else c.textContent = AR[ order[ i ] ];
+					c.style.cssText += ';width:18px;height:16px;line-height:16px;text-align:center;border-radius:3px;font-size:10px;';
+					grid.appendChild( c );
+					if ( order[ i ] !== -1 ) aiCells[ id.slice( 4 ) ].push( { el: c, d: order[ i ] } );
+
+				}
+
+			}
+			const og = document.getElementById( 'ail-out' );
+			const ocs = [ '', '\u25b2', '', '\u25c0', '\u25c9', '\u25b6', '', '\u25bc', '' ];
+			for ( let i = 0; i < 9; i ++ ) {
+
+				const c = document.createElement( 'div' );
+				c.textContent = ocs[ i ] || '';
+				c.style.cssText = ';width:18px;height:16px;line-height:16px;text-align:center;border-radius:3px;font-size:10px;color:#30363d;background:#161b22;';
+				og.appendChild( c );
+				if ( i === 1 || i === 3 || i === 5 || i === 7 ) aiCells.out.push( c );
+
+			}
+
+		}
+		aiCells.head.textContent = `AI LIVE \u00b7 reward ${ d.rewardText } \u00b7 step ${ d.step } \u00b7 gen ${ d.gen } \u00b7 eval ${ d.evals }`;
+		aiCells.head.style.color = '#7ee787';
+		for ( const c of aiCells.walls ) c.el.style.background = `rgba( 255,140,60,${ ( ( 1 - d.sensors[ c.d ] ) * 0.9 ).toFixed( 2 ) } )`;
+		for ( const c of aiCells.water ) c.el.style.background = `rgba( 90,160,255,${ ( ( 1 - d.sensors[ 8 + c.d ] ) * 0.9 ).toFixed( 2 ) } )`;
+		aiCells.out[ 0 ].style.color = d.z > 0 ? '#7ee787' : '#30363d';
+		aiCells.out[ 1 ].style.color = d.x < 0 ? '#7ee787' : '#30363d';
+		aiCells.out[ 2 ].style.color = d.x > 0 ? '#7ee787' : '#30363d';
+		aiCells.out[ 3 ].style.color = d.z < 0 ? '#7ee787' : '#30363d';
+		const sv = d.sensors;
+		aiCells.nums.textContent = `cp \u2192${ sv[ 16 ].toFixed( 2 ) } \u2191${ sv[ 17 ].toFixed( 2 ) } ${ sv[ 18 ].toFixed( 2 ) }`
+			+ ` \u00b7 guide \u22a5${ sv[ 19 ].toFixed( 2 ) } \u00b7 carrot \u2192${ sv[ 20 ].toFixed( 2 ) } \u2191${ sv[ 21 ].toFixed( 2 ) }`
+			+ ` \u00b7 spd ${ sv[ 22 ].toFixed( 2 ) } \u00b7 out x${ d.x > 0 ? '+' + d.x : d.x } z${ d.z > 0 ? '+' + d.z : d.z }`;
+		const cv = aiCells.spark, g = cv.getContext( '2d' );
+		g.clearRect( 0, 0, cv.width, cv.height );
+		if ( d.hist && d.hist.length > 1 ) {
+
+			let mn = Infinity, mx = - Infinity;
+			for ( const v of d.hist ) { mn = Math.min( mn, v ); mx = Math.max( mx, v ); }
+			const span = Math.max( 0.001, mx - mn );
+			g.fillStyle = '#238636';
+			const bw = cv.width / d.hist.length;
+			d.hist.forEach( ( v, i ) => {
+
+				const h = 3 + ( ( v - mn ) / span ) * ( cv.height - 4 );
+				g.fillRect( i * bw, cv.height - h, Math.max( 1, bw - 0.5 ), h );
+
+			} );
+
+		}
+
+	}
+
 	function updateOverlay() {
 
 		if ( state.fastForward ) return; // burst: skip DOM writes
@@ -1487,7 +2383,8 @@ post( 'tas-paused', { paused: state.paused } );
 		overlay.textContent = `TAS ${ phaseLabel } · ${ lapLabel }`
 			+ `\nstep ${ state.phase === 'run' ? globalStep() : state.stepIndex }${ state.phase === 'run' && state.playback.totalSteps != null ? ' / ' + state.playback.totalSteps : '' } (${ TAS_STEP_HZ } Hz)`
 			+ `\nlap ${ ( ctx.get.lapSeconds() || 0 ).toFixed( 6 ) }s`
-			+ `\nsim ${ ctx.get.raceClock().toFixed( 2 ) }s`;
+			+ `\nsim ${ ctx.get.raceClock().toFixed( 2 ) }s`
+			+ ( state.nnInfo ? `\n${ state.nnInfo.label } ${ state.nnInfo.reward } \u{1f955} · gen ${ state.nnInfo.gen }/${ state.nnInfo.rounds }` : '' );
 
 	}
 	updateOverlay();
