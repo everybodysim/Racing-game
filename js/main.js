@@ -4,9 +4,9 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, MotionQuality, castRay, createClosestCastRayCollector, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
-import { Camera } from './Camera.js?v=16';
+import { Camera } from './Camera.js?v=17';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000290';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000291';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260955';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -6061,10 +6061,12 @@ async function init() {
 			// to the ground"). Replays are cinematic: keep the normal chase
 			// framing (pre-probe behavior) by skipping ALL probes for this
 			// update only.
-			const savedCeilingProbe = cam.ceilingProbe, savedFloorProbe = cam.floorProbe;
+			const savedClipProbe = cam.clipProbe, savedCeilingProbe = cam.ceilingProbe, savedFloorProbe = cam.floorProbe;
+			cam.clipProbe = null;
 			cam.ceilingProbe = null;
 			cam.floorProbe = null;
 			cam.update( 1 / 60, ghostModel.position, ghostModel.quaternion );
+			cam.clipProbe = savedClipProbe;
 			cam.ceilingProbe = savedCeilingProbe;
 			cam.floorProbe = savedFloorProbe;
 		}
@@ -6407,11 +6409,38 @@ async function init() {
 	// The follow camera sweeps a real volume against the nearest static
 	// hitbox. Dynamic cars never block it. Ray probes below are only for
 	// choosing ceiling/floor framing; final confinement uses the sweep.
-	const camRayCollector = createClosestCastRayCollector();
+	const camRayCollector = createAnyCastRayCollector();
 	const camRaySettings = createDefaultCastRaySettings();
 	const camRayFilter = ccLayerFilter.forWorld( world );
 	camRayFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
 	const camRayOrigin = [ 0, 0, 0 ];
+	const CAM_CLIP_MARGIN = 0.4; // hover distance off hitbox surfaces
+	const CAM_CLIP_MIN = 1.4;     // never closer to the car than this
+	const camRayDir = [ 0, 0, 0 ];
+	// Original pre-sweep camera clip: single physics raycast from the car
+	// toward the camera; park the camera just short of the first hit.
+	// (User order 2026-10-01: camera reverted EXACTLY to how it was before
+	// the volume-sweep/eased-glide campaign — do not re-add smoothing.)
+	const camClipProbe = ( origin, dir, length ) => {
+
+		camRayOrigin[ 0 ] = origin.x;
+		camRayOrigin[ 1 ] = origin.y;
+		camRayOrigin[ 2 ] = origin.z;
+		camRayDir[ 0 ] = dir.x;
+		camRayDir[ 1 ] = dir.y;
+		camRayDir[ 2 ] = dir.z;
+		// AnyCastRayCollector.addMiss() is a no-op — stale hits linger, so reset() before every cast.
+		camRayCollector.reset();
+		castRay( world, camRayCollector, camRaySettings, camRayOrigin, camRayDir, length, camRayFilter );
+		if ( camRayCollector.hit.status !== CastRayStatus.COLLIDING ) return length;
+		// First hit along the car→camera segment: park the camera just short of it.
+		let freeLen = camRayCollector.hit.fraction * length - CAM_CLIP_MARGIN;
+		freeLen = Math.max( freeLen, Math.min( CAM_CLIP_MIN, length ) );
+		return Math.min( freeLen, length );
+
+	};
+	cam.clipProbe = camClipProbe;
+	if ( cam2 ) cam2.clipProbe = camClipProbe;
 	// Straight-up companion probe for the chase cam: when a static ceiling
 	// hangs right above the car (pool cross deck, low bridges), the camera
 	// clamps its height under it instead of rising past the block and
