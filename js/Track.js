@@ -1233,6 +1233,15 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				piece.position.y += 0.08 - TUNNEL_DROP;
 				// Tunnel-sunk shells: no shadows at all (user order 2026-10-01).
 				piece.traverse( ( c ) => { if ( c.isMesh && c.userData.isChokeMesh && ! c.userData.isChokeTreeMesh ) c.userData.noCastShadow = true; } );
+			} else if ( key === 'track-4-way' ) {
+				// Surface 4-ways sitting ON TOP of a CLOSED tunnel roof render a
+				// hair low against the surrounding surface (user order
+				// 2026-10-03): lift ONLY those pieces +0.04. On-grid pieces
+				// and off-grid pieces alike resolve to their host cell via
+				// floor(); plain 4-ways and every other road piece are
+				// untouched.
+				const host = tunnelInfoMap.get( `${ Math.floor( gx ) },${ Math.floor( gz ) }` );
+				if ( host && host.closed ) piece.position.y += 0.04;
 			}
 			trackPieceGroup.add( piece );
 
