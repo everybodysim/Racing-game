@@ -7959,15 +7959,27 @@ async function init() {
 	// "Play now" / "Create account" can enter the game WITHOUT a page
 	// reload: dismissing the overlay IS entering. The URL gets ?play=1 so
 	// a refresh keeps you in the game.
+	// Fade to black, swap screens, fade back in (user order 2026-10-06).
+	// The black dip makes each screen feel like its own page instead of a
+	// glassy crossfade.
+	function fadeThroughBlack( midSwap ) {
+
+		const fade = document.getElementById( 'screen-fade' );
+		if ( ! fade ) { midSwap(); return; }
+		fade.classList.add( 'dark' );
+		setTimeout( () => {
+
+			midSwap();
+			setTimeout( () => fade.classList.remove( 'dark' ), 90 );
+
+		}, 320 );
+
+	}
+
 	function dismissHomeLanding() {
 
 		const landing = document.getElementById( 'home-landing' );
 		if ( ! landing || ! landing.classList.contains( 'visible' ) ) return false;
-		// Fade + dive into the game instead of an instant cut (user order
-		// 2026-10-06): .fading-out animates opacity/scale, then we drop the
-		// overlay for real.
-		landing.classList.add( 'fading-out' );
-		setTimeout( () => landing.classList.remove( 'visible', 'fading-out' ), 520 );
 		if ( history.replaceState && /(?:^|\/)(?:index\.html)?$/.test( location.pathname ) ) {
 
 			const params = new URLSearchParams( location.search );
@@ -7975,6 +7987,7 @@ async function init() {
 			history.replaceState( null, '', `${ location.pathname }?${ params }` );
 
 		}
+		fadeThroughBlack( () => landing.classList.remove( 'visible' ) );
 		return true;
 
 	}
@@ -7992,14 +8005,9 @@ async function init() {
 	function showHomeLanding() {
 
 		setModeMenuOpen( false );
+		if ( typeof closeMobileMenu === 'function' ) closeMobileMenu();
 		const landing = document.getElementById( 'home-landing' );
 		if ( ! landing ) return;
-		if ( ! landing.classList.contains( 'visible' ) ) {
-
-			landing.classList.add( 'visible' ); // fade-in animation plays
-			if ( typeof loadHomeCommunityData === 'function' ) loadHomeCommunityData();
-
-		}
 		if ( history.replaceState && /(?:^|\/)(?:index\.html)?$/.test( location.pathname ) ) {
 
 			const params = new URLSearchParams( location.search );
@@ -8009,15 +8017,31 @@ async function init() {
 			history.replaceState( null, '', qs ? `${ location.pathname }?${ qs }` : location.pathname );
 
 		}
+		fadeThroughBlack( () => {
+
+			document.getElementById( 'home-settings-page' )?.classList.remove( 'open' );
+			if ( ! landing.classList.contains( 'visible' ) ) {
+
+				landing.classList.add( 'visible' );
+				if ( typeof loadHomeCommunityData === 'function' ) loadHomeCommunityData();
+
+			}
+
+		} );
 
 	}
 	window.__showHomeLanding = showHomeLanding;
-	document.querySelector( '.qm-home-link' )?.addEventListener( 'click', ( event ) => {
+	// Every in-game "Back to Home" control goes through the same no-reload
+	// path: the E-menu nav link, the HUD button, and the mobile menu sheet.
+	const homeLinkHandler = ( event ) => {
 
 		event.preventDefault();
 		showHomeLanding();
 
-	} );
+	};
+	document.querySelector( '.qm-home-link' )?.addEventListener( 'click', homeLinkHandler );
+	document.getElementById( 'home-menu-btn' )?.addEventListener( 'click', homeLinkHandler );
+	document.querySelector( '#mobile-menu-sheet a[href="index.html"]' )?.addEventListener( 'click', homeLinkHandler );
 
 	function updateGraphicsQualityUi() {
 

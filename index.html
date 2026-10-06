@@ -1266,21 +1266,22 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			from { opacity: 0; transform: translateY(10px); }
 			to { opacity: 1; transform: none; }
 		}
-		/* Entering the game (Play now): soft fade + dive instead of a hard cut */
-		#home-landing.fading-out {
+		/* Black dip between screens (user order 2026-10-06): every screen
+		   swap goes fade-to-black, swap, fade-back so each page feels
+		   separate instead of a glassy crossfade. */
+		#screen-fade {
+			position: fixed;
+			inset: 0;
+			z-index: 300;
+			background: #000;
 			opacity: 0;
-			transform: scale(1.045);
 			pointer-events: none;
+			transition: opacity 0.45s ease;
 		}
-		/* Opening Settings & Account: the home UI slides left while the
-		   sub-page slides in from the right (seamless page-to-page move). */
-		#home-landing.slide-away {
-			opacity: 0;
-			transform: translateX(-26%) scale(0.985);
-			pointer-events: none;
-		}
-		#home-landing {
-			transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.45s ease;
+		#screen-fade.dark {
+			opacity: 1;
+			pointer-events: all;
+			transition: opacity 0.3s ease;
 		}
 		#home-card {
 			position: relative;
@@ -1618,16 +1619,14 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				radial-gradient(circle at 88% 88%, rgba(141, 255, 119, 0.22), transparent 38%),
 				linear-gradient(160deg, rgba(8,14,24,0.97), rgba(8,11,18,0.99));
 			font-family: "Inter", "Segoe UI", sans-serif;
-			transform: translateX(100%);
 			opacity: 0;
 			visibility: hidden;
-			transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.45s ease, visibility 0s linear 0.55s;
+			transition: opacity 0.35s ease, visibility 0s linear 0.35s;
 		}
 		#home-settings-page.open {
-			transform: translateX(0);
 			opacity: 1;
 			visibility: visible;
-			transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.45s ease;
+			transition: opacity 0.45s ease;
 		}
 		.settings-shell {
 			display: flex;
@@ -1636,6 +1635,13 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			width: 100%;
 			height: 100%;
 			max-width: 1500px;
+		}
+		#home-settings-page.open .settings-shell {
+			animation: settingsShellIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+		}
+		@keyframes settingsShellIn {
+			from { transform: translateY(16px) scale(0.995); opacity: 0.4; }
+			to { transform: none; opacity: 1; }
 		}
 		.settings-shell-header {
 			display: flex;
@@ -2622,6 +2628,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			</div>
 		</div>
 	</section>
+	<div id="screen-fade" aria-hidden="true"></div>
 	<div id="top-message" aria-live="polite"></div>
 	<div id="effect-message" aria-live="polite"></div>
 	<a id="editor-link" href="editor.html">Create your own track</a>
@@ -3006,10 +3013,27 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		} );
 		// Create account / gear: stay on the landing and slide into the
 		// Settings & Account sub-page (no game entry) — user order 2026-10-06.
+		function fadeThroughBlack( midSwap ) {
+
+			const fade = document.getElementById( 'screen-fade' );
+			if ( ! fade ) { midSwap(); return; }
+			fade.classList.add( 'dark' );
+			setTimeout( function () {
+
+				midSwap();
+				setTimeout( function () { fade.classList.remove( 'dark' ); }, 90 );
+
+			}, 320 );
+
+		}
 		function openLandingSettingsPage() {
 
-			page.classList.add( 'open' );
-			landingEl?.classList.add( 'slide-away' );
+			fadeThroughBlack( function () {
+
+				page.classList.add( 'open' );
+				landingEl?.classList.remove( 'visible' );
+
+			} );
 			if ( frame && ! frame.dataset.loaded ) {
 
 				frame.dataset.loaded = '1';
@@ -3039,8 +3063,12 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 		function closeLandingSettingsPage() {
 
-			page.classList.remove( 'open' );
-			landingEl?.classList.remove( 'slide-away' );
+			fadeThroughBlack( function () {
+
+				page.classList.remove( 'open' );
+				landingEl?.classList.add( 'visible' );
+
+			} );
 
 		}
 		const page = document.getElementById( 'home-settings-page' );
@@ -3749,7 +3777,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000407&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000408&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
