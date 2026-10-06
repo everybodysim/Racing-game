@@ -709,6 +709,13 @@ function hideLoadingOverlay() {
 		if ( isIndexPath && !map && !pack && play !== '1' ) {
 			landing.classList.add( 'visible' );
 		}
+		// ?e-menu=<tab>: open the E menu once the game is ready. Backs the
+		// homepage Create account button's hard-link fallback (?play=1&e-menu=account).
+		const eMenu = params.get( 'e-menu' );
+		if ( eMenu ) {
+			const target = eMenu === 'account' || eMenu === 'garage' || eMenu === 'nav' || eMenu === 'gameplay' ? eMenu : 'gameplay';
+			setTimeout( () => window.__openModeMenu?.( target ), 300 );
+		}
 	}
 
 }
@@ -7938,6 +7945,34 @@ async function init() {
 		else disposeGarageCardPreviews();
 
 	}
+
+	// ── Homepage deep-links (user order 2026-10-06) ──
+	// The full game is already booted behind the landing overlay, so
+	// "Play now" / "Create account" can enter the game WITHOUT a page
+	// reload: dismissing the overlay IS entering. The URL gets ?play=1 so
+	// a refresh keeps you in the game.
+	function dismissHomeLanding() {
+
+		const landing = document.getElementById( 'home-landing' );
+		if ( ! landing || ! landing.classList.contains( 'visible' ) ) return false;
+		landing.classList.remove( 'visible' );
+		if ( history.replaceState && /(?:^|\/)(?:index\.html)?$/.test( location.pathname ) ) {
+
+			const params = new URLSearchParams( location.search );
+			params.set( 'play', '1' );
+			history.replaceState( null, '', `${ location.pathname }?${ params }` );
+
+		}
+		return true;
+
+	}
+	window.__dismissHomeLanding = dismissHomeLanding;
+	window.__openModeMenu = ( tab ) => {
+
+		setModeMenuOpen( true );
+		if ( tab ) setModeTab( tab );
+
+	};
 
 	function updateGraphicsQualityUi() {
 

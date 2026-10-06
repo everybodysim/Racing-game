@@ -1523,6 +1523,40 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			background: rgba(5,10,18,0.5);
 			border: 1px solid rgba(255,255,255,0.1);
 		}
+		.home-account-cta {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			gap: 10px;
+			flex: 1;
+			min-height: 64px;
+			margin-top: 2px;
+			padding: 14px 18px;
+			border-radius: 14px;
+			text-decoration: none;
+			color: #f7fbff;
+			background: linear-gradient(135deg, rgba(91,236,126,0.32), rgba(34,159,73,0.26));
+			border: 1px solid rgba(168,255,190,0.45);
+			font: 800 clamp(14px, 1.7vw, 18px)/1.2 "Inter", "Segoe UI", sans-serif;
+			text-align: center;
+			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 4px 18px rgba(77,232,152,0.14);
+		}
+		.home-account-cta .home-btn-text em {
+			display: block;
+			font-style: normal;
+			font-weight: 500;
+			font-size: clamp(10px, 1.1vw, 12px);
+			opacity: 0.85;
+			margin-top: 3px;
+		}
+		.home-account-cta:hover {
+			transform: translateY(-2px);
+			background: linear-gradient(135deg, rgba(91,236,126,0.42), rgba(34,159,73,0.36));
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 8px 30px rgba(77,232,152,0.26);
+		}
+		.home-account-cta:active { transform: translateY(0) scale(0.985); }
+		.home-account-cta:focus-visible { outline: 2px solid rgba(140,220,255,0.9); outline-offset: 2px; }
 		.home-panel-title {
 			font: 800 10px/1 "Inter", "Segoe UI", sans-serif;
 			letter-spacing: 0.12em;
@@ -2261,7 +2295,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					     tracks → Community tracks → Track editor, with the
 					     daily/weekly events as the bottom-left / bottom-right
 					     pair of the small row. -->
-					<a class="home-big-link" href="index.html?play=1"><span class="home-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5.14v13.72c0 .8.87 1.3 1.56.9l10.7-6.86a1.05 1.05 0 0 0 0-1.8L9.56 4.24A1.05 1.05 0 0 0 8 5.14z"/></svg></span><span class="home-btn-text">Play now<em>Jump straight into a race</em></span><span class="home-chevron">▸</span></a>
+					<a class="home-big-link" id="home-play-now" href="index.html?play=1"><span class="home-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5.14v13.72c0 .8.87 1.3 1.56.9l10.7-6.86a1.05 1.05 0 0 0 0-1.8L9.56 4.24A1.05 1.05 0 0 0 8 5.14z"/></svg></span><span class="home-btn-text">Play now<em>Jump straight into a race</em></span><span class="home-chevron">▸</span></a>
 
 					<a class="home-official-link" href="official-tracks.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></span><span class="home-btn-text">Official tracks<em>Curated campaign — 50 tracks</em></span><span class="home-chevron">▸</span></a>
 
@@ -2309,6 +2343,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 							<div class="home-leader-row"><span class="home-leader-name">Loading…</span></div>
 						</div>
 					</div>
+					<!-- Fills the empty space under Placement ratings (user order
+					     2026-10-06). Enters the game without reload and opens
+					     the E menu straight on the account tab. -->
+					<a id="home-create-account" class="home-account-cta" href="index.html?play=1&e-menu=account"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg></span><span class="home-btn-text">Create account<em>Save your progress & records</em></span></a>
 				</div>
 			</div>
 		</div>
@@ -2687,6 +2725,20 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				if ( typeof loadHomeCommunityData === 'function' ) loadHomeCommunityData();
 			}
 		} )();
+
+		// Play now / Create account: enter the game WITHOUT a reload (the
+		// game is already booted behind the landing overlay). Falls back to
+		// the hard-link hrefs (which auto-open the right state) if the game
+		// handles aren't ready yet.
+		document.getElementById( 'home-play-now' )?.addEventListener( 'click', function( e ) {
+			if ( window.__dismissHomeLanding?.() ) e.preventDefault();
+		} );
+		document.getElementById( 'home-create-account' )?.addEventListener( 'click', function( e ) {
+			if ( ! window.__dismissHomeLanding ) return; // hard reload fallback
+			window.__dismissHomeLanding();
+			e.preventDefault();
+			setTimeout( function() { window.__openModeMenu?.( 'account' ); }, 300 );
+		} );
 
 		// Fallback: also check on DOMContentLoaded in case the element wasn't ready
 		document.addEventListener( 'DOMContentLoaded', function() {
@@ -3284,7 +3336,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000404&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000405&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
