@@ -7187,6 +7187,14 @@ async function init() {
 	let leaderboardVisible = true;
 	let uiHidden = false;
 	let accountSession = null;
+	// Landing-page account panel (Settings & Account page) subscribes here so it
+	// mirrors sign-in state changes happening anywhere in the game.
+	const accountUiListeners = new Set();
+	function notifyAccountUiListeners() {
+
+		for ( const fn of accountUiListeners ) { try { fn(); } catch ( e ) {} }
+
+	}
 
 	const advancementEvents = new AdvancementEvents();
 	const accountDirtyRef = { value: false };
@@ -7955,7 +7963,11 @@ async function init() {
 
 		const landing = document.getElementById( 'home-landing' );
 		if ( ! landing || ! landing.classList.contains( 'visible' ) ) return false;
-		landing.classList.remove( 'visible' );
+		// Fade + dive into the game instead of an instant cut (user order
+		// 2026-10-06): .fading-out animates opacity/scale, then we drop the
+		// overlay for real.
+		landing.classList.add( 'fading-out' );
+		setTimeout( () => landing.classList.remove( 'visible', 'fading-out' ), 520 );
 		if ( history.replaceState && /(?:^|\/)(?:index\.html)?$/.test( location.pathname ) ) {
 
 			const params = new URLSearchParams( location.search );
@@ -10111,8 +10123,23 @@ function completeCampaignStage() {
 		setAccountStatus( accountSession?.token ? `Signed in as ${ accountSession.username }` : 'Not signed in' );
 		if ( accountCloudSaveBtn ) accountCloudSaveBtn.disabled = ! accountSession?.token;
 		if ( accountCloudLoadBtn ) accountCloudLoadBtn.disabled = ! accountSession?.token;
+		notifyAccountUiListeners();
 
 	}
+
+	// ── Account API for the landing Settings & Account page (user order
+	// 2026-10-06). The E-menu keeps its own inputs; these explicit-credential
+	// variants let the landing panel do the same jobs without touching the
+	// in-game menu. Function declarations above are hoisted.
+	window.__accountApi = {
+		signup: ( username, password ) => signupAccount( username, password ),
+		login: ( username, password ) => loginAccount( username, password ),
+		signOut: () => signOutAccount(),
+		cloudSave: () => cloudSaveProfile(),
+		cloudLoad: () => cloudLoadProfile(),
+		session: () => accountSession ? { username: accountSession.username, token: accountSession.token } : null,
+		onChange: ( fn ) => { accountUiListeners.add( fn ); return () => accountUiListeners.delete( fn ); },
+	};
 
 	async function accountApiRequest( path, options = {} ) {
 
@@ -11902,10 +11929,10 @@ function completeCampaignStage() {
 
 	}
 
-	async function signupAccount() {
+	async function signupAccount( usernameOverride, passwordOverride ) {
 
-		const username = String( accountUsernameInput?.value || '' ).trim();
-		const password = String( accountPasswordInput?.value || '' );
+		const username = usernameOverride !== undefined ? String( usernameOverride ).trim() : String( accountUsernameInput?.value || '' ).trim();
+		const password = passwordOverride !== undefined ? String( passwordOverride ) : String( accountPasswordInput?.value || '' );
 		const payload = await accountApiRequest( '/signup', {
 			method: 'POST',
 			body: JSON.stringify( { username, password, profile: getCurrentProfileSnapshot() } ),
@@ -11917,10 +11944,10 @@ function completeCampaignStage() {
 
 	}
 
-	async function loginAccount() {
+	async function loginAccount( usernameOverride, passwordOverride ) {
 
-		const username = String( accountUsernameInput?.value || '' ).trim();
-		const password = String( accountPasswordInput?.value || '' );
+		const username = usernameOverride !== undefined ? String( usernameOverride ).trim() : String( accountUsernameInput?.value || '' ).trim();
+		const password = passwordOverride !== undefined ? String( passwordOverride ) : String( accountPasswordInput?.value || '' );
 		const payload = await accountApiRequest( '/login', {
 			method: 'POST',
 			body: JSON.stringify( { username, password } ),
@@ -11939,6 +11966,14 @@ function completeCampaignStage() {
 			setAccountStatus( `Logged in as ${ payload.username } (auto-load failed, use "Load profile from cloud").`, true );
 
 		}
+
+	}
+
+	function signOutAccount() {
+
+		accountSession = null;
+		localStorage.removeItem( ACCOUNT_SESSION_KEY );
+		updateAccountUi();
 
 	}
 

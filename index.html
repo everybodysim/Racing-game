@@ -1261,7 +1261,27 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			font-family: "Inter", "Segoe UI", sans-serif;
 			overflow-y: auto;
 		}
-		#home-landing.visible { display: flex; }
+		#home-landing.visible { display: flex; animation: homeLandingIn 0.45s ease backwards; }
+		@keyframes homeLandingIn {
+			from { opacity: 0; transform: translateY(10px); }
+			to { opacity: 1; transform: none; }
+		}
+		/* Entering the game (Play now): soft fade + dive instead of a hard cut */
+		#home-landing.fading-out {
+			opacity: 0;
+			transform: scale(1.045);
+			pointer-events: none;
+		}
+		/* Opening Settings & Account: the home UI slides left while the
+		   sub-page slides in from the right (seamless page-to-page move). */
+		#home-landing.slide-away {
+			opacity: 0;
+			transform: translateX(-26%) scale(0.985);
+			pointer-events: none;
+		}
+		#home-landing {
+			transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.45s ease;
+		}
 		#home-card {
 			position: relative;
 			width: min(1200px, 100%);
@@ -1281,6 +1301,29 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			gap: 12px;
 			margin-bottom: 4px;
 		}
+		.home-gear-btn {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 44px;
+			height: 44px;
+			flex-shrink: 0;
+			border-radius: 12px;
+			background: rgba(255,255,255,0.07);
+			border: 1px solid rgba(255,255,255,0.14);
+			color: #d6e4f7;
+			text-decoration: none;
+			transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+		}
+		.home-gear-btn svg { width: 22px; height: 22px; }
+		.home-gear-btn:hover {
+			transform: rotate(28deg);
+			background: rgba(119,243,177,0.14);
+			border-color: rgba(119,243,177,0.4);
+			color: #eafff2;
+		}
+		.home-gear-btn:active { transform: rotate(28deg) scale(0.94); }
+		.home-gear-btn:focus-visible { outline: 2px solid rgba(140,220,255,0.9); outline-offset: 2px; }
 		#home-card h1 {
 			margin: 0;
 			font: 900 clamp(32px, 5.5vw, 56px)/1.02 "Inter", "Segoe UI", sans-serif;
@@ -1528,10 +1571,13 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			align-items: center;
 			justify-content: center;
 			gap: 10px;
-			flex: 1;
-			min-height: 64px;
-			margin-top: 2px;
-			padding: 14px 18px;
+			/* Same fatness as the Play now button (user order 2026-10-06):
+			   identical padding + border-box sizing keeps the two cards the
+			   same height; margin-top:auto snaps it to the panel bottom. */
+			box-sizing: border-box;
+			min-height: 87px;
+			margin-top: auto;
+			padding: 18px 22px;
 			border-radius: 14px;
 			text-decoration: none;
 			color: #f7fbff;
@@ -1557,6 +1603,187 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 		.home-account-cta:active { transform: translateY(0) scale(0.985); }
 		.home-account-cta:focus-visible { outline: 2px solid rgba(140,220,255,0.9); outline-offset: 2px; }
+
+		/* ── Settings & Account landing sub-page (user order 2026-10-06) ── */
+		#home-settings-page {
+			position: fixed;
+			inset: 0;
+			z-index: 201;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			padding: clamp(12px, 2.5vw, 34px);
+			background:
+				radial-gradient(circle at 15% 12%, rgba(83, 212, 255, 0.28), transparent 42%),
+				radial-gradient(circle at 88% 88%, rgba(141, 255, 119, 0.22), transparent 38%),
+				linear-gradient(160deg, rgba(8,14,24,0.97), rgba(8,11,18,0.99));
+			font-family: "Inter", "Segoe UI", sans-serif;
+			transform: translateX(100%);
+			opacity: 0;
+			visibility: hidden;
+			transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.45s ease, visibility 0s linear 0.55s;
+		}
+		#home-settings-page.open {
+			transform: translateX(0);
+			opacity: 1;
+			visibility: visible;
+			transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.45s ease;
+		}
+		.settings-shell {
+			display: flex;
+			flex-direction: column;
+			gap: 14px;
+			width: 100%;
+			height: 100%;
+			max-width: 1500px;
+		}
+		.settings-shell-header {
+			display: flex;
+			align-items: center;
+			gap: 16px;
+			flex-shrink: 0;
+		}
+		.settings-shell-header h2 {
+			margin: 0;
+			font: 800 clamp(18px, 2.2vw, 26px)/1.2 "Inter", "Segoe UI", sans-serif;
+			color: #f2f8ff;
+			letter-spacing: 0.01em;
+		}
+		.settings-header-sep { color: #77f3b1; font-weight: 700; }
+		.settings-back-btn {
+			display: inline-flex;
+			align-items: center;
+			gap: 8px;
+			padding: 10px 16px 10px 12px;
+			border-radius: 12px;
+			border: 1px solid rgba(255,255,255,0.14);
+			background: rgba(255,255,255,0.07);
+			color: #d6e4f7;
+			font: 700 13px/1 "Inter", "Segoe UI", sans-serif;
+			cursor: pointer;
+			transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+		}
+		.settings-back-btn svg { width: 16px; height: 16px; }
+		.settings-back-btn:hover {
+			background: rgba(119,243,177,0.14);
+			border-color: rgba(119,243,177,0.4);
+			color: #eafff2;
+		}
+		.settings-back-btn:active { transform: scale(0.97); }
+		.settings-columns {
+			flex: 1;
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) clamp(280px, 26%, 400px);
+			gap: 14px;
+			min-height: 0;
+		}
+		.settings-embed-wrap {
+			min-height: 0;
+			border-radius: 18px;
+			border: 1px solid rgba(255,255,255,0.14);
+			background: rgba(5,10,18,0.5);
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 34px rgba(0,0,0,0.35);
+			overflow: hidden;
+		}
+		.settings-embed-wrap iframe {
+			width: 100%;
+			height: 100%;
+			border: none;
+			display: block;
+			background: transparent;
+		}
+		.account-side-panel {
+			min-height: 0;
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+			padding: 18px;
+			border-radius: 18px;
+			border: 1px solid rgba(119,243,177,0.24);
+			background: rgba(5,10,18,0.5);
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 34px rgba(0,0,0,0.35);
+			overflow-y: auto;
+		}
+		.account-side-panel h3 {
+			margin: 0;
+			font: 800 10px/1 "Inter", "Segoe UI", sans-serif;
+			letter-spacing: 0.12em;
+			text-transform: uppercase;
+			color: #77f3b1;
+		}
+		.acct-status {
+			padding: 9px 12px;
+			border-radius: 10px;
+			background: rgba(255,255,255,0.06);
+			border: 1px solid rgba(255,255,255,0.12);
+			font: 600 12.5px/1.4 "Inter", "Segoe UI", sans-serif;
+			color: #d8ebff;
+		}
+		.acct-status.error {
+			color: #ffb3b3;
+			border-color: rgba(255,120,120,0.35);
+			background: rgba(255,90,90,0.08);
+		}
+		.acct-fields { display: flex; flex-direction: column; gap: 6px; }
+		.acct-fields label {
+			font: 700 10px/1 "Inter", "Segoe UI", sans-serif;
+			letter-spacing: 0.08em;
+			text-transform: uppercase;
+			color: #9fb7d4;
+			margin-top: 6px;
+		}
+		.acct-fields input {
+			padding: 10px 12px;
+			border-radius: 10px;
+			border: 1px solid rgba(255,255,255,0.16);
+			background: rgba(0,0,0,0.35);
+			color: #f0f7ff;
+			font: 600 13px/1.3 "Inter", "Segoe UI", sans-serif;
+			outline: none;
+			transition: border-color 0.15s ease, box-shadow 0.15s ease;
+		}
+		.acct-fields input:focus {
+			border-color: rgba(119,243,177,0.6);
+			box-shadow: 0 0 0 3px rgba(119,243,177,0.12);
+		}
+		.acct-actions { display: flex; gap: 8px; margin-top: 10px; }
+		.acct-session-actions { display: none; flex-direction: column; gap: 8px; }
+		.account-side-panel.signed-in .acct-fields { display: none; }
+		.account-side-panel.signed-in .acct-session-actions { display: flex; }
+		.acct-btn {
+			flex: 1;
+			padding: 11px 12px;
+			border-radius: 11px;
+			border: 1px solid rgba(255,255,255,0.15);
+			background: rgba(255,255,255,0.08);
+			color: #e8f2ff;
+			font: 700 13px/1 "Inter", "Segoe UI", sans-serif;
+			cursor: pointer;
+			transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+		}
+		.acct-btn:hover { background: rgba(255,255,255,0.14); transform: translateY(-1px); }
+		.acct-btn:active { transform: translateY(0) scale(0.98); }
+		.acct-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
+		.acct-btn-primary {
+			background: linear-gradient(135deg, rgba(91,236,126,0.32), rgba(34,159,73,0.26));
+			border-color: rgba(168,255,190,0.45);
+		}
+		.acct-btn-primary:hover { background: linear-gradient(135deg, rgba(91,236,126,0.42), rgba(34,159,73,0.36)); }
+		.acct-btn-blue {
+			background: linear-gradient(165deg, rgba(108,200,255,0.3), rgba(47,124,214,0.32));
+			border-color: rgba(189,223,255,0.5);
+		}
+		.acct-btn-blue:hover { background: linear-gradient(165deg, rgba(130,206,255,0.4), rgba(62,140,226,0.4)); }
+		.acct-btn-danger {
+			border-color: rgba(255,140,140,0.35);
+			color: #ffd9d9;
+		}
+		.acct-btn-danger:hover { background: rgba(255,90,90,0.12); }
+		.acct-hint {
+			margin: auto 0 0;
+			font: 500 11px/1.5 "Inter", "Segoe UI", sans-serif;
+			color: #8ba8c9;
+		}
 		.home-panel-title {
 			font: 800 10px/1 "Inter", "Segoe UI", sans-serif;
 			letter-spacing: 0.12em;
@@ -1903,6 +2130,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	/* ── Home page ── */
 	body.mobile #home-body { grid-template-columns: 1fr !important; }
 	body.mobile #home-community { order: 2; margin-top: 12px; }
+	body.mobile #home-settings-page { padding: 10px; }
+	body.mobile .settings-columns { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+	body.mobile .account-side-panel { max-height: 44%; }
+	body.mobile .acct-btn { padding: 12px 10px; }
 	body.mobile .home-mid-row { grid-template-columns: 1fr !important; }
 	body.mobile .home-small-row { grid-template-columns: 1fr 1fr !important; }
 	body.mobile #home-card { padding: 14px; border-radius: 14px; }
@@ -2285,6 +2516,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					<h1>Skid Circuit</h1>
 					<p class="sr-only">Skid Circuit is a free 3D browser racing game where you can race, drift, compete for fast times, build custom tracks, and play with the community.</p>
 				</div>
+				<a id="home-gear-btn" class="home-gear-btn" href="settings.html" aria-label="Settings and account" title="Settings & account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73 2 2 0 0 0-.73 2.73l.08.15a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.15a2 2 0 0 0 .73 2.73 2 2 0 0 0 2.73-.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V22a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73 2 2 0 0 0 .73-2.73l-.08-.15a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.15a2 2 0 0 0-.73-2.73 2 2 0 0 0-2.73.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></a>
 			</div>
 			<p id="home-tagline">Race. Build. Share. Compete. — a browser racing game with tracks, clubs, and a live community board.</p>
 
@@ -2346,8 +2578,47 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					<!-- Fills the empty space under Placement ratings (user order
 					     2026-10-06). Enters the game without reload and opens
 					     the E menu straight on the account tab. -->
-					<a id="home-create-account" class="home-account-cta" href="index.html?play=1&e-menu=account"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg></span><span class="home-btn-text">Create account<em>Save your progress & records</em></span></a>
+					<a id="home-create-account" class="home-account-cta" href="settings.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg></span><span class="home-btn-text">Create account<em>Save your progress & records</em></span></a>
 				</div>
+			</div>
+		</div>
+	</section>
+	<!-- Landing sub-page (user order 2026-10-06): the home UI slides left and
+	     this page slides in. ~70% is the real settings page embedded (it fully
+	     works), the right column is a landing-tailored remake of the E-menu
+	     Account tab. -->
+	<section id="home-settings-page" aria-label="Settings and account">
+		<div class="settings-shell">
+			<header class="settings-shell-header">
+				<button id="settings-back-btn" class="settings-back-btn" type="button" aria-label="Back to home">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg><span>Back</span>
+				</button>
+				<h2>Settings <span class="settings-header-sep">&amp;</span> Account</h2>
+			</header>
+			<div class="settings-columns">
+				<div class="settings-embed-wrap">
+					<iframe id="settings-embed-frame" title="Game settings" src="about:blank"></iframe>
+				</div>
+				<aside class="account-side-panel" id="landing-account-panel">
+					<h3>Account</h3>
+					<div class="acct-status" id="landing-acct-status" role="status">Loading…</div>
+					<div class="acct-fields" id="landing-acct-fields">
+						<label for="landing-acct-user">Username</label>
+						<input id="landing-acct-user" maxlength="24" autocomplete="username" placeholder="e.g. speed_runner77">
+						<label for="landing-acct-pass">Password</label>
+						<input id="landing-acct-pass" type="password" maxlength="80" autocomplete="current-password" placeholder="At least 6 characters">
+						<div class="acct-actions">
+							<button id="landing-acct-signup" class="acct-btn acct-btn-primary" type="button">Sign up</button>
+							<button id="landing-acct-login" class="acct-btn acct-btn-blue" type="button">Log in</button>
+						</div>
+					</div>
+					<div class="acct-session-actions" id="landing-acct-session-actions">
+						<button id="landing-acct-save" class="acct-btn" type="button">Save profile to cloud</button>
+						<button id="landing-acct-load" class="acct-btn" type="button">Load profile from cloud</button>
+						<button id="landing-acct-signout" class="acct-btn acct-btn-danger" type="button">Sign out</button>
+					</div>
+					<p class="acct-hint">Your account keeps records, coins and settings in the cloud so they follow you across devices.</p>
+				</aside>
 			</div>
 		</div>
 	</section>
@@ -2733,12 +3004,154 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		document.getElementById( 'home-play-now' )?.addEventListener( 'click', function( e ) {
 			if ( window.__dismissHomeLanding?.() ) e.preventDefault();
 		} );
-		document.getElementById( 'home-create-account' )?.addEventListener( 'click', function( e ) {
-			if ( ! window.__dismissHomeLanding ) return; // hard reload fallback
-			window.__dismissHomeLanding();
-			e.preventDefault();
-			setTimeout( function() { window.__openModeMenu?.( 'account' ); }, 300 );
-		} );
+		// Create account / gear: stay on the landing and slide into the
+		// Settings & Account sub-page (no game entry) — user order 2026-10-06.
+		function openLandingSettingsPage() {
+
+			page.classList.add( 'open' );
+			landingEl?.classList.add( 'slide-away' );
+			if ( frame && ! frame.dataset.loaded ) {
+
+				frame.dataset.loaded = '1';
+				frame.src = 'settings.html';
+				frame.addEventListener( 'load', function () {
+
+					try {
+
+						const doc = frame.contentDocument;
+						if ( ! doc ) return;
+						// The embedded settings page must not link OUT of the
+						// embed; hide its "Back to game" link and let the shell
+						// provide the backdrop.
+						const back = doc.querySelector( '.back-link' );
+						if ( back ) back.style.display = 'none';
+						if ( doc.body ) doc.body.style.background = 'transparent';
+						const head = doc.querySelector( '.page-head' );
+						if ( head ) head.style.marginBottom = '10px';
+
+					} catch ( err ) { /* cross-origin safety no-op */ }
+
+				} );
+
+			}
+			window.__refreshLandingAccount?.();
+
+		}
+		function closeLandingSettingsPage() {
+
+			page.classList.remove( 'open' );
+			landingEl?.classList.remove( 'slide-away' );
+
+		}
+		const page = document.getElementById( 'home-settings-page' );
+		const landingEl = document.getElementById( 'home-landing' );
+		const frame = document.getElementById( 'settings-embed-frame' );
+		document.getElementById( 'home-create-account' )?.addEventListener( 'click', function( e ) { e.preventDefault(); openLandingSettingsPage(); } );
+		document.getElementById( 'home-gear-btn' )?.addEventListener( 'click', function ( e ) { e.preventDefault(); openLandingSettingsPage(); } );
+		document.getElementById( 'settings-back-btn' )?.addEventListener( 'click', closeLandingSettingsPage );
+		window.addEventListener( 'keydown', function ( e ) {
+
+			if ( e.key === 'Escape' && page && page.classList.contains( 'open' ) ) {
+
+				e.preventDefault();
+				e.stopImmediatePropagation();
+				closeLandingSettingsPage();
+
+			}
+
+		}, true );
+
+		// ── Landing account panel (mirrors the E-menu account tab via
+		// window.__accountApi) ──
+		( function () {
+
+			const statusEl = document.getElementById( 'landing-acct-status' );
+			const panel = document.getElementById( 'landing-account-panel' );
+			const userEl = document.getElementById( 'landing-acct-user' );
+			const passEl = document.getElementById( 'landing-acct-pass' );
+			const fieldsEl = document.getElementById( 'landing-acct-fields' );
+			const sessionEl = document.getElementById( 'landing-acct-session-actions' );
+			if ( ! statusEl || ! panel ) return;
+
+			function setStatus( text, isError ) {
+
+				statusEl.textContent = text;
+				statusEl.classList.toggle( 'error', Boolean( isError ) );
+
+			}
+			function refresh() {
+
+				const api = window.__accountApi;
+				if ( ! api ) { setStatus( 'Game still loading…' ); return; }
+				const session = api.session();
+				panel.classList.toggle( 'signed-in', Boolean( session ) );
+				if ( session ) {
+
+					setStatus( 'Signed in as ' + session.username );
+					if ( userEl ) userEl.value = session.username;
+
+				} else {
+
+					setStatus( 'Not signed in' );
+
+				}
+
+			}
+			window.__refreshLandingAccount = refresh;
+
+			function busy( btn, promise ) {
+
+				if ( btn ) { btn.disabled = true; }
+				promise.then( () => refresh() ).catch( function ( err ) { setStatus( String( err && err.message || err ), true ); } )
+					.finally( function () { if ( btn ) btn.disabled = false; } );
+
+			}
+			document.getElementById( 'landing-acct-signup' )?.addEventListener( 'click', function () {
+
+				const u = userEl?.value?.trim(), pw = passEl?.value;
+				if ( ! u || ! pw ) { setStatus( 'Enter a username and password first.', true ); return; }
+				setStatus( 'Creating account…' );
+				busy( this, window.__accountApi.signup( u, pw ) );
+
+			} );
+			document.getElementById( 'landing-acct-login' )?.addEventListener( 'click', function () {
+
+				const u = userEl?.value?.trim(), pw = passEl?.value;
+				if ( ! u || ! pw ) { setStatus( 'Enter a username and password first.', true ); return; }
+				setStatus( 'Logging in…' );
+				busy( this, window.__accountApi.login( u, pw ) );
+
+			} );
+			document.getElementById( 'landing-acct-save' )?.addEventListener( 'click', function () {
+
+				setStatus( 'Saving…' );
+				busy( this, window.__accountApi.cloudSave() );
+
+			} );
+			document.getElementById( 'landing-acct-load' )?.addEventListener( 'click', function () {
+
+				setStatus( 'Loading…' );
+				busy( this, window.__accountApi.cloudLoad().then( function () { setStatus( 'Cloud profile loaded.' ); } ) );
+
+			} );
+			document.getElementById( 'landing-acct-signout' )?.addEventListener( 'click', function () {
+
+				window.__accountApi.signOut();
+				if ( passEl ) passEl.value = '';
+				refresh();
+
+			} );
+
+			// Mirror live session changes (auto-save, E-menu logins, boot restore).
+			( function waitApi() {
+
+				if ( window.__accountApi ) window.__accountApi.onChange( refresh );
+				else setTimeout( waitApi, 600 );
+
+			} )();
+			refresh();
+
+		} )();
 
 		// Fallback: also check on DOMContentLoaded in case the element wasn't ready
 		document.addEventListener( 'DOMContentLoaded', function() {
@@ -3336,7 +3749,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000405&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000406&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
