@@ -897,7 +897,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000298';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000299';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260958';
@@ -1948,7 +1948,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 	const loader = new GLTFLoader();
 	const objLoader = new OBJLoader();
-	const modelNames = [ 'barrier', 'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'elev-track-choke-half', 'elev-track-choke-both', 'elev-choke-4-way', 'elev-thin-straight', 'elev-thin-corner', 'elev-thin-3-way', 'elev-thin-4-way', 'elev-wide-to-thin', 'elev-wide-to-thin-corner', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
+	const modelNames = [ 'barrier', 'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-bump', 'track-finish', 'track-3-way', 'track-4-way', 'track-choke-half', 'track-choke-both', 'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way', 'elev-track-choke-half', 'elev-track-choke-both', 'elev-choke-4-way', 'elev-thin-straight', 'elev-thin-corner', 'elev-thin-3-way', 'elev-thin-4-way', 'elev-wide-to-thin', 'elev-wide-to-thin-corner', 'track-thin-straight', 'track-thin-corner', 'track-thin-3-way', 'track-thin-4-way', 'track-wide-thin', 'track-wide-thin-corner', 'track-choke-cross', 'track-checkpoint-corner-ground', 'decoration-forest', 'decoration-tents', 'decoration-empty', 'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d' ];
 	const models = {};
 	const customAssets = new Map();
 	let customAssetOrder = [];
@@ -2155,8 +2155,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 		cell.roadPieces.forEach( ( roadPiece, idx ) => {
 
-			const modelType = roadPiece.type === 'track-choke-cross' ? 'elev-choke-4-way'
-				: ( roadPiece.type === 'track-checkpoint' || roadPiece.type === 'track-start' || roadPiece.type === 'track-start-finish' ) ? 'track-finish' : THIN_GROUND_MODEL_KEYS[ roadPiece.type ] || roadPiece.type;
+			const modelType = ( roadPiece.type === 'track-checkpoint' || roadPiece.type === 'track-start' || roadPiece.type === 'track-start-finish' ) ? 'track-finish' : THIN_GROUND_MODEL_KEYS[ roadPiece.type ] || roadPiece.type;
 			const src = models[ modelType ];
 			if ( ! src ) return;
 				if ( modelType === 'track-choke-half' || modelType === 'track-choke-both' ) smoothChokeSourceModel( src );
@@ -2182,7 +2181,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 
 						// Choke pinch walls are viewable from inside the opening —
 						// render both faces (guarded, shared source materials).
-						if ( ( modelType === 'track-choke-half' || modelType === 'track-choke-both' || THIN_MODEL_KEYS.has( modelType ) ) && c.material && ! c.material.__doubleSided ) {
+						if ( ( modelType === 'track-choke-half' || modelType === 'track-choke-both' || modelType === 'track-choke-cross' || THIN_MODEL_KEYS.has( modelType ) ) && c.material && ! c.material.__doubleSided ) {
 
 							( Array.isArray( c.material ) ? c.material : [ c.material ] ).forEach( ( m ) => {
 
@@ -2532,7 +2531,7 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 				// different GLB (same mapping as the game's placePiece).
 				const tunnelTypeKeys = {
 					'track-checkpoint': 'track-finish', 'track-start': 'track-finish', 'track-start-finish': 'track-finish',
-					'track-choke-cross': 'elev-choke-4-way', 'slope-up': 'elev-track-slope',
+					'slope-up': 'elev-track-slope',
 					...THIN_GROUND_MODEL_KEYS
 				};
 				const tunnelModelKey = tunnelTypeKeys[ cell.tunnel.type ] || cell.tunnel.type;
@@ -2546,8 +2545,8 @@ import { createShadowProxyController } from './js/ShadowProxy.js?v=3';
 						if ( ! c.isMesh ) return;
 						// Tunnel-sunk no-shadow blocks: no cast either - matches the game
 						// (user order 2026-10-01); ground variants keep casting.
-						c.castShadow = ! ( tunnelModelKey === 'track-choke-half' || tunnelModelKey === 'track-choke-both' || tunnelModelKey === 'elev-choke-4-way' || THIN_MODEL_KEYS.has( tunnelModelKey ) ) || !! c.userData.isChokeTreeMesh;
-						c.receiveShadow = ! ( tunnelModelKey === 'track-choke-half' || tunnelModelKey === 'track-choke-both' || tunnelModelKey === 'elev-choke-4-way' || THIN_MODEL_KEYS.has( tunnelModelKey ) ) || !! c.userData.isChokeTreeMesh;
+						c.castShadow = ! ( tunnelModelKey === 'track-choke-half' || tunnelModelKey === 'track-choke-both' || tunnelModelKey === 'track-choke-cross' || THIN_MODEL_KEYS.has( tunnelModelKey ) ) || !! c.userData.isChokeTreeMesh;
+						c.receiveShadow = ! ( tunnelModelKey === 'track-choke-half' || tunnelModelKey === 'track-choke-both' || tunnelModelKey === 'track-choke-cross' || THIN_MODEL_KEYS.has( tunnelModelKey ) ) || !! c.userData.isChokeTreeMesh;
 					} );
 					trackGroup.add( blk );
 					cell.tunnelBlockMesh = blk;

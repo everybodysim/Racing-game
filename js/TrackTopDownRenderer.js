@@ -18,7 +18,7 @@
 // This file is standalone: it does not touch js/main.js or js/Track.js.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { buildTrack, computeTrackBounds, prerenderWaterRefraction, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000298';
+import { buildTrack, computeTrackBounds, prerenderWaterRefraction, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000299';
 
 // Only the STATIC (non-vehicle) models a track can ever place. Deliberately
 // excludes every vehicle-*.glb (no cars are drawn in a top-down preview) and
@@ -28,11 +28,14 @@ const STATIC_MODEL_NAMES = [
 	'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-bump', 'track-finish',
 	'track-3-way', 'track-4-way',
 	'track-choke-half', 'track-choke-both',
-	// thin-block family: ground thin cells resolve through
-	// THIN_GROUND_MODEL_KEYS to these same GLBs — without them, every
-	// thin section (ground AND elevated) silently renders as nothing
+	// thin-block family: elevated entries use the elev-* GLBs, ground cells
+	// resolve through THIN_GROUND_MODEL_KEYS to their own trimmed ground
+	// GLBs — without BOTH sets, thin sections silently render as nothing
 	'elev-thin-straight', 'elev-thin-corner', 'elev-thin-3-way', 'elev-thin-4-way',
 	'elev-wide-to-thin', 'elev-wide-to-thin-corner',
+	'track-thin-straight', 'track-thin-corner', 'track-thin-3-way', 'track-thin-4-way',
+	'track-wide-thin', 'track-wide-thin-corner', 'track-choke-cross',
+	'track-checkpoint-corner-ground',
 	'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners',
 	'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way',
 	'elev-track-choke-half', 'elev-track-choke-both',
@@ -200,7 +203,7 @@ async function renderNow( cells, mods, width, height, quality = 0.87 ) {
 		if ( ! Array.isArray( entry ) || entry.length < 5 || ! entry[ 4 ] ) continue;
 		const t = entry[ 4 ];
 		tunnelExtras.push( t === 'track-checkpoint' || t === 'track-start' || t === 'track-start-finish' ? 'track-finish'
-			: t === 'track-choke-cross' ? 'elev-choke-4-way' : t === 'slope-up' ? 'elev-track-slope' : THIN_GROUND_MODEL_KEYS[ t ] || t );
+			: t === 'slope-up' ? 'elev-track-slope' : THIN_GROUND_MODEL_KEYS[ t ] || t );
 
 	}
 	const models = await loadStaticModels( tunnelExtras );

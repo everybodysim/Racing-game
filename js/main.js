@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=4';
 import { Camera } from './Camera.js?v=17';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, setWaterRefractionCullRadius, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000298';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, setWaterRefractionCullRadius, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000299';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260958';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -358,6 +358,11 @@ const modelNames = [
 	'elev-thin-4-way',
 	'elev-wide-to-thin',
 	'elev-wide-to-thin-corner',
+	// ground thin/choke/checkpoint-corner GLBs — trimmed forks of the
+	// elevated models with all below-surface geometry removed (tunnels)
+	'track-thin-straight', 'track-thin-corner', 'track-thin-3-way', 'track-thin-4-way',
+	'track-wide-thin', 'track-wide-thin-corner', 'track-choke-cross',
+	'track-checkpoint-corner-ground',
 	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
 	'untitled',
 	'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d',
@@ -4188,7 +4193,7 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 		// 'track-choke-cross' renders via the elev-choke-4-way mesh (no dedicated
 		// ground GLB exists), so require that file instead of a 404.
 		required.add( key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish'
-			: key === 'track-choke-cross' ? 'elev-choke-4-way' : THIN_GROUND_MODEL_KEYS[ key ] || key );
+			: key === 'slope-up' ? 'elev-track-slope' : THIN_GROUND_MODEL_KEYS[ key ] || key );
 	}
 	if ( extras?.worldPreset !== 'pool-filled' ) {
 		required.add( 'decoration-empty' );
@@ -4248,7 +4253,7 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 			const tunnelType = tunnelEntry[ 4 ];
 			if ( ! tunnelType ) continue;
 			required.add( tunnelType === 'track-checkpoint' || tunnelType === 'track-start' || tunnelType === 'track-start-finish' ? 'track-finish'
-				: tunnelType === 'track-choke-cross' ? 'elev-choke-4-way' : tunnelType === 'slope-up' ? 'elev-track-slope' : THIN_GROUND_MODEL_KEYS[ tunnelType ] || tunnelType );
+				: tunnelType === 'slope-up' ? 'elev-track-slope' : THIN_GROUND_MODEL_KEYS[ tunnelType ] || tunnelType );
 
 		}
 

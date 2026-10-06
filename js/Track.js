@@ -2595,7 +2595,12 @@ function splitChokeTrees( model ) {
 // the shell meshes (same crease-limited smoothing as the choke shells), but
 // leave the baked tree meshes alone so they keep their authored hard
 // normals (same rule as normal forest trees).
-export const THIN_MODEL_KEYS = new Set( [ 'elev-thin-straight', 'elev-thin-corner', 'elev-thin-3-way', 'elev-thin-4-way', 'elev-wide-to-thin', 'elev-wide-to-thin-corner' ] );
+export const THIN_MODEL_KEYS = new Set( [
+	'elev-thin-straight', 'elev-thin-corner', 'elev-thin-3-way', 'elev-thin-4-way', 'elev-wide-to-thin', 'elev-wide-to-thin-corner',
+	// ground thin GLBs (trimmed forks of the elevated models) — same load-time
+	// treatment: crease-limited smoothing, DoubleSide, no shell shadows
+	'track-thin-straight', 'track-thin-corner', 'track-thin-3-way', 'track-thin-4-way', 'track-wide-thin', 'track-wide-thin-corner',
+] );
 
 export function smoothThinSourceModel( model ) {
 
@@ -2640,23 +2645,29 @@ export function smoothChokeSourceModel( model ) {
 
 }
 
-// Thin-road / transition blocks have no dedicated ground GLBs — the
-// elevated meshes are reused at ground level with their support legs buried
-// (same convention as track-choke-cross reusing elev-choke-4-way). Shared
-// with main.js + editor.html for model-required lists and render remaps.
+// Ground-variant model resolution. Thin/transition blocks and the corner
+// checkpoint used to render GROUND cells through the ELEVATED GLBs with the
+// support geometry (-5..0) buried below the surface — harmless until
+// tunnels: placed over an open-top tunnel, the buried legs/posts showed
+// inside the pit. Ground cells now use dedicated GLBs (models/track-*.glb),
+// forks of the elevated models with every below-surface face removed — the
+// elevated variants keep their original GLBs and legs. Shared with main.js
+// + editor.html for model-required lists and render remaps.
 export const THIN_GROUND_MODEL_KEYS = {
-	'track-thin-straight': 'elev-thin-straight',
-	'track-thin-corner': 'elev-thin-corner',
-	'track-thin-3-way': 'elev-thin-3-way',
-	'track-thin-4-way': 'elev-thin-4-way',
-	'track-wide-thin': 'elev-wide-to-thin',
-	'track-wide-thin-corner': 'elev-wide-to-thin-corner',
+	'track-thin-straight': 'track-thin-straight',
+	'track-thin-corner': 'track-thin-corner',
+	'track-thin-3-way': 'track-thin-3-way',
+	'track-thin-4-way': 'track-thin-4-way',
+	'track-wide-thin': 'track-wide-thin',
+	'track-wide-thin-corner': 'track-wide-thin-corner',
+	'track-choke-cross': 'track-choke-cross',
+	'track-checkpoint-corner': 'track-checkpoint-corner-ground',
 };
 
 export function placePiece( models, key, gx, gz, orient ) {
 
 	const modelKey = key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish'
-		: key === 'track-choke-cross' ? 'elev-choke-4-way' : key === 'slope-up' ? 'elev-track-slope' : THIN_GROUND_MODEL_KEYS[ key ] || key;
+		: key === 'slope-up' ? 'elev-track-slope' : THIN_GROUND_MODEL_KEYS[ key ] || key;
 	const src = models[ modelKey ];
 	if ( ! src ) return null;
 	// Smooth the choke curve's flat segment normals before cloning (the clone
