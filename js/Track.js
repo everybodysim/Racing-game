@@ -211,6 +211,18 @@ export function setWaterUnderwaterCameraState( active ) {
 
 }
 
+// Distance gate for the refraction pass on huge maps: the main game sets
+// this to the gameplay fog far. When no pool tile lies within that radius
+// of the camera, every water surface is either culled invisible or fully
+// fogged, so re-rendering the scene into the refraction target is pure
+// waste. 0 disables the gate (small maps / default behavior).
+let waterRefrCullRadius = 0;
+export function setWaterRefractionCullRadius( radius ) {
+
+	waterRefrCullRadius = Number( radius ) || 0;
+
+}
+
 export function updateWaterQuality( rollingFps ) {
 
 	// Fresh refraction sample every frame, but the SECOND scene render's
@@ -259,6 +271,24 @@ function isWaterVisibleToCamera( camera ) {
 export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0, viewportRect = null ) {
 
 	if ( WATER_PLANES.length === 0 ) return;
+	// Mega-map distance gate (see setWaterRefractionCullRadius). Underwater
+	// cameras skip the gate — the shimmering underside IS the screen content.
+	if ( ! WATER_UNDERWATER.camera && waterRefrCullRadius > 0 ) {
+
+		let anyNear = false;
+		for ( const plane of WATER_PLANES ) {
+
+			const sphere = plane.userData.waterWorldSphere;
+			if ( ! sphere ) { anyNear = true; break; } // not cached — be safe
+			const dx = sphere.center.x - camera.position.x;
+			const dz = sphere.center.z - camera.position.z;
+			const rr = waterRefrCullRadius + sphere.radius;
+			if ( dx * dx + dz * dz <= rr * rr ) { anyNear = true; break; }
+
+		}
+		if ( ! anyNear ) return;
+
+	}
 	waterRefrFrameCounter ++;
 	const waterLastFrame = waterLastRefrFrameByCam.get( camIndex );
 	// When does the pool actually need a fresh scene render?
@@ -2107,38 +2137,62 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( positions.length === 0 || ! src ) return;
 
 			const count = positions.length / 2;
+			// Chunked instancing — the SAME 32×32 XZ buckets as the track
+			// batcher below. One mega-InstancedMesh per deco kind spans the
+			// whole map, so its bounding sphere covers everything: frustum
+			// culling can never cull it and a huge build drew thousands of
+			// trees/grass in EVERY pass (main, pool refraction, sun depth)
+			// no matter where the camera was. Per-chunk meshes make the near
+			// field the only thing that ever renders.
+			const chunks = new Map();
+			for ( let i = 0; i < count; i ++ ) {
 
+				const key = Math.floor( positions[ i * 2 ] / 32 ) + ',' + Math.floor( positions[ i * 2 + 1 ] / 32 );
+				let list = chunks.get( key );
+				if ( ! list ) {
+
+					list = [];
+					chunks.set( key, list );
+
+				}
+				list.push( i );
+
+			}
 			src.traverse( ( child ) => {
 
 				if ( ! child.isMesh ) return;
+				for ( const list of chunks.values() ) {
 
-				const inst = new THREE.InstancedMesh( child.geometry, child.material, count );
-				inst.castShadow = true;
-				inst.receiveShadow = true;
+					const inst = new THREE.InstancedMesh( child.geometry, child.material, list.length );
+					inst.castShadow = true;
+					inst.receiveShadow = true;
 
-				for ( let i = 0; i < count; i ++ ) {
+					for ( let k = 0; k < list.length; k ++ ) {
 
-_dummy.position.set( positions[ i * 2 ], 0.5, positions[ i * 2 + 1 ] );
-					// Per-instance Y rotation for 3D trees/bushes (decoration-forest +
-					// decoration-empty) breaks up the repetitive grid pattern. Limited to
-					// 90° intervals (0, 90, 180, 270) so nothing looks oddly tilted.
-					// Stable hash of cell coords → same angle every reload (no reshuffle).
-					// Flat grass quads (empty-deco-grass) keep rotation 0.
-					if ( randomY ) {
-						const px = positions[ i * 2 ];
-						const pz = positions[ i * 2 + 1 ];
-						const frac = Math.sin( px * 12.9898 + pz * 78.233 ) * 43758.5453 % 1;
-						const idx = Math.floor( Math.abs( frac ) * 4 ) % 4;
-						_dummy.rotation.y = idx * ( Math.PI / 2 );
-					} else {
-						_dummy.rotation.y = 0;
+						const i = list[ k ];
+						_dummy.position.set( positions[ i * 2 ], 0.5, positions[ i * 2 + 1 ] );
+						// Per-instance Y rotation for 3D trees/bushes (decoration-forest +
+						// decoration-empty) breaks up the repetitive grid pattern. Limited to
+						// 90° intervals (0, 90, 180, 270) so nothing looks oddly tilted.
+						// Flat grass quads (empty-deco-grass) keep rotation 0.
+						// Stable hash of cell coords → same angle every reload (no reshuffle).
+						if ( randomY ) {
+							const px = positions[ i * 2 ];
+							const pz = positions[ i * 2 + 1 ];
+							const frac = Math.sin( px * 12.9898 + pz * 78.233 ) * 43758.5453 % 1;
+							const idx = Math.floor( Math.abs( frac ) * 4 ) % 4;
+							_dummy.rotation.y = idx * ( Math.PI / 2 );
+						} else {
+							_dummy.rotation.y = 0;
+						}
+						_dummy.updateMatrix();
+						inst.setMatrixAt( k, _dummy.matrix );
+
 					}
-					_dummy.updateMatrix();
-					inst.setMatrixAt( i, _dummy.matrix );
+
+					decoGroup.add( inst );
 
 				}
-
-				decoGroup.add( inst );
 
 			} );
 
@@ -2278,8 +2332,15 @@ _dummy.position.set( positions[ i * 2 ], 0.5, positions[ i * 2 + 1 ] );
 		// Chunk-local bounding spheres restore frustum culling: only the
 		// handful of chunks actually on screen draw, while each visible chunk
 		// still renders dozens of pieces in ONE call.
+		// THREE.Matrix4.elements is COLUMN-MAJOR: translation lives at
+		// [12]=x, [13]=y, [14]=z. The old key read elements[13] for "z" —
+		// i.e. it chunked by (x, HEIGHT), and on flat ground height is
+		// constant, so every chunk spanned the ENTIRE map depth. Chunk
+		// bounding spheres then covered everything: frustum culling had
+		// nothing to cull and draw cost scaled with map size, not with
+		// what was on screen — the direct cause of the mega-map <1 FPS.
 		const cx = Math.floor( _batchMat.elements[ 12 ] / 32 );
-		const cz = Math.floor( _batchMat.elements[ 13 ] / 32 );
+		const cz = Math.floor( _batchMat.elements[ 14 ] / 32 );
 		const chunkKey = cx + ',' + cz;
 		let list = batch.chunks.get( chunkKey );
 		if ( ! list ) {

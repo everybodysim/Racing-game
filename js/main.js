@@ -3,10 +3,10 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, MotionQuality, castRay, createClosestCastRayCollector, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 import { Vehicle } from './Vehicle.js?v=1000234';
-import { createShadowProxyController } from './ShadowProxy.js?v=3';
+import { createShadowProxyController } from './ShadowProxy.js?v=4';
 import { Camera } from './Camera.js?v=17';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000296';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, setWaterRefractionCullRadius, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000297';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260958';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -265,6 +265,13 @@ scene.add( dirLight );
 // for every pixel of the world — static shadows never swing as you drive.
 let shadowSunAnchor = null;
 let staticShadowProxy = null; // merged static-caster mesh for the sun depth pass (ShadowProxy.js)
+// ── Distance culling for huge builds ──
+// Track blocks that are fully swallowed by the fog get .visible=false, so
+// they cost NOTHING: main render, pool-refraction pass and every future
+// pass skip invisible objects. trackCullFar is the GAMEPLAY fog far
+// (never the underwater fog, which is tiny) + a block-size margin.
+let trackBlocksGroup = null; // the group buildTrack() added to the scene
+let trackCullFar = 0; // hide blocks farther than this from the nearest camera
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
 scene.add( hemiLight );
@@ -321,6 +328,9 @@ if ( new URLSearchParams( window.location.search ).get( 'perf' ) === '1' ) {
 			`draws ${ p.calls ?? '—' }   tris ${ tris > 1e6 ? ( tris / 1e6 ).toFixed( 1 ) + 'M' : Math.round( tris / 1000 ) + 'K' }`;
 
 	}, 300 );
+	// Diagnostics-only scene handle (same gate as the overlay) so perf
+	// reports can be analyzed without touching the normal game path.
+	window.__perfScene = scene;
 
 }
 
@@ -4958,8 +4968,22 @@ async function init() {
 	applySkyPalette( weatherSettings.preset );
 	buildSkyDecorations( weatherSettings.preset );
 	scene.background = new THREE.Color( weatherConfig.bg );
-	const gameplayFog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul, groundSize * weatherConfig.fogFarMul );
+	// Fog far scales with map size, which on a mega build (170+ cells wide)
+	// lands at ~20k units: no visible fog at all — and no distance to cull
+	// against either. Cap it at 36 cells of visibility so fog actually reads
+	// on screen AND the block culler only keeps the near field. Small maps
+	// fit inside the cap entirely (their farthest corner stays under the
+	// fade), so classic tracks keep their exact previous look — the cap only
+	// bites on big builds, where it's the difference between <1 FPS and
+	// playable.
+	const fogFar = Math.min( groundSize * weatherConfig.fogFarMul, 360 );
+	const fogNear = Math.min( groundSize * weatherConfig.fogNearMul, fogFar * 0.5 );
+	const gameplayFog = new THREE.Fog( weatherConfig.bg, fogNear, fogFar );
 	scene.fog = gameplayFog;
+	trackCullFar = fogFar;
+	// The refraction pass only re-renders the scene while some pool tile is
+	// within this radius of the camera (mega-map gate, see Track.js).
+	setWaterRefractionCullRadius( fogFar );
 	dirLight.intensity = weatherConfig.sun;
 	hemiLight.intensity = weatherConfig.hemi;
 	renderer.toneMappingExposure = weatherConfig.exposure;
@@ -4970,7 +4994,7 @@ async function init() {
 		exposure: weatherConfig.exposure,
 	};
 
-	buildTrack( scene, models, customCells, extras );
+	trackBlocksGroup = buildTrack( scene, models, customCells, extras );
 	const movingObstacleState = createMovingObstacleState( scene, extras );
 	// Merge every static caster into ONE proxy mesh so the sun's per-frame
 	// depth pass stays cheap (a single draw for the whole track) while the
@@ -13819,8 +13843,92 @@ function completeCampaignStage() {
 
 	}
 
+	// Cull track blocks that the fog has already swallowed whole. Runs on
+	// camera movement (or every 400ms while parked) because nothing changes
+	// for a still camera. Uses squared XZ distance — cheap for thousands of
+	// blocks — and the nearest of the two split-screen cameras.
+	let _cullLastCamX = 1e9, _cullLastCamZ = 1e9, _cullLastMs = 0;
+	const _cullSphereCenter = new THREE.Vector3();
+	function cullDistantTrackBlocks() {
+
+		if ( ! trackBlocksGroup || trackCullFar <= 0 ) return;
+		const camPos = cam.camera.position;
+		const cam2Pos = ( isSplitScreen && cam2 ) ? cam2.camera.position : null;
+		const nowMs = performance.now();
+		const moved = Math.abs( camPos.x - _cullLastCamX ) > 2 || Math.abs( camPos.z - _cullLastCamZ ) > 2
+			|| ( cam2Pos && ( Math.abs( cam2Pos.x - _cullLastCamX ) > 2 || Math.abs( cam2Pos.z - _cullLastCamZ ) > 2 ) );
+		if ( ! moved && nowMs - _cullLastMs < 400 ) return;
+		_cullLastCamX = camPos.x; _cullLastCamZ = camPos.z; _cullLastMs = nowMs;
+
+		// +44 headroom: a block center can sit just past the fog line while
+		// its near edge (pools/pit groups span a few cells) is still foggy
+		// — keep it a hair longer so nothing pops in front of the fade.
+		const cullFar = trackCullFar + 44;
+		const cullFarSq = cullFar * cullFar;
+		for ( const pieceGroup of trackBlocksGroup.children ) {
+
+			for ( const child of pieceGroup.children ) {
+
+				let dSq;
+				if ( child.isInstancedMesh ) {
+
+					// Batched chunk meshes all sit at the group origin — their
+					// position says nothing about WHERE they are. Use the
+					// instance-covering bounding sphere (computed lazily,
+					// once) instead: its center is the chunk's true world
+					// location.
+					if ( child.boundingSphere === null ) child.computeBoundingSphere();
+					if ( child.boundingSphere ) {
+
+						_cullSphereCenter.copy( child.boundingSphere.center ).applyMatrix4( child.matrixWorld );
+						const margin = cullFar + child.boundingSphere.radius;
+						const dX = _cullSphereCenter.x - camPos.x;
+						const dZ = _cullSphereCenter.z - camPos.z;
+						let mSq = margin * margin;
+						if ( cam2Pos ) {
+
+							const d2X = _cullSphereCenter.x - cam2Pos.x;
+							const d2Z = _cullSphereCenter.z - cam2Pos.z;
+							const d2Sq = d2X * d2X + d2Z * d2Z;
+							dSq = dX * dX + dZ * dZ;
+							// Visible from either camera; margins identical.
+							const near2 = d2Sq < dSq;
+							if ( near2 ) dSq = d2Sq;
+							child.visible = dSq <= mSq;
+							continue;
+
+						}
+						child.visible = dX * dX + dZ * dZ <= mSq;
+						continue;
+
+					}
+
+				}
+				if ( ! child.position ) continue;
+				dSq = ( child.position.x - camPos.x ) * ( child.position.x - camPos.x )
+					+ ( child.position.z - camPos.z ) * ( child.position.z - camPos.z );
+				if ( cam2Pos ) {
+
+					const d2Sq = ( child.position.x - cam2Pos.x ) * ( child.position.x - cam2Pos.x )
+						+ ( child.position.z - cam2Pos.z ) * ( child.position.z - cam2Pos.z );
+					if ( d2Sq < dSq ) dSq = d2Sq;
+
+				}
+				child.visible = dSq <= cullFarSq;
+
+			}
+
+		}
+		// Same radius governs the static shadow proxy's buckets (its
+		// 18M-tri merged silhouette on mega maps would otherwise rasterize
+		// in full on every shadow refresh).
+		staticShadowProxy?.updateCull?.( camPos.x, camPos.z, trackCullFar );
+
+	}
+
 	function renderFrame() {
 
+		cullDistantTrackBlocks();
 		if ( isSplitScreen && cam2 ) {
 
 			const width = window.innerWidth;
@@ -13849,8 +13957,12 @@ function completeCampaignStage() {
 
 		} else {
 
+			const _perfShadowT0 = performance.now();
 			refreshShadowsIfNeeded();
+			window.__perf.shadowMs = ( window.__perf.shadowMs || 0 ) + performance.now() - _perfShadowT0;
+			const _perfWaterT0 = performance.now();
 			prerenderWaterRefraction( renderer, scene, cam.camera );
+			window.__perf.waterMs = performance.now() - _perfWaterT0;
 			const _perfRenderT0 = performance.now();
 			renderer.render( scene, cam.camera );
 			window.__perf = window.__perf || {};
@@ -14922,7 +15034,9 @@ function completeCampaignStage() {
 
 
 			};
+			const _perfSimT0 = performance.now();
 			for ( let simStepIndex = 0; simStepIndex < simSteps; simStepIndex ++ ) runSimulationStep();
+			window.__perf.simMs = ( ( window.__perf.simMs || 0 ) + performance.now() - _perfSimT0 ) / 2;
 
 		renderFrame();
 
