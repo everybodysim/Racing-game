@@ -502,6 +502,15 @@ const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 const BOUNCE_VERTICAL_DELTA = 7.2;
 const KICK_LATERAL_DELTA = 7.4;
 const TRAMPOLINE_RESTITUTION = 0.82;
+// Max velocity-reflect bounces per pad CONTACT (leaving the pad and coming
+// back starts a fresh session). Without a cap the trampoline self-sustains:
+// the reflect fires from the ray-depth touch band (up to ~0.45 above the
+// surface, before real contact) and the near-ground 1.4x gravity boost
+// re-accelerates every micro-fall back above the MIN_IMPACT guard, so a
+// low-horizontal-speed landing locks into an infinite limit cycle of ~0.7 m/s
+// teeny bounces - the car hovers over the pad and can never land. Capping
+// the session lets the car fall through the band, contact, and rest.
+const TRAMPOLINE_MAX_BOUNCES = 3;
 // Falling slower than this = just resting/rolling on the surface (per-frame
 // gravity settles are ~0.05) — no bounce. Only real landings launch the car,
 // and reflected hops decay naturally to rest (no energy floor re-injecting).
@@ -11196,6 +11205,9 @@ function completeCampaignStage() {
 
 	function applySurfaceGrip( targetVehicle, surfaceType, padEffect = null ) {
 
+		// Leaving a trampoline pad ends its bounce session: driving/flying off
+		// and coming back re-arms the full TRAMPOLINE_MAX_BOUNCES.
+		if ( surfaceType !== 'surface-trampoline' ) targetVehicle.__trampSession = null;
 		if ( surfaceType === 'surface-trampoline' ) applyTrampolineBounceFor( targetVehicle );
 		const effect = getSurfaceEffect( surfaceType );
 		const gripPack = GARAGE_FIXED_MULTIPLIER;
@@ -12542,12 +12554,29 @@ function completeCampaignStage() {
 
 	}
 
+	// Which trampoline pad cell (if any) the car currently overlaps — the
+	// per-pad bounce session keys on the pad entry, so a run of adjacent
+	// trampoline cells counts as separate pads (fresh 3 bounces each).
+	const _trampNeighbourhood = [];
+	function findTrampolineEntryFor( targetVehicle ) {
+
+		if ( ! collectNearbyEntries( targetVehicle, surfaceEntryByCell, _trampNeighbourhood ) ) return null;
+		for ( let i = _trampNeighbourhood.length - 1; i >= 0; i -- ) {
+
+			const entry = _trampNeighbourhood[ i ];
+			if ( entry.type === 'surface-trampoline' && overlapsSurfaceEntry( targetVehicle, entry ) ) return entry;
+
+		}
+		return null;
+
+	}
+
 	function applyTrampolineBounceFor( targetVehicle ) {
 
-		// Trampoline surface: reflects the car's vertical velocity on EVERY
-		// landing — never a one-shot trigger, so you keep bouncing until you
-		// drive off (a once-per-contact gate would give exactly one bounce).
-		// Not applied in air: the ray-based ground check below is height-
+		// Trampoline surface: reflects the car's vertical velocity on each
+		// landing — capped at TRAMPOLINE_MAX_BOUNCES per pad contact (leaving
+		// and re-entering resets the cap). Not applied in air beyond the
+		// ray-depth touch band: the ray-based ground check below is height-
 		// independent, so elevated decks correctly count as ground here
 		// (the old flat-height check read elevated cars as airborne).
 		if ( ! isVehicleTouchingGroundBelow( targetVehicle ) ) return;
@@ -12555,6 +12584,23 @@ function completeCampaignStage() {
 		const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
 		if ( vel[ 1 ] > 0.12 ) return; // already on the way up: don't fight the launch
 		if ( - vel[ 1 ] < TRAMPOLINE_MIN_IMPACT ) return; // resting/rolling: tiny-bounce guard
+		const entry = findTrampolineEntryFor( targetVehicle );
+		if ( ! entry ) return;
+		const sessionKey = entry.gx + ',' + entry.gz;
+		// Contact session: count reflects per pad; a different pad (or a fresh
+		// entry after the surface tracker cleared the session — see
+		// applySurfaceGrip) starts a new session. Capping kills the infinite
+		// hover: after the last allowed bounce the car falls through the
+		// ray-depth band, contacts the pad, and rests like on normal road.
+		let session = targetVehicle.__trampSession;
+		if ( ! session || session.key !== sessionKey ) {
+
+			session = { key: sessionKey, bounces: 0 };
+			targetVehicle.__trampSession = session;
+
+		}
+		if ( session.bounces >= TRAMPOLINE_MAX_BOUNCES ) return;
+		session.bounces ++;
 		// Pure velocity reflection (no floor): hops decay naturally to rest.
 		// Bounces stay above the seam-suppressor freeze zone because the
 		// suppressor's saved velocity is captured AFTER this reflect.
