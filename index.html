@@ -1311,18 +1311,18 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			border-radius: 12px;
 			background: rgba(255,255,255,0.07);
 			border: 1px solid rgba(255,255,255,0.14);
-			color: #d6e4f7;
+			color: #cfe0f2;
 			text-decoration: none;
-			transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+			transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 		}
-		.home-gear-btn svg { width: 22px; height: 22px; }
-		.home-gear-btn:hover {
-			transform: rotate(28deg);
-			background: rgba(119,243,177,0.14);
-			border-color: rgba(119,243,177,0.4);
-			color: #eafff2;
+		.home-gear-btn svg {
+			width: 21px;
+			height: 21px;
+			transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
 		}
-		.home-gear-btn:active { transform: rotate(28deg) scale(0.94); }
+		.home-gear-btn:hover { background: rgba(119,243,177,0.14); border-color: rgba(119,243,177,0.4); color: #eafff2; }
+		.home-gear-btn:hover svg { transform: rotate(90deg); }
+		.home-gear-btn:active svg { transform: rotate(90deg) scale(0.9); }
 		.home-gear-btn:focus-visible { outline: 2px solid rgba(140,220,255,0.9); outline-offset: 2px; }
 		#home-card h1 {
 			margin: 0;
@@ -2516,7 +2516,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					<h1>Skid Circuit</h1>
 					<p class="sr-only">Skid Circuit is a free 3D browser racing game where you can race, drift, compete for fast times, build custom tracks, and play with the community.</p>
 				</div>
-				<a id="home-gear-btn" class="home-gear-btn" href="settings.html" aria-label="Settings and account" title="Settings & account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73 2 2 0 0 0-.73 2.73l.08.15a2 2 0 0 1 0 2l-.25.43a2 2 0 0 1-1.73 1H2a2 2 0 0 0-2 2v.44a2 2 0 0 0 2 2h.18a2 2 0 0 1 1.73 1l.25.43a2 2 0 0 1 0 2l-.08.15a2 2 0 0 0 .73 2.73 2 2 0 0 0 2.73-.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V22a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73 2 2 0 0 0 .73-2.73l-.08-.15a2 2 0 0 1 0-2l.25-.43a2 2 0 0 1 1.73-1H22a2 2 0 0 0 2-2v-.44a2 2 0 0 0-2-2h-.18a2 2 0 0 1-1.73-1l-.25-.43a2 2 0 0 1 0-2l.08-.15a2 2 0 0 0-.73-2.73 2 2 0 0 0-2.73.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></a>
+				<a id="home-gear-btn" class="home-gear-btn" href="settings.html" aria-label="Settings and account" title="Settings & account"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a-.481.481 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></a>
 			</div>
 			<p id="home-tagline">Race. Build. Share. Compete. — a browser racing game with tracks, clubs, and a live community board.</p>
 
@@ -3749,7 +3749,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000406&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000407&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;

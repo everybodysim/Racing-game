@@ -7985,6 +7985,39 @@ async function init() {
 		if ( tab ) setModeTab( tab );
 
 	};
+	// Inverse trip (user order 2026-10-06): the E-menu Navigation tab's
+	// "Back to Home" link used to hard-reload index.html. The game is still
+	// right there, so just re-show the landing overlay in place and strip
+	// ?play=1 so a refresh lands on the home page too.
+	function showHomeLanding() {
+
+		setModeMenuOpen( false );
+		const landing = document.getElementById( 'home-landing' );
+		if ( ! landing ) return;
+		if ( ! landing.classList.contains( 'visible' ) ) {
+
+			landing.classList.add( 'visible' ); // fade-in animation plays
+			if ( typeof loadHomeCommunityData === 'function' ) loadHomeCommunityData();
+
+		}
+		if ( history.replaceState && /(?:^|\/)(?:index\.html)?$/.test( location.pathname ) ) {
+
+			const params = new URLSearchParams( location.search );
+			params.delete( 'play' );
+			params.delete( 'e-menu' );
+			const qs = params.toString();
+			history.replaceState( null, '', qs ? `${ location.pathname }?${ qs }` : location.pathname );
+
+		}
+
+	}
+	window.__showHomeLanding = showHomeLanding;
+	document.querySelector( '.qm-home-link' )?.addEventListener( 'click', ( event ) => {
+
+		event.preventDefault();
+		showHomeLanding();
+
+	} );
 
 	function updateGraphicsQualityUi() {
 
