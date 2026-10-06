@@ -48,7 +48,7 @@
 	// Realistic 3D top-down track preview. The module exposes
 	// window.__renderTrackTopDown; the page falls back to its flat 2D
 	// preview if the module or WebGL is unavailable.
-	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20261002';
+	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20261007';
 	import { encodeCellsV3 } from './js/Track.js?v=1000238';
 	import { generateTrackPlan } from './js/CupTrackGen.js?v=20261007';
 	window.__renderTrackTopDown = renderTrackTopDown;
@@ -317,12 +317,29 @@
       ctx.beginPath(); ctx.moveTo(pad, py); ctx.lineTo(pad + gw * size, py); ctx.stroke();
     }
 
+    // underlay: water, tunnels, pool ramps, elevated decks (below road)
+    const under = (x, z, fill) => {
+      const [px, py] = toPix(x, z);
+      ctx.fillStyle = fill;
+      ctx.fillRect(px + 2, py + 2, size - 4, size - 4);
+    };
+    for (const [x, z] of (mods.q || [])) under(x, z, '#1971c2');
+    for (const [x, z, closed] of (mods.g || [])) under(x, z, closed ? '#5c3d1e' : '#8a5a2b');
+    for (const [x, z] of (mods.z || [])) under(x, z, '#3bc9db');
+    for (const [x, z] of (mods.e || [])) under(x, z, '#f08c00');
+
     const color = {
       'track-straight': '#4da3ff',
       'track-corner': '#b084ff',
       'track-checkpoint': '#ffd54f',
       'track-checkpoint-corner': '#ffd54f',
       'track-finish': '#72e39a',
+      'track-4-way': '#9775fa',
+      'track-thin-straight': '#e6b8a2',
+      'track-thin-corner': '#e6b8a2',
+      'track-wide-thin': '#fab005',
+      'track-choke-half': '#c99a5f',
+      'track-choke-both': '#c99a5f',
     };
 
     for (const [x, z, t] of cells) {
@@ -368,6 +385,19 @@
       const [px, py] = toPix(x, z);
       ctx.beginPath();
       ctx.arc(px + size / 2, py + size / 2, Math.max(2, size * 0.12), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // jumps as orange chevrons
+    ctx.fillStyle = '#e8590c';
+    for (const [x, z] of (mods.j || [])) {
+      const [px, py] = toPix(x, z);
+      const cx = px + size / 2, cy = py + size / 2, r = Math.max(3, size * 0.22);
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r);
+      ctx.lineTo(cx + r, cy + r);
+      ctx.lineTo(cx - r, cy + r);
+      ctx.closePath();
       ctx.fill();
     }
   }

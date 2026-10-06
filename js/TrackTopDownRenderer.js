@@ -28,6 +28,11 @@ const STATIC_MODEL_NAMES = [
 	'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-bump', 'track-finish',
 	'track-3-way', 'track-4-way',
 	'track-choke-half', 'track-choke-both',
+	// thin-block family: ground thin cells resolve through
+	// THIN_GROUND_MODEL_KEYS to these same GLBs — without them, every
+	// thin section (ground AND elevated) silently renders as nothing
+	'elev-thin-straight', 'elev-thin-corner', 'elev-thin-3-way', 'elev-thin-4-way',
+	'elev-wide-to-thin', 'elev-wide-to-thin-corner',
 	'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners',
 	'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way',
 	'elev-track-choke-half', 'elev-track-choke-both',
