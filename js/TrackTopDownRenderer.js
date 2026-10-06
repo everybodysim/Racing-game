@@ -18,7 +18,7 @@
 // This file is standalone: it does not touch js/main.js or js/Track.js.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { buildTrack, computeTrackBounds, prerenderWaterRefraction, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000300';
+import { buildTrack, computeTrackBounds, prerenderWaterRefraction, computePoolPresetWaterCells, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000300';
 
 // Only the STATIC (non-vehicle) models a track can ever place. Deliberately
 // excludes every vehicle-*.glb (no cars are drawn in a top-down preview) and
@@ -218,6 +218,19 @@ async function renderNow( cells, mods, width, height, quality = 0.87 ) {
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.5 ) );
 
 	const extras = extrasFromMods( mods );
+	// POOL-FILLED PRESETS (user order 2026-10-06): 'pool-filled' share URLs
+	// carry no explicit water cells — the game floods every non-road cell in
+	// the padded track bounds at load time (main.js). Previews must run the
+	// exact same expansion (same Track.js function) or pool maps render with
+	// grass where their pools should be.
+	if ( extras.worldPreset === 'pool-filled' ) {
+
+		const generatedWater = computePoolPresetWaterCells( safeCells, extras );
+		const explicitWater = Array.isArray( extras.water ) ? extras.water : [];
+		const waterByKey = new Map( [ ...generatedWater, ...explicitWater ].map( ( cell ) => [ `${ cell[ 0 ] },${ cell[ 1 ] }`, cell ] ) );
+		extras.water = [ ...waterByKey.values() ];
+
+	}
 	const trackGroup = buildTrack( scene, models, safeCells, extras );
 
 	const bounds = computeTrackBounds( safeCells );
