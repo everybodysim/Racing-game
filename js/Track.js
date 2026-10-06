@@ -385,7 +385,11 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 	renderer.setScissorTest( prevScissorTest );
 	for ( const plane of WATER_PLANES ) {
 
-		plane.visible = true;
+		// Restore to the CULL verdict (set by the game's distance cull each
+		// frame), not blanket-true: far pool tiles must stay hidden in the
+		// main render (user order 2026-10-06). Undefined = never culled =
+		// visible, safe for first frame and cull-less maps.
+		plane.visible = plane.userData.cullVisible !== false;
 		plane.material.uniforms.tDiffuse.value = rt.texture;
 
 	}

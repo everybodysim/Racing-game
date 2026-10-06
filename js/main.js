@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=4';
 import { Camera } from './Camera.js?v=17';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, setWaterRefractionCullRadius, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000299';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, setWaterRefractionCullRadius, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000300';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260958';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -14143,19 +14143,20 @@ function completeCampaignStage() {
 	// camera movement (or every 400ms while parked) because nothing changes
 	// for a still camera. Uses squared XZ distance — cheap for thousands of
 	// blocks — and the nearest of the two split-screen cameras.
-	let _cullLastCamX = 1e9, _cullLastCamZ = 1e9, _cullLastMs = 0;
 	const _cullSphereCenter = new THREE.Vector3();
 	function cullDistantTrackBlocks() {
 
 		if ( ! trackBlocksGroup || trackCullFar <= 0 ) return;
 		const camPos = cam.camera.position;
 		const cam2Pos = ( isSplitScreen && cam2 ) ? cam2.camera.position : null;
-		const nowMs = performance.now();
-		const moved = Math.abs( camPos.x - _cullLastCamX ) > 2 || Math.abs( camPos.z - _cullLastCamZ ) > 2
-			|| ( cam2Pos && ( Math.abs( cam2Pos.x - _cullLastCamX ) > 2 || Math.abs( cam2Pos.z - _cullLastCamZ ) > 2 ) );
-		if ( ! moved && nowMs - _cullLastMs < 400 ) return;
-		_cullLastCamX = camPos.x; _cullLastCamZ = camPos.z; _cullLastMs = nowMs;
 
+		// Runs EVERY frame (user order 2026-10-06: culling must be consistent,
+		// not shaky): the old moved->2-units / 400ms-parked throttle left
+		// visibility flags up to ~400ms stale, so blocks visibly popped a
+		// beat late while driving. The pass is a flat walk over the track
+		// group's direct children with zero allocations — a few thousand
+		// squared distances per frame is nothing next to the draw calls it
+		// saves.
 		// +44 headroom: a block center can sit just past the fog line while
 		// its near edge (pools/pit groups span a few cells) is still foggy
 		// — keep it a hair longer so nothing pops in front of the fade.
@@ -14221,7 +14222,12 @@ function completeCampaignStage() {
 					if ( d2Sq < dSq ) dSq = d2Sq;
 
 				}
-				child.visible = dSq <= cullFarSq;
+				// userData.cullVisible: the water refraction pass hides all
+				// water planes while it renders the refracted scene, then
+				// RESTORES visibility — it must restore to the cull verdict,
+				// not blanket-true, or far pools render every frame (user
+				// report 2026-10-06: distant pool water caused big lag).
+				child.visible = child.userData.cullVisible = dSq <= cullFarSq;
 
 			}
 
