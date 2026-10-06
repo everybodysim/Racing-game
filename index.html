@@ -1044,6 +1044,31 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			cursor: pointer;
 		}
 		#name-popup button:hover { background: rgba(255,255,255,0.2); }
+		/* Big "create an account" button — same teal-blue treatment as the
+		   in-game menu button, but bigger, so it clearly outshines the two
+		   plain buttons above it. Hidden once the player is signed in. */
+		#name-popup button#name-popup-account {
+			display: block;
+			width: 100%;
+			box-sizing: border-box;
+			flex: none;
+			margin-top: 12px;
+			padding: 14px 12px;
+			border: 1px solid rgba(140,210,255,0.58);
+			border-radius: 10px;
+			background: linear-gradient(145deg, rgba(44,117,210,0.92), rgba(18,44,82,0.9));
+			box-shadow: 0 8px 24px rgba(0,0,0,0.34);
+			font: 800 14px/1.2 sans-serif;
+			letter-spacing: 0.02em;
+			color: #eaf6ff;
+			text-align: center;
+			cursor: pointer;
+		}
+		#name-popup button#name-popup-account:hover {
+			background: linear-gradient(145deg, rgba(58,140,236,0.95), rgba(24,58,104,0.92));
+			box-shadow: 0 8px 26px rgba(0,0,0,0.38), 0 0 0 1px rgba(140,210,255,0.35);
+		}
+		#name-popup button#name-popup-account:active { transform: translateY(1px); }
 		
 		#quick-menu-btn {
 			position: absolute;
@@ -2576,6 +2601,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<button id="name-popup-save" type="button">Save & submit</button>
 				<button id="name-popup-skip" type="button">Skip for now</button>
 			</div>
+			<button id="name-popup-account" type="button">Create an account — save progress &amp; publish tracks</button>
 		</div>
 	</div>
 	<!-- Mobile-only action system: desktop keeps the original scattered links/quick menu. -->
@@ -3240,7 +3266,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000395&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000396&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;

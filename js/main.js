@@ -7053,6 +7053,7 @@ async function init() {
 	const namePopupInput = document.getElementById( 'name-popup-input' );
 	const namePopupSave = document.getElementById( 'name-popup-save' );
 	const namePopupSkip = document.getElementById( 'name-popup-skip' );
+	const namePopupAccount = document.getElementById( 'name-popup-account' );
 	const raceModeBtn = document.getElementById( 'mode-race-btn' );
 	const advModeBtn = document.getElementById( 'mode-advancements-btn' );
 	const advOverlay = document.getElementById( 'adv-overlay' );
@@ -11711,6 +11712,9 @@ function completeCampaignStage() {
 		if ( ! namePopup || ! namePopupInput ) return;
 		namePopup.style.display = 'flex';
 		namePopupInput.value = sanitizePlayerName( playerNameInput?.value );
+		// The big account button is an onboarding pitch for players WITHOUT
+		// an account — hide it entirely once they're signed in.
+		if ( namePopupAccount ) namePopupAccount.style.display = accountSession?.token ? 'none' : 'block';
 		namePopupInput.focus();
 		namePopupInput.select();
 
@@ -13527,6 +13531,28 @@ function completeCampaignStage() {
 
 		pendingLeaderboardRecord = null;
 		closeNamePopup();
+
+	} );
+	// Big onboarding button: jump straight to the Account tab of the "E"
+	// menu. The name the player already typed is carried over — saved as
+	// their leaderboard name and pre-filled as the account username.
+	namePopupAccount?.addEventListener( 'click', ( e ) => {
+
+		// Same click will bubble to the document's outside-click closer,
+		// which would instantly re-close the menu we're about to open.
+		e.stopPropagation();
+		const typed = sanitizePlayerName( namePopupInput?.value );
+		if ( typed ) {
+
+			if ( playerNameInput ) playerNameInput.value = typed;
+			localStorage.setItem( PLAYER_NAME_KEY, typed );
+			if ( accountUsernameInput ) accountUsernameInput.value = typed;
+
+		}
+		pendingLeaderboardRecord = null;
+		closeNamePopup();
+		setModeMenuOpen( true );
+		setModeTab( 'account' );
 
 	} );
 	leaderboardRefreshBtn?.addEventListener( 'click', () => {
