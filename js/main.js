@@ -522,6 +522,18 @@ const MAGNET_MAX_FORCE_PER_SECOND = 64.0;
 	const ARC_LINK_TRIGGER_RADIUS = CELL_RAW * GRID_SCALE * 0.32;
 	const ARC_LINK_MIN_TIME = 0.45;
 	const ARC_LINK_MAX_TIME = 1.6;
+	// Obstacle-hop ceiling: when the direct arc path is blocked by a static
+	// hitbox, the solver stretches flight time (higher apex) until the path
+	// clears — up to this many seconds of airtime.
+	const ARC_LINK_OBSTACLE_MAX_TIME = 2.4;
+	// The flight path is only obstacle-checked beyond this clearance from
+	// the launch/landing rings: the car legitimately rests on the road at
+	// both ends, and those resting contacts are not obstacles.
+	const ARC_LINK_PATH_END_MARGIN = 1.5;
+	// Near-ground gravity boost threshold (mirrors the per-step gravityFactor
+	// update in the sim step — |vy| below this runs gravity at 1.4x).
+	const ARC_LINK_NEAR_GROUND_VY = 1.5;
+	const ARC_LINK_NEAR_GROUND_BOOST = 1.4;
 	const AIR_TRICK_DURATION_SECONDS = 0.62;
 const WEATHER_PRESETS = {
 	clear: { bg: 0xbfe0ff, fogNearMul: 3.2, fogFarMul: 6.4, sun: 5.0, hemi: 1.5, exposure: 1.0 },
@@ -12785,7 +12797,244 @@ function completeCampaignStage() {
 
 	}
 
-	function applyArcLinkFor( targetVehicle, state ) {
+	// ── Arc Link exact-ballistics solver ─────────────────────────────────
+	// The old launch used a one-shot continuous ballistic formula and missed
+	// the arc end by up to a couple of units, worse the longer the link.
+	// Three real effects the formula ignored, all of them per-step:
+	//   1. Linear damping (0.1): the engine multiplies velocity by
+	//      (1 - damping*dt) EVERY step (~8% velocity loss over a 1.6s arc).
+	//   2. Discrete integration: gravity is applied BEFORE the position
+	//      update (semi-implicit Euler), dropping the car ~g*dt*T/2 short.
+	//   3. The near-ground gravity boost: gravity runs at 1.4x whenever
+	//      |vy| < 1.5 — which happens around the apex of EVERY arc. The old
+	//      code sampled the gravity factor once at launch and never knew.
+	// The fix replays the engine's own step arithmetic (gravity -> damping ->
+	// position, with the per-step boost rule) and solves the launch velocity
+	// numerically, so the car arrives dead-on the arc end. Horizontal axes
+	// stay linear under damping (closed form); the Y axis is bisected
+	// against the step simulation. The swept flight path is also checked
+	// against every static collider (a tube one car-hitbox wide), and when
+	// something blocks it the arc is lifted — longer flight time, higher
+	// apex — until the path is clear or the obstacle ceiling is reached.
+	function arcLinkStaticObstacles() {
+
+		const out = [];
+		if ( ! hitboxDebugGroup ) return out;
+		const rot = new THREE.Matrix4();
+		for ( const mesh of hitboxDebugGroup.children ) {
+
+			const geo = mesh?.geometry;
+			if ( ! geo || ! mesh.position ) continue;
+			if ( geo.type === 'BoxGeometry' ) {
+
+				const prm = geo.parameters;
+				if ( ! prm ) continue;
+				const hx = ( prm.width / 2 ) * ( mesh.scale.x || 1 );
+				const hy = ( prm.height / 2 ) * ( mesh.scale.y || 1 );
+				const hz = ( prm.depth / 2 ) * ( mesh.scale.z || 1 );
+				rot.makeRotationFromQuaternion( mesh.quaternion );
+				const e = rot.elements;
+				out.push( {
+					kind: 'box',
+					x: mesh.position.x, y: mesh.position.y, z: mesh.position.z,
+					ex: Math.abs( e[ 0 ] ) * hx + Math.abs( e[ 4 ] ) * hy + Math.abs( e[ 8 ] ) * hz,
+					ey: Math.abs( e[ 1 ] ) * hx + Math.abs( e[ 5 ] ) * hy + Math.abs( e[ 9 ] ) * hz,
+					ez: Math.abs( e[ 2 ] ) * hx + Math.abs( e[ 6 ] ) * hy + Math.abs( e[ 10 ] ) * hz,
+				} );
+
+			} else if ( geo.type === 'SphereGeometry' ) {
+
+				const prm = geo.parameters;
+				if ( ! prm ) continue;
+				out.push( {
+					kind: 'sphere',
+					x: mesh.position.x, y: mesh.position.y, z: mesh.position.z,
+					r: prm.radius * ( mesh.scale.x || 1 ),
+				} );
+
+			}
+
+		}
+		return out;
+
+	}
+
+	function arcLinkPathBlocked( obstacles, from, to, samples, radius ) {
+
+		const marginSq = ARC_LINK_PATH_END_MARGIN * ARC_LINK_PATH_END_MARGIN;
+		const rSq = radius * radius;
+		for ( const s of samples ) {
+
+			const dfx = s.x - from.x, dfy = s.y - from.y, dfz = s.z - from.z;
+			if ( dfx * dfx + dfy * dfy + dfz * dfz < marginSq ) continue;
+			const dtx = s.x - to.x, dty = s.y - to.y, dtz = s.z - to.z;
+			if ( dtx * dtx + dty * dty + dtz * dtz < marginSq ) continue;
+			for ( const o of obstacles ) {
+
+				if ( o.kind === 'box' ) {
+
+					const dx = Math.abs( s.x - o.x ) - o.ex;
+					const dy = Math.abs( s.y - o.y ) - o.ey;
+					const dz = Math.abs( s.z - o.z ) - o.ez;
+					const qx = dx > 0 ? dx : 0, qy = dy > 0 ? dy : 0, qz = dz > 0 ? dz : 0;
+					if ( qx * qx + qy * qy + qz * qz <= rSq ) return true;
+
+				} else {
+
+					const dx = s.x - o.x, dy = s.y - o.y, dz = s.z - o.z;
+					const rr = radius + o.r;
+					if ( dx * dx + dy * dy + dz * dz <= rr * rr ) return true;
+
+				}
+
+			}
+
+		}
+		return false;
+
+	}
+
+	function arcLinkSolveLaunch( targetVehicle, from, to, dt, obstacles ) {
+
+		const stepDt = Math.max( 1e-4, dt );
+		const mp = targetVehicle.rigidBody.motionProperties;
+		const damping = Math.max( 0, Number( mp?.linearDamping ) || 0 );
+		const dampA = Math.max( 0, 1 - damping * stepDt );
+		const gravityScale = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
+		const waterScale = isCameraTargetInWater( targetVehicle.spherePos ) ? WATER_GRAVITY_SCALE : 1.0;
+		const g = -9.81 * VEHICLE_BASE_GRAVITY_FACTOR * gravityScale * customModGravityScale
+			* ( hacksInstalled && hacksState.enabled ? hacksState.gravity : 1.0 ) * waterScale;
+		const carR = Math.max( 0.05, Number( targetVehicle.hitboxRadius ) || 0.5 );
+
+		const tx = to.x - from.x, ty = to.y - from.y, tz = to.z - from.z;
+		const horizontal = Math.hypot( tx, tz );
+
+		// Sum of a^i for i = 1..n (horizontal damping factor)
+		const sumDamp = ( n ) => {
+
+			let sum = 0, pow = 1;
+			for ( let i = 0; i < n; i ++ ) { pow *= dampA; sum += pow; }
+			return sum;
+
+		};
+
+		// Step-exact vertical simulation: replays gravity (with the
+		// near-ground boost, judged on the previous step's vy exactly like
+		// the sim step does), then damping, then the position update.
+		const simVertical = ( steps, vy0 ) => {
+
+			let vy = vy0, dy = 0;
+			for ( let i = 0; i < steps; i ++ ) {
+
+				const gi = Math.abs( vy ) < ARC_LINK_NEAR_GROUND_VY ? g * ARC_LINK_NEAR_GROUND_BOOST : g;
+				vy = ( vy + gi * stepDt ) * dampA;
+				dy += vy * stepDt;
+
+			}
+			return dy;
+
+		};
+
+		const solveVy0 = ( steps, sumV ) => {
+
+			// Bracket + bisection on vy0 (arrival height is strictly
+			// increasing in vy0). Seed with the old continuous estimate.
+			const T = steps * stepDt;
+			let lo = ( ty + 0.5 * Math.abs( g ) * T * T ) / T - 30;
+			let hi = lo + 60;
+			let flo = simVertical( steps, lo ) - ty;
+			let fhi = simVertical( steps, hi ) - ty;
+			let guard = 0;
+			while ( flo > 0 && guard ++ < 60 ) { hi = lo; lo -= 30; flo = simVertical( steps, lo ) - ty; }
+			while ( fhi < 0 && guard ++ < 120 ) { lo = hi; hi += 30; fhi = simVertical( steps, hi ) - ty; }
+			for ( let it = 0; it < 48; it ++ ) {
+
+				const mid = ( lo + hi ) * 0.5;
+				const fm = simVertical( steps, mid ) - ty;
+				if ( fm === 0 ) return mid;
+				if ( fm < 0 ) lo = mid; else hi = mid;
+
+			}
+			return ( lo + hi ) * 0.5;
+
+		};
+
+		// Trajectory samples (sub-stepped so consecutive points stay closer
+		// than the tube radius, interpolated linearly between engine steps).
+		const buildSamples = ( steps, vx0, vy0, vz0 ) => {
+
+			const samples = [];
+			let vy = vy0, y = from.y;
+			let px = from.x, pz = from.z;
+			let svx = 0, svz = 0, pow = 1;
+			const emit = ( x, yy, z ) => { samples.push( { x, y: yy, z } ); };
+			emit( px, y, pz );
+			for ( let i = 0; i < steps; i ++ ) {
+
+				const gi = Math.abs( vy ) < ARC_LINK_NEAR_GROUND_VY ? g * ARC_LINK_NEAR_GROUND_BOOST : g;
+				vy = ( vy + gi * stepDt ) * dampA;
+				pow *= dampA; svx += pow; svz += pow;
+				const nx = from.x + vx0 * stepDt * svx;
+				const nz = from.z + vz0 * stepDt * svz;
+				const ny = y + vy * stepDt;
+				const segLen = Math.hypot( nx - px, ny - y, nz - pz );
+				const pieces = Math.max( 1, Math.ceil( segLen / Math.max( 0.05, carR * 0.6 ) ) );
+				for ( let k = 1; k <= pieces; k ++ ) {
+
+					const t = k / pieces;
+					emit( px + ( nx - px ) * t, y + ( ny - y ) * t, pz + ( nz - pz ) * t );
+
+				}
+				px = nx; y = ny; pz = nz;
+
+			}
+			return samples;
+
+		};
+
+		let steps = Math.max( 1, Math.round( THREE.MathUtils.clamp( horizontal / 12, ARC_LINK_MIN_TIME, ARC_LINK_MAX_TIME ) / stepDt ) );
+		const maxSteps = Math.max( steps, Math.round( ARC_LINK_OBSTACLE_MAX_TIME / stepDt ) );
+		let lifted = false;
+		let vx0 = 0, vy0 = 0, vz0 = 0;
+		while ( true ) {
+
+			const sumV = sumDamp( steps );
+			vx0 = sumV > 1e-9 ? tx / ( stepDt * sumV ) : tx / ( steps * stepDt );
+			vz0 = sumV > 1e-9 ? tz / ( stepDt * sumV ) : tz / ( steps * stepDt );
+			vy0 = solveVy0( steps, sumV );
+
+			// Broad-phase: only obstacles overlapping the flight AABB matter.
+			const samples = buildSamples( steps, vx0, vy0, vz0 );
+			let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+			for ( const s of samples ) {
+
+				if ( s.x < minX ) minX = s.x; if ( s.x > maxX ) maxX = s.x;
+				if ( s.y < minY ) minY = s.y; if ( s.y > maxY ) maxY = s.y;
+				if ( s.z < minZ ) minZ = s.z; if ( s.z > maxZ ) maxZ = s.z;
+
+			}
+			const near = obstacles.filter( ( o ) => {
+
+				if ( o.kind === 'box' ) return o.x + o.ex > minX - carR && o.x - o.ex < maxX + carR
+					&& o.y + o.ey > minY - carR && o.y - o.ey < maxY + carR
+					&& o.z + o.ez > minZ - carR && o.z - o.ez < maxZ + carR;
+				return o.x + o.r > minX - carR && o.x - o.r < maxX + carR
+					&& o.y + o.r > minY - carR && o.y - o.r < maxY + carR
+					&& o.z + o.r > minZ - carR && o.z - o.r < maxZ + carR;
+
+			} );
+
+			if ( ! arcLinkPathBlocked( near, from, to, samples, carR ) ) break;
+			if ( steps >= maxSteps ) break;
+			lifted = true;
+			steps = Math.min( maxSteps, Math.ceil( steps * 1.3 ) + 1 );
+
+		}
+		return { vx: vx0, vy: vy0, vz: vz0, steps, lifted };
+
+	}
+
+	function applyArcLinkFor( targetVehicle, state, dt ) {
 
 		const currentState = state && typeof state === 'object'
 			? state
@@ -12845,18 +13094,15 @@ function completeCampaignStage() {
 				hasPrevFinishSample2 = false;
 				lastLocalX2 = 0;
 				lastLocalZ2 =  0;
-		const tx = pair.centerX - targetVehicle.spherePos.x;
-		const ty = pair.centerY - targetVehicle.spherePos.y;
-		const tz = pair.centerZ - targetVehicle.spherePos.z;
-		const horizontal = Math.hypot( tx, tz );
-		const travelTime = THREE.MathUtils.clamp( horizontal / 12, ARC_LINK_MIN_TIME, ARC_LINK_MAX_TIME );
-		const gravityFactor = Number( targetVehicle?.rigidBody?.motionProperties?.gravityFactor ) || VEHICLE_BASE_GRAVITY_FACTOR;
-		const gravity = 9.81 * gravityFactor;
-		const vx = tx / travelTime;
-		const vz = tz / travelTime;
-		const vy = ( ty + 0.5 * gravity * travelTime * travelTime ) / travelTime;
-		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vx, vy, vz ] );
-		setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: orange launch → green endpoint` );
+		const launch = arcLinkSolveLaunch(
+			targetVehicle,
+			{ x: targetVehicle.spherePos.x, y: targetVehicle.spherePos.y, z: targetVehicle.spherePos.z },
+			{ x: pair.centerX, y: pair.centerY, z: pair.centerZ },
+			dt,
+			arcLinkStaticObstacles()
+		);
+		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ launch.vx, launch.vy, launch.vz ] );
+		setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: orange launch → green endpoint${ launch.lifted ? ' (arc lifted over obstacle)' : '' }` );
 		return { contactKey: nextContactKey, lockUntilExit: true };
 
 	}
@@ -14176,8 +14422,8 @@ function completeCampaignStage() {
 			if ( ! garageDriveActive ) applyMagnetForceFor( vehicle, dt );
 			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
 			applyGrappleSwingFor( vehicle, controls?.keys, dt );
-			arcLinkState = applyArcLinkFor( vehicle, arcLinkState );
-			if ( vehicle2 ) arcLinkState2 = applyArcLinkFor( vehicle2, arcLinkState2 );
+			arcLinkState = applyArcLinkFor( vehicle, arcLinkState, dt );
+			if ( vehicle2 ) arcLinkState2 = applyArcLinkFor( vehicle2, arcLinkState2, dt );
 			updateRemotePlayerVisualsFrame( dt );
 			const gravityScale1 = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
 			const gravityScale2 = Number.isFinite( activePadEffect2?.gravity ) ? activePadEffect2.gravity : 1.0;
