@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=3';
 import { Camera } from './Camera.js?v=17';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000295';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000296';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260958';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -3557,7 +3557,12 @@ function createMovingObstacleState( scene, extras ) {
 		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
 		const type = String( typeRaw || '' );
 		const orient = Number( orientRaw ) || 0;
-		const base = new THREE.Vector3( ( gx + 0.5 ) * CELL_RAW * GRID_SCALE, -0.5 + ( CELL_RAW * GRID_SCALE * 0.08 ), ( gz + 0.5 ) * CELL_RAW * GRID_SCALE );
+		// Moving obstacles get the SAME overlay height resolution as static
+		// ones (user order 2026-10-06): up ELEVATED_HEIGHT over elevated
+		// blocks, down TUNNEL_DROP into open-top tunnels, surface height on
+		// closed roofs. createMovingObstacleState runs right after buildTrack,
+		// so the track's footprints are already snapshotted in Track.js.
+		const base = new THREE.Vector3( ( gx + 0.5 ) * CELL_RAW * GRID_SCALE, -0.5 + ( CELL_RAW * GRID_SCALE * 0.08 ) + overlayFootprintYOffsetFor( gx, gz ) * GRID_SCALE, ( gz + 0.5 ) * CELL_RAW * GRID_SCALE );
 		const obstacle = { type, orient, speed: THREE.MathUtils.clamp( Number( speedRaw ) || 1, 0.25, 3 ), base, mesh: new THREE.Group(), colliders: [] };
 		if ( type === 'moving-slide-block' ) {
 			const m = new THREE.Mesh( new THREE.BoxGeometry( 2.1, 1.2, 1.5 ), new THREE.MeshStandardMaterial( { color: 0x8ca0b8 } ) );

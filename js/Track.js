@@ -825,6 +825,31 @@ function getOverlayHeightOffset( elevatedEntry, isTunnelCell = false ) {
 
 }
 
+// LAST-BUILD overlay footprint resolver (user order 2026-10-06): moving
+// obstacles are created in main.js AFTER buildTrack ran, so they resolve
+// against the footprints of the track that was just built — same math as
+// the in-build overlayFootprintYOffset (exact-key match first, then the
+// nearest containing footprint, so off-grid centers work too).
+let activeOverlayFootprints = [];
+export function overlayFootprintYOffsetFor( gx, gz ) {
+
+	const u = Number( gx ) + 0.5, v = Number( gz ) + 0.5;
+	let best = null, bestD = Infinity;
+	for ( const f of activeOverlayFootprints ) {
+
+		if ( f.gx === gx && f.gz === gz ) { best = f; bestD = -1; break; }
+		if ( u < f.gx || u >= f.gx + 1 || v < f.gz || v >= f.gz + 1 ) continue;
+		const d = Math.abs( u - ( f.gx + 0.5 ) ) + Math.abs( v - ( f.gz + 0.5 ) );
+		if ( d < bestD ) { bestD = d; best = f; }
+
+	}
+	if ( ! best ) return 0;
+	if ( best.isTunnel ) return best.closed ? 0 : - TUNNEL_DROP;
+	if ( best.isHub ) return 0;
+	return getOverlayHeightOffset( best.elevatedEntry, false );
+
+}
+
 function getSurfaceVisual( surfaceType, customSurfaces = null, customPads = null ) {
 
 	switch ( surfaceType ) {
@@ -1308,6 +1333,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		if ( Number.isFinite( fpGx ) && Number.isFinite( fpGz ) ) overlayFootprints.push( { gx: fpGx, gz: fpGz, isHub: true } );
 
 	}
+
+	// Expose this build's footprints for post-build consumers (moving
+	// obstacles in main.js resolve their height against these).
+	activeOverlayFootprints = overlayFootprints;
 	function resolveOverlayFootprint( gx, gz ) {
 
 		const u = Number( gx ) + 0.5;
