@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Skid Circuit — TOTD Lab (new blocks)</title>
+<title>Skid Circuit — TOTD Lab v4 (overlap engine + thin corners)</title>
 <style>
 	:root { color-scheme: dark; }
 	* { box-sizing: border-box; }
@@ -22,9 +22,14 @@
 	.main { display: flex; gap: 16px; flex-wrap: wrap; }
 	.canvas-wrap { background: #101319; border: 1px solid #2a2f3c; border-radius: 10px; padding: 10px; }
 	canvas { display: block; border-radius: 6px; }
-	.side { display: flex; flex-direction: column; gap: 10px; min-width: 300px; max-width: 420px; flex: 1; }
+	.side { display: flex; flex-direction: column; gap: 10px; min-width: 330px; max-width: 440px; flex: 1; }
 	.panel { background: #191c24; border: 1px solid #2a2f3c; border-radius: 10px; padding: 12px; font-size: 12.5px; }
 	.panel h3 { margin: 0 0 8px; font-size: 13px; color: #fff; }
+	.dna { display: flex; flex-direction: column; gap: 4px; }
+	.dna .chip { display: flex; gap: 7px; align-items: baseline; }
+	.dna .yes { color: #51cf6e; }
+	.dna .no { color: #5c6370; }
+	.dna .tag { color: #ffd43b; }
 	.counts { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; }
 	.counts div { display: flex; justify-content: space-between; }
 	.counts .k { color: #9aa3b2; }
@@ -37,8 +42,8 @@
 </style>
 </head>
 <body>
-<h1>🏁 TOTD Lab — next-gen generation test bench</h1>
-<div class="sub">Deterministic seed → full track with the NEW blocks: open &amp; closed tunnels (incl. road-over-tunnel crossings), pool crossings with pool slopes, elevated detours, jumps, moving obstacles. Generates a real in-game URL so you can drive every seed.</div>
+<h1>🏁 TOTD Lab v4 — next-gen generation test bench</h1>
+<div class="sub">Deterministic seed → full track with ALL the new blocks: figure-8 loop crossings (flat 4-way), road-over-road elevated crossings, road-over-tunnel sealed crossings, open/closed tunnel preferences, pool driving sections, thin-block sections with thin-corner bends, chokes, jumps, ponds — every track gets its own "Track DNA" readout. Generates a real in-game URL so you can drive every seed.</div>
 
 <div class="top">
 	<input type="text" id="seed" value="lab-test-1" spellcheck="false">
@@ -49,25 +54,29 @@
 </div>
 
 <div class="toggles" id="toggles">
-	<label><input type="checkbox" id="tgElev" checked> elevated detours</label>
-	<label><input type="checkbox" id="tgTunnel" checked> tunnel detours</label>
-	<label><input type="checkbox" id="tgClosedPref" checked> prefer closed tops</label>
-	<label><input type="checkbox" id="tgPool" checked> pool crossings (pool slopes)</label>
+	<label><input type="checkbox" id="tgFigure8" checked> figure-8 loop crossings</label>
+	<label><input type="checkbox" id="tgElev" checked> elevated detours (over-road crossings)</label>
+	<label><input type="checkbox" id="tgTunnel" checked> tunnel detours (under-road crossings)</label>
+	<label><input type="checkbox" id="tgPool" checked> pool driving sections</label>
 	<label><input type="checkbox" id="tgPonds" checked> decorative ponds</label>
+	<label><input type="checkbox" id="tgThin" checked> thin-block sections</label>
+	<label><input type="checkbox" id="tgChoke" checked> choke pinches</label>
 	<label><input type="checkbox" id="tgJumps" checked> jumps</label>
-	<label><input type="checkbox" id="tgMoving" checked> moving obstacles</label>
 	<label><input type="checkbox" id="tgBumps" checked> bumps</label>
 	<label><input type="checkbox" id="tgSurf" checked> surfaces</label>
-	<label><input type="checkbox" id="tgChoke"> choke pinch straights</label>
 </div>
 
 <div class="main">
 	<div class="canvas-wrap"><canvas id="cv"></canvas></div>
 	<div class="side">
 		<div class="panel">
+			<h3>🧬 Track DNA — hidden attributes of this seed</h3>
+			<div class="dna" id="dna">—</div>
+			<div id="status" style="margin-top:8px">—</div>
+		</div>
+		<div class="panel">
 			<h3>Block census</h3>
 			<div class="counts" id="counts">—</div>
-			<div id="status" style="margin-top:8px">—</div>
 		</div>
 		<div class="panel">
 			<h3>Play URL</h3>
@@ -77,24 +86,27 @@
 		<div class="panel">
 			<h3>Legend &amp; experiment notes</h3>
 			<div class="legend">
-				<div><span class="sw" style="background:#4a4f5c"></span>road</div>
+				<div><span class="sw" style="background:#4a4f5c"></span>road (wide)</div>
+				<div><span class="sw" style="background:#e6b8a2"></span>thin road (narrow)</div>
+				<div><span class="sw" style="background:#fab005"></span>wide⇄thin ramp</div>
 				<div><span class="sw" style="background:#37b24d"></span>finish gate (start)</div>
 				<div><span class="sw" style="background:#4dabf7"></span>checkpoint</div>
 				<div><span class="sw" style="background:#f08c00"></span>elevated road</div>
-				<div><span class="sw" style="background:#fab005"></span>elevated ramp</div>
 				<div><span class="sw" style="background:#8a5a2b"></span>open tunnel</div>
 				<div><span class="sw" style="background:#5c3d1e"></span>closed tunnel</div>
 				<div><span class="sw" style="background:#b97a3d"></span>tunnel ramp</div>
 				<div><span class="sw" style="background:#1971c2"></span>water</div>
 				<div><span class="sw" style="background:#3bc9db"></span>pool ramp</div>
 				<div><span class="sw" style="background:#e8590c"></span>jump</div>
-				<div><span class="sw" style="background:#ae3ec9"></span>moving obstacle</div>
+				<div><span class="sw" style="background:#9775fa"></span>4-way crossing</div>
+				<div><span class="sw" style="background:#c99a5f"></span>choke pinch</div>
 			</div>
 			<div class="hint" style="margin-top:10px">
-				• Closed-top tunnels seal the pit with a roof — the surface world (even a live road tile) stays on top, so the generator happily runs the ground loop straight over a closed tunnel section. That's the road-over-tunnel crossing.
-				<br>• Pool crossings replace a straight stretch of the loop with pool-slope → water → pool-slope: you dive into the pond, drive underwater, and climb out the other side.
-				<br>• Tunnel detours search for crossing opportunities the same way elevated detours do — they can cross the ground loop multiple times.
-				<br>• Same seed + same toggles = identical track, byte for byte. Change one toggle to see exactly what it adds.
+				• <b>Three crossing heights:</b> a flat 4-way where the lap loops over itself (figure-8), elevated-cross blocks where the deck runs over the live road, and sealed closed-top tunnels where the road drives over the tunnel. Tunnel tops are a 50/50 map preference — under-road crossings are always forced closed no matter what the map prefers.
+				<br>• <b>Pool driving sections:</b> the lap dives into the pond via a pool ramp, drives underwater, and climbs out the other ramp. Ponds also appear as pure decoration.
+				<br>• <b>Thin-block sections:</b> a wide stretch narrows onto a thin elevated-style road (buried supports at ground level, real thin walls up top), then widens back — both at ground level and up on elevated detours.
+				<br>• Surfaces can land on elevated roads too; open-top tunnel pits stay clean because their surface world is carved away (nothing to sit on).
+				<br>• Same seed + same toggles = identical track, byte for byte.
 			</div>
 		</div>
 	</div>
@@ -102,10 +114,13 @@
 
 <script type="module">
 // ═════════════════════════════════════════════════════════════════════════════
-// TOTD LAB — experimental next-gen track generation for Skid Circuit.
+// TOTD LAB v4 — experimental next-gen track generation for Skid Circuit.
 // Self-contained: deterministic generator + preview + real game URL encoder.
-// The core loop/elevated logic is the proven CupTrackGen v2 grammar; the
-// tunnel / pool sections are the NEW block experiments.
+// Core loop/elevated grammar is the proven CupTrackGen v2; new experiments:
+// two figure-8 self-crossings, an interleaved elevated/tunnel overlap engine
+// with crossing-hunting searches, pool driving sections, thin-block sections
+// with thin-corner bends, choke pinches, track DNA, and a strict structural
+// validator (no stacking, no open pits under road, no floating decks).
 // ═════════════════════════════════════════════════════════════════════════════
 
 // ─── deterministic rng (CupTrackGen) ────────────────────────────────────────
@@ -162,27 +177,36 @@ const orientFor = (dirs, baseDirs) => {
 	return 0;
 };
 // travel direction → orient code for straight-axis pieces & descent ramps.
-// Verified in-game: descend +z = 0 (mouth toward the road at -z).
+// Verified in-game: descend +z = orient 0 (mouth toward the road at -z).
+// wide⇄thin ramps (thin-wall-specs 'wide-thin': walls at ±4.78 at local -z
+// converging to ±2.21 at local +z): the WIDE end is LOCAL -z, so the orient
+// encodes the direction the THIN end faces — thin faces S = orient 0.
 const DIR_TO_ORIENT = { S: 0, N: 10, E: 16, W: 22 };
+const ORIENT_TO_DIR = { 0: 'S', 10: 'N', 16: 'E', 22: 'W' };
 
 function groundDirsOf(tile) {
 	const type = tile[2], o = tile[3];
-	if (type === 'track-straight' || type === 'track-checkpoint' || type === 'track-finish') return [rotSide('N', o), rotSide('S', o)];
+	if (type === 'track-straight' || type === 'track-checkpoint' || type === 'track-finish' || type === 'track-thin-straight') return [rotSide('N', o), rotSide('S', o)];
 	if (type === 'track-corner') return [rotSide('S', o), rotSide('W', o)];
 	return null;
 }
 
-// ─── ground loop (CupTrackGen, proven) ───────────────────────────────────────
+// ─── ground loop, with optional ONE self-crossing (figure-8) ──────────────────
 const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+const nk0 = (p) => key(p.nx, p.nz);
 function genClosedLoop(rng, opts = {}) {
 	const W = opts.W || 14, H = opts.H || 14;
 	const minLen = opts.minLen || 20, maxLen = opts.maxLen || 40;
 	const attempts = opts.attempts || 200;
+	const allowCross = opts.figure8 !== false;
 	for (let att = 0; att < attempts; att++) {
 		const sx = rndInt(rng, 2, W - 3), sz = rndInt(rng, 2, H - 3);
 		const seen = new Set([key(sx, sz)]);
+		const enterAxis = new Map();   // cell → 'x'|'z' axis it was entered on
+		const passAxis = new Map();     // cell → axis IF passed straight through
 		const path = [[sx, sz]];
-		let prevDir = -1;
+		let prevDir = -1, crossCount = 0;
+		const crossCells = new Set();
 		while (path.length <= maxLen) {
 			const [cx, cz] = path[path.length - 1];
 			if (path.length >= minLen && Math.abs(cx - sx) + Math.abs(cz - sz) === 1) {
@@ -195,14 +219,34 @@ function genClosedLoop(rng, opts = {}) {
 				const [dx, dz] = DIRS[di];
 				const nx = cx + dx, nz = cz + dz;
 				if (nx < 1 || nz < 1 || nx >= W - 1 || nz >= H - 1) continue;
-				if (seen.has(key(nx, nz))) continue;
+				const nk = key(nx, nz);
+				const myAxis = (di === 0 || di === 2) ? 'x' : 'z';
+				if (seen.has(nk)) {
+					// up to TWO self-crossings: perpendicular, over a cell we
+					// passed STRAIGHT through, never the start cell, never the
+					// same crossing cell twice.
+					if (allowCross && crossCount < 2 && path.length >= 8 && !(nx === sx && nz === sz) && !crossCells.has(nk)) {
+						// never adjacent to an existing crossing — two 4-ways
+						// touching each other render as a broken block plaza
+						let tooClose = false;
+						for (const ck of crossCells) {
+							const [cxx, czz] = ck.split(',').map(Number);
+							if (Math.abs(cxx - nx) + Math.abs(czz - nz) <= 1) { tooClose = true; break; }
+						}
+						if (!tooClose) {
+							const axis = passAxis.get(nk);
+							if (axis && axis !== myAxis) candidates.push({ di, nx, nz, score: 1.6, cross: true });
+						}
+					}
+					continue;
+				}
 				if (prevDir !== -1 && (di + 2) % 4 === prevDir) continue;
 				let neighbors = 0;
 				for (const [adx, adz] of DIRS) if (seen.has(key(nx + adx, nz + adz))) neighbors++;
 				if (neighbors > 2) continue;
 				let score = 1;
-				if (prevDir === di) score += 1.4;
-				candidates.push({ di, nx, nz, score });
+				if (prevDir === di) score += 2.0;
+				candidates.push({ di, nx, nz, score, cross: false });
 			}
 			if (!candidates.length) break;
 			let total = 0;
@@ -210,8 +254,14 @@ function genClosedLoop(rng, opts = {}) {
 			let r = rng() * total;
 			let pick = candidates[0];
 			for (const c of candidates) { r -= c.score; if (r <= 0) { pick = c; break; } }
+			const last = path[path.length - 1];
+			const lastEnter = enterAxis.get(key(last[0], last[1]));
+			if (lastEnter === ((pick.di === 0 || pick.di === 2) ? 'x' : 'z')) {
+				passAxis.set(key(last[0], last[1]), lastEnter); // straight-through
+			}
+			if (pick.cross) { crossCount++; crossCells.add(nk0(pick)); }
+			else { seen.add(key(pick.nx, pick.nz)); enterAxis.set(key(pick.nx, pick.nz), (pick.di === 0 || pick.di === 2) ? 'x' : 'z'); }
 			path.push([pick.nx, pick.nz]);
-			seen.add(key(pick.nx, pick.nz));
 			prevDir = pick.di;
 		}
 	}
@@ -219,12 +269,14 @@ function genClosedLoop(rng, opts = {}) {
 }
 
 function loopToTiles(loop) {
-	const unique = loop.slice(0, -1);
+	const closed = loop.slice(0, -1);
+	const n = closed.length;
 	const tiles = [];
-	for (let i = 0; i < unique.length; i++) {
-		const cur = unique[i];
-		const prev = unique[(i + unique.length - 1) % unique.length];
-		const next = unique[(i + 1) % unique.length];
+	const byKey = new Map();
+	for (let i = 0; i < n; i++) {
+		const cur = closed[i];
+		const prev = closed[(i + n - 1) % n];
+		const next = closed[(i + 1) % n];
 		const dx = next[0] - prev[0], dz = next[1] - prev[1];
 		let type = 'track-straight', orient = 0;
 		if (Math.abs(dx) === 2 && dz === 0) { type = 'track-straight'; orient = 22; }
@@ -237,7 +289,23 @@ function loopToTiles(loop) {
 			const outSide = ox === 1 ? 'E' : ox === -1 ? 'W' : oz === 1 ? 'S' : 'N';
 			orient = orientFor([inSide, outSide], ['S', 'W']);
 		}
-		tiles.push([cur[0], cur[1], type, orient]);
+		const k = key(cur[0], cur[1]);
+		if (byKey.has(k)) {
+			// Second visit = the figure-8 self-crossing; both passes were
+			// straight-through by construction → a flat 4-way crossing.
+			// CRITICAL: keep BOTH positions in the list. Every adjacency-based
+			// rule downstream (runs, detour windows, ramp anchors) needs the
+			// position-ordered road; silently merging the two visits leaves a
+			// hole between the crossing's neighbours and breaks all of it.
+			// The duplicate is flagged (tile[4] === true) and exactly ONE
+			// 4-way block reaches the game.
+			const t = byKey.get(k);
+			t[2] = 'track-4-way'; t[3] = 0;
+			tiles.push([cur[0], cur[1], 'track-4-way', 0, true]);
+		} else {
+			const t = [cur[0], cur[1], type, orient];
+			tiles.push(t); byKey.set(k, t);
+		}
 	}
 	let finishIdx = tiles.findIndex((t) => t[2] === 'track-straight');
 	if (finishIdx < 0) finishIdx = 0;
@@ -245,26 +313,40 @@ function loopToTiles(loop) {
 	return tiles;
 }
 
-// ─── elevated detours (CupTrackGen, proven) ──────────────────────────────────
+// ─── elevated detours (CupTrackGen grammar, proven) ──────────────────────────
 function groundEntryForCross(inD, outD, groundDirs) {
-	if (inD === outD) {
-		for (const o of [0, 16]) {
-			const elev = [rotSide('N', o), rotSide('S', o)];
-			const ground = [rotSide('E', o), rotSide('W', o)];
-			if ([OPP_SIDE[inD], outD].every((s) => elev.includes(s)) && groundDirs.every((s) => ground.includes(s)) && groundDirs.length === 2) {
-				return { type: 'elevated-cross', orient: o };
+	if (inD !== outD) return null;
+	for (const o of [0, 16]) {
+		const elev = [rotSide('N', o), rotSide('S', o)];
+		const ground = [rotSide('E', o), rotSide('W', o)];
+		if ([OPP_SIDE[inD], outD].every((s) => elev.includes(s)) && groundDirs.every((s) => ground.includes(s)) && groundDirs.length === 2) {
+			return { type: 'elevated-cross', orient: o };
+		}
+	}
+	return null;
+}
+function elevatedEntryAt(cell, inD, outD, ctx) {
+	const k = key(cell[0], cell[1]);
+	if (ctx.elevKeys.has(k) || ctx.slopeKeys.has(k) || ctx.blockKeys.has(k)) return null;
+	const g = ctx.groundMap.get(k);
+	if (g && !ctx.windowKeys.has(k)) {
+		const dirs = groundDirsOf(g.tile);
+		if (!dirs) return null;
+		if (inD === outD) return groundEntryForCross(inD, outD, dirs);
+		// corner over corner → elevated-cross-corner (rotated pair match)
+		for (const o of [0, 16, 10, 22]) {
+			const elev = [rotSide('S', o), rotSide('W', o)];
+			const ground = [rotSide('N', o), rotSide('E', o)];
+			if ([OPP_SIDE[inD], outD].every((sd) => elev.includes(sd)) && ground.length === dirs.length && dirs.every((sd) => ground.includes(sd))) {
+				return { type: 'elevated-cross-corner', orient: o };
 			}
 		}
 		return null;
 	}
-	for (const o of [0, 16, 10, 22]) {
-		const elev = [rotSide('S', o), rotSide('W', o)];
-		const ground = [rotSide('N', o), rotSide('E', o)];
-		if ([OPP_SIDE[inD], outD].every((s) => elev.includes(s)) && ground.length === groundDirs.length && groundDirs.every((s) => ground.includes(s))) {
-			return { type: 'elevated-cross-corner', orient: o };
-		}
-	}
-	return null;
+	// everything else — empty cells AND this window's interior (which is
+	// being removed from the ground) — is free elevated road
+	if (inD === outD) return { type: 'elevated-straight', orient: (inD === 'N' || inD === 'S') ? 0 : 16 };
+	return { type: 'elevated-corner', orient: orientFor([OPP_SIDE[inD], outD], ['S', 'W']) };
 }
 
 function findPathSearch(startCell, startInD, endCell, endOutD, ctx, maxLen, entryFn) {
@@ -276,10 +358,24 @@ function findPathSearch(startCell, startInD, endCell, endOutD, ctx, maxLen, entr
 		while (cur) { if (key(cur.cell[0], cur.cell[1]) === k) return true; cur = cur.parent; }
 		return false;
 	};
+	// rebuild the entry chain from a popped goal node
+	const reconstruct = (endNode) => {
+		const cellsR = [];
+		let cur = endNode;
+		while (cur) { cellsR.unshift([cur.cell[0], cur.cell[1]]); cur = cur.parent; }
+		const entries = [];
+		for (let ci = 0; ci < cellsR.length; ci++) {
+			const inD = ci === 0 ? startInD : dirFromTo(cellsR[ci - 1], cellsR[ci]);
+			const outD2 = ci === cellsR.length - 1 ? endOutD : dirFromTo(cellsR[ci], cellsR[ci + 1]);
+			const e = entryFn(cellsR[ci], inD, outD2, ctx);
+			if (!e) return null;
+			entries.push([cellsR[ci][0], cellsR[ci][1], e]);
+		}
+		return entries;
+	};
 	const best = new Map();
-	const pq = [];
-	pq.push({ cell: startCell, inD: startInD, cost: 0, depth: 0, parent: null });
-	let guard = 30000;
+	const pq = [{ cell: startCell, inD: startInD, cost: 0, depth: 0, parent: null }];
+	let guard = 60000;
 	while (pq.length && guard-- > 0) {
 		let bi = 0;
 		for (let i = 1; i < pq.length; i++) if (pq[i].cost < pq[bi].cost) bi = i;
@@ -288,6 +384,14 @@ function findPathSearch(startCell, startInD, endCell, endOutD, ctx, maxLen, entr
 		const seenCost = best.get(stateKey);
 		if (seenCost !== undefined && seenCost < node.cost) continue;
 		best.set(stateKey, node.cost);
+		// GOAL AT POP TIME. Returning the first expansion that touches the
+		// end cell always yielded the trivial 2-4 cell path before the
+		// crossing rewards could matter — crossing-rich paths accumulate
+		// negative cost and pop first, so the hunt finally steers.
+		if (key(node.cell[0], node.cell[1]) === endKey) {
+			if (entryFn(node.cell, node.inD, endOutD, ctx)) return reconstruct(node);
+			continue; // dead-end angle into the end — keep exploring others
+		}
 		if (node.depth >= maxLen) continue;
 		for (const outD of ['N', 'E', 'S', 'W']) {
 			if (outD === OPP_SIDE[node.inD]) continue;
@@ -296,25 +400,10 @@ function findPathSearch(startCell, startInD, endCell, endOutD, ctx, maxLen, entr
 			const nx = node.cell[0] + dx, nz = node.cell[1] + dz;
 			if (nx < ctx.minX || nx > ctx.maxX || nz < ctx.minZ || nz > ctx.maxZ) continue;
 			const nbKey = key(nx, nz);
-			if (nbKey === endKey) {
-				if (chainHas(node, nbKey)) continue;
-				if (!entryFn([nx, nz], outD, endOutD, ctx)) continue;
-				const cellsR = [[nx, nz]];
-				let cur = node;
-				while (cur) { cellsR.unshift([cur.cell[0], cur.cell[1]]); cur = cur.parent; }
-				const entries = [];
-				for (let ci = 0; ci < cellsR.length; ci++) {
-					const inD = ci === 0 ? startInD : dirFromTo(cellsR[ci - 1], cellsR[ci]);
-					const outD2 = ci === cellsR.length - 1 ? endOutD : dirFromTo(cellsR[ci], cellsR[ci + 1]);
-					const e = entryFn(cellsR[ci], inD, outD2, ctx);
-					if (!e) return null;
-					entries.push([cellsR[ci][0], cellsR[ci][1], e]);
-				}
-				return entries;
-			}
-			if (chainHas(node, nbKey)) continue;
+			if (nbKey !== endKey && chainHas(node, nbKey)) continue;
 			const isCross = ctx.isCrossCell ? ctx.isCrossCell(nbKey) : false;
-			const stepCost = 1 + (outD !== node.inD ? 0.3 : 0) + (isCross ? -2.8 : 0);
+			const crossReward = ctx.crossReward ?? -7;
+			const stepCost = 1 + (outD !== node.inD ? 0.5 : 0) + (isCross ? crossReward : 0);
 			const nCost = node.cost + stepCost;
 			const nState = nbKey + '|' + outD;
 			if (best.has(nState) && best.get(nState) <= nCost) continue;
@@ -324,42 +413,50 @@ function findPathSearch(startCell, startInD, endCell, endOutD, ctx, maxLen, entr
 	return null;
 }
 
-// elevated entry at a cell (CupTrackGen, adapted to shared search)
-function elevatedEntryAt(cell, inD, outD, ctx) {
-	const k = key(cell[0], cell[1]);
-	if (ctx.elevKeys.has(k) || ctx.slopeKeys.has(k) || ctx.blockKeys.has(k)) return null;
-	const g = ctx.groundMap.get(k);
-	if (g && !ctx.windowKeys.has(k)) {
-		const dirs = groundDirsOf(g.tile);
-		if (!dirs) return null;
-		if (inD === outD) return groundEntryForCross(inD, outD, dirs);
-		// corners over ground road are only valid as cross-corner pairs —
-		// otherwise the elevated road would need support over live road.
-		return null;
-	}
-	if (g) return null; // window interior handled by slopes? (never happens: window cells excluded)
-	if (inD === outD) return { type: 'elevated-straight', orient: (inD === 'N' || inD === 'S') ? 0 : 16 };
-	return { type: 'elevated-corner', orient: orientFor([OPP_SIDE[inD], outD], ['S', 'W']) };
-}
-
-function genElevatedDetours(rng, tiles, specialIdx, removedIdx, elevEntries, blockKeys) {
-	const n = tiles.length;
-	const isPlain = (i) => !specialIdx.has(i) && (tiles[i][2] === 'track-straight' || tiles[i][2] === 'track-corner');
-	if (!tiles.some((_, i) => isPlain(i))) return;
+function cyclicRunsOf(tiles, isPlain, n) {
 	const runs = [];
 	let anchor = 0;
 	while (anchor < n && isPlain(anchor)) anchor++;
-	if (anchor >= n) runs.push({ start: 0, len: n });
-	else {
-		for (let k = 0; k < n; k++) {
-			const idx = (anchor + k) % n;
-			if (!isPlain(idx) || isPlain((idx + n - 1) % n)) continue;
-			let len = 1;
-			while (len < n && isPlain((idx + len) % n)) len++;
-			if (len < n) runs.push({ start: idx, len });
-		}
+	if (anchor >= n) { runs.push({ start: 0, len: n }); return runs; }
+	for (let k = 0; k < n; k++) {
+		const idx = (anchor + k) % n;
+		if (!isPlain(idx) || isPlain((idx + n - 1) % n)) continue;
+		let len = 1;
+		while (len < n && isPlain((idx + len) % n)) len++;
+		if (len < n) runs.push({ start: idx, len });
 	}
+	return runs;
+}
+
+// ─── tunnel entry rules (pit road; sealed crossings under the live loop) ────
+function tunnelEntryAt(cell, inD, outD, ctx) {
+	const k = key(cell[0], cell[1]);
+	if (ctx.blockKeys.has(k)) return null;
+	if (ctx.rampKeys && ctx.rampKeys.has(k)) return null;
+	const g = ctx.groundMap.get(k);
+	const isLiveRoad = g && !ctx.windowKeys.has(k);
+	// road over tunnel → sealed roof is mandatory; everything else (empty
+	// cells AND this window's interior, which becomes the pit road) follows
+	// the map-level 50/50 open/closed preference
+	const closed = isLiveRoad ? 1 : (ctx.preferClosed ? 1 : 0);
+	let type, orient;
+	if (inD === outD) { type = 'track-straight'; orient = (inD === 'N' || inD === 'S') ? 0 : 22; }
+	else { type = 'track-corner'; orient = orientFor([OPP_SIDE[inD], outD], ['S', 'W']); }
+	return { type, orient, closed };
+}
+
+// ─── interleaved detours — the overlap engine ────────────────────────────────
+// Every slot evaluates candidate windows as BOTH an elevated detour and a
+// tunnel detour, then places whichever yields more true crossings (ties
+// alternate between families so both always appear). This is what makes the
+// road-over-road, road-over-tunnel and 4-way crossings pile up on one map.
+function genInterleavedDetours(rng, tiles, specialIdx, removedIdx, elevEntries, tunnelEntries, blockKeys, preferClosed, opts) {
+	const n = tiles.length;
+	const isPlain = (i) => !specialIdx.has(i) && !tiles[i][4] && (tiles[i][2] === 'track-straight' || tiles[i][2] === 'track-corner') && !blockKeys.has(key(tiles[i][0], tiles[i][1]));
+	if (!tiles.some((_, i) => isPlain(i))) return;
+	const runs = cyclicRunsOf(tiles, isPlain, n);
 	const elevKeys = new Set(elevEntries.map(([gx, gz]) => key(gx, gz)));
+	const tunnelKeys = new Set(tunnelEntries.map((e) => key(e[0], e[1])));
 	const windows = [];
 	for (const run of runs) {
 		if (run.len < 4) continue;
@@ -367,7 +464,7 @@ function genElevatedDetours(rng, tiles, specialIdx, removedIdx, elevEntries, blo
 		let blocked = false;
 		for (let k = 0; k < run.len; k++) {
 			const t = tiles[(run.start + k) % n];
-			if (elevKeys.has(key(t[0], t[1])) || blockKeys.has(key(t[0], t[1]))) { blocked = true; break; }
+			if (elevKeys.has(key(t[0], t[1])) || tunnelKeys.has(key(t[0], t[1])) || blockKeys.has(key(t[0], t[1]))) { blocked = true; break; }
 			if (t[2] === 'track-straight') straights.push(k);
 		}
 		if (blocked || straights.length < 2) continue;
@@ -379,44 +476,56 @@ function genElevatedDetours(rng, tiles, specialIdx, removedIdx, elevEntries, blo
 	}
 	if (!windows.length) return;
 	windows.sort((a, b) => b.len - a.len || a.run.start - b.run.start || a.i - b.i);
-	const count = 2;
-	const cap = Math.max(12, Math.floor(tiles.length * 0.5));
-	let used = 0, placed = 0;
-	for (const w of windows) {
-		if (placed >= count) break;
-		if (used + w.len > cap) continue;
-		const { run, i, j } = w;
-		const L = j - i + 1;
-		const idxOf = (k) => (run.start + k + n) % n;
-		let overlap = false;
-		for (let k = i; k <= j; k++) {
-			const kk = key(tiles[idxOf(k)][0], tiles[idxOf(k)][1]);
-			if (removedIdx.has(idxOf(k)) || elevKeys.has(kk) || blockKeys.has(kk)) { overlap = true; break; }
+	const xs0 = tiles.map((t) => t[0]), zs0 = tiles.map((t) => t[1]);
+	const bbox = { minX: Math.min(...xs0) - 2, maxX: Math.max(...xs0) + 2, minZ: Math.min(...zs0) - 2, maxZ: Math.max(...zs0) + 2 };
+	const idxOfOf = (w) => ((k) => (w.run.start + k + n) % n);
+	const buildCtx = (w, elevMode, rampCells) => {
+		const ctx = {
+			groundMap: new Map(), windowKeys: new Set(),
+			blockKeys: new Set(blockKeys),
+			elevKeys: elevMode ? new Set(elevKeys) : null,
+			slopeKeys: new Set(),
+			rampKeys: new Set(rampCells.map((c) => key(c[0], c[1]))),
+			preferClosed, rng,
+			minX: bbox.minX, maxX: bbox.maxX, minZ: bbox.minZ, maxZ: bbox.maxZ,
+			isCrossCell: (k) => ctx.groundMap.has(k) && !ctx.windowKeys.has(k),
+		};
+		// checkpoint/finish/4-way cells hold real ground pieces (gates!) —
+		// a detour deck or pit stacked over them is the classic
+		// "blocks layered over blocks" breakage, so block them outright
+		for (let ti = 0; ti < tiles.length; ti++) {
+			if (!specialIdx.has(ti)) continue;
+			ctx.blockKeys.add(key(tiles[ti][0], tiles[ti][1]));
 		}
-		if (overlap) continue;
+		for (let ti = 0; ti < tiles.length; ti++) {
+			if (removedIdx.has(ti) || specialIdx.has(ti)) continue;
+			ctx.groundMap.set(key(tiles[ti][0], tiles[ti][1]), { tile: tiles[ti] });
+		}
+		const idxOf = idxOfOf(w);
+		for (let k = w.i; k <= w.j; k++) ctx.windowKeys.add(key(tiles[idxOf(k)][0], tiles[idxOf(k)][1]));
+		return ctx;
+	};
+	const evaluateElev = (w) => {
+		const idxOf = idxOfOf(w);
+		for (let k = w.i; k <= w.j; k++) {
+			const kk = key(tiles[idxOf(k)][0], tiles[idxOf(k)][1]);
+			if (removedIdx.has(idxOf(k)) || elevKeys.has(kk) || blockKeys.has(kk)) return null;
+		}
 		const cells = [];
-		for (let k = i; k <= j; k++) cells.push(tiles[idxOf(k)]);
-		const a = tiles[idxOf(i - 1)], b = tiles[idxOf(j + 1)];
+		for (let k = w.i; k <= w.j; k++) cells.push(tiles[idxOf(k)]);
+		const L = w.j - w.i + 1;
+		const a = tiles[idxOf(w.i - 1)], b = tiles[idxOf(w.j + 1)];
 		const gin = dirFromTo(cells[0], a), gout = dirFromTo(cells[L - 1], b);
-		if (!gin || !gout) continue;
+		if (!gin || !gout) return null;
 		const startInD = OPP_SIDE[gin], endOutD = gout;
 		const [sdx, sdz] = SIDE_VEC[startInD];
 		const firstCell = [cells[0][0] + sdx, cells[0][1] + sdz];
 		const [edx, edz] = SIDE_VEC[OPP_SIDE[gout]];
 		const lastCell = [cells[L - 1][0] + edx, cells[L - 1][1] + edz];
-		const xs = tiles.map((t) => t[0]), zs = tiles.map((t) => t[1]);
-		const ctx = {
-			groundMap: new Map(), elevKeys: new Set(elevKeys), slopeKeys: new Set(),
-			blockKeys: new Set(blockKeys), windowKeys: new Set(),
-			minX: Math.min(...xs) - 2, maxX: Math.max(...xs) + 2,
-			minZ: Math.min(...zs) - 2, maxZ: Math.max(...zs) + 2,
-		};
-		for (let ti = 0; ti < tiles.length; ti++) {
-			if (removedIdx.has(ti) || specialIdx.has(ti)) continue;
-			ctx.groundMap.set(key(tiles[ti][0], tiles[ti][1]), { tile: tiles[ti] });
-		}
-		for (let k = i; k <= j; k++) ctx.windowKeys.add(key(tiles[idxOf(k)][0], tiles[idxOf(k)][1]));
-		let path = findPathSearch(firstCell, startInD, lastCell, endOutD, ctx, Math.min(28, Math.max(18, L + 14)), elevatedEntryAt);
+		const ctx = buildCtx(w, true, [cells[0], cells[L - 1]]);
+		ctx.slopeKeys = new Set([key(cells[0][0], cells[0][1]), key(cells[L - 1][0], cells[L - 1][1])]);
+		ctx.crossReward = -8;
+		let path = findPathSearch(firstCell, startInD, lastCell, endOutD, ctx, Math.min(24, Math.max(16, L + 10)), elevatedEntryAt);
 		if (!path) {
 			path = [];
 			for (let k = 1; k < L - 1; k++) {
@@ -426,63 +535,144 @@ function genElevatedDetours(rng, tiles, specialIdx, removedIdx, elevEntries, blo
 				if (d1 === OPP_SIDE[d2]) path.push([c[0], c[1], { type: 'elevated-straight', orient: orientFor([d1, d2], ['N', 'S']) }]);
 				else path.push([c[0], c[1], { type: 'elevated-corner', orient: orientFor([d1, d2], ['S', 'W']) }]);
 			}
-			if (path === null) continue;
+			if (path === null) return null;
 		}
+		const xCount = path.filter(([, , e]) => e.type === 'elevated-cross' || e.type === 'elevated-cross-corner').length;
+		return { w, cells, gin, gout, path, xCount, L, idxOf };
+	};
+	const evaluateTunl = (w) => {
+		const idxOf = idxOfOf(w);
+		for (let k = w.i; k <= w.j; k++) {
+			const kk = key(tiles[idxOf(k)][0], tiles[idxOf(k)][1]);
+			if (removedIdx.has(idxOf(k)) || tunnelKeys.has(kk) || blockKeys.has(kk)) return null;
+		}
+		const cells = [];
+		for (let k = w.i; k <= w.j; k++) cells.push(tiles[idxOf(k)]);
+		const L = w.j - w.i + 1;
+		const a = tiles[idxOf(w.i - 1)], b = tiles[idxOf(w.j + 1)];
+		const gin = dirFromTo(cells[0], a), gout = dirFromTo(cells[L - 1], b);
+		if (!gin || !gout) return null;
+		const startInD = OPP_SIDE[gin], endOutD = gout;
+		const [sdx, sdz] = SIDE_VEC[startInD];
+		const firstCell = [cells[0][0] + sdx, cells[0][1] + sdz];
+		const [edx, edz] = SIDE_VEC[OPP_SIDE[gout]];
+		const lastCell = [cells[L - 1][0] + edx, cells[L - 1][1] + edz];
+		const ctx = buildCtx(w, false, [cells[0], cells[L - 1]]);
+		ctx.crossReward = -5;
+		let path = findPathSearch(firstCell, startInD, lastCell, endOutD, ctx, Math.min(18, Math.max(14, L + 6)), tunnelEntryAt);
+		if (!path) {
+			path = [];
+			for (let k = 1; k < L - 1; k++) {
+				const c = cells[k];
+				const d1 = dirFromTo(c, cells[k - 1]), d2 = dirFromTo(c, cells[k + 1]);
+				if (!d1 || !d2) { path = null; break; }
+				if (d1 === OPP_SIDE[d2]) path.push([c[0], c[1], { type: 'track-straight', orient: orientFor([d1, d2], ['N', 'S']), closed: preferClosed ? 1 : 0 }]);
+				else path.push([c[0], c[1], { type: 'track-corner', orient: orientFor([d1, d2], ['S', 'W']), closed: preferClosed ? 1 : 0 }]);
+			}
+			if (path === null) return null;
+		}
+		// true crossing = pit cell with the live road still on the roof
+		const xCount = path.filter(([gx, gz]) => ctx.groundMap.has(key(gx, gz)) && !ctx.windowKeys.has(key(gx, gz))).length;
+		return { w, cells, gin, gout, path, xCount, L, idxOf };
+	};
+	// structural guard: ramp→path→ramp must be one connected chain and every
+	// cell unique — a detour that fails this is skipped, never placed half
+	const pathValid = (res) => {
+		const { cells, path, L } = res;
+		if (!path.length) return false;
+		const seen = new Set([key(cells[0][0], cells[0][1]), key(cells[L - 1][0], cells[L - 1][1])]);
+		for (const [gx, gz] of path) {
+			const k = key(gx, gz);
+			if (seen.has(k)) return false;
+			seen.add(k);
+		}
+		for (let i = 1; i < path.length; i++) if (Math.abs(path[i][0] - path[i - 1][0]) + Math.abs(path[i][1] - path[i - 1][1]) !== 1) return false;
+		if (Math.abs(path[0][0] - cells[0][0]) + Math.abs(path[0][1] - cells[0][1]) !== 1) return false;
+		if (Math.abs(path[path.length - 1][0] - cells[L - 1][0]) + Math.abs(path[path.length - 1][1] - cells[L - 1][1]) !== 1) return false;
+		return true;
+	};
+	const placeElev = (res) => {
+		const { cells, gin, gout, path, L } = res;
+		// PATH ORDER: ramp, path cells, ramp — keeps each detour's entries a
+		// contiguous, walkable chain (the thin-section scanner relies on it)
 		elevEntries.push([cells[0][0], cells[0][1], 'slope-up', orientFor([gin], ['S'])]);
-		elevEntries.push([cells[L - 1][0], cells[L - 1][1], 'slope-up', orientFor([gout], ['S'])]);
 		for (const [gx, gz, e] of path) {
 			elevEntries.push([gx, gz, e.type, e.orient]);
 			elevKeys.add(key(gx, gz));
+			blockKeys.add(key(gx, gz));
 		}
-		for (const c of [cells[0], cells[L - 1]]) elevKeys.add(key(c[0], c[1]));
-		for (let k = i; k <= j; k++) removedIdx.add(idxOf(k));
-		used += L; placed++;
+		elevEntries.push([cells[L - 1][0], cells[L - 1][1], 'slope-up', orientFor([gout], ['S'])]);
+		for (const c of [cells[0], cells[L - 1]]) { elevKeys.add(key(c[0], c[1])); blockKeys.add(key(c[0], c[1])); }
+	};
+	const placeTunl = (res) => {
+		const { cells, gin, gout, path, L } = res;
+		tunnelEntries.push([cells[0][0], cells[0][1], 0, DIR_TO_ORIENT[OPP_SIDE[gin]], 'slope-up']);
+		for (const [gx, gz, e] of path) {
+			tunnelEntries.push([gx, gz, e.closed, e.orient, e.type]);
+			tunnelKeys.add(key(gx, gz));
+			blockKeys.add(key(gx, gz));
+		}
+		tunnelEntries.push([cells[L - 1][0], cells[L - 1][1], 0, DIR_TO_ORIENT[OPP_SIDE[gout]], 'slope-up']);
+		for (const c of [cells[0], cells[L - 1]]) { tunnelKeys.add(key(c[0], c[1])); blockKeys.add(key(c[0], c[1])); }
+	};
+	const totalSlots = 3 + (rng() < 0.5 ? 1 : 0) + (tiles.length > 28 ? 1 : 0);
+	const capTotal = Math.max(16, Math.floor(tiles.length * 0.55));
+	let used = 0;
+	for (let slot = 0; slot < totalSlots && windows.length; slot++) {
+		const preferred = slot % 2 === 1 ? 'tunl' : 'elev';
+		let best = null;
+		const deferred = [];
+		let evalCount = 0, drained = 0;
+		while (windows.length && evalCount < 4 && drained < 10) {
+			const w = windows.shift();
+			drained++;
+			if (used + w.len > capTotal) continue;
+			const cands = [];
+			if (opts.elevated) { const re = evaluateElev(w); if (re) cands.push({ family: 'elev', res: re }); }
+			if (opts.tunnels) { const rt = evaluateTunl(w); if (rt) cands.push({ family: 'tunl', res: rt }); }
+			if (!cands.length) continue;
+			evalCount++;
+			deferred.push(w);
+			for (const cand of cands) {
+				if (!best) { best = cand; continue; }
+				if (cand.res.xCount > best.res.xCount) best = cand;
+				else if (cand.res.xCount === best.res.xCount && cand.family === preferred && best.family !== preferred) best = cand;
+			}
+			if (best && best.res.xCount >= 3) break;
+		}
+		for (const w2 of deferred) windows.push(w2);
+		if (!best) continue;
+		// re-validate the chosen window against the CURRENT claim state
+		const res = best.family === 'elev' ? evaluateElev(best.res.w) : evaluateTunl(best.res.w);
+		if (!res || !pathValid(res)) continue;
+		if (best.family === 'elev') placeElev(res); else placeTunl(res);
+		for (let k = res.w.i; k <= res.w.j; k++) removedIdx.add(res.idxOf(k));
+		used += res.L;
 	}
-	return elevKeys;
 }
 
-// ─── NEW: pool crossings (pool slope → water → pool slope) ───────────────────
-// Replaces the middle of a straight road run with an underwater crossing.
-// The lap stays connected: it dives into the pond and climbs out the far side.
+// ─── pool driving sections (pool ramp → water → pool ramp) ───────────────────
 function genPoolCrossing(rng, tiles, specialIdx, removedIdx, blockKeys) {
 	const n = tiles.length;
-	const isPlainStraight = (i) => !specialIdx.has(i) && tiles[i][2] === 'track-straight' && !blockKeys.has(key(tiles[i][0], tiles[i][1]));
-	// find maximal straight runs (cyclically)
-	const runs = [];
-	let anchor = 0;
-	while (anchor < n && isPlainStraight(anchor)) anchor++;
-	if (anchor >= n) { runs.push({ start: 0, len: n }); }
-	else {
-		for (let k = 0; k < n; k++) {
-			const idx = (anchor + k) % n;
-			if (!isPlainStraight(idx) || isPlainStraight((idx + n - 1) % n)) continue;
-			let len = 1;
-			while (len < n && isPlainStraight((idx + len) % n)) len++;
-			if (len < n) runs.push({ start: idx, len });
-		}
-	}
-	const eligible = runs.filter((r) => r.len >= 5 && r.len <= 24);
-	if (!eligible.length) return null;
-	const run = eligible[rndInt(rng, 0, eligible.length - 1)];
-	// window: keep 1 road cell at each end, replace the middle.
-	// middle = slope + water(1..3) + slope; longer runs get wider ponds.
+	const isPlainStraight = (i) => !specialIdx.has(i) && !tiles[i][4] && tiles[i][2] === 'track-straight' && !blockKeys.has(key(tiles[i][0], tiles[i][1]));
+	const runs = cyclicRunsOf(tiles, isPlainStraight, n).filter((r) => r.len >= 5 && r.len <= 24);
+	if (!runs.length) return null;
+	const run = runs[rndInt(rng, 0, runs.length - 1)];
 	const waterCount = Math.max(1, Math.min(3, run.len - 4));
-	const L = 2 + waterCount; // replaced cells
+	const L = 2 + waterCount;
 	if (run.len - L < 2) return null;
-	const off = rndInt(rng, 1, run.len - L - 1); // start of the window inside the run
+	const off = rndInt(rng, 1, run.len - L - 1);
 	const idxOf = (k) => (run.start + k + n) % n;
-	for (let k = off; k < off + L; k++) {
-		if (removedIdx.has(idxOf(k))) return null;
-	}
+	for (let k = off; k < off + L; k++) if (removedIdx.has(idxOf(k))) return null;
 	const entryCell = tiles[idxOf(off - 1)];
 	const exitCell = tiles[idxOf(off + L)];
 	const inD = dirFromTo(entryCell, tiles[idxOf(off)]);
 	const outD = dirFromTo(tiles[idxOf(off + L - 1)], exitCell);
 	if (!inD || !outD || inD !== outD) return null;
-	// the ENTIRE window becomes the pond — ramp cells are water cells too
-	// (exactly how the editor paints pool slopes: the slope sits ON a water
-	// cell, which is what tells the water bowl to skip the wall on the ramp's
-	// exit side so the car can cross at pond-floor level).
+	// the whole window becomes the pond — ramp cells are water cells too
+	// (the editor's own pattern: a pool ramp is painted ON a water cell,
+	// which is what makes the water bowl skip the wall on the ramp's exit
+	// side so the car can cross at pond-floor level).
 	const water = [];
 	for (let k = off; k < off + L; k++) {
 		water.push([tiles[idxOf(k)][0], tiles[idxOf(k)][1]]);
@@ -526,156 +716,170 @@ function genPools(cells) {
 	return pools;
 }
 
-// ─── NEW: tunnel detours (pit road, closed-top crossings) ───────────────────
-// tunnel entry at a cell: pit road below; over LIVE road only closed-top
-// (roof seals, surface road stays). Slope/water/elevated/special cells are
-// forbidden — pits and decks can never stack.
-function tunnelEntryAt(cell, inD, outD, ctx) {
-	const k = key(cell[0], cell[1]);
-	if (ctx.blockKeys.has(k)) return null;
-	const g = ctx.groundMap.get(k);
-	const isLiveRoad = g && !ctx.windowKeys.has(k);
-	let closed;
-	if (isLiveRoad) {
-		// crossing under the live loop — closed top is mandatory, the surface
-		// road tile stays on the roof.
-		closed = 1;
-	} else if (g) {
-		return null; // window/slope interior cells are handled elsewhere
-	} else {
-		closed = ctx.preferClosed ? 1 : (ctx.rng() < 0.5 ? 1 : 0);
+// ─── thin-block sections (wide ⇄ thin chains that can BEND) ──────────────────
+// USER-VERIFIED IN-GAME (2026-10-02): the wide⇄thin ramps were inverted —
+// they must be placed 180° from the previous derivation. The orient now
+// encodes the direction the WIDE end faces:
+//   entry ramp: wide end faces the wide road BEHIND  → orient DIR_TO_ORIENT[backDir]
+//   exit ramp:  wide end faces the wide road AHEAD    → orient DIR_TO_ORIENT[fwdDir]
+// Chains may include ONE corner (track-thin-corner / elevated-thin-corner)
+// so thin sections bend instead of only running straight.
+function buildThinChain(win, backCell, fwdCell, prefix) {
+	const L = win.length;
+	const backDir = dirFromTo(win[0], backCell);
+	const fwdDir = dirFromTo(win[L - 1], fwdCell);
+	if (!backDir || !fwdDir) return null;
+	const conv = [{ type: prefix + '-wide-thin', orient: DIR_TO_ORIENT[OPP_SIDE[backDir]] }];
+	for (let k = 1; k < L - 1; k++) {
+		const prev = win[k - 1], c = win[k], next = win[k + 1];
+		const inT = dirFromTo(prev, c), outT = dirFromTo(c, next);
+		if (!inT || !outT) return null;
+		if (String(c[2]).includes('corner')) conv.push({ type: prefix + '-thin-corner', orient: orientFor([OPP_SIDE[inT], outT], ['S', 'W']) });
+		else conv.push({ type: prefix + '-thin-straight', orient: DIR_TO_ORIENT[outT] });
 	}
-	let type, orient;
-	if (inD === outD) { type = 'track-straight'; orient = (inD === 'N' || inD === 'S') ? 0 : 22; }
-	else { type = 'track-corner'; orient = orientFor([OPP_SIDE[inD], outD], ['S', 'W']); }
-	return { type, orient, closed };
+	conv.push({ type: prefix + '-wide-thin', orient: DIR_TO_ORIENT[OPP_SIDE[fwdDir]] });
+	return conv;
 }
 
-function genTunnelDetours(rng, tiles, specialIdx, removedIdx, tunnelEntries, blockKeys, preferClosed, count) {
+function genGroundThinSections(rng, tiles, specialIdx, removedIdx, blockKeys, count) {
 	const n = tiles.length;
-	const isPlain = (i) => !specialIdx.has(i) && (tiles[i][2] === 'track-straight' || tiles[i][2] === 'track-corner') && !blockKeys.has(key(tiles[i][0], tiles[i][1]));
-	if (!tiles.some((_, i) => isPlain(i))) return;
-	const runs = [];
-	let anchor = 0;
-	while (anchor < n && isPlain(anchor)) anchor++;
-	if (anchor >= n) runs.push({ start: 0, len: n });
-	else {
-		for (let k = 0; k < n; k++) {
-			const idx = (anchor + k) % n;
-			if (!isPlain(idx) || isPlain((idx + n - 1) % n)) continue;
-			let len = 1;
-			while (len < n && isPlain((idx + len) % n)) len++;
-			if (len < n) runs.push({ start: idx, len });
-		}
-	}
-	const tunnelKeys = new Set(tunnelEntries.map((e) => key(e[0], e[1])));
-	const windows = [];
+	// anchors (chain ends) may be straights OR corners — both are wide roads.
+	// First/last chain cells must sit on STRAIGHTS (wide⇄thin ramps are
+	// straight pieces); one interior cell may be a corner.
+	const isPlainRoad = (i) => !specialIdx.has(i) && !tiles[i][4] && (tiles[i][2] === 'track-straight' || tiles[i][2] === 'track-corner') && !removedIdx.has(i) && !blockKeys.has(key(tiles[i][0], tiles[i][1]));
+	const runs = cyclicRunsOf(tiles, isPlainRoad, n).filter((r) => r.len >= 5 && r.len <= 26);
+	if (!runs.length) return { placed: 0, corners: 0 };
+	const chosen = [];
 	for (const run of runs) {
-		if (run.len < 5) continue;
-		const straights = [];
-		let blocked = false;
-		for (let k = 0; k < run.len; k++) {
-			const t = tiles[(run.start + k) % n];
-			if (tunnelKeys.has(key(t[0], t[1])) || blockKeys.has(key(t[0], t[1]))) { blocked = true; break; }
-			if (t[2] === 'track-straight') straights.push(k);
-		}
-		if (blocked || straights.length < 2) continue;
-		for (const i of straights) for (const j of straights) {
-			const len = j - i + 1;
-			if (len < 5 || len > 14) continue;
-			windows.push({ run, i, j, len });
-		}
+		if (chosen.length >= count) break;
+		if (rng() < 0.9) chosen.push(run);
 	}
-	if (!windows.length) return;
-	windows.sort((a, b) => b.len - a.len || a.run.start - b.run.start || a.i - b.i);
-	const cap = Math.max(14, Math.floor(tiles.length * 0.45));
-	let used = 0, placed = 0;
-	for (const w of windows) {
+	let placed = 0, corners = 0;
+	for (const run of chosen) {
 		if (placed >= count) break;
-		if (used + w.len > cap) continue;
-		const { run, i, j } = w;
-		const L = j - i + 1;
 		const idxOf = (k) => (run.start + k + n) % n;
-		let overlap = false;
-		for (let k = i; k <= j; k++) {
-			const kk = key(tiles[idxOf(k)][0], tiles[idxOf(k)][1]);
-			if (removedIdx.has(idxOf(k)) || tunnelKeys.has(kk) || blockKeys.has(kk)) { overlap = true; break; }
-		}
-		if (overlap) continue;
-		const cells = [];
-		for (let k = i; k <= j; k++) cells.push(tiles[idxOf(k)]);
-		const a = tiles[idxOf(i - 1)], b = tiles[idxOf(j + 1)];
-		const gin = dirFromTo(cells[0], a), gout = dirFromTo(cells[L - 1], b);
-		if (!gin || !gout) continue;
-		const startInD = OPP_SIDE[gin], endOutD = gout;
-		const [sdx, sdz] = SIDE_VEC[startInD];
-		const firstCell = [cells[0][0] + sdx, cells[0][1] + sdz];
-		const [edx, edz] = SIDE_VEC[OPP_SIDE[gout]];
-		const lastCell = [cells[L - 1][0] + edx, cells[L - 1][1] + edz];
-		const xs = tiles.map((t) => t[0]), zs = tiles.map((t) => t[1]);
-		const ctx = {
-			groundMap: new Map(), blockKeys: new Set(blockKeys), windowKeys: new Set(),
-			preferClosed, rng,
-			minX: Math.min(...xs) - 2, maxX: Math.max(...xs) + 2,
-			minZ: Math.min(...zs) - 2, maxZ: Math.max(...zs) + 2,
-			isCrossCell: (k) => ctx.groundMap.has(k) && !ctx.windowKeys.has(k),
-		};
-		for (let ti = 0; ti < tiles.length; ti++) {
-			if (removedIdx.has(ti) || specialIdx.has(ti)) continue;
-			ctx.groundMap.set(key(tiles[ti][0], tiles[ti][1]), { tile: tiles[ti] });
-		}
-		for (let k = i; k <= j; k++) ctx.windowKeys.add(key(tiles[idxOf(k)][0], tiles[idxOf(k)][1]));
-		let path = findPathSearch(firstCell, startInD, lastCell, endOutD, ctx, Math.min(24, Math.max(14, L + 10)), tunnelEntryAt);
-		if (!path) {
-			// fallback: tunnel straight under the removed run (1:1, always valid)
-			path = [];
-			for (let k = 1; k < L - 1; k++) {
-				const c = cells[k];
-				const d1 = dirFromTo(c, cells[k - 1]), d2 = dirFromTo(c, cells[k + 1]);
-				if (!d1 || !d2) { path = null; break; }
-				let e;
-				if (d1 === OPP_SIDE[d2]) e = { type: 'track-straight', orient: orientFor([d1, d2], ['N', 'S']), closed: preferClosed ? 1 : 0 };
-				else e = { type: 'track-corner', orient: orientFor([d1, d2], ['S', 'W']), closed: preferClosed ? 1 : 0 };
-				path.push([c[0], c[1], e]);
+		let done = false;
+		// prefer windows that BEND (a thin-corner) for block variety, then
+		// accept straight windows; longer first
+		for (const wantCorner of [true, false]) {
+			for (const L of [5, 4, 3]) {
+				if (run.len - L < 2) continue;
+				for (let off = 1; off <= run.len - L - 1; off++) {
+					const win = [];
+					let bad = false;
+					for (let k = off; k < off + L; k++) {
+						const t = tiles[idxOf(k)];
+						if (removedIdx.has(idxOf(k)) || blockKeys.has(key(t[0], t[1])) || (t[2] !== 'track-straight' && t[2] !== 'track-corner')) { bad = true; break; }
+						win.push(t);
+					}
+					if (bad) continue;
+					if (win[0][2] !== 'track-straight' || win[L - 1][2] !== 'track-straight') continue;
+					const cs = win.filter((t) => t[2] === 'track-corner').length;
+					if (cs > 1) continue;
+					if (wantCorner && cs === 0) continue;
+					const conv = buildThinChain(win, tiles[idxOf(off - 1)], tiles[idxOf(off + L)], 'track');
+					if (!conv) continue;
+					for (let k = 0; k < L; k++) {
+						const t = win[k];
+						t[2] = conv[k].type;
+						t[3] = conv[k].orient;
+						blockKeys.add(key(t[0], t[1]));
+						if (String(conv[k].type).includes('corner')) corners++;
+					}
+					// the wide anchors at each end must stay road — claim them
+					blockKeys.add(key(tiles[idxOf(off - 1)][0], tiles[idxOf(off - 1)][1]));
+					blockKeys.add(key(tiles[idxOf(off + L)][0], tiles[idxOf(off + L)][1]));
+					placed++;
+					done = true;
+					break;
+				}
+				if (done) break;
 			}
-			if (path === null) continue;
+			if (done) break;
 		}
-		// entry/exit slopes: descend direction = from the ground road into the
-		// tunnel run (mouth faces the road). Verified: +z descend = orient 0.
-		tunnelEntries.push([cells[0][0], cells[0][1], 0, DIR_TO_ORIENT[OPP_SIDE[gin]], 'slope-up']);
-		tunnelEntries.push([cells[L - 1][0], cells[L - 1][1], 0, DIR_TO_ORIENT[OPP_SIDE[gout]], 'slope-up']);
-		for (const [gx, gz, e] of path) {
-			tunnelEntries.push([gx, gz, e.closed, e.orient, e.type]);
-			tunnelKeys.add(key(gx, gz));
-		}
-		for (const c of [cells[0], cells[L - 1]]) tunnelKeys.add(key(c[0], c[1]));
-		for (let k = i; k <= j; k++) removedIdx.add(idxOf(k));
-		used += L; placed++;
 	}
+	return { placed, corners };
+}
+
+function genElevatedThinSections(rng, elevEntries, blockKeys, count) {
+	// Detour entries are in PATH ORDER (ramp, path..., ramp), so group
+	// maximal runs of adjacent entries and convert stretches — the chain
+	// may bend through ONE corner (elevated-thin-corner).
+	let placed = 0, corners = 0, i = 0;
+	while (i < elevEntries.length && placed < count) {
+		let j = i;
+		while (j + 1 < elevEntries.length
+			&& Math.abs(elevEntries[j + 1][0] - elevEntries[j][0]) + Math.abs(elevEntries[j + 1][1] - elevEntries[j][1]) === 1) j++;
+		const group = elevEntries.slice(i, j + 1);
+		let a = 0;
+		while (a < group.length && placed < count) {
+			if (group[a][2] !== 'elevated-straight') { a++; continue; }
+			let done = false;
+			for (const wantCorner of [true, false]) {
+				for (const L of [5, 4, 3]) {
+					const b = a + L - 1;
+					if (a - 1 < 0 || b + 1 >= group.length) continue;
+					const win = group.slice(a, b + 1);
+					if (win[0][2] !== 'elevated-straight' || win[L - 1][2] !== 'elevated-straight') continue;
+					let cs = 0, bad = false;
+					for (const e of win) {
+						if (e[2] === 'elevated-corner') cs++;
+						else if (e[2] !== 'elevated-straight') { bad = true; break; }
+					}
+					if (bad || cs > 1) continue;
+					if (wantCorner && cs === 0) continue;
+					const conv = buildThinChain(win, group[a - 1], group[b + 1], 'elevated');
+					if (!conv) continue;
+					for (let k = 0; k < L; k++) {
+						win[k][2] = conv[k].type;
+						win[k][3] = conv[k].orient;
+						if (String(conv[k].type).includes('corner')) corners++;
+					}
+					placed++;
+					a = b + 1;
+					done = true;
+					break;
+				}
+				if (done) break;
+			}
+			if (!done) a++;
+		}
+		i = j + 1;
+	}
+	return { placed, corners };
 }
 
 // ─── master plan ──────────────────────────────────────────────────────────────
 function generateTrackPlan(seedText, opts) {
 	const rng = mulberry32(hash32(seedText));
+	// map-level hidden attribute: does this map prefer OPEN pit tunnels or
+	// CLOSED tunnel sections? 50/50 from the seed. Road-over-tunnel
+	// crossings are ALWAYS sealed, whatever the map prefers.
+	const preferClosed = rng() < 0.5;
+
+	// compact maps: tighter bounding boxes force detours to weave through the
+	// loop instead of wandering empty grass → far more crossings per track
 	let loop = genClosedLoop(rng, {
-		W: rndInt(rng, 13, 19), H: rndInt(rng, 13, 19),
-		minLen: rndInt(rng, 20, 30), maxLen: rndInt(rng, 34, 56),
-		attempts: 260,
+		W: rndInt(rng, 14, 18), H: rndInt(rng, 14, 18),
+		minLen: rndInt(rng, 24, 34), maxLen: rndInt(rng, 40, 58),
+		attempts: 320, figure8: opts.figure8,
 	});
 	if (!loop) loop = [[2,2],[3,2],[4,2],[5,2],[6,2],[7,2],[8,2],[8,3],[8,4],[8,5],[8,6],[8,7],[7,7],[6,7],[5,7],[4,7],[3,7],[2,7],[2,6],[2,5],[2,4],[2,3],[2,2]];
 	const tiles = loopToTiles(loop);
 	const finishIdx = tiles.findIndex((t) => t[2] === 'track-finish');
+	const crossCell = tiles.find((t) => t[2] === 'track-4-way' && !t[4]) || null;
 
-	// checkpoints — farthest-point sampling on straights, never near the finish
+	// checkpoints — farthest-point sampling on straights, never near finish;
+	// a figure-8 crossing earns one extra checkpoint near the loop
 	const n0 = tiles.length;
 	const cycDist = (a, b) => { const d = Math.abs(a - b); return Math.min(d, n0 - d); };
 	const cpCandidates = [];
 	for (let i = 0; i < n0; i++) {
-		if (tiles[i][2] !== 'track-straight') continue;
+		if (tiles[i][2] !== 'track-straight' || tiles[i][4]) continue;
 		if (finishIdx >= 0 && cycDist(i, finishIdx) < 2) continue;
 		cpCandidates.push(i);
 	}
-	const cpCount = Math.min(3 + (rng() < 0.5 ? 1 : 0), cpCandidates.length);
+	let cpCount = Math.min(3 + (rng() < 0.5 ? 1 : 0), cpCandidates.length);
 	const chosenCp = finishIdx >= 0 ? [finishIdx] : [];
 	const chosenSet = new Set(chosenCp);
 	for (let k = 0; k < cpCount; k++) {
@@ -690,17 +894,29 @@ function generateTrackPlan(seedText, opts) {
 		chosenCp.push(best); chosenSet.add(best);
 		tiles[best][2] = 'track-checkpoint';
 	}
+	if (crossCell) {
+		// one bonus checkpoint nearest the loop crossing (always fun)
+		let best = -1, bestD = 1e9;
+		for (let i = 0; i < n0; i++) {
+			if (tiles[i][2] !== 'track-straight' || chosenSet.has(i)) continue;
+			if (finishIdx >= 0 && cycDist(i, finishIdx) < 2) continue;
+			const d = Math.abs(tiles[i][0] - crossCell[0]) + Math.abs(tiles[i][1] - crossCell[1]);
+			if (d < bestD) { bestD = d; best = i; }
+		}
+		if (best >= 0) { tiles[best][2] = 'track-checkpoint'; chosenSet.add(best); }
+	}
 	const specialIdx = new Set(chosenSet);
+	for (let i = 0; i < tiles.length; i++) if (tiles[i][2] === 'track-4-way') specialIdx.add(i);
 
 	const elevEntries = [];
 	const removedIdx = new Set();
 	const tunnelEntries = [];
 	const poolSlopes = [];
 	const water = [];
-
-	// pool crossing first: it claims a straight run; tunnel/elevated then avoid
-	// its cells via blockKeys (ramps + water are impassable for everything else).
 	const blockKeys = new Set();
+	for (const t of tiles) if (t[2] === 'track-4-way') blockKeys.add(key(t[0], t[1]));
+
+	// 1. pool driving section claims a straight stretch first
 	if (opts.poolCrossings) {
 		const pc = genPoolCrossing(rng, tiles, specialIdx, removedIdx, blockKeys);
 		if (pc) {
@@ -709,45 +925,81 @@ function generateTrackPlan(seedText, opts) {
 			poolSlopes.push([pc.upSlope[0], pc.upSlope[1], DIR_TO_ORIENT[pc.upSlope[2]]]);
 			blockKeys.add(key(pc.downSlope[0], pc.downSlope[1]));
 			blockKeys.add(key(pc.upSlope[0], pc.upSlope[1]));
+			// anchor cells (the road feeding each ramp) must stay road —
+			// claim them so no detour window can remove them
+			const n0b = tiles.length;
+			const idxOfb = (t) => tiles.findIndex((x) => x[0] === t[0] && x[1] === t[1]);
+			for (const ramp of [pc.downSlope, pc.upSlope]) {
+				const mouth = OPP_SIDE[ramp[2]];
+				const [mdx, mdz] = SIDE_VEC[mouth];
+				blockKeys.add(key(ramp[0] + mdx, ramp[1] + mdz));
+			}
 		}
 	}
-	if (opts.elevated) {
-		genElevatedDetours(rng, tiles, specialIdx, removedIdx, elevEntries, blockKeys);
+	// 2. ground thin-block sections claim their 3-straight windows FIRST —
+	// they need the tiniest slices and everything below respects blockKeys
+	let thinGround = { placed: 0, corners: 0 };
+	if (opts.thin) thinGround = genGroundThinSections(rng, tiles, specialIdx, removedIdx, blockKeys, 1 + (rng() < 0.5 ? 1 : 0));
+
+	// 3. interleaved detours: every window is evaluated as BOTH an elevated
+	// and a tunnel detour and the crossing-richest wins — that's what makes
+	// the road-over-road and road-over-tunnel crossings pile up together
+	if (opts.elevated || opts.tunnels) {
+		genInterleavedDetours(rng, tiles, specialIdx, removedIdx, elevEntries, tunnelEntries, blockKeys, preferClosed, opts);
 		for (const e of elevEntries) blockKeys.add(key(e[0], e[1]));
-	}
-	if (opts.tunnels) {
-		genTunnelDetours(rng, tiles, specialIdx, removedIdx, tunnelEntries, blockKeys, opts.preferClosed, 1 + (rng() < 0.45 ? 1 : 0));
 		for (const e of tunnelEntries) blockKeys.add(key(e[0], e[1]));
 	}
 
-	const order = tiles.map((_, i) => i).filter((i) => !removedIdx.has(i));
+	const order = tiles.map((_, i) => i).filter((i) => !removedIdx.has(i) && !tiles[i][4]);
 	const groundTiles = order.map((i) => tiles[i]);
 	const elevKeys = new Set(elevEntries.map(([gx, gz]) => key(gx, gz)));
 
-	// decorative ponds in leftover enclosed pockets
+	// elevated thin sections convert straight runs inside the elevated paths
+	let thinElevated = { placed: 0, corners: 0 };
+	if (opts.thin && opts.elevated) thinElevated = genElevatedThinSections(rng, elevEntries, blockKeys, 1 + (rng() < 0.4 ? 1 : 0));
+
+	// 5. decorative ponds in leftover enclosed pockets
 	if (opts.ponds) for (const p of genPools(groundTiles)) water.push(p);
 
-	// flavour: bumps / surfaces / jumps / moving obstacles on clean ground straights
-	const flavorOk = (t) => t[2] === 'track-straight' && !elevKeys.has(key(t[0], t[1])) && !blockKeys.has(key(t[0], t[1]));
-	const bumpCandidates = groundTiles.filter(flavorOk);
-	const bumps = opts.bumps ? sampleDeterministic(bumpCandidates, rng, Math.min(5, Math.max(1, Math.floor(tiles.length / 11)))) : [];
-	const surfCandidates = groundTiles.filter((t) => (t[2] === 'track-straight' || t[2] === 'track-corner') && !elevKeys.has(key(t[0], t[1])) && !blockKeys.has(key(t[0], t[1])));
-	const surfacePalette = ['surface-wood', 'surface-ice', 'surface-boost'];
-	const surfaceCells = opts.surfaces ? sampleDeterministic(surfCandidates, rng, Math.min(7, Math.max(2, Math.floor(tiles.length / 7))))
-		.map(([x, z, t], idx) => [x, z, t === 'track-corner' ? 'surface-ice' : surfacePalette[idx % surfacePalette.length]]) : [];
-	const jumpCells = opts.jumps ? sampleDeterministic(bumpCandidates, rng, Math.min(4, Math.max(1, Math.floor(tiles.length / 13))))
+	// 6. flavour — claimed cells are exclusive across every family, so no
+	// two features ever land on the same block
+	const claimed = new Set(blockKeys);
+	const claim = (x, z) => { const k = key(x, z); if (claimed.has(k)) return false; claimed.add(k); return true; };
+	const groundStraight = (t) => t[2] === 'track-straight' && !elevKeys.has(key(t[0], t[1]));
+	const bumpCandidates = groundTiles.filter(groundStraight);
+	const bumps = opts.bumps ? sampleDeterministic(bumpCandidates.filter((t) => claim(t[0], t[1])), rng, Math.min(5, Math.max(1, Math.floor(tiles.length / 11)))) : [];
+	const jumpCells = opts.jumps ? sampleDeterministic(groundTiles.filter(groundStraight).filter((t) => claim(t[0], t[1])), rng, Math.min(4, Math.max(1, Math.floor(tiles.length / 13))))
 		.map(([x, z, t, o]) => [x, z, o]) : [];
-	const movingTypes = ['moving-slide-block', 'moving-spin-wall', 'moving-orbit-poles'];
-	const movingCells = opts.moving ? sampleDeterministic(bumpCandidates.filter((t) => !bumps.some((b) => b[0] === t[0] && b[1] === t[1]) && !jumpCells.some((b) => b[0] === t[0] && b[1] === t[1])), rng, Math.min(3, Math.max(1, Math.floor(tiles.length / 16))))
-		.map(([x, z, t, o], idx) => [x, z, movingTypes[idx % movingTypes.length], o, 1]) : [];
-
-	// choke pinch: swap some plain straights for choke pieces (same ports)
+	// surfaces: ground road AND elevated road (the height resolver places
+	// elevated ones on the deck); open-pit tunnels stay clean — their
+	// surface world is carved away, nothing can sit there
+	const surfacePalette = ['surface-wood', 'surface-ice', 'surface-boost'];
+	const surfCandidates = groundTiles.filter((t) => (t[2] === 'track-straight' || t[2] === 'track-corner') && claim(t[0], t[1]))
+		.map(([x, z, t]) => [x, z, t]);
+	for (const e of elevEntries) {
+		// a surface on an elevated road sits ON the deck (the height resolver
+		// handles it) — sharing the cell with the elevated entry is legal
+		if (e[2] === 'elevated-straight' || e[2] === 'elevated-corner' || e[2] === 'elevated-choke-half' || e[2] === 'elevated-choke-both') {
+			surfCandidates.push([e[0], e[1], 'elev-' + e[2]]);
+		}
+	}
+	const surfaceCells = opts.surfaces ? sampleDeterministic(surfCandidates, rng, Math.min(8, Math.max(3, Math.floor(tiles.length / 6))))
+		.map(([x, z, t], idx) => [x, z, String(t).startsWith('elev-') ? surfacePalette[idx % surfacePalette.length] : (t === 'track-corner' ? 'surface-ice' : surfacePalette[idx % surfacePalette.length])]) : [];
+	// 7. choke pinches: swap plain straights for choke pieces
+	let chokes = 0;
 	if (opts.chokes) {
-		const chokeCandidates = groundTiles.filter((t) => t[2] === 'track-straight' && !elevKeys.has(key(t[0], t[1])) && !blockKeys.has(key(t[0], t[1])) && !bumps.some((b) => b[0] === t[0] && b[1] === t[1]));
-		const chosen = sampleDeterministic(chokeCandidates, rng, Math.min(3, Math.max(1, Math.floor(tiles.length / 17))));
+		const chokeCandidates = groundTiles.filter((t) => t[2] === 'track-straight' && !elevKeys.has(key(t[0], t[1])) && claim(t[0], t[1]));
+		const chosen = sampleDeterministic(chokeCandidates, rng, Math.min(3, Math.max(1, Math.floor(tiles.length / 15))));
 		for (const c of chosen) {
 			const ti = groundTiles.findIndex((t) => t[0] === c[0] && t[1] === c[1]);
-			if (ti >= 0) groundTiles[ti][2] = rng() < 0.5 ? 'track-choke-both' : 'track-choke-half';
+			if (ti >= 0) { groundTiles[ti][2] = rng() < 0.5 ? 'track-choke-both' : 'track-choke-half'; chokes++; }
+		}
+	}
+	// elevated choke flavor on elevated straights
+	if (opts.chokes && opts.elevated) {
+		const elevStraightIdx = elevEntries.map((e, i) => (e[2] === 'elevated-straight' ? i : -1)).filter((i) => i >= 0);
+		for (const i of sampleDeterministic(elevStraightIdx, rng, 2)) {
+			elevEntries[i][2] = rng() < 0.5 ? 'elevated-choke-half' : 'elevated-choke-both';
 		}
 	}
 
@@ -756,7 +1008,20 @@ function generateTrackPlan(seedText, opts) {
 		modsObj: {
 			b: bumps, s: [], u: surfaceCells, d: [],
 			e: elevEntries, g: tunnelEntries, q: water, z: poolSlopes,
-			j: jumpCells, o: movingCells,
+			j: jumpCells,
+		},
+		dna: {
+			preferClosed,
+			crossCell,
+			elevCrossings: elevEntries.filter((e) => e[2] === 'elevated-cross' || e[2] === 'elevated-cross-corner').length,
+			tunnelCrossings: tunnelEntries.filter((e) => e[2] === 1 && groundTiles.some((c) => c[0] === e[0] && c[1] === e[1])).length,
+			poolSection: poolSlopes.length >= 2,
+			pondCells: water.length - (poolSlopes.length >= 2 ? poolSlopes.length : 0),
+			thinGround: thinGround.placed, thinElevated: thinElevated.placed,
+			thinCorners: (thinGround.corners || 0) + (thinElevated.corners || 0),
+			chokes,
+			jumps: jumpCells.length, bumps: bumps.length, surfaces: surfaceCells.length,
+			checkpoints: groundTiles.filter((c) => c[2] === 'track-checkpoint').length,
 		},
 	};
 }
@@ -775,17 +1040,15 @@ function bytesToBase64url(bytes) {
 function encodeCells(cells) {
 	const supportsCompactCodec = cells.every((cell) => {
 		const [gx, gz, name] = cell;
-		const normalizedName = name === 'track-bump' ? 'track-checkpoint' : name;
-		return Number.isInteger(gx) && Number.isInteger(gz) && gx >= -128 && gx <= 127 && gz >= -128 && gz <= 127 && TYPE_INDEX[normalizedName] !== undefined;
+		return Number.isInteger(gx) && Number.isInteger(gz) && gx >= -128 && gx <= 127 && gz >= -128 && gz <= 127 && TYPE_INDEX[name] !== undefined;
 	});
 	if (supportsCompactCodec) {
 		const bytes = new Uint8Array(cells.length * 3);
 		for (let i = 0; i < cells.length; i++) {
 			const [gx, gz, name, godotOrient] = cells[i];
-			const normalizedName = name === 'track-bump' ? 'track-checkpoint' : name;
 			bytes[i * 3] = gx + 128;
 			bytes[i * 3 + 1] = gz + 128;
-			bytes[i * 3 + 2] = (TYPE_INDEX[normalizedName] ?? 0) << 2 | (GODOT_TO_ORIENT[godotOrient] ?? 0);
+			bytes[i * 3 + 2] = (TYPE_INDEX[name] ?? 0) << 2 | (GODOT_TO_ORIENT[godotOrient] ?? 0);
 		}
 		return bytesToBase64url(bytes);
 	}
@@ -803,15 +1066,17 @@ async function encodeV3Json(value) {
 // ─── preview rendering ────────────────────────────────────────────────────────
 const CELL = 22;
 const COLORS = {
-	road: '#4a4f5c', finish: '#37b24d', checkpoint: '#4dabf7',
-	elev: '#f08c00', elevSlope: '#fab005',
+	road: '#4a4f5c', thin: '#e6b8a2', wideThin: '#fab005',
+	finish: '#37b24d', checkpoint: '#4dabf7',
+	elev: '#f08c00', elevSlope: '#ffe066',
 	tunnelOpen: '#8a5a2b', tunnelClosed: '#5c3d1e', tunnelSlope: '#b97a3d',
-	water: '#1971c2', poolSlope: '#3bc9db',
+	water: '#1971c2', poolSlope: '#3bc9db', fourway: '#9775fa', choke: '#c99a5f',
 };
 function render(plan) {
 	const cells = plan.cells;
-	const xs = cells.map((c) => c[0]).concat(plan.modsObj.e.map((e) => e[0]), plan.modsObj.g.map((e) => e[0]), plan.modsObj.q.map((e) => e[0]), plan.modsObj.z.map((e) => e[0]));
-	const zs = cells.map((c) => c[1]).concat(plan.modsObj.e.map((e) => e[1]), plan.modsObj.g.map((e) => e[1]), plan.modsObj.q.map((e) => e[1]), plan.modsObj.z.map((e) => e[1]));
+	const m = plan.modsObj;
+	const xs = cells.map((c) => c[0]).concat(m.e.map((e) => e[0]), m.g.map((e) => e[0]), m.q.map((e) => e[0]), m.z.map((e) => e[0]));
+	const zs = cells.map((c) => c[1]).concat(m.e.map((e) => e[1]), m.g.map((e) => e[1]), m.q.map((e) => e[1]), m.z.map((e) => e[1]));
 	const minX = Math.min(...xs) - 1, maxX = Math.max(...xs) + 1;
 	const minZ = Math.min(...zs) - 1, maxZ = Math.max(...zs) + 1;
 	const W = (maxX - minX + 1) * CELL, H = (maxZ - minZ + 1) * CELL;
@@ -821,7 +1086,6 @@ function render(plan) {
 	const g = cv.getContext('2d');
 	g.fillStyle = '#101319';
 	g.fillRect(0, 0, cv.width, cv.height);
-	// grid
 	g.strokeStyle = '#1b1f29';
 	for (let x = minX; x <= maxX + 1; x++) { g.beginPath(); g.moveTo((x - minX) * CELL, 0); g.lineTo((x - minX) * CELL, cv.height); g.stroke(); }
 	for (let z = minZ; z <= maxZ + 1; z++) { g.beginPath(); g.moveTo(0, (z - minZ) * CELL); g.lineTo(cv.width, (z - minZ) * CELL); g.stroke(); }
@@ -843,70 +1107,39 @@ function render(plan) {
 		g.stroke();
 		g.lineWidth = 1;
 	};
-	const roadLine = (x, z, tile) => {
-		g.strokeStyle = '#9aa3b2'; g.lineWidth = 2;
+	const roadLine = (x, z, tile, color) => {
+		g.strokeStyle = color || '#9aa3b2'; g.lineWidth = 2;
 		const cx = px(x) + CELL / 2, cz = pz(z) + CELL / 2;
 		g.beginPath();
-		if (tile[2] === 'track-corner') {
+		if (String(tile[2]).includes('corner')) {
 			const d1 = rotSide('S', tile[3]), d2 = rotSide('W', tile[3]);
 			const [ax, az] = SIDE_VEC[d1], [bx, bz] = SIDE_VEC[d2];
-			g.moveTo(cx + ax * 8, cz + az * 8);
-			g.quadraticCurveTo(cx, cz, cx + bx * 8, cz + bz * 8);
+			const half = String(tile[2]).includes('thin') ? 4 : 8;
+			g.moveTo(cx + ax * half, cz + az * half);
+			g.quadraticCurveTo(cx, cz, cx + bx * half, cz + bz * half);
 		} else {
-			const axis = (tile[3] === 0 || tile[3] === 10) ? 'S' : 'E';
-			const [ax, az] = SIDE_VEC[axis];
-			g.moveTo(cx - ax * 8, cz - az * 8);
-			g.lineTo(cx + ax * 8, cz + az * 8);
+			const axis = (tile[3] === 0 || tile[3] === 10) ? [0, 1] : [1, 0];
+			const half = tile[2] === 'track-thin-straight' ? 4 : 8;
+			g.moveTo(cx - axis[0] * half, cz - axis[1] * half);
+			g.lineTo(cx + axis[0] * half, cz + axis[1] * half);
 		}
 		g.stroke();
 		g.lineWidth = 1;
 	};
-	// water first (bottom layer)
-	for (const [x, z] of plan.modsObj.q) cellRect(x, z, COLORS.water);
+	// water (bottom layer)
+	for (const [x, z] of m.q) cellRect(x, z, COLORS.water);
 	// tunnels
-	for (const [x, z, closed, orient, type] of plan.modsObj.g) {
+	for (const [x, z, closed, orient, type] of m.g) {
 		if (type === 'slope-up') {
 			cellRect(x, z, COLORS.tunnelSlope);
-			const mouth = { 0: 'N', 10: 'S', 16: 'W', 22: 'E' }[orient] ?? 'N';
-			arrow(x, z, OPP_SIDE[mouth], '#ffd8a8');
+			const mouth = OPP_SIDE[ORIENT_TO_DIR[orient] ?? 'S'];
+			arrow(x, z, ORIENT_TO_DIR[orient] ?? 'S', '#ffd8a8');
 		} else {
 			cellRect(x, z, closed ? COLORS.tunnelClosed : COLORS.tunnelOpen);
-			if (type === 'track-straight' || type === 'track-corner') {
-				g.strokeStyle = '#c99a5f';
-				const cx = px(x) + CELL / 2, cz = pz(z) + CELL / 2;
-				g.lineWidth = 2; g.beginPath();
-				if (type === 'track-straight') {
-					const axis = (orient === 0 || orient === 10) ? [0, 1] : [1, 0];
-					g.moveTo(cx - axis[0] * 8, cz - axis[1] * 8);
-					g.lineTo(cx + axis[0] * 8, cz + axis[1] * 8);
-				} else {
-					const d1 = rotSide('S', orient), d2 = rotSide('W', orient);
-					const [ax, az] = SIDE_VEC[d1], [bx, bz] = SIDE_VEC[d2];
-					g.moveTo(cx + ax * 8, cz + az * 8);
-					g.quadraticCurveTo(cx, cz, cx + bx * 8, cz + bz * 8);
-				}
-				g.stroke(); g.lineWidth = 1;
-			}
-		}
-	}
-	// pool slopes
-	for (const [x, z, orient] of plan.modsObj.z) {
-		cellRect(x, z, COLORS.poolSlope);
-		const mouth = { 0: 'N', 10: 'S', 16: 'W', 22: 'E' }[orient] ?? 'N';
-		arrow(x, z, OPP_SIDE[mouth], '#e7f5ff');
-	}
-	// elevated
-	for (const [x, z, type, orient] of plan.modsObj.e) {
-		if (type === 'slope-up') {
-			cellRect(x, z, COLORS.elevSlope);
-			const d = rotSide('N', orient); // slope-up N port = elevated side (ramp climbs toward N at orient 0)
-			arrow(x, z, d, '#fff3bf');
-		} else {
-			cellRect(x, z, COLORS.elev);
-			g.strokeStyle = '#ffe8cc';
+			g.strokeStyle = '#c99a5f';
 			const cx = px(x) + CELL / 2, cz = pz(z) + CELL / 2;
 			g.lineWidth = 2; g.beginPath();
-			if (type === 'elevated-straight' || type === 'elevated-cross') {
+			if (type === 'track-straight') {
 				const axis = (orient === 0 || orient === 10) ? [0, 1] : [1, 0];
 				g.moveTo(cx - axis[0] * 8, cz - axis[1] * 8);
 				g.lineTo(cx + axis[0] * 8, cz + axis[1] * 8);
@@ -917,8 +1150,40 @@ function render(plan) {
 				g.quadraticCurveTo(cx, cz, cx + bx * 8, cz + bz * 8);
 			}
 			g.stroke(); g.lineWidth = 1;
+		}
+	}
+	// pool slopes
+	for (const [x, z, orient] of m.z) {
+		cellRect(x, z, COLORS.poolSlope);
+		arrow(x, z, ORIENT_TO_DIR[orient] ?? 'S', '#e7f5ff');
+	}
+	// elevated
+	for (const [x, z, type, orient] of m.e) {
+		if (type === 'slope-up') {
+			cellRect(x, z, COLORS.elevSlope);
+			arrow(x, z, rotSide('N', orient), '#fff3bf');
+		} else if (type === 'elevated-wide-thin') {
+			cellRect(x, z, COLORS.wideThin);
+			arrow(x, z, OPP_SIDE[ORIENT_TO_DIR[orient] ?? 'S'], '#fff3bf'); // wide-end dir
+		} else {
+			const thin = String(type).includes('thin');
+			cellRect(x, z, thin ? COLORS.thin : COLORS.elev);
+			g.strokeStyle = '#ffe8cc';
+			const cx = px(x) + CELL / 2, cz = pz(z) + CELL / 2;
+			g.lineWidth = 2; g.beginPath();
+			if (type === 'elevated-straight' || type === 'elevated-cross' || type === 'elevated-thin-straight' || String(type).includes('choke')) {
+				const axis = (orient === 0 || orient === 10) ? [0, 1] : [1, 0];
+				const half = thin ? 4 : 8;
+				g.moveTo(cx - axis[0] * half, cz - axis[1] * half);
+				g.lineTo(cx + axis[0] * half, cz + axis[1] * half);
+			} else {
+				const d1 = rotSide('S', orient), d2 = rotSide('W', orient);
+				const [ax, az] = SIDE_VEC[d1], [bx, bz] = SIDE_VEC[d2];
+				g.moveTo(cx + ax * 8, cz + az * 8);
+				g.quadraticCurveTo(cx, cz, cx + bx * 8, cz + bz * 8);
+			}
+			g.stroke(); g.lineWidth = 1;
 			if (type === 'elevated-cross' || type === 'elevated-cross-corner') {
-				// ground road also crosses here — draw it in gray
 				g.strokeStyle = '#4a4f5c'; g.lineWidth = 4;
 				g.beginPath();
 				const gaxis = (orient === 0 || orient === 10) ? [1, 0] : [0, 1];
@@ -930,21 +1195,42 @@ function render(plan) {
 	}
 	// ground road on top
 	for (const t of cells) {
-		cellRect(t[0], t[1], t[2] === 'track-finish' ? COLORS.finish : t[2] === 'track-checkpoint' ? COLORS.checkpoint : COLORS.road);
-		roadLine(t[0], t[1], t);
+		if (t[2] === 'track-finish') cellRect(t[0], t[1], COLORS.finish);
+		else if (t[2] === 'track-checkpoint') cellRect(t[0], t[1], COLORS.checkpoint);
+		else if (t[2] === 'track-4-way') cellRect(t[0], t[1], COLORS.fourway);
+		else if (t[2] === 'track-thin-straight') cellRect(t[0], t[1], COLORS.thin);
+		else if (t[2] === 'track-wide-thin') cellRect(t[0], t[1], COLORS.wideThin);
+		else if (t[2] === 'track-choke-both' || t[2] === 'track-choke-half') cellRect(t[0], t[1], COLORS.choke);
+		else cellRect(t[0], t[1], COLORS.road);
+		roadLine(t[0], t[1], t, t[2] === 'track-thin-straight' ? '#7c4a2d' : null);
+		if (t[2] === 'track-4-way') {
+			// draw the crossing's second road line (perpendicular)
+			g.strokeStyle = '#fff'; g.lineWidth = 2;
+			const cx = px(t[0]) + CELL / 2, cz = pz(t[1]) + CELL / 2;
+			g.beginPath();
+			const a2 = (t[3] === 0 || t[3] === 10) ? [1, 0] : [0, 1];
+			g.moveTo(cx - a2[0] * 8, cz - a2[1] * 8);
+			g.lineTo(cx + a2[0] * 8, cz + a2[1] * 8);
+			g.stroke(); g.lineWidth = 1;
+		}
 		if (t[2] === 'track-finish') {
 			g.fillStyle = '#fff'; g.font = 'bold 9px sans-serif'; g.textAlign = 'center';
 			g.fillText('FIN', px(t[0]) + CELL / 2, pz(t[1]) + CELL / 2 + 3);
 		}
 	}
 	// flavour markers
-	for (const [x, z] of plan.modsObj.b) { g.fillStyle = '#ffd43b'; g.beginPath(); g.arc(px(x) + CELL / 2, pz(z) + CELL / 2, 3.4, 0, 7); g.fill(); }
-	for (const [x, z] of plan.modsObj.j) { cellRect(x, z, ''); g.fillStyle = COLORS.road; g.fillRect(px(x) + 1, pz(z) + 1, CELL - 2, CELL - 2); arrow(x, z, 'S', '#e8590c'); const t = cells.find((c) => c[0] === x && c[1] === z); if (t) { const ax = (t[3] === 0 || t[3] === 10) ? 'S' : 'E'; arrow(x, z, ax, '#e8590c'); } }
-	for (const [x, z] of plan.modsObj.o) { g.fillStyle = '#ae3ec9'; g.beginPath(); g.arc(px(x) + CELL / 2, pz(z) + CELL / 2, 4.6, 0, 7); g.fill(); }
-	for (const [x, z, surf] of plan.modsObj.u) {
+	for (const [x, z] of m.b) { g.fillStyle = '#ffd43b'; g.beginPath(); g.arc(px(x) + CELL / 2, pz(z) + CELL / 2, 3.4, 0, 7); g.fill(); }
+	for (const [x, z, o] of m.j) {
+		g.fillStyle = '#e8590c'; g.beginPath();
+		const cx = px(x) + CELL / 2, cz = pz(z) + CELL / 2;
+		g.moveTo(cx, cz - 6); g.lineTo(cx + 6, cz + 5); g.lineTo(cx - 6, cz + 5); g.fill();
+	}
+	for (const [x, z, surf] of m.u) {
+		const onElev = m.e.some((e) => e[0] === x && e[1] === z);
 		g.strokeStyle = surf === 'surface-ice' ? '#a5d8ff' : surf === 'surface-boost' ? '#ff6b6b' : '#d8b27a';
-		g.lineWidth = 1.6;
+		g.lineWidth = onElev ? 2.6 : 1.6;
 		g.strokeRect(px(x) + 2.5, pz(z) + 2.5, CELL - 5, CELL - 5);
+		if (onElev) { g.fillStyle = '#ffffff22'; g.fillRect(px(x) + 1, pz(z) + 1, CELL - 2, CELL - 2); }
 		g.lineWidth = 1;
 	}
 }
@@ -954,48 +1240,102 @@ function validate(plan) {
 	const warns = [];
 	const { cells, modsObj } = plan;
 	const roadSet = new Set(cells.map((c) => key(c[0], c[1])));
-	// 1. every ground tile unique (no two blocks on one cell)
+	// 1. every ground tile unique
 	const roadSeen = new Set();
 	for (const c of cells) {
 		const k = key(c[0], c[1]);
 		if (roadSeen.has(k)) warns.push('duplicate road tile at ' + k);
 		roadSeen.add(k);
 	}
-	// ground cells are not required to be 4-adjacent across the whole list:
-	// detour windows (tunnel / elevated / pool) are removed from the ground
-	// and reconnected through their ramps — the mouth checks below prove that.
-	// 2. tunnel slopes: mouth must face a live road cell
+	// 2. tunnel ramps: mouth must face a live road cell
 	for (const [x, z, closed, orient, type] of modsObj.g) {
 		if (type !== 'slope-up') continue;
-		const mouth = { 0: 'N', 10: 'S', 16: 'W', 22: 'E' }[orient] ?? 'N';
+		const mouth = OPP_SIDE[ORIENT_TO_DIR[orient] ?? 'S'];
 		const [dx, dz] = SIDE_VEC[mouth];
 		if (!roadSet.has(key(x + dx, z + dz))) warns.push('tunnel ramp at ' + key(x, z) + ' mouth faces no road');
 	}
-	// 3. pool slopes: mouth must face a live road cell, low side must face water
+	// 3. pool ramps: mouth faces road, low side faces water; ramps are water
 	const waterSet = new Set(modsObj.q.map((w) => key(w[0], w[1])));
 	for (const [x, z, orient] of modsObj.z) {
-		const mouth = { 0: 'N', 10: 'S', 16: 'W', 22: 'E' }[orient] ?? 'N';
+		const mouth = OPP_SIDE[ORIENT_TO_DIR[orient] ?? 'S'];
 		const [dx, dz] = SIDE_VEC[mouth];
 		if (!roadSet.has(key(x + dx, z + dz))) warns.push('pool ramp at ' + key(x, z) + ' mouth faces no road');
 		if (!waterSet.has(key(x - dx, z - dz))) warns.push('pool ramp at ' + key(x, z) + ' low side faces no water');
+		if (!waterSet.has(key(x, z))) warns.push('pool ramp at ' + key(x, z) + ' not on water');
 	}
-	// 4. no cell used by two mods — EXCEPT water+poolSlope on one cell,
-	// which is the editor's own pattern (a pool ramp is painted on a water cell).
-	const seen = new Set();
-	const waterSet2 = new Set(modsObj.q.map((w) => key(w[0], w[1])));
-	for (const [x, z] of [...modsObj.e, ...modsObj.g]) {
+	// 4. exclusivity: NO cell may host two entries of any family — a deck
+	// stacked on its own ramp, a pit under a deck, two decks... all broken.
+	// (Crossings are whitelisted separately in checks 7/8 below.)
+	const claimed = new Map();
+	const claimCheck = (k, family) => {
+		if (claimed.has(k)) warns.push('stacked feature at ' + k + ' (' + claimed.get(k) + ' + ' + family + ')');
+		else claimed.set(k, family);
+	};
+	for (const [x, z] of modsObj.e) claimCheck(key(x, z), 'elev');
+	for (const [x, z] of modsObj.g) claimCheck(key(x, z), 'tunnel');
+	for (const [x, z] of modsObj.z) claimCheck(key(x, z), 'pool');
+	const flavorSeen = new Set();
+	for (const [x, z] of [...modsObj.b, ...modsObj.j.map((jj) => [jj[0], jj[1]])]) {
 		const k = key(x, z);
-		if (seen.has(k)) warns.push('stacked feature at ' + k);
-		seen.add(k);
+		if (flavorSeen.has(k)) warns.push('two obstacles on one block at ' + k);
+		flavorSeen.add(k);
 	}
-	for (const [x, z] of modsObj.z) {
-		const k = key(x, z);
-		if (seen.has(k)) warns.push('stacked feature at ' + k);
-		// pool ramps may share with water only
-		if (!waterSet2.has(k)) warns.push('pool ramp not on water at ' + k);
-	}
-	// 5. water not on the road path
+	// 5. water never on live road
 	for (const w of modsObj.q) if (roadSet.has(key(w[0], w[1]))) warns.push('water on live road at ' + key(w[0], w[1]));
+	// 6. thin chains: wide⇄thin ramps' wide side must face road (not thin)
+	const wideOk = (x, z, wideDir, isElev) => {
+		const [dx, dz] = SIDE_VEC[wideDir];
+		const nx = x + dx, nz = z + dz;
+		const road = roadSet.has(key(nx, nz));
+		const elev = isElev && modsObj.e.some((e) => e[0] === nx && e[1] === nz);
+		return road || elev;
+	};
+	const wideDirOf = (orient) => OPP_SIDE[ORIENT_TO_DIR[orient] ?? 'S'];
+	for (const t of cells) {
+		if (t[2] !== 'track-wide-thin') continue;
+		if (!wideOk(t[0], t[1], wideDirOf(t[3]), false)) warns.push('thin ramp at ' + key(t[0], t[1]) + ' wide side faces no road');
+	}
+	for (const e of modsObj.e) {
+		if (e[2] !== 'elevated-wide-thin') continue;
+		if (!wideOk(e[0], e[1], wideDirOf(e[3]), true)) warns.push('elev thin ramp at ' + key(e[0], e[1]) + ' wide side faces no road');
+	}
+	// 7. elevated blocks may only sit over live ground road when they are
+	// real crossing pieces — anything else is stacked over a road block
+	for (const [x, z, type] of modsObj.e) {
+		if (type === 'slope-up' || type === 'elevated-cross' || type === 'elevated-cross-corner') continue;
+		if (roadSet.has(key(x, z))) warns.push('elevated ' + type + ' stacked over road at ' + key(x, z));
+	}
+	// 8. a tunnel pit under live road must be a SEALED crossing — an open
+	// pit with road on top is a hole in the world
+	for (const [x, z, closed, , type] of modsObj.g) {
+		if (type === 'slope-up') continue;
+		if (roadSet.has(key(x, z)) && closed !== 1) warns.push('open tunnel under road at ' + key(x, z));
+	}
+	// 9. elevated ramps: the low side (the climb entry) must face live road
+	for (const [x, z, type, orient] of modsObj.e) {
+		if (type !== 'slope-up') continue;
+		const low = rotSide('S', orient);
+		const [dx, dz] = SIDE_VEC[low];
+		if (!roadSet.has(key(x + dx, z + dz))) warns.push('elevated ramp at ' + key(x, z) + ' low side faces no road');
+	}
+	// 10. nothing may sit over an OPEN pit cell (deck over a hole)
+	const openPit = new Set(modsObj.g.filter((e) => e[4] !== 'slope-up' && e[2] === 0).map((e) => key(e[0], e[1])));
+	for (const [x, z] of modsObj.e) if (openPit.has(key(x, z))) warns.push('elevated block over open pit at ' + key(x, z));
+	for (const [x, z] of modsObj.z) if (openPit.has(key(x, z))) warns.push('pool ramp over open pit at ' + key(x, z));
+	for (const [x, z] of modsObj.q) if (openPit.has(key(x, z))) warns.push('water over open pit at ' + key(x, z));
+	// 11. elevated detour chains: entries come in path order (ramp, path...,
+	// ramp) — the whole chain must be one connected walk
+	let k0 = 0;
+	while (k0 < modsObj.e.length) {
+		let k1 = k0;
+		while (k1 + 1 < modsObj.e.length
+			&& Math.abs(modsObj.e[k1 + 1][0] - modsObj.e[k1][0]) + Math.abs(modsObj.e[k1 + 1][1] - modsObj.e[k1][1]) === 1) k1++;
+		const seg = modsObj.e.slice(k0, k1 + 1);
+		if (seg.length >= 3 && (seg[0][2] === 'slope-up' || seg[seg.length - 1][2] === 'slope-up')) {
+			if (seg[0][2] !== 'slope-up' || seg[seg.length - 1][2] !== 'slope-up') warns.push('elevated detour at ' + key(seg[0][0], seg[0][1]) + ' is missing an end ramp');
+		}
+		k0 = k1 + 1;
+	}
 	return warns;
 }
 
@@ -1003,35 +1343,67 @@ function validate(plan) {
 const GAME_BASE = 'https://everybodysim.github.io/Racing-game/index.html';
 let lastUrl = null;
 
+function dnaHtml(plan) {
+	const d = plan.dna, m = plan.modsObj;
+	const chip = (yes, label, tag) => '<div class="chip"><span class="' + (yes ? 'yes' : 'no') + '">' + (yes ? '✓' : '✗') + '</span><span>' + label + (tag ? ' <span class="tag">' + tag + '</span>' : '') + '</span></div>';
+	let html = '';
+	html += chip(!!d.crossCell, 'Figure-8 loop crossing', d.crossCell ? 'flat 4-way @ ' + d.crossCell[0] + ',' + d.crossCell[1] : '');
+	html += chip(d.elevCrossings > 0, 'Road-over-road crossings', '×' + d.elevCrossings);
+	html += chip(d.tunnelCrossings > 0, 'Road-over-tunnel crossings', '×' + d.tunnelCrossings);
+	const crossCorners = m.e.filter((e) => e[2] === 'elevated-cross-corner').length;
+	const totalX = d.elevCrossings + d.tunnelCrossings + (d.crossCell ? 1 : 0);
+	html += '<div class="chip"><span class="' + (totalX >= 2 ? 'yes' : 'no') + '">Σ</span><span>Total crossings: <span class="tag">×' + totalX + '</span>' + (crossCorners ? ' (incl. ×' + crossCorners + ' cross-corner)' : '') + '</span></div>';
+	const closedCells = m.g.filter((e) => e[4] !== 'slope-up' && e[2] === 1).length;
+	const openCells = m.g.filter((e) => e[4] !== 'slope-up' && e[2] === 0).length;
+	if (m.g.length) {
+		html += '<div class="chip"><span class="yes">◈</span><span>Tunnel tops: map prefers <span class="tag">' + (d.preferClosed ? 'CLOSED' : 'OPEN') + '</span> (' + closedCells + ' sealed / ' + openCells + ' open — crossings always sealed)</span></div>';
+	} else {
+		html += '<div class="chip"><span class="no">◇</span><span>No tunnels this seed</span></div>';
+	}
+	html += chip(d.poolSection, 'Pool driving section', d.poolSection ? 'dive in, drive underwater, climb out' : '');
+	const pondCells = d.poolSection ? m.q.length - m.z.length : m.q.length;
+	html += chip(pondCells > 0, 'Decorative ponds', pondCells > 0 ? pondCells + ' cells' : '');
+	html += chip(d.thinGround > 0, 'Thin-block section (ground)', d.thinGround > 0 ? '×' + d.thinGround : '');
+	html += chip(d.thinElevated > 0, 'Thin-block section (elevated)', d.thinElevated > 0 ? '×' + d.thinElevated : '');
+	html += chip((d.thinCorners || 0) > 0, 'Thin-corner bends', d.thinCorners > 0 ? '×' + d.thinCorners + ' (thin road turns corners)' : '');
+	html += chip(d.chokes > 0, 'Choke pinches', d.chokes > 0 ? '×' + d.chokes : '');
+	const bits = [];
+	bits.push('checkpoints ×' + d.checkpoints);
+	bits.push('jumps ×' + d.jumps);
+	bits.push('bumps ×' + d.bumps);
+	bits.push('surfaces ×' + d.surfaces);
+	html += '<div class="chip"><span class="yes">·</span><span>' + bits.join(' · ') + '</span></div>';
+	return html;
+}
+
 function counts(plan) {
 	const m = plan.modsObj;
 	const tunnelSlopes = m.g.filter((e) => e[4] === 'slope-up').length;
-	const closedCross = m.g.filter((e) => e[2] === 1 && e[4] !== 'slope-up').length;
-	const openPit = m.g.filter((e) => e[2] === 0 && e[4] !== 'slope-up').length;
 	const elevSlopes = m.e.filter((e) => e[2] === 'slope-up').length;
 	const row = (k, v) => '<div><span class="k">' + k + '</span><span>' + v + '</span></div>';
 	return row('road cells', plan.cells.length)
+		+ row('4-way crossings', plan.cells.filter((c) => c[2] === 'track-4-way').length)
 		+ row('checkpoints', plan.cells.filter((c) => c[2] === 'track-checkpoint').length)
 		+ row('elevated road', m.e.length - elevSlopes) + row('elevated ramps', elevSlopes)
 		+ row('tunnel road', m.g.length - tunnelSlopes) + row('tunnel ramps', tunnelSlopes)
-		+ row('· closed (crossings)', closedCross) + row('· open pits', openPit)
 		+ row('pool ramps', m.z.length) + row('water cells', m.q.length)
-		+ row('jumps', m.j.length) + row('moving obstacles', m.o.length)
-		+ row('bumps', m.b.length) + row('surfaces', m.u.length);
+		+ row('thin ground cells', plan.cells.filter((c) => c[2] === 'track-thin-straight' || c[2] === 'track-wide-thin').length)
+		+ row('choke cells', plan.cells.filter((c) => String(c[2]).includes('choke')).length)
+		+ row('jumps', m.j.length) + row('bumps', m.b.length) + row('surfaces', m.u.length);
 }
 
 function currentOpts() {
 	return {
+		figure8: document.getElementById('tgFigure8').checked,
 		elevated: document.getElementById('tgElev').checked,
 		tunnels: document.getElementById('tgTunnel').checked,
-		preferClosed: document.getElementById('tgClosedPref').checked,
 		poolCrossings: document.getElementById('tgPool').checked,
 		ponds: document.getElementById('tgPonds').checked,
+		thin: document.getElementById('tgThin').checked,
+		chokes: document.getElementById('tgChoke').checked,
 		jumps: document.getElementById('tgJumps').checked,
-		moving: document.getElementById('tgMoving').checked,
 		bumps: document.getElementById('tgBumps').checked,
 		surfaces: document.getElementById('tgSurf').checked,
-		chokes: document.getElementById('tgChoke').checked,
 	};
 }
 
@@ -1043,7 +1415,8 @@ async function generate() {
 	const status = document.getElementById('status');
 	status.innerHTML = warns.length
 		? '<span class="warn">⚠ ' + warns.length + ' warning(s):</span><div class="hint warn">' + warns.slice(0, 6).join('<br>') + '</div>'
-		: '<span class="ok">✓ layout valid — loop connected, ramp mouths face road, no stacked features</span>';
+		: '<span class="ok">✓ layout valid — crossings connected, ramp mouths face road, no stacked features</span>';
+	document.getElementById('dna').innerHTML = dnaHtml(plan);
 	document.getElementById('counts').innerHTML = counts(plan);
 	const map = encodeCells(plan.cells);
 	const mods = await encodeV3Json(plan.modsObj);
@@ -1064,7 +1437,6 @@ document.getElementById('btnCopy').addEventListener('click', async () => {
 	await navigator.clipboard.writeText(lastUrl);
 	document.getElementById('copyHint').textContent = 'Copied to clipboard ✓';
 });
-// regenerate on any toggle change
 document.querySelectorAll('#toggles input').forEach((el) => el.addEventListener('change', generate));
 
 generate();
