@@ -1349,19 +1349,43 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 4px 18px rgba(77,232,152,0.12); }
 			50% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 6px 30px rgba(77,232,152,0.3); }
 		}
-		.home-big-link::after {
-			content: "▸";
-			font-size: 0.85em;
-			color: rgba(220,255,230,0.9);
-			transition: transform 0.15s ease;
+		/* Shared button anatomy: icon chip + text stack + chevron */
+		.home-ico {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 34px;
+			height: 34px;
+			flex-shrink: 0;
+			border-radius: 10px;
+			background: rgba(255,255,255,0.1);
 		}
-		.home-big-link:hover::after { transform: translateX(4px); }
-		.home-big-link em {
+		.home-ico svg { width: 19px; height: 19px; }
+		.home-btn-text { display: block; flex: 1; }
+		.home-btn-text em {
 			font-style: normal;
 			font-weight: 500;
 			font-size: clamp(11px, 1.2vw, 13px);
 			opacity: 0.85;
+			margin-top: 2px;
 		}
+		.home-chevron {
+			flex-shrink: 0;
+			font-size: 0.8em;
+			opacity: 0.75;
+			transition: transform 0.15s ease;
+		}
+		.home-big-link:hover .home-chevron,
+		.home-official-link:hover .home-chevron,
+		.home-mid-link:hover .home-chevron { transform: translateX(4px); opacity: 1; }
+		.home-big-link:active,
+		.home-official-link:active,
+		.home-mid-link:active,
+		.home-small-link:active { transform: translateY(0) scale(0.985); }
+		.home-big-link:focus-visible,
+		.home-official-link:focus-visible,
+		.home-mid-link:focus-visible,
+		.home-small-link:focus-visible { outline: 2px solid rgba(140,220,255,0.9); outline-offset: 2px; }
 		.home-big-link:hover {
 			transform: translateY(-2px);
 			animation-play-state: paused;
@@ -1374,76 +1398,52 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		.home-official-link {
 			display: flex;
 			align-items: center;
-			justify-content: space-between;
-			padding: 9px 18px;
-			border-radius: 13px;
+			gap: 12px;
+			padding: 13px 18px;
+			border-radius: 14px;
 			text-decoration: none;
 			color: #f7fbff;
-			background: linear-gradient(135deg, rgba(91,236,126,0.16), rgba(34,159,73,0.12));
-			border: 1px solid rgba(168,255,190,0.34);
-			font: 700 clamp(13px, 1.5vw, 16px)/1.2 "Inter", "Segoe UI", sans-serif;
+			background: linear-gradient(135deg, rgba(91,236,126,0.22), rgba(34,159,73,0.16));
+			border: 1px solid rgba(168,255,190,0.4);
+			font: 700 clamp(14px, 1.7vw, 18px)/1.25 "Inter", "Segoe UI", sans-serif;
 			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
 		}
-		.home-official-link em {
-			font-style: normal;
-			font-weight: 500;
-			font-size: clamp(10px, 1.1vw, 12px);
-			opacity: 0.8;
-		}
+		.home-official-link .home-btn-text em { font-size: clamp(10px, 1.1vw, 12px); }
 		.home-official-link:hover {
-			transform: translateY(-1px);
-			box-shadow: 0 6px 22px rgba(77,232,152,0.18);
-			background: linear-gradient(135deg, rgba(91,236,126,0.26), rgba(34,159,73,0.2));
+			transform: translateY(-2px);
+			box-shadow: 0 8px 26px rgba(77,232,152,0.22);
+			background: linear-gradient(135deg, rgba(91,236,126,0.32), rgba(34,159,73,0.26));
 		}
 
-		.home-mid-row { display: grid; grid-template-columns: 1.15fr 1fr; gap: 10px; }
+		.home-mid-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 		.home-mid-link {
-			display: block;
-			padding: 12px 14px;
-			min-height: 64px;
-			border-radius: 13px;
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			padding: 14px 16px;
+			min-height: 74px;
+			border-radius: 14px;
 			text-decoration: none;
 			color: #f7fbff;
-			background: linear-gradient(165deg, rgba(90,159,255,0.28), rgba(47,104,181,0.3));
-			border: 1px solid rgba(189,223,255,0.42);
-			font: 700 clamp(12px, 1.3vw, 15px)/1.2 "Inter", "Segoe UI", sans-serif;
+			background: linear-gradient(165deg, rgba(108,200,255,0.3), rgba(47,124,214,0.32));
+			border: 1px solid rgba(189,223,255,0.5);
+			font: 700 clamp(13px, 1.5vw, 17px)/1.2 "Inter", "Segoe UI", sans-serif;
 			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
-			box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 3px 14px rgba(47,124,214,0.14);
 		}
 		.home-mid-link em {
 			display: block;
-			margin-top: 5px;
+			margin-top: 4px;
 			font-style: normal;
 			font-weight: 500;
-			font-size: 11px;
+			font-size: clamp(10px, 1.1vw, 12px);
 			opacity: 0.88;
 		}
 		.home-mid-link:hover {
 			transform: translateY(-2px);
-			box-shadow: 0 8px 22px rgba(30,71,126,0.3);
-			background: linear-gradient(165deg, rgba(118,185,255,0.38), rgba(59,128,212,0.34));
-		}
-		/* Community tracks is the star of the mid row: brighter blue, crisper
-		   border. Track editor sits next to it as the quieter companion so
-		   the eye lands on community first (user order 2026-10-06). */
-		.home-mid-link.home-community-link {
-			min-height: 72px;
-			background: linear-gradient(165deg, rgba(108,200,255,0.34), rgba(47,124,214,0.34));
-			border-color: rgba(189,223,255,0.55);
-			font-size: clamp(13px, 1.5vw, 17px);
-			box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 3px 16px rgba(47,124,214,0.18);
-		}
-		.home-mid-link.home-community-link:hover {
-			background: linear-gradient(165deg, rgba(134,214,255,0.44), rgba(66,146,231,0.4));
-		}
-		.home-mid-link.home-editor-link {
-			min-height: 72px;
-			background: linear-gradient(165deg, rgba(148,163,190,0.2), rgba(84,98,124,0.24));
-			border-color: rgba(203,213,232,0.32);
-		}
-		.home-mid-link.home-editor-link:hover {
-			background: linear-gradient(165deg, rgba(170,185,215,0.3), rgba(105,120,150,0.32));
-			box-shadow: 0 8px 22px rgba(30,50,80,0.25);
+			box-shadow: 0 8px 24px rgba(30,71,126,0.32), inset 0 1px 0 rgba(255,255,255,0.2);
+			background: linear-gradient(165deg, rgba(130,206,255,0.4), rgba(62,140,226,0.4));
 		}
 		.home-record-chip {
 			display: none;
@@ -1477,18 +1477,23 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		.home-small-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 		.home-small-link {
 			position: relative;
-			display: block;
-			padding: 10px 8px;
-			min-height: 52px;
-			border-radius: 11px;
+			display: grid;
+			grid-template-columns: auto 1fr;
+			align-items: center;
+			gap: 9px;
+			padding: 12px 10px;
+			min-height: 54px;
+			border-radius: 12px;
 			text-decoration: none;
 			color: #d6e4f7;
 			background: rgba(255,255,255,0.07);
 			border: 1px solid rgba(255,255,255,0.13);
-			font: 600 clamp(11px, 1.1vw, 13px)/1.25 "Inter", "Segoe UI", sans-serif;
+			font: 600 clamp(11px, 1.2vw, 13px)/1.25 "Inter", "Segoe UI", sans-serif;
 			text-align: center;
-			transition: transform 0.15s ease, background 0.2s ease;
+			transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
 		}
+		.home-small-link .home-ico { width: 28px; height: 28px; border-radius: 8px; }
+		.home-small-link .home-ico svg { width: 15px; height: 15px; }
 		.home-small-link em {
 			display: block;
 			margin-top: 3px;
@@ -2284,21 +2289,22 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<div id="home-actions">
 					<!-- Reading order (user order 2026-10-06): Play now → Official
 					     tracks → Community tracks → Track editor, with the
-					     daily/weekly events parked together at the bottom. -->
-					<a class="home-big-link" href="index.html?play=1">Play now<em>Jump straight into a race</em></a>
+					     daily/weekly events as the bottom-left / bottom-right
+					     pair of the small row. -->
+					<a class="home-big-link" href="index.html?play=1"><span class="home-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5.14v13.72c0 .8.87 1.3 1.56.9l10.7-6.86a1.05 1.05 0 0 0 0-1.8L9.56 4.24A1.05 1.05 0 0 0 8 5.14z"/></svg></span><span class="home-btn-text">Play now<em>Jump straight into a race</em></span><span class="home-chevron">▸</span></a>
 
-					<a class="home-official-link" href="official-tracks.html">Official tracks<em>Curated campaign — 50 tracks</em></a>
+					<a class="home-official-link" href="official-tracks.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></span><span class="home-btn-text">Official tracks<em>Curated campaign — 50 tracks</em></span><span class="home-chevron">▸</span></a>
 
 					<div class="home-mid-row">
-						<a class="home-mid-link home-community-link" href="tracks.html">Community tracks<em>Player-made maps, ghosts & clubs</em></a>
-						<a class="home-mid-link home-editor-link" href="editor.html">Track editor<em>Build & share your own circuits</em></a>
+						<a class="home-mid-link" href="tracks.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="home-btn-text">Community tracks<em>Player-made maps, ghosts & clubs</em></span><span class="home-chevron">▸</span></a>
+						<a class="home-mid-link" href="editor.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="home-btn-text">Track editor<em>Build & share your own circuits</em></span><span class="home-chevron">▸</span></a>
 					</div>
 
 					<div class="home-small-row">
-						<a class="home-small-link" href="index.html?play=1&garage=1">Garage<em>Paint & car select</em></a>
-						<a class="home-small-link" href="totd.html"><span class="home-record-chip" data-record-badge="totd"><span class="record-label">Today's record</span><span class="record-name">Loading…</span></span>Track of the day<em>Daily challenge</em></a>
-						<a class="home-small-link" href="weekly-cup.html"><span class="home-record-chip" data-record-badge="weekly"><span class="record-label">Weekly leader</span><span class="record-name">Loading…</span></span>Weekly cup<em>Rotating competitive event</em></a>
-						<a class="home-small-link club-notify-target" href="clubs.html">Clubs<em>Racing communities</em></a>
+						<a class="home-small-link" href="index.html?play=1&garage=1"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.9 3.4c-.2.4-.3.8-.3 1.2V16c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg></span><span class="home-btn-text">Garage<em>Paint & car select</em></span></a>
+						<a class="home-small-link club-notify-target" href="clubs.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="home-btn-text">Clubs<em>Racing communities</em></span></a>
+						<a class="home-small-link" href="totd.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span><span class="home-btn-text"><span class="home-record-chip" data-record-badge="totd"><span class="record-label">Today's record</span><span class="record-name">Loading…</span></span>Track of the day<em>Daily challenge</em></span></a>
+						<a class="home-small-link" href="weekly-cup.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg></span><span class="home-btn-text"><span class="home-record-chip" data-record-badge="weekly"><span class="record-label">Weekly leader</span><span class="record-name">Loading…</span></span>Weekly cup<em>Rotating competitive event</em></span></a>
 					</div>
 
 					<div id="home-secondary">
