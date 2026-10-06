@@ -1333,16 +1333,29 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			display: flex;
 			align-items: center;
 			justify-content: space-between;
-			padding: 16px 20px;
+			gap: 10px;
+			padding: 18px 22px;
 			border-radius: 16px;
 			text-decoration: none;
 			color: #f7fbff;
 			background: linear-gradient(135deg, rgba(91,236,126,0.35), rgba(34,159,73,0.28));
 			border: 1px solid rgba(168,255,190,0.5);
-			font: 800 clamp(16px, 2.2vw, 22px)/1.2 "Inter", "Segoe UI", sans-serif;
+			font: 800 clamp(18px, 2.6vw, 26px)/1.2 "Inter", "Segoe UI", sans-serif;
 			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
 			box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 4px 18px rgba(77,232,152,0.14);
+			animation: home-big-pulse 2.8s ease-in-out infinite;
 		}
+		@keyframes home-big-pulse {
+			0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 4px 18px rgba(77,232,152,0.12); }
+			50% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 6px 30px rgba(77,232,152,0.3); }
+		}
+		.home-big-link::after {
+			content: "▸";
+			font-size: 0.85em;
+			color: rgba(220,255,230,0.9);
+			transition: transform 0.15s ease;
+		}
+		.home-big-link:hover::after { transform: translateX(4px); }
 		.home-big-link em {
 			font-style: normal;
 			font-weight: 500;
@@ -1351,8 +1364,12 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		}
 		.home-big-link:hover {
 			transform: translateY(-2px);
+			animation-play-state: paused;
 			box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 8px 30px rgba(77,232,152,0.28);
 			background: linear-gradient(135deg, rgba(91,236,126,0.45), rgba(34,159,73,0.38));
+		}
+		@media (prefers-reduced-motion: reduce) {
+			.home-big-link { animation: none; }
 		}
 		.home-official-link {
 			display: flex;
@@ -1379,7 +1396,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			background: linear-gradient(135deg, rgba(91,236,126,0.26), rgba(34,159,73,0.2));
 		}
 
-		.home-mid-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+		.home-mid-row { display: grid; grid-template-columns: 1.15fr 1fr; gap: 10px; }
 		.home-mid-link {
 			display: block;
 			padding: 12px 14px;
@@ -1405,6 +1422,28 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			transform: translateY(-2px);
 			box-shadow: 0 8px 22px rgba(30,71,126,0.3);
 			background: linear-gradient(165deg, rgba(118,185,255,0.38), rgba(59,128,212,0.34));
+		}
+		/* Community tracks is the star of the mid row: brighter blue, crisper
+		   border. Track editor sits next to it as the quieter companion so
+		   the eye lands on community first (user order 2026-10-06). */
+		.home-mid-link.home-community-link {
+			min-height: 72px;
+			background: linear-gradient(165deg, rgba(108,200,255,0.34), rgba(47,124,214,0.34));
+			border-color: rgba(189,223,255,0.55);
+			font-size: clamp(13px, 1.5vw, 17px);
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 3px 16px rgba(47,124,214,0.18);
+		}
+		.home-mid-link.home-community-link:hover {
+			background: linear-gradient(165deg, rgba(134,214,255,0.44), rgba(66,146,231,0.4));
+		}
+		.home-mid-link.home-editor-link {
+			min-height: 72px;
+			background: linear-gradient(165deg, rgba(148,163,190,0.2), rgba(84,98,124,0.24));
+			border-color: rgba(203,213,232,0.32);
+		}
+		.home-mid-link.home-editor-link:hover {
+			background: linear-gradient(165deg, rgba(170,185,215,0.3), rgba(105,120,150,0.32));
+			box-shadow: 0 8px 22px rgba(30,50,80,0.25);
 		}
 		.home-record-chip {
 			display: none;
@@ -2243,19 +2282,22 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			<div id="home-body">
 				<!-- Left: Actions -->
 				<div id="home-actions">
+					<!-- Reading order (user order 2026-10-06): Play now → Official
+					     tracks → Community tracks → Track editor, with the
+					     daily/weekly events parked together at the bottom. -->
 					<a class="home-big-link" href="index.html?play=1">Play now<em>Jump straight into a race</em></a>
 
 					<a class="home-official-link" href="official-tracks.html">Official tracks<em>Curated campaign — 50 tracks</em></a>
 
 					<div class="home-mid-row">
-						<a class="home-mid-link" href="tracks.html">Track shares<em>Community maps & ghosts</em></a>
-						<a class="home-mid-link" href="weekly-cup.html"><span class="home-record-chip" data-record-badge="weekly"><span class="record-label">Weekly leader</span><span class="record-name">Loading…</span></span>Weekly cup<em>Rotating competitive event</em></a>
+						<a class="home-mid-link home-community-link" href="tracks.html">Community tracks<em>Player-made maps, ghosts & clubs</em></a>
+						<a class="home-mid-link home-editor-link" href="editor.html">Track editor<em>Build & share your own circuits</em></a>
 					</div>
 
 					<div class="home-small-row">
 						<a class="home-small-link" href="index.html?play=1&garage=1">Garage<em>Paint & car select</em></a>
-						<a class="home-small-link" href="editor.html">Track editor<em>Build circuits</em></a>
 						<a class="home-small-link" href="totd.html"><span class="home-record-chip" data-record-badge="totd"><span class="record-label">Today's record</span><span class="record-name">Loading…</span></span>Track of the day<em>Daily challenge</em></a>
+						<a class="home-small-link" href="weekly-cup.html"><span class="home-record-chip" data-record-badge="weekly"><span class="record-label">Weekly leader</span><span class="record-name">Loading…</span></span>Weekly cup<em>Rotating competitive event</em></a>
 						<a class="home-small-link club-notify-target" href="clubs.html">Clubs<em>Racing communities</em></a>
 					</div>
 
@@ -2272,7 +2314,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<!-- Right: Community panel -->
 				<div id="home-community">
 					<div>
-						<div class="home-panel-title">Featured track (This section is WIP)</div>
+						<div class="home-panel-title">Featured community track</div>
 						<a id="home-featured-track" href="tracks.html">
 							<div class="ft-name">Loading community tracks…</div>
 							<div class="ft-meta">Fetching from the track board</div>
