@@ -14201,12 +14201,23 @@ function completeCampaignStage() {
 
 				}
 				if ( ! child.position ) continue;
-				dSq = ( child.position.x - camPos.x ) * ( child.position.x - camPos.x )
-					+ ( child.position.z - camPos.z ) * ( child.position.z - camPos.z );
+				// WORLD-SPACE distance (user bug 2026-10-06: tunnel walls far
+				// from the origin never rendered). child.position is in the
+				// track container's RAW grid units (CELL_RAW per cell) while
+				// camPos is world units (raw * GRID_SCALE) — mixing the two
+				// spaces adds a 0.25x-of-origin-distance error that grows with
+				// |x|,|z|: on huge maps the outer ring got culled even with
+				// the camera parked right on top of it. matrixWorld[12]/[14]
+				// are the piece's true world x/z (kept fresh by the renderer
+				// every frame; one frame of staleness is sub-cell).
+				const wx = child.matrixWorld.elements[ 12 ];
+				const wz = child.matrixWorld.elements[ 14 ];
+				dSq = ( wx - camPos.x ) * ( wx - camPos.x )
+					+ ( wz - camPos.z ) * ( wz - camPos.z );
 				if ( cam2Pos ) {
 
-					const d2Sq = ( child.position.x - cam2Pos.x ) * ( child.position.x - cam2Pos.x )
-						+ ( child.position.z - cam2Pos.z ) * ( child.position.z - cam2Pos.z );
+					const d2Sq = ( wx - cam2Pos.x ) * ( wx - cam2Pos.x )
+						+ ( wz - cam2Pos.z ) * ( wz - cam2Pos.z );
 					if ( d2Sq < dSq ) dSq = d2Sq;
 
 				}
