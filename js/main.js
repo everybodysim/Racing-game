@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=4';
 import { Camera } from './Camera.js?v=17';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, setWaterRefractionCullRadius, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000297';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, setWaterRefractionCullRadius, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000298';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260958';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -4970,13 +4970,12 @@ async function init() {
 	scene.background = new THREE.Color( weatherConfig.bg );
 	// Fog far scales with map size, which on a mega build (170+ cells wide)
 	// lands at ~20k units: no visible fog at all — and no distance to cull
-	// against either. Cap it at 36 cells of visibility so fog actually reads
-	// on screen AND the block culler only keeps the near field. Small maps
-	// fit inside the cap entirely (their farthest corner stays under the
-	// fade), so classic tracks keep their exact previous look — the cap only
-	// bites on big builds, where it's the difference between <1 FPS and
-	// playable.
-	const fogFar = Math.min( groundSize * weatherConfig.fogFarMul, 360 );
+	// against either. Cap it at ~14 cells of visibility so fog actually reads
+	// on screen AND the block culler only keeps the near field (user-tuned
+	// 2026-10-06: 360 -> 144, 0.4x). Maps wider than the cap get real
+	// gameplay fog; the cull radius, shadow-proxy buckets and the pool
+	// refraction gate all follow this same number.
+	const fogFar = Math.min( groundSize * weatherConfig.fogFarMul, 144 );
 	const fogNear = Math.min( groundSize * weatherConfig.fogNearMul, fogFar * 0.5 );
 	const gameplayFog = new THREE.Fog( weatherConfig.bg, fogNear, fogFar );
 	scene.fog = gameplayFog;

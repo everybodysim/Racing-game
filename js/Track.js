@@ -2137,9 +2137,11 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( positions.length === 0 || ! src ) return;
 
 			const count = positions.length / 2;
-			// Chunked instancing — the SAME 32×32 XZ buckets as the track
-			// batcher below. One mega-InstancedMesh per deco kind spans the
-			// whole map, so its bounding sphere covers everything: frustum
+			// Chunked instancing, 64×64 XZ buckets (twice the track batcher's
+			// size: deco kinds repeat across nearly every map cell, so doubling
+			// the bucket halves the draw-call count while per-bucket triangle
+			// counts stay trivial). One mega-InstancedMesh per deco kind spans
+			// the whole map, so its bounding sphere covers everything: frustum
 			// culling can never cull it and a huge build drew thousands of
 			// trees/grass in EVERY pass (main, pool refraction, sun depth)
 			// no matter where the camera was. Per-chunk meshes make the near
@@ -2147,7 +2149,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			const chunks = new Map();
 			for ( let i = 0; i < count; i ++ ) {
 
-				const key = Math.floor( positions[ i * 2 ] / 32 ) + ',' + Math.floor( positions[ i * 2 + 1 ] / 32 );
+				const key = Math.floor( positions[ i * 2 ] / 64 ) + ',' + Math.floor( positions[ i * 2 + 1 ] / 64 );
 				let list = chunks.get( key );
 				if ( ! list ) {
 
