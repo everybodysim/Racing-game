@@ -50,7 +50,7 @@
 	// preview if the module or WebGL is unavailable.
 	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20261002';
 	import { encodeCellsV3 } from './js/Track.js?v=1000238';
-	import { generateTrackPlan } from './js/CupTrackGen.js?v=20260918';
+	import { generateTrackPlan } from './js/CupTrackGen.js?v=20261006';
 	window.__renderTrackTopDown = renderTrackTopDown;
 	window.__encodeCellsV3 = encodeCellsV3;
 	window.__cupTrackGen = generateTrackPlan;
@@ -218,12 +218,19 @@
 
     // Daily scenery flavor stays page-side, on its own deterministic rng
     // stream so the shared plan and the scenery never step on each other.
+    // The v4 engine claims cells for tunnels, elevated detours, pool
+    // sections, water and jumps — scenery must avoid ALL of them (a pole
+    // under a deck gets lifted onto it, deco over an open pit floats).
     const rng = mulberry32(hash32(seedText) ^ 0x9e3779b9);
     const roadCells = tiles.map((t) => [t[0], t[1]]);
-    const poolSet = new Set((plan.modsObj.q || []).map(([x, z]) => `${x},${z}`));
-    const notPool = ([x, z]) => !poolSet.has(`${x},${z}`);
+    const claimed = new Set();
+    for (const listKey of ['e', 'g', 'q', 'z', 'j', 'b']) {
+      for (const entry of (plan.modsObj[listKey] || [])) claimed.add(`${entry[0]},${entry[1]}`);
+    }
+    for (const t of tiles) if (t[2] === 'track-4-way') claimed.add(`${t[0]},${t[1]}`);
+    const notClaimed = ([x, z]) => !claimed.has(`${x},${z}`);
 
-    const poleCandidates = [...roadCells, ...roadCells.map(([x, z]) => [x + 1, z]), ...roadCells.map(([x, z]) => [x - 1, z])].filter(notPool);
+    const poleCandidates = [...roadCells, ...roadCells.map(([x, z]) => [x + 1, z]), ...roadCells.map(([x, z]) => [x - 1, z])].filter(notClaimed);
     const poleCount = Math.min(5, Math.max(1, Math.floor(tiles.length / 16)));
     const poles = sampleDeterministic(poleCandidates, rng, poleCount);
 
@@ -238,7 +245,7 @@
       for (let x = minX; x <= maxX; x++) {
         const k = `${x},${z}`;
         if (roadSet.has(k)) continue;
-        if (poolSet.has(k)) continue;
+        if (claimed.has(k)) continue;
 
         let nearRoad = false;
         for (let dz = -1; dz <= 1 && !nearRoad; dz++) {
@@ -270,7 +277,10 @@
         u: plan.modsObj.u, // surfaces
         d: deco,           // scenery
         e: plan.modsObj.e, // elevated road: detours + cross-overs
-        q: plan.modsObj.q  // water pools in road-enclosed pockets
+        g: plan.modsObj.g, // tunnels: sealed crossings + pit sections
+        q: plan.modsObj.q, // water: pool driving sections + ponds
+        z: plan.modsObj.z, // pool ramps
+        j: plan.modsObj.j  // jumps
       }
     };
   }
