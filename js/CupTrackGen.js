@@ -610,11 +610,12 @@ function genInterleavedDetours(rng, tiles, specialIdx, removedIdx, elevEntries, 
 // ─── pool driving sections (pool ramp → water → pool ramp) ───────────────────
 function genPoolCrossing(rng, tiles, specialIdx, removedIdx, blockKeys) {
 	const n = tiles.length;
+	// pool sections are compact: 3-4 water blocks, ramps on the first/last
+	const L = 3 + (rng() < 0.5 ? 1 : 0);
 	const isPlainStraight = (i) => !specialIdx.has(i) && !tiles[i][4] && tiles[i][2] === 'track-straight' && !blockKeys.has(key(tiles[i][0], tiles[i][1]));
-	const runs = cyclicRunsOf(tiles, isPlainStraight, n).filter((r) => r.len >= 6 && r.len <= 24);
+	const runs = cyclicRunsOf(tiles, isPlainStraight, n).filter((r) => r.len >= L && r.len <= 24);
 	const candidates = [];
 	for (const run of runs) {
-		const L = 6;
 		for (let off = 0; off <= run.len - L; off++) {
 			const idxOf = (k) => (run.start + k + n) % n;
 			let bad = false;
@@ -631,12 +632,12 @@ function genPoolCrossing(rng, tiles, specialIdx, removedIdx, blockKeys) {
 	if (!candidates.length) return null;
 	const pick = candidates[hash32(String(candidates.length) + ':' + String(tiles.length)) % candidates.length];
 	const water = [];
-	for (let k = pick.off; k < pick.off + 6; k++) {
+	for (let k = pick.off; k < pick.off + L; k++) {
 		water.push([tiles[pick.idxOf(k)][0], tiles[pick.idxOf(k)][1]]);
 		removedIdx.add(pick.idxOf(k));
 	}
 	const downSlope = [tiles[pick.idxOf(pick.off)][0], tiles[pick.idxOf(pick.off)][1], pick.inD];
-	const upSlope = [tiles[pick.idxOf(pick.off + 5)][0], tiles[pick.idxOf(pick.off + 5)][1], OPP_SIDE[pick.outD]];
+	const upSlope = [tiles[pick.idxOf(pick.off + L - 1)][0], tiles[pick.idxOf(pick.off + L - 1)][1], OPP_SIDE[pick.outD]];
 	return { water, downSlope, upSlope };
 }
 
@@ -869,6 +870,9 @@ function generateTrackPlanOnce(seedText, opts) {
 	// CLOSED tunnel sections? 50/50 from the seed. Road-over-tunnel
 	// crossings are ALWAYS sealed, whatever the map prefers.
 	const preferClosed = rng() < 0.7;
+	// pool driving sections are a highlight, not a staple: roughly 1 in 4
+	// tracks dives through water
+	const wantPool = rng() < 0.25;
 
 	// compact maps: tighter bounding boxes force detours to weave through the
 	// loop instead of wandering empty grass → far more crossings per track
@@ -959,17 +963,19 @@ const lengthScale = size;
 	const removedIdx = new Set();
 	const tunnelEntries = [];
 	const poolSlopes = [];
+	let poolCellsLen = 0;
 	const water = [];
 	const blockKeys = new Set();
 	// ALL 4-way cells are claimed (there can be two) — an unclaimed one is a
 	// stacking magnet for detour decks
 	for (const t of tiles) if (t[2] === 'track-4-way') blockKeys.add(key(t[0], t[1]));
 
-	// 1. pool driving section claims a straight stretch first
-	if (opts.poolCrossings) {
+	// 1. pool driving section claims a straight stretch first (1/4 of seeds)
+	if (opts.poolCrossings && wantPool) {
 		const pc = genPoolCrossing(rng, tiles, specialIdx, removedIdx, blockKeys);
 		if (pc) {
 			for (const w of pc.water) { water.push(w); blockKeys.add(key(w[0], w[1])); }
+			poolCellsLen = pc.water.length;
 			poolSlopes.push([pc.downSlope[0], pc.downSlope[1], DIR_TO_ORIENT[pc.downSlope[2]]]);
 			poolSlopes.push([pc.upSlope[0], pc.upSlope[1], DIR_TO_ORIENT[pc.upSlope[2]]]);
 			blockKeys.add(key(pc.downSlope[0], pc.downSlope[1]));
@@ -983,10 +989,11 @@ const lengthScale = size;
 			}
 		}
 	}
-	if (opts.poolCrossings && poolSlopes.length < 2) {
+	if (opts.poolCrossings && wantPool && poolSlopes.length < 2) {
 		const pc = genPoolCrossing(rng, tiles, specialIdx, removedIdx, blockKeys);
 		if (pc) {
 			for (const w of pc.water) { water.push(w); blockKeys.add(key(w[0], w[1])); }
+			poolCellsLen = pc.water.length;
 			poolSlopes.push([pc.downSlope[0], pc.downSlope[1], DIR_TO_ORIENT[pc.downSlope[2]]]);
 			poolSlopes.push([pc.upSlope[0], pc.upSlope[1], DIR_TO_ORIENT[pc.upSlope[2]]]);
 			blockKeys.add(key(pc.downSlope[0], pc.downSlope[1])); blockKeys.add(key(pc.upSlope[0], pc.upSlope[1]));
@@ -1132,7 +1139,7 @@ const lengthScale = size;
 			elevCrossings: elevEntries.filter((e) => e[2] === 'elevated-cross' || e[2] === 'elevated-cross-corner').length,
 			tunnelCrossings: tunnelEntries.filter((e) => e[2] === 1 && groundTiles.some((c) => c[0] === e[0] && c[1] === e[1])).length,
 			poolSection: poolSlopes.length >= 2,
-			poolCells: poolSlopes.length >= 2 ? 6 : 0,
+			poolCells: poolSlopes.length >= 2 ? poolCellsLen : 0,
 			pondCells: decorativePonds.length,
 			thinGround: thinGround.placed, thinElevated: thinElevated.placed,
 			thinCorners: (thinGround.corners || 0) + (thinElevated.corners || 0),
@@ -1155,7 +1162,7 @@ function mandatoryFeatureCheck(plan) {
 	return d.figure8Crossings >= 2
 		&& roadOverRoad
 		&& roadOverTunnel
-		&& d.poolSection && d.poolCells === 6
+		&& d.poolSection && d.poolCells >= 3 && d.poolCells <= 4
 		&& d.pondCells === 12
 		&& d.thinGround === 2
 		&& d.thinElevated === 1
