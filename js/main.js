@@ -12065,75 +12065,7 @@ function completeCampaignStage() {
 
 	}
 
-	// Auto-save: every 5 minutes the profile syncs to the accounts backend so a
-	// crash / closed tab never loses more than ~5 minutes of progress. A top
-	// notification (same channel as lap deltas / leaderboard notices) confirms
-	// each save; failures stay quiet in the console.
-	setInterval( async () => {
 
-		if ( ! accountSession?.token ) return;
-		try {
-
-			await cloudSaveProfile();
-			showTopMessage( 'Profile auto-saved to the cloud', false, 1800 );
-
-		} catch ( err ) {
-
-			console.warn( 'Profile auto-save failed', err );
-
-		}
-
-	}, 300000 );
-
-	// Debounced profile cloud sync for small setting changes (default car, etc.).
-	let profileCloudSyncTimer = null;
-	function syncProfileToCloudDebounced() {
-
-		if ( ! accountSession?.token ) return;
-		if ( profileCloudSyncTimer ) clearTimeout( profileCloudSyncTimer );
-		profileCloudSyncTimer = setTimeout( async () => {
-
-			profileCloudSyncTimer = null;
-			try {
-
-				await accountApiRequest( '/profile', {
-					method: 'POST',
-					body: JSON.stringify( { token: accountSession.token, profile: getCurrentProfileSnapshot() } ),
-				} );
-
-			} catch ( err ) {
-
-				console.warn( 'Profile cloud sync failed', err );
-
-			}
-
-		}, 1500 );
-
-	}
-
-	// Debounced HUD layout -> cloud sync. Triggered by js/HudGrid.js whenever the
-	// player adds/removes/reorders a widget (saveHudLayout -> onHudLayoutChange).
-	// No-op when not signed in; the layout still persists to localStorage.
-	let hudCloudSyncTimer = null;
-	async function syncHudLayoutToCloud() {
-
-		if ( ! accountSession?.token ) return;
-		if ( hudCloudSyncTimer ) clearTimeout( hudCloudSyncTimer );
-		hudCloudSyncTimer = setTimeout( async () => {
-			hudCloudSyncTimer = null;
-			try {
-				await accountApiRequest( '/profile', {
-					method: 'POST',
-					body: JSON.stringify( { token: accountSession.token, profile: getCurrentProfileSnapshot() } ),
-				} );
-			} catch ( err ) {
-				console.warn( 'HUD cloud sync failed', err );
-			}
-		}, 1500 );
-
-	}
-
-	if ( window.__hudGrid?.setOnLayoutChange ) window.__hudGrid.setOnLayoutChange( syncHudLayoutToCloud );
 
 	async function cloudLoadProfile() {
 
@@ -13762,7 +13694,6 @@ function completeCampaignStage() {
 			localStorage.setItem( DEFAULT_CAR_KEY, value );
 			applyDefaultCar( value );
 			showTopMessage( value === '__random' ? 'Default car: random' : ( CAR_STATS[ value ] ? `Default car: ${ CAR_STATS[ value ].name }` : 'Default car: last used' ), false, 1800 );
-			syncProfileToCloudDebounced();
 
 		} );
 
