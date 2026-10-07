@@ -4050,7 +4050,31 @@ document.getElementById('loading-status').textContent =
     if (Notification.permission !== "granted") return;
     if (!document.hidden && chatWindow.style.display === "flex") return;
     try {
-      new Notification("New Racing chat message", { body: String(text || "") });
+      // Easy read (user order 2026-10-06): title = who sent it, body = the
+      // message. One shared tag makes each new message REPLACE the previous
+      // notification instead of stacking a pile the OS collapses behind an
+      // expand arrow — so you always see exactly one clean notification with
+      // the latest sender + message, never a wall of clutter.
+      const raw = String(text || "");
+      const match = raw.match(/^(.+?)\s*:\s*(.+)$/);
+      const sender = match ? match[1] : "Skid Circuit chat";
+      const body = match ? match[2] : raw;
+      const notification = new Notification("\u{1F4AC} " + sender, {
+        body,
+        tag: "racing-chat-latest",
+        icon: "icons/icon-192.png",
+        badge: "icons/favicon.png"
+      });
+      // Easy use: clicking the notification focuses the game AND opens the
+      // chat window so you can reply straight away.
+      notification.onclick = () => {
+        try {
+          window.focus();
+          chatWindow.style.display = "flex";
+          setUnreadIndicator(false);
+        } catch (err) {}
+        notification.close();
+      };
     } catch (err) {
       console.warn("Chat notification failed", err);
     }
