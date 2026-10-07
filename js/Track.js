@@ -2129,6 +2129,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		// block on every side (user order 2026-10-06) so the ground plane
 		// never ends right at the map edge — cars can't fall through.
 		const pad = 15;
+		// Trees only ever spawn within this many blocks of block bounds —
+		// the pre-2026-10-06 tree field, unchanged (user order 2026-10-06:
+		// the wider ground must NOT add trees, the lag was horrid).
+		const TREE_FIELD_CELLS = 3;
 		const emptyPositions = [];
 		const grassPositions = [];   // cells cleared of trees by a road/wall/etc. footprint
 		const forestPositions = [];
@@ -2170,6 +2174,16 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 				if ( dist <= NO_DECO_BUFFER_CELLS + 1 ) {
 
 					emptyPositions.push( x, z );
+
+				} else if ( dist > TREE_FIELD_CELLS ) {
+
+					// Ground-only band (user order 2026-10-06): the wider
+					// coverage reaches 15 blocks out, but the TREE FIELD must
+					// NOT grow with it — lag. Trees spawn only within the
+					// original 3-block ring; everything past it gets cheap
+					// flat grass quads (2-tri full-cell planes) so the ground
+					// still extends without a single extra tree.
+					grassPositions.push( x, z );
 
 				} else {
 
