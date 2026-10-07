@@ -10225,6 +10225,11 @@ function completeCampaignStage() {
 			...options,
 		} );
 		const payload = await response.json().catch( () => ( {} ) );
+		if ( response.status === 429 || payload?.error === 'cloud-busy' ) {
+
+			throw new Error( 'The game cloud hit its daily save limit — your progress is still saved on this device. Try again later.' );
+
+		}
 		if ( ! response.ok || payload?.ok === false ) {
 
 			throw new Error( payload?.error || `Account API HTTP ${ response.status }` );
@@ -11911,6 +11916,51 @@ function completeCampaignStage() {
 
 	}
 
+	// Leaderboard auto-submit throttle: the cloud has a daily write budget shared
+	// by every player. Hot-lapping a fresh track can improve 20+ times in a row —
+	// submitting every one burns the budget. Instead: at most one auto-submit
+	// per track every 2 minutes; improvements inside the cooldown are queued and
+	// the best one is submitted when the window reopens. Manual saves (record
+	// popup) always go through immediately.
+	const LEADERBOARD_AUTO_SUBMIT_MIN_MS = 120000;
+	const leaderboardAutoSubmitState = new Map(); // trackId -> { lastAt, lastTime, pending, timer }
+	function maybeAutoSubmitLeaderboardTime( lapSeconds ) {
+
+		if ( ! Number.isFinite( lapSeconds ) ) return;
+		const state = leaderboardAutoSubmitState.get( leaderboardTrackId ) || { lastAt: 0, lastTime: Infinity, pending: Infinity, timer: null };
+		const now = Date.now();
+		const cooldownLeft = state.lastAt + LEADERBOARD_AUTO_SUBMIT_MIN_MS - now;
+		if ( cooldownLeft <= 0 ) {
+
+			state.lastAt = now;
+			state.lastTime = lapSeconds;
+			state.pending = Infinity;
+			leaderboardAutoSubmitState.set( leaderboardTrackId, state );
+			submitLeaderboardTime( lapSeconds );
+			return;
+
+		}
+		// Inside cooldown: queue only real improvements over what was already sent.
+		if ( lapSeconds < state.lastTime && lapSeconds < state.pending ) {
+
+			state.pending = lapSeconds;
+			if ( state.timer ) clearTimeout( state.timer );
+			state.timer = setTimeout( () => {
+
+				state.timer = null;
+				if ( ! Number.isFinite( state.pending ) ) return;
+				state.lastAt = Date.now();
+				state.lastTime = state.pending;
+				submitLeaderboardTime( state.pending );
+				state.pending = Infinity;
+
+			}, cooldownLeft + 60 );
+			leaderboardAutoSubmitState.set( leaderboardTrackId, state );
+
+		}
+
+	}
+
 	async function submitLeaderboardTime( lapTimeSeconds, forcedName = '' ) {
 
 		if ( currentLapInvalidatedByPause ) {
@@ -11955,6 +12005,12 @@ function completeCampaignStage() {
 					ghost: submittedGhost,
 				} ),
 			} );
+			if ( response.status === 429 ) {
+
+				showTopMessage( 'The leaderboard hit its daily cloud limit — your time is saved on this device.', true, 3200 );
+				return false;
+
+			}
 			if ( ! response.ok ) throw new Error( `Leaderboard POST ${ response.status }` );
 			let responsePayload = null;
 			try {
@@ -12057,25 +12113,32 @@ function completeCampaignStage() {
 	async function cloudSaveProfile() {
 
 		if ( ! accountSession?.token ) throw new Error( 'Log in first.' );
+		const profileSnapshot = getCurrentProfileSnapshot();
 		await accountApiRequest( '/profile', {
 			method: 'POST',
-			body: JSON.stringify( { token: accountSession.token, profile: getCurrentProfileSnapshot() } ),
+			body: JSON.stringify( { token: accountSession.token, profile: profileSnapshot } ),
 		} );
+		lastSyncedProfileJson = JSON.stringify( profileSnapshot );
 		setAccountStatus( 'Cloud profile saved.' );
 
 	}
 
-	// Auto-save: every 5 minutes the profile syncs to the accounts backend so a
-	// crash / closed tab never loses more than ~5 minutes of progress. A top
-	// notification (same channel as lap deltas / leaderboard notices) confirms
-	// each save; failures stay quiet in the console.
-	setInterval( async () => {
+	// Auto-save: the profile syncs to the accounts backend every 20 minutes, and
+	// ONLY when it actually changed since the last cloud copy. The cloud worker
+	// also refuses identical profiles, but skipping the POST entirely keeps the
+	// free-tier write quota alive for real gameplay. A crash / closed tab never
+	// loses more than ~20 minutes of progress (pagehide below flushes early).
+	let lastSyncedProfileJson = null;
+	async function autoSyncProfileToCloud( { silent = true } = {} ) {
 
 		if ( ! accountSession?.token ) return;
 		try {
 
+			const snapshotJson = JSON.stringify( getCurrentProfileSnapshot() );
+			if ( lastSyncedProfileJson === snapshotJson ) return;
 			await cloudSaveProfile();
-			showTopMessage( 'Profile auto-saved to the cloud', false, 1800 );
+			lastSyncedProfileJson = snapshotJson;
+			if ( ! silent ) showTopMessage( 'Profile auto-saved to the cloud', false, 1800 );
 
 		} catch ( err ) {
 
@@ -12083,7 +12146,32 @@ function completeCampaignStage() {
 
 		}
 
-	}, 300000 );
+	}
+	setInterval( () => autoSyncProfileToCloud(), 1200000 );
+	// Closing the tab flushes pending profile changes with a keepalive request,
+	// so the 20-minute interval never costs real progress.
+	window.addEventListener( 'pagehide', () => {
+
+		if ( ! accountSession?.token ) return;
+		try {
+
+			const snapshotJson = JSON.stringify( getCurrentProfileSnapshot() );
+			if ( lastSyncedProfileJson === snapshotJson ) return;
+			lastSyncedProfileJson = snapshotJson;
+			fetch( `${ ACCOUNT_API_BASE }/profile`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify( { token: accountSession.token, profile: getCurrentProfileSnapshot() } ),
+				keepalive: true,
+			} ).catch( () => {} );
+
+		} catch ( err ) {
+
+			console.warn( 'Profile save on close failed', err );
+
+		}
+
+	} );
 
 	// Debounced profile cloud sync for small setting changes (default car, etc.).
 	let profileCloudSyncTimer = null;
@@ -12141,6 +12229,9 @@ function completeCampaignStage() {
 		const payload = await accountApiRequest( `/profile?token=${ encodeURIComponent( accountSession.token ) }` );
 		if ( payload?.profile ) applyImportedProfile( encodeBase64UrlJson( payload.profile ) );
 		if ( payload?.username ) accountSession.username = payload.username;
+		// The cloud copy is now the local baseline — auto-save only fires on
+		// changes made AFTER this load.
+		try { lastSyncedProfileJson = JSON.stringify( getCurrentProfileSnapshot() ); } catch ( e ) {}
 		localStorage.setItem( ACCOUNT_SESSION_KEY, JSON.stringify( accountSession ) );
 		updateAccountUi();
 		setAccountStatus( 'Cloud profile loaded.' );
@@ -15252,7 +15343,7 @@ function completeCampaignStage() {
 				// leaderboard (a WR is always a new local best, so it submits here).
 				// Slower laps that don't beat the PB are NOT submitted (the worker keeps
 				// the min anyway, but there's no point POSTing them).
-				if ( isNewBest && ! isSplitScreen ) submitLeaderboardTime( completedLap );
+				if ( isNewBest && ! isSplitScreen ) maybeAutoSubmitLeaderboardTime( completedLap );
 				if ( ! lapInvalid && editorQuickTestEnabled && editorReturnParam && ! isSplitScreen && currentLapGhostSamples.length > 1 ) {
 
 					try {

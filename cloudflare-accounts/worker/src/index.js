@@ -97,9 +97,25 @@ async function saveProfile( request, env ) {
 	if ( byteLength( JSON.stringify( profile ) ) > MAX_PROFILE_BYTES ) {
 		return json( { ok: false, error: 'profile payload is too large' }, 400 );
 	}
+	// KV free-plan write quota is 1000/day for the whole account, shared with
+	// every other racing worker. Client auto-saves every few minutes send the
+	// SAME profile most of the time — those must not spend writes. Only a
+	// genuinely changed profile reaches KV.put().
+	const incomingJson = JSON.stringify( profile );
+	const storedJson = JSON.stringify( sanitizeProfile( userRecord.profile ) );
+	if ( incomingJson === storedJson ) {
+		return json( { ok: true, username: userRecord.username, profile, unchanged: true } );
+	}
+
 	userRecord.profile = profile;
 	userRecord.updatedAt = Date.now();
-	await env.ACCOUNTS_KV.put( keyForUser( session.usernameKey ), JSON.stringify( userRecord ) );
+	try {
+		await env.ACCOUNTS_KV.put( keyForUser( session.usernameKey ), JSON.stringify( userRecord ) );
+	} catch ( putError ) {
+		// e.g. "KV put() limit exceeded for the day" — clean 429 instead of 1101.
+		console.error( 'Account KV write failed', putError );
+		return json( { ok: false, error: 'cloud-busy', message: 'The accounts cloud is out of writes for today. Your progress is still saved on your device.' }, 429 );
+	}
 	return json( { ok: true, username: userRecord.username, profile } );
 }
 
