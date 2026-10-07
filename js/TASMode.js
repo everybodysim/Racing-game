@@ -668,7 +668,11 @@ export function activate( ctx ) {
 
 						const t = z0 / ( z0 - z1 );
 						const xCross = checkpoint.lastLocalX + ( localX - checkpoint.lastLocalX ) * t;
-						if ( t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent && ! checkpoint.passedThisLap ) {
+						// Level band mirrors main.js: same-level crossings only
+						// (det.gateLevelHalfSpan falls back open for older glue).
+						if ( t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent
+							&& Math.abs( v.spherePos.y - ( checkpoint.levelY || 0 ) ) <= ( det.gateLevelHalfSpan ?? Infinity )
+							&& ! checkpoint.passedThisLap ) {
 
 							checkpoint.passedThisLap = true;
 							ctx.fns.restoreGameState( { activePadEffect: null, activePadTimeScale: 1, padContactKey: null } );
@@ -708,7 +712,8 @@ export function activate( ctx ) {
 
 				const t = z0 / ( z0 - z1 );
 				const xCross = det.lastLocalX + ( localX - det.lastLocalX ) * t;
-				crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= fd.halfExtent;
+				crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= fd.halfExtent
+					&& Math.abs( v.spherePos.y - ( fd.levelY || 0 ) ) <= ( det.gateLevelHalfSpan ?? Infinity );
 				if ( crossedFinish ) crossedAtT = t;
 
 			}

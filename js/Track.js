@@ -1427,14 +1427,15 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			// One surface per actual pool cell. Do NOT build a bounding rectangle
 			// around a connected pool: that fills empty cells and can cover tunnel
 			// pits beside/inside an irregular pool. Each plane is strictly confined
-			// to its own grid block.
-			const WATER_SURFACE_INSET = Math.min( 0.06, CELL_RAW * 0.012 );
+			// to its own grid block, and spans it EXACTLY (CELL_RAW x CELL_RAW,
+			// no inset) so neighbouring pool planes share their edge with no
+			// visible seam or gap between blocks (user order 2026-10-06).
 			for ( const [ gx, gz ] of waterCells ) {
 
 				const waterPlane = new THREE.Mesh(
 					new THREE.PlaneGeometry(
-						Math.max( 0.01, CELL_RAW - WATER_SURFACE_INSET * 2 ),
-						Math.max( 0.01, CELL_RAW - WATER_SURFACE_INSET * 2 ),
+						CELL_RAW,
+						CELL_RAW,
 						32,
 						32
 					),

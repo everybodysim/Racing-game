@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=4';
 import { Camera } from './Camera.js?v=17';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, setWaterRefractionCullRadius, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000300';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, setWaterRefractionCullRadius, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000301';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260958';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -10069,6 +10069,15 @@ function completeCampaignStage() {
 	// so only these underground tunnel gates get a Y requirement. This keeps the
 	// established "airborne gate trigger" feature everywhere else.
 	const CLOSED_TUNNEL_GATE_MAX_Y = - 2.0;
+	// Road levels sit CELL_RAW*0.5*GRID_SCALE world units apart (ground, elevated,
+	// tunnel). Gates only trigger when the car is within HALF that span of the
+	// gate's own level, so a checkpoint/finish on the surface can never be set
+	// off by a car driving through a tunnel below (or vice versa, and likewise
+	// ground vs elevated). Same-level flight (bumps, jumps, air tricks) stays
+	// well inside the band, so airborne gate triggers are preserved.
+	// (user order 2026-10-06: checkpoint firing from a tunnel underneath)
+	const GATE_LEVEL_STEP = CELL_RAW * GRID_SCALE * 0.5;
+	const GATE_LEVEL_HALF_SPAN = GATE_LEVEL_STEP * 0.5;
 	// Tunnel pit blocks: checkpoints/gates placed IN tunnels never appear in
 	// `cells`, so they were invisible to lap/checkpoint logic — the trigger
 	// plane test itself is 2D (no y gate), it just never got a state (user
@@ -10076,12 +10085,12 @@ function completeCampaignStage() {
 	const tunnelCheckpointCells = Array.isArray( extras?.tunnels )
 		? extras.tunnels
 			.filter( ( t ) => Array.isArray( t ) && t.length >= 5 && ( t[ 4 ] === 'track-checkpoint' || t[ 4 ] === 'track-checkpoint-corner' ) )
-			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0, t[ 2 ] === 1 ] )
+			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0, t[ 2 ] === 1, - GATE_LEVEL_STEP ] )
 		: [];
 	const tunnelGateCells = Array.isArray( extras?.tunnels )
 		? extras.tunnels
 			.filter( ( t ) => Array.isArray( t ) && t.length >= 5 && ( t[ 4 ] === 'track-start' || t[ 4 ] === 'track-finish' || t[ 4 ] === 'track-start-finish' ) )
-			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0, t[ 2 ] === 1 ] )
+			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0, t[ 2 ] === 1, - GATE_LEVEL_STEP ] )
 		: [];
 	const hasSeparateStartCell = activeCells.some( ( c ) => c[ 2 ] === 'track-start' ) || tunnelGateCells.some( ( c ) => c[ 2 ] === 'track-start' );
 	const hasSeparateFinishCell = activeCells.some( ( c ) => c[ 2 ] === 'track-finish' ) || tunnelGateCells.some( ( c ) => c[ 2 ] === 'track-finish' );
@@ -10091,12 +10100,12 @@ function completeCampaignStage() {
 	const elevatedCheckpointCells = Array.isArray( extras?.elevated )
 		? extras.elevated
 			.filter( ( c ) => Array.isArray( c ) && c[ 2 ] === 'elevated-checkpoint' )
-			.map( ( [ gx, gz, , orient = 0 ] ) => [ gx, gz, 'track-checkpoint', orient ] )
+			.map( ( [ gx, gz, , orient = 0 ] ) => [ gx, gz, 'track-checkpoint', orient, false, GATE_LEVEL_STEP ] )
 		: [];
 	const elevatedCornerCheckpointCells = Array.isArray( extras?.elevated )
 		? extras.elevated
 			.filter( ( c ) => Array.isArray( c ) && c[ 2 ] === 'elevated-checkpoint-corner' )
-			.map( ( [ gx, gz, , orient = 0 ] ) => [ gx, gz, 'track-checkpoint-corner', orient ] )
+			.map( ( [ gx, gz, , orient = 0 ] ) => [ gx, gz, 'track-checkpoint-corner', orient, false, GATE_LEVEL_STEP ] )
 		: [];
 	const checkpointCells = [
 		...activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' || c[ 2 ] === 'track-checkpoint-corner' ),
@@ -10333,7 +10342,7 @@ function completeCampaignStage() {
 
 		if ( ! cell ) return null;
 
-		const [ gx, gz, type, orient, closedTunnelGate = false ] = cell;
+		const [ gx, gz, type, orient, closedTunnelGate = false, levelY = 0 ] = cell;
 		let centerX = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
 		let centerZ = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
 		let halfExtent = ( CELL_RAW * GRID_SCALE ) * 0.5;
@@ -10369,7 +10378,7 @@ function completeCampaignStage() {
 
 		const cosA = Math.cos( angle );
 		const sinA = Math.sin( angle );
-		return { centerX, centerZ, halfExtent, angle, cosA, sinA, closedTunnelGate };
+		return { centerX, centerZ, halfExtent, angle, cosA, sinA, closedTunnelGate, levelY };
 
 	}
 
@@ -15032,6 +15041,7 @@ function completeCampaignStage() {
 					const t = z0 / ( z0 - z1 );
 					const xCross = THREE.MathUtils.lerp( checkpoint.lastLocalX, localX, t );
 					crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent
+						&& Math.abs( vehicle.spherePos.y - checkpoint.levelY ) <= GATE_LEVEL_HALF_SPAN
 						&& ( ! checkpoint.closedTunnelGate || vehicle.spherePos.y <= CLOSED_TUNNEL_GATE_MAX_Y );
 
 				}
@@ -15080,7 +15090,8 @@ function completeCampaignStage() {
 
 						const t = z0 / ( z0 - z1 );
 						const xCross = THREE.MathUtils.lerp( checkpoint.lastLocalX, localX, t );
-						crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent
+					crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent
+						&& Math.abs( vehicle2.spherePos.y - checkpoint.levelY ) <= GATE_LEVEL_HALF_SPAN
 						&& ( ! checkpoint.closedTunnelGate || vehicle2.spherePos.y <= CLOSED_TUNNEL_GATE_MAX_Y );
 
 					}
@@ -15133,6 +15144,7 @@ function completeCampaignStage() {
 					const t = z0 / ( z0 - z1 );
 					const xCross = THREE.MathUtils.lerp( lastLocalX, localX, t );
 					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent
+						&& Math.abs( vehicle.spherePos.y - finishData.levelY ) <= GATE_LEVEL_HALF_SPAN
 						&& ( ! finishData.closedTunnelGate || vehicle.spherePos.y <= CLOSED_TUNNEL_GATE_MAX_Y );
 					if ( crossedFinish ) crossedAtT = t;
 
@@ -15360,6 +15372,7 @@ function completeCampaignStage() {
 					const t = z0 / ( z0 - z1 );
 					const xCross = THREE.MathUtils.lerp( lastLocalX2, localX, t );
 					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent
+						&& Math.abs( vehicle2.spherePos.y - finishData.levelY ) <= GATE_LEVEL_HALF_SPAN
 						&& ( ! finishData.closedTunnelGate || vehicle2.spherePos.y <= CLOSED_TUNNEL_GATE_MAX_Y );
 
 				}
@@ -15529,7 +15542,7 @@ function completeCampaignStage() {
 
 		try {
 
-			const tasModule = await import( './TASMode.js?v=37' );
+			const tasModule = await import( './TASMode.js?v=38' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
@@ -15637,6 +15650,7 @@ function completeCampaignStage() {
 					countdownActive: () => countdownActive,
 				lapDetection: () => ( {
 					finishData, startGateData, checkpointStates,
+					gateLevelHalfSpan: GATE_LEVEL_HALF_SPAN,
 					hasLeftStartZone, hasPrevFinishSample, lastLocalX, lastLocalZ,
 					checkpointRespawnInstalled,
 				} ),
