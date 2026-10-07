@@ -1692,18 +1692,10 @@
         } ).finally( () => { openLink.textContent = label; } );
       }
       try {
-        // View counts cost a cloud write each — count each track once per
-        // browser session so browsing a board with repeat clicks can't drain
-        // the shared daily write budget.
-        const viewOnceKey = `board-viewed-${ id }`;
-        const alreadyCountedThisSession = sessionStorage.getItem( viewOnceKey );
-        if ( ! alreadyCountedThisSession ) {
-          sessionStorage.setItem( viewOnceKey, '1' );
-          await apiRequest( `/${ id }/view`, { method: 'POST' } );
-          const current = entries.find( ( entry ) => entry.id === id );
-          if ( current ) current.viewCount = ( Number( current.viewCount ) || 0 ) + 1;
-          render();
-        }
+        await apiRequest( `/${ id }/view`, { method: 'POST' } );
+        const current = entries.find( ( entry ) => entry.id === id );
+        if ( current ) current.viewCount = ( Number( current.viewCount ) || 0 ) + 1;
+        render();
       } catch ( err ) {
         // no-op, link still opens in new tab
       }

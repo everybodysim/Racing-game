@@ -49,41 +49,16 @@ async function postLeaderboardTime( request, env ) {
 	}
 
 	const entries = await loadTrackEntries( env, trackId );
-	const newTime = roundTime( timeSeconds );
-
-	// KV free-plan write quota is 1000/day for the whole account, shared with
-	// every other racing worker. A submission only spends a write when it is a
-	// REAL leaderboard change: the player's stored time is slower than the new
-	// one, or (equal time) the new ghost upgrades a ghost-less entry.
-	const existingEntry = entries.find( ( entry ) => normalizeNameKey( entry?.name ) === normalizeNameKey( playerName ) );
-	const existingTime = Number( existingEntry?.timeSeconds );
-	const ghostUpgrade = !! ghost && existingEntry && ! existingEntry.ghost;
-	const isRealImprovement = existingEntry
-		? ( newTime < existingTime || ( newTime === existingTime && ghostUpgrade ) )
-		: true;
-	if ( ! isRealImprovement ) {
-		// No KV write spent — answer with the current leaderboard as-is.
-		const unchanged = dedupeAndSortEntries( entries ).slice( 0, MAX_ROWS_PER_TRACK );
-		return json( { ok: true, entries: unchanged, skipped: true } );
-	}
-
 	entries.push( {
 		name: playerName,
-		timeSeconds: newTime,
+		timeSeconds: roundTime( timeSeconds ),
 		trackName,
 		ghost,
 		createdAt: Date.now(),
 	} );
 
 	const trimmed = dedupeAndSortEntries( entries ).slice( 0, MAX_ROWS_PER_TRACK );
-	try {
-		await env.LEADERBOARD_KV.put( keyForTrack( trackId ), JSON.stringify( trimmed ) );
-	} catch ( putError ) {
-		// e.g. "KV put() limit exceeded for the day" — surface a clean 429 instead
-		// of an opaque 1101 crash, so the game can show a friendly message.
-		console.error( 'Leaderboard KV write failed', putError );
-		return json( { ok: false, error: 'cloud-busy', message: 'The leaderboard cloud is out of writes for today. Times are still saved on your device.' }, 429 );
-	}
+	await env.LEADERBOARD_KV.put( keyForTrack( trackId ), JSON.stringify( trimmed ) );
 	return json( { ok: true, entries: trimmed } );
 }
 
