@@ -863,6 +863,14 @@ function forceElevatedThinSections(elevEntries, blockKeys, needed) {
 	return { placed, corners };
 }
 
+// ─── weekly-cup short recipe (user order 2026-10-07) ────────────────────────
+// The 9 weekly cup tracks were too long — the cup generates from this
+// compact 58-cell double-figure-8 scaffold (2 self-crossings, 14 corners,
+// 8 straight runs >= 3) instead of the 120-cell recipe. TOTD keeps the full
+// recipe. Found with the generator's own loop walker (deterministic hunt,
+// verified closed/adjacent) so the proven feature pipeline runs unchanged.
+const CUP_SHORT_LOOP = [[2,9],[2,8],[2,7],[2,6],[2,5],[2,4],[3,4],[4,4],[5,4],[6,4],[7,4],[8,4],[9,4],[10,4],[11,4],[12,4],[12,3],[12,2],[12,1],[11,1],[10,1],[9,1],[8,1],[8,2],[8,3],[8,4],[8,5],[8,6],[8,7],[8,8],[7,8],[7,9],[7,10],[7,11],[7,12],[6,12],[5,12],[4,12],[3,12],[2,12],[1,12],[1,11],[1,10],[1,9],[1,8],[1,7],[1,6],[2,6],[3,6],[4,6],[5,6],[6,6],[6,7],[5,7],[5,8],[5,9],[4,9],[3,9],[2,9]];
+
 // ─── master plan ──────────────────────────────────────────────────────────────
 function generateTrackPlanOnce(seedText, opts) {
 	const rng = mulberry32(hash32(seedText));
@@ -874,17 +882,12 @@ function generateTrackPlanOnce(seedText, opts) {
 	// tracks dives through water
 	const wantPool = rng() < 0.25;
 
-	// compact maps: tighter bounding boxes force detours to weave through the
-	// loop instead of wandering empty grass → far more crossings per track
-const size = opts.trackSize ?? 1;
+	// weekly cup (opts.compact) generates from the short 58-cell recipe —
+	// the 9 cup tracks were too long (user order 2026-10-07). TOTD and any
+	// other caller keep the full 120-cell scaffold.
+	const compact = opts.compact === true;
 
-// Physical footprint grows only about half as strongly as the slider.
-const areaScale = 1 + (size - 1) * 0.1;
-
-// Track/block count responds to the FULL slider range.
-const lengthScale = size;
-
-	const recipeLoop = [[10,11],[10,12],[10,13],[9,13],[9,14],[8,14],[7,14],[6,14],[6,15],[6,16],[5,16],[4,16],[3,16],[3,15],[3,14],[3,13],[2,13],[1,13],[1,12],[1,11],[1,10],[1,9],[1,8],[1,7],[1,6],[1,5],[1,4],[1,3],[1,2],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],[7,1],[8,1],[9,1],[9,2],[8,2],[7,2],[7,3],[7,4],[7,5],[6,5],[5,5],[4,5],[3,5],[3,6],[3,7],[4,7],[5,7],[6,7],[7,7],[8,7],[8,6],[9,6],[10,6],[10,5],[10,4],[10,3],[10,2],[10,1],[11,1],[12,1],[13,1],[14,1],[15,1],[16,1],[16,2],[16,3],[16,4],[15,4],[14,4],[13,4],[13,5],[14,5],[14,6],[13,6],[12,6],[11,6],[11,5],[10,5],[9,5],[9,6],[9,7],[9,8],[9,9],[8,9],[7,9],[7,8],[6,8],[5,8],[5,9],[5,10],[4,10],[3,10],[2,10],[2,11],[3,11],[4,11],[4,12],[5,12],[6,12],[6,11],[6,10],[7,10],[8,10],[9,10],[10,10],[11,10],[11,11],[10,11]];
+	const recipeLoop = compact ? CUP_SHORT_LOOP : [[10,11],[10,12],[10,13],[9,13],[9,14],[8,14],[7,14],[6,14],[6,15],[6,16],[5,16],[4,16],[3,16],[3,15],[3,14],[3,13],[2,13],[1,13],[1,12],[1,11],[1,10],[1,9],[1,8],[1,7],[1,6],[1,5],[1,4],[1,3],[1,2],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],[7,1],[8,1],[9,1],[9,2],[8,2],[7,2],[7,3],[7,4],[7,5],[6,5],[5,5],[4,5],[3,5],[3,6],[3,7],[4,7],[5,7],[6,7],[7,7],[8,7],[8,6],[9,6],[10,6],[10,5],[10,4],[10,3],[10,2],[10,1],[11,1],[12,1],[13,1],[14,1],[15,1],[16,1],[16,2],[16,3],[16,4],[15,4],[14,4],[13,4],[13,5],[14,5],[14,6],[13,6],[12,6],[11,6],[11,5],[10,5],[9,5],[9,6],[9,7],[9,8],[9,9],[8,9],[7,9],[7,8],[6,8],[5,8],[5,9],[5,10],[4,10],[3,10],[2,10],[2,11],[3,11],[4,11],[4,12],[5,12],[6,12],[6,11],[6,10],[7,10],[8,10],[9,10],[10,10],[11,10],[11,11],[10,11]];
 	// The recipe is a guaranteed *shape family*, not one frozen map.
 	// Derive the actual road layout from the seed while preserving the exact
 	// proven scaffold topology needed by the mandatory feature recipe.
@@ -896,13 +899,18 @@ const lengthScale = size;
 	const mirrorX = ((variant >>> 2) & 1) !== 0;
 	const mirrorZ = ((variant >>> 3) & 1) !== 0;
 	const phase = (Math.imul(variant, 0x9e3779b1) >>> 0) % uniqueLoop.length;
+	// mirror/rotation constants are derived from the recipe's own bounds so
+	// the short cup recipe gets the same variant machinery (big recipe:
+	// rMaxX = rMaxZ = 16 → byte-identical to the old hardcoded 17/16)
+	const rxs = uniqueLoop.map((p) => p[0]), rzs = uniqueLoop.map((p) => p[1]);
+	const rMaxX = Math.max(...rxs), rMaxZ = Math.max(...rzs);
 
 	const transformed = uniqueLoop.map(([x, z]) => {
 		let a = x, b = z;
-		if (mirrorX) a = 17 - a;
-		if (mirrorZ) b = 16 - b;
+		if (mirrorX) a = (rMaxX + 1) - a;
+		if (mirrorZ) b = rMaxZ - b;
 		for (let r = 0; r < rotation; r++) {
-			const nextA = 16 - b;
+			const nextA = rMaxZ - b;
 			const nextB = a;
 			a = nextA; b = nextB;
 		}
@@ -920,13 +928,15 @@ const lengthScale = size;
 	const finishIdx = tiles.findIndex((t) => t[2] === 'track-finish');
 	const crossCell = tiles.find((t) => t[2] === 'track-4-way' && !t[4]) || null;
 
-	// checkpoints — farthest-point sampling on straights, never near finish;
-	// a figure-8 crossing earns one extra checkpoint near the loop
+	// checkpoints — farthest-point sampling over straights AND corners
+	// (user order 2026-10-07: corner cells become corner checkpoints), never
+	// near finish; a figure-8 crossing earns one extra checkpoint near the loop
 	const n0 = tiles.length;
 	const cycDist = (a, b) => { const d = Math.abs(a - b); return Math.min(d, n0 - d); };
 	const cpCandidates = [];
 	for (let i = 0; i < n0; i++) {
-		if (tiles[i][2] !== 'track-straight' || tiles[i][4]) continue;
+		if (tiles[i][4]) continue;
+		if (tiles[i][2] !== 'track-straight' && tiles[i][2] !== 'track-corner') continue;
 		if (finishIdx >= 0 && cycDist(i, finishIdx) < 2) continue;
 		cpCandidates.push(i);
 	}
@@ -943,7 +953,28 @@ const lengthScale = size;
 		}
 		if (best < 0) break;
 		chosenCp.push(best); chosenSet.add(best);
-		tiles[best][2] = 'track-checkpoint';
+		tiles[best][2] = tiles[best][2] === 'track-corner' ? 'track-checkpoint-corner' : 'track-checkpoint';
+	}
+	// guarantee at least one CORNER checkpoint per map (user order
+	// 2026-10-07): if the spread picked only straights, swap the last
+	// straight gate for the farthest corner candidate. Finish never moves.
+	if (!chosenCp.some((i) => tiles[i][2] === 'track-checkpoint-corner')) {
+		let swap = -1, swapD = -1;
+		for (const cand of cpCandidates) {
+			if (chosenSet.has(cand) || tiles[cand][2] !== 'track-corner') continue;
+			let d = Infinity;
+			for (const s2 of chosenCp) d = Math.min(d, cycDist(cand, s2));
+			if (d > swapD) { swapD = d; swap = cand; }
+		}
+		let lastIdx = -1;
+		for (const c of chosenCp) if (c !== finishIdx && tiles[c][2] === 'track-checkpoint') lastIdx = c;
+		if (swap >= 0 && lastIdx >= 0) {
+			chosenSet.delete(lastIdx);
+			tiles[lastIdx][2] = 'track-straight';
+			chosenSet.add(swap);
+			tiles[swap][2] = 'track-checkpoint-corner';
+			chosenCp[chosenCp.indexOf(lastIdx)] = swap;
+		}
 	}
 	if (crossCell) {
 		// one bonus checkpoint nearest the loop crossing (always fun)
@@ -1049,6 +1080,36 @@ const lengthScale = size;
 		const more = forceElevatedThinSections(elevEntries, blockKeys, 1 - thinElevated.placed);
 		thinElevated.placed += more.placed; thinElevated.corners += more.corners;
 	}
+	// ELEVATED CHECKPOINTS (user order 2026-10-07): gates also spawn up on
+	// elevated detour decks. Convert up to two surviving elevated path
+	// straights — never ramps, never thin/cross cells — one near the middle
+	// of each of the two longest chains, so gates read as part of the
+	// detour instead of sitting on its ramp lip.
+	const elevatedCheckpointCells = [];
+	if (opts.elevated) {
+		const chains = [];
+		let ci = 0;
+		while (ci < elevEntries.length) {
+			let cj = ci;
+			while (cj + 1 < elevEntries.length
+				&& Math.abs(elevEntries[cj + 1][0] - elevEntries[cj][0]) + Math.abs(elevEntries[cj + 1][1] - elevEntries[cj][1]) === 1) cj++;
+			chains.push(elevEntries.slice(ci, cj + 1));
+			ci = cj + 1;
+		}
+		chains.sort((a, b) => b.length - a.length);
+		for (const chain of chains) {
+			if (elevatedCheckpointCells.length >= 2) break;
+			const mid = Math.floor(chain.length / 2);
+			for (const off of [0, -1, 1, -2, 2]) {
+				const idx = mid + off;
+				if (idx < 0 || idx >= chain.length) continue;
+				const e = chain[idx];
+				if (e[2] === 'elevated-straight') { e[2] = 'elevated-checkpoint'; elevatedCheckpointCells.push(e); break; }
+				if (e[2] === 'elevated-corner') { e[2] = 'elevated-checkpoint-corner'; elevatedCheckpointCells.push(e); break; }
+			}
+		}
+	}
+
 	// Reserve the four mandatory ground choke cells AFTER tunnel/elevated
 	// generation so they do not steal cells that are needed for the 12
 	// road-over-tunnel crossings.
@@ -1096,24 +1157,59 @@ const lengthScale = size;
 	const claimed = new Set(blockKeys);
 	const claim = (x, z) => { const k = key(x, z); if (claimed.has(k)) return false; claimed.add(k); return true; };
 	const groundStraight = (t) => t[2] === 'track-straight' && !elevKeys.has(key(t[0], t[1]));
+	// MORE obstacles AND surfaces, on ground AND elevated decks (user order
+	// 2026-10-07). Sample FIRST, claim SECOND — the old filter(claim) pattern
+	// claimed every candidate while filtering, starving every family after
+	// the first (jumps and surfaces always came out empty).
 	const bumpCandidates = groundTiles.filter(groundStraight);
-	const bumps = opts.bumps ? sampleDeterministic(bumpCandidates.filter((t) => claim(t[0], t[1])), rng, Math.min(5, Math.max(1, Math.floor(tiles.length / 11)))) : [];
-	const jumpCells = opts.jumps ? sampleDeterministic(groundTiles.filter(groundStraight).filter((t) => claim(t[0], t[1])), rng, Math.min(4, Math.max(1, Math.floor(tiles.length / 13))))
-		.map(([x, z, t, o]) => [x, z, o]) : [];
+	// elevated deck straights are share-cell legal for overlays (the game's
+	// overlay height resolver lifts bump/jump/surface onto the deck) but
+	// exclusive among the obstacle families and never on a gate cell
+	const elevGateKeys = new Set(elevatedCheckpointCells.map((e) => key(e[0], e[1])));
+	const elevStraightCells = elevEntries.filter((e) => e[2] === 'elevated-straight' && !elevGateKeys.has(key(e[0], e[1])));
+	// jumps only ever launch from STRAIGHT decks (a ramp on a corner deck
+	// fires off the road); bumps may also sit on corner decks
+	const elevUsed = new Set();
+	const jumpCells = [];
+	if (opts.jumps) {
+		const jumpTotal = Math.min(5, Math.max(2, Math.floor(tiles.length / 18)));
+		for (const e of sampleDeterministic(elevStraightCells, rng, 2)) {
+			elevUsed.add(key(e[0], e[1]));
+			jumpCells.push([e[0], e[1], e[3] ?? 0]);
+		}
+		for (const t of sampleDeterministic(groundTiles.filter(groundStraight), rng, Math.max(0, jumpTotal - jumpCells.length))) {
+			if (claim(t[0], t[1])) jumpCells.push([t[0], t[1], t[3] ?? 0]);
+		}
+	}
+	const bumpElevCandidates = elevEntries.filter((e) => (e[2] === 'elevated-straight' || e[2] === 'elevated-corner')
+		&& !elevGateKeys.has(key(e[0], e[1])) && !elevUsed.has(key(e[0], e[1])));
+	const bumps = [];
+	if (opts.bumps) {
+		const bumpTotal = Math.min(8, Math.max(3, Math.floor(tiles.length / 8)));
+		for (const e of sampleDeterministic(bumpElevCandidates, rng, 3)) {
+			elevUsed.add(key(e[0], e[1]));
+			bumps.push([e[0], e[1]]);
+		}
+		for (const t of sampleDeterministic(bumpCandidates, rng, Math.max(0, bumpTotal - bumps.length))) {
+			if (claim(t[0], t[1])) bumps.push([t[0], t[1]]);
+		}
+	}
 	// surfaces: ground road AND elevated road (the height resolver places
 	// elevated ones on the deck); open-pit tunnels stay clean — their
-	// surface world is carved away, nothing can sit there
+	// surface world is carved away, nothing can sit there. Elevated cells
+	// already carrying a bump or jump are skipped.
 	const surfacePalette = ['surface-wood', 'surface-ice', 'surface-boost'];
-	const surfCandidates = groundTiles.filter((t) => (t[2] === 'track-straight' || t[2] === 'track-corner') && claim(t[0], t[1]))
+	const surfCandidates = groundTiles
+		.filter((t) => (t[2] === 'track-straight' || t[2] === 'track-corner') && !claimed.has(key(t[0], t[1])))
 		.map(([x, z, t]) => [x, z, t]);
 	for (const e of elevEntries) {
 		// a surface on an elevated road sits ON the deck (the height resolver
 		// handles it) — sharing the cell with the elevated entry is legal
 		if (e[2] === 'elevated-straight' || e[2] === 'elevated-corner' || e[2] === 'elevated-choke-half' || e[2] === 'elevated-choke-both') {
-			surfCandidates.push([e[0], e[1], 'elev-' + e[2]]);
+			if (!elevUsed.has(key(e[0], e[1]))) surfCandidates.push([e[0], e[1], 'elev-' + e[2]]);
 		}
 	}
-	const surfaceCells = opts.surfaces ? sampleDeterministic(surfCandidates, rng, Math.min(8, Math.max(3, Math.floor(tiles.length / 6))))
+	const surfaceCells = opts.surfaces ? sampleDeterministic(surfCandidates, rng, Math.min(12, Math.max(4, Math.floor(tiles.length / 5))))
 		.map(([x, z, t], idx) => [x, z, String(t).startsWith('elev-') ? surfacePalette[idx % surfacePalette.length] : (t === 'track-corner' ? 'surface-ice' : surfacePalette[idx % surfacePalette.length])]) : [];
 	// choke pinches: swap plain straights for choke pieces
 
@@ -1145,7 +1241,7 @@ const lengthScale = size;
 			thinCorners: (thinGround.corners || 0) + (thinElevated.corners || 0),
 			chokes,
 			jumps: jumpCells.length, bumps: bumps.length, surfaces: surfaceCells.length,
-			checkpoints: groundTiles.filter((c) => c[2] === 'track-checkpoint').length,
+			checkpoints: groundTiles.filter((c) => c[2] === 'track-checkpoint' || c[2] === 'track-checkpoint-corner').length + elevatedCheckpointCells.length,
 		},
 	};
 }
@@ -1171,7 +1267,11 @@ function mandatoryFeatureCheck(plan) {
 }
 
 export function generateTrackPlan(seedText, opts = {}) {
-	const required = { ...opts, figure8: true, elevated: true, tunnels: true, poolCrossings: true, ponds: true, thin: true, chokes: true };
+	const required = { ...opts, figure8: true, elevated: true, tunnels: true, poolCrossings: true, ponds: true, thin: true, chokes: true,
+		// bumps/jumps/surfaces were missing from this list — silently zero
+		// obstacles and zero surfaces on every generated track (user order
+		// 2026-10-07: more obstacles and surfaces, ground AND elevated)
+		bumps: true, jumps: true, surfaces: true };
 	// One seed → one recipe. There is no retry loop and no alternate seed.
 	// The generator itself owns the fallbacks needed to make the recipe valid.
 	const plan = generateTrackPlanOnce(seedText, required);

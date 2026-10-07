@@ -56,8 +56,8 @@
 	// window.__renderTrackTopDown; the page falls back to its flat 2D
 	// grid if the module or WebGL is unavailable.
 	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20261009';
-	import { encodeCellsV3 } from './js/Track.js?v=1000303';
-	import { generateTrackPlan } from './js/CupTrackGen.js?v=20261008';
+	import { encodeCellsV3 } from './js/Track.js?v=1000304';
+	import { generateTrackPlan } from './js/CupTrackGen.js?v=20261009';
 	window.__renderTrackTopDown = renderTrackTopDown;
 	window.__encodeCellsV3 = encodeCellsV3;
 	window.__cupTrackGen = generateTrackPlan;
@@ -114,7 +114,10 @@
       await new Promise((r) => setTimeout(r, 25));
     }
     if (!window.__cupTrackGen || !window.__encodeCellsV3) throw new Error('Track generator unavailable');
-    const plan = window.__cupTrackGen(seedText);
+    // compact recipe (user order 2026-10-07): the 9 cup tracks were too
+    // long — generate from the short 58-cell scaffold. TOTD keeps the full
+    // length (it passes no options).
+    const plan = window.__cupTrackGen(seedText, { compact: true });
     const map = await window.__encodeCellsV3(plan.cells);
     const modsEncoded = encodeMods(plan.modsObj);
     const playUrl = `${BASE_URL}?map=${encodeURIComponent(map)}&mods=${encodeURIComponent(modsEncoded)}`;
