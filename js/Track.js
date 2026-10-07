@@ -2065,8 +2065,49 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					if ( decoKey.startsWith( 'building-' ) ) blockCellForTrees( entry[ 0 ], entry[ 1 ], false );
 				}
 			}
-			// NOT included (trees can go through these):
-			//   bumps, boosts, jumps, poles, magnets, arcLinks, decorations
+			// NOT tree-blocked (trees can go through these):
+			//   bumps, boosts, jumps, poles, magnets, arcLinks, decorations.
+			// Coverage-only extras (user order 2026-10-06): see-through or
+			// flat pieces still expand the GROUND coverage bounds — the
+			// ground must extend under every placed block — but trees keep
+			// growing through them, so they are not tree-blocked.
+			const expandCoverageOnly = ( gx, gz ) => {
+
+				gx = Number( gx );
+				gz = Number( gz );
+				if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) return;
+				minX = Math.min( minX, gx );
+				maxX = Math.max( maxX, gx );
+				minZ = Math.min( minZ, gz );
+				maxZ = Math.max( maxZ, gz );
+
+			};
+			const coverageOnlyLists = [
+				extras.bumps, extras.boosts, extras.poles, extras.physicsBoxes,
+				extras.jumps, extras.magnets, extras.arcLinks, extras.poolSlopes
+			];
+			for ( const list of coverageOnlyLists ) {
+
+				if ( ! Array.isArray( list ) ) continue;
+				for ( const entry of list ) {
+
+					if ( ! Array.isArray( entry ) ) continue;
+					expandCoverageOnly( entry[ 0 ], entry[ 1 ] );
+
+				}
+
+			}
+			if ( Array.isArray( extras.decorations ) ) {
+
+				for ( const entry of extras.decorations ) {
+
+					if ( ! Array.isArray( entry ) ) continue;
+					const decoKey = String( entry[ 2 ] || '' );
+					if ( ! decoKey.startsWith( 'building-' ) ) expandCoverageOnly( entry[ 0 ], entry[ 1 ] );
+
+				}
+
+			}
 		}
 
 		// Also mark existing decoration cells as occupied
@@ -2084,7 +2125,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
-		const pad = 3;
+		// Ground coverage reaches at least 15 blocks past the farthest
+		// block on every side (user order 2026-10-06) so the ground plane
+		// never ends right at the map edge — cars can't fall through.
+		const pad = 15;
 		const emptyPositions = [];
 		const grassPositions = [];   // cells cleared of trees by a road/wall/etc. footprint
 		const forestPositions = [];
@@ -3041,21 +3085,62 @@ export function computeSpawnPosition( cells ) {
 
 }
 
-export function computeTrackBounds( cells ) {
+export function computeTrackBounds( cells, extras ) {
 
-	if ( ! cells || cells.length === 0 ) return { centerX: 0, centerZ: 0, halfWidth: 30, halfDepth: 30 };
-
+	// Bounds must cover the footprint of EVERY placed block (user order
+	// 2026-10-06), not just the road cells: an obstacle, tunnel, elevated
+	// piece or decoration placed far off the road extends the ground too.
+	// Without this, only simple road blocks (straight/corner/etc.) counted
+	// and the ground stopped short of everything else — cars fell through
+	// the world at map edges next to off-road blocks.
 	let minX = Infinity, maxX = - Infinity;
 	let minZ = Infinity, maxZ = - Infinity;
 
-	for ( const [ gx, gz ] of cells ) {
+	const add = ( gx, gz ) => {
 
-		minX = Math.min( minX, gx );
-		maxX = Math.max( maxX, gx );
-		minZ = Math.min( minZ, gz );
-		maxZ = Math.max( maxZ, gz );
+		gx = Number( gx );
+		gz = Number( gz );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) return;
+		// Off-grid placements straddle a grid seam: floor/ceil covers the
+		// full footprint of a fractional cell on both axes.
+		minX = Math.min( minX, Math.floor( gx ) );
+		maxX = Math.max( maxX, Math.ceil( gx ) );
+		minZ = Math.min( minZ, Math.floor( gz ) );
+		maxZ = Math.max( maxZ, Math.ceil( gz ) );
+
+	};
+
+	for ( const cell of ( cells || [] ) ) {
+
+		if ( ! Array.isArray( cell ) ) continue;
+		add( cell[ 0 ], cell[ 1 ] );
 
 	}
+
+	if ( extras ) {
+
+		// Every extras list whose entries carry grid coords at [0],[1].
+		const cellLists = [
+			extras.bumps, extras.boosts, extras.poles, extras.cubes, extras.physicsBoxes,
+			extras.walls, extras.jumps, extras.movingObstacles, extras.elevated,
+			extras.surfaces, extras.decorations, extras.magnets, extras.arcLinks,
+			extras.tunnels, extras.water, extras.poolSlopes
+		];
+		for ( const list of cellLists ) {
+
+			if ( ! Array.isArray( list ) ) continue;
+			for ( const entry of list ) {
+
+				if ( ! Array.isArray( entry ) ) continue;
+				add( entry[ 0 ], entry[ 1 ] );
+
+			}
+
+		}
+
+	}
+
+	if ( ! Number.isFinite( minX ) ) return { centerX: 0, centerZ: 0, halfWidth: 30, halfDepth: 30 };
 
 	const S = CELL_RAW * GRID_SCALE;
 	const centerX = ( minX + maxX + 1 ) / 2 * S;

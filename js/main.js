@@ -6,7 +6,7 @@ import { Vehicle } from './Vehicle.js?v=1000234';
 import { createShadowProxyController } from './ShadowProxy.js?v=4';
 import { Camera } from './Camera.js?v=17';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, setWaterRefractionCullRadius, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000301';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, setWaterRefractionCullRadius, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000302';
 import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260958';
 import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
@@ -4942,11 +4942,23 @@ async function init() {
 
 	}
 
-	// Compute track bounds and size physics/shadows to fit
-	const bounds = computeTrackBounds( customCells );
+	// Compute track bounds and size physics/shadows to fit. Bounds now cover
+	// EVERY placed block (roads, obstacles, tunnels, decorations — not just
+	// road cells, user order 2026-10-06).
+	const bounds = computeTrackBounds( customCells, extras );
 	const hw = bounds.halfWidth;
 	const hd = bounds.halfDepth;
+	// Fog keeps its original road-extent sizing base so weather visuals stay
+	// exactly as tuned — the wider ground must not stretch the fog.
 	const groundSize = Math.max( hw, hd ) * 2 + 20;
+	// Solid ground must extend at least 15 blocks of drivable ground past
+	// the farthest block on EVERY side (user order 2026-10-06): players can
+	// never fall through the world at a map edge, even next to an off-road
+	// obstacle the old road-only bounds ignored.
+	const GROUND_EDGE_CELLS = 15;
+	const groundEdge = GROUND_EDGE_CELLS * CELL_RAW * GRID_SCALE;
+	const groundHalfX = hw + groundEdge;
+	const groundHalfZ = hd + groundEdge;
 	const weatherSettings = normalizeWeatherDetails( extras?.weather );
 	const weatherConfig = WEATHER_PRESETS[ weatherSettings.preset ];
 
@@ -5072,7 +5084,6 @@ async function init() {
 	scene.add( hitboxDebugGroup );
 	const resettableObstacleBodies = buildWallColliders( world, hitboxDebugGroup, customCells, extras ) || [];
 
-	const roadHalf = groundSize / 2;
 	const waterCells = Array.isArray( extras?.water ) ? extras.water : [];
 	const waterCellSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 	const cellWorld = CELL_RAW * GRID_SCALE;
@@ -5355,10 +5366,10 @@ async function init() {
 	if ( waterCells.length > 0 || openTunnelGroundCells.size > 0 ) {
 
 		const waterSet = waterCellSet;
-		const minGx = Math.floor( ( bounds.centerX - roadHalf ) / cellWorld ) - 1;
-		const maxGx = Math.ceil( ( bounds.centerX + roadHalf ) / cellWorld ) + 1;
-		const minGz = Math.floor( ( bounds.centerZ - roadHalf ) / cellWorld ) - 1;
-		const maxGz = Math.ceil( ( bounds.centerZ + roadHalf ) / cellWorld ) + 1;
+		const minGx = Math.floor( ( bounds.centerX - groundHalfX ) / cellWorld ) - 1;
+		const maxGx = Math.ceil( ( bounds.centerX + groundHalfX ) / cellWorld ) + 1;
+		const minGz = Math.floor( ( bounds.centerZ - groundHalfZ ) / cellWorld ) - 1;
+		const maxGz = Math.ceil( ( bounds.centerZ + groundHalfZ ) / cellWorld ) + 1;
 		const activeGroundRuns = new Map();
 		function flushGroundRun( runStart, runEnd, startGz, endGz ) {
 
@@ -5405,7 +5416,7 @@ async function init() {
 
 	} else {
 
-		createGroundSurfaceCollider( [ roadHalf, 0.01, roadHalf ], [ bounds.centerX, - 0.125, bounds.centerZ ] );
+		createGroundSurfaceCollider( [ groundHalfX, 0.01, groundHalfZ ], [ bounds.centerX, - 0.125, bounds.centerZ ] );
 
 	}
 

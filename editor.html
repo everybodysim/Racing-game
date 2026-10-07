@@ -897,7 +897,7 @@
 	import * as THREE from 'three';
 	import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 	import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000301';
+	import { ORIENT_DEG, CELL_RAW, GRID_SCALE, encodeCells, decodeCells, encodeCellsV3, decodeCellsAny, encodeV3Json, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, smoothChokeSourceModel, THIN_GROUND_MODEL_KEYS, THIN_MODEL_KEYS, smoothThinSourceModel } from './js/Track.js?v=1000302';
 	// Drive-in-editor: real physics + real vehicle, same stack the game runs.
 	import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
 	import { buildWallColliders, createSphereBody } from './js/Physics.js?v=20260958';
@@ -6816,8 +6816,13 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 			}
 
-			const bounds = computeTrackBounds( cellsArr );
-			const roadHalf = Math.max( bounds.halfWidth, bounds.halfDepth ) + 10;
+			const bounds = computeTrackBounds( cellsArr, extras );
+			// Editor test-car ground mirrors the game (user order 2026-10-06):
+			// cover EVERY block footprint plus 15 blocks of margin per axis.
+			const groundEdgeCells = 15;
+			const groundEdge = groundEdgeCells * CELL_RAW * GRID_SCALE;
+			const groundHalfX = bounds.halfWidth + groundEdge;
+			const groundHalfZ = bounds.halfDepth + groundEdge;
 			const waterCells = Array.isArray( extras?.water ) ? extras.water : [];
 			const waterSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 			// OPEN-top tunnel cells get the pool treatment. Tunnel slope cells
@@ -6836,16 +6841,16 @@ function updateMovingObstacles( state, now, vehicleList ) {
 
 			if ( waterSet.size === 0 && tunnelOpenSet.size === 0 ) {
 
-				slab( roadHalf, roadHalf, bounds.centerX, bounds.centerZ );
+				slab( groundHalfX, groundHalfZ, bounds.centerX, bounds.centerZ );
 				return;
 
 			}
 
 			const cellW = CELL_RAW * GRID_SCALE;
-			const minGx = Math.floor( ( bounds.centerX - roadHalf ) / cellW ) - 1;
-			const maxGx = Math.ceil( ( bounds.centerX + roadHalf ) / cellW ) + 1;
-			const minGz = Math.floor( ( bounds.centerZ - roadHalf ) / cellW ) - 1;
-			const maxGz = Math.ceil( ( bounds.centerZ + roadHalf ) / cellW ) + 1;
+			const minGx = Math.floor( ( bounds.centerX - groundHalfX ) / cellW ) - 1;
+			const maxGx = Math.ceil( ( bounds.centerX + groundHalfX ) / cellW ) + 1;
+			const minGz = Math.floor( ( bounds.centerZ - groundHalfZ ) / cellW ) - 1;
+			const maxGz = Math.ceil( ( bounds.centerZ + groundHalfZ ) / cellW ) + 1;
 			const activeRuns = new Map();
 			function flushRun( runStart, runEnd, startGz, endGz ) {
 
