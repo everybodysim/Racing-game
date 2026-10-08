@@ -1331,4 +1331,22 @@ assignment". ALWAYS sweep in the module goal before pushing:
 for f in js/*.js mods/*.js; do cp "$f" "/tmp/chk.mjs"; node --check /tmp/chk.mjs || echo "FAIL: $f"; done
 ```
 
-(Never use optional chaining on the left side of `=`. `if ( x ) x.prop = v;`.)
+(Never use optional chaining on the left side of `=`. `if ( x ) x.prop = v;`)
+
+## Base44 dev environment
+
+- This is a **static site** — no build step, no package.json. All HTML/JS/CSS/GLB
+  files are served directly by nginx.
+- `docker-compose.base44.yml` runs `nginx:alpine` with the repo bind-mounted at
+  `/usr/share/nginx/html:ro` and a custom nginx config at `.base44/nginx.conf`
+  mounted as `/etc/nginx/nginx.conf`.
+- nginx runs as `user root;` because the sandbox repo directory has 700
+  permissions (owner root only); the default `nginx` user can't traverse it.
+- Healthcheck uses `127.0.0.1` (not `localhost`) because nginx listens on IPv4
+  only and `localhost` resolves to IPv6 `::1` inside the container.
+- `.base44/nginx.conf` adds `model/gltf-binary` MIME type for `.glb` files and
+  sets `Cache-Control: no-store` on entry points (matching `_headers`).
+- Firebase config is hardcoded in `js/firebase-config.js` — no secrets needed.
+- Cloudflare workers and Deno functions are for deployed backend features
+  (track board, competitions, accounts); they are not needed for local preview.
+- To verify: `curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/index.html`
