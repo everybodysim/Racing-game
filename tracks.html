@@ -385,10 +385,28 @@
 			setTimeout( () => queueLeaderboardHydration( entries ), 1500 );
 		}
 
+		// Pinned so record ids stay identical no matter which host serves the game.
+		const TRACK_ID_CANONICAL_PATH = '/Racing-game/';
+
+		// Rebase a board playUrl onto the CURRENT host so community links stay
+		// on this site after a URL move. Identical output on the current host.
+		function localizePlayUrl( playUrl ) {
+			if ( ! playUrl ) return playUrl;
+			try {
+				const src = new URL( playUrl, window.location.href );
+				const u = new URL( 'index.html', window.location.href );
+				src.searchParams.forEach( ( v, k ) => u.searchParams.set( k, v ) );
+				u.hash = src.hash;
+				return u.toString();
+			} catch ( e ) {
+				return playUrl;
+			}
+		}
+
 		function getTrackIdFromPlayUrl( playUrl ) {
 			try {
 				const parsed = new URL( playUrl, window.location.href );
-				const normalizedPath = normalizeTrackPath( parsed.pathname );
+				const normalizedPath = TRACK_ID_CANONICAL_PATH;
 				const query = new URLSearchParams();
 				const map = parsed.searchParams.get( 'map' ) || '';
 				const mods = parsed.searchParams.get( 'mods' ) || '';
@@ -1282,10 +1300,10 @@
 				<div class="meta">${ entry.description ? entry.description : 'No description.' }</div>
 				<div class="row card-author-row">
 					${ authorChip }
-					<button type="button" class="copy-btn" data-copy-url="${ escapeHtml( entry.playUrl ) }" data-copy-id="${ entry.id }" title="Copy a direct link to this track">🔗 <span class="copy-label">Copy Link</span></button>
+					<button type="button" class="copy-btn" data-copy-url="${ escapeHtml( localizePlayUrl( entry.playUrl ) ) }" data-copy-id="${ entry.id }" title="Copy a direct link to this track">🔗 <span class="copy-label">Copy Link</span></button>
 				</div>
 				<div class="row" style="margin-top:0">
-					<a class="linkbtn play-map-btn" href="${ entry.playUrl }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play</a>
+					<a class="linkbtn play-map-btn" href="${ localizePlayUrl( entry.playUrl ) }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play</a>
 					<button data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
 					<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
 					<button data-id="${ entry.id }" type="button">Remove</button>
@@ -1688,7 +1706,7 @@
         const label = openLink.textContent;
         openLink.textContent = '\u25b6 Fetching ghost\u2026';
         resolveFullPlayUrl( slimEntry ).then( ( full ) => {
-          if ( full ) window.open( full, '_blank', 'noopener' );
+          if ( full ) window.open( localizePlayUrl( full ), '_blank', 'noopener' );
         } ).finally( () => { openLink.textContent = label; } );
       }
       try {
@@ -1853,9 +1871,9 @@
 					};
 					if ( copyEntry && copyEntry.hasGhost && ! slimUrl.includes( '#ghost=' ) ) {
 						setStatus( 'Fetching the full track link\u2026' );
-						resolveFullPlayUrl( copyEntry ).then( writeUrl );
+						resolveFullPlayUrl( copyEntry ).then( ( full ) => writeUrl( localizePlayUrl( full ) ) );
 					} else {
-						writeUrl( slimUrl );
+						writeUrl( localizePlayUrl( slimUrl ) );
 					}
 				}
 			} );

@@ -4016,12 +4016,18 @@ function getTrackLabel( mapParamValue ) {
 
 }
 
-function getTrackId( mapParamValue, extrasParamValue ) {
+	// Canonical game path pinned into every leaderboard record id. Record ids
+	// hash the URL path, so this MUST stay '/Racing-game/' no matter where the
+	// game is actually served — it keeps ids identical across hosts (current
+	// GitHub Pages, a renamed account, a custom domain, localhost, iframes).
+	const TRACK_ID_CANONICAL_PATH = '/Racing-game/';
+
+	function getTrackId( mapParamValue, extrasParamValue ) {
 
 	const params = new URLSearchParams();
 	if ( mapParamValue ) params.set( 'map', mapParamValue );
 	if ( extrasParamValue ) params.set( 'mods', extrasParamValue );
-	const normalizedPath = normalizeTrackPath( window.location.pathname );
+	const normalizedPath = TRACK_ID_CANONICAL_PATH;
 	const rawUrl = `${ normalizedPath }${ params.toString() ? `?${ params.toString() }` : '' }`;
 	// Only the DEFAULT track (no map, no mods) rides the v5 seed — its
 	// leaderboard was intentionally reset. Every other track keeps the v4

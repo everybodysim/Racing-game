@@ -96,7 +96,7 @@
 
 <script>
 (() => {
-  const BASE_URL = "https://everybodysim.github.io/Racing-game/index.html";
+  const BASE_URL = "index.html"; // relative: works on any host
   const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
 
   // ---------- codec ----------
@@ -143,7 +143,7 @@
       const parsed = new URL(playUrl, window.location.href);
       const map = parsed.searchParams.get('map');
       const mods = parsed.searchParams.get('mods');
-      const normalizedPath = normalizeTrackPath(parsed.pathname || '/');
+      const normalizedPath = '/Racing-game/'; // pinned: ids must not depend on host
       return [buildTrackId(normalizedPath, map, mods)];
     } catch {
       return [];
@@ -286,7 +286,7 @@
   }
 
   function buildUrl(map, mods) {
-    const u = new URL(BASE_URL);
+    const u = new URL(BASE_URL, window.location.href);
     u.searchParams.set('map', map);
     u.searchParams.set('mods', mods);
     return u.toString();
@@ -451,7 +451,7 @@
     const mods = encodeMods(generated.mods);
     const url = buildUrl(map, mods);
 
-    document.getElementById('baseOut').textContent = BASE_URL;
+    document.getElementById('baseOut').textContent = new URL(BASE_URL, window.location.href).href;
     document.getElementById('seedOut').textContent = generated.seedText;
     document.getElementById('mapOut').value = map;
     document.getElementById('modsOut').value = mods;

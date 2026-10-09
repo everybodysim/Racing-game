@@ -95,7 +95,7 @@
   
 <script>
 (() => {
-  const BASE_URL = 'https://everybodysim.github.io/Racing-game/index.html';
+  const BASE_URL = 'index.html'; // relative: works on any host
   const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
 
   function encodeMods(modsObj) {
@@ -216,8 +216,7 @@ function getTrackIds(playUrl) {
     const parsed = new URL(playUrl, window.location.href);
     const map = parsed.searchParams.get('map');
     const mods = parsed.searchParams.get('mods');
-    const rawPath = parsed.pathname || '/';
-    const normalizedPath = normalizeTrackPath(rawPath);
+    const normalizedPath = '/Racing-game/'; // pinned: ids must not depend on host
     return [buildTrackId(normalizedPath, map, mods)];
   } catch {
     return [];

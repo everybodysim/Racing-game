@@ -3264,15 +3264,33 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				return raw;
 			}
 
+			// Pinned so record ids stay identical no matter which host serves the game.
+			const TRACK_ID_CANONICAL_PATH = '/Racing-game/';
+
+			// Rebase a board playUrl onto the CURRENT host so community links stay
+			// on this site after a URL move. Identical output on the current host.
+			function localizePlayUrl( playUrl ) {
+				if ( ! playUrl ) return playUrl;
+				try {
+					const src = new URL( playUrl, window.location.href );
+					const u = new URL( 'index.html', window.location.href );
+					src.searchParams.forEach( ( v, k ) => u.searchParams.set( k, v ) );
+					u.hash = src.hash;
+					return u.toString();
+				} catch ( e ) {
+					return playUrl;
+				}
+			}
+
 			function getTrackId( playUrl ) {
 				try {
-					const u = new URL( playUrl, 'https://everybodysim.github.io' );
+					const u = new URL( playUrl, window.location.href );
 					const map = u.searchParams.get( 'map' ) || '';
 					const mods = u.searchParams.get( 'mods' ) || '';
 					const q = new URLSearchParams();
 					if ( map ) q.set( 'map', map );
 					if ( mods ) q.set( 'mods', mods );
-					const rawUrl = `${ normalizeTrackPath( u.pathname ) }${ q.toString() ? `?${ q.toString() }` : '' }`;
+					const rawUrl = `${ TRACK_ID_CANONICAL_PATH }${ q.toString() ? `?${ q.toString() }` : '' }`;
 					// Default track (no map/mods) keeps the reset v5 id; others keep v4.
 					const seedVersion = ( map || mods ) ? 'v4' : 'v5';
 					return `trk-${ hashTrackSeed( `${ seedVersion }-url|${ rawUrl }` ) }`;
@@ -3310,7 +3328,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					.filter( e => ( Number( e.viewCount ) || 0 ) >= avgPlays )
 					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )[ 0 ]
 					|| entries.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) )[ 0 ];
-				ftEl.href = featured.playUrl;
+				ftEl.href = localizePlayUrl( featured.playUrl );
 				ftEl.target = '_blank';
 				ftEl.rel = 'noopener noreferrer';
 				ftEl.querySelector( '.ft-name' ).textContent = featured.name;
@@ -3777,7 +3795,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000415&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000416&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
