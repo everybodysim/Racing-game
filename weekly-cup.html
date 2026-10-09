@@ -55,9 +55,9 @@
 	// Realistic 3D top-down track preview. The module exposes
 	// window.__renderTrackTopDown; the page falls back to its flat 2D
 	// grid if the module or WebGL is unavailable.
-	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20260923';
-	import { encodeCellsV3 } from './js/Track.js?v=1000237';
-	import { generateTrackPlan } from './js/CupTrackGen.js?v=20260918';
+	import { renderTrackTopDown } from './js/TrackTopDownRenderer.js?v=20261009';
+	import { encodeCellsV3 } from './js/Track.js?v=1000304';
+	import { generateTrackPlan } from './js/CupTrackGen.js?v=20261009';
 	window.__renderTrackTopDown = renderTrackTopDown;
 	window.__encodeCellsV3 = encodeCellsV3;
 	window.__cupTrackGen = generateTrackPlan;
@@ -95,7 +95,7 @@
   
 <script>
 (() => {
-  const BASE_URL = 'https://everybodysim.github.io/Racing-game/index.html';
+  const BASE_URL = 'index.html'; // relative: works on any host
   const LEADERBOARD_API_BASE = 'https://racing-leaderboard-api.ga1010.workers.dev/api/leaderboard';
 
   function encodeMods(modsObj) {
@@ -114,7 +114,10 @@
       await new Promise((r) => setTimeout(r, 25));
     }
     if (!window.__cupTrackGen || !window.__encodeCellsV3) throw new Error('Track generator unavailable');
-    const plan = window.__cupTrackGen(seedText);
+    // compact recipe (user order 2026-10-07): the 9 cup tracks were too
+    // long — generate from the short 58-cell scaffold. TOTD keeps the full
+    // length (it passes no options).
+    const plan = window.__cupTrackGen(seedText, { compact: true });
     const map = await window.__encodeCellsV3(plan.cells);
     const modsEncoded = encodeMods(plan.modsObj);
     const playUrl = `${BASE_URL}?map=${encodeURIComponent(map)}&mods=${encodeURIComponent(modsEncoded)}`;
@@ -213,8 +216,7 @@ function getTrackIds(playUrl) {
     const parsed = new URL(playUrl, window.location.href);
     const map = parsed.searchParams.get('map');
     const mods = parsed.searchParams.get('mods');
-    const rawPath = parsed.pathname || '/';
-    const normalizedPath = normalizeTrackPath(rawPath);
+    const normalizedPath = '/Racing-game/'; // pinned: ids must not depend on host
     return [buildTrackId(normalizedPath, map, mods)];
   } catch {
     return [];
@@ -276,7 +278,7 @@ function getTrackIds(playUrl) {
     const toPix = (x, z) => [pad + (x - minX) * size, pad + (z - minZ) * size];
     for (const [x, z, t] of cells) {
       const [px, py] = toPix(x, z);
-      ctx.fillStyle = t === 'track-finish' ? '#72e39a' : t === 'track-checkpoint' ? '#ffd54f' : t === 'track-corner' ? '#b084ff' : '#4da3ff';
+      ctx.fillStyle = t === 'track-finish' ? '#72e39a' : (t === 'track-checkpoint' || t === 'track-checkpoint-corner') ? '#ffd54f' : t === 'track-corner' ? '#b084ff' : '#4da3ff';
       ctx.fillRect(px + 1, py + 1, size - 2, size - 2);
     }
     ctx.strokeStyle = '#ff4d4d';

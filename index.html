@@ -1,7 +1,28 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	
+<script>
+// SERVICE WORKER KILLER (2026-09-28): a leftover SW from an old deploy was
+// serving months-stale JS to some browsers no matter how often the ?v=
+// strings changed — every "still broken" report traced to this. Runs BEFORE
+// anything loads: unregister ALL workers, wipe ALL caches, reload once.
+( async () => {
+	try {
+		if ( 'serviceWorker' in navigator ) {
+			const regs = await navigator.serviceWorker.getRegistrations();
+			for ( const r of regs ) await r.unregister();
+		}
+		if ( window.caches ) {
+			const keys = await caches.keys();
+			await Promise.all( keys.map( ( k ) => caches.delete( k ) ) );
+		}
+		if ( ! sessionStorage.getItem( 'sw-cleaned' ) ) {
+			sessionStorage.setItem( 'sw-cleaned', '1' );
+			location.reload();
+		}
+	} catch ( e ) { /* never block the page on this */ }
+} )();
+</script>
 <!--<script>
 (async () => {
   // kill service workers
@@ -119,7 +140,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		   one) forces a backdrop readback + blur pass per frame on the compositor
 		   — real frame time on integrated GPUs. One class kills them all. */
 		body.gfx-low .hud-widget,
-		body.gfx-low #mp-panel,
 		body.gfx-low #chat-box,
 		body.gfx-low #quick-menu-btn,
 		body.gfx-low #quick-menu-panel,
@@ -231,194 +251,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			0%, 100% { background: linear-gradient(165deg, rgba(90,159,255,0.3), rgba(47,104,181,0.32)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.22); }
 			50% { background: linear-gradient(165deg, rgba(190,35,46,0.86), rgba(132,24,32,0.82)); box-shadow: 0 0 18px rgba(255,58,58,0.58); }
 		}
-		#mp-panel {
-			position: absolute;
-			left: 16px;
-			bottom: 54px;
-			z-index: 10;
-			background: rgba(0,0,0,0.55);
-			border-radius: 10px;
-			padding: 10px;
-			color: #fff;
-			font: 13px/1.3 sans-serif;
-			min-width: 210px;
-			backdrop-filter: blur(2px);
-		}
-		#mp-panel-title { font: 700 13px/1 sans-serif; margin-bottom: 8px; opacity: 0.95; }
-		#mp-actions { display: flex; gap: 6px; margin-bottom: 8px; }
-		#mp-actions button {
-			border: none;
-			border-radius: 6px;
-			background: rgba(255,255,255,0.16);
-			color: #fff;
-			padding: 6px 9px;
-			font: 600 12px/1 sans-serif;
-			cursor: pointer;
-		}
-		#mp-actions button:hover { background: rgba(255,255,255,0.27); }
-		#mp-code-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
-		#mp-code-input {
-			flex: 1;
-			min-width: 0;
-			border-radius: 6px;
-			border: 1px solid rgba(255,255,255,0.24);
-			background: rgba(20,20,20,0.45);
-			color: #fff;
-			padding: 6px 8px;
-			font: 700 12px/1 monospace;
-			text-transform: uppercase;
-		}
-		#mp-copy-btn {
-			border: none;
-			border-radius: 6px;
-			background: rgba(83,212,255,0.25);
-			color: #fff;
-			padding: 6px 8px;
-			font: 600 12px/1 sans-serif;
-			cursor: pointer;
-		}
-		#mp-copy-btn:hover { background: rgba(83,212,255,0.4); }
-		#mp-status {
-			display: none;
-			color: #ffe9a9;
-			font: 600 12px/1.3 sans-serif;
-			text-shadow: 0 1px 3px rgba(0,0,0,0.8);
-		}
-		#mp-status:not(:empty) { display: block; }
-		#mp-lb {
-			display: none;
-			margin-top: 8px;
-			padding-top: 8px;
-			border-top: 1px solid rgba(255,255,255,0.18);
-		}
-		#mp-lb-title { font: 700 11px/1 sans-serif; margin-bottom: 6px; opacity: 0.9; }
-		#mp-lb-list {
-			margin: 0;
-			padding-left: 16px;
-			max-height: 120px;
-			overflow: auto;
-			font: 600 11px/1.35 sans-serif;
-		}
-		#mp-lb-list li { margin: 2px 0; }
-		#mp-debug-overlay {
-			position: fixed;
-			top: 50%;
-			left: 50%;
-			transform: translate(-50%, -50%);
-			width: 80%;
-			max-width: 600px;
-			height: 350px;
-			background: rgba(10, 10, 15, 0.92);
-			border: 2px solid #00f0ff;
-			border-radius: 8px;
-			color: #00ff88;
-			font-family: monospace;
-			font-size: 12px;
-			padding: 12px;
-			overflow-y: auto;
-			z-index: 9999;
-			display: none;
-			box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
-		}
-		#mp-public-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.18); }
-		#mp-public-row[hidden], #mp-pubtrack-row[hidden] { display: none !important; }
-		#mp-public-row > .mp-public-label { font: 700 11px/1 sans-serif; opacity: 0.9; }
-		#mp-public-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
-		#mp-public-buttons button {
-			flex: 1 1 auto;
-			min-width: 0;
-			border: none;
-			border-radius: 6px;
-			background: rgba(83,212,255,0.18);
-			color: #fff;
-			padding: 6px 7px;
-			font: 600 11px/1 sans-serif;
-			cursor: pointer;
-		}
-		#mp-public-buttons button:hover { background: rgba(83,212,255,0.34); }
-		#mp-public-buttons button:disabled { opacity: 0.5; cursor: default; }
-		#mp-public-leave-btn {
-			border: none;
-			border-radius: 6px;
-			background: rgba(255,92,120,0.20);
-			color: #ffd6dc;
-			padding: 6px 8px;
-			font: 600 11px/1 sans-serif;
-			cursor: pointer;
-		}
-		#mp-public-leave-btn:hover { background: rgba(255,92,120,0.36); }
-		#mp-player-count { font: 600 11px/1 sans-serif; color: #9be8ff; opacity: 0.9; margin: 4px 0; }
 		/* Propose-a-map-vote row: shown only while connected to a public server
 		   (toggled to display:flex / none by updatePublicServerButtonStates). */
-		#mp-pubtrack-row { display: none; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.18); }
-		#mp-pubtrack-row > .mp-public-label { font: 700 11px/1 sans-serif; opacity: 0.9; }
-		#mp-pubtrack-input-wrap { display: flex; gap: 6px; align-items: center; }
-		#mp-pubtrack-input {
-			flex: 1; min-width: 0;
-			border-radius: 6px;
-			border: 1px solid rgba(255,255,255,0.24);
-			background: rgba(20,20,20,0.45);
-			color: #fff;
-			padding: 6px 8px;
-			font: 600 11px/1.2 sans-serif;
-		}
-		#mp-pubtrack-btn {
-			border: none; border-radius: 6px;
-			background: rgba(83,212,255,0.25); color: #fff;
-			padding: 6px 10px; font: 700 11px/1 sans-serif; cursor: pointer;
-			white-space: nowrap;
-		}
-		#mp-pubtrack-btn:hover { background: rgba(83,212,255,0.4); }
 		/* Map-vote prompt: a bottom-of-screen overlay shown to everyone on the
 		   public server while a vote is active. */
-		#mp-vote-prompt {
-			position: fixed;
-			left: 50%;
-			bottom: 18px;
-			transform: translateX(-50%);
-			z-index: 258;
-			display: none;
-			flex-direction: column;
-			align-items: center;
-			gap: 10px;
-			padding: 14px 20px;
-			border-radius: 14px;
-			background: rgba(15,18,24,0.96);
-			border: 1px solid rgba(83,212,255,0.5);
-			color: #fff;
-			font: 600 14px/1.4 sans-serif;
-			box-shadow: 0 14px 40px rgba(0,0,0,0.55);
-			min-width: 280px;
-			max-width: min(560px, calc(100vw - 24px));
-		}
-		#mp-vote-prompt.visible { display: flex; }
-		#mp-vote-header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; width: 100%; }
-		#mp-vote-title { margin: 0; font: 800 16px/1.2 sans-serif; }
-		#mp-vote-timer {
-			font: 800 18px/1 monospace;
-			color: #bde6ff;
-			min-width: 2.4em;
-			text-align: right;
-			white-space: nowrap;
-		}
-		#mp-vote-timer.urgent { color: #ff6b81; }
-		#mp-vote-track-name { margin: 0; color: #bde6ff; font: 700 14px/1.3 sans-serif; text-align: center; word-break: break-word; }
-		#mp-vote-buttons { display: flex; gap: 10px; align-items: center; }
-		#mp-vote-yes, #mp-vote-no {
-			border: none; border-radius: 8px;
-			padding: 8px 18px;
-			font: 800 14px/1 sans-serif;
-			cursor: pointer;
-			color: #04130a;
-		}
-		#mp-vote-yes { background: #4ade80; }
-		#mp-vote-yes:hover:not(:disabled) { background: #6ee39a; }
-		#mp-vote-no { background: #fb7185; color: #1a0608; }
-		#mp-vote-no:hover:not(:disabled) { background: #ff8a9d; }
-		#mp-vote-yes:disabled, #mp-vote-no:disabled { opacity: 0.45; cursor: default; }
-		#mp-vote-counts { display: flex; gap: 16px; font: 700 13px/1 sans-serif; opacity: 0.95; }
-		#mp-vote-yes-count { color: #86efac; }
-		#mp-vote-no-count { color: #fda4af; }
 		#competitions-warning-overlay {
 			position: fixed;
 			inset: 0;
@@ -1208,6 +1044,31 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			cursor: pointer;
 		}
 		#name-popup button:hover { background: rgba(255,255,255,0.2); }
+		/* Big "create an account" button — same teal-blue treatment as the
+		   in-game menu button, but bigger, so it clearly outshines the two
+		   plain buttons above it. Hidden once the player is signed in. */
+		#name-popup button#name-popup-account {
+			display: block;
+			width: 100%;
+			box-sizing: border-box;
+			flex: none;
+			margin-top: 12px;
+			padding: 14px 12px;
+			border: 1px solid rgba(140,210,255,0.58);
+			border-radius: 10px;
+			background: linear-gradient(145deg, rgba(44,117,210,0.92), rgba(18,44,82,0.9));
+			box-shadow: 0 8px 24px rgba(0,0,0,0.34);
+			font: 800 14px/1.2 sans-serif;
+			letter-spacing: 0.02em;
+			color: #eaf6ff;
+			text-align: center;
+			cursor: pointer;
+		}
+		#name-popup button#name-popup-account:hover {
+			background: linear-gradient(145deg, rgba(58,140,236,0.95), rgba(24,58,104,0.92));
+			box-shadow: 0 8px 26px rgba(0,0,0,0.38), 0 0 0 1px rgba(140,210,255,0.35);
+		}
+		#name-popup button#name-popup-account:active { transform: translateY(1px); }
 		
 		#quick-menu-btn {
 			position: absolute;
@@ -1400,7 +1261,28 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			font-family: "Inter", "Segoe UI", sans-serif;
 			overflow-y: auto;
 		}
-		#home-landing.visible { display: flex; }
+		#home-landing.visible { display: flex; animation: homeLandingIn 0.45s ease backwards; }
+		@keyframes homeLandingIn {
+			from { opacity: 0; transform: translateY(10px); }
+			to { opacity: 1; transform: none; }
+		}
+		/* Black dip between screens (user order 2026-10-06): every screen
+		   swap goes fade-to-black, swap, fade-back so each page feels
+		   separate instead of a glassy crossfade. */
+		#screen-fade {
+			position: fixed;
+			inset: 0;
+			z-index: 300;
+			background: #000;
+			opacity: 0;
+			pointer-events: none;
+			transition: opacity 0.45s ease;
+		}
+		#screen-fade.dark {
+			opacity: 1;
+			pointer-events: all;
+			transition: opacity 0.3s ease;
+		}
 		#home-card {
 			position: relative;
 			width: min(1200px, 100%);
@@ -1420,6 +1302,29 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			gap: 12px;
 			margin-bottom: 4px;
 		}
+		.home-gear-btn {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 44px;
+			height: 44px;
+			flex-shrink: 0;
+			border-radius: 12px;
+			background: rgba(255,255,255,0.07);
+			border: 1px solid rgba(255,255,255,0.14);
+			color: #cfe0f2;
+			text-decoration: none;
+			transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+		}
+		.home-gear-btn svg {
+			width: 21px;
+			height: 21px;
+			transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+		}
+		.home-gear-btn:hover { background: rgba(119,243,177,0.14); border-color: rgba(119,243,177,0.4); color: #eafff2; }
+		.home-gear-btn:hover svg { transform: rotate(90deg); }
+		.home-gear-btn:active svg { transform: rotate(90deg) scale(0.9); }
+		.home-gear-btn:focus-visible { outline: 2px solid rgba(140,220,255,0.9); outline-offset: 2px; }
 		#home-card h1 {
 			margin: 0;
 			font: 900 clamp(32px, 5.5vw, 56px)/1.02 "Inter", "Segoe UI", sans-serif;
@@ -1434,28 +1339,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			color: #8ba8c9;
 			font: 500 clamp(12px, 1.6vw, 15px)/1.4 "Inter", "Segoe UI", sans-serif;
 		}
-		#home-player-counter {
-			flex-shrink: 0;
-			padding: 7px 12px;
-			border-radius: 12px;
-			background: rgba(5,10,18,0.6);
-			border: 1px solid rgba(119,243,177,0.25);
-			font: 700 12px/1.3 "Inter", "Segoe UI", sans-serif;
-			color: #d8ebff;
-			text-align: center;
-			white-space: nowrap;
-		}
-		#home-player-counter .counter-label {
-			display: block;
-			font-size: 9px;
-			font-weight: 700;
-			letter-spacing: 0.1em;
-			text-transform: uppercase;
-			color: #77f3b1;
-			opacity: 0.85;
-		}
-		#home-player-counter a { color: #9ec6ff; text-decoration: none; font-size: 10px; }
-		#home-player-counter img { display: inline; vertical-align: middle; }
 
 		/* ── Two-column layout: actions + community ── */
 		#home-body {
@@ -1472,78 +1355,118 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			display: flex;
 			align-items: center;
 			justify-content: space-between;
-			padding: 16px 20px;
+			gap: 10px;
+			padding: 18px 22px;
 			border-radius: 16px;
 			text-decoration: none;
 			color: #f7fbff;
 			background: linear-gradient(135deg, rgba(91,236,126,0.35), rgba(34,159,73,0.28));
 			border: 1px solid rgba(168,255,190,0.5);
-			font: 800 clamp(16px, 2.2vw, 22px)/1.2 "Inter", "Segoe UI", sans-serif;
+			font: 800 clamp(18px, 2.6vw, 26px)/1.2 "Inter", "Segoe UI", sans-serif;
 			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
 			box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 4px 18px rgba(77,232,152,0.14);
+			animation: home-big-pulse 2.8s ease-in-out infinite;
 		}
-		.home-big-link em {
+		@keyframes home-big-pulse {
+			0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 4px 18px rgba(77,232,152,0.12); }
+			50% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 6px 30px rgba(77,232,152,0.3); }
+		}
+		/* Shared button anatomy: icon chip + text stack + chevron */
+		.home-ico {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 34px;
+			height: 34px;
+			flex-shrink: 0;
+			border-radius: 10px;
+			background: rgba(255,255,255,0.1);
+		}
+		.home-ico svg { width: 19px; height: 19px; }
+		.home-btn-text { display: block; flex: 1; }
+		.home-btn-text em {
+			display: block;
 			font-style: normal;
 			font-weight: 500;
 			font-size: clamp(11px, 1.2vw, 13px);
 			opacity: 0.85;
+			margin-top: 2px;
 		}
+		.home-chevron {
+			flex-shrink: 0;
+			font-size: 0.8em;
+			opacity: 0.75;
+			transition: transform 0.15s ease;
+		}
+		.home-big-link:hover .home-chevron,
+		.home-official-link:hover .home-chevron,
+		.home-mid-link:hover .home-chevron { transform: translateX(4px); opacity: 1; }
+		.home-big-link:active,
+		.home-official-link:active,
+		.home-mid-link:active,
+		.home-small-link:active { transform: translateY(0) scale(0.985); }
+		.home-big-link:focus-visible,
+		.home-official-link:focus-visible,
+		.home-mid-link:focus-visible,
+		.home-small-link:focus-visible { outline: 2px solid rgba(140,220,255,0.9); outline-offset: 2px; }
 		.home-big-link:hover {
 			transform: translateY(-2px);
+			animation-play-state: paused;
 			box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 8px 30px rgba(77,232,152,0.28);
 			background: linear-gradient(135deg, rgba(91,236,126,0.45), rgba(34,159,73,0.38));
+		}
+		@media (prefers-reduced-motion: reduce) {
+			.home-big-link { animation: none; }
 		}
 		.home-official-link {
 			display: flex;
 			align-items: center;
-			justify-content: space-between;
-			padding: 9px 18px;
-			border-radius: 13px;
+			gap: 12px;
+			padding: 13px 18px;
+			border-radius: 14px;
 			text-decoration: none;
 			color: #f7fbff;
-			background: linear-gradient(135deg, rgba(91,236,126,0.16), rgba(34,159,73,0.12));
-			border: 1px solid rgba(168,255,190,0.34);
-			font: 700 clamp(13px, 1.5vw, 16px)/1.2 "Inter", "Segoe UI", sans-serif;
+			background: linear-gradient(135deg, rgba(91,236,126,0.22), rgba(34,159,73,0.16));
+			border: 1px solid rgba(168,255,190,0.4);
+			font: 700 clamp(14px, 1.7vw, 18px)/1.25 "Inter", "Segoe UI", sans-serif;
 			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
 		}
-		.home-official-link em {
-			font-style: normal;
-			font-weight: 500;
-			font-size: clamp(10px, 1.1vw, 12px);
-			opacity: 0.8;
-		}
+		.home-official-link .home-btn-text em { font-size: clamp(10px, 1.1vw, 12px); }
 		.home-official-link:hover {
-			transform: translateY(-1px);
-			box-shadow: 0 6px 22px rgba(77,232,152,0.18);
-			background: linear-gradient(135deg, rgba(91,236,126,0.26), rgba(34,159,73,0.2));
+			transform: translateY(-2px);
+			box-shadow: 0 8px 26px rgba(77,232,152,0.22);
+			background: linear-gradient(135deg, rgba(91,236,126,0.32), rgba(34,159,73,0.26));
 		}
 
 		.home-mid-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 		.home-mid-link {
-			display: block;
-			padding: 12px 14px;
-			min-height: 64px;
-			border-radius: 13px;
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			padding: 14px 16px;
+			min-height: 74px;
+			border-radius: 14px;
 			text-decoration: none;
 			color: #f7fbff;
-			background: linear-gradient(165deg, rgba(90,159,255,0.28), rgba(47,104,181,0.3));
-			border: 1px solid rgba(189,223,255,0.42);
-			font: 700 clamp(12px, 1.3vw, 15px)/1.2 "Inter", "Segoe UI", sans-serif;
+			background: linear-gradient(165deg, rgba(108,200,255,0.3), rgba(47,124,214,0.32));
+			border: 1px solid rgba(189,223,255,0.5);
+			font: 700 clamp(13px, 1.5vw, 17px)/1.2 "Inter", "Segoe UI", sans-serif;
 			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
-			box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 3px 14px rgba(47,124,214,0.14);
 		}
 		.home-mid-link em {
 			display: block;
-			margin-top: 5px;
+			margin-top: 4px;
 			font-style: normal;
 			font-weight: 500;
-			font-size: 11px;
+			font-size: clamp(10px, 1.1vw, 12px);
 			opacity: 0.88;
 		}
 		.home-mid-link:hover {
 			transform: translateY(-2px);
-			box-shadow: 0 8px 22px rgba(30,71,126,0.3);
-			background: linear-gradient(165deg, rgba(118,185,255,0.38), rgba(59,128,212,0.34));
+			box-shadow: 0 8px 24px rgba(30,71,126,0.32), inset 0 1px 0 rgba(255,255,255,0.2);
+			background: linear-gradient(165deg, rgba(130,206,255,0.4), rgba(62,140,226,0.4));
 		}
 		.home-record-chip {
 			display: none;
@@ -1577,18 +1500,23 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 		.home-small-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 		.home-small-link {
 			position: relative;
-			display: block;
-			padding: 10px 8px;
-			min-height: 52px;
-			border-radius: 11px;
+			display: grid;
+			grid-template-columns: auto 1fr;
+			align-items: center;
+			gap: 9px;
+			padding: 12px 10px;
+			min-height: 54px;
+			border-radius: 12px;
 			text-decoration: none;
 			color: #d6e4f7;
 			background: rgba(255,255,255,0.07);
 			border: 1px solid rgba(255,255,255,0.13);
-			font: 600 clamp(11px, 1.1vw, 13px)/1.25 "Inter", "Segoe UI", sans-serif;
+			font: 600 clamp(11px, 1.2vw, 13px)/1.25 "Inter", "Segoe UI", sans-serif;
 			text-align: center;
-			transition: transform 0.15s ease, background 0.2s ease;
+			transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
 		}
+		.home-small-link .home-ico { width: 28px; height: 28px; border-radius: 8px; }
+		.home-small-link .home-ico svg { width: 15px; height: 15px; }
 		.home-small-link em {
 			display: block;
 			margin-top: 3px;
@@ -1638,6 +1566,229 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			border-radius: 16px;
 			background: rgba(5,10,18,0.5);
 			border: 1px solid rgba(255,255,255,0.1);
+		}
+		.home-account-cta {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			gap: 10px;
+			/* Same fatness as the Play now button (user order 2026-10-06):
+			   identical padding + border-box sizing keeps the two cards the
+			   same height; margin-top:auto snaps it to the panel bottom. */
+			box-sizing: border-box;
+			min-height: 87px;
+			margin-top: auto;
+			padding: 18px 22px;
+			border-radius: 14px;
+			text-decoration: none;
+			color: #f7fbff;
+			background: linear-gradient(135deg, rgba(91,236,126,0.32), rgba(34,159,73,0.26));
+			border: 1px solid rgba(168,255,190,0.45);
+			font: 800 clamp(14px, 1.7vw, 18px)/1.2 "Inter", "Segoe UI", sans-serif;
+			text-align: center;
+			transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 4px 18px rgba(77,232,152,0.14);
+		}
+		.home-account-cta .home-btn-text em {
+			display: block;
+			font-style: normal;
+			font-weight: 500;
+			font-size: clamp(10px, 1.1vw, 12px);
+			opacity: 0.85;
+			margin-top: 3px;
+		}
+		.home-account-cta:hover {
+			transform: translateY(-2px);
+			background: linear-gradient(135deg, rgba(91,236,126,0.42), rgba(34,159,73,0.36));
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 8px 30px rgba(77,232,152,0.26);
+		}
+		.home-account-cta:active { transform: translateY(0) scale(0.985); }
+		.home-account-cta:focus-visible { outline: 2px solid rgba(140,220,255,0.9); outline-offset: 2px; }
+
+		/* ── Settings & Account landing sub-page (user order 2026-10-06) ── */
+		#home-settings-page {
+			position: fixed;
+			inset: 0;
+			z-index: 201;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			padding: clamp(12px, 2.5vw, 34px);
+			background:
+				radial-gradient(circle at 15% 12%, rgba(83, 212, 255, 0.28), transparent 42%),
+				radial-gradient(circle at 88% 88%, rgba(141, 255, 119, 0.22), transparent 38%),
+				linear-gradient(160deg, rgba(8,14,24,0.97), rgba(8,11,18,0.99));
+			font-family: "Inter", "Segoe UI", sans-serif;
+			opacity: 0;
+			visibility: hidden;
+			transition: opacity 0.35s ease, visibility 0s linear 0.35s;
+		}
+		#home-settings-page.open {
+			opacity: 1;
+			visibility: visible;
+			transition: opacity 0.45s ease;
+		}
+		.settings-shell {
+			display: flex;
+			flex-direction: column;
+			gap: 14px;
+			width: 100%;
+			height: 100%;
+			max-width: 1500px;
+		}
+		#home-settings-page.open .settings-shell {
+			animation: settingsShellIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+		}
+		@keyframes settingsShellIn {
+			from { transform: translateY(16px) scale(0.995); opacity: 0.4; }
+			to { transform: none; opacity: 1; }
+		}
+		.settings-shell-header {
+			display: flex;
+			align-items: center;
+			gap: 16px;
+			flex-shrink: 0;
+		}
+		.settings-shell-header h2 {
+			margin: 0;
+			font: 800 clamp(18px, 2.2vw, 26px)/1.2 "Inter", "Segoe UI", sans-serif;
+			color: #f2f8ff;
+			letter-spacing: 0.01em;
+		}
+		.settings-header-sep { color: #77f3b1; font-weight: 700; }
+		.settings-back-btn {
+			display: inline-flex;
+			align-items: center;
+			gap: 8px;
+			padding: 10px 16px 10px 12px;
+			border-radius: 12px;
+			border: 1px solid rgba(255,255,255,0.14);
+			background: rgba(255,255,255,0.07);
+			color: #d6e4f7;
+			font: 700 13px/1 "Inter", "Segoe UI", sans-serif;
+			cursor: pointer;
+			transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+		}
+		.settings-back-btn svg { width: 16px; height: 16px; }
+		.settings-back-btn:hover {
+			background: rgba(119,243,177,0.14);
+			border-color: rgba(119,243,177,0.4);
+			color: #eafff2;
+		}
+		.settings-back-btn:active { transform: scale(0.97); }
+		.settings-columns {
+			flex: 1;
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) clamp(280px, 26%, 400px);
+			gap: 14px;
+			min-height: 0;
+		}
+		.settings-embed-wrap {
+			min-height: 0;
+			border-radius: 18px;
+			border: 1px solid rgba(255,255,255,0.14);
+			background: rgba(5,10,18,0.5);
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 34px rgba(0,0,0,0.35);
+			overflow: hidden;
+		}
+		.settings-embed-wrap iframe {
+			width: 100%;
+			height: 100%;
+			border: none;
+			display: block;
+			background: transparent;
+		}
+		.account-side-panel {
+			min-height: 0;
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+			padding: 18px;
+			border-radius: 18px;
+			border: 1px solid rgba(119,243,177,0.24);
+			background: rgba(5,10,18,0.5);
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 34px rgba(0,0,0,0.35);
+			overflow-y: auto;
+		}
+		.account-side-panel h3 {
+			margin: 0;
+			font: 800 10px/1 "Inter", "Segoe UI", sans-serif;
+			letter-spacing: 0.12em;
+			text-transform: uppercase;
+			color: #77f3b1;
+		}
+		.acct-status {
+			padding: 9px 12px;
+			border-radius: 10px;
+			background: rgba(255,255,255,0.06);
+			border: 1px solid rgba(255,255,255,0.12);
+			font: 600 12.5px/1.4 "Inter", "Segoe UI", sans-serif;
+			color: #d8ebff;
+		}
+		.acct-status.error {
+			color: #ffb3b3;
+			border-color: rgba(255,120,120,0.35);
+			background: rgba(255,90,90,0.08);
+		}
+		.acct-fields { display: flex; flex-direction: column; gap: 6px; }
+		.acct-fields label {
+			font: 700 10px/1 "Inter", "Segoe UI", sans-serif;
+			letter-spacing: 0.08em;
+			text-transform: uppercase;
+			color: #9fb7d4;
+			margin-top: 6px;
+		}
+		.acct-fields input {
+			padding: 10px 12px;
+			border-radius: 10px;
+			border: 1px solid rgba(255,255,255,0.16);
+			background: rgba(0,0,0,0.35);
+			color: #f0f7ff;
+			font: 600 13px/1.3 "Inter", "Segoe UI", sans-serif;
+			outline: none;
+			transition: border-color 0.15s ease, box-shadow 0.15s ease;
+		}
+		.acct-fields input:focus {
+			border-color: rgba(119,243,177,0.6);
+			box-shadow: 0 0 0 3px rgba(119,243,177,0.12);
+		}
+		.acct-actions { display: flex; gap: 8px; margin-top: 10px; }
+		.acct-session-actions { display: none; flex-direction: column; gap: 8px; }
+		.account-side-panel.signed-in .acct-fields { display: none; }
+		.account-side-panel.signed-in .acct-session-actions { display: flex; }
+		.acct-btn {
+			flex: 1;
+			padding: 11px 12px;
+			border-radius: 11px;
+			border: 1px solid rgba(255,255,255,0.15);
+			background: rgba(255,255,255,0.08);
+			color: #e8f2ff;
+			font: 700 13px/1 "Inter", "Segoe UI", sans-serif;
+			cursor: pointer;
+			transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+		}
+		.acct-btn:hover { background: rgba(255,255,255,0.14); transform: translateY(-1px); }
+		.acct-btn:active { transform: translateY(0) scale(0.98); }
+		.acct-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
+		.acct-btn-primary {
+			background: linear-gradient(135deg, rgba(91,236,126,0.32), rgba(34,159,73,0.26));
+			border-color: rgba(168,255,190,0.45);
+		}
+		.acct-btn-primary:hover { background: linear-gradient(135deg, rgba(91,236,126,0.42), rgba(34,159,73,0.36)); }
+		.acct-btn-blue {
+			background: linear-gradient(165deg, rgba(108,200,255,0.3), rgba(47,124,214,0.32));
+			border-color: rgba(189,223,255,0.5);
+		}
+		.acct-btn-blue:hover { background: linear-gradient(165deg, rgba(130,206,255,0.4), rgba(62,140,226,0.4)); }
+		.acct-btn-danger {
+			border-color: rgba(255,140,140,0.35);
+			color: #ffd9d9;
+		}
+		.acct-btn-danger:hover { background: rgba(255,90,90,0.12); }
+		.acct-hint {
+			margin: auto 0 0;
+			font: 500 11px/1.5 "Inter", "Segoe UI", sans-serif;
+			color: #8ba8c9;
 		}
 		.home-panel-title {
 			font: 800 10px/1 "Inter", "Segoe UI", sans-serif;
@@ -1928,7 +2079,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 			#editor-link, #totd-link, #weekly-cup-link, #coin-leaderboard-link, #competitions-link,
 			#replay-link, #tracks-link, #clubs-link, #mods-link, #hacks-toggle, #split-link,
 			#share-time-btn, #export-ghost-btn, #import-ghost-btn { display: none !important; }
-			#mobile-actions-menu, #mp-panel { display: none !important; }
+			#mobile-actions-menu { display: none !important; }
 			#car-select, #lap-hud, #economy-hud {
 				position: fixed;
 				top: calc(8px + env(safe-area-inset-top, 0px));
@@ -1985,6 +2136,10 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	/* ── Home page ── */
 	body.mobile #home-body { grid-template-columns: 1fr !important; }
 	body.mobile #home-community { order: 2; margin-top: 12px; }
+	body.mobile #home-settings-page { padding: 10px; }
+	body.mobile .settings-columns { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+	body.mobile .account-side-panel { max-height: 44%; }
+	body.mobile .acct-btn { padding: 12px 10px; }
 	body.mobile .home-mid-row { grid-template-columns: 1fr !important; }
 	body.mobile .home-small-row { grid-template-columns: 1fr 1fr !important; }
 	body.mobile #home-card { padding: 14px; border-radius: 14px; }
@@ -1996,10 +2151,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	body.mobile .home-small-link em { font-size: 9px; }
 	body.mobile #home-secondary { flex-wrap: wrap; }
 	body.mobile .home-secondary-link { padding: 8px 12px; font-size: 12px; }
-	body.mobile #home-player-counter { font-size: 10px; padding: 5px 8px; }
-	body.mobile #home-player-counter .counter-label { font-size: 8px; }
 	@media (max-width: 420px) {
-		body.mobile #home-player-counter { display: none; }
 		body.mobile .home-small-row { grid-template-columns: 1fr !important; }
 	}
 
@@ -2055,8 +2207,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	body.mobile #home-menu-btn,
 	body.mobile #quick-menu-btn,
 	body.mobile #quick-menu-panel,
-	body.mobile #mobile-actions-menu,
-	body.mobile #mp-panel { display: none !important; }
+	body.mobile #mobile-actions-menu { display: none !important; }
 
 	/* ── Mobile action dock (show on mobile only) ── */
 	body.mobile #mobile-action-dock { display: flex; }
@@ -2286,7 +2437,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	
 	<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 	<link rel="preconnect" href="https://esm.sh" crossorigin>
-<!--	<link rel="modulepreload" href="js/main.js?v=999970">
+<!--	<link rel="modulepreload" href="js/main.js?v=1000392">
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/GLTFLoader.js" crossorigin>
 	<link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/loaders/OBJLoader.js" crossorigin>
@@ -2371,32 +2522,31 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					<h1>Skid Circuit</h1>
 					<p class="sr-only">Skid Circuit is a free 3D browser racing game where you can race, drift, compete for fast times, build custom tracks, and play with the community.</p>
 				</div>
-				<div id="home-player-counter" aria-label="Visitor counter">
-					<span class="counter-label">Racers</span>
-					 <a href='http://www.freevisitorcounters.com'>Free Counters</a> 
-					<script type='text/javascript' src='https://www.freevisitorcounters.com/auth.php?id=8c08ca2085e6e6b39ce58b3360d75f2bbb9e213b'></script>
-<script type="text/javascript" src="https://www.freevisitorcounters.com/en/home/counter/1612582/t/0"></script>
-				</div>
+				<a id="home-gear-btn" class="home-gear-btn" href="settings.html" aria-label="Settings and account" title="Settings & account"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a-.481.481 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></a>
 			</div>
 			<p id="home-tagline">Race. Build. Share. Compete. — a browser racing game with tracks, clubs, and a live community board.</p>
 
 			<div id="home-body">
 				<!-- Left: Actions -->
 				<div id="home-actions">
-					<a class="home-big-link" href="index.html?play=1">Play now<em>Jump straight into a race</em></a>
+					<!-- Reading order (user order 2026-10-06): Play now → Official
+					     tracks → Community tracks → Track editor, with the
+					     daily/weekly events as the bottom-left / bottom-right
+					     pair of the small row. -->
+					<a class="home-big-link" id="home-play-now" href="index.html?play=1"><span class="home-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5.14v13.72c0 .8.87 1.3 1.56.9l10.7-6.86a1.05 1.05 0 0 0 0-1.8L9.56 4.24A1.05 1.05 0 0 0 8 5.14z"/></svg></span><span class="home-btn-text">Play now<em>Jump straight into a race</em></span><span class="home-chevron">▸</span></a>
 
-					<a class="home-official-link" href="official-tracks.html">Official tracks<em>Curated campaign — 15 tracks</em></a>
+					<a class="home-official-link" href="official-tracks.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></span><span class="home-btn-text">Official tracks<em>Curated campaign — 50 tracks</em></span><span class="home-chevron">▸</span></a>
 
 					<div class="home-mid-row">
-						<a class="home-mid-link" href="tracks.html">Track shares<em>Community maps & ghosts</em></a>
-						<a class="home-mid-link" href="weekly-cup.html"><span class="home-record-chip" data-record-badge="weekly"><span class="record-label">Weekly leader</span><span class="record-name">Loading…</span></span>Weekly cup<em>Rotating competitive event</em></a>
+						<a class="home-mid-link" href="tracks.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="home-btn-text">Community tracks<em>Player-made maps, ghosts & clubs</em></span><span class="home-chevron">▸</span></a>
+						<a class="home-mid-link" href="editor.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="home-btn-text">Track editor<em>Build & share your own circuits</em></span><span class="home-chevron">▸</span></a>
 					</div>
 
 					<div class="home-small-row">
-						<a class="home-small-link" href="index.html?play=1&garage=1">Garage<em>Paint & car select</em></a>
-						<a class="home-small-link" href="editor.html">Track editor<em>Build circuits</em></a>
-						<a class="home-small-link" href="totd.html"><span class="home-record-chip" data-record-badge="totd"><span class="record-label">Today's record</span><span class="record-name">Loading…</span></span>Track of the day<em>Daily challenge</em></a>
-						<a class="home-small-link club-notify-target" href="clubs.html">Clubs<em>Racing communities</em></a>
+						<a class="home-small-link" href="index.html?play=1&garage=1"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.9 3.4c-.2.4-.3.8-.3 1.2V16c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg></span><span class="home-btn-text">Garage<em>Paint & car select</em></span></a>
+						<a class="home-small-link club-notify-target" href="clubs.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="home-btn-text">Clubs<em>Racing communities</em></span></a>
+						<a class="home-small-link" href="totd.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span><span class="home-btn-text"><span class="home-record-chip" data-record-badge="totd"><span class="record-label">Today's record</span><span class="record-name">Loading…</span></span>Track of the day<em>Daily challenge</em></span></a>
+						<a class="home-small-link" href="weekly-cup.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg></span><span class="home-btn-text"><span class="home-record-chip" data-record-badge="weekly"><span class="record-label">Weekly leader</span><span class="record-name">Loading…</span></span>Weekly cup<em>Rotating competitive event</em></span></a>
 					</div>
 
 					<div id="home-secondary">
@@ -2412,7 +2562,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<!-- Right: Community panel -->
 				<div id="home-community">
 					<div>
-						<div class="home-panel-title">Featured track (This section is WIP)</div>
+						<div class="home-panel-title">Featured community track</div>
 						<a id="home-featured-track" href="tracks.html">
 							<div class="ft-name">Loading community tracks…</div>
 							<div class="ft-meta">Fetching from the track board</div>
@@ -2431,10 +2581,54 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 							<div class="home-leader-row"><span class="home-leader-name">Loading…</span></div>
 						</div>
 					</div>
+					<!-- Fills the empty space under Placement ratings (user order
+					     2026-10-06). Enters the game without reload and opens
+					     the E menu straight on the account tab. -->
+					<a id="home-create-account" class="home-account-cta" href="settings.html"><span class="home-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg></span><span class="home-btn-text">Create account<em>Save your progress & records</em></span></a>
 				</div>
 			</div>
 		</div>
 	</section>
+	<!-- Landing sub-page (user order 2026-10-06): the home UI slides left and
+	     this page slides in. ~70% is the real settings page embedded (it fully
+	     works), the right column is a landing-tailored remake of the E-menu
+	     Account tab. -->
+	<section id="home-settings-page" aria-label="Settings and account">
+		<div class="settings-shell">
+			<header class="settings-shell-header">
+				<button id="settings-back-btn" class="settings-back-btn" type="button" aria-label="Back to home">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg><span>Back</span>
+				</button>
+				<h2>Settings <span class="settings-header-sep">&amp;</span> Account</h2>
+			</header>
+			<div class="settings-columns">
+				<div class="settings-embed-wrap">
+					<iframe id="settings-embed-frame" title="Game settings" src="about:blank"></iframe>
+				</div>
+				<aside class="account-side-panel" id="landing-account-panel">
+					<h3>Account</h3>
+					<div class="acct-status" id="landing-acct-status" role="status">Loading…</div>
+					<div class="acct-fields" id="landing-acct-fields">
+						<label for="landing-acct-user">Username</label>
+						<input id="landing-acct-user" maxlength="24" autocomplete="username" placeholder="e.g. speed_runner77">
+						<label for="landing-acct-pass">Password</label>
+						<input id="landing-acct-pass" type="password" maxlength="80" autocomplete="current-password" placeholder="At least 6 characters">
+						<div class="acct-actions">
+							<button id="landing-acct-signup" class="acct-btn acct-btn-primary" type="button">Sign up</button>
+							<button id="landing-acct-login" class="acct-btn acct-btn-blue" type="button">Log in</button>
+						</div>
+					</div>
+					<div class="acct-session-actions" id="landing-acct-session-actions">
+						<button id="landing-acct-save" class="acct-btn" type="button">Save profile to cloud</button>
+						<button id="landing-acct-load" class="acct-btn" type="button">Load profile from cloud</button>
+						<button id="landing-acct-signout" class="acct-btn acct-btn-danger" type="button">Sign out</button>
+					</div>
+					<p class="acct-hint">Your account keeps records, coins and settings in the cloud so they follow you across devices.</p>
+				</aside>
+			</div>
+		</div>
+	</section>
+	<div id="screen-fade" aria-hidden="true"></div>
 	<div id="top-message" aria-live="polite"></div>
 	<div id="effect-message" aria-live="polite"></div>
 	<a id="editor-link" href="editor.html">Create your own track</a>
@@ -2741,6 +2935,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				<button id="name-popup-save" type="button">Save & submit</button>
 				<button id="name-popup-skip" type="button">Skip for now</button>
 			</div>
+			<button id="name-popup-account" type="button">Create an account — save progress &amp; publish tracks</button>
 		</div>
 	</div>
 	<!-- Mobile-only action system: desktop keeps the original scattered links/quick menu. -->
@@ -2777,52 +2972,6 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 	<a id="home-menu-btn" href="index.html" role="button">Back to Home</a>
 	<button id="export-ghost-btn" type="button">Export ghost</button>
 	<button id="import-ghost-btn" type="button">Import ghost</button>
-	<div id="mp-panel" aria-label="Multiplayer">
-		<div id="mp-panel-title">Multiplayer</div>
-		<div id="mp-public-row" hidden>
-			<div class="mp-public-label">Public servers</div>
-			<div id="mp-public-buttons"></div>
-			<div id="mp-player-count" style="display:none;"></div>
-			<button id="mp-public-leave-btn" type="button" style="display:none;">Leave server</button>
-		</div>
-		<div id="mp-actions">
-			<button id="mp-host-btn" type="button">Host</button>
-			<button id="mp-join-btn" type="button">Join</button>
-			<button id="mp-debug-toggle-btn" type="button" title="Toggle multiplayer debug console">Toggle Debug</button>
-		</div>
-		<div id="mp-code-row">
-			<input id="mp-code-input" type="text" maxlength="6" placeholder="ROOM CODE" aria-label="Room code">
-			<button id="mp-copy-btn" type="button">Copy</button>
-		</div>
-		<div id="mp-status" aria-live="polite"></div>
-		<div id="mp-pubtrack-row" hidden>
-			<div class="mp-public-label">Propose a map vote</div>
-			<div id="mp-pubtrack-input-wrap">
-				<input id="mp-pubtrack-input" type="text" placeholder="Paste a track share URL" aria-label="Track share URL">
-				<button id="mp-pubtrack-btn" type="button">Select track</button>
-			</div>
-		</div>
-		<div id="mp-debug-overlay" aria-live="polite" aria-label="Multiplayer debug console"></div>
-		<div id="mp-lb">
-			<div id="mp-lb-title"></div>
-			<ol id="mp-lb-list"></ol>
-		</div>
-	</div>
-	<div id="mp-vote-prompt" role="dialog" aria-modal="false" aria-labelledby="mp-vote-title">
-		<div id="mp-vote-header">
-			<h2 id="mp-vote-title">Switch map?</h2>
-			<span id="mp-vote-timer" aria-live="off">30s</span>
-		</div>
-		<p id="mp-vote-track-name">Shared track</p>
-		<div id="mp-vote-buttons">
-			<button id="mp-vote-yes" type="button">Yes</button>
-			<button id="mp-vote-no" type="button">No</button>
-		</div>
-		<div id="mp-vote-counts">
-			<span>Yes: <span id="mp-vote-yes-count">0</span></span>
-			<span>No: <span id="mp-vote-no-count">0</span></span>
-		</div>
-	</div>
 	<div id="competitions-warning-overlay" role="presentation" aria-hidden="true">
 		<div id="competitions-warning-dialog" role="dialog" aria-modal="true" aria-labelledby="competitions-warning-title">
 			<h2 id="competitions-warning-title">Competitions notice</h2>
@@ -2853,6 +3002,183 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				landing.classList.add( 'visible' );
 				if ( typeof loadHomeCommunityData === 'function' ) loadHomeCommunityData();
 			}
+		} )();
+
+		// Play now / Create account: enter the game WITHOUT a reload (the
+		// game is already booted behind the landing overlay). Falls back to
+		// the hard-link hrefs (which auto-open the right state) if the game
+		// handles aren't ready yet.
+		document.getElementById( 'home-play-now' )?.addEventListener( 'click', function( e ) {
+			if ( window.__dismissHomeLanding?.() ) e.preventDefault();
+		} );
+		// Create account / gear: stay on the landing and slide into the
+		// Settings & Account sub-page (no game entry) — user order 2026-10-06.
+		function fadeThroughBlack( midSwap ) {
+
+			const fade = document.getElementById( 'screen-fade' );
+			if ( ! fade ) { midSwap(); return; }
+			fade.classList.add( 'dark' );
+			setTimeout( function () {
+
+				midSwap();
+				setTimeout( function () { fade.classList.remove( 'dark' ); }, 90 );
+
+			}, 320 );
+
+		}
+		function openLandingSettingsPage() {
+
+			fadeThroughBlack( function () {
+
+				page.classList.add( 'open' );
+				landingEl?.classList.remove( 'visible' );
+
+			} );
+			if ( frame && ! frame.dataset.loaded ) {
+
+				frame.dataset.loaded = '1';
+				frame.src = 'settings.html';
+				frame.addEventListener( 'load', function () {
+
+					try {
+
+						const doc = frame.contentDocument;
+						if ( ! doc ) return;
+						// The embedded settings page must not link OUT of the
+						// embed; hide its "Back to game" link and let the shell
+						// provide the backdrop.
+						const back = doc.querySelector( '.back-link' );
+						if ( back ) back.style.display = 'none';
+						if ( doc.body ) doc.body.style.background = 'transparent';
+						const head = doc.querySelector( '.page-head' );
+						if ( head ) head.style.marginBottom = '10px';
+
+					} catch ( err ) { /* cross-origin safety no-op */ }
+
+				} );
+
+			}
+			window.__refreshLandingAccount?.();
+
+		}
+		function closeLandingSettingsPage() {
+
+			fadeThroughBlack( function () {
+
+				page.classList.remove( 'open' );
+				landingEl?.classList.add( 'visible' );
+
+			} );
+
+		}
+		const page = document.getElementById( 'home-settings-page' );
+		const landingEl = document.getElementById( 'home-landing' );
+		const frame = document.getElementById( 'settings-embed-frame' );
+		document.getElementById( 'home-create-account' )?.addEventListener( 'click', function( e ) { e.preventDefault(); openLandingSettingsPage(); } );
+		document.getElementById( 'home-gear-btn' )?.addEventListener( 'click', function ( e ) { e.preventDefault(); openLandingSettingsPage(); } );
+		document.getElementById( 'settings-back-btn' )?.addEventListener( 'click', closeLandingSettingsPage );
+		window.addEventListener( 'keydown', function ( e ) {
+
+			if ( e.key === 'Escape' && page && page.classList.contains( 'open' ) ) {
+
+				e.preventDefault();
+				e.stopImmediatePropagation();
+				closeLandingSettingsPage();
+
+			}
+
+		}, true );
+
+		// ── Landing account panel (mirrors the E-menu account tab via
+		// window.__accountApi) ──
+		( function () {
+
+			const statusEl = document.getElementById( 'landing-acct-status' );
+			const panel = document.getElementById( 'landing-account-panel' );
+			const userEl = document.getElementById( 'landing-acct-user' );
+			const passEl = document.getElementById( 'landing-acct-pass' );
+			const fieldsEl = document.getElementById( 'landing-acct-fields' );
+			const sessionEl = document.getElementById( 'landing-acct-session-actions' );
+			if ( ! statusEl || ! panel ) return;
+
+			function setStatus( text, isError ) {
+
+				statusEl.textContent = text;
+				statusEl.classList.toggle( 'error', Boolean( isError ) );
+
+			}
+			function refresh() {
+
+				const api = window.__accountApi;
+				if ( ! api ) { setStatus( 'Game still loading…' ); return; }
+				const session = api.session();
+				panel.classList.toggle( 'signed-in', Boolean( session ) );
+				if ( session ) {
+
+					setStatus( 'Signed in as ' + session.username );
+					if ( userEl ) userEl.value = session.username;
+
+				} else {
+
+					setStatus( 'Not signed in' );
+
+				}
+
+			}
+			window.__refreshLandingAccount = refresh;
+
+			function busy( btn, promise ) {
+
+				if ( btn ) { btn.disabled = true; }
+				promise.then( () => refresh() ).catch( function ( err ) { setStatus( String( err && err.message || err ), true ); } )
+					.finally( function () { if ( btn ) btn.disabled = false; } );
+
+			}
+			document.getElementById( 'landing-acct-signup' )?.addEventListener( 'click', function () {
+
+				const u = userEl?.value?.trim(), pw = passEl?.value;
+				if ( ! u || ! pw ) { setStatus( 'Enter a username and password first.', true ); return; }
+				setStatus( 'Creating account…' );
+				busy( this, window.__accountApi.signup( u, pw ) );
+
+			} );
+			document.getElementById( 'landing-acct-login' )?.addEventListener( 'click', function () {
+
+				const u = userEl?.value?.trim(), pw = passEl?.value;
+				if ( ! u || ! pw ) { setStatus( 'Enter a username and password first.', true ); return; }
+				setStatus( 'Logging in…' );
+				busy( this, window.__accountApi.login( u, pw ) );
+
+			} );
+			document.getElementById( 'landing-acct-save' )?.addEventListener( 'click', function () {
+
+				setStatus( 'Saving…' );
+				busy( this, window.__accountApi.cloudSave() );
+
+			} );
+			document.getElementById( 'landing-acct-load' )?.addEventListener( 'click', function () {
+
+				setStatus( 'Loading…' );
+				busy( this, window.__accountApi.cloudLoad().then( function () { setStatus( 'Cloud profile loaded.' ); } ) );
+
+			} );
+			document.getElementById( 'landing-acct-signout' )?.addEventListener( 'click', function () {
+
+				window.__accountApi.signOut();
+				if ( passEl ) passEl.value = '';
+				refresh();
+
+			} );
+
+			// Mirror live session changes (auto-save, E-menu logins, boot restore).
+			( function waitApi() {
+
+				if ( window.__accountApi ) window.__accountApi.onChange( refresh );
+				else setTimeout( waitApi, 600 );
+
+			} )();
+			refresh();
+
 		} )();
 
 		// Fallback: also check on DOMContentLoaded in case the element wasn't ready
@@ -2938,15 +3264,33 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 				return raw;
 			}
 
+			// Pinned so record ids stay identical no matter which host serves the game.
+			const TRACK_ID_CANONICAL_PATH = '/Racing-game/';
+
+			// Rebase a board playUrl onto the CURRENT host so community links stay
+			// on this site after a URL move. Identical output on the current host.
+			function localizePlayUrl( playUrl ) {
+				if ( ! playUrl ) return playUrl;
+				try {
+					const src = new URL( playUrl, window.location.href );
+					const u = new URL( 'index.html', window.location.href );
+					src.searchParams.forEach( ( v, k ) => u.searchParams.set( k, v ) );
+					u.hash = src.hash;
+					return u.toString();
+				} catch ( e ) {
+					return playUrl;
+				}
+			}
+
 			function getTrackId( playUrl ) {
 				try {
-					const u = new URL( playUrl, 'https://everybodysim.github.io' );
+					const u = new URL( playUrl, window.location.href );
 					const map = u.searchParams.get( 'map' ) || '';
 					const mods = u.searchParams.get( 'mods' ) || '';
 					const q = new URLSearchParams();
 					if ( map ) q.set( 'map', map );
 					if ( mods ) q.set( 'mods', mods );
-					const rawUrl = `${ normalizeTrackPath( u.pathname ) }${ q.toString() ? `?${ q.toString() }` : '' }`;
+					const rawUrl = `${ TRACK_ID_CANONICAL_PATH }${ q.toString() ? `?${ q.toString() }` : '' }`;
 					// Default track (no map/mods) keeps the reset v5 id; others keep v4.
 					const seedVersion = ( map || mods ) ? 'v4' : 'v5';
 					return `trk-${ hashTrackSeed( `${ seedVersion }-url|${ rawUrl }` ) }`;
@@ -2984,7 +3328,7 @@ navigator.serviceWorker?.getRegistrations?.().then(rs => {
 					.filter( e => ( Number( e.viewCount ) || 0 ) >= avgPlays )
 					.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) || ( Number( b.createdAt ) || 0 ) - ( Number( a.createdAt ) || 0 ) )[ 0 ]
 					|| entries.sort( ( a, b ) => ( Number( b.viewCount ) || 0 ) - ( Number( a.viewCount ) || 0 ) )[ 0 ];
-				ftEl.href = featured.playUrl;
+				ftEl.href = localizePlayUrl( featured.playUrl );
 				ftEl.target = '_blank';
 				ftEl.rel = 'noopener noreferrer';
 				ftEl.querySelector( '.ft-name' ).textContent = featured.name;
@@ -3451,7 +3795,7 @@ document.getElementById('loading-status').textContent =
   'HTML TEST 20260621-B';
 </script>
 	         <script src="js/HudGrid.js?v=999974&cachebust=1"></script>
-      <script type="module" src="js/main.js?v=1000286&cachebust=1"></script>
+      <script type="module" src="js/main.js?v=1000416&cachebust=1"></script>
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, sans-serif;
@@ -3724,7 +4068,31 @@ document.getElementById('loading-status').textContent =
     if (Notification.permission !== "granted") return;
     if (!document.hidden && chatWindow.style.display === "flex") return;
     try {
-      new Notification("New Racing chat message", { body: String(text || "") });
+      // Easy read (user order 2026-10-06): title = who sent it, body = the
+      // message. One shared tag makes each new message REPLACE the previous
+      // notification instead of stacking a pile the OS collapses behind an
+      // expand arrow — so you always see exactly one clean notification with
+      // the latest sender + message, never a wall of clutter.
+      const raw = String(text || "");
+      const match = raw.match(/^(.+?)\s*:\s*(.+)$/);
+      const sender = match ? match[1] : "Skid Circuit chat";
+      const body = match ? match[2] : raw;
+      const notification = new Notification("\u{1F4AC} " + sender, {
+        body,
+        tag: "racing-chat-latest",
+        icon: "icons/icon-192.png",
+        badge: "icons/favicon.png"
+      });
+      // Easy use: clicking the notification focuses the game AND opens the
+      // chat window so you can reply straight away.
+      notification.onclick = () => {
+        try {
+          window.focus();
+          chatWindow.style.display = "flex";
+          setUnreadIndicator(false);
+        } catch (err) {}
+        notification.close();
+      };
     } catch (err) {
       console.warn("Chat notification failed", err);
     }

@@ -1,20 +1,20 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, triangleMesh, MotionType, castRay, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
-import { Vehicle } from './Vehicle.js?v=1000227';
-import { createShadowProxyController } from './ShadowProxy.js?v=2';
-import { Camera } from './Camera.js';
+import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, sphere, triangleMesh, MotionType, MotionQuality, castRay, createClosestCastRayCollector, createAnyCastRayCollector, createDefaultCastRaySettings, CastRayStatus, filter as ccLayerFilter } from 'crashcat';
+import { Vehicle } from './Vehicle.js?v=1000234';
+import { createShadowProxyController } from './ShadowProxy.js?v=4';
+import { Camera } from './Camera.js?v=17';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE } from './Track.js?v=1000237';
-import { buildWallColliders, createSphereBody } from './Physics.js?v=20260920';
-import { SmokeTrails, WaterSplashFX } from './Particles.js';
+import { buildTrack, decodeCells, decodeCellsAny, decodeV3Json, computeSpawnPosition, computeTrackBounds, computePoolPresetWaterCells, prerenderWaterRefraction, updateWaterQuality, setWaterUnderwaterCameraState, setWaterRefractionCullRadius, TRACK_CELLS, ORIENT_DEG, CELL_RAW, GRID_SCALE, THIN_GROUND_MODEL_KEYS, overlayFootprintYOffsetFor } from './Track.js?v=1000304';
+import { buildWallColliders, createSphereBody, setWallHeightBoost } from './Physics.js?v=20260958';
+import { SmokeTrails, WaterSplashFX } from './Particles.js?v=20260923';
 import { SkidMarks } from './SkidMarks.js';
 import { GameAudio } from './Audio.js';
 import { encodeGhostBinary, decodeGhostBinary, encodeGhostCode, decodeGhostCode } from './GhostCodec.js';
 import { DeterministicPlaybackController } from './tas-core.js';
 import { AdvancementEvents, AdvancementManager, ADVANCEMENTS } from './Advancements.js';
-import { HudExtras } from './HudExtras.js';
+import { HudExtras } from './HudExtras.js?v=4';
 import { createRuntime as _createModRuntime } from './mod-runtime.js?v=1000223';
 import Peer from './PeerTransport.js';
 import { canJoinMap, createHostCode, readFirebaseConfig } from './FirebaseMultiplayer.js';
@@ -52,7 +52,7 @@ setTimeout(() => {
 }, 0);
 
 
-const MAX_PIXEL_RATIO = 1.5;
+const MAX_PIXEL_RATIO = 2;
 const GRAPHICS_QUALITY_KEY = 'racing-graphics-quality';
 const GRAPHICS_QUALITY_PRESETS = {
 	low: { label: 'Low', maxPixelRatio: 0.85, shadows: false, shadowMapSize: 1024, smokeParticles: 24, smokeEmissionStride: 3, weatherParticleScale: 0, bloomStrength: 0, bloomRadius: 0 },
@@ -206,12 +206,16 @@ const skyDome = new THREE.Mesh(
 		fog: false,
 		uniforms: skyUniforms,
 		vertexShader: `varying vec3 vDir;
+		#include <common>
+		#include <logdepthbuf_pars_vertex>
 		void main() {
 			vDir = normalize( position );
 			vec4 wp = modelMatrix * vec4( position, 1.0 );
 			gl_Position = projectionMatrix * viewMatrix * wp;
+			#include <logdepthbuf_vertex>
 		}`,
 		fragmentShader: `varying vec3 vDir;
+		#include <logdepthbuf_pars_fragment>
 		uniform vec3 topColor;
 		uniform vec3 midColor;
 		uniform vec3 horizonColor;
@@ -219,6 +223,7 @@ const skyDome = new THREE.Mesh(
 		uniform float time;
 		uniform float vibrance;
 		void main() {
+		#include <logdepthbuf_fragment>
 			float h = clamp( vDir.y * 0.5 + 0.5, 0.0, 1.0 );
 			float horizonBand = exp( -pow( abs( h - 0.48 ) * 7.0, 2.0 ) );
 			float cloudWave = ( sin( vDir.x * 9.0 + time * 0.03 ) * sin( vDir.z * 7.0 - time * 0.02 ) );
@@ -248,7 +253,7 @@ dirLight.shadow.camera.far = 60;
 // normalBias (0.04) and decks self-shadow in stripes. 0.15 stays under one
 // deck thickness (no peter-panning) while covering the texel size.
 dirLight.shadow.bias = -0.0003;
-dirLight.shadow.normalBias = 0.15;
+dirLight.shadow.normalBias = 0.22;
 // The sun's shadow map re-renders per frame (rate-gated by
 // refreshShadowsIfNeeded) — REAL shadows for the car and moving objects.
 // The cost is kept low because the static track geometry casts through a
@@ -260,12 +265,23 @@ scene.add( dirLight );
 // for every pixel of the world — static shadows never swing as you drive.
 let shadowSunAnchor = null;
 let staticShadowProxy = null; // merged static-caster mesh for the sun depth pass (ShadowProxy.js)
+// ── Distance culling for huge builds ──
+// Track blocks that are fully swallowed by the fog get .visible=false, so
+// they cost NOTHING: main render, pool-refraction pass and every future
+// pass skip invisible objects. trackCullFar is the GAMEPLAY fog far
+// (never the underwater fog, which is tiny) + a block-size margin.
+let trackBlocksGroup = null; // the group buildTrack() added to the scene
+let trackCullFar = 0; // hide blocks farther than this from the nearest camera
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 1.5 );
 scene.add( hemiLight );
 const fillLight = new THREE.AmbientLight( 0x9cb8d9, 0.24 );
 scene.add( fillLight );
 
+
+// Huge-map shadow map cap (world half-extent units), set once the track
+// bounds are known. 0 = no cap. Every preset (re-)apply respects it via min().
+let shadowMapSizeCap = 0;
 
 function applyGraphicsPresetToRenderer() {
 
@@ -279,7 +295,7 @@ function applyGraphicsPresetToRenderer() {
 	renderer.shadowMap.enabled = preset.shadows;
 	if ( renderer.shadowMap ) renderer.shadowMap.needsUpdate = true;
 	dirLight.castShadow = preset.shadows;
-	dirLight.shadow.mapSize.setScalar( preset.shadowMapSize );
+	dirLight.shadow.mapSize.setScalar( shadowMapSizeCap ? Math.min( preset.shadowMapSize, shadowMapSizeCap ) : preset.shadowMapSize );
 	dirLight.shadow.needsUpdate = true;
 	applyBloomPreset();
 
@@ -292,6 +308,32 @@ window.addEventListener( 'resize', () => {
 
 } );
 
+// ?perf=1: tiny on-screen diagnostics (fps / sim vs render ms / draw calls)
+// so performance reports from real machines come with numbers, not vibes.
+if ( new URLSearchParams( window.location.search ).get( 'perf' ) === '1' ) {
+
+	const perfEl = document.createElement( 'div' );
+	perfEl.id = 'perf-overlay';
+	perfEl.style.cssText = 'position:fixed;top:8px;left:8px;z-index:99999;background:rgba(0,0,0,.72);color:#7ee787;font:11px/1.6 ui-monospace,monospace;padding:8px 10px;border-radius:8px;pointer-events:none;white-space:pre;';
+	document.body.appendChild( perfEl );
+	window.setInterval( () => {
+
+		const p = window.__perf || {};
+		const frameMs = Number.isFinite( p.frameMs ) ? p.frameMs : 0;
+		const renderMs = Number.isFinite( p.renderMs ) ? p.renderMs : 0;
+		const tris = Number( p.tris ) || 0;
+		perfEl.textContent =
+			`FPS ${ ( 1000 / Math.max( 1, frameMs ) ).toFixed( 1 ) }   frame ${ frameMs.toFixed( 1 ) }ms\n` +
+			`render ${ renderMs.toFixed( 1 ) }ms   rest ${( frameMs - renderMs ).toFixed( 1 ) }ms\n` +
+			`draws ${ p.calls ?? '—' }   tris ${ tris > 1e6 ? ( tris / 1e6 ).toFixed( 1 ) + 'M' : Math.round( tris / 1000 ) + 'K' }`;
+
+	}, 300 );
+	// Diagnostics-only scene handle (same gate as the overlay) so perf
+	// reports can be analyzed without touching the normal game path.
+	window.__perfScene = scene;
+
+}
+
 const loadingManager = new THREE.LoadingManager();
 loadingManager.onStart = ( url ) => appendLoadingConsole( `Fetching ${ url.split( '/' ).pop() }…` );
 loadingManager.onProgress = ( url, loaded, total ) => appendLoadingConsole( `Loaded ${ url.split( '/' ).pop() } (${ loaded }/${ total })` );
@@ -303,15 +345,29 @@ const modelNames = [
 	'vehicle-hatchback-green', 'vehicle-sedan-orange',
 	'vehicle-car-police', 'vehicle-delivery-yellow', 'vehicle-flatbed-purple', 'vehicle-van-blue',
 	'vehicle-ambulance-red', 'vehicle-firetruck-red', 'vehicle-taxi-yellow', 'vehicle-tractor-yellow', 'vehicle-trash-green',
-	'track-straight', 'track-corner', 'track-bump', 'track-finish',
+	'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-bump', 'track-finish',
 	'track-3-way', 'track-4-way',
 	'track-choke-half', 'track-choke-both',
 	'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners', 'elev-track-checkpoint', 'elev-track-slope',
 	'elev-track-3-way', 'elev-track-4-way',
 	'elev-track-choke-half', 'elev-track-choke-both',
+	'elev-choke-4-way',
+	'elev-thin-straight',
+	'elev-thin-corner',
+	'elev-thin-3-way',
+	'elev-thin-4-way',
+	'elev-wide-to-thin',
+	'elev-wide-to-thin-corner',
+	// ground thin/choke/checkpoint-corner GLBs — trimmed forks of the
+	// elevated models with all below-surface geometry removed (tunnels)
+	'track-thin-straight', 'track-thin-corner', 'track-thin-3-way', 'track-thin-4-way',
+	'track-wide-thin', 'track-wide-thin-corner', 'track-choke-cross',
+	'track-checkpoint-corner-ground',
 	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
+	'untitled',
 	'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d',
 	'garage',
+	'barrier',
 ];
 
 const models = {};
@@ -358,7 +414,7 @@ const BOOST_ACCEL_PER_SECOND = 16.5;
 const FX_SETTINGS_KEY = 'racing-fx-settings-v1';
 const COUNTDOWN_SETTINGS_KEY = 'racing-countdown-enabled-v1';
 const FPS_HUD_SETTINGS_KEY = 'racing-show-fps-v1';
-// Default-car gameplay setting: '__last' (keep last used), '__random', or a CAR_STATS key.
+// Default-car gameplay setting: '__random' (default — roll a car each race), '__last' (keep last used), or a CAR_STATS key.
 const DEFAULT_CAR_KEY = 'racing-default-car-v1';
 const COUNTDOWN_DURATION_SECONDS = 3;
 const ZERO_DRIVE_INPUT = { x: 0, z: 0 };
@@ -367,6 +423,7 @@ const SURFACE_EFFECTS = {
 	'surface-wood': { grip: 0.9, drag: 1.35, accel: 1.0, drive: 1.55 },
 	'surface-ice': { grip: 0.4, drag: 0.58, accel: 0.45, drive: 0.8 },
 	'surface-sand': { grip: 0.72, drag: 2.6, accel: 0.35, drive: 0.5 },
+	'surface-trampoline': { grip: 1.0, drag: 1.0, accel: 1.0, drive: 1.0 },
 	'surface-custom-a': { grip: 1.2, drag: 1.0, accel: 1.05, drive: 1.15 },
 	'surface-custom-b': { grip: 0.55, drag: 0.9, accel: 0.72, drive: 0.85 },
 	'surface-custom-c': { grip: 0.95, drag: 1.7, accel: 1.25, drive: 1.3 },
@@ -420,6 +477,7 @@ function suppressSeamBounce( world, veh, key, onSlope = false ) {
 }
 const PAD_EFFECTS = {
 	'pad-low-gravity': { id: 'low-gravity', gravity: 0.45 },
+	'pad-air-control': { id: 'air-control', gravity: 0.6, airControl: true },
 	'pad-heavy-gravity': { id: 'heavy-gravity', gravity: 1.7 },
 	'pad-high-grip': { id: 'high-grip', grip: 2.2, drag: 1.25 },
 	'pad-high-speed': { id: 'high-speed', accel: 1.5, drive: 1.6, topSpeed: 1.25 },
@@ -448,6 +506,26 @@ const SIZE_PAD_TYPES = new Set( [ 'pad-size-small', 'pad-size-normal', 'pad-size
 const CUSTOM_PAD_TYPES = [ 'pad-custom-a', 'pad-custom-b', 'pad-custom-c' ];
 const BOUNCE_VERTICAL_DELTA = 7.2;
 const KICK_LATERAL_DELTA = 7.4;
+const TRAMPOLINE_RESTITUTION = 0.82;
+// Max velocity-reflect bounces per pad CONTACT (leaving the pad and coming
+// back starts a fresh session). Without a cap the trampoline self-sustains:
+// the reflect fires from the ray-depth touch band (up to ~0.45 above the
+// surface, before real contact) and the near-ground 1.4x gravity boost
+// re-accelerates every micro-fall back above the MIN_IMPACT guard, so a
+// low-horizontal-speed landing locks into an infinite limit cycle of ~0.7 m/s
+// teeny bounces - the car hovers over the pad and can never land. Capping
+// the session lets the car fall through the band, contact, and rest.
+const TRAMPOLINE_MAX_BOUNCES = 3;
+// Falling slower than this = just resting/rolling on the surface (per-frame
+// gravity settles are ~0.05) — no bounce. Only real landings launch the car,
+// and reflected hops decay naturally to rest (no energy floor re-injecting).
+const TRAMPOLINE_MIN_IMPACT = 0.55;
+const AIR_CONTROL_AIR_ACCEL_PER_SECOND = 40.0;
+const AIR_CONTROL_GROUND_FORCE_PER_SECOND = 30.0;
+// Over this speed the Air Control pad's extra force cuts out — flames stay,
+// force doesn't. 55 mph = 24.59 m/s in the world units the HUD speedometer
+// reads (world u/s x 3.6 = km/h).
+const AIR_CONTROL_MAX_SPEED_MPS = 55 / 2.23694;
 const MAGNET_FULL_STRENGTH_BLOCKS = 0.5;
 const MAGNET_DEFAULT_MAX_DISTANCE_BLOCKS = 1.5;
 const MAGNET_DEFAULT_FORCE_PER_SECOND = 26.0;
@@ -458,6 +536,18 @@ const MAGNET_MAX_FORCE_PER_SECOND = 64.0;
 	const ARC_LINK_TRIGGER_RADIUS = CELL_RAW * GRID_SCALE * 0.32;
 	const ARC_LINK_MIN_TIME = 0.45;
 	const ARC_LINK_MAX_TIME = 1.6;
+	// Obstacle-hop ceiling: when the direct arc path is blocked by a static
+	// hitbox, the solver stretches flight time (higher apex) until the path
+	// clears — up to this many seconds of airtime.
+	const ARC_LINK_OBSTACLE_MAX_TIME = 2.4;
+	// The flight path is only obstacle-checked beyond this clearance from
+	// the launch/landing rings: the car legitimately rests on the road at
+	// both ends, and those resting contacts are not obstacles.
+	const ARC_LINK_PATH_END_MARGIN = 1.5;
+	// Near-ground gravity boost threshold (mirrors the per-step gravityFactor
+	// update in the sim step — |vy| below this runs gravity at 1.4x).
+	const ARC_LINK_NEAR_GROUND_VY = 1.5;
+	const ARC_LINK_NEAR_GROUND_BOOST = 1.4;
 	const AIR_TRICK_DURATION_SECONDS = 0.62;
 const WEATHER_PRESETS = {
 	clear: { bg: 0xbfe0ff, fogNearMul: 3.2, fogFarMul: 6.4, sun: 5.0, hemi: 1.5, exposure: 1.0 },
@@ -618,6 +708,13 @@ function hideLoadingOverlay() {
 		const isIndexPath = /(?:^|\/)(?:index\.html)?$/.test( location.pathname );
 		if ( isIndexPath && !map && !pack && play !== '1' ) {
 			landing.classList.add( 'visible' );
+		}
+		// ?e-menu=<tab>: open the E menu once the game is ready. Backs the
+		// homepage Create account button's hard-link fallback (?play=1&e-menu=account).
+		const eMenu = params.get( 'e-menu' );
+		if ( eMenu ) {
+			const target = eMenu === 'account' || eMenu === 'garage' || eMenu === 'nav' || eMenu === 'gameplay' ? eMenu : 'gameplay';
+			setTimeout( () => window.__openModeMenu?.( target ), 300 );
 		}
 	}
 
@@ -3503,7 +3600,12 @@ function createMovingObstacleState( scene, extras ) {
 		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
 		const type = String( typeRaw || '' );
 		const orient = Number( orientRaw ) || 0;
-		const base = new THREE.Vector3( ( gx + 0.5 ) * CELL_RAW * GRID_SCALE, -0.5 + ( CELL_RAW * GRID_SCALE * 0.08 ), ( gz + 0.5 ) * CELL_RAW * GRID_SCALE );
+		// Moving obstacles get the SAME overlay height resolution as static
+		// ones (user order 2026-10-06): up ELEVATED_HEIGHT over elevated
+		// blocks, down TUNNEL_DROP into open-top tunnels, surface height on
+		// closed roofs. createMovingObstacleState runs right after buildTrack,
+		// so the track's footprints are already snapshotted in Track.js.
+		const base = new THREE.Vector3( ( gx + 0.5 ) * CELL_RAW * GRID_SCALE, -0.5 + ( CELL_RAW * GRID_SCALE * 0.08 ) + overlayFootprintYOffsetFor( gx, gz ) * GRID_SCALE, ( gz + 0.5 ) * CELL_RAW * GRID_SCALE );
 		const obstacle = { type, orient, speed: THREE.MathUtils.clamp( Number( speedRaw ) || 1, 0.25, 3 ), base, mesh: new THREE.Group(), colliders: [] };
 		if ( type === 'moving-slide-block' ) {
 			const m = new THREE.Mesh( new THREE.BoxGeometry( 2.1, 1.2, 1.5 ), new THREE.MeshStandardMaterial( { color: 0x8ca0b8 } ) );
@@ -3613,6 +3715,7 @@ function extrasFromParsed( parsed ) {
 				bumps: Array.isArray( parsed.b ) ? parsed.b : [],
 				poles: Array.isArray( parsed.p ) ? parsed.p : [],
 				cubes: Array.isArray( parsed.k ) ? parsed.k : [],
+			physicsBoxes: Array.isArray( parsed.f ) ? parsed.f : [],
 				walls: Array.isArray( parsed.l ) ? parsed.l : [],
 				boosts: Array.isArray( parsed.s ) ? parsed.s : [],
 				elevated: Array.isArray( parsed.e ) ? parsed.e : [],
@@ -3628,6 +3731,21 @@ function extrasFromParsed( parsed ) {
 			worldPreset: parsed.t === 'pool-filled' ? 'pool-filled' : 'normal',
 			water: Array.isArray( parsed.q ) ? parsed.q : [],
 			poolSlopes: Array.isArray( parsed.z ) ? parsed.z : [],
+			// OPEN-TOP TUNNELS: g = tunnel cells. Legacy h data is migrated
+			// into canonical tunnel entries as type "slope-up".
+			tunnels: (() => {
+				const out = Array.isArray( parsed.g ) ? parsed.g.map( ( entry ) => Array.isArray( entry ) ? [ ...entry ] : entry ).filter( Array.isArray ) : [];
+				for ( const [ gx, gz, orient = 0 ] of ( Array.isArray( parsed.h ) ? parsed.h : [] ) ) {
+					const key = String( Number( gx ) ) + ',' + String( Number( gz ) );
+					const existing = out.find( ( entry ) => String( Number( entry?.[ 0 ] ) ) + ',' + String( Number( entry?.[ 1 ] ) ) === key );
+					if ( existing ) {
+						existing[ 2 ] = 0;
+						existing[ 3 ] = Number( orient ) || 0;
+						existing[ 4 ] = 'slope-up';
+					} else out.push( [ Number( gx ), Number( gz ), 0, Number( orient ) || 0, 'slope-up' ] );
+				}
+				return out;
+			})(),
 			customPool: parsed?.r && typeof parsed.r === 'object' ? parsed.r : {},
 			weather: normalizeWeatherDetails( parsed?.w ),
 		};
@@ -3898,12 +4016,18 @@ function getTrackLabel( mapParamValue ) {
 
 }
 
-function getTrackId( mapParamValue, extrasParamValue ) {
+	// Canonical game path pinned into every leaderboard record id. Record ids
+	// hash the URL path, so this MUST stay '/Racing-game/' no matter where the
+	// game is actually served — it keeps ids identical across hosts (current
+	// GitHub Pages, a renamed account, a custom domain, localhost, iframes).
+	const TRACK_ID_CANONICAL_PATH = '/Racing-game/';
+
+	function getTrackId( mapParamValue, extrasParamValue ) {
 
 	const params = new URLSearchParams();
 	if ( mapParamValue ) params.set( 'map', mapParamValue );
 	if ( extrasParamValue ) params.set( 'mods', extrasParamValue );
-	const normalizedPath = normalizeTrackPath( window.location.pathname );
+	const normalizedPath = TRACK_ID_CANONICAL_PATH;
 	const rawUrl = `${ normalizedPath }${ params.toString() ? `?${ params.toString() }` : '' }`;
 	// Only the DEFAULT track (no map, no mods) rides the v5 seed — its
 	// leaderboard was intentionally reset. Every other track keeps the v4
@@ -4079,17 +4203,27 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 	const required = new Set( carKeys );
 	required.add( 'garage' );
 	for ( const [ , , key ] of ( customCells || TRACK_CELLS ) ) {
-		required.add( key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key );
+		// 'track-choke-cross' renders via the elev-choke-4-way mesh (no dedicated
+		// ground GLB exists), so require that file instead of a 404.
+		required.add( key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish'
+			: key === 'slope-up' ? 'elev-track-slope' : THIN_GROUND_MODEL_KEYS[ key ] || key );
 	}
 	if ( extras?.worldPreset !== 'pool-filled' ) {
 		required.add( 'decoration-empty' );
 		required.add( 'decoration-forest' );
 		// Flat grass used to replace auto-forest trees that sit under (off-grid) roads.
 		required.add( 'empty-deco-grass' );
+		// Hide Trees mod swap target (empty green plane). MUST be in
+		// `required` — requiredNames is modelNames FILTERED BY this set, so
+		// an unrequired model silently never loads, models['untitled'] is
+		// undefined, and every tree swap renders NOTHING (holes).
+		required.add( 'untitled' );
 		// Default tracks include hand-authored tent decoration cells, so load that model too.
 		if ( ! customCells ) required.add( 'decoration-tents' );
 	}
 	if ( Array.isArray( extras?.bumps ) && extras.bumps.length ) required.add( 'track-bump' );
+	// Wall obstacles render via the barrier GLB (visual only; hitbox unchanged).
+	if ( Array.isArray( extras?.walls ) && extras.walls.length ) required.add( 'barrier' );
 	if ( Array.isArray( extras?.decorations ) ) {
 		for ( const deco of extras.decorations ) if ( typeof deco?.[ 2 ] === 'string' ) required.add( deco[ 2 ] );
 	}
@@ -4097,20 +4231,46 @@ function getRequiredModelNames( customCells, extras, carKeys ) {
 		for ( const entry of extras.elevated ) {
 			const et = entry?.[ 2 ];
 			if ( et === 'elevated-straight' ) required.add( 'elev-track-straight' );
-			else if ( et === 'elevated-cross' ) required.add( 'elev-track-cross' );
+			else if ( et === 'elevated-cross' || et === 'pool-cross' ) required.add( 'elev-track-cross' );
 			else if ( et === 'slope-up' || et === 'slope-down' ) required.add( 'elev-track-slope' );
 			else if ( et === 'elevated-corner' ) required.add( 'elev-track-corner' );
 			else if ( et === 'elevated-cross-corner' ) required.add( 'elev-cross-corners' );
 			else if ( et === 'elevated-checkpoint' ) required.add( 'elev-track-checkpoint' );
+			else if ( et === 'elevated-checkpoint-corner' ) required.add( 'track-checkpoint-corner' );
 			else if ( et === 'elevated-3-way' ) required.add( 'elev-track-3-way' );
 			else if ( et === 'elevated-4-way' ) required.add( 'elev-track-4-way' );
 			else if ( et === 'elevated-choke-half' ) required.add( 'elev-track-choke-half' );
 			else if ( et === 'elevated-choke-both' ) required.add( 'elev-track-choke-both' );
+			else if ( et === 'elevated-choke-cross' ) required.add( 'elev-choke-4-way' );
+			else if ( et === 'elevated-thin-straight' ) required.add( 'elev-thin-straight' );
+			else if ( et === 'elevated-thin-corner' ) required.add( 'elev-thin-corner' );
+			else if ( et === 'elevated-thin-3-way' ) required.add( 'elev-thin-3-way' );
+			else if ( et === 'elevated-thin-4-way' ) required.add( 'elev-thin-4-way' );
+			else if ( et === 'elevated-wide-thin' ) required.add( 'elev-wide-to-thin' );
+			else if ( et === 'elevated-wide-thin-corner' ) required.add( 'elev-wide-to-thin-corner' );
 			else required.add( 'track-straight' );
 		}
 	}
 	// Pool slopes reuse the elev-track-slope GLB, so ensure it's loaded.
 	if ( Array.isArray( extras?.poolSlopes ) && extras.poolSlopes.length ) required.add( 'elev-track-slope' );
+	// Tunnel pit blocks: their GLB comes from the tunnel entry's type, which
+	// NEVER appears in `cells` — request it explicitly. Without this, a
+	// corner placed only in a tunnel (no surface corner anywhere) never
+	// loaded the corner GLB, so placePiece silently returned null and the
+	// pit looked empty (user-found root cause 2026-09-28).
+	if ( Array.isArray( extras?.tunnels ) ) {
+
+		for ( const tunnelEntry of extras.tunnels ) {
+
+			if ( ! Array.isArray( tunnelEntry ) || tunnelEntry.length < 5 ) continue;
+			const tunnelType = tunnelEntry[ 4 ];
+			if ( ! tunnelType ) continue;
+			required.add( tunnelType === 'track-checkpoint' || tunnelType === 'track-start' || tunnelType === 'track-start-finish' ? 'track-finish'
+				: tunnelType === 'slope-up' ? 'elev-track-slope' : THIN_GROUND_MODEL_KEYS[ tunnelType ] || tunnelType );
+
+		}
+
+	}
 	return modelNames.filter( ( name ) => required.has( name ) );
 
 }
@@ -4126,9 +4286,42 @@ async function loadModels( requiredNames = modelNames ) {
 
 					if ( child.isMesh ) {
 
+						// The AI-generated blocks (thin/choke/cross-corners) carry
+						// inconsistent Blender normals (mixed smooth/flat), so smooth
+						// shading renders blotchy. Force PER-FACE shading for them:
+						// identical clean faceting as the classic blocks, ignoring
+						// the messy vertex normals entirely. aiFlatShaded protects
+						// the flag from Track.js's road-reference shading pass.
+						if ( /thin|choke|cross-corners/.test( name ) ) {
+
+							( Array.isArray( child.material ) ? child.material : [ child.material ] ).forEach( ( m ) => {
+
+								if ( m && m.isMeshStandardMaterial ) {
+
+									m.flatShading = true;
+									m.needsUpdate = true;
+									m.userData.aiFlatShaded = true;
+									// SHADOW ACNE ROOT CAUSE: these shells render DoubleSide
+									// (see-through curve interiors), and three.js puts BOTH
+									// faces of a double-sided mesh into the shadow map —
+									// the wall's own BACK faces then shadow its front faces
+									// = the stripey self-shadow acne. Only FRONT faces may
+									// cast. This is what will let shadows come back on.
+									m.shadowSide = THREE.FrontSide;
+
+								}
+
+							} );
+
+						}
+
 						// The garage is a walk-in scene, so render both sides of every
 						// surface while the other models keep their normal front faces.
 						if ( name === 'garage' ) child.material.side = THREE.DoubleSide;
+						// untitled.glb (empty green plane, Hide Trees mod swap target)
+						// is wound face-down — force two-sided or it renders invisible
+						// from above and leaves see-through holes in the ground.
+						else if ( name === 'untitled' ) child.material.side = THREE.DoubleSide;
 						else if ( ! name.startsWith( 'elev-track-' ) ) child.material.side = THREE.FrontSide;
 
 						// Track blocks must be flat shaded — no light reflections.
@@ -4137,8 +4330,12 @@ async function loadModels( requiredNames = modelNames ) {
 						// (user report 2026-09-20). Zero all PBR reflectivity on
 						// every block so they shade pure diffuse, consistently.
 						// Car paint (garage shiny finish) is NOT affected — this
-						// branch only runs for track-* / elev-track-* models.
-						if ( name.startsWith( 'track-' ) || name.startsWith( 'elev-track-' ) ) {
+						// branch only runs for track-block models. The gate covers
+						// EVERY road block (track-*, elev-thin-*, elev-choke-*,
+						// elev-cross-*, elev-wide-to-thin*, elev-track-*): the
+						// thin/choke shells were missed before and kept their
+						// metallic default materials — horrid reflective shading.
+						if ( name.startsWith( 'track-' ) || name.startsWith( 'elev-' ) ) {
 
 							( Array.isArray( child.material ) ? child.material : [ child.material ] ).forEach( ( m ) => {
 
@@ -4181,6 +4378,58 @@ async function loadModels( requiredNames = modelNames ) {
 	);
 
 	await Promise.all( promises );
+
+	// Hide Trees mod swap target: untitled.glb is the empty plane. Its own
+	// UVs span 0..5, which tiles the WHOLE colormap atlas five times across
+	// the plane (magenta void, road tiles, black, everything). The ground
+	// quads instead put every UV on ONE atlas point (flat grass green), so
+	// remap the plane's UVs onto the ground quad's exact sample point, read
+	// dynamically from the grass geometry. The plane then renders the same
+	// flat grass the surrounding ground shows, via the game's colormap
+	// material. Geometry stays untitled.glb. Two-sided in case the plane's
+	// faces wind downward.
+	const untitledModel = models[ 'untitled' ];
+	if ( untitledModel ) {
+
+		let grassMat = null;
+		let grassU = 0.031, grassV = 0.875; // empty-deco-grass.glb's authored sample point
+		models[ 'empty-deco-grass' ]?.traverse( ( c ) => {
+
+			if ( ! grassMat && c.isMesh ) {
+
+				grassMat = c.material;
+				const uv = c.geometry.getAttribute( 'uv' );
+				if ( uv ) { grassU = uv.getX( 0 ); grassV = uv.getY( 0 ); }
+
+			}
+
+		} );
+		untitledModel.traverse( ( c ) => {
+
+			if ( ! c.isMesh ) return;
+			if ( grassMat ) {
+
+				const m = grassMat.clone();
+				m.side = THREE.DoubleSide;
+				c.material = m;
+				const uv = c.geometry.getAttribute( 'uv' );
+				if ( uv ) {
+
+					for ( let i = 0; i < uv.count; i ++ ) uv.setXY( i, grassU, grassV );
+					uv.needsUpdate = true;
+
+				}
+
+			} else {
+
+				c.material.side = THREE.DoubleSide;
+
+			}
+
+		} );
+
+	}
+
 	appendLoadingConsole( `Ready with ${ requiredNames.length } optimized models.` );
 
 }
@@ -4647,6 +4896,24 @@ async function init() {
 		const waterByKey = new Map( [ ...generatedWater, ...explicitWater ].map( ( cell ) => [ `${ cell[ 0 ] },${ cell[ 1 ] }`, cell ] ) );
 		extras.water = [ ...waterByKey.values() ];
 	}
+	// Pools and tunnels are mutually exclusive at the cell level. This also
+	// sanitizes older/shared URLs saved before the editor enforced the rule,
+	// so legacy water can never render or affect physics inside a tunnel.
+	{
+		const tunnelKeys = new Set();
+		for ( const entry of ( Array.isArray( extras?.tunnels ) ? extras.tunnels : [] ) ) {
+			if ( Number.isFinite( Number( entry?.[ 0 ] ) ) && Number.isFinite( Number( entry?.[ 1 ] ) ) ) {
+				tunnelKeys.add( String( Number( entry[ 0 ] ) ) + ',' + String( Number( entry[ 1 ] ) ) );
+			}
+		}
+
+		if ( Array.isArray( extras?.water ) ) {
+			extras.water = extras.water.filter( ( cell ) => ! tunnelKeys.has( String( Number( cell?.[ 0 ] ) ) + ',' + String( Number( cell?.[ 1 ] ) ) ) );
+		}
+		if ( Array.isArray( extras?.poolSlopes ) ) {
+			extras.poolSlopes = extras.poolSlopes.filter( ( cell ) => ! tunnelKeys.has( String( Number( cell?.[ 0 ] ) ) + ',' + String( Number( cell?.[ 1 ] ) ) ) );
+		}
+	}
 	const requiredModelNames = getRequiredModelNames( customCells, extras, carKeys );
 	setLoadingStatus( `Loading ${ requiredModelNames.length } needed models…`, 'models' );
 	const garageCollisionPromise = loadGarageCollisionAsset();
@@ -4681,11 +4948,23 @@ async function init() {
 
 	}
 
-	// Compute track bounds and size physics/shadows to fit
-	const bounds = computeTrackBounds( customCells );
+	// Compute track bounds and size physics/shadows to fit. Bounds now cover
+	// EVERY placed block (roads, obstacles, tunnels, decorations — not just
+	// road cells, user order 2026-10-06).
+	const bounds = computeTrackBounds( customCells, extras );
 	const hw = bounds.halfWidth;
 	const hd = bounds.halfDepth;
+	// Fog keeps its original road-extent sizing base so weather visuals stay
+	// exactly as tuned — the wider ground must not stretch the fog.
 	const groundSize = Math.max( hw, hd ) * 2 + 20;
+	// Solid ground must extend at least 15 blocks of drivable ground past
+	// the farthest block on EVERY side (user order 2026-10-06): players can
+	// never fall through the world at a map edge, even next to an off-road
+	// obstacle the old road-only bounds ignored.
+	const GROUND_EDGE_CELLS = 15;
+	const groundEdge = GROUND_EDGE_CELLS * CELL_RAW * GRID_SCALE;
+	const groundHalfX = hw + groundEdge;
+	const groundHalfZ = hd + groundEdge;
 	const weatherSettings = normalizeWeatherDetails( extras?.weather );
 	const weatherConfig = WEATHER_PRESETS[ weatherSettings.preset ];
 
@@ -4716,12 +4995,45 @@ async function init() {
 	dirLight.shadow.camera.near = - shadowExtent;
 	dirLight.shadow.camera.far = 60 + 2 * shadowExtent + 20;
 	dirLight.shadow.camera.updateProjectionMatrix();
+	// FPS: huge maps cap the shadow map at 2048. The depth pass rasterizes
+	// the merged static proxy every frame, and on a huge map a 4096² map is
+	// 4x the cost while the texel-per-world-unit density is already too low
+	// for the extra resolution to read as sharper — same visuals, a quarter
+	// of the depth-pass cost. Normal maps keep the preset size untouched.
+	// The cap is remembered in shadowMapSizeCap so the boot settings re-apply
+	// on the first animate frame (and every later preset change) keeps it.
+	if ( Math.max( hw, hd ) > 55 ) {
+
+		shadowMapSizeCap = 2048;
+		if ( dirLight.shadow.map ) {
+
+			dirLight.shadow.map.dispose();
+			dirLight.shadow.map = null;
+
+		}
+		dirLight.shadow.mapSize.setScalar( Math.min( getGraphicsPreset().shadowMapSize, shadowMapSizeCap ) );
+		if ( renderer.shadowMap ) renderer.shadowMap.needsUpdate = true;
+
+	}
 
 	applySkyPalette( weatherSettings.preset );
 	buildSkyDecorations( weatherSettings.preset );
 	scene.background = new THREE.Color( weatherConfig.bg );
-	const gameplayFog = new THREE.Fog( weatherConfig.bg, groundSize * weatherConfig.fogNearMul, groundSize * weatherConfig.fogFarMul );
+	// Fog far scales with map size, which on a mega build (170+ cells wide)
+	// lands at ~20k units: no visible fog at all — and no distance to cull
+	// against either. Cap it at ~14 cells of visibility so fog actually reads
+	// on screen AND the block culler only keeps the near field (user-tuned
+	// 2026-10-06: 360 -> 144, 0.4x). Maps wider than the cap get real
+	// gameplay fog; the cull radius, shadow-proxy buckets and the pool
+	// refraction gate all follow this same number.
+	const fogFar = Math.min( groundSize * weatherConfig.fogFarMul, 144 );
+	const fogNear = Math.min( groundSize * weatherConfig.fogNearMul, fogFar * 0.5 );
+	const gameplayFog = new THREE.Fog( weatherConfig.bg, fogNear, fogFar );
 	scene.fog = gameplayFog;
+	trackCullFar = fogFar;
+	// The refraction pass only re-renders the scene while some pool tile is
+	// within this radius of the camera (mega-map gate, see Track.js).
+	setWaterRefractionCullRadius( fogFar );
 	dirLight.intensity = weatherConfig.sun;
 	hemiLight.intensity = weatherConfig.hemi;
 	renderer.toneMappingExposure = weatherConfig.exposure;
@@ -4732,7 +5044,7 @@ async function init() {
 		exposure: weatherConfig.exposure,
 	};
 
-	buildTrack( scene, models, customCells, extras );
+	trackBlocksGroup = buildTrack( scene, models, customCells, extras );
 	const movingObstacleState = createMovingObstacleState( scene, extras );
 	// Merge every static caster into ONE proxy mesh so the sun's per-frame
 	// depth pass stays cheap (a single draw for the whole track) while the
@@ -4778,7 +5090,6 @@ async function init() {
 	scene.add( hitboxDebugGroup );
 	const resettableObstacleBodies = buildWallColliders( world, hitboxDebugGroup, customCells, extras ) || [];
 
-	const roadHalf = groundSize / 2;
 	const waterCells = Array.isArray( extras?.water ) ? extras.water : [];
 	const waterCellSet = new Set( waterCells.map( ( [ gx, gz ] ) => `${ gx },${ gz }` ) );
 	const cellWorld = CELL_RAW * GRID_SCALE;
@@ -5033,13 +5344,38 @@ async function init() {
 		} );
 
 	}
-	if ( waterCells.length > 0 ) {
+	// OPEN-top tunnel cells need the SAME ground treatment pools get: the
+	// ground collider RUNS skip them, so cars fall through into the tunnel
+	// bowl (and the hitbox view shows a hole). CLOSED tops keep their ground.
+	const openTunnelGroundCells = new Set();
+	// Tunnel slope cells are ramps, not normal ground. Their cell-wide ground
+	// collider must be omitted so it cannot sit underneath the descending half
+	// of the ramp and punch through the ramp surface as the car climbs it.
+	const tunnelRoadCellSet = new Set( ( ( customCells || TRACK_CELLS ) || [] ).map( ( c ) => `${ Number( c[ 0 ] ) },${ Number( c[ 1 ] ) }` ) );
+	for ( const tunnelEntry of ( extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [] ) ) {
+
+		if ( ! Array.isArray( tunnelEntry ) ) continue;
+		const closedTop = tunnelEntry.length >= 5 && tunnelEntry[ 2 ] === 1;
+		if ( closedTop ) continue;
+		const tunnelCellKey = `${ Number( tunnelEntry[ 0 ] ) },${ Number( tunnelEntry[ 1 ] ) }`;
+		// Tunnel slope cells are the one exception to the normal road-cell rule:
+		// the slope collider itself replaces the ground collider for this cell.
+		// Keeping the ground slab underneath the ramp makes the car hit the
+		// invisible ground through the descending slope and causes the large
+		// bump at the ground -> tunnel transition. This mirrors pool slopes,
+		// whose water/pool floor system already removes the ground slab.
+		const isTunnelSlope = tunnelEntry.length >= 5 && tunnelEntry[ 4 ] === 'slope-up';
+		if ( tunnelRoadCellSet.has( tunnelCellKey ) && ! isTunnelSlope ) continue;
+		openTunnelGroundCells.add( tunnelCellKey );
+
+	}
+	if ( waterCells.length > 0 || openTunnelGroundCells.size > 0 ) {
 
 		const waterSet = waterCellSet;
-		const minGx = Math.floor( ( bounds.centerX - roadHalf ) / cellWorld ) - 1;
-		const maxGx = Math.ceil( ( bounds.centerX + roadHalf ) / cellWorld ) + 1;
-		const minGz = Math.floor( ( bounds.centerZ - roadHalf ) / cellWorld ) - 1;
-		const maxGz = Math.ceil( ( bounds.centerZ + roadHalf ) / cellWorld ) + 1;
+		const minGx = Math.floor( ( bounds.centerX - groundHalfX ) / cellWorld ) - 1;
+		const maxGx = Math.ceil( ( bounds.centerX + groundHalfX ) / cellWorld ) + 1;
+		const minGz = Math.floor( ( bounds.centerZ - groundHalfZ ) / cellWorld ) - 1;
+		const maxGz = Math.ceil( ( bounds.centerZ + groundHalfZ ) / cellWorld ) + 1;
 		const activeGroundRuns = new Map();
 		function flushGroundRun( runStart, runEnd, startGz, endGz ) {
 
@@ -5058,7 +5394,7 @@ async function init() {
 			let runStart = null;
 			for ( let gx = minGx; gx <= maxGx + 1; gx ++ ) {
 
-				const isSolidGround = gx <= maxGx && ! waterSet.has( `${ gx },${ gz }` );
+				const isSolidGround = gx <= maxGx && ! waterSet.has( `${ gx },${ gz }` ) && ! openTunnelGroundCells.has( `${ gx },${ gz }` );
 				if ( isSolidGround && runStart === null ) runStart = gx;
 				if ( ( ! isSolidGround || gx > maxGx ) && runStart !== null ) {
 
@@ -5086,7 +5422,7 @@ async function init() {
 
 	} else {
 
-		createGroundSurfaceCollider( [ roadHalf, 0.01, roadHalf ], [ bounds.centerX, - 0.125, bounds.centerZ ] );
+		createGroundSurfaceCollider( [ groundHalfX, 0.01, groundHalfZ ], [ bounds.centerX, - 0.125, bounds.centerZ ] );
 
 	}
 
@@ -5795,16 +6131,22 @@ async function init() {
 		if ( replayViewerMode && ! freecamState.active ) {
 			cam.targetPosition.copy( ghostModel.position );
 			// Recorded ghost y is the car-model base (container.y ≈ -0.1, below
-			// the road surface — correct for the visual model). Casting the
-			// hitbox clip probe from that origin lands INSIDE the static ground
-			// collider, so every cast "hits" and the camera gets pinned ~2.5
-			// units behind the car at bumper height for the whole replay.
-			// Replays are cinematic: keep the normal chase framing (pre-clip-fix
-			// behavior) and skip the probe for this update only.
-			const savedClipProbe = cam.clipProbe;
+			// the road surface — correct for the visual model). Casting ANY
+			// camera probe from that origin lands INSIDE the static ground
+			// collider, so every cast "hits": the clip probe pinned the camera
+			// ~2.5 units behind the car, and the CEILING probe's clamp drove it
+			// to ground level for whole replay stretches ("camera randomly goes
+			// to the ground"). Replays are cinematic: keep the normal chase
+			// framing (pre-probe behavior) by skipping ALL probes for this
+			// update only.
+			const savedClipProbe = cam.clipProbe, savedCeilingProbe = cam.ceilingProbe, savedFloorProbe = cam.floorProbe;
 			cam.clipProbe = null;
+			cam.ceilingProbe = null;
+			cam.floorProbe = null;
 			cam.update( 1 / 60, ghostModel.position, ghostModel.quaternion );
 			cam.clipProbe = savedClipProbe;
+			cam.ceilingProbe = savedCeilingProbe;
+			cam.floorProbe = savedFloorProbe;
 		}
 
 	}
@@ -6138,24 +6480,25 @@ async function init() {
 
 	// ── HUD Extras: speedometer, minimap, shortcuts overlay ──
 	hudExtras = new HudExtras( {
-		vehicle, cells: customCells || TRACK_CELLS, camera: cam.camera
+		vehicle, cells: customCells || TRACK_CELLS, camera: cam.camera, extras
 	} );
 	const cam2 = isSplitScreen ? new Camera() : null;
 
-	// Chase-cam hitbox clipping: a REAL physics raycast (crashcat castRay) from
-	// the car toward the camera each frame. Static hitboxes only — walls,
-	// buildings, track pieces; never the car itself or other dynamic bodies.
-	// If the segment is blocked, the camera pulls in front of the hitbox
-	// instead of clipping inside it. Chase cam only; the fixed overview cam
-	// keeps its framing untouched.
+	// The follow camera sweeps a real volume against the nearest static
+	// hitbox. Dynamic cars never block it. Ray probes below are only for
+	// choosing ceiling/floor framing; final confinement uses the sweep.
 	const camRayCollector = createAnyCastRayCollector();
 	const camRaySettings = createDefaultCastRaySettings();
 	const camRayFilter = ccLayerFilter.forWorld( world );
 	camRayFilter.bodyFilter = ( body ) => body && body.motionType === MotionType.STATIC;
+	const camRayOrigin = [ 0, 0, 0 ];
 	const CAM_CLIP_MARGIN = 0.4; // hover distance off hitbox surfaces
 	const CAM_CLIP_MIN = 1.4;     // never closer to the car than this
-	const camRayOrigin = [ 0, 0, 0 ];
 	const camRayDir = [ 0, 0, 0 ];
+	// Original pre-sweep camera clip: single physics raycast from the car
+	// toward the camera; park the camera just short of the first hit.
+	// (User order 2026-10-01: camera reverted EXACTLY to how it was before
+	// the volume-sweep/eased-glide campaign — do not re-add smoothing.)
 	const camClipProbe = ( origin, dir, length ) => {
 
 		camRayOrigin[ 0 ] = origin.x;
@@ -6169,13 +6512,57 @@ async function init() {
 		castRay( world, camRayCollector, camRaySettings, camRayOrigin, camRayDir, length, camRayFilter );
 		if ( camRayCollector.hit.status !== CastRayStatus.COLLIDING ) return length;
 		// First hit along the car→camera segment: park the camera just short of it.
-		let freeLen = camRayCollector.hit.fraction * length - CAM_CLIP_MARGIN;
-		freeLen = Math.max( freeLen, Math.min( CAM_CLIP_MIN, length ) );
+		const wallDist = camRayCollector.hit.fraction * length;
+		let freeLen = wallDist - CAM_CLIP_MARGIN;
+		if ( freeLen < Math.min( CAM_CLIP_MIN, length ) ) {
+			// The 1.4 min-distance floor must NEVER push the camera THROUGH a
+			// nearby wall — tunnel pit walls sit closer than that, and the
+			// floor shoved the camera clean outside the tunnel (user order
+			// 2026-10-02). When the wall is nearer than the comfortable
+			// minimum, park just short of the wall instead of beyond it.
+			freeLen = Math.max( Math.min( wallDist - 0.06, length ), 0.3 );
+		}
 		return Math.min( freeLen, length );
 
 	};
 	cam.clipProbe = camClipProbe;
 	if ( cam2 ) cam2.clipProbe = camClipProbe;
+	// Straight-up companion probe for the chase cam: when a static ceiling
+	// hangs right above the car (pool cross deck, low bridges), the camera
+	// clamps its height under it instead of rising past the block and
+	// getting covered by its top.
+	const camRayUpDir = [ 0, 1, 0 ];
+	const camClipCeilingProbe = ( origin, upLength ) => {
+
+		camRayOrigin[ 0 ] = origin.x;
+		camRayOrigin[ 1 ] = origin.y;
+		camRayOrigin[ 2 ] = origin.z;
+		camRayCollector.reset();
+		castRay( world, camRayCollector, camRaySettings, camRayOrigin, camRayUpDir, upLength, camRayFilter );
+		if ( camRayCollector.hit.status !== CastRayStatus.COLLIDING ) return upLength;
+		return camRayCollector.hit.fraction * upLength;
+
+	};
+	cam.ceilingProbe = camClipCeilingProbe;
+	if ( cam2 ) cam2.ceilingProbe = camClipCeilingProbe;
+	// Straight-DOWN companion probe: when the car floats in a pool on top
+	// of a sunken road surface (pool cross deck), this reports the
+	// clearance to that road so the camera can drop below the water line
+	// instead of looking down at the car through the deck.
+	const camRayDownDir = [ 0, - 1, 0 ];
+	const camClipFloorProbe = ( origin, downLength ) => {
+
+		camRayOrigin[ 0 ] = origin.x;
+		camRayOrigin[ 1 ] = origin.y;
+		camRayOrigin[ 2 ] = origin.z;
+		camRayCollector.reset();
+		castRay( world, camRayCollector, camRaySettings, camRayOrigin, camRayDownDir, downLength, camRayFilter );
+		if ( camRayCollector.hit.status !== CastRayStatus.COLLIDING ) return downLength;
+		return camRayCollector.hit.fraction * downLength;
+
+	};
+	cam.floorProbe = camClipFloorProbe;
+	if ( cam2 ) cam2.floorProbe = camClipFloorProbe;
 
 	// Reused each frame for cam.update() dynamics to avoid allocating an options
 	// object on every camera update (up to 4 calls/frame). cam.update only reads the
@@ -6218,6 +6605,27 @@ async function init() {
 	let customModFlashOverlay = null;
 	let customModSnowIntensity = 0;
 	let customModRainIntensity = 0;
+	// Mod-forced physics state uses ONE-SHOT setters and ABSOLUTE race-clock
+	// deadlines (forceBrakeUntil = raceClock + 0.4s, etc). Nothing ever cleared
+	// them, so a mod that fired during a previous attempt — or during a TAS
+	// calc/playback pass on the same ever-growing race clock — still forced the
+	// car on the NEXT respawn. Every re-anchor (retry, TAS run/seek, brute
+	// eval, auto-respawn) now starts from clean mod physics.
+	function resetCustomModForces() {
+
+		customModTimeScale = 1;
+		customModGravityScale = 1;
+		customModForceBrakeUntil = 0;
+		customModForceThrottleUntil = 0;
+		customModNoSteerUntil = 0;
+		customModShakeUntil = 0;
+		customModShakeIntensity = 0;
+		customModFlashUntil = 0;
+		customModFogStrength = 1;
+		customModParticleBurstSeconds = 0;
+
+	}
+
 	const runtimeModContext = {
 		vehicle,
 		world,
@@ -6718,6 +7126,7 @@ async function init() {
 	const namePopupInput = document.getElementById( 'name-popup-input' );
 	const namePopupSave = document.getElementById( 'name-popup-save' );
 	const namePopupSkip = document.getElementById( 'name-popup-skip' );
+	const namePopupAccount = document.getElementById( 'name-popup-account' );
 	const raceModeBtn = document.getElementById( 'mode-race-btn' );
 	const advModeBtn = document.getElementById( 'mode-advancements-btn' );
 	const advOverlay = document.getElementById( 'adv-overlay' );
@@ -6795,6 +7204,14 @@ async function init() {
 	let leaderboardVisible = true;
 	let uiHidden = false;
 	let accountSession = null;
+	// Landing-page account panel (Settings & Account page) subscribes here so it
+	// mirrors sign-in state changes happening anywhere in the game.
+	const accountUiListeners = new Set();
+	function notifyAccountUiListeners() {
+
+		for ( const fn of accountUiListeners ) { try { fn(); } catch ( e ) {} }
+
+	}
 
 	const advancementEvents = new AdvancementEvents();
 	const accountDirtyRef = { value: false };
@@ -6921,7 +7338,10 @@ async function init() {
 	})();
 	const hacksInstalled = installedMods.some( ( mod ) => mod?.id === 'hacks' );
 	const arcadeBoostInstalled = installedMods.some( ( mod ) => mod?.id === 'arcade-boost' );
-	const nonFreecamModsInstalled = installedMods.some( ( mod ) => mod?.id && mod.id !== 'freecam' && mod.id !== 'video-recorder' );
+	// Visual-only mods are whitelisted here: they never touch physics,
+	// colliders, or timing, so a lap driven under them is still a fair
+	// leaderboard entry (hide-trees swaps decoration meshes only).
+	const nonFreecamModsInstalled = installedMods.some( ( mod ) => mod?.id && mod.id !== 'freecam' && mod.id !== 'video-recorder' && mod.id !== 'hide-trees' );
 	const checkpointRespawnInstalled = installedMods.some( ( mod ) => mod?.id === 'checkpoint-respawn' );
 	const practiceStartInstalled = installedMods.some( ( mod ) => mod?.id === 'practice-start' );
 	const stuntModeModInstalled = installedMods.some( ( mod ) => mod?.id === 'stunt-mode' );
@@ -7550,6 +7970,95 @@ async function init() {
 		else disposeGarageCardPreviews();
 
 	}
+
+	// ── Homepage deep-links (user order 2026-10-06) ──
+	// The full game is already booted behind the landing overlay, so
+	// "Play now" / "Create account" can enter the game WITHOUT a page
+	// reload: dismissing the overlay IS entering. The URL gets ?play=1 so
+	// a refresh keeps you in the game.
+	// Fade to black, swap screens, fade back in (user order 2026-10-06).
+	// The black dip makes each screen feel like its own page instead of a
+	// glassy crossfade.
+	function fadeThroughBlack( midSwap ) {
+
+		const fade = document.getElementById( 'screen-fade' );
+		if ( ! fade ) { midSwap(); return; }
+		fade.classList.add( 'dark' );
+		setTimeout( () => {
+
+			midSwap();
+			setTimeout( () => fade.classList.remove( 'dark' ), 90 );
+
+		}, 320 );
+
+	}
+
+	function dismissHomeLanding() {
+
+		const landing = document.getElementById( 'home-landing' );
+		if ( ! landing || ! landing.classList.contains( 'visible' ) ) return false;
+		if ( history.replaceState && /(?:^|\/)(?:index\.html)?$/.test( location.pathname ) ) {
+
+			const params = new URLSearchParams( location.search );
+			params.set( 'play', '1' );
+			history.replaceState( null, '', `${ location.pathname }?${ params }` );
+
+		}
+		fadeThroughBlack( () => landing.classList.remove( 'visible' ) );
+		return true;
+
+	}
+	window.__dismissHomeLanding = dismissHomeLanding;
+	window.__openModeMenu = ( tab ) => {
+
+		setModeMenuOpen( true );
+		if ( tab ) setModeTab( tab );
+
+	};
+	// Inverse trip (user order 2026-10-06): the E-menu Navigation tab's
+	// "Back to Home" link used to hard-reload index.html. The game is still
+	// right there, so just re-show the landing overlay in place and strip
+	// ?play=1 so a refresh lands on the home page too.
+	function showHomeLanding() {
+
+		setModeMenuOpen( false );
+		if ( typeof closeMobileMenu === 'function' ) closeMobileMenu();
+		const landing = document.getElementById( 'home-landing' );
+		if ( ! landing ) return;
+		if ( history.replaceState && /(?:^|\/)(?:index\.html)?$/.test( location.pathname ) ) {
+
+			const params = new URLSearchParams( location.search );
+			params.delete( 'play' );
+			params.delete( 'e-menu' );
+			const qs = params.toString();
+			history.replaceState( null, '', qs ? `${ location.pathname }?${ qs }` : location.pathname );
+
+		}
+		fadeThroughBlack( () => {
+
+			document.getElementById( 'home-settings-page' )?.classList.remove( 'open' );
+			if ( ! landing.classList.contains( 'visible' ) ) {
+
+				landing.classList.add( 'visible' );
+				if ( typeof loadHomeCommunityData === 'function' ) loadHomeCommunityData();
+
+			}
+
+		} );
+
+	}
+	window.__showHomeLanding = showHomeLanding;
+	// Every in-game "Back to Home" control goes through the same no-reload
+	// path: the E-menu nav link, the HUD button, and the mobile menu sheet.
+	const homeLinkHandler = ( event ) => {
+
+		event.preventDefault();
+		showHomeLanding();
+
+	};
+	document.querySelector( '.qm-home-link' )?.addEventListener( 'click', homeLinkHandler );
+	document.getElementById( 'home-menu-btn' )?.addEventListener( 'click', homeLinkHandler );
+	document.querySelector( '#mobile-menu-sheet a[href="index.html"]' )?.addEventListener( 'click', homeLinkHandler );
 
 	function updateGraphicsQualityUi() {
 
@@ -8219,7 +8728,7 @@ async function init() {
 
 				const material = list[ i ];
 				const baseMap = Array.isArray( bases ) ? bases[ i ]?.map : bases?.map;
-				if ( material?.map && material.map !== baseMap ) material.map.dispose();
+				if ( material?.map && material.map !== baseMap && ! isGarageCachedPaintTexture( material.map ) ) material.map.dispose();
 				material?.dispose?.();
 
 			}
@@ -9041,11 +9550,54 @@ async function init() {
 	}
 
 
+	// GARAGE PAINT PERF: every preview refresh (hover, selection, commit,
+	// card refresh) used to re-run the full-pixel recolor + highlight loops and
+	// upload a brand-new CanvasTexture per material — dozens of 512x512 passes
+	// per interaction, growing as paint maps accumulate, until weak GPUs lost
+	// the WebGL context ("painting stops working"). Painted/highlighted
+	// textures are now cached by their inputs and reused; identical apply
+	// requests return without doing any work at all.
+	const garagePaintTextureCache = new Map();
+	const GARAGE_PAINT_CACHE_MAX = 128;
+	function garagePaintCacheKey( ...parts ) { return parts.join( '|' ); }
+	function isGarageCachedPaintTexture( texture ) {
+
+		for ( const cached of garagePaintTextureCache.values() ) if ( cached === texture ) return true;
+		return false;
+
+	}
+	function getGaragePaintCachedTexture( key, build ) {
+
+		if ( garagePaintTextureCache.has( key ) ) { const hit = garagePaintTextureCache.get( key ); garagePaintTextureCache.delete( key ); garagePaintTextureCache.set( key, hit ); return hit; }
+		const texture = build();
+		if ( ! texture ) return null;
+		if ( garagePaintTextureCache.size >= GARAGE_PAINT_CACHE_MAX ) {
+
+			const oldestKey = garagePaintTextureCache.keys().next().value;
+			garagePaintTextureCache.delete( oldestKey );
+
+		}
+		garagePaintTextureCache.set( key, texture );
+		return texture;
+
+	}
+	function garageMappingsSignature( mappings ) {
+
+		return ( mappings || [] ).map( ( m ) => `${ m.source?.r ?? m.sourceHex },${ m.source?.g ?? '' },${ m.source?.b ?? '' }>${ m.target?.r ?? m.targetColorId ?? '' },${ m.target?.g ?? '' },${ m.target?.b ?? '' }:${ m.toleranceSq ?? m.tolerance ?? '' }:${ m.finish ?? '' }:${ m.maskRle ?? '' }:${ m.maskW ?? '' }x${ m.maskH ?? '' }:${ ( m.mask && m.mask.length ) || 0 }` ).join( ';' );
+
+	}
 	function applyCarCustomizationToObject( root, carKey, highlightHex = '', previewUnlit = false, hoverHex = '', highlightTolerance = GARAGE_COLOR_PICK_TOLERANCE, previewMask = null, previewTargetHex = '' ) {
 
 		if ( ! root ) return;
 		const carData = getGarageCosmeticCar( carKey );
 		const mappings = Array.isArray( carData?.mappings ) ? carData.mappings : [];
+		// Skip identical applies: hover/selection/commit flows re-apply with the
+		// same args several times in a row — doing the full material rebuild for
+		// each one is the "garage gets laggy" root cause. The signature includes
+		// the paint mappings so a fresh paint always re-renders.
+		const applySignature = garagePaintCacheKey( carKey, highlightHex, previewUnlit, hoverHex, highlightTolerance, previewTargetHex, garageMappingsSignature( mappings ), previewMask ? `${ previewMask.length }:${ previewMask[ 0 ] }:${ previewMask[ previewMask.length - 1 ] }` : '' );
+		if ( root.userData?.__lastGarageApply === applySignature ) return;
+		root.userData.__lastGarageApply = applySignature;
 		const resolvedMappings = buildResolvedMappings( mappings );
 		// For the live preview, fold the in-progress selection mask into a transient mapping so the
 		// 3D clone shows exactly what will be repainted, before anything is committed.
@@ -9061,7 +9613,7 @@ async function init() {
 
 				child.userData.customMaterial.forEach( ( material, index ) => {
 
-					if ( material?.map && material.map !== child.userData.baseMaterial?.[ index ]?.map ) material.map.dispose();
+					if ( material?.map && material.map !== child.userData.baseMaterial?.[ index ]?.map && ! isGarageCachedPaintTexture( material.map ) ) material.map.dispose();
 					material?.dispose?.();
 
 				} );
@@ -9100,8 +9652,12 @@ async function init() {
 				}
 				if ( material.map ) {
 
-					const remapped = recolorTexture( material.map, effectiveMappings );
-					material.map = createHighlightedTexture( baseMaterial.map, highlightHex, hoverHex, highlightTolerance ) || remapped.texture;
+					const mappingsSig = garageMappingsSignature( effectiveMappings );
+					const remapped = getGaragePaintCachedTexture( garagePaintCacheKey( 'recolor', material.map.uuid, mappingsSig ), () => recolorTexture( material.map, effectiveMappings ) );
+					const highlightedTexture = ( highlightHex || hoverHex )
+						? getGaragePaintCachedTexture( garagePaintCacheKey( 'highlight', baseMaterial.map.uuid, highlightHex, hoverHex, highlightTolerance ), () => createHighlightedTexture( baseMaterial.map, highlightHex, hoverHex, highlightTolerance ) )
+						: null;
+					material.map = highlightedTexture || remapped.texture;
 					if ( remapped.hasShiny ) {
 
 						applyShinyFinish( material );
@@ -9525,17 +10081,55 @@ function completeCampaignStage() {
 	let rollingFps = 0;
 	let fpsHudAccumulator = 0;
 	const activeCells = customCells || TRACK_CELLS;
-	const hasSeparateStartCell = activeCells.some( ( c ) => c[ 2 ] === 'track-start' );
-	const hasSeparateFinishCell = activeCells.some( ( c ) => c[ 2 ] === 'track-finish' );
+	// Closed-roof tunnel gates are physically below the surface. Their normal
+	// checkpoint/finish trigger is intentionally 2D for ground/elevated gates,
+	// so only these underground tunnel gates get a Y requirement. This keeps the
+	// established "airborne gate trigger" feature everywhere else.
+	const CLOSED_TUNNEL_GATE_MAX_Y = - 2.0;
+	// Road levels sit CELL_RAW*0.5*GRID_SCALE world units apart (ground, elevated,
+	// tunnel). Gates only trigger when the car is within HALF that span of the
+	// gate's own level, so a checkpoint/finish on the surface can never be set
+	// off by a car driving through a tunnel below (or vice versa, and likewise
+	// ground vs elevated). Same-level flight (bumps, jumps, air tricks) stays
+	// well inside the band, so airborne gate triggers are preserved.
+	// (user order 2026-10-06: checkpoint firing from a tunnel underneath)
+	const GATE_LEVEL_STEP = CELL_RAW * GRID_SCALE * 0.5;
+	const GATE_LEVEL_HALF_SPAN = GATE_LEVEL_STEP * 0.5;
+	// Tunnel pit blocks: checkpoints/gates placed IN tunnels never appear in
+	// `cells`, so they were invisible to lap/checkpoint logic — the trigger
+	// plane test itself is 2D (no y gate), it just never got a state (user
+	// order 2026-09-28). Map them in like elevated checkpoints.
+	const tunnelCheckpointCells = Array.isArray( extras?.tunnels )
+		? extras.tunnels
+			.filter( ( t ) => Array.isArray( t ) && t.length >= 5 && ( t[ 4 ] === 'track-checkpoint' || t[ 4 ] === 'track-checkpoint-corner' ) )
+			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0, t[ 2 ] === 1, - GATE_LEVEL_STEP ] )
+		: [];
+	const tunnelGateCells = Array.isArray( extras?.tunnels )
+		? extras.tunnels
+			.filter( ( t ) => Array.isArray( t ) && t.length >= 5 && ( t[ 4 ] === 'track-start' || t[ 4 ] === 'track-finish' || t[ 4 ] === 'track-start-finish' ) )
+			.map( ( t ) => [ Number( t[ 0 ] ), Number( t[ 1 ] ), t[ 4 ], Number( t[ 3 ] ) || 0, t[ 2 ] === 1, - GATE_LEVEL_STEP ] )
+		: [];
+	const hasSeparateStartCell = activeCells.some( ( c ) => c[ 2 ] === 'track-start' ) || tunnelGateCells.some( ( c ) => c[ 2 ] === 'track-start' );
+	const hasSeparateFinishCell = activeCells.some( ( c ) => c[ 2 ] === 'track-finish' ) || tunnelGateCells.some( ( c ) => c[ 2 ] === 'track-finish' );
 	const shouldAutoRespawnAfterLap = hasSeparateStartCell && hasSeparateFinishCell;
-	const startCell = activeCells.find( ( c ) => c[ 2 ] === 'track-start' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || null;
-	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || activeCells[ 0 ];
+	const startCell = activeCells.find( ( c ) => c[ 2 ] === 'track-start' ) || tunnelGateCells.find( ( c ) => c[ 2 ] === 'track-start' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || tunnelGateCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || null;
+	const finishCell = activeCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || tunnelGateCells.find( ( c ) => c[ 2 ] === 'track-finish' ) || activeCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || tunnelGateCells.find( ( c ) => c[ 2 ] === 'track-start-finish' ) || activeCells[ 0 ];
 	const elevatedCheckpointCells = Array.isArray( extras?.elevated )
 		? extras.elevated
 			.filter( ( c ) => Array.isArray( c ) && c[ 2 ] === 'elevated-checkpoint' )
-			.map( ( [ gx, gz, , orient = 0 ] ) => [ gx, gz, 'track-checkpoint', orient ] )
+			.map( ( [ gx, gz, , orient = 0 ] ) => [ gx, gz, 'track-checkpoint', orient, false, GATE_LEVEL_STEP ] )
 		: [];
-	const checkpointCells = [ ...activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' ), ...elevatedCheckpointCells ];
+	const elevatedCornerCheckpointCells = Array.isArray( extras?.elevated )
+		? extras.elevated
+			.filter( ( c ) => Array.isArray( c ) && c[ 2 ] === 'elevated-checkpoint-corner' )
+			.map( ( [ gx, gz, , orient = 0 ] ) => [ gx, gz, 'track-checkpoint-corner', orient, false, GATE_LEVEL_STEP ] )
+		: [];
+	const checkpointCells = [
+		...activeCells.filter( ( c ) => c[ 2 ] === 'track-checkpoint' || c[ 2 ] === 'track-checkpoint-corner' ),
+		...elevatedCheckpointCells,
+		...elevatedCornerCheckpointCells,
+		...tunnelCheckpointCells,
+	];
 	const slopeElevatedCells = Array.isArray( extras?.elevated )
 		? extras.elevated.filter( ( c ) => Array.isArray( c ) && ( c[ 2 ] === 'slope-up' || c[ 2 ] === 'slope-down' ) )
 		: [];
@@ -9591,7 +10185,7 @@ function completeCampaignStage() {
 			garage: { mods: garageMods, unlocked: garageUnlocked, cosmetics: compactGarageCosmetics( garageCosmetics ) },
 			campaign: campaignState,
 			carKey: currentCarKey(),
-			defaultCar: localStorage.getItem( DEFAULT_CAR_KEY ) || '__last',
+			defaultCar: localStorage.getItem( DEFAULT_CAR_KEY ) || '__random',
 			hud: window.__hudGrid ? window.__hudGrid.getLayoutSnapshot() : undefined,
 			settings: GameSettings.getSettings(),
 		};
@@ -9612,8 +10206,23 @@ function completeCampaignStage() {
 		setAccountStatus( accountSession?.token ? `Signed in as ${ accountSession.username }` : 'Not signed in' );
 		if ( accountCloudSaveBtn ) accountCloudSaveBtn.disabled = ! accountSession?.token;
 		if ( accountCloudLoadBtn ) accountCloudLoadBtn.disabled = ! accountSession?.token;
+		notifyAccountUiListeners();
 
 	}
+
+	// ── Account API for the landing Settings & Account page (user order
+	// 2026-10-06). The E-menu keeps its own inputs; these explicit-credential
+	// variants let the landing panel do the same jobs without touching the
+	// in-game menu. Function declarations above are hoisted.
+	window.__accountApi = {
+		signup: ( username, password ) => signupAccount( username, password ),
+		login: ( username, password ) => loginAccount( username, password ),
+		signOut: () => signOutAccount(),
+		cloudSave: () => cloudSaveProfile(),
+		cloudLoad: () => cloudLoadProfile(),
+		session: () => accountSession ? { username: accountSession.username, token: accountSession.token } : null,
+		onChange: ( fn ) => { accountUiListeners.add( fn ); return () => accountUiListeners.delete( fn ); },
+	};
 
 	async function accountApiRequest( path, options = {} ) {
 
@@ -9689,7 +10298,7 @@ function completeCampaignStage() {
 
 			const localDefault = localStorage.getItem( DEFAULT_CAR_KEY );
 			const cloudDefault = typeof parsed?.defaultCar === 'string' ? parsed.defaultCar : null;
-			const nextDefault = localDefault || cloudDefault || '__last';
+			const nextDefault = localDefault || cloudDefault || '__random';
 			localStorage.setItem( DEFAULT_CAR_KEY, nextDefault );
 			const defaultSelect = document.getElementById( 'default-car-select' );
 			if ( defaultSelect ) defaultSelect.value = nextDefault;
@@ -9750,14 +10359,43 @@ function completeCampaignStage() {
 
 		if ( ! cell ) return null;
 
-		const [ gx, gz, , orient ] = cell;
-		const centerX = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
-		const centerZ = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
-		const halfExtent = ( CELL_RAW * GRID_SCALE ) * 0.5;
-		const angle = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
+		const [ gx, gz, type, orient, closedTunnelGate = false, levelY = 0 ] = cell;
+		let centerX = ( gx + 0.5 ) * CELL_RAW * GRID_SCALE;
+		let centerZ = ( gz + 0.5 ) * CELL_RAW * GRID_SCALE;
+		let halfExtent = ( CELL_RAW * GRID_SCALE ) * 0.5;
+		let angle = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
+
+		if ( type === 'track-checkpoint-corner' ) {
+
+			// Corner checkpoints: the arch spans the cell's 45-degree diagonal,
+			// so the trigger plane runs corner-to-corner instead of edge-to-edge.
+			// Slide the gate band onto the road's mid-diagonal (where the arch
+			// stands) and shrink it to the road width across the diagonal
+			// (inner arc to outer arc, same radii the corner colliders use), so
+			// the gate can only fire for a car actually driving through the
+			// turn — never for one crossing the diagonal plane outside the corner.
+			const cellHalf = CELL_RAW * 0.5;
+			const innerD = 0.25;
+			const outerD = cellHalf * 2 - 0.25;
+			const midD = ( innerD + outerD ) * 0.5;
+			angle -= Math.PI / 4;
+			// Road mid-diagonal point in the piece's local frame (raw units,
+			// arc center at (-cellHalf, +cellHalf)), scaled to world units.
+			const px = ( - cellHalf + midD * Math.SQRT1_2 ) * GRID_SCALE;
+			const pz = ( cellHalf - midD * Math.SQRT1_2 ) * GRID_SCALE;
+			// Rotate the local offset by the piece's orientation (same Y-axis
+			// rotation convention the track meshes use).
+			const cosT = Math.cos( angle + Math.PI / 4 );
+			const sinT = Math.sin( angle + Math.PI / 4 );
+			centerX += px * cosT + pz * sinT;
+			centerZ += - px * sinT + pz * cosT;
+			halfExtent = ( outerD - innerD ) * 0.5 * GRID_SCALE;
+
+		}
+
 		const cosA = Math.cos( angle );
 		const sinA = Math.sin( angle );
-		return { centerX, centerZ, halfExtent, angle, cosA, sinA };
+		return { centerX, centerZ, halfExtent, angle, cosA, sinA, closedTunnelGate, levelY };
 
 	}
 
@@ -9834,8 +10472,48 @@ function completeCampaignStage() {
 		}
 
 	}
+	// JUMP RAMPS register as slope cells too. The ramp is a 30-degree tilted
+	// collider: climbing it legitimately produces upward velocity that the
+	// seam-bounce detector otherwise "restores" every physics step — the car
+	// floats/hovers up the ramp instead of driving it (reported after the
+	// exact-mesh ramp collider made the car actually ride the slope).
+	// Off-grid (fractional) ramps span two cells per axis — register every
+	// touched integer cell so the bypass works off-grid as well.
+	if ( Array.isArray( extras?.jumps ) ) {
+
+		const jumpKeys = ( v ) => Number.isInteger( Number( v ) )
+			? [ Number( v ) ]
+			: [ Math.floor( Number( v ) ), Math.floor( Number( v ) ) + 1 ];
+		for ( const entry of extras.jumps ) {
+
+			if ( ! Array.isArray( entry ) ) continue;
+			const [ jgx, jgz ] = entry;
+			if ( ! Number.isFinite( Number( jgx ) ) || ! Number.isFinite( Number( jgz ) ) ) continue;
+			for ( const cgx of jumpKeys( jgx ) ) {
+				for ( const cgz of jumpKeys( jgz ) ) {
+					if ( ! slopeCellMap.has( `${ cgx },${ cgz }` ) ) slopeCellMap.set( `${ cgx },${ cgz }`, { gx: jgx, gz: jgz, type: 'jump-ramp', orient: entry[ 2 ] ?? 0 } );
+				}
+			}
+
+		}
+
+	}
 	// Pool slopes are real tilted colliders too (they are NOT in extras.elevated),
 	// so register their cells as well.
+	if ( Array.isArray( extras?.poolSlopes ) ) {
+		for ( const entry of extras.poolSlopes ) {
+			const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
+			if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+			const cellKeys = ( v ) => Number.isInteger( v ) ? [ v ] : [ Math.floor( v ), Math.floor( v ) + 1 ];
+			for ( const cgx of cellKeys( gx ) ) {
+				for ( const cgz of cellKeys( gz ) ) {
+					if ( ! slopeCellMap.has( `${ cgx },${ cgz }` ) ) {
+						slopeCellMap.set( `${ cgx },${ cgz }`, { gx, gz, type: 'pool-slope', orient: entry?.[ 2 ] ?? 0 } );
+					}
+				}
+			}
+		}
+	}
 	if ( Array.isArray( extras?.poolSlopes ) ) {
 		for ( const entry of extras.poolSlopes ) {
 			const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
@@ -9885,12 +10563,38 @@ function completeCampaignStage() {
 	const padEntryByCell = new Map();
 	const boostSurfaceEntryByCell = new Map();
 	const CELL_UNIT = CELL_RAW * GRID_SCALE;
+	// Off-grid pads/surfaces sit at FRACTIONAL cell coordinates, but the
+	// per-frame lookups key by INTEGER cell (floor of world position / cell
+	// size). A fractional key like "3.5,0" never matches, so off-grid pads
+	// and surfaces silently did nothing. Register each entry under EVERY
+	// integer cell its footprint [gx,gx+1] x [gz,gz+1] overlaps (cell lists,
+	// since an off-grid piece can straddle up to four integer cells), so the
+	// car finds it whichever integer cell it stands in.
+	function cellKeysForEntry( gx, gz ) {
+
+		const keys = [];
+		for ( let x = Math.floor( gx ); x <= Math.floor( gx + 1 ); x ++ ) {
+			for ( let z = Math.floor( gz ); z <= Math.floor( gz + 1 ); z ++ ) keys.push( x + ',' + z );
+		}
+		return keys;
+
+	}
+	function pushEntryByCell( map, key, entry ) {
+
+		const list = map.get( key );
+		if ( list ) list.push( entry );
+		else map.set( key, [ entry ] );
+
+	}
 	for ( const entry of surfaceEntries ) {
 
-		const key = entry.gx + ',' + entry.gz;
-		surfaceEntryByCell.set( key, entry );
-		if ( entry.type === PAD_RESET_TYPE || PAD_EFFECTS[ entry.type ] || CUSTOM_PAD_TYPES.includes( entry.type ) ) padEntryByCell.set( key, entry );
-		if ( entry.type === 'surface-boost' ) boostSurfaceEntryByCell.set( key, entry );
+		for ( const key of cellKeysForEntry( entry.gx, entry.gz ) ) {
+
+			pushEntryByCell( surfaceEntryByCell, key, entry );
+			if ( entry.type === PAD_RESET_TYPE || PAD_EFFECTS[ entry.type ] || CUSTOM_PAD_TYPES.includes( entry.type ) ) pushEntryByCell( padEntryByCell, key, entry );
+			if ( entry.type === 'surface-boost' ) pushEntryByCell( boostSurfaceEntryByCell, key, entry );
+
+		}
 
 	}
 
@@ -9899,7 +10603,10 @@ function completeCampaignStage() {
 		centerX: ( gx + 0.5 ) * CELL_RAW * GRID_SCALE,
 		centerZ: ( gz + 0.5 ) * CELL_RAW * GRID_SCALE,
 	} ) );
-	const legacyBoostEntryByCell = new Map( legacyBoostEntries.map( ( entry ) => [ entry.gx + ',' + entry.gz, entry ] ) );
+	const legacyBoostEntryByCell = new Map();
+	for ( const entry of legacyBoostEntries ) {
+		for ( const key of cellKeysForEntry( entry.gx, entry.gz ) ) pushEntryByCell( legacyBoostEntryByCell, key, entry );
+	}
 	const magnetCells = Array.isArray( extras?.magnets ) ? extras.magnets : [];
 	const arcLinkCells = Array.isArray( extras?.arcLinks ) ? extras.arcLinks : [];
 	const magnetFullStrengthDistance = CELL_RAW * GRID_SCALE * MAGNET_FULL_STRENGTH_BLOCKS;
@@ -10144,7 +10851,8 @@ function completeCampaignStage() {
 
 		const dx = Math.abs( targetVehicle.spherePos.x - entry.centerX );
 		const dz = Math.abs( targetVehicle.spherePos.z - entry.centerZ );
-		return dx <= halfExtent + VEHICLE_SURFACE_RADIUS && dz <= halfExtent + VEHICLE_SURFACE_RADIUS;
+		const vehRadius = Number( targetVehicle.hitboxRadius ) || VEHICLE_SURFACE_RADIUS;
+		return dx <= halfExtent + vehRadius && dz <= halfExtent + vehRadius;
 
 	}
 
@@ -10220,7 +10928,7 @@ function completeCampaignStage() {
 		const dx = targetVehicle.spherePos.x - entry.centerX;
 		const dz = targetVehicle.spherePos.z - entry.centerZ;
 		const padRadius = surfaceHalfExtent;
-		const radius = padRadius + VEHICLE_SURFACE_RADIUS;
+		const radius = padRadius + ( Number( targetVehicle.hitboxRadius ) || VEHICLE_SURFACE_RADIUS );
 		return dx * dx + dz * dz <= radius * radius;
 
 	}
@@ -10234,8 +10942,8 @@ function completeCampaignStage() {
 		bucket.length = 0;
 		for ( let dz = - 1; dz <= 1; dz ++ ) {
 			for ( let dx = - 1; dx <= 1; dx ++ ) {
-				const entry = byCellMap.get( ( cx + dx ) + ',' + ( cz + dz ) );
-				if ( entry ) bucket.push( entry );
+				const list = byCellMap.get( ( cx + dx ) + ',' + ( cz + dz ) );
+				if ( list ) for ( let i = 0; i < list.length; i ++ ) bucket.push( list[ i ] );
 			}
 		}
 		return bucket.length > 0;
@@ -10327,6 +11035,7 @@ function completeCampaignStage() {
 
 			case PAD_RESET_TYPE: return 'Pad Reset';
 			case 'pad-low-gravity': return 'Low Gravity';
+			case 'pad-air-control': return 'Air Control';
 			case 'pad-heavy-gravity': return 'Heavy Gravity';
 			case 'pad-high-grip': return 'High Grip';
 			case 'pad-high-speed': return 'High Speed';
@@ -10403,9 +11112,19 @@ function completeCampaignStage() {
 
 	}
 
-	function combinePadEffects( current, incoming ) {
+	function combinePadEffects( current, incoming, padType ) {
 
-		if ( ! current ) return incoming ? { ...incoming } : null;
+		// STACK CAP: one pad type can only be applied 3 times at once
+		// (a 4th run over the same boost/gravity/... pad must not keep
+		// compounding the effect, user order 2026-10-01). Counts live on
+		// the combined effect and reset with it (pad-reset / new session).
+		const PAD_STACK_CAP = 3;
+		const stacks = { ...( current?.__padStacks || {} ) };
+		const count = ( stacks[ padType ] || 0 ) + 1;
+		if ( count > PAD_STACK_CAP ) return current ? { ...current } : null;
+		stacks[ padType ] = count;
+
+		if ( ! current ) { const fresh = incoming ? { ...incoming } : null; if ( fresh ) fresh.__padStacks = stacks; return fresh; }
 		if ( ! incoming ) return { ...current };
 		const combined = { ...current, ...incoming };
 		const multiplicativeKeys = [ 'gravity', 'grip', 'drag', 'accel', 'drive', 'topSpeed', 'steering', 'timeScale', 'scale' ];
@@ -10422,6 +11141,7 @@ function completeCampaignStage() {
 		combined.disableSteering = Boolean( current.disableSteering || incoming.disableSteering );
 		combined.disableAcceleration = Boolean( current.disableAcceleration || incoming.disableAcceleration );
 		if ( incoming.trick ) combined.trick = incoming.trick;
+		combined.__padStacks = stacks;
 		return combined;
 
 	}
@@ -10452,8 +11172,17 @@ function completeCampaignStage() {
 		}
 		const effect = getPadEffectForType( contact.type );
 		const previous = getCurrentEffect ? ( getCurrentEffect() || null ) : null;
+		const stacks = previous?.__padStacks || {};
+		if ( ! SIZE_PAD_TYPES.has( contact.type ) && ( stacks[ contact.type ] || 0 ) >= 3 ) {
+
+			// This pad type is already stacked 3x — applying more must not
+			// compound further.
+			showEffectPopup( `Effect at max: ${ getPadLabel( contact.type ) } (3x)` );
+			return contact.key;
+
+		}
 		if ( SIZE_PAD_TYPES.has( contact.type ) ) setEffect( applySizePadEffect( previous, effect ) );
-		else setEffect( combinePadEffects( previous, effect ) );
+		else setEffect( combinePadEffects( previous, effect, contact.type ) );
 		showEffectPopup( `Effect applied: ${ getPadLabel( contact.type ) }` );
 		return contact.key;
 
@@ -10463,6 +11192,12 @@ function completeCampaignStage() {
 	function applyVehicleScaleFromPad( targetVehicle, effect, targetHitboxMesh = null ) {
 
 		if ( ! targetVehicle?.container ) return;
+
+		// MEGA PAD WALL BOOST: while the LOCAL player carries the mega size
+		// effect, every wall collider grows 4x taller (bottom anchored) so the
+		// mega car cannot climb over walls. Any other scale effect (or none)
+		// puts the walls back to normal.
+		if ( targetVehicle === vehicle ) setWallHeightBoost( effect?.__sizePadType === 'size-mega' );
 		// No pad effect active: settle at the mod-set scale (default 1) instead of
 		// hard-resetting to 1, which stomped the custom-mod "set car scale" block.
 		const modBase = THREE.MathUtils.clamp( targetVehicle.__modScale ?? 1, 0.25, 3 );
@@ -10471,11 +11206,21 @@ function completeCampaignStage() {
 		targetVehicle.container.scale.setScalar( nextScale );
 		targetVehicle.__padScale = nextScale;
 		if ( targetHitboxMesh ) targetHitboxMesh.scale.setScalar( nextScale );
-		if ( nextScale > prevScale && nextScale > 1.01 && targetVehicle?.spherePos && targetVehicle?.rigidBody ) {
+		// Resize the physics sphere WITH the visual (the hitbox must follow the
+		// mini/mega/normal size pads). The sphere's BOTTOM is anchored: the body
+		// is repositioned so (spherePos.y - radius) never changes, which keeps
+		// the car GLB seated on the ground — no floating, no sinking — and
+		// preserves the exact ground contact through the resize.
+		const prevRadius = Number( targetVehicle.hitboxRadius ) || VEHICLE_SURFACE_RADIUS;
+		const nextRadius = VEHICLE_SURFACE_RADIUS * nextScale;
+		if ( nextRadius !== prevRadius && targetVehicle?.spherePos && targetVehicle?.rigidBody && targetVehicle.physicsWorld ) {
 
-			const lift = 0.24 * ( nextScale - prevScale );
-			targetVehicle.spherePos.y += lift;
+			const bottomY = targetVehicle.spherePos.y - prevRadius;
+			targetVehicle.rigidBody.shape = sphere.create( { radius: nextRadius } );
+			rigidBody.updateShape( targetVehicle.physicsWorld, targetVehicle.rigidBody );
+			targetVehicle.spherePos.y = bottomY + nextRadius;
 			rigidBody.setPosition( targetVehicle.physicsWorld, targetVehicle.rigidBody, targetVehicle.spherePos.toArray(), false );
+			targetVehicle.hitboxRadius = nextRadius;
 
 		}
 
@@ -10610,6 +11355,10 @@ function completeCampaignStage() {
 
 	function applySurfaceGrip( targetVehicle, surfaceType, padEffect = null ) {
 
+		// Leaving a trampoline pad ends its bounce session: driving/flying off
+		// and coming back re-arms the full TRAMPOLINE_MAX_BOUNCES.
+		if ( surfaceType !== 'surface-trampoline' ) targetVehicle.__trampSession = null;
+		if ( surfaceType === 'surface-trampoline' ) applyTrampolineBounceFor( targetVehicle );
 		const effect = getSurfaceEffect( surfaceType );
 		const gripPack = GARAGE_FIXED_MULTIPLIER;
 		const accelPack = GARAGE_FIXED_MULTIPLIER;
@@ -11160,6 +11909,9 @@ function completeCampaignStage() {
 		if ( ! namePopup || ! namePopupInput ) return;
 		namePopup.style.display = 'flex';
 		namePopupInput.value = sanitizePlayerName( playerNameInput?.value );
+		// The big account button is an onboarding pitch for players WITHOUT
+		// an account — hide it entirely once they're signed in.
+		if ( namePopupAccount ) namePopupAccount.style.display = accountSession?.token ? 'none' : 'block';
 		namePopupInput.focus();
 		namePopupInput.select();
 
@@ -11260,10 +12012,10 @@ function completeCampaignStage() {
 
 	}
 
-	async function signupAccount() {
+	async function signupAccount( usernameOverride, passwordOverride ) {
 
-		const username = String( accountUsernameInput?.value || '' ).trim();
-		const password = String( accountPasswordInput?.value || '' );
+		const username = usernameOverride !== undefined ? String( usernameOverride ).trim() : String( accountUsernameInput?.value || '' ).trim();
+		const password = passwordOverride !== undefined ? String( passwordOverride ) : String( accountPasswordInput?.value || '' );
 		const payload = await accountApiRequest( '/signup', {
 			method: 'POST',
 			body: JSON.stringify( { username, password, profile: getCurrentProfileSnapshot() } ),
@@ -11275,10 +12027,10 @@ function completeCampaignStage() {
 
 	}
 
-	async function loginAccount() {
+	async function loginAccount( usernameOverride, passwordOverride ) {
 
-		const username = String( accountUsernameInput?.value || '' ).trim();
-		const password = String( accountPasswordInput?.value || '' );
+		const username = usernameOverride !== undefined ? String( usernameOverride ).trim() : String( accountUsernameInput?.value || '' ).trim();
+		const password = passwordOverride !== undefined ? String( passwordOverride ) : String( accountPasswordInput?.value || '' );
 		const payload = await accountApiRequest( '/login', {
 			method: 'POST',
 			body: JSON.stringify( { username, password } ),
@@ -11300,6 +12052,14 @@ function completeCampaignStage() {
 
 	}
 
+	function signOutAccount() {
+
+		accountSession = null;
+		localStorage.removeItem( ACCOUNT_SESSION_KEY );
+		updateAccountUi();
+
+	}
+
 	async function cloudSaveProfile() {
 
 		if ( ! accountSession?.token ) throw new Error( 'Log in first.' );
@@ -11311,75 +12071,7 @@ function completeCampaignStage() {
 
 	}
 
-	// Auto-save: every 5 minutes the profile syncs to the accounts backend so a
-	// crash / closed tab never loses more than ~5 minutes of progress. A top
-	// notification (same channel as lap deltas / leaderboard notices) confirms
-	// each save; failures stay quiet in the console.
-	setInterval( async () => {
 
-		if ( ! accountSession?.token ) return;
-		try {
-
-			await cloudSaveProfile();
-			showTopMessage( 'Profile auto-saved to the cloud', false, 1800 );
-
-		} catch ( err ) {
-
-			console.warn( 'Profile auto-save failed', err );
-
-		}
-
-	}, 300000 );
-
-	// Debounced profile cloud sync for small setting changes (default car, etc.).
-	let profileCloudSyncTimer = null;
-	function syncProfileToCloudDebounced() {
-
-		if ( ! accountSession?.token ) return;
-		if ( profileCloudSyncTimer ) clearTimeout( profileCloudSyncTimer );
-		profileCloudSyncTimer = setTimeout( async () => {
-
-			profileCloudSyncTimer = null;
-			try {
-
-				await accountApiRequest( '/profile', {
-					method: 'POST',
-					body: JSON.stringify( { token: accountSession.token, profile: getCurrentProfileSnapshot() } ),
-				} );
-
-			} catch ( err ) {
-
-				console.warn( 'Profile cloud sync failed', err );
-
-			}
-
-		}, 1500 );
-
-	}
-
-	// Debounced HUD layout -> cloud sync. Triggered by js/HudGrid.js whenever the
-	// player adds/removes/reorders a widget (saveHudLayout -> onHudLayoutChange).
-	// No-op when not signed in; the layout still persists to localStorage.
-	let hudCloudSyncTimer = null;
-	async function syncHudLayoutToCloud() {
-
-		if ( ! accountSession?.token ) return;
-		if ( hudCloudSyncTimer ) clearTimeout( hudCloudSyncTimer );
-		hudCloudSyncTimer = setTimeout( async () => {
-			hudCloudSyncTimer = null;
-			try {
-				await accountApiRequest( '/profile', {
-					method: 'POST',
-					body: JSON.stringify( { token: accountSession.token, profile: getCurrentProfileSnapshot() } ),
-				} );
-			} catch ( err ) {
-				console.warn( 'HUD cloud sync failed', err );
-			}
-		}, 1500 );
-
-	}
-
-	if ( window.__hudGrid?.setOnLayoutChange ) window.__hudGrid.setOnLayoutChange( syncHudLayoutToCloud );
 
 	async function cloudLoadProfile() {
 
@@ -11747,13 +12439,25 @@ function completeCampaignStage() {
 	function respawnVehicle() {
 
 		autoRespawnAtSeconds = null;
+		resetCustomModForces();
 		vehicle.resetToSpawn();
 		resetMovingObstacles( movingObstacleState, raceClockSeconds );
-		cam.targetPosition.copy( vehicle.spherePos );
-		cam.camera.position.addVectors( cam.targetPosition, cam.offset );
+		// Freecam OWNS the camera while active — re-anchoring the chase cam
+		// here would teleport the freecam to the spawn. Skip and leave it.
+		if ( ! freecamState.active ) {
+
+			cam.targetPosition.copy( vehicle.spherePos );
+			cam.camera.position.addVectors( cam.targetPosition, cam.offset );
+
+		}
 		resetPhysicsObstacles();
 
 		resetLapState( true );
+		// Mods keep their own internal state (timers, wave phases, zone
+		// history). Fire the reset hook on EVERY respawn — retry, TAS
+		// run/seek re-anchor, brute eval, auto-respawn — not just the
+		// manual button, so every pass starts from identical mod state.
+		dispatchRuntimeModEvent( 'onRespawn', { type: 'respawn', source: 'respawn' } );
 
 	}
 
@@ -11762,8 +12466,12 @@ function completeCampaignStage() {
 		if ( ! vehicle2 || ! cam2 ) return;
 		autoRespawnAtSeconds2 = null;
 		vehicle2.resetToSpawn();
-		cam2.targetPosition.copy( vehicle2.spherePos );
-		cam2.camera.position.addVectors( cam2.targetPosition, cam2.offset );
+		if ( ! freecamState.active ) {
+
+			cam2.targetPosition.copy( vehicle2.spherePos );
+			cam2.camera.position.addVectors( cam2.targetPosition, cam2.offset );
+
+		}
 		resetPhysicsObstacles();
 		resetLapState2( true );
 
@@ -11791,7 +12499,7 @@ function completeCampaignStage() {
 		rigidBody.setLinearVelocity( world, vehicle.rigidBody, [ 0, 0, 0 ] );
 		rigidBody.setAngularVelocity( world, vehicle.rigidBody, [ 0, 0, 0 ] );
 		vehicle.spherePos.fromArray( savedCheckpointState.position );
-		vehicle.container.position.set( vehicle.spherePos.x, vehicle.spherePos.y - 0.5, vehicle.spherePos.z );
+		vehicle.container.position.set( vehicle.spherePos.x, vehicle.spherePos.y - ( vehicle.hitboxRadius || 0.5 ), vehicle.spherePos.z );
 		vehicle.container.rotation.y = savedCheckpointState.checkpointAngle || 0;
 		vehicle.linearSpeed = 0;
 		vehicle.angularSpeed = 0;
@@ -11855,7 +12563,7 @@ function completeCampaignStage() {
 		rigidBody.setLinearVelocity( world, vehicle.rigidBody, savedPracticeState.linearVelocity, false );
 		rigidBody.setAngularVelocity( world, vehicle.rigidBody, savedPracticeState.angularVelocity, false );
 		vehicle.spherePos.fromArray( savedPracticeState.position );
-		vehicle.container.position.set( vehicle.spherePos.x, vehicle.spherePos.y - 0.5, vehicle.spherePos.z );
+		vehicle.container.position.set( vehicle.spherePos.x, vehicle.spherePos.y - ( vehicle.hitboxRadius || 0.5 ), vehicle.spherePos.z );
 		vehicle.container.rotation.y = savedPracticeState.rotationY || 0;
 		cam.targetPosition.copy( vehicle.spherePos );
 		showTopMessage( 'Returned to saved practice state.', false, 1200 );
@@ -11933,6 +12641,90 @@ function completeCampaignStage() {
 		const vel = targetVehicle.rigidBody.motionProperties?.linearVelocity || [ 0, 0, 0 ];
 		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], Math.max( vel[ 1 ], 0 ) + BOUNCE_VERTICAL_DELTA, vel[ 2 ] ] );
 		return true;
+
+	}
+
+	// Which trampoline pad cell (if any) the car currently overlaps — the
+	// per-pad bounce session keys on the pad entry, so a run of adjacent
+	// trampoline cells counts as separate pads (fresh 3 bounces each).
+	const _trampNeighbourhood = [];
+	function findTrampolineEntryFor( targetVehicle ) {
+
+		if ( ! collectNearbyEntries( targetVehicle, surfaceEntryByCell, _trampNeighbourhood ) ) return null;
+		for ( let i = _trampNeighbourhood.length - 1; i >= 0; i -- ) {
+
+			const entry = _trampNeighbourhood[ i ];
+			if ( entry.type === 'surface-trampoline' && overlapsSurfaceEntry( targetVehicle, entry ) ) return entry;
+
+		}
+		return null;
+
+	}
+
+	function applyTrampolineBounceFor( targetVehicle ) {
+
+		// Trampoline surface: reflects the car's vertical velocity on each
+		// landing — capped at TRAMPOLINE_MAX_BOUNCES per pad contact (leaving
+		// and re-entering resets the cap). Not applied in air beyond the
+		// ray-depth touch band: the ray-based ground check below is height-
+		// independent, so elevated decks correctly count as ground here
+		// (the old flat-height check read elevated cars as airborne).
+		if ( ! isVehicleTouchingGroundBelow( targetVehicle ) ) return;
+		if ( ! targetVehicle.rigidBody?.motionProperties ) return;
+		const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
+		if ( vel[ 1 ] > 0.12 ) return; // already on the way up: don't fight the launch
+		if ( - vel[ 1 ] < TRAMPOLINE_MIN_IMPACT ) return; // resting/rolling: tiny-bounce guard
+		const entry = findTrampolineEntryFor( targetVehicle );
+		if ( ! entry ) return;
+		const sessionKey = entry.gx + ',' + entry.gz;
+		// Contact session: count reflects per pad; a different pad (or a fresh
+		// entry after the surface tracker cleared the session — see
+		// applySurfaceGrip) starts a new session. Capping kills the infinite
+		// hover: after the last allowed bounce the car falls through the
+		// ray-depth band, contacts the pad, and rests like on normal road.
+		let session = targetVehicle.__trampSession;
+		if ( ! session || session.key !== sessionKey ) {
+
+			session = { key: sessionKey, bounces: 0 };
+			targetVehicle.__trampSession = session;
+
+		}
+		if ( session.bounces >= TRAMPOLINE_MAX_BOUNCES ) return;
+		session.bounces ++;
+		// Pure velocity reflection (no floor): hops decay naturally to rest.
+		// Bounces stay above the seam-suppressor freeze zone because the
+		// suppressor's saved velocity is captured AFTER this reflect.
+		const bounce = - vel[ 1 ] * TRAMPOLINE_RESTITUTION;
+		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], bounce, vel[ 2 ] ] );
+
+	}
+
+	function applyAirControlFor( targetVehicle, padEffect, input, dt, targetParticles = null ) {
+
+		// Air Control pad (lasts until the next checkpoint, like all pads):
+		// throttle input becomes a real forward/backward force — in the air
+		// (accelerate/decelerate mid-jump) AND on the ground stacked on top
+		// of normal driving, so ground runs are faster under the pad too.
+		// Airborne uses the ray-based ground check: elevated decks = ground.
+		if ( ! padEffect?.airControl ) return;
+		if ( ! targetVehicle?.rigidBody?.motionProperties ) return;
+		targetParticles?.triggerAirControlFx?.( 0.3 );
+		const throttle = Number( input?.z ) || 0;
+		if ( throttle === 0 ) return;
+		const vel = targetVehicle.rigidBody.motionProperties.linearVelocity;
+		const physSpeed = Math.hypot( vel[ 0 ], vel[ 1 ], vel[ 2 ] );
+		if ( physSpeed > AIR_CONTROL_MAX_SPEED_MPS ) return; // 55 mph cut: flames stay, force stops
+		const airborne = isVehicleAirborne( targetVehicle );
+		const accelPerSecond = airborne ? AIR_CONTROL_AIR_ACCEL_PER_SECOND : AIR_CONTROL_GROUND_FORCE_PER_SECOND;
+		_boostForward.set( 0, 0, 1 ).applyQuaternion( targetVehicle.container.quaternion );
+		_boostForward.y = 0;
+		if ( _boostForward.lengthSq() < 1e-6 ) return;
+		_boostForward.normalize();
+		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [
+			vel[ 0 ] + _boostForward.x * accelPerSecond * throttle * dt,
+			vel[ 1 ],
+			vel[ 2 ] + _boostForward.z * accelPerSecond * throttle * dt,
+		] );
 
 	}
 
@@ -12141,7 +12933,244 @@ function completeCampaignStage() {
 
 	}
 
-	function applyArcLinkFor( targetVehicle, state ) {
+	// ── Arc Link exact-ballistics solver ─────────────────────────────────
+	// The old launch used a one-shot continuous ballistic formula and missed
+	// the arc end by up to a couple of units, worse the longer the link.
+	// Three real effects the formula ignored, all of them per-step:
+	//   1. Linear damping (0.1): the engine multiplies velocity by
+	//      (1 - damping*dt) EVERY step (~8% velocity loss over a 1.6s arc).
+	//   2. Discrete integration: gravity is applied BEFORE the position
+	//      update (semi-implicit Euler), dropping the car ~g*dt*T/2 short.
+	//   3. The near-ground gravity boost: gravity runs at 1.4x whenever
+	//      |vy| < 1.5 — which happens around the apex of EVERY arc. The old
+	//      code sampled the gravity factor once at launch and never knew.
+	// The fix replays the engine's own step arithmetic (gravity -> damping ->
+	// position, with the per-step boost rule) and solves the launch velocity
+	// numerically, so the car arrives dead-on the arc end. Horizontal axes
+	// stay linear under damping (closed form); the Y axis is bisected
+	// against the step simulation. The swept flight path is also checked
+	// against every static collider (a tube one car-hitbox wide), and when
+	// something blocks it the arc is lifted — longer flight time, higher
+	// apex — until the path is clear or the obstacle ceiling is reached.
+	function arcLinkStaticObstacles() {
+
+		const out = [];
+		if ( ! hitboxDebugGroup ) return out;
+		const rot = new THREE.Matrix4();
+		for ( const mesh of hitboxDebugGroup.children ) {
+
+			const geo = mesh?.geometry;
+			if ( ! geo || ! mesh.position ) continue;
+			if ( geo.type === 'BoxGeometry' ) {
+
+				const prm = geo.parameters;
+				if ( ! prm ) continue;
+				const hx = ( prm.width / 2 ) * ( mesh.scale.x || 1 );
+				const hy = ( prm.height / 2 ) * ( mesh.scale.y || 1 );
+				const hz = ( prm.depth / 2 ) * ( mesh.scale.z || 1 );
+				rot.makeRotationFromQuaternion( mesh.quaternion );
+				const e = rot.elements;
+				out.push( {
+					kind: 'box',
+					x: mesh.position.x, y: mesh.position.y, z: mesh.position.z,
+					ex: Math.abs( e[ 0 ] ) * hx + Math.abs( e[ 4 ] ) * hy + Math.abs( e[ 8 ] ) * hz,
+					ey: Math.abs( e[ 1 ] ) * hx + Math.abs( e[ 5 ] ) * hy + Math.abs( e[ 9 ] ) * hz,
+					ez: Math.abs( e[ 2 ] ) * hx + Math.abs( e[ 6 ] ) * hy + Math.abs( e[ 10 ] ) * hz,
+				} );
+
+			} else if ( geo.type === 'SphereGeometry' ) {
+
+				const prm = geo.parameters;
+				if ( ! prm ) continue;
+				out.push( {
+					kind: 'sphere',
+					x: mesh.position.x, y: mesh.position.y, z: mesh.position.z,
+					r: prm.radius * ( mesh.scale.x || 1 ),
+				} );
+
+			}
+
+		}
+		return out;
+
+	}
+
+	function arcLinkPathBlocked( obstacles, from, to, samples, radius ) {
+
+		const marginSq = ARC_LINK_PATH_END_MARGIN * ARC_LINK_PATH_END_MARGIN;
+		const rSq = radius * radius;
+		for ( const s of samples ) {
+
+			const dfx = s.x - from.x, dfy = s.y - from.y, dfz = s.z - from.z;
+			if ( dfx * dfx + dfy * dfy + dfz * dfz < marginSq ) continue;
+			const dtx = s.x - to.x, dty = s.y - to.y, dtz = s.z - to.z;
+			if ( dtx * dtx + dty * dty + dtz * dtz < marginSq ) continue;
+			for ( const o of obstacles ) {
+
+				if ( o.kind === 'box' ) {
+
+					const dx = Math.abs( s.x - o.x ) - o.ex;
+					const dy = Math.abs( s.y - o.y ) - o.ey;
+					const dz = Math.abs( s.z - o.z ) - o.ez;
+					const qx = dx > 0 ? dx : 0, qy = dy > 0 ? dy : 0, qz = dz > 0 ? dz : 0;
+					if ( qx * qx + qy * qy + qz * qz <= rSq ) return true;
+
+				} else {
+
+					const dx = s.x - o.x, dy = s.y - o.y, dz = s.z - o.z;
+					const rr = radius + o.r;
+					if ( dx * dx + dy * dy + dz * dz <= rr * rr ) return true;
+
+				}
+
+			}
+
+		}
+		return false;
+
+	}
+
+	function arcLinkSolveLaunch( targetVehicle, from, to, dt, obstacles ) {
+
+		const stepDt = Math.max( 1e-4, dt );
+		const mp = targetVehicle.rigidBody.motionProperties;
+		const damping = Math.max( 0, Number( mp?.linearDamping ) || 0 );
+		const dampA = Math.max( 0, 1 - damping * stepDt );
+		const gravityScale = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
+		const waterScale = isCameraTargetInWater( targetVehicle.spherePos ) ? WATER_GRAVITY_SCALE : 1.0;
+		const g = -9.81 * VEHICLE_BASE_GRAVITY_FACTOR * gravityScale * customModGravityScale
+			* ( hacksInstalled && hacksState.enabled ? hacksState.gravity : 1.0 ) * waterScale;
+		const carR = Math.max( 0.05, Number( targetVehicle.hitboxRadius ) || 0.5 );
+
+		const tx = to.x - from.x, ty = to.y - from.y, tz = to.z - from.z;
+		const horizontal = Math.hypot( tx, tz );
+
+		// Sum of a^i for i = 1..n (horizontal damping factor)
+		const sumDamp = ( n ) => {
+
+			let sum = 0, pow = 1;
+			for ( let i = 0; i < n; i ++ ) { pow *= dampA; sum += pow; }
+			return sum;
+
+		};
+
+		// Step-exact vertical simulation: replays gravity (with the
+		// near-ground boost, judged on the previous step's vy exactly like
+		// the sim step does), then damping, then the position update.
+		const simVertical = ( steps, vy0 ) => {
+
+			let vy = vy0, dy = 0;
+			for ( let i = 0; i < steps; i ++ ) {
+
+				const gi = Math.abs( vy ) < ARC_LINK_NEAR_GROUND_VY ? g * ARC_LINK_NEAR_GROUND_BOOST : g;
+				vy = ( vy + gi * stepDt ) * dampA;
+				dy += vy * stepDt;
+
+			}
+			return dy;
+
+		};
+
+		const solveVy0 = ( steps, sumV ) => {
+
+			// Bracket + bisection on vy0 (arrival height is strictly
+			// increasing in vy0). Seed with the old continuous estimate.
+			const T = steps * stepDt;
+			let lo = ( ty + 0.5 * Math.abs( g ) * T * T ) / T - 30;
+			let hi = lo + 60;
+			let flo = simVertical( steps, lo ) - ty;
+			let fhi = simVertical( steps, hi ) - ty;
+			let guard = 0;
+			while ( flo > 0 && guard ++ < 60 ) { hi = lo; lo -= 30; flo = simVertical( steps, lo ) - ty; }
+			while ( fhi < 0 && guard ++ < 120 ) { lo = hi; hi += 30; fhi = simVertical( steps, hi ) - ty; }
+			for ( let it = 0; it < 48; it ++ ) {
+
+				const mid = ( lo + hi ) * 0.5;
+				const fm = simVertical( steps, mid ) - ty;
+				if ( fm === 0 ) return mid;
+				if ( fm < 0 ) lo = mid; else hi = mid;
+
+			}
+			return ( lo + hi ) * 0.5;
+
+		};
+
+		// Trajectory samples (sub-stepped so consecutive points stay closer
+		// than the tube radius, interpolated linearly between engine steps).
+		const buildSamples = ( steps, vx0, vy0, vz0 ) => {
+
+			const samples = [];
+			let vy = vy0, y = from.y;
+			let px = from.x, pz = from.z;
+			let svx = 0, svz = 0, pow = 1;
+			const emit = ( x, yy, z ) => { samples.push( { x, y: yy, z } ); };
+			emit( px, y, pz );
+			for ( let i = 0; i < steps; i ++ ) {
+
+				const gi = Math.abs( vy ) < ARC_LINK_NEAR_GROUND_VY ? g * ARC_LINK_NEAR_GROUND_BOOST : g;
+				vy = ( vy + gi * stepDt ) * dampA;
+				pow *= dampA; svx += pow; svz += pow;
+				const nx = from.x + vx0 * stepDt * svx;
+				const nz = from.z + vz0 * stepDt * svz;
+				const ny = y + vy * stepDt;
+				const segLen = Math.hypot( nx - px, ny - y, nz - pz );
+				const pieces = Math.max( 1, Math.ceil( segLen / Math.max( 0.05, carR * 0.6 ) ) );
+				for ( let k = 1; k <= pieces; k ++ ) {
+
+					const t = k / pieces;
+					emit( px + ( nx - px ) * t, y + ( ny - y ) * t, pz + ( nz - pz ) * t );
+
+				}
+				px = nx; y = ny; pz = nz;
+
+			}
+			return samples;
+
+		};
+
+		let steps = Math.max( 1, Math.round( THREE.MathUtils.clamp( horizontal / 12, ARC_LINK_MIN_TIME, ARC_LINK_MAX_TIME ) / stepDt ) );
+		const maxSteps = Math.max( steps, Math.round( ARC_LINK_OBSTACLE_MAX_TIME / stepDt ) );
+		let lifted = false;
+		let vx0 = 0, vy0 = 0, vz0 = 0;
+		while ( true ) {
+
+			const sumV = sumDamp( steps );
+			vx0 = sumV > 1e-9 ? tx / ( stepDt * sumV ) : tx / ( steps * stepDt );
+			vz0 = sumV > 1e-9 ? tz / ( stepDt * sumV ) : tz / ( steps * stepDt );
+			vy0 = solveVy0( steps, sumV );
+
+			// Broad-phase: only obstacles overlapping the flight AABB matter.
+			const samples = buildSamples( steps, vx0, vy0, vz0 );
+			let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+			for ( const s of samples ) {
+
+				if ( s.x < minX ) minX = s.x; if ( s.x > maxX ) maxX = s.x;
+				if ( s.y < minY ) minY = s.y; if ( s.y > maxY ) maxY = s.y;
+				if ( s.z < minZ ) minZ = s.z; if ( s.z > maxZ ) maxZ = s.z;
+
+			}
+			const near = obstacles.filter( ( o ) => {
+
+				if ( o.kind === 'box' ) return o.x + o.ex > minX - carR && o.x - o.ex < maxX + carR
+					&& o.y + o.ey > minY - carR && o.y - o.ey < maxY + carR
+					&& o.z + o.ez > minZ - carR && o.z - o.ez < maxZ + carR;
+				return o.x + o.r > minX - carR && o.x - o.r < maxX + carR
+					&& o.y + o.r > minY - carR && o.y - o.r < maxY + carR
+					&& o.z + o.r > minZ - carR && o.z - o.r < maxZ + carR;
+
+			} );
+
+			if ( ! arcLinkPathBlocked( near, from, to, samples, carR ) ) break;
+			if ( steps >= maxSteps ) break;
+			lifted = true;
+			steps = Math.min( maxSteps, Math.ceil( steps * 1.3 ) + 1 );
+
+		}
+		return { vx: vx0, vy: vy0, vz: vz0, steps, lifted };
+
+	}
+
+	function applyArcLinkFor( targetVehicle, state, dt ) {
 
 		const currentState = state && typeof state === 'object'
 			? state
@@ -12184,7 +13213,7 @@ function completeCampaignStage() {
 			rigidBody.setPosition( world, targetVehicle.rigidBody, [ pair.centerX, pair.centerY, pair.centerZ ], false );
 			rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vel[ 0 ], vel[ 1 ], vel[ 2 ] ] );
 			targetVehicle.spherePos.set( pair.centerX, pair.centerY, pair.centerZ );
-			targetVehicle.container.position.set( targetVehicle.spherePos.x, targetVehicle.spherePos.y - 0.5, targetVehicle.spherePos.z );
+			targetVehicle.container.position.set( targetVehicle.spherePos.x, targetVehicle.spherePos.y - ( targetVehicle.hitboxRadius || 0.5 ), targetVehicle.spherePos.z );
 			setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: purple portal → ${ pair.color } endpoint (velocity kept)` );
 				hasPrevFinishSample = false;
 				lastLocalX = 0;
@@ -12201,18 +13230,15 @@ function completeCampaignStage() {
 				hasPrevFinishSample2 = false;
 				lastLocalX2 = 0;
 				lastLocalZ2 =  0;
-		const tx = pair.centerX - targetVehicle.spherePos.x;
-		const ty = pair.centerY - targetVehicle.spherePos.y;
-		const tz = pair.centerZ - targetVehicle.spherePos.z;
-		const horizontal = Math.hypot( tx, tz );
-		const travelTime = THREE.MathUtils.clamp( horizontal / 12, ARC_LINK_MIN_TIME, ARC_LINK_MAX_TIME );
-		const gravityFactor = Number( targetVehicle?.rigidBody?.motionProperties?.gravityFactor ) || VEHICLE_BASE_GRAVITY_FACTOR;
-		const gravity = 9.81 * gravityFactor;
-		const vx = tx / travelTime;
-		const vz = tz / travelTime;
-		const vy = ( ty + 0.5 * gravity * travelTime * travelTime ) / travelTime;
-		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ vx, vy, vz ] );
-		setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: orange launch → green endpoint` );
+		const launch = arcLinkSolveLaunch(
+			targetVehicle,
+			{ x: targetVehicle.spherePos.x, y: targetVehicle.spherePos.y, z: targetVehicle.spherePos.z },
+			{ x: pair.centerX, y: pair.centerY, z: pair.centerZ },
+			dt,
+			arcLinkStaticObstacles()
+		);
+		rigidBody.setLinearVelocity( world, targetVehicle.rigidBody, [ launch.vx, launch.vy, launch.vz ] );
+		setArcLinkHud( `Arc Link #${ triggeredEntry.linkId }: orange launch → green endpoint${ launch.lifted ? ' (arc lifted over obstacle)' : '' }` );
 		return { contactKey: nextContactKey, lockUntilExit: true };
 
 	}
@@ -12318,7 +13344,6 @@ function completeCampaignStage() {
 		e.preventDefault();
 		respawnVehicle();
 		advancementEvents.emit('player_respawned', { source: 'respawn_button' });
-		dispatchRuntimeModEvent( 'onRespawn', { type: 'respawn', source: 'respawn_button' } );
 
 	} );
 	modeMenuBtn?.addEventListener( 'click', ( e ) => {
@@ -12642,8 +13667,8 @@ function completeCampaignStage() {
 	} );
 
 	// ── Default car setting (Gameplay panel) ─────────────────────────────
-	// '__last' keeps the current behavior (remember the car you drove last),
-	// '__random' rolls a new car every race start, anything else is a CAR_STATS key.
+	// '__random' (the default) rolls a new car every race start, '__last'
+	// remembers the car you drove last, anything else is a CAR_STATS key.
 	function applyDefaultCar( value ) {
 
 		if ( ! value || value === '__last' ) return;
@@ -12664,18 +13689,17 @@ function completeCampaignStage() {
 
 	if ( defaultCarSelect ) {
 
-		const options = [ '<option value="__last">Last used car (default)</option>', '<option value="__random">Random</option>' ];
+		const options = [ '<option value="__random">Random (default)</option>', '<option value="__last">Last used car</option>' ];
 		for ( const [ key, stats ] of Object.entries( CAR_STATS ) ) options.push( `<option value="${ key }">${ stats.name }</option>` );
 		defaultCarSelect.innerHTML = options.join( '' );
-		defaultCarSelect.value = localStorage.getItem( DEFAULT_CAR_KEY ) || '__last';
+		defaultCarSelect.value = localStorage.getItem( DEFAULT_CAR_KEY ) || '__random';
 
 		defaultCarSelect.addEventListener( 'change', () => {
 
-			const value = defaultCarSelect.value || '__last';
+			const value = defaultCarSelect.value || '__random';
 			localStorage.setItem( DEFAULT_CAR_KEY, value );
 			applyDefaultCar( value );
 			showTopMessage( value === '__random' ? 'Default car: random' : ( CAR_STATS[ value ] ? `Default car: ${ CAR_STATS[ value ].name }` : 'Default car: last used' ), false, 1800 );
-			syncProfileToCloudDebounced();
 
 		} );
 
@@ -12913,6 +13937,28 @@ function completeCampaignStage() {
 		closeNamePopup();
 
 	} );
+	// Big onboarding button: jump straight to the Account tab of the "E"
+	// menu. The name the player already typed is carried over — saved as
+	// their leaderboard name and pre-filled as the account username.
+	namePopupAccount?.addEventListener( 'click', ( e ) => {
+
+		// Same click will bubble to the document's outside-click closer,
+		// which would instantly re-close the menu we're about to open.
+		e.stopPropagation();
+		const typed = sanitizePlayerName( namePopupInput?.value );
+		if ( typed ) {
+
+			if ( playerNameInput ) playerNameInput.value = typed;
+			localStorage.setItem( PLAYER_NAME_KEY, typed );
+			if ( accountUsernameInput ) accountUsernameInput.value = typed;
+
+		}
+		pendingLeaderboardRecord = null;
+		closeNamePopup();
+		setModeMenuOpen( true );
+		setModeTab( 'account' );
+
+	} );
 	leaderboardRefreshBtn?.addEventListener( 'click', () => {
 		fetchTrackLeaderboard();
 	} );
@@ -13116,20 +14162,170 @@ function completeCampaignStage() {
 	// dynamic shadows — cheap now that statics cast through one merged
 	// proxy mesh, see ShadowProxy.js), and the garage key light keeps its
 	// own per-frame map.
+	// Shadows refresh EVERY frame: the car's shadow must track the car
+	// smoothly. (A 30Hz throttle here made the moving car's shadow visibly
+	// jump — the static world is baked into the proxy so its cost is one
+	// merged draw; the depth-pass cost is handled by the mapSize cap on
+	// huge maps instead of a refresh throttle.)
+	// USER ORDER (2026-09-28): the game must NEVER automatically drop its
+	// render resolution — the auto-downscale left the game "super pixelated"
+	// and did not even improve the frame rate on the user's machine (his
+	// bottleneck is not fill rate). autoResScale is pinned at 1; the restore
+	// branch below only exists to recover any scale left below 1.
+	let autoResScale = 1;
+	let autoResNextDecisionMs = 0;
+	function applyAutoResolution() {
+
+		const preset = getGraphicsPreset();
+		const splitCap = new URLSearchParams( window.location.search ).get( 'multiplayer' ) === '1' ? 1 : preset.maxPixelRatio;
+		renderer.setPixelRatio( Math.min( window.devicePixelRatio || 1, splitCap ) * autoResScale );
+		renderer.setSize( window.innerWidth, window.innerHeight );
+
+	}
+	function updateAutoResolution() {
+
+		const nowMs = performance.now();
+		if ( nowMs < autoResNextDecisionMs ) return;
+		if ( ! Number.isFinite( rollingFps ) || rollingFps <= 0 ) return;
+		if ( rollingFps < 16 && autoResScale > 0.5 ) {
+
+			// Disabled per user order — resolution never drops automatically.
+			autoResNextDecisionMs = nowMs + 4000;
+
+		} else if ( rollingFps > 40 && autoResScale < 1 ) {
+
+			autoResScale = Math.min( 1, autoResScale / 0.8 );
+			autoResNextDecisionMs = nowMs + 4000;
+			applyAutoResolution();
+
+		} else {
+
+			autoResNextDecisionMs = nowMs + 1000;
+
+		}
+
+	}
 	const SHADOW_REFRESH_MIN_MS = 9;
 	let _shadowRefreshLastMs = -9999;
 	function refreshShadowsIfNeeded() {
 
 		const nowMs = performance.now();
-		if ( nowMs - _shadowRefreshLastMs < SHADOW_REFRESH_MIN_MS ) return;
+		// FPS: the shadow depth pass is a full extra geometry pass. On a
+		// healthy system it refreshes every frame (9ms floor, unchanged);
+		// on a struggling one (integrated Chromebook chip, mega map) a
+		// 2nd/3rd-frame cadence is far cheaper, and at those frame times
+		// the slower shadow update is barely visible anyway.
+		const throttleMs = rollingFps > 0 && rollingFps < 18 ? 66 : rollingFps < 30 ? 33 : SHADOW_REFRESH_MIN_MS;
+		if ( nowMs - _shadowRefreshLastMs < throttleMs ) return;
 		_shadowRefreshLastMs = nowMs;
 		renderer.shadowMap.needsUpdate = true;
 		staticShadowProxy?.tick?.();
 
 	}
 
+	// Cull track blocks that the fog has already swallowed whole. Runs on
+	// camera movement (or every 400ms while parked) because nothing changes
+	// for a still camera. Uses squared XZ distance — cheap for thousands of
+	// blocks — and the nearest of the two split-screen cameras.
+	const _cullSphereCenter = new THREE.Vector3();
+	function cullDistantTrackBlocks() {
+
+		if ( ! trackBlocksGroup || trackCullFar <= 0 ) return;
+		const camPos = cam.camera.position;
+		const cam2Pos = ( isSplitScreen && cam2 ) ? cam2.camera.position : null;
+
+		// Runs EVERY frame (user order 2026-10-06: culling must be consistent,
+		// not shaky): the old moved->2-units / 400ms-parked throttle left
+		// visibility flags up to ~400ms stale, so blocks visibly popped a
+		// beat late while driving. The pass is a flat walk over the track
+		// group's direct children with zero allocations — a few thousand
+		// squared distances per frame is nothing next to the draw calls it
+		// saves.
+		// +44 headroom: a block center can sit just past the fog line while
+		// its near edge (pools/pit groups span a few cells) is still foggy
+		// — keep it a hair longer so nothing pops in front of the fade.
+		const cullFar = trackCullFar + 44;
+		const cullFarSq = cullFar * cullFar;
+		for ( const pieceGroup of trackBlocksGroup.children ) {
+
+			for ( const child of pieceGroup.children ) {
+
+				let dSq;
+				if ( child.isInstancedMesh ) {
+
+					// Batched chunk meshes all sit at the group origin — their
+					// position says nothing about WHERE they are. Use the
+					// instance-covering bounding sphere (computed lazily,
+					// once) instead: its center is the chunk's true world
+					// location.
+					if ( child.boundingSphere === null ) child.computeBoundingSphere();
+					if ( child.boundingSphere ) {
+
+						_cullSphereCenter.copy( child.boundingSphere.center ).applyMatrix4( child.matrixWorld );
+						const margin = cullFar + child.boundingSphere.radius;
+						const dX = _cullSphereCenter.x - camPos.x;
+						const dZ = _cullSphereCenter.z - camPos.z;
+						let mSq = margin * margin;
+						if ( cam2Pos ) {
+
+							const d2X = _cullSphereCenter.x - cam2Pos.x;
+							const d2Z = _cullSphereCenter.z - cam2Pos.z;
+							const d2Sq = d2X * d2X + d2Z * d2Z;
+							dSq = dX * dX + dZ * dZ;
+							// Visible from either camera; margins identical.
+							const near2 = d2Sq < dSq;
+							if ( near2 ) dSq = d2Sq;
+							child.visible = dSq <= mSq;
+							continue;
+
+						}
+						child.visible = dX * dX + dZ * dZ <= mSq;
+						continue;
+
+					}
+
+				}
+				if ( ! child.position ) continue;
+				// WORLD-SPACE distance (user bug 2026-10-06: tunnel walls far
+				// from the origin never rendered). child.position is in the
+				// track container's RAW grid units (CELL_RAW per cell) while
+				// camPos is world units (raw * GRID_SCALE) — mixing the two
+				// spaces adds a 0.25x-of-origin-distance error that grows with
+				// |x|,|z|: on huge maps the outer ring got culled even with
+				// the camera parked right on top of it. matrixWorld[12]/[14]
+				// are the piece's true world x/z (kept fresh by the renderer
+				// every frame; one frame of staleness is sub-cell).
+				const wx = child.matrixWorld.elements[ 12 ];
+				const wz = child.matrixWorld.elements[ 14 ];
+				dSq = ( wx - camPos.x ) * ( wx - camPos.x )
+					+ ( wz - camPos.z ) * ( wz - camPos.z );
+				if ( cam2Pos ) {
+
+					const d2Sq = ( wx - cam2Pos.x ) * ( wx - cam2Pos.x )
+						+ ( wz - cam2Pos.z ) * ( wz - cam2Pos.z );
+					if ( d2Sq < dSq ) dSq = d2Sq;
+
+				}
+				// userData.cullVisible: the water refraction pass hides all
+				// water planes while it renders the refracted scene, then
+				// RESTORES visibility — it must restore to the cull verdict,
+				// not blanket-true, or far pools render every frame (user
+				// report 2026-10-06: distant pool water caused big lag).
+				child.visible = child.userData.cullVisible = dSq <= cullFarSq;
+
+			}
+
+		}
+		// Same radius governs the static shadow proxy's buckets (its
+		// 18M-tri merged silhouette on mega maps would otherwise rasterize
+		// in full on every shadow refresh).
+		staticShadowProxy?.updateCull?.( camPos.x, camPos.z, trackCullFar );
+
+	}
+
 	function renderFrame() {
 
+		cullDistantTrackBlocks();
 		if ( isSplitScreen && cam2 ) {
 
 			const width = window.innerWidth;
@@ -13150,14 +14346,24 @@ function completeCampaignStage() {
 			renderer.setViewport( 0, 0, width, halfH );
 			renderer.setScissor( 0, 0, width, halfH );
 			prerenderWaterRefraction( renderer, scene, cam2.camera, 1, { x: 0, y: 0, w: width, h: halfH } );
+			const _perfRenderT0 = performance.now();
 			renderer.render( scene, cam2.camera );
+			window.__perf = window.__perf || {};
+			window.__perf.renderMs = performance.now() - _perfRenderT0;
 			renderer.setScissorTest( false );
 
 		} else {
 
+			const _perfShadowT0 = performance.now();
 			refreshShadowsIfNeeded();
+			window.__perf.shadowMs = ( window.__perf.shadowMs || 0 ) + performance.now() - _perfShadowT0;
+			const _perfWaterT0 = performance.now();
 			prerenderWaterRefraction( renderer, scene, cam.camera );
+			window.__perf.waterMs = performance.now() - _perfWaterT0;
+			const _perfRenderT0 = performance.now();
 			renderer.render( scene, cam.camera );
+			window.__perf = window.__perf || {};
+			window.__perf.renderMs = performance.now() - _perfRenderT0;
 
 		}
 		hideLoadingOverlay();
@@ -13173,7 +14379,29 @@ function completeCampaignStage() {
 	let _lastVignetteY = '';
 
 	let settingsAppliedThisBoot = false;
+
 	function animate() {
+
+		// ?perf=1 metrics (and future tuning): renderer.info with
+		// autoReset=false accumulates across the WHOLE frame — shadow
+		// depth pass + pool refraction pass + main render — so reads at
+		// the next frame's start are true per-frame totals.
+		if ( renderer.info.autoReset ) renderer.info.autoReset = false;
+		const _perfNow = performance.now();
+		window.__perf = window.__perf || {};
+		window.__perf.frameMs = _perfNow - ( window.__perfT0 || _perfNow );
+		window.__perf.calls = renderer.info.render.calls;
+		window.__perf.tris = renderer.info.render.triangles;
+		window.__perf.carScale = vehicle.container ? vehicle.container.scale.x : 1;
+		window.__perf.camDist = cam.camera.position.distanceTo( vehicle.spherePos );
+		window.__perf.camY = cam.camera.position.y;
+		window.__perf.carY = vehicle.spherePos.y;
+		window.__perf.carX = vehicle.spherePos.x;
+		window.__perf.carZ = vehicle.spherePos.z;
+		window.__perf.skyY = skyGroup.position.y;
+		window.__perfT0 = _perfNow;
+		renderer.info.reset();
+
 
 		requestAnimationFrame( animate );
 
@@ -13235,6 +14463,7 @@ function completeCampaignStage() {
 			const now = raceClockSeconds;
 
 			updateWaterQuality( rollingFps );
+			updateAutoResolution();
 			updateCountdownState( now );
 			// Fire due auto-respawns on the game clock — deterministic even at
 			// 20 FPS, where real-time timers fire arbitrarily late or never.
@@ -13345,8 +14574,8 @@ function completeCampaignStage() {
 			if ( ! garageDriveActive ) applyMagnetForceFor( vehicle, dt );
 			if ( vehicle2 ) applyMagnetForceFor( vehicle2, dt );
 			applyGrappleSwingFor( vehicle, controls?.keys, dt );
-			arcLinkState = applyArcLinkFor( vehicle, arcLinkState );
-			if ( vehicle2 ) arcLinkState2 = applyArcLinkFor( vehicle2, arcLinkState2 );
+			arcLinkState = applyArcLinkFor( vehicle, arcLinkState, dt );
+			if ( vehicle2 ) arcLinkState2 = applyArcLinkFor( vehicle2, arcLinkState2, dt );
 			updateRemotePlayerVisualsFrame( dt );
 			const gravityScale1 = Number.isFinite( activePadEffect?.gravity ) ? activePadEffect.gravity : 1.0;
 			const gravityScale2 = Number.isFinite( activePadEffect2?.gravity ) ? activePadEffect2.gravity : 1.0;
@@ -13370,6 +14599,10 @@ function completeCampaignStage() {
 				applyWaterPhysicsDamping( vehicle2, dt );
 
 			}
+			// Air Control pad: throttle force in the air (and stacked on normal
+			// driving on the ground) + little blue wheel flames while it lasts.
+			applyAirControlFor( vehicle, activePadEffect, padAdjustedInput, dt, particles );
+			if ( vehicle2 ) applyAirControlFor( vehicle2, activePadEffect2, padAdjustedInput2, dt, particles2 );
 			if ( hacksActive ) {
 
 				if ( hacksState.boostAnywhere && controls?.keys?.KeyB && vehicle?.rigidBody?.motionProperties ) {
@@ -13554,13 +14787,13 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat.setFromEuler( camYawLockEuler.set( 0, camYawLockValue, 0, 'YXZ' ) );
-				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) );
+				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) ); _camDynamics1.carInWater = waterCellSet.has( `${ Math.floor( vehicle.spherePos.x / cellWorld ) },${ Math.floor( vehicle.spherePos.z / cellWorld ) }` ); _camDynamics1.vehicleScale = vehicle.container ? vehicle.container.scale.x : 1;
 				cam.update( dt, vehicle.spherePos, camYawLockQuat, _camDynamics1 );
 
 			} else {
 
 				camYawLockActive = false;
-				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) );
+				_camDynamics1.speedRatio = Math.abs( vehicle.linearSpeed ) / Math.max( 0.01, vehicle.topSpeed ); _camDynamics1.driftIntensity = vehicle.driftIntensity; _camDynamics1.underwaterCamera = updateWaterCameraState( waterCameraState1, vehicle.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle, pos ) ); _camDynamics1.carInWater = waterCellSet.has( `${ Math.floor( vehicle.spherePos.x / cellWorld ) },${ Math.floor( vehicle.spherePos.z / cellWorld ) }` ); _camDynamics1.vehicleScale = vehicle.container ? vehicle.container.scale.x : 1;
 				cam.update( dt, vehicle.spherePos, vehicle.container.quaternion, _camDynamics1 );
 
 			}
@@ -13595,13 +14828,13 @@ function completeCampaignStage() {
 
 				}
 				camYawLockQuat2.setFromEuler( camYawLockEuler2.set( 0, camYawLockValue2, 0, 'YXZ' ) );
-				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) );
+				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) ); _camDynamics2.carInWater = waterCellSet.has( `${ Math.floor( vehicle2.spherePos.x / cellWorld ) },${ Math.floor( vehicle2.spherePos.z / cellWorld ) }` ); _camDynamics2.vehicleScale = vehicle2.container ? vehicle2.container.scale.x : 1;
 				cam2.update( dt, vehicle2.spherePos, camYawLockQuat2, _camDynamics2 );
 
 			} else {
 
 				camYawLockActive2 = false;
-				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) );
+				_camDynamics2.speedRatio = Math.abs( vehicle2.linearSpeed ) / Math.max( 0.01, vehicle2.topSpeed ); _camDynamics2.driftIntensity = vehicle2.driftIntensity; _camDynamics2.underwaterCamera = updateWaterCameraState( waterCameraState2, vehicle2.spherePos, dt, ( pos ) => triggerWaterSplash( vehicle2, pos ) ); _camDynamics2.carInWater = waterCellSet.has( `${ Math.floor( vehicle2.spherePos.x / cellWorld ) },${ Math.floor( vehicle2.spherePos.z / cellWorld ) }` ); _camDynamics2.vehicleScale = vehicle2.container ? vehicle2.container.scale.x : 1;
 				cam2.update( dt, vehicle2.spherePos, vehicle2.container.quaternion, _camDynamics2 );
 
 			}
@@ -13695,9 +14928,13 @@ function completeCampaignStage() {
 		skyUniforms.time.value = now;
 		skyUniforms.vibrance.value = THREE.MathUtils.lerp( skyUniforms.vibrance.value, 0.2 + ( speedRatioFx * 0.18 ) + ( driftFx * 0.1 ), Math.min( 1, dt * 2.4 ) );
 		// Follow the CAMERA, not the car — in freecam it used to slide with the
-		// vehicle while the camera stood still, which reads very wrong. Keeping y=0
-		// so the horizon line never shifts; x/z track whatever view is active.
-		skyGroup.position.set( cam.camera.position.x, 0, cam.camera.position.z );
+		// vehicle while the camera stood still, which reads very wrong. All three
+		// axes track the active view now: a low-grav mega jump can climb past the
+		// 50-unit dome's ceiling and expose the OUTSIDE of the skybox, so the
+		// sky group rides the camera's height as well — you can never escape it.
+		skyGroup.position.copy( cam.camera.position );
+		// Same rAF task as the render — the WebGL canvas can only be
+		// drawImage'd before the compositor presents the frame.
 		if ( skyDecorState.starPoints ) {
 			skyDecorState.starPoints.material.opacity = 0.75 + Math.sin( now * 1.3 ) * 0.12 + Math.sin( now * 2.7 + 1.3 ) * 0.08;
 		}
@@ -13751,7 +14988,9 @@ function completeCampaignStage() {
 
 					const t = z0 / ( z0 - z1 );
 					const xCross = THREE.MathUtils.lerp( checkpoint.lastLocalX, localX, t );
-					crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent;
+					crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent
+						&& Math.abs( vehicle.spherePos.y - checkpoint.levelY ) <= GATE_LEVEL_HALF_SPAN
+						&& ( ! checkpoint.closedTunnelGate || vehicle.spherePos.y <= CLOSED_TUNNEL_GATE_MAX_Y );
 
 				}
 
@@ -13799,7 +15038,9 @@ function completeCampaignStage() {
 
 						const t = z0 / ( z0 - z1 );
 						const xCross = THREE.MathUtils.lerp( checkpoint.lastLocalX, localX, t );
-						crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent;
+					crossedCheckpoint = t >= 0 && t <= 1 && Math.abs( xCross ) <= checkpoint.halfExtent
+						&& Math.abs( vehicle2.spherePos.y - checkpoint.levelY ) <= GATE_LEVEL_HALF_SPAN
+						&& ( ! checkpoint.closedTunnelGate || vehicle2.spherePos.y <= CLOSED_TUNNEL_GATE_MAX_Y );
 
 					}
 
@@ -13850,7 +15091,9 @@ function completeCampaignStage() {
 
 					const t = z0 / ( z0 - z1 );
 					const xCross = THREE.MathUtils.lerp( lastLocalX, localX, t );
-					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent;
+					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent
+						&& Math.abs( vehicle.spherePos.y - finishData.levelY ) <= GATE_LEVEL_HALF_SPAN
+						&& ( ! finishData.closedTunnelGate || vehicle.spherePos.y <= CLOSED_TUNNEL_GATE_MAX_Y );
 					if ( crossedFinish ) crossedAtT = t;
 
 				}
@@ -14076,7 +15319,9 @@ function completeCampaignStage() {
 
 					const t = z0 / ( z0 - z1 );
 					const xCross = THREE.MathUtils.lerp( lastLocalX2, localX, t );
-					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent;
+					crossedFinish = t >= 0 && t <= 1 && Math.abs( xCross ) <= finishData.halfExtent
+						&& Math.abs( vehicle2.spherePos.y - finishData.levelY ) <= GATE_LEVEL_HALF_SPAN
+						&& ( ! finishData.closedTunnelGate || vehicle2.spherePos.y <= CLOSED_TUNNEL_GATE_MAX_Y );
 
 				}
 
@@ -14190,7 +15435,9 @@ function completeCampaignStage() {
 
 
 			};
+			const _perfSimT0 = performance.now();
 			for ( let simStepIndex = 0; simStepIndex < simSteps; simStepIndex ++ ) runSimulationStep();
+			window.__perf.simMs = ( ( window.__perf.simMs || 0 ) + performance.now() - _perfSimT0 ) / 2;
 
 		renderFrame();
 
@@ -14243,7 +15490,7 @@ function completeCampaignStage() {
 
 		try {
 
-			const tasModule = await import( './TASMode.js?v=30' );
+			const tasModule = await import( './TASMode.js?v=38' );
 			const tasIsLoop = ! startCell || ! finishCell || (
 				startCell[ 0 ] === finishCell[ 0 ] && startCell[ 1 ] === finishCell[ 1 ] && startCell[ 2 ] === finishCell[ 2 ]
 			);
@@ -14254,6 +15501,14 @@ function completeCampaignStage() {
 				fns: {
 					startCountdown,
 					respawnVehicle,
+					// Determinism: raceClockSeconds never resets on its own, so a
+					// replay ran at a different absolute clock window than the
+					// drive it replays — mods keyed on `now` (wave phases, timed
+					// effects) diverged, and stale one-shot mod forces leaked
+					// across attempts. TASMode resets the sim clock to 0 on every
+					// resetState, so record, replay, calc and brute all share the
+					// SAME clock window.
+					resetRaceClock: () => { raceClockSeconds = 0; },
 					// Super-fast lap-1 simulation for TAS skip runs: one raw
 					// sim step (registered by the TAS hook inside animate).
 					stepOnce: () => window.__tasStepOnce && window.__tasStepOnce(),
@@ -14330,11 +15585,20 @@ function completeCampaignStage() {
 				tasBeginNextLap,
 				get: {
 					raceClock: () => raceClockSeconds,
+					// AI driver sensors: the track's cell occupancy (road /
+					// elevated / water) for the net's 8-direction proximity
+					// probes, plus gate positions via lapDetection().
+					trackCells: () => ( {
+						road: activeCells,
+						elevated: Array.isArray( extras?.elevated ) ? extras.elevated : [],
+						water: Array.isArray( extras?.water ) ? extras.water : [],
+					} ),
 					lapStart: () => lapStartSeconds,
 					lapSeconds: () => lapSeconds,
 					countdownActive: () => countdownActive,
 				lapDetection: () => ( {
 					finishData, startGateData, checkpointStates,
+					gateLevelHalfSpan: GATE_LEVEL_HALF_SPAN,
 					hasLeftStartZone, hasPrevFinishSample, lastLocalX, lastLocalZ,
 					checkpointRespawnInstalled,
 				} ),
