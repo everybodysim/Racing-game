@@ -18,31 +18,38 @@
 // This file is standalone: it does not touch js/main.js or js/Track.js.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { buildTrack, computeTrackBounds, prerenderWaterRefraction } from './Track.js?v=1000237';
+import { buildTrack, computeTrackBounds, prerenderWaterRefraction, computePoolPresetWaterCells, THIN_GROUND_MODEL_KEYS } from './Track.js?v=1000304';
 
 // Only the STATIC (non-vehicle) models a track can ever place. Deliberately
 // excludes every vehicle-*.glb (no cars are drawn in a top-down preview) and
 // the walk-in 'garage' scene (never placed as a track piece). ~1.6MB total,
 // fetched once per page load and reused for every preview render after that.
 const STATIC_MODEL_NAMES = [
-	'track-straight', 'track-corner', 'track-bump', 'track-finish',
+	'track-straight', 'track-corner', 'track-checkpoint-corner', 'track-bump', 'track-finish',
 	'track-3-way', 'track-4-way',
 	'track-choke-half', 'track-choke-both',
+	// thin-block family: elevated entries use the elev-* GLBs, ground cells
+	// resolve through THIN_GROUND_MODEL_KEYS to their own trimmed ground
+	// GLBs — without BOTH sets, thin sections silently render as nothing
+	'elev-thin-straight', 'elev-thin-corner', 'elev-thin-3-way', 'elev-thin-4-way',
+	'elev-wide-to-thin', 'elev-wide-to-thin-corner',
+	'track-thin-straight', 'track-thin-corner', 'track-thin-3-way', 'track-thin-4-way',
+	'track-wide-thin', 'track-wide-thin-corner', 'track-choke-cross',
+	'track-checkpoint-corner-ground',
 	'elev-track-straight', 'elev-track-cross', 'elev-track-corner', 'elev-cross-corners',
 	'elev-track-checkpoint', 'elev-track-slope', 'elev-track-3-way', 'elev-track-4-way',
 	'elev-track-choke-half', 'elev-track-choke-both',
 	'decoration-empty', 'decoration-forest', 'decoration-tents', 'empty-deco-grass',
 	'building-garage', 'building-small-a', 'building-small-b', 'building-small-c', 'building-small-d',
+	'barrier',
 ];
 
 let modelsPromise = null;
 
-function loadStaticModels() {
-
-	if ( modelsPromise ) return modelsPromise;
+function loadStaticModels( extraNames = [] ) {
 
 	const loader = new GLTFLoader();
-	modelsPromise = Promise.all( STATIC_MODEL_NAMES.map( ( name ) => new Promise( ( resolve ) => {
+	const loadOne = ( name ) => new Promise( ( resolve ) => {
 
 		loader.load(
 			`models/${ name }.glb`,
@@ -62,15 +69,34 @@ function loadStaticModels() {
 			() => resolve( [ name, null ] ), // missing/broken model: skip it, don't fail the whole preview
 		);
 
-	} ) ) ).then( ( pairs ) => {
+	} );
+	// Per-name promise cache: the static set loads once; extras (e.g. tunnel
+	// pit block GLBs that only appear on tunnel tracks) merge into the same
+	// models map on first use.
+	if ( ! modelsPromise ) {
 
-		const models = {};
-		for ( const [ name, scene ] of pairs ) if ( scene ) models[ name ] = scene;
+		modelsPromise = Promise.all( STATIC_MODEL_NAMES.map( loadOne ) ).then( ( pairs ) => {
+
+			const models = {};
+			for ( const [ name, scene ] of pairs ) if ( scene ) models[ name ] = scene;
+			return models;
+
+		} );
+
+	}
+	const extras = [ ...new Set( extraNames ) ].filter( ( n ) => n && ! STATIC_MODEL_NAMES.includes( n ) );
+	return modelsPromise.then( async ( models ) => {
+
+		for ( const name of extras ) {
+
+			if ( models[ name ] ) continue;
+			const [ , scene ] = await loadOne( name );
+			if ( scene ) models[ name ] = scene;
+
+		}
 		return models;
 
 	} );
-
-	return modelsPromise;
 
 }
 
@@ -102,6 +128,22 @@ function extrasFromMods( parsed ) {
 		water: Array.isArray( parsed.q ) ? parsed.q : [],
 		poolSlopes: Array.isArray( parsed.z ) ? parsed.z : [],
 		customPool: parsed?.r && typeof parsed.r === 'object' ? parsed.r : {},
+		// OPEN-TOP TUNNELS: g = tunnel cells. Legacy h data is migrated
+		// into canonical tunnel entries as type "slope-up" (same mapping
+		// as main.js extrasFromParsed).
+		tunnels: (() => {
+			const out = Array.isArray( parsed.g ) ? parsed.g.map( ( entry ) => Array.isArray( entry ) ? [ ...entry ] : entry ).filter( Array.isArray ) : [];
+			for ( const [ gx, gz, orient = 0 ] of ( Array.isArray( parsed.h ) ? parsed.h : [] ) ) {
+				const key = String( Number( gx ) ) + ',' + String( Number( gz ) );
+				const existing = out.find( ( entry ) => String( Number( entry?.[ 0 ] ) ) + ',' + String( Number( entry?.[ 1 ] ) ) === key );
+				if ( existing ) {
+					existing[ 2 ] = 0;
+					existing[ 3 ] = Number( orient ) || 0;
+					existing[ 4 ] = 'slope-up';
+				} else out.push( [ Number( gx ), Number( gz ), 0, Number( orient ) || 0, 'slope-up' ] );
+			}
+			return out;
+		} )(),
 	};
 
 }
@@ -151,7 +193,20 @@ async function renderNow( cells, mods, width, height, quality = 0.87 ) {
 	const safeCells = Array.isArray( cells ) ? cells : [];
 	if ( ! safeCells.length ) return null;
 
-	const models = await loadStaticModels();
+	const parsedMods = ( mods && typeof mods === 'object' ) ? mods : {};
+	// Tunnel pit blocks: same required-GLB mapping main.js uses when eagerly
+	// loading tunnel models - without it the pit renders EMPTY (placePiece
+	// silently returns null for missing models).
+	const tunnelExtras = [];
+	for ( const entry of ( Array.isArray( parsedMods.g ) ? parsedMods.g : [] ) ) {
+
+		if ( ! Array.isArray( entry ) || entry.length < 5 || ! entry[ 4 ] ) continue;
+		const t = entry[ 4 ];
+		tunnelExtras.push( t === 'track-checkpoint' || t === 'track-start' || t === 'track-start-finish' ? 'track-finish'
+			: t === 'slope-up' ? 'elev-track-slope' : THIN_GROUND_MODEL_KEYS[ t ] || t );
+
+	}
+	const models = await loadStaticModels( tunnelExtras );
 
 	const scene = new THREE.Scene();
 	scene.background = new THREE.Color( 0x2f8f5f );
@@ -163,6 +218,19 @@ async function renderNow( cells, mods, width, height, quality = 0.87 ) {
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.5 ) );
 
 	const extras = extrasFromMods( mods );
+	// POOL-FILLED PRESETS (user order 2026-10-06): 'pool-filled' share URLs
+	// carry no explicit water cells — the game floods every non-road cell in
+	// the padded track bounds at load time (main.js). Previews must run the
+	// exact same expansion (same Track.js function) or pool maps render with
+	// grass where their pools should be.
+	if ( extras.worldPreset === 'pool-filled' ) {
+
+		const generatedWater = computePoolPresetWaterCells( safeCells, extras );
+		const explicitWater = Array.isArray( extras.water ) ? extras.water : [];
+		const waterByKey = new Map( [ ...generatedWater, ...explicitWater ].map( ( cell ) => [ `${ cell[ 0 ] },${ cell[ 1 ] }`, cell ] ) );
+		extras.water = [ ...waterByKey.values() ];
+
+	}
 	const trackGroup = buildTrack( scene, models, safeCells, extras );
 
 	const bounds = computeTrackBounds( safeCells );
