@@ -147,7 +147,7 @@ textarea{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.22)
 			const data = await res.json();
 			if ( ! data?.ok ) throw new Error( data?.error || 'Bad response' );
 			renderComments( Array.isArray( data.comments ) ? data.comments : [] );
-			metaEl.textContent = 'Latest comments first — everyone sees the same thread.';
+			metaEl.textContent = '';
 		} catch ( e ) {
 			listEl.innerHTML = '<div class="empty">Comments could not be loaded right now. Try again in a moment.</div>';
 			metaEl.textContent = 'Comments unavailable.';

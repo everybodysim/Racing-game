@@ -44,13 +44,12 @@
 /* Card action row (user order 2026-10-26): author + link on their own line,
    then Play dominant, votes compact, and Comments as a SECOND colorful
    accent (violet→blue against Play's green→blue) so it pops for contrast. */
-.card-actions-row{display:flex;gap:8px;align-items:stretch}
-.card-actions-row .play-map-btn{flex:2;padding:10px 14px;font-size:14px;min-width:0}
-.card-actions-row .vote-btn{flex:0 0 auto;min-width:46px;padding:10px 8px;font-size:15px}
-.comments-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:1.5;min-width:0;text-decoration:none;border:1px solid rgba(150,130,255,.75);background:linear-gradient(135deg,rgba(139,123,255,.95),rgba(90,200,255,.9));color:#0a0d18!important;font-weight:900!important;border-radius:10px;padding:10px 12px;font-size:13px;box-shadow:0 0 18px rgba(139,123,255,.28);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-actions-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:8px;align-items:stretch;margin-top:0}
+.card-actions-row .play-map-btn{width:100%;min-height:42px;padding:0 14px;font-size:14px;min-width:0}
+.card-actions-row .vote-btn{min-width:46px;min-height:42px;padding:0 10px;font-size:15px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px}
+.comments-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:64px;min-height:42px;padding:0 12px;text-decoration:none;border:1px solid rgba(150,130,255,.75);background:linear-gradient(135deg,rgba(139,123,255,.95),rgba(90,200,255,.9));color:#0a0d18!important;font-weight:900!important;border-radius:10px;font-size:15px;box-shadow:0 0 18px rgba(139,123,255,.28);white-space:nowrap}
 .comments-btn:hover{filter:brightness(1.08)}
-.comments-btn .comments-count{opacity:.9;font-weight:800}
-@media (max-width:520px){.card-actions-row{flex-wrap:wrap}.card-actions-row .play-map-btn{flex:1 1 100%}.comments-btn{flex:1 1 100%}}
+.comments-btn .comments-count{font-weight:800;font-size:12px;opacity:.9}
 	</style>
 
 <style>
@@ -1325,7 +1324,7 @@
 					<a class="linkbtn play-map-btn" href="${ localizePlayUrl( entry.playUrl ) }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play</a>
 					<button class="vote-btn" data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
 					<button class="vote-btn" data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
-					<a class="linkbtn comments-btn" href="comments.html?track=${ encodeURIComponent( entry.id ) }&amp;name=${ encodeURIComponent( entry.name || '' ) }" target="_blank" rel="noopener noreferrer" title="Read and post comments for this track">💬 <span data-comments-for="${ escapeHtml( entry.id ) }">Comments</span></a>
+					<a class="linkbtn comments-btn" href="comments.html?track=${ encodeURIComponent( entry.id ) }&amp;name=${ encodeURIComponent( entry.name || '' ) }" target="_blank" rel="noopener noreferrer" title="Read and post comments for this track" aria-label="Comments">💬 <span class="comments-count" data-comments-for="${ escapeHtml( entry.id ) }">(0)</span></a>
 				</div>`;
 			if ( ! entry.thumbnailDataUrl ) {
 				const previewCanvas = card.querySelector( 'canvas.preview-canvas' );
@@ -1628,7 +1627,7 @@
 		function applyCommentCounts() {
 			document.querySelectorAll( '[data-comments-for]' ).forEach( ( el ) => {
 				const id = el.getAttribute( 'data-comments-for' );
-				el.textContent = `(${ Number( commentCounts[ id ] ) || 0 }) comments`;
+				el.textContent = `(${ Number( commentCounts[ id ] ) || 0 })`;
 			} );
 		}
 
