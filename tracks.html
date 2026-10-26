@@ -41,6 +41,16 @@
 .records-toggle{font-size:12px;padding:6px 10px}
 #library-pager .pager-info{font:600 12px sans-serif;color:var(--muted);margin:0 6px}
 #board-rail{position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:900;display:flex;flex-direction:column;gap:5px;padding:7px;background:rgba(10,16,28,.74);border:1px solid rgba(255,255,255,.14);border-radius:14px;backdrop-filter:blur(6px);box-shadow:0 10px 30px rgba(0,0,0,.28)}#board-rail button{border:1px solid transparent;background:transparent;color:var(--muted);border-radius:9px;padding:6px 11px;font:700 11px sans-serif;white-space:nowrap;cursor:pointer;text-align:right}#board-rail button:hover{background:rgba(255,255,255,.12);color:#fff}#board-rail button.active{background:linear-gradient(135deg,rgba(48,198,119,.28),rgba(48,151,255,.22));border-color:rgba(119,243,177,.45);color:#fff}@media (max-width:1180px){#board-rail{display:none}}.creator-badge{border-color:rgba(119,243,177,.3);color:#a9e8c4}#publishing-as b{color:#fff}
+/* Card action row (user order 2026-10-26): author + link on their own line,
+   then Play dominant, votes compact, and Comments as a SECOND colorful
+   accent (violet→blue against Play's green→blue) so it pops for contrast. */
+.card-actions-row{display:flex;gap:8px;align-items:stretch}
+.card-actions-row .play-map-btn{flex:2;padding:10px 14px;font-size:14px;min-width:0}
+.card-actions-row .vote-btn{flex:0 0 auto;min-width:46px;padding:10px 8px;font-size:15px}
+.comments-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:1.5;min-width:0;text-decoration:none;border:1px solid rgba(150,130,255,.75);background:linear-gradient(135deg,rgba(139,123,255,.95),rgba(90,200,255,.9));color:#0a0d18!important;font-weight:900!important;border-radius:10px;padding:10px 12px;font-size:13px;box-shadow:0 0 18px rgba(139,123,255,.28);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.comments-btn:hover{filter:brightness(1.08)}
+.comments-btn .comments-count{opacity:.9;font-weight:800}
+@media (max-width:520px){.card-actions-row{flex-wrap:wrap}.card-actions-row .play-map-btn{flex:1 1 100%}.comments-btn{flex:1 1 100%}}
 	</style>
 
 <style>
@@ -1311,11 +1321,11 @@
 					${ authorChip }
 					<button type="button" class="copy-btn" data-copy-url="${ escapeHtml( localizePlayUrl( entry.playUrl ) ) }" data-copy-id="${ entry.id }" title="Copy a direct link to this track">🔗 <span class="copy-label">Copy Link</span></button>
 				</div>
-				<div class="row" style="margin-top:0">
+				<div class="row card-actions-row">
 					<a class="linkbtn play-map-btn" href="${ localizePlayUrl( entry.playUrl ) }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play</a>
-					<button data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
-					<button data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
-					<button data-id="${ entry.id }" type="button">Remove</button>
+					<button class="vote-btn" data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
+					<button class="vote-btn" data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
+					<a class="linkbtn comments-btn" href="comments.html?track=${ encodeURIComponent( entry.id ) }&amp;name=${ encodeURIComponent( entry.name || '' ) }" target="_blank" rel="noopener noreferrer" title="Read and post comments for this track">💬 <span data-comments-for="${ escapeHtml( entry.id ) }">Comments</span></a>
 				</div>`;
 			if ( ! entry.thumbnailDataUrl ) {
 				const previewCanvas = card.querySelector( 'canvas.preview-canvas' );
@@ -1604,6 +1614,43 @@
 
 			renderGridPaged( filtered );
 			queueLeaderboardHydration( collectVisibleEntries() );
+			refreshCommentCounts();
+		}
+
+		// ── Track comments (user order 2026-10-26) ────────────────────────
+		// Counts come from ONE worker request (/api/comments/counts reads KV
+		// metadata per track), cached 30s, and every 💬 label is patched
+		// after each render — including rails and the featured card.
+		let commentCounts = {};
+		let commentCountsFetchedAt = 0;
+		let commentCountsInFlight = false;
+
+		function applyCommentCounts() {
+			document.querySelectorAll( '[data-comments-for]' ).forEach( ( el ) => {
+				const id = el.getAttribute( 'data-comments-for' );
+				el.textContent = `(${ Number( commentCounts[ id ] ) || 0 }) comments`;
+			} );
+		}
+
+		async function refreshCommentCounts() {
+			applyCommentCounts();
+			if ( commentCountsInFlight || Date.now() - commentCountsFetchedAt < 30000 ) return;
+			commentCountsInFlight = true;
+			try {
+				const res = await fetch( `${ TRACK_SHARE_API_ROOT }/api/comments/counts`, { cache: 'no-store' } );
+				if ( res.ok ) {
+					const data = await res.json();
+					if ( data?.ok && data.counts ) {
+						commentCounts = data.counts;
+						commentCountsFetchedAt = Date.now();
+						applyCommentCounts();
+					}
+				}
+			} catch ( e ) {
+				// Counts are decorative — a failed fetch leaves "(0) comments".
+			} finally {
+				commentCountsInFlight = false;
+			}
 		}
 
 		async function addEntryFromGhostCode() {
