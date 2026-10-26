@@ -44,10 +44,11 @@
 /* Card action row (user order 2026-10-26): author + link on their own line,
    then Play dominant, votes compact, and Comments as a SECOND colorful
    accent (violet→blue against Play's green→blue) so it pops for contrast. */
-.card-actions-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:8px;align-items:stretch;margin-top:0}
-.card-actions-row .play-map-btn{width:100%;min-height:42px;padding:0 14px;font-size:14px;min-width:0}
-.card-actions-row .vote-btn{min-width:46px;min-height:42px;padding:0 10px;font-size:15px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px}
-.comments-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:64px;min-height:42px;padding:0 12px;text-decoration:none;border:1px solid rgba(150,130,255,.75);background:linear-gradient(135deg,rgba(139,123,255,.95),rgba(90,200,255,.9));color:#0a0d18!important;font-weight:900!important;border-radius:10px;font-size:15px;box-shadow:0 0 18px rgba(139,123,255,.28);white-space:nowrap}
+.card-actions-row{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin-top:0}
+.card-actions-row .play-map-btn{box-sizing:border-box;width:100%;flex:none;min-height:42px;padding:0 14px;font-size:14px}
+.card-actions-sub{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:stretch;width:100%}
+.card-actions-sub .vote-btn{box-sizing:border-box;min-width:0;min-height:38px;padding:0;font-size:15px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px}
+.comments-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:72px;min-height:38px;padding:0 12px;text-decoration:none;border:1px solid rgba(150,130,255,.75);background:linear-gradient(135deg,rgba(139,123,255,.95),rgba(90,200,255,.9));color:#0a0d18!important;font-weight:900!important;border-radius:10px;font-size:15px;box-shadow:0 0 18px rgba(139,123,255,.28);white-space:nowrap}
 .comments-btn:hover{filter:brightness(1.08)}
 .comments-btn .comments-count{font-weight:800;font-size:12px;opacity:.9}
 	</style>
@@ -1322,9 +1323,11 @@
 				</div>
 				<div class="row card-actions-row">
 					<a class="linkbtn play-map-btn" href="${ localizePlayUrl( entry.playUrl ) }" data-action="open-track" data-id="${ entry.id }" target="_blank" rel="noopener noreferrer">▶ Play</a>
-					<button class="vote-btn" data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
-					<button class="vote-btn" data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
-					<a class="linkbtn comments-btn" href="comments.html?track=${ encodeURIComponent( entry.id ) }&amp;name=${ encodeURIComponent( entry.name || '' ) }" target="_blank" rel="noopener noreferrer" title="Read and post comments for this track" aria-label="Comments">💬 <span class="comments-count" data-comments-for="${ escapeHtml( entry.id ) }">(0)</span></a>
+					<div class="card-actions-sub">
+						<button class="vote-btn" data-id="${ entry.id }" data-vote="1" type="button"${ votedTrackActions.has( `${ entry.id }:1` ) ? ' disabled title="Already voted this session"' : '' }>👍</button>
+						<button class="vote-btn" data-id="${ entry.id }" data-vote="-1" type="button"${ votedTrackActions.has( `${ entry.id }:-1` ) ? ' disabled title="Already voted this session"' : '' }>👎</button>
+						<a class="linkbtn comments-btn" href="comments.html?track=${ encodeURIComponent( entry.id ) }&amp;name=${ encodeURIComponent( entry.name || '' ) }" target="_blank" rel="noopener noreferrer" title="Read and post comments for this track" aria-label="Comments">💬 <span class="comments-count" data-comments-for="${ escapeHtml( entry.id ) }">(0)</span></a>
+					</div>
 				</div>`;
 			if ( ! entry.thumbnailDataUrl ) {
 				const previewCanvas = card.querySelector( 'canvas.preview-canvas' );
