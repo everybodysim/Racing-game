@@ -7,6 +7,10 @@ const MAX_ENTRIES = 300;
 const MAX_TRACKS_CHUNK_BYTES = 5_000_000;
 const PACK_KEY_PREFIX = 'pack:';
 const MAX_PACK_BYTES = 20_000_000;
+const COMMENTS_KEY_PREFIX = 'comments:';
+const MAX_COMMENTS_PER_TRACK = 300;
+const MAX_COMMENT_NAME = 32;
+const MAX_COMMENT_TEXT = 600;
 
 export default {
 	async fetch( request, env ) {
@@ -28,13 +32,28 @@ export default {
 		// Full single board entry (playUrl WITH its #ghost blob). The slim
 		// list strips ghosts so the board loads fast; the page refetches the
 		// complete entry on demand when a player opens or shares a track.
-		if ( url.pathname.startsWith( '/api/tracks/' ) && request.method === 'GET' && ! url.pathname.endsWith( '/thumb' ) ) {
+		if ( url.pathname.startsWith( '/api/tracks/' ) && request.method === 'GET' && ! url.pathname.endsWith( '/thumb' ) && ! url.pathname.endsWith( '/comments' ) ) {
 			const id = url.pathname.split( '/' )[ 3 ];
 			return withCors( await getTrackById( id, env ) );
 		}
 
 		if ( url.pathname === '/api/tracks' && request.method === 'POST' ) {
 			return withCors( await addTrack( request, env ) );
+		}
+
+		// Track comments (board comment section). Counts come from KV
+		// metadata so the board renders every count in ONE request.
+		if ( url.pathname === '/api/comments/counts' && request.method === 'GET' ) {
+			return withCors( await getCommentCounts( env ) );
+		}
+		if ( url.pathname.startsWith( '/api/tracks/' ) && url.pathname.endsWith( '/comments' ) ) {
+			const id = url.pathname.split( '/' )[ 3 ];
+			if ( request.method === 'GET' ) return withCors( await getTrackComments( id, env ) );
+			if ( request.method === 'POST' ) return withCors( await addTrackComment( id, request, env ) );
+		}
+		if ( url.pathname.startsWith( '/api/tracks/' ) && url.pathname.includes( '/comments/' ) && request.method === 'DELETE' ) {
+			const parts = url.pathname.split( '/' );
+			return withCors( await deleteTrackComment( parts[ 3 ], parts[ 5 ], request, env ) );
 		}
 
 		if ( url.pathname.startsWith( '/api/tracks/' ) && request.method === 'DELETE' ) {
@@ -268,6 +287,87 @@ async function voteTrack( id, request, env ) {
 	entries[ index ].lastLikedAt = Date.now();
 	await saveEntries( entries, env );
 	return json( { ok: true, entry: entries[ index ] } );
+}
+
+// ── Track comments ─────────────────────────────────────────────────────────
+// One KV key per track holding its comment array. The stored value is
+// JSON [{id, name, text, createdAt}]; the same KV entry carries
+// metadata { count } so /api/comments/counts can answer the whole board in
+// a single list call (no per-track reads).
+function commentsKeyFor( trackId ) {
+	return `${ COMMENTS_KEY_PREFIX }${ trackId }`;
+}
+
+function sanitizeCommentText( value ) {
+	return String( value || '' )
+		.replace( /\r\n?/g, '\n' )
+		.replace( /\n{4,}/g, '\n\n\n' )
+		.trim()
+		.slice( 0, MAX_COMMENT_TEXT );
+}
+
+async function readComments( trackId, env ) {
+	const raw = await env.TRACKS_KV.get( commentsKeyFor( trackId ) );
+	if ( ! raw ) return [];
+	try {
+		const parsed = JSON.parse( raw );
+		return Array.isArray( parsed ) ? parsed : [];
+	} catch {
+		return [];
+	}
+}
+
+async function getTrackComments( id, env ) {
+	if ( ! id ) return json( { ok: false, error: 'id is required' }, 400 );
+	const comments = await readComments( id, env );
+	return json( { ok: true, trackId: id, count: comments.length, comments } );
+}
+
+async function addTrackComment( id, request, env ) {
+	if ( ! id ) return json( { ok: false, error: 'id is required' }, 400 );
+	let payload;
+	try {
+		payload = await request.json();
+	} catch {
+		return json( { ok: false, error: 'Invalid JSON body' }, 400 );
+	}
+	const text = sanitizeCommentText( payload?.text );
+	if ( ! text ) return json( { ok: false, error: 'Comment text is required' }, 400 );
+	const name = sanitizeCreator( payload?.name );
+	const comment = { id: crypto.randomUUID(), name, text, createdAt: Date.now() };
+	const comments = await readComments( id, env );
+	comments.push( comment );
+	const trimmed = comments.slice( - MAX_COMMENTS_PER_TRACK );
+	await env.TRACKS_KV.put( commentsKeyFor( id ), JSON.stringify( trimmed ), { metadata: { count: trimmed.length } } );
+	return json( { ok: true, comment, count: trimmed.length, comments: trimmed } );
+}
+
+async function deleteTrackComment( id, commentId, request, env ) {
+	const token = request.headers.get( 'X-Admin-Token' ) || '';
+	if ( ! env.ADMIN_TOKEN || token !== env.ADMIN_TOKEN ) return json( { ok: false, error: 'Unauthorized' }, 401 );
+	const comments = await readComments( id, env );
+	const next = comments.filter( ( c ) => c.id !== commentId );
+	await env.TRACKS_KV.put( commentsKeyFor( id ), JSON.stringify( next ), { metadata: { count: next.length } } );
+	return json( { ok: true, count: next.length } );
+}
+
+async function getCommentCounts( env ) {
+	const counts = {};
+	try {
+		let cursor = undefined;
+		do {
+			const list = await env.TRACKS_KV.list( { prefix: COMMENTS_KEY_PREFIX, cursor } );
+			for ( const key of list.keys ) {
+				const trackId = key.name.slice( COMMENTS_KEY_PREFIX.length );
+				const count = Number( key?.metadata?.count );
+				if ( trackId && Number.isFinite( count ) && count > 0 ) counts[ trackId ] = count;
+			}
+			cursor = list.list_complete ? undefined : list.cursor;
+		} while ( cursor );
+	} catch ( e ) {
+		return json( { ok: false, error: 'Could not list comments' }, 500 );
+	}
+	return json( { ok: true, counts } );
 }
 
 // Strip the #ghost= blob from a play URL; the board list only needs the

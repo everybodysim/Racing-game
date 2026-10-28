@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Track comments — Skid Circuit</title>
+<style>
+*{box-sizing:border-box}
+:root{color-scheme:dark;--panel:rgba(255,255,255,.07);--line:rgba(255,255,255,.13);--muted:#b5c2da;--accent:#77f3b1}
+body{margin:0;font:14px/1.45 Inter,system-ui,sans-serif;background:radial-gradient(circle at top left,rgba(74,163,255,.22),transparent 32rem),linear-gradient(160deg,#07101e,#121826 55%,#0b1420);color:#e6edf7;min-height:100vh}
+.wrap{max-width:780px;margin:0 auto;padding:26px 16px 46px}
+.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+h1{margin:0 0 4px;font-size:clamp(26px,4vw,40px);line-height:1;letter-spacing:-.04em}
+.sub{margin:0;color:var(--muted)}
+.kicker{color:var(--accent);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.12em}
+.backlink{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:9px 13px;font:700 13px sans-serif;text-decoration:none;white-space:nowrap}
+.backlink:hover{background:rgba(255,255,255,.2)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:16px;box-shadow:0 18px 50px rgba(0,0,0,.16)}
+.panel h2{margin:0 0 10px;font-size:16px}
+#comments-list{max-height:52vh;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent;display:flex;flex-direction:column;gap:10px;padding-right:6px}
+#comments-list::-webkit-scrollbar{width:8px}
+#comments-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:99px}
+.comment{background:linear-gradient(180deg,rgba(255,255,255,.085),rgba(255,255,255,.045));border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:10px 12px}
+.comment-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:4px}
+.comment-name{font-weight:800;font-size:13px;color:#bff2d6}
+.comment-time{font-size:11px;color:var(--muted);white-space:nowrap}
+.comment-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13.5px}
+.empty,.state{color:var(--muted);font-size:13px;padding:10px 2px}
+.form-row{margin-top:12px}
+label{display:block;margin:0 0 6px;font-weight:700;color:#cfe0ff;font-size:13px}
+textarea{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.22);background:rgba(8,10,16,.85);color:#e6edf7;border-radius:10px;padding:10px;font:inherit;min-height:84px;resize:vertical}
+.post-row{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.post-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid rgba(132,245,172,.72);background:linear-gradient(135deg,rgba(48,198,119,.95),rgba(48,151,255,.85));color:#04130b;box-shadow:0 0 18px rgba(77,232,152,.26);font-weight:900;border:0;border-radius:10px;padding:11px 18px;font:900 14px sans-serif;cursor:pointer}
+.post-btn:disabled{opacity:.5;cursor:default}
+.posting-as{color:var(--muted);font-size:12px}
+.posting-as b{color:#fff}
+#status{min-height:18px;margin-top:8px;font-size:12.5px;color:#93f4b7}
+#status.error{color:#ff9ea2}
+</style>
+</head>
+<body>
+<main class="wrap">
+	<div class="hero">
+		<div>
+			<div class="kicker">Track share board</div>
+			<h1 id="track-title">Comments</h1>
+			<p class="sub" id="track-meta">Loading comments…</p>
+		</div>
+		<a class="backlink" href="tracks.html">← Back to board</a>
+	</div>
+
+	<section class="panel" aria-labelledby="list-title">
+		<h2 id="list-title">Comments <span id="comment-count" style="color:var(--muted);font-weight:600"></span></h2>
+		<div id="comments-list" tabindex="0" aria-live="polite"><div class="state">Loading comments…</div></div>
+	</section>
+
+	<section class="panel" aria-labelledby="post-title">
+		<h2 id="post-title">Leave a comment</h2>
+		<div class="form-row">
+			<label for="comment-input">Your comment <span style="color:var(--muted);font-weight:500">(max 600 characters)</span></label>
+			<textarea id="comment-input" maxlength="600" placeholder="Say something about this track…"></textarea>
+		</div>
+		<div class="post-row">
+			<button id="post-btn" class="post-btn" type="button">Post comment</button>
+			<span class="posting-as" id="posting-as"></span>
+		</div>
+		<div id="status"></div>
+	</section>
+</main>
+
+<script>
+( () => {
+	'use strict';
+
+	const BOARD_API = 'https://racing-track-board-api.ga1010.workers.dev';
+	const ACCOUNT_SESSION_KEY = 'racing-account-session-v1';
+	const PLAYER_NAME_KEY = 'racing-player-name-v1';
+	const MAX_COMMENT = 600;
+
+	const params = new URLSearchParams( window.location.search );
+	const trackId = String( params.get( 'track' ) || '' ).trim();
+	const trackName = String( params.get( 'name' ) || '' ).trim();
+
+	const titleEl = document.getElementById( 'track-title' );
+	const metaEl = document.getElementById( 'track-meta' );
+	const listEl = document.getElementById( 'comments-list' );
+	const countEl = document.getElementById( 'comment-count' );
+	const inputEl = document.getElementById( 'comment-input' );
+	const postBtn = document.getElementById( 'post-btn' );
+	const postingAsEl = document.getElementById( 'posting-as' );
+	const statusEl = document.getElementById( 'status' );
+
+	function setStatus( message, isError = false ) {
+		statusEl.textContent = message || '';
+		statusEl.className = isError ? 'error' : '';
+	}
+
+	function escapeHtml( str ) {
+		return String( str || '' ).replace( /&/g, '&amp;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' ).replace( /"/g, '&quot;' );
+	}
+
+	// Comment identity: the signed-in account name, else the game's player
+	// name (the same identity board publishing credits), else Anonymous.
+	function getCommenterName() {
+		let account = '';
+		try {
+			const raw = localStorage.getItem( ACCOUNT_SESSION_KEY );
+			account = raw ? String( JSON.parse( raw )?.username || '' ) : '';
+		} catch ( e ) {}
+		if ( account ) return account.trim().slice( 0, 32 );
+		let player = '';
+		try { player = String( localStorage.getItem( PLAYER_NAME_KEY ) || '' ); } catch ( e ) {}
+		return player.replace( /\s+/g, ' ' ).replace( /[<>]/g, '' ).trim().slice( 0, 32 ) || 'Anonymous';
+	}
+
+	function relativeTime( ms ) {
+		const then = Number( ms );
+		if ( ! Number.isFinite( then ) ) return '';
+		const diff = Math.max( 0, Date.now() - then );
+		const min = Math.floor( diff / 60000 );
+		if ( min < 1 ) return 'just now';
+		if ( min < 60 ) return min + 'm ago';
+		const hr = Math.floor( min / 60 );
+		if ( hr < 24 ) return hr + 'h ago';
+		const day = Math.floor( hr / 24 );
+		if ( day < 30 ) return day + 'd ago';
+		return new Date( then ).toLocaleDateString();
+	}
+
+	function renderComments( comments ) {
+		const sorted = [ ...comments ].sort( ( a, b ) => Number( b?.createdAt || 0 ) - Number( a?.createdAt || 0 ) );
+		countEl.textContent = sorted.length ? `(${ sorted.length })` : '';
+		if ( ! sorted.length ) {
+			listEl.innerHTML = '<div class="empty">No comments yet — be the first to say something.</div>';
+			return;
+		}
+		listEl.innerHTML = sorted.map( ( c ) => `<div class="comment">
+			<div class="comment-head"><span class="comment-name">${ escapeHtml( c?.name || 'Anonymous' ) }</span><span class="comment-time">${ escapeHtml( relativeTime( c?.createdAt ) ) }</span></div>
+			<div class="comment-text">${ escapeHtml( c?.text || '' ) }</div>
+		</div>` ).join( '' );
+	}
+
+	async function loadComments() {
+		try {
+			const res = await fetch( `${ BOARD_API }/api/tracks/${ encodeURIComponent( trackId ) }/comments`, { cache: 'no-store' } );
+			if ( ! res.ok ) throw new Error( 'HTTP ' + res.status );
+			const data = await res.json();
+			if ( ! data?.ok ) throw new Error( data?.error || 'Bad response' );
+			renderComments( Array.isArray( data.comments ) ? data.comments : [] );
+			metaEl.textContent = '';
+		} catch ( e ) {
+			listEl.innerHTML = '<div class="empty">Comments could not be loaded right now. Try again in a moment.</div>';
+			metaEl.textContent = 'Comments unavailable.';
+		}
+	}
+
+	async function postComment() {
+		const text = inputEl.value.trim();
+		if ( ! text ) {
+			setStatus( 'Write something first.', true );
+			return;
+		}
+		if ( ! trackId ) {
+			setStatus( 'Missing track — open this page from the share board.', true );
+			return;
+		}
+		postBtn.disabled = true;
+		setStatus( 'Posting…' );
+		try {
+			const res = await fetch( `${ BOARD_API }/api/tracks/${ encodeURIComponent( trackId ) }/comments`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify( { name: getCommenterName(), text: text.slice( 0, MAX_COMMENT ) } ),
+			} );
+			const data = await res.json().catch( () => null );
+			if ( ! res.ok || ! data?.ok ) throw new Error( data?.error || ( 'HTTP ' + res.status ) );
+			inputEl.value = '';
+			renderComments( Array.isArray( data.comments ) ? data.comments : [] );
+			setStatus( 'Comment posted!' );
+			listEl.scrollTop = 0;
+		} catch ( e ) {
+			setStatus( 'Could not post your comment (' + String( e?.message || 'network error' ).slice( 0, 80 ) + ').', true );
+		} finally {
+			postBtn.disabled = false;
+		}
+	}
+
+	// ── boot ──
+	if ( trackName ) {
+		titleEl.textContent = trackName;
+		document.title = trackName + ' — comments — Skid Circuit';
+	}
+	if ( ! trackId ) {
+		metaEl.textContent = 'Open this page with the 💬 button on a track card.';
+		listEl.innerHTML = '<div class="empty">No track selected.</div>';
+		postBtn.disabled = true;
+		return;
+	}
+	const commenter = getCommenterName();
+	postingAsEl.innerHTML = commenter === 'Anonymous'
+		? 'Posting as <b>Anonymous</b> — set your name in the game to get credited.'
+		: `Posting as <b>${ escapeHtml( commenter ) }</b>`;
+	postBtn.addEventListener( 'click', postComment );
+	inputEl.addEventListener( 'keydown', ( ev ) => {
+		if ( ( ev.ctrlKey || ev.metaKey ) && ev.key === 'Enter' ) postComment();
+	} );
+	loadComments();
+} )();
+</script>
+</body>
+</html>

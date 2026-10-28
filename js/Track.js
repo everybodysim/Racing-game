@@ -4,6 +4,10 @@ export const ORIENT_DEG = { 0: 0, 10: 180, 16: 90, 22: 270 };
 
 export const CELL_RAW = 9.99;
 export const GRID_SCALE = 0.75;
+// Wall obstacle barrier model (models/barrier.glb): authored 7.2 units long
+// while the wall footprint is 0.62 cells — uniform scale matches the model's
+// length exactly to the old wall box, so barrier segments still line up.
+export const BARRIER_WALL_SCALE = ( CELL_RAW * 0.62 ) / 7.2;
 
 const _dummy = new THREE.Object3D();
 const JUMP_RAMP_ANGLE = THREE.MathUtils.degToRad( 30 );
@@ -25,6 +29,12 @@ const SUPPORT_SINK = 0.03;
 const ORIENT_180 = { 0: 10, 10: 0, 16: 22, 22: 16 };
 
 const WATER_DEPTH = CELL_RAW * 0.34;
+// Tunnel pit depth = ELEVATED_HEIGHT (5 units, user order): blocks place
+// EXACTLY as far below ground as elevated blocks sit above it. The pit
+// floor top sits one visual-offset BELOW the block deck (same clearance
+// the surface ground gives blocks), so the floor never covers the block.
+const TUNNEL_DROP = CELL_RAW * 0.5;
+const TUNNEL_WALL_H = CELL_RAW * 0.5 + 0.1;
 const WATER_WALL_HEIGHT = CELL_RAW * 0.38;
 
 // ---------------------------------------------------------------------------
@@ -132,7 +142,12 @@ let waterRefrFrameCounter = 0;
 // Per-camera pose at the last refraction pass — used to decide when a fresh
 // pass is actually needed (see the motion-staleness gate below).
 const waterLastCamStateByCam = new Map();
-let waterRefrCadence = 1;
+// Adaptive FILL for the always-fresh refraction pass: the second scene
+// render renders into this-divisor-scaled target pixels. 4 = quarter-res
+// (healthy), up to 8 = eighth-res when the frame rate is struggling. The
+// sample is STILL fresh every frame — only its fill cost shrinks.
+let waterRefrScaleDiv = 2;
+let waterRefrDivLastChangeMs = 0;
 // Motion-staleness budget: while the camera is moving, a refraction sample up
 // to WATER_REFR_STALE_MS old is imperceptible behind the per-frame animated
 // wobble (~2 frames at 60 FPS). At high refresh rates this cuts the pass to a
@@ -140,29 +155,94 @@ let waterRefrCadence = 1;
 // ~1/6th of a full scene render per frame. Reuse is only allowed while the
 // camera has moved less than WATER_REFR_STALE_MOVE / turned WATER_REFR_STALE_ANGLE
 // since the sample — a big jump (respawn, camera cut) always forces a fresh pass.
-const WATER_REFR_STALE_MS = 32;
-const WATER_REFR_STALE_MOVE_SQ = 1.75 * 1.75;
-const WATER_REFR_STALE_ANGLE = 0.05;
+// Staleness budget for MOVING cameras. This budget is only ever SPENT when
+// the FPS governor (waterRefrCadence) allows a skip — at a healthy 45+ FPS
+// the pass still runs every frame and these values are irrelevant. On a
+// struggling system the budget lets the governor spread the passes out
+// instead of paying a full extra scene render every frame (pool maps).
+const WATER_REFR_STALE_MS = 70;
+const WATER_REFR_STALE_MOVE_SQ = 4.5 * 4.5;
+const WATER_REFR_STALE_ANGLE = 0.08;
 
 // Camera-underwater state shared by every pool material. When the camera is
 // below the surface, the pool floors get their animated caustic overlay and
 // the water surface renders its shimmering underside.
 const WATER_UNDERWATER = { camera: false, gain: 0 };
+
+// Reused temporaries for the static mesh batcher in buildTrack.
+const _batchMat = new THREE.Matrix4();
+const _batchInv = new THREE.Matrix4();
+
+// FPS: shared geometry + material singletons for the per-cell overlay meshes.
+// Poles/cubes/jumps/wall-fallbacks used to construct a NEW BoxGeometry or
+// CylinderGeometry AND MeshStandardMaterial for every placed cell —
+// identical parameters each time, but unique objects, so the static batcher
+// could never merge them (unique uuids) and each stayed an individual draw
+// call in every render pass. With shared singletons the batcher collapses
+// them into chunked InstancedMeshes exactly like the road pieces.
+let _sharedOverlayParts = null;
+function getSharedOverlayParts() {
+
+	if ( _sharedOverlayParts ) return _sharedOverlayParts;
+	_sharedOverlayParts = {
+		pole: {
+			geometry: new THREE.CylinderGeometry( POLE_RADIUS, POLE_RADIUS, POLE_HEIGHT, 16 ),
+			material: new THREE.MeshStandardMaterial( { color: 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
+		},
+		cube: {
+			geometry: new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
+			material: new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
+		},
+		jump: {
+			geometry: new THREE.BoxGeometry( JUMP_RAMP_SIZE, JUMP_RAMP_DEPTH, JUMP_RAMP_SIZE ),
+			material: new THREE.MeshStandardMaterial( { color: 0x7f6a58, roughness: 0.85, metalness: 0.02 } )
+		},
+		wall: {
+			geometry: new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
+			material: new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
+		}
+	};
+	return _sharedOverlayParts;
+
+}
 export function setWaterUnderwaterCameraState( active ) {
 
 	WATER_UNDERWATER.camera = !! active;
 
 }
 
+// Distance gate for the refraction pass on huge maps: the main game sets
+// this to the gameplay fog far. When no pool tile lies within that radius
+// of the camera, every water surface is either culled invisible or fully
+// fogged, so re-rendering the scene into the refraction target is pure
+// waste. 0 disables the gate (small maps / default behavior).
+let waterRefrCullRadius = 0;
+export function setWaterRefractionCullRadius( radius ) {
+
+	waterRefrCullRadius = Number( radius ) || 0;
+
+}
+
 export function updateWaterQuality( rollingFps ) {
 
-	if ( ! Number.isFinite( rollingFps ) || rollingFps <= 0 ) {
+	// Fresh refraction sample every frame, but the SECOND scene render's
+	// FILL scales with the frame rate. QUALITY FLOOR (user order 2026-09-28):
+	// half-res while healthy and NEVER worse than quarter-res — the old
+	// 6/8 (sixth/eighth-res) samples turned the water into a mushy, shifty
+	// camera feed of the wrong part of the scene ("not pool area"). The
+	// wobble hides softness, but it can't hide WRONG content. The main
+	// auto-resolution scaler absorbs the extra fill cost instead.
+	// Hysteresis: at most ONE resolution change per 4s so the render
+	// target never thrashes between sizes.
+	const target = ! Number.isFinite( rollingFps ) || rollingFps <= 0 ? 2
+		: rollingFps >= 45 ? 2 : 4;
+	const nowMs = performance.now();
+	if ( target !== waterRefrScaleDiv && nowMs - waterRefrDivLastChangeMs > 4000 ) {
 
-		waterRefrCadence = 1; // no signal yet — assume healthy
-		return;
+		waterRefrScaleDiv = target;
+		waterRefrDivLastChangeMs = nowMs;
 
 	}
-	waterRefrCadence = rollingFps >= 45 ? 1 : rollingFps >= 28 ? 2 : rollingFps >= 18 ? 3 : 4;
 
 }
 
@@ -191,7 +271,24 @@ function isWaterVisibleToCamera( camera ) {
 export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0, viewportRect = null ) {
 
 	if ( WATER_PLANES.length === 0 ) return;
-	if ( ! isWaterVisibleToCamera( camera ) ) return;
+	// Mega-map distance gate (see setWaterRefractionCullRadius). Underwater
+	// cameras skip the gate — the shimmering underside IS the screen content.
+	if ( ! WATER_UNDERWATER.camera && waterRefrCullRadius > 0 ) {
+
+		let anyNear = false;
+		for ( const plane of WATER_PLANES ) {
+
+			const sphere = plane.userData.waterWorldSphere;
+			if ( ! sphere ) { anyNear = true; break; } // not cached — be safe
+			const dx = sphere.center.x - camera.position.x;
+			const dz = sphere.center.z - camera.position.z;
+			const rr = waterRefrCullRadius + sphere.radius;
+			if ( dx * dx + dz * dz <= rr * rr ) { anyNear = true; break; }
+
+		}
+		if ( ! anyNear ) return;
+
+	}
 	waterRefrFrameCounter ++;
 	const waterLastFrame = waterLastRefrFrameByCam.get( camIndex );
 	// When does the pool actually need a fresh scene render?
@@ -222,36 +319,25 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 		waterLastRefrFrameByCam.set( camIndex, waterRefrFrameCounter );
 
 	};
-	if ( ! WATER_UNDERWATER.camera ) {
-
-		let skipPass = false;
-		if ( waterCamState ) {
-
-			const movedSq = waterCamState.pos.distanceToSquared( camera.position );
-			const angle = waterCamState.quat.angleTo( camera.quaternion );
-			if ( movedSq < 0.0025 && angle < 0.01 ) {
-
-				// Parked camera — LOW-fps cadence governor.
-				skipPass = waterLastFrame !== undefined && waterRefrFrameCounter - waterLastFrame < waterRefrCadence;
-
-			} else if ( waterLastFrame !== undefined
-				&& ( performance.now() - waterCamState.t ) < WATER_REFR_STALE_MS
-				&& movedSq < WATER_REFR_STALE_MOVE_SQ
-				&& angle < WATER_REFR_STALE_ANGLE ) {
-
-				// Moving camera — sample still inside the staleness budget.
-				skipPass = true;
-
-			}
-
-		}
-		if ( skipPass ) return;
-
-	}
+	// ALWAYS a fresh refraction sample, every frame, on every preset.
+	// The old adaptive skip logic (cadence governor + staleness budget)
+	// stopped refreshing the sample whenever the frame rate dipped — which
+	// is exactly the HIGH-preset case on integrated GPUs — and the stale
+	// sample read behind the live wobble as glitchy, mirror-like water.
+	// (LOW preset looked fine only because it kept a healthy frame rate,
+	// so the governor never engaged.) Pools now render identically on
+	// every preset; the quarter-res RT keeps the pass cheap and the
+	// auto resolution scaler absorbs the extra cost if needed.
 	markFreshPass();
 	const db = renderer.getDrawingBufferSize( _waterDbSize );
-	const w = Math.max( 2, Math.floor( db.x / 2 ) );
-	const h = Math.max( 2, Math.floor( db.y / 2 ) );
+	// FPS: ABOVE water the RT is quarter res — this pass renders the whole
+	// scene, so pixel count IS the pool-map cost, and the animated wobble
+	// samples it through distortion anyway (resolution is invisible behind
+	// it). UNDERWATER the RT is the actual screen content (the shimmering
+	// pool underside), so it keeps the original half-res sampling.
+	const scaleDiv = WATER_UNDERWATER.camera ? 2 : waterRefrScaleDiv;
+	const w = Math.max( 2, Math.floor( db.x / scaleDiv ) );
+	const h = Math.max( 2, Math.floor( db.y / scaleDiv ) );
 	let rt = waterRefrRTs.get( camIndex );
 	if ( ! rt || rt.width !== w || rt.height !== h ) {
 
@@ -279,8 +365,8 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 	if ( viewportRect ) {
 
 		rt.scissorTest = true;
-		rt.scissor.set( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
-		rt.viewport.set( viewportRect.x / 2, viewportRect.y / 2, viewportRect.w / 2, viewportRect.h / 2 );
+		rt.scissor.set( Math.floor( viewportRect.x / scaleDiv ), Math.floor( viewportRect.y / scaleDiv ), Math.floor( viewportRect.w / scaleDiv ), Math.floor( viewportRect.h / scaleDiv ) );
+		rt.viewport.set( Math.floor( viewportRect.x / scaleDiv ), Math.floor( viewportRect.y / scaleDiv ), Math.floor( viewportRect.w / scaleDiv ), Math.floor( viewportRect.h / scaleDiv ) );
 
 	} else {
 
@@ -299,7 +385,11 @@ export function prerenderWaterRefraction( renderer, scene, camera, camIndex = 0,
 	renderer.setScissorTest( prevScissorTest );
 	for ( const plane of WATER_PLANES ) {
 
-		plane.visible = true;
+		// Restore to the CULL verdict (set by the game's distance cull each
+		// frame), not blanket-true: far pool tiles must stay hidden in the
+		// main render (user order 2026-10-06). Undefined = never culled =
+		// visible, safe for first frame and cull-less maps.
+		plane.visible = plane.userData.cullVisible !== false;
 		plane.material.uniforms.tDiffuse.value = rt.texture;
 
 	}
@@ -369,7 +459,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 			} )() },
 			// Neutral tint for custom pools (no blue shift); classic cool tint otherwise.
 			uTint: { value: new THREE.Vector3( visuals.isCustom ? 1 : 0.86, visuals.isCustom ? 1 : 0.94, visuals.isCustom ? 1 : 1.08 ) },
-			// Custom pools tint the refraction sample harder so the color
+				// Custom pools tint the refraction sample harder so the color
 			// survives the scene underneath; default pools keep 0.4.
 			depthMix: { value: visuals.isCustom ? 0.8 : 0.4 },
 			skyTop: { value: new THREE.Color( 0x6db3e8 ) },
@@ -380,6 +470,8 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 		// normals (the demo's technique), evaluated in world space so all
 		// pool planes share one continuous ocean feel.
 		vertexShader: `
+			#include <common>
+			#include <logdepthbuf_pars_vertex>
 			uniform float time;
 			uniform float waveHeight;
 			uniform float waveFadeStart;
@@ -455,9 +547,11 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 				vWorldNormal = normalize( vec3( ( hX1 - hX2 ) * vWaveDistFade, 2.0 * d, ( hZ1 - hZ2 ) * vWaveDistFade ) );
 				gl_Position = projectionMatrix * viewMatrix * world;
 				vClip = gl_Position;
+				#include <logdepthbuf_vertex>
 			}
 		`,
 		fragmentShader: `
+			#include <logdepthbuf_pars_fragment>
 			uniform sampler2D tDiffuse;
 			uniform float time;
 			uniform float floorY;
@@ -488,6 +582,7 @@ function createRepositoryWaterMaterial( visuals = normalizePoolVisuals() ) {
 					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
 			}
 			void main() {
+			#include <logdepthbuf_fragment>
 				vec3 n = normalize( vWorldNormal );
 				vec3 viewDir = normalize( cameraPosition - vWorldPos );
 				vec3 rDir = reflect( - viewDir, n );
@@ -595,13 +690,17 @@ function createPoolFloorCausticsMaterial() {
 		depthWrite: false,
 		blending: THREE.AdditiveBlending,
 		vertexShader: `
+			#include <common>
+			#include <logdepthbuf_pars_vertex>
 			varying vec2 vLocal;
 			void main() {
 				vLocal = position.xy;
 				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+				#include <logdepthbuf_vertex>
 			}
 		`,
 		fragmentShader: `
+			#include <logdepthbuf_pars_fragment>
 			uniform float time;
 			uniform float gain;
 			uniform float shade;
@@ -620,6 +719,7 @@ function createPoolFloorCausticsMaterial() {
 					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
 			}
 			void main() {
+			#include <logdepthbuf_fragment>
 				if ( gain <= 0.001 ) discard;
 				float ct = time * 1.9;
 				// Rotated + differently-scaled domains so the two integer
@@ -657,13 +757,17 @@ function createPoolWallCausticsMaterial() {
 		depthWrite: false,
 		blending: THREE.AdditiveBlending,
 		vertexShader: `
+			#include <common>
+			#include <logdepthbuf_pars_vertex>
 			varying vec2 vLocal;
 			void main() {
 				vLocal = position.xy;
 				gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+				#include <logdepthbuf_vertex>
 			}
 		`,
 		fragmentShader: `
+			#include <logdepthbuf_pars_fragment>
 			uniform float time;
 			uniform float gain;
 			uniform float shade;
@@ -681,6 +785,7 @@ function createPoolWallCausticsMaterial() {
 					mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
 			}
 			void main() {
+			#include <logdepthbuf_fragment>
 				if ( gain <= 0.001 ) discard;
 				float ct = time * 1.9;
 				mat2 rotC = mat2( 0.84, 0.54, - 0.54, 0.84 );
@@ -732,7 +837,7 @@ function computeCausticShade( normal ) {
 
 }
 
-const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both' ] );
+const ELEVATED_TYPES = new Set( [ 'elevated-straight', 'elevated-cross', 'elevated-corner', 'elevated-cross-corner', 'elevated-checkpoint', 'elevated-checkpoint-corner', 'slope-up', 'slope-down', 'elevated-3-way', 'elevated-4-way', 'elevated-choke-half', 'elevated-choke-both', 'elevated-choke-cross', 'elevated-thin-straight', 'elevated-thin-corner', 'elevated-thin-3-way', 'elevated-thin-4-way', 'elevated-wide-thin', 'elevated-wide-thin-corner', 'pool-cross' ] );
 
 function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 
@@ -741,10 +846,41 @@ function normalizeElevatedEntry( elevatedType, orient = 0 ) {
 
 }
 
-function getOverlayHeightOffset( elevatedEntry ) {
+function getOverlayHeightOffset( elevatedEntry, isTunnelCell = false ) {
 
+	// Open-top tunnel: every overlay (bump/pole/cube/wall/jump/surface/pad)
+	// follows its block down to the pit floor.
+	if ( isTunnelCell ) return - TUNNEL_DROP;
 	if ( ! elevatedEntry ) return 0;
+	// Pool Cross sits at pool level (no lift) — the elevated-cross model
+	// dropped into the pool, not a bridge.
+	if ( elevatedEntry.type === 'pool-cross' ) return 0;
 	return elevatedEntry.type === 'slope-up' ? ELEVATED_HEIGHT * 0.5 : ELEVATED_HEIGHT;
+
+}
+
+// LAST-BUILD overlay footprint resolver (user order 2026-10-06): moving
+// obstacles are created in main.js AFTER buildTrack ran, so they resolve
+// against the footprints of the track that was just built — same math as
+// the in-build overlayFootprintYOffset (exact-key match first, then the
+// nearest containing footprint, so off-grid centers work too).
+let activeOverlayFootprints = [];
+export function overlayFootprintYOffsetFor( gx, gz ) {
+
+	const u = Number( gx ) + 0.5, v = Number( gz ) + 0.5;
+	let best = null, bestD = Infinity;
+	for ( const f of activeOverlayFootprints ) {
+
+		if ( f.gx === gx && f.gz === gz ) { best = f; bestD = -1; break; }
+		if ( u < f.gx || u >= f.gx + 1 || v < f.gz || v >= f.gz + 1 ) continue;
+		const d = Math.abs( u - ( f.gx + 0.5 ) ) + Math.abs( v - ( f.gz + 0.5 ) );
+		if ( d < bestD ) { bestD = d; best = f; }
+
+	}
+	if ( ! best ) return 0;
+	if ( best.isTunnel ) return best.closed ? 0 : - TUNNEL_DROP;
+	if ( best.isHub ) return 0;
+	return getOverlayHeightOffset( best.elevatedEntry, false );
 
 }
 
@@ -756,10 +892,12 @@ function getSurfaceVisual( surfaceType, customSurfaces = null, customPads = null
 		case 'surface-boost': return { color: 0xff4b4b, emissive: 0xc1121f, metalness: 0.0, roughness: 0.9 };
 		case 'surface-sand': return { color: 0xd7b46a, emissive: 0x6f4f22, metalness: 0.0, roughness: 1.0 };
 		case 'surface-bounce': return { color: 0xbaff7a, emissive: 0x2f8f2f, metalness: 0.0, roughness: 0.75 };
+		case 'surface-trampoline': return { color: 0x66f2d0, emissive: 0x0f8f74, metalness: 0.0, roughness: 0.7 };
 		case 'surface-kick-l': return { color: 0xc683ff, emissive: 0x54208f, metalness: 0.0, roughness: 0.8 };
 		case 'surface-kick-r': return { color: 0xff83d0, emissive: 0x8f2054, metalness: 0.0, roughness: 0.8 };
 		case 'pad-reset': return { color: 0xffffff, emissive: 0x557c92, metalness: 0.1, roughness: 0.35 };
 		case 'pad-low-gravity': return { color: 0x9bc2ff, emissive: 0x2e4f9f, metalness: 0.05, roughness: 0.55 };
+		case 'pad-air-control': return { color: 0x37b6ff, emissive: 0x0c4f9e, metalness: 0.05, roughness: 0.6 };
 		case 'pad-heavy-gravity': return { color: 0x4a5f85, emissive: 0x111b36, metalness: 0.05, roughness: 0.8 };
 		case 'pad-high-grip': return { color: 0x5cff9a, emissive: 0x0d6a39, metalness: 0.02, roughness: 0.95 };
 		case 'pad-high-speed': return { color: 0xffbc4f, emissive: 0x8a4e06, metalness: 0.0, roughness: 0.8 };
@@ -813,21 +951,30 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 
 	let modelKey = null;
 	if ( type === 'elevated-straight' ) modelKey = 'elev-track-straight';
-	else if ( type === 'elevated-cross' ) modelKey = 'elev-track-cross';
+	else if ( type === 'elevated-cross' || type === 'pool-cross' ) modelKey = 'elev-track-cross';
 	else if ( type === 'elevated-corner' ) modelKey = 'elev-track-corner';
 	else if ( type === 'elevated-cross-corner' ) modelKey = 'elev-cross-corners';
 	else if ( type === 'elevated-checkpoint' ) modelKey = 'elev-track-checkpoint';
+	else if ( type === 'elevated-checkpoint-corner' ) modelKey = 'track-checkpoint-corner';
 	else if ( type === 'slope-up' || type === 'slope-down' ) modelKey = 'elev-track-slope';
 	else if ( type === 'elevated-3-way' ) modelKey = 'elev-track-3-way';
 	else if ( type === 'elevated-choke-half' ) modelKey = 'elev-track-choke-half';
 	else if ( type === 'elevated-choke-both' ) modelKey = 'elev-track-choke-both';
+	else if ( type === 'elevated-choke-cross' ) modelKey = 'elev-choke-4-way';
 	else if ( type === 'elevated-4-way' ) modelKey = 'elev-track-4-way';
+	else if ( type === 'elevated-thin-straight' ) modelKey = 'elev-thin-straight';
+	else if ( type === 'elevated-thin-corner' ) modelKey = 'elev-thin-corner';
+	else if ( type === 'elevated-thin-3-way' ) modelKey = 'elev-thin-3-way';
+	else if ( type === 'elevated-thin-4-way' ) modelKey = 'elev-thin-4-way';
+	else if ( type === 'elevated-wide-thin' ) modelKey = 'elev-wide-to-thin';
+	else if ( type === 'elevated-wide-thin-corner' ) modelKey = 'elev-wide-to-thin-corner';
 	if ( ! modelKey || ! models[ modelKey ] ) return null;
 	if ( modelKey === 'elev-track-choke-half' || modelKey === 'elev-track-choke-both' ) smoothChokeSourceModel( models[ modelKey ] );
+	if ( THIN_MODEL_KEYS.has( modelKey ) ) smoothThinSourceModel( models[ modelKey ] );
 
 	const piece = models[ modelKey ].clone();
 	// The cross-corner mesh can be viewed from inside the corner opening, so render both faces
-	if ( type === 'elevated-cross-corner' || type === 'elevated-choke-half' || type === 'elevated-choke-both' ) {
+	if ( type === 'elevated-cross-corner' || type === 'elevated-choke-half' || type === 'elevated-choke-both' || THIN_MODEL_KEYS.has( modelKey ) ) {
 
 	piece.traverse( ( child ) => {
 
@@ -838,13 +985,32 @@ function cloneElevatedPiece( models, type, orient, gx, gz ) {
 	}
 	// Choke shells must not sample the shadow map (self-shadow acne on the
 	// grazing curve faces — see the placePiece choke branch for the full note).
-	if ( type === 'elevated-choke-half' || type === 'elevated-choke-both' ) {
+	// Thin/transition shells get the same anti-acne treatment AND stop casting
+	// shadows entirely — their AI-authored normals produce strange self-shadow
+	// shading; trees keep normal shadows (separate meshes, tree UV bands).
+	if ( type === 'elevated-choke-half' || type === 'elevated-choke-both' || type === 'elevated-choke-cross' || THIN_MODEL_KEYS.has( modelKey ) ) {
 
-	piece.traverse( ( child ) => { child.userData.isChokeMesh = true; } );
+		piece.traverse( ( child ) => {
+
+			if ( ! child.isMesh || child.userData.isChokeTreeMesh ) return;
+			// Trust splitChokeTrees' tree split (isChokeTreeMesh) exactly like
+			// the ground branch in placePiece. The old per-vertex UV re-check
+			// here skipped REAL shell meshes whose atlas sampling happened to
+			// graze the tree bands, so elevated variants of these blocks kept
+			// their shadows while the ground variants matched the
+			// user-ordered no-shadow look (user report 2026-10-01).
+			child.userData.isChokeMesh = true;
+			// shells: shadows OFF (user order 2026-09-27 — in-game shadows on
+			// these AI blocks still looked bad; back to the no-shadow look)
+			child.userData.noCastShadow = true;
+			child.castShadow = false;
+
+		} );
 
 	}
-	// Slope model is pre-sloped at the correct size — place at ground level, no scaling
-	const yAdjust = ( type === 'slope-up' || type === 'slope-down' ) ? - ELEVATED_HEIGHT : 0;
+	// Slope model is pre-sloped at the correct size — place at ground level, no scaling.
+	// Pool Cross: same cross model, but at pool level (no ELEVATED_HEIGHT lift).
+	const yAdjust = ( type === 'slope-up' || type === 'slope-down' || type === 'pool-cross' ) ? - ELEVATED_HEIGHT : 0;
 	piece.position.set(
 		( gx + 0.5 ) * CELL_RAW,
 		0.5 + VISUAL_HEIGHT_OFFSET + ELEVATED_HEIGHT + yAdjust,
@@ -1030,7 +1196,7 @@ export function computePoolPresetWaterCells( cells = TRACK_CELLS, extras = null 
 	};
 
 	for ( const [ gx, gz ] of ( Array.isArray( cells ) && cells.length ? cells : TRACK_CELLS ) ) addRoad( gx, gz );
-	const blockerLists = [ extras?.bumps, extras?.poles, extras?.cubes, extras?.walls, extras?.jumps, extras?.movingObstacles, extras?.elevated, extras?.surfaces, extras?.decorations, extras?.magnets, extras?.arcLinks ];
+	const blockerLists = [ extras?.bumps, extras?.poles, extras?.cubes, extras?.physicsBoxes, extras?.walls, extras?.jumps, extras?.movingObstacles, extras?.elevated, extras?.surfaces, extras?.decorations, extras?.magnets, extras?.arcLinks, extras?.tunnels ];
 	for ( const list of blockerLists ) {
 		if ( ! Array.isArray( list ) ) continue;
 		for ( const entry of list ) {
@@ -1077,10 +1243,68 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 	}
 	const waterCellsForDeco = extras && Array.isArray( extras.water ) ? extras.water : [];
 
+	// Official "Hide Trees" mod (visual only): every AUTO-placed forest
+	// tree — the scatter (near-track buffer AND far forest) plus the
+	// default track's baked DECO_CELLS ring — renders as the flat empty
+	// green plane (models/untitled.glb) instead. Player-placed trees (map
+	// URL cells, editor decorations) are NEVER touched. Trees are
+	// pure decoration with no colliders, so nothing about physics or
+	// timing changes (js/main.js whitelists the mod for the leaderboard).
+	// Same localStorage key as js/mods-manager.js INSTALLED_MODS_KEY.
+	let hideTreesMod = false;
+	try {
+
+		hideTreesMod = JSON.parse( localStorage.getItem( 'racing-installed-mods-v1' ) || '[]' ).some( ( m ) => m?.id === 'hide-trees' );
+
+	} catch { /* malformed list — treat as not installed */ }
+	const tunnelCells = extras && Array.isArray( extras.tunnels ) ? extras.tunnels : [];
+	// v2 tunnel entry: [ gx, gz, closed, orient, type ] (type null = hole).
+	// v1 legacy: [ gx, gz ] — the cell's own road piece is the pit block and
+	// gets dropped in the cells loop below; surface has nothing on top.
+	const tunnelInfoMap = new Map();
+	for ( const entry of tunnelCells ) {
+
+		const gx = Number( entry?.[ 0 ] ), gz = Number( entry?.[ 1 ] );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) continue;
+		tunnelInfoMap.set( `${ gx },${ gz }`, {
+			closed: entry.length >= 5 && entry[ 2 ] === 1,
+			orient: entry.length >= 5 ? ( Number( entry[ 3 ] ) || 0 ) : 0,
+			type: entry.length >= 5 ? ( entry[ 4 ] ?? null ) : undefined
+		} );
+
+	}
+	const tunnelSet = new Set( tunnelInfoMap.keys() );
+	// OPEN tops carve the surface away (no ground quad, no trees); CLOSED
+	// tops keep the whole surface world above (ground, trees) — only the pit
+	// below is carved, sealed by a thin roof collider + ceiling panel.
+	const tunnelOpenSet = new Set( [ ...tunnelInfoMap ].filter( ( [ , info ] ) => ! info.closed ).map( ( [ key ] ) => key ) );
+	const tunnelOpenCellsArr = [ ...tunnelOpenSet ].map( ( key ) => key.split( ',' ).map( Number ) );
 	for ( const [ gx, gz, key, orient ] of cells ) {
 
 		const piece = placePiece( models, key, gx, gz, orient );
-		if ( piece ) trackPieceGroup.add( piece );
+		if ( piece ) {
+
+			// Tunnel LEGACY v1 entries sink the cell's own piece to the pit
+			// floor; v2 entries keep surface pieces at the surface (the pit
+			// block comes from the tunnel info instead).
+			const tunnelCellKey = `${ Number( gx ) },${ Number( gz ) }`;
+			if ( tunnelInfoMap.has( tunnelCellKey ) && tunnelInfoMap.get( tunnelCellKey ).type === undefined ) {
+				piece.position.y += 0.08 - TUNNEL_DROP;
+				// Tunnel-sunk shells: no shadows at all (user order 2026-10-01).
+				piece.traverse( ( c ) => { if ( c.isMesh && c.userData.isChokeMesh && ! c.userData.isChokeTreeMesh ) c.userData.noCastShadow = true; } );
+			} else if ( key === 'track-4-way' ) {
+				// Surface 4-ways sitting ON TOP of a CLOSED tunnel roof render a
+				// hair low against the surrounding surface (user order
+				// 2026-10-03): lift ONLY those pieces +0.04. On-grid pieces
+				// and off-grid pieces alike resolve to their host cell via
+				// floor(); plain 4-ways and every other road piece are
+				// untouched.
+				const host = tunnelInfoMap.get( `${ Math.floor( gx ) },${ Math.floor( gz ) }` );
+				if ( host && host.closed ) piece.position.y += 0.04;
+			}
+			trackPieceGroup.add( piece );
+
+		}
 
 	}
 
@@ -1111,6 +1335,70 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			elevatedMap.set( `${ gx },${ gz }`, normalizeElevatedEntry( elevatedType, orient ) );
 
 		}
+	// ── OVERLAY FOOTPRINT RESOLVER (user order 2026-10-01) ──
+	// Off-grid overlays (fractional gx/gz) broke every elevation lookup:
+	// exact-key map lookups only ever matched on-grid pieces, so obstacles
+	// and surfaces placed off-grid over elevated blocks or tunnels fell to
+	// ground level. The height is now decided by WHERE THE OVERLAY'S CENTER
+	// IS: any elevated block, tunnel, or hub whose footprint contains that
+	// point provides the offset, off-grid or not. An exact same-coordinate
+	// match wins first (identical to the old behavior), then the nearest
+	// containing footprint (for straddles). A piece's mesh is centered at
+	// (gx + 0.5) * CELL_RAW, so its footprint in cell units (x / CELL_RAW)
+	// is [gx, gx+1) x [gz, gz+1).
+	const overlayFootprints = [];
+	for ( const [ gxRaw, gzRaw, elevatedType, orient = 0 ] of elevatedCells ) {
+
+		const fpGx = Number( gxRaw ), fpGz = Number( gzRaw );
+		if ( ! Number.isFinite( fpGx ) || ! Number.isFinite( fpGz ) ) continue;
+		if ( ! ELEVATED_TYPES.has( elevatedType ) ) continue;
+		overlayFootprints.push( { gx: fpGx, gz: fpGz, elevatedEntry: normalizeElevatedEntry( elevatedType, orient ) } );
+
+	}
+	for ( const [ key, info ] of tunnelInfoMap ) {
+
+		const [ fpGx, fpGz ] = key.split( ',' ).map( Number );
+		overlayFootprints.push( { gx: fpGx, gz: fpGz, isTunnel: true, closed: Boolean( info.closed ) } );
+
+	}
+	for ( const hubKey of hubCellSet ) {
+
+		const [ fpGx, fpGz ] = hubKey.split( ',' ).map( Number );
+		if ( Number.isFinite( fpGx ) && Number.isFinite( fpGz ) ) overlayFootprints.push( { gx: fpGx, gz: fpGz, isHub: true } );
+
+	}
+
+	// Expose this build's footprints for post-build consumers (moving
+	// obstacles in main.js resolve their height against these).
+	activeOverlayFootprints = overlayFootprints;
+	function resolveOverlayFootprint( gx, gz ) {
+
+		const u = Number( gx ) + 0.5;
+		const v = Number( gz ) + 0.5;
+		let best = null, bestD = Infinity;
+		for ( const f of overlayFootprints ) {
+
+			if ( f.gx === gx && f.gz === gz ) return f; // exact match: legacy behavior
+			if ( u < f.gx || u >= f.gx + 1 || v < f.gz || v >= f.gz + 1 ) continue;
+			const d = Math.abs( u - ( f.gx + 0.5 ) ) + Math.abs( v - ( f.gz + 0.5 ) );
+			if ( d < bestD ) { bestD = d; best = f; }
+
+		}
+		return best;
+
+	}
+	// Y offset for any overlay (bump/pole/cube/wall/jump/boost) from the
+	// footprint that contains its center. Hubs are ground level: no lift.
+	function overlayFootprintYOffset( gx, gz ) {
+
+		const f = resolveOverlayFootprint( gx, gz );
+		if ( ! f ) return 0;
+		if ( f.isTunnel ) return f.closed ? 0 : - TUNNEL_DROP;
+		if ( f.isHub ) return 0;
+		return getOverlayHeightOffset( f.elevatedEntry, false );
+
+	}
+
 		// Cells covered by a slope block (slope-up / slope-down). Trees must
 		// not spawn under a slope, so both auto-forest and hand-placed
 		// decorations skip these cells.
@@ -1136,40 +1424,47 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		}
 		if ( waterCells.length > 0 ) {
 
-			let minWaterGx = Infinity, maxWaterGx = - Infinity, minWaterGz = Infinity, maxWaterGz = - Infinity;
+			// One surface per actual pool cell. Do NOT build a bounding rectangle
+			// around a connected pool: that fills empty cells and can cover tunnel
+			// pits beside/inside an irregular pool. Each plane is strictly confined
+			// to its own grid block, and spans it EXACTLY (CELL_RAW x CELL_RAW,
+			// no inset) so neighbouring pool planes share their edge with no
+			// visible seam or gap between blocks (user order 2026-10-06).
 			for ( const [ gx, gz ] of waterCells ) {
 
-				minWaterGx = Math.min( minWaterGx, gx );
-				maxWaterGx = Math.max( maxWaterGx, gx + 1 );
-				minWaterGz = Math.min( minWaterGz, gz );
-				maxWaterGz = Math.max( maxWaterGz, gz + 1 );
+				const waterPlane = new THREE.Mesh(
+					new THREE.PlaneGeometry(
+						CELL_RAW,
+						CELL_RAW,
+						32,
+						32
+					),
+					createRepositoryWaterMaterial( poolVisuals )
+				);
+				waterPlane.rotation.x = - Math.PI / 2;
+				waterPlane.position.set(
+					( Number( gx ) + 0.5 ) * CELL_RAW,
+					0.12,
+					( Number( gz ) + 0.5 ) * CELL_RAW
+				);
+				waterPlane.userData.waterSurface = true;
+				WATER_PLANES.push( waterPlane );
+
+				// Cache the world-space bounding sphere once — the refraction
+				// frustum gate tests each actual pool tile independently.
+				waterPlane.updateMatrixWorld();
+				waterPlane.geometry.computeBoundingSphere();
+				waterPlane.userData.waterWorldSphere =
+					waterPlane.geometry.boundingSphere.clone().applyMatrix4( waterPlane.matrixWorld );
+				waterPlane.onBeforeRender = () => {
+					waterPlane.material.uniforms.time.value = performance.now() * 0.001;
+				};
+				trackPieceGroup.add( waterPlane );
 
 			}
-			const waterWidth = Math.max( CELL_RAW, ( maxWaterGx - minWaterGx + 2 ) * CELL_RAW );
-			const waterDepth = Math.max( CELL_RAW, ( maxWaterGz - minWaterGz + 2 ) * CELL_RAW );
-			// Subdivided so the vertex-stage wave height field has geometry to bend.
-			const waterSeg = THREE.MathUtils.clamp( Math.round( Math.max( waterWidth, waterDepth ) / CELL_RAW ) * 32, 32, 128 );
-			const waterPlane = new THREE.Mesh(
-				new THREE.PlaneGeometry( waterWidth, waterDepth, waterSeg, waterSeg ),
-				createRepositoryWaterMaterial( poolVisuals )
-			);
-			waterPlane.rotation.x = - Math.PI / 2;
-			waterPlane.position.set( ( ( minWaterGx + maxWaterGx ) * 0.5 ) * CELL_RAW, 0.12, ( ( minWaterGz + maxWaterGz ) * 0.5 ) * CELL_RAW );
-			waterPlane.userData.waterSurface = true;
-			WATER_PLANES.push( waterPlane );
-			// Cache the world-space bounding sphere once — the frustum gate
-			// tests it every frame, and pool planes never move after this.
-			waterPlane.updateMatrixWorld();
-			waterPlane.geometry.computeBoundingSphere();
-			waterPlane.userData.waterWorldSphere = waterPlane.geometry.boundingSphere.clone().applyMatrix4( waterPlane.matrixWorld );
-			waterPlane.onBeforeRender = () => {
-
-				waterPlane.material.uniforms.time.value = performance.now() * 0.001;
-
-			};
-			trackPieceGroup.add( waterPlane );
 
 		}
+
 		for ( const [ gx, gz ] of waterCells ) {
 
 			const pool = new THREE.Group();
@@ -1213,6 +1508,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			for ( const side of sides ) {
 				if ( isWaterCell( gx + side.dx, gz + side.dz ) ) continue;
 				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
+				// Pool Cross: the block covers the whole cell at ground level and
+				// its own walls are the boundary — omit the pool wall + edge lip
+				// (they would poke through the deck and catch cars on the lip).
+				if ( elevatedMap.get( `${ gx },${ gz }` )?.type === 'pool-cross' ) continue;
 				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, WATER_WALL_HEIGHT, CELL_RAW * 0.08 ), new THREE.MeshStandardMaterial( { map: poolWallTexture, roughness: 0.7, metalness: 0.0 } ) );
 				wall.position.set( side.x, 0.5 - WATER_WALL_HEIGHT * 0.5, side.z );
 				wall.rotation.y = side.ry;
@@ -1264,12 +1563,112 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
+		// ── OPEN-TOP TUNNELS: dry pool bowls (user order 2026-09-28) ──
+		// Same bowl geometry as pools (floor + walls, walls skipped toward
+		// adjacent tunnel cells and tunnel-slope exits) but DIRT textured and
+		// no water, no caustics. The block itself was already dropped to the
+		// pit floor in the cells loop above.
+		const tunnelFloorMat = new THREE.MeshStandardMaterial( { color: 0x6f4e2e, roughness: 0.95, metalness: 0.0 } );
+		const tunnelWallMat = new THREE.MeshStandardMaterial( { color: 0x5c4126, roughness: 0.95, metalness: 0.0 } );
+		for ( const [ key, info ] of tunnelInfoMap ) {
+
+			const [ gx, gz ] = key.split( ',' ).map( Number );
+			const pit = new THREE.Group();
+			pit.position.set( ( gx + 0.5 ) * CELL_RAW, 0, ( gz + 0.5 ) * CELL_RAW );
+			const floor = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.04, CELL_RAW ), tunnelFloorMat );
+			// Floor TOP sits one VISUAL_HEIGHT_OFFSET below the block deck
+			// (deck at 0.512 - drop, floor top at 0.5 - drop) — the exact
+			// clearance surface blocks get, so the floor can never cover or
+			// z-fight the block.
+			floor.position.y = 0.5 - TUNNEL_DROP - VISUAL_HEIGHT_OFFSET - CELL_RAW * 0.02;
+			floor.receiveShadow = true;
+			pit.add( floor );
+			// CLOSED top: the surface world stays above — seal the pit with
+			// a ceiling panel (the roof's dirt underside) so the tunnel reads
+			// as a room from inside.
+			if ( info.closed ) {
+
+				const ceiling = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, CELL_RAW * 0.06, CELL_RAW ), tunnelWallMat );
+				// Top sits 2cm BELOW ground level (never coplanar with the
+				// closed cell's ground quad) — position is the CENTER, so it
+				// sits one half-height lower still.
+				ceiling.position.y = 0.48 - CELL_RAW * 0.03;
+				ceiling.receiveShadow = true;
+				pit.add( ceiling );
+
+			}
+			let exitSide = null;
+			if ( info.type === 'slope-up' ) {
+				// Slope-up pit block: the ramp rises to the surface on its
+				// high side — open the pit wall there (same facing math).
+				const rad = THREE.MathUtils.degToRad( ORIENT_DEG[ info.orient ] ?? 0 );
+				exitSide = `${ - Math.round( Math.sin( rad ) ) },${ - Math.round( Math.cos( rad ) ) }`;
+			}
+			const sides = [
+				{ dx: 0, dz: - 1, x: 0, z: - CELL_RAW * 0.5, ry: 0 },
+				{ dx: 1, dz: 0, x: CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+				{ dx: 0, dz: 1, x: 0, z: CELL_RAW * 0.5, ry: 0 },
+				{ dx: - 1, dz: 0, x: - CELL_RAW * 0.5, z: 0, ry: Math.PI / 2 },
+			];
+			for ( const side of sides ) {
+				if ( tunnelSet.has( `${ gx + side.dx },${ gz + side.dz }` ) ) continue;
+				if ( exitSide === `${ side.dx },${ side.dz }` ) continue;
+				// Full CELL_RAW span so adjacent tunnel pits' walls MEET with no
+				// gaps between blocks (0.96 left visible seams). The slab is
+				// shifted fully INSIDE this pit — outer face 0.002 inside the
+				// boundary plane, so it can never poke across into a pool's
+				// wall on the same boundary (pool slabs sit centered on the
+				// plane, faces at ±0.04; these faces at -0.042/-0.002 — no
+				// plane ever matches: no z-fighting, no clipping).
+				// THIN WALLS (user order 2026-10-01): the old 0.08-thick slab
+				// put its inner face 0.8 units into the pit and BURIED the
+				// sunk road piece's own raised walls, so tunnels read almost a
+				// unit narrower than the road inside them. Halve the slab to
+				// 0.04: the pit keeps its full-span dirt seal (no seams/holes),
+				// the inner face sits at 0.042 inside the boundary, and the
+				// road piece's walls poke through as the visible tunnel wall —
+				// matching the wall colliders the car actually hits.
+				const wall = new THREE.Mesh( new THREE.BoxGeometry( CELL_RAW, TUNNEL_WALL_H, CELL_RAW * 0.04 ), tunnelWallMat );
+				// Rim sits 2cm BELOW the surrounding ground — no dirt visible
+				// from above (colliders stay flush; this is the visual only).
+				wall.position.set( side.x - side.dx * CELL_RAW * 0.022, 0.48 - TUNNEL_WALL_H * 0.5, side.z - side.dz * CELL_RAW * 0.022 );
+				wall.rotation.y = side.ry;
+				wall.castShadow = true;
+				wall.receiveShadow = true;
+				pit.add( wall );
+			}
+			trackPieceGroup.add( pit );
+			// v2 pit block: placed at the pit floor (v1 legacy cells already
+			// dropped their own piece in the cells loop; holes have no block).
+			if ( info.type ) {
+
+				const block = placePiece( models, info.type, gx, gz, info.orient );
+				if ( block ) {
+					// Tunnel-sunk shells: no shadows at all (user order 2026-10-01).
+					block.traverse( ( c ) => { if ( c.isMesh && c.userData.isChokeMesh && ! c.userData.isChokeTreeMesh ) c.userData.noCastShadow = true; } );
+					block.position.y -= TUNNEL_DROP;
+					if ( info.type === 'track-4-way' ) block.position.y += 0.16;
+					if ( info.type === 'track-choke-cross' ) block.position.y += 0.16;
+					trackPieceGroup.add( block );
+
+				}
+
+			}
+
+		}
 		for ( const [ gx, gz ] of bumpCells ) {
 
+			// Bumps are allowed inside open-top tunnels, but not on closed roofs.
+			// Closed roofs stay at surface level and the large bump collider would
+			// intersect the sealed tunnel volume until its collider is redesigned.
+			// Closed-roof skip follows the footprint resolver: an off-grid
+			// bump whose center is over a closed roof skips exactly like an
+			// on-grid one always did.
+			if ( resolveOverlayFootprint( gx, gz )?.isTunnel === true && resolveOverlayFootprint( gx, gz ).closed ) continue;
 			const piece = placePiece( models, 'track-bump', gx, gz, 0 );
 			if ( piece ) {
 
-				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+				const yOffset = overlayFootprintYOffset( gx, gz );
 				piece.position.y += yOffset;
 				trackPieceGroup.add( piece );
 
@@ -1280,10 +1679,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz ] of poleCells ) {
 
 			const pole = new THREE.Mesh(
-				new THREE.CylinderGeometry( POLE_RADIUS, POLE_RADIUS, POLE_HEIGHT, 16 ),
-				new THREE.MeshStandardMaterial( { color: 0x8c8f96, roughness: 0.65, metalness: 0.15 } )
+				getSharedOverlayParts().pole.geometry,
+				getSharedOverlayParts().pole.material
 			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+			const yOffset = overlayFootprintYOffset( gx, gz );
 			pole.position.set( ( gx + 0.5 ) * CELL_RAW, ( POLE_HEIGHT * 0.5 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			pole.castShadow = true;
 			pole.receiveShadow = true;
@@ -1303,10 +1702,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz ] of cubeCells ) {
 
 			const cube = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.16, CELL_RAW * 0.16, CELL_RAW * 0.16 ),
-				new THREE.MeshStandardMaterial( { color: 0x9da5b1, roughness: 0.65, metalness: 0.08 } )
+				getSharedOverlayParts().cube.geometry,
+				getSharedOverlayParts().cube.material
 			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+			const yOffset = overlayFootprintYOffset( gx, gz );
 			cube.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.08 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			cube.castShadow = true;
 			cube.receiveShadow = true;
@@ -1373,18 +1772,58 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
+		// One-time fixup of the barrier SOURCE model: the GLB's origin is not
+		// at the center of the wall design (its mesh node carries a +23 x
+		// translation), which would place every wall far off to the side.
+		// Shift the source's children by the design's own bounds center so
+		// the wall sits centered on its cell. Guarded so it runs once;
+		// clones made later by placePiece inherit the corrected positions.
+		if ( models.barrier && ! models.barrier.userData.__barrierCentered ) {
+
+			models.barrier.updateMatrixWorld( true );
+			const bounds = new THREE.Box3().setFromObject( models.barrier );
+			const center = bounds.getCenter( new THREE.Vector3() );
+			for ( const child of models.barrier.children ) {
+
+				child.position.x -= center.x;
+				child.position.z -= center.z;
+
+			}
+			models.barrier.userData.__barrierCentered = true;
+
+		}
 		for ( const [ gx, gz, orient = 0 ] of wallCells ) {
 
-			const wall = new THREE.Mesh(
-				new THREE.BoxGeometry( CELL_RAW * 0.62, CELL_RAW * 0.15, CELL_RAW * 0.08 ),
-				new THREE.MeshStandardMaterial( { color: 0x868a90, roughness: 0.75, metalness: 0.05 } )
-			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
-			wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
-			wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
-			wall.castShadow = true;
-			wall.receiveShadow = true;
-			trackPieceGroup.add( wall );
+			// Wall obstacle now uses the real barrier model (visual only —
+			// the physics hitbox is untouched). The spinning wall obstacle
+			// (moving-spin-wall) is a DIFFERENT system and stays a box.
+			// Fallback to the legacy box if the model failed to load.
+			const barrier = placePiece( models, 'barrier', gx, gz, orient );
+			if ( barrier ) {
+
+				barrier.scale.multiplyScalar( BARRIER_WALL_SCALE );
+				barrier.position.y += overlayFootprintYOffset( gx, gz );
+				barrier.traverse( ( child ) => {
+
+					if ( child.isMesh ) { child.castShadow = true; child.receiveShadow = true; }
+
+				} );
+				trackPieceGroup.add( barrier );
+
+			} else {
+
+				const wall = new THREE.Mesh(
+					getSharedOverlayParts().wall.geometry,
+					getSharedOverlayParts().wall.material
+				);
+				const yOffset = overlayFootprintYOffset( gx, gz );
+				wall.position.set( ( gx + 0.5 ) * CELL_RAW, ( CELL_RAW * 0.075 ) - 0.06 + yOffset, ( gz + 0.5 ) * CELL_RAW );
+				wall.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] ?? 0 );
+				wall.castShadow = true;
+				wall.receiveShadow = true;
+				trackPieceGroup.add( wall );
+
+			}
 
 		}
 
@@ -1405,7 +1844,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					}
 
 				} );
-				const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+				const yOffset = overlayFootprintYOffset( gx, gz );
 				piece.position.y += yOffset;
 				trackPieceGroup.add( piece );
 
@@ -1416,14 +1855,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz, orient = 0 ] of jumpCells ) {
 
 			const jump = new THREE.Mesh(
-				new THREE.BoxGeometry( JUMP_RAMP_SIZE, JUMP_RAMP_DEPTH, JUMP_RAMP_SIZE ),
-				new THREE.MeshStandardMaterial( {
-					color: 0x7f6a58,
-					roughness: 0.85,
-					metalness: 0.02,
-				} )
+				getSharedOverlayParts().jump.geometry,
+				getSharedOverlayParts().jump.material
 			);
-			const yOffset = getOverlayHeightOffset( elevatedMap.get( `${ gx },${ gz }` ) );
+			const yOffset = overlayFootprintYOffset( gx, gz );
 			jump.position.set( ( gx + 0.5 ) * CELL_RAW, JUMP_RAMP_Y + VISUAL_HEIGHT_OFFSET + yOffset, ( gz + 0.5 ) * CELL_RAW );
 			jump.rotation.order = 'YXZ';
 			jump.rotation.y = THREE.MathUtils.degToRad( ORIENT_DEG[ orient ] || 0 );
@@ -1437,6 +1872,8 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		for ( const [ gx, gz, key, orient ] of decorations ) {
 
 			if ( waterSet.has( `${ gx },${ gz }` ) ) continue;
+			// No trees in open-top tunnel pits (closed roofs keep their trees).
+			if ( tunnelOpenSet.has( `${ Number( gx ) },${ Number( gz ) }` ) ) continue;
 			// Don't place a decoration tree under a slope block.
 			if ( slopeCells.has( `${ Number( gx ) },${ Number( gz ) }` ) ) continue;
 			const piece = placePiece( models, key, gx, gz, orient || 0 );
@@ -1444,28 +1881,53 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
+		// FPS: every pad/surface of the same TYPE renders with identical
+		// material parameters, so one shared material per type (and one
+		// geometry per shape) lets the static batcher instance the whole
+		// overlay layer — hundreds of unique-material draws collapse into a
+		// couple of chunked InstancedMeshes. Scoped per build so custom
+		// surface visuals from different maps can't leak into each other.
+		const surfaceGeoCache = new Map();
+		const surfaceMatCache = new Map();
 		for ( const [ gx, gz, surfaceType ] of surfaces ) {
 
 			const visual = getSurfaceVisual( surfaceType, customSurfaces, customPads );
 			const isPad = String( surfaceType || '' ).startsWith( 'pad-' );
-			const geometry = isPad
-				? new THREE.CircleGeometry( CELL_RAW * 0.39, 24 )
-				: new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 );
-			const material = new THREE.MeshStandardMaterial( {
-				color: visual.color,
-				emissive: visual.emissive,
-				emissiveIntensity: 0.2,
-				transparent: true,
-				opacity: 0.58,
-				metalness: visual.metalness,
-				roughness: visual.roughness
-			} );
-			const elevatedEntry = elevatedMap.get( `${ gx },${ gz }` );
+			let geometry = surfaceGeoCache.get( isPad ? 'pad' : 'plane' );
+			if ( ! geometry ) {
+
+				geometry = isPad
+					? new THREE.CircleGeometry( CELL_RAW * 0.39, 24 )
+					: new THREE.PlaneGeometry( CELL_RAW * 0.78, CELL_RAW * 0.78 );
+				surfaceGeoCache.set( isPad ? 'pad' : 'plane', geometry );
+
+			}
+			let material = surfaceMatCache.get( surfaceType );
+			if ( ! material ) {
+
+				material = new THREE.MeshStandardMaterial( {
+					color: visual.color,
+					emissive: visual.emissive,
+					emissiveIntensity: 0.2,
+					transparent: true,
+					opacity: 0.58,
+					metalness: visual.metalness,
+					roughness: visual.roughness
+				} );
+				surfaceMatCache.set( surfaceType, material );
+
+			}
+			// Footprint-resolved host: the elevated block / tunnel / hub that
+			// contains this surface's center, off-grid or not.
+			const hostFootprint = resolveOverlayFootprint( gx, gz );
+			const elevatedEntry = hostFootprint && ! hostFootprint.isTunnel && ! hostFootprint.isHub ? hostFootprint.elevatedEntry : null;
+			const hostTunnelClosed = hostFootprint?.isTunnel === true && hostFootprint.closed;
+			const hostTunnelOpen = hostFootprint?.isTunnel === true && ! hostFootprint.closed;
 			const addPatch = ( overlayOffset ) => {
 
 				const patch = new THREE.Mesh( geometry, material );
 				patch.rotation.x = - Math.PI / 2;
-				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET + overlayOffset, ( gz + 0.5 ) * CELL_RAW );
+				patch.position.set( ( gx + 0.5 ) * CELL_RAW, 0.505 + VISUAL_HEIGHT_OFFSET + 0.12 + overlayOffset, ( gz + 0.5 ) * CELL_RAW );
 				// Slope tilt: surfaces and pads placed on a slope block lie flush with
 				// the ramp. The tilt comes from the cell's own elevated entry, so
 				// off-grid (fractional) placements work exactly like on-grid ones.
@@ -1483,9 +1945,9 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			};
 			// Pads on 3-way/4-way blocks sit ABOVE the block (+0.45) so they
 			// are always visible — ground and elevated, matching the editor.
-			const isWay = ( ! elevatedEntry && hubCellSet.has( `${ gx },${ gz }` ) )
+			const isWay = ( ! elevatedEntry && hostFootprint?.isHub === true )
 				|| ( elevatedEntry && ( elevatedEntry.type === 'elevated-3-way' || elevatedEntry.type === 'elevated-4-way' ) );
-			addPatch( getOverlayHeightOffset( elevatedEntry ) + ( isWay ? 0.05 : 0 ) );
+			addPatch( getOverlayHeightOffset( elevatedEntry, hostTunnelOpen ) + ( isWay ? 0.05 : 0 ) );
 			// Cross blocks: the underpass road below the bridge is a real
 			// driving surface, so a pad/surface on the cell also renders a
 			// second patch on the bottom road, at the normal ground patch
@@ -1493,6 +1955,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			// cell-wide either way (driving under the bridge still triggers
 			// it, an accepted game feature), so gameplay logic is untouched.
 			if ( elevatedEntry && elevatedEntry.type === 'elevated-cross' ) addPatch( 0 );
+			// CLOSED-top tunnels (user order): a surface on the roof also
+			// renders in the tunnel below — the pit block is a real driving
+			// surface too. Visual only; the pad effect stays cell-wide.
+			if ( hostTunnelClosed ) addPatch( - TUNNEL_DROP );
 
 		}
 
@@ -1500,10 +1966,13 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 	if ( ! customCells ) {
 
-		// Place hand-authored decorations for the default track
+		// Place hand-authored decorations for the default track. These are
+		// BAKED game content (auto placement), so the Hide Trees mod swaps
+		// the forest trees here too — unlike URL/editor trees, which are
+		// player-placed and stay untouched.
 		for ( const [ gx, gz, key, orient ] of DECO_CELLS ) {
 
-			const piece = placePiece( models, key, gx, gz, orient );
+			const piece = placePiece( models, hideTreesMod && key === 'decoration-forest' ? 'untitled' : key, gx, gz, orient );
 			if ( piece ) decoGroup.add( piece );
 
 		}
@@ -1557,7 +2026,7 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		}
 
 		// Track cells + water cells: occupied (skip ground) + tree-blocked
-		for ( const [ gx, gz ] of [ ...cells, ...waterCellsForDeco ] ) {
+		for ( const [ gx, gz ] of [ ...cells, ...waterCellsForDeco, ...tunnelOpenCellsArr ] ) {
 			blockCellForTrees( gx, gz, true );
 		}
 
@@ -1596,8 +2065,49 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 					if ( decoKey.startsWith( 'building-' ) ) blockCellForTrees( entry[ 0 ], entry[ 1 ], false );
 				}
 			}
-			// NOT included (trees can go through these):
-			//   bumps, boosts, jumps, poles, magnets, arcLinks, decorations
+			// NOT tree-blocked (trees can go through these):
+			//   bumps, boosts, jumps, poles, magnets, arcLinks, decorations.
+			// Coverage-only extras (user order 2026-10-06): see-through or
+			// flat pieces still expand the GROUND coverage bounds — the
+			// ground must extend under every placed block — but trees keep
+			// growing through them, so they are not tree-blocked.
+			const expandCoverageOnly = ( gx, gz ) => {
+
+				gx = Number( gx );
+				gz = Number( gz );
+				if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) return;
+				minX = Math.min( minX, gx );
+				maxX = Math.max( maxX, gx );
+				minZ = Math.min( minZ, gz );
+				maxZ = Math.max( maxZ, gz );
+
+			};
+			const coverageOnlyLists = [
+				extras.bumps, extras.boosts, extras.poles, extras.physicsBoxes,
+				extras.jumps, extras.magnets, extras.arcLinks, extras.poolSlopes
+			];
+			for ( const list of coverageOnlyLists ) {
+
+				if ( ! Array.isArray( list ) ) continue;
+				for ( const entry of list ) {
+
+					if ( ! Array.isArray( entry ) ) continue;
+					expandCoverageOnly( entry[ 0 ], entry[ 1 ] );
+
+				}
+
+			}
+			if ( Array.isArray( extras.decorations ) ) {
+
+				for ( const entry of extras.decorations ) {
+
+					if ( ! Array.isArray( entry ) ) continue;
+					const decoKey = String( entry[ 2 ] || '' );
+					if ( ! decoKey.startsWith( 'building-' ) ) expandCoverageOnly( entry[ 0 ], entry[ 1 ] );
+
+				}
+
+			}
 		}
 
 		// Also mark existing decoration cells as occupied
@@ -1615,6 +2125,10 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 		}
 
+		// Visual ground/deco coverage keeps its original tight ring
+		// (user order 2026-10-07: no empty grass cells extending super far —
+		// the wide margin is PHYSICS ONLY, see the ground collider in
+		// main.js / editor.html which reaches 15 blocks out on its own).
 		const pad = 3;
 		const emptyPositions = [];
 		const grassPositions = [];   // cells cleared of trees by a road/wall/etc. footprint
@@ -1673,46 +2187,72 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 			if ( positions.length === 0 || ! src ) return;
 
 			const count = positions.length / 2;
+			// Chunked instancing, 64×64 XZ buckets (twice the track batcher's
+			// size: deco kinds repeat across nearly every map cell, so doubling
+			// the bucket halves the draw-call count while per-bucket triangle
+			// counts stay trivial). One mega-InstancedMesh per deco kind spans
+			// the whole map, so its bounding sphere covers everything: frustum
+			// culling can never cull it and a huge build drew thousands of
+			// trees/grass in EVERY pass (main, pool refraction, sun depth)
+			// no matter where the camera was. Per-chunk meshes make the near
+			// field the only thing that ever renders.
+			const chunks = new Map();
+			for ( let i = 0; i < count; i ++ ) {
 
+				const key = Math.floor( positions[ i * 2 ] / 64 ) + ',' + Math.floor( positions[ i * 2 + 1 ] / 64 );
+				let list = chunks.get( key );
+				if ( ! list ) {
+
+					list = [];
+					chunks.set( key, list );
+
+				}
+				list.push( i );
+
+			}
 			src.traverse( ( child ) => {
 
 				if ( ! child.isMesh ) return;
+				for ( const list of chunks.values() ) {
 
-				const inst = new THREE.InstancedMesh( child.geometry, child.material, count );
-				inst.castShadow = true;
-				inst.receiveShadow = true;
+					const inst = new THREE.InstancedMesh( child.geometry, child.material, list.length );
+					inst.castShadow = true;
+					inst.receiveShadow = true;
 
-				for ( let i = 0; i < count; i ++ ) {
+					for ( let k = 0; k < list.length; k ++ ) {
 
-					_dummy.position.set( positions[ i * 2 ], 0.5, positions[ i * 2 + 1 ] );
-					// Per-instance Y rotation for 3D trees/bushes (decoration-forest +
-					// decoration-empty) breaks up the repetitive grid pattern. Limited to
-					// 90° intervals (0, 90, 180, 270) so nothing looks oddly tilted.
-					// Stable hash of cell coords → same angle every reload (no reshuffle).
-					// Flat grass quads (empty-deco-grass) keep rotation 0.
-					if ( randomY ) {
-						const px = positions[ i * 2 ];
-						const pz = positions[ i * 2 + 1 ];
-						const frac = Math.sin( px * 12.9898 + pz * 78.233 ) * 43758.5453 % 1;
-						const idx = Math.floor( Math.abs( frac ) * 4 ) % 4;
-						_dummy.rotation.y = idx * ( Math.PI / 2 );
-					} else {
-						_dummy.rotation.y = 0;
+						const i = list[ k ];
+						_dummy.position.set( positions[ i * 2 ], 0.5, positions[ i * 2 + 1 ] );
+						// Per-instance Y rotation for 3D trees/bushes (decoration-forest +
+						// decoration-empty) breaks up the repetitive grid pattern. Limited to
+						// 90° intervals (0, 90, 180, 270) so nothing looks oddly tilted.
+						// Flat grass quads (empty-deco-grass) keep rotation 0.
+						// Stable hash of cell coords → same angle every reload (no reshuffle).
+						if ( randomY ) {
+							const px = positions[ i * 2 ];
+							const pz = positions[ i * 2 + 1 ];
+							const frac = Math.sin( px * 12.9898 + pz * 78.233 ) * 43758.5453 % 1;
+							const idx = Math.floor( Math.abs( frac ) * 4 ) % 4;
+							_dummy.rotation.y = idx * ( Math.PI / 2 );
+						} else {
+							_dummy.rotation.y = 0;
+						}
+						_dummy.updateMatrix();
+						inst.setMatrixAt( k, _dummy.matrix );
+
 					}
-					_dummy.updateMatrix();
-					inst.setMatrixAt( i, _dummy.matrix );
+
+					decoGroup.add( inst );
 
 				}
-
-				decoGroup.add( inst );
 
 			} );
 
 		}
 
-		createInstances( models[ 'decoration-empty' ], emptyPositions, true );
+		createInstances( models[ hideTreesMod ? 'untitled' : 'decoration-empty' ], emptyPositions, true );
 		createInstances( models[ 'empty-deco-grass' ], grassPositions );
-		createInstances( models[ 'decoration-forest' ], forestPositions, true );
+		createInstances( models[ hideTreesMod ? 'untitled' : 'decoration-forest' ], forestPositions, true );
 
 	}
 
@@ -1724,13 +2264,53 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 
 	trackGroup.updateMatrixWorld( true );
 
+	// Normalize shading across every track model to the STRAIGHT ROAD
+	// block. The game's GLBs were exported from Blender over time with
+	// drifting PBR values (metalness/roughness/flat-shading differ per
+	// piece), so blocks shade inconsistently next to each other. Copy the
+	// road's shading model onto every opaque standard material in the
+	// built track — colors, textures, and emissives stay untouched, and
+	// anything see-through (water, glass) keeps its own look.
+	let roadRefMat = null;
+	const roadSrc = models[ 'track-straight' ];
+	if ( roadSrc ) roadSrc.traverse( ( c ) => { if ( ! roadRefMat && c.isMesh && c.material?.isMeshStandardMaterial ) roadRefMat = c.material; } );
+	if ( roadRefMat ) {
+
+		const shadeRef = {
+			metalness: roadRefMat.metalness,
+			roughness: roadRefMat.roughness,
+			envMapIntensity: roadRefMat.envMapIntensity ?? 1,
+			flatShading: !! roadRefMat.flatShading,
+			toneMapped: roadRefMat.toneMapped !== false
+		};
+		trackGroup.traverse( ( child ) => {
+
+			const m = child.isMesh ? child.material : null;
+			if ( ! m || ! m.isMeshStandardMaterial || m.transparent || m.opacity < 1 ) return;
+			if ( m.userData?.aiFlatShaded ) { m.flatShading = true; } // AI blocks keep per-face shading
+			else if ( m.flatShading !== shadeRef.flatShading ) {
+
+				m.flatShading = shadeRef.flatShading;
+				m.needsUpdate = true; // flat/smooth is compiled into the shader
+
+			}
+			m.metalness = shadeRef.metalness;
+			m.roughness = shadeRef.roughness;
+			m.envMapIntensity = shadeRef.envMapIntensity;
+			m.toneMapped = shadeRef.toneMapped;
+
+		} );
+
+	}
+
 	trackGroup.traverse( ( child ) => {
 
 		if ( child.isMesh ) {
 
-			child.castShadow = true;
+			child.castShadow = ! child.userData.noCastShadow;
 			// Choke shells don't sample the shadow map (self-shadow acne) —
-			// they still CAST, so their ground shadow stays.
+			// ground variants still CAST; elevated + tunnel no-shadow variants cast nothing (user order 2026-10-01).
+			// shells stay OFF the shadow map (user order 2026-09-27)
 			child.receiveShadow = ! child.userData.isChokeMesh;
 
 		}
@@ -1762,6 +2342,108 @@ export function buildTrack( scene, models, customCells, extras = null ) {
 		}
 
 	}
+
+	// FPS: static mesh batching. Track pieces, bumps, poles and elevated
+	// blocks are clones that SHARE geometry and material with their source
+	// model, so every mesh with the same (geometry, material, flags) triple
+	// renders identically from ONE InstancedMesh. A mega map goes from
+	// ~2,500 draw calls to a few dozen with zero visual change — the clone
+	// matrices (orientation, elevated offsets, barrier scale) are baked into
+	// the per-instance matrices. Water planes are excluded: the refraction
+	// pass toggles their visibility and reads their cached world spheres.
+	// Meshes with per-cell-unique geometry or materials (pool basins, surface
+	// patches, boost pads' cloned tinted materials) never reach the >=2
+	// bucket threshold and stay exactly as they were.
+	trackPieceGroup.updateMatrixWorld( true );
+	_batchInv.copy( trackPieceGroup.matrixWorld ).invert();
+	const batches = new Map();
+	const leaves = [];
+	const leafBatch = new Map();
+	trackPieceGroup.traverse( ( obj ) => {
+
+		if ( ! obj.isMesh || obj.isInstancedMesh ) return;
+		if ( obj.userData.waterWorldSphere ) return; // refraction-managed water
+		const mats = Array.isArray( obj.material ) ? obj.material : [ obj.material ];
+		if ( mats.some( ( m ) => ! m ) ) return;
+		const key = obj.geometry.uuid + '|' + mats.map( ( m ) => m.uuid ).join( ',' )
+			+ '|' + ( obj.castShadow ? 1 : 0 ) + ( obj.receiveShadow ? 1 : 0 )
+			+ '|' + ( obj.userData.isChokeMesh ? 1 : 0 );
+			_batchMat.copy( _batchInv ).multiply( obj.matrixWorld );
+		let batch = batches.get( key );
+		if ( ! batch ) {
+
+			batch = { geometry: obj.geometry, material: obj.material, castShadow: obj.castShadow, receiveShadow: obj.receiveShadow, isChokeMesh: !! obj.userData.isChokeMesh, chunks: new Map() };
+			batches.set( key, batch );
+
+		}
+		// CHUNKED instancing: one InstancedMesh per (mesh kind, 32x32 world
+		// chunk). A single mega-InstancedMesh always draws ALL its instances
+		// (no per-instance frustum culling) — on a huge map that rasterizes
+		// every piece in every pass (main + pool refraction + shadow depth)
+		// and made weak GPUs SLOWER than the original per-piece draws.
+		// Chunk-local bounding spheres restore frustum culling: only the
+		// handful of chunks actually on screen draw, while each visible chunk
+		// still renders dozens of pieces in ONE call.
+		// THREE.Matrix4.elements is COLUMN-MAJOR: translation lives at
+		// [12]=x, [13]=y, [14]=z. The old key read elements[13] for "z" —
+		// i.e. it chunked by (x, HEIGHT), and on flat ground height is
+		// constant, so every chunk spanned the ENTIRE map depth. Chunk
+		// bounding spheres then covered everything: frustum culling had
+		// nothing to cull and draw cost scaled with map size, not with
+		// what was on screen — the direct cause of the mega-map <1 FPS.
+		const cx = Math.floor( _batchMat.elements[ 12 ] / 32 );
+		const cz = Math.floor( _batchMat.elements[ 14 ] / 32 );
+		const chunkKey = cx + ',' + cz;
+		let list = batch.chunks.get( chunkKey );
+		if ( ! list ) {
+
+			list = [];
+			batch.chunks.set( chunkKey, list );
+
+		}
+		list.push( _batchMat.clone() );
+		leaves.push( obj );
+		leafBatch.set( obj, batch );
+		batch.chunkOf = batch.chunkOf || new Map();
+		batch.chunkOf.set( obj, list );
+
+	} );
+	for ( const batch of batches.values() ) {
+
+		for ( const list of batch.chunks.values() ) {
+
+			if ( list.length < 2 ) continue;
+			const inst = new THREE.InstancedMesh( batch.geometry, batch.material, list.length );
+			for ( let i = 0; i < list.length; i ++ ) inst.setMatrixAt( i, list[ i ] );
+			inst.instanceMatrix.needsUpdate = true;
+			inst.castShadow = batch.castShadow;
+			inst.receiveShadow = batch.receiveShadow;
+			if ( batch.isChokeMesh ) inst.userData.isChokeMesh = true;
+			trackPieceGroup.add( inst );
+
+		}
+
+	}
+	for ( const mesh of leaves ) {
+
+		if ( leafBatch.get( mesh ).chunkOf.get( mesh ).length >= 2 ) mesh.parent.remove( mesh );
+
+	}
+
+	// FPS: static-scene freeze. Nothing inside trackGroup ever moves after
+	// the build (moving obstacles are added to the scene root elsewhere, and
+	// water/pad/glow effects are shader-side), so stop three.js recomposing
+	// every piece's local matrix on EVERY frame — mega maps carry thousands
+	// of pieces and that recompose pass is pure per-frame CPU waste. World
+	// matrices stay valid: the group's own matrix stays auto-updated, and if
+	// anything re-anchors the group the refreshed parent transform still
+	// combines with the children's saved local matrices.
+	trackGroup.updateMatrixWorld( true );
+	trackGroup.traverse( ( child ) => {
+
+		if ( child !== trackGroup ) child.matrixAutoUpdate = false;
+
+	} );
 
 	return trackGroup;
 
@@ -1884,36 +2566,173 @@ function smoothNormalsByPosition( geometry, precision = 4, maxCreaseCos = 0.7071
 
 }
 
+// Choke shells bake TREES into the same mesh as the pinch walls, but the
+// tree triangles are cleanly separable by atlas UV: foliage samples the
+// u≈0.094/0.108 strip and trunks the u≈0.844 strip — the exact texels
+// decoration-forest uses — while every shell/road/wall texel sits between
+// u=0.219 and u=0.719. (User report 2026-09-27: the baked trees inherited
+// the shell's receiveShadow=false anti-acne tag, so they rendered fully
+// sunlit — "sand brown" trunks instead of shaded tree brown like normal
+// trees, which self-shadow under their canopies.)
+const CHOKE_TREE_U_BANDS = [ [ 0.08, 0.12 ], [ 0.83, 0.86 ] ];
+
+function isChokeTreeU( u ) {
+
+	for ( const [ lo, hi ] of CHOKE_TREE_U_BANDS ) if ( u >= lo && u <= hi ) return true;
+	return false;
+
+}
+
+function splitChokeTrees( model ) {
+
+	const meshes = [];
+	model.traverse( ( child ) => {
+
+		if ( child.isMesh && child.geometry && child.geometry.index && child.geometry.attributes.uv && ! Array.isArray( child.material ) ) meshes.push( child );
+
+	} );
+	for ( const child of meshes ) {
+
+		const idx = child.geometry.index.array;
+		const uv = child.geometry.attributes.uv;
+		const triCount = idx.length / 3;
+		const shellIdx = [];
+		const treeIdx = [];
+		for ( let t = 0; t < triCount; t ++ ) {
+
+			const a = idx[ t * 3 ], b = idx[ t * 3 + 1 ], c = idx[ t * 3 + 2 ];
+			if ( isChokeTreeU( uv.getX( a ) ) && isChokeTreeU( uv.getX( b ) ) && isChokeTreeU( uv.getX( c ) ) ) treeIdx.push( a, b, c );
+			else shellIdx.push( a, b, c );
+
+		}
+		if ( ! treeIdx.length || ! shellIdx.length ) continue; // nothing to split
+		const makeGeom = ( indices ) => {
+
+			const g = new THREE.BufferGeometry();
+			for ( const name of Object.keys( child.geometry.attributes ) ) {
+
+				g.setAttribute( name, child.geometry.attributes[ name ].clone() );
+
+			}
+			g.setIndex( indices );
+			return g;
+
+		};
+		const parts = [
+			{ mesh: new THREE.Mesh( makeGeom( shellIdx ), child.material ), tree: false },
+			{ mesh: new THREE.Mesh( makeGeom( treeIdx ), child.material ), tree: true },
+		];
+		for ( const { mesh, tree } of parts ) {
+
+			mesh.name = ( child.name || 'choke' ) + ( tree ? '-trees' : '-shell' );
+			if ( tree ) mesh.userData.isChokeTreeMesh = true;
+			mesh.position.copy( child.position );
+			mesh.quaternion.copy( child.quaternion );
+			mesh.scale.copy( child.scale );
+			mesh.visible = child.visible;
+			mesh.castShadow = child.castShadow;
+			mesh.receiveShadow = child.receiveShadow;
+			child.parent.add( mesh );
+
+		}
+		child.parent.remove( child );
+
+	}
+
+}
+
+// Thin-road / transition blocks: smooth the chunky faceted arc corners of
+// the shell meshes (same crease-limited smoothing as the choke shells), but
+// leave the baked tree meshes alone so they keep their authored hard
+// normals (same rule as normal forest trees).
+export const THIN_MODEL_KEYS = new Set( [
+	'elev-thin-straight', 'elev-thin-corner', 'elev-thin-3-way', 'elev-thin-4-way', 'elev-wide-to-thin', 'elev-wide-to-thin-corner',
+	// ground thin GLBs (trimmed forks of the elevated models) — same load-time
+	// treatment: crease-limited smoothing, DoubleSide, no shell shadows
+	'track-thin-straight', 'track-thin-corner', 'track-thin-3-way', 'track-thin-4-way', 'track-wide-thin', 'track-wide-thin-corner',
+] );
+
+export function smoothThinSourceModel( model ) {
+
+	if ( ! model || model.userData.__thinSmoothed ) return;
+	model.userData.__thinSmoothed = true;
+	model.traverse( ( child ) => {
+
+		if ( ! ( child.isMesh && child.geometry && child.geometry.attributes.position && child.geometry.attributes.uv ) ) return;
+		const uv = child.geometry.attributes.uv;
+		let isTree = false;
+		for ( let i = 0; i < uv.count; i++ ) {
+
+			const u = uv.getX( i );
+			// Baked tree texels: foliage u ~0.094-0.108, trunk u ~0.844 (same
+			// bands as splitChokeTrees uses for the choke shells).
+			if ( ( u >= 0.09 && u <= 0.11 ) || ( u >= 0.84 && u <= 0.856 ) ) { isTree = true; break; }
+
+		}
+		if ( ! isTree ) smoothNormalsByPosition( child.geometry );
+
+	} );
+
+}
+
 export function smoothChokeSourceModel( model ) {
 
 	if ( ! model || model.userData.__chokeSmoothed ) return;
 
 	model.userData.__chokeSmoothed = true;
+
+	// Split the baked trees out FIRST: the shell keeps its crease-limited arc
+	// smoothing (anti-acne), while the trees keep their authored hard normals
+	// exactly like the normal forest trees (which are never smoothed).
+	splitChokeTrees( model );
 	model.traverse( ( child ) => {
 
 		if ( ! ( child.isMesh && child.geometry && child.geometry.attributes.position ) ) return;
+		if ( child.userData.isChokeTreeMesh ) return;
 		smoothNormalsByPosition( child.geometry );
 
 	} );
 
 }
 
+// Ground-variant model resolution. Thin/transition blocks and the corner
+// checkpoint used to render GROUND cells through the ELEVATED GLBs with the
+// support geometry (-5..0) buried below the surface — harmless until
+// tunnels: placed over an open-top tunnel, the buried legs/posts showed
+// inside the pit. Ground cells now use dedicated GLBs (models/track-*.glb),
+// forks of the elevated models with every below-surface face removed — the
+// elevated variants keep their original GLBs and legs. Shared with main.js
+// + editor.html for model-required lists and render remaps.
+export const THIN_GROUND_MODEL_KEYS = {
+	'track-thin-straight': 'track-thin-straight',
+	'track-thin-corner': 'track-thin-corner',
+	'track-thin-3-way': 'track-thin-3-way',
+	'track-thin-4-way': 'track-thin-4-way',
+	'track-wide-thin': 'track-wide-thin',
+	'track-wide-thin-corner': 'track-wide-thin-corner',
+	'track-choke-cross': 'track-choke-cross',
+	'track-checkpoint-corner': 'track-checkpoint-corner-ground',
+};
+
 export function placePiece( models, key, gx, gz, orient ) {
 
-	const modelKey = key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish' : key;
+	const modelKey = key === 'track-checkpoint' || key === 'track-start' || key === 'track-start-finish' ? 'track-finish'
+		: key === 'slope-up' ? 'elev-track-slope' : THIN_GROUND_MODEL_KEYS[ key ] || key;
 	const src = models[ modelKey ];
 	if ( ! src ) return null;
 	// Smooth the choke curve's flat segment normals before cloning (the clone
 	// shares geometry, so the source must be reworked first).
 	if ( modelKey === 'track-choke-half' || modelKey === 'track-choke-both' ) smoothChokeSourceModel( src );
+	if ( THIN_MODEL_KEYS.has( modelKey ) ) smoothThinSourceModel( src );
 
 	const piece = src.clone();
-	const yOffset = ( String( key || '' ).startsWith( 'decoration-' ) || String( key || '' ).startsWith( 'building-' ) ) ? DECORATION_HEIGHT_OFFSET : VISUAL_HEIGHT_OFFSET;
+	const isDecorationPiece = String( key || '' ).startsWith( 'decoration-' ) || String( key || '' ).startsWith( 'building-' );
+	const yOffset = isDecorationPiece ? DECORATION_HEIGHT_OFFSET : VISUAL_HEIGHT_OFFSET;
 	piece.position.set( ( gx + 0.5 ) * CELL_RAW, 0.5 + yOffset, ( gz + 0.5 ) * CELL_RAW );
 
 	const deg = ORIENT_DEG[ orient ] ?? 0;
 	piece.rotation.y = THREE.MathUtils.degToRad( deg );
-	if ( modelKey === 'track-choke-half' || modelKey === 'track-choke-both' ) {
+	if ( modelKey === 'track-choke-half' || modelKey === 'track-choke-both' || key === 'track-choke-cross' || THIN_MODEL_KEYS.has( modelKey ) ) {
 
 		// The pinch walls are viewable from inside the choke opening, so render
 		// both faces (same treatment as the elevated blocks). Materials are
@@ -1925,6 +2744,9 @@ export function placePiece( models, key, gx, gz, orient ) {
 		// receiveShadow pass at the end of buildTrack respects the tag.
 		piece.traverse( ( child ) => {
 
+			// Tree meshes split out of the shell (splitChokeTrees) keep normal
+			// shadowing — only the pinch shell is tagged with the anti-acne flag.
+			if ( child.userData.isChokeTreeMesh ) return;
 			child.userData.isChokeMesh = true;
 			if ( child.material && ! child.material.__doubleSided ) {
 
@@ -1982,6 +2804,9 @@ const V3_NAME_TOKENS = {
 	'slope-down': 'r',
 	'track-choke-half': 's',
 	'track-choke-both': 't',
+	'track-checkpoint-corner': 'u',
+	'elevated-checkpoint-corner': 'v',
+	'pool-cross': 'w',
 
 };
 
@@ -2261,21 +3086,62 @@ export function computeSpawnPosition( cells ) {
 
 }
 
-export function computeTrackBounds( cells ) {
+export function computeTrackBounds( cells, extras ) {
 
-	if ( ! cells || cells.length === 0 ) return { centerX: 0, centerZ: 0, halfWidth: 30, halfDepth: 30 };
-
+	// Bounds must cover the footprint of EVERY placed block (user order
+	// 2026-10-06), not just the road cells: an obstacle, tunnel, elevated
+	// piece or decoration placed far off the road extends the ground too.
+	// Without this, only simple road blocks (straight/corner/etc.) counted
+	// and the ground stopped short of everything else — cars fell through
+	// the world at map edges next to off-road blocks.
 	let minX = Infinity, maxX = - Infinity;
 	let minZ = Infinity, maxZ = - Infinity;
 
-	for ( const [ gx, gz ] of cells ) {
+	const add = ( gx, gz ) => {
 
-		minX = Math.min( minX, gx );
-		maxX = Math.max( maxX, gx );
-		minZ = Math.min( minZ, gz );
-		maxZ = Math.max( maxZ, gz );
+		gx = Number( gx );
+		gz = Number( gz );
+		if ( ! Number.isFinite( gx ) || ! Number.isFinite( gz ) ) return;
+		// Off-grid placements straddle a grid seam: floor/ceil covers the
+		// full footprint of a fractional cell on both axes.
+		minX = Math.min( minX, Math.floor( gx ) );
+		maxX = Math.max( maxX, Math.ceil( gx ) );
+		minZ = Math.min( minZ, Math.floor( gz ) );
+		maxZ = Math.max( maxZ, Math.ceil( gz ) );
+
+	};
+
+	for ( const cell of ( cells || [] ) ) {
+
+		if ( ! Array.isArray( cell ) ) continue;
+		add( cell[ 0 ], cell[ 1 ] );
 
 	}
+
+	if ( extras ) {
+
+		// Every extras list whose entries carry grid coords at [0],[1].
+		const cellLists = [
+			extras.bumps, extras.boosts, extras.poles, extras.cubes, extras.physicsBoxes,
+			extras.walls, extras.jumps, extras.movingObstacles, extras.elevated,
+			extras.surfaces, extras.decorations, extras.magnets, extras.arcLinks,
+			extras.tunnels, extras.water, extras.poolSlopes
+		];
+		for ( const list of cellLists ) {
+
+			if ( ! Array.isArray( list ) ) continue;
+			for ( const entry of list ) {
+
+				if ( ! Array.isArray( entry ) ) continue;
+				add( entry[ 0 ], entry[ 1 ] );
+
+			}
+
+		}
+
+	}
+
+	if ( ! Number.isFinite( minX ) ) return { centerX: 0, centerZ: 0, halfWidth: 30, halfDepth: 30 };
 
 	const S = CELL_RAW * GRID_SCALE;
 	const centerX = ( minX + maxX + 1 ) / 2 * S;

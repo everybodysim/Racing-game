@@ -1,5 +1,5 @@
 const BOARD_KEY_PREFIX = 'leaderboard:';
-const MAX_ROWS_PER_TRACK = 25;
+const MAX_ROWS_PER_TRACK = 50;
 const MIN_TIME_SECONDS = 1;
 const MAX_TIME_SECONDS = 3600;
 const MAX_GHOST_SAMPLES = 2500;
